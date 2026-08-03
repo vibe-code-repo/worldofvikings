@@ -34,17 +34,25 @@ export const FIELD_CHUNK_SIZE = 1024;
 export const FIELD_CELL_SIZE = 32;
 const CELLS = FIELD_CHUNK_SIZE / FIELD_CELL_SIZE; // 32
 const MAX_KANDIDATEN = 4;
-/** Sicherheitsmarge um jede Region (Zelldiagonale + Grundpuffer). */
-const MARGE = 64 + FIELD_CELL_SIZE * 1.5;
+/**
+ * Sicherheitsmarge um jede Region: Zelldiagonale + Grundpuffer + die
+ * maximale Küstenrausch-Amplitude von RegionGeo (±110 m verschieben die
+ * effektive Randdistanz). Zu knapp bemessen "ploppt" am Feldende Land aus
+ * dem Ozean — gemessen als 6,8-m-Kante im Phase-2-Test.
+ */
+const MARGE = 256;
 
 export interface FieldSample {
   /** Gewinner nach Z-Regel; null = offener Ozean (keine Region in Reichweite). */
   regionA: RegionDef | null;
   /** Vorzeichenbehaftete Randdistanz von regionA (>0 = innen), Meter. */
   distA: number;
+  /** Z-Index (Layout-Position) von regionA — für Blend-Reihenfolgen. */
+  indexA: number;
   /** Zweitplatzierter für Grenz-Blends (null, wenn keiner in Reichweite). */
   regionB: RegionDef | null;
   distB: number;
+  indexB: number;
 }
 
 /** Vorzeichenbehaftete Distanz zum Formrand: >0 innen, <0 außen (Meter). */
@@ -153,7 +161,9 @@ export class RegionField {
     const cx = Math.floor(wx / FIELD_CHUNK_SIZE);
     const cz = Math.floor(wz / FIELD_CHUNK_SIZE);
     const zellen = this.chunks.get(chunkKey(cx, cz));
-    if (!zellen) return { regionA: null, distA: -Infinity, regionB: null, distB: -Infinity };
+    if (!zellen) {
+      return { regionA: null, distA: -Infinity, indexA: -1, regionB: null, distB: -Infinity, indexB: -1 };
+    }
     const ix = Math.min(CELLS - 1, Math.max(0, Math.floor((wx - cx * FIELD_CHUNK_SIZE) / FIELD_CELL_SIZE)));
     const iz = Math.min(CELLS - 1, Math.max(0, Math.floor((wz - cz * FIELD_CHUNK_SIZE) / FIELD_CELL_SIZE)));
     const o = (iz * CELLS + ix) * MAX_KANDIDATEN;
@@ -193,8 +203,10 @@ export class RegionField {
     return {
       regionA: aIdx >= 0 ? this.regions[aIdx]! : null,
       distA: aDist,
+      indexA: aIdx,
       regionB: bIdx >= 0 ? this.regions[bIdx]! : null,
       distB: bDist,
+      indexB: bIdx,
     };
   }
 }

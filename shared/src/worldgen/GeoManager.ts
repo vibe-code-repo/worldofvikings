@@ -193,11 +193,11 @@ export interface GeoManagerSettings {
  */
 export class GeoManager {
   // C++ member fields
-  private offset0 = 0;
-  private offset1 = 0;
-  private offset2 = 0;
-  private offset3 = 0;
-  private offset4 = 0;
+  protected offset0 = 0;
+  protected offset1 = 0;
+  protected offset2 = 0;
+  protected offset3 = 0;
+  protected offset4 = 0;
   private riverSeed = 0;
   private streamSeed = 0;
   private lakes: V2[] = [];

@@ -9,6 +9,8 @@
  */
 
 import { GeoManager, type GeoManagerSettings } from './GeoManager.js';
+import { RegionGeo } from './RegionGeo.js';
+import { sanitizeWorldLayout } from '../worldlayout/index.js';
 
 /**
  * Konsumenten-Sicht auf die Weltgenerierung.
@@ -36,8 +38,11 @@ export interface GeoConfig {
 
 export function createGeo(config: GeoConfig): IGeo {
   if (config.mode === 'layout') {
-    // Phase 2 ersetzt diesen Zweig durch RegionGeo.
-    throw new Error('world.mode "layout" ist noch nicht implementiert (Phase 2)');
+    const layout = sanitizeWorldLayout(config.layout);
+    if (!layout) {
+      throw new Error('world.mode "layout": kein gültiges WorldLayout-Dokument übergeben');
+    }
+    return new RegionGeo(config.worldSeed, config.settings, layout);
   }
   return new GeoManager(config.worldSeed, config.settings);
 }

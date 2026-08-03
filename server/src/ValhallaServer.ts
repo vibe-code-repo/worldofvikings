@@ -24,7 +24,8 @@ import {
   SAVE_INTERVAL_MS,
   ZDO_SEND_INTERVAL_MS,
   PacketType,
-  GeoManager,
+  createGeo,
+  type IGeo,
   HeightmapProvider,
   getStableHash,
 } from '@wov/shared';
@@ -131,7 +132,7 @@ export class ValhallaServer {
   readonly adminCommands: AdminCommandRegistry;
 
   // ── Worldgen (D6) — built in init(), ground truth for terrain ──
-  geo!: GeoManager;
+  geo!: IGeo;
   heightmaps!: HeightmapProvider;
   /** Phase E — vegetation zone population around players. */
   zones!: ZoneManager;
@@ -223,11 +224,15 @@ export class ValhallaServer {
     // This is the same GeoManager the C++ server and the client run —
     // identical seed ⇒ identical world.
     const t0 = Date.now();
-    this.geo = new GeoManager(getStableHash(this.config.worldSeed), {
-      worldGenVersion: this.config.worldGenVersion,
-      disableDistantRivers: this.config.worldDisableDistantRivers,
-      riverAffectsOcean: this.config.worldRiverAffectsOcean,
-      ashlandsModernNoise: this.config.worldAshlandsModernNoise,
+    this.geo = createGeo({
+      mode: 'valheim',
+      worldSeed: getStableHash(this.config.worldSeed),
+      settings: {
+        worldGenVersion: this.config.worldGenVersion,
+        disableDistantRivers: this.config.worldDisableDistantRivers,
+        riverAffectsOcean: this.config.worldRiverAffectsOcean,
+        ashlandsModernNoise: this.config.worldAshlandsModernNoise,
+      },
     });
     this.heightmaps = new HeightmapProvider(this.geo, {
       blendSmoothStep: this.config.worldBlendSmoothStep,

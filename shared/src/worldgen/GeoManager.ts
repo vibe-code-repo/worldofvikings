@@ -312,8 +312,16 @@ export class GeoManager {
     // (FastNoise init for modern Ashlands omitted — Phase B5.)
   }
 
-  /** C++ void IGeoManager::Generate() */
-  private generate(): void {
+  /**
+   * C++ void IGeoManager::Generate().
+   *
+   * `protected`, damit ein layoutgetriebener Ableger (RegionGeo) die teure
+   * Seen-/Fluss-Generierung (~40 s, hart radial) durch einen No-op ersetzen
+   * kann. Achtung Subclass-Vertrag: Der Aufruf kommt aus DIESEM Konstruktor,
+   * also bevor Feld-Initialisierer der Ableitung gelaufen sind — ein
+   * Override darf keine eigenen Felder anfassen.
+   */
+  protected generate(): void {
     this.generateLakes();
     this.generateRivers();
     this.generateStreams();

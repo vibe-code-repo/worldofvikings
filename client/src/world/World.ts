@@ -8,7 +8,8 @@
  * (no server) still needs a local seed, chosen on the connect screen.
  */
 import {
-  GeoManager,
+  createGeo,
+  type IGeo,
   HeightmapProvider,
   getStableHash,
 } from '@wov/shared';
@@ -26,18 +27,22 @@ export interface ClientWorldSettings {
 }
 
 export interface ClientWorld {
-  geo: GeoManager;
+  geo: IGeo;
   heightmaps: HeightmapProvider;
   getGroundHeight(x: number, z: number): number;
 }
 
 export function createWorld(seed: string = DEFAULT_OFFLINE_SEED, settings: ClientWorldSettings = {}): ClientWorld {
   const worldSeed = getStableHash(seed);
-  const geo = new GeoManager(worldSeed, {
-    worldGenVersion: settings.worldGenVersion ?? 2,
-    disableDistantRivers: settings.disableDistantRivers ?? false,
-    riverAffectsOcean: settings.riverAffectsOcean ?? false,
-    ashlandsModernNoise: settings.ashlandsModernNoise ?? true, // server.yml experimental-ashlands-modern-noise
+  const geo = createGeo({
+    mode: 'valheim',
+    worldSeed,
+    settings: {
+      worldGenVersion: settings.worldGenVersion ?? 2,
+      disableDistantRivers: settings.disableDistantRivers ?? false,
+      riverAffectsOcean: settings.riverAffectsOcean ?? false,
+      ashlandsModernNoise: settings.ashlandsModernNoise ?? true, // server.yml experimental-ashlands-modern-noise
+    },
   });
   const heightmaps = new HeightmapProvider(geo, {
     blendSmoothStep: settings.blendSmoothStep ?? true, // server.yml experimental-biome-blend-smoothstep (default)

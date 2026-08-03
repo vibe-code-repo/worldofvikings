@@ -14,7 +14,8 @@
  * demselben ServerConfig-Handshake wie die Spielwelt.
  */
 import {
-  GeoManager,
+  createGeo,
+  type IGeo,
   getStableHash,
   Biome,
   BiomeArea,
@@ -93,11 +94,15 @@ function bauen(req: MapBuildRequest): void {
   const start = Date.now();
   fortschritt(0.02, 'Welt wird erzeugt …');
 
-  const geo = new GeoManager(getStableHash(req.seed), {
-    worldGenVersion: req.settings.worldGenVersion ?? 2,
-    disableDistantRivers: req.settings.disableDistantRivers ?? false,
-    riverAffectsOcean: req.settings.riverAffectsOcean ?? false,
-    ashlandsModernNoise: req.settings.ashlandsModernNoise ?? true,
+  const geo = createGeo({
+    mode: 'valheim',
+    worldSeed: getStableHash(req.seed),
+    settings: {
+      worldGenVersion: req.settings.worldGenVersion ?? 2,
+      disableDistantRivers: req.settings.disableDistantRivers ?? false,
+      riverAffectsOcean: req.settings.riverAffectsOcean ?? false,
+      ashlandsModernNoise: req.settings.ashlandsModernNoise ?? true,
+    },
   });
 
   // ---- 1. Reliefgitter -----------------------------------------------------

@@ -445,7 +445,12 @@ function seiteBauen(): void {
     inp.value = spawnPrefab;
     inp.setAttribute('list', 'prefab-liste');
     inp.style.cssText = 'width:100%;background:#0d1420;color:#d8cfa8;border:1px solid #3a3325;padding:4px;margin:2px 0 6px;';
-    inp.onchange = () => { spawnPrefab = inp.value.trim() || 'Beech1'; seiteBauen(); };
+    inp.onchange = () => {
+      spawnPrefab = inp.value.trim() || 'Beech1';
+      // Der 3D-Testflug (Taste B im Spiel) platziert dasselbe Prefab.
+      localStorage.setItem('wov-editor-spawn-prefab', spawnPrefab);
+      seiteBauen();
+    };
     seite.appendChild(inp);
     if (!document.getElementById('prefab-liste')) {
       const dl = document.createElement('datalist');

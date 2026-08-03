@@ -1010,6 +1010,55 @@ async function main() {
       if (!testflug) console.warn('[Testflug] Kein Editor-Entwurf in localStorage');
     }
     buildWorld(params.get('seed') ?? DEFAULT_OFFLINE_SEED, undefined, testflug ?? undefined);
+
+    // ── Editor-Spawn im 3D-Testflug ─────────────────────────────────
+    // Platzierungen des Entwurfs sichtbar machen und per Taste B + Klick
+    // NEUE Objekte direkt im Gelände setzen — sie landen im selben
+    // localStorage-Entwurf, den editor.html bearbeitet.
+    // Cast nötig: TS sieht die Zuweisung in buildWorld() nicht und hielte
+    // `entities` hier sonst für null.
+    const ent = entities as EntityManager | null;
+    if (testflug && ent) {
+      const zeige = (p: { prefab: string; x: number; z: number; yaw?: number }, i: number): void => {
+        if (!findPrefabByName(p.prefab) || !world) return;
+        const yaw = p.yaw ?? 0;
+        ent.applyUpdate({
+          key: `edplace-${i}`,
+          prefabHash: getStableHash(p.prefab),
+          position: { x: p.x, y: world.getGroundHeight(p.x, p.z), z: p.z },
+          rotation: { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) },
+          isOwn: false,
+        } as never);
+      };
+      const entwurf = testflug as { placements?: Array<{ prefab: string; x: number; z: number; yaw?: number }> };
+      (entwurf.placements ?? []).forEach(zeige);
+      ent.flush();
+
+      let spawnModus = false;
+      window.addEventListener('keydown', (e) => {
+        if (e.code !== 'KeyB') return;
+        spawnModus = !spawnModus;
+        const prefab = localStorage.getItem('wov-editor-spawn-prefab') ?? 'Beech1';
+        hud.meldung(spawnModus ? `Editor-Spawn AN — Klick platziert ${prefab}` : 'Editor-Spawn aus');
+      });
+      window.addEventListener('mousedown', (e) => {
+        if (!spawnModus || e.button !== 0 || !player || !world) return;
+        const prefab = localStorage.getItem('wov-editor-spawn-prefab') ?? 'Beech1';
+        // 4 m vor dem Spieler in Blickrichtung, Höhe folgt dem Boden.
+        const wx = Math.round(player.position.x - Math.sin(player.yaw) * 4);
+        const wz = Math.round(player.position.z - Math.cos(player.yaw) * 4);
+        const roh = JSON.parse(localStorage.getItem('wov-editor-layout') ?? 'null') as {
+          placements?: Array<{ prefab: string; x: number; z: number; yaw?: number }>;
+        } | null;
+        if (!roh) return;
+        const eintrag = { prefab, x: wx, z: wz, yaw: Math.random() * Math.PI * 2 };
+        roh.placements = [...(roh.placements ?? []), eintrag];
+        localStorage.setItem('wov-editor-layout', JSON.stringify(roh));
+        zeige(eintrag, roh.placements.length - 1);
+        ent.flush();
+        hud.meldung(`${prefab} platziert @ (${wx}, ${wz}) — im Entwurf gespeichert`);
+      });
+    }
   }
 
   // F9 toggles the Babylon Inspector (dev only)

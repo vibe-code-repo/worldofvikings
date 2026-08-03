@@ -6,14 +6,14 @@
  * Run:  npx tsx server/test/d6-smoke.ts
  */
 
-import { createValhallaServer } from '../src/ValhallaServer.js';
+import { createWovServer } from '../src/WovServer.js';
 
 // worldFeatures: false — D6 tests worldgen wiring, not feature placement
 // (F2). This skips the ~75s full-world prepareFeatures (146 features) and
 // only books the StartTemple. No zone is generated here (no update()), so
 // the F4 terrain leveling never registers and ground(0,0) keeps the
 // D1-verified height; the leveled spawn plateau is verified in f3-leveling.
-const server = createValhallaServer({
+const server = createWovServer({
   port: 2499,
   worldSeed: 'KxSYuZquuw',
   worldFeatures: false,

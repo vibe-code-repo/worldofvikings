@@ -32,7 +32,7 @@ import {
   getTerrainLeveling,
   getStableHash,
 } from '@wov/shared';
-import { createValhallaServer } from '../src/ValhallaServer.js';
+import { createWovServer } from '../src/WovServer.js';
 import { SAVE_FORMAT_VERSION } from '../src/world/WorldManager.js';
 import type { SavedPlayer, WorldSaveData } from '../src/world/WorldManager.js';
 
@@ -53,7 +53,7 @@ function check(name: string, cond: boolean, detail = ''): void {
 }
 
 function makeServer(worldSeed: string) {
-  return createValhallaServer({
+  return createWovServer({
     port: 2498, // never bound (init() only, no start()) — kept off the live ports anyway
     worldName: 'world',
     worldSeed,

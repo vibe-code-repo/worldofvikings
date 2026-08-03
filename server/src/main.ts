@@ -14,7 +14,7 @@ import { readFileSync, existsSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parse as parseYaml } from 'yaml';
-import { createValhallaServer, type ServerConfig } from './ValhallaServer.js';
+import { createWovServer, type ServerConfig } from './WovServer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = resolve(__dirname, '../data');
@@ -37,7 +37,7 @@ function loadServerConfig(): Partial<ServerConfig> {
     const dungeons = (yaml.dungeons ?? {}) as Record<string, unknown>;
 
     return {
-      name: (server.name as string) ?? 'Valheim Browser Server',
+      name: (server.name as string) ?? 'World of Vikings Server',
       password: (server.password as string) ?? '',
       port: (server.port as number) ?? 2456,
       maxPlayers: (players.max as number) ?? 10,
@@ -79,13 +79,13 @@ function loadServerConfig(): Partial<ServerConfig> {
 // ── Main ─────────────────────────────────────────────────────────
 
 console.log('╔══════════════════════════════════════════╗');
-console.log('║   Valheim Browser Server (Valhalla TS)   ║');
-console.log('║   1:1 Port from Valhalla2.0 C++          ║');
+console.log('║   World of Vikings Server (WoV TS)       ║');
+console.log('║   Basis: 1:1-Port von Valhalla2.0 C++    ║');
 console.log('╚══════════════════════════════════════════╝');
 console.log();
 
 const config = loadServerConfig();
-const server = createValhallaServer(config);
+const server = createWovServer(config);
 
 // Graceful shutdown
 process.on('SIGINT', () => {

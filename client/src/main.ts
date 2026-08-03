@@ -84,7 +84,7 @@ import { GameAudio } from './engine/GameAudio';
 
 const INPUT_SEND_RATE_MS = 50; // 20 Hz like the old client / original
 
-// ServerConfig packet flag bits (D6) — same order server-side (ValhallaServer.ts)
+// ServerConfig packet flag bits (D6) — same order server-side (WovServer.ts)
 const FLAG_BLEND_SMOOTHSTEP = 1 << 0;
 const FLAG_BILINEAR_HEIGHT = 1 << 1;
 const FLAG_ASHLANDS_MODERN = 1 << 2;
@@ -314,7 +314,7 @@ async function main() {
    * feuert direkt nach dem Absenden der Anmeldung, der Server hat den Peer
    * zu dem Zeitpunkt noch nicht eingebucht und würde das Paket verwerfen.
    * Sein erstes TimeSync schickt er dagegen erst, wenn der Spieler steht
-   * (ValhallaServer.onPeerSpawn) — das ist der früheste sichere Moment.
+   * (WovServer.onPeerSpawn) — das ist der früheste sichere Moment.
    */
   let zeitWunsch: number | null = null;
   let weather: WeatherManager | null = null;

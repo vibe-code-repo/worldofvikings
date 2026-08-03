@@ -1,9 +1,9 @@
 /**
  * Shared constants ported from Valhalla2.0 C++ server.
- * Source: ValhallaServer.h, ZoneManager.h, Prefab.h, Types.h
+ * Source: WovServer.h, ZoneManager.h, Prefab.h, Types.h
  */
 
-// === World Time (ValhallaServer.h) ===
+// === World Time (WovServer.h) ===
 export const WORLD_TIME_LENGTH = 1800; // seconds per full day cycle
 export const TIME_MORNING = 240;
 export const TIME_DAY = 270;

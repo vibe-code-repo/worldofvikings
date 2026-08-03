@@ -15,7 +15,7 @@
  * Run: npx tsx server/test/g1-admin-fly.ts   (from the repo root)
  */
 
-import { createValhallaServer } from '../src/ValhallaServer.js';
+import { createWovServer } from '../src/WovServer.js';
 import { AdminCommandRegistry, canUseAdminCommands } from '../src/admin/AdminCommands.js';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
@@ -36,7 +36,7 @@ console.log('=== G1 admin + fly smoke test ===');
 
 // worldFeatures: false — G1 tests movement/admin logic, not worldgen
 // (skips the ~75s worldwide feature placement, like d6)
-const server = createValhallaServer({
+const server = createWovServer({
   port: 2498,
   worldSeed: 'KxSYuZquuw',
   worldFeatures: false,

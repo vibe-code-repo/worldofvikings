@@ -19,7 +19,7 @@ import { rmSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { DUNGEON_INSTANCE_BAND_MIN, getStableHash } from '@wov/shared';
-import { createValhallaServer } from '../src/ValhallaServer.js';
+import { createWovServer } from '../src/WovServer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(__dirname, 'tmp-g6');
@@ -70,7 +70,7 @@ function sendAdmin(ws: WebSocket, line: string): void {
 
 async function main(): Promise<void> {
   rmSync(TMP, { recursive: true, force: true });
-  const server = createValhallaServer({
+  const server = createWovServer({
     port: PORT,
     worldsDir: resolve(TMP, 'worlds'),
     saveIntervalMs: 3600_000,

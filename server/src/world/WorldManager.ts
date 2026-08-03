@@ -50,7 +50,7 @@ export interface WorldSaveData {
   worldTime: number;
   /** C++ ZoneManager::Save generated-zone list (x, y pairs). */
   zones: Array<[number, number]>;
-  /** Player positions by name — see ValhallaServer.saveWorld for why these
+  /** Player positions by name — see WovServer.saveWorld for why these
    *  are not saved as ZDOs (C++ reconciles character ZDOs by session; we
    *  exclude them and restore positions by name instead). */
   players: SavedPlayer[];

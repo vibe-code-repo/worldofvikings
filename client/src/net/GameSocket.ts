@@ -286,7 +286,7 @@ export class GameSocket {
    *
    * @param seconds Sekunden INNERHALB des Tages, also [0, WORLD_TIME_LENGTH).
    *   Nicht die absolute Weltzeit — der Server behält seinen Tageszähler
-   *   und verschiebt nur die Zeit darin (ValhallaServer.handleSetTimeOfDay).
+   *   und verschiebt nur die Zeit darin (WovServer.handleSetTimeOfDay).
    */
   sendSetTimeOfDay(seconds: number): void {
     const w = new BinaryWriter();

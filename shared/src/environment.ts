@@ -34,7 +34,7 @@
  *
  * ── Verified timing ──────────────────────────────────────────────────
  * The phase anchors come from constants.ts, which was ported 1:1 from the
- * C++ server (Valhalla2.0, ValhallaServer.h) and matches vanilla:
+ * C++ server (Valhalla2.0, WovServer.h) and matches vanilla:
  *
  *   WORLD_TIME_LENGTH = 1800 s   full cycle (30 min)  → EnvMan.m_dayLengthSec
  *   TIME_MORNING      =  240 s   → fraction 0.1333    sunrise

@@ -1,5 +1,5 @@
 /**
- * ZDOSync wire parsing (Phase 2) — 1:1 the format ValhallaServer.syncZDOs
+ * ZDOSync wire parsing (Phase 2) — 1:1 the format WovServer.syncZDOs
  * writes. Separated from GameSocket so the entity layer stays testable.
  */
 import { getStableHash } from '@wov/shared';

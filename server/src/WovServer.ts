@@ -1,6 +1,6 @@
 /**
- * ValhallaServer — central server orchestrator.
- * 1:1 port of ValhallaServer.h from Valhalla2.0 C++.
+ * WovServer — central server orchestrator.
+ * 1:1 port of WovServer.h from Valhalla2.0 C++.
  *
  * C++ reference:
  *   class IValhalla {
@@ -93,7 +93,7 @@ export interface ServerConfig {
 }
 
 const DEFAULT_CONFIG: ServerConfig = {
-  name: 'Valheim Browser Server',
+  name: 'World of Vikings Server',
   password: '',
   port: 2456,
   maxPlayers: 10,
@@ -118,7 +118,7 @@ const DEFAULT_CONFIG: ServerConfig = {
   worldMode: 'valheim',
   worldLayoutPath: 'data/worldlayout.json',
   // main.ts pins this to <server>/data/worlds; cwd-relative fallback so a
-  // bare createValhallaServer() (tests, tools) still has a sane default.
+  // bare createWovServer() (tests, tools) still has a sane default.
   worldsDir: resolve(process.cwd(), 'data', 'worlds'),
 };
 
@@ -131,7 +131,7 @@ const FLAG_DISABLE_DISTANT_RIVERS = 1 << 4;
 /** Kündigt an, dass direkt nach ServerConfig ein WorldLayoutData folgt. */
 const FLAG_LAYOUT_MODE = 1 << 5;
 
-export class ValhallaServer {
+export class WovServer {
   readonly config: ServerConfig;
 
   // ── Subsystems ─────────────────────────────────────────────────
@@ -227,7 +227,7 @@ export class ValhallaServer {
   // ── Lifecycle (C++ init/update/uninit, Start/Stop) ─────────────
 
   init(): void {
-    console.log('[Valhalla] Initializing...');
+    console.log('[WoV] Initializing...');
 
     // Load prefabs
     this.prefabs.registerDefaults();
@@ -263,7 +263,7 @@ export class ValhallaServer {
     });
     if (this.config.worldMode === 'layout') {
       console.log(
-        `[Valhalla] WorldLayout "${(this.worldLayoutRaw as { name?: string })?.name}" geladen (${this.config.worldLayoutPath})`
+        `[WoV] WorldLayout "${(this.worldLayoutRaw as { name?: string })?.name}" geladen (${this.config.worldLayoutPath})`
       );
     }
     this.heightmaps = new HeightmapProvider(this.geo, {
@@ -283,7 +283,7 @@ export class ValhallaServer {
         dungeonsEnabled: this.config.dungeonsEnabled,
       }
     );
-    console.log(`[Valhalla] Worldgen ready in ${Date.now() - t0}ms (seed "${this.config.worldSeed}")`);
+    console.log(`[WoV] Worldgen ready in ${Date.now() - t0}ms (seed "${this.config.worldSeed}")`);
 
     // Phase G: dungeon documents/entrances from disk, then wire the
     // ZoneManager hook — a location materializing a DG_* piece registers a
@@ -370,7 +370,7 @@ export class ValhallaServer {
         this.spawns.adoptSingle(zdo, BOSS_ENTRY);
       }
       if (this.spawns.creatureCount > 0) {
-        console.log(`[Valhalla] Creatures: adopted ${this.spawns.creatureCount} from save`);
+        console.log(`[WoV] Creatures: adopted ${this.spawns.creatureCount} from save`);
       }
     }
 
@@ -379,7 +379,7 @@ export class ValhallaServer {
     // NOTE: spawnDemoWorld was removed in Phase E (E5) — the world is now
     // populated by the real vegetation system (ZoneManager).
 
-    console.log('[Valhalla] Initialized');
+    console.log('[WoV] Initialized');
   }
 
   /** Ground height via the shared heightmap (D6 server ground truth). */
@@ -408,8 +408,8 @@ export class ValhallaServer {
       this.saveWorld();
     }, this.config.saveIntervalMs);
 
-    console.log(`[Valhalla] Server started: "${this.config.name}" on port ${this.config.port}`);
-    console.log(`[Valhalla] World: ${this.config.worldName} (seed: ${this.config.worldSeed})`);
+    console.log(`[WoV] Server started: "${this.config.name}" on port ${this.config.port}`);
+    console.log(`[WoV] World: ${this.config.worldName} (seed: ${this.config.worldSeed})`);
   }
 
   stop(): void {
@@ -421,7 +421,7 @@ export class ValhallaServer {
     this.saveWorld();
     this.net.stop();
 
-    console.log('[Valhalla] Server stopped');
+    console.log('[WoV] Server stopped');
   }
 
   // ── Main update loop (C++ update()) ────────────────────────────
@@ -451,7 +451,7 @@ export class ValhallaServer {
         const generatedNow = this.zones.update(peerPositions);
         if (generatedNow > 0) {
           console.log(
-            `[Valhalla] Vegetation: +${generatedNow} zone(s) (${this.zones.generatedZoneCount} total, ${this.zdos.totalZDOCount} ZDOs)`
+            `[WoV] Vegetation: +${generatedNow} zone(s) (${this.zones.generatedZoneCount} total, ${this.zdos.totalZDOCount} ZDOs)`
           );
         }
 
@@ -660,7 +660,7 @@ export class ValhallaServer {
     if (this.terrainOps.length > 0) this.broadcastTerrainOps(this.terrainOps, peer);
 
     console.log(
-      `[Valhalla] Player "${peer.name}" spawned at (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})${saved ? ' (restored)' : ''}`
+      `[WoV] Player "${peer.name}" spawned at (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})${saved ? ' (restored)' : ''}`
     );
   }
 
@@ -685,7 +685,7 @@ export class ValhallaServer {
     if (!peer.characterID.isNone()) {
       this.zdos.destroyZDO(peer.characterID);
     }
-    console.log(`[Valhalla] Player "${peer.name}" left`);
+    console.log(`[WoV] Player "${peer.name}" left`);
   }
 
   // ── Packet handling ────────────────────────────────────────────
@@ -819,7 +819,7 @@ export class ValhallaServer {
 
     this.worldTime += timeOfDay - this.getTimeOfDay();
 
-    console.log(`[Valhalla] "${peer.name}" set time of day to ${timeOfDay.toFixed(0)}s (day ${this.getDay()})`);
+    console.log(`[WoV] "${peer.name}" set time of day to ${timeOfDay.toFixed(0)}s (day ${this.getDay()})`);
 
     // Broadcast the new time to all peers
     for (const p of this.net.getPeers()) {
@@ -1139,7 +1139,7 @@ export class ValhallaServer {
         w.writeInt32(0);
       });
     }
-    console.log(`[Valhalla] RandomEvent: Überfall bei "${ziel.name}"`);
+    console.log(`[WoV] RandomEvent: Überfall bei "${ziel.name}"`);
   }
 
   /** Maximale HP inkl. aktivem Essens-Buff. */
@@ -1790,7 +1790,7 @@ export class ValhallaServer {
   private loadWorld(): void {
     const data = this.worldManager.load();
     if (!data) {
-      console.log('[Valhalla] No saved world found — starting fresh');
+      console.log('[WoV] No saved world found — starting fresh');
       return;
     }
 
@@ -1835,12 +1835,12 @@ export class ValhallaServer {
         }
       }
       if (angepasst > 0) {
-        console.log(`[Valhalla] Vegetation: ${angepasst} ZDO(s) auf aktuellen Boden nachgesetzt`);
+        console.log(`[WoV] Vegetation: ${angepasst} ZDO(s) auf aktuellen Boden nachgesetzt`);
       }
     }
 
     console.log(
-      `[Valhalla] World "${data.meta.worldName}" loaded (saved ${data.meta.savedAt}): ` +
+      `[WoV] World "${data.meta.worldName}" loaded (saved ${data.meta.savedAt}): ` +
         `${restoredZDOs} ZDOs, ${data.zones.length} generated zones, ` +
         `${data.players.length} players, day ${this.getDay()}`
     );
@@ -1897,7 +1897,7 @@ export class ValhallaServer {
     });
 
     console.log(
-      `[Valhalla] World saved: ${persistentZDOs.length} persistent ZDOs, ` +
+      `[WoV] World saved: ${persistentZDOs.length} persistent ZDOs, ` +
         `${zones.length} zones, ${players.size} players (${Date.now() - t0}ms)`
     );
   }
@@ -2022,16 +2022,16 @@ function wuerfleTruhe(prefabName: string): { name: string; amount: number } {
 
 // ── Singleton accessor (C++ Valhalla()) ──────────────────────────
 
-let instance: ValhallaServer | null = null;
+let instance: WovServer | null = null;
 
-export function Valhalla(): ValhallaServer {
+export function Wov(): WovServer {
   if (!instance) {
-    instance = new ValhallaServer();
+    instance = new WovServer();
   }
   return instance;
 }
 
-export function createValhallaServer(config?: Partial<ServerConfig>): ValhallaServer {
-  instance = new ValhallaServer(config);
+export function createWovServer(config?: Partial<ServerConfig>): WovServer {
+  instance = new WovServer(config);
   return instance;
 }

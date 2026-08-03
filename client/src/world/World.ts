@@ -1,6 +1,6 @@
 /**
  * Client-side world data — the SAME GeoManager/HeightmapProvider the server
- * runs (identical seed ⇒ identical world, see ValhallaServer.ts:190).
+ * runs (identical seed ⇒ identical world, see WovServer.ts:190).
  *
  * M0.1: online, the seed + worldgen flags come from the server's
  * ServerConfig handshake (PacketType 52, see main.ts) — never hardcoded,
@@ -39,7 +39,7 @@ export function createWorld(
   layout?: unknown
 ): ClientWorld {
   // Layout-Modus: detailSeed des Dokuments schlägt den Handshake-Seed —
-  // muss zur identischen Regel im Server (ValhallaServer.init) passen.
+  // muss zur identischen Regel im Server (WovServer.init) passen.
   const layoutSeed = layout ? sanitizeWorldLayout(layout)?.detailSeed : undefined;
   const worldSeed = getStableHash(layoutSeed ?? seed);
   const geo = createGeo({

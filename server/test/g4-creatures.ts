@@ -45,7 +45,7 @@ import { ZDOManager } from '../src/zdo/ZDOManager.js';
 import type { ZDO } from '../src/zdo/ZDO.js';
 import { ZoneManager } from '../src/world/ZoneManager.js';
 import { SpawnSystem, type SpawnSystemOptions } from '../src/world/SpawnSystem.js';
-import { createValhallaServer } from '../src/ValhallaServer.js';
+import { createWovServer } from '../src/WovServer.js';
 
 const SEED_STR = 'KxSYuZquuw';
 const SEED = getStableHash(SEED_STR);
@@ -324,7 +324,7 @@ console.log('== 11. persistence: spawned creatures survive a restart ==');
 rmSync(WORLDS_DIR, { recursive: true, force: true });
 {
   const makeServer = () =>
-    createValhallaServer({
+    createWovServer({
       port: 2499, // never bound (init only, no start)
       worldName: 'world',
       worldSeed: SEED_STR,
@@ -364,7 +364,7 @@ rmSync(WORLDS_DIR, { recursive: true, force: true });
 console.log('== 12. config gate: worldCreatures:false disables the system ==');
 rmSync(WORLDS_DIR_C, { recursive: true, force: true });
 {
-  const serverC = createValhallaServer({
+  const serverC = createWovServer({
     port: 2500,
     worldName: 'world',
     worldSeed: SEED_STR,

@@ -4,7 +4,7 @@
  * client, requests night time (1530s) and verifies the TimeSync broadcast.
  */
 import WebSocket from 'ws';
-import { createValhallaServer } from '../src/ValhallaServer.js';
+import { createWovServer } from '../src/WovServer.js';
 
 const PORT = 2499;
 const P = { VersionCheck: 1, PeerInfo: 3, TimeSync: 30, PasswordAuth: 2, SetTimeOfDay: 33 };
@@ -38,7 +38,7 @@ function readString(view: DataView, pos: number): [string, number] {
 }
 
 async function main(): Promise<void> {
-  const server = createValhallaServer({ port: PORT });
+  const server = createWovServer({ port: PORT });
   server.start();
 
   const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);

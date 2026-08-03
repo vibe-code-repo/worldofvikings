@@ -741,7 +741,7 @@ export class ZoneManager {
     }
 
     if (!this.worldFeatures) {
-      console.warn('[Valhalla] Location generation is disabled');
+      console.warn('[WoV] Location generation is disabled');
       this.prepareFeature(startTemple);
     } else {
       const t0 = Date.now();
@@ -750,7 +750,7 @@ export class ZoneManager {
         this.prepareFeature(feature);
       }
       console.log(
-        `[Valhalla] Location placement took ${Date.now() - t0}ms (${this.generatedFeatures.size} locations prepared)`
+        `[WoV] Location placement took ${Date.now() - t0}ms (${this.generatedFeatures.size} locations prepared)`
       );
     }
     this.featuresPrepared = true;
@@ -910,7 +910,7 @@ export class ZoneManager {
 
     if (spawnedLocations < feature.quantity) {
       console.warn(
-        `[Valhalla] Failed to place all ${feature.name}, placed ${spawnedLocations}/${feature.quantity} ` +
+        `[WoV] Failed to place all ${feature.name}, placed ${spawnedLocations}/${feature.quantity} ` +
           `(zone=${errLocations} dist=${errCenterDistances} biome=${errNoneBiomes} area=${errBiomeArea} ` +
           `alt=${errAltitude} forest=${errForestFactor} similar=${errSimilarLocation} ` +
           `delta=${errTerrainDelta} surrounding=${errSurrounding})`
@@ -1062,7 +1062,7 @@ export class ZoneManager {
     this.generateFeature(feature, seed, position, rot);
 
     console.log(
-      `[Valhalla] Placed '${feature.name}' in zone ${zone.x},${zone.y} ` +
+      `[WoV] Placed '${feature.name}' in zone ${zone.x},${zone.y} ` +
         `(${position.x.toFixed(1)}, ${position.y.toFixed(1)}, ${position.z.toFixed(1)})`
     );
 
@@ -1173,7 +1173,7 @@ export class ZoneManager {
 
     if (skippedDungeons > 0) {
       console.log(
-        `[Valhalla] '${feature.name}': ${skippedDungeons} dungeon piece(s) skipped (Phase G)`
+        `[WoV] '${feature.name}': ${skippedDungeons} dungeon piece(s) skipped (Phase G)`
       );
     }
 
@@ -1200,7 +1200,7 @@ export class ZoneManager {
         count++;
       }
     }
-    console.log(`[Valhalla] Removed ${count} unplaced '${feature.name}'`);
+    console.log(`[WoV] Removed ${count} unplaced '${feature.name}'`);
   }
 
   /** Camp generieren und als ZDOs spawnen (Gebäude schmiegen sich ans Gelände). */
@@ -1231,7 +1231,7 @@ export class ZoneManager {
       campZdos++;
     }
     console.log(
-      `[Valhalla] Camp '${dgDef.name}' @ '${featureName}': ` +
+      `[WoV] Camp '${dgDef.name}' @ '${featureName}': ` +
         `${layout.rooms.length} Gebäude, ${campZdos} ZDOs`
     );
   }
@@ -1266,7 +1266,7 @@ export class ZoneManager {
         built++;
       }
     }
-    if (built > 0) console.log(`[Valhalla] Camp-Backfill: ${built} Lager nachgezogen`);
+    if (built > 0) console.log(`[WoV] Camp-Backfill: ${built} Lager nachgezogen`);
     return built;
   }
 

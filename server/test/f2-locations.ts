@@ -60,7 +60,7 @@ function expectedTemplePieces(center: { x: number; y: number; z: number }): Arra
 }
 
 /** Mirrors the live server (server.yml): location overrides on, legacy
- *  AshLands noise (modern FastNoise is Phase B5 — ValhallaServer forces
+ *  AshLands noise (modern FastNoise is Phase B5 — WovServer forces
  *  legacy until then; placement in AshLands deviates from C++ until B5,
  *  documented in Docs/Bekannte Einschränkungen #6). */
 function buildWorld(): { zm: ZoneManager; zdos: ZDOManager } {

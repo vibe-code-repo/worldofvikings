@@ -71,7 +71,7 @@ export interface HeightmapDataPacket {
  * PlayerInputPacket — logical input state.
  *
  * NOTE: the actual wire format (custom binary, GameSocket.sendPlayerInput ↔
- * ValhallaServer.handlePlayerInput) currently serializes only:
+ * WovServer.handlePlayerInput) currently serializes only:
  *   seq(i32), moveX(f32), moveZ(f32), lookYaw(f32), lookPitch(f32),
  *   moveY(f32), running(bool), jumping(bool)
  * Client and server must be version-matched (same repo, no compat layer).

@@ -34,6 +34,7 @@
 import type { Hash, Vector3, Quaternion } from '@wov/shared';
 import {
   GeoManager,
+  RegionGeo,
   HeightmapProvider,
   XorShiftRandom,
   getStableHash,
@@ -214,6 +215,11 @@ export class SpawnSystem {
     })) return;
     if ((this.geo.getBiome(ax, az) & entry.biomes) === 0) return;
     if (this.heightmaps.getGroundHeight(ax, az) < entry.minAltitude) return;
+    // Kuratierte Region (Layout-Modus): Spawn-Liste ist exklusiv.
+    if (this.geo instanceof RegionGeo) {
+      const region = this.geo.regionAt(ax, az);
+      if (region?.spawns && !region.spawns.includes(entry.prefab)) return;
+    }
 
     // Group scatter around the anchor (each member re-checked for ground)
     const groupSize = this.rng.rangeInt(entry.groupSizeMin, entry.groupSizeMax + 1);

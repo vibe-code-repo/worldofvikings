@@ -18,8 +18,14 @@ import { Biome } from '../types.js';
 
 export const WORLD_LAYOUT_VERSION = 1;
 
-/** Größte erlaubte Ausdehnung: float32-Präzision (~4 mm bei ±50 km). */
-export const LAYOUT_MAX_EXTENT = 100_000;
+/**
+ * Größte erlaubte Ausdehnung. Bewusst 40 km statt der ursprünglich
+ * geplanten 100 km: Das Dungeon-Instanzband beginnt bei x > 50 000
+ * (shared/src/constants.ts) und bleibt so unangetastet, und die
+ * float32-Präzision liegt bei ±40 km noch bei ~4 mm. Immer noch das
+ * 16-fache der klassischen Weltfläche.
+ */
+export const LAYOUT_MAX_EXTENT = 40_000;
 
 export type BiomeName =
   | 'meadows'

@@ -58,6 +58,7 @@ import { Writer } from './io/Writer.js';
 import { AdminCommandRegistry } from './admin/AdminCommands.js';
 import { ZONE_SIZE } from '@wov/shared';
 import { resolve } from 'path';
+import { readFileSync } from 'node:fs';
 
 export interface ServerConfig {
   name: string;
@@ -84,6 +85,10 @@ export interface ServerConfig {
   worldCreatures: boolean;
   /** G1: directory holding <worldName>.db.zst saves (C++ ./worlds). */
   worldsDir: string;
+  /** Kartengenerierungs-Umbau: 'layout' = designer-definierte Welt. */
+  worldMode: 'valheim' | 'layout';
+  /** Pfad des WorldLayout-Dokuments (nur worldMode 'layout'). */
+  worldLayoutPath: string;
 }
 
 const DEFAULT_CONFIG: ServerConfig = {
@@ -109,6 +114,8 @@ const DEFAULT_CONFIG: ServerConfig = {
   worldLocationOverrides: false,
   dungeonsEnabled: true,
   worldCreatures: true,
+  worldMode: 'valheim',
+  worldLayoutPath: 'data/worldlayout.json',
   // main.ts pins this to <server>/data/worlds; cwd-relative fallback so a
   // bare createValhallaServer() (tests, tools) still has a sane default.
   worldsDir: resolve(process.cwd(), 'data', 'worlds'),
@@ -133,6 +140,8 @@ export class ValhallaServer {
 
   // ── Worldgen (D6) — built in init(), ground truth for terrain ──
   geo!: IGeo;
+  /** Roh-JSON des WorldLayouts (Layout-Modus) — geht in Phase 4 an Clients. */
+  worldLayoutRaw: unknown = null;
   heightmaps!: HeightmapProvider;
   /** Phase E — vegetation zone population around players. */
   zones!: ZoneManager;
@@ -224,9 +233,17 @@ export class ValhallaServer {
     // This is the same GeoManager the C++ server and the client run —
     // identical seed ⇒ identical world.
     const t0 = Date.now();
+    // Layout-Modus: das WorldLayout-Dokument von Platte lesen. Fehlt oder
+    // ist es unbrauchbar, wird HART abgebrochen — ein stiller Rückfall auf
+    // die Radialwelt würde eine völlig andere Welt über den Save legen.
+    if (this.config.worldMode === 'layout') {
+      const roh = readFileSync(this.config.worldLayoutPath, 'utf-8');
+      this.worldLayoutRaw = JSON.parse(roh) as unknown;
+    }
     this.geo = createGeo({
-      mode: 'valheim',
+      mode: this.config.worldMode,
       worldSeed: getStableHash(this.config.worldSeed),
+      layout: this.worldLayoutRaw ?? undefined,
       settings: {
         worldGenVersion: this.config.worldGenVersion,
         disableDistantRivers: this.config.worldDisableDistantRivers,
@@ -234,6 +251,11 @@ export class ValhallaServer {
         ashlandsModernNoise: this.config.worldAshlandsModernNoise,
       },
     });
+    if (this.config.worldMode === 'layout') {
+      console.log(
+        `[Valhalla] WorldLayout "${(this.worldLayoutRaw as { name?: string })?.name}" geladen (${this.config.worldLayoutPath})`
+      );
+    }
     this.heightmaps = new HeightmapProvider(this.geo, {
       blendSmoothStep: this.config.worldBlendSmoothStep,
       bilinearSampling: this.config.worldBilinearHeight,

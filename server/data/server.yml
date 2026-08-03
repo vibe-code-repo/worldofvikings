@@ -20,6 +20,12 @@ players:
 
 world:
   world: world
+  # Kartengenerierung: 'valheim' = radialer Seed-Port (Übergangspfad),
+  # 'layout' = designer-definierte Welt aus der layout-Datei (relativ zu data/).
+  # Achtung: Der Modus muss zum Save passen — ein bestehender valheim-Save
+  # gehört nicht unter eine layout-Welt (andere Weltform).
+  mode: valheim
+  layout: worldlayout.json
   pregenerate: false
   save-interval: 30min
   modern: true

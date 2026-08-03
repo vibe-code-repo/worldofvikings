@@ -48,6 +48,11 @@ function loadServerConfig(): Partial<ServerConfig> {
       // connect screen and pasted here); has no effect on an already
       //-running server / an existing save (see client/src/main.ts header).
       worldSeed: process.env.WORLD_SEED || (world.seed as string) || 'KxSYuZquuw',
+      // Kartengenerierungs-Umbau: 'layout' liest die designer-definierte
+      // Welt aus world.layout (Pfad relativ zu data/), 'valheim' bleibt der
+      // radiale Seed-Port (Übergangspfad).
+      worldMode: world.mode === 'layout' ? 'layout' : 'valheim',
+      worldLayoutPath: resolve(DATA_DIR, (world.layout as string) ?? 'worldlayout.json'),
       // worldgen flags (C++ ServerSettings defaults: smoothstep=true, bilinear=false,
       // ashlands-modern-noise=true)
       worldBlendSmoothStep: (world['experimental-biome-blend-smoothstep'] as boolean) ?? true,

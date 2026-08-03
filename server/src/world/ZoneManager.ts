@@ -49,6 +49,8 @@ import {
   DungeonAlgorithm,
   FOLIAGE,
   FEATURES,
+  RegionGeo,
+  layoutBounds,
   FEATURES_BY_NAME,
   PREFABS_BY_NAME,
   PrefabFlag,
@@ -246,6 +248,17 @@ export class ZoneManager {
       ) => void)
     | null = null;
 
+  /**
+   * Layout-Modus (Kartengenerierungs-Umbau, Phase 3): gesetzt, wenn die
+   * Welt aus einem WorldLayout kommt. Dann gelten Regions- statt
+   * Radial-Regeln — Zonenfenster aus der Layout-Bbox, keine
+   * Weltzentrums-Distanzen, Kuratierung je Region.
+   */
+  private readonly regionGeo: RegionGeo | null;
+  /** Zonenfenster des Layouts (inkl. Falloff-/Küstenrand), nur Layout-Modus. */
+  private readonly layoutZonen: { minX: number; minY: number; maxX: number; maxY: number } | null =
+    null;
+
   constructor(
     private readonly geo: GeoManager,
     private readonly heightmaps: HeightmapProvider,
@@ -258,6 +271,35 @@ export class ZoneManager {
     this.worldVegetation = options.worldVegetation ?? true;
     this.locationOverrides = options.locationOverrides ?? false;
     this.dungeonsEnabled = options.dungeonsEnabled ?? true;
+    this.regionGeo = geo instanceof RegionGeo ? geo : null;
+    if (this.regionGeo) {
+      const b = layoutBounds(this.regionGeo.layout);
+      const rand = 1024; // Falloff + Küstenrauschen + eine Zone Luft
+      this.layoutZonen = {
+        minX: Math.floor((b.minX - rand) / ZONE_UNITS),
+        minY: Math.floor((b.minZ - rand) / ZONE_UNITS),
+        maxX: Math.ceil((b.maxX + rand) / ZONE_UNITS),
+        maxY: Math.ceil((b.maxZ + rand) / ZONE_UNITS),
+      };
+    }
+  }
+
+  /**
+   * Ob eine Zone überhaupt generiert wird. Radialwelt: der klassische
+   * Innenradius. Layout-Welt: die Layout-Bbox — offene See außerhalb
+   * bleibt ungeneriert (keine Vegetation, keine Locations; die Karte darf
+   * unbegrenzt wachsen, ohne dass hier Kosten entstehen).
+   */
+  private zoneErlaubt(x: number, y: number): boolean {
+    if (this.layoutZonen) {
+      return (
+        x >= this.layoutZonen.minX &&
+        x <= this.layoutZonen.maxX &&
+        y >= this.layoutZonen.minY &&
+        y <= this.layoutZonen.maxY
+      );
+    }
+    return isInsideWorldRadius(x, y);
   }
 
   get generatedZoneCount(): number {
@@ -377,7 +419,8 @@ export class ZoneManager {
 
     const tryEnqueue = (x: number, y: number): void => {
       // C++ TryPollGenerateZone guard: is_inside_world_radius && !generated
-      if (!isInsideWorldRadius(x, y)) return;
+      // (im Layout-Modus: Layout-Bbox statt Weltradius, s. zoneErlaubt)
+      if (!this.zoneErlaubt(x, y)) return;
       const key = zoneKey(x, y);
       if (this.generated.has(key) || this.pending.has(key)) return;
       this.pending.add(key);
@@ -541,6 +584,14 @@ export class ZoneManager {
 
           if ((veg.biome & biome) === 0 || (veg.biomeArea & biomeArea) === 0) {
             continue;
+          }
+
+          // Kuratierte Region: Vegetations-Liste ist exklusiv (Layout-Modus).
+          if (this.regionGeo) {
+            const region = this.regionGeo.regionAt(pos.x, pos.z);
+            if (region?.vegetation && !region.vegetation.includes(veg.prefabName)) {
+              continue;
+            }
           }
 
           const waterDiff = f32(pos.y - WATER_LEVEL);
@@ -751,19 +802,33 @@ export class ZoneManager {
       pointLoop: for (let i = 0; i < 20; i++) {
         const point = this.getRandomPointInZone(state, randomZone, locationRadius);
 
-        const magnitude = mag3f(point);
-        if (
-          (feature.minDistance !== 0 && magnitude < feature.minDistance) ||
-          (feature.maxDistance !== 0 && magnitude > feature.maxDistance)
-        ) {
-          errCenterDistances++;
-          continue;
+        // Weltzentrums-Distanzen sind ein Radialwelt-Konzept — im
+        // Layout-Modus ersetzt die Kuratierung je Region die Progression.
+        if (!this.regionGeo) {
+          const magnitude = mag3f(point);
+          if (
+            (feature.minDistance !== 0 && magnitude < feature.minDistance) ||
+            (feature.maxDistance !== 0 && magnitude > feature.maxDistance)
+          ) {
+            errCenterDistances++;
+            continue;
+          }
         }
 
         const biome = this.geo.getBiome(point.x, point.z);
         if ((biome & feature.biome) === 0) {
           errNoneBiomes++;
           continue;
+        }
+
+        // Kuratierte Region: Führt sie eine Location-Liste, dürfen dort
+        // AUSSCHLIESSLICH diese Features entstehen.
+        if (this.regionGeo) {
+          const region = this.regionGeo.regionAt(point.x, point.z);
+          if (region?.locations && !region.locations.includes(feature.name)) {
+            errCenterDistances++;
+            continue;
+          }
         }
 
         point.y = this.geo.getHeight(point.x, point.z);
@@ -844,6 +909,17 @@ export class ZoneManager {
    * range overload; rejected while the zone-center magnitude ≥ 10000.
    */
   private getRandomZone(state: XorShiftRandom, range: number): ZoneID {
+    // Layout-Modus: gleichverteilt über das Layout-Zonenfenster — die Welt
+    // hat kein Zentrum mehr; Ozean-Treffer sortiert der Biom-Check des
+    // Aufrufers aus (offene See ist im Fenster bewusst enthalten, damit
+    // Küsten-Locations wie Wracks eine Chance haben).
+    if (this.layoutZonen) {
+      const z = this.layoutZonen;
+      return {
+        x: state.rangeInt(z.minX, z.maxX + 1),
+        y: state.rangeInt(z.minY, z.maxY + 1),
+      };
+    }
     const num = Math.trunc(Math.trunc(range) / ZONE_UNITS);
     let zone: ZoneID;
     do {

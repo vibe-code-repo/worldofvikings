@@ -164,6 +164,21 @@ function zeichneOverlay(): void {
       else ctx.lineTo(px, py);
     });
     ctx.stroke();
+    ctx.setLineDash([]);
+    // Jeder Punkt als kleiner Kreis; der STARTPUNKT größer — ihn
+    // anzuklicken schließt das Polygon.
+    polygonPunkte.forEach(([x, z], i) => {
+      const [px, py] = zuBild(x, z);
+      ctx.beginPath();
+      ctx.arc(px, py, i === 0 ? 8 : 3, 0, Math.PI * 2);
+      ctx.fillStyle = i === 0 ? 'rgba(232,212,138,0.35)' : '#e8d48a';
+      ctx.fill();
+      if (i === 0) {
+        ctx.strokeStyle = '#e8d48a';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    });
   }
 }
 
@@ -257,7 +272,18 @@ overlay.addEventListener('pointerdown', (e) => {
     return;
   }
   if (werkzeug === 'polygon') {
+    // Klick nahe dem STARTPUNKT schließt das Polygon (klassisches
+    // Polygon-Werkzeug) — der Doppelklick ist nur noch eine Abkürzung.
+    if (polygonPunkte.length >= 3) {
+      const [sx, sz] = polygonPunkte[0]!;
+      const [px, py] = zuBild(sx, sz);
+      if (Math.hypot(e.offsetX - px, e.offsetY - py) < 12) {
+        polygonSchliessen();
+        return;
+      }
+    }
     polygonPunkte.push([Math.round(wx), Math.round(wz)]);
+    seiteBauen(); // Punktzähler + Schließen-Knopf aktualisieren
     zeichneOverlay();
     return;
   }
@@ -289,21 +315,46 @@ overlay.addEventListener('pointermove', (e) => {
   statuszeile.textContent = `x ${wx.toFixed(0)}  z ${wz.toFixed(0)}`;
 });
 overlay.addEventListener('pointerup', () => { zieht = null; });
-overlay.addEventListener('dblclick', () => {
-  if (werkzeug === 'polygon' && polygonPunkte.length >= 3) {
-    const region: RegionDef = {
-      id: neueId('land'),
-      biome: 'meadows',
-      shape: { kind: 'polygon', points: polygonPunkte },
-      edgeFalloff: 400,
-    };
-    layout = { ...layout, regions: [...layout.regions, region] };
+overlay.addEventListener('dblclick', polygonSchliessen);
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape' && werkzeug === 'polygon') {
     polygonPunkte = [];
-    gewaehlt = region.id;
     werkzeug = 'auswahl';
-    alles();
+    seiteBauen();
+    zeichneOverlay();
   }
 });
+
+/**
+ * Offenes Polygon in eine Region verwandeln. Drei Wege führen hierher —
+ * Klick auf den Startpunkt, Seitenleisten-Knopf, Doppelklick — damit das
+ * Schließen nie am Ereignisverhalten eines Browsers scheitert (gemeldet:
+ * "wird nicht erkannt, wenn es vollständig ist").
+ */
+function polygonSchliessen(): void {
+  if (werkzeug !== 'polygon') return;
+  // Die zwei Einzelklicks eines Doppelklicks legen doppelte Punkte an —
+  // aufeinanderfolgende Beinahe-Duplikate (< 1 m) entfernen.
+  const punkte = polygonPunkte.filter(
+    (p, i, a) => i === 0 || Math.hypot(p[0] - a[i - 1]![0], p[1] - a[i - 1]![1]) > 1
+  );
+  if (punkte.length < 3) {
+    statuszeile.textContent = `Polygon braucht mindestens 3 Punkte (aktuell ${punkte.length}).`;
+    return;
+  }
+  const region: RegionDef = {
+    id: neueId('land'),
+    biome: 'meadows',
+    shape: { kind: 'polygon', points: punkte },
+    edgeFalloff: 400,
+  };
+  layout = { ...layout, regions: [...layout.regions, region] };
+  polygonPunkte = [];
+  gewaehlt = region.id;
+  werkzeug = 'auswahl';
+  alles();
+  vorschauAnstossen();
+}
 
 function imPolygon(pts: ReadonlyArray<readonly [number, number]>, x: number, z: number): boolean {
   let innen = false;
@@ -343,11 +394,24 @@ function seiteBauen(): void {
     werkzeug = werkzeug === 'kreis' ? 'auswahl' : 'kreis';
     seiteBauen();
   }));
-  seite.appendChild(knopf(werkzeug === 'polygon' ? '▱ Polygon (aktiv)' : '▱ Polygon-Kontinent zeichnen', () => {
-    werkzeug = werkzeug === 'polygon' ? 'auswahl' : 'polygon';
-    polygonPunkte = [];
-    seiteBauen();
-  }));
+  seite.appendChild(knopf(
+    werkzeug === 'polygon' ? `▱ Polygon (aktiv, ${polygonPunkte.length} Punkte)` : '▱ Polygon-Kontinent zeichnen',
+    () => {
+      werkzeug = werkzeug === 'polygon' ? 'auswahl' : 'polygon';
+      polygonPunkte = [];
+      seiteBauen();
+      zeichneOverlay();
+    }
+  ));
+  if (werkzeug === 'polygon' && polygonPunkte.length >= 3) {
+    seite.appendChild(knopf(`✓ Polygon schließen (${polygonPunkte.length} Punkte)`, polygonSchliessen));
+  }
+  if (werkzeug === 'polygon') {
+    const tip = document.createElement('div');
+    tip.style.cssText = 'font-size:11px;color:#e8d48a;margin:2px 0 6px;';
+    tip.textContent = 'Punkte klicken; schließen: Klick auf den Startpunkt, den ✓-Knopf oder Doppelklick. Esc bricht ab.';
+    seite.appendChild(tip);
+  }
 
   // Regionsliste
   const liste = document.createElement('div');

@@ -13,3 +13,4 @@ export * from './environment.js';
 export * from './weather.js';
 export * from './worldgen/index.js';
 export * from './items/index.js';
+export * from './worldlayout/index.js';

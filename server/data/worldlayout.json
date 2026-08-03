@@ -3,14 +3,27 @@
   "name": "World of Vikings",
   "detailSeed": "wov-alpha",
   "continents": [
-    { "id": "vikingr", "name": "Vikingr", "faction": "viking" },
-    { "id": "seaxland", "name": "Seaxland", "faction": "saxon" }
+    {
+      "id": "vikingr",
+      "name": "Vikingr",
+      "faction": "viking"
+    },
+    {
+      "id": "seaxland",
+      "name": "Seaxland",
+      "faction": "saxon"
+    }
   ],
   "regions": [
     {
       "id": "start-insel",
       "biome": "meadows",
-      "shape": { "kind": "circle", "x": 0, "z": 0, "radius": 900 },
+      "shape": {
+        "kind": "circle",
+        "x": 0,
+        "z": 0,
+        "radius": 900
+      },
       "edgeFalloff": 250,
       "baseLevel": 0.3,
       "heightScale": 0.6
@@ -22,12 +35,30 @@
       "shape": {
         "kind": "polygon",
         "points": [
-          [-11000, -5000],
-          [-4500, -6000],
-          [-2500, -2000],
-          [-3000, 3500],
-          [-7000, 5500],
-          [-11500, 2500]
+          [
+            -11000,
+            -5000
+          ],
+          [
+            -4500,
+            -6000
+          ],
+          [
+            -2500,
+            -2000
+          ],
+          [
+            -3000,
+            3500
+          ],
+          [
+            -7000,
+            5500
+          ],
+          [
+            -11500,
+            2500
+          ]
         ]
       },
       "edgeFalloff": 450
@@ -36,14 +67,24 @@
       "id": "vikingr-schwarzwald",
       "continentId": "vikingr",
       "biome": "blackforest",
-      "shape": { "kind": "circle", "x": -9000, "z": 2500, "radius": 2200 },
+      "shape": {
+        "kind": "circle",
+        "x": -9000,
+        "z": 2500,
+        "radius": 2200
+      },
       "edgeFalloff": 500
     },
     {
       "id": "vikingr-gebirge",
       "continentId": "vikingr",
       "biome": "mountain",
-      "shape": { "kind": "circle", "x": -7500, "z": -3000, "radius": 1600 },
+      "shape": {
+        "kind": "circle",
+        "x": -7500,
+        "z": -3000,
+        "radius": 1600
+      },
       "edgeFalloff": 600
     },
     {
@@ -53,12 +94,30 @@
       "shape": {
         "kind": "polygon",
         "points": [
-          [3000, -4500],
-          [9500, -5500],
-          [12000, -1000],
-          [10500, 4500],
-          [5000, 5000],
-          [2800, 500]
+          [
+            3000,
+            -4500
+          ],
+          [
+            9500,
+            -5500
+          ],
+          [
+            12000,
+            -1000
+          ],
+          [
+            10500,
+            4500
+          ],
+          [
+            5000,
+            5000
+          ],
+          [
+            2800,
+            500
+          ]
         ]
       },
       "edgeFalloff": 450
@@ -67,15 +126,37 @@
       "id": "seaxland-ebene",
       "continentId": "seaxland",
       "biome": "plains",
-      "shape": { "kind": "circle", "x": 9000, "z": 1500, "radius": 2400 },
+      "shape": {
+        "kind": "circle",
+        "x": 9000,
+        "z": 1500,
+        "radius": 2400
+      },
       "edgeFalloff": 500
     },
     {
       "id": "seaxland-suempfe",
       "continentId": "seaxland",
       "biome": "swamp",
-      "shape": { "kind": "circle", "x": 4800, "z": -3200, "radius": 1400 },
+      "shape": {
+        "kind": "circle",
+        "x": 4800,
+        "z": -3200,
+        "radius": 1400
+      },
       "edgeFalloff": 350
+    }
+  ],
+  "placements": [
+    {
+      "prefab": "Beech1",
+      "x": 20,
+      "z": 12
+    },
+    {
+      "prefab": "Rock_4",
+      "x": -18,
+      "z": -8
     }
   ]
 }

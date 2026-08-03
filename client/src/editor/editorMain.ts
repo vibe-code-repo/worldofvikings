@@ -19,6 +19,7 @@ import {
   sanitizeWorldLayout,
   layoutBounds,
   DEFAULT_BASE_LEVEL,
+  FOLIAGE,
   type BiomeName,
   type RegionDef,
   type WorldLayout,
@@ -38,8 +39,10 @@ const STORAGE_KEY = 'wov-editor-layout';
 // ── Zustand ──────────────────────────────────────────────────────────
 let layout: WorldLayout = ladeEntwurf();
 let gewaehlt: string | null = null;
-let werkzeug: 'auswahl' | 'kreis' | 'polygon' = 'auswahl';
+let werkzeug: 'auswahl' | 'kreis' | 'polygon' | 'platzieren' = 'auswahl';
 let polygonPunkte: [number, number][] = [];
+/** Prefab des Platzieren-Werkzeugs (frei wählbar, Vorschläge aus FOLIAGE). */
+let spawnPrefab = 'Beech1';
 /** Weltmeter je Bildschirmpixel der Zeichenfläche. */
 let massstab = 40;
 let mitteX = 0;
@@ -151,6 +154,19 @@ function zeichneOverlay(): void {
     ctx.fillStyle = BIOME_FARBE[r.biome];
     ctx.font = '12px Georgia';
     ctx.fillText(r.id, tx - 20, ty);
+  }
+  // Handplatzierte Objekte als grüne Punkte
+  for (const p of layout.placements ?? []) {
+    const [px, py] = zuBild(p.x, p.z);
+    ctx.beginPath();
+    ctx.arc(px, py, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#8fd07a';
+    ctx.fill();
+    if (massstab < 12) {
+      ctx.fillStyle = '#8fd07a';
+      ctx.font = '10px Georgia';
+      ctx.fillText(p.prefab, px + 5, py + 3);
+    }
   }
   // Offenes Polygon des Zeichenwerkzeugs
   if (polygonPunkte.length > 0) {
@@ -269,6 +285,17 @@ overlay.addEventListener('pointerdown', (e) => {
     gewaehlt = region.id;
     werkzeug = 'auswahl';
     alles();
+    return;
+  }
+  if (werkzeug === 'platzieren') {
+    const placements = [
+      ...(layout.placements ?? []),
+      { prefab: spawnPrefab, x: Math.round(wx), z: Math.round(wz), yaw: Math.random() * Math.PI * 2 },
+    ];
+    layout = { ...layout, placements };
+    speichereEntwurf();
+    seiteBauen();
+    zeichneOverlay();
     return;
   }
   if (werkzeug === 'polygon') {
@@ -405,6 +432,59 @@ function seiteBauen(): void {
   ));
   if (werkzeug === 'polygon' && polygonPunkte.length >= 3) {
     seite.appendChild(knopf(`✓ Polygon schließen (${polygonPunkte.length} Punkte)`, polygonSchliessen));
+  }
+  seite.appendChild(knopf(
+    werkzeug === 'platzieren' ? `✦ Platzieren (aktiv: ${spawnPrefab})` : '✦ Objekt platzieren (Baum, Fels …)',
+    () => {
+      werkzeug = werkzeug === 'platzieren' ? 'auswahl' : 'platzieren';
+      seiteBauen();
+    }
+  ));
+  if (werkzeug === 'platzieren') {
+    const inp = document.createElement('input');
+    inp.value = spawnPrefab;
+    inp.setAttribute('list', 'prefab-liste');
+    inp.style.cssText = 'width:100%;background:#0d1420;color:#d8cfa8;border:1px solid #3a3325;padding:4px;margin:2px 0 6px;';
+    inp.onchange = () => { spawnPrefab = inp.value.trim() || 'Beech1'; seiteBauen(); };
+    seite.appendChild(inp);
+    if (!document.getElementById('prefab-liste')) {
+      const dl = document.createElement('datalist');
+      dl.id = 'prefab-liste';
+      for (const n of [...new Set(FOLIAGE.map((f) => f.prefabName))]) {
+        const o = document.createElement('option');
+        o.value = n;
+        dl.appendChild(o);
+      }
+      document.body.appendChild(dl);
+    }
+    const tip = document.createElement('div');
+    tip.style.cssText = 'font-size:11px;color:#e8d48a;margin-bottom:6px;';
+    tip.textContent = 'Klick auf die Karte platziert das Prefab (zufällige Drehung). Höhe folgt dem Boden.';
+    seite.appendChild(tip);
+  }
+  const platzierungen = layout.placements ?? [];
+  if (platzierungen.length > 0) {
+    const kopf = document.createElement('div');
+    kopf.style.cssText = 'font-size:12px;color:#9a8f6a;margin-top:8px;';
+    kopf.textContent = `Platzierungen (${platzierungen.length})`;
+    seite.appendChild(kopf);
+    const box = document.createElement('div');
+    box.style.cssText = 'max-height:120px;overflow-y:auto;font-size:11px;';
+    platzierungen.slice(-30).forEach((p) => {
+      const zeile = document.createElement('div');
+      zeile.style.cssText = 'display:flex;justify-content:space-between;padding:1px 2px;';
+      zeile.innerHTML = `<span>${p.prefab} @(${p.x}, ${p.z})</span>`;
+      const x = document.createElement('span');
+      x.textContent = '✕';
+      x.style.cssText = 'cursor:pointer;color:#c96;';
+      x.onclick = () => {
+        layout = { ...layout, placements: platzierungen.filter((q) => q !== p) };
+        alles();
+      };
+      zeile.appendChild(x);
+      box.appendChild(zeile);
+    });
+    seite.appendChild(box);
   }
   if (werkzeug === 'polygon') {
     const tip = document.createElement('div');

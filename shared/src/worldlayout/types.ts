@@ -106,6 +106,20 @@ export interface RegionDef {
   spawns?: readonly string[];
 }
 
+/**
+ * Handplatziertes Einzelobjekt (Editor-Spawn): Baum, Fels, Gegenstand …
+ * Die Höhe wird beim Spawnen aus dem Boden abgeleitet, nie gespeichert —
+ * so überleben Platzierungen jede Höhenänderung des Layouts.
+ */
+export interface PlacementDef {
+  /** Prefab-Name (Registry); unbekannte Namen ignoriert der Server. */
+  prefab: string;
+  x: number;
+  z: number;
+  /** Drehung um die Hochachse in Radiant (Default 0). */
+  yaw?: number;
+}
+
 export interface WorldLayout {
   version: typeof WORLD_LAYOUT_VERSION;
   name: string;
@@ -114,6 +128,8 @@ export interface WorldLayout {
   continents: readonly ContinentDef[];
   /** Z-Ordnung: spätere überdecken frühere. */
   regions: readonly RegionDef[];
+  /** Handplatzierte Objekte (Editor-Spawn), zusätzlich zur Vegetation. */
+  placements?: readonly PlacementDef[];
 }
 
 /** Achsenparallele Hülle einer Form (für Bbox-Checks und den Kompiler). */

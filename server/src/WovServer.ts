@@ -379,7 +379,46 @@ export class WovServer {
     // NOTE: spawnDemoWorld was removed in Phase E (E5) — the world is now
     // populated by the real vegetation system (ZoneManager).
 
+    this.spawnLayoutPlacements();
+
     console.log('[WoV] Initialized');
+  }
+
+  /**
+   * Handplatzierte Objekte des WorldLayouts (Editor-Spawn) materialisieren.
+   *
+   * Bewusst beim BOOT statt bei der Zonengenerierung: So erscheinen neue
+   * Platzierungen auch in bereits generierten Zonen. Idempotent über eine
+   * Nähe-Prüfung (gleiches Prefab < 0,5 m) — persistente ZDOs aus dem Save
+   * werden nicht dupliziert. Entfernen einer Platzierung entfernt bereits
+   * gespawnte Objekte NICHT (dafür Welt-Reset oder Admin-Abbau).
+   */
+  private spawnLayoutPlacements(): void {
+    if (this.config.worldMode !== 'layout') return;
+    const layout = sanitizeWorldLayout(this.worldLayoutRaw);
+    if (!layout?.placements?.length) return;
+    let neu = 0;
+    let unbekannt = 0;
+    for (const p of layout.placements) {
+      const prefab = this.prefabs.getByName(p.prefab);
+      if (!prefab) {
+        unbekannt++;
+        continue;
+      }
+      const y = this.getGroundHeight(p.x, p.z);
+      const pos = { x: p.x, y, z: p.z };
+      const vorhanden = this.zdos
+        .getZDOsInRadius(pos, 1)
+        .some((z) => z.prefabHash === prefab.hash && Math.hypot(z.position.x - p.x, z.position.z - p.z) < 0.5);
+      if (vorhanden) continue;
+      const yaw = p.yaw ?? 0;
+      const zdo = this.zdos.createZDO(prefab.hash, pos);
+      zdo.rotation = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
+      neu++;
+    }
+    if (neu > 0 || unbekannt > 0) {
+      console.log(`[WoV] Layout-Platzierungen: ${neu} gespawnt, ${unbekannt} unbekannte Prefabs übersprungen`);
+    }
   }
 
   /** Ground height via the shared heightmap (D6 server ground truth). */

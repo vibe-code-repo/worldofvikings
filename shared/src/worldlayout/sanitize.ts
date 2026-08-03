@@ -148,11 +148,27 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
     }
   }
 
+  const placements: { prefab: string; x: number; z: number; yaw?: number }[] = [];
+  if (Array.isArray(d.placements)) {
+    for (const p of d.placements.slice(0, 2000)) {
+      if (typeof p !== 'object' || p === null) continue;
+      const o = p as Record<string, unknown>;
+      if (typeof o.prefab !== 'string' || o.prefab.length === 0 || o.prefab.length > 64) continue;
+      const x = koordinate(o.x);
+      const z = koordinate(o.z);
+      if (x === null || z === null) continue;
+      const eintrag: { prefab: string; x: number; z: number; yaw?: number } = { prefab: o.prefab, x, z };
+      if (o.yaw !== undefined) eintrag.yaw = klemm(o.yaw, -Math.PI * 2, Math.PI * 2, 0);
+      placements.push(eintrag);
+    }
+  }
+
   return {
     version: WORLD_LAYOUT_VERSION,
     name: d.name,
     detailSeed,
     continents,
     regions,
+    ...(placements.length > 0 ? { placements } : {}),
   };
 }

@@ -995,9 +995,21 @@ async function main() {
   });
 
   // ?offline=1 skips the connect screen for quick dev/Playwright probes.
+  // ?layout=editor lädt zusätzlich den Editor-Entwurf aus localStorage —
+  // der "Testflug" des 3D-Map-Generators: die unveröffentlichte Welt im
+  // echten Spiel-Terrain begehen (editor.html setzt den Eintrag).
   if (params.has('offline')) {
     connectScreen.style.display = 'none';
-    buildWorld(params.get('seed') ?? DEFAULT_OFFLINE_SEED);
+    let testflug: unknown = null;
+    if (params.get('layout') === 'editor') {
+      try {
+        testflug = JSON.parse(localStorage.getItem('wov-editor-layout') ?? 'null');
+      } catch {
+        testflug = null;
+      }
+      if (!testflug) console.warn('[Testflug] Kein Editor-Entwurf in localStorage');
+    }
+    buildWorld(params.get('seed') ?? DEFAULT_OFFLINE_SEED, undefined, testflug ?? undefined);
   }
 
   // F9 toggles the Babylon Inspector (dev only)

@@ -1,0 +1,14 @@
+{
+ "overrides": {
+  "ShipSetting01": {
+   "minAltitude": 3,
+   "snapToTerrain": true,
+   "surroundingCheck": {
+    "enabled": true,
+    "samplePoints": 8,
+    "minValidPoints": 6,
+    "radiusMultiplier": 1
+   }
+  }
+ }
+}

@@ -1,0 +1,10 @@
+[Unit]
+Description=Valheim Babylon — Server + Client
+# Beide Dienste gemeinsam starten/stoppen:
+#   systemctl start valheim.target
+#   systemctl stop valheim.target
+Wants=valheim-server.service valheim-client.service
+After=network-online.target
+
+[Install]
+WantedBy=multi-user.target

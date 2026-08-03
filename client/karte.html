@@ -1,0 +1,19 @@
+<!doctype html>
+<!--
+  Prüfstand für die Weltkarte: zeigt die Karte allein, ohne Spielwelt.
+  Aufruf: http://localhost:5273/karte.html?seed=KxSYuZquuw
+  Nützlich, um Kartenfarben/Relief gegen `shared/test/geo-map.ts` zu prüfen,
+  ohne erst eine Welt laden zu müssen.
+-->
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Weltkarte — Vorschau</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #05070a; overflow: hidden; }
+    </style>
+  </head>
+  <body>
+    <script type="module" src="/src/mapPreview.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,26 @@
+[Unit]
+Description=Valheim Babylon — Client (Vite-Dev-Server, Port 5273)
+Documentation=file://__PROJECT_DIR__/README.md
+PartOf=valheim.target
+After=network-online.target valheim-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__PROJECT_DIR__
+Environment=NODE_ENV=development
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Vite läuft mit host: true → auch über testserver.valheim.community erreichbar
+ExecStart=/usr/bin/npm run dev:client
+Restart=always
+RestartSec=3
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=valheim-client
+
+[Install]
+WantedBy=valheim.target

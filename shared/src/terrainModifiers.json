@@ -1,0 +1,249 @@
+{
+ "modifiers": {
+  "WoodHouse": {
+   "levelRadius": 9,
+   "levelOffset": -0.2,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "WoodHouse2": {
+   "levelRadius": 9,
+   "levelOffset": -0.2,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "WoodHouse3": {
+   "levelRadius": 9,
+   "levelOffset": -0.2,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "WoodHouse4": {
+   "levelRadius": 9,
+   "levelOffset": -0.2,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "WoodHouse5": {
+   "levelRadius": 9,
+   "levelOffset": -0.2,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "WoodHouse6": {
+   "levelRadius": 9,
+   "levelOffset": -0.2,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "WoodHouse7": {
+   "levelRadius": 9,
+   "levelOffset": -0.2,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "WoodHouse8": {
+   "levelRadius": 9,
+   "levelOffset": -0.2,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "WoodHouse9": {
+   "levelRadius": 9,
+   "levelOffset": -0.2,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "WoodHouse10": {
+   "levelRadius": 9,
+   "levelOffset": -0.2,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "WoodHouse11": {
+   "levelRadius": 9,
+   "levelOffset": -0.2,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "WoodHouse12": {
+   "levelRadius": 9,
+   "levelOffset": -0.2,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "WoodHouse13": {
+   "levelRadius": 9,
+   "levelOffset": -0.2,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "StoneHouse": {
+   "levelRadius": 7,
+   "levelOffset": -0.3,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "StoneHouse3": {
+   "levelRadius": 7,
+   "levelOffset": -0.3,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "StoneHouse4": {
+   "levelRadius": 7,
+   "levelOffset": -0.3,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  },
+  "Stonehenge": {
+   "levelRadius": 8,
+   "levelOffset": -0.3,
+   "smoothRadius": 10,
+   "smoothPower": 3,
+   "square": true
+  },
+  "Hut": {
+   "levelRadius": 5,
+   "levelOffset": -0.2,
+   "smoothRadius": 7,
+   "smoothPower": 3,
+   "square": true
+  },
+  "Hut2": {
+   "levelRadius": 5,
+   "levelOffset": -0.2,
+   "smoothRadius": 7,
+   "smoothPower": 3,
+   "square": true
+  },
+  "DraugrHouse": {
+   "levelRadius": 6,
+   "levelOffset": -0.2,
+   "smoothRadius": 8,
+   "smoothPower": 3,
+   "square": true
+  },
+  "GoblinHut": {
+   "levelRadius": 5,
+   "levelOffset": -0.2,
+   "smoothRadius": 7,
+   "smoothPower": 3,
+   "square": true
+  },
+  "Dolmen01": {
+   "levelRadius": 5,
+   "levelOffset": -0.2,
+   "smoothRadius": 7,
+   "smoothPower": 3,
+   "square": false
+  },
+  "Dolmen02": {
+   "levelRadius": 5,
+   "levelOffset": -0.2,
+   "smoothRadius": 7,
+   "smoothPower": 3,
+   "square": false
+  },
+  "Dolmen03": {
+   "levelRadius": 5,
+   "levelOffset": -0.2,
+   "smoothRadius": 7,
+   "smoothPower": 3,
+   "square": false
+  },
+  "Runestone_Meadows": {
+   "levelRadius": 4,
+   "levelOffset": -0.1,
+   "smoothRadius": 5,
+   "smoothPower": 3,
+   "square": false
+  },
+  "Runestone_Greydwarfs": {
+   "levelRadius": 4,
+   "levelOffset": -0.1,
+   "smoothRadius": 5,
+   "smoothPower": 3,
+   "square": false
+  },
+  "Runestone_BlackForest": {
+   "levelRadius": 4,
+   "levelOffset": -0.1,
+   "smoothRadius": 5,
+   "smoothPower": 3,
+   "square": false
+  },
+  "Runestone_Swamps": {
+   "levelRadius": 4,
+   "levelOffset": -0.1,
+   "smoothRadius": 5,
+   "smoothPower": 3,
+   "square": false
+  },
+  "Runestone_Mountains": {
+   "levelRadius": 4,
+   "levelOffset": -0.1,
+   "smoothRadius": 5,
+   "smoothPower": 3,
+   "square": false
+  },
+  "Runestone_Plains": {
+   "levelRadius": 4,
+   "levelOffset": -0.1,
+   "smoothRadius": 5,
+   "smoothPower": 3,
+   "square": false
+  },
+  "SunkenCrypt": {
+   "levelRadius": 8,
+   "levelOffset": -0.3,
+   "smoothRadius": 10,
+   "smoothPower": 3,
+   "square": true
+  },
+  "TrollCave": {
+   "levelRadius": 8,
+   "levelOffset": -0.3,
+   "smoothRadius": 10,
+   "smoothPower": 3,
+   "square": true
+  },
+  "Crypt": {
+   "levelRadius": 8,
+   "levelOffset": -0.3,
+   "smoothRadius": 10,
+   "smoothPower": 3,
+   "square": true
+  },
+  "StoneWatch": {
+   "levelRadius": 6,
+   "levelOffset": -0.3,
+   "smoothRadius": 8,
+   "smoothPower": 3,
+   "square": true
+  },
+  "StoneTower": {
+   "levelRadius": 7,
+   "levelOffset": -0.3,
+   "smoothRadius": 9,
+   "smoothPower": 3,
+   "square": true
+  }
+ }
+}

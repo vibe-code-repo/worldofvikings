@@ -1,0 +1,28 @@
+node_modules/
+dist/
+out/
+*.log
+.DS_Store
+.vs/
+tools/out/
+tools/assetripper/export/
+tools/assetripper/temp/
+tools/assetripper/*.exe
+tools/assetripper/*.zip
+tools/assetripper/*.dll
+tools/asset-extractor/extract.js
+tools/asset-extractor/extract.js.map
+tools/asset-extractor/extract.d.ts
+tools/asset-extractor/extract.d.ts.map
+assets/
+server/data/worlds/
+# Rohmaterial: Unity-AssetBundles (Willybach HD u. a.)
+screenshots/newtexture/
+*.bundle
+# Screenshots, Referenzbilder und Rohmodelle (1,4 GB): Arbeitsmaterial,
+# kein Quellcode. Die Vergleichsbilder, auf die sich
+# Docs/07-Grafik-Konzept.md beruft, liegen hier — Zahlen und Herkunft
+# stehen aber im Dokument, damit die Argumentation ohne die Dateien
+# nachvollziehbar bleibt.
+screenshots/
+server/data/dungeons/

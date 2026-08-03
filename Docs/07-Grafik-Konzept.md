@@ -1,0 +1,531 @@
+# 07 — Grafik-Konzept: Valheim-Atmosphäre statt Minecraft-Look
+
+> Erstellt 2026-08-01 auf die Meldung „unser Bild erinnert eher an Minecraft als an
+> Valheim". Ergänzt [03-Rendering-und-Engine.md](03-Rendering-und-Engine.md) um eine
+> Ursachenanalyse und eine Umsetzungsreihenfolge; die dortigen Detailbefunde bleiben gültig,
+> **außer** den beiden hier ausdrücklich korrigierten (Schattenempfang des Terrains,
+> Clutter-UV-Layout).
+
+## Ausgangslage
+
+Die Screenshots `screenshots/{fels,wasser,bei_nacht}.png` zeigen Original-Valheim: sehr
+dunkle, blaugrüne Nachtszenen mit dichtem, vielgestaltigem Unterholz, weichen
+Tiefenstaffelungen und Nebelschichten. Unser Client (`screenshots/2026-07-29_20-32.png`,
+`2026-07-31_20-20.png`) wirkt dagegen wie ein Voxelspiel: gleichmäßig gefärbte Flächen,
+harte Materialgrenzen, kein Schatten, keine Tiefe.
+
+Der Eindruck ist nicht diffus, sondern **messbar**, und er hat wenige, klar benennbare
+Ursachen — überwiegend **Fehler in der Farb- und Beleuchtungspipeline**, nicht fehlende
+Assets. Vorgaben aus der Abstimmung: *Optik vor Framerate (30+ fps genügen)*, *dedizierte
+Desktop-GPU*, ***streng originalgetreu*** *(kein HD-Mod-Material)*, Vegetationsvielfalt und
+Baum-LOD gehören mit in den Umfang.
+
+---
+
+## Diagnose — gemessen, nicht geschätzt
+
+### Bildstatistik unser vs. Original
+
+Gemessen mit `node tools/shot-stats.mjs` (Bodenregion: `300 700 1600 950` bzw. `0 700 700 950`):
+
+| Region | Unser Bild | Original |
+|---|---|---|
+| Boden Tag | RGB(70.6, 76.5, **12.4**), Sättigung **84,0 %**, Streuung sd 9.6 | RGB(40.4, 41.5, 34.8), Sättigung **31,0 %**, sd **14.6** |
+| Boden Nacht | RGB(20, 33, **7**) grünstichig, lum 25 | RGB(2, 8, 9) blaugrün, lum **10.5** |
+| Pixel über Helligkeit 128 (Tag, gesamtes Bild) | **0,4 %** | **38,6 %** |
+| Tonwert-Entropie (Tag, gesamtes Bild) | 6,44 bit | **7,32 bit** |
+
+Unser Boden ist hypergesättigt mit zerquetschtem Blaukanal und **halber Tonwertstreuung**;
+das Bild nutzt fast **nur die untere Hälfte des Tonwertumfangs**.
+
+---
+
+### Ursache A — StandardMaterial bekommt eine Gamma-Konvertierung zu viel (die Hauptursache)
+
+`node_modules/@babylonjs/core/Shaders/default.fragment.js:305-312` hängt am Ende jedes
+StandardMaterial-Fragments ein zusätzliches `color.rgb = toLinearSpace(color.rgb)`.
+StandardMaterial ist bei Babylon per Konvention ein **Gamma**-Material. PBRMaterial tut das
+nicht, das Terrain-NodeMaterial auch nicht.
+
+Unser Projekt füttert StandardMaterial aber durchgehend **linear**:
+`Lighting.ts:255-266` (`toLinear(sunColor/ambColor)`), `Lighting.ts:194-203`
+(`vFogColor` → `fogColorLinear`), `GrassClutter.ts:428-433` (`useSRGBBuffer: true`).
+Das Ergebnis ist, dass ein **linearer Wert als sRGB-Wert angezeigt** wird.
+
+Gegenrechnung mit unseren Daten (Kachel 0 Albedo sRGB(81,112,64), `sunColorDay` Clear,
+`lightIntensityDay` 1.7, `ambColorDay`):
+
+| | R | G | B | Sättigung |
+|---|---|---|---|---|
+| korrekt | 98 | 111 | 60 | 46 % |
+| vorhergesagt bei diesem Fehler | ~31–71 | ~41–77 | **~10–12** | **72–84 %** |
+| **tatsächlich gemessen** | **71** | **77** | **12** | **84 %** |
+
+Die Vorhersage trifft die Messung. Das Potenzieren mit 2.2 spreizt Kanalverhältnisse —
+deshalb *steigt* die Sättigung, statt nur die Helligkeit zu sinken. Betroffen sind Gras,
+Wasser und Avatar. **Das ist der billigste große Hebel im ganzen Paket.**
+
+### Ursache B — Schatten sind aus, und sie wären auch eingeschaltet kaputt
+
+`Settings.ts:119` setzt `shadowQuality: 0`. Der Grund dahinter ist ein **Babylon-Bug**:
+`LightBlock.prepareDefines` (`Materials/Node/Blocks/Dual/lightBlock.js:183-204`) hat zwei
+Zweige. Nur der Mehrlicht-Zweig setzt `defines["SHADOWS"]`; der Einzellicht-Zweig
+(`PrepareDefinesForLight`) verwirft ihn. `TerrainSplat.ts:931` setzt
+`schattenLicht.light = sonne`, landet also im Einzellicht-Zweig. Und
+`ShadersInclude/shadowsFragmentFunctions.js:4` beginnt mit `#ifdef SHADOWS` — die **ganze
+Datei** wird wegpräprozessiert.
+
+Headless nachgestellt:
+```
+LightBlock.light gesetzt   → SHADOWS: false | SHADOW0: true | SHADOWCSM0: true
+LightBlock.light NICHT ges.→ SHADOWS: true  | SHADOW0: true | SHADOWCSM0: true
+```
+
+**Korrektur an der bisherigen Projektannahme:** `Docs/03` ging davon aus, das Terrain
+empfange dank des vorhandenen `LightBlock` inzwischen Schatten. Es empfing keine — weder mit
+PCF noch ohne (`computeShadowCSM` steht in derselben `#ifdef`-Klammer). Der Kommentar in
+`Settings.ts` war also weiterhin zutreffend, nur aus einem anderen Grund als dort genannt.
+
+**Derselbe Bug steckt ein zweites Mal im VERTEX-Shader.** `shadowsVertex` berechnet die
+Kaskadenauswahl als `vPositionFromCamera{X} = view * worldPos` — mit dem fest verdrahteten
+Bezeichner `view`. `LightBlock` deklariert den ebenfalls nur im Mehrlicht-Zweig
+(`lightBlock.js:277`, hinter `if (this.view.isConnected)`). Sobald das Fragment-Define
+repariert ist, tritt deshalb sofort der nächste Fehler auf:
+
+```
+VERTEX SHADER ERROR: 'view' : undeclared identifier
+```
+
+Den `view`-Input bloß zu verbinden genügt nicht: NodeMaterial vergibt Uniform-Namen mit
+`u_`-Präfix, die Matrix heißt im generierten Shader `u_view`. Gebraucht wird zusätzlich die
+Brücke `mat4 view = u_view;` vor dem Include. Beides in `SonnenSchattenBlock.ts`.
+
+**Warum das optisch so viel ausmacht:** Die Originaldaten in `shared/src/envData.json` haben
+warmes Sonnenlicht (1.00, 0.77, 0.48) und **kaltes, blaues Ambient** (0.46, 0.57, 0.71).
+Dieser Warm/Kalt-Kontrast erzeugt im Original die Tiefe — sichtbar wird er aber nur dort, wo
+Schatten die Sonne wegnimmt. Ohne Schatten sieht man überall nur die Mischung: eine
+Einheitsfarbe. Das erklärt die halbierte Tonwertstreuung.
+
+### Ursache C — die Grastextur ist eine Eigenerfindung mit 6-facher Deckung
+
+`assets/textures/grass_meadows_gen.png` ist **selbst generiert**
+(`tools/gen-grass-texture.py`), nicht extrahiert. Gegen die echte Vanilla-Maske:
+
+| | unsere (im Einsatz) | Vanilla-Original |
+|---|---|---|
+| Auflösung | 256² | 128² |
+| Alpha-Deckung | **60,6 %** | **9,5 %** |
+| Farbe | RGB(82,123,46) **fest eingebrannt** | **weiß** — zur Laufzeit getönt |
+| Halmform | dicke, harte Rechteckbalken | dünne, einzelne Striche |
+
+Sechsfache Deckung ⇒ geschlossener Teppich statt Halme mit Durchblick; eingebrannte,
+blauarme Farbe statt Tönung über die Terrainfarbe.
+
+**Warum der Originalpfad bisher scheiterte — und warum die Begründung falsch war.**
+`Docs/03` notiert, der Original-Mechanismus sei gescheitert, weil *„`clutter_default.glb`
+auf den 256²-Atlas ausgelegt ist"* und es *„die zum Original passende Clutter-Geometrie"*
+brauche. **Das trifft nicht zu.** Der UV-Dump zeigt: `clutter_default.glb` und die
+Original-Geometrie `assetripper/export/Assets/PrefabHierarchyObject/grasscross.glb` haben ein
+**identisches UV-Layout** (drei Spalten u 0.01–0.37 / 0.37–0.66 / 0.66–0.97, v 0.03–0.99,
+je 48 Vertices). Es *ist* bereits die Originalgeometrie.
+
+Die tatsächliche Ursache ist ein **Alpha-Test-Mipmap-Problem**: Die Vanilla-Maske besteht aus
+1–2 px dünnen Halmen. Beim automatischen Mipmapping mittelt sich deren Alpha gegen den
+transparenten Hintergrund weg und fällt unter `alphaCutOff` (0.46) — die Halme lösen sich
+schon wenige Meter vor der Kamera auf („zerfallen zu Schollen"). Unity löst das mit *„Mip
+Maps Preserve Coverage"*; Babylon erzeugt Mipmaps ohne diese Korrektur, und
+**Alpha-to-Coverage bietet Babylon im WebGL-Pfad nicht an**.
+
+Die dicke Eigenbau-Textur war also eine **Kompensation des Mipmap-Problems**. Der richtige
+Fix liegt in der Mip-Kette, nicht in dickeren Halmen.
+
+### Ursache D — Nebel ist eine flache Farbschicht statt Atmosphäre
+
+Der Zwei-Farben-Nebel des EnvSetup-Modells (`fogColor` weg von der Sonne, `fogColorSun` zu
+ihr) wird **einmal pro Frame auf der CPU** gemischt (`Lighting.ts:294-305`) und als
+szenenweites Uniform gesetzt — der Tint ist über das ganze Bild konstant. Zusätzlich ist der
+Nebel rein distanzbasiert (`FOGMODE_EXP2`): es gibt keinen **Höhennebel**, also keinen Dunst
+in Senken und über Wasser, der im Original die Tiefenstaffelung trägt.
+
+### Ursache E — kein IBL, keine Ambient Occlusion, faktisch kein Antialiasing
+
+- **Kein IBL**: `scene.environmentTexture` ist nirgends gesetzt. Deshalb musste
+  `AssetManager.ts:223-230` alle PBR-Prefabs auf `metallic = 0` zwingen (sonst nachts
+  schwarz). Bäume, Fels und Bauteile bekommen keinen Himmelsanteil von oben.
+- **Kein SSAO**, obwohl das Original-Post-Profil es mit `intensity 1.0, radius 0.15` **an**
+  hat — es fehlen alle Kontaktschatten an Grasfüßen, Steinauflagen, Terrainfalten.
+- **MSAA wirkt nicht, selbst wenn man es setzt.** `pipeline.samples`
+  (`postProcessRenderPipeline.js:162-175`) fasst nur den ersten PostProcess *der Pipeline*
+  an; die Szene rendert aber in `ValheimDof.ts:219`, das sich mit
+  `camera.attachPostProcess(pp, 0)` davorhängt. Es bleibt nur FXAA.
+
+### Randbedingung — der faktische Zielpfad ist WebGL2, nicht WebGPU
+
+Alle vier MaterialPlugins des Projekts sind GLSL-only:
+`MaterialPluginBase.isCompatible()` (`materialPluginBase.js:17-24`) liefert für WGSL `false`,
+und `Material._createUniformBuffer` schaltet Standard-/PBRMaterial unter WebGPU auf WGSL.
+Unter WebGPU wirft daher `new ClutterWindPlugin(...)`, `GrassClutter.load()` fängt es ab —
+**das Gras verschwindet**. `main.ts:91-106` bevorzugt aber WebGPU. Ein-Zeilen-Antwort, falls
+WebGPU laufen soll: `Material.ForceGLSL = true`.
+
+---
+
+## Was bereits gut ist (nicht anfassen)
+
+Das EnvSetup/EnvMan-Datenmodell (39 echte Wetter in `shared/src/envData.json`), die
+Himmelskuppel mit `Horizont == scene.fogColor`, das Wasser mit der echten trochoidalen
+Wellenformel, das Terrain-Splatting samt Gamma-Fix und Normal-Maps, der DOF-Nachbau.
+
+---
+
+## Umsetzung — priorisiert nach Optikgewinn je Aufwand
+
+### Stufe 1 — Farbpipeline und Schatten (zusammen, ~5 h) — der Kern
+
+Beide verschieben die Tonwerte; die Nachmessung lohnt nur einmal.
+
+**1a — StandardMaterial-Gamma korrigieren.** Kleines `MaterialPluginBase`, das die
+überzählige Konvertierung per Regex-Ersetzung entfernt (der Plugin-Manager unterstützt
+`!`-Präfix-Keys, `materialPluginManager.js:322-352`, Callback läuft nach der
+Include-Auflösung):
+
+```ts
+getCustomCode(shaderType) {
+  if (shaderType !== 'fragment') return null;
+  return { '!color\\.rgb=toLinearSpace\\(color\\.rgb\\);': '' };
+}
+```
+
+Anhängen über `scene.onNewMaterialAddedObservable` — genau der Mechanismus, den
+`Lighting.bindeLinearenNebel()` (`Lighting.ts:194-203`) bereits benutzt. Muss **vor**
+`main.ts:500` (`blockMaterialDirtyMechanism = true`) laufen.
+Nachziehen: `emissiveColor`-Sockel `GrassClutter.ts:521` (0.0011 ist ein Gamma-Ableger, wird
+~4× zu hell → auf ~0.0003 oder streichen); Wasser und Avatar einmal nachmessen.
+
+**1b — Schatten reparieren.** Unterklasse in `TerrainSplat.ts` statt
+`new LightBlock('sonnenSchatten')` (Zeile 930), die das fehlende Define nachträgt:
+
+```ts
+class SonnenSchattenBlock extends LightBlock {
+  prepareDefines(defines, nodeMaterial, mesh) {
+    if (!mesh || !defines._areLightsDirty) return;
+    super.prepareDefines(defines, nodeMaterial, mesh);
+    // Babylon setzt SHADOWS/SHADOWFLOAT nur im Mehrlicht-Zweig — ohne sie
+    // wird shadowsFragmentFunctions komplett wegpräprozessiert.
+    const neu = defines['SHADOWS'] === undefined;
+    const caps = mesh.getScene().getEngine().getCaps();
+    defines['SHADOWS'] = !!defines['SHADOW0'];
+    defines['SHADOWFLOAT'] = !!defines['SHADOW0'] &&
+      ((caps.textureFloatRender && caps.textureFloatLinearFiltering) ||
+       (caps.textureHalfFloatRender && caps.textureHalfFloatLinearFiltering));
+    if (neu) defines.rebuild();   // sonst landen die Keys nicht in toString()
+  }
+}
+```
+Danach funktionieren PCF/PCSS/Poisson im NodeMaterial → `usePercentageCloserFiltering = true`,
+`filteringQuality = QUALITY_MEDIUM` (`Shadows.ts:200-239`), statt der heutigen harten Kanten.
+
+**1c — zwei weitere Fehler in `Shadows.ts`, die vorher weg müssen.**
+- `nimmAuf()` (Zeile 173-183) koppelt *Empfangen* an *Werfen*: `if (!cfg ||
+  !this.darfWerfen(mesh, cfg)) return;`. Eine Terrain-Zone, die beim Entstehen jenseits der
+  Kaskadendistanz liegt, bekommt nie `receiveShadows = true`, und `werferNeuBestimmen()`
+  (Zeile 163-171) setzt nur die `renderList` neu. Empfangen muss unabhängig gesetzt werden.
+- **Gras: empfangen JA, werfen NEIN.** `AUSGENOMMEN` (Zeile 76) sperrt `clutter*` für beides.
+  Gras im Waldschatten ist ein Kernstück von Valheims Optik und kostet nur eine zusätzliche
+  Abtastung pro Fragment; Werfen bleibt gesperrt (jede Kaskade rendert die volle Werferliste).
+
+**1d — Default setzen.** `Settings.ts:119` auf `shadowQuality: 2` (Original-Default,
+3 Kaskaden / 1024 px) und den Begründungskommentar (Zeile 104-118) ersetzen.
+
+#### Stufe 1 — Ergebnis (umgesetzt 2026-08-01)
+
+A/B mit `node tools/pw-grafik-messung.mjs` (offline, Seed fix, t=0.5, Bodenregion
+`300 700 1600 950`), jeweils derselbe Lauf mit und ohne die beiden Eingriffe:
+
+| | vorher | nachher |
+|---|---|---|
+| RGB | (32.7, 68.4, **1.2**) | (89.8, 132.4, **32.4**) |
+| Sättigung | **98,3 %** | **75,6 %** |
+| Luminanz | 55.9 | 116.1 |
+| Pixel über 128 | **0,0 %** | **17,7 %** |
+
+Der Blaukanal war auf **1.2** zerquetscht und steigt auf 32.4 — die doppelte
+Gamma-Kodierung ist damit belegt und behoben. Shader übersetzen fehlerfrei (auch mit PCF),
+alle 111 Terrain- und 84 Clutter-Meshes empfangen (`aus=0`).
+
+**Schattenwirkung direkt nachgewiesen**, nicht nur die Absicht: dieselbe Szene mit
+`shadows.setLevel(3)` und `setLevel(0)` gelesen und pixelweise verglichen — mittlere
+Abweichung **5,62**, größte Einzelabweichung **156** von 255.
+
+#### Nachtrag 2026-08-02 — der Boden empfängt doch (noch) nicht
+
+Im Spiel zeigte sich, was die Headless-Messung nicht auffing: Mit eingeschaltetem
+Terrain-Schattenempfang **verschwindet das Terrain vollständig** — Gras schwebt über blankem
+Himmel. Ursache ist ein dritter, von den beiden Define-Fehlern unabhängiger Konflikt:
+
+```
+GL_INVALID_OPERATION: glDrawElements:
+Two textures of different types use the same sampler location
+```
+
+**Es war kein Mengenproblem.** Die Textureinheiten wurden am fertigen GL-Programm per
+`gl.getUniform` ausgelesen:
+
+```
+Unit  0: tb_lTexture(sampler2D), shadowTexture0(sampler2DArray)   ⚠ KOLLISION
+Unit  1: tb_l1Texture …                                (Unit 5 blieb frei)
+```
+
+Von 32 Einheiten waren nur 21 belegt. `shadowTexture0` bekam schlicht **nie eine eigene
+Einheit** und blieb auf dem Default 0. Ursache ist — zum dritten Mal — derselbe
+Einzellicht-Zweig: `LightBlock._injectVertexCode` trägt den Block nur bei `!this.light` in
+`sharedData.dynamicUniformBlocks` ein, und ausschließlich über diese Liste ruft
+`NodeMaterial` (`nodeMaterial.js:1126`) `updateUniformsAndSamples()` auf — erst das meldet
+`shadowTexture{X}` als Sampler an (`materialHelper.functions.js:1142`).
+
+Damit ist auch der alte Projektvermerk *„PCF zerlegt das Terrain-Material"* endgültig
+geklärt: PCF war nie die Ursache, es machte den Konflikt nur sichtbarer (zusätzlicher
+Vergleichssampler `sampler2DArrayShadow`).
+
+#### Der vierte Fehler — und er lag bei uns
+
+Nach den drei Babylon-Korrekturen übersetzte der Shader sauber, aber der Schatten kam
+trotzdem nicht am Boden an. Die Ursache zeigte sich als **Nichtdeterminismus**: Zweimal
+derselbe Startvorgang gemessen, einmal stand `computeShadowCSM` im Fragment-Shader, einmal
+nicht.
+
+Es ist ein **Wettlauf**. Ob das Terrain-Material mit Schattencode kompiliert wird, hängt
+davon ab, ob der erste Terrain-Chunk vor oder nach dem `ShadowGenerator` entsteht. Babylon
+würde das selbst korrigieren — ein neuer Generator ruft `light._markMeshesAsLightDirty()` —
+aber `main.ts` setzt `scene.blockMaterialDirtyMechanism = true`, und `markAsDirty` steigt
+dann **sofort wieder aus** (`material.js:1151`). Das Material bleibt für immer in der
+Fassung, die es beim allerersten Chunk bekam.
+
+Behoben in `Shadows.nodeMaterialsNeuUebersetzen()`: Nach dem Anlegen des Generators werden
+gezielt die NodeMaterials neu übersetzt, wobei die Blockade für genau diese Zeilen aufgehoben
+wird. Ein erster Anlauf ohne dieses Aufheben war wirkungslos — was erst die Messung zeigte.
+
+**Verifiziert:** Der Schlagschatten des Spielers liegt sichtbar auf dem Boden, auch bei
+Grasdichte 0 — es ist also wirklich das Terrain und nicht das Clutter darüber. Im Spiel auf
+echter GPU bestätigt.
+
+⚠️ **Methodenlehre:** Die Prüfung „steht `computeShadowCSM` im Fragment-Quelltext?" über
+`material.getEffect()` ist hierfür **kein taugliches Maß**. Sie meldete `false`, während der
+Schatten im Bild klar sichtbar war — nach dem Neuübersetzen greift der Getter offenbar einen
+anderen Effekt ab. Dieselbe Falle wie bei der UV-Rotation in `Docs/03` §3.4: Die Metrik sagte
+etwas anderes als das Bild, und das Bild hatte recht.
+
+**Stand jetzt:** Schatten sind an (`shadowQuality: 2`, ohne PCF). Boden, Gras, Bäume, Felsen,
+Bauteile und Spieler empfangen; Gras und die üblichen Ausnahmen werfen nicht.
+
+⚠️ **Offener Punkt, den Stufe 1 sichtbar macht:** Das Bild ist jetzt rund doppelt so hell
+(Luminanz 56 → 116). Das ist die rechnerisch richtige Folge — vorher wurde der lineare Wert
+direkt als sRGB angezeigt. Aber `MEADOWS_TINT` (`GrassClutter.ts`), der emissive Sockel und
+die Wasserwerte wurden auf die *fehlerhafte* Kette abgestimmt; der Tint mit B=2.192
+kompensierte gerade den zerquetschten Blaukanal. Mit 75,6 % Sättigung liegt der Boden
+weiterhin weit über den 31 % des Originals. **Stufe 3 ist damit nicht optional, sondern die
+notwendige Ergänzung zu Stufe 1** — erst der Originalpfad (weiße Maske × Terrainfarbe)
+liefert wieder stimmige Werte. Bis dahin wirkt die Wiese heller und greller als vorher.
+
+### Stufe 2 — MSAA (~0,5 h) — billigster Punkt im Paket
+
+In `PostProcessing.ts` nach `apply()` das **erste Kamera-PostProcess** auf `samples = 4`
+setzen: `dof.pp.samples = 4` wenn DOF an, sonst `pipeline.samples = 4`. Bei jedem
+DOF-Umschalten neu setzen. Zusammen mit FXAA laufen lassen (MSAA greift an
+Dreieckskanten, FXAA an den Discard-Kanten).
+
+### Stufe 3 — ERLEDIGT über den HD-Pfad statt über den Originalpfad (2026-08-02)
+
+Die ursprüngliche Planung (Vanilla-Masken + Terrainfarb-Tönung, unten stehengelassen) wurde
+**nicht** umgesetzt. Grund: Im Spiel zeigte sich, dass der Nicht-HD-Pfad für die Wiese gar
+keine Vanilla-Textur benutzt, sondern die selbst generierte `grass_meadows_gen.png`. Gemessen:
+
+| | Deckung | Sättigung |
+|---|---|---|
+| `grass_meadows_gen` (bisheriger Standard) | 61 % | **62 %** |
+| `grasscross_meadows` (HD-Pack) | 32 % | **30 %** |
+| Valheim-Original (Screenshot, Boden) | — | **31 %** |
+
+Die HD-Vorlage trifft den Originalwert, die Eigenkreation verfehlt ihn um das Doppelte.
+Solange für den Originalpfad nur diese Eigenkreation existiert, ist **HD die
+originalgetreuere Wahl** — obwohl es Mod-Material ist. `hdClutter` ist deshalb jetzt
+Voreinstellung.
+
+**Dabei ein echter Fehler im HD-Pfad gefunden und behoben.** Das HD-Gras erschien
+großflächig ausgebleicht-weiß (vom Nutzer als „stellenweise weiß/hell" gemeldet). Ursache
+war `resize_cutout()` in `tools/make-hd-clutter.py`: Zwischen Premultiply und Division wurde
+das Bild als **uint8** zwischengespeichert. Bei dünnen Halmen ist `rgb × alpha` winzig
+(bei α = 0.02 landet ein Grün von 0.4 als ≈ 2 im Byte); die anschließende Division durch
+dasselbe kleine Alpha multipliziert den Quantisierungsfehler wieder hoch.
+
+| | halbtransparente Ränder | sichtbare Halme |
+|---|---|---|
+| Quelle 2048² | RGB(73, 104, 72) | RGB(70, 98, 68) |
+| ausgeliefert 512², vorher | RGB(**109, 144, 107**) | RGB(72, 101, 70) |
+| ausgeliefert 512², **behoben** | RGB(**74, 105, 73**) | RGB(70, 98, 68) |
+
+23 % aller Pixel sind halbtransparent, und der Alpha-Cutout zeichnet sie als volle Pixel —
+daher der ausgebleichte Teppich. Behoben durch Verkleinern in 32-bit-Float ohne
+uint8-Zwischenschritt. Zweitens setzte der Code vollständig transparente Pixel auf **weiß**
+(„Farbe ist dort beliebig"); beliebig ist sie aber nur, solange niemand sie mittelt — genau
+das tut die GPU beim Mipmapping. Sie bekommen jetzt die mittlere Halmfarbe.
+
+*(Ursprüngliche Planung, weiterhin gültig für den Tag, an dem die echten Vanilla-Masken
+laufen sollen:)*
+
+### Stufe 3 (Originalpfad) — zurückgestellt
+
+1. **Coverage-erhaltende Mipmaps** als neues Werkzeug (`tools/gen-coverage-mips.mjs`,
+   `sharp` ist bereits devDependency): Mip-Kette selbst erzeugen und den Alpha je Level so
+   nachskalieren, dass die Deckung nach `alphaCutOff` konstant bleibt. Einbinden über
+   `RawTexture` mit manuell gefüllten Levels. **Das ist die Voraussetzung dafür, dass die
+   Vanilla-Masken überhaupt tragen** — ohne sie wiederholt sich der „Schollen"-Effekt.
+2. `grass_meadows_gen` / `grass_heath_gen` / `grass_toon1_yellow_gen` in
+   `GrassClutter.ts:192-203` durch die Vanilla-Masken `grass_meadows.png`,
+   `grass_meadows_short.png` usw. ersetzen.
+3. `terrainTint: true` setzen und `grass_terrain_color.png` (liegt geladen, aber ungenutzt
+   herum) anwenden; `MEADOWS_TINT` (Zeile 184) entfällt — das ist der Originalmechanismus
+   (weiße Maske × Terrainfarbe).
+4. **Slotweise umstellen und einzeln im Bild prüfen**, nicht alle zwölf auf einmal.
+
+### Stufe 4 — Nebel pro Pixel + Höhennebel (~6–8 h)
+
+Beide zusammen, weil sie denselben Injektionspunkt und dieselben Uniforms brauchen. Ein
+gemeinsames `MaterialPluginBase` für Standard **und** PBR, über Regex-Ersetzung des
+aufgelösten Nebelrumpfs (deckt beide Varianten mit einer Rückreferenz ab):
+
+```
+'!(\\w+)\\.rgb=mix\\(vFogColor,\\s*\\1\\.rgb,\\s*fog\\);'
+   → '$1.rgb=mix(vhFogColor(), $1.rgb, vhFogFactor());'
+```
+
+Höhennebel im selben Block, analytisch integriert (`vPositionW.y`, `vEyePosition` stehen in
+beiden Shadern bereits zur Verfügung) — so steht der Dunst in Senken und über Wasser, nicht
+auf Bergkuppen.
+
+Die drei übrigen Pfade: **Terrain** braucht kein Plugin (NodeMaterial feuert die
+Plugin-Events ohnehin nicht) — dort zweiten InputBlock `fogColorSun` + `LerpBlock` in die
+bestehende handgebaute Nebelkette `TerrainSplat.ts:1010-1029`, Höhennebel als weiterer
+`CustomBlock` nach dem Muster von `terrainGlanz` (ab Zeile 963). **Wasser** injiziert schon
+bei `CUSTOM_FRAGMENT_BEFORE_FOG` (`WaterPlugin.ts:713`) — nur die `priority` sauber vergeben.
+**Himmelskuppel** bleibt nebelfrei (sie *ist* der Horizont), nur die Exponenten abgleichen.
+
+Danach kann `Lighting.directionalFogColor()` (Zeile 294-305) ersatzlos entfallen.
+
+### Stufe 5 — IBL aus der vorhandenen Sky-Probe (~4 h)
+
+Die Probe existiert bereits (`ValheimSky.ts:314-317`, 128², Refresh alle 15 Frames, für das
+Wasser) — die Renderkosten laufen also schon heute. Zwei Änderungen an der Konstruktion:
+`useFloat: true` (erhält Werte > 1, ~0,8 MB) und `linearSpace: true` (sonst linearisiert PBR
+die bereits lineare Himmelsfarbe ein zweites Mal — derselbe Fehlertyp wie Ursache A).
+
+Für den **diffusen** Anteil braucht PBR `sphericalPolynomial`. Der Getter würde die Textur
+zurücklesen (teuer), **der Setter existiert aber ebenfalls** — also die Kugelharmonischen
+analytisch aus dem EnvSetup rechnen (~128 fibonacci-verteilte Richtungen, ~0,5 ms alle paar
+Sekunden) und setzen. `SKY_GRADIENT_GLSL` ist in `ValheimSky.ts` bereits als eigenständige
+Funktion gekapselt; die CPU-Portierung sind ein Dutzend Zeilen und garantiert, dass IBL,
+Kuppel, Wasser und Nebel dieselbe Quelle haben.
+
+Danach `HemisphericLight.intensity` (`Lighting.ts:266`, fest 1) herunternehmen, sonst zählt
+das Grundlicht doppelt. Nebenwirkung, die man will: `AssetManager.setzeMetallgrad()` kann
+`METALLISCH` wieder echt metallisch machen (Erz, Waffen, Amboss).
+
+### Stufe 6 — Normal-Maps auf die Prefab-Materialien (~3 h)
+
+**`roughness = 1` ist kein Fehler** — 725 von 1454 Originalmaterialien haben
+`_Glossiness = 0` (eigene Auswertung in `AssetManager.ts:216-221`). Die Flachheit kommt
+davon, dass **keine Normal-Map gebunden ist**.
+
+Zuordnung geht ohne PathID-Abgleich **über den Materialnamen**: die GLB-Materialnamen *sind*
+die Unity-Namen. 161 direkte `<name>_n.png`-Treffer in `assets/textures/` — und die
+bildfüllenden sind alle dabei (`beech_leaf`, `beech_bark`, `oak_bark`, `oak_leaf`,
+`birch_leaf`, `birch_bark`, `Bush01`). Für den Rest eine handgepflegte Alias-Tabelle von
+~20 Einträgen (`Pine_tree` → `Pine_tree_texture_n.png`, `Rocks_*_roughness` →
+`Rocks_3_4_normal.png` …). Die GLBs führen `TANGENT`, Babylon braucht keine
+Tangentenerzeugung. Ort: `AssetManager.fixupMaterial()` (Zeile 232-270).
+Fallstricke: `_n.png` teils DXT5nm-gepackt (vorab an einer Datei prüfen); `useSRGBBuffer`
+auf Normal-Maps **nie**.
+
+### Stufe 7 — SSAO2 (~2 h)
+
+Vier konkrete Fallstricke, alle lösbar:
+1. `forceGeometryBuffer = true` ist Pflicht — der Default-Pfad ruft
+   `scene.enablePrePassRenderer()`, die bei den granularen Imports fehlt (in
+   `PostProcessing.ts:288-295` für MotionBlur schon dokumentiert). Kein zweiter Szenendurchlauf.
+2. `textureType = TEXTURETYPE_HALF_FLOAT` (6. ctor-Parameter, default 8 Bit) — sonst clampt
+   `SSAOOriginalSceneColor` das HDR-Bild vor dem Bloom auf LDR.
+3. Die SSAO2-Pipeline **vor** `new DefaultRenderingPipeline(...)` (`PostProcessing.ts:132`)
+   erzeugen, sonst läuft AO nach dem Tonemapping.
+4. `syncGeometryBuffer()` (Zeile 192-195) erweitern, sonst reißt es SSAO mit, sobald DOF und
+   MotionBlur aus sind.
+
+Parameter nach dem Original-Profil: `radius 0.15`, `totalStrength 1.0`, `samples 10`,
+`ratio 0.5`.
+
+### Stufe 8 — Vegetationsvielfalt: erst messen, dann ändern (~1 h Diagnose)
+
+**Die Datenlage ist bereits vollständig**: `shared/src/vegetationData.json` enthält 120
+Foliage-Einträge 1:1 aus `vegetation.pkg` (`Bush01`, `shrub_2`, `stubbe`, `FirTree_oldLog`,
+`Pickable_*`, `Rock_3/4` …), alle zugehörigen GLBs liegen vor (Stichprobe 19/19). Bei den
+Clutter-Einträgen fehlt genau einer (Kopfkommentar `GrassClutter.ts:11` nennt 14, `ENTRIES`
+hat 13).
+
+Der Eindruck „nur ein Grasteppich" kommt daher vermutlich aus **Sichtweite/LOD**,
+**Serverstreaming-Radius** oder dem **`DefaultMaterial`-Filter** (`AssetManager.ts:148-151`
+schaltet bei `Bush01` eines von drei Materialien ab). Diagnose zuerst: Instanzzahlen pro
+Prefab an einem Waldstandort gegen die Vorgabe aus `vegetationData.json` halten. Erst bei
+einer echten Lücke Code ändern.
+
+Zusätzlich unabhängig davon korrigierbar: `meadowsFern` (`GrassClutter.ts:195`) hat
+`inForest: true` **und** `maxAlt: 4.0` — Farne erscheinen damit praktisch nie auf offener
+Wiese, obwohl die Originalszenen sie durchgehend zeigen. Gegen die Originaltabelle prüfen.
+
+### Stufe 9 — Baum-LOD und Impostoren
+
+Heute wird ausschließlich `Lod0` gerendert (`AssetManager.ts:34-37, 136-139`), ohne
+Laufzeit-Umschaltung und ohne Impostoren — ferne Wälder kosten voll und flimmern. Die
+LOD-Stufen liegen in den Prefab-Ordnern des Rips
+(`assetripper/export/Assets/world/Props/<Baum>/`, 6–7 GLBs je Baum). Umsetzung als
+`Mesh.addLODLevel()` auf den Thin-Instance-Mastern. **Das ist die Gegenfinanzierung für die
+Schatten aus Stufe 1** — deshalb bewusst am Ende, wenn die tatsächlichen Kosten gemessen
+sind.
+
+---
+
+## Nicht empfohlen
+
+- **Volumetric Light Scattering** (`PostProcessing.ts:244-266`): gemessen 40 → 17 fps
+  (eigene Verdeckungspassage über die ganze Szene). Der Nebelgradient aus Stufe 4 liefert das
+  Glühen um die Sonne praktisch gratis.
+- **HD-Mod-Texturen** (`assets/textures-hd/`, 829 MB): abgewählt zugunsten der Originaltreue.
+  Bleiben ungenutzt im Projekt liegen.
+- **Triplanar-Terrain**, **`terrain_n_array.png`**, **Wolken-/Sterntexturen**: geringer
+  Gewinn bzw. würden die Kopplung des prozeduralen Himmels an das EnvSetup schwächen.
+- **Höher aufgelöste Bodentexturen**: existieren im Original schlicht nicht (Wiesenkachel hat
+  Nachbardifferenz 0,91 — die Textur *ist* flach).
+
+---
+
+## Verifikation
+
+Dienste laufen über `systemctl start valheim.target` (Server 2466, Client 5273, Watch-Modus).
+
+| Stufe | Prüfung |
+|---|---|
+| 1a | Wiese fotografieren, Bodenregion messen: Sättigung 84 % → ~45 %, Blaukanal 12 → ~55–65 |
+| 1b/c | Mittags unter einer Buche: weicher Schlagschatten auf Boden **und** Grashalmen; Konsole ohne `FRAGMENT SHADER ERROR`; Terrain behält seine Textur |
+| 2 | 200-%-Zoom auf eine Baumsilhouette gegen den Himmel — Treppenstufen verschwinden |
+| 3 | Kamera auf 3 m Höhe über die Wiese: einzelne Halmspitzen erkennbar statt Pixelmuster; Deckung fällt von 60 % auf ~10 %; beim Rückwärtsgehen dürfen Halme **nicht** verschwinden (Mip-Coverage) |
+| 4 | Bei Sonnenuntergang auf der Stelle drehen: warmer Dunst glüht **um die Sonne**, bleibt beim Wegdrehen kalt; im Tal steht Bodennebel, auf der Kuppe daneben nicht |
+| 5 | Felsblock am Mittag: Oberseite kühl-blau, Unterseite warm; nachts dürfen Bäume nicht schwarz werden |
+| 6 | Nah an einen Buchenstamm: Rindenfurchen bekommen bei wandernder Sonne wandernde Schatten |
+| 7 | Fuß eines Felsblocks dunkelt ab; `scene.geometryBufferRenderer` überlebt das Abschalten von DOF+MotionBlur |
+| 8/9 | Im Schwarzwald: Farne, `shrub_2`, `stubbe`, umgestürzte `FirTree_oldLog` zwischen den Stämmen; fps-Messung vor/nach LOD |
+
+**Gesamtmaß über alle Stufen** — die Eingangsmessung wiederholen: Tonwert-Entropie der
+Tagesszene muss von 6,41 in Richtung 7,3 bit steigen und der Anteil der Pixel über
+Helligkeit 128 von 0,5 % deutlich zunehmen.
+
+Alle Farb- und Tonwertzahlen dieses Dokuments stammen aus `tools/shot-stats.mjs`
+(`node tools/shot-stats.mjs <bild> [x0 y0 x1 y1]`) — dasselbe Werkzeug für die Nachmessung
+benutzen, sonst sind die Zahlen nicht vergleichbar.

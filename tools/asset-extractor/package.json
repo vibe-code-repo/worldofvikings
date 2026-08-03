@@ -1,0 +1,1 @@
+{"name": "@wov/asset-extractor", "version": "0.1.0", "private": true, "type": "module", "scripts": {"extract": "tsx extract.ts", "convert": "tsx convert.ts"}, "dependencies": {"yaml": "^2.5.0"}, "devDependencies": {"tsx": "^4.19.0", "typescript": "^5.6.0", "@types/node": "^22.0.0"}}

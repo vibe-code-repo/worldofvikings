@@ -1,0 +1,51 @@
+# Valheim Browser Server Configuration
+# Ported from Valhalla2.0 data/server.yml
+
+server:
+  name: World of Vikings Server
+  password: ""
+  port: 2467
+  public: false
+  dedicated: true
+
+players:
+  whitelist: false
+  max: 10
+  offline: true
+  timeout: 0s
+  list-send-interval: 2s
+  max-online: 10
+  authenticate: true
+  everyone-admin: true
+
+world:
+  world: world
+  pregenerate: false
+  save-interval: 30min
+  modern: true
+  features: true
+  vegetation: true
+  creatures: true
+  seed: KxSYuZquuw
+  heightmap-threading: 1
+  # C++ server.yml: experimental-location-overrides: true (ShipSetting01)
+  experimental-location-overrides: true
+  # C++ server.yml:35 — modern FastNoise Ashlands (ASHLANDS_2.0), C++ default true
+  experimental-ashlands-modern-noise: true
+
+zdos:
+  send-interval: 50ms
+  max-send-threshold: 10240
+  min-send-threshold: 2048
+  assign-interval: 2s
+
+dungeons:
+  enabled: true
+  doors: true
+  seeded: true
+
+events:
+  chance: 0.2
+  interval: 46min
+  activation-radius: 96
+  require-keys: true

@@ -1,0 +1,51 @@
+/**
+ * Client-side world data — the SAME GeoManager/HeightmapProvider the server
+ * runs (identical seed ⇒ identical world, see ValhallaServer.ts:190).
+ *
+ * M0.1: online, the seed + worldgen flags come from the server's
+ * ServerConfig handshake (PacketType 52, see main.ts) — never hardcoded,
+ * so client and server can never render different worlds. Offline mode
+ * (no server) still needs a local seed, chosen on the connect screen.
+ */
+import {
+  GeoManager,
+  HeightmapProvider,
+  getStableHash,
+} from '@wov/shared';
+
+// Fallback for offline mode when no seed was entered on the connect screen.
+export const DEFAULT_OFFLINE_SEED = 'KxSYuZquuw';
+
+export interface ClientWorldSettings {
+  worldGenVersion?: number;
+  disableDistantRivers?: boolean;
+  riverAffectsOcean?: boolean;
+  ashlandsModernNoise?: boolean;
+  blendSmoothStep?: boolean;
+  bilinearSampling?: boolean;
+}
+
+export interface ClientWorld {
+  geo: GeoManager;
+  heightmaps: HeightmapProvider;
+  getGroundHeight(x: number, z: number): number;
+}
+
+export function createWorld(seed: string = DEFAULT_OFFLINE_SEED, settings: ClientWorldSettings = {}): ClientWorld {
+  const worldSeed = getStableHash(seed);
+  const geo = new GeoManager(worldSeed, {
+    worldGenVersion: settings.worldGenVersion ?? 2,
+    disableDistantRivers: settings.disableDistantRivers ?? false,
+    riverAffectsOcean: settings.riverAffectsOcean ?? false,
+    ashlandsModernNoise: settings.ashlandsModernNoise ?? true, // server.yml experimental-ashlands-modern-noise
+  });
+  const heightmaps = new HeightmapProvider(geo, {
+    blendSmoothStep: settings.blendSmoothStep ?? true, // server.yml experimental-biome-blend-smoothstep (default)
+    bilinearSampling: settings.bilinearSampling ?? false, // server.yml experimental-bilinear-height-sampling (default)
+  });
+  return {
+    geo,
+    heightmaps,
+    getGroundHeight: (x, z) => heightmaps.getGroundHeight(x, z),
+  };
+}

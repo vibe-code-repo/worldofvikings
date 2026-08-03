@@ -11,7 +11,9 @@
       "id": "start-insel",
       "biome": "meadows",
       "shape": { "kind": "circle", "x": 0, "z": 0, "radius": 900 },
-      "edgeFalloff": 250
+      "edgeFalloff": 250,
+      "baseLevel": 0.3,
+      "heightScale": 0.6
     },
     {
       "id": "vikingr-land",

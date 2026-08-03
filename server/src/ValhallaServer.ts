@@ -25,6 +25,7 @@ import {
   ZDO_SEND_INTERVAL_MS,
   PacketType,
   createGeo,
+  sanitizeWorldLayout,
   type IGeo,
   HeightmapProvider,
   getStableHash,
@@ -242,9 +243,16 @@ export class ValhallaServer {
       const roh = readFileSync(this.config.worldLayoutPath, 'utf-8');
       this.worldLayoutRaw = JSON.parse(roh) as unknown;
     }
+    // Layout-Modus: Der detailSeed des Dokuments ist maßgeblich — das
+    // Dokument definiert die Welt VOLLSTÄNDIG (Editor, MCP-Probe, Server
+    // und Client rechnen sonst mit verschiedenen Detail-Rauschen).
+    const layoutSeed =
+      this.config.worldMode === 'layout'
+        ? (sanitizeWorldLayout(this.worldLayoutRaw)?.detailSeed ?? this.config.worldSeed)
+        : this.config.worldSeed;
     this.geo = createGeo({
       mode: this.config.worldMode,
-      worldSeed: getStableHash(this.config.worldSeed),
+      worldSeed: getStableHash(layoutSeed),
       layout: this.worldLayoutRaw ?? undefined,
       settings: {
         worldGenVersion: this.config.worldGenVersion,

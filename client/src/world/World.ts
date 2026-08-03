@@ -8,6 +8,7 @@
  * (no server) still needs a local seed, chosen on the connect screen.
  */
 import {
+  sanitizeWorldLayout,
   createGeo,
   type IGeo,
   HeightmapProvider,
@@ -37,7 +38,10 @@ export function createWorld(
   settings: ClientWorldSettings = {},
   layout?: unknown
 ): ClientWorld {
-  const worldSeed = getStableHash(seed);
+  // Layout-Modus: detailSeed des Dokuments schlägt den Handshake-Seed —
+  // muss zur identischen Regel im Server (ValhallaServer.init) passen.
+  const layoutSeed = layout ? sanitizeWorldLayout(layout)?.detailSeed : undefined;
+  const worldSeed = getStableHash(layoutSeed ?? seed);
   const geo = createGeo({
     mode: layout ? 'layout' : 'valheim',
     worldSeed,

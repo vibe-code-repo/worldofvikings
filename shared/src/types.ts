@@ -233,6 +233,10 @@ export enum PacketType {
   /** Server → Client: Dungeon-Eingänge für die Weltkarte. Payload:
    *  Int32 count × { String feature, String dungeonId, Vector3 pos }. */
   DungeonEntrances = 63,
+  /** Server → Client: WorldLayout-Dokument (Layout-Modus), direkt nach
+   *  ServerConfig. Payload: String json. Der Client baut seine Welt erst,
+   *  wenn dieses Paket da ist (ServerConfig-Flag Bit 5 kündigt es an). */
+  WorldLayoutData = 64,
 }
 
 // === Vector3 (Vector.h) ===

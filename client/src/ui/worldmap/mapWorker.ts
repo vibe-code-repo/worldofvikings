@@ -41,6 +41,7 @@ import {
   SAMPLE_N,
   TEX_N,
   TREE_STEP,
+  setzeKartenMasse,
   type MapBuildRequest,
   type MapWorkerMessage,
 } from './mapTypes';
@@ -94,9 +95,14 @@ function bauen(req: MapBuildRequest): void {
   const start = Date.now();
   fortschritt(0.02, 'Welt wird erzeugt …');
 
+  // Layout-Modus: Maße des Panels übernehmen — dieser Worker ist ein
+  // eigener Modulkontext, setzeKartenMasse() im Panel erreicht ihn nicht.
+  if (req.span && req.radius) setzeKartenMasse(req.span, req.radius);
+
   const geo = createGeo({
-    mode: 'valheim',
+    mode: req.layout ? 'layout' : 'valheim',
     worldSeed: getStableHash(req.seed),
+    layout: req.layout,
     settings: {
       worldGenVersion: req.settings.worldGenVersion ?? 2,
       disableDistantRivers: req.settings.disableDistantRivers ?? false,

@@ -32,11 +32,16 @@ export interface ClientWorld {
   getGroundHeight(x: number, z: number): number;
 }
 
-export function createWorld(seed: string = DEFAULT_OFFLINE_SEED, settings: ClientWorldSettings = {}): ClientWorld {
+export function createWorld(
+  seed: string = DEFAULT_OFFLINE_SEED,
+  settings: ClientWorldSettings = {},
+  layout?: unknown
+): ClientWorld {
   const worldSeed = getStableHash(seed);
   const geo = createGeo({
-    mode: 'valheim',
+    mode: layout ? 'layout' : 'valheim',
     worldSeed,
+    layout,
     settings: {
       worldGenVersion: settings.worldGenVersion ?? 2,
       disableDistantRivers: settings.disableDistantRivers ?? false,

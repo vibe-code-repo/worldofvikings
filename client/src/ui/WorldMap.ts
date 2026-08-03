@@ -59,8 +59,12 @@ import {
 
 /** Kartenhöhe des Wasserspiegels in Babylon-Einheiten. */
 const WASSER_Y = (WATER_LEVEL / MAP_UNIT) * HEIGHT_EXAG;
-/** Kartenradius in Babylon-Einheiten. */
-const SCHEIBE = MAP_RADIUS / MAP_UNIT;
+/**
+ * Kartenradius in Babylon-Einheiten — als Funktion, weil MAP_RADIUS im
+ * Layout-Modus vor dem Kartenaufbau umgestellt wird (setzeKartenMasse);
+ * ein Modul-const fröre den Radialwelt-Wert ein.
+ */
+const scheibe = (): number => MAP_RADIUS / MAP_UNIT;
 /**
  * Zoomstufen: klein = dicht dran, 10 = ganze Welt im Bild.
  *
@@ -86,6 +90,8 @@ export interface WorldMapOptions {
   seed: string;
   /** Worldgen-Flags aus dem ServerConfig-Handshake. */
   settings: ClientWorldSettings;
+  /** WorldLayout-Dokument (Layout-Modus) — der Worker baut daraus RegionGeo. */
+  layout?: unknown;
   /** Weltdaten des Spiels, für Abfragen unter dem Mauszeiger. */
   world: ClientWorld;
   /** Aktuelle Spielerposition und Blickrichtung, oder null vor dem Spawn. */
@@ -351,7 +357,7 @@ export class WorldMap {
 
   private grenzen(): void {
     // Nicht über den Kartenrand hinaus schwenken.
-    const rand = Math.max(0, SCHEIBE - (SICHT_PRO_ZOOM * this.zoom) / 4);
+    const rand = Math.max(0, scheibe() - (SICHT_PRO_ZOOM * this.zoom) / 4);
     this.zielX = Math.min(rand, Math.max(-rand, this.zielX));
     this.zielZ = Math.min(rand, Math.max(-rand, this.zielZ));
   }
@@ -380,7 +386,15 @@ export class WorldMap {
     }
     this.worker.onmessage = (e: MessageEvent<MapWorkerMessage>) => this.nachricht(e.data);
     this.worker.onerror = (e) => { this.statusZeile.textContent = `Kartenfehler: ${e.message}`; };
-    this.worker.postMessage({ seed: this.opts.seed, settings: this.opts.settings });
+    // Kartenmaße mitgeben: Der Worker hat einen EIGENEN Modulkontext —
+    // setzeKartenMasse() im Panel erreicht ihn nicht.
+    this.worker.postMessage({
+      seed: this.opts.seed,
+      settings: this.opts.settings,
+      layout: this.opts.layout,
+      span: MAP_SPAN,
+      radius: MAP_RADIUS,
+    });
   }
 
   private nachricht(m: MapWorkerMessage): void {
@@ -495,7 +509,7 @@ export class WorldMap {
   /** Wasserfläche über dem Relief — die Küstenlinie kommt aus dem Kartenbild. */
   private wasserBauen(): void {
     const scene = this.scene!;
-    const disc = MeshBuilder.CreateDisc('kartewasser', { radius: SCHEIBE, tessellation: 128 }, scene);
+    const disc = MeshBuilder.CreateDisc('kartewasser', { radius: scheibe(), tessellation: 128 }, scene);
     disc.rotation.x = Math.PI / 2;
     disc.position.y = WASSER_Y;
     const mat = new StandardMaterial('kartewassermat', scene);
@@ -516,7 +530,7 @@ export class WorldMap {
   private randBauen(): void {
     const scene = this.scene!;
     const ring = MeshBuilder.CreateTorus('karterand', {
-      diameter: SCHEIBE * 2, thickness: 0.55, tessellation: 128,
+      diameter: scheibe() * 2, thickness: 0.55, tessellation: 128,
     }, scene);
     ring.position.y = WASSER_Y;
     const mat = new StandardMaterial('karterandmat', scene);

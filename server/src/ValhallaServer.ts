@@ -127,6 +127,8 @@ const FLAG_BILINEAR_HEIGHT = 1 << 1;
 const FLAG_ASHLANDS_MODERN = 1 << 2;
 const FLAG_RIVER_AFFECTS_OCEAN = 1 << 3;
 const FLAG_DISABLE_DISTANT_RIVERS = 1 << 4;
+/** Kündigt an, dass direkt nach ServerConfig ein WorldLayoutData folgt. */
+const FLAG_LAYOUT_MODE = 1 << 5;
 
 export class ValhallaServer {
   readonly config: ServerConfig;
@@ -606,8 +608,16 @@ export class ValhallaServer {
       if (this.config.worldAshlandsModernNoise) flags |= FLAG_ASHLANDS_MODERN;
       if (this.config.worldRiverAffectsOcean) flags |= FLAG_RIVER_AFFECTS_OCEAN;
       if (this.config.worldDisableDistantRivers) flags |= FLAG_DISABLE_DISTANT_RIVERS;
+      if (this.config.worldMode === 'layout') flags |= FLAG_LAYOUT_MODE;
       w.writeUInt8(flags);
     });
+    // Layout-Modus: Das Weltdokument folgt SOFORT auf die ServerConfig —
+    // der Client wartet darauf, bevor er seine Welt baut (Flag Bit 5).
+    if (this.config.worldMode === 'layout' && this.worldLayoutRaw) {
+      peer.sendPacketWith(PacketType.WorldLayoutData, (w) => {
+        w.writeString(JSON.stringify(this.worldLayoutRaw));
+      });
+    }
 
     // Create player character ZDO — spawn at the saved position (G1) or on
     // the real ground at the world spawn (D6)

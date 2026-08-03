@@ -7,10 +7,24 @@
  */
 import type { ClientWorldSettings } from '../../world/World';
 
-/** Kantenlänge des dargestellten Weltausschnitts in Metern (WATER_EDGE × 2). */
-export const MAP_SPAN = 21000;
+/**
+ * Kantenlänge des dargestellten Weltausschnitts in Metern.
+ *
+ * Radialwelt: fest WATER_EDGE × 2. Layout-Welt: aus der Bounding-Box des
+ * WorldLayouts abgeleitet (setzeKartenMasse) — die Karte wächst mit.
+ * `let` + ES-Module-Live-Bindings: alle Importstellen sehen den neuen Wert;
+ * der Worker läuft in einem EIGENEN Modulkontext und bekommt die Maße über
+ * den MapBuildRequest.
+ */
+export let MAP_SPAN = 21000;
 /** Alles ausserhalb dieses Weltradius wird abgeschnitten (runde Kartenscheibe). */
-export const MAP_RADIUS = 10450;
+export let MAP_RADIUS = 10450;
+
+/** Kartenmaße umstellen (Layout-Modus) — VOR dem Worker-Start aufrufen. */
+export function setzeKartenMasse(span: number, radius: number): void {
+  MAP_SPAN = span;
+  MAP_RADIUS = radius;
+}
 /** Weltmeter pro Babylon-Einheit auf der Karte. */
 export const MAP_UNIT = 100;
 /** Höhenüberhöhung des Kartenreliefs. */
@@ -36,6 +50,11 @@ export const toMapUnits = (meters: number): number => meters / MAP_UNIT;
 export interface MapBuildRequest {
   seed: string;
   settings: ClientWorldSettings;
+  /** WorldLayout-Dokument (Layout-Modus) — der Worker baut daraus RegionGeo. */
+  layout?: unknown;
+  /** Kartenmaße (Layout-Modus): müssen zu den Werten des Panels passen. */
+  span?: number;
+  radius?: number;
 }
 
 export type MapWorkerMessage =

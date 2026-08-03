@@ -27,6 +27,8 @@ import { Ray } from '@babylonjs/core/Culling/ray';
 import {
   WATER_LEVEL,
   ESSEN,
+  sanitizeWorldLayout,
+  layoutBounds,
   PacketType,
   PrefabFlag,
   findPrefabByName,
@@ -73,6 +75,7 @@ import { PieceSelection } from './ui/PieceSelection';
 import { ObjectLabels } from './ui/ObjectLabels';
 import { Anvisiert } from './ui/Anvisiert';
 import { WorldMap } from './ui/WorldMap';
+import { setzeKartenMasse } from './ui/worldmap/mapTypes';
 import { DungeonEditor } from './ui/DungeonEditor';
 import { Minimap } from './ui/Minimap';
 import { LightPool } from './engine/LightPool';
@@ -87,6 +90,8 @@ const FLAG_BILINEAR_HEIGHT = 1 << 1;
 const FLAG_ASHLANDS_MODERN = 1 << 2;
 const FLAG_RIVER_AFFECTS_OCEAN = 1 << 3;
 const FLAG_DISABLE_DISTANT_RIVERS = 1 << 4;
+/** Kündigt an, dass direkt nach ServerConfig ein WorldLayoutData folgt. */
+const FLAG_LAYOUT_MODE = 1 << 5;
 
 /** Compass point for a bearing in degrees (0 = north) — HUD readability. */
 function compass(deg: number): string {
@@ -240,6 +245,10 @@ async function main() {
 
   // World-dependent systems — only exist once the world (seed) is known.
   let world: ClientWorld | null = null;
+  /** Layout-Handshake: ServerConfig kündigte ein WorldLayoutData an. */
+  let layoutErwartet: { worldSeed: string; settings: ClientWorldSettings } | null = null;
+  /** Aktives WorldLayout (Layout-Modus) — Karte/Editor lesen es mit. */
+  let worldLayout: unknown = null;
   let terrain: TerrainManager | null = null;
   let player: PlayerController | null = null;
   let entities: EntityManager | null = null;
@@ -386,8 +395,9 @@ async function main() {
   };
 
   /** Builds all world-dependent systems and starts the game loop (once). */
-  function buildWorld(seed: string, settings?: ClientWorldSettings): void {
-    world = createWorld(seed, settings);
+  function buildWorld(seed: string, settings?: ClientWorldSettings, layout?: unknown): void {
+    worldLayout = layout ?? null;
+    world = createWorld(seed, settings, layout);
     console.log('[world] GeoManager ready, ground(0,0) =', world.getGroundHeight(0, 0));
 
     // Das Terrain-Material braucht das Sonnenlicht, um Schatten zu
@@ -674,10 +684,22 @@ async function main() {
     };
     // Weltkarte (Taste M). Die Vorberechnung läuft ab hier im Worker, damit
     // die Karte fertig ist, bevor sie das erste Mal aufgeschlagen wird —
-    // sie rastert 21 × 21 km Weltgenerierung, das dauert einige Sekunden.
+    // sie rastert die ganze Welt, das dauert einige Sekunden.
+    // Layout-Modus: Kartenmaße folgen der Layout-Bbox (+ Ozeanrand) statt
+    // der festen 21-km-Radialwelt. Die Karte bleibt eine um den Ursprung
+    // zentrierte Scheibe — das Layout sollte grob zentriert gebaut sein.
+    if (worldLayout) {
+      const layout = sanitizeWorldLayout(worldLayout);
+      if (layout) {
+        const b = layoutBounds(layout);
+        const halb = Math.max(Math.abs(b.minX), Math.abs(b.maxX), Math.abs(b.minZ), Math.abs(b.maxZ)) + 2000;
+        setzeKartenMasse(halb * 2, halb * 0.995);
+      }
+    }
     worldMap = new WorldMap({
       seed,
       settings: settings ?? {},
+      layout: worldLayout ?? undefined,
       world,
       spieler: () => (player ? { x: player.position.x, z: player.position.z, yaw: player.yaw } : null),
       // Admin-Teleport per Strg+Klick auf die Karte.
@@ -746,16 +768,42 @@ async function main() {
       const worldGenVersion = reader.readInt32();
       const flags = reader.readUInt8();
       console.log(
-        `[Client] ServerConfig: world "${worldName}", seed "${worldSeed}", gen v${worldGenVersion}, flags 0b${flags.toString(2).padStart(5, '0')}`
+        `[Client] ServerConfig: world "${worldName}", seed "${worldSeed}", gen v${worldGenVersion}, flags 0b${flags.toString(2).padStart(6, '0')}`
       );
-      buildWorld(worldSeed, {
+      const settings = {
         worldGenVersion,
         disableDistantRivers: (flags & FLAG_DISABLE_DISTANT_RIVERS) !== 0,
         riverAffectsOcean: (flags & FLAG_RIVER_AFFECTS_OCEAN) !== 0,
         ashlandsModernNoise: (flags & FLAG_ASHLANDS_MODERN) !== 0,
         blendSmoothStep: (flags & FLAG_BLEND_SMOOTHSTEP) !== 0,
         bilinearSampling: (flags & FLAG_BILINEAR_HEIGHT) !== 0,
-      });
+      };
+      if ((flags & FLAG_LAYOUT_MODE) !== 0) {
+        // Layout-Welt: Das Dokument kommt als NÄCHSTES Paket — erst damit
+        // lässt sich dieselbe Welt bauen, die der Server fährt.
+        layoutErwartet = { worldSeed, settings };
+      } else {
+        buildWorld(worldSeed, settings);
+      }
+    });
+
+    socket.on(PacketType.WorldLayoutData, (reader) => {
+      const json = reader.readString();
+      if (!layoutErwartet) {
+        console.warn('[Client] WorldLayoutData ohne angekündigten Layout-Modus — ignoriert');
+        return;
+      }
+      let layout: unknown = null;
+      try {
+        layout = JSON.parse(json);
+      } catch {
+        console.error('[Client] WorldLayoutData: kaputtes JSON');
+        return;
+      }
+      const { worldSeed, settings } = layoutErwartet;
+      layoutErwartet = null;
+      console.log(`[Client] WorldLayout empfangen (${(json.length / 1024).toFixed(1)} KB)`);
+      buildWorld(worldSeed, settings, layout);
     });
 
     socket.on(PacketType.ZDOSync, (reader) => {

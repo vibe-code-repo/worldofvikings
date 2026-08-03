@@ -19,12 +19,14 @@ players:
   everyone-admin: true
 
 world:
-  world: world
+  # Layout-Welt "vikings" (eigener Save) — der alte Radial-Save "world"
+  # bleibt unangetastet; Rückweg: world: world + mode: valheim.
+  world: vikings
   # Kartengenerierung: 'valheim' = radialer Seed-Port (Übergangspfad),
   # 'layout' = designer-definierte Welt aus der layout-Datei (relativ zu data/).
   # Achtung: Der Modus muss zum Save passen — ein bestehender valheim-Save
   # gehört nicht unter eine layout-Welt (andere Weltform).
-  mode: valheim
+  mode: layout
   layout: worldlayout.json
   pregenerate: false
   save-interval: 30min

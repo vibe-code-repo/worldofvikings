@@ -71,9 +71,10 @@ import {
   HeightmapProvider,
   WATER_LEVEL,
   ZONE_UNITS,
+  Biome,
+  BIOME_BY_NAME,
 } from '@wov/shared';
 import type {
-  Biome,
   Feature,
   Heightmap,
   GeoManager,
@@ -258,6 +259,8 @@ export class ZoneManager {
   /** Zonenfenster des Layouts (inkl. Falloff-/Küstenrand), nur Layout-Modus. */
   private readonly layoutZonen: { minX: number; minY: number; maxX: number; maxY: number } | null =
     null;
+  /** Bitmaske aller im Layout vorkommenden Biome (+ Ozean), nur Layout-Modus. */
+  private readonly layoutBiomeMask: number | null = null;
 
   constructor(
     private readonly geo: GeoManager,
@@ -281,6 +284,11 @@ export class ZoneManager {
         maxX: Math.ceil((b.maxX + rand) / ZONE_UNITS),
         maxY: Math.ceil((b.maxZ + rand) / ZONE_UNITS),
       };
+      let maske = Biome.Ocean as number;
+      for (const region of this.regionGeo.layout.regions) {
+        maske |= BIOME_BY_NAME.get(region.biome) ?? 0;
+      }
+      this.layoutBiomeMask = maske;
     }
   }
 
@@ -755,6 +763,13 @@ export class ZoneManager {
    * then the unconditional 10-sample terrain delta per surviving point).
    */
   private prepareFeature(feature: Feature): void {
+    // Layout-Modus: Features, deren Biome im Layout schlicht nicht
+    // existieren, sofort überspringen — sonst verbrennen sie ALLE
+    // spawnAttempts an Biom-Ablehnungen (gemessen: 618 s statt 114 s
+    // Placement, weil Mistlands/Ashlands/DeepNorth-Quoten ins Leere liefen).
+    if (this.layoutBiomeMask !== null && (feature.biome & this.layoutBiomeMask) === 0) {
+      return;
+    }
     // C++ CountNrOfLocation inlined: count already-placed instances of this
     // feature (always 0 here — each feature is prepared exactly once).
     let spawnedLocations = 0;

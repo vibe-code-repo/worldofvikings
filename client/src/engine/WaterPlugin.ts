@@ -951,22 +951,35 @@ export class WaterPlugin extends MaterialPluginBase {
           // (1) Uferrichtung aus dem Gradienten der Grundhöhe. Damit
           //     laufen Schaumbänder PARALLEL zur Küste und treiben
           //     senkrecht darauf zu, statt in einer Weltachse zu ziehen.
-          float gTexel = 1.0 / waterGroundInfo.z;   // Meter je Texel (=1 m)
-          vec2 gStep = vec2(waterGroundInfo.z, 0.0);
+          // Gradient über ±3 Texel statt ±1: Auf einer Sandbank oder an
+          // einer Landzunge dreht die Uferrichtung sonst von Pixel zu
+          // Pixel und die Schaumtextur zieht Strahlen ins Wasser (vom
+          // Nutzer als "merkwürdige Spitzen" gemeldet).
+          vec2 gStep = vec2(waterGroundInfo.z * 3.0, 0.0);
           float gX1 = texture2D(waterGroundTex, clamp(wGuv + gStep.xy, 0.0, 1.0)).r;
           float gX0 = texture2D(waterGroundTex, clamp(wGuv - gStep.xy, 0.0, 1.0)).r;
           float gZ1 = texture2D(waterGroundTex, clamp(wGuv + gStep.yx, 0.0, 1.0)).r;
           float gZ0 = texture2D(waterGroundTex, clamp(wGuv - gStep.yx, 0.0, 1.0)).r;
-          // Zeigt bergauf, also zum Land. Länge = Hangneigung.
-          vec2 grad = vec2(gX1 - gX0, gZ1 - gZ0) * 0.5;
-          float hang = length(grad) * wDrin;             // m Anstieg je m
+          // Zeigt bergauf, also zum Land. Länge = Hangneigung (m je m).
+          vec2 grad = vec2(gX1 - gX0, gZ1 - gZ0) / 6.0;
+          float hang = length(grad) * wDrin;
           vec2 zumLand = hang > 1e-4 ? grad / (hang + 1e-6) : vec2(0.0, 1.0);
           vec2 langsUfer = vec2(-zumLand.y, zumLand.x);
 
           // (4) Steilheit: Flachstrand → breiter Saum, Steilküste →
           //     schmal und hell. hang ~0.02 ist Sandstrand, ~0.5 Fels.
           float steil = clamp(hang * 2.5, 0.0, 1.0);
-          float saumTiefe = mix(WATER_FOAM_DEPTH * 3.0, WATER_FOAM_DEPTH * 0.7, steil);
+          // ZWEI Grenzen, beide müssen gelten:
+          //  · Tiefe — hält den Saum an der Wasserlinie.
+          //  · waagerechter Abstand (≈ Tiefe / Hangneigung) — verhindert,
+          //    dass eine flach auslaufende Unterwasser-Zunge den Schaum
+          //    zig Meter ins Meer zieht (die gemeldeten "Spitzen").
+          // Nur die Tiefe zu nehmen ergab genau diese Zacken; nur den
+          // Abstand zu nehmen löschte den Schaum am Flachstrand ganz
+          // (dort wird der rechnerische Abstand riesig).
+          float distUfer = min(eff / max(hang, 0.01), 60.0);
+          float saumTiefeM = mix(0.5, 0.18, steil);
+          float saumBreiteM = mix(8.0, 3.0, steil);
 
           // (2) Brandungszyklus: schnelles Auflaufen, langsames
           //     Zurückweichen (Sägezahn statt Sinus). Der Zyklus
@@ -975,7 +988,9 @@ export class WaterPlugin extends MaterialPluginBase {
           float phase = fract(waterTime * 0.14 + dot(vPositionW.xz, langsUfer) * 0.004);
           float auflauf = phase < 0.28 ? phase / 0.28 : 1.0 - (phase - 0.28) / 0.72;
           auflauf = auflauf * auflauf * (3.0 - 2.0 * auflauf);
-          float zungeTiefe = saumTiefe * (0.45 + 0.95 * auflauf);
+          float zyklus = 0.45 + 0.95 * auflauf;
+          float zungeM = saumBreiteM * zyklus;
+          float zungeTiefe = saumTiefeM * zyklus;
 
           // Schaumtextur: entlang des Ufers gestreckt (Bänder) und mit
           // dem Wasser AUF das Land zu treibend.
@@ -990,9 +1005,13 @@ export class WaterPlugin extends MaterialPluginBase {
           // (3) Zwei Zonen statt einer:
           //     Bruchkante — schmal, hell, mit ausgefransten Fingern
           //     (Textur verschiebt die Kante selbst).
-          float kante = 1.0 - smoothstep(0.0, zungeTiefe * 0.35, eff - texel * 0.06);
+          float nahKante = 1.0 - smoothstep(0.0, zungeTiefe * 0.4, eff - texel * 0.03);
+          float nahDist = 1.0 - smoothstep(zungeM * 0.45, zungeM, distUfer - texel * 1.2);
+          float kante = nahKante * nahDist;
           //     Blasenfeld — breiter, weicher, halbdurchsichtig.
-          float blasen = (1.0 - smoothstep(0.0, zungeTiefe, eff)) * texel;
+          float blasen = (1.0 - smoothstep(0.0, zungeTiefe, eff))
+                       * (1.0 - smoothstep(zungeM * 0.6, zungeM, distUfer))
+                       * texel;
 
           // Aufgerissen halten: Der erste Anlauf ergab ein GESCHLOSSENES
           // weißes Band (im Bild ein gemalter Bordürenstreifen). Beide

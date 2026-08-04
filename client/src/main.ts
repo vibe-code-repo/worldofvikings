@@ -77,6 +77,9 @@ import { Anvisiert } from './ui/Anvisiert';
 import { WorldMap } from './ui/WorldMap';
 import { setzeKartenMasse } from './ui/worldmap/mapTypes';
 import { SpawnPanel } from './editor/SpawnPanel';
+import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { DungeonEditor } from './ui/DungeonEditor';
 import { Minimap } from './ui/Minimap';
 import { LightPool } from './engine/LightPool';
@@ -1026,7 +1029,7 @@ async function main() {
         if (!findPrefabByName(p.prefab) || !world) return;
         const yaw = p.yaw ?? 0;
         ent.applyUpdate({
-          key: `edplace-${i}`,
+          key: i < 0 ? 'edghost' : `edplace-${i}`,
           prefabHash: getStableHash(p.prefab),
           position: { x: p.x, y: world.getGroundHeight(p.x, p.z), z: p.z },
           rotation: { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) },
@@ -1085,6 +1088,11 @@ async function main() {
       window.addEventListener('keydown', (e) => {
         if (e.code === 'KeyB') {
           const offen = panel.toggle();
+          if (!offen) {
+            geistWeg();
+            ring.setEnabled(false);
+            auswahlIndex = -1;
+          }
           if (offen) {
             // Maus freigeben, damit Liste/Regler anklickbar sind — das
             // Wieder-Einfangen übernimmt der Game-Loop (cursorNoetig).
@@ -1139,6 +1147,58 @@ async function main() {
         return roh;
       };
       let ziehIndex = -1;
+      /** Ausgewählte (zuletzt gegriffene) Platzierung — Ziel von Entf. */
+      let auswahlIndex = -1;
+
+      // Leuchtring markiert Auswahl/Griff; Geist zeigt das Prefab an der Maus.
+      const ring = MeshBuilder.CreateTorus('spawnRing', { diameter: 3, thickness: 0.12, tessellation: 48 }, scene);
+      const ringMat = new StandardMaterial('spawnRingMat', scene);
+      ringMat.emissiveColor = new Color3(0.95, 0.82, 0.35);
+      ringMat.disableLighting = true;
+      ring.material = ringMat;
+      ring.isPickable = false;
+      ring.setEnabled(false);
+      const ringZu = (x: number, z: number): void => {
+        ring.position.set(x, (world?.getGroundHeight(x, z) ?? 0) + 0.15, z);
+        ring.setEnabled(true);
+      };
+
+      let geistPrefab = '';
+      const geistWeg = (): void => {
+        if (geistPrefab) ent.removeZDO('edghost');
+        geistPrefab = '';
+        ent.flush();
+      };
+      const geistZu = (x: number, z: number): void => {
+        const e = panel.einstellung;
+        // Prefabwechsel: alter Geist liegt in einem anderen Bucket — erst weg.
+        if (geistPrefab && geistPrefab !== e.prefab) geistWeg();
+        geistPrefab = e.prefab;
+        zeige({ prefab: e.prefab, x, z, yaw: e.yaw ?? 0, scale: e.scale }, -1 as never);
+        ent.flush();
+      };
+
+      /** Nach Löschen/Umbau: alle edplace-Keys neu aufbauen (Indizes rutschen). */
+      const alleNeuZeichnen = (roh: { placements: Array<{ prefab: string; x: number; z: number; yaw?: number; scale?: number }> }, vorher: number): void => {
+        for (let i = 0; i < vorher; i++) ent.removeZDO(`edplace-${i}`);
+        roh.placements.forEach(zeige);
+        ent.flush();
+      };
+      window.addEventListener('keydown', (e) => {
+        if (e.code !== 'Delete' || !panel.istOffen || auswahlIndex < 0) return;
+        const roh = leseEntwurf();
+        if (!roh || !roh.placements[auswahlIndex]) return;
+        const weg = roh.placements[auswahlIndex]!;
+        const vorher = roh.placements.length;
+        roh.placements.splice(auswahlIndex, 1);
+        localStorage.setItem('wov-editor-layout', JSON.stringify(roh));
+        alleNeuZeichnen(roh, vorher);
+        hud.meldung(`${weg.prefab} gelöscht`);
+        auswahlIndex = -1;
+        ring.setEnabled(false);
+        panel.aktualisiere();
+      });
+
       canvas.addEventListener('pointerdown', (e) => {
         if (!panel.istOffen || e.button !== 0 || document.pointerLockElement) return;
         const p = bodenPunkt(e.offsetX, e.offsetY);
@@ -1156,7 +1216,11 @@ async function main() {
         });
         if (best >= 0) {
           ziehIndex = best;
-          hud.meldung(`${roh.placements[best]!.prefab} gegriffen — ziehen, loslassen setzt ab`);
+          auswahlIndex = best;
+          geistWeg();
+          const q = roh.placements[best]!;
+          ringZu(q.x, q.z);
+          hud.meldung(`${q.prefab} gegriffen — ziehen verschiebt, Entf löscht`);
         } else {
           const einst = panel.einstellung;
           const eintrag = {
@@ -1175,15 +1239,23 @@ async function main() {
         }
       });
       canvas.addEventListener('pointermove', (e) => {
-        if (ziehIndex < 0) return;
+        if (!panel.istOffen || document.pointerLockElement) return;
         const p = bodenPunkt(e.offsetX, e.offsetY);
+        if (!p) return;
+        if (ziehIndex < 0) {
+          // Vorschau: Das gewählte Prefab hängt sichtbar an der Maus,
+          // erst der Klick setzt es.
+          geistZu(Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10);
+          return;
+        }
         const roh = leseEntwurf();
-        if (!p || !roh || !roh.placements[ziehIndex]) return;
+        if (!roh || !roh.placements[ziehIndex]) return;
         const q = roh.placements[ziehIndex]!;
         q.x = Math.round(p.x * 10) / 10;
         q.z = Math.round(p.z * 10) / 10;
         localStorage.setItem('wov-editor-layout', JSON.stringify(roh));
         zeige(q, ziehIndex); // gleicher Key ⇒ Matrix-Update, kein Duplikat
+        ringZu(q.x, q.z);
         ent.flush();
       });
       window.addEventListener('pointerup', () => {

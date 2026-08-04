@@ -271,7 +271,15 @@ async function main() {
   let worldMap: WorldMap | null = null;
   let minimap: Minimap | null = null;
   let lightPool: LightPool | null = null;
-  const craftingPanel = new CraftingPanel(() => inventory, (t) => hud.meldung(t));
+  const craftingPanel = new CraftingPanel(
+    () => inventory,
+    (t) => hud.meldung(t),
+    (ergebnis) => {
+      if (!socket?.connected) return false;
+      socket.sendCraft(ergebnis);
+      return true;
+    }
+  );
   let socket: GameSocket | null = null;
   let netStatus = 'offline';
   let inputAccum = 0;
@@ -511,6 +519,14 @@ async function main() {
       },
       /** Diagnose: Dungeon-Zustand des Clients. */
       dungeon: () => ({ imDungeon, env: dungeonEnv, spawn: { ...dungeonSpawn } }),
+      /** Diagnose: Server-Inventar aus Client-Sicht. */
+      inventar: () => inventory?.all.map((i) => `${i.shared.name}×${i.stack}`) ?? [],
+      /** Diagnose: Craft über den Server-Pfad. */
+      crafte: (ergebnis: string) => {
+        if (!socket?.connected) return false;
+        socket.sendCraft(ergebnis);
+        return true;
+      },
       /** Diagnose: Pose eines dynamischen Entities (Namens-Teilstring). */
       dynPose: (name: string) => entities?.dynamicPose(name) ?? null,
       /** Diagnose: Schlag mit beliebiger Waffe an der Spielerposition. */
@@ -645,16 +661,16 @@ async function main() {
     // Geometrie liegt in `Hammer_0.glb` (Notiz oben in itemDefs.ts).
     inventory = new Inventory();
     equipment = new Equipment(inventory, assets, player.avatar);
-    inventory.addItem(findItem('Hammer')!, 1);
-    // Feuersteinaxt: die erste Axt der Fortschrittskette und mit
-    // `toolTier: 1` die niedrigste Stufe, die Bäume fällt. Steht seit
-    // jeher vollständig in itemDefs.ts, lag nur nicht im Startinventar.
-    inventory.addItem(findItem('AxeFlint')!, 1);
-    inventory.addItem(findItem('Hoe')!, 1);
-    inventory.addItem(findItem('PickaxeAntler')!, 1);
-    inventory.addItem(findItem('Cultivator')!, 1);
-    inventory.addItem(findItem('Wood')!, 12);
-    inventory.addItem(findItem('Stone')!, 30);
+    // Kein lokales Startkit mehr: Das Inventar ist SERVER-autoritativ
+    // (InventorySync) — offline füllt der Block unten die Werkzeuge auf.
+    if (params.has('offline')) {
+      for (const [name, menge] of [
+        ['Hammer', 1], ['AxeFlint', 1], ['Hoe', 1], ['PickaxeAntler', 1],
+        ['Cultivator', 1], ['Wood', 12], ['Stone', 30],
+      ] as Array<[string, number]>) {
+        inventory.addItem(findItem(name)!, menge);
+      }
+    }
     hotbar = new Hotbar(inventory, equipment);
     inventoryPanel = new InventoryPanel(inventory, equipment);
     placement = new PlacementController(scene, input, world, terrain, grass, player, equipment);
@@ -885,11 +901,21 @@ async function main() {
       if (message) hud.meldung(message);
       if (message.startsWith('Tür')) audio.play('tuer', 0.8);
       else if (message.startsWith('Aufgesammelt') || message.startsWith('Gefunden')) audio.play('pickup', 0.7);
-      if (itemName && amount > 0 && inventory) {
-        const def = findItem(itemName);
-        if (def) {
-          inventory.addItem(def, amount);
-        }
+      // Items addiert NUR noch der Server (InventorySync) — itemName/amount
+      // bleiben im Paket für HUD-Signale und Alt-Clients.
+      void itemName;
+      void amount;
+    });
+
+    // Autoritativer Inventarstand vom Server — ersetzt das lokale Inventar
+    // vollständig (Pickups, Drops, Craften, Baukosten, Essen …).
+    socket.on(PacketType.InventorySync, (reader) => {
+      const json = reader.readString();
+      if (!inventory) return;
+      try {
+        inventory.load(JSON.parse(json));
+      } catch {
+        console.error('[Client] InventorySync: kaputtes JSON');
       }
     });
 
@@ -1617,7 +1643,7 @@ async function main() {
         .sort((a, b) => b[1].bonus - a[1].bonus)
         .find(([name]) => inventory!.countOf(name) > 0);
       if (kandidat) {
-        inventory.removeByName(kandidat[0], 1);
+        // Abzug macht der Server (InventorySync bestätigt).
         socket.sendEat(kandidat[0]);
         audio.play('pickup', 0.5);
       } else {
@@ -1652,16 +1678,14 @@ async function main() {
     if (input.wasPressed('KeyE') && socket?.connected && !cursorNoetig()) {
       const ziel = entities?.naechstesInteragierbares(player.position.x, player.position.z, 3);
       const zielDef = ziel ? findPrefabByName(ziel.prefab) : null;
-      if (ziel && zielDef && (zielDef.flags & PrefabFlag.FIREPLACE) !== 0n && (inventory?.countOf('RawMeat') ?? 0) > 0) {
-        // Feuerstelle brät: rein clientseitig (Inventar lebt im Client).
-        inventory!.removeByName('RawMeat', 1);
-        inventory!.addItem(findItem('CookedMeat')!, 1);
-        hud.meldung('Fleisch gebraten');
+      if (ziel && zielDef && (zielDef.flags & PrefabFlag.FIREPLACE) !== 0n) {
+        // Braten macht der Server (prüft RawMeat im Server-Inventar).
+        socket.sendInteract(ziel.x, ziel.y, ziel.z, ziel.prefabHash);
         audio.play('pickup', 0.6);
       } else if (ziel && ziel.prefab === 'StatueDeer') {
-        // Eikthyr verlangt eine Opfergabe: 2 Hirschtrophäen.
+        // Opfergabe prüft der Server (2 Hirschtrophäen); die lokale
+        // Abfrage bleibt nur als freundlicher Vorab-Hinweis.
         if ((inventory?.countOf('TrophyDeer') ?? 0) >= 2) {
-          inventory!.removeByName('TrophyDeer', 2);
           socket.sendInteract(ziel.x, ziel.y, ziel.z, ziel.prefabHash);
         } else {
           hud.meldung('Der Altar verlangt 2 Hirschtrophäen');

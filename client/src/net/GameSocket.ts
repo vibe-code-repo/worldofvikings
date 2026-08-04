@@ -206,7 +206,14 @@ export class GameSocket {
     this.sendPacket(PacketType.AdminCommand, w.toUint8Array());
   }
 
-  /** Essen (Taste F) — Item hat der Client bereits abgezogen. */
+  /** Craft-Wunsch — Zutatenprüfung und Abzug macht der Server. */
+  sendCraft(ergebnis: string): void {
+    const w = new BinaryWriter();
+    w.writeString(ergebnis);
+    this.sendPacket(PacketType.Craft, w.toUint8Array());
+  }
+
+  /** Essen (Taste F) — Bestand prüft und zieht der Server ab. */
   sendEat(itemName: string): void {
     const w = new BinaryWriter();
     w.writeString(itemName);

@@ -531,7 +531,8 @@ export class PlacementController {
     if (inv) {
       const fehlt = (piece.resources ?? []).find((r) => inv.countOf(r.item) < r.amount);
       if (fehlt) return; // HUD-Meldung macht main.ts nicht — Kosten stehen im Menue
-      for (const r of piece.resources ?? []) inv.removeByName(r.item, r.amount);
+      // Abzug macht der SERVER (InventorySync) — hier nur die Vorabprüfung,
+      // damit der Ghost ehrlich rot wird, bevor das Paket rausgeht.
     }
     this.sendePiece?.(
       piece.bauPrefab!,

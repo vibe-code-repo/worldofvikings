@@ -237,6 +237,11 @@ export enum PacketType {
    *  ServerConfig. Payload: String json. Der Client baut seine Welt erst,
    *  wenn dieses Paket da ist (ServerConfig-Flag Bit 5 kündigt es an). */
   WorldLayoutData = 64,
+  /** Server → Client: autoritativer Inventarstand. Payload: String json
+   *  (SavedItemStack[]) — der Client ersetzt sein Inventar vollständig. */
+  InventorySync = 65,
+  /** Client → Server: Craft-Wunsch. Payload: String ergebnis (REZEPTE). */
+  Craft = 66,
 }
 
 // === Vector3 (Vector.h) ===

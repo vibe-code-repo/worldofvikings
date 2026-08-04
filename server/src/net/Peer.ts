@@ -21,6 +21,7 @@
  */
 
 import type { Vector3, ZoneID, ConnectionStatus } from '@wov/shared';
+import { Inventory } from '@wov/shared';
 import { ZDOID } from '../zdo/ZDOID.js';
 import { ZDORevision } from '../zdo/ZDO.js';
 import { RpcRegistry } from './Rpc.js';
@@ -84,6 +85,10 @@ export class Peer {
   dungeonReturn: Vector3 | null;
   /** Zeitstempel des letzten akzeptierten Schlags (Angriff/Ernte-Cooldown). */
   letzterSchlag = 0;
+  /** Server-autoritatives Inventar (Review-Punkt 8) — Quelle der Wahrheit. */
+  readonly inventar = new Inventory();
+  /** Anzahl eigener Bauwerke (Piece-Budget); beim Login gezählt. */
+  bautenAnzahl = 0;
 
   /** Map visibility flag (BitPack index 0) */
   mapVisible: boolean;

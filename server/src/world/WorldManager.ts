@@ -22,7 +22,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, copyFileSync } from 'fs';
 import { join } from 'path';
 import { zstdCompressSync, zstdDecompressSync } from 'node:zlib';
-import type { Vector3 } from '@wov/shared';
+import type { Vector3, SavedItemStack } from '@wov/shared';
 
 /** Bump when the envelope layout changes (C++ WORLD version constant). */
 export const SAVE_FORMAT_VERSION = 2;
@@ -34,6 +34,8 @@ export interface SavedPlayer {
   flying: boolean;
   /** Bett-Respawn-Punkt (optional, v2). */
   spawnPoint?: Vector3;
+  /** Server-Inventar (SavedItemStack[], optional — Altstände haben keins). */
+  inventar?: SavedItemStack[];
 }
 
 export interface WorldSaveData {

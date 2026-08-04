@@ -57,7 +57,7 @@ import { Peer } from './net/Peer.js';
 import { Reader } from './io/Reader.js';
 import { Writer } from './io/Writer.js';
 import { AdminCommandRegistry } from './admin/AdminCommands.js';
-import { ZONE_SIZE } from '@wov/shared';
+import { ZONE_SIZE, findItem, REZEPTE } from '@wov/shared';
 import { resolve } from 'path';
 import { readFileSync } from 'node:fs';
 
@@ -697,6 +697,28 @@ export class WovServer {
     peer.characterID = characterZDO.zdoid;
     peer.position = spawnPos;
 
+    // Server-Inventar (Review-Punkt 8): aus dem Save wiederherstellen,
+    // Neulinge bekommen die Startausrüstung SERVERSEITIG (der Client
+    // startet mit leerem Inventar und lebt vom InventorySync).
+    if (saved?.inventar) {
+      peer.inventar.load(saved.inventar);
+    } else {
+      const START: Array<[string, number]> = [
+        ['Hammer', 1], ['AxeFlint', 1], ['Hoe', 1], ['PickaxeAntler', 1],
+        ['Cultivator', 1], ['Wood', 12], ['Stone', 30],
+      ];
+      for (const [name, menge] of START) {
+        const def = findItem(name);
+        if (def) peer.inventar.addItem(def, menge);
+      }
+    }
+    this.inventarSync(peer);
+    // Piece-Budget: eigene Bauten einmalig zählen (15k-ZDO-Scan, nur Login).
+    const meineId = peer.userId.toString();
+    peer.bautenAnzahl = this.zdos
+      .getAllZDOs()
+      .filter((z) => z.getInt('spieler') === 1 && z.getString('besitzer') === meineId).length;
+
     // Send initial time sync
     this.sendTimeSync(peer);
     this.sendPlayerState(peer);
@@ -769,6 +791,9 @@ export class WovServer {
         break;
       case PacketType.RemovePiece:
         this.handleRemovePiece(peer, reader);
+        break;
+      case PacketType.Craft:
+        this.handleCraft(peer, reader);
         break;
       case PacketType.Eat:
         this.handleEat(peer, reader);
@@ -1032,6 +1057,18 @@ export class WovServer {
     const dx = pos.x - peer.position.x;
     const dz = pos.z - peer.position.z;
     if (dx * dx + dz * dz > 8 * 8) return antwort(false, 'Zu weit weg');
+    // Piece-Budget: unbegrenztes Bauen war ZDO-Spam frei Haus (Review 8).
+    if (peer.bautenAnzahl >= 500) return antwort(false, 'Baulimit erreicht (500)');
+    // Materialkosten SERVERSEITIG: erst prüfen, dann abziehen.
+    const piece = Object.values(PIECES).find((p) => p.bauPrefab === def.name);
+    for (const r of piece?.resources ?? []) {
+      if (peer.inventar.countOf(r.item) < r.amount) {
+        return antwort(false, `Material fehlt: ${r.amount}× ${r.item}`);
+      }
+    }
+    for (const r of piece?.resources ?? []) peer.inventar.removeByName(r.item, r.amount);
+    this.inventarSync(peer);
+    peer.bautenAnzahl++;
 
     const zdo = this.zdos.createZDO(prefabHash, pos, rot);
     zdo.setInt('spieler', 1);
@@ -1070,10 +1107,12 @@ export class WovServer {
     const def = this.prefabs.getByHash(ziel.prefabHash);
     this.zdos.destroyZDO(ziel.zdoid);
     // Halbe Materialkosten zurueck (je Zutat eine Meldung).
+    if (peer.bautenAnzahl > 0) peer.bautenAnzahl--;
     const piece = Object.values(PIECES).find((p) => p.bauPrefab === def?.name);
     for (const r of piece?.resources ?? []) {
       const menge = Math.floor(r.amount / 2);
       if (menge <= 0) continue;
+      this.gebeItem(peer, r.item, menge);
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(true);
         w.writeString(`Abgerissen — ${menge}× ${r.item} zurueck`);
@@ -1228,10 +1267,59 @@ export class WovServer {
    * und meldet es; der Server setzt den Buff — maxHP steigt, dazu leichte
    * Regeneration solange das Essen wirkt (eventTick-Sekundenschleife).
    */
+  /** Craften server-autoritativ: Rezept + Zutaten prüfen, abziehen, geben. */
+  private handleCraft(peer: Peer, reader: Reader): void {
+    const ergebnis = reader.readString();
+    const rezept = REZEPTE.find((r) => r.ergebnis === ergebnis);
+    const antwort = (ok: boolean, message: string) => {
+      peer.sendPacketWith(PacketType.InteractResult, (w) => {
+        w.writeBool(ok);
+        w.writeString(message);
+        w.writeString('');
+        w.writeInt32(0);
+      });
+    };
+    if (!rezept) return antwort(false, 'Unbekanntes Rezept');
+    for (const z of rezept.zutaten) {
+      if (peer.inventar.countOf(z.item) < z.menge) {
+        return antwort(false, `Zutat fehlt: ${z.menge}× ${z.item}`);
+      }
+    }
+    for (const z of rezept.zutaten) peer.inventar.removeByName(z.item, z.menge);
+    const def = findItem(rezept.ergebnis);
+    if (def) peer.inventar.addItem(def, rezept.menge);
+    this.inventarSync(peer);
+    antwort(true, `Hergestellt: ${rezept.ergebnis}`);
+  }
+
+  /** Autoritativen Inventarstand an den Client schicken. */
+  private inventarSync(peer: Peer): void {
+    peer.sendPacketWith(PacketType.InventorySync, (w) => {
+      w.writeString(JSON.stringify(peer.inventar.serialize()));
+    });
+  }
+
+  /**
+   * Items vergeben — der EINZIGE Weg, auf dem Beute/Refunds ins Spiel
+   * kommen (Review-Punkt 8): erst ins Server-Inventar, dann Sync. Der
+   * Client addiert selbst nichts mehr.
+   */
+  private gebeItem(peer: Peer, name: string, amount: number): void {
+    if (amount <= 0) return;
+    const def = findItem(name);
+    if (!def) return;
+    peer.inventar.addItem(def, amount);
+    this.inventarSync(peer);
+  }
+
   private handleEat(peer: Peer, reader: Reader): void {
+    // (Bestandsprüfung unten — Name erst lesen.)
     const item = reader.readString();
     const essen = ESSEN[item];
     if (!essen) return;
+    // Nur essen, was man serverseitig auch besitzt (Review-Punkt 8).
+    if (!peer.inventar.removeByName(item, 1)) return;
+    this.inventarSync(peer);
     peer.foodBonus = essen.bonus;
     peer.foodBis = Date.now() + essen.dauerSec * 1000;
     peer.health = Math.min(this.maxHealth(peer), peer.health + 10);
@@ -1305,6 +1393,7 @@ export class WovServer {
       const name = this.prefabs.getByHash(ziel.prefabHash)?.name ?? '?';
       this.zdos.destroyZDO(ziel.zdoid);
       const beute = wuerfleDrop(name);
+      if (beute) this.gebeItem(peer, beute.name, beute.amount);
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(true);
         w.writeString(beute ? `${name} besiegt — ${beute.amount}× ${beute.name}` : `${name} besiegt`);
@@ -1313,6 +1402,7 @@ export class WovServer {
       });
       const zweit = ZWEIT_DROPS[name];
       if (zweit) {
+        this.gebeItem(peer, zweit[0], zweit[1]);
         peer.sendPacketWith(PacketType.InteractResult, (w) => {
           w.writeBool(true);
           w.writeString(`Trophäe erbeutet: ${zweit[0]}`);
@@ -1334,6 +1424,7 @@ export class WovServer {
    */
   private handleHarvest(peer: Peer, pos: Vector3, waffe: string): void {
     const antwort = (message: string, itemName = '', amount = 0) => {
+      this.gebeItem(peer, itemName, amount);
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(true);
         w.writeString(message);
@@ -1426,6 +1517,7 @@ export class WovServer {
     const pos = reader.readVector3();
     const prefabHash = reader.readInt32();
     const antwort = (ok: boolean, message: string, itemName = '', amount = 0) => {
+      if (ok) this.gebeItem(peer, itemName, amount);
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(ok);
         w.writeString(message);
@@ -1506,6 +1598,12 @@ export class WovServer {
         .getZDOsInRadius(ziel.position, 60)
         .some((z) => z.prefabHash === EIKTHYR_HASH);
       if (schonDa) return antwort(true, 'Eikthyr ist bereits erwacht!');
+      // Opfergabe SERVERSEITIG: 2 Hirschtrophäen aus dem Inventar.
+      if (peer.inventar.countOf('TrophyDeer') < 2) {
+        return antwort(false, 'Der Altar verlangt 2 Hirschtrophäen');
+      }
+      peer.inventar.removeByName('TrophyDeer', 2);
+      this.inventarSync(peer);
       const boss = this.zdos.createZDO(EIKTHYR_HASH, {
         x: ziel.position.x + 4,
         y: ziel.position.y + 0.5,
@@ -1524,6 +1622,16 @@ export class WovServer {
         });
       }
       return;
+    }
+
+    // Feuerstelle brät: 1× RawMeat → 1× CookedMeat (server-autoritativ —
+    // vorher tauschte der Client lokal, Review-Punkt 8).
+    if ((flags & F.FIREPLACE) !== 0n) {
+      if (!peer.inventar.removeByName('RawMeat', 1)) {
+        return antwort(false, 'Kein rohes Fleisch dabei');
+      }
+      this.inventarSync(peer);
+      return antwort(true, 'Fleisch gebraten — 1× CookedMeat', 'CookedMeat', 1);
     }
 
     if ((flags & F.BED) !== 0n) {
@@ -1972,6 +2080,7 @@ export class WovServer {
             : { ...peer.position },
         flying: peer.flying,
         spawnPoint: peer.spawnPoint ?? undefined,
+        inventar: peer.inventar.serialize(),
       });
     }
 

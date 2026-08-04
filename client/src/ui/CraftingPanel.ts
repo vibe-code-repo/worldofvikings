@@ -13,7 +13,9 @@ export class CraftingPanel {
 
   constructor(
     private readonly inventory: () => Inventory | null,
-    private readonly meldung: (text: string) => void
+    private readonly meldung: (text: string) => void,
+    /** Server-Craft (Review-Punkt 8); null = offline (lokaler Fallback). */
+    private readonly aufCraft: ((ergebnis: string) => boolean) | null = null
   ) {
     const root = document.createElement('div');
     root.style.cssText =
@@ -90,6 +92,12 @@ export class CraftingPanel {
         const jetzt = this.inventory();
         if (!jetzt) return;
         if (!r.zutaten.every((z) => jetzt.countOf(z.item) >= z.menge)) return;
+        // Online craftet der SERVER (InventorySync aktualisiert die Liste);
+        // offline bleibt der lokale Pfad, sonst gäbe es dort kein Crafting.
+        if (this.aufCraft?.(r.ergebnis)) {
+          this.fuellen();
+          return;
+        }
         for (const z of r.zutaten) jetzt.removeByName(z.item, z.menge);
         jetzt.addItem(def, r.menge);
         this.meldung(`Hergestellt: ${def.label}`);

@@ -510,7 +510,15 @@ export class WovServer {
 
   // ── Main update loop (C++ update()) ────────────────────────────
 
+  /** Letzter Timeout-Prüflauf (alle ~5 s reicht). */
+  private letzteTimeoutPruefung = 0;
+
   private update(): void {
+    const timeoutJetzt = Date.now();
+    if (timeoutJetzt - this.letzteTimeoutPruefung > 5000) {
+      this.letzteTimeoutPruefung = timeoutJetzt;
+      this.net?.pruefeTimeouts();
+    }
     const now = Date.now();
     const deltaMs = now - this.prevUpdateTime;
     const deltaSec = deltaMs / 1000;
@@ -616,7 +624,8 @@ export class WovServer {
       const seen = new Set<string>();
       for (let dx = -viewRadius; dx <= viewRadius; dx++) {
         for (let dy = -viewRadius; dy <= viewRadius; dy++) {
-          const zdos = this.zdos.getZDOsInZone({ x: peerZone.x + dx, y: peerZone.y + dy });
+          const zdos = this.zdos.zdosInZone({ x: peerZone.x + dx, y: peerZone.y + dy });
+          if (!zdos) continue;
           for (const zdo of zdos) {
             const key = zdo.zdoid.toString();
             if (seen.has(key)) continue;

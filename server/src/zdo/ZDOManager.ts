@@ -154,6 +154,17 @@ export class ZDOManager {
     return set ? [...set] : [];
   }
 
+  /**
+   * Zonen-Set OHNE Kopie — für heiße Pfade (ZDO-Sync läuft je Peer über
+   * 81 Zonen alle 50 ms; [...set] je Zone war reiner Allokations-Ballast,
+   * Review-Punkt 12). Nur lesend verwenden.
+   */
+  zdosInZone(zone: ZoneID): ReadonlySet<ZDO> | undefined {
+    const index = zoneToIndex(zone);
+    if (index !== -1) return this.objectsBySector.get(index);
+    return this.objectsBySectorOuter.get(zoneKey(zone));
+  }
+
   getZDOsInZone(zone: ZoneID): ZDO[] {
     const index = zoneToIndex(zone);
     let set: Set<ZDO> | undefined;

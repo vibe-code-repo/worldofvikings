@@ -119,6 +119,7 @@ export class GameSocket {
     this.ws.onmessage = (event) => this.handleMessage(event.data as ArrayBuffer);
     this.ws.onclose = () => {
       this.connected = false;
+      this.stoppePing();
       this.onDisconnected?.(this.disconnectReason);
     };
     this.ws.onerror = (err) => console.error('[GameSocket] Error:', err);
@@ -154,6 +155,7 @@ export class GameSocket {
           w.writeString(this.generateSessionId());
           this.sendPacket(PacketType.PasswordAuth, w.toUint8Array());
           this.connected = true;
+          this.startePing();
           this.onConnected?.();
         }
         break;
@@ -308,8 +310,25 @@ export class GameSocket {
     this.sendPacket(PacketType.ChatMessage, w.toUint8Array());
   }
 
+  /** Heartbeat-Timer (alle 5 s) — hält die Verbindung auch bei
+   *  Hintergrund-Tabs am Leben und füttert den Server-Timeout. */
+  private pingTimer: number | null = null;
+
+  private startePing(): void {
+    this.stoppePing();
+    this.pingTimer = window.setInterval(() => {
+      if (this.connected) this.sendPacket(PacketType.Ping, new Uint8Array(0));
+    }, 5000);
+  }
+
+  private stoppePing(): void {
+    if (this.pingTimer !== null) window.clearInterval(this.pingTimer);
+    this.pingTimer = null;
+  }
+
   disconnect(): void {
     this.connected = false; // Review 21: log — socket?.connected sonst veraltet
+    this.stoppePing();
     this.ws?.close();
     this.ws = null;
   }

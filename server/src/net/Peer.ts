@@ -42,6 +42,11 @@ export class Peer {
   readonly name: string;
   private socket: WebSocket;
 
+  /** Verbindung hart schließen (Timeout/Fehler) — Socket bleibt privat. */
+  trenne(): void {
+    this.socket.close();
+  }
+
   // ── Mutable state ──────────────────────────────────────────────
   position: Vector3;
   characterID: ZDOID;
@@ -87,6 +92,8 @@ export class Peer {
   letzterSchlag = 0;
   /** Zeitstempel der letzten Chat-Nachricht (Frequenzlimit). */
   letzterChat = 0;
+  /** Zeitstempel des letzten empfangenen Pakets (Heartbeat/Timeout). */
+  letztesPaket = Date.now();
   /** Server-autoritatives Inventar (Review-Punkt 8) — Quelle der Wahrheit. */
   readonly inventar = new Inventory();
   /** Anzahl eigener Bauwerke (Piece-Budget); beim Login gezählt. */

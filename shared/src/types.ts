@@ -242,6 +242,9 @@ export enum PacketType {
   InventorySync = 65,
   /** Client → Server: Craft-Wunsch. Payload: String ergebnis (REZEPTE). */
   Craft = 66,
+  /** Beidseitig: Heartbeat (leer). Client alle 5 s, Server echot —
+   *  Grundlage der Verbindungs-Timeouts (NetManager.pruefeTimeouts). */
+  Ping = 67,
 }
 
 // === Vector3 (Vector.h) ===

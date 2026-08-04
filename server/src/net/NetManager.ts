@@ -126,6 +126,14 @@ export class NetManager {
     const type = data.readUInt8(0) as PacketType;
     const payload = data.subarray(1);
     const reader = new Reader(Buffer.from(payload));
+    peer.letztesPaket = Date.now();
+
+    // Heartbeat: Ping wird geechot und NICHT weitergereicht — er hält nur
+    // letztesPaket frisch (auch bei Tab im Hintergrund, Review-Punkt 11/27).
+    if (type === PacketType.Ping) {
+      peer.sendPacket(PacketType.Ping, Buffer.alloc(0));
+      return;
+    }
 
     // Auth-Gate: Vor der Authentifizierung sind NUR Handshake-Pakete
     // erlaubt — alles andere (Input, Angriffe, Editor-Saves, Admin)
@@ -158,6 +166,23 @@ export class NetManager {
         // Forward unknown types to server
         this.onPacket?.(peer, type, reader);
         break;
+    }
+  }
+
+  /**
+   * Stille Verbindungen trennen: authentifizierte Peers nach 30 s ohne
+   * Paket (Client pingt alle 5 s), unauthentifizierte nach 10 s — vorher
+   * blieben halboffene Sockets für immer bestehen (Review-Punkt 27).
+   */
+  pruefeTimeouts(): void {
+    const jetzt = Date.now();
+    for (const peer of [...this.connectedPeers]) {
+      const still = jetzt - peer.letztesPaket;
+      const limit = peer.authenticated ? 30_000 : 10_000;
+      if (still > limit) {
+        console.warn(`[NetManager] ${peer.name}: ${Math.round(still / 1000)}s still — Timeout`);
+        peer.trenne();
+      }
     }
   }
 

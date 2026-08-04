@@ -904,6 +904,28 @@ function seiteBauen(): void {
     speichereEntwurf();
     window.open('/?offline=1&layout=editor', '_blank');
   }));
+  const welt2 = shell.toolbarGruppe();
+  welt2.appendChild(knopf('💾 In die Welt speichern', () => {
+    const sauber = sanitizeWorldLayout(layout);
+    if (!sauber) {
+      shell.meldung('Entwurf ist unbrauchbar — nicht gespeichert.', true);
+      return;
+    }
+    shell.meldung('Speichere nach server/data/worldlayout.json …');
+    void fetch('/api/worldlayout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sauber),
+    })
+      .then((r) => r.json())
+      .then((a: { ok: boolean; message: string }) => {
+        shell.meldung(
+          a.ok ? `${a.message} — Server neu starten, damit die Welt sie lädt.` : a.message,
+          !a.ok
+        );
+      })
+      .catch((err) => shell.meldung(`Speichern fehlgeschlagen: ${String(err)}`, true));
+  }));
   const datei = shell.toolbarGruppe();
   datei.appendChild(knopf('⬇ Export', () => {
     const a = document.createElement('a');

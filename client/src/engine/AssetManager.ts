@@ -56,6 +56,23 @@ const TEXTUR_BASE_URL = '/assets/textures/';
 const FEHLENDE_ALBEDO: Readonly<Record<string, string>> = {
   stubbe: 'stump',
 };
+
+/**
+ * Eigene Modelle, die sich im Wind biegen sollen, obwohl ihre Textur kein
+ * Alpha-Cutout ist.
+ *
+ * Der reguläre Windpfad in `fixupMaterial` hängt am Cutout-Test: Wind
+ * bekommt nur, was als freigestellte Laubkarte erkannt wurde. Bei den
+ * Original-Assets ist das das verlässlichste Signal — Stroh- und
+ * Reetdächer mussten sogar zusätzlich per Namen ausgeschlossen werden,
+ * weil sie ebenfalls freigestellt sind.
+ *
+ * Modelle aus Photogrammetrie oder KI-Generatoren tragen ihr Laub dagegen
+ * als geschlossene, opake Karte. Sie fallen durch den Test und blieben
+ * dadurch starr, obwohl sie Gewächse sind. Für solche Modelle steht der
+ * Name hier — das Signal, das die Textur nicht liefert.
+ */
+const WIND_TROTZ_OPAKER_TEXTUR = /^KiPine/i;
 /** Unity LOD shells: Lod0/Lod1/…/LOD3_primitive1 etc. */
 const LOD_NAME = /^lod\d/i;
 const LOD0_NAME = /^lod0/i;
@@ -294,6 +311,11 @@ export class AssetManager {
   ): Promise<void> {
     if (!material || !(material instanceof PBRMaterial)) return;
     this.setzeMetallgrad(material);
+
+    // Wind für Modelle ohne Cutout-Laub — muss VOR dem Cutout-Block
+    // stehen, dessen frühe `return`s solche Materialien sonst aussortieren
+    // (siehe WIND_TROTZ_OPAKER_TEXTUR).
+    if (WIND_TROTZ_OPAKER_TEXTUR.test(modelName)) this.setzeWind(material, mesh);
 
     // Fehlende Albedo-Textur aus der Lückenliste nachreichen, bevor unten
     // irgendetwas an ihr gemessen wird (siehe FEHLENDE_ALBEDO).

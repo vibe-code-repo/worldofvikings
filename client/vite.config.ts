@@ -3,7 +3,16 @@ import { spawn } from 'node:child_process';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
-import { createReadStream, existsSync, statSync } from 'fs';
+import {
+  copyFileSync,
+  createReadStream,
+  existsSync,
+  readdirSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'fs';
 import { resolve, normalize, extname, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -11,6 +20,89 @@ const CONFIG_DIR = dirname(fileURLToPath(import.meta.url));
 
 /** Game-Server (server/data/server.yml → server.port). Eigener Port — valheim-browser nutzt 2456. */
 const GAME_SERVER_PORT = 2467;
+
+/**
+ * Speicherweg des Layout-Editors (Review-Punkt 13): POST /api/worldlayout
+ * schreibt das Weltdokument direkt nach server/data/worldlayout.json —
+ * dieselbe Datei, die der MCP-Server bearbeitet. Vorher lebte der Entwurf
+ * nur im localStorage und musste von Hand exportiert und kopiert werden.
+ *
+ * ZUGANG: Der Dev-Server ist öffentlich erreichbar (Port 5274), deshalb
+ * nimmt der Endpunkt NUR Anfragen von localhost und aus dem LAN entgegen.
+ * Alles andere wird mit 403 abgewiesen — sonst könnte jeder im Internet
+ * die Welt überschreiben.
+ */
+function worldLayoutSave(): Plugin {
+  const ZIEL = resolve(CONFIG_DIR, '../server/data/worldlayout.json');
+  const erlaubt = (adresse: string | undefined): boolean => {
+    if (!adresse) return false;
+    const a = adresse.replace(/^::ffff:/, '');
+    return a === '127.0.0.1' || a === '::1' || /^10\.10\.10\./.test(a) || /^192\.168\./.test(a);
+  };
+  return {
+    name: 'wov-worldlayout-save',
+    configureServer(server) {
+      server.middlewares.use('/api/worldlayout', (req, res) => {
+        const antwort = (code: number, text: string): void => {
+          res.statusCode = code;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ ok: code === 200, message: text }));
+        };
+        if (!erlaubt(req.socket.remoteAddress ?? undefined)) {
+          return antwort(403, 'Speichern nur aus dem lokalen Netz erlaubt');
+        }
+        if (req.method !== 'POST') return antwort(405, 'POST erwartet');
+        let roh = '';
+        req.on('data', (c: Buffer) => {
+          roh += c.toString();
+          if (roh.length > 4_000_000) req.destroy();
+        });
+        req.on('end', () => {
+          try {
+            // Struktur-Check statt sanitizeWorldLayout: Die Vite-Konfig kann
+            // @wov/shared nicht laden (ESM-.js-Endungen im TS-Quellbaum) —
+            // die STRENGE Prüfung läuft ohnehin im Browser mit exakt dem
+            // Code, den auch der Server fährt, direkt vor dem Senden.
+            // Hier geht es nur darum, keinen Müll auf die Platte zu legen.
+            const sauber = JSON.parse(roh) as {
+              version?: unknown;
+              name?: unknown;
+              regions?: unknown;
+              placements?: unknown[];
+            };
+            const strukturOk =
+              sauber.version === 1 &&
+              typeof sauber.name === 'string' &&
+              Array.isArray(sauber.regions) &&
+              sauber.regions.every(
+                (r) => r && typeof (r as { id?: unknown }).id === 'string' && (r as { shape?: unknown }).shape
+              );
+            if (!strukturOk) return antwort(400, 'Kein gültiges WorldLayout — verworfen');
+            // Backup wie im MCP-Server: letzte 10 Stände bleiben liegen.
+            if (existsSync(ZIEL)) {
+              const stempel = new Date().toISOString().replace(/[:.]/g, '-');
+              copyFileSync(ZIEL, `${ZIEL}.${stempel}.bak`);
+              const dir = dirname(ZIEL);
+              const alte = readdirSync(dir)
+                .filter((f) => f.startsWith('worldlayout.json.') && f.endsWith('.bak'))
+                .sort();
+              while (alte.length > 10) unlinkSync(resolve(dir, alte.shift()!));
+            }
+            const tmp = `${ZIEL}.tmp`;
+            writeFileSync(tmp, JSON.stringify(sauber, null, 2));
+            renameSync(tmp, ZIEL);
+            antwort(
+              200,
+              `Gespeichert: ${(sauber.regions as unknown[]).length} Region(en), ${sauber.placements?.length ?? 0} Platzierung(en)`
+            );
+          } catch (err) {
+            antwort(400, `Fehler: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        });
+      });
+    },
+  };
+}
 
 /**
  * Server-Konsole für den Layout-Editor: streamt journalctl des wov-Servers
@@ -137,6 +229,7 @@ export default defineConfig({
     gameWsProxy(GAME_SERVER_PORT),
     assetFolder(resolve(CONFIG_DIR, '../assets')),
     serverLog(),
+    worldLayoutSave(),
   ],
   build: {
     outDir: 'dist',

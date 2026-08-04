@@ -1,5 +1,11 @@
 # Verbesserungsvorschläge (Projekt-Review)
 
+> **Stand 04.08.2026 — abgearbeitet:** 1–16, 18, 19, 21, 22, 26, 27, 29, 30
+> (teils), 13. **Zurückgestellt:** 17 (Accounts/Identität — erst vor dem
+> Live-Gang nötig, Entscheidung des Projektinhabers). **Offen:** 20, 23,
+> 24, 25, 28, 31, 32 sowie die Reste von 12 (Save im Worker,
+> TerrainOps-Verdichtung) und 30 (Platten-Deduplizierung).
+
 Stand: 04.08.2026 — Ergebnis einer systematischen Durchsicht von Server/Shared
 (58 Dateien), Client (53 Dateien, 20.282 Zeilen) und Infrastruktur/Tests/Docs.
 Priorisiert in Kritisch / Wichtig / Editor & UX / Qualität & Betrieb.

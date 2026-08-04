@@ -128,6 +128,19 @@ export const HINT_DEFS: PrefabDef[] = [
   def('beech_log', F.TREE_LOG, 'roundlog', 3.0, 1.0),
   def('BushSeed', F.PLANT, 'beechseeds', 0.8, 0.8),
 
+  // Eigenes Modell (Tripo, erzeugt mit tools/tripo-generate.mjs), kein
+  // pkg-Prefab: buildRegistry() nimmt Hints ohne pkg-Gegenstück als
+  // vollwertige Einträge auf; der Hash ist getStableHash(name), Server und
+  // Client bauen dieselbe Registry aus dieser Datei.
+  //
+  // Zwei Werte, die NICHT geraten sind, sondern gemessen (das Skript druckt
+  // sie): localScale 8.98, weil Tripo auf Kantenlänge 1 normiert — ohne das
+  // steht ein kniehoher Baum da. Der Modellname muss ausgeschrieben werden,
+  // denn das `model ?? name`-Fallback in buildRegistry() gilt nur für
+  // pkg-Prefabs; Extras blieben sonst bei model=null (Platzhalterbox).
+  { ...def('KiPine2', F.TREE_BASE | F.PERSISTENT, 'sapling_pine', 5.5, 9.0, 'KiPine2'),
+    localScale: { x: 8.98, y: 8.98, z: 8.98 } },
+
   // ── Rocks / minable ──────────────────────────────────────────────
   def('Rock_4', F.MINE_ROCK_5 | F.PERSISTENT, 'stonerock', 3.0, 2.5),
   def('Rock_3', F.MINE_ROCK_5 | F.PERSISTENT, 'stonerock', 2.0, 1.8),

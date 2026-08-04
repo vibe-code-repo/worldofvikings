@@ -220,12 +220,20 @@ Object.assign(PIECES, {
     { item: 'Wood', amount: 20 },
     { item: 'Flint', amount: 10 },
   ]),
+  // Kein Original-Bauteil: eigenes Modell aus tools/tripo-generate.mjs.
+  // Der Eintrag wirkt an zwei Stellen — der Hammer kann den Baum online
+  // setzen, und BAU_PREFABS speist die Kategorie "Bauteile" des SpawnPanels
+  // (Taste B im Editor-Testflug).
+  bau_kipine: bau('bau_kipine', 'KI-Kiefer', 'sapling_pine', 'KiPine2', [{ item: 'Wood', amount: 1 }]),
 });
 
 export const PIECE_TABLES: Record<string, readonly string[]> = {
   Hoe: ['levelground', 'raise', 'path', 'paved_road', 'reset'],
   Cultivator: ['cultivate', 'path'],
-  Hammer: ['bau_boden', 'bau_wand', 'bau_tuer', 'bau_dach', 'bau_werkbank', 'bau_bett', 'bau_portal'],
+  Hammer: [
+    'bau_boden', 'bau_wand', 'bau_tuer', 'bau_dach',
+    'bau_werkbank', 'bau_bett', 'bau_portal', 'bau_kipine',
+  ],
 };
 
 /** Bau-Prefabs des Hammers — Server-Whitelist für PlacePiece. */

@@ -165,8 +165,45 @@ function ladeEntwurf(): WorldLayout {
 }
 
 function speichereEntwurf(): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
+  } catch {
+    shell.meldung('Entwurf zu groß für localStorage — bitte als JSON exportieren!', true);
+  }
 }
+
+// ── Undo/Redo (Review-Punkt 18) ──────────────────────────────────────
+// `layout` wird überall immutabel ersetzt — ein Snapshot je Änderung
+// genügt. Strg+Z / Strg+Y (bzw. Strg+Shift+Z).
+const vergangenheit: WorldLayout[] = [];
+const zukunft: WorldLayout[] = [];
+function merkeSchritt(): void {
+  vergangenheit.push(layout);
+  if (vergangenheit.length > 50) vergangenheit.shift();
+  zukunft.length = 0;
+}
+window.addEventListener('keydown', (e) => {
+  if (!e.ctrlKey) return;
+  if (e.code === 'KeyZ' && !e.shiftKey) {
+    const vorher = vergangenheit.pop();
+    if (!vorher) return;
+    zukunft.push(layout);
+    layout = vorher;
+    gewaehlt = null;
+    alles();
+    vorschauAnstossen();
+    shell.meldung(`Rückgängig (${vergangenheit.length} weitere Schritte)`);
+  } else if (e.code === 'KeyY' || (e.code === 'KeyZ' && e.shiftKey)) {
+    const wieder = zukunft.pop();
+    if (!wieder) return;
+    vergangenheit.push(layout);
+    layout = wieder;
+    gewaehlt = null;
+    alles();
+    vorschauAnstossen();
+    shell.meldung('Wiederhergestellt');
+  }
+});
 
 function neueId(basis: string): string {
   let n = 1;
@@ -333,6 +370,9 @@ function vorschauRechnen(): void {
       void createImageBitmap(new ImageData(px, n, n)).then((bmp) => {
         vorschauBild = bmp;
         zeichneVorschauBild();
+        // Fertig — Worker samt RegionGeo-Instanz freigeben (WorldMap-Muster).
+        worker?.terminate();
+        worker = null;
         statuszeile.textContent = `Vorschau aktuell — ${sauber.regions.length} Region(en), Karte ${(vorschauSpan / 1000).toFixed(1)} km.`;
       });
     }
@@ -378,6 +418,7 @@ overlay.addEventListener('pointerdown', (e) => {
       shape: form.erzeuge(wx, wz, formGroesse),
       edgeFalloff: 300,
     };
+    merkeSchritt();
     layout = { ...layout, regions: [...layout.regions, region] };
     gewaehlt = region.id;
     alles();
@@ -613,6 +654,7 @@ function seiteBauen(): void {
       x.textContent = '✕';
       x.style.cssText = 'cursor:pointer;color:#c96;';
       x.onclick = () => {
+        merkeSchritt();
         layout = { ...layout, placements: platzierungen.filter((q) => q !== p) };
         alles();
       };
@@ -659,6 +701,7 @@ function seiteBauen(): void {
       box.appendChild(inp);
     };
     const ersetze = (patch: Partial<RegionDef>): void => {
+      merkeSchritt();
       layout = {
         ...layout,
         regions: layout.regions.map((r) => (r.id === region.id ? { ...r, ...patch } : r)),
@@ -699,6 +742,7 @@ function seiteBauen(): void {
       }
     }));
     box.appendChild(knopf('✕ Region löschen', () => {
+      merkeSchritt();
       layout = { ...layout, regions: layout.regions.filter((r) => r.id !== region.id) };
       gewaehlt = null;
       alles(); vorschauAnstossen();

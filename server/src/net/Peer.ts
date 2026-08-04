@@ -94,6 +94,8 @@ export class Peer {
   letzterChat = 0;
   /** Zeitstempel des letzten empfangenen Pakets (Heartbeat/Timeout). */
   letztesPaket = Date.now();
+  /** Welt, in der der Peer lebt (Review 15) — heute immer die Hauptwelt. */
+  worldId = 'haupt';
   /** Server-autoritatives Inventar (Review-Punkt 8) — Quelle der Wahrheit. */
   readonly inventar = new Inventory();
   /** Anzahl eigener Bauwerke (Piece-Budget); beim Login gezählt. */

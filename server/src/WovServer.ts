@@ -52,6 +52,7 @@ import { PrefabManager } from './prefab/PrefabManager.js';
 import { ZoneManager } from './world/ZoneManager.js';
 import { SpawnSystem } from './world/SpawnSystem.js';
 import { WorldManager, type SavedPlayer } from './world/WorldManager.js';
+import { HAUPTWELT_ID, type WorldContext } from './world/WorldContext.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
 import { Peer } from './net/Peer.js';
 import { Reader } from './io/Reader.js';
@@ -143,6 +144,8 @@ export class WovServer {
 
   // ── Worldgen (D6) — built in init(), ground truth for terrain ──
   geo!: IGeo;
+  /** Alle Welten dieses Prozesses — heute genau die Hauptwelt (Review 15). */
+  readonly welten = new Map<string, WorldContext>();
   /** Roh-JSON des WorldLayouts (Layout-Modus) — geht in Phase 4 an Clients. */
   worldLayoutRaw: unknown = null;
   heightmaps!: HeightmapProvider;
@@ -379,6 +382,18 @@ export class WovServer {
       this.worldLayoutHash()
     );
     this.loadWorld();
+
+    // Multi-World-Fundament (Review 15): Die Hauptwelt als WorldContext —
+    // die Felder oben ZEIGEN auf dieselben Bausteine; künftige Welten
+    // (Housing) werden weitere Einträge dieser Map.
+    this.welten.set(HAUPTWELT_ID, {
+      id: HAUPTWELT_ID,
+      geo: this.geo,
+      heightmaps: this.heightmaps,
+      zones: this.zones,
+      zdos: this.zdos,
+      worldManager: this.worldManager,
+    });
 
     // Phase G: Camps (Dörfer, Farmen, GoblinCamps) in bereits generierten
     // Zonen nachziehen — vor dem Camp-Generator wurden sie übersprungen.
@@ -1729,8 +1744,18 @@ export class WovServer {
     peer: Peer,
     pos: Vector3,
     dungeonId: string | null,
-    interiorEnv = ''
+    interiorEnv = '',
+    worldId: string = HAUPTWELT_ID
   ): void {
+    // Weltwechsel-Seam (Review 15): Die Signatur trägt die Zielwelt schon —
+    // der eigentliche Kontext-Swap ist das Housing-Folgeprojekt.
+    if (worldId !== peer.worldId) {
+      if (!this.welten.has(worldId)) {
+        console.warn(`[WoV] teleportPeer: unbekannte Welt "${worldId}" — bleibe in "${peer.worldId}"`);
+        return;
+      }
+      peer.worldId = worldId;
+    }
     peer.position = { ...pos };
     const charZDO = this.zdos.getZDO(peer.characterID);
     if (charZDO) {

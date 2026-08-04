@@ -79,9 +79,11 @@ export class SpawnPanel {
     const suche = document.createElement('input');
     suche.placeholder = 'Suchen … (z. B. beech, rock, wood)';
     suche.style.cssText = this.feldStil();
+    let sucheTimer: number | null = null;
     suche.oninput = () => {
       this.suchtext = suche.value.trim().toLowerCase();
-      this.listeFuellen();
+      if (sucheTimer !== null) window.clearTimeout(sucheTimer);
+      sucheTimer = window.setTimeout(() => this.listeFuellen(), 150);
     };
     this.root.appendChild(suche);
 
@@ -216,6 +218,13 @@ export class SpawnPanel {
         this.listeFuellen();
       };
       this.liste.appendChild(zeile);
+    }
+    const gesamt = this.suchtext ? alle.filter((n) => n.toLowerCase().includes(this.suchtext)).length : alle.length;
+    if (gesamt > treffer.length) {
+      const mehr = document.createElement('div');
+      mehr.textContent = `… und ${gesamt - treffer.length} weitere — Suche verfeinern`;
+      mehr.style.cssText = 'padding:2px 6px;color:#9a8f6a;font-style:italic;';
+      this.liste.appendChild(mehr);
     }
     if (treffer.length === 0) {
       const leer = document.createElement('div');

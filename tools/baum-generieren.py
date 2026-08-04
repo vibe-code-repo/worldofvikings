@@ -49,23 +49,137 @@ NAME = arg('--name', 'Fichte1')
 SEED = int(arg('--seed', '1'))
 HOEHE = float(arg('--hoehe', '12'))
 ZIEL = arg('--ziel', 'assets/models')
-MAX_DREIECKE = int(arg('--max-dreiecke', '4000'))
-TEXTUR = arg('--textur', 'assets/textures/PineTree_01.png')
+MAX_DREIECKE = int(arg('--max-dreiecke', '4500'))
+ART = arg('--art', 'fichte')
+# Faktor auf Ast- und Blattzahl. Sapling erzeugt unabhängig von der Höhe
+# gleich viele Äste — eine 3-m-Jungtanne bekäme sonst dasselbe
+# Dreiecksbudget wie eine ausgewachsene und wäre im Wald reine
+# Verschwendung.
+DICHTE = float(arg('--dichte', '1.0'))
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEXTUR_PFAD = os.path.join(ROOT, TEXTUR)
-ZIEL_PFAD = os.path.join(ROOT, ZIEL, f'{NAME}.glb')
 
-# Gemessene UV-Rechtecke der drei Zweigkarten (u0, u1, v0, v1).
-# v ist bereits von unten gezählt (Blender/glTF), das Bild läuft von oben.
-ZWEIGE = [
-    (0.0234, 0.3164, 0.0195, 0.4844),  # groß,  75×119 px
-    (0.0273, 0.2188, 0.5156, 0.7773),  # mittel, 49×67 px
-    (0.2891, 0.3906, 0.3594, 0.4844),  # klein,  26×32 px
-]
-# Rinde: rechte Atlashälfte. Etwas Rand lassen, damit das Filtern der
-# Mipmaps keine Zweigreste über die Naht zieht.
-RINDE = (0.52, 0.98)
+# ── Arten ────────────────────────────────────────────────────────────
+# Jede Art bringt ihre eigene Originaltextur samt vermessenen UV-Feldern
+# und einen Satz Sapling-Parameter mit. Die UV-Rechtecke sind (u0,u1,v0,v1)
+# mit v von UNTEN gezählt (Blender/glTF) — das Bild läuft von oben, wer das
+# verwechselt, bekommt Rinde ins Laub.
+ARTEN = {
+    # Gemeine Fichte — schlank, hängende Äste. Textur PineTree_01.png (256²):
+    # linke Hälfte drei Zweigkarten, rechte Hälfte Rinde.
+    'fichte': {
+        'textur': 'assets/textures/PineTree_01.png',
+        'zweige': [
+            (0.0234, 0.3164, 0.0195, 0.4844),  # groß,   75×119 px
+            (0.0273, 0.2188, 0.5156, 0.7773),  # mittel, 49×67 px
+            (0.2891, 0.3906, 0.3594, 0.4844),  # klein,  26×32 px
+        ],
+        'rinde': (0.52, 0.98, 0.0, 1.0),
+    },
+    # Tanne nach dem Original-Prefab `FirTree`. Textur Pine_tree_texture_d.png
+    # (512²): unten DREI ganze Nadelzweige über die volle Höhe, oben links
+    # Rinde, oben rechts ein fertiger Wipfel. Deutlich feiner gefiedert als
+    # die Kiefernkarten — das ist der Grund, diese Art nicht einfach mit der
+    # Fichtentextur zu bauen.
+    'tanne': {
+        'textur': 'assets/textures/Pine_tree_texture_d.png',
+        'zweige': [
+            (0.005, 0.350, 0.005, 0.655),   # linker Zweig
+            (0.355, 0.675, 0.005, 0.675),   # mittlerer Zweig
+            (0.680, 0.995, 0.005, 0.650),   # rechter Zweig
+        ],
+        # Konservativer Ausschnitt: Die Rinde läuft keilförmig aus, ein zu
+        # großes Rechteck zieht den schwarzen Hintergrund in den Stamm.
+        'rinde': (0.05, 0.60, 0.78, 0.97),
+        # Abweichungen von der Fichten-Basis, abgelesen am gerenderten
+        # Original-Prefab: Die Tanne ist GEDRUNGEN (5,4 m hoch bei 3,6 m
+        # Breite, Verhältnis 1,5) und trägt ihre Äste fast waagerecht in
+        # klaren Etagen — nicht hängend wie die Fichte. Ihr Laub beginnt
+        # tief am Stamm und schließt sich zu einer fast undurchsichtigen
+        # Krone.
+        'sapling': {
+            'length': (1.0, 0.36, 0.44, 0.35),   # längere Äste = breiter
+            'downAngle': (90, 76, 68, 45),       # waagerecht statt fallend
+            'attractUp': (0, -0.08, -0.05, 0),   # kaum Hängen
+            'baseSize': 0.13,                    # Äste setzen tief an
+            'branches': (0, 58, 15, 0),
+            'leaves': 84,
+            'leafScale': 0.58,
+            'ratio': 0.017,                      # etwas kräftigerer Stamm
+            'branchDist': 1.15,
+        },
+    },
+    # ── Birke, hochstämmig ───────────────────────────────────────────
+    # Nach Birch1/Birch2: breite RUNDE Krone auf hellem Stamm, im Original
+    # aus wenigen grossen Blattkarten gebaut (344 Dreiecke fürs Ganze).
+    # `birch_leaf.png` ist EINE Karte über die volle Textur — ein ganzer
+    # belaubter Zweig mit weissem Ästchen, 61 % Löcher. Deshalb hier nur ein
+    # UV-Feld statt drei, und die Rinde kommt aus einer eigenen Datei.
+    #
+    # Laubbaum heisst für Sapling: Äste STREBEN NACH OBEN statt zu hängen
+    # (attractUp positiv, downAngle klein), der Stamm gabelt sich
+    # (baseSplits), und die Krone ist kugelig statt konisch (shape 1).
+    'birke': {
+        'textur': 'assets/textures/birch_leaf.png',
+        'textur_rinde': 'assets/textures/birch_bark.png',
+        'zweige': [(0.0, 1.0, 0.0, 1.0)],
+        'rinde': (0.0, 1.0, 0.0, 1.0),
+        'sapling': {
+            'shape': '1',                        # kugelige Krone
+            'baseSize': 0.40,                    # hoher freier Stamm
+            # KEIN baseSplits: Eine Gabel im unteren Stamm ergibt zwei dünne
+            # Stämmchen — das Original hat einen durchgehenden.
+            'baseSplits': 0,
+            'branches': (0, 34, 16, 0),
+            # Kürzere Äste halten die Krone geschlossen. Mit 0.42 stand da
+            # ein Gerüst aus langen Ruten mit Laubbüscheln an den Enden.
+            'length': (1.0, 0.32, 0.42, 0.35),
+            'lengthV': (0.0, 0.26, 0.3, 0.0),
+            'downAngle': (90, 58, 46, 45),       # Äste steigen an
+            'downAngleV': (0, 28, 24, 10),
+            'attractUp': (0, 0.35, 0.28, 0),     # nach oben strebend
+            'curve': (0, 12, 18, 0),
+            'curveV': (30, 60, 80, 0),
+            'segSplits': (0.25, 0.35, 0.2, 0),
+            'ratio': 0.010,                      # schlanker Stamm
+            'branchDist': 1.0,
+            # Das Original baut seine Krone aus wenigen GROSSEN Karten und
+            # wirkt trotzdem geschlossen. Weil unsere Karten kleiner sitzen,
+            # braucht es mehr davon — 40 ergaben einen durchsichtigen Baum.
+            'leaves': 88,
+            'leafScale': 0.82,
+            'leafScaleV': 0.4,
+            'leafangle': -18,
+            'leafDownAngle': 38,
+        },
+    },
+}
+
+# Dichte Variante: gleiche Art, aber Laub bis tief herunter und mehr davon.
+# Als eigenes Profil statt als Schalter, weil sich fünf Werte ändern.
+ARTEN['birke_dicht'] = {
+    **ARTEN['birke'],
+    'sapling': {
+        **ARTEN['birke']['sapling'],
+        'baseSize': 0.18,        # Laub beginnt tief — kaum freier Stamm
+        'branches': (0, 48, 20, 0),
+        'leaves': 110,
+        'attractUp': (0, 0.22, 0.2, 0),
+        'length': (1.0, 0.36, 0.44, 0.35),
+    },
+}
+
+if ART not in ARTEN:
+    raise SystemExit(f'--art muss eine von {", ".join(ARTEN)} sein')
+PROFIL = ARTEN[ART]
+TEXTUR_PFAD = os.path.join(ROOT, arg('--textur', PROFIL['textur']))
+# Nadelbäume tragen Laub und Rinde in EINEM Atlas, die Birke hat dafür zwei
+# getrennte Dateien (birch_leaf.png / birch_bark.png). Fehlt der Eintrag,
+# kommt beides wie bisher aus derselben Textur.
+TEXTUR_RINDE = os.path.join(ROOT, PROFIL.get('textur_rinde', PROFIL['textur']))
+ZIEL_PFAD = os.path.join(ROOT, ZIEL, f'{NAME}.glb')
+ZWEIGE = PROFIL['zweige']
+RINDE = PROFIL['rinde']
 
 
 def leere_szene():
@@ -73,15 +187,17 @@ def leere_szene():
 
 
 def sapling_baum():
-    """Ruft Sapling mit Fichten-Parametern auf.
+    """Ruft Sapling auf: gemeinsame Basis, dann die Abweichungen der Art.
 
-    Die Werte sind an einer Gemeinen Fichte orientiert: durchgehender
-    gerader Stamm, Äste in Quirlen, nach unten hängende Spitzen. `shape 0`
-    ist Saplings konische Grundform, `downAngle` über 90° lässt die Äste
+    Die Basis ist an einer Gemeinen Fichte orientiert — durchgehender
+    gerader Stamm, konische Krone, hängende Astspitzen. `shape 0` ist
+    Saplings konische Grundform, `downAngle` über 90° lässt die Äste
     fallen statt abzustehen.
+
+    Was die Tanne davon abweichen lässt, steht in ARTEN['tanne']['sapling'].
     """
     addon_utils.enable('add_curve_sapling', default_set=False)
-    bpy.ops.curve.tree_add(
+    werte = dict(
         do_update=True,
         chooseSet='0',
         bevel=True,           # Stamm/Äste als Röhren, nicht als Striche
@@ -104,16 +220,32 @@ def sapling_baum():
         bevelRes=0,
         levels=2,
         shape='0',            # konisch — die Grundform einer Fichte
-        length=(1.0, 0.30, 0.42, 0.35),
-        lengthV=(0.0, 0.12, 0.2, 0.0),
-        branches=(0, 38, 11, 0),
+        # Kürzere Äste (0.26 statt 0.35) halten die Krone kompakt. Lange
+        # Äste mit gleich viel Laub ergeben eine lichte Krone, durch die
+        # man hindurchsieht — im Vergleich gegen Pinetree_01 war genau das
+        # der auffälligste Unterschied.
+        length=(1.0, 0.26, 0.40, 0.35),
+        # ── Unregelmäßigkeit ────────────────────────────────────────────
+        # Der erste brauchbare Baum wirkte "sehr gleichmäßig". Grund: Die
+        # Variationsparameter standen fast alle auf ihren Vorgaben, und die
+        # sind bei Sapling 0 — jeder Ast bekam denselben Winkel, dieselbe
+        # Länge, dieselbe Krümmung. Erst diese Streuungen machen aus einem
+        # Bauplan einen gewachsenen Baum.
+        lengthV=(0.0, 0.22, 0.25, 0.0),
+        branches=(0, 52, 13, 0),
         curveRes=(5, 3, 2, 1),
         curve=(0, -18, -22, 0),
-        curveV=(18, 40, 60, 0),
+        curveV=(25, 55, 70, 0),
         downAngle=(90, 105, 78, 45),
-        downAngleV=(0, 22, 18, 10),
+        downAngleV=(0, 32, 26, 10),
         rotate=(99.5, 137.5, 137.5, 137.5),
-        rotateV=(15, 0, 0, 0),
+        rotateV=(28, 14, 0, 0),
+        # Äste hängen nach unten statt waagerecht abzustehen — bei einer
+        # Fichte ist das der Unterschied zwischen Flaschenbürste und Baum.
+        attractUp=(0, -0.35, -0.25, 0),
+        # Astdichte nach oben verlagern: unten stehen wenige lange, oben
+        # viele kurze Äste. Verstärkt die konische Form.
+        branchDist=1.35,
         scale=HOEHE,
         scaleV=HOEHE * 0.1,
         ratio=0.014,
@@ -129,14 +261,28 @@ def sapling_baum():
         # Ast (erster Versuch, 110 Stück insgesamt) stand da ein kahler
         # Jungbaum, durch den man hindurchsah. Ein Blatt kostet 2 Dreiecke —
         # bei einem Holzanteil von rund 900 ist reichlich Luft zum Budget.
-        leaves=34,
-        leafScale=0.5,
-        leafScaleX=0.9,
+        leaves=74,
+        leafScale=0.62,
+        leafScaleX=0.85,
         leafShape='rect',
         leafDist='6',
         bend=0.0,
         leafangle=-38,
+        # Auch das Laub streuen. leafScaleV und leafRotateV stehen bei
+        # Sapling auf 0 — ohne sie hängt an jedem Ast dieselbe Karte in
+        # derselben Größe und Drehung, was aus der Ferne als Raster liest.
+        leafScaleV=0.35,
+        leafRotate=137.5,
+        leafRotateV=55.0,
+        leafDownAngle=52,
+        leafDownAngleV=34,
     )
+    werte.update(PROFIL.get('sapling', {}))
+    if DICHTE != 1.0:
+        b = werte['branches']
+        werte['branches'] = (0, max(6, round(b[1] * DICHTE)), max(3, round(b[2] * DICHTE)), b[3])
+        werte['leaves'] = max(10, round(werte['leaves'] * DICHTE))
+    bpy.ops.curve.tree_add(**werte)
 
 
 def zu_mesh(obj):
@@ -148,7 +294,7 @@ def zu_mesh(obj):
     return bpy.context.view_layer.objects.active
 
 
-def material(name, cutout):
+def material(name, cutout, textur=None):
     """Principled-Material auf die Atlastextur.
 
     Für das Laub wird der Alphakanal an den Alpha-Eingang gelegt und der
@@ -168,7 +314,7 @@ def material(name, cutout):
         bsdf.inputs['Specular IOR Level'].default_value = 0.05
 
     tex = nt.nodes.new('ShaderNodeTexImage')
-    tex.image = bpy.data.images.load(TEXTUR_PFAD, check_existing=True)
+    tex.image = bpy.data.images.load(textur or TEXTUR_PFAD, check_existing=True)
     tex.interpolation = 'Linear'
     nt.links.new(tex.outputs['Color'], bsdf.inputs['Base Color'])
 
@@ -197,9 +343,17 @@ def uv_auf_rechteck(mesh, u0, u1, v0, v1, pro_flaeche):
                 su, sv = [(0, 0), (1, 0), (1, 1), (0, 1)][k]
                 uv.data[li].uv = (u0 + su * (u1 - u0), v0 + sv * (v1 - v0))
         else:
+            # Rinde: die vorhandenen UVs in das Feld hineinskalieren, statt
+            # sie zu ersetzen — so kachelt die Struktur weiter über die
+            # Stammlänge, bleibt aber innerhalb des Rindenausschnitts. Bei
+            # der Tanne liegt der nur im oberen Fünftel des Atlas; ohne die
+            # v-Begrenzung landete das halbe Nadelfeld auf dem Stamm.
             for li in ecken:
                 alt = uv.data[li].uv
-                uv.data[li].uv = (u0 + (alt[0] % 1.0) * (u1 - u0), alt[1])
+                uv.data[li].uv = (
+                    u0 + (alt[0] % 1.0) * (u1 - u0),
+                    v0 + (alt[1] % 1.0) * (v1 - v0),
+                )
 
 
 def laub_karten_variieren(mesh, rnd):
@@ -238,8 +392,8 @@ def main():
         raise SystemExit('Sapling hat kein Objekt "tree" erzeugt')
 
     baum = zu_mesh(baum)
-    baum.data.materials.append(material('rinde', cutout=False))
-    uv_auf_rechteck(baum.data, RINDE[0], RINDE[1], 0.0, 1.0, pro_flaeche=False)
+    baum.data.materials.append(material('rinde', cutout=False, textur=TEXTUR_RINDE))
+    uv_auf_rechteck(baum.data, RINDE[0], RINDE[1], RINDE[2], RINDE[3], pro_flaeche=False)
 
     if laub is not None:
         laub.data.materials.clear()

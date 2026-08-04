@@ -140,6 +140,41 @@ export const HINT_DEFS: PrefabDef[] = [
   // pkg-Prefabs; Extras blieben sonst bei model=null (Platzhalterbox).
   { ...def('KiPine2', F.TREE_BASE | F.PERSISTENT, 'sapling_pine', 5.5, 9.0, 'KiPine2'),
     localScale: { x: 8.98, y: 8.98, z: 8.98 } },
+  // Prozedurale Fichten aus tools/baum-generieren.py (Blender/Sapling) mit den
+  // ORIGINAL-Nadelkarten aus PineTree_01.png. Anders als bei den Tripo-Bäumen
+  // ist das Laub echtes Cutout — der Umriss ist durchbrochen, und Windplugin
+  // wie Cutout-Erkennung greifen ohne Sonderweg.
+  //
+  // Kein localScale: Das Skript exportiert in Metern, nicht auf 1 normiert.
+  // Je Baum rund 2.500 Dreiecke, also das Budget des Originals (2.532) — der
+  // Tripo-Baum daneben braucht 13.898. Varianten kosten nur einen anderen Seed.
+  def('Fichte1', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 6.4, 12.0, 'Fichte1'),
+  def('Fichte2', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 7.0, 14.0, 'Fichte2'),
+  def('Fichte3', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 5.4, 10.0, 'Fichte3'),
+  // Tannen nach dem Original-Prefab `FirTree` (gedrungen, waagerechte Äste),
+  // mit dessen eigener Nadeltextur Pine_tree_texture_d.png — feiner gefiedert
+  // als die Kiefernkarten der Fichten. Vier Größen, weil Valheim dieselbe
+  // Tanne über `scale 2.0–2.5` (gross) und `0.3–0.7` (FirTree_small) verteilt;
+  // getrennte Modelle statt Skalierung, damit auch die FORM variiert.
+  // Dreiecksbudget staffelt über --dichte mit: 4.214 / 3.316 / 1.910 / 1.182.
+  def('Tanne1', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 7.5, 12.0, 'Tanne1'),
+  def('Tanne2', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 5.8, 9.0, 'Tanne2'),
+  def('Tanne3', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 4.0, 6.0, 'Tanne3'),
+  def('Tanne4', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 2.2, 3.2, 'Tanne4'),
+  // Birken-Set nach Birch1/Birch2, in zwei Wuchsformen je drei Größen.
+  // Laubbaum heißt bei Sapling: Äste STREBEN NACH OBEN (attractUp positiv),
+  // Krone kugelig statt konisch. Texturen getrennt — birch_leaf.png ist eine
+  // einzige Karte mit einem ganzen belaubten Zweig (61 % Löcher),
+  // birch_bark.png liefert die helle Rinde.
+  //
+  // "Hoch" = freier Stamm bis 40 % der Höhe, lockere Krone obenauf.
+  // "Dicht" = Laub ab 18 %, geschlossene Krone. Maße gemessen, nicht geraten.
+  def('BirkeHoch1', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 3.9, 5.1, 'BirkeHoch1'),
+  def('BirkeHoch2', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 5.4, 9.7, 'BirkeHoch2'),
+  def('BirkeHoch3', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 7.3, 12.4, 'BirkeHoch3'),
+  def('BirkeDicht1', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 5.2, 6.1, 'BirkeDicht1'),
+  def('BirkeDicht2', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 7.3, 9.6, 'BirkeDicht2'),
+  def('BirkeDicht3', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 8.4, 12.5, 'BirkeDicht3'),
   // Zweiter Baumversuch mit v3.1 und 15.000 face_limit (KiPine2 lief noch auf
   // v2.5). Die Textur ist deutlich besser — Farben stimmen, Rinde stellenweise
   // erkennbar —, bleibt aber ein Flickenteppich: Anders als beim Steinkreis
@@ -147,6 +182,13 @@ export const HINT_DEFS: PrefabDef[] = [
   // kein zusammenhängendes Muster entsteht. Zum Vergleichen beide behalten.
   { ...def('KiPine3', F.TREE_BASE | F.PERSISTENT, 'sapling_pine', 7.4, 12.0, 'KiPine3'),
     localScale: { x: 12, y: 12, z: 12 } },
+  // Wikinger-Statue (Tripo v3.1, 8.843 Dreiecke), angelehnt an GuardStone_Oden:
+  // bärtiger Krieger mit gehörntem Helm und Runen auf der Brust. Bewusst NICHT
+  // in Blender gebaut — prozedurales Skripting trägt Steinplatten und Säulen,
+  // aber keine Figur mit Gesicht und Gewand. Kollision bleibt die abgeleitete
+  // Box: Man soll um eine Statue herumgehen, nicht hindurch.
+  { ...def('WikingerStatue', F.PERSISTENT, 'portal_stone', 1.3, 2.6, 'WikingerStatue'),
+    localScale: { x: 2.6, y: 2.6, z: 2.6 } },
   // Steinkreis (Tripo v3.1, 11.362 Dreiecke). Kein TREE_BASE — das Ding ist
   // ein Bauwerk, kein Gewächs: nicht fällbar, kein Wind. Die Kollision läuft
   // über BEGEHBAR in EntityManager.ts, sonst stünde eine Box im Durchgang.
@@ -215,6 +257,17 @@ export const HINT_DEFS: PrefabDef[] = [
   // *_AI-Flag: das Spawn-System soll ihn weder verwalten noch despawnen.
   { ...def('NPC_1', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 0.9, 1.5, 'npc_1_walk'), animation: 'Walking' },
 
+  // Völva — Seherin der nordischen Sagen, gedacht als Auftraggeberin
+  // (Tripo v3.1, 11.443 Dreiecke). Dieselben Flags wie NPC_1: kein *_AI,
+  // damit das Spawn-System sie weder verwaltet noch despawnt, aber
+  // SYNCED_TRANSFORM, falls sie später gehen oder sich zuwenden soll.
+  //
+  // OHNE Animation: Das Modell kommt ungerigged aus dem Generator und steht
+  // starr. Tripos API kann nachträglich riggen (animate_rig), das ist ein
+  // eigener Aufruf und noch nicht eingebaut.
+  { ...def('Voelva', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 0.8, 1.8, 'Voelva'),
+    localScale: { x: 1.75, y: 1.75, z: 1.75 } },
+
   // ── Misc world objects ───────────────────────────────────────────
   def('Vegvisir', F.PERSISTENT, null, 1.5, 2.5),
   def('BossStone_Eikthyr', F.PERSISTENT, 'mapicon_boss', 2.0, 3.0),
@@ -243,6 +296,43 @@ const HINTS_BY_NAME: ReadonlyMap<string, PrefabDef> = new Map(
  * demo world keeps working.
  */
 export const PREFAB_DEFS: PrefabDef[] = buildRegistry();
+
+/**
+ * Selbst erzeugte Modelle — die Auswahlliste des Spawn-Editors.
+ *
+ * Die Registry hat 3.748 Einträge mit Modell, und das SpawnPanel zeigt je
+ * Kategorie nur die ersten 80. Ohne eigene Kategorie sind selbst gebaute
+ * Prefabs dort faktisch nicht auffindbar — man muss ihren Namen bereits
+ * kennen und ihn eintippen.
+ *
+ * Bewusst eine HANDGEPFLEGTE Liste und keine Heuristik: Ob ein Prefab aus
+ * dem Valheim-Paket oder aus unseren Werkzeugen stammt, lässt sich am
+ * Namen nicht ablesen, und die Alternative (alles, was nur als Hint
+ * existiert) fischt Dungeon-Räume und Altlasten mit ein.
+ *
+ * Neue Modelle aus `tools/tripo-generate.mjs` oder
+ * `tools/baum-generieren.py` gehören hier ergänzt.
+ */
+export const EIGENE_MODELLE: readonly string[] = [
+  'BirkeHoch1',
+  'BirkeHoch2',
+  'BirkeHoch3',
+  'BirkeDicht1',
+  'BirkeDicht2',
+  'BirkeDicht3',
+  'Tanne1',
+  'Tanne2',
+  'Tanne3',
+  'Tanne4',
+  'Fichte1',
+  'Fichte2',
+  'Fichte3',
+  'KiPine2',
+  'KiPine3',
+  'Steinkreis',
+  'WikingerStatue',
+  'Voelva',
+];
 
 function buildRegistry(): PrefabDef[] {
   const defs: PrefabDef[] = [];

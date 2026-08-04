@@ -9,7 +9,7 @@
  * „Platzieren" bzw. Taste P setzt das Objekt vor dem Spieler; bei
  * gefangener Maus platziert auch der Linksklick.
  */
-import { FOLIAGE, BAU_PREFABS, PREFABS_BY_NAME } from '@wov/shared';
+import { FOLIAGE, BAU_PREFABS, PREFABS_BY_NAME, EIGENE_MODELLE } from '@wov/shared';
 
 export interface SpawnEinstellung {
   prefab: string;
@@ -27,6 +27,12 @@ export interface SpawnPanelCallbacks {
 }
 
 const KATEGORIEN: ReadonlyArray<{ name: string; namen: () => string[] }> = [
+  // Zuerst, und damit die Vorgabe beim Öffnen: die kurze Liste der selbst
+  // erzeugten Modelle. In den anderen Kategorien gehen sie zwischen
+  // hunderten Einträgen unter (die Liste zeigt nur die ersten 80).
+  // Nicht vorhandene Namen werden gefiltert, damit ein Eintrag ohne
+  // passende GLB die Auswahl nicht mit einer toten Zeile verstopft.
+  { name: 'Eigene Modelle', namen: () => EIGENE_MODELLE.filter((n) => PREFABS_BY_NAME.has(n)) },
   { name: 'Vegetation', namen: () => [...new Set(FOLIAGE.map((f) => f.prefabName))] },
   { name: 'Bauteile', namen: () => [...BAU_PREFABS] },
   {

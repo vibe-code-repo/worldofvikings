@@ -121,7 +121,21 @@ export class AssetManager {
   async instantiate(name: string, animation?: string): Promise<TransformNode | null> {
     const container = await this.loadContainer(name);
     if (!container) return null;
-    const inst = container.instantiateModelsToScene((n) => n, false, { doNotInstantiate: false });
+    // doNotInstantiate: ECHTE Klone statt InstancedMesh.
+    //
+    // Mit `false` erzeugt Babylon für Meshes OHNE Skelett InstancedMeshes.
+    // Deren Quell-Mesh bleibt im AssetContainer und kommt nie in die Szene —
+    // gerendert wird die Instanz dann nicht. Gemessen an der Völva: Mesh in
+    // der Szene, sichtbar, Textur geladen, und trotzdem im Bild nur ihr
+    // SCHATTEN auf dem Boden (der läuft über die renderList des
+    // ShadowGenerators, nicht über den Szenendurchlauf).
+    //
+    // Aufgefallen ist es erst jetzt, weil alle bisherigen dynamischen
+    // Prefabs (Boar, Deer, NPC_1 …) Skelette tragen und deshalb ohnehin
+    // als Klone entstehen. Ungeriggte Modelle fallen genau in diese Lücke.
+    // Klone kosten etwas Speicher je Instanz — bei einer Handvoll NPCs
+    // belanglos gegen ein Modell, das man nicht sieht.
+    const inst = container.instantiateModelsToScene((n) => n, false, { doNotInstantiate: true });
     let hasVisibleGeometry = false;
     for (const mesh of collectMeshes(inst.rootNodes)) {
       // keep only the Lod0 shell — Unity GLBs carry all LOD levels as siblings

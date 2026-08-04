@@ -783,9 +783,21 @@ export class EntityManager {
       }
     }
     dyn.ziel = ziel;
+    // Grundskalierung des Prefabs MIT der ZDO-Skalierung verrechnen.
+    //
+    // Statische Prefabs bekommen ihre localScale über composeZdoWorld; im
+    // dynamischen Pfad stand hier nur die ZDO-Skalierung. Prefabs, deren
+    // Modell nicht in Metern vorliegt, standen dadurch in Rohgröße da — die
+    // Völva mit localScale 1.75 war einen Meter groß, weil ihr GLB (wie alles
+    // aus dem Generator) auf Kantenlänge 1 normiert ist.
+    //
+    // Für alle bisherigen dynamischen Prefabs ist localScale 1, an ihnen
+    // ändert sich damit nichts.
+    const basis = findPrefabByHash(u.prefabHash)?.localScale ?? { x: 1, y: 1, z: 1 };
     const s = u.scale;
-    if (typeof s === 'number') dyn.root.scaling = new Vector3(s, s, s);
-    else if (s) dyn.root.scaling = new Vector3(s.x, s.y, s.z);
+    const f =
+      typeof s === 'number' ? { x: s, y: s, z: s } : s ? { x: s.x, y: s.y, z: s.z } : { x: 1, y: 1, z: 1 };
+    dyn.root.scaling = new Vector3(basis.x * f.x, basis.y * f.y, basis.z * f.z);
   }
 
   // ── Location terrain leveling (F4) ───────────────────────────────

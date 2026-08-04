@@ -67,6 +67,27 @@ def masse(objs):
     return mn, mx
 
 
+# Nur WURZELN transformieren: Sapling hängt `leaves` als Kind unter
+# `tree`, und der glTF-Import erhält diese Hierarchie. Verschiebt man
+# beide, wirkt die Verschiebung auf das Kind doppelt — im ersten
+# Vergleichsbild stand der Stamm in der Mitte und sein Laub daneben.
+def wurzeln(objs):
+    menge = set(objs)
+    return [o for o in objs if o.parent not in menge]
+
+
+if NORMIEREN > 0:
+    for objs in gruppen:
+        mn, mx = masse(objs)
+        h = mx.z - mn.z
+        if h <= 0:
+            continue
+        f = NORMIEREN / h
+        for o in wurzeln(objs):
+            o.scale = (o.scale.x * f, o.scale.y * f, o.scale.z * f)
+            o.location = o.location * f
+        bpy.context.view_layer.update()
+
 hoehen = []
 breiten = []
 for objs in gruppen:
@@ -82,13 +103,17 @@ gesamt = abstand_x * (len(gruppen) - 1)
 for i, objs in enumerate(gruppen):
     mn, mx = masse(objs)
     dx = -gesamt / 2 + i * abstand_x - (mn.x + mx.x) / 2
-    for o in objs:
+    for o in wurzeln(objs):
         o.location.x += dx
         o.location.y -= (mn.y + mx.y) / 2
         o.location.z -= mn.z
 
 # ── Boden, damit Schatten und Standlinie lesbar sind ─────────────────
-bpy.ops.mesh.primitive_plane_add(size=max(hmax * 6, 40), location=(0, 0, 0))
+# Der Boden muss die ganze REIHE tragen, nicht nur einen Baum — sonst
+# endet er bei mehreren Modellen mitten im Bild.
+bpy.ops.mesh.primitive_plane_add(
+    size=max(hmax * 6, gesamt + max(breiten) * 4, 40), location=(0, 0, 0)
+)
 boden = bpy.context.object
 bm = bpy.data.materials.new('boden')
 bm.use_nodes = True
@@ -121,13 +146,33 @@ richtung = ziel - kam.location
 kam.rotation_euler = richtung.to_track_quat('-Z', 'Y').to_euler()
 bpy.context.scene.camera = kam
 
-# ── Cutout sicherstellen ─────────────────────────────────────────────
-# Der glTF-Import setzt CLIP nur, wenn alphaMode MASK im Modell steht.
-# Wo eine Textur einen echten Alphakanal hat, aber OPAQUE gemeldet wurde,
-# bliebe das Laub ein volles Rechteck — deshalb hier melden statt raten.
+# ── Cutout nachrüsten ────────────────────────────────────────────────
+# Der glTF-Import setzt CLIP nur, wenn alphaMode MASK im Modell steht. Der
+# AssetRipper-Export der Original-Prefabs meldet aber OPAQUE, obwohl die
+# Texturen echte Alphakanäle haben — im Spiel repariert das erst die
+# Cutout-Erkennung im AssetManager zur Laufzeit.
+#
+# Ohne dieselbe Reparatur hier rendert Birch1 als Wolke schwarzer Rechtecke,
+# und jeder Vergleich gegen ein eigenes Modell wäre wertlos. Kriterium ist
+# der Alphakanal des Bildes selbst, nicht das gemeldete Material.
 for mat in bpy.data.materials:
-    if mat.use_nodes and mat.blend_method == 'CLIP':
-        print(f'CUTOUT-MATERIAL {mat.name} (threshold {mat.alpha_threshold})')
+    if not mat.use_nodes or mat.blend_method == 'CLIP':
+        if mat.use_nodes and mat.blend_method == 'CLIP':
+            print(f'CUTOUT-MATERIAL {mat.name} (threshold {mat.alpha_threshold})')
+        continue
+    bsdf = mat.node_tree.nodes.get('Principled BSDF')
+    if not bsdf:
+        continue
+    for verb in bsdf.inputs['Base Color'].links:
+        bild = getattr(verb.from_node, 'image', None)
+        if bild is None or bild.channels < 4 or not bild.depth == 32:
+            continue
+        mat.node_tree.links.new(verb.from_node.outputs['Alpha'], bsdf.inputs['Alpha'])
+        mat.blend_method = 'CLIP'
+        mat.shadow_method = 'CLIP'
+        mat.alpha_threshold = 0.5
+        mat.use_backface_culling = False
+        print(f'CUTOUT NACHGERUESTET {mat.name} ({bild.name})')
 
 szene = bpy.context.scene
 szene.render.engine = 'CYCLES'

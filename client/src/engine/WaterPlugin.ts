@@ -941,37 +941,74 @@ export class WaterPlugin extends MaterialPluginBase {
             color.rgb += waterSunColor * glitter * WATER_GLITTER;
           }
 
-          // Schaumsaum: am stärksten direkt an der Wasserkante
-          float line = 1.0 - smoothstep(0.0, WATER_FOAM_DEPTH, eff);
+          // ── Brandung ─────────────────────────────────────────────
+          //
+          // Vorher war der Schaum eine reine Funktion der Wassertiefe:
+          // ein statischer Ring um jede Landmasse, dessen Textur in
+          // fester WELTrichtung scrollte. Vier Dinge, die echte Brandung
+          // ausmachen, fehlten — sie stehen jetzt hier.
 
-          // _FoamTex + _RandomFoamTex, gegenseitig per UV-Versatz verzerrt
-          // (Ersatz für die nicht exportierte _CurlTex).
-          // Wertebereiche der echten Texturen (gemessen mit
-          // tools/png-stats.mjs, Zeilenfilter korrekt zurückgerechnet):
-          //   _FoamTex        Graustufe 6..166  (Mitte ≈ 0.33)
-          //   _RandomFoamTex  0..133, Mittel 9  — bewusst dünn besetzt,
-          //                   liefert vereinzelte Gischtflecken
-          // Beide werden auf 0..1 hochskaliert, sonst bliebe der Schaum
-          // grau statt weiß.
-          vec2 fuv = vPositionW.xz * 0.09;
-          vec2 curl = (texture2D(waterFoamTex, fuv * 0.3 + vec2(waterTime * 0.010, waterTime * -0.007)).rg - 0.33) * 0.16;
-          float f1 = texture2D(waterFoamTex, fuv + curl + vec2(waterTime * 0.016, waterTime * 0.012)).r / 0.65;
-          float f2 = texture2D(waterFoamHighTex, fuv * 1.7 - curl * 1.5 + vec2(waterTime * -0.024, waterTime * 0.018)).r / 0.52;
+          // (1) Uferrichtung aus dem Gradienten der Grundhöhe. Damit
+          //     laufen Schaumbänder PARALLEL zur Küste und treiben
+          //     senkrecht darauf zu, statt in einer Weltachse zu ziehen.
+          float gTexel = 1.0 / waterGroundInfo.z;   // Meter je Texel (=1 m)
+          vec2 gStep = vec2(waterGroundInfo.z, 0.0);
+          float gX1 = texture2D(waterGroundTex, clamp(wGuv + gStep.xy, 0.0, 1.0)).r;
+          float gX0 = texture2D(waterGroundTex, clamp(wGuv - gStep.xy, 0.0, 1.0)).r;
+          float gZ1 = texture2D(waterGroundTex, clamp(wGuv + gStep.yx, 0.0, 1.0)).r;
+          float gZ0 = texture2D(waterGroundTex, clamp(wGuv - gStep.yx, 0.0, 1.0)).r;
+          // Zeigt bergauf, also zum Land. Länge = Hangneigung.
+          vec2 grad = vec2(gX1 - gX0, gZ1 - gZ0) * 0.5;
+          float hang = length(grad) * wDrin;             // m Anstieg je m
+          vec2 zumLand = hang > 1e-4 ? grad / (hang + 1e-6) : vec2(0.0, 1.0);
+          vec2 langsUfer = vec2(-zumLand.y, zumLand.x);
+
+          // (4) Steilheit: Flachstrand → breiter Saum, Steilküste →
+          //     schmal und hell. hang ~0.02 ist Sandstrand, ~0.5 Fels.
+          float steil = clamp(hang * 2.5, 0.0, 1.0);
+          float saumTiefe = mix(WATER_FOAM_DEPTH * 3.0, WATER_FOAM_DEPTH * 0.7, steil);
+
+          // (2) Brandungszyklus: schnelles Auflaufen, langsames
+          //     Zurückweichen (Sägezahn statt Sinus). Der Zyklus
+          //     verschiebt die Schaumgrenze, sodass die Zunge den Strand
+          //     hinauf- und wieder hinunterläuft.
+          float phase = fract(waterTime * 0.14 + dot(vPositionW.xz, langsUfer) * 0.004);
+          float auflauf = phase < 0.28 ? phase / 0.28 : 1.0 - (phase - 0.28) / 0.72;
+          auflauf = auflauf * auflauf * (3.0 - 2.0 * auflauf);
+          float zungeTiefe = saumTiefe * (0.45 + 0.95 * auflauf);
+
+          // Schaumtextur: entlang des Ufers gestreckt (Bänder) und mit
+          // dem Wasser AUF das Land zu treibend.
+          vec2 fuv = vec2(dot(vPositionW.xz, langsUfer) * 0.06,
+                          dot(vPositionW.xz, zumLand) * 0.16);
+          vec2 drift = vec2(waterTime * 0.012, -waterTime * 0.05 - auflauf * 0.35);
+          vec2 curl = (texture2D(waterFoamTex, fuv * 0.3 + drift * 0.4).rg - 0.33) * 0.16;
+          float f1 = texture2D(waterFoamTex, fuv + curl + drift).r / 0.65;
+          float f2 = texture2D(waterFoamHighTex, fuv * 1.7 - curl * 1.5 + drift * 1.6).r / 0.52;
           float texel = clamp(f1 * 0.85 + f2 * 0.5, 0.0, 1.0);
 
-          // line² macht den Saum schmal und lässt ihn nach außen weich
-          // auslaufen. Die Textur geht MULTIPLIKATIV ein (nicht additiv mit
-          // Sockel): nur wo die Schaumtextur wirklich hell ist, entsteht
-          // Gischt — sonst wird der Saum eine geschlossene weiße Fläche.
-          // Kein line² mehr: der Saum ist mit _FoamDepth = 0,2 m ohnehin
-          // schmal, ein zusätzliches Quadrieren würde ihn fast wegkürzen.
-          float foam = clamp(line * texel * 1.6, 0.0, 1.0);
-          // Hohe Schwelle + Deckel unter 1.0: Gischt ist aufgerissen und
-          // lässt das Wasser durchscheinen, sie übermalt es nicht.
-          foam = smoothstep(0.35, 0.8, foam) * 0.8;
+          // (3) Zwei Zonen statt einer:
+          //     Bruchkante — schmal, hell, mit ausgefransten Fingern
+          //     (Textur verschiebt die Kante selbst).
+          float kante = 1.0 - smoothstep(0.0, zungeTiefe * 0.35, eff - texel * 0.06);
+          //     Blasenfeld — breiter, weicher, halbdurchsichtig.
+          float blasen = (1.0 - smoothstep(0.0, zungeTiefe, eff)) * texel;
 
-          color.rgb = mix(color.rgb, WATER_FOAM_COL, foam);
-          color.a = mix(color.a, 0.95, foam);
+          // Aufgerissen halten: Der erste Anlauf ergab ein GESCHLOSSENES
+          // weißes Band (im Bild ein gemalter Bordürenstreifen). Beide
+          // Zonen gehen deshalb strikt multiplikativ mit der Textur ein,
+          // und die Deckkraft bleibt weit unter 1 — Gischt ist löchrig,
+          // Wasser scheint hindurch.
+          float foam = clamp(kante * texel * 1.25 + blasen * 0.45, 0.0, 1.0);
+          foam = smoothstep(0.24, 0.88, foam) * mix(0.58, 0.80, steil);
+          // Schaum ist KEINE Lichtquelle: Er wurde bisher als feste helle
+          // Farbe eingemischt und leuchtete dadurch nachts als weißes Band
+          // in der dunklen Szene. Jetzt trägt er das Szenenlicht — nachts
+          // dunkelgrau, tagsüber weiß.
+          float foamLicht = mix(0.12, 1.0, smoothstep(-0.12, 0.25, toSun.y));
+          vec3 foamCol = WATER_FOAM_COL * mix(vec3(0.55, 0.60, 0.70), waterSunColor, foamLicht) * foamLicht;
+          color.rgb = mix(color.rgb, foamCol, foam);
+          color.a = mix(color.a, 0.88, foam * 0.8);
         }
       `,
     };

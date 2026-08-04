@@ -730,6 +730,33 @@ export class ZoneManager {
    * server start, before any zone generates. Places all feature instances
    * into m_generatedFeatures (they materialize per-zone in TryGenerateFeature).
    */
+  /**
+   * Placement-Cache (Review-Punkt 14): Das Ergebnis von prepareFeatures ist
+   * deterministisch (Seed + Layout + Feature-Tabelle) — es bei jedem Boot
+   * neu zu würfeln kostete im Layout-Modus Minuten. Export/Import erlauben
+   * dem Server, den Stand als Datei zu cachen.
+   */
+  exportFeatures(): Array<{ key: string; feature: string; pos: Vector3 }> {
+    return [...this.generatedFeatures.entries()].map(([key, inst]) => ({
+      key,
+      feature: inst.feature.name,
+      pos: inst.pos,
+    }));
+  }
+
+  /** true = Cache übernommen, prepareFeatures wird übersprungen. */
+  importFeatures(eintraege: Array<{ key: string; feature: string; pos: Vector3 }>): boolean {
+    if (this.generatedFeatures.size > 0 || this.featuresPrepared) return false;
+    for (const e of eintraege) {
+      const feature = FEATURES_BY_NAME.get(e.feature);
+      if (!feature) continue; // Feature-Tabelle hat sich geändert → Rest egal
+      this.generatedFeatures.set(e.key, { feature, pos: e.pos });
+    }
+    this.featuresPrepared = true;
+    console.log(`[WoV] Location placement aus Cache: ${this.generatedFeatures.size} Instanzen`);
+    return true;
+  }
+
   prepareFeatures(): void {
     // C++: "Will be empty if world failed to load"
     if (this.generatedFeatures.size > 0 || this.featuresPrepared) return;

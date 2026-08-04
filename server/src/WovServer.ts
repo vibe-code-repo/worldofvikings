@@ -59,7 +59,7 @@ import { Writer } from './io/Writer.js';
 import { AdminCommandRegistry } from './admin/AdminCommands.js';
 import { ZONE_SIZE, findItem, REZEPTE } from '@wov/shared';
 import { resolve } from 'path';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 export interface ServerConfig {
   name: string;
@@ -298,7 +298,43 @@ export class WovServer {
 
     // F2: C++ PostGeoInit — book ALL feature instances globally, once,
     // before any zone generates (StartTemple existence enforced inside).
+    // Placement-Cache: gültig für exakt (Seed, genVersion, Layout-Hash,
+    // Feature-Anzahl) — sonst neu würfeln und Cache erneuern.
+    const placementCachePfad = resolve(
+      this.config.worldsDir,
+      `${this.config.worldName}.locations.json`
+    );
+    const cacheSchluessel = JSON.stringify({
+      seed: this.config.worldSeed,
+      gen: this.config.worldGenVersion,
+      layout: this.worldLayoutHash(),
+      features: FEATURES.length,
+    });
+    let placementAusCache = false;
+    try {
+      if (existsSync(placementCachePfad)) {
+        const roh = JSON.parse(readFileSync(placementCachePfad, 'utf-8')) as {
+          schluessel: string;
+          eintraege: Array<{ key: string; feature: string; pos: Vector3 }>;
+        };
+        if (roh.schluessel === cacheSchluessel) {
+          placementAusCache = this.zones.importFeatures(roh.eintraege);
+        }
+      }
+    } catch (err) {
+      console.warn(`[WoV] Placement-Cache unlesbar (${err}) — würfle neu`);
+    }
     this.zones.prepareFeatures();
+    if (!placementAusCache) {
+      try {
+        writeFileSync(
+          placementCachePfad,
+          JSON.stringify({ schluessel: cacheSchluessel, eintraege: this.zones.exportFeatures() })
+        );
+      } catch (err) {
+        console.warn(`[WoV] Placement-Cache nicht schreibbar: ${err}`);
+      }
+    }
 
     // Phase G: Eingänge aus den GEBUCHTEN Locations nachfüllen — auf einem
     // bestehenden Save laufen generierte Zonen nie wieder durch
@@ -557,7 +593,12 @@ export class WovServer {
 
   private syncZDOs(): void {
     const peers = this.net.getPeers();
-    if (peers.length === 0) return;
+    if (peers.length === 0) {
+      // Auch ohne Spieler leeren — sonst wächst die Liste unbegrenzt
+      // (Review-Punkt 29); zustellen muss man ihnen nichts.
+      this.zdos.consumeDestroyList();
+      return;
+    }
 
     // Consume destroy list once per cycle, broadcast to all peers
     const destroyList = this.zdos.consumeDestroyList();
@@ -1001,7 +1042,11 @@ export class WovServer {
 
   private handleChatMessage(peer: Peer, reader: Reader): void {
     const chatType = reader.readInt32();
-    const text = reader.readString();
+    const text = reader.readString().slice(0, 256);
+    // Frequenzlimit: max. ~3 Nachrichten je Sekunde (Review-Punkt 11).
+    const jetzt = Date.now();
+    if (jetzt - peer.letzterChat < 300) return;
+    peer.letzterChat = jetzt;
 
     // Broadcast to all peers
     const writer = new Writer();

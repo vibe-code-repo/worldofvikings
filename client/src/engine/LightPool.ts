@@ -16,7 +16,10 @@ import type { Scene } from '@babylonjs/core/scene';
 import type { PrefabDef } from '@wov/shared';
 
 /** Poolgröße — mit Sonne+Ambient bleiben Materialien unter 8 Lichtern. */
-const POOL = 6;
+// 4 statt 6: Mit CSM-Schatten + Sonne/Ambient sprengten 8 gleichzeitige
+// Lichter je Effekt die Uniform-Limits schwächerer WebGL2-Treiber —
+// ~196 „Unable to compile effect"-Fehler pro Sitzung (Review-Punkt 10).
+const POOL = 4;
 /** Suchradius um den Spieler (m). */
 const RADIUS = 45;
 /** Neuzuordnung der Quellen (ms). */

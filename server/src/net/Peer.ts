@@ -85,6 +85,8 @@ export class Peer {
   dungeonReturn: Vector3 | null;
   /** Zeitstempel des letzten akzeptierten Schlags (Angriff/Ernte-Cooldown). */
   letzterSchlag = 0;
+  /** Zeitstempel der letzten Chat-Nachricht (Frequenzlimit). */
+  letzterChat = 0;
   /** Server-autoritatives Inventar (Review-Punkt 8) — Quelle der Wahrheit. */
   readonly inventar = new Inventory();
   /** Anzahl eigener Bauwerke (Piece-Budget); beim Login gezählt. */

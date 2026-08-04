@@ -309,6 +309,7 @@ export class GameSocket {
   }
 
   disconnect(): void {
+    this.connected = false; // Review 21: log — socket?.connected sonst veraltet
     this.ws?.close();
     this.ws = null;
   }

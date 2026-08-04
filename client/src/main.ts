@@ -251,6 +251,8 @@ async function main() {
   let world: ClientWorld | null = null;
   /** Spawn-Editor des Testflugs offen? (gibt die Maus frei, s. cursorNoetig) */
   let spawnEditorOffen: () => boolean = () => false;
+  /** Auto-Reconnect-Zähler (Review-Punkt 9) — Reset bei erfolgreicher Verbindung. */
+  let reconnectVersuch = 0;
   /** Layout-Handshake: ServerConfig kündigte ein WorldLayoutData an. */
   let layoutErwartet: { worldSeed: string; settings: ClientWorldSettings } | null = null;
   /** Aktives WorldLayout (Layout-Modus) — Karte/Editor lesen es mit. */
@@ -410,6 +412,14 @@ async function main() {
 
   /** Builds all world-dependent systems and starts the game loop (once). */
   function buildWorld(seed: string, settings?: ClientWorldSettings, layout?: unknown): void {
+    // Reconnect-Guard (Review-Punkt 9): Die Weltsysteme existieren nach dem
+    // ersten Aufbau weiter — ein zweiter Aufbau leakte Terrain, Physik,
+    // Entities und eine komplette zweite Karten-Engine. Der neue Socket hat
+    // seine Handler bereits registriert; es gibt nichts nachzubauen.
+    if (world) {
+      console.log('[world] Reconnect — bestehende Weltsysteme werden weiterverwendet');
+      return;
+    }
     worldLayout = layout ?? null;
     world = createWorld(seed, settings, layout);
     console.log('[world] GeoManager ready, ground(0,0) =', world.getGroundHeight(0, 0));
@@ -780,6 +790,12 @@ async function main() {
   }
 
   function connectOnline(name: string, url: string): void {
+    // Alten Socket hart schließen, bevor ein neuer entsteht — sonst leben
+    // zwei Verbindungen samt Handlern parallel (Review-Punkt 9).
+    if (socket) {
+      socket.onDisconnected = null;
+      socket.disconnect();
+    }
     socket = new GameSocket(url, name);
 
     // D6/M0.1: world info first — build the identical GeoManager the
@@ -990,9 +1006,20 @@ async function main() {
       connectScreen.style.display = 'none';
       connectStatus.textContent = '';
       connectBtn.removeAttribute('disabled');
+      reconnectVersuch = 0;
     };
     socket.onDisconnected = (reason) => {
       netStatus = `getrennt${reason ? `: ${reason}` : ''}`;
+      // Auto-Reconnect (Review-Punkt 9): drei Versuche mit wachsendem
+      // Abstand, erst danach zurück zum Connect-Screen. Ein Kick durch den
+      // Server (reason gesetzt) wird NICHT automatisch wiederholt.
+      if (!reason && reconnectVersuch < 3) {
+        reconnectVersuch++;
+        const wartezeit = 1000 * 2 ** (reconnectVersuch - 1);
+        hud.meldung(`Verbindung verloren — Wiederaufbau in ${wartezeit / 1000}s (Versuch ${reconnectVersuch}/3)`);
+        window.setTimeout(() => connectOnline(name, url), wartezeit);
+        return;
+      }
       connectScreen.style.display = 'flex';
       connectStatus.textContent = reason ? `Getrennt: ${reason}` : 'Verbindung zum Server verloren';
       connectBtn.removeAttribute('disabled');

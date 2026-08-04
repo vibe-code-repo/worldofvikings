@@ -1,0 +1,15 @@
+[Unit]
+Description=Firewall-Regeln wiederherstellen (World of Vikings Host)
+Documentation=file:///root/worldofvikings/Docs/09-Verbesserungsvorschlaege.md
+DefaultDependencies=no
+Before=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'iptables-restore < /etc/iptables/rules.v4; ip6tables-restore < /etc/iptables/rules.v6'
+ExecStop=/bin/sh -c 'iptables -P INPUT ACCEPT; iptables -F INPUT; ip6tables -P INPUT ACCEPT; ip6tables -F INPUT'
+
+[Install]
+WantedBy=multi-user.target

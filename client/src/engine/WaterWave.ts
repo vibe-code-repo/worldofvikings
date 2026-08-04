@@ -59,6 +59,25 @@ export const WAVE_GLSL = /* glsl */ `
   // WaterVolume.TrochSin — spitze Kämme, flache Täler
   float wTrochSin(float x, float k) { return sin(x - cos(x) * k) * 0.5 + 0.5; }
 
+  /**
+   * Brandungsverstärkung (Shoaling) statt der linearen Dämpfung des
+   * Originals.
+   *
+   * Das Original multipliziert die Wellensumme mit mix(0, wind, depth01):
+   * Je flacher das Wasser, desto kleiner die Welle — am Strand exakt
+   * null. Physikalisch ist es umgekehrt: Läuft eine Dünung in flaches
+   * Wasser, wird sie langsamer und HÖHER (Green'sches Gesetz), bis sie
+   * bricht. Deshalb hier ein Buckel im Flachwasser und ein Restanteil
+   * direkt an der Kante — nur so läuft die Welle den Strand hinauf,
+   * statt vorher zu verhungern.
+   */
+  float wShoal(float depth01) {
+    float flach = 1.0 - depth01;                       // 1 = ganz flach
+    float buckel = mix(1.0, 1.3, smoothstep(0.0, 0.8, flach));
+    float auslauf = mix(0.35, 1.0, smoothstep(0.0, 0.16, depth01));
+    return buckel * auslauf;
+  }
+
   // WaterVolume.CreateWave. wp = (WeltX, WeltZ); im Original
   // v = -(pos.z*dir + pos.x*tangent), tangent = senkrecht zu dir.
   float wCreateWave(vec2 wp, float t, float speed, float len, float height, vec2 dir, float sharp) {
@@ -86,7 +105,15 @@ export const WAVE_GLSL = /* glsl */ `
     s += wCreateWave(wp, t, 54.2,    1.30, 0.3, normalize(vec2(-0.323,   0.44 )), 0.9);
     s += wCreateWave(wp, t, 56.123,  1.50, 0.2, normalize(vec2( 0.5312, -0.812)), 0.9);
     // Mittelwert-Ausgleich, siehe WAVE_MEAN_OFFSET.
-    return (s + ${WAVE_MEAN_OFFSET}) * mix(0.0, wind, depth01);
+    float w = (s + ${WAVE_MEAN_OFFSET}) * wind;
+    // Swash/Backwash-Asymmetrie: Auflaufendes Wasser schiebt sich als
+    // dicke Zunge den Strand hinauf, der Rücklauf ist ein dünner Film.
+    // Ohne diese Dämpfung zog das Wellental im Flachwasser den Strand
+    // meterweit trocken (gemessen: von trockenem Sand bis über Kopfhöhe
+    // an derselben Stelle) — die Trochoide hat tiefe Täler.
+    float flach = 1.0 - depth01;
+    w *= w < 0.0 ? mix(1.0, 0.40, flach) : 1.0;
+    return w * wShoal(depth01);
   }
 `;
 

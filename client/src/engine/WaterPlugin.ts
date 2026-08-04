@@ -981,13 +981,16 @@ export class WaterPlugin extends MaterialPluginBase {
           float saumTiefeM = mix(0.5, 0.18, steil);
           float saumBreiteM = mix(8.0, 3.0, steil);
 
-          // (2) Brandungszyklus: schnelles Auflaufen, langsames
-          //     Zurückweichen (Sägezahn statt Sinus). Der Zyklus
-          //     verschiebt die Schaumgrenze, sodass die Zunge den Strand
-          //     hinauf- und wieder hinunterläuft.
-          float phase = fract(waterTime * 0.14 + dot(vPositionW.xz, langsUfer) * 0.004);
-          float auflauf = phase < 0.28 ? phase / 0.28 : 1.0 - (phase - 0.28) / 0.72;
-          auflauf = auflauf * auflauf * (3.0 - 2.0 * auflauf);
+          // (2) Auflaufen — getrieben von der ECHTEN Welle statt von einem
+          //     erfundenen Sägezahn. vWaveY ist der Wellenhub an dieser
+          //     Stelle: Kamm (>0) schiebt Wasser den Strand hinauf, Tal
+          //     (<0) zieht es zurück. Damit passt der Schaum zwangsläufig
+          //     zur sichtbaren Wellenbewegung — der frühere freilaufende
+          //     Zyklus konnte gegen sie arbeiten.
+          //     Die Kurve ist bewusst asymmetrisch (Wurzel): Die Zunge
+          //     schießt vor und zieht sich langsamer zurück.
+          float wellenHub = clamp(vWaveY / 0.7, -1.0, 1.0);
+          float auflauf = sqrt(clamp(wellenHub * 0.5 + 0.5, 0.0, 1.0));
           float zyklus = 0.45 + 0.95 * auflauf;
           float zungeM = saumBreiteM * zyklus;
           float zungeTiefe = saumTiefeM * zyklus;
@@ -996,7 +999,9 @@ export class WaterPlugin extends MaterialPluginBase {
           // dem Wasser AUF das Land zu treibend.
           vec2 fuv = vec2(dot(vPositionW.xz, langsUfer) * 0.06,
                           dot(vPositionW.xz, zumLand) * 0.16);
-          vec2 drift = vec2(waterTime * 0.012, -waterTime * 0.05 - auflauf * 0.35);
+          // Der Schaum treibt mit der Welle auf das Land zu; der
+          // Auflauf-Anteil schiebt die Textur zusätzlich vor.
+          vec2 drift = vec2(waterTime * 0.012, -waterTime * 0.05 - auflauf * 0.5);
           vec2 curl = (texture2D(waterFoamTex, fuv * 0.3 + drift * 0.4).rg - 0.33) * 0.16;
           float f1 = texture2D(waterFoamTex, fuv + curl + drift).r / 0.65;
           float f2 = texture2D(waterFoamHighTex, fuv * 1.7 - curl * 1.5 + drift * 1.6).r / 0.52;

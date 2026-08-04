@@ -38,6 +38,9 @@ def arg(name, default=None):
 GLBS = [g.strip() for g in arg('--glb', '').split(',') if g.strip()]
 OUT = arg('--out', '/tmp/vorschau.png')
 BREITE = int(arg('--breite', '900'))
+# Tripo normiert seine Modelle auf Kantenlänge 1, die Original-Prefabs
+# stehen in Metern. Ohne Normierung vergleicht man Größen statt Formen.
+NORMIEREN = float(arg('--normieren', '0'))
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 if not GLBS:

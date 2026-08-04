@@ -58,8 +58,11 @@ server/data/worldlayout.json           (Autorformat, JSON, klein)
   }],
   "placements": [{                     // Editor-Spawn: handplatzierte Objekte
     "prefab": "Beech1", "x": 20, "z": 12, "yaw": 0.5, "scale": 1.2
-  }]
-}
+  }],
+  "rivers": [{ "id": "fluss-1", "points": [[x, z], …], "width": 50, "depth": 8 }],
+  "lakes":  [{ "id": "see-1", "x": 0, "z": 0, "radius": 420, "depth": 12 }],
+  "defaultSpawn": [0, 0]              // neutraler Welt-Start; je Fraktion
+}                                      // zusätzlich continent.spawn
 ```
 
 Grenzen (sanitize): Bbox ±40 km (Dungeon-Band + float32), ≤512 Regionen,
@@ -78,6 +81,12 @@ volle Höhe; speist sich aus `journalctl -fu wov-server` via Vite-SSE
   `FORMEN`-Registry in editorMain.ts, ein Eintrag = neue Form.
 - **Polygon:** Punkte klicken; schließen per Startpunkt-Klick, ✓-Knopf oder
   Doppelklick; Esc bricht ab.
+- **Regionen verformen:** Griffe der gewählten Region — Mittelpunkt
+  verschiebt, Radius-Handle skaliert den Kreis, Polygonpunkte einzeln
+  ziehen, Alt+Klick entfernt einen Punkt.
+- **≈ Fluss zeichnen:** Verlauf klicken, Breite/Tiefe einstellen,
+  Abschluss per ✓-Knopf oder Doppelklick. Seen und Flüsse stehen in der
+  Gewässerliste und sind dort einzeln löschbar.
 - **Undo/Redo:** Strg+Z / Strg+Y (50 Schritte).
 - **Vorschau:** derselbe mapWorker wie im Spiel (RegionGeo) — keine Drift.
 - **Testflug:** öffnet `/?offline=1&layout=editor` (Entwurf via localStorage
@@ -108,9 +117,18 @@ ein zeitgestempeltes Backup (`worldlayout.json.<ts>.bak`, letzte 10).
 - Tests: `shared/test/worldlayout.ts`, `shared/test/region-geo.ts`,
   `server/test/h1-layout.ts` — Teil von `npm test` (Runner, Docs/09 P26).
 
+## Fortschritt & Progression
+
+`region.tier` (0–5) ersetzt die Weltzentrums-Distanzen der Radialwelt:
+In einer Region entstehen nur Locations bis zu ihrer Stufe
+(`tierAusDistanz` übersetzt `feature.minDistance`). Führt eine Region
+eigene `locations`, gilt ausschließlich diese Liste.
+
+`pruefeLayout()` meldet unbekannte Vegetations-/Location-/Spawn-Namen und
+fehlende Startpunkte — die Befunde stehen im Boot-Log.
+
 ## Bewusst offen
 
-Flüsse/Seen im Layout-Modus (Polyline-Regionen, Phase 7), Regionen im
-Editor nachträglich verformen (Punkt-Handles), Spawn-Punkte je Fraktion im
-Schema, Karten-Zoomstufen ab ~40 km, Editor-Save-Endpoint statt
-localStorage/Datei-Umweg. Siehe Docs/09-Verbesserungsvorschlaege.md.
+Karten-Zoomstufen ab ~40 km, Prefab-Vorschaubilder im Spawn-Panel,
+Fraktions-Gameplay (Zugehörigkeit, PvP-Regeln) über die Startpunkte
+hinaus. Siehe Docs/09-Verbesserungsvorschlaege.md.

@@ -1,7 +1,7 @@
 /**
  * Startet Server und Client parallel im Vordergrund — die Variante ohne
  * systemd, z. B. wenn man beide Logs in einem Terminal sehen will.
- * Für den Dauerbetrieb stattdessen: systemctl start valheim.target
+ * Für den Dauerbetrieb stattdessen: systemctl start wov.target
  */
 import { spawn } from 'node:child_process';
 

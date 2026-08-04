@@ -1,0 +1,10 @@
+[Unit]
+Description=World of Vikings — Server + Client
+# Beide Dienste gemeinsam starten/stoppen:
+#   systemctl start wov.target
+#   systemctl stop wov.target
+Wants=wov-server.service wov-client.service
+After=network-online.target
+
+[Install]
+WantedBy=multi-user.target

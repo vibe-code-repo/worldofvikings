@@ -1,0 +1,26 @@
+[Unit]
+Description=World of Vikings — Game-Server (WebSocket, Port 2467)
+Documentation=file:///root/worldofvikings/Docs/05-Server-Architektur.md
+PartOf=wov.target
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/worldofvikings
+Environment=NODE_ENV=development
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# dev = tsx watch: startet bei Codeänderungen automatisch neu
+ExecStart=/usr/bin/npm run dev:server
+Restart=always
+RestartSec=3
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wov-server
+
+[Install]
+WantedBy=wov.target

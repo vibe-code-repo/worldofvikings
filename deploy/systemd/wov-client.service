@@ -1,0 +1,26 @@
+[Unit]
+Description=World of Vikings — Client (Vite-Dev-Server, Port 5274)
+Documentation=file:///root/worldofvikings/README.md
+PartOf=wov.target
+After=network-online.target wov-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/worldofvikings
+Environment=NODE_ENV=development
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Vite läuft mit host: true → im LAN erreichbar
+ExecStart=/usr/bin/npm run dev:client
+Restart=always
+RestartSec=3
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wov-client
+
+[Install]
+WantedBy=wov.target

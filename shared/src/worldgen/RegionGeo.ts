@@ -27,6 +27,8 @@ import {
   BIOME_BY_NAME,
   DEFAULT_BASE_LEVEL,
   RegionField,
+  WaterField,
+  UFER_MAX,
   type FieldSample,
   type RegionDef,
   type WorldLayout,
@@ -38,11 +40,14 @@ const f32 = Math.fround;
 const OZEAN_BASIS = -0.28;
 /** Ab dieser Basis gilt ein Punkt als Ozean-BIOM (wie die radiale Formel). */
 const OZEAN_SCHWELLE = 0.02;
+/** Wasserlinie in Metern (Heightmap.WATER_LEVEL). */
+const WASSERLINIE_M = 30;
 /** Amplitude der Küstenlinien-Verzerrung (m) — macht Ränder organisch. */
 const KUESTEN_RAUSCHEN = 110;
 
 export class RegionGeo extends GeoManager {
   private feld!: RegionField;
+  private wasser!: WaterField;
   readonly layout: WorldLayout;
 
   // 1-Eintrag-Memo: Die Heightmap wertet pro Vertex bis zu 4 Eckbiome an
@@ -59,6 +64,7 @@ export class RegionGeo extends GeoManager {
     super(worldSeed, settings);
     this.layout = layout;
     this.feld = new RegionField(layout);
+    this.wasser = new WaterField(layout);
   }
 
   /** Radiale Seen/Flüsse/Bäche entfallen im Layout-Modus vollständig. */
@@ -125,6 +131,42 @@ export class RegionGeo extends GeoManager {
     return f32(lerp(ozean, land, t));
   }
 
+  /**
+   * Flüsse und Seen ins Gelände schneiden — auf der FERTIGEN Biomhöhe
+   * (Meter), nicht auf der Basis.
+   *
+   * Erster Anlauf war das Carving in getBaseHeight; die Biomfunktionen
+   * verstärken jede Basisänderung aber massiv (Mountain verdoppelt sie und
+   * addiert einen Neigungsterm aus Nachbarproben) — gemessen wurde eine
+   * 23-m-Kante pro 2 m Schritt statt einer Böschung. Das Original macht es
+   * genauso: `addRivers` läuft INNERHALB der Biomhöhe kurz vor dem
+   * Feinschliff. Das Biom bleibt unberührt, Wasser entsteht dadurch, dass
+   * der Boden unter die Wasserlinie fällt.
+   */
+  override getBiomeHeight(
+    biome: Biome,
+    wx: number,
+    wy: number,
+    preGeneration = false
+  ): { height: number; mask: number } {
+    const r = super.getBiomeHeight(biome, wx, wy, preGeneration);
+    const w = this.wasser.probe(wx, wy);
+    if (w.abstand === Infinity) return r;
+    const sohle = WASSERLINIE_M - w.tiefe;
+    if (r.height <= sohle) return r;
+    // Uferbreite aus der SCHNITTTIEFE: ~3 m Weg je 1 m Höhenunterschied
+    // (etwa 18°). Eine feste Breite ergab an hohem Ufer eine Wand — je
+    // tiefer der Einschnitt, desto weiter muss der Hang auslaufen.
+    const schnitt = r.height - sohle;
+    const ufer = Math.min(UFER_MAX, Math.max(25, schnitt * 3));
+    const anteil =
+      w.abstand <= w.halbbreite
+        ? 1
+        : smoothStep(w.halbbreite + ufer, w.halbbreite, w.abstand);
+    if (anteil <= 0) return r;
+    return { height: f32(r.height + (sohle - r.height) * anteil), mask: r.mask };
+  }
+
   /** Regionsbasis: Plateau + kontinentales Perlin-Detail des Originals. */
   private landBasis(region: RegionDef, wx: number, wy: number): number {
     const plateau = region.baseLevel ?? DEFAULT_BASE_LEVEL.get(region.biome) ?? 0.22;
@@ -171,5 +213,10 @@ export class RegionGeo extends GeoManager {
   /** Diagnose/Tests. */
   get fieldChunkCount(): number {
     return this.feld.chunkCount;
+  }
+
+  /** Diagnose/Tests: Anzahl der Wasser-Segmente (Flüsse + Seen). */
+  get waterPieceCount(): number {
+    return this.wasser.stueckAnzahl;
   }
 }

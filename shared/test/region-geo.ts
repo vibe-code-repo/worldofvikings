@@ -139,6 +139,69 @@ for (let i = 0; i < 100; i++) {
 }
 check('forestDensity 0 → praktisch kahl', kahl > 90, `${kahl}/100 waldfrei`);
 
+
+// ── Flüsse und Seen (Weltbau B) ──────────────────────────────────────
+{
+  const mitWasser = createGeo({
+    mode: 'layout',
+    worldSeed: getStableHash('wov-test'),
+    layout: {
+      ...layout,
+      rivers: [
+        // Fluss quer über den Westkontinent (durch (-6000, 0) hindurch)
+        { id: 'wik-fluss', points: [[-8500, -1500], [-6000, 0], [-3500, 1500]], width: 40, depth: 8 },
+      ],
+      lakes: [{ id: 'wik-see', x: -4000, z: -2000, radius: 300, depth: 10 }],
+    },
+  });
+  const provider = new HeightmapProvider(mitWasser, { blendSmoothStep: true });
+  check('Wasser-Segmente kompiliert', (mitWasser as RegionGeo).waterPieceCount === 3,
+    `= ${(mitWasser as RegionGeo).waterPieceCount}`);
+
+  const imFluss = mitWasser.getHeight(-6000, 0);
+  check('Flussbett unter der Wasserlinie', imFluss < WATER_LEVEL - 3, `= ${imFluss.toFixed(1)} m`);
+  const nebenFluss = mitWasser.getHeight(-6000, 200);
+  check('200 m neben dem Fluss ist Land', nebenFluss > WATER_LEVEL, `= ${nebenFluss.toFixed(1)} m`);
+
+  const imSee = mitWasser.getHeight(-4000, -2000);
+  check('Seegrund unter der Wasserlinie', imSee < WATER_LEVEL - 3, `= ${imSee.toFixed(1)} m`);
+  const seeUfer = mitWasser.getHeight(-4000 + 700, -2000);
+  check('700 m vom See entfernt ist Land', seeUfer > WATER_LEVEL, `= ${seeUfer.toFixed(1)} m`);
+
+  // Uferböschung quer zum Fluss — gemessen im FLACHEN Land: Schneidet ein
+  // Fluss durch ein Gebirge, ist die Wand naturgemäß steil (Schlucht), das
+  // wäre kein ehrlicher Test für die Böschungsform.
+  const flachLayout = {
+    ...layout,
+    rivers: [{ id: 'flach', points: [[-3000, -900], [-3000, 900]], width: 40, depth: 8 }],
+  };
+  const flachGeo = createGeo({ mode: 'layout', worldSeed: getStableHash('wov-test'), layout: flachLayout });
+  const flachProvider = new HeightmapProvider(flachGeo, { blendSmoothStep: true });
+  // Verglichen wird der ZUWACHS gegenüber demselben Profil ohne Fluss —
+  // die natürliche Geländewelligkeit soll das Urteil nicht verfälschen.
+  const steilheit = (p: HeightmapProvider): number => {
+    let max = 0;
+    let vorherU = p.getGroundHeight(-3200, 0);
+    for (let x = -3198; x <= -2800; x += 2) {
+      const h = p.getGroundHeight(x, 0);
+      max = Math.max(max, Math.abs(h - vorherU));
+      vorherU = h;
+    }
+    return max;
+  };
+  const ohneFluss = steilheit(new HeightmapProvider(geo, { blendSmoothStep: true }));
+  const mitFluss = steilheit(flachProvider);
+  check(
+    'Uferböschung ist ein Hang, keine Wand',
+    mitFluss - ohneFluss < 2.5,
+    `ohne ${ohneFluss.toFixed(2)} → mit ${mitFluss.toFixed(2)} m je 2 m`
+  );
+
+  // Ohne Fluss-Definition bleibt dieselbe Stelle trocken (Gegenprobe).
+  check('Ohne Fluss ist die Stelle Land', geo.getHeight(-6000, 0) > WATER_LEVEL,
+    `= ${geo.getHeight(-6000, 0).toFixed(1)} m`);
+}
+
 if (fehler > 0) {
   console.error(`\n${fehler} Prüfung(en) fehlgeschlagen`);
   process.exit(1);

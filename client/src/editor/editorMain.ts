@@ -137,7 +137,11 @@ const FORMEN: readonly FormDef[] = [
 // ── Zustand ──────────────────────────────────────────────────────────
 let layout: WorldLayout = ladeEntwurf();
 let gewaehlt: string | null = null;
-let werkzeug: 'auswahl' | 'form' | 'polygon' | 'platzieren' = 'auswahl';
+let werkzeug: 'auswahl' | 'form' | 'polygon' | 'platzieren' | 'fluss' = 'auswahl';
+/** Offener Flusslauf (Weltbau B) + Breite/Tiefe des Werkzeugs. */
+let flussPunkte: [number, number][] = [];
+let flussBreite = 40;
+let flussTiefe = 8;
 /** Gewählte vordefinierte Form + Basisgröße (m) des Form-Werkzeugs. */
 let gewaehlteForm = 'kreis';
 let formGroesse = 1500;
@@ -323,6 +327,45 @@ function zeichneOverlay(): void {
         punkt(px, py, false);
       }
     }
+  }
+
+  // Flüsse und Seen (Weltbau B) — blau, Breite maßstabsgetreu.
+  for (const f of layout.rivers ?? []) {
+    ctx.strokeStyle = 'rgba(90,150,210,0.75)';
+    ctx.lineWidth = Math.max(2, f.width / massstab);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    f.points.forEach(([x, z], i) => {
+      const [px, py] = zuBild(x, z);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+    ctx.lineWidth = 1.5;
+  }
+  for (const l of layout.lakes ?? []) {
+    const [cx, cy] = zuBild(l.x, l.z);
+    ctx.beginPath();
+    ctx.arc(cx, cy, l.radius / massstab, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(90,150,210,0.45)';
+    ctx.fill();
+  }
+  // Offener Flusslauf des Werkzeugs
+  if (flussPunkte.length > 0) {
+    ctx.strokeStyle = '#6ab0e0';
+    ctx.lineWidth = Math.max(2, flussBreite / massstab);
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    flussPunkte.forEach(([x, z], i) => {
+      const [px, py] = zuBild(x, z);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1.5;
   }
 
   // Handplatzierte Objekte als grüne Punkte
@@ -534,6 +577,12 @@ overlay.addEventListener('pointerdown', (e) => {
     zeichneOverlay();
     return;
   }
+  if (werkzeug === 'fluss') {
+    flussPunkte.push([Math.round(wx), Math.round(wz)]);
+    seiteBauen();
+    zeichneOverlay();
+    return;
+  }
   if (werkzeug === 'polygon') {
     // Klick nahe dem STARTPUNKT schließt das Polygon (klassisches
     // Polygon-Werkzeug) — der Doppelklick ist nur noch eine Abkürzung.
@@ -624,15 +673,43 @@ overlay.addEventListener('pointerup', () => {
     vorschauAnstossen();
   }
 });
-overlay.addEventListener('dblclick', polygonSchliessen);
+overlay.addEventListener('dblclick', () => {
+  polygonSchliessen();
+  flussSchliessen();
+});
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Escape' && werkzeug === 'polygon') {
+  if (e.code === 'Escape' && (werkzeug === 'polygon' || werkzeug === 'fluss')) {
     polygonPunkte = [];
+    flussPunkte = [];
     werkzeug = 'auswahl';
     seiteBauen();
     zeichneOverlay();
   }
 });
+
+/** Offenen Flusslauf ins Layout übernehmen (mind. 2 Punkte). */
+function flussSchliessen(): void {
+  if (werkzeug !== 'fluss') return;
+  const punkte = flussPunkte.filter(
+    (p, i, a) => i === 0 || Math.hypot(p[0] - a[i - 1]![0], p[1] - a[i - 1]![1]) > 1
+  );
+  if (punkte.length < 2) {
+    shell.meldung(`Ein Fluss braucht mindestens 2 Punkte (aktuell ${punkte.length}).`, true);
+    return;
+  }
+  let n = 1;
+  while ((layout.rivers ?? []).some((r) => r.id === `fluss-${n}`)) n++;
+  merkeSchritt();
+  layout = {
+    ...layout,
+    rivers: [...(layout.rivers ?? []), { id: `fluss-${n}`, points: punkte, width: flussBreite, depth: flussTiefe }],
+  };
+  flussPunkte = [];
+  werkzeug = 'auswahl';
+  alles();
+  vorschauAnstossen();
+  shell.meldung(`fluss-${n} angelegt (${punkte.length} Punkte, ${flussBreite} m breit)`);
+}
 
 /**
  * Offenes Polygon in eine Region verwandeln. Drei Wege führen hierher —
@@ -747,6 +824,63 @@ function seiteBauen(): void {
   ));
   if (werkzeug === 'polygon' && polygonPunkte.length >= 3) {
     seite.appendChild(knopf(`✓ Polygon schließen (${polygonPunkte.length} Punkte)`, polygonSchliessen));
+  }
+  seite.appendChild(knopf(
+    werkzeug === 'fluss' ? `≈ Fluss zeichnen (aktiv, ${flussPunkte.length} Punkte)` : '≈ Fluss zeichnen',
+    () => {
+      werkzeug = werkzeug === 'fluss' ? 'auswahl' : 'fluss';
+      flussPunkte = [];
+      seiteBauen();
+      zeichneOverlay();
+    }
+  ));
+  if (werkzeug === 'fluss') {
+    const zeile = document.createElement('div');
+    zeile.style.cssText = 'display:flex;gap:4px;margin:2px 0;';
+    const feld = (wert: number, titel: string, setz: (v: number) => void): HTMLInputElement => {
+      const i = document.createElement('input');
+      i.value = String(wert);
+      i.title = titel;
+      i.style.cssText = 'width:50%;background:#0d1420;color:#d8cfa8;border:1px solid #3a3325;padding:3px;';
+      i.onchange = () => { setz(Number(i.value) || wert); seiteBauen(); zeichneOverlay(); };
+      return i;
+    };
+    zeile.appendChild(feld(flussBreite, 'Breite in Metern', (v) => (flussBreite = Math.min(400, Math.max(4, v)))));
+    zeile.appendChild(feld(flussTiefe, 'Tiefe unter der Wasserlinie (m)', (v) => (flussTiefe = Math.min(60, Math.max(1, v)))));
+    seite.appendChild(zeile);
+    if (flussPunkte.length >= 2) {
+      seite.appendChild(knopf(`✓ Fluss abschließen (${flussPunkte.length} Punkte)`, flussSchliessen));
+    }
+    const tip = document.createElement('div');
+    tip.style.cssText = 'font-size:11px;color:#e8d48a;margin-bottom:6px;';
+    tip.textContent = 'Verlauf klicken; abschließen: ✓-Knopf oder Doppelklick. Esc bricht ab.';
+    seite.appendChild(tip);
+  }
+  const wasser = [...(layout.rivers ?? []), ...(layout.lakes ?? [])];
+  if (wasser.length > 0) {
+    const kopf = document.createElement('div');
+    kopf.style.cssText = 'font-size:12px;color:#9a8f6a;margin-top:8px;';
+    kopf.textContent = `Gewässer (${wasser.length})`;
+    seite.appendChild(kopf);
+    for (const w of wasser) {
+      const zeile = document.createElement('div');
+      zeile.style.cssText = 'display:flex;justify-content:space-between;font-size:11px;padding:1px 2px;';
+      const istFluss = 'points' in w;
+      zeile.innerHTML = `<span style="color:#6ab0e0">${istFluss ? '≈' : '◍'} ${w.id}</span>`;
+      const x = document.createElement('span');
+      x.textContent = '✕';
+      x.style.cssText = 'cursor:pointer;color:#c96;';
+      x.onclick = () => {
+        merkeSchritt();
+        layout = istFluss
+          ? { ...layout, rivers: (layout.rivers ?? []).filter((r) => r.id !== w.id) }
+          : { ...layout, lakes: (layout.lakes ?? []).filter((l) => l.id !== w.id) };
+        alles();
+        vorschauAnstossen();
+      };
+      zeile.appendChild(x);
+      seite.appendChild(zeile);
+    }
   }
   seite.appendChild(knopf(
     werkzeug === 'platzieren' ? `✦ Platzieren (aktiv: ${spawnPrefab})` : '✦ Objekt platzieren (Baum, Fels …)',

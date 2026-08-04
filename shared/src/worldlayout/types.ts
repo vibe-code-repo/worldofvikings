@@ -132,6 +132,30 @@ export interface PlacementDef {
   scale?: number;
 }
 
+/**
+ * Fluss als Polylinie (Review-Punkt 32): schneidet sich ins Gelände,
+ * ändert aber KEIN Biom — Wasser entsteht dadurch, dass der Boden unter
+ * die Wasserlinie fällt, genau wie im Original.
+ */
+export interface RiverDef {
+  id: string;
+  /** Verlauf [x, z] in Metern, mindestens zwei Punkte. */
+  points: ReadonlyArray<readonly [number, number]>;
+  /** Breite des Wasserlaufs in Metern (Bettbreite). */
+  width: number;
+  /** Wie tief unter die Wasserlinie das Bett reicht (m, Default 6). */
+  depth?: number;
+}
+
+/** See als Kreis — dieselbe Carving-Logik wie beim Fluss. */
+export interface LakeDef {
+  id: string;
+  x: number;
+  z: number;
+  radius: number;
+  depth?: number;
+}
+
 export interface WorldLayout {
   version: typeof WORLD_LAYOUT_VERSION;
   name: string;
@@ -145,6 +169,10 @@ export interface WorldLayout {
   /** Welt-Startpunkt [x, z] — greift, wenn die Fraktion keinen eigenen
    *  hat. Ohne Angabe bleibt es beim Ursprung (kann Ozean sein!). */
   defaultSpawn?: readonly [number, number];
+  /** Flüsse (Polylinien) — schneiden sich ins Gelände. */
+  rivers?: readonly RiverDef[];
+  /** Seen (Kreise) — dieselbe Carving-Logik. */
+  lakes?: readonly LakeDef[];
 }
 
 /**

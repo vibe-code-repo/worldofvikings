@@ -210,3 +210,106 @@ export class RegionField {
     };
   }
 }
+
+/**
+ * WaterField — Nachschlagewerk für Flüsse und Seen.
+ *
+ * Gleiche Bauart wie RegionField: ein Chunk-Raster über die Segmente,
+ * damit eine Abfrage nur die wenigen Wasserläufe in der Nähe prüft statt
+ * aller. Geliefert wird die reine GEOMETRIE (Abstand zur Wasserachse,
+ * halbe Bettbreite, Tiefe) — die Böschung rechnet RegionGeo, weil nur
+ * dort die Landhöhe bekannt ist: Ein tiefer Einschnitt braucht ein
+ * breiteres Ufer, sonst steht die Wand senkrecht.
+ */
+export interface WasserProbe {
+  /** Abstand zur Wasserachse in Metern; Infinity = kein Wasser in der Nähe. */
+  abstand: number;
+  /** Halbe Bettbreite (Fluss) bzw. Radius (See). */
+  halbbreite: number;
+  /** Bett-Tiefe unter der Wasserlinie in Metern. */
+  tiefe: number;
+}
+
+const WASSER_KEIN: WasserProbe = { abstand: Infinity, halbbreite: 0, tiefe: 0 };
+/** Größte Uferbreite, die RegionGeo erzeugen kann — Reichweite des Index. */
+export const UFER_MAX = 200;
+
+interface WasserStueck {
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+  halbbreite: number;
+  tiefe: number;
+}
+
+export class WaterField {
+  private readonly chunks = new Map<string, number[]>();
+  private readonly stuecke: WasserStueck[] = [];
+
+  constructor(layout: WorldLayout) {
+    for (const fluss of layout.rivers ?? []) {
+      const tiefe = fluss.depth ?? 6;
+      for (let i = 0; i + 1 < fluss.points.length; i++) {
+        const [ax, az] = fluss.points[i]!;
+        const [bx, bz] = fluss.points[i + 1]!;
+        this.lege({ ax, az, bx, bz, halbbreite: fluss.width / 2, tiefe });
+      }
+    }
+    for (const see of layout.lakes ?? []) {
+      this.lege({
+        ax: see.x, az: see.z, bx: see.x, bz: see.z,
+        halbbreite: see.radius, tiefe: see.depth ?? 8,
+      });
+    }
+  }
+
+  get stueckAnzahl(): number {
+    return this.stuecke.length;
+  }
+
+  private lege(st: WasserStueck): void {
+    const index = this.stuecke.push(st) - 1;
+    const reichweite = st.halbbreite + UFER_MAX + FIELD_CELL_SIZE;
+    const cx0 = Math.floor((Math.min(st.ax, st.bx) - reichweite) / FIELD_CHUNK_SIZE);
+    const cx1 = Math.floor((Math.max(st.ax, st.bx) + reichweite) / FIELD_CHUNK_SIZE);
+    const cz0 = Math.floor((Math.min(st.az, st.bz) - reichweite) / FIELD_CHUNK_SIZE);
+    const cz1 = Math.floor((Math.max(st.az, st.bz) + reichweite) / FIELD_CHUNK_SIZE);
+    for (let cz = cz0; cz <= cz1; cz++) {
+      for (let cx = cx0; cx <= cx1; cx++) {
+        const key = `${cx},${cz}`;
+        const liste = this.chunks.get(key);
+        if (liste) liste.push(index);
+        else this.chunks.set(key, [index]);
+      }
+    }
+  }
+
+  /** Nächster Wasserlauf am Punkt (kleinster Abstand ZUM BETTRAND). */
+  probe(wx: number, wz: number): WasserProbe {
+    if (this.stuecke.length === 0) return WASSER_KEIN;
+    const liste = this.chunks.get(
+      `${Math.floor(wx / FIELD_CHUNK_SIZE)},${Math.floor(wz / FIELD_CHUNK_SIZE)}`
+    );
+    if (!liste) return WASSER_KEIN;
+    let beste = WASSER_KEIN;
+    let bestRand = Infinity;
+    for (const i of liste) {
+      const st = this.stuecke[i]!;
+      // Punkt-zu-Segment-Abstand (bei Seen ist a == b, also Punktabstand).
+      const dx = st.bx - st.ax;
+      const dz = st.bz - st.az;
+      const len2 = dx * dx + dz * dz;
+      const t = len2 > 0 ? Math.min(1, Math.max(0, ((wx - st.ax) * dx + (wz - st.az) * dz) / len2)) : 0;
+      const px = st.ax + t * dx - wx;
+      const pz = st.az + t * dz - wz;
+      const dist = Math.hypot(px, pz);
+      const rand = dist - st.halbbreite;
+      if (rand < bestRand) {
+        bestRand = rand;
+        beste = { abstand: dist, halbbreite: st.halbbreite, tiefe: st.tiefe };
+      }
+    }
+    return bestRand <= UFER_MAX ? beste : WASSER_KEIN;
+  }
+}

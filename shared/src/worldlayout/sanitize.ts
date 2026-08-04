@@ -16,6 +16,8 @@ import {
   type ContinentDef,
   type RegionDef,
   type RegionShape,
+  type RiverDef,
+  type LakeDef,
   type WorldLayout,
 } from './types.js';
 
@@ -170,6 +172,44 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
     }
   }
 
+  const rivers: RiverDef[] = [];
+  if (Array.isArray(d.rivers)) {
+    for (const r of d.rivers.slice(0, 256)) {
+      if (typeof r !== 'object' || r === null) continue;
+      const o = r as Record<string, unknown>;
+      if (typeof o.id !== 'string' || !ID_RE.test(o.id)) continue;
+      if (!Array.isArray(o.points) || o.points.length < 2 || o.points.length > MAX_POLYGON_POINTS) continue;
+      const points: [number, number][] = [];
+      let ok = true;
+      for (const p of o.points) {
+        if (!Array.isArray(p) || p.length !== 2) { ok = false; break; }
+        const x = koordinate(p[0]);
+        const z = koordinate(p[1]);
+        if (x === null || z === null) { ok = false; break; }
+        points.push([x, z]);
+      }
+      if (!ok) continue;
+      const fluss: RiverDef = { id: o.id, points, width: klemm(o.width, 4, 400, 30) };
+      if (o.depth !== undefined) fluss.depth = klemm(o.depth, 1, 60, 6);
+      rivers.push(fluss);
+    }
+  }
+
+  const lakes: LakeDef[] = [];
+  if (Array.isArray(d.lakes)) {
+    for (const l of d.lakes.slice(0, 256)) {
+      if (typeof l !== 'object' || l === null) continue;
+      const o = l as Record<string, unknown>;
+      if (typeof o.id !== 'string' || !ID_RE.test(o.id)) continue;
+      const x = koordinate(o.x);
+      const z = koordinate(o.z);
+      if (x === null || z === null) continue;
+      const see: LakeDef = { id: o.id, x, z, radius: klemm(o.radius, 8, 5000, 200) };
+      if (o.depth !== undefined) see.depth = klemm(o.depth, 1, 60, 8);
+      lakes.push(see);
+    }
+  }
+
   let defaultSpawn: readonly [number, number] | undefined;
   if (Array.isArray(d.defaultSpawn) && d.defaultSpawn.length === 2) {
     const sx = koordinate(d.defaultSpawn[0]);
@@ -185,5 +225,7 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
     regions,
     ...(placements.length > 0 ? { placements } : {}),
     ...(defaultSpawn ? { defaultSpawn } : {}),
+    ...(rivers.length > 0 ? { rivers } : {}),
+    ...(lakes.length > 0 ? { lakes } : {}),
   };
 }

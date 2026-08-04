@@ -93,7 +93,16 @@ export class NetManager {
     socket.binaryType = 'nodebuffer';
 
     socket.on('message', (data: Buffer) => {
-      this.handlePacket(peer, data);
+      // Ein kaputtes/abgeschnittenes Paket darf NIE den Prozess beenden
+      // (Reader wirft RangeError) — der Verursacher fliegt stattdessen.
+      try {
+        this.handlePacket(peer, data);
+      } catch (err) {
+        console.error(
+          `[NetManager] Paketfehler von ${peer.name}: ${err instanceof Error ? err.message : String(err)} — Verbindung wird getrennt`
+        );
+        socket.close();
+      }
     });
 
     socket.on('close', () => {
@@ -118,7 +127,17 @@ export class NetManager {
     const payload = data.subarray(1);
     const reader = new Reader(Buffer.from(payload));
 
-    console.log(`[NetManager] Received packet type=${type} from ${peer.name} (${data.length} bytes)`);
+    // Auth-Gate: Vor der Authentifizierung sind NUR Handshake-Pakete
+    // erlaubt — alles andere (Input, Angriffe, Editor-Saves, Admin)
+    // wurde vorher ungeprüft geroutet (Review-Punkt 1).
+    if (
+      !peer.authenticated &&
+      type !== PacketType.VersionCheck &&
+      type !== PacketType.PasswordAuth
+    ) {
+      console.warn(`[NetManager] Paket type=${type} vor Auth von ${peer.name} — verworfen`);
+      return;
+    }
 
     switch (type) {
       case PacketType.VersionCheck:

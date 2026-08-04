@@ -45,6 +45,8 @@ export interface WorldSaveData {
     worldGenVersion: number;
     /** ISO timestamp — diagnostics only (C++ encodes it in backup filenames). */
     savedAt: string;
+    /** Hash des WorldLayout-Dokuments (Layout-Modus) — Warnung bei Drift. */
+    layoutHash?: number;
   };
   /** C++ m_worldTime (double, seconds). */
   worldTime: number;
@@ -65,7 +67,9 @@ export class WorldManager {
     private readonly worldsDir: string,
     private readonly worldName: string,
     private readonly worldSeed: string,
-    private readonly worldGenVersion: number
+    private readonly worldGenVersion: number,
+    /** Layout-Modus: Hash des aktiven Weltdokuments (sonst null). */
+    private readonly layoutHash: number | null = null
   ) {}
 
   /** C++ GetWorldPath(..., ".db") — one save per world name. */
@@ -89,6 +93,7 @@ export class WorldManager {
         worldSeed: this.worldSeed,
         worldGenVersion: this.worldGenVersion,
         savedAt: new Date().toISOString(),
+        ...(this.layoutHash !== null ? { layoutHash: this.layoutHash } : {}),
       },
       ...data,
     };
@@ -123,23 +128,47 @@ export class WorldManager {
 
     // v1-Saves sind vorwaerts-kompatibel: ihnen fehlt nur terrainOps.
     if (envelope.version !== SAVE_FORMAT_VERSION && envelope.version !== 1) {
-      console.warn(
-        `[WorldManager] Save version ${envelope.version} != ${SAVE_FORMAT_VERSION} — starting fresh`
-      );
+      this.verwaise(`Save version ${envelope.version} != ${SAVE_FORMAT_VERSION}`);
       return null;
     }
     if (envelope.meta.worldSeed !== this.worldSeed) {
-      console.warn(
-        `[WorldManager] Save seed "${envelope.meta.worldSeed}" != configured "${this.worldSeed}" — starting fresh`
-      );
+      this.verwaise(`Save seed "${envelope.meta.worldSeed}" != configured "${this.worldSeed}"`);
       return null;
     }
     if (envelope.meta.worldGenVersion !== this.worldGenVersion) {
-      console.warn(
-        `[WorldManager] Save worldGenVersion ${envelope.meta.worldGenVersion} != ${this.worldGenVersion} — starting fresh`
-      );
+      this.verwaise(`Save worldGenVersion ${envelope.meta.worldGenVersion} != ${this.worldGenVersion}`);
       return null;
     }
+    // Layout-Drift ist KEIN Abbruch (Layout-Iteration ist der normale
+    // Arbeitsmodus, der Vegetations-Healer setzt Bestand nach) — aber sie
+    // soll unübersehbar im Log stehen: Terrain kann sich unter gebauten
+    // Dingen verschoben haben (Review-Punkt 7).
+    if (
+      this.layoutHash !== null &&
+      envelope.meta.layoutHash !== undefined &&
+      envelope.meta.layoutHash !== this.layoutHash
+    ) {
+      console.warn(
+        `[WorldManager] ⚠ WorldLayout hat sich seit dem Save geändert (Hash ${envelope.meta.layoutHash} → ${this.layoutHash}) — Terrain kann unter Bestand verschoben sein`
+      );
+    }
     return envelope;
+  }
+
+  /**
+   * Inkompatiblen Save BEISEITE legen statt ihn zum Überschreiben
+   * freizugeben: Vorher zerstörte der nächste Autosave nach einem
+   * versehentlichen Seed-/Versionswechsel den alten Spielstand endgültig
+   * (Review-Punkt 7). Die .orphan-Datei bleibt liegen, bis jemand sie
+   * bewusst löscht oder zurückbenennt.
+   */
+  private verwaise(grund: string): void {
+    const ziel = `${this.savePath}.orphan-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    try {
+      renameSync(this.savePath, ziel);
+      console.warn(`[WorldManager] ${grund} — Save beiseitegelegt: ${ziel}`);
+    } catch (err) {
+      console.error(`[WorldManager] ${grund} — Beiseitelegen fehlgeschlagen: ${err}`);
+    }
   }
 }

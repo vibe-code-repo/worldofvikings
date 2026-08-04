@@ -76,6 +76,16 @@ function loadServerConfig(): Partial<ServerConfig> {
   }
 }
 
+// Letzte Verteidigungslinie: unbehandelte Fehler loggen statt den
+// Weltserver kommentarlos sterben zu lassen (systemd startet zwar neu,
+// aber der Placement-Boot kostet Minuten — und wir wollen den Stack sehen).
+process.on('uncaughtException', (err) => {
+  console.error('[Main] Unbehandelter Fehler:', err.stack ?? err.message);
+});
+process.on('unhandledRejection', (grund) => {
+  console.error('[Main] Unbehandelte Promise-Ablehnung:', grund);
+});
+
 // ── Main ─────────────────────────────────────────────────────────
 
 console.log('╔══════════════════════════════════════════╗');

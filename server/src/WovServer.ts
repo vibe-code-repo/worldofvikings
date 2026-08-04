@@ -339,7 +339,8 @@ export class WovServer {
       this.config.worldsDir,
       this.config.worldName,
       this.config.worldSeed,
-      this.config.worldGenVersion
+      this.config.worldGenVersion,
+      this.worldLayoutHash()
     );
     this.loadWorld();
 
@@ -420,6 +421,13 @@ export class WovServer {
     if (neu > 0 || unbekannt > 0) {
       console.log(`[WoV] Layout-Platzierungen: ${neu} gespawnt, ${unbekannt} unbekannte Prefabs übersprungen`);
     }
+  }
+
+  /** Hash des aktiven WorldLayouts (Layout-Modus, sonst null) — Save-Meta. */
+  worldLayoutHash(): number | null {
+    if (this.config.worldMode !== 'layout' || !this.worldLayoutRaw) return null;
+    const sauber = sanitizeWorldLayout(this.worldLayoutRaw);
+    return sauber ? getStableHash(JSON.stringify(sauber)) : null;
   }
 
   /** Ground height via the shared heightmap (D6 server ground truth). */
@@ -869,8 +877,12 @@ export class WovServer {
 
   private handlePlayerInput(peer: Peer, reader: Reader): void {
     const seq = reader.readInt32();
-    const moveX = reader.readFloat32();
-    const moveZ = reader.readFloat32();
+    // Client-Werte HART klemmen: NaN/±1e9 in moveX vergiftete sonst
+    // peer.position → Zonen-Schlüssel "NaN,NaN" → Save (Review-Punkt 4).
+    const klemm1 = (v: number): number =>
+      Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
+    const moveX = klemm1(reader.readFloat32());
+    const moveZ = klemm1(reader.readFloat32());
     const lookYaw = reader.readFloat32();
     const lookPitch = reader.readFloat32();
     const moveY = reader.readFloat32();
@@ -1023,6 +1035,8 @@ export class WovServer {
 
     const zdo = this.zdos.createZDO(prefabHash, pos, rot);
     zdo.setInt('spieler', 1);
+    // Besitzer festhalten — nur der Erbauer darf abreißen (Review-Punkt 4).
+    zdo.setString('besitzer', peer.userId.toString());
     zdo.revision.reviseData();
     zdo.dirty = true;
     antwort(true, `${def.name} gebaut`);
@@ -1031,10 +1045,21 @@ export class WovServer {
   /** Hammer (mittlere Maustaste): eigenes Piece abreissen, halbe Kosten zurueck. */
   private handleRemovePiece(peer: Peer, reader: Reader): void {
     const pos = reader.readVector3();
+    // Abriss nur in Hammer-Reichweite der SERVER-Position — vorher ließ
+    // sich jedes Spielerbauwerk weltweit entfernen (Review-Punkt 4).
+    {
+      const dx = pos.x - peer.position.x;
+      const dz = pos.z - peer.position.z;
+      if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z) || dx * dx + dz * dz > 8 * 8) return;
+    }
     let ziel: ZDO | null = null;
     let best = 3 * 3;
     for (const zdo of this.zdos.getZDOsInRadius(pos, 4)) {
       if (zdo.getInt('spieler') !== 1) continue;
+      // Nur eigene Bauten (Altbestand ohne 'besitzer' bleibt abreißbar,
+      // sonst wären die vor diesem Patch gebauten Stücke für immer fest).
+      const besitzer = zdo.getString('besitzer');
+      if (besitzer && besitzer !== peer.userId.toString()) continue;
       const d = (zdo.position.x - pos.x) ** 2 + (zdo.position.z - pos.z) ** 2;
       if (d < best) {
         best = d;
@@ -1224,8 +1249,32 @@ export class WovServer {
    * Kreaturen-HP leben als ZDO-Member 'health' (Start 20); bei 0 stirbt
    * die Kreatur (SpawnSystem räumt den Zustand selbst auf).
    */
+  /** Maximale Wirk-Distanz von Angriff/Ernte zur SERVER-Position (m). */
+  private static readonly NAHKAMPF_REICHWEITE = 8;
+  /** Mindestabstand zweier Schläge (ms) — Client-Klickraten zählen nicht. */
+  private static readonly SCHLAG_COOLDOWN_MS = 350;
+
+  /**
+   * Angriff/Ernte nur nah an der SERVER-Position und außerhalb des
+   * Cooldowns — vorher wirkte ein Schlag an jeder Weltposition
+   * (Review-Punkt 4). handleHarvest erbt die Prüfung über handleAttack.
+   */
+  private schlagErlaubt(peer: Peer, pos: Vector3): boolean {
+    const dx = pos.x - peer.position.x;
+    const dz = pos.z - peer.position.z;
+    const r = WovServer.NAHKAMPF_REICHWEITE;
+    if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z) || dx * dx + dz * dz > r * r) {
+      return false;
+    }
+    const jetzt = Date.now();
+    if (jetzt - peer.letzterSchlag < WovServer.SCHLAG_COOLDOWN_MS) return false;
+    peer.letzterSchlag = jetzt;
+    return true;
+  }
+
   private handleAttack(peer: Peer, reader: Reader): void {
     const pos = reader.readVector3();
+    if (!this.schlagErlaubt(peer, pos)) return;
     reader.readFloat32(); // yaw — später für Trefferwinkel
     let waffe = '';
     try {

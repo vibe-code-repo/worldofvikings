@@ -20,7 +20,15 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, renameSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -44,6 +52,21 @@ function lade(): WorldLayout {
 }
 
 function schreibe(layout: WorldLayout): void {
+  // Zeitgestempeltes Backup vor JEDEM Schreiben (letzte 10 bleiben) —
+  // ein Fehl-Save der KI darf die Welt nicht unwiederbringlich ersetzen.
+  try {
+    if (existsSync(LAYOUT_PFAD)) {
+      const stempel = new Date().toISOString().replace(/[:.]/g, '-');
+      copyFileSync(LAYOUT_PFAD, `${LAYOUT_PFAD}.${stempel}.bak`);
+      const dir = dirname(LAYOUT_PFAD);
+      const alte = readdirSync(dir)
+        .filter((f) => f.startsWith('worldlayout.json.') && f.endsWith('.bak'))
+        .sort();
+      while (alte.length > 10) unlinkSync(resolve(dir, alte.shift()!));
+    }
+  } catch (err) {
+    console.error(`[worldlayout-mcp] Backup fehlgeschlagen: ${err}`);
+  }
   const tmp = `${LAYOUT_PFAD}.tmp`;
   writeFileSync(tmp, JSON.stringify(layout, null, 2));
   renameSync(tmp, LAYOUT_PFAD);

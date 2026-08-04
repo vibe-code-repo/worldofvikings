@@ -82,6 +82,8 @@ export class Peer {
 
   /** Phase G: overworld position to return to when leaving the dungeon. */
   dungeonReturn: Vector3 | null;
+  /** Zeitstempel des letzten akzeptierten Schlags (Angriff/Ernte-Cooldown). */
+  letzterSchlag = 0;
 
   /** Map visibility flag (BitPack index 0) */
   mapVisible: boolean;

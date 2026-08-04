@@ -29,8 +29,8 @@ Als systemd-Dienst (Dauerbetrieb, Autostart nach Reboot):
 ```bash
 sudo deploy/install-services.sh    # einmalig: Units installieren + aktivieren
 
-systemctl start valheim.target     # Server + Client
-systemctl stop  valheim.target
+systemctl start wov.target         # Server + Client
+systemctl stop  wov.target
 systemctl restart valheim-server   # nur den Game-Server
 systemctl status valheim-server valheim-client
 journalctl -fu valheim-server -u valheim-client
@@ -50,12 +50,12 @@ npm run dev                        # Server + Client parallel im Vordergrund
 
 | Dienst | Port | Adresse |
 | --- | --- | --- |
-| Client (Vite) | 5273 | http://testserver.valheim.community:5273 |
-| Game-Server (WebSocket) | 2466 | Client proxyt über `/ws` |
+| Client (Vite) | 5274 | http://<host>:5274 (Editor: /editor.html) |
+| Game-Server (WebSocket) | 2467 | Client proxyt über `/ws` |
 
 Der Game-Server braucht beim Start ~40 s für die Weltgenerierung, bevor er auf
-Port 2466 lauscht.
+Port 2467 lauscht (Boot dank Placement-Cache ~6 s).
 
 ## Status
 
-Phase 0 (Workspace & Import) — siehe [Roadmap](Docs/06-Roadmap.md).
+Layout-Welt aktiv (designer-definierte Karte, Docs/10) — Historie in der [Roadmap](Docs/06-Roadmap.md).

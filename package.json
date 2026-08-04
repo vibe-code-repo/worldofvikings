@@ -22,7 +22,9 @@
     "service:logs": "journalctl -fu wov-server -u wov-client",
     "build": "npm run build --workspaces --if-present",
     "extract:assets": "npm run extract --workspace=tools/asset-extractor",
-    "parse:prefabs": "npm run parse --workspace=tools/prefab-parser"
+    "parse:prefabs": "npm run parse --workspace=tools/prefab-parser",
+    "test": "node scripts/run-tests.mjs",
+    "typecheck": "cd shared && npx tsc --noEmit && cd ../server && npx tsc --noEmit && cd ../client && npx tsc --noEmit"
   },
   "devDependencies": {
     "playwright": "^1.61.1",

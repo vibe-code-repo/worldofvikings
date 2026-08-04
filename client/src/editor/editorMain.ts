@@ -25,6 +25,7 @@ import {
   type WorldLayout,
 } from '@wov/shared';
 import { setzeKartenMasse, type MapWorkerMessage } from '../ui/worldmap/mapTypes';
+import { EditorShell } from './Shell';
 
 const BIOME_NAMEN: BiomeName[] = [
   'meadows', 'blackforest', 'swamp', 'mountain', 'plains', 'mistlands', 'ashlands', 'deepnorth',
@@ -73,20 +74,11 @@ function neueId(basis: string): string {
   return `${basis}-${n}`;
 }
 
-// ── DOM-Gerüst ───────────────────────────────────────────────────────
-const wurzel = document.createElement('div');
-wurzel.style.cssText = 'display:flex;height:100vh;';
-document.body.appendChild(wurzel);
-
-const seite = document.createElement('div');
-seite.style.cssText =
-  'width:300px;min-width:300px;padding:12px;overflow-y:auto;background:#12161f;' +
-  'border-right:1px solid #3a3325;font-size:13px;line-height:1.5;';
-wurzel.appendChild(seite);
-
-const flaeche = document.createElement('div');
-flaeche.style.cssText = 'flex:1;position:relative;';
-wurzel.appendChild(flaeche);
+// ── Editor-Shell (Werkzeugleiste, Seitenleiste, Viewport, Konsole) ───
+const shell = new EditorShell('⚔ World of Vikings — Map-Generator');
+const flaeche = shell.viewport;
+/** Dynamischer Seitenleisten-Inhalt (Werkzeuge, Regionen, Eigenschaften). */
+const seite = shell.sektion('Werkzeuge & Regionen');
 
 const vorschau = document.createElement('canvas');
 vorschau.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
@@ -96,10 +88,13 @@ const overlay = document.createElement('canvas');
 overlay.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;';
 flaeche.appendChild(overlay);
 
-const statuszeile = document.createElement('div');
-statuszeile.style.cssText =
-  'position:absolute;left:10px;bottom:158px;font-size:12px;color:#9a8f6a;pointer-events:none;';
-flaeche.appendChild(statuszeile);
+/** Meldungs-Shim: bestehende Aufrufer schreiben weiter .textContent,
+ *  die Shell trennt Meldung und Koordinaten (Statusleiste). */
+const statuszeile = {
+  set textContent(t: string) {
+    shell.meldung(t);
+  },
+};
 
 // ── Koordinaten ──────────────────────────────────────────────────────
 function groesseAnpassen(): void {
@@ -111,6 +106,7 @@ function groesseAnpassen(): void {
   zeichneVorschauBild();
 }
 window.addEventListener('resize', groesseAnpassen);
+shell.aufResize = groesseAnpassen;
 
 const zuWelt = (px: number, py: number): [number, number] => [
   (px - overlay.width / 2) * massstab + mitteX,
@@ -339,7 +335,7 @@ overlay.addEventListener('pointermove', (e) => {
     zeichneOverlay();
     zeichneVorschauBild();
   }
-  statuszeile.textContent = `x ${wx.toFixed(0)}  z ${wz.toFixed(0)}`;
+  shell.koordinaten(`x ${wx.toFixed(0)}   z ${wz.toFixed(0)}   ${massstab.toFixed(0)} m/px`);
 });
 overlay.addEventListener('pointerup', () => { zieht = null; });
 overlay.addEventListener('dblclick', polygonSchliessen);
@@ -576,18 +572,25 @@ function seiteBauen(): void {
     seite.appendChild(box);
   }
 
-  seite.appendChild(knopf('🔁 Vorschau neu rechnen', vorschauRechnen));
-  seite.appendChild(knopf('✈ Testflug (Spiel offline)', () => {
+}
+
+// ── Werkzeugleiste: Welt- und Datei-Aktionen (einmalig) ──────────────
+{
+  const welt = shell.toolbarGruppe();
+  welt.appendChild(knopf('🔁 Vorschau', vorschauRechnen));
+  welt.appendChild(knopf('✈ Testflug', () => {
     speichereEntwurf();
     window.open('/?offline=1&layout=editor', '_blank');
   }));
-  seite.appendChild(knopf('⬇ JSON exportieren', () => {
+  const datei = shell.toolbarGruppe();
+  datei.appendChild(knopf('⬇ Export', () => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(layout, null, 2)], { type: 'application/json' }));
     a.download = 'worldlayout.json';
     a.click();
+    shell.meldung('worldlayout.json exportiert — nach server/data/ kopieren und Server neu starten.');
   }));
-  seite.appendChild(knopf('⬆ JSON importieren', () => {
+  datei.appendChild(knopf('⬆ Import', () => {
     const inp = document.createElement('input');
     inp.type = 'file';
     inp.accept = '.json';
@@ -601,19 +604,14 @@ function seiteBauen(): void {
           gewaehlt = null;
           alles();
           vorschauAnstossen();
+          shell.meldung(`Import übernommen — ${s.regions.length} Region(en).`);
         } else {
-          statuszeile.textContent = 'Import verworfen — kein gültiges WorldLayout.';
+          shell.meldung('Import verworfen — kein gültiges WorldLayout.', true);
         }
       });
     };
     inp.click();
   }));
-  const deploy = document.createElement('div');
-  deploy.style.cssText = 'font-size:11px;color:#9a8f6a;margin-top:10px;';
-  deploy.textContent =
-    'Portieren in die Live-Umgebung: Export nach server/data/worldlayout.json ' +
-    'und Server-Neustart — oder per MCP-Server (tools/worldlayout-mcp) direkt aus dem Chat.';
-  seite.appendChild(deploy);
 }
 
 function alles(): void {
@@ -622,47 +620,13 @@ function alles(): void {
   zeichneOverlay();
 }
 
-// ── Server-Konsole ───────────────────────────────────────────────────
-// Live-Blick auf den wov-Server (journalctl via /api/serverlog, SSE):
-// Man sieht beim Publish/Neustart, was die Welt im Hintergrund tut
-// (Placement-Fortschritt, Layout geladen, Platzierungen gespawnt …).
-const konsole = document.createElement('div');
-konsole.style.cssText =
-  'position:absolute;left:0;right:0;bottom:0;height:150px;display:flex;flex-direction:column;' +
-  'background:rgba(8,10,15,0.92);border-top:1px solid #3a3325;font-size:11px;';
-const konsoleKopf = document.createElement('div');
-konsoleKopf.style.cssText =
-  'padding:2px 8px;color:#e8d48a;cursor:pointer;user-select:none;background:#12161f;';
-konsoleKopf.textContent = '▾ Server-Konsole (wov-server)';
-const konsoleLog = document.createElement('div');
-konsoleLog.style.cssText =
-  'flex:1;overflow-y:auto;padding:2px 8px;font-family:ui-monospace,monospace;color:#9fb18f;white-space:pre-wrap;';
-konsole.append(konsoleKopf, konsoleLog);
-flaeche.appendChild(konsole);
-let konsoleOffen = true;
-konsoleKopf.onclick = () => {
-  konsoleOffen = !konsoleOffen;
-  konsole.style.height = konsoleOffen ? '150px' : '20px';
-  konsoleLog.style.display = konsoleOffen ? 'block' : 'none';
-  konsoleKopf.textContent = `${konsoleOffen ? '▾' : '▸'} Server-Konsole (wov-server)`;
-};
+// ── Server-Konsole (Shell-Dock, journalctl via /api/serverlog) ───────
 try {
   const quelle = new EventSource('/api/serverlog');
-  quelle.onmessage = (e) => {
-    const zeile = document.createElement('div');
-    const text = JSON.parse(e.data) as string;
-    zeile.textContent = text;
-    if (/error|Error|FAIL/.test(text)) zeile.style.color = '#d98a6a';
-    else if (/\[WoV\]|WorldLayout|Platzierungen/.test(text)) zeile.style.color = '#e8d48a';
-    konsoleLog.appendChild(zeile);
-    while (konsoleLog.childElementCount > 400) konsoleLog.firstElementChild?.remove();
-    konsoleLog.scrollTop = konsoleLog.scrollHeight;
-  };
-  quelle.onerror = () => {
-    konsoleKopf.textContent = '▾ Server-Konsole — Verbindung unterbrochen (Dev-Server prüfen)';
-  };
+  quelle.onmessage = (e) => shell.konsoleZeile(JSON.parse(e.data) as string);
+  quelle.onerror = () => shell.konsoleStatus('Server-Konsole — Verbindung unterbrochen (Dev-Server prüfen)');
 } catch {
-  konsoleKopf.textContent = '▾ Server-Konsole nicht verfügbar';
+  shell.konsoleStatus('Server-Konsole nicht verfügbar');
 }
 
 // ── Start ────────────────────────────────────────────────────────────

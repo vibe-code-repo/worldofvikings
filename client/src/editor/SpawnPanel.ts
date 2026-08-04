@@ -36,6 +36,8 @@ const KATEGORIEN: ReadonlyArray<{ name: string; namen: () => string[] }> = [
 ];
 
 export class SpawnPanel {
+  /** Wird bei jeder Prefab-Wahl in der Liste gerufen (reaktiviert die Vorschau). */
+  aufWahl: (() => void) | null = null;
   readonly einstellung: SpawnEinstellung = {
     prefab: localStorage.getItem('wov-editor-spawn-prefab') ?? 'Beech1',
     yaw: null,
@@ -210,6 +212,7 @@ export class SpawnPanel {
       zeile.onclick = () => {
         this.einstellung.prefab = name;
         localStorage.setItem('wov-editor-spawn-prefab', name);
+        this.aufWahl?.();
         this.listeFuellen();
       };
       this.liste.appendChild(zeile);

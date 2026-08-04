@@ -1149,6 +1149,8 @@ async function main() {
       let ziehIndex = -1;
       /** Ausgewählte (zuletzt gegriffene) Platzierung — Ziel von Entf. */
       let auswahlIndex = -1;
+      /** Vorschau an der Maus aktiv? Rechtsklick verwirft, Listenwahl reaktiviert. */
+      let vorschauAktiv = true;
 
       // Leuchtring markiert Auswahl/Griff; Geist zeigt das Prefab an der Maus.
       const ring = MeshBuilder.CreateTorus('spawnRing', { diameter: 3, thickness: 0.12, tessellation: 48 }, scene);
@@ -1221,7 +1223,7 @@ async function main() {
           const q = roh.placements[best]!;
           ringZu(q.x, q.z);
           hud.meldung(`${q.prefab} gegriffen — ziehen verschiebt, Entf löscht`);
-        } else {
+        } else if (vorschauAktiv) {
           const einst = panel.einstellung;
           const eintrag = {
             prefab: einst.prefab,
@@ -1244,8 +1246,9 @@ async function main() {
         if (!p) return;
         if (ziehIndex < 0) {
           // Vorschau: Das gewählte Prefab hängt sichtbar an der Maus,
-          // erst der Klick setzt es.
-          geistZu(Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10);
+          // erst der Klick setzt es. Rechtsklick hat sie verworfen?
+          // Dann erst wieder nach neuer Wahl in der Liste.
+          if (vorschauAktiv) geistZu(Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10);
           return;
         }
         const roh = leseEntwurf();
@@ -1258,6 +1261,25 @@ async function main() {
         ringZu(q.x, q.z);
         ent.flush();
       });
+      canvas.addEventListener('contextmenu', (e) => {
+        if (!panel.istOffen) return;
+        e.preventDefault();
+        if (document.pointerLockElement) {
+          // Maus ist gefangen: Rechtsklick gibt sie fürs Panel frei.
+          document.exitPointerLock();
+          return;
+        }
+        // Aktive Auswahl und Maus-Vorschau verwerfen.
+        ziehIndex = -1;
+        auswahlIndex = -1;
+        ring.setEnabled(false);
+        geistWeg();
+        vorschauAktiv = false;
+        hud.meldung('Auswahl verworfen — Prefab in der Liste wählen startet die Vorschau neu');
+      });
+      panel.aufWahl = () => {
+        vorschauAktiv = true;
+      };
       window.addEventListener('pointerup', () => {
         if (ziehIndex < 0) return;
         const roh = leseEntwurf();

@@ -1103,8 +1103,14 @@ async function main() {
         if (e.code === 'KeyP' && panel.istOffen) platziere();
       });
       window.addEventListener('mousedown', (e) => {
-        // Bei gefangener Maus platziert der Klick vor dem Spieler.
-        if (panel.istOffen && e.button === 0 && document.pointerLockElement) platziere();
+        // Bei gefangener Maus platziert der Linksklick vor dem Spieler;
+        // Rechtsklick (button 2) verwirft auch hier.
+        if (!panel.istOffen || !document.pointerLockElement) return;
+        if (e.button === 2) {
+          verwerfen();
+          return;
+        }
+        if (e.button === 0 && performance.now() - rechtsklickZeit > 400) platziere();
       });
 
       // ── Maus-Platzierung + Verschieben (Cursor frei) ────────────────
@@ -1201,8 +1207,34 @@ async function main() {
         panel.aktualisiere();
       });
 
+      /** Verwerfen: von Rechtsklick-pointerdown UND contextmenu gerufen —
+       *  je nach Browser/Pointer-Lock kommt nur eines von beiden an. */
+      let rechtsklickZeit = 0;
+      const verwerfen = (): void => {
+        rechtsklickZeit = performance.now();
+        if (document.pointerLockElement) {
+          document.exitPointerLock();
+          return;
+        }
+        ziehIndex = -1;
+        auswahlIndex = -1;
+        ring.setEnabled(false);
+        geistWeg();
+        vorschauAktiv = false;
+        hud.meldung('Auswahl verworfen — Prefab in der Liste wählen startet die Vorschau neu');
+      };
       canvas.addEventListener('pointerdown', (e) => {
-        if (!panel.istOffen || e.button !== 0 || document.pointerLockElement) return;
+        if (!panel.istOffen) return;
+        if (e.button === 2) {
+          e.preventDefault();
+          verwerfen();
+          return;
+        }
+        // Nur reiner Linksklick platziert/greift — und nie direkt nach
+        // einem Rechtsklick (manche Browser feuern die Folge-Ereignisse
+        // in anderer Reihenfolge, das setzte den Gegenstand ungewollt).
+        if (e.button !== 0 || e.buttons !== 1 || document.pointerLockElement) return;
+        if (performance.now() - rechtsklickZeit < 400) return;
         const p = bodenPunkt(e.offsetX, e.offsetY);
         const roh = leseEntwurf();
         if (!p || !roh) return;
@@ -1264,18 +1296,9 @@ async function main() {
       canvas.addEventListener('contextmenu', (e) => {
         if (!panel.istOffen) return;
         e.preventDefault();
-        if (document.pointerLockElement) {
-          // Maus ist gefangen: Rechtsklick gibt sie fürs Panel frei.
-          document.exitPointerLock();
-          return;
-        }
-        // Aktive Auswahl und Maus-Vorschau verwerfen.
-        ziehIndex = -1;
-        auswahlIndex = -1;
-        ring.setEnabled(false);
-        geistWeg();
-        vorschauAktiv = false;
-        hud.meldung('Auswahl verworfen — Prefab in der Liste wählen startet die Vorschau neu');
+        // Doppelt ausgelöst (pointerdown + contextmenu)? Die Sperre in
+        // verwerfen() macht den zweiten Aufruf harmlos.
+        if (performance.now() - rechtsklickZeit > 50) verwerfen();
       });
       panel.aufWahl = () => {
         vorschauAktiv = true;

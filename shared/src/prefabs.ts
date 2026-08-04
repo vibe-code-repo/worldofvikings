@@ -140,6 +140,18 @@ export const HINT_DEFS: PrefabDef[] = [
   // pkg-Prefabs; Extras blieben sonst bei model=null (Platzhalterbox).
   { ...def('KiPine2', F.TREE_BASE | F.PERSISTENT, 'sapling_pine', 5.5, 9.0, 'KiPine2'),
     localScale: { x: 8.98, y: 8.98, z: 8.98 } },
+  // Zweiter Baumversuch mit v3.1 und 15.000 face_limit (KiPine2 lief noch auf
+  // v2.5). Die Textur ist deutlich besser — Farben stimmen, Rinde stellenweise
+  // erkennbar —, bleibt aber ein Flickenteppich: Anders als beim Steinkreis
+  // zerfällt die UV-Karte eines Baumes in hunderte kleine Ast-Inseln, auf denen
+  // kein zusammenhängendes Muster entsteht. Zum Vergleichen beide behalten.
+  { ...def('KiPine3', F.TREE_BASE | F.PERSISTENT, 'sapling_pine', 7.4, 12.0, 'KiPine3'),
+    localScale: { x: 12, y: 12, z: 12 } },
+  // Steinkreis (Tripo v3.1, 11.362 Dreiecke). Kein TREE_BASE — das Ding ist
+  // ein Bauwerk, kein Gewächs: nicht fällbar, kein Wind. Die Kollision läuft
+  // über BEGEHBAR in EntityManager.ts, sonst stünde eine Box im Durchgang.
+  { ...def('Steinkreis', F.PERSISTENT, 'portal_stone', 3.9, 3.5, 'Steinkreis'),
+    localScale: { x: 4.36, y: 4.36, z: 4.36 } },
 
   // ── Rocks / minable ──────────────────────────────────────────────
   def('Rock_4', F.MINE_ROCK_5 | F.PERSISTENT, 'stonerock', 3.0, 2.5),

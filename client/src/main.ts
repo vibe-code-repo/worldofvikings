@@ -1437,12 +1437,15 @@ async function main() {
   // same keys pick its modes, so a mode is chosen without ever letting go of
   // the mouse. Bound as menu keys so the lock is taken back inside the gesture
   // if the inventory had released it.
-  for (let i = 0; i < 8; i++) {
+  // 9 statt 8: Die Hotbar hat acht Plätze, die Hammer-Tabelle inzwischen
+  // neun Einträge. Ohne Digit9 wäre der letzte nur per Mausklick erreichbar,
+  // obwohl die Kachel eine "9" anzeigt.
+  for (let i = 0; i < 9; i++) {
     input.onMenuKey(`Digit${i + 1}`, () => {
       if (placement?.menuOpen) {
         const piece = placement.pieces[i];
         if (piece) pieceSelection?.pick(piece.name);
-      } else {
+      } else if (i < 8) {
         equipment?.useHotbar(i);
       }
       return !cursorNoetig();

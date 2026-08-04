@@ -6,12 +6,20 @@
     {
       "id": "vikingr",
       "name": "Vikingr",
-      "faction": "viking"
+      "faction": "viking",
+      "spawn": [
+        -6000,
+        1000
+      ]
     },
     {
       "id": "seaxland",
       "name": "Seaxland",
-      "faction": "saxon"
+      "faction": "saxon",
+      "spawn": [
+        6500,
+        500
+      ]
     }
   ],
   "regions": [
@@ -26,7 +34,8 @@
       },
       "edgeFalloff": 250,
       "baseLevel": 0.3,
-      "heightScale": 0.6
+      "heightScale": 0.6,
+      "tier": 0
     },
     {
       "id": "vikingr-land",
@@ -61,7 +70,8 @@
         ]
       },
       "edgeFalloff": 450,
-      "continentId": "vikingr"
+      "continentId": "vikingr",
+      "tier": 1
     },
     {
       "id": "vikingr-schwarzwald",
@@ -73,7 +83,8 @@
         "radius": 2200
       },
       "edgeFalloff": 500,
-      "continentId": "vikingr"
+      "continentId": "vikingr",
+      "tier": 2
     },
     {
       "id": "vikingr-gebirge",
@@ -85,7 +96,8 @@
         "radius": 1600
       },
       "edgeFalloff": 600,
-      "continentId": "vikingr"
+      "continentId": "vikingr",
+      "tier": 4
     },
     {
       "id": "seaxland-land",
@@ -120,7 +132,8 @@
         ]
       },
       "edgeFalloff": 450,
-      "continentId": "seaxland"
+      "continentId": "seaxland",
+      "tier": 1
     },
     {
       "id": "seaxland-ebene",
@@ -132,7 +145,8 @@
         "radius": 2400
       },
       "edgeFalloff": 500,
-      "continentId": "seaxland"
+      "continentId": "seaxland",
+      "tier": 4
     },
     {
       "id": "seaxland-suempfe",
@@ -144,7 +158,8 @@
         "radius": 1400
       },
       "edgeFalloff": 350,
-      "continentId": "seaxland"
+      "continentId": "seaxland",
+      "tier": 3
     }
   ],
   "placements": [
@@ -158,5 +173,9 @@
       "x": -18,
       "z": -8
     }
+  ],
+  "defaultSpawn": [
+    0,
+    0
   ]
 }

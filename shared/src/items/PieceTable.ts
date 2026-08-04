@@ -225,6 +225,9 @@ Object.assign(PIECES, {
   // setzen, und BAU_PREFABS speist die Kategorie "Bauteile" des SpawnPanels
   // (Taste B im Editor-Testflug).
   bau_kipine: bau('bau_kipine', 'KI-Kiefer', 'sapling_pine', 'KiPine2', [{ item: 'Wood', amount: 1 }]),
+  bau_steinkreis: bau('bau_steinkreis', 'Steinkreis', 'portal_stone', 'Steinkreis', [
+    { item: 'Stone', amount: 20 },
+  ]),
 });
 
 export const PIECE_TABLES: Record<string, readonly string[]> = {
@@ -232,7 +235,7 @@ export const PIECE_TABLES: Record<string, readonly string[]> = {
   Cultivator: ['cultivate', 'path'],
   Hammer: [
     'bau_boden', 'bau_wand', 'bau_tuer', 'bau_dach',
-    'bau_werkbank', 'bau_bett', 'bau_portal', 'bau_kipine',
+    'bau_werkbank', 'bau_bett', 'bau_portal', 'bau_kipine', 'bau_steinkreis',
   ],
 };
 

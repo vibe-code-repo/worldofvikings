@@ -51,6 +51,7 @@ import {
   FEATURES,
   RegionGeo,
   layoutBounds,
+  tierAusDistanz,
   FEATURES_BY_NAME,
   PREFABS_BY_NAME,
   PrefabFlag,
@@ -864,10 +865,18 @@ export class ZoneManager {
         }
 
         // Kuratierte Region: Führt sie eine Location-Liste, dürfen dort
-        // AUSSCHLIESSLICH diese Features entstehen.
+        // AUSSCHLIESSLICH diese Features entstehen. Sonst greift die
+        // Progressionsstufe: `tier` ersetzt die Weltzentrums-Distanzen der
+        // Radialwelt (Review-Punkt 32) — ohne sie stünden Bosskammern
+        // gleichberechtigt neben Startdörfern.
         if (this.regionGeo) {
           const region = this.regionGeo.regionAt(point.x, point.z);
-          if (region?.locations && !region.locations.includes(feature.name)) {
+          if (region?.locations) {
+            if (!region.locations.includes(feature.name)) {
+              errCenterDistances++;
+              continue;
+            }
+          } else if (region?.tier !== undefined && tierAusDistanz(feature.minDistance) > region.tier) {
             errCenterDistances++;
             continue;
           }

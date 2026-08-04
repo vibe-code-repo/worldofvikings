@@ -69,6 +69,9 @@ export interface ContinentDef {
   id: string;
   name: string;
   faction?: 'saxon' | 'viking' | 'neutral';
+  /** Startpunkt dieser Fraktion [x, z] — der Server spawnt hier (Höhe
+   *  kommt aus dem Gelände). Ohne Angabe gilt der Welt-Spawn. */
+  spawn?: readonly [number, number];
 }
 
 export type RegionShape =
@@ -91,6 +94,13 @@ export interface RegionDef {
   baseLevel?: number;
   /** Amplitudenfaktor des Perlin-Details (Default 1). */
   heightScale?: number;
+  /**
+   * Progressionsstufe 0–5 (Ersatz für die Weltzentrums-Distanzen der
+   * Radialwelt): Locations mit höherer Stufe entstehen hier nicht. Ohne
+   * Angabe gilt keine Beschränkung — dann zählen nur Biom und die
+   * Kuratierungslisten.
+   */
+  tier?: number;
   /** Override für den Waldfaktor (0 = kahl … 2 = dicht); ohne Wert gilt
    *  weiterhin das globale Wald-Perlin. */
   forestDensity?: number;
@@ -132,6 +142,24 @@ export interface WorldLayout {
   regions: readonly RegionDef[];
   /** Handplatzierte Objekte (Editor-Spawn), zusätzlich zur Vegetation. */
   placements?: readonly PlacementDef[];
+  /** Welt-Startpunkt [x, z] — greift, wenn die Fraktion keinen eigenen
+   *  hat. Ohne Angabe bleibt es beim Ursprung (kann Ozean sein!). */
+  defaultSpawn?: readonly [number, number];
+}
+
+/**
+ * Progressionsstufe eines Features aus seiner Radialwelt-Distanz —
+ * `minDistance` kodierte dort implizit, wie weit fortgeschritten ein
+ * Spieler sein musste. Ohne diese Übersetzung stünden Bosskammern und
+ * Startdörfer im Layout-Modus gleichberechtigt nebeneinander.
+ */
+export function tierAusDistanz(minDistance: number): number {
+  if (minDistance <= 0) return 0;
+  if (minDistance < 1000) return 1;
+  if (minDistance < 2000) return 2;
+  if (minDistance < 4000) return 3;
+  if (minDistance < 7000) return 4;
+  return 5;
 }
 
 /** Achsenparallele Hülle einer Form (für Bbox-Checks und den Kompiler). */

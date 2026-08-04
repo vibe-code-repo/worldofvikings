@@ -47,6 +47,22 @@ const FELS_KOLLISION = /^(rock|minerock|silvervein|copperore|tinore|obsidian|sto
  */
 const FELS_MAX_DREIECKE = 4000;
 
+/**
+ * Bauwerke, durch die man hindurchgehen können muss.
+ *
+ * Für sie gilt dasselbe wie für Dungeon-Räume: Ein Hüllquader wäre fatal,
+ * weil er den Durchgang massiv macht — beim Steinkreis stünde man vor einer
+ * unsichtbaren Wand statt zwischen den Steinen. Deshalb ist die exakte
+ * Kollision hier NICHT ans Dreiecksbudget gebunden (der Steinkreis hat
+ * 11.362), und wenn sie nicht zustande kommt, bleibt das Prefab lieber ganz
+ * ohne Kollision als mit einer Box.
+ *
+ * Bezahlbar ist das aus demselben Grund wie bei den Felsen: Die Shape wird
+ * über alle Instanzen geteilt (StaticColliderSet), pro Instanz entstehen nur
+ * Transform und Body.
+ */
+const BEGEHBAR = /^(Steinkreis)/i;
+
 
 /** Flags whose ZDOs move on their own (server-side AI / physics). */
 const DYNAMIC_FLAGS =
@@ -517,7 +533,8 @@ export class EntityManager {
       const dreiecke = felsig
         ? masters.reduce((s, m) => s + (m.getTotalIndices() / 3 || 0), 0)
         : 0;
-      const exakt = dungeonRoom || (felsig && dreiecke <= FELS_MAX_DREIECKE);
+      const begehbar = BEGEHBAR.test(bucket.prefabName);
+      const exakt = dungeonRoom || begehbar || (felsig && dreiecke <= FELS_MAX_DREIECKE);
       const locals = this.masterLocals.get(bucket.prefabName) ?? [];
       // `buildMeshCollider` gibt null zurück, wenn keine Geometrie
       // zusammenkommt. Für Felsen ist die Hüllform dann immer noch besser
@@ -526,7 +543,7 @@ export class EntityManager {
       // beim bisherigen Verhalten.
       const spec =
         (exakt ? buildMeshCollider(bucket.prefabName, masters, locals, this.scene) : null) ??
-        (dungeonRoom ? null : deriveCollider(masters, locals, treeLike));
+        (dungeonRoom || begehbar ? null : deriveCollider(masters, locals, treeLike));
       if (!spec) {
         this.colliderless.add(bucket.prefabName);
         return;

@@ -100,6 +100,7 @@ function sanitizeRegion(input: unknown, bekannteIds: Set<string>): RegionDef | n
   }
   if (r.baseLevel !== undefined) region.baseLevel = klemm(r.baseLevel, 0.03, 0.6, 0.22);
   if (r.heightScale !== undefined) region.heightScale = klemm(r.heightScale, 0, 4, 1);
+  if (r.tier !== undefined) region.tier = Math.round(klemm(r.tier, 0, 5, 0));
   if (r.forestDensity !== undefined) region.forestDensity = klemm(r.forestDensity, 0, 2, 1);
   const vegetation = sanitizeNamen(r.vegetation);
   if (vegetation) region.vegetation = vegetation;
@@ -133,6 +134,11 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
       if (k.faction === 'saxon' || k.faction === 'viking' || k.faction === 'neutral') {
         kontinent.faction = k.faction;
       }
+      if (Array.isArray(k.spawn) && k.spawn.length === 2) {
+        const sx = koordinate(k.spawn[0]);
+        const sz = koordinate(k.spawn[1]);
+        if (sx !== null && sz !== null) kontinent.spawn = [sx, sz];
+      }
       continents.push(kontinent);
     }
   }
@@ -164,6 +170,13 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
     }
   }
 
+  let defaultSpawn: readonly [number, number] | undefined;
+  if (Array.isArray(d.defaultSpawn) && d.defaultSpawn.length === 2) {
+    const sx = koordinate(d.defaultSpawn[0]);
+    const sz = koordinate(d.defaultSpawn[1]);
+    if (sx !== null && sz !== null) defaultSpawn = [sx, sz];
+  }
+
   return {
     version: WORLD_LAYOUT_VERSION,
     name: d.name,
@@ -171,5 +184,6 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
     continents,
     regions,
     ...(placements.length > 0 ? { placements } : {}),
+    ...(defaultSpawn ? { defaultSpawn } : {}),
   };
 }

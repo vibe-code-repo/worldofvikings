@@ -26,6 +26,7 @@ import {
   PacketType,
   createGeo,
   sanitizeWorldLayout,
+  pruefeLayout,
   type IGeo,
   HeightmapProvider,
   getStableHash,
@@ -451,6 +452,19 @@ export class WovServer {
     if (!layout?.placements?.length) return;
     let neu = 0;
     let unbekannt = 0;
+    // Kennung je Eintrag: Prefab + gerundete Position. Damit lassen sich
+    // beim Boot ZDOs entfernen, deren Eintrag der Designer gelöscht hat
+    // (vorher blieben sie für immer stehen, Review-Punkt 13).
+    const kennung = (p: { prefab: string; x: number; z: number }): string =>
+      `${p.prefab}@${Math.round(p.x)},${Math.round(p.z)}`;
+    const gewollt = new Set(layout.placements.map(kennung));
+    let entfernt = 0;
+    for (const zdo of this.zdos.getAllZDOs()) {
+      const id = zdo.getString('layoutId');
+      if (!id || gewollt.has(id)) continue;
+      this.zdos.destroyZDO(zdo.zdoid);
+      entfernt++;
+    }
     for (const p of layout.placements) {
       const prefab = this.prefabs.getByName(p.prefab);
       if (!prefab) {
@@ -467,11 +481,32 @@ export class WovServer {
       const zdo = this.zdos.createZDO(prefab.hash, pos);
       zdo.rotation = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
       if (p.scale !== undefined && Math.abs(p.scale - 1) > 1e-3) zdo.setFloat('scaleScalar', p.scale);
+      zdo.setString('layoutId', kennung(p));
       neu++;
     }
-    if (neu > 0 || unbekannt > 0) {
-      console.log(`[WoV] Layout-Platzierungen: ${neu} gespawnt, ${unbekannt} unbekannte Prefabs übersprungen`);
+    if (neu > 0 || unbekannt > 0 || entfernt > 0) {
+      console.log(
+        `[WoV] Layout-Platzierungen: ${neu} gespawnt, ${entfernt} verwaiste entfernt, ${unbekannt} unbekannte Prefabs übersprungen`
+      );
     }
+    // Inhaltlicher Bericht (Review-Punkt 32): unbekannte Namen und ein
+    // fehlender Startpunkt stehen jetzt im Boot-Log statt still zu bleiben.
+    for (const b of pruefeLayout(layout)) {
+      console.warn(`[WoV] Layout-Hinweis (${b.wo}): ${b.text}`);
+    }
+  }
+
+  /**
+   * Start-/Respawn-Punkt der Welt. Im Layout-Modus aus dem Dokument
+   * (defaultSpawn, sonst der erste Kontinent mit eigenem Spawn) — der
+   * Ursprung kann dort offener Ozean sein (Review-Punkt 32).
+   */
+  private weltSpawn(): Vector3 {
+    const layout = this.config.worldMode === 'layout' ? sanitizeWorldLayout(this.worldLayoutRaw) : null;
+    const punkt = layout?.defaultSpawn ?? layout?.continents.find((k) => k.spawn)?.spawn;
+    const x = punkt ? punkt[0] : 0;
+    const z = punkt ? punkt[1] : 0;
+    return { x, y: this.getGroundHeight(x, z), z };
   }
 
   /** Hash des aktiven WorldLayouts (Layout-Modus, sonst null) — Save-Meta. */
@@ -749,7 +784,7 @@ export class WovServer {
     // position, this is only the belt for crashes/old saves).
     const savedPos =
       saved && !isInDungeonBand(saved.position.x) ? { ...saved.position } : null;
-    const spawnPos: Vector3 = savedPos ?? { x: 0, y: this.getGroundHeight(0, 0), z: 0 };
+    const spawnPos: Vector3 = savedPos ?? this.weltSpawn();
     peer.flying = saved?.flying ?? false;
     peer.spawnPoint = saved?.spawnPoint ? { ...saved.spawnPoint } : null;
 
@@ -1563,7 +1598,7 @@ export class WovServer {
         peer.health = 100;
         peer.stamina = 100;
         if (peer.dungeonId) this.leaveDungeon(peer);
-        const wieder = peer.spawnPoint ?? { x: 0, y: this.getGroundHeight(0, 0), z: 0 };
+        const wieder = peer.spawnPoint ?? this.weltSpawn();
         this.teleportPeer(peer, { ...wieder }, null);
         peer.sendPacketWith(PacketType.InteractResult, (w) => {
           w.writeBool(true);

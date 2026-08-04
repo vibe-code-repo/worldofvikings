@@ -148,6 +148,13 @@ let spawnPrefab = 'Beech1';
 let massstab = 40;
 let mitteX = 0;
 let mitteZ = 0;
+/**
+ * Aktiver Form-Griff (Review-Punkt 19): Regionen ließen sich nach dem
+ * Zeichnen nur löschen und neu setzen. 'mitte' verschiebt die ganze Form,
+ * 'radius' skaliert den Kreis, ein Zahlwert ist der Polygon-Punktindex.
+ */
+let griff: { regionId: string; art: 'mitte' | 'radius' | number } | null = null;
+const GRIFF_PX = 7;
 
 function ladeEntwurf(): WorldLayout {
   try {
@@ -288,6 +295,36 @@ function zeichneOverlay(): void {
     ctx.font = '12px Georgia';
     ctx.fillText(r.id, tx - 20, ty);
   }
+  // Griffe der gewählten Region: Mittelpunkt (verschieben), Radius-Handle
+  // beim Kreis, jeder Eckpunkt beim Polygon.
+  const aktiv = layout.regions.find((r) => r.id === gewaehlt);
+  if (aktiv) {
+    const punkt = (px: number, py: number, gefuellt: boolean): void => {
+      ctx.beginPath();
+      ctx.arc(px, py, GRIFF_PX, 0, Math.PI * 2);
+      ctx.fillStyle = gefuellt ? '#e8d48a' : 'rgba(232,212,138,0.25)';
+      ctx.fill();
+      ctx.strokeStyle = '#e8d48a';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    };
+    if (aktiv.shape.kind === 'circle') {
+      const [cx, cy] = zuBild(aktiv.shape.x, aktiv.shape.z);
+      punkt(cx, cy, true);
+      const [rx, ry] = zuBild(aktiv.shape.x + aktiv.shape.radius, aktiv.shape.z);
+      punkt(rx, ry, false);
+    } else {
+      const mx = aktiv.shape.points.reduce((a, p) => a + p[0], 0) / aktiv.shape.points.length;
+      const mz = aktiv.shape.points.reduce((a, p) => a + p[1], 0) / aktiv.shape.points.length;
+      const [cx, cy] = zuBild(mx, mz);
+      punkt(cx, cy, true); // Schwerpunkt = ganze Form verschieben
+      for (const [x, z] of aktiv.shape.points) {
+        const [px, py] = zuBild(x, z);
+        punkt(px, py, false);
+      }
+    }
+  }
+
   // Handplatzierte Objekte als grüne Punkte
   for (const p of layout.placements ?? []) {
     const [px, py] = zuBild(p.x, p.z);
@@ -410,6 +447,57 @@ overlay.addEventListener('wheel', (e) => {
 
 overlay.addEventListener('pointerdown', (e) => {
   const [wx, wz] = zuWelt(e.offsetX, e.offsetY);
+  // Griff der GEWÄHLTEN Region gepackt? Dann verformen statt neu auswählen.
+  const gew = layout.regions.find((r) => r.id === gewaehlt);
+  if (gew) {
+    const nah = (hx: number, hz: number): boolean => {
+      const [px, py] = zuBild(hx, hz);
+      return Math.hypot(e.offsetX - px, e.offsetY - py) <= GRIFF_PX + 3;
+    };
+    if (gew.shape.kind === 'circle') {
+      if (nah(gew.shape.x, gew.shape.z)) {
+        griff = { regionId: gew.id, art: 'mitte' };
+        merkeSchritt();
+        return;
+      }
+      if (nah(gew.shape.x + gew.shape.radius, gew.shape.z)) {
+        griff = { regionId: gew.id, art: 'radius' };
+        merkeSchritt();
+        return;
+      }
+    } else {
+      const mx = gew.shape.points.reduce((a, p) => a + p[0], 0) / gew.shape.points.length;
+      const mz = gew.shape.points.reduce((a, p) => a + p[1], 0) / gew.shape.points.length;
+      if (nah(mx, mz)) {
+        griff = { regionId: gew.id, art: 'mitte' };
+        merkeSchritt();
+        return;
+      }
+      for (let i = 0; i < gew.shape.points.length; i++) {
+        const [x, z] = gew.shape.points[i]!;
+        if (!nah(x, z)) continue;
+        // Alt+Klick löscht den Punkt (mindestens 3 müssen bleiben).
+        if (e.altKey && gew.shape.points.length > 3) {
+          merkeSchritt();
+          const punkte = gew.shape.points.filter((_, k) => k !== i);
+          layout = {
+            ...layout,
+            regions: layout.regions.map((r) =>
+              r.id === gew.id ? { ...r, shape: { kind: 'polygon', points: punkte } } : r
+            ),
+          };
+          alles();
+          vorschauAnstossen();
+          shell.meldung('Polygonpunkt entfernt');
+          return;
+        }
+        griff = { regionId: gew.id, art: i };
+        merkeSchritt();
+        return;
+      }
+    }
+  }
+
   if (werkzeug === 'form') {
     const form = FORMEN.find((f) => f.id === gewaehlteForm) ?? FORMEN[0]!;
     const region: RegionDef = {
@@ -470,6 +558,45 @@ overlay.addEventListener('pointerdown', (e) => {
 });
 overlay.addEventListener('pointermove', (e) => {
   const [wx, wz] = zuWelt(e.offsetX, e.offsetY);
+  if (griff) {
+    const region = layout.regions.find((r) => r.id === griff!.regionId);
+    if (region) {
+      const neueForm = ((): RegionDef['shape'] => {
+        if (region.shape.kind === 'circle') {
+          if (griff!.art === 'radius') {
+            const r = Math.max(8, Math.round(Math.hypot(wx - region.shape.x, wz - region.shape.z)));
+            return { ...region.shape, radius: r };
+          }
+          return { ...region.shape, x: Math.round(wx), z: Math.round(wz) };
+        }
+        if (griff!.art === 'mitte') {
+          // Polygon als Ganzes verschieben: Delta auf alle Punkte.
+          const mx = region.shape.points.reduce((a, p) => a + p[0], 0) / region.shape.points.length;
+          const mz = region.shape.points.reduce((a, p) => a + p[1], 0) / region.shape.points.length;
+          const dx = Math.round(wx - mx);
+          const dz = Math.round(wz - mz);
+          return {
+            kind: 'polygon',
+            points: region.shape.points.map(([x, z]) => [x + dx, z + dz] as [number, number]),
+          };
+        }
+        const idx = griff!.art as number;
+        return {
+          kind: 'polygon',
+          points: region.shape.points.map((p, k) =>
+            k === idx ? ([Math.round(wx), Math.round(wz)] as [number, number]) : p
+          ),
+        };
+      })();
+      layout = {
+        ...layout,
+        regions: layout.regions.map((r) => (r.id === region.id ? { ...r, shape: neueForm } : r)),
+      };
+      speichereEntwurf();
+      zeichneOverlay();
+    }
+    return;
+  }
   if (zieht) {
     mitteX -= (e.offsetX - zieht.x) * massstab;
     mitteZ -= (e.offsetY - zieht.y) * massstab;
@@ -479,7 +606,14 @@ overlay.addEventListener('pointermove', (e) => {
   }
   shell.koordinaten(`x ${wx.toFixed(0)}   z ${wz.toFixed(0)}   ${massstab.toFixed(0)} m/px`);
 });
-overlay.addEventListener('pointerup', () => { zieht = null; });
+overlay.addEventListener('pointerup', () => {
+  zieht = null;
+  if (griff) {
+    griff = null;
+    alles();
+    vorschauAnstossen();
+  }
+});
 overlay.addEventListener('dblclick', polygonSchliessen);
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && werkzeug === 'polygon') {

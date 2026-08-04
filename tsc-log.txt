@@ -1,2 +1,0 @@
-﻿client/src/engine/GrassClutter.ts(149,44): error TS2304: Cannot find name 'InstancedMesh'.
-client/src/engine/GrassClutter.ts(229,35): error TS2551: Property 'uScale' does not exist on type 'BaseTexture'. Did you mean 'scale'?

@@ -2,8 +2,10 @@
   "mcpServers": {
     "worldlayout": {
       "command": "npx",
-      "args": ["tsx", "tools/worldlayout-mcp/server.ts"],
-      "cwd": "/root/worldofvikings"
+      "args": [
+        "tsx",
+        "tools/worldlayout-mcp/server.ts"
+      ]
     }
   }
 }

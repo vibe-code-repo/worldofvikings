@@ -30,7 +30,6 @@
     },
     {
       "id": "vikingr-land",
-      "continentId": "vikingr",
       "biome": "meadows",
       "shape": {
         "kind": "polygon",
@@ -61,11 +60,11 @@
           ]
         ]
       },
-      "edgeFalloff": 450
+      "edgeFalloff": 450,
+      "continentId": "vikingr"
     },
     {
       "id": "vikingr-schwarzwald",
-      "continentId": "vikingr",
       "biome": "blackforest",
       "shape": {
         "kind": "circle",
@@ -73,11 +72,11 @@
         "z": 2500,
         "radius": 2200
       },
-      "edgeFalloff": 500
+      "edgeFalloff": 500,
+      "continentId": "vikingr"
     },
     {
       "id": "vikingr-gebirge",
-      "continentId": "vikingr",
       "biome": "mountain",
       "shape": {
         "kind": "circle",
@@ -85,11 +84,11 @@
         "z": -3000,
         "radius": 1600
       },
-      "edgeFalloff": 600
+      "edgeFalloff": 600,
+      "continentId": "vikingr"
     },
     {
       "id": "seaxland-land",
-      "continentId": "seaxland",
       "biome": "meadows",
       "shape": {
         "kind": "polygon",
@@ -120,11 +119,11 @@
           ]
         ]
       },
-      "edgeFalloff": 450
+      "edgeFalloff": 450,
+      "continentId": "seaxland"
     },
     {
       "id": "seaxland-ebene",
-      "continentId": "seaxland",
       "biome": "plains",
       "shape": {
         "kind": "circle",
@@ -132,11 +131,11 @@
         "z": 1500,
         "radius": 2400
       },
-      "edgeFalloff": 500
+      "edgeFalloff": 500,
+      "continentId": "seaxland"
     },
     {
       "id": "seaxland-suempfe",
-      "continentId": "seaxland",
       "biome": "swamp",
       "shape": {
         "kind": "circle",
@@ -144,7 +143,8 @@
         "z": -3200,
         "radius": 1400
       },
-      "edgeFalloff": 350
+      "edgeFalloff": 350,
+      "continentId": "seaxland"
     }
   ],
   "placements": [

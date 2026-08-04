@@ -26,3 +26,9 @@ screenshots/newtexture/
 # nachvollziehbar bleibt.
 screenshots/
 server/data/dungeons/
+
+# Review-Punkt 30: Build-Artefakte, Rip-Werkzeug, Sicherungen
+tsc-log.txt
+*.bak
+server/data/worlds/*.orphan-*
+server/data/*.locations.json

@@ -98,7 +98,7 @@ flaeche.appendChild(overlay);
 
 const statuszeile = document.createElement('div');
 statuszeile.style.cssText =
-  'position:absolute;left:10px;bottom:8px;font-size:12px;color:#9a8f6a;pointer-events:none;';
+  'position:absolute;left:10px;bottom:158px;font-size:12px;color:#9a8f6a;pointer-events:none;';
 flaeche.appendChild(statuszeile);
 
 // ── Koordinaten ──────────────────────────────────────────────────────
@@ -620,6 +620,49 @@ function alles(): void {
   speichereEntwurf();
   seiteBauen();
   zeichneOverlay();
+}
+
+// ── Server-Konsole ───────────────────────────────────────────────────
+// Live-Blick auf den wov-Server (journalctl via /api/serverlog, SSE):
+// Man sieht beim Publish/Neustart, was die Welt im Hintergrund tut
+// (Placement-Fortschritt, Layout geladen, Platzierungen gespawnt …).
+const konsole = document.createElement('div');
+konsole.style.cssText =
+  'position:absolute;left:0;right:0;bottom:0;height:150px;display:flex;flex-direction:column;' +
+  'background:rgba(8,10,15,0.92);border-top:1px solid #3a3325;font-size:11px;';
+const konsoleKopf = document.createElement('div');
+konsoleKopf.style.cssText =
+  'padding:2px 8px;color:#e8d48a;cursor:pointer;user-select:none;background:#12161f;';
+konsoleKopf.textContent = '▾ Server-Konsole (wov-server)';
+const konsoleLog = document.createElement('div');
+konsoleLog.style.cssText =
+  'flex:1;overflow-y:auto;padding:2px 8px;font-family:ui-monospace,monospace;color:#9fb18f;white-space:pre-wrap;';
+konsole.append(konsoleKopf, konsoleLog);
+flaeche.appendChild(konsole);
+let konsoleOffen = true;
+konsoleKopf.onclick = () => {
+  konsoleOffen = !konsoleOffen;
+  konsole.style.height = konsoleOffen ? '150px' : '20px';
+  konsoleLog.style.display = konsoleOffen ? 'block' : 'none';
+  konsoleKopf.textContent = `${konsoleOffen ? '▾' : '▸'} Server-Konsole (wov-server)`;
+};
+try {
+  const quelle = new EventSource('/api/serverlog');
+  quelle.onmessage = (e) => {
+    const zeile = document.createElement('div');
+    const text = JSON.parse(e.data) as string;
+    zeile.textContent = text;
+    if (/error|Error|FAIL/.test(text)) zeile.style.color = '#d98a6a';
+    else if (/\[WoV\]|WorldLayout|Platzierungen/.test(text)) zeile.style.color = '#e8d48a';
+    konsoleLog.appendChild(zeile);
+    while (konsoleLog.childElementCount > 400) konsoleLog.firstElementChild?.remove();
+    konsoleLog.scrollTop = konsoleLog.scrollHeight;
+  };
+  quelle.onerror = () => {
+    konsoleKopf.textContent = '▾ Server-Konsole — Verbindung unterbrochen (Dev-Server prüfen)';
+  };
+} catch {
+  konsoleKopf.textContent = '▾ Server-Konsole nicht verfügbar';
 }
 
 // ── Start ────────────────────────────────────────────────────────────

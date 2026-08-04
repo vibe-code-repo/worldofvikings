@@ -1,4 +1,5 @@
 import { defineConfig, type Plugin } from 'vite';
+import { spawn } from 'node:child_process';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
@@ -10,6 +11,41 @@ const CONFIG_DIR = dirname(fileURLToPath(import.meta.url));
 
 /** Game-Server (server/data/server.yml → server.port). Eigener Port — valheim-browser nutzt 2456. */
 const GAME_SERVER_PORT = 2467;
+
+/**
+ * Server-Konsole für den Layout-Editor: streamt journalctl des wov-Servers
+ * als Server-Sent-Events an /api/serverlog. Nur Dev-Server (systemd-Host);
+ * Paket-Spam (type=…/Received packet) wird herausgefiltert, damit die
+ * Konsole Weltereignisse zeigt statt 30-Hz-Input.
+ */
+function serverLog(): Plugin {
+  return {
+    name: 'wov-serverlog',
+    configureServer(server) {
+      server.middlewares.use('/api/serverlog', (req, res) => {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+        });
+        const kind = spawn('journalctl', ['-fu', 'wov-server', '-n', '120', '--no-pager', '-o', 'short-iso']);
+        const weiter = (chunk: Buffer): void => {
+          for (const zeile of chunk.toString().split('\n')) {
+            if (!zeile.trim()) continue;
+            if (/Received packet|type=\d+ from/.test(zeile)) continue;
+            res.write(`data: ${JSON.stringify(zeile)}\n\n`);
+          }
+        };
+        kind.stdout.on('data', weiter);
+        kind.stderr.on('data', weiter);
+        kind.on('error', (err) => {
+          res.write(`data: ${JSON.stringify(`[Konsole] journalctl nicht verfügbar: ${err.message}`)}\n\n`);
+        });
+        req.on('close', () => kind.kill());
+      });
+    },
+  };
+}
 
 /**
  * Serves the project's own asset folder at /assets.
@@ -100,6 +136,7 @@ export default defineConfig({
   plugins: [
     gameWsProxy(GAME_SERVER_PORT),
     assetFolder(resolve(CONFIG_DIR, '../assets')),
+    serverLog(),
   ],
   build: {
     outDir: 'dist',

@@ -76,6 +76,7 @@ import { ObjectLabels } from './ui/ObjectLabels';
 import { Anvisiert } from './ui/Anvisiert';
 import { WorldMap } from './ui/WorldMap';
 import { setzeKartenMasse } from './ui/worldmap/mapTypes';
+import { SpawnPanel } from './editor/SpawnPanel';
 import { DungeonEditor } from './ui/DungeonEditor';
 import { Minimap } from './ui/Minimap';
 import { LightPool } from './engine/LightPool';
@@ -1019,7 +1020,7 @@ async function main() {
     // `entities` hier sonst für null.
     const ent = entities as EntityManager | null;
     if (testflug && ent) {
-      const zeige = (p: { prefab: string; x: number; z: number; yaw?: number }, i: number): void => {
+      const zeige = (p: { prefab: string; x: number; z: number; yaw?: number; scale?: number }, i: number): void => {
         if (!findPrefabByName(p.prefab) || !world) return;
         const yaw = p.yaw ?? 0;
         ent.applyUpdate({
@@ -1034,29 +1035,60 @@ async function main() {
       (entwurf.placements ?? []).forEach(zeige);
       ent.flush();
 
-      let spawnModus = false;
-      window.addEventListener('keydown', (e) => {
-        if (e.code !== 'KeyB') return;
-        spawnModus = !spawnModus;
-        const prefab = localStorage.getItem('wov-editor-spawn-prefab') ?? 'Beech1';
-        hud.meldung(spawnModus ? `Editor-Spawn AN — Klick platziert ${prefab}` : 'Editor-Spawn aus');
+      const panel = new SpawnPanel({
+        anzahl: () => {
+          const roh = JSON.parse(localStorage.getItem('wov-editor-layout') ?? '{}') as {
+            placements?: unknown[];
+          };
+          return roh.placements?.length ?? 0;
+        },
+        platzieren: () => platziere(),
+        entferneLetztes: () => {
+          const roh = JSON.parse(localStorage.getItem('wov-editor-layout') ?? 'null') as {
+            placements?: Array<{ prefab: string; x: number; z: number }>;
+          } | null;
+          if (!roh?.placements?.length) return;
+          const i = roh.placements.length - 1;
+          roh.placements = roh.placements.slice(0, -1);
+          localStorage.setItem('wov-editor-layout', JSON.stringify(roh));
+          ent.removeZDO(`edplace-${i}`);
+          ent.flush();
+          hud.meldung('Letzte Platzierung entfernt');
+        },
       });
-      window.addEventListener('mousedown', (e) => {
-        if (!spawnModus || e.button !== 0 || !player || !world) return;
-        const prefab = localStorage.getItem('wov-editor-spawn-prefab') ?? 'Beech1';
-        // 4 m vor dem Spieler in Blickrichtung, Höhe folgt dem Boden.
-        const wx = Math.round(player.position.x - Math.sin(player.yaw) * 4);
-        const wz = Math.round(player.position.z - Math.cos(player.yaw) * 4);
+      const platziere = (): void => {
+        if (!player || !world) return;
+        const e = panel.einstellung;
+        const wx = Math.round(player.position.x - Math.sin(player.yaw) * e.abstand);
+        const wz = Math.round(player.position.z - Math.cos(player.yaw) * e.abstand);
         const roh = JSON.parse(localStorage.getItem('wov-editor-layout') ?? 'null') as {
-          placements?: Array<{ prefab: string; x: number; z: number; yaw?: number }>;
+          placements?: Array<{ prefab: string; x: number; z: number; yaw?: number; scale?: number }>;
         } | null;
         if (!roh) return;
-        const eintrag = { prefab, x: wx, z: wz, yaw: Math.random() * Math.PI * 2 };
+        const eintrag = {
+          prefab: e.prefab,
+          x: wx,
+          z: wz,
+          yaw: e.yaw ?? Math.random() * Math.PI * 2,
+          ...(Math.abs(e.scale - 1) > 1e-3 ? { scale: e.scale } : {}),
+        };
         roh.placements = [...(roh.placements ?? []), eintrag];
         localStorage.setItem('wov-editor-layout', JSON.stringify(roh));
         zeige(eintrag, roh.placements.length - 1);
         ent.flush();
-        hud.meldung(`${prefab} platziert @ (${wx}, ${wz}) — im Entwurf gespeichert`);
+        panel.aktualisiere();
+        hud.meldung(`${e.prefab} platziert @ (${wx}, ${wz})`);
+      };
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'KeyB') {
+          const offen = panel.toggle();
+          hud.meldung(offen ? 'Spawn-Editor offen — P oder Klick platziert' : 'Spawn-Editor zu');
+        }
+        if (e.code === 'KeyP' && panel.istOffen) platziere();
+      });
+      window.addEventListener('mousedown', (e) => {
+        // Nur bei gefangener Maus: sonst platziert jeder UI-Klick ein Objekt.
+        if (panel.istOffen && e.button === 0 && document.pointerLockElement) platziere();
       });
     }
   }

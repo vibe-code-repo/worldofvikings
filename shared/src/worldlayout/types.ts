@@ -118,6 +118,8 @@ export interface PlacementDef {
   z: number;
   /** Drehung um die Hochachse in Radiant (Default 0). */
   yaw?: number;
+  /** Einheitliche Skalierung (Default 1, geklemmt 0.2–5). */
+  scale?: number;
 }
 
 export interface WorldLayout {

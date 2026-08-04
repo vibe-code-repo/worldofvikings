@@ -148,7 +148,7 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
     }
   }
 
-  const placements: { prefab: string; x: number; z: number; yaw?: number }[] = [];
+  const placements: { prefab: string; x: number; z: number; yaw?: number; scale?: number }[] = [];
   if (Array.isArray(d.placements)) {
     for (const p of d.placements.slice(0, 2000)) {
       if (typeof p !== 'object' || p === null) continue;
@@ -157,8 +157,9 @@ export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
       const x = koordinate(o.x);
       const z = koordinate(o.z);
       if (x === null || z === null) continue;
-      const eintrag: { prefab: string; x: number; z: number; yaw?: number } = { prefab: o.prefab, x, z };
+      const eintrag: { prefab: string; x: number; z: number; yaw?: number; scale?: number } = { prefab: o.prefab, x, z };
       if (o.yaw !== undefined) eintrag.yaw = klemm(o.yaw, -Math.PI * 2, Math.PI * 2, 0);
+      if (o.scale !== undefined) eintrag.scale = klemm(o.scale, 0.2, 5, 1);
       placements.push(eintrag);
     }
   }

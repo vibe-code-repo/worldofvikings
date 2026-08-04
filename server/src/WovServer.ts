@@ -414,6 +414,7 @@ export class WovServer {
       const yaw = p.yaw ?? 0;
       const zdo = this.zdos.createZDO(prefab.hash, pos);
       zdo.rotation = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
+      if (p.scale !== undefined && Math.abs(p.scale - 1) > 1e-3) zdo.setFloat('scaleScalar', p.scale);
       neu++;
     }
     if (neu > 0 || unbekannt > 0) {

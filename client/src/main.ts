@@ -1095,8 +1095,104 @@ async function main() {
         if (e.code === 'KeyP' && panel.istOffen) platziere();
       });
       window.addEventListener('mousedown', (e) => {
-        // Nur bei gefangener Maus: sonst platziert jeder UI-Klick ein Objekt.
+        // Bei gefangener Maus platziert der Klick vor dem Spieler.
         if (panel.istOffen && e.button === 0 && document.pointerLockElement) platziere();
+      });
+
+      // ── Maus-Platzierung + Verschieben (Cursor frei) ────────────────
+      //
+      // Der Klickpunkt wird per Kamerastrahl gegen das Höhenfeld gemarcht
+      // (kein scene.pick: Thin Instances und Terrain-Kacheln sind nicht
+      // verlässlich pickbar). Klick auf freie Fläche = neues Objekt am
+      // Mauspunkt; Klick nahe einer Platzierung = greifen und ziehen.
+      const bodenPunkt = (px: number, py: number): { x: number; z: number } | null => {
+        if (!player || !world) return null;
+        const ray = scene.createPickingRay(px, py, null, player.camera);
+        let t0 = 0;
+        let t1 = -1;
+        for (let t = 2; t < 800; t += 2) {
+          const x = ray.origin.x + ray.direction.x * t;
+          const y = ray.origin.y + ray.direction.y * t;
+          const z = ray.origin.z + ray.direction.z * t;
+          if (y <= world.getGroundHeight(x, z)) {
+            t1 = t;
+            break;
+          }
+          t0 = t;
+        }
+        if (t1 < 0) return null;
+        for (let i = 0; i < 10; i++) {
+          const tm = (t0 + t1) / 2;
+          const x = ray.origin.x + ray.direction.x * tm;
+          const y = ray.origin.y + ray.direction.y * tm;
+          const z = ray.origin.z + ray.direction.z * tm;
+          if (y <= world.getGroundHeight(x, z)) t1 = tm;
+          else t0 = tm;
+        }
+        const tm = (t0 + t1) / 2;
+        return { x: ray.origin.x + ray.direction.x * tm, z: ray.origin.z + ray.direction.z * tm };
+      };
+      const leseEntwurf = (): { placements: Array<{ prefab: string; x: number; z: number; yaw?: number; scale?: number }> } | null => {
+        const roh = JSON.parse(localStorage.getItem('wov-editor-layout') ?? 'null');
+        if (!roh) return null;
+        roh.placements = roh.placements ?? [];
+        return roh;
+      };
+      let ziehIndex = -1;
+      canvas.addEventListener('pointerdown', (e) => {
+        if (!panel.istOffen || e.button !== 0 || document.pointerLockElement) return;
+        const p = bodenPunkt(e.offsetX, e.offsetY);
+        const roh = leseEntwurf();
+        if (!p || !roh) return;
+        // Nächste Platzierung im Griffradius? Dann greifen statt setzen.
+        let best = -1;
+        let bestD = 3;
+        roh.placements.forEach((q, i) => {
+          const d = Math.hypot(q.x - p.x, q.z - p.z);
+          if (d < bestD) {
+            bestD = d;
+            best = i;
+          }
+        });
+        if (best >= 0) {
+          ziehIndex = best;
+          hud.meldung(`${roh.placements[best]!.prefab} gegriffen — ziehen, loslassen setzt ab`);
+        } else {
+          const einst = panel.einstellung;
+          const eintrag = {
+            prefab: einst.prefab,
+            x: Math.round(p.x * 10) / 10,
+            z: Math.round(p.z * 10) / 10,
+            yaw: einst.yaw ?? Math.random() * Math.PI * 2,
+            ...(Math.abs(einst.scale - 1) > 1e-3 ? { scale: einst.scale } : {}),
+          };
+          roh.placements.push(eintrag);
+          localStorage.setItem('wov-editor-layout', JSON.stringify(roh));
+          zeige(eintrag, roh.placements.length - 1);
+          ent.flush();
+          panel.aktualisiere();
+          hud.meldung(`${einst.prefab} platziert @ (${eintrag.x}, ${eintrag.z})`);
+        }
+      });
+      canvas.addEventListener('pointermove', (e) => {
+        if (ziehIndex < 0) return;
+        const p = bodenPunkt(e.offsetX, e.offsetY);
+        const roh = leseEntwurf();
+        if (!p || !roh || !roh.placements[ziehIndex]) return;
+        const q = roh.placements[ziehIndex]!;
+        q.x = Math.round(p.x * 10) / 10;
+        q.z = Math.round(p.z * 10) / 10;
+        localStorage.setItem('wov-editor-layout', JSON.stringify(roh));
+        zeige(q, ziehIndex); // gleicher Key ⇒ Matrix-Update, kein Duplikat
+        ent.flush();
+      });
+      window.addEventListener('pointerup', () => {
+        if (ziehIndex < 0) return;
+        const roh = leseEntwurf();
+        const q = roh?.placements[ziehIndex];
+        if (q) hud.meldung(`${q.prefab} abgesetzt @ (${q.x}, ${q.z})`);
+        ziehIndex = -1;
+        panel.aktualisiere();
       });
     }
   }

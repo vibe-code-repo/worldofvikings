@@ -509,8 +509,18 @@ overlay.addEventListener('pointerdown', (e) => {
     merkeSchritt();
     layout = { ...layout, regions: [...layout.regions, region] };
     gewaehlt = region.id;
+    // Ein Klick = EINE Insel: danach zurück zur Auswahl, damit der
+    // nächste Klick die frische Region bearbeitet statt eine weitere zu
+    // setzen (vom Nutzer als störend gemeldet). Shift hält das Werkzeug
+    // für Serien aktiv.
+    if (!e.shiftKey) werkzeug = 'auswahl';
     alles();
     vorschauAnstossen();
+    shell.meldung(
+      e.shiftKey
+        ? `${region.id} gesetzt — Werkzeug bleibt aktiv (Shift)`
+        : `${region.id} gesetzt — Griffe zum Verformen, Shift+Klick für Serien`
+    );
     return;
   }
   if (werkzeug === 'platzieren') {
@@ -719,7 +729,7 @@ function seiteBauen(): void {
   seite.appendChild(formZeile);
   seite.appendChild(knopf(
     werkzeug === 'form'
-      ? `✚ ${FORMEN.find((f) => f.id === gewaehlteForm)?.name ?? ''} setzen (aktiv — Klick auf die Karte)`
+      ? `✚ ${FORMEN.find((f) => f.id === gewaehlteForm)?.name ?? ''} setzen (aktiv — Klick setzt, Shift für Serien)`
       : '✚ Insel-Form setzen',
     () => {
       werkzeug = werkzeug === 'form' ? 'auswahl' : 'form';

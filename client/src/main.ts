@@ -246,6 +246,8 @@ async function main() {
 
   // World-dependent systems — only exist once the world (seed) is known.
   let world: ClientWorld | null = null;
+  /** Spawn-Editor des Testflugs offen? (gibt die Maus frei, s. cursorNoetig) */
+  let spawnEditorOffen: () => boolean = () => false;
   /** Layout-Handshake: ServerConfig kündigte ein WorldLayoutData an. */
   let layoutErwartet: { worldSeed: string; settings: ClientWorldSettings } | null = null;
   /** Aktives WorldLayout (Layout-Modus) — Karte/Editor lesen es mit. */
@@ -1079,10 +1081,16 @@ async function main() {
         panel.aktualisiere();
         hud.meldung(`${e.prefab} platziert @ (${wx}, ${wz})`);
       };
+      spawnEditorOffen = () => panel.istOffen;
       window.addEventListener('keydown', (e) => {
         if (e.code === 'KeyB') {
           const offen = panel.toggle();
-          hud.meldung(offen ? 'Spawn-Editor offen — P oder Klick platziert' : 'Spawn-Editor zu');
+          if (offen) {
+            // Maus freigeben, damit Liste/Regler anklickbar sind — das
+            // Wieder-Einfangen übernimmt der Game-Loop (cursorNoetig).
+            document.exitPointerLock();
+          }
+          hud.meldung(offen ? 'Spawn-Editor offen — P platziert, B schließt' : 'Spawn-Editor zu');
         }
         if (e.code === 'KeyP' && panel.istOffen) platziere();
       });
@@ -1107,7 +1115,8 @@ async function main() {
     settingsPanel.isVisible ||
     worldMap?.isVisible === true ||
     craftingPanel.isVisible ||
-    dungeonEditor?.isVisible === true;
+    dungeonEditor?.isVisible === true ||
+    spawnEditorOffen();
   input.onMenuKey('KeyM', () => {
     // Die Karte braucht die Maus (Ziehen, Zoomen, Abfrage unter dem Zeiger),
     // liegt also im selben Lager wie das Inventar: Zeiger frei.

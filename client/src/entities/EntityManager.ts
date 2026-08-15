@@ -95,6 +95,25 @@ const COLLIDER_RANGE = 48;
  */
 const REBUILD_BUDGET_MS = 4;
 
+/**
+ * Reserve, um die der Hüllkörper eines Thin-Instance-Masters aufgeweitet
+ * wird, in Metern (D10).
+ *
+ * Seit die Master wieder am Frustum-Culling teilnehmen (siehe zuMaster()
+ * in AssetManager) entscheidet ihr Hüllkörper darüber, ob sie gezeichnet
+ * werden. Babylon rechnet ihn aus den Instanzmatrizen und der ROHEN
+ * Geometrie — der Windshader verschiebt die Blattscheitel aber darüber
+ * hinaus (WindPlugin.strength = 0,38 je Referenzhöhe; an Beech1
+ * nachgerechnet im Mittel 0,84 m Ausschlag am äusseren Kronenrand, vor
+ * der Ansatzdämpfung 1,48 m). Ohne Reserve könnte ein Baum am Bildrand
+ * verschwinden, während sein Laub noch hineinragt.
+ *
+ * 1,5 m deckt den gemessenen Ausschlag mit Luft ab. Grosszügig zu sein
+ * kostet hier fast nichts: Die Reserve verschiebt nur die Grenze, ab der
+ * ein Master ohnehin ausserhalb des Bildes liegt.
+ */
+const SCHWUNG_RESERVE_M = 1.5;
+
 /** Player travel that triggers a rebuild of the collision window. */
 const COLLIDER_REBUILD_STEP = 12;
 /**
@@ -292,6 +311,36 @@ interface DynamicEntity {
 
 /** Wiederverwendetes Nick-Quaternion des prozeduralen Gangs (kein Alloc pro Frame). */
 const GANG_NICK_TMP = new Quaternion();
+
+/**
+ * Den Hüllkörper eines Thin-Instance-Masters um SCHWUNG_RESERVE_M
+ * aufweiten — nach jedem Schreiben des Matrixpuffers aufzurufen.
+ *
+ * Exportiert, weil das die Zusicherung ist, an der die Sichtbarkeit hängt:
+ * `client/test/master-huelle.ts` prüft ohne GPU nach, dass der Kasten jede
+ * gesetzte Instanz vollständig enthält. Ein Hüllkörper, der eine Instanz
+ * auslässt, lässt das Objekt im Spiel verschwinden — und zwar nur aus
+ * bestimmten Blickwinkeln, also genau die Sorte Fehler, die man beim
+ * Durchklicken nicht findet.
+ *
+ * Kein Alloc je Neuaufbau: `reConstruct` schreibt mit `copyFromFloats` in
+ * die bestehenden Vektoren des Hüllkörpers, und die beiden Endpunkte
+ * kommen aus wiederverwendeten Arbeitsvektoren.
+ */
+export function huellkoerperAufweiten(mesh: Mesh, reserve = SCHWUNG_RESERVE_M): void {
+  const info = mesh.getBoundingInfo();
+  const min = info.minimum;
+  const max = info.maximum;
+  info.reConstruct(
+    RESERVE_MIN_TMP.copyFromFloats(min.x - reserve, min.y - reserve, min.z - reserve),
+    RESERVE_MAX_TMP.copyFromFloats(max.x + reserve, max.y + reserve, max.z + reserve),
+    mesh.getWorldMatrix()
+  );
+}
+
+/** Arbeitsvektoren für huellkoerperAufweiten (kein Alloc je Neuaufbau). */
+const RESERVE_MIN_TMP = new Vector3();
+const RESERVE_MAX_TMP = new Vector3();
 
 export class EntityManager {
   private readonly buckets = new Map<number, StaticBucket>();
@@ -1037,7 +1086,21 @@ export class EntityManager {
       for (let i = 0; i < count; i++) {
         local.multiply(zdoMats[i]!).toArray(data, i * 16);
       }
-      masters[m]!.thinInstanceSetBuffer('matrix', data, 16, false);
+      // Ein LEERER Bucket bekommt `null`, nicht einen Puffer der Länge 0.
+      //
+      // Beides schaltet den Master ab, aber nur bei `null` stellt Babylon
+      // den Hüllkörper der Rohgeometrie wieder her; mit einem leeren Puffer
+      // läuft seine Min/Max-Schleife über null Instanzen und hinterlässt
+      // ±Infinity (thinInstanceMesh.js:103 gegen :109). Solange der Master
+      // abgeschaltet ist, sieht man davon nichts — aber ein Hüllkörper aus
+      // Unendlichkeiten ist eine Falle für jeden, der ihn später ausliest,
+      // und seit D10 lesen ihn zwei Stellen aus (Frustumprüfung und
+      // Shadows.darfWerfen). Aufgefallen in client/test/master-huelle.ts.
+      masters[m]!.thinInstanceSetBuffer('matrix', count > 0 ? data : null, 16, false);
+      // setBuffer hat den Hüllkörper soeben über alle Instanzen neu
+      // gespannt (thinInstanceMesh.js:103) — jetzt ist der Moment, ihm die
+      // Windreserve zu geben. Vorher wäre sie wieder überschrieben.
+      huellkoerperAufweiten(masters[m]!);
       masters[m]!.setEnabled(count > 0);
     }
 

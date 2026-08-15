@@ -605,6 +605,29 @@ export class AssetManager {
  * etwas mehr als die 119 Kombinationen aus Prefab und Material, weil
  * Submeshes mit verschiedenen Vertexattributen getrennt bleiben (s.u.).
  *
+ * ── Diese Zahlen sind Geschichte (Stand D10, 2026-08-15) ─────────────
+ * Sie stammen aus der Zeit der Valheim-Rips. Der Bestand unter
+ * `assets/models` ist inzwischen ein EIGENER Satz von 119 GLBs
+ * (tools/baeume-bauen.sh und Geschwister) — `wood_roof_top` und seine 54
+ * Submeshes gibt es dort nicht mehr. Über alle 119 Dateien ausgezählt:
+ *
+ *   Primitive nach LOD-Filter        193
+ *   Master nach dem Zusammenlegen    187   (das Verschmelzen spart 6)
+ *   davon mit mehr als einem Master   60   fast alle sind Baum = Rinde
+ *                                          + Laub, also genau zwei
+ *   Ausreisser                        Grabhuegel mit 16 Submeshes und
+ *                                     10 Materialien → 10 Master
+ *
+ * Geladen wird davon nur, was gerade gestreut ist: Die Grasland-Flora
+ * (shared/src/flora.ts) umfasst 33 Prefabs → 51 Master, mit den
+ * Layout-Platzierungen im Umkreis rund 58. An einer Biomgrenze mit
+ * Nadelwald sind es rund 94. Die Roadmap rechnet mit 124 Mastern und
+ * einer Ersparnis durch Prefab-Atlasse; das obere Ende eines Atlas wäre
+ * hier "ein Master je Prefab", also 58 statt 51+ — rund zehn
+ * Zeichenaufrufe, erkauft damit, dass die opake Rinde in dasselbe
+ * alpha-getestete, beidseitig gezeichnete Material wanderte wie das Laub.
+ * Deshalb ist es bei D10 beim Culling geblieben, s. zuMaster().
+ *
  * Dass daran die ANZAHL hängt und nicht die Geometrie, zeigt der Test
  * mit 356 dieser Master: einmal auf thinInstanceCount = 1 gesetzt
  * (Zeichenaufrufe bleiben, 9196 Instanzen fallen weg), einmal ganz
@@ -763,7 +786,37 @@ function zuMaster(mesh: Mesh): PrefabMaster {
   mesh.setPivotMatrix(Matrix.Identity());
   mesh.computeWorldMatrix(true);
   mesh.setEnabled(false);
-  mesh.alwaysSelectAsActiveMesh = true;
+  // ── Frustum-Culling BLEIBT AN (D10) ─────────────────────────────────
+  // Hier stand `alwaysSelectAsActiveMesh = true`. Die Begründung dafür war
+  // plausibel und ist es nicht mehr: Ein Master steht im Ursprung, seine
+  // Instanzen stehen über das ganze Streaming-Gebiet verteilt — ein
+  // Hüllkörper, der nur den Master selbst umfasst, würde jeden Master
+  // wegwerfen, sobald der Weltursprung aus dem Bild ist.
+  //
+  // Babylon führt den Hüllkörper aber längst über ALLE Thin Instances
+  // nach: `thinInstanceSetBuffer('matrix', …)` ruft am Ende selbst
+  // `thinInstanceRefreshBoundingInfo(false)` auf, solange
+  // `doNotSyncBoundingInfo` aus ist (node_modules/@babylonjs/core/
+  // Meshes/thinInstanceMesh.js:103). Der Kasten umschliesst dort jede
+  // Instanz über die acht Ecken des Basis-Hüllkörpers — genau die
+  // konservative Box, die dieses Flag ersetzen sollte. Sie wird also
+  // ohnehin JEDES Mal berechnet; das Flag hat sie nur nicht benutzt.
+  //
+  // Was das bringt (statisch ausgezählt, nicht gemessen): Für die
+  // gestreute Vegetation NICHTS — ihre Instanzen reichen bis an den Rand
+  // des ZDO-Interessenradius, die Box enthält damit die Kamera und
+  // besteht jede Frustumprüfung. Es zahlt sich bei den ORTSFESTEN
+  // Prefabs aus, und das sind ausgerechnet die master-reichsten: Der
+  // Grabhügel allein stellt 10 der rund 58 Master einer Grasland-Sitzung
+  // (16 Submeshes, 10 Materialien) und steht als einzelnes Bauwerk in der
+  // Landschaft. Liegt er hinter der Kamera, fallen 10 Zeichenaufrufe im
+  // Bildpass weg und, über die Entfernungsprüfung in Shadows.darfWerfen(),
+  // 10 × Kaskadenzahl im Schattenpass.
+  //
+  // Die Reserve gegen die Windbiegung setzt EntityManager
+  // .huellkoerperAufweiten() nach jedem Puffer-Schreiben — der Shader
+  // verschiebt Blattscheitel über den Kasten hinaus, den die Rohgeometrie
+  // aufspannt.
   return { mesh, localMatrix };
 }
 

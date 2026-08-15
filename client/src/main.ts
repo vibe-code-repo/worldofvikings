@@ -472,6 +472,11 @@ async function main() {
     entities: { summe: 0, max: 0, n: 0 },
     rest: { summe: 0, max: 0, n: 0 },
   };
+  /**
+   * Stand des kumulativen Zeichenaufruf-Zählers beim letzten profil() —
+   * die Bezugsgrösse für `zeichenaufrufeProBild`, s. dort.
+   */
+  let letzteZeichenaufrufe = 0;
   const miss = <T>(feld: string, fn: () => T): T => {
     const t0 = performance.now();
     const r = fn();
@@ -630,22 +635,53 @@ async function main() {
         // Zeichenaufrufe und aktive Meshes: Der Verdacht war, dass wir
         // draw-call-limitiert sind (Logik kostet nur 1,15 ms, Auflösung
         // wirkt nicht). Diese beiden Zahlen entscheiden das.
-        p['zeichenaufrufe'] = (engine as unknown as { _drawCalls?: { current: number } })._drawCalls?.current ?? -1;
+        const gezaehlt =
+          (engine as unknown as { _drawCalls?: { current: number } })._drawCalls?.current ?? -1;
+        p['zeichenaufrufe'] = gezaehlt;
+        // Zeichenaufrufe JE BILD — die Zahl, um die es eigentlich geht.
+        //
+        // `_drawCalls.current` summiert über die ganze Sitzung: Babylon
+        // ruft `fetchNewFrame()` auf diesem Zähler nirgends auf (das täte
+        // nur EngineInstrumentation mit `captureDrawCalls`), er wird also
+        // nie zurückgesetzt. Ohne diese Ableitung stand in den Messreihen
+        // eine Million, aus der niemand ablesen konnte, ob ein Frame 250
+        // oder 400 Zeichenaufrufe kostet. Geteilt wird durch die Zahl der
+        // Frames seit dem letzten Aufruf; `zeitmess.spieler.n` zählt genau
+        // die, weil `miss('spieler', …)` einmal je Bild läuft.
+        const bilder = zeitmess.spieler!.n;
+        p['zeichenaufrufeProBild'] =
+          gezaehlt >= 0 && bilder > 0 ? Math.round((gezaehlt - letzteZeichenaufrufe) / bilder) : -1;
+        if (gezaehlt >= 0) letzteZeichenaufrufe = gezaehlt;
         p['aktiveMeshes'] = scene.getActiveMeshes().length;
         p['gesamtMeshes'] = scene.meshes.length;
-        // Aufschlüsselung nach Namenspräfix — zeigt, welches Teilsystem
-        // die Zeichenaufrufe stellt.
+        // Aufschlüsselung nach Teilsystem — zeigt, wer die Zeichenaufrufe
+        // stellt.
+        //
+        // Die Prefab-Master liefen bis D10 unter "sonstige": Die Regel
+        // suchte nach den Präfixen `inst_`/`master`, die Master tragen
+        // aber den Namen ihres Submeshes aus der GLB — `tree`, `leaves`,
+        // `huegel`, `Findling1`. Damit war die Zahl, an der D10 hängt,
+        // in der eigenen Diagnose unsichtbar. Erkannt werden sie jetzt an
+        // dem, was sie ausmacht: Thin Instances (Gras hat die auch, wird
+        // aber vorher über sein `clutter`-Präfix abgeräumt).
         const nachTyp: Record<string, number> = {};
         for (const m of scene.getActiveMeshes().data.slice(0, scene.getActiveMeshes().length)) {
           const n = m?.name ?? '?';
+          const thin = (m as unknown as { thinInstanceCount?: number })?.thinInstanceCount ?? 0;
           const typ = n.startsWith('clutter') ? 'gras'
             : n.startsWith('zone') || n.startsWith('terrain') || n.startsWith('water') ? 'terrain'
-              : n.startsWith('inst_') || n.startsWith('master') ? 'entities'
+              : thin > 0 || n.startsWith('inst_') ? 'entities'
                 : 'sonstige';
           nachTyp[typ] = (nachTyp[typ] ?? 0) + 1;
         }
         p['aktivNachTyp'] = nachTyp;
         p['materialien'] = scene.materials.length;
+        // Der Schattenpass rendert die Werferliste JE KASKADE komplett neu
+        // — das Produkt ist der zweite Posten, den D10 betrifft, und er
+        // ist grösser als der Bildpass. Beide Zahlen gehören deshalb in
+        // dieselbe Momentaufnahme.
+        p['schattenwerfer'] = shadows?.werferAnzahl() ?? 0;
+        p['schattenKaskaden'] = shadows?.kaskaden() ?? 0;
         for (const k of Object.keys(zeitmess) as Array<keyof typeof zeitmess>) {
           zeitmess[k] = { summe: 0, max: 0, n: 0 };
         }

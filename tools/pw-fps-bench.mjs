@@ -321,10 +321,39 @@ console.log(`  fps mittel/median/1%low : ${ergebnis.fps.mittel} / ${ergebnis.fps
 console.log(`  Frame-Zeit p50/p95/p99  : ${ergebnis.frameZeitMs.p50} / ${ergebnis.frameZeitMs.p95} / ${ergebnis.frameZeitMs.p99} ms`);
 console.log(`  Maximum                 : ${ergebnis.frameZeitMs.max} ms`);
 console.log(`  Frames >33ms            : ${ergebnis.ausreisser.ueber33ms} von ${t.length} (${ergebnis.ausreisser.anteilUeber33} %)`);
-console.log(`  Draw Calls / akt. Meshes: ${roh.profil.zeichenaufrufe} / ${roh.profil.aktiveMeshes}`);
+console.log(`  Draw Calls je Bild      : ${roh.profil.zeichenaufrufeProBild} (kumulativ ${roh.profil.zeichenaufrufe})`);
+console.log(`  aktive Meshes           : ${roh.profil.aktiveMeshes} ${JSON.stringify(roh.profil.aktivNachTyp ?? {})}`);
+console.log(
+  `  Schattenwerfer          : ${roh.profil.schattenwerfer} x ${roh.profil.schattenKaskaden} Kaskaden` +
+    ` = ${(roh.profil.schattenwerfer ?? 0) * (roh.profil.schattenKaskaden ?? 0)} Zeichenaufrufe`
+);
 if (roh.netz) {
   console.log(
     `  Netz empfangen          : ${(roh.netz.bytesProSekunde / 1024).toFixed(1)} kB/s, ${roh.netz.paketeProSekunde} Pakete/s`
   );
+}
+/**
+ * Warnung, wenn kein einziger Prefab-Master im Bild stand.
+ *
+ * Am 2026-08-15 lief die ganze Vergleichsreihe so (mess/baseline-*,
+ * grafik-*, hotpath-*, bundle-*): `aktivNachTyp` fuehrte nur Terrain und
+ * Gras, `materialien` stand bei 29, das WS-Aufkommen bei 1 kB/s, und die
+ * Endposition lag 46 m UNTER dem Wasserspiegel. Gemessen wurde also eine
+ * Szene ohne Vegetation und ohne Bauwerke — mit 185 fps Median eine sehr
+ * gute Zahl, die ueber die Prefab-Last nichts aussagt. Wer das nicht
+ * bemerkt, vergleicht Staende gegen eine leere Welt.
+ *
+ * Bis D10 war das nicht einmal ablesbar: Die Aufschluesselung suchte
+ * Master an den Namenspraefixen `inst_`/`master`, die Master tragen aber
+ * den Namen ihres GLB-Submeshes (`tree`, `leaves`, `huegel`). Sie landeten
+ * unter "sonstige" und fielen dort nicht auf.
+ */
+const entities = roh.profil.aktivNachTyp?.entities ?? 0;
+if (entities === 0) {
+  console.log('');
+  console.log('  ACHTUNG: kein einziger Prefab-Master im Bild (aktivNachTyp.entities = 0).');
+  console.log('  Diese Messung sagt nichts ueber Vegetation, Bauwerke und ihre Zeichenaufrufe aus.');
+  console.log('  Pruefen: Steht der Messort in geladenem Gelaende, liefert der Server ZDOs,');
+  console.log('  und laedt jedes Layout-Prefab sein Modell (404er in der Konsolenausgabe)?');
 }
 console.log(`  -> ${OUT}`);

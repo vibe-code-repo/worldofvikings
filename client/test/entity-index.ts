@@ -97,6 +97,9 @@ function setze(
     prefabHash: hash,
     position: { x, y, z },
     rotation: { x: 0, y: 0, z: 0, w: 1 },
+    // Statische Instanzen sind nie die eigene Spielfigur — die sortiert
+    // applyStatic() ohnehin vorher aus (EntityManager.ts:536).
+    isOwnPlayer: false,
   };
   (
     mgr as unknown as {

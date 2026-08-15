@@ -177,16 +177,32 @@ export class Shadows {
    *    der Spieler) fallen raus, sobald sie weiter weg sind als die
    *    Kaskadendistanz. Weiter draussen wirft ohnehin nichts mehr in
    *    das Bild hinein, was man sähe.
-   *  - Prefab-Master mit Thin Instances liegen alle im Ursprung und
-   *    decken über ihre Instanzen das ganze Gebiet ab — die lassen sich
-   *    nicht über die Entfernung aussortieren. Für die greift bei
-   *    abgeschalteten "fernen Schatten" der Namensfilter KLEINZEUG.
+   *  - Prefab-Master mit Thin Instances liegen zwar im Ursprung, ihr
+   *    Hüllkörper umfasst aber seit D10 alle Instanzen (Babylon spannt ihn
+   *    in `thinInstanceSetBuffer` selbst auf, s. AssetManager.zuMaster).
+   *    Damit gilt für sie DIESELBE Entfernungsprüfung wie für alles
+   *    andere. Für die gestreute Vegetation ändert das nichts — ihre
+   *    Instanzen reichen bis an den Rand des Streaming-Gebiets, die Hülle
+   *    umschliesst den Spieler. Es greift bei den ortsfesten Bauwerken:
+   *    Ein Grabhügel jenseits der Kaskadendistanz nimmt zehn Master mal
+   *    Kaskadenzahl aus der Werferliste.
    */
   private darfWerfen(mesh: AbstractMesh, cfg: ShadowLevel): boolean {
     if (NIE_WERFEN.test(mesh.name)) return false;
     if (!this.fern && KLEINZEUG.test(mesh.name)) return false;
-    // Thin-Instance-Master sitzen im Ursprung — Entfernung sagt nichts aus.
-    if (((mesh as { thinInstanceCount?: number }).thinInstanceCount ?? 0) > 0) return true;
+    // Abgeschaltete Meshes bleiben drin, ohne geprüft zu werden.
+    //
+    // Das sind genau die Master, deren Instanzen noch nicht da sind: Ihr
+    // Hüllkörper beschreibt bis dahin nur die Rohgeometrie im
+    // Weltursprung, und die Entfernung dorthin sagt nichts über die
+    // spätere Lage der Instanzen. Sie kosten nichts — der Schattenpass
+    // überspringt abgeschaltete Meshes (objectRenderer.js:695), und
+    // EntityManager schaltet sie mit `setEnabled(count > 0)` genau dann
+    // ein, wenn Instanzen existieren. Ohne diese Ausnahme fiele jeder
+    // Master beim Einblenden aus der Werferliste und käme erst beim
+    // nächsten Nachführen zurück (alle NACHFUEHR_ABSTAND Meter) — wer
+    // sich beim Anmelden nicht bewegt, sähe zunächst keinen Schatten.
+    if (!mesh.isEnabled()) return true;
     if (Number.isNaN(this.letzteX)) return true;
     const p = mesh.getBoundingInfo().boundingSphere.centerWorld;
     const r = mesh.getBoundingInfo().boundingSphere.radiusWorld;
@@ -260,6 +276,24 @@ export class Shadows {
     karte.renderList = this.werferPending;
     this.werferPending = null;
     this.werferSnapshot = [];
+  }
+
+  /**
+   * Diagnose: Wie viele Werfer stehen in der Liste?
+   *
+   * Zusammen mit kaskaden() ergibt das den Schattenanteil an den
+   * Zeichenaufrufen — jede Kaskade rendert die Liste komplett neu. Genau
+   * dieses Produkt ist der Posten, den D10 untersucht, und ohne die Zahl
+   * lässt sich von aussen nicht nachsehen, ob eine Änderung ihn bewegt
+   * (s. `__vb.profil()` in main.ts).
+   */
+  werferAnzahl(): number {
+    return this.generator?.getShadowMap()?.renderList?.length ?? 0;
+  }
+
+  /** Diagnose: Kaskaden der aktuellen Stufe, 0 wenn Schatten aus sind. */
+  kaskaden(): number {
+    return this.generator ? (SHADOW_LEVELS[this.stufe]?.kaskaden ?? 0) : 0;
   }
 
   /**

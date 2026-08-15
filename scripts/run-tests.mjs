@@ -18,6 +18,9 @@ import { fileURLToPath } from 'node:url';
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const KERN = [
+  // Naht zwischen Kopf- und Rumpfdateien der Weltdaten (Bundle-Schnitt):
+  // laeuft in Sekunden und faengt genau den Fehler, den sonst niemand sieht.
+  ['shared', 'test/weltdaten-schnitt.ts'],
   ['shared', 'test/worldlayout.ts'],
   ['shared', 'test/region-geo.ts'],
   ['shared', 'test/geo-smoke.ts'],

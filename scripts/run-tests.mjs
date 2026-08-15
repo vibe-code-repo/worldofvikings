@@ -29,6 +29,10 @@ const KERN = [
   ['server', 'test/g2-persistence.ts'],
   ['server', 'test/g4-creatures.ts'],
   ['server', 'test/e2-vegetation.ts'],
+  // Der FPS-Waechter ist die einzige Client-Einheit ohne Babylon- und
+  // DOM-Bindung — und die einzige, deren Regelverhalten sich ohne GPU
+  // ueberhaupt pruefen laesst (synthetische fps-Folgen).
+  ['client', 'test/fps-waechter.ts'],
 ];
 
 const LANG = [

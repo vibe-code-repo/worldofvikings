@@ -12,12 +12,13 @@
     "@babylonjs/core": "^8.0.0",
     "@babylonjs/gui": "^8.0.0",
     "@babylonjs/havok": "^1.3.10",
-    "@babylonjs/inspector": "^8.0.0",
     "@babylonjs/loaders": "^8.0.0",
     "@babylonjs/materials": "^8.0.0",
     "@wov/shared": "*"
   },
+  "//": "@babylonjs/inspector ist Werkzeug, keine Auslieferung: F9 oeffnet den Inspector nur im Dev-Server (client/src/main.ts). Der Produktionsbuild wirft den Zweig ueber import.meta.env.DEV weg - sonst laege ein 4,16-MB-GUI-Editor-Chunk im Bundle.",
   "devDependencies": {
+    "@babylonjs/inspector": "^8.0.0",
     "@types/ws": "^8.5.0",
     "typescript": "^5.6.0",
     "vite": "^6.0.0",

@@ -2020,7 +2020,16 @@ async function main() {
       e.preventDefault();
       return;
     }
-    if (e.code === 'F9') {
+    // F9 blendet den Babylon-Inspector ein — NUR im Dev-Server.
+    //
+    // Der Import war schon immer dynamisch, gebaut wurde er trotzdem: der
+    // GUI-Editor des Inspectors ist ein 4,16-MB-Chunk, der im
+    // Produktionsbündel mit ausgeliefert wurde, obwohl ihn dort nie jemand
+    // anfordert. `import.meta.env.DEV` ist im Build eine Konstante (false),
+    // deshalb wirft Rollup den ganzen Zweig samt dynamischem Import weg und
+    // der Chunk entsteht gar nicht erst. Im Dev-Server ist der Wert true und
+    // Vite lädt den Inspector wie bisher auf Tastendruck nach.
+    if (e.code === 'F9' && import.meta.env.DEV) {
       e.preventDefault();
       void import('@babylonjs/inspector').then(() => {
         if (scene.debugLayer.isVisible()) scene.debugLayer.hide();

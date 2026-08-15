@@ -93,6 +93,41 @@ page.on('requestfailed', (r) => {
 });
 
 console.log(`[bench] ${LABEL} -> ${URL_ZIEL}`);
+
+/**
+ * WebSocket-Aufkommen mitzaehlen, BEVOR die Seite laedt.
+ *
+ * Der Grund: Die Server-Punkte der Roadmap (ZDO-Sync mit Bandbreiten-
+ * budget und Member-Deltas, Zonenfenster, TerrainOps) schlagen sich in
+ * der fps-Kurve des Clients kaum nieder — ihre Wirkung ist die Menge
+ * geschickter Bytes. Ohne diese Zahl waeren sie nicht abnehmbar, und
+ * genau eine dieser Aenderungen fasst das Drahtformat an.
+ */
+await page.addInitScript(() => {
+  const zaehler = { bytes: 0, pakete: 0, gesendetBytes: 0, gesendetPakete: 0, beginn: 0 };
+  window.__wsZaehler = zaehler;
+  const Original = window.WebSocket;
+  class GezaehltesWebSocket extends Original {
+    constructor(...args) {
+      super(...args);
+      if (!zaehler.beginn) zaehler.beginn = performance.now();
+      this.addEventListener('message', (e) => {
+        const d = e.data;
+        zaehler.pakete++;
+        zaehler.bytes +=
+          d instanceof ArrayBuffer ? d.byteLength : typeof d === 'string' ? d.length : (d?.size ?? 0);
+      });
+    }
+    send(daten) {
+      zaehler.gesendetPakete++;
+      zaehler.gesendetBytes +=
+        daten instanceof ArrayBuffer ? daten.byteLength : typeof daten === 'string' ? daten.length : (daten?.byteLength ?? 0);
+      return super.send(daten);
+    }
+  }
+  window.WebSocket = GezaehltesWebSocket;
+});
+
 await page.goto(URL_ZIEL, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
 // ── GPU pruefen, bevor irgendetwas gemessen wird ──────────────────────
@@ -186,7 +221,13 @@ await page.evaluate(() => {
 });
 
 // Zaehler im Client zuruecksetzen: profil() liest UND leert.
-await page.evaluate(() => window.__vb.profil());
+// Das WS-Aufkommen wird hier ebenfalls genullt, damit nur der Sprint
+// zaehlt und nicht der Verbindungsaufbau mit seiner Erstuebertragung.
+await page.evaluate(() => {
+  window.__vb.profil();
+  const z = window.__wsZaehler;
+  if (z) Object.assign(z, { bytes: 0, pakete: 0, gesendetBytes: 0, gesendetPakete: 0, beginn: performance.now() });
+});
 
 // ── Sprint ────────────────────────────────────────────────────────────
 console.log(`[bench] Sprint ${SEKUNDEN}s ...`);
@@ -198,7 +239,22 @@ await page.keyboard.up('ShiftLeft');
 
 const roh = await page.evaluate(() => {
   window.__bench.laeuft = false;
-  return { zeiten: window.__bench.zeiten, profil: window.__vb.profil() };
+  const z = window.__wsZaehler;
+  const dauer = z?.beginn ? (performance.now() - z.beginn) / 1000 : 0;
+  return {
+    zeiten: window.__bench.zeiten,
+    profil: window.__vb.profil(),
+    netz: z
+      ? {
+          empfangenBytes: z.bytes,
+          empfangenPakete: z.pakete,
+          gesendetBytes: z.gesendetBytes,
+          gesendetPakete: z.gesendetPakete,
+          bytesProSekunde: Math.round(z.bytes / Math.max(dauer, 0.001)),
+          paketeProSekunde: Number((z.pakete / Math.max(dauer, 0.001)).toFixed(1)),
+        }
+      : null,
+  };
 });
 
 const endPos = await page.evaluate(() => {
@@ -249,6 +305,7 @@ const ergebnis = {
     anteilUeber33: Number(((ueber(33) / t.length) * 100).toFixed(2)),
   },
   teilsysteme: roh.profil,
+  netz: roh.netz,
   konsolenfehler: konsole.slice(0, 30),
   seitenfehler: seitenfehler.slice(0, 10),
 };
@@ -262,4 +319,9 @@ console.log(`  Frame-Zeit p50/p95/p99  : ${ergebnis.frameZeitMs.p50} / ${ergebni
 console.log(`  Maximum                 : ${ergebnis.frameZeitMs.max} ms`);
 console.log(`  Frames >33ms            : ${ergebnis.ausreisser.ueber33ms} von ${t.length} (${ergebnis.ausreisser.anteilUeber33} %)`);
 console.log(`  Draw Calls / akt. Meshes: ${roh.profil.zeichenaufrufe} / ${roh.profil.aktiveMeshes}`);
+if (roh.netz) {
+  console.log(
+    `  Netz empfangen          : ${(roh.netz.bytesProSekunde / 1024).toFixed(1)} kB/s, ${roh.netz.paketeProSekunde} Pakete/s`
+  );
+}
 console.log(`  -> ${OUT}`);

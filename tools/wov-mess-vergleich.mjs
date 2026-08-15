@@ -53,6 +53,9 @@ for (const [stand, laeufe] of gruppen) {
     max: median(laeufe.map((m) => m.frameZeitMs.max)),
     anteil33: median(laeufe.map((m) => m.ausreisser.anteilUeber33)),
     meshes: median(laeufe.map((m) => m.teilsysteme?.aktiveMeshes ?? 0)),
+    // Kennzahl der Server-Punkte: Die schlagen sich in der fps-Kurve kaum
+    // nieder, ihre Wirkung ist die Menge geschickter Bytes.
+    netzKbs: median(laeufe.map((m) => (m.netz?.bytesProSekunde ?? 0) / 1024)),
   });
 }
 
@@ -66,7 +69,7 @@ const delta = (jetzt, vorher, hoeherBesser) => {
   return `${pfeil}${p >= 0 ? '+' : ''}${p.toFixed(1)} %`;
 };
 
-const kopf = ['Stand', 'n', 'fps Median', 'fps 1%-low', 'p95 ms', 'p99 ms', 'max ms', '>33ms', 'Meshes'];
+const kopf = ['Stand', 'n', 'fps Median', 'fps 1%-low', 'p95 ms', 'p99 ms', 'max ms', '>33ms', 'Meshes', 'Netz kB/s'];
 const daten = zeilen.map((z) => [
   z.stand,
   String(z.n),
@@ -77,6 +80,7 @@ const daten = zeilen.map((z) => [
   `${z.max.toFixed(1)}${z === basis ? '' : ' (' + delta(z.max, basis.max, false) + ')'}`,
   `${z.anteil33.toFixed(2)} %`,
   z.meshes.toFixed(0),
+  `${z.netzKbs.toFixed(1)}${z === basis || !basis.netzKbs ? '' : ' (' + delta(z.netzKbs, basis.netzKbs, false) + ')'}`,
 ]);
 
 if (alsMarkdown) {

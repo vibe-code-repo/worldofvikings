@@ -82,12 +82,11 @@ export function getTerrainLeveling(feature: Feature): ModifierJson | null {
     // stehen (+2 m Saum, hart gedeckelt), der Rest bleibt natürliches
     // Gelände; der Übergang wächst mit dem Radius, damit keine Klippe
     // stehen bleibt. Vanilla ebnet ebenfalls nur unter den Bauten.
-    let pieceRadius = 0;
-    for (const p of feature.pieces) {
-      const d = Math.hypot(p.pos.x, p.pos.z);
-      if (d > pieceRadius) pieceRadius = d;
-    }
-    const levelRadius = Math.min(feature.exteriorRadius, pieceRadius + 2, 16);
+    //
+    // feature.pieceRadius IST dieses Maximum — beim Parsen einmal
+    // ausgerechnet, weil die Pieces selbst seit dem Bundle-Schnitt in
+    // featurePieces.ts liegen und dem Client gar nicht mehr vorliegen.
+    const levelRadius = Math.min(feature.exteriorRadius, feature.pieceRadius + 2, 16);
     return {
       levelRadius,
       levelOffset: -0.2,

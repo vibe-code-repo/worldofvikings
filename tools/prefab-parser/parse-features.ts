@@ -209,9 +209,36 @@ function main(): void {
     console.warn(`[WARN] ${data.length - reader.pos} trailing bytes after ${count} entries`);
   }
 
+  // ZWEI DATEIEN statt einer (Bundle-Schnitt): Die Pieces sind ~8,5 MB und
+  // werden ausschliesslich serverseitig gebraucht (Platzierung, Camp-
+  // Backfill, Dungeon-Erkennung). Blieben sie im Feature-Kopf, zoege der
+  // Barrel-Export von shared sie in jedes Browser-Bundle — sie allein
+  // machten 6 MB des ausgelieferten JavaScript aus, wegen des eigenen
+  // Rollup-Einstiegs des Karten-Workers sogar doppelt.
+  //
+  // Der Kopf traegt statt der Pieces nur `pieceRadius`: den groessten
+  // horizontalen Abstand eines Pieces vom Ursprung. Das ist die einzige
+  // Piece-Information, die ausserhalb des Servers gebraucht wird
+  // (getTerrainLeveling begrenzt das Einebnen darauf).
+  const featurePieces: Record<string, ParsedPiece[]> = {};
+  const featureHeads = features.map((f) => {
+    featurePieces[f.name] = f.pieces;
+    let pieceRadius = 0;
+    for (const p of f.pieces) {
+      const d = Math.hypot(p.pos.x, p.pos.z);
+      if (d > pieceRadius) pieceRadius = d;
+    }
+    const { pieces: _pieces, ...head } = f;
+    return { ...head, pieceRadius };
+  });
+
   const outPath = join(OUTPUT_DIR, 'featuresData.json');
-  writeFileSync(outPath, JSON.stringify({ comment, version, features }, null, 1));
-  console.log(`  wrote ${features.length} features -> ${outPath}`);
+  writeFileSync(outPath, JSON.stringify({ comment, version, features: featureHeads }, null, 1));
+  console.log(`  wrote ${features.length} feature heads -> ${outPath}`);
+
+  const piecesPath = join(OUTPUT_DIR, 'featurePiecesData.json');
+  writeFileSync(piecesPath, JSON.stringify({ comment, version, pieces: featurePieces }, null, 1));
+  console.log(`  wrote pieces of ${features.length} features -> ${piecesPath}`);
 
   // Quick sanity stats
   const totalPieces = features.reduce((n, f) => n + f.pieces.length, 0);

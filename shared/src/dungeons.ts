@@ -6,6 +6,14 @@
  * connector transforms, themes, weights and the interactive net views
  * contained in each room.
  *
+ * BUNDLE-SCHNITT: Die Einrichtung der Raeume (netViews + randomSpawns, gut
+ * 4,9 MB JSON) liegt getrennt in roomPiecesData.json hinter
+ * `roomPieces.ts`. Sie wird nur beim Materialisieren eines Dungeons
+ * gebraucht — also serverseitig — waehrend `dungeons.ts` ueber prefabs.ts
+ * am Barrel und damit an jedem Client-Modul haengt. Was hier bleibt (Raum-
+ * Kopf, Groesse, Connectors) braucht der Client wirklich: der Raum-Katalog
+ * fuer die Prefab-Registry und der Dungeon-Editor.
+ *
  * C++ reference: DungeonManager.cpp:19-201 (pkg read), Dungeon.h,
  * DungeonRoom.h, DungeonRoomConnection.h.
  */
@@ -50,26 +58,6 @@ export interface RoomConnectionDef {
   readonly localRot: Quaternion;
 }
 
-/** An interactive prefab contained in a room (chest, spawner, torch, …). */
-export interface RoomNetView {
-  readonly prefabName: string;
-  readonly prefabHash: number;
-  readonly pos: Vector3;
-  readonly rot: Quaternion;
-}
-
-/** Random decoration variant data attached to net views of a room. */
-export interface RoomRandomSpawn {
-  readonly chanceToSpawn: number;
-  readonly dungeonRequireTheme: number;
-  readonly requireBiome: number;
-  readonly notInLava: boolean;
-  readonly minElevation: number;
-  readonly maxElevation: number;
-  /** Indices into the room's netViews affected by this spawn group. */
-  readonly childViews: readonly number[];
-}
-
 /** C++ Room (DungeonRoom.h) — one placeable room prefab. */
 export interface RoomDef {
   /** Prefab name — also the GLB model name under assets/models/. */
@@ -91,8 +79,6 @@ export interface RoomDef {
   readonly pos: Vector3;
   readonly rot: Quaternion;
   readonly connections: readonly RoomConnectionDef[];
-  readonly netViews: readonly RoomNetView[];
-  readonly randomSpawns: readonly RoomRandomSpawn[];
 }
 
 /** C++ Dungeon::DoorDef. */

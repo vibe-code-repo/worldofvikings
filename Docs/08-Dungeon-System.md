@@ -36,12 +36,27 @@ Konsequenzen im Server (`ValhallaServer.ts`):
 ```
 dungeons.pkg (valheim.community)
   └─ tools/prefab-parser/parse-dungeons.ts        (Format: DungeonManager.cpp:19-201)
-      └─ shared/src/dungeonsData.json             13 DG_*-Generatoren, 392 Räume
-          └─ shared/src/dungeons.ts               DungeonDef/RoomDef/Connection-Registry
-              ├─ shared/src/dungeonGenerator.ts   Generator + Editor-Helfer + flattenLayout
-              ├─ server/src/world/dungeon/DungeonManager.ts
-              └─ client/src/ui/DungeonEditor.ts
+      ├─ shared/src/dungeonsData.json             13 DG_*-Generatoren, 392 Räume (Kopf)
+      │   └─ shared/src/dungeons.ts               DungeonDef/RoomDef/Connection-Registry
+      │       ├─ shared/src/dungeonGenerator.ts   Generator + Editor-Helfer
+      │       ├─ server/src/world/dungeon/DungeonManager.ts
+      │       └─ client/src/ui/DungeonEditor.ts
+      └─ shared/src/roomPiecesData.json           Raum-EINRICHTUNG, 289 Prefabs (nur Server)
+          └─ shared/src/roomPieces.ts
+              └─ shared/src/dungeonFlatten.ts     flattenLayout → konkrete Prefab-Instanzen
 ```
+
+**Warum zwei Dateien** (Bundle-Schnitt): netViews und randomSpawns machen
+~5,2 MB aus und werden nur beim Materialisieren gebraucht — also
+serverseitig. Der Raum-Kopf dagegen hängt über `prefabs.ts` am
+shared-Barrel und damit an jedem Client-Modul; die Einrichtung lag dadurch
+komplett im Browser-Bundle. `roomPieces.ts` und `dungeonFlatten.ts` stehen
+deshalb NICHT im Barrel, sondern werden über ihren expliziten Pfad
+importiert (`@wov/shared/src/dungeonFlatten.js`). Geschlüsselt wird die
+Einrichtung nach RAUMNAME: 103 der 392 Einträge sind Mehrfachverwendungen
+desselben Prefabs in mehreren Kits und im pkg identisch (der Parser bricht
+ab, falls das je nicht mehr gilt). Die Naht zwischen beiden Dateien prüft
+`shared/test/weltdaten-schnitt.ts` aus der Kern-Testliste.
 
 Die pkg liefert, was den GLB-Exporten fehlt: Raumgrößen (OBB), Connector-
 Transforms (`RoomConnection`), Themes, Gewichte, Endcap-Prios und die

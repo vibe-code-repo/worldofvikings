@@ -371,9 +371,42 @@ function main(): void {
     console.warn(`[WARN] ${data.length - reader.pos} trailing bytes after ${count} entries`);
   }
 
+  // ZWEI DATEIEN statt einer (Bundle-Schnitt): Die Raum-EINRICHTUNG
+  // (netViews + randomSpawns) sind ~5,2 MB und werden nur beim
+  // Materialisieren eines Layouts gebraucht — also serverseitig. Der
+  // Raum-Kopf (Groesse, Flags, Connectors) dagegen haengt ueber prefabs.ts
+  // am Barrel und damit an jedem Client-Modul.
+  //
+  // SCHLUESSEL IST DER RAUMNAME, nicht Dungeon+Raum: 103 der 392
+  // Raum-Eintraege sind Mehrfachverwendungen desselben Prefabs in mehreren
+  // Kits (die Crypt-Kits teilen sich Gaenge). Der Check unten stellt sicher,
+  // dass sie dabei wirklich identisch sind — sonst waere ein Namens-
+  // schluessel unzulaessig und Raeume bekaemen fremde Einrichtung.
+  const roomPieces: Record<string, { netViews: ParsedNetView[]; randomSpawns: ParsedRandomSpawn[] }> = {};
+  const dungeonHeads = dungeons.map((d) => ({
+    ...d,
+    rooms: d.rooms.map((r) => {
+      const inhalt = { netViews: r.netViews, randomSpawns: r.randomSpawns };
+      const alt = roomPieces[r.name];
+      if (alt && JSON.stringify(alt) !== JSON.stringify(inhalt)) {
+        throw new Error(
+          `Raum ${r.name} kommt mit ABWEICHENDER Einrichtung mehrfach vor — ` +
+            `der Namensschluessel von roomPiecesData.json traegt nicht mehr`
+        );
+      }
+      roomPieces[r.name] = inhalt;
+      const { netViews: _nv, randomSpawns: _rs, ...head } = r;
+      return head;
+    }),
+  }));
+
   const outPath = join(OUTPUT_DIR, 'dungeonsData.json');
-  writeFileSync(outPath, JSON.stringify({ comment, version, dungeons }, null, 1));
+  writeFileSync(outPath, JSON.stringify({ comment, version, dungeons: dungeonHeads }, null, 1));
   console.log(`  wrote ${dungeons.length} dungeons -> ${outPath}`);
+
+  const piecesPath = join(OUTPUT_DIR, 'roomPiecesData.json');
+  writeFileSync(piecesPath, JSON.stringify({ comment, version, rooms: roomPieces }, null, 1));
+  console.log(`  wrote furnishing of ${Object.keys(roomPieces).length} rooms -> ${piecesPath}`);
 
   for (const d of dungeons) {
     const entrances = d.rooms.filter((r) => r.entrance).length;

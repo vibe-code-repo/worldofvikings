@@ -84,15 +84,16 @@ const f32 = Math.fround;
  */
 const COLLIDER_RANGE = 48;
 /**
- * Wie viele Prefab-Buckets höchstens pro Frame neu aufgebaut werden.
+ * Zeitbudget pro Frame für Bucket-Neuaufbauten, in Millisekunden — dasselbe
+ * Muster wie GrassClutters CELL_BUILD_BUDGET_MS.
  *
- * 2 ist bewusst niedrig: Ein Neuaufbau kostet je nach Instanzzahl
- * mehrere Millisekunden, und bei 60 fps steht nur ein Budget von 16,7 ms
- * für alles zur Verfügung. Beim Betreten eines neuen Gebiets dauert das
- * Nachziehen dadurch ein paar Frames länger — sichtbar ist das nicht,
- * ein Ruckler dagegen schon.
+ * War vorher eine feste Stückzahl (2). Ein Neuaufbau kostet aber je nach
+ * Instanzzahl des Prefabs mal 0,1 ms, mal mehrere Millisekunden — eine feste
+ * Zahl trifft das falsche Mass. Besonders beim Sprinten: setPlayerPosition()
+ * markiert dann mehrere Buckets gleichzeitig dirty, und zwei teure darunter
+ * reissen das 16,7-ms-Budget in einem einzigen Frame.
  */
-const REBUILDS_PER_FRAME = 2;
+const REBUILD_BUDGET_MS = 4;
 
 /** Player travel that triggers a rebuild of the collision window. */
 const COLLIDER_REBUILD_STEP = 12;
@@ -166,7 +167,11 @@ interface StaticBucket {
   indexOf: Map<string, number>;
   /** flat f32 matrix buffer (16 per instance), swap-remove on destroy */
   matrices: number[];
+  /** Renderdaten (Thin-Instance-Puffer) UND Collider müssen neu — ZDO-Änderung. */
   dirty: boolean;
+  /** Nur der Collider muss neu — reines Verschieben des Kollisionsfensters,
+   *  s. setPlayerPosition(). Renderdaten bleiben unverändert. */
+  colliderDirty: boolean;
   mastersReady: boolean;
 }
 
@@ -495,12 +500,26 @@ export class EntityManager {
    * Folgeframes dran — es geht nichts verloren, es dauert nur länger.
    */
   flush(): void {
-    let budget = REBUILDS_PER_FRAME;
+    const budgetEnde = performance.now() + REBUILD_BUDGET_MS;
+    let verarbeitet = 0;
     for (const bucket of this.buckets.values()) {
-      if (!bucket.dirty || !bucket.mastersReady) continue;
-      if (budget-- <= 0) break;
-      bucket.dirty = false;
-      this.rebuildBucketInstances(bucket);
+      if (!bucket.mastersReady || (!bucket.dirty && !bucket.colliderDirty)) continue;
+      if (verarbeitet > 0 && performance.now() >= budgetEnde) break;
+      if (bucket.dirty) {
+        // Renderdaten UND Collider betroffen (ZDO-Änderung) — voller Umbau.
+        bucket.dirty = false;
+        bucket.colliderDirty = false;
+        this.rebuildBucketInstances(bucket);
+      } else {
+        // Nur das Kollisionsfenster ist weitergerückt (Spieler bewegt sich)
+        // — die Thin-Instance-Renderpuffer sind unverändert und brauchen
+        // keinen Neuaufbau samt GPU-Upload. rebuildBucketCollidersOnly()
+        // filtert intern ohnehin per Signatur: ändert sich die Nah-Auswahl
+        // gar nicht, passiert danach nichts weiter.
+        bucket.colliderDirty = false;
+        this.rebuildBucketCollidersOnly(bucket);
+      }
+      verarbeitet++;
     }
   }
 
@@ -622,7 +641,30 @@ export class EntityManager {
     if (dx * dx + dz * dz < COLLIDER_REBUILD_STEP * COLLIDER_REBUILD_STEP) return;
     this.colliderCenterX = x;
     this.colliderCenterZ = z;
-    for (const bucket of this.buckets.values()) bucket.dirty = true;
+    // Nur Buckets colliderDirty markieren, die tatsächlich eine Instanz im
+    // neuen Fenster (COLLIDER_RANGE + COLLIDER_REBUILD_STEP, grosszügig
+    // genug für den Versatz seit der letzten Fenstermitte) haben — und NUR
+    // colliderDirty, nicht dirty: Das Verschieben des Kollisionsfensters
+    // ändert an den Renderdaten (Thin-Instance-Puffer) nichts, nur an der
+    // Nah-Auswahl für die Physik. dirty triggert dagegen den vollen,
+    // GPU-Upload-lastigen Instanz-Neuaufbau in rebuildBucketInstances —
+    // beim Sprinten (alle 1,6 s ein neues Fenster) traf das bislang JEDEN
+    // betroffenen Bucket, obwohl nur die Collider neu ausgewählt werden
+    // mussten. s. flush()/rebuildBucketCollidersOnly().
+    const grenze = COLLIDER_RANGE + COLLIDER_REBUILD_STEP;
+    const r2 = grenze * grenze;
+    for (const bucket of this.buckets.values()) {
+      if (bucket.dirty || bucket.colliderDirty) continue;
+      const mats = bucket.matrices;
+      for (let i = 12; i < mats.length; i += 16) {
+        const bx = mats[i]! - x;
+        const bz = mats[i + 2]! - z;
+        if (bx * bx + bz * bz <= r2) {
+          bucket.colliderDirty = true;
+          break;
+        }
+      }
+    }
   }
 
   /**
@@ -756,6 +798,7 @@ export class EntityManager {
         indexOf: new Map(),
         matrices: [],
         dirty: false,
+        colliderDirty: false,
         mastersReady: false,
       };
       this.buckets.set(u.prefabHash, bucket);
@@ -799,6 +842,17 @@ export class EntityManager {
     });
   }
 
+  /** bucket.matrices (flach) in Matrix-Objekte entpacken — von beiden
+   *  Rebuild-Pfaden gebraucht, s. rebuildBucketInstances/-CollidersOnly. */
+  private buildZdoMats(bucket: StaticBucket): Matrix[] {
+    const count = bucket.matrices.length / 16;
+    const zdoMats = new Array<Matrix>(count);
+    for (let i = 0; i < count; i++) {
+      zdoMats[i] = Matrix.FromArray(bucket.matrices, i * 16);
+    }
+    return zdoMats;
+  }
+
   /**
    * Expand the bucket's persistent zdoWorld store into per-master
    * thin-instance buffers: instance = masterLocal × zdoWorld (row-major).
@@ -808,11 +862,8 @@ export class EntityManager {
     const locals = this.masterLocals.get(bucket.prefabName);
     if (!masters || !locals) return;
 
-    const count = bucket.matrices.length / 16;
-    const zdoMats = new Array<Matrix>(count);
-    for (let i = 0; i < count; i++) {
-      zdoMats[i] = Matrix.FromArray(bucket.matrices, i * 16);
-    }
+    const zdoMats = this.buildZdoMats(bucket);
+    const count = zdoMats.length;
     for (let m = 0; m < masters.length; m++) {
       const data = new Float32Array(count * 16);
       const local = locals[m]!;
@@ -824,6 +875,18 @@ export class EntityManager {
     }
 
     this.rebuildBucketColliders(bucket, zdoMats);
+  }
+
+  /**
+   * Nur die Collider-Auswahl neu ausrechnen, ohne den teuren
+   * Thin-Instance-Renderpuffer (Matrixmultiplikation je Submesh × Instanz
+   * plus GPU-Upload) anzufassen — für colliderDirty-Buckets, deren
+   * Renderdaten sich gar nicht geändert haben. s. setPlayerPosition().
+   */
+  private rebuildBucketCollidersOnly(bucket: StaticBucket): void {
+    const masters = this.masterMeshes.get(bucket.prefabName);
+    if (!masters) return;
+    this.rebuildBucketColliders(bucket, this.buildZdoMats(bucket));
   }
 
   /**

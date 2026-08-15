@@ -128,12 +128,27 @@ const KLEINZEUG = /bush|shrub|branch|berry|pickable|sapling|seed|shoot|flower|mu
 /** Ab dieser Bewegung wird die Werferliste neu bestimmt (m). */
 const NACHFUEHR_ABSTAND = 16;
 
+/**
+ * Zeitbudget pro Frame für den Werferlisten-Scan, in Millisekunden —
+ * dasselbe Muster wie EntityManagers REBUILD_BUDGET_MS/GrassClutters
+ * CELL_BUILD_BUDGET_MS. Der volle Scan über scene.meshes lief bisher
+ * synchron in EINEM Aufruf von werferNeuBestimmen() — beim Sprinten
+ * (alle NACHFUEHR_ABSTAND=16 m, ~2,1 s) ein unbudgetierter Vollscan
+ * mitten im Frame.
+ */
+const WERFER_BUDGET_MS = 4;
+
 export class Shadows {
   private generator: CascadedShadowGenerator | null = null;
   private stufe = 0;
   private fern = true;
   private letzteX = Number.NaN;
   private letzteZ = Number.NaN;
+  /** Momentaufnahme für den laufenden inkrementellen Werfer-Scan, s. tick(). */
+  private werferSnapshot: readonly AbstractMesh[] = [];
+  private werferIndex = 0;
+  private werferPending: AbstractMesh[] | null = null;
+  private werferCfg: ShadowLevel | null = null;
 
   constructor(
     private readonly scene: Scene,
@@ -200,14 +215,51 @@ export class Shadows {
     this.werferNeuBestimmen();
   }
 
+  /**
+   * Startet einen neuen Werferlisten-Scan — abgearbeitet wird er über
+   * mehrere Frames in tick(), s. dort. Ein evtl. noch laufender Scan wird
+   * verworfen: Die Spielerposition hat sich ohnehin schon wieder geändert,
+   * sein Zwischenstand taugt nichts mehr.
+   *
+   * scene.meshes wird hier als Momentaufnahme kopiert statt live in tick()
+   * durchlaufen — ein sich über mehrere Frames änderndes Array wäre eine
+   * Fehlerquelle. Das ist unproblematisch: neu hinzukommende Meshes tragen
+   * sich über nimmAuf()/addShadowCaster ohnehin sofort selbst in die
+   * renderList ein und müssen hier nicht miterfasst werden.
+   */
   private werferNeuBestimmen(): void {
     const cfg = SHADOW_LEVELS[this.stufe];
     if (!this.generator || !cfg) return;
+    this.werferSnapshot = this.scene.meshes.slice();
+    this.werferIndex = 0;
+    this.werferPending = [];
+    this.werferCfg = cfg;
+  }
+
+  /**
+   * Einen Teil des laufenden Werferlisten-Scans abarbeiten, budgetiert
+   * (s. WERFER_BUDGET_MS). Jeden Frame aus dem Game-Loop aufrufen; ohne
+   * laufenden Scan ist der Aufruf ein No-op.
+   */
+  tick(): void {
+    if (!this.werferPending || !this.generator || !this.werferCfg) return;
     const karte = this.generator.getShadowMap();
-    if (!karte) return;
-    const liste: AbstractMesh[] = [];
-    for (const m of this.scene.meshes) if (this.darfWerfen(m, cfg)) liste.push(m);
-    karte.renderList = liste;
+    if (!karte) {
+      this.werferPending = null;
+      return;
+    }
+    const budgetEnde = performance.now() + WERFER_BUDGET_MS;
+    let geprueft = 0;
+    while (this.werferIndex < this.werferSnapshot.length) {
+      if (geprueft > 0 && performance.now() >= budgetEnde) return;
+      const m = this.werferSnapshot[this.werferIndex]!;
+      if (this.darfWerfen(m, this.werferCfg)) this.werferPending.push(m);
+      this.werferIndex++;
+      geprueft++;
+    }
+    karte.renderList = this.werferPending;
+    this.werferPending = null;
+    this.werferSnapshot = [];
   }
 
   /**

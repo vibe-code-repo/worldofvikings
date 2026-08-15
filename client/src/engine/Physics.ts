@@ -317,6 +317,44 @@ function measure(meshes: readonly Mesh[], locals: readonly Matrix[]): {
       radii.push(Math.hypot(wx, wz));
     }
   }
+
+  // Grob tessellierte Stämme (ein 4-Ecken-Zylinder mit nur zwei Ringen,
+  // z. B. bei y=0 und y=2,2) können das feste Band [TRUNK_BAND_MIN,
+  // TRUNK_BAND_MAX] komplett verfehlen — radii bleibt dann leer,
+  // deriveCollider() fällt auf den Kronen-Box-Fallback zurück (Breite der
+  // gesamten Baumkrone über die volle Höhe), und man bleibt meterweit vor
+  // dem Stamm stehen. Nachgewiesen an BirkeHoch3.glb/Kiefer1.glb: Ringe nur
+  // bei y=0,000 und y=2,180 bzw. y=3,196, beide außerhalb von [0.3, 2.0].
+  // Bei leerem Band: den Ring nehmen, der der Bandmitte am nächsten liegt,
+  // statt die Krone zu vermessen.
+  if (radii.length === 0) {
+    const bandMid = (TRUNK_BAND_MIN + TRUNK_BAND_MAX) / 2;
+    let bestDist = Infinity;
+    let bestH = 0;
+    for (const { pos, m } of data) {
+      for (let i = 0; i < pos.length; i += 3) {
+        const h = m[1]! * pos[i]! + m[5]! * pos[i + 1]! + m[9]! * pos[i + 2]! + m[13]!;
+        const d = Math.abs(h - bandMid);
+        if (d < bestDist) {
+          bestDist = d;
+          bestH = h;
+        }
+      }
+    }
+    const tol = 0.01;
+    for (const { pos, m } of data) {
+      for (let i = 0; i < pos.length; i += 3) {
+        const x = pos[i]!;
+        const y = pos[i + 1]!;
+        const z = pos[i + 2]!;
+        const h = m[1]! * x + m[5]! * y + m[9]! * z + m[13]!;
+        if (Math.abs(h - bestH) > tol) continue;
+        const wx = m[0]! * x + m[4]! * y + m[8]! * z + m[12]!;
+        const wz = m[2]! * x + m[6]! * y + m[10]! * z + m[14]!;
+        radii.push(Math.hypot(wx, wz));
+      }
+    }
+  }
   return { radii, minY, maxY, maxX, maxZ, maxXAbove, maxZAbove };
 }
 

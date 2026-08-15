@@ -69,8 +69,33 @@ function blend(colors: Float32Array, vi: number, target: [number, number, number
   colors[vi * 3 + 2] += (target[2] - colors[vi * 3 + 2]) * k;
 }
 
-/** Chunks built per frame (worldgen noise is the cost — spread it out). */
-const BUILDS_PER_FRAME = 2;
+/**
+ * Zeitbudget pro Frame für den GESAMTEN Terrain-Unterhalt in update() —
+ * Boden-Collider, Nah- UND Fernbau zusammen, in Millisekunden, dasselbe
+ * Muster wie GrassClutters CELL_BUILD_BUDGET_MS.
+ *
+ * War vorher drei getrennte Budgets (BUILDS_PER_FRAME als feste Stückzahl,
+ * dann je ein Zeitbudget für Chunk-Bau bzw. Boden-Collider), jedes mit
+ * einer eigenen "mindestens eins"-Ausnahme, damit der Aufbau bei knappem
+ * Budget nicht komplett verhungert. Genau diese drei getrennten Ausnahmen
+ * konnten aber alle drei im SELBEN update()-Aufruf durchrutschen — ein
+ * Boden-Collider, ein Nah-Chunk und ein Fern-Chunk, jeder für sich
+ * unbudgetiert. Gemessen (headless, ohne GPU-Beschleunigung — absolute
+ * Werte nicht auf echte Hardware übertragbar, das Verhältnis aber schon):
+ * einzelne update()-Aufrufe bis 28,8 ms, während EntityManager/Shadows im
+ * selben Test unter 1,2 ms blieben (15.08.2026). Ein GEMEINSAMES Budget
+ * mit genau EINER "mindestens eins"-Ausnahme über alle drei Kategorien
+ * hinweg (s. TerrainBudget) begrenzt das auf höchstens einen
+ * unbudgetierten Posten pro Frame statt bis zu drei.
+ */
+const TERRAIN_BUDGET_MS = 4;
+
+/** Gemeinsames Zeitfenster + "mindestens eins"-Flag für syncColliders()
+ *  und die Chunk-Bau-Schleifen in update() — s. TERRAIN_BUDGET_MS. */
+interface TerrainBudget {
+  readonly ende: number;
+  gebaut: boolean;
+}
 
 // G-POP distant ring
 const FAR_STRIDE = 4; // meters between far vertices
@@ -497,7 +522,12 @@ export class TerrainManager {
   update(px: number, pz: number, elapsed: number): void {
     const cz = HeightmapProvider.worldToZone(px);
     const cw = HeightmapProvider.worldToZone(pz);
-    this.syncColliders(cz, cw);
+
+    // Ein Budget, eine "mindestens eins"-Ausnahme für den gesamten
+    // Terrain-Unterhalt dieses Aufrufs — s. TERRAIN_BUDGET_MS.
+    const budget: TerrainBudget = { ende: performance.now() + TERRAIN_BUDGET_MS, gebaut: false };
+
+    this.syncColliders(cz, cw, budget);
 
     // queue missing chunks inside the ring (center-out)
     for (let r = 0; r <= this.viewRadius; r++) {
@@ -522,21 +552,28 @@ export class TerrainManager {
       }
     }
 
-    // budgeted near builds
-    for (let n = 0; n < BUILDS_PER_FRAME && this.buildQueue.length > 0; n++) {
+    // budgeted near builds — teilt sich `budget` mit syncColliders() und
+    // dem Fernbau unten, s. TERRAIN_BUDGET_MS.
+    while (this.buildQueue.length > 0 && (!budget.gebaut || performance.now() < budget.ende)) {
       const [zx, zy] = this.buildQueue.shift()!;
       if (this.chunks.has(`${zx},${zy}`)) continue;
       this.buildChunk(zx, zy);
+      budget.gebaut = true;
     }
 
     // G-POP: far chunk ring — queue/dispose
     this.refreshFarChunks(cz, cw);
-    // budgeted far builds (only when no near chunk is pending)
+    // budgeted far builds (only when no near chunk is pending), gleiches
+    // Budget wie oben.
     if (this.buildQueue.length === 0) {
-      for (let n = 0; n < BUILDS_PER_FRAME && this.farBuildQueue.length > 0; n++) {
+      while (
+        this.farBuildQueue.length > 0 &&
+        (!budget.gebaut || performance.now() < budget.ende)
+      ) {
         const [fx, fy] = this.farBuildQueue.shift()!;
         if (this.farChunks.has(`${fx},${fy}`)) continue;
         this.buildFarChunk(fx, fy);
+        budget.gebaut = true;
       }
     }
 
@@ -874,8 +911,17 @@ export class TerrainManager {
     this.physicsEnabled = true;
   }
 
-  /** Add/drop ground colliders so they follow the player. */
-  private syncColliders(cz: number, cw: number): void {
+  /**
+   * Add/drop ground colliders so they follow the player.
+   *
+   * Teilt sich `budget` mit dem Nah-/Fernbau in update() — s.
+   * TERRAIN_BUDGET_MS. Ein Zonenwechsel (alle ZONE_SIZE=64 m, beim
+   * Sprinten ~8,5 s) bringt bis zu drei neue Zonen auf einmal in den
+   * 3×3-Ring (die Vorderkante in Laufrichtung); ohne Budget cookte das für
+   * alle drei synchron im selben Frame PhysicsShapeMesh — eine Havok-BVH
+   * über ~8k Dreiecke je Zone.
+   */
+  private syncColliders(cz: number, cw: number, budget: TerrainBudget): void {
     if (!this.physicsEnabled) return;
     const r = TerrainManager.COLLIDER_RADIUS;
     for (const [key, body] of this.groundBodies) {
@@ -886,12 +932,19 @@ export class TerrainManager {
         this.groundBodies.delete(key);
       }
     }
-    for (let dy = -r; dy <= r; dy++) {
+    // Neue Collider verteilt aufbauen statt alle im selben Frame.
+    // syncColliders() läuft jeden Frame, ein in diesem Frame nicht
+    // geschaffter Collider kommt beim nächsten Mal dran (der `has`-Check
+    // oben überspringt bereits vorhandene).
+    outer: for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
+        if (budget.gebaut && performance.now() >= budget.ende) break outer;
         const key = `${cz + dx},${cw + dy}`;
         if (this.groundBodies.has(key)) continue;
         const chunk = this.chunks.get(key);
-        if (chunk) this.buildGroundBody(key, chunk.mesh);
+        if (!chunk) continue;
+        this.buildGroundBody(key, chunk.mesh);
+        budget.gebaut = true;
       }
     }
   }
@@ -977,8 +1030,8 @@ export class TerrainManager {
    *
    * rebuildZones() would dispose the chunk and let the ring-scan re-queue it,
    * which costs a full worldgen pass (one getBiome() noise evaluation per
-   * vertex, 4225 per zone) and — at BUILDS_PER_FRAME = 2 — leaves a visible
-   * hole under the player for a frame or two on every swing.
+   * vertex, 4225 per zone) and — budgeted via TERRAIN_BUDGET_MS — leaves a
+   * visible hole under the player for a frame or two on every swing.
    *
    * Zones without a live chunk are skipped; they read the updated heights when
    * they are built normally.

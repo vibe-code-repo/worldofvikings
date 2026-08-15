@@ -2346,8 +2346,10 @@ async function main() {
     // Kollisionskörper folgen dem Spieler (nur die Umgebung bekommt welche)
     // — vor flush(), damit ein dadurch dirty markierter Bucket im selben
     // Frame neu gebaut wird.
-    // Werferliste der Schatten der Spielerposition nachführen.
+    // Werferliste der Schatten der Spielerposition nachführen. tick()
+    // arbeitet einen ggf. laufenden Scan budgetiert weiter ab (s. Shadows.ts).
     shadows?.setPlayerPosition(player.position.x, player.position.z);
+    shadows?.tick();
     miss('entities', () => {
       entities!.setPlayerPosition(player!.position.x, player!.position.z);
       entities!.updateDynamics(dt);

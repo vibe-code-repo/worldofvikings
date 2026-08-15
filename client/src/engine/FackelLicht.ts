@@ -188,10 +188,24 @@ const angehaengt = new Set<FackelLichtPlugin>();
 class FackelLichtPlugin extends MaterialPluginBase {
   /** false schaltet den Rechenblock per Define aus (Notbremse). */
   private an = true;
-  /** PBR und Standard brauchen verschiedenen Code — siehe Kopf. */
-  private readonly istPbr: boolean;
 
-  constructor(material: Material, istPbr: boolean) {
+  /**
+   * PBR und Standard brauchen verschiedenen Code — und die Auskunft
+   * MUSS aus `_material` kommen, nicht aus einem eigenen Feld.
+   *
+   * `getCustomCode()` läuft nämlich schon während `super()`, wenn der
+   * Plugin-Manager die Einspritzpunkte einsammelt — ein im
+   * Konstruktorrumpf gesetztes Feld ist dann noch leer, und der Shader
+   * bekäme für ein PBR-Material den Standard-Block mit `color` und
+   * `baseColor`, die es dort gar nicht gibt. Dieselbe Falle steht
+   * ausführlich in `ClutterWindPlugin`. `_material` dagegen weist
+   * `MaterialPluginBase` als ALLERERSTES zu, noch vor `_addPlugin()`.
+   */
+  private get istPbr(): boolean {
+    return this._material instanceof PBRBaseMaterial;
+  }
+
+  constructor(material: Material) {
     // Priorität 120: nach StandardGammaFix (100) und PbrNebelFix (110),
     // damit die Farbraum-Korrekturen zuerst greifen. Der sechste Parameter
     // (`enable`) MUSS true sein, sonst landet das Plugin nur in der
@@ -199,7 +213,6 @@ class FackelLichtPlugin extends MaterialPluginBase {
     // `getCustomCode()` noch `bindForSubMesh()` würden je ausgeführt —
     // dieselbe Falle, die in `ClutterWindPlugin` ausführlich steht.
     super(material, 'FackelLicht', 120, { FACKELLICHT: true }, true, true);
-    this.istPbr = istPbr;
     angehaengt.add(this);
   }
 
@@ -401,10 +414,9 @@ export function installiereFackelLicht(scene: Scene): number {
     // Spiegelung des Lagerfeuers auf dem See später doch gewünscht ist,
     // ist es diese eine Zeile.
     if (m.name === 'waterMat') return;
-    const istPbr = m instanceof PBRBaseMaterial;
-    if (!istPbr && !(m instanceof StandardMaterial)) return;
+    if (!(m instanceof PBRBaseMaterial) && !(m instanceof StandardMaterial)) return;
     if (m.pluginManager?.getPlugin('FackelLicht')) return;
-    new FackelLichtPlugin(m, istPbr);
+    new FackelLichtPlugin(m);
   };
   for (const m of scene.materials) haenge(m);
   scene.onNewMaterialAddedObservable.add(haenge);

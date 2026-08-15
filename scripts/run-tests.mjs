@@ -26,6 +26,7 @@ const KERN = [
   ['server', 'test/h2-routen.ts'],
   ['server', 'test/h3-routen-vorschau.ts'],
   ['server', 'test/h4-graslandflora.ts'],
+  ['server', 'test/d6-zdo-delta.ts'],
   ['server', 'test/g2-persistence.ts'],
   ['server', 'test/g4-creatures.ts'],
   ['server', 'test/e2-vegetation.ts'],

@@ -65,7 +65,7 @@ import { Precipitation } from './engine/Precipitation';
 import { EntityManager } from './entities/EntityManager';
 import { PlayerController } from './player/PlayerController';
 import { GameSocket } from './net/GameSocket';
-import { parseZDOSync } from './net/ZDOSync';
+import { parseZDOSync, ZDOSpiegel } from './net/ZDOSync';
 import { Hud } from './ui/Hud';
 import { GrassClutter } from './engine/GrassClutter';
 import { HuegelGras } from './engine/HuegelGras';
@@ -892,6 +892,10 @@ async function main() {
       socket.disconnect();
     }
     socket = new GameSocket(url, name);
+    // Ein Spiegel je Verbindung (D6): Der Server schickt einem frisch
+    // verbundenen Peer jedes ZDO wieder als Vollstand, also darf und muss
+    // hier nichts aus der alten Sitzung überleben.
+    const zdoSpiegel = new ZDOSpiegel();
 
     // D6/M0.1: world info first — build the identical GeoManager the
     // server runs and only then start rendering (placeholder-free).
@@ -941,7 +945,7 @@ async function main() {
 
     socket.on(PacketType.ZDOSync, (reader) => {
       if (!entities || !socket) return;
-      const sync = parseZDOSync(reader, socket.ownUserId);
+      const sync = parseZDOSync(reader, socket.ownUserId, zdoSpiegel);
       for (const u of sync.updates) entities.applyUpdate(u);
       for (const key of sync.destroyed) entities.removeZDO(key);
     });

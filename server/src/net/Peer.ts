@@ -24,6 +24,7 @@ import type { Vector3, ZoneID, ConnectionStatus } from '@wov/shared';
 import { Inventory } from '@wov/shared';
 import { ZDOID } from '../zdo/ZDOID.js';
 import { ZDORevision } from '../zdo/ZDO.js';
+import { ZonenFenster } from '../zdo/ZonenFenster.js';
 import { RpcRegistry } from './Rpc.js';
 import { Writer } from '../io/Writer.js';
 import { Reader } from '../io/Reader.js';
@@ -31,7 +32,7 @@ import { PacketType } from '@wov/shared';
 import type { WebSocket } from 'ws';
 
 /** ZDO tracking entry per peer (matches C++ pair<Rev, float>) */
-interface PeerZDOEntry {
+export interface PeerZDOEntry {
   dataRevision: number;
   ownerRevision: number;
   lastSentTime: number;
@@ -171,6 +172,19 @@ export class Peer {
     return entry.dataRevision !== dataRev || entry.ownerRevision !== ownerRev;
   }
 
+  /**
+   * Was dieser Peer von einem ZDO zuletzt bekommen hat (D6) — `undefined`
+   * heißt „noch nie gesehen" und damit: Erstübertragung, VOLLSTÄNDIG.
+   *
+   * Absichtlich zusätzlich zu `isOutdatedZDO`: Der Sync braucht denselben
+   * Eintrag zweimal (veraltet? und: ab welcher Revision reicht ein Delta?),
+   * und zwei Map-Zugriffe je ZDO und Tick sind genau die Sorte Kleinvieh,
+   * die bei 81 Zonen × 20 Hz zusammenkommt.
+   */
+  syncStand(zdoid: ZDOID): PeerZDOEntry | undefined {
+    return this.knownZDOs.get(zdoid.toString());
+  }
+
   /** Mark a ZDO as known/sent to this peer. */
   markZDOSent(zdoid: ZDOID, dataRev: number, ownerRev: number): void {
     this.knownZDOs.set(zdoid.toString(), {
@@ -204,6 +218,49 @@ export class Peer {
 
   get knownZDOCount(): number {
     return this.knownZDOs.size;
+  }
+
+  // ── ZDO-Sync-Zustand (D6/D7) ───────────────────────────────────
+
+  /**
+   * Zwischengespeichertes 9×9-Zonenfenster (D7). Gehört zum Peer, weil es
+   * an dessen Position hängt und mit ihm verschwindet.
+   */
+  readonly fenster = new ZonenFenster();
+
+  /**
+   * Noch nicht zugestellte Zerstörungen (D6).
+   *
+   * Vorher wurde die Zerstörungsliste einmal je Tick global verbraucht und
+   * sofort an alle Peers geschrieben. Mit dem Bandbreitenbudget kann ein
+   * Tick für einen Peer aber komplett ausfallen — dann wäre die Liste für
+   * ihn für immer weg und das zerstörte Objekt bliebe als Leiche in seiner
+   * Welt stehen. Deshalb staut sie sich hier je Peer an, bis sie wirklich
+   * im Paket war.
+   */
+  private zerstoerungen: ZDOID[] = [];
+
+  stelleZerstoerungenEin(liste: ReadonlyArray<ZDOID>): void {
+    for (const id of liste) this.zerstoerungen.push(id);
+  }
+
+  get offeneZerstoerungen(): ReadonlyArray<ZDOID> {
+    return this.zerstoerungen;
+  }
+
+  quittiereZerstoerungen(): void {
+    this.zerstoerungen = [];
+  }
+
+  /**
+   * Bytes, die der Socket noch nicht losgeworden ist (C# ISocket::
+   * GetSendQueueSize). Das ist die Größe, gegen die
+   * ZDO_MAX_SEND_THRESHOLD/ZDO_MIN_SEND_THRESHOLD im Original gemessen
+   * werden: Ein Peer mit vollem Puffer bekommt nichts obendrauf, sonst
+   * wächst der Rückstand schneller, als die Leitung ihn abträgt.
+   */
+  get sendeRueckstau(): number {
+    return this.socket.bufferedAmount;
   }
 
   // ── Network send ───────────────────────────────────────────────

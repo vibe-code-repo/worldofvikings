@@ -23,6 +23,8 @@ import {
   TIME_DAY,
   SAVE_INTERVAL_MS,
   ZDO_SEND_INTERVAL_MS,
+  ZDO_MAX_SEND_THRESHOLD,
+  ZDO_MIN_SEND_THRESHOLD,
   PacketType,
   createGeo,
   sanitizeWorldLayout,
@@ -748,100 +750,187 @@ export class WovServer {
 
   // ── ZDO Sync (C++ IZDOManager::SendZDOs) ───────────────────────
 
+  /**
+   * G-POP: 4 Zonen = 256 m, wie der Terrain-Radius des Clients — bei 192 m
+   * blieb am sichtbaren Rand ein dauerhaft objektfreier Ring stehen.
+   */
+  private static readonly SICHT_RADIUS_ZONEN = 4;
+
+  /**
+   * Wiederverwendete Merkliste der in diesem Tick geschriebenen ZDOs. Als
+   * lokale Variable wäre sie eine Allokation je Peer und Tick — bei 20 Hz
+   * genau das Kleinvieh, das den GC beschäftigt.
+   */
+  private readonly sendePuffer: ZDO[] = [];
+
+  /**
+   * D6 — ZDO-Sync mit Bandbreitenbudget, Nahpriorität und Member-Deltas.
+   *
+   * Drei Bremsen gegen den alten O(Peers × 81 Zonen × ZDOs)-Durchlauf alle
+   * 50 ms:
+   *
+   *  1. Das Sichtfenster kommt aus dem Cache (D7, `ZonenFenster`) und ist
+   *     bereits ringweise nach Entfernung sortiert.
+   *  2. Ein Bandbreitenbudget je Peer (C# ZDOMan.SendZDOs): Was in diesem
+   *     Tick nicht mehr hineinpasst, bleibt schmutzig und geht im nächsten
+   *     raus. Weil die Liste nah-zuerst läuft, verliert dabei immer das
+   *     Entfernteste — genau richtig.
+   *  3. Nur GEÄNDERTE Member statt des vollen Satzes (s. writeZDO).
+   */
   private syncZDOs(): void {
     const peers = this.net.getPeers();
-    if (peers.length === 0) {
-      // Auch ohne Spieler leeren — sonst wächst die Liste unbegrenzt
-      // (Review-Punkt 29); zustellen muss man ihnen nichts.
-      this.zdos.consumeDestroyList();
-      return;
+    // Zerstörungen einmal je Tick abholen und je Peer anstauen: Ein Peer
+    // kann wegen des Budgets einen Tick auslassen, und eine global
+    // verbrauchte Liste wäre für ihn dann für immer weg (Leiche in der
+    // Welt). Ohne Spieler trotzdem leeren, sonst wächst sie unbegrenzt
+    // (Review-Punkt 29).
+    const destroyList = this.zdos.consumeDestroyList();
+    if (peers.length === 0) return;
+    if (destroyList.length > 0) {
+      for (const peer of peers) peer.stelleZerstoerungenEin(destroyList);
     }
 
-    // Consume destroy list once per cycle, broadcast to all peers
-    const destroyList = this.zdos.consumeDestroyList();
+    const tick = Math.floor(this.worldTime * 1000);
 
     for (const peer of peers) {
-      // Determine zones visible to this peer (interest management)
+      // Bandbreitenbudget (C# ZDOMan.SendZDOs:
+      //   num = 10240 - sendQueueSize; if (num < 2048) return;).
+      // Der Socket-Rückstau ist das Maß dafür, wie viel die Leitung des
+      // Peers gerade wirklich abnimmt. Wer schon zusteht, bekommt nichts
+      // obendrauf — genau das verhindert, dass ein einziger langsamer
+      // Client den Server-Speicher mit ungesendeten Puffern füllt.
+      const budget = ZDO_MAX_SEND_THRESHOLD - peer.sendeRueckstau;
+      if (budget < ZDO_MIN_SEND_THRESHOLD) continue;
+
       const peerZone = worldToZone(peer.position);
-      // G-POP: 4 zones = 256m, matching the client terrain radius — before,
-      // the 192m sync radius left a permanently object-free ring of built
-      // terrain at the visible edge (pop-in when objects then materialized).
-      const viewRadius = 4; // zones in each direction
+      const fenster = peer.fenster.hole(
+        this.zdos,
+        peerZone.x,
+        peerZone.y,
+        WovServer.SICHT_RADIUS_ZONEN
+      );
+      const zerstoerungen = peer.offeneZerstoerungen;
+      if (fenster.length === 0 && zerstoerungen.length === 0) continue;
 
-      // Collect ZDOs this peer hasn't seen at the current revision
-      const toSend: ZDO[] = [];
-      const seen = new Set<string>();
-      for (let dx = -viewRadius; dx <= viewRadius; dx++) {
-        for (let dy = -viewRadius; dy <= viewRadius; dy++) {
-          const zdos = this.zdos.zdosInZone({ x: peerZone.x + dx, y: peerZone.y + dy });
-          if (!zdos) continue;
-          for (const zdo of zdos) {
-            const key = zdo.zdoid.toString();
-            if (seen.has(key)) continue;
-            seen.add(key);
-            if (peer.isOutdatedZDO(zdo.zdoid, zdo.revision.dataRevision, zdo.revision.ownerRevision)) {
-              toSend.push(zdo);
-            }
-          }
+      // Wie viele Sätze ins Budget passen, weiß man erst hinterher — also
+      // Platzhalter schreiben und die Zahl am Ende nachtragen. Das spart
+      // gegenüber einem zweiten Writer eine Vollkopie des Pakets je Peer
+      // und Tick.
+      const writer = new Writer(2048);
+      writer.writeInt32(tick); // Tick number for reconciliation
+      const zaehlerStelle = writer.geschrieben;
+      writer.writeInt32(0);
+
+      let anzahl = 0;
+      const gesendet = this.sendePuffer;
+      gesendet.length = 0;
+      for (const zdo of fenster) {
+        const stand = peer.syncStand(zdo.zdoid);
+        if (
+          stand &&
+          stand.dataRevision === zdo.revision.dataRevision &&
+          stand.ownerRevision === zdo.revision.ownerRevision
+        ) {
+          continue; // Peer ist auf Stand
         }
+        this.writeZDO(writer, zdo, stand?.dataRevision);
+        anzahl++;
+        gesendet.push(zdo);
+        if (writer.geschrieben >= budget) break;
       }
 
-      if (toSend.length === 0 && destroyList.length === 0) continue;
+      if (anzahl === 0 && zerstoerungen.length === 0) continue;
+      writer.patchInt32(zaehlerStelle, anzahl);
 
-      // Build sync packet
-      const writer = new Writer();
-
-      // Tick number for reconciliation
-      writer.writeInt32(Math.floor(this.worldTime * 1000));
-
-      // Updated ZDOs
-      writer.writeInt32(toSend.length);
-      for (const zdo of toSend) {
-        this.writeZDO(writer, zdo);
-        peer.markZDOSent(zdo.zdoid, zdo.revision.dataRevision, zdo.revision.ownerRevision);
-      }
-
-      // Destroyed ZDOs
-      writer.writeInt32(destroyList.length);
-      for (const zdoid of destroyList) {
+      // Zerstörungen: gehen IMMER mit raus, sie sind winzig und ihr Verlust
+      // wäre dauerhaft sichtbar.
+      writer.writeInt32(zerstoerungen.length);
+      for (const zdoid of zerstoerungen) {
         writer.writeString(zdoid.userId.toString());
         writer.writeInt32(zdoid.id);
         peer.removeKnownZDO(zdoid);
       }
+      peer.quittiereZerstoerungen();
 
       peer.sendPacket(PacketType.ZDOSync, writer.toBuffer());
+      // Erst nach dem Absenden buchen — sonst gilt ein ZDO als zugestellt,
+      // das wegen des Budgets gar nicht mehr im Paket war.
+      for (const zdo of gesendet) {
+        peer.markZDOSent(zdo.zdoid, zdo.revision.dataRevision, zdo.revision.ownerRevision);
+      }
+      gesendet.length = 0;
     }
   }
 
-  private writeZDO(w: Writer, zdo: ZDO): void {
-    // ZDOID
+  /**
+   * Ein ZDO-Satz. `peerRev` ist die Datenrevision, die der Peer zuletzt
+   * bekommen hat; `undefined` heißt „kennt das ZDO nicht" → Vollstand.
+   *
+   * Drahtformat (Bit 0 von `satzFlags` unterscheidet die beiden Fälle):
+   *
+   *   uint8   satzFlags   Bit0 = Vollstand, Bit1 = Besitzer folgt
+   *   string  userId
+   *   int32   id
+   *   int32   prefabHash  NUR im Vollstand (ändert sich nie)
+   *   vec3    position
+   *   quat    rotation
+   *   uint32  revision
+   *   uint8   flags       NUR im Vollstand (wird nur beim Anlegen gesetzt)
+   *   string  ownerUserId }
+   *   int32   ownerId     } nur bei Bit1
+   *   int32   memberCount
+   *   memberCount × { int32 hash, uint8 type, wert }
+   *
+   * Im Delta stehen nur die Member, die seit `peerRev` geschrieben wurden
+   * (s. ZDOMember.rev). Eine laufende Kreatur schickte bisher 4×/s ihren
+   * kompletten Member-Satz an jeden Peer in Reichweite, obwohl sich daran
+   * nichts geändert hatte — jetzt sind es null Member.
+   *
+   * Die Erstübertragung ist immer vollständig: Ohne Eintrag in `knownZDOs`
+   * hat der Peer nichts, worauf ein Delta aufsetzen könnte. Dasselbe gilt
+   * nach einer Member-Entfernung (die ein Delta nicht ausdrücken kann) und
+   * nach dem Überlauf der 23-Bit-Datenrevision — dann ist `peerRev` größer
+   * als die aktuelle Revision, und der Vergleich wäre wertlos.
+   */
+  private writeZDO(w: Writer, zdo: ZDO, peerRev: number | undefined): void {
+    const datenRev = zdo.revision.dataRevision;
+    const voll =
+      peerRev === undefined || peerRev > datenRev || zdo.entfernungsRevision > peerRev;
+    const hatBesitzer = !zdo.owner.isNone();
+
+    w.writeUInt8((voll ? 1 : 0) | (hatBesitzer ? 2 : 0));
     w.writeString(zdo.zdoid.userId.toString());
     w.writeInt32(zdo.zdoid.id);
-
-    // Prefab hash
-    w.writeInt32(zdo.prefabHash);
-
-    // Transform
+    if (voll) w.writeInt32(zdo.prefabHash);
     w.writeVector3(zdo.position);
     w.writeQuaternion(zdo.rotation);
-
-    // Revision
     w.writeUInt32(zdo.revision.raw);
-
-    // Flags
-    w.writeUInt8(zdo.flags);
-
-    // Owner
-    w.writeBool(!zdo.owner.isNone());
-    if (!zdo.owner.isNone()) {
+    if (voll) w.writeUInt8(zdo.flags);
+    if (hatBesitzer) {
       w.writeString(zdo.owner.userId.toString());
       w.writeInt32(zdo.owner.id);
     }
 
-    // Members
     const members = zdo.getMembers();
-    w.writeInt32(members.size);
+    if (voll) {
+      w.writeInt32(members.size);
+      for (const [hash, member] of members) {
+        w.writeInt32(hash);
+        w.writeUInt8(member.type);
+        w.writeByTypeTag(member.type, member.value);
+      }
+      return;
+    }
+
+    // Zweimal durchzählen statt einer Zwischenliste: Der Satz hat selten
+    // mehr als eine Handvoll Member, und eine Allokation je ZDO und Tick
+    // ist bei 20 Hz teurer als die zweite Schleife.
+    let neue = 0;
+    for (const member of members.values()) if (member.rev > peerRev!) neue++;
+    w.writeInt32(neue);
+    if (neue === 0) return;
     for (const [hash, member] of members) {
+      if (member.rev <= peerRev!) continue;
       w.writeInt32(hash);
       w.writeUInt8(member.type);
       w.writeByTypeTag(member.type, member.value);

@@ -1,6 +1,19 @@
 /**
  * ZDOSync wire parsing (Phase 2) — 1:1 the format WovServer.syncZDOs
  * writes. Separated from GameSocket so the entity layer stays testable.
+ *
+ * Seit D6 kommen ZDO-Sätze in zwei Ausführungen: VOLLSTAND (alles) und
+ * DELTA (nur Position/Drehung plus die Member, die sich seit dem letzten
+ * Satz an DIESEN Client geändert haben). Eine laufende Kreatur schickte
+ * bisher 4×/s ihren kompletten Member-Satz mit, obwohl sich daran nichts
+ * änderte.
+ *
+ * Damit ein Delta oben in EntityManager wie bisher aussieht, führt der
+ * `ZDOSpiegel` den letzten vollständigen Stand je ZDO mit und ergänzt die
+ * fehlenden Felder. Das ist keine Bequemlichkeit, sondern nötig: Ein
+ * fehlendes `scale` bedeutet dort „Prefab-Standard", ein fehlendes `anim`
+ * „zurück zur Prefab-Animation" — als „unverändert" würde beides falsch
+ * gelesen und die Kreatur bei jedem Schritt zusammenschrumpfen.
  */
 import { ANIM_MEMBER, HEALTH_MEMBER, LAYOUT_ID_MEMBER, getStableHash } from '@wov/shared';
 import type { Vector3, Quaternion, NpcEinordnung } from '@wov/shared';
@@ -68,32 +81,85 @@ export interface ZDOSyncResult {
   destroyed: string[];
 }
 
-export function parseZDOSync(reader: BinaryReader, ownUserId: string): ZDOSyncResult {
+/** Satzflags des ZDO-Drahtformats (s. WovServer.writeZDO). */
+const SATZ_VOLLSTAND = 1;
+const SATZ_BESITZER = 2;
+
+/**
+ * Letzter vollständiger Stand je ZDO — die Grundlage, auf die Deltas
+ * aufsetzen. Lebt genau so lange wie eine Verbindung: Nach einem
+ * Neuaufbau schickt der Server jedes ZDO wieder als Vollstand, weil er
+ * seinerseits nichts mehr über den Peer weiß.
+ */
+export class ZDOSpiegel {
+  private readonly stand = new Map<string, ZDOEntityUpdate>();
+
+  hole(key: string): ZDOEntityUpdate | undefined {
+    return this.stand.get(key);
+  }
+
+  merke(u: ZDOEntityUpdate): void {
+    this.stand.set(u.key, u);
+  }
+
+  vergiss(key: string): void {
+    this.stand.delete(key);
+  }
+
+  get anzahl(): number {
+    return this.stand.size;
+  }
+}
+
+/**
+ * Ein Delta zu einem ZDO, das der Spiegel nicht kennt, darf es nicht
+ * geben — der Server schickt die Erstübertragung immer vollständig.
+ * Sollte es doch passieren, ist das Verwerfen die einzig richtige
+ * Antwort: Ohne prefabHash liesse sich die Instanz gar nicht bauen, und
+ * ein geratener Wert stellt das falsche Modell in die Welt. Einmal
+ * warnen, nicht bei jedem Tick.
+ */
+let deltaLueckeGemeldet = false;
+
+export function parseZDOSync(
+  reader: BinaryReader,
+  ownUserId: string,
+  spiegel: ZDOSpiegel
+): ZDOSyncResult {
   const tick = reader.readInt32();
   const updates: ZDOEntityUpdate[] = [];
 
   const updateCount = reader.readInt32();
   for (let i = 0; i < updateCount; i++) {
+    const satzFlags = reader.readUInt8();
+    const voll = (satzFlags & SATZ_VOLLSTAND) !== 0;
+    const hasOwner = (satzFlags & SATZ_BESITZER) !== 0;
+
     const userId = reader.readString();
     const id = reader.readInt32();
-    const prefabHash = reader.readInt32();
+    const key = `${userId}:${id}`;
+    // Beim Vollstand bewusst NICHT auf den alten Stand zurückgreifen: Er
+    // ersetzt ihn vollständig, auch wenn dabei Member verschwinden.
+    const basis = voll ? undefined : spiegel.hole(key);
+
+    const prefabHash = voll ? reader.readInt32() : (basis?.prefabHash ?? 0);
     const position = reader.readVector3();
     const rotation = reader.readQuaternion();
     reader.readUInt32(); // revision — sync gate is server-side
-    reader.readUInt8(); // flags
+    if (voll) reader.readUInt8(); // flags
 
-    const hasOwner = reader.readBool();
     let ownerUserId = '';
     if (hasOwner) {
       ownerUserId = reader.readString();
       reader.readInt32();
     }
 
-    let scale: number | Vector3 | undefined;
-    let locationFeatureHash: number | undefined;
-    let anim: string | undefined;
-    let health: number | undefined;
-    let layoutId: string | undefined;
+    // Im Delta fehlende Member heissen „unverändert", nicht „nicht da".
+    let scale: number | Vector3 | undefined = basis?.scale;
+    let locationFeatureHash: number | undefined = basis?.locationFeatureHash;
+    let anim: string | undefined = basis?.anim;
+    let health: number | undefined = basis?.health;
+    let layoutId: string | undefined = basis?.layoutId;
     const memberCount = reader.readInt32();
     for (let m = 0; m < memberCount; m++) {
       const memberHash = reader.readInt32();
@@ -115,8 +181,18 @@ export function parseZDOSync(reader: BinaryReader, ownUserId: string): ZDOSyncRe
       }
     }
 
-    updates.push({
-      key: `${userId}:${id}`,
+    // Erst NACH dem vollständigen Lesen verwerfen — der Reader steht sonst
+    // mitten im nächsten Satz und der ganze Rest des Pakets ist Müll.
+    if (!voll && !basis) {
+      if (!deltaLueckeGemeldet) {
+        deltaLueckeGemeldet = true;
+        console.warn(`[ZDOSync] Delta ohne Vollstand für ${key} — verworfen`);
+      }
+      continue;
+    }
+
+    const update: ZDOEntityUpdate = {
+      key,
       prefabHash,
       position,
       rotation,
@@ -126,13 +202,21 @@ export function parseZDOSync(reader: BinaryReader, ownUserId: string): ZDOSyncRe
       health,
       layoutId,
       isOwnPlayer: hasOwner && ownerUserId === ownUserId,
-    });
+    };
+    spiegel.merke(update);
+    updates.push(update);
   }
 
   const destroyed: string[] = [];
   const destroyCount = reader.readInt32();
   for (let i = 0; i < destroyCount; i++) {
-    destroyed.push(`${reader.readString()}:${reader.readInt32()}`);
+    const key = `${reader.readString()}:${reader.readInt32()}`;
+    // Der Server vergisst das ZDO im selben Moment für diesen Peer, also
+    // muss der Spiegel es auch — sonst hinge hier ein Stand, auf den nie
+    // wieder ein Delta kommt, und beim nächsten Anlegen desselben Objekts
+    // stünden alte Member drin.
+    spiegel.vergiss(key);
+    destroyed.push(key);
   }
 
   return { tick, updates, destroyed };

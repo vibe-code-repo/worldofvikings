@@ -48,6 +48,8 @@ const START_X = Number(arg('x', -16900));
 const START_Z = Number(arg('z', -5350));
 /** Laufrichtung in Radiant. 0 = nach Norden; die Strecke bleibt so gleich. */
 const YAW = Number(arg('yaw', 0));
+/** Sekunden je Quadratseite, bevor die Laufrichtung um 90 Grad dreht. */
+const WENDE = Number(arg('wende', 5));
 /** Spielername fuer die Messung — bewusst NICHT ein echter Spielername. */
 const SPIELER = arg('spieler', 'BenchBot');
 /** Offline misst rein clientseitige Weltgenerierung, ohne Server. */
@@ -201,10 +203,55 @@ console.log('[bench] Welt steht.');
 await page.bringToFront();
 await page.locator('canvas').first().click({ position: { x: 800, y: 450 } }).catch(() => {});
 
-// An den festen Messort setzen und dem Gelaende Zeit geben, nachzuladen.
-await page.evaluate(([x, z, yaw]) => window.__vb.teleport(x, z, yaw), [START_X, START_Z, YAW]);
+// ── An den Messort ────────────────────────────────────────────────────
+//
+// ES MUSS DER ADMIN-BEFEHL SEIN, nicht `__vb.teleport()`.
+//
+// `__vb.teleport()` ruft `player.debugTeleport()` — rein clientseitig. Der
+// Server ist autoritativ und schnappt die Position im naechsten Tick
+// zurueck. Am 15.08.2026 hat genau das eine komplette Vergleichsreihe
+// entwertet: Der Teleport blieb wirkungslos, der Spawn liegt bei
+// (0, -55,5, 0) — 55 m UNTER WASSER im leeren Ozean —, und gemessen wurde
+// ein 187-m-Sprint durchs Nichts. Keine Vegetation, kein Bauwerk, nichts.
+// Die Zahlen sahen hervorragend aus und bedeuteten nichts.
+//
+// `__vb.admin('teleport x z')` geht ueber den Server und haelt. Der
+// Gierwinkel bleibt clientseitig — der wird nicht korrigiert.
+const tpOk = await page.evaluate(
+  ([x, z]) => window.__vb.admin(`teleport ${x} ${z}`),
+  [START_X, START_Z]
+);
+if (!tpOk) {
+  console.error('[bench] ABBRUCH: Admin-Teleport abgelehnt (keine Verbindung oder keine Adminrechte).');
+  await browser.close();
+  process.exit(5);
+}
+await page.waitForTimeout(3000);
+await page.evaluate(([yaw]) => {
+  const q = window.__dbg.player.position;
+  window.__vb.teleport(q.x, q.z, yaw);
+}, [YAW]);
+
 console.log(`[bench] Messort ${START_X}/${START_Z}, aufwaermen ${AUFWAERMEN}s ...`);
 await page.waitForTimeout(AUFWAERMEN * 1000);
+
+// Ankunft PRUEFEN, nicht annehmen. Das ist die Lehre aus dem Messfehler
+// oben: Ein stillschweigend wirkungsloser Teleport ist nicht erkennbar,
+// solange niemand die Position nachrechnet.
+const angekommen = await page.evaluate(() => {
+  const q = window.__dbg.player.position;
+  return { x: q.x, y: q.y, z: q.z };
+});
+const abstand = Math.hypot(angekommen.x - START_X, angekommen.z - START_Z);
+if (abstand > 150) {
+  console.error(
+    `[bench] ABBRUCH: Spieler steht ${abstand.toFixed(0)} m vom Messort entfernt ` +
+      `(${angekommen.x.toFixed(0)}/${angekommen.z.toFixed(0)}), erwartet ${START_X}/${START_Z}.`
+  );
+  await browser.close();
+  process.exit(6);
+}
+console.log(`[bench] am Messort, y=${angekommen.y.toFixed(1)}, Abweichung ${abstand.toFixed(0)} m`);
 
 // ── Frame-Rekorder ────────────────────────────────────────────────────
 await page.evaluate(() => {
@@ -230,10 +277,42 @@ await page.evaluate(() => {
 });
 
 // ── Sprint ────────────────────────────────────────────────────────────
-console.log(`[bench] Sprint ${SEKUNDEN}s ...`);
+//
+// Im Quadrat statt geradeaus. Der Grund ist ein Messfehler, der eine
+// ganze Vergleichsreihe entwertet hat (15.08.2026):
+//
+// 25 s Sprint sind bei 7,5 m/s rund 187 m. Geradeaus fuehrt das aus dem
+// dicht bewachsenen Messgebiet heraus — die Endpositionen lagen je nach
+// Stand bei y = +99, +13, −47 und −28, also teils tief unter dem
+// Wasserspiegel. Die Baseline hatte 31 Gras-Meshes im Bild, die spaeteren
+// Staende gar keine. Damit verglich die Reihe nicht Codestaende, sondern
+// Landschaften, und ein Teil des "Gewinns" war schlicht leereres Gelaende.
+//
+// Alle `WENDE` Sekunden wird die Blickrichtung deshalb um 90 Grad
+// gedreht (Teleport an Ort und Stelle, nur mit neuem Gierwinkel). Der
+// Laeufer zieht ein Quadrat von etwa `WENDE * 7,5` Metern Kantenlaenge:
+// er bleibt in der Messgegend, quert aber weiterhin staendig
+// Zonengrenzen — und genau die kosten die Frames.
+console.log(`[bench] Sprint ${SEKUNDEN}s, Richtungswechsel alle ${WENDE}s ...`);
 await page.keyboard.down('ShiftLeft');
 await page.keyboard.down('KeyW');
-await page.waitForTimeout(SEKUNDEN * 1000);
+
+const beginnSprint = Date.now();
+let seite = 0;
+while ((Date.now() - beginnSprint) / 1000 < SEKUNDEN) {
+  const rest = SEKUNDEN - (Date.now() - beginnSprint) / 1000;
+  await page.waitForTimeout(Math.min(WENDE, rest) * 1000);
+  if ((Date.now() - beginnSprint) / 1000 >= SEKUNDEN) break;
+  seite += 1;
+  await page.evaluate(
+    ([gier]) => {
+      const p = window.__dbg?.player?.position;
+      if (p) window.__vb.teleport(p.x, p.z, gier);
+    },
+    [YAW + (seite * Math.PI) / 2]
+  );
+}
+
 await page.keyboard.up('KeyW');
 await page.keyboard.up('ShiftLeft');
 

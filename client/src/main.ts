@@ -2037,6 +2037,9 @@ async function main() {
     }
   });
 
+  /** Windzeiger der Minimap — einmal angelegt, pro Frame beschrieben. */
+  const minimapWind = { dirX: 0, dirZ: 0, intensity: 0 };
+
   scene.onBeforeRenderObservable.add(() => {
     if (!world || !terrain || !player || !entities || !grass) return; // waiting for buildWorld()
     const dt = Math.min(engine.getDeltaTime() / 1000, 0.1);
@@ -2133,11 +2136,12 @@ async function main() {
     WaterPlugin.windAlpha = alpha;
     lightPool?.update(player.position.x, player.position.y, player.position.z, dt);
     // Minimap: Detailausschnitt + Windzeiger (budgetiert, zeichnet selbst).
-    minimap?.update(player.position.x, player.position.z, player.yaw, {
-      dirX: wind1.dirX,
-      dirZ: wind1.dirZ,
-      intensity: wind1.intensity,
-    });
+    // Gehaltenes Wind-Objekt statt eines Literals je Frame — die Minimap
+    // liest es nur, sie behält es nicht.
+    minimapWind.dirX = wind1.dirX;
+    minimapWind.dirZ = wind1.dirZ;
+    minimapWind.intensity = wind1.intensity;
+    minimap?.update(player.position.x, player.position.z, player.yaw, minimapWind);
     // Regen/Schnee/Asche: Menge aus der Nässe-Rampe, Schräglage aus dem
     // Wind (GlobalWind.velocityOverLifetime im Original).
     // Gras um aufsammelbare Gegenstände freihalten (Flint, Stein, Löwenzahn

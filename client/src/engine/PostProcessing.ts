@@ -125,6 +125,13 @@ export class PostProcessing {
   private motionBlur: MotionBlurPostProcess | null = null;
   private dof: ValheimDof | null = null;
   private shafts: VolumetricLightScatteringPostProcess | null = null;
+  /**
+   * Gehaltene Sonnenposition der Lichtstrahlen — update() läuft mit 60 Hz.
+   * `customMeshPosition` ist eine schlichte Eigenschaft, die der Pass bei
+   * jedem Bild ausliest; ein in place beschriebenes Objekt tut dasselbe wie
+   * ein frisches, nur ohne GC-Druck.
+   */
+  private readonly strahlenQuelle = new Vector3();
   /** Beobachter, der die Renderliste der Tiefen-Passage setzt (s. dort). */
   private gbufferFilter: Nullable<Observer<Scene>> = null;
   private readonly focusSource: FocusSource | null;
@@ -261,11 +268,12 @@ export class PostProcessing {
       // mitbewegt — sonst wandert der Kranz mit dem Spieler statt am Himmel
       // zu stehen. 2 km liegt innerhalb der Far-Plane (4 km).
       const c = this.camera.globalPosition;
-      this.shafts.customMeshPosition = new Vector3(
+      this.strahlenQuelle.set(
         c.x + sunDir.x * 2000,
         c.y + sunDir.y * 2000,
         c.z + sunDir.z * 2000
       );
+      this.shafts.customMeshPosition = this.strahlenQuelle;
     }
   }
 

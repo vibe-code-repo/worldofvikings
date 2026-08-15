@@ -12,12 +12,13 @@ import { FOLIAGE } from '../vegetation.js';
 import { FEATURES } from '../features.js';
 import { SPAWN_TABLE } from '../spawnData.js';
 import { PREFABS_BY_NAME } from '../prefabs.js';
+import { istNpcPrefab } from '../npc.js';
 import type { WorldLayout } from './types.js';
 
 export interface LayoutBefund {
   /** Regions-ID bzw. 'placements' — wo der Fund liegt. */
   wo: string;
-  art: 'vegetation' | 'location' | 'spawn' | 'placement' | 'welt';
+  art: 'vegetation' | 'location' | 'spawn' | 'placement' | 'route' | 'welt';
   text: string;
 }
 
@@ -45,12 +46,46 @@ export function pruefeLayout(layout: WorldLayout): LayoutBefund[] {
     }
   }
 
+  // Routen: Namensauflösung passiert erst beim Spawnen (der Server
+  // ignoriert Unbekanntes still) — ein Tippfehler in der Route bliebe
+  // sonst als reglos stehender NPC unerklärt.
+  const routenIds = new Set((layout.routes ?? []).map((r) => r.id));
   for (const p of layout.placements ?? []) {
     if (!PREFABS_BY_NAME.has(p.prefab)) {
       befunde.push({
         wo: 'placements',
         art: 'placement',
         text: `unbekanntes Prefab: ${p.prefab} @(${p.x}, ${p.z})`,
+      });
+    }
+    if (p.route !== undefined && !routenIds.has(p.route)) {
+      befunde.push({
+        wo: 'placements',
+        art: 'route',
+        text: `unbekannte Route: ${p.route} (${p.prefab} @(${p.x}, ${p.z}))`,
+      });
+    }
+    // NPC-Angaben an einem Prefab ohne Vorgabe sind ERLAUBT (loeseNpcAuf
+    // macht daraus einen zivilen Neutralen), aber fast immer ein Versehen
+    // aus der Handarbeit im JSON: Der Editor bietet die Felder dort gar
+    // nicht an. Hinweis statt Fehler — genau wie beim Ein-Punkt-Standposten.
+    if (p.npc !== undefined && !istNpcPrefab(p.prefab)) {
+      befunde.push({
+        wo: 'placements',
+        art: 'placement',
+        text: `NPC-Angaben an einem Prefab ohne Vorgabe: ${p.prefab} @(${p.x}, ${p.z})`,
+      });
+    }
+  }
+
+  // Eine Route mit nur einem Wegpunkt ist zulässig (Standposten), aber
+  // meistens ein halb fertiger Entwurf — deshalb ein Hinweis, kein Fehler.
+  for (const r of layout.routes ?? []) {
+    if (r.points.length < 2) {
+      befunde.push({
+        wo: r.id,
+        art: 'route',
+        text: 'Route hat nur einen Wegpunkt — der NPC bleibt dort stehen',
       });
     }
   }

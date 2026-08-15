@@ -20,6 +20,7 @@ Der Server ist der 1:1-Port des C++-Servers aus `valheim.community` (Valhalla2.0
 | `Rpc.h` | `net/Rpc.ts` | ✅ vorhanden |
 | `Reader/Writer/Stream.cpp` | `io/Reader.ts, Writer.ts, Stream.ts` | ✅ vorhanden |
 | Spawn-Logik | `world/SpawnSystem.ts` | ✅ vorhanden |
+| — (eigen) | `world/RoutenLaeufer.ts` | ✅ NPCs laufen die Wegpunkte des WorldLayouts ab (Docs/10) |
 | `Vector/Quaternion/Types/BitPack` | `util/*` | ✅ vorhanden |
 | `DungeonGenerator/DungeonManager.cpp` | — | ⬜ offen (Phase 6) |
 | `RandomEventManager.cpp` | — | ⬜ offen (Phase 6) |

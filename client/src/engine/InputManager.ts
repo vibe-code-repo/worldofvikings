@@ -234,6 +234,15 @@ export class InputManager {
     document.addEventListener(
       'wheel',
       (e) => {
+        // Nur Ereignisse, die das SPIEL treffen: Bei gefangener Maus landet
+        // jedes Rad-Ereignis ohnehin auf dem Canvas; mit freiem Zeiger zählt
+        // das echte Ziel. Steht der Zeiger über einem UI-Panel (Spawn-Panel,
+        // Karte), gehört das Rad dem Panel — es soll dort scrollen, nicht
+        // die Kamera zoomen, und preventDefault darf das native Scrollen
+        // nicht abwürgen. Overlays ohne eigene Bedienung (HUD, Bauteil-Wahl)
+        // stehen auf pointer-events:none und reichen ans Canvas durch, der
+        // Rad-Moduswechsel des Baumenüs funktioniert also weiter.
+        if (!this.pointerLocked && e.target !== this.canvas) return;
         e.preventDefault();
         this.wheel += e.deltaY;
       },

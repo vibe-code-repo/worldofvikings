@@ -144,6 +144,18 @@ export class SettingsPanel {
       )
     );
 
+    // Namensschilder über Figuren — Spielelement, s. GameSettings.nameplates.
+    panel.appendChild(
+      this.buildToggle('Namensschilder', (s) => s.nameplates, (v) =>
+        this.settings.set({ nameplates: v })
+      )
+    );
+    panel.appendChild(
+      this.buildToggle('Eigenes Namensschild', (s) => s.eigenesNameplate, (v) =>
+        this.settings.set({ eigenesNameplate: v })
+      )
+    );
+
     // Diagnose: Prefab-Namen über den Objekten einblenden.
     panel.appendChild(
       this.buildToggle('Objektnamen anzeigen', (s) => s.showObjectNames, (v) =>

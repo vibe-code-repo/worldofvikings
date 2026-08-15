@@ -98,7 +98,7 @@ Reihenfolge beachtet die Abhängigkeiten aus dem Analyse-Bericht (Weltgen existi
 - [x] `EntityManager`: ZDOID → Thin Instances (statisch) / Hierarchien (dynamisch), Mesh-Collider für Räume + Felsen
 - [x] Interpolation für Remote-Entities (exponentielles Gleiten, Teleport-Erkennung) ✅ 2026-08-02
 - [x] Soft-Reconciliation: PlayerState trägt die Serverposition, Client zieht Drift >1,5 m weich nach (hart >8 m; im Dungeon nur x/z) ✅ 2026-08-03 — volles Rollback-Replay bewusst nicht nötig (beide Seiten rechnen dieselbe Bewegung)
-- [ ] AnimationGroups-Mapping für Kreaturen (Spieler: AvatarRig; eigene NPCs: Autoplay via `PrefabDef.animation` ✅ 2026-08-02)
+- [ ] AnimationGroups-Mapping für Kreaturen (Spieler: AvatarRig; eigene NPCs: Autoplay via `PrefabDef.animation` ✅ 2026-08-02; Umschalten zur Laufzeit über den ZDO-Member `anim` — `idle`/`walk` bei Routen-NPCs, `AssetManager.wechsleAnimation` ✅ 2026-08-05)
 - [x] **Abnahme bestanden** (2026-08-03): Zwei Clients („Erster“/„Zweiter“) sehen einander als Entity (Platzhalter-Kapsel — Player.glb ist mesh-los, Export-Lücke); Interpolation glättet
 
 ## Phase 5 — Gameplay *(spielbar)* 🟡 **Fundament steht**
@@ -126,7 +126,7 @@ Reihenfolge beachtet die Abhängigkeiten aus dem Analyse-Bericht (Weltgen existi
 - [x] Dungeon-Nacharbeiten: Türen/Truhen (Interact), Spawner erwachen, Regeneration leerer Instanzen ✅ 2026-08-02 (Editor-Ausbau, NPC-Wegfindung offen)
 - [x] RandomEvents (verschlankt): "Der Wald bewegt sich"-Überfälle ✅ 2026-08-02
 - [x] Kreaturen-KI: Chase + Angriff (Aggro 20 m) ✅ 2026-08-02 — Boss-Encounter offen
-- [x] Audio-Grundgerüst (WebAudio): Wind-Loop, Schritte, Schlag/Aufsammeln/Tür ✅ 2026-08-02 — Biom-Ambience/Musik/positional offen
+- [x] Audio-Grundgerüst (WebAudio) ✅ 2026-08-02 — auf eigene Hintergrundmusik zurückgebaut (2026-08-06): Valheim-Aufnahmen entfernt, Wind/Schritte/One-Shots brauchen neue, lizenzfreie Quellen
 - [ ] Optional: RouteManager, Housing/Discord/REST, Lua-Modding, KTX2/Draco
 
 **Bewusst nicht begonnen (eigene Projekte, nicht "Restpunkte"):**

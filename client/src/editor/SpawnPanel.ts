@@ -5,11 +5,29 @@
  * und Größe. Muster: DungeonEditor (reines DOM, Callback-Interface,
  * keine Socket-/Szenen-Kopplung).
  *
- * Bedienung im Testflug: B öffnet/schließt (Esc gibt den Cursor frei),
- * „Platzieren" bzw. Taste P setzt das Objekt vor dem Spieler; bei
- * gefangener Maus platziert auch der Linksklick.
+ * Bedienung im Testflug: B öffnet/schließt (Esc gibt den Cursor frei).
+ * Platziert wird NUR im aktiven Platzier-Modus: Ein Klick auf einen
+ * Listeneintrag startet ihn (Geist hängt an der Maus), Klick/P setzt
+ * GENAU EINMAL und beendet den Modus wieder — nach dem Setzen hängt
+ * nichts mehr an der Maus. Abbruch ohne Setzen: zweiter Klick auf den
+ * Eintrag, Esc oder Rechtsklick. Ohne aktiven Modus setzt ein Klick in
+ * die Welt NICHTS — der zuletzt gewählte Eintrag bleibt nur Vorauswahl.
  */
-import { FOLIAGE, BAU_PREFABS, PREFABS_BY_NAME, EIGENE_MODELLE } from '@wov/shared';
+import {
+  FOLIAGE,
+  BAU_PREFABS,
+  PREFABS_BY_NAME,
+  EIGENE_MODELLE,
+  FRAKTIONEN,
+  NPC_ROLLEN,
+  QUEST_ZUSTAENDE,
+  NPC_NAME_MAX,
+  NPC_STUFE_MAX,
+  NPC_STUFE_MIN,
+  istNpcPrefab,
+  loeseNpcAuf,
+} from '@wov/shared';
+import type { Fraktion, NpcDef, NpcRolle, QuestZustand } from '@wov/shared';
 
 export interface SpawnEinstellung {
   prefab: string;
@@ -18,13 +36,61 @@ export interface SpawnEinstellung {
   /** Abstand vor dem Spieler in Metern. */
   abstand: number;
   scale: number;
+  /** Untergrund unter der Grundfläche einebnen (Sockel im Layout). */
+  einebnen: boolean;
 }
 
 export interface SpawnPanelCallbacks {
   platzieren: () => void;
   entferneLetztes: () => void;
   anzahl: () => number;
+  /**
+   * Tageszeit in Stunden (0–24) setzen und den Zyklus dabei anhalten.
+   *
+   * Ohne Anhalten wandert jeder eingestellte Wert sofort weiter — ein
+   * Weltentag dauert im Spiel 30 Minuten, zum Beurteilen einer Szene bei
+   * Sonnenuntergang ist das zu schnell.
+   */
+  setzeZeit?: (stunden: number, angehalten: boolean) => void;
+  /** Aktuelle Tageszeit in Stunden, für die Anzeige beim Öffnen. */
+  zeit?: () => number;
+  /**
+   * Die GEWÄHLTE (angeklickte) Platzierung — null, wenn keine gewählt ist.
+   *
+   * Die NPC-Felder hängen bewusst an der Auswahl und nicht an der
+   * Vorauswahl der Liste: Ein Name gehört zu einer bestimmten Figur in der
+   * Welt, nicht zu „der nächsten Völva, die ich setze". Wer die Angaben
+   * einer neuen Figur ändern will, klickt sie an — derselbe Griff wie zum
+   * Verschieben und Löschen.
+   */
+  gewaehlteNpc?: () => { prefab: string; npc?: NpcDef } | null;
+  /**
+   * Geänderte Angaben zurückschreiben; `undefined` entfernt das Feld
+   * wieder (alles steht auf Prefab-Vorgabe).
+   */
+  setzeNpc?: (npc: NpcDef | undefined) => void;
 }
+
+/** Anzeigetexte der Listen aus shared/npc.ts (unbekanntes zeigt sich roh). */
+const ROLLE_TEXT: Readonly<Record<string, string>> = {
+  zivil: 'Zivil',
+  quest: 'Quest-Geber',
+  haendler: 'Händler',
+  monster: 'Monster',
+};
+const FRAKTION_TEXT: Readonly<Record<string, string>> = {
+  neutral: 'Neutral',
+  wikinger: 'Wikinger',
+  sachsen: 'Sachsen',
+  wild: 'Wild (Tiere)',
+  muspel: 'Muspel (Feuer)',
+};
+const QUEST_TEXT: Readonly<Record<string, string>> = {
+  keine: 'keine',
+  verfuegbar: 'verfügbar (?)',
+  laeuft: 'läuft',
+  fertig: 'fertig (!)',
+};
 
 const KATEGORIEN: ReadonlyArray<{ name: string; namen: () => string[] }> = [
   // Zuerst, und damit die Vorgabe beim Öffnen: die kurze Liste der selbst
@@ -42,19 +108,46 @@ const KATEGORIEN: ReadonlyArray<{ name: string; namen: () => string[] }> = [
 ];
 
 export class SpawnPanel {
-  /** Wird bei jeder Prefab-Wahl in der Liste gerufen (reaktiviert die Vorschau). */
+  /** Wird bei jeder Änderung von Wahl/Modus gerufen — main.ts gleicht den Geist ab. */
   aufWahl: (() => void) | null = null;
+  /**
+   * Platzier-Modus: erst der BEWUSSTE Klick auf einen Listeneintrag schaltet
+   * ihn scharf. Ohne ihn ist `einstellung.prefab` reine Vorauswahl (aus
+   * localStorage) — sonst hinge nach jedem Laden sofort ein Geist an der
+   * Maus und jeder Klick in die Welt setzte ungewollt ein Objekt.
+   */
+  private modusAktiv = false;
   readonly einstellung: SpawnEinstellung = {
     prefab: localStorage.getItem('wov-editor-spawn-prefab') ?? 'Beech1',
     yaw: null,
     abstand: 4,
     scale: 1,
+    // Einebnen ist eine BEWUSSTE Entscheidung und startet immer AUS. Der
+    // erste Anlauf (Vorgabe AN ab 8 m renderScale-Breite) griff daneben:
+    // Die Breite misst z. B. bei Bäumen die KRONE, und weil erst der Klick
+    // auf den Listeneintrag den Platzier-Modus scharf schaltet, überschrieb
+    // die Vorgabe dabei jede Handabwahl — der Boden wurde trotz
+    // abgewähltem Haken planiert.
+    einebnen: false,
   };
   private readonly root: HTMLDivElement;
   private readonly liste: HTMLDivElement;
   private readonly zaehler: HTMLDivElement;
   private suchtext = '';
   private kategorie = 0;
+  // ── NPC-Felder (nur bei NPC-Prefabs sichtbar, s. npcAktualisiere) ──
+  private readonly npcBlock: HTMLDivElement;
+  private readonly npcName: HTMLInputElement;
+  private readonly npcRolle: HTMLSelectElement;
+  private readonly npcFraktion: HTMLSelectElement;
+  private readonly npcStufe: HTMLInputElement;
+  private readonly npcQuest: HTMLSelectElement;
+  private readonly npcQuestZeile: HTMLDivElement;
+  /** Prefab der Platzierung, die die Felder gerade zeigen ('' = keine). */
+  private npcPrefab = '';
+  /** Läuft der Tageszyklus gerade, oder steht er auf einem festen Wert? */
+  private zeitAngehalten = false;
+  private laufKasten: HTMLInputElement | null = null;
 
   constructor(private readonly cb: SpawnPanelCallbacks) {
     this.root = document.createElement('div');
@@ -62,6 +155,23 @@ export class SpawnPanel {
       'position:fixed;top:60px;right:12px;width:280px;max-height:80vh;overflow-y:auto;' +
       'background:rgba(18,22,31,0.94);border:1px solid #3a3325;border-radius:6px;padding:10px;' +
       'font-family:Georgia,serif;font-size:13px;color:#d8cfa8;z-index:900;display:none;';
+    // ── Kein Durchfallen ins Spiel ───────────────────────────────────
+    // Klicks und Rad im Panel gehören ausschließlich dem Panel: Die
+    // Spiel-Handler hängen auf window/document (Platzieren bei gefangener
+    // Maus in main.ts, Kamera-Zoom im InputManager) und würden im Bubbling
+    // sonst mitlaufen — der Auswahl-Klick dürfte dann selbst setzen bzw.
+    // das Rad die Kamera zoomen statt die Liste zu scrollen.
+    // pointerup/mouseup bleiben bewusst frei: Ein Drag, der auf dem Canvas
+    // beginnt und über dem Panel endet, muss sein window-pointerup noch
+    // bekommen (sonst klebt die gegriffene Platzierung an der Maus).
+    for (const typ of ['pointerdown', 'mousedown', 'click', 'dblclick', 'wheel'] as const) {
+      this.root.addEventListener(typ, (e) => e.stopPropagation());
+    }
+    this.root.addEventListener('contextmenu', (e) => {
+      // Rechtsklick im Panel: weder Browser-Menü noch das „Verwerfen" des Spiels.
+      e.preventDefault();
+      e.stopPropagation();
+    });
     const titel = document.createElement('div');
     titel.textContent = '✦ Spawn-Editor';
     titel.style.cssText = 'font-size:15px;color:#e8d48a;margin-bottom:6px;';
@@ -94,8 +204,12 @@ export class SpawnPanel {
     this.root.appendChild(suche);
 
     this.liste = document.createElement('div');
+    // overscroll-behavior: Am Listenende soll das Rad nicht ans Panel/die
+    // Seite weiterreichen — sonst „springt" beim Durchscrollen der Prefabs
+    // plötzlich das ganze Panel.
     this.liste.style.cssText =
-      'max-height:220px;overflow-y:auto;border:1px solid #3a3325;border-radius:4px;margin:4px 0;';
+      'max-height:220px;overflow-y:auto;overscroll-behavior:contain;' +
+      'border:1px solid #3a3325;border-radius:4px;margin:4px 0;';
     this.root.appendChild(this.liste);
 
     // Drehung
@@ -130,6 +244,113 @@ export class SpawnPanel {
     this.root.appendChild(this.schieber('Abstand (m)', 2, 20, 4, 1, (v) => (this.einstellung.abstand = v)));
     this.root.appendChild(this.schieber('Größe', 0.2, 3, 1, 0.1, (v) => (this.einstellung.scale = v)));
 
+    // ── Untergrund einebnen ──────────────────────────────────────────
+    // Rein manuell: Der Haken gilt für die folgenden Platzierungen der
+    // Sitzung und wird von der Prefab-Wahl NICHT angefasst — keine
+    // Automatik, die eine Handabwahl übersteuern könnte (s. einstellung).
+    const sockelZeile = document.createElement('div');
+    sockelZeile.style.cssText = 'display:flex;gap:6px;align-items:center;margin-top:6px;';
+    const sockel = document.createElement('input');
+    sockel.type = 'checkbox';
+    sockel.checked = this.einstellung.einebnen;
+    sockel.onchange = () => (this.einstellung.einebnen = sockel.checked);
+    const sockelTxt = document.createElement('span');
+    sockelTxt.textContent = 'Untergrund einebnen (manuell, für große Bauwerke)';
+    sockelTxt.style.cssText = 'font-size:11px;color:#9a8f6a;';
+    sockelZeile.append(sockel, sockelTxt);
+    this.root.appendChild(sockelZeile);
+
+    // ── NPC: Name, Rolle, Fraktion, Stufe, Quest ─────────────────────
+    // Der ganze Block ist ausgeblendet, solange keine FIGUR gewählt ist
+    // (istNpcPrefab) — bei Bäumen und Steinen wären fünf zusätzliche
+    // Felder nur Wegstrecke zwischen Liste und „Platzieren".
+    this.npcBlock = document.createElement('div');
+    this.npcBlock.style.cssText =
+      'display:none;margin-top:8px;padding-top:6px;border-top:1px solid #3a3325;';
+    const npcTitel = document.createElement('div');
+    npcTitel.textContent = '👤 Figur (gewählte Platzierung)';
+    npcTitel.style.cssText = 'font-size:12px;color:#e8d48a;margin-bottom:2px;';
+    this.npcBlock.appendChild(npcTitel);
+
+    this.npcBlock.appendChild(this.label('Name'));
+    this.npcName = document.createElement('input');
+    this.npcName.maxLength = NPC_NAME_MAX;
+    this.npcName.style.cssText = this.feldStil();
+    // `change` statt `input`: Bei jedem Tastenanschlag zu speichern hiesse,
+    // die Platzierung im Entwurf und die Instanz in der Welt buchstabenweise
+    // neu zu schreiben. Der Fokusverlust bzw. Enter genügt.
+    this.npcName.onchange = () => this.npcSchreiben();
+    this.npcBlock.appendChild(this.npcName);
+
+    this.npcRolle = this.npcAuswahl('Rolle', NPC_ROLLEN, ROLLE_TEXT);
+    this.npcFraktion = this.npcAuswahl('Fraktion', FRAKTIONEN, FRAKTION_TEXT);
+
+    this.npcBlock.appendChild(this.label('Stufe'));
+    this.npcStufe = document.createElement('input');
+    this.npcStufe.type = 'number';
+    this.npcStufe.min = String(NPC_STUFE_MIN);
+    this.npcStufe.max = String(NPC_STUFE_MAX);
+    this.npcStufe.step = '1';
+    this.npcStufe.value = '1';
+    this.npcStufe.style.cssText = this.feldStil();
+    this.npcStufe.onchange = () => this.npcSchreiben();
+    this.npcBlock.appendChild(this.npcStufe);
+
+    // Quest-Zustand nur bei Rolle `quest`: Ein Händler mit „Quest läuft"
+    // wäre eine Angabe, die nirgends gelesen wird (s. questZeichen).
+    this.npcQuestZeile = document.createElement('div');
+    this.npcQuestZeile.style.cssText = 'display:none;';
+    this.npcQuestZeile.appendChild(this.label('Quest-Zustand'));
+    this.npcQuest = document.createElement('select');
+    this.npcQuest.style.cssText = this.feldStil();
+    for (const q of QUEST_ZUSTAENDE) {
+      const o = document.createElement('option');
+      o.value = q;
+      o.textContent = QUEST_TEXT[q] ?? q;
+      this.npcQuest.appendChild(o);
+    }
+    this.npcQuest.onchange = () => this.npcSchreiben();
+    this.npcQuestZeile.appendChild(this.npcQuest);
+    this.npcBlock.appendChild(this.npcQuestZeile);
+
+    const npcTip = document.createElement('div');
+    npcTip.style.cssText = 'font-size:10px;color:#9a8f6a;margin-top:4px;';
+    npcTip.textContent =
+      'Leer gelassene Felder erben die Vorgabe des Prefabs. Andere Figur bearbeiten: in der Welt anklicken.';
+    this.npcBlock.appendChild(npcTip);
+    this.root.appendChild(this.npcBlock);
+
+    // ── Tageszeit ────────────────────────────────────────────────────
+    // Am Regler zu ziehen hält den Zyklus an: Wer eine Szene bei
+    // Sonnenuntergang beurteilen will, hat sonst zwei Minuten, bevor es
+    // Nacht ist (ein Weltentag dauert 30 Minuten).
+    if (this.cb.setzeZeit) {
+      this.zeitAngehalten = false;
+      const start = Math.round((this.cb.zeit?.() ?? 12) * 10) / 10;
+      this.root.appendChild(
+        this.schieber('Tageszeit (h)', 0, 24, start, 0.25, (v) => {
+          this.zeitAngehalten = true;
+          this.cb.setzeZeit?.(v, true);
+          if (this.laufKasten) this.laufKasten.checked = false;
+        })
+      );
+      const zeile = document.createElement('div');
+      zeile.style.cssText = 'display:flex;gap:6px;align-items:center;margin:-4px 0 6px;';
+      const kasten = document.createElement('input');
+      kasten.type = 'checkbox';
+      kasten.checked = true;
+      kasten.onchange = () => {
+        this.zeitAngehalten = !kasten.checked;
+        this.cb.setzeZeit?.(this.cb.zeit?.() ?? 12, this.zeitAngehalten);
+      };
+      this.laufKasten = kasten;
+      const txt = document.createElement('span');
+      txt.textContent = 'Zeit läuft weiter';
+      txt.style.cssText = 'font-size:11px;color:#9a8f6a;';
+      zeile.append(kasten, txt);
+      this.root.appendChild(zeile);
+    }
+
     // Aktionen
     const aktionen = document.createElement('div');
     aktionen.style.cssText = 'display:flex;gap:6px;margin-top:8px;';
@@ -146,7 +367,10 @@ export class SpawnPanel {
 
     const tip = document.createElement('div');
     tip.style.cssText = 'font-size:10px;color:#9a8f6a;margin-top:4px;';
-    tip.textContent = 'Bei gefangener Maus platziert auch der Linksklick. Esc gibt den Cursor frei.';
+    tip.textContent =
+      'Eintrag anklicken startet die Platzierung (Geist an der Maus). Klick/P setzt einmal ' +
+      'und beendet sie; für ein weiteres Exemplar den Eintrag erneut anklicken. ' +
+      'Abbruch: erneuter Klick, Esc oder Rechtsklick.';
     this.root.appendChild(tip);
 
     document.body.appendChild(this.root);
@@ -169,7 +393,12 @@ export class SpawnPanel {
     b.textContent = text;
     b.style.cssText =
       'flex:1;padding:6px;background:#1d2431;color:#d8cfa8;border:1px solid #3a3325;border-radius:4px;cursor:pointer;font-family:inherit;';
-    b.onclick = cb;
+    b.onclick = () => {
+      cb();
+      // Fokus sofort abgeben: Ein fokussierter Knopf feuert später auf
+      // Enter/Leertaste ERNEUT — auch wenn das Menü längst zu ist.
+      b.blur();
+    };
     return b;
   }
 
@@ -204,6 +433,94 @@ export class SpawnPanel {
     return wrap;
   }
 
+  /** Beschriftetes Auswahlfeld im NPC-Block (Rolle, Fraktion). */
+  private npcAuswahl(
+    name: string,
+    werte: readonly string[],
+    texte: Readonly<Record<string, string>>
+  ): HTMLSelectElement {
+    this.npcBlock.appendChild(this.label(name));
+    const s = document.createElement('select');
+    s.style.cssText = this.feldStil();
+    for (const w of werte) {
+      const o = document.createElement('option');
+      o.value = w;
+      // Fällt auf den rohen Wert zurück: Wächst FRAKTIONEN um einen
+      // Eintrag, steht er sofort zur Wahl — auch ohne Anzeigetext.
+      o.textContent = texte[w] ?? w;
+      s.appendChild(o);
+    }
+    s.onchange = () => this.npcSchreiben();
+    this.npcBlock.appendChild(s);
+    return s;
+  }
+
+  /**
+   * Felder auf die gewählte Platzierung stellen (oder den Block ausblenden).
+   *
+   * Gezeigt wird der AUFGELÖSTE Zustand — also das, was auch am
+   * Namensschild steht: Was die Platzierung nicht selbst sagt, kommt aus
+   * der Prefab-Vorgabe. Der Name bleibt als Platzhalter stehen statt im
+   * Feld, damit man sieht, was geerbt und was gesetzt ist.
+   */
+  private npcAktualisiere(): void {
+    const ziel = this.cb.gewaehlteNpc?.() ?? null;
+    if (!ziel || !istNpcPrefab(ziel.prefab)) {
+      this.npcBlock.style.display = 'none';
+      this.npcPrefab = '';
+      return;
+    }
+    const ist = loeseNpcAuf(ziel.prefab, ziel.npc);
+    const vorgabe = loeseNpcAuf(ziel.prefab);
+    if (!ist || !vorgabe) return;
+    this.npcPrefab = ziel.prefab;
+    this.npcBlock.style.display = 'block';
+    this.npcName.value = ziel.npc?.name ?? '';
+    this.npcName.placeholder = vorgabe.name;
+    this.npcRolle.value = ist.rolle;
+    this.npcFraktion.value = ist.fraktion;
+    this.npcStufe.value = String(ist.stufe);
+    this.npcQuest.value = ist.quest;
+    this.npcQuestZeile.style.display = ist.rolle === 'quest' ? 'block' : 'none';
+  }
+
+  /**
+   * Felder → Entwurf. Gespeichert wird nur, was von der Prefab-Vorgabe
+   * ABWEICHT (s. PlacementDef.npc): Wer nichts umstellt, bekommt keinen
+   * `npc`-Block ins Dokument, und eine spätere Änderung an NPC_VORGABEN
+   * schlägt auf alle Platzierungen durch, die sie nicht ausdrücklich
+   * übersteuern.
+   */
+  private npcSchreiben(): void {
+    if (!this.npcPrefab || !this.cb.setzeNpc) return;
+    const vorgabe = loeseNpcAuf(this.npcPrefab);
+    if (!vorgabe) return;
+    const def: {
+      name?: string;
+      rolle?: NpcRolle;
+      fraktion?: Fraktion;
+      stufe?: number;
+      quest?: QuestZustand;
+    } = {};
+    const name = this.npcName.value.trim().slice(0, NPC_NAME_MAX);
+    if (name.length > 0 && name !== vorgabe.name) def.name = name;
+    const rolle = this.npcRolle.value as NpcRolle;
+    if (rolle !== vorgabe.rolle) def.rolle = rolle;
+    const fraktion = this.npcFraktion.value as Fraktion;
+    if (fraktion !== vorgabe.fraktion) def.fraktion = fraktion;
+    const stufe = Math.min(
+      NPC_STUFE_MAX,
+      Math.max(NPC_STUFE_MIN, Math.round(Number(this.npcStufe.value) || vorgabe.stufe))
+    );
+    this.npcStufe.value = String(stufe);
+    if (stufe !== vorgabe.stufe) def.stufe = stufe;
+    // Ohne Quest-Rolle wird der Zustand gar nicht erst geschrieben.
+    const quest = this.npcQuest.value as QuestZustand;
+    if (rolle === 'quest' && quest !== vorgabe.quest) def.quest = quest;
+    this.npcQuestZeile.style.display = rolle === 'quest' ? 'block' : 'none';
+    this.cb.setzeNpc(Object.keys(def).length > 0 ? def : undefined);
+  }
+
   private listeFuellen(): void {
     this.liste.innerHTML = '';
     const alle = KATEGORIEN[this.kategorie]!.namen();
@@ -214,12 +531,29 @@ export class SpawnPanel {
     for (const name of treffer) {
       const zeile = document.createElement('div');
       zeile.textContent = name;
+      // Zwei Markierungen: kräftig hinterlegt = Platzier-Modus AKTIV,
+      // nur Randstreifen = bloße Vorauswahl (localStorage) ohne Modus.
+      const gewaehlt = name === this.einstellung.prefab;
       zeile.style.cssText =
         'padding:2px 6px;cursor:pointer;' +
-        (name === this.einstellung.prefab ? 'background:#243044;color:#e8d48a;' : '');
+        (gewaehlt
+          ? this.modusAktiv
+            ? 'background:#243044;color:#e8d48a;'
+            : 'color:#e8d48a;border-left:2px solid #6a5d35;padding-left:4px;'
+          : '');
       zeile.onclick = () => {
-        this.einstellung.prefab = name;
-        localStorage.setItem('wov-editor-spawn-prefab', name);
+        if (this.modusAktiv && name === this.einstellung.prefab) {
+          // Zweiter Klick auf den aktiven Eintrag = Abwahl: Der Modus
+          // endet, die Vorauswahl bleibt bestehen.
+          this.modusAktiv = false;
+        } else {
+          this.modusAktiv = true;
+          this.einstellung.prefab = name;
+          localStorage.setItem('wov-editor-spawn-prefab', name);
+          // Den Einebnen-Haken bewusst NICHT anfassen: Dieser Klick schaltet
+          // den Platzier-Modus scharf — eine Vorgabe an dieser Stelle hat
+          // jede Handabwahl direkt vor dem Setzen wieder überschrieben.
+        }
         this.aufWahl?.();
         this.listeFuellen();
       };
@@ -241,7 +575,27 @@ export class SpawnPanel {
   }
 
   aktualisiere(): void {
-    this.zaehler.textContent = `${this.cb.anzahl()} Platzierung(en) im Entwurf — Prefab: ${this.einstellung.prefab}`;
+    // Die NPC-Felder hängen an der AUSWAHL, und die ändert sich genau
+    // dann, wenn das hier gerufen wird (Greifen, Setzen, Löschen).
+    this.npcAktualisiere();
+    this.zaehler.textContent =
+      `${this.cb.anzahl()} Platzierung(en) im Entwurf — ` +
+      (this.modusAktiv
+        ? `platziert: ${this.einstellung.prefab}`
+        : `Vorauswahl: ${this.einstellung.prefab} (Klick in der Liste aktiviert)`);
+  }
+
+  /** Nur im aktiven Modus darf irgendein Pfad (Klick, P, Knopf) setzen. */
+  get istPlatzierModus(): boolean {
+    return this.modusAktiv;
+  }
+
+  /** Modus beenden (Esc, Rechtsklick, Abwahl) — die Vorauswahl bleibt. */
+  beendePlatzierModus(): void {
+    if (!this.modusAktiv) return;
+    this.modusAktiv = false;
+    this.aufWahl?.(); // main.ts räumt darüber den Geist an der Maus ab
+    this.listeFuellen();
   }
 
   toggle(): boolean {

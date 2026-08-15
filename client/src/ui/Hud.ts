@@ -17,9 +17,30 @@ export class Hud {
   constructor() {
     this.fadenkreuz = this.baueFadenkreuz();
     this.el = document.createElement('div');
+    // Diagnosetext nach UNTEN RECHTS.
+    //
+    // Er stand bis hierher oben links und damit genau dort, wo in jedem
+    // Spiel die eigenen Werte stehen — die Ecke, auf die der Blick im
+    // Kampf zuerst fällt. Die gehört jetzt den Lebens- und
+    // Ausdauerbalken (s. setVitals); der Text ist Werkzeug, kein Spiel und
+    // zieht sich in die Ecke zurück, die sonst leer bleibt.
+    //
+    // Unten rechts ist die einzige freie: oben rechts sitzt die Minimap,
+    // unten mittig die Hotbar, oben mittig Pointer-Lock-Hinweis und
+    // Bildschirmmeldung. `text-align:right` wäre falsch — der Text ist
+    // eine Tabelle aus Zeilen unterschiedlicher Länge, und rechtsbündig
+    // gesetzt fransen ihre Anfänge aus.
+    //
+    // Die 76 px Abstand nach unten sind gemessen, nicht geschätzt: Die
+    // Hotbar ist 52 px hoch und sitzt 16 px über dem Rand. Mit den 8 px
+    // dieses Randes stiess der Kasten bei 1280 px Breite 107 px weit in
+    // sie hinein, und weil die Hotbar auf z-index 900 liegt, verschwanden
+    // die untersten Diagnosezeilen dahinter. Der Kasten wächst nach OBEN,
+    // die Unterkante bleibt deshalb frei — bei jeder Fensterbreite.
     this.el.style.cssText =
-      'position:fixed;top:8px;left:8px;color:#fff;font:12px monospace;' +
-      'background:rgba(0,0,0,.45);padding:6px 10px;border-radius:4px;white-space:pre;pointer-events:none';
+      'position:fixed;bottom:76px;right:8px;color:#fff;font:12px monospace;' +
+      'background:rgba(0,0,0,.45);padding:6px 10px;border-radius:4px;white-space:pre;' +
+      'text-align:left;pointer-events:none;z-index:4';
     document.body.appendChild(this.el);
 
     const hint = document.createElement('div');
@@ -80,13 +101,26 @@ export class Hud {
   private healthEl: HTMLDivElement | null = null;
   private staminaEl: HTMLDivElement | null = null;
 
-  /** Lebens- und Ausdauerbalken unten links (Valheim-Anzeige, vereinfacht). */
+  /**
+   * Lebens- und Ausdauerbalken der eigenen Figur — OBEN LINKS.
+   *
+   * Beide Werte kommen fertig vom Server (PacketType.PlayerState, Leben
+   * bereits als Prozent von `maxHealth`, das der Essens-Buff anhebt).
+   * Dieselbe Zahl geht an das eigene Namensschild über dem Kopf; es gibt
+   * bewusst nur diese eine Quelle.
+   *
+   * Leben liegt ÜBER Ausdauer, nicht darunter: Gelesen wird von oben nach
+   * unten, und die Frage „lebe ich noch" kommt vor „kann ich noch
+   * rennen". Der Ausdauerbalken bleibt daneben stehen, weil er nur
+   * zusammen mit dem Lebensbalken etwas aussagt — wer beide trennt,
+   * schaut im Kampf in zwei Ecken.
+   */
   setVitals(health: number, stamina = 100): void {
     if (!this.healthEl) {
-      const balken = (bottom: string, farbe: string): HTMLDivElement => {
+      const balken = (top: string, farbe: string): HTMLDivElement => {
         const rahmen = document.createElement('div');
         rahmen.style.cssText =
-          `position:fixed;bottom:${bottom};left:14px;width:190px;height:14px;` +
+          `position:fixed;top:${top};left:14px;width:190px;height:14px;` +
           'background:rgba(0,0,0,.55);border:1px solid #8a6a34;border-radius:4px;pointer-events:none;z-index:4';
         const el = document.createElement('div');
         el.style.cssText =
@@ -95,8 +129,8 @@ export class Hud {
         document.body.appendChild(rahmen);
         return el;
       };
-      this.healthEl = balken('32px', 'linear-gradient(180deg,#c33,#801515)');
-      this.staminaEl = balken('14px', 'linear-gradient(180deg,#e6c860,#8a6a1a)');
+      this.healthEl = balken('14px', 'linear-gradient(180deg,#c33,#801515)');
+      this.staminaEl = balken('32px', 'linear-gradient(180deg,#e6c860,#8a6a1a)');
     }
     this.healthEl.style.width = `${Math.max(0, Math.min(100, health))}%`;
     if (this.staminaEl) this.staminaEl.style.width = `${Math.max(0, Math.min(100, stamina))}%`;

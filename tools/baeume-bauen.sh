@@ -30,26 +30,81 @@ command -v blender >/dev/null || {
 
 GRUPPE="${1:-alle}"
 
-# name            art          seed  höhe  dichte
+# ── Warum es eine Spalte "karte" gibt ────────────────────────────────
+# Sapling behandelt `leafScale` als ABSOLUTE Länge in Metern. Ein 22-m-Baum
+# bekäme deshalb dieselben 62-cm-Nadelkarten wie eine 12-m-Fichte und
+# stünde licht und durchsichtig da. Die Spalte skaliert sie mit:
+# Zielhöhe / Referenzhöhe der Art (Fichte/Tanne 12, Eiche 11, Birke 12).
+#
+# Die BESTEHENDEN Zeilen führen bewusst 1.0 — sie sind mit den festen
+# Werten gebaut und mit gemessenem renderScale in prefabs.ts eingetragen.
+#
+# name            art          seed  höhe  dichte  karte
 BAEUME=$(cat <<'EOF'
-Fichte1           fichte        3    12    1.0
-Fichte2           fichte        7    14    1.0
-Fichte3           fichte       12    10    1.0
-Tanne1            tanne         5    12    1.0
-Tanne2            tanne        11     9    0.85
-Tanne3            tanne        19     6    0.6
-Tanne4            tanne        23     3.2  0.4
-BirkeHoch1        birke        31     4.5  0.55
-BirkeHoch2        birke        37     8    0.8
-BirkeHoch3        birke        43    12    1.0
-BirkeDicht1       birke_dicht  52     4.5  0.45
-BirkeDicht2       birke_dicht  58     8    0.65
-BirkeDicht3       birke_dicht  64    11    0.8
+Fichte1           fichte       3     12    1.0     1.0
+Fichte2           fichte       7     14    1.0     1.0
+Fichte3           fichte       12    10    1.0     1.0
+Tanne1            tanne        5     12    1.0     1.0
+Tanne2            tanne        11    9     0.85    1.0
+Tanne3            tanne        19    6     0.6     1.0
+Tanne4            tanne        23    3.2   0.4     1.0
+BirkeHoch1        birke        31    4.5   0.55    1.0
+BirkeHoch2        birke        37    8     0.8     1.0
+BirkeHoch3        birke        43    12    1.0     1.0
+BirkeDicht1       birke_dicht  52    4.5   0.45    1.0
+BirkeDicht2       birke_dicht  58    8     0.65    1.0
+BirkeDicht3       birke_dicht  64    11    0.8     1.0
+Eiche1            eiche        11    11    1.0     1.0
+Eiche2            eiche        23    8     0.8     1.0
+Eiche3            eiche        37    14    1.0     1.0
+# ── Grosse Baeume (08/2026) ──────────────────────────────────────────
+# Der Wald soll die WEITSICHT NEHMEN — das ist der Griff, mit dem eine
+# Welt tief wirkt statt flach. Dafuer braucht es Baeume ueber 15 m, und
+# zwar mit mitwachsenden Nadelkarten (Spalte "karte"), sonst wird der
+# hohe Baum licht und man sieht erst recht hindurch.
+Fichte4           fichte       61    18    1.0     1.50
+Fichte5           fichte       67    22    1.0     1.85
+Tanne5            tanne        73    16    1.0     1.35
+Tanne6            tanne        79    20    1.0     1.70
+# Kiefer: langer astfreier Stamm, Schirmkrone. Ein Fichtenwald schliesst
+# unten, ein Kiefernwald oben — zusammen ergeben sie erst einen Wald,
+# durch den man weder sieht noch hindurchschaut.
+Kiefer1           kiefer       83    16    0.85    1.60
+Kiefer2           kiefer       89    20    1.0     2.00
+Kiefer3           kiefer       97    24    1.0     2.40
+# Laubbaeume: dieselbe Ueberlegung, andere Referenzhoehe.
+Eiche4            eiche       103    19    1.0     1.70
+BirkeHoch4        birke       109    16    1.0     1.35
+BirkeDicht4       birke_dicht 113    15    0.75    1.30
 EOF
 )
 
+# ── Urwaldriesen (Spalte 7: Stammfaktor) ─────────────────────────────
+# Nach den Vorbildern aus Valheim: Was den Wald tief wirken laesst, ist
+# nicht die Kronenhoehe, sondern der STAMM. Bei ratio 0.014 misst eine
+# 22-m-Fichte 62 cm im Durchmesser und liest sich als Stange mit Gruen
+# obendrauf; erst mit gut einem Meter wird der Stamm zum dominanten
+# Element und der Blick bleibt an ihm haengen.
+#
+# name            art          seed  höhe  dichte  karte  stamm
+RIESEN=$(cat <<'EOF'
+Fichte6           fichte      127    24    1.0     2.00   2.1
+Kiefer4           kiefer      131    26    1.0     2.50   1.8
+Tanne7            tanne       137    23    1.0     1.90   1.9
+EOF
+)
+
+# Die Eiche braucht ihre Texturen, und die liegen wie die Modelle NICHT im
+# Repo (assets/ ist gitignored). Anders als die Valheim-Atlanten lassen sie
+# sich aber wiederherstellen — sie werden gezeichnet, nicht gerippt.
+if [ ! -f assets/textures/eiche_leaf.png ] || [ ! -f assets/textures/eiche_bark.png ]; then
+  echo "Eichentexturen fehlen — werden erzeugt"
+  python3 tools/eiche-texturen.py | sed 's/^/      /'
+fi
+
 anzahl=0
-while read -r name art seed hoehe dichte; do
+while read -r name art seed hoehe dichte karte; do
+  [ "${name:0:1}" = "#" ] && continue
   [ -z "$name" ] && continue
   case "$GRUPPE" in
     alle) ;;
@@ -58,9 +113,25 @@ while read -r name art seed hoehe dichte; do
   printf '  %-14s %-12s seed %-3s %5s m  dichte %s\n' "$name" "$art" "$seed" "$hoehe" "$dichte"
   blender --background --python tools/baum-generieren.py -- \
     --art "$art" --name "$name" --seed "$seed" --hoehe "$hoehe" --dichte "$dichte" \
+    --kartenfaktor "${karte:-1.0}" \
     2>/dev/null | grep -E '^(FERTIG|HINWEIS)' | sed 's/^/      /'
   anzahl=$((anzahl + 1))
 done <<< "$BAEUME"
+
+while read -r name art seed hoehe dichte karte stamm; do
+  [ -z "$name" ] && continue
+  [ "${name:0:1}" = "#" ] && continue
+  case "$GRUPPE" in
+    alle) ;;
+    *) [[ "$art" == "$GRUPPE"* ]] || continue ;;
+  esac
+  printf '  %-14s %-12s seed %-3s %5s m  stamm x%s\n' "$name" "$art" "$seed" "$hoehe" "$stamm"
+  blender --background --python tools/baum-generieren.py -- \
+    --art "$art" --name "$name" --seed "$seed" --hoehe "$hoehe" --dichte "$dichte" \
+    --kartenfaktor "${karte:-1.0}" --stammfaktor "${stamm:-1.0}" \
+    2>/dev/null | grep -E '^(FERTIG|HINWEIS)' | sed 's/^/      /'
+  anzahl=$((anzahl + 1))
+done <<< "$RIESEN"
 
 echo
 echo "$anzahl Modelle in assets/models/ erzeugt."

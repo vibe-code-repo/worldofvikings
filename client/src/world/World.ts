@@ -12,6 +12,7 @@ import {
   createGeo,
   type IGeo,
   HeightmapProvider,
+  RegionGeo,
   getStableHash,
 } from '@wov/shared';
 
@@ -31,6 +32,17 @@ export interface ClientWorld {
   geo: IGeo;
   heightmaps: HeightmapProvider;
   getGroundHeight(x: number, z: number): number;
+  /**
+   * Der gehashte Weltseed, mit dem `geo` gebaut wurde.
+   *
+   * Die Bewuchs-Vorschau im Testflug braucht ihn: Die Streuung wuerfelt je
+   * Zone aus (seed + zoneX*4271 + zoneY*9187 + prefabHash), und nur mit
+   * DEMSELBEN Seed wie der Server steht die Vorschau dort, wo spaeter auch
+   * die Welt waechst.
+   */
+  seed: number;
+  /** Im Layout-Modus derselbe Gegenstand wie `geo`, sonst null. */
+  regionGeo: RegionGeo | null;
 }
 
 export function createWorld(
@@ -61,5 +73,7 @@ export function createWorld(
     geo,
     heightmaps,
     getGroundHeight: (x, z) => heightmaps.getGroundHeight(x, z),
+    seed: worldSeed,
+    regionGeo: geo instanceof RegionGeo ? geo : null,
   };
 }

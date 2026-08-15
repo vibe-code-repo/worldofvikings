@@ -26,6 +26,48 @@ export const ZDO_MAX_SEND_THRESHOLD = 10240;
 export const ZDO_MIN_SEND_THRESHOLD = 2048;
 export const ZDO_ASSIGN_INTERVAL_MS = 2000;
 
+// === Bewegungszustand animierter Entitäten ===
+/**
+ * Name des ZDO-Members, in dem der Server den Bewegungszustand führt.
+ *
+ * Ein String-Member statt eines eigenen Pakettyps: Members laufen bereits
+ * über den ZDO-Sync (wie `scaleScalar`), landen im Save und erreichen JEDEN
+ * Client, der die Zone betritt — auch die, die erst später dazukommen. Ein
+ * eigener Paketweg müsste all das nachbauen.
+ *
+ * Der Wert ist zugleich der Name der Animationsgruppe im Modell, deshalb
+ * braucht es zwischen Server und GLB keine Übersetzungstabelle.
+ */
+export const ANIM_MEMBER = 'anim';
+
+/**
+ * Name des ZDO-Members, in dem die Trefferpunkte eines Wesens stehen.
+ *
+ * Denselben Weg wie `ANIM_MEMBER` und aus demselben Grund: Er läuft im
+ * bestehenden ZDO-Sync mit, landet im Save und erreicht auch die Clients,
+ * die die Zone erst später betreten. Der Server schrieb den Namen bisher
+ * als Stringliteral an vier Stellen — jetzt steht er einmal hier, damit
+ * der Client denselben Hash bilden kann (s. client/net/ZDOSync.ts).
+ *
+ * Der Maximalwert steht NICHT im ZDO, sondern in shared/leben.ts: Er
+ * gehört zum Prefab und nicht zum Exemplar, und ein Wert, den beide
+ * Seiten aus derselben Tabelle lesen, kostet kein einziges Byte Netz.
+ */
+export const HEALTH_MEMBER = 'health';
+
+/** Bewegungszustand → Animationsgruppe: steht/läuft. */
+export type Gangart = 'idle' | 'walk';
+
+/**
+ * Alles, was in `ANIM_MEMBER` stehen darf — Gangart plus Kampf.
+ *
+ * Bewusst ein eigener Typ neben `Gangart`: Der RoutenLaeufer kennt nur
+ * „steht oder läuft" und soll gar nicht erst `'attack'` schreiben können.
+ * Wer angreift, entscheidet das AggroSystem, und die beiden dürfen sich
+ * nicht gegenseitig überschreiben.
+ */
+export type AnimZustand = Gangart | 'attack';
+
 // === Network ===
 export const DEFAULT_SERVER_PORT = 2456;
 export const MAX_PLAYERS = 10;

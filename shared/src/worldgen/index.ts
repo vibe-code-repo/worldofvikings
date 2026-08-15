@@ -10,3 +10,4 @@ export * from './TerrainComp.js';
 // truth, values 1:1 from C++ Types.h) and are re-exported from the package
 // root.
 export * from './RegionGeo.js';
+export * from './streuung.js';

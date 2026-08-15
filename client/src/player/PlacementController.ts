@@ -480,7 +480,13 @@ export class PlacementController {
   private async updateBauGhost(piece: PieceDef): Promise<void> {
     const prefab = piece.bauPrefab!;
     if (this.bauGhostPrefab !== prefab) {
-      this.bauGhost?.dispose(false, true);
+      // Ohne Material/Texturen abräumen: Der Geist entsteht über
+      // AssetManager.instantiate und teilt sich sein Material mit JEDER
+      // gebauten Instanz desselben Teils (cloneMaterials = false). Mit
+      // `true` nahm der Prefab-Wechsel allen bereits gesetzten Teilen die
+      // Textur weg — dieselbe Ursache wie bei der Völva, s.
+      // EntityManager.removeZDO.
+      this.bauGhost?.dispose(false, false);
       this.bauGhost = null;
       this.bauGhostPrefab = prefab;
     }
@@ -494,7 +500,8 @@ export class PlacementController {
         }
         this.bauGhost = ghost;
       } else {
-        ghost?.dispose(false, true);
+        // Wettlauf verloren — Instanz weg, geteiltes Material bleibt.
+        ghost?.dispose(false, false);
       }
     }
     const hit = this.lastHit;
@@ -518,7 +525,8 @@ export class PlacementController {
 
   private zeigeBauGhost(_an: null): void {
     if (this.bauGhost) {
-      this.bauGhost.dispose(false, true);
+      // Wie oben: geteiltes Material der gebauten Teile nicht anfassen.
+      this.bauGhost.dispose(false, false);
       this.bauGhost = null;
       this.bauGhostPrefab = '';
     }

@@ -15,6 +15,7 @@
  */
 
 import { Biome } from '../types.js';
+import type { NpcDef } from '../npc.js';
 
 export const WORLD_LAYOUT_VERSION = 1;
 
@@ -27,8 +28,19 @@ export const WORLD_LAYOUT_VERSION = 1;
  */
 export const LAYOUT_MAX_EXTENT = 40_000;
 
+/**
+ * Autorenname eines Bioms im Weltdokument.
+ *
+ * `grassland` hiess bis 08/2026 `meadows`. Umbenannt, weil der Name in
+ * DIESEM Projekt eine Landschaftsform beschreibt und keinen Verweis auf
+ * das Vorbild sein soll — der Bezug dorthin steckt allein in der
+ * Bitmaske `Biome.Meadows`, die unveraendert bleibt (sie ist Teil des
+ * Netzformats und der gespeicherten Welten). Alte Dokumente mit
+ * `meadows` liest `sanitizeWorldLayout` weiterhin und schreibt sie auf
+ * den neuen Namen um.
+ */
 export type BiomeName =
-  | 'meadows'
+  | 'grassland'
   | 'blackforest'
   | 'swamp'
   | 'mountain'
@@ -39,7 +51,7 @@ export type BiomeName =
 
 /** Autorname → Bitmasken-Biom (shared/src/types.ts, Werte aus C++ Types.h). */
 export const BIOME_BY_NAME: ReadonlyMap<BiomeName, Biome> = new Map([
-  ['meadows', Biome.Meadows],
+  ['grassland', Biome.Meadows],
   ['blackforest', Biome.BlackForest],
   ['swamp', Biome.Swamp],
   ['mountain', Biome.Mountain],
@@ -55,7 +67,7 @@ export const BIOME_BY_NAME: ReadonlyMap<BiomeName, Biome> = new Map([
  * Formel: Mountain entschied dort bei base > 0.4, Swamp lebte in 0.05–0.25.
  */
 export const DEFAULT_BASE_LEVEL: ReadonlyMap<BiomeName, number> = new Map([
-  ['meadows', 0.22],
+  ['grassland', 0.22],
   ['blackforest', 0.26],
   ['swamp', 0.16],
   ['mountain', 0.5],
@@ -105,6 +117,95 @@ export interface RegionDef {
    *  weiterhin das globale Wald-Perlin. */
   forestDensity?: number;
   /**
+   * Faktor auf die Stückzahl JE STREUEINTRAG (0.1 … 4, Vorgabe 1).
+   *
+   * Die zweite Hälfte der Bewuchssteuerung, und sie meint etwas anderes
+   * als `forestDensity`:
+   *
+   *   forestDensity  verschiebt den Waldfaktor — also WO Wald ist.
+   *   bewuchsDichte  skaliert die Stückzahlen — also WIE VIELE Bäume
+   *                  auf der Fläche stehen, die Wald ist.
+   *
+   * Beide zusammen ergeben die Bandbreite von der lichten Weide bis zum
+   * geschlossenen Bestand. Getrennt, weil man sie getrennt braucht: eine
+   * kleine dichte Waldinsel ist etwas anderes als ein flächiger lichter
+   * Hain, und mit einer einzigen Zahl liesse sich das nicht sagen.
+   *
+   * Der Mindestabstand der Arten (`Foliage.radius`) bleibt die harte
+   * Grenze — er verhindert, dass hohe Werte die Bäume ineinander
+   * schieben. Ab einem gewissen Punkt bringt Aufdrehen deshalb nichts
+   * mehr, und das ist Absicht.
+   */
+  bewuchsDichte?: number;
+  /**
+   * Körnung des Waldfaktor-Feldes (0.2 … 3, Vorgabe 1).
+   *
+   * Die dritte Stellschraube des Bewuchses, und die einzige, die nicht
+   * die MENGE, sondern die räumliche STRUKTUR betrifft:
+   *
+   *   forestDensity  verschiebt den Waldfaktor  — wie viel Wald
+   *   bewuchsDichte  skaliert die Stückzahlen   — wie dicht darauf
+   *   waldKoernung   skaliert das Feld selbst   — wie GROSS die Flächen
+   *
+   * Der Waldfaktor ist ein fbm-Perlin mit 250 m Wellenlänge (grobste
+   * Oktave, GeoManager.getForestFactor). Daraus entstehen Waldflecken
+   * von wenigen hundert Metern — man tritt ständig aus dem Wald heraus
+   * und wieder hinein. Ein Wert unter 1 zieht das Feld auseinander und
+   * macht die Flächen entsprechend grösser: 0.35 ergibt gut 700 m
+   * zusammenhängenden Wald, und erst darin läuft man wirklich "durch
+   * den Wald" statt über eine Lichtungslandschaft.
+   *
+   * Die Lichtungen verschwinden dabei NICHT — sie werden im selben Mass
+   * grösser. Das ist der Unterschied zu `forestDensity`, das sie
+   * zuwachsen liesse.
+   */
+  waldKoernung?: number;
+  /**
+   * Faktor auf den MINDESTABSTAND aller Streueinträge (0.3 … 2,
+   * Vorgabe 1).
+   *
+   * Die vierte Stellschraube — und gemessen die wirksamste. Jeder
+   * Foliage-Eintrag trägt einen `radius`, unter den zwei Exemplare nicht
+   * zusammenrücken dürfen; er ist die HARTE Grenze der Dichte. Solange
+   * er fest war, lief `bewuchsDichte` gegen eine Wand: Gemessen an einem
+   * Nadelwald brachten die Stufen 1.0 / 1.5 / 2.5 / 4.0 durchweg 45 bis
+   * 47 Stämme je Zone — der Regler tat praktisch nichts.
+   *
+   * Weil die belegte Fläche mit dem QUADRAT des Radius geht, vervierfacht
+   * ein Faktor 0.5 die mögliche Stammzahl. Das ist der Griff, mit dem aus
+   * einem lichten Hain ein geschlossener Bestand wird.
+   *
+   * Nach unten begrenzt auf 0.3: Darunter wachsen Stämme sichtbar
+   * ineinander.
+   */
+  abstandFaktor?: number;
+  /**
+   * Nadelwald-Nester: Stärke der Binnenvariation (0 … 1, Vorgabe 0).
+   *
+   * Die bisherigen vier Regler beschreiben eine Region als GANZES — sie
+   * ist überall gleich dicht. Ein echter Mischwald ist das nicht: Er hat
+   * Partien, in denen der Nadelwald geschlossen und dunkel steht, und
+   * andere, durch die man hindurchsieht.
+   *
+   * `nester` legt dafür ein eigenes Rauschfeld über die Region
+   * (`RegionGeo.nestFaktor`), das ZWEI Dinge zugleich moduliert:
+   *
+   *   den Baumabstand   — im Nest rücken die Stämme enger zusammen
+   *   die Geländeamplitude — und das Gelände wird dort bewegter
+   *
+   * Die Kopplung ist der eigentliche Gewinn. In den Vorbildern ist der
+   * dunkle Nadelwald nicht nur dichter bewachsen, er liegt auch im
+   * kupierten Gelände, während die offene Wiese flach ist. Beides aus
+   * demselben Feld zu speisen, bindet Bewuchs und Landschaft aneinander,
+   * statt sie unabhängig voneinander würfeln zu lassen.
+   *
+   * Vorgabe 0: Ohne ausdrückliche Angabe ändert sich an einer
+   * bestehenden Welt nichts — weder am Bewuchs noch am Terrain.
+   */
+  nester?: number;
+  /** Körnung der Nester (0.2 … 3, Vorgabe 1 ≈ 300-m-Flecken). */
+  nesterKoernung?: number;
+  /**
    * Kuratierung (Nutzer-Entscheidung: volle Kontrolle je Region).
    * Fehlt ein Feld, gelten die Standard-Tabellen des Bioms (gefiltert über
    * die vorhandenen biome-Bitmasken). Gesetzt = exakt diese Einträge; Namen
@@ -130,6 +231,62 @@ export interface PlacementDef {
   yaw?: number;
   /** Einheitliche Skalierung (Default 1, geklemmt 0.2–5). */
   scale?: number;
+  /**
+   * ID einer Route aus `WorldLayout.routes`: Der Server lässt dieses Objekt
+   * die Route ablaufen (nur sinnvoll für Prefabs mit SYNCED_TRANSFORM).
+   * Ein unbekannter Name wird beim Spawnen ignoriert — das Objekt steht
+   * dann einfach still, statt dass die ganze Platzierung ausfällt.
+   */
+  route?: string;
+  /**
+   * Untergrund einebnen: Radius in Metern, in dem das Gelände auf die Höhe
+   * des Platzierungspunkts gezogen wird — große Bauwerke (Grabhügel) stehen
+   * sonst mit durchstoßenden Bodenwellen da. Bewusst ein FELD an der
+   * Platzierung statt eines eigenen Verformungs-Objekts (wie Fluss/See):
+   * Verschieben oder Löschen im Editor nimmt den Sockel automatisch mit,
+   * eine separate Verformung müsste jede dieser Operationen nachziehen.
+   * Die Zielhöhe wird NICHT gespeichert — sie ist die Geländehöhe am
+   * Mittelpunkt, wie bei der Spawn-Höhe der Platzierung selbst.
+   */
+  einebnen?: number;
+  /**
+   * Einordnung dieser Figur (Name, Rolle, Fraktion, Stufe, Quest) —
+   * ausschliesslich die ABWEICHUNGEN von der Prefab-Vorgabe
+   * (shared/npc.ts, NPC_VORGABEN). Fehlt das Feld oder ein einzelner
+   * Wert darin, gilt die Vorgabe; zusammengesetzt wird beides an genau
+   * einer Stelle, `loeseNpcAuf`.
+   *
+   * Bewusst nur die Abweichungen: Ein Dokument, das die Vorgaben
+   * ausschreibt, müsste bei jeder Änderung an NPC_VORGABEN nachgezogen
+   * werden — und bis dahin wäre jede alte Platzierung eine Ausnahme.
+   */
+  npc?: NpcDef;
+}
+
+/**
+ * ZDO-Member, in dem der Server die Herkunft einer gespawnten
+ * Platzierung führt — `layoutKennung` des Eintrags.
+ *
+ * Er ist zugleich der SCHLÜSSEL, über den der Client eine Instanz ihrem
+ * Layout-Eintrag zuordnet (Namensschild): Das Dokument hat er ohnehin
+ * schon (Paket WorldLayoutData), der Member steht ohnehin schon in jeder
+ * ZDO — so kostet die Einordnung KEIN einziges zusätzliches Byte auf der
+ * Leitung. Position wäre der naheliegende Schlüssel gewesen und wäre
+ * falsch: Ein Routen-NPC ist längst woanders.
+ */
+export const LAYOUT_ID_MEMBER = 'layoutId';
+
+/**
+ * Kennung eines Layout-Eintrags: Prefab + gerundete Position.
+ *
+ * Bewusst aus dem INHALT abgeleitet und keine vergebene ID — das
+ * Dokument wird von Hand, vom Editor und vom MCP-Server geschrieben, und
+ * keiner dieser Wege könnte eine Zählernummer verlässlich fortführen.
+ * Zwei Objekte im selben Meter sind der Preis dafür (dann teilen sie
+ * sich die Kennung); das ist beim Setzen bereits Deckungsgleichheit.
+ */
+export function layoutKennung(p: { prefab: string; x: number; z: number }): string {
+  return `${p.prefab}@${Math.round(p.x)},${Math.round(p.z)}`;
 }
 
 /**
@@ -145,6 +302,67 @@ export interface RiverDef {
   width: number;
   /** Wie tief unter die Wasserlinie das Bett reicht (m, Default 6). */
   depth?: number;
+}
+
+/**
+ * Wie eine Route endet, wenn der letzte Wegpunkt erreicht ist.
+ *   loop     — im Kreis: vom letzten zurück zum ersten Punkt (Runde).
+ *   pingpong — hin und zurück: die Reihenfolge kehrt sich um.
+ */
+export type RouteMode = 'loop' | 'pingpong';
+
+/** Gehgeschwindigkeit ohne Angabe (m/s) — ruhiger Schritt eines NPCs. */
+export const ROUTE_DEFAULT_SPEED = 1.5;
+
+/**
+ * Längste Pause an einem Wegpunkt (s). Zehn Minuten sind reichlich für
+ * „steht am Feuer und schaut" — darüber hinaus ist der Punkt in Wahrheit
+ * ein Standposten (eigene Ein-Punkt-Route) und keine Pause mehr.
+ */
+export const ROUTE_MAX_PAUSE = 600;
+
+/**
+ * Ein Wegpunkt: `[x, z]` oder `[x, z, pause]` mit einer Wartezeit in
+ * Sekunden.
+ *
+ * Die Pause hängt am PUNKT und nicht in einem parallelen Feld
+ * (`pauses: number[]`): Jede Editor-Operation verschiebt Wegpunkte —
+ * anhängen, zurücknehmen, ziehen — und ein zweites Array müsste bei jeder
+ * einzelnen mitgezogen werden. Genau dort entstehen Versätze, nach denen
+ * die Pause am falschen Punkt klebt. Als drittes Element kann das nicht
+ * passieren; ausserdem bleiben alte Dokumente wörtlich gültig: `[x, z]`
+ * ist eine Pause von 0.
+ */
+export type Wegpunkt = readonly [number, number] | readonly [number, number, number];
+
+/** Wartezeit eines Wegpunkts in Sekunden (0, wenn keine angegeben ist). */
+export function wegpunktPause(p: Wegpunkt): number {
+  return p.length === 3 ? p[2] : 0;
+}
+
+/**
+ * Benannte Route: die Folge von Wegpunkten, die ein platzierter NPC abläuft
+ * (`PlacementDef.route`).
+ *
+ * Die Route liegt bewusst IM Layout-Dokument und nicht in einer eigenen
+ * Datei: Wegpunkte sind Weltdesign wie Flüsse und Platzierungen — sie
+ * gehören zu genau der Welt, in der sie liegen, und nehmen so den
+ * vorhandenen Weg über Editor, MCP-Sanitisierung und Deploy mit.
+ *
+ * Wie bei Platzierungen steht KEINE Höhe drin: Der Server holt sie beim
+ * Laufen aus dem Gelände, damit der NPC jeder späteren Höhenänderung des
+ * Layouts folgt, statt in der Luft oder im Boden zu laufen.
+ */
+export interface RouteDef {
+  id: string;
+  /**
+   * Wegpunkte in Metern, mindestens einer (ein Punkt = Standposten).
+   * `[x, z]` läuft durch, `[x, z, pause]` hält dort pause Sekunden an.
+   */
+  points: ReadonlyArray<Wegpunkt>;
+  mode: RouteMode;
+  /** Gehgeschwindigkeit in m/s (Default ROUTE_DEFAULT_SPEED). */
+  speed?: number;
 }
 
 /** See als Kreis — dieselbe Carving-Logik wie beim Fluss. */
@@ -173,6 +391,8 @@ export interface WorldLayout {
   rivers?: readonly RiverDef[];
   /** Seen (Kreise) — dieselbe Carving-Logik. */
   lakes?: readonly LakeDef[];
+  /** Benannte NPC-Routen; eine Platzierung verweist per `route` darauf. */
+  routes?: readonly RouteDef[];
 }
 
 /**

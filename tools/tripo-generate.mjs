@@ -74,6 +74,19 @@ const FACES = Number(arg.faces ?? 5000);
  * Flecken). v3.1 ist der aktuelle Stand und deshalb hier der Vorgabewert.
  */
 const VERSION = arg.version ?? 'v3.1-20260211';
+/**
+ * Optional: längste Texturkante nach dem Download (`--maxtex 1024`).
+ *
+ * Tripo liefert grundsätzlich 4096², und zwar drei Karten je Modell —
+ * zusammen rund 200 MB Videospeicher für EIN Objekt. Bei der Völva lud das
+ * Material dadurch so lange, dass im Bild nur ihr Schatten stand.
+ *
+ * Bewusst ein SCHALTER und keine Vorgabe: Für ein Ausstellungsstück, das
+ * man aus einem Meter Entfernung betrachtet, kann die volle Auflösung
+ * richtig sein. Für alles, was in der Welt steht, ist 1024 die vernünftige
+ * Wahl.
+ */
+const MAXTEX = arg.maxtex ? Number(arg.maxtex) : 0;
 
 async function api(pfad, init = {}) {
   const antwort = await fetch(`${API}${pfad}`, {
@@ -246,6 +259,21 @@ const roh = Buffer.from(await (await fetch(url)).arrayBuffer());
 writeFileSync(ziel, roh);
 
 const versatz = arg['kein-pivot'] ? 0 : setzePivotAufUnterkante(ziel);
+
+if (MAXTEX > 0) {
+  // Über das erprobte Python-Werkzeug statt einer zweiten Bildpipeline in
+  // Node — die Buffer-Offsets einer GLB neu zu vergeben ist genau die Art
+  // Detail, die man nicht zweimal implementieren will.
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync('python3', [
+    join(ROOT, 'tools/glb-textur-verkleinern.py'), ziel, '--max', String(MAXTEX),
+  ], { encoding: 'utf8' });
+  if (r.status !== 0) {
+    console.error(`Texturen verkleinern fehlgeschlagen:\n${r.stderr || r.stdout}`);
+  } else {
+    process.stdout.write(r.stdout);
+  }
+}
 
 const m = vermesse(ziel);
 console.log(`\n${ziel}  (${(roh.length / 1e6).toFixed(1)} MB)`);

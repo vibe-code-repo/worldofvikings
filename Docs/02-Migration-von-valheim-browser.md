@@ -62,7 +62,7 @@ Diese Fehler des Three.js-Clients **nicht mitportieren**:
 3. **Alpha-Cutout + DoubleSided für Nadel-/Laub-Planes**: `material.alphaMode = ALPHATEST`, `backFaceCulling = false` für Foliage — sonst "falsche Tannenform".
 4. **Kreaturen-GLBs ohne Meshes**: `Neck.glb`, `Greyling.glb`, `Troll.glb` sind Bone-Rigs ohne Meshes (Stand 2026-07-25). Meshed-Varianten suchen/nach-exportieren (`tools/assetripper/export`); `*_fixed.glb`-Muster (Boar/Deer/Greydwarf) als Vorlage. Spawn-Tabellen erst erweitern, wenn Assets da sind.
 5. **Instancing von Anfang an**: Der alte Client lief mit ~6 FPS ohne Instancing. Vegetation/Props kommen im Babylon-Client **nur** als Thin Instances, nie als Einzel-Meshes.
-6. **Audio**: `assets/audio/` ist leer — 3318 `.ogg` liegen im AssetRipper-Export, noch kopieren (Phase 6).
+6. **Audio**: Valheim-Aufnahmen werden **nicht** übernommen. Die `.ogg` aus dem AssetRipper-Export sind gelöscht; `assets/audio/` enthält nur eigenes Material (siehe [04](04-Asset-Pipeline.md), Schritt 3).
 
 ## 5. Vorgehen beim Kopieren
 

@@ -27,6 +27,11 @@ import {
   createGeo,
   sanitizeWorldLayout,
   pruefeLayout,
+  LAYOUT_ID_MEMBER,
+  HEALTH_MEMBER,
+  layoutKennung,
+  istNpcPrefab,
+  maxLeben,
   type IGeo,
   HeightmapProvider,
   getStableHash,
@@ -52,6 +57,8 @@ import { ZDOID } from './zdo/ZDOID.js';
 import { PrefabManager } from './prefab/PrefabManager.js';
 import { ZoneManager } from './world/ZoneManager.js';
 import { SpawnSystem } from './world/SpawnSystem.js';
+import { RoutenLaeufer } from './world/RoutenLaeufer.js';
+import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer } from './world/WorldManager.js';
 import { HAUPTWELT_ID, type WorldContext } from './world/WorldContext.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
@@ -154,6 +161,9 @@ export class WovServer {
   zones!: ZoneManager;
   /** G2: creature spawning/wander — null when worldCreatures is off. */
   spawns: SpawnSystem | null = null;
+  /** Routen-NPCs des Layouts (feste Wegpunkt-Folgen) — in init() gebaut. */
+  routen: RoutenLaeufer | null = null;
+  aggro: AggroSystem | null = null;
   /** G1: world persistence (C++ IWorldManager) — created in init(). */
   worldManager!: WorldManager;
   /** Phase G: dungeon documents, entrances and instances. */
@@ -197,6 +207,7 @@ export class WovServer {
     );
     this.registerDungeonCommands();
     this.registerSpawnCommand();
+    this.registerAbbauCommand();
     // Karten-Marker: Eingangs-Änderungen an alle Peers verteilen.
     this.dungeons.onEntrancesChanged = () => {
       for (const peer of this.net.getPeers()) this.sendDungeonEntrances(peer);
@@ -432,6 +443,23 @@ export class WovServer {
     // NOTE: spawnDemoWorld was removed in Phase E (E5) — the world is now
     // populated by the real vegetation system (ZoneManager).
 
+    // Routen-NPCs: MUSS vor spawnLayoutPlacements stehen — dort werden die
+    // Platzierungen mit `route` angemeldet. Die Höhe kommt bewusst über
+    // getGroundHeight (dieselbe Quelle wie Spawn-Höhe und Kreaturen), damit
+    // der NPC dem Gelände folgt, statt eine gespeicherte Höhe zu tragen.
+    this.routen = new RoutenLaeufer(this.zdos, (x, z) => this.getGroundHeight(x, z));
+
+    // Kampf: feindliche NPCs wenden sich dem Spieler zu und schlagen zu.
+    // Braucht kein Register — es sucht selbst um die Spieler herum (s.
+    // AggroSystem). Der RoutenLaeufer bekommt nur die Menge der NPCs, die
+    // gerade kämpfen, damit er ihnen nicht ins Steuer greift.
+    this.aggro = new AggroSystem(
+      this.zdos,
+      (hash) => this.prefabs.getByHash(hash)?.name,
+      (x, z) => this.getGroundHeight(x, z)
+    );
+    this.routen.gesperrt = this.aggro.gesperrt;
+
     this.spawnLayoutPlacements();
 
     console.log('[WoV] Initialized');
@@ -442,9 +470,13 @@ export class WovServer {
    *
    * Bewusst beim BOOT statt bei der Zonengenerierung: So erscheinen neue
    * Platzierungen auch in bereits generierten Zonen. Idempotent über eine
-   * Nähe-Prüfung (gleiches Prefab < 0,5 m) — persistente ZDOs aus dem Save
-   * werden nicht dupliziert. Entfernen einer Platzierung entfernt bereits
-   * gespawnte Objekte NICHT (dafür Welt-Reset oder Admin-Abbau).
+   * Kennung im ZDO-Member `layoutId`, ersatzweise eine Nähe-Prüfung
+   * (gleiches Prefab < 0,5 m) — persistente ZDOs aus dem Save werden nicht
+   * dupliziert. Entfernen einer Platzierung entfernt bereits gespawnte
+   * Objekte NICHT (dafür Welt-Reset oder Admin-Abbau).
+   *
+   * Hier werden auch die Routen verdrahtet: Trägt eine Platzierung eine
+   * `route`, übernimmt der RoutenLaeufer die ZDO (s. dort).
    */
   private spawnLayoutPlacements(): void {
     if (this.config.worldMode !== 'layout') return;
@@ -452,19 +484,31 @@ export class WovServer {
     if (!layout?.placements?.length) return;
     let neu = 0;
     let unbekannt = 0;
-    // Kennung je Eintrag: Prefab + gerundete Position. Damit lassen sich
-    // beim Boot ZDOs entfernen, deren Eintrag der Designer gelöscht hat
-    // (vorher blieben sie für immer stehen, Review-Punkt 13).
-    const kennung = (p: { prefab: string; x: number; z: number }): string =>
-      `${p.prefab}@${Math.round(p.x)},${Math.round(p.z)}`;
+    // Kennung je Eintrag: Prefab + gerundete Position (layoutKennung in
+    // shared). Damit lassen sich beim Boot ZDOs entfernen, deren Eintrag der
+    // Designer gelöscht hat (vorher blieben sie für immer stehen,
+    // Review-Punkt 13) — und der Client findet über denselben Member den
+    // Layout-Eintrag zu einer Instanz wieder (Namensschild).
+    const kennung = layoutKennung;
     const gewollt = new Set(layout.placements.map(kennung));
     let entfernt = 0;
+    // Im selben Durchlauf einen Index über die Kennung aufbauen: Ein
+    // Routen-NPC ist beim nächsten Boot IRGENDWO auf seiner Runde, die
+    // Nähe-Prüfung unten fände ihn also nicht wieder und spawnte bei jedem
+    // Start einen weiteren. Die Kennung wandert dagegen mit ihm mit.
+    const nachKennung = new Map<string, ZDO>();
     for (const zdo of this.zdos.getAllZDOs()) {
-      const id = zdo.getString('layoutId');
-      if (!id || gewollt.has(id)) continue;
-      this.zdos.destroyZDO(zdo.zdoid);
-      entfernt++;
+      const id = zdo.getString(LAYOUT_ID_MEMBER);
+      if (!id) continue;
+      if (!gewollt.has(id)) {
+        this.zdos.destroyZDO(zdo.zdoid);
+        entfernt++;
+        continue;
+      }
+      nachKennung.set(id, zdo);
     }
+    const routen = new Map((layout.routes ?? []).map((r) => [r.id, r]));
+    let aufRoute = 0;
     for (const p of layout.placements) {
       const prefab = this.prefabs.getByName(p.prefab);
       if (!prefab) {
@@ -473,17 +517,54 @@ export class WovServer {
       }
       const y = this.getGroundHeight(p.x, p.z);
       const pos = { x: p.x, y, z: p.z };
-      const vorhanden = this.zdos
-        .getZDOsInRadius(pos, 1)
-        .some((z) => z.prefabHash === prefab.hash && Math.hypot(z.position.x - p.x, z.position.z - p.z) < 0.5);
-      if (vorhanden) continue;
-      const yaw = p.yaw ?? 0;
-      const zdo = this.zdos.createZDO(prefab.hash, pos);
-      zdo.rotation = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
-      if (p.scale !== undefined && Math.abs(p.scale - 1) > 1e-3) zdo.setFloat('scaleScalar', p.scale);
-      zdo.setString('layoutId', kennung(p));
-      neu++;
+      let zdo = nachKennung.get(kennung(p));
+      if (zdo && zdo.prefabHash !== prefab.hash) zdo = undefined;
+      if (!zdo) {
+        const vorhanden = this.zdos
+          .getZDOsInRadius(pos, 1)
+          .find((z) => z.prefabHash === prefab.hash && Math.hypot(z.position.x - p.x, z.position.z - p.z) < 0.5);
+        zdo = vorhanden;
+      }
+      if (!zdo) {
+        const yaw = p.yaw ?? 0;
+        zdo = this.zdos.createZDO(prefab.hash, pos);
+        zdo.rotation = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
+        if (p.scale !== undefined && Math.abs(p.scale - 1) > 1e-3) zdo.setFloat('scaleScalar', p.scale);
+        zdo.setString(LAYOUT_ID_MEMBER, kennung(p));
+        neu++;
+      } else if (zdo.getString(LAYOUT_ID_MEMBER) !== kennung(p)) {
+        // Über die NÄHE wiedergefunden (ZDO aus einem Save von vor der
+        // Kennung): Member nachtragen. Sonst bliebe das Objekt für immer
+        // ohne Herkunft — der Client könnte ihm kein Namensschild
+        // zuordnen, und beim nächsten Löschen im Editor bliebe es stehen.
+        zdo.setString(LAYOUT_ID_MEMBER, kennung(p));
+      }
+      // Trefferpunkte für alles, was eine FIGUR ist. Die Prüfung auf
+      // `istNpcPrefab` ist nicht Zierde: In derselben Schleife entstehen
+      // auch Häuser, Steine und Bäume, und die tragen `health` bereits mit
+      // einer ganz anderen Bedeutung (handleHarvest zählt damit die
+      // Axtschläge bis zum Fällen). Ein Lebensbalken über einer Fichte
+      // wäre das kleinere Übel — ein Startwert aus der Figurentabelle in
+      // ihrem Ernte-Zähler das größere.
+      if (istNpcPrefab(p.prefab) && zdo.getInt(HEALTH_MEMBER) <= 0) {
+        zdo.setInt(HEALTH_MEMBER, maxLeben(p.prefab));
+        zdo.revision.reviseData();
+        zdo.dirty = true;
+      }
+      // Route anhängen. Ein unbekannter Name lässt das Objekt schlicht
+      // stehen (pruefeLayout meldet ihn unten) — eine halb gespawnte Welt
+      // wäre der schlechtere Tausch.
+      const route = p.route ? routen.get(p.route) : undefined;
+      if (route) {
+        // Der NPC gehört jetzt der Route: Aus der Kreatur-Simulation
+        // nehmen, sonst zerren Wander-KI und Route an derselben Position
+        // (NPC_1-ZDOs werden beim Boot adoptiert, s. init()).
+        this.spawns?.entlasse(zdo);
+        this.routen?.registriere(zdo, route);
+        aufRoute++;
+      }
     }
+    if (aufRoute > 0) console.log(`[WoV] Layout-Routen: ${aufRoute} NPC(s) laufen eine Route`);
     if (neu > 0 || unbekannt > 0 || entfernt > 0) {
       console.log(
         `[WoV] Layout-Platzierungen: ${neu} gespawnt, ${entfernt} verwaiste entfernt, ${unbekannt} unbekannte Prefabs übersprungen`
@@ -506,7 +587,15 @@ export class WovServer {
     const punkt = layout?.defaultSpawn ?? layout?.continents.find((k) => k.spawn)?.spawn;
     const x = punkt ? punkt[0] : 0;
     const z = punkt ? punkt[1] : 0;
-    return { x, y: this.getGroundHeight(x, z), z };
+    // 1,5 m ueber dem Gelaende statt exakt darauf: Der Startpunkt kann in
+    // einem Bauwerk mit eigenem Boden liegen (Grabhuegel-Kammer, Steinboden
+    // 1 m ueber Gelaende gegen durchwoelbendes Terrain). Wer exakt auf
+    // Gelaendehoehe erscheint, steckt dort IN der Bodenplatte — die
+    // Havok-Depenetration drueckt dann unvorhersehbar nach oben oder
+    // unten. Aus 1,5 m faellt man dagegen ueberall nur kurz und landet
+    // auf dem, was tatsaechlich da ist (Bett-Respawns setzen aus
+    // demselben Grund schon immer +0,6 m drauf).
+    return { x, y: this.getGroundHeight(x, z) + 1.5, z };
   }
 
   /** Hash des aktiven WorldLayouts (Layout-Modus, sonst null) — Save-Meta. */
@@ -599,6 +688,16 @@ export class WovServer {
 
         // G2: creature spawn/despawn + wander simulation around players
         this.spawns?.update(deltaSec, peerPositions);
+
+        // Routen-NPCs laufen ihre Wegpunkte ab (autoritativ wie die
+        // Kreaturen; die Position geht über den normalen ZDO-Sync raus).
+        this.routen?.update(deltaSec, peerPositions);
+
+        // Kampf NACH den Routen: Das AggroSystem darf das letzte Wort
+        // haben. Läuft ein NPC gerade und bekommt in diesem Tick Aggro,
+        // überschreibt es das eben gesetzte 'walk' mit 'attack' — nicht
+        // umgekehrt.
+        this.aggro?.update(deltaSec, peerPositions);
       }
     }
 
@@ -1438,8 +1537,11 @@ export class WovServer {
 
   /**
    * Nahkampfschlag: trifft die nächste Kreatur ≤2,8 m vor dem Spieler.
-   * Kreaturen-HP leben als ZDO-Member 'health' (Start 20); bei 0 stirbt
-   * die Kreatur (SpawnSystem räumt den Zustand selbst auf).
+   * Kreaturen-HP leben als ZDO-Member `HEALTH_MEMBER`; ihr Startwert
+   * steht in shared/leben.ts und wird beim Spawn geschrieben (s.
+   * SpawnSystem.stelleLebenSicher), damit der Client daraus einen
+   * Lebensbalken zeichnen kann. Bei 0 stirbt die Kreatur (SpawnSystem
+   * räumt den Zustand selbst auf).
    */
   /** Maximale Wirk-Distanz von Angriff/Ernte zur SERVER-Position (m). */
   private static readonly NAHKAMPF_REICHWEITE = 8;
@@ -1492,9 +1594,13 @@ export class WovServer {
       }
     }
     if (!ziel) return this.handleHarvest(peer, pos, waffe);
-    const hp = (ziel.getInt('health') || 20) - schaden;
+    const name = this.prefabs.getByHash(ziel.prefabHash)?.name ?? '?';
+    // Startwert aus shared/leben.ts statt aus einem Literal. Der
+    // `||`-Zweig greift nur noch für Wesen aus Saves von VOR dieser
+    // Änderung — seit `stelleLebenSicher` bringt jede Kreatur ihre Punkte
+    // vom Spawn mit, und `adoptPersisted` trägt sie den alten nach.
+    const hp = (ziel.getInt(HEALTH_MEMBER) || maxLeben(name)) - schaden;
     if (hp <= 0) {
-      const name = this.prefabs.getByHash(ziel.prefabHash)?.name ?? '?';
       this.zdos.destroyZDO(ziel.zdoid);
       const beute = wuerfleDrop(name);
       if (beute) this.gebeItem(peer, beute.name, beute.amount);
@@ -1515,7 +1621,7 @@ export class WovServer {
         });
       }
     } else {
-      ziel.setInt('health', hp);
+      ziel.setInt(HEALTH_MEMBER, hp);
       ziel.revision.reviseData();
       ziel.dirty = true;
     }
@@ -1573,9 +1679,9 @@ export class WovServer {
 
     const startHp = art === 'baum' ? 60 : art === 'fels' ? 90 : 15;
     const schaden = WAFFEN_SCHADEN[waffe] ?? 4;
-    const hp = (ziel.getInt('health') || startHp) - schaden;
+    const hp = (ziel.getInt(HEALTH_MEMBER) || startHp) - schaden;
     if (hp > 0) {
-      ziel.setInt('health', hp);
+      ziel.setInt(HEALTH_MEMBER, hp);
       ziel.revision.reviseData();
       ziel.dirty = true;
       return;
@@ -1713,7 +1819,7 @@ export class WovServer {
         y: ziel.position.y + 0.5,
         z: ziel.position.z + 4,
       });
-      boss.setInt('health', 300);
+      boss.setInt(HEALTH_MEMBER, maxLeben('Eikthyr'));
       boss.revision.reviseData();
       boss.dirty = true;
       this.spawns?.adoptSingle(boss, BOSS_ENTRY);
@@ -1841,6 +1947,47 @@ export class WovServer {
   }
 
   /**
+   * `abbau <prefab> [radius]` — gespawnte Prefabs wieder entfernen.
+   *
+   * Das Gegenstück zu `spawn`, und es hat bis jetzt gefehlt: Wer sich
+   * beim Testen einen NPC an die falsche Stelle gesetzt hat, bekam ihn
+   * nur über einen Welt-Reset wieder weg (der Kommentar an
+   * spawnLayoutPlacements verweist bereits auf einen "Admin-Abbau", den
+   * es nie gab). Persistente Prefabs überleben den Save, ein Fehlgriff
+   * bleibt also für immer stehen.
+   *
+   * Der Radius ist bewusst klein vorbelegt (10 m) und gedeckelt (200 m):
+   * `abbau Beech1 5000` würde sonst einen halben Wald abräumen, und
+   * zerstörte ZDOs kommen nicht zurück.
+   */
+  private registerAbbauCommand(): void {
+    this.adminCommands.register('abbau', (peer, args) => {
+      const name = args[0];
+      if (!name) {
+        return { ok: false, active: false, message: 'Aufruf: abbau <prefab> [radius]' };
+      }
+      const prefab =
+        this.prefabs.getByName(name) ??
+        this.prefabs.getAll().find((p) => p.name.toLowerCase() === name.toLowerCase());
+      if (!prefab) {
+        return { ok: false, active: false, message: `Unbekanntes Prefab: ${name}` };
+      }
+      const radius = Math.min(200, Math.max(1, Number(args[1]) || 10));
+      let weg = 0;
+      for (const zdo of this.zdos.getZDOsInRadius(peer.position, radius)) {
+        if (zdo.prefabHash !== prefab.hash) continue;
+        this.zdos.destroyZDO(zdo.zdoid);
+        weg++;
+      }
+      return {
+        ok: true,
+        active: false,
+        message: `${weg}× ${prefab.name} im Umkreis von ${radius} m entfernt`,
+      };
+    });
+  }
+
+  /**
    * `spawn <prefab> [x z]` — ein Prefab in die Welt setzen (Standard: 2 m
    * vor dem Spieler). Trägt das Prefab das PERSISTENT-Flag, überlebt es
    * den Welt-Save — so kommen eigene NPCs dauerhaft in die Welt.
@@ -1869,7 +2016,22 @@ export class WovServer {
       const hatKoordinaten = Number.isFinite(Number(args[1])) && Number.isFinite(Number(args[2]));
       const x = hatKoordinaten ? Number(args[1]) : peer.position.x + 2;
       const z = hatKoordinaten ? Number(args[2]) : peer.position.z + 2;
-      const y = Math.max(this.getGroundHeight(x, z), WATER_LEVEL);
+      // Auf den BODEN, nicht auf den Wasserspiegel.
+      //
+      // Hier stand `Math.max(getGroundHeight(x, z), WATER_LEVEL)`, damit
+      // nichts auf dem Meeresgrund landet. In den Layout-Welten ist das
+      // aber falsch: WATER_LEVEL ist die aus Valheim übernommene Konstante
+      // 30, das Gelände dieser Welt liegt bei rund -55. Der Ausdruck
+      // lieferte deshalb IMMER 30 — jedes gespawnte Prefab hing 85 m über
+      // dem Boden.
+      //
+      // Nachgemessen im laufenden Client (__vb.dynPose/__vb.groundAt):
+      // `spawn FurlocFischer` ergab y = 30 bei Geländehöhe -55,5, und
+      // `spawn NPC_1` genauso. Es lag also nie am Modell — die
+      // gemeldete "im Boden versunkene" Figur war eine, die 85 m daneben
+      // stand. Layout-Platzierungen waren nie betroffen, die nehmen
+      // getGroundHeight direkt (s. spawnLayoutPlacements).
+      const y = this.getGroundHeight(x, z);
 
       const zdo = this.zdos.createZDO(prefab.hash, { x, y, z });
       // Blick Richtung Spieler, damit ein NPC einen ansieht statt wegzuschauen.
@@ -1917,7 +2079,11 @@ export class WovServer {
         peer.dungeonId = null;
         peer.dungeonReturn = null;
       }
-      const y = Math.max(this.getGroundHeight(x, z), WATER_LEVEL);
+      // Ebenfalls auf den Boden statt auf WATER_LEVEL — siehe die
+      // ausführliche Begründung beim `spawn`-Kommando. Beim Teleport
+      // wirkte derselbe Fehler noch unangenehmer: Der Spieler landete
+      // 85 m über dem Ziel und fiel die Strecke herunter.
+      const y = this.getGroundHeight(x, z);
       this.teleportPeer(peer, { x, y, z }, null);
       return {
         ok: true,

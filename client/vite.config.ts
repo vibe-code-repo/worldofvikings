@@ -234,6 +234,24 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     target: 'esnext',
+    // KOLLISION: Vite legt seine Bundles standardmäßig unter dist/assets/
+    // ab — genau der URL-Präfix, unter dem das Spiel seine GLB/Texturen
+    // erwartet (assetFolder-Plugin oben serviert /assets/ aus dem
+    // Projektordner). Im Dev-Server fällt das nie auf, weil Vite Module
+    // dort aus /src ausliefert; im Produktionsbuild überdecken sich beide.
+    // Die Bundles bekommen deshalb einen eigenen Ordner.
+    assetsDir: 'bundle',
+    rollupOptions: {
+      // Mehrseiten-Build: OHNE diese Liste baut Vite nur den Wurzel-
+      // Einstieg index.html und lässt editor.html und karte.html
+      // stillschweigend weg — im Dev-Server unsichtbar, weil der jede
+      // Datei direkt ausliefert.
+      input: {
+        index: resolve(CONFIG_DIR, 'index.html'),
+        editor: resolve(CONFIG_DIR, 'editor.html'),
+        karte: resolve(CONFIG_DIR, 'karte.html'),
+      },
+    },
   },
   optimizeDeps: {
     // Havok ships as an Emscripten module that locates its own .wasm at
@@ -248,6 +266,13 @@ export default defineConfig({
     // Vite blockt seit 5.x fremde Host-Header (DNS-Rebinding-Schutz). Der
     // Testserver wird über seinen Domainnamen aufgerufen, nicht über die IP,
     // und lief deshalb in "Blocked request. This host is not allowed."
-    allowedHosts: ['testserver.valheim.community', '.valheim.community', 'localhost'],
+    //
+    // Hinter einem Reverse-Proxy (Nginx Proxy Manager) kommt der Host-Header
+    // der URSPRÜNGLICHEN Anfrage an, nicht die Container-IP — die Domain des
+    // Proxy-Eintrags muss also hier stehen. WOV_ALLOWED_HOSTS (kommagetrennt)
+    // setzt die Liste, damit ein neuer Betriebsort keine Codeänderung braucht.
+    allowedHosts: process.env.WOV_ALLOWED_HOSTS
+      ? process.env.WOV_ALLOWED_HOSTS.split(',').map((h) => h.trim())
+      : ['testserver.valheim.community', '.valheim.community', 'localhost'],
   },
 });

@@ -30,5 +30,7 @@ server/data/dungeons/
 # Review-Punkt 30: Build-Artefakte, Rip-Werkzeug, Sicherungen
 tsc-log.txt
 *.bak
+__pycache__/
+*.pyc
 server/data/worlds/*.orphan-*
 server/data/*.locations.json

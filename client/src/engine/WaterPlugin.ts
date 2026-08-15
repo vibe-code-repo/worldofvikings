@@ -1002,20 +1002,77 @@ export class WaterPlugin extends MaterialPluginBase {
           // Der Schaum treibt mit der Welle auf das Land zu; der
           // Auflauf-Anteil schiebt die Textur zusätzlich vor.
           vec2 drift = vec2(waterTime * 0.012, -waterTime * 0.05 - auflauf * 0.5);
-          vec2 curl = (texture2D(waterFoamTex, fuv * 0.3 + drift * 0.4).rg - 0.33) * 0.16;
-          float f1 = texture2D(waterFoamTex, fuv + curl + drift).r / 0.65;
-          float f2 = texture2D(waterFoamHighTex, fuv * 1.7 - curl * 1.5 + drift * 1.6).r / 0.52;
+          // ── Mip-Stufe von Hand: textureGrad statt texture2D ─────────
+          // fuv projiziert die WELTposition auf den Uferrahmen
+          // (langsUfer/zumLand). Dieser Rahmen dreht sich von Pixel zu
+          // Pixel — und weil er mit der Weltposition multipliziert wird
+          // (hier zweistellige, am Kartenrand vierstellige Meterwerte),
+          // besteht die Ableitung, die die Hardware aus fuv SELBST zieht,
+          // vor allem aus dieser Drehung und nicht aus der Texeldichte.
+          // Nachgemessen an einer gekrümmten Küste (Debug-Bild mit
+          // length(dFdx(fuv)) gegen die geometrische Ableitung): dort war
+          // sie das ~45-Fache, also mehr als fünf Mip-Stufen daneben. Und
+          // weil der Faktor von Pixel zu Pixel springt, springt die
+          // gewählte Stufe mit — der Schaumsaum zerfällt in Flecken, die
+          // bei jeder Wellenbewegung neu ausgewürfelt werden.
+          //
+          // textureGrad bekommt deshalb die Ableitung der KONTINUIERLICHEN
+          // Grösse: Weltposition, projiziert auf den örtlich als konstant
+          // angenommenen Rahmen. Gleiches Mittel und gleicher Grund wie
+          // bei den Terrain-Kacheln (TerrainSplat.ts, vbTileSample_*) —
+          // und ausdrücklich nicht textureLod, das die anisotrope
+          // Filterung verlöre, die beim flachen Blick aufs Ufer gerade
+          // den Unterschied macht.
+          vec2 dPx = dFdx(vPositionW.xz);
+          vec2 dPy = dFdy(vPositionW.xz);
+          vec2 fddx = vec2(dot(dPx, langsUfer) * 0.06, dot(dPx, zumLand) * 0.16);
+          vec2 fddy = vec2(dot(dPy, langsUfer) * 0.06, dot(dPy, zumLand) * 0.16);
+          vec2 curl = (textureGrad(waterFoamTex, fuv * 0.3 + drift * 0.4,
+                                   fddx * 0.3, fddy * 0.3).rg - 0.33) * 0.16;
+          float f1 = textureGrad(waterFoamTex, fuv + curl + drift, fddx, fddy).r / 0.65;
+          float f2 = textureGrad(waterFoamHighTex, fuv * 1.7 - curl * 1.5 + drift * 1.6,
+                                 fddx * 1.7, fddy * 1.7).r / 0.52;
           float texel = clamp(f1 * 0.85 + f2 * 0.5, 0.0, 1.0);
+
+          // ── Wie viel Ufer deckt EIN Pixel ab? ───────────────────────
+          // eff ist die Wassersäule in Metern, distUfer der waagerechte
+          // Abstand zur Wasserlinie in Metern — beides Weltgrössen. fwidth
+          // gibt damit unmittelbar an, wie viel Ufer auf einen Pixel
+          // fällt.
+          //
+          // Das ist der Kern des gemeldeten Flimmerns. Die Zonen unten
+          // sind in Metern definiert: Tiefe 0,08..0,5 m, Abstand
+          // 1,4..8 m. Am Ufer, flach angeschaut, überdeckt ein Pixel
+          // schnell mehr als das (der Pixelfussabdruck auf einer
+          // waagerechten Fläche wächst mit d²/(f·Augenhöhe) — bei 3,4 m
+          // Augenhöhe sind es auf 20 m rund 0,2 m, auf 40 m schon 0,8 m).
+          // Sobald die Flanke schmaler als ein Pixel ist, kann sie nur
+          // noch AN oder AUS sein: Der Saum wird zur ein Pixel breiten,
+          // fast weissen Linie, die bei jedem Wellenhub um ganze Pixel
+          // weiterspringt. Genau das ist als Flimmern der Wasserkante zu
+          // sehen — im Flimmerbild (Summe der Bild-zu-Bild-Sprünge über
+          // 30 Bilder) zeichnete sich die Uferlinie als einziges helles
+          // Band ab; mit foam = 0 verschwand sie vollständig.
+          float pixTiefe = fwidth(eff);
+          float pixDist = fwidth(distUfer);
 
           // (3) Zwei Zonen statt einer:
           //     Bruchkante — schmal, hell, mit ausgefransten Fingern
           //     (Textur verschiebt die Kante selbst).
-          float nahKante = 1.0 - smoothstep(0.0, zungeTiefe * 0.4, eff - texel * 0.03);
-          float nahDist = 1.0 - smoothstep(zungeM * 0.45, zungeM, distUfer - texel * 1.2);
+          // Jede Flanke ist mindestens einen Pixel breit — darunter gäbe
+          // es keinen Verlauf mehr, den man sehen könnte, nur noch eine
+          // harte Kante.
+          float nahKante = 1.0 - smoothstep(0.0, max(zungeTiefe * 0.4, pixTiefe),
+                                            eff - texel * 0.03);
+          float nahDist = 1.0 - smoothstep(zungeM * 0.45,
+                                           max(zungeM, zungeM * 0.45 + pixDist),
+                                           distUfer - texel * 1.2);
           float kante = nahKante * nahDist;
           //     Blasenfeld — breiter, weicher, halbdurchsichtig.
-          float blasen = (1.0 - smoothstep(0.0, zungeTiefe, eff))
-                       * (1.0 - smoothstep(zungeM * 0.6, zungeM, distUfer))
+          float blasen = (1.0 - smoothstep(0.0, max(zungeTiefe, pixTiefe), eff))
+                       * (1.0 - smoothstep(zungeM * 0.6,
+                                           max(zungeM, zungeM * 0.6 + pixDist),
+                                           distUfer))
                        * texel;
 
           // Aufgerissen halten: Der erste Anlauf ergab ein GESCHLOSSENES
@@ -1025,12 +1082,36 @@ export class WaterPlugin extends MaterialPluginBase {
           // Wasser scheint hindurch.
           float foam = clamp(kante * texel * 1.25 + blasen * 0.45, 0.0, 1.0);
           foam = smoothstep(0.24, 0.88, foam) * mix(0.58, 0.80, steil);
+          // Deckung: Passt die Zone nicht mehr in einen Pixel, darf sie
+          // ihn auch nur anteilig einfärben. Die aufgeweiteten Flanken
+          // oben halten den Verlauf weich, aber ohne diesen Faktor bliebe
+          // die Linie voll deckend — nur eben verwaschen — und würde
+          // weiter mit der Welle von Pixel zu Pixel hüpfen. Es ist
+          // dieselbe Überlegung wie bei einer Mip-Stufe: Struktur, die
+          // feiner als das Bildraster ist, gehört gemittelt, nicht
+          // gezeichnet. In Kameranähe (Zone ≫ Pixel) ist der Faktor 1 und
+          // ändert nichts.
+          foam *= clamp(min(zungeTiefe / max(pixTiefe, 1e-4),
+                            zungeM / max(pixDist, 1e-4)), 0.0, 1.0);
           // Schaum ist KEINE Lichtquelle: Er wurde bisher als feste helle
           // Farbe eingemischt und leuchtete dadurch nachts als weißes Band
           // in der dunklen Szene. Jetzt trägt er das Szenenlicht — nachts
           // dunkelgrau, tagsüber weiß.
           float foamLicht = mix(0.12, 1.0, smoothstep(-0.12, 0.25, toSun.y));
-          vec3 foamCol = WATER_FOAM_COL * mix(vec3(0.55, 0.60, 0.70), waterSunColor, foamLicht) * foamLicht;
+          // Der Schaum nimmt die HELLIGKEIT der Sonne an, nicht ihren
+          // FARBTON. sunColorDay ist in EnvSetup (1.00, 0.77, 0.48) —
+          // also kräftig warm, und zwar den ganzen Tag über, nicht nur
+          // zur goldenen Stunde. Direkt einmultipliziert färbt das die
+          // Gischt beige; im Bild sah das Ufer aus, als läge Sand auf dem
+          // Wasser statt Schaum darauf.
+          //
+          // Deshalb erst auf die Leuchtdichte ziehen und nur einen Rest
+          // Wärme stehen lassen — der Schaum gehört sichtbar zur selben
+          // Beleuchtung, bleibt aber weiß. Der Tag/Nacht-Verlauf über
+          // foamLicht ist davon unberührt.
+          float sonnenHell = dot(waterSunColor, vec3(0.299, 0.587, 0.114));
+          vec3 sonnenNeutral = mix(vec3(sonnenHell), waterSunColor, 0.25);
+          vec3 foamCol = WATER_FOAM_COL * mix(vec3(0.55, 0.60, 0.70), sonnenNeutral, foamLicht) * foamLicht;
           color.rgb = mix(color.rgb, foamCol, foam);
           color.a = mix(color.a, 0.88, foam * 0.8);
         }

@@ -91,6 +91,25 @@ export interface GameSettings {
    */
   showObjectNames: boolean;
   /**
+   * Namensschilder über Figuren (Name, Stufe, Lebensbalken, Quest-Zeichen).
+   *
+   * Anders als `showObjectNames` kein Diagnosewerkzeug, sondern ein
+   * Spielelement — deshalb an. Abschaltbar bleibt es trotzdem: Für
+   * Bildschirmfotos und für die Beurteilung von Modellen im Testflug
+   * stehen die Schilder im Weg.
+   */
+  nameplates: boolean;
+  /**
+   * Auch über dem EIGENEN Kopf ein Schild.
+   *
+   * Voreinstellung aus, obwohl die Verfolgerperspektive es hergäbe: Der
+   * eigene Name steht genau dort, wo man beim Laufen hinsieht, und Leben
+   * wie Ausdauer zeigt das HUD unten links ohnehin. Wer sich im Getümmel
+   * lieber selbst markiert sieht (in WoW die persönliche Anzeige), schaltet
+   * es hier ein.
+   */
+  eigenesNameplate: boolean;
+  /**
    * HD-Clutter: die Gras- und Farntexturen aus dem Willybach-HD-Pack statt
    * der Originale (GrassClutter.ts, HD_CLUTTER).
    *
@@ -170,6 +189,23 @@ const DEFAULTS: GameSettings = {
   sunShafts: false,
   pointerLock: true,
   showObjectNames: false,
+  nameplates: true,
+  eigenesNameplate: false,
+  /**
+   * HD-Gras ist AUS, weil das Texturpaket nicht mitgeliefert wird.
+   *
+   * Die Vorlagen unter `assets/textures/hd-clutter/` stammen aus dem
+   * Willybach-HD-Mod und werden von `tools/make-hd-clutter.py` nur
+   * aufbereitet — es gibt dafür kein eigenes Rezept, und ausliefern
+   * dürfen wir sie nicht. Fehlt das Paket, findet `GrassClutter` keine
+   * einzige Textur und Babylon legt seine magenta-schwarze Ersatzkachel
+   * über den kompletten Bodenbewuchs; im Bild ist die halbe Welt pink.
+   *
+   * Der Schalter im Einstellungsfenster bleibt: Wer das Paket lokal
+   * hat, schaltet es an. Der Kommentar dort verwies schon immer
+   * hierher mit "warum es aus ist" — nur stand der Standardwert
+   * gegenteilig auf `true`.
+   */
   hdClutter: true,
 };
 
@@ -202,6 +238,8 @@ function loadSaved(): Partial<GameSettings> {
       distantShadows: bool(parsed.distantShadows),
       pointerLock: bool(parsed.pointerLock),
       showObjectNames: bool(parsed.showObjectNames),
+      nameplates: bool(parsed.nameplates),
+      eigenesNameplate: bool(parsed.eigenesNameplate),
       hdClutter: bool(parsed.hdClutter),
     };
     if (b.bloom !== undefined) out.bloom = b.bloom;
@@ -213,6 +251,8 @@ function loadSaved(): Partial<GameSettings> {
     if (b.distantShadows !== undefined) out.distantShadows = b.distantShadows;
     if (b.pointerLock !== undefined) out.pointerLock = b.pointerLock;
     if (b.showObjectNames !== undefined) out.showObjectNames = b.showObjectNames;
+    if (b.nameplates !== undefined) out.nameplates = b.nameplates;
+    if (b.eigenesNameplate !== undefined) out.eigenesNameplate = b.eigenesNameplate;
     if (b.hdClutter !== undefined) out.hdClutter = b.hdClutter;
     return out;
   } catch {

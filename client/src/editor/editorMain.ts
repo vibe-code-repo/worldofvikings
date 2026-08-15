@@ -20,18 +20,25 @@ import {
   layoutBounds,
   DEFAULT_BASE_LEVEL,
   FOLIAGE,
+  GRASLAND_FLORA_NAMEN,
+  NADELWALD_FLORA_NAMEN,
   type BiomeName,
   type RegionDef,
   type WorldLayout,
 } from '@wov/shared';
 import { setzeKartenMasse, type MapWorkerMessage } from '../ui/worldmap/mapTypes';
 import { EditorShell } from './Shell';
+// NUR der Typ: Der Katalog selbst kommt per dynamischem import() erst beim
+// ersten Öffnen (s. Werkzeugleiste). Statisch eingebunden zöge er Babylon
+// samt GLB-Ladern in den Erststart des Karteneditors — gut zwei Megabyte
+// für eine Ansicht, die man vielleicht nie aufschlägt.
+import type { GegenstandsKatalog } from './GegenstandsKatalog';
 
 const BIOME_NAMEN: BiomeName[] = [
-  'meadows', 'blackforest', 'swamp', 'mountain', 'plains', 'mistlands', 'ashlands', 'deepnorth',
+  'grassland', 'blackforest', 'swamp', 'mountain', 'plains', 'mistlands', 'ashlands', 'deepnorth',
 ];
 const BIOME_FARBE: Record<BiomeName, string> = {
-  meadows: '#7aa860', blackforest: '#2f5136', swamp: '#5d5a43', mountain: '#cfd6dd',
+  grassland: '#7aa860', blackforest: '#2f5136', swamp: '#5d5a43', mountain: '#cfd6dd',
   plains: '#c9b463', mistlands: '#6d6a7a', ashlands: '#8a4a3a', deepnorth: '#b9c8d4',
 };
 
@@ -545,7 +552,7 @@ overlay.addEventListener('pointerdown', (e) => {
     const form = FORMEN.find((f) => f.id === gewaehlteForm) ?? FORMEN[0]!;
     const region: RegionDef = {
       id: neueId('insel'),
-      biome: 'meadows',
+      biome: 'grassland',
       shape: form.erzeuge(wx, wz, formGroesse),
       edgeFalloff: 300,
     };
@@ -730,7 +737,7 @@ function polygonSchliessen(): void {
   }
   const region: RegionDef = {
     id: neueId('land'),
-    biome: 'meadows',
+    biome: 'grassland',
     shape: { kind: 'polygon', points: punkte },
     edgeFalloff: 400,
   };
@@ -1001,6 +1008,210 @@ function seiteBauen(): void {
       ersetze({ baseLevel: v === '' ? undefined : Number(v) })
     );
     feld('heightScale', region.heightScale?.toString() ?? '1', (v) => ersetze({ heightScale: Number(v) || 1 }));
+    // ── Bewuchs der Insel ────────────────────────────────────────────
+    // Drei Zustände, die im Datenmodell schon angelegt sind
+    // (RegionDef.vegetation) und sich nur darin unterscheiden, WAS in der
+    // Liste steht:
+    //
+    //   Feld fehlt   → Biom-Standardtabelle (die Originaleinträge)
+    //   Liste gefüllt→ exakt diese Einträge, sonst nichts
+    //   Liste LEER   → gar keine Vegetation
+    //
+    // Der letzte Fall ist der unauffälligste und der wichtigste: Ein
+    // leeres Array ist truthy, der Filter im ZoneManager wirft damit
+    // jeden Eintrag weg (ZoneManager.ts:601). "Ohne Vegetation" braucht
+    // deshalb keine Sonderbehandlung — nur einen Knopf, der `[]` setzt.
+    //
+    // Das Gras bleibt in allen drei Fällen stehen: Es kommt aus dem
+    // Clutter-System des Clients (GrassClutter) und hängt am Biom, nicht
+    // an dieser Liste.
+    // ── Bewuchs der Insel ────────────────────────────────────────────
+    // Drei Fragen, in der Reihenfolge, in der man sie beim Gestalten
+    // stellt — und jede hat genau ein Bedienelement:
+    //
+    //   1. WAS waechst hier?     Bündel-Knöpfe (Grasland / Nadelwald / …)
+    //   2. WIE VIEL Fläche?      Regler „Waldanteil" (forestDensity)
+    //   3. WIE DICHT darauf?     Regler „Bewuchsdichte" (bewuchsDichte)
+    //
+    // Die Trennung von 2 und 3 ist der Kern: `forestDensity` verschiebt
+    // den Waldfaktor und entscheidet, WO Wald ist; `bewuchsDichte`
+    // skaliert die Stückzahlen und entscheidet, WIE VIELE Bäume dort
+    // stehen. Eine kleine dichte Waldinsel und ein flächiger lichter
+    // Hain sind zwei verschiedene Dinge, und mit einer Zahl liessen sie
+    // sich nicht auseinanderhalten.
+    //
+    // Das Freitextfeld darunter bleibt: Es ist die Feinjustierung für
+    // alles, was kein Knopf abdeckt.
+    const bewuchsText = document.createElement('div');
+    bewuchsText.style.cssText =
+      'font-size:11px;color:#9a8f6a;margin-top:12px;padding-top:8px;border-top:1px solid #2a2b22;';
+    const veg = region.vegetation;
+    const artenText =
+      veg === undefined
+        ? 'Biom-Standard'
+        : veg.length === 0
+          ? 'KEINER (nur Terrain und Gras)'
+          : `${veg.length} Arten`;
+    bewuchsText.textContent = `Bewuchs: ${artenText}`;
+    box.appendChild(bewuchsText);
+
+    // Die Bündel-Knöpfe setzen ein PRESET, nicht nur eine Artenliste:
+    // Artenwahl, Waldanteil, Dichte und Körnung ergeben zusammen erst ein
+    // Landschaftsbild. Ein Nadelwald mit der Körnung einer Wiese wäre ein
+    // Flickenteppich aus Fichteninseln — und genau das soll er nicht sein.
+    // Die drei Regler darunter bleiben danach frei justierbar.
+    const preset = (
+      arten: readonly string[],
+      forestDensity: number,
+      bewuchsDichte: number,
+      waldKoernung: number,
+      abstandFaktor: number,
+      nester = 0
+    ) => () => {
+      ersetze({
+        vegetation: [...arten],
+        forestDensity,
+        bewuchsDichte,
+        waldKoernung,
+        abstandFaktor,
+        nester,
+      });
+      alles();
+      vorschauAnstossen();
+    };
+
+    // Die vier Werte je Preset sind GEMESSEN, nicht geschätzt — die Zahl
+    // dahinter ist die Überschirmung (Kronenfläche je Bodenfläche):
+    //
+    //   lichter Hain  0.3     man sieht überall Himmel
+    //   Wald          0.8     Kronenschluss, Boden bedeckt
+    //   Schwarzwald   1.5+    mehrschichtig, dunkel
+    box.appendChild(knopf(
+      '🌾 Grasland (Wiese mit Laubwaldinseln)',
+      // Offene Wiese: wenig Waldfläche, feine Körnung, voller Abstand —
+      // die Haine sollen als einzelne Gruppen lesbar bleiben.
+      preset(GRASLAND_FLORA_NAMEN, 0.9, 1.0, 1.0, 1.0)
+    ));
+    box.appendChild(knopf(
+      '🌳🌲 Mischwald (dichte und lichte Zonen)',
+      // Der Übergangstyp. Mittlere Körnung und mittlerer Abstand: Es gibt
+      // geschlossene Partien UND offene — genau das, was die Staffelung
+      // der Waldfenster je Schicht von selbst erzeugt (flora.ts).
+      // `nester` 0.8 ist hier das Entscheidende: Es streut auf rund einem
+      // Sechstel der Fläche geschlossenen dunklen Nadelwald ein — und hebt
+      // dort zugleich die Geländeamplitude (gemessen 4.7 m statt 2.9 m
+      // Höhenunterschied auf 20 m). Der dunkle Wald liegt im kupierten
+      // Gelände, die offenen Partien bleiben flach.
+      preset([...new Set([...GRASLAND_FLORA_NAMEN, ...NADELWALD_FLORA_NAMEN])], 1.1, 1.2, 0.6, 0.75, 0.8)
+    ));
+    box.appendChild(knopf(
+      '🌲 Nadelwald (dicht, Überschirmung 1.3)',
+      preset(NADELWALD_FLORA_NAMEN, 1.4, 1.5, 0.4, 0.55, 0.5)
+    ));
+    box.appendChild(knopf(
+      '🌲🌲 Schwarzwald (sehr dicht und dunkel, 1.9)',
+      // Dieselben Arten wie der Nadelwald — was ihn ausmacht, ist allein
+      // die Enge: 276 Stämme je Zone statt 192, davon 26 über 18 m.
+      preset(NADELWALD_FLORA_NAMEN, 1.7, 2.0, 0.35, 0.45, 0.35)
+    ));
+    box.appendChild(knopf('🌾 Nur Terrain und Gras (kein Bewuchs)', () => {
+      ersetze({ vegetation: [] });
+      alles();
+      vorschauAnstossen();
+    }));
+    box.appendChild(knopf('↩ Biom-Standard', () => {
+      ersetze({ vegetation: undefined });
+      alles();
+      vorschauAnstossen();
+    }));
+
+    /**
+     * Ein Regler mit Zahl daneben.
+     *
+     * Bewusst ein Schieber und kein Zahlenfeld: Beide Werte wirken
+     * nichtlinear auf das Bild, und man findet sie durch Probieren.
+     * `oninput` schreibt beim Ziehen — die Vorschau folgt sofort.
+     */
+    const regler = (
+      titel: string,
+      wert: number,
+      min: number,
+      max: number,
+      schritt: number,
+      hinweis: string,
+      cb: (v: number) => void
+    ): void => {
+      const l = document.createElement('label');
+      l.style.cssText = 'display:block;font-size:11px;color:#9a8f6a;margin-top:8px;';
+      l.textContent = `${titel}: ${wert.toFixed(2)}`;
+      const s2 = document.createElement('input');
+      s2.type = 'range';
+      s2.min = String(min);
+      s2.max = String(max);
+      s2.step = String(schritt);
+      s2.value = String(wert);
+      s2.style.cssText = 'width:100%;';
+      s2.title = hinweis;
+      s2.oninput = () => {
+        l.textContent = `${titel}: ${Number(s2.value).toFixed(2)}`;
+      };
+      // Erst beim Loslassen neu rechnen: Die Vorschau kostet Zeit, und
+      // beim Ziehen entstünden Dutzende Neuberechnungen.
+      s2.onchange = () => {
+        cb(Number(s2.value));
+        alles();
+        vorschauAnstossen();
+      };
+      box.appendChild(l);
+      box.appendChild(s2);
+    };
+
+    regler(
+      'Waldanteil (Fläche)',
+      region.forestDensity ?? 1,
+      0,
+      2,
+      0.05,
+      '0 = fast kahl, 1 = globales Muster, 2 = fast alles Wald. Verschiebt den Waldfaktor.',
+      (v) => ersetze({ forestDensity: v === 1 ? undefined : v })
+    );
+    regler(
+      'Bewuchsdichte (Stückzahl)',
+      region.bewuchsDichte ?? 1,
+      0.1,
+      4,
+      0.1,
+      'Faktor auf die Stückzahl je Art. Der Mindestabstand der Arten bleibt die Grenze.',
+      (v) => ersetze({ bewuchsDichte: v === 1 ? undefined : v })
+    );
+    regler(
+      'Baumabstand (Enge)',
+      region.abstandFaktor ?? 1,
+      0.3,
+      2,
+      0.05,
+      'Faktor auf den Mindestabstand. Kleiner = enger = dichter. Gemessen: 1.0 → 75 Stämme/Zone, 0.55 → 192, 0.45 → 276.',
+      (v) => ersetze({ abstandFaktor: v === 1 ? undefined : v })
+    );
+    regler(
+      'Nadelwald-Nester (Binnenvariation)',
+      region.nester ?? 0,
+      0,
+      1,
+      0.05,
+      'Streut geschlossene dunkle Partien ein UND hebt dort die Geländeamplitude. 0 = gleichmässig, 0.8 ≈ ein Sechstel der Fläche.',
+      (v) => ersetze({ nester: v === 0 ? undefined : v })
+    );
+    regler(
+      'Waldkörnung (Flächengröße)',
+      region.waldKoernung ?? 1,
+      0.2,
+      3,
+      0.05,
+      'Kleiner = grössere zusammenhängende Wälder UND Lichtungen. 1.0 = 217 m am Stück, 0.35 = 613 m, 0.2 = 1098 m (gemessen).',
+      (v) => ersetze({ waldKoernung: v === 1 ? undefined : v })
+    );
+
     feld('Vegetation (Namen, Komma; leer = Biom-Standard)', region.vegetation?.join(', ') ?? '', (v) =>
       ersetze({ vegetation: v.trim() ? v.split(',').map((s) => s.trim()).filter(Boolean) : undefined })
     );
@@ -1032,6 +1243,34 @@ function seiteBauen(): void {
 
 // ── Werkzeugleiste: Welt- und Datei-Aktionen (einmalig) ──────────────
 {
+  // Der Katalog legt sich als eigene ANSICHT über den Viewport (er baut
+  // seine eigene Babylon-Szene, s. GegenstandsKatalog). Die Karte darunter
+  // bleibt unangetastet — Schließen zeigt sie unverändert wieder.
+  const HINWEIS = 'Gegenstands-Katalog — Eintrag anklicken, Ziehen dreht, Rad zoomt. Esc schließt.';
+  let katalog: GegenstandsKatalog | null = null;
+  let katalogLaedt = false;
+  const ansicht = shell.toolbarGruppe();
+  ansicht.appendChild(knopf('📦 Katalog', () => {
+    if (katalog) {
+      shell.meldung(katalog.umschalten() ? HINWEIS : 'Katalog geschlossen.');
+      return;
+    }
+    // Doppelklick auf den Knopf darf nicht zwei Kataloge anlegen — der
+    // Nachladevorgang dauert einen Moment und hat noch kein Fenster, an
+    // dem man den Zustand ablesen könnte.
+    if (katalogLaedt) return;
+    katalogLaedt = true;
+    shell.meldung('Katalog wird geladen …');
+    void import('./GegenstandsKatalog')
+      .then((m) => {
+        katalog = new m.GegenstandsKatalog(shell.viewport);
+        katalog.oeffne();
+        shell.meldung(HINWEIS);
+      })
+      .catch((err) => shell.meldung(`Katalog konnte nicht geladen werden: ${String(err)}`, true))
+      .finally(() => (katalogLaedt = false));
+  }));
+
   const welt = shell.toolbarGruppe();
   welt.appendChild(knopf('🔁 Vorschau', vorschauRechnen));
   welt.appendChild(knopf('✈ Testflug', () => {

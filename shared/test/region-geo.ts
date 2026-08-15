@@ -202,6 +202,80 @@ check('forestDensity 0 → praktisch kahl', kahl > 90, `${kahl}/100 waldfrei`);
     `= ${geo.getHeight(-6000, 0).toFixed(1)} m`);
 }
 
+// ── Platzierungs-Sockel (einebnen) ───────────────────────────────────
+{
+  const mitSockel = createGeo({
+    mode: 'layout',
+    worldSeed: getStableHash('wov-test'),
+    layout: {
+      ...layout,
+      placements: [{ prefab: 'Grabhuegel', x: -6000, z: -500, einebnen: 12 }],
+    },
+  });
+  const provider = new HeightmapProvider(mitSockel, { blendSmoothStep: true });
+  const ohneProvider = new HeightmapProvider(geo, { blendSmoothStep: true });
+
+  // Mittelpunkthöhe unverändert — der Server setzt das Bauwerk per
+  // getGroundHeight genau dort ab, Platte und Objekt müssen sich treffen.
+  const mitte = provider.getGroundHeight(-6000, -500);
+  const mitteOhne = ohneProvider.getGroundHeight(-6000, -500);
+  check('Sockel: Mittelpunkthöhe unverändert', Math.abs(mitte - mitteOhne) < 0.05,
+    `${mitteOhne.toFixed(2)} → ${mitte.toFixed(2)} m`);
+
+  // Innerhalb des Radius ist die Fläche eben (roh wellt das Gelände dort).
+  let maxAbw = 0;
+  let rohAbw = 0;
+  for (let dx = -11; dx <= 11; dx += 2) {
+    for (let dz = -11; dz <= 11; dz += 2) {
+      if (Math.hypot(dx, dz) > 11) continue;
+      maxAbw = Math.max(maxAbw, Math.abs(provider.getGroundHeight(-6000 + dx, -500 + dz) - mitte));
+      rohAbw = Math.max(rohAbw, Math.abs(ohneProvider.getGroundHeight(-6000 + dx, -500 + dz) - mitteOhne));
+    }
+  }
+  check('Sockel: Fläche im Radius eben', maxAbw < 0.05, `= ${maxAbw.toFixed(3)} m (roh ${rohAbw.toFixed(2)} m)`);
+
+  // Böschung läuft aus statt abzureißen, und weit weg bleibt alles gleich.
+  let maxStufe = 0;
+  let vorher = provider.getGroundHeight(-6000, -500);
+  for (let d = 1; d <= 90; d += 1) {
+    const h = provider.getGroundHeight(-6000 + d, -500);
+    maxStufe = Math.max(maxStufe, Math.abs(h - vorher));
+    vorher = h;
+  }
+  check('Sockel: Böschung ist ein Hang, keine Wand', maxStufe < 1.5, `= ${maxStufe.toFixed(2)} m je 1 m`);
+  const fern = Math.abs(provider.getGroundHeight(-5910, -500) - ohneProvider.getGroundHeight(-5910, -500));
+  check('Sockel: kein Einfluss in 90 m Entfernung', fern < 0.01, `= ${fern.toFixed(3)} m`);
+
+  // Live-Pfad (Editor-Testflug): Ein in die LAUFENDE Geo nachgerückter
+  // Sockel muss — nach Verwerfen der gecachten Zonen — exakt die Höhen
+  // des Neuladen-Pfads ergeben; sonst stünde das Bauwerk nach F5 anders.
+  const liveGeo = createGeo({
+    mode: 'layout',
+    worldSeed: getStableHash('wov-test'),
+    layout,
+  }) as RegionGeo;
+  const liveProvider = new HeightmapProvider(liveGeo, { blendSmoothStep: true });
+  liveProvider.getGroundHeight(-6000, -500); // Zone bewusst in den Cache zwingen
+  liveGeo.sockelEinfuegen(-6000, -500, 12);
+  liveProvider.invalidateArea(-6000, -500, 12 + 64); // 64 = PLATEAU_RAND_MAX
+  let liveDiff = 0;
+  for (let d = 0; d <= 30; d += 3) {
+    liveDiff = Math.max(
+      liveDiff,
+      Math.abs(liveProvider.getGroundHeight(-6000 + d, -500) - provider.getGroundHeight(-6000 + d, -500))
+    );
+  }
+  check('Sockel: Live-Pfad identisch zum Neuladen-Pfad', liveDiff < 1e-6, `= ${liveDiff}`);
+
+  // Entfernen (Platzierung gelöscht/verschoben) stellt das Urgelände her.
+  liveGeo.sockelEntfernen(-6000, -500);
+  liveProvider.invalidateArea(-6000, -500, 12 + 64);
+  const zurueck = Math.abs(
+    liveProvider.getGroundHeight(-6000 + 6, -500) - ohneProvider.getGroundHeight(-6000 + 6, -500)
+  );
+  check('Sockel: Entfernen stellt das Urgelände wieder her', zurueck < 1e-6, `= ${zurueck}`);
+}
+
 if (fehler > 0) {
   console.error(`\n${fehler} Prüfung(en) fehlgeschlagen`);
   process.exit(1);

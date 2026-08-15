@@ -500,6 +500,36 @@ export class HeightmapProvider {
     return affected;
   }
 
+  /**
+   * Zonen-Cache in einem Umkreis verwerfen, nachdem sich die GEO SELBST
+   * geändert hat (Editor-Testflug: Platzierungs-Sockel live nachgerückt).
+   * addTerrainModifier kann das nicht leisten — es überlagert die Geo mit
+   * einem Modifier, statt eine Änderung IN ihr sichtbar zu machen.
+   *
+   * Rand-Formel wie applyTerrainOp (ceil/floor statt worldToZone): Landet
+   * der Wirkradius exakt auf einer Zonengrenze, muss die Nachbarzone mit
+   * verworfen werden, sonst behält sie am geteilten Randvertex die alte
+   * Höhe und die Kante reißt auf.
+   *
+   * Liefert die Zonenkoordinaten fürs Kachel-Rebuild des Clients — auch
+   * hier nicht gecachte: deren Terrain-Chunks können trotzdem existieren.
+   */
+  invalidateArea(wx: number, wz: number, reach: number): Array<[number, number]> {
+    const half = ZONE_UNITS / 2;
+    const zx0 = Math.ceil((wx - reach - half) / ZONE_UNITS);
+    const zx1 = Math.floor((wx + reach + half) / ZONE_UNITS);
+    const zy0 = Math.ceil((wz - reach - half) / ZONE_UNITS);
+    const zy1 = Math.floor((wz + reach + half) / ZONE_UNITS);
+    const affected: Array<[number, number]> = [];
+    for (let zy = zy0; zy <= zy1; zy++) {
+      for (let zx = zx0; zx <= zx1; zx++) {
+        this.zones.delete(`${zx},${zy}`);
+        affected.push([zx, zy]);
+      }
+    }
+    return affected;
+  }
+
   // ── Player terrain modification ─────────────────────────────────
 
   /** Existing edit state of a zone; `create` allocates one on demand. */

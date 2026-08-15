@@ -24,12 +24,14 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
-import { Matrix } from '@babylonjs/core/Maths/math.vector';
+import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Material } from '@babylonjs/core/Materials/material';
+import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import type { Scene } from '@babylonjs/core/scene';
 import '@babylonjs/loaders/glTF/2.0';
 import { ShadowDepthWrapper } from '@babylonjs/core/Materials/shadowDepthWrapper';
 import { WindPlugin } from './WindPlugin';
+import { GlutPuls } from './GlutPuls';
 
 const MODEL_BASE_URL = '/assets/models/';
 const TEXTUR_BASE_URL = '/assets/textures/';
@@ -57,6 +59,27 @@ const FEHLENDE_ALBEDO: Readonly<Record<string, string>> = {
   stubbe: 'stump',
 };
 
+
+/**
+ * Prefabs, die sich eine GLB TEILEN.
+ *
+ * `GrabhuegelGras` ist derselbe Bau wie `Grabhuegel`, nur mit Bewuchs auf
+ * der Kuppel (HuegelGras.ts). Der Cache-Schlüssel bleibt der PREFABNAME,
+ * die Variante bekommt also einen eigenen Container — nötig, weil Meshes
+ * die Thin-Instance-Puffer ihres Buckets tragen und ein zweites Prefab auf
+ * denselben Mastern die Instanzen des ersten überschriebe.
+ */
+const MODELL_ALIAS: Readonly<Record<string, string>> = {
+  GrabhuegelGras: 'Grabhuegel',
+};
+
+/**
+ * Kachelmass des Terrains: TerrainSplat rechnet uv = weltXZ × 0.5, eine
+ * 256er-Bodenkachel deckt also 2 × 2 m.
+ */
+const TERRAIN_UV_SCALE = 0.5;
+
+
 /**
  * Eigene Modelle, die sich im Wind biegen sollen, obwohl ihre Textur kein
  * Alpha-Cutout ist.
@@ -73,6 +96,15 @@ const FEHLENDE_ALBEDO: Readonly<Record<string, string>> = {
  * Name hier — das Signal, das die Textur nicht liefert.
  */
 const WIND_TROTZ_OPAKER_TEXTUR = /^KiPine/i;
+
+/**
+ * Modelle, deren Emissive-Karte lebendig pulsieren soll (Lava, Glut, Feuer).
+ *
+ * Die Karte selbst entsteht offline aus der BaseColor (tools/glb-glut.py)
+ * und leuchtet für sich genommen konstant — was sich als angemalt liest.
+ * Erst die Schwankung macht daraus Feuer, und die kommt aus GlutPuls.
+ */
+const GLUEHEND = /^Surtr/i;
 /** Unity LOD shells: Lod0/Lod1/…/LOD3_primitive1 etc. */
 const LOD_NAME = /^lod\d/i;
 const LOD0_NAME = /^lod0/i;
@@ -100,7 +132,10 @@ export class AssetManager {
   private loadContainer(name: string): Promise<AssetContainer | null> {
     let p = this.containers.get(name);
     if (!p) {
-      p = SceneLoader.LoadAssetContainerAsync(MODEL_BASE_URL, `${name}.glb`, this.scene)
+      // Varianten laden die Datei ihres Alias-Ziels, behalten aber ihren
+      // eigenen Container (Cache-Schlüssel bleibt `name` — s. MODELL_ALIAS).
+      const datei = MODELL_ALIAS[name] ?? name;
+      p = SceneLoader.LoadAssetContainerAsync(MODEL_BASE_URL, `${datei}.glb`, this.scene)
         .catch((err: unknown) => {
           this.failed.set(name, String(err));
           console.warn(`[assets] load failed: ${name}`, err);
@@ -160,7 +195,60 @@ export class AssetManager {
       for (const g of inst.animationGroups) g.stop();
       gruppe.start(true);
     }
-    return (inst.rootNodes[0] as TransformNode) ?? null;
+    const wurzel = (inst.rootNodes[0] as TransformNode) ?? null;
+    // Die Gruppen dieser INSTANZ merken: instantiateModelsToScene klont sie
+    // je Aufruf (jede Instanz hat eigene), scene.animationGroups wirft aber
+    // alle in einen Topf. Ohne diese Zuordnung liesse sich zur Laufzeit
+    // nicht sagen, welche Gruppe zu welchem NPC gehört.
+    if (wurzel && inst.animationGroups.length > 0) {
+      this.animGruppen.set(wurzel, inst.animationGroups);
+    }
+    return wurzel;
+  }
+
+  /**
+   * Animationsgruppen je instanziierter Wurzel — Grundlage für den Wechsel
+   * zur Laufzeit (s. wechsleAnimation). WeakMap: Wird der Knoten entsorgt,
+   * verschwindet der Eintrag von selbst.
+   */
+  private readonly animGruppen = new WeakMap<TransformNode, AnimationGroup[]>();
+
+  /**
+   * Animationsgruppe einer BESTEHENDEN Instanz umschalten (Routen-NPCs:
+   * `walk` beim Gehen, `idle` im Stand).
+   *
+   * Warum so schlank: Der Zustandsname vom Server IST der Gruppenname im
+   * Modell — ein Teiltreffer ohne Gross-/Kleinschreibung genügt, damit
+   * "Walking" aus npc_1_walk.glb ebenso trifft wie ein sauber benanntes
+   * "walk". Eine Zuordnungstabelle je Prefab bräuchte es erst, wenn ein
+   * Modell seine Zustände wirklich anders nennt.
+   *
+   * Fehlt die Gruppe (das noch ungeriggte Voelva-Modell, jedes Prefab ohne
+   * Clips), passiert genau NICHTS ausser dass die bisherige Gruppe stoppt:
+   * Ein Laufzyklus, der im Stand weiterläuft, wäre falscher als eine
+   * ruhende Pose. Die Bewegung selbst hängt nicht daran — die kommt vom
+   * Server.
+   */
+  wechsleAnimation(root: TransformNode, wunsch: string): void {
+    const gruppen = this.animGruppen.get(root);
+    if (!gruppen || gruppen.length === 0) return;
+    const ziel = gruppen.find((g) => g.name.toLowerCase().includes(wunsch.toLowerCase()));
+    for (const g of gruppen) {
+      if (g !== ziel) g.stop();
+    }
+    if (ziel && !ziel.isPlaying) ziel.start(true);
+  }
+
+  /**
+   * Animationsgruppen einer entsorgten Instanz freigeben. Sie hängen an
+   * der Szene, nicht am Knoten — ohne dispose liefen sie nach dem
+   * Entfernen des NPCs auf toten Zielen weiter.
+   */
+  entsorgeAnimationen(root: TransformNode): void {
+    const gruppen = this.animGruppen.get(root);
+    if (!gruppen) return;
+    this.animGruppen.delete(root);
+    for (const g of gruppen) g.dispose();
   }
 
   /**
@@ -176,6 +264,17 @@ export class AssetManager {
    * einzigen Master zusammengelegt (verschmelzeNachMaterial) — das ist
    * der Unterschied zwischen 435 und 124 Zeichenaufrufen, s. dort.
    */
+  /**
+   * Bereits gebaute Master OHNE Ladeanstoss — für Systeme, die auf fertige
+   * Prefabs nur REAGIEREN (HuegelGras streut Halme auf die Grabhügel-
+   * Kuppel). getMasters() würde die 17-MB-GLB auch dann laden, wenn nie
+   * eine Instanz gespawnt wird; hier gibt es null, solange der
+   * EntityManager das Modell nicht selbst angefordert hat.
+   */
+  mastersSofort(name: string): PrefabMaster[] | null {
+    return this.masters.get(name) ?? null;
+  }
+
   async getMasters(name: string): Promise<PrefabMaster[]> {
     const cached = this.masters.get(name);
     if (cached) return cached;
@@ -214,6 +313,10 @@ export class AssetManager {
         mesh.setEnabled(false);
         continue;
       }
+      // Meadows-Grabhügel: Die Erdkuppel bekommt Terrain-Kachel-UVs. Muss
+      // HIER passieren, solange die GLB-Hierarchie noch intakt ist — die
+      // planare Projektion braucht die Prefab-lokalen Weltkoordinaten,
+      // die zuMaster() gleich danach in localMatrix wegbäckt.
       await this.fixupMaterial(mesh.material, name, mesh);
       mesh.isPickable = false;
       kandidaten.push(mesh);
@@ -330,6 +433,12 @@ export class AssetManager {
     // stehen, dessen frühe `return`s solche Materialien sonst aussortieren
     // (siehe WIND_TROTZ_OPAKER_TEXTUR).
     if (WIND_TROTZ_OPAKER_TEXTUR.test(modelName)) this.setzeWind(material, mesh);
+
+    // Glut zum Pulsen anmelden — ebenfalls vor dem Cutout-Block, aus
+    // demselben Grund.
+    if (GLUEHEND.test(modelName) && material.emissiveTexture) {
+      GlutPuls.registriere(material, this.scene);
+    }
 
     // Fehlende Albedo-Textur aus der Lückenliste nachreichen, bevor unten
     // irgendetwas an ihr gemessen wird (siehe FEHLENDE_ALBEDO).
@@ -475,6 +584,7 @@ export class AssetManager {
     plugin.spread = Math.max(plugin.spread, weite);
   }
 }
+
 
 /**
  * Submeshes gleichen Materials zu je einem Mesh zusammenlegen.

@@ -175,6 +175,275 @@ export const HINT_DEFS: PrefabDef[] = [
   def('BirkeDicht1', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 5.2, 6.1, 'BirkeDicht1'),
   def('BirkeDicht2', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 7.3, 9.6, 'BirkeDicht2'),
   def('BirkeDicht3', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 8.4, 12.5, 'BirkeDicht3'),
+  // Eichen — die einzige Art mit EIGENEN Texturen. eiche_leaf.png und
+  // eiche_bark.png zeichnet tools/eiche-texturen.py prozedural, nichts davon
+  // stammt aus Valheim. Der Rest der Kette ist unverändert.
+  //
+  // Habitus: kurzer dicker Stamm, tief ansetzende Äste, die waagerecht
+  // herausgehen und sich erst außen aufrichten. Breiter als Fichte und Birke
+  // (Verhältnis 1,2 statt 1,9), aber bewusst nicht breiter als hoch — ein
+  // erster Versuch stand bei 15,7 × 13,2 m und hätte im Wald den Platz von
+  // drei Fichten gebraucht. Das Original `Oak1` (Zeile 126) liegt bei 6 × 9.
+  //
+  // Wenige GROSSE Laubkarten (42 Stück, leafScale 1,35): Mit 96 kleinen sah
+  // die Krone aus wie Farnwedel statt wie Eichenlaub. Maße gemessen.
+  def('Eiche1', F.TREE_BASE | F.PERSISTENT, 'sapling_oak', 10.5, 12.8, 'Eiche1'),
+  def('Eiche2', F.TREE_BASE | F.PERSISTENT, 'sapling_oak', 8.9, 10.7, 'Eiche2'),
+  def('Eiche3', F.TREE_BASE | F.PERSISTENT, 'sapling_oak', 12.7, 16.1, 'Eiche3'),
+
+  // ── Grosse Bäume (08/2026) ───────────────────────────────────────
+  // Nach den Vorbildern: Was einen Wald tief wirken lässt, ist nicht die
+  // Kronenhöhe, sondern der STAMM — er nimmt die Weitsicht, und der Blick
+  // bleibt an ihm hängen statt bis zum Horizont zu laufen.
+  //
+  // Zwei Werte tragen das, beide im Rezept (tools/baeume-bauen.sh):
+  //   karte  skaliert die Blattkarten mit (sonst wird ein 22-m-Baum licht,
+  //          weil `leafScale` bei Sapling eine absolute Länge ist)
+  //   stamm  skaliert `ratio` — die Riesen tragen gut einen Meter
+  //          Durchmesser statt 62 cm
+  def('Fichte4', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 9.8, 19.0, 'Fichte4'),
+  def('Fichte5', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 9.5, 21.5, 'Fichte5'),
+  def('Fichte6', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 10.9, 23.6, 'Fichte6'),
+  def('Tanne5', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 10.4, 16.3, 'Tanne5'),
+  def('Tanne6', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 13.7, 20.0, 'Tanne6'),
+  def('Tanne7', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 15.9, 22.5, 'Tanne7'),
+  // Kiefer: langer astfreier Stamm, Schirmkrone. Ein Fichtenwald schliesst
+  // unten, ein Kiefernwald oben — erst zusammen ergeben sie einen Wald,
+  // durch den man weder hindurchsieht noch hinaufschaut.
+  def('Kiefer1', F.TREE_BASE | F.PERSISTENT, 'sapling_pine', 14.3, 18.3, 'Kiefer1'),
+  def('Kiefer2', F.TREE_BASE | F.PERSISTENT, 'sapling_pine', 17.5, 21.6, 'Kiefer2'),
+  def('Kiefer3', F.TREE_BASE | F.PERSISTENT, 'sapling_pine', 22.0, 25.9, 'Kiefer3'),
+  def('Kiefer4', F.TREE_BASE | F.PERSISTENT, 'sapling_pine', 23.7, 28.8, 'Kiefer4'),
+  def('Eiche4', F.TREE_BASE | F.PERSISTENT, 'sapling_oak', 18.9, 24.0, 'Eiche4'),
+  def('BirkeHoch4', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 10.2, 17.2, 'BirkeHoch4'),
+  def('BirkeDicht4', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 11.6, 15.7, 'BirkeDicht4'),
+
+  // ── Felsen ───────────────────────────────────────────────────────
+  // Aus tools/felsen-generieren.py: verformte Ikosphären, 80 Dreiecke je
+  // Stück, Textur aus tools/felsen-texturen.py (Granit, Basalt,
+  // Sandstein — alle gerechnet, nichts aus Valheim).
+  //
+  // KEIN TREE_BASE und kein DESTRUCTIBLE: Beide stehen in COLLIDING_FLAGS
+  // (EntityManager.ts:115). Ein Fels SOLL zwar aufhalten — aber der
+  // Kollider käme aus der Bounding Box, und ein Findling ist schräg und
+  // unregelmässig; man bliebe zwei Meter davor hängen. Physics.ts:88
+  // beschreibt genau diesen Fall für Rock_4. Solange die exakte
+  // Mesh-Kollision nicht greift, ist Durchlaufen das kleinere Übel.
+  //
+  // Die Höhe ist die SICHTBARE über Grund — jeder Fels steckt zu einem
+  // Fünftel bis Drittel im Boden, sonst wirkt er hingelegt statt
+  // gewachsen.
+  def('Findling1', F.PERSISTENT, 'stone', 1.4, 0.7, 'Findling1'),
+  def('Findling2', F.PERSISTENT, 'stone', 2.7, 1.5, 'Findling2'),
+  def('Findling3', F.PERSISTENT, 'stone', 5.2, 2.6, 'Findling3'),
+  def('Findling4', F.PERSISTENT, 'stone', 8.4, 4.1, 'Findling4'),
+  def('Felsblock1', F.PERSISTENT, 'stone', 1.2, 0.9, 'Felsblock1'),
+  def('Felsblock2', F.PERSISTENT, 'stone', 2.5, 1.8, 'Felsblock2'),
+  def('Felsblock3', F.PERSISTENT, 'stone', 4.5, 3.1, 'Felsblock3'),
+  def('Felsnadel1', F.PERSISTENT, 'stone', 1.4, 2.7, 'Felsnadel1'),
+  def('Felsnadel2', F.PERSISTENT, 'stone', 2.5, 4.7, 'Felsnadel2'),
+  def('Felsplatte1', F.PERSISTENT, 'stone', 2.1, 0.5, 'Felsplatte1'),
+  def('Felsplatte2', F.PERSISTENT, 'stone', 4.4, 1.0, 'Felsplatte2'),
+  def('Felsplatte3', F.PERSISTENT, 'stone', 7.4, 1.7, 'Felsplatte3'),
+  def('Steinbank1', F.PERSISTENT, 'stone', 2.6, 1.2, 'Steinbank1'),
+  def('Steinbank2', F.PERSISTENT, 'stone', 5.1, 2.2, 'Steinbank2'),
+
+  // ── Gebüsch ──────────────────────────────────────────────────────
+  // Fünf Straucharten aus tools/busch-generieren.py, je drei Größen.
+  // Wie die Eiche vollständig OHNE Valheim-Material: Laubkarte und Rinde
+  // zeichnet tools/busch-texturen.py, das Rezept steht in
+  // tools/buesche-bauen.sh.
+  //
+  // KEIN TREE_BASE, und das ist der wichtigste Unterschied zu allem
+  // darüber: Das Flag steht in COLLIDING_FLAGS (EntityManager.ts:115)
+  // und würde jedem Busch einen Kollider geben. Durch Gebüsch läuft man
+  // hindurch — ein 3,8 m breiter Holunder als Mauer wäre im Wald
+  // schlimmer als gar kein Busch. Es macht Sträucher außerdem fällbar
+  // und lässt die Minimap sie als Baum zeichnen (Minimap.ts:224).
+  //
+  // Der Wind greift trotzdem: `swaysInWind` (AssetManager.ts:818) ist
+  // ein Ausschlussfilter über den Modellnamen, und die deutschen
+  // Artnamen stehen nicht darin. Das Laub ist Cutout, also schwingt es
+  // wie bei den Bäumen — nur das Holz bleibt starr.
+  //
+  // Alle Maße sind GEMESSEN, nicht bestellt: Die Höhe trifft die
+  // Bestellung des Rezepts genau (das Skript korrigiert sie über zwei
+  // Messläufe), die Breite ergibt sich aus der Trieb-Neigung und ist der
+  // eigentliche Artcharakter.
+  //
+  // Die Breite ist die GRÖSSERE der beiden Grundflächenachsen, so wie
+  // busch-generieren.py sie druckt. `tools/glb-bbox.js` meldet nur die
+  // x-Ausdehnung und liegt deshalb bei manchen Modellen ein paar
+  // Zentimeter darunter — hier steht bewusst die weitere Hülle.
+  //
+  // Hasel: aufrechter Trichter aus Ruten, die unten frei bleiben —
+  // Stockausschlag-Vielstämmer ohne Stamm. Mit 3 m der höchste Strauch.
+  def('Hasel1', F.PERSISTENT, 'sapling_beech', 1.9, 1.4, 'Hasel1'),
+  def('Hasel2', F.PERSISTENT, 'sapling_beech', 2.9, 2.2, 'Hasel2'),
+  def('Hasel3', F.PERSISTENT, 'sapling_beech', 4.0, 3.0, 'Hasel3'),
+  // Wacholder: gedrungenes Polster, gut ein Drittel breiter als hoch.
+  // Die einzige Nadelart im Gebüsch, blaugrün — sie hebt sich im
+  // Unterholz von allem anderen ab.
+  def('Wacholder1', F.PERSISTENT, 'sapling_fir', 1.0, 0.7, 'Wacholder1'),
+  def('Wacholder2', F.PERSISTENT, 'sapling_fir', 1.6, 1.2, 'Wacholder2'),
+  def('Wacholder3', F.PERSISTENT, 'sapling_fir', 2.6, 1.8, 'Wacholder3'),
+  // Weide: schlanke Ruten, steil gestellt und unten frei — der am
+  // wenigsten ausladende der großen Sträucher. Gehört ans Wasser.
+  def('Weide1', F.PERSISTENT, 'sapling_birch', 1.5, 1.2, 'Weide1'),
+  def('Weide2', F.PERSISTENT, 'sapling_birch', 2.2, 2.0, 'Weide2'),
+  def('Weide3', F.PERSISTENT, 'sapling_birch', 3.4, 2.8, 'Weide3'),
+  // Holunder: die einzige Art mit STAMM — ein kurzer kräftiger Trieb
+  // trägt die Krone, die erst auf gut halber Höhe ansetzt. Seine Früchte
+  // sitzen als DOLDE am Triebende; Schlehe und Heidelbeere weiter unten
+  // tragen ihre einzeln in den Blattachseln.
+  def('Holunder1', F.PERSISTENT, 'blueberries', 1.9, 1.6, 'Holunder1'),
+  def('Holunder2', F.PERSISTENT, 'blueberries', 2.6, 2.4, 'Holunder2'),
+  def('Holunder3', F.PERSISTENT, 'blueberries', 3.9, 3.2, 'Holunder3'),
+  // Brombeere: kniehohes Dickicht aus überhängenden Ranken, gut doppelt
+  // so breit wie hoch. Deckt Boden, ohne Sicht zu nehmen.
+  def('Brombeere1', F.PERSISTENT, 'raspberry', 1.4, 0.6, 'Brombeere1'),
+  def('Brombeere2', F.PERSISTENT, 'raspberry', 1.6, 0.9, 'Brombeere2'),
+  def('Brombeere3', F.PERSISTENT, 'raspberry', 1.8, 1.3, 'Brombeere3'),
+
+  // Zweite Staffel. Sie bringt drei Dinge, die dem ersten Satz fehlten:
+  // BLÜTEN (Heidekraut violett, Ginster gelb — bis hierher war das
+  // Gebüsch durchgehend grün), ZWERGSTRÄUCHER unter einem halben Meter
+  // für den Waldboden, und mit dem Hartriegel die einzige rote Rinde.
+  //
+  // Heidekraut: kniehohes Polster der offenen Heide. Der kleinste
+  // Bewuchs des Projekts — Heidekraut1 misst 35 × 26 cm.
+  def('Heidekraut1', F.PERSISTENT, 'raspberry', 0.4, 0.3, 'Heidekraut1'),
+  def('Heidekraut2', F.PERSISTENT, 'raspberry', 0.6, 0.4, 'Heidekraut2'),
+  def('Heidekraut3', F.PERSISTENT, 'raspberry', 0.7, 0.6, 'Heidekraut3'),
+  // Ginster: aufrechte Rutenbüschel, im Sommer leuchtend gelb. Der
+  // steilste Wuchs im Satz — so breit wie hoch, wie ein Besen.
+  def('Ginster1', F.PERSISTENT, 'sapling_birch', 0.8, 0.8, 'Ginster1'),
+  def('Ginster2', F.PERSISTENT, 'sapling_birch', 1.5, 1.4, 'Ginster2'),
+  def('Ginster3', F.PERSISTENT, 'sapling_birch', 2.4, 2.0, 'Ginster3'),
+  // Schlehe: sparriges Dorndickicht mit blau bereiften Früchten. Wächst
+  // aus Wurzelausläufern, deshalb ohne Stamm und mit weit
+  // auseinanderstehenden Trieben.
+  def('Schlehe1', F.PERSISTENT, 'blueberries', 2.2, 1.6, 'Schlehe1'),
+  def('Schlehe2', F.PERSISTENT, 'blueberries', 2.8, 2.4, 'Schlehe2'),
+  def('Schlehe3', F.PERSISTENT, 'blueberries', 4.1, 3.0, 'Schlehe3'),
+  // Hartriegel: aufrechte Ruten mit blutroter Rinde. Damit man sie
+  // sieht, bleiben die Triebe unten frei — der einzige Farbakzent, der
+  // nicht am Laub hängt.
+  def('Hartriegel1', F.PERSISTENT, 'sapling_beech', 2.1, 1.4, 'Hartriegel1'),
+  def('Hartriegel2', F.PERSISTENT, 'sapling_beech', 2.8, 2.2, 'Hartriegel2'),
+  def('Hartriegel3', F.PERSISTENT, 'sapling_beech', 4.1, 3.0, 'Hartriegel3'),
+  // Heidelbeere: der Zwergstrauch des Nadelwaldbodens, grüne Triebe und
+  // blaue Beeren. Gehört unter die Fichten.
+  def('Heidelbeere1', F.PERSISTENT, 'blueberries', 0.3, 0.3, 'Heidelbeere1'),
+  def('Heidelbeere2', F.PERSISTENT, 'blueberries', 0.7, 0.4, 'Heidelbeere2'),
+  def('Heidelbeere3', F.PERSISTENT, 'blueberries', 0.7, 0.6, 'Heidelbeere3'),
+
+  // ── Blumen und Unkraut ───────────────────────────────────────────
+  // Bodenbewuchs aus tools/blumen-generieren.py, Karten aus
+  // tools/blumen-texturen.py. Rezept: tools/blumen-bauen.sh.
+  //
+  // Anders gebaut als alles darüber: KEINE Sapling-Geometrie, sondern
+  // reine Kartenbündel — je Pflanze ein Viereck. Ein Horst kostet 18 bis
+  // 40 Dreiecke, ein Fünfzigstel eines Busches. Das ist die Bedingung
+  // dafür, dass davon Hunderte in der Welt stehen können.
+  //
+  // Jeder Eintrag ist ein HORST, keine Einzelpflanze: 9 bis 20 Karten
+  // auf einem Streukreis. Eine einzelne Blume zu setzen wäre im Editor
+  // nicht zu bedienen, und im Bild läse sie sich als schwebender Strich.
+  //
+  // Zwei Größen je Art statt drei wie beim Gebüsch. Unter einem Meter
+  // trägt die dritte Stufe nichts mehr bei — zwischen 35 und 55 cm sieht
+  // man den Unterschied, zwischen 35 und 45 nicht.
+  //
+  // Die Höhe ist die der PFLANZE, nicht die des Vierecks: Das Skript
+  // misst aus dem Alphakanal, wie weit die Karte gefüllt ist, und
+  // rechnet das heraus.
+  //
+  // Blumen — die ersten farbigen Pflanzen des Projekts.
+  def('Glockenblume1', F.PERSISTENT, 'dandelion', 0.7, 0.3, 'Glockenblume1'),
+  def('Glockenblume2', F.PERSISTENT, 'dandelion', 1.2, 0.5, 'Glockenblume2'),
+  def('Margerite1', F.PERSISTENT, 'dandelion', 0.8, 0.4, 'Margerite1'),
+  def('Margerite2', F.PERSISTENT, 'dandelion', 1.2, 0.6, 'Margerite2'),
+  def('Trollblume1', F.PERSISTENT, 'dandelion', 0.6, 0.3, 'Trollblume1'),
+  def('Trollblume2', F.PERSISTENT, 'dandelion', 1.1, 0.5, 'Trollblume2'),
+  def('Schafgarbe1', F.PERSISTENT, 'dandelion', 0.9, 0.4, 'Schafgarbe1'),
+  def('Schafgarbe2', F.PERSISTENT, 'dandelion', 1.4, 0.6, 'Schafgarbe2'),
+  // Wollgras gehört ins Moor und an Seeufer — die weißen Fruchtschöpfe
+  // sind auf Entfernung das Kennzeichen nasser Böden.
+  def('Wollgras1', F.PERSISTENT, 'barley', 0.6, 0.3, 'Wollgras1'),
+  def('Wollgras2', F.PERSISTENT, 'barley', 0.8, 0.5, 'Wollgras2'),
+  // Unkraut — dichter, höher, ohne Farbe außer bei Distel und Ampfer.
+  def('Brennnessel1', F.PERSISTENT, 'flax', 1.1, 0.6, 'Brennnessel1'),
+  def('Brennnessel2', F.PERSISTENT, 'flax', 1.9, 1.0, 'Brennnessel2'),
+  def('Distel1', F.PERSISTENT, 'flax', 0.8, 0.6, 'Distel1'),
+  def('Distel2', F.PERSISTENT, 'flax', 1.5, 1.1, 'Distel2'),
+  def('Ampfer1', F.PERSISTENT, 'flax', 0.7, 0.5, 'Ampfer1'),
+  def('Ampfer2', F.PERSISTENT, 'flax', 1.5, 0.9, 'Ampfer2'),
+  def('Farn1', F.PERSISTENT, 'flax', 0.7, 0.4, 'Farn1'),
+  def('Farn2', F.PERSISTENT, 'flax', 1.1, 0.7, 'Farn2'),
+  def('Seggen1', F.PERSISTENT, 'barley', 0.7, 0.4, 'Seggen1'),
+  def('Seggen2', F.PERSISTENT, 'barley', 1.1, 0.6, 'Seggen2'),
+
+  // Grabhügel — erstes prozedurales BAUWERK des Projekts
+  // (tools/grabhuegel-bauen.py), Texturen aus tools/grabhuegel-texturen.py.
+  // Kein TREE_BASE: nicht fällbar, kein Wind, wie beim Steinkreis.
+  //
+  // Der Nullpunkt liegt auf dem KAMMERBODEN, nicht am Hügelfuß. Das ist
+  // Absicht und der ganze Trick am Startpunkt: Der Weltspawn setzt den
+  // Spieler auf Geländehöhe (WovServer.weltSpawn), und weil der Kammerboden
+  // genau dort liegt und der Hügel darüber aufgeschüttet ist, steht man nach
+  // dem Einloggen IN der Grabkammer. Ein Dungeon-Innenraum könnte das nicht:
+  // Positionen im Dungeon-Band verwirft der Login (WovServer.ts:778-798).
+  //
+  // Braucht exakte Mesh-Kollision — siehe BEGEHBAR in EntityManager.ts.
+  // Maße gemessen: 42,6 × 12,2 × 29,3 m, 37.331 Dreiecke, 17 MB. Deutlich
+  // schwerer als der Steinkreis (11.362), weil vier Tripo-Elemente samt
+  // ihren eingebetteten 1024er-Texturen eingestempelt sind (Menhire im
+  // Kranz, Runenstein, zwei Truhen, zwei Drachenköpfe) — vertretbar für
+  // DAS zentrale Einzelbauwerk der Welt, kein Muster für Streugut.
+  // Farbige Details (bemalte Schilde, Segelbahnen, Runenreliefs) kommen
+  // aus grab_schild/grab_segel/grab_stein_runen.png (prozedural).
+  // Die Kuppel trägt die ECHTE Meadows-Bodenkachel (Ebene 0 aus
+  // terrain_d_array.png), damit der Hügel nahtlos auf der Wiese sitzt.
+  //
+  // Das Licht sitzt IM Hügel: Der Innenraum ist rundum geschlossen, ohne
+  // eigene Quelle steht man im Stockdunkeln. offsetY zählt vom Nullpunkt,
+  // also vom Kammerboden. Flackernd, weil in der Kammer zwei steinerne
+  // Feuerschalen stehen.
+  //
+  // Die Reichweite ist BEWUSST kleiner als die Kammer lang ist: Der
+  // LightPool baut schattenlose PointLights, Wände halten das Licht also
+  // nicht auf — mit range 30 leuchtete die Kammerlampe durch die Kuppel
+  // hindurch den Steinkranz (14,1 m) und das Portal (20 m) an. 12,5 m
+  // bleibt unter dem nächsten Außenstein; die Kammerenden fallen dafür
+  // ins Dunkel, was einer Grabkammer gut ansteht.
+  { ...def('Grabhuegel', F.PERSISTENT, 'guardstone', 42.6, 12.2, 'Grabhuegel'),
+    light: { color: [1.0, 0.58, 0.26], intensity: 30, range: 12.5, offsetY: 2.5, flicker: true } },
+  // Zweite Ausführung DESSELBEN Bauwerks, nur bewachsen: HuegelGras.ts
+  // streut Wiesenhalme auf die Kuppel, aber nur bei diesem Prefab. So
+  // stehen im Spawn-Editor beide zur Wahl — kahl aufgeschüttet oder
+  // eingewachsen — ohne dass eine zweite GLB nötig wäre (MODELL_ALIAS im
+  // AssetManager löst den Namen auf dieselbe Datei auf).
+  //
+  // Eigener Eintrag statt eines Schalters, weil Bewuchs am ZDO hängen
+  // müsste, um pro Instanz umschaltbar zu sein — dafür gibt es kein Feld.
+  //
+  // Kollision, Licht und Gras-Aussparung erben über den Namenspräfix:
+  // BEGEHBAR (EntityManager) und INNENRAUM_OHNE_GRAS (main.ts) prüfen
+  // beide auf /^Grabhuegel/.
+  { ...def('GrabhuegelGras', F.PERSISTENT, 'guardstone', 42.6, 12.2, 'GrabhuegelGras'),
+    light: { color: [1.0, 0.58, 0.26], intensity: 30, range: 12.5, offsetY: 2.5, flicker: true } },
+  // Tripo-Einzelelemente des Grabhügels (tools/tripo-generate.mjs, Werte
+  // vom Generator gemessen) — auch einzeln platzierbar: Menhir und
+  // Runenstein tragen die Steinkreis-Optik (bemooster Granit, Runen).
+  { ...def('GrabMenhir', F.PERSISTENT, 'guardstone', 1.0, 2.6, 'GrabMenhir'),
+    localScale: { x: 2.6, y: 2.6, z: 2.6 } },
+  { ...def('GrabRunenstein', F.PERSISTENT, 'guardstone', 0.8, 3.4, 'GrabRunenstein'),
+    localScale: { x: 3.4, y: 3.4, z: 3.4 } },
+  { ...def('GrabTruhe', F.PERSISTENT, 'cryptkey', 0.9, 0.9, 'GrabTruhe'),
+    localScale: { x: 1.25, y: 1.25, z: 1.25 } },
+  { ...def('GrabDrachenkopf', F.PERSISTENT, 'guardstone', 0.5, 1.6, 'GrabDrachenkopf'),
+    localScale: { x: 1.6, y: 1.6, z: 1.6 } },
   // Zweiter Baumversuch mit v3.1 und 15.000 face_limit (KiPine2 lief noch auf
   // v2.5). Die Textur ist deutlich besser — Farben stimmen, Rinde stellenweise
   // erkennbar —, bleibt aber ein Flickenteppich: Anders als beim Steinkreis
@@ -189,11 +458,10 @@ export const HINT_DEFS: PrefabDef[] = [
   // Box: Man soll um eine Statue herumgehen, nicht hindurch.
   { ...def('WikingerStatue', F.PERSISTENT, 'portal_stone', 1.3, 2.6, 'WikingerStatue'),
     localScale: { x: 2.6, y: 2.6, z: 2.6 } },
-  // Steinkreis (Tripo v3.1, 11.362 Dreiecke). Kein TREE_BASE — das Ding ist
-  // ein Bauwerk, kein Gewächs: nicht fällbar, kein Wind. Die Kollision läuft
-  // über BEGEHBAR in EntityManager.ts, sonst stünde eine Box im Durchgang.
-  { ...def('Steinkreis', F.PERSISTENT, 'portal_stone', 3.9, 3.5, 'Steinkreis'),
-    localScale: { x: 4.36, y: 4.36, z: 4.36 } },
+  // Der alte Tripo-Steinkreis (11.362 Dreiecke) wurde 2026-08-06 auf
+  // Mikes Wunsch ausgebaut — seine Rolle uebernehmen die GrabMenhir-
+  // Steine, deren Oberflaeche jetzt die Referenz fuer alles Steinerne
+  // ist. Die GLB liegt weiterhin unter assets/models/Steinkreis.glb.
 
   // ── Rocks / minable ──────────────────────────────────────────────
   def('Rock_4', F.MINE_ROCK_5 | F.PERSISTENT, 'stonerock', 3.0, 2.5),
@@ -262,11 +530,211 @@ export const HINT_DEFS: PrefabDef[] = [
   // damit das Spawn-System sie weder verwaltet noch despawnt, aber
   // SYNCED_TRANSFORM, falls sie später gehen oder sich zuwenden soll.
   //
-  // OHNE Animation: Das Modell kommt ungerigged aus dem Generator und steht
-  // starr. Tripos API kann nachträglich riggen (animate_rig), das ist ein
-  // eigener Aufruf und noch nicht eingebaut.
+  // Geriggt und animiert mit `tools/voelva-rig.py`: 12 handgesetzte Knochen,
+  // Gewichte als stetige Funktion der Position. Blenders "Automatic Weights"
+  // scheidet aus — das Mesh zerfällt in 258 Zusammenhangskomponenten (Tripo
+  // trennt an jeder UV-Naht), und Bone Heat rät dann je Insel und reisst sie
+  // auf. Die GLB trägt die Gruppen `idle` und `walk`.
+  //
+  // `animation: 'idle'` ist nur der ANFANGSZUSTAND. Läuft die Figur eine
+  // Route, schaltet der Server über den ZDO-Member `anim` auf `walk` und
+  // zurück (s. RoutenLaeufer und AssetManager.wechsleAnimation).
   { ...def('Voelva', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 0.8, 1.8, 'Voelva'),
-    localScale: { x: 1.75, y: 1.75, z: 1.75 } },
+    localScale: { x: 1.75, y: 1.75, z: 1.75 }, animation: 'idle' },
+
+  // Furloc-Fischer — krötenartiges Fischervolk mit Dreizack, Reusenkorb und
+  // Strohhut (Meshy-Modell, 10.374 Dreiecke). Die gelieferte GLB hatte
+  // 4096²-Texturen und 43 MB; auf 1024² heruntergerechnet sind es 3,6 MB
+  // (tools/glb-textur-verkleinern.py).
+  //
+  // GEMESSEN am gelieferten Modell: Körper (Sohle bis Hutkrempe) 1,432
+  // Einheiten, der Dreizack ragt oben UND unten darüber hinaus (1,548) —
+  // sein Schaftende ist der tiefste Punkt der ganzen Datei. Die Höhe hier
+  // ist deshalb die Gesamthöhe inklusive Dreizack; für das Namensschild
+  // zählt sie richtig, denn der Dreizack steht wirklich so hoch.
+  //
+  // Die Fraktion `furlocs` und die Rolle stehen in shared/src/npc.ts,
+  // nicht hier — dort liegt das NPC-Datenmodell.
+  { ...def('FurlocFischer', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 2.0, 1.65, 'FurlocFischer'),
+    localScale: { x: 1.05, y: 1.05, z: 1.05 }, animation: 'idle' },
+
+  // ── Das übrige Furloc-Volk ─────────────────────────────────────────
+  // Fünf weitere Figuren derselben Meshy-Reihe, geriggt mit
+  // tools/furloc-volk-rig.py (vier Gelenke je Bein, Gewichte als stetige
+  // Funktion der Position, Aktionen `idle`, `walk`, `attack`). Alle fünf
+  // kamen mit 4096²-Texturen und 35 bis 40 MB an; auf 1024²
+  // heruntergerechnet sind es gut drei (tools/glb-textur-verkleinern.py).
+  // Ohne diesen Schritt lädt der Client sich tot — dieselbe Erfahrung wie
+  // bei der Völva.
+  //
+  // Die Höhe hier ist die GESAMTHÖHE über der Sohle, also einschliesslich
+  // Speer, Stab und Hörnern. Für das Namensschild zählt sie richtig, denn
+  // so hoch steht die Figur wirklich; die reine Körperhöhe steht jeweils
+  // daneben, weil `localScale` aus ihr folgt.
+  //
+  // Die Breite ist die Körperbreite OHNE die Arme: Meshy liefert alle
+  // fünf in einer T-Pose mit waagerecht ausgestreckten Armen, und die ist
+  // eine Bindepose — in jeder der drei Animationen hängt der freie Arm
+  // unten.
+  //
+  // Fraktion und Rolle stehen in shared/src/npc.ts, nicht hier.
+
+  // Krieger mit Speer und Schildkrötenpanzer-Schild (10.151 Dreiecke,
+  // fertige GLB 4,2 MB). Als einziger der fünf trägt er ein HANDGERIGGTES
+  // Rigify-Skelett (160 DEF-Knochen samt Gesicht und Fingern) statt der
+  // Eigenbau-Kette aus tools/furloc-volk-rig.py; gebaut wird er mit
+  // tools/furloc-krieger-rigify.py aus assets/upload/furloc_krieger.glb.
+  // Die ursprüngliche handgebaute Fassung liegt als
+  // FurlocKrieger-handrig.glb daneben.
+  //
+  // Sein `localScale` weicht von den vier Verwandten ab, obwohl die Figur
+  // gleich groß bleibt: Die Upload-Datei trägt dieselbe Geometrie um den
+  // Faktor 1,403 größer (Körper 1,796 statt 1,280 Einheiten). 1,796 ×
+  // 0,999 sind wieder die 1,79 m von vorher — er überragt den Fischer um
+  // gut zehn Zentimeter, was ihm als Kämpfer zusteht.
+  //
+  // Die Höhe ist die an der VERFORMTEN Haut gemessene, nicht die
+  // Speerspitze der Ruhepose (1,88 m): Er trägt den Speer in allen drei
+  // Clips geneigt, und gemessen steht er im Leerlauf 1,79 m, im Gehen
+  // 1,80 m und im Angriff 1,82 m hoch.
+  { ...def('FurlocKrieger', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 2.2, 1.80, 'FurlocKrieger'),
+    localScale: { x: 0.999, y: 0.999, z: 0.999 }, animation: 'idle' },
+
+  // Häuptling mit Hörnerhelm, Fellumhang und knorrigem Stab (10.119
+  // Dreiecke, fertige GLB 3,3 MB). Körper 1,193 Einheiten, mal 1,47 sind
+  // das 1,75 m; er ist der Breiteste der fünf. Sein Umhangsaum hängt einen
+  // Zentimeter tiefer als seine Sohle und streift deshalb das Gelände —
+  // gewollt, denn die Alternative wäre eine schwebende Figur.
+  { ...def('FurlocHaeuptling', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 2.2, 1.79,
+      'FurlocHaeuptling'),
+    localScale: { x: 1.47, y: 1.47, z: 1.47 }, animation: 'idle' },
+
+  // Schamane mit Blattkapuze und Stab mit leuchtendem Stein (10.175
+  // Dreiecke, fertige GLB 3,7 MB). Körper 1,214 Einheiten, mal 1,34 sind
+  // das 1,63 m. Der Stab überragt ihn deutlich: 1,82 m.
+  { ...def('FurlocSchamane', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 2.1, 1.82,
+      'FurlocSchamane'),
+    localScale: { x: 1.34, y: 1.34, z: 1.34 }, animation: 'idle' },
+
+  // Ältester, gebeugt unter einem bodenlangen Umhang, mit Tierschädelstab
+  // (10.038 Dreiecke, fertige GLB 3,6 MB). Körper 1,344 Einheiten, mal
+  // 1,19 sind das 1,60 m — kleiner als die Jüngeren, weil er gebeugt
+  // steht. Auch sein Saum streift das Gelände.
+  { ...def('FurlocAeltester', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 2.1, 1.67,
+      'FurlocAeltester'),
+    localScale: { x: 1.19, y: 1.19, z: 1.19 }, animation: 'idle' },
+
+  // Kind mit viel zu grossem Hörnerhelm und Holzschwert (9.930 Dreiecke,
+  // fertige GLB 3,4 MB). Hier ist die Gesamthöhe zugleich die Körperhöhe,
+  // denn der Helm IST der höchste Punkt: 1,774 Einheiten mal 0,59 sind
+  // 1,05 m. Das ist bewusst klein — es soll neben dem Häuptling als Kind
+  // erkennbar sein und nicht als kleiner Erwachsener.
+  { ...def('FurlocKind', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 1.0, 1.05, 'FurlocKind'),
+    localScale: { x: 0.59, y: 0.59, z: 0.59 }, animation: 'idle' },
+
+  // Basis-Spielerkörper — der nackte Wikinger, auf dem Charaktererstellung
+  // und Rüstung aufsetzen (Tripo v3.1, 9.730 Dreiecke, Texturen auf 1024²).
+  // Geriggt mit tools/spieler-rig.py.
+  //
+  // Die 24 Knochen tragen TRIPOS AUTO-RIG-NAMEN (Hip, Spine01, R_Hand …)
+  // und nicht die deutschen Namen der übrigen Rigs. Das ist Absicht:
+  // client/src/player/AvatarRig.ts sucht seine Knochen über genau diese
+  // Namen, und tools/mixamo-to-avatar.mjs bildet 22 Mixamo-Knochen darauf
+  // ab. Ein Rig mit eigenen Namen wäre für den Spieler unbrauchbar — die
+  // Figur bliebe in der Bindepose stehen.
+  //
+  // Die GLB trägt vier Gruppen: idle, gehen, rennen, angriff. `gehen` und
+  // `rennen` enthalten WURZELBEWEGUNG — AvatarRig misst sie, entfernt sie
+  // und normiert damit `speedRatio` gegen das Fussrutschen. Der dynamische
+  // Pfad des EntityManagers entfernt sie NICHT. Deshalb hier
+  // `animation: 'idle'` und keine Route: Als Routen-NPC liefe die Figur je
+  // Zyklus 1,33 m aus ihrer eigenen Position heraus und spränge zurück.
+  //
+  // localScale ist GEMESSEN, nicht gewählt: Das Modell ist 0,9996 Einheiten
+  // hoch (Tripo normiert auf Kantenlänge 1), Zielgrösse 1,80 m. Die Sohle
+  // liegt auf y = 0. Die Breite 1,1 ist die Armspannweite der A-Pose, nicht
+  // die Schulter (0,66) — in der Bindepose stehen die Hände weit ab.
+  //
+  // ACHTUNG: Dieses Prefab ist zum ANSEHEN da, es löst `PlayerAvatar.glb`
+  // noch NICHT ab. Für den Tausch müssen in AvatarRig.ts zwei Konstanten
+  // mit: MODELL_HALBHOEHE von 0,495 auf 0 (die alte Datei ist um den
+  // Ursprung zentriert, diese steht auf der Sohle) und MODELL_SKALIERUNG
+  // von 1,8/0,99 auf 1,8/0,9996. Vorher geändert, schwebt der heutige
+  // Spieler 0,90 m über dem Boden.
+  { ...def('WikingerBasis', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 1.1, 1.8, 'WikingerBasis'),
+    localScale: { x: 1.8007, y: 1.8007, z: 1.8007 }, animation: 'idle' },
+
+  // Surtr — der Feuerriese aus Muspelheim, der bei Ragnarök mit flammendem
+  // Schwert die Welt verbrennt (Tripo v3.1, 14.568 Dreiecke, Texturen auf
+  // 1024 begrenzt). 9 m hoch, also auf Augenhöhe mit einer ausgewachsenen
+  // Tanne und doppelt so hoch wie ein Troll.
+  //
+  // Die Lavaadern leuchten: tools/glb-glut.py leitet aus der BaseColor eine
+  // Emissive-Karte ab (10,6 % der Fläche), GlutPuls lässt sie im Client
+  // schwanken.
+  //
+  // Geriggt und animiert mit `tools/surtr-rig.py`: 17 handgesetzte Knochen
+  // (Rumpf, beide Arme, Schwert, beide Beine), Gewichte als stetige
+  // Funktion der Position. Es löst das erste Rig aus tools/rig-idle.py ab —
+  // dessen vier gestapelte Knochen konnten wiegen, aber nicht gehen und
+  // nicht schlagen.
+  //
+  // Jedes Bein hat VIER Gelenke: Hüfte, Knie, Knöchel und Zehenballen.
+  // Mit den ursprünglichen zwei je Bein („Bein" und ein Knochen, der
+  // fälschlich „Fuß" hieß, in Wahrheit aber der Unterschenkel war) konnte
+  // der Gang gar nicht stimmen: Ohne Sprunggelenk kippt jedes Kniebeugen
+  // die ganze Sohle mit, und weil die Beinlänge dann fest ist, muss der
+  // Schwungfuß durch den Boden fahren. Gemessen (tools/gang-diagnose.py,
+  // auf localScale 9 gerechnet) waren das 15 bis 17 cm Fuß unter dem
+  // Gelände, knapp 3 m Rutschweg je Zyklus und eine Standphase von nur
+  // 22 bis 28 % statt der 60 %, die einen Gang von einem Sprunglauf
+  // unterscheiden.
+  //
+  // Der Laufzyklus wird nicht mehr aus Winkeln zusammengesetzt, sondern
+  // rückwärts gerechnet: Der Bodenpunkt der Sohle wandert im Körperraum
+  // mit genau `speed × Zyklusdauer` nach hinten (steht im Weltraum also
+  // still), daraus folgt die Knöchellage, daraus lösen sich die
+  // Gelenkwinkel. Rutschen ist damit ausgeschlossen, statt nachträglich
+  // wegjustiert zu werden.
+  //
+  // ACHTUNG, gekoppelte Werte: Der Zyklus ist auf ROUTE_DEFAULT_SPEED
+  // (1,5 m/s) und localScale 9 gerechnet. Bekommt Surtrs Route je ein
+  // eigenes `speed`, muss `tools/surtr-rig.py --tempo <m/s>` neu laufen,
+  // sonst rutscht der Fuß wieder. Die Zyklusdauer von 3,4 s ist kein
+  // Geschmackswert: Länger reicht das gemessene 3,25-lange Bein nicht
+  // mehr an den Boden (es stünde am Ende der Standphase steif
+  // durchgestreckt), kürzer schrumpft die Schrittweite unter die 5,10 m,
+  // die 1,5 m/s in 3,4 s ergeben. Zum Vergleich schwingt ein 3,78 m
+  // langes Bein als physisches Pendel in 3,18 s durch — der Takt liegt
+  // also 7 % daneben, die alten 2,6 s lagen 18 % zu schnell.
+  //
+  // Warum wieder von Hand: Tripos Auto-Rigging war hier zweimal
+  // gescheitert (v2.5 zerlegte die Geometrie schon beim Riggen, v1.0
+  // riggte sauber, aber das Retargeting von "preset:idle" zerriss sie
+  // doch) — die Presets erwarten menschliche Proportionen. Blenders
+  // "Automatic Weights" scheidet ebenfalls aus: Das Mesh zerfällt in 170
+  // Zusammenhangskomponenten (Tripo trennt an jeder UV-Naht), und Bone
+  // Heat rät dann je Insel und reißt sie auf. Gewichte aus der POSITION
+  // können das prinzipbedingt nicht.
+  //
+  // Die GLB trägt die Gruppen `idle` (6,0 s), `walk` (3,4 s) und `attack`
+  // (2,6 s). `animation: 'idle'` ist nur der ANFANGSZUSTAND; der Server
+  // schaltet über den ZDO-Member `anim` um (s. RoutenLaeufer und
+  // AssetManager.wechsleAnimation).
+  //
+  // ACHTUNG bei `attack`: Der Client startet JEDE Gruppe in Schleife
+  // (AssetManager: `gruppe.start(true)`). Ein einmaliger Clip ist dort
+  // noch nicht vorgesehen. Der Clip beginnt und endet deshalb in der
+  // Ruhehaltung und hat an beiden Enden eine Pause — in Schleife liest er
+  // sich als "ausholen, schlagen, ausholen" statt als Zuckung.
+  //
+  // Er steht auf seiner Sohle: Die Unterkante der Geometrie liegt exakt
+  // auf z = 0 des Modells (gemessen in Blender und im laufenden Client:
+  // tiefster Vertex 0,000 m über dem Prefab-Ursprung). Ein Höhenversatz
+  // gehört hier also nirgends hin — steht er trotzdem in der Luft, liegt
+  // es an der Platzierungshöhe, nicht am Modell.
+  { ...def('Surtr', F.SYNCED_TRANSFORM | F.PERSISTENT, null, 5.0, 9.0, 'Surtr'),
+    localScale: { x: 9, y: 9, z: 9 }, animation: 'idle' },
 
   // ── Misc world objects ───────────────────────────────────────────
   def('Vegvisir', F.PERSISTENT, null, 1.5, 2.5),
@@ -327,11 +795,104 @@ export const EIGENE_MODELLE: readonly string[] = [
   'Fichte1',
   'Fichte2',
   'Fichte3',
+  'Eiche1',
+  'Eiche2',
+  'Eiche3',
+  'Fichte4',
+  'Fichte5',
+  'Fichte6',
+  'Tanne5',
+  'Tanne6',
+  'Tanne7',
+  'Kiefer1',
+  'Kiefer2',
+  'Kiefer3',
+  'Kiefer4',
+  'Eiche4',
+  'BirkeHoch4',
+  'BirkeDicht4',
+  'Findling1',
+  'Findling2',
+  'Findling3',
+  'Findling4',
+  'Felsblock1',
+  'Felsblock2',
+  'Felsblock3',
+  'Felsnadel1',
+  'Felsnadel2',
+  'Felsplatte1',
+  'Felsplatte2',
+  'Felsplatte3',
+  'Steinbank1',
+  'Steinbank2',
+  'Hasel1',
+  'Hasel2',
+  'Hasel3',
+  'Wacholder1',
+  'Wacholder2',
+  'Wacholder3',
+  'Weide1',
+  'Weide2',
+  'Weide3',
+  'Holunder1',
+  'Holunder2',
+  'Holunder3',
+  'Brombeere1',
+  'Brombeere2',
+  'Brombeere3',
+  'Heidekraut1',
+  'Heidekraut2',
+  'Heidekraut3',
+  'Ginster1',
+  'Ginster2',
+  'Ginster3',
+  'Schlehe1',
+  'Schlehe2',
+  'Schlehe3',
+  'Hartriegel1',
+  'Hartriegel2',
+  'Hartriegel3',
+  'Heidelbeere1',
+  'Heidelbeere2',
+  'Heidelbeere3',
+  'Glockenblume1',
+  'Glockenblume2',
+  'Margerite1',
+  'Margerite2',
+  'Trollblume1',
+  'Trollblume2',
+  'Schafgarbe1',
+  'Schafgarbe2',
+  'Wollgras1',
+  'Wollgras2',
+  'Brennnessel1',
+  'Brennnessel2',
+  'Distel1',
+  'Distel2',
+  'Ampfer1',
+  'Ampfer2',
+  'Farn1',
+  'Farn2',
+  'Seggen1',
+  'Seggen2',
+  'Grabhuegel',
+  'GrabhuegelGras',
+  'GrabMenhir',
+  'GrabRunenstein',
+  'GrabTruhe',
+  'GrabDrachenkopf',
   'KiPine2',
   'KiPine3',
-  'Steinkreis',
   'WikingerStatue',
   'Voelva',
+  'Surtr',
+  'FurlocFischer',
+  'FurlocKrieger',
+  'FurlocHaeuptling',
+  'FurlocSchamane',
+  'FurlocAeltester',
+  'FurlocKind',
+  'WikingerBasis',
 ];
 
 function buildRegistry(): PrefabDef[] {

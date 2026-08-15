@@ -335,6 +335,31 @@ interface Variant {
 interface QueuedCell { cx: number; cy: number; d2: number }
 
 /**
+ * Ein Wiesen-Eintrag, wie ihn externe Bewuchs-Streuer brauchen (HuegelGras
+ * bepflanzt damit die Kuppel des Meadows-Grabhügels): Halm-Geometrie,
+ * das FERTIGE Material samt Wind-Plugin und die Streuparameter.
+ *
+ * Das Material wird GETEILT, nicht kopiert — mit Absicht: HD-Umschalter
+ * (setHdClutter), Wiesen-Tönung und die Sichtweiten-Uniforms wirken damit
+ * automatisch auch auf extern gestreute Halme, die sonst bei jedem
+ * Settings-Wechsel aus dem Wiesenbild fielen.
+ */
+export interface WiesenStreugut {
+  geometry: {
+    positions: Float32Array;
+    normals: Float32Array;
+    uvs: Float32Array;
+    indices: Uint32Array;
+  };
+  material: StandardMaterial;
+  /** Halme je m² — entry.amount gilt je 10-m-Patch (100 m²). */
+  dichteProM2: number;
+  prefabScale: readonly [number, number, number];
+  scaleMin: number;
+  scaleMax: number;
+}
+
+/**
  * One thin-instance mesh of a cell, with its buffers kept alongside. The
  * buffers are what makes clearArea() possible: individual blades can be
  * dropped from them without rebuilding the whole 40 m cell.
@@ -717,6 +742,26 @@ export class GrassClutter {
   }
 
   /**
+   * Die beiden Wiesengras-Einträge für externe Streuer (s. WiesenStreugut).
+   * null, solange die Clutter-Assets noch laden — der Aufrufer fragt dann
+   * später erneut (HuegelGras pollt ohnehin im Sekundentakt).
+   */
+  wiesenStreugut(): WiesenStreugut[] | null {
+    if (!this.ready) return null;
+    const schluessel = new Set(['meadowsGrass', 'meadowsGrassShort']);
+    return this.variants
+      .filter((v) => schluessel.has(v.entry.key))
+      .map((v) => ({
+        geometry: v.geometry,
+        material: v.material,
+        dichteProM2: v.entry.amount / (PATCH * PATCH),
+        prefabScale: v.entry.prefabScale,
+        scaleMin: v.entry.scaleMin,
+        scaleMax: v.entry.scaleMax,
+      }));
+  }
+
+  /**
    * Legt die Clutter-Textur so an, wie GrassClutter sie braucht.
    *
    * sRGB→linear MUSS die GPU übernehmen. Die Szene rechnet linear
@@ -742,28 +787,61 @@ export class GrassClutter {
    * linearen Raum laufen. Der Alphakanal wird dabei nicht dekodiert, der
    * Cutout bleibt also unverändert.
    */
-  private makeTexture(url: string): Texture {
+  private makeTexture(url: string, beiFehler?: () => void): Texture {
     const tex = new Texture(url, this.scene, {
       noMipmap: false,
       invertY: false,
       samplingMode: Texture.TRILINEAR_SAMPLINGMODE,
       useSRGBBuffer: true,
+      onError: beiFehler ? () => beiFehler() : undefined,
     });
     tex.wrapU = tex.wrapV = Texture.WRAP_ADDRESSMODE;
     return tex;
   }
 
+  /**
+   * Wird gesetzt, sobald eine HD-Karte nicht geladen werden konnte.
+   *
+   * Das HD-Paket (`assets/textures/hd-clutter/`) stammt aus dem
+   * Willybach-Mod und wird NICHT mitgeliefert — es gibt dafür kein
+   * eigenes Rezept unter `tools/`. Ohne das Paket lieferte jede Karte
+   * eine 404, und Babylon legt dann seine magenta-schwarze Ersatzkachel
+   * über den kompletten Bodenbewuchs: die halbe Welt ist pink.
+   *
+   * Den Standardwert der Einstellung auf `false` zu setzen reicht dafür
+   * NICHT — `GameSettings` merged `{...DEFAULTS, ...gespeichert}`, und wer
+   * die Seite schon einmal geladen hat, trägt `hdClutter: true` dauerhaft
+   * im localStorage. Deshalb die Rückfallebene hier: Die erste
+   * fehlgeschlagene Karte schaltet HD für diese Sitzung ab, und alle
+   * Varianten holen sich ihre Originalkarte. Der Schalter im
+   * Einstellungsfenster bleibt bedienbar — wer das Paket lokal hat,
+   * bekommt beim nächsten Laden wieder HD.
+   */
+  private hdFehlt = false;
+
   /** Setzt Textur und Tönung eines Variants passend zum HD-Schalter. */
   private applyTexture(v: Variant): void {
     const entry = v.entry;
     const hdName = HD_CLUTTER[entry.texture];
-    const useHd = this.hd && hdName !== undefined;
+    const useHd = this.hd && !this.hdFehlt && hdName !== undefined;
     const key = `${useHd ? 'hd' : 'o'}:${entry.texture}:${entry.texRepeatU}`;
 
     let tex = this.texCache.get(key);
     if (!tex) {
       const base = useHd
-        ? this.makeTexture(`${HD_BASE_URL}${hdName}@${HD_SEASON}.png`)
+        ? this.makeTexture(`${HD_BASE_URL}${hdName}@${HD_SEASON}.png`, () => {
+            // Erste fehlende HD-Karte schaltet HD für diese Sitzung ab und
+            // setzt ALLE Varianten neu — sonst bliebe der Rest der Karten
+            // in derselben Falle und liefe einzeln in seine eigene 404.
+            if (this.hdFehlt) return;
+            this.hdFehlt = true;
+            console.warn(
+              '[GrassClutter] HD-Texturpaket nicht vorhanden — zurück auf die Originalkarten. ' +
+                'Das Paket wird nicht ausgeliefert (siehe hdFehlt).'
+            );
+            this.texCache.delete(key);
+            for (const variant of this.variants) this.applyTexture(variant);
+          })
         : this.texturesOrig.get(entry.texture);
       if (!base) return;
       // Bei Repeat ≠ 1 eine eigene Instanz, damit uScale nicht auf der

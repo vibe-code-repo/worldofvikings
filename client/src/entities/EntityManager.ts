@@ -23,7 +23,9 @@ import {
   getRoomByHash,
   getStableHash,
   getTerrainLeveling,
+  lebenAnteil,
 } from '@wov/shared';
+import type { NpcEinordnung } from '@wov/shared';
 import { buildMeshCollider, deriveCollider, StaticColliderSet } from '../engine/Physics';
 
 import type { AssetManager } from '../engine/AssetManager';
@@ -61,7 +63,7 @@ const FELS_MAX_DREIECKE = 4000;
  * über alle Instanzen geteilt (StaticColliderSet), pro Instanz entstehen nur
  * Transform und Body.
  */
-const BEGEHBAR = /^(Steinkreis)/i;
+const BEGEHBAR = /^(Grabhuegel)/i;
 
 
 /** Flags whose ZDOs move on their own (server-side AI / physics). */
@@ -168,6 +170,31 @@ interface StaticBucket {
   mastersReady: boolean;
 }
 
+/**
+ * Eine dynamische Instanz, wie die Namensschilder sie brauchen: wer sie ist,
+ * wo sie steht und wie gross sie geraten ist. Wird WIEDERVERWENDET —
+ * siehe dynamischeInstanzen().
+ */
+export interface DynamischeInstanz {
+  /** ZDO-Schlüssel (`userId:id`, im Testflug `edplace-<i>`/`edghost`). */
+  key: string;
+  prefab: string;
+  x: number;
+  y: number;
+  z: number;
+  /** Weltskalierung auf der Hochachse (localScale × ZDO-Skalierung). */
+  skalierungY: number;
+  /**
+   * Leben in PROZENT, oder -1 für „unbekannt".
+   *
+   * Prozent und nicht Trefferpunkte, weil hier der einzige Ort ist, an dem
+   * Wert und Prefabname sicher zusammenliegen — das Namensschild bekommt
+   * die Instanz, kennt aber deren Maximalwert nicht ohne einen zweiten
+   * Tabellenzugriff. Umgerechnet wird mit `lebenAnteil` (shared/leben.ts).
+   */
+  leben: number;
+}
+
 /** Minimalform von Vector3 aus den Prefab-Daten. */
 interface Vector3Like {
   x: number;
@@ -188,6 +215,19 @@ interface DynamicEntity {
    * Interpolation ein und die Kreatur schaukelte sich auf.
    */
   gang?: { basisPos: Vector3; basisRot: Quaternion; phase: number; tempo: number };
+  /**
+   * Zuletzt gestartete Animationsgruppe. Der Server schickt den
+   * Bewegungszustand nur bei Änderung, aber JEDES Update trägt ihn — ohne
+   * diesen Vergleich würde die Gruppe im Sync-Takt neu gestartet und der
+   * Zyklus bliebe im ersten Bild hängen.
+   */
+  anim?: string;
+  /**
+   * Leben in Prozent, -1 = unbekannt. Wird NUR überschrieben, wenn das
+   * Update den Member wirklich trägt: Ein Tick ohne `health` heisst „hat
+   * sich nicht geändert", nicht „ist auf null gefallen".
+   */
+  leben?: number;
 }
 
 /** Wiederverwendetes Nick-Quaternion des prozeduralen Gangs (kein Alloc pro Frame). */
@@ -197,6 +237,21 @@ export class EntityManager {
   private readonly buckets = new Map<number, StaticBucket>();
   private readonly bucketOf = new Map<string, number>();
   private readonly dynamics = new Map<string, DynamicEntity>();
+  /**
+   * Einordnung der NPC-Instanzen (Namensschild), Schlüssel wie bei den
+   * ZDOs. Bewusst NEBEN `dynamics` und nicht darin: Die Angaben kommen von
+   * woanders her (Layout-Dokument statt ZDO-Transform), und eine statische
+   * Platzierung dürfte sie genauso tragen. Position und Höhe holt sich das
+   * Schild aus `dynamischeInstanzen()` — die ändern sich pro Frame, die
+   * Einordnung nie.
+   */
+  private readonly npcs = new Map<string, NpcEinordnung>();
+  /**
+   * Auflösung `layoutId` → Einordnung. Setzt main.ts, sobald das
+   * Weltdokument da ist; ohne Layout-Welt bleibt sie null und der ganze
+   * NPC-Pfad kostet nichts.
+   */
+  private npcQuelle: ((layoutId: string) => NpcEinordnung | null) | null = null;
   private readonly appliedLocations = new Set<string>();
   /** Prefab hashes whose render prep is already in flight. */
   private readonly pending = new Set<number>();
@@ -240,6 +295,40 @@ export class EntityManager {
   }
 
   /**
+   * Alle dynamischen Instanzen (Kreaturen, NPCs, fremde Spieler) mit ihrer
+   * aktuellen Pose — Futter für die Namensschilder.
+   *
+   * Schreibt in eine vom Aufrufer GEHALTENE Liste und liefert die Anzahl
+   * zurück, statt ein Array anzulegen: Das hier läuft in jedem Frame, und
+   * ein frisches Array je Frame ist genau die Sorte Müll, die den GC in
+   * regelmässigen Abständen für ein paar Millisekunden anhält.
+   *
+   * `skalierungY` ist die WELTSKALIERUNG der Instanz (localScale des
+   * Prefabs mal ZDO-Skalierung, siehe applyDynamic) — mit ihr lässt sich
+   * die Modellhöhe aus dem Prefab auf dieses Exemplar umrechnen.
+   */
+  dynamischeInstanzen(out: DynamischeInstanz[]): number {
+    let n = 0;
+    for (const [key, dyn] of this.dynamics) {
+      let e = out[n];
+      if (!e) {
+        e = { key: '', prefab: '', x: 0, y: 0, z: 0, skalierungY: 1, leben: -1 };
+        out.push(e);
+      }
+      const p = dyn.root.position;
+      e.key = key;
+      e.prefab = dyn.root.name;
+      e.x = p.x;
+      e.y = p.y;
+      e.z = p.z;
+      e.skalierungY = dyn.root.scaling.y;
+      e.leben = dyn.leben ?? -1;
+      n++;
+    }
+    return n;
+  }
+
+  /**
    * World positions of the active collision bodies. Diagnosis only — lets a
    * test walk deliberately into one instead of hoping to hit something.
    */
@@ -263,6 +352,25 @@ export class EntityManager {
     return { bodies, havok, prefabs: this.colliders.size, ohneForm: this.colliderless.size };
   }
 
+  /**
+   * Woher die NPC-Einordnung einer Online-Instanz kommt (s. npcQuelle).
+   * Einmal je Welt gesetzt — die Zuordnung ist statisch.
+   */
+  setzeNpcQuelle(quelle: ((layoutId: string) => NpcEinordnung | null) | null): void {
+    this.npcQuelle = quelle;
+  }
+
+  /**
+   * Einordnung EINER Instanz (null = kein NPC oder nicht aus dem Layout).
+   *
+   * Die Auskunft ist bewusst je Schlüssel und nicht als Umkreisliste: Wer
+   * Schilder zeichnet, geht ohnehin über `dynamischeInstanzen()` und
+   * braucht dann nur noch die Angaben zum bereits gefundenen Exemplar.
+   */
+  npcEinordnung(key: string): NpcEinordnung | null {
+    return this.npcs.get(key) ?? null;
+  }
+
   applyUpdate(u: ZDOEntityUpdate): void {
     if (u.isOwnPlayer) return; // our own character is the camera (Phase 4: avatar)
 
@@ -275,6 +383,19 @@ export class EntityManager {
 
     const def = findPrefabByHash(u.prefabHash);
     if (!def || !isRenderable(def)) return;
+
+    // Einordnung mitführen: offline liegt sie am Update (Testflug), online
+    // kommt sie über die Herkunft aus dem Layout-Dokument. Bewusst bei
+    // JEDEM Update neu bestimmt statt einmal gemerkt — im Editor ändert
+    // ein Feld die Einordnung, und der Eintrag wird mit demselben
+    // Schlüssel neu gezeichnet. Zwei Map-Zugriffe sind billiger als eine
+    // Sonderbehandlung für „Schild muss wieder verschwinden".
+    const einordnung = u.npc ?? (u.layoutId ? (this.npcQuelle?.(u.layoutId) ?? null) : null);
+    if (einordnung) {
+      this.npcs.set(u.key, einordnung);
+    } else {
+      this.npcs.delete(u.key);
+    }
 
     const isDynamic = (def.flags & DYNAMIC_FLAGS) !== 0n;
     if (isDynamic) {
@@ -289,6 +410,7 @@ export class EntityManager {
   }
 
   removeZDO(key: string): void {
+    this.npcs.delete(key);
     const bucketHash = this.bucketOf.get(key);
     if (bucketHash !== undefined) {
       const bucket = this.buckets.get(bucketHash);
@@ -314,7 +436,36 @@ export class EntityManager {
     }
     const dyn = this.dynamics.get(key);
     if (dyn) {
-      dyn.root.dispose(false, true);
+      this.assets.entsorgeAnimationen(dyn.root);
+      // NUR die Instanz abräumen — NIEMALS Material und Texturen.
+      //
+      // `dispose(_, true)` sah nach gründlichem Aufräumen aus und war in
+      // Wahrheit die Ursache für „die Völva hat keine Texturen":
+      // AssetManager.instantiate ruft instantiateModelsToScene mit
+      // cloneMaterials = FALSE — alle Instanzen eines Prefabs teilen sich
+      // also EIN PBRMaterial samt seiner Texturen, und das gehört dem
+      // gecachten AssetContainer, nicht dieser Instanz.
+      //
+      // Babylon macht daraus (abstractMesh.dispose → material.dispose(
+      // false, true) → pbrBaseMaterial.dispose) zweierlei: Es entsorgt
+      // albedo-/metallic-/bump-Textur, UND es läuft über scene.meshes und
+      // setzt `mesh.material = null`, wo dasselbe Material hing. Ein
+      // einziges entferntes Exemplar zieht damit allen übrigen — und
+      // jedem später erzeugten, weil der Container gecacht bleibt — das
+      // Material unter den Füßen weg; sie rendern ab da mit Babylons
+      // Standardmaterial, also weiß und ohne Textur.
+      //
+      // Aufgefallen an der Völva, weil im Spawn-Editor ständig eine
+      // Instanz verschwindet: Der Vorschau-Geist (`edghost`) wird bei
+      // jedem Setzen, jedem Prefab-Wechsel und jedem Rechtsklick
+      // entfernt, und alleNeuZeichnen wirft nach dem Löschen alle
+      // `edplace-*` weg. Es trifft aber jedes dynamische Prefab, auch
+      // despawnende Kreaturen.
+      //
+      // Nichts leckt dadurch: Material und Texturen hängen ohnehin am
+      // Container, den `AssetManager.containers` absichtlich für die
+      // ganze Sitzung hält.
+      dyn.root.dispose(false, false);
       this.dynamics.delete(key);
       this.dynamicCount--;
     }
@@ -487,8 +638,15 @@ export class EntityManager {
     // Dungeon-Räume (Phase G) sind IMMER solide — ihre Flags sind 0n, weil
     // sie keine ZNetView-Prefabs sind; das Flag-Gate unten griffe nicht.
     const dungeonRoom = getRoomByHash(bucket.prefabHash) !== undefined;
+    // Begehbare Bauwerke umgehen das Flag-Gatter aus DEMSELBEN Grund wie
+    // Dungeon-Räume: Sie tragen nur PERSISTENT, und das steht nicht in
+    // COLLIDING_FLAGS. Ohne diese Ausnahme landeten sie unten in
+    // `colliderless`, noch bevor die BEGEHBAR-Zweige weiter unten je
+    // erreicht wurden — gemessen am laufenden Client hatte deshalb auch
+    // der Steinkreis gar keine Kollision, man lief mitten hindurch.
+    const begehbarePruefungUmgehen = BEGEHBAR.test(bucket.prefabName);
     // Nur solide Klassen bekommen überhaupt einen Körper — s. COLLIDING_FLAGS.
-    if (!dungeonRoom) {
+    if (!dungeonRoom && !begehbarePruefungUmgehen) {
       const def = findPrefabByHash(bucket.prefabHash);
       const flags = def?.flags ?? 0n;
       const solide =
@@ -610,6 +768,14 @@ export class EntityManager {
       world.copyToArray(bucket.matrices, idx * 16);
     } else {
       bucket.indexOf.set(u.key, bucket.matrices.length / 16);
+      // Umkehrindex MITFÜHREN. `removeZDO` schlägt den Bucket über
+      // `bucketOf` nach — ohne diesen Eintrag findet es nichts und
+      // entfernt still gar nichts. Statische Objekte waren dadurch
+      // unlöschbar: Der Platzierungs-Geist des Editors blieb nach dem
+      // Setzen auf dem neuen Bauwerk stehen (gemessen: der Bucket hielt
+      // `edghost` UND `edplace-0`), und es sah aus, als würde doppelt
+      // gesetzt. `applyDynamic` pflegt seinen Index längst — hier fehlte er.
+      this.bucketOf.set(u.key, u.prefabHash);
       world.toArray(bucket.matrices, bucket.matrices.length);
       this.staticCount++;
     }
@@ -670,14 +836,28 @@ export class EntityManager {
     return [...this.dynamics.values()].map((d) => d.root.name || '?');
   }
 
-  /** Diagnose: Pose des ersten Dynamics, dessen Name den Teilstring trägt. */
-  dynamicPose(name: string): { pos: Vector3Like; rotX: number; tempo: number } | null {
+  /**
+   * Diagnose: Pose des ersten Dynamics, dessen Name den Teilstring trägt.
+   *
+   * `yaw` und `anim` sind für das Kampfsystem dazugekommen: Ob ein NPC
+   * den Spieler ansieht und ob er zuschlägt, sind genau die beiden Werte,
+   * die der Server über ZDO-Rotation und ANIM_MEMBER steuert — und ohne
+   * sie lässt sich von aussen nicht nachprüfen, ob das ankommt. Ein
+   * Bildschirmfoto beantwortet das nicht: Bei Nacht und aus zwanzig
+   * Metern sieht ein drohend dastehender Riese aus wie ein wartender.
+   */
+  dynamicPose(
+    name: string
+  ): { pos: Vector3Like; rotX: number; yaw: number; anim: string | null; tempo: number } | null {
     for (const d of this.dynamics.values()) {
       if (!(d.root.name || '').includes(name)) continue;
       const p = d.root.position;
+      const e = d.root.rotationQuaternion?.toEulerAngles();
       return {
         pos: { x: p.x, y: p.y, z: p.z },
-        rotX: d.root.rotationQuaternion ? d.root.rotationQuaternion.toEulerAngles().x : 0,
+        rotX: e?.x ?? 0,
+        yaw: e?.y ?? 0,
+        anim: d.anim ?? null,
         tempo: d.gang?.tempo ?? -1,
       };
     }
@@ -735,23 +915,31 @@ export class EntityManager {
     animation?: string,
     belebt = false
   ): Promise<void> {
+    // Bewegungszustand des Servers ('idle'/'walk') hat Vorrang vor der
+    // festen Prefab-Animation: Routen-NPCs wechseln damit zur Laufzeit,
+    // alle anderen Prefabs schicken kein `anim` und bleiben wie gehabt.
+    const wunschAnim = u.anim ?? animation;
     let dyn = this.dynamics.get(u.key);
     if (!dyn) {
       let root: TransformNode | null = null;
       if (model) {
-        root = await this.assets.instantiate(model, animation);
+        root = await this.assets.instantiate(model, wunschAnim);
       }
       if (!root) {
         root = makePlaceholder(this.scene, prefabName);
       }
       if (this.dynamics.has(u.key)) {
-        root.dispose(false, true); // lost the race — another update instantiated first
+        // lost the race — another update instantiated first
+        this.assets.entsorgeAnimationen(root);
+        // Ohne Material/Texturen — die teilt sich diese Instanz mit allen
+        // anderen desselben Prefabs (s. removeZDO).
+        root.dispose(false, false);
         return;
       }
       // GLB-Wurzeln heissen alle "__root__" — für Diagnose (dynamicList,
       // dynamicPose) den Prefab-Namen drauflegen.
       root.name = prefabName;
-      dyn = { root };
+      dyn = { root, anim: wunschAnim };
       if (belebt) {
         dyn.gang = {
           basisPos: new Vector3(u.position.x, u.position.y, u.position.z),
@@ -763,7 +951,13 @@ export class EntityManager {
       }
       this.dynamics.set(u.key, dyn);
       this.dynamicCount++;
+    } else if (wunschAnim && wunschAnim !== dyn.anim) {
+      dyn.anim = wunschAnim;
+      this.assets.wechsleAnimation(dyn.root, wunschAnim);
     }
+    // Trefferpunkte → Prozent. Hier und nicht im Namensschild, weil an
+    // dieser Stelle Wert und Prefabname ohnehin beide vorliegen.
+    if (u.health !== undefined) dyn.leben = lebenAnteil(prefabName, u.health);
     // Interpolation statt hartem Setzen: ZDO-Updates kommen im Sync-Takt
     // (50 ms + Netz-Jitter) — direktes Setzen ließe Kreaturen und fremde
     // Spieler ruckeln. Ziel merken, updateDynamics() gleitet pro Frame hin.
@@ -848,14 +1042,34 @@ function composeZdoWorld(u: ZDOEntityUpdate, prefabScale?: Vector3Like): Matrix 
 }
 
 /** Small named box for dynamic entities without a model in the export. */
+/**
+ * Platzhalter-Materialien je Szene und Prefabname.
+ *
+ * Sie hängen nur an der FARBE, die aus dem Namen gerechnet wird — zwei
+ * Platzhalter desselben Prefabs brauchen also kein zweites Material.
+ * Wichtiger noch: Instanzen werden ohne ihr Material entsorgt (s.
+ * removeZDO), ein frisch erzeugtes Material je Platzhalter bliebe sonst
+ * bei jedem Entfernen liegen. Geteilt und gecacht kann das nicht
+ * passieren.
+ */
+const platzhalterMaterialien = new WeakMap<Scene, Map<string, StandardMaterial>>();
+
 function makePlaceholder(scene: Scene, name: string): TransformNode {
   const root = new TransformNode(`ph_${name}`, scene);
   const box = MeshBuilder.CreateBox(`ph_${name}_box`, { size: 0.7 }, scene);
-  const mat = new StandardMaterial(`ph_${name}_mat`, scene);
-  const hue = (Array.from(name).reduce((a, c) => a + c.charCodeAt(0) * 31, 7) % 360) / 360;
-  const c = Color3.FromHSV(hue * 360, 0.45, 0.75);
-  mat.diffuseColor = c;
-  mat.specularColor = new Color3(0, 0, 0);
+  let cache = platzhalterMaterialien.get(scene);
+  if (!cache) {
+    cache = new Map();
+    platzhalterMaterialien.set(scene, cache);
+  }
+  let mat = cache.get(name);
+  if (!mat) {
+    mat = new StandardMaterial(`ph_${name}_mat`, scene);
+    const hue = (Array.from(name).reduce((a, c) => a + c.charCodeAt(0) * 31, 7) % 360) / 360;
+    mat.diffuseColor = Color3.FromHSV(hue * 360, 0.45, 0.75);
+    mat.specularColor = new Color3(0, 0, 0);
+    cache.set(name, mat);
+  }
   box.material = mat;
   box.position.y = 0.5;
   box.parent = root;

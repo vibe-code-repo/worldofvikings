@@ -4,12 +4,20 @@
  *
  *   npx tsx test/worldlayout.ts
  */
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   RegionField,
+  ROUTE_MAX_PAUSE,
+  pruefeLayout,
   sanitizeWorldLayout,
   signedDistance,
+  wegpunktPause,
   type WorldLayout,
 } from '../src/worldlayout/index.js';
+import { NPC_NAME_MAX, haltungZwischen, loeseNpcAuf, questZeichen } from '../src/npc.js';
+import { GRASLAND_FLORA_NAMEN } from '../src/flora.js';
+import { FOLIAGE } from '../src/vegetation.js';
 
 let fehler = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -55,6 +63,198 @@ check(
   'sanitize: Vegetation dedupliziert/bereinigt',
   JSON.stringify(layout!.regions[0]!.vegetation) === JSON.stringify(['Beech1'])
 );
+
+// ── Routen (sanitize) ────────────────────────────────────────────────
+const mitRouten = sanitizeWorldLayout({
+  version: 1,
+  name: 'Routenwelt',
+  detailSeed: 'r',
+  continents: [],
+  regions: [],
+  routes: [
+    { id: 'runde', points: [[0, 0], [10, 0], [10, 10]], mode: 'loop' },
+    // Modus unbekannt → 'loop'; Tempo über der Grenze → geklemmt.
+    { id: 'pendel', points: [[0, 0], [5, 0]], mode: 'schleichen', speed: 99 },
+    { id: 'posten', points: [[3, 4]], mode: 'pingpong', speed: 0 },
+    { id: 'runde', points: [[0, 0], [1, 1]], mode: 'loop' }, // Duplikat → verworfen
+    { id: 'BAD ID', points: [[0, 0], [1, 1]], mode: 'loop' }, // ID ungültig
+    { id: 'leer', points: [], mode: 'loop' }, // ohne Wegpunkt → verworfen
+    { id: 'kaputt', points: [[0, 0], [1, 'x']], mode: 'loop' }, // Koordinate ungültig
+    { id: 'weit', points: [[0, 0], [1e9, 0]], mode: 'loop' }, // außerhalb der Bbox
+  ],
+  placements: [
+    { prefab: 'Voelva', x: 0, z: 0, route: 'runde' },
+    { prefab: 'Voelva', x: 5, z: 0, route: 'GIBT ES NICHT' }, // ungültige ID → weg
+    { prefab: 'Voelva', x: 9, z: 0 },
+  ],
+});
+const routen = mitRouten!.routes ?? [];
+check('routen: nur gültige übernommen', routen.length === 3, `= ${routen.map((r) => r.id).join(',')}`);
+check('routen: Reihenfolge/IDs', routen.map((r) => r.id).join(',') === 'runde,pendel,posten');
+check('routen: unbekannter Modus → loop', routen[1]!.mode === 'loop');
+check('routen: Tempo geklemmt (99 → 10)', routen[1]!.speed === 10, `= ${routen[1]!.speed}`);
+check('routen: Tempo-Untergrenze (0 → 0.2)', routen[2]!.speed === 0.2, `= ${routen[2]!.speed}`);
+check('routen: pingpong bleibt', routen[2]!.mode === 'pingpong');
+check('routen: Ein-Punkt-Route erlaubt (Standposten)', routen[2]!.points.length === 1);
+check('routen: ohne speed bleibt das Feld leer', routen[0]!.speed === undefined);
+const platzierungen = mitRouten!.placements ?? [];
+check('routen: gültige Referenz bleibt', platzierungen[0]!.route === 'runde');
+check('routen: unsauber geschriebene Referenz verworfen', platzierungen[1]!.route === undefined);
+check('routen: Platzierung ohne Route unberührt', platzierungen[2]!.route === undefined);
+// Referenzprüfung ist INHALTLICH (pruefeLayout), nicht syntaktisch:
+const befunde = pruefeLayout(
+  sanitizeWorldLayout({
+    version: 1,
+    name: 'Tippfehler',
+    detailSeed: 'r',
+    continents: [],
+    regions: [],
+    routes: [{ id: 'runde', points: [[0, 0], [10, 0]], mode: 'loop' }],
+    placements: [{ prefab: 'Voelva', x: 0, z: 0, route: 'rundee' }],
+  })!
+);
+check(
+  'routen: pruefeLayout meldet unbekannte Route',
+  befunde.some((b) => b.art === 'route' && b.text.includes('rundee'))
+);
+check(
+  'routen: keine Falschmeldung bei gültiger Referenz',
+  !pruefeLayout(mitRouten!).some((b) => b.art === 'route' && b.text.includes('unbekannte Route'))
+);
+// Routen ohne Einträge tauchen NICHT im Dokument auf (wie rivers/lakes).
+check('routen: leeres Feld wird weggelassen', layout!.routes === undefined);
+
+// ── Pausen an Wegpunkten ([x, z, pause], abwaertskompatibel) ─────────
+const mitPausen = sanitizeWorldLayout({
+  version: 1,
+  name: 'Pausenwelt',
+  detailSeed: 'p',
+  continents: [],
+  regions: [],
+  routes: [
+    {
+      id: 'wache',
+      mode: 'loop',
+      points: [
+        [0, 0], // alte Form: laeuft durch
+        [10, 0, 5], // neue Form: 5 s Pause
+        [20, 0, -3], // negativ → keine Pause
+        [30, 0, 'lang'], // Unsinn → keine Pause
+        [40, 0, 9999], // ueber der Grenze → geklemmt
+        [50, 0, 0], // ausdrueckliche Null → wieder [x, z]
+      ],
+    },
+    // Vier Elemente sind kein Wegpunkt — die ganze Route faellt weg.
+    { id: 'zuviel', mode: 'loop', points: [[0, 0, 1, 2]] },
+  ],
+});
+const pausenRoute = (mitPausen!.routes ?? [])[0]!;
+check('pausen: nur die gueltige Route bleibt', (mitPausen!.routes ?? []).length === 1);
+check('pausen: [x, z] bleibt zweielementig', pausenRoute.points[0]!.length === 2);
+check('pausen: [x, z, pause] uebernommen', wegpunktPause(pausenRoute.points[1]!) === 5);
+check('pausen: negative Pause → 0', pausenRoute.points[2]!.length === 2);
+check('pausen: unsinnige Pause → 0', pausenRoute.points[3]!.length === 2);
+check(
+  'pausen: geklemmt auf ROUTE_MAX_PAUSE',
+  wegpunktPause(pausenRoute.points[4]!) === ROUTE_MAX_PAUSE,
+  `= ${wegpunktPause(pausenRoute.points[4]!)}`
+);
+check('pausen: ausdrueckliche 0 wird wieder [x, z]', pausenRoute.points[5]!.length === 2);
+// Stabiler Round-Trip: Ein sanitisiertes Dokument darf sich beim zweiten
+// Durchlauf nicht mehr aendern — sonst driftete jede Speicherung.
+check(
+  'pausen: Round-Trip ist stabil',
+  JSON.stringify(sanitizeWorldLayout(JSON.parse(JSON.stringify(mitPausen)))) ===
+    JSON.stringify(mitPausen)
+);
+// Eine Route ohne jede Pause muss BYTEGLEICH bleiben (Bestandsdokumente).
+// Feldreihenfolge wie in sanitize.ts — JSON.stringify vergleicht sie mit.
+const altbestand = { id: 'alt', points: [[0, 0], [10, 0]], mode: 'loop' as const, speed: 1.5 };
+check(
+  'pausen: alte Route bleibt unveraendert',
+  JSON.stringify(
+    sanitizeWorldLayout({
+      version: 1,
+      name: 'Alt',
+      detailSeed: 'a',
+      continents: [],
+      regions: [],
+      routes: [altbestand],
+    })!.routes
+  ) === JSON.stringify([altbestand])
+);
+
+// ── NPC-Angaben an der Platzierung ───────────────────────────────────
+const mitNpc = sanitizeWorldLayout({
+  version: 1,
+  name: 'NPC-Welt',
+  detailSeed: 'n',
+  continents: [],
+  regions: [],
+  placements: [
+    // Alles gültig — kommt unverändert durch.
+    { prefab: 'Voelva', x: 0, z: 0, npc: { name: 'Sigrun', rolle: 'quest', fraktion: 'wikinger', stufe: 12, quest: 'verfuegbar' } },
+    // Unbekannte Werte werden WEGGELASSEN (nicht auf einen Standard
+    // gezwungen) — dann greift die Prefab-Vorgabe.
+    { prefab: 'Surtr', x: 10, z: 0, npc: { rolle: 'buergermeister', fraktion: 'elfen', quest: 'vielleicht', stufe: 7 } },
+    // Stufe wird geklemmt, leerer Name fällt weg.
+    { prefab: 'Voelva', x: 20, z: 0, npc: { name: '   ', stufe: 999 } },
+    { prefab: 'Voelva', x: 30, z: 0, npc: { stufe: -5 } },
+    // Nur Unsinn drin → gar kein npc-Feld.
+    { prefab: 'Voelva', x: 40, z: 0, npc: { rolle: 'quatsch' } },
+    { prefab: 'Voelva', x: 50, z: 0, npc: 'kein Objekt' },
+    // Überlanger Name wird gekürzt statt die Platzierung zu verwerfen.
+    { prefab: 'Voelva', x: 60, z: 0, npc: { name: 'x'.repeat(200) } },
+    // Ohne npc bleibt es dabei — der Round-Trip-Fall des Bestands.
+    { prefab: 'Beech1', x: 70, z: 0 },
+  ],
+})!.placements!;
+check('npc: vollständige Angabe bleibt', JSON.stringify(mitNpc[0]!.npc) === JSON.stringify({ name: 'Sigrun', rolle: 'quest', fraktion: 'wikinger', stufe: 12, quest: 'verfuegbar' }));
+check('npc: unbekannte Rolle/Fraktion/Quest verworfen', JSON.stringify(mitNpc[1]!.npc) === JSON.stringify({ stufe: 7 }), JSON.stringify(mitNpc[1]!.npc));
+check('npc: Stufe nach oben geklemmt', mitNpc[2]!.npc?.stufe === 99);
+check('npc: leerer Name weggelassen', mitNpc[2]!.npc?.name === undefined);
+check('npc: Stufe nach unten geklemmt', mitNpc[3]!.npc?.stufe === 1);
+check('npc: nur Unsinn → kein Feld', mitNpc[4]!.npc === undefined);
+check('npc: npc ist kein Objekt → kein Feld', mitNpc[5]!.npc === undefined);
+check('npc: langer Name gekürzt', mitNpc[6]!.npc?.name?.length === NPC_NAME_MAX);
+check('npc: Platzierung ohne npc bekommt keins', mitNpc[7]!.npc === undefined);
+check(
+  'npc: Round-Trip ist stabil',
+  JSON.stringify(sanitizeWorldLayout(JSON.parse(JSON.stringify({ version: 1, name: 'NPC-Welt', detailSeed: 'n', continents: [], regions: [], placements: mitNpc }))))
+    === JSON.stringify({ version: 1, name: 'NPC-Welt', detailSeed: 'n', continents: [], regions: [], placements: mitNpc })
+);
+
+// ── Auflösung Vorgabe + Platzierung ──────────────────────────────────
+check('npc: kein NPC-Prefab → null', loeseNpcAuf('Beech1') === null);
+const surtr = loeseNpcAuf('Surtr')!;
+check('npc: Surtr-Vorgabe', surtr.rolle === 'monster' && surtr.fraktion === 'muspel');
+const voelva = loeseNpcAuf('Voelva')!;
+check('npc: Völva-Vorgabe', voelva.rolle === 'quest' && voelva.fraktion === 'wikinger');
+check('npc: Vorgabe-Quest ist "keine"', voelva.quest === 'keine' && questZeichen(voelva) === null);
+const eigen = loeseNpcAuf('Voelva', { name: 'Sigrun', stufe: 12, quest: 'verfuegbar' })!;
+check('npc: Platzierung schlägt Vorgabe', eigen.name === 'Sigrun' && eigen.stufe === 12);
+check('npc: Ungesetztes erbt die Vorgabe', eigen.fraktion === 'wikinger' && eigen.rolle === 'quest');
+check('npc: Quest-Zeichen aus dem Zustand', questZeichen(eigen) === '?');
+check('npc: fertige Quest zeigt "!"', questZeichen(loeseNpcAuf('Voelva', { quest: 'fertig' })!) === '!');
+check(
+  'npc: Monster zeigt nie ein Quest-Zeichen',
+  questZeichen(loeseNpcAuf('Surtr', { quest: 'verfuegbar' })!) === null
+);
+check(
+  'npc: npc-Block an einem Baum macht ihn zur Figur',
+  loeseNpcAuf('Beech1', { name: 'Sprechende Buche' })?.rolle === 'zivil'
+);
+check('npc: Haltung folgt den Fraktionen', haltungZwischen('muspel', 'wikinger') === 'feindlich');
+
+// Bestandsdokument der echten Welt: Es MUSS bytegleich durch den
+// Sanitizer gehen — sonst schriebe jeder Speichervorgang des Editors 158
+// Platzierungen um. Die Datei ist die Welt des Nutzers, nicht Testdaten.
+const echtesLayout = fileURLToPath(new URL('../../server/data/worldlayout.json', import.meta.url));
+if (existsSync(echtesLayout)) {
+  const roh158 = readFileSync(echtesLayout, 'utf-8');
+  const wieder = JSON.stringify(sanitizeWorldLayout(JSON.parse(roh158)), null, 2);
+  check('npc: server/data/worldlayout.json bleibt bytegleich', wieder === roh158.trimEnd());
+}
 
 // ── signedDistance ───────────────────────────────────────────────────
 const quadrat = {
@@ -142,6 +342,63 @@ for (let x = 2500; x <= 4000; x += 8) {
   }
 }
 check('feld: Feldende liegt jenseits des Falloffs', vertrag);
+
+// ── Bewuchs je Region: die drei Zustaende ────────────────────────────
+// Sie unterscheiden sich NUR im Inhalt von RegionDef.vegetation, und der
+// stillste Fall ist der wichtigste: Ein leeres Array heisst "gar nichts"
+// und muss die Bereinigung ueberleben. Faellt es auf `undefined` zurueck,
+// bekaeme die Insel wieder die volle Biom-Tabelle — der Unterschied
+// zwischen einer kahlen Wiese und einem Wald.
+{
+  const bau = (vegetation?: unknown): Record<string, unknown> => ({
+    version: 1,
+    name: 'Bewuchs',
+    regions: [
+      {
+        id: 'insel',
+        biome: 'grassland',
+        shape: { kind: 'circle', x: 0, z: 0, radius: 500 },
+        edgeFalloff: 300,
+        ...(vegetation === undefined ? {} : { vegetation }),
+      },
+    ],
+  });
+  const ohne = sanitizeWorldLayout(bau([])).regions[0]!;
+  check('bewuchs: leere Liste bleibt leer', Array.isArray(ohne.vegetation) && ohne.vegetation.length === 0);
+  const standard = sanitizeWorldLayout(bau()).regions[0]!;
+  check('bewuchs: ohne Feld bleibt Biom-Standard', standard.vegetation === undefined);
+  const eigen = sanitizeWorldLayout(bau([...GRASLAND_FLORA_NAMEN])).regions[0]!;
+  check(
+    'bewuchs: eigene Flora kommt vollstaendig durch',
+    eigen.vegetation?.length === GRASLAND_FLORA_NAMEN.length
+  );
+  // Jeder kuratierte Name MUSS einen Streueintrag haben, sonst filtert
+  // der ZoneManager ihn weg und die Insel bleibt kahl (ZoneManager.ts:601).
+  const ohneEintrag = GRASLAND_FLORA_NAMEN.filter((n) => !FOLIAGE.some((f) => f.prefabName === n));
+  check('bewuchs: jede eigene Art ist streubar', ohneEintrag.length === 0, ohneEintrag.join(', '));
+}
+
+// ── Umbenennung meadows -> grassland ─────────────────────────────────
+// Ein Weltdokument ist die Arbeit des Nutzers; eine Umbenennung darf es
+// nicht unlesbar machen.
+{
+  const alt = sanitizeWorldLayout({
+    version: 1,
+    name: 'Alt',
+    regions: [
+      { id: 'a', biome: 'meadows', shape: { kind: 'circle', x: 0, z: 0, radius: 500 }, edgeFalloff: 300 },
+    ],
+  });
+  check('biom: altes "meadows" wird zu "grassland"', alt.regions[0]?.biome === 'grassland');
+  const unsinn = sanitizeWorldLayout({
+    version: 1,
+    name: 'Unsinn',
+    regions: [
+      { id: 'a', biome: 'wiese', shape: { kind: 'circle', x: 0, z: 0, radius: 500 }, edgeFalloff: 300 },
+    ],
+  });
+  check('biom: unbekannter Name faellt weiterhin raus', unsinn.regions.length === 0);
+}
 
 if (fehler > 0) {
   console.error(`\n${fehler} Prüfung(en) fehlgeschlagen`);

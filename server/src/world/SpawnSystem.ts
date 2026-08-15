@@ -42,6 +42,8 @@ import {
   SPAWN_DESPAWN_RADIUS,
   SPAWN_SIM_RADIUS,
   SPAWN_SYNC_INTERVAL_SEC,
+  HEALTH_MEMBER,
+  maxLeben,
   type SpawnEntry,
 } from '@wov/shared';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
@@ -114,6 +116,26 @@ export class SpawnSystem {
   }
 
   /**
+   * Trefferpunkte anlegen, falls die ZDO noch keine hat.
+   *
+   * Warum beim Spawn und nicht erst beim ersten Treffer (so war es
+   * bisher): Ohne den Member kann der Client keinen Lebensbalken zeichnen
+   * — „Member fehlt" und „0 Trefferpunkte" wären sonst dasselbe. Und weil
+   * jede Kreatur beim Boot durch `adoptPersisted` läuft, holt derselbe
+   * Aufruf die Wesen aus älteren Saves nach.
+   *
+   * `getInt` liefert 0, wenn der Member fehlt — genau das ist der Fall,
+   * den wir füllen wollen. Ein Wesen mit 0 Trefferpunkten gibt es nicht,
+   * es wäre längst zerstört.
+   */
+  private stelleLebenSicher(zdo: ZDO, prefab: string): void {
+    if (zdo.getInt(HEALTH_MEMBER) > 0) return;
+    zdo.setInt(HEALTH_MEMBER, maxLeben(prefab));
+    zdo.revision.reviseData();
+    zdo.dirty = true;
+  }
+
+  /**
    * Re-register creature ZDOs restored from the world save (call after
    * loadWorld). Their spawn position becomes their wander anchor.
    */
@@ -123,6 +145,7 @@ export class SpawnSystem {
       for (const zdo of this.zdos.getZDOByPrefab(hash)) {
         const key = zdo.zdoid.toString();
         if (this.creatures.has(key)) continue;
+        this.stelleLebenSicher(zdo, entry.prefab);
         this.creatures.set(key, {
           zdo,
           entry,
@@ -143,6 +166,7 @@ export class SpawnSystem {
   adoptSingle(zdo: ZDO, entry: SpawnEntry): void {
     const key = zdo.zdoid.toString();
     if (this.creatures.has(key)) return;
+    this.stelleLebenSicher(zdo, entry.prefab);
     this.creatures.set(key, {
       zdo,
       entry,
@@ -152,6 +176,18 @@ export class SpawnSystem {
       idleUntil: 0,
       syncAccum: 0,
     });
+  }
+
+  /**
+   * ZDO aus der Kreatur-Simulation entlassen (ohne sie zu zerstören).
+   *
+   * Nötig, weil NPC_1-ZDOs beim Boot pauschal als wandernde Kreaturen
+   * adoptiert werden: Bekommt so einer per Layout eine Route, würden zwei
+   * Systeme dieselbe Position schreiben und der NPC zuckte zwischen
+   * Wanderziel und Wegpunkt hin und her.
+   */
+  entlasse(zdo: ZDO): void {
+    this.creatures.delete(zdo.zdoid.toString());
   }
 
   update(deltaSec: number, peerPositions: readonly Vector3[]): void {
@@ -233,6 +269,7 @@ export class SpawnSystem {
       const yaw = this.rng.rangeFloat(0, TWO_PI);
       const rot = yawQuaternion(yaw);
       const zdo = this.zdos.createZDO(hash, { x: mx, y: ground, z: mz }, rot);
+      this.stelleLebenSicher(zdo, entry.prefab);
       this.creatures.set(zdo.zdoid.toString(), {
         zdo,
         entry,

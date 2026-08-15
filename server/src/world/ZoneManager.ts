@@ -48,6 +48,7 @@
 import {
   DungeonAlgorithm,
   FOLIAGE,
+  streueZone,
   FEATURES,
   RegionGeo,
   layoutBounds,
@@ -511,191 +512,41 @@ export class ZoneManager {
   }
 
   /**
-   * C++ IZoneManager::PopulateFoliage (ZoneManager.cpp:625-819).
-   * Faithful port — including rng consumption order (draws before checks).
+   * Streut die Vegetation einer Zone und legt sie als ZDOs ab.
+   *
+   * Die Rechnung selbst steht seit 08/2026 in
+   * `shared/src/worldgen/streuung.ts` — sie wird vom Editor-Testflug
+   * mitbenutzt, der offline laeuft und deshalb keinen ZoneManager hat.
+   * Hier bleibt nur, was serverseitig ist: aus jedem Fund ein ZDO machen.
+   *
+   * Dass der Umzug nichts veraendert hat, prueft
+   * `server/test/e2-vegetation.ts` ueber BIT-gleiche ZDO-Abzuege.
    */
   private populateFoliage(heightmap: Heightmap, clearAreas: ClearArea[]): void {
-    const zoneX = heightmap.zoneX;
-    const zoneY = heightmap.zoneY;
+    streueZone(
+      {
+        seed: this.seed,
+        geo: this.geo,
+        heightmaps: this.heightmaps,
+        regionGeo: this.regionGeo,
+      },
+      heightmap,
+      clearAreas,
+      (fund) => {
+        // C++ ZDOManager::Instantiate(prefab, pos) + SetRotation
+        const zdo = this.zdos.createZDO(fund.prefabHash, fund.position, fund.rotation);
 
-    // C++ ZoneToWorldPos(zoneID) — zone corner-anchored center (zone * 64)
-    const centerX = zoneX * ZONE_UNITS;
-    const centerZ = zoneY * ZONE_UNITS;
+        // C++ Instantiate: SYNC_INITIAL_SCALE ⇒ SetLocalScale (ZDO.h:1065)
+        const prefab = PREFABS_BY_NAME.get(fund.prefabName)!;
+        this.applyInitialScale(zdo, prefab);
 
-    const placedAreas: ClearArea[] = [];
-
-    for (const veg of FOLIAGE) {
-      // Large precheck against the zone's corner biomes
-      if (!heightmap.haveBiome(veg.biome as Biome)) continue;
-
-      // Same state for all instances of this vegetation in this zone+world.
-      // int32 wrap on the sum (C++ signed overflow wraps on MSVC x64).
-      const state = new XorShiftRandom(
-        (this.seed +
-          Math.imul(zoneX, 4271) +
-          Math.imul(zoneY, 9187) +
-          veg.prefabHash) |
-          0
-      );
-
-      let num3 = 1;
-      // max is used for both chance, and quantity in conjunction with min
-      if (veg.max < 1) {
-        if (state.nextFloat() > veg.max) {
-          continue;
-        }
-      } else {
-        num3 = state.rangeInt(Math.trunc(veg.min), Math.trunc(veg.max) + 1);
-      }
-
-      const maxTilt = f32(Math.cos(f32(veg.maxTilt * DEG2RAD_F)));
-      const minTilt = f32(Math.cos(f32(veg.minTilt * DEG2RAD_F)));
-      const num6 = f32(ZONE_UNITS * 0.5 - veg.groupRadius);
-      const spawnAttempts = veg.forcePlacement ? num3 * 50 : num3;
-      let numSpawned = 0;
-
-      for (let i = 0; i < spawnAttempts; i++) {
-        const vx = state.rangeFloat(f32(centerX - num6), f32(centerX + num6));
-        const vz = state.rangeFloat(f32(centerZ - num6), f32(centerZ + num6));
-
-        const basePos: Vector3 = { x: vx, y: 0, z: vz };
-
-        const groupCount = state.rangeInt(veg.groupSizeMin, veg.groupSizeMax + 1);
-        let generated = false;
-
-        for (let j = 0; j < groupCount; j++) {
-          const pos: Vector3 =
-            j === 0
-              ? { x: basePos.x, y: basePos.y, z: basePos.z }
-              : getRandomPointInRadius(state, basePos, veg.groupRadius);
-
-          // Random rotations — drawn BEFORE any checks (rng order is
-          // load-bearing for world determinism).
-          // C++ `state.range(0, 360)` resolves to the INT overload!
-          const rotY = state.rangeInt(0, 360);
-          const scale = state.rangeFloat(veg.scaleMin, veg.scaleMax);
-          const rotX = state.rangeFloat(-veg.randTilt, veg.randTilt);
-          const rotZ = state.rangeFloat(-veg.randTilt, veg.randTilt);
-
-          // ── GetGroundData (ZoneManager.cpp:1399-1425) ────────────
-          // Heightmap/biome/normal come from the zone AT THE POSITION
-          // (may differ from the zone being populated near borders).
-          const otherHeightmap = this.heightmaps.getZoneAt(pos.x, pos.z);
-          pos.y = this.heightmaps.getGroundHeightRaycast(pos.x, pos.z);
-          const biome = otherHeightmap.getBiome(pos.x, pos.z);
-          const biomeArea = otherHeightmap.getBiomeArea();
-          // C++ ignores GetWorldNormal's bool; in-zone positions never fail.
-          const normal = otherHeightmap.getWorldNormal(pos.x, pos.z) ?? {
-            x: 0,
-            y: 1,
-            z: 0,
-          };
-
-          if ((veg.biome & biome) === 0 || (veg.biomeArea & biomeArea) === 0) {
-            continue;
-          }
-
-          // Kuratierte Region: Vegetations-Liste ist exklusiv (Layout-Modus).
-          if (this.regionGeo) {
-            const region = this.regionGeo.regionAt(pos.x, pos.z);
-            if (region?.vegetation && !region.vegetation.includes(veg.prefabName)) {
-              continue;
-            }
-          }
-
-          const waterDiff = f32(pos.y - WATER_LEVEL);
-          if (waterDiff < veg.minAltitude || waterDiff > veg.maxAltitude) {
-            continue;
-          }
-
-          // Mistlands only
-          if (veg.minVegetation !== veg.maxVegetation) {
-            const vegetationMask = otherHeightmap.getVegetationMask(pos.x, pos.z);
-            if (vegetationMask > veg.maxVegetation || vegetationMask < veg.minVegetation) {
-              continue;
-            }
-          }
-
-          if (veg.minOceanDepth !== veg.maxOceanDepth) {
-            const oceanDepth = otherHeightmap.getOceanDepth(pos.x, pos.z);
-            if (oceanDepth < veg.minOceanDepth || oceanDepth > veg.maxOceanDepth) {
-              continue;
-            }
-          }
-
-          if (normal.y >= maxTilt && normal.y <= minTilt) {
-            if (veg.terrainDeltaRadius > 0) {
-              const num12 = this.getTerrainDelta(state, pos, veg.terrainDeltaRadius);
-              if (num12 > veg.maxTerrainDelta || num12 < veg.minTerrainDelta) {
-                continue;
-              }
-            }
-
-            if (veg.inForest) {
-              const forestFactor = this.geo.getForestFactor(pos.x, pos.z);
-              if (
-                forestFactor < veg.forestTresholdMin ||
-                forestFactor > veg.forestTresholdMax
-              ) {
-                continue;
-              }
-            }
-
-            if (
-              !insideClearArea(clearAreas, pos) &&
-              (veg.radius === 0 || !overlapsClearArea(placedAreas, pos, veg.radius))
-            ) {
-              if (veg.snapToWater) {
-                pos.y = WATER_LEVEL;
-              }
-              pos.y = f32(pos.y + veg.groundOffset);
-
-              let rotation: Quaternion;
-              if (
-                veg.chanceToUseGroundTilt > 0 &&
-                state.nextFloat() <= veg.chanceToUseGroundTilt
-              ) {
-                const rotation2 = quatEuler(0, rotY, 0);
-                rotation = quatLookRotation(
-                  crossF(normal, quatMulVec3(rotation2, FORWARD)),
-                  normal
-                );
-              } else {
-                rotation = quatEuler(rotX, rotY, rotZ);
-              }
-
-              // C++ ZDOManager::Instantiate(prefab, pos) + SetRotation
-              const zdo = this.zdos.createZDO(veg.prefabHash, { ...pos }, rotation);
-
-              // C++ Instantiate: SYNC_INITIAL_SCALE ⇒ SetLocalScale (ZDO.h:1065)
-              const prefab = PREFABS_BY_NAME.get(veg.prefabName)!;
-              this.applyInitialScale(zdo, prefab);
-
-              // Solid objects cannot overlap (radius>0)
-              if (veg.radius > 0) {
-                placedAreas.push({ center: { ...pos }, radius: veg.radius });
-              }
-
-              // C++: only written when the random scale differs from the
-              // prefab default; allowIdentity=true writes even scale==1.
-              if (scale !== prefab.localScale.x) {
-                zdo.setFloat('scaleScalar', scale);
-              }
-
-              generated = true;
-            }
-          }
-        }
-
-        if (generated) {
-          numSpawned++;
-        }
-
-        if (numSpawned >= num3) {
-          break;
+        // C++: only written when the random scale differs from the
+        // prefab default; allowIdentity=true writes even scale==1.
+        if (fund.scale !== prefab.localScale.x) {
+          zdo.setFloat('scaleScalar', fund.scale);
         }
       }
-    }
+    );
   }
 
   /**

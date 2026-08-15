@@ -42,6 +42,10 @@ import { Constants } from '@babylonjs/core/Engines/constants';
 import { WATER_LEVEL } from '@wov/shared';
 import { WAVE_GLSL } from './WaterWave';
 import { WaterPlugin } from './WaterPlugin';
+// Vertexabstand des Wassernetzes — EINE Quelle für beide Seiten, sonst
+// richten sich die Seerosen an einem anderen Gitter aus als dem, das
+// gezeichnet wird. Terrain.ts importiert kein Clutter, also kein Zyklus.
+import { WATER_STEP } from './Terrain';
 import type { Material } from '@babylonjs/core/Materials/material';
 import type { Scene } from '@babylonjs/core/scene';
 import type { AbstractEngine } from '@babylonjs/core/Engines/abstractEngine';
@@ -376,24 +380,72 @@ export class ClutterWindPlugin extends MaterialPluginBase {
           // "ungefähr gleiche" Kopie würde die Pflanzen wieder eintauchen
           // lassen.
           //
-          // Die Grundhöhe liefert dieselbe Kachel wie beim Wasser. Das
-          // Wasser nimmt seine Tiefe im Vertexshader zwar aus dem über 4 m
-          // interpolierten Attribut aDepth statt aus dieser 1-m-Kachel;
-          // die Amplitude skaliert linear mit der Tiefe, der Unterschied
-          // bleibt bei den 0,2 bis 1,5 m Wassersäule dieser Pflanzen
-          // deshalb im Bereich von Zentimetern — und darauf sitzt der
-          // Abstand oben.
-          vec2 gUV = (iPos.xz - clutterGroundInfo.xy + 0.5) * clutterGroundInfo.z;
-          float drin = step(0.0, gUV.x) * step(gUV.x, 1.0)
-                     * step(0.0, gUV.y) * step(gUV.y, 1.0);
-          float grund = texture2D(clutterGroundTex, clamp(gUV, 0.0, 1.0)).r;
-          float tiefe = (CLUTTER_WATER_LEVEL - grund) * drin;
-          float d01 = clamp(tiefe / WATER_DEPTH_SCALE, 0.0, 1.0);
-          float welle = mix(
-            wCalcWave(iPos.xz, d01, clutterWaveTime, clutterWaveWind.z, clutterWaveWind.xy),
-            wCalcWave(iPos.xz, d01, clutterWaveTime, clutterWaveWind2.z, clutterWaveWind2.xy),
-            clutterWaveAlpha
-          );
+          // Die TIEFE gehoert zur Stuetzstelle, nicht zur Pflanze.
+          //
+          // Hier stand frueher EIN d01 aus der Kachel am Instanzursprung,
+          // mit der Begruendung, die Amplitude skaliere linear mit der
+          // Tiefe und der Unterschied bleibe im Zentimeterbereich. Das ist
+          // falsch: In wCalcWave laeuft die Tiefe durch wShoal, und dessen
+          // auslauf-Term ist mix(0.35, 1.0, smoothstep(0.0, 0.16, d01)) —
+          // eine STEILE Rampe genau im Bereich dieser Pflanzen. Deren
+          // Wassersaeule von 0,2 bis 1,5 m entspricht d01 = 0,02 bis 0,15,
+          // und ueber diese Spanne waechst der Faktor von 0,36 auf 0,98,
+          // also fast das Dreifache. Zwei Stuetzstellen mit leicht
+          // verschiedener Tiefe bekommen damit deutlich verschiedene
+          // Amplituden — und genau das ist am Ufer der Normalfall.
+          //
+          // Das Wasser macht es richtig: aDepth ist ein VERTEX-Attribut
+          // (Terrain.bakeShoreRows bakt WATER_LEVEL - getGroundHeight je
+          // Wasservertex), jede Stuetzstelle rechnet also mit ihrer
+          // eigenen Tiefe. Die Bodenkachel hier stammt aus derselben
+          // Quelle (WaterPlugin.groundMap), deshalb wird sie jetzt genauso
+          // je Stuetzstelle abgefragt.
+          // Die Welle wird PRO VERTEX ausgewertet, nicht pro Instanz.
+          //
+          // Vorher stand hier iPos.xz — ein Wert fuer das ganze Blatt. Ein
+          // Seerosenblatt misst 2,35 m mal Instanzskala 0,4 bis 0,6, ist
+          // also 0,94 bis 1,41 m breit, und ueber diese Spanne ist die
+          // Oberflaeche alles andere als eben: Die kurzen Oktaven von
+          // CalcWave haben Wellenlaengen um 4 bis 6 m (len 1.0 bis 1.5)
+          // bei 0,2 bis 0,8 m Hoehe. Nachgerechnet ueber 400 zufaellige
+          // Orte, Zeiten und Wassertiefen von 0,2 bis 1,5 m:
+          //
+          //   Blattbreite   Hoehenunterschied Rand zu Mitte
+          //                 Median    90 %      Maximum
+          //   0,94 m         3,4 cm    9,2 cm    20,7 cm
+          //   1,41 m         5,4 cm   13,9 cm    35,0 cm
+          //
+          // Dagegen steht CLUTTER_ABSTAND mit 3 cm. Ein starr auf die
+          // Mittenhoehe gelegtes Blatt taucht mit seinen Raendern also die
+          // meiste Zeit unter die blickdichte Oberflaeche, und WELCHE
+          // Raender das sind, wechselt mit jedem Wellenhub — das war das
+          // gemeldete Flimmern.
+          //
+          // Pro Vertex gerechnet folgt das Blatt der Oberflaeche, statt
+          // sie zu durchstossen. Das ist zugleich das physikalisch
+          // richtige Verhalten: Ein schwimmendes Blatt liegt auf der
+          // Welle und biegt sich mit ihr.
+          //
+          // Die Welt-XZ des Vertex ergibt sich aus der Instanzmatrix.
+          // finalWorld ist hier noch nicht zusammengesetzt (siehe die
+          // iPos-Herleitung oben), deshalb die Spalten von Hand: die
+          // lineare Abbildung des lokalen Punktes plus die Translation.
+          // Alle drei Spalten, obwohl die Drehung reines Yaw ist und
+          // world1.xz damit null sein sollte — kostet nichts und bleibt
+          // richtig, falls je eine Neigung dazukommt.
+          //
+          // Die TIEFE bleibt bewusst pro Instanz (gUV oben aus iPos): Sie
+          // skaliert die Amplitude nur linear und aendert sich ueber
+          // einen Meter kaum, waehrend die Phase genau hier das Problem
+          // ist.
+          vec2 wellenXZ = iPos.xz;
+          #ifdef INSTANCES
+            wellenXZ = iPos.xz
+                     + world0.xz * positionUpdated.x
+                     + world1.xz * positionUpdated.y
+                     + world2.xz * positionUpdated.z;
+          #endif
+          float welle = wovWasserFlaeche(wellenXZ);
           // positionUpdated ist LOKAL. Die Instanzmatrix skaliert (Seerosen
           // 0,4 bis 0,6) — ein lokales +Y käme in der Welt entsprechend
           // kleiner an. Also durch die Y-Skalierung teilen, das ist die
@@ -418,7 +470,74 @@ export class ClutterWindPlugin extends MaterialPluginBase {
             uniform sampler2D clutterGroundTex;
             const float CLUTTER_WATER_LEVEL = ${WATER_LEVEL.toFixed(1)};
             const float CLUTTER_ABSTAND = ${WASSER_ABSTAND};
+            const float CLUTTER_WASSER_GITTER = ${WATER_STEP.toFixed(1)};
             ${WAVE_GLSL}
+
+            /** Beide Windsaetze gemischt — genau wie im WaterPlugin. */
+            float wovWelle(vec2 p, float d01) {
+              return mix(
+                wCalcWave(p, d01, clutterWaveTime, clutterWaveWind.z, clutterWaveWind.xy),
+                wCalcWave(p, d01, clutterWaveTime, clutterWaveWind2.z, clutterWaveWind2.xy),
+                clutterWaveAlpha
+              );
+            }
+
+            /**
+             * Die Hoehe der GEZEICHNETEN Wasserflaeche — nicht die der
+             * analytischen Welle.
+             *
+             * Das Nahwasser ist ein Gitter mit CLUTTER_WASSER_GITTER m
+             * Vertexabstand (Terrain.WATER_STEP), das auf das 64-m-Zonen-
+             * raster einrastet; die Stuetzstellen liegen also weltfest auf
+             * Vielfachen dieses Abstands, und dazwischen interpoliert der
+             * Rasterizer LINEAR.
+             *
+             * Das ist keine Feinheit. Die kurzen Oktaven von CalcWave haben
+             * 4 bis 6 m Wellenlaenge (len 1.0 bis 1.5) und liegen damit
+             * unter der Nyquist-Grenze dieses Gitters — das Wasser kann sie
+             * gar nicht zeigen. Wer eine Seerose auf die analytische Welle
+             * legt, richtet sie an einer Flaeche aus, die so nie gezeichnet
+             * wird, und schiebt sie im Wellental unter die blickdichte
+             * Oberflaeche.
+             *
+             * Deshalb an denselben vier Stuetzstellen abtasten und bilinear
+             * mischen. Rest-Ungenauigkeit: Der Rasterizer teilt jedes Feld
+             * in zwei Dreiecke, bilinear ist also nicht exakt die
+             * Dreiecksflaeche. Der Unterschied ist zweiter Ordnung und
+             * verschwindet gegen die Amplituden, um die es hier geht.
+             */
+            /**
+             * Wassertiefe an einem Weltpunkt, normiert wie im WaterPlugin.
+             *
+             * Gleiche Quelle wie dort: WaterPlugin.groundMap, aus der auch
+             * Terrain.bakeShoreRows die aDepth der Wasservertices backt.
+             * Ausserhalb der Kachel bleibt die Tiefe null (drin), was den
+             * Wellenanteil dort auslaufen laesst statt zu springen.
+             */
+            float wovTiefe01(vec2 p) {
+              vec2 gUV = (p - clutterGroundInfo.xy + 0.5) * clutterGroundInfo.z;
+              float drin = step(0.0, gUV.x) * step(gUV.x, 1.0)
+                         * step(0.0, gUV.y) * step(gUV.y, 1.0);
+              float grund = texture2D(clutterGroundTex, clamp(gUV, 0.0, 1.0)).r;
+              float tiefe = (CLUTTER_WATER_LEVEL - grund) * drin;
+              return clamp(tiefe / WATER_DEPTH_SCALE, 0.0, 1.0);
+            }
+
+            float wovWasserFlaeche(vec2 p) {
+              vec2 g = p / CLUTTER_WASSER_GITTER;
+              vec2 g0 = floor(g);
+              vec2 f = g - g0;
+              vec2 e = g0 * CLUTTER_WASSER_GITTER;
+              vec2 ex = e + vec2(CLUTTER_WASSER_GITTER, 0.0);
+              vec2 ez = e + vec2(0.0, CLUTTER_WASSER_GITTER);
+              vec2 exz = e + vec2(CLUTTER_WASSER_GITTER);
+              // Jede Stuetzstelle mit IHRER Tiefe — siehe wShoal.
+              float h00 = wovWelle(e,   wovTiefe01(e));
+              float h10 = wovWelle(ex,  wovTiefe01(ex));
+              float h01 = wovWelle(ez,  wovTiefe01(ez));
+              float h11 = wovWelle(exz, wovTiefe01(exz));
+              return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+            }
           #endif
         `,
       };

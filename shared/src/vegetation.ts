@@ -8,6 +8,7 @@
 import vegetationData from './vegetationData.json';
 import { getStableHash } from './hash.js';
 import { PREFABS_BY_NAME } from './prefabs.js';
+import { EIGENE_FLORA } from './flora.js';
 
 /** C++ IZoneManager::Foliage (ZoneManager.h:130-171). */
 export interface Foliage {
@@ -59,9 +60,16 @@ export interface Foliage {
 interface FoliageJson extends Omit<Foliage, 'prefabHash'> {}
 
 /**
- * All 120 foliage entries from vegetation.pkg whose prefab exists in the
+ * All foliage entries from vegetation.pkg whose prefab exists in the
  * registry, in pkg order (order matters: rng state is per-entry, but the
- * placed-areas overlap check is order-dependent).
+ * placed-areas overlap check is order-dependent), gefolgt von der eigenen
+ * Flora aus `flora.ts`.
+ *
+ * Die eigenen Einträge stehen HINTEN, und das ist keine Kosmetik: Der
+ * Streudurchlauf prüft je Eintrag gegen die schon belegten Flächen, ist
+ * also reihenfolgeabhängig. Vorne eingeschoben würden sie die Plätze der
+ * Originale verschieben und damit jede bestehende Welt umbauen — obwohl
+ * die Originaldaten unverändert sind.
  */
 export const FOLIAGE: readonly Foliage[] = buildFoliage();
 
@@ -73,6 +81,13 @@ function buildFoliage(): Foliage[] {
       continue;
     }
     list.push({ ...f, prefabHash: getStableHash(f.prefabName) });
+  }
+  for (const f of EIGENE_FLORA) {
+    if (!PREFABS_BY_NAME.has(f.prefabName)) {
+      console.warn(`[flora] Eigener Eintrag ohne Prefab: '${f.prefabName}'`);
+      continue;
+    }
+    list.push(f);
   }
   return list;
 }

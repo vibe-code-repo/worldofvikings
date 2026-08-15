@@ -37,6 +37,26 @@ const BOOM_MIN = 1.5;
 const BOOM_MAX = 12;
 /** Weg pro Rasterklick des Rades. */
 const BOOM_SCHRITT = 0.6;
+
+// ── Baumodus (nur Editor-Testflug, main.ts Taste V) ─────────────────
+/**
+ * Weitester Kamerastand im Baumodus. Wer eine Siedlung plant, muss ganze
+ * Hügelkuppen auf einen Blick sehen — die 12 m des Spielmodus zeigen kaum
+ * mehr als ein einzelnes Haus.
+ */
+const BOOM_MAX_BAU = 120;
+/**
+ * Im Baumodus zoomt das Rad PROPORTIONAL (12 % des aktuellen Abstands pro
+ * Rasterklick) statt in festen 0,6-m-Schritten: Mit dem festen Schritt
+ * bräuchte der Weg von 4,5 m auf 120 m rund 190 Klicks, proportional sind
+ * es ~29 — und nah an der Figur bleibt der Zoom trotzdem fein.
+ */
+const BOOM_BAU_FAKTOR = 0.12;
+/** Fluggeschwindigkeit beim Schweben (m/s) — deutlich über dem Laufen,
+ *  weil man im rausgezoomten Bild sonst auf der Stelle zu kriechen scheint. */
+const BAU_FLUG_TEMPO = 15;
+/** Mit Shift: schnell große Strecken überbrücken (Inselquerung). */
+const BAU_FLUG_TEMPO_SCHNELL = 45;
 /**
  * Mindestabstand der Kamera über dem Gelände.
  *
@@ -186,6 +206,16 @@ export class PlayerController {
    * laden asynchron, und ohne Boden fiele die Figur sofort ins Leere.
    */
   frozen = false;
+  /**
+   * Baumodus des Editor-Testflugs (main.ts, Taste V): Die Figur schwebt und
+   * die Kamera darf bis BOOM_MAX_BAU heraus. Technisch derselbe Weg wie
+   * `frozen`: Die Havok-Kapsel wird jeden Frame auf die Wunschposition
+   * gesetzt und ihre Geschwindigkeit genullt — die Physik läuft weiter,
+   * sammelt aber keine Fallgeschwindigkeit an. Beim Abschalten übernimmt
+   * dadurch sofort wieder die normale Schwerkraft (stepPhysics), ohne
+   * Sonderpfad: Die Figur fällt einfach von dort, wo sie schwebte.
+   */
+  private _bauModus = false;
   /** Auf true gesetzt, sobald die Leertaste gedrückt wurde; von stepPhysics geleert. */
   private sprungWunsch = false;
   /** Restzeit der Absprungsperre (s) — siehe SPRUNG_SPERRE. */
@@ -490,6 +520,18 @@ export class PlayerController {
   get inLuft(): boolean { return this.inDerLuft; }
 
 
+  get bauModus(): boolean { return this._bauModus; }
+
+  /** Baumodus an/aus — siehe Feldkommentar `_bauModus`. */
+  setBauModus(an: boolean): void {
+    this._bauModus = an;
+    if (!an) {
+      // Kamera zurück in den Spielbereich: Ohne die Klemme bliebe der
+      // Ausleger bis zum nächsten Radklick bei bis zu 120 m stehen.
+      this.boomLength = Math.min(BOOM_MAX, this.boomLength);
+    }
+  }
+
   get yaw(): number { return this._yaw; }
   get pitch(): number { return this._pitch; }
   /** World-space move intent (same values sent to the server). */
@@ -516,18 +558,25 @@ export class PlayerController {
     const speed = running ? RUN_SPEED : WALK_SPEED;
 
     // Leertaste als FLANKE, nicht als Dauerzustand: Gedrückthalten soll nicht
-    // bei jeder Landung erneut abheben lassen.
-    if (this.input.wasPressed('Space')) this.sprungWunsch = true;
+    // bei jeder Landung erneut abheben lassen. Im Baumodus ist sie das
+    // Steigen (Dauerzustand, unten) — ein dort gemerkter Sprungwunsch würde
+    // sonst beim Abschalten nachträglich bei der Landung auslösen.
+    if (!this._bauModus && this.input.wasPressed('Space')) this.sprungWunsch = true;
 
-    // Mausrad zoomt den Ausleger — solange der Baumodus es nicht braucht.
+    // Mausrad zoomt den Ausleger — solange das Bauwerkzeug es nicht braucht.
     if (!this.zoomErlaubt || this.zoomErlaubt()) {
       const rad = this.input.consumeWheel();
       if (rad !== 0) {
         // Nur das Vorzeichen zählt. Die Rohwerte von `deltaY` unterscheiden
         // sich je nach Browser und Gerät um Größenordnungen (Pixel, Zeilen,
         // Seiten) — ein Rasterklick soll überall gleich weit zoomen.
-        const schritt = Math.sign(rad) * BOOM_SCHRITT;
-        this.boomLength = Math.min(BOOM_MAX, Math.max(BOOM_MIN, this.boomLength + schritt));
+        // Im Baumodus proportional statt fest — siehe BOOM_BAU_FAKTOR.
+        const weite = this._bauModus
+          ? Math.max(BOOM_SCHRITT, this.boomLength * BOOM_BAU_FAKTOR)
+          : BOOM_SCHRITT;
+        const schritt = Math.sign(rad) * weite;
+        const max = this._bauModus ? BOOM_MAX_BAU : BOOM_MAX;
+        this.boomLength = Math.min(max, Math.max(BOOM_MIN, this.boomLength + schritt));
       }
     }
 
@@ -545,7 +594,50 @@ export class PlayerController {
     }
     this._moveIntent = { x: wx, z: wz, running };
 
-    if (this.frozen) {
+    if (this._bauModus) {
+      // ── Schweben im Baumodus ────────────────────────────────────────
+      // WASD verschiebt horizontal in Blickrichtung (wx/wz oben), Leertaste
+      // steigt, X oder Strg sinkt. Kein stepPhysics: Die Kapsel wird wie im
+      // frozen-Zweig darunter jeden Frame festgenagelt, damit Havok keine
+      // Fallgeschwindigkeit ansammelt — beim Abschalten fällt die Figur
+      // dann mit der normalen Weltgravitation zu Boden.
+      const tempo = running ? BAU_FLUG_TEMPO_SCHNELL : BAU_FLUG_TEMPO;
+      if (moving) {
+        this.position.x += wx * tempo * dt;
+        this.position.z += wz * tempo * dt;
+      }
+      if (this.input.isDown('Space')) this.position.y += tempo * dt;
+      // Strg als zweite Sinktaste (Fliegerspiel-Konvention Leer/Strg): im
+      // Projekt ist Strg sonst nirgends belegt, also kein Konflikt. Achtung
+      // Browser: Strg+W schließt den Tab — beim Sinken also besser X halten,
+      // wenn gleichzeitig vorwärts geflogen wird.
+      if (
+        this.input.isDown('KeyX') ||
+        this.input.isDown('ControlLeft') ||
+        this.input.isDown('ControlRight')
+      ) {
+        this.position.y -= tempo * dt;
+      }
+      // Nicht unter das Gelände sinken — dort ist nichts zu sehen, und die
+      // Rückkehr in den Spielmodus stünde sonst im Fels.
+      if (!this.dungeonMode) {
+        this.position.y = Math.max(
+          this.position.y,
+          this.world.getGroundHeight(this.position.x, this.position.z)
+        );
+      }
+      // Kein Bewegungswunsch an den Server — der kennt kein Fliegen und
+      // liefe am Boden hinterher (im Testflug ohnehin offline).
+      this._moveIntent = { x: 0, z: 0, running: false };
+      this.controller?.setPosition(
+        new Vector3(this.position.x, this.position.y + BODY_HEIGHT / 2, this.position.z)
+      );
+      this.controller?.setVelocity(Vector3.Zero());
+      // Schweben ist kein Sprung: Die Figur bleibt in der Standpose, und
+      // ein abgelaufener Flug-Timer stört die spätere Landung nicht.
+      this.flugRest = 0;
+      this.inDerLuft = false;
+    } else if (this.frozen) {
       // Warten auf die Raum-Collider: Position und Kapsel festhalten, kein
       // Bewegungswunsch an den Server (sonst liefe er ohne uns los).
       this._moveIntent = { x: 0, z: 0, running: false };

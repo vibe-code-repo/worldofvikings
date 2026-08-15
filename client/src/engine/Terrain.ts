@@ -93,7 +93,17 @@ const DETAIL_PRESETS: ReadonlyArray<{ view: number; far: number }> = [
 const DEFAULT_DETAIL_QUALITY = 2;
 
 /** Vertex-Abstand des Nahwassers in Metern. */
-const WATER_STEP = 4;
+/**
+ * Vertexabstand des Nahwasser-Netzes (m).
+ *
+ * EXPORTIERT, weil das Clutter-Plugin es braucht: Seerosen schwimmen auf
+ * der Welle und müssen sich an der Fläche ausrichten, die tatsächlich
+ * GEZEICHNET wird — und die ist zwischen diesen Stützstellen linear
+ * interpoliert, nicht die analytische Welle. Zwei Zahlen, die
+ * auseinanderdriften können, wären hier ein sicherer Weg zurück ins
+ * Flimmern (siehe ClutterWindPlugin, CLUTTER_AUF_WASSER).
+ */
+export const WATER_STEP = 4;
 /**
  * Wasser-Vertex-Zeilen, die pro Frame neu gebacken werden. Die Ufer-Nähe
  * braucht einen getGroundHeight()-Aufruf je Vertex (129² ≈ 16,6k bei

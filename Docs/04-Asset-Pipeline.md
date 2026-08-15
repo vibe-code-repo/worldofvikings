@@ -12,7 +12,7 @@ Die Pipeline aus `valheim-browser` bleibt die Quelle. Babylon.js lädt GLB/glTF 
 | Extraktion | AssetRipper 1.3.14.0 (GUI), PNG-Export, DirectExport, StaticMeshSeparation | `tools/assetripper/export/` |
 | Modelle | 1:1-Kopie der PrefabHierarchyObject-GLBs | `valheim_browser_assets/models/` — **7463 GLB, 4,8 GB**, Texturen eingebettet |
 | Sprites | Item-Icons | `valheim_browser_assets/sprites/` — 1595 Icons |
-| Audio | Export enthält 3318 `.ogg` — **noch nicht kopiert** | `valheim_browser_assets/audio/` leer |
+| Audio | **entfällt** — Valheim-Aufnahmen werden nicht verwendet, die `.ogg` sind aus dem Export gelöscht | `assets/audio/` enthält nur eigene Musik |
 | Index | `manifest.json` (4687 Einträge, Vertex/Face-Zahlen) | ⚠️ ohne Bounding-Boxen/Skalen |
 | Kompression | **keine** (kein KTX2, kein Draco) | 4,8 GB Rohbestand |
 
@@ -27,7 +27,7 @@ assets/ (Extern: valheim_browser_assets — per Vite publicDir/Symlink eingebund
 ├── models/            GLB, unverändert
 ├── models-fixed/      *_fixed.glb (Kreaturen mit gebackenen Meshes, aus valheim-browser übernommen/erweitert)
 ├── sprites/           Item-Icons (Babylon GUI / Inventar)
-├── audio/             .ogg aus dem Ripper-Export nachziehen (Phase 6)
+├── audio/             eigene Musik/Sounds (MP3) — keine Valheim-Aufnahmen
 ├── env/               .env-Datei (IBL) für PBR — einmalig aus Himmel-Setup backen
 └── manifest.json      erweitert: Bounding Boxes, Node-Skalen, Animationsliste, Foliage-Flag
 ```
@@ -43,8 +43,14 @@ Einmal-Lauf (Node-Skript in `tools/`): alle GLBs parsen (bestehende `glb-dump.js
 - `*_fixed.glb`-Verfahren aus `valheim-browser` übernehmen (Bind-Space-Bake + Textur-Injektion, dort für Boar/Deer/Greydwarf erledigt).
 - Ausstehend: `Neck.glb`, `Greyling.glb`, `Troll.glb`, später Skeleton/Eikthyr — meshed Varianten aus dem Ripper-Export suchen oder nachbacken.
 
-### Schritt 3 — Audio nachziehen (Phase 6)
-3318 `.ogg` aus `tools/assetripper/export/.../AudioClip/` in `assets/audio/` kopieren, Manifest-Eintrag `audio` ergänzen (Name → Datei, Länge).
+### Schritt 3 — Audio: eigene Quellen statt Ripper-Export
+Der Ton kommt **nicht** aus dem Valheim-Export. Die früher übernommenen
+`.ogg` (Biom-Musik, Wind, Schritte, One-Shots) sind gelöscht, ebenso alle
+Audio-Dateien im Ripper-Export selbst; `tools/extract-audio.mjs` ist
+entfallen. In `assets/audio/` liegt nur eigenes Material — aktuell
+`hintergrundmusik.mp3`, die `GameAudio` als einzigen Loop abspielt.
+Weitere Sounds (Schritte, Wind, Treffer) müssen aus lizenzfreien oder
+selbst erzeugten Quellen kommen.
 
 ### Schritt 4 (optional, später) — Kompression
 Erst wenn Bandbreite/Speicher zum Problem wird:

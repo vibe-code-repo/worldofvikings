@@ -22,6 +22,7 @@ Blattfläche — bei normaler Renderdistanz praktisch unsichtbare Striche statt
 Gras (2026-07-26, Playwright-Vergleich mit den generierten Texturen).
 """
 import math
+import os
 import random
 from PIL import Image, ImageDraw
 
@@ -79,7 +80,21 @@ def gen(path, base_rgb, tip_rgb, blades_per_col, seed):
     print(f'{path}: {W}x{H}, alpha>0.5 = {solid / (W * H):.2f}')
 
 
-OUT = '../valheim_browser_assets/textures/'
+# Ziel ist assets/textures im Projekt, ueber den Ort DIESER Datei
+# bestimmt statt relativ zum Arbeitsverzeichnis.
+#
+# Stand bis 2026-08-13 auf '../valheim_browser_assets/textures/' — dem
+# Ordner des three.js-Vorlaeuferprojekts, der hier gar nicht existiert.
+# Das Werkzeug legte seine drei Atlanten also entweder neben das Repo
+# oder brach mit FileNotFoundError ab; in `assets/textures/` landete
+# jedenfalls nichts. Weil `assets/` gitignored ist, hiess das: Auf einem
+# frischen Checkout fehlten genau die drei Grastexturen, die Wiese,
+# Heide und Sumpf tragen.
+OUT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'assets', 'textures', ''
+)
+os.makedirs(OUT, exist_ok=True)
 gen(OUT + 'grass_meadows_gen.png', (52, 88, 30), (110, 155, 62), 42, seed=7)
 gen(OUT + 'grass_heath_gen.png', (96, 84, 40), (168, 152, 88), 36, seed=13)
 gen(OUT + 'grass_toon1_yellow_gen.png', (58, 66, 28), (150, 148, 72), 30, seed=21)

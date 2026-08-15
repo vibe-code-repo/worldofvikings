@@ -4,6 +4,7 @@
   "private": true,
   "description": "Valheim Babylon Port - Babylon.js client + 1:1 server port from Valhalla2.0 C++",
   "workspaces": [
+    "admin",
     "server",
     "client",
     "shared",

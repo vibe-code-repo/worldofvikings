@@ -29,6 +29,11 @@ import {
   ESSEN,
   sanitizeWorldLayout,
   layoutBounds,
+  layoutKennung,
+  loeseNpcAuf,
+  istNpcPrefab,
+  RegionGeo,
+  PLATEAU_RAND_MAX,
   PacketType,
   PrefabFlag,
   findPrefabByName,
@@ -43,6 +48,7 @@ import {
   FRACTION_MIDDAY,
   FRACTION_SUNSET,
 } from '@wov/shared';
+import type { NpcDef, NpcEinordnung } from '@wov/shared';
 import { createWorld, DEFAULT_OFFLINE_SEED, type ClientWorld, type ClientWorldSettings } from './world/World';
 import { TerrainManager } from './engine/Terrain';
 import { Lighting } from './engine/Lighting';
@@ -52,6 +58,7 @@ import { InputManager } from './engine/InputManager';
 import { AssetManager } from './engine/AssetManager';
 import { WindPlugin } from './engine/WindPlugin';
 import { ClutterWindPlugin } from './engine/ClutterWindPlugin';
+import { GlutPuls } from './engine/GlutPuls';
 import { initPhysics, bodenHoeheUnter } from './engine/Physics';
 import { WaterPlugin } from './engine/WaterPlugin';
 import { Precipitation } from './engine/Precipitation';
@@ -61,6 +68,7 @@ import { GameSocket } from './net/GameSocket';
 import { parseZDOSync } from './net/ZDOSync';
 import { Hud } from './ui/Hud';
 import { GrassClutter } from './engine/GrassClutter';
+import { HuegelGras } from './engine/HuegelGras';
 import { SettingsStore } from './ui/Settings';
 import { SettingsPanel } from './ui/SettingsPanel';
 import { PostProcessing } from './engine/PostProcessing';
@@ -74,9 +82,13 @@ import { PlacementController } from './player/PlacementController';
 import { PieceSelection } from './ui/PieceSelection';
 import { ObjectLabels } from './ui/ObjectLabels';
 import { Anvisiert } from './ui/Anvisiert';
+import { Namensschilder } from './ui/Namensschild';
 import { WorldMap } from './ui/WorldMap';
 import { setzeKartenMasse } from './ui/worldmap/mapTypes';
 import { SpawnPanel } from './editor/SpawnPanel';
+import { RoutenEditor } from './editor/RoutenEditor';
+import { RoutenVorschau } from './editor/RoutenVorschau';
+import { BewuchsVorschau } from './editor/BewuchsVorschau';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
@@ -87,6 +99,16 @@ import { CraftingPanel } from './ui/CraftingPanel';
 import { GameAudio } from './engine/GameAudio';
 
 const INPUT_SEND_RATE_MS = 50; // 20 Hz like the old client / original
+
+/**
+ * Bauwerke, in deren Grundfläche kein Gelände-Gras wachsen darf.
+ *
+ * Gemeint sind die mit begehbarem Innenraum, deren Boden auf Geländehöhe
+ * liegt (siehe BEGEHBAR in entities/EntityManager.ts). Beim Steinkreis wäre
+ * es falsch — dort SOLL Gras zwischen den Steinen stehen —, in einer
+ * Grabkammer wächst sonst eine Wiese unter dem Totenschiff.
+ */
+const INNENRAUM_OHNE_GRAS = /^(Grabhuegel)/i;
 
 // ServerConfig packet flag bits (D6) — same order server-side (WovServer.ts)
 const FLAG_BLEND_SMOOTHSTEP = 1 << 0;
@@ -112,13 +134,27 @@ function randomSeed(): string {
 }
 
 async function createEngine(canvas: HTMLCanvasElement) {
-  if (await WebGPUEngine.IsSupportedAsync) {
+  // WebGPU ist AUSGESCHALTET, bis die Material-Plugins WGSL sprechen.
+  //
+  // `ValheimWater` und `StandardGammaFix` sind gegen GLSL geschrieben.
+  // Unter WebGPU lehnt Babylon sie ab ("plugin is not compatible with the
+  // shader language of the material") und die Szene bricht danach ab —
+  // kein Havok, kein Avatar, kein Clutter, schwarzes Bild.
+  //
+  // Warum das so lange unentdeckt blieb: WebGPU gibt es NUR im sicheren
+  // Kontext. Über LAN-HTTP (http://10.10.10.x:5274) ist `navigator.gpu`
+  // gar nicht da, also lief hier immer der WebGL2-Zweig. Sichtbar wurde
+  // der Fehler erst, als der Server hinter HTTPS lief — derselbe Build
+  // rendert über HTTP eine Wiese und über HTTPS nichts.
+  //
+  // `?webgpu=1` schaltet den Zweig für die Reparatur wieder scharf.
+  if (new URLSearchParams(location.search).has('webgpu') && (await WebGPUEngine.IsSupportedAsync)) {
     const engine = new WebGPUEngine(canvas, { antialias: true });
     await engine.initAsync();
-    console.log('[engine] WebGPU');
+    console.log('[engine] WebGPU (per ?webgpu=1 erzwungen)');
     return engine;
   }
-  console.log('[engine] WebGL2 fallback');
+  console.log('[engine] WebGL2');
   // `powerPreference: 'high-performance'` ist auf Geräten mit zwei GPUs
   // (Laptop: iGPU + dGPU) der Unterschied zwischen Onboard-Grafik und
   // echter Karte — ohne die Angabe wählt der Browser gern die sparsame.
@@ -251,16 +287,27 @@ async function main() {
   let world: ClientWorld | null = null;
   /** Spawn-Editor des Testflugs offen? (gibt die Maus frei, s. cursorNoetig) */
   let spawnEditorOffen: () => boolean = () => false;
+  /** Routen-Editor des Testflugs offen? (dito — Liste/Regler brauchen den Zeiger) */
+  let routenEditorOffen: () => boolean = () => false;
   /** Auto-Reconnect-Zähler (Review-Punkt 9) — Reset bei erfolgreicher Verbindung. */
   let reconnectVersuch = 0;
   /** Layout-Handshake: ServerConfig kündigte ein WorldLayoutData an. */
   let layoutErwartet: { worldSeed: string; settings: ClientWorldSettings } | null = null;
   /** Aktives WorldLayout (Layout-Modus) — Karte/Editor lesen es mit. */
   let worldLayout: unknown = null;
+  /**
+   * Sockel-Platzierungen (`einebnen`) für die Gras-Aussparung: Auf der
+   * ganzen Platte wächst kein Klutter-Gras. Der 0,62-Innenraum von
+   * INNENRAUM_OHNE_GRAS reicht dafür nicht — Gang und Portal des
+   * Grabhügels liegen außerhalb, dort stand Gras im Eingang. Gefüllt aus
+   * dem Layout (buildWorld), im Testflug live gepflegt (sockelLiveDazu/-Weg).
+   */
+  let sockelFreiflaechen: Array<{ x: number; z: number; r: number }> = [];
   let terrain: TerrainManager | null = null;
   let player: PlayerController | null = null;
   let entities: EntityManager | null = null;
   let grass: GrassClutter | null = null;
+  let huegelGras: HuegelGras | null = null;
   let post: PostProcessing | null = null;
   let shadows: Shadows | null = null;
   let loading: LoadingScreen | null = null;
@@ -337,6 +384,8 @@ async function main() {
   let precipitation: Precipitation | null = null;
   let objectLabels: ObjectLabels | null = null;
   let anvisiert: Anvisiert | null = null;
+  /** Namensschilder über Figuren (Name, Stufe, Leben, Quest-Zeichen). */
+  let namensschilder: Namensschilder | null = null;
   /** Sekunden seit dem letzten Abgleich der Gras-Aussparungen. */
   let clearingTimer = 0;
 
@@ -363,6 +412,8 @@ async function main() {
     engine.setHardwareScalingLevel(1 / (RENDER_SCALE[s.renderScale] ?? 1));
     input.setUseLock(s.pointerLock);
     objectLabels?.setEnabled(s.showObjectNames);
+    namensschilder?.setEnabled(s.nameplates);
+    namensschilder?.setEigenes(s.eigenesNameplate);
   });
   /** ?env= pins the weather — don't let the biome tracker override it. */
   let envPinned = false;
@@ -421,6 +472,25 @@ async function main() {
       return;
     }
     worldLayout = layout ?? null;
+    // Gras-Freiflächen der Sockel-Platzierungen einsammeln: Der Klutter
+    // kennt später nur Prefab-Instanzen, nicht das Layout — hier ist der
+    // eine Ort, an dem BEIDE Pfade (Online-Paket 64 wie Testflug-Entwurf)
+    // mit dem vollständigen Dokument vorbeikommen.
+    const sockelLayout = layout ? sanitizeWorldLayout(layout) : null;
+    sockelFreiflaechen = (sockelLayout?.placements ?? [])
+      .filter((p) => p.einebnen !== undefined)
+      .map((p) => ({ x: p.x, z: p.z, r: p.einebnen! }));
+    // Nachschlagewerk für die Namensschilder: Kennung → Einordnung. Der
+    // Server schickt an jeder gespawnten Instanz nur die Kennung (ZDO-Member
+    // `layoutId`, steht dort ohnehin) — Name, Rolle, Fraktion, Stufe und
+    // Quest-Zustand holt der Client aus dem Dokument, das er längst hat.
+    // Dieselben Angaben in jeden Positions-Tick zu legen wäre die
+    // naheliegende, aber teure Lösung: Sie ändern sich nie.
+    const npcNachKennung = new Map<string, NpcEinordnung>();
+    for (const p of sockelLayout?.placements ?? []) {
+      const e = loeseNpcAuf(p.prefab, p.npc);
+      if (e) npcNachKennung.set(layoutKennung(p), e);
+    }
     world = createWorld(seed, settings, layout);
     console.log('[world] GeoManager ready, ground(0,0) =', world.getGroundHeight(0, 0));
 
@@ -429,7 +499,11 @@ async function main() {
     terrain = new TerrainManager(scene, world, lighting.sun);
     player = new PlayerController(scene, input, world, assets);
     entities = new EntityManager(scene, world, assets, terrain);
+    entities.setzeNpcQuelle(npcNachKennung.size > 0 ? (id) => npcNachKennung.get(id) ?? null : null);
     grass = new GrassClutter(scene, world);
+    // Bewuchs der Grabhügel-Kuppel: streut Wiesenhalme direkt auf die
+    // Modelldreiecke, weil das Gelände-Gras nur die Heightmap kennt.
+    huegelGras = new HuegelGras(scene, assets, grass);
     // Niederschlag (EnvSetup.m_psystems im Original) — folgt dem Spieler
     // und wird vom Wind schräg gestellt, s. Precipitation.ts.
     precipitation = new Precipitation(scene);
@@ -438,6 +512,14 @@ async function main() {
     objectLabels.setEnabled(gameSettings.get().showObjectNames);
     // Was unter dem Fadenkreuz steht — färbt es gelb (s. Anvisiert.ts).
     anvisiert = new Anvisiert(scene, player.camera, () => entities);
+    // Namensschilder über Figuren. `bodenHoehe` ist die Sichtprüfung: Ein
+    // Schild hinter einer Kuppe darf nicht durchscheinen (s. Namensschild.ts).
+    namensschilder = new Namensschilder(scene, player.camera, () => entities, {
+      bodenHoehe: (x, z) => world?.getGroundHeight(x, z) ?? -1000,
+    });
+    namensschilder.setSpielerName(nameInput.value);
+    namensschilder.setEnabled(gameSettings.get().nameplates);
+    namensschilder.setEigenes(gameSettings.get().eigenesNameplate);
 
     // Havok statt handgestrickter Abstandsprüfungen: im Original ist der
     // Character ein Rigidbody mit CapsuleCollider und PhysX löst die
@@ -622,6 +704,19 @@ async function main() {
         if (baum !== undefined) WindPlugin.strength = baum;
         if (gras !== undefined) ClutterWindPlugin.ampScale = gras;
         return { baum: WindPlugin.strength, gras: ClutterWindPlugin.ampScale };
+      },
+      /**
+       * Glut live justieren, ohne Neuladen:
+       *   __vb.glut(amplitude, grundhelligkeit)
+       * Standard 0.5 / 3.0. Beide Werte müssen kräftig ausfallen, weil das
+       * Tonemapping (KHR_PBR_NEUTRAL) helle Werte staucht und Bloom erst
+       * ab 0.7 greift — mit 0.25/1.6 fand die Schwankung messbar statt,
+       * war im Bild aber nicht zu sehen.
+       */
+      glut: (amplitude?: number, basis?: number) => {
+        if (amplitude !== undefined) GlutPuls.amplitude = amplitude;
+        if (basis !== undefined) GlutPuls.setzeBasis(basis);
+        return { amplitude: GlutPuls.amplitude, materialien: GlutPuls.anzahl };
       },
       nearbyInstances: (r = 40) =>
         entities && player ? entities.nearbyInstances(player.position.x, player.position.z, r) : [],
@@ -881,6 +976,8 @@ async function main() {
       const stamina = reader.readFloat32();
       if (reader.remaining >= 12) serverPos = reader.readVector3();
       hud.setVitals(health, stamina);
+      // Dieselbe Zahl im eigenen Namensschild — eine Quelle, zwei Anzeigen.
+      namensschilder?.setSpielerLeben(health);
     });
 
     // Terraforming vom Server: eigene Ops (Echo), Mitspieler-Ops und das
@@ -915,8 +1012,6 @@ async function main() {
       const itemName = reader.readString();
       const amount = reader.readInt32();
       if (message) hud.meldung(message);
-      if (message.startsWith('Tür')) audio.play('tuer', 0.8);
-      else if (message.startsWith('Aufgesammelt') || message.startsWith('Gefunden')) audio.play('pickup', 0.7);
       // Items addiert NUR noch der Server (InventorySync) — itemName/amount
       // bleiben im Paket für HUD-Signale und Alt-Clients.
       void itemName;
@@ -1030,6 +1125,7 @@ async function main() {
 
   connectBtn.addEventListener('click', () => {
     const name = nameInput.value.trim() || 'Viking';
+    namensschilder?.setSpielerName(name);
     connectBtn.setAttribute('disabled', 'true');
 
     const stunde = gewaehlteStunde();
@@ -1078,22 +1174,88 @@ async function main() {
     // `entities` hier sonst für null.
     const ent = entities as EntityManager | null;
     if (testflug && ent) {
-      const zeige = (p: { prefab: string; x: number; z: number; yaw?: number; scale?: number }, i: number): void => {
+      // Ein Eintrag des Entwurfs — dieselben Felder wie PlacementDef, aber
+      // beschreibbar: Der Entwurf im localStorage IST das Arbeitsdokument.
+      type EntwurfEintrag = {
+        prefab: string;
+        x: number;
+        z: number;
+        yaw?: number;
+        scale?: number;
+        einebnen?: number;
+        npc?: NpcDef;
+      };
+      // `anim` ist optional und nur für die Routen-Vorschau da: Sie schaltet
+      // damit dieselbe Animationsgruppe um, die online der Server über den
+      // ZDO-Member `anim` steuert (idle/walk). Ohne Angabe bleibt es bei der
+      // Animation aus der PrefabDef — für jede stehende Platzierung.
+      const zeige = (p: { prefab: string; x: number; z: number; yaw?: number; scale?: number; anim?: string; npc?: NpcDef }, i: number): void => {
         if (!findPrefabByName(p.prefab) || !world) return;
         const yaw = p.yaw ?? 0;
+        // NPC-Einordnung fertig aufgelöst mitgeben statt über `layoutId`:
+        // Offline gibt es keinen Server, der eine Kennung setzen könnte,
+        // und der Entwurf liegt hier unmittelbar vor. Damit sieht der
+        // Zeichner jede Änderung an Name/Rolle/Stufe sofort am Schild —
+        // die Platzierung wird nach dem Bearbeiten einfach neu gezeichnet.
+        const npc = loeseNpcAuf(p.prefab, p.npc);
         ent.applyUpdate({
           key: i < 0 ? 'edghost' : `edplace-${i}`,
           prefabHash: getStableHash(p.prefab),
           position: { x: p.x, y: world.getGroundHeight(p.x, p.z), z: p.z },
           rotation: { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) },
+          ...(p.anim !== undefined ? { anim: p.anim } : {}),
+          // Der Geist an der Maus (i < 0) bleibt bewusst ohne Schild — er
+          // ist noch keine Figur, sondern eine Vorschau.
+          ...(npc && i >= 0 ? { npc } : {}),
           isOwn: false,
         } as never);
       };
-      const entwurf = testflug as { placements?: Array<{ prefab: string; x: number; z: number; yaw?: number }> };
+      const entwurf = testflug as { placements?: EntwurfEintrag[] };
       (entwurf.placements ?? []).forEach(zeige);
       ent.flush();
 
+      // ── Live-Planieren ──────────────────────────────────────────────
+      // Sockel sofort in die laufende Geo einfügen/entfernen und die
+      // betroffenen Kacheln neu bauen — wer ein Bauwerk setzt, muss das
+      // Planieren SOFORT sehen, nicht erst nach F5. Neuladen und Server
+      // rechnen trotzdem exakt dieselbe Höhe, weil die Zielhöhe in
+      // RegionGeo immer die UNGEEBNETE Mittelpunkthöhe ist — unabhängig
+      // davon, wann die Platte dazukam.
+      const kachelnNeu = (x: number, z: number, radius: number): void => {
+        if (!world) return;
+        const reichweite = radius + PLATEAU_RAND_MAX;
+        // Muster F4 (applyLocationLeveling): Zonen-Cache verwerfen, Kacheln
+        // über den Ring-Scan neu bauen lassen. Das Gras steht sonst auf der
+        // alten Höhe (Muster: Terrain-Werkzeuge, grass.clearArea).
+        terrain?.rebuildZones(world.heightmaps.invalidateArea(x, z, reichweite));
+        grass?.clearArea(x, z, reichweite);
+      };
+      const sockelLiveDazu = (x: number, z: number, radius: number): void => {
+        if (!world || !(world.geo instanceof RegionGeo)) return;
+        world.geo.sockelEinfuegen(x, z, radius);
+        sockelFreiflaechen.push({ x, z, r: radius });
+        kachelnNeu(x, z, radius);
+      };
+      const sockelLiveWeg = (p: { x: number; z: number; einebnen?: number }): void => {
+        if (!p.einebnen || !world || !(world.geo instanceof RegionGeo)) return;
+        if (!world.geo.sockelEntfernen(p.x, p.z)) return;
+        sockelFreiflaechen = sockelFreiflaechen.filter(
+          (s) => Math.abs(s.x - p.x) >= 0.05 || Math.abs(s.z - p.z) >= 0.05
+        );
+        kachelnNeu(p.x, p.z, p.einebnen);
+      };
+
       const panel = new SpawnPanel({
+        // Tageszeit im Testflug: Lighting rechnet in Tagesbruchteilen
+        // (0–1), der Regler zeigt Stunden. `paused` stoppt den Zyklus in
+        // Lighting.apply() — ohne das wandert jeder eingestellte Wert
+        // sofort weiter.
+        setzeZeit: (stunden, angehalten) => {
+          if (!lighting) return;
+          lighting.timeOfDay = ((stunden / 24) % 1 + 1) % 1;
+          lighting.paused = angehalten;
+        },
+        zeit: () => (lighting ? lighting.timeOfDay * 24 : 12),
         anzahl: () => {
           const roh = JSON.parse(localStorage.getItem('wov-editor-layout') ?? '{}') as {
             placements?: unknown[];
@@ -1101,44 +1263,146 @@ async function main() {
           return roh.placements?.length ?? 0;
         },
         platzieren: () => platziere(),
+        // ── NPC-Angaben der GEWÄHLTEN Platzierung ─────────────────────
+        // Gelesen und geschrieben wird derselbe localStorage-Entwurf, den
+        // auch Setzen, Ziehen und Löschen anfassen — eine zweite Quelle
+        // für dieselben Daten wäre der sichere Weg in Widersprüche.
+        gewaehlteNpc: () => {
+          if (auswahlIndex < 0) return null;
+          const p = leseEntwurf()?.placements[auswahlIndex];
+          return p ? { prefab: p.prefab, npc: p.npc } : null;
+        },
+        setzeNpc: (npc) => {
+          const roh = leseEntwurf();
+          const p = roh?.placements[auswahlIndex];
+          if (!roh || !p) return;
+          if (npc) p.npc = npc;
+          else delete p.npc;
+          localStorage.setItem('wov-editor-layout', JSON.stringify(roh));
+          // Sofort neu zeichnen: Das Namensschild hängt an der Instanz,
+          // und der Zeichner soll den geänderten Namen sehen, ohne die
+          // Figur erst verschieben zu müssen.
+          zeige(p, auswahlIndex);
+          ent.flush();
+          hud.meldung(`${p.prefab}: Angaben übernommen`);
+        },
         entferneLetztes: () => {
           const roh = JSON.parse(localStorage.getItem('wov-editor-layout') ?? 'null') as {
-            placements?: Array<{ prefab: string; x: number; z: number }>;
+            placements?: Array<{ prefab: string; x: number; z: number; einebnen?: number }>;
           } | null;
           if (!roh?.placements?.length) return;
           const i = roh.placements.length - 1;
+          const weg = roh.placements[i]!;
           roh.placements = roh.placements.slice(0, -1);
           localStorage.setItem('wov-editor-layout', JSON.stringify(roh));
           ent.removeZDO(`edplace-${i}`);
           ent.flush();
+          // Kein verwaister Sockel: Der Untergrund geht mit der Platzierung.
+          sockelLiveWeg(weg);
           hud.meldung('Letzte Platzierung entfernt');
         },
       });
+      // Sockel-Radius fürs Einebnen: halbe DIAGONALE der Grundfläche plus
+      // ein Meter Zugabe, mit der gewählten Größe skaliert. Zwei Anläufe
+      // reichten nicht: ×0,8 ließ den Rand des Grabhügels auf unplaniertem
+      // Gelände stehen, und auch w/2 + 1 (= 22,3 m) endete VOR der
+      // Eingangsfront — renderScale.w ist nur die Bbox-BREITE, Vorbauten
+      // (Portal bei −21,6 m, Runenstein bei −24 m) und jede yaw-Drehung
+      // schieben Ecken bis zur halben Diagonale hinaus, und die Böschung
+      // kletterte als Grashang quer über das Portal. Erst hinter der
+      // Diagonale (Grabhügel: ~31 m) darf sie beginnen.
+      const sockelRadius = (): number => {
+        const e = panel.einstellung;
+        const w = findPrefabByName(e.prefab)?.renderScale.w ?? 4;
+        // Halbe LÄNGSTE Ausdehnung plus ein Meter Zugabe. Ein Kreis mit
+        // diesem Radius deckt das Bauwerk in JEDER Drehung, weil w bereits
+        // die größte waagerechte Kante ist.
+        //
+        // Vorher stand hier zusätzlich ein √2 — das rechnet die Diagonale
+        // eines QUADRATS aus und ist für längliche Bauten schlicht zu
+        // grosszügig: Beim Grabhügel (42,6 × 29,4 m) ergab das 31 m statt
+        // 22 m, also einen Ring von bis zu 9 m planierter Wiese rund um
+        // den Fuss. Gemeldet als „es wird sehr viel rund um den Hügel
+        // planiert". Die Ecken einer gedachten Bbox deckt der Kreis dann
+        // zwar nicht mehr — dort ist bei einem runden Hügel aber ohnehin
+        // nur Luft.
+        return Math.round(((w * e.scale) / 2) + 1);
+      };
       const platziere = (): void => {
         if (!player || !world) return;
+        // Zentrale Schranke für ALLE Setz-Pfade (Taste P, „Platzieren"-
+        // Knopf, Linksklick bei gefangener Maus): Ohne bewusst in der
+        // Liste aktivierten Platzier-Modus wird NICHTS gesetzt — sonst
+        // setzte z. B. der Klick, der nach dem Schließen mit B die Maus
+        // wieder einfängt, still das localStorage-Prefab in die Welt.
+        if (!panel.istPlatzierModus) {
+          hud.meldung('Kein Prefab aktiv — erst in der Liste (B) anklicken');
+          return;
+        }
+        // Zweite Schranke: Solange Wegpunkte gesetzt werden, gehört der
+        // Klick (und die Taste P) der Route — sonst stünde am Wegpunkt
+        // ungewollt ein Baum. Kann eigentlich nicht eintreten, weil
+        // aufZeichenStart den Platzier-Modus beendet; billiger Rückhalt.
+        if (routen.istZeichenModus) {
+          hud.meldung('Routen-Zeichnen aktiv — erst mit ✎ oder Esc beenden');
+          return;
+        }
         const e = panel.einstellung;
         const wx = Math.round(player.position.x - Math.sin(player.yaw) * e.abstand);
         const wz = Math.round(player.position.z - Math.cos(player.yaw) * e.abstand);
         const roh = JSON.parse(localStorage.getItem('wov-editor-layout') ?? 'null') as {
-          placements?: Array<{ prefab: string; x: number; z: number; yaw?: number; scale?: number }>;
+          placements?: EntwurfEintrag[];
         } | null;
         if (!roh) return;
+        const sockel = e.einebnen ? sockelRadius() : undefined;
         const eintrag = {
           prefab: e.prefab,
           x: wx,
           z: wz,
           yaw: e.yaw ?? Math.random() * Math.PI * 2,
           ...(Math.abs(e.scale - 1) > 1e-3 ? { scale: e.scale } : {}),
+          ...(sockel !== undefined ? { einebnen: sockel } : {}),
         };
         roh.placements = [...(roh.placements ?? []), eintrag];
         localStorage.setItem('wov-editor-layout', JSON.stringify(roh));
+        // Erst planieren, DANN zeichnen: zeige() liest getGroundHeight —
+        // das Bauwerk soll auf der Platte sitzen, nicht auf der alten Welle.
+        if (sockel !== undefined) sockelLiveDazu(wx, wz, sockel);
         zeige(eintrag, roh.placements.length - 1);
         ent.flush();
+        // Eine frisch gesetzte FIGUR ist sofort die gewählte: Sonst müsste
+        // man sie erst wieder anklicken, um ihr einen Namen zu geben.
+        // Bewusst nur bei NPCs — bei Bäumen wäre eine Auswahl, die Entf
+        // scharf macht, eine unerwartete Nebenwirkung des Setzens.
+        if (istNpcPrefab(e.prefab)) auswahlIndex = roh.placements.length - 1;
         panel.aktualisiere();
-        hud.meldung(`${e.prefab} platziert @ (${wx}, ${wz})`);
+        hud.meldung(
+          `${e.prefab} platziert @ (${wx}, ${wz})` +
+            (sockel !== undefined ? ` — Boden planiert (r=${sockel} m)` : '')
+        );
+        // Nutzerwunsch: Nach dem Setzen hängt NICHTS mehr an der Maus —
+        // der Modus endet mit der Platzierung (aufWahl räumt den Geist ab).
+        // Wer ein weiteres Exemplar will, klickt den Eintrag erneut an.
+        panel.beendePlatzierModus();
       };
       spawnEditorOffen = () => panel.istOffen;
+      /**
+       * Landet der Tastendruck gerade in einem Feld des Panels, das ihn
+       * selbst verarbeitet? Im Suchfeld sind „b"/„p"/Entf Texteingabe, im
+       * Kategorie-Select springen Buchstaben zu Einträgen — ohne diese
+       * Sperre schloss das Tippen das Menü bzw. platzierte mitten im
+       * Suchwort (Ursache von „B setzt nochmal"). Regler und Häkchen
+       * schlucken keine Buchstaben, dort gelten die Kürzel weiter.
+       */
+      const tipptImFeld = (e: KeyboardEvent): boolean =>
+        (e.target instanceof HTMLInputElement &&
+          // `number` seit den NPC-Feldern dabei: Im Stufenfeld ist die
+          // Tastatur Eingabe, nicht Steuerung — sonst schlösse ein
+          // Tastendruck darin das Panel oder platzierte.
+          (e.target.type === 'text' || e.target.type === 'number')) ||
+        e.target instanceof HTMLSelectElement;
       window.addEventListener('keydown', (e) => {
+        if (tipptImFeld(e)) return;
         if (e.code === 'KeyB') {
           const offen = panel.toggle();
           if (!offen) {
@@ -1151,9 +1415,33 @@ async function main() {
             // Wieder-Einfangen übernimmt der Game-Loop (cursorNoetig).
             document.exitPointerLock();
           }
-          hud.meldung(offen ? 'Spawn-Editor offen — P platziert, B schließt' : 'Spawn-Editor zu');
+          hud.meldung(
+            offen
+              ? 'Spawn-Editor offen — Prefab anklicken startet die Platzierung, B schließt'
+              : 'Spawn-Editor zu'
+          );
         }
         if (e.code === 'KeyP' && panel.istOffen) platziere();
+        // Esc beendet den Platzier-Modus (die Vorauswahl in der Liste bleibt).
+        if (e.code === 'Escape') panel.beendePlatzierModus();
+      });
+
+      // ── Baumodus (Taste V) ──────────────────────────────────────────
+      // Nur im Editor-Testflug registriert (dieser Block läuft sonst nie):
+      // Figur schwebt, Kamera darf weit heraus — Übersicht beim Anlegen
+      // ganzer Siedlungen. V ist frei (B=Spawn-Panel, E/F/P/M/I/C/Tab
+      // vergeben); die Mechanik liegt im PlayerController (setBauModus).
+      window.addEventListener('keydown', (e) => {
+        if (e.code !== 'KeyV' || !player) return;
+        // Tippt man gerade im Suchfeld des Panels, ist "v" ein Buchstabe.
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+        const an = !player.bauModus;
+        player.setBauModus(an);
+        hud.meldung(
+          an
+            ? 'Baumodus AN — WASD fliegt, Leer steigt, X/Strg sinkt, Rad zoomt weit, V beendet'
+            : 'Baumodus AUS — Figur fällt zu Boden'
+        );
       });
       window.addEventListener('mousedown', (e) => {
         // Bei gefangener Maus platziert der Linksklick vor dem Spieler;
@@ -1199,17 +1487,149 @@ async function main() {
         const tm = (t0 + t1) / 2;
         return { x: ray.origin.x + ray.direction.x * tm, z: ray.origin.z + ray.direction.z * tm };
       };
-      const leseEntwurf = (): { placements: Array<{ prefab: string; x: number; z: number; yaw?: number; scale?: number }> } | null => {
+      const leseEntwurf = (): { placements: EntwurfEintrag[] } | null => {
         const roh = JSON.parse(localStorage.getItem('wov-editor-layout') ?? 'null');
         if (!roh) return null;
         roh.placements = roh.placements ?? [];
         return roh;
       };
       let ziehIndex = -1;
+      /** Griffposition beim Packen — nach dem Ziehen wandert der Sockel
+       *  von dort zur neuen Position (die alte steht sonst als verwaiste
+       *  Platte im Gelände). */
+      let ziehStart: { x: number; z: number } | null = null;
       /** Ausgewählte (zuletzt gegriffene) Platzierung — Ziel von Entf. */
       let auswahlIndex = -1;
-      /** Vorschau an der Maus aktiv? Rechtsklick verwirft, Listenwahl reaktiviert. */
-      let vorschauAktiv = true;
+      // Ob die Vorschau an der Maus hängt, entscheidet allein
+      // panel.istPlatzierModus: aktiv erst nach bewusstem Klick in der
+      // Liste, beendet durch Abwahl/Esc/Rechtsklick. Ein lokales Flag
+      // hier war die Quelle des „Geist klebt nach dem Laden an der Maus".
+
+      // ── Routen-Editor (Taste R) ─────────────────────────────────────
+      // NACH `auswahlIndex` angelegt: Der Konstruktor zeichnet die Anzeige
+      // einmal auf und liest dabei die gewählte Platzierung — vor der
+      // Deklaration wäre das ein Zugriff in die temporale Todeszone.
+      const routen = new RoutenEditor(scene, {
+        bodenHoehe: (x, z) => world?.getGroundHeight(x, z) ?? 0,
+        meldung: (t) => hud.meldung(t),
+        gewaehltePlatzierung: () => auswahlIndex,
+        // Zeichnen und Platzieren schließen einander aus (s. RoutenEditor).
+        aufZeichenStart: () => {
+          panel.beendePlatzierModus();
+          geistWeg();
+        },
+        // Entwurf in die Serverdatei schreiben — derselbe Endpunkt, den der
+        // Karten-Editor benutzt. Ohne diesen Weg blieb der im Testflug
+        // gezeichnete Entwurf im Browserspeicher liegen, und der Server sah
+        // die Route nie.
+        aufSpeichern: () => {
+          const roh = leseEntwurf();
+          if (!roh) {
+            hud.meldung('Kein Entwurf zum Speichern');
+            return;
+          }
+          const sauber = sanitizeWorldLayout(roh as never);
+          if (!sauber) {
+            hud.meldung('Entwurf ist unbrauchbar — nicht gespeichert');
+            return;
+          }
+          hud.meldung('Speichere in die Welt …');
+          void fetch('/api/worldlayout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sauber),
+          })
+            .then((r) => r.json())
+            .then((a: { ok: boolean; message: string }) => {
+              hud.meldung(
+                a.ok
+                  ? `${a.message} — Server neu starten, damit die Welt sie lädt`
+                  : a.message
+              );
+            })
+            .catch((err) => hud.meldung(`Speichern fehlgeschlagen: ${String(err)}`));
+        },
+        // Umschalter „Vorschau an/aus" (Vorgabe AN). Der Zustand lebt im
+        // Panel, das Laufen in RoutenVorschau — beim Ausschalten kehren die
+        // NPCs auf ihren gespeicherten Platz zurück.
+        aufVorschau: (an) => vorschau.setzeAn(an),
+      });
+      routenEditorOffen = () => routen.istOffen;
+
+      // ── Routen-Vorschau im Testflug ─────────────────────────────────
+      // Läuft NUR hier (offline + layout=editor). Online bewegt der Server,
+      // im normalen Offline-Spiel gibt es keinen Entwurf mit Routen.
+      const vorschau = new RoutenVorschau({
+        // Derselbe Weg wie bei jeder anderen Platzierung: gleicher Schlüssel
+        // `edplace-<i>` ⇒ die bestehende Instanz wird nachgeführt, es
+        // entsteht keine zweite. `anim` schaltet die Animationsgruppe um.
+        zeichne: (i, p, x, z, yaw, anim) => zeige({ prefab: p.prefab, x, z, yaw, anim }, i),
+        // Was am Mauszeiger hängt, läuft nicht (s. RoutenVorschau).
+        gegriffen: () => ziehIndex,
+        // Der Spieler ist im Testflug das Gegenüber, an dem sich Aggro
+        // entscheidet — online liefert der Server dafür die Peer-Positionen.
+        spieler: () => (player ? { x: player.position.x, z: player.position.z } : null),
+        meldung: (t) => hud.meldung(t),
+      });
+      // ── Bewuchs-Vorschau im Testflug ────────────────────────────────
+      // Streut, was der Server streuen würde — mit DERSELBEN Funktion
+      // (`streueZone` aus @wov/shared). Ohne sie blieb eine Insel im
+      // Testflug kahl, auch wenn im Editor "Grasland bewachsen" gedrückt
+      // war: Offline gibt es keinen ZoneManager.
+      //
+      // Nur im Layout-Modus sinnvoll — ohne Region gibt es keine
+      // Kuratierung und damit nichts vorzuschauen.
+      // Cast wie bei `ent` weiter oben: TS sieht die Zuweisung in
+      // buildWorld() nicht und hielte `world` hier für `never`.
+      const welt = world as ClientWorld | null;
+      const bewuchs = welt?.regionGeo
+        ? new BewuchsVorschau(
+            { seed: welt.seed, geo: welt.geo, heightmaps: welt.heightmaps, regionGeo: welt.regionGeo },
+            ent
+          )
+        : null;
+      if (bewuchs) {
+        hud.meldung('Bewuchs-Vorschau: wächst um dich herum nach (V baut sie neu auf)');
+        window.addEventListener('keydown', (e) => {
+          if (tipptImFeld(e) || e.code !== 'KeyV') return;
+          bewuchs.neuAufbauen();
+          hud.meldung('Bewuchs-Vorschau neu aufgebaut');
+        });
+      }
+
+      scene.onBeforeRenderObservable.add(() => {
+        // Vor buildWorld() gibt es keine Geländehöhe — dann noch nichts tun.
+        if (!world) return;
+        // Höchstens EINE Zone je Bild (13,4 ms gemessen) — der Umkreis
+        // steht damit nach gut einer Sekunde, ohne dass ein Bild reißt.
+        if (bewuchs && player) bewuchs.schritt(player.position.x, player.position.z);
+        // Dieselbe Deckelung wie die Hauptschleife: Nach einem Tab-Wechsel
+        // wäre der erste dt sonst Sekunden lang und der NPC teleportierte.
+        vorschau.update(Math.min(engine.getDeltaTime() / 1000, 0.1));
+        // Ein Routen-NPC ist dynamisch (SYNCED_TRANSFORM) und käme ohne das
+        // flush() aus; eine statische Platzierung an einer Route nicht —
+        // ihre Thin-Instance-Matrix wird erst dort neu gebaut. Einmal je
+        // Frame, nicht je NPC.
+        ent.flush();
+      });
+      /** Gegriffener Wegpunkt der gewählten Route (−1 = keiner). */
+      let routenZiehIndex = -1;
+      window.addEventListener('keydown', (e) => {
+        if (tipptImFeld(e)) return;
+        if (e.code === 'KeyR') {
+          const offen = routen.toggle();
+          // Wie bei B: Maus freigeben, das Wieder-Einfangen macht der
+          // Game-Loop über cursorNoetig().
+          if (offen) document.exitPointerLock();
+          hud.meldung(
+            offen
+              ? 'Routen-Editor offen — Route wählen/anlegen, ✎ schaltet das Setzen scharf, R schließt'
+              : 'Routen-Editor zu'
+          );
+        }
+        // Esc beendet nur das Zeichnen, nicht das Panel — die Route bleibt.
+        if (e.code === 'Escape') routen.beendeZeichnen();
+      });
 
       // Leuchtring markiert Auswahl/Griff; Geist zeigt das Prefab an der Maus.
       const ring = MeshBuilder.CreateTorus('spawnRing', { diameter: 3, thickness: 0.12, tessellation: 48 }, scene);
@@ -1226,26 +1646,58 @@ async function main() {
 
       let geistPrefab = '';
       const geistWeg = (): void => {
-        if (geistPrefab) ent.removeZDO('edghost');
+        // BEDINGUNGSLOS abräumen. Vorher hing das Entfernen an der
+        // Merkvariablen `geistPrefab` — und wenn die aus irgendeinem Grund
+        // leer war, während die Geist-Instanz noch in der Szene lag, blieb
+        // sie für immer stehen. Genau das passierte seit „ein Klick = eine
+        // Platzierung": Der Geist fror auf dem eben gesetzten Bauwerk ein,
+        // und es sah aus, als wäre doppelt gesetzt worden (gemessen: der
+        // Bucket enthielt `edghost` UND `edplace-0`).
+        //
+        // removeZDO auf einen unbekannten Schlüssel ist ein No-Op, die
+        // Bedingung war also nie nötig — nur riskant.
+        ent.removeZDO('edghost');
         geistPrefab = '';
         ent.flush();
+      };
+      /**
+       * Prefab für den VORSCHAU-Geist.
+       *
+       * Rein kosmetische Varianten werden für die Vorschau auf ihre
+       * Grundform zurückgeführt. Grund: Der Geist ist eine echte Instanz
+       * in der Szene, und der Kuppel-Bewuchs (HuegelGras) streut auf
+       * jede Instanz, die er findet. Beim Geist hiess das: Gras wird
+       * gestreut, sobald man den Eintrag anklickt — und bleibt in der
+       * Luft stehen, sobald der Geist mit der Maus weiterwandert.
+       *
+       * Für die Vorschau ist das kein Verlust: Beide Varianten haben
+       * exakt dieselbe Form, es geht um Lage und Drehung.
+       */
+      const VORSCHAU_PREFAB: Readonly<Record<string, string>> = {
+        GrabhuegelGras: 'Grabhuegel',
       };
       const geistZu = (x: number, z: number): void => {
         const e = panel.einstellung;
         // Prefabwechsel: alter Geist liegt in einem anderen Bucket — erst weg.
-        if (geistPrefab && geistPrefab !== e.prefab) geistWeg();
-        geistPrefab = e.prefab;
-        zeige({ prefab: e.prefab, x, z, yaw: e.yaw ?? 0, scale: e.scale }, -1 as never);
+        const sichtbar = VORSCHAU_PREFAB[e.prefab] ?? e.prefab;
+        if (geistPrefab && geistPrefab !== sichtbar) geistWeg();
+        geistPrefab = sichtbar;
+        zeige(
+          { prefab: VORSCHAU_PREFAB[e.prefab] ?? e.prefab, x, z, yaw: e.yaw ?? 0, scale: e.scale },
+          -1 as never
+        );
         ent.flush();
       };
 
       /** Nach Löschen/Umbau: alle edplace-Keys neu aufbauen (Indizes rutschen). */
-      const alleNeuZeichnen = (roh: { placements: Array<{ prefab: string; x: number; z: number; yaw?: number; scale?: number }> }, vorher: number): void => {
+      const alleNeuZeichnen = (roh: { placements: EntwurfEintrag[] }, vorher: number): void => {
         for (let i = 0; i < vorher; i++) ent.removeZDO(`edplace-${i}`);
         roh.placements.forEach(zeige);
         ent.flush();
       };
       window.addEventListener('keydown', (e) => {
+        // Entf im Suchfeld löscht Text — nicht die gegriffene Platzierung.
+        if (tipptImFeld(e)) return;
         if (e.code !== 'Delete' || !panel.istOffen || auswahlIndex < 0) return;
         const roh = leseEntwurf();
         if (!roh || !roh.placements[auswahlIndex]) return;
@@ -1253,11 +1705,21 @@ async function main() {
         const vorher = roh.placements.length;
         roh.placements.splice(auswahlIndex, 1);
         localStorage.setItem('wov-editor-layout', JSON.stringify(roh));
+        // Sockel VOR dem Neuzeichnen entfernen: alleNeuZeichnen liest
+        // getGroundHeight — Nachbarn sollen wieder auf dem Urgelände sitzen.
+        sockelLiveWeg(weg);
         alleNeuZeichnen(roh, vorher);
         hud.meldung(`${weg.prefab} gelöscht`);
         auswahlIndex = -1;
         ring.setEnabled(false);
         panel.aktualisiere();
+        // Die Indizes hinter der Lücke rutschen — die Anzeige „gewählte
+        // Platzierung" im Routen-Editor darf keine alte Nummer behalten.
+        routen.aktualisiere();
+        // Aus demselben Grund die Vorschau neu aufbauen: `edplace-3` ist
+        // nach dem Löschen ein anderes Objekt, ein weiterlaufender Läufer
+        // schöbe das falsche durch die Gegend.
+        vorschau.ruecksetzen();
       });
 
       /** Verwerfen: von Rechtsklick-pointerdown UND contextmenu gerufen —
@@ -1270,14 +1732,24 @@ async function main() {
           return;
         }
         ziehIndex = -1;
+        routenZiehIndex = -1;
         auswahlIndex = -1;
         ring.setEnabled(false);
         geistWeg();
-        vorschauAktiv = false;
+        panel.beendePlatzierModus();
+        // Ohne Auswahl gibt es keine Figur zu bearbeiten — Felder weg.
+        panel.aktualisiere();
+        // Rechtsklick verwirft auch das Routen-Zeichnen — dieselbe Geste,
+        // dieselbe Bedeutung wie beim Prefab-Geist.
+        routen.beendeZeichnen();
         hud.meldung('Auswahl verworfen — Prefab in der Liste wählen startet die Vorschau neu');
       };
       canvas.addEventListener('pointerdown', (e) => {
-        if (!panel.istOffen) return;
+        // Der Routen-Editor darf dieselben Wege benutzen (Wegpunkt setzen,
+        // Platzierung zum Zuweisen auswählen) — deshalb genügt es, dass
+        // EINES der beiden Editor-Panels offen ist. Ist keines offen,
+        // bleibt der Klick unangetastet Spiel-Eingabe.
+        if (!panel.istOffen && !routen.istOffen) return;
         if (e.button === 2) {
           e.preventDefault();
           verwerfen();
@@ -1291,11 +1763,35 @@ async function main() {
         const p = bodenPunkt(e.offsetX, e.offsetY);
         const roh = leseEntwurf();
         if (!p || !roh) return;
+        // ── Routen zuerst ───────────────────────────────────────────────
+        // Im Zeichen-Modus gehört JEDER Geländeklick der Route; danach
+        // kommt weder Greifen noch Platzieren dran.
+        if (routen.istZeichenModus) {
+          routen.punktSetzen(p.x, p.z);
+          return;
+        }
+        // Sonst: Wegpunkt der gewählten Route in Griffweite? Dann anfassen.
+        // Nur bei offenem Routen-Panel — bei geschlossenem bleibt der
+        // Greif-Pfad der Platzierungen exakt wie zuvor.
+        if (routen.istOffen) {
+          const wp = routen.punktUnter(p.x, p.z);
+          if (wp >= 0) {
+            routenZiehIndex = wp;
+            geistWeg();
+            hud.meldung(`Wegpunkt ${wp + 1} von ${routen.gewaehlteId} gegriffen — ziehen verschiebt`);
+            return;
+          }
+        }
         // Nächste Platzierung im Griffradius? Dann greifen statt setzen.
+        // Gemessen wird an der SICHTBAREN Stelle: Ein Routen-NPC ist in der
+        // Vorschau längst weitergelaufen, und auf seinen unsichtbaren
+        // Startpunkt zu zielen wäre Raten. Ohne Vorschau ist das der
+        // Eintrag selbst (positionVon liefert dann null).
         let best = -1;
         let bestD = 3;
         roh.placements.forEach((q, i) => {
-          const d = Math.hypot(q.x - p.x, q.z - p.z);
+          const sicht = vorschau.positionVon(i) ?? q;
+          const d = Math.hypot(sicht.x - p.x, sicht.z - p.z);
           if (d < bestD) {
             bestD = d;
             best = i;
@@ -1306,34 +1802,74 @@ async function main() {
           auswahlIndex = best;
           geistWeg();
           const q = roh.placements[best]!;
-          ringZu(q.x, q.z);
+          // ziehStart bleibt die GESPEICHERTE Stelle: Von dort muss beim
+          // Absetzen ein etwaiger Sockel weggeräumt werden.
+          ziehStart = { x: q.x, z: q.z };
+          const sicht = vorschau.positionVon(best) ?? q;
+          ringZu(sicht.x, sicht.z);
+          // Der Routen-Editor zeigt die gewählte Platzierung an (Ziel von
+          // „→ zuweisen") — er erfährt den Wechsel nur hierüber.
+          routen.aktualisiere();
+          // Aus demselben Grund das Spawn-Panel: Die NPC-Felder gehören
+          // zur gewählten Platzierung und müssen jetzt die ihre zeigen.
+          panel.aktualisiere();
           hud.meldung(`${q.prefab} gegriffen — ziehen verschiebt, Entf löscht`);
-        } else if (vorschauAktiv) {
+        } else if (panel.istOffen && panel.istPlatzierModus) {
+          // `panel.istOffen` steht hier zusätzlich, weil der Klick seit dem
+          // Routen-Editor auch bei GESCHLOSSENEM Spawn-Panel hier ankommt:
+          // Gesetzt wird weiterhin nur mit sichtbarer Prefab-Liste — sonst
+          // platzierte ein Klick beim Routenzeichnen aus einem Modus, den
+          // man gerade gar nicht sieht.
           const einst = panel.einstellung;
+          const sockel = einst.einebnen ? sockelRadius() : undefined;
           const eintrag = {
             prefab: einst.prefab,
             x: Math.round(p.x * 10) / 10,
             z: Math.round(p.z * 10) / 10,
             yaw: einst.yaw ?? Math.random() * Math.PI * 2,
             ...(Math.abs(einst.scale - 1) > 1e-3 ? { scale: einst.scale } : {}),
+            ...(sockel !== undefined ? { einebnen: sockel } : {}),
           };
           roh.placements.push(eintrag);
           localStorage.setItem('wov-editor-layout', JSON.stringify(roh));
+          // Erst planieren, DANN zeichnen — siehe platziere().
+          if (sockel !== undefined) sockelLiveDazu(eintrag.x, eintrag.z, sockel);
           zeige(eintrag, roh.placements.length - 1);
           ent.flush();
+          // Wie in platziere(): frisch gesetzte Figur ist gewählt.
+          if (istNpcPrefab(einst.prefab)) auswahlIndex = roh.placements.length - 1;
           panel.aktualisiere();
-          hud.meldung(`${einst.prefab} platziert @ (${eintrag.x}, ${eintrag.z})`);
+          hud.meldung(
+            `${einst.prefab} platziert @ (${eintrag.x}, ${eintrag.z})` +
+              (sockel !== undefined ? ` — Boden planiert (r=${sockel} m)` : '')
+          );
+          // Ein Klick = eine Platzierung: Modus endet, der Geist folgt der
+          // Maus nicht weiter — sonst setzt der nächste beiläufige Klick
+          // (oder das Schließen-und-Wiederklicken um B) ungewollt erneut.
+          panel.beendePlatzierModus();
         }
       });
       canvas.addEventListener('pointermove', (e) => {
-        if (!panel.istOffen || document.pointerLockElement) return;
+        if ((!panel.istOffen && !routen.istOffen) || document.pointerLockElement) return;
         const p = bodenPunkt(e.offsetX, e.offsetY);
         if (!p) return;
+        // Gegriffener Wegpunkt folgt der Maus (Linie und Marker werden in
+        // punktVerschieben neu gezeichnet).
+        if (routenZiehIndex >= 0) {
+          routen.punktVerschieben(routenZiehIndex, p.x, p.z);
+          return;
+        }
+        // Im Zeichen-Modus hängt bewusst NICHTS an der Maus — der Geist
+        // gehört dem Prefab-Setzen, und beides zugleich wäre irreführend.
+        if (routen.istZeichenModus) return;
         if (ziehIndex < 0) {
           // Vorschau: Das gewählte Prefab hängt sichtbar an der Maus,
-          // erst der Klick setzt es. Rechtsklick hat sie verworfen?
-          // Dann erst wieder nach neuer Wahl in der Liste.
-          if (vorschauAktiv) geistZu(Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10);
+          // erst der Klick setzt es — aber NUR im aktiven Platzier-Modus
+          // (bewusste Wahl in der Liste; Abwahl/Esc/Rechtsklick beendet).
+          // `istOffen` wie beim Setzen: kein Geist ohne sichtbare Liste.
+          if (panel.istOffen && panel.istPlatzierModus) {
+            geistZu(Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10);
+          }
           return;
         }
         const roh = leseEntwurf();
@@ -1347,20 +1883,45 @@ async function main() {
         ent.flush();
       });
       canvas.addEventListener('contextmenu', (e) => {
-        if (!panel.istOffen) return;
+        // Auch mit nur offenem Routen-Panel: Rechtsklick bricht ab, statt
+        // das Browser-Menü über die Szene zu legen.
+        if (!panel.istOffen && !routen.istOffen) return;
         e.preventDefault();
         // Doppelt ausgelöst (pointerdown + contextmenu)? Die Sperre in
         // verwerfen() macht den zweiten Aufruf harmlos.
         if (performance.now() - rechtsklickZeit > 50) verwerfen();
       });
       panel.aufWahl = () => {
-        vorschauAktiv = true;
+        // Wahl/Modus im Panel hat sich geändert: Bei Abwahl den Geist
+        // sofort abräumen; bei (Neu-)Wahl zeichnet ihn das nächste
+        // pointermove — geistZu() räumt einen Prefab-Wechsel selbst auf.
+        if (!panel.istPlatzierModus) geistWeg();
+        // Andersherum als aufZeichenStart: Wer in der Prefab-Liste einen
+        // Eintrag scharf schaltet, hört damit auf, Wegpunkte zu setzen.
+        if (panel.istPlatzierModus) routen.beendeZeichnen();
+        panel.aktualisiere();
       };
       window.addEventListener('pointerup', () => {
+        if (routenZiehIndex >= 0) {
+          hud.meldung(`Wegpunkt ${routenZiehIndex + 1} abgesetzt`);
+          routenZiehIndex = -1;
+          return;
+        }
         if (ziehIndex < 0) return;
         const roh = leseEntwurf();
         const q = roh?.placements[ziehIndex];
+        // Sockel zieht mit um: alte Platte raus, neue rein, Objekt und
+        // Ring neu aufsetzen — erst NACH dem Absetzen, damit nicht bei
+        // jedem pointermove Kacheln neu gebaut werden.
+        if (q?.einebnen && ziehStart && (ziehStart.x !== q.x || ziehStart.z !== q.z)) {
+          sockelLiveWeg({ x: ziehStart.x, z: ziehStart.z, einebnen: q.einebnen });
+          sockelLiveDazu(q.x, q.z, q.einebnen);
+          zeige(q, ziehIndex);
+          ringZu(q.x, q.z);
+          ent.flush();
+        }
         if (q) hud.meldung(`${q.prefab} abgesetzt @ (${q.x}, ${q.z})`);
+        ziehStart = null;
         ziehIndex = -1;
         panel.aktualisiere();
       });
@@ -1382,7 +1943,8 @@ async function main() {
     worldMap?.isVisible === true ||
     craftingPanel.isVisible ||
     dungeonEditor?.isVisible === true ||
-    spawnEditorOffen();
+    spawnEditorOffen() ||
+    routenEditorOffen();
   input.onMenuKey('KeyM', () => {
     // Die Karte braucht die Maus (Ziehen, Zoomen, Abfrage unter dem Zeiger),
     // liegt also im selben Lager wie das Inventar: Zeiger frei.
@@ -1562,19 +2124,6 @@ async function main() {
     WaterPlugin.windDir2Z = wind2.dirZ;
     WaterPlugin.windAlpha = alpha;
     lightPool?.update(player.position.x, player.position.y, player.position.z, dt);
-    audio.update(
-      dt,
-      wind1.intensity,
-      player.moveIntent.x !== 0 || player.moveIntent.z !== 0,
-      player.moveIntent.running,
-      imDungeon
-    );
-    // Biom-Musik: leise Untermalung je Biom, in der Instanz der Krypta-Track.
-    audio.musikSetzen(
-      imDungeon
-        ? 'musik_crypt'
-        : ({ 1: 'musik_meadows', 8: 'musik_blackforest', 2: 'musik_swamp', 4: 'musik_mountain' } as Record<number, string>)[biome] ?? null
-    );
     // Minimap: Detailausschnitt + Windzeiger (budgetiert, zeichnet selbst).
     minimap?.update(player.position.x, player.position.z, player.yaw, {
       dirX: wind1.dirX,
@@ -1589,13 +2138,50 @@ async function main() {
     clearingTimer += dt;
     if (clearingTimer >= 1.0) {
       clearingTimer = 0;
-      const pickables = entities
-        .nearbyInstances(player.position.x, player.position.z, 70)
-        .filter((i) => i.prefab.startsWith('Pickable'));
-      grass.setClearings(pickables);
+      const nahe = entities.nearbyInstances(player.position.x, player.position.z, 70);
+      const freihalten: Array<{ x: number; z: number }> = nahe.filter((i) =>
+        i.prefab.startsWith('Pickable')
+      );
+      // Begehbare Bauwerke halten ihre GRUNDFLÄCHE frei, nicht nur einen
+      // Punkt. Beim Grabhügel ist das keine Kosmetik: Sein Kammerboden liegt
+      // bewusst auf Geländehöhe, damit der Weltspawn hineinfällt — der Boden
+      // der Grabkammer IST also das gewachsene Gelände, und ohne Aussparung
+      // wächst mitten in der Kammer kniehohes Wiesengras.
+      for (const b of nahe) {
+        if (!INNENRAUM_OHNE_GRAS.test(b.prefab)) continue;
+        const def = findPrefabByName(b.prefab);
+        // Halbe Modellbreite, auf den Innenraum eingezogen — der Kranz aus
+        // Randsteinen draußen soll ruhig im Gras stehen.
+        const r = ((def?.renderScale.w ?? 8) / 2) * 0.62;
+        // Schrittweite 0,8 statt 1,0: clearArea entfernt bestehende Halme
+        // nur im 0,6-m-Kreis um jeden Punkt. Bei 1,0 m Raster bleiben in
+        // den Zwickeln Büschel stehen (Diagonalabstand 0,71 > 0,6) — genau
+        // die vereinzelten Grasinseln, die in der Grabkammer standen. Bei
+        // 0,8 m ist die halbe Diagonale 0,57 und die Kreise überdecken sich.
+        for (let dz = -r; dz <= r; dz += 0.8) {
+          for (let dx = -r; dx <= r; dx += 0.8) {
+            if (dx * dx + dz * dz <= r * r) freihalten.push({ x: b.x + dx, z: b.z + dz });
+          }
+        }
+      }
+      // Platzierungen MIT Sockel halten die GANZE Platte frei: Gang und
+      // Portal des Grabhügels liegen außerhalb des 0,62-Innenraums oben —
+      // dort wuchs Klutter-Gras mitten im Eingang. Die Liste kommt aus dem
+      // Layout (buildWorld) bzw. den Live-Edits des Testflugs; das
+      // Instanzen-Nahfeld kennt die Sockelradien nicht.
+      for (const s of sockelFreiflaechen) {
+        if (Math.hypot(s.x - player.position.x, s.z - player.position.z) > 70 + s.r) continue;
+        for (let dz = -s.r; dz <= s.r; dz += 0.8) {
+          for (let dx = -s.r; dx <= s.r; dx += 0.8) {
+            if (dx * dx + dz * dz <= s.r * s.r) freihalten.push({ x: s.x + dx, z: s.z + dz });
+          }
+        }
+      }
+      grass.setClearings(freihalten);
     }
 
     objectLabels?.update(player.position.x, player.position.z);
+    namensschilder?.update(dt, player.position);
     precipitation?.setPlayerPosition(player.position.x, player.position.y, player.position.z);
     // In der Instanz regnet es nicht — Menge 0 lässt den Partikelstrom leerlaufen.
     precipitation?.update(
@@ -1642,6 +2228,10 @@ async function main() {
     if (!imDungeon) {
       grass.setPlayerPosition(player.position.x, player.position.z);
       miss('gras', () => grass!.update(dt, scene.fogDensity));
+      // Kuppelbewuchs: streut einmalig, sobald Modell und Grasmaterial
+      // bereitstehen, und prueft danach nicht weiter.
+      huegelGras?.update(dt);
+      // Kuppel-Bewuchs des Meadows-Grabhügels (pollt intern im Sekundentakt).
     }
     // Fern-Unschärfe: Autofokus nachführen (Post-Process selbst läuft auf der GPU).
     post?.update(dt, lighting.state.sunDir);
@@ -1675,7 +2265,6 @@ async function main() {
       if (kandidat) {
         // Abzug macht der Server (InventorySync bestätigt).
         socket.sendEat(kandidat[0]);
-        audio.play('pickup', 0.5);
       } else {
         hud.meldung('Nichts Essbares im Inventar');
       }
@@ -1693,7 +2282,6 @@ async function main() {
       !cursorNoetig()
     ) {
       angriffCooldown = 0.5;
-      audio.play('schwung', 0.6);
       socket.sendAttack(
         player.position.x,
         player.position.y,
@@ -1711,7 +2299,6 @@ async function main() {
       if (ziel && zielDef && (zielDef.flags & PrefabFlag.FIREPLACE) !== 0n) {
         // Braten macht der Server (prüft RawMeat im Server-Inventar).
         socket.sendInteract(ziel.x, ziel.y, ziel.z, ziel.prefabHash);
-        audio.play('pickup', 0.6);
       } else if (ziel && ziel.prefab === 'StatueDeer') {
         // Opfergabe prüft der Server (2 Hirschtrophäen); die lokale
         // Abfrage bleibt nur als freundlicher Vorab-Hinweis.
@@ -1776,6 +2363,9 @@ async function main() {
       dt,
       engine.getFps(),
       `${netStatus}\n` +
+        // Baumodus (Editor-Testflug, Taste V): sichtbar machen, WARUM die
+        // Figur gerade schwebt und die Kamera so weit heraus darf.
+        (player.bauModus ? `BAUMODUS  V beendet — Leer steigt, X sinkt\n` : '') +
         `pos ${player.position.x.toFixed(1)}, ${player.position.z.toFixed(1)}  h ${player.position.y.toFixed(1)}${swimming ? ' (Wasser)' : ''}\n` +
         `chunks ${terrain.chunkCount} (+${terrain.queuedCount})  zdo s:${entities.staticCount} d:${entities.dynamicCount}\n` +
         `zeit ${(lighting.timeOfDay * 24).toFixed(1)}h  assets-fehler ${assets.failed.size}\n` +
@@ -1811,7 +2401,7 @@ async function main() {
   window.addEventListener('resize', () => engine.resize());
 
   // dev/debug handle (Playwright probes, F9 inspector sessions)
-  (window as unknown as Record<string, unknown>).__dbg = { scene, input, get entities() { return entities; }, assets, get terrain() { return terrain; }, lighting, get player() { return player; }, get world() { return world; }, get inventory() { return inventory; }, get equipment() { return equipment; }, get placement() { return placement; }, get grass() { return grass; }, get shadows() { return shadows; } };
+  (window as unknown as Record<string, unknown>).__dbg = { scene, input, get entities() { return entities; }, assets, get terrain() { return terrain; }, lighting, get player() { return player; }, get world() { return world; }, get inventory() { return inventory; }, get equipment() { return equipment; }, get placement() { return placement; }, get grass() { return grass; }, get shadows() { return shadows; }, get namensschilder() { return namensschilder; } };
 }
 
 void main();

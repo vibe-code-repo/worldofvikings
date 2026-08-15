@@ -48,7 +48,7 @@ Die tatsächliche Pipeline (dokumentiert in `tools/assetripper/ripper.log`):
 | `models/` | **7463 GLB (glTF 2.0), 4,8 GB**, Texturen eingebettet (PNG) |
 | `textures/` | 18 MB, aber **~2674 von ~2719 PNGs sind 0 Byte leer** — nur 75 nutzbar (unkritisch, da GLBs Texturen einbetten) |
 | `sprites/` | 21 MB, 1595 Item-Icons (vollständig) |
-| `audio/` | **leer** (Export enthält 3318 .ogg, nicht kopiert) |
+| `audio/` | nur eigenes Material (MP3); die 3318 .ogg des Exports sind gelöscht — keine Valheim-Aufnahmen |
 | `manifest.json` | 786 KB Index (4687 Einträge), Vertex-/Face-Zahlen, **keine Bounding-Boxen, keine Skalen** |
 | Formate | Nur GLB + PNG. **Kein KTX2, kein Draco** |
 

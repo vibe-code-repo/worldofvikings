@@ -313,3 +313,108 @@ export class WaterField {
     return bestRand <= UFER_MAX ? beste : WASSER_KEIN;
   }
 }
+
+/**
+ * PlateauField — Nachschlagewerk für Platzierungs-Sockel (`einebnen`).
+ *
+ * Gleiche Bauart wie WaterField: Chunk-Raster über die Platten, damit eine
+ * Abfrage nur die Sockel in der Nähe prüft. Geliefert wird die reine
+ * GEOMETRIE (Abstand zum Mittelpunkt, voll geebneter Radius) plus der
+ * Platten-Index — die ZIELHÖHE rechnet RegionGeo, weil nur dort die
+ * Geländehöhe bekannt ist (sie wird bewusst nie gespeichert, damit der
+ * Sockel jeder Höhenänderung des Layouts folgt, wie die Platzierung selbst).
+ */
+export interface PlateauProbe {
+  /** Abstand zum Plattenmittelpunkt in Metern. */
+  abstand: number;
+  /** Radius, innerhalb dessen das Gelände voll eingeebnet wird. */
+  radius: number;
+  /** Mittelpunkt — dort misst RegionGeo die Zielhöhe. */
+  x: number;
+  z: number;
+  /** Stabiler Index der Platte — Schlüssel für den Zielhöhen-Cache. */
+  index: number;
+}
+
+/** Größte Böschungsbreite, die RegionGeo erzeugt — Reichweite des Index. */
+export const PLATEAU_RAND_MAX = 64;
+
+export class PlateauField {
+  private readonly chunks = new Map<string, number[]>();
+  /** null = totgelegte Platte (entfernt) — der Index bleibt vergeben,
+   *  weil die Chunk-Listen Indizes speichern (siehe entferne()). */
+  private readonly platten: ({ x: number; z: number; radius: number } | null)[] = [];
+
+  constructor(layout: WorldLayout) {
+    for (const p of layout.placements ?? []) {
+      if (p.einebnen && p.einebnen > 0) this.lege(p.x, p.z, p.einebnen);
+    }
+  }
+
+  /**
+   * Platte anlegen — beim Kompilieren UND zur Laufzeit: Der Editor-Testflug
+   * muss eine neue Platzierung SOFORT planieren können, ohne die komplette
+   * Geo (Regionsfeld, Wasserindex) neu zu bauen. Nachrücken ist billig,
+   * weil nur die wenigen berührten Chunks einen Eintrag bekommen.
+   */
+  lege(x: number, z: number, radius: number): void {
+    const index = this.platten.push({ x, z, radius }) - 1;
+    const reichweite = radius + PLATEAU_RAND_MAX + FIELD_CELL_SIZE;
+    const cx0 = Math.floor((x - reichweite) / FIELD_CHUNK_SIZE);
+    const cx1 = Math.floor((x + reichweite) / FIELD_CHUNK_SIZE);
+    const cz0 = Math.floor((z - reichweite) / FIELD_CHUNK_SIZE);
+    const cz1 = Math.floor((z + reichweite) / FIELD_CHUNK_SIZE);
+    for (let cz = cz0; cz <= cz1; cz++) {
+      for (let cx = cx0; cx <= cx1; cx++) {
+        const key = `${cx},${cz}`;
+        const liste = this.chunks.get(key);
+        if (liste) liste.push(index);
+        else this.chunks.set(key, [index]);
+      }
+    }
+  }
+
+  /**
+   * Platte am Mittelpunkt totlegen (Editor: Platzierung gelöscht oder
+   * verschoben). Bewusst KEIN Umbau der Chunk-Listen: Sie speichern
+   * Indizes, Nachrücken würde alle folgenden verschieben — der tote
+   * Eintrag wird in probe() einfach übersprungen. true = getroffen.
+   */
+  entferne(x: number, z: number): boolean {
+    for (let i = this.platten.length - 1; i >= 0; i--) {
+      const pl = this.platten[i];
+      if (pl && Math.abs(pl.x - x) < 0.05 && Math.abs(pl.z - z) < 0.05) {
+        this.platten[i] = null;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Diagnose/Tests: Anzahl der lebenden Sockel-Platten. */
+  get plattenAnzahl(): number {
+    return this.platten.reduce((n, pl) => (pl ? n + 1 : n), 0);
+  }
+
+  /** Nächste Platte am Punkt (kleinster Abstand ZUM PLATTENRAND). */
+  probe(wx: number, wz: number): PlateauProbe | null {
+    if (this.platten.length === 0) return null;
+    const liste = this.chunks.get(
+      `${Math.floor(wx / FIELD_CHUNK_SIZE)},${Math.floor(wz / FIELD_CHUNK_SIZE)}`
+    );
+    if (!liste) return null;
+    let beste: PlateauProbe | null = null;
+    let bestRand = Infinity;
+    for (const i of liste) {
+      const pl = this.platten[i];
+      if (!pl) continue;
+      const dist = Math.hypot(wx - pl.x, wz - pl.z);
+      const rand = dist - pl.radius;
+      if (rand < bestRand) {
+        bestRand = rand;
+        beste = { abstand: dist, radius: pl.radius, x: pl.x, z: pl.z, index: i };
+      }
+    }
+    return bestRand <= PLATEAU_RAND_MAX ? beste : null;
+  }
+}

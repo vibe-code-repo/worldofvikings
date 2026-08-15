@@ -41,6 +41,14 @@ BREITE = int(arg('--breite', '900'))
 # Tripo normiert seine Modelle auf Kantenlänge 1, die Original-Prefabs
 # stehen in Metern. Ohne Normierung vergleicht man Größen statt Formen.
 NORMIEREN = float(arg('--normieren', '0'))
+# Je Modell eine Zielhöhe in Metern (`--skalen 9,1.75`) — für den Fall, dass
+# gerade die GRÖSSENUNTERSCHIEDE das Thema sind. `--normieren` macht das
+# Gegenteil: alle gleich hoch, um Formen zu vergleichen.
+SKALEN = [float(x) for x in arg('--skalen', '').split(',') if x.strip()]
+# Bildnummer der Animation. Frame 1 ist bei einer Idle-Schleife meist die
+# RUHEPOSE — dort sieht man nicht, ob die Verformung bei voller Auslenkung
+# hält. Genau das ist aber die Frage bei einem frischen Rig.
+FRAME = int(arg('--frame', '1'))
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 if not GLBS:
@@ -76,13 +84,16 @@ def wurzeln(objs):
     return [o for o in objs if o.parent not in menge]
 
 
-if NORMIEREN > 0:
-    for objs in gruppen:
+if NORMIEREN > 0 or SKALEN:
+    for i, objs in enumerate(gruppen):
         mn, mx = masse(objs)
         h = mx.z - mn.z
         if h <= 0:
             continue
-        f = NORMIEREN / h
+        ziel = SKALEN[i] if i < len(SKALEN) else NORMIEREN
+        if ziel <= 0:
+            continue
+        f = ziel / h
         for o in wurzeln(objs):
             o.scale = (o.scale.x * f, o.scale.y * f, o.scale.z * f)
             o.location = o.location * f
@@ -175,9 +186,23 @@ for mat in bpy.data.materials:
         print(f'CUTOUT NACHGERUESTET {mat.name} ({bild.name})')
 
 szene = bpy.context.scene
+if FRAME > 1:
+    # Importierte Animationen liegen als Actions vor; frame_set wertet sie aus.
+    szene.frame_set(FRAME)
+    for o in bpy.data.objects:
+        o.update_tag()
+    bpy.context.view_layer.update()
+    print(f'FRAME {FRAME} von {szene.frame_end}')
 szene.render.engine = 'CYCLES'
 szene.cycles.device = 'CPU'
 szene.cycles.samples = 64
+# Cutout-Bewuchs braucht viele Transparenz-Durchgaenge. Cycles bricht
+# einen Strahl nach `transparent_max_bounces` ab und liefert dort
+# SCHWARZ — bei Vorgabe 8 stand mitten in einem Wollgrashorst (16
+# Karten) ein schwarzes Rechteck, und es sah aus wie ein Modellfehler.
+# Ein Blumenhorst hat bis zu 20 einander ueberlagernde Karten, ein
+# belaubter Baum ein Vielfaches davon.
+szene.cycles.transparent_max_bounces = 64
 # Der Ubuntu-Build bringt keinen OpenImageDenoiser mit ("Build without
 # OpenImageDenoiser") — statt zu entrauschen also einfach mehr Samples.
 szene.cycles.use_denoising = False

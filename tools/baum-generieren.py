@@ -36,6 +36,7 @@ import random
 import bpy
 import addon_utils
 from mathutils import Vector
+from mathutils.bvhtree import BVHTree
 
 # ── Argumente hinter "--" ────────────────────────────────────────────
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
@@ -56,6 +57,29 @@ ART = arg('--art', 'fichte')
 # Dreiecksbudget wie eine ausgewachsene und wäre im Wald reine
 # Verschwendung.
 DICHTE = float(arg('--dichte', '1.0'))
+# Faktor auf die Blattkartengröße (Vorgabe 1 = unverändert).
+#
+# Sapling behandelt `leafScale` als ABSOLUTE Länge in Metern, `scale`
+# dagegen als Baumhöhe. Ein 22-m-Baum bekäme damit dieselben 62-cm-Karten
+# wie eine 12-m-Fichte und stünde licht und kahl da — derselbe Fallstrick
+# wie bei den Büschen (`karte` in tools/busch-generieren.py).
+#
+# BEWUSST ein Parameter mit Vorgabe 1 und keine automatische Kopplung an
+# die Höhe: Die bestehenden Bäume sind mit den festen Werten gebaut und in
+# shared/src/prefabs.ts mit gemessenem renderScale eingetragen. Eine
+# automatische Skalierung würde sie beim nächsten Lauf alle verändern.
+# Für einen neuen großen Baum setzt das Rezept den Faktor auf
+# Zielhöhe / Referenzhöhe der Art.
+KARTENFAKTOR = float(arg('--kartenfaktor', '1.0'))
+# Faktor auf die Stammstärke (`ratio`, Vorgabe 1 = unverändert).
+#
+# Sapling rechnet den Stammradius als `ratio * scale`. Bei der Fichte
+# (0.014) ergibt das auf 22 m einen Stamm von 62 cm Durchmesser — im
+# Vorbild sind die Stämme eines alten Bestands eher einen Meter dick, und
+# genau davon lebt das Bild: Der Stamm ist das dominante Element, nicht
+# die Krone. Ein hoher Baum mit dünnem Stamm sieht aus wie eine Stange
+# mit Grün obendrauf.
+STAMMFAKTOR = float(arg('--stammfaktor', '1.0'))
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -152,6 +176,108 @@ ARTEN = {
             'leafangle': -18,
             'leafDownAngle': 38,
         },
+    },
+    # ── Eiche ────────────────────────────────────────────────────────
+    # Die einzige Art mit EIGENEN Texturen: `eiche_leaf.png` und
+    # `eiche_bark.png` werden von `tools/eiche-texturen.py` prozedural
+    # gezeichnet, nicht aus Valheim gezogen. Beide sind eine ganze Karte,
+    # daher wie bei der Birke nur ein UV-Feld.
+    #
+    # Eine Eiche ist kein hoher schlanker Baum, sondern ein BREITER. Der
+    # Habitus lebt von drei Dingen, die hier alle gegen die Fichtenbasis
+    # stehen: ein kurzer dicker Stamm (ratio hoch, baseSize niedrig), fast
+    # waagerecht abgehende Aeste, die sich erst aussen aufrichten
+    # (downAngle gross, attractUp erst auf der zweiten Ebene stark), und
+    # kraeftige Krummheit (curveV hoch) — die knorrigen Aeste sind das,
+    # woran man eine Eiche auf Entfernung erkennt.
+    'eiche': {
+        'textur': 'assets/textures/eiche_leaf.png',
+        'textur_rinde': 'assets/textures/eiche_bark.png',
+        'zweige': [(0.0, 1.0, 0.0, 1.0)],
+        'rinde': (0.0, 1.0, 0.0, 1.0),
+        'sapling': {
+            'shape': '2',                        # halbkugelig: breit, oben flach
+            'baseSize': 0.22,                    # Aeste setzen tief an
+            'baseSplits': 0,
+            'branches': (0, 38, 24, 0),
+            # Lange erste Astebene — sie macht die Breite. Mit den 0.32 der
+            # Birke bliebe die Krone schmal und der Baum saehe aus wie eine
+            # dicke Birke.
+            # Breit ja, aber nicht ausufernd: Mit 0.56 und downAngle 80 kam
+            # eine Krone von 15,7 m Breite bei 13,2 m Hoehe heraus — breiter
+            # als hoch. Valheims eigenes `Oak1` steht bei 6,0 × 9,0 m, also
+            # Verhaeltnis 1,5 wie bei den anderen Arten auch. Ein Baum, der
+            # im Wald doppelt so viel Platz braucht wie jeder andere, sprengt
+            # die Bepflanzungsdichte.
+            'length': (1.0, 0.34, 0.42, 0.35),
+            'lengthV': (0.0, 0.28, 0.32, 0.0),
+            'downAngle': (90, 68, 52, 45),       # ausladend, nicht waagerecht
+            'downAngleV': (0, 26, 30, 10),
+            # Erst die zweite Ebene strebt nach oben. Das ergibt den typischen
+            # Knick: heraus, dann aufwaerts. Massvoll dosiert — mit 0.42 schoss
+            # das Geaest ueber den Wipfel hinaus und eine als 8 m bestellte
+            # Eiche wurde 11,1 m hoch.
+            'attractUp': (0, 0.08, 0.22, 0),
+            'curve': (0, 18, 26, 0),
+            'curveV': (45, 95, 115, 0),          # knorrig
+            'segSplits': (0.30, 0.40, 0.22, 0),
+            'splitAngle': (16, 22, 18, 0),
+            'ratio': 0.021,                      # kraeftiger Stamm
+            'ratioPower': 1.2,
+            'branchDist': 0.9,
+            # WENIGE GROSSE Karten. Mit 96 kleinen (leafScale 0.70) sah die
+            # Krone aus wie Farnwedel: Bei dieser Groesse liest das Auge
+            # jede Karte einzeln als gefiederten Wedel statt als Laubmasse.
+            # Eichenlaub ist das Gegenteil davon — kompakte Ballen.
+            'leaves': 42,
+            'leafScale': 1.35,
+            # Die gezeichnete Karte ist etwa so breit wie hoch; die 0.85 der
+            # Basis wuerden sie schmal quetschen und den Wedeleindruck
+            # zurueckbringen.
+            'leafScaleX': 1.0,
+            'leafScaleV': 0.30,
+            'leafangle': -24,
+            'leafDownAngle': 46,
+        },
+    },
+}
+
+# ── Kiefer ───────────────────────────────────────────────────────────
+# Die dritte Nadelart, und sie ist das Gegenteil der Fichte: langer
+# ASTFREIER Stamm, die Krone sitzt als Schirm ganz oben. Genau daran
+# erkennt man eine Kiefer auf Entfernung, und im Bestand macht sie den
+# Unterschied — man sieht zwischen den Stämmen hindurch, aber nicht nach
+# oben. Ein Fichtenwald schliesst unten, ein Kiefernwald oben.
+#
+# Drei Werte tragen den Habitus:
+#   baseSize 0.55   — mehr als die halbe Höhe bleibt astfrei
+#   attractUp 0.5   — die Äste STEIGEN, statt zu hängen (Fichte: −0.35)
+#   length[1] 0.5   — und sie sind lang, damit der Schirm breit wird
+ARTEN['kiefer'] = {
+    'textur': 'assets/textures/PineTree_01.png',
+    'zweige': ARTEN['fichte']['zweige'],
+    'rinde': ARTEN['fichte']['rinde'],
+    'sapling': {
+        'shape': '2',                        # halbkugelig: Schirm statt Kegel
+        'baseSize': 0.48,                    # langer freier Stamm
+        'baseSplits': 0,
+        'branches': (0, 34, 13, 0),
+        'length': (1.0, 0.50, 0.42, 0.35),
+        'lengthV': (0.0, 0.24, 0.28, 0.0),
+        'downAngle': (90, 62, 50, 45),
+        'downAngleV': (0, 26, 24, 10),
+        'attractUp': (0, 0.50, 0.30, 0),     # Äste steigen zum Schirm
+        'curve': (0, 14, 18, 0),
+        'curveV': (18, 55, 70, 0),           # gerader Stamm
+        'segSplits': (0.06, 0.24, 0.15, 0),
+        'ratio': 0.019,                      # kräftiger als die Fichte
+        'ratioPower': 1.25,
+        'branchDist': 1.0,
+        'leaves': 120,
+        'leafScale': 0.66,
+        'leafScaleX': 0.85,
+        'leafangle': -30,
+        'leafDownAngle': 46,
     },
 }
 
@@ -278,6 +404,10 @@ def sapling_baum():
         leafDownAngleV=34,
     )
     werte.update(PROFIL.get('sapling', {}))
+    if KARTENFAKTOR != 1.0:
+        werte['leafScale'] = werte['leafScale'] * KARTENFAKTOR
+    if STAMMFAKTOR != 1.0:
+        werte['ratio'] = werte['ratio'] * STAMMFAKTOR
     if DICHTE != 1.0:
         b = werte['branches']
         werte['branches'] = (0, max(6, round(b[1] * DICHTE)), max(3, round(b[2] * DICHTE)), b[3])
@@ -356,21 +486,62 @@ def uv_auf_rechteck(mesh, u0, u1, v0, v1, pro_flaeche):
                 )
 
 
-def laub_karten_variieren(mesh, rnd):
-    """Verteilt die drei Zweigkarten über die Laubflächen.
+def laub_karten_variieren(laub_obj, holz_obj, rnd):
+    """Verteilt die Zweigkarten über die Laubflächen — Stiel zum Ast.
 
     Alle Karten gleich zu belegen erzeugt ein sichtbares Wiederholmuster —
     im Original sind es drei verschiedene Zweige, und genau die stehen im
     Atlas bereit.
+
+    ── Warum die Ansatzkante gesucht wird ───────────────────────────────
+    Die Karten tragen kein einzelnes Blatt, sondern einen ganzen Zweig
+    samt aufgemaltem Ästchen, das am unteren Bildrand herausläuft (v=0).
+    Damit das Bild den echten Ast fortsetzt, muss die v=0-Kante am Holz
+    sitzen.
+
+    Die UVs nach der Eckreihenfolge zu vergeben — wie es hier zuerst
+    stand — setzt voraus, dass Saplings Viereck immer an der Ansatzkante
+    beginnt. Das tut es nicht: Die Reihenfolge hängt daran, wie die Karte
+    gedreht wurde, und Sapling dreht kräftig (leafRotate 137,5° mit ±55°
+    Streuung, leafDownAngle 52° mit ±34°). Gemessen an der Birke landete
+    v=0 dadurch nur bei 72 % der Karten an der richtigen Kante; bei gut
+    einem Viertel zeigte der gemalte Stiel nach außen ins Leere.
+
+    Deshalb wird die Ansatzkante hier aus der Geometrie bestimmt: die
+    Kante, deren beide Ecken dem Holz am nächsten liegen. Das ist die
+    einzige Stelle, an der Bild und Geometrie voneinander wissen.
     """
+    mesh = laub_obj.data
+    # BVH über das Holz in Weltkoordinaten — das Laub hängt als Kind am
+    # Stamm, seine lokalen Koordinaten sind also NICHT dieselben.
+    bvh = BVHTree.FromPolygons(
+        [tuple(holz_obj.matrix_world @ v.co) for v in holz_obj.data.vertices],
+        [list(p.vertices) for p in holz_obj.data.polygons],
+    )
+    lm = laub_obj.matrix_world
+
     uv = mesh.uv_layers.active or mesh.uv_layers.new(name='UVMap')
     for poly in mesh.polygons:
-        u0, u1, v0, v1 = ZWEIGE[rnd.randrange(len(ZWEIGE))]
-        gespiegelt = rnd.random() < 0.5   # halbiert die Wiederholung nochmal
         ecken = list(poly.loop_indices)
         if len(ecken) != 4:
             continue
-        for k, li in enumerate(ecken):
+        u0, u1, v0, v1 = ZWEIGE[rnd.randrange(len(ZWEIGE))]
+        # Spiegeln halbiert die Wiederholung nochmal. Es kippt nur u, der
+        # Stiel bleibt also unten — sonst wäre die Kantensuche umsonst.
+        gespiegelt = rnd.random() < 0.5
+
+        abstand = []
+        for li in ecken:
+            ort = lm @ mesh.vertices[mesh.loops[li].vertex_index].co
+            _ort, _norm, _idx, d = bvh.find_nearest(ort)
+            abstand.append(d if d is not None else float('inf'))
+        # Die Ecken zyklisch so drehen, dass die Ansatzkante vorn steht.
+        # Zyklisch, damit die Umlaufrichtung erhalten bleibt — sonst kippt
+        # die Karte spiegelverkehrt.
+        start = min(range(4), key=lambda k: abstand[k] + abstand[(k + 1) % 4])
+        gedreht = ecken[start:] + ecken[:start]
+
+        for k, li in enumerate(gedreht):
             su, sv = [(0, 0), (1, 0), (1, 1), (0, 1)][k]
             if gespiegelt:
                 su = 1.0 - su
@@ -398,7 +569,7 @@ def main():
     if laub is not None:
         laub.data.materials.clear()
         laub.data.materials.append(material('nadeln', cutout=True))
-        laub_karten_variieren(laub.data, rnd)
+        laub_karten_variieren(laub, baum, rnd)
 
     print(f'GEOMETRIE Stamm/Äste {dreiecke(baum)} Dreiecke, '
           f'Laub {dreiecke(laub) if laub else 0} Dreiecke')

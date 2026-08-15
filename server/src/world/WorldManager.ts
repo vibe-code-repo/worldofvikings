@@ -47,8 +47,16 @@ const SAVE_CHUNK_BUDGET_MS = 8;
  */
 const SAVE_BLOCK_ZEICHEN = 256 * 1024;
 
-/** Bump when the envelope layout changes (C++ WORLD version constant). */
-export const SAVE_FORMAT_VERSION = 2;
+/**
+ * Bump when the envelope layout changes (C++ WORLD version constant).
+ *
+ * v3 (D9): `terrainOps` (unbegrenzt wachsende Operationsliste) ist durch
+ * `terrainComps` (Endzustand je Zone) ersetzt. v1/v2 werden weiter GELESEN
+ * und beim ersten Save nach v3 überführt — die Operationsliste einfach
+ * fallenzulassen hiesse, jede Spielergrabung der letzten Monate zu
+ * verlieren.
+ */
+export const SAVE_FORMAT_VERSION = 3;
 
 /** Last-known state of a player (position restored on next connect). */
 export interface SavedPlayer {
@@ -83,8 +91,17 @@ export interface WorldSaveData {
   players: SavedPlayer[];
   /** C++ ZDOManager::Save — persistent ZDOs only (prefab-flag filtered). */
   zdos: Array<Record<string, unknown>>;
-  /** v2: Spieler-Terraforming (Hacke/Pflug/Spitzhacke), beim Laden ersetzt. */
+  /**
+   * v2: Spieler-Terraforming als Operationsliste. Wird nur noch GELESEN
+   * (Altstände) — geschrieben wird `terrainComps`, s. SAVE_FORMAT_VERSION.
+   */
   terrainOps?: Array<{ pos: Vector3; settingsJson: string }>;
+  /**
+   * v3: Endzustand des Spieler-Terraformings je bearbeiteter Zone,
+   * base64-kodiert (shared/worldgen/terrainCompCodec). Gedeckelt auf
+   * 65×65 Vertices je Zone statt linear mit der Spielzeit wachsend.
+   */
+  terrainComps?: string[];
 }
 
 /**
@@ -263,8 +280,10 @@ export class WorldManager {
       return null;
     }
 
-    // v1-Saves sind vorwaerts-kompatibel: ihnen fehlt nur terrainOps.
-    if (envelope.version !== SAVE_FORMAT_VERSION && envelope.version !== 1) {
+    // Aeltere Staende sind vorwaerts-kompatibel: v1 fehlt terrainOps ganz,
+    // v2 fuehrt sie als Operationsliste (D9 spielt sie beim Laden ab und
+    // schreibt beim naechsten Save terrainComps).
+    if (envelope.version !== SAVE_FORMAT_VERSION && envelope.version !== 1 && envelope.version !== 2) {
       this.verwaise(`Save version ${envelope.version} != ${SAVE_FORMAT_VERSION}`);
       return null;
     }

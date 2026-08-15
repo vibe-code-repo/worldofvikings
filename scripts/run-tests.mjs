@@ -28,6 +28,7 @@ const KERN = [
   ['server', 'test/h4-graslandflora.ts'],
   ['server', 'test/d6-zdo-delta.ts'],
   ['server', 'test/d8-save-async.ts'],
+  ['server', 'test/d9-terrain-verdichtung.ts'],
   ['server', 'test/g2-persistence.ts'],
   ['server', 'test/g4-creatures.ts'],
   ['server', 'test/e2-vegetation.ts'],

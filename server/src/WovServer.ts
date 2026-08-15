@@ -37,6 +37,9 @@ import {
   type IGeo,
   HeightmapProvider,
   getStableHash,
+  kodiereTerrainComp,
+  terrainCompNachBase64,
+  terrainCompAusBase64,
 } from '@wov/shared';
 import type { Biome, Vector3, ZoneID } from '@wov/shared';
 import {
@@ -1018,9 +1021,11 @@ export class WovServer {
 
     // Phase G: Dungeon-Eingänge für die Weltkarten-Marker
     this.sendDungeonEntrances(peer);
-    // Terraforming-Replay: der frisch verbundene Client baut sein Terrain
-    // aus der Weltgen — die Spieler-Grabungen muss er nachziehen.
-    if (this.terrainOps.length > 0) this.broadcastTerrainOps(this.terrainOps, peer);
+    // Terraforming: der frisch verbundene Client baut sein Terrain aus der
+    // Weltgen — die Spieler-Grabungen muss er nachziehen. D9 schickt dafür
+    // den ENDZUSTAND je bearbeiteter Zone statt jeder je ausgeführten
+    // Operation; sonst wüchse die Join-Dauer linear mit der Spielzeit.
+    this.sendeTerrainComps(peer);
 
     console.log(
       `[WoV] Player "${peer.name}" spawned at (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})${saved ? ' (restored)' : ''}`
@@ -1419,14 +1424,16 @@ export class WovServer {
     }
   }
 
-  /** Spieler-Terraforming (Hacke/Pflug/Spitzhacke) — persistiert im Save. */
-  private readonly terrainOps: Array<{ pos: Vector3; settingsJson: string }> = [];
-
   /**
    * Terrain-Werkzeug server-autoritativ: validieren, auf die Server-
-   * Heightmap anwenden (Bewegungs-Clamp!), persistieren und an ALLE Peers
-   * senden — auch an den Absender, der lokal nichts mehr anfasst. Damit
-   * sehen Mitspieler jede Grabung, und sie überlebt den Neustart.
+   * Heightmap anwenden (Bewegungs-Clamp!) und an ALLE Peers senden — auch
+   * an den Absender, der lokal nichts mehr anfasst. Damit sehen Mitspieler
+   * jede Grabung.
+   *
+   * D9: Die Operation wird NICHT mehr in einer Liste aufbewahrt. Ihr
+   * Ergebnis steht bereits im TerrainComp der Zone, und der ist der
+   * vollständige Endzustand — die Liste war eine zweite Buchführung
+   * derselben Sache, nur unbegrenzt wachsend.
    */
   private handleTerrainOp(peer: Peer, reader: Reader): void {
     const pos = reader.readVector3();
@@ -1448,8 +1455,11 @@ export class WovServer {
     const off = Number(settings.levelOffset ?? 0);
     if (!Number.isFinite(r) || r > 8 || !Number.isFinite(off) || Math.abs(off) > 8) return;
 
-    this.heightmaps.applyTerrainOp(pos.x, pos.y, pos.z, settings as never);
-    this.terrainOps.push({ pos: { ...pos }, settingsJson });
+    const wirkung = this.heightmaps.applyTerrainOp(pos.x, pos.y, pos.z, settings as never);
+    // Wirkungslose Operation gar nicht erst verteilen: Wer mit der Hacke
+    // auf bereits planierten Boden schlägt, ändert nichts — das an alle
+    // Peers zu schicken kostet Bandbreite für ein Nichts.
+    if (wirkung.heights.length === 0 && wirkung.paint.length === 0) return;
     this.broadcastTerrainOps([{ pos, settingsJson }]);
     // Glättung reicht weiter als die Kernfläche — Rand großzügig mitnehmen.
     const smooth = Number(settings.smoothRadius ?? 0);
@@ -1499,6 +1509,28 @@ export class WovServer {
         }
       });
     }
+  }
+
+  /**
+   * D9: Endzustand des Spieler-Terraformings an einen frisch verbundenen
+   * Peer. Eine Zone kostet hier höchstens ihre 65×65 Vertices, egal ob
+   * darin einmal oder zehntausendmal gegraben wurde.
+   */
+  private sendeTerrainComps(peer: Peer): void {
+    const comps = [...this.heightmaps.listTerrainComps()].filter((c) => !c.isEmpty);
+    if (comps.length === 0) return;
+    let bytes = 0;
+    peer.sendPacketWith(PacketType.TerrainCompSync, (w) => {
+      w.writeInt32(comps.length);
+      for (const comp of comps) {
+        const roh = kodiereTerrainComp(comp);
+        bytes += roh.length;
+        w.writeBytes(Buffer.from(roh.buffer, roh.byteOffset, roh.byteLength));
+      }
+    });
+    console.log(
+      `[WoV] Terraforming an "${peer.name}": ${comps.length} Zone(n), ${(bytes / 1024).toFixed(1)} KB`
+    );
   }
 
   private naechstesEvent = 0;
@@ -2367,15 +2399,39 @@ export class WovServer {
 
     this.worldTime = data.worldTime;
     this.zones.restoreGeneratedZones(data.zones);
-    // Spieler-Terraforming VOR den ZDOs abspielen (Vegetations-Nachsetzen
+    // Spieler-Terraforming VOR den ZDOs herstellen (Vegetations-Nachsetzen
     // unten misst gegen den fertigen Boden).
+    //
+    // D9: v3-Stände bringen den Endzustand je Zone mit — der wird direkt
+    // eingesetzt, ohne irgendetwas nachzurechnen. Ältere Stände führen die
+    // Operationsliste; die wird ein letztes Mal abgespielt und beim
+    // nächsten Save als Endzustand geschrieben.
+    let terrainZonen = 0;
+    for (const text of data.terrainComps ?? []) {
+      try {
+        this.heightmaps.restoreTerrainComp(terrainCompAusBase64(text));
+        terrainZonen++;
+      } catch (err) {
+        console.error(`[WoV] TerrainComp im Save unlesbar, übersprungen: ${err}`);
+      }
+    }
+    let altOps = 0;
     for (const op of data.terrainOps ?? []) {
       try {
         this.heightmaps.applyTerrainOp(op.pos.x, op.pos.y, op.pos.z, JSON.parse(op.settingsJson));
-        this.terrainOps.push(op);
+        altOps++;
       } catch {
         /* kaputte Eintraege still verwerfen */
       }
+    }
+    if (altOps > 0) {
+      console.log(
+        `[WoV] Terraforming: ${altOps} Operation(en) aus einem v${data.version}-Save abgespielt ` +
+          `— der nächste Save schreibt sie verdichtet als Endzustand`
+      );
+    }
+    if (terrainZonen > 0) {
+      console.log(`[WoV] Terraforming: ${terrainZonen} Zone(n) aus dem Save übernommen`);
     }
     const restoredZDOs = this.zdos.restoreFromSnapshots(data.zdos);
     for (const player of data.players) {
@@ -2551,7 +2607,12 @@ export class WovServer {
         worldTime: this.worldTime,
         zones: this.zones.getGeneratedZones(),
         players: [...players.values()],
-        terrainOps: this.terrainOps,
+        // D9: der Endzustand je Zone, nicht mehr die Operationshistorie.
+        // Leere Comps entstehen, wenn eine Operation eine Zone nur
+        // gestreift hat — sie tragen nichts und gehören nicht in den Save.
+        terrainComps: [...this.heightmaps.listTerrainComps()]
+          .filter((c) => !c.isEmpty)
+          .map((c) => terrainCompNachBase64(c)),
       },
       zdos: persistentZDOs,
     };

@@ -206,8 +206,19 @@ export enum PacketType {
    *  String settingsJson (TerrainOpSettings). */
   TerrainOp = 47,
   /** Server → Client: Int32 count × { Vector3 pos, String settingsJson } —
-   *  Broadcast einer Op bzw. Replay aller Ops beim Verbinden. */
+   *  Broadcast einer LAUFENDEN Grabung (D9: nicht mehr das Login-Replay). */
   TerrainOpSync = 48,
+  /**
+   * Server → Client: Int32 count × { Bytes TerrainComp } — der ENDZUSTAND
+   * des Spieler-Terraformings je Zone, beim Verbinden (D9).
+   *
+   * Löst das vollständige Replay der Operationsliste ab: Die wuchs
+   * unbegrenzt mit der Spielzeit, der Endzustand ist auf 65×65 Vertices je
+   * bearbeiteter Zone gedeckelt. TerrainOpSync bleibt für die laufenden
+   * Grabungen zuständig — dort ist die einzelne Operation die kleinere
+   * Nachricht.
+   */
+  TerrainCompSync = 49,
   /** Client → Server: Bau-Piece setzen. Payload: Int32 prefabHash,
    *  Vector3 pos, Quaternion rot. */
   PlacePiece = 55,

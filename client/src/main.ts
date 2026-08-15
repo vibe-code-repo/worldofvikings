@@ -39,6 +39,7 @@ import {
   findPrefabByName,
   getStableHash,
   opRadius,
+  dekodiereTerrainComp,
   TERRAIN_HIT_OPS,
   Inventory,
   findItem,
@@ -48,7 +49,7 @@ import {
   FRACTION_MIDDAY,
   FRACTION_SUNSET,
 } from '@wov/shared';
-import type { NpcDef, NpcEinordnung } from '@wov/shared';
+import type { NpcDef, NpcEinordnung, TerrainComp } from '@wov/shared';
 import { createWorld, DEFAULT_OFFLINE_SEED, type ClientWorld, type ClientWorldSettings } from './world/World';
 import { TerrainManager } from './engine/Terrain';
 import { Lighting } from './engine/Lighting';
@@ -461,6 +462,32 @@ async function main() {
     return r;
   };
 
+  /**
+   * D9: Terraforming-Endzustände, die vor der Welt eintrafen.
+   *
+   * Das Paket kommt bei der Anmeldung und damit theoretisch vor
+   * `buildWorld`. Der alte Code verwarf es in dem Fall stillschweigend —
+   * die Welt hätte dann für immer unbearbeitetes Gelände gezeigt.
+   */
+  let offeneTerrainComps: TerrainComp[] = [];
+
+  function wendeTerrainCompsAn(): void {
+    if (!world || offeneTerrainComps.length === 0) return;
+    for (const comp of offeneTerrainComps) {
+      world.heightmaps.restoreTerrainComp(comp);
+      // Kacheln, die es noch nicht gibt, ignoriert refreshZones — sie holen
+      // sich den Comp später ohnehin über getZone().
+      terrain?.refreshZones([[comp.zoneX, comp.zoneY]]);
+      if (comp.hasPaint) terrain?.refreshPaint(comp.zoneX, comp.zoneY);
+    }
+    // Gras braucht hier NICHTS: Es entsteht erst nach dem Weltaufbau und
+    // fragt je Halm `isCleared` (s. GrassClutter) — die Freiflächen stehen
+    // zu dem Zeitpunkt schon. Nur beim Reconnect in eine bereits gebaute
+    // Welt kann alter Bewuchs auf frisch übernommenen Wegen stehen bleiben;
+    // die nächste Neugenerierung der Kachel räumt ihn weg.
+    offeneTerrainComps = [];
+  }
+
   /** Builds all world-dependent systems and starts the game loop (once). */
   function buildWorld(seed: string, settings?: ClientWorldSettings, layout?: unknown): void {
     // Reconnect-Guard (Review-Punkt 9): Die Weltsysteme existieren nach dem
@@ -497,6 +524,11 @@ async function main() {
     // Das Terrain-Material braucht das Sonnenlicht, um Schatten zu
     // empfangen (LightBlock in TerrainSplat) — Lighting existiert bereits.
     terrain = new TerrainManager(scene, world, lighting.sun);
+    // Terraforming VOR allem, was auf dem Boden aufsetzt (Gras, Physik,
+    // Objekte): Sonst stünden Halme auf einer Höhe, die es gleich nicht
+    // mehr gibt. Trifft das Paket erst später ein, greift derselbe Aufruf
+    // aus seinem Handler.
+    wendeTerrainCompsAn();
     player = new PlayerController(scene, input, world, assets);
     entities = new EntityManager(scene, world, assets, terrain);
     entities.setzeNpcQuelle(npcNachKennung.size > 0 ? (id) => npcNachKennung.get(id) ?? null : null);
@@ -984,8 +1016,26 @@ async function main() {
       namensschilder?.setSpielerLeben(health);
     });
 
-    // Terraforming vom Server: eigene Ops (Echo), Mitspieler-Ops und das
-    // Replay aller bisherigen Grabungen beim Verbinden.
+    // D9: Endzustand des Terraformings beim Verbinden — je bearbeiteter
+    // Zone ein Comp statt jeder je ausgeführten Operation. Der alte Weg
+    // (Replay über TerrainOpSync) wuchs linear mit der Spielzeit UND war
+    // beim Reconnect falsch: Er legte die Grabungen ein zweites Mal auf
+    // eine bereits veränderte Heightmap. Ein Endzustand wird gesetzt, nicht
+    // aufaddiert — das Problem gibt es damit nicht mehr.
+    socket.on(PacketType.TerrainCompSync, (reader) => {
+      const count = reader.readInt32();
+      for (let i = 0; i < count; i++) {
+        const roh = reader.readBytes();
+        try {
+          offeneTerrainComps.push(dekodiereTerrainComp(roh));
+        } catch (err) {
+          console.warn('[terrain] TerrainComp unlesbar, übersprungen:', err);
+        }
+      }
+      wendeTerrainCompsAn();
+    });
+
+    // Terraforming vom Server: eigene Ops (Echo) und Mitspieler-Ops.
     socket.on(PacketType.TerrainOpSync, (reader) => {
       const count = reader.readInt32();
       for (let i = 0; i < count; i++) {

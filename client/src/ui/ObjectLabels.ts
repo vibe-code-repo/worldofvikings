@@ -96,7 +96,12 @@ export class ObjectLabels {
       const key = `${it.prefab}|${Math.round(it.x / CLUSTER)}|${Math.round(it.z / CLUSTER)}`;
       const c = cluster.get(key);
       if (c) c.n++;
-      else cluster.set(key, { ...it, n: 1 });
+      // Felder EINZELN übernehmen, nicht `{ ...it }`: `it` ist der interne
+      // Indexeintrag des EntityManagers (s. StatischeInstanz) und trägt
+      // dessen Verwaltungsfelder mit. Kopiert würden sie nutzlos mitgeführt,
+      // und ein Objekt, das nach einem Indexeintrag aussieht, lädt dazu ein,
+      // es später fälschlich zurückzuschreiben.
+      else cluster.set(key, { prefab: it.prefab, x: it.x, y: it.y, z: it.z, n: 1 });
     }
 
     const view = this.scene.getTransformMatrix();

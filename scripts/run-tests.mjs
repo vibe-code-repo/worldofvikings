@@ -29,6 +29,11 @@ const KERN = [
   ['server', 'test/g2-persistence.ts'],
   ['server', 'test/g4-creatures.ts'],
   ['server', 'test/e2-vegetation.ts'],
+  // Der einzige Client-Test der Kernliste: Er braucht weder Assets noch
+  // Browser, weil der statische Pfad des EntityManagers reine Mathematik
+  // ist — und er sichert den Umkreis-Index gegen die lineare Suche ab, die
+  // er ersetzt hat (s. client/test/entity-index.ts).
+  ['client', 'test/entity-index.ts'],
 ];
 
 const LANG = [

@@ -2139,9 +2139,15 @@ async function main() {
     if (clearingTimer >= 1.0) {
       clearingTimer = 0;
       const nahe = entities.nearbyInstances(player.position.x, player.position.z, 70);
-      const freihalten: Array<{ x: number; z: number }> = nahe.filter((i) =>
-        i.prefab.startsWith('Pickable')
-      );
+      // Eigene {x,z}-Literale statt der Einträge selbst: `nahe` liefert die
+      // INTERNEN Indexeinträge des EntityManagers (s. StatischeInstanz), und
+      // diese Liste wandert bis in GrassClutter.setClearings weiter. Wer
+      // dort irgendwann ein Feld schriebe, verschöbe eine echte Instanz im
+      // Umkreis-Index.
+      const freihalten: Array<{ x: number; z: number }> = [];
+      for (const i of nahe) {
+        if (i.prefab.startsWith('Pickable')) freihalten.push({ x: i.x, z: i.z });
+      }
       // Begehbare Bauwerke halten ihre GRUNDFLÄCHE frei, nicht nur einen
       // Punkt. Beim Grabhügel ist das keine Kosmetik: Sein Kammerboden liegt
       // bewusst auf Geländehöhe, damit der Weltspawn hineinfällt — der Boden

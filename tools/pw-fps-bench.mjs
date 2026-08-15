@@ -48,10 +48,20 @@ const START_X = Number(arg('x', -16900));
 const START_Z = Number(arg('z', -5350));
 /** Laufrichtung in Radiant. 0 = nach Norden; die Strecke bleibt so gleich. */
 const YAW = Number(arg('yaw', 0));
+/** Spielername fuer die Messung — bewusst NICHT ein echter Spielername. */
+const SPIELER = arg('spieler', 'BenchBot');
+/** Offline misst rein clientseitige Weltgenerierung, ohne Server. */
+const OFFLINE = flag('offline');
+const SEED = arg('seed', '');
 
 const browser = await chromium.launch({
   headless: false,
   args: [
+    // MUSS X11 sein. Unter Wayland startet Chromium zwar, meldet sich aber
+    // nie ueber Playwrights --remote-debugging-pipe zurueck — der Start
+    // laeuft dann stumm in den Timeout. Mit erzwungenem X11-Backend kommt
+    // die Verbindung sofort, und ANGLE greift auf die echte GPU durch.
+    '--ozone-platform=x11',
     // Ohne echte Hardwarebeschleunigung ist die Messung wertlos.
     '--ignore-gpu-blocklist',
     '--enable-gpu-rasterization',
@@ -71,6 +81,16 @@ page.on('console', (m) => {
 });
 const seitenfehler = [];
 page.on('pageerror', (e) => seitenfehler.push(e.message.slice(0, 300)));
+// Fehlschlagende Anfragen mit URL festhalten. Die Browser-Konsole meldet
+// nur "Failed to load resource: 404" ohne Adresse — damit ist ein
+// fehlendes Asset nicht auffindbar.
+const fehlanfragen = [];
+page.on('response', (r) => {
+  if (r.status() >= 400) fehlanfragen.push(`${r.status()} ${r.url()}`);
+});
+page.on('requestfailed', (r) => {
+  fehlanfragen.push(`FAIL ${r.url()} (${r.failure()?.errorText ?? '?'})`);
+});
 
 console.log(`[bench] ${LABEL} -> ${URL_ZIEL}`);
 await page.goto(URL_ZIEL, { waitUntil: 'domcontentloaded', timeout: 60_000 });
@@ -93,6 +113,27 @@ if (!gpu.renderer || /swiftshader|llvmpipe|software/i.test(gpu.renderer)) {
   process.exit(2);
 }
 
+// ── Anmelden ──────────────────────────────────────────────────────────
+// Der Client oeffnet mit einem Verbindungsbildschirm; `buildWorld()` und
+// damit das Messhandle `__vb` entstehen erst NACH dem Klick auf Verbinden.
+// Ohne diesen Schritt wartet das Benchmark ewig auf eine Welt, die nie
+// gebaut wird.
+//
+// Eigener Spielername: Die Identitaet ist im Projekt nur der Name, und
+// wer den Namen eines Offline-Spielers tippt, uebernimmt dessen Inventar
+// und Position. Ein fester Bench-Name haelt die Messung von echten
+// Spielerdaten fern.
+await page.waitForSelector('#connect-btn', { timeout: 30_000 });
+await page.fill('#player-name', SPIELER);
+if (OFFLINE) {
+  await page.check('#offline-toggle').catch(() => {});
+  if (SEED) await page.fill('#world-seed', SEED).catch(() => {});
+} else {
+  await page.uncheck('#offline-toggle').catch(() => {});
+}
+await page.click('#connect-btn');
+console.log(`[bench] angemeldet als ${SPIELER}${OFFLINE ? ' (offline)' : ''}, warte auf Welt ...`);
+
 // ── Warten, bis die Welt wirklich steht ───────────────────────────────
 // Nicht nur auf __vb warten: Das Handle existiert, bevor Gelaende und
 // Instanzen gebaut sind. Gemessen wird erst, wenn der Spieler existiert.
@@ -106,9 +147,16 @@ try {
     { timeout: 180_000 }
   );
 } catch {
-  console.error('[bench] ABBRUCH: Welt kam nicht hoch. Konsole:');
-  for (const z of konsole.slice(0, 20)) console.error('  ' + z);
-  for (const z of seitenfehler.slice(0, 10)) console.error('  [pageerror] ' + z);
+  console.error('[bench] ABBRUCH: Welt kam nicht hoch.');
+  const zustand = await page
+    .evaluate(() => ({ vb: Boolean(window.__vb), dbg: Boolean(window.__dbg), player: Boolean(window.__dbg?.player), kamera: Boolean(window.__dbg?.scene?.activeCamera) }))
+    .catch(() => null);
+  console.error('  Zustand: ' + JSON.stringify(zustand));
+  console.error('  Fehlanfragen:');
+  for (const z of fehlanfragen.slice(0, 25)) console.error('    ' + z);
+  console.error('  Konsole:');
+  for (const z of konsole.slice(0, 20)) console.error('    ' + z);
+  for (const z of seitenfehler.slice(0, 10)) console.error('    [pageerror] ' + z);
   await browser.close();
   process.exit(3);
 }

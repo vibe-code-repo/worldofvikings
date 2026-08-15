@@ -20,12 +20,43 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, copyFileSync } from 'fs';
+import { copyFile, mkdir, open, rename } from 'node:fs/promises';
 import { join } from 'path';
-import { zstdCompressSync, zstdDecompressSync } from 'node:zlib';
+import { createZstdCompress, zstdCompressSync, zstdDecompressSync } from 'node:zlib';
+import { once } from 'node:events';
+import type { Writable } from 'node:stream';
 import type { Vector3, SavedItemStack } from '@wov/shared';
 
-/** Bump when the envelope layout changes (C++ WORLD version constant). */
-export const SAVE_FORMAT_VERSION = 2;
+/**
+ * Zeitbudget je Serialisierungsschub des asynchronen Saves (D8).
+ *
+ * Projektmuster: Zeitbudget statt fester Stückzahl — ein ZDO mit 30 Membern
+ * kostet ein Vielfaches eines Baumstumpfs, „alle 500 Stück einmal Luft
+ * holen" wäre also je nach Weltinhalt mal zu grob und mal zu fein. 8 ms
+ * liegen unter einem Server-Tick (33 ms), der Sync merkt davon nichts.
+ */
+const SAVE_CHUNK_BUDGET_MS = 8;
+
+/**
+ * Ab dieser Textmenge geht ein Block in den Kompressionsstrom.
+ *
+ * Jedes ZDO einzeln hineinzuschreiben kostete das Vierfache an Laufzeit:
+ * `write()` je Aufruf ist Strom-Buchhaltung, und davon gäbe es 48.000. Die
+ * 256 KB sind KEIN Zeitbudget, sondern eine Puffergröße — die Pause, die
+ * der Event-Loop davon abbekommt, regelt weiterhin SAVE_CHUNK_BUDGET_MS.
+ */
+const SAVE_BLOCK_ZEICHEN = 256 * 1024;
+
+/**
+ * Bump when the envelope layout changes (C++ WORLD version constant).
+ *
+ * v3 (D9): `terrainOps` (unbegrenzt wachsende Operationsliste) ist durch
+ * `terrainComps` (Endzustand je Zone) ersetzt. v1/v2 werden weiter GELESEN
+ * und beim ersten Save nach v3 überführt — die Operationsliste einfach
+ * fallenzulassen hiesse, jede Spielergrabung der letzten Monate zu
+ * verlieren.
+ */
+export const SAVE_FORMAT_VERSION = 3;
 
 /** Last-known state of a player (position restored on next connect). */
 export interface SavedPlayer {
@@ -60,8 +91,40 @@ export interface WorldSaveData {
   players: SavedPlayer[];
   /** C++ ZDOManager::Save — persistent ZDOs only (prefab-flag filtered). */
   zdos: Array<Record<string, unknown>>;
-  /** v2: Spieler-Terraforming (Hacke/Pflug/Spitzhacke), beim Laden ersetzt. */
+  /**
+   * v2: Spieler-Terraforming als Operationsliste. Wird nur noch GELESEN
+   * (Altstände) — geschrieben wird `terrainComps`, s. SAVE_FORMAT_VERSION.
+   */
   terrainOps?: Array<{ pos: Vector3; settingsJson: string }>;
+  /**
+   * v3: Endzustand des Spieler-Terraformings je bearbeiteter Zone,
+   * base64-kodiert (shared/worldgen/terrainCompCodec). Gedeckelt auf
+   * 65×65 Vertices je Zone statt linear mit der Spielzeit wachsend.
+   */
+  terrainComps?: string[];
+}
+
+/**
+ * Momentaufnahme der persistenten ZDOs für den asynchronen Save (D8).
+ *
+ * Bewusst ein Index-Zugriff und keine fertige Liste: Die Objekte werden
+ * erst beim Schreiben in JSON übersetzt, sonst läge die komplette
+ * Serialisierung von 48.000 ZDOs wieder in einem einzigen Block auf dem
+ * Event-Loop — genau das, was D8 loswerden soll.
+ */
+export interface ZdoQuelle {
+  readonly laenge: number;
+  /** JSON-Text eines ZDOs; `null` = seit dem Save-Beginn zerstört, weglassen. */
+  json(index: number): string | null;
+}
+
+/**
+ * In den Kompressionsstrom schreiben und nur dann warten, wenn sein Puffer
+ * wirklich voll ist. Ein bedingungsloses `await` je ZDO wären 48.000
+ * Microtask-Sprünge — teurer als das, was D8 einspart.
+ */
+async function schreibe(strom: Writable, text: string): Promise<void> {
+  if (!strom.write(text, 'utf-8')) await once(strom, 'drain');
 }
 
 export class WorldManager {
@@ -110,6 +173,95 @@ export class WorldManager {
     renameSync(tmpPath, this.savePath);
   }
 
+  /** Kopfteil des Umschlags (alles außer `zdos`) — gemeinsam für beide Wege. */
+  private umschlagKopf(data: Omit<WorldSaveData, 'version' | 'meta' | 'zdos'>): string {
+    const kopf = {
+      version: SAVE_FORMAT_VERSION,
+      meta: {
+        worldName: this.worldName,
+        worldSeed: this.worldSeed,
+        worldGenVersion: this.worldGenVersion,
+        savedAt: new Date().toISOString(),
+        ...(this.layoutHash !== null ? { layoutHash: this.layoutHash } : {}),
+      },
+      ...data,
+    };
+    const text = JSON.stringify(kopf);
+    if (!text.endsWith('}')) throw new Error('Umschlagkopf ist kein JSON-Objekt');
+    return text;
+  }
+
+  /**
+   * D8 — dieselbe Datei, ohne den Event-Loop zu blockieren.
+   *
+   * `JSON.stringify` über zehntausende ZDOs plus `zstdCompressSync` standen
+   * alle 30 Minuten am Stück im Weg; bei 48.000 ZDOs sind das mehrere
+   * hundert Millisekunden, in denen kein ZDO-Sync und kein Paket
+   * durchkommt. Stattdessen:
+   *
+   *  - Der ZDO-Block wird Stück für Stück in einen zstd-STROM geschrieben.
+   *    Der unkomprimierte Umschlag existiert damit nie am Stück im
+   *    Speicher, und die Kompression selbst läuft im Threadpool.
+   *  - Zwischen den Schüben gibt ein `setImmediate` die Schleife frei
+   *    (Zeitbudget, s. SAVE_CHUNK_BUDGET_MS).
+   *
+   * Die Sicherheitsmechanik bleibt Zeichen für Zeichen dieselbe wie im
+   * synchronen Weg: erst `.prev`-Rotation, dann tmp schreiben, dann
+   * umbenennen. Neu ist nur ein `fsync` vor dem Umbenennen — ohne das
+   * garantiert `rename` zwar Atomizität gegen einen Prozessabbruch, aber
+   * nicht gegen einen Stromausfall, bei dem der Verzeichniseintrag schon
+   * auf der Platte steht und der Inhalt noch im Cache hängt. Für diese
+   * Welt gibt es keine Sicherungskopien.
+   */
+  async saveAsync(
+    data: Omit<WorldSaveData, 'version' | 'meta' | 'zdos'>,
+    zdos: ZdoQuelle
+  ): Promise<void> {
+    await mkdir(this.worldsDir, { recursive: true });
+
+    const packer = createZstdCompress();
+    const teile: Buffer[] = [];
+    packer.on('data', (c: Buffer) => teile.push(c));
+    const stromFertig = once(packer, 'end');
+
+    const kopf = this.umschlagKopf(data);
+    let block = `${kopf.slice(0, -1)},"zdos":[`;
+    let erstes = true;
+    let takt = Date.now();
+    for (let i = 0; i < zdos.laenge; i++) {
+      const json = zdos.json(i);
+      if (json === null) continue;
+      block += erstes ? json : `,${json}`;
+      erstes = false;
+      if (block.length >= SAVE_BLOCK_ZEICHEN) {
+        await schreibe(packer, block);
+        block = '';
+      }
+      if (Date.now() - takt >= SAVE_CHUNK_BUDGET_MS) {
+        await new Promise<void>((r) => setImmediate(r));
+        takt = Date.now();
+      }
+    }
+    await schreibe(packer, `${block}]}`);
+    packer.end();
+    await stromFertig;
+
+    const compressed = Buffer.concat(teile);
+
+    if (existsSync(this.savePath)) {
+      await copyFile(this.savePath, `${this.savePath}.prev`);
+    }
+    const tmpPath = `${this.savePath}.tmp`;
+    const datei = await open(tmpPath, 'w');
+    try {
+      await datei.writeFile(compressed);
+      await datei.sync();
+    } finally {
+      await datei.close();
+    }
+    await rename(tmpPath, this.savePath);
+  }
+
   /**
    * C++ LoadFileDB. Returns null (→ fresh world) when the save is missing,
    * corrupt, from a format version we don't understand, or from a different
@@ -128,8 +280,10 @@ export class WorldManager {
       return null;
     }
 
-    // v1-Saves sind vorwaerts-kompatibel: ihnen fehlt nur terrainOps.
-    if (envelope.version !== SAVE_FORMAT_VERSION && envelope.version !== 1) {
+    // Aeltere Staende sind vorwaerts-kompatibel: v1 fehlt terrainOps ganz,
+    // v2 fuehrt sie als Operationsliste (D9 spielt sie beim Laden ab und
+    // schreibt beim naechsten Save terrainComps).
+    if (envelope.version !== SAVE_FORMAT_VERSION && envelope.version !== 1 && envelope.version !== 2) {
       this.verwaise(`Save version ${envelope.version} != ${SAVE_FORMAT_VERSION}`);
       return null;
     }

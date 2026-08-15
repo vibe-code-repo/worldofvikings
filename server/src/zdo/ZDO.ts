@@ -86,6 +86,20 @@ export type ZDOMemberValue =
 export interface ZDOMember {
   type: number; // 0-6
   value: ZDOMemberValue;
+  /**
+   * Datenrevision, bei der dieser Member zuletzt geschrieben wurde (D6).
+   *
+   * Der Peer merkt sich ohnehin schon die Datenrevision, die er zuletzt
+   * bekommen hat. Damit ist „welche Member kennt dieser Peer noch nicht"
+   * ein reiner Zahlenvergleich `rev > peerRev` — es braucht KEINE Kopie des
+   * Member-Satzes je Peer und je ZDO (bei 50 Spielern × ein paar tausend
+   * ZDOs im Sichtfeld wäre das der teuerste Speicherposten des Servers).
+   *
+   * Aus dem Save geladene Member starten bei 0: Ein Peer bekommt ein ZDO
+   * immer erst einmal VOLLSTÄNDIG (er hat noch keinen Eintrag dafür), und
+   * ab da zählt nur noch, was danach geschrieben wurde.
+   */
+  rev: number;
 }
 
 // ── ZDO Flags (from ZDO.h MACHINE_* / NETWORK_* constants) ─────────
@@ -214,8 +228,10 @@ export class ZDO {
   // ── Generic member access ────────────────────────────────────────
 
   setMember(hash: number, type: number, value: ZDOMemberValue): void {
-    this.members.set(hash, { type, value });
+    // Erst revidieren, dann stempeln: Der Member trägt die Revision, ab der
+    // er neu ist — genau die Zahl, gegen die der Delta-Versand vergleicht.
     this.revision.reviseData();
+    this.members.set(hash, { type, value, rev: this.revision.dataRevision });
     this.dirty = true;
   }
 
@@ -223,10 +239,23 @@ export class ZDO {
     return this.members.get(hash);
   }
 
+  /**
+   * Revision der letzten Member-ENTFERNUNG (D6, 0 = nie).
+   *
+   * Ein Delta kann nur sagen „dieser Member ist neu", nicht „dieser Member
+   * ist weg". Statt dafür ein zweites Drahtformat zu bauen, merkt sich das
+   * ZDO den Zeitpunkt: Wer älter ist als die letzte Entfernung, bekommt
+   * wieder den vollen Satz und ist damit garantiert sauber. Entfernungen
+   * sind selten — ein gelegentlicher Vollstand ist billiger als die
+   * Buchführung, die man sonst je Peer bräuchte.
+   */
+  entfernungsRevision = 0;
+
   removeMember(hash: number): boolean {
     const existed = this.members.delete(hash);
     if (existed) {
       this.revision.reviseData();
+      this.entfernungsRevision = this.revision.dataRevision;
       this.dirty = true;
     }
     return existed;
@@ -331,7 +360,9 @@ export class ZDO {
           case 6: value = Buffer.from(member.v as string, 'base64'); break;
           default: value = member.v as ZDOMemberValue; break;
         }
-        zdo.members.set(hash, { type: member.t, value });
+        // rev 0: Ein geladenes ZDO ist für JEDEN Peer neu und geht beim
+        // ersten Mal vollständig raus (s. ZDOMember.rev).
+        zdo.members.set(hash, { type: member.t, value, rev: 0 });
       }
     }
 

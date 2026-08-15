@@ -56,6 +56,18 @@ export class BinaryReader {
 
   skip(n: number): void { this.pos += n; }
 
+  /**
+   * Rohbytes mit vorangestellter Länge (Writer.writeBytes). Die Kopie ist
+   * Absicht: Der Aufrufer bekommt einen eigenständigen Puffer, der den
+   * Paketpuffer nicht am Leben hält.
+   */
+  readBytes(): Uint8Array {
+    const len = this.readVarInt();
+    const start = this.view.byteOffset + this.pos;
+    this.pos += len;
+    return new Uint8Array(this.view.buffer.slice(start, start + len));
+  }
+
   readVarInt(): number {
     let result = 0, shift = 0, byte: number;
     do {

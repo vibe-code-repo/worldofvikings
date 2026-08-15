@@ -23,6 +23,8 @@ import {
   TIME_DAY,
   SAVE_INTERVAL_MS,
   ZDO_SEND_INTERVAL_MS,
+  ZDO_MAX_SEND_THRESHOLD,
+  ZDO_MIN_SEND_THRESHOLD,
   PacketType,
   createGeo,
   sanitizeWorldLayout,
@@ -35,6 +37,9 @@ import {
   type IGeo,
   HeightmapProvider,
   getStableHash,
+  kodiereTerrainComp,
+  terrainCompNachBase64,
+  terrainCompAusBase64,
 } from '@wov/shared';
 import type { Biome, Vector3, ZoneID } from '@wov/shared';
 import {
@@ -63,7 +68,7 @@ import { ZoneManager } from './world/ZoneManager.js';
 import { SpawnSystem } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
 import { AggroSystem } from './world/AggroSystem.js';
-import { WorldManager, type SavedPlayer } from './world/WorldManager.js';
+import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { HAUPTWELT_ID, type WorldContext } from './world/WorldContext.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
 import { Peer } from './net/Peer.js';
@@ -630,9 +635,11 @@ export class WovServer {
       this.update();
     }, TICK_MS);
 
-    // Periodic world save
+    // Periodic world save — D8: asynchron, damit die 30-Minuten-Sicherung
+    // nicht jedes Mal den Sync-Takt aussetzen lässt. Beim Herunterfahren
+    // bleibt es beim synchronen Weg (s. stop()).
     this.saveTimer = setInterval(() => {
-      this.saveWorld();
+      void this.saveWorldAsync();
     }, this.config.saveIntervalMs);
 
     console.log(`[WoV] Server started: "${this.config.name}" on port ${this.config.port}`);
@@ -645,6 +652,9 @@ export class WovServer {
     if (this.updateTimer) clearInterval(this.updateTimer);
     if (this.saveTimer) clearInterval(this.saveTimer);
 
+    // Beim Herunterfahren bewusst SYNCHRON: `stop()` läuft im Signal-Handler,
+    // und ein Prozess, der gleich beendet wird, arbeitet keine Promises mehr
+    // ab — ein asynchroner Save käme nie bis zum `rename`.
     this.saveWorld();
     this.net.stop();
 
@@ -752,100 +762,187 @@ export class WovServer {
 
   // ── ZDO Sync (C++ IZDOManager::SendZDOs) ───────────────────────
 
+  /**
+   * G-POP: 4 Zonen = 256 m, wie der Terrain-Radius des Clients — bei 192 m
+   * blieb am sichtbaren Rand ein dauerhaft objektfreier Ring stehen.
+   */
+  private static readonly SICHT_RADIUS_ZONEN = 4;
+
+  /**
+   * Wiederverwendete Merkliste der in diesem Tick geschriebenen ZDOs. Als
+   * lokale Variable wäre sie eine Allokation je Peer und Tick — bei 20 Hz
+   * genau das Kleinvieh, das den GC beschäftigt.
+   */
+  private readonly sendePuffer: ZDO[] = [];
+
+  /**
+   * D6 — ZDO-Sync mit Bandbreitenbudget, Nahpriorität und Member-Deltas.
+   *
+   * Drei Bremsen gegen den alten O(Peers × 81 Zonen × ZDOs)-Durchlauf alle
+   * 50 ms:
+   *
+   *  1. Das Sichtfenster kommt aus dem Cache (D7, `ZonenFenster`) und ist
+   *     bereits ringweise nach Entfernung sortiert.
+   *  2. Ein Bandbreitenbudget je Peer (C# ZDOMan.SendZDOs): Was in diesem
+   *     Tick nicht mehr hineinpasst, bleibt schmutzig und geht im nächsten
+   *     raus. Weil die Liste nah-zuerst läuft, verliert dabei immer das
+   *     Entfernteste — genau richtig.
+   *  3. Nur GEÄNDERTE Member statt des vollen Satzes (s. writeZDO).
+   */
   private syncZDOs(): void {
     const peers = this.net.getPeers();
-    if (peers.length === 0) {
-      // Auch ohne Spieler leeren — sonst wächst die Liste unbegrenzt
-      // (Review-Punkt 29); zustellen muss man ihnen nichts.
-      this.zdos.consumeDestroyList();
-      return;
+    // Zerstörungen einmal je Tick abholen und je Peer anstauen: Ein Peer
+    // kann wegen des Budgets einen Tick auslassen, und eine global
+    // verbrauchte Liste wäre für ihn dann für immer weg (Leiche in der
+    // Welt). Ohne Spieler trotzdem leeren, sonst wächst sie unbegrenzt
+    // (Review-Punkt 29).
+    const destroyList = this.zdos.consumeDestroyList();
+    if (peers.length === 0) return;
+    if (destroyList.length > 0) {
+      for (const peer of peers) peer.stelleZerstoerungenEin(destroyList);
     }
 
-    // Consume destroy list once per cycle, broadcast to all peers
-    const destroyList = this.zdos.consumeDestroyList();
+    const tick = Math.floor(this.worldTime * 1000);
 
     for (const peer of peers) {
-      // Determine zones visible to this peer (interest management)
+      // Bandbreitenbudget (C# ZDOMan.SendZDOs:
+      //   num = 10240 - sendQueueSize; if (num < 2048) return;).
+      // Der Socket-Rückstau ist das Maß dafür, wie viel die Leitung des
+      // Peers gerade wirklich abnimmt. Wer schon zusteht, bekommt nichts
+      // obendrauf — genau das verhindert, dass ein einziger langsamer
+      // Client den Server-Speicher mit ungesendeten Puffern füllt.
+      const budget = ZDO_MAX_SEND_THRESHOLD - peer.sendeRueckstau;
+      if (budget < ZDO_MIN_SEND_THRESHOLD) continue;
+
       const peerZone = worldToZone(peer.position);
-      // G-POP: 4 zones = 256m, matching the client terrain radius — before,
-      // the 192m sync radius left a permanently object-free ring of built
-      // terrain at the visible edge (pop-in when objects then materialized).
-      const viewRadius = 4; // zones in each direction
+      const fenster = peer.fenster.hole(
+        this.zdos,
+        peerZone.x,
+        peerZone.y,
+        WovServer.SICHT_RADIUS_ZONEN
+      );
+      const zerstoerungen = peer.offeneZerstoerungen;
+      if (fenster.length === 0 && zerstoerungen.length === 0) continue;
 
-      // Collect ZDOs this peer hasn't seen at the current revision
-      const toSend: ZDO[] = [];
-      const seen = new Set<string>();
-      for (let dx = -viewRadius; dx <= viewRadius; dx++) {
-        for (let dy = -viewRadius; dy <= viewRadius; dy++) {
-          const zdos = this.zdos.zdosInZone({ x: peerZone.x + dx, y: peerZone.y + dy });
-          if (!zdos) continue;
-          for (const zdo of zdos) {
-            const key = zdo.zdoid.toString();
-            if (seen.has(key)) continue;
-            seen.add(key);
-            if (peer.isOutdatedZDO(zdo.zdoid, zdo.revision.dataRevision, zdo.revision.ownerRevision)) {
-              toSend.push(zdo);
-            }
-          }
+      // Wie viele Sätze ins Budget passen, weiß man erst hinterher — also
+      // Platzhalter schreiben und die Zahl am Ende nachtragen. Das spart
+      // gegenüber einem zweiten Writer eine Vollkopie des Pakets je Peer
+      // und Tick.
+      const writer = new Writer(2048);
+      writer.writeInt32(tick); // Tick number for reconciliation
+      const zaehlerStelle = writer.geschrieben;
+      writer.writeInt32(0);
+
+      let anzahl = 0;
+      const gesendet = this.sendePuffer;
+      gesendet.length = 0;
+      for (const zdo of fenster) {
+        const stand = peer.syncStand(zdo.zdoid);
+        if (
+          stand &&
+          stand.dataRevision === zdo.revision.dataRevision &&
+          stand.ownerRevision === zdo.revision.ownerRevision
+        ) {
+          continue; // Peer ist auf Stand
         }
+        this.writeZDO(writer, zdo, stand?.dataRevision);
+        anzahl++;
+        gesendet.push(zdo);
+        if (writer.geschrieben >= budget) break;
       }
 
-      if (toSend.length === 0 && destroyList.length === 0) continue;
+      if (anzahl === 0 && zerstoerungen.length === 0) continue;
+      writer.patchInt32(zaehlerStelle, anzahl);
 
-      // Build sync packet
-      const writer = new Writer();
-
-      // Tick number for reconciliation
-      writer.writeInt32(Math.floor(this.worldTime * 1000));
-
-      // Updated ZDOs
-      writer.writeInt32(toSend.length);
-      for (const zdo of toSend) {
-        this.writeZDO(writer, zdo);
-        peer.markZDOSent(zdo.zdoid, zdo.revision.dataRevision, zdo.revision.ownerRevision);
-      }
-
-      // Destroyed ZDOs
-      writer.writeInt32(destroyList.length);
-      for (const zdoid of destroyList) {
+      // Zerstörungen: gehen IMMER mit raus, sie sind winzig und ihr Verlust
+      // wäre dauerhaft sichtbar.
+      writer.writeInt32(zerstoerungen.length);
+      for (const zdoid of zerstoerungen) {
         writer.writeString(zdoid.userId.toString());
         writer.writeInt32(zdoid.id);
         peer.removeKnownZDO(zdoid);
       }
+      peer.quittiereZerstoerungen();
 
       peer.sendPacket(PacketType.ZDOSync, writer.toBuffer());
+      // Erst nach dem Absenden buchen — sonst gilt ein ZDO als zugestellt,
+      // das wegen des Budgets gar nicht mehr im Paket war.
+      for (const zdo of gesendet) {
+        peer.markZDOSent(zdo.zdoid, zdo.revision.dataRevision, zdo.revision.ownerRevision);
+      }
+      gesendet.length = 0;
     }
   }
 
-  private writeZDO(w: Writer, zdo: ZDO): void {
-    // ZDOID
+  /**
+   * Ein ZDO-Satz. `peerRev` ist die Datenrevision, die der Peer zuletzt
+   * bekommen hat; `undefined` heißt „kennt das ZDO nicht" → Vollstand.
+   *
+   * Drahtformat (Bit 0 von `satzFlags` unterscheidet die beiden Fälle):
+   *
+   *   uint8   satzFlags   Bit0 = Vollstand, Bit1 = Besitzer folgt
+   *   string  userId
+   *   int32   id
+   *   int32   prefabHash  NUR im Vollstand (ändert sich nie)
+   *   vec3    position
+   *   quat    rotation
+   *   uint32  revision
+   *   uint8   flags       NUR im Vollstand (wird nur beim Anlegen gesetzt)
+   *   string  ownerUserId }
+   *   int32   ownerId     } nur bei Bit1
+   *   int32   memberCount
+   *   memberCount × { int32 hash, uint8 type, wert }
+   *
+   * Im Delta stehen nur die Member, die seit `peerRev` geschrieben wurden
+   * (s. ZDOMember.rev). Eine laufende Kreatur schickte bisher 4×/s ihren
+   * kompletten Member-Satz an jeden Peer in Reichweite, obwohl sich daran
+   * nichts geändert hatte — jetzt sind es null Member.
+   *
+   * Die Erstübertragung ist immer vollständig: Ohne Eintrag in `knownZDOs`
+   * hat der Peer nichts, worauf ein Delta aufsetzen könnte. Dasselbe gilt
+   * nach einer Member-Entfernung (die ein Delta nicht ausdrücken kann) und
+   * nach dem Überlauf der 23-Bit-Datenrevision — dann ist `peerRev` größer
+   * als die aktuelle Revision, und der Vergleich wäre wertlos.
+   */
+  private writeZDO(w: Writer, zdo: ZDO, peerRev: number | undefined): void {
+    const datenRev = zdo.revision.dataRevision;
+    const voll =
+      peerRev === undefined || peerRev > datenRev || zdo.entfernungsRevision > peerRev;
+    const hatBesitzer = !zdo.owner.isNone();
+
+    w.writeUInt8((voll ? 1 : 0) | (hatBesitzer ? 2 : 0));
     w.writeString(zdo.zdoid.userId.toString());
     w.writeInt32(zdo.zdoid.id);
-
-    // Prefab hash
-    w.writeInt32(zdo.prefabHash);
-
-    // Transform
+    if (voll) w.writeInt32(zdo.prefabHash);
     w.writeVector3(zdo.position);
     w.writeQuaternion(zdo.rotation);
-
-    // Revision
     w.writeUInt32(zdo.revision.raw);
-
-    // Flags
-    w.writeUInt8(zdo.flags);
-
-    // Owner
-    w.writeBool(!zdo.owner.isNone());
-    if (!zdo.owner.isNone()) {
+    if (voll) w.writeUInt8(zdo.flags);
+    if (hatBesitzer) {
       w.writeString(zdo.owner.userId.toString());
       w.writeInt32(zdo.owner.id);
     }
 
-    // Members
     const members = zdo.getMembers();
-    w.writeInt32(members.size);
+    if (voll) {
+      w.writeInt32(members.size);
+      for (const [hash, member] of members) {
+        w.writeInt32(hash);
+        w.writeUInt8(member.type);
+        w.writeByTypeTag(member.type, member.value);
+      }
+      return;
+    }
+
+    // Zweimal durchzählen statt einer Zwischenliste: Der Satz hat selten
+    // mehr als eine Handvoll Member, und eine Allokation je ZDO und Tick
+    // ist bei 20 Hz teurer als die zweite Schleife.
+    let neue = 0;
+    for (const member of members.values()) if (member.rev > peerRev!) neue++;
+    w.writeInt32(neue);
+    if (neue === 0) return;
     for (const [hash, member] of members) {
+      if (member.rev <= peerRev!) continue;
       w.writeInt32(hash);
       w.writeUInt8(member.type);
       w.writeByTypeTag(member.type, member.value);
@@ -928,9 +1025,11 @@ export class WovServer {
 
     // Phase G: Dungeon-Eingänge für die Weltkarten-Marker
     this.sendDungeonEntrances(peer);
-    // Terraforming-Replay: der frisch verbundene Client baut sein Terrain
-    // aus der Weltgen — die Spieler-Grabungen muss er nachziehen.
-    if (this.terrainOps.length > 0) this.broadcastTerrainOps(this.terrainOps, peer);
+    // Terraforming: der frisch verbundene Client baut sein Terrain aus der
+    // Weltgen — die Spieler-Grabungen muss er nachziehen. D9 schickt dafür
+    // den ENDZUSTAND je bearbeiteter Zone statt jeder je ausgeführten
+    // Operation; sonst wüchse die Join-Dauer linear mit der Spielzeit.
+    this.sendeTerrainComps(peer);
 
     console.log(
       `[WoV] Player "${peer.name}" spawned at (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})${saved ? ' (restored)' : ''}`
@@ -1329,14 +1428,16 @@ export class WovServer {
     }
   }
 
-  /** Spieler-Terraforming (Hacke/Pflug/Spitzhacke) — persistiert im Save. */
-  private readonly terrainOps: Array<{ pos: Vector3; settingsJson: string }> = [];
-
   /**
    * Terrain-Werkzeug server-autoritativ: validieren, auf die Server-
-   * Heightmap anwenden (Bewegungs-Clamp!), persistieren und an ALLE Peers
-   * senden — auch an den Absender, der lokal nichts mehr anfasst. Damit
-   * sehen Mitspieler jede Grabung, und sie überlebt den Neustart.
+   * Heightmap anwenden (Bewegungs-Clamp!) und an ALLE Peers senden — auch
+   * an den Absender, der lokal nichts mehr anfasst. Damit sehen Mitspieler
+   * jede Grabung.
+   *
+   * D9: Die Operation wird NICHT mehr in einer Liste aufbewahrt. Ihr
+   * Ergebnis steht bereits im TerrainComp der Zone, und der ist der
+   * vollständige Endzustand — die Liste war eine zweite Buchführung
+   * derselben Sache, nur unbegrenzt wachsend.
    */
   private handleTerrainOp(peer: Peer, reader: Reader): void {
     const pos = reader.readVector3();
@@ -1358,8 +1459,11 @@ export class WovServer {
     const off = Number(settings.levelOffset ?? 0);
     if (!Number.isFinite(r) || r > 8 || !Number.isFinite(off) || Math.abs(off) > 8) return;
 
-    this.heightmaps.applyTerrainOp(pos.x, pos.y, pos.z, settings as never);
-    this.terrainOps.push({ pos: { ...pos }, settingsJson });
+    const wirkung = this.heightmaps.applyTerrainOp(pos.x, pos.y, pos.z, settings as never);
+    // Wirkungslose Operation gar nicht erst verteilen: Wer mit der Hacke
+    // auf bereits planierten Boden schlägt, ändert nichts — das an alle
+    // Peers zu schicken kostet Bandbreite für ein Nichts.
+    if (wirkung.heights.length === 0 && wirkung.paint.length === 0) return;
     this.broadcastTerrainOps([{ pos, settingsJson }]);
     // Glättung reicht weiter als die Kernfläche — Rand großzügig mitnehmen.
     const smooth = Number(settings.smoothRadius ?? 0);
@@ -1409,6 +1513,28 @@ export class WovServer {
         }
       });
     }
+  }
+
+  /**
+   * D9: Endzustand des Spieler-Terraformings an einen frisch verbundenen
+   * Peer. Eine Zone kostet hier höchstens ihre 65×65 Vertices, egal ob
+   * darin einmal oder zehntausendmal gegraben wurde.
+   */
+  private sendeTerrainComps(peer: Peer): void {
+    const comps = [...this.heightmaps.listTerrainComps()].filter((c) => !c.isEmpty);
+    if (comps.length === 0) return;
+    let bytes = 0;
+    peer.sendPacketWith(PacketType.TerrainCompSync, (w) => {
+      w.writeInt32(comps.length);
+      for (const comp of comps) {
+        const roh = kodiereTerrainComp(comp);
+        bytes += roh.length;
+        w.writeBytes(Buffer.from(roh.buffer, roh.byteOffset, roh.byteLength));
+      }
+    });
+    console.log(
+      `[WoV] Terraforming an "${peer.name}": ${comps.length} Zone(n), ${(bytes / 1024).toFixed(1)} KB`
+    );
   }
 
   private naechstesEvent = 0;
@@ -2277,15 +2403,39 @@ export class WovServer {
 
     this.worldTime = data.worldTime;
     this.zones.restoreGeneratedZones(data.zones);
-    // Spieler-Terraforming VOR den ZDOs abspielen (Vegetations-Nachsetzen
+    // Spieler-Terraforming VOR den ZDOs herstellen (Vegetations-Nachsetzen
     // unten misst gegen den fertigen Boden).
+    //
+    // D9: v3-Stände bringen den Endzustand je Zone mit — der wird direkt
+    // eingesetzt, ohne irgendetwas nachzurechnen. Ältere Stände führen die
+    // Operationsliste; die wird ein letztes Mal abgespielt und beim
+    // nächsten Save als Endzustand geschrieben.
+    let terrainZonen = 0;
+    for (const text of data.terrainComps ?? []) {
+      try {
+        this.heightmaps.restoreTerrainComp(terrainCompAusBase64(text));
+        terrainZonen++;
+      } catch (err) {
+        console.error(`[WoV] TerrainComp im Save unlesbar, übersprungen: ${err}`);
+      }
+    }
+    let altOps = 0;
     for (const op of data.terrainOps ?? []) {
       try {
         this.heightmaps.applyTerrainOp(op.pos.x, op.pos.y, op.pos.z, JSON.parse(op.settingsJson));
-        this.terrainOps.push(op);
+        altOps++;
       } catch {
         /* kaputte Eintraege still verwerfen */
       }
+    }
+    if (altOps > 0) {
+      console.log(
+        `[WoV] Terraforming: ${altOps} Operation(en) aus einem v${data.version}-Save abgespielt ` +
+          `— der nächste Save schreibt sie verdichtet als Endzustand`
+      );
+    }
+    if (terrainZonen > 0) {
+      console.log(`[WoV] Terraforming: ${terrainZonen} Zone(n) aus dem Save übernommen`);
     }
     const restoredZDOs = this.zdos.restoreFromSnapshots(data.zdos);
     for (const player of data.players) {
@@ -2339,6 +2489,94 @@ export class WovServer {
   saveWorld(): void {
     if (!this.worldManager) return; // init() not run (unit tests)
 
+    const aufnahme = this.momentaufnahme();
+    const t0 = Date.now();
+    this.worldManager.save({
+      ...aufnahme.kopf,
+      zdos: aufnahme.zdos.map((z) => z.toSnapshot()),
+    });
+
+    console.log(
+      `[WoV] World saved: ${aufnahme.zdos.length} persistent ZDOs, ` +
+        `${aufnahme.kopf.zones.length} zones, ${aufnahme.kopf.players.length} players ` +
+        `(${Date.now() - t0}ms)`
+    );
+  }
+
+  /** D8: Läuft gerade ein asynchroner Save? */
+  private speichertGerade = false;
+
+  /**
+   * D8 — derselbe Save, ohne den Event-Loop zu blockieren.
+   *
+   * Die MOMENTAUFNAHME (welche ZDOs, welche Spieler, welche Zonen) entsteht
+   * synchron in einem Stück: Nur so kann keine Änderung, die währenddessen
+   * eintrifft, den Save halb erwischen. Was danach kommt — JSON und
+   * Kompression — läuft schubweise (s. WorldManager.saveAsync).
+   *
+   * Ein ZDO, das während des Laufs zerstört wird, fällt heraus (`destroyed`
+   * wird beim Zerstören gesetzt): Es später doch zu schreiben, hieße es beim
+   * nächsten Start wiederzubeleben. Ein ZDO, das während des Laufs ENTSTEHT,
+   * ist nicht dabei und wartet auf den nächsten Save — dasselbe Verhalten
+   * wie bisher für alles, was nach dem Save-Beginn passiert.
+   *
+   * Zwei Läufe gleichzeitig darf es nicht geben: Sie würden sich dieselbe
+   * `.tmp`-Datei gegenseitig unter den Händen wegziehen und im schlimmsten
+   * Fall ein halbes Paket umbenennen.
+   */
+  async saveWorldAsync(): Promise<void> {
+    if (!this.worldManager) return; // init() not run (unit tests)
+    if (this.speichertGerade) {
+      console.warn('[WoV] Save läuft noch — dieser Durchgang wird übersprungen');
+      return;
+    }
+    this.speichertGerade = true;
+    const t0 = Date.now();
+    try {
+      const aufnahme = this.momentaufnahme();
+      let uebersprungen = 0;
+      await this.worldManager.saveAsync(aufnahme.kopf, {
+        laenge: aufnahme.zdos.length,
+        json: (i) => {
+          const zdo = aufnahme.zdos[i]!;
+          if (zdo.destroyed) {
+            uebersprungen++;
+            return null;
+          }
+          return JSON.stringify(zdo.toSnapshot());
+        },
+      });
+      console.log(
+        `[WoV] World saved: ${aufnahme.zdos.length - uebersprungen} persistent ZDOs, ` +
+          `${aufnahme.kopf.zones.length} zones, ${aufnahme.kopf.players.length} players ` +
+          `(${Date.now() - t0}ms, asynchron)`
+      );
+    } catch (err) {
+      // Kein erneuter Versuch: Die vorige Datei steht unangetastet da (die
+      // `.tmp` wird erst am Ende umbenannt), also ist Nichtstun der sichere
+      // Zustand. Der nächste Intervall-Save probiert es ohnehin wieder.
+      console.error(`[WoV] Save fehlgeschlagen (${Date.now() - t0}ms): ${err}`);
+    } finally {
+      this.speichertGerade = false;
+    }
+  }
+
+  /**
+   * Der synchrone Teil beider Save-Wege: Welche ZDOs, Spieler und Zonen
+   * gehören in diesen Save.
+   *
+   * Persistente ZDOs werden über das PREFAB-Flag gefiltert — C++
+   * ZDO::IsPersistent() liefert GetPrefab().IsPersistent() (ZDO.h:1146),
+   * das Instanz-Flag wird nie gesetzt. Spieler-ZDOs bleiben draußen: Ihre
+   * Besitzer-Sitzung endet beim Herunterfahren, nach einem Neustart stünden
+   * sie als Geister neben dem frischen Charakter-ZDO jedes zurückkehrenden
+   * Peers. Ihre Positionen stehen stattdessen in players[] (verbundene
+   * Peers schlagen den zuletzt bekannten Eintrag).
+   */
+  private momentaufnahme(): {
+    kopf: Omit<WorldSaveData, 'version' | 'meta' | 'zdos'>;
+    zdos: ZDO[];
+  } {
     const playerHash = this.prefabs.getByName('Player')?.hash;
     const persistentZDOs = this.zdos
       .getAllZDOs()
@@ -2368,20 +2606,20 @@ export class WovServer {
       });
     }
 
-    const zones = this.zones.getGeneratedZones();
-    const t0 = Date.now();
-    this.worldManager.save({
-      worldTime: this.worldTime,
-      zones,
-      players: [...players.values()],
-      zdos: persistentZDOs.map((z) => z.toSnapshot()),
-      terrainOps: this.terrainOps,
-    });
-
-    console.log(
-      `[WoV] World saved: ${persistentZDOs.length} persistent ZDOs, ` +
-        `${zones.length} zones, ${players.size} players (${Date.now() - t0}ms)`
-    );
+    return {
+      kopf: {
+        worldTime: this.worldTime,
+        zones: this.zones.getGeneratedZones(),
+        players: [...players.values()],
+        // D9: der Endzustand je Zone, nicht mehr die Operationshistorie.
+        // Leere Comps entstehen, wenn eine Operation eine Zone nur
+        // gestreift hat — sie tragen nichts und gehören nicht in den Save.
+        terrainComps: [...this.heightmaps.listTerrainComps()]
+          .filter((c) => !c.isEmpty)
+          .map((c) => terrainCompNachBase64(c)),
+      },
+      zdos: persistentZDOs,
+    };
   }
 }
 

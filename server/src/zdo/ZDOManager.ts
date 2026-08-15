@@ -31,9 +31,14 @@ export function worldToZone(pos: Vector3): ZoneID {
 }
 
 export function zoneToIndex(zone: ZoneID): number {
+  return zoneToIndexXY(zone.x, zone.y);
+}
+
+/** Wie `zoneToIndex`, ohne ein ZoneID-Objekt zu verlangen (D7, s. zdosInZoneXY). */
+export function zoneToIndexXY(zx: number, zy: number): number {
   const half = Math.floor(WORLD_INNER_ZDIAMETER / 2);
-  const x = zone.x + half;
-  const y = zone.y + half;
+  const x = zx + half;
+  const y = zy + half;
   if (x < 0 || x >= WORLD_INNER_ZDIAMETER || y < 0 || y >= WORLD_INNER_ZDIAMETER) {
     return -1; // outer zone
   }
@@ -70,6 +75,20 @@ export class ZDOManager {
 
   /** Accumulator for send interval */
   private sendAccumulator: number;
+
+  /**
+   * Generationszähler je Zone (D7) — steigt bei jedem Zu- und Abgang.
+   *
+   * Das Sichtfenster eines Peers (81 Zonen) wurde 20×/s komplett neu
+   * eingesammelt, auch wenn sich darin gar nichts verändert hatte. Mit dem
+   * Zähler kostet die Gültigkeitsprüfung 81 Zahlenvergleiche statt 81
+   * Set-Durchläufen; nur bei echter Änderung wird neu gesammelt.
+   *
+   * Innen ein flaches Int32Array (200×200 Zonen, 160 KB — ein Indexzugriff
+   * ohne Stringschlüssel), außen die seltene Map wie beim Sektorspeicher.
+   */
+  private readonly sektorGen = new Int32Array(WORLD_INNER_ZDIAMETER * WORLD_INNER_ZDIAMETER);
+  private readonly sektorGenAussen = new Map<string, number>();
 
   constructor(serverUserId: bigint) {
     this.objectsBySector = new Map();
@@ -163,6 +182,34 @@ export class ZDOManager {
     const index = zoneToIndex(zone);
     if (index !== -1) return this.objectsBySector.get(index);
     return this.objectsBySectorOuter.get(zoneKey(zone));
+  }
+
+  /**
+   * Wie `zdosInZone`, aber mit rohen Koordinaten (D7): Das Sichtfenster
+   * fragt 81 Zonen ab — ein `{x, y}`-Objekt je Abfrage wären 81 Allokationen
+   * je Peer und Tick, die der GC dann wieder einsammeln muss.
+   */
+  zdosInZoneXY(x: number, y: number): ReadonlySet<ZDO> | undefined {
+    const index = zoneToIndexXY(x, y);
+    if (index !== -1) return this.objectsBySector.get(index);
+    return this.objectsBySectorOuter.get(`${x},${y}`);
+  }
+
+  /** Generationszähler einer Zone (D7) — s. `sektorGen`. */
+  zonenGeneration(x: number, y: number): number {
+    const index = zoneToIndexXY(x, y);
+    if (index !== -1) return this.sektorGen[index]!;
+    return this.sektorGenAussen.get(`${x},${y}`) ?? 0;
+  }
+
+  private zonenGenerationHoch(zone: ZoneID): void {
+    const index = zoneToIndex(zone);
+    if (index !== -1) {
+      this.sektorGen[index] = (this.sektorGen[index]! + 1) | 0;
+      return;
+    }
+    const key = zoneKey(zone);
+    this.sektorGenAussen.set(key, ((this.sektorGenAussen.get(key) ?? 0) + 1) | 0);
   }
 
   getZDOsInZone(zone: ZoneID): ZDO[] {
@@ -296,6 +343,7 @@ export class ZDOManager {
   }
 
   private _addToSector(zdo: ZDO): void {
+    this.zonenGenerationHoch(zdo.zone);
     const index = zoneToIndex(zdo.zone);
     if (index !== -1) {
       let set = this.objectsBySector.get(index);
@@ -316,6 +364,7 @@ export class ZDOManager {
   }
 
   private _removeFromSector(zdo: ZDO): void {
+    this.zonenGenerationHoch(zdo.zone);
     const index = zoneToIndex(zdo.zone);
     if (index !== -1) {
       this.objectsBySector.get(index)?.delete(zdo);

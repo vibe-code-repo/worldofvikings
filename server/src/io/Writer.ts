@@ -205,6 +205,31 @@ export class Writer extends Stream {
     }
   }
 
+  /**
+   * Bereits geschriebene Bytes. NICHT `size()` der Basisklasse verwenden —
+   * die meldet die Kapazität des (verdoppelnd wachsenden) Puffers, nicht
+   * den Inhalt. Das Bandbreitenbudget des ZDO-Syncs (D6) misst hiergegen.
+   */
+  get geschrieben(): number {
+    return this.pos;
+  }
+
+  /**
+   * Einen bereits geschriebenen int32 nachträglich setzen.
+   *
+   * Der ZDO-Sync schreibt die Satzanzahl VOR die Sätze, kennt sie aber erst,
+   * wenn das Bandbreitenbudget aufgebraucht ist. Ein Platzhalter plus
+   * Nachtrag spart den zweiten Writer und damit eine Vollkopie des Pakets
+   * je Peer und Tick.
+   */
+  patchInt32(offset: number, value: number): this {
+    if (offset < 0 || offset + 4 > this.pos) {
+      throw new RangeError(`patchInt32 ausserhalb des Geschriebenen: ${offset}/${this.pos}`);
+    }
+    this.buf.writeInt32LE(value, offset);
+    return this;
+  }
+
   // ── Finalize ─────────────────────────────────────────────────────
   // C++ reference: Writer::serialize() returns vector<char>(buf)
 

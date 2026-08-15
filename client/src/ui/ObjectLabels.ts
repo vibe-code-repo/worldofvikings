@@ -19,9 +19,10 @@
  */
 
 import { Vector3, Matrix } from '@babylonjs/core/Maths/math.vector';
+import { Viewport } from '@babylonjs/core/Maths/math.viewport';
 import type { Scene } from '@babylonjs/core/scene';
 import type { Camera } from '@babylonjs/core/Cameras/camera';
-import type { EntityManager } from '../entities/EntityManager';
+import type { EntityManager, StatischeInstanz } from '../entities/EntityManager';
 import { UI } from './theme';
 
 /** Umkreis um den Spieler, in dem Namen erscheinen. */
@@ -32,6 +33,14 @@ const MAX_LABELS = 60;
  *  sich ein Schild, sonst steht ein Grasbüschel-Feld als Buchstabenbrei da. */
 const CLUSTER = 3.0;
 
+/**
+ * Weltmatrix der Projektion — hier immer die Einheitsmatrix, weil die
+ * Positionen schon Weltkoordinaten sind. Eine Konstante statt
+ * `Matrix.Identity()` je Schild: Die Fabrikmethode legt jedes Mal eine
+ * neue Matrix an, und das lief hier pro Frame einmal je Sammelpunkt.
+ */
+const EINHEIT = Matrix.Identity();
+
 interface Slot {
   el: HTMLDivElement;
   used: boolean;
@@ -41,6 +50,11 @@ export class ObjectLabels {
   private readonly root: HTMLDivElement;
   private readonly slots: Slot[] = [];
   private enabled = false;
+  /** Gehaltene Rechenhilfen — update() läuft im Frame-Takt. */
+  private readonly welt = new Vector3();
+  private readonly projiziert = new Vector3();
+  private readonly viewport = new Viewport(0, 0, 0, 0);
+  private readonly umkreis: StatischeInstanz[] = [];
 
   constructor(
     private readonly scene: Scene,
@@ -87,7 +101,7 @@ export class ObjectLabels {
     const mgr = this.entities();
     if (!mgr) return;
 
-    const items = mgr.nearbyInstances(px, pz, RANGE);
+    const items = mgr.nearbyInstances(px, pz, RANGE, this.umkreis);
 
     // Nach Prefab und grobem Raster zusammenfassen: viele gleiche Objekte
     // dicht beieinander ergeben ein Schild statt fünfzig.
@@ -105,16 +119,22 @@ export class ObjectLabels {
     }
 
     const view = this.scene.getTransformMatrix();
-    const vp = this.camera.viewport.toGlobal(
+    // ACHTUNG: toGlobalToRef liefert `this` zurück, nicht das Ziel — der
+    // gerechnete Wert steht ausschliesslich in `this.viewport`.
+    this.camera.viewport.toGlobalToRef(
       this.scene.getEngine().getRenderWidth(),
-      this.scene.getEngine().getRenderHeight()
+      this.scene.getEngine().getRenderHeight(),
+      this.viewport
     );
+    const vp = this.viewport;
 
     const sichtbar: Array<{ text: string; sx: number; sy: number; d: number }> = [];
+    const welt = this.welt;
+    const p = this.projiziert;
     for (const c of cluster.values()) {
       // Schild etwas über den Ursprung setzen, damit es nicht im Boden klebt.
-      const world = new Vector3(c.x, c.y + 1.2, c.z);
-      const p = Vector3.Project(world, Matrix.Identity(), view, vp);
+      welt.set(c.x, c.y + 1.2, c.z);
+      Vector3.ProjectToRef(welt, EINHEIT, view, vp, p);
       // z ausserhalb 0..1 heisst hinter der Kamera oder jenseits der Far-Plane.
       if (p.z < 0 || p.z > 1) continue;
       const d = Math.hypot(c.x - px, c.z - pz);
@@ -122,11 +142,13 @@ export class ObjectLabels {
     }
 
     sichtbar.sort((a, b) => a.d - b.d);
-    const zeige = sichtbar.slice(0, MAX_LABELS);
+    // Obergrenze beim Durchlaufen statt `slice(0, MAX_LABELS)` — das legte
+    // pro Frame ein zweites Array an, nur um hinten etwas abzuschneiden.
+    const anzahl = Math.min(sichtbar.length, MAX_LABELS);
 
-    for (let i = 0; i < zeige.length; i++) {
+    for (let i = 0; i < anzahl; i++) {
       const s = this.slot(i);
-      const z = zeige[i]!;
+      const z = sichtbar[i]!;
       s.el.textContent = z.text;
       s.el.style.left = `${z.sx}px`;
       s.el.style.top = `${z.sy}px`;
@@ -134,7 +156,7 @@ export class ObjectLabels {
       s.el.style.opacity = String(Math.max(0.35, 1 - z.d / RANGE));
       s.el.style.display = 'block';
     }
-    for (let i = zeige.length; i < this.slots.length; i++) {
+    for (let i = anzahl; i < this.slots.length; i++) {
       this.slots[i]!.el.style.display = 'none';
     }
   }

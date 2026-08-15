@@ -61,7 +61,7 @@ import { ZoneManager } from './world/ZoneManager.js';
 import { SpawnSystem } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
 import { AggroSystem } from './world/AggroSystem.js';
-import { WorldManager, type SavedPlayer } from './world/WorldManager.js';
+import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { HAUPTWELT_ID, type WorldContext } from './world/WorldContext.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
 import { Peer } from './net/Peer.js';
@@ -628,9 +628,11 @@ export class WovServer {
       this.update();
     }, TICK_MS);
 
-    // Periodic world save
+    // Periodic world save — D8: asynchron, damit die 30-Minuten-Sicherung
+    // nicht jedes Mal den Sync-Takt aussetzen lässt. Beim Herunterfahren
+    // bleibt es beim synchronen Weg (s. stop()).
     this.saveTimer = setInterval(() => {
-      this.saveWorld();
+      void this.saveWorldAsync();
     }, this.config.saveIntervalMs);
 
     console.log(`[WoV] Server started: "${this.config.name}" on port ${this.config.port}`);
@@ -643,6 +645,9 @@ export class WovServer {
     if (this.updateTimer) clearInterval(this.updateTimer);
     if (this.saveTimer) clearInterval(this.saveTimer);
 
+    // Beim Herunterfahren bewusst SYNCHRON: `stop()` läuft im Signal-Handler,
+    // und ein Prozess, der gleich beendet wird, arbeitet keine Promises mehr
+    // ab — ein asynchroner Save käme nie bis zum `rename`.
     this.saveWorld();
     this.net.stop();
 
@@ -2424,6 +2429,94 @@ export class WovServer {
   saveWorld(): void {
     if (!this.worldManager) return; // init() not run (unit tests)
 
+    const aufnahme = this.momentaufnahme();
+    const t0 = Date.now();
+    this.worldManager.save({
+      ...aufnahme.kopf,
+      zdos: aufnahme.zdos.map((z) => z.toSnapshot()),
+    });
+
+    console.log(
+      `[WoV] World saved: ${aufnahme.zdos.length} persistent ZDOs, ` +
+        `${aufnahme.kopf.zones.length} zones, ${aufnahme.kopf.players.length} players ` +
+        `(${Date.now() - t0}ms)`
+    );
+  }
+
+  /** D8: Läuft gerade ein asynchroner Save? */
+  private speichertGerade = false;
+
+  /**
+   * D8 — derselbe Save, ohne den Event-Loop zu blockieren.
+   *
+   * Die MOMENTAUFNAHME (welche ZDOs, welche Spieler, welche Zonen) entsteht
+   * synchron in einem Stück: Nur so kann keine Änderung, die währenddessen
+   * eintrifft, den Save halb erwischen. Was danach kommt — JSON und
+   * Kompression — läuft schubweise (s. WorldManager.saveAsync).
+   *
+   * Ein ZDO, das während des Laufs zerstört wird, fällt heraus (`destroyed`
+   * wird beim Zerstören gesetzt): Es später doch zu schreiben, hieße es beim
+   * nächsten Start wiederzubeleben. Ein ZDO, das während des Laufs ENTSTEHT,
+   * ist nicht dabei und wartet auf den nächsten Save — dasselbe Verhalten
+   * wie bisher für alles, was nach dem Save-Beginn passiert.
+   *
+   * Zwei Läufe gleichzeitig darf es nicht geben: Sie würden sich dieselbe
+   * `.tmp`-Datei gegenseitig unter den Händen wegziehen und im schlimmsten
+   * Fall ein halbes Paket umbenennen.
+   */
+  async saveWorldAsync(): Promise<void> {
+    if (!this.worldManager) return; // init() not run (unit tests)
+    if (this.speichertGerade) {
+      console.warn('[WoV] Save läuft noch — dieser Durchgang wird übersprungen');
+      return;
+    }
+    this.speichertGerade = true;
+    const t0 = Date.now();
+    try {
+      const aufnahme = this.momentaufnahme();
+      let uebersprungen = 0;
+      await this.worldManager.saveAsync(aufnahme.kopf, {
+        laenge: aufnahme.zdos.length,
+        json: (i) => {
+          const zdo = aufnahme.zdos[i]!;
+          if (zdo.destroyed) {
+            uebersprungen++;
+            return null;
+          }
+          return JSON.stringify(zdo.toSnapshot());
+        },
+      });
+      console.log(
+        `[WoV] World saved: ${aufnahme.zdos.length - uebersprungen} persistent ZDOs, ` +
+          `${aufnahme.kopf.zones.length} zones, ${aufnahme.kopf.players.length} players ` +
+          `(${Date.now() - t0}ms, asynchron)`
+      );
+    } catch (err) {
+      // Kein erneuter Versuch: Die vorige Datei steht unangetastet da (die
+      // `.tmp` wird erst am Ende umbenannt), also ist Nichtstun der sichere
+      // Zustand. Der nächste Intervall-Save probiert es ohnehin wieder.
+      console.error(`[WoV] Save fehlgeschlagen (${Date.now() - t0}ms): ${err}`);
+    } finally {
+      this.speichertGerade = false;
+    }
+  }
+
+  /**
+   * Der synchrone Teil beider Save-Wege: Welche ZDOs, Spieler und Zonen
+   * gehören in diesen Save.
+   *
+   * Persistente ZDOs werden über das PREFAB-Flag gefiltert — C++
+   * ZDO::IsPersistent() liefert GetPrefab().IsPersistent() (ZDO.h:1146),
+   * das Instanz-Flag wird nie gesetzt. Spieler-ZDOs bleiben draußen: Ihre
+   * Besitzer-Sitzung endet beim Herunterfahren, nach einem Neustart stünden
+   * sie als Geister neben dem frischen Charakter-ZDO jedes zurückkehrenden
+   * Peers. Ihre Positionen stehen stattdessen in players[] (verbundene
+   * Peers schlagen den zuletzt bekannten Eintrag).
+   */
+  private momentaufnahme(): {
+    kopf: Omit<WorldSaveData, 'version' | 'meta' | 'zdos'>;
+    zdos: ZDO[];
+  } {
     const playerHash = this.prefabs.getByName('Player')?.hash;
     const persistentZDOs = this.zdos
       .getAllZDOs()
@@ -2453,20 +2546,15 @@ export class WovServer {
       });
     }
 
-    const zones = this.zones.getGeneratedZones();
-    const t0 = Date.now();
-    this.worldManager.save({
-      worldTime: this.worldTime,
-      zones,
-      players: [...players.values()],
-      zdos: persistentZDOs.map((z) => z.toSnapshot()),
-      terrainOps: this.terrainOps,
-    });
-
-    console.log(
-      `[WoV] World saved: ${persistentZDOs.length} persistent ZDOs, ` +
-        `${zones.length} zones, ${players.size} players (${Date.now() - t0}ms)`
-    );
+    return {
+      kopf: {
+        worldTime: this.worldTime,
+        zones: this.zones.getGeneratedZones(),
+        players: [...players.values()],
+        terrainOps: this.terrainOps,
+      },
+      zdos: persistentZDOs,
+    };
   }
 }
 

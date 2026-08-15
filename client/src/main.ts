@@ -54,6 +54,13 @@ import { TerrainManager } from './engine/Terrain';
 import { Lighting } from './engine/Lighting';
 import { installiereStandardGammaFix } from './engine/StandardGammaFix';
 import { installierePbrNebelFix } from './engine/PbrNebelFix';
+import { verbindeFpsWaechter } from './engine/FpsWaechter';
+import {
+  installiereFackelLicht,
+  fackelNotbremse,
+  fackelNotbremseLoesen,
+  FackelLichter,
+} from './engine/FackelLicht';
 import { InputManager } from './engine/InputManager';
 import { AssetManager } from './engine/AssetManager';
 import { WindPlugin } from './engine/WindPlugin';
@@ -242,6 +249,10 @@ async function main() {
   // (weiter unten) laufen — siehe StandardGammaFix.ts.
   installiereStandardGammaFix(scene);
   installierePbrNebelFix(scene);
+  // Fackel-Uniform-Array: hier und nicht erst bei `new LightPool(...)`, weil
+  // das Plugin an JEDEM Material hängen muss, bevor der erste Effekt
+  // übersetzt und `blockMaterialDirtyMechanism` gesetzt wird.
+  installiereFackelLicht(scene);
 
   const lighting = new Lighting(scene);
   const input = new InputManager(canvas);
@@ -415,6 +426,15 @@ async function main() {
     namensschilder?.setEnabled(s.nameplates);
     namensschilder?.setEigenes(s.eigenesNameplate);
   });
+  /**
+   * FPS-Wächter (engine/FpsWaechter.ts). NACH dem Anwender-onChange
+   * angemeldet, damit seine eigenen Änderungen dieselbe Kette durchlaufen
+   * wie ein Klick im Menü — der Wächter kennt nur Reglerwerte, nicht die
+   * Systeme dahinter. `?autoqual=0` schaltet ihn ab (Vergleichsmessungen:
+   * eine Automatik, die während der Messung dazwischenregelt, macht jedes
+   * Ergebnis unbrauchbar).
+   */
+  const fpsWaechter = params.get('autoqual') === '0' ? null : verbindeFpsWaechter(gameSettings);
   /** ?env= pins the weather — don't let the biome tracker override it. */
   let envPinned = false;
 
@@ -2357,6 +2377,11 @@ async function main() {
     });
 
     loading?.update(terrain.loadProgress, terrain.ready);
+    // Erst wenn das Gelände steht: Während des Nachladens ist die Bildrate
+    // aus Gründen niedrig, die kein Regler behebt — der Wächter würde die
+    // Leiter hinunterlaufen und den Spieler mit heruntergedrehter Qualität
+    // in die fertig geladene Welt entlassen.
+    if (terrain.ready) fpsWaechter?.tick(engine.getDeltaTime());
 
     hud.setAnvisiert(anvisiert?.finde(player.position.x, player.position.z) ?? null);
 
@@ -2375,7 +2400,8 @@ async function main() {
         `${lighting.state.isNight ? 'nacht' : 'tag'}  ` +
         `nebel ${lighting.state.fogDensity.toFixed(4)}  sonne ${lighting.state.lightIntensity.toFixed(2)}  ` +
         `dof ${post?.debugLine ?? '-'}\n` +
-        `schatten ${shadows?.info ?? '-'}\n` +
+        `schatten ${shadows?.info ?? '-'}  fackeln ${lightPool?.info ?? '-'}\n` +
+        `autoqual ${fpsWaechter?.info ?? 'aus (?autoqual=0)'}\n` +
         // Wind: Richtung als Kompasswinkel und Stärke 0..1, plus die Nässe.
         // Beides folgt dem Wetter (EnvMan) und ist die Basis fürs Segeln.
         `kollision ${entities.colliderStats.bodies} inst / ${entities.colliderStats.havok} havok / ` +
@@ -2403,7 +2429,16 @@ async function main() {
   window.addEventListener('resize', () => engine.resize());
 
   // dev/debug handle (Playwright probes, F9 inspector sessions)
-  (window as unknown as Record<string, unknown>).__dbg = { scene, input, get entities() { return entities; }, assets, get terrain() { return terrain; }, lighting, get player() { return player; }, get world() { return world; }, get inventory() { return inventory; }, get equipment() { return equipment; }, get placement() { return placement; }, get grass() { return grass; }, get shadows() { return shadows; }, get namensschilder() { return namensschilder; } };
+  (window as unknown as Record<string, unknown>).__dbg = { scene, input, get entities() { return entities; }, assets, get terrain() { return terrain; }, lighting, get player() { return player; }, get world() { return world; }, get inventory() { return inventory; }, get equipment() { return equipment; }, get placement() { return placement; }, get grass() { return grass; }, get shadows() { return shadows; }, get namensschilder() { return namensschilder; },
+    // Fackeln: Helligkeit auf echter Hardware nachziehen, Notbremse von
+    // Hand auslösen oder wieder lösen — s. engine/FackelLicht.ts.
+    fackeln: {
+      get zustand() { return `${FackelLichter.anzahl}/${FackelLichter.plaetze} plaetze, staerke ${FackelLichter.staerke}`; },
+      staerke: (v: number) => { FackelLichter.staerke = v; },
+      notbremse: () => fackelNotbremse('von Hand über __dbg ausgelöst'),
+      notbremseLoesen: fackelNotbremseLoesen,
+    },
+    waechter: fpsWaechter };
 }
 
 void main();

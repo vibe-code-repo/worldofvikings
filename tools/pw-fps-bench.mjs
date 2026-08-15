@@ -306,6 +306,9 @@ const ergebnis = {
   },
   teilsysteme: roh.profil,
   netz: roh.netz,
+  // Auch im Erfolgsfall festhalten: Ein fehlendes Asset laesst das Spiel
+  // laufen, kostet aber Bild oder Ton, ohne dass es jemand bemerkt.
+  fehlanfragen: fehlanfragen.slice(0, 30),
   konsolenfehler: konsole.slice(0, 30),
   seitenfehler: seitenfehler.slice(0, 10),
 };

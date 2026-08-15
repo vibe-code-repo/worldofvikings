@@ -29,9 +29,15 @@ const KERN = [
   ['server', 'test/g2-persistence.ts'],
   ['server', 'test/g4-creatures.ts'],
   ['server', 'test/e2-vegetation.ts'],
-  // Der FPS-Waechter ist die einzige Client-Einheit ohne Babylon- und
-  // DOM-Bindung — und die einzige, deren Regelverhalten sich ohne GPU
-  // ueberhaupt pruefen laesst (synthetische fps-Folgen).
+  // Die zwei Client-Tests der Kernliste. Beide kommen ohne Assets, Browser
+  // und GPU aus — das ist die Bedingung, um hier zu stehen.
+  //
+  // Der Umkreis-Index sichert sich gegen die lineare Suche ab, die er
+  // ersetzt hat: gleiche Eingabe, gleiche Treffermenge.
+  ['client', 'test/entity-index.ts'],
+  // Der FPS-Waechter ist bewusst ohne Babylon- und DOM-Bindung gebaut,
+  // damit sein Regelverhalten sich ueber synthetische fps-Folgen pruefen
+  // laesst — ohne GPU gibt es keinen anderen Weg dorthin.
   ['client', 'test/fps-waechter.ts'],
 ];
 

@@ -23,9 +23,10 @@
  */
 
 import { Vector3, Matrix } from '@babylonjs/core/Maths/math.vector';
+import { Viewport } from '@babylonjs/core/Maths/math.viewport';
 import type { Scene } from '@babylonjs/core/scene';
 import type { Camera } from '@babylonjs/core/Cameras/camera';
-import type { EntityManager } from '../entities/EntityManager';
+import type { EntityManager, StatischeInstanz } from '../entities/EntityManager';
 
 /**
  * Reichweite in Metern, gemessen vom Spieler. Aus dem Original:
@@ -51,7 +52,50 @@ const ZIEL_RADIUS = 90;
  */
 const ZIEL_HOEHE = 1.2;
 
+/**
+ * Abstand zweier Abfragen in Millisekunden — 80 ms, also 12,5 Hz.
+ *
+ * ── Warum überhaupt drosseln ─────────────────────────────────────────
+ * Der Prefabname unter dem Fadenkreuz ist eine ANZEIGE, kein Spielzustand:
+ * Nichts hängt davon ab, ob er einen Frame früher oder später steht. Ihn
+ * mit 60 Hz zu bestimmen heisst, sechzigmal pro Sekunde den Umkreis zu
+ * holen und jede Instanz darin zweimal zu projizieren — für einen Text,
+ * der sich meistens gar nicht ändert.
+ *
+ * ── Warum 80 ms und nicht mehr ───────────────────────────────────────
+ * 80 ms liegt unterhalb der Schwelle, ab der eine Anzeige als „hängt
+ * nach" auffällt (rund 100 ms), und deckt sich mit dem Sync-Takt der
+ * Netzwerkschleife (50 ms), an dem sich die Welt ohnehin nur ruckweise
+ * ändert. Beim Sprinten (RUN_SPEED 7,5 m/s) legt der Spieler in dieser
+ * Zeit 0,6 m zurück — deutlich weniger als der Zielradius von 90 px, und
+ * die Reichweite beträgt 5 m. Das Fadenkreuz kann also nicht „vorbei"
+ * sein, bevor die nächste Abfrage läuft.
+ *
+ * Der teure Teil, die Umkreissuche, ist seit D3 indiziert; die Drosselung
+ * spart trotzdem, weil sie auch die Projektionen und den Aufruf selbst
+ * einspart — und weil beides zusammen billiger ist als eines allein.
+ */
+const ABFRAGE_INTERVALL_MS = 80;
+
+/**
+ * Wiederverwendete Rechenhilfen — `finde()` läuft im Frame-Takt, und
+ * `Matrix.Identity()`, `Vector3.Project()` und `Viewport.toGlobal()` legen
+ * jeweils ein frisches Objekt an. Die Weltmatrix ist hier immer die
+ * Einheitsmatrix (die Positionen sind bereits Weltkoordinaten), also darf
+ * sie eine einzige, nie beschriebene Konstante sein.
+ */
+const EINHEIT = Matrix.Identity();
+
 export class Anvisiert {
+  private readonly punkt = new Vector3();
+  private readonly projiziert = new Vector3();
+  private readonly viewport = new Viewport(0, 0, 0, 0);
+  /** Ergebnis und Zeitpunkt der letzten Abfrage — s. ABFRAGE_INTERVALL_MS. */
+  private letzteZeit = Number.NEGATIVE_INFINITY;
+  private letztesErgebnis: string | null = null;
+  /** Ergebnisliste der Umkreissuche, gehalten statt pro Abfrage neu. */
+  private readonly umkreis: StatischeInstanz[] = [];
+
   constructor(
     private readonly scene: Scene,
     private readonly camera: Camera,
@@ -66,16 +110,25 @@ export class Anvisiert {
    *              könnte, und die Kamera steht mehrere Meter hinter ihm.
    */
   finde(px: number, pz: number): string | null {
+    const jetzt = performance.now();
+    if (jetzt - this.letzteZeit < ABFRAGE_INTERVALL_MS) return this.letztesErgebnis;
+    this.letzteZeit = jetzt;
+
     const mgr = this.entities();
-    if (!mgr) return null;
-    const items = mgr.nearbyInstances(px, pz, REICHWEITE);
-    if (!items.length) return null;
+    if (!mgr) return (this.letztesErgebnis = null);
+    // In die gehaltene Liste schreiben lassen — sie enthält die internen
+    // Indexeinträge des EntityManagers und wird hier nur gelesen.
+    const items = mgr.nearbyInstances(px, pz, REICHWEITE, this.umkreis);
+    if (!items.length) return (this.letztesErgebnis = null);
 
     const engine = this.scene.getEngine();
     const breite = engine.getRenderWidth();
     const hoehe = engine.getRenderHeight();
     const view = this.scene.getTransformMatrix();
-    const vp = this.camera.viewport.toGlobal(breite, hoehe);
+    // ACHTUNG: toGlobalToRef liefert `this` zurück, nicht das Ziel — der
+    // gerechnete Wert steht ausschliesslich in `this.viewport`.
+    this.camera.viewport.toGlobalToRef(breite, hoehe, this.viewport);
+    const vp = this.viewport;
     const mx = breite / 2;
     const my = hoehe / 2;
     // Radius an die tatsächliche Auflösung anpassen, sonst zielt es in
@@ -84,11 +137,14 @@ export class Anvisiert {
 
     let bester: string | null = null;
     let bestesMass = grenze * grenze;
-    const punkt = new Vector3();
+    const punkt = this.punkt;
+    const p = this.projiziert;
     for (const it of items) {
-      for (const dy of [0, ZIEL_HOEHE]) {
-        punkt.set(it.x, it.y + dy, it.z);
-        const p = Vector3.Project(punkt, Matrix.Identity(), view, vp);
+      // Beide Prüfpunkte ausgeschrieben statt `for (const dy of [0, …])`:
+      // Das Array-Literal entstünde je Instanz neu.
+      for (let k = 0; k < 2; k++) {
+        punkt.set(it.x, it.y + (k === 0 ? 0 : ZIEL_HOEHE), it.z);
+        Vector3.ProjectToRef(punkt, EINHEIT, view, vp, p);
         // z ausserhalb 0..1 heisst hinter der Kamera — sonst käme ein
         // Objekt im Rücken als Ziel heraus, weil die Projektion dort
         // gespiegelt in der Bildmitte landet.
@@ -100,6 +156,6 @@ export class Anvisiert {
         }
       }
     }
-    return bester;
+    return (this.letztesErgebnis = bester);
   }
 }

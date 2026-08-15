@@ -25,6 +25,7 @@
  */
 
 import { Vector3, Matrix } from '@babylonjs/core/Maths/math.vector';
+import { Viewport } from '@babylonjs/core/Maths/math.viewport';
 import type { Scene } from '@babylonjs/core/scene';
 import type { Camera } from '@babylonjs/core/Cameras/camera';
 import {
@@ -341,7 +342,10 @@ export class Namensschilder {
     const breite = engine.getRenderWidth();
     const hoehe = engine.getRenderHeight();
     const view = this.scene.getTransformMatrix();
-    const vp = this.camera.viewport.toGlobal(breite, hoehe);
+    // ACHTUNG: toGlobalToRef liefert `this` zurück, nicht das Ziel — der
+    // gerechnete Wert steht ausschliesslich in VIEWPORT.
+    this.camera.viewport.toGlobalToRef(breite, hoehe, VIEWPORT);
+    const vp = VIEWPORT;
     const kamera = this.camera.globalPosition;
     let pruefungenUebrig = SICHT_PRO_FRAME;
     let gezeichnet = 0;
@@ -349,7 +353,7 @@ export class Namensschilder {
     for (const k of liste) {
       if (gezeichnet >= MAX_SCHILDER) break;
       PUNKT.set(k.kx, k.ky, k.kz);
-      const p = Vector3.Project(PUNKT, Matrix.Identity(), view, vp);
+      const p = Vector3.ProjectToRef(PUNKT, EINHEIT, view, vp, PROJIZIERT);
       // z ausserhalb 0..1 heisst hinter der Kamera (dort spiegelt die
       // Projektion in die Bildmitte) oder jenseits der Far-Plane.
       if (p.z < 0 || p.z > 1) continue;
@@ -609,3 +613,13 @@ export class Namensschilder {
 
 /** Wiederverwendeter Projektionspunkt — kein Alloc pro Schild und Frame. */
 const PUNKT = new Vector3();
+/**
+ * Und dasselbe für den Rest derselben Projektion, wo es nicht durchgezogen
+ * war: `Matrix.Identity()` legte je Kandidat eine 16-Float-Matrix an,
+ * `Vector3.Project()` je Kandidat einen Ergebnisvektor, `toGlobal()` einen
+ * Viewport je Frame. Die Weltmatrix ist hier immer die Einheit — die
+ * Kandidatenpositionen sind bereits Weltkoordinaten.
+ */
+const EINHEIT = Matrix.Identity();
+const PROJIZIERT = new Vector3();
+const VIEWPORT = new Viewport(0, 0, 0, 0);

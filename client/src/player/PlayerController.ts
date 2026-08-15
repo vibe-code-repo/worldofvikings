@@ -198,6 +198,17 @@ export class PlayerController {
   bodenSonde: ((x: number, y: number, z: number) => number | null) | null = null;
   /** Letzte Stelle MIT Boden unter den Füssen — Ziel der Dungeon-Rettung. */
   private letzteSichere = new Vector3(0, 0, 0);
+  /**
+   * Gehaltene Vektoren des Frame-Pfads — `update()` läuft mit 60 Hz, und
+   * jedes `new Vector3` darin ist Müll, den der GC in Schüben einsammelt.
+   *
+   * Beide Empfänger kopieren: `PhysicsCharacterController.setVelocity`
+   * macht `this._velocity.copyFrom(velocity)`, `camera.setTarget` legt sich
+   * den Zielpunkt ebenfalls als Kopie ab. Die Objekte hier dürfen also im
+   * nächsten Frame überschrieben werden.
+   */
+  private readonly tempoTmp = new Vector3();
+  private readonly augeTmp = new Vector3();
   /** Gehaltene Höhe, solange unter der Figur noch kein Collider liegt. */
   private dungeonHalteY = 0;
   /**
@@ -425,7 +436,7 @@ export class PlayerController {
     // laufenden Absprung nicht abwürgen.
     const amBoden = supported && this.sprungSperre === 0;
 
-    const velocity = new Vector3(
+    const velocity = this.tempoTmp.set(
       moving ? wx * speed : 0,
       // Fallgeschwindigkeit begrenzen: Ungebremst legt die Kapsel bei einem
       // Bildraten-Einbruch mehr Strecke pro Frame zurück, als das
@@ -664,7 +675,7 @@ export class PlayerController {
     const cp = Math.cos(this._pitch);
     const forwardX = -sinY;
     const forwardZ = -cosY;
-    const eye = this.position.add(new Vector3(0, EYE_HEIGHT, 0));
+    const eye = this.augeTmp.set(this.position.x, this.position.y + EYE_HEIGHT, this.position.z);
     const boom = this.boomLength;
     const camX = eye.x - forwardX * cp * boom;
     const camZ = eye.z - forwardZ * cp * boom;
@@ -673,7 +684,9 @@ export class PlayerController {
     const camBoden = this.dungeonMode
       ? -Infinity
       : this.world.getGroundHeight(camX, camZ) + KAMERA_BODEN_ABSTAND;
-    this.camera.position = new Vector3(
+    // In place statt `= new Vector3(...)`: Babylon liest camera.position bei
+    // jedem Frame neu, ein frisches Objekt bringt nichts als GC-Druck.
+    this.camera.position.set(
       camX,
       Math.max(camBoden, eye.y + Math.sin(this._pitch) * boom),
       camZ

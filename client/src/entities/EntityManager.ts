@@ -159,6 +159,61 @@ const SOFT_VEGETATION = /bush|shrub|branch|berry|seed|shoot|sapling|vines|flower
 const SHOW_COLLIDERS =
   typeof location !== 'undefined' && new URLSearchParams(location.search).has('showcolliders');
 
+/**
+ * Kantenlänge einer Zelle des Umkreis-Index, in Metern.
+ *
+ * 32 m ist ein Kompromiss zwischen zwei Kosten: Kleinere Zellen filtern
+ * schärfer, aber `nearbyInstances(…, 70)` (Minimap-Objektebene) müsste dann
+ * hunderte Map-Zugriffe machen, und jeder leere Map-Zugriff ist auch nicht
+ * gratis. Grössere Zellen sparen Zugriffe, schleppen dafür pro Zelle mehr
+ * Instanzen mit, die die Abstandsprüfung wieder verwirft.
+ *
+ * Bei 32 m deckt die kleinste Abfrage (Fadenkreuz, 5 m) 1–4 Zellen ab, die
+ * Namensschilder (40 m) 4–9, die Minimap (70 m) 9–25. Es ist die halbe
+ * Kantenlänge einer ZoneSystem-Zone des Originals (64 m) — bewusst feiner,
+ * weil die typische Abfrage hier viel kleiner ist als eine ganze Zone.
+ */
+const INDEX_ZELLE_M = 32;
+
+/**
+ * Zellenschlüssel aus Zellenkoordinaten.
+ *
+ * Zwei 16-Bit-Felder in EINER Zahl, statt eines Strings `"cx,cz"`: Der
+ * String müsste pro Zugriff frisch gebaut werden, und genau das läuft hier
+ * pro Frame hundertfach. Der Versatz um 0x8000 macht negative Koordinaten
+ * mit — die Welt geht von -10500 bis +10500 m, also ±329 Zellen, weit
+ * innerhalb des Feldes.
+ */
+const zellenSchluessel = (cx: number, cz: number): number =>
+  ((cx + 0x8000) << 16) | (cz + 0x8000);
+
+/**
+ * Eine statische Instanz, wie `nearbyInstances()` sie herausgibt.
+ *
+ * Bewusst nur lesbar: Die Aufrufer bekommen die INTERNEN Indexeinträge
+ * gereicht, nicht Kopien. Das spart pro Frame ein frisches Objektliteral je
+ * gefundener Instanz — wer etwas davon behalten will, muss die Felder
+ * einzeln übernehmen (s. ObjectLabels), niemals das Objekt selbst.
+ */
+export interface StatischeInstanz {
+  readonly prefab: string;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
+
+/** Indexeintrag EINER statischen Instanz — Nutzsicht ist `StatischeInstanz`. */
+interface IndexEintrag {
+  prefab: string;
+  x: number;
+  y: number;
+  z: number;
+  /** Zelle, in der der Eintrag gerade hängt. */
+  zelle: number;
+  /** Platz im Zellen-Array. Macht das Entfernen O(1) statt indexOf(). */
+  platz: number;
+}
+
 interface StaticBucket {
   prefabName: string;
   /** Same value as the map key — the collider derivation needs the def. */
@@ -260,6 +315,29 @@ export class EntityManager {
   private readonly appliedLocations = new Set<string>();
   /** Prefab hashes whose render prep is already in flight. */
   private readonly pending = new Set<number>();
+  /**
+   * Räumlicher Index der statischen Instanzen: Zellenschlüssel → Einträge.
+   *
+   * ── Warum überhaupt ──────────────────────────────────────────────
+   * `nearbyInstances()` lief vorher linear über JEDEN Bucket und JEDE
+   * Instanz darin — bei rund 9.900 ZDOs also knapp 10.000 Durchläufe, und
+   * das je Frame gleich zweimal (Fadenkreuz und Namensschilder), plus die
+   * Minimap. Gesucht wurde dabei ein Umkreis von 5 bis 70 m; der Rest der
+   * Welt wurde nur angefasst, um ihn zu verwerfen. Schlimmer noch: Es
+   * skaliert mit dem Inhalt der Welt und mit allem, was Spieler bauen.
+   *
+   * Der Index dreht das um: Nur die Zellen, die der Suchkreis berührt,
+   * werden angefasst. Aus O(alle Instanzen) wird O(Instanzen in der
+   * Nachbarschaft).
+   *
+   * Die Einträge halten die Position SELBST und nicht einen Verweis auf
+   * `bucket.matrices`, weil die Matrixindizes beim Löschen per Swap-Remove
+   * wandern — ein Index auf eine wandernde Stelle wäre der klassische
+   * Weg, still auf die falsche Instanz zu zeigen.
+   */
+  private readonly zellen = new Map<number, IndexEintrag[]>();
+  /** ZDO-Schlüssel → Indexeintrag. Nur statische ZDOs stehen hier. */
+  private readonly indexVon = new Map<string, IndexEintrag>();
 
   constructor(
     private readonly scene: Scene,
@@ -280,23 +358,101 @@ export class EntityManager {
    * Deko und Aufsammelbares ohne Kollisionskörper. Genau das braucht man,
    * um ein unbekanntes Objekt zu identifizieren.
    */
-  nearbyInstances(x: number, z: number, radius: number): Array<{ prefab: string; x: number; y: number; z: number }> {
-    const out: Array<{ prefab: string; x: number; y: number; z: number }> = [];
+  nearbyInstances(
+    x: number,
+    z: number,
+    radius: number,
+    aus: StatischeInstanz[] = []
+  ): StatischeInstanz[] {
+    aus.length = 0;
     const r2 = radius * radius;
-    for (const bucket of this.buckets.values()) {
-      const n = bucket.matrices.length / 16;
-      for (let i = 0; i < n; i++) {
-        // Translation der row-major-Matrix: Elemente 12/13/14.
-        const px = bucket.matrices[i * 16 + 12]!;
-        const py = bucket.matrices[i * 16 + 13]!;
-        const pz = bucket.matrices[i * 16 + 14]!;
-        const dx = px - x;
-        const dz = pz - z;
-        if (dx * dx + dz * dz > r2) continue;
-        out.push({ prefab: bucket.prefabName, x: px, y: py, z: pz });
+    const cx0 = Math.floor((x - radius) / INDEX_ZELLE_M);
+    const cx1 = Math.floor((x + radius) / INDEX_ZELLE_M);
+    const cz0 = Math.floor((z - radius) / INDEX_ZELLE_M);
+    const cz1 = Math.floor((z + radius) / INDEX_ZELLE_M);
+    // Das umschliessende QUADRAT der Zellen, danach der exakte Kreistest je
+    // Instanz. Zellen kreisförmig vorzufiltern lohnt sich nicht: Bei den
+    // hier üblichen 1 bis 25 Zellen kostet die Ecke weniger als die
+    // Rechnung, die sie einsparen würde.
+    for (let cx = cx0; cx <= cx1; cx++) {
+      for (let cz = cz0; cz <= cz1; cz++) {
+        const liste = this.zellen.get(zellenSchluessel(cx, cz));
+        if (liste === undefined) continue;
+        for (let i = 0; i < liste.length; i++) {
+          const e = liste[i]!;
+          const dx = e.x - x;
+          const dz = e.z - z;
+          if (dx * dx + dz * dz > r2) continue;
+          aus.push(e);
+        }
       }
     }
-    return out;
+    return aus;
+  }
+
+  // ── Räumlicher Index der statischen Instanzen ────────────────────
+
+  /**
+   * Instanz im Index anlegen ODER verschieben.
+   *
+   * Der zweite Fall ist nicht theoretisch: Statische ZDOs bekommen im
+   * Editor und beim Terrain-Werkzeug neue Positionen, und der Server
+   * schickt für dasselbe ZDO wiederholt Updates. Bleibt die Zelle
+   * dieselbe, wird nur die Position nachgezogen — das ist der Normalfall
+   * und kostet dann keinen Listenumbau.
+   */
+  private indexSetzen(key: string, prefab: string, x: number, y: number, z: number): void {
+    const zelle = zellenSchluessel(
+      Math.floor(x / INDEX_ZELLE_M),
+      Math.floor(z / INDEX_ZELLE_M)
+    );
+    let e = this.indexVon.get(key);
+    if (e) {
+      e.prefab = prefab;
+      e.x = x;
+      e.y = y;
+      e.z = z;
+      if (e.zelle === zelle) return;
+      this.ausZelleLoesen(e);
+      e.zelle = zelle;
+    } else {
+      e = { prefab, x, y, z, zelle, platz: 0 };
+      this.indexVon.set(key, e);
+    }
+    let liste = this.zellen.get(zelle);
+    if (!liste) {
+      liste = [];
+      this.zellen.set(zelle, liste);
+    }
+    e.platz = liste.length;
+    liste.push(e);
+  }
+
+  /** Eintrag aus seiner Zellenliste nehmen (Swap-Remove, O(1)). */
+  private ausZelleLoesen(e: IndexEintrag): void {
+    const liste = this.zellen.get(e.zelle);
+    if (!liste) return;
+    const letzter = liste[liste.length - 1]!;
+    liste[e.platz] = letzter;
+    letzter.platz = e.platz;
+    liste.length--;
+    // Leere Zellen wieder wegwerfen, sonst wächst die Map beim Durchlaufen
+    // der Welt monoton mit — jede je betretene Zelle bliebe für immer als
+    // leeres Array liegen und verlangsamte nichts, belegte aber Speicher.
+    if (liste.length === 0) this.zellen.delete(e.zelle);
+  }
+
+  /** Instanz aus dem Index nehmen — Gegenstück zu indexSetzen(). */
+  private indexEntfernen(key: string): void {
+    const e = this.indexVon.get(key);
+    if (!e) return;
+    this.ausZelleLoesen(e);
+    this.indexVon.delete(key);
+  }
+
+  /** Diagnose: Anzahl indizierter Instanzen und belegter Zellen. */
+  get indexStats(): { instanzen: number; zellen: number } {
+    return { instanzen: this.indexVon.size, zellen: this.zellen.size };
   }
 
   /**
@@ -416,6 +572,10 @@ export class EntityManager {
 
   removeZDO(key: string): void {
     this.npcs.delete(key);
+    // Vor dem Bucket-Abbau: Der Index steht unabhängig davon, ob der Bucket
+    // die Instanz noch kennt — ein Eintrag, der ihn überlebt, wäre ein
+    // Geisterobjekt unter dem Fadenkreuz.
+    this.indexEntfernen(key);
     const bucketHash = this.bucketOf.get(key);
     if (bucketHash !== undefined) {
       const bucket = this.buckets.get(bucketHash);
@@ -806,6 +966,13 @@ export class EntityManager {
     }
 
     const world = composeZdoWorld(u, findPrefabByHash(u.prefabHash)?.localScale);
+    // Umkreis-Index mitführen. Die Position wird aus der fertigen Matrix
+    // gelesen (Translation liegt row-major auf 12/13/14) und nicht aus
+    // `u.position`: Die lineare Suche las bislang genau diese Werte, und
+    // die Matrix ist ein Float32Array — sie rundet. Aus derselben Quelle zu
+    // lesen heisst, dass Index und alte Suche bitgleiche Werte liefern.
+    const m = world.m;
+    this.indexSetzen(u.key, prefabName, m[12]!, m[13]!, m[14]!);
     if (bucket.indexOf.has(u.key)) {
       const idx = bucket.indexOf.get(u.key)!;
       world.copyToArray(bucket.matrices, idx * 16);

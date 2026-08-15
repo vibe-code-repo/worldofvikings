@@ -158,10 +158,13 @@ export class WaterRefraction {
     // Hintergrund des Passes = Nebelfarbe, damit die Ränder (wo das
     // Wasser über den Horizont hinausragt) nicht auffallen.
     //
-    // Der Wert MUSS je Frame nachgezogen werden: Lighting.apply() weist
-    // scene.clearColor jeden Frame ein NEUES Color4-Objekt zu, eine
-    // einmalige Kopie hier veraltete also sofort und hätte für den Rest
-    // der Sitzung die Farbe des ersten Frames behalten.
+    // Der Wert MUSS je Frame nachgezogen werden: Lighting.apply() schreibt
+    // die Nebelfarbe pro Frame neu, eine einmalige Kopie hier veraltete
+    // also sofort und hätte für den Rest der Sitzung die Farbe des ersten
+    // Frames behalten. (Bis D5 wies Lighting dabei jeden Frame ein NEUES
+    // Color4 zu; seither ist scene.clearColor ein gehaltenes Objekt, das
+    // in place beschrieben wird. Das copyFrom je Frame bleibt richtig —
+    // rtt.clearColor ist und bleibt ein eigenes Objekt.)
     rtt.clearColor = this.scene.clearColor.clone();
     const beiClear = this.scene.onBeforeRenderObservable.add(() => {
       rtt.clearColor.copyFrom(this.scene.clearColor);

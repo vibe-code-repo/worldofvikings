@@ -738,8 +738,16 @@ async function main() {
         if (basis !== undefined) GlutPuls.setzeBasis(basis);
         return { amplitude: GlutPuls.amplitude, materialien: GlutPuls.anzahl };
       },
+      // Momentaufnahme, keine Live-Sicht: nearbyInstances() liefert die
+      // internen Indexeinträge, die sich weiterbewegen. In der Konsole liest
+      // man das Ergebnis Sekunden später — dann muss dastehen, was zum
+      // Zeitpunkt der Abfrage galt.
       nearbyInstances: (r = 40) =>
-        entities && player ? entities.nearbyInstances(player.position.x, player.position.z, r) : [],
+        entities && player
+          ? entities
+              .nearbyInstances(player.position.x, player.position.z, r)
+              .map((i) => ({ prefab: i.prefab, x: i.x, y: i.y, z: i.z }))
+          : [],
       colliderSpecs: () => (entities ? Object.fromEntries(entities.colliderSpecs) : null),
       precipInfo: () => precipitation?.info ?? null,
       precipSystem: () => precipitation?.systemRef ?? null,
@@ -2049,6 +2057,9 @@ async function main() {
     }
   });
 
+  /** Windzeiger der Minimap — einmal angelegt, pro Frame beschrieben. */
+  const minimapWind = { dirX: 0, dirZ: 0, intensity: 0 };
+
   scene.onBeforeRenderObservable.add(() => {
     if (!world || !terrain || !player || !entities || !grass) return; // waiting for buildWorld()
     const dt = Math.min(engine.getDeltaTime() / 1000, 0.1);
@@ -2145,11 +2156,12 @@ async function main() {
     WaterPlugin.windAlpha = alpha;
     lightPool?.update(player.position.x, player.position.y, player.position.z, dt);
     // Minimap: Detailausschnitt + Windzeiger (budgetiert, zeichnet selbst).
-    minimap?.update(player.position.x, player.position.z, player.yaw, {
-      dirX: wind1.dirX,
-      dirZ: wind1.dirZ,
-      intensity: wind1.intensity,
-    });
+    // Gehaltenes Wind-Objekt statt eines Literals je Frame — die Minimap
+    // liest es nur, sie behält es nicht.
+    minimapWind.dirX = wind1.dirX;
+    minimapWind.dirZ = wind1.dirZ;
+    minimapWind.intensity = wind1.intensity;
+    minimap?.update(player.position.x, player.position.z, player.yaw, minimapWind);
     // Regen/Schnee/Asche: Menge aus der Nässe-Rampe, Schräglage aus dem
     // Wind (GlobalWind.velocityOverLifetime im Original).
     // Gras um aufsammelbare Gegenstände freihalten (Flint, Stein, Löwenzahn
@@ -2159,9 +2171,15 @@ async function main() {
     if (clearingTimer >= 1.0) {
       clearingTimer = 0;
       const nahe = entities.nearbyInstances(player.position.x, player.position.z, 70);
-      const freihalten: Array<{ x: number; z: number }> = nahe.filter((i) =>
-        i.prefab.startsWith('Pickable')
-      );
+      // Eigene {x,z}-Literale statt der Einträge selbst: `nahe` liefert die
+      // INTERNEN Indexeinträge des EntityManagers (s. StatischeInstanz), und
+      // diese Liste wandert bis in GrassClutter.setClearings weiter. Wer
+      // dort irgendwann ein Feld schriebe, verschöbe eine echte Instanz im
+      // Umkreis-Index.
+      const freihalten: Array<{ x: number; z: number }> = [];
+      for (const i of nahe) {
+        if (i.prefab.startsWith('Pickable')) freihalten.push({ x: i.x, z: i.z });
+      }
       // Begehbare Bauwerke halten ihre GRUNDFLÄCHE frei, nicht nur einen
       // Punkt. Beim Grabhügel ist das keine Kosmetik: Sein Kammerboden liegt
       // bewusst auf Geländehöhe, damit der Weltspawn hineinfällt — der Boden

@@ -121,6 +121,14 @@ function makeParticleTexture(scene: Scene): Texture {
 
 export class Precipitation {
   private readonly system: ParticleSystem;
+  /**
+   * Gehaltene Fallrichtung — update() läuft mit 60 Hz, solange es
+   * niederschlägt. direction1 und direction2 zeigten schon vorher auf
+   * DASSELBE Objekt (der Emitter würfelt zwischen beiden, bei gleichen
+   * Werten kommt der Wert selbst heraus); daran ändert sich nichts, es
+   * entsteht nur kein neuer Vektor mehr je Frame.
+   */
+  private readonly fallRichtung = new Vector3();
   private readonly emitterNode: Mesh;
   private readonly boxEmitter: BoxParticleEmitter;
   private current: PrecipKind = 'none';
@@ -214,7 +222,7 @@ export class Precipitation {
     // not one of them on screen.
     const wx = windX * s.windFactor;
     const wz = windZ * s.windFactor;
-    const dir = new Vector3(wx, -1, wz).normalize();
+    const dir = this.fallRichtung.set(wx, -1, wz).normalize();
     this.system.direction1 = dir;
     this.system.direction2 = dir;
 

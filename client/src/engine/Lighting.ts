@@ -38,6 +38,9 @@ import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import type { Material } from '@babylonjs/core/Materials/material';
 import { Color3, Color4, Vector3 } from '@babylonjs/core/Maths/math';
+// Wert-Import, nicht nur Typ: Er zieht die Kamera-Erweiterung
+// `getForwardRayToRef` mit herein (Culling/ray.core, AddRayExtensions).
+import { Ray } from '@babylonjs/core/Culling/ray';
 import { Scene } from '@babylonjs/core/scene';
 import { ValheimSky } from './ValheimSky';
 import {
@@ -65,7 +68,16 @@ const FOG_SUN_EXPONENT = 2.5;
  */
 const ENV_BLEND_SECONDS = 4;
 
-const toColor3 = (c: EnvColor): Color3 => new Color3(c.r, c.g, c.b);
+/**
+ * EnvColor in ein GEHALTENES Color3 schreiben.
+ *
+ * `apply()` läuft in jedem Frame, und jedes `new Color3(...)` darin ist
+ * Müll, den der GC in regelmässigen Abständen einsammelt — genau die
+ * Sorte Pause, die beim Laufen als Ruckler auffällt. Das Muster steht in
+ * dieser Datei schon (`fogColorLinear`: „wird pro Frame in place
+ * aktualisiert, nie ersetzt"), es war nur nicht durchgezogen.
+ */
+const inColor3 = (c: EnvColor, ziel: Color3): Color3 => ziel.set(c.r, c.g, c.b);
 
 /**
  * ── Farbraum ─────────────────────────────────────────────────────────
@@ -99,7 +111,13 @@ const toColor3 = (c: EnvColor): Color3 => new Color3(c.r, c.g, c.b);
  *    vollständig linearen Workflow und verschieben die handgetunten
  *    Albedo-Werte, deshalb bewusst nicht in dieser Änderung.
  */
-const toLinear = (c: EnvColor): Color3 => new Color3(c.r, c.g, c.b).toLinearSpace();
+const inLinear = (c: EnvColor, ziel: Color3): Color3 => {
+  ziel.set(c.r, c.g, c.b);
+  // In place: toLinearSpaceToRef liest jeden Kanal, bevor es ihn schreibt,
+  // Quelle und Ziel dürfen also dasselbe Objekt sein.
+  ziel.toLinearSpaceToRef(ziel);
+  return ziel;
+};
 
 function lerpEnvColor(a: EnvColor, b: EnvColor, t: number): EnvColor {
   return {
@@ -155,11 +173,45 @@ export class Lighting {
    */
   readonly fogColorLinear = new Color3();
 
+  /**
+   * Gehaltene Puffer für `apply()` — dieselbe Begründung wie bei
+   * `fogColorLinear`, nur konsequent für ALLE Farben dieses Pfads.
+   *
+   * Vorher entstanden pro Frame rund zehn Color3 und ein Color4: zweimal
+   * `toLinear(sunColor)`, `toLinear(ambColor)` samt `scale(0.5)`, die
+   * beiden Nebelfarben, das Ergebnis von `Color3.Lerp`, das `new Color4`
+   * für `clearColor` — und in `directionalFogColor` zusätzlich ein
+   * kompletter `Ray` samt zwei Vector3 aus `camera.getForwardRay()`.
+   *
+   * Die Ziele (`sun.diffuse`, `ambient.diffuse`, `scene.fogColor`,
+   * `scene.clearColor`) bekommen diese Objekte EINMAL im Konstruktor
+   * zugewiesen und werden danach nur noch in place beschrieben; Babylon
+   * liest sie bei jedem Bind neu aus.
+   */
+  private readonly sonnenFarbe = new Color3();
+  private readonly sonnenGlanz = new Color3();
+  private readonly ambFarbe = new Color3();
+  private readonly ambBoden = new Color3();
+  /** Identisch mit `scene.fogColor` (GAMMA, s. Farbraum-Block). */
+  private readonly nebelFarbe = new Color3();
+  private readonly nebelSonnenFarbe = new Color3();
+  /** Identisch mit `scene.clearColor` (LINEAR, geht direkt in den Puffer). */
+  private readonly hintergrund = new Color4(0, 0, 0, 1);
+  private readonly zurSonne = new Vector3();
+  private readonly blickStrahl = new Ray(Vector3.Zero(), Vector3.Zero(), 100);
+
   constructor(private readonly scene: Scene) {
     this.env = findEnvironment(ENV_CLEAR)!;
 
     this.sun = new DirectionalLight('sun', new Vector3(0, -1, 0), scene);
     this.ambient = new HemisphericLight('ambient', new Vector3(0, 1, 0), scene);
+    // Einmal verdrahten, danach nur noch beschreiben (s. oben).
+    this.sun.diffuse = this.sonnenFarbe;
+    this.sun.specular = this.sonnenGlanz;
+    this.ambient.diffuse = this.ambFarbe;
+    this.ambient.groundColor = this.ambBoden;
+    scene.fogColor = this.nebelFarbe;
+    scene.clearColor = this.hintergrund;
 
     // Sky dome fed from the same EnvState as the fog — see ValheimSky.ts
     // for why Babylon's SkyMaterial (Preetham) cannot match the fog colour.
@@ -252,17 +304,16 @@ export class Lighting {
     // Babylon rechnet Light.diffuse nirgends um.
     this.sun.direction.set(state.lightDir.x, state.lightDir.y, state.lightDir.z);
     this.sun.direction.normalize();
-    this.sun.diffuse = toLinear(state.sunColor);
-    this.sun.specular = toLinear(state.sunColor);
+    inLinear(state.sunColor, this.sonnenFarbe);
+    this.sonnenGlanz.copyFrom(this.sonnenFarbe);
     this.sun.intensity = state.lightIntensity;
 
     // ── Ambient ───────────────────────────────────────────────────
     // ambColorNight ist bei "Misty" (0.357, 0.361, 0.404) — als linearer
     // Faktor gelesen war das nachts rund dreimal zu viel Grundlicht und
     // der zweite Grund, warum der Boden im Dunkeln nicht dunkel wurde.
-    const amb = toLinear(state.ambColor);
-    this.ambient.diffuse = amb;
-    this.ambient.groundColor = amb.scale(0.5);
+    const amb = inLinear(state.ambColor, this.ambFarbe);
+    amb.scaleToRef(0.5, this.ambBoden);
     this.ambient.intensity = 1;
 
     // ── Sky ───────────────────────────────────────────────────────
@@ -274,12 +325,12 @@ export class Lighting {
     // `scene.fogColor` bleibt GAMMA — das ist Babylons Konvention, und
     // PBR linearisiert selbst. Alle anderen Pfade lesen fogColorLinear.
     this.scene.fogDensity = state.fogDensity;
-    const fog = this.directionalFogColor(state);
-    this.scene.fogColor = fog;
-    fog.toLinearSpaceToRef(this.fogColorLinear);
+    // Schreibt in `nebelFarbe`, und das IST `scene.fogColor` (Konstruktor).
+    this.directionalFogColorToRef(state, this.nebelFarbe);
+    this.nebelFarbe.toLinearSpaceToRef(this.fogColorLinear);
     // clearColor geht ohne Material direkt in den Framebuffer, ist also
     // schon der lineare Wert, den der ImageProcessing-Pass erwartet.
-    this.scene.clearColor = new Color4(
+    this.hintergrund.set(
       this.fogColorLinear.r,
       this.fogColorLinear.g,
       this.fogColorLinear.b,
@@ -291,16 +342,25 @@ export class Lighting {
    * Valheim's two-colour fog collapsed to this frame's view direction:
    * `fogColorSun` when looking towards the sun, `fogColor` away from it.
    */
-  private directionalFogColor(state: EnvState): Color3 {
-    const base = toColor3(state.fogColor);
+  private directionalFogColorToRef(state: EnvState, ziel: Color3): Color3 {
+    inColor3(state.fogColor, ziel);
     const camera = this.scene.activeCamera;
-    if (!camera) return base; // before PlayerController exists
+    if (!camera) return ziel; // before PlayerController exists
 
-    const forward = camera.getForwardRay().direction;
+    // `getForwardRay()` legt pro Aufruf einen frischen Ray samt zwei
+    // Vector3 an — bei 60 Hz ist das der teuerste Posten dieser Methode.
+    // Die ToRef-Variante schreibt in den gehaltenen Strahl und liefert die
+    // Richtung bereits normalisiert (Culling/ray.core: NormalizeToRef).
+    const forward = camera.getForwardRayToRef(this.blickStrahl).direction;
     // lightDir points sun→scene, so the direction TOWARDS the sun is -lightDir
-    const toSun = new Vector3(-state.lightDir.x, -state.lightDir.y, -state.lightDir.z).normalize();
-    const facing = Math.max(0, Vector3.Dot(forward.normalize(), toSun));
+    const toSun = this.zurSonne
+      .set(-state.lightDir.x, -state.lightDir.y, -state.lightDir.z)
+      .normalize();
+    const facing = Math.max(0, Vector3.Dot(forward, toSun));
     const t = Math.pow(facing, FOG_SUN_EXPONENT);
-    return Color3.Lerp(base, toColor3(state.fogColorSun), t);
+    // LerpToRef darf links und Ziel teilen — es liest jeden Kanal, bevor
+    // es ihn schreibt.
+    Color3.LerpToRef(ziel, inColor3(state.fogColorSun, this.nebelSonnenFarbe), t, ziel);
+    return ziel;
   }
 }

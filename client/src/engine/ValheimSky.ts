@@ -271,6 +271,23 @@ export class ValheimSky {
     night: 0,
   };
 
+  /**
+   * Die restlichen Uniform-Werte, ebenfalls gehalten statt pro Frame neu.
+   *
+   * `update()` legte pro Frame acht Objekte an: `new Color3(...)` für
+   * Horizont, Zenit, Sonnenglühen und Sonnenfarbe, davon drei mit einem
+   * zweiten aus `toLinearSpace()`, dazu ein `new Vector3` für `uSunDir`.
+   * Das Muster stand direkt daneben — `reflectState` ist ausdrücklich als
+   * „wird in place beschrieben (kein neues Objekt je Frame)" dokumentiert;
+   * es war nur nicht auf die Uniforms durchgezogen.
+   *
+   * ShaderMaterial.setColor3/setVector3 merken sich die REFERENZ und lesen
+   * sie erst beim Binden — ein gehaltenes, in place beschriebenes Objekt
+   * ist hier also nicht nur billiger, sondern der eigentlich gemeinte Weg.
+   */
+  private readonly sonnenFarbe = new Color3();
+  private readonly sonnenRichtung = new Vector3(0, 1, 0);
+
   constructor(scene: Scene, radius = 3000) {
     registerShader();
 
@@ -340,7 +357,12 @@ export class ValheimSky {
     // geht — der ImageProcessing-Pass wandelt am Ende nach Gamma. Siehe
     // den Farbraum-Block in Lighting.ts; `scene.fogColor` selbst bleibt
     // dort bewusst Gamma, deshalb wird hier umgerechnet statt kopiert.
-    const horizon = new Color3(state.fogColor.r, state.fogColor.g, state.fogColor.b).toLinearSpace();
+    //
+    // Geschrieben wird gleich in `reflectState` — das ist derselbe Wert,
+    // der auch in die Uniforms geht, und genau dafür ist es gedacht.
+    const horizon = this.reflectState.horizon;
+    horizon.set(state.fogColor.r, state.fogColor.g, state.fogColor.b);
+    horizon.toLinearSpaceToRef(horizon);
     // Zenith: a deeper, slightly bluer version of the horizon. Derived
     // rather than authored so any EnvSetup — including ones only the dump
     // tool knows about — gets a sane sky without extra data.
@@ -349,41 +371,33 @@ export class ValheimSky {
     // Gamma-Betrag, linear sind das ~0.001. Unverändert übernommen hätte
     // er den Zenit überstrahlt, weil die linearen Nachtfarben rund eine
     // Zehnerpotenz kleiner sind als die Gamma-Werte vorher.
-    const zenith = new Color3(
-      horizon.r * 0.45,
-      horizon.g * 0.55,
-      Math.min(1, horizon.b * 0.8 + 0.001)
-    );
+    const zenith = this.reflectState.zenith;
+    zenith.set(horizon.r * 0.45, horizon.g * 0.55, Math.min(1, horizon.b * 0.8 + 0.001));
 
     const night = 1 - Math.min(1, Math.max(0, (state.elevation + 0.25) / 0.45));
 
-    const sunGlow = new Color3(
-      state.fogColorSun.r,
-      state.fogColorSun.g,
-      state.fogColorSun.b
-    ).toLinearSpace();
-    const sunColor = new Color3(
-      state.sunColor.r,
-      state.sunColor.g,
-      state.sunColor.b
-    ).toLinearSpace();
+    const sunGlow = this.reflectState.sunGlow;
+    sunGlow.set(state.fogColorSun.r, state.fogColorSun.g, state.fogColorSun.b);
+    sunGlow.toLinearSpaceToRef(sunGlow);
+    const sunColor = this.sonnenFarbe;
+    sunColor.set(state.sunColor.r, state.sunColor.g, state.sunColor.b);
+    sunColor.toLinearSpaceToRef(sunColor);
 
-    // Für Konsumenten der Spiegelung (WaterPlugin) — dieselben Werte, die
-    // unten in die Uniforms gehen. Siehe reflectState.
-    this.reflectState.horizon.copyFrom(horizon);
-    this.reflectState.zenith.copyFrom(zenith);
-    this.reflectState.sunGlow.copyFrom(sunGlow);
+    // Für Konsumenten der Spiegelung (WaterPlugin): horizon/zenith/sunGlow
+    // sind oben bereits IN reflectState geschrieben worden, hier bleiben
+    // nur die beiden übrigen Felder.
     this.reflectState.toSun.set(state.sunDir.x, state.sunDir.y, state.sunDir.z).normalize();
     this.reflectState.night = night;
+
+    // uSunDir ist die ROHE Sonnenrichtung, nicht die normalisierte aus
+    // reflectState.toSun — deshalb ein eigener gehaltener Vektor.
+    this.sonnenRichtung.set(state.sunDir.x, state.sunDir.y, state.sunDir.z);
 
     this.material.setColor3('uHorizon', horizon);
     this.material.setColor3('uZenith', zenith);
     this.material.setColor3('uSunGlow', sunGlow);
     this.material.setColor3('uSunColor', sunColor);
-    this.material.setVector3(
-      'uSunDir',
-      new Vector3(state.sunDir.x, state.sunDir.y, state.sunDir.z)
-    );
+    this.material.setVector3('uSunDir', this.sonnenRichtung);
     this.material.setFloat('uNight', night);
     this.material.setFloat('uCloud', state.cloudAlpha);
     this.material.setFloat('uTime', this.time);

@@ -7,13 +7,43 @@
 import { PacketType, getStableHash } from '@wov/shared';
 import type { Vector3, Quaternion } from '@wov/shared';
 
+/**
+ * Ein DECODER für die ganze Sitzung statt einer je Zeichenkette.
+ *
+ * `new TextDecoder()` je `readString()` war der teuerste Posten des
+ * Netzpfads: Jedes ZDO-Update trägt mindestens eine `userId`, die Updates
+ * kommen im 20-Hz-Takt gebündelt — das sind hunderte kurzlebige Objekte
+ * pro Sekunde, und jedes von ihnen zieht intern eine ICU-Instanz nach.
+ * Der Decoder ist zustandslos, solange man ihn ohne `{ stream: true }`
+ * benutzt; eine geteilte Instanz ist also nicht nur billiger, sondern
+ * auch gleichwertig.
+ */
+const DECODER = new TextDecoder();
+/** Dasselbe für die Senderichtung — s. DECODER. */
+const ENCODER = new TextEncoder();
+
 /** Minimal binary reader for client-side packet parsing */
 export class BinaryReader {
   private view: DataView;
   private pos = 0;
 
-  constructor(buffer: ArrayBuffer) {
-    this.view = new DataView(buffer);
+  /**
+   * @param byteOffset Erstes zu lesendes Byte im Puffer.
+   *
+   * Das Feld existiert, damit der Nutzlast-Leser eines Pakets OHNE Kopie
+   * auskommt: Vorher stand dort `new BinaryReader(data.slice(1))`, und
+   * `slice` kopiert den ganzen Rest des Pakets — bei einem ZDO-Bündel
+   * mehrere Kilobyte, im 20-Hz-Takt.
+   *
+   * Das Muster dagegen steht in dieser Klasse längst: `readString()` legt
+   * seine Bytes als SICHT auf den bestehenden Puffer an
+   * (`new Uint8Array(this.view.buffer, this.view.byteOffset + this.pos,
+   * len)`) statt sie herauszukopieren. Es war nur nicht durchgezogen —
+   * und weil readString den `byteOffset` bereits mitrechnet, trägt es
+   * einen versetzten Leser ohne weitere Änderung mit.
+   */
+  constructor(buffer: ArrayBuffer, byteOffset = 0) {
+    this.view = new DataView(buffer, byteOffset);
   }
 
   readBool(): boolean { return this.view.getUint8(this.pos++) !== 0; }
@@ -41,7 +71,7 @@ export class BinaryReader {
     if (len === 0) return '';
     const bytes = new Uint8Array(this.view.buffer, this.view.byteOffset + this.pos, len);
     this.pos += len;
-    return new TextDecoder().decode(bytes);
+    return DECODER.decode(bytes);
   }
 
   readVector3(): Vector3 {
@@ -73,7 +103,7 @@ class BinaryWriter {
     this.buf.push(...new Uint8Array(b));
   }
   writeString(v: string) {
-    const encoded = new TextEncoder().encode(v);
+    const encoded = ENCODER.encode(v);
     let len = encoded.length;
     let zigzag = ((len << 1) ^ (len >> 31)) >>> 0;
     do {
@@ -166,7 +196,8 @@ export class GameSocket {
 
     const handlers = this.handlers.get(type);
     if (handlers) {
-      const payloadReader = new BinaryReader(data.slice(1));
+      // Versetzte SICHT statt Kopie — s. BinaryReader-Konstruktor.
+      const payloadReader = new BinaryReader(data, 1);
       for (const h of handlers) h(payloadReader);
     }
   }

@@ -169,10 +169,9 @@ const SHOW_COLLIDERS =
  * Instanzen mit, die die Abstandsprüfung wieder verwirft.
  *
  * Bei 32 m deckt die kleinste Abfrage (Fadenkreuz, 5 m) 1–4 Zellen ab, die
- * Namensschilder (40 m) 4–9, die Minimap (70 m) 9–25. Dieselbe Grösse
- * benutzt das Original für seine ZoneSystem-Zonen (64 m) in halber Weite —
- * bewusst feiner, weil hier die typische Abfrage viel kleiner ist als eine
- * Zone.
+ * Namensschilder (40 m) 4–9, die Minimap (70 m) 9–25. Es ist die halbe
+ * Kantenlänge einer ZoneSystem-Zone des Originals (64 m) — bewusst feiner,
+ * weil die typische Abfrage hier viel kleiner ist als eine ganze Zone.
  */
 const INDEX_ZELLE_M = 32;
 

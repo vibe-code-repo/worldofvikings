@@ -718,8 +718,16 @@ async function main() {
         if (basis !== undefined) GlutPuls.setzeBasis(basis);
         return { amplitude: GlutPuls.amplitude, materialien: GlutPuls.anzahl };
       },
+      // Momentaufnahme, keine Live-Sicht: nearbyInstances() liefert die
+      // internen Indexeinträge, die sich weiterbewegen. In der Konsole liest
+      // man das Ergebnis Sekunden später — dann muss dastehen, was zum
+      // Zeitpunkt der Abfrage galt.
       nearbyInstances: (r = 40) =>
-        entities && player ? entities.nearbyInstances(player.position.x, player.position.z, r) : [],
+        entities && player
+          ? entities
+              .nearbyInstances(player.position.x, player.position.z, r)
+              .map((i) => ({ prefab: i.prefab, x: i.x, y: i.y, z: i.z }))
+          : [],
       colliderSpecs: () => (entities ? Object.fromEntries(entities.colliderSpecs) : null),
       precipInfo: () => precipitation?.info ?? null,
       precipSystem: () => precipitation?.systemRef ?? null,

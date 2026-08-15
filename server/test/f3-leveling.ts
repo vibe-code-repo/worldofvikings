@@ -28,6 +28,9 @@ import {
   getStableHash,
 } from '@wov/shared';
 import { ZDOManager } from '../src/zdo/ZDOManager.js';
+// Die Pieces liegen seit dem Bundle-Schnitt nicht mehr am Feature, sondern
+// in einem serverseitigen Datenmodul (shared/src/featurePieces.ts).
+import { getFeaturePieces } from '@wov/shared/src/featurePieces.js';
 import { ZoneManager } from '../src/world/ZoneManager.js';
 
 const SEED = getStableHash('KxSYuZquuw');
@@ -57,7 +60,15 @@ const templeLeveling = getTerrainLeveling(temple);
 // entstanden 64-m-Terrassen mit harten Kanten (Holzhaus am Steinkreis).
 // StartTemple: äußerstes Piece bei ~13.85 m → levelRadius ≈ 15.85 < 16;
 // smoothRadius wächst auf levelRadius mit, damit der Übergang flach bleibt.
-const templePieceRadius = Math.max(...temple.pieces.map((p) => Math.hypot(p.pos.x, p.pos.z)));
+const templePieces = getFeaturePieces('StartTemple');
+const templePieceRadius = Math.max(...templePieces.map((p) => Math.hypot(p.pos.x, p.pos.z)));
+// Der Kopf traegt den Radius vorberechnet — beides muss zusammenpassen,
+// sonst sind featuresData.json und featurePiecesData.json auseinandergelaufen.
+check(
+  'StartTemple.pieceRadius passt zu den echten Pieces',
+  Math.abs(temple.pieceRadius - templePieceRadius) < 1e-6,
+  `Kopf ${temple.pieceRadius} vs. Pieces ${templePieceRadius}`
+);
 check(
   'StartTemple → clearArea rule (Piece-Grundfläche statt exteriorRadius)',
   templeLeveling !== null &&
@@ -223,7 +234,7 @@ check(
 // pieces within 13.8m < levelRadius 25 → ground == plateau exactly).
 let maxAbsDiff = 0;
 let worstInvariant = 0;
-for (const p of temple.pieces) {
+for (const p of templePieces) {
   const pieceY = f32(booked.pos.y + p.pos.y);
   const ground = heightmaps2.getGroundHeight(f32(booked.pos.x + p.pos.x), f32(booked.pos.z + p.pos.z));
   const diff = f32(pieceY - ground);

@@ -50,6 +50,10 @@ import {
   interiorEnvironment,
   isInDungeonBand,
 } from '@wov/shared';
+// Serverseitige Weltdaten: NICHT ueber den Barrel, sondern ueber den
+// expliziten Pfad — sie tragen die Rohdaten der Weltvorlagen (Pieces bzw.
+// Raum-Einrichtung) und haetten im Barrel jedes Client-Bundle aufgeblaeht.
+import { getFeaturePieces } from '@wov/shared/src/featurePieces.js';
 import { ZDOManager, worldToZone } from './zdo/ZDOManager.js';
 import { DungeonManager } from './world/dungeon/DungeonManager.js';
 import { ZDO } from './zdo/ZDO.js';
@@ -358,7 +362,7 @@ export class WovServer {
     {
       const dungeonPieceByFeature = new Map<string, number>();
       for (const f of FEATURES) {
-        const piece = f.pieces.find((p) => {
+        const piece = getFeaturePieces(f.name).find((p) => {
           const pf = findPrefabByHash(p.prefabHash);
           return pf !== undefined && (pf.flags & PrefabFlag.DUNGEON) !== 0n;
         });

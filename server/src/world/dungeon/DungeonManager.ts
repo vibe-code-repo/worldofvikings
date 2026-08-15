@@ -36,7 +36,6 @@ import {
   DungeonDocument,
   DungeonLayout,
   ENTRANCE_HULL_MODELS,
-  flattenLayout,
   generateDungeonLayout,
   findPrefabByName,
   getDungeonByHash,
@@ -46,6 +45,10 @@ import {
   isValidDungeonId,
   sanitizeDungeonDocument,
 } from '@wov/shared';
+// Serverseitige Weltdaten: NICHT ueber den Barrel, sondern ueber den
+// expliziten Pfad — sie tragen die Rohdaten der Weltvorlagen (Pieces bzw.
+// Raum-Einrichtung) und haetten im Barrel jedes Client-Bundle aufgeblaeht.
+import { flattenLayout } from '@wov/shared/src/dungeonFlatten.js';
 import type { Vector3 } from '@wov/shared';
 import type { ZDOManager } from '../../zdo/ZDOManager.js';
 import type { ZDOID } from '../../zdo/ZDOID.js';

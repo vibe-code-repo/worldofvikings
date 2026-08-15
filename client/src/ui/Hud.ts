@@ -44,7 +44,11 @@ export class Hud {
     document.body.appendChild(this.el);
 
     const hint = document.createElement('div');
-    hint.textContent = 'Klicken für Maussteuerung — WASD laufen, Shift rennen, F9 Inspector';
+    // F9 nur nennen, wenn es die Taste auch gibt: Der Babylon-Inspector
+    // steckt seit dem Bundle-Schnitt nur noch im Dev-Server (main.ts, F9).
+    hint.textContent =
+      'Klicken für Maussteuerung — WASD laufen, Shift rennen' +
+      (import.meta.env.DEV ? ', F9 Inspector' : '');
     hint.style.cssText =
       'position:fixed;bottom:12px;left:50%;transform:translateX(-50%);color:#ddd;' +
       'font:13px sans-serif;background:rgba(0,0,0,.45);padding:6px 12px;border-radius:4px;pointer-events:none';

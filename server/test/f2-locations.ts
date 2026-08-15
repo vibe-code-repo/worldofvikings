@@ -28,6 +28,9 @@ import {
   WATER_LEVEL,
 } from '@wov/shared';
 import { ZDOManager } from '../src/zdo/ZDOManager.js';
+// Die Pieces liegen seit dem Bundle-Schnitt nicht mehr am Feature, sondern
+// in einem serverseitigen Datenmodul (shared/src/featurePieces.ts).
+import { getFeaturePieces } from '@wov/shared/src/featurePieces.js';
 import { ZoneManager } from '../src/world/ZoneManager.js';
 import type { ZDO } from '../src/zdo/ZDO.js';
 
@@ -36,7 +39,8 @@ const LOCATION_PROXY_HASH = getStableHash('LocationProxy');
 const FOLIAGE_HASHES = new Set(FOLIAGE.map((v) => v.prefabHash));
 
 const START_TEMPLE = FEATURES_BY_NAME.get('StartTemple')!;
-const TEMPLE_PIECE_HASHES = new Set(START_TEMPLE.pieces.map((p) => p.prefabHash));
+const TEMPLE_PIECES = getFeaturePieces('StartTemple');
+const TEMPLE_PIECE_HASHES = new Set(TEMPLE_PIECES.map((p) => p.prefabHash));
 
 const f32 = Math.fround;
 
@@ -51,7 +55,7 @@ function expectedTemplePieces(center: { x: number; y: number; z: number }): Arra
   y: number;
   z: number;
 }> {
-  return START_TEMPLE.pieces.map((p) => ({
+  return TEMPLE_PIECES.map((p) => ({
     hash: p.prefabHash,
     x: f32(center.x + p.pos.x),
     y: f32(center.y + p.pos.y),

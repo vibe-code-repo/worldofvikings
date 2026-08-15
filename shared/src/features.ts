@@ -4,33 +4,22 @@
  * (tools/prefab-parser/parse-features.ts), in pkg order (order matters:
  * m_features is iterated for placement).
  *
+ * BUNDLE-SCHNITT: Hier steht nur noch der KOPF jedes Features — die 23 228
+ * Pieces liegen getrennt in featurePiecesData.json hinter `featurePieces.ts`.
+ * Grund: dieses Modul haengt ueber den Barrel an praktisch jedem Client-
+ * Modul, und die Pieces waren allein 6 MB davon (im Produktionsbundle sogar
+ * zweimal, weil der Karten-Worker ein eigener Rollup-Einstieg ist). Der
+ * Client liest von einem Feature real nur `clearArea`, `exteriorRadius` und
+ * den groessten horizontalen Piece-Abstand — der steht deshalb als
+ * vorberechneter `pieceRadius` im Kopf. Wer die echten Pieces braucht (nur
+ * der Server: Platzierung, Camp-Backfill, Dungeon-Erkennung), holt sie ueber
+ * `getFeaturePieces(name)`.
+ *
  * C++ reference: ZoneManager.cpp:48-157 (pkg read), ZoneManager.h:71-114.
  */
 
 import featuresData from './featuresData.json';
 import { getStableHash } from './hash.js';
-
-/** C++ Prefab::Instance::RandomSpawn (Prefab.h:12-18). */
-export interface FeatureRandomSpawn {
-  readonly chanceToSpawn: number;
-  readonly notInLava: boolean;
-  readonly minElevation: number;
-  readonly maxElevation: number;
-}
-
-/** C++ Prefab::Instance (piece of a feature). */
-export interface FeaturePiece {
-  /** Name from the pkg (0.221.6 added names). */
-  readonly pieceName: string;
-  /** Stable prefab hash from the pkg (C++ m_prefabHash). */
-  readonly prefabHash: number;
-  /** Position relative to the feature origin. */
-  readonly pos: { readonly x: number; readonly y: number; readonly z: number };
-  /** Rotation relative to the feature origin. */
-  readonly rot: { readonly x: number; readonly y: number; readonly z: number; readonly w: number };
-  /** RandomSpawn data merged onto this piece (null = always spawns). */
-  readonly randomSpawn: FeatureRandomSpawn | null;
-}
 
 /** C++ IZoneManager::Feature (ZoneManager.h:71-114). */
 export interface Feature {
@@ -63,7 +52,13 @@ export interface Feature {
   readonly slopeRotation: boolean;
   readonly snapToWater: boolean;
   readonly unique: boolean;
-  readonly pieces: readonly FeaturePiece[];
+  /**
+   * Groesster horizontaler Abstand eines Pieces vom Feature-Ursprung, beim
+   * Parsen aus den Pieces vorberechnet. Ersetzt das fruehere Durchlaufen von
+   * `pieces` in `getTerrainLeveling` — die einzige Stelle, an der der Client
+   * die Pieces ueberhaupt anfasste.
+   */
+  readonly pieceRadius: number;
 }
 
 interface FeatureJson extends Omit<Feature, 'hash'> {}

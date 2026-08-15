@@ -56,7 +56,6 @@ import {
   FEATURES_BY_NAME,
   PREFABS_BY_NAME,
   PrefabFlag,
-  flattenLayout,
   generateCampLayout,
   getDungeonByHash,
   XorShiftRandom,
@@ -84,6 +83,11 @@ import type {
   Vector3,
   ZoneID,
 } from '@wov/shared';
+// Serverseitige Weltdaten: NICHT ueber den Barrel, sondern ueber den
+// expliziten Pfad — sie tragen die Rohdaten der Weltvorlagen (Pieces bzw.
+// Raum-Einrichtung) und haetten im Barrel jedes Client-Bundle aufgeblaeht.
+import { getFeaturePieces } from '@wov/shared/src/featurePieces.js';
+import { flattenLayout } from '@wov/shared/src/dungeonFlatten.js';
 import { ZDOManager } from '../zdo/ZDOManager.js';
 import type { ZDO } from '../zdo/ZDO.js';
 import type { PrefabDef } from '@wov/shared';
@@ -933,7 +937,7 @@ export class ZoneManager {
     // welt-deterministisch — es geht keine Reproduzierbarkeit verloren.
     const hatDungeonPiece =
       this.dungeonsEnabled &&
-      feature.pieces.some((p) => {
+      getFeaturePieces(feature.name).some((p) => {
         const def = findPrefabByHash(p.prefabHash);
         return def !== undefined && (def.flags & PrefabFlag.DUNGEON) !== 0n;
       });
@@ -1005,7 +1009,7 @@ export class ZoneManager {
     const snapToTerrain = override?.snapToTerrain ?? false;
 
     let skippedDungeons = 0;
-    for (const piece of feature.pieces) {
+    for (const piece of getFeaturePieces(feature.name)) {
       const prefab = findPrefabByHash(piece.prefabHash);
 
       // pieceWorldPos = pos + rot * piece.m_pos (f32 adds)
@@ -1134,7 +1138,7 @@ export class ZoneManager {
     let built = 0;
     for (const [key, inst] of this.generatedFeatures) {
       if (!this.generated.has(key)) continue;
-      for (const piece of inst.feature.pieces) {
+      for (const piece of getFeaturePieces(inst.feature.name)) {
         const dgDef = getDungeonByHash(piece.prefabHash);
         if (!dgDef || dgDef.algorithm !== DungeonAlgorithm.CampRadial) continue;
         const origin: Vector3 = {

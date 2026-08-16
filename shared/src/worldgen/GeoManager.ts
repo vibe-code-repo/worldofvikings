@@ -145,6 +145,13 @@ const ASHLANDS_Y_OFFSET = -4000;
 /** C++ IZoneManager::UNITS_PER_ZONE (used by GetBiomeArea/GetBiomes). */
 const UNITS_PER_ZONE = 64;
 
+/**
+ * Antwort von getRiverWeight, wenn kein Flusspunkt in Reichweite liegt —
+ * eine Konstante statt eines frischen Objekts je Aufruf. Die Aufrufer lesen
+ * das Ergebnis nur (Destrukturierung), niemand schreibt hinein.
+ */
+const KEIN_FLUSS = { weight: 0, width: 0 } as const;
+
 // ── River structs (GeoManager.h private structs) ──────────────────
 
 export interface River {
@@ -205,8 +212,13 @@ export class GeoManager {
   private streams: River[] = [];
   private riverPoints = new Map<string, RiverPoint[]>();
 
-  // C++ m_cachedRiverGrid / m_cachedRiverPoints (1-entry memo; pure perf)
-  private cachedGridKey = '';
+  // C++ m_cachedRiverGrid / m_cachedRiverPoints (1-entry memo; pure perf).
+  // Gemerkt werden die ZAHLEN der Rasterzelle, nicht ihr Textschluessel:
+  // Beim Zonenbau liegen aufeinanderfolgende Vertices 1 m auseinander, das
+  // Flussraster misst 64 m — der Treffer ist der Normalfall und darf keine
+  // Zeichenkette kosten. Nur beim Verfehlen wird der Schluessel gebaut.
+  private cachedGridX = Number.NaN;
+  private cachedGridY = Number.NaN;
   private cachedGridPoints: RiverPoint[] | null = null;
 
   // Version-dependent (C++ non-constexpr members mutated by PostWorldInit)
@@ -637,18 +649,24 @@ export class GeoManager {
    * (Private in C++; public here for the C6 comparison harness.)
    */
   getRiverWeight(wx: number, wy: number): { weight: number; width: number } {
-    const grid = this.getRiverGrid(wx, wy);
-    const key = `${grid.x},${grid.y}`;
+    // Layout-Welten haben keine radialen Fluesse (RegionGeo.generate ist ein
+    // No-op) — dort steht hier sonst je Biomhoehe eine Rasterrechnung samt
+    // Textschluessel fuer eine Karte, die garantiert leer ist.
+    if (this.riverPoints.size === 0) return KEIN_FLUSS;
+
+    const gx = Math.floor(f32(f32(wx + RIVER_GRID_SIZE * 0.5) / RIVER_GRID_SIZE));
+    const gy = Math.floor(f32(f32(wy + RIVER_GRID_SIZE * 0.5) / RIVER_GRID_SIZE));
 
     let points: RiverPoint[] | null;
-    if (key === this.cachedGridKey) {
+    if (gx === this.cachedGridX && gy === this.cachedGridY) {
       points = this.cachedGridPoints;
     } else {
-      points = this.riverPoints.get(key) ?? null;
-      this.cachedGridKey = key;
+      points = this.riverPoints.get(`${gx},${gy}`) ?? null;
+      this.cachedGridX = gx;
+      this.cachedGridY = gy;
       this.cachedGridPoints = points;
     }
-    if (points === null) return { weight: 0, width: 0 };
+    if (points === null) return KEIN_FLUSS;
     return this.getWeight(points, wx, wy);
   }
 

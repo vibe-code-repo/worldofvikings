@@ -7,16 +7,38 @@
  * sein hiesse, sich selbst abzuschiessen — deshalb ein getrennter,
  * winziger Dienst mit eigener systemd-Unit.
  *
+ * ── Warum auch der Speicherweg des Editors hier liegt (Block A/16) ───
+ * POST /api/worldlayout und GET /api/serverlog steckten frueher als
+ * Middleware-Plugins in client/vite.config.ts. Vite laeuft aber nur auf
+ * dev; auf live liefert nginx einen statischen Build aus, und dort gab es
+ * beide Endpunkte schlicht NICHT — der Editor konnte auf live nicht
+ * speichern. Ein Speicherweg, der nur existiert, solange ein
+ * Entwicklungsserver laeuft, ist keine Architektur, sondern ein Zufall.
+ *
+ * Warum hierher und nicht in den Spielserver: server/src hat gar keinen
+ * HTTP-Server (nur den WebSocketAcceptor), und er muesste sich nach dem
+ * Speichern selbst neu starten. Dieser Dienst dagegen laeuft auf beiden
+ * Containern, kennt die Weltdatei ueber weltDatei(WURZEL, INSTANZ) und
+ * hatte den Token-Schutz schon.
+ *
  * ── Warum das sicher ist ─────────────────────────────────────────────
- * Drei Schranken, die zusammenwirken:
+ * Vier Schranken, die zusammenwirken:
  *
  *  1. Er lauscht NUR auf der internen Bruecke (10.10.10.x). Von aussen
  *     leitet der Proxmox-Host ausschliesslich 80 und 443 auf den Nginx
  *     Proxy Manager weiter — dieser Port ist im Internet nicht erreichbar.
- *  2. Jede Anfrage braucht den Token aus TOKEN_DATEI. Den kennt nur die
- *     Bau-Instanz; im BROWSER taucht er nie auf, weil der Vite-Server
- *     dort die Anfragen weiterreicht und den Kopf serverseitig setzt.
- *  3. Davor steht die Basic-Auth des Editors im Proxy Manager.
+ *  2. Jede Anfrage braucht den Token aus TOKEN_DATEI. Den kennt nur der
+ *     Container; im BROWSER taucht er nie auf, weil ihn der Vorschalter
+ *     serverseitig setzt — auf dev der Vite-Proxy (server.proxy in
+ *     client/vite.config.ts), auf live nginx per
+ *     `include /etc/nginx/wov-admin-token.conf` (0600).
+ *  3. Der Herkunfts-Riegel weiter unten (NAHE_NETZE): der IP-Guard, der
+ *     frueher im Vite-Plugin sass. Er ist mit umgezogen statt zu
+ *     verschwinden — siehe den ausfuehrlichen Block bei `herkunft`.
+ *  4. Davor steht die Basic-Auth des Editors im Proxy Manager, und auf
+ *     live zusaetzlich eine EIGENE Basic-Auth im location /api/-Block
+ *     (deploy/nginx-live.conf). Das ist Absicht: Wer nur das Passwort des
+ *     Proxy Managers kennt, soll die Welt nicht ueberschreiben koennen.
  *
  * Ohne (1) waere (2) allein zu duenn — ein Token in einer Datei ist kein
  * Ersatz fuer eine Firewall. Wer den Dienst je oeffentlich erreichbar
@@ -29,22 +51,36 @@
  * man hinterher bereut.
  *
  * Start:  node --import tsx admin/src/main.ts
- * Umgebung: WOV_ADMIN_PORT (Vorgabe 2468), WOV_WURZEL (Projektpfad)
+ * Umgebung: WOV_ADMIN_PORT (Vorgabe 2468, 0 = freier Port),
+ *           WOV_ADMIN_ADRESSE, WOV_WURZEL (Projektpfad),
+ *           WOV_ADMIN_TOKEN_DATEI, WOV_NAHE_NETZE, WOV_PROXY_ADRESSEN,
+ *           WOV_LOG_STROEME_MAX
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, copyFileSync, readdirSync, statSync, unlinkSync, mkdirSync } from 'node:fs';
 import { resolve, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { instanzName, weltDatei } from '@wov/shared/src/instanz.js';
+// Direktimport am Barrel vorbei: shared/src/index.ts geht in den
+// Client-Bundle, und layoutDatei.ts zieht node:fs herein. Gleiche
+// Begruendung wie bei instanz.ts eine Zeile hoeher.
+import {
+  LayoutUngueltig,
+  layoutLesen,
+  layoutSchreiben,
+} from '@wov/shared/src/worldlayout/layoutDatei.js';
 
 const ausfuehren = promisify(execFile);
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = process.env.WOV_WURZEL ?? resolve(HIER, '../..');
 const PORT = Number(process.env.WOV_ADMIN_PORT ?? 2468);
-const TOKEN_DATEI = '/etc/wov-admin.token';
+// Ueberschreibbar, damit admin/test/betriebsdienst.ts den echten Dienst
+// mit einem Wegwerf-Token gegen ein Wegwerf-Verzeichnis fahren kann,
+// ohne /etc anzufassen.
+const TOKEN_DATEI = process.env.WOV_ADMIN_TOKEN_DATEI ?? '/etc/wov-admin.token';
 
 const INSTANZ = instanzName();
 const SERVER_YML = resolve(WURZEL, 'server/data/server.yml');
@@ -95,6 +131,75 @@ function sichern(datei: string, behalten = 10): string | null {
     .sort();
   while (alte.length > behalten) unlinkSync(resolve(ordner, alte.shift()!));
   return ziel;
+}
+
+// ── Herkunft einer Anfrage ────────────────────────────────────────────
+//
+// Der IP-Guard des alten Vite-Plugins (127.0.0.1, ::1, 10.10.10.*,
+// 192.168.*) zieht hier ein. Er verschwindet NICHT — er wandert nur an
+// die Stelle, die die Datei tatsaechlich besitzt, statt in der Konfig
+// eines Entwicklungsservers zu haengen, den es auf live nicht gibt.
+//
+// ── Peer-Adresse und Klient-Adresse ──────────────────────────────────
+// Die Peer-Adresse ist, wer die TCP-Verbindung aufgebaut hat. Hinter
+// einem Vorschalter ist das IMMER der Vorschalter — auf dev der
+// Vite-Prozess, auf live nginx. Ein IP-Guard, der nur die Peer-Adresse
+// prueft, sagt hinter einem Proxy also nichts ueber den Aufrufer aus.
+// Deshalb zwei Ebenen:
+//
+//   Peer   — muss in NAHE_NETZE liegen. Faengt alles ab, was direkt auf
+//            Port 2468 klopft, ohne ueber einen Vorschalter zu kommen.
+//   Klient — die erste Adresse aus X-Forwarded-For, aber NUR wenn der
+//            Peer ein bekannter Vorschalter ist (PROXY_ADRESSEN). Sonst
+//            ist der Kopf frei erfunden und wird ignoriert.
+//
+// Damit das traegt, MUSS jeder Vorschalter den Kopf UEBERSCHREIBEN statt
+// ihn anzuhaengen — sonst schiebt der Aufrufer einfach selbst eine
+// freundliche Adresse davor. Beides ist so eingerichtet:
+//   dev  — client/vite.config.ts, proxyReq.setHeader('x-forwarded-for', …)
+//   live — deploy/nginx-live.conf, proxy_set_header X-Forwarded-For $remote_addr
+//
+// ── Was das auf live NICHT leistet, und was stattdessen traegt ───────
+// Auf live steht der Nginx Proxy Manager auf dem Host davor. Dessen
+// Adresse liegt selbst auf der Bruecke, also faellt der Klient-Wert dort
+// auf "10.10.10.x" zusammen und der Guard geht durch — egal wer wirklich
+// anfragt. Das ist keine Nachlaessigkeit, sondern eine Eigenschaft der
+// Topologie: Ein IP-Guard hinter einem Proxy, dessen Vorlauf man nicht
+// kontrolliert, kann grundsaetzlich nichts unterscheiden.
+// Die zweite Schranke auf live ist deshalb eine EIGENE Basic-Auth im
+// location /api/-Block von deploy/nginx-live.conf, mit eigener
+// htpasswd-Datei auf dem Container. Sie leistet genau das, was hier
+// verlangt war: Wer nur das Passwort des Proxy Managers kennt, kommt an
+// das Weltdokument nicht heran.
+// Auf dev, wo Vite ungeschuetzt auf Port 5274 im Netz steht, ist dieser
+// Guard dagegen die scharfe Schranke — dort ist der Klient-Wert echt.
+
+/** Kommagetrennte Liste aus der Umgebung, sonst die Vorgabe. */
+function netzListe(roh: string | undefined, vorgabe: readonly string[]): string[] {
+  const werte = (roh ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  return werte.length > 0 ? werte : [...vorgabe];
+}
+
+/** IPv4-gemappte IPv6-Adressen (::ffff:10.0.0.1) auf ihre v4-Form bringen. */
+function adresse(roh: string | undefined): string {
+  return (roh ?? '').trim().replace(/^::ffff:/, '');
+}
+
+/** Exakte Adresse oder Praefix mit '*' am Ende ("10.10.10.*"). */
+function passt(wert: string, liste: readonly string[]): boolean {
+  if (!wert) return false;
+  return liste.some((m) => (m.endsWith('*') ? wert.startsWith(m.slice(0, -1)) : wert === m));
+}
+
+/** Wer den Dienst benutzen darf. Die Liste des alten Vite-Guards. */
+const NAHE_NETZE = netzListe(process.env.WOV_NAHE_NETZE, ['127.0.0.1', '::1', '10.10.10.*', '192.168.*']);
+/** Wessen X-Forwarded-For geglaubt wird. Bewusst enger als NAHE_NETZE. */
+const PROXY_ADRESSEN = netzListe(process.env.WOV_PROXY_ADRESSEN, ['127.0.0.1', '::1', '10.10.10.*']);
+
+function herkunft(req: IncomingMessage): { peer: string; klient: string } {
+  const peer = adresse(req.socket.remoteAddress ?? undefined);
+  const kopf = adresse(String(req.headers['x-forwarded-for'] ?? '').split(',')[0]);
+  return { peer, klient: kopf && passt(peer, PROXY_ADRESSEN) ? kopf : peer };
 }
 
 // ── server.yml ────────────────────────────────────────────────────────
@@ -254,6 +359,96 @@ function weltStand(): { saves: { name: string; bytes: number; geaendert: string 
   return { saves, layoutBytes: existsSync(LAYOUT_DATEI) ? statSync(LAYOUT_DATEI).size : 0 };
 }
 
+// ── Server-Konsole: GET /api/serverlog ────────────────────────────────
+//
+// journalctl des Spielservers als Server-Sent-Events. Der Paket-Spam
+// (30 Hz Eingabe pro Spieler) fliegt raus, damit in der Konsole
+// Weltereignisse stehen und nicht das Netzprotokoll — gleiche Filterung
+// wie in der Vite-Fassung.
+//
+// Zwei Dinge, die die Vite-Fassung NICHT hatte und die im Dauerbetrieb
+// zaehlen:
+//
+//  1. Eine Obergrenze fuer gleichzeitige Stroeme. Jeder Strom ist ein
+//     journalctl-Prozess; ohne Grenze reicht ein Skript, das den Endpunkt
+//     in einer Schleife oeffnet, um den Container mit Kindprozessen zu
+//     fuellen.
+//  2. Ein Aufraeumen, das den Kindprozess WIRKLICH beendet. Vorher hing
+//     das allein an req.on('close') und einem kill() ohne Nachschlag —
+//     jedes Schliessen eines Editor-Tabs konnte ein `journalctl -f`
+//     zuruecklassen.
+
+const LOG_STROEME_MAX = Number(process.env.WOV_LOG_STROEME_MAX ?? 4);
+let logStroemeOffen = 0;
+
+function serverLogStroemen(req: IncomingMessage, res: ServerResponse): void {
+  if (logStroemeOffen >= LOG_STROEME_MAX) {
+    return json(res, 503, {
+      ok: false,
+      fehler: `Zu viele offene Konsolen (${LOG_STROEME_MAX})`,
+      message: `Zu viele offene Konsolen (${LOG_STROEME_MAX}) — spaeter erneut versuchen.`,
+    });
+  }
+  logStroemeOffen++;
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    // no-transform verbietet Zwischenstellen das Umpacken; X-Accel-Buffering
+    // schaltet nginx' Pufferung ab, falls jemand den location-Block ohne
+    // `proxy_buffering off` kopiert. Ohne beides kommt das erste Ereignis
+    // erst, wenn 4 KB voll sind — also gefuehlt nie.
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders();
+
+  const kind = spawn('journalctl', ['-fu', 'wov-server', '-n', '120', '--no-pager', '-o', 'short-iso']);
+
+  const senden = (text: string): void => {
+    if (res.writableEnded || res.destroyed) return;
+    res.write(`data: ${JSON.stringify(text)}\n\n`);
+  };
+  const weiter = (stueck: Buffer): void => {
+    for (const zeile of stueck.toString().split('\n')) {
+      if (!zeile.trim()) continue;
+      if (/Received packet|type=\d+ from/.test(zeile)) continue;
+      senden(zeile);
+    }
+  };
+
+  // Kommentarzeile alle 25 s: haelt die Verbindung durch Proxys mit
+  // Leerlauf-Zeitgrenze offen, ohne dem Browser ein Ereignis vorzugaukeln
+  // (Zeilen mit ':' ignoriert die EventSource-API).
+  const takt = setInterval(() => {
+    if (!res.writableEnded && !res.destroyed) res.write(': takt\n\n');
+  }, 25_000);
+
+  let beendet = false;
+  const aufraeumen = (): void => {
+    if (beendet) return;
+    beendet = true;
+    logStroemeOffen--;
+    clearInterval(takt);
+    kind.kill('SIGTERM');
+    // Nachschlag: `journalctl -f` beendet sich auf SIGTERM zuverlaessig,
+    // aber ein haengender Kindprozess darf den Platz nicht dauerhaft
+    // belegen. unref(), damit dieser Timer den Prozess nicht am Leben haelt.
+    setTimeout(() => { if (kind.exitCode === null) kind.kill('SIGKILL'); }, 2000).unref();
+    res.end();
+  };
+
+  kind.stdout.on('data', weiter);
+  kind.stderr.on('data', weiter);
+  kind.on('error', (fehler) => {
+    senden(`[Konsole] journalctl nicht verfuegbar: ${fehler.message}`);
+    aufraeumen();
+  });
+  kind.on('close', aufraeumen);
+  req.on('close', aufraeumen);
+  res.on('close', aufraeumen);
+}
+
 // ── Routen ────────────────────────────────────────────────────────────
 
 type Antwort = { code: number; daten: unknown };
@@ -312,6 +507,68 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
     return { code: 200, daten: { dienst, aktion, zustand: await dienstZustand(dienst as Dienst) } };
   }
 
+  // ── Weltdokument ──
+  //
+  // Pfadname und Methode bleiben, was sie im Vite-Plugin waren: POST
+  // /api/worldlayout. Deutsche Endpunktnamen waeren Kosmetik und gehoeren
+  // nicht in denselben Umbau — der Client bleibt bis auf Textmeldungen
+  // unangetastet, damit die ZWEITE Aufrufstelle (client/src/main.ts,
+  // RoutenEditor) nicht vergessen werden kann.
+  //
+  // Die Antwortform { ok, message } ist ebenfalls die des Vite-Plugins.
+  // Der Editor liest genau diese zwei Felder; ein huebscheres Schema
+  // haette einen Client-Umbau erzwungen, den dieser Schritt vermeiden soll.
+  if (pfad === '/api/worldlayout' && methode === 'GET') {
+    // NEU gegenueber dem Vite-Plugin: Der Editor kann sein Dokument auch
+    // LESEN, statt es nur aus dem localStorage zu kennen. Voraussetzung
+    // fuer Phase 2 — ohne Lesen gibt es kein "oeffnen, aendern, speichern",
+    // sondern nur ein Ueberschreiben mit dem, was der Browser noch hatte.
+    //
+    // Geliefert wird das GEPRUEFTE Dokument, nicht der Rohtext: Der Editor
+    // soll sehen, was auch der Spielserver sieht. `instanz` steht dabei,
+    // weil die eine Codebasis zwei Welten bedient — der Editor muss
+    // anzeigen koennen, welche er gerade geoeffnet hat.
+    // Fehlende Weltdatei ist 404, nicht 400: Der Aufrufer hat nichts
+    // falsch gemacht, hier fehlt etwas am Container. Ohne diesen Zweig
+    // faengt der Sammel-catch das ENOENT und meldet "unbrauchbares
+    // Dokument" — eine Diagnose, die in die falsche Richtung schickt.
+    if (!existsSync(LAYOUT_DATEI)) {
+      const fehlt = `${basename(LAYOUT_DATEI)} fehlt (Instanz ${INSTANZ}) — WOV_INSTANZ und server/data/welten/ pruefen.`;
+      return { code: 404, daten: { ok: false, fehler: fehlt, message: fehlt } };
+    }
+    const layout = layoutLesen(LAYOUT_DATEI);
+    return {
+      code: 200,
+      daten: {
+        ok: true,
+        message: `${basename(LAYOUT_DATEI)}: ${layout.regions.length} Region(en), ${layout.placements?.length ?? 0} Platzierung(en)`,
+        instanz: INSTANZ,
+        datei: basename(LAYOUT_DATEI),
+        layout,
+      },
+    };
+  }
+  if (pfad === '/api/worldlayout' && methode === 'POST') {
+    // Gepruefte wird mit sanitizeWorldLayout, der STRENGEN Pruefung —
+    // die Vite-Konfig konnte @wov/shared nicht laden und musste sich mit
+    // einem Struktur-Check begnuegen. Dieser Prozess laeuft unter tsx und
+    // kann es. Damit gilt: Was auf der Platte landet, haette der
+    // Spielserver auch akzeptiert.
+    const { layout, sicherung, text } = layoutSchreiben(LAYOUT_DATEI, leib);
+    return {
+      code: 200,
+      daten: {
+        ok: true,
+        message:
+          `Gespeichert in ${basename(LAYOUT_DATEI)}: ${layout.regions.length} Region(en), ` +
+          `${layout.placements?.length ?? 0} Platzierung(en)`,
+        instanz: INSTANZ,
+        sicherung: sicherung ? basename(sicherung) : null,
+        bytes: Buffer.byteLength(text),
+      },
+    };
+  }
+
   // ── Weltsicherungen ──
   if (pfad === '/sicherungen' && methode === 'GET') {
     return { code: 200, daten: weltStand() };
@@ -332,16 +589,52 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
 
 const dienst = createServer((req, res) => {
   void (async () => {
+    const pfad = new URL(req.url ?? '/', 'http://x').pathname.replace(/\/+$/, '') || '/';
     try {
-      if (req.headers['x-wov-token'] !== token) return json(res, 401, { fehler: 'Token fehlt oder falsch' });
-      const pfad = new URL(req.url ?? '/', 'http://x').pathname.replace(/\/+$/, '') || '/';
+      // Reihenfolge: erst Herkunft, dann Token. Wer gar nicht erst
+      // hierhergehoert, soll auch nicht erfahren, ob er einen Token
+      // erraten hat — 403 vor 401.
+      const { peer, klient } = herkunft(req);
+      if (!passt(peer, NAHE_NETZE) || !passt(klient, NAHE_NETZE)) {
+        console.warn(`[Admin] abgewiesen: ${req.method} ${pfad} von Peer ${peer || '?'} / Klient ${klient || '?'}`);
+        return json(res, 403, {
+          ok: false,
+          fehler: 'Zugriff nur aus dem lokalen Netz',
+          message: 'Speichern nur aus dem lokalen Netz erlaubt',
+        });
+      }
+      if (req.headers['x-wov-token'] !== token) {
+        return json(res, 401, {
+          ok: false,
+          fehler: 'Token fehlt oder falsch',
+          message: 'Token fehlt oder falsch — laeuft der Vorschalter (Vite bzw. nginx)?',
+        });
+      }
+
+      // Die Server-Konsole vor der JSON-Weiche: sie antwortet nicht mit
+      // einem Dokument, sondern haelt die Verbindung offen. `behandeln`
+      // kann das mit seinem { code, daten } nicht ausdruecken.
+      if (pfad === '/api/serverlog') {
+        if (req.method !== 'GET') return json(res, 405, { ok: false, fehler: 'GET erwartet', message: 'GET erwartet' });
+        return serverLogStroemen(req, res);
+      }
+
       const leib = req.method === 'PUT' || req.method === 'POST' ? await leibLesen(req) : null;
       const { code, daten } = await behandeln(pfad, req.method ?? 'GET', leib);
       if (code >= 400) console.warn(`[Admin] ${req.method} ${pfad} -> ${code}`);
       json(res, code, daten);
     } catch (fehler) {
-      console.error('[Admin] Fehler:', fehler);
-      json(res, 500, { fehler: (fehler as Error).message });
+      // Ein unbrauchbares Dokument ist ein Fehler des Absenders, kein
+      // Serverfehler — und vor allem: An dieser Stelle ist auf der Platte
+      // NICHTS passiert. layoutSchreiben prueft, bevor es sichert oder
+      // schreibt. Das ist die wichtigste Zusicherung des ganzen Endpunkts:
+      // Ein misslungener Speichervorgang darf die Welt nicht beschaedigen.
+      const eingabefehler = fehler instanceof LayoutUngueltig || fehler instanceof SyntaxError;
+      const code = eingabefehler ? 400 : 500;
+      const meldung = (fehler as Error).message;
+      if (eingabefehler) console.warn(`[Admin] ${req.method} ${pfad} -> 400: ${meldung}`);
+      else console.error('[Admin] Fehler:', fehler);
+      json(res, code, { ok: false, fehler: meldung, message: meldung });
     }
   })();
 });
@@ -350,7 +643,14 @@ const dienst = createServer((req, res) => {
 // den man erst bemerkt, wenn jemand anders ihn findet.
 const ADRESSE = process.env.WOV_ADMIN_ADRESSE ?? '10.10.10.11';
 dienst.listen(PORT, ADRESSE, () => {
-  console.log(`[Admin] bereit auf ${ADRESSE}:${PORT} (Projekt ${WURZEL})`);
+  // Der TATSAECHLICH gebundene Port, nicht der gewuenschte: Mit
+  // WOV_ADMIN_PORT=0 vergibt der Kern einen freien Port, und der Test
+  // (admin/test/betriebsdienst.ts) liest ihn aus genau dieser Zeile.
+  // Ein fest gewaehlter Testport waere ein Wettlauf mit allem anderen,
+  // was auf der Maschine lauscht.
+  const gebunden = dienst.address();
+  const port = typeof gebunden === 'object' && gebunden ? gebunden.port : PORT;
+  console.log(`[Admin] bereit auf ${ADRESSE}:${port} (Projekt ${WURZEL}, Instanz ${INSTANZ}, Welt ${LAYOUT_DATEI})`);
 });
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {

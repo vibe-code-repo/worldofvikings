@@ -29,9 +29,9 @@
  */
 
 import { RoutenLauf, aggroSchritt, istNpcPrefab, type RouteDef } from '@wov/shared';
-
-/** Derselbe Entwurf, den editor.html schreibt und der Testflug lädt. */
-const ENTWURF_KEY = 'wov-editor-layout';
+/** Derselbe Entwurf, den editor.html schreibt und der Testflug lädt —
+ *  der Schlüssel steht seit Block A/16 nur noch in weltdokument.ts. */
+import { ENTWURF_KEY } from './weltdokument';
 
 /**
  * Wie oft der Entwurf auf Änderungen abgeklopft wird (s). Der Editor

@@ -35,8 +35,13 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { ROUTE_DEFAULT_SPEED, ROUTE_MAX_PAUSE, wegpunktPause } from '@wov/shared';
 
-/** Derselbe Entwurf, den editor.html schreibt und der Testflug lädt. */
-const ENTWURF_KEY = 'wov-editor-layout';
+/**
+ * Derselbe Entwurf, den editor.html schreibt und der Testflug lädt — der
+ * Schlüssel steht seit Block A/16 an EINER Stelle (weltdokument.ts).
+ * Vorher trugen ihn drei Dateien im Editorordner als nackten String; wer
+ * ihn ändern wollte, musste alle drei finden.
+ */
+import { ENTWURF_KEY, holeWeltdokument } from './weltdokument';
 
 /**
  * ID-Muster der Sanitisierung (shared/worldlayout/sanitize.ts). Hier
@@ -130,6 +135,7 @@ export class RoutenEditor {
   private readonly tempoWert: HTMLSpanElement;
   private readonly zeichenKnopf: HTMLButtonElement;
   private readonly vorschauKnopf: HTMLButtonElement;
+  private readonly speicherKnopf: HTMLButtonElement;
   private readonly punktListe: HTMLDivElement;
   private readonly pauseFeld: HTMLInputElement;
 
@@ -195,9 +201,15 @@ export class RoutenEditor {
     this.root.appendChild(this.liste);
 
     this.root.appendChild(this.knopfZeile([this.knopf('+ Neue Route', () => this.neueRoute())]));
-    this.root.appendChild(
-      this.knopfZeile([this.knopf('💾 In die Welt speichern', () => this.cb.aufSpeichern?.())])
-    );
+    this.speicherKnopf = this.knopf('💾 In die Welt speichern', () => this.cb.aufSpeichern?.());
+    this.root.appendChild(this.knopfZeile([this.speicherKnopf]));
+    // Welche Welt dieser Knopf trifft, weiss nur der Betriebsdienst
+    // (Block A/16). Im Testflug wiegt das schwerer als im Karten-Editor:
+    // Hier gibt es KEINEN Ladeweg, der Entwurf kommt aus dem Browser, und
+    // ein Klick schreibt ihn in die Weltdatei des Containers, an dem man
+    // gerade hängt. Bis die Antwort da ist, steht am Knopf kein
+    // Instanzname — lieber gar keiner als ein geratener.
+    void this.zielBenennen();
     // Vorschau-Schalter oben, gleich unter dem Speichern-Knopf: Er gilt für
     // ALLE Routen, nicht für die gerade gewählte — er gehört deshalb nicht
     // in den Detailblock darunter.
@@ -345,6 +357,36 @@ export class RoutenEditor {
     l.textContent = text;
     l.style.cssText = 'font-size:11px;color:#9a8f6a;margin-top:6px;';
     return l;
+  }
+
+  /**
+   * Instanz am Speicherknopf ausweisen.
+   *
+   * Kostet einen GET des Weltdokuments (typisch 56 KB, einmal je
+   * Testflug) für eine Beschriftung — bewusst in Kauf genommen: `/status`
+   * wäre die schlankere Quelle, liegt aber nicht unter `/api/` und wird
+   * von keinem der beiden Vorschalter weitergeleitet (s. weltdokument.ts).
+   * Ein zweiter, schlanker Endpunkt hätte den Betriebsdienst anfassen
+   * müssen, und dieser Schritt bleibt im Editor.
+   */
+  private async zielBenennen(): Promise<void> {
+    const stand = await holeWeltdokument();
+    if (!stand.erreichbar) {
+      this.speicherKnopf.textContent = '💾 In die Welt speichern (Ziel unbekannt)';
+      this.speicherKnopf.title = stand.grund;
+      this.speicherKnopf.style.borderColor = '#6a4a1e';
+      return;
+    }
+    const name = (stand.instanz ?? '?').toUpperCase();
+    this.speicherKnopf.textContent = stand.instanz === 'dev' ? '💾 In die Welt speichern' : `💾 Speichern → ${name}`;
+    this.speicherKnopf.title = `Schreibt server/data/welten/${stand.datei ?? '?'} (Instanz ${stand.instanz ?? '?'}).`;
+    // Dieselbe Warnfarbe wie das Instanzband des Karten-Editors. Der
+    // Testflug hat keine Shell und damit kein Band — der Knopf ist hier
+    // die einzige Fläche, auf der die Warnung Platz hat.
+    if (stand.instanz !== 'dev') {
+      this.speicherKnopf.style.borderColor = '#8f2f22';
+      this.speicherKnopf.style.background = '#3a1a15';
+    }
   }
 
   private knopf(text: string, cb: () => void): HTMLButtonElement {

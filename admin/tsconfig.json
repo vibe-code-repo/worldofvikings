@@ -8,5 +8,6 @@
     "types": ["node"],
     "lib": ["ES2022"]
   },
-  "include": ["src/**/*.ts"]
+  "//include": "test/ steht bewusst mit drin: Der Betriebsdienst-Test faehrt den echten Prozess und haengt an seinen Antwortformen. Bliebe er aus dem typecheck heraus, faende ihn erst der Testlauf — und zwar mit einem Laufzeitfehler statt mit einer Typmeldung.",
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

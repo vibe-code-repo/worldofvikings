@@ -7,13 +7,29 @@
  *   1. Testflug — öffnet das echte Spiel offline mit dem Entwurf
  *      (?offline=1&layout=editor, Übergabe via localStorage).
  *   2. JSON-Export/-Import — die Datei ist das Weltdokument
- *      (server/data/worldlayout.json).
+ *      (server/data/welten/<instanz>.json).
  *   3. MCP/Deployment — der WorldLayout-MCP-Server (tools/worldlayout-mcp)
  *      schreibt dieselbe Datei direkt auf den Server und startet ihn neu.
  *
  * Die Vorschau ist DERSELBE Karten-Worker wie im Spiel (mapWorker mit
  * RegionGeo): Was hier erscheint, ist exakt die Welt, die der Server baut —
  * kein eigener Vorschau-Renderer, keine Drift.
+ *
+ * ── Und ein Weg HEREIN (Block A/16, Phase 2) ─────────────────────────
+ * Bis dahin gab es keinen: `ladeEntwurf()` las das Layout nur aus dem
+ * localStorage, der Speicherknopf schrieb es auf den Server. Wer den
+ * Editor öffnete, sah also nie die Welt, die dort tatsächlich liegt,
+ * sondern das, was sein Browser zuletzt gemerkt hatte — und konnte
+ * damit die andere Instanz überschreiben. Seit `WOV_INSTANZ` zwischen
+ * `welten/dev.json` und `welten/live.json` wählt, ist das kein
+ * Schönheitsfehler mehr.
+ *
+ * Jetzt holt der Editor beim Start `GET /api/worldlayout` (Betriebsdienst
+ * wov-admin, auf BEIDEN Containern erreichbar). Weichen Serverstand und
+ * Browser-Entwurf voneinander ab, entscheidet der Nutzer — mit der
+ * Gegenüberstellung vor Augen (weltdokument.ts, AbgleichDialog.ts). Und
+ * das Farbband über der Werkzeugleiste sagt jederzeit, WELCHE Welt hier
+ * offen ist (Shell.instanzZeigen).
  */
 import {
   sanitizeWorldLayout,
@@ -31,6 +47,18 @@ import {
 } from '@wov/shared';
 import { setzeKartenMasse, type MapWorkerMessage } from '../ui/worldmap/mapTypes';
 import { EditorShell } from './Shell';
+import {
+  alter,
+  entwurfLesen,
+  entwurfSchreiben,
+  entwurfStandLesen,
+  gleich,
+  holeWeltdokument,
+  leeresLayout,
+  vergleiche,
+  type EntwurfsQuelle,
+} from './weltdokument';
+import { frage, unterschiedsTafel, vorhang } from './AbgleichDialog';
 // NUR der Typ: Der Katalog selbst kommt per dynamischem import() erst beim
 // ersten Öffnen (s. Werkzeugleiste). Statisch eingebunden zöge er Babylon
 // samt GLB-Ladern in den Erststart des Karteneditors — gut zwei Megabyte
@@ -44,8 +72,6 @@ const BIOME_FARBE: Record<BiomeName, string> = {
   grassland: '#7aa860', blackforest: '#2f5136', swamp: '#5d5a43', mountain: '#cfd6dd',
   plains: '#c9b463', mistlands: '#6d6a7a', ashlands: '#8a4a3a', deepnorth: '#b9c8d4',
 };
-
-const STORAGE_KEY = 'wov-editor-layout';
 
 /**
  * Vordefinierte Inselformen — jede erzeugt eine Region-Form um den
@@ -145,7 +171,41 @@ const FORMEN: readonly FormDef[] = [
 ];
 
 // ── Zustand ──────────────────────────────────────────────────────────
+/**
+ * Der Startwert ist BEWUSST weiter der Browser-Entwurf und nicht der
+ * Serverstand: Der Editor baut sein Fenster synchron auf, der Server
+ * antwortet asynchron. Auf die Antwort zu warten hiesse, eine Sekunde
+ * lang eine leere Seite zu zeigen und danach jede Zeile hier unten in
+ * einen Rückruf zu verschieben.
+ *
+ * Der Entwurf ist in dieser Sekunde aber NICHT bedienbar: `weltAbgleich`
+ * (ganz unten) legt sofort einen Vorhang über das Fenster und nimmt ihn
+ * erst weg, wenn feststeht, welcher Stand gilt. Damit ist der frühe
+ * Entwurf ein Vorschaubild und keine Arbeitsgrundlage — der Unterschied,
+ * an dem der ganze Schritt hängt.
+ */
 let layout: WorldLayout = ladeEntwurf();
+/**
+ * Welche Welt bearbeiten wir? Kommt AUSSCHLIESSLICH aus der Antwort des
+ * Betriebsdienstes (s. weltdokument.holeWeltdokument) — nicht aus dem
+ * Hostnamen, nicht aus der URL, denn beide können lügen. `null` heisst
+ * „noch nicht bzw. nicht zu ermitteln" und wird überall als Warnung
+ * behandelt, nicht als „vermutlich dev".
+ */
+let welt: { instanz: string | null; datei: string | null } = { instanz: null, datei: null };
+/**
+ * Kanonischer Text des zuletzt gesehenen Serverstands (`null` = keiner
+ * gesehen). Daran hängt die Frage „steht das, was ich sehe, auch auf dem
+ * Server?" — der Speicherknopf beantwortet sie (s. faerbeSpeicherKnopf).
+ */
+let serverKanon: string | null = null;
+/**
+ * Muss hier oben stehen und nicht bei den übrigen Speicher-Funktionen:
+ * Der Werkzeugleisten-Block weiter unten läuft beim Laden des Moduls und
+ * weist das Feld zu — eine `let`-Deklaration NACH ihm läge zu diesem
+ * Zeitpunkt noch in der temporalen Todeszone.
+ */
+let speicherKnopf: HTMLButtonElement | null = null;
 let gewaehlt: string | null = null;
 let werkzeug: 'auswahl' | 'form' | 'polygon' | 'platzieren' | 'fluss' = 'auswahl';
 /** Offener Flusslauf (Weltbau B) + Breite/Tiefe des Werkzeugs. */
@@ -171,24 +231,18 @@ let griff: { regionId: string; art: 'mitte' | 'radius' | number } | null = null;
 const GRIFF_PX = 7;
 
 function ladeEntwurf(): WorldLayout {
-  try {
-    const roh = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null');
-    const s = sanitizeWorldLayout(roh);
-    if (s) return s;
-  } catch { /* frisch starten */ }
-  return {
-    version: 1,
-    name: 'World of Vikings',
-    detailSeed: 'wov-alpha',
-    continents: [],
-    regions: [],
-  };
+  return entwurfLesen() ?? leeresLayout();
 }
 
-function speichereEntwurf(): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
-  } catch {
+/**
+ * Entwurf in den localStorage. `quelle` ist kein Schmuck: Sie hält fest,
+ * ob der Entwurf gerade 1:1 der Serverstand ist ('server') oder daneben
+ * steht ('bearbeitet' / 'import') — daraus baut der Abgleichdialog beim
+ * nächsten Start seinen Satz „dein Entwurf ist 12 Minuten alt und stammt
+ * aus einem Import".
+ */
+function speichereEntwurf(quelle: EntwurfsQuelle = 'bearbeitet'): void {
+  if (!entwurfSchreiben(layout, quelle, welt.instanz)) {
     shell.meldung('Entwurf zu groß für localStorage — bitte als JSON exportieren!', true);
   }
 }
@@ -1305,41 +1359,27 @@ function seiteBauen(): void {
       .finally(() => (katalogLaedt = false));
   }));
 
-  const welt = shell.toolbarGruppe();
-  welt.appendChild(knopf('🔁 Vorschau', vorschauRechnen));
-  welt.appendChild(knopf('✈ Testflug', () => {
+  const weltGruppe = shell.toolbarGruppe();
+  weltGruppe.appendChild(knopf('🔁 Vorschau', vorschauRechnen));
+  weltGruppe.appendChild(knopf('✈ Testflug', () => {
+    // Der Testflug übernimmt den ENTWURF (localStorage), nicht die
+    // Serverdatei — er fliegt durch das, was hier gerade gezeichnet ist.
+    // Das war schon immer so; seit es zwei Welten gibt, muss man es nur
+    // dazusagen, sonst hält man den Flug für eine Ansicht der Live-Welt.
     speichereEntwurf();
+    shell.meldung(`Testflug mit dem Entwurf — ${weltName()} bleibt unberührt, bis du speicherst.`);
     window.open('/?offline=1&layout=editor', '_blank');
   }));
-  const welt2 = shell.toolbarGruppe();
-  welt2.appendChild(knopf('💾 In die Welt speichern', () => {
-    const sauber = sanitizeWorldLayout(layout);
-    if (!sauber) {
-      shell.meldung('Entwurf ist unbrauchbar — nicht gespeichert.', true);
-      return;
-    }
-    shell.meldung('Speichere nach server/data/worldlayout.json …');
-    void fetch('/api/worldlayout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(sauber),
-    })
-      .then((r) => r.json())
-      .then((a: { ok: boolean; message: string }) => {
-        shell.meldung(
-          a.ok ? `${a.message} — Server neu starten, damit die Welt sie lädt.` : a.message,
-          !a.ok
-        );
-      })
-      .catch((err) => shell.meldung(`Speichern fehlgeschlagen: ${String(err)}`, true));
-  }));
+  const speicherGruppe = shell.toolbarGruppe();
+  speicherKnopf = knopf('💾 In die Welt speichern', () => void inDieWeltSpeichern());
+  speicherGruppe.appendChild(speicherKnopf);
+  faerbeSpeicherKnopf();
   const datei = shell.toolbarGruppe();
   datei.appendChild(knopf('⬇ Export', () => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(layout, null, 2)], { type: 'application/json' }));
-    a.download = 'worldlayout.json';
-    a.click();
-    shell.meldung('worldlayout.json exportiert — nach server/data/ kopieren und Server neu starten.');
+    entwurfExportieren();
+    shell.meldung(
+      `${exportName()} exportiert — Zielort ist server/data/welten/ auf dem gewünschten Container.`
+    );
   }));
   datei.appendChild(knopf('⬆ Import', () => {
     const inp = document.createElement('input');
@@ -1349,13 +1389,23 @@ function seiteBauen(): void {
       const f = inp.files?.[0];
       if (!f) return;
       void f.text().then((t) => {
-        const s = sanitizeWorldLayout(JSON.parse(t));
+        let s: WorldLayout | null = null;
+        try {
+          s = sanitizeWorldLayout(JSON.parse(t));
+        } catch { /* kein JSON — fällt in den Fehlerzweig unten */ }
         if (s) {
           layout = s;
           gewaehlt = null;
-          alles();
+          alles('import');
           vorschauAnstossen();
-          shell.meldung(`Import übernommen — ${s.regions.length} Region(en).`);
+          // Ein Import ist ausdrücklich NUR ein Entwurf. Wer eine
+          // live.json in einen dev-Editor zieht, hat damit noch nichts
+          // umgestellt — deshalb steht hier, welche Welt der
+          // Speicherknopf danach treffen würde.
+          shell.meldung(
+            `Import übernommen — ${s.regions.length} Region(en). Erst „In die Welt speichern" ` +
+            `schreibt ihn nach ${weltName()}.`
+          );
         } else {
           shell.meldung('Import verworfen — kein gültiges WorldLayout.', true);
         }
@@ -1365,22 +1415,306 @@ function seiteBauen(): void {
   }));
 }
 
-function alles(): void {
-  speichereEntwurf();
+// ── Weltdokument: Ziel benennen, Export, Speicherweg ─────────────────
+
+/** „welten/dev.json (Instanz dev)" — für jede Meldung, die ein Ziel nennt. */
+function weltName(): string {
+  if (!welt.datei && !welt.instanz) return 'die Weltdatei (Instanz unbekannt)';
+  return `welten/${welt.datei ?? '?'} (Instanz ${welt.instanz ?? 'unbekannt'})`;
+}
+
+/**
+ * Dateiname des Exports. Früher hiess das Ergebnis IMMER
+ * `worldlayout.json` — der Name der Datei, die es seit dem
+ * Instanz-Umbau nicht mehr gibt. Wer beide Welten exportierte, hatte
+ * danach zweimal denselben Dateinamen im Download-Ordner und keine
+ * Möglichkeit mehr, sie auseinanderzuhalten.
+ */
+function exportName(): string {
+  return welt.datei ?? 'worldlayout.json';
+}
+
+function entwurfExportieren(): void {
+  const a = document.createElement('a');
+  const url = URL.createObjectURL(new Blob([JSON.stringify(layout, null, 2)], { type: 'application/json' }));
+  a.href = url;
+  a.download = exportName();
+  a.click();
+  // Der Blob hinge sonst bis zum Neuladen im Speicher. Bei einer 56-KB-
+  // Welt wäre das egal, aber der Sicherungsknopf im Abgleichdialog kann
+  // in einer Sitzung mehrfach gedrückt werden.
+  window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/**
+ * Der Speicherknopf trägt die Farbe der Instanz — er ist das
+ * Bedienelement, bei dem die Verwechslung wehtut. Auf dev bleibt er, was
+ * er war; auf allem anderen nennt er sein Ziel im Text und trägt den
+ * Rahmen des Warnbandes.
+ *
+ * Der Punkt davor beantwortet die zweite Frage, die der Editor bisher
+ * offenliess: Steht das, was ich hier sehe, schon auf dem Server? Solange
+ * `serverKanon` fehlt, steht dort ein `?` — dann weiss es niemand.
+ */
+function faerbeSpeicherKnopf(): void {
+  if (!speicherKnopf) return;
+  const stil = shell.instanzFarben;
+  const kanonJetzt = JSON.stringify(sanitizeWorldLayout(layout));
+  const zeichen = serverKanon === null ? '? ' : serverKanon === kanonJetzt ? '' : '● ';
+  speicherKnopf.style.borderColor = stil.band;
+  speicherKnopf.textContent =
+    zeichen + (welt.instanz === 'dev' ? '💾 In die Welt speichern' : `💾 Speichern → ${stil.name}`);
+  speicherKnopf.title =
+    `Schreibt ${weltName()} auf dem Server.` +
+    (serverKanon === null
+      ? ' — Serverstand unbekannt, der Editor kann nicht sagen, was du überschreiben würdest.'
+      : serverKanon === kanonJetzt
+        ? ' — Entwurf und Serverstand sind zurzeit identisch.'
+        : ' — ● der Entwurf weicht vom Serverstand ab.');
+}
+
+/**
+ * „In die Welt speichern".
+ *
+ * Neu gegenüber Block A/15 sind zwei Riegel VOR dem POST:
+ *
+ *   1. Ein Dokument ohne Region wird gar nicht erst abgeschickt.
+ *      `layoutSchreiben` im Betriebsdienst lehnt es ohnehin ab (Fund aus
+ *      Phase 1: `sanitizeWorldLayout` wirft nicht, es klemmt und
+ *      verwirft — `regions: 'kein Array'` kam als vollkommen gültiges
+ *      Layout mit NULL Regionen heraus und hätte die 56-KB-Welt durch
+ *      102 Bytes offene See ersetzt). Hier abzufangen spart nicht den
+ *      Fehler, sondern erklärt ihn an der Stelle, an der man ihn noch
+ *      versteht.
+ *
+ *   2. Auf allem ausser `dev` wird nachgefragt, und zwar mit dem FRISCH
+ *      geholten Serverstand daneben. Das ist genau der Unfall vom
+ *      16.08.2026 (17 Regionen und 164 Platzierungen durch ein
+ *      4-Regionen-Testlayout ersetzt) — er wäre an dieser
+ *      Gegenüberstellung gescheitert.
+ */
+async function inDieWeltSpeichern(): Promise<void> {
+  const sauber = sanitizeWorldLayout(layout);
+  if (!sauber) {
+    shell.meldung('Entwurf ist unbrauchbar — nicht gespeichert.', true);
+    return;
+  }
+  if (sauber.regions.length === 0) {
+    shell.meldung(
+      'Der Entwurf enthält keine einzige Region — das wäre offene See. Nicht gespeichert.',
+      true
+    );
+    return;
+  }
+
+  if (welt.instanz !== 'dev') {
+    // Frisch holen statt `serverKanon` zu benutzen: Zwischen dem Start
+    // des Editors und diesem Klick können Stunden liegen, und in denen
+    // kann jemand anders gespeichert haben. Die Nachfrage ist nur so
+    // viel wert wie die Zahlen, die sie zeigt.
+    const schirm = vorhang(`Serverstand von ${weltName()} wird geprüft …`);
+    const stand = await holeWeltdokument();
+    schirm.schliessen();
+    const koerper = stand.erreichbar
+      ? unterschiedsTafel(
+          `Du bist im Begriff, ${weltName()} zu überschreiben.\n` +
+            'Links steht, was jetzt auf dem Server liegt, rechts dein Entwurf.',
+          'Server (wird ersetzt)',
+          'dein Entwurf',
+          vergleiche(stand.layout, sauber)
+        )
+      : `Du bist im Begriff, ${weltName()} zu überschreiben — der aktuelle ` +
+        `Serverstand liess sich dafür aber nicht lesen:\n${stand.grund}`;
+    const wahl = await frage('Wirklich überschreiben?', koerper, [
+      { id: 'ab', text: 'Abbrechen', hinweis: 'Es wird nichts geschrieben.', betont: true },
+      {
+        id: 'ja',
+        text: `Ja, ${welt.instanz ?? 'diese Welt'} überschreiben`,
+        hinweis: 'Der Betriebsdienst legt vorher eine .bak-Sicherung an.',
+        warnung: true,
+      },
+    ]);
+    if (wahl !== 'ja') {
+      shell.meldung('Speichern abgebrochen — auf dem Server hat sich nichts geändert.');
+      return;
+    }
+  }
+
+  shell.meldung(`Speichere nach ${weltName()} …`);
+  try {
+    const r = await fetch('/api/worldlayout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sauber),
+    });
+    const a = (await r.json()) as { ok: boolean; message: string };
+    shell.meldung(
+      a.ok ? `${a.message} — Server neu starten, damit die Welt sie lädt.` : a.message,
+      !a.ok
+    );
+    if (a.ok) {
+      // Ab jetzt sind Entwurf und Serverstand deckungsgleich. Ohne diese
+      // zwei Zeilen fragte der Abgleich beim nächsten Öffnen nach einem
+      // Unterschied, den es nicht mehr gibt — und man lernt, den Dialog
+      // wegzuklicken. Genau das darf er nie werden.
+      serverKanon = JSON.stringify(sauber);
+      speichereEntwurf('server');
+      faerbeSpeicherKnopf();
+    }
+  } catch (err) {
+    shell.meldung(`Speichern fehlgeschlagen: ${String(err)}`, true);
+  }
+}
+
+function alles(quelle: EntwurfsQuelle = 'bearbeitet'): void {
+  speichereEntwurf(quelle);
   seiteBauen();
   zeichneOverlay();
+  // Jede Änderung kann den Entwurf vom Serverstand wegbewegen ODER ihn
+  // (per Rückgängig) wieder darauf zurückführen — der Punkt am
+  // Speicherknopf muss beides mitmachen.
+  faerbeSpeicherKnopf();
 }
 
 // ── Server-Konsole (Shell-Dock, journalctl via /api/serverlog) ───────
 try {
   const quelle = new EventSource('/api/serverlog');
   quelle.onmessage = (e) => shell.konsoleZeile(JSON.parse(e.data) as string);
-  quelle.onerror = () => shell.konsoleStatus('Server-Konsole — Verbindung unterbrochen (Dev-Server prüfen)');
+  // „Dev-Server prüfen" stimmte, solange der Strom aus einem
+  // Vite-Middleware-Plugin kam. Seit Block A/16 liefert ihn der
+  // Betriebsdienst (wov-admin) auf BEIDEN Containern — auf live gibt es
+  // gar keinen Dev-Server, den man prüfen könnte.
+  quelle.onerror = () =>
+    shell.konsoleStatus('Server-Konsole — Verbindung unterbrochen (Betriebsdienst wov-admin prüfen)');
 } catch {
   shell.konsoleStatus('Server-Konsole nicht verfügbar');
+}
+
+// ── Abgleich mit dem Server (der Leseweg) ────────────────────────────
+/**
+ * Holt den Serverstand, benennt die Instanz und löst den Konflikt mit
+ * dem Browser-Entwurf — die einzige Stelle, an der `layout` ohne
+ * Zutun des Nutzers ersetzt wird.
+ *
+ * Der Ablauf in Worten, weil die Fallunterscheidung der eigentliche
+ * Inhalt dieses Schritts ist:
+ *
+ *   Server nicht erreichbar  → Instanz bleibt UNBEKANNT (Warnband), der
+ *                              Entwurf bleibt stehen, und der Nutzer
+ *                              erfährt in einem Dialog, dass er
+ *                              blindfliegt. Kein stilles Weiterarbeiten.
+ *   kein Entwurf im Browser  → Serverstand, kommentarlos. Es gibt nichts
+ *                              zu entscheiden.
+ *   Entwurf == Serverstand   → Serverstand, kommentarlos. Ebenso.
+ *   Entwurf != Serverstand   → FRAGEN, mit der Gegenüberstellung vor
+ *                              Augen. Beide Antworten werfen etwas weg,
+ *                              also darf keine von beiden voreingestellt
+ *                              sein.
+ */
+async function weltAbgleich(): Promise<void> {
+  const schirm = vorhang('Weltdokument wird vom Server geholt …');
+  const stand = await holeWeltdokument();
+  schirm.schliessen();
+
+  if (!stand.erreichbar) {
+    shell.instanzZeigen(null, null, stand.grund);
+    faerbeSpeicherKnopf();
+    await frage(
+      'Kein Serverstand',
+      `Der Editor konnte das Weltdokument nicht laden:\n\n${stand.grund}\n\n` +
+        'Du siehst deshalb nur den Entwurf aus diesem Browser, und der Editor kann dir ' +
+        'nicht sagen, welche Welt (dev oder live) hinter „In die Welt speichern" steckt. ' +
+        'Zeichnen geht; vor dem Speichern sollte der Betriebsdienst wieder laufen.',
+      [{ id: 'ok', text: 'Verstanden — nur mit dem Entwurf weiterarbeiten', betont: true }]
+    );
+    shell.meldung(`Kein Serverstand: ${stand.grund}`, true);
+    return;
+  }
+
+  welt = { instanz: stand.instanz, datei: stand.datei };
+  shell.instanzZeigen(stand.instanz, stand.datei, stand.message);
+  faerbeSpeicherKnopf();
+  serverKanon = JSON.stringify(stand.layout);
+
+  const entwurf = entwurfLesen();
+  const uebernehmen = (grund: string): void => {
+    layout = stand.layout;
+    gewaehlt = null;
+    alles('server');
+    vorschauAnstossen();
+    shell.meldung(`${stand.message} — ${grund}`);
+  };
+  if (!entwurf) {
+    uebernehmen('vom Server geladen');
+    return;
+  }
+  if (gleich(entwurf, stand.layout)) {
+    // Deckungsgleich: trotzdem den Serverstand übernehmen, damit der
+    // Begleitzettel auf 'server' steht und die Instanz mitgeschrieben
+    // wird. Sonst fragte der nächste Start wieder nach der Herkunft
+    // eines Entwurfs, der längst identisch ist.
+    uebernehmen('Entwurf im Browser war identisch');
+    return;
+  }
+
+  const zettel = entwurfStandLesen();
+  const fremd = zettel?.instanz && stand.instanz && zettel.instanz !== stand.instanz;
+  const einleitung =
+    `Der Entwurf in diesem Browser weicht von ${weltName()} ab.\n` +
+    (zettel
+      ? `Entwurf zuletzt geändert ${alter(zettel.zeit)}` +
+        (zettel.quelle === 'import' ? ' (aus einem JSON-Import)' : '') +
+        (zettel.instanz ? `, damals offen: Instanz ${zettel.instanz}.` : '.')
+      : 'Zum Entwurf gibt es keinen Zeitstempel — er ist älter als diese Editorfassung.') +
+    (fremd
+      ? `\n\nACHTUNG: Der Entwurf wurde für Instanz ${zettel?.instanz ?? '?'} gezeichnet, ` +
+        `offen ist ${stand.instanz}. Ihn zu behalten und zu speichern hiesse, die eine Welt ` +
+        'mit der anderen zu überschreiben.'
+      : '');
+
+  const wahl = await frage(
+    'Serverstand oder dein Entwurf?',
+    unterschiedsTafel(einleitung, `Server (${stand.datei ?? '?'})`, 'Entwurf im Browser', vergleiche(stand.layout, entwurf)),
+    [
+      {
+        id: 'server',
+        text: '⬇ Serverstand laden',
+        hinweis: 'Der Entwurf im Browser wird dabei verworfen.',
+        betont: !fremd,
+      },
+      {
+        id: 'entwurf',
+        text: '✎ Entwurf behalten',
+        hinweis: 'Der Serverstand bleibt vorerst unangetastet — bis du speicherst.',
+        warnung: Boolean(fremd),
+      },
+    ],
+    // Vor der Entscheidung noch einmal alles sichern können. Beide
+    // Antworten werfen etwas weg; dieser Knopf ist der einzige Ausgang,
+    // der das nicht tut.
+    { text: '⬇ Entwurf vorher als JSON sichern', tun: entwurfExportieren }
+  );
+
+  if (wahl === 'server') {
+    uebernehmen('Entwurf im Browser verworfen');
+    return;
+  }
+  // Entwurf behalten: nichts an `layout` ändern, aber den Begleitzettel
+  // auf die JETZT offene Instanz umschreiben — sonst warnte der nächste
+  // Start weiter vor einer Instanz-Verwechslung, die der Nutzer bereits
+  // gesehen und bewusst in Kauf genommen hat.
+  speichereEntwurf(zettel?.quelle ?? 'bearbeitet');
+  shell.meldung(
+    `Entwurf behalten — ${weltName()} auf dem Server ist unverändert, bis du speicherst.`,
+    true
+  );
 }
 
 // ── Start ────────────────────────────────────────────────────────────
 groesseAnpassen();
 seiteBauen();
 vorschauRechnen();
+// Kein `await` auf oberster Ebene: Der Aufbau oben ist synchron und
+// fertig, der Vorhang in `weltAbgleich` deckt das Fenster ab, bis der
+// Serverstand feststeht.
+void weltAbgleich();

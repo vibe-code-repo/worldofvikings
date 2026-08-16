@@ -45,6 +45,11 @@ const KERN = [
   //
   // Der Umkreis-Index sichert sich gegen die lineare Suche ab, die er
   // ersetzt hat: gleiche Eingabe, gleiche Treffermenge.
+  // Der Waechter gegen den Unfall vom 16.08.2026: Der Editor hatte keinen
+  // Ladeweg und ueberschrieb die echte Welt mit einem Testlayout, ohne dass
+  // es jemandem auffiel. Prueft die Abgleichlogik gegen das ECHTE
+  // Bestandsdokument — DOM-frei, Sekunden, gehoert damit hierher.
+  ['client', 'test/welt-abgleich.ts'],
   ['client', 'test/entity-index.ts'],
   // Die Huellkoerper der Thin-Instance-Master entscheiden seit D10 ueber
   // die SICHTBARKEIT der Prefabs — ein Kasten, der eine Instanz auslaesst,
@@ -52,6 +57,13 @@ const KERN = [
   // ueber Babylons NullEngine: ohne GPU, ohne Assets, synthetische
   // Geometrie und Instanzlagen.
   ['client', 'test/master-huelle.ts'],
+  // Der Betriebsdienst haelt seit Block A/16 den Speicherweg des Editors.
+  // Er gehoert in die KERNLISTE und nicht zu den langen Laeufen: Er
+  // braucht keine Assets und keine GPU, ist in Sekunden durch — und die
+  // Zusicherung, die er prueft, ist die teuerste im ganzen Projekt.
+  // Ein misslungener Speichervorgang darf die Welt nicht beschaedigen;
+  // wer das erst nach dem Ausrollen merkt, merkt es an der Welt.
+  ['admin', 'test/betriebsdienst.ts'],
 ];
 
 const LANG = [

@@ -20,16 +20,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { execFileSync } from 'node:child_process';
-import {
-  copyFileSync,
-  existsSync,
-  readFileSync,
-  readdirSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
-import { resolve, dirname, basename } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   sanitizeWorldLayout,
@@ -41,37 +32,27 @@ import {
   type RegionDef,
 } from '@wov/shared';
 import { weltDatei } from '@wov/shared/src/instanz.js';
+// Sicherung mit Rotation und atomares Schreiben standen hier bis Block
+// A/16 ein zweites Mal im Quelltext — dieselbe Logik wie im Speicherweg
+// des Editors, nur mit anderer Fehlerbehandlung. Jetzt gibt es genau eine
+// Stelle, die das Weltdokument schreibt. Direktimport am Barrel vorbei,
+// weil layoutDatei.ts node:fs zieht und der Barrel in den Client-Bundle
+// geht (siehe Kopfkommentar dort).
+import { layoutLesen, layoutSchreiben } from '@wov/shared/src/worldlayout/layoutDatei.js';
 
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const LAYOUT_PFAD = weltDatei(WURZEL);
-const LAYOUT_NAME = basename(LAYOUT_PFAD);
 
 function lade(): WorldLayout {
-  const roh = JSON.parse(readFileSync(LAYOUT_PFAD, 'utf-8')) as unknown;
-  const s = sanitizeWorldLayout(roh);
-  if (!s) throw new Error(`${LAYOUT_PFAD} ist kein gültiges WorldLayout`);
-  return s;
+  return layoutLesen(LAYOUT_PFAD);
 }
 
 function schreibe(layout: WorldLayout): void {
-  // Zeitgestempeltes Backup vor JEDEM Schreiben (letzte 10 bleiben) —
-  // ein Fehl-Save der KI darf die Welt nicht unwiederbringlich ersetzen.
-  try {
-    if (existsSync(LAYOUT_PFAD)) {
-      const stempel = new Date().toISOString().replace(/[:.]/g, '-');
-      copyFileSync(LAYOUT_PFAD, `${LAYOUT_PFAD}.${stempel}.bak`);
-      const dir = dirname(LAYOUT_PFAD);
-      const alte = readdirSync(dir)
-        .filter((f) => f.startsWith(`${LAYOUT_NAME}.`) && f.endsWith('.bak'))
-        .sort();
-      while (alte.length > 10) unlinkSync(resolve(dir, alte.shift()!));
-    }
-  } catch (err) {
-    console.error(`[worldlayout-mcp] Backup fehlgeschlagen: ${err}`);
-  }
-  const tmp = `${LAYOUT_PFAD}.tmp`;
-  writeFileSync(tmp, JSON.stringify(layout, null, 2));
-  renameSync(tmp, LAYOUT_PFAD);
+  // Anders als vorher bricht ein Fehler beim Sichern den Vorgang ab,
+  // statt ihn nur zu protokollieren und trotzdem zu schreiben: Wenn die
+  // Sicherung nicht angelegt werden kann, ist das genau der Moment, in
+  // dem man sie hinterher gebraucht hätte.
+  layoutSchreiben(LAYOUT_PFAD, layout);
 }
 
 /** Kompakte Zusammenfassung fürs Gespräch statt des vollen Dokuments. */

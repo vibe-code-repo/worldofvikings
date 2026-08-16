@@ -1,18 +1,8 @@
 import { defineConfig, type Plugin } from 'vite';
-import { spawn } from 'node:child_process';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
-import {
-  copyFileSync,
-  createReadStream,
-  existsSync,
-  readdirSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from 'fs';
+import { createReadStream, existsSync, readFileSync, statSync } from 'fs';
 import { resolve, normalize, extname, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -22,128 +12,34 @@ const CONFIG_DIR = dirname(fileURLToPath(import.meta.url));
 const GAME_SERVER_PORT = 2467;
 
 /**
- * Speicherweg des Layout-Editors (Review-Punkt 13): POST /api/worldlayout
- * schreibt das Weltdokument direkt nach server/data/worldlayout.json —
- * dieselbe Datei, die der MCP-Server bearbeitet. Vorher lebte der Entwurf
- * nur im localStorage und musste von Hand exportiert und kopiert werden.
- *
- * ZUGANG: Der Dev-Server ist öffentlich erreichbar (Port 5274), deshalb
- * nimmt der Endpunkt NUR Anfragen von localhost und aus dem LAN entgegen.
- * Alles andere wird mit 403 abgewiesen — sonst könnte jeder im Internet
- * die Welt überschreiben.
+ * Betriebsdienst (admin/src/main.ts). Dieselben Umgebungsvariablen wie
+ * dort, damit /etc/wov.env die einzige Stelle bleibt, an der die Adresse
+ * steht. Der Rückfall auf 127.0.0.1 trifft nur den Fall „npm run dev von
+ * Hand, ohne Unit" — im Betrieb setzt die Unit WOV_ADMIN_ADRESSE.
  */
-function worldLayoutSave(): Plugin {
-  // Eigene Kopie der Instanz-Aufloesung statt Import: die Vite-Konfig kann
-  // @wov/shared nicht laden (ESM-.js-Endungen im TS-Quellbaum, siehe den
-  // Kommentar weiter unten beim Struktur-Check). Die Wahrheit steht in
-  // shared/src/instanz.ts — Aenderungen dort hier mitziehen.
-  const INSTANZ = (process.env.WOV_INSTANZ ?? 'dev').trim().toLowerCase();
-  const ZIEL_NAME = `${INSTANZ}.json`;
-  const ZIEL = resolve(CONFIG_DIR, '../server/data/welten', ZIEL_NAME);
-  const erlaubt = (adresse: string | undefined): boolean => {
-    if (!adresse) return false;
-    const a = adresse.replace(/^::ffff:/, '');
-    return a === '127.0.0.1' || a === '::1' || /^10\.10\.10\./.test(a) || /^192\.168\./.test(a);
-  };
-  return {
-    name: 'wov-worldlayout-save',
-    configureServer(server) {
-      server.middlewares.use('/api/worldlayout', (req, res) => {
-        const antwort = (code: number, text: string): void => {
-          res.statusCode = code;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ ok: code === 200, message: text }));
-        };
-        if (!erlaubt(req.socket.remoteAddress ?? undefined)) {
-          return antwort(403, 'Speichern nur aus dem lokalen Netz erlaubt');
-        }
-        if (req.method !== 'POST') return antwort(405, 'POST erwartet');
-        let roh = '';
-        req.on('data', (c: Buffer) => {
-          roh += c.toString();
-          if (roh.length > 4_000_000) req.destroy();
-        });
-        req.on('end', () => {
-          try {
-            // Struktur-Check statt sanitizeWorldLayout: Die Vite-Konfig kann
-            // @wov/shared nicht laden (ESM-.js-Endungen im TS-Quellbaum) —
-            // die STRENGE Prüfung läuft ohnehin im Browser mit exakt dem
-            // Code, den auch der Server fährt, direkt vor dem Senden.
-            // Hier geht es nur darum, keinen Müll auf die Platte zu legen.
-            const sauber = JSON.parse(roh) as {
-              version?: unknown;
-              name?: unknown;
-              regions?: unknown;
-              placements?: unknown[];
-            };
-            const strukturOk =
-              sauber.version === 1 &&
-              typeof sauber.name === 'string' &&
-              Array.isArray(sauber.regions) &&
-              sauber.regions.every(
-                (r) => r && typeof (r as { id?: unknown }).id === 'string' && (r as { shape?: unknown }).shape
-              );
-            if (!strukturOk) return antwort(400, 'Kein gültiges WorldLayout — verworfen');
-            // Backup wie im MCP-Server: letzte 10 Stände bleiben liegen.
-            if (existsSync(ZIEL)) {
-              const stempel = new Date().toISOString().replace(/[:.]/g, '-');
-              copyFileSync(ZIEL, `${ZIEL}.${stempel}.bak`);
-              const dir = dirname(ZIEL);
-              const alte = readdirSync(dir)
-                .filter((f) => f.startsWith(`${ZIEL_NAME}.`) && f.endsWith('.bak'))
-                .sort();
-              while (alte.length > 10) unlinkSync(resolve(dir, alte.shift()!));
-            }
-            const tmp = `${ZIEL}.tmp`;
-            writeFileSync(tmp, JSON.stringify(sauber, null, 2));
-            renameSync(tmp, ZIEL);
-            antwort(
-              200,
-              `Gespeichert: ${(sauber.regions as unknown[]).length} Region(en), ${sauber.placements?.length ?? 0} Platzierung(en)`
-            );
-          } catch (err) {
-            antwort(400, `Fehler: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        });
-      });
-    },
-  };
-}
+const ADMIN_ADRESSE = process.env.WOV_ADMIN_ADRESSE ?? '127.0.0.1';
+const ADMIN_PORT = Number(process.env.WOV_ADMIN_PORT ?? 2468);
+const ADMIN_TOKEN_DATEI = process.env.WOV_ADMIN_TOKEN_DATEI ?? '/etc/wov-admin.token';
 
 /**
- * Server-Konsole für den Layout-Editor: streamt journalctl des wov-Servers
- * als Server-Sent-Events an /api/serverlog. Nur Dev-Server (systemd-Host);
- * Paket-Spam (type=…/Received packet) wird herausgefiltert, damit die
- * Konsole Weltereignisse zeigt statt 30-Hz-Input.
+ * Der Token des Betriebsdienstes, EINMAL beim Start gelesen.
+ *
+ * Er wird bewusst hier gelesen und nicht pro Anfrage: Der Dev-Server
+ * läuft als derselbe Nutzer wie der Betriebsdienst und darf die Datei
+ * (0600) lesen; ein Fehler soll beim Start auffallen, nicht erst beim
+ * ersten Speicherversuch. Fehlt die Datei, bleibt der Proxy trotzdem
+ * bestehen — der Betriebsdienst antwortet dann mit 401, und im Editor
+ * steht ein verständlicher Satz statt eines toten Knopfs.
  */
-function serverLog(): Plugin {
-  return {
-    name: 'wov-serverlog',
-    configureServer(server) {
-      server.middlewares.use('/api/serverlog', (req, res) => {
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-        });
-        const kind = spawn('journalctl', ['-fu', 'wov-server', '-n', '120', '--no-pager', '-o', 'short-iso']);
-        const weiter = (chunk: Buffer): void => {
-          for (const zeile of chunk.toString().split('\n')) {
-            if (!zeile.trim()) continue;
-            if (/Received packet|type=\d+ from/.test(zeile)) continue;
-            res.write(`data: ${JSON.stringify(zeile)}\n\n`);
-          }
-        };
-        kind.stdout.on('data', weiter);
-        kind.stderr.on('data', weiter);
-        kind.on('error', (err) => {
-          res.write(`data: ${JSON.stringify(`[Konsole] journalctl nicht verfügbar: ${err.message}`)}\n\n`);
-        });
-        req.on('close', () => kind.kill());
-      });
-    },
-  };
+function adminToken(): string {
+  try {
+    return readFileSync(ADMIN_TOKEN_DATEI, 'utf-8').trim();
+  } catch {
+    console.warn(`[vite] ${ADMIN_TOKEN_DATEI} nicht lesbar — /api/* wird der Betriebsdienst mit 401 abweisen.`);
+    return '';
+  }
 }
+const ADMIN_TOKEN = adminToken();
 
 /**
  * Serves the project's own asset folder at /assets.
@@ -234,8 +130,6 @@ export default defineConfig({
   plugins: [
     gameWsProxy(GAME_SERVER_PORT),
     assetFolder(resolve(CONFIG_DIR, '../assets')),
-    serverLog(),
-    worldLayoutSave(),
   ],
   build: {
     outDir: 'dist',
@@ -280,5 +174,55 @@ export default defineConfig({
     allowedHosts: process.env.WOV_ALLOWED_HOSTS
       ? process.env.WOV_ALLOWED_HOSTS.split(',').map((h) => h.trim())
       : ['testserver.valheim.community', '.valheim.community', 'localhost'],
+
+    /**
+     * /api/* geht an den Betriebsdienst (admin/src/main.ts, Port 2468).
+     *
+     * ── Warum ein Proxy statt zweier Plugins (Block A/16) ────────────
+     * Hier standen bis Block A/16 zwei Middleware-Plugins: der
+     * Speicherweg des Editors (POST /api/worldlayout) und die
+     * Server-Konsole (GET /api/serverlog). Beide lebten damit NUR,
+     * solange dieser Entwicklungsserver lief — auf live liefert nginx
+     * einen statischen Build aus, und der Editor konnte dort nicht
+     * speichern. Die Endpunkte sind deshalb in den Betriebsdienst
+     * gezogen, der auf BEIDEN Containern läuft; hier bleibt nur noch die
+     * Weiterleitung. Auf live macht nginx dasselbe
+     * (deploy/nginx-live.conf, location /api/).
+     *
+     * Nebenwirkung, die man kennen sollte: Der Dev-Server braucht ab
+     * jetzt einen laufenden wov-admin. Ohne ihn antwortet /api/* mit
+     * ECONNREFUSED statt still nicht zu existieren — was die ehrlichere
+     * Fehlermeldung ist als ein Speicherknopf, der auf live nichts tut.
+     */
+    proxy: {
+      '/api/': {
+        target: `http://${ADMIN_ADRESSE}:${ADMIN_PORT}`,
+        // Der Betriebsdienst wertet den Host-Kopf nicht aus; ihn
+        // umzuschreiben würde nur die Herkunft im Journal verwischen.
+        changeOrigin: false,
+        // Die Server-Konsole ist ein Server-Sent-Events-Strom. Ohne
+        // abgeschaltete Pufferung sammelt der Proxy Zeilen, bis genug
+        // beisammen ist — die Konsole bliebe minutenlang leer.
+        // (`selfHandleResponse: false` ist die Vorgabe und pipet direkt.)
+        timeout: 0,
+        proxyTimeout: 0,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            // Der Token wird SERVERSEITIG gesetzt — genau deshalb taucht
+            // er im Browser nie auf. Das war schon vorher das Prinzip,
+            // nur setzte damals das Plugin gar keinen, weil es selbst
+            // schrieb.
+            if (ADMIN_TOKEN) proxyReq.setHeader('x-wov-token', ADMIN_TOKEN);
+            // setHeader ÜBERSCHREIBT, und das ist der Punkt: Ein vom
+            // Browser mitgeschickter X-Forwarded-For darf nicht
+            // durchrutschen, sonst könnte sich jeder eine erlaubte
+            // Adresse ausdenken und am Herkunfts-Riegel des
+            // Betriebsdienstes vorbeigehen. Die Option `xfwd: true` hängt
+            // stattdessen an — deshalb wird sie hier NICHT benutzt.
+            proxyReq.setHeader('x-forwarded-for', (req.socket.remoteAddress ?? '').replace(/^::ffff:/, ''));
+          });
+        },
+      },
+    },
   },
 });

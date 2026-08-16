@@ -34,6 +34,55 @@ export const THEME = {
   ok: '#9fb18f',
 } as const;
 
+/**
+ * Farbe der bearbeiteten Instanz (Block A/16, Phase 2).
+ *
+ * ── Warum Farbe und nicht Text ───────────────────────────────────────
+ * Eine Codebasis bedient zwei Container: `WOV_INSTANZ` wählt
+ * `welten/dev.json` oder `welten/live.json`. Der Editor sieht in beiden
+ * Fällen identisch aus — und genau daran hängt der teuerste Fehler, den
+ * man hier machen kann. Ein Wort in der Fussleiste liest niemand, der
+ * gerade eine Insel zieht. Ein durchgehendes Farbband über dem Fenster
+ * sieht man, ohne hinzuschauen, und man sieht es AUCH auf dem
+ * Bildschirmfoto, das jemand später als Beleg schickt.
+ *
+ * ── Warum diese Farben ───────────────────────────────────────────────
+ * Kein neues Gestaltungssystem: `THEME.ok` (gedecktes Grün) und
+ * `THEME.fehler` (Rost) sind die beiden Signalfarben, die der Editor
+ * schon führt — die Konsole färbt Fehlerzeilen damit. Hier stehen sie
+ * abgedunkelt als Bandfarbe, damit heller Text darauf lesbar bleibt.
+ *
+ * ── Warum ALLES ausser 'dev' rot ist ─────────────────────────────────
+ * Eine Liste, die nur `dev` und `live` kennt, müsste einen dritten
+ * Container (`staging`, ein Klon zum Ausprobieren) irgendwo einsortieren
+ * — und träfe dabei zwangsläufig die falsche Annahme, er sei harmlos.
+ * Umgekehrt ist die Aussage sicher: `dev` ist die Welt, die man
+ * wegwerfen darf, alles andere behandelt man vorsichtig. Ein
+ * unbekannter Name ist damit automatisch auf der sicheren Seite.
+ */
+export interface InstanzStil {
+  /** Farbband und Kennzeichen-Hintergrund. */
+  band: string;
+  /** Schrift auf dem Band. */
+  schrift: string;
+  /** Anzeigename im Kennzeichen. */
+  name: string;
+}
+const STIL_DEV: InstanzStil = { band: '#3c5a44', schrift: '#d3e3c9', name: 'DEV' };
+const STIL_SCHARF = (name: string): InstanzStil => ({ band: '#8f2f22', schrift: '#ffdcd2', name: name.toUpperCase() });
+/**
+ * Kein Serverstand: NICHT grau-neutral, sondern warnend. „Ich weiss
+ * nicht, welche Welt das ist" ist der gefährlichste Zustand von allen
+ * — gefährlicher als ein bekanntes `live`, denn dort weiss man
+ * wenigstens, woran man ist.
+ */
+const STIL_UNBEKANNT: InstanzStil = { band: '#6a4a1e', schrift: '#f0dcae', name: '? INSTANZ UNBEKANNT' };
+
+export function instanzStil(instanz: string | null): InstanzStil {
+  if (instanz === null || instanz === '') return STIL_UNBEKANNT;
+  return instanz === 'dev' ? STIL_DEV : STIL_SCHARF(instanz);
+}
+
 const KONSOLE_MIN = 26;
 const KONSOLE_STANDARD = 160;
 
@@ -47,28 +96,53 @@ export class EditorShell {
   private readonly konsoleLog: HTMLDivElement;
   private readonly konsoleTitel: HTMLSpanElement;
   private readonly mitte: HTMLDivElement;
+  private readonly instanzBand: HTMLDivElement;
+  private readonly instanzSchild: HTMLDivElement;
+  private readonly grundTitel: string;
   private konsoleHoehe = KONSOLE_STANDARD;
   private meldungTimer: number | null = null;
+  /** Stil der zuletzt gesetzten Instanz — Aufrufer färben danach ihre
+   *  eigenen Bedienelemente (z. B. den Speicherknopf). */
+  private stil: InstanzStil = instanzStil(null);
   /** Von der Shell gerufen, wenn sich die Viewport-Größe ändert. */
   aufResize: (() => void) | null = null;
 
   constructor(titel: string) {
+    this.grundTitel = titel;
     document.body.style.cssText = `margin:0;height:100vh;overflow:hidden;background:${THEME.hintergrund};` +
       `font-family:Georgia,serif;color:${THEME.text};`;
     const wurzel = document.createElement('div');
     wurzel.style.cssText = 'display:flex;flex-direction:column;height:100vh;';
     document.body.appendChild(wurzel);
 
+    // ── Instanz-Band ────────────────────────────────────────────────
+    // Ganz oben, über der Werkzeugleiste, volle Breite. Es steht
+    // ABSICHTLICH nicht in der Statusleiste: Dort unten sammelt sich
+    // alles, was man auch übersehen darf. Bis der Serverstand da ist,
+    // trägt es die Warnfarbe „unbekannt" — nicht die von dev, denn
+    // vor der ersten Antwort weiss der Editor gar nichts.
+    this.instanzBand = document.createElement('div');
+    this.instanzBand.style.cssText = 'height:5px;flex:0 0 auto;';
+    wurzel.appendChild(this.instanzBand);
+
     // ── Werkzeugleiste ──────────────────────────────────────────────
     this.toolbar = document.createElement('div');
     this.toolbar.style.cssText =
       `display:flex;align-items:center;gap:14px;padding:6px 12px;background:${THEME.flaeche};` +
       `border-bottom:1px solid ${THEME.rand};flex:0 0 auto;`;
+    // Kennzeichen VOR der Marke: Es ist das Erste, was links steht, und
+    // damit das Erste, was man beim Blick in die Werkzeugleiste liest.
+    this.instanzSchild = document.createElement('div');
+    this.instanzSchild.style.cssText =
+      'font-size:12px;letter-spacing:0.08em;padding:2px 9px;border-radius:3px;white-space:nowrap;' +
+      'font-family:ui-monospace,monospace;';
+    this.toolbar.appendChild(this.instanzSchild);
     const marke = document.createElement('div');
     marke.textContent = titel;
     marke.style.cssText = `font-size:15px;color:${THEME.akzent};margin-right:6px;white-space:nowrap;`;
     this.toolbar.appendChild(marke);
     wurzel.appendChild(this.toolbar);
+    this.instanzZeigen(null, null, 'Serverstand noch nicht geholt');
 
     // ── Mittelteil: Seitenleiste + (Viewport über Konsole) ──────────
     const reihe = document.createElement('div');
@@ -102,6 +176,9 @@ export class EditorShell {
       'flex:0 0 auto;user-select:none;';
     this.konsoleTitel = document.createElement('span');
     this.konsoleTitel.textContent = 'Server-Konsole (wov-server)';
+    // Der Strom kommt seit Block A/16 vom Betriebsdienst, gezeigt wird
+    // aber weiter das Journal von wov-server — der Titel benennt also
+    // richtig, WESSEN Zeilen hier stehen, und nicht, wer sie liefert.
     this.konsoleTitel.style.cssText = `color:${THEME.akzent};flex:1;`;
     const knopf = (text: string, tip: string, cb: () => void): HTMLSpanElement => {
       const k = document.createElement('span');
@@ -188,6 +265,44 @@ export class EditorShell {
     details.append(kopf, inhalt);
     this.seitenleiste.appendChild(details);
     return inhalt;
+  }
+
+  /**
+   * Welche Welt wird hier bearbeitet? Färbt Band, Kennzeichen und
+   * Fenstertitel (der Reiter zählt mit — wer drei Editoren offen hat,
+   * unterscheidet sie sonst nur am Zufall).
+   *
+   * `instanz === null` heisst „der Betriebsdienst hat nichts gesagt" und
+   * ist ein Warnzustand, kein neutraler. `hinweis` landet im Tooltip und
+   * nennt den Grund.
+   */
+  instanzZeigen(instanz: string | null, datei: string | null, hinweis?: string): void {
+    this.stil = instanzStil(instanz);
+    const harmlos = instanz === 'dev';
+    this.instanzBand.style.background = this.stil.band;
+    // Auf dev ein schmaler Streifen, sonst doppelt so hoch, und die
+    // Werkzeugleiste bekommt denselben Rand: Dann liest man die Warnung
+    // nicht als Zierleiste, sondern als Rahmen um das ganze Fenster.
+    this.instanzBand.style.height = harmlos ? '4px' : '8px';
+    this.toolbar.style.borderBottomColor = harmlos ? THEME.rand : this.stil.band;
+    this.instanzSchild.style.background = this.stil.band;
+    this.instanzSchild.style.color = this.stil.schrift;
+    this.instanzSchild.textContent = this.stil.name;
+    const beschreibung = [
+      instanz ? `Instanz ${instanz}` : 'Instanz unbekannt',
+      datei ? `server/data/welten/${datei}` : null,
+      hinweis ?? null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    this.instanzSchild.title = beschreibung;
+    this.instanzBand.title = beschreibung;
+    document.title = `${this.stil.name} — ${this.grundTitel}`;
+  }
+
+  /** Farben der aktuellen Instanz — für Bedienelemente ausserhalb der Shell. */
+  get instanzFarben(): InstanzStil {
+    return this.stil;
   }
 
   /** Meldung links in der Statusleiste (mit Standzeit, überlebt Mausbewegung). */

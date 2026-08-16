@@ -271,6 +271,20 @@ const feinDa = await page.evaluate(() => {
 });
 console.log(`[gpu] Feinmessung: ${feinDa ? 'an' : 'NICHT VERFUEGBAR (alter Client-Build?)'}`);
 await page.evaluate(() => window.__vb.profil());
+// Frame-Zeiten mitschneiden — die Aufschluesselung sagt, WO die Zeit
+// hingeht, aber nur die Perzentile sagen, ob es sich besser anfuehlt.
+await page.evaluate(() => {
+  const s = { zeiten: [], laeuft: true, letzte: performance.now() };
+  window.__fr = s;
+  const tick = () => {
+    if (!s.laeuft) return;
+    const j = performance.now();
+    s.zeiten.push(j - s.letzte);
+    s.letzte = j;
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+});
 console.log(`[gpu] Sprint ${SEKUNDEN}s ...`);
 await page.keyboard.down('ShiftLeft');
 await page.keyboard.down('KeyW');
@@ -307,6 +321,11 @@ await page.keyboard.up('KeyW');
 await page.keyboard.up('ShiftLeft');
 
 // ── Auslesen ──────────────────────────────────────────────────────────
+const frames = await page.evaluate(() => {
+  window.__fr.laeuft = false;
+  return window.__fr.zeiten;
+});
+
 const ergebnis = await page.evaluate(() => {
   const scene = window.__dbg.scene;
   const engine = scene.getEngine();
@@ -441,6 +460,28 @@ const fein = grob.fein ?? {};
 if (imWasser > 0) {
   console.log(`  HINWEIS: bei ${imWasser} von ${seite} Wenden stand der Laeufer im Wasser und wurde zurueckgesetzt.`);
   console.log('  Die Messung enthaelt damit Anteile leerer Wasserszene — Messort verkleinern oder Beine kuerzen.');
+}
+const t = frames.slice(3).sort((x, y) => x - y);
+const q = (p) => t[Math.min(t.length - 1, Math.floor(t.length * p))];
+if (t.length > 30) {
+  const ueber = (ms) => t.filter((x) => x > ms).length;
+  ergebnis.frameZeit = {
+    frames: t.length,
+    fpsMedian: +(1000 / q(0.5)).toFixed(1),
+    fps1ProzentLow: +(1000 / q(0.99)).toFixed(1),
+    p50: +q(0.5).toFixed(2),
+    p95: +q(0.95).toFixed(2),
+    p99: +q(0.99).toFixed(2),
+    max: +t[t.length - 1].toFixed(2),
+    ueber33ms: ueber(33),
+    anteilUeber33: +((ueber(33) / t.length) * 100).toFixed(2),
+  };
+  const f = ergebnis.frameZeit;
+  console.log('── Frame-Zeit ────────────────────────────────────');
+  console.log(`  fps Median / 1%-low     : ${f.fpsMedian} / ${f.fps1ProzentLow}`);
+  console.log(`  p50 / p95 / p99         : ${f.p50} / ${f.p95} / ${f.p99} ms`);
+  console.log(`  Maximum                 : ${f.max} ms`);
+  console.log(`  Frames >33ms            : ${f.ueber33ms} von ${f.frames} (${f.anteilUeber33} %)`);
 }
 console.log('── Terrain, grob ─────────────────────────────────');
 for (const k of ['terrain', 'gras', 'entities', 'spieler']) {

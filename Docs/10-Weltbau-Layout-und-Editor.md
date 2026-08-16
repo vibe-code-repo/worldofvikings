@@ -1,8 +1,23 @@
 # Weltbau: Layout-Welt, Editor und MCP
 
-Stand: 04.08.2026. Beschreibt den Kartengenerierungs-Umbau (Phasen 0–5b):
-die designer-definierte, wachsende Welt, ihre Werkzeuge und den Weg vom
-Entwurf in die Live-Umgebung.
+Stand: 16.08.2026 (nach Block A). Beschreibt den Kartengenerierungs-Umbau
+(Phasen 0–5b): die designer-definierte, wachsende Welt, ihre Werkzeuge und
+den Weg vom Entwurf in die Live-Umgebung.
+
+> **Was sich am 16.08.2026 geändert hat** — kurz, weil es fast jeden
+> Abschnitt unten berührt:
+>
+> - Es gibt **eine Codebasis für zwei Container** (wov-dev, wov-live), ein
+>   Branch `main`. `WOV_INSTANZ` aus `/etc/wov.env` (`dev`|`live`) bestimmt
+>   alles Umgebungsabhängige; Auflöser ist `shared/src/instanz.ts`.
+>   **`server/data/worldlayout.json` gibt es nicht mehr** — das Weltdokument
+>   heißt `server/data/welten/<instanz>.json`.
+> - Der Editor läuft auf **beiden** Containern und hat seit dem einen
+>   **Leseweg**; „Publish per Export + Neustart" ist Geschichte.
+> - Es werden **nur noch eigene Modelle** ausgeliefert. Locations und
+>   Dungeons sind deshalb abgeschaltet (`world.features: false`,
+>   `dungeons.enabled: false`) — was das für dieses Dokument bedeutet,
+>   steht bei „Fortschritt & Progression".
 
 ## Idee
 
@@ -16,7 +31,7 @@ Biomhöhenfunktionen — nur die radiale Basis ist ersetzt.
 ## Datenfluss
 
 ```
-server/data/worldlayout.json           (Autorformat, JSON, klein)
+server/data/welten/<instanz>.json      (Autorformat, JSON, klein, in Git)
   └─ sanitizeWorldLayout()             shared/src/worldlayout/sanitize.ts
       └─ RegionField (Distanzfeld)     shared/src/worldlayout/compile.ts
           └─ RegionGeo                 shared/src/worldgen/RegionGeo.ts
@@ -25,6 +40,30 @@ server/data/worldlayout.json           (Autorformat, JSON, klein)
               └─ mapWorker (eigene Instanz, Maße im Request)
 ```
 
+- **Welche Datei das ist, entscheidet `WOV_INSTANZ`**, nicht der Quellbaum:
+  `weltDatei()` in `shared/src/instanz.ts` löst `dev` → `welten/dev.json`,
+  `live` → `welten/live.json` auf. **Beide Dateien liegen auf beiden
+  Containern** und stehen in Git — live ignoriert `dev.json` schlicht.
+  Genau deshalb kann der Dev-Editor die Live-Welt bearbeiten, ohne sich mit
+  live zu verbinden.
+  *Bis 08/2026 stand der Weltname in `server/data/server.yml`
+  (`world.world`, `world.layout`), und das Dokument hieß auf beiden
+  Containern `server/data/worldlayout.json`. Deshalb durfte server.yml nie
+  mitdeployed werden — eine Datei, die auf zwei Containern verschieden sein
+  MUSS, lässt die Arbeitsbäume nach jedem Abgleich erneut auseinanderlaufen.
+  Ein unbekannter Wert in `WOV_INSTANZ` bricht den Start hart ab: Ein
+  Rückfallwert würde die falsche Welt öffnen und sie bei der nächsten
+  30-Minuten-Sicherung überschreiben.*
+- **Geschrieben wird das Dokument an genau einer Stelle**:
+  `shared/src/worldlayout/layoutDatei.ts` (`layoutLesen`, `layoutSichern`,
+  `layoutSchreiben`). Sanitisierung, zeitgestempelte Sicherung (letzte 10)
+  und atomares `.tmp` + `rename` stecken dort; Betriebsdienst und MCP-Server
+  benutzen dieselbe Funktion. *Vorher lag derselbe Dreisatz zweimal herum —
+  im MCP-Server und im Speicher-Plugin von `client/vite.config.ts` —, und
+  nur eine der beiden Kopien prüfte streng.* Die Byte-Darstellung
+  (`JSON.stringify(…, null, 2)`, ohne Schlusszeilenumbruch) ist Teil des
+  Vertrags: `shared/test/worldlayout.ts` hält für BEIDE Weltdateien fest,
+  dass sie bytegleich durch den Sanitizer gehen.
 - `createGeo({mode})` (shared/src/worldgen/factory.ts) ist die Modus-Weiche:
   `valheim` (radialer Übergangspfad) oder `layout`.
 - Im Layout-Modus ist der **detailSeed DES DOKUMENTS** maßgeblich — auf
@@ -33,9 +72,14 @@ server/data/worldlayout.json           (Autorformat, JSON, klein)
   `WorldLayoutData` (64); der Client baut seine Welt erst danach.
 - Save-Schutz: Der Layout-Hash steht in der Save-Meta; Drift wird beim Laden
   gewarnt. Inkompatible Saves werden als `.orphan-<ts>` beiseitegelegt.
-- Placement-Cache: `worlds/<name>.locations.json` (Schlüssel: Seed,
-  genVersion, Layout-Hash, Feature-Anzahl) — Boot ~6 s statt Minuten;
-  Layout-Änderung würfelt automatisch neu.
+- Placement-Cache: `worlds/<instanz>.locations.json` (Schlüssel: Seed,
+  genVersion, Layout-Hash, Feature-Anzahl) — Layout-Änderung würfelt
+  automatisch neu. Der Cache ist gitignored, so wie der Spielstand
+  `worlds/<instanz>.db.zst` daneben.
+  *Er war der Grund, warum der Boot von Minuten auf ~6 s fiel. Seit
+  `world.features: false` werden gar keine Locations mehr platziert; der
+  Serverstart dauert jetzt ~2 s, und der Cache hält nur noch eine leere
+  Buchung. Sobald es eigene Location-Modelle gibt, trägt er wieder.*
 
 ## Schema (Kurzfassung)
 
@@ -54,14 +98,16 @@ server/data/worldlayout.json           (Autorformat, JSON, klein)
     "baseLevel": 0.3,                 // Basis-Plateau (0.15 ⇔ Wasserlinie; ×200 = m)
     "heightScale": 1,                 // Amplitude des Perlin-Details
     "forestDensity": 1,               // 0 kahl … 2 dicht
-    "vegetation": ["Beech1"],        // KURATIERUNG: exklusive Listen je Region
-                                       //   Feld fehlt  → Biom-Standardtabelle
-                                       //   Liste voll  → exakt diese Arten
+    "vegetation": ["Eiche1"],         // KURATIERUNG: exklusive Liste je Region
+                                       //   Liste voll  → exakt diese Arten, sonst nichts
                                        //   Liste LEER  → gar kein Bewuchs (Gras bleibt)
-    "locations": [], "spawns": []     // (fehlt ein Feld → Biom-Standardtabellen)
+                                       //   Feld fehlt  → seit Block A ebenfalls kahl,
+                                       //                 s. „Kuratierung je Biom"
+    "locations": [], "spawns": []     // (fehlt ein Feld → Biom-Standardtabellen;
+                                       //  beide seit Block A wirkungslos, s. unten)
   }],
   "placements": [{                     // Editor-Spawn: handplatzierte Objekte
-    "prefab": "Beech1", "x": 20, "z": 12, "yaw": 0.5, "scale": 1.2,
+    "prefab": "Eiche1", "x": 20, "z": 12, "yaw": 0.5, "scale": 1.2,
     "einebnen": 7,                     // optional: Sockel-Radius (m) — Terrain
     "route": "wache-hafen",            // wird dort auf Mittelpunkthöhe geebnet
     "npc": {                           // optional: NPC läuft diese Route
@@ -85,7 +131,8 @@ server/data/worldlayout.json           (Autorformat, JSON, klein)
 ```
 
 Grenzen (sanitize): Bbox ±40 km (Dungeon-Band + float32), ≤512 Regionen,
-≤512 Polygonpunkte, ≤2000 Placements, ≤256 Routen zu je ≤512 Wegpunkten,
+≤512 Polygonpunkte, ≤2000 Placements, ≤256 kuratierte Arten je Region,
+≤256 Routen zu je ≤512 Wegpunkten,
 `speed` geklemmt 0,2–10 m/s, Wegpunkt-`pause` geklemmt 0–600 s
 (Unsinn → 0), unbekannter `mode` → `loop`, `npc.stufe` geklemmt 1–99,
 `npc.name` auf 32 Zeichen gekürzt (leer → Feld weg), unbekannte
@@ -93,13 +140,77 @@ Grenzen (sanitize): Bbox ±40 km (Dungeon-Band + float32), ≤512 Regionen,
 gezwungen — dann greift die Prefab-Vorgabe. Höhen der
 Placements werden NIE gespeichert — sie folgen beim Spawnen dem Boden.
 
+## Kuratierung je Biom
+
+`region.vegetation` ist eine **exklusive** Liste: Steht eine Art darin,
+wächst genau die — und sonst nichts. Eine leere Liste ist deshalb eine
+Aussage („hier wächst nichts") und kein vergessenes Feld.
+
+Die Vorräte, aus denen sich die Listen bedienen, stehen in
+`shared/src/flora.ts` als benannte Bündel:
+
+| Konstante | Landschaft |
+| --- | --- |
+| `GRASLAND_FLORA_NAMEN` | Wiese mit Laubwaldinseln (Eiche, Birke, Hasel, Findling) |
+| `NADELWALD_FLORA_NAMEN` | Nadelwald — zugleich die Liste des Bioms `blackforest` |
+| `SUMPF_FLORA_NAMEN` | Bruchwald: Weiden, Seggen, nasser Grund |
+| `HOCHNORD_FLORA_NAMEN` | Kältesteppe, weite Abstände |
+| `ASCHE_FLORA_NAMEN` | **leer** — der gesamte eigene Bestand ist nordisch-grün |
+
+Der Schwarzwald bekommt kein eigenes Bündel: „Nadelwald" IST seine
+Landschaftsform, und zwei Listen mit demselben Inhalt liefen nach der
+ersten Änderung auseinander. Was ihn ausmacht, ist allein die Enge — das
+regeln die Regler, nicht die Artenwahl.
+
+**Warum das Feld inzwischen nicht mehr fehlen darf.** Der Streudurchlauf
+(`shared/src/worldgen/streuung.ts`) prüft zwei Dinge nacheinander: erst die
+Biom-Maske des Eintrags, dann das Kuratierungstor der Region. Bis Block A
+trugen alle eigenen Einträge `Biome.Meadows` — als zweiter Riegel gedacht,
+tatsächlich aber schädlich: Weil die Maske VOR dem Tor greift, wären vier
+Regionen (blackforest, swamp, deepnorth, ashlands) trotz gefüllter
+Kuratierungsliste vollständig kahl geblieben, ohne Fehlermeldung. Seit
+`ALLE_BIOME` ist die Maske durchlässig und die Liste die alleinige
+Autorität. Umgekehrt gilt seitdem: Eine Region **ohne** Liste bleibt kahl,
+weil `FOLIAGE` nach dem Herausfiltern der Valheim-Einträge nur noch aus
+eigener Flora besteht (73 Einträge) und eigene Flora ohne Kuratierung
+ausgeschlossen ist. Die „Biom-Standardtabelle" aus `vegetation.pkg` gibt es
+nicht mehr — alle 17 Regionen der Live-Welt sind deshalb kuratiert.
+
+*Verworfen: jeder Pflanze eine handgepflegte Biom-Liste zu geben. Das wäre
+eine Zuweisung je Eintrag mit nie endender Pflegelast, es bildet die
+Kuratierung gröber
+ein zweites Mal nach (Listen nennen ARTEN, Masken nur BIOME), und es kann
+ihr widersprechen — wobei die stillere Wahrheit gewinnt. Genau daraus waren
+die vier kahlen Regionen entstanden.*
+
+**Doppelte Buchführung, auf die man achten muss:** Wer eine Art in eine
+`*_FLORA_NAMEN`-Liste aufnimmt, braucht IMMER auch einen Streueintrag in
+`flora.ts` — der ZoneManager streut nur über `FOLIAGE`. Ohne den Eintrag
+wird das Modell nie gestreut, auch wenn es in der Kuratierungsliste steht.
+Dagegen steht `server/test/h4-graslandflora.ts`.
+
 ## Editor (client/editor.html)
+
+Der Editor läuft auf **beiden** Containern —
+`editor.dev.world-of-vikings.com` und `editor.world-of-vikings.com`, beide
+hinter Basic-Auth. *Bis 08/2026 gab es ihn nur auf dev, weil sein
+Speicherweg an einer Vite-Middleware hing und Vite auf live nicht läuft.*
 
 Moderne Shell (`client/src/editor/Shell.ts`): Werkzeugleiste, einklappbare
 Seitenleisten-Sektionen, Viewport, Statusleiste (Meldung ≠ Koordinaten) und
 die **Server-Konsole** als Dock (Griff ziehbar; ▁/◫/⬒ = minimiert/Standard/
-volle Höhe; speist sich aus `journalctl -fu wov-server` via Vite-SSE
-`/api/serverlog`).
+volle Höhe; zeigt weiter `journalctl -fu wov-server`, geliefert wird der
+SSE-Strom seit Block A aber vom Betriebsdienst `wov-admin` über
+`GET /api/serverlog` — auf dev reicht ihn der Vite-Proxy durch, auf live
+nginx).
+
+Über der Werkzeugleiste liegt ein **Farbband mit Instanz-Schild**
+(`Shell.instanzZeigen`): dev unauffällig und schmal, jede andere Instanz
+breit und in Warnfarbe. Woher der Name stammt, ist nicht beliebig — er
+kommt aus DERSELBEN Antwort wie das Dokument (`GET /api/worldlayout`,
+Felder `instanz` und `datei`). Hostname und URL können lügen (Reverse-Proxy,
+SSH-Tunnel, Kopie der Domain); der Betriebsdienst kann es nicht, weil er
+`WOV_INSTANZ` genauso auflöst wie der Spielserver.
 
 - **Formen-Menü:** Kreis, Oval, Langinsel, Halbmond, Zackenküste, Plateau —
   `FORMEN`-Registry in editorMain.ts, ein Eintrag = neue Form.
@@ -111,10 +222,25 @@ volle Höhe; speist sich aus `journalctl -fu wov-server` via Vite-SSE
 - **≈ Fluss zeichnen:** Verlauf klicken, Breite/Tiefe einstellen,
   Abschluss per ✓-Knopf oder Doppelklick. Seen und Flüsse stehen in der
   Gewässerliste und sind dort einzeln löschbar.
+- **Bewuchs-Bündel (Preset-Knöpfe):** 🌾 Grasland, 🌳🌲 Mischwald,
+  🌲 Nadelwald, 🌲🌲 Schwarzwald, 🌿 Sumpf, 🏔 Hoher Norden,
+  🌋 Aschewüste — dazu „Nur Terrain und Gras" (leere Liste) und
+  „↩ Biom-Standard" (Feld weg). Ein Knopf setzt nicht nur die Artenliste
+  aus `flora.ts`, sondern ein **Preset**: Artenwahl, `forestDensity`,
+  `bewuchsDichte`, Waldkörnung und Abstandsfaktor zusammen — ein Nadelwald
+  mit der Körnung einer Wiese wäre ein Flickenteppich aus Fichteninseln.
+  Die drei Regler darunter bleiben danach frei justierbar, das
+  Freitextfeld ebenfalls. Die Werte sind gemessen, nicht geschätzt (die
+  Zahl im Knopftitel ist die Überschirmung: lichter Hain 0.3, Wald 0.8,
+  Schwarzwald 1.5+). Sumpf, Hoher Norden und Aschewüste kamen erst am
+  16.08.2026 dazu — vorher gab es sie nicht als Knopf, ihre Regionen waren
+  deshalb unkuratiert, und seit der Umstellung auf eigene Modelle heißt
+  das: kahl. Ein Bündel ohne Knopf ist ein Bündel, das niemand benutzt.
 - **Undo/Redo:** Strg+Z / Strg+Y (50 Schritte).
 - **Vorschau:** derselbe mapWorker wie im Spiel (RegionGeo) — keine Drift.
 - **Testflug:** öffnet `/?offline=1&layout=editor` (Entwurf via localStorage
-  `wov-editor-layout`) — echtes Terrain, begehbar.
+  `wov-editor-layout`) — echtes Terrain, begehbar. **Er ist NICHT der Weg,
+  auf dem man die Welt beurteilt** — siehe den eigenen Abschnitt unten.
 - **Spawn-Editor im Testflug (Taste B):** durchsuchbare Prefab-Liste
   (Vegetation/Bauteile/alle), Drehung/Abstand/Größe, Geist-Vorschau an der
   Maus, Klick setzt, Ziehen verschiebt (Leuchtring), Entf löscht,
@@ -134,28 +260,136 @@ volle Höhe; speist sich aus `journalctl -fu wov-server` via Vite-SSE
 - **Routen-Editor im Testflug (Taste R):** NPC-Wegpunkte ins Gelände
   klicken statt Koordinaten zu tippen; die NPCs laufen die Route sofort
   als Vorschau ab — Bedienung siehe „NPC-Routen".
-- **Publish:** JSON-Export → `server/data/worldlayout.json` + Neustart —
-  oder per MCP (unten). Editor und MCP teilen dieselbe Datei; der Editor-
-  Entwurf lebt bis zum Export nur im localStorage (bekannte Lücke, siehe
-  Docs/09 Punkt 13).
+- **Leseweg (Start):** Der Editor holt das Dokument beim Öffnen per
+  `GET /api/worldlayout` vom Betriebsdienst (`weltdokument.ts`,
+  `holeWeltdokument`) — hinter einem Vorhang, damit niemand auf einem
+  Stand zeichnet, der gleich ersetzt wird.
+- **Speicherweg:** „💾 In die Welt speichern" schickt
+  `POST /api/worldlayout` an denselben Dienst, der über
+  `layoutDatei.layoutSchreiben` sichert und atomar schreibt. Der Knopf
+  heißt auf dev so und auf jeder anderen Instanz `💾 Speichern → LIVE`;
+  vorher steht eine Rückfrage mit Gegenüberstellung. Danach muss der
+  Server neu starten, damit er die Welt lädt. Der JSON-Export bleibt als
+  zweiter Weg (und als Sicherung vor riskanten Schritten), ist aber nicht
+  mehr der einzige.
+
+  *Bis 08/2026 stand hier „Publish: JSON-Export → `worldlayout.json` +
+  Neustart", und der Editor-Entwurf lebte bis dahin nur im localStorage —
+  als bekannte Lücke geführt (Docs/09, Punkt 13). Das ist erledigt, und es
+  war keine Kosmetik: Der localStorage hängt am BROWSER, nicht an der
+  Instanz. Derselbe Tab, der eben dev bearbeitet hat, konnte seinen
+  Entwurf nach `live.json` schreiben, ohne `live.json` je gesehen zu
+  haben. Am 16.08.2026 ist genau das passiert — 17 Regionen durch ein
+  Testlayout mit 4 Regionen ersetzt; dass die echte Welt daneben in Git
+  lag, war Glück und kein Verfahren.*
+
+### Wenn Serverstand und Entwurf auseinandergehen
+
+Der localStorage-Entwurf bleibt, weil er ein echtes Bedürfnis ist: Wer den
+Tab schließt, will seine halbfertige Insel wiederfinden. Beide
+naheliegenden Automatismen sind falsch — „localStorage gewinnt" ist der
+alte Fehler, nur schriftlich; „Server gewinnt" wirft ungespeicherte Arbeit
+still weg. Deshalb entscheidet der Nutzer, und zwar informiert
+(`weltdokument.ts` rechnet, `AbgleichDialog.ts` zeigt):
+
+| Fall | Verhalten |
+| --- | --- |
+| Server nicht erreichbar | Instanz bleibt UNBEKANNT (Warnband), Entwurf bleibt stehen, Dialog sagt: du fliegst blind |
+| kein Entwurf im Browser | Serverstand, kommentarlos |
+| Entwurf == Serverstand | Serverstand, kommentarlos |
+| Entwurf ≠ Serverstand | **Frage**, mit der Gegenüberstellung vor Augen |
+
+Die Gegenüberstellung zeigt Regionen- und Platzierungszahl **immer** — das
+sind die beiden Zahlen, an denen man den Unfall vom 16.08.2026 gesehen
+hätte — und nennt die Regionen zusätzlich **namentlich**: nur auf dem
+Server / nur im Entwurf / beidseitig, aber verändert (Kennungen, ab 9
+abgekürzt). Zahlen allein verschleiern den Fall „eine gelöscht, eine neu":
+Der Zähler bleibt gleich, die Welt nicht. Alles Übrige — Kontinente,
+Flüsse, Seen, Routen, Weltname, Detail-Seed — erscheint nur bei
+Abweichung, damit die Zeilen, die dastehen, auch etwas bedeuten.
+
+Kein Standardknopf und kein Esc-Ausweg: Beide Antworten
+werfen etwas weg, also darf keine von beiden voreingestellt sein. Ein
+dritter Knopf sichert den Entwurf vorher als JSON — der einzige Ausgang,
+der nichts verliert. Weicht zusätzlich die Instanz ab, für die der Entwurf
+gezeichnet wurde (`EntwurfsStand.instanz`), steht das als ausdrückliche
+Warnung darüber.
+
+## Der Testflug: wofür er taugt und wofür nicht
+
+`/?offline=1&layout=editor` baut die Welt im Browser aus dem
+localStorage-Entwurf. Er ist unverzichtbar zum Zeichnen — Spawn-Editor,
+Routen-Editor und Routen-Vorschau leben nur dort — und er ist der
+sinnvolle Ort für **Determinismus-Prüfungen der Weltgenerierung**: gleiche
+Eingabe, gleiche Welt, ohne Server dazwischen.
+
+**Er ist aber nicht der Weg, auf dem man die Welt beurteilt.** Er ist der
+einzige Pfad, den kein Spieler je nimmt — und war zugleich der einzige,
+auf dem hingesehen wurde. Genau daran sind Editor und Live-Welt
+auseinandergelaufen: Man begutachtete monatelang eine Welt, die so nie
+ausgeliefert wurde. Am 16.08.2026 gemessen:
+
+| | Meshes | Materialien | Texturen |
+| --- | --- | --- | --- |
+| online (das, was Spieler sehen) | 311 | 39 | 65 |
+| Testflug | 414 | 86 | 592 |
+
+Der Unterschied ist kein Rundungsfehler, sondern eine andere Welt. Wer
+beurteilen will, wie die Welt aussieht, schaut sie sich **online** an —
+auf `play.dev.world-of-vikings.com` bzw. `play.world-of-vikings.com`, mit
+Server, mit `WorldLayoutData`, mit dem Bestand, der tatsächlich
+ausgeliefert wird. Der Testflug zeigt, ob die GEOMETRIE stimmt, nicht ob
+das BILD stimmt.
 
 ## MCP-Server (tools/worldlayout-mcp)
 
 In `.mcp.json` eingebunden; KI-gestützter Weltbau im Gespräch:
 `layout_get`, `region_set`, `region_delete` (sanitize-gesichert),
 `layout_probe` (Höhe/Biom/Region wie der Spielserver) und `layout_deploy`
-(systemd-Neustart; dank Placement-Cache ~6 s). Vor jedem Schreiben entsteht
-ein zeitgestempeltes Backup (`worldlayout.json.<ts>.bak`, letzte 10).
+(systemd-Neustart von `wov-server`; der Start dauert seit der Abschaltung
+der Locations ~2 s). Er arbeitet auf `weltDatei(WURZEL)`, also auf der
+Datei der Instanz, in der er läuft, und schreibt über dieselbe
+`layoutDatei.layoutSchreiben` wie der Betriebsdienst — daher auch dieselbe
+Sicherung (`<instanz>.json.<ts>.bak`, letzte 10) und dieselbe
+Byte-Darstellung. *Vorher trug er seine eigene Kopie dieses Ablaufs; sie
+fing einen Fehler beim Sichern ab und schrieb trotzdem — genau der Fall,
+in dem man die Sicherung gebraucht hätte.*
 
 ## Betrieb
 
-- Modus: `server/data/server.yml` → `world.mode: layout`,
-  `world.layout: worldlayout.json`, Save-Name `world.world` (aktuell
-  `vikings`; der alte Radial-Save `world` liegt unangetastet daneben).
-- Dienste: `systemctl start|stop wov.target` bzw. `npm run service:*`.
-- Tests: `shared/test/worldlayout.ts`, `shared/test/region-geo.ts`,
-  `server/test/h1-layout.ts`, `server/test/h2-routen.ts` — Teil von
-  `npm test` (Runner, Docs/09 P26).
+- Modus: `server/data/server.yml` → `world.mode: layout`. **Die Schlüssel
+  `world.layout` und `world.world` gibt es nicht mehr** — Weltdokument und
+  Spielstand folgen aus `WOV_INSTANZ` (s. „Datenfluss"). server.yml ist
+  damit umgebungsfrei und darf mitdeployed werden; genau das war vorher
+  unmöglich.
+- Ebenfalls in server.yml und für BEIDE Instanzen gleich, weil es eine
+  Projektentscheidung ist und kein Umgebungsunterschied:
+  `world.features: false` und `dungeons.enabled: false` (siehe
+  „Fortschritt & Progression").
+- Vier Domains: `play.world-of-vikings.com` (live, offen),
+  `editor.world-of-vikings.com` (live, Basic-Auth),
+  `play.dev.world-of-vikings.com` und `editor.dev.world-of-vikings.com`
+  (dev, Editor mit Basic-Auth). In nginx sperrt eine `map $host`-Weiche
+  `/editor.html` und `/api/` auf allem außer dem Editor-Host — die
+  Basic-Auth hängt im Proxy am HOST, nicht am Pfad.
+- Dienste: drei systemd-Units, auf beiden Containern identisch —
+  `wov-server`, `wov-client`, `wov-admin`. `npm run service:*` fasst
+  Start/Stop/Status zusammen.
+- Ausrollen: `tools/wov-update.sh` (ersetzt das gelöschte
+  `tools/deploy.sh`): `/etc/wov.env` lesen, Abbruch bei schmutzigem
+  Arbeitsbaum, `git pull --ff-only origin main`, Dienste stoppen,
+  `npm ci --include=dev`, typecheck und Tests OHNE Pipe, auf live
+  Client-Build nach `dist.neu` mit Tausch, Dienste starten,
+  Gesundheitsprüfung bis 120 s auf HTTP 426 an Port 2467.
+- Tests (Runner `scripts/run-tests.mjs`, Docs/09 P26): `npm test` fährt die
+  Kernliste (20 Dateien), `npm test -- --alle` zusätzlich die drei langen
+  Läufe. Für dieses Dokument einschlägig: `shared/test/worldlayout.ts`,
+  `shared/test/region-geo.ts`, `server/test/h1-layout.ts`,
+  `server/test/h2-routen.ts`, `server/test/h3-routen-vorschau.ts`,
+  `server/test/h4-graslandflora.ts` sowie die beiden neuen —
+  `admin/test/betriebsdienst.ts` (der Speicherweg darf die Welt nicht
+  beschädigen) und `client/test/welt-abgleich.ts` (die Abgleichlogik gegen
+  das echte Bestandsdokument, DOM-frei).
 
 ## NPC-Routen
 
@@ -319,9 +553,10 @@ Datenmodell: `shared/src/npc.ts` — `Fraktion`, `NpcRolle`,
   „ziviler Neutraler, Stufe 1, keine Quest". Niemand sonst darf
   `?? 'zivil'` schreiben.
 - **Im Dokument stehen nur die Abweichungen.** Ein Eintrag ohne `npc`
-  behält keinen — der Round-Trip ist stabil und
-  `server/data/worldlayout.json` (158 Platzierungen) geht bytegleich
-  durch den Sanitizer (Test in `shared/test/worldlayout.ts`).
+  behält keinen — der Round-Trip ist stabil, und **beide** Weltdateien
+  (`welten/dev.json`, `welten/live.json`; live führt 17 Regionen und 159
+  Platzierungen) gehen bytegleich durch den Sanitizer (Test in
+  `shared/test/worldlayout.ts`).
 
 **Zum Client — ohne ein einziges zusätzliches Byte pro Tick:**
 
@@ -356,11 +591,36 @@ In einer Region entstehen nur Locations bis zu ihrer Stufe
 (`tierAusDistanz` übersetzt `feature.minDistance`). Führt eine Region
 eigene `locations`, gilt ausschließlich diese Liste.
 
+> **Seit 16.08.2026 liegt dieser ganze Mechanismus still.** Mit dem
+> Verzicht auf Valheim-Modelle steht `world.features` auf `false` und
+> `dungeons.enabled` ebenso: Alle 146 Einträge in `FEATURES` waren
+> Valheim-Exporte, keiner steht in `EIGENE_MODELLE`. Gebucht würden sie
+> trotzdem — jede Instanz legte ZDOs an, die der Client nicht darstellen
+> kann, und der Spieler liefe durch unsichtbare Grabhügel. *Verworfen:
+> sie nur clientseitig auszublenden; dann stünden die Geister-ZDOs
+> weiterhin im Save und passten später nicht mehr zu der Buchung, die mit
+> eigenen Modellen entsteht.* Ebenso gefiltert: `SPAWN_TABLE` (3 → 0),
+> Bau-Pieces (9 → 2), die `model`-Felder der Gegenstände (25 → 0) und
+> `FOLIAGE` — dort fielen alle 120 Einträge aus Valheims `vegetation.pkg`
+> weg, übrig sind die 73 eigenen aus `shared/src/flora.ts`.
+>
+> **Die Folge, die klar dastehen muss:** Bis eigene Modelle vorliegen,
+> kann im Spiel weder GEBAUT noch GEKÄMPFT werden. Das ist ein bewusst
+> gewählter Zwischenzustand, kein Defekt. `region.tier`, `locations` und
+> `spawns` bleiben im Schema stehen und greifen wieder, sobald eigene
+> Location- und Kreaturenmodelle da sind.
+
 `pruefeLayout()` meldet unbekannte Vegetations-/Location-/Spawn-Namen und
-fehlende Startpunkte — die Befunde stehen im Boot-Log.
+fehlende Startpunkte — die Befunde stehen im Boot-Log. Die Live-Welt ist
+am 16.08.2026 neu entstanden (Weltschnitt): 17 Regionen, 159
+Platzierungen, alle 17 Regionen kuratiert, **0 unbekannte Prefabs**.
 
 ## Bewusst offen
 
-Karten-Zoomstufen ab ~40 km, Prefab-Vorschaubilder im Spawn-Panel,
-Fraktions-Gameplay (Zugehörigkeit, PvP-Regeln) über die Startpunkte
-hinaus. Siehe Docs/09-Verbesserungsvorschlaege.md.
+Eigene Location-, Bau- und Kreaturenmodelle — solange die fehlen, bleiben
+`world.features` und `dungeons.enabled` aus, und Bauen wie Kämpfen liegen
+still. Ferner: Karten-Zoomstufen ab ~40 km, Prefab-Vorschaubilder im
+Spawn-Panel, Flora für die Aschewüste (`ASCHE_FLORA` ist leer, weil der
+gesamte eigene Bestand nordisch-grün ist), Fraktions-Gameplay
+(Zugehörigkeit, PvP-Regeln) über die Startpunkte hinaus. Siehe
+Docs/09-Verbesserungsvorschlaege.md.

@@ -5,6 +5,16 @@
 > Ursachenanalyse und eine Umsetzungsreihenfolge; die dortigen Detailbefunde bleiben gültig,
 > **außer** den beiden hier ausdrücklich korrigierten (Schattenempfang des Terrains,
 > Clutter-UV-Layout).
+>
+> **Nachgezogen 2026-08-16.** Die Diagnose (Ursachen A–E) und die Stufen 1–5 stehen
+> unverändert — es sind Befunde über unsere Farb- und Beleuchtungspipeline, und die hat
+> sich nicht geändert. Was sich geändert hat, ist die **Materialgrundlage**: Der
+> Valheim-Export ist gelöscht, es gibt keine gerippten Modelle und keine gerippten Texturen
+> mehr (siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md)). Die Vorgabe *streng
+> originalgetreu, kein HD-Mod-Material* ist damit schärfer geworden als sie gemeint war:
+> Vorbild bleibt das Original, **Material** kommt ausschließlich aus eigener Hand. Betroffen
+> sind Stufe 3 (bereits nachgezogen), Stufe 6 und Stufe 9 sowie der Abschnitt Verifikation
+> — jeweils unten gekennzeichnet.
 
 ## Ausgangslage
 
@@ -128,6 +138,13 @@ brauche. **Das trifft nicht zu.** Der UV-Dump zeigt: `clutter_default.glb` und d
 Original-Geometrie `assetripper/export/Assets/PrefabHierarchyObject/grasscross.glb` haben ein
 **identisches UV-Layout** (drei Spalten u 0.01–0.37 / 0.37–0.66 / 0.66–0.97, v 0.03–0.99,
 je 48 Vertices). Es *ist* bereits die Originalgeometrie.
+
+*(Nachtrag 2026-08-16: Der Rip-Pfad existiert nicht mehr. Beide Meshes — `clutter_default`
+und `grasscross` — kommen heute aus `tools/clutter-meshes.py` und liegen unter
+`assets/models/`. Das UV-Layout ist dabei die erhaltene Größe: Es ist der Vertrag zwischen
+Mesh und Atlas, und deshalb steht es im Kopf des Werkzeugs. Der Befund oben bleibt damit
+gültig — nur ist die Geometrie jetzt unsere eigene mit demselben Layout, statt der
+Originalgeometrie.)*
 
 Die tatsächliche Ursache ist ein **Alpha-Test-Mipmap-Problem**: Die Vanilla-Maske besteht aus
 1–2 px dünnen Halmen. Beim automatischen Mipmapping mittelt sich deren Alpha gegen den
@@ -454,19 +471,35 @@ das Grundlicht doppelt. Nebenwirkung, die man will: `AssetManager.setzeMetallgra
 
 ### Stufe 6 — Normal-Maps auf die Prefab-Materialien (~3 h)
 
-**`roughness = 1` ist kein Fehler** — 725 von 1454 Originalmaterialien haben
-`_Glossiness = 0` (eigene Auswertung in `AssetManager.ts:216-221`). Die Flachheit kommt
-davon, dass **keine Normal-Map gebunden ist**.
+**`roughness = 1` ist kein Fehler** — die Flachheit kommt davon, dass **keine Normal-Map
+gebunden ist**. Diese Ursachenzuschreibung gilt weiter und ist der Kern dieser Stufe.
+(Der Beleg von damals: 725 von 1454 Originalmaterialien hatten `_Glossiness = 0`, eigene
+Auswertung in `AssetManager.ts`. Rau war also die Absicht des Originals, nicht unser
+Versehen — für unsere eigenen Materialien gilt dieselbe Wahl, jetzt aus eigenem Entschluss.)
 
-Zuordnung geht ohne PathID-Abgleich **über den Materialnamen**: die GLB-Materialnamen *sind*
-die Unity-Namen. 161 direkte `<name>_n.png`-Treffer in `assets/textures/` — und die
-bildfüllenden sind alle dabei (`beech_leaf`, `beech_bark`, `oak_bark`, `oak_leaf`,
-`birch_leaf`, `birch_bark`, `Bush01`). Für den Rest eine handgepflegte Alias-Tabelle von
-~20 Einträgen (`Pine_tree` → `Pine_tree_texture_n.png`, `Rocks_*_roughness` →
-`Rocks_3_4_normal.png` …). Die GLBs führen `TANGENT`, Babylon braucht keine
-Tangentenerzeugung. Ort: `AssetManager.fixupMaterial()` (Zeile 232-270).
-Fallstricke: `_n.png` teils DXT5nm-gepackt (vorab an einer Datei prüfen); `useSRGBBuffer`
-auf Normal-Maps **nie**.
+⚠️ **Der beschriebene Weg dorthin gilt nicht mehr (16.08.2026).** Hier stand: Zuordnung
+über den Materialnamen, weil die GLB-Materialnamen die Unity-Namen *sind*; 161 direkte
+`<name>_n.png`-Treffer in `assets/textures/`, darunter alle bildfüllenden (`beech_leaf`,
+`beech_bark`, `oak_bark`, `birch_bark`, `Bush01`), plus eine Alias-Tabelle von ~20
+Einträgen für den Rest. Diese Rechnung stand auf dem AssetRipper-Export. In
+`assets/textures/` liegen heute 66 Dateien, sämtlich selbst erzeugt, und die einzigen
+`_n`-Karten darunter (`forest_n`, `cultivated_n`, `paved_n`, `gouacherock_big_n`,
+`snow_normal`) gehören dem Terrain. Für `eiche_bark`, `hasel_leaf`, `granit_fels` und die
+übrigen eigenen Materialien existiert **keine** Normal-Map, also auch nichts zuzuordnen.
+
+**Was an die Stelle tritt:** Die Normal-Maps müssen dort entstehen, wo auch die Albedo
+entsteht — in `tools/eiche-texturen.py`, `busch-texturen.py`, `felsen-texturen.py`,
+`blumen-texturen.py`. Das ist eher mehr Arbeit als die drei Stunden hier, aber es ist
+derselbe Weg, den `terrain-texturen.py` für den Boden bereits gegangen ist: Die Karte wird
+aus derselben Höhenfunktion gerechnet, aus der die Farbe kommt, statt sie zu einer fremden
+Bilddatei zu suchen. Der Zuordnungsteil entfällt damit ersatzlos.
+
+Was aus der alten Fassung übrig bleibt und weiter gilt: Die GLBs führen `TANGENT`, Babylon
+braucht keine Tangentenerzeugung; Ort ist `AssetManager.fixupMaterial()`; und
+`useSRGBBuffer` gehört auf eine Normal-Map **nie**. Der Fallstrick „teils DXT5nm-gepackt"
+ist bei selbst gerechneten Karten keiner mehr — man wählt die Packung selbst (und schreibt
+sie in den Kopf des Werkzeugs, wie `wasser-texturen.py` es für `water_normals_real.png`
+tut).
 
 ### Stufe 7 — SSAO2 (~2 h)
 
@@ -486,17 +519,32 @@ Parameter nach dem Original-Profil: `radius 0.15`, `totalStrength 1.0`, `samples
 
 ### Stufe 8 — Vegetationsvielfalt: erst messen, dann ändern (~1 h Diagnose)
 
-**Die Datenlage ist bereits vollständig**: `shared/src/vegetationData.json` enthält 120
+⚠️ **Die Prämisse dieser Stufe hat sich am 16.08.2026 umgedreht.** Hier stand: *„Die
+Datenlage ist bereits vollständig — `shared/src/vegetationData.json` enthält 120
 Foliage-Einträge 1:1 aus `vegetation.pkg` (`Bush01`, `shrub_2`, `stubbe`, `FirTree_oldLog`,
-`Pickable_*`, `Rock_3/4` …), alle zugehörigen GLBs liegen vor (Stichprobe 19/19). Bei den
-Clutter-Einträgen fehlt genau einer (Kopfkommentar `GrassClutter.ts:11` nennt 14, `ENTRIES`
-hat 13).
+`Pickable_*`, `Rock_3/4` …), alle zugehörigen GLBs liegen vor (Stichprobe 19/19). Der
+Eindruck ‚nur ein Grasteppich' kommt daher vermutlich aus Sichtweite/LOD,
+Serverstreaming-Radius oder dem `DefaultMaterial`-Filter — Diagnose zuerst, erst bei einer
+echten Lücke Code ändern."*
 
-Der Eindruck „nur ein Grasteppich" kommt daher vermutlich aus **Sichtweite/LOD**,
-**Serverstreaming-Radius** oder dem **`DefaultMaterial`-Filter** (`AssetManager.ts:148-151`
-schaltet bei `Bush01` eines von drei Materialien ab). Diagnose zuerst: Instanzzahlen pro
-Prefab an einem Waldstandort gegen die Vorgabe aus `vegetationData.json` halten. Erst bei
-einer echten Lücke Code ändern.
+Die Diagnose-vor-Änderung-Haltung bleibt richtig. Die Datenlage ist es nicht mehr:
+`vegetationData.json` liegt unverändert im Quelltext, aber jeder Eintrag läuft in
+`shared/src/vegetation.ts` gegen `istEigenesModell()`, und in `vegetation.pkg` steht
+ausschließlich Valheim-Material. Der gesamte Block fällt heraus. **`FOLIAGE` ist heute
+`shared/src/flora.ts`** — die eigene Streutabelle, nicht mehr ein Anhang an die
+Original-Tabelle. Von 174 Roheinträgen bleiben 73 eigene.
+
+Zwei Folgen, die man kennen muss:
+
+- Es gibt **keine Biom-Standardtabelle** mehr. Eine Region ohne Kuratierungsliste bleibt
+  kahl, und die radiale Welt aus `GeoManager` (ohne Layout) trägt überhaupt keinen Bewuchs.
+  `server/test/e2-vegetation.ts` misst genau das.
+- Ein Modell in einer `*_FLORA_NAMEN`-Liste einer Region reicht **nicht**: Ohne Eintrag in
+  `EIGENE_FLORA` wird es nie gestreut. Dagegen steht `server/test/h4-graslandflora.ts`.
+
+Die Frage „warum sieht der Wald nach einem Grasteppich aus?" beantwortet man deshalb heute
+nicht mehr mit Instanzzahlen gegen `vegetationData.json`, sondern gegen `flora.ts` und die
+Kuratierungsliste der Region.
 
 Zusätzlich unabhängig davon korrigierbar: `meadowsFern` (`GrassClutter.ts:195`) hat
 `inForest: true` **und** `maxAlt: 4.0` — Farne erscheinen damit praktisch nie auf offener
@@ -504,13 +552,29 @@ Wiese, obwohl die Originalszenen sie durchgehend zeigen. Gegen die Originaltabel
 
 ### Stufe 9 — Baum-LOD und Impostoren
 
-Heute wird ausschließlich `Lod0` gerendert (`AssetManager.ts:34-37, 136-139`), ohne
-Laufzeit-Umschaltung und ohne Impostoren — ferne Wälder kosten voll und flimmern. Die
+Es wird ausschließlich die `Lod0`-Hülle gerendert (`AssetManager.ts`, `NON_LOD0`/`LOD0_NAME`
+— Unity-GLBs führen alle LOD-Stufen als Geschwister-Meshes, die höheren werden abgeschaltet),
+ohne Laufzeit-Umschaltung und ohne Impostoren — ferne Wälder kosten voll und flimmern.
+Umsetzung als `Mesh.addLODLevel()` auf den Thin-Instance-Mastern. **Das ist die Gegenfinanzierung für die Schatten aus Stufe 1** —
+deshalb bewusst am Ende, wenn die tatsächlichen Kosten gemessen sind.
+
+⚠️ **Woher die LOD-Stufen kommen, hat sich umgekehrt (16.08.2026).** Hier stand: „Die
 LOD-Stufen liegen in den Prefab-Ordnern des Rips
-(`assetripper/export/Assets/world/Props/<Baum>/`, 6–7 GLBs je Baum). Umsetzung als
-`Mesh.addLODLevel()` auf den Thin-Instance-Mastern. **Das ist die Gegenfinanzierung für die
-Schatten aus Stufe 1** — deshalb bewusst am Ende, wenn die tatsächlichen Kosten gemessen
-sind.
+(`assetripper/export/Assets/world/Props/<Baum>/`, 6–7 GLBs je Baum)" — es war also ein
+reines Verdrahtungsproblem. Den Rip gibt es nicht mehr, und unsere eigenen Bäume haben
+genau eine Stufe.
+
+Das ist weniger schlimm, als es klingt, weil die Bäume **erzeugt** und nicht gefunden
+werden: `tools/baeume-bauen.sh` fährt jeden Baum mit festem Seed und fester Höhe, ein Lauf
+mit gröberer Zielauflösung liefert dieselbe Silhouette in weniger Dreiecken. Die Stufe
+verschiebt sich damit vom Client in die Werkzeugkette — und die Werte in
+`tools/baeume-bauen.sh` sind, wie dort im Kopf steht, keine Vorschläge: Wer sie ändert,
+ändert die Bäume, die in `shared/src/prefabs.ts` mit `renderScale` eingetragen sind.
+
+Der Kostendruck ist außerdem gesunken: Die Welt besteht heute aus 119 Modellen statt aus
+7.463, und `face_limit` beim generativen Weg hält die Dreieckszahlen von vornherein klein
+(siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md)). Vor dem Bau der LOD-Kette gehört
+deshalb erst gemessen, ob sie noch nötig ist.
 
 ---
 
@@ -520,10 +584,12 @@ sind.
   (eigene Verdeckungspassage über die ganze Szene). Der Nebelgradient aus Stufe 4 liefert das
   Glühen um die Sonne praktisch gratis.
 - **HD-Mod-Texturen** (ehemals `assets/textures-hd/`, 829 MB): abgewählt zugunsten der
-  Originaltreue — und seit 2026-08-16 endgültig, siehe Stufe 3. Auf dem dev-Container liegt
-  weder dieser Ordner noch `assets/textures/hd-clutter/`; auf dem Live-Container wird
-  letzterer gelöscht, sobald der Client ohne HD-Pfad dort ausgerollt ist. Fremdes Material
+  Originaltreue — und seit 2026-08-16 endgültig, siehe Stufe 3. Weder dieser Ordner noch
+  `assets/textures/hd-clutter/` liegt noch auf einem der beiden Container; in
+  `assets/textures/` stehen 66 selbst erzeugte Karten und sonst nichts. Fremdes Material
   gehört generell nicht in `assets/` — was der Client ausliefert, ist öffentlich abrufbar.
+  Derselbe Grundsatz hat inzwischen auch den Valheim-Export selbst erledigt (siehe
+  [04-Asset-Pipeline.md](04-Asset-Pipeline.md)).
 - **Triplanar-Terrain**, **`terrain_n_array.png`**, **Wolken-/Sterntexturen**: geringer
   Gewinn bzw. würden die Kopplung des prozeduralen Himmels an das EnvSetup schwächen.
 - **Höher aufgelöste Bodentexturen**: existieren im Original schlicht nicht (Wiesenkachel hat
@@ -533,7 +599,20 @@ sind.
 
 ## Verifikation
 
-Dienste laufen über `systemctl start valheim.target` (Server 2466, Client 5273, Watch-Modus).
+Dienste sind seit 08/2026 **drei systemd-Units, als Dateien auf beiden Containern
+identisch** (`deploy/systemd/`): `wov-server` (Spielserver, Port 2467), `wov-client`
+(Vite-Dev-Server, Port 5274 — auf live nicht aktiviert, dort liefert nginx den gebauten
+Client aus) und `wov-admin` (Betriebsdienst, Port 2468; dort liegen auch
+`/api/worldlayout` und `/api/serverlog`). Ob der Server im Watch-Modus läuft, entscheidet
+`WOV_WATCH` in `/etc/wov.env`, nicht der Quelltext; auf live bleibt die Variable leer.
+
+*(Bis dahin stand hier `systemctl start valheim.target` mit Server 2466 und Client 5273 —
+ein Sammelziel aus der Zeit, als dev und live sich in Quelldateien unterschieden. Ports und
+Unit-Namen stimmen beide nicht mehr.)*
+
+Welche Instanz ein Container fährt, sagt `WOV_INSTANZ` (`dev`|`live`) in `/etc/wov.env`.
+Für die Messungen unten ist das relevant, weil Welt und Spielstand daran hängen —
+Bodenregionen aus zwei Instanzen sind nicht vergleichbar.
 
 | Stufe | Prüfung |
 |---|---|

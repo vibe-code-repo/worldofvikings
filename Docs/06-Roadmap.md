@@ -1,6 +1,66 @@
 # 06 — Roadmap & Meilensteine
 
+> **Diese Datei ist Historie, keine Arbeitsliste.** Die führende Aufgabenliste des Projekts
+> wird inzwischen außerhalb des Repos geführt; hier steht der Repo-interne Vorgänger. Er wird
+> weiter fortgeschrieben, aber nur nach hinten: Erledigtes wird **mit Datum gekennzeichnet**
+> statt gelöscht. Eine Roadmap, aus der Erledigtes verschwindet, verliert genau das, wofür
+> man sie später aufschlägt — die Frage „wann kam das rein und was war der Grund?".
+>
+> Wer wissen will, was als Nächstes ansteht, schaut in die externe Liste. Wer wissen will,
+> warum etwas so ist, wie es ist, ist hier richtig.
+
 Reihenfolge beachtet die Abhängigkeiten aus dem Analyse-Bericht (Weltgen existiert und ist verifiziert → Client kann direkt auf echten Daten aufsetzen). P0-Fallstricke aus [02](02-Migration-von-valheim-browser.md) sind in den betreffenden Phasen eingeplant.
+
+---
+
+## Block A — Betriebsmodell und eigene Modelle *(16.08.2026)*
+
+Ein Block quer zu allen Phasen. Er hat nichts hinzugefügt, was in der Phasenordnung stünde,
+aber er verschiebt den Stand mehrerer Phasen — deshalb steht er vorne und nicht hinten.
+
+- [x] **Eine Codebasis, zwei Container.** Ein Repo, ein Branch `main` (`master` gelöscht);
+      `wov-dev` (CT 102, früher `wov-bau`) und `wov-live` (CT 101) fahren denselben Klon
+      unter `/opt/worldofvikings` auf demselben Commit. **Keine Quelldatei unterscheidet sich
+      mehr zwischen den Containern.**
+- [x] **`WOV_INSTANZ` (dev|live) aus `/etc/wov.env`** bestimmt Weltdokument
+      (`server/data/welten/<instanz>.json`, in Git), Spielstand
+      (`server/data/worlds/<instanz>.db.zst`) und Placement-Cache. Auflöser:
+      `shared/src/instanz.ts`, unbekannter Wert bricht den Start hart ab.
+      `server/data/worldlayout.json` gibt es nicht mehr; `server.yml` ist umgebungsfrei
+      (`world.world` und `world.layout` entfernt).
+- [x] **Nur noch eigene Modelle.** Valheim-Export von live gelöscht (11.869 Dateien, 5,1 GB);
+      übrig 212 Dateien / 158 MB Eigenbau. `EIGENE_MODELLE` in `shared/src/prefabs.ts` ist
+      die Whitelist, `istEigenesModell()` der Test. Gefiltert werden FEATURES (146 → 0),
+      SPAWN_TABLE (3 → 0), die Bauteile des Hammers (9 → 2), die `model`-Felder der
+      Gegenstände (25 → 0) und FOLIAGE (aus `vegetation.pkg` bleibt nichts, es bleiben die
+      73 eigenen Einträge aus `flora.ts`). `world.features` und `dungeons.enabled` stehen auf
+      `false`. hdClutter und die HD-Mod-Texturen sind restlos entfernt.
+- [x] **Der Editor läuft auf beiden Containern.** `POST`/`GET /api/worldlayout` und
+      `GET /api/serverlog` liegen im Betriebsdienst `admin/` (Port 2468) statt als
+      Vite-Middleware; auf dev proxyt Vite dorthin, auf live nginx. Der Editor hat seit dem
+      einen **Ladeweg**: Dokument beim Start per GET, und weicht der localStorage-Entwurf ab,
+      entscheidet der Nutzer informiert (Gegenüberstellung mit Regionen namentlich).
+      Farbband zeigt die Instanz. Einziger Schreibweg:
+      `shared/src/worldlayout/layoutDatei.ts`.
+- [x] **Vier Domains**, Basic-Auth am Host statt am Pfad; eine `map $host`-Weiche in nginx
+      sperrt `/editor.html` und `/api/` auf allem außer dem Editor-Host.
+- [x] **Ausrollen:** `tools/wov-update.sh` ersetzt `tools/deploy.sh` (gelöscht). tsx steht in
+      `dependencies`, aufgerufen wird `node_modules/.bin/tsx` statt `npx`. Drei systemd-Units
+      (`wov-server`, `wov-client`, `wov-admin`), auf beiden Containern identisch.
+      Betriebsteil ausführlich in [05](05-Server-Architektur.md).
+- [x] **Neue Live-Welt** (Weltschnitt): 17 Regionen, 159 Platzierungen, alle 17 kuratiert,
+      0 unbekannte Prefabs. Serverstart ~2 s statt ~37 s, weil keine Locations mehr
+      platziert werden.
+- [x] **Tests:** 23, Kernliste 20 — neu darin `admin/test/betriebsdienst.ts` und
+      `client/test/welt-abgleich.ts`.
+
+> **Was Block A dem Spiel genommen hat, und warum das so bleiben soll:** Bauen und Kämpfen
+> sind aus, bis eigene Modelle vorliegen. Das ist keine Regression, sondern der Preis der
+> Entscheidung — und er wird bewusst *im Datenbestand* bezahlt statt im Renderer. Die
+> verworfene Alternative war, die Valheim-Prefabs nur clientseitig auszublenden: Dann
+> stünden weiterhin Geister-ZDOs im Spielstand, die zu der Buchung, die später mit eigenen
+> Modellen entsteht, nicht mehr passen. Welche Phasenpunkte davon betroffen sind, steht
+> jeweils dort vermerkt.
 
 ---
 
@@ -10,7 +70,9 @@ Reihenfolge beachtet die Abhängigkeiten aus dem Analyse-Bericht (Weltgen existi
 - [x] npm-Workspace aufsetzen (`client`, `server`, `shared`), tsconfig, Vite
 - [x] Import aus `valheim-browser`: `shared/`, `server/`, `tools/` (ohne node_modules/dist) — Paket-Scope `@valheim-babylon/*`, eigenständiges Projekt
 - [x] Assets **kopiert** nach `assets/` (4,9 GB, gitignored) — keine externe Referenz; Vite serviert `/assets` aus dem Projekt
+      *(Überholt am 16.08.2026: Der Valheim-Export ist gelöscht, `assets/` trägt 212 eigene Dateien / 158 MB — siehe Block A.)*
 - [x] **Eigene Ports:** Game-Server WS **2466**, Vite Dev **5273**, Proxy `/ws` → 2466 (valheim-browser bleibt auf 2456/5173 — Parallelbetrieb möglich)
+      *(Heute: 2467 / 5274, dazu 2468 für den Betriebsdienst.)*
 - [x] **Abnahme:** `shared/test/math-golden` + `geo-smoke` + `server/test/d6-smoke` grün; Server generiert Welt mit Seed `KxSYuZquuw` identisch (getGroundHeight(0,0) = 36,052001953125); Vite-Build läuft
 
 ## Phase 1 — Babylon-Grundgerüst *(Engine läuft)* ✅ **erledigt (2026-07-26)**
@@ -66,11 +128,13 @@ Reihenfolge beachtet die Abhängigkeiten aus dem Analyse-Bericht (Weltgen existi
 - [ ] **ClusteredLightingContainer** + Licht-Pool (Fackeln/Feuer/Portale), Flicker-Noise
 - [x] **Post-Process-Stack des Originals** (`client/src/engine/PostProcessing.ts`): das echte Ingame-Profil (Unity PostProcessing v2) aus dem entpackten Client übernommen — Bloom 0.3/0.7, Motion Blur 150°/10 Samples, Chromatic Aberration 0.15, *Neutral*-Tonemapping + Kontrast 1.2. DOF ist **im Original aus**. Das war die Ursache des „unser Bild wirkt hart"-Eindrucks. Werte-Tabelle und die zwei Babylon-Fallstricke beim Motion Blur in [03 §2.4](03-Rendering-und-Engine.md)
 - [x] **Einstellungsmenü** (`client/src/ui/Settings.ts` + `SettingsPanel.ts`, Escape): Vegetationsqualität und Detailgrad (4 Stufen wie im Original, `GraphicsSettingInt.Vegetation`/`.LOD`) sowie Bloom/Bewegungsunschärfe/Chromatische Aberration/Kantenglättung (`GraphicsSettingBool`), persistiert in `localStorage`. Beschriftungen aus den echten Lokalisierungs-Strings des Clients
-- [x] **Fels an Geländekanten** (`TerrainSplat.ts`): Schwelle 0.72 → 0.85 (44° → ~32°) und rauschverschobene, schmale Übergangsrampe statt weichem Verlauf ⇒ gesprenkelter Moos/Fels-Rand wie im Original — [03 §3](03-Rendering-und-Engine.md)
+- [x] **Fels an Geländekanten** (`TerrainSplat.ts`): Die Rampe beginnt bei **30°** statt bei 44° (`clamp((0.87 − ny)/0.15, 0, 1) · 0.85`) ⇒ Hänge bekommen wieder Steintextur — [03 §3](03-Rendering-und-Engine.md)
+      — *korrigiert am 16.08.2026 (E4): Hier stand „Schwelle 0.72 → 0.85 und rauschverschobene, schmale Übergangsrampe ⇒ gesprenkelter Moos/Fels-Rand wie im Original". Der gesprenkelte Rand war eine **frei erfundene** Variante und ist zurückgenommen worden — dieser Punkt feierte also ein Ergebnis, das nicht mehr im Code steht. Was blieb, ist die flachere Schwelle, und die ist ausgezählt statt geschätzt: nur 2,2 % des Geländes sind steiler als 44°*
 - [x] **Wasser** (`client/src/engine/WaterPlugin.ts`): echte `WaterVolume.CalcWave`-Formel im Vertex-Shader (10 trochoidale Oktaven, Tiefe über 10 m normalisiert) ⇒ der Strand wird sichtbar überspült; Ufer-Schaum und Tiefen-Farbverlauf mit den **ausgelesenen** Materialwerten (`_FoamDepth` 0.2, `_FoamColor` 0.838, `_DepthFade` 15, `_ColorBottom[Shallow]`); tiefenabhängige Deckkraft 0.16→0.88 (flaches Wasser fast durchsichtig); echte Original-Texturen statt der 0-Byte-Stubs — [03 §3.1](03-Rendering-und-Engine.md)
 - [x] **Tile-Normal-Maps (G-TEX2)** im Terrain-Splat: 3 Rauheitsgruppen, Eckgewichte-Blend, tangentenfreie Störung (`CustomBlock` mit echtem GLSL) — der Boden hat damit erstmals Oberflächenstruktur statt flacher Färbung
 - [x] **Ladebildschirm** (`client/src/ui/LoadingScreen.ts`) über die Aufbauphase; Wasser bleibt bis `TerrainManager.ready` ausgeblendet (sonst Wasser + Schaum über noch ungebautem Gelände beim Login)
 - [x] **Textur-Rückgewinnung** `tools/recover-textures.mjs` + Diagnose `tools/png-stats.mjs` — 95 % der Texturen im Asset-Ordner sind 0-Byte-Stubs, die echten Daten liegen PathID-benannt im Client-Export (Einschränkung 33)
+      — *gegenstandslos seit 16.08.2026: Der Client-Export ist gelöscht, alle Texturen sind Eigenbau. Dasselbe gilt für `dump-envsetup.mjs` weiter oben — die Ground-truth-Quelle für `envData.json` existiert nicht mehr, die handabgestimmten Werte bleiben, was sie sind*
 - [x] God Rays: waren bereits implementiert (`PostProcessing.setSunShafts`, Einstellung „Sonnenstrahlen“, bewusst default-aus — Kostenhinweis im Code) ✅ festgestellt 2026-08-03
 - [ ] SSAO — bleibt bewusst zurückgestellt (dokumentierte Entscheidung in PostProcessing.ts: SSAO2 bräuchte einen Depth-Pass über Terrain+Clutter)
 - [ ] SceneOptimizer-Profile (High/Medium/Low) + FPS-Ziel-Test
@@ -101,7 +165,16 @@ Reihenfolge beachtet die Abhängigkeiten aus dem Analyse-Bericht (Weltgen existi
 - [ ] AnimationGroups-Mapping für Kreaturen (Spieler: AvatarRig; eigene NPCs: Autoplay via `PrefabDef.animation` ✅ 2026-08-02; Umschalten zur Laufzeit über den ZDO-Member `anim` — `idle`/`walk` bei Routen-NPCs, `AssetManager.wechsleAnimation` ✅ 2026-08-05)
 - [x] **Abnahme bestanden** (2026-08-03): Zwei Clients („Erster“/„Zweiter“) sehen einander als Entity (Platzhalter-Kapsel — Player.glb ist mesh-los, Export-Lücke); Interpolation glättet
 
-## Phase 5 — Gameplay *(spielbar)* 🟡 **Fundament steht**
+## Phase 5 — Gameplay *(spielbar)* 🟡 **Fundament steht, seit 16.08.2026 in Teilen stillgelegt**
+
+> **Block A wirkt hier am stärksten.** Gebaut ist alles, was unten abgehakt steht; wirksam
+> ist es nur, soweit ein eigenes Modell dahintersteht. Vom Hammer bleiben zwei von neun
+> Bauteilen (KI-Kiefer und Menhir) — Boden, Wand, Tür, Dach, Werkbank, Bett und Portal sind
+> Valheim-Prefabs und fallen weg. Die `model`-Felder aller Gegenstände sind auf `null`, das
+> Symbol im Inventar bleibt: Der Wikinger hält nichts sichtbar in der Hand, behält aber
+> Rezepte und Truheninhalte. Kreaturen spawnen keine mehr, also gibt es auch nichts zu
+> bekämpfen. **Der Core-Loop ist damit vorübergehend nicht spielbar** — bewusst, und die
+> Abnahme unten wartet darauf.
 
 - [x] Havok: Terrain-Physik, `PhysicsCharacterController` (Kapsel, Sprung, Valheim-Gravitation −20), Kollisions-Fenster 48 m
 - [x] Bau-Vorschau: `PlacementController` + `PieceSelection` (Hammer/Hoe/Cultivator, Ghost, Raster)
@@ -112,20 +185,35 @@ Reihenfolge beachtet die Abhängigkeiten aus dem Analyse-Bericht (Weltgen existi
 - [x] **Essen** ✅ 2026-08-03: Feuerstellen braten Fleisch (E), Taste F isst → maxHP-Buff + 2 HP/s Regen (server-autoritativ, HUD in Prozent)
 - [x] **Portale** ✅ 2026-08-03: baubar, E reist zum nächsten anderen Portal (Auto-Paarung; Tag-System braucht Text-UI)
 - [x] Eikthyr-Opfergabe (2 Hirschtrophäen) + Mitspieler-Avatar (npc_1_walk mit Walking-Loop statt Kapsel) ✅ 2026-08-03
+      — *seit 16.08.2026 antwortet der Altar „Der Altar schweigt — für Eikthyr fehlt noch ein Modell", und zwar **vor** dem Abzug der Trophäen: Sonst zahlte der Spieler für eine unsichtbare Hülle, deren ZDO als toter Eintrag im Spielstand bliebe*
 - [ ] Bau-System serverseitig: Piece-Validierung + Sync
 - [x] Kampf-Basis: Health im HUD, Nahkampf (Klick), Kreaturen-HP, Tod → Respawn am Weltspawn ✅ 2026-08-02 (Stamina, Betten, Crafting offen)
+      — *ohne Kreaturen derzeit ohne Gegner*
 - [ ] **Abnahme:** Loop "Holz sammeln → Werkbank → Basis bauen → Nacht überstehen" mit 2 Spielern
+      — *nicht durchführbar, bis eigene Bauteil- und Kreaturenmodelle vorliegen (Block A)*
 
-## Phase 6 — Content & Polish *(Valheim-Gefühl)* 🟡 **Dungeon-Block fertig**
+## Phase 6 — Content & Polish *(Valheim-Gefühl)* 🟡 **Dungeon-Block fertig, seit 16.08.2026 stillgelegt**
+
+> Fast alles in dieser Phase hängt an Valheim-Exporten und ist seit Block A abgeschaltet —
+> `world.features: false` und `dungeons.enabled: false` in `server/data/server.yml`. Der Code
+> bleibt, die Buchung nicht: Locations und Dungeons würden ZDOs anlegen, die der Client nicht
+> darstellen kann. Beides gilt für dev **und** live; der Verzicht auf Valheim-Modelle ist eine
+> Projektentscheidung, kein Umgebungsunterschied.
 
 - [x] Locations aus features.pkg (146, Phase F) inkl. Terrain-Leveling-Regeln (Piece-Grundfläche, Vegetations-Invariante ✅ 2026-08-02)
+      — *stillgelegt 16.08.2026: alle 146 Einträge sind Valheim-Exporte, `FEATURES` ist damit leer*
 - [x] **Dungeon-System** (✅ 2026-08-02, über Plan hinaus): dungeons.pkg-Parser (392 Räume), Generator-Port, **eigene Instanzen** im Koordinaten-Band x=100000, Dokumente mit eigener ID, Eingangs-Registry + Hüllen, E-Betreten/Verlassen, F4-Editor, Kartenmarker — [08-Dungeon-System.md](08-Dungeon-System.md)
+      — *stillgelegt 16.08.2026: folgt zwingend aus `world.features` (ohne gebuchte Krypta kein Eingang), und die Raumteile selbst sind ebenfalls durchweg Valheim-Exporte — eine betretbare Instanz wäre ein leerer Raum aus unsichtbaren Wänden*
 - [x] Kreaturen-Spawning + Wandern (G2), Wetter/Niederschlag, Kaskaden-Schatten (3 Kaskaden)
+      — *Spawning stillgelegt 16.08.2026: `SPAWN_TABLE` ist auf 0 Einträge gefiltert. Wetter und Schatten laufen weiter*
 - [x] **Camps in der Oberwelt** (CampRadial-Port + Boot-Backfill): Dörfer, Farmen, GoblinCamps, Ruinen-Cluster ✅ 2026-08-02
+      — *stillgelegt 16.08.2026 zusammen mit den Locations*
 - [x] Punktlicht-Pool (6 wandernde Lichter, Flicker, PrefabDef.light-Hints) ✅ 2026-08-02
 - [x] Dungeon-Nacharbeiten: Türen/Truhen (Interact), Spawner erwachen, Regeneration leerer Instanzen ✅ 2026-08-02 (Editor-Ausbau, NPC-Wegfindung offen)
 - [x] RandomEvents (verschlankt): "Der Wald bewegt sich"-Überfälle ✅ 2026-08-02
+      — *ohne Kreaturen derzeit ohne Wirkung*
 - [x] Kreaturen-KI: Chase + Angriff (Aggro 20 m) ✅ 2026-08-02 — Boss-Encounter offen
+      — *dito: der Code läuft, es gibt niemanden, der angreift*
 - [x] Audio-Grundgerüst (WebAudio) ✅ 2026-08-02 — auf eigene Hintergrundmusik zurückgebaut (2026-08-06): Valheim-Aufnahmen entfernt, Wind/Schritte/One-Shots brauchen neue, lizenzfreie Quellen
 - [ ] Optional: RouteManager, Housing/Discord/REST, Lua-Modding, KTX2/Draco
 
@@ -134,7 +222,7 @@ Reihenfolge beachtet die Abhängigkeiten aus dem Analyse-Bericht (Weltgen existi
 - **Skill-System**: leveln von Laufen/Waffen — sinnvoll erst, wenn Kampf/Werkzeuge weiter ausdifferenziert sind
 - **Container-UI mit Server-Inventaren**: Architekturwechsel (Inventar lebt heute clientseitig, Kosten/Loot laufen über dokumentiertes Client-Vertrauen)
 
-**Bekannte Abweichungen vom Master-Plan:** Persistenz ist JSON+zstd statt SQLite (bewusst, `WorldManager.ts`); vorbestehender tsc-Fehler in `TerrainSplat.ts:1238` (Build läuft trotzdem).
+**Bekannte Abweichungen vom Master-Plan:** Persistenz ist JSON+zstd statt SQLite (bewusst, `WorldManager.ts`); Assets sind Eigenbau statt Original-Export und die Welt kommt aus einem Layout-Dokument statt aus dem radialen Seed-Kreis (beides 16.08.2026, siehe [00](00-Master-Plan.md)). ~~vorbestehender tsc-Fehler in `TerrainSplat.ts:1238`~~ — behoben; `npm run typecheck` läuft über shared, server, client und admin und ist seit Block A das Tor im Ausrollskript.
 
 ---
 

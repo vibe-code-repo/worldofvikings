@@ -2,7 +2,7 @@
  * WorldLayout-MCP-Server (Phase 5b des Kartengenerierungs-Umbaus).
  *
  * KI-gestützter Weltbau: exponiert das WorldLayout-Dokument
- * (server/data/worldlayout.json) als MCP-Tools, damit eine KI im Gespräch
+ * (server/data/welten/<instanz>.json) als MCP-Tools, damit eine KI im Gespräch
  * Regionen anlegen, ändern und die Welt veröffentlichen kann — dieselbe
  * Datei, die auch der grafische Editor (editor.html) bearbeitet.
  *
@@ -157,7 +157,7 @@ mcp.tool(
   () => {
     execFileSync('systemctl', ['restart', 'wov-server'], { timeout: 30000 });
     return {
-      content: [{ type: 'text', text: 'wov-server neu gestartet — die Welt lädt das aktuelle Layout (Boot dauert je nach Placement einige Minuten).' }],
+      content: [{ type: 'text', text: 'wov-server neu gestartet — die Welt lädt das aktuelle Layout (Boot ~2 s, seit die Locations entfallen sind).' }],
     };
   }
 );

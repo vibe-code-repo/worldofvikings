@@ -1,5 +1,36 @@
 # Dungeon-System (Phase G)
 
+> ## ⛔ Stand 16.08.2026: abgeschaltet, nicht abgebaut
+>
+> `server/data/server.yml` setzt `dungeons.enabled: false`. **Das ist keine Änderung an
+> diesem System** — alles, was unten steht, ist unverändert vorhanden, getestet und
+> lauffähig. Abgeschaltet ist es aus einem Materialgrund: Sämtliche Raumteile und alle zehn
+> Eingangshüllen-Modelle sind Valheim-Exporte, und seit Block A steht ausschließlich
+> eigener Bau in der Welt (`EIGENE_MODELLE` / `istEigenesModell()`,
+> siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md)).
+>
+> Die Fahne folgt zwingend aus `world.features: false`: Dungeons hängen an Locations. Ohne
+> gebuchte Krypta gibt es keinen Eingang — und selbst wenn es einen gäbe, wäre die
+> betretbare Instanz ein leerer Raum aus unsichtbaren Wänden.
+>
+> **Verworfen wurde**, die Eingänge weiter zu buchen und nur clientseitig auszublenden. Dann
+> stünden Geister-ZDOs im Spielstand, die später nicht mehr zu der Buchung passen, die mit
+> eigenen Modellen entsteht. Ebenso verworfen: Platzhalter-Würfel als Hülle spawnen — das
+> hätte die Welt mit Kisten gepflastert, die niemand betreten kann.
+>
+> Was das konkret heißt, Weg für Weg:
+>
+> | Weg | Verhalten heute |
+> |---|---|
+> | `ZoneManager.generateFeature` → `onDungeonPiece` | läuft nicht, weil keine Location gebucht wird |
+> | Boot-Backfill in `WovServer` | prüft neuerdings `dungeonsEnabled` und läuft leer — er war der einzige Pfad, der an der Fahne vorbeilief und trotzdem Eingänge buchte, samt Kartenmarken auf unsichtbare Krypten |
+> | `spawnEntranceHull()` | prüft `istEigenesModell(entrance.feature)` und erzeugt **kein ZDO**; die übersprungenen Hüllen werden gezählt und geloggt, weil eine stille Null offenließe, ob die Registrierung leer ist oder die Hüllen mit Absicht ausbleiben |
+> | Instanzen, Generator, Editor, Admin-Kommandos | unverändert; ohne Eingang nur nicht erreichbar |
+>
+> **Das System kommt zurück, sobald es eigene Raum- und Eingangsmodelle gibt.** Bis dahin
+> ist dieses Dokument die Beschreibung eines schlafenden, nicht eines abgeschafften Systems.
+> Zu ändern ist dann eine Zeile in `server.yml` plus die Einträge in `EIGENE_MODELLE`.
+
 Dungeons sind bei uns **eigenständige Instanzen** — anders als im Original,
 das Innenräume 5 km über den Eingang in dieselbe Zone legt (`y + 5000`,
 `Character.InInterior() => y > 3000`). Jeder Dungeon hat eine **eigene ID**,
@@ -60,10 +91,17 @@ ab, falls das je nicht mehr gilt). Die Naht zwischen beiden Dateien prüft
 
 Die pkg liefert, was den GLB-Exporten fehlt: Raumgrößen (OBB), Connector-
 Transforms (`RoomConnection`), Themes, Gewichte, Endcap-Prios und die
-**netViews** (Truhen, Spawner, Fackeln … je Raum). Alle 392 Raumnamen haben
-ein GLB unter `assets/models/`. Raum-Prefabs sind keine ZNetView-Prefabs —
-`shared/src/prefabs.ts` hängt sie mit `flags = 0n` an die Registry
-(renderbar, statisch, nicht persistent).
+**netViews** (Truhen, Spawner, Fackeln … je Raum). Raum-Prefabs sind keine
+ZNetView-Prefabs — `shared/src/prefabs.ts` hängt sie mit `flags = 0n` an die
+Registry (renderbar, statisch, nicht persistent).
+
+⚠️ **Hier stand: „Alle 392 Raumnamen haben ein GLB unter `assets/models/`."** Das galt,
+solange dort der AssetRipper-Export lag. Seit dem 16.08.2026 stehen in `assets/models/`
+119 selbst gebaute GLBs, und **keine einzige** davon ist ein Dungeon-Raum. Die
+Datengrundlage — `dungeonsData.json`, `roomPiecesData.json`, die Naht dazwischen — ist
+davon unberührt und wird von `shared/test/weltdaten-schnitt.ts` weiter geprüft; es fehlt
+die Geometrie, nicht die Beschreibung. Wer eigene Räume baut, braucht deshalb nicht die
+392 Namen nachzubauen, sondern ein eigenes Kit mit eigenen Connector-Transforms.
 
 ## Generator
 
@@ -104,10 +142,25 @@ Räume außerhalb des Basis-Kits.
   weiterhin, meldet sie aber über den Hook `onDungeonPiece` →
   `registerEntrance()` erzeugt beim ersten Kontakt deterministisch ein
   generiertes Dokument (`<slug>-<zone>`, Seed aus der Location) und merkt
-  sich Zone→Dungeon-ID in `data/dungeons/entrances.json`. Zuweisung per
+  sich Zone→Dungeon-ID in `data/dungeons/<instanz>/entrances.json`. Zuweisung per
   `dungeon assign` überschreibbar. (Achtung: bereits generierte Zonen eines
   alten Saves laufen nicht erneut durch `generateFeature` — Eingänge
   entstehen dort erst bei neuen Zonen oder frischer Welt.)
+  - **Sichtbare Hülle**: `spawnEntranceHull()` legt für jeden bekannten Eingang ein
+    gewöhnliches statisches ZDO an (im Original ist die Hülle Location-Prefab-Geometrie
+    ohne ZNetView). Bewusst **nicht persistent** — der Aufruf läuft bei jedem Serverstart
+    für alle Eingänge erneut (`spawnAllEntranceHulls`), gespeicherte Hüllen würden sich
+    sonst bei jedem Boot verdoppeln.
+  - ⛔ **Seit Block A entsteht dabei kein ZDO mehr.** Alle zehn Namen in
+    `ENTRANCE_HULL_MODELS` sind Valheim-Exporte; die Prüfung sitzt in
+    `spawnEntranceHull()` und nicht beim Aufrufer, weil dort drei Wege durchlaufen
+    (Zonen-Hook, Boot-Backfill, Admin-Befehl). Registrierte Eingänge bleiben damit
+    Buchhaltung ohne Weltwirkung — keine Hülle, keine Kartenmarke, kein betretbarer
+    Zugang. Der Zähler „*n* Eingangshülle(n) übersprungen — kein eigenes Modell" im
+    Serverlog ist die einzige Spur.
+  - Da `world.features: false` ohnehin keine Location mehr bucht, steht die
+    Eingangstabelle auf dev derzeit auf 0 Einträgen; auf einem älteren Spielstand
+    bleiben die früher registrierten Einträge stehen und laufen ins Leere.
 - **Instanzen**: `getOrCreateInstance()` materialisiert `flattenLayout()`
   (Raum-Hüllen + netViews + Türen) als normale ZDOs im Slot;
   `destroyInstance()` räumt ab und gibt den Slot frei.

@@ -493,9 +493,16 @@ export const HOCHNORD_FLORA: readonly Foliage[] = [
  * hier trotzdem nicht, weil sie schon den Hohen Norden tragen und
  * dieselbe Form in beiden Biomen die Unterscheidung einebnete.
  *
- * WICHTIG für den Editor: Eine leere Liste ist NICHT dasselbe wie ein
- * fehlendes Feld. Fehlt `vegetation`, gilt die Biom-Standardtabelle;
- * steht `[]` da, wächst garantiert nichts (streuung.ts, Kuratierungstor).
+ * WICHTIG für den Editor: Eine leere Liste und ein fehlendes Feld führen
+ * seit dem 16.08.2026 zum SELBEN Ergebnis — beide lassen die Region kahl.
+ * Bis dahin galt ohne Feld die Biom-Standardtabelle aus vegetation.pkg;
+ * die gibt es nicht mehr, seit FOLIAGE ausschließlich eigene Einträge
+ * enthält und das Kuratierungstor in streuung.ts sie ohne Bestellung
+ * ausschließt.
+ *
+ * Der Unterschied bleibt trotzdem einer der ABSICHT, und dafür steht `[]`:
+ * Eine leere Liste sagt „hier wächst nichts, und das ist so gewollt",
+ * ein fehlendes Feld sagt „hier hat noch niemand kuratiert".
  * Genau diese Garantie ist hier gewollt — nackter Aschegrund ist der
  * Entwurf, nicht eine noch nicht gefüllte Liste.
  *

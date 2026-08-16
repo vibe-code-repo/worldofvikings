@@ -1,7 +1,44 @@
 # Analyse-Bericht: Modell-Proportionen & Weltgenerierung
 
-**Datum:** 22.07.2026
+**Datum:** 22.07.2026 (Bericht) · Status-Updates bis 27.07.2026
 **Quellen:** `valheim-browser` (Browser-Game), `valheim_browser_assets` (Assets), `valheim.community` (Valhalla2.0 C++-Server, Referenz)
+
+---
+
+> ## 📌 Momentaufnahme — der Assetstand ist überholt, die Weltgenerierung nicht
+>
+> Dieses Dokument ist der Gründungsbericht des Projekts und wird **nicht fortgeschrieben**.
+> Es hat zwei Hälften mit sehr verschiedener Haltbarkeit:
+>
+> **Teil 2 (C++-Weltgenerierung) und die Status-Updates zur Mathematik gelten unverändert.**
+> Weltgeometrie, Heightmap, Perlin, Seed-Offsets, Biom-Formeln, Flüsse, FastNoise/Ashlands —
+> das ist gegen den C++-Server golden verifiziert und bis heute die Grundlage von
+> `shared/src/worldgen`. Wer daran etwas ändern will, liest hier nach.
+>
+> **Teil 1 und alles, was am AssetRipper-Export hängt, ist seit dem 16.08.2026 Geschichte.**
+> Der Export ist gelöscht (11.869 Dateien, 5,1 GB). Es gibt keine 7.463 GLBs mehr, keine
+> 4,8 GB, keine 2.639 leeren PNG-Stubs, kein `valheim_browser_assets`. Die Welt besteht aus
+> 119 selbst gebauten Modellen und 66 selbst erzeugten Texturen; `EIGENE_MODELLE` in
+> `shared/src/prefabs.ts` ist die Whitelist, `istEigenesModell()` der Test. Der ganze
+> Vorgang samt Begründung steht in [04-Asset-Pipeline.md](04-Asset-Pipeline.md).
+>
+> Konkret berührt das die Tabelle **Bekannte Einschränkungen** weiter unten. Dort beschreiben
+> die Einträge 1–4, 27, 28, 28b, 30, 31, 32 und 33 Eigenschaften eines Bestands, den es nicht
+> mehr gibt — leere Texturen, mesh-lose Kreatur-Rigs, das fehlende Spielermodell, `@` in
+> Dateinamen. Sie sind nicht *behoben*, sondern **gegenstandslos**; die Löcher, die sie
+> beschrieben, waren mit ein Grund für die Umstellung. Was an ihre Stelle getreten ist:
+> Ohne eigene Modelle wird derzeit **nicht gebaut und nicht gekämpft** — ein bewusst
+> gewählter Zwischenzustand.
+>
+> Ebenfalls überholt, weil inzwischen anders entschieden: Einschränkung 14 (Dungeons) —
+> das System existiert vollständig, ist aber über `server.yml` abgeschaltet, siehe
+> [08-Dungeon-System.md](08-Dungeon-System.md). Und die Zeile „`prepareFeatures()` braucht
+> ~75 s beim Serverstart" (Einschränkung 12): Es werden keine Locations mehr platziert, der
+> Serverstart dauert rund 2 s statt rund 37 s.
+>
+> **Der Text unterhalb dieser Zeile bleibt unangetastet.** Eine Analyse nachträglich
+> umzuschreiben, hieße den Erkenntnisstand zu fälschen, auf dem alle Folgeentscheidungen
+> beruhen — auch die, diesen Weg wieder zu verlassen.
 
 ---
 

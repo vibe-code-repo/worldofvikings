@@ -7,6 +7,47 @@
 
 ---
 
+> ## 📌 Momentaufnahme vom 26.07.2026 — überholt, aber nicht falsch
+>
+> Dieses Dokument ist eine **Bestandsaufnahme eines Tages** und wird nicht fortgeschrieben.
+> Es hält fest, wie weit der Babylon-Client am 26.07.2026 hinter der Three.js-Referenz
+> zurücklag und in welcher Reihenfolge die Lücken geschlossen werden sollten. Genau als
+> solches ist es weiter wertvoll: Die Spalte „Wichtige Erkenntnisse aus der Referenz" ist
+> eine Liste von Fallen, die man sonst ein zweites Mal baut.
+>
+> **Was seither anders gekommen ist, in Stichworten:**
+>
+> - **Die Namen stimmen nicht mehr.** Das Projekt heißt World of Vikings; das Shared-Paket
+>   ist `@wov/shared`, der Server `WovServer.ts`. `valheim-babylon` und `valheim-browser`
+>   sind hier Namen aus der Migrationszeit.
+> - **Die Referenz ist keine mehr.** `valheim-browser` (Three.js) diente als Soll, bis der
+>   Babylon-Client sie eingeholt hatte. Vergleiche gegen sie stehen nur noch als
+>   historische Messungen in [03-Rendering-und-Engine.md](03-Rendering-und-Engine.md).
+> - **Der Aufgabenplan M0–M3 ist weitgehend abgearbeitet und teils überholt.** Schatten,
+>   Tag/Nacht-Nebel, Interpolation, Fern-Ring, Wasser, Weltkarte, HUD und Login existieren
+>   — die Weltkarte inzwischen als eigenes 3D-Modell der Welt (Docs/03 §9), nicht als das
+>   hier geplante 2D-Offscreen-Raster. Was heute offen ist, steht in
+>   [07-Grafik-Konzept.md](07-Grafik-Konzept.md), nicht hier.
+> - **Der Materialstand hat sich vollständig gedreht (16.08.2026).** Der Plan setzt
+>   durchgängig voraus, dass der AssetRipper-Export vorliegt: `preloadModels` über ~43
+>   Valheim-Prefabs, Placeholder→GLB-Swap, `loadSprite` auf 1595 Item-Icons. Der Export ist
+>   gelöscht; die Welt besteht aus 119 eigenen Modellen, `EIGENE_MODELLE` in
+>   `shared/src/prefabs.ts` ist die Whitelist. Siehe
+>   [04-Asset-Pipeline.md](04-Asset-Pipeline.md).
+> - **„Keine Aufgaben auf Server-/Shared-Ebene" gilt nicht mehr** (Teil 1). Der Satz war
+>   zu seiner Zeit richtig — Server und Shared waren 1:1 portiert. Seither sind
+>   Weltdokument/Editor, Instanzauflösung (`shared/src/instanz.ts`), Dungeons, Inventar,
+>   Wetter und die eigene Flora dazugekommen. Aus den hier genannten 16 Testdateien sind 39
+>   geworden; `scripts/run-tests.mjs` fährt davon eine kuratierte Liste aus 23 Läufen,
+>   Kernliste 20 — neu darin `admin/test/betriebsdienst.ts` und
+>   `client/test/welt-abgleich.ts`.
+>
+> **Nicht angefasst wurde der Inhalt unterhalb dieser Zeile.** Eine Analyse von damals
+> nachträglich umzuschreiben, hieße den Erkenntnisstand zu fälschen, auf dem die
+> Entscheidungen der Folgewochen beruhen.
+
+---
+
 ## TL;DR
 
 1. **Server & Shared sind bereits 1:1 portiert.** `server/src`, `shared/src` und alle Tests sind inhaltlich identisch mit der Three.js-Referenz (einzig Paketname `@valheim-babylon/shared` und CRLF-Zeilenenden weichen ab). Die gesamte Server-Logik (ZoneManager, PopulateFoliage, prepareFeatures, Persistenz, SpawnSystem, Admin-Fly, TimeSync, ServerConfig-Paket, Gravitation, viewRadius 4) **existiert bereits im Babylon-Repo**.

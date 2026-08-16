@@ -103,11 +103,17 @@ inkonsistenter Nebel zwischen Materialien sieht schlechter aus als
 einheitlicher Pro-Frame-Nebel.
 
 **Farbwerte.** Struktur und Timing sind verifiziert; die konkreten
-Farb-Zahlen in `ENVIRONMENTS` sind handabgestimmte Annäherungen. Ground truth
-holt `node tools/dump-envsetup.mjs <assetripper-export>` aus dem lokalen
-Export nach `shared/src/envData.json` — die Datei wird leer ausgeliefert und
-überschreibt nach dem Lauf feldweise die Defaults (gleiches Muster wie
+Farb-Zahlen in `ENVIRONMENTS` waren handabgestimmte Annäherungen. Ground truth
+holte `node tools/dump-envsetup.mjs <assetripper-export>` aus dem lokalen
+Export nach `shared/src/envData.json` — die Datei wurde leer ausgeliefert und
+überschrieb nach dem Lauf feldweise die Defaults (gleiches Muster wie
 `prefabData.json`), inklusive neuer Namen wie `Crypt`.
+
+⚠️ **Der Lauf ist seit dem 16.08.2026 nicht wiederholbar** — der AssetRipper-Export ist
+gelöscht (siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md)). Das ist folgenlos, weil
+`envData.json` gefüllt im Repo liegt: 39 Wetter mit echten Werten, und Zahlen in einer
+Quelldatei brauchen die Quelle nicht mehr. Es heißt aber, dass eine spätere Korrektur
+dieser Werte von Hand erfolgen muss statt aus dem Export.
 
 ### 2.1b Himmel — `ValheimSky.ts`
 
@@ -133,8 +139,12 @@ Die Kuppel wird daher aus demselben `EnvState` gespeist:
 | Sterne | blenden mit der Nacht ein, von Wolken maskiert |
 | Wolken | prozedurales FBM, Deckung aus `EnvSetup.rainCloudAlpha` |
 
-Alles prozedural — **braucht nichts aus dem 4,9-GB-Export**. Die echten
-Wolken-/Sterntexturen später einzusetzen ist ein Texture-Bind, kein Rewrite.
+Alles prozedural — **braucht nichts aus dem 4,9-GB-Export**. (Rückblickend die
+folgenreichste Entscheidung dieses Kapitels: Als der Export im August gelöscht wurde,
+war die Kuppel der einzige große Renderblock, an dem gar nichts zu tun war.) Der Satz
+„die echten Wolken-/Sterntexturen später einzusetzen ist ein Texture-Bind" gilt
+technisch weiter, ist aber gegenstandslos — es gibt sie nicht mehr, und
+[07-Grafik-Konzept.md](07-Grafik-Konzept.md) rät ohnehin davon ab.
 
 **Verifikation: `node tools/pw-sky-verify.mjs`.** Roher GLSL lässt sich nicht
 von `tsc` prüfen, also bündelt das Skript den echten `ValheimSky` samt
@@ -219,10 +229,18 @@ Alle vier Effekte sind — wie im Original (`GraphicsSettingBool`) — einzeln �
 - **Texturierung:** Custom-`NodeMaterial` mit Biom-Splatting (Wiese/Wald/Sumpf/Berg/Planes-Texturen + Neigung → Fels, Höhe → Schnee). Splat-Gewichte serverseitig/shared berechenbar (Biom-Blend existiert bereits im shared Code).
 - **LOD/Streaming:** Ring-Puffer um den Spieler (z. B. Radius 5 Zonen voll, 6–10 vereinfacht). Höhen per Heightmap-Downsample für Fern-Chunks.
 - **UV-Rotation aus der Variety-Noise (`TerrainSplat.ts`):** Die Tile-UVs werden pro Pixel um `noise.r · 2π` gedreht (three.js-Referenz: `vec2 uv = mat2(ca,sa,-sa,ca) * wuv`). Ohne diese Drehung wiederholt sich jede Tile-Textur stur im 2-m-Raster — genau der gleichförmig gekachelte Boden, den der Nutzer als „Boden braucht noch Texturen" gemeldet hat. War hier mit dem Vermerk „erzeugt harte Nähte" abgeschaltet; die Referenz fährt dieselbe Rotation auf denselben absoluten Welt-UVs ohne das Problem (der Winkel ändert sich durch die bilineare Filterung stetig, `fract()` + 0.02-Inset in `sampleLayer()` fangen den Rest ab — beides bei uns identisch vorhanden).
-- **Fels an Hängen:** `rockK = clamp((0.72 − ny)/0.25, 0, 1) · 0.85` — exakt die Referenzwerte. ⚠️ Hier stand zwischenzeitlich eine **frei erfundene** Variante (Schwelle 0.85, schmalere Rampe, rauschverschobene Schwelle), die den gesprenkelten Fels/Moos-Rand eines Original-Screenshots nachbauen sollte. Die Referenz benutzt genau die glatte Rampe ohne jedes Rauschen; der körnige Eindruck im Original entsteht nicht im Blend, sondern aus der Tile-Textur selbst plus UV-Rotation und Tile-Normal-Maps. Zurückgesetzt.
-- **Tile-Normal-Maps (G-TEX2) ✅:** `terraintile_n_0/1/2.png` werden jetzt gesampelt. Der Rip enthält **kein** 16-Ebenen-Normal-Array, nur drei Rauheitsgruppen; die Zuordnung Tile→Gruppe ist 1:1 aus der Referenz gespiegelt (`tileNormalGroup`). Blend über dieselben Eckgewichte wie die Diffuse-Tiles, dann tangentenfreie Störung nach Schüler (Basis pro Pixel aus `dFdx/dFdy` von Weltposition und UV) — unsere Terrain-Geometrie führt keine Tangenten mit. Umgesetzt als `CustomBlock` im NodeMaterial (echtes GLSL statt Blockgraph). **Ohne diese Ebene ist das Terrain nur eine flach beleuchtete Farbfläche** — genau der vom Nutzer gemeldete „wir sehen immer noch das Standard-Terrain als Untergrund"-Eindruck. Wichtig: beleuchtet wird mit der gestörten Normalen, die Fels-/Schnee-Schwellen benutzen weiter die **geometrische** (sonst flackern Fels- und Schneegrenzen mit dem Texturdetail).
+- **Fels an Hängen:** `rockK = clamp((0.87 − ny)/0.15, 0, 1) · 0.85` — die Rampe beginnt bei **30°** Hangneigung und ist bei **44°** voll ausgefahren.
+  - ⚠️ **Korrektur 16.08.2026 (Roadmap E4).** Hier stand bis heute die Referenzformel `clamp((0.72 − ny)/0.25, 0, 1) · 0.85` als aktueller Stand. Das war seit der Nachmessung überholt — der Code führt die Werte oben. Damit sind **drei** Stände auseinanderzuhalten:
+    1. `0.72 / 0.25` — die three.js-Referenz. Ihre Rampe *beginnt* erst bei 44°.
+    2. `0.85` + schmale, rauschverschobene Rampe — eine **frei erfundene** Variante, die den gesprenkelten Fels/Moos-Rand eines Screenshots nachbauen sollte. Zurückgenommen und nicht wieder aufzunehmen: Der körnige Eindruck im Original entsteht nicht im Blend, sondern aus der Tile-Textur, der UV-Rotation und den Tile-Normal-Maps.
+    3. `0.87 / 0.15` — **der heutige Stand, abgestimmt statt rekonstruiert.** Grundlage ist die Auszählung der Vertex-Normalen über 40 Chunks: 80,7 % des Geländes liegen unter 26°, 12,4 % bei 26–35°, 4,7 % bei 35–44°, **2,2 % über 44°**. Mit der Referenzschwelle konnte Fels also auf 2 % der Fläche überhaupt erscheinen und war erst ab 62° voll ausgefahren — auf 0,03 % der Vertices. Genau das war die Meldung „Berghänge ohne Steintextur". Die heutige Rampe trifft die ~13 % Hangfläche und lässt die 80 % Flachland unberührt.
+  - Der Original-Shader führt die Schwelle selbst, liegt im Export aber nur als 0-Byte-Datei vor (die Materialdaten nennen keine). Eine bit-genaue Rekonstruktion ist damit nicht möglich — deshalb abgestimmt, und deshalb steht die Herleitung hier.
+- **Tile-Normal-Maps (G-TEX2) ✅:** Blend über dieselben Eckgewichte wie die Diffuse-Tiles, dann tangentenfreie Störung nach Schüler (Basis pro Pixel aus `dFdx/dFdy` von Weltposition und UV) — unsere Terrain-Geometrie führt keine Tangenten mit. Umgesetzt als `CustomBlock` im NodeMaterial (echtes GLSL statt Blockgraph). **Ohne diese Ebene ist das Terrain nur eine flach beleuchtete Farbfläche** — genau der vom Nutzer gemeldete „wir sehen immer noch das Standard-Terrain als Untergrund"-Eindruck. Wichtig: beleuchtet wird mit der gestörten Normalen, die Fels-/Schnee-Schwellen benutzen weiter die **geometrische** (sonst flackern Fels- und Schneegrenzen mit dem Texturdetail).
+  - ⚠️ **Korrektur 16.08.2026 — es sind sieben Karten, nicht drei.** Hier stand: „`terraintile_n_0/1/2.png`; der Rip enthält kein 16-Ebenen-Normal-Array, nur drei Rauheitsgruppen; die Zuordnung Tile→Gruppe ist 1:1 aus der Referenz gespiegelt." Das beschrieb die Grenze des Exports, nicht die des Materials: `Heightmap_basematerial` führt neben dem Array **fünf eigene** Normal-Maps mit sprechenden Slots (`_CliffNormal`, `_ForestNormal`, `_SnowNormal`, `_PavedNormal`, `_CultivatedNormal`), und die drei „Rauheitsgruppen" waren nichts als die entpackten Layer 0–2 desselben Arrays — Fels bekam damit dieselbe Körnung wie Sumpfschlamm. `normalTexs` in `TerrainSplat.ts` hat heute sieben Einträge (`terraintile_n_0`, `forest_n`, `terraintile_n_1`, `cultivated_n`, `gouacherock_big_n`, `paved_n`, `snow_normal`). `terraintile_n_2` gibt es nicht mehr.
 
-**Asset-Stand geprüft (2026-07-27):** Alle 16 Tiles in `terrain_d_array.png` sind gefüllt (per `tools/png-stats.mjs --slices 16` mit korrekter Rückrechnung der PNG-Zeilenfilter gemessen — eine frühere Prüfung ohne Filter-Rückrechnung war nur indikativ). Und der Abgleich gegen `/root/valheim_browser_assets` ergibt: von den Texturen **und** Modellen, die die three.js-Referenz benutzt, fehlt bei uns **keine einzige**.
+**Asset-Stand (2026-07-27, überholt):** Alle 16 Tiles in `terrain_d_array.png` sind gefüllt (per `tools/png-stats.mjs --slices 16` mit korrekter Rückrechnung der PNG-Zeilenfilter gemessen — eine frühere Prüfung ohne Filter-Rückrechnung war nur indikativ). Der damalige Abgleich gegen `/root/valheim_browser_assets` ergab: von den Texturen **und** Modellen, die die three.js-Referenz benutzt, fehlt keine einzige.
+
+⚠️ **Diese Prüfung ist seit dem 16.08.2026 hinfällig** — und zwar nicht, weil sie falsch war, sondern weil ihre Bezugsgröße weg ist. `/root/valheim_browser_assets` und der AssetRipper-Export existieren auf keinem Container mehr; `terrain_d_array.png` und alle Normal-Maps erzeugt `tools/terrain-texturen.py` selbst, mit den vom Shader vorgegebenen Maßen und der Tile-Reihenfolge aus dem `TILE`-Enum. Die Frage „fehlt uns etwas gegenüber der Referenz?" hat sich damit erledigt; an ihre Stelle tritt „stimmen unsere erzeugten Karten mit dem überein, was der Shader erwartet?" — siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md).
 
 ### 3.2 Warum der Boden trotzdem flach aussieht — gemessen, nicht geraten
 
@@ -297,7 +315,9 @@ Der echte Terrain-Shader (`Heightmap.json`-Dump, `m_PropInfo` lesbar) lieferte n
 
 Plausibler ist **Höhe/Parallax**: dasselbe Material setzt `_Parallax: 0.02`, `_Displacement: 0.05` und `_Tess: 4.0` — das Original tesselliert und verschiebt den Boden anhand einer Höhenkarte. Solange nicht belegt ist, dass diese Höhenkarte der Albedo-Alpha ist, bleibt der Kanal ungenutzt statt geraten.
 
-**Offen:** Eine höher aufgelöste Fassung des Tile-Arrays existiert im Client-Export nicht (`_DiffuseArrayTex` ist dort nicht enthalten, und es gibt keine gestapelte Array-Textur im `Texture2D`-Dump). Für **Wiesenboden** ist in den Daten schlicht kein Detail vorhanden (Gras: RGB 0.91, Alpha 0.18) — dort hülfe nur eine zusätzliche, erfundene Detail-Ebene im Shader.
+**Offen (bis 08/2026):** Eine höher aufgelöste Fassung des Tile-Arrays existiert im Client-Export nicht (`_DiffuseArrayTex` ist dort nicht enthalten, und es gibt keine gestapelte Array-Textur im `Texture2D`-Dump). Für **Wiesenboden** war in den Daten schlicht kein Detail vorhanden (Gras: RGB 0.91, Alpha 0.18) — dort hülfe nur eine zusätzliche, erfundene Detail-Ebene im Shader.
+
+✅ **Diese Sackgasse ist seit dem 16.08.2026 keine mehr.** `terrain_d_array.png` kommt nicht mehr aus dem Export, sondern aus `tools/terrain-texturen.py`. Damit ist „im Original ist kein Detail vorhanden" kein Argument mehr: Die Binnenstruktur der Wiesenkachel ist jetzt eine Zahl in einem Skript, kein gegebener Befund. Die Maße bleiben vorgegeben (256×4096, 16 Tiles à 256²), weil der Shader sie so liest — eine höhere Auflösung wäre eine Shader-Änderung, keine Texturänderung. Der Rest dieses Abschnitts bleibt als Messprotokoll gültig; er beschreibt, *warum* die Kacheln so aussahen, und liefert die Zielwerte, an denen sich die erzeugten messen lassen.
 
 ### 3.1 Wasser — `WaterPlugin.ts` ✅
 
@@ -312,7 +332,7 @@ Weiter umgesetzt als `MaterialPluginBase` auf dem StandardMaterial (Muster wie `
 - **Tiefen-Farbverlauf** flach → tief.
 - **Feines Wellen-Detail** über die echte `_NormalFine`-Map.
 
-⚠️ **Zweiter behobener Fehler:** Der Schaum sampelte **leere Dateien**. Die gerippten Schaumtexturen sind 0 Byte — siehe Einschränkung 33 in [Analyse-Modelle-und-Weltgenerierung.md](Analyse-Modelle-und-Weltgenerierung.md): 2.639 von 2.763 PNGs im Asset-Ordner sind leere Stubs. Die Bilddaten waren aber nur namenlos, nicht verloren; sie wurden über `tools/recover-textures.mjs` aus dem PathID-benannten Texture2D-Dump zurückgeholt. Nicht im Export enthalten: `_CurlTex`, `_FoamHighTex`, `_BubbleTexture`.
+⚠️ **Zweiter behobener Fehler:** Der Schaum sampelte **leere Dateien**. Die gerippten Schaumtexturen waren 0 Byte — siehe Einschränkung 33 in [Analyse-Modelle-und-Weltgenerierung.md](Analyse-Modelle-und-Weltgenerierung.md): 2.639 von 2.763 PNGs im Asset-Ordner waren leere Stubs. Die Bilddaten waren aber nur namenlos, nicht verloren; sie wurden über `tools/recover-textures.mjs` aus dem PathID-benannten Texture2D-Dump zurückgeholt. Nicht im Export enthalten: `_CurlTex`, `_FoamHighTex`, `_BubbleTexture`.
 
 **Zahlenwerte aus dem echten `water`-Material** (`m_Floats`/`m_Colors` des Materials mit `m_Name: "water"`) — vorher standen hier durchweg Schätzwerte, die teils deutlich danebenlagen:
 
@@ -327,13 +347,23 @@ Weiter umgesetzt als `MaterialPluginBase` auf dem StandardMaterial (Muster wie `
 
 Die feste Deckkraft war ein echter Fehler: im Original ist flaches Wasser fast durchsichtig (man sieht den Grund) und wird erst mit der Tiefe blickdicht — deshalb wirkte auch die Wasserkante hart und falsch. Der Schaumsaum ist mit 0,2 m sehr schmal; das `line²` von zuvor entfiel dadurch (es hätte ihn fast weggekürzt).
 
-> **Einrichtungsschritt:** `assets/` ist gitignored, die zurückgeholten Texturen liegen also nicht im Repo. Nach einem frischen Checkout einmal ausführen:
+> **Einrichtungsschritt (Stand 16.08.2026):** `assets/` ist gitignored, die Texturen liegen
+> also nicht im Repo. Nach einem frischen Checkout einmal ausführen:
 > ```
-> node tools/recover-textures.mjs water \
->   _FoamTex=water_foam_real.png _RandomFoamTex=water_randomfoam_real.png \
->   _NormalFine=water_normals_fine.png _Normal=water_normals_real.png
+> python3 tools/wasser-texturen.py
 > ```
-> Ohne das sampelt der Shader wieder die 0-Byte-Stubs. Voraussetzung ist der Client-Export unter `/root/Valheim_Client` (per `VALHEIM_CLIENT` überschreibbar).
+> Das erzeugt `water_foam_real.png`, `water_randomfoam_real.png`, `water_normals_real.png`,
+> `water_normals_fine.png` und `grass_terrain_color.png` — mit denselben Dateinamen und
+> denselben Kanalbelegungen wie zuvor, aber gerechnet statt gerippt. Die Namen sind
+> Schnittstellen zum Shader, kein Hinweis auf die Herkunft.
+>
+> Bis dahin stand hier `node tools/recover-textures.mjs water _FoamTex=… _Normal=…`, das die
+> echten Bilddaten über die PathIDs der Material-Assets aus dem Client-Export zurückholte.
+> Voraussetzung war der Export unter `/root/Valheim_Client`; den gibt es auf keinem
+> Container mehr, das Skript läuft ins Leere. Die **Helligkeiten sind dabei Teil der
+> Rechnung**, nicht Geschmack: Der Shader teilt den Schaum durch feste Werte
+> (`r / 0.65`, `r / 0.52`) und zieht für den Curl 0,33 ab — deshalb schreibt
+> `wasser-texturen.py` die Zielmittelwerte der alten Dateien fest.
 
 **Abweichung zur Originaltechnik:** Das Original bestimmt die Wassertiefe pro Pixel aus dem Tiefenpuffer (Screen-Space). Wir lesen sie stattdessen aus einer **Grundhöhen-Textur** (`WaterDepthMap.ts`, R32F, 512², 1 m je Texel), die zonenweise direkt aus `Heightmap.heights` gefüllt wird. Das Vertex-Attribut `aDepth` (4-m-Raster) bleibt daneben bestehen, steuert aber nur noch die Wellenamplitude im Vertex-Shader — dort reichen 4 m, weil die Amplitude ohnehin über 10 m hochläuft.
 
@@ -352,7 +382,7 @@ Ausgelöst durch die Meldung „merkwürdige braune Spiegelungen, ein Wellenlaye
 7. **Tiefe per Pixel** (siehe oben) — Uferlinie und Schaumsaum folgen der Küste statt dem 4-m-Gitter.
 8. **Sky-Only-`ReflectionProbe`** (128², alle 15 Frames, Renderliste = nur die Kuppel) bringt Wolken, Sterne und Sonnenscheibe ins Spiegelbild. Der analytische Verlauf bleibt Fallback, bis ihr erster Durchlauf steht.
 
-⚠️ **`water_normals_real.png` ist DXT5nm-gepackt** — `(1, y, y, x)`, X liegt im **Alpha**-Kanal. Gemessen über alle 262.144 Pixel: `max|G−B| = 0`, und `x²+y² ≤ 1` gilt für `(A,G)` in 2000/2000 Proben, für `(R,G)` nur in 760. Als `bumpTexture` liest Babylon `(1, y, y)` und damit Unsinn; nur deshalb hing dort vorher die generische `water_normals.png`. Das Plugin entpackt selbst.
+⚠️ **`water_normals_real.png` ist DXT5nm-gepackt** — `(1, y, y, x)`, X liegt im **Alpha**-Kanal. Gemessen über alle 262.144 Pixel der gerippten Fassung: `max|G−B| = 0`, und `x²+y² ≤ 1` gilt für `(A,G)` in 2000/2000 Proben, für `(R,G)` nur in 760. Als `bumpTexture` liest Babylon `(1, y, y)` und damit Unsinn; nur deshalb hing dort vorher die generische `water_normals.png`. Das Plugin entpackt selbst. **Seit die Datei selbst erzeugt wird** (`tools/wasser-texturen.py`), ist diese Packung keine Fremdvorgabe mehr, sondern eine Selbstverpflichtung: Das Werkzeug setzt B exakt gleich G und R auf 1, weil `WaterPlugin.ts` die Steigung als `vec2(wN0.a, wN0.g)` liest. Eine gewöhnlich gepackte Karte an dieser Stelle liefert `(1, y)` — das Wasser kippt dann dauerhaft in eine Richtung. `water_normals_fine` ist dagegen normal gepackt und wird als `.xyz * 2 − 1` gelesen.
 
 ⚠️ **`ReflectionProbe` braucht `scene.customRenderTargets.push(probe.cubeTexture)`.** Ohne das wird die Würfelkarte nie gezeichnet und bleibt schwarz (nachgemessen: Mittelwert der +Y-Fläche exakt 0,0,0) — ein Material-Plugin, das sie per `setTexture` bindet, zählt für Babylon nicht als Referenz. Symptom war ein durchgehend dunkles Meer.
 
@@ -436,7 +466,7 @@ Randfarben danach gegen die Quelle messen.
 - `EntityManager` mappt ZDOID → `TransformNode`. Statische Prefabs (Gebäudeteile!) als Thin Instances wo möglich; interaktive/animierte (Türen, Truhen, Kreaturen, Spieler) als echte Meshes mit `AssetContainer.instantiateModelsToScene()`.
 - **Animation:** GLBs bringen `AnimationGroup`s mit (Idle/Walk/Run/Attack) — Mapping-Tabelle Zustand → AnimationGroup, Crossfade.
 - **Interpolation:** Remote-Entities puffern 100–150 ms Server-Zustände, interpolieren Position/Rotation.
-- **Kreaturen ohne Meshes** (Neck, Greyling, Troll): nicht spawnbar, bis Assets gefixt sind — siehe [02](02-Migration-von-valheim-browser.md).
+- **Kreaturen: die Bühne ist leer** (Stand 16.08.2026). Bis dahin stand hier „Kreaturen ohne Meshes (Neck, Greyling, Troll): nicht spawnbar, bis Assets gefixt sind" — das beschrieb einen Sonderfall von dreien. Heute ist es die Regel: `SPAWN_TABLE` (`shared/src/spawnData.ts`) läuft gegen `istEigenesModell()`, und Deer, Boar und Greydwarf sind Valheim-Modelle. Von drei Einträgen bleiben null; es spawnt **kein Wesen mehr**. Auch der Eikthyr-Altar verweigert die Beschwörung, statt eine unsichtbare Hülle in den Spielstand zu schreiben. Eigene Figuren (`Furloc*`, `Surtr`, `Voelva`, `PlayerAvatar`) existieren und werden über gesetzte Platzierungen bzw. injizierte Einträge in die Welt gebracht, nicht über die Streutabelle. **Folge, die dazugehört: Ohne Kreaturen wird nicht gekämpft.** Das ist der beschlossene Zwischenzustand, siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md).
 
 ## 6. Physik (Havok)
 
@@ -448,6 +478,11 @@ scene.enablePhysics(gravity, new HavokPlugin(true, havok));
 - Terrain-Chunks als `PhysicsShapeType.MESH` (statisch) — nur für Chunks im Nahbereich.
 - Spieler: **Havok Character Controller** (`PhysicsCharacterController`) — Kapsel, Slope-Limit, Steps. Ersetzt das "an Terrainhöhe kleben" des alten Clients.
 - Bau-Teile: statische Bodies; Raycasts für Bau-Snapping und Interaktion via `physicsEngine.raycast`.
+
+⚠️ **Der Bau-Zweig ist derzeit fast leer** (16.08.2026): `PieceTable` filtert gegen
+`istEigenesModell()`, von neun Bau-Pieces bleiben zwei. Bis eigene Bau-Modelle vorliegen,
+kann im Spiel **nicht gebaut** werden. Der Code ist unverändert vorhanden — es fehlen die
+Modelle, nicht die Physik.
 
 ## 7. Performance-Budget & Werkzeuge
 
@@ -483,4 +518,6 @@ Die Ingame-Karte ist keine 2D-Minimap, sondern ein eigenes kleines 3D-Modell der
 - **Worker statt Hauptthread.** 21 × 21 km Welt, ~1 Mio. `getBiome`/`getHeight`-Proben plus 263k Reliefpunkte. Der Worker baut dafür eine **eigene** `GeoManager`-Instanz aus demselben Seed und denselben Worldgen-Flags wie die Spielwelt (Instanzen lassen sich nicht über `postMessage` teilen). Die Berechnung startet direkt nach `buildWorld()`, ist nach ~10 s fertig und meldet Zwischenstände, sodass sich das Kartenbild sichtbar aufbaut.
 - **Grob rechnen, fein zeichnen.** Biome/Höhe werden auf `SAMPLE_N` (1024², ≈20 m) geprobt und bilinear auf die `TEX_N`-Textur (2048², ≈10 m) hochgezogen; Flüsse werden danach aus `geo.riverPointMap` in voller Texturauflösung nachgezogen, weil sie mit 60–100 m Breite sonst stellenweise verschwinden. Das Reliefgitter liegt bei `GRID_N` (513², ≈41 m), Höhen überhöht (`HEIGHT_EXAG`).
 - **"Welcher Wald" kommt aus den echten Vegetationsdaten.** `treeKindAt()` bildet `Biome` + `BiomeArea` + `getForestFactor()` auf eine Signatur ab, die der Foliage-Tabelle folgt: Laubkronen in den Wiesen (Beech/Birch/Oak), Fichten am Schwarzwaldrand und Kiefern im Kern (`Pinetree_01` hat `biomeArea = Median`, der dichte `FirTree`-Eintrag `Edge`), kahle Sumpfbäume, Herbstbirken der Ebenen, Yggdrasil-Triebe im Nebelland, Aschebäume, Eiszacken, Fels über der Baumgrenze. Gezeichnet werden sie als Thin Instances, zwei Draw-Calls je Waldtyp.
-- **Prüfen:** `http://localhost:5273/karte.html?seed=<seed>` gegen das Offline-Referenzbild aus `npx tsx shared/test/geo-map.ts <seed> 700` halten — beide benutzen dieselbe Farbtabelle, Norden oben, +X nach rechts.
+- **Prüfen:** `http://localhost:5274/karte.html?seed=<seed>` gegen das Offline-Referenzbild aus `node_modules/.bin/tsx shared/test/geo-map.ts <seed> 700` halten — beide benutzen dieselbe Farbtabelle, Norden oben, +X nach rechts.
+  - Der Vite-Port ist **5274** (`client/vite.config.ts`), nicht 5273 wie hier bis 08/2026 stand.
+  - `npx tsx` ist ebenfalls überholt: `tsx` stand in `devDependencies`, wurde aber zum Starten des Live-Servers gebraucht — ein sauberes `npm ci --omit=dev` hätte den Server nicht mehr hochbekommen. Seit 16.08.2026 steht es in den `dependencies` von `server/` und `admin/`, und aufgerufen wird direkt `node_modules/.bin/tsx`. `npx` löste bei **jedem** Testlauf neu auf; `scripts/run-tests.mjs` ruft die Binärdatei deshalb heute unmittelbar auf.

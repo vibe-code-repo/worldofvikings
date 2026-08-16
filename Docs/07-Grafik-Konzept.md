@@ -344,12 +344,42 @@ weiterhin weit über den 31 % des Originals. **Stufe 3 ist damit nicht optional,
 notwendige Ergänzung zu Stufe 1** — erst der Originalpfad (weiße Maske × Terrainfarbe)
 liefert wieder stimmige Werte. Bis dahin wirkt die Wiese heller und greller als vorher.
 
-### Stufe 2 — MSAA (~0,5 h) — billigster Punkt im Paket
+### Stufe 2 — MSAA ✅ (umgesetzt 2026-08-16)
 
-In `PostProcessing.ts` nach `apply()` das **erste Kamera-PostProcess** auf `samples = 4`
-setzen: `dof.pp.samples = 4` wenn DOF an, sonst `pipeline.samples = 4`. Bei jedem
-DOF-Umschalten neu setzen. Zusammen mit FXAA laufen lassen (MSAA greift an
-Dreieckskanten, FXAA an den Discard-Kanten).
+`PostProcessing.setzeMsaa()` legt am Ende von `apply()` 4×MSAA auf den **tatsächlich
+ersten** PostProcess der Kamera und setzt alle übrigen ausdrücklich auf 1 zurück.
+Gekoppelt an den vorhandenen Schalter „Kantenglättung", zusammen mit FXAA: MSAA glättet
+Dreieckskanten, FXAA sieht auch die Alpha-Test-Kanten von Gras und Laub.
+
+**Warum nicht `pipeline.samples`, wie hier ursprünglich stand.** Das Rezept lautete
+„`dof.pp.samples = 4` wenn DOF an, sonst `pipeline.samples = 4`". Der erste Teil stimmt,
+der zweite ist eine Falle: `DefaultRenderingPipeline.samples` trifft über
+`_enableMSAAOnFirstPostProcess` nur den ersten Pass **dieser Pipeline** — nicht den ersten
+der Kamera. Wirksam ist MSAA aber ausschließlich dort, wo die Szene rasterisiert wird, und
+das ist der Kopf der gesamten Kette. Zur Laufzeit nachgesehen sah die Kette so aus:
+
+```
+valheimDof, null ×11, highlights, horizontal blur, vertical blur,
+bloomMerge, imageProcessing, ChromaticAberration, fxaa, valheimMotionBlur
+```
+
+Die elf Lücken stammen vom Ab- und Wiederanhängen der Pipeline-Pässe bei jedem Umschalten.
+Wer die Reihenfolge annimmt statt sie zu lesen, trifft früher oder später den falschen Pass —
+deshalb läuft die Zuweisung über eine Schleife über `camera._postProcesses`.
+
+**Gemessen** auf einer RX 7900 XT über den Dev-Client, nur `samples` umgeschaltet, Uhrzeit
+angehalten, alles andere unverändert (`mess/msaa-probe.mjs`-Muster, 4 Bilder je Durchgang,
+1600×900):
+
+| | ohne | mit 4× | Gegenprobe ohne |
+|---|---|---|---|
+| Anteil harter Helligkeitssprünge (>40) zwischen Nachbarpixeln | 0,0300 % | **0,0277 %** | 0,0354 % |
+| mittlere Nachbardifferenz | 1,492 | **1,422** | 1,462 |
+
+Also −15,3 % harte Kanten gegenüber dem Mittel der beiden MSAA-freien Läufe. Die Gegenprobe
+zurück auf `samples = 1` landet wieder auf Ausgangsniveau — der Unterschied ist reproduzierbar
+und kein Rauschen. Kein GL-Fehler; die halb-float-Zieltextur der Tiefenunschärfe nimmt die
+Mehrfachabtastung anstandslos an.
 
 ### Stufe 3 — der HD-Umweg ist zurückgenommen (2026-08-16), die Aufgabe ist wieder offen
 

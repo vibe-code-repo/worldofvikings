@@ -66,6 +66,19 @@ export class RegionGeo extends GeoManager {
   private memoY = Number.NaN;
   private memoBase = 0;
 
+  // Dasselbe eine Ebene tiefer, und dort wiegt es schwerer: EIN
+  // getBaseHeight fragte gemessen 4x das kontinentale Detail (je 6
+  // Perlin-Auswertungen) und 4x das Regionsfeld ab — dreimal davon fuer
+  // exakt dasselbe Ergebnis, weil `ozean`, `landBasis` und `nestFaktor`
+  // alle am selben Punkt stehen. Die Memos machen daraus je eine
+  // Auswertung; die Zahlen bleiben Bit fuer Bit dieselben.
+  private detailX = Number.NaN;
+  private detailY = Number.NaN;
+  private detailWert = 0;
+  private nestXm = Number.NaN;
+  private nestYm = Number.NaN;
+  private nestWert = 0;
+
   constructor(worldSeed: number, settings: GeoManagerSettings | undefined, layout: WorldLayout) {
     // Der Basis-Konstruktor ruft postWorldInit() (Detail-Offsets) und das
     // hier überschriebene generate() — der No-op darf keine eigenen Felder
@@ -113,7 +126,12 @@ export class RegionGeo extends GeoManager {
       (perlinNoise((wx + this.offset2) * 0.004, (wy + this.offset2) * 0.004) - 0.5) *
       Math.min(KUESTEN_RAUSCHEN, s.regionA.edgeFalloff * 0.6);
 
-    let land = this.landBasis(s.regionA, wx, wy);
+    // Die Basis der Gewinnerregion wird nur gebraucht, wenn KEINE zweite
+    // Region blendet — sonst ueberschreibt der Blend sie ohnehin. Vorher
+    // stand hier ein `let land = this.landBasis(...)`, dessen Ergebnis im
+    // Grenzfall verworfen wurde: eine komplette Feldabfrage plus
+    // Detailrauschen je Vertex, umsonst.
+    let land = 0;
     let unionDist = s.distA;
 
     if (s.regionB) {
@@ -130,6 +148,8 @@ export class RegionGeo extends GeoManager {
       const t = smoothStep(-oben.edgeFalloff, oben.edgeFalloff, obenDist);
       land = lerp(this.landBasis(unten, wx, wy), this.landBasis(oben, wx, wy), t);
       if (s.distB > unionDist) unionDist = s.distB;
+    } else {
+      land = this.landBasis(s.regionA, wx, wy);
     }
 
     // Küsten-Falloff: bei −falloff voller Ozeanboden, bei +falloff volles
@@ -235,6 +255,15 @@ export class RegionGeo extends GeoManager {
    * und das Muster wuerde sichtbar.
    */
   nestFaktor(wx: number, wy: number): number {
+    if (wx === this.nestXm && wy === this.nestYm) return this.nestWert;
+    const n = this.nestBerechnen(wx, wy);
+    this.nestXm = wx;
+    this.nestYm = wy;
+    this.nestWert = n;
+    return n;
+  }
+
+  private nestBerechnen(wx: number, wy: number): number {
     const s = this.feld.sample(wx, wy);
     const staerke = s.regionA?.nester ?? 0;
     if (staerke <= 0) return 0;
@@ -272,6 +301,15 @@ export class RegionGeo extends GeoManager {
    * wachsenden Designer-Welt an festen Weltpositionen Artefakte stanzen.
    */
   private detail(wx: number, wy: number): number {
+    if (wx === this.detailX && wy === this.detailY) return this.detailWert;
+    const n = this.detailBerechnen(wx, wy);
+    this.detailX = wx;
+    this.detailY = wy;
+    this.detailWert = n;
+    return n;
+  }
+
+  private detailBerechnen(wx: number, wy: number): number {
     const dwx = wx + 100000.0 + this.offset0;
     const dwy = wy + 100000.0 + this.offset1;
     let n = 0.0;

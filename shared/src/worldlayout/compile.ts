@@ -82,15 +82,129 @@ export function signedDistance(shape: RegionShape, x: number, z: number): number
   return innen ? d : -d;
 }
 
-const chunkKey = (cx: number, cz: number): string => `${cx},${cz}`;
+/**
+ * Chunk-Koordinate → Map-Schluessel als ZAHL statt `${cx},${cz}`.
+ *
+ * Die drei Chunk-Raster unten werden je Vertex mehrfach abgefragt (bis zu
+ * 16.900-mal pro Zone allein fuer das Regionsfeld). Ein Vorlagenstring legt
+ * dafuer jedes Mal eine frische Zeichenkette an, die der Hash der Map dann
+ * auch noch durchlaufen muss — gemessen ein spuerbarer Anteil der Zonenzeit
+ * und obendrein Muell fuer den Sammler. Die Zahl ist eindeutig, solange
+ * |Chunk| < 2^20 bleibt, also bis ±1,07 Milliarden Meter Weltkoordinate.
+ */
+const RASTER_VERSATZ = 1 << 20;
+const rasterSchluessel = (cx: number, cz: number): number =>
+  (cx + RASTER_VERSATZ) * (1 << 21) + (cz + RASTER_VERSATZ);
+
+/**
+ * Vorzerlegte Form fuer die heisse Abfrage.
+ *
+ * `signedDistance` liest bei jedem Aufruf `shape.points[i]` — ein Array aus
+ * Arrays, also zwei Zeigerspruenge je Ecke — und rechnet Kantenvektor und
+ * Laengenquadrat jedes Mal neu. Bei 30-Ecken-Polygonen und mehreren
+ * Kandidaten je Punkt sind das die teuersten Zeilen der ganzen
+ * Weltgenerierung (Messung: 56 % der Zonenzeit). Hier stehen dieselben
+ * Zahlen flach in einem Float64Array, einmal beim Kompilieren gerechnet.
+ *
+ * ⚠ Die Arithmetik in `abstandZu` muss Operation fuer Operation die von
+ * `signedDistance` bleiben — Server und Client rechnen dieselbe Welt, eine
+ * abweichende Klammerung waere schon ein Auseinanderlaufen.
+ */
+interface FormDaten {
+  readonly kreis: boolean;
+  /** Kreis: Mittelpunkt und Radius. */
+  readonly x: number;
+  readonly z: number;
+  readonly radius: number;
+  /** Polygon: je Kante xi, zi, zj, dx, dz, len2 (Reihenfolge wie die Schleife). */
+  readonly kanten: Float64Array;
+  readonly kantenZahl: number;
+}
+
+function zerlege(shape: RegionShape): FormDaten {
+  if (shape.kind === 'circle') {
+    return {
+      kreis: true,
+      x: shape.x,
+      z: shape.z,
+      radius: shape.radius,
+      kanten: new Float64Array(0),
+      kantenZahl: 0,
+    };
+  }
+  const pts = shape.points;
+  const n = pts.length;
+  const kanten = new Float64Array(n * 6);
+  // Gleiche Paarbildung wie die Originalschleife (i, j = i-1 zyklisch).
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const [xi, zi] = pts[i]!;
+    const [xj, zj] = pts[j]!;
+    const o = i * 6;
+    kanten[o] = xi!;
+    kanten[o + 1] = zi!;
+    kanten[o + 2] = zj!;
+    kanten[o + 3] = xj! - xi!;
+    kanten[o + 4] = zj! - zi!;
+    kanten[o + 5] = (xj! - xi!) * (xj! - xi!) + (zj! - zi!) * (zj! - zi!);
+  }
+  return { kreis: false, x: 0, z: 0, radius: 0, kanten, kantenZahl: n };
+}
+
+/** Wie `signedDistance`, nur auf der vorzerlegten Form. Bit-gleich. */
+function abstandZu(f: FormDaten, x: number, z: number): number {
+  if (f.kreis) return f.radius - Math.hypot(x - f.x, z - f.z);
+  const k = f.kanten;
+  let minDist2 = Infinity;
+  let innen = false;
+  for (let i = 0; i < f.kantenZahl; i++) {
+    const o = i * 6;
+    const xi = k[o]!;
+    const zi = k[o + 1]!;
+    const zj = k[o + 2]!;
+    const dx = k[o + 3]!;
+    const dz = k[o + 4]!;
+    const len2 = k[o + 5]!;
+    const t = len2 > 0 ? Math.min(1, Math.max(0, ((x - xi) * dx + (z - zi) * dz) / len2)) : 0;
+    const px = xi + t * dx - x;
+    const pz = zi + t * dz - z;
+    const d2 = px * px + pz * pz;
+    if (d2 < minDist2) minDist2 = d2;
+    if (zi > z !== zj > z && x < (dx * (z - zi)) / dz + xi) innen = !innen;
+  }
+  const d = Math.sqrt(minDist2);
+  return innen ? d : -d;
+}
+
+/** Leeres Ergebnis fuer offenen Ozean — konstant, wird nie beschrieben. */
+const FELD_LEER: FieldSample = {
+  regionA: null,
+  distA: -Infinity,
+  indexA: -1,
+  regionB: null,
+  distB: -Infinity,
+  indexB: -1,
+};
 
 export class RegionField {
   /** Zelle → bis zu MAX_KANDIDATEN Regions-Indizes (+1; 0 = frei). */
-  private readonly chunks = new Map<string, Uint16Array>();
+  private readonly chunks = new Map<number, Uint16Array>();
   private readonly regions: readonly RegionDef[];
+  /** Vorzerlegte Formen, Index-gleich zu `regions`. */
+  private readonly formen: FormDaten[];
+  /**
+   * 1-Eintrag-Memo. RegionGeo fragt DENSELBEN Punkt viermal ab (Basis,
+   * Kuestenrauschen und zweimal Nestfaktor ueber landBasis) — gemessen
+   * 4,0 Abfragen je Vertex, von denen drei dieselbe Antwort bekommen.
+   * Beim Verfehlen entsteht ein NEUES Ergebnisobjekt, damit ein Aufrufer,
+   * der ein aelteres Sample noch haelt, es unveraendert weiterlesen kann.
+   */
+  private memoX = Number.NaN;
+  private memoZ = Number.NaN;
+  private memo: FieldSample = FELD_LEER;
 
   constructor(layout: WorldLayout) {
     this.regions = layout.regions;
+    this.formen = this.regions.map((r) => zerlege(r.shape));
     this.compile();
   }
 
@@ -121,7 +235,7 @@ export class RegionField {
 
   private fuelleChunk(cx: number, cz: number, ri: number, reichweite: number): void {
     const region = this.regions[ri]!;
-    const key = chunkKey(cx, cz);
+    const key = rasterSchluessel(cx, cz);
     let zellen = this.chunks.get(key);
     for (let iz = 0; iz < CELLS; iz++) {
       for (let ix = 0; ix < CELLS; ix++) {
@@ -158,12 +272,19 @@ export class RegionField {
    * (Heightmap-Bau) halten Samples nicht über den Aufruf hinaus.
    */
   sample(wx: number, wz: number): FieldSample {
+    if (wx === this.memoX && wz === this.memoZ) return this.memo;
+    const s = this.berechne(wx, wz);
+    this.memoX = wx;
+    this.memoZ = wz;
+    this.memo = s;
+    return s;
+  }
+
+  private berechne(wx: number, wz: number): FieldSample {
     const cx = Math.floor(wx / FIELD_CHUNK_SIZE);
     const cz = Math.floor(wz / FIELD_CHUNK_SIZE);
-    const zellen = this.chunks.get(chunkKey(cx, cz));
-    if (!zellen) {
-      return { regionA: null, distA: -Infinity, indexA: -1, regionB: null, distB: -Infinity, indexB: -1 };
-    }
+    const zellen = this.chunks.get(rasterSchluessel(cx, cz));
+    if (!zellen) return FELD_LEER;
     const ix = Math.min(CELLS - 1, Math.max(0, Math.floor((wx - cx * FIELD_CHUNK_SIZE) / FIELD_CELL_SIZE)));
     const iz = Math.min(CELLS - 1, Math.max(0, Math.floor((wz - cz * FIELD_CHUNK_SIZE) / FIELD_CELL_SIZE)));
     const o = (iz * CELLS + ix) * MAX_KANDIDATEN;
@@ -176,7 +297,7 @@ export class RegionField {
       const stored = zellen[o + k]!;
       if (stored === 0) break;
       const ri = stored - 1;
-      const sd = signedDistance(this.regions[ri]!.shape, wx, wz);
+      const sd = abstandZu(this.formen[ri]!, wx, wz);
       const gewinnt =
         aIdx === -1
           ? true
@@ -244,8 +365,13 @@ interface WasserStueck {
 }
 
 export class WaterField {
-  private readonly chunks = new Map<string, number[]>();
+  private readonly chunks = new Map<number, number[]>();
   private readonly stuecke: WasserStueck[] = [];
+  /** 1-Eintrag-Memo — siehe RegionField: An einer Biomkante fragt die
+   *  Heightmap denselben Vertex viermal ab (einmal je Eckbiom). */
+  private memoX = Number.NaN;
+  private memoZ = Number.NaN;
+  private memo: WasserProbe = WASSER_KEIN;
 
   constructor(layout: WorldLayout) {
     for (const fluss of layout.rivers ?? []) {
@@ -277,7 +403,7 @@ export class WaterField {
     const cz1 = Math.floor((Math.max(st.az, st.bz) + reichweite) / FIELD_CHUNK_SIZE);
     for (let cz = cz0; cz <= cz1; cz++) {
       for (let cx = cx0; cx <= cx1; cx++) {
-        const key = `${cx},${cz}`;
+        const key = rasterSchluessel(cx, cz);
         const liste = this.chunks.get(key);
         if (liste) liste.push(index);
         else this.chunks.set(key, [index]);
@@ -287,9 +413,18 @@ export class WaterField {
 
   /** Nächster Wasserlauf am Punkt (kleinster Abstand ZUM BETTRAND). */
   probe(wx: number, wz: number): WasserProbe {
+    if (wx === this.memoX && wz === this.memoZ) return this.memo;
+    const p = this.berechne(wx, wz);
+    this.memoX = wx;
+    this.memoZ = wz;
+    this.memo = p;
+    return p;
+  }
+
+  private berechne(wx: number, wz: number): WasserProbe {
     if (this.stuecke.length === 0) return WASSER_KEIN;
     const liste = this.chunks.get(
-      `${Math.floor(wx / FIELD_CHUNK_SIZE)},${Math.floor(wz / FIELD_CHUNK_SIZE)}`
+      rasterSchluessel(Math.floor(wx / FIELD_CHUNK_SIZE), Math.floor(wz / FIELD_CHUNK_SIZE))
     );
     if (!liste) return WASSER_KEIN;
     let beste = WASSER_KEIN;
@@ -340,10 +475,17 @@ export interface PlateauProbe {
 export const PLATEAU_RAND_MAX = 64;
 
 export class PlateauField {
-  private readonly chunks = new Map<string, number[]>();
+  private readonly chunks = new Map<number, number[]>();
   /** null = totgelegte Platte (entfernt) — der Index bleibt vergeben,
    *  weil die Chunk-Listen Indizes speichern (siehe entferne()). */
   private readonly platten: ({ x: number; z: number; radius: number } | null)[] = [];
+  /** 1-Eintrag-Memo wie bei WaterField. ACHTUNG: Dieses Feld ist als
+   *  einziges zur Laufzeit veraenderlich (Editor-Testflug) — lege() und
+   *  entferne() muessen das Memo verwerfen, sonst zeigt der Sockel eine
+   *  Abfrage lang noch den alten Stand. */
+  private memoX = Number.NaN;
+  private memoZ = Number.NaN;
+  private memo: PlateauProbe | null = null;
 
   constructor(layout: WorldLayout) {
     for (const p of layout.placements ?? []) {
@@ -358,6 +500,7 @@ export class PlateauField {
    * weil nur die wenigen berührten Chunks einen Eintrag bekommen.
    */
   lege(x: number, z: number, radius: number): void {
+    this.memoX = Number.NaN;
     const index = this.platten.push({ x, z, radius }) - 1;
     const reichweite = radius + PLATEAU_RAND_MAX + FIELD_CELL_SIZE;
     const cx0 = Math.floor((x - reichweite) / FIELD_CHUNK_SIZE);
@@ -366,7 +509,7 @@ export class PlateauField {
     const cz1 = Math.floor((z + reichweite) / FIELD_CHUNK_SIZE);
     for (let cz = cz0; cz <= cz1; cz++) {
       for (let cx = cx0; cx <= cx1; cx++) {
-        const key = `${cx},${cz}`;
+        const key = rasterSchluessel(cx, cz);
         const liste = this.chunks.get(key);
         if (liste) liste.push(index);
         else this.chunks.set(key, [index]);
@@ -385,6 +528,7 @@ export class PlateauField {
       const pl = this.platten[i];
       if (pl && Math.abs(pl.x - x) < 0.05 && Math.abs(pl.z - z) < 0.05) {
         this.platten[i] = null;
+        this.memoX = Number.NaN;
         return true;
       }
     }
@@ -398,9 +542,18 @@ export class PlateauField {
 
   /** Nächste Platte am Punkt (kleinster Abstand ZUM PLATTENRAND). */
   probe(wx: number, wz: number): PlateauProbe | null {
+    if (wx === this.memoX && wz === this.memoZ) return this.memo;
+    const p = this.berechne(wx, wz);
+    this.memoX = wx;
+    this.memoZ = wz;
+    this.memo = p;
+    return p;
+  }
+
+  private berechne(wx: number, wz: number): PlateauProbe | null {
     if (this.platten.length === 0) return null;
     const liste = this.chunks.get(
-      `${Math.floor(wx / FIELD_CHUNK_SIZE)},${Math.floor(wz / FIELD_CHUNK_SIZE)}`
+      rasterSchluessel(Math.floor(wx / FIELD_CHUNK_SIZE), Math.floor(wz / FIELD_CHUNK_SIZE))
     );
     if (!liste) return null;
     let beste: PlateauProbe | null = null;

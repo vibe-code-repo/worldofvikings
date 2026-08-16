@@ -67,7 +67,7 @@ const start = Date.now();
 for (const [paket, datei] of liste) {
   const t0 = Date.now();
   process.stdout.write(`▶ ${paket}/${datei} … `);
-  const lauf = spawnSync('npx', ['tsx', datei], {
+  const lauf = spawnSync(resolve(WURZEL, 'node_modules/.bin/tsx'), [datei], {
     cwd: resolve(WURZEL, paket),
     encoding: 'utf-8',
     timeout: 600_000,

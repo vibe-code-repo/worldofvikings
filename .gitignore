@@ -35,3 +35,8 @@ __pycache__/
 server/data/worlds/*.orphan-*
 server/data/*.locations.json
 mess/
+
+# Claude-Code-Einstellungen des Containers (lokal, nicht geteilt)
+.claude/
+# Messungen und weggelegte Zwischenstaende
+mess/

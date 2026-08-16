@@ -26,7 +26,7 @@
     "extract:assets": "npm run extract --workspace=tools/asset-extractor",
     "parse:prefabs": "npm run parse --workspace=tools/prefab-parser",
     "test": "node scripts/run-tests.mjs",
-    "typecheck": "cd shared && npx tsc --noEmit && cd ../server && npx tsc --noEmit && cd ../client && npx tsc --noEmit"
+    "typecheck": "(cd shared && ../node_modules/.bin/tsc --noEmit) && (cd server && ../node_modules/.bin/tsc --noEmit) && (cd client && ../node_modules/.bin/tsc --noEmit) && (cd admin && ../node_modules/.bin/tsc --noEmit)"
   },
   "devDependencies": {
     "playwright": "^1.61.1",

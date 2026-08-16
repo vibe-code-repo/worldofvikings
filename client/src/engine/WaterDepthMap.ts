@@ -72,6 +72,19 @@ const SIZE = 512;
  * `GrassClutter.CELL_BUILD_BUDGET_MS`.
  */
 const ZONEN_BUDGET_MS = 4;
+/**
+ * Sollwert an Zonen je Frame — das Budget oben ist nur die OBERGRENZE.
+ *
+ * Dieselbe Lehre wie beim Ufer-Bake in Terrain.ts: Ein reines Zeitbudget
+ * ist gierig. Liegen die Zonen im Cache, kostet das Kopieren fast nichts
+ * und es passen weit mehr als neun hinein — aus einem seltenen Ausreisser
+ * wird dann eine Dauerlast. Der Puffer muss aber gar nicht schnell fertig
+ * werden: Neu gefuellt wird nur beim Wasserversatz, also alle 64 m.
+ *
+ * Neun Zonen als Soll (wie vorher), Budget als Notbremse fuer den Fall,
+ * dass eine davon erst erzeugt werden muss.
+ */
+const ZONEN_SOLL = 9;
 /** Grundhöhe ausserhalb der Kachel: so tief, dass depth01 = 1 gilt. */
 const AUSSERHALB_TIEFE = 40;
 
@@ -179,8 +192,9 @@ export class WaterDepthMap {
     // sonst kommt der Puffer bei knappem Budget nie voran — dieselbe
     // "mindestens eins"-Ausnahme wie in `TerrainBudget`.
     const ende = performance.now() + ZONEN_BUDGET_MS;
+    const soll = Math.min(gesamt, this.naechsteZone + ZONEN_SOLL);
     let n = this.naechsteZone;
-    for (; n < gesamt; n++) {
+    for (; n < soll; n++) {
       this.kopiereZone(
         this.zoneX0 + (n % this.zonenProAchse),
         this.zoneZ0 + Math.floor(n / this.zonenProAchse)

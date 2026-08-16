@@ -151,6 +151,24 @@ export const WATER_STEP = 4;
  * `GrassClutter.CELL_BUILD_BUDGET_MS`.
  */
 const UFER_BUDGET_MS = 4;
+/**
+ * Sollwert an Reihen je Frame — das Budget oben ist nur die OBERGRENZE.
+ *
+ * Warum beides: Ein reines Zeitbudget war messbar schlechter als die alte
+ * feste Stückzahl. Es kappt zwar den Ausreisser (16,6 -> 9,0 ms), füllt
+ * sich aber jeden Frame aus und machte aus 775 ms Gesamtlast **2.738 ms**.
+ * Ein Budget ist gierig: Sind die Zonen im Cache, kostet eine Reihe fast
+ * nichts, und es passen ~100 statt 16 hinein.
+ *
+ * Der Ufer-Bake ist aber nicht dringend. Neu gebacken wird alle 64 m, beim
+ * Sprint also alle ~8,5 s — bei 60 fps sind das 510 Frames für 129 Reihen.
+ * Nötig wäre eine Viertelreihe pro Frame; 16 sind bereits grosszügig.
+ *
+ * Deshalb: 16 Reihen als Soll, und wenn die ausnahmsweise teuer sind (Zone
+ * nicht im Cache, volle Worldgen-Noise), bricht das Budget vorher ab.
+ * Feste Stückzahl gegen die Gier, Zeitbudget gegen den Ausreisser.
+ */
+const UFER_REIHEN_SOLL = 16;
 
 /**
  * Deckkraft des Wassers bei "Wasserqualität: Aus" (ohne Refraktionsbild).
@@ -452,12 +470,13 @@ export class TerrainManager {
     const perRow = this.waterVertsPerRow;
     const originX = this.shoreBakeOriginX;
     const originZ = this.shoreBakeOriginZ;
-    // Zeitbudget statt fester Reihenzahl. Genau EINE Reihe geht immer
-    // durch, sonst kommt der Bake bei knappem Budget nie ans Ende und das
-    // Wasser bliebe dauerhaft ohne Ufersaum.
+    // Sollwert UND Obergrenze, s. UFER_REIHEN_SOLL. Die erste Reihe geht
+    // immer durch, sonst käme der Bake bei knappem Budget nie ans Ende und
+    // das Wasser bliebe dauerhaft ohne Ufersaum.
     const ende = performance.now() + UFER_BUDGET_MS;
+    const soll = Math.min(perRow, this.shoreBakeRow + UFER_REIHEN_SOLL);
     let row = this.shoreBakeRow;
-    for (; row < perRow; row++) {
+    for (; row < soll; row++) {
       for (let col = 0; col < perRow; col++) {
         const i = row * perRow + col;
         const x = this.waterBaseXZ[i * 2] + originX;

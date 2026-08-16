@@ -136,14 +136,6 @@ export class SettingsPanel {
       )
     );
 
-    // HD-Gras: Willybach-Texturen statt der Originalmasken. Kein
-    // Original-Setting — siehe GameSettings.hdClutter, warum es aus ist.
-    panel.appendChild(
-      this.buildToggle('HD-Gras (Texturpaket)', (s) => s.hdClutter, (v) =>
-        this.settings.set({ hdClutter: v })
-      )
-    );
-
     // Namensschilder über Figuren — Spielelement, s. GameSettings.nameplates.
     panel.appendChild(
       this.buildToggle('Namensschilder', (s) => s.nameplates, (v) =>

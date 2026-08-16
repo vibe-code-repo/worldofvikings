@@ -8,9 +8,9 @@
  * Kuppel gestreut.
  *
  * ── Warum es das Material des Wiesengrases mitbenutzt ────────────────
- * Geteiltes Material heißt: HD-Textur, Windanimation, Cutout und
- * Sichtweiten-Ausblendung gelten automatisch mit. Ein eigenes Material
- * müsste all das nachbauen und würde bei jeder Änderung am Gras
+ * Geteiltes Material heißt: Halmtextur, Wiesen-Tönung, Windanimation,
+ * Cutout und Sichtweiten-Ausblendung gelten automatisch mit. Ein eigenes
+ * Material müsste all das nachbauen und würde bei jeder Änderung am Gras
  * auseinanderlaufen.
  *
  * ── Warum sparsam ───────────────────────────────────────────────────
@@ -266,7 +266,7 @@ export class HuegelGras {
 
   private baue(wiese: WiesenStreugut, punkte: Matrix[]): void {
     // Mesh aus der Rohgeometrie des Wiesengrases aufbauen und dessen
-    // FERTIGES Material teilen (nicht kopieren) — so wirken HD-Umschalter,
+    // FERTIGES Material teilen (nicht kopieren) — so wirken Halmtextur,
     // Wiesen-Toenung und Sichtweiten-Uniforms automatisch mit.
     // Name mit `clutter`-Präfix: Shadows.ts nimmt alles, was so heisst,
     // ueber NIE_WERFEN vom Schattenwurf aus — und genau das Werfen war die

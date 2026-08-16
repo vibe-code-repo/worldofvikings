@@ -26,11 +26,16 @@ Jede Clutter-Textur ist ein VOLLBILD-Billboard:
 
 Das ist dieselbe Regel, nach der `gen-grass-texture.py` zeichnet und
 nach der `tools/clutter-meshes.py` seine Karten belegt. Sie ist kein
-Geschmack, sondern Bedingung fuer den HD-Umschalter: `HD_CLUTTER` in
-GrassClutter.ts tauscht die Textur aus, ohne die UVs anzufassen. Die
-HD-Vorlagen sind Vollbild-Billboards mit Pflanzen von unten nach oben;
-haette eine Textur hier stattdessen ein Sprite-Atlas-Layout, wuerde das
-Umschalten sie zerreissen.
+Geschmack, sondern der Vertrag mit den Meshes: Deren UVs greifen
+senkrechte Streifen ueber die volle Bildhoehe ab und stehen fest im
+GLB. Haette eine Textur hier stattdessen ein Sprite-Atlas-Layout, laege
+eine Kachel-UV auf einer Vollbildtextur und die Pflanze zerfiele.
+
+(Bis 2026-08-16 stand hier eine zweite Begruendung: der HD-Umschalter
+`HD_CLUTTER`, der die Textur tauschte, ohne die UVs anzufassen. Der ist
+mitsamt dem Fremdmaterial entfallen — die Konvention ueberlebt ihn,
+weil sie schon vorher zwischen diesem Werkzeug und clutter-meshes.py
+galt.)
 
 ── Der Hintergrund ist nicht transparent-schwarz ────────────────────
 Er traegt die mittlere Pflanzenfarbe bei Alpha 0. Mipmaps mitteln ueber

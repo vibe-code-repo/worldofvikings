@@ -339,10 +339,10 @@ interface QueuedCell { cx: number; cy: number; d2: number }
  * bepflanzt damit die Kuppel des Meadows-Grabhügels): Halm-Geometrie,
  * das FERTIGE Material samt Wind-Plugin und die Streuparameter.
  *
- * Das Material wird GETEILT, nicht kopiert — mit Absicht: HD-Umschalter
- * (setHdClutter), Wiesen-Tönung und die Sichtweiten-Uniforms wirken damit
- * automatisch auch auf extern gestreute Halme, die sonst bei jedem
- * Settings-Wechsel aus dem Wiesenbild fielen.
+ * Das Material wird GETEILT, nicht kopiert — mit Absicht: Wiesen-Tönung,
+ * Cutout und die Sichtweiten-Uniforms wirken damit automatisch auch auf
+ * extern gestreute Halme, die sonst bei jedem Settings-Wechsel aus dem
+ * Wiesenbild fielen.
  */
 export interface WiesenStreugut {
   geometry: {
@@ -386,52 +386,22 @@ const CLEARING_RADIUS = 0.6;
  */
 const CLEARING_GRID = 0.5;
 
-/** Wo die Clutter-Texturen liegen (Vite-Plugin serviert assets/ unter /assets). */
+/**
+ * Wo die Clutter-Texturen liegen (Vite-Plugin serviert assets/ unter /assets).
+ *
+ * Es gibt genau EINEN Texturweg, und es ist der eigene: Jede Karte unter
+ * `ENTRIES.texture` wird von `tools/clutter-texturen.py` bzw.
+ * `tools/gen-grass-texture.py` erzeugt und liegt flach in diesem Ordner.
+ *
+ * Bis 2026-08-16 stand daneben ein zweiter Weg auf ein HD-Texturpaket aus
+ * einer fremden Mod (`hd-clutter/`, umschaltbar über `Settings.hdClutter`).
+ * Der ist ersatzlos entfallen: Das Material durften wir nicht ausliefern,
+ * der Schalter musste deshalb auf beiden Containern verschieden stehen —
+ * und genau solche Konstanten liefen bei jedem Abgleich auseinander. Das
+ * Projekt baut Modelle und Texturen ab jetzt ausschliesslich selbst.
+ */
 const TEX_BASE_URL = '/assets/textures/';
 
-/**
- * HD-Clutter (Willybach's HD Textures, optional — Settings.hdClutter).
- *
- * Zuordnung ENTRIES.texture → Dateiname unter `hd-clutter/` (ohne Saison und
- * Endung), erzeugt von `tools/make-hd-clutter.py`. Die Vorlagen sind
- * layout-gleich zu den Originalen — beides sind Vollbild-Billboards mit Halmen
- * von unten nach oben, keine Sprite-Atlanten —, weshalb dieselben UVs passen.
- *
- * ZWEI Unterschiede, die der Aufrufer ausgleichen muss:
- *  1. Die HD-Vorlagen sind VORGEFÄRBT, die Originale sind weisse Masken.
- *     Deshalb `hdColor` statt `entry.color`: die Wiesen-Tönung MEADOWS_TINT
- *     würde sonst ein zweites Mal Grün auf Grün legen — genau der
- *     "Neonteppich", den der Kommentar bei grass_terrain_color beschreibt.
- *  2. Sie decken ungefähr doppelt so viel Fläche (30 % statt 15 %, an
- *     grasscross_mistlands_short gegen die Original-64²-Textur aus dem
- *     Spiel-Bundle gemessen). Das Gras wirkt damit dichter — Absicht des
- *     Pack-Autors, keine Fehlanpassung.
- */
-const HD_CLUTTER: Readonly<Record<string, string>> = {
-  grass_meadows_gen: 'grasscross_meadows',
-  clutter_shrub: 'clutter_shrub',
-  autumn_ormbunke_green: 'ormbunke',
-  grass_heath_gen: 'grasscross_heath',
-  grass_heath_redflower: 'grasscross_heath_flower',
-  forest_groundcover: 'grasscross_forest',
-  forest_groundcover_brown: 'grasscross_forest_brown',
-  grass_toon1_yellow_gen: 'grasscross_swamp',
-  autumn_ormbunke_swamp: 'ormbunke_yellow',
-  vass_texture01: 'vass',
-  waterlilies: 'clutter_waterlilies',
-};
-
-const HD_BASE_URL = '/assets/textures/hd-clutter/';
-
-/**
- * Saison der HD-Texturen. Das Pack liefert jede Textur viermal
- * (@spring/@summer/@fall/@winter); Valheim selbst kennt keine Jahreszeiten,
- * also steht das hier vorerst fest auf Sommer.
- */
-const HD_SEASON = 'summer';
-
-/** Tönung im HD-Modus: keine — die Vorlagen bringen ihre Farbe schon mit. */
-const HD_COLOR: readonly [number, number, number] = [1, 1, 1];
 /**
  * Kantenlänge, auf die grass_terrain_color heruntergerechnet wird.
  * Das Original ist 1024² und wird PRO INSTANZ einmal abgetastet — bei
@@ -457,17 +427,8 @@ export class GrassClutter {
   private tintPixels: Uint8ClampedArray | null = null;
   private tintSize = 0;
 
-  /** HD-Clutter an? Siehe HD_CLUTTER und Settings.hdClutter. */
-  private hd = false;
-  /** Original-Texturen, Schlüssel = ENTRIES.texture. */
-  private texturesOrig = new Map<string, Texture>();
-  /**
-   * Texturen im Zugriff des Materials, Schlüssel `${hd}:${name}:${repeatU}`.
-   * Der Repeat gehört in den Schlüssel, weil uScale an der Texture-Instanz
-   * hängt und die Waldvarianten sie 2× kacheln — ohne eigenen Eintrag würde
-   * das Umschalten die Kachelung auf die geteilte Instanz schreiben.
-   */
-  private readonly texCache = new Map<string, Texture>();
+  /** Geladene Clutter-Texturen, Schlüssel = ENTRIES.texture. */
+  private texturen = new Map<string, Texture>();
 
   private readonly cells = new Map<string, CellMesh[]>();
   private queue: QueuedCell[] = [];
@@ -509,7 +470,7 @@ export class GrassClutter {
       for (const name of texNames) {
         textures.set(name, this.makeTexture(`${TEX_BASE_URL}${name}.png`));
       }
-      this.texturesOrig = textures;
+      this.texturen = textures;
 
       // grass_terrain_color-Tönung: VORGEHALTEN, aber derzeit ungenutzt.
       //
@@ -567,9 +528,9 @@ export class GrassClutter {
         for (let i = 1; i < geometry.positions.length; i += 3) topY = Math.max(topY, geometry.positions[i]);
         const material = new StandardMaterial(`clutter_${entry.key}`, this.scene);
         material.alpha = 1;
-        // Textur und Tönung setzt applyTexture() unten — dieselbe Stelle,
-        // die auch setHdClutter() benutzt, damit beide Wege nicht
-        // auseinanderlaufen können.
+        // Textur und Tönung setzt applyTexture() unten — an einer Stelle,
+        // weil beides zusammengehört: Die Wiesen-Tönung ist nur zu dieser
+        // einen Karte passend gemessen (siehe MEADOWS_TINT).
         material.specularColor.setAll(0);
         // Unity vegetation is unlit-ish: the original relies on the
         // two-sided alpha-cutout shader with a strong ambient term. Babylon's
@@ -728,20 +689,6 @@ export class GrassClutter {
   }
 
   /**
-   * HD-Clutter ein-/ausschalten (Settings.hdClutter).
-   *
-   * Wirkt sofort und ohne Neuaufbau der Zellen: Getauscht wird nur die
-   * Textur am Material, die Halm-Geometrie und ihre Instanzmatrizen bleiben
-   * unverändert. Nicht abgedeckte Einträge (kein HD_CLUTTER-Eintrag)
-   * behalten still ihre Originaltextur.
-   */
-  setHdClutter(on: boolean): void {
-    if (on === this.hd) return;
-    this.hd = on;
-    for (const v of this.variants) this.applyTexture(v);
-  }
-
-  /**
    * Die beiden Wiesengras-Einträge für externe Streuer (s. WiesenStreugut).
    * null, solange die Clutter-Assets noch laden — der Aufrufer fragt dann
    * später erneut (HuegelGras pollt ohnehin im Sekundentakt).
@@ -787,75 +734,42 @@ export class GrassClutter {
    * linearen Raum laufen. Der Alphakanal wird dabei nicht dekodiert, der
    * Cutout bleibt also unverändert.
    */
-  private makeTexture(url: string, beiFehler?: () => void): Texture {
+  private makeTexture(url: string): Texture {
     const tex = new Texture(url, this.scene, {
       noMipmap: false,
       invertY: false,
       samplingMode: Texture.TRILINEAR_SAMPLINGMODE,
       useSRGBBuffer: true,
-      onError: beiFehler ? () => beiFehler() : undefined,
     });
     tex.wrapU = tex.wrapV = Texture.WRAP_ADDRESSMODE;
     return tex;
   }
 
   /**
-   * Wird gesetzt, sobald eine HD-Karte nicht geladen werden konnte.
+   * Setzt Textur und Tönung eines Variants.
    *
-   * Das HD-Paket (`assets/textures/hd-clutter/`) stammt aus dem
-   * Willybach-Mod und wird NICHT mitgeliefert — es gibt dafür kein
-   * eigenes Rezept unter `tools/`. Ohne das Paket lieferte jede Karte
-   * eine 404, und Babylon legt dann seine magenta-schwarze Ersatzkachel
-   * über den kompletten Bodenbewuchs: die halbe Welt ist pink.
-   *
-   * Den Standardwert der Einstellung auf `false` zu setzen reicht dafür
-   * NICHT — `GameSettings` merged `{...DEFAULTS, ...gespeichert}`, und wer
-   * die Seite schon einmal geladen hat, trägt `hdClutter: true` dauerhaft
-   * im localStorage. Deshalb die Rückfallebene hier: Die erste
-   * fehlgeschlagene Karte schaltet HD für diese Sitzung ab, und alle
-   * Varianten holen sich ihre Originalkarte. Der Schalter im
-   * Einstellungsfenster bleibt bedienbar — wer das Paket lokal hat,
-   * bekommt beim nächsten Laden wieder HD.
+   * Es gibt nur diesen einen Weg (siehe TEX_BASE_URL): Alle Karten liegen
+   * flach unter `assets/textures/` und werden selbst erzeugt, kein Zweig
+   * zeigt mehr auf ein optionales Paket. Damit kann auch keine 404 mehr
+   * entstehen, die Babylon mit seiner magenta-schwarzen Ersatzkachel
+   * beantwortet — der frühere Notausstieg dafür (`hdFehlt`) ist deshalb
+   * ersatzlos entfallen.
    */
-  private hdFehlt = false;
-
-  /** Setzt Textur und Tönung eines Variants passend zum HD-Schalter. */
   private applyTexture(v: Variant): void {
     const entry = v.entry;
-    const hdName = HD_CLUTTER[entry.texture];
-    const useHd = this.hd && !this.hdFehlt && hdName !== undefined;
-    const key = `${useHd ? 'hd' : 'o'}:${entry.texture}:${entry.texRepeatU}`;
-
-    let tex = this.texCache.get(key);
-    if (!tex) {
-      const base = useHd
-        ? this.makeTexture(`${HD_BASE_URL}${hdName}@${HD_SEASON}.png`, () => {
-            // Erste fehlende HD-Karte schaltet HD für diese Sitzung ab und
-            // setzt ALLE Varianten neu — sonst bliebe der Rest der Karten
-            // in derselben Falle und liefe einzeln in seine eigene 404.
-            if (this.hdFehlt) return;
-            this.hdFehlt = true;
-            console.warn(
-              '[GrassClutter] HD-Texturpaket nicht vorhanden — zurück auf die Originalkarten. ' +
-                'Das Paket wird nicht ausgeliefert (siehe hdFehlt).'
-            );
-            this.texCache.delete(key);
-            for (const variant of this.variants) this.applyTexture(variant);
-          })
-        : this.texturesOrig.get(entry.texture);
-      if (!base) return;
-      // Bei Repeat ≠ 1 eine eigene Instanz, damit uScale nicht auf der
-      // geteilten Basistextur landet (gilt nur für den Originalpfad — die
-      // HD-Instanz oben gehört ohnehin allein diesem Schlüssel).
-      tex = !useHd && entry.texRepeatU !== 1 ? (base.clone() as Texture) : base;
-      tex.hasAlpha = true;
-      tex.getAlphaFromRGB = false;
-      if (entry.texRepeatU !== 1) tex.uScale = entry.texRepeatU;
-      this.texCache.set(key, tex);
-    }
+    const base = this.texturen.get(entry.texture);
+    if (!base) return;
+    // Bei Repeat ≠ 1 eine EIGENE Instanz: uScale hängt an der Texture, nicht
+    // am Material, und dieselbe Karte kann in mehreren Einträgen stehen
+    // (autumn_ormbunke_green in Wiese und Schwarzwald). Ohne Kopie schriebe
+    // die Kachelung der Waldvarianten in die geteilte Instanz.
+    const tex = entry.texRepeatU !== 1 ? (base.clone() as Texture) : base;
+    tex.hasAlpha = true;
+    tex.getAlphaFromRGB = false;
+    if (entry.texRepeatU !== 1) tex.uScale = entry.texRepeatU;
 
     v.material.diffuseTexture = tex;
-    v.material.diffuseColor.set(...(useHd ? HD_COLOR : entry.color));
+    v.material.diffuseColor.set(...entry.color);
   }
 
   /**

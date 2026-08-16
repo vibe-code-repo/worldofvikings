@@ -109,31 +109,6 @@ export interface GameSettings {
    * es hier ein.
    */
   eigenesNameplate: boolean;
-  /**
-   * HD-Clutter: die Gras- und Farntexturen aus dem Willybach-HD-Pack statt
-   * der Originale (GrassClutter.ts, HD_CLUTTER).
-   *
-   * Seit 2026-08-02 die VOREINSTELLUNG, vorher aus. Ausschlaggebend ist
-   * nicht die Schärfe, sondern die Farbe: Der bisherige Standardpfad
-   * benutzt für die Wiese `grass_meadows_gen.png` — eine selbst
-   * generierte Textur (`tools/gen-grass-texture.py`), keine extrahierte.
-   * Gemessen gegen die HD-Vorlage:
-   *
-   *     grass_meadows_gen   Deckung 61 %   Sättigung 62 %
-   *     grasscross_meadows  Deckung 32 %   Sättigung 30 %
-   *     Valheim-Original (Screenshot, Boden)          31 %
-   *
-   * Die HD-Vorlage trifft den Originalwert, die generierte verfehlt ihn um
-   * das Doppelte — sie ist die Quelle des "Neonteppichs". Solange für den
-   * Originalpfad nur diese Eigenkreation zur Verfügung steht, ist HD die
-   * originalGETREUERE Wahl, obwohl es Mod-Material ist.
-   *
-   * Der Originalpfad bleibt abschaltbar erhalten; er wird erst dann wieder
-   * die bessere Wahl, wenn die echten Vanilla-Masken (weiss, ~15 % Deckung)
-   * mit der Terrainfarb-Tönung laufen — siehe Docs/07-Grafik-Konzept.md,
-   * Ursache C.
-   */
-  hdClutter: boolean;
 }
 
 const STORAGE_KEY = 'valheim-babylon-settings-v1';
@@ -191,22 +166,6 @@ const DEFAULTS: GameSettings = {
   showObjectNames: false,
   nameplates: true,
   eigenesNameplate: false,
-  /**
-   * HD-Gras ist AUS, weil das Texturpaket nicht mitgeliefert wird.
-   *
-   * Die Vorlagen unter `assets/textures/hd-clutter/` stammen aus dem
-   * Willybach-HD-Mod und werden von `tools/make-hd-clutter.py` nur
-   * aufbereitet — es gibt dafür kein eigenes Rezept, und ausliefern
-   * dürfen wir sie nicht. Fehlt das Paket, findet `GrassClutter` keine
-   * einzige Textur und Babylon legt seine magenta-schwarze Ersatzkachel
-   * über den kompletten Bodenbewuchs; im Bild ist die halbe Welt pink.
-   *
-   * Der Schalter im Einstellungsfenster bleibt: Wer das Paket lokal
-   * hat, schaltet es an. Der Kommentar dort verwies schon immer
-   * hierher mit "warum es aus ist" — nur stand der Standardwert
-   * gegenteilig auf `true`.
-   */
-  hdClutter: true,
 };
 
 /**
@@ -214,6 +173,13 @@ const DEFAULTS: GameSettings = {
  * (statt sie als `undefined` zu liefern): der Aufrufer merged via
  * `{...DEFAULTS, ...loadSaved()}`, und ein explizites `undefined` würde
  * dabei den Default überschreiben statt ihn stehen zu lassen.
+ *
+ * Dass hier jedes Feld einzeln aufgeführt ist, erledigt nebenbei das
+ * ABSCHAFFEN von Einstellungen: Ein Schlüssel, der in dieser Liste fehlt,
+ * fällt aus jedem gespeicherten Stand heraus — so geschehen mit
+ * `hdClutter`. Ein pauschales `{...DEFAULTS, ...JSON.parse(raw)}` hätte das
+ * nicht geleistet; dort schleppte jeder Browser, der die Seite früher
+ * einmal geladen hat, den abgeschafften Wert unbegrenzt weiter.
  */
 function loadSaved(): Partial<GameSettings> {
   try {
@@ -240,7 +206,6 @@ function loadSaved(): Partial<GameSettings> {
       showObjectNames: bool(parsed.showObjectNames),
       nameplates: bool(parsed.nameplates),
       eigenesNameplate: bool(parsed.eigenesNameplate),
-      hdClutter: bool(parsed.hdClutter),
     };
     if (b.bloom !== undefined) out.bloom = b.bloom;
     if (b.motionBlur !== undefined) out.motionBlur = b.motionBlur;
@@ -253,7 +218,6 @@ function loadSaved(): Partial<GameSettings> {
     if (b.showObjectNames !== undefined) out.showObjectNames = b.showObjectNames;
     if (b.nameplates !== undefined) out.nameplates = b.nameplates;
     if (b.eigenesNameplate !== undefined) out.eigenesNameplate = b.eigenesNameplate;
-    if (b.hdClutter !== undefined) out.hdClutter = b.hdClutter;
     return out;
   } catch {
     return {};

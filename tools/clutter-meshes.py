@@ -50,14 +50,12 @@ Die zweite Haelfte des Vertrags ist die Laufrichtung von v:
 
     v = 1  ist der BODEN,  v = 0  ist die SPITZE.
 
-Das ist die Konvention beider Gras-Atlanten und auch die des
-HD-Clutter-Packs (`HD_CLUTTER` in GrassClutter.ts tauscht nur die
-Textur, die UVs bleiben) — beides sind Vollbild-Billboards mit Halmen
-von unten nach oben. Deshalb duerfen die Karten hier auch keine
-Sprite-Atlas-Kacheln abgreifen: Sobald der Nutzer HD-Clutter
-einschaltet, laege sonst eine Vollbildtextur unter einer Kachel-UV.
-Senkrechte Streifen einer Vollbildtextur sind der einzige Zuschnitt,
-der bei BEIDEN Vorlagen dasselbe zeigt.
+Das ist die Konvention aller Clutter-Karten des Projekts — der beiden
+Gras-Atlanten wie der acht Texturen aus `clutter-texturen.py`; alle
+sind Vollbild-Billboards mit Pflanzen von unten nach oben. Deshalb
+duerfen die Karten hier auch keine Sprite-Atlas-Kacheln abgreifen:
+Senkrechte Streifen ueber die volle Bildhoehe sind der einzige
+Zuschnitt, der zu einem Vollbild-Billboard passt.
 
 Ein frueherer Versuch, die 128er-Originalmaske aus Valheim mit diesen
 Meshes zu benutzen, scheiterte genau daran (siehe MEADOWS_TINT in
@@ -284,8 +282,8 @@ def karte(pos, nor, uv, idx, *, wurzel, azimut, hoehe, reichweite, bogen,
 def quad_flach(pos, nor, uv, idx, *, mitte, halb, drehung, y):
     """Waagerechtes Viereck (Seerosenblatt) mit voller UV-Belegung.
 
-    Volle 0..1-UV, weil `HD_CLUTTER` fuer `waterlilies` eine
-    Vollbildvorlage einsetzt — eine Atlas-Kachel wuerde dort brechen.
+    Volle 0..1-UV, weil `waterlilies.png` ein Vollbild-Billboard ist
+    (ein Blatt, formatfuellend) — eine Atlas-Kachel wuerde dort brechen.
     """
     c, s = math.cos(drehung), math.sin(drehung)
     ecken = [(-halb, -halb), (halb, -halb), (halb, halb), (-halb, halb)]

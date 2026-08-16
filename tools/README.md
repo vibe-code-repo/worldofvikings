@@ -52,7 +52,6 @@ node tools/<skript>.mjs <argumente>                              # Node, oft mit
 | `wasser-texturen.py` | Die vier Wassertexturen für `WaterPlugin.ts` plus `grass_terrain_color.png`. **Achtung:** `water_normals_real.png` ist Unity-DXT5nm gepackt — `(1, y, y, x)`, X liegt im Alphakanal und B muss exakt gleich G sein, sonst kippt das Wasser dauerhaft in eine Richtung. Die Schaum-Mittelwerte gehen als feste Divisoren in den Shader ein. |
 | `item-icons.py` | Die 25 Item-Icons aus `itemDefs.ts` (`icon:`) plus `cultivate_ground` aus `PieceTable.ts` als 64² RGBA, vierfach überabgetastet gezeichnet. `--nur name1,name2` für einzelne, `--blatt` legt eine Übersicht nach `out/icons.png`. Die Bauteil-Icons landen im selben Ordner `/assets/sprites/`; `hoe` und `stone` fallen mit Gegenstands-Icons zusammen, `cultivate_ground` ist das einzige eigene. |
 | `terrain-texturen.py` | Die neun Bodentexturen für `TerrainSplat.ts` — 16 Albedo-Tiles im 256×4096-Stapel, der Variety-Noise und sieben Normal-Maps. Drei Vorgaben sind nicht frei wählbar: die Tile-Reihenfolge (`TILE`-Enum), die Kanalmittel des Noise (im Shader als `VAR_MITTE_*` fest verdrahtet) und die Periodizität, weil der Shader mit `fract(uv)` kachelt. `--nur splat\|noise\|normal` baut einzelne Gruppen. |
-| `make-hd-clutter.py` | Bereitet die HD-Grastexturen für `GrassClutter.ts` auf (13 Einträge). |
 | `texture-catalog.py` | Katalogisiert die extrahierten Valheim-Texturen nach Unity-Namenskonvention (`_d` Albedo, `_n` Normal, `_m` Maske, `_e` Emission). |
 | `lib/karten.py` | Geteilte Bausteine der Pflanzenkarten (`mischen`, `gedreht`, `umriss`, `achse`, `abschliessen`). Benutzt von `busch-texturen.py` und `blumen-texturen.py`. Enthält die zwei Regeln, an denen beide hängen: Stiel bei v=0, und Hintergrund in mittlerer Pflanzenfarbe statt transparentem Schwarz. |
 | `lib/rauschen.py` | Geteilte Rauschfunktionen (`wertrauschen`, `oktaven`, `furchen`, `normiert`). **Periodisch**, weil alle Texturen gekachelt werden. |
@@ -104,7 +103,6 @@ node tools/<skript>.mjs <argumente>                              # Node, oft mit
 | `asset-extractor/` | Workspace-Paket, `npm run extract:assets`. |
 | `prefab-parser/` | Workspace-Paket, `npm run parse:prefabs` → `prefabData.json`. |
 | `assetripper/` | Arbeitsverzeichnis von AssetRipper (Ex- und Import). |
-| `extract-hd-bundle.py` | Zieht die HD-Grastexturen aus dem WillybachHD-Bundle. |
 | `extract-texture-arrays.py` | Holt `Texture2DArray` und `Texture3D` aus dem Client — der normale Export enthält nur `Texture2D`, Valheims Boden liegt aber als Array vor. |
 | `dump-envsetup.mjs` | Extrahiert Valheims echte EnvSetup-Lichtwerte für `shared/src/environment.ts`. |
 
@@ -123,7 +121,7 @@ statt Vermutungen.
 | `pw-placement-check.mjs` | Bau-Modus, Modus-Menü, Terrain-Operationen; jeder Abschnitt an unberührter Weltstelle. |
 | `pw-inventory-check.mjs` | Hotbar, Ausrüsten, Inventar-Overlay samt Drag & Drop. |
 | `pw-creature-probe.mjs`, `pw-deer-*.mjs`, `pw-texture-check.mjs` | Kreaturen: Spawn, Modellzustand, Materialien, Nahaufnahmen. |
-| `pw-grass-*.mjs`, `pw-hd-gras-vergleich.mjs` | Gras: Instanzpositionen, Rendering, Wasserkante, HD-Vergleich. |
+| `pw-grass-*.mjs` | Gras: Instanzpositionen, Rendering, Wasserkante. |
 | `pw-babylon-*.mjs` | Babylon-Grundlagen: Container, Instanzen, Bucket-Zustand, Basisbild. |
 | `pw-firefox-app.mjs`, `pw-firefox-drag.mjs`, `pw-firefox-rmb.mjs` | Firefox-Eigenheiten: WebGL nur mit Xvfb, `movementX/Y` ohne Pointer-Lock, Maustastenverhalten. |
 | `pw-cam-override.mjs`, `pw-scene-probe.mjs`, `pw-statue-look.mjs`, `pw-glb-probe.mjs`, `pw-retry-probe.mjs`, `pw-placeholder-preview.mjs`, `pw-clock-check.mjs`, `pw-caps.mjs` | Punktuelle Sonden für einzelne Fehlerbilder. |
@@ -135,7 +133,7 @@ statt Vermutungen.
 
 | Werkzeug | Zweck |
 |---|---|
-| `deploy.sh` | Bringt Code und Assets auf die Container (`bau`/`live`/`beide`, `--assets`). Prüft **lokal** Typecheck und Tests, bevor etwas übertragen wird, baut auf Live den Client (dort liefert nginx aus `dist`) und startet neu. Das Weltdokument geht NUR mit `--karte` mit; Spielstände und `server.yml` nie. |
+| `wov-update.sh` | Holt den aktuellen Stand aus Git und stellt den Container darauf um. Bricht ab, wenn der Arbeitsbaum schmutzig ist — der Commit soll die Wahrheit sagen. Typecheck und Tests laufen **ohne Pipe**, ein Fehlschlag startet nichts. Auf `live` baut es den Client nach `dist.neu` und tauscht erst danach. Gesundheitsprüfung fragt den Server, statt `systemctl is-active` zu glauben. `server/data/` wird nie angefasst. Ersetzt `deploy.sh` (16.08.2026) — der schob ein Tar von der Entwicklungsmaschine und verschluckte jeden Exit-Code. |
 | `worldlayout-mcp/` | MCP-Server für das Weltlayout (lesen, setzen, ausrollen). Benutzt `sanitizeWorldLayout` aus `shared`. |
 | `ws-check.mjs` | Prüft, ob `/ws` steht — lokal und über den Reverse-Proxy. |
 | `dump-spawn-zdos.ts` | Listet ZDOs nahe dem Weltursprung aus einem Save. |

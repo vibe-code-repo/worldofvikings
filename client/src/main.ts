@@ -413,7 +413,6 @@ async function main() {
     terrain?.setWaterQuality(s.waterQuality);
     grass?.setQuality(s.vegetationQuality);
     grass?.setDensity(s.grassDensity);
-    grass?.setHdClutter(s.hdClutter);
     post?.apply(s);
     shadows?.setLevel(s.shadowQuality);
     shadows?.setDistantShadows(s.distantShadows);
@@ -959,7 +958,6 @@ async function main() {
     terrain.setWaterQuality(gameSettings.get().waterQuality);
     grass.setQuality(gameSettings.get().vegetationQuality);
     grass.setDensity(gameSettings.get().grassDensity);
-    grass.setHdClutter(gameSettings.get().hdClutter);
     post.apply(gameSettings.get());
 
     if (params.has('t')) {

@@ -3,7 +3,9 @@ Description=World of Vikings — Server + Client
 # Beide Dienste gemeinsam starten/stoppen:
 #   systemctl start wov.target
 #   systemctl stop wov.target
-Wants=wov-server.service wov-client.service
+# wov-admin gehoert dazu: 'systemctl start wov.target' liess den Betriebsdienst
+# bisher aus, obwohl er die Gegenstelle der Editor-Einstellungsseite ist.
+Wants=wov-server.service wov-client.service wov-admin.service
 After=network-online.target
 
 [Install]

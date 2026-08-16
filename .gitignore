@@ -1,5 +1,9 @@
 node_modules/
 dist/
+# Zwischenstaende des atomaren Client-Tauschs in wov-update.sh. Der EXIT-Trap
+# raeumt sie weg; der Eintrag hier ist der zweite Guertel.
+client/dist.neu/
+client/dist.alt/
 out/
 *.log
 .DS_Store

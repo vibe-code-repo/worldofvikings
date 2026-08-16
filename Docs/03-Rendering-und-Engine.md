@@ -374,55 +374,62 @@ mesh.thinInstanceSetBuffer("matrix", matrixData, 16, false);
 - **Gras:** dichtes Gras als Thin Instances in reduziertem Radius (~40 m), weiter entfernt nur Terrain-Färbung.
 - **Zerstörbares:** Baum fällen ⇒ Thin-Instance-Matrix entfernen (Buffer-Update) + fallendes Animations-Mesh kurz einblenden.
 
-### 4.1 HD-Clutter (optional, `Settings.hdClutter`)
+### 4.1 Clutter-Texturen — ausschließlich selbst gebaut
 
-Die Gras- und Farntexturen lassen sich gegen die Vorlagen aus *Willybach's HD
-Textures* tauschen — Schalter „HD-Gras (Texturpaket)" in den Einstellungen,
-**standardmäßig aus**.
+Es gibt **genau einen** Texturweg für den Bodenbewuchs, und er ist der eigene.
+Jeder Name in `GrassClutter.ENTRIES.texture` liegt flach unter
+`assets/textures/`, erzeugt von:
 
-Warum nicht standardmäßig an: Valheims Clutter-Masken sind 64²–128² groß. Das
-ist **kein Mangel unseres Exports** — im Original-Bundle des Spiels
-(`StreamingAssets/SoftRef/Bundles/c4210710`, 2188 Texturen) ist die
-Auflösungsverteilung mit 35 % ≤64² praktisch dieselbe wie in `assets/textures/`
-(36 %). Das HD-Paket ist deshalb kein Schärfegewinn derselben Textur, sondern
-ein anderer Look.
+| Werkzeug | erzeugt |
+|---|---|
+| `tools/gen-grass-texture.py` | die drei Gras-Atlanten `grass_meadows_gen`, `grass_heath_gen`, `grass_toon1_yellow_gen` |
+| `tools/clutter-texturen.py` | die übrigen acht Karten (Waldboden grün/braun, Farnwedel grün/Sumpf, Strauch, Heideblume, Schilf, Seerosenblatt) |
+| `tools/wasser-texturen.py` | `grass_terrain_color.png` (die Terrainfarbe, die die Wiesentönung liefern soll — siehe unten) |
+| `tools/clutter-meshes.py` | die Halm-Meshes `clutter_default/plane/fern/vass/lily` und `grasscross` unter `assets/models/` |
 
-Zwei Unterschiede, die der Code ausgleicht (`GrassClutter.ts`, `HD_CLUTTER`):
+`applyTexture()` kennt deshalb keinen Zweig mehr, der auf eine fehlende Datei
+zeigen könnte, und damit auch keine 404, die Babylon mit seiner
+magenta-schwarzen Ersatzkachel beantworten würde.
 
-| | Original | HD-Vorlage |
-|---|---|---|
-| Farbe | weiße Maske, Tönung kommt aus `grass_terrain_color` | bereits eingefärbt |
-| Deckung | ~15 % | ~30 % |
+**Entfallen am 2026-08-16: der HD-Clutter-Schalter.** Bis dahin ließen sich die
+Gras- und Farnkarten gegen Vorlagen aus *Willybach's HD Textures* tauschen
+(`Settings.hdClutter`, aufbereitet von einem inzwischen gelöschten
+`tools/make-hd-clutter.py` nach `assets/textures/hd-clutter/`). Zwei Gründe für
+die Entfernung, und der zweite wiegt schwerer als der erste:
 
-Deshalb setzt der HD-Pfad `diffuseColor` auf Weiß statt auf `entry.color` —
-sonst legt sich `MEADOWS_TINT` ein zweites Mal Grün auf Grün, derselbe
-„Neonteppich", den der Kommentar bei `grass_terrain_color` beschreibt. Das
-dichtere Gras bleibt, das ist die Absicht des Pack-Autors.
+1. **Fremdmaterial.** Der Codekommentar sagte „ausliefern dürfen wir sie
+   nicht" — der Live-Server tat es trotzdem, die Dateien waren unter
+   `/assets/textures/hd-clutter/` öffentlich abrufbar. Die Vorgabe aus
+   [07-Grafik-Konzept.md](07-Grafik-Konzept.md) („streng originalgetreu, kein
+   HD-Mod-Material") stand ohnehin dagegen.
+2. **Eine Konstante, die auf beiden Containern verschieden stehen musste.**
+   Das Paket lag nur dort, wo es jemand gebaut hatte; der Schalter war
+   deshalb auf dev und live zwangsläufig unterschiedlich gesetzt — einer der
+   Gründe, warum die Bäume nach jedem Abgleich auseinanderliefen.
 
-Aufbereitet werden die Texturen von `tools/make-hd-clutter.py` (2048² → 512²,
-alpha-korrekt premultipliziert, alle vier Jahreszeiten → 15 MB in
-`assets/textures/hd-clutter/`). Die Saison steht in `HD_SEASON` fest auf
-Sommer; Valheim selbst kennt keine Jahreszeiten.
+Weggefallen ist damit auch der Sicherheitsmechanismus `hdFehlt`: Er fing die
+erste 404 einer HD-Karte ab und schaltete die ganze Sitzung auf die eigenen
+Karten zurück. Ohne zweiten Pfad hat er nichts mehr zu tun.
 
-> **Einrichtungsschritt:** `assets/` ist gitignored, die aufbereiteten Texturen
-> liegen also nicht im Repo. Nach einem frischen Checkout einmal ausführen:
-> ```
-> python3 tools/make-hd-clutter.py --size 512
-> ```
-> Ohne das findet der HD-Pfad keine Dateien. `hdClutter` ist seit 2026-08-02
-> **Voreinstellung** (`ui/Settings.ts`), der Schritt ist also nicht optional.
+⚠️ **Was der Schalter offen zurücklässt: die Farbe der Wiese.** Gemessen
+erreichte die HD-Vorlage 30 % Sättigung und traf damit den Wert des Originals
+(31 %); unser `grass_meadows_gen` liegt bei 62 %. Die Wiese ist ohne den
+Schalter also wieder zu grell. Der Weg dorthin ist nicht das Mod-Paket, sondern
+der Originalmechanismus — weiße Maske × `grass_terrain_color`, dazu
+coverage-erhaltende Mipmaps; siehe [07-Grafik-Konzept.md](07-Grafik-Konzept.md),
+Stufe 3.
 
-⚠️ **Zweimal falsch verkleinert** (behoben 2026-08-02, siehe
-[07-Grafik-Konzept.md](07-Grafik-Konzept.md) Stufe 3). Erstens lag zwischen
-Premultiply und Division ein **uint8**-Zwischenschritt; bei dünnen Halmen mit
-kleinem Alpha wurde der Quantisierungsfehler durch die Division wieder
-hochmultipliziert, und die halbtransparenten Ränder kamen mit RGB(109,144,107)
-statt RGB(73,104,72) heraus — bei 23 % halbtransparenten Pixeln und
-Alpha-Cutout ein sichtbar ausgebleichter, fast weißer Grasteppich. Zweitens
-wurden vollständig transparente Pixel auf **weiß** gesetzt; beim Erzeugen der
-Mipmaps mittelt die GPU sie in die Halmränder hinein. Beides gilt generell für
-Cutout-Texturen — wer hier etwas ändert, sollte die Randfarben danach gegen die
-Quelle messen.
+📌 **Lehre aus dem HD-Pfad, die für unsere eigenen Werkzeuge weiter gilt:**
+Cutout-Texturen verkleinert man in 32-bit-Float ohne uint8-Zwischenschritt.
+Liegt zwischen Premultiply und Division ein Byte-Schritt, wird der
+Quantisierungsfehler bei dünnen Halmen mit kleinem Alpha von der Division
+wieder hochmultipliziert — die halbtransparenten Ränder kamen so mit
+RGB(109,144,107) statt RGB(73,104,72) heraus, bei 23 % halbtransparenten Pixeln
+und Alpha-Cutout ein sichtbar ausgebleichter Grasteppich. Und vollständig
+transparente Pixel bekommen die mittlere Motivfarbe, nicht Weiß: „die Farbe ist
+dort beliebig" gilt nur, solange niemand sie mittelt — genau das tut die GPU
+beim Mipmapping. Wer an einem Texturwerkzeug etwas ändert, sollte die
+Randfarben danach gegen die Quelle messen.
 
 ## 5. Entities (ZDO → Szene)
 

@@ -334,46 +334,58 @@ setzen: `dof.pp.samples = 4` wenn DOF an, sonst `pipeline.samples = 4`. Bei jede
 DOF-Umschalten neu setzen. Zusammen mit FXAA laufen lassen (MSAA greift an
 Dreieckskanten, FXAA an den Discard-Kanten).
 
-### Stufe 3 — ERLEDIGT über den HD-Pfad statt über den Originalpfad (2026-08-02)
+### Stufe 3 — der HD-Umweg ist zurückgenommen (2026-08-16), die Aufgabe ist wieder offen
 
-Die ursprüngliche Planung (Vanilla-Masken + Terrainfarb-Tönung, unten stehengelassen) wurde
-**nicht** umgesetzt. Grund: Im Spiel zeigte sich, dass der Nicht-HD-Pfad für die Wiese gar
-keine Vanilla-Textur benutzt, sondern die selbst generierte `grass_meadows_gen.png`. Gemessen:
+Am 2026-08-02 stand hier „ERLEDIGT über den HD-Pfad statt über den Originalpfad". Das gilt
+nicht mehr: **`hdClutter` und die HD-Mod-Texturen sind restlos entfernt** — Schalter,
+Konstanten, Aufbereitungswerkzeuge und der Rückfallmechanismus `hdFehlt`
+(`GrassClutter.ts`, `ui/Settings.ts`, `ui/SettingsPanel.ts`, `main.ts`; siehe
+[03-Rendering-und-Engine.md](03-Rendering-und-Engine.md) 4.1). Zwei Gründe:
+
+- Es war Fremdmaterial, das wir laut eigenem Codekommentar nicht ausliefern durften — der
+  Live-Server tat es unter `/assets/textures/hd-clutter/` trotzdem. Die Vorgabe oben
+  (*streng originalgetreu, kein HD-Mod-Material*) stand von Anfang an dagegen; die
+  Entscheidung von 08-02 war ein Verstoß dagegen, nicht eine Ausnahme davon.
+- Der Schalter war eine Quelltextkonstante, die auf dev und live verschieden stehen
+  **musste** (das Paket lag nur dort, wo es jemand gebaut hatte) — und damit einer der
+  Gründe, warum die Bäume nach jedem Abgleich auseinanderliefen.
+
+**Die Messung, die zu dem Umweg geführt hat, bleibt gültig** — sie ist der Grund, warum
+Stufe 3 jetzt wieder ansteht:
 
 | | Deckung | Sättigung |
 |---|---|---|
-| `grass_meadows_gen` (bisheriger Standard) | 61 % | **62 %** |
-| `grasscross_meadows` (HD-Pack) | 32 % | **30 %** |
+| `grass_meadows_gen` (heutiger und einziger Stand) | 61 % | **62 %** |
+| `grasscross_meadows` (HD-Pack, entfernt) | 32 % | **30 %** |
 | Valheim-Original (Screenshot, Boden) | — | **31 %** |
 
-Die HD-Vorlage trifft den Originalwert, die Eigenkreation verfehlt ihn um das Doppelte.
-Solange für den Originalpfad nur diese Eigenkreation existiert, ist **HD die
-originalgetreuere Wahl** — obwohl es Mod-Material ist. `hdClutter` ist deshalb jetzt
-Voreinstellung.
+Die selbst generierte Karte verfehlt den Originalwert um das Doppelte; die Wiese wirkt
+damit wieder so grell, wie Stufe 1 es beschreibt. Die Antwort darauf ist nicht ein
+fremdes Texturpaket, sondern der Originalmechanismus (weiße Maske × `grass_terrain_color`)
+plus coverage-erhaltende Mipmaps — die Schritte darunter. Ein eigener, dünner gedeckter
+Wiesen-Atlas aus `tools/gen-grass-texture.py` ist der kleinere Zwischenschritt, wenn das
+Ganze nicht in einem Zug zu haben ist.
 
-**Dabei ein echter Fehler im HD-Pfad gefunden und behoben.** Das HD-Gras erschien
-großflächig ausgebleicht-weiß (vom Nutzer als „stellenweise weiß/hell" gemeldet). Ursache
-war `resize_cutout()` in `tools/make-hd-clutter.py`: Zwischen Premultiply und Division wurde
-das Bild als **uint8** zwischengespeichert. Bei dünnen Halmen ist `rgb × alpha` winzig
-(bei α = 0.02 landet ein Grün von 0.4 als ≈ 2 im Byte); die anschließende Division durch
+📌 **Ein Befund aus dem HD-Pfad ist trotzdem zu behalten**, weil er für unsere eigenen
+Texturwerkzeuge genauso gilt: Cutout-Texturen darf man nicht über einen
+**uint8**-Zwischenschritt verkleinern. Bei dünnen Halmen ist `rgb × alpha` winzig (bei
+α = 0.02 landet ein Grün von 0.4 als ≈ 2 im Byte); die anschließende Division durch
 dasselbe kleine Alpha multipliziert den Quantisierungsfehler wieder hoch.
 
 | | halbtransparente Ränder | sichtbare Halme |
 |---|---|---|
 | Quelle 2048² | RGB(73, 104, 72) | RGB(70, 98, 68) |
-| ausgeliefert 512², vorher | RGB(**109, 144, 107**) | RGB(72, 101, 70) |
-| ausgeliefert 512², **behoben** | RGB(**74, 105, 73**) | RGB(70, 98, 68) |
+| verkleinert über uint8 | RGB(**109, 144, 107**) | RGB(72, 101, 70) |
+| verkleinert in 32-bit-Float | RGB(**74, 105, 73**) | RGB(70, 98, 68) |
 
 23 % aller Pixel sind halbtransparent, und der Alpha-Cutout zeichnet sie als volle Pixel —
-daher der ausgebleichte Teppich. Behoben durch Verkleinern in 32-bit-Float ohne
-uint8-Zwischenschritt. Zweitens setzte der Code vollständig transparente Pixel auf **weiß**
-(„Farbe ist dort beliebig"); beliebig ist sie aber nur, solange niemand sie mittelt — genau
-das tut die GPU beim Mipmapping. Sie bekommen jetzt die mittlere Halmfarbe.
+daher ein sichtbar ausgebleichter Teppich. Zweitens gehört in vollständig transparente
+Pixel die mittlere Motivfarbe, nicht Weiß: „die Farbe ist dort beliebig" gilt nur, solange
+niemand sie mittelt — genau das tut die GPU beim Mipmapping.
 
-*(Ursprüngliche Planung, weiterhin gültig für den Tag, an dem die echten Vanilla-Masken
-laufen sollen:)*
+*(Der ursprüngliche Plan, jetzt wieder der einzige:)*
 
-### Stufe 3 (Originalpfad) — zurückgestellt
+### Stufe 3 (Originalpfad) — steht wieder an
 
 1. **Coverage-erhaltende Mipmaps** als neues Werkzeug (`tools/gen-coverage-mips.mjs`,
    `sharp` ist bereits devDependency): Mip-Kette selbst erzeugen und den Alpha je Level so
@@ -387,6 +399,16 @@ laufen sollen:)*
    herum) anwenden; `MEADOWS_TINT` (Zeile 184) entfällt — das ist der Originalmechanismus
    (weiße Maske × Terrainfarbe).
 4. **Slotweise umstellen und einzeln im Bild prüfen**, nicht alle zwölf auf einmal.
+
+⚠️ **Schritt 2 ist so nicht mehr ausführbar** (Stand 2026-08-16): `grass_meadows.png` und
+die übrigen Vanilla-Masken liegen nicht unter `assets/textures/` — dort stehen ausschließlich
+die 66 selbst erzeugten Karten. Seit der Rücknahme des HD-Pfads gilt für den Bewuchs
+ohnehin: **eigene Modelle und Texturen, sonst nichts.** Der Schritt heißt damit nicht mehr
+„extrahierte Maske einsetzen", sondern *„`tools/gen-grass-texture.py` eine weiße Maske mit
+~15 % Deckung erzeugen lassen"* — das ist dieselbe Physik (Maske × Terrainfarbe) und dabei
+frei von fremdem Material. Die UV-Belegung von `clutter_default.glb` muss dabei mitgezogen
+werden; daran scheiterte der Versuch vom 2026-07-29 (siehe `MEADOWS_TINT` in
+`GrassClutter.ts`).
 
 ### Stufe 4 — Nebel pro Pixel + Höhennebel (~6–8 h)
 
@@ -497,8 +519,11 @@ sind.
 - **Volumetric Light Scattering** (`PostProcessing.ts:244-266`): gemessen 40 → 17 fps
   (eigene Verdeckungspassage über die ganze Szene). Der Nebelgradient aus Stufe 4 liefert das
   Glühen um die Sonne praktisch gratis.
-- **HD-Mod-Texturen** (`assets/textures-hd/`, 829 MB): abgewählt zugunsten der Originaltreue.
-  Bleiben ungenutzt im Projekt liegen.
+- **HD-Mod-Texturen** (ehemals `assets/textures-hd/`, 829 MB): abgewählt zugunsten der
+  Originaltreue — und seit 2026-08-16 endgültig, siehe Stufe 3. Auf dem dev-Container liegt
+  weder dieser Ordner noch `assets/textures/hd-clutter/`; auf dem Live-Container wird
+  letzterer gelöscht, sobald der Client ohne HD-Pfad dort ausgerollt ist. Fremdes Material
+  gehört generell nicht in `assets/` — was der Client ausliefert, ist öffentlich abrufbar.
 - **Triplanar-Terrain**, **`terrain_n_array.png`**, **Wolken-/Sterntexturen**: geringer
   Gewinn bzw. würden die Kopplung des prozeduralen Himmels an das EnvSetup schwächen.
 - **Höher aufgelöste Bodentexturen**: existieren im Original schlicht nicht (Wiesenkachel hat

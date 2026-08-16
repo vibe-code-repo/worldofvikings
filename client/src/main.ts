@@ -62,6 +62,7 @@ import {
   FackelLichter,
 } from './engine/FackelLicht';
 import { InputManager } from './engine/InputManager';
+import { leseUndLeere as feinmessungLesen, setzeAktiv as feinmessungSetzen } from './engine/Zeitmessung';
 import { AssetManager } from './engine/AssetManager';
 import { WindPlugin } from './engine/WindPlugin';
 import { ClutterWindPlugin } from './engine/ClutterWindPlugin';
@@ -620,6 +621,11 @@ async function main() {
         gameSettings.set({ [schluessel]: wert } as never);
         return { ...gameSettings.get(), skalierung: engine.getHardwareScalingLevel() };
       },
+      /** Feinmessung der Terrain-Abschnitte ein-/ausschalten. */
+      feinmessung: (an: boolean) => {
+        feinmessungSetzen(an);
+        return an;
+      },
       profil: () => {
         const p: Record<string, unknown> = { ...zeitmess };
         // Zeichenaufrufe und aktive Meshes: Der Verdacht war, dass wir
@@ -666,6 +672,11 @@ async function main() {
         }
         p['aktivNachTyp'] = nachTyp;
         p['materialien'] = scene.materials.length;
+        // Feinmessung der Terrain-Abschnitte (nur gefuellt, wenn ueber
+        // __vb.feinmessung(true) eingeschaltet). Beantwortet, WOMIT der
+        // dominante terrain-Posten seine Zeit verbringt: Rauschen,
+        // Gitterbau, GPU-Upload oder Havok-Shape.
+        p['fein'] = feinmessungLesen();
         // Der Schattenpass rendert die Werferliste JE KASKADE komplett neu
         // — das Produkt ist der zweite Posten, den D10 betrifft, und er
         // ist grösser als der Bildpass. Beide Zahlen gehören deshalb in

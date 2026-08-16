@@ -53,14 +53,25 @@ import type { ClientWorld } from '../world/World';
 /** Kantenlänge in Metern = Texeln. Deckt die Nahwasserfläche (512 m) ab. */
 const SIZE = 512;
 /**
- * Zonen, die pro Frame in den Puffer kopiert werden.
+ * Zeitbudget für das Nachfüllen des Puffers (ms je Frame).
  *
- * Der teure Teil ist nicht das Kopieren, sondern `getZone()`, das eine
- * noch nicht erzeugte Zone durchrechnet. Neu gefüllt wird nur, wenn das
- * Wasser umgesetzt wird (alle 64 m, bei Laufgeschwindigkeit frühestens
- * nach ~8 s) — dieselbe Bedingung wie beim alten Zeilen-Bake.
+ * Vorher stand hier `ZONES_PER_FRAME = 9`, also eine feste Stückzahl. Das
+ * ist genau der Fehler, den das Projekt in `Terrain`, `EntityManager` und
+ * `Shadows` schon dreimal korrigiert hat: Der teure Teil ist nicht das
+ * Kopieren, sondern `getZone()`, und das ist **variabel teuer** — eine
+ * bereits erzeugte Zone kostet nichts, eine neue rechnet 65×65 Rauschwerte
+ * durch. Neun neue Zonen in einem Frame sind deshalb kein Neuntel der
+ * Arbeit, sondern der ganze Ruckler.
+ *
+ * Gemessen am 16.08.2026 in Mikes Umgebung: ein Einzelframe von **84,4 ms**
+ * in `depthMap.schritt()`, während der Posten über den ganzen Lauf nur
+ * 124 ms brauchte. Eine einzige Spitze, sonst nichts — die Signatur einer
+ * unbudgetierten Schleife.
+ *
+ * Vier Millisekunden sind derselbe Wert wie `TERRAIN_BUDGET_MS` und
+ * `GrassClutter.CELL_BUILD_BUDGET_MS`.
  */
-const ZONES_PER_FRAME = 9;
+const ZONEN_BUDGET_MS = 4;
 /** Grundhöhe ausserhalb der Kachel: so tief, dass depth01 = 1 gilt. */
 const AUSSERHALB_TIEFE = 40;
 
@@ -164,14 +175,22 @@ export class WaterDepthMap {
   schritt(): void {
     if (this.naechsteZone < 0) return;
     const gesamt = this.zonenProAchse * this.zonenProAchse;
-    const bis = Math.min(gesamt, this.naechsteZone + ZONES_PER_FRAME);
-    for (let n = this.naechsteZone; n < bis; n++) {
+    // Zeitbudget statt fester Stückzahl. Genau EINE Zone geht immer durch,
+    // sonst kommt der Puffer bei knappem Budget nie voran — dieselbe
+    // "mindestens eins"-Ausnahme wie in `TerrainBudget`.
+    const ende = performance.now() + ZONEN_BUDGET_MS;
+    let n = this.naechsteZone;
+    for (; n < gesamt; n++) {
       this.kopiereZone(
         this.zoneX0 + (n % this.zonenProAchse),
         this.zoneZ0 + Math.floor(n / this.zonenProAchse)
       );
+      if (performance.now() >= ende) {
+        n++;
+        break;
+      }
     }
-    this.naechsteZone = bis;
+    this.naechsteZone = Math.min(n, gesamt);
     if (this.naechsteZone >= gesamt) {
       this.naechsteZone = -1;
       // Upload und Origin-Wechsel im selben Frame: ab hier passen

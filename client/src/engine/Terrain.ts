@@ -21,6 +21,7 @@
 import { Mesh, VertexData } from '@babylonjs/core/Meshes';
 import { PhysicsBody } from '@babylonjs/core/Physics/v2/physicsBody';
 import { PhysicsShapeMesh } from '@babylonjs/core/Physics/v2/physicsShape';
+import { misst } from './Zeitmessung';
 import { PhysicsMotionType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Material } from '@babylonjs/core/Materials/material';
@@ -130,14 +131,26 @@ const DEFAULT_DETAIL_QUALITY = 2;
  */
 export const WATER_STEP = 4;
 /**
- * Wasser-Vertex-Zeilen, die pro Frame neu gebacken werden. Die Ufer-Nähe
- * braucht einen getGroundHeight()-Aufruf je Vertex (129² ≈ 16,6k bei
- * 512 m/4 m). Alles in einem Frame wäre ein sichtbarer Ruckler; verteilt
- * auf ~9 Frames ist es unauffällig. Zeit ist reichlich: neu gebacken wird
- * nur, wenn das Wasser umgesetzt wird (alle 64 m ⇒ bei Laufgeschwindigkeit
- * frühestens nach ~8 s).
+ * Zeitbudget für das Backen der Ufer-Nähe (ms je Frame).
+ *
+ * Die Ufer-Nähe braucht einen `getGroundHeight()`-Aufruf je Wasser-Vertex
+ * (129² ≈ 16,6k bei 512 m / 4 m). Neu gebacken wird, sobald das Wasser
+ * umgesetzt wird — alle 64 m, beim Sprint also alle ~8,5 s.
+ *
+ * Vorher stand hier `SHORE_ROWS_PER_FRAME = 16` mit der Annahme, sechzehn
+ * Reihen seien "unauffällig". Die Messung vom 16.08.2026 sagt etwas
+ * anderes: Dieser Posten ist mit **37 % der Terrain-Zeit der grösste
+ * überhaupt** — grösser als die Zonengenerierung, grösser als das
+ * Havok-Cooking. Der Grund ist derselbe wie bei den drei bereits
+ * korrigierten Stellen im Projekt: `getGroundHeight()` ist variabel teuer.
+ * Liegt die Zone im Cache, kostet der Aufruf fast nichts; muss sie erst
+ * erzeugt werden, rechnet er eine ganze Zone durch. Eine feste Reihenzahl
+ * trifft damit mal nichts und mal alles.
+ *
+ * Vier Millisekunden sind derselbe Wert wie `TERRAIN_BUDGET_MS` und
+ * `GrassClutter.CELL_BUILD_BUDGET_MS`.
  */
-const SHORE_ROWS_PER_FRAME = 16;
+const UFER_BUDGET_MS = 4;
 
 /**
  * Deckkraft des Wassers bei "Wasserqualität: Aus" (ohne Refraktionsbild).
@@ -439,8 +452,12 @@ export class TerrainManager {
     const perRow = this.waterVertsPerRow;
     const originX = this.shoreBakeOriginX;
     const originZ = this.shoreBakeOriginZ;
-    const endRow = Math.min(perRow, this.shoreBakeRow + SHORE_ROWS_PER_FRAME);
-    for (let row = this.shoreBakeRow; row < endRow; row++) {
+    // Zeitbudget statt fester Reihenzahl. Genau EINE Reihe geht immer
+    // durch, sonst kommt der Bake bei knappem Budget nie ans Ende und das
+    // Wasser bliebe dauerhaft ohne Ufersaum.
+    const ende = performance.now() + UFER_BUDGET_MS;
+    let row = this.shoreBakeRow;
+    for (; row < perRow; row++) {
       for (let col = 0; col < perRow; col++) {
         const i = row * perRow + col;
         const x = this.waterBaseXZ[i * 2] + originX;
@@ -451,8 +468,14 @@ export class TerrainManager {
         const depth = WATER_LEVEL - this.world.getGroundHeight(x, z);
         this.waterDepth[i] = depth > 0 ? depth : 0;
       }
+      // Nach der Reihe prüfen, nicht davor: so ist die "mindestens eins"-
+      // Ausnahme ohne zweiten Zähler erfüllt.
+      if (performance.now() >= ende) {
+        row++;
+        break;
+      }
     }
-    this.shoreBakeRow = endRow;
+    this.shoreBakeRow = Math.min(row, perRow);
     if (this.shoreBakeRow >= perRow) {
       this.shoreBakeRow = -1;
       this.water.updateVerticesData('aDepth', this.waterDepth);
@@ -527,9 +550,10 @@ export class TerrainManager {
     // Terrain-Unterhalt dieses Aufrufs — s. TERRAIN_BUDGET_MS.
     const budget: TerrainBudget = { ende: performance.now() + TERRAIN_BUDGET_MS, gebaut: false };
 
-    this.syncColliders(cz, cw, budget);
+    misst('terrain.colliderSync', () => this.syncColliders(cz, cw, budget));
 
     // queue missing chunks inside the ring (center-out)
+    misst('terrain.ringScan', () => {
     for (let r = 0; r <= this.viewRadius; r++) {
       for (let dy = -r; dy <= r; dy++) {
         for (let dx = -r; dx <= r; dx++) {
@@ -543,14 +567,17 @@ export class TerrainManager {
         }
       }
     }
+    });
 
     // drop chunks outside the ring
+    misst('terrain.chunkVerwerfen', () => {
     for (const [key, chunk] of this.chunks) {
       if (Math.max(Math.abs(chunk.zoneX - cz), Math.abs(chunk.zoneY - cw)) > this.viewRadius + 1) {
         chunk.mesh.dispose();
         this.chunks.delete(key);
       }
     }
+    });
 
     // budgeted near builds — teilt sich `budget` mit syncColliders() und
     // dem Fernbau unten, s. TERRAIN_BUDGET_MS.
@@ -562,7 +589,7 @@ export class TerrainManager {
     }
 
     // G-POP: far chunk ring — queue/dispose
-    this.refreshFarChunks(cz, cw);
+    misst('terrain.fernRing', () => this.refreshFarChunks(cz, cw));
     // budgeted far builds (only when no near chunk is pending), gleiches
     // Budget wie oben.
     if (this.buildQueue.length === 0) {
@@ -593,10 +620,10 @@ export class TerrainManager {
       }
       this.shoreBakeRow = 0;
     }
-    this.bakeShoreRows();
+    misst('terrain.uferBacken', () => this.bakeShoreRows());
     // Tiefenkarte fürs Fragment — dieselbe gesnappte Mitte wie die Meshes.
     this.depthMap.setzeMitte(wx, wz);
-    this.depthMap.schritt();
+    misst('terrain.tiefenkarte', () => this.depthMap.schritt());
 
     // Nah-Ring vollständig + Ufer-Nähe einmal gebacken ⇒ Wasser einblenden
     // und den Ladebildschirm freigeben.
@@ -736,12 +763,23 @@ export class TerrainManager {
     const SNOW_LINE = 80;
 
     // Cache zone heightmaps
-    const hms: Heightmap[] = [];
-    for (let dz = 0; dz < zonesPerSide; dz++) {
-      for (let dx = 0; dx < zonesPerSide; dx++) {
-        hms.push(this.world.heightmaps.getZone(zx0 + dx, zy0 + dz));
+    //
+    // Hier steckt die Weltgenerierung: `getZone()` wertet fuer eine noch
+    // unbekannte Zone das Rauschen an 65x65 = 4225 Vertices aus. Getrennt
+    // gemessen, weil nur DIESER Posten in einen Web Worker auswandern
+    // koennte — und weil die Rechnung "46 ms fuer 4225 Auswertungen"
+    // rund hundertmal langsamer waere als eine gewoehnliche
+    // Rauschfunktion. Entweder stimmt die Annahme nicht, oder hier liegt
+    // ein algorithmisches Problem.
+    const hms: Heightmap[] = misst('terrain.zonenRaster', () => {
+      const raus: Heightmap[] = [];
+      for (let dz = 0; dz < zonesPerSide; dz++) {
+        for (let dx = 0; dx < zonesPerSide; dx++) {
+          raus.push(this.world.heightmaps.getZone(zx0 + dx, zy0 + dz));
+        }
       }
-    }
+      return raus;
+    });
     const hmAt = (dx: number, dz: number): Heightmap => hms[dz * zonesPerSide + dx];
 
     /**
@@ -951,7 +989,11 @@ export class TerrainManager {
 
   private buildGroundBody(key: string, mesh: Mesh): void {
     const body = new PhysicsBody(mesh, PhysicsMotionType.STATIC, false, this.scene);
-    body.shape = new PhysicsShapeMesh(mesh, this.scene);
+    // Der teure Posten: PhysicsShapeMesh cookt eine Havok-BVH ueber die
+    // ~8k Dreiecke der Zone. Getrennt gemessen, weil genau hier der
+    // Verdacht liegt — ein Gelaendestueck ist ein Hoehenfeld, und
+    // PhysicsShapeType.HEIGHTFIELD braucht gar keine BVH.
+    body.shape = misst('terrain.havokShape', () => new PhysicsShapeMesh(mesh, this.scene));
     this.groundBodies.set(key, body);
   }
 
@@ -969,7 +1011,9 @@ export class TerrainManager {
 
   /** Build one near zone chunk (1 zone, 1m stride, no bias). */
   private buildChunk(zoneX: number, zoneY: number): void {
-    const geo = this.buildGridGeometry(zoneX, zoneY, 1, 1, 0);
+    // Gitterbau: Vertexdaten, Normalen, Biom-Attribute. Enthaelt den
+    // Zonenraster-Posten nicht mehr — misst() zieht Kindabschnitte ab.
+    const geo = misst('terrain.gitterbau', () => this.buildGridGeometry(zoneX, zoneY, 1, 1, 0));
 
     const vd = new VertexData();
     vd.positions = geo.positions;
@@ -978,18 +1022,24 @@ export class TerrainManager {
     if (this.flatMode) vd.colors = geo.colors;
 
     const mesh = new Mesh(`terrain_${zoneX}_${zoneY}`, this.scene);
-    // updatable: refreshZones() rewrites position/normal in place when the
-    // player digs. Without it updateVerticesData() silently does nothing.
-    vd.applyToMesh(mesh, true);
-    if (this.flatMode) {
-      mesh.material = this.flatMaterial;
-    } else {
+    // Der Upload in die GPU-Puffer. Getrennt gemessen, weil er als
+    // einziger Posten NICHT in einen Web Worker auswandern kann: er
+    // braucht den GL-Kontext und lebt damit zwingend auf diesem Thread.
+    misst('terrain.gpuUpload', () => {
+      // updatable: refreshZones() rewrites position/normal in place when the
+      // player digs. Without it updateVerticesData() silently does nothing.
+      vd.applyToMesh(mesh, true);
+      if (this.flatMode) return;
       mesh.setVerticesData('aTiles', geo.aTiles, false, 4);
       mesh.setVerticesData('aWeights', geo.aWeights, false, 4);
       mesh.setVerticesData('aLava', geo.aLava, false, 1);
       mesh.setVerticesData('aSnow', geo.aSnow, true, 1); // height-dependent
       mesh.setVerticesData('aRockTile', geo.aRockTile, false, 1);
       mesh.setVerticesData('aMaskUV', geo.aMaskUV, false, 2);
+    });
+    if (this.flatMode) {
+      mesh.material = this.flatMaterial;
+    } else {
       mesh.material = this.material;
     }
     mesh.isPickable = false;

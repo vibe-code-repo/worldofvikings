@@ -578,9 +578,34 @@ derselbe Weg, den `terrain-texturen.py` für den Boden bereits gegangen ist: Die
 aus derselben Höhenfunktion gerechnet, aus der die Farbe kommt, statt sie zu einer fremden
 Bilddatei zu suchen. Der Zuordnungsteil entfällt damit ersatzlos.
 
-Was aus der alten Fassung übrig bleibt und weiter gilt: Die GLBs führen `TANGENT`, Babylon
-braucht keine Tangentenerzeugung; Ort ist `AssetManager.fixupMaterial()`; und
-`useSRGBBuffer` gehört auf eine Normal-Map **nie**. Der Fallstrick „teils DXT5nm-gepackt"
+⚠️ **Zwei Sätze dieser Stufe sind am 16.08.2026 nachgemessen worden, einer davon fällt.**
+Über alle 122 GLBs in `assets/models` gezählt:
+
+| | |
+|---|---|
+| GLBs mit `TANGENT`-Attribut | **0 von 122** |
+| GLBs mit `normalTexture` im Material | **12 von 122** |
+
+**„Die GLBs führen `TANGENT`" gilt nicht mehr** — das war eine Eigenschaft der
+Unity-Exporte. Unsere Werkzeuge schreiben Position, Normale und UV, sonst nichts. Das ist
+kein Hindernis: Babylon baut ohne Tangenten pro Pixel eine Kotangenten-Basis aus den
+Ableitungen von Weltposition und UV (`bumpFragmentMainFunctions`) — genau derselbe
+tangentenfreie Weg, den das Terrain schon geht (siehe G-TEX2 in
+[03](03-Rendering-und-Engine.md)). Es ist also nichts nachzurüsten, aber die Begründung
+„brauchen wir nicht, es ist ja da" trägt nicht mehr; sie muss „brauchen wir nicht, es geht
+auch ohne" heißen.
+
+**Zwölf Modelle haben ihre Normal-Map schon** — alle aus der Tripo-Erzeugung:
+`Grabhuegel` (vier Materialien), `GrabMenhir`, `GrabRunenstein`, `GrabTruhe`,
+`GrabDrachenkopf`, `KiPine2`, `KiPine3`, `Steinkreis`, `Surtr`, `Voelva`, `WikingerBasis`,
+`WikingerStatue`. Sie kommen fertig aus dem Erzeuger und werden vom glTF-Lader ohne Zutun
+gebunden. Damit ist diese Stufe kein Alles-oder-nichts mehr, sondern eine Lücke zwischen
+zwei Erzeugungswegen: Was Tripo baut, hat eine Karte; was die eigenen Python-Werkzeuge
+bauen, hat keine. **Der Vergleich der beiden im Bild ist der billigste nächste Schritt** —
+er zeigt, was die Karte optisch überhaupt bringt, bevor zehn Werkzeuge umgebaut werden.
+
+Was weiter gilt: Ort ist `AssetManager.fixupMaterial()`; und `useSRGBBuffer` gehört auf eine
+Normal-Map **nie**. Der Fallstrick „teils DXT5nm-gepackt"
 ist bei selbst gerechneten Karten keiner mehr — man wählt die Packung selbst (und schreibt
 sie in den Kopf des Werkzeugs, wie `wasser-texturen.py` es für `water_normals_real.png`
 tut).

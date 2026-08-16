@@ -55,7 +55,6 @@ import { TerrainManager } from './engine/Terrain';
 import { Lighting } from './engine/Lighting';
 import { installiereStandardGammaFix } from './engine/StandardGammaFix';
 import { installierePbrNebelFix } from './engine/PbrNebelFix';
-import { verbindeFpsWaechter } from './engine/FpsWaechter';
 import {
   installiereFackelLicht,
   fackelNotbremse,
@@ -427,15 +426,6 @@ async function main() {
     namensschilder?.setEnabled(s.nameplates);
     namensschilder?.setEigenes(s.eigenesNameplate);
   });
-  /**
-   * FPS-Wächter (engine/FpsWaechter.ts). NACH dem Anwender-onChange
-   * angemeldet, damit seine eigenen Änderungen dieselbe Kette durchlaufen
-   * wie ein Klick im Menü — der Wächter kennt nur Reglerwerte, nicht die
-   * Systeme dahinter. `?autoqual=0` schaltet ihn ab (Vergleichsmessungen:
-   * eine Automatik, die während der Messung dazwischenregelt, macht jedes
-   * Ergebnis unbrauchbar).
-   */
-  const fpsWaechter = params.get('autoqual') === '0' ? null : verbindeFpsWaechter(gameSettings);
   /** ?env= pins the weather — don't let the biome tracker override it. */
   let envPinned = false;
 
@@ -2494,11 +2484,6 @@ async function main() {
     });
 
     loading?.update(terrain.loadProgress, terrain.ready);
-    // Erst wenn das Gelände steht: Während des Nachladens ist die Bildrate
-    // aus Gründen niedrig, die kein Regler behebt — der Wächter würde die
-    // Leiter hinunterlaufen und den Spieler mit heruntergedrehter Qualität
-    // in die fertig geladene Welt entlassen.
-    if (terrain.ready) fpsWaechter?.tick(engine.getDeltaTime());
 
     hud.setAnvisiert(anvisiert?.finde(player.position.x, player.position.z) ?? null);
 
@@ -2518,7 +2503,6 @@ async function main() {
         `nebel ${lighting.state.fogDensity.toFixed(4)}  sonne ${lighting.state.lightIntensity.toFixed(2)}  ` +
         `dof ${post?.debugLine ?? '-'}\n` +
         `schatten ${shadows?.info ?? '-'}  fackeln ${lightPool?.info ?? '-'}\n` +
-        `autoqual ${fpsWaechter?.info ?? 'aus (?autoqual=0)'}\n` +
         // Wind: Richtung als Kompasswinkel und Stärke 0..1, plus die Nässe.
         // Beides folgt dem Wetter (EnvMan) und ist die Basis fürs Segeln.
         `kollision ${entities.colliderStats.bodies} inst / ${entities.colliderStats.havok} havok / ` +
@@ -2554,8 +2538,7 @@ async function main() {
       staerke: (v: number) => { FackelLichter.staerke = v; },
       notbremse: () => fackelNotbremse('von Hand über __dbg ausgelöst'),
       notbremseLoesen: fackelNotbremseLoesen,
-    },
-    waechter: fpsWaechter };
+    } };
 }
 
 void main();

@@ -271,35 +271,18 @@ function bool(v: unknown): boolean | undefined {
 
 export class SettingsStore {
   private state: GameSettings = { ...DEFAULTS, ...loadSaved() };
-  /**
-   * Der Stand, der GESPEICHERT werden soll — meist identisch mit
-   * `state`, aber nicht immer: Der FPS-Wächter (engine/FpsWaechter.ts)
-   * regelt flüchtig. Was die Automatik einstellt, darf die Wahl des
-   * Nutzers nicht überschreiben, sonst startet die nächste Sitzung mit
-   * dem heruntergeregelten Stand als neuer Ausgangslage — die Automatik
-   * hätte sich selbst nach unten festgeschrieben. Ohne diese zweite
-   * Kopie würde ausserdem der nächste ECHTE Nutzereingriff (etwa ein
-   * Häkchen an ganz anderer Stelle) den flüchtigen Stand mit einwecken.
-   */
-  private gespeichert: GameSettings = { ...this.state };
   private readonly listeners = new Set<(s: GameSettings) => void>();
 
   get(): Readonly<GameSettings> {
     return this.state;
   }
 
-  /**
-   * @param fluechtig true = nur für diese Sitzung, nicht speichern.
-   */
-  set(partial: Partial<GameSettings>, fluechtig = false): void {
+  set(partial: Partial<GameSettings>): void {
     this.state = { ...this.state, ...partial };
-    if (!fluechtig) {
-      this.gespeichert = { ...this.gespeichert, ...partial };
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.gespeichert));
-      } catch {
-        // localStorage unavailable (private mode/quota) — settings stay session-only
-      }
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+    } catch {
+      // localStorage unavailable (private mode/quota) — settings stay session-only
     }
     for (const fn of this.listeners) fn(this.state);
   }

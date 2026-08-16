@@ -47,10 +47,6 @@ const KERN = [
   // ueber Babylons NullEngine: ohne GPU, ohne Assets, synthetische
   // Geometrie und Instanzlagen.
   ['client', 'test/master-huelle.ts'],
-  // Der FPS-Waechter ist bewusst ohne Babylon- und DOM-Bindung gebaut,
-  // damit sein Regelverhalten sich ueber synthetische fps-Folgen pruefen
-  // laesst — ohne GPU gibt es keinen anderen Weg dorthin.
-  ['client', 'test/fps-waechter.ts'],
 ];
 
 const LANG = [

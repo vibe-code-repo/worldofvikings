@@ -535,6 +535,45 @@ das neue Plugin mit; die **Himmelskuppel** bleibt nebelfrei, weil sie *der* Hori
 und sie malte ihren Sonnenschein als einzige schon immer pro Pixel. Genau deshalb war der
 flache Nebel davor sichtbar falsch.
 
+### Stufe 5 — IBL aus der vorhandenen Sky-Probe ✅ (umgesetzt 2026-08-16)
+
+Umgesetzt wie unten beschrieben. Die Probe hängt als `scene.environmentTexture`; alle drei
+PBR-Shadervarianten der laufenden Szene tragen `REFLECTION`, `REFLECTIONMAP_CUBIC`,
+`USESPHERICALFROMREFLECTIONMAP` und `SPHERICAL_HARMONICS` — nachgesehen im übersetzten
+Shader, nicht angenommen.
+
+**Ein Fallstrick kam dazu, den das Rezept nicht kannte:** `BaseTexture.sphericalPolynomial`
+ist eine **Modul-Erweiterung**. Bei den granularen Imports dieses Projekts existiert der
+Setter nur, wenn `@babylonjs/core/Materials/Textures/baseTexture.polynomial` als
+Seiteneffekt geladen wurde — sonst geht die Zuweisung still ins Leere. Dieselbe Klasse wie
+der fehlende PrePass-Scene-Component beim Motion Blur.
+
+Die Kugelharmonischen kommen wie vorgeschlagen aus der CPU-Fassung von `SKY_GRADIENT_GLSL`
+(128 Richtungen auf einer Fibonacci-Kugel, alle zwei Sekunden, rund eine halbe
+Millisekunde), nicht aus einem Rücklesen der Würfelkarte. Damit stammen Kuppel, Spiegelung,
+Nebel und Grundlicht aus **einer** Quelle.
+
+> [!warning] Die Gegenrechnung beim Grundlicht ist noch nicht fertig
+> `HemisphericLight.intensity` steht jetzt auf 0,5, damit das Grundlicht nicht doppelt
+> zählt. Gemessen (gleiche Kamera, gleiche Uhrzeit, nur diese Änderung an und aus):
+>
+> | | mittlere Helligkeit | Streuung |
+> |---|---|---|
+> | Tag (t = 0.30) | 56,5 → **54,7** (−3 %) | 13,7 → 12,6 |
+> | Nacht | 20,5 → **15,2** (−26 %) | 7,4 → 5,3 |
+>
+> **Bei Tag geht die Rechnung auf, nachts nicht.** Was die Kuppel liefert, skaliert mit
+> ihrer Helligkeit; der Abzug ist fest. Nachts wird also etwas weggenommen, das nicht
+> ersetzt wird. Ob das stört, ist Geschmackssache mit Vorgeschichte: „der Boden wird im
+> Dunkeln nicht dunkel" steht in [03](03-Rendering-und-Engine.md) als Mangel — die Änderung
+> geht in diese Richtung. Die Streuung sinkt aber mit, und Streuung ist Tiefe.
+>
+> Zwei saubere Wege stehen offen, beide in `Lighting.AMBIENT_ANTEIL_HIMMEL` beschrieben:
+> den Abzug an die Kuppelhelligkeit koppeln, oder PBR-Meshes aus dem HemisphericLight
+> ausschliessen, damit jedes Material genau eine Grundlichtquelle hat.
+
+*(Das ursprüngliche Rezept, unverändert — es hat getragen:)*
+
 ### Stufe 5 — IBL aus der vorhandenen Sky-Probe (~4 h)
 
 Die Probe existiert bereits (`ValheimSky.ts:314-317`, 128², Refresh alle 15 Frames, für das

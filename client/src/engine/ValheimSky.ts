@@ -38,12 +38,30 @@ import { Effect } from '@babylonjs/core/Materials/effect';
 import { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { ReflectionProbe } from '@babylonjs/core/Probes/reflectionProbe';
+import { SphericalHarmonics, SphericalPolynomial } from '@babylonjs/core/Maths/sphericalPolynomial';
+// SEITENEFFEKT, nicht wegoptimieren: `BaseTexture.sphericalPolynomial` ist
+// eine Modul-Erweiterung und existiert bei den granularen Imports dieses
+// Projekts nur, wenn diese Datei geladen wurde. Ohne sie geht die
+// Zuweisung unten still ins Leere — dieselbe Klasse von Fallstrick wie der
+// fehlende PrePass-Scene-Component in PostProcessing.ts.
+import '@babylonjs/core/Materials/Textures/baseTexture.polynomial';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { Color3, Vector3 } from '@babylonjs/core/Maths/math';
 import type { Scene } from '@babylonjs/core/scene';
 import type { EnvState } from '@wov/shared';
 
 const SHADER_NAME = 'valheimSky';
+
+/**
+ * Abtastrichtungen für die Kugelharmonischen des Umgebungslichts.
+ * 128 sind für neun Koeffizienten reichlich — die zweite Bande ist bei
+ * einem so glatten Verlauf ohnehin fast leer.
+ */
+const IBL_RICHTUNGEN = 128;
+/** Sekunden zwischen zwei Neuberechnungen — Begründung an der Methode. */
+const IBL_ABSTAND_S = 2;
+/** Goldener Winkel in Radiant: π · (3 − √5). */
+const GOLDENER_WINKEL = Math.PI * (3 - Math.sqrt(5));
 
 /**
  * Der Himmelsverlauf als eigenständige GLSL-Funktion — EINE Quelle für die
@@ -248,6 +266,11 @@ export class ValheimSky {
   readonly probe: ReflectionProbe;
   private readonly material: ShaderMaterial;
   private time = 0;
+  /** Sekunden seit der letzten Neuberechnung des Umgebungslichts. */
+  private iblAlter = Number.POSITIVE_INFINITY;
+  /** Gehaltene Puffer der Kugelharmonischen-Rechnung (kein Müll pro Lauf). */
+  private readonly iblRichtung = new Vector3();
+  private readonly iblFarbe = new Color3();
 
   /**
    * Momentaufnahme für alles, was den Himmel spiegeln will (heute: das
@@ -328,7 +351,22 @@ export class ValheimSky {
     this.mesh.renderingGroupId = 0;
     this.mesh.alwaysSelectAsActiveMesh = true;
 
-    this.probe = new ReflectionProbe('skyProbe', 128, scene);
+    // `useFloat` und `linearSpace` (5. und 6. Parameter) sind beide
+    // Voraussetzung dafür, dass die Probe nicht nur das Wasser spiegelt,
+    // sondern als Umgebungslicht taugt (Grafik-Konzept Stufe 5):
+    //
+    //  · **useFloat** hält Werte über 1 fest. Der Himmel um die Sonne ist
+    //    genau das — ein 8-Bit-Ziel schnitte die Spitze ab, und mit ihr
+    //    den Unterschied zwischen „hell" und „Lichtquelle".
+    //  · **linearSpace** sagt Babylon, dass hier bereits LINEARE Werte
+    //    stehen. Ohne die Angabe linearisiert der PBR-Pfad die
+    //    Himmelsfarbe ein zweites Mal — derselbe Fehlertyp wie die
+    //    doppelte Gammakodierung aus Ursache A des Grafik-Konzepts.
+    //
+    // Für das Wasser ändert sich dadurch nichts: Es bindet die Würfelkarte
+    // über `uniformBuffer.setTexture` aus einem Plugin heraus und liest
+    // die Texel roh, ohne Babylons Farbraum-Automatik.
+    this.probe = new ReflectionProbe('skyProbe', 128, scene, true, true, true);
     this.probe.renderList!.push(this.mesh);
     this.probe.refreshRate = 15;
     this.probe.position.set(0, 0, 0);
@@ -401,6 +439,88 @@ export class ValheimSky {
     this.material.setFloat('uNight', night);
     this.material.setFloat('uCloud', state.cloudAlpha);
     this.material.setFloat('uTime', this.time);
+
+    // Umgebungslicht nachziehen — aber nicht mit 60 Hz, siehe dort.
+    this.iblAlter += dtSeconds;
+    if (this.iblAlter >= IBL_ABSTAND_S) {
+      this.iblAlter = 0;
+      this.berechneUmgebungslicht();
+    }
+  }
+
+  /**
+   * Der diffuse Anteil des Umgebungslichts, analytisch aus demselben
+   * Verlauf gerechnet, den die Kuppel zeichnet.
+   *
+   * ── Warum nicht aus der Würfelkarte lesen ────────────────────────────
+   * Babylon KANN die Kugelharmonischen aus einer Textur gewinnen — dazu
+   * muss es sie aber von der GPU zurücklesen, und ein Rücklesen hält die
+   * Pipeline an. Der Setter für `sphericalPolynomial` existiert daneben,
+   * also rechnen wir sie selbst: `SKY_GRADIENT_GLSL` steht als
+   * eigenständige Funktion da und ist auf der CPU ein Dutzend Zeilen
+   * (`himmelsFarbeToRef` unten). Der Nebeneffekt ist der eigentliche
+   * Gewinn: Kuppel, Spiegelung, Nebel UND Umgebungslicht stammen damit
+   * garantiert aus derselben Quelle und können nicht auseinanderlaufen.
+   *
+   * ── Die Abtastung ───────────────────────────────────────────────────
+   * 128 Richtungen auf einer Fibonacci-Kugel. Die Punkte liegen dort
+   * gleichmässig ohne die Polhäufung eines Kugelkoordinaten-Rasters, und
+   * jede Richtung trägt denselben Raumwinkel `4π/N` — nur deshalb darf
+   * `deltaSolidAngle` ein konstanter Wert sein.
+   *
+   * `convertIncidentRadianceToIrradiance` faltet mit dem Kosinuslappen,
+   * `convertIrradianceToLambertianRadiance` teilt durch π. Beide Schritte
+   * sind Pflicht: Ohne sie stünde in der Polynomialform die
+   * EINSTRAHLDICHTE statt der abgegebenen Leuchtdichte, und die Szene
+   * wäre um Faktor π zu hell.
+   *
+   * ── Warum alle zwei Sekunden ────────────────────────────────────────
+   * Der Lauf kostet rund eine halbe Millisekunde. Bei 60 Hz wären das
+   * 3 % der Frame-Zeit für eine Grösse, die sich mit dem Sonnenstand
+   * ändert — also über Minuten. Zwei Sekunden sind unterhalb jeder
+   * Wahrnehmungsschwelle für eine Ambient-Änderung und kosten 0,03 %.
+   */
+  private berechneUmgebungslicht(): void {
+    const sh = new SphericalHarmonics();
+    const raumwinkel = (4 * Math.PI) / IBL_RICHTUNGEN;
+    for (let i = 0; i < IBL_RICHTUNGEN; i++) {
+      // Fibonacci-Kugel: y läuft gleichmässig von +1 nach −1, der
+      // Azimut in Schritten des goldenen Winkels.
+      const y = 1 - (2 * i + 1) / IBL_RICHTUNGEN;
+      const r = Math.sqrt(Math.max(0, 1 - y * y));
+      const phi = i * GOLDENER_WINKEL;
+      this.iblRichtung.set(Math.cos(phi) * r, y, Math.sin(phi) * r);
+      this.himmelsFarbeToRef(this.iblRichtung, this.iblFarbe);
+      sh.addLight(this.iblRichtung, this.iblFarbe, raumwinkel);
+    }
+    sh.convertIncidentRadianceToIrradiance();
+    sh.convertIrradianceToLambertianRadiance();
+    this.probe.cubeTexture.sphericalPolynomial = SphericalPolynomial.FromHarmonics(sh);
+  }
+
+  /**
+   * CPU-Fassung von `vhSkyGradient` aus `SKY_GRADIENT_GLSL`.
+   *
+   * Zeile für Zeile dasselbe wie im Shader — wenn dort etwas geändert
+   * wird, gehört es hier nachgezogen. Die beiden auseinanderlaufen zu
+   * lassen hiesse, das Umgebungslicht aus einem Himmel zu rechnen, den
+   * niemand sieht.
+   */
+  private himmelsFarbeToRef(richtung: Vector3, ziel: Color3): Color3 {
+    const s = this.reflectState;
+    const hoch = Math.max(Math.min(Math.max(richtung.y, -1), 1), 0);
+    const t = 1 - Math.exp(-3.2 * hoch);
+    const r = s.horizon.r + (s.zenith.r - s.horizon.r) * t;
+    const g = s.horizon.g + (s.zenith.g - s.horizon.g) * t;
+    const b = s.horizon.b + (s.zenith.b - s.horizon.b) * t;
+    const sonne = Math.max(0, Vector3.Dot(richtung, s.toSun));
+    const k = Math.pow(sonne, 8) * 0.55 * (1 - s.night);
+    ziel.set(
+      r + (s.sunGlow.r - r) * k,
+      g + (s.sunGlow.g - g) * k,
+      b + (s.sunGlow.b - b) * k
+    );
+    return ziel;
   }
 
   dispose(): void {

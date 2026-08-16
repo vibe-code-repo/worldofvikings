@@ -71,6 +71,55 @@ import {
 // auswertet — dem Shader-Plugin. Siehe NebelRichtung.FOG_SUN_EXPONENT.
 
 /**
+ * Wie viel des diffusen Grundlichts aus der Himmelskuppel kommt statt aus
+ * dem HemisphericLight (Grafik-Konzept Stufe 5).
+ *
+ * Seit die Sky-Probe als `scene.environmentTexture` hängt, gibt es zwei
+ * Quellen für dasselbe Grundlicht. Beide voll laufen zu lassen hiesse, es
+ * doppelt zu zählen — das Bild würde heller und flacher, also genau
+ * zurück in den Zustand, den Stufe 1 behoben hat.
+ *
+ * Der Wert ist NICHT frei gewählt, sondern die Grenze dessen, was
+ * begründbar ist: Die Kugelharmonischen tragen die Richtung (abends warm
+ * von der Sonnenseite, nachts kalt von oben), das HemisphericLight trägt
+ * den Rest als flachen Sockel. Ein voller Umstieg auf 1.0 wäre die
+ * sauberere Physik, würde aber alle Materialien ohne PBR-Pfad — den
+ * Clutter, den Avatar, das Wasser — ohne jedes Grundlicht dastehen
+ * lassen: `scene.environmentTexture` wirkt nur auf PBR.
+ *
+ * Genau deshalb bleibt hier ein Rest stehen, und genau deshalb ist die
+ * Zahl eine Abwägung und keine Messung.
+ *
+ * ── Was die Messung dazu sagt (16.08.2026, RX 7900 XT) ──────────────
+ * Mittlere Bildhelligkeit und Tonwertstreuung, gleiche Kamera, gleiche
+ * Uhrzeit, nur diese Änderung an und aus:
+ *
+ *   Tag  (t = 0.30)   56,5 → 54,7  (−3 %)    Streuung 13,7 → 12,6
+ *   Nacht             20,5 → 15,2  (−26 %)   Streuung  7,4 →  5,3
+ *
+ * **Bei Tag geht die Rechnung auf, nachts nicht.** Der Grund steckt im
+ * Aufbau: Was die Kuppel an Licht liefert, skaliert mit ihrer eigenen
+ * Helligkeit — nachts ist sie fast dunkel. Der Abzug hier ist dagegen
+ * fest. Nachts wird also etwas weggenommen, das gar nicht ersetzt wird.
+ *
+ * Ob das ein Fehler ist, ist keine technische Frage: Die Rendering-Doku
+ * führt „der Boden wird im Dunkeln nicht dunkel" ausdrücklich als Mangel,
+ * und in diese Richtung geht die Änderung. Die Streuung sinkt allerdings
+ * mit, und Streuung ist Tiefe.
+ *
+ * Der saubere Weg wäre einer von zweien, beide nicht mitgeliefert:
+ *  · den Abzug an die tatsächliche Kuppelhelligkeit koppeln — die
+ *    Konstante der Kugelharmonischen liegt in `berechneUmgebungslicht()`
+ *    ohnehin vor, es fehlt allein ein Bezugswert, und der wäre wieder
+ *    geraten;
+ *  · oder die Quellen sauber trennen: PBR-Meshes aus dem
+ *    HemisphericLight ausschliessen, damit JEDES Material genau eine
+ *    Grundlichtquelle hat. Exakt, aber es hängt an Layer-Masken, die
+ *    zugleich das Kamera-Culling steuern.
+ */
+const AMBIENT_ANTEIL_HIMMEL = 0.5;
+
+/**
  * Seconds to cross-fade when the environment changes (biome border).
  * Valheim eases between EnvSetups rather than snapping.
  */
@@ -249,6 +298,27 @@ export class Lighting {
     // for why Babylon's SkyMaterial (Preetham) cannot match the fog colour.
     this.sky = new ValheimSky(scene);
 
+    // ── Umgebungslicht aus der Himmelskuppel (Grafik-Konzept Stufe 5) ──
+    //
+    // Ab hier beleuchtet der Himmel die Szene, statt nur hinter ihr zu
+    // hängen: PBR-Materialien nehmen aus dieser Würfelkarte ihre
+    // Spiegelung, und aus deren `sphericalPolynomial` (rechnet
+    // `ValheimSky.berechneUmgebungslicht()`) ihr diffuses Grundlicht.
+    //
+    // Die Probe lief bereits für das Wasser — die Renderkosten entstehen
+    // hier also nicht neu, sie werden nur ein zweites Mal genutzt.
+    //
+    // Was das optisch bringt, ist genau das, was ein
+    // HemisphericLight NICHT kann: eine RICHTUNG. Das Grundlicht kommt
+    // damit von dort, wo der Himmel hell ist — abends warm von der
+    // Sonnenseite, nachts kalt von oben —, statt als eine einzige
+    // Farbe von überall.
+    scene.environmentTexture = this.sky.probe.cubeTexture;
+    // Die Umgebungsintensität ist der Regler, mit dem das Grundlicht aus
+    // dem Himmel gegen das Hemispheric-Licht abgewogen wird; die
+    // Aufteilung steht bei `AMBIENT_ANTEIL_HIMMEL`.
+    scene.environmentIntensity = 1;
+
     scene.fogMode = Scene.FOGMODE_EXP2;
 
     this.bindeLinearenNebel();
@@ -359,7 +429,11 @@ export class Lighting {
     // der zweite Grund, warum der Boden im Dunkeln nicht dunkel wurde.
     const amb = inLinear(state.ambColor, this.ambFarbe);
     amb.scaleToRef(0.5, this.ambBoden);
-    this.ambient.intensity = 1;
+    // Seit die Himmelskuppel als Umgebungslicht dient (Stufe 5), kommt das
+    // Grundlicht aus ZWEI Quellen. Ohne diese Aufteilung zählte es doppelt
+    // und das Bild würde flach und zu hell — genau der Zustand, den Stufe 1
+    // beseitigt hat. Der Faktor steht bei `AMBIENT_ANTEIL_HIMMEL`.
+    this.ambient.intensity = 1 - AMBIENT_ANTEIL_HIMMEL;
 
     // ── Sky ───────────────────────────────────────────────────────
     // The dome derives horizon/glow from this same state, so it fuses with

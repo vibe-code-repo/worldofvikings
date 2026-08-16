@@ -687,6 +687,48 @@ und zwar seit dem ersten Commit — der vierzehnte ist beim Port aus der three.j
 angekommen. Welcher, lässt sich nicht mehr feststellen, weil der Export gelöscht ist. Seit
 Block A ist die Tabelle ohnehin unsere eigene.
 
+### Cutout-Schatten (Roadmap E12) — vermessen, **nicht** behoben
+
+Die Roadmap sagt: „`alphaTest` greift nur im Forward-Pass, Schatten von Laub und Gras sind
+blockig." Das stimmt, und zwar messbar. Am 16.08.2026 an den übersetzten Shadern der
+laufenden Szene gezählt:
+
+| Pass | Shadervarianten | davon mit `ALPHATEST` |
+|---|---|---|
+| Vorwärts (PBR) | 6 | **6** |
+| Schattenkarte | 3 | **0** |
+
+Die drei Schattenvarianten sind `NORMAL`, `NORMAL + INSTANCES + THIN_INSTANCES` und
+`NORMAL + BONES` — Laubkarten teilen sich also die Thin-Instance-Variante mit Fels und
+Stamm und werfen damit ihre **Rechteckform**.
+
+**Was NICHT die Ursache ist** — alles einzeln nachgemessen, damit der nächste Anlauf nicht
+dieselben vier Sackgassen abläuft:
+
+- *Die Materialien melden keinen Alphatest.* Doch: 35 Werfer in der Schattenkarte liefern
+  `needAlphaTestingForMesh() === true`, `transparencyMode === MATERIAL_ALPHATEST`,
+  `alphaCutOff 0.5` und eine gültige `getAlphaTestTexture()`.
+- *Sie stehen nicht in der Werferliste.* Doch: 35 von 102, alle `isEnabled()`, alle
+  `isVisible`, alle mit Thin Instances.
+- *`blockMaterialDirtyMechanism` verhindert das Neuübersetzen.* Nein — Sperre gelöst und alle
+  35 Materialien als schmutzig gemeldet, danach 80 Frames: keine einzige neue Shadervariante.
+- *`ShadowDepthWrapper` ist der Ausweg.* Angehängt an alle 35 alphagetesteten Materialien,
+  80 Frames gerendert: **null** Wrapper-Shader übersetzt. Der Eingriff war wirkungslos und
+  ist deshalb wieder zurückgenommen worden, statt als toter Code stehenzubleiben.
+
+Babylon setzt `ALPHATEXTURE`/`ALPHATESTVALUE` im Schattenpass eigentlich selbst
+(`shadowGenerator.js`, `isReady()`), sobald beides zutrifft — hier trifft beides zu, und es
+passiert trotzdem nicht. Der nächste Schritt ist deshalb, den Schattenpass **während des
+Renderns** zu instrumentieren (Haltepunkt in `_renderSubMeshForShadowMap`), statt
+`isReady()` von außen aufzurufen: Ein Aufruf außerhalb des Schattendurchlaufs liest den
+Draw-Wrapper der falschen Renderpassage und liefert ein falsches Negativ — daran ist diese
+Untersuchung zwischendurch selbst hängengeblieben.
+
+**Gras ist ein anderer Fall und kein Fehler:** Clutter steht mit null Einträgen in der
+Werferliste, weil `NIE_WERFEN` in `Shadows.ts` es ausdrücklich ausschliesst — jede Kaskade
+rendert die Werferliste komplett neu, und Clutter stellt die meisten Meshes. Empfangen darf
+es weiterhin. „Blockige Grasschatten" gibt es also gar nicht; es gibt keine.
+
 ### Stufe 9 — Baum-LOD und Impostoren
 
 Es wird ausschließlich die `Lod0`-Hülle gerendert (`AssetManager.ts`, `NON_LOD0`/`LOD0_NAME`

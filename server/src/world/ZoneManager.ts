@@ -617,15 +617,36 @@ export class ZoneManager {
     // C++: "Will be empty if world failed to load"
     if (this.generatedFeatures.size > 0 || this.featuresPrepared) return;
 
-    // Crucially important location — must exist, period
+    // Der StartTemple ist der Weltspawn der RADIALWELT: Sie kennt keinen
+    // anderen Startpunkt, C++ setzt den Spieler auf den Tempelsockel.
+    // Deshalb stand hier eine harte Ausnahme, und fuer die Radialwelt ist
+    // sie weiterhin die richtige Frage — fehlt der Tempel, erscheinen dort
+    // alle Spieler ersatzweise am Ursprung, der offener Ozean sein kann.
+    //
+    // Zur WARNUNG herabgestuft, aus zwei Gruenden:
+    //  - Im Layout-Modus prueft sie ins Leere. Der Startpunkt kommt dort
+    //    aus dem Weltdokument (WovServer.weltSpawn), der Tempel spielt
+    //    keine Rolle; deshalb schweigt sie in diesem Modus ganz.
+    //  - Seit die Feature-Tabelle gegen die Whitelist gefiltert wird, ist
+    //    sie leer, die Ausnahme schluege also bei JEDEM Start zu.
+    //    WovServer.ts ruft prepareFeatures ohne try/catch und die
+    //    systemd-Unit traegt Restart=always — daraus wuerde eine
+    //    Neustartschleife, deren Ursache im Log nur als abgebrochener
+    //    Stacktrace steht.
+    //
+    // VERWORFEN: die Pruefung ersatzlos streichen. Dann verschwaende der
+    // einzige Hinweis darauf, dass einer Radialwelt der Spawnpunkt fehlt.
     const startTemple = FEATURES_BY_NAME.get('StartTemple');
-    if (!startTemple) {
-      throw new Error('World spawnpoint missing (StartTemple)');
+    if (!startTemple && !this.regionGeo) {
+      console.warn(
+        '[WoV] Weltspawn-Feature StartTemple fehlt — die Radialwelt hat damit keinen ' +
+          'eigenen Startpunkt, Spieler erscheinen am Weltursprung.'
+      );
     }
 
     if (!this.worldFeatures) {
       console.warn('[WoV] Location generation is disabled');
-      this.prepareFeature(startTemple);
+      if (startTemple) this.prepareFeature(startTemple);
     } else {
       const t0 = Date.now();
       // FEATURES is in pkg order (C++ m_features, presorted by priority)

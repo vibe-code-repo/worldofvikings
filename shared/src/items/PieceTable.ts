@@ -17,6 +17,7 @@
  */
 
 import { PaintType, TERRAIN_OP_DEFAULTS, type TerrainOpSettings } from '../worldgen/TerrainComp.js';
+import { istEigenesModell } from '../prefabs.js';
 
 export interface PieceDef {
   /** Prefab name in the original (`raise`, `path`, `cultivate`, …). */
@@ -235,11 +236,44 @@ Object.assign(PIECES, {
 export const PIECE_TABLES: Record<string, readonly string[]> = {
   Hoe: ['levelground', 'raise', 'path', 'paved_road', 'reset'],
   Cultivator: ['cultivate', 'path'],
-  Hammer: [
+  Hammer: hammerTabelle(),
+};
+
+/**
+ * Die Bauteile des Hammers, gefiltert gegen die Whitelist `EIGENE_MODELLE`.
+ *
+ * Hoe und Cultivator stehen bewusst NICHT hier: Ihre Pieces setzen kein
+ * Prefab, sie verformen nur Gelände (`terrainOp`). Ein Modell haben sie
+ * gar nicht, es gibt also nichts zu filtern — Einebnen und Pfad bleiben
+ * benutzbar.
+ *
+ * Beim Hammer bleiben von neun Teilen zwei: KI-Kiefer und Menhir. Boden,
+ * Wand, Tür, Dach, Werkbank, Bett und Portal sind Valheim-Prefabs und
+ * fallen weg — bis eigene Bauteile vorliegen, kann nicht gebaut werden.
+ * Das ist der beschlossene Zwischenzustand.
+ *
+ * Diese eine Stelle trägt beides: Der Client baut aus PIECE_TABLES sein
+ * Baumenü, und `BAU_PREFABS` darunter ist die Server-Whitelist für
+ * PlacePiece. Ein Teil, das im Menü fehlt, ist damit auch über ein
+ * selbstgebautes Paket nicht setzbar.
+ */
+function hammerTabelle(): string[] {
+  const roh = [
     'bau_boden', 'bau_wand', 'bau_tuer', 'bau_dach',
     'bau_werkbank', 'bau_bett', 'bau_portal', 'bau_kipine', 'bau_menhir',
-  ],
-};
+  ];
+  const liste = roh.filter((n) => {
+    const prefab = PIECES[n]?.bauPrefab;
+    return prefab !== undefined && istEigenesModell(prefab);
+  });
+  const uebersprungen = roh.length - liste.length;
+  if (uebersprungen > 0) {
+    console.warn(
+      `[bauteile] ${uebersprungen} von ${roh.length} Eintraegen ohne eigenes Modell uebersprungen`
+    );
+  }
+  return liste;
+}
 
 /** Bau-Prefabs des Hammers — Server-Whitelist für PlacePiece. */
 export const BAU_PREFABS: ReadonlySet<string> = new Set(

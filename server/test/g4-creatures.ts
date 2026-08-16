@@ -13,8 +13,8 @@
  *  2. Ring + biome: first spawns around a Meadows anchor land in the entry
  *     ring (± group scatter) with a matching biome.
  *  3. No water: every spawn sits at/above its minAltitude.
- *  4. Biome gate: deep BlackForest anchor → Greydwarfs spawn, Deer/Boar
- *     never do (default-table biome masks).
+ *  4. Biome gate: deep BlackForest anchor → der BlackForest-Eintrag
+ *     spawnt, die beiden Meadows-Eintraege nie (Biom-Masken).
  *  5. Caps: maxPerPlayer and globalMax hold under forced 100% rolls.
  *  6. Despawn: last peer leaves 130m → creatures destroyed (ZDOs gone).
  *  7. Flee: a deer with a peer at 5m gains distance; peer at 100m calms it.
@@ -24,6 +24,19 @@
  * 11. Persistence: server A saves spawned creatures; server B adopts them
  *     and despawns the adopted stock correctly.
  * 12. Config gate: worldCreatures:false → no SpawnSystem is constructed.
+ *
+ * BLOCK A: Geprueft wird die MECHANIK, nicht der Inhalt der
+ * Auslieferungstabelle. SPAWN_TABLE ist gegen die Whitelist
+ * `EIGENE_MODELLE` gefiltert und damit leer — Deer, Boar und Greydwarf
+ * sind Valheim-Modelle. Ein Test, der von dort seine Eintraege zieht,
+ * pruefte ab sofort an einer leeren Liste vorbei und waere lautlos gruen.
+ * Er faehrt deshalb eine eigene PROBE_TABELLE aus drei Wesen mit eigenem
+ * Modell, die die drei Rollen der alten Tabelle 1:1 uebernehmen. Das ist
+ * keine Abschwaechung: Ring, Kappen, Flucht, Despawn und Taktdrossel
+ * haengen ausschliesslich an den Zahlen des Eintrags, nie am Prefab —
+ * und die Zahlen sind die der alten Tabelle. Zusaetzlich muessen die
+ * Eintraege jetzt die zweite Verteidigungslinie im SpawnSystem passieren,
+ * was der Test damit gleich mitprueft.
  *
  * Run: npx tsx server/test/g4-creatures.ts   (from the repo root)
  */
@@ -37,7 +50,6 @@ import {
   HeightmapProvider,
   XorShiftRandom,
   getStableHash,
-  SPAWN_TABLE,
   type SpawnEntry,
   type Vector3,
 } from '@wov/shared';
@@ -49,9 +61,93 @@ import { createWovServer } from '../src/WovServer.js';
 
 const SEED_STR = 'KxSYuZquuw';
 const SEED = getStableHash(SEED_STR);
-const DEER = getStableHash('Deer');
-const BOAR = getStableHash('Boar');
-const GREYDWARF = getStableHash('Greydwarf');
+
+/**
+ * Drei Probewesen mit eigenem Modell — die Rollen der frueheren
+ * Auslieferungstabelle, Zahl fuer Zahl uebernommen:
+ *
+ *   SCHEU  war Deer       Meadows, flieht, 6.0 m/s Fluchttempo
+ *   RUHIG  war Boar       Meadows, bleibt stehen
+ *   WALD   war Greydwarf  BlackForest, weiterer Ring
+ *
+ * Die Namen sagen jetzt, worauf es ankommt: Der Test prueft nicht Rehe,
+ * sondern ein fliehendes und ein stehendes Wesen im einen Biom und ein
+ * drittes im anderen.
+ */
+const SCHEU: SpawnEntry = {
+  prefab: 'FurlocFischer',
+  biomes: Biome.Meadows,
+  maxPerPlayer: 4,
+  countRadius: 120,
+  globalMax: 40,
+  spawnIntervalSec: 5,
+  spawnChance: 0.4,
+  groupSizeMin: 1,
+  groupSizeMax: 2,
+  groupRadius: 6,
+  ringMin: 35,
+  ringMax: 80,
+  minAltitude: 30.5,
+  walkSpeed: 1.5,
+  runSpeed: 6.0,
+  wanderRadius: 20,
+  idleMinSec: 2,
+  idleMaxSec: 6,
+  flees: true,
+  fleeDistance: 10,
+  calmDistance: 40,
+};
+const RUHIG: SpawnEntry = {
+  prefab: 'FurlocKind',
+  biomes: Biome.Meadows,
+  maxPerPlayer: 3,
+  countRadius: 120,
+  globalMax: 30,
+  spawnIntervalSec: 6,
+  spawnChance: 0.35,
+  groupSizeMin: 1,
+  groupSizeMax: 2,
+  groupRadius: 5,
+  ringMin: 35,
+  ringMax: 80,
+  minAltitude: 30.5,
+  walkSpeed: 1.2,
+  runSpeed: 5.0,
+  wanderRadius: 15,
+  idleMinSec: 3,
+  idleMaxSec: 8,
+  flees: false,
+  fleeDistance: 0,
+  calmDistance: 0,
+};
+const WALD: SpawnEntry = {
+  prefab: 'FurlocKrieger',
+  biomes: Biome.BlackForest,
+  maxPerPlayer: 5,
+  countRadius: 130,
+  globalMax: 50,
+  spawnIntervalSec: 5,
+  spawnChance: 0.35,
+  groupSizeMin: 1,
+  groupSizeMax: 2,
+  groupRadius: 8,
+  ringMin: 40,
+  ringMax: 85,
+  minAltitude: 30.5,
+  walkSpeed: 1.6,
+  runSpeed: 5.5,
+  wanderRadius: 25,
+  idleMinSec: 2,
+  idleMaxSec: 5,
+  flees: false,
+  fleeDistance: 0,
+  calmDistance: 0,
+};
+const PROBE_TABELLE: readonly SpawnEntry[] = [SCHEU, RUHIG, WALD];
+
+const SCHEU_HASH = getStableHash(SCHEU.prefab);
+const RUHIG_HASH = getStableHash(RUHIG.prefab);
+const WALD_HASH = getStableHash(WALD.prefab);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-g4-worlds');
@@ -96,9 +192,9 @@ function buildWorld(rngSeed: number, options: SpawnSystemOptions = {}) {
   return { geo, heightmaps, zdos, zones, spawns };
 }
 
-/** Forced-roll variant of the default table (biome masks unchanged). */
+/** Forced-roll variant of the probe table (biome masks unchanged). */
 function forcedTable(overrides: Partial<SpawnEntry> = {}): SpawnEntry[] {
-  return SPAWN_TABLE.map((e) => ({
+  return PROBE_TABELLE.map((e) => ({
     ...e,
     spawnIntervalSec: 0.5,
     spawnChance: 1,
@@ -191,12 +287,12 @@ console.log('== 4. biome gate: deep BlackForest anchor ==');
   const bf = findDeepBiomePoint(w.geo, Biome.BlackForest, 130);
   generateAround(w.zones, bf);
   tick(w.spawns, 600, bf); // 60 sim-seconds of forced rolls
-  const greys = w.zdos.getZDOByPrefab(GREYDWARF).length;
-  const deer = w.zdos.getZDOByPrefab(DEER).length;
-  const boars = w.zdos.getZDOByPrefab(BOAR).length;
-  check('Greydwarfs spawn in the BlackForest', greys > 0, `${greys}`);
-  check('no Deer in the BlackForest', deer === 0);
-  check('no Boars in the BlackForest', boars === 0);
+  const waldwesen = w.zdos.getZDOByPrefab(WALD_HASH).length;
+  const scheu = w.zdos.getZDOByPrefab(SCHEU_HASH).length;
+  const ruhig = w.zdos.getZDOByPrefab(RUHIG_HASH).length;
+  check('BlackForest-Eintrag spawnt im BlackForest', waldwesen > 0, `${waldwesen}`);
+  check('kein SCHEU im BlackForest', scheu === 0);
+  check('kein RUHIG im BlackForest', ruhig === 0);
 }
 
 // ── [5] Caps ─────────────────────────────────────────────────────
@@ -204,7 +300,7 @@ console.log('== 5. per-player and global caps ==');
 {
   const perPlayer = buildWorld(11, {
     table: [
-      { ...SPAWN_TABLE[0], spawnIntervalSec: 0.5, spawnChance: 1, groupSizeMin: 1, groupSizeMax: 1, flees: false, maxPerPlayer: 2, globalMax: 50 },
+      { ...SCHEU, spawnIntervalSec: 0.5, spawnChance: 1, groupSizeMin: 1, groupSizeMax: 1, flees: false, maxPerPlayer: 2, globalMax: 50 },
     ],
   });
   const anchor = { x: 0, y: 0, z: 0 };
@@ -218,7 +314,7 @@ console.log('== 5. per-player and global caps ==');
 
   const global = buildWorld(12, {
     table: [
-      { ...SPAWN_TABLE[0], spawnIntervalSec: 0.5, spawnChance: 1, groupSizeMin: 1, groupSizeMax: 1, flees: false, maxPerPlayer: 50, globalMax: 1 },
+      { ...SCHEU, spawnIntervalSec: 0.5, spawnChance: 1, groupSizeMin: 1, groupSizeMax: 1, flees: false, maxPerPlayer: 50, globalMax: 1 },
     ],
   });
   generateAround(global.zones, anchor);
@@ -232,17 +328,17 @@ console.log('== 5. per-player and global caps ==');
   check('all creatures despawn beyond 130m', perPlayer.spawns.creatureCount === 0);
   check(
     'creature ZDOs destroyed',
-    perPlayer.zdos.getZDOByPrefab(DEER).length === 0,
+    perPlayer.zdos.getZDOByPrefab(SCHEU_HASH).length === 0,
     `${perPlayer.zdos.totalZDOCount} ZDOs left`
   );
 }
 
 // ── [7] Flee / calm ──────────────────────────────────────────────
-console.log('== 7. deer flees from a close player, calms at distance ==');
+console.log('== 7. fliehendes Wesen weicht einem nahen Spieler aus, beruhigt sich fern ==');
 {
   const w = buildWorld(21, {
     table: [
-      { ...SPAWN_TABLE[0], spawnIntervalSec: 0.5, spawnChance: 1, groupSizeMin: 1, groupSizeMax: 1 },
+      { ...SCHEU, spawnIntervalSec: 0.5, spawnChance: 1, groupSizeMin: 1, groupSizeMax: 1 },
     ],
   });
   const anchor = { x: 0, y: 0, z: 0 };
@@ -253,11 +349,11 @@ console.log('== 7. deer flees from a close player, calms at distance ==');
   const d0 = dist2d(c0.zdo.position, near);
   tick(w.spawns, 30, near); // 3s flee at 6 m/s (minus deflection)
   const d1 = dist2d(c0.zdo.position, near);
-  check('deer gains distance from a close peer', d1 > d0 + 4, `${d0.toFixed(1)}m → ${d1.toFixed(1)}m`);
+  check('SCHEU gains distance from a close peer', d1 > d0 + 4, `${d0.toFixed(1)}m → ${d1.toFixed(1)}m`);
 
   const away = { x: c0.zdo.position.x + 100, y: 0, z: c0.zdo.position.z };
   w.spawns.update(0.1, [away]);
-  check('deer calms when the peer is beyond calmDistance', c0.mode !== 'flee', `mode=${c0.mode}`);
+  check('SCHEU calms when the peer is beyond calmDistance', c0.mode !== 'flee', `mode=${c0.mode}`);
 }
 
 // ── [8+9] Sim guard + sync throttle ──────────────────────────────
@@ -265,7 +361,7 @@ console.log('== 8+9. sim guard and 4 Hz revision throttle ==');
 {
   const w = buildWorld(31, {
     table: [
-      { ...SPAWN_TABLE[0], spawnIntervalSec: 0.5, spawnChance: 1, groupSizeMin: 1, groupSizeMax: 1, flees: false },
+      { ...SCHEU, spawnIntervalSec: 0.5, spawnChance: 1, groupSizeMin: 1, groupSizeMax: 1, flees: false },
     ],
     despawnRadius: 500,
     simRadius: 100,
@@ -276,7 +372,7 @@ console.log('== 8+9. sim guard and 4 Hz revision throttle ==');
   const c0 = [...internals(w.spawns).creatures.values()][0];
 
   // peer beyond simRadius (100) but inside despawnRadius (500):
-  // deer is ≤88.5m from the anchor, so 200m away is always ≥111.5m from it
+  // das Wesen ist ≤88.5m vom Anker, 200m weg sind also immer ≥111.5m
   const far = { x: 200, y: 0, z: 0 };
   const p0 = { ...c0.zdo.position };
   const r0 = c0.zdo.revision.dataRevision;
@@ -302,7 +398,10 @@ console.log('== 8+9. sim guard and 4 Hz revision throttle ==');
 console.log('== 10. determinism: same seed + script → same world ==');
 {
   const runScript = (rngSeed: number): string => {
-    const w = buildWorld(rngSeed);
+    // Ungezwungene Wuerfe aus der Probetabelle — NICHT aus der leeren
+    // Auslieferungstabelle: Zwei leere Abzuege waeren gleich und der Test
+    // damit lautlos gruen, ohne je einen Wurf verglichen zu haben.
+    const w = buildWorld(rngSeed, { table: [...PROBE_TABELLE] });
     const anchor = { x: 0, y: 0, z: 0 };
     generateAround(w.zones, anchor);
     tick(w.spawns, 400, anchor);
@@ -316,7 +415,9 @@ console.log('== 10. determinism: same seed + script → same world ==');
   };
   const a = runScript(42);
   const b = runScript(42);
-  check('identical creature dumps', a === b, `${a.split('\n').filter(Boolean).length} creatures`);
+  const gezaehlt = a.split('\n').filter(Boolean).length;
+  check('Abzug ist nicht leer (sonst vergleicht der Test nichts)', gezaehlt > 0, `${gezaehlt}`);
+  check('identical creature dumps', a === b, `${gezaehlt} creatures`);
 }
 
 // ── [11] Persistence adoption ────────────────────────────────────
@@ -333,11 +434,33 @@ rmSync(WORLDS_DIR, { recursive: true, force: true });
       worldsDir: WORLDS_DIR,
     });
 
+  /**
+   * Tabelle im laufenden System austauschen.
+   *
+   * Die Auslieferungstabelle ist leer (kein Kreaturmodell ist eigener
+   * Bau), der vom Server gebaute SpawnSystem wuerfelt also nichts, was
+   * gespeichert werden koennte. Geprueft wird hier aber der RUNDLAUF —
+   * spawnen, speichern, neu starten, wiederfinden —, und der haengt nicht
+   * daran, welche Arten in der Tabelle stehen. Dieselbe Sonde wie beim
+   * Zufallsgenerator eine Zeile weiter unten, nur zwei Felder statt
+   * einem: `spawnAccums` traegt einen Zaehler je Tabellenzeile und muss
+   * zur neuen Laenge passen.
+   */
+  const setzeTabelle = (sys: SpawnSystem, tabelle: readonly SpawnEntry[]): void => {
+    const innen = sys as unknown as {
+      table: readonly SpawnEntry[];
+      spawnAccums: number[];
+    };
+    innen.table = tabelle;
+    innen.spawnAccums = tabelle.map(() => 0);
+  };
+
   const serverA = makeServer();
   serverA.init();
   check('default config constructs the SpawnSystem', serverA.spawns !== null);
   // deterministic spawn rolls on the server-built system
   (serverA.spawns as unknown as { rng: XorShiftRandom }).rng = new XorShiftRandom(42);
+  setzeTabelle(serverA.spawns!, forcedTable());
   const anchor = { x: 0, y: 0, z: 0 };
   generateAround(serverA.zones, anchor);
   let spawnedA = 0;
@@ -350,9 +473,20 @@ rmSync(WORLDS_DIR, { recursive: true, force: true });
 
   const serverB = makeServer();
   serverB.init();
+  // init() ruft adoptPersisted mit der AUSLIEFERUNGSTABELLE — die ist
+  // leer, also darf nichts adoptiert worden sein. Das ist die neue
+  // Wirklichkeit und wird hier ausdruecklich festgehalten, statt sie
+  // unter der Sonde verschwinden zu lassen.
+  check(
+    'B: leere Auslieferungstabelle adoptiert nichts',
+    serverB.spawns !== null && serverB.spawns.creatureCount === 0,
+    `${serverB.spawns?.creatureCount}`
+  );
+  setzeTabelle(serverB.spawns!, forcedTable());
+  serverB.spawns!.adoptPersisted();
   check(
     'B: persisted creatures adopted after restart',
-    serverB.spawns !== null && serverB.spawns.creatureCount === spawnedA,
+    serverB.spawns!.creatureCount === spawnedA,
     `${serverB.spawns?.creatureCount}/${spawnedA}`
   );
   serverB.spawns!.update(0.1, [{ x: 5000, y: 0, z: 5000 }]);

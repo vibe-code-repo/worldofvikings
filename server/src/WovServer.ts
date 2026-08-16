@@ -40,6 +40,7 @@ import {
   kodiereTerrainComp,
   terrainCompNachBase64,
   terrainCompAusBase64,
+  istEigenesModell,
 } from '@wov/shared';
 import type { Biome, Vector3, ZoneID } from '@wov/shared';
 import {
@@ -210,9 +211,20 @@ export class WovServer {
       bodenHoehe: (x, z) => this.getGroundHeight(x, z),
     });
     // Phase G: dungeon system — documents live next to the world saves.
+    // Je Instanz ein eigener Unterordner: entrances.json bildet WELT-Eingänge
+    // auf Dungeon-IDs ab und wird aus den gebuchten Feature-Instanzen des
+    // Layouts gefüllt. Sobald welten/dev.json und welten/live.json
+    // auseinanderlaufen, zeigten gemeinsame Einträge auf Locations, die es in
+    // der anderen Instanz nicht gibt — der Eingang stünde im Nichts, und die
+    // erste Zuweisung des einen Servers verböge die Karte des anderen.
+    // Geschlüsselt über worldName, weil das bereits der Instanzname ist
+    // (main.ts: worldName = WOV_INSTANZ) und Spielstand wie Placement-Cache
+    // schon daran hängen. Verworfen: instanzName() direkt lesen — dann wären
+    // Tests und Werkzeuge ohne gesetzte Variable in einem anderen Ordner
+    // gelandet als der Server, der sie mit derselben Config startet.
     this.dungeons = new DungeonManager(
       this.zdos,
-      resolve(this.config.worldsDir, '..', 'dungeons')
+      resolve(this.config.worldsDir, '..', 'dungeons', this.config.worldName)
     );
     this.registerDungeonCommands();
     this.registerSpawnCommand();
@@ -364,7 +376,15 @@ export class WovServer {
     // bestehenden Save laufen generierte Zonen nie wieder durch
     // generateFeature, die Weltkarte soll aber trotzdem jede Krypta/Höhle
     // zeigen. Dokumente entstehen weiterhin lazy beim ersten Betreten.
-    {
+    //
+    // Block A: nur wenn Dungeons überhaupt an sind. Der Zonen-Hook prüft die
+    // Fahne längst (ZoneManager: dungeonsEnabled && DUNGEON-Flag), dieser
+    // Nachfüllpfad lief bisher als einziger daran vorbei — mit
+    // dungeons.enabled=false buchte er trotzdem 316 Eingänge, und der Client
+    // bekam über sendDungeonEntrances 316 Kartenmarken auf Krypten, die weder
+    // sichtbar noch betretbar sind. Die Hüllen-Sperre allein hätte nur die
+    // ZDOs verhindert, nicht die Marken.
+    if (this.config.dungeonsEnabled) {
       const dungeonPieceByFeature = new Map<string, number>();
       for (const f of FEATURES) {
         const piece = getFeaturePieces(f.name).find((p) => {
@@ -1938,6 +1958,14 @@ export class WovServer {
         .getZDOsInRadius(ziel.position, 60)
         .some((z) => z.prefabHash === EIKTHYR_HASH);
       if (schonDa) return antwort(true, 'Eikthyr ist bereits erwacht!');
+      // Kein eigenes Modell, keine Beschwörung — und zwar VOR dem Abzug.
+      // Sonst zahlt der Spieler zwei Trophäen für eine unsichtbare Hülle:
+      // SpawnSystem.adoptSingle() weist Eikthyr seit der Umstellung auf
+      // eigene Modelle ab, die ZDO entstünde aber trotzdem und bliebe als
+      // toter Eintrag im Spielstand stehen.
+      if (!istEigenesModell('Eikthyr')) {
+        return antwort(false, 'Der Altar schweigt — für Eikthyr fehlt noch ein Modell');
+      }
       // Opfergabe SERVERSEITIG: 2 Hirschtrophäen aus dem Inventar.
       if (peer.inventar.countOf('TrophyDeer') < 2) {
         return antwort(false, 'Der Altar verlangt 2 Hirschtrophäen');

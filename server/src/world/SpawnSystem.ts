@@ -44,6 +44,7 @@ import {
   SPAWN_SYNC_INTERVAL_SEC,
   HEALTH_MEMBER,
   maxLeben,
+  istEigenesModell,
   type SpawnEntry,
 } from '@wov/shared';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
@@ -78,6 +79,31 @@ interface CreatureState {
   attackAccum?: number;
 }
 
+/**
+ * Zweite Verteidigungslinie hinter `bauSpawnTabelle()` (shared/spawnData.ts).
+ *
+ * Die erste Filterung sitzt dort, wo SPAWN_TABLE entsteht — das ist die
+ * eine Stelle je Tabelle. Sie deckt aber nur die eine Tabelle ab: Das
+ * SpawnSystem nimmt ueber `SpawnSystemOptions.table` beliebige Eintraege
+ * entgegen (Tests, kuenftige Layout-Tabellen), und createZDO fragt nicht
+ * nach, ob es zu dem Hash je ein Modell gab. Ein Wesen ohne Modell ist
+ * fuer den Spieler eine unsichtbare Kollision, die zuschlaegt — der
+ * Fehler, der am schwersten zu deuten ist.
+ *
+ * Nicht still: Wer eine Tabelle injiziert und nichts spawnen sieht, soll
+ * im Log lesen koennen, warum.
+ */
+function nurEigeneModelle(tabelle: readonly SpawnEntry[]): readonly SpawnEntry[] {
+  const liste = tabelle.filter((e) => istEigenesModell(e.prefab));
+  const uebersprungen = tabelle.length - liste.length;
+  if (uebersprungen > 0) {
+    console.warn(
+      `[spawns] ${uebersprungen} von ${tabelle.length} Eintraegen ohne eigenes Modell uebersprungen`
+    );
+  }
+  return liste;
+}
+
 const TWO_PI = Math.PI * 2;
 /** Arrival tolerance for wander targets (meters). */
 const ARRIVE_DIST = 0.4;
@@ -101,7 +127,7 @@ export class SpawnSystem {
     private readonly zones: ZoneManager,
     options: SpawnSystemOptions = {}
   ) {
-    this.table = options.table ?? SPAWN_TABLE;
+    this.table = nurEigeneModelle(options.table ?? SPAWN_TABLE);
     // C++ parity: time-seeded default RNG (VUtilsRandom.cpp:53-55, same as
     // location randomRotation) — tests inject a seeded one.
     this.rng = options.rng ?? new XorShiftRandom((Date.now() & 0x7fffffff) | 0);
@@ -164,6 +190,21 @@ export class SpawnSystem {
    * Wander-/Chase-Verhalten, ohne in der Spawn-Tabelle zu stehen.
    */
   adoptSingle(zdo: ZDO, entry: SpawnEntry): void {
+    // Dieselbe Pruefung wie bei der Tabelle, und hier ist sie noetiger:
+    // Bosse und Layout-NPCs kommen ueber synthetische Eintraege herein und
+    // gehen an der Tabelle absichtlich vorbei. Wer hier durchkaeme, waere
+    // eine unsichtbare Huelle, die den Spieler verfolgt und zuschlaegt.
+    //
+    // Die ZDO selbst bleibt bestehen — sie zu zerstoeren waere hier der
+    // falsche Ort: Dieses System simuliert, es raeumt nicht auf. Wer den
+    // Eikthyr aus der Welt nehmen will, tut das dort, wo er entsteht
+    // (WovServer, Altar-Opfergabe), nicht in der Wander-KI.
+    if (!istEigenesModell(entry.prefab)) {
+      console.warn(
+        `[spawns] '${entry.prefab}' ohne eigenes Modell — nicht adoptiert, die ZDO simuliert nicht`
+      );
+      return;
+    }
     const key = zdo.zdoid.toString();
     if (this.creatures.has(key)) return;
     this.stelleLebenSicher(zdo, entry.prefab);

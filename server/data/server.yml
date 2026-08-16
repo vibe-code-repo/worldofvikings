@@ -32,7 +32,17 @@ world:
   pregenerate: false
   save-interval: 30min
   modern: true
-  features: true
+  # Block A: Locations stillgelegt. Alle 146 Einträge in FEATURES sind
+  # Valheim-Exporte; keiner steht in EIGENE_MODELLE. Gebucht würden sie
+  # trotzdem — jede Instanz legte ZDOs an, die der Client nicht darstellen
+  # kann, und der Spieler liefe durch unsichtbare Grabhügel.
+  # Verworfen: nur clientseitig ausblenden. Dann stünden die Geister-ZDOs
+  # weiterhin im Save und passten später nicht mehr zu der Buchung, die
+  # mit eigenen Modellen entsteht.
+  # Gilt für dev UND live: diese Datei ist umgebungsfrei, und der Verzicht
+  # auf Valheim-Modelle ist eine Projektentscheidung, kein
+  # Umgebungsunterschied (shared/src/instanz.ts).
+  features: false
   vegetation: true
   creatures: true
   seed: KxSYuZquuw
@@ -49,7 +59,12 @@ zdos:
   assign-interval: 2s
 
 dungeons:
-  enabled: true
+  # Folgt zwingend aus world.features: Dungeons hängen an Locations. Ohne
+  # gebuchte Krypta gibt es keinen Eingang, und die Raumteile selbst sind
+  # ebenfalls durchweg Valheim-Exporte — eine betretbare Instanz wäre ein
+  # leerer Raum aus unsichtbaren Wänden.
+  # Ebenfalls für beide Instanzen, aus demselben Grund wie oben.
+  enabled: false
   doors: true
   seeded: true
 

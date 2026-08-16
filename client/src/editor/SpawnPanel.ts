@@ -5,6 +5,15 @@
  * und Größe. Muster: DungeonEditor (reines DOM, Callback-Interface,
  * keine Socket-/Szenen-Kopplung).
  *
+ * Seit Block A ist „platzierbar" enger als „steht in der Registry":
+ * Gesetzt werden darf nur, was in EIGENE_MODELLE steht
+ * (istEigenesModell). Alles andere bleibt in der Liste STEHEN,
+ * ausgegraut und ohne Klick. Es ganz zu streichen wäre die kürzere
+ * Lösung und ist verworfen: Ein spurlos fehlender Eintrag liest sich wie
+ * ein eigener Tippfehler, und wer den Fehler bei sich sucht, findet ihn
+ * nicht. Ohne beides fiele es erst im Boot-Log des Servers auf, wenn
+ * pruefeLayout die fertige Welt zurückweist.
+ *
  * Bedienung im Testflug: B öffnet/schließt (Esc gibt den Cursor frei).
  * Platziert wird NUR im aktiven Platzier-Modus: Ein Klick auf einen
  * Listeneintrag startet ihn (Geist hängt an der Maus), Klick/P setzt
@@ -24,6 +33,7 @@ import {
   NPC_NAME_MAX,
   NPC_STUFE_MAX,
   NPC_STUFE_MIN,
+  istEigenesModell,
   istNpcPrefab,
   loeseNpcAuf,
 } from '@wov/shared';
@@ -92,6 +102,28 @@ const QUEST_TEXT: Readonly<Record<string, string>> = {
   fertig: 'fertig (!)',
 };
 
+/**
+ * Platzierbares nach vorn, Gesperrtes ans Ende; innerhalb beider Gruppen
+ * bleibt die Reihenfolge, wie sie war.
+ *
+ * Nötig wegen des Fensters von 80 Zeilen: In „Alle (mit Modell)" stehen
+ * 113 eigene Namen zwischen 3.557 fremden, in der Vegetation 54 zwischen
+ * 97. Unsortiert bestünde die sichtbare Seite fast nur aus gesperrten
+ * Zeilen — die Liste wäre als Werkzeug unbrauchbar, ohne dass man ihr
+ * ansieht, warum.
+ *
+ * Verworfen: die Gesperrten gar nicht erst zurückgeben. Dann stünde in
+ * „Bauteile" nur noch zwei von neun Einträgen, und niemand könnte
+ * unterscheiden, ob die anderen sieben entfallen sind oder nie existiert
+ * haben.
+ */
+function eigeneZuerst(namen: readonly string[]): string[] {
+  return [
+    ...namen.filter((n) => istEigenesModell(n)),
+    ...namen.filter((n) => !istEigenesModell(n)),
+  ];
+}
+
 const KATEGORIEN: ReadonlyArray<{ name: string; namen: () => string[] }> = [
   // Zuerst, und damit die Vorgabe beim Öffnen: die kurze Liste der selbst
   // erzeugten Modelle. In den anderen Kategorien gehen sie zwischen
@@ -99,13 +131,39 @@ const KATEGORIEN: ReadonlyArray<{ name: string; namen: () => string[] }> = [
   // Nicht vorhandene Namen werden gefiltert, damit ein Eintrag ohne
   // passende GLB die Auswahl nicht mit einer toten Zeile verstopft.
   { name: 'Eigene Modelle', namen: () => EIGENE_MODELLE.filter((n) => PREFABS_BY_NAME.has(n)) },
-  { name: 'Vegetation', namen: () => [...new Set(FOLIAGE.map((f) => f.prefabName))] },
-  { name: 'Bauteile', namen: () => [...BAU_PREFABS] },
+  { name: 'Vegetation', namen: () => eigeneZuerst([...new Set(FOLIAGE.map((f) => f.prefabName))]) },
+  { name: 'Bauteile', namen: () => eigeneZuerst([...BAU_PREFABS]) },
   {
     name: 'Alle (mit Modell)',
-    namen: () => [...PREFABS_BY_NAME.values()].filter((d) => d.model).map((d) => d.name),
+    namen: () =>
+      eigeneZuerst([...PREFABS_BY_NAME.values()].filter((d) => d.model).map((d) => d.name)),
   },
 ];
+
+/**
+ * Vorgabe der Vorauswahl. Hier stand 'Beech1' — eine Buche aus dem
+ * Valheim-Export, die es seit Block A nicht mehr gibt. Die hohe Birke ist
+ * der nächstliegende Ersatz: derselbe Zweck (ein Laubbaum zum
+ * Ausprobieren) und der erste Eintrag von EIGENE_MODELLE, also das, was
+ * die Liste beim Öffnen ohnehin ganz oben zeigt.
+ */
+const VORGABE_PREFAB = 'BirkeHoch1';
+
+/**
+ * Vorauswahl der letzten Sitzung — aber nur, wenn sie noch ins Spiel
+ * gehört.
+ *
+ * Jeder Browser, der den Editor vor Block A offen hatte, trägt einen
+ * Valheim-Namen in localStorage. Gesetzt bekäme man ihn zwar nicht (der
+ * Platzier-Modus wird erst durch den Klick auf eine Listenzeile scharf,
+ * und gesperrte Zeilen nehmen keinen Klick mehr an), aber er stünde in
+ * der Fußzeile als „Vorauswahl: Beech1" — eine Angabe, die die Liste
+ * darunter nirgends bestätigt.
+ */
+function vorauswahl(): string {
+  const gemerkt = localStorage.getItem('wov-editor-spawn-prefab');
+  return gemerkt !== null && istEigenesModell(gemerkt) ? gemerkt : VORGABE_PREFAB;
+}
 
 export class SpawnPanel {
   /** Wird bei jeder Änderung von Wahl/Modus gerufen — main.ts gleicht den Geist ab. */
@@ -118,7 +176,7 @@ export class SpawnPanel {
    */
   private modusAktiv = false;
   readonly einstellung: SpawnEinstellung = {
-    prefab: localStorage.getItem('wov-editor-spawn-prefab') ?? 'Beech1',
+    prefab: vorauswahl(),
     yaw: null,
     abstand: 4,
     scale: 1,
@@ -132,6 +190,8 @@ export class SpawnPanel {
   };
   private readonly root: HTMLDivElement;
   private readonly liste: HTMLDivElement;
+  /** Zeile unter der Liste: wie viel der Kategorie gesperrt ist. */
+  private readonly gesperrtZeile: HTMLDivElement;
   private readonly zaehler: HTMLDivElement;
   private suchtext = '';
   private kategorie = 0;
@@ -193,7 +253,7 @@ export class SpawnPanel {
     this.root.appendChild(kat);
 
     const suche = document.createElement('input');
-    suche.placeholder = 'Suchen … (z. B. beech, rock, wood)';
+    suche.placeholder = 'Suchen … (z. B. birke, fels, grab)';
     suche.style.cssText = this.feldStil();
     let sucheTimer: number | null = null;
     suche.oninput = () => {
@@ -211,6 +271,13 @@ export class SpawnPanel {
       'max-height:220px;overflow-y:auto;overscroll-behavior:contain;' +
       'border:1px solid #3a3325;border-radius:4px;margin:4px 0;';
     this.root.appendChild(this.liste);
+
+    // Die Quote gehört UNTER den Kasten, nicht hinein: Im Kasten wäre sie
+    // eine Zeile unter 80 und beim ersten Scrollen weg — gefragt wird sie
+    // aber genau dann, wenn man auf die grauen Zeilen schaut.
+    this.gesperrtZeile = document.createElement('div');
+    this.gesperrtZeile.style.cssText = 'font-size:10px;color:#9a8f6a;margin:-2px 0 2px;';
+    this.root.appendChild(this.gesperrtZeile);
 
     // Drehung
     this.root.appendChild(this.label('Drehung'));
@@ -524,23 +591,38 @@ export class SpawnPanel {
   private listeFuellen(): void {
     this.liste.innerHTML = '';
     const alle = KATEGORIEN[this.kategorie]!.namen();
-    const treffer = (this.suchtext
+    const gefiltert = this.suchtext
       ? alle.filter((n) => n.toLowerCase().includes(this.suchtext))
-      : alle
-    ).slice(0, 80);
+      : alle;
+    const treffer = gefiltert.slice(0, 80);
     for (const name of treffer) {
+      // Gesperrt heißt: kein eigenes Modell, also nichts, was in der Welt
+      // stehen darf. Die Zeile bleibt trotzdem, nur grau und ohne Klick —
+      // s. Kopf der Datei.
+      const gesperrt = !istEigenesModell(name);
       const zeile = document.createElement('div');
-      zeile.textContent = name;
+      zeile.textContent = gesperrt ? `${name} — kein eigenes Modell` : name;
       // Zwei Markierungen: kräftig hinterlegt = Platzier-Modus AKTIV,
       // nur Randstreifen = bloße Vorauswahl (localStorage) ohne Modus.
       const gewaehlt = name === this.einstellung.prefab;
-      zeile.style.cssText =
-        'padding:2px 6px;cursor:pointer;' +
-        (gewaehlt
-          ? this.modusAktiv
-            ? 'background:#243044;color:#e8d48a;'
-            : 'color:#e8d48a;border-left:2px solid #6a5d35;padding-left:4px;'
-          : '');
+      zeile.style.cssText = gesperrt
+        ? 'padding:2px 6px;cursor:not-allowed;color:#6f664e;'
+        : 'padding:2px 6px;cursor:pointer;' +
+          (gewaehlt
+            ? this.modusAktiv
+              ? 'background:#243044;color:#e8d48a;'
+              : 'color:#e8d48a;border-left:2px solid #6a5d35;padding-left:4px;'
+            : '');
+      if (gesperrt) {
+        // Der Grund im Klartext, an der Zeile selbst — sonst bleibt nur
+        // die Vermutung, der Editor sei kaputt.
+        zeile.title =
+          `${name} steht nicht in EIGENE_MODELLE (shared/src/prefabs.ts) und gehört seit ` +
+          'Block A nicht mehr in die Welt: Der Client hat kein Modell dafür, und ' +
+          'pruefeLayout weist die Platzierung beim Start des Servers ab.';
+        this.liste.appendChild(zeile);
+        continue;
+      }
       zeile.onclick = () => {
         if (this.modusAktiv && name === this.einstellung.prefab) {
           // Zweiter Klick auf den aktiven Eintrag = Abwahl: Der Modus
@@ -559,7 +641,7 @@ export class SpawnPanel {
       };
       this.liste.appendChild(zeile);
     }
-    const gesamt = this.suchtext ? alle.filter((n) => n.toLowerCase().includes(this.suchtext)).length : alle.length;
+    const gesamt = gefiltert.length;
     if (gesamt > treffer.length) {
       const mehr = document.createElement('div');
       mehr.textContent = `… und ${gesamt - treffer.length} weitere — Suche verfeinern`;
@@ -572,6 +654,11 @@ export class SpawnPanel {
       leer.style.cssText = 'padding:4px 6px;color:#9a8f6a;';
       this.liste.appendChild(leer);
     }
+    const gesperrtGesamt = gefiltert.filter((n) => !istEigenesModell(n)).length;
+    this.gesperrtZeile.textContent =
+      gesperrtGesamt === 0
+        ? ''
+        : `${gesperrtGesamt} von ${gesamt} ohne eigenes Modell — grau, nicht platzierbar.`;
   }
 
   aktualisiere(): void {

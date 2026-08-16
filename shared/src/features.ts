@@ -20,6 +20,7 @@
 
 import featuresData from './featuresData.json';
 import { getStableHash } from './hash.js';
+import { istEigenesModell } from './prefabs.js';
 
 /** C++ IZoneManager::Feature (ZoneManager.h:71-114). */
 export interface Feature {
@@ -63,11 +64,45 @@ export interface Feature {
 
 interface FeatureJson extends Omit<Feature, 'hash'> {}
 
-/** All 146 features from features.pkg, in pkg order. */
-export const FEATURES: readonly Feature[] = (featuresData.features as FeatureJson[]).map((f) => ({
-  ...f,
-  hash: getStableHash(f.name),
-}));
+/**
+ * Die Features, die ausgeliefert werden — in pkg-Reihenfolge, gefiltert
+ * gegen die Whitelist `EIGENE_MODELLE` (prefabs.ts).
+ *
+ * Seit Block A benutzt das Projekt ausschliesslich selbst gebaute Modelle.
+ * Eine Location ist nichts als eine Anordnung von Prefabs aus dem
+ * Valheim-Export; keiner der 146 Namen steht auf der Whitelist, die Liste
+ * ist also leer. Das ist der beschlossene Zwischenzustand, kein Defekt —
+ * bis eigene Bauwerke vorliegen, hat die Welt keine Locations.
+ *
+ * VERWORFEN: je Feature seine PIECES prüfen und nur die durchlassen, deren
+ * Teile samt und sonders eigener Bau sind. Das wäre die genauere Regel,
+ * zöge aber `featurePieces.ts` (23 228 Pieces, ~6 MB) in dieses Modul —
+ * und damit über den Barrel zurück in jedes Client-Bundle, dessen
+ * Abtrennung der Bundle-Schnitt oben gerade erst erkauft hat. Am Ergebnis
+ * änderte es ohnehin nichts: Die Pieces sind durchweg Valheim-Geometrie.
+ *
+ * Der Rohbestand bleibt in `featuresData.json` liegen. Er ist die
+ * Datengrundlage der Naht zu `featurePiecesData.json` (geprüft von
+ * shared/test/weltdaten-schnitt.ts) und kommt zurück, sobald eigene
+ * Bauwerke auf der Whitelist stehen.
+ */
+export const FEATURES: readonly Feature[] = bauFeatures();
+
+function bauFeatures(): Feature[] {
+  const roh = featuresData.features as FeatureJson[];
+  const liste: Feature[] = [];
+  for (const f of roh) {
+    if (!istEigenesModell(f.name)) continue;
+    liste.push({ ...f, hash: getStableHash(f.name) });
+  }
+  const uebersprungen = roh.length - liste.length;
+  if (uebersprungen > 0) {
+    console.warn(
+      `[features] ${uebersprungen} von ${roh.length} Eintraegen ohne eigenes Modell uebersprungen`
+    );
+  }
+  return liste;
+}
 
 export const FEATURES_BY_NAME: ReadonlyMap<string, Feature> = new Map(
   FEATURES.map((f) => [f.name, f])

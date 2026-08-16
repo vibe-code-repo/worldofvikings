@@ -67,6 +67,7 @@ import {
   PREFABS_BY_NAME,
   PREFAB_DEFS,
   isRenderable,
+  istEigenesModell,
   type PrefabDef,
 } from '@wov/shared';
 import { AssetManager } from '../engine/AssetManager';
@@ -105,8 +106,6 @@ const ITEM_TYP_TEXT: Readonly<Record<number, string>> = {
 /** Nur Prefabs, die im Spiel überhaupt ein Bild bekommen (s. isRenderable). */
 const MIT_MODELL = PREFAB_DEFS.filter((d) => d.model !== null && isRenderable(d));
 
-const EIGEN_SET = new Set(EIGENE_MODELLE);
-
 interface Kategorie {
   name: string;
   /** Erklärung unter der Auswahl — was steckt in dieser Liste? */
@@ -124,6 +123,15 @@ interface Kategorie {
  *
  * Gefiltert wird überall gegen PREFABS_BY_NAME: Ein Name ohne
  * Registry-Eintrag hätte weder Modell noch Maße — eine tote Zeile.
+ *
+ * Gegen EIGENE_MODELLE wird hier NICHT gefiltert — anders als im
+ * SpawnPanel, und mit Absicht: Der Katalog setzt nichts in die Welt, er
+ * zeigt. „Wie sah das aus, was da entfällt?" ist genau die Frage, die
+ * man beim Nachbauen stellt, und ihre Antwort wegzunehmen hiesse, sich
+ * die Vorlage zu verbauen. Gleichrangig bleibt es deshalb trotzdem
+ * nicht: Ohne eigenes Modell steht die Zeile ausgegraut mit ⊘ da, der
+ * Metadatenblock sagt es in Worten, und über der Liste steht die Quote
+ * der Kategorie.
  */
 const KATEGORIEN: readonly Kategorie[] = [
   {
@@ -587,9 +595,22 @@ export class GegenstandsKatalog {
 
   private listeFuellen(): void {
     const kat = KATEGORIEN[this.kategorie]!;
-    this.katHinweis.textContent = kat.hinweis;
-
     const alle = this.treffer();
+
+    // Zweite Zeile unter dem Kategorietext: wie viel dieser Liste den
+    // Umbau überlebt. Ohne sie liest man 25 Gegenstände und merkt erst
+    // beim dritten Klick, dass KEINER davon noch ein Modell hat.
+    const eigen = alle.filter((n) => istEigenesModell(n)).length;
+    this.katHinweis.innerHTML = '';
+    const katText = document.createElement('div');
+    katText.textContent = kat.hinweis;
+    this.katHinweis.appendChild(katText);
+    if (alle.length > 0) {
+      const quote = document.createElement('div');
+      quote.textContent = `${eigen} von ${alle.length} mit eigenem Modell — der Rest (⊘) entfällt mit Block A.`;
+      quote.style.color = eigen === 0 ? THEME.fehler : THEME.gedimmt;
+      this.katHinweis.appendChild(quote);
+    }
     const seiten = Math.max(1, Math.ceil(alle.length / SEITE_GROESSE));
     if (this.seite >= seiten) this.seite = seiten - 1;
     const sichtbar = this.seitenNamen();
@@ -641,14 +662,27 @@ export class GegenstandsKatalog {
     zeile.style.cssText =
       `padding:3px 8px;cursor:pointer;display:flex;gap:6px;align-items:baseline;` +
       (aktiv ? `background:#243044;color:${THEME.akzent};` : '');
+    const eigen = istEigenesModell(name);
     const marke = document.createElement('span');
-    // Eigene Modelle bekommen einen Stern — in „Alle mit Modell" ist das
-    // der einzige Hinweis darauf, dass dieser Eintrag garantiert lädt.
-    marke.textContent = EIGEN_SET.has(name) ? '★' : '·';
-    marke.style.cssText = `width:10px;color:${EIGEN_SET.has(name) ? THEME.akzent : THEME.rand};`;
+    // ★ = eigenes Modell, ⊘ = entfällt. Der Punkt, der hier für „nicht
+    // eigen" stand, war zu leise — er hiess „kein Stern", nicht „gehört
+    // nicht mehr ins Spiel".
+    // Bewusst NICHT ✕: Das steht in derselben Zeile schon für „GLB liegt
+    // nicht auf dem Server" (Verfügbarkeitsprüfung). Zwei verschiedene
+    // Fragen mit einem Zeichen zu beantworten verwischt beide — ein
+    // eigenes Modell kann fehlen, ein fremdes kann daliegen.
+    marke.textContent = eigen ? '★' : '⊘';
+    marke.style.cssText = `width:10px;color:${eigen ? THEME.akzent : THEME.fehler};`;
     const txt = document.createElement('span');
     txt.textContent = name;
-    txt.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    txt.style.cssText =
+      'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
+      (eigen || aktiv ? '' : `color:${THEME.gedimmt};`);
+    if (!eigen) {
+      zeile.title =
+        `${name} steht nicht in EIGENE_MODELLE (shared/src/prefabs.ts). Ansehen geht, ` +
+        'setzen nicht — der Spawn-Editor bietet den Namen nicht mehr zur Platzierung an.';
+    }
     zeile.append(marke, txt);
     // Gemerkt wird die DATEI, nicht der Prefabname: Manche Prefabs zeigen
     // auf eine anders heißende GLB (Boar → Boar_fixed, s. HINT_DEFS).
@@ -904,12 +938,16 @@ export class GegenstandsKatalog {
     titel.textContent = item?.label ? `${item.label} (${name})` : name;
     titel.style.cssText = `color:${THEME.akzent};font-size:15px;`;
     kopf.appendChild(titel);
-    if (EIGEN_SET.has(name)) {
-      const marke = document.createElement('span');
-      marke.textContent = '★ eigenes Modell';
-      marke.style.cssText = `font-size:11px;color:${THEME.ok};border:1px solid ${THEME.rand};padding:1px 6px;border-radius:8px;`;
-      kopf.appendChild(marke);
-    }
+    // Die Marke spricht jetzt in BEIDE Richtungen. Vorher stand bei
+    // fremden Prefabs gar nichts — und „nichts" liest sich wie „normal",
+    // nicht wie „das gibt es im Spiel nicht mehr".
+    const eigen = istEigenesModell(name);
+    const marke = document.createElement('span');
+    marke.textContent = eigen ? '★ eigenes Modell' : '⊘ kein eigenes Modell — entfällt';
+    marke.style.cssText =
+      `font-size:11px;color:${eigen ? THEME.ok : THEME.fehler};border:1px solid ${THEME.rand};` +
+      'padding:1px 6px;border-radius:8px;';
+    kopf.appendChild(marke);
     this.infoBlock.appendChild(kopf);
 
     const felder: string[] = [];

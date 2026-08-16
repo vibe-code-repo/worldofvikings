@@ -23,12 +23,31 @@
  * Lauf: npx tsx shared/test/weltdaten-schnitt.ts   (aus shared/)
  */
 
-import { FEATURES } from '../src/features.js';
 import { DUNGEONS } from '../src/dungeons.js';
 import { getFeaturePieces } from '../src/featurePieces.js';
 import { getRoomPieces } from '../src/roomPieces.js';
+import featuresData from '../src/featuresData.json';
 import featurePiecesData from '../src/featurePiecesData.json';
 import roomPiecesData from '../src/roomPiecesData.json';
+
+/**
+ * Geprueft werden die DATEIEN, nicht die ausgelieferte Tabelle.
+ *
+ * Bis Block A stand hier `FEATURES` aus features.ts — dasselbe wie die
+ * Kopfdatei, nur als fertige Objekte. Seit die Tabelle gegen die Whitelist
+ * `EIGENE_MODELLE` gefiltert wird, ist sie leer, und der Test lief mit
+ * „alle 0 Features stehen in der Piece-Datei" gruen durch, ohne noch
+ * irgendetwas anzufassen. Die Naht, um die es hier geht, liegt aber
+ * zwischen den beiden JSON-Dateien und wird von der Filterung gar nicht
+ * beruehrt: Sie laeuft genauso auseinander, ob nun ein Feature
+ * ausgeliefert wird oder keines.
+ *
+ * Deshalb die Rohdatei — sie prueft wieder alle 146 Koepfe statt keinen.
+ */
+const FEATURE_KOEPFE = featuresData.features as ReadonlyArray<{
+  name: string;
+  pieceRadius: number;
+}>;
 
 let fehler = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -48,7 +67,7 @@ let schlechtesterRadius = 0;
 let schlechtestesFeature = '';
 let pieceSumme = 0;
 
-for (const f of FEATURES) {
+for (const f of FEATURE_KOEPFE) {
   const pieces = getFeaturePieces(f.name);
   pieceSumme += pieces.length;
   // Auf den SCHLUESSEL pruefen, nicht auf Inhalt: zehn Features (Bonemass,
@@ -70,7 +89,7 @@ for (const f of FEATURES) {
 }
 
 check(
-  `alle ${FEATURES.length} Features stehen in der Piece-Datei`,
+  `alle ${FEATURE_KOEPFE.length} Features stehen in der Piece-Datei`,
   ohnePieces.length === 0,
   ohnePieces.length ? `ohne Pieces: ${ohnePieces.slice(0, 5).join(', ')}` : `${pieceSumme} Pieces gesamt`
 );
@@ -84,7 +103,7 @@ check(
 );
 
 // Kein verwaister Rumpf: jeder Eintrag der Piece-Datei gehoert zu einem Feature.
-const featureNamen = new Set(FEATURES.map((f) => f.name));
+const featureNamen = new Set(FEATURE_KOEPFE.map((f) => f.name));
 const verwaisteFeatures = Object.keys(featurePiecesData.pieces).filter((n) => !featureNamen.has(n));
 check(
   'keine verwaisten Piece-Eintraege',

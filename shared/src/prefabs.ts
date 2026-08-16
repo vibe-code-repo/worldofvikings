@@ -780,6 +780,14 @@ export const PREFAB_DEFS: PrefabDef[] = buildRegistry();
  *
  * Neue Modelle aus `tools/tripo-generate.mjs` oder
  * `tools/baum-generieren.py` gehören hier ergänzt.
+ *
+ * Seit Block A trägt dieselbe Liste eine zweite, schwerere Rolle: Sie ist
+ * die WHITELIST der Welt. Was hier nicht steht, gehört nicht ins Spiel —
+ * `pruefeLayout` (shared/src/worldlayout/pruefung.ts) meldet jeden
+ * Platzierungs- und Kuratierungsnamen, der fehlt. Beides in EINER Liste zu
+ * führen ist Absicht: Eine zweite Liste daneben wäre nach dem dritten
+ * neuen Modell auseinandergelaufen, und die Frage „zeigt der Editor es an?"
+ * hat dieselbe Antwort wie „darf es in der Welt stehen?".
  */
 export const EIGENE_MODELLE: readonly string[] = [
   'BirkeHoch1',
@@ -893,7 +901,59 @@ export const EIGENE_MODELLE: readonly string[] = [
   'FurlocAeltester',
   'FurlocKind',
   'WikingerBasis',
+  // Beide standen bisher nicht hier, weil die Liste als Auswahlmenü des
+  // Spawn-Editors entstand und dort keine Rolle spielten. Als Whitelist
+  // gelesen fehlten sie zu Unrecht: Es rendert bei beiden eigene Geometrie.
+  //
+  // NPC_1 lädt npc_1_walk.glb — das vom Nutzer erstellte Modell, mit dem
+  // die eigene Reihe überhaupt anfing (s. HINT_DEFS oben).
+  //
+  // 'Player' ist der einzige Eintrag der Liste, dessen NAME aus dem
+  // Valheim-Paket stammt (er steht in prefabData.json). Das ist kein
+  // Widerspruch: Die Whitelist entscheidet über das MODELL, nicht über die
+  // Herkunft des Namens. Player.glb ist mesh-los, deshalb zeigt der
+  // Render-Hint seit jeher ebenfalls auf npc_1_walk.glb; die eigene Figur
+  // des angemeldeten Spielers kommt aus PlayerAvatar.glb (Tripo-Export,
+  // client/src/player/AvatarRig.ts) und damit ebenfalls nicht aus dem
+  // Export. Es gibt also keinen Blickwinkel, aus dem hier Valheim-Geometrie
+  // steht — und den Spieler-Avatar auszuschliessen hiesse, den Spieler
+  // unsichtbar zu machen.
+  'NPC_1',
+  'Player',
 ];
+
+/**
+ * Dieselbe Liste als Menge — `pruefeLayout` fragt sie für JEDE Platzierung
+ * und jeden kuratierten Namen einer Welt, und die Reihenfolge des Arrays
+ * trägt die Gruppierung im Spawn-Editor, darf also nicht sortiert werden.
+ */
+export const EIGENE_MODELLE_SET: ReadonlySet<string> = new Set(EIGENE_MODELLE);
+
+/**
+ * Ist `name` ein selbst gebautes Prefab?
+ *
+ * Die LISTE ist die Wahrheit, nicht der Dateibestand unter assets/models —
+ * und das ist der Kern von Block A, kein Umsetzungsdetail:
+ *
+ * Der Server kennt die Platte des Clients nicht. Er entscheidet über
+ * Spawns, Layout-Prüfung und Bau-Freigaben, ohne je eine GLB zu öffnen; ein
+ * „liegt die Datei da?" ist auf seiner Seite gar nicht beantwortbar. Träte
+ * er die Frage an den Client ab, gäben beide Seiten auf dieselbe Frage
+ * verschiedene Antworten.
+ *
+ * Und ein Modell, das nur auf EINEM Container liegt, wäre genau die Drift,
+ * die Block A beseitigt: dev und live zeigten unterschiedlich viel, je
+ * nachdem, was zuletzt wohin kopiert wurde. Die Liste liegt im Quelltext,
+ * geht mit jedem tools/wov-update.sh mit und ist auf beiden Containern
+ * dieselbe.
+ *
+ * Deckungsgleich ist beides ohnehin nicht: GrabhuegelGras hat gar keine
+ * eigene GLB (MODELL_ALIAS lädt Grabhuegel.glb), Steinkreis.glb liegt
+ * umgekehrt ohne Prefab auf der Platte.
+ */
+export function istEigenesModell(name: string): boolean {
+  return EIGENE_MODELLE_SET.has(name);
+}
 
 function buildRegistry(): PrefabDef[] {
   const defs: PrefabDef[] = [];

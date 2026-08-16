@@ -8,6 +8,7 @@
  */
 
 import { ItemType, type ItemShared } from './ItemData.js';
+import { istEigenesModell } from '../prefabs.js';
 
 /**
  * `Hammer.glb` is a 248-byte stub with zero meshes — the real geometry sits in
@@ -15,7 +16,11 @@ import { ItemType, type ItemShared } from './ItemData.js';
  * Noted here because the hammer will be added once build pieces exist.
  */
 
-export const ITEM_DEFS: readonly ItemShared[] = [
+/**
+ * Der Rohbestand. Ausgeliefert wird `ITEM_DEFS` weiter unten — dort wird
+ * jedes `model` gegen die Whitelist `EIGENE_MODELLE` (prefabs.ts) geprüft.
+ */
+const ITEM_DEFS_ROH: readonly ItemShared[] = [
   {
     // verified: $item_hoe, m_itemType 19, maxDurability 200, drain 1, stamina 5
     name: 'Hoe',
@@ -315,6 +320,42 @@ export const ITEM_DEFS: readonly ItemShared[] = [
     attackStamina: 8,
   },
 ];
+
+/**
+ * Die ausgelieferten Gegenstände — Rohbestand mit geprüftem `model`.
+ *
+ * Gestrichen wird das MODELL, nicht der Gegenstand. Das ist der
+ * Unterschied zu Features und Spawns: Ein Item ohne Modell bleibt ein
+ * vollwertiger Eintrag — es liegt im Inventar, hat sein Symbol, sein
+ * Gewicht, sein Rezept und seine Piece-Tabelle. Unsichtbar ist nur die
+ * Hand, die es hält. Wer den Eintrag stattdessen entfernte, verlöre mit
+ * ihm die Rezepte und den Inhalt jeder gespeicherten Truhe.
+ *
+ * `model: null` ist dafür der vorgesehene Zustand, kein Notbehelf — er
+ * heisst seit jeher "Null for icon-only items" (ItemData.ts) und wird vom
+ * Client bereits so behandelt.
+ *
+ * Es fällt derzeit JEDES Modell weg: Hoe, Hammer_0, Club, AxeFlint und
+ * die Materialien stammen samt und sonders aus dem Valheim-Export. Bis
+ * eigene Werkzeugmodelle vorliegen, hält der Wikinger nichts sichtbar in
+ * der Hand — der beschlossene Zwischenzustand.
+ */
+export const ITEM_DEFS: readonly ItemShared[] = bauItemDefs();
+
+function bauItemDefs(): ItemShared[] {
+  let ohneModell = 0;
+  const liste = ITEM_DEFS_ROH.map((d) => {
+    if (d.model === null || istEigenesModell(d.model)) return d;
+    ohneModell++;
+    return { ...d, model: null };
+  });
+  if (ohneModell > 0) {
+    console.warn(
+      `[items] ${ohneModell} von ${ITEM_DEFS_ROH.length} Eintraegen ohne eigenes Modell uebersprungen (Symbol bleibt)`
+    );
+  }
+  return liste;
+}
 
 export const ITEMS_BY_NAME: ReadonlyMap<string, ItemShared> = new Map(
   ITEM_DEFS.map((d) => [d.name, d])

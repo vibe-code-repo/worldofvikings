@@ -43,6 +43,7 @@ import {
   getStableHash,
   isInstanceableDungeon,
   isValidDungeonId,
+  istEigenesModell,
   sanitizeDungeonDocument,
 } from '@wov/shared';
 // Serverseitige Weltdaten: NICHT ueber den Barrel, sondern ueber den
@@ -372,6 +373,15 @@ export class DungeonManager {
   spawnEntranceHull(entrance: DungeonEntrance): boolean {
     if (this.hullSpawned.has(entrance.zoneKey)) return false;
     if (!ENTRANCE_HULL_MODELS.has(entrance.feature)) return false;
+    // Block A: alle zehn Hüllennamen sind Valheim-Exporte, keiner steht in
+    // EIGENE_MODELLE. Ein ZDO dafür wäre ein Geist — der Client bekäme es
+    // zugestellt, fände kein Modell und zeichnete nichts, während die
+    // Weltkarte weiter eine Marke auf eine unsichtbare Krypta setzte.
+    // Verworfen: einen Platzhalter-Würfel spawnen. Das hätte die Welt mit
+    // Kisten gepflastert, die niemand betreten kann.
+    // Die Prüfung sitzt hier und nicht beim Aufrufer, weil beide Wege
+    // (Zonen-Hook und Boot-Backfill) sowie der Admin-Befehl hier durchlaufen.
+    if (!istEigenesModell(entrance.feature)) return false;
     this.hullSpawned.add(entrance.zoneKey);
     this.zdos.createZDO(getStableHash(entrance.feature), { ...entrance.pos });
     return true;
@@ -380,10 +390,17 @@ export class DungeonManager {
   /** Hüllen für alle bekannten Eingänge (Serverstart, nach dem Weltladen). */
   spawnAllEntranceHulls(): number {
     let n = 0;
+    let ohneModell = 0;
     for (const e of this.entrances.values()) {
       if (this.spawnEntranceHull(e)) n++;
+      else if (!istEigenesModell(e.feature)) ohneModell++;
     }
     if (n > 0) console.log(`[Dungeon] ${n} entrance hull(s) spawned`);
+    // Eine stille Null wäre hier die schlechtere Meldung: sie ließe offen,
+    // ob die Registrierung leer ist oder die Hüllen mit Absicht ausbleiben.
+    if (ohneModell > 0) {
+      console.log(`[Dungeon] ${ohneModell} Eingangshülle(n) übersprungen — kein eigenes Modell`);
+    }
     return n;
   }
 

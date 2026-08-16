@@ -15,6 +15,7 @@
  */
 
 import { Biome } from './types.js';
+import { istEigenesModell } from './prefabs.js';
 
 /** One creature kind's spawn + movement rules. */
 export interface SpawnEntry {
@@ -76,8 +77,14 @@ export const SPAWN_SYNC_INTERVAL_SEC = 0.25;
  * (HINT_DEFS in prefabs.ts) because the eponymous GLBs are mesh-less bone
  * rigs; Neck/Greyling/Troll/Skeleton stay unspawned until meshed variants
  * exist (known limitation #27).
+ *
+ * Was davon wirklich spawnt, entscheidet `bauSpawnTabelle()` am Dateiende
+ * gegen die Whitelist. Der Rohbestand bleibt vollständig stehen: Seine
+ * Zahlen (Ringe, Kappen, Flucht- und Wanderwerte) sind die eigentliche
+ * Arbeit an dieser Datei und sollen beim Wiederauftauchen eines Wesens
+ * nicht neu erfunden werden.
  */
-export const SPAWN_TABLE: readonly SpawnEntry[] = [
+const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
   {
     // Deer: the iconic skittish Meadows grazer — fast, nearly catchable
     // (player sprint is 7.5 m/s, deer run 6.0).
@@ -154,3 +161,31 @@ export const SPAWN_TABLE: readonly SpawnEntry[] = [
     calmDistance: 0,
   },
 ];
+
+/**
+ * Spawn-Tabelle gegen die Whitelist `EIGENE_MODELLE` (prefabs.ts).
+ *
+ * Seit Block A steht ausschliesslich eigener Bau in der Welt. Deer, Boar
+ * und Greydwarf sind Valheim-Modelle — sie fallen alle drei weg, und damit
+ * spawnt zunächst gar kein Wesen mehr. Das ist der beschlossene
+ * Zwischenzustand: ohne eigene Kreaturmodelle wird nicht gekämpft.
+ *
+ * Gefiltert wird HIER, an der Entstehung der Tabelle, und nicht erst im
+ * SpawnSystem: Sonst sähen Editor, Client und Server verschiedene
+ * Tabellen, je nachdem, wer gerade fragt. Das SpawnSystem prüft trotzdem
+ * ein zweites Mal — es nimmt auch injizierte Tabellen entgegen (Tests,
+ * synthetische Einträge für Bosse und NPCs).
+ */
+function bauSpawnTabelle(): SpawnEntry[] {
+  const liste = SPAWN_TABLE_ROH.filter((e) => istEigenesModell(e.prefab));
+  const uebersprungen = SPAWN_TABLE_ROH.length - liste.length;
+  if (uebersprungen > 0) {
+    console.warn(
+      `[spawns] ${uebersprungen} von ${SPAWN_TABLE_ROH.length} Eintraegen ohne eigenes Modell uebersprungen`
+    );
+  }
+  return liste;
+}
+
+/** Die ausgelieferte Tabelle — der Rohbestand oben, gegen die Whitelist. */
+export const SPAWN_TABLE: readonly SpawnEntry[] = bauSpawnTabelle();

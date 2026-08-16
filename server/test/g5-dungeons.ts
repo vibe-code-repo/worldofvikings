@@ -153,16 +153,24 @@ check('backfill hook fired once', hookFired === 1);
 // Camps erzeugen keine Einträge.
 check('backfill entrances listed', mgr.listEntrances().length === 3, `${mgr.listEntrances().length}`);
 
-// Sichtbare Eingangs-Hüllen: Crypt2/3/4 haben Hüllen-Modelle → 3 ZDOs,
-// Wiederholung spawnt nichts doppelt.
-console.log('\nEntrance hulls:');
+// Eingangs-Hüllen: GEGENPROBE seit der Umstellung auf eigene Modelle
+// (16.08.2026). Alle zehn Namen in ENTRANCE_HULL_MODELS — Crypt2/3/4,
+// SunkenCrypt4, MountainCave02 … — sind Valheim-Exporte und stehen nicht
+// in EIGENE_MODELLE. spawnEntranceHull() weist sie deshalb ab.
+//
+// Vorher prüfte dieser Abschnitt, dass drei Hüllen entstehen. Die
+// Erwartung ist durch die Entscheidung überholt, die PRÜFUNG aber nicht
+// wertlos: Sie ist jetzt der Wächter dagegen, dass sich über den
+// Dungeon-Pfad doch wieder fremde Geometrie in die Welt schiebt. Sobald
+// es eigene Eingangsmodelle gibt, kehrt sich der Test wieder um.
+console.log('\nEntrance hulls (Gegenprobe):');
 const hulls = mgr.spawnAllEntranceHulls();
-check('hulls spawned', hulls === 3, `${hulls}`);
-check('hull repeat is noop', mgr.spawnAllEntranceHulls() === 0);
+check('keine Hülle ohne eigenes Modell', hulls === 0, `${hulls}`);
+check('Wiederholung bleibt bei null', mgr.spawnAllEntranceHulls() === 0);
 const hullZdos = zdos.getZDOsInRadius({ x: 640, y: 30, z: -448 }, 8);
 check(
-  'hull ZDO at entrance',
-  hullZdos.some((z) => z.prefabHash === getStableHash('Crypt2'))
+  'keine Hüllen-ZDO am Eingang',
+  !hullZdos.some((z) => z.prefabHash === getStableHash('Crypt2'))
 );
 
 rmSync(DUNGEONS_DIR, { recursive: true, force: true });

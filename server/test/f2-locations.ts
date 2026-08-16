@@ -1,6 +1,24 @@
 /**
  * F2 smoke test — location (feature) placement + generation (Phase F).
  *
+ * ── RUHEND seit 16.08.2026, läuft in keiner Testliste ────────────────
+ * Das Projekt benutzt seither ausschließlich selbst gebaute Modelle. Alle
+ * 146 Locations aus features.pkg sind Valheim-Exporte und werden in
+ * shared/src/features.ts gegen EIGENE_MODELLE herausgefiltert — FEATURES
+ * ist leer. Jede der sieben Prüfungen unten setzt voraus, dass überhaupt
+ * eine Location existiert; gemessen sind 4 von 9 rot, der Rest liefe
+ * lautlos über null Instanzen.
+ *
+ * Die Datei bleibt ABSICHTLICH unverändert stehen. Sie ist die einzige
+ * vollständige Beschreibung dessen, was das Location-System leisten muss:
+ * Buchungs-Determinismus, StartTemple in Zone (0,0), 23 Piece-ZDOs plus
+ * LocationProxy, Kreuzvergleich nach der Generierung, ClearArea-Unterdrückung
+ * der Vegetation. Sobald es eigene Location-Modelle gibt, ist das hier die
+ * Abnahmeliste — sie neu zu schreiben wäre teurer, als sie liegen zu lassen.
+ *
+ * Die Gegenprobe für den Zwischenzustand steht in f3-leveling.ts Punkt 3
+ * (nichts gebucht, Gelände bitgleich Naturgelände) und g2-persistence.ts.
+ *
  * Checks:
  *  1. prepareFeatures books a plausible number of feature instances
  *     (C++ PostGeoInit, 146 features from features.pkg).

@@ -458,10 +458,18 @@ export const HINT_DEFS: PrefabDef[] = [
   // Box: Man soll um eine Statue herumgehen, nicht hindurch.
   { ...def('WikingerStatue', F.PERSISTENT, 'portal_stone', 1.3, 2.6, 'WikingerStatue'),
     localScale: { x: 2.6, y: 2.6, z: 2.6 } },
-  // Der alte Tripo-Steinkreis (11.362 Dreiecke) wurde 2026-08-06 auf
-  // Mikes Wunsch ausgebaut — seine Rolle uebernehmen die GrabMenhir-
-  // Steine, deren Oberflaeche jetzt die Referenz fuer alles Steinerne
-  // ist. Die GLB liegt weiterhin unter assets/models/Steinkreis.glb.
+  // Steinkreis (Tripo v3.1, 11.362 Dreiecke). Kein TREE_BASE — das Ding ist
+  // ein Bauwerk, kein Gewächs: nicht fällbar, kein Wind. Die Kollision läuft
+  // über BEGEHBAR in EntityManager.ts, sonst stünde eine Box im Durchgang.
+  //
+  // Am 06.08.2026 ausgebaut, am 16.08.2026 auf Mikes Wunsch wieder
+  // aufgenommen. Die Registrierung lief immer nur über diesen Hint — es
+  // gibt kein pkg-Gegenstück, das Modell ist Eigenbau. Damit funktionieren
+  // auch die drei Platzierungen wieder, die im Weltdokument stehen
+  // geblieben waren und die der Server seither als 'unbekanntes Prefab'
+  // übersprungen hat.
+  { ...def('Steinkreis', F.PERSISTENT, 'portal_stone', 3.9, 3.5, 'Steinkreis'),
+    localScale: { x: 4.36, y: 4.36, z: 4.36 } },
 
   // ── Rocks / minable ──────────────────────────────────────────────
   def('Rock_4', F.MINE_ROCK_5 | F.PERSISTENT, 'stonerock', 3.0, 2.5),
@@ -790,6 +798,8 @@ export const PREFAB_DEFS: PrefabDef[] = buildRegistry();
  * hat dieselbe Antwort wie „darf es in der Welt stehen?".
  */
 export const EIGENE_MODELLE: readonly string[] = [
+  // Wieder aufgenommen 16.08.2026 — siehe HINT_DEFS.
+  'Steinkreis',
   'BirkeHoch1',
   'BirkeHoch2',
   'BirkeHoch3',

@@ -63,7 +63,11 @@ const FELS_MAX_DREIECKE = 4000;
  * über alle Instanzen geteilt (StaticColliderSet), pro Instanz entstehen nur
  * Transform und Body.
  */
-const BEGEHBAR = /^(Grabhuegel)/i;
+// Steinkreis wieder mit drin (16.08.2026): Ohne den Eintrag bekaeme er
+// die uebliche Box statt exakter Mesh-Kollision, und man stuende vor dem
+// Durchgang statt hindurchzugehen — genau der Fall, den der Kommentar
+// weiter oben als Begruendung fuer BEGEHBAR anfuehrt.
+const BEGEHBAR = /^(Grabhuegel|Steinkreis)/i;
 
 
 /** Flags whose ZDOs move on their own (server-side AI / physics). */

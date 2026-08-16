@@ -451,9 +451,21 @@ export class TerrainManager {
     sunColor: Color3,
     ambient: Color3,
     fogDensity: number,
-    fogColor: Color3
+    fogColor: Color3,
+    /** Zweite Nebelfarbe (Blick zur Sonne), LINEAR. */
+    fogColorSonne: Color3,
+    /** Richtung ZUR Sonne in Weltkoordinaten. */
+    zurSonneWelt: Vector3
   ): void {
-    this.splat.syncLighting(sunDir, sunColor, ambient, fogDensity, fogColor);
+    this.splat.syncLighting(
+      sunDir,
+      sunColor,
+      ambient,
+      fogDensity,
+      fogColor,
+      fogColorSonne,
+      zurSonneWelt
+    );
   }
 
   /**

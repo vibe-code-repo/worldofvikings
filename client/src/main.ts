@@ -55,6 +55,7 @@ import { TerrainManager } from './engine/Terrain';
 import { Lighting } from './engine/Lighting';
 import { installiereStandardGammaFix } from './engine/StandardGammaFix';
 import { installierePbrNebelFix } from './engine/PbrNebelFix';
+import { installiereNebelRichtung } from './engine/NebelRichtung';
 import {
   installiereFackelLicht,
   fackelNotbremse,
@@ -250,6 +251,8 @@ async function main() {
   // (weiter unten) laufen — siehe StandardGammaFix.ts.
   installiereStandardGammaFix(scene);
   installierePbrNebelFix(scene);
+  // Gerichteter Nebel pro Pixel — dieselbe Bedingung, derselbe Grund.
+  installiereNebelRichtung(scene);
   // Fackel-Uniform-Array: hier und nicht erst bei `new LightPool(...)`, weil
   // das Plugin an JEDEM Material hängen muss, bevor der erste Effekt
   // übersetzt und `blockMaterialDirtyMechanism` gesetzt wird.
@@ -2356,7 +2359,12 @@ async function main() {
       scene.fogDensity,
       // LINEAR — `scene.fogColor` ist Babylons Gamma-Wert und würde vom
       // ImageProcessing-Pass ein zweites Mal aufgehellt (Lighting.ts).
-      lighting.fogColorLinear
+      lighting.fogColorLinear,
+      // Zweite Nebelfarbe und Sonnenrichtung für den gerichteten Nebel.
+      // Weltkoordinaten, weil die Nebelkette des Terrains dort rechnet —
+      // Standard und PBR bekommen dieselbe Richtung im Sichtraum.
+      lighting.fogColorSonnenLinear,
+      lighting.zurSonneWelt
     );
     WindPlugin.time += dt;
     // G-VEG: grass clutter follows the player, wind time advances.

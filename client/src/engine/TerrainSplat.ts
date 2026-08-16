@@ -37,6 +37,11 @@ import { InputBlock } from '@babylonjs/core/Materials/Node/Blocks/Input/inputBlo
 import { TextureBlock } from '@babylonjs/core/Materials/Node/Blocks/Dual/textureBlock';
 import { ImageSourceBlock } from '@babylonjs/core/Materials/Node/Blocks/Dual/imageSourceBlock';
 import { SonnenSchattenBlock } from './SonnenSchattenBlock';
+// Derselbe Exponent wie in den Shader-Pfaden für Standard und PBR — der
+// gerichtete Nebel muss über alle drei Materialfamilien identisch
+// abgestimmt sein, sonst zeigt der Boden einen anderen Sonnenton als der
+// Baum darauf.
+import { FOG_SUN_EXPONENT } from './NebelRichtung';
 import { AddBlock } from '@babylonjs/core/Materials/Node/Blocks/addBlock';
 import { SubtractBlock } from '@babylonjs/core/Materials/Node/Blocks/subtractBlock';
 import { MultiplyBlock } from '@babylonjs/core/Materials/Node/Blocks/multiplyBlock';
@@ -165,6 +170,14 @@ function cnst3(name: string, value: Color3): InputBlock {
   b.value = value;
   return b;
 }
+/** Wie `cnst3`, nur als Richtung statt als Farbe — der InputBlock leitet
+ *  seinen Typ aus dem zugewiesenen Wert ab, ein Vector3 wird also zu
+ *  `vec3` ohne Farbraum-Bedeutung. */
+function cnst3v(name: string, value: Vector3): InputBlock {
+  const b = new InputBlock(name);
+  b.value = value;
+  return b;
+}
 
 // ── Glanz, wie ihn `Heightmap_basematerial` beschreibt ──────────────
 // Ausgelesen aus extracted_assets/Material (m_Floats des Materials mit
@@ -284,6 +297,10 @@ export class TerrainSplatMaterial {
   private readonly fogDensityBlock: InputBlock;
   /** Nebelfarbe in LINEAR — siehe Begründung an der Erzeugungsstelle. */
   private readonly fogColorBlock: InputBlock;
+  /** Zweite Nebelfarbe (Blick zur Sonne), ebenfalls LINEAR. */
+  private readonly fogColorSonnenBlock: InputBlock;
+  /** Richtung ZUR Sonne in Weltkoordinaten, normalisiert. */
+  private readonly zurSonneBlock: InputBlock;
 
   constructor(scene: Scene, waterLevel: number, sonne: DirectionalLight) {
     const mat = new NodeMaterial('terrainSplat', scene, { emitComments: false });
@@ -313,6 +330,16 @@ export class TerrainSplatMaterial {
     // umgerechneten Wert, syncLighting() schiebt ihn pro Frame nach.
     const fogColor = cnst3('fogColorLinear', new Color3(0.5, 0.55, 0.6));
     this.fogColorBlock = fogColor;
+    // Zweite Nebelfarbe (Blick ZUR Sonne) und die Sonnenrichtung — der
+    // gerichtete Nebel, den Standard und PBR über `NebelRichtung.ts`
+    // bekommen. Hier in WELTKOORDINATEN, weil die Nebelkette unten
+    // ohnehin `worldPos − cameraPos` bildet; die beiden anderen Pfade
+    // rechnen im Sichtraum. Beide Vektoren stammen aus derselben Zeile in
+    // `Lighting.apply()`, sind also garantiert dieselbe Richtung.
+    const fogColorSonne = cnst3('fogColorSonnenLinear', new Color3(0.75, 0.7, 0.6));
+    this.fogColorSonnenBlock = fogColorSonne;
+    const zurSonne = cnst3v('zurSonneWelt', new Vector3(0, 1, 0));
+    this.zurSonneBlock = zurSonne;
 
     // ── Vertex: world pos, world normal, clip pos ───────────────────
     const worldPos = new TransformBlock('worldPos');
@@ -1202,7 +1229,45 @@ export class TerrainSplatMaterial {
     const eBase = cnst('eBase', Math.E);
     const expVal = new PowBlock('expVal'); eBase.output.connectTo(expVal.value); negExpo.output.connectTo(expVal.power);
     const fogFactor = new SubtractBlock('fogFactor'); cnst('c1fog', 1).output.connectTo(fogFactor.left); expVal.output.connectTo(fogFactor.right);
-    const fogLerp = new LerpBlock('fogLerp'); finalCol.output.connectTo(fogLerp.left); fogColor.output.connectTo(fogLerp.right); fogFactor.output.connectTo(fogLerp.gradient);
+
+    // ── Gerichteter Nebel: zwei Farben, gemischt über den Sehstrahl ──
+    // Dieselbe Rechnung wie in `NebelRichtung.ts`, nur in Weltkoordinaten
+    // statt im Sichtraum — `camD` (worldPos − cameraPos) liegt oben schon
+    // fertig da, wird für die Distanz aber nur quadriert gebraucht.
+    //
+    // Als CustomBlock statt als fünf verkettete Blöcke (Normalize, Dot,
+    // Max, Pow, Lerp): Der Blockgraph würde die Formel über den halben
+    // Bildschirm verteilen, und der Exponent muss mit dem der beiden
+    // anderen Pfade zusammenpassen — hier steht er lesbar an einer Stelle.
+    const nebelRichtung = new CustomBlock('nebelRichtung');
+    nebelRichtung.options = {
+      name: 'nebelRichtung',
+      target: 'Fragment',
+      functionName: 'vbNebelRichtung',
+      inParameters: [
+        { name: 'camD', type: 'Vector3' },
+        { name: 'zurSonne', type: 'Vector3' },
+        { name: 'fogAb', type: 'Vector3' },
+        { name: 'fogZu', type: 'Vector3' },
+      ],
+      outParameters: [{ name: 'result', type: 'Vector3' }],
+      code: [
+        'void vbNebelRichtung(vec3 camD, vec3 zurSonne, vec3 fogAb, vec3 fogZu, out vec3 result) {',
+        // max() gegen normalize(0) am Augenpunkt — dort ist die Farbe zwar
+        // belanglos, NaN aber trotzdem falsch (s. NebelRichtung.ts).
+        '  vec3 blick = camD / max(length(camD), 1e-4);',
+        `  float t = pow(max(dot(blick, zurSonne), 0.0), ${FOG_SUN_EXPONENT});`,
+        '  result = mix(fogAb, fogZu, t);',
+        '}',
+      ],
+    };
+    camD.output.connectTo((nebelRichtung as unknown as Record<string, never>).camD);
+    zurSonne.output.connectTo((nebelRichtung as unknown as Record<string, never>).zurSonne);
+    fogColor.output.connectTo((nebelRichtung as unknown as Record<string, never>).fogAb);
+    fogColorSonne.output.connectTo((nebelRichtung as unknown as Record<string, never>).fogZu);
+    const nebelFarbe = (nebelRichtung as unknown as { result: NodeMaterialConnectionPoint }).result;
+
+    const fogLerp = new LerpBlock('fogLerp'); finalCol.output.connectTo(fogLerp.left); nebelFarbe.connectTo(fogLerp.right); fogFactor.output.connectTo(fogLerp.gradient);
 
     const fragOut = new FragmentOutputBlock('fragOut');
     fogLerp.output.connectTo(fragOut.rgb);
@@ -1258,12 +1323,18 @@ export class TerrainSplatMaterial {
     ambient: Color3,
     fogDensity: number,
     /** LINEAR (Lighting.fogColorLinear), nicht `scene.fogColor`. */
-    fogColor: Color3
+    fogColor: Color3,
+    /** LINEAR (Lighting.fogColorSonnenLinear) — Blick ZUR Sonne. */
+    fogColorSonne: Color3,
+    /** Richtung ZUR Sonne in WELTKOORDINATEN (Lighting.zurSonneWelt). */
+    zurSonneWelt: Vector3
   ): void {
     this.sunDirBlock.value = sunDir;
     this.sunColBlock.value = sunColor;
     this.ambientBlock.value = ambient;
     this.fogDensityBlock.value = fogDensity;
     this.fogColorBlock.value = fogColor;
+    this.fogColorSonnenBlock.value = fogColorSonne;
+    this.zurSonneBlock.value = zurSonneWelt;
   }
 }

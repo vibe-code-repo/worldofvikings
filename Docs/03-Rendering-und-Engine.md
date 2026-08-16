@@ -85,22 +85,33 @@ Nebeldichte gekoppelt. Wetter folgt dem Biom unter dem Spieler
 
 **Nebel-Status.** `FOGMODE_EXP2` (identisch zu Unitys Exponential-Squared).
 Babylons Nebelfarbe ist ein *szenenweites* Uniform (`vFogColor`,
-`ShadersInclude/fogFragmentDeclaration.js`), also wird der Sonnen-/Blick-Term
-**einmal pro Frame auf der CPU** aus dem Kamera-Forward berechnet und in
-`scene.fogColor` geschrieben. Vorteil: gilt einheitlich für *alle* Materialien
-(StandardMaterial-Clutter, PBR-Bäume und das Terrain-NodeMaterial lesen
-dieselbe Quelle bzw. `NodeMaterialSystemValues.FogColor`), kein
-Shader-Eingriff, identisch auf WebGL2 und WebGPU. Nachteil: der Ton ist pro
-Frame konstant statt ein Verlauf pro Pixel — Richtung Sonnenuntergang drehen
-wärmt das *ganze* Bild, statt nur um die Sonne zu glühen.
-**Nächster Schritt (offen):** derselbe Blend pro Pixel. Rezept steht:
-`vPositionW` + `vEyePosition` liefern die Blickrichtung im Fragment-Shader
-ohne neue Varyings, `mix(fogColor, fogColorSun, pow(max(dot(viewDirW,
--lightDir),0), exp))` bei `CUSTOM_FRAGMENT_BEFORE_FOG` mit
-`material.fogEnabled = false`. Bewusst *nicht* mitgeliefert, weil es in drei
-Shader-Pfaden (Standard/PBR/Node) konsistent umgesetzt werden muss —
-inkonsistenter Nebel zwischen Materialien sieht schlechter aus als
-einheitlicher Pro-Frame-Nebel.
+`ShadersInclude/fogFragmentDeclaration.js`) — der Sonnen-/Blick-Term muss
+also in jeder Materialfamilie einzeln in den Shader.
+
+**Seit 2026-08-16 läuft der Blend pro Pixel** (`engine/NebelRichtung.ts`,
+Grafik-Konzept Stufe 4a). Vorher wurde er **einmal pro Frame auf der CPU**
+aus dem Kamera-Forward gerechnet und in `scene.fogColor` geschrieben: billig
+und über alle Materialien einheitlich, aber mit einem Ton, der über das ganze
+Bild konstant war — Richtung Sonnenuntergang zu drehen wärmte das *ganze*
+Bild, statt nur um die Sonne zu glühen, und am Horizont lief es gegen die
+Himmelskuppel, die ihren Schein längst pro Pixel malt.
+
+Heute liefert `Lighting` beide Nebelfarben plus die Sonnenrichtung aus, und
+gemischt wird in drei Pfaden: **Standard und PBR** über eine
+Regex-Ersetzung der Mischzeile in `fogFragment` (Blickrichtung aus
+`vFogDistance`, Sonne im Sichtraum), **Terrain** über einen `CustomBlock` in
+seiner eigenen Nebelkette (Weltkoordinaten). `scene.fogColor` trägt seitdem
+die **ungemischte** Farbe — den Ton beim Blick von der Sonne weg.
+
+Zwei Fallstricke sind dabei aufgeschlagen und stehen ausführlich im
+Grafik-Konzept: Die Zielvariable heißt im PBR-Shader `finalColor` statt
+`color` (Include-mit-Parametern), und `scene.getViewMatrix()` ist im
+`onBeforeRender` des ersten Frames noch nicht berechnet — dafür
+`kamera.getViewMatrix()` nehmen.
+
+**Offen bleibt der Höhennebel** (Stufe 4b): derselbe Injektionspunkt, aber
+über `vPositionW.y` analytisch integriert, damit der Dunst in Senken und über
+Wasser steht statt auf Bergkuppen.
 
 **Farbwerte.** Struktur und Timing sind verifiziert; die konkreten
 Farb-Zahlen in `ENVIRONMENTS` waren handabgestimmte Annäherungen. Ground truth

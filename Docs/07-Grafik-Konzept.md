@@ -457,29 +457,83 @@ frei von fremdem Material. Die UV-Belegung von `clutter_default.glb` muss dabei 
 werden; daran scheiterte der Versuch vom 2026-07-29 (siehe `MEADOWS_TINT` in
 `GrassClutter.ts`).
 
-### Stufe 4 — Nebel pro Pixel + Höhennebel (~6–8 h)
+### Stufe 4a — Nebel pro Pixel ✅ (umgesetzt 2026-08-16) · 4b Höhennebel offen
 
-Beide zusammen, weil sie denselben Injektionspunkt und dieselben Uniforms brauchen. Ein
-gemeinsames `MaterialPluginBase` für Standard **und** PBR, über Regex-Ersetzung des
-aufgelösten Nebelrumpfs (deckt beide Varianten mit einer Rückreferenz ab):
+Umgesetzt als `engine/NebelRichtung.ts`, ein gemeinsames `MaterialPluginBase` für Standard
+**und** PBR. `Lighting` liefert seitdem BEIDE Nebelfarben plus die Sonnenrichtung aus, und
+`scene.fogColor` trägt die **ungemischte** Farbe (Blick von der Sonne weg);
+`Lighting.directionalFogColorToRef()` ist ersatzlos entfallen, samt dem `Ray`, den es je
+Frame anlegte. Der Exponent (2,5) ist unverändert übernommen — der Umbau verschiebt den Ort
+der Rechnung, nicht die Abstimmung.
+
+**Drei Abweichungen vom Rezept oben, jede aus einem konkreten Fehlschlag:**
+
+**1. Die Rückreferenz `\1` trägt nicht.** Der Manager ersetzt `$1` im Ersatzcode nur beim
+ERSTEN Vorkommen (`materialPluginManager.js`: `newCode.replace("$" + i, match[i])`, ohne
+`g`); gebraucht wird der Name aber zweimal. Stattdessen zwei ausdrückliche Regeln für `color`
+(default.fragment) und `finalColor` (pbr.fragment). Das ist nicht bloß Formsache: Der erste
+Anlauf mit einem Regex auf `color.rgb=…` traf **nur StandardMaterial**. Der Uniform stand im
+PBR-Shader, die Mischung fehlte — Bäume, Felsen und Gebäude behielten den flachen Nebel,
+während Boden und Gras den gerichteten bekamen. Aufgefallen ist das erst beim Auslesen des
+übersetzten Shaders, weil beide Töne derselben Farbfamilie angehören.
+
+Grund für die Namen: `fogFragment` wird über Include-mit-Parametern eingebunden
+(`#include<fogFragment>(color,finalColor)`), und Babylon tauscht den Bezeichner beim
+Auflösen. Es gibt vier Varianten im Baum — dazu noch `baseColor` (background) und
+`gl_FragColor` (particles/sprites), die dieses Plugin nicht berührt.
+
+**2. Blickrichtung aus `vFogDistance` statt aus `vPositionW` + `vEyePosition`.** `fogVertex`
+legt ohnehin `vFogDistance = (view * worldPos).xyz` an — den Vektor vom Auge zum Fragment im
+Sichtraum. Er existiert überall dort, wo `FOG` definiert ist, also überall dort, wo die
+Ersetzung greift, und spart ein Varying. `vPositionW` wird dagegen nur unter Bedingungen
+deklariert und fehlt ausgerechnet bei den einfachsten Materialien. Preis: Die Sonnenrichtung
+muss im Sichtraum ankommen — `Lighting` dreht sie einmal je Frame über
+`kamera.getViewMatrix()`. **Nicht** über `scene.getViewMatrix()`: Die Szene reicht nur den
+zuletzt berechneten Wert durch, und der entsteht erst mitten in `scene.render()` — in einem
+`onBeforeRender`-Beobachter ist er im ersten Frame noch gar nicht da, was den Client beim
+Start zerlegt hat.
+
+**3. Terrain über einen `CustomBlock`, nicht über `LerpBlock`.** Die Kette dort rechnet in
+Weltkoordinaten (`worldPos − cameraPos` liegt für die Distanz schon bereit), also bekommt sie
+den Weltvektor statt des Sichtraumvektors. Als Blockgraph wären es fünf Blöcke
+(Normalize/Dot/Max/Pow/Lerp) quer über die Datei; als `CustomBlock` steht die Formel an einer
+Stelle — und sie muss mit den beiden anderen Pfaden zusammenpassen, sonst zeigt der Boden
+einen anderen Sonnenton als der Baum darauf. Deshalb importiert `TerrainSplat.ts` den
+Exponenten aus `NebelRichtung.ts`, statt ihn zu wiederholen.
+
+**Nachgewiesen** über den übersetzten Shader und eine Messung (beides in einem Lauf,
+`mess/`-Muster, RX 7900 XT):
+
+| Pfad | Uniform im Shader | Mischung im Shader |
+|---|---|---|
+| StandardMaterial | ja | ja |
+| PBR | ja | ja |
+| Terrain-NodeMaterial | ja | ja |
+
+Für den Verlauf selbst wurde **ausschließlich die Nebel-Sonnenrichtung um 180° gekippt** —
+Kamera, Geometrie, Uhrzeit und `sun.direction` blieben unangetastet, die Beleuchtung ist also
+Pixel für Pixel dieselbe. Wärmeprofil (R−B) über acht Spalten der Bildbreite:
 
 ```
-'!(\\w+)\\.rgb=mix\\(vFogColor,\\s*\\1\\.rgb,\\s*fog\\);'
-   → '$1.rgb=mix(vhFogColor(), $1.rgb, vhFogFactor());'
+normal     15.29    4.18   11.55    7.98   12.12    9.11    9.12    2.93
+gekippt    15.28    4.31   12.45   12.25   13.57   11.04   14.23   14.78
 ```
 
-Höhennebel im selben Block, analytisch integriert (`vPositionW.y`, `vEyePosition` stehen in
-beiden Shadern bereits zur Verfügung) — so steht der Dunst in Senken und über Wasser, nicht
-auf Bergkuppen.
+Das Gefälle links−rechts dreht sich von **+1,43 auf −2,33**, die Spannweite über die Breite
+beträgt 12,4 — bei einem Blend pro Frame wäre sie null und beide Bildhälften änderten sich
+gleichsinnig. Dass die beiden linken Spalten praktisch unverändert bleiben (15,29 → 15,28),
+ist die Gegenprobe im selben Bild: Dort steht Nahbereich, in dem kaum Nebel liegt.
 
-Die drei übrigen Pfade: **Terrain** braucht kein Plugin (NodeMaterial feuert die
-Plugin-Events ohnehin nicht) — dort zweiten InputBlock `fogColorSun` + `LerpBlock` in die
-bestehende handgebaute Nebelkette `TerrainSplat.ts:1010-1029`, Höhennebel als weiterer
-`CustomBlock` nach dem Muster von `terrainGlanz` (ab Zeile 963). **Wasser** injiziert schon
-bei `CUSTOM_FRAGMENT_BEFORE_FOG` (`WaterPlugin.ts:713`) — nur die `priority` sauber vergeben.
-**Himmelskuppel** bleibt nebelfrei (sie *ist* der Horizont), nur die Exponenten abgleichen.
+**Offen bleibt 4b, der Höhennebel** — analytisch integriert über `vPositionW.y`, damit der
+Dunst in Senken und über Wasser steht statt auf Bergkuppen. Er braucht dieselbe Zeile und
+denselben Injektionspunkt, ist aber eine eigene Entscheidung über die Bildsprache und nicht
+bloß der Umzug einer vorhandenen Rechnung.
 
-Danach kann `Lighting.directionalFogColor()` (Zeile 294-305) ersatzlos entfallen.
+Zwei Pfade blieben bewusst unberührt: **Wasser** injiziert bereits bei
+`CUSTOM_FRAGMENT_BEFORE_FOG` (`WaterPlugin.ts`) und läuft als StandardMaterial ohnehin über
+das neue Plugin mit; die **Himmelskuppel** bleibt nebelfrei, weil sie *der* Horizont ist —
+und sie malte ihren Sonnenschein als einzige schon immer pro Pixel. Genau deshalb war der
+flache Nebel davor sichtbar falsch.
 
 ### Stufe 5 — IBL aus der vorhandenen Sky-Probe (~4 h)
 

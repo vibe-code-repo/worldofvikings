@@ -16,31 +16,43 @@
  *
  * Babylon's built-in fog colour is a single scene-wide uniform
  * (`vFogColor`, see Shaders/ShadersInclude/fogFragmentDeclaration.js), so
- * a true per-pixel gradient would need a custom shader path. We instead
- * evaluate the sun/view term ONCE PER FRAME on the CPU from the camera's
- * forward vector and write the blended result into `scene.fogColor`.
+ * a true per-pixel gradient needs a custom shader path in every material
+ * family the scene uses.
  *
- * Trade-off, stated plainly:
- *  + Works uniformly for every material in the scene — StandardMaterial
- *    (clutter), PBRMaterial (trees/rocks) and the terrain NodeMaterial all
- *    read the same `scene.fogColor` / `NodeMaterialSystemValues.FogColor`,
- *    so the fog can never disagree between them.
- *  + No shader injection, so it behaves identically on WebGL2 and WebGPU.
- *  − The tint is constant across the frame instead of a per-pixel gradient,
- *    so turning towards the sunset warms the whole view at once rather
- *    than glowing only around the sun. Per-pixel is the documented next
- *    step (Docs/03 §2.1); it needs the same blend applied in three shader
- *    paths (Standard/PBR/Node), which is why it is deliberately not
- *    bundled with this change.
+ * ── Seit 2026-08-16 läuft der Blend pro Pixel ─────────────────────────
+ * Vorher rechnete diese Datei den Sonnen-/Blick-Term EINMAL PRO FRAME aus
+ * dem Kamera-Forward und schrieb das Ergebnis in `scene.fogColor`. Das
+ * galt einheitlich für alle Materialien und kostete nichts, hatte aber
+ * einen Ton, der über das ganze Bild konstant war: Richtung
+ * Sonnenuntergang zu drehen wärmte das gesamte Bild, statt nur um die
+ * Sonne herum zu glühen — und am Horizont lief es sichtbar gegen die
+ * Himmelskuppel, die ihren Schein längst pro Pixel malt.
+ *
+ * Diese Datei liefert deshalb jetzt BEIDE Farben plus die Sonnenrichtung
+ * an drei Stellen aus, und der Blend passiert im Shader:
+ *
+ *   Standard + PBR   `engine/NebelRichtung.ts` ersetzt die Mischzeile in
+ *                    `fogFragment`; Richtung im SICHTRAUM (`vFogDistance`)
+ *   Terrain          eigene Nebelkette im NodeMaterial
+ *                    (`TerrainSplat.setzeUmgebung`); Richtung in
+ *                    WELTKOORDINATEN, weil die Kette dort ohnehin mit
+ *                    `worldPos − cameraPos` rechnet
+ *
+ * `scene.fogColor` trägt seitdem die UNGEMISCHTE Farbe (Blick von der
+ * Sonne weg). Wer sie ohne den Sonnenterm liest, bekommt also den
+ * kühleren der beiden Töne — das ist für `clearColor` richtig so und für
+ * alles andere die Farbe, von der aus gemischt wird.
+ *
+ * Der Exponent ist unverändert aus der CPU-Fassung übernommen
+ * (`FOG_SUN_EXPONENT`, jetzt in `NebelRichtung.ts`): Der Umbau verschiebt
+ * den Ort der Rechnung, nicht die Abstimmung.
  */
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { PBRBaseMaterial } from '@babylonjs/core/Materials/PBR/pbrBaseMaterial';
 import type { Material } from '@babylonjs/core/Materials/material';
 import { Color3, Color4, Vector3 } from '@babylonjs/core/Maths/math';
-// Wert-Import, nicht nur Typ: Er zieht die Kamera-Erweiterung
-// `getForwardRayToRef` mit herein (Culling/ray.core, AddRayExtensions).
-import { Ray } from '@babylonjs/core/Culling/ray';
 import { Scene } from '@babylonjs/core/scene';
 import { ValheimSky } from './ValheimSky';
 import {
@@ -55,12 +67,8 @@ import {
   type EnvState,
 } from '@wov/shared';
 
-/**
- * How tightly the sun colour dominates the fog. Higher = tighter glow
- * around the sun direction, lower = the whole sky warms up. Valheim's
- * haze is fairly broad.
- */
-const FOG_SUN_EXPONENT = 2.5;
+// Der Exponent des Sonnen-/Blick-Terms steht jetzt bei dem Code, der ihn
+// auswertet — dem Shader-Plugin. Siehe NebelRichtung.FOG_SUN_EXPONENT.
 
 /**
  * Seconds to cross-fade when the environment changes (biome border).
@@ -174,6 +182,30 @@ export class Lighting {
   readonly fogColorLinear = new Color3();
 
   /**
+   * Die zweite Nebelfarbe (Blick ZUR Sonne) in LINEAR — das Gegenstück zu
+   * `fogColorLinear`, aus dem der Shader pro Pixel mischt. Ebenfalls in
+   * place aktualisiert, weil der Material-Hook unten eine Referenz hält.
+   */
+  readonly fogColorSonnenLinear = new Color3();
+
+  /**
+   * Richtung ZUR Sonne in WELTKOORDINATEN, normalisiert. Für das
+   * Terrain-NodeMaterial, dessen Nebelkette mit `worldPos − cameraPos`
+   * rechnet.
+   */
+  readonly zurSonneWelt = new Vector3(0, 1, 0);
+
+  /**
+   * Dieselbe Richtung im SICHTRAUM — für Standard und PBR, die den
+   * Sehstrahl aus `vFogDistance` beziehen (siehe `NebelRichtung.ts`).
+   *
+   * Einmal pro Frame umgerechnet statt einmal je Material: Die
+   * View-Matrix gilt für die ganze Szene, und `apply()` läuft ohnehin
+   * genau einmal.
+   */
+  readonly zurSonneSicht = new Vector3(0, 1, 0);
+
+  /**
    * Gehaltene Puffer für `apply()` — dieselbe Begründung wie bei
    * `fogColorLinear`, nur konsequent für ALLE Farben dieses Pfads.
    *
@@ -182,6 +214,7 @@ export class Lighting {
    * beiden Nebelfarben, das Ergebnis von `Color3.Lerp`, das `new Color4`
    * für `clearColor` — und in `directionalFogColor` zusätzlich ein
    * kompletter `Ray` samt zwei Vector3 aus `camera.getForwardRay()`.
+   * Letzterer ist mit dem Umzug des Blends in den Shader ganz entfallen.
    *
    * Die Ziele (`sun.diffuse`, `ambient.diffuse`, `scene.fogColor`,
    * `scene.clearColor`) bekommen diese Objekte EINMAL im Konstruktor
@@ -194,11 +227,10 @@ export class Lighting {
   private readonly ambBoden = new Color3();
   /** Identisch mit `scene.fogColor` (GAMMA, s. Farbraum-Block). */
   private readonly nebelFarbe = new Color3();
+  /** GAMMA-Zwischenschritt für `fogColorSonnenLinear`. */
   private readonly nebelSonnenFarbe = new Color3();
   /** Identisch mit `scene.clearColor` (LINEAR, geht direkt in den Puffer). */
   private readonly hintergrund = new Color4(0, 0, 0, 1);
-  private readonly zurSonne = new Vector3();
-  private readonly blickStrahl = new Ray(Vector3.Zero(), Vector3.Zero(), 100);
 
   constructor(private readonly scene: Scene) {
     this.env = findEnvironment(ENV_CLEAR)!;
@@ -245,9 +277,22 @@ export class Lighting {
    */
   private bindeLinearenNebel(): void {
     const haenge = (m: Material): void => {
-      if (!(m instanceof StandardMaterial)) return;
+      const standard = m instanceof StandardMaterial;
+      const pbr = m instanceof PBRBaseMaterial;
+      if (!standard && !pbr) return;
       m.onBindObservable.add(() => {
-        m.getEffect()?.setColor3('vFogColor', this.fogColorLinear);
+        const effekt = m.getEffect();
+        if (!effekt) return;
+        // Nur StandardMaterial braucht die Korrektur — PBR bindet Babylon
+        // bereits linear (`BindFogParameters(..., linearSpace = true)`).
+        if (standard) effekt.setColor3('vFogColor', this.fogColorLinear);
+        // Die zwei Uniforms des gerichteten Nebels. Sie existieren nur in
+        // Shadern, die `NebelRichtung` dekoriert hat; bei allen anderen ist
+        // `setColor3`/`setVector3` ein No-Op, weil Babylon die
+        // Uniform-Location prüft. Deshalb steht hier keine Fallunterscheidung
+        // nach Materialart, sondern nur eine nach Farbraum.
+        effekt.setColor3('vFogColorSonne', this.fogColorSonnenLinear);
+        effekt.setVector3('vZurSonneSicht', this.zurSonneSicht);
       });
     };
     for (const m of this.scene.materials) haenge(m);
@@ -321,46 +366,64 @@ export class Lighting {
     // the fog instead of being a separate backdrop.
     this.sky.update(state, dtSeconds);
 
-    // ── Fog (see the file header for the per-frame trade-off) ──────
+    // ── Nebel (Blend pro Pixel — siehe Kopfkommentar) ──────────────
     // `scene.fogColor` bleibt GAMMA — das ist Babylons Konvention, und
     // PBR linearisiert selbst. Alle anderen Pfade lesen fogColorLinear.
     this.scene.fogDensity = state.fogDensity;
     // Schreibt in `nebelFarbe`, und das IST `scene.fogColor` (Konstruktor).
-    this.directionalFogColorToRef(state, this.nebelFarbe);
+    // UNGEMISCHT: den Sonnenterm legt der Shader je Pixel darüber.
+    inColor3(state.fogColor, this.nebelFarbe);
     this.nebelFarbe.toLinearSpaceToRef(this.fogColorLinear);
+    inColor3(state.fogColorSun, this.nebelSonnenFarbe);
+    this.nebelSonnenFarbe.toLinearSpaceToRef(this.fogColorSonnenLinear);
+
+    // `lightDir` zeigt von der Sonne in die Szene — ZUR Sonne ist also
+    // das Gegenteil. Dieselbe Quelle wie vorher in der CPU-Fassung.
+    this.zurSonneWelt
+      .set(-state.lightDir.x, -state.lightDir.y, -state.lightDir.z)
+      .normalize();
+    // In den Sichtraum drehen, weil Standard und PBR den Sehstrahl aus
+    // `vFogDistance` beziehen und der dort liegt. `TransformNormal`
+    // (nicht `TransformCoordinates`) — eine Richtung hat keinen Ort, und
+    // die Translation der View-Matrix würde sie sonst verschieben.
+    //
+    // Zwei Fallstricke stecken in diesen drei Zeilen, beide gemessen statt
+    // vermutet — sie haben den Client nacheinander beim Start zerlegt:
+    //
+    //  1. Der Konstruktor ruft `apply()` selbst auf, und da gibt es die
+    //     Kamera des PlayerControllers noch nicht. Ohne die Abfrage stirbt
+    //     `TransformNormalToRef` beim Zugriff auf die Matrix. Gerendert
+    //     wird ohne Kamera ohnehin nichts.
+    //  2. `scene.getViewMatrix()` ist NICHT dasselbe wie
+    //     `camera.getViewMatrix()`. Die Szene reicht nur den zuletzt
+    //     berechneten Wert durch, und der entsteht erst mitten in
+    //     `scene.render()` — in einem `onBeforeRender`-Beobachter ist er
+    //     im ersten Frame noch gar nicht da. Die Kamera dagegen rechnet
+    //     bei Bedarf nach und liefert immer eine gültige Matrix.
+    const kamera = this.scene.activeCamera;
+    if (kamera) {
+      Vector3.TransformNormalToRef(
+        this.zurSonneWelt,
+        kamera.getViewMatrix(),
+        this.zurSonneSicht
+      );
+      // Die View-Matrix ist orthonormal, die Länge bleibt also 1 — bis auf
+      // Rundung. Der Shader potenziert das Skalarprodukt, und ein Wert
+      // knapp über 1 bliebe dabei knapp über 1; normalisieren kostet hier
+      // einmal pro Frame und nimmt der Frage jede Bedeutung.
+      this.zurSonneSicht.normalize();
+    }
+
     // clearColor geht ohne Material direkt in den Framebuffer, ist also
     // schon der lineare Wert, den der ImageProcessing-Pass erwartet.
+    // Ohne Material gibt es auch keinen Sehstrahl — hier bleibt es
+    // zwangsläufig bei der ungemischten Farbe. Sichtbar ist das nirgends:
+    // Die Himmelskuppel deckt jeden Pixel ab, den sonst clearColor füllte.
     this.hintergrund.set(
       this.fogColorLinear.r,
       this.fogColorLinear.g,
       this.fogColorLinear.b,
       1
     );
-  }
-
-  /**
-   * Valheim's two-colour fog collapsed to this frame's view direction:
-   * `fogColorSun` when looking towards the sun, `fogColor` away from it.
-   */
-  private directionalFogColorToRef(state: EnvState, ziel: Color3): Color3 {
-    inColor3(state.fogColor, ziel);
-    const camera = this.scene.activeCamera;
-    if (!camera) return ziel; // before PlayerController exists
-
-    // `getForwardRay()` legt pro Aufruf einen frischen Ray samt zwei
-    // Vector3 an — bei 60 Hz ist das der teuerste Posten dieser Methode.
-    // Die ToRef-Variante schreibt in den gehaltenen Strahl und liefert die
-    // Richtung bereits normalisiert (Culling/ray.core: NormalizeToRef).
-    const forward = camera.getForwardRayToRef(this.blickStrahl).direction;
-    // lightDir points sun→scene, so the direction TOWARDS the sun is -lightDir
-    const toSun = this.zurSonne
-      .set(-state.lightDir.x, -state.lightDir.y, -state.lightDir.z)
-      .normalize();
-    const facing = Math.max(0, Vector3.Dot(forward, toSun));
-    const t = Math.pow(facing, FOG_SUN_EXPONENT);
-    // LerpToRef darf links und Ziel teilen — es liest jeden Kanal, bevor
-    // es ihn schreibt.
-    Color3.LerpToRef(ziel, inColor3(state.fogColorSun, this.nebelSonnenFarbe), t, ziel);
-    return ziel;
   }
 }

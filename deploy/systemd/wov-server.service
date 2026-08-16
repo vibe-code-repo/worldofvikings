@@ -1,26 +1,35 @@
 [Unit]
-Description=World of Vikings — Game-Server (WebSocket, Port 2467)
-Documentation=file:///root/worldofvikings/Docs/05-Server-Architektur.md
-PartOf=wov.target
+# Dieselbe Unit auf dev und live. Was sich unterscheidet, steht in
+# /etc/wov.env — genau das ist der Sinn von Block A: Der Quellbaum ist auf
+# beiden Containern identisch, die Umgebung steckt im Startbefehl.
+Description=World of Vikings — Spielserver (Instanz aus /etc/wov.env)
+Documentation=file:///opt/worldofvikings/Docs/05-Server-Architektur.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/root/worldofvikings
-Environment=NODE_ENV=development
+WorkingDirectory=/opt/worldofvikings/server
+EnvironmentFile=/etc/wov.env
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-# dev = tsx watch: startet bei Codeänderungen automatisch neu
-ExecStart=/usr/bin/npm run dev:server
+# $WOV_WATCH ist auf dev "watch" und auf live leer. Ein leeres $VAR (ohne
+# geschweifte Klammern) faellt bei systemd ersatzlos aus der Argumentliste —
+# so faehrt live ohne Neustart-bei-Codeaenderung und dev mit.
+#
+# Direkt node_modules/.bin/tsx statt "npx tsx": npx loeste bei JEDEM Start neu
+# auf, und tsx stand bis 16.08.2026 in devDependencies — ein sauberes
+# npm ci --omit=dev haette den Live-Server nicht mehr starten lassen.
+ExecStart=/opt/worldofvikings/node_modules/.bin/tsx $WOV_WATCH src/main.ts
 Restart=always
-RestartSec=3
+RestartSec=5
 KillMode=mixed
 KillSignal=SIGTERM
-TimeoutStopSec=15
+# Kaltstart ohne Placement-Cache dauert ~65 s (jede Layout-Aenderung verwirft ihn).
+TimeoutStartSec=300
+TimeoutStopSec=30
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=wov-server
 
 [Install]
-WantedBy=wov.target
+WantedBy=multi-user.target

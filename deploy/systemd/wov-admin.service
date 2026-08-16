@@ -1,4 +1,6 @@
 [Unit]
+# Betriebsdienst. Eigener Prozess, weil er wov-server neu starten koennen muss —
+# als Teil des Spielservers wuerde er sich selbst abschiessen.
 Description=World of Vikings — Betriebsdienst (Einstellungen, Dienste, Sicherungen)
 Documentation=file:///opt/worldofvikings/admin/src/main.ts
 After=network-online.target
@@ -6,14 +8,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/worldofvikings
-Environment=NODE_ENV=production
+WorkingDirectory=/opt/worldofvikings/admin
+EnvironmentFile=/etc/wov.env
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-# Lauscht NUR auf der internen Bruecke — siehe Kopfkommentar von main.ts.
-Environment=WOV_ADMIN_ADRESSE=10.10.10.11
-Environment=WOV_ADMIN_PORT=2468
-Environment=WOV_INSTANZ=live
-ExecStart=/usr/bin/npx tsx admin/src/main.ts
+ExecStart=/opt/worldofvikings/node_modules/.bin/tsx src/main.ts
 Restart=always
 RestartSec=5
 KillMode=mixed

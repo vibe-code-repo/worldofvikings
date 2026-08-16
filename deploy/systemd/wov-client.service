@@ -1,20 +1,20 @@
 [Unit]
-Description=World of Vikings — Client (Vite-Dev-Server, Port 5274)
-Documentation=file:///root/worldofvikings/README.md
-PartOf=wov.target
+# Vite-Dev-Server: Editor und Testflug. Laeuft nur auf dev — auf live liefert
+# nginx den gebauten Client aus. Die Unit ist trotzdem identisch, sie wird
+# dort schlicht nicht aktiviert.
+Description=World of Vikings — Editor und Testflug (Vite, Port 5274)
+Documentation=file:///opt/worldofvikings/Docs/10-Weltbau-Layout-und-Editor.md
 After=network-online.target wov-server.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/root/worldofvikings
-Environment=NODE_ENV=development
+WorkingDirectory=/opt/worldofvikings
+EnvironmentFile=/etc/wov.env
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-# Vite läuft mit host: true → im LAN erreichbar
 ExecStart=/usr/bin/npm run dev:client
 Restart=always
-RestartSec=3
+RestartSec=5
 KillMode=mixed
 KillSignal=SIGTERM
 TimeoutStopSec=15
@@ -23,4 +23,4 @@ StandardError=journal
 SyslogIdentifier=wov-client
 
 [Install]
-WantedBy=wov.target
+WantedBy=multi-user.target

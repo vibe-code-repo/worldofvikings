@@ -33,7 +33,13 @@ const GAME_SERVER_PORT = 2467;
  * die Welt überschreiben.
  */
 function worldLayoutSave(): Plugin {
-  const ZIEL = resolve(CONFIG_DIR, '../server/data/worldlayout.json');
+  // Eigene Kopie der Instanz-Aufloesung statt Import: die Vite-Konfig kann
+  // @wov/shared nicht laden (ESM-.js-Endungen im TS-Quellbaum, siehe den
+  // Kommentar weiter unten beim Struktur-Check). Die Wahrheit steht in
+  // shared/src/instanz.ts — Aenderungen dort hier mitziehen.
+  const INSTANZ = (process.env.WOV_INSTANZ ?? 'dev').trim().toLowerCase();
+  const ZIEL_NAME = `${INSTANZ}.json`;
+  const ZIEL = resolve(CONFIG_DIR, '../server/data/welten', ZIEL_NAME);
   const erlaubt = (adresse: string | undefined): boolean => {
     if (!adresse) return false;
     const a = adresse.replace(/^::ffff:/, '');
@@ -84,7 +90,7 @@ function worldLayoutSave(): Plugin {
               copyFileSync(ZIEL, `${ZIEL}.${stempel}.bak`);
               const dir = dirname(ZIEL);
               const alte = readdirSync(dir)
-                .filter((f) => f.startsWith('worldlayout.json.') && f.endsWith('.bak'))
+                .filter((f) => f.startsWith(`${ZIEL_NAME}.`) && f.endsWith('.bak'))
                 .sort();
               while (alte.length > 10) unlinkSync(resolve(dir, alte.shift()!));
             }

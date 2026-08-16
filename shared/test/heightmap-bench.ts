@@ -5,7 +5,7 @@
  * Warum eigenstaendig und nicht im Spiel gemessen: Im Bild liegen Gitterbau,
  * Havok-Cooking und Wasserstreifen uebereinander; die Aufschluesselung dort
  * kostet Messtechnik und trifft trotzdem nur Summen. Hier laeuft genau eine
- * Sache, millionenfach, mit derselben Welt (server/data/worldlayout.json,
+ * Sache, millionenfach, mit derselben Welt (server/data/welten/live.json,
  * Layout-Modus — das ist die Welt, die der Server wirklich generiert).
  *
  * Aufruf (aus shared/):
@@ -27,7 +27,7 @@ import { Biome } from '../src/types.js';
 
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const layoutRoh = JSON.parse(
-  readFileSync(resolve(WURZEL, 'server/data/worldlayout.json'), 'utf-8')
+  readFileSync(resolve(WURZEL, 'server/data/welten/live.json'), 'utf-8')
 ) as unknown;
 const layout = sanitizeWorldLayout(layoutRoh)!;
 const worldSeed = getStableHash(layout.detailSeed);

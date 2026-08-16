@@ -249,11 +249,20 @@ check('npc: Haltung folgt den Fraktionen', haltungZwischen('muspel', 'wikinger')
 // Bestandsdokument der echten Welt: Es MUSS bytegleich durch den
 // Sanitizer gehen — sonst schriebe jeder Speichervorgang des Editors 158
 // Platzierungen um. Die Datei ist die Welt des Nutzers, nicht Testdaten.
-const echtesLayout = fileURLToPath(new URL('../../server/data/worldlayout.json', import.meta.url));
-if (existsSync(echtesLayout)) {
-  const roh158 = readFileSync(echtesLayout, 'utf-8');
-  const wieder = JSON.stringify(sanitizeWorldLayout(JSON.parse(roh158)), null, 2);
-  check('npc: server/data/worldlayout.json bleibt bytegleich', wieder === roh158.trimEnd());
+// Beide Weltdokumente, nicht nur eines: dev.json und live.json sind
+// getrennte Autorenstaende, und der Editor schreibt in beide.
+// KEIN stilles Ueberspringen mehr — vorher war der Test in existsSync
+// gekapselt und waere nach dem Umzug nach welten/ fuer immer gruen
+// geblieben, ohne noch irgendetwas zu pruefen.
+for (const instanz of ['dev', 'live'] as const) {
+  const datei = fileURLToPath(
+    new URL(`../../server/data/welten/${instanz}.json`, import.meta.url)
+  );
+  check(`npc: welten/${instanz}.json existiert`, existsSync(datei));
+  if (!existsSync(datei)) continue;
+  const roh = readFileSync(datei, 'utf-8');
+  const wieder = JSON.stringify(sanitizeWorldLayout(JSON.parse(roh)), null, 2);
+  check(`npc: welten/${instanz}.json bleibt bytegleich`, wieder === roh.trimEnd());
 }
 
 // ── signedDistance ───────────────────────────────────────────────────

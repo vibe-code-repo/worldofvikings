@@ -15,9 +15,17 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parse as parseYaml } from 'yaml';
 import { createWovServer, type ServerConfig } from './WovServer.js';
+import { instanzName } from '@wov/shared/src/instanz.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = resolve(__dirname, '../data');
+
+/**
+ * Welche Umgebung dieser Prozess bedient — aus WOV_INSTANZ, sonst 'dev'.
+ * Bestimmt Weltdatei UND Spielstandnamen; die Begruendung, warum das nicht
+ * mehr in server.yml steht, haengt im Kopf von shared/src/instanz.ts.
+ */
+const INSTANZ = instanzName();
 
 function loadServerConfig(): Partial<ServerConfig> {
   const configPath = resolve(DATA_DIR, 'server.yml');
@@ -36,13 +44,26 @@ function loadServerConfig(): Partial<ServerConfig> {
     const world = (yaml.world ?? {}) as Record<string, unknown>;
     const dungeons = (yaml.dungeons ?? {}) as Record<string, unknown>;
 
+    // Weltdatei je Instanz. Fehlt sie, endet der Start hier mit einer
+    // lesbaren Meldung — vorher warf erst readFileSync in WovServer.init()
+    // ein nacktes ENOENT mitten im Start, und Restart=always machte daraus
+    // eine Neustartschleife ohne Hinweis auf die eigentliche Ursache.
+    const layoutPfad = resolve(DATA_DIR, 'welten', `${INSTANZ}.json`);
+    if (world.mode === 'layout' && !existsSync(layoutPfad)) {
+      console.error(`[Main] Weltdatei fehlt: ${layoutPfad}`);
+      console.error(`[Main] WOV_INSTANZ=${INSTANZ} — erwartet wird server/data/welten/${INSTANZ}.json`);
+      process.exit(1);
+    }
+
     return {
       name: (server.name as string) ?? 'World of Vikings Server',
       password: (server.password as string) ?? '',
       port: (server.port as number) ?? 2456,
       maxPlayers: (players.max as number) ?? 10,
       everyoneAdmin: (players['everyone-admin'] as boolean) ?? false,
-      worldName: (world.world as string) ?? 'world',
+      // Weltname = Instanzname. Daraus folgen Spielstand (<instanz>.db.zst)
+      // und Placement-Cache (<instanz>.locations.json) ohne weitere Regel.
+      worldName: INSTANZ,
       // WORLD_SEED env var wins over server.yml — the easiest way to start
       // a fresh server with a custom seed (e.g. one picked on the client's
       // connect screen and pasted here); has no effect on an already
@@ -52,7 +73,7 @@ function loadServerConfig(): Partial<ServerConfig> {
       // Welt aus world.layout (Pfad relativ zu data/), 'valheim' bleibt der
       // radiale Seed-Port (Übergangspfad).
       worldMode: world.mode === 'layout' ? 'layout' : 'valheim',
-      worldLayoutPath: resolve(DATA_DIR, (world.layout as string) ?? 'worldlayout.json'),
+      worldLayoutPath: layoutPfad,
       // worldgen flags (C++ ServerSettings defaults: smoothstep=true, bilinear=false,
       // ashlands-modern-noise=true)
       worldBlendSmoothStep: (world['experimental-biome-blend-smoothstep'] as boolean) ?? true,

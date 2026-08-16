@@ -32,7 +32,7 @@ const WURZEL = resolve(HIER, '../..');
 const GOLDEN = resolve(HIER, 'golden/heightmap-zonen.bin');
 
 const layoutRoh = JSON.parse(
-  readFileSync(resolve(WURZEL, 'server/data/worldlayout.json'), 'utf-8')
+  readFileSync(resolve(WURZEL, 'server/data/welten/live.json'), 'utf-8')
 ) as unknown;
 const layout = sanitizeWorldLayout(layoutRoh)!;
 const geo = createGeo({

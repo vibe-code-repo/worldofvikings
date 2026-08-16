@@ -37,6 +37,7 @@ import { readFileSync, writeFileSync, existsSync, copyFileSync, readdirSync, sta
 import { resolve, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { instanzName, weltDatei } from '@wov/shared/src/instanz.js';
 
 const ausfuehren = promisify(execFile);
 
@@ -45,8 +46,9 @@ const WURZEL = process.env.WOV_WURZEL ?? resolve(HIER, '../..');
 const PORT = Number(process.env.WOV_ADMIN_PORT ?? 2468);
 const TOKEN_DATEI = '/etc/wov-admin.token';
 
+const INSTANZ = instanzName();
 const SERVER_YML = resolve(WURZEL, 'server/data/server.yml');
-const LAYOUT_DATEI = resolve(WURZEL, 'server/data/worldlayout.json');
+const LAYOUT_DATEI = weltDatei(WURZEL, INSTANZ);
 const WELTEN_ORDNER = resolve(WURZEL, 'server/data/worlds');
 const NGINX_SITE = '/etc/nginx/sites-available/wov';
 
@@ -263,7 +265,7 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
     return {
       code: 200,
       daten: {
-        instanz: process.env.WOV_INSTANZ ?? 'live',
+        instanz: INSTANZ,
         dienste: { 'wov-server': server, nginx },
         welt: weltStand(),
         laufzeitSekunden: Math.round(process.uptime()),

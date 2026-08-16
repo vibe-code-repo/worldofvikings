@@ -19,15 +19,16 @@ players:
   everyone-admin: true
 
 world:
-  # Layout-Welt "vikings" (eigener Save) — der alte Radial-Save "world"
-  # bleibt unangetastet; Rückweg: world: world + mode: valheim.
-  world: vikings
+  # Welt und Spielstand bestimmt WOV_INSTANZ (dev|live), nicht diese Datei:
+  #   Layout     server/data/welten/<instanz>.json
+  #   Spielstand server/data/worlds/<instanz>.db.zst
+  # Der Weltname war der einzige Grund, warum server.yml nie mitdeployed
+  # werden durfte. Siehe shared/src/instanz.ts.
   # Kartengenerierung: 'valheim' = radialer Seed-Port (Übergangspfad),
   # 'layout' = designer-definierte Welt aus der layout-Datei (relativ zu data/).
   # Achtung: Der Modus muss zum Save passen — ein bestehender valheim-Save
   # gehört nicht unter eine layout-Welt (andere Weltform).
   mode: layout
-  layout: worldlayout.json
   pregenerate: false
   save-interval: 30min
   modern: true

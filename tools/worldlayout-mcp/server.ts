@@ -29,7 +29,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   sanitizeWorldLayout,
@@ -40,9 +40,11 @@ import {
   type WorldLayout,
   type RegionDef,
 } from '@wov/shared';
+import { weltDatei } from '@wov/shared/src/instanz.js';
 
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const LAYOUT_PFAD = resolve(WURZEL, 'server/data/worldlayout.json');
+const LAYOUT_PFAD = weltDatei(WURZEL);
+const LAYOUT_NAME = basename(LAYOUT_PFAD);
 
 function lade(): WorldLayout {
   const roh = JSON.parse(readFileSync(LAYOUT_PFAD, 'utf-8')) as unknown;
@@ -60,7 +62,7 @@ function schreibe(layout: WorldLayout): void {
       copyFileSync(LAYOUT_PFAD, `${LAYOUT_PFAD}.${stempel}.bak`);
       const dir = dirname(LAYOUT_PFAD);
       const alte = readdirSync(dir)
-        .filter((f) => f.startsWith('worldlayout.json.') && f.endsWith('.bak'))
+        .filter((f) => f.startsWith(`${LAYOUT_NAME}.`) && f.endsWith('.bak'))
         .sort();
       while (alte.length > 10) unlinkSync(resolve(dir, alte.shift()!));
     }

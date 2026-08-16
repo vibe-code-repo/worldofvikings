@@ -134,7 +134,7 @@ const DEFAULT_CONFIG: ServerConfig = {
   dungeonsEnabled: true,
   worldCreatures: true,
   worldMode: 'valheim',
-  worldLayoutPath: 'data/worldlayout.json',
+  worldLayoutPath: 'data/welten/dev.json',
   // main.ts pins this to <server>/data/worlds; cwd-relative fallback so a
   // bare createWovServer() (tests, tools) still has a sane default.
   worldsDir: resolve(process.cwd(), 'data', 'worlds'),

@@ -7,8 +7,8 @@
  *
  * Original algorithm: 10m patches, 45m radius, per-entry deterministic RNG,
  * filters in fixed order: forest → fractal → biome → altitude/tilt →
- * (snap/water). 14 enabled entries from the live-client scene dump
- * (zonesystem_typetree.json + clutter_render_info.json).
+ * (snap/water). 13 entries — Herkunft, Nachzählung und die Messung dazu
+ * stehen direkt über `ENTRIES`.
  *
  * Babylon adaptation:
  *  - InstancedMesh instead of THREE.InstancedMesh (same concept: one mesh
@@ -186,8 +186,39 @@ const MEADOWS_TINT: [number, number, number] = [1.204, 0.942, 2.192];
 const cos = (deg: number): number => Math.cos((deg * Math.PI) / 180);
 const B = Biome;
 
-/** The dumped clutter table (1:1 from zonesystem_typetree.json +
- *  clutter_render_info.json — see the three.js reference for full notes). */
+/**
+ * Die Clutter-Tabelle — **13** Einträge, nicht 14.
+ *
+ * Der Kopf dieser Datei sprach bis zum 16.08.2026 von „14 enabled entries
+ * from the live-client scene dump". Nachgezählt sind es 13, und zwar seit
+ * dem allerersten Commit (`402c20d`) — der 14. ist beim Port aus der
+ * three.js-Referenz nie angekommen. Welcher es war, lässt sich nicht mehr
+ * feststellen: Der AssetRipper-Export ist seit Block A gelöscht. Die Frage
+ * ist damit auch keine mehr — seit Block A ist die Tabelle unsere eigene,
+ * und die Texturen dazu erzeugt `tools/clutter-texturen.py`.
+ *
+ * ── Messung 16.08.2026 (Roadmap E9) ─────────────────────────────────
+ * Im laufenden Client an einer Graslandregion der Dev-Welt gezählt,
+ * erzeugen genau DREI Einträge Instanzen: `meadowsGrassShort` (28.380),
+ * `meadowsGrass` (21.508), `meadowsShrub` (2.216). Die übrigen zehn
+ * hängen an Biomen, die dort nicht liegen — oder an einem Höhenfenster.
+ *
+ * **`meadowsFern` ist der Fall, den die Roadmap vermutet hatte, und der
+ * Verdacht stimmt** — nur liegt die Ursache nicht in der Tabelle, sondern
+ * im Verhältnis von Tabelle und Welt. Der Eintrag hat `maxAlt: 4.0`, gilt
+ * also nur bis vier Meter über der Wasserlinie. In unserer Layout-Welt
+ * liegen davon **4,57 % der Landfläche** (2,94 von 64,26 km², gemessen
+ * über `tools/hoehen-histogramm.ts`), und darauf kommen noch die Filter
+ * `inForest: true` und Biom Meadows. Valheims Wiesen liegen dicht am
+ * Meeresspiegel; unsere Graslandregionen liegen auf 30–120 m. Ein
+ * authentischer Wert trifft damit auf eine Welt, für die er nicht gedacht
+ * war.
+ *
+ * Bewusst NICHT eigenmächtig geändert: Die 4.0 stammt aus dem Dump. Ob der
+ * Farn hochwandert oder die Wiesen heruntergehen, ist eine Entscheidung
+ * über die Bildsprache — dieselbe Lehre wie bei der Fels-Schwelle (E4), wo
+ * ein frei erfundener Ersatzwert später zurückgenommen werden musste.
+ */
 const ENTRIES: readonly ClutterEntry[] = [
   { key: 'meadowsGrass', biome: B.Meadows | B.Ocean, amount: 200, mesh: 'default', texture: 'grass_meadows_gen', terrainTint: false, texRepeatU: 1, prefabScale: [1.5, 2.0, 1.5], scaleMin: 1.0, scaleMax: 2.3, maxTiltCos: cos(25), minAlt: 0.4, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 0, fractalMax: 1, cutoff: 0.46, fadeMin: 20, fadeMax: 35, swayAmp: 0.1, pushDist: 2.0, pinUpNormals: true, color: MEADOWS_TINT },
   { key: 'meadowsGrassShort', biome: B.Meadows | B.Ocean, amount: 250, mesh: 'default', texture: 'grass_meadows_gen', terrainTint: false, texRepeatU: 1, prefabScale: [1.2, 1.2, 1.2], scaleMin: 1.0, scaleMax: 2.0, maxTiltCos: cos(25), minAlt: 0.3, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 1.0, fractalMax: 3.0, cutoff: 0.46, fadeMin: 20, fadeMax: 35, swayAmp: 0.05, pushDist: 0.5, pinUpNormals: true, color: MEADOWS_TINT },

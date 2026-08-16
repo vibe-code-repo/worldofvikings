@@ -630,9 +630,62 @@ Die Frage „warum sieht der Wald nach einem Grasteppich aus?" beantwortet man d
 nicht mehr mit Instanzzahlen gegen `vegetationData.json`, sondern gegen `flora.ts` und die
 Kuratierungsliste der Region.
 
-Zusätzlich unabhängig davon korrigierbar: `meadowsFern` (`GrassClutter.ts:195`) hat
-`inForest: true` **und** `maxAlt: 4.0` — Farne erscheinen damit praktisch nie auf offener
-Wiese, obwohl die Originalszenen sie durchgehend zeigen. Gegen die Originaltabelle prüfen.
+#### Die Diagnose ist gelaufen (16.08.2026)
+
+**Flora — kein einziger Totfall.** `tools/flora-zensus.ts` streut je Biom 13×13 Zonen einer
+Testinsel und zählt die abgelegten ZDOs nach Art. Ergebnis: **0 Arten mit null Vorkommen**,
+über alle vier gefüllten Bündel. Der Verdacht, der diese Stufe ausgelöst hat, gehörte zur
+gelöschten Valheim-Tabelle und ist mit ihr verschwunden.
+
+| Bündel | Arten | Pflanzen auf 13×13 Zonen |
+|---|---|---|
+| Grasland | 33 | 8.265 |
+| Nadelwald | 28 | 12.198 |
+| Sumpf | 14 | 4.100 |
+| Hochnord | 9 | 2.176 |
+| Asche | 0 | — (Bündel ist leer) |
+
+Was die Messung stattdessen zeigt, ist eine **sehr weite Spreizung**: In jedem Bündel stehen
+Arten mit ein bis sieben Vorkommen neben solchen mit über 2.000 (Grasland: `Eiche4` 1 gegen
+`Margerite1`; Nadelwald: `Kiefer4` 1 gegen `Tanne4` 2.472). Das ist kein Fehler — die
+Einträge mit `min/max 0/2` ziehen absichtlich oft die Null — aber es ist eine Aussage über
+die Welt, die vorher niemand hatte: Rund ein Sechstel der Arten begegnet einem Spieler
+faktisch nie. Ob das Seltenheit oder Verschwendung ist, gehört entschieden, nicht
+weggerechnet.
+
+**Clutter — der Farn-Verdacht stimmt, aber die Ursache liegt woanders.** Im laufenden Client
+an einer Graslandregion der Dev-Welt erzeugen von 13 Einträgen genau **drei** Instanzen:
+`meadowsGrassShort` (28.380), `meadowsGrass` (21.508), `meadowsShrub` (2.216).
+`meadowsFern` ist nicht dabei.
+
+Der Grund ist nicht `inForest`, sondern `maxAlt: 4.0` — vier Meter über der Wasserlinie.
+`tools/hoehen-histogramm.ts` tastet die echte Dev-Welt in 8-m-Schritten ab:
+
+| Band | Anteil der Landfläche |
+|---|---|
+| 0 – 4 m | **4,57 %** (2,94 km²) |
+| 4 – 10 m | 1,41 % |
+| 10 – 30 m | 28,07 % |
+| 30 – 60 m | 30,43 % |
+| 60 – 120 m | 27,43 % |
+| über 120 m | 8,09 % |
+
+Landfläche gesamt: 64,26 km². **Der Farn ist damit auf 4,6 % der Welt beschränkt, bevor Biom-
+und Waldfilter überhaupt greifen** — und die Graslandregionen liegen ausgerechnet auf
+30–120 m. Valheims Wiesen liegen dicht am Meeresspiegel; ein authentischer Wert trifft hier
+auf eine Welt, für die er nicht gedacht war.
+
+> [!important] Bewusst nicht eigenmächtig geändert
+> Die 4.0 stammt aus dem Dump. Ob der Farn hochwandert (`maxAlt` anheben) oder die Wiesen
+> heruntergehen (`baseLevel` der Graslandregionen), ist eine Entscheidung über die
+> Bildsprache und über die Welt — nicht über eine Konstante. Genau hier ist die Fels-Schwelle
+> (E4) schon einmal falsch abgebogen: Ein frei erfundener Ersatzwert musste später
+> zurückgenommen werden.
+
+**Nebenbefund, korrigiert:** Der Dateikopf sprach von „14 enabled entries". Es sind **13**,
+und zwar seit dem ersten Commit — der vierzehnte ist beim Port aus der three.js-Referenz nie
+angekommen. Welcher, lässt sich nicht mehr feststellen, weil der Export gelöscht ist. Seit
+Block A ist die Tabelle ohnehin unsere eigene.
 
 ### Stufe 9 — Baum-LOD und Impostoren
 

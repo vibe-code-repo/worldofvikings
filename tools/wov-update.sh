@@ -66,6 +66,10 @@ ADMIN_TOKEN_DATEI=/etc/wov-admin.token
 # Wird auf 1 gesetzt, sobald die Dienste unten gestoppt sind — die
 # Aufräumfunktion sagt dann im Fehlerfall, dass der Container liegt.
 DIENSTE_GESTOPPT=0
+# Wird auf 1 gesetzt, sobald die Dienste wieder laufen. Ohne diese zweite
+# Marke behauptet die Aufräumfunktion auch dann "die Dienste sind gestoppt",
+# wenn erst die Gesundheitsprüfung danach gescheitert ist.
+DIENSTE_LAUFEN=0
 # Erst ab hier darf die Aufräumfunktion an client/dist* rühren. Vorher gilt
 # die Zusage der Sauberkeitsprüfung: Bricht sie ab, ist NICHTS passiert —
 # auch kein stillschweigend weggeräumter Rest eines früheren Laufs, den sie
@@ -90,10 +94,21 @@ aufraeumen() {
 
   if [ "$code" -ne 0 ] && [ "$DIENSTE_GESTOPPT" = "1" ]; then
     echo >&2
-    echo "Die Dienste sind GESTOPPT und bleiben es. Das ist Absicht: Was" >&2
-    echo "Typecheck, Tests oder Build nicht besteht, geht nicht in Betrieb." >&2
-    echo "  Ursache beheben, dann erneut: sudo tools/wov-update.sh" >&2
-    echo "  Notfalls den vorhandenen Stand starten: systemctl start wov.target" >&2
+    if [ "$DIENSTE_LAUFEN" = "1" ]; then
+      # Gescheitert ist die Gesundheitsprüfung, nicht das Ausrollen. Die
+      # Dienste laufen — zu behaupten, sie lägen, schickt jemanden mitten in
+      # einer Störung an die falsche Stelle.
+      echo "Die Dienste LAUFEN — gescheitert ist die Gesundheitsprüfung." >&2
+      echo "Der neue Stand ist ausgerollt und in Betrieb; was fehlt, ist die" >&2
+      echo "Bestätigung, dass der Server sauber antwortet." >&2
+      echo "  Zustand ansehen:  systemctl status wov-server" >&2
+      echo "  Log:              journalctl -u wov-server -n 60" >&2
+    else
+      echo "Die Dienste sind GESTOPPT und bleiben es. Das ist Absicht: Was" >&2
+      echo "Typecheck, Tests oder Build nicht besteht, geht nicht in Betrieb." >&2
+      echo "  Ursache beheben, dann erneut: sudo tools/wov-update.sh" >&2
+      echo "  Notfalls den vorhandenen Stand starten: systemctl start wov.target" >&2
+    fi
   fi
 }
 trap aufraeumen EXIT
@@ -298,6 +313,7 @@ for dienst in "${DIENSTE[@]}"; do
     echo "  übersprungen (nicht aktiviert): $dienst"
   fi
 done
+DIENSTE_LAUFEN=1
 
 # ── 9. Gesundheitsprüfung ────────────────────────────────────────────
 # NICHT "sleep 4; systemctl is-active". In der Unit steht Restart=always:
@@ -320,7 +336,12 @@ if ! printf '%s\n' "${GESTARTET[@]:-}" | grep -qx 'wov-server'; then
   exit 1
 fi
 
-SPIEL_PORT="$(awk '/^server:/{drin=1;next} /^[^[:space:]#]/{drin=0} drin && $1=="port:"{print $2; exit}' server/data/server.yml)"
+# gsub(/\r/,"") ist hier KEINE Vorsicht, sondern Erfahrung: server.yml ist
+# die einzige Datei im Repo mit CRLF-Zeilenenden. Ohne die Zeile liefert awk
+# "2467\r", curl baut daraus eine kaputte URL und antwortet 000 — und dieses
+# Skript wartet 120 s auf einen Server, der die ganze Zeit lief. Genau so am
+# 16.08.2026 beim ersten Live-Lauf passiert.
+SPIEL_PORT="$(awk '{gsub(/\r/,"")} /^server:/{drin=1;next} /^[^[:space:]#]/{drin=0} drin && $1=="port:"{print $2; exit}' server/data/server.yml)"
 SPIEL_PORT="${SPIEL_PORT:-2467}"
 
 echo

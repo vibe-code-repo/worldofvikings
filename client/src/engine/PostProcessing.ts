@@ -32,9 +32,10 @@
  *  - Anti-Aliasing: Original nutzt TAA und hat es in DIESEM Profil aus.
  *    Babylon hat kein TAA in der DefaultRenderingPipeline; ohne jegliches
  *    AA flimmern unsere Alpha-Cutout-Grashalme stark (viel mehr als im
- *    Original, das TAA-Historie hat). Wir nutzen daher FXAA — als
- *    Nutzeroption abschaltbar, genau wie im echten Spiel
- *    (GraphicsSettingBool.AntiAliasing).
+ *    Original, das TAA-Historie hat). Wir nutzen daher FXAA plus 4×MSAA
+ *    auf der Szenenpassage — als EINE Nutzeroption abschaltbar, genau wie
+ *    im echten Spiel (GraphicsSettingBool.AntiAliasing). Die beiden
+ *    greifen an verschiedenen Kanten, siehe setzeMsaa().
  *  - Ambient Occlusion ist NICHT enthalten: Babylons SSAO2 braucht einen
  *    zusätzlichen Geometry-/Prepass über die gesamte (bereits schwere)
  *    Terrain- und Clutter-Geometrie. Bei radius 0.15 ist der Effekt sehr
@@ -91,6 +92,14 @@ const EXPOSURE = 1.0;
  *  wird; entspricht Babylons motionStrength-Skala (1.0 = voller Frame). */
 const MOTION_STRENGTH = 150 / 360;
 const MOTION_SAMPLES = 10;
+/**
+ * MSAA-Abtastungen auf der Szenenpassage. 4× ist die Stufe, die WebGL2
+ * überall kann (`maxMSAASamples` ist auf der Zielhardware 4 oder 8; der
+ * Setter deckelt selbst) und die Babylon auch für die eigenen Pipelines
+ * als Beispielwert nennt. 8× kostet Bandbreite ohne sichtbaren Zugewinn
+ * an unseren überwiegend flachen Geländekanten.
+ */
+const MSAA_SAMPLES = 4;
 
 export interface PostProcessingOptions {
   bloom: boolean;
@@ -186,6 +195,52 @@ export class PostProcessing {
     this.setDepthOfField(opts.depthOfField);
     this.setSunShafts(opts.sunShafts);
     this.syncGeometryBuffer();
+    // ZULETZT: Erst jetzt steht fest, welcher Pass vorne in der Kette hängt.
+    this.setzeMsaa(opts.antiAliasing);
+  }
+
+  /**
+   * MSAA auf die Szenenpassage legen (Grafik-Konzept, Stufe 2).
+   *
+   * Sobald ein PostProcess an der Kamera hängt, rendert die Szene nicht
+   * mehr in den Framebuffer des Canvas, sondern in die Zieltextur des
+   * ERSTEN Passes. Das `antialias: true` der Engine läuft damit ins Leere —
+   * es gilt nur dem Canvas, den die Szene gar nicht mehr direkt beschreibt.
+   * Wirksam wird MSAA ausschließlich dort, wo die Geometrie tatsächlich
+   * rasterisiert wird: auf genau diesem ersten Ziel. Jeder weitere Pass
+   * bekommt ein fertiges Bild als Textur gereicht; ein Mehrfach-Abtasten
+   * kostete dort Bandbreite, ohne eine einzige Kante zu glätten — deshalb
+   * setzt die Schleife alle übrigen ausdrücklich auf 1 zurück.
+   *
+   * Welcher Pass der erste ist, wechselt im Betrieb: `ValheimDof` hängt
+   * sich mit `attachPostProcess(pp, 0)` bewusst ganz nach vorn, und die
+   * DefaultRenderingPipeline hängt ihre Pässe bei jedem Umschalten neu an.
+   * Deshalb wird die Kette hier gelesen statt geraten — das ist derselbe
+   * Weg, den Babylon intern für seine Pipelines geht
+   * (`_enableMSAAOnFirstPostProcess`), nur über die ganze Kamera statt nur
+   * über die Pässe einer Pipeline. `pipeline.samples` bleibt aus demselben
+   * Grund auf 1: Es träfe verlässlich nur den ersten Pipeline-Pass, und der
+   * ist bei eingeschalteter Tiefenunschärfe nicht der erste der Kamera.
+   *
+   * FXAA ersetzt das nicht und wird davon auch nicht überflüssig. MSAA
+   * glättet Dreieckskanten und sieht Alpha-Test-Kanten nicht — genau die
+   * Kanten, aus denen unser Gras und das Laub bestehen. FXAA sieht
+   * umgekehrt nur das fertige Bild. Beide zusammen sind der Grund, warum
+   * der eine Schalter „Kantenglättung" beides schaltet.
+   */
+  private setzeMsaa(an: boolean): void {
+    // Der Setter deckelt selbst auf `maxMSAASamples`; wir tun es hier
+    // vorher, damit der Vergleich unten nicht bei jedem Aufruf danebenliegt
+    // und die Zieltextur unnötig neu anlegt.
+    const max = this.scene.getEngine().getCaps().maxMSAASamples;
+    const wunsch = an ? Math.min(MSAA_SAMPLES, max) : 1;
+    let ersterGesehen = false;
+    for (const pp of this.camera._postProcesses) {
+      if (!pp) continue; // Babylon lässt beim Abhängen Lücken stehen
+      const soll = ersterGesehen ? 1 : wunsch;
+      ersterGesehen = true;
+      if (pp.samples !== soll) pp.samples = soll;
+    }
   }
 
   /**

@@ -28,14 +28,27 @@
  * genauso — schaerfer sogar, weil jetzt auf Vielfachheit statt auf einen
  * einzelnen Proxy geprueft wird.
  *
+ * BLOCK A, Schritt 15: Der Test laeuft jetzt im LAYOUT-MODUS.
+ * Auch die Vegetationstabelle ist gegen die Whitelist gefiltert, und
+ * eigene Flora waechst ausschliesslich dort, wo eine Region sie kuratiert
+ * (shared/src/worldgen/streuung.ts). Die Radialwelt, auf der dieser Test
+ * bisher lief, traegt damit ueberhaupt keine ZDOs mehr — es gaebe nichts
+ * zu speichern und nichts zu laden, und alle Rundlauf-Pruefungen waeren
+ * gegen die leere Menge gelaufen und still gruen geblieben.
+ *
+ * Deshalb schreibt der Test sein EIGENES Weltdokument in das
+ * Testverzeichnis: eine kuratierte Graslandinsel um den Nullpunkt. Es
+ * liegt bewusst nicht unter server/data/welten — der Rundlauf soll an
+ * keinem Dokument haengen, das Mike im Editor veraendert.
+ *
  * Run: npx tsx server/test/g2-persistence.ts   (from the repo root)
  */
 
-import { existsSync, readFileSync, writeFileSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { zstdDecompressSync } from 'node:zlib';
-import { TIME_DAY } from '@wov/shared';
+import { GRASLAND_FLORA_NAMEN, TIME_DAY } from '@wov/shared';
 import { createWovServer } from '../src/WovServer.js';
 import { SAVE_FORMAT_VERSION } from '../src/world/WorldManager.js';
 import type { SavedPlayer, WorldSaveData } from '../src/world/WorldManager.js';
@@ -43,7 +56,38 @@ import type { SavedPlayer, WorldSaveData } from '../src/world/WorldManager.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-g2-worlds');
 const SAVE_FILE = resolve(WORLDS_DIR, 'world.db.zst');
+const LAYOUT_FILE = resolve(WORLDS_DIR, 'g2-layout.json');
 const SEED = 'KxSYuZquuw';
+
+/**
+ * Das Testweltdokument: eine kuratierte Insel um den Nullpunkt.
+ *
+ * Radius 1600 m, damit Zone (0,0) und ihre Nachbarn vollstaendig
+ * innerhalb der Region liegen; `baseLevel` 0.3 hebt sie aus dem Wasser,
+ * sonst faellt jede Pflanze durch die `minAltitude`-Pruefung.
+ */
+function schreibeLayout(): void {
+  mkdirSync(WORLDS_DIR, { recursive: true });
+  writeFileSync(
+    LAYOUT_FILE,
+    JSON.stringify({
+      version: 1,
+      name: 'G2-Rundlauf',
+      detailSeed: SEED,
+      continents: [],
+      regions: [
+        {
+          id: 'probe',
+          biome: 'grassland',
+          shape: { kind: 'circle', x: 0, z: 0, radius: 1600 },
+          edgeFalloff: 200,
+          baseLevel: 0.3,
+          vegetation: [...GRASLAND_FLORA_NAMEN],
+        },
+      ],
+    })
+  );
+}
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ''): void {
@@ -65,11 +109,16 @@ function makeServer(worldSeed: string) {
     worldFeatures: false,
     worldVegetation: true, // real foliage ZDOs for the roundtrip
     worldsDir: WORLDS_DIR,
+    // Ohne Layout keine Kuratierung und damit kein Bewuchs — siehe
+    // Kopfkommentar.
+    worldMode: 'layout',
+    worldLayoutPath: LAYOUT_FILE,
   });
 }
 
 console.log('=== G1 persistence smoke test ===');
 rmSync(WORLDS_DIR, { recursive: true, force: true });
+schreibeLayout();
 
 // ── [1] Server A: build a world state and save it ───────────────
 console.log('\n[1] Server A: generate, modify, save:');

@@ -13,7 +13,42 @@
         "z": -5700,
         "radius": 1500
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": [
+        "Eiche1",
+        "Eiche2",
+        "Eiche3",
+        "BirkeHoch2",
+        "BirkeHoch3",
+        "BirkeDicht2",
+        "BirkeHoch1",
+        "Eiche4",
+        "BirkeHoch4",
+        "Findling2",
+        "Findling1",
+        "Felsplatte1",
+        "Steinbank1",
+        "Hasel2",
+        "Hasel3",
+        "Schlehe1",
+        "Schlehe2",
+        "Hartriegel1",
+        "Holunder2",
+        "Brombeere2",
+        "Brombeere1",
+        "Wacholder2",
+        "Margerite2",
+        "Margerite1",
+        "Glockenblume2",
+        "Trollblume2",
+        "Schafgarbe1",
+        "Brennnessel1",
+        "Distel1",
+        "Ampfer1",
+        "Seggen1",
+        "Farn2",
+        "Farn1"
+      ]
     },
     {
       "id": "insel-2",
@@ -24,7 +59,37 @@
         "z": -5900,
         "radius": 1500
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": [
+        "Kiefer4",
+        "Fichte6",
+        "Tanne7",
+        "Fichte5",
+        "Fichte4",
+        "Kiefer2",
+        "Kiefer1",
+        "Tanne5",
+        "Fichte2",
+        "Fichte1",
+        "Tanne1",
+        "Fichte3",
+        "Tanne2",
+        "Tanne3",
+        "Tanne4",
+        "BirkeDicht1",
+        "Felsplatte2",
+        "Felsblock2",
+        "Findling2",
+        "Felsplatte1",
+        "Findling1",
+        "Wacholder2",
+        "Farn2",
+        "Farn1",
+        "Heidelbeere2",
+        "Heidelbeere3",
+        "Heidekraut2",
+        "Seggen1"
+      ]
     },
     {
       "id": "land-1",
@@ -46,7 +111,18 @@
           ]
         ]
       },
-      "edgeFalloff": 400
+      "edgeFalloff": 400,
+      "vegetation": [
+        "Kiefer3",
+        "Tanne6",
+        "Findling3",
+        "Felsnadel1",
+        "Felsblock1",
+        "Wacholder3",
+        "Wacholder1",
+        "Heidekraut3",
+        "Heidekraut1"
+      ]
     },
     {
       "id": "insel-3",
@@ -57,7 +133,23 @@
         "z": -13160,
         "radius": 1500
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": [
+        "BirkeDicht4",
+        "BirkeDicht3",
+        "Weide3",
+        "Weide2",
+        "Weide1",
+        "Seggen2",
+        "Seggen1",
+        "Wollgras2",
+        "Wollgras1",
+        "Farn2",
+        "Farn1",
+        "Brennnessel2",
+        "Brennnessel1",
+        "Ampfer2"
+      ]
     },
     {
       "id": "insel-5",
@@ -187,7 +279,42 @@
           ]
         ]
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": [
+        "Eiche1",
+        "Eiche2",
+        "Eiche3",
+        "BirkeHoch2",
+        "BirkeHoch3",
+        "BirkeDicht2",
+        "BirkeHoch1",
+        "Eiche4",
+        "BirkeHoch4",
+        "Findling2",
+        "Findling1",
+        "Felsplatte1",
+        "Steinbank1",
+        "Hasel2",
+        "Hasel3",
+        "Schlehe1",
+        "Schlehe2",
+        "Hartriegel1",
+        "Holunder2",
+        "Brombeere2",
+        "Brombeere1",
+        "Wacholder2",
+        "Margerite2",
+        "Margerite1",
+        "Glockenblume2",
+        "Trollblume2",
+        "Schafgarbe1",
+        "Brennnessel1",
+        "Distel1",
+        "Ampfer1",
+        "Seggen1",
+        "Farn2",
+        "Farn1"
+      ]
     },
     {
       "id": "insel-6",
@@ -317,7 +444,42 @@
           ]
         ]
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": [
+        "Eiche1",
+        "Eiche2",
+        "Eiche3",
+        "BirkeHoch2",
+        "BirkeHoch3",
+        "BirkeDicht2",
+        "BirkeHoch1",
+        "Eiche4",
+        "BirkeHoch4",
+        "Findling2",
+        "Findling1",
+        "Felsplatte1",
+        "Steinbank1",
+        "Hasel2",
+        "Hasel3",
+        "Schlehe1",
+        "Schlehe2",
+        "Hartriegel1",
+        "Holunder2",
+        "Brombeere2",
+        "Brombeere1",
+        "Wacholder2",
+        "Margerite2",
+        "Margerite1",
+        "Glockenblume2",
+        "Trollblume2",
+        "Schafgarbe1",
+        "Brennnessel1",
+        "Distel1",
+        "Ampfer1",
+        "Seggen1",
+        "Farn2",
+        "Farn1"
+      ]
     },
     {
       "id": "insel-7",
@@ -447,7 +609,42 @@
           ]
         ]
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": [
+        "Eiche1",
+        "Eiche2",
+        "Eiche3",
+        "BirkeHoch2",
+        "BirkeHoch3",
+        "BirkeDicht2",
+        "BirkeHoch1",
+        "Eiche4",
+        "BirkeHoch4",
+        "Findling2",
+        "Findling1",
+        "Felsplatte1",
+        "Steinbank1",
+        "Hasel2",
+        "Hasel3",
+        "Schlehe1",
+        "Schlehe2",
+        "Hartriegel1",
+        "Holunder2",
+        "Brombeere2",
+        "Brombeere1",
+        "Wacholder2",
+        "Margerite2",
+        "Margerite1",
+        "Glockenblume2",
+        "Trollblume2",
+        "Schafgarbe1",
+        "Brennnessel1",
+        "Distel1",
+        "Ampfer1",
+        "Seggen1",
+        "Farn2",
+        "Farn1"
+      ]
     },
     {
       "id": "insel-8",
@@ -577,7 +774,42 @@
           ]
         ]
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": [
+        "Eiche1",
+        "Eiche2",
+        "Eiche3",
+        "BirkeHoch2",
+        "BirkeHoch3",
+        "BirkeDicht2",
+        "BirkeHoch1",
+        "Eiche4",
+        "BirkeHoch4",
+        "Findling2",
+        "Findling1",
+        "Felsplatte1",
+        "Steinbank1",
+        "Hasel2",
+        "Hasel3",
+        "Schlehe1",
+        "Schlehe2",
+        "Hartriegel1",
+        "Holunder2",
+        "Brombeere2",
+        "Brombeere1",
+        "Wacholder2",
+        "Margerite2",
+        "Margerite1",
+        "Glockenblume2",
+        "Trollblume2",
+        "Schafgarbe1",
+        "Brennnessel1",
+        "Distel1",
+        "Ampfer1",
+        "Seggen1",
+        "Farn2",
+        "Farn1"
+      ]
     },
     {
       "id": "insel-9",
@@ -707,7 +939,42 @@
           ]
         ]
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": [
+        "Eiche1",
+        "Eiche2",
+        "Eiche3",
+        "BirkeHoch2",
+        "BirkeHoch3",
+        "BirkeDicht2",
+        "BirkeHoch1",
+        "Eiche4",
+        "BirkeHoch4",
+        "Findling2",
+        "Findling1",
+        "Felsplatte1",
+        "Steinbank1",
+        "Hasel2",
+        "Hasel3",
+        "Schlehe1",
+        "Schlehe2",
+        "Hartriegel1",
+        "Holunder2",
+        "Brombeere2",
+        "Brombeere1",
+        "Wacholder2",
+        "Margerite2",
+        "Margerite1",
+        "Glockenblume2",
+        "Trollblume2",
+        "Schafgarbe1",
+        "Brennnessel1",
+        "Distel1",
+        "Ampfer1",
+        "Seggen1",
+        "Farn2",
+        "Farn1"
+      ]
     },
     {
       "id": "insel-10",
@@ -837,7 +1104,42 @@
           ]
         ]
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": [
+        "Eiche1",
+        "Eiche2",
+        "Eiche3",
+        "BirkeHoch2",
+        "BirkeHoch3",
+        "BirkeDicht2",
+        "BirkeHoch1",
+        "Eiche4",
+        "BirkeHoch4",
+        "Findling2",
+        "Findling1",
+        "Felsplatte1",
+        "Steinbank1",
+        "Hasel2",
+        "Hasel3",
+        "Schlehe1",
+        "Schlehe2",
+        "Hartriegel1",
+        "Holunder2",
+        "Brombeere2",
+        "Brombeere1",
+        "Wacholder2",
+        "Margerite2",
+        "Margerite1",
+        "Glockenblume2",
+        "Trollblume2",
+        "Schafgarbe1",
+        "Brennnessel1",
+        "Distel1",
+        "Ampfer1",
+        "Seggen1",
+        "Farn2",
+        "Farn1"
+      ]
     },
     {
       "id": "insel-11",
@@ -967,7 +1269,42 @@
           ]
         ]
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": [
+        "Eiche1",
+        "Eiche2",
+        "Eiche3",
+        "BirkeHoch2",
+        "BirkeHoch3",
+        "BirkeDicht2",
+        "BirkeHoch1",
+        "Eiche4",
+        "BirkeHoch4",
+        "Findling2",
+        "Findling1",
+        "Felsplatte1",
+        "Steinbank1",
+        "Hasel2",
+        "Hasel3",
+        "Schlehe1",
+        "Schlehe2",
+        "Hartriegel1",
+        "Holunder2",
+        "Brombeere2",
+        "Brombeere1",
+        "Wacholder2",
+        "Margerite2",
+        "Margerite1",
+        "Glockenblume2",
+        "Trollblume2",
+        "Schafgarbe1",
+        "Brennnessel1",
+        "Distel1",
+        "Ampfer1",
+        "Seggen1",
+        "Farn2",
+        "Farn1"
+      ]
     },
     {
       "id": "insel-12",
@@ -1097,7 +1434,42 @@
           ]
         ]
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": [
+        "Eiche1",
+        "Eiche2",
+        "Eiche3",
+        "BirkeHoch2",
+        "BirkeHoch3",
+        "BirkeDicht2",
+        "BirkeHoch1",
+        "Eiche4",
+        "BirkeHoch4",
+        "Findling2",
+        "Findling1",
+        "Felsplatte1",
+        "Steinbank1",
+        "Hasel2",
+        "Hasel3",
+        "Schlehe1",
+        "Schlehe2",
+        "Hartriegel1",
+        "Holunder2",
+        "Brombeere2",
+        "Brombeere1",
+        "Wacholder2",
+        "Margerite2",
+        "Margerite1",
+        "Glockenblume2",
+        "Trollblume2",
+        "Schafgarbe1",
+        "Brennnessel1",
+        "Distel1",
+        "Ampfer1",
+        "Seggen1",
+        "Farn2",
+        "Farn1"
+      ]
     },
     {
       "id": "insel-13",
@@ -1227,7 +1599,42 @@
           ]
         ]
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": [
+        "Eiche1",
+        "Eiche2",
+        "Eiche3",
+        "BirkeHoch2",
+        "BirkeHoch3",
+        "BirkeDicht2",
+        "BirkeHoch1",
+        "Eiche4",
+        "BirkeHoch4",
+        "Findling2",
+        "Findling1",
+        "Felsplatte1",
+        "Steinbank1",
+        "Hasel2",
+        "Hasel3",
+        "Schlehe1",
+        "Schlehe2",
+        "Hartriegel1",
+        "Holunder2",
+        "Brombeere2",
+        "Brombeere1",
+        "Wacholder2",
+        "Margerite2",
+        "Margerite1",
+        "Glockenblume2",
+        "Trollblume2",
+        "Schafgarbe1",
+        "Brennnessel1",
+        "Distel1",
+        "Ampfer1",
+        "Seggen1",
+        "Farn2",
+        "Farn1"
+      ]
     },
     {
       "id": "insel-14",
@@ -1357,7 +1764,42 @@
           ]
         ]
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": [
+        "Eiche1",
+        "Eiche2",
+        "Eiche3",
+        "BirkeHoch2",
+        "BirkeHoch3",
+        "BirkeDicht2",
+        "BirkeHoch1",
+        "Eiche4",
+        "BirkeHoch4",
+        "Findling2",
+        "Findling1",
+        "Felsplatte1",
+        "Steinbank1",
+        "Hasel2",
+        "Hasel3",
+        "Schlehe1",
+        "Schlehe2",
+        "Hartriegel1",
+        "Holunder2",
+        "Brombeere2",
+        "Brombeere1",
+        "Wacholder2",
+        "Margerite2",
+        "Margerite1",
+        "Glockenblume2",
+        "Trollblume2",
+        "Schafgarbe1",
+        "Brennnessel1",
+        "Distel1",
+        "Ampfer1",
+        "Seggen1",
+        "Farn2",
+        "Farn1"
+      ]
     },
     {
       "id": "insel-15",
@@ -1487,7 +1929,42 @@
           ]
         ]
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": [
+        "Eiche1",
+        "Eiche2",
+        "Eiche3",
+        "BirkeHoch2",
+        "BirkeHoch3",
+        "BirkeDicht2",
+        "BirkeHoch1",
+        "Eiche4",
+        "BirkeHoch4",
+        "Findling2",
+        "Findling1",
+        "Felsplatte1",
+        "Steinbank1",
+        "Hasel2",
+        "Hasel3",
+        "Schlehe1",
+        "Schlehe2",
+        "Hartriegel1",
+        "Holunder2",
+        "Brombeere2",
+        "Brombeere1",
+        "Wacholder2",
+        "Margerite2",
+        "Margerite1",
+        "Glockenblume2",
+        "Trollblume2",
+        "Schafgarbe1",
+        "Brennnessel1",
+        "Distel1",
+        "Ampfer1",
+        "Seggen1",
+        "Farn2",
+        "Farn1"
+      ]
     },
     {
       "id": "insel-4",
@@ -1498,7 +1975,42 @@
         "z": -25952,
         "radius": 566
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": [
+        "Eiche1",
+        "Eiche2",
+        "Eiche3",
+        "BirkeHoch2",
+        "BirkeHoch3",
+        "BirkeDicht2",
+        "BirkeHoch1",
+        "Eiche4",
+        "BirkeHoch4",
+        "Findling2",
+        "Findling1",
+        "Felsplatte1",
+        "Steinbank1",
+        "Hasel2",
+        "Hasel3",
+        "Schlehe1",
+        "Schlehe2",
+        "Hartriegel1",
+        "Holunder2",
+        "Brombeere2",
+        "Brombeere1",
+        "Wacholder2",
+        "Margerite2",
+        "Margerite1",
+        "Glockenblume2",
+        "Trollblume2",
+        "Schafgarbe1",
+        "Brennnessel1",
+        "Distel1",
+        "Ampfer1",
+        "Seggen1",
+        "Farn2",
+        "Farn1"
+      ]
     },
     {
       "id": "insel-16",
@@ -1509,355 +2021,326 @@
         "z": -8200,
         "radius": 1500
       },
-      "edgeFalloff": 300
+      "edgeFalloff": 300,
+      "vegetation": []
     }
   ],
   "placements": [
     {
-      "prefab": "Beech1",
-      "x": -24183,
-      "z": -3483,
-      "yaw": 1.0444523407071464
-    },
-    {
-      "prefab": "Beech1",
-      "x": -23750,
-      "z": -4283,
-      "yaw": 2.419422931976073
-    },
-    {
-      "prefab": "Beech1",
-      "x": -25450,
-      "z": -12150,
-      "yaw": 1.4668641341640856
-    },
-    {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27864,
       "z": -5971,
       "yaw": 1.7997221719818306
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27735,
       "z": -5874,
       "yaw": 2.926097405589501
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27735,
       "z": -5783,
       "yaw": 5.8024413696390935
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27816,
       "z": -5890,
       "yaw": 4.622952475624628
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27821,
       "z": -5901,
       "yaw": 0.8812305011003442
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27842,
       "z": -5869,
       "yaw": 5.190698582943401
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27869,
       "z": -5863,
       "yaw": 5.175714535908726
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27972,
       "z": -5831,
       "yaw": 0.2265017691457023
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27826,
       "z": -5718,
       "yaw": 5.051551250101958
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27859,
       "z": -5761,
       "yaw": 3.9281579833325653
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27799,
       "z": -5831,
       "yaw": 2.9005976443946007
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27918,
       "z": -5853,
       "yaw": 0.9882538419869356
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27923,
       "z": -5933,
       "yaw": 0.5007582434384444
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27837,
       "z": -5933,
       "yaw": 1.3010567214819821
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27929,
       "z": -5896,
       "yaw": 4.012641857989165
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -28020,
       "z": -5729,
       "yaw": 4.4698804105622285
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27902,
       "z": -5675,
       "yaw": 1.8084383948602716
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27896,
       "z": -5793,
       "yaw": 2.8920191399831174
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27955,
       "z": -5853,
       "yaw": 0.7336589198913394
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27988,
       "z": -5756,
       "yaw": 2.8070831868621497
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27988,
       "z": -5718,
       "yaw": 5.0259498134244405
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -27756,
       "z": -5993,
       "yaw": 3.591116719259374
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -16761,
       "z": -5317,
       "yaw": 5.419437827421217
     },
     {
-      "prefab": "Beech1",
+      "prefab": "Eiche2",
       "x": -16767,
       "z": -5317,
       "yaw": 2.903322047645042
     },
     {
-      "prefab": "MineRock_Obsidian",
+      "prefab": "Felsblock3",
       "x": -16887,
       "z": -5730,
       "yaw": 1.8385728993731463
     },
     {
-      "prefab": "giant_helmet1",
+      "prefab": "GrabDrachenkopf",
       "x": -16607.5,
       "z": -5714.7,
       "yaw": 6.131824019466007
     },
     {
-      "prefab": "giant_sword1",
+      "prefab": "GrabRunenstein",
       "x": -16602,
       "z": -5701,
       "yaw": 1.4370397220513658
     },
     {
-      "prefab": "giant_sword1",
+      "prefab": "GrabRunenstein",
       "x": -16600.1,
       "z": -5704.5,
       "yaw": 0.5583248073383597
     },
     {
-      "prefab": "giant_sword1",
+      "prefab": "GrabRunenstein",
       "x": -16593.5,
       "z": -5698.7,
       "yaw": 4.458298837521999
     },
     {
-      "prefab": "cliff_ashlands2",
+      "prefab": "Felsblock3",
       "x": -16581.2,
       "z": -5711.5,
       "yaw": 1.0104468917692568
     },
     {
-      "prefab": "cliff_ashlands2",
+      "prefab": "Felsblock3",
       "x": -16578.3,
       "z": -5691.6,
       "yaw": 3.3727803354957335
     },
     {
-      "prefab": "cliff_ashlands3_Arch_1",
+      "prefab": "Felsplatte2",
       "x": -16580.7,
       "z": -5688.9,
       "yaw": 0.6497433703545199
     },
     {
-      "prefab": "cliff_ashlands5",
+      "prefab": "Findling3",
       "x": -16604.3,
       "z": -5687,
       "yaw": 4.2728731902508095
     },
     {
-      "prefab": "cliff_ashlands5",
+      "prefab": "Findling3",
       "x": -16876.7,
       "z": -5349.7,
       "yaw": 6.0207529498803005
     },
     {
-      "prefab": "cliff_ashlands6",
+      "prefab": "Felsnadel2",
       "x": -16894.4,
       "z": -5337.6,
       "yaw": 4.551253196398002
     },
     {
-      "prefab": "cliff_ashlands6",
+      "prefab": "Felsnadel2",
       "x": -16900.3,
       "z": -5341.9,
       "yaw": 4.785425624970437
     },
     {
-      "prefab": "cliff_ashlands6",
+      "prefab": "Felsnadel2",
       "x": -16874.7,
       "z": -5328.7,
       "yaw": 3.678166756991537
     },
     {
-      "prefab": "StatueEvil",
+      "prefab": "WikingerStatue",
       "x": -16883.5,
       "z": -5319.5,
       "yaw": 3.455006931816552
     },
     {
-      "prefab": "StatueEvil",
+      "prefab": "WikingerStatue",
       "x": -16885.5,
       "z": -5323.2,
       "yaw": 4.395868275356571
     },
     {
-      "prefab": "Bush01",
+      "prefab": "Ginster2",
       "x": -16886.7,
       "z": -5319.6,
       "yaw": 4.685948226743245
     },
     {
-      "prefab": "Bush01",
+      "prefab": "Ginster2",
       "x": -16889.2,
       "z": -5321.8,
       "yaw": 1.0312140590761767
     },
     {
-      "prefab": "Bush01",
+      "prefab": "Ginster2",
       "x": -16891.1,
       "z": -5317.5,
       "yaw": 4.298201277825081
     },
     {
-      "prefab": "stubbe",
-      "x": -16892.1,
-      "z": -5323,
-      "yaw": 4.987669572881178
-    },
-    {
-      "prefab": "FirTree_oldLog",
-      "x": -16890.6,
-      "z": -5313.3,
-      "yaw": 4.579104810655125
-    },
-    {
-      "prefab": "FirTree_small",
+      "prefab": "Tanne4",
       "x": -16886.5,
       "z": -5319.5,
       "yaw": 1.6606944040966554
     },
     {
-      "prefab": "FirTree_small",
+      "prefab": "Tanne4",
       "x": -16885.1,
       "z": -5327.2,
       "yaw": 1.419797940230677
     },
     {
-      "prefab": "SwampTree2",
+      "prefab": "Weide3",
       "x": -16882.5,
       "z": -5314.2,
       "yaw": 3.035746055782141
     },
     {
-      "prefab": "SwampTree1",
+      "prefab": "Weide3",
       "x": -16895.8,
       "z": -5307.5,
       "yaw": 4.76126378645054
     },
     {
-      "prefab": "SwampTree1",
+      "prefab": "Weide3",
       "x": -16901.8,
       "z": -5308.5,
       "yaw": 3.6350030419318333,
       "scale": 0.2
     },
     {
-      "prefab": "FirTree_small",
+      "prefab": "Tanne4",
       "x": -16874.2,
       "z": -5814.8,
       "yaw": 0.9227317840467234
     },
     {
-      "prefab": "FirTree_small",
+      "prefab": "Tanne4",
       "x": -16885.9,
       "z": -5811.1,
       "yaw": 0.8726646259971648
     },
     {
-      "prefab": "FirTree_small",
+      "prefab": "Tanne4",
       "x": -16880.9,
       "z": -5816,
       "yaw": 0.8726646259971648
     },
     {
-      "prefab": "FirTree_small",
+      "prefab": "Tanne4",
       "x": -16885.9,
       "z": -5811.1,
       "yaw": 0.8726646259971648
     },
     {
-      "prefab": "FirTree_small",
+      "prefab": "Tanne4",
       "x": -16884.3,
       "z": -5814.8,
       "yaw": 0.8726646259971648
     },
     {
-      "prefab": "FirTree_small",
+      "prefab": "Tanne4",
       "x": -16876,
       "z": -5809,
       "yaw": 0.8726646259971648
@@ -2223,7 +2706,7 @@
       "einebnen": 22.3
     },
     {
-      "prefab": "GrabhuegelMeadows",
+      "prefab": "Grabhuegel",
       "x": 41.2,
       "z": -54.2,
       "yaw": 3.0212867949219353,
@@ -2236,7 +2719,7 @@
       "yaw": 1.3261701345249657
     },
     {
-      "prefab": "GrabhuegelMeadows",
+      "prefab": "Grabhuegel",
       "x": -18777.5,
       "z": -5200,
       "yaw": 3.3675415851463266,
@@ -2278,13 +2761,13 @@
       "einebnen": 7.4
     },
     {
-      "prefab": "GrabhuegelMeadows",
+      "prefab": "Grabhuegel",
       "x": -18109.9,
       "z": -4720.4,
       "yaw": 1.8325957145940461
     },
     {
-      "prefab": "GrabhuegelMeadows",
+      "prefab": "Grabhuegel",
       "x": -18059.3,
       "z": -4931.2,
       "yaw": 3.420845333908886,
@@ -2326,7 +2809,7 @@
       "einebnen": 7
     },
     {
-      "prefab": "GrabhuegelMeadows",
+      "prefab": "Grabhuegel",
       "x": -18062.5,
       "z": -5165.5,
       "yaw": 4.310963252425994,
@@ -2353,20 +2836,20 @@
       "yaw": 3.173812361840891
     },
     {
-      "prefab": "GrabhuegelMeadows",
+      "prefab": "Grabhuegel",
       "x": -15389.5,
       "z": -12080.7,
       "yaw": 2.356194490192345
     },
     {
-      "prefab": "GrabhuegelMeadows",
+      "prefab": "Grabhuegel",
       "x": -15384.2,
       "z": -12115.7,
       "yaw": 2.356194490192345,
       "einebnen": 31
     },
     {
-      "prefab": "GrabhuegelMeadows",
+      "prefab": "Grabhuegel",
       "x": -14534.3,
       "z": -10650.1,
       "yaw": 5.567600313861911,

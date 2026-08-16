@@ -258,22 +258,40 @@ export function streueZone(
         // C++ ignores GetWorldNormal's bool; in-zone positions never fail.
         const normal = otherHeightmap.getWorldNormal(pos.x, pos.z) ?? { x: 0, y: 1, z: 0 };
 
+        // Die Biom-Maske. Sie ist für EIGENE Flora seit Block A
+        // durchlässig — `flora.ts` setzt in jedem Eintrag `ALLE_BIOME`.
+        //
+        // Das ist Absicht und kein Vergessen. Die Maske stand hier als
+        // zweiter Riegel gegen eigene Pflanzen, die überall aufgehen;
+        // diesen Riegel legt aber schon das Kuratierungstor zwei Zeilen
+        // weiter unten um, und zwar genauer (nach ART statt nach BIOM).
+        // Solange die Maske daneben mitentschied, gewann die gröbere von
+        // zwei Regeln: Vier Regionen der Welt tragen ein anderes Biom als
+        // Meadows (blackforest, swamp, deepnorth, ashlands) und wären
+        // trotz gefüllter Kuratierungsliste vollständig kahl geblieben —
+        // lautlos, weil ein abgewiesener Kandidat der Normalfall ist und
+        // nichts protokolliert.
+        //
+        // Für die Originaleinträge trüge die Maske noch; sie sind seit
+        // Block A aus FOLIAGE heraus (vegetation.ts). Was bleibt, ist
+        // `biomeArea` (Rand/Mitte) und die Höhenprüfung weiter unten.
         if ((veg.biome & biome) === 0 || (veg.biomeArea & biomeArea) === 0) {
           continue;
         }
 
         // ── Wer darf hier wachsen ───────────────────────────────────
-        // Zwei Regeln, die zusammen den Bewuchs einer Insel bestimmen:
+        // Die Kuratierungsliste der Region ist die ALLEINIGE Autorität:
         //
-        // 1. Kuratierte Region: Die Liste ist EXKLUSIV. Steht sie da,
-        //    wächst genau das und sonst nichts (leere Liste = nichts).
-        // 2. Eigene Flora wächst NUR auf Bestellung. Die Einträge aus
-        //    `flora.ts` tragen dieselbe Biom-Maske wie die Originale
-        //    und würden sonst auf jeder Graslandinsel zusätzlich zu
-        //    den Originalbäumen aufgehen — jede bestehende Welt sähe
-        //    über Nacht anders aus, obwohl an ihren Daten nichts
-        //    geändert wurde. Ohne Kuratierung bleibt es deshalb bei
-        //    der Biom-Standardtabelle.
+        // 1. Liste vorhanden: Sie ist EXKLUSIV. Steht sie da, wächst
+        //    genau das und sonst nichts (leere Liste = nichts).
+        // 2. Keine Liste: Es wächst nichts. Früher galt hier die
+        //    Biom-Standardtabelle aus `vegetation.pkg` — die gibt es
+        //    nicht mehr, FOLIAGE besteht nur noch aus eigener Flora,
+        //    und die wächst NUR auf Bestellung.
+        //
+        // Der Test darauf ist absichtlich der Hash-Test und nicht
+        // „FOLIAGE ist ohnehin nur eigene Flora": Käme je wieder ein
+        // Fremdeintrag dazu, bliebe die Regel dieselbe.
         if (welt.regionGeo) {
           const region = welt.regionGeo.regionAt(pos.x, pos.z);
           if (region?.vegetation) {
@@ -283,7 +301,8 @@ export function streueZone(
           }
         } else if (EIGENE_FLORA_HASHES.has(veg.prefabHash)) {
           // Radialwelt ohne Layout: dort gibt es keine Kuratierung, also
-          // auch keine Bestellung — die Originaltabelle gilt allein.
+          // auch keine Bestellung. Sie trägt damit gar keinen Bewuchs
+          // mehr (server/test/e2-vegetation.ts misst genau das).
           continue;
         }
 

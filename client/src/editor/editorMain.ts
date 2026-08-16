@@ -22,6 +22,9 @@ import {
   FOLIAGE,
   GRASLAND_FLORA_NAMEN,
   NADELWALD_FLORA_NAMEN,
+  SUMPF_FLORA_NAMEN,
+  HOCHNORD_FLORA_NAMEN,
+  ASCHE_FLORA_NAMEN,
   type BiomeName,
   type RegionDef,
   type WorldLayout,
@@ -1113,6 +1116,37 @@ function seiteBauen(): void {
       // Dieselben Arten wie der Nadelwald — was ihn ausmacht, ist allein
       // die Enge: 276 Stämme je Zone statt 192, davon 26 über 18 m.
       preset(NADELWALD_FLORA_NAMEN, 1.7, 2.0, 0.35, 0.45, 0.35)
+    ));
+    // ── Die drei Biome jenseits von Wiese und Wald ──────────────────
+    // Sie kamen am 16.08.2026 dazu, zusammen mit der Umstellung auf
+    // ausschliesslich eigene Modelle. Vorher gab es sie nicht als Knopf,
+    // und ihre Regionen waren deshalb unkuratiert — was seit der
+    // Umstellung heisst: kahl. Ein Bündel ohne Knopf ist ein Bündel, das
+    // niemand benutzt.
+    box.appendChild(knopf(
+      '🌿 Sumpf (Weiden, Seggen, nasser Grund)',
+      // Nass und schattig, aber nicht geschlossen: Moorbirken und Weiden
+      // stehen einzeln, dazwischen steht das Wasser. Deshalb mittlerer
+      // Waldanteil bei hoher Bewuchsdichte — der Boden ist voll, die
+      // Krone nicht. Feine Körnung, weil ein Bruchwald keine Haine bildet.
+      preset(SUMPF_FLORA_NAMEN, 1.0, 1.6, 0.8, 0.7)
+    ));
+    box.appendChild(knopf(
+      '🏔 Hoher Norden (karg, weite Abstände)',
+      // Kältesteppe, keine Heide. Wenig Wald, wenig Bewuchs, und vor
+      // allem WEITE Abstände: Was den Hohen Norden ausmacht, ist der
+      // Blick zwischen den Bäumen hindurch. Grosse Körnung, damit die
+      // wenigen Kiefern in Gruppen stehen statt gleichmässig verteilt.
+      preset(HOCHNORD_FLORA_NAMEN, 0.5, 0.45, 1.4, 1.6)
+    ));
+    box.appendChild(knopf(
+      '🌋 Aschewüste (nichts wächst)',
+      // Eine leere Liste ist hier eine AUSSAGE, kein vergessenes Feld:
+      // Der gesamte eigene Modellbestand ist nordisch-grün, ein
+      // Wacholderpolster auf Schlacke wäre die Verlegenheitslösung.
+      // Sobald es verkohlte Stümpfe oder Basaltsäulen gibt, gehören sie
+      // in ASCHE_FLORA — dieser Knopf trägt sie dann von selbst ein.
+      preset(ASCHE_FLORA_NAMEN, 0, 0, 1.0, 1.0)
     ));
     box.appendChild(knopf('🌾 Nur Terrain und Gras (kein Bewuchs)', () => {
       ersetze({ vegetation: [] });

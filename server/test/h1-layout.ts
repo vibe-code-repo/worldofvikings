@@ -29,9 +29,17 @@ const layout = {
       biome: 'meadows',
       shape: { kind: 'circle', x: 0, z: 0, radius: 2000 },
       edgeFalloff: 300,
-      // Kuratiert: NUR Buchen — alles andere (Birken, Felsen, Büsche …)
-      // darf nicht erscheinen.
-      vegetation: ['Beech1'],
+      // Kuratiert: NUR eine Birkenart — alles andere (Eichen, Felsen,
+      // Büsche …) darf nicht erscheinen.
+      //
+      // Bis Block A stand hier `Beech1`, eine Valheim-Buche. Sie kann
+      // nicht mehr wachsen: FOLIAGE ist gegen `istEigenesModell()`
+      // gefiltert (shared/src/vegetation.ts) und enthält nur noch
+      // eigene Modelle. Eine Kuratierungsliste ohne Streueintrag bleibt
+      // wirkungslos — der Test prüft die Kuratierung, also braucht er
+      // eine Art, die es auch gibt. BirkeHoch2 ist die häufigste des
+      // Graslands und macht die Aussage „exklusiv" damit belastbar.
+      vegetation: ['BirkeHoch2'],
     },
   ],
 };
@@ -62,8 +70,8 @@ for (let zy = -4; zy <= 4; zy++) {
 const arten = [...namen.keys()];
 check('Vegetation vorhanden', namen.size > 0, JSON.stringify(arten.slice(0, 6)));
 check(
-  'Kuratierung exklusiv (nur Beech1)',
-  arten.every((n) => n === 'Beech1'),
+  'Kuratierung exklusiv (nur BirkeHoch2)',
+  arten.every((n) => n === 'BirkeHoch2'),
   `gefunden: ${arten.join(', ')}`
 );
 

@@ -1,12 +1,15 @@
 /**
- * H4 — Bewuchs einer Layout-Insel: eigene Flora, Biom-Standard, gar nichts.
+ * H4 — Bewuchs einer Layout-Insel: eigene Flora, gar nichts, und das in
+ * jedem Biom.
  *
  * Die drei Zustände von `RegionDef.vegetation` entscheiden, was auf einer
  * Insel wächst. Sie sind im Editor drei Knöpfe, im Dokument drei Formen
  * desselben Feldes — und hier wird nachgesehen, ob am Ende auch das aus
  * dem Boden kommt, was der Knopf verspricht:
  *
- *   Feld fehlt    → Biom-Standardtabelle, KEINE eigene Flora
+ *   Feld fehlt    → KEIN Bewuchs (seit Block A: es gibt keine
+ *                   Biom-Standardtabelle mehr, FOLIAGE ist reine
+ *                   Eigenflora und wächst nur auf Bestellung)
  *   Liste gefüllt → exakt diese Arten, sonst nichts
  *   Liste leer    → gar nichts
  *
@@ -15,12 +18,29 @@
  * (`shared/src/flora.ts`) und einen Platz in der Kuratierungsliste.
  * Fehlt eines von beiden, bleibt die Insel kahl — und zwar lautlos.
  *
+ * ── Warum der Test nicht mehr nur Grasland prüft ─────────────────────
+ * Genau daran wäre die Welt beinahe gescheitert. Alle eigenen Einträge
+ * trugen `Biome.Meadows`, und die Biom-Maske greift im Streudurchlauf
+ * VOR dem Kuratierungstor. Vier Regionen der Welt tragen ein anderes
+ * Biom — insel-2 (blackforest), insel-3 (swamp), land-1 (deepnorth),
+ * insel-16 (ashlands) — und wären trotz gefüllter Liste vollständig
+ * kahl geblieben. Ohne Fehlermeldung, denn ein abgewiesener Kandidat ist
+ * im Streudurchlauf der Normalfall.
+ *
+ * Abschnitt 10 ist der Wächter dagegen: In einer kuratierten Region der
+ * Biome blackforest, swamp und deepnorth MUSS Bewuchs entstehen, und
+ * zwar ausschliesslich aus der jeweiligen Liste. Vier stille leere
+ * Regionen fallen niemandem auf; eine rote Zeile hier schon.
+ *
  * Lauf: npx tsx server/test/h4-graslandflora.ts
  */
 
 import {
+  ASCHE_FLORA_NAMEN,
   GRASLAND_FLORA_NAMEN,
+  HOCHNORD_FLORA_NAMEN,
   NADELWALD_FLORA_NAMEN,
+  SUMPF_FLORA_NAMEN,
   HeightmapProvider,
   RegionGeo,
   findPrefabByHash,
@@ -50,11 +70,17 @@ function check(name: string, ok: boolean, detail = ''): void {
  * Der Radius ist absichtlich grosszuegig (1600 m): Der Streutest laeuft
  * ueber 11 x 11 Zonen a 64 m, und jeder Punkt ausserhalb der Region
  * bekaeme die Ozean-Vorgabe statt der Inselregel.
+ *
+ * `biom` ist der zweite Parameter und nicht der erste, damit die
+ * bestehenden Aufrufe unveraendert Grasland pruefen. `baseLevel` bleibt
+ * fuer JEDES Biom bei 0.3 — die biomeigenen Vorgaben (Sumpf 0.16,
+ * Hochnord 0.34) wuerden die Insel unterschiedlich hoch aus dem Wasser
+ * heben, und dann maesse man beim Biomvergleich die Hoehe mit.
  */
-function insel(vegetation?: readonly string[]): WorldLayout {
+function insel(vegetation?: readonly string[], biom = 'grassland'): WorldLayout {
   const region: Record<string, unknown> = {
     id: 'probe',
-    biome: 'grassland',
+    biome: biom,
     shape: { kind: 'circle', x: 0, z: 0, radius: 1600 },
     edgeFalloff: 200,
     baseLevel: 0.3,
@@ -119,16 +145,22 @@ check('kuratiert: Bäume vertreten', hatBaum);
 check('kuratiert: Sträucher vertreten', hatStrauch);
 check('kuratiert: Bodenpflanzen vertreten', hatBoden);
 
-// ── 2. Ohne Kuratierung: Standardtabelle, KEINE eigene Flora ─────────
-// Der wichtigste Fall für bestehende Welten: Die eigenen Einträge stehen
-// jetzt in FOLIAGE und tragen dieselbe Biom-Maske wie die Originale. Ohne
-// die Bestellregel im ZoneManager gingen sie überall zusätzlich auf.
+// ── 2. Ohne Kuratierung: gar nichts ──────────────────────────────────
+// Bis Block A stand hier „Originalbewuchs vorhanden": Eine Region ohne
+// Liste fiel auf die Biom-Standardtabelle aus `vegetation.pkg` zurück.
+// Die Tabelle gibt es nicht mehr — FOLIAGE besteht nur noch aus eigener
+// Flora, und die wächst ausschliesslich auf Bestellung. Eine Region ohne
+// `vegetation` bleibt deshalb kahl.
+//
+// Der Fall bleibt trotzdem stehen, und zwar schärfer als vorher: Er ist
+// die Probe darauf, dass eigene Flora NICHT von allein aufgeht. Seit die
+// Biom-Maske durchlässig ist (ALLE_BIOME), hängt daran alles — fiele die
+// Bestellregel weg, stünde ab sofort auf jeder Insel jede Pflanze.
 const standard = bewuchs(insel(undefined));
-check('standard: Originalbewuchs vorhanden', summe(standard, () => true) > 0);
 check(
-  'standard: keine eigene Flora ohne Bestellung',
-  summe(standard, (n) => eigen.has(n)) === 0,
-  `= ${summe(standard, (n) => eigen.has(n))}`
+  'standard: ohne Bestellung wächst gar nichts',
+  summe(standard, () => true) === 0,
+  `= ${summe(standard, () => true)}`
 );
 
 // ── 3. Leere Liste: gar nichts ───────────────────────────────────────
@@ -314,7 +346,71 @@ console.log(`  Dichte 0.3 → ${d1} | 1.0 → ${g} | 2.5 → ${d2} Pflanzen`);
   console.log(`  Nester: ${(anteil * 100).toFixed(0)} % der Fläche | Geländerauheit ${vorher.toFixed(2)} → ${imNest.toFixed(2)} m im Nest, ${offen.toFixed(2)} m offen`);
 }
 
-// ── 9. Determinismus ─────────────────────────────────────────────────
+// ── 9. Die anderen Biome der Welt ────────────────────────────────────
+// Der Wächter gegen den Fehler, den Block A behoben hat: Die Biom-Maske
+// der eigenen Flora griff VOR dem Kuratierungstor und liess nur Meadows
+// durch. Vier Regionen der Welt tragen ein anderes Biom und wären
+// lautlos kahl geblieben.
+//
+// Geprüft wird je Biom dasselbe Paar:
+//   a) Es wächst überhaupt etwas (Anzahl > 0) — das ist die Maske.
+//   b) Es wächst NUR aus der Liste des Bioms — das ist die Kuratierung.
+//
+// Die Fläche ist dieselbe Insel wie oben, nur mit anderem `biome`-Feld.
+// Damit ist der Unterschied zwischen den Durchläufen ausschliesslich das
+// Biom und die Liste, nicht das Gelände.
+{
+  const biome: ReadonlyArray<readonly [string, string, readonly string[]]> = [
+    ['blackforest', 'Nadelwald', NADELWALD_FLORA_NAMEN],
+    ['swamp', 'Sumpf', SUMPF_FLORA_NAMEN],
+    ['deepnorth', 'Hoher Norden', HOCHNORD_FLORA_NAMEN],
+  ];
+  for (const [biom, titel, liste] of biome) {
+    const m = bewuchs(insel(liste, biom));
+    const erlaubt = new Set(liste);
+    const drin = summe(m, (n) => erlaubt.has(n));
+    const fremd = summe(m, (n) => !erlaubt.has(n));
+    const arten = [...m.keys()].filter((n) => erlaubt.has(n));
+    check(`${biom}: Bewuchs entsteht (${titel})`, drin > 0, `= ${drin} Stück`);
+    check(`${biom}: nichts ausserhalb der Liste`, fremd === 0, `= ${fremd} fremde`);
+    // Eine Liste, von der nur zwei Arten ankommen, ist so gut wie kahl —
+    // die Hälfte muss durchkommen, sonst stimmen die Streuzahlen nicht.
+    check(
+      `${biom}: die Liste kommt breit an`,
+      arten.length >= Math.ceil(liste.length / 2),
+      `${arten.length} von ${liste.length} Arten`
+    );
+    console.log(`  ${biom}: ${drin} Pflanzen, ${arten.length}/${liste.length} Arten`);
+  }
+
+  // Der Sumpf braucht seine Bäume — die Moorbirken stehen in FOLIAGE
+  // HINTER den wiederverwendeten Bodenpflanzen des Graslands (Farn,
+  // Seggen1, Brennnessel1) und müssen trotzdem Platz finden. Dasselbe
+  // Muster wie beim Nadelwald in Abschnitt 7.
+  const sumpf = bewuchs(insel(SUMPF_FLORA_NAMEN, 'swamp'));
+  check(
+    'swamp: Moorbirken kommen durch',
+    summe(sumpf, (n) => /^BirkeDicht[34]$/.test(n)) > 0,
+    `= ${summe(sumpf, (n) => /^BirkeDicht[34]$/.test(n))}`
+  );
+  // Und der Hohe Norden darf NICHT zuwachsen: Er ist über die Stückzahl
+  // definiert, nicht über die Artenliste. Gemessen am Grasland auf
+  // derselben Fläche muss er deutlich dünner sein.
+  const hochnord = bewuchs(insel(HOCHNORD_FLORA_NAMEN, 'deepnorth'));
+  const nHoch = summe(hochnord, () => true);
+  const nGras = summe(mitFlora, () => true);
+  check('deepnorth: karg gegenüber dem Grasland', nHoch < nGras / 3, `${nHoch} gegen ${nGras}`);
+  console.log(`  Hoher Norden ${nHoch} gegen Grasland ${nGras} Pflanzen auf gleicher Fläche`);
+
+  // Die Aschewüste ist absichtlich LEER (siehe ASCHE_FLORA). Der Test
+  // hält das fest, damit die Null als Entscheidung sichtbar bleibt und
+  // nicht als vergessene Liste durchgeht.
+  check('ashlands: Liste ist leer (Entwurf, kein Versäumnis)', ASCHE_FLORA_NAMEN.length === 0);
+  const asche = bewuchs(insel(ASCHE_FLORA_NAMEN, 'ashlands'));
+  check('ashlands: nackter Aschegrund', summe(asche, () => true) === 0, `= ${summe(asche, () => true)}`);
+}
+
+// ── 10. Determinismus ────────────────────────────────────────────────
 // Zwei Läufe mit demselben Seed müssen dasselbe ergeben, sonst wäre die
 // Welt bei jedem Serverstart eine andere.
 const nochmal = bewuchs(insel(GRASLAND_FLORA_NAMEN));

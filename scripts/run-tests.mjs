@@ -24,6 +24,11 @@ const KERN = [
   ['shared', 'test/worldlayout.ts'],
   ['shared', 'test/region-geo.ts'],
   ['shared', 'test/geo-smoke.ts'],
+  // Die Hoehenfunktion aus shared/ fahren Server UND Client. Der Test haelt
+  // 13 Zonen aus allen Biomlagen plus den Abfragepfad gegen eine Referenz
+  // und laesst genau 0,000 m Abweichung zu — die Bremse gegen jede
+  // Beschleunigung, die die Welt unter den Fuessen des Spielers verschiebt.
+  ['shared', 'test/heightmap-determinismus.ts'],
   ['shared', 'test/dungeon-generator.ts'],
   ['server', 'test/h1-layout.ts'],
   ['server', 'test/h2-routen.ts'],

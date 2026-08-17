@@ -448,36 +448,47 @@ export class Shadows {
     // Selbstverschattung ("shadow acne") an flachen Böschungen vermeiden.
     g.bias = 0.005;
     g.normalBias = 0.02;
-    // Schattenkarte nur jeden zweiten Frame neu zeichnen.
+    // ── `refreshRate` IST HIER WIRKUNGSLOS — gemessen 17.08.2026 ────────
     //
-    // Sie ist der teuerste Posten überhaupt: Jede Kaskade rendert die
-    // gesamte Werferliste erneut, bei vier Kaskaden also über viertausend
-    // zusätzliche Zeichenaufrufe pro Frame. Gemessen: Aus 43 fps, Hoch
-    // 22 fps.
-    //
-    // Vertretbar ist das Auslassen, weil sich am Schattenwurf zwischen
-    // zwei Frames praktisch nichts ändert — die Sonne wandert über
-    // Minuten, und die Werfer sind bis auf den Spieler statisch. Sichtbar
-    // wird es allein an der eigenen Figur, und die ist klein im Bild.
-    //
-    // ⚠ HIER STAND `refreshRate = 1`, MIT DEM KOMMENTAR "1 = jeden
-    // zweiten Frame" — das ist Babylons Zählweise genau falsch herum:
-    // `ObjectRenderer.refreshRate` heisst "alle n Frames", 0 = einmalig,
-    // **1 = JEDEN Frame**, 2 = jeden zweiten (objectRenderer.js, Setter
-    // `refreshRate`). Die Sparmassnahme war also nie aktiv. Gemessen am
-    // 2026-08-02, Serverwelt mit 9896 statischen ZDOs, 1600×900:
+    // Hier stand `karte.refreshRate = 2` ("Schattenkarte nur jeden zweiten
+    // Frame neu zeichnen") mit einer Messung vom 02.08.2026 als Beleg:
     //
     //   refreshRate 1 (jeden Frame)     1134 Zeichenaufrufe  20,6 ms  43 fps
     //   refreshRate 2 (jeden zweiten)    912 Zeichenaufrufe  17,6 ms  53 fps
     //
-    // Die Kaskadenmatrizen bleiben dabei synchron zum Karteninhalt:
-    // `_computeMatrices()` hängt an `onBeforeBindObservable` der Karte
-    // (cascadedShadowGenerator.js) und läuft damit NUR in den Frames, in
-    // denen auch gezeichnet wird. Es gibt also keinen Versatz zwischen
-    // Tiefenbild und Nachschlagematrix — der Schatten ist einen Frame
-    // alt, nicht verrutscht.
-    const karte = g.getShadowMap();
-    if (karte) karte.refreshRate = 2; // alle 2 Frames
+    // Die Zeile ist entfernt, weil sie NICHTS TUT. Nachgezählt, statt die
+    // Frame-Zeit zu vergleichen — die Zählung ist eindeutig, der Zeitvergleich
+    // war es nie:
+    //
+    //   const o = karte.onBeforeRenderObservable.add(() => schatten++);
+    //   … über 120 Bilder …
+    //
+    //   refreshRate 2   120 Bilder   360 Schattendurchläufe   3,0 je Bild
+    //   refreshRate 1   120 Bilder   360 Schattendurchläufe   3,0 je Bild
+    //   refreshRate 2   120 Bilder   360 Schattendurchläufe   3,0 je Bild
+    //
+    // Drei Durchläufe je Bild sind genau die drei Kaskaden der Stufe
+    // "Mittel" — die Karte wird also in JEDEM Bild vollständig neu
+    // gezeichnet, egal was in `refreshRate` steht. Der gelesene Wert
+    // stimmt dabei mit dem gesetzten überein; es ist kein Tippfehler,
+    // sondern der `CascadedShadowGenerator` rendert seine Kaskaden an der
+    // Auslassprüfung der RenderTargetTexture vorbei.
+    //
+    // Was das für die alte Messung heisst, ist offen: Entweder hat sie
+    // etwas anderes gemessen, oder Babylons Verhalten hat sich seither
+    // geändert. Belastbar ist nur die Zählung oben, und die schliesst die
+    // Sparmassnahme aus.
+    //
+    // ⚠ FOLGE FÜR DIE FEHLERSUCHE: Die Schattenkarte ist damit NIE einen
+    // Frame alt. Der naheliegende Verdacht bei flackernden Schatten —
+    // "der Wurf hinkt der bewegten Figur um ein Bild hinterher" — ist
+    // damit ausgeschlossen, und zwar für die Figur wie für das Laub.
+    // Siehe Docs/07-Grafik-Konzept.md, "Flimmern: es sind nicht die
+    // Schatten".
+    //
+    // Wer den Schattenpass wirklich verbilligen will, muss an der LÄNGE
+    // der Werferliste ansetzen (darfWerfen weiter oben) oder an der
+    // Kaskadenzahl — nicht an der Bildrate der Karte.
     this.generator = g;
 
     for (const m of this.scene.meshes) this.nimmAuf(m);

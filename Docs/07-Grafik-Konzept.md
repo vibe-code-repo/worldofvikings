@@ -1009,6 +1009,175 @@ Werferliste, weil `NIE_WERFEN` in `Shadows.ts` es ausdrücklich ausschliesst —
 rendert die Werferliste komplett neu, und Clutter stellt die meisten Meshes. Empfangen darf
 es weiterhin. „Blockige Grasschatten" gibt es also gar nicht; es gibt keine.
 
+### Flimmern: es sind nicht die Schatten (17.08.2026)
+
+Gemeldet wurde: „die Schatten flackern — bei der Spielfigur wie bei der Vegetation, und im
+Laub sieht es aus, als flimmere der Schatten innerhalb der Baumtextur."
+
+**Es sind nicht die Schatten.** Werkzeug: `tools/pw-schatten-flimmern.mjs`.
+
+**Zum Messverfahren, weil der erste Anlauf nichts taugte.** Zuerst wurde gezählt, wie viele
+Bildpunkte sich von Bild zu Bild ÄNDERN. Das misst überwiegend legitime Bewegung — ein
+Grashalm, der sich neigt, ändert seine Bildpunkte —, und der gesuchte Effekt ging darin
+unter. Dazu kam, dass das Wettersystem die Böigkeit fortlaufend ändert: Derselbe Zustand kam
+über drei Sitzungen auf 4,51 / 2,23 / 1,55 %. Beides ist behoben — der Wind wird über
+`EnvMan.SetDebugWind` eingefroren und nach jedem Zustandswechsel neu festgenagelt, und
+gemessen wird **Zappeln** statt Änderung: Je Bildpunkt wird das VORZEICHEN der
+Helligkeitsänderung verfolgt. Eine sich neigende Blattkante wird über mehrere Bilder monoton
+heller oder dunkler; Flimmern springt hin und her.
+
+Kamera fest, Tageszeit fest, Spieler steht. Zappelnde Bildpunkte in Prozent des Bildes:
+
+| Zustand | zappelnd | bewegt | davon zappelnd |
+|---|---|---|---|
+| Wind aus, Schatten an | **3,7 %** | 3,7 % | 97,8 % |
+| nur Baumwind, Schatten **aus** | 12,9 % | 14,0 % | 92,7 % |
+| nur Baumwind, Schatten **an** | 13,2 % | 14,4 % | 91,8 % |
+| nur Graswind, Schatten an | 31,0 % | 31,9 % | 97,2 % |
+| alles an | **40,8 %** | 43,0 % | 95,1 % |
+| Schatten **aus**, voller Wind | 38,1 % | 40,0 % | 95,2 % |
+
+Zwei Zahlen tragen den ganzen Befund:
+
+1. **95 % aller bewegten Bildpunkte zappeln.** Die Vegetation bewegt sich nicht, sie
+   flimmert.
+2. **Die Schatten steuern 2,7 von 40,8 Punkten bei**, also 6,7 %. Bei reinem Baumwind sind
+   es 0,3 von 13,2.
+
+**Fünf Verdächtige einzeln ausgeschlossen**, jeder ohne messbare Wirkung:
+
+| geprüft | Ergebnis |
+|---|---|
+| `refreshRate` 2 → 1 (Schattenkarte jedes Bild) | 41,4 gegen 40,8 % — nichts (und zwar aus gutem Grund, s. u.) |
+| Texeldichte der Schattenkarte verdreifacht (`shadowMaxZ` 150 → 50 m) | 1,57 gegen 1,55 % — nichts |
+| PCF hoch (5×5) statt mittel (3×3) | 1,52 gegen 1,55 % — nichts |
+| Laub empfängt keine Schatten mehr | 13,15 gegen 13,13 % — nichts |
+| Mipmaps der Laubtexturen abgeschaltet | 13,49 gegen 13,13 % — nichts |
+
+Besonders die vierte Zeile ist wichtig, weil sie genau die gemeldete Wahrnehmung prüft
+(„der Schatten INNERHALB der Baumtextur"): Nimmt man dem Laub den Schattenempfang komplett,
+ändert sich nichts.
+
+**Was bleibt, ist die Bauart der Vegetation selbst.** Cutout-Laub kennt keine Teildeckung:
+Ein Bildpunkt an einer Blattkante ist entweder Blatt oder Hintergrund, und beim kleinsten
+Windversatz kippt er ganz um. MSAA hilft dagegen nicht — der `discard` verwirft den ganzen
+Bildpunkt, nicht einzelne Abtastpunkte —, und Alpha-to-Coverage gibt es in Babylon nur im
+WebGPU-Pfad (`webgpuCacheRenderPipeline.js`; im WebGL-Pfad kommt der Begriff nicht vor).
+Dass **Gras mehr als doppelt so viel beiträgt wie Bäume** (31,0 gegen 13,2 Punkte), passt
+dazu: Halme sind die dünnsten Strukturen im Bild.
+
+> [!note] Warum der Bericht trotzdem richtig war
+> „Die Schatten flackern" beschreibt, was man sieht: dunkel-hell-dunkel im Wechsel. Dass die
+> Ursache nicht der Schattenwurf ist, ist von aussen nicht zu unterscheiden. Der Messaufbau
+> oben ist genau dafür da.
+
+**Supersampling hilft NICHT — auch das ist gemessen.** Naheliegender Schluss aus „es ist
+Kantenaliasing" wäre, über 100 % zu rendern und beim Ausgeben zu glätten; besonders
+verlockend, weil dieses Spiel CPU-gebunden ist und Bildpunkte hier fast nichts kosten. Erst
+gemessen, dann eingebaut — und gut so:
+
+| Renderauflösung | zappelnde Bildpunkte |
+|---|---|
+| 100 % (1600×900) | 16,7 – 19,2 % |
+| 150 % (2400×1350) | 18,4 – 20,3 % |
+
+Kein Gewinn, eher leicht schlechter. **Wichtig zur Methode:** Der erste Anlauf dieses
+Vergleichs war wertlos, weil `engine.readPixels()` den RENDERPUFFER liest — also das Bild
+VOR dem Herunterskalieren, und damit genau das, was Supersampling erst beseitigt. Die
+Zahlen oben sind auf ein gemeinsames Raster von 800×450 heruntergemittelt, sonst vergleicht
+man zwei verschiedene Bilder.
+
+### Was das Differenzbild zeigt — und warum die Sache offen bleibt
+
+Zwei aufeinanderfolgende Bilder, Differenz achtfach verstärkt (Wind eingefroren, Kamera
+fest, Spieler steht):
+
+- **Die Baumkronen sind fast flächig weiss.** Nicht nur die Silhouette — das INNERE der
+  Krone ändert sich zwischen zwei Bildern fast überall. Das ist die vom Nutzer beschriebene
+  Beobachtung, wörtlich sichtbar gemacht.
+- **Die Spielfigur ist flächig weiss**, obwohl sie steht.
+- Das Gras zeigt Streifenmuster entlang der Halmkanten, deutlich schwächer.
+- Himmel und Gelände sind schwarz — die Messung selbst rauscht also nicht.
+
+Die grösste Einzeldifferenz zweier aufeinanderfolgender Bilder beträgt **322 von 765**, also
+42 % Helligkeitssprung an einem Bildpunkt.
+
+**Damit ist die Ursache eingegrenzt, aber nicht behoben.** Was gesichert ist: nicht die
+Schatten, nicht die Schattenkarte, nicht die Mipmaps, nicht die Auflösung. Was offen ist:
+warum sich die Kronen FLÄCHIG und nicht nur an den Kanten ändern. Zwei Kandidaten für den
+nächsten Anlauf, beide ungeprüft:
+
+1. **Überlappende Laubkarten ohne stabile Tiefenreihenfolge.** Eine Krone besteht aus
+   dutzenden alpha-getesteten Karten in nahezu gleicher Tiefe; verschiebt der Wind sie
+   gegeneinander, wechselt bildweise, welche Karte an einem Bildpunkt gewinnt.
+2. **Die Bewegung je Bild ist schlicht zu gross gegen die Texturfrequenz.** Auf einer
+   Laubtextur mit Detail auf Bildpunktgrösse ändert dann fast jeder Bildpunkt seinen Wert.
+
+**Die Gegenprobe zu (2) ist gelaufen und stützt sie.** Windamplitude auf ein Zehntel,
+dasselbe Differenzbild, mittlere Differenz je Bildpunkt über das ganze Bild:
+
+| Wind | mittlere Differenz |
+|---|---|
+| voll (0,22 / 3,0) | 4,03 |
+| ein Zehntel (0,022 / 0,3) | 1,71 |
+| ganz aus | 1,33 |
+
+Der windbedingte Anteil fällt von 2,70 auf 0,38 — also auf 14 % bei 10 % Amplitude, in
+grober Proportion zur Bewegung. Das passt zu (2) und spricht gegen (1): Eine kippende
+Tiefenreihenfolge würde nicht so sauber mitskalieren.
+
+**Und die Spielfigur bleibt auch bei einem Zehntel Wind flächig weiss.** Ihr Anteil hat also
+nichts mit Wind zu tun — er kommt aus ihrer eigenen Animation. Der naheliegende Verdacht
+(„ihr Schatten hinkt ein Bild hinterher") ist ausgeschlossen, siehe den nächsten Abschnitt.
+
+### `refreshRate` an der Schattenkarte ist wirkungslos — und war es beim Messen schon
+
+Bei der Fehlersuche fiel auf, dass `Shadows.setLevel()` mit `karte.refreshRate = 2` eine
+Sparmassnahme setzte, die nichts tut. **Gezählt statt Frame-Zeiten verglichen** — über
+`karte.onBeforeRenderObservable`, 120 Bilder je Einstellung:
+
+| gesetzt | gelesen | Bilder | Schattendurchläufe | je Bild |
+|---|---|---|---|---|
+| 2 | 2 | 120 | 360 | **3,0** |
+| 1 | 1 | 120 | 360 | **3,0** |
+| 2 | 2 | 120 | 360 | **3,0** |
+
+Drei Durchläufe je Bild sind genau die drei Kaskaden der Stufe „Mittel": Die Karte wird in
+JEDEM Bild vollständig neu gezeichnet, unabhängig vom Wert. Der
+`CascadedShadowGenerator` rendert seine Kaskaden an der Auslassprüfung der
+`RenderTargetTexture` vorbei.
+
+Die dokumentierte Messung vom 02.08.2026 (1134 → 912 Zeichenaufrufe, 20,6 → 17,6 ms) lässt
+sich damit nicht mehr reproduzieren. Die Zeile ist entfernt und der Kommentar korrigiert;
+wer den Schattenpass verbilligen will, muss an der Länge der Werferliste oder an der
+Kaskadenzahl ansetzen.
+
+**Zwei Lehren, die über den Fall hinausgehen:** Erstens ist eine Frame-Zeit-Differenz kein
+Nachweis, dass ein Schalter greift — sie ist nur ein Indiz, und bei kleinen Effekten ein
+schlechtes. Zählen ist besser als messen, wo man zählen kann. Zweitens hat genau dieser
+Schalter schon einmal falsch dokumentiert im Code gestanden (der frühere Kommentar hatte
+Babylons Zählweise umgedreht) — ein Wert, der zweimal hintereinander etwas anderes tut als
+sein Kommentar behauptet, gehört nachgezählt und nicht geerbt.
+
+### Nebenbefund: Stufe 12 (Cutout-Schatten) hat sich erledigt
+
+Bei dieser Untersuchung fiel auf, dass der frühere Befund zu Stufe 12 nicht mehr gilt. Er
+lautete „Vorwärtspass 6 von 6 Shadern mit `ALPHATEST`, Schattenpass **0 von 3**" — Laubkarten
+würden ihr Rechteck werfen.
+
+Nachgezählt am 17.08. über `material.shadowDepthWrapper._subMeshToDepthWrapper`: **29 von 33
+Vegetationsmaterialien** haben einen fertigen und bereiten Tiefeneffekt, und dessen
+Fragmentcode trägt `ALPHATEST` und `discard`, sein Vertexcode den Windversatz. Der
+`ShadowDepthWrapper` baut den Tiefen-Shader aus
+`origEffect.vertexSourceCodeBeforeMigration` — also aus dem echten Vorwärts-Shader samt
+Plugins (`shadowDepthWrapper.js`, `_makeEffect`).
+
+Die alte Zählung ging über die Effektliste der Engine und filterte auf das Wort `shadowMap`.
+Das trifft aber auch **Vorwärts**-Shader, deren Fragmentcode Schatten abtastet — die Zahl
+„0 von 3" beschrieb also eine falsch zusammengestellte Menge, nicht die Wirklichkeit.
+
+---
+
 ### Stufe 9 — Baum-LOD: gemessen und verworfen (17.08.2026)
 
 ✅ **Entschieden. Die Aufgabe wird nicht gebaut — sie würde das Bild langsamer machen.**

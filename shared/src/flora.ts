@@ -53,6 +53,7 @@
 import { Biome } from './types.js';
 import { getStableHash } from './hash.js';
 import type { Foliage } from './vegetation.js';
+import { EIGENE_MODELLE_SET } from './prefabs.js';
 
 /**
  * Vorgaben, die für alle eigenen Einträge gleich sind.
@@ -191,6 +192,62 @@ function flora(k: FloraKurz): Foliage {
   };
 }
 
+
+/**
+ * Anteil der Stückzahl, der auf die dicke Stammvariante entfällt.
+ *
+ * Ein Drittel — bewusst die kleinere Hälfte: Dicke Stämme sind alte
+ * Bäume, und ein Bestand, der zur Hälfte aus ihnen besteht, liest sich
+ * nicht als gewachsener Wald, sondern als zweite Baumart. Der Wert ist
+ * die einzige Stellschraube dieser Mechanik; alles andere folgt daraus.
+ */
+const ANTEIL_DICK = 1 / 3;
+
+/**
+ * Ergänzt eine Bündelliste um die dicken Stammvarianten — abgeleitet,
+ * nicht abgeschrieben.
+ *
+ * Zu jedem Baum, für den ein `<Name>Dick`-Modell existiert, entsteht ein
+ * zweiter Streueintrag mit **denselben** Regeln (Radius, Neigung,
+ * Waldfenster, Gruppenbildung) und einem Drittel der Stückzahl; der
+ * dünnen Variante werden dieselben Stücke abgezogen. **Die Walddichte
+ * bleibt damit unverändert** — es wandert nur ein Teil des Bestands von
+ * dünn nach dick.
+ *
+ * Warum abgeleitet und nicht 26-mal von Hand eingetragen: Die dicke
+ * Variante IST derselbe Baum (gleicher Seed, gleiche Höhe, nur
+ * Stammfaktor 1.8 — siehe `tools/baeume-bauen.sh`). Zwei getrennt
+ * gepflegte Zahlensätze für dieselbe Sache laufen früher oder später
+ * auseinander, und dann steht im Wald plötzlich doppelt so viel wie
+ * gedacht. Hier kann das nicht passieren.
+ *
+ * Die eigenen Ziehungen bleiben trotzdem unabhängig: `streueZone` sät
+ * seinen Zufallsgenerator mit `prefabHash`, und der ist für `Fichte1Dick`
+ * ein anderer als für `Fichte1`. Die dicken stehen also nicht neben den
+ * dünnen, sondern zwischen ihnen.
+ */
+function mitDickenStaemmen(liste: readonly Foliage[]): readonly Foliage[] {
+  const ergebnis: Foliage[] = [];
+  for (const eintrag of liste) {
+    const dickerName = `${eintrag.prefabName}Dick`;
+    if (!EIGENE_MODELLE_SET.has(dickerName)) {
+      ergebnis.push(eintrag);
+      continue;
+    }
+    const dickMin = Math.round(eintrag.min * ANTEIL_DICK);
+    const dickMax = Math.round(eintrag.max * ANTEIL_DICK);
+    ergebnis.push({ ...eintrag, min: eintrag.min - dickMin, max: eintrag.max - dickMax });
+    ergebnis.push({
+      ...eintrag,
+      prefabName: dickerName,
+      prefabHash: getStableHash(dickerName),
+      min: dickMin,
+      max: dickMax,
+    });
+  }
+  return ergebnis;
+}
+
 /**
  * Die Flora des Graslands — Laubwald-Inseln in offener Wiese.
  *
@@ -199,7 +256,7 @@ function flora(k: FloraKurz): Foliage {
  * Schwarzwald unterscheidet. Wer sie trotzdem will, trägt sie in der
  * Kuratierungsliste der Region nach.
  */
-export const GRASLAND_FLORA: readonly Foliage[] = [
+const GRASLAND_FLORA_DUENN: readonly Foliage[] = [
   // ── Bäume ──────────────────────────────────────────────────────────
   // Eichen stehen EINZELN und selten (max 2 je Zone): Eine Eiche ist ein
   // Solitär, und mit 12 m Kronenbreite ist sie das Grössenmass, an dem
@@ -267,6 +324,10 @@ export const GRASLAND_FLORA: readonly Foliage[] = [
   flora({ name: 'Farn1', radius: 0.9, min: 4, max: 12, maxTilt: 38, wald: [true, 0.0, 1.25], gruppe: [6, 2, 6], kippen: 6 }),
 ];
 
+/** GRASLAND_FLORA samt der abgeleiteten dicken Stammvarianten — siehe
+ *  `mitDickenStaemmen()`. Diese Liste ist die benutzte. */
+export const GRASLAND_FLORA: readonly Foliage[] = mitDickenStaemmen(GRASLAND_FLORA_DUENN);
+
 /**
  * Der Nadelwald — dicht, dunkel, wenig Unterwuchs.
  *
@@ -285,7 +346,7 @@ export const GRASLAND_FLORA: readonly Foliage[] = [
  *     Wiesenblumen. Es bleiben Farn, Heidelbeere und Wacholder — und die
  *     nur dort, wo das Dach aufreisst.
  */
-export const NADELWALD_FLORA: readonly Foliage[] = [
+const NADELWALD_FLORA_DUENN: readonly Foliage[] = [
   // ── Schicht 1: Oberschicht (> 18 m) ────────────────────────────────
   //
   // Das Waldfenster ist je Schicht ENGER, je groesser der Baum: Die
@@ -358,6 +419,10 @@ export const NADELWALD_FLORA: readonly Foliage[] = [
   flora({ name: 'Seggen1', radius: 0.8, min: 2, max: 8, maxTilt: 30, wald: [true, 0.9, 1.4], gruppe: [5, 2, 5], kippen: 4 }),
 ];
 
+/** NADELWALD_FLORA samt der abgeleiteten dicken Stammvarianten — siehe
+ *  `mitDickenStaemmen()`. Diese Liste ist die benutzte. */
+export const NADELWALD_FLORA: readonly Foliage[] = mitDickenStaemmen(NADELWALD_FLORA_DUENN);
+
 /**
  * Der Sumpf — nass, schattig, niedrig.
  *
@@ -389,7 +454,7 @@ export const NADELWALD_FLORA: readonly Foliage[] = [
  * verstellt würde: Das Grasland mitzuverändern wäre der teuerste
  * denkbare Nebeneffekt einer Sumpfliste.
  */
-export const SUMPF_FLORA: readonly Foliage[] = [
+const SUMPF_FLORA_DUENN: readonly Foliage[] = [
   // ── Baumschicht: Moorbirke, licht ──────────────────────────────────
   // Zuerst, aus demselben Grund wie im Nadelwald: Die Streuung arbeitet
   // FOLIAGE der Reihe nach ab, und wer zuerst kommt, bekommt den Platz.
@@ -459,6 +524,10 @@ export const SUMPF_FLORA: readonly Foliage[] = [
   flora({ name: 'Ampfer2', radius: 0.9, min: 4, max: 12, maxTilt: 28, wald: [false, 0.0, 5], gruppe: [6, 2, 5], kippen: 5 }),
 ];
 
+/** SUMPF_FLORA samt der abgeleiteten dicken Stammvarianten — siehe
+ *  `mitDickenStaemmen()`. Diese Liste ist die benutzte. */
+export const SUMPF_FLORA: readonly Foliage[] = mitDickenStaemmen(SUMPF_FLORA_DUENN);
+
 /**
  * Der Hohe Norden — karg.
  *
@@ -486,7 +555,7 @@ export const SUMPF_FLORA: readonly Foliage[] = [
  * eines Prefabs gewinnt) — bei einem Biom, das über die Stückzahl
  * definiert ist, wäre alles andere sinnlos.
  */
-export const HOCHNORD_FLORA: readonly Foliage[] = [
+const HOCHNORD_FLORA_DUENN: readonly Foliage[] = [
   // ── Die letzten Bäume ──────────────────────────────────────────────
   // `min: 0` heisst: In den meisten Zonen steht keiner. Das ist der
   // Unterschied zwischen „lichter Wald" und „Baumgrenze".
@@ -515,6 +584,10 @@ export const HOCHNORD_FLORA: readonly Foliage[] = [
   flora({ name: 'Heidekraut3', radius: 0.7, min: 2, max: 8, maxTilt: 38, wald: [false, 0.0, 5], gruppe: [6, 2, 5], kippen: 5 }),
   flora({ name: 'Heidekraut1', radius: 0.5, min: 3, max: 10, maxTilt: 42, wald: [false, 0.0, 5], gruppe: [5, 2, 5], kippen: 6 }),
 ];
+
+/** HOCHNORD_FLORA samt der abgeleiteten dicken Stammvarianten — siehe
+ *  `mitDickenStaemmen()`. Diese Liste ist die benutzte. */
+export const HOCHNORD_FLORA: readonly Foliage[] = mitDickenStaemmen(HOCHNORD_FLORA_DUENN);
 
 /**
  * Die Aschewüste — LEER, und das ist die Antwort, nicht ihr Fehlen.

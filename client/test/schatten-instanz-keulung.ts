@@ -1,26 +1,23 @@
 /**
  * Wächter für die Schattenkeulung pro Instanz.
  *
- * Zwei Dinge dürfen hier nie kaputtgehen, und beide sind teuer gelernt:
+ * Die Auswahl ist radial um den Spieler — bewusst die simpelste Regel, die
+ * korrekt ist, nachdem die Lichtraum-Prüfung gegen die Kaskadenkästen auf
+ * drei Arten hintereinander Schatten gelöscht hat (Herleitung im Kopf von
+ * SchattenInstanzKeulung.ts). Ein Fehler in dieser Auswahl löscht Schatten
+ * statt sie zu sparen, und zwar unauffällig — deshalb Kernliste.
  *
- *  1. **Es darf kein Schatten verschwinden.** Gekeult wird ausschliesslich
- *     seitlich im Lichtraum. Entlang der Lichtachse zu keulen wäre der
- *     naheliegende Fehler — ein Baum HINTER dem Kaskadenrand wirft seinen
- *     Schatten sehr wohl hinein. Der Test stellt genau so einen Baum auf.
- *
- *  2. **Die Packung muss zwischen zwei Neupackungen gültig bleiben.**
- *     Gepackt wird nur alle `NEUPACK_ABSTAND` Meter; deshalb bekommt der
- *     Kasten denselben Betrag als Rand. Ohne diesen Rand blinken
- *     Schattenwerfer beim Laufen weg und wieder da.
- *
- * Hintergrund und Messwerte stehen im Kopf von
- * client/src/engine/SchattenInstanzKeulung.ts.
+ * Festgehalten wird:
+ *  1. Auswahl und Packreihenfolge stimmen (Überlebende lückenlos am Anfang).
+ *  2. Der Radius wird als ECHTE Distanz geprüft, nicht je Achse — eine
+ *     Instanz diagonal knapp ausserhalb fällt raus, knapp innerhalb bleibt.
+ *  3. Entartete Eingaben liefern 0 statt Müll.
+ *  4. Die Neupack-Schwelle feuert beim ersten Mal und ab der Schwelle.
  */
 import {
   NEUPACK_ABSTAND,
   brauchtNeupacken,
-  packeInstanzen,
-  type Lichtkasten,
+  packeInstanzenRadial,
 } from '../src/engine/SchattenInstanzKeulung.js';
 
 let fehler = 0;
@@ -30,13 +27,6 @@ const pruefe = (bedingung: boolean, text: string): void => {
     console.error(`  FEHLER: ${text}`);
   }
 };
-
-/** Einheitsmatrix als Sichtmatrix: Lichtraum = Weltraum, xy = xz-Ebene … */
-const EINHEIT = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-
-/** … und damit ist "y im Lichtraum" die Welt-y-Achse. Für den Test genügt
- *  das: Geprüft wird die Auswahl, nicht Babylons Matrixkonvention. */
-const kasten: Lichtkasten = { sicht: EINHEIT, minX: -50, maxX: 50, minY: -50, maxY: 50 };
 
 /** Baut einen Matrixpuffer aus Positionen (Einheitsmatrix + Übersetzung). */
 function puffer(punkte: ReadonlyArray<readonly [number, number, number]>): Float32Array {
@@ -49,47 +39,44 @@ function puffer(punkte: ReadonlyArray<readonly [number, number, number]>): Float
   return f;
 }
 
-console.log('Schattenkeulung pro Instanz');
+console.log('Schattenkeulung pro Instanz (radial)');
 
-// ── 1. Auswahl: drinnen bleibt, weit draussen fällt weg ──────────────
+// ── 1. Auswahl und Packreihenfolge ───────────────────────────────────
 {
-  const p = puffer([[0, 0, 0], [400, 0, 0], [10, 5, -10], [-900, 0, 900]]);
+  const p = puffer([[10, 0, 0], [500, 0, 0], [-30, 7, 40], [0, 0, -800]]);
   const ziel = new Float32Array(4 * 16);
-  const n = packeInstanzen(p, 4, kasten, 0, ziel);
+  const n = packeInstanzenRadial(p, 4, 0, 0, 100, ziel);
   pruefe(n === 2, `erwartet 2 Überlebende, bekam ${n}`);
-  pruefe(ziel[12] === 0 && ziel[14] === 0, 'erste Instanz nicht an den Anfang gepackt');
-  pruefe(ziel[16 + 12] === 10 && ziel[16 + 14] === -10, 'zweite Überlebende falsch gepackt');
+  pruefe(ziel[12] === 10, 'erste Überlebende nicht an den Anfang gepackt');
+  pruefe(ziel[16 + 12] === -30 && ziel[16 + 14] === 40, 'zweite Überlebende falsch gepackt');
 }
 
-// ── 2. Der Rand hält die Packung über die Laufstrecke gültig ─────────
+// ── 2. Radius ist eine Distanz, keine Achsenprüfung ─────────────────
 {
-  // 55 m draussen: ohne Rand gekeult, mit Rand (Radius 20 + Bewegung 8)
-  // behalten — genau der Fall, der sonst beim Laufen aufblinkt.
-  const p = puffer([[55, 0, 0]]);
+  // (80, 80) liegt 113 m diagonal: je Achse unter 100, als Distanz drüber.
+  // Wer hier je Achse prüft, behält fälschlich — der Test erwischt es.
+  const diagonalDraussen = puffer([[80, 0, 80]]);
+  const diagonalDrinnen = puffer([[70, 0, 70]]);   // 99 m
   const ziel = new Float32Array(16);
-  pruefe(packeInstanzen(p, 1, kasten, 0, ziel) === 0, 'ohne Rand fälschlich behalten');
-  pruefe(packeInstanzen(p, 1, kasten, 20 + NEUPACK_ABSTAND, ziel) === 1, 'mit Rand fälschlich gekeult');
+  pruefe(packeInstanzenRadial(diagonalDraussen, 1, 0, 0, 100, ziel) === 0, 'diagonal ausserhalb wurde behalten');
+  pruefe(packeInstanzenRadial(diagonalDrinnen, 1, 0, 0, 100, ziel) === 1, 'diagonal innerhalb wurde gekeult');
 }
 
-// ── 3. Entlang der Lichtachse wird NICHT gekeult ─────────────────────
+// ── 3. Die Höhe keult nicht ─────────────────────────────────────────
 {
-  // Weit "hinter" dem Kasten in Blickrichtung des Lichts (hier y), aber
-  // seitlich mittendrin: muss überleben, sonst fehlt sein Schattenwurf.
-  const p = puffer([[0, 0, 0]]);
-  const tief: Lichtkasten = { sicht: EINHEIT, minX: -50, maxX: 50, minY: -50, maxY: 50 };
+  // Ein Baum 60 m über dem Spieler (Klippe) wirft trotzdem — geprüft wird
+  // nur in der Bodenebene.
+  const hoch = puffer([[10, 60, 10]]);
   const ziel = new Float32Array(16);
-  pruefe(packeInstanzen(p, 1, tief, 0, ziel) === 1, 'seitlich mittige Instanz wurde gekeult');
-
-  // Und die Gegenprobe zur Sicherheit: seitlich draussen fällt sie weg.
-  const seitlich = puffer([[500, 0, 0]]);
-  pruefe(packeInstanzen(seitlich, 1, tief, 0, ziel) === 0, 'seitlich weit draussen wurde behalten');
+  pruefe(packeInstanzenRadial(hoch, 1, 0, 0, 100, ziel) === 1, 'hohe Instanz wurde über die Höhe gekeult');
 }
 
 // ── 4. Entartete Eingaben ───────────────────────────────────────────
 {
   const ziel = new Float32Array(16);
-  pruefe(packeInstanzen(new Float32Array(0), 0, kasten, 0, ziel) === 0, 'leerer Puffer lieferte nicht 0');
-  pruefe(packeInstanzen(puffer([[0, 0, 0]]), -1, kasten, 0, ziel) === 0, 'negative Anzahl lieferte nicht 0');
+  pruefe(packeInstanzenRadial(new Float32Array(0), 0, 0, 0, 100, ziel) === 0, 'leerer Puffer lieferte nicht 0');
+  pruefe(packeInstanzenRadial(puffer([[0, 0, 0]]), -1, 0, 0, 100, ziel) === 0, 'negative Anzahl lieferte nicht 0');
+  pruefe(packeInstanzenRadial(puffer([[0, 0, 0]]), 1, 0, 0, 0, ziel) === 0, 'Radius 0 lieferte nicht 0');
 }
 
 // ── 5. Neupack-Schwelle ─────────────────────────────────────────────
@@ -102,7 +89,7 @@ console.log('Schattenkeulung pro Instanz');
 
 console.log(
   fehler === 0
-    ? '\nOK — Auswahl korrekt, Rand hält, Lichtachse unangetastet'
+    ? '\nOK — Auswahl radial korrekt, Reihenfolge dicht, Ränder halten'
     : `\n${fehler} FEHLER`
 );
 process.exit(fehler > 0 ? 1 : 0);

@@ -167,7 +167,7 @@ const DEFAULTS: GameSettings = {
   antiAliasing: true,
   depthOfField: true,
   sunShafts: false,
-  ambientOcclusion: true,
+  ambientOcclusion: false,
   pointerLock: true,
   showObjectNames: false,
   nameplates: true,

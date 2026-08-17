@@ -135,8 +135,9 @@ export const DEFAULT_POSTPROCESSING: PostProcessingOptions = {
   depthOfField: true,
   // Bewusst AUS trotz Original-Default — siehe Kostenhinweis in setSunShafts().
   sunShafts: false,
-  // Voreinstellung aus Messung, nicht aus Geschmack — siehe setSSAO().
-  ambientOcclusion: true,
+  // Voreinstellung AUS — siehe setSSAO(). Sie stand einen Abend lang auf
+  // an, und das war ein Fehler mit Ansage.
+  ambientOcclusion: false,
 };
 
 /** Woran der Autofokus sich orientiert — siehe ValheimDof.autoFocus(). */
@@ -452,7 +453,33 @@ export class PostProcessing {
    * Weg: Eine abgehängte Pipeline rendert nichts und hält bloss ihre
    * Zieltexturen.
    *
-   * ── Warum sie AN voreingestellt ist ─────────────────────────────────
+   * ── Sie stand einen Abend auf AN. Das war falsch. ───────────────────
+   * Gemeldet am 17.08.2026 aus dem SPIEL: „Die Umgebungsverdeckung in den
+   * Grafikeinstellungen erzeugt diese Schlieren/Schatten." Damit ist sie
+   * wieder aus, und der Weg dorthin gehört aufgeschrieben, weil er ein
+   * Muster ist:
+   *
+   * Die Messung unten sagte +3,5 % Tonwertstreuung und nannte das einen
+   * Gewinn — die Streuung ist schließlich DIE Kennzahl der Diagnose im
+   * Grafik-Konzept. Nur misst sie nicht Qualität, sondern Kontrast. **Ein
+   * Artefakt aus dunklen Schlieren erhöht sie genauso zuverlässig wie
+   * echte Tiefe in den Ritzen.** Die Zahl war richtig gerechnet und hat
+   * trotzdem das Gegenteil belegt.
+   *
+   * Dieselbe Lehre steht seit dem 16.08.2026 über dem FPS-Wächter (E3):
+   * Eine Messung sagt, ob Zahlen besser werden. Ob es besser AUSSIEHT,
+   * sagt nur das Spielen. Beim Wächter war es die Bildrate, hier die
+   * Streuung — und beide Male hat die Zahl den Blick ersetzt statt ihn zu
+   * schärfen.
+   *
+   * Was fehlt, bevor sie wiederkommen darf: die Ursache der Schlieren.
+   * Verdächtig sind der Radius (0.15 stammt aus Unitys Einheiten und
+   * unserem Maßstab, nicht aus einer Messung an unserer Geometrie) und
+   * die halbe Auflösung (`SSAO_RATIO`) über den dünnen Alpha-Test-Kanten
+   * von Laub und Gras — dort steht in der Tiefenpassage die Kante des
+   * RECHTECKS, nicht die des Blattes.
+   *
+   * ── Die Zahlen von damals, unverändert ──────────────────────────────
    * Im Unity-Profil des Originals ist Ambient Occlusion an (intensity 1.0,
    * radius 0.15, 10 Samples). Hier stand über ein Jahr die Begründung,
    * der Effekt sei „im Gesamtbild der schwächste Beitrag" und koste eine

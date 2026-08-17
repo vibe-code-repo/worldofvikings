@@ -271,6 +271,15 @@ export class ValheimSky {
   /** Gehaltene Puffer der Kugelharmonischen-Rechnung (kein Müll pro Lauf). */
   private readonly iblRichtung = new Vector3();
   private readonly iblFarbe = new Color3();
+  /**
+   * Mittlere LINEARE Leuchtdichte der Kuppel über alle Richtungen — das
+   * Mass dafür, wie viel Licht das Umgebungslicht tatsächlich liefert.
+   *
+   * Nachts nahe null, mittags gross. `Lighting` rechnet damit aus, wie
+   * viel es dem HemisphericLight wegnehmen darf, ohne dass am Ende
+   * weniger Grundlicht in der Szene steht als vorher.
+   */
+  umgebungsHelligkeit = 0;
 
   /**
    * Momentaufnahme für alles, was den Himmel spiegeln will (heute: das
@@ -483,6 +492,7 @@ export class ValheimSky {
   private berechneUmgebungslicht(): void {
     const sh = new SphericalHarmonics();
     const raumwinkel = (4 * Math.PI) / IBL_RICHTUNGEN;
+    let summe = 0;
     for (let i = 0; i < IBL_RICHTUNGEN; i++) {
       // Fibonacci-Kugel: y läuft gleichmässig von +1 nach −1, der
       // Azimut in Schritten des goldenen Winkels.
@@ -492,10 +502,15 @@ export class ValheimSky {
       this.iblRichtung.set(Math.cos(phi) * r, y, Math.sin(phi) * r);
       this.himmelsFarbeToRef(this.iblRichtung, this.iblFarbe);
       sh.addLight(this.iblRichtung, this.iblFarbe, raumwinkel);
+      summe += 0.299 * this.iblFarbe.r + 0.587 * this.iblFarbe.g + 0.114 * this.iblFarbe.b;
     }
     sh.convertIncidentRadianceToIrradiance();
     sh.convertIrradianceToLambertianRadiance();
     this.probe.cubeTexture.sphericalPolynomial = SphericalPolynomial.FromHarmonics(sh);
+    // Mittelwert über dieselben Abtastungen — kostet nichts, weil die
+    // Schleife oben ohnehin lief, und ist genau die Grösse, die fehlt,
+    // wenn man das doppelte Grundlicht sauber aufteilen will.
+    this.umgebungsHelligkeit = summe / IBL_RICHTUNGEN;
   }
 
   /**

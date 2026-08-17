@@ -688,7 +688,30 @@ ist bei selbst gerechneten Karten keiner mehr — man wählt die Packung selbst 
 sie in den Kopf des Werkzeugs, wie `wasser-texturen.py` es für `water_normals_real.png`
 tut).
 
-### Stufe 7 — SSAO2 ✅ (umgesetzt 2026-08-16)
+### Stufe 7 — SSAO2 gebaut, aber wieder AUS (17.08.2026)
+
+> [!warning] Aus dem Spiel gemeldet: „Die Umgebungsverdeckung erzeugt diese Schlieren"
+> Die Voreinstellung stand einen Abend lang auf an. Sie ist wieder aus, und der Weg dorthin
+> gehört aufgeschrieben, weil er ein Muster ist.
+>
+> Die Messung unten sagte **+3,5 % Tonwertstreuung** und nannte das einen Gewinn — die
+> Streuung ist schließlich *die* Kennzahl der Diagnose ganz oben. Nur misst sie nicht
+> Qualität, sondern Kontrast: **Ein Artefakt aus dunklen Schlieren erhöht sie genauso
+> zuverlässig wie echte Tiefe in den Ritzen.** Die Zahl war richtig gerechnet und hat
+> trotzdem das Gegenteil belegt.
+>
+> Dieselbe Lehre steht seit dem 16.08.2026 über dem FPS-Wächter (E3): Eine Messung sagt, ob
+> Zahlen besser werden. Ob es besser *aussieht*, sagt nur das Spielen. Beim Wächter war es
+> die Bildrate, hier die Streuung — beide Male hat die Zahl den Blick ersetzt statt ihn zu
+> schärfen.
+>
+> **Was fehlt, bevor sie wiederkommen darf:** die Ursache der Schlieren. Verdächtig sind der
+> Radius (0,15 stammt aus Unitys Einheiten und unserem Maßstab, nicht aus einer Messung an
+> unserer Geometrie) und die halbe Auflösung über den dünnen Alpha-Test-Kanten von Laub und
+> Gras — dort steht in der Tiefenpassage die Kante des **Rechtecks**, nicht die des Blattes.
+> Der Code bleibt; es fehlt die Abstimmung, nicht die Mechanik.
+
+### Stufe 7 — SSAO2, wie sie gebaut wurde (2026-08-16)
 
 Umgesetzt mit allen vier Fallstricken unten; sie waren alle vier real und alle vier so
 lösbar wie beschrieben. **Die Voreinstellung ist AN** — und das ist die eigentliche Änderung

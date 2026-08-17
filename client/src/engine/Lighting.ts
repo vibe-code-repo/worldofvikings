@@ -90,6 +90,13 @@ import {
  * Genau deshalb bleibt hier ein Rest stehen, und genau deshalb ist die
  * Zahl eine Abwägung und keine Messung.
  *
+ * ── Seit 17.08.2026 skaliert der Abzug mit der Kuppelhelligkeit ─────
+ * Der Faktor unten ist die OBERGRENZE, nicht der Abzug selbst. Wie viel
+ * davon greift, entscheidet das Verhältnis von Kuppelhelligkeit zu
+ * Ambientfarbe (siehe `apply()`): mittags voll, nachts gar nicht. Die
+ * Messung darunter beschreibt den Zustand DAVOR — sie ist der Grund für
+ * die Änderung und bleibt deshalb stehen.
+ *
  * ── Was die Messung dazu sagt (16.08.2026, RX 7900 XT) ──────────────
  * Mittlere Bildhelligkeit und Tonwertstreuung, gleiche Kamera, gleiche
  * Uhrzeit, nur diese Änderung an und aus:
@@ -433,7 +440,28 @@ export class Lighting {
     // Grundlicht aus ZWEI Quellen. Ohne diese Aufteilung zählte es doppelt
     // und das Bild würde flach und zu hell — genau der Zustand, den Stufe 1
     // beseitigt hat. Der Faktor steht bei `AMBIENT_ANTEIL_HIMMEL`.
-    this.ambient.intensity = 1 - AMBIENT_ANTEIL_HIMMEL;
+    // Der Abzug folgt der KUPPELHELLIGKEIT, nicht einer festen Zahl.
+    //
+    // `umgebungsHelligkeit` ist die mittlere lineare Leuchtdichte der
+    // Kuppel, `ambFarbe` die des HemisphericLights — beide im selben
+    // Raum, also direkt vergleichbar. Der Quotient sagt, welchen Anteil
+    // am Grundlicht der Himmel tatsächlich stellt:
+    //
+    //   mittags   Kuppel hell   → Quotient ~1 → voller Abzug
+    //   nachts    Kuppel dunkel → Quotient ~0 → gar kein Abzug
+    //
+    // Damit ist der Fehler behoben, mit dem diese Aufteilung eingeführt
+    // wurde: Ein fester Abzug nahm nachts 26 % Grundlicht weg, das der
+    // Himmel gar nicht ersetzte (gemessen 16.08.2026). Ein Bezugswert
+    // musste dafür nicht erfunden werden — die zweite Größe stand die
+    // ganze Zeit daneben.
+    const ambLeuchtdichte =
+      0.299 * this.ambFarbe.r + 0.587 * this.ambFarbe.g + 0.114 * this.ambFarbe.b;
+    const himmelsAnteil =
+      ambLeuchtdichte > 1e-6
+        ? Math.min(1, this.sky.umgebungsHelligkeit / ambLeuchtdichte)
+        : 0;
+    this.ambient.intensity = 1 - AMBIENT_ANTEIL_HIMMEL * himmelsAnteil;
 
     // ── Sky ───────────────────────────────────────────────────────
     // The dome derives horizon/glow from this same state, so it fuses with

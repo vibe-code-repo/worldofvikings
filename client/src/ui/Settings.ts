@@ -73,6 +73,11 @@ export interface GameSettings {
    */
   sunShafts: boolean;
   /**
+   * Umgebungsverdeckung (SSAO2). Im Original-Profil an, hier aus — die
+   * Begründung samt Messwert steht in `PostProcessing.setSSAO()`.
+   */
+  ambientOcclusion: boolean;
+  /**
    * Pointer-Lock benutzen (Cursor fangen, Standard). Aus: der Cursor bleibt
    * sichtbar und die Kamera dreht sich per Ziehen mit gedrückter Maustaste.
    *
@@ -162,6 +167,7 @@ const DEFAULTS: GameSettings = {
   antiAliasing: true,
   depthOfField: true,
   sunShafts: false,
+  ambientOcclusion: true,
   pointerLock: true,
   showObjectNames: false,
   nameplates: true,
@@ -201,6 +207,7 @@ function loadSaved(): Partial<GameSettings> {
       antiAliasing: bool(parsed.antiAliasing),
       depthOfField: bool(parsed.depthOfField),
       sunShafts: bool(parsed.sunShafts),
+      ambientOcclusion: bool(parsed.ambientOcclusion),
       distantShadows: bool(parsed.distantShadows),
       pointerLock: bool(parsed.pointerLock),
       showObjectNames: bool(parsed.showObjectNames),
@@ -213,6 +220,7 @@ function loadSaved(): Partial<GameSettings> {
     if (b.antiAliasing !== undefined) out.antiAliasing = b.antiAliasing;
     if (b.depthOfField !== undefined) out.depthOfField = b.depthOfField;
     if (b.sunShafts !== undefined) out.sunShafts = b.sunShafts;
+    if (b.ambientOcclusion !== undefined) out.ambientOcclusion = b.ambientOcclusion;
     if (b.distantShadows !== undefined) out.distantShadows = b.distantShadows;
     if (b.pointerLock !== undefined) out.pointerLock = b.pointerLock;
     if (b.showObjectNames !== undefined) out.showObjectNames = b.showObjectNames;

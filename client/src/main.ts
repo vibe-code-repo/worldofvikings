@@ -2547,7 +2547,7 @@ async function main() {
   window.addEventListener('resize', () => engine.resize());
 
   // dev/debug handle (Playwright probes, F9 inspector sessions)
-  (window as unknown as Record<string, unknown>).__dbg = { scene, input, get entities() { return entities; }, assets, get terrain() { return terrain; }, lighting, get player() { return player; }, get world() { return world; }, get inventory() { return inventory; }, get equipment() { return equipment; }, get placement() { return placement; }, get grass() { return grass; }, get shadows() { return shadows; }, get namensschilder() { return namensschilder; },
+  (window as unknown as Record<string, unknown>).__dbg = { scene, input, gameSettings, get post() { return post; }, get entities() { return entities; }, assets, get terrain() { return terrain; }, lighting, get player() { return player; }, get world() { return world; }, get inventory() { return inventory; }, get equipment() { return equipment; }, get placement() { return placement; }, get grass() { return grass; }, get shadows() { return shadows; }, get namensschilder() { return namensschilder; },
     // Fackeln: Helligkeit auf echter Hardware nachziehen, Notbremse von
     // Hand auslösen oder wieder lösen — s. engine/FackelLicht.ts.
     fackeln: {

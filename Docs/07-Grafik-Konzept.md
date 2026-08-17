@@ -649,7 +649,35 @@ ist bei selbst gerechneten Karten keiner mehr — man wählt die Packung selbst 
 sie in den Kopf des Werkzeugs, wie `wasser-texturen.py` es für `water_normals_real.png`
 tut).
 
-### Stufe 7 — SSAO2 (~2 h)
+### Stufe 7 — SSAO2 ✅ (umgesetzt 2026-08-16)
+
+Umgesetzt mit allen vier Fallstricken unten; sie waren alle vier real und alle vier so
+lösbar wie beschrieben. **Die Voreinstellung ist AN** — und das ist die eigentliche Änderung
+gegenüber dem, was hier stand.
+
+Der Effekt galt als „im Gesamtbild der schwächste Beitrag" und wurde wegen der zusätzlichen
+Geometriepassage zurückgestellt. Die zweite Hälfte davon stimmt nicht mehr: Den
+GeometryBufferRenderer teilt sich die Verdeckung mit Tiefen- und Bewegungsunschärfe, die
+beide voreingestellt an sind — die Passage läuft ohnehin. Die erste Hälfte war nie gemessen.
+
+Gemessen (RX 7900 XT, 1280×720, feste Kamera und Uhrzeit, **verschränkt in vier Wechseln**,
+weil die ersten Läufe systematisch schneller werden und ein einfaches Vorher/Nachher diese
+Drift mitmisst):
+
+| | aus | an | |
+|---|---|---|---|
+| Frame-Zeit (Median) | 12,67 ms | 12,86 ms | **+1,5 %** |
+| Rohwerte | 12,43…13,06 | 12,42…13,29 | überlappen sich |
+| **Tonwertstreuung** | 14,85 | **15,37** | **+3,5 %** |
+| mittlere Helligkeit | 54,65 | 54,30 | −0,6 % |
+
+Die Streuung ist dabei keine beliebige Kennzahl, sondern **die** der Diagnose ganz oben:
+Unser Bild hatte die halbe Streuung des Originals (9,6 gegen 14,6). Verdeckung in Ritzen ist
+genau das, was sie erhöht. Ein Effekt, der ein diagnostiziertes Defizit angeht und dabei
+unter 2 % kostet, gehört in die Voreinstellung — abschaltbar bleibt er über
+„Umgebungsverdeckung" im Einstellungsmenü.
+
+*(Die vier Fallstricke, unverändert — sie haben alle getragen:)*
 
 Vier konkrete Fallstricke, alle lösbar:
 1. `forceGeometryBuffer = true` ist Pflicht — der Default-Pfad ruft

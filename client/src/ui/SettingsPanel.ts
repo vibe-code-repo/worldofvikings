@@ -127,6 +127,11 @@ export class SettingsPanel {
       this.buildToggle('Sonnenstrahlen', (s) => s.sunShafts, (v) => this.settings.set({ sunShafts: v }))
     );
     panel.appendChild(
+      this.buildToggle('Umgebungsverdeckung', (s) => s.ambientOcclusion, (v) =>
+        this.settings.set({ ambientOcclusion: v })
+      )
+    );
+    panel.appendChild(
       this.buildToggle('Kantenglättung', (s) => s.antiAliasing, (v) => this.settings.set({ antiAliasing: v }))
     );
     // Steuerung: kein Original-Setting, siehe GameSettings.pointerLock.

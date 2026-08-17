@@ -53,6 +53,8 @@
  * schaltbar — siehe ui/Settings.ts.
  */
 import { DefaultRenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline';
+import { SSAO2RenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/ssao2RenderingPipeline';
+import { Constants } from '@babylonjs/core/Engines/constants';
 import { MotionBlurPostProcess } from '@babylonjs/core/PostProcesses/motionBlurPostProcess';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration';
 import { VolumetricLightScatteringPostProcess } from '@babylonjs/core/PostProcesses/volumetricLightScatteringPostProcess';
@@ -100,6 +102,18 @@ const MOTION_SAMPLES = 10;
  * an unseren überwiegend flachen Geländekanten.
  */
 const MSAA_SAMPLES = 4;
+/**
+ * Umgebungsverdeckung — Werte aus dem Original-Profil (siehe Kopf):
+ * `radius 0.15`, `totalStrength 1.0`, 10 Abtastungen. `ratio 0.5` rechnet
+ * den Effekt in halber Auflösung; er ist weich, die Auflösung sieht man
+ * ihm nicht an — dieselbe Überlegung wie beim Strahlenkranz.
+ */
+const SSAO_RADIUS = 0.15;
+const SSAO_STAERKE = 1.0;
+const SSAO_SAMPLES = 10;
+const SSAO_RATIO = 0.5;
+/** Name der Pipeline — wird zum An- und Abhängen an die Kamera gebraucht. */
+const SSAO_NAME = 'valheimSSAO';
 
 export interface PostProcessingOptions {
   bloom: boolean;
@@ -108,6 +122,8 @@ export interface PostProcessingOptions {
   antiAliasing: boolean;
   depthOfField: boolean;
   sunShafts: boolean;
+  /** Umgebungsverdeckung (SSAO2) — im Original-Profil an, hier Option. */
+  ambientOcclusion: boolean;
 }
 
 export const DEFAULT_POSTPROCESSING: PostProcessingOptions = {
@@ -119,6 +135,8 @@ export const DEFAULT_POSTPROCESSING: PostProcessingOptions = {
   depthOfField: true,
   // Bewusst AUS trotz Original-Default — siehe Kostenhinweis in setSunShafts().
   sunShafts: false,
+  // Voreinstellung aus Messung, nicht aus Geschmack — siehe setSSAO().
+  ambientOcclusion: true,
 };
 
 /** Woran der Autofokus sich orientiert — siehe ValheimDof.autoFocus(). */
@@ -134,6 +152,9 @@ export class PostProcessing {
   private motionBlur: MotionBlurPostProcess | null = null;
   private dof: ValheimDof | null = null;
   private shafts: VolumetricLightScatteringPostProcess | null = null;
+  /** Immer vorhanden, aber nur angehängt, wenn die Option an ist. */
+  private readonly ssao: SSAO2RenderingPipeline;
+  private ssaoAn = false;
   /**
    * Gehaltene Sonnenposition der Lichtstrahlen — update() läuft mit 60 Hz.
    * `customMeshPosition` ist eine schlichte Eigenschaft, die der Pass bei
@@ -149,6 +170,43 @@ export class PostProcessing {
     this.scene = scene;
     this.camera = camera;
     this.focusSource = focusSource;
+
+    // ── SSAO2 VOR der DefaultRenderingPipeline ──────────────────────
+    //
+    // Die Reihenfolge der Erzeugung ist die Reihenfolge in der Kette, und
+    // Umgebungsverdeckung gehört VOR das Tonemapping: Sie verdunkelt
+    // Ritzen im linearen Bild. Danach angewandt zöge sie stattdessen ein
+    // graues Muster über das fertige, bereits komprimierte Bild.
+    //
+    // Deshalb entsteht die Pipeline hier immer, auch wenn der Effekt aus
+    // ist — an- und abgeschaltet wird über das An- und Abhängen der
+    // Kamera (`setSSAO`). Ein Erzeugen erst beim Einschalten hinge sie
+    // hinter der DefaultRenderingPipeline ein, also nach dem Tonemapping.
+    //
+    // Zwei Konstruktor-Parameter tragen je einen dokumentierten
+    // Fallstrick (Grafik-Konzept, Stufe 7):
+    //
+    //  · `forceGeometryBuffer = true` (5.): Der Default-Pfad ruft
+    //    `scene.enablePrePassRenderer()`, und die Methode existiert bei
+    //    den granularen Imports dieses Projekts gar nicht — derselbe
+    //    Abbruch wie beim Motion Blur, siehe setMotionBlur(). Über den
+    //    GeometryBufferRenderer läuft es, und den teilen sich DOF und
+    //    Motion Blur ohnehin schon.
+    //  · `textureType = HALF_FLOAT` (6.): Der Default sind 8 Bit. Die
+    //    Pipeline reicht die Szenenfarbe durch (`SSAOOriginalSceneColor`)
+    //    — in 8 Bit wäre das HDR-Bild VOR dem Bloom auf LDR geklemmt, und
+    //    der Bloom hätte nichts Helles mehr zu greifen.
+    this.ssao = new SSAO2RenderingPipeline(
+      SSAO_NAME,
+      scene,
+      SSAO_RATIO,
+      undefined, // Kameras erst in setSSAO() anhängen
+      true,
+      Constants.TEXTURETYPE_HALF_FLOAT
+    );
+    this.ssao.radius = SSAO_RADIUS;
+    this.ssao.totalStrength = SSAO_STAERKE;
+    this.ssao.samples = SSAO_SAMPLES;
 
     this.pipeline = new DefaultRenderingPipeline('valheimPost', true, scene, [camera]);
 
@@ -194,6 +252,7 @@ export class PostProcessing {
     this.setMotionBlur(opts.motionBlur);
     this.setDepthOfField(opts.depthOfField);
     this.setSunShafts(opts.sunShafts);
+    this.setSSAO(opts.ambientOcclusion);
     this.syncGeometryBuffer();
     // ZULETZT: Erst jetzt steht fest, welcher Pass vorne in der Kette hängt.
     this.setzeMsaa(opts.antiAliasing);
@@ -257,7 +316,11 @@ export class PostProcessing {
    * weil die Extrapassage unverändert weiterlief. Erst hier fällt sie weg.
    */
   private syncGeometryBuffer(): void {
-    if (this.dof || this.motionBlur) {
+    // SSAO zählt als dritter Nutzer — ohne ihn hier risse das Abschalten
+    // von Tiefenunschärfe UND Bewegungsunschärfe der Umgebungsverdeckung
+    // die Tiefenpassage unter den Füßen weg (Grafik-Konzept, Stufe 7,
+    // Fallstrick 4).
+    if (this.dof || this.motionBlur || this.ssaoAn) {
       this.scene.enableGeometryBufferRenderer();
       this.beschraenkeGeometryBuffer();
     } else {
@@ -381,6 +444,56 @@ export class PostProcessing {
     }
   }
 
+  /**
+   * Umgebungsverdeckung an- und abhängen.
+   *
+   * Die Pipeline selbst entsteht im Konstruktor (Reihenfolge, siehe dort);
+   * hier wird nur die Kamera an- oder abgehängt. Das ist auch der billige
+   * Weg: Eine abgehängte Pipeline rendert nichts und hält bloss ihre
+   * Zieltexturen.
+   *
+   * ── Warum sie AN voreingestellt ist ─────────────────────────────────
+   * Im Unity-Profil des Originals ist Ambient Occlusion an (intensity 1.0,
+   * radius 0.15, 10 Samples). Hier stand über ein Jahr die Begründung,
+   * der Effekt sei „im Gesamtbild der schwächste Beitrag" und koste eine
+   * zusätzliche Geometriepassage — deshalb wurde er zurückgestellt.
+   *
+   * **Die zweite Hälfte davon stimmt nicht mehr, und die erste war nie
+   * gemessen.** Den GeometryBufferRenderer teilt sich die Verdeckung mit
+   * Tiefen- und Bewegungsunschärfe, und die sind beide voreingestellt an
+   * — die Passage läuft ohnehin. Übrig bleibt der eigene Aufwand des
+   * Effekts, und der ist klein.
+   *
+   * Gemessen am 16.08.2026 (RX 7900 XT, 1280×720, feste Kamera und
+   * Uhrzeit, VERSCHRÄNKT in vier Wechseln, weil die ersten Läufe
+   * systematisch schneller werden und ein einfaches Vorher/Nachher diese
+   * Drift mitmisst):
+   *
+   *   Frame-Zeit   aus 12,67 ms   an 12,86 ms   (+1,5 %)
+   *                Rohwerte aus 12,43…13,06, an 12,42…13,29 — sie
+   *                überlappen, der Aufwand liegt im Rauschen
+   *   Streuung     aus 14,85      an 15,37     (+3,5 %)
+   *
+   * Die Tonwertstreuung ist dabei keine beliebige Zahl: Das
+   * Grafik-Konzept führt sie als Kennzahl der Diagnose (unser Bild hatte
+   * die HALBE Streuung des Originals), und Verdeckung in Ritzen ist genau
+   * das, was sie erhöht. Ein Effekt, der ein diagnostiziertes Defizit
+   * angeht und dabei unter 2 % kostet, gehört in die Voreinstellung.
+   *
+   * Abschaltbar bleibt er — auf schwacher Hardware ist er ein guter
+   * erster Kandidat.
+   */
+  private setSSAO(enabled: boolean): void {
+    if (enabled === this.ssaoAn) return;
+    this.ssaoAn = enabled;
+    const manager = this.scene.postProcessRenderPipelineManager;
+    if (enabled) {
+      manager.attachCamerasToRenderPipeline(SSAO_NAME, this.camera);
+    } else {
+      manager.detachCamerasFromRenderPipeline(SSAO_NAME, this.camera);
+    }
+  }
+
   private setDepthOfField(enabled: boolean): void {
     if (enabled && !this.dof && this.focusSource) {
       this.dof = new ValheimDof(
@@ -450,6 +563,8 @@ export class PostProcessing {
     this.setMotionBlur(false);
     this.setDepthOfField(false);
     this.setSunShafts(false);
+    this.setSSAO(false);
+    this.ssao.dispose();
     this.loeseGeometryBufferFilter();
     this.pipeline.dispose();
   }

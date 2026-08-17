@@ -739,6 +739,30 @@ Höher zu gehen würde nur Pixel bezahlen, die der Nebel ohnehin verdeckt.
 Kosten mit dem größeren Bereich, wieder verschränkt in vier Wechseln gemessen: **10,30 ms
 aus, 10,36 ms an (+0,6 %)**, Rohwerte überlappen.
 
+#### Diese Kostenangabe gilt nur für die Voreinstellungen
+
+Am selben Tag mit **Mikes** Einstellungen nachgemessen — und die weichen an einer Stelle ab,
+die genau hier zählt: Bei ihm sind **Tiefenunschärfe und Bewegungsunschärfe aus**. Beide
+teilen sich den `GeometryBufferRenderer` mit der Verdeckung; fallen sie weg, bezahlt sie die
+Passage allein.
+
+| | Frame-Zeit aus | an | |
+|---|---|---|---|
+| Voreinstellung (DOF + MB an) | 10,30 ms | 10,36 ms | +0,6 % |
+| **ohne DOF und MB** | **13,37 ms** | **14,00 ms** | **+4,7 %** |
+
+Bestätigt an der Ursache selbst: `scene.geometryBufferRenderer` existiert in dieser
+Einstellung nur, solange die Verdeckung an ist.
+
+**Die Lehre ist allgemeiner als der Effekt:** Eine Messung unter den Voreinstellungen ist
+keine Messung für den, der sie geändert hat. Das gilt für jede Zahl in diesem Dokument, die
+mit „gemessen" beginnt — und es ist der zweite Fall an einem Tag, in dem eine saubere Zahl
+die falsche Frage beantwortet hat.
+
+Nebenbefund aus demselben Lauf: **Der Radius taugt nicht als Regler der Stärke.** Von 0,15
+bis 2,0 — Faktor 13 — ändert sich der Bildunterschied praktisch nicht (24,8 % der Pixel
+gegenüber 24,5 %). Wer die Verdeckung kräftiger will, dreht an `totalStrength`.
+
 **Die Voreinstellung bleibt trotzdem aus.** Sie ist heute schon einmal aus einer Zahl heraus
 umgelegt worden; diesmal entscheidet der Blick ins Spiel, nicht die Messung.
 

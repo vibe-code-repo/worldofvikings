@@ -491,18 +491,39 @@ export class PostProcessing {
    * echte Tiefe in den Ritzen.** Die Zahl war richtig gerechnet und hat
    * trotzdem das Gegenteil belegt.
    *
+   * ── Und die Kostenangabe galt nur für die Voreinstellung ────────────
+   * „Die Tiefenpassage läuft ohnehin" stimmt, WENN Tiefen- oder
+   * Bewegungsunschärfe an sind — beide sind voreingestellt an und teilen
+   * sich den GeometryBufferRenderer mit der Verdeckung. Wer sie abschaltet
+   * (und genau das tut Mike), lässt die Verdeckung die ganze Passage
+   * allein bezahlen. Nachgemessen am 17.08.2026, gleicher Ort, gleiche
+   * Uhrzeit, verschränkt in vier Wechseln:
+   *
+   *   Voreinstellung   10,30 ms → 10,36 ms   (+0,6 %)
+   *   ohne DOF und MB  13,37 ms → 14,00 ms   (**+4,7 %**)
+   *
+   * Bestätigt an der Ursache selbst: `scene.geometryBufferRenderer`
+   * existiert in dieser Einstellung nur, solange die Verdeckung an ist.
+   *
+   * Die Lehre ist allgemeiner als der Effekt: **Eine Messung unter den
+   * Voreinstellungen ist keine Messung für den, der sie geändert hat.**
+   *
    * Dieselbe Lehre steht seit dem 16.08.2026 über dem FPS-Wächter (E3):
    * Eine Messung sagt, ob Zahlen besser werden. Ob es besser AUSSIEHT,
    * sagt nur das Spielen. Beim Wächter war es die Bildrate, hier die
    * Streuung — und beide Male hat die Zahl den Blick ersetzt statt ihn zu
    * schärfen.
    *
-   * Was fehlt, bevor sie wiederkommen darf: die Ursache der Schlieren.
-   * Verdächtig sind der Radius (0.15 stammt aus Unitys Einheiten und
-   * unserem Maßstab, nicht aus einer Messung an unserer Geometrie) und
-   * die halbe Auflösung (`SSAO_RATIO`) über den dünnen Alpha-Test-Kanten
-   * von Laub und Gras — dort steht in der Tiefenpassage die Kante des
-   * RECHTECKS, nicht die des Blattes.
+   * Die Ursache der Schlieren ist inzwischen gefunden und behoben — es
+   * war `SSAO_MAX_Z`, siehe dort. **Beide Verdächtigen, die hier standen,
+   * waren es nicht:** Ein Variantenvergleich am selben Ort zeigte Bänder
+   * mit Radius 0,15 UND mit 1,5, mit und ohne `expensiveBlur`. Nur die
+   * Bereichsgrenze trug.
+   *
+   * Nachgemessen ist auch, dass der Radius als Regler der STÄRKE nicht
+   * taugt: von 0,15 bis 2,0 — Faktor 13 — ändert sich der Bildunterschied
+   * praktisch nicht (24,8 % der Pixel gegenüber 24,5 %). Wer die
+   * Verdeckung kräftiger will, dreht an `totalStrength`, nicht hier.
    *
    * ── Die Zahlen von damals, unverändert ──────────────────────────────
    * Im Unity-Profil des Originals ist Ambient Occlusion an (intensity 1.0,

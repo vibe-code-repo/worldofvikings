@@ -469,7 +469,39 @@ Mipmaps.
 Heide- und Sumpfatlas sind nach derselben Überlegung mitgezogen, aber **nicht einzeln
 gemessen** — sie tragen im Original erdigere Töne, und die Änderung ist dort kleiner.
 
-*(Der ursprüngliche Plan, weiterhin offen:)*
+#### Nachtrag am selben Tag: der Originalmechanismus ist drin
+
+Der Wiesen-Atlas ist jetzt **weiß**, und `terrainTint` steht auf `true` — die Wiese bekommt
+ihre Farbe aus `grass_terrain_color`, wie im Original. `MEADOWS_TINT` entfällt für beide
+Wiesen-Einträge.
+
+**Der Hinderungsgrund von 2026-07-29 ist weggefallen, ohne dass jemand ihn ausgeräumt hätte.**
+Er lautete: Die Vanilla-Maske ist 128², `clutter_default.glb` ist auf 256² ausgelegt, mit der
+Originalmaske zerfielen die Halme zu eckigen Schollen. Seit Block A erzeugen wir die Maske
+**selbst** — in 256², mit unserer Halmform. Die Auflösung war nie die Eigenschaft, auf die es
+ankam, sondern die Farbe.
+
+| Stand | Bodensättigung |
+|---|---|
+| ursprünglicher Atlas | 73,3 % |
+| entsättigt + ausgedünnt | ~47 % |
+| **weiße Maske × `grass_terrain_color`** | **37–42 %** |
+| Ziel (Original) | 31 % |
+
+**Und der Rest ist jetzt lokalisiert.** Dasselbe Bild ohne Gras gemessen: **31,2 %** — das
+Terrain trifft den Zielwert bereits genau. Was oben drüber liegt, kommt aus der Tönungskarte
+selbst: `grass_terrain_color.png` mittelt (89, 119, 66), das sind 44 % Sättigung. Die Wiese
+ist damit so bunt wie ihre Tönung, und nicht mehr bunter — der Mechanismus stimmt, die Zahl
+hängt an einer Textur.
+
+Ob die Karte entsättigt gehört, ist eine Entscheidung über die Bildsprache: Sie ist die
+Farbe, die Valheims Wiesen *haben*. Damit ist Stufe 3 an dem Punkt, an dem gemessene
+Ursachenarbeit endet und Geschmack anfängt.
+
+Offen bleiben die **coverage-erhaltenden Mipmaps** — bei 0,40 Deckung und dünnen Halmen ist
+der Effekt kleiner als bei 0,60, aber er ist nicht weg.
+
+*(Der ursprüngliche Plan:)*
 
 ### Stufe 3 (Originalpfad) — steht wieder an
 

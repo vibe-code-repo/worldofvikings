@@ -78,6 +78,16 @@ export interface GameSettings {
    */
   ambientOcclusion: boolean;
   /**
+   * Zeitliche Kantenglättung (TAA).
+   *
+   * Kein Original-Setting im engeren Sinn — das Original HAT TAA, bietet
+   * es aber nicht als Schalter an. Bei uns muss es einer sein, weil TAA
+   * ohne Bewegungsvektoren Schlieren zieht: Es tauscht Flimmern gegen
+   * Ghosting, und welches von beidem mehr stört, entscheidet der Spieler.
+   * Begründung und Messreihen in PostProcessing.setTemporalAA().
+   */
+  temporalAA: boolean;
+  /**
    * Pointer-Lock benutzen (Cursor fangen, Standard). Aus: der Cursor bleibt
    * sichtbar und die Kamera dreht sich per Ziehen mit gedrückter Maustaste.
    *
@@ -168,6 +178,9 @@ const DEFAULTS: GameSettings = {
   depthOfField: true,
   sunShafts: false,
   ambientOcclusion: false,
+  // Voreinstellung AUS — der Effekt tauscht ein Artefakt gegen ein
+  // anderes, das gehört gesehen und nicht verordnet.
+  temporalAA: false,
   pointerLock: true,
   showObjectNames: false,
   nameplates: true,
@@ -208,6 +221,7 @@ function loadSaved(): Partial<GameSettings> {
       depthOfField: bool(parsed.depthOfField),
       sunShafts: bool(parsed.sunShafts),
       ambientOcclusion: bool(parsed.ambientOcclusion),
+      temporalAA: bool(parsed.temporalAA),
       distantShadows: bool(parsed.distantShadows),
       pointerLock: bool(parsed.pointerLock),
       showObjectNames: bool(parsed.showObjectNames),
@@ -221,6 +235,7 @@ function loadSaved(): Partial<GameSettings> {
     if (b.depthOfField !== undefined) out.depthOfField = b.depthOfField;
     if (b.sunShafts !== undefined) out.sunShafts = b.sunShafts;
     if (b.ambientOcclusion !== undefined) out.ambientOcclusion = b.ambientOcclusion;
+    if (b.temporalAA !== undefined) out.temporalAA = b.temporalAA;
     if (b.distantShadows !== undefined) out.distantShadows = b.distantShadows;
     if (b.pointerLock !== undefined) out.pointerLock = b.pointerLock;
     if (b.showObjectNames !== undefined) out.showObjectNames = b.showObjectNames;

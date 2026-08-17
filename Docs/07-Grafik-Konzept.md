@@ -1130,6 +1130,57 @@ Tiefenreihenfolge würde nicht so sauber mitskalieren.
 nichts mit Wind zu tun — er kommt aus ihrer eigenen Animation. Der naheliegende Verdacht
 („ihr Schatten hinkt ein Bild hinterher") ist ausgeschlossen, siehe den nächsten Abschnitt.
 
+### Behoben: TAA (17.08.2026)
+
+Babylon 8.56 bringt eine `TAARenderingPipeline` mit — der Kopf von `PostProcessing.ts` führte
+bis heute als bewusste Abweichung „Babylon hat kein TAA in der DefaultRenderingPipeline; ohne
+jegliches AA flimmern unsere Alpha-Cutout-Grashalme stark (viel mehr als im Original, das
+TAA-Historie hat)". Beide Hälften sind überholt: Es gibt TAA, und das Flimmern ist jetzt
+vermessen.
+
+Eingebaut als eigene Option **„Zeitliche Glättung (TAA)"**, Voreinstellung aus. Konfiguration:
+`disableOnCameraMove = false` (Babylons Vorgabe `true` schaltet TAA ab, sobald sich die Kamera
+bewegt — für ein Spiel unbrauchbar), `clampHistory = true` (3×3-Klemme gegen Ghosting),
+`factor = 0.2` statt 0.05 (weniger Historie, weniger Schlieren), `reprojectHistory = false`
+(bräuchte den PrePassRenderer, also eine komplette zusätzliche Szenenpassage).
+
+**Wirkung, paarweise in einer Sitzung, aus/an/aus/an:**
+
+| | zappelnde Bildpunkte | bewegt | p50 |
+|---|---|---|---|
+| TAA aus | 18,25 % | 19,32 % | 13,80 ms |
+| **TAA an** | **0,25 %** | 1,01 % | 12,50 ms |
+| TAA aus | 19,99 % | 21,21 % | 13,00 ms |
+| **TAA an** | **0,26 %** | 0,87 % | 14,30 ms |
+
+**Rund Faktor 75 weniger zappelnde Bildpunkte, ohne messbare Kosten** und ohne Shader- oder
+Seitenfehler. Im Bild sind die Grashalmkanten sauber statt treppig; im Standbild ist kein
+Ghosting auszumachen.
+
+> [!warning] Babylon sagt „ganz vorn", die Messung sagt „ganz hinten"
+> `taaRenderingPipeline.d.ts` schreibt: „TAA post-process must be the first in the camera."
+> Tatsächlich landet die Pipeline hinten, weil das Wiedereinschalten
+> `attachCamerasToRenderPipeline` ruft und das ans Ende anhängt. **Das ist hier die
+> funktionierende Variante.** Beide Anordnungen sind gemessen, je paarweise:
+>
+> | Anordnung | zappelnd |
+> |---|---|
+> | TAA hinten (wie es sich ergibt) | 35,2 % → **1,4 %** |
+> | TAA vorn (nach Vorgabe, per `attachPostProcess(pp, 0)` erzwungen) | 63,7 % → **66,0 %** |
+>
+> Vorn eingehängt bringt es **nichts**. Naheliegende Erklärung: TAA versetzt die Projektion je
+> Bild (Halton-Jitter) und rechnet ihn in der eigenen Akkumulation heraus. Steht es vorn,
+> laufen danach neun weitere Pässe — darunter Tiefen- und Bewegungsunschärfe, die ihre
+> Matrizen aus derselben, nun verwackelten Kamera ziehen. Die tragen den Jitter ins fertige
+> Bild zurück, wo ihn niemand mehr herausmittelt.
+>
+> Die Umsortierung war gebaut, hat sauber funktioniert (`TAA(s4)` vorn, `valheimDof` auf s1)
+> und ist wegen dieser Messung wieder entfernt worden.
+
+**Noch offen:** Gemessen wurde mit stehendem Spieler. Ghosting bei schneller Eigenbewegung —
+der bekannte Preis von TAA ohne Bewegungsvektoren — ist damit nicht abgedeckt und gehört im
+Spiel beurteilt. Deshalb Voreinstellung aus.
+
 ### `refreshRate` an der Schattenkarte ist wirkungslos — und war es beim Messen schon
 
 Bei der Fehlersuche fiel auf, dass `Shadows.setLevel()` mit `karte.refreshRate = 2` eine

@@ -134,6 +134,13 @@ export class SettingsPanel {
     panel.appendChild(
       this.buildToggle('Kantenglättung', (s) => s.antiAliasing, (v) => this.settings.set({ antiAliasing: v }))
     );
+    // Eigener Schalter neben "Kantenglättung", nicht darin: TAA tauscht
+    // Flimmern gegen Ghosting — siehe PostProcessing.setTemporalAA().
+    panel.appendChild(
+      this.buildToggle('Zeitliche Glättung (TAA)', (s) => s.temporalAA, (v) =>
+        this.settings.set({ temporalAA: v })
+      )
+    );
     // Steuerung: kein Original-Setting, siehe GameSettings.pointerLock.
     panel.appendChild(
       this.buildToggle('Maus fangen (Pointer-Lock)', (s) => s.pointerLock, (v) =>

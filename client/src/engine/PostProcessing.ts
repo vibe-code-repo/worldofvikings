@@ -30,12 +30,18 @@
  *
  * Abweichungen vom Original (bewusst, mit Begründung):
  *  - Anti-Aliasing: Original nutzt TAA und hat es in DIESEM Profil aus.
- *    Babylon hat kein TAA in der DefaultRenderingPipeline; ohne jegliches
- *    AA flimmern unsere Alpha-Cutout-Grashalme stark (viel mehr als im
- *    Original, das TAA-Historie hat). Wir nutzen daher FXAA plus 4×MSAA
- *    auf der Szenenpassage — als EINE Nutzeroption abschaltbar, genau wie
- *    im echten Spiel (GraphicsSettingBool.AntiAliasing). Die beiden
- *    greifen an verschiedenen Kanten, siehe setzeMsaa().
+ *    Wir nutzen FXAA plus 4×MSAA auf der Szenenpassage — als EINE
+ *    Nutzeroption abschaltbar, genau wie im echten Spiel
+ *    (GraphicsSettingBool.AntiAliasing). Die beiden greifen an
+ *    verschiedenen Kanten, siehe setzeMsaa().
+ *
+ *    ⚠ Hier stand bis 17.08.2026: "Babylon hat kein TAA in der
+ *    DefaultRenderingPipeline; ohne jegliches AA flimmern unsere
+ *    Alpha-Cutout-Grashalme stark (viel mehr als im Original, das
+ *    TAA-Historie hat)." Die Diagnose war richtig und ist inzwischen
+ *    vermessen; die Behauptung über Babylon nicht mehr: Seit 8.56 gibt
+ *    es `TAARenderingPipeline`, und sie ist als eigene Option eingebaut
+ *    (setTemporalAA). Sie senkt das gemessene Zappeln um Faktor 75.
  *  - Ambient Occlusion ist NICHT enthalten: Babylons SSAO2 braucht einen
  *    zusätzlichen Geometry-/Prepass über die gesamte (bereits schwere)
  *    Terrain- und Clutter-Geometrie. Bei radius 0.15 ist der Effekt sehr
@@ -54,6 +60,7 @@
  */
 import { DefaultRenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline';
 import { SSAO2RenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/ssao2RenderingPipeline';
+import { TAARenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/taaRenderingPipeline';
 import { Constants } from '@babylonjs/core/Engines/constants';
 import { MotionBlurPostProcess } from '@babylonjs/core/PostProcesses/motionBlurPostProcess';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration';
@@ -102,6 +109,28 @@ const MOTION_SAMPLES = 10;
  * an unseren überwiegend flachen Geländekanten.
  */
 const MSAA_SAMPLES = 4;
+/** Name der TAA-Pipeline — auch der Schlüssel beim An-/Abhängen der Kamera. */
+const TAA_NAME = 'valheimTaa';
+/**
+ * Zahl der akkumulierten Abtastmuster (Babylon-Vorgabe 16).
+ *
+ * Es ist die Länge des Halton-Musters, mit dem die Projektion je Bild
+ * versetzt wird — nicht die Zahl gespeicherter Bilder. Bei 60 fps ist ein
+ * Zyklus von 16 gut eine Viertelsekunde; darüber wird die Verteilung
+ * feiner, aber das Einschwingen nach einem Szenenwechsel länger.
+ */
+const TAA_SAMPLES = 16;
+/**
+ * Anteil des NEUEN Bildes an der Mischung (Babylon-Vorgabe 0.05).
+ *
+ * 0.05 heisst: 95 % Historie. Das glättet stark und ist für Standbilder
+ * gedacht — bei bewegtem Laub zieht es Schlieren. Hier steht bewusst ein
+ * höherer Wert: Er lässt mehr vom aktuellen Bild durch, glättet also
+ * weniger, schleppt aber auch weniger Vergangenheit mit. Zusammen mit
+ * `clampHistory` ist das die Stellschraube zwischen Flimmern und
+ * Ghosting; gemessen wird sie mit `tools/pw-schatten-flimmern.mjs`.
+ */
+const TAA_FAKTOR = 0.2;
 /**
  * Umgebungsverdeckung — Werte aus dem Original-Profil (siehe Kopf):
  * `radius 0.15`, `totalStrength 1.0`, 10 Abtastungen. `ratio 0.5` rechnet
@@ -148,6 +177,8 @@ export interface PostProcessingOptions {
   sunShafts: boolean;
   /** Umgebungsverdeckung (SSAO2) — im Original-Profil an, hier Option. */
   ambientOcclusion: boolean;
+  /** Zeitliche Kantenglättung (TAA) gegen das Flimmern der Vegetation. */
+  temporalAA: boolean;
 }
 
 export const DEFAULT_POSTPROCESSING: PostProcessingOptions = {
@@ -162,6 +193,9 @@ export const DEFAULT_POSTPROCESSING: PostProcessingOptions = {
   // Voreinstellung AUS — siehe setSSAO(). Sie stand einen Abend lang auf
   // an, und das war ein Fehler mit Ansage.
   ambientOcclusion: false,
+  // Voreinstellung AUS, bis das Verhältnis von Flimmern zu Ghosting im
+  // Bild beurteilt ist — siehe setTemporalAA().
+  temporalAA: false,
 };
 
 /** Woran der Autofokus sich orientiert — siehe ValheimDof.autoFocus(). */
@@ -178,6 +212,7 @@ export class PostProcessing {
   private dof: ValheimDof | null = null;
   private shafts: VolumetricLightScatteringPostProcess | null = null;
   /** Immer vorhanden, aber nur angehängt, wenn die Option an ist. */
+  private readonly taa: TAARenderingPipeline;
   private readonly ssao: SSAO2RenderingPipeline;
   private ssaoAn = false;
   /**
@@ -195,6 +230,73 @@ export class PostProcessing {
     this.scene = scene;
     this.camera = camera;
     this.focusSource = focusSource;
+
+    // ── TAA: Babylon sagt „ganz vorn", die Messung sagt „ganz hinten" ──
+    //
+    // Babylons Vorgabe steht wörtlich im Kopf von
+    // `taaRenderingPipeline.d.ts`: „TAA post-process must be the first in
+    // the camera, so TAARenderingPipeline must be created before any other
+    // pipeline/post-processing." Die Pipeline entsteht deshalb hier oben.
+    //
+    // Tatsächlich landet sie trotzdem HINTEN: Sie wird sofort mit
+    // `isEnabled = false` abgehängt, und das Wiedereinschalten ruft
+    // `attachCamerasToRenderPipeline`, das ans ENDE anhängt.
+    //
+    // ⚠ DAS IST HIER KEIN FEHLER, SONDERN DIE FUNKTIONIERENDE VARIANTE.
+    // Beide Anordnungen sind gemessen (17.08.2026, Zappelmass aus
+    // `tools/pw-schatten-flimmern.mjs`, je paarweise in derselben Sitzung):
+    //
+    //   TAA hinten (wie es sich ergibt)   35,2 %  ->  1,4 %   zappelnd
+    //   TAA vorn   (nach Vorgabe)         63,7 %  ->  66,0 %  zappelnd
+    //
+    // Vorn eingehängt bringt es NICHTS. Die naheliegende Erklärung: TAA
+    // versetzt die Projektion je Bild (Halton-Jitter) und rechnet ihn in
+    // der eigenen Akkumulation wieder heraus. Steht es vorn, laufen
+    // danach noch neun Pässe — darunter Tiefenunschärfe und
+    // Bewegungsunschärfe, die ihre Matrizen aus derselben, nun
+    // verwackelten Kamera ziehen. Die tragen den Jitter ins fertige Bild
+    // zurück, und dort kann ihn niemand mehr herausmitteln. Hinten
+    // eingehängt glättet TAA das, was der Spieler wirklich sieht.
+    //
+    // Ein Versuch, die Pässe per `attachPostProcess(pp, 0)` nach vorn zu
+    // holen (derselbe Griff wie bei ValheimDof), war gebaut, hat sauber
+    // umsortiert — `TAA(s4)` vorn, `valheimDof` auf s1 — und ist wegen
+    // dieser Messung wieder entfernt worden.
+    //
+    // Die Pipeline entsteht hier oben trotzdem zuerst: Das ist die
+    // dokumentierte Reihenfolge, es kostet nichts, und wenn eine spätere
+    // Babylon-Version das Anhängen ändert, steht die Konstruktion richtig.
+    //
+    // ── Warum es TAA überhaupt gibt ─────────────────────────────────
+    // Der Kopf dieser Datei führte bisher als bewusste Abweichung: „Original
+    // nutzt TAA … Babylon hat kein TAA in der DefaultRenderingPipeline;
+    // ohne jegliches AA flimmern unsere Alpha-Cutout-Grashalme stark (viel
+    // mehr als im Original, das TAA-Historie hat)." Beide Hälften sind
+    // inzwischen überholt: Babylon 8.56 bringt `TAARenderingPipeline` mit,
+    // und das Flimmern ist am 17.08.2026 vermessen — 95 % aller bewegten
+    // Bildpunkte zappeln, und es sind NICHT die Schatten
+    // (Docs/07-Grafik-Konzept.md, „Flimmern: es sind nicht die Schatten").
+    //
+    // ── Die drei Einstellungen sind keine Vorgaben ──────────────────
+    //  · `disableOnCameraMove` steht in Babylon auf true und schaltet TAA
+    //    ab, sobald sich die Kamera bewegt. Für Standbilder sinnvoll, für
+    //    ein Spiel unbrauchbar: Unsere Kamera hängt am Spieler, sie bewegt
+    //    sich fast immer, und das Flimmern stört gerade beim Laufen.
+    //  · `clampHistory` klemmt den Historienwert auf das Minimum/Maximum
+    //    der 3×3-Nachbarschaft. Das ist die billige Bremse gegen Ghosting
+    //    und der Grund, warum wir OHNE Bewegungsvektoren auskommen.
+    //  · `reprojectHistory` bleibt AUS. Es braucht den PrePassRenderer
+    //    (taaRenderingPipeline.js:216, `enablePrePassRenderer()`), also
+    //    eine komplette zusätzliche Szenenpassage — genau den Posten, den
+    //    `syncGeometryBuffer()` weiter unten mit Messwerten bekämpft.
+    this.taa = new TAARenderingPipeline(TAA_NAME, scene, [camera]);
+    this.taa.isEnabled = false;
+    if (this.taa.isSupported) {
+      this.taa.disableOnCameraMove = false;
+      this.taa.clampHistory = true;
+      this.taa.samples = TAA_SAMPLES;
+      this.taa.factor = TAA_FAKTOR;
+    }
 
     // ── SSAO2 VOR der DefaultRenderingPipeline ──────────────────────
     //
@@ -279,9 +381,41 @@ export class PostProcessing {
     this.setDepthOfField(opts.depthOfField);
     this.setSunShafts(opts.sunShafts);
     this.setSSAO(opts.ambientOcclusion);
+    this.setTemporalAA(opts.temporalAA);
     this.syncGeometryBuffer();
     // ZULETZT: Erst jetzt steht fest, welcher Pass vorne in der Kette hängt.
     this.setzeMsaa(opts.antiAliasing);
+  }
+
+  /**
+   * Zeitliche Kantenglättung an- oder abschalten.
+   *
+   * ── Wogegen sie hilft ───────────────────────────────────────────────
+   * Gegen das gemessene Flimmern der Vegetation: Cutout-Laub kennt keine
+   * Teildeckung, ein Bildpunkt an einer Blattkante ist entweder Blatt oder
+   * Hintergrund und kippt beim kleinsten Windversatz ganz um. MSAA sieht
+   * diese Kanten nicht (der `discard` verwirft den ganzen Bildpunkt),
+   * FXAA glättet sie räumlich, aber nicht über die ZEIT — und genau
+   * zeitlich entsteht das Problem. Ausführlich samt Messreihen in
+   * Docs/07-Grafik-Konzept.md, „Flimmern: es sind nicht die Schatten".
+   *
+   * ── Warum ein eigener Schalter und nicht Teil von „Kantenglättung" ──
+   * Weil TAA einen Preis hat, den FXAA und MSAA nicht haben: Ghosting.
+   * Ohne Bewegungsvektoren (die bräuchten den PrePassRenderer, s.
+   * Konstruktor) kann nur `clampHistory` gegenhalten, und was diese
+   * Klemme nicht fängt, zieht Schlieren. Das ist eine Geschmacksfrage und
+   * gehört dem Spieler in die Hand, nicht in einen Sammelschalter.
+   *
+   * `isEnabled` hängt die Kamera an bzw. ab (taaRenderingPipeline.js) —
+   * abgeschaltet läuft kein Pass, es bleiben nur die beiden
+   * Ping-Pong-Texturen im Speicher liegen.
+   */
+  private setTemporalAA(enabled: boolean): void {
+    // Ohne `texelFetch` baut Babylon die Pipeline gar nicht erst auf; ein
+    // Zugriff auf ihre Schalter liefe dann ins Leere.
+    if (!this.taa.isSupported) return;
+    if (this.taa.isEnabled === enabled) return;
+    this.taa.isEnabled = enabled;
   }
 
   /**

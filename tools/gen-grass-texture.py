@@ -49,7 +49,10 @@ def gen(path, base_rgb, tip_rgb, blades_per_col, seed):
             bx = random.uniform(x0 + 3, x1 - 3)          # Basis-x
             hgt = random.uniform(0.55, 0.97) * H          # Halm-Hoehe
             lean = random.uniform(-0.16, 0.16) * (x1 - x0)  # seitl. Drift
-            w_base = random.uniform(3.0, 5.5)             # Breite unten
+            # Schmaler als frueher (war 3.0-5.5): Die Deckung faellt
+            # linear mit der Halmbreite, und breite Balken sind genau der
+            # Unterschied zwischen 'gemalte Streifen' und 'Halme'.
+            w_base = random.uniform(2.0, 3.6)             # Breite unten
             tx = bx + lean
             ty = H - hgt
             # Halm als gefuelltes Polygon: unten breit, oben spitz,
@@ -95,6 +98,30 @@ OUT = os.path.join(
     'assets', 'textures', ''
 )
 os.makedirs(OUT, exist_ok=True)
-gen(OUT + 'grass_meadows_gen.png', (52, 88, 30), (110, 155, 62), 42, seed=7)
-gen(OUT + 'grass_heath_gen.png', (96, 84, 40), (168, 152, 88), 36, seed=13)
-gen(OUT + 'grass_toon1_yellow_gen.png', (58, 66, 28), (150, 148, 72), 30, seed=21)
+# ── Farb- und Deckungswerte, gemessen begruendet (E11, 17.08.2026) ──
+#
+# Der Wiesen-Atlas stand auf (52,88,30)/(110,155,62) mit 42 Halmen je
+# Spalte. Gemessen im laufenden Bild ergab der Boden damit
+# RGB(44.5, 56.4, 15.1), Saettigung 73 % — das Original liegt laut
+# Diagnose des Grafik-Konzepts bei 31 %, und der Blaukanal war mit 15
+# regelrecht zerquetscht.
+#
+# Zwei Ursachen, beide hier:
+#
+#  1. ZU BUNT. Die Halmfarben trugen fast kein Blau (30 gegen 88 Gruen).
+#     Die Vanilla-Maske ist WEISS und bekommt ihre Farbe zur Laufzeit aus
+#     grass_terrain_color; unsere backt sie ein. Solange sie eingebacken
+#     ist, muss sie wenigstens die Kanalverhaeltnisse des Vorbilds haben —
+#     der Originalboden misst RGB(40, 42, 35), also nahezu neutral.
+#  2. ZU DICHT. Alpha-Deckung 0.60 gegen 0.095 der Vanilla-Maske. Ein
+#     geschlossener Teppich statt einzelner Halme; der Boden darunter
+#     kommt gar nicht mehr durch, und mit ihm faellt die Tonwertstreuung.
+#
+# Geaendert werden deshalb beide Groessen zugleich, aber MASSVOLL: Blau
+# angehoben und Gruen zurueckgenommen (Verhaeltnis B/G von 0.34 auf 0.62),
+# Halmzahl von 42 auf 26. Nicht bis auf die 0.095 der Vanilla-Maske —
+# deren Halme sind duenne Striche, unsere sind gezeichnete Blaetter, und
+# eine Wiese aus 9 % Deckung waere bei unserer Halmform kahl.
+gen(OUT + 'grass_meadows_gen.png', (58, 76, 47), (108, 128, 84), 26, seed=7)
+gen(OUT + 'grass_heath_gen.png', (96, 86, 55), (166, 152, 106), 24, seed=13)
+gen(OUT + 'grass_toon1_yellow_gen.png', (60, 66, 40), (146, 144, 92), 22, seed=21)

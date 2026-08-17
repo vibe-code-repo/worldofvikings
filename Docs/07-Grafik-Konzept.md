@@ -432,6 +432,45 @@ niemand sie mittelt — genau das tut die GPU beim Mipmapping.
 
 *(Der ursprüngliche Plan, jetzt wieder der einzige:)*
 
+### Stufe 3 — Zwischenschritt gegangen (17.08.2026), Ziel noch nicht erreicht
+
+Der eigene Atlas ist neu abgestimmt — der „kleinere Zwischenschritt", den der Abschnitt
+darüber selbst nennt. Gemessen im laufenden Bild, **feste Weltposition, feste Uhrzeit**,
+nur die drei PNG getauscht:
+
+| | alter Atlas | neuer Atlas | Ziel (Original) |
+|---|---|---|---|
+| Bodensättigung | **73,3 %** (73,2 / 73,3) | **~47 %** (45,2 / 47,5 / 48,7) | 31 % |
+| Boden RGB | (44,6 / 56,5 / **15,1**) | (29 / 41 / **22**) | (40 / 42 / 35) |
+| Alpha-Deckung des Atlas | 0,60 | **0,40** | 0,095 (Vanilla-Maske) |
+
+Geändert wurden zwei Größen in `tools/gen-grass-texture.py`: die Halmfarben (Blau/Grün von
+0,34 auf 0,62 angehoben) und die Deckung (26 statt 42 Halme je Spalte, Breite 2,0–3,6 statt
+3,0–5,5 px). **Der zerquetschte Blaukanal ist damit weg** — er war der auffälligste Einzelwert
+der ganzen Diagnose.
+
+**Das Ziel von 31 % ist nicht erreicht, und das ist keine Frage der Feinabstimmung.** Der Rest
+steckt im Verfahren: Solange die Farbe in die Textur EINGEBACKEN ist, kann sie sich nicht nach
+dem Boden richten. Der Originalmechanismus ist eine nahezu weiße Maske mal
+`grass_terrain_color` (`terrainTint`) — dann bestimmt der Boden die Farbe des Grases und nicht
+umgekehrt. Das ist der noch offene Teil dieser Stufe, zusammen mit den coverage-erhaltenden
+Mipmaps.
+
+> [!warning] Methodenfehler, der beim Messen aufgefallen ist
+> Die ersten Vergleiche liefen über **getrennte Browsersitzungen** — und damit über
+> verschiedene Spawnpunkte. Zwei Läufe desselben Standes lagen so 14 Prozentpunkte
+> auseinander. Erst mit fest gesetzter Weltposition (`-16889, -5345`) wurde die Zahl
+> reproduzierbar: der alte Atlas misst 73,2 / 73,3 %.
+>
+> Der neue Atlas streut trotzdem noch (45–49 %), und auch das ist ein Befund: Bei dünner
+> Deckung hängt das Verhältnis Gras zu Boden davon ab, wie weit der Clutter aufgebaut ist.
+> Bei dichter Deckung fiel das nicht auf, weil dort ohnehin alles zugewachsen war.
+
+Heide- und Sumpfatlas sind nach derselben Überlegung mitgezogen, aber **nicht einzeln
+gemessen** — sie tragen im Original erdigere Töne, und die Änderung ist dort kleiner.
+
+*(Der ursprüngliche Plan, weiterhin offen:)*
+
 ### Stufe 3 (Originalpfad) — steht wieder an
 
 1. **Coverage-erhaltende Mipmaps** als neues Werkzeug (`tools/gen-coverage-mips.mjs`,

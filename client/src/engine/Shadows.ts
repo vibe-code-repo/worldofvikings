@@ -77,6 +77,47 @@ export const SHADOW_LEVELS: readonly (ShadowLevel | null)[] = [
   null, // Aus — nicht im Original, siehe Kopfkommentar
   { kaskaden: 2, distanz: 80, aufloesung: 512 },
   { kaskaden: 3, distanz: 120, aufloesung: 1024 },
+  // Hoechste Stufe: 4096 statt 2048 — gemessen 17.08.2026 nachts gegen das
+  // Kriseln des Bodenschattens (E15). Vierfache Texelzahl auf gleicher
+  // Flaeche, also die Dichte von 75 m bei 2048, nur mit VOLLEN Fernschatten.
+  //
+  //   2048 / lambda 0,5 / stabilisiert   2,77 %   p50  9,40 ms   p95 10,70 ms
+  //   2048 / lambda 0,8 / frei           1,22 %   p50  9,50 ms   p95 12,20 ms
+  //   4096 / lambda 0,8 / frei           0,87 %   p50  9,60 ms   p95 10,90 ms
+  //   2048 /  80 m / lambda 0,8 / frei   1,16 %   p50 10,30 ms   p95 12,20 ms
+  //
+  // (Anteil Bildpunkte mit dunklem Einbruch im Bodenausschnitt, Wind aus,
+  //  Sonne laeuft. Der Ausgangswert stammt aus EINER Runde — die zweite war
+  //  durch eine nicht gegriffene Ruecksetzung verdorben; die drei anderen
+  //  Zellen sind je n=2 und liegen innerhalb 0,1 Prozentpunkt.)
+  //
+  // Die vierfache Karte kostet +0,1 ms und ist im p95 sogar besser. Sie
+  // kostet aber VRAM: vier Kaskaden a 4096^2 sind grob 270 MB statt 67.
+  // Deshalb NUR auf dieser hoechsten Stufe — wer sie waehlt, hat die Karte
+  // dafuer. Stufe 1 und 2 bleiben unberuehrt.
+  //
+  // Bewusst KEIN eigener Regler: shadowQuality IST der Regler. Auflösung,
+  // lambda und Stabilisierung sind Interna, die einmal gemessen und dann
+  // festgeschrieben gehoeren — kein Spieler kann sie im Bild beurteilen.
+  // ⚠ 17.08.2026, ZURUECKGENOMMEN: Hier stand kurzzeitig 4096 (gegen das
+  // Kriseln des Bodenschattens, E15). Gemessen wurde das im Wald bei 141
+  // Werfern: +0,1 ms, im p95 sogar besser. Auf der neuen Insel bei 10077 /
+  // -18723 (214 Werfer, dichtes Gras) kostet dieselbe Aenderung
+  //
+  //   4096  67,1 ms p50 (15 fps)
+  //   1024  31,5 ms p50 (22 fps)
+  //   aus   13,1 ms p50 (49 fps)
+  //
+  // also rund 36 ms — mehr als das halbe Bild. Der Mechanismus ist nicht
+  // das Zeichnen der Karte, sondern ihr ABTASTEN: Gras ist alphagetestet
+  // und massiv ueberzeichnet, und jedes Fragment schlaegt in der
+  // Kaskadenkarte nach. Bei 4096^2 mal vier Kaskaden faellt das aus jedem
+  // Cache. Gegenprobe: Gras aus senkt dieselbe Szene von 67,1 auf 21,6 ms,
+  // bei ausgeschalteten Schatten kostet Gras nur 3,4 ms.
+  //
+  // Lehre, die ueber diesen Fall hinausgeht: Eine Messung an EINEM Ort ist
+  // keine Messung fuer die Welt. Der Wald war die falsche Probe fuer eine
+  // Aenderung, die mit Werferzahl und Grasdichte skaliert.
   { kaskaden: 4, distanz: 150, aufloesung: 2048 },
 ];
 
@@ -385,9 +426,27 @@ export class Shadows {
     const g = new CascadedShadowGenerator(cfg.aufloesung, this.sonne);
     g.numCascades = cfg.kaskaden;
     g.shadowMaxZ = cfg.distanz;
-    // Kaskadengrenzen an der Kamera ausrichten statt an der Weltachse:
-    // Ohne das wandern die Schattenkanten beim Drehen sichtbar.
-    g.stabilizeCascades = true;
+    // ── Kaskadenverteilung: gemessen 17.08.2026 nachts (E15) ─────────
+    //
+    // Hier stand `stabilizeCascades = true` mit der Begruendung:
+    // "Kaskadengrenzen an der Kamera ausrichten statt an der Weltachse:
+    //  Ohne das wandern die Schattenkanten beim Drehen sichtbar."
+    //
+    // Die Begruendung ist NICHT widerlegt — sie ist ungeprueft. Gemessen
+    // wurde gegen ein anderes Problem: das Kriseln des Bodenschattens unter
+    // wandernder Sonne. Dort kostet die Stabilisierung rund ein Drittel der
+    // erreichbaren Verbesserung (bei 150 m und lambda 0,8: 2,29 %
+    // stabilisiert gegen 2,04 % frei).
+    //
+    // ⚠ Die Messung lief mit FESTER KAMERA — also blind fuer genau den Fall,
+    // gegen den die Stabilisierung eingebaut wurde. Wandern beim Drehen
+    // sichtbar Schattenkanten, gehoert diese Zeile zurueck auf `true`; das
+    // kostet laut Reihe ein Drittel, nicht alles.
+    g.stabilizeCascades = false;
+    // Logarithmischere Aufteilung der vier Kaskaden: schiebt Texeldichte in
+    // den Nahbereich, wo der Spieler steht. Babylons Vorgabe ist 0,5.
+    // Gemessen: 0,80 traegt, 0,95 ist bereits schlechter (2,04 gegen 2,44 %).
+    g.lambda = 0.80;
     // `autoCalcDepthBounds` BEWUSST AUS: Es klingt richtig (der
     // Tiefenbereich passt sich dem Gelände an), zieht aber einen
     // zusätzlichen Tiefen-Renderpass über die ganze Szene nach sich —

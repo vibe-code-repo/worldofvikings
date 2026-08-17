@@ -262,7 +262,39 @@ export class PlayerController {
   ) {
     this.assets = assets ?? null;
     this.camera = new UniversalCamera('playerCam', new Vector3(0, 40, -BOOM_LENGTH), scene);
-    this.camera.minZ = 0.1;
+    // ── Nahebene: 0,5 statt 0,1 — gemessen 17.08.2026 nachts ─────────
+    //
+    // Gemeldet war "Flackern in den Bäumen, im Bodenschatten UND schwarze
+    // Flecken auf der Figur". Die Suche lief zuerst als drei getrennte
+    // Fehler (E15/E16/E17) und endete bei EINER Ursache: dieser Zeile.
+    //
+    // Gemessen auf dem projizierten Bildbereich der Figur (dunkle
+    // Einbrüche je Bildpunkt, Wind aus, Sonne angehalten, 2 Runden):
+    //
+    //   minZ 0.1   2,49 %      <- vorher
+    //   minZ 0.5   0,76 %      <- Faktor 3,3
+    //   minZ 1.0   0,73 %
+    //   minZ 2.0   0,66 %
+    //
+    // 0,5 nimmt praktisch den gesamten Effekt mit; 1,0 und 2,0 holen
+    // zusammen noch 0,10 Prozentpunkte und bezahlen das mit Geometrie,
+    // die vor der Kamera verschwindet (Bauplatzierung, enge Innenräume).
+    //
+    // MECHANISMUS — Hypothese, nicht belegt: Der CascadedShadowGenerator
+    // verteilt seine Kaskaden zwischen `camera.minZ` und `shadowMaxZ`.
+    // Bei 0,1 gegen 150 m ist das Verhältnis 1500:1, die Aufteilung kippt
+    // in den Nahbereich, und dort wo Figur, Bäume und Boden stehen bleibt
+    // zu wenig Texeldichte — Selbstverschattung auf allem gleichzeitig.
+    // Wind, Sonne, Animation und Kameraschwenk sind dann nicht die
+    // Ursachen, sondern nur die Bewegung, die das Muster sichtbar macht.
+    // Das erklärt, warum in der Untersuchung JEDE Maßnahme am Material,
+    // an der Textur, an den Normalen und an der Abtastung wirkungslos
+    // blieb — auch 2x Supersampling (1,60 -> 1,77 %, also nichts).
+    //
+    // Wer den Mechanismus belegen will: Kaskadengrenzen des Generators
+    // bei 0,1 gegen 0,5 auslesen. Solange das aussteht, ist der WERT
+    // gemessen und die BEGRÜNDUNG geraten.
+    this.camera.minZ = 0.5;
     this.camera.maxZ = 4000;
     this.camera.fov = 1.05; // ~60°
 

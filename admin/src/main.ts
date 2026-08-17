@@ -58,7 +58,7 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { execFile, spawn } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, copyFileSync, readdirSync, statSync, unlinkSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync, readdirSync, statSync, unlinkSync, mkdirSync, renameSync } from 'node:fs';
 import { resolve, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -565,6 +565,101 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
         instanz: INSTANZ,
         sicherung: sicherung ? basename(sicherung) : null,
         bytes: Buffer.byteLength(text),
+      },
+    };
+  }
+
+  // ── Testwelt: die Karte einmal frisch erzeugen lassen ────────────────
+  //
+  // Anlass: Der Editor konnte ein Layout speichern, aber nicht sehen, was
+  // daraus wird. Ein blosser Serverneustart genuegt dafuer NICHT — das
+  // Terrain entsteht zwar neu aus dem Layout (WovServer createGeo), aber
+  // `ZoneManager` laedt die bereits besiedelten Zonen aus dem Weltspeicher
+  // (ZoneManager.ts, "Restore generated zones", C++ m_generatedZones).
+  // Auf der dev-Welt sind das 811 Zonen und ueber 94.000 ZDOs: Man saehe
+  // neues Gelaende mit alter Vegetation, Haeuser in der Luft oder im Hang,
+  // und die geaenderte Insel nur dort richtig, wo man nie war.
+  //
+  // Deshalb wird die Weltdatei beiseitegelegt statt weiterbenutzt. Der
+  // Server findet dann keinen Spielstand und erzeugt alles frisch aus dem
+  // Layout — das ist der einzige Zustand, in dem eine Karte zeigt, was sie
+  // ist.
+  //
+  // Reihenfolge ist nicht beliebig: Der Server haelt die Datei offen und
+  // schreibt sie im Speicherintervall. Getauscht wird deshalb NUR im
+  // gestoppten Zustand, sonst laege danach wieder der alte Stand da.
+  //
+  // Nichts wird geloescht: Die echte Welt geht nach `.beiseite`, die
+  // Testwelt beim Zurueckholen nach `testwelt.db.zst` (wird beim naechsten
+  // Lauf ueberschrieben). Zusaetzlich haengt eine regulaere Sicherung ueber
+  // `sichern()` daran, 20 Generationen.
+  if (pfad === '/api/testwelt' && methode === 'GET') {
+    const welt = resolve(WELTEN_ORDNER, `${INSTANZ}.db.zst`);
+    return {
+      code: 200,
+      daten: {
+        aktiv: existsSync(`${welt}.beiseite`),
+        welt: basename(welt),
+        weltVorhanden: existsSync(welt),
+        instanz: INSTANZ,
+        // Damit der Editor waehrend eines Neustarts etwas ANDERES zeigen
+        // kann als einen Balken: Er fragt hier im Sekundentakt nach.
+        zustand: await dienstZustand('wov-server'),
+      },
+    };
+  }
+
+  if (pfad === '/api/testwelt' && methode === 'POST') {
+    const { aktion } = (leib ?? {}) as { aktion?: string };
+    if (aktion !== 'starten' && aktion !== 'zurueck') {
+      return { code: 400, daten: { fehler: 'aktion muss "starten" oder "zurueck" sein' } };
+    }
+    const welt = resolve(WELTEN_ORDNER, `${INSTANZ}.db.zst`);
+    const beiseite = `${welt}.beiseite`;
+    const vorher = `${welt}.prev`;
+    const vorherBeiseite = `${vorher}.beiseite`;
+    const testAblage = resolve(WELTEN_ORDNER, 'testwelt.db.zst');
+
+    if (aktion === 'starten' && existsSync(beiseite)) {
+      return { code: 409, daten: { fehler: 'Es laeuft bereits eine Testwelt — erst zurueckholen' } };
+    }
+    if (aktion === 'zurueck' && !existsSync(beiseite)) {
+      return { code: 409, daten: { fehler: 'Keine Testwelt aktiv — nichts zurueckzuholen' } };
+    }
+
+    let sicherung: string | null = null;
+    if (aktion === 'starten') sicherung = sichern(welt, 20);
+
+    await ausfuehren('systemctl', ['stop', 'wov-server']);
+    try {
+      if (aktion === 'starten') {
+        if (existsSync(welt)) renameSync(welt, beiseite);
+        if (existsSync(vorher)) renameSync(vorher, vorherBeiseite);
+      } else {
+        // Die Testwelt aufheben statt loeschen — wer sie noch einmal
+        // ansehen will, findet sie unter testwelt.db.zst.
+        if (existsSync(welt)) renameSync(welt, testAblage);
+        if (existsSync(vorher)) unlinkSync(vorher);
+        renameSync(beiseite, welt);
+        if (existsSync(vorherBeiseite)) renameSync(vorherBeiseite, vorher);
+      }
+    } finally {
+      // Auch wenn der Tausch schiefgeht: Der Server muss wieder laufen.
+      await ausfuehren('systemctl', ['start', 'wov-server']);
+    }
+
+    return {
+      code: 200,
+      daten: {
+        ok: true,
+        aktion,
+        aktiv: existsSync(beiseite),
+        sicherung: sicherung ? basename(sicherung) : null,
+        message:
+          aktion === 'starten'
+            ? `Testwelt gestartet — ${basename(welt)} liegt beiseite, der Server erzeugt die Karte neu aus dem Layout.`
+            : `dev-Welt zurueckgeholt. Die Testwelt liegt als ${basename(testAblage)} daneben.`,
+        zustand: await dienstZustand('wov-server'),
       },
     };
   }

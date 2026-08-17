@@ -206,6 +206,8 @@ let serverKanon: string | null = null;
  * Zeitpunkt noch in der temporalen Todeszone.
  */
 let speicherKnopf: HTMLButtonElement | null = null;
+let liveKnopf: HTMLButtonElement | null = null;
+let zurueckKnopf: HTMLButtonElement | null = null;
 let gewaehlt: string | null = null;
 let werkzeug: 'auswahl' | 'form' | 'polygon' | 'platzieren' | 'fluss' = 'auswahl';
 /** Offener Flusslauf (Weltbau B) + Breite/Tiefe des Werkzeugs. */
@@ -1374,6 +1376,17 @@ function seiteBauen(): void {
   speicherKnopf = knopf('💾 In die Welt speichern', () => void inDieWeltSpeichern());
   speicherGruppe.appendChild(speicherKnopf);
   faerbeSpeicherKnopf();
+
+  // Bewusst eine EIGENE Gruppe neben dem Speicherknopf und nicht daneben
+  // in derselben: Speichern schreibt eine Datei, das hier startet einen
+  // Dienst neu. Zwei Knoepfe mit sehr verschiedenen Folgen gehoeren nicht
+  // nebeneinander, wo man den falschen greift.
+  const testweltGruppe = shell.toolbarGruppe();
+  liveKnopf = knopf('🌍 Karte live testen', () => void karteLiveTesten());
+  zurueckKnopf = knopf('↩ dev-Welt zurückholen', () => void devWeltZurueckholen());
+  testweltGruppe.appendChild(liveKnopf);
+  testweltGruppe.appendChild(zurueckKnopf);
+  void testweltKnoepfeAktualisieren();
   const datei = shell.toolbarGruppe();
   datei.appendChild(knopf('⬇ Export', () => {
     entwurfExportieren();
@@ -1429,9 +1442,18 @@ function weltName(): string {
  * Instanz-Umbau nicht mehr gibt. Wer beide Welten exportierte, hatte
  * danach zweimal denselben Dateinamen im Download-Ordner und keine
  * Möglichkeit mehr, sie auseinanderzuhalten.
+ *
+ * Der RÜCKFALL trug den toten Namen bis 17.08.2026 weiter: Schickt der
+ * Server keinen Dateinamen mit, hiess der Export wieder
+ * `worldlayout.json` — und schickt damit jeden, der ihn später anfasst,
+ * eine Datei suchen, die es nicht gibt (sie heisst `welten/dev.json`
+ * bzw. `welten/live.json`). Der Rückfall wird jetzt aus der Instanz
+ * gebildet; fehlt auch die, sagt der Name das, statt eine Herkunft zu
+ * behaupten.
  */
 function exportName(): string {
-  return welt.datei ?? 'worldlayout.json';
+  if (welt.datei) return welt.datei;
+  return welt.instanz ? `${welt.instanz}.json` : 'welt-unbekannt.json';
 }
 
 function entwurfExportieren(): void {
@@ -1493,18 +1515,18 @@ function faerbeSpeicherKnopf(): void {
  *      4-Regionen-Testlayout ersetzt) — er wäre an dieser
  *      Gegenüberstellung gescheitert.
  */
-async function inDieWeltSpeichern(): Promise<void> {
+async function inDieWeltSpeichern(): Promise<boolean> {
   const sauber = sanitizeWorldLayout(layout);
   if (!sauber) {
     shell.meldung('Entwurf ist unbrauchbar — nicht gespeichert.', true);
-    return;
+    return false;
   }
   if (sauber.regions.length === 0) {
     shell.meldung(
       'Der Entwurf enthält keine einzige Region — das wäre offene See. Nicht gespeichert.',
       true
     );
-    return;
+    return false;
   }
 
   if (welt.instanz !== 'dev') {
@@ -1536,7 +1558,7 @@ async function inDieWeltSpeichern(): Promise<void> {
     ]);
     if (wahl !== 'ja') {
       shell.meldung('Speichern abgebrochen — auf dem Server hat sich nichts geändert.');
-      return;
+      return false;
     }
   }
 
@@ -1561,9 +1583,178 @@ async function inDieWeltSpeichern(): Promise<void> {
       speichereEntwurf('server');
       faerbeSpeicherKnopf();
     }
+    return a.ok;
   } catch (err) {
     shell.meldung(`Speichern fehlgeschlagen: ${String(err)}`, true);
+    return false;
   }
+}
+
+// ── Karte live testen ────────────────────────────────────────────────
+//
+// Warum das mehr ist als "Server neu starten": Das Terrain entsteht beim
+// Start neu aus dem Layout, aber `ZoneManager` laedt die bereits
+// besiedelten Zonen aus dem Weltspeicher. Auf dev sind das 811 Zonen und
+// ueber 94.000 ZDOs — man saehe neues Gelaende mit alter Vegetation und
+// Haeusern in der Luft, und die geaenderte Insel nur dort richtig, wo man
+// nie war. Der Betriebsdienst legt die Weltdatei deshalb beiseite
+// (POST /api/testwelt), damit der Server ohne Spielstand startet und
+// alles frisch aus dem Layout erzeugt.
+//
+// Der Editor orchestriert das NICHT selbst: Stoppen, Tauschen und Starten
+// muessen zusammenhaengen, und /dienst ist vom Browser aus ohnehin nicht
+// erreichbar (der Vorschalter reicht nur /api/ weiter).
+
+type TestweltStand = {
+  aktiv: boolean;
+  welt: string;
+  weltVorhanden: boolean;
+  instanz: string;
+  zustand?: { aktiv: boolean; seit: string | null };
+};
+
+/**
+ * Der Rueckhol-Knopf ist nur sichtbar, wenn es etwas zurueckzuholen gibt.
+ * Ein dauerhaft sichtbarer Knopf, der meistens "nichts zu tun" sagt, wird
+ * genauso schnell ignoriert wie ein Dialog, den man immer wegklickt.
+ */
+async function testweltKnoepfeAktualisieren(): Promise<void> {
+  const stand = await testweltStand();
+  const aktiv = Boolean(stand?.aktiv);
+  if (zurueckKnopf) zurueckKnopf.style.display = aktiv ? '' : 'none';
+  if (liveKnopf) {
+    liveKnopf.textContent = aktiv ? '🌍 Testwelt läuft' : '🌍 Karte live testen';
+    liveKnopf.disabled = aktiv;
+  }
+}
+
+async function testweltStand(): Promise<TestweltStand | null> {
+  try {
+    const r = await fetch('/api/testwelt');
+    if (!r.ok) return null;
+    return (await r.json()) as TestweltStand;
+  } catch {
+    return null;
+  }
+}
+
+async function testweltSchalten(aktion: 'starten' | 'zurueck'): Promise<void> {
+  // Die Server-Konsole ist hier die eigentliche Rueckmeldung: Sie folgt
+  // `journalctl -fu wov-server`, also laufen Stop, Start und der komplette
+  // Weltaufbau dort ohnehin durch. Ein Wartebalken davor waere nicht nur
+  // unnoetig, er wuerde das Einzige verdecken, was zeigt, dass etwas
+  // passiert. Deshalb: Konsole aufklappen, eigene Marken hineinschreiben,
+  // und der Vorhang meldet nur den Fortschritt.
+  shell.konsoleZeigen();
+  const marke = aktion === 'starten' ? 'Karte live testen' : 'dev-Welt zurückholen';
+  shell.konsoleZeile(`── ${marke}: Weltdatei wird getauscht, wov-server startet neu ──`);
+  const basis =
+    aktion === 'starten'
+      ? 'Welt wird beiseitegelegt, Server startet neu'
+      : 'dev-Welt wird zurückgeholt, Server startet neu';
+  const schirm = vorhang(`${basis} …`);
+  try {
+    const r = await fetch('/api/testwelt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ aktion }),
+    });
+    const a = (await r.json()) as { ok?: boolean; message?: string; fehler?: string };
+    if (!r.ok || a.fehler) {
+      schirm.schliessen();
+      shell.konsoleZeile(`── ${marke}: FEHLGESCHLAGEN — ${a.fehler ?? 'unbekannt'} ──`);
+      shell.meldung(a.fehler ?? 'Umschalten fehlgeschlagen.', true);
+      return;
+    }
+    // Nicht blind warten, sondern den Dienstzustand fragen. Eine frisch
+    // erzeugte Welt braucht laenger als ein normaler Start (Geo,
+    // Heightmaps und die ersten Zonen entstehen komplett neu), und wie
+    // lange genau haengt an der Karte — eine feste Zahl waere entweder zu
+    // kurz oder verschenkte Zeit.
+    const start = Date.now();
+    let laeuftSeit = 0;
+    for (;;) {
+      const stand = await testweltStand();
+      const laeuft = stand?.zustand?.aktiv ?? false;
+      const sek = Math.round((Date.now() - start) / 1000);
+      schirm.text(`${basis} … ${sek} s — Dienst ${laeuft ? 'läuft' : 'startet'}`);
+      if (laeuft) {
+        if (!laeuftSeit) laeuftSeit = Date.now();
+        // Kurz nachhalten: `systemctl start` kehrt zurueck, bevor die Welt
+        // steht, und ein Restart=always faengt einen Fehlstart wieder ein.
+        if (Date.now() - laeuftSeit > 6_000) break;
+      } else {
+        laeuftSeit = 0;
+      }
+      if (Date.now() - start > 60_000) break;
+      await new Promise((f) => window.setTimeout(f, 1_500));
+    }
+    schirm.schliessen();
+    shell.konsoleZeile(`── ${marke}: fertig nach ${Math.round((Date.now() - start) / 1000)} s ──`);
+    shell.meldung(a.message ?? 'Fertig.');
+    await testweltKnoepfeAktualisieren();
+    if (aktion === 'starten') window.open('/', '_blank');
+  } catch (err) {
+    schirm.schliessen();
+    shell.konsoleZeile(`── ${marke}: FEHLGESCHLAGEN — ${String(err)} ──`);
+    shell.meldung(`Umschalten fehlgeschlagen: ${String(err)}`, true);
+  }
+}
+
+async function karteLiveTesten(): Promise<void> {
+  const stand = await testweltStand();
+  if (stand?.aktiv) {
+    shell.meldung('Es läuft bereits eine Testwelt — erst „dev-Welt zurückholen".', true);
+    return;
+  }
+  const wahl = await frage(
+    'Karte live testen?',
+    'Das passiert der Reihe nach:\n\n' +
+      `1. Dein Entwurf wird nach ${weltName()} gespeichert.\n` +
+      `2. Die Weltdatei ${stand?.welt ?? 'der Instanz'} wird gesichert und beiseitegelegt.\n` +
+      '3. Der Spielserver startet neu und erzeugt die Karte VOLLSTÄNDIG neu aus dem Layout.\n\n' +
+      'Alle Spieler fliegen dabei raus. Gebaute Häuser, Vegetation und Fortschritt der ' +
+      'bisherigen Welt sind in der Testwelt nicht vorhanden — sie sind nicht weg, sie ' +
+      'liegen daneben und kommen mit „dev-Welt zurückholen" zurück.',
+    [
+      { id: 'ab', text: 'Abbrechen', hinweis: 'Es wird nichts geschrieben.', betont: true },
+      {
+        id: 'ja',
+        text: 'Speichern, umschalten, neu starten',
+        hinweis: 'Der Betriebsdienst sichert die Weltdatei vorher (20 Generationen).',
+        warnung: true,
+      },
+    ]
+  );
+  if (wahl !== 'ja') {
+    shell.meldung('Abgebrochen — es wurde nichts geändert.');
+    return;
+  }
+  const gespeichert = await inDieWeltSpeichern();
+  if (!gespeichert) {
+    shell.meldung('Layout wurde nicht gespeichert — Testwelt nicht gestartet.', true);
+    return;
+  }
+  await testweltSchalten('starten');
+}
+
+async function devWeltZurueckholen(): Promise<void> {
+  const stand = await testweltStand();
+  if (!stand?.aktiv) {
+    shell.meldung('Keine Testwelt aktiv — nichts zurückzuholen.');
+    return;
+  }
+  const wahl = await frage(
+    'Zurück zur echten Welt?',
+    `Die Testwelt wird als testwelt.db.zst abgelegt und ${stand.welt} wieder aktiviert. ` +
+      'Der Spielserver startet dabei neu, alle Spieler fliegen raus.',
+    [
+      { id: 'ab', text: 'Abbrechen', hinweis: 'Die Testwelt bleibt aktiv.', betont: true },
+      { id: 'ja', text: 'Zurückholen und neu starten', hinweis: 'Die Testwelt bleibt als Datei erhalten.' },
+    ]
+  );
+  if (wahl !== 'ja') return;
+  await testweltSchalten('zurueck');
 }
 
 function alles(quelle: EntwurfsQuelle = 'bearbeitet'): void {

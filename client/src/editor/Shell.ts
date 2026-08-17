@@ -321,6 +321,17 @@ export class EditorShell {
   }
 
   /** Zeile in die Server-Konsole (Puffer 400, Auto-Scroll). */
+  /**
+   * Konsole aufklappen, wenn sie minimiert ist. Fuer Vorgaenge, bei denen
+   * das Log die eigentliche Rueckmeldung ist — ein Serverneustart dauert
+   * lange genug, dass ein reiner Wartebalken wie ein Haenger wirkt.
+   * Eine bereits geoeffnete Konsole wird NICHT umgestellt; wer sie auf
+   * volle Hoehe gezogen hat, will sie so.
+   */
+  konsoleZeigen(): void {
+    if (this.konsoleHoehe <= KONSOLE_MIN + 2) this.setzeKonsoleHoehe(KONSOLE_STANDARD);
+  }
+
   konsoleZeile(text: string): void {
     const zeile = document.createElement('div');
     zeile.textContent = text;

@@ -112,6 +112,30 @@ const SSAO_RADIUS = 0.15;
 const SSAO_STAERKE = 1.0;
 const SSAO_SAMPLES = 10;
 const SSAO_RATIO = 0.5;
+/**
+ * Tiefe, bis zu der Verdeckung überhaupt gerechnet wird — **der Wert, an
+ * dem die gemeldeten Schlieren hingen.**
+ *
+ * Babylons Vorgabe ist `maxZ = 100`. Jenseits davon liefert der Shader
+ * hart „keine Verdeckung", und genau diese Kante war im Bild zu sehen:
+ * breite, diagonale dunkle Bänder quer über Wiese und Weg, dort wo die
+ * Geländetiefe die 100 überschreitet. Kein Rauschen, kein Bias-Problem —
+ * eine Bereichsgrenze, die mitten im Bild lag.
+ *
+ * Der Grund ist der Maßstab: 100 ist ein vernünftiger Wert für eine
+ * Innenraum- oder Objektszene. Unsere Welt rechnet in METERN und reicht
+ * bis zur 4-km-Far-Plane; 100 m sind hier der Vordergrund.
+ *
+ * 1000 m statt eines runden „ganz weit weg": Bei klarem Wetter
+ * (`fogDensity` ≈ 0,0019) ist die Sicht dort zu über 95 % vom Nebel
+ * geschluckt — die Bereichsgrenze liegt damit hinter allem, was man
+ * sehen kann, und kann keine sichtbare Kante mehr erzeugen. Höher zu
+ * gehen würde nur noch Pixel bezahlen, die der Nebel ohnehin verdeckt.
+ *
+ * Nachgewiesen am 17.08.2026 durch Variantenvergleich am selben Ort:
+ * mit 100 Bänder, mit 3000 keine — bei sonst identischen Werten.
+ */
+const SSAO_MAX_Z = 1000;
 /** Name der Pipeline — wird zum An- und Abhängen an die Kamera gebraucht. */
 const SSAO_NAME = 'valheimSSAO';
 
@@ -208,6 +232,7 @@ export class PostProcessing {
     this.ssao.radius = SSAO_RADIUS;
     this.ssao.totalStrength = SSAO_STAERKE;
     this.ssao.samples = SSAO_SAMPLES;
+    this.ssao.maxZ = SSAO_MAX_Z;
 
     this.pipeline = new DefaultRenderingPipeline('valheimPost', true, scene, [camera]);
 

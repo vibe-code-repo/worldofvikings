@@ -711,6 +711,37 @@ tut).
 > Gras — dort steht in der Tiefenpassage die Kante des **Rechtecks**, nicht die des Blattes.
 > Der Code bleibt; es fehlt die Abstimmung, nicht die Mechanik.
 
+#### Die Ursache ist gefunden (17.08.2026): `maxZ`
+
+Es war weder der Radius noch die halbe Auflösung, sondern eine **Bereichsgrenze**. Babylons
+SSAO2 rechnet Verdeckung nur bis `maxZ`, Vorgabe **100**. Jenseits davon liefert der Shader
+hart „keine Verdeckung" — und genau diese Kante lag mitten im Bild: breite, diagonale
+dunkle Bänder quer über Wiese und Weg, dort wo die Geländetiefe die 100 überschreitet.
+
+Der Grund ist der Maßstab. 100 ist ein vernünftiger Wert für eine Innenraum- oder
+Objektszene; **unsere Welt rechnet in Metern und reicht bis zur 4-km-Far-Plane.** 100 m sind
+hier Vordergrund.
+
+Nachgewiesen durch Variantenvergleich am selben Ort, alles andere unverändert:
+
+| Variante | Bänder |
+|---|---|
+| wie gebaut (`maxZ` 100) | **ja** |
+| `maxZ` 3000 | **nein** |
+| `expensiveBlur` aus | ja |
+| Radius 1,5 statt 0,15 | ja |
+| Stärke 0,4 statt 1,0 | schwächer, aber ja |
+
+Gesetzt ist jetzt **1000 m**: Bei klarem Wetter (`fogDensity` ≈ 0,0019) ist die Sicht dort zu
+über 95 % vom Nebel geschluckt — die Grenze liegt damit hinter allem, was man sehen kann.
+Höher zu gehen würde nur Pixel bezahlen, die der Nebel ohnehin verdeckt.
+
+Kosten mit dem größeren Bereich, wieder verschränkt in vier Wechseln gemessen: **10,30 ms
+aus, 10,36 ms an (+0,6 %)**, Rohwerte überlappen.
+
+**Die Voreinstellung bleibt trotzdem aus.** Sie ist heute schon einmal aus einer Zahl heraus
+umgelegt worden; diesmal entscheidet der Blick ins Spiel, nicht die Messung.
+
 ### Stufe 7 — SSAO2, wie sie gebaut wurde (2026-08-16)
 
 Umgesetzt mit allen vier Fallstricken unten; sie waren alle vier real und alle vier so

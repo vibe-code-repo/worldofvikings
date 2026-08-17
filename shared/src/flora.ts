@@ -257,6 +257,11 @@ export const GRASLAND_FLORA: readonly Foliage[] = [
   flora({ name: 'Distel1', radius: 1.0, min: 2, max: 7, maxTilt: 32, wald: [false, 1.05, 5], gruppe: [5, 1, 4], kippen: 5 }),
   flora({ name: 'Ampfer1', radius: 0.9, min: 3, max: 9, maxTilt: 30, wald: [false, 1.05, 5], gruppe: [5, 1, 4], kippen: 5 }),
   flora({ name: 'Seggen1', radius: 0.8, min: 5, max: 14, maxTilt: 30, wald: [false, 1.0, 5], gruppe: [5, 2, 6], kippen: 4 }),
+  // Kurze Seggen (0,26 m) auf der offenen Wiese — dieselbe Art, eine
+  // Stufe tiefer. Sie steht dort, wo Seggen1 schon aufhört, und nimmt der
+  // Grasfläche die zweite Gleichförmigkeit: Bisher war die Krautschicht
+  // im Grasland eine einzige Höhe.
+  flora({ name: 'Seggen3', radius: 0.6, min: 8, max: 20, maxTilt: 32, wald: [false, 1.0, 5], gruppe: [4, 3, 8], kippen: 5 }),
   // Farn braucht Schatten — als einzige Bodenpflanze im Wald.
   flora({ name: 'Farn2', radius: 1.2, min: 4, max: 11, maxTilt: 35, wald: [true, 0.0, 1.2], gruppe: [7, 2, 5], kippen: 5 }),
   flora({ name: 'Farn1', radius: 0.9, min: 4, max: 12, maxTilt: 38, wald: [true, 0.0, 1.25], gruppe: [6, 2, 6], kippen: 6 }),
@@ -404,9 +409,44 @@ export const SUMPF_FLORA: readonly Foliage[] = [
   // Datei — eine Seggenfläche ist geschlossen, nicht getupft. Möglich
   // wird das über den kleinen `radius`: Halme dürfen dicht stehen.
   flora({ name: 'Seggen2', radius: 0.7, min: 14, max: 34, maxTilt: 25, wald: [false, 0.0, 5], gruppe: [6, 3, 8], kippen: 4 }),
+  // Seggen3 steht hier NUR, damit `SUMPF_FLORA_NAMEN` sie enthält und die
+  // Kuratierungsliste des Moors sie anbieten kann. Die Zahlen sind ohne
+  // Wirkung: `EIGENE_FLORA` entdoppelt nach Namen, und GRASLAND_FLORA
+  // steht in `BUENDEL` vorn — es gilt dort der Grasland-Eintrag. Genau
+  // dasselbe gilt seit jeher für Seggen1 und Farn1/2 (siehe Kopf dieses
+  // Abschnitts); die Werte hier sind bewusst identisch mit denen dort
+  // gehalten, damit niemand sie für eine eigene Abstimmung hält.
+  flora({ name: 'Seggen3', radius: 0.6, min: 8, max: 20, maxTilt: 32, wald: [false, 1.0, 5], gruppe: [4, 3, 8], kippen: 5 }),
   flora({ name: 'Seggen1', radius: 0.8, min: 5, max: 14, maxTilt: 30, wald: [false, 1.0, 5], gruppe: [5, 2, 6], kippen: 4 }),
   flora({ name: 'Wollgras2', radius: 0.8, min: 8, max: 20, maxTilt: 18, wald: [false, 0.0, 5], gruppe: [6, 2, 7], kippen: 5 }),
   flora({ name: 'Wollgras1', radius: 0.6, min: 8, max: 24, maxTilt: 16, wald: [false, 0.0, 5], gruppe: [5, 3, 8], kippen: 6 }),
+  // ── Höhenstaffelung, 17.08.2026 ─────────────────────────────────────
+  // Die Wollgras-Reihe spannt jetzt 0,40 / 0,57 / 0,60 / 1,00 m
+  // Modellhöhe. Die Stückzahlen folgen der Höhe, nicht dem Zufall: Je
+  // höher eine Pflanze, desto weniger und desto weiter auseinander — ein
+  // Meter hohes Wollgras in derselben Dichte wie das kurze ergäbe eine
+  // undurchdringliche Wand statt eines Moors.
+  //
+  // `radius` wächst mit, weil er den Mindestabstand setzt: Die hohen
+  // Schöpfe brauchen Platz, sonst durchdringen sich ihre Halme sichtbar.
+  //
+  // NACHGEMESSEN mit `tools/flora-zensus.ts` (13×13 Zonen Sumpfinsel),
+  // weil die erste Abstimmung danebenlag: Wollgras4 stand auf
+  // `maxTilt: 14` und kam damit auf **8 Stück** — die Sorte „praktisch
+  // nie", die derselbe Zensus beim Farn gerade als Befund geliefert hat.
+  // Nicht die Stückzahl war zu klein, sondern die Neigungsgrenze zu eng:
+  // Bei 14° wächst es nur auf fast ebenem Boden. Mit 18° (wie Wollgras2)
+  // steht die Reihe jetzt so:
+  //
+  //     Wollgras1  0,40 m   328 Stück
+  //     Wollgras2  0,57 m   262
+  //     Wollgras3  0,60 m   108
+  //     Wollgras4  1,00 m    42
+  //
+  // Streng fallend mit der Höhe — das ist die Absicht, und es ist jetzt
+  // nachgezählt statt geschätzt.
+  flora({ name: 'Wollgras3', radius: 0.9, min: 5, max: 14, maxTilt: 18, wald: [false, 0.0, 5], gruppe: [6, 2, 5], kippen: 5 }),
+  flora({ name: 'Wollgras4', radius: 1.2, min: 4, max: 10, maxTilt: 18, wald: [false, 0.0, 5], gruppe: [7, 1, 3], kippen: 4 }),
 
   // ── Halbschatten: Farn, Brennnessel, Ampfer ────────────────────────
   // Sie stehen dort, wo Birkenschatten und nasser Boden zusammenkommen.

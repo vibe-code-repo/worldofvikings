@@ -372,6 +372,12 @@ export const HINT_DEFS: PrefabDef[] = [
   // sind auf Entfernung das Kennzeichen nasser Böden.
   def('Wollgras1', F.PERSISTENT, 'barley', 0.6, 0.3, 'Wollgras1'),
   def('Wollgras2', F.PERSISTENT, 'barley', 0.8, 0.5, 'Wollgras2'),
+  // Zwei Nachzügler vom 17.08.2026, die die Reihe nach OBEN verlängern:
+  // Wollgras4 ist mit 1,00 m Modellhöhe mehr als doppelt so hoch wie
+  // Wollgras1 (0,40 m). Genau darum geht es — eine Fläche aus vier
+  // Höhenstufen liest sich als Bewuchs, eine aus zwei als Muster.
+  def('Wollgras3', F.PERSISTENT, 'barley', 0.9, 0.5, 'Wollgras3'),
+  def('Wollgras4', F.PERSISTENT, 'barley', 1.4, 0.8, 'Wollgras4'),
   // Unkraut — dichter, höher, ohne Farbe außer bei Distel und Ampfer.
   def('Brennnessel1', F.PERSISTENT, 'flax', 1.1, 0.6, 'Brennnessel1'),
   def('Brennnessel2', F.PERSISTENT, 'flax', 1.9, 1.0, 'Brennnessel2'),
@@ -383,6 +389,10 @@ export const HINT_DEFS: PrefabDef[] = [
   def('Farn2', F.PERSISTENT, 'flax', 1.1, 0.7, 'Farn2'),
   def('Seggen1', F.PERSISTENT, 'barley', 0.7, 0.4, 'Seggen1'),
   def('Seggen2', F.PERSISTENT, 'barley', 1.1, 0.6, 'Seggen2'),
+  // Und einer nach UNTEN: 0,26 m, die kurze Stufe unter Seggen1 (0,39 m).
+  // Sie füllt den Boden zwischen den höheren Horsten, statt ihn frei zu
+  // lassen — dort sah die Fläche bisher am gleichförmigsten aus.
+  def('Seggen3', F.PERSISTENT, 'barley', 0.5, 0.3, 'Seggen3'),
 
   // Grabhügel — erstes prozedurales BAUWERK des Projekts
   // (tools/grabhuegel-bauen.py), Texturen aus tools/grabhuegel-texturen.py.
@@ -883,6 +893,8 @@ export const EIGENE_MODELLE: readonly string[] = [
   'Schafgarbe2',
   'Wollgras1',
   'Wollgras2',
+  'Wollgras3',
+  'Wollgras4',
   'Brennnessel1',
   'Brennnessel2',
   'Distel1',
@@ -893,6 +905,7 @@ export const EIGENE_MODELLE: readonly string[] = [
   'Farn2',
   'Seggen1',
   'Seggen2',
+  'Seggen3',
   'Grabhuegel',
   'GrabhuegelGras',
   'GrabMenhir',

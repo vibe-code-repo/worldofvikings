@@ -970,7 +970,43 @@ Werferliste, weil `NIE_WERFEN` in `Shadows.ts` es ausdrücklich ausschliesst —
 rendert die Werferliste komplett neu, und Clutter stellt die meisten Meshes. Empfangen darf
 es weiterhin. „Blockige Grasschatten" gibt es also gar nicht; es gibt keine.
 
-### Stufe 9 — Baum-LOD und Impostoren
+### Stufe 9 — Baum-LOD: die Begründung ist neu, die Aufgabe bleibt (17.08.2026)
+
+⚠️ **Die alte Begründung ist mit Block A hinfällig.** Hier stand: „Es wird ausschließlich die
+`Lod0`-Hülle gerendert — Unity-GLBs führen alle LOD-Stufen als Geschwister-Meshes, die
+höheren werden abgeschaltet." Das beschrieb die gerippten Modelle. **Unsere eigenen Bäume
+haben überhaupt keine LOD-Stufen**: `Eiche1.glb` und alle anderen führen genau zwei Meshes,
+`leaves` und `tree`. Die Filter `LOD0_NAME`/`NON_LOD0` in `AssetManager.ts` laufen für
+unseren Bestand ins Leere.
+
+**Die Aufgabe bleibt trotzdem — und ist jetzt gemessen statt vermutet.** Gezählt im laufenden
+Client (feste Position, sichtbare Meshes, Dreiecke × Thin-Instances):
+
+| | Dreiecke | Anteil | Instanzen |
+|---|---|---|---|
+| **Bäume** | **5.366.448** | **64,8 %** | 7.952 auf 44 Mastern |
+| Clutter (Gras) | 1.781.656 | 21,5 % | 51.438 |
+| Terrain | 860.160 | 10,4 % | — |
+| Rest | 276.144 | 3,3 % | — |
+
+**Bäume sind zwei Drittel der Geometrie — mit einem Sechstel der Instanzzahl des Grases.**
+Ein Baum kostet rund 675 Dreiecke, ob er zehn Meter entfernt steht oder zweihundert.
+
+**Was die Umsetzung heute bedeutet, und warum sie L bleibt.** Sie hat zwei Hälften, und keine
+davon ist `Mesh.addLODLevel()`:
+
+1. **Werkstatt.** Es müssen erst LOD-Stufen entstehen — Dezimierung in
+   `tools/baum-generieren.py`, analog zu dem, was E7 für die Normal-Maps braucht. Ohne
+   zweite Stufe gibt es nichts umzuschalten.
+2. **Client.** `addLODLevel` schaltet ein GANZES Mesh nach seiner Entfernung zur Kamera. Bei
+   Thin Instances teilen sich tausende Bäume einen Master; die Entfernung „des Masters" ist
+   bedeutungslos. Gebraucht wird eine Sortierung der Instanzen in Entfernungsklassen mit je
+   eigenem Master — ein Eingriff in den `EntityManager`, nicht ein Aufruf.
+
+Der Weg über **Impostoren** (eine Bildtafel je Baumart statt Geometrie) umgeht Hälfte 1 und
+trifft dieselbe Stelle in Hälfte 2. Welcher der beiden es wird, ist noch offen.
+
+### Stufe 9 — Baum-LOD und Impostoren (ursprüngliche Fassung)
 
 Es wird ausschließlich die `Lod0`-Hülle gerendert (`AssetManager.ts`, `NON_LOD0`/`LOD0_NAME`
 — Unity-GLBs führen alle LOD-Stufen als Geschwister-Meshes, die höheren werden abgeschaltet),

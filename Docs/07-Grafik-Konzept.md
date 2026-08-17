@@ -15,6 +15,10 @@
 > Vorbild bleibt das Original, **Material** kommt ausschließlich aus eigener Hand. Betroffen
 > sind Stufe 3 (bereits nachgezogen), Stufe 6 und Stufe 9 sowie der Abschnitt Verifikation
 > — jeweils unten gekennzeichnet.
+>
+> **Stufe 9 ist am 17.08.2026 gemessen und verworfen worden.** Baum-Geometrie kostet auf der
+> Zielhardware 0,00 ms; die vorgesehene Umsetzung (Entfernungsklassen mit je eigenem Master)
+> kostet +1,90 ms. Zahlen und Werkzeug stehen bei Stufe 9.
 
 ## Ausgangslage
 
@@ -1005,7 +1009,85 @@ Werferliste, weil `NIE_WERFEN` in `Shadows.ts` es ausdrücklich ausschliesst —
 rendert die Werferliste komplett neu, und Clutter stellt die meisten Meshes. Empfangen darf
 es weiterhin. „Blockige Grasschatten" gibt es also gar nicht; es gibt keine.
 
-### Stufe 9 — Baum-LOD: die Begründung ist neu, die Aufgabe bleibt (17.08.2026)
+### Stufe 9 — Baum-LOD: gemessen und verworfen (17.08.2026)
+
+✅ **Entschieden. Die Aufgabe wird nicht gebaut — sie würde das Bild langsamer machen.**
+
+Der Abschnitt darunter („die Begründung ist neu, die Aufgabe bleibt") hatte die *Dreiecke*
+gezählt und daraus geschlossen, dass sie etwas kosten. Diese Annahme ist jetzt geprüft,
+mit dem Werkzeug `tools/pw-baum-kosten.mjs` — vier Zustände derselben Szene, im Ringtausch
+über drei Runden, im Stand am festen Messort der fps-Reihe (−16900/−5350), auf der echten
+GPU (RX 7900 XT, ANGLE/OpenGL, vsync aus):
+
+| Zustand | was er tut | p50 Frame-Zeit | Zeichenaufrufe |
+|---|---|---|---|
+| `basis` | unverändert | **13,90 ms** | 553 |
+| `ohneGeo` | Baum-Master auf `thinInstanceCount = 1` — Zeichenaufrufe bleiben, 2,48 Mio. Dreiecke fallen weg | **13,90 ms** | 553 |
+| `ohneMaster` | Baum-Master abgeschaltet | **13,00 ms** | 470 |
+| `dreiStufen` | jeder Baum-Master dreifach, Instanzen nach Entfernung aufgeteilt, **Geometrie unverändert** | **15,80 ms** | 545 |
+
+Daraus die drei Zahlen, um die es geht:
+
+```
+Baum-GEOMETRIE kostet       0,00 ms   (basis − ohneGeo)
+Baum-ZEICHENAUFRUFE kosten  0,90 ms   (ohneGeo − ohneMaster)
+Dreifach-Aufteilung kostet  1,90 ms   (dreiStufen − basis)
+```
+
+**2,48 Millionen Dreiecke ersatzlos zu streichen ändert die Frame-Zeit um nichts.** In der
+ersten Runde war `ohneGeo` sogar langsamer als `basis` (14,60 gegen 13,50 ms) — das ist
+Rauschen, und genau das ist die Aussage: Der Posten liegt unterhalb der Streuung.
+
+Damit ist E10 in **beiden** vorgesehenen Fassungen widerlegt, und zwar aus demselben Grund:
+
+- **Dezimierung + Entfernungsklassen.** Der Gewinn ist ein Anteil von 0,00 ms. Der Preis ist
+  gemessen: +1,90 ms für die Aufteilung, denn jede Entfernungsklasse braucht einen eigenen
+  Master.
+- **Impostoren.** Sie umgehen die Werkstatt-Hälfte, treffen aber dieselbe Stelle im
+  `EntityManager` — eine Bildtafel je Baumart ist ein zusätzlicher Master pro Art. Sie
+  sparen dieselben 0,00 ms und zahlen denselben Preis.
+
+**Die eigentliche Währung ist der Master, nicht das Dreieck.** Beide Richtungen liefern
+denselben Umrechnungskurs: 22 Baum-Master kosten 0,90 ms, die Aufteilung fügt rund 30 hinzu
+und kostet 1,90 ms — **rund 0,045 ms je Prefab-Master**, Schattenkaskaden eingerechnet. Das
+ist die Zahl, an der sich künftige Grafikarbeit messen lassen sollte.
+
+Bemerkenswert: In den Runden 2 und 3 hatte `dreiStufen` bei **gleicher** Zahl von
+Zeichenaufrufen (545 wie `basis`) trotzdem +1,7 ms — das Frustum-Culling warf die fernen
+Stufen also durchaus weg. Der Aufschlag entsteht damit nicht am Zeichenaufruf selbst,
+sondern in der CPU-Arbeit je Master: Instanz-Neuaufbau, Hüllkörper, Werferlisten-Scan,
+Auswahl der aktiven Meshes.
+
+Das bestätigt die D10-Messung, die im Kopf von `AssetManager.verschmelzeNachMaterial()`
+steht (Instanzen auf 1: 11,5 → 12,4 ms, also unverändert; Master ganz aus: 6,0 ms). Sie war
+schon damals richtig; hier ist sie ein zweites Mal bestätigt, mit einem anderen Bestand und
+auf anderer Hardware.
+
+> [!warning] Wogegen diese Messung **nicht** spricht
+> Sie gilt für eine dedizierte GPU bei ~14 ms Bildzeit. Auf einer integrierten Grafikeinheit
+> kann Geometrie sehr wohl kosten. Der Befund „Master statt Dreiecke" wird dort aber eher
+> stärker als schwächer, weil die CPU-Seite dieselbe bleibt und die Master-Kosten mit der
+> Kaskadenzahl skalieren. Wer es wissen will, fährt `pw-baum-kosten.mjs` dort — das Werkzeug
+> braucht nur eine URL.
+
+**Was stattdessen zu prüfen wäre** (eigene Aufgabe, nicht E10): Die 22 Baum-Master sind
+11 Baum-Prefabs × 2 — `tree` (Rinde) und `leaves` (Laubkarten), zwei Materialien, also zwei
+Master. Bei Fichte, Tanne und Kiefer liegen Rinde und Nadeln bereits in **einer** Atlas-Datei
+(`PineTree_01.png`); nur `baum-generieren.py` legt daraus zwei Blender-Materialien an. Ein
+gemeinsames Material würde `verschmelzeNachMaterial()` beide zu einem Master verschmelzen
+lassen — **11 Master weniger, nach obigem Kurs rund 0,5 ms**, also mehr als die Hälfte
+dessen, was das komplette Entfernen des Waldes einbringt. Der Preis ist ein Bildthema und
+keines der Leistung: Die Rinde liefe dann alpha-getestet und beidseitig, und die Äste
+schwängen im Wind mit dem Laub (heute schwingt das Laub allein). Das ist zu entscheiden,
+bevor es gebaut wird.
+
+---
+
+### Stufe 9 — Baum-LOD: die Begründung ist neu, die Aufgabe bleibt (17.08.2026, überholt)
+
+⚠️ **Diese Fassung ist durch die Messung oben erledigt** — sie zählt Dreiecke und schliesst
+daraus auf Kosten, die es nicht gibt. Sie bleibt stehen, weil ihre Bestandsaufnahme (unsere
+Bäume haben keine LOD-Stufen) weiterhin stimmt.
 
 ⚠️ **Die alte Begründung ist mit Block A hinfällig.** Hier stand: „Es wird ausschließlich die
 `Lod0`-Hülle gerendert — Unity-GLBs führen alle LOD-Stufen als Geschwister-Meshes, die

@@ -498,8 +498,43 @@ Ob die Karte entsättigt gehört, ist eine Entscheidung über die Bildsprache: S
 Farbe, die Valheims Wiesen *haben*. Damit ist Stufe 3 an dem Punkt, an dem gemessene
 Ursachenarbeit endet und Geschmack anfängt.
 
-Offen bleiben die **coverage-erhaltenden Mipmaps** — bei 0,40 Deckung und dünnen Halmen ist
-der Effekt kleiner als bei 0,60, aber er ist nicht weg.
+#### Coverage-erhaltende Mipmaps: gemessen, und **nicht nötig** (17.08.2026)
+
+Sie standen als Voraussetzung dafür, dass dünn gedeckte Masken tragen — die Begründung: Eine
+Mipmap mittelt den Alphakanal, und der entscheidet über `discard`. Ein Halm, der auf Stufe 0
+ein Texel füllt, teilt sich auf Stufe 1 eines mit drei leeren Nachbarn; sein Alpha fällt von
+255 auf 64 und damit unter den Cutoff. Das Gras dünnt mit der Entfernung aus.
+
+**Nachgemessen mit `tools/gen-coverage-mips.mjs` trifft das auf unsere Maske nicht zu:**
+
+| Stufe | Größe | Deckung ohne Korrektur |
+|---|---|---|
+| 0 | 256² | 0,3997 (Bezug) |
+| 1 | 128² | 0,4890 |
+| 2 | 64² | 0,4795 |
+| 3 | 32² | 0,4424 |
+| 4 | 16² | 0,3984 |
+| 6 | 4² | 0,3750 |
+
+Die Deckung bricht nicht ein, sie schwankt um den Ausgangswert. Der Grund ist die Maske
+selbst: Der beschriebene Effekt braucht **dünne** Striche (die Vanilla-Maske hatte 9,5 %
+Deckung), bei denen ein einzelnes Texel den ganzen Halm trägt. Unsere Halme sind gezeichnete
+Flächen mit 40 % Deckung — beim Mitteln bleiben sie über der Schwelle.
+
+Zur Gegenprobe ist dieselbe Maske künstlich auf 13 % ausgedünnt worden: **dort bricht es
+tatsächlich ein** (Stufe 2 auf 0,08 statt 0,13). Der Effekt ist also real, er trifft nur
+nicht unseren Bestand.
+
+**Deshalb wird der Client NICHT umgebaut.** Manuelles Hochladen der Mip-Stufen wäre echter
+Aufwand im heißen Pfad für eine Größe, die sich nachweislich nicht verschlechtert. Das
+Werkzeug bleibt: Es beantwortet in zehn Sekunden, ob eine Maske die Korrektur braucht — und
+sobald die Halme dünner werden (Stufe 3 zielt darauf), ist genau das die Frage.
+
+Ein Befund aus dem Bau des Werkzeugs, der allgemein gilt: Bei einer **binären** Alphamaske
+liegen die gemittelten Werte exakt auf 0,25/0,5/0,75. Ein Korrekturfaktor knapp unter dem
+Grenzwert kippt dann ALLE gleichzeitig unter die Schwelle — der erste Lauf lieferte eine
+Stufe mit Deckung **0,0000**, also eine Textur, die auf halber Entfernung vollständig
+verschwindet. Die Bisektion nimmt deshalb die Seite, die das Ziel erreicht, nie die Mitte.
 
 *(Der ursprüngliche Plan:)*
 

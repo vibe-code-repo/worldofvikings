@@ -131,6 +131,8 @@ statt Vermutungen.
 | `flora-zensus.ts` | Streut je Biom 13x13 Zonen einer Testinsel und zaehlt die Pflanzen nach Art - beantwortet 'waechst das ueberhaupt, und wie oft?'. |
 | `hoehen-histogramm.ts` | Tastet ein Weltdokument ab und misst die Hoehenverteilung der Landflaeche. Sagt, wie viel Welt ein Hoehenfenster wie maxAlt ueberhaupt trifft. |
 | `modell-abgleich.ts` | Prueft Whitelist, Prefab-Tabelle und Plattenbestand gegeneinander. Faellt eine der drei aus, bleibt eine Art lautlos unsichtbar. |
+| `gen-coverage-mips.mjs` | Baut coverage-erhaltende Mipmaps fuer Alpha-Test-Texturen und meldet die Deckung je Stufe. Beantwortet vor allem: Braucht diese Maske die Korrektur ueberhaupt? |
+| `listen-putzen.ts` | Filtert die Kuratierungslisten eines Weltdokuments gegen die Whitelist. Ein unbekannter Name streut nie, verwirrt aber jeden Leser. |
 
 ## Server, Netz und Welt
 

@@ -94,6 +94,53 @@ Tanne7            tanne       137    23    1.0     1.90   1.9
 EOF
 )
 
+# ── Dicke Varianten (08/2026, Spalte 7: Stammfaktor) ─────────────────
+# Von jedem Baum aus BAEUME eine zweite Ausfertigung mit staerkerem Stamm,
+# Namenszusatz "Dick". Seed, Hoehe, Dichte und Kartenfaktor sind Zeichen
+# fuer Zeichen die der Vorlage — geaendert ist GENAU eine Groesse. Damit
+# ist die dicke Variante derselbe Baum, nicht ein anderer, und ein Wald
+# aus beiden liest sich als ein Bestand mit unterschiedlich alten Staemmen
+# statt als zwei zusammengewuerfelte Saetze.
+#
+# Faktor 1.8 ist nicht frei gewaehlt: Damit ist Kiefer4 oben gebaut, die
+# Varianten fuegen sich also in den vorhandenen Bestand ein statt eine
+# dritte Dicke einzufuehren. Gegengeprueft an beiden Enden der Groessen-
+# skala — Fichte5 (22 m) und Tanne4 (3,2 m) tragen ihn beide.
+#
+# Die drei Riesen oben fehlen hier absichtlich: sie liegen bereits bei
+# 1.8 bis 2.1.
+#
+# name            art          seed  höhe  dichte  karte  stamm
+DICKE=$(cat <<'EOF'
+Fichte1Dick       fichte        3    12    1.0     1.0    1.8
+Fichte2Dick       fichte        7    14    1.0     1.0    1.8
+Fichte3Dick       fichte       12    10    1.0     1.0    1.8
+Tanne1Dick        tanne         5    12    1.0     1.0    1.8
+Tanne2Dick        tanne        11    9     0.85    1.0    1.8
+Tanne3Dick        tanne        19    6     0.6     1.0    1.8
+Tanne4Dick        tanne        23    3.2   0.4     1.0    1.8
+BirkeHoch1Dick    birke        31    4.5   0.55    1.0    1.8
+BirkeHoch2Dick    birke        37    8     0.8     1.0    1.8
+BirkeHoch3Dick    birke        43    12    1.0     1.0    1.8
+BirkeDicht1Dick   birke_dicht  52    4.5   0.45    1.0    1.8
+BirkeDicht2Dick   birke_dicht  58    8     0.65    1.0    1.8
+BirkeDicht3Dick   birke_dicht  64    11    0.8     1.0    1.8
+Eiche1Dick        eiche        11    11    1.0     1.0    1.8
+Eiche2Dick        eiche        23    8     0.8     1.0    1.8
+Eiche3Dick        eiche        37    14    1.0     1.0    1.8
+Fichte4Dick       fichte       61    18    1.0     1.50   1.8
+Fichte5Dick       fichte       67    22    1.0     1.85   1.8
+Tanne5Dick        tanne        73    16    1.0     1.35   1.8
+Tanne6Dick        tanne        79    20    1.0     1.70   1.8
+Kiefer1Dick       kiefer       83    16    0.85    1.60   1.8
+Kiefer2Dick       kiefer       89    20    1.0     2.00   1.8
+Kiefer3Dick       kiefer       97    24    1.0     2.40   1.8
+Eiche4Dick        eiche       103    19    1.0     1.70   1.8
+BirkeHoch4Dick    birke       109    16    1.0     1.35   1.8
+BirkeDicht4Dick   birke_dicht 113    15    0.75    1.30   1.8
+EOF
+)
+
 # Die Eiche braucht ihre Texturen, und die liegen wie die Modelle NICHT im
 # Repo (assets/ ist gitignored). Anders als die Valheim-Atlanten lassen sie
 # sich aber wiederherstellen — sie werden gezeichnet, nicht gerippt.
@@ -131,7 +178,10 @@ while read -r name art seed hoehe dichte karte stamm; do
     --kartenfaktor "${karte:-1.0}" --stammfaktor "${stamm:-1.0}" \
     2>/dev/null | grep -E '^(FERTIG|HINWEIS)' | sed 's/^/      /'
   anzahl=$((anzahl + 1))
-done <<< "$RIESEN"
+# Riesen und dicke Varianten tragen beide eine Stammspalte und laufen
+# deshalb durch dieselbe Schleife.
+done <<< "$RIESEN
+$DICKE"
 
 echo
 echo "$anzahl Modelle in assets/models/ erzeugt."

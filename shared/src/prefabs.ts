@@ -218,6 +218,53 @@ export const HINT_DEFS: PrefabDef[] = [
   def('BirkeHoch4', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 10.2, 17.2, 'BirkeHoch4'),
   def('BirkeDicht4', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 11.6, 15.7, 'BirkeDicht4'),
 
+  // ── Dicke Stammvarianten ─────────────────────────────────────────
+  // Von jedem Baum eine zweite Ausfertigung mit Stammfaktor 1.8
+  // (`tools/baeume-bauen.sh`, Tabelle DICKE). Seed, Höhe, Dichte und
+  // Kartenfaktor sind Zeichen für Zeichen die der Vorlage — geändert ist
+  // GENAU eine Größe. Die dicke Variante ist derselbe Baum, nicht ein
+  // anderer, und ein Wald aus beiden liest sich als ein Bestand mit
+  // unterschiedlich alten Stämmen statt als zwei zusammengewürfelten Sätzen.
+  //
+  // Warum es sie gibt, steht im Bauplan der drei Urwaldriesen: Nicht die
+  // Kronenhöhe lässt einen Wald tief wirken, sondern der Stamm — „ein
+  // hoher Baum mit dünnem Stamm sieht aus wie eine Stange mit Grün
+  // obendrauf". Das galt bisher für drei von 29 Bäumen.
+  //
+  // Die drei Riesen (Fichte6, Kiefer4, Tanne7) fehlen absichtlich: Sie
+  // tragen bereits 1.8 bis 2.1.
+  //
+  // Die Maße sind NICHT neu gemessen, sondern die der dünnen Geschwister —
+  // und das ist keine Abkürzung: Nachgemessen am 17.08.2026 sind die
+  // Hüllboxen IDENTISCH (Fichte1 wie Fichte1Dick 5,84 × 12,18 m). Der
+  // Faktor verdickt den Stamm; die Ausdehnung bestimmt die Krone.
+  def('Fichte1Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 6.4, 12.0, 'Fichte1Dick'),
+  def('Fichte2Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 7.0, 14.0, 'Fichte2Dick'),
+  def('Fichte3Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 5.4, 10.0, 'Fichte3Dick'),
+  def('Tanne1Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 7.5, 12.0, 'Tanne1Dick'),
+  def('Tanne2Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 5.8, 9.0, 'Tanne2Dick'),
+  def('Tanne3Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 4.0, 6.0, 'Tanne3Dick'),
+  def('Tanne4Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 2.2, 3.2, 'Tanne4Dick'),
+  def('BirkeHoch1Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 3.9, 5.1, 'BirkeHoch1Dick'),
+  def('BirkeHoch2Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 5.4, 9.7, 'BirkeHoch2Dick'),
+  def('BirkeHoch3Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 7.3, 12.4, 'BirkeHoch3Dick'),
+  def('BirkeDicht1Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 5.2, 6.1, 'BirkeDicht1Dick'),
+  def('BirkeDicht2Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 7.3, 9.6, 'BirkeDicht2Dick'),
+  def('BirkeDicht3Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 8.4, 12.5, 'BirkeDicht3Dick'),
+  def('Eiche1Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_oak', 10.5, 12.8, 'Eiche1Dick'),
+  def('Eiche2Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_oak', 8.9, 10.7, 'Eiche2Dick'),
+  def('Eiche3Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_oak', 12.7, 16.1, 'Eiche3Dick'),
+  def('Fichte4Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 9.8, 19.0, 'Fichte4Dick'),
+  def('Fichte5Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 9.5, 21.5, 'Fichte5Dick'),
+  def('Tanne5Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 10.4, 16.3, 'Tanne5Dick'),
+  def('Tanne6Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 13.7, 20.0, 'Tanne6Dick'),
+  def('Kiefer1Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_pine', 14.3, 18.3, 'Kiefer1Dick'),
+  def('Kiefer2Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_pine', 17.5, 21.6, 'Kiefer2Dick'),
+  def('Kiefer3Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_pine', 22.0, 25.9, 'Kiefer3Dick'),
+  def('Eiche4Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_oak', 18.9, 24.0, 'Eiche4Dick'),
+  def('BirkeHoch4Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 10.2, 17.2, 'BirkeHoch4Dick'),
+  def('BirkeDicht4Dick', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 11.6, 15.7, 'BirkeDicht4Dick'),
+
   // ── Felsen ───────────────────────────────────────────────────────
   // Aus tools/felsen-generieren.py: verformte Ikosphären, 80 Dreiecke je
   // Stück, Textur aus tools/felsen-texturen.py (Granit, Basalt,
@@ -839,6 +886,33 @@ export const EIGENE_MODELLE: readonly string[] = [
   'Eiche4',
   'BirkeHoch4',
   'BirkeDicht4',
+  // Die dicken Stammvarianten — siehe HINT_DEFS oben.
+  'Fichte1Dick',
+  'Fichte2Dick',
+  'Fichte3Dick',
+  'Tanne1Dick',
+  'Tanne2Dick',
+  'Tanne3Dick',
+  'Tanne4Dick',
+  'BirkeHoch1Dick',
+  'BirkeHoch2Dick',
+  'BirkeHoch3Dick',
+  'BirkeDicht1Dick',
+  'BirkeDicht2Dick',
+  'BirkeDicht3Dick',
+  'Eiche1Dick',
+  'Eiche2Dick',
+  'Eiche3Dick',
+  'Fichte4Dick',
+  'Fichte5Dick',
+  'Tanne5Dick',
+  'Tanne6Dick',
+  'Kiefer1Dick',
+  'Kiefer2Dick',
+  'Kiefer3Dick',
+  'Eiche4Dick',
+  'BirkeHoch4Dick',
+  'BirkeDicht4Dick',
   'Findling1',
   'Findling2',
   'Findling3',

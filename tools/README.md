@@ -128,6 +128,9 @@ statt Vermutungen.
 | `shot-stats.mjs` | Bildstatistik eines Screenshots — die Zahlen hinter dem Grafikkonzept. |
 | `shot-upload-server.mjs` | Nimmt Screenshots von einem anderen Rechner entgegen (playwright-gpu läuft auf echter Grafikhardware, deren Dateisystem von hier nicht erreichbar ist). |
 | `png-stats.mjs` | Dekodiert ein PNG vollständig und gibt Min/Max/Mittel je Kanal aus. |
+| `flora-zensus.ts` | Streut je Biom 13x13 Zonen einer Testinsel und zaehlt die Pflanzen nach Art - beantwortet 'waechst das ueberhaupt, und wie oft?'. |
+| `hoehen-histogramm.ts` | Tastet ein Weltdokument ab und misst die Hoehenverteilung der Landflaeche. Sagt, wie viel Welt ein Hoehenfenster wie maxAlt ueberhaupt trifft. |
+| `modell-abgleich.ts` | Prueft Whitelist, Prefab-Tabelle und Plattenbestand gegeneinander. Faellt eine der drei aus, bleibt eine Art lautlos unsichtbar. |
 
 ## Server, Netz und Welt
 

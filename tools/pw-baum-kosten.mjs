@@ -322,7 +322,15 @@ async function messen(dauer) {
   });
 }
 
-const ZUSTAENDE = ['basis', 'ohneGeo', 'ohneMaster', 'dreiStufen'];
+/**
+ * Nur bestimmte Zustaende fahren, z. B. `--zustaende basis`.
+ *
+ * Fuer den paarweisen A/B zweier ASSET-Staende: dort interessiert nur
+ * `basis`, und die drei anderen Zustaende wuerden die Sitzung unnoetig
+ * verlaengern — je laenger sie dauert, desto mehr Grundlast-Drift steckt
+ * im Vergleich.
+ */
+const ZUSTAENDE = arg('zustaende', 'basis,ohneGeo,ohneMaster,dreiStufen').split(',');
 const laeufe = {};
 for (const z of ZUSTAENDE) laeufe[z] = [];
 
@@ -358,6 +366,14 @@ for (const z of ZUSTAENDE) {
     aktiveMeshes: Math.round(median(laeufe[z].map((l) => l.aktiveMeshes))),
     schattenwerfer: Math.round(median(laeufe[z].map((l) => l.schattenwerfer))),
   };
+}
+
+if (ZUSTAENDE.length < 4) {
+  mkdirSync(dirname(OUT), { recursive: true });
+  writeFileSync(OUT, JSON.stringify({ gpu, ort, runden: RUNDEN, zensus, ergebnis, laeufe }, null, 2));
+  console.log(`\n[baum] Teilmessung (${ZUSTAENDE.join(',')}) geschrieben: ${OUT}`);
+  await browser.close();
+  process.exit(0);
 }
 
 const baumAnteil = zensus.baeume ? zensus.baeume.dreiecke / gesamtDreiecke : 0;

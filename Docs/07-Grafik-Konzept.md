@@ -1047,16 +1047,20 @@ Damit ist E10 in **beiden** vorgesehenen Fassungen widerlegt, und zwar aus demse
   `EntityManager` — eine Bildtafel je Baumart ist ein zusätzlicher Master pro Art. Sie
   sparen dieselben 0,00 ms und zahlen denselben Preis.
 
-**Die eigentliche Währung ist der Master, nicht das Dreieck.** Beide Richtungen liefern
-denselben Umrechnungskurs: 22 Baum-Master kosten 0,90 ms, die Aufteilung fügt rund 30 hinzu
-und kostet 1,90 ms — **rund 0,045 ms je Prefab-Master**, Schattenkaskaden eingerechnet. Das
-ist die Zahl, an der sich künftige Grafikarbeit messen lassen sollte.
+Zwei Deltas legten zunächst nahe, die Währung sei der **Master**: 22 Baum-Master kosten
+0,90 ms, die Aufteilung fügt rund 30 hinzu und kostet 1,90 ms — also grob 0,045 ms je
+Master. ⚠️ **Dieser Umrechnungskurs hat einen paarweisen Test nicht überlebt** und ist
+weiter unten widerlegt (Abschnitt „Rinde und Laub in ein Material"): 22 Master zu ENTFERNEN
+brachte 0,00 ms. Er stand hier als belastbare Zahl und war eine Überinterpretation zweier
+verrauschter Differenzen — dieselbe Fehlerart, die E10 überhaupt erst begründet hatte, nur
+eine Ebene höher.
 
-Bemerkenswert: In den Runden 2 und 3 hatte `dreiStufen` bei **gleicher** Zahl von
-Zeichenaufrufen (545 wie `basis`) trotzdem +1,7 ms — das Frustum-Culling warf die fernen
-Stufen also durchaus weg. Der Aufschlag entsteht damit nicht am Zeichenaufruf selbst,
-sondern in der CPU-Arbeit je Master: Instanz-Neuaufbau, Hüllkörper, Werferlisten-Scan,
-Auswahl der aktiven Meshes.
+Was von der Messung bleibt, ist der Teil, der zweimal reproduziert wurde und um den es bei
+E10 geht: **Dreiecke kosten nichts.** Der Rest — woher die 0,90 ms zwischen `basis` und
+`ohneMaster` wirklich kommen — ist damit ausdrücklich **nicht** aufgeklärt. Es ist nicht die
+Auflösung (64-fache Bildpunktzahl bewegt 3 %), nicht die Dreieckszahl (hier gemessen) und
+nicht die reine Zahl der Zeichenaufrufe (unten gemessen). Wer daran weiterarbeitet, fängt
+bei dieser offenen Frage an und nicht bei einer Vermutung.
 
 Das bestätigt die D10-Messung, die im Kopf von `AssetManager.verschmelzeNachMaterial()`
 steht (Instanzen auf 1: 11,5 → 12,4 ms, also unverändert; Master ganz aus: 6,0 ms). Sie war
@@ -1070,16 +1074,76 @@ auf anderer Hardware.
 > Kaskadenzahl skalieren. Wer es wissen will, fährt `pw-baum-kosten.mjs` dort — das Werkzeug
 > braucht nur eine URL.
 
-**Was stattdessen zu prüfen wäre** (eigene Aufgabe, nicht E10): Die 22 Baum-Master sind
-11 Baum-Prefabs × 2 — `tree` (Rinde) und `leaves` (Laubkarten), zwei Materialien, also zwei
-Master. Bei Fichte, Tanne und Kiefer liegen Rinde und Nadeln bereits in **einer** Atlas-Datei
-(`PineTree_01.png`); nur `baum-generieren.py` legt daraus zwei Blender-Materialien an. Ein
-gemeinsames Material würde `verschmelzeNachMaterial()` beide zu einem Master verschmelzen
-lassen — **11 Master weniger, nach obigem Kurs rund 0,5 ms**, also mehr als die Hälfte
-dessen, was das komplette Entfernen des Waldes einbringt. Der Preis ist ein Bildthema und
-keines der Leistung: Die Rinde liefe dann alpha-getestet und beidseitig, und die Äste
-schwängen im Wind mit dem Laub (heute schwingt das Laub allein). Das ist zu entscheiden,
-bevor es gebaut wird.
+### Rinde und Laub in ein Material — gebaut, gemessen, ernüchternd (17.08.2026)
+
+Aus dem Master-Kurs oben folgte eine naheliegende Idee, und sie wurde umgesetzt: Die 22
+Baum-Master waren 11 Prefabs × 2 — `tree` (Rinde) und `leaves` (Laubkarten), zwei
+Materialien, also zwei Master. Ein gemeinsames Material lässt
+`verschmelzeNachMaterial()` beide zu **einem** Master verschmelzen.
+
+Gebaut als GLB-Operation (`tools/baum-material-zusammenlegen.mjs`) und **nicht** in
+`baum-generieren.py`, weil das Rezept nicht läuft: Blender ist auf `wov-dev` nicht
+installiert, und die Quelltexturen `PineTree_01.png`, `Pine_tree_texture_d.png`,
+`birch_leaf.png`, `birch_bark.png` sind mit dem AssetRipper-Export gelöscht. Sie stecken
+noch als eingebettete Bilder in den GLBs und werden vom Werkzeug wieder herausgeschrieben.
+
+**Was dabei herauskam — strukturell genau wie erwartet:**
+
+| | vorher | nachher |
+|---|---|---|
+| Baum-Master | 22 | **11** |
+| Master gesamt (ohne Terrain/Clutter) | 44 | **33** (die Büsche folgen demselben Muster) |
+| Zeichenaufrufe je Bild | 531 | **435** (−18 %) |
+| Materialien in der Szene | 93 | **71** |
+| Modelle umgebaut | — | 59 |
+
+**Und die Frame-Zeit? Unverändert.** Paarweiser A/B am selben Ort, Assets zweimal hin- und
+hergetauscht, je zwei Runden à 8 s:
+
+```
+p50   nachher 17,50 / 16,90 / 15,20 / 13,40 ms      Median 16,05
+      vorher  15,50 / 16,50 / 16,00 / 16,10 ms      Median 16,05
+```
+
+**22 Master und 96 Zeichenaufrufe weniger sind auf dieser GPU 0,00 ms wert.** Damit ist der
+Umrechnungskurs von oben widerlegt — er stammte aus zwei Einzeldifferenzen derselben
+Sitzung, und eine frühere, NICHT paarweise Messung dieses Umbaus zeigte scheinbar −2,8 ms
+auf p95. Das war Sitzungsdrift; im paarweisen Test bleibt nichts davon übrig.
+
+**Trotzdem behalten**, aus drei Gründen, die keine Frame-Zeit brauchen:
+
+1. **Kein Bildunterschied.** Vorher/Nachher am selben Ort verglichen, bis auf die
+   Stammvergrösserung: Kronen gleich, Stämme durchgehend, keine ausgestanzten Rechtecke.
+2. **Der Bestand wird einfacher** — ein Material, eine Textur, ein Master je Baum statt je
+   zwei. Auf schwacher Hardware binden Zeichenaufrufe sehr wohl, und das Ziel ist ein
+   Browserspiel.
+3. **Die verlorenen Quelltexturen sind zurück** (`--texturen`), was unabhängig von diesem
+   Umbau zählt: ohne sie ist `baeume-bauen.sh` selbst mit Blender nicht lauffähig.
+
+**Der Alphakanal der Rinde muss dabei aufgefüllt werden**, sonst stanzt der gemeinsame
+Alpha-Test den Stamm aus. Gemessen im tatsächlich gesampelten Rindenfeld (aus den UVs des
+Submesh selbst, nicht aus einer Artentabelle):
+
+| | Alpha < 255 | Alpha < 128 |
+|---|---|---|
+| PineTree_01 (Fichte/Kiefer) | 0,00 % | 0,00 % |
+| Pine_tree_texture_d (Tanne) | 0,00 % | 0,00 % |
+| **birch_bark (Birke)** | **85,29 %** | **7,89 %** |
+| eiche_bark (Eiche) | 0,00 % | 0,00 % |
+
+Ohne Auffüllung wäre knapp jeder zwölfte Texel des Birkenstamms verschwunden. Nebenbei
+zeigt die Tabelle, warum das UV-Feld aus der Geometrie kommen muss: Am NOMINELLEN
+Rindenrechteck der Tanne (`ARTEN['tanne']['rinde']`) liegen 4,55 % unter Alpha 128 — das
+Mesh sampelt diesen Randbereich aber gar nicht. Eine Artentabelle hätte hier eine
+Auffüllung erzwungen, wo keine nötig ist, und beim nächsten geänderten UV-Rechteck still
+das Falsche getan.
+
+**Zwei Nebenwirkungen, beide unkritisch:** Die Rinde bekommt das Wind-Plugin, das am
+Material hängt — die Äste schwingen jetzt mit dem Laub statt stillzustehen, gedämpft nach
+Achsabstand (`vbAnsatzDaempfung`). Und die Werferliste wächst von 90 auf 112 Einträge, weil
+`Mesh.MergeMeshes` einen NEUEN Master erzeugt und die beiden Quellmeshes nur abschaltet;
+`darfWerfen()` lässt abgeschaltete Meshes bewusst in der Liste. Gezeichnet wird davon
+nichts — der Schattenpass überspringt sie.
 
 ---
 

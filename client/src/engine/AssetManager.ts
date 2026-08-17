@@ -450,7 +450,48 @@ export class AssetManager {
     }
 
     const tex = material.albedoTexture;
-    if (!(tex instanceof Texture) || this.alphaChecked.has(tex.uid)) return;
+    if (!(tex instanceof Texture)) return;
+
+    // ── Was die Datei SAGT, schlägt was die Statistik VERMUTET ──────────
+    //
+    // Der Alpha-Test unten wird aus Texel-Anteilen ERRATEN. Das war
+    // richtig, solange alle Modelle aus dem AssetRipper-Export kamen: Die
+    // schreiben durchgehend `alphaMode: OPAQUE`, auch für Laubkarten, und
+    // ohne Raten bliebe jedes Blatt ein volles Rechteck.
+    //
+    // Unsere EIGENEN Modelle sagen es dagegen selbst. `baum-generieren.py`
+    // stellt den Blender-Blendmodus auf CLIP, und der glTF-Exporter macht
+    // daraus `alphaMode: MASK` samt Cutoff — Babylons Loader setzt daraus
+    // bereits `transparencyMode` und `alphaCutOff`. Hier nochmal zu raten
+    // ist bestenfalls überflüssig und schlimmstenfalls falsch.
+    //
+    // Falsch wird es genau dann, wenn ein Atlas Laub UND Rinde trägt: Der
+    // Lochanteil wird über das GANZE Bild gezählt, die opake Rindenhälfte
+    // drückt ihn unter die 30-%-Schwelle, und die Laubkarten der Eiche
+    // rendern als volle Rechtecke (gemessen: 38,3 % Löcher im Laubteil,
+    // 19,2 % im kombinierten Atlas). Genau diese Bauart entsteht beim
+    // Zusammenlegen von Rinden- und Laubmaterial —
+    // tools/baum-material-zusammenlegen.mjs.
+    //
+    // Blast-Radius ausgezählt über alle 148 GLBs unter `assets/models`
+    // (199 Materialien mit Basisfarb-Textur): **kein einziges** Material,
+    // das MASK deklariert, verliert heute den Cutout durch die Heuristik.
+    // Diese Abkürzung ändert an keinem bestehenden Modell etwas; sie hält
+    // nur die neuen Atlanten aus der Statistik heraus.
+    //
+    // Die Gegenrichtung bleibt bewusst wie sie ist: 22 Materialien sagen
+    // OPAQUE und bekommen den Cutout trotzdem (Beech1, Bush01,
+    // SwampTree1/2, FirTree_small). Das sind Modelle aus der Rip-Zeit, die
+    // über ihren Alphakanal lügen — dort ist das Raten der einzige Weg.
+    if (material.transparencyMode === Material.MATERIAL_ALPHATEST) {
+      material.backFaceCulling = false;
+      material.useAlphaFromAlbedoTexture = true;
+      tex.hasAlpha = true;
+      if (swaysInWind(modelName)) this.setzeWind(material, mesh);
+      return;
+    }
+
+    if (this.alphaChecked.has(tex.uid)) return;
     this.alphaChecked.add(tex.uid);
 
     try {

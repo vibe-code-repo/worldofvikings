@@ -51,6 +51,14 @@ const KERN = [
   // Bestandsdokument — DOM-frei, Sekunden, gehoert damit hierher.
   ['client', 'test/welt-abgleich.ts'],
   ['client', 'test/entity-index.ts'],
+  // Die Keulung der Schattenwerfer pro Instanz ist konservativ in genau
+  // EINER Richtung: Was ueberlebt, wird eingereicht — verworfen wird nur,
+  // was seitlich sicher ausserhalb des Lichtkastens liegt. Ein Fehler hier
+  // loescht Schatten statt sie zu sparen, und zwar unauffaellig. Der Test
+  // haelt drei Zusicherungen fest: entlang der Lichtachse wird NICHT
+  // gekeult, der Bewegungsrand haelt die Packung bis zum naechsten
+  // Neupacken, und entartete Eingaben liefern 0 statt Muell.
+  ['client', 'test/schatten-instanz-keulung.ts'],
   // Die Huellkoerper der Thin-Instance-Master entscheiden seit D10 ueber
   // die SICHTBARKEIT der Prefabs — ein Kasten, der eine Instanz auslaesst,
   // laesst das Objekt aus bestimmten Blickwinkeln verschwinden. Laeuft

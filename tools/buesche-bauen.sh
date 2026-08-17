@@ -101,3 +101,23 @@ done <<< "$BUESCHE"
 echo
 echo "$anzahl Modelle in assets/models/ erzeugt."
 echo "Registriert sind sie in shared/src/prefabs.ts (HINT_DEFS + EIGENE_MODELLE)."
+
+# ── PFLICHTSCHRITT: Rinde und Laub zusammenlegen ─────────────────────
+# Blender exportiert JEDES Modell mit zwei Materialien — `nadeln` fuer die
+# Laubkarten und `rinde` fuer Stamm und Aeste. Zwei Materialien sind zwei
+# Thin-Instance-Master, denn `verschmelzeNachMaterial()` im AssetManager
+# legt nur zusammen, was sich Material UND Vertexattribute teilt.
+#
+# Ein frisch erzeugtes Modell faellt damit auf den alten Stand zurueck,
+# und zwar STILL: Es sieht richtig aus, es kostet nur einen Master mehr.
+# Genau deshalb steht der Schritt hier im Skript und nicht in einer
+# Anleitung, die man beim naechsten Mal nicht liest.
+#
+# Das Werkzeug ist idempotent (bereits zusammengelegte Modelle meldet es
+# als "schon zusammengelegt") und legt vor dem ersten Schreiben eine
+# Sicherung nach assets/models-vor-zusammenlegung/. Warum es die GLBs
+# anfasst statt hier im Generator zu wirken, steht in seinem Kopf.
+echo
+echo "Rinde und Laub zusammenlegen (halbiert die Zahl der Master) ..."
+node tools/baum-material-zusammenlegen.mjs --schreiben --texturen assets/textures \
+  | grep -E "^(zusammengelegt:|schon|übersprungen:)"

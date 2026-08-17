@@ -65,6 +65,23 @@
  * wurde die Rinde übrigens schon vorher — Blender exportiert sie mit
  * `doubleSided: true`.
  *
+ * ── WANN DAS ZU LAUFEN HAT ───────────────────────────────────────────
+ * Nach JEDEM Lauf eines Generators, der Vegetation mit `leaves`/`tree`
+ * erzeugt — also nach `baeume-bauen.sh` und `buesche-bauen.sh`, und nach
+ * jedem einzelnen Aufruf von `baum-generieren.py` oder
+ * `busch-generieren.py` für ein neues Modell.
+ *
+ * Der Grund: Blender exportiert immer ZWEI Materialien (`nadeln` und
+ * `rinde`), und zwei Materialien sind zwei Master. Ein frisch erzeugtes
+ * Modell fällt damit auf den alten Stand zurück, und zwar STILL — es
+ * sieht richtig aus, es kostet nur einen Master mehr. Deshalb rufen die
+ * beiden Bau-Skripte dieses Werkzeug am Ende selbst auf; wer ein Modell
+ * einzeln erzeugt, muss daran denken.
+ *
+ * Ein Vergessen ist reparierbar und kostet nichts: Der Lauf ist
+ * idempotent, bereits zusammengelegte Modelle meldet er als „schon
+ * zusammengelegt".
+ *
  * Aufruf:
  *   node tools/baum-material-zusammenlegen.mjs                 # nur prüfen
  *   node tools/baum-material-zusammenlegen.mjs --schreiben

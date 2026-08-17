@@ -38,6 +38,34 @@ prozedural nicht sinnvoll beschreiben lassen. Beim generativen Weg ist `face_lim
 entscheidende Parameter: ohne ihn kam der erste Baum mit 1.907.396 Dreiecken und 70 MB
 zurück — Valheims `Pinetree_01` hat 2.532.
 
+### Nachlauf bei Vegetation: Rinde und Laub zusammenlegen (Pflicht)
+
+> [!important] Wer ein neues Gewächs erzeugt, ist mit dem Generator noch nicht fertig.
+> Blender exportiert **jedes** Modell aus `baum-generieren.py` und `busch-generieren.py`
+> mit ZWEI Materialien — `nadeln` für die Laubkarten, `rinde` für Stamm und Äste. Zwei
+> Materialien sind **zwei Thin-Instance-Master**, denn
+> `AssetManager.verschmelzeNachMaterial()` legt nur zusammen, was sich Material *und*
+> Vertexattribute teilt.
+>
+> Danach gehört deshalb immer:
+>
+> ```
+> node tools/baum-material-zusammenlegen.mjs --schreiben --texturen assets/textures
+> ```
+>
+> `baeume-bauen.sh` und `buesche-bauen.sh` rufen das am Ende **selbst** auf. Wer ein Modell
+> einzeln über `blender --background --python tools/baum-generieren.py` erzeugt, muss daran
+> denken.
+>
+> **Warum das leicht durchrutscht:** Ein vergessener Lauf sieht völlig richtig aus. Das
+> Modell rendert korrekt, es kostet nur einen Master mehr — es gibt kein Symptom, an dem man
+> es bemerkt, ausser der Zahl. Reparierbar ist es jederzeit: Der Lauf ist idempotent und
+> meldet bereits zusammengelegte Modelle als „schon zusammengelegt".
+>
+> Was der Schritt tut, was er am Alphakanal der Rinde ändern muss und warum er die fertigen
+> GLBs anfasst statt im Generator zu wirken, steht im Kopf des Werkzeugs und in
+> [07-Grafik-Konzept.md](07-Grafik-Konzept.md), Abschnitt „Rinde und Laub in ein Material".
+
 ### Die Whitelist ist der Kern
 
 `EIGENE_MODELLE` in `shared/src/prefabs.ts` listet jedes Modell, das es geben darf;

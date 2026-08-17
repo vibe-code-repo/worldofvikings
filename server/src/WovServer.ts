@@ -2250,6 +2250,50 @@ export class WovServer {
       };
     });
 
+    // ── Aufraeumen von Spieler-Datensaetzen (17.08.2026) ─────────────
+    //
+    // Anlass: Eine Nacht Grafik-Messreihen hat rund zehn Bot-Spieler in
+    // der DEV-Welt hinterlassen (RieselBot, Kombi768, Fern601, Tex915 …).
+    // `savedPlayers` waechst monoton — jeder Name, der sich je verbunden
+    // hat, bleibt in der `players[]`-Sektion, bis ihn jemand entfernt.
+    // Auf einer Entwicklungswelt, auf der Testverbindungen die Regel sind,
+    // ist das kein Ausnahmefall, sondern der Normalbetrieb.
+    //
+    // `spieler liste` zeigt, was da ist. `spieler entfernen <name>…` nimmt
+    // gezielt Namen heraus — bewusst NUR namentlich, kein Muster und kein
+    // "alle ausser mir": Ein Tippfehler in einem Glob loescht sonst
+    // Spielstaende, und fuer diese Welt gibt es kein Backup (Roadmap S2).
+    // Verbundene Spieler werden uebersprungen; ihr Datensatz wuerde beim
+    // naechsten Speichern ohnehin sofort neu geschrieben.
+    this.adminCommands.register('spieler', (peer, args) => {
+      const sub = (args.shift() ?? 'liste').toLowerCase();
+      if (sub === 'liste') {
+        const namen = [...this.savedPlayers.keys()].sort();
+        return { ok: true, active: false,
+          message: `${namen.length} Datensaetze: ${namen.join(', ')}` };
+      }
+      if (sub === 'entfernen') {
+        if (args.length === 0) {
+          return { ok: false, active: false, message: 'Aufruf: spieler entfernen <name> [<name> …]' };
+        }
+        const verbunden = new Set(this.net.getPeers().map((p) => p.name));
+        const weg: string[] = [];
+        const uebersprungen: string[] = [];
+        for (const name of args) {
+          if (verbunden.has(name)) { uebersprungen.push(`${name} (verbunden)`); continue; }
+          if (!this.savedPlayers.has(name)) { uebersprungen.push(`${name} (unbekannt)`); continue; }
+          this.savedPlayers.delete(name);
+          weg.push(name);
+        }
+        const rest = this.savedPlayers.size;
+        return { ok: true, active: false,
+          message: `Entfernt: ${weg.length ? weg.join(', ') : '—'}` +
+            (uebersprungen.length ? ` | Uebersprungen: ${uebersprungen.join(', ')}` : '') +
+            ` | Noch ${rest} Datensaetze (wird beim naechsten Speichern geschrieben)` };
+      }
+      return { ok: false, active: false, message: 'Aufruf: spieler liste | spieler entfernen <name> …' };
+    });
+
     this.adminCommands.register('dungeon', (peer, args) => {
       const sub = (args.shift() ?? 'list').toLowerCase();
 

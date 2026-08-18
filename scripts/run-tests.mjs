@@ -59,6 +59,10 @@ const KERN = [
   // gekeult, der Bewegungsrand haelt die Packung bis zum naechsten
   // Neupacken, und entartete Eingaben liefern 0 statt Muell.
   ['client', 'test/schatten-instanz-keulung.ts'],
+  // Das 100-FPS-Profil nutzt auf der niedrigen Stufe eine eigene
+  // Schattenfassung. Der GPU-lose Test haelt 2 x 1024 px / 80 m fest und
+  // prueft zugleich, dass alle normalen Stufen unveraendert bleiben.
+  ['client', 'test/schatten-profil.ts'],
   // Die Huellkoerper der Thin-Instance-Master entscheiden seit D10 ueber
   // die SICHTBARKEIT der Prefabs — ein Kasten, der eine Instanz auslaesst,
   // laesst das Objekt aus bestimmten Blickwinkeln verschwinden. Laeuft

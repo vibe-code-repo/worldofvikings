@@ -122,6 +122,23 @@ export const SHADOW_LEVELS: readonly (ShadowLevel | null)[] = [
 ];
 
 /**
+ * Schattenfassung des 100-FPS-Profils.
+ *
+ * Zwei Kaskaden und 80 m halten die Draw-Call-Seite des gemessenen Profils
+ * unverändert. 1024 statt 512 Pixel verdoppeln die Texeldichte gegen das
+ * Kriechen feiner Blattschatten; die Kaskaden werden zusätzlich am
+ * Texelraster stabilisiert. Bewusst getrennt von SHADOW_LEVELS[1], damit
+ * die normale Stufe "Niedrig" beim Abschalten exakt unverändert zurückkommt.
+ */
+const HUNDERT_FPS_SCHATTEN: ShadowLevel = { kaskaden: 2, distanz: 80, aufloesung: 1024 };
+
+/** Reine Profilzuordnung — getrennt testbar, ohne WebGL-ShadowGenerator. */
+export function schattenKonfiguration(stufe: number, hundertFpsProfil: boolean): ShadowLevel | null {
+  if (hundertFpsProfil && stufe === 1) return HUNDERT_FPS_SCHATTEN;
+  return SHADOW_LEVELS[stufe] ?? null;
+}
+
+/**
  * Meshes, die keinen Schatten WERFEN.
  *
  * - `clutter*`  Gras: jede Kaskade rendert die Werferliste komplett neu,
@@ -211,6 +228,7 @@ const WERFER_BUDGET_MS = 4;
 export class Shadows {
   private generator: CascadedShadowGenerator | null = null;
   private stufe = 0;
+  private hundertFpsProfil = false;
   private fern = true;
   private letzteX = Number.NaN;
   private letzteZ = Number.NaN;
@@ -244,6 +262,21 @@ export class Shadows {
     scene.onNewMeshAddedObservable.add((m) => {
       if (this.generator) this.nimmAuf(m);
     });
+  }
+
+  private konfiguration(stufe = this.stufe): ShadowLevel | null {
+    return schattenKonfiguration(stufe, this.hundertFpsProfil);
+  }
+
+  /** Profil-spezifische Texeldichte und Kaskadenstabilisierung umschalten. */
+  setHundertFpsProfil(an: boolean): void {
+    if (an === this.hundertFpsProfil) return;
+    this.hundertFpsProfil = an;
+    // Die Kartenauflösung ist nachträglich unveränderlich. setLevel muss
+    // deshalb auch bei gleicher sichtbarer Stufe den Generator neu bauen.
+    const stufe = this.stufe;
+    this.stufe = -1;
+    this.setLevel(stufe);
   }
 
   /**
@@ -353,7 +386,7 @@ export class Shadows {
    * renderList ein und müssen hier nicht miterfasst werden.
    */
   private werferNeuBestimmen(): void {
-    const cfg = SHADOW_LEVELS[this.stufe];
+    const cfg = this.konfiguration();
     if (!this.generator || !cfg) return;
     this.werferSnapshot = this.scene.meshes.slice();
     this.werferIndex = 0;
@@ -407,7 +440,7 @@ export class Shadows {
 
   /** Diagnose: Kaskaden der aktuellen Stufe, 0 wenn Schatten aus sind. */
   kaskaden(): number {
-    return this.generator ? (SHADOW_LEVELS[this.stufe]?.kaskaden ?? 0) : 0;
+    return this.generator ? (this.konfiguration()?.kaskaden ?? 0) : 0;
   }
 
   /**
@@ -475,7 +508,7 @@ export class Shadows {
 
   private nimmAuf(mesh: AbstractMesh): void {
     if (!this.generator) return;
-    const cfg = SHADOW_LEVELS[this.stufe];
+    const cfg = this.konfiguration();
     if (!cfg) return;
     if (this.darfEmpfangen(mesh)) mesh.receiveShadows = true;
     if (!this.darfWerfen(mesh, cfg)) return;
@@ -554,7 +587,7 @@ export class Shadows {
     const i = Math.max(0, Math.min(SHADOW_LEVELS.length - 1, stufe));
     if (i === this.stufe && (i === 0) === (this.generator === null)) return;
     this.stufe = i;
-    const cfg = SHADOW_LEVELS[i];
+    const cfg = this.konfiguration(i);
 
     if (!cfg) {
       this.abbauen();
@@ -579,11 +612,12 @@ export class Shadows {
     // erreichbaren Verbesserung (bei 150 m und lambda 0,8: 2,29 %
     // stabilisiert gegen 2,04 % frei).
     //
-    // ⚠ Die Messung lief mit FESTER KAMERA — also blind fuer genau den Fall,
-    // gegen den die Stabilisierung eingebaut wurde. Wandern beim Drehen
-    // sichtbar Schattenkanten, gehoert diese Zeile zurueck auf `true`; das
-    // kostet laut Reihe ein Drittel, nicht alles.
-    g.stabilizeCascades = false;
+    // E25 schaltet sie deshalb gezielt im 100-FPS-Profil wieder ein und
+    // bezahlt die verlorene Texeldichte mit 1024 statt 512 px. A/B auf der
+    // schweren Insel: dunkle Pixeleinbrueche -28 %, bewegte Pixel -20..24 %,
+    // GPU +0,6 ms bei weiter 107..109 FPS. Die normalen Stufen bleiben auf
+    // `false`, damit ihr zuvor gemessener Stand unveraendert bleibt.
+    g.stabilizeCascades = this.hundertFpsProfil && i === 1;
     // Logarithmischere Aufteilung der vier Kaskaden: schiebt Texeldichte in
     // den Nahbereich, wo der Spieler steht. Babylons Vorgabe ist 0,5.
     // Gemessen: 0,80 traegt, 0,95 ist bereits schlechter (2,04 gegen 2,44 %).
@@ -707,7 +741,7 @@ export class Shadows {
 
   /** Für die Diagnoseanzeige. */
   get info(): string {
-    const cfg = SHADOW_LEVELS[this.stufe];
+    const cfg = this.konfiguration();
     if (!cfg) return 'aus';
     const n = this.generator?.getShadowMap()?.renderList?.length ?? 0;
     return `${cfg.kaskaden}x ${cfg.distanz}m ${cfg.aufloesung}px (${n} werfer${this.fern ? '' : ', nah'})`;

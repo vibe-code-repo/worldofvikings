@@ -431,6 +431,7 @@ async function main() {
           temporalAA: false,
         }
       : s);
+    shadows?.setHundertFpsProfil(s.hundertFpsProfil);
     shadows?.setLevel(s.hundertFpsProfil ? 1 : s.shadowQuality);
     shadows?.setDistantShadows(s.hundertFpsProfil ? false : s.distantShadows);
     entities?.setHundertFpsProfil(s.hundertFpsProfil);
@@ -873,6 +874,7 @@ async function main() {
     // entstehen; die Meshes melden sich selbst an (onNewMeshAddedObservable).
     shadows = new Shadows(scene, lighting.sun);
     const startSettings = gameSettings.get();
+    shadows.setHundertFpsProfil(startSettings.hundertFpsProfil);
     shadows.setLevel(startSettings.hundertFpsProfil ? 1 : startSettings.shadowQuality);
     shadows.setDistantShadows(startSettings.hundertFpsProfil ? false : startSettings.distantShadows);
     // Zell-Master aus dem Pool entstehen NICHT neu — onNewMeshAdded feuert

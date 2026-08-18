@@ -1087,6 +1087,36 @@ export class EntityManager {
   private masterMeshes = new Map<string, import('@babylonjs/core/Meshes/mesh').Mesh[]>();
   private masterLocals = new Map<string, Matrix[]>();
   /**
+   * Übergibt fertige Vegetations-Matrixpuffer an Shadows. Wert-Callback
+   * statt Modulimport: EntityManager bleibt ohne Szene testbar und der
+   * Schattenpfad kann die sichtbaren Puffer niemals selbst überschreiben.
+   */
+  private vegetationsSchattenEmpfaenger:
+    | ((mesh: Mesh, matrizen: Float32Array | null) => void)
+    | null = null;
+
+  setVegetationsSchattenEmpfaenger(
+    empfaenger: ((mesh: Mesh, matrizen: Float32Array | null) => void) | null
+  ): void {
+    this.vegetationsSchattenEmpfaenger = empfaenger;
+    if (!empfaenger) return;
+    // Registrierung geschieht normalerweise vor dem ersten Weltpaket.
+    // Falls beim Wiederverbinden schon Master existieren, erzwingt dirty
+    // einen vollständigen Replay statt einen still schattenlosen Bestand.
+    for (const bucket of this.buckets.values()) {
+      if (bucket.mastersReady && FOLIAGE_HASHES.has(bucket.prefabHash)) bucket.dirty = true;
+    }
+  }
+
+  private meldeVegetationsSchatten(
+    bucket: StaticBucket,
+    mesh: Mesh,
+    matrizen: Float32Array | null
+  ): void {
+    if (!FOLIAGE_HASHES.has(bucket.prefabHash)) return;
+    this.vegetationsSchattenEmpfaenger?.(mesh, matrizen);
+  }
+  /**
    * Zell-Master der geschnittenen Buckets:
    * prefabName → Zellenschlüssel → [Prototyp-Index][Überlaufblock].
    */
@@ -1613,8 +1643,11 @@ export class EntityManager {
       let ziel = 0;
       for (const world of basisMats) local.multiply(world).toArray(data, ziel++ * 16);
       for (const world of dickMats) local.multiply(world).toArray(data, ziel++ * 16);
-      schreibeInstanzen(basisMasters[m]!, count > 0 ? data : null);
+      const puffer = count > 0 ? data : null;
+      schreibeInstanzen(basisMasters[m]!, puffer);
       schreibeInstanzen(dickMasters[m]!, null);
+      this.meldeVegetationsSchatten(basisBucket, basisMasters[m]!, puffer);
+      this.meldeVegetationsSchatten(dickBucket, dickMasters[m]!, null);
     }
     return true;
   }
@@ -1667,7 +1700,9 @@ export class EntityManager {
       for (let i = 0; i < count; i++) {
         local.multiply(zdoMats[i]!).toArray(data, i * 16);
       }
-      schreibeInstanzen(masters[m]!, count > 0 ? data : null);
+      const puffer = count > 0 ? data : null;
+      schreibeInstanzen(masters[m]!, puffer);
+      this.meldeVegetationsSchatten(bucket, masters[m]!, puffer);
     }
   }
 

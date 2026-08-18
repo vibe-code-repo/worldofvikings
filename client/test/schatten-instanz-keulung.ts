@@ -13,11 +13,14 @@
  *     Instanz diagonal knapp ausserhalb fällt raus, knapp innerhalb bleibt.
  *  3. Entartete Eingaben liefern 0 statt Müll.
  *  4. Die Neupack-Schwelle feuert beim ersten Mal und ab der Schwelle.
+ *  5. Der Auswahlradius deckt Frustumecken und flachen Schattenwurf ab.
  */
 import {
   NEUPACK_ABSTAND,
   brauchtNeupacken,
+  konservativerAuswahlRadius,
   packeInstanzenRadial,
+  quantisiereRadius,
 } from '../src/engine/SchattenInstanzKeulung.js';
 
 let fehler = 0;
@@ -85,6 +88,26 @@ console.log('Schattenkeulung pro Instanz (radial)');
   pruefe(!brauchtNeupacken(3, 3, 0, 0), 'kleine Bewegung löste Neupacken aus');
   pruefe(brauchtNeupacken(NEUPACK_ABSTAND, 0, 0, 0), 'Schwelle löste kein Neupacken aus');
   pruefe(brauchtNeupacken(0, -NEUPACK_ABSTAND, 0, 0), 'Schwelle in -z löste kein Neupacken aus');
+}
+
+// ── 6. Konservativer Radius ─────────────────────────────────────────
+{
+  const distanz = 120;
+  const fov = Math.PI / 3;
+  const aspect = 16 / 9;
+  const hoch = konservativerAuswahlRadius(distanz, fov, aspect, 0, -1, 0, 20, 8);
+  const halbHoch = distanz * Math.tan(fov / 2);
+  const ecke = Math.hypot(distanz, halbHoch * aspect, halbHoch);
+  pruefe(hoch >= ecke + 8 + NEUPACK_ABSTAND, 'ferne Frustumecke ist nicht vollständig abgedeckt');
+
+  const flach = konservativerAuswahlRadius(distanz, fov, aspect, 1, -0.25, 0, 20, 8);
+  pruefe(flach >= hoch + 79, 'flache Sonne verlängert den Auswahlradius nicht um den Schattenwurf');
+
+  const waagerecht = konservativerAuswahlRadius(distanz, fov, aspect, 1, 0, 0, 20, 8);
+  pruefe(waagerecht === Number.POSITIVE_INFINITY, 'waagerechte Sonne muss die Keulung abschalten');
+
+  pruefe(quantisiereRadius(201, 16) === 208, 'Radius wird nicht konservativ aufgerundet');
+  pruefe(quantisiereRadius(Number.POSITIVE_INFINITY) === Number.POSITIVE_INFINITY, 'unendlicher Radius ging verloren');
 }
 
 console.log(

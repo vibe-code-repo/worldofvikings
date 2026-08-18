@@ -607,11 +607,21 @@ export class AssetManager {
     // Babylons PBR-Vertexshader bereits `worldPos`, deshalb ist kein
     // `remappedVariables` nötig.
     //
+    // `standalone` ist für reine Schatten-Meshes zwingend: Im normalen
+    // Modus wartet der Wrapper darauf, dass genau DEREN SubMesh zuvor mit
+    // dem Basismaterial im Farbbild kompiliert wurde. Ein Mesh mit
+    // `layerMask = 0`, das absichtlich nur in der expliziten Werferliste
+    // steht, erreicht diesen Schritt nie und wird vom Schattenpass als
+    // "nicht bereit" dauerhaft übersprungen. Im eigenständigen Modus
+    // stößt der Wrapper die fehlende Basiskompilierung selbst an.
+    //
     // Kosten: ein zusätzliches Shaderprogramm je Laubmaterial (rund ein
     // Dutzend), nur für den Schattenpass. Keine zusätzlichen Draw Calls —
     // die Werfer werden ohnehin gezeichnet.
     if (!material.shadowDepthWrapper) {
-      material.shadowDepthWrapper = new ShadowDepthWrapper(material, material.getScene());
+      material.shadowDepthWrapper = new ShadowDepthWrapper(material, material.getScene(), {
+        standalone: true,
+      });
     }
 
     if (!mesh) return;

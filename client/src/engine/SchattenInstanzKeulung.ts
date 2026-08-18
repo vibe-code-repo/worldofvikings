@@ -36,6 +36,18 @@
  *   Er wird NIE zurückgeschrieben, und er wird nur neu gepackt, wenn sich
  *   der Spieler weiter als `NEUPACK_ABSTAND` bewegt hat.
  *
+ * ── Ergebnis des sicheren Wegs (18.08.2026, schwere Insel) ───────────
+ * Feste Position 10077/-18723, Wind aus, Sonne angehalten, normale hohe
+ * Schattenstufe (4 × 150 m, 2048 px):
+ *
+ *   ursprünglicher Vollpass       14,29 ms GPU
+ *   eigener Klon, alle Instanzen  13,77 ms GPU
+ *   konservativ radial gekeult    12,09 ms GPU
+ *
+ * 18.761 von 29.242 Vegetations-Instanzeinreichungen bleiben. Der direkte
+ * Bildvergleich „Klon voll“ gegen „Klon gekeult“ ergab nur 0,418 % RMSE
+ * und 0,452 % geänderte Pixel — in der Größenordnung des Kontrollrauschens.
+ *
  * ── Warum RADIAL und nicht im Lichtraum (18.08.2026, im Spiel gelernt) ─
  * Die erste Fassung prüfte jede Instanz gegen die Kaskadenkästen im
  * Lichtraum. Sie hat auf drei Arten hintereinander Schatten GELÖSCHT:
@@ -60,8 +72,11 @@
  * `shadowMaxZ` Meter weit empfängt, geometrisch nicht mehr erreichen.
  *
  * Der Preis: Innerhalb des Radius wird gar nicht gekeult. Der Gewinn kommt
- * aus dem Ring dahinter — Schattenweite ~150 m gegen ein Streaming-Gebiet
- * von 640–900 m, also bleibt flächig immer noch das meiste draussen.
+ * aus dem Ring dahinter — gegen das tatsächliche 576×576-m-Streamingfenster.
+ * Der Radius ist dabei NICHT einfach `shadowMaxZ`: Er umfasst die fernen
+ * Frustumecken, die Pflanzenausdehnung, den Nachlauf bis zum nächsten Packen
+ * und den längeren Schattenwurf bei flacher Sonne. Bei Sonnenauf- und
+ * -untergang kann er deshalb bewusst das ganze Fenster behalten.
  *
  * Reiner Kern: nur Zahlen und typisierte Felder, kein Babylon-Import, kein
  * DOM, keine Uhr. Getestet in client/test/schatten-instanz-keulung.ts.
@@ -75,6 +90,48 @@
  * zum nächsten Packen gültig bleibt.
  */
 export const NEUPACK_ABSTAND = 16;
+
+/**
+ * Konservativer horizontaler Auswahlradius für einen Vegetationsmaster.
+ *
+ * `shadowMaxZ` beschreibt die Tiefe entlang der Kameraachse, nicht einen
+ * Kreis um den Spieler. Die fernste sichtbare Frustumecke liegt zusätzlich
+ * um die halbe Bildbreite und -höhe seitlich versetzt. Dazu kann ein Objekt
+ * AUSSERHALB des Empfängerbereichs seinen Schatten hineinwerfen; dessen
+ * maximale horizontale Länge folgt direkt aus Sonnenrichtung und Höhe.
+ *
+ * Bei nahezu waagerechter Sonne ist kein endlicher, allgemein korrekter
+ * Wurfradius möglich. `Infinity` bedeutet dann absichtlich „nichts keulen".
+ */
+export function konservativerAuswahlRadius(
+  shadowMaxZ: number,
+  vertikalesFov: number,
+  seitenverhaeltnis: number,
+  sonneX: number,
+  sonneY: number,
+  sonneZ: number,
+  objektHoehe: number,
+  objektRadius: number,
+  nachlauf = NEUPACK_ABSTAND
+): number {
+  if (!(shadowMaxZ > 0)) return 0;
+  const halbHoch = shadowMaxZ * Math.tan(Math.max(0, vertikalesFov) * 0.5);
+  const halbBreit = halbHoch * Math.max(1, seitenverhaeltnis);
+  const frustumRadius = Math.hypot(shadowMaxZ, halbBreit, halbHoch);
+  const horizontal = Math.hypot(sonneX, sonneZ);
+  const senkrecht = Math.abs(sonneY);
+  if (senkrecht < 1e-3 && horizontal > 0) return Number.POSITIVE_INFINITY;
+  const wurf = senkrecht > 0 ? Math.max(0, objektHoehe) * horizontal / senkrecht : 0;
+  return frustumRadius + wurf + Math.max(0, objektRadius) + Math.max(0, nachlauf);
+}
+
+/** Radius nur in groben Stufen ändern, damit die wandernde Sonne nicht
+ * jeden Frame einen neuen GPU-Puffer auslöst. Aufrunden bleibt konservativ. */
+export function quantisiereRadius(radius: number, schritt = NEUPACK_ABSTAND): number {
+  if (!Number.isFinite(radius)) return Number.POSITIVE_INFINITY;
+  if (!(radius > 0) || !(schritt > 0)) return Math.max(0, radius);
+  return Math.ceil(radius / schritt) * schritt;
+}
 
 /**
  * Muss neu gepackt werden?

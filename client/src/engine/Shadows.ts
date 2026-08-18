@@ -64,7 +64,15 @@ import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent';
 import { Material } from '@babylonjs/core/Materials/material';
 import type { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
+import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
+import { huellkoerperAufweiten, zellMeshAusPrototyp } from '../entities/EntityManager';
+import {
+  NEUPACK_ABSTAND,
+  konservativerAuswahlRadius,
+  packeInstanzenRadial,
+  quantisiereRadius,
+} from './SchattenInstanzKeulung';
 
 /** Die drei Original-Stufen, plus "Aus" an Index 0. */
 export interface ShadowLevel {
@@ -181,7 +189,9 @@ const NIE_WERFEN =
  * eigenen Rendergruppe und wird von einem Material-Plugin bespielt —
  * Schattenempfang dort ist ein eigener Schritt, kein Nebeneffekt.
  */
-const NIE_EMPFANGEN = /^(valheimSky|sky|water|precipEmitter|avatar_(hips|torso|head|leg|knee|arm|elbow))/i;
+const SCHATTEN_VEGETATION_PRAEFIX = 'schattenVegetation_';
+
+const NIE_EMPFANGEN = /^(schattenVegetation_|valheimSky|sky|water|precipEmitter|avatar_(hips|torso|head|leg|knee|arm|elbow))/i;
 
 /**
  * Prefabs, die bei abgeschalteten "fernen Schatten" nicht mehr werfen.
@@ -225,6 +235,23 @@ const NACHFUEHR_ABSTAND = 16;
  */
 const WERFER_BUDGET_MS = 4;
 
+interface VegetationsSchattenMaster {
+  readonly quelle: Mesh;
+  readonly schatten: Mesh;
+  /** Fertiger local×world-Puffer des sichtbaren Masters. */
+  matrizen: Float32Array | null;
+  ziel: Float32Array;
+  gesamt: number;
+  aktiv: number;
+  /** Aus der instanzlosen, unverfälschten Klon-Hülle. */
+  readonly modellHoehe: number;
+  readonly modellRadius: number;
+  /** Größte Skalierung im aktuellen Puffer. */
+  maxSkala: number;
+  gepackterRadius: number;
+  bereit: boolean;
+}
+
 export class Shadows {
   private generator: CascadedShadowGenerator | null = null;
   private stufe = 0;
@@ -250,6 +277,17 @@ export class Shadows {
    */
   private werferPendingSet: Set<AbstractMesh> | null = null;
   private werferCfg: ShadowLevel | null = null;
+  /**
+   * E26: Sichtbares Vegetationsmesh und Schattenmesh besitzen absichtlich
+   * verschiedene Geometrien. `mesh.clone()` wäre hier falsch: Babylons
+   * Thin-Instance-Puffer hängen an der Geometry und überschrieben beim
+   * ersten Anlauf dadurch den Farbpuffer — ganze Bäume verschwanden.
+   */
+  private readonly vegetationsSchatten = new Map<Mesh, VegetationsSchattenMaster>();
+  private readonly vegetationsQuellen = new Set<AbstractMesh>();
+  private readonly vegetationsKlone = new Set<AbstractMesh>();
+  private readonly vegetationsPackPending = new Set<VegetationsSchattenMaster>();
+  private vegetationsInstanzKeulung = true;
 
   constructor(
     private readonly scene: Scene,
@@ -277,6 +315,154 @@ export class Shadows {
     const stufe = this.stufe;
     this.stufe = -1;
     this.setLevel(stufe);
+  }
+
+  /**
+   * Fertigen Thin-Instance-Puffer eines gestreuten Vegetationsmasters
+   * übernehmen. Der EntityManager ruft das nach JEDEM Neuaufbau auf; so
+   * kann der Schattenpuffer nie hinter Streaming oder Profilwechseln
+   * zurückbleiben.
+   */
+  setVegetationsInstanzen(quelle: Mesh, matrizen: Float32Array | null): void {
+    let stand = this.vegetationsSchatten.get(quelle);
+    if (!stand) {
+      // zellMeshAusPrototyp extrahiert VertexData in eine EIGENE Geometry.
+      // Genau das fehlte im verworfenen Klon-Anlauf, dessen clone()/
+      // applyToMesh-Weg die Instanzpuffer der sichtbaren Bäume überschrieb.
+      const schatten = zellMeshAusPrototyp(
+        quelle,
+        `${SCHATTEN_VEGETATION_PRAEFIX}${quelle.uniqueId}_${quelle.name}`,
+        this.scene
+      );
+      schatten.layerMask = 0; // nie im Farbbild, nur in expliziter Werferliste
+      schatten.receiveShadows = false;
+      schatten.alwaysSelectAsActiveMesh = true;
+      schatten.setEnabled(false);
+      const bb = schatten.getBoundingInfo().boundingBox;
+      const bs = schatten.getBoundingInfo().boundingSphere;
+      stand = {
+        quelle,
+        schatten,
+        matrizen: null,
+        ziel: new Float32Array(0),
+        gesamt: 0,
+        aktiv: 0,
+        modellHoehe: Math.max(
+          Math.abs(bb.minimum.y),
+          Math.abs(bb.maximum.y),
+          bb.maximum.y - bb.minimum.y
+        ),
+        modellRadius: bs.radius,
+        maxSkala: 1,
+        gepackterRadius: Number.NaN,
+        bereit: false,
+      };
+      this.vegetationsSchatten.set(quelle, stand);
+      this.vegetationsKlone.add(schatten);
+    }
+
+    stand.matrizen = matrizen;
+    stand.gesamt = (matrizen?.length ?? 0) / 16;
+    // Bis der neue Puffer steht, wirft die Quelle weiter. Das verhindert
+    // die wandernden schattenlosen Bäume des ersten Anlaufs vollständig.
+    if (this.vegetationsInstanzKeulung) {
+      stand.bereit = false;
+      stand.schatten.setEnabled(false);
+      this.vegetationsQuellen.delete(quelle);
+      this.nimmAuf(quelle);
+      this.vegetationsPackPending.add(stand);
+    }
+  }
+
+  /** Laufzeit-A/B: false stellt ohne Reload die unveränderten Quellen her. */
+  setVegetationsInstanzKeulung(an: boolean): void {
+    if (an === this.vegetationsInstanzKeulung) return;
+    this.vegetationsInstanzKeulung = an;
+    this.vegetationsPackPending.clear();
+    for (const stand of this.vegetationsSchatten.values()) {
+      if (an) {
+        stand.bereit = false;
+        this.vegetationsPackPending.add(stand);
+      } else {
+        this.vegetationsQuellen.delete(stand.quelle);
+        this.entferneWerfer(stand.schatten);
+        stand.schatten.setEnabled(false);
+        stand.bereit = false;
+        this.nimmAuf(stand.quelle);
+      }
+    }
+    this.werferNeuBestimmen();
+  }
+
+  private maximaleSkala(matrizen: Float32Array): number {
+    let max = 1;
+    for (let o = 0; o < matrizen.length; o += 16) {
+      max = Math.max(
+        max,
+        Math.hypot(matrizen[o]!, matrizen[o + 1]!, matrizen[o + 2]!),
+        Math.hypot(matrizen[o + 4]!, matrizen[o + 5]!, matrizen[o + 6]!),
+        Math.hypot(matrizen[o + 8]!, matrizen[o + 9]!, matrizen[o + 10]!)
+      );
+    }
+    return max;
+  }
+
+  private auswahlRadius(stand: VegetationsSchattenMaster): number {
+    const cfg = this.konfiguration();
+    if (!cfg) return 0;
+    const kamera = this.scene.activeCamera;
+    const fov = kamera?.fov ?? Math.PI / 3;
+    const aspect = kamera ? this.scene.getEngine().getAspectRatio(kamera) : 16 / 9;
+    const d = this.sonne.direction;
+    return quantisiereRadius(konservativerAuswahlRadius(
+      cfg.distanz,
+      fov,
+      aspect,
+      d.x,
+      d.y,
+      d.z,
+      stand.modellHoehe * stand.maxSkala,
+      stand.modellRadius * stand.maxSkala
+    ));
+  }
+
+  private packeVegetationsMaster(stand: VegetationsSchattenMaster): void {
+    if (!this.vegetationsInstanzKeulung) return;
+    const daten = stand.matrizen;
+    if (!daten || daten.length === 0) {
+      stand.schatten.thinInstanceSetBuffer('matrix', null, 16, false);
+      stand.schatten.setEnabled(false);
+      stand.aktiv = 0;
+      stand.maxSkala = 1;
+      stand.gepackterRadius = 0;
+    } else {
+      if (stand.ziel.length < daten.length) stand.ziel = new Float32Array(daten.length);
+      stand.maxSkala = this.maximaleSkala(daten);
+      const radius = this.auswahlRadius(stand);
+      const x = Number.isNaN(this.letzteX) ? 0 : this.letzteX;
+      const z = Number.isNaN(this.letzteZ) ? 0 : this.letzteZ;
+      const n = Number.isFinite(radius)
+        ? packeInstanzenRadial(daten, daten.length / 16, x, z, radius, stand.ziel)
+        : daten.length / 16;
+      const puffer = Number.isFinite(radius) ? stand.ziel : daten;
+      stand.schatten.thinInstanceSetBuffer(
+        'matrix',
+        n > 0 ? puffer.subarray(0, n * 16) : null,
+        16,
+        false
+      );
+      if (n > 0) huellkoerperAufweiten(stand.schatten);
+      stand.schatten.setEnabled(n > 0);
+      stand.aktiv = n;
+      stand.gepackterRadius = radius;
+    }
+
+    // Erst NACH vollständigem Pufferwechsel umschalten: Es gibt in keinem
+    // Frame eine Lücke zwischen sichtbarer Quelle und Schattenklon.
+    this.vegetationsQuellen.add(stand.quelle);
+    this.entferneWerfer(stand.quelle);
+    this.nimmAuf(stand.schatten);
+    stand.bereit = true;
   }
 
   /**
@@ -330,6 +516,8 @@ export class Shadows {
     // danach als Leiche in der Schattenkarte — je Kaskade je Bild durch
     // isReady()/getLOD(), bis zum naechsten Nachfuehren.
     if (mesh.isDisposed()) return false;
+    if (this.vegetationsInstanzKeulung && this.vegetationsQuellen.has(mesh)) return false;
+    if (!this.vegetationsInstanzKeulung && this.vegetationsKlone.has(mesh)) return false;
     if (NIE_WERFEN.test(mesh.name)) return false;
     if (!this.fern && KLEINZEUG.test(mesh.name)) return false;
     // Abgeschaltete Meshes bleiben drin, ohne geprüft zu werden.
@@ -360,9 +548,38 @@ export class Shadows {
    */
   setPlayerPosition(x: number, z: number): void {
     if (!this.generator) return;
-    if (!Number.isNaN(this.letzteX) && Math.hypot(x - this.letzteX, z - this.letzteZ) < NACHFUEHR_ABSTAND) return;
-    this.letzteX = x;
-    this.letzteZ = z;
+    const erste = Number.isNaN(this.letzteX);
+    const bewegt = erste || Math.hypot(x - this.letzteX, z - this.letzteZ) >= NACHFUEHR_ABSTAND;
+    if (bewegt) {
+      this.letzteX = x;
+      this.letzteZ = z;
+      if (this.vegetationsInstanzKeulung) {
+        for (const stand of this.vegetationsSchatten.values()) {
+          this.vegetationsPackPending.add(stand);
+        }
+      }
+    }
+
+    // Die Sonne wandert auch im Stand. Nur wenn der konservativ
+    // AUFGERUNDETE Radius eine 16-m-Stufe wechselt, wird neu gepackt.
+    // Wächst er, wirft bis zum fertigen Klon die vollständige Quelle.
+    let radiusGeaendert = false;
+    if (this.vegetationsInstanzKeulung) {
+      for (const stand of this.vegetationsSchatten.values()) {
+        if (!stand.bereit || stand.matrizen === null) continue;
+        const radius = this.auswahlRadius(stand);
+        if (radius === stand.gepackterRadius) continue;
+        radiusGeaendert = true;
+        if (radius > stand.gepackterRadius) {
+          stand.schatten.setEnabled(false);
+          stand.bereit = false;
+          this.vegetationsQuellen.delete(stand.quelle);
+          this.nimmAuf(stand.quelle);
+        }
+        this.vegetationsPackPending.add(stand);
+      }
+    }
+    if (!bewegt && !radiusGeaendert) return;
     this.werferNeuBestimmen();
   }
 
@@ -401,13 +618,34 @@ export class Shadows {
    * laufenden Scan ist der Aufruf ein No-op.
    */
   tick(): void {
-    if (!this.werferPending || !this.generator || !this.werferCfg) return;
+    if (!this.generator) return;
+    const budgetEnde = performance.now() + WERFER_BUDGET_MS;
+
+    // Schattenpuffer und Werfer-Scan teilen sich EIN Zeitbudget. Ein
+    // einzelner Master wird immer fertiggestellt; danach darf der Rest in
+    // den Folgeframe. So wird aus dem Gewinn kein Sprint-Ruckler.
+    // Vor der ersten gemeldeten Spielerposition bleibt die vollständige
+    // Quelle der Fallback. Gegen (0, 0) zu packen würde beim Weltstart für
+    // einige Bilder die falschen Instanzen auswählen.
+    if (this.vegetationsPackPending.size > 0 && Number.isNaN(this.letzteX)) return;
+    let gepackt = 0;
+    while (this.vegetationsPackPending.size > 0) {
+      if (gepackt > 0 && performance.now() >= budgetEnde) return;
+      const stand = this.vegetationsPackPending.values().next().value as
+        | VegetationsSchattenMaster
+        | undefined;
+      if (!stand) break;
+      this.vegetationsPackPending.delete(stand);
+      this.packeVegetationsMaster(stand);
+      gepackt++;
+    }
+
+    if (!this.werferPending || !this.werferCfg) return;
     const karte = this.generator.getShadowMap();
     if (!karte) {
       this.werferPending = null;
       return;
     }
-    const budgetEnde = performance.now() + WERFER_BUDGET_MS;
     let geprueft = 0;
     while (this.werferIndex < this.werferSnapshot.length) {
       if (geprueft > 0 && performance.now() >= budgetEnde) return;
@@ -436,6 +674,35 @@ export class Shadows {
    */
   werferAnzahl(): number {
     return this.generator?.getShadowMap()?.renderList?.length ?? 0;
+  }
+
+  /** Diagnose für A/B und HUD: tatsächliche Instanzarbeit im Laubwurf. */
+  vegetationsSchattenStats(): {
+    an: boolean;
+    master: number;
+    gesamt: number;
+    aktiv: number;
+    pending: number;
+    radiusMax: number;
+  } {
+    let gesamt = 0;
+    let aktiv = 0;
+    let radiusMax = 0;
+    for (const stand of this.vegetationsSchatten.values()) {
+      gesamt += stand.gesamt;
+      aktiv += stand.aktiv;
+      if (!Number.isNaN(stand.gepackterRadius)) {
+        radiusMax = Math.max(radiusMax, stand.gepackterRadius);
+      }
+    }
+    return {
+      an: this.vegetationsInstanzKeulung,
+      master: this.vegetationsSchatten.size,
+      gesamt,
+      aktiv,
+      pending: this.vegetationsPackPending.size,
+      radiusMax,
+    };
   }
 
   /** Diagnose: Kaskaden der aktuellen Stufe, 0 wenn Schatten aus sind. */
@@ -725,6 +992,18 @@ export class Shadows {
     // Kaskadenzahl — nicht an der Bildrate der Karte.
     this.generator = g;
 
+    // Eine andere Distanz verändert den konservativen Packradius. Bis die
+    // budgetierten Klone neu stehen, bleiben die vollständigen Quellen als
+    // lückenloser Fallback in der neuen Werferliste.
+    if (this.vegetationsInstanzKeulung) {
+      for (const stand of this.vegetationsSchatten.values()) {
+        stand.schatten.setEnabled(false);
+        stand.bereit = false;
+        this.vegetationsQuellen.delete(stand.quelle);
+        this.vegetationsPackPending.add(stand);
+      }
+    }
+
     for (const m of this.scene.meshes) this.nimmAuf(m);
     this.nodeMaterialsNeuUebersetzen();
     this.werferNeuBestimmen();
@@ -744,10 +1023,19 @@ export class Shadows {
     const cfg = this.konfiguration();
     if (!cfg) return 'aus';
     const n = this.generator?.getShadowMap()?.renderList?.length ?? 0;
-    return `${cfg.kaskaden}x ${cfg.distanz}m ${cfg.aufloesung}px (${n} werfer${this.fern ? '' : ', nah'})`;
+    const v = this.vegetationsSchattenStats();
+    const instanzen = v.master > 0 && v.an ? `, v ${v.aktiv}/${v.gesamt}` : '';
+    return `${cfg.kaskaden}x ${cfg.distanz}m ${cfg.aufloesung}px (${n} werfer${
+      this.fern ? '' : ', nah'
+    }${instanzen})`;
   }
 
   dispose(): void {
     this.abbauen();
+    for (const stand of this.vegetationsSchatten.values()) stand.schatten.dispose();
+    this.vegetationsSchatten.clear();
+    this.vegetationsQuellen.clear();
+    this.vegetationsKlone.clear();
+    this.vegetationsPackPending.clear();
   }
 }

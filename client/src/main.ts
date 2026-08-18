@@ -877,6 +877,12 @@ async function main() {
     shadows.setHundertFpsProfil(startSettings.hundertFpsProfil);
     shadows.setLevel(startSettings.hundertFpsProfil ? 1 : startSettings.shadowQuality);
     shadows.setDistantShadows(startSettings.hundertFpsProfil ? false : startSettings.distantShadows);
+    // Sichtbare Vegetationspuffer bleiben beim EntityManager; Shadows
+    // bekommt nach jedem Neuaufbau nur die fertige Matrix-Momentaufnahme
+    // und baut daraus eigene, räumlich gekeulte Werfermaster.
+    entities.setVegetationsSchattenEmpfaenger((mesh, matrizen) =>
+      shadows?.setVegetationsInstanzen(mesh, matrizen)
+    );
     // Zell-Master aus dem Pool entstehen NICHT neu — onNewMeshAdded feuert
     // fuer sie nie wieder. Dieser Rueckkanal traegt sie nach, s. die
     // Kommentare an EntityManager.onMasterBelebt und Shadows.meldeWerfer().

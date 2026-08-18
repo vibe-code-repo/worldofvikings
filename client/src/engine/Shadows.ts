@@ -287,7 +287,11 @@ export class Shadows {
   private readonly vegetationsQuellen = new Set<AbstractMesh>();
   private readonly vegetationsKlone = new Set<AbstractMesh>();
   private readonly vegetationsPackPending = new Set<VegetationsSchattenMaster>();
-  private vegetationsInstanzKeulung = true;
+  // E27: Der E26-Weg ist vorerst deaktiviert. Im Live-Test blendeten seine
+  // separaten Schatten-Meshes beim Kameraschwenk sichtbar ein und aus.
+  // Bis der Klonpfad die Blickwinkel-Parität nachweislich hält, bleibt der
+  // vollständige, vor E26 verwendete Vegetationsmaster der Werfer.
+  private vegetationsInstanzKeulung = false;
 
   constructor(
     private readonly scene: Scene,
@@ -324,6 +328,10 @@ export class Shadows {
    * zurückbleiben.
    */
   setVegetationsInstanzen(quelle: Mesh, matrizen: Float32Array | null): void {
+    // Im sicheren Standardpfad wirft `quelle` selbst. Nicht einmal leere
+    // Klone anlegen: So ist nicht nur die Renderliste, sondern auch die
+    // CSM-Werferhülle und der Shaderpfad wieder exakt auf Vor-E26-Stand.
+    if (!this.vegetationsInstanzKeulung) return;
     let stand = this.vegetationsSchatten.get(quelle);
     if (!stand) {
       // zellMeshAusPrototyp extrahiert VertexData in eine EIGENE Geometry.

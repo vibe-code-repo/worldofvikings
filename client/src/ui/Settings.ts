@@ -55,6 +55,15 @@ export interface GameSettings {
    * Kaskadendistanz fallen weg — siehe Shadows.darfWerfen().
    */
   distantShadows: boolean;
+  /**
+   * Gemessenes 100-FPS-Profil für die schwere Insel.
+   *
+   * Erzwingt zwei Schattenkaskaden, schaltet ferne Schatten und teure
+   * zeitliche Postprozesse ab und zeichnet die Dick-Varianten der Bäume
+   * über den jeweiligen normalen Master. Position, Höhe, Krone und
+   * Kollision bleiben erhalten; nur die zusätzliche Stammstärke entfällt.
+   */
+  hundertFpsProfil: boolean;
   /** Post-Process-Schalter — dieselben, die das Original als Grafikoption
    *  anbietet (GraphicsSettingBool). Werte/Herkunft: engine/PostProcessing.ts. */
   bloom: boolean;
@@ -171,6 +180,7 @@ const DEFAULTS: GameSettings = {
    */
   waterQuality: 2,
   distantShadows: true,
+  hundertFpsProfil: false,
   bloom: true,
   motionBlur: true,
   chromaticAberration: true,
@@ -223,6 +233,7 @@ function loadSaved(): Partial<GameSettings> {
       ambientOcclusion: bool(parsed.ambientOcclusion),
       temporalAA: bool(parsed.temporalAA),
       distantShadows: bool(parsed.distantShadows),
+      hundertFpsProfil: bool(parsed.hundertFpsProfil),
       pointerLock: bool(parsed.pointerLock),
       showObjectNames: bool(parsed.showObjectNames),
       nameplates: bool(parsed.nameplates),
@@ -237,6 +248,7 @@ function loadSaved(): Partial<GameSettings> {
     if (b.ambientOcclusion !== undefined) out.ambientOcclusion = b.ambientOcclusion;
     if (b.temporalAA !== undefined) out.temporalAA = b.temporalAA;
     if (b.distantShadows !== undefined) out.distantShadows = b.distantShadows;
+    if (b.hundertFpsProfil !== undefined) out.hundertFpsProfil = b.hundertFpsProfil;
     if (b.pointerLock !== undefined) out.pointerLock = b.pointerLock;
     if (b.showObjectNames !== undefined) out.showObjectNames = b.showObjectNames;
     if (b.nameplates !== undefined) out.nameplates = b.nameplates;

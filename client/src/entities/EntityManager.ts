@@ -651,6 +651,14 @@ export function zellMeshAusPrototyp(proto: Mesh, name: string, scene: Scene): Me
 
 export class EntityManager {
   private readonly buckets = new Map<number, StaticBucket>();
+  /**
+   * Bewusster Qualitätstausch des gemessenen 100-FPS-Profils.
+   *
+   * Normale und `*Dick`-Bäume bleiben getrennte ZDOs und Collider. Nur
+   * ihre Renderinstanzen landen gemeinsam auf der normalen Geometrie —
+   * dadurch entfällt je Familie ein Master in Bild- und Schattenpässen.
+   */
+  private hundertFpsProfil = false;
   private readonly bucketOf = new Map<string, number>();
   private readonly dynamics = new Map<string, DynamicEntity>();
   /**
@@ -1312,6 +1320,21 @@ export class EntityManager {
     }
   }
 
+  /** Das gemessene 100-FPS-Profil ein- oder ausschalten. */
+  setHundertFpsProfil(an: boolean): void {
+    if (an === this.hundertFpsProfil) return;
+    this.hundertFpsProfil = an;
+    // Beide Seiten jeder Familie neu schreiben. So stellt auch ein
+    // Umschalten im laufenden Spiel die getrennten Master vollständig
+    // wieder her, ohne Welt-Reload und ohne zweite Datenwahrheit.
+    for (const bucket of this.buckets.values()) {
+      if (FOLIAGE_HASHES.has(bucket.prefabHash) &&
+          (bucket.prefabName.endsWith('Dick') || this.bucketNachPrefab(`${bucket.prefabName}Dick`))) {
+        bucket.dirty = true;
+      }
+    }
+  }
+
   /**
    * Mirror a bucket's NEARBY instances onto an invisible collision carrier.
    *
@@ -1528,6 +1551,12 @@ export class EntityManager {
     if (!masters || !locals) return;
 
     const zdoMats = this.buildZdoMats(bucket);
+    if (this.hundertFpsProfil && this.baueGefalteteBaumfamilie(bucket)) {
+      // Collider bleiben prefabtreu: Die Dick-Variante behält ihre eigene
+      // Geometrie. Nur der Renderpfad verwendet den normalen Master.
+      this.rebuildBucketColliders(bucket, zdoMats);
+      return;
+    }
     if (this.zellSchnittTaugt(masters, zdoMats.length)) {
       this.baueZellMaster(bucket, masters, locals, zdoMats);
     } else {
@@ -1535,6 +1564,59 @@ export class EntityManager {
     }
 
     this.rebuildBucketColliders(bucket, zdoMats);
+  }
+
+  private bucketNachPrefab(prefabName: string): StaticBucket | null {
+    for (const bucket of this.buckets.values()) {
+      if (bucket.prefabName === prefabName) return bucket;
+    }
+    return null;
+  }
+
+  /**
+   * Faltet `<Baum>` und `<Baum>Dick` auf den normalen Render-Master.
+   *
+   * Die generierten Paare haben dieselbe Topologie und dieselben lokalen
+   * Hüllmaße; die Dick-GLB unterscheidet sich nur in der Stammstärke. Die
+   * ZDO-Weltmatrizen dürfen daher gemeinsam mit der lokalen Matrix des
+   * normalen Modells instanziert werden. Stimmen Masterzahl oder
+   * Indizes irgendwann nicht mehr überein, greift der sichere alte Weg.
+   */
+  private baueGefalteteBaumfamilie(ausloeser: StaticBucket): boolean {
+    if (!FOLIAGE_HASHES.has(ausloeser.prefabHash)) return false;
+    const basisName = ausloeser.prefabName.endsWith('Dick')
+      ? ausloeser.prefabName.slice(0, -4)
+      : ausloeser.prefabName;
+    const dickName = `${basisName}Dick`;
+    const basisBucket = this.bucketNachPrefab(basisName);
+    const dickBucket = this.bucketNachPrefab(dickName);
+    if (!basisBucket?.mastersReady || !dickBucket?.mastersReady) return false;
+
+    const basisMasters = this.masterMeshes.get(basisName);
+    const basisLocals = this.masterLocals.get(basisName);
+    const dickMasters = this.masterMeshes.get(dickName);
+    if (!basisMasters || !basisLocals || !dickMasters || basisMasters.length !== dickMasters.length) return false;
+    for (let i = 0; i < basisMasters.length; i++) {
+      if (basisMasters[i]!.getTotalIndices() !== dickMasters[i]!.getTotalIndices()) return false;
+    }
+
+    this.zellenAbbauen(basisName);
+    this.zellenAbbauen(dickName);
+    this.impostoren?.setzePrefab(basisName, null);
+    this.impostoren?.setzePrefab(dickName, null);
+    const basisMats = this.buildZdoMats(basisBucket);
+    const dickMats = this.buildZdoMats(dickBucket);
+    const count = basisMats.length + dickMats.length;
+    for (let m = 0; m < basisMasters.length; m++) {
+      const data = new Float32Array(count * 16);
+      const local = basisLocals[m]!;
+      let ziel = 0;
+      for (const world of basisMats) local.multiply(world).toArray(data, ziel++ * 16);
+      for (const world of dickMats) local.multiply(world).toArray(data, ziel++ * 16);
+      schreibeInstanzen(basisMasters[m]!, count > 0 ? data : null);
+      schreibeInstanzen(dickMasters[m]!, null);
+    }
+    return true;
   }
 
   /**

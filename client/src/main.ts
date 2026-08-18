@@ -418,9 +418,22 @@ async function main() {
     terrain?.setWaterQuality(s.waterQuality);
     grass?.setQuality(s.vegetationQuality);
     grass?.setDensity(s.grassDensity);
-    post?.apply(s);
-    shadows?.setLevel(s.shadowQuality);
-    shadows?.setDistantShadows(s.distantShadows);
+    // Das 100-FPS-Profil ist ein reproduzierbares Gesamtpaket, kein
+    // vierter Schatten-Regler: Die gespeicherten Einzelwerte bleiben
+    // unangetastet und gelten nach dem Abschalten sofort wieder.
+    post?.apply(s.hundertFpsProfil
+      ? {
+          ...s,
+          motionBlur: false,
+          depthOfField: false,
+          sunShafts: false,
+          ambientOcclusion: false,
+          temporalAA: false,
+        }
+      : s);
+    shadows?.setLevel(s.hundertFpsProfil ? 1 : s.shadowQuality);
+    shadows?.setDistantShadows(s.hundertFpsProfil ? false : s.distantShadows);
+    entities?.setHundertFpsProfil(s.hundertFpsProfil);
     // Renderauflösung: setHardwareScalingLevel(1/faktor) — Wert > 1 rendert
     // KLEINER als das Fenster und skaliert beim Ausgeben hoch. Der Effekt
     // ist quadratisch (75 % Kantenlänge = 44 % weniger Pixel) und damit der
@@ -551,6 +564,7 @@ async function main() {
     wendeTerrainCompsAn();
     player = new PlayerController(scene, input, world, assets);
     entities = new EntityManager(scene, world, assets, terrain);
+    entities.setHundertFpsProfil(gameSettings.get().hundertFpsProfil);
     entities.setzeNpcQuelle(npcNachKennung.size > 0 ? (id) => npcNachKennung.get(id) ?? null : null);
     grass = new GrassClutter(scene, world);
     // Bewuchs der Grabhügel-Kuppel: streut Wiesenhalme direkt auf die
@@ -858,8 +872,9 @@ async function main() {
     // Schatten hängen am Sonnenlicht und müssen deshalb nach Lighting
     // entstehen; die Meshes melden sich selbst an (onNewMeshAddedObservable).
     shadows = new Shadows(scene, lighting.sun);
-    shadows.setLevel(gameSettings.get().shadowQuality);
-    shadows.setDistantShadows(gameSettings.get().distantShadows);
+    const startSettings = gameSettings.get();
+    shadows.setLevel(startSettings.hundertFpsProfil ? 1 : startSettings.shadowQuality);
+    shadows.setDistantShadows(startSettings.hundertFpsProfil ? false : startSettings.distantShadows);
     // Zell-Master aus dem Pool entstehen NICHT neu — onNewMeshAdded feuert
     // fuer sie nie wieder. Dieser Rueckkanal traegt sie nach, s. die
     // Kommentare an EntityManager.onMasterBelebt und Shadows.meldeWerfer().
@@ -1008,7 +1023,17 @@ async function main() {
     terrain.setWaterQuality(gameSettings.get().waterQuality);
     grass.setQuality(gameSettings.get().vegetationQuality);
     grass.setDensity(gameSettings.get().grassDensity);
-    post.apply(gameSettings.get());
+    const aktuelleSettings = gameSettings.get();
+    post.apply(aktuelleSettings.hundertFpsProfil
+      ? {
+          ...aktuelleSettings,
+          motionBlur: false,
+          depthOfField: false,
+          sunShafts: false,
+          ambientOcclusion: false,
+          temporalAA: false,
+        }
+      : aktuelleSettings);
 
     if (params.has('t')) {
       lighting.timeOfDay = Number(params.get('t'));

@@ -74,6 +74,11 @@ export class SettingsPanel {
         this.settings.set({ distantShadows: v })
       )
     );
+    panel.appendChild(
+      this.buildToggle('100-FPS-Profil', (s) => s.hundertFpsProfil, (v) =>
+        this.settings.set({ hundertFpsProfil: v })
+      )
+    );
     // Kein Original-Setting: die Brechung ist im Spiel Teil des
     // Wassershaders, bei uns ein eigener Szenenpass — siehe Settings.ts.
     panel.appendChild(

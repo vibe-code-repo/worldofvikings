@@ -176,6 +176,25 @@ const NACHFUEHR_ABSTAND = 16;
  * synchron in EINEM Aufruf von werferNeuBestimmen() — beim Sprinten
  * (alle NACHFUEHR_ABSTAND=16 m, ~2,1 s) ein unbudgetierter Vollscan
  * mitten im Frame.
+ *
+ * ── Nachgerechnet für den Zellschnitt (E19 c), bleibt bei 4 ────────
+ * Der Schnitt vervielfacht die Zahl der Meshes in der Szene: aus rund
+ * 58 Prefab-Mastern einer Grasland-Sitzung werden je nach Streuung
+ * mehrere hundert bis wenige tausend Zell-Master (128-m-Zellen, dazu
+ * abgeschaltete Master im Pool). Ein Scanschritt ist zwei Regex-Tests
+ * plus eine Hüllkugel-Abfrage, in der Grössenordnung einer
+ * Zehntel-Mikrosekunde bis Mikrosekunde — 4 ms reichen damit für
+ * mehrere tausend Meshes, der Scan bleibt bei ein bis zwei Frames.
+ *
+ * Angehoben wird deshalb NICHT. Das Budget begrenzt nicht die
+ * Gesamtdauer, sondern wie viel davon in EINEN Frame fällt; ein
+ * grösserer Wert schöbe mehr Arbeit in genau den Frame, in dem der
+ * Spieler gerade 16 m gelaufen ist. Die Gegenrechnung: Zwischen zwei
+ * Scans liegen bei Sprinttempo rund 130 Frames, ein Scan über zwei
+ * Frames ist dagegen nichts. Wenn der Zellschnitt die Meshzahl
+ * wesentlich über die hier angenommene Grössenordnung treibt, gehört
+ * nicht dieses Budget angehoben, sondern der Scan auf die
+ * Zellstruktur gezogen statt über scene.meshes.
  */
 const WERFER_BUDGET_MS = 4;
 
@@ -222,11 +241,29 @@ export class Shadows {
    *    Hüllkörper umfasst aber seit D10 alle Instanzen (Babylon spannt ihn
    *    in `thinInstanceSetBuffer` selbst auf, s. AssetManager.zuMaster).
    *    Damit gilt für sie DIESELBE Entfernungsprüfung wie für alles
-   *    andere. Für die gestreute Vegetation ändert das nichts — ihre
-   *    Instanzen reichen bis an den Rand des Streaming-Gebiets, die Hülle
-   *    umschliesst den Spieler. Es greift bei den ortsfesten Bauwerken:
-   *    Ein Grabhügel jenseits der Kaskadendistanz nimmt zehn Master mal
+   *    andere. Bis D10 griff das nur bei den ortsfesten Bauwerken: Ein
+   *    Grabhügel jenseits der Kaskadendistanz nimmt zehn Master mal
    *    Kaskadenzahl aus der Werferliste.
+   *
+   * ── Seit dem Zellschnitt greift es auch bei der Vegetation (E19 c) ──
+   * Hier stand: „Für die gestreute Vegetation ändert das nichts — ihre
+   * Instanzen reichen bis an den Rand des Streaming-Gebiets, die Hülle
+   * umschliesst den Spieler." Das stimmte und war der Befund: Bei
+   * `leaves_merged` mit 425 m Hülle (r ≈ 212 m) ist `d` unten für jede
+   * Kaskadendistanz negativ, die Prüfung KANN nicht greifen — auf der
+   * Insel erreichten deshalb nur 14–15 % der eingereichten
+   * Vegetationsinstanzen je Kaskade die Schattenkarte (E20).
+   *
+   * EntityManager verteilt die Instanzen jetzt auf einen Master je
+   * 128-m-Zelle (RENDER_ZELLE_M). Deren Hüllradius liegt bei rund 90 m
+   * plus Kronenhöhe, `d` wird endlich positiv, und ferne Zellen fallen
+   * hier heraus — ohne dass an dieser Funktion etwas zu ändern war.
+   *
+   * Zwei Nebenwirkungen, die man beim Messen kennen muss: Die
+   * abgeschalteten Zell-Master (leer bzw. im Pool) bleiben nach der
+   * Regel unten ungeprüft in der Liste stehen, `werferAnzahl()` ist
+   * damit allein kein Mass mehr — die belastbare Zahl liefert
+   * EntityManager.zellStats().aktiv.
    */
   private darfWerfen(mesh: AbstractMesh, cfg: ShadowLevel): boolean {
     if (NIE_WERFEN.test(mesh.name)) return false;
@@ -405,7 +442,71 @@ export class Shadows {
     const cfg = SHADOW_LEVELS[this.stufe];
     if (!cfg) return;
     if (this.darfEmpfangen(mesh)) mesh.receiveShadows = true;
-    if (this.darfWerfen(mesh, cfg)) this.generator.addShadowCaster(mesh, false);
+    if (!this.darfWerfen(mesh, cfg)) return;
+    this.generator.addShadowCaster(mesh, false);
+    // Läuft gerade ein Scan, muss das Mesh auch in dessen Ergebnis.
+    //
+    // tick() ERSETZT die renderList am Ende durch werferPending
+    // (`karte.renderList = this.werferPending`). Alles, was seit der
+    // Momentaufnahme über addShadowCaster hinzukam, fiele damit wieder
+    // heraus und käme erst beim nächsten Nachführen zurück, also nach
+    // NACHFUEHR_ABSTAND = 16 m Spielerbewegung.
+    //
+    // Bis E19 c war das folgenlos: Prefab-Master entstanden einmal je
+    // Prefab, praktisch nie während eines Scans. Mit dem Zellschnitt
+    // entstehen Master im Streaming-Takt — genau dann, wenn der Spieler
+    // läuft, und genau dann läuft auch ständig ein Scan. Ohne diese zwei
+    // Zeilen wäre der Fehlermodus der von Leitplanke 4: wandernde
+    // schattenlose Bäume, kein Ruckler, im Bildschirmfoto kaum zu sehen.
+    //
+    // Doppelt eintragen kann es nichts: Die Momentaufnahme entstand vor
+    // diesem Mesh, es kann in werferPending noch nicht stehen.
+    if (this.werferPending) this.werferPending.push(mesh);
+  }
+
+  /**
+   * Einen wiederverwendeten Werfer nachmelden.
+   *
+   * Der Review des Zellschnitts (E19 c) hat die Luecke gefunden: Der
+   * einzige Anmeldeweg fuer Werfer ist scene.onNewMeshAddedObservable,
+   * und der feuert nur bei der KONSTRUKTION. Der Zell-Pool des
+   * EntityManager gibt aber bestehende Meshes wieder aus — nach einer
+   * Minute Laufen kommt fast jede Zelle aus dem Pool, und nach einem
+   * Teleport ohne anschliessende Bewegung (Spieler steht, kein 16-m-Scan)
+   * staenden alle reaktivierten Zellen OHNE renderList-Eintrag da:
+   * fleckenweise fehlende Vegetationsschatten, stumm, und eine Messung,
+   * die besser aussieht als das Spiel.
+   *
+   * Doppeleintraege kann der Weg nicht erzeugen: addShadowCaster prueft
+   * selbst auf Identitaet (shadowGenerator.js:427), und der
+   * werferPending-Push deckt den Fall ab, dass gerade ein Scan laeuft,
+   * dessen Momentaufnahme das Mesh noch nicht kannte.
+   */
+  meldeWerfer(mesh: AbstractMesh): void {
+    this.nimmAuf(mesh);
+  }
+
+  /**
+   * Einen Werfer endgueltig abmelden — Gegenstueck zu meldeWerfer().
+   *
+   * Noetig, damit der EntityManager Zell-Master ENTSORGEN kann: dispose()
+   * allein liesse das Mesh in der renderList und — schlimmer — in der
+   * Momentaufnahme eines gerade laufenden Scans (werferPending) stehen.
+   * Der Umbau-Agent hat dispose deshalb urspruenglich ganz vermieden und
+   * einen unbegrenzt wachsenden Pool hinterlassen (Review-Fund E19 c,
+   * mittel). Mit diesem Abmeldeweg ist beides sauber: erst abmelden,
+   * dann entsorgen.
+   */
+  entferneWerfer(mesh: AbstractMesh): void {
+    const liste = this.generator?.getShadowMap()?.renderList;
+    if (liste) {
+      const i = liste.indexOf(mesh);
+      if (i >= 0) liste.splice(i, 1);
+    }
+    if (this.werferPending) {
+      const i = this.werferPending.indexOf(mesh);
+      if (i >= 0) this.werferPending.splice(i, 1);
+    }
   }
 
   /** Stufe setzen (Index in SHADOW_LEVELS). */

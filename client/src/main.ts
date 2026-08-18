@@ -685,6 +685,13 @@ async function main() {
         // dieselbe Momentaufnahme.
         p['schattenwerfer'] = shadows?.werferAnzahl() ?? 0;
         p['schattenKaskaden'] = shadows?.kaskaden() ?? 0;
+        // Zellschnitt (E19 c): `aktiv` ist die Zahl, an der der Umbau
+        // hängt — so viele Zeichenaufrufe stellen die Zell-Master
+        // wirklich. `schattenwerfer` allein taugt seither nicht mehr als
+        // Mass: Abgeschaltete Zell-Master bleiben nach der Regel in
+        // Shadows.darfWerfen() ungeprüft in der Werferliste stehen und
+        // blähen die Zahl auf, ohne etwas zu kosten.
+        p['zellmaster'] = entities?.zellStats() ?? null;
         for (const k of Object.keys(zeitmess) as Array<keyof typeof zeitmess>) {
           zeitmess[k] = { summe: 0, max: 0, n: 0 };
         }
@@ -832,6 +839,11 @@ async function main() {
     shadows = new Shadows(scene, lighting.sun);
     shadows.setLevel(gameSettings.get().shadowQuality);
     shadows.setDistantShadows(gameSettings.get().distantShadows);
+    // Zell-Master aus dem Pool entstehen NICHT neu — onNewMeshAdded feuert
+    // fuer sie nie wieder. Dieser Rueckkanal traegt sie nach, s. die
+    // Kommentare an EntityManager.onMasterBelebt und Shadows.meldeWerfer().
+    entities.onMasterBelebt = (m) => shadows?.meldeWerfer(m);
+    entities.onMasterEntsorgt = (m) => shadows?.entferneWerfer(m);
 
     // ── Szenenweite Sparmassnahmen ────────────────────────────────
     // Kein Maus-Picking bei Mausbewegung: Babylon würde sonst bei JEDER

@@ -12,6 +12,7 @@ import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math';
 import type { Scene } from '@babylonjs/core/scene';
@@ -211,6 +212,111 @@ const zellenSchluessel = (cx: number, cz: number): number =>
   ((cx + 0x8000) << 16) | (cz + 0x8000);
 
 /**
+ * Kantenlänge einer RENDER-Zelle, in Metern (E19 c).
+ *
+ * ── Der Befund, der diese Zahl erzwingt ──────────────────────────────
+ * Bis hierher hielt der EntityManager EINEN Master je (Prefab ×
+ * verschmolzenem Submesh) für die ganze Welt. Bei `leaves_merged` waren
+ * das bis zu 3391 Instanzen in einem einzigen Mesh mit 425 m Hüllkörper.
+ * Gemessen auf der Insel (Teleport 10077/-18723, Tageszeit gepinnt auf
+ * 0,42): GPU zu 100 % ausgelastet, GPU-Bild 20,2 ms, davon rund 58 %
+ * Schattenpass — und von 24.265 Vegetationsinstanzen erreichten je
+ * Kaskade nur 14–15 % überhaupt die Schattenkarte. 85 % der
+ * Einreichungen waren umsonst.
+ *
+ * Keulen konnte daran nichts: Shadows.darfWerfen() rechnet
+ * `hypot(mitte − spieler) − radius <= kaskadendistanz`, und bei einem
+ * Hüllradius von rund 212 m ist das für jede Kaskadendistanz erfüllt.
+ * Der Master als GANZES ist immer nah. Erst kleine Hüllen machen die
+ * vorhandene Prüfung wirksam: Bei 128 m Kante ist der Hüllradius rund
+ * 90 m + Kronenhöhe, die Zelle fällt also ab etwa 240 m Mittelpunkts-
+ * abstand aus der Werferliste statt nie.
+ *
+ * ── Warum 128 und nicht 8, 40 oder 64 ────────────────────────────────
+ * Das Original schneidet Gras in 8-m-Patches, weil dort zehntausende
+ * Halme auf engstem Raum liegen; für Bäume benutzt es gar kein Raster,
+ * sondern je Baum ein GameObject mit LODGroup. Unser GrassClutter fährt
+ * 40 m. Für Vegetations-Prefabs ist die Gegenkraft aber die ANZAHL der
+ * Master: Der bestbelegte Messwert des Projekts (AssetManager-Kopf, D10)
+ * sagt 435 Master = 9,4 ms gegen 124 Master = 3,3 ms, während die
+ * Instanzzahl praktisch nichts kostet. Jede Halbierung der Kantenlänge
+ * vervierfacht die Zellenzahl.
+ *
+ * 128 m ist das 4-fache von INDEX_ZELLE_M (32) und das Doppelte einer
+ * ZoneSystem-Zone des Originals (64): gross genug, dass ein
+ * Streaming-Gebiet von rund 640 m in eine überschaubare Zahl Zellen
+ * zerfällt (≈ 25 belegte je Prefab statt 400 bei 32 m), klein genug,
+ * dass die Entfernungsprüfung wirklich beisst.
+ *
+ * Bewusst eine EIGENE Konstante neben INDEX_ZELLE_M: Der Umkreis-Index
+ * hat seine 32 m aus ganz anderen Gründen (Fadenkreuz 5 m,
+ * Namensschilder 40 m, Minimap 70 m) und darf nicht mitwandern, wenn
+ * hier jemand nachmisst. Nur `zellenSchluessel()` wird geteilt — ±82
+ * Zellen bei ±10500 m Welt passen weit in seine 16-Bit-Felder.
+ */
+const RENDER_ZELLE_M = 384;
+
+/**
+ * Harte Obergrenze der Instanzen je Zell-Master (E19 c).
+ *
+ * Übernommen vom Vorbild: Valheims InstanceRenderer bündelt höchstens
+ * 1024 Instanzen je Gruppe und prüft das Frustum pro Gruppe. Eine dichte
+ * 128-m-Zelle kann mehr als das halten (leaves_merged hat insgesamt bis
+ * 3391), deshalb hält jede Zelle eine LISTE von Meshes und füllt sie in
+ * Blöcken. Die Blöcke einer Zelle liegen räumlich übereinander und
+ * bringen für sich keine Keulung — sie halten nur die einzelne
+ * Einreichung in der Grössenordnung, in der das Original sie hält.
+ */
+const ZELL_MAX_INSTANZEN = 1024;
+
+/**
+ * Ab wie vielen Instanzen ein Bucket überhaupt zellweise geschnitten
+ * wird.
+ *
+ * Der Schnitt kostet je Zelle einen Zeichenaufruf und eine Kopie der
+ * Geometrie; er zahlt sich nur, wo viele Instanzen weit gestreut liegen.
+ * Ortsfeste Bauwerke bleiben deshalb ungeschnitten — für sie greift das
+ * Culling seit D10 ohnehin (der Grabhügel stellt allein 10 der rund 58
+ * Master einer Grasland-Sitzung und fällt als Ganzes weg, sobald man
+ * wegschaut).
+ *
+ * 128 ist bewusst niedrig genug, dass die dicke Vegetation sicher
+ * erfasst wird, und hoch genug, dass ein Bucket mit einer Handvoll
+ * Instanzen nicht in fünf Zellen zerfällt. Es schützt zugleich einen
+ * stillen Mitleser: HuegelGras liest `thinInstanceCount` und
+ * `thinInstanceGetWorldMatrices` direkt vom Grabhügel-Master (s.
+ * HuegelGras.ts) und setzt voraus, dass EIN Mesh alle Instanzen trägt —
+ * Grabhügel liegen zu wenige in der Welt, um je über diese Schwelle zu
+ * kommen.
+ */
+// ── DEAKTIVIERT nach gemessenem Koernungs-Sweep (18.08.2026) ────────
+// Der Zellschnitt funktioniert und erreicht sein GPU-Ziel — aber auf
+// dem Referenzsystem (7900 XT + schneller CPU) schlaegt KEINE Koernung
+// den Voll-Master-Stand in der Frame-Zeit. Der Sweep, Insel 10077/-18723,
+// Tageszeit 0,42 gepinnt, headed, je 400 Bilder:
+//
+//   Zelle    CPU-Frame   GPU-Frame   GPU-Takt
+//   128 m    26,6 ms     20,3 ms     1255 MHz   (GPU wartet auf CPU)
+//   192 m    24,8 ms     18,9 ms     1526 MHz
+//   256 m    20,6 ms     15,7 ms     2104 MHz
+//   384 m    17,2 ms     13,5 ms     2519 MHz   <- Sweet Spot, -21 % GPU-Arbeit
+//   ohne     16,3 ms     17,1 ms     2564 MHz   (Voll-Master, ein Call je Prototyp)
+//
+// Die beiden Kurven schneiden sich nicht: Was die GPU spart, zahlt die
+// CPU in WebGL-Zeichenaufrufen (546 -> 1128 bei 128 m). Der Schnitt ist
+// damit kein fps-Hebel FUER SICH, sondern der UNTERBAU fuer den Schritt,
+// der beide Kurven zugleich senkt: das Impostor-Fernfeld (Roadmap E10-
+// Revision nach ClaudeCraft-Vorbild) — ferne Zellen werden dann nicht
+// kleiner gezeichnet, sondern durch 2-Dreiecke-Sprites ERSETZT, und die
+// Zellen sind die natuerlichen Wechseleinheiten. Bis dahin bleibt die
+// Schwelle unerreichbar; RENDER_ZELLE_M = 384 ist der gemessene Wert
+// fuer die Reaktivierung.
+const ZELL_SCHNITT_AB = Number.MAX_SAFE_INTEGER;
+
+/** Obergrenze des Wiederverwendungs-Pools je (Prefab, Prototyp) — s. zellMeshFreigeben(). */
+const ZELL_POOL_DECKEL = 16;
+
+/**
  * Eine statische Instanz, wie `nearbyInstances()` sie herausgibt.
  *
  * Bewusst nur lesbar: Die Aufrufer bekommen die INTERNEN Indexeinträge
@@ -345,6 +451,121 @@ export function huellkoerperAufweiten(mesh: Mesh, reserve = SCHWUNG_RESERVE_M): 
 /** Arbeitsvektoren für huellkoerperAufweiten (kein Alloc je Neuaufbau). */
 const RESERVE_MIN_TMP = new Vector3();
 const RESERVE_MAX_TMP = new Vector3();
+
+/**
+ * Der EINE Weg, einen Thin-Instance-Puffer zu setzen — Puffer, Hülle,
+ * Sichtbarkeit, in dieser Reihenfolge.
+ *
+ * Stand vorher wörtlich in rebuildBucketInstances(). Seit dem Zellschnitt
+ * (E19 c) gibt es diese Stelle nicht mehr einmal, sondern in jedem
+ * Zellauf- und -abbaupfad; jede vergessene Wiederholung liefert eine
+ * eingefrorene Hülle und damit einen Werfer, den der Schattenpass als
+ * GANZES keult (Babylon-Forum 33711/51901) — also fehlende Schatten ohne
+ * jede Fehlermeldung. Deshalb steht die Dreierfolge nur noch hier.
+ *
+ * Ein LEERER Master bekommt `null`, nicht einen Puffer der Länge 0.
+ * Beides schaltet ihn ab, aber nur bei `null` stellt Babylon den
+ * Hüllkörper der Rohgeometrie wieder her; mit einem leeren Puffer läuft
+ * seine Min/Max-Schleife über null Instanzen und hinterlässt ±Infinity
+ * (thinInstanceMesh.js:103 gegen :109). Solange der Master abgeschaltet
+ * ist, sieht man davon nichts — aber ein Hüllkörper aus Unendlichkeiten
+ * ist eine Falle für jeden, der ihn später ausliest, und seit D10 lesen
+ * ihn zwei Stellen aus (Frustumprüfung und Shadows.darfWerfen).
+ * Aufgefallen in client/test/master-huelle.ts.
+ */
+function schreibeInstanzen(mesh: Mesh, daten: Float32Array | null): void {
+  mesh.thinInstanceSetBuffer('matrix', daten, 16, false);
+  // setBuffer hat den Hüllkörper soeben über alle Instanzen neu gespannt
+  // (thinInstanceMesh.js:103) — jetzt ist der Moment, ihm die Windreserve
+  // zu geben. Vorher wäre sie wieder überschrieben.
+  huellkoerperAufweiten(mesh);
+  mesh.setEnabled(daten !== null);
+}
+
+/**
+ * Rohgeometrie je Prototyp-Master, EINMAL aus dem Mesh gezogen.
+ *
+ * Modulweit und über eine WeakMap, damit sie mit dem Prototyp stirbt und
+ * damit `zellMeshAusPrototyp()` ohne Manager-Instanz benutzbar bleibt —
+ * client/test/master-huelle.ts prüft damit den echten Bauweg statt einer
+ * Nachbildung.
+ */
+const ZELL_GEOMETRIE = new WeakMap<Mesh, VertexData>();
+
+/**
+ * Ein Zell-Master aus einem Prototyp-Master (E19 c).
+ *
+ * ── Warum VertexData und nicht mesh.clone() ──────────────────────────
+ * Der Kardinalfehler dieses Umbaus wäre geteilte Geometrie. Babylon hängt
+ * die Instanzmatrizen NICHT ans Mesh, sondern an die Geometry:
+ * `thinInstanceSetBuffer('matrix', …)` legt die Vertexpuffer world0..3
+ * über `mesh.setVerticesBuffer()` an (thinInstanceMesh.js:88 →
+ * mesh.js:1396), und `mesh.clone()` reicht die Geometry der Quelle
+ * einfach weiter (mesh.js:350). Zwei Zell-Master auf einer Geometry
+ * überschrieben sich also gegenseitig ihre Instanzen, und
+ * `geometry._updateBoundingInfo()` zöge obendrein die Hülle des anderen
+ * mit (geometry.js:283). Symptom wäre kein Fehler, sondern das aus
+ * Anlauf 2 bekannte „ganze Bäume verschwinden" (Leitplanke 2).
+ *
+ * `VertexData.applyToMesh()` auf einem frischen Mesh legt dagegen eine
+ * EIGENE Geometry samt eigener BoundingInfo an — derselbe Weg, den
+ * GrassClutter.buildCell() seit jeher für seine Zellen geht. Die
+ * CPU-seitigen Typed Arrays werden dabei zwischen den Zellen geteilt
+ * (das ist gewollt und billig), die GPU-Puffer nicht.
+ *
+ * `_ExtractFrom` zieht ausschliesslich bekannte Attribute (Positionen,
+ * Normalen, Tangenten, UVs, Farben, Skinning-Gewichte, Indizes,
+ * mesh.vertexData.js:952) — die Instanzpuffer world0..3 sind NICHT
+ * dabei. Der Prototyp darf zum Zeitpunkt des Ziehens also ruhig noch
+ * einen Matrixpuffer aus dem ungeschnittenen Betrieb tragen.
+ *
+ * Materialien werden GETEILT, nicht kopiert: WindPlugin,
+ * ShadowDepthWrapper und GlutPuls hängen je Material genau einmal
+ * (AssetManager.setzeWind), ein Material je Zelle hiesse Shaderkompilate
+ * je Zelle. `sideOrientation` muss dagegen mitkommen — zuMaster() bäckt
+ * dort die Determinantenkorrektur der GLB-Hierarchie ein, ohne sie sind
+ * die hohlen Felsen und halbierten Stämme zurück.
+ */
+export function zellMeshAusPrototyp(proto: Mesh, name: string, scene: Scene): Mesh {
+  let vd = ZELL_GEOMETRIE.get(proto);
+  if (!vd) {
+    vd = VertexData.ExtractFromMesh(proto, true, true);
+    ZELL_GEOMETRIE.set(proto, vd);
+  }
+  const mesh = new Mesh(name, scene);
+  vd.applyToMesh(mesh);
+  mesh.material = proto.material;
+  mesh.sideOrientation = proto.sideOrientation;
+  mesh.isPickable = false;
+  mesh.receiveShadows = proto.receiveShadows;
+  mesh.renderingGroupId = proto.renderingGroupId;
+  mesh.alphaIndex = proto.alphaIndex;
+  // ── Frustum-Culling BLEIBT AN — und wird hier erst richtig wirksam ──
+  // Fortschreibung der D10-Begründung aus AssetManager.zuMaster(): Dort
+  // ist festgehalten, dass `alwaysSelectAsActiveMesh = true` gefallen ist,
+  // weil Babylon den Hüllkörper über alle Thin Instances nachführt — und
+  // zugleich, dass das FÜR GESTREUTE VEGETATION NICHTS BRINGT, weil ihre
+  // Instanzen den Spieler umschliessen und die Hülle damit jede
+  // Frustumprüfung besteht.
+  //
+  // Genau diese Einschränkung kippt mit dem Zellschnitt. Die Hülle eines
+  // Zell-Masters umfasst nur noch eine 128-m-Kachel (rund 90 m Radius
+  // plus Kronenhöhe plus 1,5 m Windreserve) statt der 425 m des alten
+  // Vollmasters. Damit fallen Zellen hinter der Kamera im Bildpass weg
+  // und ferne Zellen über Shadows.darfWerfen() aus der Werferliste —
+  // das ist der ganze Zweck des Umbaus (E19 c, Befund E20: 85 % der
+  // Einreichungen je Kaskade waren umsonst).
+  //
+  // Das Flag hier „sicherheitshalber" zurückzuholen, machte den Umbau
+  // wirkungslos: Es würde jede Zelle wieder bedingungslos einreichen.
+  // Die Gegenzusicherung liefert client/test/master-huelle.ts — der
+  // Hüllkörper enthält jede Instanz vollständig, und die ferne Zelle
+  // fällt aus dem Frustum, während die Zelle um den Spieler bleibt.
+  mesh.alwaysSelectAsActiveMesh = false;
+  mesh.computeWorldMatrix(true);
+  mesh.setEnabled(false);
+  return mesh;
+}
 
 export class EntityManager {
   private readonly buckets = new Map<number, StaticBucket>();
@@ -711,6 +932,17 @@ export class EntityManager {
    * Das Budget macht aus einem grossen Ruckler mehrere unsichtbare
    * kleine. Die Buckets bleiben als geändert markiert und kommen in den
    * Folgeframes dran — es geht nichts verloren, es dauert nur länger.
+   *
+   * ── Grenze des Budgets seit dem Zellschnitt (E19 c) ──────────────
+   * Abgebrochen wird zwischen BUCKETS, nicht innerhalb. Ein
+   * geschnittener Vegetations-Bucket packt jetzt in EINEM Zug seine
+   * sämtlichen Zellen; die Rechenarbeit ist dieselbe wie vorher (gleich
+   * viele Matrixmultiplikationen), hinzu kommen mehrere kleine
+   * GPU-Uploads statt eines grossen. Die Regel „mindestens ein Element
+   * pro Frame" (verarbeitet > 0) gilt weiterhin, sonst friert der Aufbau
+   * unter Dauerlast ein. Eine Taktung auf ZELLEN-Ebene samt
+   * `dirtyZellen`-Merker je Bucket ist die zweite Ausbaustufe — erst
+   * messen, dann bauen (s. Roadmap E19/E20).
    */
   flush(): void {
     const budgetEnde = performance.now() + REBUILD_BUDGET_MS;
@@ -738,8 +970,62 @@ export class EntityManager {
 
   // ── Static (thin instances) ──────────────────────────────────────
 
+  /**
+   * PROTOTYPEN je Prefab, ein Eintrag je verschmolzenem Submesh.
+   *
+   * Seit dem Zellschnitt (E19 c) sind sie zweierlei: Für kleine Buckets
+   * (bis ZELL_SCHNITT_AB Instanzen) tragen sie ihre Instanzen weiterhin
+   * SELBST — das ist der unveränderte Weg von D10. Für geschnittene
+   * Buckets sind sie reine Vorlage: dauerhaft abgeschaltet, ohne
+   * Matrixpuffer, Quelle für die Zellgeometrie UND weiterhin Quelle der
+   * Kollisionsform (rebuildBucketColliders liest getTotalIndices und
+   * baut buildMeshCollider/deriveCollider aus genau diesen beiden Maps —
+   * der Kollisionspfad bleibt prefabweise und merkt vom Schnitt nichts).
+   */
   private masterMeshes = new Map<string, import('@babylonjs/core/Meshes/mesh').Mesh[]>();
   private masterLocals = new Map<string, Matrix[]>();
+  /**
+   * Zell-Master der geschnittenen Buckets:
+   * prefabName → Zellenschlüssel → [Prototyp-Index][Überlaufblock].
+   */
+  private readonly zellMaster = new Map<string, Map<number, Mesh[][]>>();
+  /**
+   * Abgeschaltete Zell-Master zur Wiederverwendung, je
+   * `${prefabName}|${prototypIndex}`.
+   *
+   * ── Warum poolen statt entsorgen ─────────────────────────────────
+   * Zwei Gründe. Erstens Kosten: Ein frischer Zell-Master lädt seine
+   * ganze Geometrie neu auf die Grafikkarte; beim Laufen wandern Zellen
+   * aber ständig aus dem Streaming-Fenster heraus und wieder herein.
+   * Zweitens Sicherheit: `mesh.dispose()` räumt sich zwar selbst aus
+   * `shadowMap.renderList` (abstractMesh.js:1768), NICHT aber aus dem
+   * über mehrere Frames laufenden Werfer-Scan in Shadows.tick() — ein
+   * dort noch gemerktes, inzwischen entsorgtes Mesh landete in der
+   * nächsten renderList. Ein abgeschaltetes Mesh kostet dagegen nichts:
+   * der Schattenpass überspringt es (objectRenderer.js:695), der
+   * Bildpass ebenso.
+   *
+   * Wiederverwendet wird NUR innerhalb desselben (Prefab, Prototyp),
+   * also auf identischer Geometrie. Über diese Grenze hinweg wäre es ein
+   * stiller Fehler: Babylon cacht rawBoundingInfo und boundingVectors je
+   * Mesh einmalig aus der Rohgeometrie (thinInstanceMesh.js:236-249) und
+   * setzt sie beim Geometriewechsel nicht zurück — die Hülle wäre falsch,
+   * der Werfer würde als Ganzes gekeult, und man sähe nur fehlende
+   * Schatten.
+   */
+  private readonly zellPool = new Map<string, Mesh[]>();
+  /**
+   * Meldeweg fuer wiederverwendete Zell-Master, verdrahtet in main.ts mit
+   * Shadows.meldeWerfer(). Noetig, weil onNewMeshAddedObservable nur bei
+   * der Konstruktion feuert und der Pool bestehende Meshes wieder ausgibt
+   * — ohne die Meldung fehlen nach Teleport + Stillstand die Schatten der
+   * reaktivierten Zellen (Review-Fund E19 c, kritisch). Optional, damit
+   * EntityManager keinen Import auf Shadows braucht.
+   */
+  onMasterBelebt: ((mesh: Mesh) => void) | null = null;
+  /** Gegenstueck fuer die Entsorgung: erst beim Schattensystem abmelden
+   *  (Shadows.entferneWerfer), dann dispose. Verdrahtet in main.ts. */
+  onMasterEntsorgt: ((mesh: Mesh) => void) | null = null;
   /** Invisible collision carriers, one per prefab — see rebuildBucketColliders. */
   private readonly colliders = new Map<
     string,
@@ -1074,8 +1360,15 @@ export class EntityManager {
   }
 
   /**
-   * Expand the bucket's persistent zdoWorld store into per-master
-   * thin-instance buffers: instance = masterLocal × zdoWorld (row-major).
+   * Expand the bucket's persistent zdoWorld store into thin-instance
+   * buffers: instance = masterLocal × zdoWorld (row-major).
+   *
+   * Seit E19 c gibt es dafür ZWEI Wege — den alten Vollmaster für kleine
+   * Buckets und den Zellschnitt für die dicke Vegetation, s.
+   * zellSchnittTaugt(). Was beide teilen: dieselben zdoMats, dieselbe
+   * Multiplikation, dieselbe Dreierfolge schreibeInstanzen(). Der
+   * Kollisionspfad hängt unverändert an den ROHEN zdoMats und bleibt
+   * prefabweise.
    */
   private rebuildBucketInstances(bucket: StaticBucket): void {
     const masters = this.masterMeshes.get(bucket.prefabName);
@@ -1083,6 +1376,51 @@ export class EntityManager {
     if (!masters || !locals) return;
 
     const zdoMats = this.buildZdoMats(bucket);
+    if (this.zellSchnittTaugt(masters, zdoMats.length)) {
+      this.baueZellMaster(bucket, masters, locals, zdoMats);
+    } else {
+      this.baueVollMaster(bucket, masters, locals, zdoMats);
+    }
+
+    this.rebuildBucketColliders(bucket, zdoMats);
+  }
+
+  /**
+   * Darf dieser Bucket zellweise geschnitten werden?
+   *
+   * Drei Bedingungen, jede aus einem eigenen Grund:
+   *  - Genug Instanzen (ZELL_SCHNITT_AB). Darunter lohnt der Schnitt
+   *    nicht und würde nur Zeichenaufrufe vervielfachen.
+   *  - Höchstens EIN Submesh je Prototyp. `VertexData.applyToMesh()`
+   *    legt genau ein Submesh an; ein Prototyp mit MultiMaterial
+   *    verlöre beim Kopieren seine Materialzuordnung. Nach dem
+   *    Verschmelzen nach Material (AssetManager) ist das der Normalfall,
+   *    aber verlassen will man sich darauf nicht.
+   *  - Eine Szene. Der statische Pfad ist ohne Szene konstruierbar
+   *    (client/test/entity-index.ts baut `new EntityManager(null,…)`),
+   *    dort entsteht kein einziges Mesh.
+   */
+  private zellSchnittTaugt(masters: readonly Mesh[], anzahl: number): boolean {
+    if (anzahl <= ZELL_SCHNITT_AB) return false;
+    if (!this.scene) return false;
+    for (const m of masters) {
+      if (m.subMeshes && m.subMeshes.length > 1) return false;
+    }
+    return true;
+  }
+
+  /** Der Weg von D10: ein Master je Submesh trägt ALLE Instanzen. */
+  private baueVollMaster(
+    bucket: StaticBucket,
+    masters: readonly Mesh[],
+    locals: readonly Matrix[],
+    zdoMats: readonly Matrix[]
+  ): void {
+    // Der Bucket kann geschrumpft sein (Instanzen entfernt) und vorher
+    // geschnitten gewesen sein — dann tragen noch Zell-Master seine
+    // Instanzen, und ohne diesen Abbau stünde jedes Objekt doppelt im
+    // Bild.
+    this.zellenAbbauen(bucket.prefabName);
     const count = zdoMats.length;
     for (let m = 0; m < masters.length; m++) {
       const data = new Float32Array(count * 16);
@@ -1090,25 +1428,214 @@ export class EntityManager {
       for (let i = 0; i < count; i++) {
         local.multiply(zdoMats[i]!).toArray(data, i * 16);
       }
-      // Ein LEERER Bucket bekommt `null`, nicht einen Puffer der Länge 0.
-      //
-      // Beides schaltet den Master ab, aber nur bei `null` stellt Babylon
-      // den Hüllkörper der Rohgeometrie wieder her; mit einem leeren Puffer
-      // läuft seine Min/Max-Schleife über null Instanzen und hinterlässt
-      // ±Infinity (thinInstanceMesh.js:103 gegen :109). Solange der Master
-      // abgeschaltet ist, sieht man davon nichts — aber ein Hüllkörper aus
-      // Unendlichkeiten ist eine Falle für jeden, der ihn später ausliest,
-      // und seit D10 lesen ihn zwei Stellen aus (Frustumprüfung und
-      // Shadows.darfWerfen). Aufgefallen in client/test/master-huelle.ts.
-      masters[m]!.thinInstanceSetBuffer('matrix', count > 0 ? data : null, 16, false);
-      // setBuffer hat den Hüllkörper soeben über alle Instanzen neu
-      // gespannt (thinInstanceMesh.js:103) — jetzt ist der Moment, ihm die
-      // Windreserve zu geben. Vorher wäre sie wieder überschrieben.
-      huellkoerperAufweiten(masters[m]!);
-      masters[m]!.setEnabled(count > 0);
+      schreibeInstanzen(masters[m]!, count > 0 ? data : null);
+    }
+  }
+
+  /**
+   * Der Zellschnitt (E19 c): die Instanzen eines Prefabs auf einen Master
+   * je (Prototyp × 128-m-Zelle × Überlaufblock) verteilen.
+   *
+   * ── Was das bewirkt ──────────────────────────────────────────────
+   * Gleich viele Instanzen, gleich viele Matrixmultiplikationen, nur
+   * verteilt auf mehr und kleinere Puffer. Der Gewinn kommt
+   * ausschliesslich daraus, dass die HÜLLEN klein werden und damit die
+   * beiden vorhandenen Keulungen greifen, die bisher an der 425-m-Hülle
+   * des Vollmasters wirkungslos abprallten: die Frustumprüfung im
+   * Bildpass und die Entfernungsprüfung in Shadows.darfWerfen() für die
+   * Werferliste. Gemessen auf der Insel erreichten je Kaskade nur 14–15 %
+   * der 24.265 Vegetationsinstanzen die Schattenkarte — die übrigen 85 %
+   * wurden eingereicht, transformiert und verworfen (E20).
+   *
+   * ── Was hier NICHT passiert ──────────────────────────────────────
+   * `bucket.matrices` bleibt EINE flache Liste je Prefab. Vier Pfade
+   * lesen sie indexbasiert (Swap-Remove in removeZDO, der Scan in
+   * setPlayerPosition, naechstesInteragierbares, lichtquellen), und
+   * client/test/entity-index.ts prüft genau dieses Layout. Der Schnitt
+   * lebt allein im Renderpfad und wird bei jedem Neuaufbau frisch
+   * gerechnet; es gibt keine zweite Wahrheit, die auseinanderlaufen
+   * könnte.
+   *
+   * Ebenso bleibt der Umkreis-Index (INDEX_ZELLE_M = 32) unangetastet:
+   * andere Zellgrösse, andere Gründe, anderer Lebenszyklus. Geteilt wird
+   * nur `zellenSchluessel()`.
+   */
+  private baueZellMaster(
+    bucket: StaticBucket,
+    masters: readonly Mesh[],
+    locals: readonly Matrix[],
+    zdoMats: readonly Matrix[]
+  ): void {
+    // Die Prototypen zeichnen im Zellbetrieb nie selbst. Über
+    // schreibeInstanzen(…, null) abschalten und nicht etwa über
+    // setEnabled(false) allein: Sonst behielten sie ihren alten
+    // Matrixpuffer samt 425-m-Hülle und blieben mit ihr in der
+    // Werferliste stehen.
+    for (const proto of masters) {
+      if (proto.isEnabled() || proto.thinInstanceCount > 0) schreibeInstanzen(proto, null);
     }
 
-    this.rebuildBucketColliders(bucket, zdoMats);
+    // Zellzuordnung aus DERSELBEN Quelle wie der Umkreis-Index: der
+    // Translation der fertigen Weltmatrix (row-major auf 12/13/14). Nicht
+    // aus u.position — die Matrix ist f32-gerundet, und zwei verschiedene
+    // Quellen ergäben Grenzfälle, in denen eine Instanz in einer anderen
+    // Zelle landet als ihr Indexeintrag.
+    const proZelle = new Map<number, number[]>();
+    for (let i = 0; i < zdoMats.length; i++) {
+      const m = zdoMats[i]!.m;
+      const schluessel = zellenSchluessel(
+        Math.floor(m[12]! / RENDER_ZELLE_M),
+        Math.floor(m[14]! / RENDER_ZELLE_M)
+      );
+      const liste = proZelle.get(schluessel);
+      if (liste) liste.push(i);
+      else proZelle.set(schluessel, [i]);
+    }
+
+    let zellen = this.zellMaster.get(bucket.prefabName);
+    if (!zellen) this.zellMaster.set(bucket.prefabName, (zellen = new Map()));
+
+    for (const [schluessel, indizes] of proZelle) {
+      let bloecke = zellen.get(schluessel);
+      if (!bloecke) zellen.set(schluessel, (bloecke = masters.map(() => [] as Mesh[])));
+      const gebraucht = Math.ceil(indizes.length / ZELL_MAX_INSTANZEN);
+      for (let m = 0; m < masters.length; m++) {
+        const local = locals[m]!;
+        const reihe = bloecke[m]!;
+        for (let b = 0; b < gebraucht; b++) {
+          const von = b * ZELL_MAX_INSTANZEN;
+          const bis = Math.min(von + ZELL_MAX_INSTANZEN, indizes.length);
+          const data = new Float32Array((bis - von) * 16);
+          for (let k = von; k < bis; k++) {
+            local.multiply(zdoMats[indizes[k]!]!).toArray(data, (k - von) * 16);
+          }
+          let mesh = reihe[b];
+          if (!mesh) {
+            mesh = this.zellMeshHolen(bucket.prefabName, m, masters[m]!, schluessel, b);
+            reihe[b] = mesh;
+          }
+          schreibeInstanzen(mesh, data);
+        }
+        // Überzählige Blöcke (die Zelle ist dünner geworden) freigeben.
+        for (let b = reihe.length - 1; b >= gebraucht; b--) {
+          this.zellMeshFreigeben(bucket.prefabName, m, reihe[b]!);
+          reihe.length = b;
+        }
+      }
+    }
+
+    // Leergelaufene Zellen: Puffer auf null, abgeschaltet, zurück in den
+    // Pool. Nicht entsorgen — s. zellPool.
+    for (const [schluessel, bloecke] of zellen) {
+      if (proZelle.has(schluessel)) continue;
+      for (let m = 0; m < bloecke.length; m++) {
+        for (const mesh of bloecke[m]!) this.zellMeshFreigeben(bucket.prefabName, m, mesh);
+      }
+      zellen.delete(schluessel);
+    }
+  }
+
+  /**
+   * Einen Zell-Master besorgen — aus dem Pool oder frisch.
+   *
+   * Der Name behält den Prototypnamen als PRÄFIX und bekommt die Zelle
+   * als Suffix (`leaves_merged#78_-146`, Überlaufblöcke mit `_1`, `_2`).
+   * Das ist kein Schmuck: Shadows.NIE_WERFEN ist auf `^` verankert
+   * (clutter|sky|water|col_|avatar_…) und Shadows.KLEINZEUG bewusst
+   * nicht; ein vorangestelltes Zellkürzel würde die eine Regel
+   * stillschweigend aushebeln und die andere weiterhin treffen. Auch die
+   * Diagnose in main.ts klassifiziert über Namenspräfixe.
+   */
+  private zellMeshHolen(
+    prefabName: string,
+    prototypIndex: number,
+    proto: Mesh,
+    zelle: number,
+    block: number
+  ): Mesh {
+    const cx = (zelle >>> 16) - 0x8000;
+    const cz = (zelle & 0xffff) - 0x8000;
+    const name = `${proto.name}#${cx}_${cz}${block > 0 ? `_${block}` : ''}`;
+    const frei = this.zellPool.get(`${prefabName}|${prototypIndex}`)?.pop();
+    if (frei) {
+      // Umbenennen ist gefahrlos: Der Schattengenerator merkt sich
+      // Meshes über die Objektidentität, und die Namensregeln greifen
+      // auf den unveränderten Präfix.
+      frei.name = name;
+      this.onMasterBelebt?.(frei);
+      return frei;
+    }
+    return zellMeshAusPrototyp(proto, name, this.scene);
+  }
+
+  /**
+   * Zell-Master leeren, abschalten und zur Wiederverwendung ablegen.
+   *
+   * Der Pool ist GEDECKELT (Review-Fund E19 c): Jeder Zell-Master haelt
+   * eine eigene GPU-Kopie der Prototyp-Geometrie, und ohne Deckel wuchs
+   * der Pool bis zum Sitzungsmaximum — jede je besuchte Zelle blieb als
+   * GPU-Speicher liegen. 16 je (Prefab, Prototyp) deckt den Streaming-
+   * Takt (Zellen kommen und gehen ringweise); was darueber liegt, wird
+   * beim Schattensystem abgemeldet und entsorgt. Die Geometry ist je
+   * Zelle EIGEN (zellMeshAusPrototyp), dispose gibt sie also wirklich
+   * frei; das Material ist geteilt und bleibt (dispose(false, false)).
+   */
+  private zellMeshFreigeben(prefabName: string, prototypIndex: number, mesh: Mesh): void {
+    schreibeInstanzen(mesh, null);
+    const schluessel = `${prefabName}|${prototypIndex}`;
+    const pool = this.zellPool.get(schluessel);
+    if (!pool) {
+      this.zellPool.set(schluessel, [mesh]);
+      return;
+    }
+    if (pool.length >= ZELL_POOL_DECKEL) {
+      this.onMasterEntsorgt?.(mesh);
+      mesh.dispose(false, false);
+      return;
+    }
+    pool.push(mesh);
+  }
+
+  /** Alle Zell-Master eines Prefabs freigeben (Rückfall auf den Vollmaster). */
+  private zellenAbbauen(prefabName: string): void {
+    const zellen = this.zellMaster.get(prefabName);
+    if (!zellen || zellen.size === 0) return;
+    for (const bloecke of zellen.values()) {
+      for (let m = 0; m < bloecke.length; m++) {
+        for (const mesh of bloecke[m]!) this.zellMeshFreigeben(prefabName, m, mesh);
+      }
+    }
+    zellen.clear();
+  }
+
+  /**
+   * Diagnose des Zellschnitts — die Zahlen, an denen E19 c gemessen wird.
+   *
+   * `aktiv` ist die entscheidende: Sie sagt, wie viele Zeichenaufrufe der
+   * Schnitt tatsächlich stellt. `frei` sind abgeschaltete Master im Pool;
+   * sie stehen weiter in scene.meshes und in der Werferliste (Shadows
+   * lässt abgeschaltete Meshes ungeprüft drin), kosten dort aber nur
+   * einen Listenplatz — deshalb ist `werferAnzahl()` allein nach diesem
+   * Umbau kein brauchbares Mass mehr.
+   */
+  zellStats(): { prefabs: number; zellen: number; master: number; aktiv: number; frei: number } {
+    let zellenGesamt = 0;
+    let master = 0;
+    let aktiv = 0;
+    for (const zellen of this.zellMaster.values()) {
+      zellenGesamt += zellen.size;
+      for (const bloecke of zellen.values()) {
+        for (const reihe of bloecke) {
+          for (const mesh of reihe) {
+            master++;
+            if (mesh.isEnabled()) aktiv++;
+          }
+        }
+      }
+    }
+    let frei = 0;
+    for (const pool of this.zellPool.values()) frei += pool.length;
+    return { prefabs: this.zellMaster.size, zellen: zellenGesamt, master, aktiv, frei };
   }
 
   /**

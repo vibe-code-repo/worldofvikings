@@ -24,11 +24,25 @@
  *      Ergebnis: Der ferne Grabhügel hinter der Kamera fällt weg, die um
  *      den Spieler gestreute Vegetation nicht.
  *
- * Punkt 4 hält zugleich die MESSLATTE fest: Für gestreute Vegetation
- * bringt das Culling nichts, weil ihre Instanzen den Spieler umschliessen.
- * Wer diesen Test später scheitern sieht, weil ein Vegetations-Master
- * plötzlich wegfällt, hat entweder das Streaming-Fenster verkleinert oder
- * den Hüllkörper kaputtgemacht.
+ * Punkt 4 hält zugleich die MESSLATTE fest: Für einen VOLLMASTER, der
+ * alle Instanzen eines Prefabs trägt, bringt das Culling nichts, weil
+ * seine Instanzen den Spieler umschliessen. Genau das war der Befund von
+ * E20 — 85 % der Einreichungen je Schattenkaskade waren umsonst.
+ *
+ * ── Dazu seit dem Zellschnitt (E19 c) ────────────────────────────────
+ *   6. Zwei Zell-Master aus EINEM Prototyp haben eigene Geometrie, eigene
+ *      BoundingInfo und eigene Instanzen. Das ist Leitplanke 2,
+ *      mechanisch geprüft: `mesh.clone()` würde die Geometry teilen,
+ *      `thinInstanceSetBuffer` schreibt seine world0..3-Puffer in
+ *      ebendiese, und der zweite Zell-Master zöge dem ersten Instanzen
+ *      UND Hülle mit — Symptom aus Anlauf 2 war „ganze Bäume
+ *      verschwinden".
+ *   7. Der Zellschnitt kehrt Punkt 4 für die Vegetation um: Derselbe
+ *      Instanzsatz, einmal als Vollmaster und einmal auf zwei
+ *      128-m-Zellen verteilt. Der Vollmaster bleibt im Frustum (und
+ *      damit in jeder Kaskade), die ferne Zelle fällt weg, die nahe
+ *      bleibt. Wird dieser Fall rot, ist der Umbau wirkungslos geworden
+ *      — etwa weil jemand `alwaysSelectAsActiveMesh` zurückgeholt hat.
  *
  * Lauf:  npx tsx client/test/master-huelle.ts
  */
@@ -43,7 +57,7 @@ import { Frustum } from '@babylonjs/core/Maths/math.frustum';
 // Methoden am Mesh, obwohl die Typen sie kennen.
 import '@babylonjs/core/Meshes/thinInstanceMesh';
 
-import { huellkoerperAufweiten } from '../src/entities/EntityManager';
+import { huellkoerperAufweiten, zellMeshAusPrototyp } from '../src/entities/EntityManager';
 
 // ── Deterministischer Zufall (mulberry32), wie in entity-index.ts ─────
 function rng(seed: number): () => number {
@@ -262,6 +276,96 @@ function ecken(m: Matrix): Vector3[] {
   pruefe(endlich, `leerer Puffer hinterlässt unbrauchbaren Hüllkörper: ${info.minimum} … ${info.maximum}`);
   pruefe(!leer.isEnabled(), 'Master ohne Instanzen blieb eingeschaltet');
   leer.dispose();
+}
+
+// ── 6) Zell-Master: eigene Geometrie, eigene Hülle, eigene Instanzen ──
+// Der Kardinalfehler des Zellschnitts wäre geteilte Geometrie: Babylon
+// hängt die Instanzmatrizen über setVerticesBuffer an die GEOMETRY
+// (thinInstanceMesh.js:88 → mesh.js:1396), und mesh.clone() reicht die
+// Geometry der Quelle einfach weiter (mesh.js:350). Hier wird der echte
+// Bauweg aus EntityManager benutzt, keine Nachbildung.
+//
+// Gegenprobe gelaufen (17.08.2026): Ersetzt man in zellMeshAusPrototyp()
+// den VertexData-Weg durch proto.clone(), meldet dieser Block die beiden
+// Geometry-Vergleiche als FEHLGESCHLAGEN. Instanzzahl und Hülle bleiben
+// dabei richtig — die NullEngine hat keine GPU-Vertexpuffer, und genau
+// die sind es, die sich im Spiel überschreiben würden. Die
+// Identitätsprüfung ist also das EINZIGE, was diesen Fehler ohne
+// Grafikkarte sichtbar macht; sie darf nicht als Formalie wegoptimiert
+// werden.
+{
+  const proto = baueMaster('leaves_merged');
+  const a = zellMeshAusPrototyp(proto, 'leaves_merged#0_0', scene);
+  const b = zellMeshAusPrototyp(proto, 'leaves_merged#3_3', scene);
+
+  pruefe(a.geometry !== null, 'Zell-Master hat gar keine Geometrie');
+  pruefe(a.geometry !== b.geometry, 'zwei Zell-Master teilen sich EINE Geometry');
+  pruefe(a.geometry !== proto.geometry, 'Zell-Master teilt die Geometry des Prototyps');
+  pruefe(
+    a.getBoundingInfo() !== b.getBoundingInfo(),
+    'zwei Zell-Master teilen sich EIN BoundingInfo-Objekt'
+  );
+  pruefe(
+    a.name.startsWith('leaves_merged'),
+    `Zellname verliert den Prototyp-Präfix: ${a.name} (Shadows.NIE_WERFEN ist ^-verankert)`
+  );
+  pruefe(!a.alwaysSelectAsActiveMesh, 'Zell-Master umgeht das Frustum-Culling');
+
+  // A befüllen, danach B — und nachsehen, ob A davon etwas mitbekommt.
+  const nahe: Matrix[] = [];
+  for (let i = 0; i < 200; i++) {
+    nahe.push(instanz((zufall() - 0.5) * 120, 0, (zufall() - 0.5) * 120));
+  }
+  setzeInstanzen(a, nahe);
+  const aVorher = a.getBoundingInfo();
+  const merkMinX = aVorher.minimum.x;
+  const merkMaxZ = aVorher.maximum.z;
+
+  const fern: Matrix[] = [];
+  for (let i = 0; i < 200; i++) {
+    fern.push(instanz(-400 + (zufall() - 0.5) * 120, 0, -400 + (zufall() - 0.5) * 120));
+  }
+  setzeInstanzen(b, fern);
+
+  pruefe(a.thinInstanceCount === 200, `Zell-Master A trägt ${a.thinInstanceCount} statt 200 Instanzen`);
+  pruefe(b.thinInstanceCount === 200, `Zell-Master B trägt ${b.thinInstanceCount} statt 200 Instanzen`);
+  pruefe(
+    Math.abs(a.getBoundingInfo().minimum.x - merkMinX) < 1e-3 &&
+      Math.abs(a.getBoundingInfo().maximum.z - merkMaxZ) < 1e-3,
+    'die Hülle von A wanderte, als B seinen Puffer bekam — geteilte Geometrie'
+  );
+
+  // ── 7) Der Zellschnitt kehrt Punkt 4 für die Vegetation um ─────────
+  // Derselbe Instanzsatz einmal ungeschnitten: Der Vollmaster umschliesst
+  // beide Nester und besteht jede Frustumprüfung — genau der Befund, den
+  // E19 c behebt.
+  const voll = baueMaster('leaves_merged_voll');
+  setzeInstanzen(voll, [...nahe, ...fern]);
+
+  const kamera = new Vector3(0, 2, 0);
+  const blickNaheZelle = blickPlanes(kamera, new Vector3(0, 2, 1));
+  pruefe(voll.isInFrustum(blickNaheZelle), 'Vollmaster fiel weg — Testaufbau stimmt nicht mehr');
+  pruefe(a.isInFrustum(blickNaheZelle), 'die Zelle um den Spieler wurde weggeworfen');
+  pruefe(
+    !b.isInFrustum(blickNaheZelle),
+    'die ferne Zelle blieb im Frustum — der Zellschnitt ist wirkungslos'
+  );
+
+  const hVoll = voll.getBoundingInfo().boundingSphere.radiusWorld;
+  const hZelle = a.getBoundingInfo().boundingSphere.radiusWorld;
+  pruefe(
+    hZelle * 2 < hVoll,
+    `Zellhülle (r=${hZelle.toFixed(1)}) ist nicht wesentlich kleiner als die Vollhülle (r=${hVoll.toFixed(1)})`
+  );
+  console.log(
+    `Zellschnitt: Hüllradius Vollmaster ${hVoll.toFixed(1)} m → Zelle ${hZelle.toFixed(1)} m ` +
+      `(Shadows.darfWerfen keult erst damit)`
+  );
+
+  a.dispose();
+  b.dispose();
+  voll.dispose();
+  proto.dispose();
 }
 
 console.log(

@@ -65,6 +65,19 @@ const KERN = [
   // ueber Babylons NullEngine: ohne GPU, ohne Assets, synthetische
   // Geometrie und Instanzlagen.
   ['client', 'test/master-huelle.ts'],
+  // Das Impostor-Fernfeld ersetzt ferne Vegetation durch Sprites. Sein
+  // Fehlermodus ist nicht Ruckeln, sondern ein Baum, den WEDER der
+  // Zell-Master NOCH das Sprite-Feld zeichnet — oder den beide zeichnen.
+  // Beides ist blickwinkel- und positionsabhaengig, erzeugt keine
+  // Meldung und ist beim Durchklicken nicht zu finden. Die Regel liegt
+  // deshalb als reine Arithmetik in BaumImpostorKern.ts, und dieser Test
+  // haelt sie fest: Der billige Zell-Vorfilter darf der
+  // Pro-Instanz-Regel ueber tausende Faelle hinweg NIE widersprechen,
+  // die Zuteilung ist eine echte Partition, das Atlasraster ueberlappt
+  // nicht und bricht laut statt still, und ein Prototyp ohne Atlas
+  // faellt auf die ECHTE Darstellung zurueck — nie auf gar keine.
+  // DOM-frei, GPU-frei, Sekunden.
+  ['client', 'test/baum-impostor.ts'],
   // Der Betriebsdienst haelt seit Block A/16 den Speicherweg des Editors.
   // Er gehoert in die KERNLISTE und nicht zu den langen Laeufen: Er
   // braucht keine Assets und keine GPU, ist in Sekunden durch — und die

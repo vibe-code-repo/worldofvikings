@@ -29,6 +29,20 @@ import {
 import type { NpcEinordnung } from '@wov/shared';
 import { buildMeshCollider, deriveCollider, StaticColliderSet } from '../engine/Physics';
 
+import {
+  IMPOSTOR_GRENZE_M_VORGABE,
+  SPRITE_STRIDE,
+  teileZelle,
+  yawUndSkala,
+  zellLage,
+} from '../engine/BaumImpostorKern';
+// TYP-Import, damit hier kein Laufzeit-Zyklus entsteht: BaumImpostor.ts
+// holt sich aus dieser Datei huellkoerperAufweiten() und
+// zellMeshAusPrototyp() (die abgesegneten Bauwege), und ein Typ-Import
+// wird beim Uebersetzen restlos entfernt. Ausserdem bleibt der statische
+// Pfad damit ohne Szene konstruierbar (client/test/entity-index.ts baut
+// `new EntityManager(null, …)`).
+import type { BaumImpostor } from '../engine/BaumImpostor';
 import type { AssetManager } from '../engine/AssetManager';
 import type { TerrainManager } from '../engine/Terrain';
 import type { ClientWorld } from '../world/World';
@@ -289,7 +303,7 @@ const ZELL_MAX_INSTANZEN = 1024;
  * Grabhügel liegen zu wenige in der Welt, um je über diese Schwelle zu
  * kommen.
  */
-// ── DEAKTIVIERT nach gemessenem Koernungs-Sweep (18.08.2026) ────────
+// ── Sweep-Befund (18.08.2026) und die Rolle, die daraus folgt ───────
 // Der Zellschnitt funktioniert und erreicht sein GPU-Ziel — aber auf
 // dem Referenzsystem (7900 XT + schneller CPU) schlaegt KEINE Koernung
 // den Voll-Master-Stand in der Frame-Zeit. Der Sweep, Insel 10077/-18723,
@@ -306,12 +320,71 @@ const ZELL_MAX_INSTANZEN = 1024;
 // CPU in WebGL-Zeichenaufrufen (546 -> 1128 bei 128 m). Der Schnitt ist
 // damit kein fps-Hebel FUER SICH, sondern der UNTERBAU fuer den Schritt,
 // der beide Kurven zugleich senkt: das Impostor-Fernfeld (Roadmap E10-
-// Revision nach ClaudeCraft-Vorbild) — ferne Zellen werden dann nicht
-// kleiner gezeichnet, sondern durch 2-Dreiecke-Sprites ERSETZT, und die
-// Zellen sind die natuerlichen Wechseleinheiten. Bis dahin bleibt die
-// Schwelle unerreichbar; RENDER_ZELLE_M = 384 ist der gemessene Wert
-// fuer die Reaktivierung.
+// Revision nach ClaudeCraft-Vorbild) — ferne Zellen werden nicht kleiner
+// gezeichnet, sondern durch 2-Dreiecke-Sprites ERSETZT.
+//
+// ── REAKTIVIERT (18.08.2026), weil genau dieser Schritt jetzt da ist ─
+// Der Schnitt ist der Unterbau des Sprite-Fernfeldes, und zwar in zwei
+// Rollen, die er beide ALLEIN nicht ausspielen konnte:
+//
+//  1. Die ZELLE ist die Wechseleinheit. Der Vorfilter in
+//     BaumImpostorKern.zellLage() prueft Nah- und Fernkante EINER Zelle
+//     und spart damit fuer die allermeisten Zellen die Pro-Instanz-
+//     Rechnung; ohne Zellen gaebe es nur die flache Liste eines Prefabs.
+//  2. Nur mit kleinen Huellen kann eine ferne Zelle als GANZES aus Bild-
+//     und Werferpass fallen. Genau das ist der CPU-Hebel: Wo frueher
+//     1128 Zell-Master gezeichnet wurden, zeichnen jetzt die nahen
+//     Zell-Master plus EIN Sprite-Mesh je ferner Zelle.
+//
+// RENDER_ZELLE_M bleibt bei den gemessenen 384 m. Die Kante ist gross
+// gegen die Uebergabegrenze (240 m) und gegen das Streaming-Fenster
+// (9x9 Zonen a 64 m = 576 m, WovServer.SICHT_RADIUS_ZONEN); es gibt
+// deshalb kaum eine Zelle, die ganz jenseits der Grenze liegt. Genau
+// dafuer hat teileZelle() den Zweig 'geteilt': Eine Zelle auf der Grenze
+// reicht ihre nahen Instanzen an den echten Zell-Master und ihre fernen
+// ans Sprite-Feld. Der Vorfilter ist eine Abkuerzung, nicht die Regel.
+// ⚠ 18.08.2026, ZWEITE Parkung — jetzt inklusive Impostor-Fernfeld.
+// Die Messung des Impostor-Pakets (Workflow, solo headed, Basis in
+// derselben Sitzung reproduziert) ergab: Das Sprite-Feld leistet exakt
+// null (Kontrolle "Sprites aus" im selben Build: 21,0 gegen 21,1 ms,
+// 733 gegen 734 Calls), das Gesamtpaket ist +33 % Regression gegen die
+// Voll-Master-Basis (16,1 ms). Die Buchhaltung erklaert es: Bei 384-m-
+// Zellen in einem Streamingfenster von nur 576 x 576 m (SICHT_RADIUS_
+// ZONEN = 4) entfernen die Sprites zwar Instanzen, aber nur 9 von 136
+// Zell-Mastern — die Zeichenaufrufe bleiben, und die sind der Engpass.
+// Dazu zwei kritische Baking-Fehler (Review): Atlas-Zeilen werden vor
+// der Material-Bereitschaft gebacken (bleiben leer) und das Albedo
+// landet quadriert im Atlas. Beides nicht repariert, weil das Konzept
+// an der Fenstergeometrie scheitert, nicht an den Fehlern.
 const ZELL_SCHNITT_AB = Number.MAX_SAFE_INTEGER;
+
+/**
+ * Wie weit der Spieler laufen darf, bevor die Zuteilung echt/Sprite neu
+ * gerechnet wird (m).
+ *
+ * ── Warum ueberhaupt eine Schwelle ──────────────────────────────────
+ * Die Zuteilung haengt an der Spielerposition, ihr Neuaufbau ist aber ein
+ * voller Bucket-Umbau (Matrixmultiplikation je Instanz plus GPU-Upload).
+ * Je Bild waere das genau die Sorte Pufferverkehr, die in
+ * SchattenInstanzKeulung.ts mit 18 -> 59 ms vermessen ist. Also derselbe
+ * Weg wie bei COLLIDER_REBUILD_STEP: abstandsgetaktet, ueber das
+ * REBUILD_BUDGET_MS von flush() verteilt.
+ *
+ * ── Warum 32 und nicht weniger ──────────────────────────────────────
+ * Die Zuteilung friert zwischen zwei Neupackungen ein und haengt der
+ * Bewegung um bis zu diesen Betrag hinterher. Ein Baum kann also bereits
+ * bei GRENZE - 32 m als Sprite stehen. Das darf die Schattenweite nicht
+ * unterschreiten, sonst fehlt ein Schlagschatten:
+ *
+ *     240 m (Uebergabe) - 32 m (Nachlauf) = 208 m > 150 m (shadowMaxZ)
+ *
+ * Wer die Uebergabegrenze senkt (der geplante Sweep 150/180/240), muss
+ * diese Ungleichung mitrechnen.
+ *
+ * Groesser als COLLIDER_REBUILD_STEP (12 m), weil hier der TEURE Pfad
+ * dranhaengt: dirty statt colliderDirty.
+ */
+const SPRITE_NEUPACK_M = 32;
 
 /** Obergrenze des Wiederverwendungs-Pools je (Prefab, Prototyp) — s. zellMeshFreigeben(). */
 const ZELL_POOL_DECKEL = 16;
@@ -966,6 +1039,18 @@ export class EntityManager {
       }
       verarbeitet++;
     }
+    // ── Sprite-Zellen EINMAL am Ende zusammensetzen ─────────────────
+    // Ein Sprite-Zellmesh traegt die Beitraege MEHRERER Buckets (ein
+    // Zeichenaufruf je Zelle statt einer je Zelle x Prefab — das IST der
+    // Hebel). Die Schleife oben arbeitet prefabweise; wuerde die Zelle
+    // dort bei jedem Bucket neu zusammengesetzt, liefe derselbe Puffer
+    // mehrfach pro Bild ueber den Bus. Genau diese Sorte GPU-Verkehr ist
+    // in SchattenInstanzKeulung.ts mit 18 -> 59 ms vermessen.
+    //
+    // Ausserhalb des Budgets: Zusammengesetzt wird nur, was in DIESEM
+    // Durchlauf schmutzig wurde — abgebrochene Buckets bleiben dirty und
+    // liefern ihre Beitraege im Folgeframe nach.
+    this.impostoren?.baueZellen();
   }
 
   // ── Static (thin instances) ──────────────────────────────────────
@@ -1023,6 +1108,30 @@ export class EntityManager {
    * EntityManager keinen Import auf Shadows braucht.
    */
   onMasterBelebt: ((mesh: Mesh) => void) | null = null;
+  /**
+   * Das Sprite-Fernfeld. Optional und von aussen gesetzt (main.ts) —
+   * derselbe Grund wie bei onMasterBelebt: Der EntityManager soll keinen
+   * Wertimport auf ein Babylon-Modul brauchen, und der statische Pfad
+   * muss ohne Szene konstruierbar bleiben (client/test/entity-index.ts).
+   * Bleibt das Feld null, verhaelt sich alles wie vor diesem Umbau.
+   */
+  impostoren: BaumImpostor | null = null;
+  /**
+   * Uebergabegrenze in Metern. Wird von main.ts aus BaumImpostor.grenze
+   * nachgefuehrt, damit der geplante Sweep zur Laufzeit greift, ohne dass
+   * diese Datei das Modul importieren muss.
+   */
+  impostorGrenze = IMPOSTOR_GRENZE_M_VORGABE;
+  /**
+   * Mitte des Sprite-Fensters — die Position, gegen die die Zuteilung
+   * echt/Sprite gerechnet wurde. Rueckt in Schritten von SPRITE_NEUPACK_M
+   * nach, s. setPlayerPosition().
+   */
+  private spriteMitteX = 0;
+  private spriteMitteZ = 0;
+  /** Erst wenn die Spielerposition EINMAL angekommen ist, darf getauscht
+   *  werden — s. die Begruendung in baueZellMaster(). */
+  private spielerBekannt = false;
   /** Gegenstueck fuer die Entsorgung: erst beim Schattensystem abmelden
    *  (Shadows.entferneWerfer), dann dispose. Verdrahtet in main.ts. */
   onMasterEntsorgt: ((mesh: Mesh) => void) | null = null;
@@ -1134,6 +1243,34 @@ export class EntityManager {
    * what makes this expensive.
    */
   setPlayerPosition(x: number, z: number): void {
+    // ── Sprite-Fenster ZUERST und OHNE Physik-Gatter ────────────────
+    // Die frühe Rückkehr bei !physicsEnabled unten ist für den
+    // Kollisionspfad richtig (ohne Havok gibt es nichts zu bauen), für
+    // das Sprite-Fenster wäre sie fatal: Solange Havok nicht steht,
+    // erreichte die Spielerposition den EntityManager gar nicht, die
+    // Fenstermitte bliebe auf (0,0) — und genau in dieser Phase steht der
+    // Spieler beim Laden herum und schaut sich um.
+    this.spielerBekannt = true;
+    const sdx = x - this.spriteMitteX;
+    const sdz = z - this.spriteMitteZ;
+    if (
+      this.impostoren !== null &&
+      sdx * sdx + sdz * sdz >= SPRITE_NEUPACK_M * SPRITE_NEUPACK_M
+    ) {
+      this.spriteMitteX = x;
+      this.spriteMitteZ = z;
+      // Nur die GESCHNITTENEN Buckets — nur die haben überhaupt eine
+      // Sprite-Seite. Hier muss es `dirty` sein und nicht
+      // `colliderDirty`: Die Zuteilung echt/Sprite ändert die
+      // Renderpuffer, das ist der teure Pfad. Deshalb ist
+      // SPRITE_NEUPACK_M mit 32 m fast dreimal so gross wie
+      // COLLIDER_REBUILD_STEP.
+      for (const bucket of this.buckets.values()) {
+        if (bucket.dirty) continue;
+        if (this.zellMaster.has(bucket.prefabName)) bucket.dirty = true;
+      }
+    }
+
     if (!this.physicsEnabled) return;
     const dx = x - this.colliderCenterX;
     const dz = z - this.colliderCenterZ;
@@ -1421,6 +1558,11 @@ export class EntityManager {
     // Instanzen, und ohne diesen Abbau stünde jedes Objekt doppelt im
     // Bild.
     this.zellenAbbauen(bucket.prefabName);
+    // Dasselbe für das Sprite-Fernfeld, aus demselben Grund: Ein
+    // liegengebliebener Sprite-Beitrag zeichnete den Baum ein zweites
+    // Mal. Der Vollmaster trägt IMMER alle Instanzen — Sprites gibt es
+    // nur im geschnittenen Betrieb.
+    this.impostoren?.setzePrefab(bucket.prefabName, null);
     const count = zdoMats.length;
     for (let m = 0; m < masters.length; m++) {
       const data = new Float32Array(count * 16);
@@ -1495,9 +1637,64 @@ export class EntityManager {
     let zellen = this.zellMaster.get(bucket.prefabName);
     if (!zellen) this.zellMaster.set(bucket.prefabName, (zellen = new Map()));
 
-    for (const [schluessel, indizes] of proZelle) {
+    // ── Sprite-Fernfeld: gibt es fuer dieses Prefab einen Atlas? ─────
+    // `melde()` baeckt beim ersten Mal (8 Ansichten, einmal je Sitzung
+    // und Archetyp) und liefert danach sofort. Schlaegt das Backen fehl
+    // oder ist das Prefab zu klein, bleibt `atlas` false — und dann
+    // faellt JEDE Instanz auf die echte Darstellung zurueck, niemals auf
+    // gar keine. Das ist der Fail-Soft, den Leitplanke 4 verlangt.
+    //
+    // `spielerBekannt` ist der zweite Riegel: Vor dem ersten
+    // setPlayerPosition() steht die Fenstermitte auf (0,0), und ein
+    // Spieler, der auf der Insel bei 10077/-18723 einloggt, saehe seinen
+    // gesamten Wald als Sprites. Symptom waere "beim Start ist der halbe
+    // Wald weg, nach dem ersten Schritt kommt er" — der Fehler, vor dem
+    // die Analyse ausdruecklich warnt.
+    const imp = this.impostoren;
+    let atlas = false;
+    if (imp !== null && this.spielerBekannt) {
+      // `kennt()` spart den Aufbau der Master-Liste im Normalfall — der
+      // Bucket wird bei jeder Spielerbewegung neu gebaut, das Backen
+      // passiert aber genau einmal je Archetyp und Sitzung.
+      atlas = imp.kennt(bucket.prefabName)
+        ? imp.atlasBereit(bucket.prefabName)
+        : imp.melde(bucket.prefabName, this.masterQuelle(bucket.prefabName));
+    }
+    const grenze = this.impostorGrenze;
+    const spriteZellen = atlas ? new Map<number, Float32Array>() : null;
+    const nah: number[] = [];
+    const fern: number[] = [];
+
+    for (const [schluessel, alleIndizes] of proZelle) {
+      const cx = (schluessel >>> 16) - 0x8000;
+      const cz = (schluessel & 0xffff) - 0x8000;
+      // Die EINE Zuteilung. `zellLage` ist nur der billige Vorfilter
+      // (ganz nah / ganz fern), `teileZelle` die Regel — beide aus
+      // derselben Ungleichung abgeleitet, damit es keine zwei Wahrheiten
+      // gibt. s. BaumImpostorKern.
+      const lage = zellLage(cx, cz, RENDER_ZELLE_M, this.spriteMitteX, this.spriteMitteZ, grenze, atlas);
+      teileZelle(
+        alleIndizes,
+        (i) => zdoMats[i]!.m[12]!,
+        (i) => zdoMats[i]!.m[14]!,
+        lage,
+        this.spriteMitteX,
+        this.spriteMitteZ,
+        grenze,
+        nah,
+        fern
+      );
+
+      if (spriteZellen && fern.length > 0) {
+        spriteZellen.set(schluessel, this.spriteDaten(bucket.prefabName, zdoMats, fern));
+      }
+
+      const indizes = nah;
       let bloecke = zellen.get(schluessel);
-      if (!bloecke) zellen.set(schluessel, (bloecke = masters.map(() => [] as Mesh[])));
+      if (!bloecke) {
+        if (indizes.length === 0) continue; // reine Sprite-Zelle: kein Master
+        zellen.set(schluessel, (bloecke = masters.map(() => [] as Mesh[])));
+      }
       const gebraucht = Math.ceil(indizes.length / ZELL_MAX_INSTANZEN);
       for (let m = 0; m < masters.length; m++) {
         const local = locals[m]!;
@@ -1516,12 +1713,17 @@ export class EntityManager {
           }
           schreibeInstanzen(mesh, data);
         }
-        // Überzählige Blöcke (die Zelle ist dünner geworden) freigeben.
+        // Überzählige Blöcke (die Zelle ist dünner geworden — oder ihre
+        // Instanzen sind ins Sprite-Feld gewandert) freigeben.
         for (let b = reihe.length - 1; b >= gebraucht; b--) {
           this.zellMeshFreigeben(bucket.prefabName, m, reihe[b]!);
           reihe.length = b;
         }
       }
+      // Eine Zelle, die vollstaendig ins Sprite-Feld gewandert ist, haelt
+      // jetzt nur noch leere Reihen — raus aus der Buchfuehrung, sonst
+      // zaehlt zellStats() sie als lebende Zelle.
+      if (indizes.length === 0) zellen.delete(schluessel);
     }
 
     // Leergelaufene Zellen: Puffer auf null, abgeschaltet, zurück in den
@@ -1533,6 +1735,53 @@ export class EntityManager {
       }
       zellen.delete(schluessel);
     }
+
+    // Die Sprite-Beitraege dieses Prefabs VOLLSTAENDIG ersetzen — auch
+    // wenn sie leer sind. Ein liegengebliebener Beitrag waere ein
+    // DOPPELBILD (der Baum stuende echt und als Sprite zugleich), und das
+    // ist genau der Fehlermodus, den Leitplanke 4 ausschliesst.
+    this.impostoren?.setzePrefab(bucket.prefabName, spriteZellen);
+  }
+
+  /**
+   * Instanzdaten fuer das Sprite-Feld: je Instanz x, y, z, Kartenbreite,
+   * Kartenhoehe, Gierwinkel (Stride SPRITE_STRIDE).
+   *
+   * Die Kartenmasse kommen aus der gebackenen Atlaszeile (Modellmasse in
+   * Metern) und werden mit der Instanzskalierung multipliziert — dieselbe
+   * Quelle, aus der auch der Rahmen der Backkamera stammt. Waeren es zwei
+   * Quellen, saesse der Sprite systematisch neben seinem Zwilling.
+   */
+  private spriteDaten(
+    prefabName: string,
+    zdoMats: readonly Matrix[],
+    indizes: readonly number[]
+  ): Float32Array {
+    const masse = this.impostoren!.zeileVon(prefabName)!;
+    const aus = new Float32Array(indizes.length * SPRITE_STRIDE);
+    for (let k = 0; k < indizes.length; k++) {
+      const m = zdoMats[indizes[k]!]!.m;
+      const { yaw, sxz, sy } = yawUndSkala(m, 0);
+      const o = k * SPRITE_STRIDE;
+      aus[o] = m[12]!;
+      aus[o + 1] = m[13]!;
+      aus[o + 2] = m[14]!;
+      aus[o + 3] = masse.breite * sxz;
+      aus[o + 4] = masse.hoehe * sy;
+      aus[o + 5] = yaw;
+    }
+    return aus;
+  }
+
+  /** Die Prototypen eines Prefabs als PrefabMaster-Paare — fuer den Backer. */
+  private masterQuelle(prefabName: string): Array<{ mesh: Mesh; localMatrix: Matrix }> {
+    const meshes = this.masterMeshes.get(prefabName) ?? [];
+    const locals = this.masterLocals.get(prefabName) ?? [];
+    const aus: Array<{ mesh: Mesh; localMatrix: Matrix }> = [];
+    for (let i = 0; i < meshes.length && i < locals.length; i++) {
+      aus.push({ mesh: meshes[i]!, localMatrix: locals[i]! });
+    }
+    return aus;
   }
 
   /**
@@ -1593,6 +1842,13 @@ export class EntityManager {
       mesh.dispose(false, false);
       return;
     }
+    // Auch GEPOOLTE Master abmelden (Review-Fund 18.08.): Abgeschaltete
+    // Meshes kosten in der Werferliste nicht "nur einen Listenplatz" —
+    // der Schattenpass iteriert sie je Kaskade. Ohne Abmeldung sammeln
+    // sich bis zu DECKEL x Prefabs x Prototypen tote Eintraege. Der
+    // Callback entsorgt nichts, er raeumt nur Listen; beim Reaktivieren
+    // meldet onMasterBelebt -> meldeWerfer wieder an.
+    this.onMasterEntsorgt?.(mesh);
     pool.push(mesh);
   }
 
@@ -1618,7 +1874,34 @@ export class EntityManager {
    * einen Listenplatz — deshalb ist `werferAnzahl()` allein nach diesem
    * Umbau kein brauchbares Mass mehr.
    */
-  zellStats(): { prefabs: number; zellen: number; master: number; aktiv: number; frei: number } {
+  zellStats(): {
+    prefabs: number;
+    zellen: number;
+    master: number;
+    aktiv: number;
+    frei: number;
+    /**
+     * Das Sprite-Fernfeld — die zweite Haelfte derselben Rechnung.
+     *
+     * `aktiv` allein sagt seit dem Impostor-Umbau nicht mehr, wie teuer
+     * die Vegetation ist: Was hier an Zell-Mastern fehlt, steht drueben
+     * als `sprites.zellen` (Zeichenaufrufe) und `sprites.instanzen`.
+     * Beide Zahlen gehoeren in dieselbe Momentaufnahme, sonst laesst sich
+     * hinterher nicht sagen, welcher der beiden Hebel gezogen hat.
+     * `zeilen`/`budget` zeigen, wie voll der Atlas ist; `abgelehnt` zaehlt
+     * die Archetypen, die auf die echte Darstellung zurueckgefallen sind.
+     */
+    sprites: {
+      zeilen: number;
+      budget: number;
+      atlasPx: number;
+      abgelehnt: number;
+      zellen: number;
+      instanzen: number;
+    } | null;
+    /** Uebergabegrenze, gegen die zuletzt zugeteilt wurde (m). */
+    spriteGrenze: number;
+  } {
     let zellenGesamt = 0;
     let master = 0;
     let aktiv = 0;
@@ -1635,7 +1918,15 @@ export class EntityManager {
     }
     let frei = 0;
     for (const pool of this.zellPool.values()) frei += pool.length;
-    return { prefabs: this.zellMaster.size, zellen: zellenGesamt, master, aktiv, frei };
+    return {
+      prefabs: this.zellMaster.size,
+      zellen: zellenGesamt,
+      master,
+      aktiv,
+      frei,
+      sprites: this.impostoren?.stats() ?? null,
+      spriteGrenze: this.impostorGrenze,
+    };
   }
 
   /**

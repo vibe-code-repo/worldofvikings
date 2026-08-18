@@ -72,6 +72,7 @@ import { initPhysics, bodenHoeheUnter } from './engine/Physics';
 import { WaterPlugin } from './engine/WaterPlugin';
 import { Precipitation } from './engine/Precipitation';
 import { EntityManager } from './entities/EntityManager';
+import { BaumImpostor } from './engine/BaumImpostor';
 import { PlayerController } from './player/PlayerController';
 import { GameSocket } from './net/GameSocket';
 import { parseZDOSync, ZDOSpiegel } from './net/ZDOSync';
@@ -321,6 +322,7 @@ async function main() {
   let terrain: TerrainManager | null = null;
   let player: PlayerController | null = null;
   let entities: EntityManager | null = null;
+  let baumImpostor: BaumImpostor | null = null;
   let grass: GrassClutter | null = null;
   let huegelGras: HuegelGras | null = null;
   let post: PostProcessing | null = null;
@@ -666,10 +668,16 @@ async function main() {
         for (const m of scene.getActiveMeshes().data.slice(0, scene.getActiveMeshes().length)) {
           const n = m?.name ?? '?';
           const thin = (m as unknown as { thinInstanceCount?: number })?.thinInstanceCount ?? 0;
+          // `impostor` VOR der Thin-Instance-Regel: Die Sprite-Zellen
+          // tragen Thin Instances und landeten sonst unter 'entities' —
+          // dann waere in der Messung nicht mehr zu trennen, ob ein
+          // Posten von echten Zell-Mastern oder vom Sprite-Fernfeld
+          // kommt, und genau diese Trennung ist der Punkt des Umbaus.
           const typ = n.startsWith('clutter') ? 'gras'
-            : n.startsWith('zone') || n.startsWith('terrain') || n.startsWith('water') ? 'terrain'
-              : thin > 0 || n.startsWith('inst_') ? 'entities'
-                : 'sonstige';
+            : n.startsWith('impostor') ? 'sprites'
+              : n.startsWith('zone') || n.startsWith('terrain') || n.startsWith('water') ? 'terrain'
+                : thin > 0 || n.startsWith('inst_') ? 'entities'
+                  : 'sonstige';
           nachTyp[typ] = (nachTyp[typ] ?? 0) + 1;
         }
         p['aktivNachTyp'] = nachTyp;
@@ -827,6 +835,19 @@ async function main() {
               .map((i) => ({ prefab: i.prefab, x: i.x, y: i.y, z: i.z }))
           : [],
       colliderSpecs: () => (entities ? Object.fromEntries(entities.colliderSpecs) : null),
+      // Sprite-Fernfeld: Grenze zur Laufzeit verstellbar (Sweep
+      // 150/180/240), plus die Zahlen, an denen der Umbau haengt.
+      // `zellStats().sprites` traegt dieselben Werte in die
+      // Momentaufnahme — hier stehen sie nur direkt greifbar.
+      impostor: {
+        get grenze(): number {
+          return BaumImpostor.grenze;
+        },
+        set grenze(v: number) {
+          BaumImpostor.grenze = v;
+        },
+        stats: () => baumImpostor?.stats() ?? null,
+      },
       precipInfo: () => precipitation?.info ?? null,
       precipSystem: () => precipitation?.systemRef ?? null,
       windState: () => (weather ? { dir: weather.windDir, staerke: weather.windIntensity, amp: WindPlugin.strength } : null),
@@ -844,6 +865,20 @@ async function main() {
     // Kommentare an EntityManager.onMasterBelebt und Shadows.meldeWerfer().
     entities.onMasterBelebt = (m) => shadows?.meldeWerfer(m);
     entities.onMasterEntsorgt = (m) => shadows?.entferneWerfer(m);
+
+    // ── Impostor-Fernfeld ─────────────────────────────────────────
+    // Ferne Vegetation wird durch 2-Dreiecke-Sprites ERSETZT, statt sie
+    // kleiner zu zeichnen (BaumImpostor.ts, Roadmap E10-Revision). Muss
+    // NACH Shadows entstehen, damit der `impostor`-Praefix in
+    // Shadows.NIE_WERFEN schon greift, und VOR
+    // `scene.blockMaterialDirtyMechanism = true`, damit
+    // StandardGammaFix/NebelRichtung/FackelLicht sich noch an das
+    // Sprite-Material haengen koennen (Leitplanke 5: der Nebel ist Teil
+    // der Bildsprache).
+    baumImpostor = new BaumImpostor(scene);
+    baumImpostor.onMeshEntsorgt = (m) => shadows?.entferneWerfer(m);
+    entities.impostoren = baumImpostor;
+    entities.impostorGrenze = BaumImpostor.grenze;
 
     // ── Szenenweite Sparmassnahmen ────────────────────────────────
     // Kein Maus-Picking bei Mausbewegung: Babylon würde sonst bei JEDER
@@ -2507,6 +2542,12 @@ async function main() {
     shadows?.setPlayerPosition(player.position.x, player.position.z);
     shadows?.tick();
     miss('entities', () => {
+      // Die Uebergabegrenze je Bild nachfuehren: Sie ist ein STATIC,
+      // damit der geplante Sweep 150/180/240 ueber `window.__dbg`
+      // gefahren werden kann, ohne neu zu bauen. Der EntityManager liest
+      // sie aus einem eigenen Feld, um keinen Wertimport auf
+      // BaumImpostor zu brauchen.
+      entities!.impostorGrenze = BaumImpostor.grenze;
       entities!.setPlayerPosition(player!.position.x, player!.position.z);
       entities!.updateDynamics(dt);
       entities!.flush();

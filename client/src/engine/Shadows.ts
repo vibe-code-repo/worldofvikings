@@ -137,8 +137,18 @@ export const SHADOW_LEVELS: readonly (ShadowLevel | null)[] = [
  *   des Objekts. `isVisible = false` hält sie derzeit aus dem Zeichenpfad
  *   heraus, sie standen aber trotzdem in der Werferliste und wurden dort
  *   dreimal je Frame durchgesehen. Aus der Liste heraus ist beides erledigt.
+ * - `impostor*`: das Sprite-Fernfeld der Vegetation (BaumImpostor.ts) und
+ *   seine Backmeshes. Ein Billboard ist aus Sonnenrichtung eine papierdünne
+ *   Fläche — sein Schatten wäre je nach Sonnenstand entweder verschwunden
+ *   oder ein Streifen quer über die Landschaft. Nötig ist er ohnehin nicht:
+ *   Die Sprites beginnen erst bei 240 m, die höchste Kaskade reicht 150 m.
+ *   ⚠ Dieser Eintrag ist die EINZIGE wirksame Absicherung. `receiveShadows`
+ *   und die Sichtbarkeitsflags halten ein Mesh NICHT aus der Werferliste —
+ *   werferNeuBestimmen() scannt scene.meshes und filtert allein über diesen
+ *   auf `^` verankerten Regex.
  */
-const NIE_WERFEN = /^(clutter|valheimSky|sky|water|precipEmitter|col_|avatar_(hips|torso|head|leg|knee|arm|elbow))/i;
+const NIE_WERFEN =
+  /^(clutter|impostor|valheimSky|sky|water|precipEmitter|col_|avatar_(hips|torso|head|leg|knee|arm|elbow))/i;
 
 /**
  * Meshes, die keinen Schatten EMPFANGEN — dieselbe Liste OHNE `clutter`.
@@ -208,6 +218,19 @@ export class Shadows {
   private werferSnapshot: readonly AbstractMesh[] = [];
   private werferIndex = 0;
   private werferPending: AbstractMesh[] | null = null;
+  /**
+   * Begleitmenge zu werferPending — gegen Doppeleintraege.
+   *
+   * Review-Fund 18.08., mit NullEngine belegt: scene.addMesh() pusht
+   * SYNCHRON in scene.meshes, onNewMeshAddedObservable feuert aber erst
+   * ueber Tools.SetImmediate (scene.js:2237). Ein zwischen Konstruktion
+   * und Benachrichtigung gestarteter Scan traegt das Mesh also aus der
+   * Momentaufnahme ein UND nimmAuf() pusht es beim verspaeteten Feuern
+   * erneut — _activate() dedupliziert nicht, der Sub-Mesh wird je Kaskade
+   * zweimal dispatcht. Ein Set statt includes(), weil includes() bei
+   * tausenden Meshes im budgetierten Scan eine O(n^2)-Falle waere.
+   */
+  private werferPendingSet: Set<AbstractMesh> | null = null;
   private werferCfg: ShadowLevel | null = null;
 
   constructor(
@@ -266,6 +289,14 @@ export class Shadows {
    * EntityManager.zellStats().aktiv.
    */
   private darfWerfen(mesh: AbstractMesh, cfg: ShadowLevel): boolean {
+    // Entsorgte Meshes ZUERST — vor dem Freifahrtschein fuer Abgeschaltete.
+    // Review-Fund 18.08.: entferneWerfer() raeumt renderList und
+    // werferPending, aber nicht die Momentaufnahme eines laufenden Scans
+    // (werferSnapshot). Ohne diesen Guard nahm ein wahrend des Scans
+    // entsorgter Zell-Master den !isEnabled-Zweig ("return true") und lag
+    // danach als Leiche in der Schattenkarte — je Kaskade je Bild durch
+    // isReady()/getLOD(), bis zum naechsten Nachfuehren.
+    if (mesh.isDisposed()) return false;
     if (NIE_WERFEN.test(mesh.name)) return false;
     if (!this.fern && KLEINZEUG.test(mesh.name)) return false;
     // Abgeschaltete Meshes bleiben drin, ohne geprüft zu werden.
@@ -327,6 +358,7 @@ export class Shadows {
     this.werferSnapshot = this.scene.meshes.slice();
     this.werferIndex = 0;
     this.werferPending = [];
+    this.werferPendingSet = new Set();
     this.werferCfg = cfg;
   }
 
@@ -347,12 +379,16 @@ export class Shadows {
     while (this.werferIndex < this.werferSnapshot.length) {
       if (geprueft > 0 && performance.now() >= budgetEnde) return;
       const m = this.werferSnapshot[this.werferIndex]!;
-      if (this.darfWerfen(m, this.werferCfg)) this.werferPending.push(m);
+      if (this.darfWerfen(m, this.werferCfg) && !this.werferPendingSet!.has(m)) {
+        this.werferPending.push(m);
+        this.werferPendingSet!.add(m);
+      }
       this.werferIndex++;
       geprueft++;
     }
     karte.renderList = this.werferPending;
     this.werferPending = null;
+    this.werferPendingSet = null;
     this.werferSnapshot = [];
   }
 
@@ -461,7 +497,10 @@ export class Shadows {
     //
     // Doppelt eintragen kann es nichts: Die Momentaufnahme entstand vor
     // diesem Mesh, es kann in werferPending noch nicht stehen.
-    if (this.werferPending) this.werferPending.push(mesh);
+    if (this.werferPending && !this.werferPendingSet?.has(mesh)) {
+      this.werferPending.push(mesh);
+      this.werferPendingSet?.add(mesh);
+    }
   }
 
   /**
@@ -506,6 +545,7 @@ export class Shadows {
     if (this.werferPending) {
       const i = this.werferPending.indexOf(mesh);
       if (i >= 0) this.werferPending.splice(i, 1);
+      this.werferPendingSet?.delete(mesh);
     }
   }
 

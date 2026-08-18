@@ -22,7 +22,7 @@
  *  2. Der Unfall selbst wird als Verlust erkannt, und die Zahlen, an denen
  *     man ihn gesehen haette, stehen in der Gegenueberstellung.
  *  3. Der HEIMTUECKISCHE Fall: eine Region geloescht, eine neue angelegt.
- *     Die Zaehler bleiben identisch (17 = 17) — wer nur Zahlen vergleicht,
+ *     Die Zaehler bleiben identisch — wer nur Zahlen vergleicht,
  *     sieht nichts. Namentlich aufgeschluesselt faellt es sofort auf.
  *  4. Regionen und Platzierungen erscheinen IMMER in der Tafel, auch wenn
  *     sie uebereinstimmen. Eine Tafel, die bei Gleichheit leer bleibt,
@@ -90,7 +90,8 @@ console.log('\n[2] Der Unfall vom 16.08. wird als Verlust erkannt');
   const reg = zeile(u, 'Regionen');
   const pla = zeile(u, 'Platzierungen');
   check('Regionen stehen in der Tafel', reg !== undefined);
-  check('… mit den echten Zahlen', reg?.server === '17' && reg?.entwurf === '4',
+  check('… mit den echten Zahlen',
+    reg?.server === String(echt.regions.length) && reg?.entwurf === '4',
     `${reg?.server} → ${reg?.entwurf}`);
   check('… und als VERLUST markiert', reg?.schwer === true);
   check('Platzierungen stehen in der Tafel', pla !== undefined);

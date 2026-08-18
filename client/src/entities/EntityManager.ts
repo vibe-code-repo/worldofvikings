@@ -141,6 +141,33 @@ const SCHWUNG_RESERVE_M = 1.5;
 /** Player travel that triggers a rebuild of the collision window. */
 const COLLIDER_REBUILD_STEP = 12;
 /**
+ * Spielerweg bis die begrenzte Vegetationsauswahl neu gepackt wird.
+ * 32 m vermeiden Matrix-Uploads in jedem Lauf-Frame; dieselbe Distanz
+ * bleibt als aeussere Reserve stehen, damit zwischen zwei Neuaufbauten
+ * kein Baum innerhalb der gewaehlten Grenze verschwindet.
+ */
+const VEGETATIONS_NEUPACK_M = 32;
+
+/**
+ * Reine Auswahlfunktion hinter der Vegetationsgrenze. Exportiert, damit
+ * ihre wichtigste Zusicherung ohne Szene/GPU testbar bleibt: 0 liefert
+ * unveraendert alles, eine Grenze prueft nur die X/Z-Translation.
+ */
+export function vegetationsMatrizenImRadius<T extends { m: ArrayLike<number> }>(
+  matrizen: readonly T[],
+  mitteX: number,
+  mitteZ: number,
+  radius: number
+): readonly T[] {
+  if (radius <= 0 || !Number.isFinite(radius)) return matrizen;
+  const r2 = radius * radius;
+  return matrizen.filter((matrix) => {
+    const dx = Number(matrix.m[12]) - mitteX;
+    const dz = Number(matrix.m[14]) - mitteZ;
+    return dx * dx + dz * dz <= r2;
+  });
+}
+/**
  * Welche Prefab-KLASSEN den Spieler blockieren.
  *
  * Das ist die eigentliche Regel des Originals: Unity entscheidet über
@@ -659,6 +686,11 @@ export class EntityManager {
    * dadurch entfällt je Familie ein Master in Bild- und Schattenpässen.
    */
   private hundertFpsProfil = false;
+  /** 0 = das gesamte geladene Streaming-Fenster (bisheriger Stand). */
+  private vegetationsGrenzeM = 0;
+  private vegetationsMitteX = 0;
+  private vegetationsMitteZ = 0;
+  private vegetationsMitteBekannt = false;
   private readonly bucketOf = new Map<string, number>();
   private readonly dynamics = new Map<string, DynamicEntity>();
   /**
@@ -1298,6 +1330,22 @@ export class EntityManager {
     // Fenstermitte bliebe auf (0,0) — und genau in dieser Phase steht der
     // Spieler beim Laden herum und schaut sich um.
     this.spielerBekannt = true;
+    // Baeume und Buesche benutzen EINEN gemeinsamen Puffer fuer Bild und
+    // Schatten. Die Auswahl folgt dem Spieler absichtlich nur in groben
+    // Schritten: So bleibt die Grenze live, ohne beim Laufen pro Frame
+    // saemtliche Vegetationsmaster neu auf die GPU zu schreiben.
+    const vdx = x - this.vegetationsMitteX;
+    const vdz = z - this.vegetationsMitteZ;
+    if (
+      !this.vegetationsMitteBekannt ||
+      (this.vegetationsGrenzeM > 0 &&
+        vdx * vdx + vdz * vdz >= VEGETATIONS_NEUPACK_M * VEGETATIONS_NEUPACK_M)
+    ) {
+      this.vegetationsMitteBekannt = true;
+      this.vegetationsMitteX = x;
+      this.vegetationsMitteZ = z;
+      if (this.vegetationsGrenzeM > 0) this.markiereVegetationDirty();
+    }
     const sdx = x - this.spriteMitteX;
     const sdz = z - this.spriteMitteZ;
     if (
@@ -1363,6 +1411,54 @@ export class EntityManager {
         bucket.dirty = true;
       }
     }
+  }
+
+  /**
+   * Sichtweite fuer Baeume und Buesche in Metern; 0 hebt die Begrenzung
+   * auf. Der Neuaufbau laeuft ueber das bestehende Frame-Budget und gilt
+   * fuer Farbbild UND Schatten, weil beide denselben Master verwenden.
+   */
+  setVegetationsGrenze(meter: number): void {
+    const naechste = Number.isFinite(meter) ? Math.max(0, Math.round(meter)) : 0;
+    if (naechste === this.vegetationsGrenzeM) return;
+    this.vegetationsGrenzeM = naechste;
+    this.markiereVegetationDirty();
+  }
+
+  private markiereVegetationDirty(): void {
+    for (const bucket of this.buckets.values()) {
+      if (bucket.mastersReady && FOLIAGE_HASHES.has(bucket.prefabHash)) bucket.dirty = true;
+    }
+  }
+
+  /** Diagnose fuer A/B-Messungen ueber window.__dbg.entities. */
+  vegetationsGrenzeInfo(): {
+    grenzeM: number;
+    auswahlRadiusM: number;
+    gesamt: number;
+    sichtbar: number;
+  } {
+    let gesamt = 0;
+    let sichtbar = 0;
+    const radius = this.vegetationsGrenzeM > 0
+      ? this.vegetationsGrenzeM + VEGETATIONS_NEUPACK_M
+      : 0;
+    const r2 = radius * radius;
+    for (const bucket of this.buckets.values()) {
+      if (!FOLIAGE_HASHES.has(bucket.prefabHash)) continue;
+      const n = bucket.matrices.length / 16;
+      gesamt += n;
+      if (radius <= 0 || !this.vegetationsMitteBekannt) {
+        sichtbar += n;
+        continue;
+      }
+      for (let i = 12; i < bucket.matrices.length; i += 16) {
+        const dx = bucket.matrices[i]! - this.vegetationsMitteX;
+        const dz = bucket.matrices[i + 2]! - this.vegetationsMitteZ;
+        if (dx * dx + dz * dz <= r2) sichtbar++;
+      }
+    }
+    return { grenzeM: this.vegetationsGrenzeM, auswahlRadiusM: radius, gesamt, sichtbar };
   }
 
   /**
@@ -1565,6 +1661,29 @@ export class EntityManager {
   }
 
   /**
+   * Begrenzte Renderauswahl fuer FOLIAGE. Die rohen `bucket.matrices`
+   * bleiben vollstaendig: Kollision, Interaktion und Weltzustand duerfen
+   * von einer Grafikoption nicht veraendert werden.
+   */
+  private sichtbareVegetationsMatrizen(
+    bucket: StaticBucket,
+    zdoMats: readonly Matrix[]
+  ): readonly Matrix[] {
+    if (
+      this.vegetationsGrenzeM <= 0 ||
+      !this.vegetationsMitteBekannt ||
+      !FOLIAGE_HASHES.has(bucket.prefabHash)
+    ) return zdoMats;
+    const radius = this.vegetationsGrenzeM + VEGETATIONS_NEUPACK_M;
+    return vegetationsMatrizenImRadius(
+      zdoMats,
+      this.vegetationsMitteX,
+      this.vegetationsMitteZ,
+      radius
+    );
+  }
+
+  /**
    * Expand the bucket's persistent zdoWorld store into thin-instance
    * buffers: instance = masterLocal × zdoWorld (row-major).
    *
@@ -1587,10 +1706,11 @@ export class EntityManager {
       this.rebuildBucketColliders(bucket, zdoMats);
       return;
     }
-    if (this.zellSchnittTaugt(masters, zdoMats.length)) {
-      this.baueZellMaster(bucket, masters, locals, zdoMats);
+    const renderMats = this.sichtbareVegetationsMatrizen(bucket, zdoMats);
+    if (this.zellSchnittTaugt(masters, renderMats.length)) {
+      this.baueZellMaster(bucket, masters, locals, renderMats);
     } else {
-      this.baueVollMaster(bucket, masters, locals, zdoMats);
+      this.baueVollMaster(bucket, masters, locals, renderMats);
     }
 
     this.rebuildBucketColliders(bucket, zdoMats);
@@ -1634,8 +1754,14 @@ export class EntityManager {
     this.zellenAbbauen(dickName);
     this.impostoren?.setzePrefab(basisName, null);
     this.impostoren?.setzePrefab(dickName, null);
-    const basisMats = this.buildZdoMats(basisBucket);
-    const dickMats = this.buildZdoMats(dickBucket);
+    const basisMats = this.sichtbareVegetationsMatrizen(
+      basisBucket,
+      this.buildZdoMats(basisBucket)
+    );
+    const dickMats = this.sichtbareVegetationsMatrizen(
+      dickBucket,
+      this.buildZdoMats(dickBucket)
+    );
     const count = basisMats.length + dickMats.length;
     for (let m = 0; m < basisMasters.length; m++) {
       const data = new Float32Array(count * 16);

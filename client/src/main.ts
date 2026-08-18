@@ -79,7 +79,7 @@ import { parseZDOSync, ZDOSpiegel } from './net/ZDOSync';
 import { Hud } from './ui/Hud';
 import { GrassClutter } from './engine/GrassClutter';
 import { HuegelGras } from './engine/HuegelGras';
-import { SettingsStore } from './ui/Settings';
+import { SettingsStore, VEGETATION_RANGE } from './ui/Settings';
 import { SettingsPanel } from './ui/SettingsPanel';
 import { PostProcessing } from './engine/PostProcessing';
 import { Shadows } from './engine/Shadows';
@@ -435,6 +435,7 @@ async function main() {
     shadows?.setLevel(s.hundertFpsProfil ? 1 : s.shadowQuality);
     shadows?.setDistantShadows(s.hundertFpsProfil ? false : s.distantShadows);
     entities?.setHundertFpsProfil(s.hundertFpsProfil);
+    entities?.setVegetationsGrenze(VEGETATION_RANGE[s.vegetationRange] ?? 0);
     // Renderauflösung: setHardwareScalingLevel(1/faktor) — Wert > 1 rendert
     // KLEINER als das Fenster und skaliert beim Ausgeben hoch. Der Effekt
     // ist quadratisch (75 % Kantenlänge = 44 % weniger Pixel) und damit der
@@ -566,6 +567,9 @@ async function main() {
     player = new PlayerController(scene, input, world, assets);
     entities = new EntityManager(scene, world, assets, terrain);
     entities.setHundertFpsProfil(gameSettings.get().hundertFpsProfil);
+    entities.setVegetationsGrenze(
+      VEGETATION_RANGE[gameSettings.get().vegetationRange] ?? 0
+    );
     entities.setzeNpcQuelle(npcNachKennung.size > 0 ? (id) => npcNachKennung.get(id) ?? null : null);
     grass = new GrassClutter(scene, world);
     // Bewuchs der Grabhügel-Kuppel: streut Wiesenhalme direkt auf die

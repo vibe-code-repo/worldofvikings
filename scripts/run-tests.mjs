@@ -51,6 +51,10 @@ const KERN = [
   // Bestandsdokument — DOM-frei, Sekunden, gehoert damit hierher.
   ['client', 'test/welt-abgleich.ts'],
   ['client', 'test/entity-index.ts'],
+  // Die Grafikoption begrenzt die gemeinsamen Bild-/Schattenmatrizen der
+  // Vegetation. Der reine Kreisfilter sichert den unveraenderten Standard
+  // (0 = voll), den eingeschlossenen Rand und die X/Z-Distanz ab.
+  ['client', 'test/vegetations-grenze.ts'],
   // Die Keulung der Schattenwerfer pro Instanz ist konservativ in genau
   // EINER Richtung: Was ueberlebt, wird eingereicht — verworfen wird nur,
   // was seitlich sicher ausserhalb des Lichtkastens liegt. Ein Fehler hier

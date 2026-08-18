@@ -17,6 +17,13 @@
  */
 export interface GameSettings {
   vegetationQuality: number;
+  /**
+   * Sichtweite fuer Baeume und Buesche (Index in VEGETATION_RANGE).
+   * Anders als `vegetationQuality` betrifft das nicht Gras, sondern die
+   * Thin-Instance-Puffer der grossen Vegetation. Index 3 bedeutet wie
+   * bisher: das gesamte geladene Streaming-Fenster zeichnen.
+   */
+  vegetationRange: number;
   detailQuality: number;
   /**
    * Renderauflösung in Prozent (Index in RENDER_SCALE).
@@ -138,9 +145,12 @@ export interface GameSettings {
 const STORAGE_KEY = 'valheim-babylon-settings-v1';
 /** Auswählbare Renderauflösungen (Faktor auf die Fensterbreite). */
 export const RENDER_SCALE = [0.5, 0.75, 0.85, 1.0] as const;
+/** Meter fuer Baeume/Buesche; 0 bedeutet das volle Streaming-Fenster. */
+export const VEGETATION_RANGE = [160, 200, 240, 0] as const;
 
 const DEFAULTS: GameSettings = {
   vegetationQuality: 2,
+  vegetationRange: 3, // unbegrenzt — bestehende Darstellung unveraendert
   detailQuality: 2,
   renderScale: 3, // 100 %
   grassDensity: 3, // volle Dichte
@@ -216,8 +226,9 @@ function loadSaved(): Partial<GameSettings> {
     if (!raw) return {};
     const parsed = JSON.parse(raw) as Partial<GameSettings>;
     const out: Partial<GameSettings> = {};
-    const q = { vegetationQuality: clamp(parsed.vegetationQuality), detailQuality: clamp(parsed.detailQuality), renderScale: clamp(parsed.renderScale), grassDensity: clamp(parsed.grassDensity), shadowQuality: clamp(parsed.shadowQuality), waterQuality: clamp(parsed.waterQuality) };
+    const q = { vegetationQuality: clamp(parsed.vegetationQuality), vegetationRange: clamp(parsed.vegetationRange), detailQuality: clamp(parsed.detailQuality), renderScale: clamp(parsed.renderScale), grassDensity: clamp(parsed.grassDensity), shadowQuality: clamp(parsed.shadowQuality), waterQuality: clamp(parsed.waterQuality) };
     if (q.vegetationQuality !== undefined) out.vegetationQuality = q.vegetationQuality;
+    if (q.vegetationRange !== undefined) out.vegetationRange = q.vegetationRange;
     if (q.detailQuality !== undefined) out.detailQuality = q.detailQuality;
     if (q.renderScale !== undefined) out.renderScale = q.renderScale;
     if (q.grassDensity !== undefined) out.grassDensity = q.grassDensity;

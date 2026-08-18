@@ -106,6 +106,14 @@ export class SettingsPanel {
     );
     panel.appendChild(
       this.buildRow(
+        'Vegetationsgrenze',
+        (s) => s.vegetationRange,
+        (v) => this.settings.set({ vegetationRange: v }),
+        ['160 m', '200 m', '240 m', 'Unbegrenzt']
+      )
+    );
+    panel.appendChild(
+      this.buildRow(
         'Detailgrad', // settings_lod
         (s) => s.detailQuality,
         (v) => this.settings.set({ detailQuality: v })

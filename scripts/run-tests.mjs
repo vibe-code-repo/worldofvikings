@@ -78,6 +78,11 @@ const KERN = [
   // Referenzinsel bedeutete dieser Fehler 36 Mio. unsichtbare Dreiecke pro
   // Bild. NullEngine reicht, weil Auswahl und Hüllen rein CPU-seitig sind.
   ['client', 'test/wasser-refraktion.ts'],
+  // Der experimentelle WebGPU-Pfad verwendet fuer die bestehenden
+  // Material-Plugins Babylons GLSL-Uebersetzung. Die Sprachflags muessen vor
+  // dem ersten Material gesetzt sein und duerfen durch ein Babylon-Update
+  // nicht still auf native WGSL-Shader umspringen.
+  ['client', 'test/webgpu-kompatibilitaet.ts'],
   // Das Impostor-Fernfeld ersetzt ferne Vegetation durch Sprites. Sein
   // Fehlermodus ist nicht Ruckeln, sondern ein Baum, den WEDER der
   // Zell-Master NOCH das Sprite-Feld zeichnet — oder den beide zeichnen.

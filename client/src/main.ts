@@ -107,6 +107,10 @@ import { Minimap } from './ui/Minimap';
 import { LightPool } from './engine/LightPool';
 import { CraftingPanel } from './ui/CraftingPanel';
 import { GameAudio } from './engine/GameAudio';
+import {
+  aktiviereWebGpuGlslKompatibilitaet,
+  istWebGpuGlslKompatibilitaetAktiv,
+} from './engine/WebGpuKompatibilitaet';
 
 const INPUT_SEND_RATE_MS = 50; // 20 Hz like the old client / original
 
@@ -144,25 +148,26 @@ function randomSeed(): string {
 }
 
 async function createEngine(canvas: HTMLCanvasElement) {
-  // WebGPU ist AUSGESCHALTET, bis die Material-Plugins WGSL sprechen.
-  //
-  // `ValheimWater` und `StandardGammaFix` sind gegen GLSL geschrieben.
-  // Unter WebGPU lehnt Babylon sie ab ("plugin is not compatible with the
-  // shader language of the material") und die Szene bricht danach ab —
-  // kein Havok, kein Avatar, kein Clutter, schwarzes Bild.
-  //
-  // Warum das so lange unentdeckt blieb: WebGPU gibt es NUR im sicheren
-  // Kontext. Über LAN-HTTP (http://10.10.10.x:5274) ist `navigator.gpu`
-  // gar nicht da, also lief hier immer der WebGL2-Zweig. Sichtbar wurde
-  // der Fehler erst, als der Server hinter HTTPS lief — derselbe Build
-  // rendert über HTTP eine Wiese und über HTTPS nichts.
-  //
-  // `?webgpu=1` schaltet den Zweig für die Reparatur wieder scharf.
-  if (new URLSearchParams(location.search).has('webgpu') && (await WebGPUEngine.IsSupportedAsync)) {
-    const engine = new WebGPUEngine(canvas, { antialias: true });
-    await engine.initAsync();
-    console.log('[engine] WebGPU (per ?webgpu=1 erzwungen)');
-    return engine;
+  // Der Opt-in bleibt absichtlich in der URL, bis Bildparitaet und Gewinn auf
+  // echter Hardware gemessen sind. Die Material-Plugins bleiben vorerst GLSL;
+  // Babylon uebersetzt sie fuer WebGPU (siehe WebGpuKompatibilitaet.ts).
+  const webGpuAngefordert = new URLSearchParams(location.search).has('webgpu');
+  if (webGpuAngefordert) {
+    if (await WebGPUEngine.IsSupportedAsync) {
+      aktiviereWebGpuGlslKompatibilitaet();
+      const engine = new WebGPUEngine(canvas, {
+        antialias: true,
+        powerPreference: 'high-performance',
+      });
+      await engine.initAsync();
+      console.log(
+        `[engine] WebGPU (GLSL-Kompatibilitaet: ${istWebGpuGlslKompatibilitaetAktiv() ? 'aktiv' : 'FEHLER'})`
+      );
+      return engine;
+    }
+    console.warn(
+      '[engine] ?webgpu=1 angefordert, aber WebGPU ist in diesem Browser/Kontext nicht verfuegbar; WebGL2-Fallback'
+    );
   }
   console.log('[engine] WebGL2');
   // `powerPreference: 'high-performance'` ist auf Geräten mit zwei GPUs
@@ -2602,7 +2607,7 @@ async function main() {
         // Baumodus (Editor-Testflug, Taste V): sichtbar machen, WARUM die
         // Figur gerade schwebt und die Kamera so weit heraus darf.
         (player.bauModus ? `BAUMODUS  V beendet — Leer steigt, X sinkt\n` : '') +
-        `pos ${player.position.x.toFixed(1)}, ${player.position.z.toFixed(1)}  h ${player.position.y.toFixed(1)}${swimming ? ' (Wasser)' : ''}\n` +
+        `renderer ${engine.isWebGPU ? 'WebGPU' : 'WebGL2'}  pos ${player.position.x.toFixed(1)}, ${player.position.z.toFixed(1)}  h ${player.position.y.toFixed(1)}${swimming ? ' (Wasser)' : ''}\n` +
         `chunks ${terrain.chunkCount} (+${terrain.queuedCount})  zdo s:${entities.staticCount} d:${entities.dynamicCount}\n` +
         `zeit ${(lighting.timeOfDay * 24).toFixed(1)}h  assets-fehler ${assets.failed.size}\n` +
         `env ${lighting.environmentName}${envPinned ? ' (pinned)' : ''}  ` +

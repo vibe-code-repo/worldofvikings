@@ -65,6 +65,11 @@ const KERN = [
   // ueber Babylons NullEngine: ohne GPU, ohne Assets, synthetische
   // Geometrie und Instanzlagen.
   ['client', 'test/master-huelle.ts'],
+  // Der Wasser-Refraktionspass darf gestreute Vegetation nicht anhand der
+  // weltweiten Thin-Instance-Hülle als "eingetaucht" einstufen. Auf der
+  // Referenzinsel bedeutete dieser Fehler 36 Mio. unsichtbare Dreiecke pro
+  // Bild. NullEngine reicht, weil Auswahl und Hüllen rein CPU-seitig sind.
+  ['client', 'test/wasser-refraktion.ts'],
   // Das Impostor-Fernfeld ersetzt ferne Vegetation durch Sprites. Sein
   // Fehlermodus ist nicht Ruckeln, sondern ein Baum, den WEDER der
   // Zell-Master NOCH das Sprite-Feld zeichnet — oder den beide zeichnen.

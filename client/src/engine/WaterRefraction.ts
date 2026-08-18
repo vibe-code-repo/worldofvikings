@@ -65,6 +65,7 @@ import { RenderTargetTexture } from '@babylonjs/core/Materials/Textures/renderTa
 import { WATER_LEVEL } from '@wov/shared';
 import type { Scene } from '@babylonjs/core/scene';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
+import { istGestreuteLandschaft } from './RefraktionsAuswahl';
 
 /**
  * Auflösung des Refraktionsbildes relativ zur Render-Auflösung, indiziert
@@ -91,7 +92,7 @@ export const WATER_QUALITY_RATIO = [0, 0.25, 0.5, 1.0] as const;
 const TAUCHT_EIN_BIS = WATER_LEVEL;
 
 /** Gehört das Mesh in die Brechung? */
-function gehoertHinein(mesh: AbstractMesh): boolean {
+export function gehoertHinein(mesh: AbstractMesh): boolean {
   const n = mesh.name;
   // startsWith statt Namensliste: das Fernwasser heisst seit dem Umbau auf
   // die Ringgeometrie 'waterRing'. Stünde es hier nicht drin, spiegelte
@@ -101,6 +102,17 @@ function gehoertHinein(mesh: AbstractMesh): boolean {
   // damit zwangsläufig unter die Wasserlinie — durchs Wasser gesehen hat
   // sie trotzdem nichts zu suchen.
   if (n === 'valheimSky') return false;
+  // E23: Die gestreuten Landschaftsobjekte stehen laut FOLIAGE-Regel über
+  // der Wasserlinie. Ihre Thin-Instance-Master spannen aber EINE Hülle über
+  // alle Vorkommen auf. Auf der Referenzinsel reichten deren Unterkanten bis
+  // y≈29 und zogen dadurch 36,2 Mio. Laub-Dreiecke in diesen zweiten Pass,
+  // obwohl kein Baum im Unterwasserbild lag. Die Markierung kommt aus dem
+  // EntityManager anhand von FOLIAGE_HASHES — nicht anhand fragiler GLB-
+  // Namen. Nicht als FOLIAGE geführte handplatzierte und dynamische Objekte
+  // laufen weiterhin durch die Höhenprüfung und bleiben bei echtem Eintauchen
+  // sichtbar. Der bewusste Sonderfall gleicher FOLIAGE-Prefabs steht an der
+  // Markierung selbst.
+  if (istGestreuteLandschaft(mesh)) return false;
   // Fern-Terrain (2×2 Zonen, 4-m-Raster) liegt per Konstruktion JENSEITS
   // des Nah-Rings, also mindestens 160 m weg (Detailgrad "Hoch": 4 Zonen).
   // Dort schwimmt kein Nahwasser mehr, sondern der blickdichte Fernring —

@@ -24,6 +24,7 @@ import {
   getRoomByHash,
   getStableHash,
   getTerrainLeveling,
+  FOLIAGE_HASHES,
   lebenAnteil,
 } from '@wov/shared';
 import type { NpcEinordnung } from '@wov/shared';
@@ -45,6 +46,10 @@ import {
 import type { BaumImpostor } from '../engine/BaumImpostor';
 import type { AssetManager } from '../engine/AssetManager';
 import type { TerrainManager } from '../engine/Terrain';
+import {
+  istGestreuteLandschaft,
+  markiereAlsGestreuteLandschaft,
+} from '../engine/RefraktionsAuswahl';
 import type { ClientWorld } from '../world/World';
 import type { ZDOEntityUpdate } from '../net/ZDOSync';
 /**
@@ -613,6 +618,10 @@ export function zellMeshAusPrototyp(proto: Mesh, name: string, scene: Scene): Me
   mesh.receiveShadows = proto.receiveShadows;
   mesh.renderingGroupId = proto.renderingGroupId;
   mesh.alphaIndex = proto.alphaIndex;
+  // Die Refraktionsauswahl hängt an der Objektidentität. Ein Zell-Master
+  // bekommt eine neue Identität und muss die semantische Markierung seines
+  // Prototyps deshalb ausdrücklich übernehmen.
+  if (istGestreuteLandschaft(proto)) markiereAlsGestreuteLandschaft(mesh);
   // ── Frustum-Culling BLEIBT AN — und wird hier erst richtig wirksam ──
   // Fortschreibung der D10-Begründung aus AssetManager.zuMaster(): Dort
   // ist festgehalten, dass `alwaysSelectAsActiveMesh = true` gefallen ist,
@@ -1478,6 +1487,12 @@ export class EntityManager {
     void this.assets.getMasters(model).then((masters) => {
       const bucket = this.buckets.get(prefabHash);
       if (!bucket || masters.length === 0) return;
+      // E23: FOLIAGE wird nur über Wasser gestreut. Die gemeinsame Hülle
+      // seiner Thin Instances darf deshalb nicht entscheiden, ob der ganze
+      // Bestand ein zweites Mal im Unterwasser-Pass gezeichnet wird.
+      if (FOLIAGE_HASHES.has(prefabHash)) {
+        for (const master of masters) markiereAlsGestreuteLandschaft(master.mesh);
+      }
       this.masterMeshes.set(prefabName, masters.map((m) => m.mesh));
       this.masterLocals.set(prefabName, masters.map((m) => m.localMatrix));
       bucket.mastersReady = true;

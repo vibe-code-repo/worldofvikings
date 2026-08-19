@@ -33,6 +33,7 @@
  * ausgelassen (subtil, kein visueller Blocker — s. Analyse-Dokument).
  */
 import { NodeMaterial } from '@babylonjs/core/Materials/Node/nodeMaterial';
+import type { NodeMaterialBlock } from '@babylonjs/core/Materials/Node/nodeMaterialBlock';
 import { InputBlock } from '@babylonjs/core/Materials/Node/Blocks/Input/inputBlock';
 import { TextureBlock } from '@babylonjs/core/Materials/Node/Blocks/Dual/textureBlock';
 import { ImageSourceBlock } from '@babylonjs/core/Materials/Node/Blocks/Dual/imageSourceBlock';
@@ -62,13 +63,14 @@ import { TrigonometryBlock, TrigonometryBlockOperations } from '@babylonjs/core/
 import { CustomBlock } from '@babylonjs/core/Materials/Node/Blocks/customBlock';
 import { NodeMaterialSystemValues } from '@babylonjs/core/Materials/Node/Enums/nodeMaterialSystemValues';
 import { NodeMaterialBlockConnectionPointTypes } from '@babylonjs/core/Materials/Node/Enums/nodeMaterialBlockConnectionPointTypes';
+import { NodeMaterialBlockTargets } from '@babylonjs/core/Materials/Node/Enums/nodeMaterialBlockTargets';
 import { NodeMaterialModes } from '@babylonjs/core/Materials/Node/Enums/nodeMaterialModes';
 import type { NodeMaterialConnectionPoint } from '@babylonjs/core/Materials/Node/nodeMaterialBlockConnectionPoint';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture';
 import type { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { Constants } from '@babylonjs/core/Engines/constants';
-import { Color3, Vector3 } from '@babylonjs/core/Maths/math';
+import { Color3, Vector2, Vector3 } from '@babylonjs/core/Maths/math';
 import type { Scene } from '@babylonjs/core/scene';
 
 /** Tile-Indizes im 256×4096-Stack (G-TEX, 16/16 gegen Slices verifiziert). */
@@ -174,6 +176,11 @@ function cnst3(name: string, value: Color3): InputBlock {
  *  seinen Typ aus dem zugewiesenen Wert ab, ein Vector3 wird also zu
  *  `vec3` ohne Farbraum-Bedeutung. */
 function cnst3v(name: string, value: Vector3): InputBlock {
+  const b = new InputBlock(name);
+  b.value = value;
+  return b;
+}
+function cnst2(name: string, value: Vector2): InputBlock {
   const b = new InputBlock(name);
   b.value = value;
   return b;
@@ -315,6 +322,21 @@ export class TerrainSplatMaterial {
     const aSnow = attrT('aSnow', NodeMaterialBlockConnectionPointTypes.Float);
     const aRockTile = attrT('aRockTile', NodeMaterialBlockConnectionPointTypes.Float);
     const aMaskUV = attrT('aMaskUV', NodeMaterialBlockConnectionPointTypes.Vector2);
+
+    // Drei einzelne Float-Attribute belegen beim Uebergang in den
+    // Fragment-Shader drei komplette Varying-Locations. WebGPU zaehlt
+    // Locations, nicht Komponenten; zusammen mit den CSM-Schattenwerten
+    // landete das Terrain deshalb bei 17 statt der erlaubten 16. Im
+    // Vertex-Shader zu vec3 packen und im Fragment-Shader wieder teilen
+    // behaelt die Mesh-Daten unveraendert, braucht aber nur eine Location.
+    const terrainMarker = new VectorMergerBlock('terrainMarker');
+    terrainMarker.target = NodeMaterialBlockTargets.Vertex;
+    aRockTile.output.connectTo(terrainMarker.x);
+    aSnow.output.connectTo(terrainMarker.y);
+    aLava.output.connectTo(terrainMarker.z);
+    const terrainMarkerSplit = new VectorSplitterBlock('terrainMarkerSplit');
+    terrainMarkerSplit.target = NodeMaterialBlockTargets.Fragment;
+    terrainMarker.xyzOut.connectTo(terrainMarkerSplit.xyzIn);
     const world = sysInput('world', NodeMaterialSystemValues.World);
     const worldViewProjection = sysInput('worldViewProjection', NodeMaterialSystemValues.WorldViewProjection);
     const cameraPos = sysInput('cameraPosition', NodeMaterialSystemValues.CameraPosition);
@@ -346,14 +368,17 @@ export class TerrainSplatMaterial {
     position.output.connectTo(worldPos.vector);
     world.output.connectTo(worldPos.transform);
     const wps = new VectorSplitterBlock('wps');
-    worldPos.xyz.connectTo(wps.xyzIn); // xyz output (Vector3) matches xyzIn
+    // Die vec4-Ausgabe wird auch vom Schattenblock gebraucht. Aus genau
+    // dieser einen Uebergabe im Fragment wieder xyz zu bilden vermeidet ein
+    // zweites, inhaltlich identisches WorldPos-Varying.
+    worldPos.output.connectTo(wps.xyzw);
 
     const normalW = new TransformBlock('normalW');
     normalW.transformAsDirection = true;
     normal.output.connectTo(normalW.vector);
     world.output.connectTo(normalW.transform);
     const nrmSplit = new VectorSplitterBlock('nrmSplit');
-    normalW.xyz.connectTo(nrmSplit.xyzIn);
+    normalW.output.connectTo(nrmSplit.xyzw);
 
     // Clip position: use the engine-provided WorldViewProjection system value
     // directly (Babylon composes World * ViewProjection via Matrix.multiplyToRef,
@@ -430,6 +455,7 @@ export class TerrainSplatMaterial {
     worldXZ.xy.connectTo(noiseUV.left);
     noiseUVScale.output.connectTo(noiseUV.right);
     const noiseTex = new TextureBlock('noiseTex');
+    noiseTex.fragmentOnly = true;
     noiseTex.texture = noiseTexO;
     noiseUV.output.connectTo(noiseTex.uv);
     const noiseSplit = new VectorSplitterBlock('noiseSplit');
@@ -559,6 +585,62 @@ export class TerrainSplatMaterial {
       /** UV-Versatz, damit grobe und feine Ebene nicht deckungsgleich laufen. */
       versatz: readonly [number, number] = [0, 0]
     ): NodeMaterialConnectionPoint => {
+      if (scene.getEngine().isWebGPU) {
+        // glslang erlaubt einen kombinierten sampler2D(texture, sampler)
+        // nur direkt am texture*-Aufruf, nicht als Funktionsargument. Der
+        // CustomBlock unten uebergibt ihn jedoch an vbTileSample_* und ist
+        // deshalb unter WebGPU unuebersetzbar. Derselbe Atlaszugriff wird
+        // hier aus Babylon-Bloecken aufgebaut; TextureBlock emittiert den
+        // Sampler-Konstruktor direkt am Sample und ist WebGPU-gueltig.
+        //
+        // Einzige optische Abweichung des Testpfads: TextureBlock kann die
+        // kontinuierlichen Gradienten des GLSL-Helfers nicht uebernehmen.
+        // Die Tile-Auswahl, Atlas-Insets und sRGB-Linearisierung bleiben
+        // identisch; ein nativer WGSL-Block kann textureSampleGrad spaeter
+        // wieder exakt nachziehen, falls WebGPU den Messvergleich gewinnt.
+        const skala = new MultiplyBlock(`tile_${name}_skala`);
+        tileUV.output.connectTo(skala.left);
+        cnst(`tile_${name}_freq`, freq).output.connectTo(skala.right);
+
+        const verschoben = new AddBlock(`tile_${name}_versatz`);
+        skala.output.connectTo(verschoben.left);
+        cnst2(`tile_${name}_versatzWert`, new Vector2(versatz[0], versatz[1])).output.connectTo(
+          verschoben.right
+        );
+
+        const gebrochen = new TrigonometryBlock(`tile_${name}_fract`);
+        gebrochen.operation = TrigonometryBlockOperations.Fract;
+        verschoben.output.connectTo(gebrochen.input);
+        const f = new VectorSplitterBlock(`tile_${name}_f`);
+        gebrochen.output.connectTo(f.xyIn);
+
+        const fy = new MultiplyBlock(`tile_${name}_fy`);
+        f.y.connectTo(fy.left);
+        cnst(`tile_${name}_yinset`, 0.96).output.connectTo(fy.right);
+        const layerInset = new AddBlock(`tile_${name}_layerInset`);
+        layerInput.connectTo(layerInset.left);
+        cnst(`tile_${name}_padding`, 0.02).output.connectTo(layerInset.right);
+        const ySumme = new AddBlock(`tile_${name}_ySumme`);
+        layerInset.output.connectTo(ySumme.left);
+        fy.output.connectTo(ySumme.right);
+        const yAtlas = new MultiplyBlock(`tile_${name}_yAtlas`);
+        ySumme.output.connectTo(yAtlas.left);
+        cnst(`tile_${name}_atlasHoehe`, 1 / 16).output.connectTo(yAtlas.right);
+
+        const atlasUv = new VectorMergerBlock(`tile_${name}_atlasUv`);
+        f.x.connectTo(atlasUv.x);
+        yAtlas.output.connectTo(atlasUv.y);
+        const tex = new TextureBlock(`tile_${name}_tex`);
+        tex.fragmentOnly = true;
+        splatQuelle.source.connectTo(tex.source);
+        atlasUv.xy.connectTo(tex.uv);
+
+        const linear = new PowBlock(`tile_${name}_linear`);
+        tex.rgb.connectTo(linear.value);
+        cnst3(`tile_${name}_gamma`, new Color3(2.2, 2.2, 2.2)).output.connectTo(linear.power);
+        return linear.output;
+      }
+
       const cb = new CustomBlock(`tile_${name}`);
       const fn = `vbTileSample_${name}`;
       cb.options = {
@@ -618,7 +700,7 @@ export class TerrainSplatMaterial {
       splatQuelle.source.connectTo(o.atlas);
       tileUV.output.connectTo(o.uvKont);
       layerInput.connectTo(o.layer);
-      worldPos.xyz.connectTo(o.wpos);
+      wps.xyzOut.connectTo(o.wpos);
       cameraPos.output.connectTo(o.cpos);
       return (cb as unknown as { result: NodeMaterialConnectionPoint }).result;
     };
@@ -668,6 +750,7 @@ export class TerrainSplatMaterial {
       worldXZ.xy.connectTo(uv.left);
       s.output.connectTo(uv.right);
       const tex = new TextureBlock(`${name}Tex`);
+      tex.fragmentOnly = true;
       // Dieselbe Texture-Instanz wie die mittlere Oktave: Babylon legt pro
       // TextureBlock einen eigenen Sampler an, die GPU-Textur dahinter
       // bleibt aber dieselbe — kein zusätzlicher VRAM.
@@ -797,7 +880,7 @@ export class TerrainSplatMaterial {
     // unter 26° unberührt. Der Wert ist ABGESTIMMT, nicht rekonstruiert:
     // die Schwelle steht im Original-Shader, und der liegt im Export nur
     // als 0-Byte-Datei vor (die Materialdaten führen keine dazu).
-    const rockSample = sampleLayer(aRockTile.output, 'rock');
+    const rockSample = sampleLayer(terrainMarkerSplit.x, 'rock');
     const felsBeginn = cnst('felsBeginn', 0.87);   // ny bei 30 Grad
     const rockD = new SubtractBlock('rockD'); felsBeginn.output.connectTo(rockD.left); nrmSplit.y.connectTo(rockD.right);
     const felsRampe = cnst('felsRampe', 0.15);     // voll bei 44 Grad
@@ -812,6 +895,7 @@ export class TerrainSplatMaterial {
     //  - vor Schnee/Lava, damit Schnee sich über Bergstraßen legt
     // Das entspricht der Wirkungsreihenfolge im Original-Shader.
     const maskTex = new TextureBlock('maskTex');
+    maskTex.fragmentOnly = true;
     maskTex.texture = maskTexO;
     aMaskUV.output.connectTo(maskTex.uv);
 
@@ -862,7 +946,7 @@ export class TerrainSplatMaterial {
     const ss04 = cnst('ss04', 0.4);
     const ss065 = cnst('ss065', 0.65);
     ss04.output.connectTo(snowSS.edge0); ss065.output.connectTo(snowSS.edge1); nrmSplit.y.connectTo(snowSS.value);
-    const snowK = new MultiplyBlock('snowK'); aSnow.output.connectTo(snowK.left); snowSS.output.connectTo(snowK.right);
+    const snowK = new MultiplyBlock('snowK'); terrainMarkerSplit.y.connectTo(snowK.left); snowSS.output.connectTo(snowK.right);
     const snowLerp = new LerpBlock('snowLerp'); rockLerp.output.connectTo(snowLerp.left); snowCol.output.connectTo(snowLerp.right); snowK.output.connectTo(snowLerp.gradient);
 
     // ── Lava (AshLands): dunkle Kruste + glühende Risse ─────────────
@@ -870,7 +954,7 @@ export class TerrainSplatMaterial {
     const crustSample = sampleLayer(crustTile.output, 'crust');
     const crustTint = cnst3('crustTint', new Color3(0.45, 0.42, 0.4));
     const crustDark = new MultiplyBlock('crustDark'); crustSample.connectTo(crustDark.left); crustTint.output.connectTo(crustDark.right);
-    const lavaClamp = new ClampBlock('lavaClamp'); aLava.output.connectTo(lavaClamp.value);
+    const lavaClamp = new ClampBlock('lavaClamp'); terrainMarkerSplit.z.connectTo(lavaClamp.value);
     const c09 = cnst('c09', 0.9);
     const lavaK = new MultiplyBlock('lavaK'); lavaClamp.output.connectTo(lavaK.left); c09.output.connectTo(lavaK.right);
     const lavaLerp = new LerpBlock('lavaLerp'); snowLerp.output.connectTo(lavaLerp.left); crustDark.output.connectTo(lavaLerp.right); lavaK.output.connectTo(lavaLerp.gradient);
@@ -940,6 +1024,7 @@ export class TerrainSplatMaterial {
       // fract() im Shader würde an den Kachelgrenzen Mipmap-Nähte erzeugen.
       t.wrapU = t.wrapV = Texture.WRAP_ADDRESSMODE;
       const tb = new TextureBlock(`normalTex${i}`);
+      tb.fragmentOnly = true;
       tb.texture = t;
       rotUV.xy.connectTo(tb.uv);
       return tb;
@@ -1035,9 +1120,9 @@ export class TerrainSplatMaterial {
     snowK.output.connectTo(pIn.schnee);
     aTiles.output.connectTo((perturb as unknown as Record<string, never>).tiles);
     aWeights.output.connectTo((perturb as unknown as Record<string, never>).weights);
-    worldPos.xyz.connectTo((perturb as unknown as Record<string, never>).wpos);
+    wps.xyzOut.connectTo((perturb as unknown as Record<string, never>).wpos);
     rotUV.xy.connectTo((perturb as unknown as Record<string, never>).uv);
-    normalW.xyz.connectTo((perturb as unknown as Record<string, never>).surfN);
+    nrmSplit.xyzOut.connectTo((perturb as unknown as Record<string, never>).surfN);
     normalStrength.output.connectTo((perturb as unknown as Record<string, never>).strength);
     const litNrm = new VectorSplitterBlock('litNrm');
     (perturb as unknown as { result: NodeMaterialConnectionPoint }).result.connectTo(litNrm.xyzIn);
@@ -1202,7 +1287,7 @@ export class TerrainSplatMaterial {
     const g = glanz as unknown as Record<string, never>;
     (perturb as unknown as { result: NodeMaterialConnectionPoint }).result.connectTo(g.nrm);
     this.sunDirBlock.output.connectTo(g.sunDir);
-    worldPos.xyz.connectTo(g.wpos);
+    wps.xyzOut.connectTo(g.wpos);
     cameraPos.output.connectTo(g.cpos);
     this.sunColBlock.output.connectTo(g.sunCol);
     schattenAusgang.connectTo(g.schatten);
@@ -1214,7 +1299,7 @@ export class TerrainSplatMaterial {
     const finalCol = new AddBlock('finalCol'); mitGlanz.output.connectTo(finalCol.left); lavaEmissive.output.connectTo(finalCol.right);
 
     // ── Nebel (EXP2 manuell) ────────────────────────────────────────
-    const camD = new SubtractBlock('camD'); worldPos.xyz.connectTo(camD.left); cameraPos.output.connectTo(camD.right);
+    const camD = new SubtractBlock('camD'); wps.xyzOut.connectTo(camD.left); cameraPos.output.connectTo(camD.right);
     const camDS = new VectorSplitterBlock('camDS'); camD.output.connectTo(camDS.xyzIn);
     const dx2 = new MultiplyBlock('dx2'); camDS.x.connectTo(dx2.left); camDS.x.connectTo(dx2.right);
     const dy2 = new MultiplyBlock('dy2'); camDS.y.connectTo(dy2.left); camDS.y.connectTo(dy2.right);
@@ -1274,6 +1359,33 @@ export class TerrainSplatMaterial {
 
     mat.addOutputNode(vertexOut);
     mat.addOutputNode(fragOut);
+
+    // NodeMaterial legt neutrale Rechenbloecke standardmaessig moeglichst
+    // frueh in den Vertex-Shader. Fuer dieses grosse Terrain-Netz ist das
+    // kontraproduktiv: Jede Zwischenstufe, die der Fragment-Shader spaeter
+    // braucht, wird zu einem eigenen Varying. Der GLSL->WebGPU-Pfad kam so
+    // auf 27 Vertex-Ausgaenge (mit CSM 34), WebGPU erlaubt aber 16.
+    //
+    // Nur Weltposition/-normale und Clipposition muessen im Vertex-Shader
+    // bleiben. Alle uebrigen neutralen Operationen rechnen wir pro Pixel;
+    // dadurch gehen lediglich die tatsaechlich benoetigten Attribute und
+    // Weltwerte ueber die Stufengrenze statt jeder UV-Zwischenrechnung.
+    const vertexPflicht = new Set<NodeMaterialBlock>([worldPos, normalW, clipPos]);
+    const fragmentBloecke = new Set<NodeMaterialBlock>();
+    const sammleFragmentBloecke = (block: NodeMaterialBlock): void => {
+      if (fragmentBloecke.has(block)) return;
+      fragmentBloecke.add(block);
+      for (const input of block.inputs) {
+        const quelle = input.connectedPoint?.ownerBlock;
+        if (quelle) sammleFragmentBloecke(quelle);
+      }
+    };
+    sammleFragmentBloecke(fragOut);
+    for (const block of fragmentBloecke) {
+      if (block.target === NodeMaterialBlockTargets.Neutral && !vertexPflicht.has(block)) {
+        block.target = NodeMaterialBlockTargets.Fragment;
+      }
+    }
     mat.build();
 
     // Terrain must render both faces — the NodeMaterial does manual Lambert

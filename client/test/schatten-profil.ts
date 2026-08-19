@@ -10,7 +10,7 @@
  * Lauf: npx tsx client/test/schatten-profil.ts
  */
 
-import { SHADOW_LEVELS, schattenKonfiguration } from '../src/engine/Shadows';
+import { SHADOW_LEVELS, schattenKonfiguration, schattenLambda } from '../src/engine/Shadows';
 
 let fehler = 0;
 function pruefe(bedingung: boolean, was: string): void {
@@ -28,15 +28,18 @@ pruefe(normal?.distanz === 80, 'normale Stufe 1 reicht nicht 80 m');
 
 const profil = schattenKonfiguration(1, true);
 pruefe(profil !== SHADOW_LEVELS[1], 'Profil verwendet versehentlich die normale Stufe');
-pruefe(profil?.aufloesung === 1024, 'Profil verwendet nicht 1024 px');
+pruefe(profil?.aufloesung === 2048, 'Profil verwendet nicht 2048 px');
 pruefe(profil?.kaskaden === 2, 'Profil hat nicht zwei Kaskaden');
 pruefe(profil?.distanz === 80, 'Profil reicht nicht 80 m');
+pruefe(schattenLambda(1, true) === 0.20, 'Profil verteilt die zwei Kaskaden nicht ausgewogen');
+pruefe(schattenLambda(1, false) === 0.80, 'normale Stufe 1 hat ihre Verteilung verloren');
 
 for (const stufe of [0, 2, 3]) {
   pruefe(
     schattenKonfiguration(stufe, true) === SHADOW_LEVELS[stufe],
     `Profil greift ungewollt in Stufe ${stufe} ein`
   );
+  pruefe(schattenLambda(stufe, true) === 0.80, `Profil aendert Lambda in Stufe ${stufe}`);
 }
 pruefe(schattenKonfiguration(-1, true) === null, 'ungueltige negative Stufe liefert Konfiguration');
 pruefe(schattenKonfiguration(99, true) === null, 'ungueltige hohe Stufe liefert Konfiguration');

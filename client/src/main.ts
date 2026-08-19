@@ -21,6 +21,9 @@
  * (?seed=<seed> optional); useful for quick dev/Playwright probes.
  */
 import { Engine, WebGPUEngine } from '@babylonjs/core/Engines';
+import { EngineInstrumentation } from '@babylonjs/core/Instrumentation/engineInstrumentation';
+import { SceneInstrumentation } from '@babylonjs/core/Instrumentation/sceneInstrumentation';
+import '@babylonjs/core/Engines/WebGPU/Extensions/engine.query';
 import { Scene } from '@babylonjs/core/scene';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Ray } from '@babylonjs/core/Culling/ray';
@@ -151,17 +154,33 @@ async function createEngine(canvas: HTMLCanvasElement) {
   // Der Opt-in bleibt absichtlich in der URL, bis Bildparitaet und Gewinn auf
   // echter Hardware gemessen sind. Die Material-Plugins bleiben vorerst GLSL;
   // Babylon uebersetzt sie fuer WebGPU (siehe WebGpuKompatibilitaet.ts).
-  const webGpuAngefordert = new URLSearchParams(location.search).has('webgpu');
+  const params = new URLSearchParams(location.search);
+  const webGpuAngefordert = params.has('webgpu');
+  const performanceDiagnose = params.has('perf');
+  const webGpuBundles = params.has('bundles');
   if (webGpuAngefordert) {
     if (await WebGPUEngine.IsSupportedAsync) {
       aktiviereWebGpuGlslKompatibilitaet();
       const engine = new WebGPUEngine(canvas, {
         antialias: true,
         powerPreference: 'high-performance',
+        // Nur der ausdrueckliche Messlauf fordert optionale Adapter-Features
+        // an. Dazu gehoert `timestamp-query`, mit dem Babylon die echte
+        // GPU-Zeit eines Frames erfassen kann. Im normalen Spiel bleibt der
+        // Device-Descriptor und damit auch der Laufzeitpfad unveraendert.
+        enableAllFeatures: performanceDiagnose,
       });
+      // Babylons Standard ist der vorsichtige Kompatibilitaetsmodus, der
+      // jeden Draw Call unmittelbar in den RenderPassEncoder schreibt. Der
+      // Nicht-Kompatibilitaetsmodus fasst unveraenderte Befehle in WebGPU-
+      // Render-Bundles zusammen und ist der eigentliche CPU-Hebel des neuen
+      // Backends. Bis die Bildparitaet bestaetigt ist, bleibt er ein eigener
+      // Opt-in (`&bundles=1`).
+      engine.compatibilityMode = !webGpuBundles;
       await engine.initAsync();
       console.log(
-        `[engine] WebGPU (GLSL-Kompatibilitaet: ${istWebGpuGlslKompatibilitaetAktiv() ? 'aktiv' : 'FEHLER'})`
+        `[engine] WebGPU (GLSL-Kompatibilitaet: ${istWebGpuGlslKompatibilitaetAktiv() ? 'aktiv' : 'FEHLER'}, ` +
+        `Render-Bundles: ${webGpuBundles ? 'aktiv' : 'aus'})`
       );
       return engine;
     }
@@ -177,6 +196,61 @@ async function createEngine(canvas: HTMLCanvasElement) {
   // würde es die Pixelzahl vervierfachen; die Auflösung regelt stattdessen
   // die Einstellung "Renderauflösung" (engine.setHardwareScalingLevel).
   return new Engine(canvas, true, { stencil: true, powerPreference: 'high-performance' });
+}
+
+/**
+ * Automatische CPU-/GPU-Aufschluesselung fuer echte Browser-Hardware.
+ *
+ * Aufruf ueber `?webgpu=1&perf=1`; absichtlich keine dauerhafte HUD-Anzeige
+ * und kein Console-Paste notwendig. `frame` misst Babylons gesamten
+ * CPU-Frame, `render` nur den Renderabschnitt und `pause` die Zeit zwischen
+ * zwei Frames (typischerweise Browser/VSync). Die GPU-Zeit kommt unter
+ * WebGPU aus Timestamp Queries und wird von Nanosekunden in Millisekunden
+ * umgerechnet.
+ */
+function aktivierePerformanceDiagnose(
+  engine: Engine | WebGPUEngine,
+  scene: Scene,
+  teilsystemProfil: () => string
+): void {
+  if (!new URLSearchParams(location.search).has('perf')) return;
+
+  const szeneMessung = new SceneInstrumentation(scene);
+  szeneMessung.captureFrameTime = true;
+  szeneMessung.captureRenderTime = true;
+  szeneMessung.captureInterFrameTime = true;
+  szeneMessung.captureActiveMeshesEvaluationTime = true;
+  szeneMessung.captureRenderTargetsRenderTime = true;
+
+  const engineMessung = new EngineInstrumentation(engine);
+  if (engine.isWebGPU) engineMessung.captureGPUFrameTime = true;
+  engineMessung.captureShaderCompilationTime = true;
+
+  window.setInterval(() => {
+    const gpuNs = engine.isWebGPU
+      ? engineMessung.gpuFrameTimeCounter.lastSecAverage
+      : 0;
+    const gpuText = gpuNs > 0 ? `${(gpuNs / 1_000_000).toFixed(2)} ms` : 'nicht verfuegbar';
+    const shader = engineMessung.shaderCompilationTimeCounter;
+    console.log(
+      '[perf]',
+      `renderer=${engine.isWebGPU ? 'WebGPU' : 'WebGL2'}`,
+      `fps=${engine.getFps().toFixed(1)}`,
+      `frame=${szeneMessung.frameTimeCounter.lastSecAverage.toFixed(2)} ms`,
+      `render=${szeneMessung.renderTimeCounter.lastSecAverage.toFixed(2)} ms`,
+      `pause=${szeneMessung.interFrameTimeCounter.lastSecAverage.toFixed(2)} ms`,
+      `gpu=${gpuText}`,
+      `shader=${shader.total.toFixed(0)}ms/${shader.count}x/max${shader.max.toFixed(0)}ms`,
+      `bundles=${engine.isWebGPU && !(engine as WebGPUEngine).compatibilityMode ? 'an' : 'aus'}`,
+      `targets=${szeneMessung.renderTargetsRenderTimeCounter.lastSecAverage.toFixed(2)} ms`,
+      `active=${szeneMessung.activeMeshesEvaluationTimeCounter.lastSecAverage.toFixed(2)} ms`,
+      `draws=${szeneMessung.drawCallsCounter.current}`,
+      `size=${engine.getRenderWidth()}x${engine.getRenderHeight()}`,
+      `scale=${engine.getHardwareScalingLevel().toFixed(3)}`,
+      `visible=${document.visibilityState}`,
+      teilsystemProfil()
+    );
+  }, 5_000);
 }
 
 async function main() {
@@ -487,6 +561,7 @@ async function main() {
     entities: { summe: 0, max: 0, n: 0 },
     rest: { summe: 0, max: 0, n: 0 },
   };
+  let gemessenDieserFrame = 0;
   /**
    * Stand des kumulativen Zeichenaufruf-Zählers beim letzten profil() —
    * die Bezugsgrösse für `zeichenaufrufeProBild`, s. dort.
@@ -496,11 +571,33 @@ async function main() {
     const t0 = performance.now();
     const r = fn();
     const dt = performance.now() - t0;
+    gemessenDieserFrame += dt;
     const e = zeitmess[feld]!;
     e.summe += dt; e.n++;
     if (dt > e.max) e.max = dt;
     return r;
   };
+  const teilsystemProfil = (): string => {
+    const teile: string[] = [];
+    for (const [name, messung] of Object.entries(zeitmess)) {
+      if (messung.n > 0) {
+        teile.push(
+          `${name}=${(messung.summe / messung.n).toFixed(2)}/${messung.max.toFixed(2)}ms`
+        );
+      }
+      messung.summe = 0;
+      messung.max = 0;
+      messung.n = 0;
+    }
+    const s = gameSettings.get();
+    return (
+      `update(avg/max) ${teile.join(' ')} ` +
+      `settings=100fps:${s.hundertFpsProfil ? 'an' : 'aus'},` +
+      `shadow:${s.shadowQuality},water:${s.waterQuality},vegetation:${s.vegetationRange},` +
+      `grass:${s.grassDensity},render:${s.renderScale}`
+    );
+  };
+  aktivierePerformanceDiagnose(engine, scene, teilsystemProfil);
 
   /**
    * D9: Terraforming-Endzustände, die vor der Welt eintrafen.
@@ -2252,6 +2349,8 @@ async function main() {
 
   scene.onBeforeRenderObservable.add(() => {
     if (!world || !terrain || !player || !entities || !grass) return; // waiting for buildWorld()
+    const updateStart = performance.now();
+    gemessenDieserFrame = 0;
     const dt = Math.min(engine.getDeltaTime() / 1000, 0.1);
     const elapsed = performance.now() / 1000;
 
@@ -2633,6 +2732,17 @@ async function main() {
     // Last thing in the frame: everything above has now seen this frame's
     // key/button presses, so the edge state can be dropped.
     input.endFrame();
+
+    // Alles, was nicht in einem der vier groben Abschnitte steckt: Wetter,
+    // Licht, Schattenlisten, Wasser-Uniforms, Minimap und HUD. Gerade diese
+    // bislang unsichtbare Summe ist fuer den WebGPU-Lauf entscheidend, weil
+    // GPU und eigentlicher Draw-Abschnitt zusammen deutlich unter 10 ms
+    // bleiben, der Gesamtframe aber etwa 16 ms braucht.
+    const restDauer = Math.max(0, performance.now() - updateStart - gemessenDieserFrame);
+    const rest = zeitmess.rest!;
+    rest.summe += restDauer;
+    rest.n++;
+    if (restDauer > rest.max) rest.max = restDauer;
   });
 
   engine.runRenderLoop(() => {

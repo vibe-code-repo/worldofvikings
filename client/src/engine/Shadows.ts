@@ -133,17 +133,33 @@ export const SHADOW_LEVELS: readonly (ShadowLevel | null)[] = [
  * Schattenfassung des 100-FPS-Profils.
  *
  * Zwei Kaskaden und 80 m halten die Draw-Call-Seite des gemessenen Profils
- * unverändert. 1024 statt 512 Pixel verdoppeln die Texeldichte gegen das
+ * unverändert. 2048 statt 512 Pixel vervierfachen die Texeldichte gegen das
  * Kriechen feiner Blattschatten; die Kaskaden werden zusätzlich am
- * Texelraster stabilisiert. Bewusst getrennt von SHADOW_LEVELS[1], damit
+ * Texelraster stabilisiert und breiter ineinander uebergeblendet. Die echte
+ * WebGPU-Messung lag bei nur 4-6 ms GPU-Zeit, waehrend der Gesamtframe mit
+ * rund 11,5 ms CPU-limitiert war — diese Reserve wird hier bewusst fuer ein
+ * ruhigeres Bild eingesetzt. Bewusst getrennt von SHADOW_LEVELS[1], damit
  * die normale Stufe "Niedrig" beim Abschalten exakt unverändert zurückkommt.
  */
-const HUNDERT_FPS_SCHATTEN: ShadowLevel = { kaskaden: 2, distanz: 80, aufloesung: 1024 };
+const HUNDERT_FPS_SCHATTEN: ShadowLevel = { kaskaden: 2, distanz: 80, aufloesung: 2048 };
 
 /** Reine Profilzuordnung — getrennt testbar, ohne WebGL-ShadowGenerator. */
 export function schattenKonfiguration(stufe: number, hundertFpsProfil: boolean): ShadowLevel | null {
   if (hundertFpsProfil && stufe === 1) return HUNDERT_FPS_SCHATTEN;
   return SHADOW_LEVELS[stufe] ?? null;
+}
+
+/**
+ * Kaskadenverteilung des jeweiligen Pfads.
+ *
+ * Mit zwei Kaskaden, 80 m und lambda 0,8 endet die scharfe Nahkaskade schon
+ * bei rund 13 m (Kamera minZ 0,5). Danach muss eine einzige Karte die
+ * restlichen 67 m tragen — genau der sichtbare Sprung von scharf zu weich.
+ * Lambda 0,20 verschiebt die Grenze auf rund 33 m und teilt 33/47 m. Die
+ * zweite Kaskade gewinnt dadurch ebenfalls Texeldichte, ohne dritten Pass.
+ */
+export function schattenLambda(stufe: number, hundertFpsProfil: boolean): number {
+  return hundertFpsProfil && stufe === 1 ? 0.20 : 0.80;
 }
 
 /**
@@ -893,10 +909,16 @@ export class Shadows {
     // GPU +0,6 ms bei weiter 107..109 FPS. Die normalen Stufen bleiben auf
     // `false`, damit ihr zuvor gemessener Stand unveraendert bleibt.
     g.stabilizeCascades = this.hundertFpsProfil && i === 1;
+    // Der Profilpfad hat nur zwei Kaskaden; sein einzelner Uebergang ist
+    // dadurch breiter im Bild und fiel beim Kameraschwenk als Flackern auf.
+    // Babylons Standard 0,1 mischt nur auf den letzten zehn Prozent einer
+    // Kaskade. Zwanzig Prozent verdecken den Wechsel frueher, ohne einen
+    // weiteren Schattenpass oder zusaetzliche Werfer zu erzeugen.
+    g.cascadeBlendPercentage = this.hundertFpsProfil && i === 1 ? 0.20 : 0.10;
     // Logarithmischere Aufteilung der vier Kaskaden: schiebt Texeldichte in
     // den Nahbereich, wo der Spieler steht. Babylons Vorgabe ist 0,5.
     // Gemessen: 0,80 traegt, 0,95 ist bereits schlechter (2,04 gegen 2,44 %).
-    g.lambda = 0.80;
+    g.lambda = schattenLambda(i, this.hundertFpsProfil);
     // `autoCalcDepthBounds` BEWUSST AUS: Es klingt richtig (der
     // Tiefenbereich passt sich dem Gelände an), zieht aber einen
     // zusätzlichen Tiefen-Renderpass über die ganze Szene nach sich —

@@ -35,6 +35,7 @@
  * back-face sphere with `infiniteDistance`, depth-write off, fog off.
  */
 import { Effect } from '@babylonjs/core/Materials/effect';
+import { ShaderLanguage } from '@babylonjs/core/Materials/shaderLanguage';
 import { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { ReflectionProbe } from '@babylonjs/core/Probes/reflectionProbe';
@@ -340,6 +341,11 @@ export class ValheimSky {
           'uCloud',
           'uTime',
         ],
+        // Der Quelltext oben liegt im GLSL-Store. Ohne die explizite Sprache
+        // sucht ShaderMaterial unter WebGPU nach einer WGSL-Datei namens
+        // valheimSky.fragment.fx; Vite beantwortet den unbekannten Pfad mit
+        // index.html, das danach als WGSL geparst wird (schwarzes Bild).
+        shaderLanguage: ShaderLanguage.GLSL,
       }
     );
     // The dome is the backdrop: never occlude, never be fogged, never lit.

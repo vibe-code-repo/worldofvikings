@@ -68,6 +68,7 @@
  */
 import { PostProcess } from '@babylonjs/core/PostProcesses/postProcess';
 import { Effect } from '@babylonjs/core/Materials/effect';
+import { ShaderLanguage } from '@babylonjs/core/Materials/shaderLanguage';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Constants } from '@babylonjs/core/Engines/constants';
 // Ohne diesen Side-Effect-Import existiert scene.enableGeometryBufferRenderer
@@ -142,11 +143,6 @@ float cocAt(vec2 uv) {
 void main(void) {
   vec4 center = texture2D(textureSampler, vUV);
   float coc = cocAt(vUV);
-  if (coc <= 0.002) {
-    gl_FragColor = center;
-    return;
-  }
-
   float radius = coc * maxRadius;
   vec3 sum = center.rgb;
   float wsum = 1.0;
@@ -158,7 +154,12 @@ void main(void) {
   TAP( 0.866,  0.500) TAP( 0.000,  1.000) TAP(-0.866,  0.500)
   TAP(-0.866, -0.500) TAP( 0.000, -1.000) TAP( 0.866, -0.500)
 
-  gl_FragColor = vec4(sum / wsum, center.a);
+  vec4 blurred = vec4(sum / wsum, center.a);
+  // WebGPU verlangt Textur-Samples in uniformem Kontrollfluss. Der fruehe
+  // pixelabhaengige return sparte im GLSL-Pfad zwar Taps, machte aber alle
+  // folgenden Samples in WGSL ungueltig. Bei Radius 0 sampeln die Taps
+  // ohnehin denselben Mittelpunkt; mix behaelt exakt den alten Schwellwert.
+  gl_FragColor = mix(center, blurred, step(0.002, coc));
 }
 `;
 
@@ -196,7 +197,14 @@ export class ValheimDof {
       engine,
       false,
       undefined,
-      hdr ? Constants.TEXTURETYPE_HALF_FLOAT : Constants.TEXTURETYPE_UNSIGNED_INT
+      hdr ? Constants.TEXTURETYPE_HALF_FLOAT : Constants.TEXTURETYPE_UNSIGNED_INT,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      // Die Babylon-Passes laufen unter WebGPU nativ als WGSL. Unser Shader
+      // liegt bewusst als GLSL vor und wird von Babylon nach SPIR-V uebersetzt.
+      ShaderLanguage.GLSL
     );
 
     this.pp.onApply = (effect) => {

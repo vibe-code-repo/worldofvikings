@@ -44,3 +44,10 @@ mess/
 .claude/
 # Messungen und weggelegte Zwischenstaende
 mess/
+
+# Testlaeufe, die aus dem falschen Arbeitsverzeichnis starten, legen ihren
+# Spielstand unter ./data statt server/data/worlds ab — dieselbe Sorte
+# Datei, dieselbe Regel: Spielstaende reisen nie (Konzept Editor/Live-Welt).
+/data/
+# Wegwerf-Verzeichnisse der Servertests (tmp-g6, tmp-verbindungsdeckel, …).
+server/test/tmp-*/

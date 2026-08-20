@@ -140,6 +140,14 @@ export interface GameSettings {
    * es hier ein.
    */
   eigenesNameplate: boolean;
+  /**
+   * Weltzeit (Uhrzeit + Sonnenstand) an der Minimap einblenden.
+   *
+   * Spielelement, kein Diagnosewerkzeug — deshalb an. Abschaltbar, weil
+   * Mike das ausdrücklich so wollte: wer die Uhr nicht sehen will, blendet
+   * sie aus, ohne dass ihr die Minimap selbst weichen muss.
+   */
+  weltzeit: boolean;
 }
 
 const STORAGE_KEY = 'valheim-babylon-settings-v1';
@@ -205,6 +213,7 @@ const DEFAULTS: GameSettings = {
   showObjectNames: false,
   nameplates: true,
   eigenesNameplate: false,
+  weltzeit: true,
 };
 
 /**
@@ -249,6 +258,7 @@ function loadSaved(): Partial<GameSettings> {
       showObjectNames: bool(parsed.showObjectNames),
       nameplates: bool(parsed.nameplates),
       eigenesNameplate: bool(parsed.eigenesNameplate),
+      weltzeit: bool(parsed.weltzeit),
     };
     if (b.bloom !== undefined) out.bloom = b.bloom;
     if (b.motionBlur !== undefined) out.motionBlur = b.motionBlur;
@@ -264,6 +274,7 @@ function loadSaved(): Partial<GameSettings> {
     if (b.showObjectNames !== undefined) out.showObjectNames = b.showObjectNames;
     if (b.nameplates !== undefined) out.nameplates = b.nameplates;
     if (b.eigenesNameplate !== undefined) out.eigenesNameplate = b.eigenesNameplate;
+    if (b.weltzeit !== undefined) out.weltzeit = b.weltzeit;
     return out;
   } catch {
     return {};

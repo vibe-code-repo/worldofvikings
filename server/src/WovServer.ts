@@ -76,9 +76,12 @@ import { Peer } from './net/Peer.js';
 import { Reader } from './io/Reader.js';
 import { Writer } from './io/Writer.js';
 import { AdminCommandRegistry } from './admin/AdminCommands.js';
-import { ZONE_SIZE, findItem, REZEPTE } from '@wov/shared';
+import { AdminListe } from './admin/AdminListe.js';
+import { istSpielerId, type SpielerId } from './net/Identitaet.js';
+import { ZONE_SIZE, findItem, REZEPTE, type Inventory } from '@wov/shared';
 import { resolve } from 'path';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 
 export interface ServerConfig {
   name: string;
@@ -109,6 +112,14 @@ export interface ServerConfig {
   worldMode: 'valheim' | 'layout';
   /** Pfad des WorldLayout-Dokuments (nur worldMode 'layout'). */
   worldLayoutPath: string;
+  /**
+   * F3 (Security-Review): Servergeheimnis fuer die SessionToken-Signatur.
+   * NUR fuer Tests (deterministischer Lauf, zwei Server-Instanzen mit
+   * gemeinsamem Geheimnis pruefen). Im echten Betrieb NIEMALS setzen —
+   * der Konstruktor erzeugt bei Fehlen automatisch ein frisches,
+   * fluechtiges Geheimnis; siehe die ausfuehrliche Begruendung dort.
+   */
+  sessionSecret?: Buffer;
 }
 
 const DEFAULT_CONFIG: ServerConfig = {
@@ -178,9 +189,27 @@ export class WovServer {
   worldManager!: WorldManager;
   /** Phase G: dungeon documents, entrances and instances. */
   readonly dungeons: DungeonManager;
-  /** Last-known player state by name (G1) — restored positions survive
-   *  relog within a session and feed the players[] save section. */
+  /**
+   * Last-known player state (G1) — restored positions survive relog and
+   * feed the players[] save section.
+   *
+   * F3 (Security-Review): geschluesselt ueber die stabile spielerId eines
+   * Peers, NICHT mehr ueber peer.name — ein frei getippter Anzeigename
+   * ist keine Identitaet. Datensaetze aus der Zeit VOR diesem Umbau (und
+   * jeder Datensatz, dem eine gueltige spielerId fehlt) liegen weiterhin
+   * unter ihrem NAMEN — ermittleGespeichertenStand() findet und migriert
+   * sie beim naechsten Login des betreffenden Spielers automatisch auf
+   * die neue spielerId (siehe dort). Das ist auch der Normalfall NACH
+   * jedem Serverneustart: das Sitzungsgeheimnis lebt absichtlich nur im
+   * Arbeitsspeicher (siehe `sessionSecret` im Konstruktor), jedes Token
+   * wird beim Neustart ungueltig, und jeder Spieler bekommt beim naechsten
+   * Connect eine frische spielerId zugewiesen — ohne den Namens-Fallback
+   * wuerde das Position/Inventar bei JEDEM Neustart verlieren.
+   */
   private readonly savedPlayers = new Map<string, SavedPlayer>();
+  /** S6 (Security-Review): dauerhafte Admin-Liste ueber stabile Spieler-
+   *  IDs — ueberlebt Neustart UND Deploy (Begruendung: AdminListe.ts). */
+  readonly adminListe: AdminListe;
 
   // ── Time (C++ m_worldTime, m_startTime, etc.) ─────────────────
   private startTime: number;
@@ -226,19 +255,55 @@ export class WovServer {
       this.zdos,
       resolve(this.config.worldsDir, '..', 'dungeons', this.config.worldName)
     );
+    // S6 (Security-Review): dauerhafte Admin-Liste — Pfad und Begruendung
+    // (warum server/data/worlds/ statt server.yml) stehen in AdminListe.ts.
+    this.adminListe = new AdminListe(
+      resolve(this.config.worldsDir, `admins.${this.config.worldName}.json`)
+    );
     this.registerDungeonCommands();
     this.registerSpawnCommand();
     this.registerAbbauCommand();
+    this.registerAdminListeCommands();
     // Karten-Marker: Eingangs-Änderungen an alle Peers verteilen.
     this.dungeons.onEntrancesChanged = () => {
       for (const peer of this.net.getPeers()) this.sendDungeonEntrances(peer);
     };
+
+    // F3 (Security-Review): Servergeheimnis fuer die SessionToken-Signatur.
+    //
+    // Bewusst NUR im Arbeitsspeicher (crypto.randomBytes) — NICHT auf
+    // Platte und NICHT in einer Umgebungsvariable (kein neues /etc/wov.env,
+    // keine neue Datei irgendwo). Das Anlegen einer DAUERHAFTEN
+    // Zugangsinformation ist eine bewusste Entscheidung, die Mike nicht
+    // getroffen hat — ein Vorschlag dazu (WOV_SESSION_SECRET_HEX in
+    // /etc/wov.env) liegt im Kopfkommentar von net/Identitaet.ts
+    // (Abschnitt 4) bereit, ist aber NICHT umgesetzt.
+    //
+    // Kosten dieser Wahl: bei JEDEM Serverneustart entsteht ein NEUES
+    // Geheimnis. Jedes bis dahin ausgestellte SessionToken wird damit
+    // augenblicklich ungueltig (tokenPruefen liefert 'gefaelscht'), und
+    // jeder Spieler durchlaeuft beim naechsten Connect wieder die
+    // Erst-Anmeldung — neue spielerId, neu abgeleitete Altlast-userId
+    // (ZDO-Besitz an bereits gebauten eigenen Pieces geht dabei genauso
+    // verloren, wie es HEUTE schon bei jedem einzelnen Reconnect passiert,
+    // siehe Identitaet.ts Kopfkommentar — hier passiert es nur noch beim
+    // Neustart statt bei jeder Verbindung, das ist eine Verbesserung,
+    // keine Verschlechterung). Position/Inventar ueberleben trotzdem: der
+    // Migrationspfad ueber den Anzeigenamen greift automatisch (siehe
+    // savedPlayers/ermittleGespeichertenStand).
+    //
+    // Fuer den jetzigen Betrieb hinnehmbar: der Server laeuft tagelang
+    // durch, und es ist ohnehin kein Passwort gesetzt.
+    const sessionSecret = this.config.sessionSecret ?? randomBytes(32);
+
     this.net = new NetManager({
       port: this.config.port,
       password: this.config.password,
       serverName: this.config.name,
       maxPlayers: this.config.maxPlayers,
       everyoneAdmin: this.config.everyoneAdmin,
+      sessionSecret,
+      istAdminId: (id) => this.adminListe.enthaelt(id),
     });
 
     // Time
@@ -264,6 +329,22 @@ export class WovServer {
 
   init(): void {
     console.log('[WoV] Initializing...');
+
+    // S6 (Security-Review): deutliche Warnung, solange everyone-admin
+    // aktiv ist — bewusst NICHT abgeschaltet (Mikes Handgriff), aber wer
+    // das Log liest, soll nicht raten muessen, dass JEDER verbundene
+    // Spieler heute Admin-Rechte hat.
+    if (this.config.everyoneAdmin) {
+      console.warn('╔══════════════════════════════════════════════════════════════════╗');
+      console.warn('║ ACHTUNG: players.everyone-admin ist AKTIV.                        ║');
+      console.warn('║ JEDER verbundene Spieler hat Admin-Rechte (fly, teleport, admin-  ║');
+      console.warn('║ Liste aendern, Weltzeit, ...). Fuer einen oeffentlich erreich-    ║');
+      console.warn('║ baren Server ist das NICHT sicher.                                ║');
+      console.warn('║ Abschalten: players.everyone-admin: false in server.yml — danach  ║');
+      console.warn('║ gewaehrt nur noch die dauerhafte Admin-Liste Rechte (Befehl        ║');
+      console.warn('║ "admin liste" / "admin add <Name>").                              ║');
+      console.warn('╚══════════════════════════════════════════════════════════════════╝');
+    }
 
     // Load prefabs
     this.prefabs.registerDefaults();
@@ -998,7 +1079,7 @@ export class WovServer {
     // Create player character ZDO — spawn at the saved position (G1) or on
     // the real ground at the world spawn (D6)
     const playerPrefab = this.prefabs.getByName('Player');
-    const saved = this.savedPlayers.get(peer.name);
+    const saved = this.ermittleGespeichertenStand(peer);
     // Phase G: never respawn inside the dungeon band — the instance the
     // player was in may no longer exist (onPeerQuit stores the return
     // position, this is only the belt for crashes/old saves).
@@ -1067,8 +1148,11 @@ export class WovServer {
 
     // G1: keep the last-known state — a same-session relog respawns here,
     // and the next world save writes it to the players[] section.
-    this.savedPlayers.set(peer.name, {
+    // F3 (Security-Review): geschluesselt ueber die stabile spielerId,
+    // nicht mehr ueber den Namen — siehe Kopfkommentar von savedPlayers.
+    this.savedPlayers.set(peer.spielerId, {
       name: peer.name,
+      spielerId: peer.spielerId,
       position: { ...peer.position },
       flying: peer.flying,
       spawnPoint: peer.spawnPoint ?? undefined,
@@ -1078,6 +1162,72 @@ export class WovServer {
       this.zdos.destroyZDO(peer.characterID);
     }
     console.log(`[WoV] Player "${peer.name}" left`);
+  }
+
+  /**
+   * F3 (Security-Review): den gespeicherten Zustand fuer einen frisch
+   * authentifizierten Peer ermitteln — und falls noetig, einen alten,
+   * NAMENTLICH abgelegten Datensatz auf die stabile spielerId migrieren.
+   *
+   * Ablauf:
+   *  1. Direkter Treffer unter der spielerId (schneller Normalfall:
+   *     derselbe Serverlauf, gueltiges Token — die meiste Zeit).
+   *  2. Kein Treffer → Suche nach einem Datensatz mit demselben
+   *     ANZEIGENAMEN (das ist der Fall nach jedem Serverneustart, weil
+   *     das SessionToken absichtlich nicht ueberlebt, siehe Konstruktor —
+   *     UND der Fall bei geleertem localStorage/altem Client ohne Token
+   *     innerhalb eines laufenden Serverprozesses). Gefunden → auf die
+   *     NEUE spielerId umschluesseln (alten Namens-Schluessel entfernen,
+   *     sonst waechst savedPlayers bei jedem Neustart um einen weiteren
+   *     Eintrag PRO SPIELER, statt konstant zu bleiben).
+   *
+   * Bewusste Grenze: exakter Namensabgleich, kein Identitaetsnachweis.
+   * Wer zufaellig (oder absichtlich) denselben Anzeigenamen waehlt wie
+   * ein zuvor gesehener, gerade abwesender Spieler, erbt dessen
+   * Position/Inventar — GENAU dieselbe Grenze wie im bisherigen System
+   * (dort war der Name selbst der einzige Schluessel, IMMER, ohne jede
+   * Pruefung). Sicherheitsrelevant ist das NICHT: ZDO-Besitz (wer welche
+   * Bauten abreissen darf) haengt ausschliesslich an der frisch bzw.
+   * aus einem gueltigen Token abgeleiteten altlastUserId, nie an diesem
+   * Namensabgleich — dieser Pfad ist reine Komfort-Wiederherstellung von
+   * Position/Inventar, keine Berechtigung.
+   */
+  private ermittleGespeichertenStand(peer: Peer): SavedPlayer | undefined {
+    const direkt = this.savedPlayers.get(peer.spielerId);
+    if (direkt) return direkt;
+
+    // Werte durchsuchen statt per Schluessel nachzuschlagen: ein Alt-
+    // datensatz kann unter dem NAMEN liegen (aus einem Save vor diesem
+    // Umbau — siehe loadWorld), aber genauso unter einer FRUEHEREN
+    // spielerId desselben Spielers aus DIESEM Serverlauf (onPeerQuit
+    // schluesselt seit F3 immer ueber spielerId, nie mehr ueber den
+    // Namen — ein reiner Schluessel-Lookup mit peer.name wuerde diesen
+    // zweiten, im Alltag haeufigeren Fall nie finden).
+    for (const [schluessel, kandidat] of this.savedPlayers) {
+      if (kandidat.name !== peer.name) continue;
+      this.savedPlayers.delete(schluessel);
+      const migriert: SavedPlayer = { ...kandidat, spielerId: peer.spielerId };
+      this.savedPlayers.set(peer.spielerId, migriert);
+      return migriert;
+    }
+    return undefined;
+  }
+
+  /**
+   * S6 (Security-Review): Name → stabile spielerId auflösen, fuer den
+   * `admin`-Befehl. Erst unter den ONLINE-Peers gesucht (aktuellster,
+   * zuverlaessigster Stand), dann in savedPlayers (auch fuer gerade
+   * abwesende Spieler, die schon einmal verbunden waren).
+   */
+  private spielerIdFuerName(name: string): SpielerId | undefined {
+    const online = this.net.getPeers().find((p) => p.name === name);
+    if (online) return online.spielerId;
+    for (const eintrag of this.savedPlayers.values()) {
+      if (eintrag.name === name && eintrag.spielerId && istSpielerId(eintrag.spielerId)) {
+        return eintrag.spielerId;
+      }
+    }
+    return undefined;
   }
 
   // ── Packet handling ────────────────────────────────────────────
@@ -1201,13 +1351,34 @@ export class WovServer {
   }
 
   /**
-   * Client requested a new time of day (chosen on the connect screen).
-   * Keeps the current day, sets the time within it, and broadcasts the
-   * new time to all peers.
+   * Client requested a new time of day (angeboten auf dem Verbindungsbildschirm,
+   * client/src/main.ts — dort für JEDEN Spieler, nicht nur Admins). Ändert
+   * die Zeit für ALLE Peers, deshalb wie die anderen Admin-Pfade gegated
+   * (Zeile 1142/1164 DungeonEdit*, Zeile 1200 AdminCommand). Anders als bei
+   * denen gibt es hier noch kein eigenes Antwortpaket — der Client kennt
+   * InteractResult bereits (nur message wird angezeigt, s. main.ts), das
+   * reicht für die Ablehnung, ohne ein neues Paket einzuführen.
+   *
+   * Kein Sonderfall beim ERSTEN Verbinden: Der Client schickt dieses Paket
+   * nur, wenn auf dem Verbindungsbildschirm aktiv eine Uhrzeit gewählt wurde
+   * (main.ts `zeitWunsch`) — bei "Serverzeit übernehmen" (Default) bleibt es
+   * ganz aus. Die Sperre kann den normalen Verbindungsaufbau also nicht
+   * brechen.
    */
   private handleSetTimeOfDay(peer: Peer, reader: Reader): void {
     let timeOfDay = reader.readFloat64();
     if (!Number.isFinite(timeOfDay)) return;
+
+    if (!peer.isAdmin) {
+      console.log(`[Admin] "${peer.name}" — SetTimeOfDay abgelehnt: keine Berechtigung`);
+      peer.sendPacketWith(PacketType.InteractResult, (w) => {
+        w.writeBool(false);
+        w.writeString('Keine Berechtigung, die Weltzeit zu ändern');
+        w.writeString('');
+        w.writeInt32(0);
+      });
+      return;
+    }
 
     // Wrap into [0, WORLD_TIME_LENGTH)
     timeOfDay = ((timeOfDay % WORLD_TIME_LENGTH) + WORLD_TIME_LENGTH) % WORLD_TIME_LENGTH;
@@ -1324,10 +1495,10 @@ export class WovServer {
   private handleChatMessage(peer: Peer, reader: Reader): void {
     const chatType = reader.readInt32();
     const text = reader.readString().slice(0, 256);
-    // Frequenzlimit: max. ~3 Nachrichten je Sekunde (Review-Punkt 11).
-    const jetzt = Date.now();
-    if (jetzt - peer.letzterChat < 300) return;
-    peer.letzterChat = jetzt;
+    // Frequenzlimit (vormals hier als fester 300-ms-Cooldown, Review-Punkt
+    // 11): A4 (Security-Review) ersetzt das durch die Token-Bucket-
+    // Drosselung in NetManager.handlePacket, VOR diesem Handler — ein zu
+    // schnelles ChatMessage-Paket kommt hier gar nicht mehr an.
 
     // Broadcast to all peers
     const writer = new Writer();
@@ -1695,25 +1866,20 @@ export class WovServer {
    */
   /** Maximale Wirk-Distanz von Angriff/Ernte zur SERVER-Position (m). */
   private static readonly NAHKAMPF_REICHWEITE = 8;
-  /** Mindestabstand zweier Schläge (ms) — Client-Klickraten zählen nicht. */
-  private static readonly SCHLAG_COOLDOWN_MS = 350;
 
   /**
-   * Angriff/Ernte nur nah an der SERVER-Position und außerhalb des
-   * Cooldowns — vorher wirkte ein Schlag an jeder Weltposition
-   * (Review-Punkt 4). handleHarvest erbt die Prüfung über handleAttack.
+   * Angriff/Ernte nur nah an der SERVER-Position — vorher wirkte ein
+   * Schlag an jeder Weltposition (Review-Punkt 4). handleHarvest erbt die
+   * Pruefung ueber handleAttack. Der frueher hier gefuehrte feste
+   * 350-ms-Cooldown (SCHLAG_COOLDOWN_MS) ist entfallen: A4 (Security-
+   * Review) drosselt PacketType.Attack schon in NetManager.handlePacket,
+   * VOR diesem Handler.
    */
   private schlagErlaubt(peer: Peer, pos: Vector3): boolean {
     const dx = pos.x - peer.position.x;
     const dz = pos.z - peer.position.z;
     const r = WovServer.NAHKAMPF_REICHWEITE;
-    if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z) || dx * dx + dz * dz > r * r) {
-      return false;
-    }
-    const jetzt = Date.now();
-    if (jetzt - peer.letzterSchlag < WovServer.SCHLAG_COOLDOWN_MS) return false;
-    peer.letzterSchlag = jetzt;
-    return true;
+    return Number.isFinite(pos.x) && Number.isFinite(pos.z) && dx * dx + dz * dz <= r * r;
   }
 
   private handleAttack(peer: Peer, reader: Reader): void {
@@ -1726,6 +1892,10 @@ export class WovServer {
     } catch {
       /* alter Client ohne Waffenfeld */
     }
+    // Nur was tatsächlich im Server-Inventar liegt zählt (A2) — sonst
+    // Faust. handleHarvest bekommt dieselbe geprüfte Waffe weitergereicht,
+    // eine zweite Prüfung dort erübrigt sich.
+    waffe = gepruefteWaffe(peer.inventar, waffe);
     if (peer.stamina < 8) return;
     peer.stamina -= 8;
     peer.staminaZuletztVerbraucht = Date.now();
@@ -1781,6 +1951,9 @@ export class WovServer {
    * Ernte-Ziele: Bäume (Axt), Felsen (Spitzhacke), Büsche/Stümpfe (alles).
    * HP als ZDO-Member; beim Fällen wandert der Ertrag direkt ins Inventar
    * des Angreifers (konsistent mit den Kreaturen-Drops).
+   *
+   * `waffe` kommt bereits geprüft von handleAttack (gepruefteWaffe, A2) —
+   * kein zweiter Abgleich hier nötig.
    */
   private handleHarvest(peer: Peer, pos: Vector3, waffe: string): void {
     const antwort = (message: string, itemName = '', amount = 0) => {
@@ -2105,6 +2278,69 @@ export class WovServer {
   }
 
   /**
+   * `admin <sub> ...` — dauerhafte Admin-Liste ueber stabile Spieler-IDs
+   * (Roadmap S6, Security-Review):
+   *
+   *   admin liste              alle dauerhaften Admins (Name + spielerId)
+   *   admin add <Name>         Spieler dauerhaft zum Admin machen
+   *   admin remove <Name>      Spieler wieder entfernen
+   *
+   * Laeuft wie jeder andere Admin-Befehl durch canUseAdminCommands()
+   * (peer.isAdmin) — heute also durch everyone-admin, ganz bewusst: das
+   * Recht, die Liste zu PFLEGEN, ist selbst ein Admin-Recht. Erst wenn
+   * everyone-admin auf false steht, entscheidet ausschliesslich noch
+   * diese Liste, wer diesen Befehl (und alle anderen) ueberhaupt nutzen
+   * darf.
+   *
+   * Namensaufloesung ueber spielerIdFuerName(): der Zielspieler muss
+   * schon einmal verbunden gewesen sein (online ODER in savedPlayers) —
+   * ein rein erfundener Name kann nicht zum Admin gemacht werden, es gibt
+   * dafuer keine spielerId zum Eintragen.
+   */
+  private registerAdminListeCommands(): void {
+    this.adminCommands.register('admin', (peer, args) => {
+      const sub = (args.shift() ?? '').toLowerCase();
+
+      if (sub === 'liste' || sub === 'list') {
+        const eintraege = this.adminListe.alle();
+        if (eintraege.length === 0) {
+          return { ok: true, active: false, message: 'Admin-Liste ist leer' };
+        }
+        const zeilen = eintraege.map((e) => `${e.name} [${e.spielerId}]`).join(', ');
+        return { ok: true, active: false, message: `${eintraege.length} dauerhafte Admins: ${zeilen}` };
+      }
+
+      if (sub === 'add' || sub === 'hinzufuegen') {
+        const name = args.join(' ').trim();
+        if (!name) return { ok: false, active: false, message: 'Aufruf: admin add <Name>' };
+        const id = this.spielerIdFuerName(name);
+        if (!id) {
+          return { ok: false, active: false,
+            message: `Unbekannter Spieler: "${name}" (muss schon einmal verbunden gewesen sein)` };
+        }
+        const neu = this.adminListe.hinzufuegen(id, name);
+        return { ok: true, active: false,
+          message: neu ? `${name} [${id}] ist jetzt dauerhaft Admin` : `${name} war schon Admin` };
+      }
+
+      if (sub === 'remove' || sub === 'entfernen') {
+        const name = args.join(' ').trim();
+        if (!name) return { ok: false, active: false, message: 'Aufruf: admin remove <Name>' };
+        const id = this.spielerIdFuerName(name);
+        if (!id) {
+          return { ok: false, active: false, message: `Unbekannter Spieler: "${name}"` };
+        }
+        const weg = this.adminListe.entfernen(id);
+        return { ok: true, active: false,
+          message: weg ? `${name} [${id}] ist kein dauerhafter Admin mehr` : `${name} war nicht in der Admin-Liste` };
+      }
+
+      return { ok: false, active: false,
+        message: 'Aufruf: admin liste | admin add <Name> | admin remove <Name>' };
+    });
+  }
+
+  /**
    * `abbau <prefab> [radius]` — gespawnte Prefabs wieder entfernen.
    *
    * Das Gegenstück zu `spawn`, und es hat bis jetzt gefehlt: Wer sich
@@ -2265,12 +2501,26 @@ export class WovServer {
     // Spielstaende, und fuer diese Welt gibt es kein Backup (Roadmap S2).
     // Verbundene Spieler werden uebersprungen; ihr Datensatz wuerde beim
     // naechsten Speichern ohnehin sofort neu geschrieben.
+    //
+    // F3 (Security-Review): `savedPlayers` ist mittlerweile ueber die
+    // stabile spielerId geschluesselt, nicht mehr ueber den Namen — diese
+    // Befehle bleiben trotzdem namentlich (so denkt Mike ueber Spieler)
+    // und loesen intern ueber das `name`-Feld der Datensaetze auf.
+    // `spieler online` zeigt zusaetzlich die spielerId JEDES verbundenen
+    // Spielers (S6: Grundlage fuer `admin add <Name>`).
     this.adminCommands.register('spieler', (peer, args) => {
       const sub = (args.shift() ?? 'liste').toLowerCase();
       if (sub === 'liste') {
-        const namen = [...this.savedPlayers.keys()].sort();
+        const namen = [...this.savedPlayers.values()].map((p) => p.name).sort();
         return { ok: true, active: false,
           message: `${namen.length} Datensaetze: ${namen.join(', ')}` };
+      }
+      if (sub === 'online') {
+        const zeilen = this.net.getPeers().map(
+          (p) => `${p.name} [${p.spielerId}]${p.isAdmin ? ' (admin)' : ''}`
+        );
+        return { ok: true, active: false,
+          message: zeilen.length ? zeilen.join(' | ') : 'Niemand online' };
       }
       if (sub === 'entfernen') {
         if (args.length === 0) {
@@ -2281,8 +2531,9 @@ export class WovServer {
         const uebersprungen: string[] = [];
         for (const name of args) {
           if (verbunden.has(name)) { uebersprungen.push(`${name} (verbunden)`); continue; }
-          if (!this.savedPlayers.has(name)) { uebersprungen.push(`${name} (unbekannt)`); continue; }
-          this.savedPlayers.delete(name);
+          const treffer = [...this.savedPlayers.entries()].find(([, p]) => p.name === name);
+          if (!treffer) { uebersprungen.push(`${name} (unbekannt)`); continue; }
+          this.savedPlayers.delete(treffer[0]);
           weg.push(name);
         }
         const rest = this.savedPlayers.size;
@@ -2291,7 +2542,7 @@ export class WovServer {
             (uebersprungen.length ? ` | Uebersprungen: ${uebersprungen.join(', ')}` : '') +
             ` | Noch ${rest} Datensaetze (wird beim naechsten Speichern geschrieben)` };
       }
-      return { ok: false, active: false, message: 'Aufruf: spieler liste | spieler entfernen <name> …' };
+      return { ok: false, active: false, message: 'Aufruf: spieler liste | spieler online | spieler entfernen <name> …' };
     });
 
     this.adminCommands.register('dungeon', (peer, args) => {
@@ -2510,8 +2761,16 @@ export class WovServer {
       console.log(`[WoV] Terraforming: ${terrainZonen} Zone(n) aus dem Save übernommen`);
     }
     const restoredZDOs = this.zdos.restoreFromSnapshots(data.zdos);
+    // F3 (Security-Review): unter der spielerId einlagern, WENN das
+    // Save-Format schon eine gueltige mitbringt (Staende ab diesem
+    // Umbau) — sonst unter dem NAMEN, exakt wie vor dem Umbau. Das ist
+    // KEIN Praefix-Trick: ein Altstand ohne spielerId landet bit-genau
+    // unter demselben Schluessel wie frueher, ermittleGespeichertenStand()
+    // migriert ihn beim naechsten Login des betreffenden Spielers.
     for (const player of data.players) {
-      this.savedPlayers.set(player.name, player);
+      const schluessel =
+        player.spielerId && istSpielerId(player.spielerId) ? player.spielerId : player.name;
+      this.savedPlayers.set(schluessel, player);
     }
 
     // Vegetation nachsetzen: gebackene y-Werte stammen aus dem Boden ZUM
@@ -2664,8 +2923,16 @@ export class WovServer {
 
     const players = new Map(this.savedPlayers);
     for (const peer of this.net.getPeers()) {
-      players.set(peer.name, {
+      // F3 (Security-Review): unter der spielerId, nicht mehr unter dem
+      // Namen — ueberschreibt hier zuverlaessig einen evtl. noch unter
+      // dem NAMEN liegenden Alteintrag desselben Spielers nicht (anderer
+      // Schluessel), das erledigt ermittleGespeichertenStand() beim naechsten
+      // Login. Was tatsaechlich auf die Platte geht, sind nur die WERTE
+      // (players[] ist ein Array) — der Map-Schluessel selbst ist reiner
+      // Laufzeitzustand.
+      players.set(peer.spielerId, {
         name: peer.name,
+        spielerId: peer.spielerId,
         // Phase G: for peers inside a dungeon save the overworld return
         // point — instances don't survive a restart.
         position:
@@ -2729,6 +2996,29 @@ const WAFFEN_SCHADEN: Record<string, number> = {
   Hoe: 2,
   Cultivator: 2,
 };
+
+/**
+ * Waffenname aus dem Angriffs-/Ernte-Paket nur übernehmen, wenn er
+ * tatsächlich im Server-Inventar liegt (A2) — sonst Faust ('').
+ *
+ * Der Server kennt (noch) keinen Begriff einer "ausgerüsteten" Waffe: das
+ * `equipped`-Feld auf ItemStack (shared/src/items/ItemData.ts) wird
+ * ausschließlich client-seitig gesetzt (client/src/player/Equipment.ts)
+ * und nie zum Server synchronisiert — es gibt kein Protokollpaket dafür.
+ * peer.inventar (Peer.ts) ist die einzige serverseitige Quelle. Ohne diese
+ * Prüfung schlug der Server den Schaden aus WAFFEN_SCHADEN[waffe] direkt
+ * für den Paket-String nach, unabhängig vom Besitz — Axtschaden ohne Axt,
+ * und weil handleAttack dieselbe Waffe an handleHarvest durchreicht, auch
+ * Werkzeugpflicht-Umgehung beim Ernten. EIN Prüfpunkt für beide Pfade.
+ *
+ * Sollte der Server künftig ein echtes Ausrüstungskonzept bekommen (Review
+ * A2, Schritt 2), gehört die schärfere Prüfung — nur die AUSGERÜSTETE
+ * Waffe zählt, das Paketfeld wird ignoriert — hierher, an diese eine Stelle.
+ */
+export function gepruefteWaffe(inventar: Inventory, waffe: string): string {
+  if (waffe === '') return waffe;
+  return inventar.countOf(waffe) > 0 ? waffe : '';
+}
 
 const EIKTHYR_HASH = getStableHash('Eikthyr');
 

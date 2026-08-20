@@ -15,17 +15,47 @@ export interface VersionCheckPacket {
   clientHash: number;
 }
 
-export interface PasswordAuthPacket {
-  passwordHash: string;
-  playerName: string;
-  userId: string; // steam id or browser session id
+/**
+ * Server → Client, EINMAL pro Verbindung nach VersionCheck (F4,
+ * Security-Review): startet den Nonce/HMAC-Passwort-Handshake. Der Client
+ * antwortet mit PasswordAuth.
+ */
+export interface AuthChallengePacket {
+  /** Zufällig, hex-kodiert, nur für DIESE Verbindung gültig (Replay-Schutz). */
+  nonce: string;
 }
 
+/**
+ * Client → Server, Antwort auf AuthChallenge (F3/F4, Security-Review).
+ *
+ * `response` ersetzt den frueheren rohen `passwordHash`-Vergleich: es ist
+ * HMAC-SHA256(key=Passwort, data=nonce), hex-kodiert — nicht wiederholbar
+ * (anderer Nonce je Verbindung) und verraet das Passwort nicht direkt.
+ *
+ * `userId` ist ABSICHTLICH ENTFALLEN: die alte Fassung liess den Client
+ * seine eigene Identitaet waehlen (Security-Review-Luecke A/B). Die
+ * Identitaet kommt jetzt ausschliesslich vom Server, uebermittelt/erkannt
+ * ueber `sessionToken`.
+ */
+export interface PasswordAuthPacket {
+  response: string;
+  playerName: string;
+  /** Zuvor vom Server ausgestelltes SessionToken, '' bei Erstanmeldung
+   *  oder wenn der Client keins (mehr) hat. */
+  sessionToken: string;
+}
+
+/**
+ * Server → Client, nach erfolgreicher Anmeldung. `sessionToken` legt der
+ * Client in localStorage ab und schickt es beim naechsten Connect als
+ * PasswordAuth.sessionToken zurueck (F3, Security-Review).
+ */
 export interface PeerInfoPacket {
   peer: PeerInfo;
   serverName: string;
   worldName: string;
   worldSeed: string;
+  sessionToken: string;
 }
 
 export interface DisconnectPacket {
@@ -149,6 +179,7 @@ export interface AdminEventPacket {
 // === Packet type map for serialization ===
 export const PACKET_REGISTRY: Record<number, string> = {
   [PacketType.VersionCheck]: 'VersionCheckPacket',
+  [PacketType.AuthChallenge]: 'AuthChallengePacket',
   [PacketType.PasswordAuth]: 'PasswordAuthPacket',
   [PacketType.PeerInfo]: 'PeerInfoPacket',
   [PacketType.Disconnect]: 'DisconnectPacket',
@@ -163,3 +194,23 @@ export const PACKET_REGISTRY: Record<number, string> = {
   [PacketType.AdminCommand]: 'AdminCommandPacket',
   [PacketType.AdminEvent]: 'AdminEventPacket',
 };
+
+/**
+ * Ersatzschluessel fuer den Nonce/HMAC-Handshake, wenn KEIN Serverpasswort
+ * gesetzt ist.
+ *
+ * Warum es den braucht: Node akzeptiert `createHmac('sha256', '')` klaglos,
+ * die WebCrypto des Browsers NICHT — `crypto.subtle.importKey` wirft dort
+ * `DataError: HMAC key data must not be empty`. Der Server rechnete also
+ * munter mit leerem Schluessel, waehrend im Browser die Berechnung
+ * fehlschlug; weil der Fehler in einem `void (async …)()` verschwand, kam
+ * gar keine Antwort und jede Anmeldung lief stumm in den 10-s-Timeout.
+ * Genau so ist es am 20.08.2026 passiert, mit `password: ""` in server.yml.
+ *
+ * Der Wert ist KEIN Geheimnis und soll keines sein — ohne gesetztes
+ * Passwort gibt es nichts zu schuetzen. Er sorgt nur dafuer, dass beide
+ * Seiten dieselbe, in beiden Laufzeitumgebungen zulaessige Rechnung
+ * anstellen. Er steht hier und nicht zweimal daneben, weil zwei getrennt
+ * gepflegte Kopien auseinanderlaufen und der Fehler dann wieder still ist.
+ */
+export const HANDSHAKE_LEERPASSWORT_SCHLUESSEL = 'wov:kein-passwort';

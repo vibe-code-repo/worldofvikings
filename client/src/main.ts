@@ -309,7 +309,11 @@ async function main() {
         ? 'Die Welt startet mit der Zeit, die der Server gerade hat.'
         : offlineToggle.checked
           ? 'Wird lokal gesetzt.'
-          : 'Wird auf dem Server gesetzt — gilt für alle Spieler.';
+          // Server prüft das gegen peer.isAdmin (WovServer.handleSetTimeOfDay,
+          // A2/A3-Review) — hier vor dem Verbinden ist noch nicht bekannt, ob
+          // der Account einer wird, deshalb nur "angefragt" statt "gesetzt".
+          // Nicht-Admins bekommen die Ablehnung als HUD-Meldung zurück.
+          : 'Wird beim Server angefragt — nur Admins setzen die Zeit für alle.';
   };
   timeSelect.addEventListener('change', updateTimeHint);
   offlineToggle.addEventListener('change', updateTimeHint);
@@ -524,6 +528,7 @@ async function main() {
     objectLabels?.setEnabled(s.showObjectNames);
     namensschilder?.setEnabled(s.nameplates);
     namensschilder?.setEigenes(s.eigenesNameplate);
+    minimap?.setZeitSichtbar(s.weltzeit);
   });
   /** ?env= pins the weather — don't let the biome tracker override it. */
   let envPinned = false;
@@ -1137,6 +1142,7 @@ async function main() {
     terrain.setWaterQuality(gameSettings.get().waterQuality);
     grass.setQuality(gameSettings.get().vegetationQuality);
     grass.setDensity(gameSettings.get().grassDensity);
+    minimap.setZeitSichtbar(gameSettings.get().weltzeit);
     const aktuelleSettings = gameSettings.get();
     post.apply(aktuelleSettings.hundertFpsProfil
       ? {
@@ -2450,7 +2456,7 @@ async function main() {
     minimapWind.dirX = wind1.dirX;
     minimapWind.dirZ = wind1.dirZ;
     minimapWind.intensity = wind1.intensity;
-    minimap?.update(player.position.x, player.position.z, player.yaw, minimapWind);
+    minimap?.update(player.position.x, player.position.z, player.yaw, minimapWind, lighting.timeOfDay);
     // Regen/Schnee/Asche: Menge aus der Nässe-Rampe, Schräglage aus dem
     // Wind (GlobalWind.velocityOverLifetime im Original).
     // Gras um aufsammelbare Gegenstände freihalten (Flint, Stein, Löwenzahn

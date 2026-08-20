@@ -13,6 +13,12 @@
  * assets later if a name mapping turns up.
  *
  * Toggle: Escape key (also releases pointer lock so the mouse is usable).
+ *
+ * Gliederung in Abschnitte (Bild/Effekte/Steuerung/Anzeige) seit dem
+ * Weltzeit-Schalter: zwölf Optionen in einer flachen Liste hatten Mike in
+ * der Nacht auf den 17.08. seinen eigenen, tags zuvor bestellten
+ * TAA-Schalter kosten, weil er an achter Stelle stand und nichts ihn von
+ * den Nachbarn abhob.
  */
 import type { SettingsStore } from './Settings';
 
@@ -36,6 +42,11 @@ export class SettingsPanel {
     const panel = document.createElement('div');
     panel.style.cssText = [
       'width:min(420px,90vw)',
+      // Abschnitte machen das Panel höher als die alte flache Liste — ohne
+      // Deckel liefe es auf kleinen Bildschirmen über den Rand, und mit ihm
+      // den "Zurück"-Knopf aus dem sichtbaren Bereich. Innen-Scroll statt
+      // Kürzen: die äussere Hülle (die `root`-Zentrierung) bleibt unberührt.
+      'max-height:90vh', 'overflow-y:auto', 'overflow-x:hidden',
       'background:linear-gradient(180deg,#3a2f22,#241c14)',
       'border:2px solid #8a6a34', 'border-radius:6px',
       'box-shadow:0 12px 40px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,220,150,.08)',
@@ -48,11 +59,19 @@ export class SettingsPanel {
     title.style.cssText = 'font-size:22px;letter-spacing:.06em;color:#f2c86a;text-align:center;margin-bottom:4px;text-shadow:0 1px 2px #000';
     panel.appendChild(title);
 
-    const section = document.createElement('div');
-    section.textContent = 'Grafikeinstellungen'; // settings_graphics
-    section.style.cssText = 'font-size:13px;letter-spacing:.08em;color:#a8916a;text-align:center;margin-bottom:16px;text-transform:uppercase';
-    panel.appendChild(section);
+    // Hier stand bis zur Gliederung der Untertitel "Grafikeinstellungen"
+    // (settings_graphics). Er ist ersatzlos entfallen: Er saß über ALLEN
+    // Abschnitten und hätte "Steuerung" und "Anzeige" als Grafik
+    // ausgewiesen, was sie nicht sind — genau die Unschärfe, gegen die die
+    // Gliederung gebaut wurde. Die Benennung tragen jetzt die Abschnitte
+    // selbst, siehe buildSection().
 
+    // ── Bild: Auflösung, Detail-/Qualitätsregler, Kantenglättung, TAA ───
+    // Alles, was direkt die Bildqualität oder ihren Performance-Preis
+    // bestimmt — auch "Ferne Schatten" und das 100-FPS-Profil, die beide
+    // unmittelbar an Schattenqualität hängen, stehen deshalb hier statt
+    // bei "Effekte" (das ist Post-Processing, siehe unten).
+    panel.appendChild(this.buildSection('Bild'));
     panel.appendChild(
       this.buildRow(
         'Renderauflösung',
@@ -63,38 +82,9 @@ export class SettingsPanel {
     );
     panel.appendChild(
       this.buildRow(
-        'Schattenqualität', // settings_shadowquality
-        (s) => s.shadowQuality,
-        (v) => this.settings.set({ shadowQuality: v }),
-        ['Aus', 'Niedrig', 'Mittel', 'Hoch']
-      )
-    );
-    panel.appendChild(
-      this.buildToggle('Ferne Schatten', (s) => s.distantShadows, (v) =>
-        this.settings.set({ distantShadows: v })
-      )
-    );
-    panel.appendChild(
-      this.buildToggle('100-FPS-Profil', (s) => s.hundertFpsProfil, (v) =>
-        this.settings.set({ hundertFpsProfil: v })
-      )
-    );
-    // Kein Original-Setting: die Brechung ist im Spiel Teil des
-    // Wassershaders, bei uns ein eigener Szenenpass — siehe Settings.ts.
-    panel.appendChild(
-      this.buildRow(
-        'Wasserqualität',
-        (s) => s.waterQuality,
-        (v) => this.settings.set({ waterQuality: v }),
-        ['Aus', 'Niedrig', 'Mittel', 'Hoch']
-      )
-    );
-    panel.appendChild(
-      this.buildRow(
-        'Grasdichte',
-        (s) => s.grassDensity,
-        (v) => this.settings.set({ grassDensity: v }),
-        ['Aus', 'Wenig', 'Mittel', 'Voll']
+        'Detailgrad', // settings_lod
+        (s) => s.detailQuality,
+        (v) => this.settings.set({ detailQuality: v })
       )
     );
     panel.appendChild(
@@ -114,14 +104,53 @@ export class SettingsPanel {
     );
     panel.appendChild(
       this.buildRow(
-        'Detailgrad', // settings_lod
-        (s) => s.detailQuality,
-        (v) => this.settings.set({ detailQuality: v })
+        'Grasdichte',
+        (s) => s.grassDensity,
+        (v) => this.settings.set({ grassDensity: v }),
+        ['Aus', 'Wenig', 'Mittel', 'Voll']
+      )
+    );
+    panel.appendChild(
+      this.buildRow(
+        'Schattenqualität', // settings_shadowquality
+        (s) => s.shadowQuality,
+        (v) => this.settings.set({ shadowQuality: v }),
+        ['Aus', 'Niedrig', 'Mittel', 'Hoch']
+      )
+    );
+    panel.appendChild(
+      this.buildToggle('Ferne Schatten', (s) => s.distantShadows, (v) =>
+        this.settings.set({ distantShadows: v })
+      )
+    );
+    // Kein Original-Setting: die Brechung ist im Spiel Teil des
+    // Wassershaders, bei uns ein eigener Szenenpass — siehe Settings.ts.
+    panel.appendChild(
+      this.buildRow(
+        'Wasserqualität',
+        (s) => s.waterQuality,
+        (v) => this.settings.set({ waterQuality: v }),
+        ['Aus', 'Niedrig', 'Mittel', 'Hoch']
+      )
+    );
+    panel.appendChild(
+      this.buildToggle('Kantenglättung', (s) => s.antiAliasing, (v) => this.settings.set({ antiAliasing: v }))
+    );
+    // Eigener Schalter neben "Kantenglättung", nicht darin: TAA tauscht
+    // Flimmern gegen Ghosting — siehe PostProcessing.setTemporalAA().
+    panel.appendChild(
+      this.buildToggle('Zeitliche Glättung (TAA)', (s) => s.temporalAA, (v) =>
+        this.settings.set({ temporalAA: v })
+      )
+    );
+    panel.appendChild(
+      this.buildToggle('100-FPS-Profil', (s) => s.hundertFpsProfil, (v) =>
+        this.settings.set({ hundertFpsProfil: v })
       )
     );
 
-    // Post-Process-Schalter — dieselben Optionen wie im Original
-    // (GraphicsSettingBool), Werte siehe engine/PostProcessing.ts.
+    // ── Effekte: Post-Processing (GraphicsSettingBool im Original) ──────
+    panel.appendChild(this.buildSection('Effekte'));
     panel.appendChild(this.buildToggle('Bloom', (s) => s.bloom, (v) => this.settings.set({ bloom: v })));
     panel.appendChild(
       this.buildToggle('Bewegungsunschärfe', (s) => s.motionBlur, (v) => this.settings.set({ motionBlur: v }))
@@ -144,23 +173,18 @@ export class SettingsPanel {
         this.settings.set({ ambientOcclusion: v })
       )
     );
-    panel.appendChild(
-      this.buildToggle('Kantenglättung', (s) => s.antiAliasing, (v) => this.settings.set({ antiAliasing: v }))
-    );
-    // Eigener Schalter neben "Kantenglättung", nicht darin: TAA tauscht
-    // Flimmern gegen Ghosting — siehe PostProcessing.setTemporalAA().
-    panel.appendChild(
-      this.buildToggle('Zeitliche Glättung (TAA)', (s) => s.temporalAA, (v) =>
-        this.settings.set({ temporalAA: v })
-      )
-    );
-    // Steuerung: kein Original-Setting, siehe GameSettings.pointerLock.
+
+    // ── Steuerung ────────────────────────────────────────────────────
+    panel.appendChild(this.buildSection('Steuerung'));
+    // Kein Original-Setting, siehe GameSettings.pointerLock.
     panel.appendChild(
       this.buildToggle('Maus fangen (Pointer-Lock)', (s) => s.pointerLock, (v) =>
         this.settings.set({ pointerLock: v })
       )
     );
 
+    // ── Anzeige: was über der Welt eingeblendet wird ────────────────────
+    panel.appendChild(this.buildSection('Anzeige'));
     // Namensschilder über Figuren — Spielelement, s. GameSettings.nameplates.
     panel.appendChild(
       this.buildToggle('Namensschilder', (s) => s.nameplates, (v) =>
@@ -172,11 +196,16 @@ export class SettingsPanel {
         this.settings.set({ eigenesNameplate: v })
       )
     );
-
     // Diagnose: Prefab-Namen über den Objekten einblenden.
     panel.appendChild(
       this.buildToggle('Objektnamen anzeigen', (s) => s.showObjectNames, (v) =>
         this.settings.set({ showObjectNames: v })
+      )
+    );
+    // Weltzeit an der Minimap, s. GameSettings.weltzeit / ui/Minimap.ts.
+    panel.appendChild(
+      this.buildToggle('Weltzeit anzeigen', (s) => s.weltzeit, (v) =>
+        this.settings.set({ weltzeit: v })
       )
     );
 
@@ -201,6 +230,16 @@ export class SettingsPanel {
       e.preventDefault();
       this.toggle();
     });
+  }
+
+  /** Abschnittsüberschrift: Trennlinie plus Name, gedämpft gegen die Zeilen darunter. */
+  private buildSection(label: string): HTMLDivElement {
+    const el = document.createElement('div');
+    el.textContent = label;
+    el.style.cssText =
+      'font-size:13px;letter-spacing:.08em;color:#a8916a;text-align:center;' +
+      'margin:18px 0 10px;text-transform:uppercase;border-top:1px solid rgba(138,106,52,.35);padding-top:12px';
+    return el;
   }
 
   private buildRow(

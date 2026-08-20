@@ -18,6 +18,7 @@ import WebSocket from 'ws';
 import { rmSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { createHmac } from 'node:crypto';
 import { DUNGEON_INSTANCE_BAND_MIN, getStableHash } from '@wov/shared';
 import { createWovServer } from '../src/WovServer.js';
 
@@ -32,6 +33,8 @@ const P = {
   Teleport: 43,
   AdminCommand: 53,
   AdminEvent: 54,
+  // F4 (Security-Review): Nonce/HMAC-Passwort-Handshake.
+  AuthChallenge: 68,
 };
 
 function writeString(v: string): number[] {
@@ -99,12 +102,14 @@ async function main(): Promise<void> {
       if (type === P.VersionCheck) {
         const pkt = Buffer.alloc(5);
         pkt.writeUInt8(P.VersionCheck, 0);
-        pkt.writeInt32LE(1, 1);
+        pkt.writeInt32LE(2, 1);
         ws.send(pkt);
-      } else if (type === P.PeerInfo) {
+      } else if (type === P.AuthChallenge) {
         if (!authSent) {
           authSent = true;
-          const payload = [...writeString(''), ...writeString('Tester'), ...writeString('sess1')];
+          const [nonce] = readString(view, 0);
+          const antwort = createHmac('sha256', '').update(nonce).digest('hex');
+          const payload = [...writeString(antwort), ...writeString('Tester'), ...writeString('')];
           ws.send(Buffer.from([P.PasswordAuth, ...payload]));
           // Handshake fertig → Phase 1
           setTimeout(() => sendAdmin(ws, 'dungeon create forestcrypt 4242'), 500);

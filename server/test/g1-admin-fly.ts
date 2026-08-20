@@ -45,6 +45,11 @@ server.init();
 
 // Minimal fake peer: only the fields the exercised paths touch.
 // characterID = ZDOID.NONE → zdos.getZDO returns undefined (guarded).
+// sendPacketWith: seit dem Ausdauer/Vitals-Sync (Nutzerbericht 2026-08-03,
+// WovServer.ts sendPlayerState) ruft JEDER handlePlayerInput-Zweig alle
+// 0,25s akkumulierter Zeit dieses Feld auf — ohne Stub wirft der echte
+// Peer.sendPacketWith-Aufruf auf ein Objekt ohne Socket. No-op reicht, der
+// Test prueft keine gesendeten Pakete.
 function makePeer(isAdmin: boolean): Peer {
   return {
     name: 'TestViking',
@@ -54,6 +59,14 @@ function makePeer(isAdmin: boolean): Peer {
     lastInputSeq: 0,
     lastInputTime: 0,
     characterID: ZDOID.NONE,
+    stamina: 100,
+    staminaZuletztVerbraucht: 0,
+    staminaSyncAkku: 0,
+    health: 100,
+    foodBis: 0,
+    foodBonus: 0,
+    sendPacketWith: () => {},
+    sendPacket: () => {},
   } as unknown as Peer;
 }
 

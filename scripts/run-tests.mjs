@@ -40,6 +40,37 @@ const KERN = [
   ['server', 'test/g2-persistence.ts'],
   ['server', 'test/g4-creatures.ts'],
   ['server', 'test/e2-vegetation.ts'],
+  // A2 (Security-Review): reine Funktion — Paketwaffe zaehlt nur, wenn sie
+  // im Server-Inventar liegt, sonst Faust. Sekunden, kein Server/Socket.
+  ['server', 'test/a2-waffe-inventar.ts'],
+  // A4 (Roadmap): Token-Bucket-Drosselung je Peer und Pakettyp. Reine
+  // Funktion (Drossel.ts kennt weder Peer noch Socket), Zeit kommt als
+  // Parameter herein — Sekunden, kein Server/Socket noetig.
+  ['server', 'test/a4-drossel.ts'],
+  // A3 (Security-Review): SetTimeOfDay ist admin-gated. E2E ueber echten
+  // WebSocket-Handshake — haelt sowohl den Admin-Erfolgspfad als auch die
+  // Ablehnung (InteractResult, kein TimeSync-Broadcast) fest.
+  ['server', 'test/set-time-of-day.ts'],
+  // F3/F4 (Security-Review): reine Logik aus Identitaet.ts — Spieler-ID,
+  // SessionToken (Ausstellen/Pruefen/Ablauf/Faelschung, fremdes Geheimnis)
+  // und der Nonce/HMAC-Passwort-Handshake inkl. des leeren-Passwort-Falls.
+  // Sekunden, kein Server/Socket.
+  ['server', 'test/f3-identitaet.ts'],
+  // F3/F4 (Security-Review): der VERDRAHTETE Zustand, nicht nur die reine
+  // Logik. E2E ueber echte WebSocket-Verbindungen: kein Client bekommt je
+  // eine feste/geteilte userId ohne Token (Luecke A), ein anderer Name
+  // bekommt NIE die Position eines fremden Namens, ein gefaelschtes Token
+  // wird verworfen statt eine fremde Identitaet zu uebernehmen (Luecke B),
+  // und ein gueltiges Token haelt die Identitaet ueber einen Reconnect
+  // stabil.
+  ['server', 'test/f3-einbau.ts'],
+  // A5 (Schlusskontrolle Paket 2): Deckel fuer offene, nie authentifizierte
+  // Verbindungen (MAX_PENDING_CONNECTIONS in NetManager.ts). Vorher zaehlte
+  // die "Server voll"-Pruefung nur onlinePeers — der Pre-Auth-Timeout liess
+  // sich per Ping endlos hinauszoegern. E2E ueber echte WebSocket-Verbindungen,
+  // haelt sowohl das Offenbleiben bis zum Limit als auch die sofortige
+  // Trennung darueber hinaus fest.
+  ['server', 'test/verbindungsdeckel.ts'],
   // Die zwei Client-Tests der Kernliste. Beide kommen ohne Assets, Browser
   // und GPU aus — das ist die Bedingung, um hier zu stehen.
   //
@@ -55,6 +86,18 @@ const KERN = [
   // Vegetation. Der reine Kreisfilter sichert den unveraenderten Standard
   // (0 = voll), den eingeschlossenen Rand und die X/Z-Distanz ab.
   ['client', 'test/vegetations-grenze.ts'],
+  // Weltzeit-Anzeige (Minimap): reine Umrechnung timeOfDay -> Stunde/
+  // Minute/Sonnenstand, DOM-frei. Haelt Mitternacht, Mittag, die beiden
+  // Uebergangsschwellen und den Tages-Ueberlauf fest.
+  ['client', 'test/weltzeit.ts'],
+  // Schweregrad-Klassifikation des Editor-Prüfberichts (Aufgabe B1): reine
+  // Einstufung eines LayoutBefund nach Fehler/Hinweis, DOM-frei — anders
+  // als editorMain.ts selbst, das beim Import sofort die Editor-Shell
+  // aufbaut und einen Fetch anstößt und deshalb nicht isoliert testbar
+  // ist. Prüft jeden Zweig einzeln UND gegen echte pruefeLayout-Ausgaben,
+  // damit ein geänderter Wortlaut in pruefung.ts hier auffällt statt erst
+  // als falsch gefärbte Zeile im Editor.
+  ['client', 'test/befund-schwere.ts'],
   // Die Keulung der Schattenwerfer pro Instanz ist konservativ in genau
   // EINER Richtung: Was ueberlebt, wird eingereicht — verworfen wird nur,
   // was seitlich sicher ausserhalb des Lichtkastens liegt. Ein Fehler hier

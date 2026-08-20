@@ -256,6 +256,13 @@ export enum PacketType {
   /** Beidseitig: Heartbeat (leer). Client alle 5 s, Server echot —
    *  Grundlage der Verbindungs-Timeouts (NetManager.pruefeTimeouts). */
   Ping = 67,
+  /**
+   * Server → Client: Nonce/HMAC-Passwort-Handshake (F4, Security-Review).
+   * Ersetzt den bisherigen "PeerInfo als Trigger"-Umweg vor der ersten
+   * Anmeldung — ein Peer beantwortet dieses Paket mit PasswordAuth.
+   * Payload: String nonce (Hex, EINMALIG pro Verbindung).
+   */
+  AuthChallenge = 68,
 }
 
 // === Vector3 (Vector.h) ===

@@ -30,6 +30,8 @@ import { Writer } from '../io/Writer.js';
 import { Reader } from '../io/Reader.js';
 import { PacketType } from '@wov/shared';
 import type { WebSocket } from 'ws';
+import { randomBytes } from 'node:crypto';
+import type { SpielerId } from './Identitaet.js';
 
 /** ZDO tracking entry per peer (matches C++ pair<Rev, float>) */
 export interface PeerZDOEntry {
@@ -51,7 +53,15 @@ export class Peer {
   // ── Mutable state ──────────────────────────────────────────────
   position: Vector3;
   characterID: ZDOID;
+  /** Altlast-ID fuer ZDO-Besitz (BigInt, siehe WovServer.ts). Kommt seit
+   *  F3 (Security-Review) AUSSCHLIESSLICH vom Server: bei Erstanmeldung
+   *  serverseitig aus der neuen spielerId abgeleitet, danach im
+   *  SessionToken eingefroren — nie mehr aus einem Client-Feld. */
   userId: bigint;
+  /** Server-vergebene, stabile Spieler-ID (F3, Security-Review) — leer
+   *  bis NetManager.handlePasswordAuth sie zuweist. Der Client kann sie
+   *  weder waehlen noch beeinflussen (Luecke A/B). */
+  spielerId: SpielerId = '';
 
   /** Connection status */
   status: ConnectionStatus;
@@ -89,12 +99,28 @@ export class Peer {
 
   /** Phase G: overworld position to return to when leaving the dungeon. */
   dungeonReturn: Vector3 | null;
-  /** Zeitstempel des letzten akzeptierten Schlags (Angriff/Ernte-Cooldown). */
-  letzterSchlag = 0;
-  /** Zeitstempel der letzten Chat-Nachricht (Frequenzlimit). */
-  letzterChat = 0;
   /** Zeitstempel des letzten empfangenen Pakets (Heartbeat/Timeout). */
   letztesPaket = Date.now();
+  /** Zeitstempel der letzten "Paket vor Auth verworfen"-Logzeile fuer
+   *  diesen Peer (A4, Security-Review) — hoechstens 1 Zeile/Sekunde, sonst
+   *  schreibt ein Flood unauthentifizierter Pakete das Journal in
+   *  Sekunden voll (NetManager.handlePacket). */
+  letzteVorAuthWarnung = 0;
+  /** Nonce des laufenden Passwort-Handshakes (F4, Security-Review) — vom
+   *  Server erzeugt, EINMALIG, wird von handlePasswordAuth sofort nach
+   *  Gebrauch geloescht (Replay-Schutz). null ausserhalb eines laufenden
+   *  Handshakes. */
+  authNonce: string | null = null;
+  /**
+   * Zufaellige Kennung NUR fuer die Paket-Drosselung (A4, Security-Review)
+   * — pro Verbindung neu, UNABHAENGIG von der Spieler-Identitaet (die
+   * steht vor der Anmeldung noch gar nicht fest, und ein Bot, der nach
+   * jedem Drosseltreffer die Verbindung wegwirft und neu aufbaut, wuerde
+   * sich sonst nie in einem laenger laufenden Eimer fangen). Wird beim
+   * Verbindungsabbau als Schluessel benutzt, um den Drosselzustand dieses
+   * Peers wieder herauszunehmen (NetManager.handleDisconnect).
+   */
+  readonly verbindungsId = randomBytes(8).toString('hex');
   /** Welt, in der der Peer lebt (Review 15) — heute immer die Hauptwelt. */
   worldId = 'haupt';
   /** Server-autoritatives Inventar (Review-Punkt 8) — Quelle der Wahrheit. */

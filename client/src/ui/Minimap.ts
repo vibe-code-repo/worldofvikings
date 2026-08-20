@@ -21,10 +21,18 @@
  *
  * Koordinaten: Norden = +z (oben), Osten = +x (rechts) — dieselbe
  * Orientierung wie die Weltkarte.
+ *
+ * Vierte, optionale Leiste unter dem Kreis: die Weltzeit (Uhrzeit +
+ * Sonnenstand-Symbol, abschaltbar über GameSettings.weltzeit). Sitzt
+ * bewusst HIER und nicht im Hud-Diagnosetext — sie ist Spielelement wie
+ * der Windzeiger, kein Werkzeug, und Valheims eigenes UI hängt die Uhr
+ * genauso unter den Kompass. Eigenes Modul (Weltzeit.ts) für die reine
+ * Umrechnung, damit sie ohne DOM testbar bleibt.
  */
 import { Biome, PrefabFlag, WATER_LEVEL, findPrefabByName } from '@wov/shared';
 import type { ClientWorld } from '../world/World';
 import { BIOME_COLOR, type RGB } from './worldmap/MapPalette';
+import { weltzeitAus, type Sonnenstand } from './Weltzeit';
 
 /** Angezeigter Sichtradius in Metern. */
 const RADIUS_M = 150;
@@ -49,6 +57,8 @@ const ZEILEN_JE_FRAME = 6;
 /** Objekt-Ebene: Pixelgröße und Auffrischintervall. */
 const OBJ_N = 512;
 const OBJ_INTERVALL_MS = 1200;
+/** Höhe der Weltzeit-Leiste unter dem Kreis, in CSS-Pixeln. */
+const ZEIT_H = 30;
 
 const SAND: RGB = [188, 176, 132];
 const WASSER: RGB = [44, 84, 130];
@@ -56,6 +66,14 @@ const WASSER: RGB = [44, 84, 130];
 const FARBE_BAUM = 'rgb(22,44,20)';
 const FARBE_FELS = 'rgb(126,126,122)';
 const FARBE_BAUWERK = 'rgb(158,112,58)';
+/** Kreisfüllung, zugleich Hintergrund der Weltzeit-Leiste (wirkt wie ein
+ *  Stück desselben Rahmens statt einer zweiten Fläche). */
+const FARBE_HINTERGRUND = 'rgb(30,38,48)';
+/** Sonnenstand-Symbolfarben: Gold für Tag, Silber für Nacht, Bernstein für
+ *  den Übergang — drei klar unterscheidbare Töne statt Nuancen. */
+const FARBE_SONNE = 'rgb(242,200,106)';
+const FARBE_MOND = 'rgb(196,210,228)';
+const FARBE_DAEMMER = 'rgb(224,140,70)';
 
 const FELS_NAME = /rock|stone|cliff|boulder/i;
 
@@ -86,18 +104,24 @@ export class Minimap {
 
   private eingaenge: Array<{ x: number; z: number }> = [];
 
+  /** GameSettings.weltzeit — ob die Leiste unter dem Kreis mitwächst. */
+  private zeitSichtbar = true;
+  /** Zuletzt von main.ts übergebener Tagesbruchteil, s. `update()`. */
+  private timeOfDay = 0;
+
   constructor(private readonly world: ClientWorld) {
     this.root = document.createElement('div');
     this.root.style.cssText =
-      `position:fixed;top:10px;right:10px;width:${SIZE_PX}px;height:${SIZE_PX}px;` +
+      `position:fixed;top:10px;right:10px;width:${SIZE_PX}px;` +
       'pointer-events:none;z-index:4';
     this.canvas = document.createElement('canvas');
     this.canvas.width = SIZE_PX * 2;
-    this.canvas.height = SIZE_PX * 2;
     this.canvas.style.cssText = 'width:100%;height:100%';
     this.root.appendChild(this.canvas);
     document.body.appendChild(this.root);
     this.ctx = this.canvas.getContext('2d')!;
+    // Setzt root.style.height + canvas.height passend zu zeitSichtbar.
+    this.canvasGroesseAnpassen();
 
     this.fertig = document.createElement('canvas');
     this.fertig.width = N;
@@ -109,6 +133,26 @@ export class Minimap {
     this.objCanvas = document.createElement('canvas');
     this.objCanvas.width = OBJ_N;
     this.objCanvas.height = OBJ_N;
+  }
+
+  /**
+   * Höhe von Root-Div und Canvas-Backing-Store an `zeitSichtbar` anpassen.
+   * Die Breite (= Kreisdurchmesser) bleibt immer SIZE_PX*2 — nur die Zeile
+   * unter dem Kreis kommt dazu oder fällt weg, deshalb genügt es, hier NUR
+   * die Höhe anzufassen; die Ring-Geometrie in `zeichnen()` hängt allein
+   * an `canvas.width` und bleibt unberührt.
+   */
+  private canvasGroesseAnpassen(): void {
+    const hoehe = SIZE_PX + (this.zeitSichtbar ? ZEIT_H : 0);
+    this.root.style.height = `${hoehe}px`;
+    this.canvas.height = hoehe * 2;
+  }
+
+  /** GameSettings.weltzeit — muss die Anzeige sofort, ohne Neuladen, greifen. */
+  setZeitSichtbar(v: boolean): void {
+    if (this.zeitSichtbar === v) return;
+    this.zeitSichtbar = v;
+    this.canvasGroesseAnpassen();
   }
 
   setVisible(v: boolean): void {
@@ -131,9 +175,11 @@ export class Minimap {
     px: number,
     pz: number,
     yaw: number,
-    wind: { dirX: number; dirZ: number; intensity: number }
+    wind: { dirX: number; dirZ: number; intensity: number },
+    timeOfDay: number
   ): void {
     if (this.root.style.display === 'none') return;
+    this.timeOfDay = timeOfDay;
 
     const bautNoch = this.bauZeile < N;
     const d = Math.hypot(px - this.fertigAnker.x, pz - this.fertigAnker.z);
@@ -275,13 +321,13 @@ export class Minimap {
     const radiusPx = w / 2 - rand;
     const scale = (radiusPx * 2) / (RADIUS_M * 2); // px je Meter
 
-    ctx.clearRect(0, 0, w, w);
+    ctx.clearRect(0, 0, w, this.canvas.height); // Kreis + ggf. Weltzeit-Leiste darunter
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, radiusPx, 0, Math.PI * 2);
     ctx.clip();
 
-    ctx.fillStyle = 'rgb(30,38,48)';
+    ctx.fillStyle = FARBE_HINTERGRUND;
     ctx.fillRect(0, 0, w, w);
 
     // Gelände: ankerzentriert, um den Spielerversatz verschoben.
@@ -393,6 +439,103 @@ export class Minimap {
     const prozent = `${Math.round(wind.intensity * 100)} %`;
     ctx.strokeText(prozent, wx, wy + wr + 12);
     ctx.fillText(prozent, wx, wy + wr + 12);
+
+    if (this.zeitSichtbar) this.zeitZeichnen(w, cx);
+  }
+
+  /** Weltzeit-Leiste unter dem Kreis: Uhrzeit (24h) + Sonnenstand-Symbol. */
+  private zeitZeichnen(w: number, cx: number): void {
+    const ctx = this.ctx;
+    const barY0 = w;
+    const barH = this.canvas.height - w;
+    if (barH <= 0) return; // Grösse noch nicht angepasst — sollte nicht vorkommen
+
+    ctx.fillStyle = FARBE_HINTERGRUND;
+    ctx.fillRect(0, barY0, w, barH);
+    ctx.strokeStyle = 'rgb(138,106,52)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(1.5, barY0 + 1.5, w - 3, barH - 3);
+
+    const { stunde, minute, sonnenstand } = weltzeitAus(this.timeOfDay);
+    const text = `${String(stunde).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    const mitteY = barY0 + barH / 2;
+    const iconR = barH * 0.32;
+
+    ctx.font = 'bold 20px Georgia,serif';
+    ctx.textBaseline = 'middle';
+    // Icon + Text als Gruppe mittig, statt fest verankert — die Textbreite
+    // ändert sich nicht (immer "HH:MM"), aber so bleibt es robust, falls
+    // Schriftmetriken zwischen Browsern minimal abweichen.
+    const textBreite = ctx.measureText(text).width;
+    const abstand = 8;
+    const startX = cx - (iconR * 2 + abstand + textBreite) / 2;
+    const iconX = startX + iconR;
+    const textX = startX + iconR * 2 + abstand;
+
+    this.sonnenIcon(iconX, mitteY, iconR, sonnenstand);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgb(232,217,184)';
+    ctx.strokeStyle = 'rgba(0,0,0,.7)';
+    ctx.lineWidth = 3;
+    ctx.strokeText(text, textX, mitteY);
+    ctx.fillText(text, textX, mitteY);
+  }
+
+  /**
+   * Sonnenstand-Symbol, handgezeichnet statt Emoji: Emoji-Glyphen sind auf
+   * den meisten Plattformen fest eingefärbt und ignorieren `fillStyle` —
+   * hier soll die Farbe (Gold/Silber/Bernstein) das Ergebnis der
+   * `weltzeitAus`-Einstufung tragen, keine Systemschrift.
+   */
+  private sonnenIcon(cx: number, cy: number, r: number, stand: Sonnenstand): void {
+    const ctx = this.ctx;
+    if (stand === 'sonne') {
+      ctx.fillStyle = FARBE_SONNE;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = FARBE_SONNE;
+      ctx.lineWidth = Math.max(1.5, r * 0.16);
+      for (let i = 0; i < 8; i++) {
+        const a = (i * Math.PI) / 4;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(a) * r * 0.68, cy + Math.sin(a) * r * 0.68);
+        ctx.lineTo(cx + Math.cos(a) * r * 0.98, cy + Math.sin(a) * r * 0.98);
+        ctx.stroke();
+      }
+      return;
+    }
+    if (stand === 'mond') {
+      ctx.fillStyle = FARBE_MOND;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.58, 0, Math.PI * 2);
+      ctx.fill();
+      // Sichel: zweiter Kreis in der Leistenfarbe deckt ein Stück ab — die
+      // Leiste ist opak, ein echter Alpha-Schnitt (destination-out) braucht
+      // es dafür nicht.
+      ctx.fillStyle = FARBE_HINTERGRUND;
+      ctx.beginPath();
+      ctx.arc(cx + r * 0.32, cy - r * 0.14, r * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    // 'aufgang'/'untergang': gedämpfte Sonne + Richtungspfeil — dieselbe
+    // Grundform für beide, der Pfeil allein trägt die Richtung.
+    ctx.fillStyle = FARBE_DAEMMER;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+    const rauf = stand === 'aufgang';
+    const spitzeX = cx + r * 0.95;
+    const spitzeY = cy + (rauf ? -r * 0.4 : r * 0.4);
+    const basisY = cy + (rauf ? r * 0.1 : -r * 0.1);
+    ctx.beginPath();
+    ctx.moveTo(spitzeX, spitzeY);
+    ctx.lineTo(spitzeX - r * 0.32, basisY);
+    ctx.lineTo(spitzeX + r * 0.32, basisY);
+    ctx.closePath();
+    ctx.fill();
   }
 
   dispose(): void {

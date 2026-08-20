@@ -67,6 +67,16 @@ export interface SavedPlayer {
   spawnPoint?: Vector3;
   /** Server-Inventar (SavedItemStack[], optional — Altstände haben keins). */
   inventar?: SavedItemStack[];
+  /**
+   * Stabile Spieler-ID (F3, Security-Review; optional — Altstände vor
+   * diesem Umbau haben keine). Als schlichter `string` statt eines
+   * importierten `SpielerId`-Typs, damit world/ nicht von net/ abhängt —
+   * die Form wird beim Lesen ueber Identitaet.istSpielerId geprueft, nicht
+   * hier ueber den Typ erzwungen. Fehlt sie, bleibt der Datensatz unter
+   * seinem NAMEN abgelegt (siehe WovServer.loadWorld /
+   * ermittleGespeichertenStand).
+   */
+  spielerId?: string;
 }
 
 export interface WorldSaveData {

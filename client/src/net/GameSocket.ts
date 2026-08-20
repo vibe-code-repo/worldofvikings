@@ -4,7 +4,7 @@
  * engine dependencies). Binary framing: [type: u8][payload].
  */
 
-import { PacketType, getStableHash } from '@wov/shared';
+import { PacketType, HANDSHAKE_LEERPASSWORT_SCHLUESSEL } from '@wov/shared';
 import type { Vector3, Quaternion } from '@wov/shared';
 
 /**
@@ -21,6 +21,53 @@ import type { Vector3, Quaternion } from '@wov/shared';
 const DECODER = new TextDecoder();
 /** Dasselbe für die Senderichtung — s. DECODER. */
 const ENCODER = new TextEncoder();
+
+/**
+ * localStorage-Schlüssel für das SessionToken (F3, Security-Review).
+ *
+ * Der Server vergibt die Spieler-Identität jetzt selbst und schickt bei
+ * jeder erfolgreichen Anmeldung ein signiertes SessionToken zurück
+ * (NetManager.sendPeerInfo). Der Client legt es hier ab und schickt es
+ * beim nächsten Connect als Nachweis mit (PasswordAuth.sessionToken) —
+ * damit bleibt die Identität über einen Reload/Neustart des Browsers
+ * hinweg stabil (und mit ihr der ZDO-Besitz eigener Bauten), solange der
+ * Server währenddessen nicht neu gestartet ist (siehe WovServer.ts,
+ * Kopfkommentar zu `sessionSecret`, für die Grenze dieser Zusicherung).
+ */
+const SESSION_TOKEN_KEY = 'wov-session-token';
+
+/**
+ * HMAC-SHA256(key, message) → hex, über die Web-Crypto-API (F4,
+ * Security-Review). Ersetzt den früheren rohen getStableHash-Vergleich:
+ * der Server schickt einen Nonce (AuthChallenge), der Client antwortet
+ * mit dem HMAC über genau diesen Nonce, das Passwort verlässt den
+ * Browser also nie im Klartext UND nicht als wiederverwendbarer Hash.
+ *
+ * Erfordert einen sicheren Kontext (https oder localhost) — `crypto.subtle`
+ * existiert sonst nicht. Für diese Codebasis (WebSocket-Spiel, auf einem
+ * öffentlich erreichbaren Server ohnehin nur über https sinnvoll) keine
+ * zusätzliche Einschränkung.
+ */
+async function hmacSha256Hex(schluessel: string, nachricht: string): Promise<string> {
+  // Leeres Passwort auf den gemeinsamen Ersatzschluessel abbilden. WebCrypto
+  // lehnt einen leeren HMAC-Schluessel ab ("DataError: HMAC key data must not
+  // be empty"), Node nicht — ohne diese Abbildung schlaegt im Browser JEDE
+  // Anmeldung fehl, solange kein Serverpasswort gesetzt ist. Begruendung und
+  // Wert stehen in shared/src/protocol.ts.
+  const wirklicherSchluessel =
+    schluessel === '' ? HANDSHAKE_LEERPASSWORT_SCHLUESSEL : schluessel;
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    ENCODER.encode(wirklicherSchluessel),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signatur = await crypto.subtle.sign('HMAC', cryptoKey, ENCODER.encode(nachricht));
+  return Array.from(new Uint8Array(signatur))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 /** Minimal binary reader for client-side packet parsing */
 export class BinaryReader {
@@ -176,7 +223,12 @@ export class GameSocket {
     switch (type) {
       case PacketType.VersionCheck: {
         const w = new BinaryWriter();
-        w.writeInt32(1); // protocol version
+        // F3/F4 (Security-Review): Protokollversion 2 — der Handshake hat
+        // sich unverträglich geändert (AuthChallenge/Nonce statt PeerInfo
+        // als Trigger, neue PasswordAuth-Felder). Ein Server, der noch
+        // Version 1 erwartet, gibt es auf diesem Server nicht mehr; die
+        // Konstante muss mit NetManager.ts (PROTOCOL_VERSION) übereinstimmen.
+        w.writeInt32(2);
         this.sendPacket(PacketType.VersionCheck, w.toUint8Array());
         break;
       }
@@ -185,21 +237,53 @@ export class GameSocket {
         console.warn('[GameSocket] Server disconnect:', this.disconnectReason);
         break;
       }
-      case PacketType.PeerInfo: {
-        reader.readString();
-        this.ownUserId = reader.readString();
-        reader.readString();
+      case PacketType.AuthChallenge: {
+        // F4 (Security-Review): Nonce/HMAC-Passwort-Handshake. Antwort ist
+        // HMAC-SHA256(key=Passwort, data=nonce) — das Passwort selbst
+        // verlässt den Browser nie, und die Antwort ist nur für DIESEN
+        // Nonce gültig (kein Replay). `crypto.subtle` ist async, der Rest
+        // des Handshakes wartet deshalb hier auf das Promise.
+        const nonce = reader.readString();
         if (!this.authSent) {
           this.authSent = true;
-          const w = new BinaryWriter();
-          w.writeString(this._pendingPassword ? String(getStableHash(this._pendingPassword)) : '');
-          w.writeString(this.playerName);
-          w.writeString(this.generateSessionId());
-          this.sendPacket(PacketType.PasswordAuth, w.toUint8Array());
-          this.connected = true;
-          this.startePing();
-          this.onConnected?.();
+          void (async () => {
+            const antwort = await hmacSha256Hex(this._pendingPassword, nonce);
+            const w = new BinaryWriter();
+            w.writeString(antwort);
+            w.writeString(this.playerName);
+            // F3 (Security-Review): das zuvor vom Server ausgestellte
+            // SessionToken — '' bei Erstverbindung oder geleertem
+            // localStorage. Der Server entscheidet allein anhand dessen
+            // (nie anhand eines frei gewählten Feldes), welche Identität
+            // dieser Peer bekommt.
+            w.writeString(localStorage.getItem(SESSION_TOKEN_KEY) ?? '');
+            this.sendPacket(PacketType.PasswordAuth, w.toUint8Array());
+            this.connected = true;
+            this.startePing();
+            this.onConnected?.();
+          })().catch((fehler: unknown) => {
+            // Ohne dieses catch verschwindet hier JEDER Fehler spurlos: Der
+            // Client sendet dann keine Antwort, der Server laeuft nach zehn
+            // Sekunden in seinen Timeout, und im Browser steht nichts —
+            // weder Meldung noch Warnung. Genau diese Stille hat am
+            // 20.08.2026 die Suche nach dem leeren HMAC-Schluessel so teuer
+            // gemacht. Ein stiller Handshake-Fehler darf es nicht mehr geben.
+            console.error('[GameSocket] Handshake-Antwort fehlgeschlagen:', fehler);
+            this.disconnectReason = 'Handshake fehlgeschlagen — Einzelheiten in der Browser-Konsole';
+            this.disconnect();
+          });
         }
+        break;
+      }
+      case PacketType.PeerInfo: {
+        // Geht seit F3 NUR NOCH nach erfolgreicher Anmeldung raus (kein
+        // Pre-Auth-"Trigger"-Versand mehr, das übernimmt AuthChallenge) —
+        // hier wird nur noch das Ergebnis übernommen, nichts mehr gesendet.
+        reader.readString(); // eigener Anzeigename (Server-Echo)
+        this.ownUserId = reader.readString();
+        reader.readString(); // serverName
+        const sessionToken = reader.readString();
+        if (sessionToken) localStorage.setItem(SESSION_TOKEN_KEY, sessionToken);
         break;
       }
       default:
@@ -374,9 +458,5 @@ export class GameSocket {
     this.stoppePing();
     this.ws?.close();
     this.ws = null;
-  }
-
-  private generateSessionId(): string {
-    return 'babylon_' + Math.random().toString(36).substring(2, 10);
   }
 }

@@ -22,6 +22,16 @@ import { WebSocketAcceptor } from './WebSocketAcceptor.js';
 import { Reader } from '../io/Reader.js';
 import { Writer } from '../io/Writer.js';
 import { getStableHash } from '../util/Hash.js';
+import { Drossel } from './Drossel.js';
+import {
+  nonceErzeugen,
+  antwortPruefen,
+  spielerIdErzeugen,
+  istSpielerId,
+  tokenAusstellen,
+  tokenPruefen,
+  type SpielerId,
+} from './Identitaet.js';
 
 export interface NetManagerConfig {
   port: number;
@@ -29,7 +39,41 @@ export interface NetManagerConfig {
   serverName: string;
   maxPlayers: number;
   everyoneAdmin: boolean;
+  /**
+   * F3 (Security-Review): Servergeheimnis fuer die SessionToken-Signatur.
+   * NetManager erzeugt/laedt es NICHT selbst — Herkunft und die bewusste
+   * Entscheidung "nur im Arbeitsspeicher" stehen im Kopfkommentar von
+   * WovServer.ts (Konstruktor, dort wo `sessionSecret` entsteht).
+   */
+  sessionSecret: Buffer;
+  /**
+   * S6 (Security-Review): zusaetzliche Admin-Berechtigung ueber die
+   * stabile Spieler-ID, NEBEN `everyoneAdmin` (das bleibt Mikes
+   * Handgriff und wird hier nicht abgeschaltet). Peer.isAdmin ist die
+   * ODER-Verknuepfung beider Quellen.
+   */
+  istAdminId: (id: SpielerId) => boolean;
 }
+
+/**
+ * Deckel für offene, noch nicht authentifizierte Verbindungen: onlinePeers.length
+ * (die maxPlayers-Prüfung) bleibt bis zur erfolgreichen Anmeldung bei 0, und der
+ * Pre-Auth-Ping wird immer beantwortet und hält damit den 10s-Timeout beliebig
+ * lange hinaus — ohne diesen Deckel könnte eine Flut nie authentifizierter
+ * Sockets unbegrenzt Peer-Objekte ansammeln, bevor maxPlayers je greift.
+ */
+const MAX_PENDING_CONNECTIONS = 50;
+
+/**
+ * Protokollversion (F3/F4, Security-Review): auf 2 angehoben, weil der
+ * Handshake sich UNVERTRAEGLICH geaendert hat (AuthChallenge/Nonce, neue
+ * PasswordAuth-Felder). Ein alter Client sendet weiterhin Version 1 und
+ * bekommt hier eine normale, lesbare Disconnect-Meldung — genau den Pfad,
+ * den es fuer Versions-Mismatches schon vorher gab. Kein stiller Abbruch,
+ * kein Sonderfall: der bestehende Mechanismus traegt die neue Bedeutung
+ * "Client zu alt fuer den neuen Handshake" von selbst mit.
+ */
+const PROTOCOL_VERSION = 2;
 
 export class NetManager {
   private acceptor: WebSocketAcceptor;
@@ -37,7 +81,15 @@ export class NetManager {
   private onlinePeers: Peer[] = [];
 
   readonly config: NetManagerConfig;
-  private passwordHash: string;
+
+  /**
+   * A4 (Security-Review): Token-Bucket-Drosselung je Peer und Pakettyp,
+   * VOR jeder weiteren Verarbeitung (handlePacket). Lebt hier und nicht
+   * in WovServer, weil das der fruehestmoegliche Punkt im Paketpfad ist —
+   * noch vor dem Auth-Gate, das ohne eigene Drosselung selbst ein
+   * Log-Flood-Ziel war (siehe handlePacket).
+   */
+  private readonly drossel = new Drossel();
 
   /** Callbacks for server integration */
   onPeerAuthenticated: ((peer: Peer) => void) | null = null;
@@ -49,7 +101,6 @@ export class NetManager {
   constructor(config: NetManagerConfig) {
     this.config = config;
     this.acceptor = new WebSocketAcceptor();
-    this.passwordHash = config.password ? getStableHash(config.password).toString() : '';
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────
@@ -86,6 +137,13 @@ export class NetManager {
       return;
     }
 
+    // Deckel gegen unbegrenzt viele offene, nie authentifizierte Sockets
+    // (siehe Kommentar bei MAX_PENDING_CONNECTIONS).
+    if (this.connectedPeers.length >= MAX_PENDING_CONNECTIONS) {
+      socket.close(1000, 'Too many pending connections');
+      return;
+    }
+
     // Create a temporary peer (name assigned after auth)
     const peer = new Peer(socket, `pending_${address}`, 0n);
     this.connectedPeers.push(peer);
@@ -115,7 +173,7 @@ export class NetManager {
 
     // Send version check request
     peer.sendPacketWith(PacketType.VersionCheck, (w) => {
-      w.writeInt32(1); // protocol version
+      w.writeInt32(PROTOCOL_VERSION);
       w.writeString(this.config.serverName);
     });
   }
@@ -126,12 +184,22 @@ export class NetManager {
     const type = data.readUInt8(0) as PacketType;
     const payload = data.subarray(1);
     const reader = new Reader(Buffer.from(payload));
-    peer.letztesPaket = Date.now();
+    const jetzt = Date.now();
+    peer.letztesPaket = jetzt;
 
     // Heartbeat: Ping wird geechot und NICHT weitergereicht — er hält nur
     // letztesPaket frisch (auch bei Tab im Hintergrund, Review-Punkt 11/27).
     if (type === PacketType.Ping) {
       peer.sendPacket(PacketType.Ping, Buffer.alloc(0));
+      return;
+    }
+
+    // A4 (Security-Review): Drosselung VOR jeder weiteren Arbeit. Die
+    // Handshake-Pakete (VersionCheck, AuthChallenge, PasswordAuth) haben
+    // ABSICHTLICH keinen Eintrag in STANDARD_DROSSEL (siehe Drossel.ts
+    // Kopfkommentar) und bleiben dadurch immer erlaubt — der Handshake
+    // wird durch diese Zeile also nie abgewürgt, alles andere schon.
+    if (!this.drossel.erlaubt(peer.verbindungsId, type, jetzt)) {
       return;
     }
 
@@ -143,7 +211,15 @@ export class NetManager {
       type !== PacketType.VersionCheck &&
       type !== PacketType.PasswordAuth
     ) {
-      console.warn(`[NetManager] Paket type=${type} vor Auth von ${peer.name} — verworfen`);
+      // A4 (Security-Review): Drosselung der LOGZEILE selbst, hoechstens
+      // einmal pro Sekunde je Peer — ohne das schrieb ein Flood
+      // unerlaubter Pakete vor der Anmeldung eine Zeile PRO PAKET und
+      // fuellte das Journal in Sekunden. Das Paket wird trotzdem bei
+      // JEDEM Treffer verworfen, nur das Loggen ist gedrosselt.
+      if (jetzt - peer.letzteVorAuthWarnung > 1000) {
+        peer.letzteVorAuthWarnung = jetzt;
+        console.warn(`[NetManager] Paket type=${type} vor Auth von ${peer.name} — verworfen (weitere werden bis zu 1s lang still verworfen)`);
+      }
       return;
     }
 
@@ -188,22 +264,38 @@ export class NetManager {
 
   private handleVersionCheck(peer: Peer, reader: Reader): void {
     const clientVersion = reader.readInt32();
-    if (clientVersion !== 1) {
+    if (clientVersion !== PROTOCOL_VERSION) {
       peer.status = ConnectionStatus.ErrorVersion;
-      peer.disconnect('Version mismatch');
+      peer.disconnect(
+        `Client-Version veraltet (Client v${clientVersion}, Server v${PROTOCOL_VERSION}) — bitte Seite neu laden`
+      );
       return;
     }
-    // Version OK — send PeerInfo to trigger client auth
-    this.sendPeerInfo(peer);
+    // F4 (Security-Review): pro Verbindung EIN Nonce, danach wartet der
+    // Server auf PasswordAuth als Antwort. Ersetzt den frueheren
+    // "PeerInfo als Trigger"-Umweg: die alte Auth brauchte irgendein
+    // Signal, um den Client zum Senden von PasswordAuth zu bewegen — jetzt
+    // gibt es dafuer ein eigenes, semantisch klares Paket.
+    const nonce = nonceErzeugen();
+    peer.authNonce = nonce;
+    peer.sendPacketWith(PacketType.AuthChallenge, (w) => {
+      w.writeString(nonce);
+    });
   }
 
   private handlePasswordAuth(peer: Peer, reader: Reader): void {
-    const passwordHash = reader.readString();
+    const antwort = reader.readString();
     const playerName = reader.readString();
-    const userIdStr = reader.readString();
+    const sessionToken = reader.readString();
 
-    // Check password
-    if (this.config.password && passwordHash !== this.passwordHash) {
+    // F4 (Security-Review): Nonce ist EINMALIG und wird HIER verbraucht,
+    // unabhaengig vom Ausgang — ein zweiter PasswordAuth-Versuch (egal ob
+    // vom selben oder einem anderen Absender) trifft dann auf "kein Nonce
+    // vorhanden" und faellt automatisch auf Ablehnung, ganz ohne
+    // Sonderfall-Code. Das ist der Replay-Schutz.
+    const nonce = peer.authNonce;
+    peer.authNonce = null;
+    if (!nonce || !antwortPruefen(nonce, this.config.password, antwort)) {
       peer.status = ConnectionStatus.ErrorPassword;
       peer.disconnect('Wrong password');
       return;
@@ -216,34 +308,70 @@ export class NetManager {
       return;
     }
 
-    // Authenticate
-    // Browser session IDs are non-numeric strings, hash them to a BigInt
-    let userId: bigint;
-    if (/^\d+$/.test(userIdStr)) {
-      userId = BigInt(userIdStr);
+    // F3 (Security-Review, schliesst Luecke A + B): Identitaet kommt
+    // AUSSCHLIESSLICH vom Server. Ein gueltiges SessionToken liefert eine
+    // zuvor ausgestellte spielerId + die dabei eingefrorene Altlast-userId
+    // zurueck. Fehlt das Token, ist es abgelaufen ODER gefaelscht/
+    // manipuliert (auch: ein Token mit falscher Form), gibt es KEINEN
+    // stillen Rueckfall auf irgendein Client-Feld — es entsteht eine
+    // VOLLSTAENDIG NEUE, vom Server gewuerfelte Identitaet. Damit fliesst
+    // ein frei vom Client gelieferter String an keiner Stelle mehr in
+    // spielerId oder userId ein (bisher: userIdStr direkt bzw. gehasht
+    // uebernommen — das war die Wurzel beider Luecken).
+    let spielerId: SpielerId;
+    let altlastUserId: bigint;
+    const geprueft = sessionToken
+      ? tokenPruefen(sessionToken, this.config.sessionSecret)
+      : ({ status: 'gefaelscht' } as const);
+    if (geprueft.status === 'gueltig' && istSpielerId(geprueft.spielerId)) {
+      spielerId = geprueft.spielerId;
+      altlastUserId = geprueft.altlastUserId;
     } else {
-      // Hash non-numeric session IDs to a stable BigInt
-      userId = BigInt(getStableHash(userIdStr) & 0x7fffffff);
+      spielerId = spielerIdErzeugen();
+      // Altlast-userId dient ausschliesslich der ZDO-Besitzzuordnung
+      // (peer.userId, BigInt — siehe WovServer.ts) und wird ab jetzt fuer
+      // die gesamte Lebensdauer dieser spielerId im SessionToken
+      // eingefroren. Abgeleitet aus der frisch gewuerfelten, unerratbaren
+      // spielerId statt aus irgendeinem Client-Feld — ein Angreifer kann
+      // also weder die spielerId noch die daraus abgeleitete userId
+      // beeinflussen.
+      altlastUserId = BigInt(getStableHash(spielerId) & 0x7fffffff);
     }
+
     (peer as { name: string }).name = playerName;
-    (peer as { userId: bigint }).userId = userId;
+    peer.spielerId = spielerId;
+    peer.userId = altlastUserId;
     peer.authenticated = true;
     peer.status = ConnectionStatus.Connected;
-    peer.isAdmin = this.config.everyoneAdmin;
+    // S6 (Security-Review): everyoneAdmin bleibt Mikes Handgriff (wird
+    // hier NICHT abgeschaltet) — zusaetzlich zaehlt jetzt auch die
+    // dauerhafte Admin-Liste ueber die stabile spielerId.
+    peer.isAdmin = this.config.everyoneAdmin || this.config.istAdminId(spielerId);
 
     // Move from connected to online
     const idx = this.connectedPeers.indexOf(peer);
     if (idx !== -1) this.connectedPeers.splice(idx, 1);
     this.onlinePeers.push(peer);
 
-    // Send peer info + server config
-    this.sendPeerInfo(peer);
+    // Token (re)ausstellen: verlaengert die Sitzung um eine volle
+    // Gueltigkeitsdauer ab JETZT — ob neue oder zurueckkehrende
+    // Identitaet spielt keine Rolle, ein taeglich aktiver Spieler laeuft
+    // so nie ab.
+    const neuesToken = tokenAusstellen(spielerId, altlastUserId, this.config.sessionSecret);
 
-    console.log(`[NetManager] ${playerName} authenticated (userId: ${userId})`);
+    // Send peer info + server config (+ das aktuelle SessionToken)
+    this.sendPeerInfo(peer, neuesToken);
+
+    console.log(`[NetManager] ${playerName} authenticated (spielerId: ${spielerId}, userId: ${altlastUserId})`);
     this.onPeerAuthenticated?.(peer);
   }
 
   private handleDisconnect(peer: Peer): void {
+    // A4 (Security-Review): Drosselzustand dieses Peers wieder heraus-
+    // nehmen — sonst waechst die Map in Drossel.ts mit jedem jemals
+    // verbundenen Peer unbegrenzt weiter (siehe Drossel.ts Kopfkommentar).
+    this.drossel.raeumeAufFuerPeer(peer.verbindungsId);
+
     const connIdx = this.connectedPeers.indexOf(peer);
     if (connIdx !== -1) this.connectedPeers.splice(connIdx, 1);
 
@@ -257,11 +385,19 @@ export class NetManager {
 
   // ── Server → Client packets ──────────────────────────────────────
 
-  private sendPeerInfo(peer: Peer): void {
+  private sendPeerInfo(peer: Peer, sessionToken = ''): void {
     peer.sendPacketWith(PacketType.PeerInfo, (w) => {
       w.writeString(peer.name);
       w.writeString(peer.userId.toString());
       w.writeString(this.config.serverName);
+      // F3 (Security-Review): das (ggf. gerade neu ausgestellte)
+      // SessionToken. Der Client legt es in localStorage ab und schickt
+      // es bei der naechsten Verbindung als PasswordAuth-Feld zurueck.
+      // PeerInfo geht jetzt NUR NOCH nach erfolgreicher Anmeldung raus
+      // (kein Pre-Auth-"Trigger"-Versand mehr, siehe handleVersionCheck),
+      // ein alter Client, der noch drei statt vier Felder liest, ignoriert
+      // dieses zusaetzliche Feld einfach.
+      w.writeString(sessionToken);
     });
   }
 

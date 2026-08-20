@@ -16,13 +16,35 @@
  * kein Standardknopf beim Wegklicken — es gibt keine Wahl, die
  * „nichts tun" bedeutet.
  *
+ * Aus demselben Grund trägt die Kopfzeile hier KEIN Schließkreuz,
+ * obwohl der Entwurf für Dialoge eines vorsieht (Export-Dialog): Ein
+ * Kreuz verspricht einen Ausgang ohne Entscheidung, und den gibt es
+ * bei dieser Frage nicht. Alles andere am Dialog folgt dem Entwurf.
+ *
  * ── Warum hier und nicht in Shell.ts ─────────────────────────────────
  * Die Shell ist das LAYOUT-Gerüst mit benannten Andockplätzen; alles
  * darin ist Teil des Editorfensters. Ein Vorhang ist das Gegenteil: Er
  * legt sich über das Fenster und gehört keinem Andockplatz an. Ihn in
  * die Shell zu ziehen hiesse, ihr eine zweite Aufgabe zu geben.
+ *
+ * ── Gestaltung ───────────────────────────────────────────────────────
+ * Farben, Maße und Bedienelemente kommen ausschließlich aus
+ * `design.ts`; literale Farbwerte sind hier ein Fehler. Einzige
+ * Ausnahme ist der Schlagschatten der Tafel — `F` führt bewusst keine
+ * Schattentöne.
  */
-import { THEME } from './Shell';
+import {
+  F,
+  M,
+  SCHRIFT,
+  beiUeberfahren,
+  beschriftungStil,
+  el,
+  grundregelnEinhaengen,
+  knopf,
+  stil,
+  zierTitel,
+} from './design';
 import type { Unterschied } from './weltdokument';
 
 /** Eine Antwortmöglichkeit. `id` ist das, was `frage()` auflöst. */
@@ -31,7 +53,7 @@ export interface Wahl {
   text: string;
   /** Zweite Zeile im Knopf — die FOLGE der Wahl, nicht ihre Wiederholung. */
   hinweis?: string;
-  /** Hervorgehoben (Rahmen in Akzentfarbe). Höchstens einer. */
+  /** Hervorgehoben (Bronze — die Handlungsfarbe). Höchstens einer. */
   betont?: boolean;
   /** Warnfarbe — für die Wahl, die etwas überschreibt. */
   warnung?: boolean;
@@ -45,21 +67,43 @@ export interface Nebenaktion {
 
 const Z = 9000;
 
+/** Vorhang mit Weichzeichner — wie jede Überlagerung des Entwurfs. */
 function huelle(): HTMLDivElement {
-  const h = document.createElement('div');
-  h.style.cssText =
-    `position:fixed;inset:0;z-index:${Z};display:flex;align-items:center;justify-content:center;` +
-    'background:rgba(4,6,10,0.78);backdrop-filter:blur(2px);font-family:Georgia,serif;';
-  return h;
+  return el(
+    'div',
+    stil({
+      position: 'fixed',
+      inset: '0',
+      'z-index': String(Z),
+      display: 'grid',
+      'place-items': 'center',
+      background: F.vorhang,
+      'backdrop-filter': 'blur(3px)',
+      'font-family': SCHRIFT.text,
+      color: F.text,
+      'font-size': '13px',
+    })
+  );
 }
 
 function tafel(breite = 720): HTMLDivElement {
-  const t = document.createElement('div');
-  t.style.cssText =
-    `max-width:${breite}px;width:calc(100% - 48px);max-height:calc(100vh - 48px);overflow-y:auto;` +
-    `background:${THEME.flaeche};border:1px solid ${THEME.rand};border-radius:4px;` +
-    `color:${THEME.text};padding:18px 20px;box-shadow:0 12px 48px rgba(0,0,0,0.6);`;
-  return t;
+  return el(
+    'div',
+    stil({
+      'max-width': `${breite}px`,
+      width: 'calc(100% - 48px)',
+      'max-height': 'calc(100vh - 48px)',
+      // Die Tafel selbst rollt NICHT — sonst wanderten Kopf- und
+      // Fußzeile mit. Gerollt wird der Inhalt dazwischen (s. frage).
+      display: 'flex',
+      'flex-direction': 'column',
+      background: F.flaeche,
+      border: `1px solid ${F.randKnopf}`,
+      'border-radius': '12px',
+      'box-shadow': '0 30px 80px rgba(0,0,0,.6)',
+      overflow: 'hidden',
+    })
+  );
 }
 
 /**
@@ -68,15 +112,29 @@ function tafel(breite = 720): HTMLDivElement {
  * das eine halbe Sekunde später ersetzt wird.
  */
 export function vorhang(text: string): { text: (t: string) => void; schliessen: () => void } {
+  grundregelnEinhaengen();
   const h = huelle();
-  const zeile = document.createElement('div');
-  zeile.textContent = text;
-  zeile.style.cssText = `color:${THEME.akzent};font-size:15px;letter-spacing:0.02em;`;
-  h.appendChild(zeile);
+  const t = tafel(420);
+  const zeile = el(
+    'div',
+    stil({ display: 'flex', 'align-items': 'center', gap: '11px', padding: '18px 20px' })
+  );
+  // Der pulsierende Punkt ist die einzige Bewegung im Bild — er sagt
+  // „es läuft noch", ohne einen Fortschritt zu behaupten, den niemand
+  // kennt (die Antwortgröße steht vorher nicht fest).
+  const punkt = el(
+    'span',
+    stil({ width: '8px', height: '8px', 'border-radius': '50%', background: F.akzentLicht, flex: 'none' })
+  );
+  punkt.className = 'wov-puls';
+  const schrift = el('span', stil({ 'font-size': '13.5px', color: F.textHell, 'letter-spacing': '.02em' }), text);
+  zeile.append(punkt, schrift);
+  t.appendChild(zeile);
+  h.appendChild(t);
   document.body.appendChild(h);
   return {
-    text: (t: string) => {
-      zeile.textContent = t;
+    text: (neu: string) => {
+      schrift.textContent = neu;
     },
     schliessen: () => h.remove(),
   };
@@ -95,61 +153,131 @@ export function frage(
   neben?: Nebenaktion
 ): Promise<string> {
   return new Promise((aufloesen) => {
+    // Bildlaufleisten und Textmarkierung des Entwurfs — mehrfaches
+    // Einhängen ist unschädlich (die Funktion prüft auf ihre eigene ID).
+    grundregelnEinhaengen();
     const h = huelle();
     const t = tafel();
 
-    const kopf = document.createElement('div');
-    kopf.textContent = titel;
-    kopf.style.cssText = `font-size:18px;color:${THEME.akzent};margin-bottom:10px;`;
+    // Kopfzeile im Zierschnitt — ohne Schließkreuz, s. Kopf der Datei.
+    const kopf = el(
+      'div',
+      stil({
+        display: 'flex',
+        'align-items': 'center',
+        padding: '16px 18px',
+        'border-bottom': `1px solid ${F.randLeise}`,
+        flex: 'none',
+      })
+    );
+    kopf.appendChild(zierTitel(titel, 15));
     t.appendChild(kopf);
 
+    const inhalt = el(
+      'div',
+      stil({
+        padding: '18px',
+        display: 'flex',
+        'flex-direction': 'column',
+        gap: '14px',
+        flex: '1 1 auto',
+        'min-height': '0',
+        'overflow-y': 'auto',
+      })
+    );
+    t.appendChild(inhalt);
+
     if (typeof koerper === 'string') {
-      const p = document.createElement('div');
-      p.textContent = koerper;
-      p.style.cssText = 'font-size:13px;line-height:1.6;white-space:pre-wrap;';
-      t.appendChild(p);
+      inhalt.appendChild(
+        el(
+          'div',
+          stil({ 'font-size': '13px', 'line-height': '1.6', 'white-space': 'pre-wrap', color: F.textRuhig }),
+          koerper
+        )
+      );
     } else {
-      t.appendChild(koerper);
+      inhalt.appendChild(koerper);
     }
 
-    const leiste = document.createElement('div');
-    leiste.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;';
+    // Fußzeile: die Antworten. Sie bleiben zweizeilige Karten (Text plus
+    // Folge) — der Entwurf zeigt einzeilige Knöpfe, aber die zweite Zeile
+    // trägt hier die eigentliche Auskunft („was wird dabei weggeworfen").
+    // Bronze bekommt genau die betonte Wahl; die überschreibende Wahl
+    // trägt den Warnrand.
+    const leiste = el(
+      'div',
+      stil({
+        display: 'flex',
+        'flex-wrap': 'wrap',
+        'align-items': 'stretch',
+        gap: '8px',
+        padding: '14px 18px',
+        'border-top': `1px solid ${F.randLeise}`,
+        background: F.spalte,
+        flex: 'none',
+      })
+    );
     t.appendChild(leiste);
 
-    const knopf = (w: Wahl): HTMLButtonElement => {
-      const k = document.createElement('button');
-      const rand = w.warnung ? THEME.fehler : w.betont ? THEME.akzent : THEME.rand;
-      k.style.cssText =
-        `flex:1 1 220px;text-align:left;padding:8px 12px;cursor:pointer;font-family:inherit;` +
-        `background:${THEME.feld};color:${THEME.text};border:1px solid ${rand};border-radius:3px;` +
-        `font-size:13px;line-height:1.4;`;
-      const oben = document.createElement('div');
-      oben.textContent = w.text;
-      oben.style.cssText = `color:${w.warnung ? THEME.fehler : THEME.akzent};`;
-      k.appendChild(oben);
+    const wahlKnopf = (w: Wahl): HTMLButtonElement => {
+      const bronze = !!w.betont;
+      const k = el(
+        'button',
+        stil({
+          flex: '1 1 220px',
+          'text-align': 'left',
+          padding: '10px 13px',
+          cursor: 'pointer',
+          'font-family': 'inherit',
+          background: bronze ? F.akzent : w.warnung ? 'transparent' : F.erhoben,
+          border: `1px solid ${bronze ? F.akzentHell : w.warnung ? F.warnRand : F.randKnopf}`,
+          'border-radius': `${M.radius}px`,
+          color: bronze ? F.aufAkzent : F.text,
+        })
+      );
+      k.appendChild(
+        el(
+          'div',
+          stil({
+            'font-size': '13px',
+            'font-weight': bronze ? '600' : '500',
+            color: bronze ? F.aufAkzent : w.warnung ? F.warnText : F.textHell,
+          }),
+          w.text
+        )
+      );
       if (w.hinweis) {
-        const unten = document.createElement('div');
-        unten.textContent = w.hinweis;
-        unten.style.cssText = `color:${THEME.gedimmt};font-size:11px;margin-top:2px;`;
-        k.appendChild(unten);
+        k.appendChild(
+          el(
+            'div',
+            stil({
+              'font-size': '11px',
+              'line-height': '1.45',
+              'margin-top': '3px',
+              // Auf Bronze bleibt die dunkle Schrift lesbar; auf den
+              // ruhigen Flächen ist die Folge bewusst leiser als die Wahl.
+              color: bronze ? F.aufAkzent : F.gedimmt,
+            }),
+            w.hinweis
+          )
+        );
       }
+      if (bronze) beiUeberfahren(k, { background: F.akzentHell });
+      else beiUeberfahren(k, { 'border-color': w.warnung ? F.fehler : F.randAktiv });
       k.onclick = () => {
         h.remove();
         aufloesen(w.id);
       };
       return k;
     };
-    for (const w of wahlen) leiste.appendChild(knopf(w));
+    for (const w of wahlen) leiste.appendChild(wahlKnopf(w));
 
     if (neben) {
-      const n = document.createElement('button');
-      n.textContent = neben.text;
-      n.style.cssText =
-        `flex:0 0 auto;padding:8px 12px;cursor:pointer;font-family:inherit;font-size:12px;` +
-        `background:transparent;color:${THEME.gedimmt};border:1px dashed ${THEME.rand};border-radius:3px;`;
       // Löst BEWUSST nicht auf: „Entwurf sichern" ist eine Vorsichts-
-      // massnahme vor der Entscheidung, keine Entscheidung.
-      n.onclick = () => neben.tun();
+      // massnahme vor der Entscheidung, keine Entscheidung. Deshalb leise
+      // — es ist keine Antwort auf die Frage.
+      const n = knopf(neben.text, () => neben.tun(), { art: 'leise' });
+      n.style.flex = '0 0 auto';
       leiste.appendChild(n);
     }
 
@@ -162,33 +290,49 @@ export function frage(
   });
 }
 
-/** Gegenüberstellung Server ↔ Entwurf als Tabelle. */
+/**
+ * Gegenüberstellung Server ↔ Entwurf als Tabelle.
+ *
+ * Die Werte stehen in Mono: Sie sind Gemessenes (Zeitpunkte, Anzahlen,
+ * Namen), und im Editor trägt alles Gemessene die Mono-Schrift — so
+ * stehen die beiden Spalten Ziffer unter Ziffer und der Unterschied
+ * springt ins Auge.
+ */
 export function unterschiedsTafel(
   einleitung: string,
   serverKopf: string,
   entwurfKopf: string,
   zeilen: readonly Unterschied[]
 ): HTMLElement {
-  const wurzel = document.createElement('div');
+  const wurzel = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '12px' }));
 
-  const text = document.createElement('div');
-  text.textContent = einleitung;
-  text.style.cssText = 'font-size:13px;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;';
-  wurzel.appendChild(text);
+  wurzel.appendChild(
+    el(
+      'div',
+      stil({ 'font-size': '13px', 'line-height': '1.6', 'white-space': 'pre-wrap', color: F.textRuhig }),
+      einleitung
+    )
+  );
 
-  const tab = document.createElement('table');
-  tab.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
+  const tab = el('table', stil({ width: '100%', 'border-collapse': 'collapse', 'font-size': '12px' }));
   const kopf = document.createElement('tr');
   for (const [txt, breite, rechts] of [
     ['', '34%', false],
     [serverKopf, '33%', true],
     [entwurfKopf, '33%', true],
   ] as const) {
-    const th = document.createElement('th');
-    th.textContent = txt;
-    th.style.cssText =
-      `width:${breite};text-align:${rechts ? 'right' : 'left'};padding:4px 8px;` +
-      `border-bottom:1px solid ${THEME.rand};color:${THEME.akzent};font-weight:normal;`;
+    const th = el(
+      'th',
+      beschriftungStil() +
+        stil({
+          width: breite,
+          'text-align': rechts ? 'right' : 'left',
+          padding: '6px 8px',
+          'border-bottom': `1px solid ${F.rand}`,
+          'font-weight': '400',
+        }),
+      txt
+    );
     kopf.appendChild(th);
   }
   tab.appendChild(kopf);
@@ -196,12 +340,17 @@ export function unterschiedsTafel(
   for (const z of zeilen) {
     const tr = document.createElement('tr');
     if (z.art === 'hinweis') {
-      const td = document.createElement('td');
+      const td = el(
+        'td',
+        stil({
+          padding: '6px 8px',
+          'border-bottom': `1px solid ${F.randLeise}`,
+          'font-size': '11px',
+          color: z.schwer ? F.fehler : F.gedimmt,
+        }),
+        z.text
+      );
       td.colSpan = 3;
-      td.textContent = z.text;
-      td.style.cssText =
-        `padding:4px 8px;border-bottom:1px solid ${THEME.rand};font-size:11px;` +
-        `color:${z.schwer ? THEME.fehler : THEME.gedimmt};`;
       tr.appendChild(td);
     } else {
       const zellen: [string, boolean][] = [
@@ -210,14 +359,19 @@ export function unterschiedsTafel(
         [z.entwurf, true],
       ];
       for (const [txt, rechts] of zellen) {
-        const td = document.createElement('td');
-        td.textContent = txt;
-        td.style.cssText =
-          `padding:4px 8px;border-bottom:1px solid ${THEME.rand};` +
-          `text-align:${rechts ? 'right' : 'left'};` +
-          `font-family:${rechts ? 'ui-monospace,monospace' : 'inherit'};` +
-          `color:${z.schwer ? THEME.fehler : THEME.text};`;
-        tr.appendChild(td);
+        tr.appendChild(
+          el(
+            'td',
+            stil({
+              padding: '6px 8px',
+              'border-bottom': `1px solid ${F.randLeise}`,
+              'text-align': rechts ? 'right' : 'left',
+              'font-family': rechts ? SCHRIFT.mono : 'inherit',
+              color: z.schwer ? F.fehler : rechts ? F.textHell : F.textRuhig,
+            }),
+            txt
+          )
+        );
       }
     }
     tab.appendChild(tr);

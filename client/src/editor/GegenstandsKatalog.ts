@@ -45,6 +45,15 @@
  * nur EINES (das gewählte), angezeigt werden SEITE_GROESSE Zeilen.
  * Vorgabe-Kategorie ist „Eigene Modelle" — die einzige Liste, die
  * überall vollständig vorhanden ist.
+ *
+ * ── Warum der Katalog eine Überlagerung ist (Entwurf August 2026) ─────
+ * Er füllte vorher den ganzen Viewport randlos aus und sah damit aus wie
+ * ein zweiter Editor. Jetzt liegt er als große Tafel auf einem
+ * weichgezeichneten Vorhang: Man sieht am Rand, dass die Karte noch da
+ * ist und nur wartet — und dass Schließen nichts wegwirft. Alle Farben,
+ * Maße und Bedienelemente kommen aus `design.ts`; literale Farbwerte
+ * sind in dieser Datei ein Fehler (einzige begründete Ausnahme: der
+ * Verlauf der Vorschaubühne und der Schlagschatten der Tafel, s. dort).
  */
 import { Engine } from '@babylonjs/core/Engines/engine';
 import { Scene } from '@babylonjs/core/scene';
@@ -71,7 +80,26 @@ import {
   type PrefabDef,
 } from '@wov/shared';
 import { AssetManager } from '../engine/AssetManager';
-import { THEME } from './Shell';
+import {
+  F,
+  M,
+  PFAD,
+  SCHRIFT,
+  auswahl,
+  beiUeberfahren,
+  beschriftungStil,
+  el,
+  grundregelnEinhaengen,
+  knopf,
+  kreuzfeld,
+  luecke,
+  lupenBild,
+  marke,
+  schwebendStil,
+  sinnbild,
+  stil,
+  zierTitel,
+} from './design';
 
 /** Zeilen je Listenseite — s. Kopf („Warum Seiten"). */
 const SEITE_GROESSE = 60;
@@ -85,6 +113,9 @@ const LADE_TIMEOUT = 30_000;
 
 /** Gleichzeitige HEAD-Anfragen der Verfügbarkeitsprüfung. */
 const PRUEF_PARALLEL = 6;
+
+/** Breite der Listenspalte (Entwurf). */
+const SPALTE_BREITE = 322;
 
 /** Schnellzugriff auf Item-Angaben (Icon, Gewicht, Stapel) je Prefabname. */
 const ITEMS_NACH_NAME = new Map(ITEM_DEFS.map((i) => [i.name, i]));
@@ -166,6 +197,21 @@ const KATEGORIEN: readonly Kategorie[] = [
   },
 ];
 
+/**
+ * Einträge je Kategorie — einmal gezählt, dann gemerkt.
+ *
+ * Die Marken über der Liste tragen diese Zahlen und werden bei JEDEM
+ * Listenaufbau neu gebaut. `namen()` läuft aber über bis zu 3.748
+ * Einträge; das sechsmal je Tastendruck wäre genau das Ruckeln, gegen
+ * das oben die Seitengröße steht. Die Listen sind statisch (Registry,
+ * Vegetation, PieceTable) — einmal zählen genügt für die Sitzung.
+ */
+let katAnzahlen: readonly number[] | null = null;
+function katAnzahl(): readonly number[] {
+  if (!katAnzahlen) katAnzahlen = KATEGORIEN.map((k) => k.namen().length);
+  return katAnzahlen;
+}
+
 /** Gemessene Kennzahlen des geladenen Modells. */
 interface Kennzahlen {
   breite: number;
@@ -177,15 +223,27 @@ interface Kennzahlen {
   mitte: Vector3;
 }
 
+/** Zustand der Statusplakette über der Bühne. */
+type StatusArt = 'laedt' | 'da' | 'fehlt' | 'neutral';
+
 export class GegenstandsKatalog {
   private readonly root: HTMLDivElement;
   private readonly leinwand: HTMLCanvasElement;
   private readonly liste: HTMLDivElement;
   private readonly blaetterZeile: HTMLDivElement;
   private readonly katHinweis: HTMLDivElement;
+  private readonly markenZeile: HTMLDivElement;
   private readonly infoBlock: HTMLDivElement;
-  private readonly statusZeile: HTMLDivElement;
   private readonly pruefKnopf: HTMLButtonElement;
+  private readonly sucheFeld: HTMLInputElement;
+  /** Die <select>-Hülle der Kategorie — die Marken müssen sie mitführen. */
+  private readonly katSelect: HTMLSelectElement | null;
+
+  // ── Schwebende Anzeigen über der Bühne ────────────────────────────
+  private readonly statusPlakette: HTMLSpanElement;
+  private readonly statusPunkt: HTMLSpanElement;
+  private readonly statusZeile: HTMLSpanElement;
+  private readonly rasterPlakette: HTMLSpanElement;
 
   // ── Szene (erst beim ersten Öffnen, s. Kopf) ──────────────────────
   private engine: Engine | null = null;
@@ -228,8 +286,14 @@ export class GegenstandsKatalog {
 
   /** Selbstdreher (Drehteller). Jeder Zieh-Vorgang schaltet ihn ab. */
   private drehen = true;
-  /** Der Haken dazu — er zeigt auch, wenn das Ziehen ihn abgeschaltet hat. */
-  private drehEingabe: HTMLInputElement | null = null;
+  /**
+   * Der Haken dazu — er ist zugleich ANZEIGE: Wer selbst am Modell
+   * zieht, will nicht, dass es ihm unter der Hand weiterdreht — das
+   * Ziehen schaltet den Drehteller ab, und das muss man sehen. Weil
+   * `kreuzfeld()` seinen Zustand beim Bauen einbrennt, hält der Katalog
+   * die Hülle und tauscht den Kasten aus (s. drehSetzen).
+   */
+  private readonly drehHuelle: HTMLSpanElement;
   /**
    * Material des Platzhalter-Gitters. Einmal angelegt und wiederverwendet:
    * `dispose(false, false)` beim Wechsel lässt Materialien absichtlich
@@ -239,43 +303,135 @@ export class GegenstandsKatalog {
    */
   private platzhalterMaterial: StandardMaterial | null = null;
 
-  constructor(eltern: HTMLElement) {
-    this.root = document.createElement('div');
-    // Deckt den Viewport vollständig ab: Der Katalog ist eine ANSICHT,
-    // kein Werkzeugfenster — man sucht darin, statt nebenbei die Karte zu
-    // bearbeiten. Über der Karte liegend spart er den Umbau der Shell.
-    this.root.style.cssText =
-      `position:absolute;inset:0;z-index:20;display:none;flex-direction:column;` +
-      `background:${THEME.hintergrund};font-family:Georgia,serif;color:${THEME.text};font-size:13px;`;
+  /**
+   * Ruf zurück, wenn der Nutzer ein Modell auf die Karte setzen will.
+   *
+   * ── Warum als Rückruf und nicht als eigene Fähigkeit ─────────────
+   * Der Katalog kennt das Weltdokument bewusst NICHT — er lädt eine
+   * GLB, zeigt sie und misst sie, mehr nicht. Gäbe man ihm einen Zeiger
+   * aufs Layout, hinge die schwerste Ansicht des Editors (Babylon, GLB-
+   * Lader, gut zwei Megabyte) plötzlich am Zustand der Karte, und der
+   * dynamische `import()`, der sie aus dem Erststart heraushält, wäre
+   * nur noch eine Verzögerung statt einer Ersparnis.
+   *
+   * Der Rückruf dreht die Richtung um: Der Katalog meldet „dieses
+   * Prefab, bitte", `editorMain.ts` schaltet daraufhin sein
+   * Platzieren-Werkzeug scharf. Bleibt der Rückruf ungesetzt, fehlt der
+   * Knopf — statt eines toten Bedienelements.
+   */
+  private readonly aufPlatzieren: ((prefab: string) => void) | null;
 
-    // ── Kopfzeile: Titel, Kategorie, Suche, Schließen ────────────────
-    const kopf = document.createElement('div');
-    kopf.style.cssText =
-      `display:flex;align-items:center;gap:10px;padding:6px 10px;background:${THEME.flaeche};` +
-      `border-bottom:1px solid ${THEME.rand};flex:0 0 auto;`;
-    const titel = document.createElement('div');
-    titel.textContent = '📦 Gegenstands-Katalog';
-    titel.style.cssText = `color:${THEME.akzent};font-size:15px;white-space:nowrap;`;
-    kopf.appendChild(titel);
+  constructor(eltern: HTMLElement, aufPlatzieren?: (prefab: string) => void) {
+    this.aufPlatzieren = aufPlatzieren ?? null;
 
-    const katWahl = document.createElement('select');
-    katWahl.style.cssText = this.feldStil('auto');
-    KATEGORIEN.forEach((k, i) => {
-      const o = document.createElement('option');
-      o.value = String(i);
-      o.textContent = k.name;
-      katWahl.appendChild(o);
-    });
-    katWahl.onchange = () => {
-      this.kategorie = Number(katWahl.value);
-      this.seite = 0;
-      this.listeFuellen();
-    };
+    // Bildlaufleisten, Textmarkierung und der pulsierende Punkt der
+    // Ladeanzeige stecken in den Grundregeln — sie einzuhängen ist
+    // mehrfach unschädlich (die Funktion prüft auf ihre eigene ID).
+    grundregelnEinhaengen();
+
+    // Der Katalog ist eine ANSICHT, kein Werkzeugfenster — man sucht
+    // darin, statt nebenbei die Karte zu bearbeiten. Er liegt deshalb als
+    // Tafel auf einem weichgezeichneten Vorhang über dem Viewport: Die
+    // Karte bleibt am Rand sichtbar (Schließen wirft nichts weg), und der
+    // Umbau der Shell bleibt uns erspart.
+    this.root = el(
+      'div',
+      stil({
+        position: 'absolute',
+        inset: '0',
+        'z-index': '20',
+        display: 'none',
+        'place-items': 'center',
+        background: F.vorhang,
+        'backdrop-filter': 'blur(3px)',
+        'font-family': SCHRIFT.text,
+        color: F.text,
+        'font-size': '13px',
+      })
+    );
+
+    // Fluide statt der 1420×820 des Entwurfs: Der Editor läuft auch auf
+    // einem 13-Zoll-Laptop, und eine feste Tafel wäre dort abgeschnitten.
+    // Der Schlagschatten ist der einzige literale Farbwert der Hülle —
+    // `F` führt (bewusst) keine Schattentöne.
+    const tafel = el(
+      'div',
+      stil({
+        width: 'min(1420px, 94vw)',
+        height: 'min(820px, 92vh)',
+        display: 'flex',
+        'flex-direction': 'column',
+        background: F.flaeche,
+        border: `1px solid ${F.randKnopf}`,
+        'border-radius': '12px',
+        'box-shadow': '0 30px 80px rgba(0,0,0,.6)',
+        overflow: 'hidden',
+      })
+    );
+    this.root.appendChild(tafel);
+
+    // ── Kopfzeile: Titel, Kategorie, Suche, Ansicht, Schließen ───────
+    const kopf = el(
+      'div',
+      stil({
+        display: 'flex',
+        'align-items': 'center',
+        gap: '12px',
+        padding: '14px 16px',
+        'border-bottom': `1px solid ${F.randLeise}`,
+        flex: 'none',
+      })
+    );
+    const titelGruppe = el('div', stil({ display: 'flex', 'align-items': 'center', gap: '9px', 'padding-right': '6px' }));
+    const wuerfel = sinnbild(PFAD.objekte, 16, 1.8);
+    wuerfel.style.color = F.akzent;
+    titelGruppe.append(wuerfel, zierTitel('Gegenstands-Katalog', 15));
+    kopf.appendChild(titelGruppe);
+
+    const katWahl = auswahl(
+      KATEGORIEN.map((k, i) => ({ id: String(i), name: k.name })),
+      String(this.kategorie),
+      (id) => this.kategorieSetzen(Number(id))
+    );
+    katWahl.style.flex = 'none';
+    katWahl.style.width = '208px';
+    this.katSelect = katWahl.querySelector('select');
     kopf.appendChild(katWahl);
 
-    const suche = document.createElement('input');
-    suche.placeholder = 'Suchen … (z. B. eiche, grab, wood_roof)';
-    suche.style.cssText = this.feldStil('260px');
+    // Das Suchfeld baut sich von Hand: `feld()` kennt kein Sinnbild links
+    // und keine Plakette rechts. Farben und Maße kommen trotzdem aus den
+    // Marken des Gestaltungssystems.
+    const sucheHuelle = el(
+      'div',
+      stil({
+        flex: '1',
+        'max-width': '380px',
+        display: 'flex',
+        'align-items': 'center',
+        gap: '8px',
+        height: '34px',
+        padding: '0 11px',
+        background: F.feld,
+        border: `1px solid ${F.randKnopf}`,
+        'border-radius': `${M.radius}px`,
+      })
+    );
+    const lupe = lupenBild(13);
+    lupe.style.color = F.gedimmt2;
+    const suche = el(
+      'input',
+      stil({
+        flex: '1',
+        'min-width': '0',
+        background: 'transparent',
+        border: 'none',
+        outline: 'none',
+        color: F.text,
+        'font-family': 'inherit',
+        'font-size': '12.5px',
+      })
+    );
+    suche.placeholder = 'Suchen — eiche, grab, wood_roof …';
     suche.oninput = () => {
       this.suchtext = suche.value.trim().toLowerCase();
       // Entprellt: Bei jedem Anschlag über bis zu 3.748 Namen zu filtern
@@ -286,88 +442,243 @@ export class GegenstandsKatalog {
         this.listeFuellen();
       }, 150);
     };
-    kopf.appendChild(suche);
+    this.sucheFeld = suche;
+    const tastenPlakette = el(
+      'span',
+      stil({
+        'font-family': SCHRIFT.mono,
+        'font-size': '10px',
+        color: F.gedimmt2,
+        padding: '2px 5px',
+        background: F.erhoben,
+        'border-radius': '4px',
+        flex: 'none',
+      }),
+      // Die Plakette ist kein Schmuck: Strg/⌘+K springt wirklich ins
+      // Suchfeld (s. Tastaturzweig unten). Eine Taste anzuschreiben, die
+      // nichts tut, wäre die schlimmere Sorte Gestaltung.
+      '⌘K'
+    );
+    sucheHuelle.append(lupe, suche, tastenPlakette);
+    kopf.append(sucheHuelle, luecke());
 
-    const abstand = document.createElement('div');
-    abstand.style.cssText = 'flex:1;';
-    kopf.appendChild(abstand);
+    // Drehteller: Kasten plus Text in einer Pille. Der Kasten selbst
+    // schaltet NICHT (sein Klick liefe sonst zusätzlich auf die Pille und
+    // schaltete zweimal) — die Pille tut es für beide.
+    this.drehHuelle = el('span', stil({ display: 'flex', flex: 'none' }));
+    const drehPille = el(
+      'div',
+      stil({
+        display: 'flex',
+        'align-items': 'center',
+        gap: '8px',
+        height: '30px',
+        padding: '0 11px',
+        background: F.erhoben,
+        border: `1px solid ${F.randKnopf}`,
+        'border-radius': `${M.radiusKlein}px`,
+        cursor: 'pointer',
+        flex: 'none',
+      })
+    );
+    drehPille.append(this.drehHuelle, el('span', stil({ 'font-size': '12px', color: F.textRuhig }), 'Drehteller'));
+    drehPille.onclick = () => this.drehSetzen(!this.drehen);
+    beiUeberfahren(drehPille, { 'border-color': F.randAktiv });
+    this.drehHakenZeichnen();
+    kopf.appendChild(drehPille);
 
-    const drehKasten = document.createElement('label');
-    drehKasten.style.cssText = `display:flex;align-items:center;gap:4px;color:${THEME.gedimmt};font-size:11px;`;
-    const dreh = document.createElement('input');
-    dreh.type = 'checkbox';
-    dreh.checked = this.drehen;
-    dreh.onchange = () => (this.drehen = dreh.checked);
-    drehKasten.append(dreh, document.createTextNode('Drehteller'));
-    kopf.appendChild(drehKasten);
-    // Merken, weil der Haken zugleich ANZEIGE ist: Wer selbst am Modell
-    // zieht, will nicht, dass es ihm unter der Hand weiterdreht — das
-    // Ziehen schaltet den Drehteller ab, und das muss man sehen.
-    this.drehEingabe = dreh;
-
-    kopf.appendChild(this.knopf('⟳ Ansicht zurück', () => this.kameraRahmen()));
-    kopf.appendChild(this.knopf('✕ Schließen', () => this.schliesse()));
-    this.root.appendChild(kopf);
+    kopf.appendChild(
+      knopf('Ansicht zurücksetzen', () => this.kameraRahmen(), { art: 'leise', hoehe: 30, pfad: PFAD.wuerfeln })
+    );
+    kopf.appendChild(
+      // Warnfarbener Rand beim Überfahren: Schließen ist die einzige
+      // Handlung hier, die etwas wegnimmt (die Ansicht).
+      knopf('Schließen', () => this.schliesse(), {
+        art: 'leise',
+        hoehe: 30,
+        pfad: PFAD.kreuz,
+        randHover: F.warnRand,
+      })
+    );
+    tafel.appendChild(kopf);
 
     // ── Hauptteil: Liste links, Vorschau rechts ──────────────────────
-    const reihe = document.createElement('div');
-    reihe.style.cssText = 'display:flex;flex:1;min-height:0;';
-    this.root.appendChild(reihe);
+    const reihe = el('div', stil({ flex: '1', display: 'flex', 'min-height': '0' }));
+    tafel.appendChild(reihe);
 
-    const linkeSpalte = document.createElement('div');
-    linkeSpalte.style.cssText =
-      `width:280px;min-width:280px;display:flex;flex-direction:column;background:${THEME.flaeche};` +
-      `border-right:1px solid ${THEME.rand};`;
+    const linkeSpalte = el(
+      'div',
+      stil({
+        width: `${SPALTE_BREITE}px`,
+        flex: 'none',
+        'border-right': `1px solid ${F.randLeise}`,
+        display: 'flex',
+        'flex-direction': 'column',
+        'min-height': '0',
+      })
+    );
     reihe.appendChild(linkeSpalte);
 
-    this.katHinweis = document.createElement('div');
-    this.katHinweis.style.cssText = `padding:4px 8px;font-size:11px;color:${THEME.gedimmt};line-height:1.35;`;
+    this.katHinweis = el(
+      'div',
+      stil({
+        padding: '13px 16px',
+        'border-bottom': `1px solid ${F.randLeise}`,
+        display: 'flex',
+        'flex-direction': 'column',
+        gap: '8px',
+        flex: 'none',
+      })
+    );
     linkeSpalte.appendChild(this.katHinweis);
 
-    this.liste = document.createElement('div');
-    this.liste.style.cssText = 'flex:1;overflow-y:auto;overscroll-behavior:contain;min-height:0;';
+    this.markenZeile = el(
+      'div',
+      stil({ padding: '9px 12px 0', display: 'flex', gap: '6px', 'flex-wrap': 'wrap', flex: 'none' })
+    );
+    linkeSpalte.appendChild(this.markenZeile);
+
+    this.liste = el(
+      'div',
+      stil({
+        flex: '1',
+        'overflow-y': 'auto',
+        'overscroll-behavior': 'contain',
+        'min-height': '0',
+        padding: '8px 10px 10px',
+        display: 'flex',
+        'flex-direction': 'column',
+        gap: '1px',
+      })
+    );
     linkeSpalte.appendChild(this.liste);
 
-    this.blaetterZeile = document.createElement('div');
-    this.blaetterZeile.style.cssText =
-      `display:flex;align-items:center;gap:4px;padding:4px 6px;border-top:1px solid ${THEME.rand};` +
-      `font-size:11px;color:${THEME.gedimmt};`;
-    linkeSpalte.appendChild(this.blaetterZeile);
+    const listenFuss = el(
+      'div',
+      stil({
+        flex: 'none',
+        padding: '10px 12px',
+        'border-top': `1px solid ${F.randLeise}`,
+        display: 'flex',
+        'flex-direction': 'column',
+        gap: '8px',
+      })
+    );
+    this.blaetterZeile = el('div', stil({ display: 'flex', 'align-items': 'center', gap: '8px' }));
+    listenFuss.appendChild(this.blaetterZeile);
 
-    this.pruefKnopf = this.knopf('⟳ Verfügbarkeit dieser Seite prüfen', () => {
+    this.pruefKnopf = knopf('Verfügbarkeit dieser Seite prüfen', () => {
       void this.pruefeSeite();
-    });
-    this.pruefKnopf.style.margin = '0 6px 6px';
+    }, { hoehe: 31 });
+    this.pruefKnopf.style.width = '100%';
+    this.pruefKnopf.style.justifyContent = 'center';
     this.pruefKnopf.title =
       'Fragt für die sichtbaren Einträge per HEAD ab, ob die GLB auf diesem Server liegt.';
-    linkeSpalte.appendChild(this.pruefKnopf);
+    listenFuss.appendChild(this.pruefKnopf);
+    linkeSpalte.appendChild(listenFuss);
 
-    const rechteSpalte = document.createElement('div');
-    rechteSpalte.style.cssText = 'flex:1;display:flex;flex-direction:column;min-width:0;';
+    const rechteSpalte = el('div', stil({ flex: '1', display: 'flex', 'flex-direction': 'column', 'min-width': '0' }));
     reihe.appendChild(rechteSpalte);
 
-    const buehne = document.createElement('div');
-    buehne.style.cssText = 'flex:1;position:relative;min-height:0;';
+    // Der Verlauf ist die EINZIGE literale Farbangabe der Bühne und steht
+    // hier mit Absicht: `F` beschreibt Flächen, keine Lichtstimmung, und
+    // dieser Verlauf ist genau das — der Studio-Hintergrund, vor dem ein
+    // Modell dreidimensional wirkt. Ein flaches `F.grund` ließe dunkle
+    // Modelle in der Fläche verschwinden.
+    const buehne = el(
+      'div',
+      stil({
+        flex: '1',
+        position: 'relative',
+        'min-height': '0',
+        background: 'radial-gradient(circle at 50% 45%,#132630,#0a161d 70%)',
+      })
+    );
     rechteSpalte.appendChild(buehne);
 
-    this.leinwand = document.createElement('canvas');
-    this.leinwand.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;';
+    this.leinwand = el(
+      'canvas',
+      stil({ position: 'absolute', inset: '0', width: '100%', height: '100%', display: 'block', cursor: 'grab' })
+    );
     buehne.appendChild(this.leinwand);
 
-    this.statusZeile = document.createElement('div');
-    this.statusZeile.style.cssText =
-      `position:absolute;left:10px;top:8px;font-size:12px;color:${THEME.gedimmt};` +
-      'background:rgba(11,14,20,0.72);padding:2px 8px;border-radius:4px;pointer-events:none;';
-    buehne.appendChild(this.statusZeile);
+    // Schwebende Plaketten oben links: Ladezustand und Maßstab. Beide
+    // sagen etwas, das man sonst raten müsste — ob das da wirklich das
+    // Modell ist (oder der Platzhalter) und wie groß eine Rastermasche
+    // gerade ist.
+    const plaketten = el(
+      'div',
+      stil({ position: 'absolute', top: '14px', left: '16px', display: 'flex', gap: '7px', 'pointer-events': 'none' })
+    );
+    this.statusPlakette = el(
+      'span',
+      schwebendStil({
+        display: 'none',
+        'align-items': 'center',
+        gap: '6px',
+        padding: '5px 10px',
+        'border-radius': `${M.radiusKlein}px`,
+        'font-size': '11.5px',
+        color: F.textRuhig,
+      })
+    );
+    this.statusPunkt = el(
+      'span',
+      stil({ width: '6px', height: '6px', 'border-radius': '50%', background: F.ok, flex: 'none' })
+    );
+    this.statusZeile = el('span', '');
+    this.statusPlakette.append(this.statusPunkt, this.statusZeile);
+    this.rasterPlakette = el(
+      'span',
+      schwebendStil({
+        padding: '5px 10px',
+        'border-radius': `${M.radiusKlein}px`,
+        'font-family': SCHRIFT.mono,
+        'font-size': '11px',
+        color: F.gedimmt,
+      }),
+      'Raster 1,00 m'
+    );
+    plaketten.append(this.statusPlakette, this.rasterPlakette);
+    buehne.appendChild(plaketten);
 
-    this.infoBlock = document.createElement('div');
-    this.infoBlock.style.cssText =
-      `flex:0 0 auto;border-top:1px solid ${THEME.rand};background:${THEME.flaeche};padding:6px 10px;` +
-      'font-size:12px;line-height:1.5;min-height:56px;';
-    this.infoBlock.textContent =
-      'Links einen Eintrag anklicken. Ziehen dreht, Rad zoomt, ↑/↓ blättert durch die Auswahl. ' +
-      'Das Bodenraster gibt den Maßstab (Maschenweite steht bei den Angaben).';
-    this.infoBlock.style.color = THEME.gedimmt;
+    const bedienHinweis = el(
+      'span',
+      schwebendStil({
+        position: 'absolute',
+        bottom: '14px',
+        right: '16px',
+        padding: '5px 10px',
+        'border-radius': `${M.radiusKlein}px`,
+        'font-size': '11px',
+        color: F.gedimmt,
+        'pointer-events': 'none',
+      }),
+      'Ziehen = drehen · Rad = Zoom · ↑/↓ blättert'
+    );
+    buehne.appendChild(bedienHinweis);
+
+    this.infoBlock = el(
+      'div',
+      stil({
+        flex: 'none',
+        padding: '13px 18px',
+        'border-top': `1px solid ${F.randLeise}`,
+        background: F.spalte,
+        display: 'flex',
+        'flex-direction': 'column',
+        gap: '11px',
+        'min-height': '96px',
+      })
+    );
+    this.infoBlock.appendChild(
+      el(
+        'div',
+        stil({ 'font-size': '12px', 'line-height': '1.6', color: F.gedimmt }),
+        'Links einen Eintrag anklicken. Ziehen dreht, Rad zoomt, ↑/↓ blättert durch die Auswahl. ' +
+          'Das Bodenraster gibt den Maßstab (Maschenweite steht auf der Plakette oben links).'
+      )
+    );
     rechteSpalte.appendChild(this.infoBlock);
 
     eltern.appendChild(this.root);
@@ -387,6 +698,13 @@ export class GegenstandsKatalog {
         if (e.code === 'Escape') {
           e.stopPropagation();
           this.schliesse();
+        } else if (e.code === 'KeyK' && (e.metaKey || e.ctrlKey)) {
+          // Die ⌘K-Plakette am Suchfeld eingelöst: Springt hinein und
+          // markiert, was dort steht — tippen ersetzt es dann sofort.
+          e.preventDefault();
+          e.stopPropagation();
+          this.sucheFeld.focus();
+          this.sucheFeld.select();
         } else if (
           (e.code === 'ArrowDown' || e.code === 'ArrowUp') &&
           // Im Suchfeld gehören die Pfeiltasten dem Textcursor.
@@ -417,7 +735,9 @@ export class GegenstandsKatalog {
 
   oeffne(): void {
     if (this.istOffen) return;
-    this.root.style.display = 'flex';
+    // `grid` statt `flex`: Die Tafel wird über `place-items:center`
+    // mittig gesetzt — `istOffen` liest weiterhin nur „nicht none".
+    this.root.style.display = 'grid';
     this.szeneSicherstellen();
     this.engine?.resize();
     // Rendern erst jetzt: Ein Katalog, der im Hintergrund Bilder rechnet,
@@ -436,9 +756,12 @@ export class GegenstandsKatalog {
 
   private szeneSicherstellen(): void {
     if (this.engine) return;
-    const engine = new Engine(this.leinwand, true, { stencil: false }, true);
+    // `alpha: true` und ein durchsichtiger Löschwert: Die Bühne bekommt
+    // ihren Verlauf vom DIV darunter (s. buehne). Ein opaker Löschwert
+    // würde ihn überdecken.
+    const engine = new Engine(this.leinwand, true, { stencil: false, alpha: true }, true);
     const scene = new Scene(engine);
-    scene.clearColor = new Color4(0.043, 0.055, 0.078, 1);
+    scene.clearColor = new Color4(0, 0, 0, 0);
     scene.ambientColor = new Color3(0.3, 0.3, 0.32);
 
     // Blick leicht von schräg oben — dieselbe Haltung, in der man ein
@@ -474,6 +797,11 @@ export class GegenstandsKatalog {
    * 1 in lokalen Einheiten. Die tatsächliche Maschenweite kommt aus der
    * Skalierung des Meshes (s. kameraRahmen) — so genügt EIN Mesh für ein
    * Blümchen von 20 cm wie für ein Langhaus von 30 m.
+   *
+   * Die Linienfarbe ist `F.randAktiv` — dieselbe, mit der der Entwurf
+   * seine Hilfslinien zeichnet. Der Entwurf legt sein Raster als SVG über
+   * die Bühne; hier bleibt es beim echten Mesh, denn nur das steht
+   * perspektivisch richtig unter dem Modell.
    */
   private rasterBauen(): void {
     const linien: Vector3[][] = [];
@@ -482,7 +810,7 @@ export class GegenstandsKatalog {
       linien.push([new Vector3(-10, 0, i), new Vector3(10, 0, i)]);
     }
     const netz = MeshBuilder.CreateLineSystem('katalograster', { lines: linien }, this.scene!);
-    netz.color = new Color3(0.23, 0.2, 0.15);
+    netz.color = Color3.FromHexString(F.randAktiv);
     netz.isPickable = false;
     this.raster = netz;
   }
@@ -491,6 +819,18 @@ export class GegenstandsKatalog {
     if (this.drehen && this.kamera) this.kamera.alpha += 0.0035;
     this.scene?.render();
   };
+
+  /** Drehteller schalten — Zustand, Haken und Renderschleife hängen zusammen. */
+  private drehSetzen(an: boolean): void {
+    this.drehen = an;
+    this.drehHakenZeichnen();
+  }
+
+  private drehHakenZeichnen(): void {
+    this.drehHuelle.innerHTML = '';
+    // Der Kasten selbst schaltet nicht (s. Konstruktor) — er zeigt nur.
+    this.drehHuelle.appendChild(kreuzfeld(this.drehen, () => undefined));
+  }
 
   /**
    * Kamera und Raster auf das gezeigte Objekt einstellen.
@@ -516,13 +856,15 @@ export class GegenstandsKatalog {
     k.maxZ = Math.max(50, spanne * 60);
     // Maschenweite auf eine „runde" Zahl unterhalb der Objektgröße
     // bringen (…, 0.1, 0.2, 0.5, 1, 2, 5, 10 …) — das Raster bleibt
-    // lesbar und die Zahl im Infoblock bleibt eine, die man im Kopf hat.
+    // lesbar und die Zahl auf der Plakette bleibt eine, die man im Kopf
+    // hat.
     const roh = spanne / 8;
     const zehner = Math.pow(10, Math.floor(Math.log10(Math.max(roh, 1e-3))));
     const rest = roh / zehner;
     const schritt = zehner * (rest >= 5 ? 5 : rest >= 2 ? 2 : 1);
     this.rasterSchritt = schritt;
     this.raster?.scaling.setAll(schritt);
+    this.rasterPlakette.textContent = `Raster ${fmt(schritt)} m`;
   }
 
   private letzteMasse: Kennzahlen | null = null;
@@ -543,10 +885,7 @@ export class GegenstandsKatalog {
       zieht = { x: e.clientX, y: e.clientY };
       this.leinwand.setPointerCapture(e.pointerId);
       this.leinwand.style.cursor = 'grabbing';
-      if (this.drehen) {
-        this.drehen = false;
-        if (this.drehEingabe) this.drehEingabe.checked = false;
-      }
+      if (this.drehen) this.drehSetzen(false);
     });
     this.leinwand.addEventListener('pointermove', (e) => {
       if (!zieht || !this.kamera) return;
@@ -580,6 +919,15 @@ export class GegenstandsKatalog {
 
   // ── Liste ──────────────────────────────────────────────────────────
 
+  /** Kategorie wechseln — von der Auswahl oben ODER von den Marken links. */
+  private kategorieSetzen(i: number): void {
+    if (i === this.kategorie) return;
+    this.kategorie = i;
+    this.seite = 0;
+    if (this.katSelect) this.katSelect.value = String(i);
+    this.listeFuellen();
+  }
+
   /** Namen der aktuellen Kategorie nach Suchfilter. */
   private treffer(): string[] {
     const alle = KATEGORIEN[this.kategorie]!.namen();
@@ -597,20 +945,57 @@ export class GegenstandsKatalog {
     const kat = KATEGORIEN[this.kategorie]!;
     const alle = this.treffer();
 
-    // Zweite Zeile unter dem Kategorietext: wie viel dieser Liste den
-    // Umbau überlebt. Ohne sie liest man 25 Gegenstände und merkt erst
-    // beim dritten Klick, dass KEINER davon noch ein Modell hat.
+    // Unter dem Kategorietext: wie viel dieser Liste den Umbau überlebt.
+    // Ohne diese Zeile liest man 25 Gegenstände und merkt erst beim
+    // dritten Klick, dass KEINER davon noch ein Modell hat. Grün, wenn
+    // alles eigenes Modell ist (der Regelfall in „Eigene Modelle"), sonst
+    // in Warnfarbe — die Quote IST die Nachricht.
     const eigen = alle.filter((n) => istEigenesModell(n)).length;
     this.katHinweis.innerHTML = '';
-    const katText = document.createElement('div');
-    katText.textContent = kat.hinweis;
-    this.katHinweis.appendChild(katText);
+    this.katHinweis.appendChild(
+      el('div', stil({ 'font-size': '11.5px', 'line-height': '1.55', color: F.gedimmt }), kat.hinweis)
+    );
     if (alle.length > 0) {
-      const quote = document.createElement('div');
-      quote.textContent = `${eigen} von ${alle.length} mit eigenem Modell — der Rest (⊘) entfällt mit Block A.`;
-      quote.style.color = eigen === 0 ? THEME.fehler : THEME.gedimmt;
-      this.katHinweis.appendChild(quote);
+      const gut = eigen === alle.length;
+      const keins = eigen === 0;
+      const kasten = el(
+        'div',
+        stil({
+          display: 'flex',
+          'align-items': 'center',
+          gap: '9px',
+          padding: '8px 10px',
+          background: gut ? F.okFlaeche : F.warnFlaeche,
+          border: `1px solid ${gut ? F.okRand : F.warnRand}`,
+          'border-radius': `${M.radiusKlein}px`,
+        })
+      );
+      const zeichen = sinnbild(gut ? PFAD.haken : PFAD.minus, 13, 2.4);
+      zeichen.style.color = gut ? F.ok : keins ? F.fehler : F.warnText;
+      const text = el(
+        'span',
+        stil({ 'font-size': '11.5px', 'line-height': '1.45', color: gut ? F.okText : keins ? F.fehler : F.warnText })
+      );
+      text.append(
+        el('strong', stil({ color: gut ? F.textHell : 'inherit' }), `${eigen} von ${alle.length}`),
+        document.createTextNode(gut ? ' mit eigenem Modell' : ' mit eigenem Modell — der Rest (⊘) entfällt mit Block A.')
+      );
+      kasten.append(zeichen, text);
+      this.katHinweis.appendChild(kasten);
     }
+
+    // Kategorien als Marken: dieselbe Wahl wie oben in der Auswahlliste,
+    // aber mit den Zahlen daneben — „wie viele stecken da drin?" ist beim
+    // Suchen die häufigste Frage, und eine Auswahlliste kann sie nicht
+    // beantworten, ohne dass man sie aufklappt.
+    this.markenZeile.innerHTML = '';
+    const anzahlen = katAnzahl();
+    KATEGORIEN.forEach((k, i) => {
+      this.markenZeile.appendChild(
+        marke(`${k.name} ${anzahlen[i] ?? 0}`, i === this.kategorie, () => this.kategorieSetzen(i))
+      );
+    });
+
     const seiten = Math.max(1, Math.ceil(alle.length / SEITE_GROESSE));
     if (this.seite >= seiten) this.seite = seiten - 1;
     const sichtbar = this.seitenNamen();
@@ -626,44 +1011,82 @@ export class GegenstandsKatalog {
       if (name === this.gewaehlt) zeile.scrollIntoView({ block: 'nearest' });
     }
     if (sichtbar.length === 0) {
-      const leer = document.createElement('div');
-      leer.textContent = 'keine Treffer';
-      leer.style.cssText = `padding:6px 8px;color:${THEME.gedimmt};font-style:italic;`;
-      this.liste.appendChild(leer);
+      this.liste.appendChild(
+        el('div', stil({ padding: '8px 10px', color: F.gedimmt3, 'font-style': 'italic' }), 'keine Treffer')
+      );
     }
 
     this.blaetterZeile.innerHTML = '';
-    const zurueck = this.knopf('‹', () => {
+    const zurueck = this.blaetterKnopf(PFAD.pfeilLinks, this.seite === 0, () => {
       this.seite = Math.max(0, this.seite - 1);
       this.listeFuellen();
     });
-    const weiter = this.knopf('›', () => {
+    const weiter = this.blaetterKnopf(PFAD.pfeilRechts, this.seite >= seiten - 1, () => {
       this.seite = Math.min(seiten - 1, this.seite + 1);
       this.listeFuellen();
     });
-    zurueck.disabled = this.seite === 0;
-    weiter.disabled = this.seite >= seiten - 1;
-    for (const b of [zurueck, weiter]) {
-      b.style.flex = '0 0 auto';
-      b.style.padding = '2px 8px';
-      b.style.opacity = b.disabled ? '0.4' : '1';
-    }
-    const text = document.createElement('span');
-    text.style.cssText = 'flex:1;text-align:center;';
-    text.textContent = `Seite ${this.seite + 1}/${seiten} — ${alle.length} Einträge`;
+    const text = el('span', stil({ flex: '1', 'text-align': 'center', 'font-size': '11.5px', color: F.textRuhig }));
+    text.append(
+      document.createTextNode('Seite '),
+      el('strong', stil({ color: F.textHell }), String(this.seite + 1)),
+      document.createTextNode(` / ${seiten} · ${alle.length} Einträge`)
+    );
     this.blaetterZeile.append(zurueck, text, weiter);
     this.pruefKnopf.disabled = sichtbar.length === 0;
+    this.pruefKnopf.style.opacity = this.pruefKnopf.disabled ? '0.45' : '1';
   }
 
-  /** Eine Listenzeile: Name, Eigen-Marke, Verfügbarkeitszeichen. */
+  /** Quadratischer Blätterknopf (‹ / ›) im Fuß der Liste. */
+  private blaetterKnopf(pfad: string, gesperrt: boolean, bei: () => void): HTMLSpanElement {
+    const s = el(
+      'span',
+      stil({
+        width: '28px',
+        height: '28px',
+        flex: 'none',
+        display: 'grid',
+        'place-items': 'center',
+        background: F.erhoben,
+        border: `1px solid ${F.randKnopf}`,
+        'border-radius': `${M.radiusFeld}px`,
+        color: F.gedimmt,
+        cursor: gesperrt ? 'default' : 'pointer',
+        opacity: gesperrt ? '0.4' : '1',
+      })
+    );
+    s.appendChild(sinnbild(pfad, 12, 2.4));
+    if (!gesperrt) {
+      beiUeberfahren(s, { 'border-color': F.randAktiv, color: F.textHell });
+      s.onclick = bei;
+    }
+    return s;
+  }
+
+  /** Eine Listenzeile: Stern, Name, Verfügbarkeitszeichen, Auswahlkasten. */
   private zeileBauen(name: string): HTMLDivElement {
-    const zeile = document.createElement('div');
     const aktiv = name === this.gewaehlt;
-    zeile.style.cssText =
-      `padding:3px 8px;cursor:pointer;display:flex;gap:6px;align-items:baseline;` +
-      (aktiv ? `background:#243044;color:${THEME.akzent};` : '');
     const eigen = istEigenesModell(name);
-    const marke = document.createElement('span');
+    const zeile = el(
+      'div',
+      stil({
+        display: 'flex',
+        'align-items': 'center',
+        gap: '9px',
+        height: '30px',
+        flex: 'none',
+        padding: '0 10px',
+        'border-radius': `${M.radiusKlein}px`,
+        cursor: 'pointer',
+        background: aktiv ? F.wahlFlaeche : 'transparent',
+        // Der Ring liegt INNEN als Schatten statt als Rahmen: Ein Rahmen
+        // würde die Zeile um zwei Pixel wachsen lassen und die ganze
+        // Liste beim Anklicken springen.
+        'box-shadow': aktiv ? `inset 0 0 0 1px ${F.akzent}` : 'none',
+        color: aktiv ? F.textHell : eigen ? F.textRuhig : F.gedimmt2,
+      })
+    );
+    if (!aktiv) beiUeberfahren(zeile, { background: F.erhoben });
+
     // ★ = eigenes Modell, ⊘ = entfällt. Der Punkt, der hier für „nicht
     // eigen" stand, war zu leise — er hiess „kein Stern", nicht „gehört
     // nicht mehr ins Spiel".
@@ -671,32 +1094,64 @@ export class GegenstandsKatalog {
     // nicht auf dem Server" (Verfügbarkeitsprüfung). Zwei verschiedene
     // Fragen mit einem Zeichen zu beantworten verwischt beide — ein
     // eigenes Modell kann fehlen, ein fremdes kann daliegen.
-    marke.textContent = eigen ? '★' : '⊘';
-    marke.style.cssText = `width:10px;color:${eigen ? THEME.akzent : THEME.fehler};`;
-    const txt = document.createElement('span');
-    txt.textContent = name;
-    txt.style.cssText =
-      'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
-      (eigen || aktiv ? '' : `color:${THEME.gedimmt};`);
+    const zeichen = el(
+      'span',
+      stil({ width: '10px', flex: 'none', 'font-size': '11px', color: eigen ? F.akzent : F.fehler }),
+      eigen ? '★' : '⊘'
+    );
+    const txt = el(
+      'span',
+      stil({ flex: '1', 'font-size': '12.5px', overflow: 'hidden', 'text-overflow': 'ellipsis', 'white-space': 'nowrap' }),
+      name
+    );
     if (!eigen) {
       zeile.title =
         `${name} steht nicht in EIGENE_MODELLE (shared/src/prefabs.ts). Ansehen geht, ` +
         'setzen nicht — der Spawn-Editor bietet den Namen nicht mehr zur Platzierung an.';
     }
-    zeile.append(marke, txt);
+    zeile.append(zeichen, txt);
+
     // Gemerkt wird die DATEI, nicht der Prefabname: Manche Prefabs zeigen
-    // auf eine anders heißende GLB (Boar → Boar_fixed, s. HINT_DEFS).
+    // auf eine anders heißende GLB (Boar → Boar_fixed, s. HINT_DEFS). Der
+    // Entwurf zeigt an dieser Stelle eine Platzierungszahl — die kennt
+    // der Katalog nicht (er redet nicht mit dem Weltdokument), also steht
+    // hier das, was er wirklich weiß: liegt die Datei vor?
     const datei = PREFABS_BY_NAME.get(name)?.model;
     const da = datei ? this.vorhanden.get(datei) : undefined;
     if (da !== undefined) {
-      const zeichen = document.createElement('span');
-      zeichen.textContent = da ? '✓' : '✕';
-      zeichen.title = da
+      const merker = el(
+        'span',
+        stil({ 'font-family': SCHRIFT.mono, 'font-size': '10.5px', flex: 'none', color: da ? F.ok : F.fehler }),
+        da ? '✓' : '✕'
+      );
+      merker.title = da
         ? 'Modell liegt vor und ist anzeigbar'
         : 'Kein anzeigbares Modell (GLB fehlt oder ohne Geometrie)';
-      zeichen.style.cssText = `font-size:11px;color:${da ? THEME.ok : THEME.fehler};`;
-      zeile.appendChild(zeichen);
+      zeile.appendChild(merker);
     }
+
+    // Auswahlkasten wie im Entwurf — reine Anzeige des Zustands; geklickt
+    // wird die ganze Zeile.
+    const kasten = el(
+      'span',
+      stil({
+        width: '16px',
+        height: '16px',
+        flex: 'none',
+        'border-radius': '4px',
+        display: 'grid',
+        'place-items': 'center',
+        background: aktiv ? F.akzent : 'transparent',
+        border: `1px solid ${aktiv ? F.akzentHell : F.randFeld}`,
+      })
+    );
+    if (aktiv) {
+      const haken = sinnbild(PFAD.haken, 10, 3.4);
+      haken.style.color = F.aufAkzent;
+      kasten.appendChild(haken);
+    }
+    zeile.appendChild(kasten);
+
     zeile.onclick = () => void this.waehle(name);
     return zeile;
   }
@@ -741,11 +1196,11 @@ export class GegenstandsKatalog {
       // Grund dazuschreiben.
       this.platzhalterZeigen(def);
       this.infoSchreiben(name, def, null, 'Kein Modell hinterlegt (model = null).');
-      this.statusZeile.textContent = '';
+      this.statusSetzen('Platzhalter — kein Modell hinterlegt', 'fehlt');
       return;
     }
 
-    this.statusZeile.textContent = `lädt ${def.model}.glb …`;
+    this.statusSetzen(`lädt ${def.model}.glb …`, 'laedt');
 
     // Wettlauf gegen die Uhr, s. Kopf (LADE_TIMEOUT).
     let uhr: number | null = null;
@@ -778,12 +1233,12 @@ export class GegenstandsKatalog {
       return;
     }
 
-    this.statusZeile.textContent = '';
     if (ergebnis === 'timeout') {
       // Bewusst KEIN Eintrag in `vorhanden`: Eine Zeitüberschreitung sagt
       // nichts darüber, ob die Datei existiert — sie kam nur nicht an.
       this.platzhalterZeigen(def);
       this.infoSchreiben(name, def, null, `Zeitüberschreitung nach ${LADE_TIMEOUT / 1000} s — Server antwortet nicht.`);
+      this.statusSetzen('Zeitüberschreitung — Platzhalter', 'fehlt');
       this.listeFuellen();
       return;
     }
@@ -798,6 +1253,7 @@ export class GegenstandsKatalog {
         null,
         `${def.model}.glb liegt nicht vor oder enthält keine sichtbare Geometrie — Platzhalter in Prefab-Größe.`
       );
+      this.statusSetzen('GLB fehlt — Platzhalter', 'fehlt');
       this.listeFuellen();
       return;
     }
@@ -812,7 +1268,24 @@ export class GegenstandsKatalog {
     this.letzteMasse = masse;
     this.kameraRahmen();
     this.infoSchreiben(name, def, masse, null);
+    this.statusSetzen('GLB geladen', 'da');
     this.listeFuellen();
+  }
+
+  /**
+   * Statusplakette über der Bühne. Sie beantwortet die Frage, die man
+   * beim Anschauen sofort hat: Ist das da das Modell — oder nur sein
+   * Platz? Leerer Text blendet sie aus; es gibt keinen „nichts"-Zustand,
+   * den man anschreiben müsste.
+   */
+  private statusSetzen(text: string, art: StatusArt): void {
+    this.statusZeile.textContent = text;
+    this.statusPlakette.style.display = text ? 'flex' : 'none';
+    this.statusPunkt.style.background =
+      art === 'da' ? F.ok : art === 'fehlt' ? F.fehler : art === 'laedt' ? F.akzentLicht : F.gedimmt2;
+    // Nur beim Laden pulsiert er — ein dauerhaft blinkender Punkt wird
+    // zum Hintergrundrauschen und meldet dann nichts mehr.
+    this.statusPunkt.className = art === 'laedt' ? 'wov-puls' : '';
   }
 
   /** Gezeigtes Modell aus der Szene nehmen. */
@@ -843,7 +1316,9 @@ export class GegenstandsKatalog {
     if (!this.platzhalterMaterial) {
       const mat = new StandardMaterial('katalogplatzhaltermat', scene);
       mat.wireframe = true;
-      mat.emissiveColor = new Color3(0.78, 0.66, 0.34);
+      // Bronze wie die Handlungsfarbe des Editors — das Gitter ist die
+      // einzige Fläche der Bühne, die nicht zum Modell gehört.
+      mat.emissiveColor = Color3.FromHexString(F.akzent);
       mat.disableLighting = true;
       this.platzhalterMaterial = mat;
     }
@@ -910,6 +1385,18 @@ export class GegenstandsKatalog {
 
   // ── Metadaten ──────────────────────────────────────────────────────
 
+  /**
+   * Der Block unter der Bühne: Name, Herkunftsmarke, Dateiname, und
+   * darunter die gemessenen Kennzahlen als Spalten (Beschriftung in
+   * Versalien, Wert in Mono — alles Gemessene steht im Editor in Mono).
+   *
+   * Der Entwurf zeigt hier rechts noch eine Platzierungsart (Einzeln /
+   * Pinsel / Streuen) und „Auf Karte platzieren". Beides gibt es im
+   * Katalog nicht: Er kennt das Weltdokument nicht und setzt nichts — ein
+   * toter Umschalter wäre ein Versprechen, das die Datei nicht halten
+   * kann. An seiner Stelle steht das, was hier wirklich zu melden ist:
+   * die Warnung, wenn das Modell fehlt.
+   */
   private infoSchreiben(
     name: string,
     def: PrefabDef | null,
@@ -917,84 +1404,142 @@ export class GegenstandsKatalog {
     warnung: string | null
   ): void {
     this.infoBlock.innerHTML = '';
-    this.infoBlock.style.color = THEME.text; // der Einstiegshinweis war gedimmt
 
-    const kopf = document.createElement('div');
-    kopf.style.cssText = 'display:flex;align-items:center;gap:10px;';
+    const kopf = el('div', stil({ display: 'flex', 'align-items': 'center', gap: '11px', 'flex-wrap': 'wrap' }));
     const item = ITEMS_NACH_NAME.get(name);
     // Icon, wo es eines gibt: Für Gegenstände ist das Inventarbild oft
     // aussagekräftiger als das Modell (viele Item-GLBs sind winzig).
     const iconDatei = item?.icon ?? def?.sprite ?? null;
     if (iconDatei) {
-      const bild = document.createElement('img');
+      const bild = el(
+        'img',
+        stil({
+          width: '30px',
+          height: '30px',
+          'object-fit': 'contain',
+          border: `1px solid ${F.randFeld}`,
+          'border-radius': `${M.radiusFeld}px`,
+          background: F.feld,
+        })
+      );
       bild.src = `/assets/sprites/${iconDatei}.png`;
-      bild.style.cssText = `width:32px;height:32px;object-fit:contain;border:1px solid ${THEME.rand};border-radius:3px;background:#0d1420;`;
       // Die Sprite-Sammlung ist unvollständig; ein kaputtes Bild-Symbol
       // wäre irreführender als gar keines.
       bild.onerror = () => bild.remove();
       kopf.appendChild(bild);
     }
-    const titel = document.createElement('span');
-    titel.textContent = item?.label ? `${item.label} (${name})` : name;
-    titel.style.cssText = `color:${THEME.akzent};font-size:15px;`;
-    kopf.appendChild(titel);
-    // Die Marke spricht jetzt in BEIDE Richtungen. Vorher stand bei
-    // fremden Prefabs gar nichts — und „nichts" liest sich wie „normal",
-    // nicht wie „das gibt es im Spiel nicht mehr".
+    kopf.appendChild(
+      el(
+        'span',
+        stil({ 'font-size': '15px', 'font-weight': '600', color: F.textHell }),
+        item?.label ? `${item.label} (${name})` : name
+      )
+    );
+
+    // Die Marke spricht in BEIDE Richtungen. Vorher stand bei fremden
+    // Prefabs gar nichts — und „nichts" liest sich wie „normal", nicht
+    // wie „das gibt es im Spiel nicht mehr".
     const eigen = istEigenesModell(name);
-    const marke = document.createElement('span');
-    marke.textContent = eigen ? '★ eigenes Modell' : '⊘ kein eigenes Modell — entfällt';
-    marke.style.cssText =
-      `font-size:11px;color:${eigen ? THEME.ok : THEME.fehler};border:1px solid ${THEME.rand};` +
-      'padding:1px 6px;border-radius:8px;';
-    kopf.appendChild(marke);
+    kopf.appendChild(
+      el(
+        'span',
+        stil({
+          display: 'flex',
+          'align-items': 'center',
+          gap: '5px',
+          padding: '3px 9px',
+          'border-radius': '999px',
+          background: eigen ? F.warnFlaeche : F.feld,
+          border: `1px solid ${eigen ? F.warnRand : F.randFeld}`,
+          'font-size': '10.5px',
+          color: eigen ? F.warnText : F.fehler,
+        }),
+        eigen ? '★ eigenes Modell' : '⊘ kein eigenes Modell — entfällt'
+      )
+    );
+    kopf.appendChild(
+      el(
+        'span',
+        stil({ 'font-family': SCHRIFT.mono, 'font-size': '11px', color: F.gedimmt2 }),
+        def?.model ? `${def.model}.glb` : 'ohne Modelldatei'
+      )
+    );
+    kopf.appendChild(luecke());
+    if (warnung) {
+      const w = el(
+        'span',
+        stil({
+          padding: '5px 10px',
+          'border-radius': `${M.radiusKlein}px`,
+          background: F.feld,
+          // `F` führt keine eigene Fehlerfläche — der Warnrand ist der
+          // nächstliegende Ton, die Schrift trägt das Signal.
+          border: `1px solid ${F.warnRand}`,
+          'font-size': '11.5px',
+          color: F.fehler,
+        }),
+        `⚠ ${warnung}`
+      );
+      kopf.appendChild(w);
+    }
+    // Die Handlung des Entwurfs (Mockup 500): der einzige bronzene Knopf
+    // dieser Ansicht. Er erscheint nur, wenn ein Rückruf gesetzt IST und
+    // das Prefab ein eigenes Modell hat — was die Whitelist ausschließt,
+    // wird nicht platziert, und ein Knopf, der stillschweigend nichts
+    // bewirkt, ist schlimmer als keiner.
+    if (this.aufPlatzieren && eigen) {
+      const setzen = knopf(
+        'Auf Karte platzieren',
+        () => {
+          this.aufPlatzieren?.(name);
+          this.schliesse();
+        },
+        { art: 'bronze', pfad: PFAD.platzieren, titel: `${name} als Platzierung setzen` }
+      );
+      kopf.appendChild(setzen);
+    }
     this.infoBlock.appendChild(kopf);
 
-    const felder: string[] = [];
-    felder.push(`Modell: ${def?.model ? `${def.model}.glb` : '—'}`);
+    // Kennzahlen als Spalten — nur, was der Katalog wirklich gemessen
+    // oder aus der Registry gelesen hat.
+    const felder: [string, string][] = [];
     if (masse) {
       felder.push(
-        `Maße (B×H×T): ${fmt(masse.breite)} × ${fmt(masse.hoehe)} × ${fmt(masse.tiefe)} m`,
-        `Dreiecke: ${masse.dreiecke.toLocaleString('de-DE')}`,
-        `Meshes: ${masse.meshes}`,
-        `Materialien: ${masse.materialien}`
+        ['Maße B×H×T', `${fmt(masse.breite)} × ${fmt(masse.hoehe)} × ${fmt(masse.tiefe)} m`],
+        ['Dreiecke', masse.dreiecke.toLocaleString('de-DE')],
+        ['Meshes', String(masse.meshes)],
+        ['Materialien', String(masse.materialien)]
       );
     }
     if (def) {
       const ls = def.localScale;
       if (ls.x !== 1 || ls.y !== 1 || ls.z !== 1) {
-        felder.push(`localScale: ${fmt(ls.x)} / ${fmt(ls.y)} / ${fmt(ls.z)}`);
+        felder.push(['localScale', `${fmt(ls.x)} / ${fmt(ls.y)} / ${fmt(ls.z)}`]);
       }
-      felder.push(`Platzhaltermaß: ${fmt(def.renderScale.w)} × ${fmt(def.renderScale.h)} m`);
-      if (def.animation) felder.push(`Animation: ${def.animation}`);
-      if (def.light) felder.push(`Lichtquelle: Reichweite ${def.light.range} m`);
+      felder.push(['Platzhaltermaß', `${fmt(def.renderScale.w)} × ${fmt(def.renderScale.h)} m`]);
+      if (def.animation) felder.push(['Animation', def.animation]);
+      if (def.light) felder.push(['Lichtquelle', `Reichweite ${def.light.range} m`]);
     }
     if (item) {
       felder.push(
-        `Typ: ${ITEM_TYP_TEXT[item.itemType] ?? item.itemType}`,
-        `Gewicht: ${fmt(item.weight)}`,
-        `Stapel: ${item.maxStackSize}`
+        ['Typ', ITEM_TYP_TEXT[item.itemType] ?? String(item.itemType)],
+        ['Gewicht', fmt(item.weight)],
+        ['Stapel', String(item.maxStackSize)]
       );
-      if (item.pieceTable) felder.push(`Bau-Tafel: ${item.pieceTable}`);
+      if (item.pieceTable) felder.push(['Bau-Tafel', item.pieceTable]);
     }
-    felder.push(`Raster: ${fmt(this.rasterSchritt)} m`);
+    felder.push(['Raster', `${fmt(this.rasterSchritt)} m`]);
 
-    const gitter = document.createElement('div');
-    gitter.style.cssText =
-      `display:flex;flex-wrap:wrap;gap:2px 18px;margin-top:3px;color:${THEME.text};font-size:12px;`;
-    for (const f of felder) {
-      const s = document.createElement('span');
-      s.textContent = f;
-      gitter.appendChild(s);
+    const gitter = el('div', stil({ display: 'flex', gap: '26px', 'flex-wrap': 'wrap' }));
+    for (const [k, v] of felder) {
+      const spalte = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '3px' }));
+      spalte.append(
+        el('span', beschriftungStil(), k),
+        el('span', stil({ 'font-family': SCHRIFT.mono, 'font-size': '12px', color: F.textRuhig }), v)
+      );
+      gitter.appendChild(spalte);
     }
     this.infoBlock.appendChild(gitter);
-
-    if (warnung) {
-      const w = document.createElement('div');
-      w.textContent = `⚠ ${warnung}`;
-      w.style.cssText = `margin-top:3px;color:${THEME.fehler};font-size:12px;`;
-      this.infoBlock.appendChild(w);
-    }
   }
 
   // ── Verfügbarkeit ──────────────────────────────────────────────────
@@ -1019,12 +1564,12 @@ export class GegenstandsKatalog {
       .map((n) => PREFABS_BY_NAME.get(n)?.model)
       .filter((m): m is string => !!m && !this.vorhanden.has(m));
     if (offen.length === 0) {
-      this.statusZeile.textContent = 'Seite bereits geprüft.';
-      window.setTimeout(() => (this.statusZeile.textContent = ''), 2000);
+      this.statusSetzen('Seite bereits geprüft.', 'neutral');
+      window.setTimeout(() => this.statusSetzen('', 'neutral'), 2000);
       return;
     }
     this.pruefKnopf.disabled = true;
-    this.pruefKnopf.textContent = `⟳ prüfe ${offen.length} Modelle …`;
+    this.pruefKnopf.textContent = `prüfe ${offen.length} Modelle …`;
     let naechster = 0;
     const arbeiter = async (): Promise<void> => {
       while (naechster < offen.length) {
@@ -1041,38 +1586,14 @@ export class GegenstandsKatalog {
       }
     };
     await Promise.all(Array.from({ length: Math.min(PRUEF_PARALLEL, offen.length) }, arbeiter));
-    this.pruefKnopf.textContent = '⟳ Verfügbarkeit dieser Seite prüfen';
+    this.pruefKnopf.textContent = 'Verfügbarkeit dieser Seite prüfen';
     this.pruefKnopf.disabled = false;
     this.listeFuellen();
     const da = namen.filter((n) => {
       const m = PREFABS_BY_NAME.get(n)?.model;
       return m ? this.vorhanden.get(m) === true : false;
     }).length;
-    this.statusZeile.textContent = `${da} von ${namen.length} Modellen dieser Seite liegen vor.`;
-  }
-
-  // ── Kleinkram ──────────────────────────────────────────────────────
-
-  private feldStil(breite: string): string {
-    return (
-      `width:${breite};background:${THEME.feld};color:${THEME.text};border:1px solid ${THEME.rand};` +
-      'padding:3px 6px;font-family:inherit;font-size:12px;box-sizing:border-box;'
-    );
-  }
-
-  private knopf(text: string, cb: () => void): HTMLButtonElement {
-    const b = document.createElement('button');
-    b.textContent = text;
-    b.style.cssText =
-      `padding:4px 10px;background:#1d2431;color:${THEME.text};border:1px solid ${THEME.rand};` +
-      'border-radius:4px;cursor:pointer;font-family:inherit;font-size:12px;white-space:nowrap;';
-    b.onclick = () => {
-      cb();
-      // Fokus abgeben: Ein fokussierter Knopf feuert sonst später auf
-      // Enter/Leertaste erneut (dieselbe Falle wie im SpawnPanel).
-      b.blur();
-    };
-    return b;
+    this.statusSetzen(`${da} von ${namen.length} Modellen dieser Seite liegen vor.`, da > 0 ? 'da' : 'fehlt');
   }
 }
 

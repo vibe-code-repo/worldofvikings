@@ -25,7 +25,7 @@
  * Run: npx tsx server/test/f18-haarfarbe.ts   (from the repo root)
  */
 
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import {
@@ -76,6 +76,28 @@ console.log('\n[3] Rueckfall auf die Vorgabe');
 pruefe('unbekannt → Vorgabe', haarfarbeZu('gibtsnicht').id === HAARFARBE_VORGABE);
 pruefe('null → Vorgabe', haarfarbeZu(null).id === HAARFARBE_VORGABE);
 pruefe('bekannt → sich selbst', haarfarbeZu('fuchsrot').id === 'fuchsrot');
+
+/**
+ * Liegen die Modelldateien ueberhaupt vor?
+ *
+ * `assets/` steht in `.gitignore` (nur `manifest.json` ist ausgenommen) --
+ * 516 Dateien, 210 MB, die Mike bewusst ausserhalb des Repos sichert. Ein
+ * frischer Checkout, wie ihn GitHub Actions macht, hat sie also NIE.
+ *
+ * Ohne diese Unterscheidung pruefte der Test dort nicht den Quelltext,
+ * sondern den Umfang des Checkouts -- und war rot, ohne dass etwas kaputt
+ * war (beobachtet am 23.08.2026, drei Tests gleichzeitig).
+ *
+ * FEHLT DER ORDNER GANZ, wird uebersprungen. FEHLEN EINZELNE DATEIEN
+ * DARIN, bleibt es ein Fehlschlag -- genau dafuer ist die Pruefung da.
+ */
+if (!existsSync(resolve(WURZEL, 'assets/models/wikingerin/H_01.glb'))) {
+  console.log('\n[4] UEBERSPRUNGEN: assets/ liegt nicht im Repo.');
+  console.log(
+    fehler === 0 ? '\n=== F18 Haarfarbe: ALLE PRUEFUNGEN BESTANDEN ===' : `\n=== F18 Haarfarbe: ${fehler} FEHLGESCHLAGEN ===`
+  );
+  process.exit(fehler === 0 ? 0 : 1);
+}
 
 console.log('\n[4] Die Vorgabe aendert nichts am Aussehen');
 const vorgabe = haarfarbeZu(HAARFARBE_VORGABE);

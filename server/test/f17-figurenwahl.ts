@@ -46,6 +46,25 @@ import {
  */
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
+/**
+ * Liegen die Modelldateien ueberhaupt vor?
+ *
+ * `assets/` steht in `.gitignore` (nur `manifest.json` ist ausgenommen) --
+ * 516 Dateien, 210 MB, die Mike bewusst ausserhalb des Repos sichert. Ein
+ * frischer Checkout, wie ihn GitHub Actions macht, hat sie also NIE.
+ *
+ * Ohne diese Unterscheidung pruefte der Test dort nicht den Quelltext,
+ * sondern den Umfang des Checkouts -- und war rot, ohne dass etwas kaputt
+ * war (beobachtet am 23.08.2026, drei Tests gleichzeitig).
+ *
+ * FEHLT DER ORDNER GANZ, wird uebersprungen. FEHLEN EINZELNE DATEIEN
+ * DARIN, bleibt es ein Fehlschlag -- genau dafuer ist die Pruefung da.
+ */
+const MODELLE_DA = existsSync(resolve(WURZEL, 'assets/models'));
+if (!MODELLE_DA) {
+  console.log('HINWEIS: assets/models fehlt -- die Dateipruefungen entfallen.');
+}
+
 let fehler = 0;
 
 function pruefe(name: string, bedingung: boolean, detail = ''): void {
@@ -82,8 +101,10 @@ for (const f of FIGUREN) {
     f.modell
   );
   pruefe(`"${f.id}": Beschriftung vorhanden`, f.name.trim().length > 0, f.name);
-  const datei = resolve(WURZEL, 'assets/models', modellDateiZu(f.id));
-  pruefe(`"${f.id}": ${modellDateiZu(f.id)} liegt wirklich da`, existsSync(datei), datei);
+  if (MODELLE_DA) {
+    const datei = resolve(WURZEL, 'assets/models', modellDateiZu(f.id));
+    pruefe(`"${f.id}": ${modellDateiZu(f.id)} liegt wirklich da`, existsSync(datei), datei);
+  }
 }
 pruefe(
   'modellDateiZu haengt genau eine Endung an',

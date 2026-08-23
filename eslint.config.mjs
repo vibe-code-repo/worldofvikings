@@ -109,6 +109,12 @@ export default tseslint.config(
       // gepflegten Bestand kein einziger Treffer steht. Ein Build-
       // Ergebnis wird nicht nachgebessert, sondern nicht geprueft.
       'tools/web/*.js',
+      // Die Webseite ist ein EIGENES Projekt mit eigenem Linter (Biome,
+      // s. wov-web/biome.json) und liegt seit dem 23.08.2026 im selben
+      // Baum. Ihre Buildergebnisse (build/, .svelte-kit/, static/assets)
+      // brachten 533 Fehler in unseren Lint -- fremder, teils
+      // minifizierter Code, den wir weder schreiben noch nachbessern.
+      'wov-web/**',
     ],
   },
 );

@@ -1,5 +1,5 @@
 /**
- * Valheim Babylon Client — Entry Point (Phase 2 / M0.1).
+ * World of Vikings Client — Entry Point (Phase 2 / M0.1).
  *
  * Phase 1: walk through the real generated world (terrain, sky, day/night).
  * Phase 2: connected to the authoritative server — ZDO sync renders
@@ -58,10 +58,14 @@ import {
   modellDateiZu,
   FRISUREN,
   FRISUR_VORGABE,
+  HAARFARBEN,
+  HAARFARBE_VORGABE,
   istFrisur,
+  istHaarfarbe,
   RUESTUNG,
   istRuestung,
   frisurZu,
+  haarfarbeZu,
   ruestungZu,
   AUSSEHEN_ORDNER,
   istAusruestungsSlot,
@@ -326,6 +330,7 @@ async function main() {
     frisur: ausAdresse.get('frisur'),
     ober: ausAdresse.get('ober'),
     beine: ausAdresse.get('beine'),
+    haarfarbe: ausAdresse.get('haarfarbe'),
     // Wunschstunde (0-23) — die Seite bietet sie nur fuer das Testgestade an.
     zeit: ausAdresse.get('zeit'),
     // Direkt anmelden, ohne dieses Fenster zu zeigen. Die Wahl ist auf
@@ -344,7 +349,9 @@ async function main() {
   // Option waere eine zweite Wahrheit.
   const FRISUR_SPEICHER = 'wov-frisur';
   const RUESTUNG_SPEICHER = 'wov-ruestung';
+  const HAARFARBE_SPEICHER = 'wov-haarfarbe';
   const frisurSelect = document.getElementById('frisur-wahl') as HTMLSelectElement;
+  const haarfarbeSelect = document.getElementById('haarfarbe-wahl') as HTMLSelectElement;
   const oberSelect = document.getElementById('oberkoerper-wahl') as HTMLSelectElement;
   const beineSelect = document.getElementById('beine-wahl') as HTMLSelectElement;
   const vorschauCanvas = document.getElementById('vorschau-canvas') as HTMLCanvasElement;
@@ -360,6 +367,16 @@ async function main() {
   const gemerkteFrisur = localStorage.getItem(FRISUR_SPEICHER);
   frisurSelect.value = gemerkteFrisur && istFrisur(gemerkteFrisur)
     ? gemerkteFrisur : FRISUR_VORGABE;
+
+  for (const h of HAARFARBEN) {
+    const opt = document.createElement('option');
+    opt.value = h.id;
+    opt.textContent = h.name;
+    haarfarbeSelect.appendChild(opt);
+  }
+  const gemerkteFarbe = localStorage.getItem(HAARFARBE_SPEICHER);
+  haarfarbeSelect.value = gemerkteFarbe && istHaarfarbe(gemerkteFarbe)
+    ? gemerkteFarbe : HAARFARBE_VORGABE;
 
   // Ruestung je Slot, mit einer Leeroption: "nichts" ist eine gueltige
   // Wahl und braucht keinen Sonderfall im Server.
@@ -396,6 +413,7 @@ async function main() {
   const zeigeAussehen = async () => {
     if (!vorschau) return;
     await vorschau.setze('frisur', frisurZu(frisurSelect.value).datei);
+    vorschau.setzeHaarfarbe(haarfarbeZu(haarfarbeSelect.value).hex);
     for (const [feld, slot] of slotFelder) {
       const teil = ruestungZu(feld.value);
       await vorschau.setze(slot, teil ? teil.datei : null);
@@ -419,6 +437,10 @@ async function main() {
 
   frisurSelect.addEventListener('change', () => {
     localStorage.setItem(FRISUR_SPEICHER, frisurSelect.value);
+    void zeigeAussehen();
+  });
+  haarfarbeSelect.addEventListener('change', () => {
+    localStorage.setItem(HAARFARBE_SPEICHER, haarfarbeSelect.value);
     void zeigeAussehen();
   });
   for (const [feld] of slotFelder) {
@@ -449,7 +471,14 @@ async function main() {
       if (!wert || (teil && teil.slot === slot)) feld.value = wert;
     }
   }
-  if (vonSeite.figur || vonSeite.frisur || vonSeite.ober || vonSeite.beine) {
+  if (vonSeite.haarfarbe && istHaarfarbe(vonSeite.haarfarbe)) {
+    haarfarbeSelect.value = vonSeite.haarfarbe;
+    localStorage.setItem(HAARFARBE_SPEICHER, vonSeite.haarfarbe);
+  }
+  if (
+    vonSeite.figur || vonSeite.frisur || vonSeite.ober || vonSeite.beine ||
+    vonSeite.haarfarbe
+  ) {
     merkeRuestung();
     void zeigeAussehen();
   }
@@ -463,7 +492,7 @@ async function main() {
   //
   // Ein Spieltag dauert WORLD_TIME_LENGTH Sekunden; angezeigt wird er wie
   // eine 24-Stunden-Uhr, genau wie im HUD ("zeit 4.3h"). Die Marken kommen
-  // aus dem Umgebungsmodell statt aus einer zweiten Tabelle — Valheims
+  // aus dem Umgebungsmodell statt aus einer zweiten Tabelle — die
   // Sonnenaufgang liegt bei 0.1333 des Tages, also gegen 03:00, nicht bei
   // 06:00, und eine handgeschriebene Beschriftung würde das früher oder
   // später falsch behaupten.
@@ -695,12 +724,15 @@ async function main() {
   };
 
   /** Kennungen statt Dateinamen — genau das, was SetAussehen erwartet. */
-  const aussehenKennungen = (): { frisur: string; ober: string; beine: string } => {
+  const aussehenKennungen = (): {
+    frisur: string; ober: string; beine: string; haarfarbe: string;
+  } => {
     const g = equipment?.aussehen() ?? {};
     return {
       frisur: frisurSelect.value,
       ober: g.oberkoerper ?? '',
       beine: g.beine ?? '',
+      haarfarbe: haarfarbeSelect.value,
     };
   };
 
@@ -732,7 +764,8 @@ async function main() {
   const uebernehmeAussehen = (): void => {
     void player?.avatar.setzeAussehen(aussehenFuerRig());
     const k = aussehenKennungen();
-    socket?.sendAussehen(k.frisur, k.ober, k.beine);
+    player?.avatar.setzeHaarfarbe(haarfarbeZu(k.haarfarbe).hex);
+    socket?.sendAussehen(k.frisur, k.ober, k.beine, k.haarfarbe);
     charakterPanel.zeichne();
   };
 
@@ -826,7 +859,7 @@ async function main() {
   /** Sekunden seit dem letzten Abgleich der Gras-Aussparungen. */
   let clearingTimer = 0;
 
-  // "Vegetationsqualität" / "Detailgrad" — real Valheim graphics settings
+  // "Vegetationsqualität" / "Detailgrad" — graphics settings of the original
   // (GraphicsSettingInt.Vegetation/LOD), see ui/Settings.ts. Registered
   // after the `let terrain`/`let grass` declarations above: onChange()
   // fires its callback immediately with the current state, and referencing
@@ -1036,6 +1069,7 @@ async function main() {
     // Der Aufruf darf vor dem Laden des Modells kommen: AvatarRig merkt
     // sich das Aussehen und zieht es nach, sobald der Koerper da ist.
     void player.avatar.setzeAussehen(aussehenFuerRig());
+    player.avatar.setzeHaarfarbe(haarfarbeZu(haarfarbeSelect.value).hex);
     // Pruefzugang, NUR im Entwicklungsmodus — wie bei der Vorschau. Ohne
     // ihn laesst sich von aussen nicht messen, ob ein Kleidungsstueck am
     // Koerper sitzt; Babylon liegt als ES-Modul vor und nichts ist global.
@@ -1920,7 +1954,10 @@ async function main() {
       socket?.sendFigur(figurSelect.value);
       // Frisur und Ruestung auf demselben Weg. Ohne das saehe jeder nur
       // sich selbst richtig — die anderen bekaemen die Vorgabefrisur.
-      socket?.sendAussehen(frisurSelect.value, oberSelect.value, beineSelect.value);
+      socket?.sendAussehen(
+        frisurSelect.value, oberSelect.value, beineSelect.value,
+        haarfarbeSelect.value
+      );
       connectScreen.style.display = 'none';
       connectStatus.textContent = '';
       connectBtn.removeAttribute('disabled');

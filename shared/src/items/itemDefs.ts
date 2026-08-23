@@ -1,6 +1,6 @@
 /**
  * Item definitions. Values marked "verified" come from the MonoBehaviour dumps
- * under /root/Valheim_Client/extracted_assets/ — the rest are plausible
+ * under the local asset export — the rest are plausible
  * placeholders for fields nothing reads yet.
  *
  * Asset names are checked against assets/: sprites are lower_snake_case,
@@ -23,7 +23,7 @@ import { istEigenesModell } from '../prefabs.js';
 const ITEM_DEFS_ROH: readonly ItemShared[] = [
   {
     // Sax — das wikingerzeitliche Allzweckmesser. Kein Fund aus dem
-    // Valheim-Bestand, sondern eigens gebaut (tools/messer-erzeugen.py),
+    // Fremdbestand, sondern eigens gebaut (tools/messer-erzeugen.py),
     // und der erste Gegenstand mit eigenem Modell UND eigenem Symbol.
     // Das Symbol ist ein Render desselben Modells — so koennen Bild und
     // Gegenstand nicht auseinanderlaufen.
@@ -363,8 +363,8 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
  * ── Kleidung ────────────────────────────────────────────────────────
  *
  * WARUM `itemType: Material` UND NICHT EIN EIGENER TYP: `ItemType` bildet
- * Valheims Aufzaehlung nach, und die hat fuer Ruestung eigene Werte. Wir
- * portieren aber keine Valheim-Ruestung — was diese Teile koennen, steht
+ * der Aufzaehlung des Vorbilds nach, und die hat fuer Ruestung eigene
+ * Werte. Wir portieren aber keine fremde Ruestung — was diese Teile koennen, steht
  * in `ausruestung` (wohin sie gehoeren) und `ruestungsteil` (was man
  * sieht). Eine geratene Zahl in eine fremde Aufzaehlung zu schreiben
  * haette nur die Gefahr gebracht, spaeter mit dem echten Wert zu kollidieren.
@@ -416,7 +416,7 @@ const KLEIDUNG: ItemShared[] = [
  * Client bereits so behandelt.
  *
  * Es fällt derzeit JEDES Modell weg: Hoe, Hammer_0, Club, AxeFlint und
- * die Materialien stammen samt und sonders aus dem Valheim-Export. Bis
+ * die Materialien stammen samt und sonders aus dem Fremdexport. Bis
  * eigene Werkzeugmodelle vorliegen, hält der Wikinger nichts sichtbar in
  * der Hand — der beschlossene Zwischenzustand.
  */
@@ -448,7 +448,7 @@ export function findItem(name: string): ItemShared | undefined {
 
 /**
  * Essbares (Taste F): maxHP-Bonus und Wirkdauer — stark vereinfachtes
- * Valheim-Food-Modell (ein Slot statt drei, dazu 1 HP/s Regeneration).
+ * Nahrungsmodell des Vorbilds (ein Slot statt drei, dazu 1 HP/s Regeneration).
  */
 export const ESSEN: Record<string, { bonus: number; dauerSec: number }> = {
   CookedMeat: { bonus: 30, dauerSec: 480 },

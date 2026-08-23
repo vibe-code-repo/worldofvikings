@@ -39,15 +39,16 @@
  * greift die Zuordnung weiter: langsamster bewegter = Gehen,
  * schnellster = Rennen.
  *
- * Der Bewegungs-Input folgt dem Original-Modell: Valheims Humanoid
+ * Der Bewegungs-Input folgt dem Original-Modell: Dessen Humanoid
  * steuert den Animator nicht über benannte Zustände, sondern über die
  * kontinuierlichen Floats `forward_speed`/`sideway_speed` (ZSyncAnimation)
  * — hier entsprechend `speed` statt eines Zustandsnamens; die Wahl
  * zwischen Gehen und Rennen kommt zusätzlich aus der Spielerabsicht
- * (Shift), genau wie Valheims `Character.m_run`.
+ * (Shift), genau wie das `Character.m_run` des Vorbilds.
  */
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { faerbeHaar } from './haarfarbe.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
@@ -59,7 +60,7 @@ import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
 import { FIGUR_VORGABE, modellDateiZu } from '@wov/shared';
 
-/** Körpermaße in Metern (Valheim-Figur ist ~1,8 m hoch). */
+/** Körpermaße in Metern (die Figur ist ~1,8 m hoch). */
 const SPIELER_HOEHE = 1.8;
 /**
  * Ersatzmaße, falls sich das Modell nicht vermessen lässt (Datei ohne
@@ -110,6 +111,24 @@ const FUSS_RECHTS = ['R_Foot', 'mixamorig:RightFoot'] as const;
  * dem Gelände mit einem kaum wahrnehmbaren Nachlauf.
  */
 const FUSS_VERSATZ_MAX = 0.45;
+/**
+ * Wie weit die Figur ABGESENKT werden darf.
+ *
+ * WARUM ES DAS BRAUCHT: Die Kollisionskapsel hat 0,40 m Radius. Eine
+ * Kugel dieses Radius liegt auf einer um θ geneigten Fläche senkrecht
+ * gemessen `r · (1/cos θ − 1)` über dem Boden — bei 30° sind das 6 cm,
+ * bei 41° schon 13 cm. Die Physik hält die Figur dort also ZU HOCH, und
+ * genau das sieht man als Schweben (gemeldet am 23.08.2026, gemessen
+ * 0,128 m). Die erste Fassung dieser Anpassung liess nur Anheben zu und
+ * konnte deshalb gar nichts ausrichten.
+ *
+ * Der Deckel trennt diesen Fall von einem anderen: Wer auf einem Felsen
+ * oder Hausdach steht, liegt legitim ÜBER dem Gelände — dort trägt ihn
+ * der Kollider, und die Figur darf nicht durch das Dach nach unten
+ * gezogen werden. 0,35 m deckt die Kapselgeometrie bis rund 50° ab und
+ * liegt deutlich unter jeder Stufe, auf die man sich stellen kann.
+ */
+const FUSS_ABSENK_MAX = 0.35;
 const FUSS_GLAETTUNG_S = 0.09;
 
 /** Der Knochen, an dem das getragene Werkzeug hängt. */
@@ -461,7 +480,7 @@ export class AvatarRig {
    * Ruhedrehung einmal gesichert und der Schwung als Delta daraufgelegt.
    *
    * Maßstab: Das Modell ist 0,99 m hoch mit Füssen im Ursprung (BBox
-   * y 0.000…0.990), Valheims Figur misst rund 1,8 m — daher der Faktor.
+   * y 0.000…0.990), unsere Figur misst rund 1,8 m — daher der Faktor.
    * Fällt der Ladevorgang aus, bleibt die prozedurale Figur sichtbar.
    */
   private async ladeModell(scene: Scene): Promise<void> {
@@ -758,9 +777,16 @@ export class AvatarRig {
     this.halter.position.y = this.grundAnhebung + this.fussVersatz;
   }
 
-  /** Wie weit muss die Figur hoch, damit kein Fuss im Boden steckt? */
+  /**
+   * Wie weit muss die Figur hoch ODER RUNTER, damit die Füsse den Boden
+   * treffen?
+   *
+   * Genommen wird der GRÖSSTE der beiden Werte: Damit steckt kein Fuss im
+   * Boden, und der tiefere von beiden steht auf. Der andere schwebt am
+   * Hang weiterhin — das holt Stufe 2 (Bein-IK).
+   */
   private messeFussVersatz(): number {
-    let noetig = 0;
+    let noetig = -Infinity;
     for (const knoten of this.fussKnoten) {
       knoten.computeWorldMatrix(true);
       const p = knoten.getAbsolutePosition();
@@ -782,7 +808,8 @@ export class AvatarRig {
       const sohleOhneVersatz = p.y - this.knoechelHoehe - this.fussVersatz;
       noetig = Math.max(noetig, boden - sohleOhneVersatz);
     }
-    return Math.min(Math.max(noetig, 0), FUSS_VERSATZ_MAX);
+    if (!Number.isFinite(noetig)) return 0;
+    return Math.min(Math.max(noetig, -FUSS_ABSENK_MAX), FUSS_VERSATZ_MAX);
   }
 
   /**
@@ -1202,7 +1229,7 @@ export class AvatarRig {
    * @param speed   aktuelle Horizontalgeschwindigkeit in m/s (0 = steht)
    * @param maxSpeed Bezugsgeschwindigkeit für die volle Ausschlagsamplitude
    * @param rennt   Spielerabsicht (Shift) — entscheidet zwischen Geh- und
-   *                Rennzyklus. Wie in Valheim ist das ein eigener Zustand
+   *                Rennzyklus. Wie im Vorbild ist das ein eigener Zustand
    *                (`Character.m_run`) und nicht bloss eine Schwelle auf der
    *                Geschwindigkeit.
    * @param inDerLuft Kein Bodenkontakt — schaltet auf den Sprungclip, der
@@ -1356,6 +1383,8 @@ export class AvatarRig {
 
   /** Vom Aufrufer gesetztes Aussehen, das auf das Modell wartet. */
   private offenesAussehen: Record<string, string | null> | null = null;
+  /** sRGB-Hex der Haarfarbe; leer = so lassen, wie das Modell es liefert. */
+  private haarHex = '';
 
   /**
    * Frisur und Ruestung anlegen — je Slot ein Teil, `null` raeumt ihn.
@@ -1383,6 +1412,30 @@ export class AvatarRig {
       this.getragen.set(slot, datei ?? '');
       if (datei) await this.ladeTeil(datei);
     }
+    // Nach dem Laden faerben, nicht davor: Eine gerade gewechselte
+    // Frisur bringt ihr eigenes Material mit und waere sonst wieder
+    // platzhalterbraun.
+    this.faerbeFrisur();
+  }
+
+  /**
+   * Haarfarbe setzen. Wirkt sofort auf die getragene Frisur und gilt
+   * fuer jede spaeter geladene weiter — sonst muesste jeder Aufrufer
+   * die Reihenfolge von Frisur und Farbe kennen.
+   */
+  setzeHaarfarbe(hex: string): void {
+    this.haarHex = hex;
+    this.faerbeFrisur();
+  }
+
+  private faerbeFrisur(): void {
+    if (!this.haarHex) return;
+    const datei = this.getragen.get('frisur');
+    if (!datei) return;
+    // Kein Klon: `ladeTeil` holt jedes Teil ueber `ImportMeshAsync`, und
+    // das erzeugt je Aufruf eigene Materialien. Geteilt wird hier
+    // nichts — anders als bei den Mitspielern (s. haarfarbe.ts).
+    faerbeHaar(this.teile.get(datei) ?? [], this.haarHex, false);
   }
 
   private async ladeTeil(datei: string): Promise<void> {

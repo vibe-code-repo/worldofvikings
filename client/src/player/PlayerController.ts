@@ -6,7 +6,7 @@
  * Movement math matches the old client 1:1 (worldMoveX/Z below) — the
  * server simulates the player ZDO from the SAME input values we send at
  * 20 Hz, so both sides agree without reconciliation for now. Speeds match
- * Valheim: walk 4.5 m/s, run 7.5 m/s. Havok character controller replaces
+ * Reference speeds: walk 4.5 m/s, run 7.5 m/s. Havok character controller replaces
  * the clamp in Phase 5.
  */
 import { UniversalCamera } from '@babylonjs/core/Cameras/universalCamera';
@@ -77,7 +77,7 @@ const KAMERA_BODEN_ABSTAND = 0.5;
  * (m_jumpForce * num2 - num4)`, danach `ForceJump` → `linearVelocity`).
  *
  * Der Wert wird 1:1 übernommen. Die dritte Größe, die dazu gehört, ist
- * Valheims Gravitation — und die ist NICHT der Unity-Default: die
+ * Die Gravitation des Vorbilds — und die ist NICHT der Unity-Default: die
  * ProjectSettings des Spiels stehen auf −20 m/s² (PhysicsManager.json,
  * `m_Gravity.m_Y = -20`, siehe GRAVITY unten). Der Charakter hat keine
  * eigene Fallbeschleunigung, er läuft mit `m_body.useGravity = true` in
@@ -127,7 +127,7 @@ const MAX_FALL_SPEED = 40;
 /**
  * Erdbeschleunigung (m/s²) — wie in Physics.ts.
  *
- * NICHT der Unity-Default 9.81: Valheim stellt die Weltgravitation in den
+ * NICHT der Unity-Default 9.81: Das Vorbild stellt die Weltgravitation in den
  * ProjectSettings auf −20 (`m_Gravity.m_Y` in PhysicsManager.json des
  * AssetRipper-Exports). Alles, was fällt, fällt im Original doppelt so
  * schnell wie auf der Erde.
@@ -389,7 +389,7 @@ export class PlayerController {
    * through trunks (measured: 0.28 m from a 0.55 m trunk centre, i.e. 0.69 m
    * inside it). The controller integrates the desired velocity WITH the
    * contacts instead — which is the same division of labour Unity's
-   * CharacterController gives Valheim.
+   * CharacterController gives the original.
    */
   enablePhysics(scene: Scene): void {
     if (this.controller) return;
@@ -402,10 +402,10 @@ export class PlayerController {
     // der Zielgeschwindigkeit damit extrem träge an. Auf ebenem Boden fällt
     // das kaum auf, an einer Steigung arbeitet die Schwerkraft dagegen und
     // der Charakter kommt gar nicht erst in Fahrt: gemessen 1,1 m in 4 s an
-    // einem 37-%-Hang statt der vollen 18 m. Valheim beschleunigt praktisch
+    // einem 37-%-Hang statt der vollen 18 m. Das Vorbild beschleunigt praktisch
     // sofort, deshalb hier ein Vielfaches davon.
     this.controller.acceleration = 8;
-    // Steigungsgrenze wie in Valheim: etwa 40° sind noch begehbar, steiler
+    // Steigungsgrenze wie im Vorbild: etwa 40° sind noch begehbar, steiler
     // rutscht man ab (Babylon-Vorgabe wären 60°).
     this.controller.maxSlopeCosine = Math.cos((40 * Math.PI) / 180);
   }
@@ -435,7 +435,7 @@ export class PlayerController {
     // Abheben an Steigungen), in der Luft die Fallgeschwindigkeit
     // fortschreiben.
     // Rutschen zählt als Bodenkontakt, nicht als freier Fall: Wer an einem
-    // zu steilen Hang abrutscht, berührt den Boden trotzdem. Valheim führt
+    // zu steilen Hang abrutscht, berührt den Boden trotzdem. Das Vorbild führt
     // dafür ein eigenes `m_groundContact`, das ebenfalls beide Fälle deckt.
     // Ohne das summiert sich an jeder Steigung Fallgeschwindigkeit auf.
     const supported = support.supportedState !== CharacterSupportedState.UNSUPPORTED;

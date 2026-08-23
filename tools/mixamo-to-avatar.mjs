@@ -3,7 +3,7 @@
  * mixamo-to-avatar — baut Mixamo-Animationen in das Spielermodell ein.
  *
  * WARUM ES DIESES WERKZEUG GIBT:
- * Valheims Spieleranimationen liegen im Client als Unity-HUMANOID-Clips vor
+ * Die Spieleranimationen des Vorbilds liegen im Client als Unity-HUMANOID-Clips vor
  * (`extracted_assets/AnimationClip/`, 299 Stück): keine Knochenkurven,
  * sondern 130 Muskel-DoFs im Mecanim-Muscle-Space (alle Bindings auf
  * `path: 0`). Zum Zurückrechnen bräuchte man das Avatar-Asset mit den
@@ -12,7 +12,7 @@
  * `PlayerCharacter_01 (2)@Jog Forward.glb` und `Characters/Player/model/
  * body.glb` haben allesamt 0 Animationen, 0 Skins, 0 Meshes.
  *
- * Der Ausweg steht im Rig selbst: Valheims Spielerskelett ist ein
+ * Der Ausweg steht im Rig selbst: Dessen Spielerskelett ist ein
  * MIXAMO-Rig (`mixamorig:Hips`, `mixamorig:LeftUpLeg`, …) und die
  * Clipnamen sind wörtliche Mixamo-Katalogtitel — `Jog Forward`,
  * `Standard Run New`, `Walking With Torch_Left`, `Sneak walk`,

@@ -9,7 +9,7 @@
  *
  * NICHT enthalten sind die C++-Golden-Tests (geo-compare, heightmap-compare,
  * geo-map): sie brauchen Referenz-Dumps als Argument und gehören zum
- * eingefrorenen valheim-Übergangspfad. Ebenso math-golden.ts (dieselbe Art
+ * eingefrorenen Übergangspfad der radialen Weltgenerierung. Ebenso math-golden.ts (dieselbe Art
  * Referenz-Dumps, random_values.txt/perlin_values.txt) sowie geo-correlate.ts
  * — alle vier tragen die Begründung bereits im eigenen Kopfkommentar.
  *
@@ -75,6 +75,7 @@ const KERN = [
   // auf Port 2593, raeumt sein Datenverzeichnis in `finally` weg. ~4s.
   ['server', 'test/a14-server-yml.ts'],
   ['server', 'test/f17-figurenwahl.ts'],
+  ['server', 'test/f18-haarfarbe.ts'],
   ['server', 'test/f19-wettervorgabe.ts'],
   // G12 (Roadmap): Betriebsmetriken -- reine Auswertung (Zaehler,
   // Sekundenabschluss, Prometheus-Formatierung), kein Server/Socket noetig

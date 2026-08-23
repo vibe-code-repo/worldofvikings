@@ -1,11 +1,11 @@
 /**
  * Item model — mirrors Unity `ItemDrop.ItemData` / `ItemData.SharedData`.
  *
- * C# reference: assembly_valheim/ItemDrop.cs
+ * C# reference: the original `ItemDrop` component
  *
  * The split matters: `ItemShared` exists once per item type (name, icon,
  * stack size, what the tool does), `ItemStack` exists once per inventory slot
- * (how many, how worn, where in the grid). Valheim shares the SharedData
+ * (how many, how worn, where in the grid). The reference shares the SharedData
  * instance across every stack of that type; we do the same by referencing the
  * definition object rather than copying it.
  */
@@ -70,7 +70,7 @@ export interface ItemShared {
    * Where the model sits in the hand, as [x, y, z] metres and [x, y, z]
    * radians relative to the hand node.
    *
-   * Valheim attaches tools by an `attach` transform inside the prefab (Hoe.glb
+   * The reference attaches tools by an `attach` transform inside the prefab (Hoe.glb
    * has one at z −0.6 with its own rotation). Reproducing that chain exactly
    * would mean walking the GLB node hierarchy at load time; a per-item offset
    * is simpler and good enough, at the cost of being eyeballed rather than

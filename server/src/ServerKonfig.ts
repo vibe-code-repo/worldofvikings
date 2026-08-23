@@ -227,7 +227,7 @@ export function leseServerKonfig(
       worldSeed: process.env.WORLD_SEED || (world.seed as string) || 'KxSYuZquuw',
       // Kartengenerierungs-Umbau: 'layout' liest die designer-definierte
       // Welt aus server/data/welten/<instanz>.json, 'valheim' bleibt der
-      // radiale Seed-Port (Übergangspfad).
+      // Name des radialen Seed-Ports (Übergangspfad, s. server.yml).
       worldMode: world.mode === 'layout' ? 'layout' : 'valheim',
       worldLayoutPath: layoutPfad,
       // worldgen flags (C++ ServerSettings defaults: smoothstep=true, bilinear=false,

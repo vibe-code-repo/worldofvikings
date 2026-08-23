@@ -1,5 +1,5 @@
 /**
- * Shared types ported from Valhalla2.0 C++ server.
+ * Shared types ported from the C++ reference server.
  * Source: Types.h, Prefab.h, ZoneManager.h, Peer.h
  */
 

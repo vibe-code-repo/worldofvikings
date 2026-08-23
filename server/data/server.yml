@@ -1,5 +1,5 @@
 # World of Vikings Server Configuration
-# Ported from Valhalla2.0 data/server.yml
+# Aufbau übernommen aus der data/server.yml des C++-Referenzservers
 #
 # WAS HIER STEHT, WIRKT AUCH. Jeder Schluessel dieser Datei wird in
 # server/src/ServerKonfig.ts ausgewertet; was dort nicht in
@@ -60,10 +60,12 @@ world:
   #   Spielstand server/data/worlds/<instanz>.db.zst
   # Der Weltname war der einzige Grund, warum server.yml nie mitdeployed
   # werden durfte. Siehe shared/src/instanz.ts.
-  # Kartengenerierung: 'valheim' = radialer Seed-Port (Übergangspfad),
+  # Kartengenerierung: 'valheim' = radialer Seed-Port (Übergangspfad, der
+  # Name des Modus stammt noch aus der Anfangszeit und bleibt, weil
+  # bestehende Spielstände ihn tragen),
   # 'layout' = designer-definierte Welt aus der layout-Datei (relativ zu data/).
-  # Achtung: Der Modus muss zum Save passen — ein bestehender valheim-Save
-  # gehört nicht unter eine layout-Welt (andere Weltform).
+  # Achtung: Der Modus muss zum Save passen — ein Save aus dem radialen
+  # Modus gehört nicht unter eine layout-Welt (andere Weltform).
   mode: layout
   # pregenerate, modern, heightmap-threading: verworfen (A14) -- kein Code
   # las sie. Zu pregenerate steht die Begruendung im Kopf dieser Datei;
@@ -76,14 +78,14 @@ world:
   # ("30 min", "30m") faellt auf diese Konstante zurueck.
   save-interval: 30min
   # Block A: Locations stillgelegt. Alle 146 Einträge in FEATURES sind
-  # Valheim-Exporte; keiner steht in EIGENE_MODELLE. Gebucht würden sie
+  # Fremdexporte; keiner steht in EIGENE_MODELLE. Gebucht würden sie
   # trotzdem — jede Instanz legte ZDOs an, die der Client nicht darstellen
   # kann, und der Spieler liefe durch unsichtbare Grabhügel.
   # Verworfen: nur clientseitig ausblenden. Dann stünden die Geister-ZDOs
   # weiterhin im Save und passten später nicht mehr zu der Buchung, die
   # mit eigenen Modellen entsteht.
   # Gilt für dev UND live: diese Datei ist umgebungsfrei, und der Verzicht
-  # auf Valheim-Modelle ist eine Projektentscheidung, kein
+  # auf Fremdmodelle ist eine Projektentscheidung, kein
   # Umgebungsunterschied (shared/src/instanz.ts).
   features: false
   vegetation: true
@@ -121,7 +123,7 @@ world:
 dungeons:
   # Folgt zwingend aus world.features: Dungeons hängen an Locations. Ohne
   # gebuchte Krypta gibt es keinen Eingang, und die Raumteile selbst sind
-  # ebenfalls durchweg Valheim-Exporte — eine betretbare Instanz wäre ein
+  # ebenfalls durchweg Fremdexporte — eine betretbare Instanz wäre ein
   # leerer Raum aus unsichtbaren Wänden.
   # Ebenfalls für beide Instanzen, aus demselben Grund wie oben.
   enabled: false

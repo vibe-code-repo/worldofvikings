@@ -1,19 +1,11 @@
 /**
  * WovServer — central server orchestrator.
- * 1:1 port of WovServer.h from Valhalla2.0 C++.
+ * Structural port of the C++ reference server's central orchestrator.
  *
- * C++ reference:
- *   class IValhalla {
- *     ServerSettings m_settings;
- *     list<unique_ptr<Task>> m_tasks;
- *     UserID m_serverID;
- *     steady_clock::time_point m_startTime, m_prevUpdate, m_nowUpdate;
- *     WorldTime m_worldTime;
- *     double m_worldTimeMultiplier;
- *     atomic_bool m_run_state;
- *     Set<string> m_blacklist, m_admin, m_whitelist;
- *     ...
- *   };
+ * The reference type holds the same state this class does: server settings,
+ * a task list, the server ID, start/previous/current update timestamps, the
+ * world time and its multiplier, a run-state flag and the blacklist, admin
+ * and whitelist sets.
  */
 
 import {
@@ -48,10 +40,13 @@ import {
   FIGUR_VORGABE,
   istFigur,
   istFrisur,
+  istHaarfarbe,
   istRuestung,
   FRISUR_MEMBER,
+  HAARFARBE_MEMBER,
   RUESTUNG_MEMBER,
   FRISUR_VORGABE,
+  HAARFARBE_VORGABE,
 } from '@wov/shared';
 import type { Biome, Vector3, ZoneID } from '@wov/shared';
 import {
@@ -184,7 +179,7 @@ const DEFAULT_CONFIG: ServerConfig = {
   worldBlendSmoothStep: true,
   worldBilinearHeight: false,
   worldRiverAffectsOcean: false,
-  // C++ default is true (ValhallaServer.cpp:415); modern FastNoise AshLands
+  // C++ reference default is true; modern FastNoise AshLands
   // ported in Phase B5 — same terrain as the C++ server and the client
   worldAshlandsModernNoise: true,
   worldDisableDistantRivers: false,
@@ -1206,8 +1201,11 @@ export class WovServer {
     // Aussehen aus dem Spielstand — gleiche Begruendung wie bei der Figur:
     // Ueber die ZDO-Member sehen ALLE anderen Spieler dieselbe Frisur.
     peer.frisur = saved?.frisur && istFrisur(saved.frisur) ? saved.frisur : FRISUR_VORGABE;
+    peer.haarfarbe =
+      saved?.haarfarbe && istHaarfarbe(saved.haarfarbe) ? saved.haarfarbe : HAARFARBE_VORGABE;
     peer.ruestung = typeof saved?.ruestung === 'string' ? saved.ruestung : '|';
     characterZDO.setString(FRISUR_MEMBER, peer.frisur);
+    characterZDO.setString(HAARFARBE_MEMBER, peer.haarfarbe);
     characterZDO.setString(RUESTUNG_MEMBER, peer.ruestung);
 
     // Server-Inventar (Review-Punkt 8): aus dem Save wiederherstellen,
@@ -1275,6 +1273,7 @@ export class WovServer {
       spawnPoint: peer.spawnPoint ?? undefined,
       figur: peer.figur,
       frisur: peer.frisur,
+      haarfarbe: peer.haarfarbe,
       ruestung: peer.ruestung,
     });
     // Destroy player character ZDO
@@ -1591,7 +1590,7 @@ export class WovServer {
           : peer.position.y;
       newPos = { x: newX, y, z: newZ };
     } else {
-      const speed = rennt ? 7.5 : 4.5; // m/s (Valheim walk/run speeds)
+      const speed = rennt ? 7.5 : 4.5; // m/s (walk/run reference speeds)
       const newX = peer.position.x + moveX * speed * deltaSec;
       const newZ = peer.position.z + moveZ * speed * deltaSec;
 
@@ -2413,19 +2412,31 @@ export class WovServer {
     const frisur = reader.readString();
     const ober = reader.readString();
     const beine = reader.readString();
-    if (!istFrisur(frisur) || !istRuestung(ober) || !istRuestung(beine)) {
+    // Vierter Wert, aber nur wenn er da ist: Ein Client von vor dem
+    // 23.08.2026 sendet drei Strings. `readString()` auf einem leeren
+    // Rest wuerfe und risse die Verbindung ab — fuer eine Haarfarbe.
+    const haarfarbe = reader.remaining() > 0 ? reader.readString() : peer.haarfarbe;
+    if (
+      !istFrisur(frisur) ||
+      !istRuestung(ober) ||
+      !istRuestung(beine) ||
+      !istHaarfarbe(haarfarbe)
+    ) {
       console.warn(
         `[WoV] SetAussehen von "${peer.name}" abgelehnt: ` +
           `frisur="${frisur.slice(0, 24)}" ober="${ober.slice(0, 24)}" ` +
-          `beine="${beine.slice(0, 24)}" — steht nicht in shared/aussehen.ts`
+          `beine="${beine.slice(0, 24)}" haarfarbe="${haarfarbe.slice(0, 24)}" ` +
+          `— steht nicht in shared/aussehen.ts`
       );
       return;
     }
     peer.frisur = frisur;
+    peer.haarfarbe = haarfarbe;
     peer.ruestung = `${ober}|${beine}`;
     const charZDO = this.zdos.getZDO(peer.characterID);
     if (charZDO) {
       charZDO.setString(FRISUR_MEMBER, frisur);
+      charZDO.setString(HAARFARBE_MEMBER, haarfarbe);
       charZDO.setString(RUESTUNG_MEMBER, peer.ruestung);
     }
   }
@@ -2801,8 +2812,8 @@ export class WovServer {
       //
       // Hier stand `Math.max(getGroundHeight(x, z), WATER_LEVEL)`, damit
       // nichts auf dem Meeresgrund landet. In den Layout-Welten ist das
-      // aber falsch: WATER_LEVEL ist die aus Valheim übernommene Konstante
-      // 30, das Gelände dieser Welt liegt bei rund -55. Der Ausdruck
+      // aber falsch: WATER_LEVEL ist die aus der radialen Weltgenerierung
+      // übernommene Konstante 30, das Gelände dieser Welt liegt bei rund -55. Der Ausdruck
       // lieferte deshalb IMMER 30 — jedes gespawnte Prefab hing 85 m über
       // dem Boden.
       //
@@ -3350,6 +3361,7 @@ export class WovServer {
         spawnPoint: peer.spawnPoint ?? undefined,
         figur: peer.figur,
         frisur: peer.frisur,
+        haarfarbe: peer.haarfarbe,
         ruestung: peer.ruestung,
         inventar: peer.inventar.serialize(),
       });
@@ -3514,7 +3526,7 @@ function wuerfleTruhe(prefabName: string): { name: string; amount: number } {
   return { name: item, amount: min + ((Math.random() * (max - min + 1)) | 0) };
 }
 
-// ── Singleton accessor (C++ Valhalla()) ──────────────────────────
+// ── Singleton accessor ───────────────────────────────────────────
 
 let instance: WovServer | null = null;
 

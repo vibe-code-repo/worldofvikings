@@ -6,7 +6,8 @@
 > statt gelöscht. Eine Roadmap, aus der Erledigtes verschwindet, verliert genau das, wofür
 > man sie später aufschlägt — die Frage „wann kam das rein und was war der Grund?".
 >
-> Wer wissen will, was als Nächstes ansteht, schaut in die externe Liste. Wer wissen will,
+> Wer wissen will, was als Nächstes ansteht, schaut in die externe Liste — das ist die
+> Notiz **„World of Vikings Roadmap"** im Obsidian-Vault, nicht dieses Repo. Wer wissen will,
 > warum etwas so ist, wie es ist, ist hier richtig.
 
 Reihenfolge beachtet die Abhängigkeiten aus dem Analyse-Bericht (Weltgen existiert und ist verifiziert → Client kann direkt auf echten Daten aufsetzen). P0-Fallstricke aus [02](02-Migration-von-valheim-browser.md) sind in den betreffenden Phasen eingeplant.

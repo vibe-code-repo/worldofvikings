@@ -42,6 +42,21 @@
 >   Kernliste 20 — neu darin `admin/test/betriebsdienst.ts` und
 >   `client/test/welt-abgleich.ts`.
 >
+> **Was aus dieser Bestandsaufnahme weiterhin gilt:** Das Kapitel „Wichtige Erkenntnisse aus
+> der Referenz“ (ganz unten) ist keine Momentaufnahme, sondern eine Fallensammlung — die
+> gilt unverändert und ist keine Aufgabe, die sich „erledigen“ ließe.
+>
+> **Zum genannten Fern-Terrain-Ring:** Die Vault-Roadmap führt ihn (Stand ihrer Anlage) noch
+> als „den einen genuin offenen Punkt“ aus diesem Dokument. Das stimmt nicht mehr — wie oben
+> vermerkt, existiert der Fern-Ring inzwischen (`client/src/engine/Terrain.ts`:
+> `FAR_RADIUS`/`FAR_BIAS`/`refreshFarChunks`/`farChunks`, Stand 16.08.2026, verifiziert
+> 20.08.2026). Aus diesem Dokument bleibt damit **kein** offener Punkt mehr übrig — nur noch
+> die weiterhin gültige Fallensammlung oben genannt.
+>
+> **Wo die Arbeitsliste jetzt steht:** in der externen Roadmap im Vault („World of Vikings
+> Roadmap“), nicht hier und nicht in [06-Roadmap.md](06-Roadmap.md) oder
+> [09-Verbesserungsvorschlaege.md](09-Verbesserungsvorschlaege.md).
+>
 > **Nicht angefasst wurde der Inhalt unterhalb dieser Zeile.** Eine Analyse von damals
 > nachträglich umzuschreiben, hieße den Erkenntnisstand zu fälschen, auf dem die
 > Entscheidungen der Folgewochen beruhen.

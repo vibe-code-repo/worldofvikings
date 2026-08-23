@@ -76,7 +76,7 @@ Seit 16.08.2026 gilt: ein Repo, ein Branch `main` (`master` ist gelöscht), beid
 | `wov-client` | 5274 | Vite mit Editor und Testflug — nur auf dev aktiviert; auf live liefert nginx `client/dist` aus |
 | `wov-admin` | 2468 | Betriebsdienst: Weltdokument, Server-Konsole, Dienststeuerung |
 
-Die drei Unit-Dateien in `deploy/systemd/` sind auf beiden Containern zeichengleich; installiert werden sie mit `sudo deploy/install-services.sh`. `wov-firewall.service` ist entfallen — die Regeln liegen als `deploy/firewall-rules.v4/.v6` und werden von netfilter-persistent geladen; eine Unit, die beim Start dasselbe noch einmal tat, war eine zweite Wahrheit.
+Die drei Unit-Dateien in `deploy/systemd/` sind auf beiden Containern zeichengleich; installiert werden sie mit `sudo deploy/install-services.sh`. Eine Container-eigene Firewall gibt es bewusst nicht mehr: `deploy/README-firewall.md` und die beiden `firewall-rules.v4/.v6` beschrieben eine iptables-Firewall, die es in den Containern nie gab — `iptables` ist dort nicht installiert (verifiziert 20.08.2026: kein iptables-Paket, `nft list ruleset` zeigt drei leere Chains mit `policy accept`, keine einzige Regel). Seit dem Umzug auf LXC übernimmt das NAT des Proxmox-Hosts diesen Schutz — nach außen sind nur 80/443 offen, containerintern lauschen 2467/5274/22 auf allen Interfaces ungeschützt. Die drei Dateien sind entfernt (Commit `4ea009d`), statt sie auf einen Stand zu bringen, der nie existiert hat. Die Regeln des Host-NAT selbst liegen außerhalb dieses Containers und sind von hier aus nicht einsehbar — ungeprüft.
 
 ### `WOV_INSTANZ` bestimmt alles Umgebungsabhängige
 

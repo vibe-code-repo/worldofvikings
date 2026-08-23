@@ -2,10 +2,11 @@
 
 > **Diese Liste ist ein Befund, keine Arbeitsliste.** Sie hält fest, was eine
 > Durchsicht am 04.08.2026 gefunden hat, und was daraus geworden ist. Die
-> führende Aufgabenliste des Projekts wird inzwischen außerhalb des Repos
-> geführt; diese Datei ist ihr Repo-interner Vorgänger. Erledigtes wird
-> **mit Datum gekennzeichnet statt gelöscht** — sonst bliebe von einem
-> Review nur die Behauptung übrig, es habe mal einen gegeben.
+> führende Aufgabenliste des Projekts wird inzwischen außerhalb des Repos in
+> der Notiz **„World of Vikings Roadmap"** im Obsidian-Vault geführt; diese
+> Datei ist ihr Repo-interner Vorgänger. Erledigtes wird **mit Datum
+> gekennzeichnet statt gelöscht** — sonst bliebe von einem Review nur die
+> Behauptung übrig, es habe mal einen gegeben.
 
 > **Stand 16.08.2026**
 >

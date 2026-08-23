@@ -27,6 +27,22 @@ export class InventoryPanel {
   /** Item being dragged, plus the floating icon that follows the cursor. */
   private drag: { item: ItemStack; ghost: HTMLDivElement } | null = null;
 
+  /**
+   * Fremdes Einwurfziel — wird VOR dem Raster gefragt.
+   *
+   * WARUM EIN HAKEN UND KEIN WISSEN ÜBER DAS CHARAKTERFENSTER: Das
+   * Inventar soll nicht kennen, was es alles an Fenstern gibt. Es meldet
+   * "hier wurde losgelassen, über diesem Element" und nimmt zur Kenntnis,
+   * ob jemand den Gegenstand genommen hat. Ein zweites Fenster (Truhe,
+   * Handelspartner) haengt sich spaeter genauso ein.
+   *
+   * Rueckgabe `true` = uebernommen, das Raster laesst die Finger davon.
+   */
+  aufFremdesZiel: ((item: ItemStack, ziel: Element | null) => boolean) | null = null;
+
+  /** Das Fenster selbst — fuer die Anordnung neben dem Charakterfenster. */
+  private readonly panel: HTMLDivElement;
+
   constructor(
     private readonly inventory: Inventory,
     private readonly equipment: Equipment
@@ -40,6 +56,7 @@ export class InventoryPanel {
     const panel = document.createElement('div');
     panel.style.cssText = panelStyle('auto');
     root.appendChild(panel);
+    this.panel = panel;
 
     const title = document.createElement('div');
     title.textContent = 'Inventar';
@@ -102,6 +119,25 @@ export class InventoryPanel {
     else this.show();
   }
 
+  /**
+   * Mittig oder nach rechts gerueckt (wenn das Charakterfenster daneben
+   * steht). Gegenstueck zu CharakterPanel.setzePlatz().
+   */
+  setzePlatz(platz: 'mitte' | 'rechts'): void {
+    this.panel.style.transition = 'transform .15s ease';
+    // Aus der eigenen Breite gerechnet — Begruendung s. CharakterPanel.
+    const versatz = this.panel.offsetWidth / 2 + 12;
+    this.panel.style.transform =
+      platz === 'rechts' ? `translateX(${Math.round(versatz)}px)` : 'translateX(0)';
+    // Steht das Charakterfenster daneben, MUSS die Abdunklung weg: Sie
+    // liegt bildschirmfuellend auf derselben Ebene und naehme dem anderen
+    // Fenster jeden Klick — sichtbar waere es, anklickbar nicht.
+    const beide = platz === 'rechts';
+    this.root.style.background = beide ? 'transparent' : UI.backdrop;
+    this.root.style.pointerEvents = beide ? 'none' : 'auto';
+    this.panel.style.pointerEvents = 'auto';
+  }
+
   private render(): void {
     if (!this.visible) return;
     this.grid.replaceChildren();
@@ -161,6 +197,8 @@ export class InventoryPanel {
     // elementFromPoint rather than the event target: the ghost sits under the
     // cursor, and the pointer may be released outside any slot.
     const el = document.elementFromPoint(e.clientX, e.clientY);
+    // Erst fremde Ziele fragen (Ausruestungsslots), dann das eigene Raster.
+    if (this.aufFremdesZiel?.(item, el ?? null)) return;
     const cell = el?.closest<HTMLElement>('[data-x][data-y]');
     if (!cell) return;
     const x = Number(cell.dataset.x);

@@ -219,6 +219,21 @@ export class Lighting {
   /** 0..1, 0 = midnight, 0.5 = midday (EnvMan day fraction). */
   timeOfDay = 0.33;
   paused = false;
+  /**
+   * Feste Nebeldichte oder `null` (= der Tageszeit folgen). Kommt aus
+   * `server.yml` über das Paket WeltWetter.
+   *
+   * WARUM ES DEN SCHALTER BRAUCHT: Die Dichte einer Umgebung schwankt
+   * über den Tag erheblich — `Misty` steht mittags auf 0,020 und nachts
+   * auf 0,150. Wer eine bestimmte Sicht einstellen will, kann deshalb
+   * nicht einfach die Umgebung festnageln.
+   *
+   * Der frühere Weg `?fog=` in der Adresszeile schrieb einmalig in
+   * `scene.fogDensity` und war damit WIRKUNGSLOS: `apply()` überschreibt
+   * den Wert im nächsten Frame. Deshalb sitzt der Schalter hier und
+   * nicht an der Szene.
+   */
+  nebelDichteFest: number | null = null;
 
   /** Currently active environment (after any cross-fade completes). */
   private env: EnvSetup;
@@ -419,6 +434,15 @@ export class Lighting {
       state = lerpEnvState(evaluateEnv(this.prevEnv, this.timeOfDay), state, this.blend);
       if (this.blend >= 1) this.prevEnv = null;
     }
+    // Feste Nebeldichte aus server.yml — HIER, vor `this.state`, damit das
+    // HUD und jeder andere Leser dieselbe Zahl sehen wie die Szene. Nur
+    // die Dichte steht still, die Nebelfarbe folgt weiter der Tageszeit:
+    // Nachts wird es dunkel, aber nicht dichter.
+    //
+    // Direkt geschrieben statt kopiert: `evaluateEnv` baut in jedem Frame
+    // ein frisches Objekt, ein Spread wäre eine Zuteilung pro Frame ohne
+    // Gegenwert.
+    if (this.nebelDichteFest !== null) state.fogDensity = this.nebelDichteFest;
     this.state = state;
 
     // ── Sun / moon ────────────────────────────────────────────────

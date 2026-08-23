@@ -258,7 +258,9 @@ export class PlayerController {
     scene: Scene,
     private readonly input: InputManager,
     private readonly world: ClientWorld,
-    assets?: AssetManager
+    assets?: AssetManager,
+    /** Modelldatei der gewaehlten Figur — s. shared/figuren.ts. */
+    figurModell?: string
   ) {
     this.assets = assets ?? null;
     this.camera = new UniversalCamera('playerCam', new Vector3(0, 40, -BOOM_LENGTH), scene);
@@ -307,11 +309,15 @@ export class PlayerController {
     // mit "woodwall"-Material und 0-Byte-Textur) und keine der 7.471 GLBs
     // enthält Skin- oder Animationsdaten. Details und der Weg zurück zu
     // einem echten Modell: AvatarRig.ts (Kopfkommentar).
-    this.avatar = new AvatarRig(scene);
+    this.avatar = new AvatarRig(scene, figurModell);
     // Flugdauer eines Sprungs: Steigen und Fallen dauern gleich lang, also
     // 2·v/g. Der Sprungclip wird darauf gestreckt, damit die Landepose mit
     // dem Aufsetzen zusammenfällt.
     this.avatar.setSprungDauer((2 * JUMP_SPEED) / Math.abs(GRAVITY.y));
+    // Fussanpassung (Stufe 1): Die Figur hebt sich so weit, dass kein Fuss
+    // im Hang steckt. Dieselbe Hoehenquelle wie die Physik — waeren es
+    // zwei, liefen Bild und Kollision auseinander.
+    this.avatar.setBodenSonde((x, z) => this.world.getGroundHeight(x, z));
   }
 
   // ── Physics ──────────────────────────────────────────────────────

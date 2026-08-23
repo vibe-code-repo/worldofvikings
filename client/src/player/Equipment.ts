@@ -14,12 +14,27 @@
  */
 
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
-import type { ItemStack, Inventory } from '@wov/shared';
+import {
+  SLOT_VORGABE,
+  slotDef,
+  type AusruestungsSlot,
+  type ItemStack,
+  type Inventory,
+} from '@wov/shared';
 import type { AssetManager } from '../engine/AssetManager';
 import type { AvatarRig } from './AvatarRig';
 
 export class Equipment {
-  private _rightItem: ItemStack | null = null;
+  /**
+   * Slot → angelegter Gegenstand.
+   *
+   * Der Gegenstand BLEIBT dabei im Inventar und wird nur als `equipped`
+   * markiert — genau wie bisher beim Werkzeug in der Hand. Ihn aus dem
+   * Raster zu nehmen waere die naheliegende Geste, ginge hier aber
+   * schief: Das Inventar ist server-autoritativ (InventorySync), und ein
+   * clientseitiger Griff hinein liefe beim naechsten Abgleich auseinander.
+   */
+  private readonly slots = new Map<AusruestungsSlot, ItemStack>();
   private heldNode: TransformNode | null = null;
   /** Guards against a slow model load landing after the item was swapped. */
   private loadToken = 0;
@@ -31,13 +46,53 @@ export class Equipment {
     private readonly avatar: AvatarRig
   ) {}
 
+  /**
+   * Was in der Hand liegt. Bleibt als eigener Name bestehen, weil ein gutes
+   * Dutzend Stellen (Bauen, Angriff, Hotbar, HUD) danach fragt — die Hand
+   * ist jetzt schlicht einer von mehreren Slots.
+   */
   get rightItem(): ItemStack | null {
-    return this._rightItem;
+    return this.slots.get('waffe') ?? null;
+  }
+
+  /** Was in einem bestimmten Slot liegt. */
+  imSlot(slot: AusruestungsSlot): ItemStack | null {
+    return this.slots.get(slot) ?? null;
+  }
+
+  /** Alle belegten Slots — fuer das Charakterfenster. */
+  get belegung(): ReadonlyMap<AusruestungsSlot, ItemStack> {
+    return this.slots;
+  }
+
+  /**
+   * Wohin gehoert dieser Gegenstand? Ohne Angabe in die Hand (siehe
+   * SLOT_VORGABE) — so bleiben Hammer, Axt und Hacke unveraendert.
+   */
+  slotFuer(item: ItemStack): AusruestungsSlot {
+    const s = item.shared.ausruestung;
+    return (slotDef(s)?.id ?? SLOT_VORGABE) as AusruestungsSlot;
+  }
+
+  /**
+   * Die sichtbaren Ruestungsteile aus der aktuellen Belegung, als
+   * Aussehen-Slot → Teilkennung. Genau das schickt der Client an den
+   * Server und legt es an die eigene Figur.
+   */
+  aussehen(): Record<string, string> {
+    const teile: Record<string, string> = {};
+    for (const [slot, item] of this.slots) {
+      const def = slotDef(slot);
+      if (def?.teilSlot && item.shared.ruestungsteil) {
+        teile[def.teilSlot] = item.shared.ruestungsteil;
+      }
+    }
+    return teile;
   }
 
   /** Piece table key of the held item, or null when not in build mode. */
   get pieceTable(): string | null {
-    return this._rightItem?.shared.pieceTable ?? null;
+    return this.rightItem?.shared.pieceTable ?? null;
   }
 
   /** C# Player.InPlaceMode. */
@@ -56,24 +111,31 @@ export class Equipment {
 
   /** C# Humanoid.ToggleEquipped — equipping the held item unequips it. */
   toggle(item: ItemStack): void {
-    if (this._rightItem === item) this.unequip();
+    const slot = this.slotFuer(item);
+    if (this.slots.get(slot) === item) this.unequip(slot);
     else this.equip(item);
   }
 
-  equip(item: ItemStack): void {
-    if (this._rightItem === item) return;
-    if (this._rightItem) this._rightItem.equipped = false;
-    this._rightItem = item;
+  /** Legt den Gegenstand in SEINEN Slot; was dort lag, wird abgelegt. */
+  equip(item: ItemStack, slot: AusruestungsSlot = this.slotFuer(item)): void {
+    if (this.slots.get(slot) === item) return;
+    // Derselbe Gegenstand kann nicht in zwei Slots liegen (zwei Ringe
+    // waeren zwei Gegenstaende, nicht einer in zwei Slots).
+    for (const [s, i] of this.slots) if (i === item) this.slots.delete(s);
+    const vorher = this.slots.get(slot);
+    if (vorher) vorher.equipped = false;
+    this.slots.set(slot, item);
     item.equipped = true;
-    void this.refreshModel();
+    if (slot === 'waffe') void this.refreshModel();
     this.emit();
   }
 
-  unequip(): void {
-    if (!this._rightItem) return;
-    this._rightItem.equipped = false;
-    this._rightItem = null;
-    void this.refreshModel();
+  unequip(slot: AusruestungsSlot = 'waffe'): void {
+    const item = this.slots.get(slot);
+    if (!item) return;
+    item.equipped = false;
+    this.slots.delete(slot);
+    if (slot === 'waffe') void this.refreshModel();
     this.emit();
   }
 
@@ -85,11 +147,17 @@ export class Equipment {
 
   /** Drops the held item's model if the item left the inventory. */
   syncWithInventory(): void {
-    if (this._rightItem && !this.inventory.all.includes(this._rightItem)) {
-      this._rightItem = null;
-      void this.refreshModel();
-      this.emit();
+    let handBetroffen = false;
+    let geaendert = false;
+    for (const [slot, item] of [...this.slots]) {
+      if (this.inventory.all.includes(item)) continue;
+      this.slots.delete(slot);
+      geaendert = true;
+      if (slot === 'waffe') handBetroffen = true;
     }
+    if (!geaendert) return;
+    if (handBetroffen) void this.refreshModel();
+    this.emit();
   }
 
   private async refreshModel(): Promise<void> {
@@ -98,7 +166,7 @@ export class Equipment {
     this.heldNode?.dispose();
     this.heldNode = null;
 
-    const model = this._rightItem?.shared.model;
+    const model = this.rightItem?.shared.model;
     if (!model) return;
 
     const node = await this.assets.instantiate(model);
@@ -111,7 +179,7 @@ export class Equipment {
     // import puts its own rotationQuaternion on the root node, and in Babylon
     // a set rotationQuaternion makes the Euler `rotation` a no-op. Wrapping
     // keeps both transforms intact and composable.
-    const shared = this._rightItem!.shared;
+    const shared = this.rightItem!.shared;
     const holder = new TransformNode('heldItem', node.getScene());
     const [px, py, pz] = shared.holdPosition ?? [0, 0, 0];
     const [rx, ry, rz] = shared.holdRotation ?? [0, 0, 0];

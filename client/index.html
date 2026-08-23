@@ -7,6 +7,21 @@
     <style>
       html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
       #renderCanvas { width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
+      /*
+       * UI ausblenden (F1) — fuer Bildschirmfotos und um die Welt ohne
+       * Aufbauten zu sehen.
+       *
+       * WARUM EINE REGEL UEBER ALLE KINDER STATT EINER LISTE: Jedes
+       * Fenster, jede Anzeige und jeder Hinweis haengt direkt an <body>
+       * (HUD, Hotbar, Minimap, Weltzeit, Inventar, Charakterfenster,
+       * Chat, Meldungen, Fehler-Toasts, Sperr-Hinweis ...). Eine Liste
+       * muesste bei jedem neuen Element nachgezogen werden, und ein
+       * vergessenes Element macht die ganze Taste nutzlos: Man merkt es
+       * erst auf dem Bild. Diese Regel erfasst auch, was spaeter dazukommt.
+       *
+       * Der Canvas ist ausgenommen — er IST das Spiel.
+       */
+      body.ui-versteckt > *:not(#renderCanvas) { display: none !important; }
       #connect-screen {
         position: fixed; inset: 0; z-index: 100;
         display: flex; align-items: center; justify-content: center;
@@ -18,6 +33,22 @@
         border-radius: 12px; padding: 32px; text-align: center; min-width: 340px;
       }
       #connect-screen h1 { color: #c9a84c; font-size: 24px; margin: 0 0 16px; }
+      /*
+       * Direktanmeldung (?los=1) — die Wahl ist auf world-of-vikings.com
+       * schon getroffen, dieses Fenster hat nichts mehr zu fragen.
+       *
+       * Ausgeblendet statt uebersprungen: Schlaegt die Verbindung fehl,
+       * nimmt main.ts die Klasse wieder weg und das vollstaendige Fenster
+       * ist da. Es gibt also nur EINEN Weg zurueck aus einem Fehler, und
+       * der ist derselbe, den ein Verbindungsabbruch im Spiel benutzt.
+       *
+       * Ueberschrift und Statuszeile bleiben stehen: Waehrend die Welt
+       * laedt, ist ein leerer schwarzer Bildschirm nicht von einem
+       * haengenden Client zu unterscheiden.
+       */
+      body.direkt #connect-screen .panel > *:not(h1):not(#connect-status) { display: none; }
+      body.direkt #connect-screen .panel { min-width: 280px; }
+      body.direkt #connect-status { margin-top: 4px; }
       #connect-screen input {
         width: 100%; padding: 9px 12px; margin: 5px 0; border-radius: 6px;
         border: 1px solid #5a4a2a; background: #1a1208; color: #e8d5a3;
@@ -51,7 +82,27 @@
       #connect-btn:hover { filter: brightness(1.15); }
       #connect-btn:disabled { opacity: 0.6; cursor: default; }
       #connect-status { color: #8a7a5a; font-size: 12px; margin-top: 10px; min-height: 16px; }
-    </style>
+    
+    #charakter-erstellung { display: flex; flex-direction: column; gap: 4px; }
+    #vorschau-rahmen {
+      position: relative; width: 100%; aspect-ratio: 3 / 4;
+      max-height: 320px; margin: 6px 0 10px;
+      border: 1px solid #3a3f47; border-radius: 6px; overflow: hidden;
+      background: #16181c;
+    }
+    #vorschau-canvas { width: 100%; height: 100%; display: block; outline: none; }
+    #vorschau-zurueck {
+      position: absolute; right: 6px; bottom: 6px; width: 26px; height: 26px;
+      padding: 0; line-height: 24px; font-size: 15px; opacity: 0.7;
+    }
+    #vorschau-zurueck:hover { opacity: 1; }
+    #vorschau-laedt {
+      position: absolute; inset: 0; display: flex;
+      align-items: center; justify-content: center;
+      font-size: 13px; color: #8b929c; pointer-events: none;
+    }
+    #vorschau-laedt.fertig { display: none; }
+  </style>
   </head>
   <body>
     <canvas id="renderCanvas"></canvas>
@@ -67,6 +118,30 @@
           <button type="button" id="gen-seed-btn" title="Zufälligen Seed erzeugen">🎲</button>
         </div>
         <div id="seed-hint">Seed wird vom Server vorgegeben (nur im Offline-Modus wählbar).</div>
+        <label class="field-label" for="figur-wahl">Figur</label>
+        <!-- Die Einträge kommen aus shared/figuren.ts (main.ts füllt sie),
+             damit Auswahl, geladenes Modell und die Prüfung im Server aus
+             DERSELBEN Liste stammen. Eine hier fest eingetragene Option
+             wäre eine zweite Wahrheit. -->
+        <select id="figur-wahl"></select>
+
+        <!-- Charaktererstellung: Vorschau + Aussehen.
+             Der Koerper wird EINMAL geladen (3,76 MB), Frisur und
+             Ruestung als Einzeldateien nachgeholt (0,3-1,7 MB). Alle
+             21 Frisuren zusammen waeren 17,5 MB vor dem Anmelden. -->
+        <div id="charakter-erstellung">
+          <div id="vorschau-rahmen">
+            <canvas id="vorschau-canvas"></canvas>
+            <button type="button" id="vorschau-zurueck" title="Blick zuruecksetzen">⟲</button>
+            <div id="vorschau-laedt">lädt …</div>
+          </div>
+          <label class="field-label" for="frisur-wahl">Frisur</label>
+          <select id="frisur-wahl"></select>
+          <label class="field-label" for="oberkoerper-wahl">Oberkörper</label>
+          <select id="oberkoerper-wahl"></select>
+          <label class="field-label" for="beine-wahl">Beine</label>
+          <select id="beine-wahl"></select>
+        </div>
         <label class="field-label" for="start-time">Uhrzeit</label>
         <!-- Optionen werden in main.ts erzeugt, damit die Tageszeit-Marken
              (Sonnenaufgang/Mittag/Sonnenuntergang) aus demselben Modell

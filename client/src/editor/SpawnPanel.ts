@@ -38,6 +38,10 @@ import {
   loeseNpcAuf,
 } from '@wov/shared';
 import type { Fraktion, NpcDef, NpcRolle, QuestZustand } from '@wov/shared';
+// GrabhuegelGras teilt sich per MODELL_ALIAS die GLB von Grabhuegel (s.
+// AssetManager.ts) -- ohne diese Konsultation zeigt vorschauBild() auf
+// eine nie erzeugte GrabhuegelGras.png und faellt auf reinen Text zurueck.
+import { MODELL_ALIAS } from '../engine/AssetManager';
 
 export interface SpawnEinstellung {
   prefab: string;
@@ -101,6 +105,20 @@ const QUEST_TEXT: Readonly<Record<string, string>> = {
   laeuft: 'läuft',
   fertig: 'fertig (!)',
 };
+
+/**
+ * Pfad zum Vorschaubild eines eigenen Modells (tools/vorschaubilder.py),
+ * oder null ohne Modellnamen. Der <img>-Tag traegt selbst den Rueckfall
+ * auf den reinen Namen (onerror entfernt ihn), falls unter
+ * assets/vorschau/<Modell>.png nichts liegt — etwa weil das Bild noch
+ * nicht neu erzeugt wurde.
+ */
+function vorschauBild(name: string): string | null {
+  const modell = PREFABS_BY_NAME.get(name)?.model;
+  if (!modell) return null;
+  const datei = MODELL_ALIAS[modell] ?? modell;
+  return `/assets/vorschau/${datei}.png`;
+}
 
 /**
  * Platzierbares nach vorn, Gesperrtes ans Ende; innerhalb beider Gruppen
@@ -601,18 +619,36 @@ export class SpawnPanel {
       // s. Kopf der Datei.
       const gesperrt = !istEigenesModell(name);
       const zeile = document.createElement('div');
-      zeile.textContent = gesperrt ? `${name} — kein eigenes Modell` : name;
+      // Bild neben dem Namen — 149 Vorschaubilder gleichzeitig zu laden
+      // waere die naheliegende und falsche Lösung, deshalb loading="lazy"
+      // (der Browser lädt nur, was im sichtbaren Ausschnitt der Liste
+      // steht) und onerror als Textrückfall, wenn kein Bild existiert.
+      const vorschau = gesperrt ? null : vorschauBild(name);
+      if (vorschau) {
+        const bild = document.createElement('img');
+        bild.src = vorschau;
+        bild.loading = 'lazy';
+        bild.alt = '';
+        bild.style.cssText = 'width:20px;height:20px;object-fit:contain;flex:none;';
+        bild.onerror = () => bild.remove();
+        zeile.appendChild(bild);
+      }
+      const text = document.createElement('span');
+      text.textContent = gesperrt ? `${name} — kein eigenes Modell` : name;
+      zeile.appendChild(text);
       // Zwei Markierungen: kräftig hinterlegt = Platzier-Modus AKTIV,
       // nur Randstreifen = bloße Vorauswahl (localStorage) ohne Modus.
       const gewaehlt = name === this.einstellung.prefab;
-      zeile.style.cssText = gesperrt
-        ? 'padding:2px 6px;cursor:not-allowed;color:#6f664e;'
-        : 'padding:2px 6px;cursor:pointer;' +
-          (gewaehlt
-            ? this.modusAktiv
-              ? 'background:#243044;color:#e8d48a;'
-              : 'color:#e8d48a;border-left:2px solid #6a5d35;padding-left:4px;'
-            : '');
+      zeile.style.cssText =
+        'display:flex;align-items:center;gap:6px;' +
+        (gesperrt
+          ? 'padding:2px 6px;cursor:not-allowed;color:#6f664e;'
+          : 'padding:2px 6px;cursor:pointer;' +
+            (gewaehlt
+              ? this.modusAktiv
+                ? 'background:#243044;color:#e8d48a;'
+                : 'color:#e8d48a;border-left:2px solid #6a5d35;padding-left:4px;'
+              : ''));
       if (gesperrt) {
         // Der Grund im Klartext, an der Zeile selbst — sonst bleibt nur
         // die Vermutung, der Editor sei kaputt.

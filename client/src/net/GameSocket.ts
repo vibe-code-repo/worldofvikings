@@ -403,6 +403,30 @@ export class GameSocket {
     this.sendPacket(PacketType.Interact, w.toUint8Array());
   }
 
+  /**
+   * Truhen-Aktion (F1, Roadmap): Stapel zwischen eigenem Inventar und
+   * einer offenen Truhe umschichten. `richtung`: 0 = aus der Truhe
+   * nehmen, 1 = hineinlegen. `zdoUserId`/`zdoId` kommen aus dem zuletzt
+   * empfangenen ContainerSync (WovServer.sendeTruheInhalt) — der Client
+   * erfindet keine ZDOID, er reicht nur zurück, was der Server ihm
+   * gerade erst geschickt hat.
+   */
+  sendContainerAction(
+    zdoUserId: string,
+    zdoId: number,
+    richtung: 0 | 1,
+    itemName: string,
+    amount: number
+  ): void {
+    const w = new BinaryWriter();
+    w.writeString(zdoUserId);
+    w.writeInt32(zdoId);
+    w.writeInt32(richtung);
+    w.writeString(itemName);
+    w.writeInt32(amount);
+    this.sendPacket(PacketType.ContainerAction, w.toUint8Array());
+  }
+
   /** Editor (Phase G): Dungeon-Dokument anfordern ('' = aktueller Dungeon). */
   sendDungeonEditRequest(dungeonId = ''): void {
     const w = new BinaryWriter();
@@ -435,6 +459,37 @@ export class GameSocket {
     w.writeInt32(chatType);
     w.writeString(text);
     this.sendPacket(PacketType.ChatMessage, w.toUint8Array());
+  }
+
+  /**
+   * Gewaehlte Figur an den Server melden (SetFigur).
+   *
+   * Wird direkt nach dem Anmelden geschickt und bei jedem Wechsel. Der
+   * Server prueft die Kennung gegen die gemeinsame Liste und schreibt
+   * sie ans Charakter-ZDO — erst dadurch sehen die anderen Spieler sie.
+   */
+  sendFigur(figurId: string): void {
+    const w = new BinaryWriter();
+    w.writeString(figurId);
+    this.sendPacket(PacketType.SetFigur, w.toUint8Array());
+  }
+
+  /**
+   * Frisur und Ruestung an den Server melden (SetAussehen).
+   *
+   * Wie sendFigur: Erst wenn der Server es ans Charakter-ZDO haengt,
+   * sehen die ANDEREN Spieler das Aussehen. Ohne diesen Weg saehe jeder
+   * nur sich selbst richtig.
+   *
+   * Leerstring heisst "nichts angezogen" und ist eine gueltige Wahl —
+   * deshalb kein Sonderfall im Server.
+   */
+  sendAussehen(frisurId: string, oberkoerperId: string, beineId: string): void {
+    const w = new BinaryWriter();
+    w.writeString(frisurId);
+    w.writeString(oberkoerperId);
+    w.writeString(beineId);
+    this.sendPacket(PacketType.SetAussehen, w.toUint8Array());
   }
 
   /** Heartbeat-Timer (alle 5 s) — hält die Verbindung auch bei

@@ -26,6 +26,11 @@ import {
   getTerrainLeveling,
   FOLIAGE_HASHES,
   lebenAnteil,
+  modellZu,
+  AUSSEHEN_ORDNER,
+  frisurZu,
+  ruestungZu,
+  istFrisur,
 } from '@wov/shared';
 import type { NpcEinordnung } from '@wov/shared';
 import { buildMeshCollider, deriveCollider, StaticColliderSet } from '../engine/Physics';
@@ -498,6 +503,12 @@ interface Vector3Like {
 
 interface DynamicEntity {
   root: TransformNode;
+  /**
+   * Angelegte Aussehen-Teile eines FREMDEN Spielers, nach Slot.
+   * Gemerkt wird, WAS haengt, damit ein Wechsel im Spiel nur den
+   * betroffenen Slot austauscht statt alles neu zu laden.
+   */
+  aussehen?: Map<string, { datei: string; wurzel: TransformNode }>;
   /** Letztes Server-Ziel — updateDynamics() gleitet pro Frame dorthin. */
   ziel?: { pos: Vector3; rot: Quaternion };
   /**
@@ -960,9 +971,91 @@ export class EntityManager {
       // Player/NPC bringen Animationsgruppen mit und bleiben davon frei.
       const belebt =
         (def.flags & (PrefabFlag.ANIMAL_AI | PrefabFlag.MONSTER_AI)) !== 0n && !def.animation;
-      void this.applyDynamic(u, def.name, def.model, def.animation, belebt);
+      // Fremde SPIELER tragen ihre gewaehlte Figur als ZDO-Member; sie
+      // schlaegt das Vorgabemodell des Prefabs. Ohne das saehe man jeden
+      // anderen als `npc_1_walk` — das Modell, das am Player-Prefab
+      // haengt und mit der eigenen Figur nie etwas zu tun hatte. Wer
+      // seine Wahl im Spiel aendert, aendert denselben Member, und der
+      // Sync traegt sie hierher.
+      const modell = u.figur ? modellZu(u.figur) : def.model;
+      void this.applyDynamic(u, def.name, modell, def.animation, belebt).then(() => {
+        // Frisur und Ruestung NACH dem Koerper: Sie brauchen dessen
+        // Skelett. Fehlt der Member, traegt der Spieler nichts — kein
+        // Rueckfall auf eine Vorgabefrisur, sonst saehe man bei jedem
+        // Fremden etwas anderes als er selbst.
+        if (u.frisur !== undefined || u.ruestung !== undefined) {
+          void this.setzeFremdesAussehen(u);
+        }
+      });
     } else {
       this.applyStatic(u, def.name, def.model);
+    }
+  }
+
+  /**
+   * Frisur und Ruestung eines FREMDEN Spielers anlegen.
+   *
+   * Die Teile liegen als eigene Dateien neben dem Koerper und werden
+   * einzeln geladen — dieselbe Aufteilung wie beim eigenen Avatar.
+   *
+   * Jedes Teil bringt sein eigenes Skelett mit; benutzt wird das des
+   * KOERPERS, sonst stuende die Frisur in der Bindepose, waehrend der
+   * Fremde laeuft. Zulaessig nur, weil alle Teildateien dieselbe
+   * Gelenkliste tragen (tools/asset-aufteilen.py prueft das nach).
+   *
+   * Der `__root__`-Knoten des Teils bleibt in der Kette: Er traegt die
+   * Haendigkeitsumrechnung von glTF nach Babylon. Haengt man die Netze
+   * direkt um, sitzt das Teil gespiegelt — genau dieser Fehler ist beim
+   * eigenen Avatar schon einmal passiert.
+   */
+  private async setzeFremdesAussehen(u: ZDOEntityUpdate): Promise<void> {
+    const dyn = this.dynamics.get(u.key);
+    if (!dyn) return;
+    dyn.aussehen ??= new Map();
+
+    // Skelett des Koerpers suchen — an ihm haengen alle Teile.
+    let skelett = null as import('@babylonjs/core/Bones/skeleton').Skeleton | null;
+    for (const m of dyn.root.getChildMeshes()) {
+      if (m.skeleton) { skelett = m.skeleton; break; }
+    }
+    if (!skelett) return;
+
+    const [ober, beine] = (u.ruestung ?? '|').split('|');
+    const gewuenscht: Record<string, string | null> = {
+      frisur: u.frisur && istFrisur(u.frisur)
+        ? `${AUSSEHEN_ORDNER}/${frisurZu(u.frisur).datei}` : null,
+      oberkoerper: ruestungZu(ober) ? `${AUSSEHEN_ORDNER}/${ruestungZu(ober)!.datei}` : null,
+      beine: ruestungZu(beine) ? `${AUSSEHEN_ORDNER}/${ruestungZu(beine)!.datei}` : null,
+    };
+
+    for (const [slot, datei] of Object.entries(gewuenscht)) {
+      const alt = dyn.aussehen.get(slot);
+      if ((alt?.datei ?? null) === datei) continue;
+      if (alt) {
+        alt.wurzel.dispose(false, false);
+        dyn.aussehen.delete(slot);
+      }
+      if (!datei) continue;
+      const wurzel = await this.assets.instantiate(datei);
+      if (!wurzel) continue;
+      // Das Rennen um denselben Slot verlieren: Ein zweites Update kann
+      // waehrend des Ladens dasselbe getan haben.
+      if (!this.dynamics.has(u.key) || dyn.aussehen.has(slot)) {
+        wurzel.dispose(false, false);
+        continue;
+      }
+      wurzel.parent = dyn.root;
+      wurzel.position.setAll(0);
+      wurzel.rotationQuaternion = null;
+      wurzel.rotation.setAll(0);
+      wurzel.scaling.setAll(1);
+      for (const m of wurzel.getChildMeshes()) {
+        if (m.getTotalVertices() > 0) {
+          m.skeleton = skelett;
+          m.isPickable = false;
+        }
+      }
+      dyn.aussehen.set(slot, { datei, wurzel });
     }
   }
 
@@ -1694,6 +1787,66 @@ export class EntityManager {
    * Kollisionspfad hängt unverändert an den ROHEN zdoMats und bleibt
    * prefabweise.
    */
+  /**
+   * ZDO-Schluessel (`userId:id`), deren Instanz gerade NICHT gezeichnet
+   * werden soll.
+   *
+   * Gebraucht fuer die geoeffnete Truhe: Sie wird als echte, animierte
+   * Kopie ueber `AssetManager.instantiate()` an dieselbe Stelle gesetzt.
+   * Bliebe die Thin Instance daneben stehen, saehe man zwei Deckel.
+   *
+   * Bewusst eine MENGE und keine Matrixmanipulation: Ein direkt in den
+   * Puffer geschriebener Nullwert waere beim naechsten Neuaufbau des
+   * Buckets wieder weg (jede ZDO-Aenderung in der Naehe loest einen
+   * aus). Ueber die Menge ueberlebt das Verbergen jeden Neuaufbau.
+   *
+   * Collider bleiben unberuehrt — man soll nicht durch eine offene
+   * Truhe hindurchlaufen koennen.
+   */
+  private readonly verborgeneInstanzen = new Set<string>();
+
+  /** Instanz ausblenden bzw. wieder zeigen. `zdoKey` ist `userId:id`. */
+  setzeInstanzVerborgen(zdoKey: string, verborgen: boolean): void {
+    const vorher = this.verborgeneInstanzen.has(zdoKey);
+    if (vorher === verborgen) return;
+    if (verborgen) this.verborgeneInstanzen.add(zdoKey);
+    else this.verborgeneInstanzen.delete(zdoKey);
+    for (const b of this.buckets.values()) {
+      if (b.indexOf.has(zdoKey)) b.dirty = true;
+    }
+  }
+
+  /**
+   * Weltposition einer Instanz — der Aufrufer braucht sie, um die
+   * animierte Kopie an dieselbe Stelle zu setzen.
+   */
+  instanzPosition(zdoKey: string): { x: number; y: number; z: number } | null {
+    for (const b of this.buckets.values()) {
+      const flach = b.indexOf.get(zdoKey);
+      if (flach === undefined) continue;
+      return { x: b.matrices[flach + 12]!, y: b.matrices[flach + 13]!, z: b.matrices[flach + 14]! };
+    }
+    return null;
+  }
+
+  /** Verborgene Instanzen aus der Renderliste nehmen. */
+  private ohneVerborgene(
+    bucket: StaticBucket,
+    zdoMats: readonly Matrix[],
+    renderMats: readonly Matrix[]
+  ): readonly Matrix[] {
+    if (this.verborgeneInstanzen.size === 0) return renderMats;
+    const raus = new Set<Matrix>();
+    for (const key of this.verborgeneInstanzen) {
+      const flach = bucket.indexOf.get(key);
+      if (flach === undefined) continue;
+      const m = zdoMats[flach / 16];
+      if (m) raus.add(m);
+    }
+    if (raus.size === 0) return renderMats;
+    return renderMats.filter((m) => !raus.has(m));
+  }
+
   private rebuildBucketInstances(bucket: StaticBucket): void {
     const masters = this.masterMeshes.get(bucket.prefabName);
     const locals = this.masterLocals.get(bucket.prefabName);
@@ -1706,7 +1859,11 @@ export class EntityManager {
       this.rebuildBucketColliders(bucket, zdoMats);
       return;
     }
-    const renderMats = this.sichtbareVegetationsMatrizen(bucket, zdoMats);
+    const renderMats = this.ohneVerborgene(
+      bucket,
+      zdoMats,
+      this.sichtbareVegetationsMatrizen(bucket, zdoMats)
+    );
     if (this.zellSchnittTaugt(masters, renderMats.length)) {
       this.baueZellMaster(bucket, masters, locals, renderMats);
     } else {

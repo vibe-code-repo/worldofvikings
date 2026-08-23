@@ -15,7 +15,10 @@
  * „zurück zur Prefab-Animation" — als „unverändert" würde beides falsch
  * gelesen und die Kreatur bei jedem Schritt zusammenschrumpfen.
  */
-import { ANIM_MEMBER, HEALTH_MEMBER, LAYOUT_ID_MEMBER, getStableHash } from '@wov/shared';
+import {
+  ANIM_MEMBER, FIGUR_MEMBER, FRISUR_MEMBER, RUESTUNG_MEMBER,
+  HEALTH_MEMBER, LAYOUT_ID_MEMBER, getStableHash,
+} from '@wov/shared';
 import type { Vector3, Quaternion, NpcEinordnung } from '@wov/shared';
 import type { BinaryReader } from './GameSocket';
 
@@ -26,6 +29,11 @@ const LOCATION_MEMBER_HASH = getStableHash('location');
 const ANIM_HASH = getStableHash(ANIM_MEMBER);
 const HEALTH_HASH = getStableHash(HEALTH_MEMBER);
 const LAYOUT_ID_HASH = getStableHash(LAYOUT_ID_MEMBER);
+/** Gewaehlte Spielfigur am Charakter-ZDO (shared/figuren.ts). */
+const FIGUR_HASH = getStableHash(FIGUR_MEMBER);
+/** Frisur und Ruestung am Charakter-ZDO (shared/aussehen.ts). */
+const FRISUR_HASH = getStableHash(FRISUR_MEMBER);
+const RUESTUNG_HASH = getStableHash(RUESTUNG_MEMBER);
 
 export interface ZDOEntityUpdate {
   /** `${userId}:${id}` */
@@ -72,6 +80,23 @@ export interface ZDOEntityUpdate {
    */
   npc?: NpcEinordnung;
   /** True when this ZDO is owned by our own peer (own player character). */
+  /**
+   * Gewaehlte Spielfigur des FREMDEN Spielers (Kennung, s.
+   * shared/figuren.ts). Nur am Charakter-ZDO gesetzt; ohne sie zeichnet
+   * der EntityManager das Vorgabemodell des Prefabs.
+   */
+  figur?: string;
+  /**
+   * Frisur des FREMDEN Spielers (Kennung, s. shared/aussehen.ts). Nur am
+   * Charakter-ZDO gesetzt; ohne sie traegt er gar keine.
+   */
+  frisur?: string;
+  /**
+   * Getragene Ruestung als "oberkoerperId|beineId" — ein leerer Teil
+   * heisst "nichts angezogen". EIN Member statt zweier, damit ein
+   * weiterer Slot spaeter keinen dritten braucht.
+   */
+  ruestung?: string;
   isOwnPlayer: boolean;
 }
 
@@ -160,6 +185,9 @@ export function parseZDOSync(
     let anim: string | undefined = basis?.anim;
     let health: number | undefined = basis?.health;
     let layoutId: string | undefined = basis?.layoutId;
+    let figur: string | undefined = basis?.figur;
+    let frisur: string | undefined = basis?.frisur;
+    let ruestung: string | undefined = basis?.ruestung;
     const memberCount = reader.readInt32();
     for (let m = 0; m < memberCount; m++) {
       const memberHash = reader.readInt32();
@@ -174,6 +202,12 @@ export function parseZDOSync(
         health = reader.readInt32();
       } else if (memberHash === LAYOUT_ID_HASH && memberType === 5) {
         layoutId = reader.readString();
+      } else if (memberHash === FIGUR_HASH && memberType === 5) {
+        figur = reader.readString();
+      } else if (memberHash === FRISUR_HASH && memberType === 5) {
+        frisur = reader.readString();
+      } else if (memberHash === RUESTUNG_HASH && memberType === 5) {
+        ruestung = reader.readString();
       } else if (prefabHash === LOCATION_PROXY_HASH && memberHash === LOCATION_MEMBER_HASH && memberType === 3) {
         locationFeatureHash = reader.readInt32();
       } else {
@@ -201,6 +235,9 @@ export function parseZDOSync(
       anim,
       health,
       layoutId,
+      figur,
+      frisur,
+      ruestung,
       isOwnPlayer: hasOwner && ownerUserId === ownUserId,
     };
     spiegel.merke(update);

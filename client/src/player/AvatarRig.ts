@@ -54,16 +54,66 @@ import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Space } from '@babylonjs/core/Maths/math.axis';
 import type { Bone } from '@babylonjs/core/Bones/bone';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
+import { FIGUR_VORGABE, modellDateiZu } from '@wov/shared';
 
 /** Körpermaße in Metern (Valheim-Figur ist ~1,8 m hoch). */
-/** Modell ist 0,99 m hoch (BBox y −0.495…0.495), Valheims Figur ~1,8 m. */
-const MODELL_SKALIERUNG = 1.8 / 0.99;
-/** Halbe Modellhöhe: Das Modell ist um den Ursprung ZENTRIERT, die
- *  Rig-Wurzel sitzt aber auf dem Boden — ohne diese Anhebung steckt die
- *  Figur bis zur Hüfte im Terrain. */
+const SPIELER_HOEHE = 1.8;
+/**
+ * Ersatzmaße, falls sich das Modell nicht vermessen lässt (Datei ohne
+ * Geometrie). Entsprechen `PlayerAvatar.glb`: 0,99 m hoch, um den
+ * Ursprung zentriert.
+ */
+const MODELL_SKALIERUNG = SPIELER_HOEHE / 0.99;
 const MODELL_HALBHOEHE = 0.495;
+
+/**
+ * Knochennamen je Rolle — der ERSTE Treffer gewinnt.
+ *
+ * WARUM MEHRERE NAMEN: Die eigenen Modelle kommen aus Tripo und heissen
+ * `Hip`, `Spine01`, `R_Hand`. Ein bei Mixamo geriggtes Modell (die
+ * Walküre) bringt dieselben Knochen unter `mixamorig:Hips`,
+ * `mixamorig:Spine1`, `mixamorig:RightHand` mit. Ohne die Zweitnamen
+ * findet AvatarRig an so einem Modell KEINEN Knochen: die prozedurale
+ * Pose greift ins Leere und — schlimmer, weil man es erst beim Graben
+ * merkt — das Werkzeug bleibt am Ersatz-Pivot statt in der Hand.
+ */
+const KNOCHEN_NAMEN = {
+  huefte: ['Hip', 'mixamorig:Hips'],
+  rumpf: ['Spine01', 'mixamorig:Spine1'],
+  kopf: ['Head', 'mixamorig:Head'],
+  beinL: ['L_Thigh', 'mixamorig:LeftUpLeg'],
+  knieL: ['L_Calf', 'mixamorig:LeftLeg'],
+  beinR: ['R_Thigh', 'mixamorig:RightUpLeg'],
+  knieR: ['R_Calf', 'mixamorig:RightLeg'],
+  armL: ['L_Upperarm', 'mixamorig:LeftArm'],
+  ellbogenL: ['L_Forearm', 'mixamorig:LeftForeArm'],
+  armR: ['R_Upperarm', 'mixamorig:RightArm'],
+  ellbogenR: ['R_Forearm', 'mixamorig:RightForeArm'],
+} as const satisfies Record<string, readonly string[]>;
+
+/** Fussknochen — dieselbe Zweitnamen-Regel wie bei KNOCHEN_NAMEN. */
+const FUSS_LINKS = ['L_Foot', 'mixamorig:LeftFoot'] as const;
+const FUSS_RECHTS = ['R_Foot', 'mixamorig:RightFoot'] as const;
+
+/**
+ * Grenzen der Fussanpassung.
+ *
+ * MAX: Weiter als eine halbe Schrittlänge wird nie korrigiert. An einer
+ * Felskante liegt unter dem einen Fuss ein Abgrund; ohne Deckel schnellte
+ * die Figur dort meterweit nach oben.
+ *
+ * ZEITKONSTANTE: Die Höhe unter einem Fuss springt beim Gehen von
+ * Vertex zu Vertex. Ungeglättet zittert die Figur; geglättet folgt sie
+ * dem Gelände mit einem kaum wahrnehmbaren Nachlauf.
+ */
+const FUSS_VERSATZ_MAX = 0.45;
+const FUSS_GLAETTUNG_S = 0.09;
+
+/** Der Knochen, an dem das getragene Werkzeug hängt. */
+const HAND_NAMEN = ['R_Hand', 'mixamorig:RightHand'] as const;
 /**
  * Grenzen für `speedRatio`. Die Clips werden auf die tatsächliche
  * Geschwindigkeit normiert, damit die Füsse nicht über den Boden rutschen
@@ -146,6 +196,39 @@ export class AvatarRig {
   /** Laufzyklus-Phase (Bogenmaß), wächst mit der zurückgelegten Strecke. */
   /** Geladenes Charaktermodell; solange null, bleibt die Klötzchenfigur sichtbar. */
   private modell: TransformNode | null = null;
+  /** Skelett des geladenen Koerpers — Traeger fuer alle nachgeladenen Teile. */
+  private skelett: import('@babylonjs/core/Bones/skeleton').Skeleton | null = null;
+  /** Knoten, unter dem Koerper und Teile haengen (traegt Massstab und Hoehe). */
+  private halter: TransformNode | null = null;
+  /**
+   * Anhebung des Modells im Ruhezustand (aus `vermesseModell`). Der
+   * Fussversatz kommt oben drauf — deshalb gemerkt statt einmal gesetzt.
+   */
+  private grundAnhebung = 0;
+  /**
+   * Geländehöhe an einer Stelle, oder null. Setzt der PlayerController;
+   * ohne Sonde bleibt die Fussanpassung einfach aus (Vorschau im
+   * Charakterfenster, Testszenen).
+   */
+  private bodenSonde: ((x: number, z: number) => number) | null = null;
+  /** Aktueller, geglätteter Fussversatz in Metern (≥ 0 = angehoben). */
+  private fussVersatz = 0;
+  /** Weltpositionen der beiden Fussknochen — einmal geholt, dann gemerkt. */
+  private fussKnoten: TransformNode[] = [];
+  /**
+   * Abstand Knöchel → Sohle in Metern, beim Laden aus der Ruhepose
+   * gemessen.
+   *
+   * WARUM DAS NÖTIG IST: Der Knöchelknochen sitzt ÜBER der Sohle (bei der
+   * Wikingerin rund 11 cm). Vergleicht man ihn direkt mit dem Boden, setzt
+   * die Korrektur erst ein, wenn der Fuss bereits knöcheltief im Hang
+   * steckt — also genau dann, wenn es längst auffällt.
+   */
+  private knoechelHoehe = 0;
+  /** Bereits geladene Teile nach Dateiname — Umschalten kostet dann nichts. */
+  private readonly teile = new Map<string, import('@babylonjs/core/Meshes/abstractMesh').AbstractMesh[]>();
+  /** Was gerade in welchem Slot steckt. */
+  private readonly getragen = new Map<string, string>();
   /** Die für die Pose relevanten Knochen des geladenen Modells. */
   private readonly knochen: {
     huefte: Bone | null; rumpf: Bone | null; kopf: Bone | null;
@@ -174,12 +257,43 @@ export class AvatarRig {
    */
   private clipSprung: Clip | null = null;
   /**
+   * Schlagclip. Wie der Sprung eine EINMALIGE Abspielung, aber im
+   * Gegensatz zu ihm nicht an einen Zustand gebunden, den die Physik
+   * meldet — er wird von `schlage()` angestossen und laeuft dann ab.
+   */
+  private clipAngriff: Clip | null = null;
+  /**
+   * Restlaufzeit des Schlags in Sekunden; > 0 heisst „schlaegt gerade".
+   *
+   * Eine Uhr statt einer Abfrage an der Animationsgruppe: Babylons
+   * `onAnimationGroupEndObservable` feuert bei `speedRatio`-Wechseln und
+   * beim Ueberblenden unzuverlaessig, und ein haengengebliebenes Flag
+   * liesse die Figur dauerhaft in der Schlagpose stehen. Eine Uhr laeuft
+   * immer ab.
+   */
+  private angriffRest = 0;
+  /**
+   * Solldauer eines Schlags (s). Vorgabe passend zum Schlagtakt in
+   * main.ts; wird von dort gesetzt, damit beide nie auseinanderlaufen.
+   */
+  private angriffDauer = 0.5;
+  /**
    * Wie lange ein Sprung dauert (s) — vom Absprung bis zur Landung. Setzt
    * der PlayerController, der die Sprungphysik kennt; der Clip wird darauf
    * gestreckt, damit die Landepose beim Aufsetzen erreicht ist und nicht
    * schon in der Luft.
    */
   private sprungDauer = 1;
+  /**
+   * Faktor vom Modellmaß auf Spielergrösse — beim Laden gemessen, nicht
+   * angenommen. Bis das Modell da ist, gilt das Maß von `PlayerAvatar`.
+   *
+   * Er wird an drei Stellen gebraucht: für den Halter, für das getragene
+   * Werkzeug (das seine eigene Grösse mitbringt und nicht ein zweites Mal
+   * mitwachsen darf) und beim Umrechnen der im Clip eingebackenen
+   * Wegstrecke in m/s.
+   */
+  private modellSkalierung = MODELL_SKALIERUNG;
   /** Aktuell laufender Clip. */
   private aktiv: Clip | null = null;
   /**
@@ -209,7 +323,17 @@ export class AvatarRig {
   private smoothSpeed = 0;
   private breathe = 0;
 
-  constructor(scene: Scene) {
+  /**
+   * Dateiname des Figurenmodells unter /assets/models/.
+   *
+   * Frueher stand hier fest `PlayerAvatar.glb`. Seit der Figurenwahl
+   * kommt der Name von aussen — die Liste steht in shared/figuren.ts,
+   * damit Client und Server dieselbe kennen.
+   */
+  private readonly modellDatei: string;
+
+  constructor(scene: Scene, modellDatei: string = modellDateiZu(FIGUR_VORGABE)) {
+    this.modellDatei = modellDatei;
     const skin = new StandardMaterial('avatar_skin', scene);
     skin.diffuseColor = new Color3(0.76, 0.58, 0.45);
     skin.specularColor = new Color3(0.05, 0.05, 0.05);
@@ -344,7 +468,12 @@ export class AvatarRig {
     try {
       const { SceneLoader } = await import('@babylonjs/core/Loading/sceneLoader');
       await import('@babylonjs/loaders/glTF/2.0');
-      const res = await SceneLoader.ImportMeshAsync('', '/assets/models/', 'PlayerAvatar.glb', scene);
+      const res = await SceneLoader.ImportMeshAsync('', '/assets/models/', this.modellDatei, scene);
+
+      // JETZT vermessen, vor dem Umhängen: Solange die Meshes am
+      // Szenenwurzel hängen, IST ihr Weltmaß das Modellmaß. Nach
+      // `parent = halter` steckt die Spielerposition mit drin.
+      const mass = this.vermesseModell(res.meshes);
 
       // Die prozeduralen Körperteile nur UNSICHTBAR schalten, nicht
       // deaktivieren: `handR` hängt am rechten Unterarm und ist der
@@ -362,8 +491,18 @@ export class AvatarRig {
       }
       for (const tn of res.transformNodes ?? []) if (!tn.parent) tn.parent = halter;
 
-      halter.scaling.setAll(MODELL_SKALIERUNG);
-      halter.position.y = MODELL_HALBHOEHE * MODELL_SKALIERUNG;
+      // Auf Spielergrösse bringen und so anheben, dass der TIEFSTE Punkt
+      // des Modells auf der Rig-Wurzel steht — die sitzt auf dem Boden.
+      this.modellSkalierung = SPIELER_HOEHE / mass.hoehe;
+      halter.scaling.setAll(this.modellSkalierung);
+      this.grundAnhebung = -mass.unten * this.modellSkalierung;
+      halter.position.y = this.grundAnhebung;
+      console.log(
+        `[avatar] ${this.modellDatei}: ${mass.hoehe.toFixed(3)} m hoch ` +
+          `(y ${mass.unten.toFixed(3)}…${(mass.unten + mass.hoehe).toFixed(3)}), ` +
+          `Faktor ${this.modellSkalierung.toFixed(3)}, angehoben um ` +
+          `${(-mass.unten * this.modellSkalierung).toFixed(3)} m`
+      );
       // Modellvorderseite auf die Blickrichtung des Rigs drehen (+Z, siehe
       // PlayerController: "model forward is +Z").
       // Dieses Modell schaut bereits in +Z — keine Zusatzdrehung nötig.
@@ -372,8 +511,31 @@ export class AvatarRig {
       // ── Clips aus der Datei ─────────────────────────────────────
       // Haben Vorrang vor der prozeduralen Pose. Zugeordnet wird über das
       // gemessene Tempo, nicht über die Clipnamen (siehe Kopfkommentar).
+      // ── Welcher Clip ist der Sprung? ─────────────────────────────
+      // VOR der Messung, weil der Sprung dort anders behandelt wird.
+      //
+      // Unter mehreren Bewerbern gewinnt der KUERZESTE. Das ist keine
+      // Willkuer: Ein Sprungclip enthaelt den Flug; ein laengerer enthaelt
+      // zusaetzlich Stand, Hocke und Aufrichten — Phasen, die waehrend des
+      // Fluges nichts zu suchen haben. Bei der Wikingerin stehen
+      // `springen` (3,29 s: Stand, Hocke, Bogen, Landung, Aufrichten) und
+      // `weitsprung` (0,96 s: ein vollstaendiger Sprung) zur Wahl,
+      // waehrend der Flug 1,0 s dauert. Der lange Clip musste auf die
+      // Flugzeit gestaucht werden und liess alle fuenf Phasen in einer
+      // Sekunde ablaufen — Mike beschrieb es am 23.08.2026 als „flattert
+      // wie ein Vogel", spaeter als „der Charakter schlaegt": Im Flug sah
+      // man nur den Ausschlag der Arme im Scheitel.
+      const sprungGruppe = res.animationGroups
+        // `sprung` MUSS im Muster stehen: "weitsprung" enthaelt die
+        // Zeichenfolge "spring" NICHT (s-p-r-U-n-g). Genau darauf hatte
+        // der Name gezielt, damit der Clip keinem Zustand untergeschoben
+        // wird — was hier aber dazu fuehrte, dass der bessere Sprungclip
+        // gar nicht erst zur Wahl stand.
+        .filter((g) => /sprung|spring|jump|leap/i.test(g.name))
+        .sort((a, b) => (a.to - a.from) - (b.to - b.from))[0] ?? null;
+
       const clips = res.animationGroups
-        .map((grp) => ({ grp, tempo: this.messeUndEntferneWurzelbewegung(grp) }))
+        .map((grp) => ({ grp, tempo: this.messeUndEntferneWurzelbewegung(grp, grp === sprungGruppe) }))
         .sort((a, b) => a.tempo - b.tempo);
       // Ein Clip ohne nennenswerte Wegstrecke ist eine Standpose. Weitere
       // Standposen bleiben liegen und können später als Abwechslung im
@@ -386,8 +548,22 @@ export class AvatarRig {
       // über die Fallback-Regeln als Geh- oder Rennzyklus einsortiert werden.
       const nachName = (muster: RegExp, aus: Clip[]): Clip | null =>
         aus.find((c) => muster.test(c.grp.name)) ?? null;
-      this.clipSprung = nachName(/spring|jump/i, clips);
-      const rest = clips.filter((c) => c !== this.clipSprung);
+      // Denselben Clip nehmen, der oben bestimmt wurde — eine zweite
+      // Namenssuche koennte etwas anderes finden als die Messung
+      // behandelt hat.
+      this.clipSprung = clips.find((c) => c.grp === sprungGruppe) ?? null;
+      // Der Angriff wird aus DEMSELBEN Grund aussortiert: Ein Schlag holt
+      // aus, die Hüfte wandert dabei ein Stück, und die Tempo-Einteilung
+      // hielte ihn für einen Fortbewegungszyklus. Bei der Wikingerin misst
+      // `angriff` genug Weg, um als "wandernd" zu gelten — ungefiltert
+      // könnte er über die Ersatzregel `wandernd[letzter]` zum RENNZYKLUS
+      // werden, und die Figur schlüge beim Sprinten um sich.
+      //
+      // `weitsprung` (nur die Wikingerin hat ihn) fängt keines der Muster
+      // ab und bleibt bewusst ein unbenutzter Clip: Er gehört zu keinem
+      // Zustand, den das Spiel kennt.
+      this.clipAngriff = nachName(/angriff|attack|schlag|punch|hit/i, clips);
+      const rest = clips.filter((c) => c !== this.clipSprung && c !== this.clipAngriff);
       const wandernd = rest.filter((c) => c.tempo > 0.1);
       this.clipsRuhe = rest.filter((c) => c.tempo <= 0.1);
       // Sprechende Namen schlagen die Messung. Der Tripo-Export vergibt
@@ -404,7 +580,8 @@ export class AvatarRig {
           `[avatar] Clips: ruhe ${zeig(this.clipRuhe)}` +
             (this.clipsRuhe.length > 1 ? ` (+${this.clipsRuhe.length - 1} weitere Standpose)` : '') +
             `, gehen ${zeig(this.clipGehen)}, rennen ${zeig(this.clipRennen)}` +
-            `, sprung ${this.clipSprung ? `"${this.clipSprung.grp.name}" ${this.clipLaenge(this.clipSprung).toFixed(2)} s` : '—'}`
+            `, sprung ${this.clipSprung ? `"${this.clipSprung.grp.name}" ${this.clipLaenge(this.clipSprung).toFixed(2)} s` : '—'}` +
+            `, angriff ${this.clipAngriff ? `"${this.clipAngriff.grp.name}" ${this.clipLaenge(this.clipAngriff).toFixed(2)} s` : '—'}`
         );
         // KEIN `enableBlending` hier: Übergänge laufen über die Gewichte
         // der Gruppen (siehe wechsleZu). Beides zusammen blendet doppelt —
@@ -414,14 +591,17 @@ export class AvatarRig {
 
       const skelett = res.skeletons[0] ?? null;
       if (skelett) {
-        const hole = (name: string): Bone | null => skelett.bones.find((b) => b.name === name) ?? null;
-        const paare: Array<[keyof AvatarRig['knochen'], string]> = [
-          ['huefte', 'Hip'], ['rumpf', 'Spine01'], ['kopf', 'Head'],
-          ['beinL', 'L_Thigh'], ['knieL', 'L_Calf'],
-          ['beinR', 'R_Thigh'], ['knieR', 'R_Calf'],
-          ['armL', 'L_Upperarm'], ['ellbogenL', 'L_Forearm'],
-          ['armR', 'R_Upperarm'], ['ellbogenR', 'R_Forearm'],
-        ];
+        // Erster passender Name gewinnt — siehe KNOCHEN_NAMEN.
+        const hole = (namen: readonly string[]): Bone | null => {
+          for (const n of namen) {
+            const b = skelett.bones.find((k) => k.name === n);
+            if (b) return b;
+          }
+          return null;
+        };
+        const paare = Object.entries(KNOCHEN_NAMEN) as Array<
+          [keyof AvatarRig['knochen'], readonly string[]]
+        >;
         for (const [feld, name] of paare) {
           const b = hole(name);
           if (!b) continue;
@@ -440,7 +620,7 @@ export class AvatarRig {
             : (b.rotationQuaternion ?? Quaternion.FromRotationMatrix(b.getLocalMatrix()));
           this.ruhe.set(b, q.clone());
         }
-        const fehlend = paare.filter(([f]) => !this.knochen[f]).map(([, n]) => n);
+        const fehlend = paare.filter(([f]) => !this.knochen[f]).map(([, n]) => n[0]);
         if (fehlend.length) console.warn('[avatar] Knochen nicht gefunden:', fehlend.join(', '));
 
         // ── Werkzeughand an den echten Handknochen hängen ────────────
@@ -448,14 +628,14 @@ export class AvatarRig {
         // solange die prozedurale Pose die Figur bewegte: Sobald die Clips
         // die Knochen steuern, stehen die Pivots still und die Spitzhacke
         // bliebe reglos in der Luft, während der Arm darunter wegschwingt.
-        const handKnochen = hole('R_Hand')?.getTransformNode() ?? null;
+        const handKnochen = hole(HAND_NAMEN)?.getTransformNode() ?? null;
         if (handKnochen) {
           this.handR.parent = handKnochen;
           this.handR.position.setAll(0);
           // Der Halter skaliert das ganze Modell auf Spielergrösse; das
           // Werkzeug bringt seine eigene, bereits richtige Grösse mit und
           // darf nicht ein zweites Mal mitwachsen.
-          this.handR.scaling.setAll(1 / MODELL_SKALIERUNG);
+          this.handR.scaling.setAll(1 / this.modellSkalierung);
         } else {
           console.warn('[avatar] R_Hand nicht gefunden — Werkzeug bleibt am Ersatz-Pivot');
         }
@@ -464,10 +644,193 @@ export class AvatarRig {
       }
 
       this.modell = halter;
+      this.halter = halter;
+      this.skelett = res.skeletons[0] ?? null;
+      // Fussknochen für die Bodenanpassung. Erster Treffer gewinnt, damit
+      // ein mixamorig-Skelett genauso bedient wird wie das Tripo-Rig.
+      this.fussKnoten = [];
+      for (const namen of [FUSS_LINKS, FUSS_RECHTS]) {
+        for (const n of namen) {
+          const tn = this.skelett?.bones.find((b) => b.name === n)?.getTransformNode();
+          if (tn) { this.fussKnoten.push(tn); break; }
+        }
+      }
+      if (this.fussKnoten.length < 2) {
+        console.warn('[avatar] Fussknochen nicht gefunden — keine Bodenanpassung');
+      } else {
+        // Sohlenabstand JETZT messen: Das Modell steht in Ruhepose, kein
+        // Clip hat die Beine bewegt. Danach wäre der Knöchel irgendwo im
+        // Schrittzyklus und der Wert zufällig.
+        //
+        // Gemessen wird gegen den TIEFSTEN GEZEICHNETEN PUNKT, nicht gegen
+        // die Rig-Wurzel. Der Unterschied ist nicht theoretisch: Gegen die
+        // Wurzel gerechnet war der Wert 13 mm zu gross, und die Anpassung
+        // hob die Figur auf EBENEM Grund um genau diese 13 mm an — ein
+        // Fehler, den die erste Prüfung nicht finden konnte, weil sie
+        // denselben Bezugspunkt benutzte (Knöchel minus Wurzel, geprüft
+        // gegen die Wurzel: per Konstruktion null).
+        //
+        // `applySkeleton: true` ist dabei entscheidend — ohne das bleibt
+        // die Begrenzung bei den rohen Vertexdaten stehen und folgt der
+        // gezeichneten Figur nicht.
+        let sohleWelt = Infinity;
+        const sammle = (knoten: TransformNode): void => {
+          for (const kind of knoten.getChildren()) {
+            const netz = kind as unknown as AbstractMesh;
+            if (typeof netz.getTotalVertices === 'function' && netz.getTotalVertices() > 0) {
+              netz.refreshBoundingInfo({ applySkeleton: true });
+              netz.computeWorldMatrix(true);
+              sohleWelt = Math.min(sohleWelt, netz.getBoundingInfo().boundingBox.minimumWorld.y);
+            }
+            sammle(kind as TransformNode);
+          }
+        };
+        halter.computeWorldMatrix(true);
+        sammle(halter);
+
+        let tiefster = Infinity;
+        for (const k of this.fussKnoten) {
+          k.computeWorldMatrix(true);
+          tiefster = Math.min(tiefster, k.getAbsolutePosition().y - sohleWelt);
+        }
+        this.knoechelHoehe =
+          Number.isFinite(tiefster) && Number.isFinite(sohleWelt) ? Math.max(0, tiefster) : 0;
+        console.log(
+          `[avatar] Knöchel sitzt ${this.knoechelHoehe.toFixed(3)} m über der Sohle ` +
+            `(Sohle ${Number.isFinite(sohleWelt) ? (sohleWelt - this.root.getAbsolutePosition().y).toFixed(3) : '?'} m über der Rig-Wurzel)`
+        );
+      }
+      // Was vor dem Laden schon gewaehlt wurde, jetzt nachziehen: Der
+      // Aufrufer setzt das Aussehen oft, bevor das Modell da ist.
+      if (this.offenesAussehen) {
+        const a = this.offenesAussehen;
+        this.offenesAussehen = null;
+        void this.setzeAussehen(a);
+      }
     } catch (err) {
       // Kein Abbruch: die prozedurale Figur bleibt stehen.
-      console.warn('[avatar] PlayerAvatar.glb nicht geladen, nutze Klötzchenfigur', err);
+      console.warn(`[avatar] ${this.modellDatei} nicht geladen, nutze Klötzchenfigur`, err);
     }
+  }
+
+  /**
+   * Stufe 1 der Fussanpassung: die ganze Figur so weit anheben, dass kein
+   * Fuss im Boden steckt.
+   *
+   * ════════════════════════════════════════════════════════════════
+   *  Warum ANHEBEN und nicht absenken
+   * ════════════════════════════════════════════════════════════════
+   * Am Hang steht der bergseitige Fuss auf höherem Grund als der
+   * talseitige. Ohne Bein-IK lässt sich nur einer von beiden richtig
+   * setzen — und die Wahl ist nicht beliebig: Ein Fuss, der IM Hang
+   * steckt, liest sich als Fehler; ein Fuss, der knapp darüber schwebt,
+   * liest sich als ungenaue Animation. Deshalb bestimmt der HÖCHSTE
+   * Boden unter den Füssen die Anhebung. Den zweiten Fuss holt Stufe 2
+   * (Bein-IK, s. Feature-Liste).
+   *
+   * ════════════════════════════════════════════════════════════════
+   *  Warum das den Halter bewegt und nicht die Wurzel
+   * ════════════════════════════════════════════════════════════════
+   * `root` IST die Spielerposition — sie wird jeden Frame aus der Physik
+   * gesetzt und trägt die Kollisionskapsel. Dort etwas zu addieren hiesse,
+   * die Figur wirklich anzuheben; sie würde schweben und der nächste
+   * Physikschritt zöge sie zurück. Der Halter darunter ist reine Optik.
+   *
+   * ════════════════════════════════════════════════════════════════
+   *  Warum die Fusspositionen einen Frame alt sind
+   * ════════════════════════════════════════════════════════════════
+   * Babylon wertet die Animationsgruppen erst in `scene.render()` aus,
+   * diese Methode läuft davor. Gelesen wird also die Pose des VORIGEN
+   * Bildes. Bei einer Grösse, die sich über Meter hinweg ändert, ist das
+   * unsichtbar — und es erspart einen zweiten Einstiegspunkt in den
+   * Bildablauf.
+   */
+  private passeAnBodenAn(dt: number, inDerLuft: boolean): void {
+    if (!this.halter) return;
+    // In der Luft gibt es nichts anzupassen; der Versatz läuft aber
+    // weich aus, damit die Figur beim Absprung nicht zuckt.
+    const ziel = inDerLuft || !this.bodenSonde || this.fussKnoten.length < 2
+      ? 0
+      : this.messeFussVersatz();
+
+    const k = Math.min(1, dt / FUSS_GLAETTUNG_S);
+    this.fussVersatz += (ziel - this.fussVersatz) * k;
+    this.halter.position.y = this.grundAnhebung + this.fussVersatz;
+  }
+
+  /** Wie weit muss die Figur hoch, damit kein Fuss im Boden steckt? */
+  private messeFussVersatz(): number {
+    let noetig = 0;
+    for (const knoten of this.fussKnoten) {
+      knoten.computeWorldMatrix(true);
+      const p = knoten.getAbsolutePosition();
+      const boden = this.bodenSonde!(p.x, p.z);
+      if (!Number.isFinite(boden)) continue;
+      // Nicht der Knöchel zählt, sondern die SOHLE darunter.
+      //
+      // UND: Der bereits wirkende Versatz muss herausgerechnet werden.
+      // Gemessen wird die Figur, NACHDEM die Anhebung des letzten Bildes
+      // schon anliegt — nähme man diesen Wert direkt, sähe die Messung
+      // ihre eigene Wirkung und meldete „passt". Im nächsten Bild fiele
+      // die Anhebung auf null, der Fuss steckte wieder, und das Ganze
+      // begänne von vorn. Genau so schwang es beim ersten Versuch
+      // zwischen 0,138 m und 0 hin und her.
+      //
+      // Mit dem Herausrechnen wird die Grösse zu einem festen Punkt: Sie
+      // beschreibt die Lage der Figur OHNE Anhebung und ändert sich nur,
+      // wenn sich der Boden ändert.
+      const sohleOhneVersatz = p.y - this.knoechelHoehe - this.fussVersatz;
+      noetig = Math.max(noetig, boden - sohleOhneVersatz);
+    }
+    return Math.min(Math.max(noetig, 0), FUSS_VERSATZ_MAX);
+  }
+
+  /**
+   * Höhe und Fusshöhe des frisch geladenen Modells.
+   *
+   * WARUM GEMESSEN STATT ANGENOMMEN: Bis hierher standen zwei Zahlen fest
+   * im Code — 0,99 m Höhe und „um den Ursprung zentriert". Beides gilt nur
+   * für `PlayerAvatar.glb`. Es gibt aber keine Übereinkunft, an die sich
+   * ein Modellierwerkzeug halten müsste:
+   *
+   *  - `WikingerinBasis.glb` legt die Füsse in den Ursprung (y 0…1,0).
+   *    Mit der Annahme „zentriert" wurde sie um eine halbe Körperlänge zu
+   *    hoch gesetzt und LIEF IN DER LUFT.
+   *  - `Walkuere.glb` kommt aus Mixamo und ist 1,90 m hoch. Mit dem festen
+   *    Faktor 1,818 wäre sie 3,46 m gross geworden und dabei 0,83 m im
+   *    Boden versunken.
+   *
+   * Beide Fehler sehen im Code gleich harmlos aus und fallen erst im Spiel
+   * auf — und auch dort nur, wenn man hinschaut. Deshalb wird jetzt
+   * gemessen: Der tiefste Punkt kommt auf den Boden, die Gesamthöhe auf
+   * SPIELER_HOEHE. Ein Modell, das sich nicht vermessen lässt, fällt auf
+   * die alten Maße zurück, statt zu verschwinden.
+   *
+   * Gemessen wird die BINDEPOSE (Babylons Begrenzungskörper eines
+   * Skinning-Meshes stammt aus den rohen Vertexdaten). Das ist genau das
+   * gewünschte Maß: die aufrechte Ruhehaltung, nicht ein zufällig
+   * geduckter Einzelframe.
+   */
+  private vermesseModell(meshes: readonly AbstractMesh[]): { hoehe: number; unten: number } {
+    let unten = Infinity;
+    let oben = -Infinity;
+    for (const m of meshes) {
+      // Der glTF-Loader hängt einen leeren `__root__` davor; nur Meshes
+      // mit echter Geometrie tragen ein sinnvolles Maß.
+      if (m.getTotalVertices() === 0) continue;
+      m.computeWorldMatrix(true);
+      const kasten = m.getBoundingInfo().boundingBox;
+      unten = Math.min(unten, kasten.minimumWorld.y);
+      oben = Math.max(oben, kasten.maximumWorld.y);
+    }
+    const hoehe = oben - unten;
+    if (!Number.isFinite(hoehe) || hoehe < 0.01) {
+      console.warn(
+        `[avatar] ${this.modellDatei}: Höhe nicht messbar — nutze die Maße von PlayerAvatar`
+      );
+      return { hoehe: SPIELER_HOEHE / MODELL_SKALIERUNG, unten: -MODELL_HALBHOEHE };
+    }
+    return { hoehe, unten };
   }
 
   /**
@@ -495,13 +858,18 @@ export class AvatarRig {
    * Drehspuren nur 2 Keyframes, die Bewegung steckt fast vollständig in
    * den Translationen.
    */
-  private messeUndEntferneWurzelbewegung(grp: AnimationGroup): number {
+  private messeUndEntferneWurzelbewegung(grp: AnimationGroup, istSprung = false): number {
     let weiteste = 0;
     for (const ta of grp.targetedAnimations) {
       if (ta.animation.targetProperty !== 'position') continue;
       const zielName = (ta.target as { name?: string })?.name ?? '';
       // Nur wurzelnahe Knochen können den Körper als Ganzes versetzen.
-      if (!/^(Root|Hip|Pelvis)$/.test(zielName)) continue;
+      // `mixamorig:Hips` gehört dazu: Ohne den Namen blieb die eingebackene
+      // Wegstrecke der Walküre unentdeckt — sie wurde weder entfernt (die
+      // Figur wäre beim Laufen aus ihrer eigenen Kollisionskapsel gewandert)
+      // noch gemessen, weshalb alle vier Clips als Standpose galten und es
+      // schlicht kein "gehen" und kein "rennen" gab.
+      if (!/^(Root|Hip|Pelvis|mixamorig:Hips)$/.test(zielName)) continue;
       const keys = ta.animation.getKeys();
       if (keys.length < 2) continue;
 
@@ -515,20 +883,49 @@ export class AvatarRig {
       const achse: 'x' | 'y' | 'z' =
         spann.x >= spann.y && spann.x >= spann.z ? 'x' : spann.y >= spann.z ? 'y' : 'z';
       const weite = spann[achse];
+
+      // Von Modelleinheiten auf METER: Die Keyframes stehen im ELTERNraum
+      // des Hüftknotens, also zählt dessen Weltmaßstab — nicht der Faktor
+      // des Halters allein.
+      //
+      // Für unsere eigenen Modelle ist beides dasselbe (zwischen Halter und
+      // Hüfte sitzt nur eine Verschiebung). Die Walküre bringt aber eine
+      // Armature mit Maßstab 0,01 mit, weil Mixamo in Zentimetern rechnet:
+      // Ihre Gehstrecke steht als 186 in der Datei und sind 1,86 m.
+      const eltern = (ta.target as TransformNode).parent as TransformNode | null;
+      eltern?.computeWorldMatrix(true);
+      const massstab = eltern?.absoluteScaling?.x ?? this.modellSkalierung;
+      const weiteMeter = weite * massstab;
+
       // Ein Wippen von wenigen Zentimetern ist Gang, keine Wanderung.
-      if (weite < 0.2) continue;
+      // Die Schwelle steht in METERN, seit es Modelle mit anderem Maßstab
+      // gibt: In Modelleinheiten gemessen hätte das Atmen der Walküre
+      // (5,9 Einheiten = 5,6 cm) als Wanderung gegolten und ihr die
+      // Auf-und-ab-Bewegung im Stand genommen.
+      if (weiteMeter < 0.2) continue;
 
       // Festnageln auf den Wert der BINDEPOSE, nicht auf den ersten
       // Keyframe: Der Rennzyklus startet bereits 0,64 Einheiten vor dem
       // Ursprung: eingefroren stünde die Figur 1,2 m vor ihrem eigenen
       // Mittelpunkt und damit neben der Kollisionskapsel.
-      const ruhewert = (ta.target as TransformNode).position[achse];
-      for (const k of keys) (k.value as Vector3)[achse] = ruhewert;
+      // Sonst NUR die wandernde Achse — beim Sprung ALLE DREI.
+      //
+      // Waehrend des Fluges gehoert die Position der Figur vollstaendig
+      // der Physik: Sie hebt, traegt vorwaerts und laesst fallen. Legt
+      // der Clip auch nur eine Achse mit drauf, addieren sich beide.
+      // Beim Sprungclip `weitsprung` sind das 0,32 Modelleinheiten nach
+      // oben (0,58 m) ZUSAETZLICH zum physikalischen Sprung — die Figur
+      // schoesse doppelt so hoch, ohne dass die Kollision davon wuesste.
+      const achsen: Array<'x' | 'y' | 'z'> = istSprung ? ['x', 'y', 'z'] : [achse];
+      for (const ax of achsen) {
+        const ruhewert = (ta.target as TransformNode).position[ax];
+        for (const k of keys) (k.value as Vector3)[ax] = ruhewert;
+      }
       ta.animation.setKeys(keys);
 
       const fps = ta.animation.framePerSecond || 60;
       const dauer = (keys[keys.length - 1].frame - keys[0].frame) / fps;
-      if (dauer > 0) weiteste = Math.max(weiteste, (weite / dauer) * MODELL_SKALIERUNG);
+      if (dauer > 0) weiteste = Math.max(weiteste, weiteMeter / dauer);
     }
     return weiteste;
   }
@@ -689,7 +1086,8 @@ export class AvatarRig {
     if (!this.clipGehen && !this.clipRuhe) return false;
     this.nutzeClip = an;
     if (!an) {
-      for (const c of [this.clipRuhe, this.clipGehen, this.clipRennen, this.clipSprung]) c?.grp.pause();
+      for (const c of [this.clipRuhe, this.clipGehen, this.clipRennen, this.clipSprung, this.clipAngriff])
+        c?.grp.pause();
       this.aktiv = null;
     }
     return true;
@@ -703,6 +1101,91 @@ export class AvatarRig {
    * Den Wert kennt nur der PlayerController (Sprungkraft und Gravitation),
    * deshalb kommt er von dort.
    */
+  /**
+   * Einen Schlag anstossen — Waffe oder Faust, die Animation ist dieselbe.
+   *
+   * WARUM DIE FIGUR DAS NICHT SELBST MERKT: Der Schlag ist das einzige
+   * Ereignis in dieser Klasse. Gangart und Sprung liest `update()` aus
+   * Geschwindigkeit und Bodenkontakt ab, also aus Zustaenden, die jeden
+   * Frame neu gelten. Ein Schlag gilt genau einmal, im Moment des Klicks —
+   * dafuer gibt es keine Groesse, die man abfragen koennte.
+   *
+   * Ein erneuter Klick waehrend des Schlags setzt ihn von vorn an, statt
+   * ihn zu verlaengern: So folgt die Figur dem Klicktakt des Spielers,
+   * auch wenn der schneller ist als der Clip lang.
+   *
+   * @returns false, wenn das Modell keinen Schlagclip mitbringt — dann
+   *          bleibt es beim reinen Serverschlag ohne sichtbare Geste.
+   */
+  schlage(): boolean {
+    if (!this.clipAngriff || !this.nutzeClip) return false;
+    const clip = this.clipAngriff;
+    this.angriffRest = this.angriffDauer;
+    this.setzeAngriffTempo();
+
+    if (this.aktiv === clip) {
+      // ── Schon am Schlagen: SELBST neu anstossen ──────────────────
+      // `wechsleZu` steigt bei `von === ziel` in der ersten Zeile aus.
+      // Beim zweiten Klick wurde deshalb zwar die Uhr neu gestellt, der
+      // Clip aber NICHT neu gestartet: Er lief als Einmal-Abspielung zu
+      // Ende, hoerte auf, Knochen zu schreiben — und die frische Uhr
+      // hielt ihn trotzdem als „aktiv" fest. Die Figur stand fuer die
+      // Dauer einer weiteren Uhr in der Endpose. Genau das ist das
+      // Aussetzen, das Mike am 23.08.2026 gemeldet hat.
+      //
+      // Eine laufende Ueberblendung wird dabei abgeraeumt, sonst zieht
+      // sie das Gewicht des neu gestarteten Clips gleich wieder herunter.
+      if (this.blende) {
+        this.blende.von.grp.pause();
+        this.blende.von.grp.setWeightForAllAnimatables(1);
+        this.blende = null;
+      }
+      clip.grp.play(false);
+      clip.grp.goToFrame(clip.grp.from);
+      clip.grp.setWeightForAllAnimatables(1);
+      return true;
+    }
+
+    this.wechsleZu(clip, false, true);
+    return true;
+  }
+
+  /**
+   * Wie lange ein Schlag dauern soll (s) — der Clip wird darauf gestreckt
+   * oder gestaucht, genau wie der Sprung auf die Flugdauer.
+   *
+   * WARUM NICHT DIE CLIPLAENGE: Der Rohclip der Wikingerin dauert 1,29 s,
+   * der Schlagtakt des Spiels ist 0,5 s. Ungestaucht wirkte der Schlag
+   * traege, und jeder zweite Klick fiel mitten in den laufenden Clip.
+   * Auf den Takt gestaucht ist die Geste vorbei, wenn der naechste Schlag
+   * erlaubt ist — schnell genug UND ohne Ueberlappung.
+   */
+  setAngriffDauer(sekunden: number): void {
+    if (sekunden > 0) {
+      this.angriffDauer = sekunden;
+      if (this.angriffRest > 0) this.setzeAngriffTempo();
+    }
+  }
+
+  /** Clip auf `angriffDauer` normieren. */
+  private setzeAngriffTempo(): void {
+    if (!this.clipAngriff) return;
+    const laenge = this.clipLaenge(this.clipAngriff);
+    this.clipAngriff.grp.speedRatio = laenge > 0 ? laenge / this.angriffDauer : 1;
+  }
+
+  /** Laeuft gerade ein Schlag? Fuer HUD und Messzellen. */
+  get schlaegt(): boolean {
+    return this.angriffRest > 0;
+  }
+
+  /**
+   * Woher die Geländehöhe kommt. Ohne Sonde bleibt die Fussanpassung aus.
+   */
+  setBodenSonde(sonde: ((x: number, z: number) => number) | null): void {
+    this.bodenSonde = sonde;
+  }
+
   setSprungDauer(sekunden: number): void {
     if (sekunden > 0) this.sprungDauer = sekunden;
   }
@@ -726,6 +1209,10 @@ export class AvatarRig {
    *                Vorrang vor allen anderen hat.
    */
   update(dt: number, speed: number, maxSpeed: number, rennt = false, inDerLuft = false): void {
+    // Fussanpassung ZUERST: Sie liest die Pose des vorigen Bildes und
+    // setzt nur den Halter — die Clipwahl weiter unten stört sie nicht.
+    this.passeAnBodenAn(dt, inDerLuft);
+
     // Geschwindigkeit glätten (Zeitkonstante ~0.12 s)
     const k = Math.min(1, dt / 0.12);
     this.smoothSpeed += (speed - this.smoothSpeed) * k;
@@ -749,16 +1236,38 @@ export class AvatarRig {
       // Der Sprung hat Vorrang: In der Luft gibt es keinen Schritt, der zu
       // normieren wäre, und die Geschwindigkeit sagt dort nichts über die
       // Pose. Fehlt der Clip, bleibt es beim bisherigen Verhalten.
-      const springt = inDerLuft && this.clipSprung !== null;
-      const ziel = springt
-        ? this.clipSprung
-        : !bewegt
-          ? this.clipRuhe
-          : (rennt ? this.clipRennen : this.clipGehen) ?? this.clipGehen ?? this.clipRuhe;
+      // Der Schlag laeuft auf einer Uhr ab, nicht auf einem Zustand.
+      // Solange sie laeuft, hat er VORRANG vor allem anderen — auch vor
+      // dem Sprung: Wer im Fallen zuschlaegt, soll den Schlag sehen, und
+      // ein Sprungclip, der den Schlag ueberschreibt, sieht aus wie ein
+      // verschluckter Klick.
+      if (this.angriffRest > 0) {
+        this.angriffRest = Math.max(0, this.angriffRest - dt);
+        // SELBSTHEILUNG: Die Uhr ist die Absicht, die Gruppe die
+        // Wirklichkeit. Ist der Einmal-Clip durchgelaufen, schreibt er
+        // keine Knochen mehr — eine Uhr, die dann noch laeuft, haelt die
+        // Figur in der Endpose fest. Sagt die Wirklichkeit „fertig",
+        // endet der Schlag sofort, statt auf die Uhr zu warten.
+        if (this.angriffRest > 0 && this.clipAngriff && !this.clipAngriff.grp.isPlaying) {
+          this.angriffRest = 0;
+        }
+      }
+      const schlaegt = this.angriffRest > 0 && this.clipAngriff !== null;
+
+      const springt = !schlaegt && inDerLuft && this.clipSprung !== null;
+      const ziel = schlaegt
+        ? this.clipAngriff
+        : springt
+          ? this.clipSprung
+          : !bewegt
+            ? this.clipRuhe
+            : (rennt ? this.clipRennen : this.clipGehen) ?? this.clipGehen ?? this.clipRuhe;
 
       if (ziel !== this.aktiv) {
         // Einmal durchspielen und von vorn beginnen — beides nur für den
-        // Sprung (siehe wechsleZu).
+        // Sprung (siehe wechsleZu). Der Schlag startet nicht hier, sondern
+        // in `schlage()`; hier wird nur ZURUECK gewechselt, wenn die Uhr
+        // abgelaufen ist.
         if (ziel) this.wechsleZu(ziel, !springt, springt);
         // Kein Ruheclip vorhanden: Gehzyklus einfrieren statt mitten im
         // Schritt stehenzubleiben.
@@ -776,6 +1285,14 @@ export class AvatarRig {
       if (this.aktiv === this.clipSprung && this.clipSprung) {
         const laenge = this.clipLaenge(this.clipSprung);
         this.clipSprung.grp.speedRatio = laenge > 0 ? laenge / this.sprungDauer : 1;
+      } else if (this.aktiv === this.clipAngriff && this.clipAngriff) {
+        // Der Schlag folgt dem Schlagtakt, nicht der Laufgeschwindigkeit.
+        // Er hat eine Wegstrecke (die Figur holt aus), fiele damit unter
+        // `tempo > 0` und würde von der Normierung unten an die
+        // Geschwindigkeit gekoppelt: Im Stand wäre `s = 0`, der Faktor
+        // liefe in seine untere Schranke (0,55) und der Schlag käme in
+        // Zeitlupe. Dieselbe Sonderbehandlung wie beim Sprung.
+        this.setzeAngriffTempo();
       } else if (this.aktiv && this.aktiv.tempo > 0) {
         this.aktiv.grp.speedRatio = Math.max(TEMPO_MIN, Math.min(TEMPO_MAX, s / this.aktiv.tempo));
       }
@@ -836,4 +1353,74 @@ export class AvatarRig {
   dispose(): void {
     this.root.dispose(false, true);
   }
+
+  /** Vom Aufrufer gesetztes Aussehen, das auf das Modell wartet. */
+  private offenesAussehen: Record<string, string | null> | null = null;
+
+  /**
+   * Frisur und Ruestung anlegen — je Slot ein Teil, `null` raeumt ihn.
+   *
+   * Die Teile liegen als eigene Dateien neben dem Koerper
+   * (assets/models/wikingerin/) und werden EINZELN geladen: Alle 21
+   * Frisuren zusammen waeren 17,5 MB fuer eine, die man traegt.
+   *
+   * Jedes Teil bringt sein eigenes Skelett mit. Benutzt wird trotzdem
+   * das des KOERPERS — sonst stuende die Frisur in der Bindepose,
+   * waehrend der Koerper laeuft. Zulaessig ist das nur, weil alle
+   * Teildateien dieselbe Gelenkliste tragen; tools/asset-aufteilen.py
+   * erzeugt sie aus derselben Armatur und prueft das nach.
+   */
+  async setzeAussehen(teile: Record<string, string | null>): Promise<void> {
+    if (!this.halter) {
+      // Modell noch nicht da — merken und nach dem Laden nachziehen.
+      this.offenesAussehen = { ...(this.offenesAussehen ?? {}), ...teile };
+      return;
+    }
+    for (const [slot, datei] of Object.entries(teile)) {
+      if (this.getragen.get(slot) === (datei ?? '')) continue;
+      const vorher = this.getragen.get(slot);
+      if (vorher) this.zeigeTeil(vorher, false);
+      this.getragen.set(slot, datei ?? '');
+      if (datei) await this.ladeTeil(datei);
+    }
+  }
+
+  private async ladeTeil(datei: string): Promise<void> {
+    if (!this.teile.has(datei)) {
+      try {
+        const { SceneLoader } = await import('@babylonjs/core/Loading/sceneLoader');
+        const res = await SceneLoader.ImportMeshAsync(
+          '', '/assets/models/', `${datei}.glb`, this.halter!.getScene());
+        const netze = res.meshes.filter((m) => m.getTotalVertices() > 0);
+        // NUR die elternlosen Knoten umhaengen — genau wie beim Koerper
+        // weiter oben. Der glTF-Import legt ueber die Netze einen
+        // `__root__`-Knoten, der die Haendigkeit von glTF nach Babylon
+        // umrechnet (gespiegelte Z-Achse). Haengt man die NETZE direkt an
+        // den Halter, faellt dieser Knoten aus der Kette, und das Teil
+        // sitzt gespiegelt auf dem Koerper — sichtbar als Kleidung, die
+        // nicht am Rumpf liegt, waehrend die Vorschau (die nichts
+        // umhaengt) richtig aussah.
+        for (const m of res.meshes) if (!m.parent) m.parent = this.halter;
+        for (const tn of res.transformNodes ?? []) if (!tn.parent) tn.parent = this.halter;
+        for (const m of netze) {
+          if (this.skelett) m.skeleton = this.skelett;
+          m.isPickable = false;
+          m.alphaIndex = 0;
+        }
+        // Das mitgelieferte Skelett bleibt ungenutzt liegen; freigeben
+        // wuerde die Netze mitreissen, die auf seine Bindematrizen zeigen.
+        this.teile.set(datei, netze);
+      } catch (err) {
+        console.warn(`[avatar] Teil "${datei}" nicht geladen`, err);
+        this.teile.set(datei, []);
+        return;
+      }
+    }
+    this.zeigeTeil(datei, true);
+  }
+
+  private zeigeTeil(datei: string, sichtbar: boolean): void {
+    for (const m of this.teile.get(datei) ?? []) m.setEnabled(sichtbar);
+  }
+
 }

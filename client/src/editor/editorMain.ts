@@ -43,6 +43,7 @@ import {
   HOCHNORD_FLORA_NAMEN,
   ASCHE_FLORA_NAMEN,
   type BiomeName,
+  type ContinentDef,
   type RegionDef,
   type WorldLayout,
 } from '@wov/shared';
@@ -93,6 +94,20 @@ import {
   sinnbild,
   stil,
 } from './design';
+// Regions-Vorlagen, Feldvalidierung, Kontinente und Startpunkt-Logik
+// (Aufgaben B2/B10) — eigene, DOM-freie Datei (Begruendung dort und in
+// befundSchwere.ts).
+import {
+  REGION_VORLAGEN,
+  kontinentEntfernen,
+  kontinentHinzufuegen,
+  setzeStartpunkt,
+  wendeVorlageAn,
+  type StartpunktZiel,
+} from './regionsWerkzeuge';
+// Eigene Spur (Roadmap B6/B7): Landflaechen-/Ueberlappungsanzeige.
+// Eigene Datei, siehe deren Kopfkommentar fuer die Begruendung.
+import { baueKartenMassAnzeige, aktualisiereKartenMassAnzeige } from './KartenMassAnzeige';
 
 const BIOME_NAMEN: BiomeName[] = [
   'grassland', 'blackforest', 'swamp', 'mountain', 'plains', 'mistlands', 'ashlands', 'deepnorth',
@@ -264,6 +279,13 @@ let zurueckKnopf: HTMLButtonElement | null = null;
 let katalogOeffnen: (() => void) | null = null;
 let gewaehlt: string | null = null;
 let werkzeug: 'auswahl' | 'form' | 'polygon' | 'platzieren' | 'fluss' | 'see' = 'auswahl';
+/**
+ * Startpunkt-Klickmodus (Aufgabe B2): 'welt' -> naechster Kartenklick
+ * setzt `layout.defaultSpawn`; { continentId } -> setzt `continent.spawn`
+ * dieses Kontinents. Eigenstaendig statt eines neuen `werkzeug`-Werts,
+ * s. Kommentar bei weltSektionBauen().
+ */
+let startpunktModus: StartpunktZiel | null = null;
 /** Offener Flusslauf (Weltbau B) + Breite/Tiefe des Werkzeugs. */
 let flussPunkte: [number, number][] = [];
 let flussBreite = 40;
@@ -389,6 +411,12 @@ const seite = shell.sektion('');
  * an fester Stelle auffindbar, egal welches Werkzeug gerade offen ist.
  */
 const pruefSeite = shell.sektion('Prüfbericht');
+/**
+ * Weltweite Angaben ohne einzelne Region: Kontinente und Startpunkt
+ * (Aufgabe B2). Eigene, IMMER sichtbare Sektion aus demselben Grund wie
+ * `pruefSeite` -- `seiteBauen()` leert nur `seite`, nicht diese hier.
+ */
+const weltSeite = shell.sektion('Welt');
 
 const vorschau = document.createElement('canvas');
 vorschau.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
@@ -789,6 +817,18 @@ overlay.addEventListener('wheel', (e) => {
 
 overlay.addEventListener('pointerdown', (e) => {
   const [wx, wz] = zuWelt(e.offsetX, e.offsetY);
+
+  if (startpunktModus) {
+    merkeSchritt();
+    layout = setzeStartpunkt(layout, startpunktModus, wx, wz);
+    const ziel = startpunktModus === 'welt' ? 'Welt-Startpunkt' : 'Kontinent-Spawn';
+    startpunktModus = null;
+    alles();
+    vorschauAnstossen();
+    shell.meldung(`${ziel} gesetzt (${Math.round(wx)}, ${Math.round(wz)}).`);
+    return;
+  }
+
   // Griff der GEWÄHLTEN Region gepackt? Dann verformen statt neu auswählen.
   const gew = layout.regions.find((r) => r.id === gewaehlt);
   if (gew) {
@@ -1797,6 +1837,68 @@ function seiteBauen(): void {
       };
     };
 
+    // ── Vorlagen (Aufgabe B10) ───────────────────────────────────────
+    // Setzt Biom, Progressionsstufe, edgeFalloff und alle Bewuchs-Regler
+    // auf einmal (Herleitung der Werte: regionsWerkzeuge.ts) -- und
+    // ERSETZT sie vollstaendig statt sie nur zu ergaenzen, sonst
+    // mischten sich zwei Vorlagen zu einer dritten, die es so nirgends
+    // gibt (dieselbe Ueberlegung wie bei den Bewuchs-Knoepfen unten).
+    const vorlagenBlock = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '6px' }));
+    vorlagenBlock.appendChild(el('div', stil({ 'font-size': '11px', color: F.gedimmt }), 'Vorlage anwenden'));
+    for (const v of REGION_VORLAGEN) {
+      const vorlagenKnopf = breiterKnopf(`${v.sinnbild} ${v.name}`, () => {
+        merkeSchritt();
+        layout = {
+          ...layout,
+          regions: layout.regions.map((r) => (r.id === region.id ? wendeVorlageAn(r, v) : r)),
+        };
+        alles();
+        vorschauAnstossen();
+        shell.meldung(`Vorlage "${v.name}" angewendet — Regler darunter bleiben justierbar.`);
+      });
+      vorlagenKnopf.title = v.hinweis;
+      vorlagenBlock.appendChild(vorlagenKnopf);
+    }
+    box.appendChild(vorlagenBlock);
+
+    // ── Kontinent (Aufgabe B2) ────────────────────────────────────────
+    // Anlegen/Löschen von Kontinenten UND deren eigener Spawn sitzen im
+    // Abschnitt „Welt" (unten in der Leiste) -- hier nur die Zuordnung
+    // DIESER Region zu einem BESTEHENDEN Kontinenten. Marken statt eines
+    // Dropdowns, wie bei der Progressionsstufe in der Eigenschaftskarte
+    // (KartenHud): „ohne" ist ein echter dritter Zustand, kein Fehlwert.
+    const kontinentBlock = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '6px' }));
+    kontinentBlock.appendChild(el('div', stil({ 'font-size': '11px', color: F.gedimmt }), 'Kontinent'));
+    if (layout.continents.length === 0) {
+      kontinentBlock.appendChild(
+        el(
+          'div',
+          stil({ 'font-size': '10.5px', color: F.gedimmt2 }),
+          'Noch keine Kontinente — im Abschnitt „Welt" weiter unten anlegen.'
+        )
+      );
+    } else {
+      const marken = el('div', stil({ display: 'flex', gap: '5px', 'flex-wrap': 'wrap' }));
+      marken.appendChild(
+        marke('ohne', region.continentId === undefined, () => {
+          ersetze({ continentId: undefined });
+          alles();
+          vorschauAnstossen();
+        })
+      );
+      for (const k of layout.continents) {
+        marken.appendChild(
+          marke(k.name, region.continentId === k.id, () => {
+            ersetze({ continentId: k.id });
+            alles();
+            vorschauAnstossen();
+          })
+        );
+      }
+      kontinentBlock.appendChild(marken);
+    }
+    box.appendChild(kontinentBlock);
+
     // ── Bewuchs der Insel ────────────────────────────────────────────
     // Drei Zustände, die im Datenmodell schon angelegt sind
     // (RegionDef.vegetation) und sich nur darin unterscheiden, WAS in der
@@ -2383,6 +2485,22 @@ function weltFeldBauen(): void {
   );
 }
 
+// ── Eigene Spur (Roadmap B6/B7): Landflaechen-/Ueberlappungsanzeige ──
+// Eigener Toolbar-Platz (Kopfzeile) und eigene Seitenleisten-Sektion;
+// Rechnung + Darstellung leben komplett in KartenMassAnzeige.ts, hier
+// nur die Verdrahtung mit dem laufenden Entwurf.
+const kartenMass = baueKartenMassAnzeige(shell);
+/** Zentriert die Karte auf einen Weltpunkt, ohne eine Region auszuwaehlen (Klick in der Ueberlappungsliste). */
+function kartenMassZentrieren(x: number, z: number): void {
+  mitteX = x;
+  mitteZ = z;
+  zeichneOverlay();
+  zeichneVorschauBild();
+}
+function kartenMassBauen(): void {
+  aktualisiereKartenMassAnzeige(kartenMass, layout, kartenMassZentrieren);
+}
+
 // ── Betriebsarten der Symbolspalte ───────────────────────────────────
 /**
  * Die sechs Einträge des Entwurfs. Fünf davon stellen die SEITENLEISTE
@@ -2882,6 +3000,149 @@ function springeZuRegion(id: string): void {
  * Läuft synchron über `layout` (klein, < 200 KB) und braucht keinen
  * Worker, anders als die Terrain-Vorschau.
  */
+/**
+ * Baut die Welt-Sektion neu (Aufgabe B2): Startpunkt (defaultSpawn) und
+ * Kontinente mit ihrem je eigenen Spawn. `startpunktModus` faengt hier
+ * KEINEN eigenen Kartenklick ab -- das tut der `pointerdown`-Handler
+ * weiter oben; diese Funktion zeichnet nur den Knopfzustand.
+ */
+function weltSektionBauen(): void {
+  weltSeite.innerHTML = '';
+
+  // ── Startpunkt ─────────────────────────────────────────────────────
+  const startBlock = el(
+    'div',
+    stil({ display: 'flex', 'flex-direction': 'column', gap: '6px', 'margin-bottom': '14px' })
+  );
+  const spawnText = layout.defaultSpawn
+    ? `${Math.round(layout.defaultSpawn[0])}, ${Math.round(layout.defaultSpawn[1])}`
+    : 'nicht gesetzt — Spawn liegt am Ursprung';
+  startBlock.appendChild(
+    el('div', stil({ 'font-size': '11px', color: F.gedimmt }), `Welt-Startpunkt: ${spawnText}`)
+  );
+  startBlock.appendChild(
+    breiterKnopf(
+      startpunktModus === 'welt' ? '… nächster Klick auf die Karte' : '🚩 Welt-Startpunkt hier setzen',
+      () => {
+        startpunktModus = startpunktModus === 'welt' ? null : 'welt';
+        weltSektionBauen();
+        if (startpunktModus === 'welt') {
+          shell.meldung('Startpunkt-Werkzeug aktiv — der nächste Klick auf die Karte setzt den Welt-Startpunkt.');
+        }
+      }
+    )
+  );
+  if (layout.defaultSpawn) {
+    startBlock.appendChild(
+      breiterKnopf('Welt-Startpunkt entfernen', () => {
+        merkeSchritt();
+        layout = { ...layout, defaultSpawn: undefined };
+        alles();
+        shell.meldung('Welt-Startpunkt entfernt — Spawn liegt wieder am Ursprung, sofern kein Kontinent einen eigenen hat.');
+      })
+    );
+  }
+  weltSeite.appendChild(startBlock);
+
+  // ── Kontinente ─────────────────────────────────────────────────────
+  weltSeite.appendChild(
+    el(
+      'div',
+      stil({ 'font-size': '11px', color: F.gedimmt, 'margin-bottom': '6px' }),
+      `Kontinente (${layout.continents.length})`
+    )
+  );
+  for (const k of layout.continents) {
+    const zeile = el(
+      'div',
+      stil({
+        display: 'flex',
+        'align-items': 'center',
+        gap: '8px',
+        padding: '7px 9px',
+        background: F.feld,
+        border: `1px solid ${F.randFeld}`,
+        'border-radius': '7px',
+        'margin-bottom': '6px',
+      })
+    );
+    const text = el(
+      'div',
+      stil({ display: 'flex', 'flex-direction': 'column', gap: '2px', flex: '1', 'min-width': '0' })
+    );
+    const amKlicken = startpunktModus !== null && startpunktModus !== 'welt' && startpunktModus.continentId === k.id;
+    text.append(
+      el('span', stil({ 'font-size': '12px', color: F.text }), k.name),
+      el(
+        'span',
+        stil({ 'font-size': '10.5px', color: F.gedimmt2 }),
+        `${k.faction ?? 'ohne Fraktion'} · Spawn: ${k.spawn ? `${Math.round(k.spawn[0])}, ${Math.round(k.spawn[1])}` : 'keiner'}`
+      )
+    );
+    zeile.appendChild(text);
+    zeile.appendChild(
+      knopf(
+        amKlicken ? '…' : '🚩',
+        () => {
+          startpunktModus = amKlicken ? null : { continentId: k.id };
+          weltSektionBauen();
+          if (startpunktModus !== null) {
+            shell.meldung(`Startpunkt-Werkzeug aktiv — der nächste Klick auf die Karte setzt den Spawn von "${k.name}".`);
+          }
+        },
+        { hoehe: M.knopfHoeheKlein, titel: `Spawn von "${k.name}" auf der Karte setzen` }
+      )
+    );
+    zeile.appendChild(
+      knopf(
+        '',
+        () => {
+          merkeSchritt();
+          layout = kontinentEntfernen(layout, k.id);
+          alles();
+          shell.meldung(`Kontinent "${k.name}" entfernt.`);
+        },
+        { hoehe: M.knopfHoeheKlein, pfad: PFAD.muelleimer, titel: `"${k.name}" löschen`, randHover: F.akzent }
+      )
+    );
+    weltSeite.appendChild(zeile);
+  }
+
+  // ── Neuer Kontinent ────────────────────────────────────────────────
+  const neuBlock = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '6px' }));
+  const nameFeld = feld('', () => {}, { breite: '100%', titel: 'Name des neuen Kontinents' });
+  const nameEingabe = nameFeld.querySelector('input')!;
+  nameEingabe.placeholder = 'Name des neuen Kontinents';
+  let neueFraktion: ContinentDef['faction'] | undefined;
+  const fraktionAuswahl = auswahl(
+    [
+      { id: '', name: 'ohne Fraktion' },
+      { id: 'saxon', name: 'Angelsachsen' },
+      { id: 'viking', name: 'Wikinger' },
+      { id: 'neutral', name: 'neutral' },
+    ],
+    '',
+    (v) => {
+      neueFraktion = v === '' ? undefined : (v as ContinentDef['faction']);
+    }
+  );
+  neuBlock.append(nameFeld, fraktionAuswahl);
+  neuBlock.appendChild(
+    breiterKnopf('+ Kontinent anlegen', () => {
+      const name = nameEingabe.value;
+      if (name.trim().length === 0) {
+        shell.meldung('Name fehlt.', true);
+        return;
+      }
+      merkeSchritt();
+      layout = kontinentHinzufuegen(layout, { name, faction: neueFraktion });
+      alles();
+      shell.meldung(`Kontinent "${name.trim()}" angelegt.`);
+    })
+  );
+  weltSeite.appendChild(neuBlock);
+}
+
 function pruefberichtBauen(): void {
   pruefSeite.innerHTML = '';
   const befunde = pruefeLayout(layout);
@@ -2954,6 +3215,8 @@ function alles(quelle: EntwurfsQuelle = 'bearbeitet'): void {
   speichereEntwurf(quelle);
   seiteBauen();
   pruefberichtBauen();
+  weltSektionBauen();
+  kartenMassBauen(); // B6/B7 -- eigene Spur, siehe KartenMassAnzeige.ts
   zeichneOverlay();
   // Jede Änderung kann den Entwurf vom Serverstand wegbewegen ODER ihn
   // (per Rückgängig) wieder darauf zurückführen — der Punkt am
@@ -3099,6 +3362,11 @@ async function weltAbgleich(): Promise<void> {
 groesseAnpassen();
 seiteBauen();
 pruefberichtBauen();
+weltSektionBauen(); // B2 -- ohne diesen Aufruf bleibt die "Welt"-Sektion leer,
+// bis alles() das erste Mal laeuft (z.B. wenn der Nutzer im
+// Abgleich-Dialog "Entwurf behalten" waehlt oder der Server nicht
+// erreichbar ist -- dort wird alles() nie aufgerufen).
+kartenMassBauen(); // B6/B7 -- eigene Spur, siehe KartenMassAnzeige.ts
 vorschauRechnen();
 // Kein `await` auf oberster Ebene: Der Aufbau oben ist synchron und
 // fertig, der Vorhang in `weltAbgleich` deckt das Fenster ab, bis der

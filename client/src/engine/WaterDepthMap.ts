@@ -49,11 +49,16 @@ import { Vector4 } from '@babylonjs/core/Maths/math';
 import type { Scene } from '@babylonjs/core/scene';
 import { HeightmapProvider, E_WIDTH, ZONE_UNITS, WATER_LEVEL } from '@wov/shared';
 import type { ClientWorld } from '../world/World';
+// Nur der Typ und die Prüffunktion des gemeinsamen Terrain-Budgets —
+// `import type` erzeugt keinen Laufzeit-Zyklus, `budgetOffen` ist eine
+// freie Funktion und kein Teil der Klasse.
+import { budgetOffen, type TerrainBudget } from './Terrain';
 
 /** Kantenlänge in Metern = Texeln. Deckt die Nahwasserfläche (512 m) ab. */
 const SIZE = 512;
 /**
- * Zeitbudget für das Nachfüllen des Puffers (ms je Frame).
+ * Warum das Nachfüllen budgetiert ist (das Fenster kommt inzwischen von
+ * aussen, s. `schritt()`).
  *
  * Vorher stand hier `ZONES_PER_FRAME = 9`, also eine feste Stückzahl. Das
  * ist genau der Fehler, den das Projekt in `Terrain`, `EntityManager` und
@@ -68,10 +73,7 @@ const SIZE = 512;
  * 124 ms brauchte. Eine einzige Spitze, sonst nichts — die Signatur einer
  * unbudgetierten Schleife.
  *
- * Vier Millisekunden sind derselbe Wert wie `TERRAIN_BUDGET_MS` und
- * `GrassClutter.CELL_BUILD_BUDGET_MS`.
  */
-const ZONEN_BUDGET_MS = 4;
 /**
  * Sollwert an Zonen je Frame — das Budget oben ist nur die OBERGRENZE.
  *
@@ -185,13 +187,19 @@ export class WaterDepthMap {
    * Zonen drin sind — ein Teil-Upload wäre sichtbar (halb alte, halb neue
    * Küste).
    */
-  schritt(): void {
+  schritt(budget: TerrainBudget): void {
     if (this.naechsteZone < 0) return;
+    // Das Zeitfenster kommt seit dem 21.08.2026 von aussen und gilt für
+    // ALLE Terrain-Posten zusammen. Vorher hatte diese Methode ein
+    // eigenes 4-ms-Budget mit eigener "mindestens eins"-Ausnahme — und
+    // konnte damit im selben Frame zuschlagen wie ein Chunk-Bau und eine
+    // Ufer-Reihe. Begründung und Messwerte: `TERRAIN_BUDGET_MS`.
+    //
+    // Aufschieben ist hier gefahrlos: Bis der neue Puffer steht, arbeitet
+    // der Shader weiter mit der alten, vollständigen Kachel (s. `zielX`).
+    if (!budgetOffen(budget)) return;
     const gesamt = this.zonenProAchse * this.zonenProAchse;
-    // Zeitbudget statt fester Stückzahl. Genau EINE Zone geht immer durch,
-    // sonst kommt der Puffer bei knappem Budget nie voran — dieselbe
-    // "mindestens eins"-Ausnahme wie in `TerrainBudget`.
-    const ende = performance.now() + ZONEN_BUDGET_MS;
+    const ende = budget.ende;
     const soll = Math.min(gesamt, this.naechsteZone + ZONEN_SOLL);
     let n = this.naechsteZone;
     for (; n < soll; n++) {
@@ -199,6 +207,7 @@ export class WaterDepthMap {
         this.zoneX0 + (n % this.zonenProAchse),
         this.zoneZ0 + Math.floor(n / this.zonenProAchse)
       );
+      budget.gebaut = true;
       if (performance.now() >= ende) {
         n++;
         break;
@@ -225,6 +234,30 @@ export class WaterDepthMap {
    */
   invalidiere(): void {
     this.naechsteZone = 0;
+  }
+
+  /**
+   * Wie `invalidiere()`, aber nur wenn eine der Zonen überhaupt auf der
+   * Kachel liegt.
+   *
+   * Der Unterschied ist nicht akademisch: Diese Methode hängt am
+   * Grabungspfad (`Terrain.refreshZones`), und der läuft bei JEDEM
+   * Hackenschlag. Ohne die Prüfung würde eine Grabung am anderen Ende der
+   * Welt — ein zweiter Spieler, eine Location beim Weltaufbau — hier
+   * einen vollen Neuaufbau über 64 Zonen auslösen.
+   */
+  invalidiereZonen(zones: ReadonlyArray<readonly [number, number]>): void {
+    for (const [zx, zz] of zones) {
+      if (
+        zx >= this.zoneX0 &&
+        zx < this.zoneX0 + this.zonenProAchse &&
+        zz >= this.zoneZ0 &&
+        zz < this.zoneZ0 + this.zonenProAchse
+      ) {
+        this.naechsteZone = 0;
+        return;
+      }
+    }
   }
 
   /**

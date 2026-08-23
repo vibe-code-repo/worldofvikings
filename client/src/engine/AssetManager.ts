@@ -69,7 +69,7 @@ const FEHLENDE_ALBEDO: Readonly<Record<string, string>> = {
  * die Thin-Instance-Puffer ihres Buckets tragen und ein zweites Prefab auf
  * denselben Mastern die Instanzen des ersten überschriebe.
  */
-const MODELL_ALIAS: Readonly<Record<string, string>> = {
+export const MODELL_ALIAS: Readonly<Record<string, string>> = {
   GrabhuegelGras: 'Grabhuegel',
 };
 
@@ -229,6 +229,26 @@ export class AssetManager {
    * ruhende Pose. Die Bewegung selbst hängt nicht daran — die kommt vom
    * Server.
    */
+  /**
+   * Spielt einen Clip GENAU EINMAL und bleibt am Ende stehen.
+   *
+   * `wechsleAnimation` startet mit `start(true)`, also in Schleife —
+   * richtig fuer Laufen und Leerlauf, falsch fuer einen Deckel, der
+   * aufgeht und offen bleibt. Rueckwaerts gespielt schliesst er wieder.
+   *
+   * Gibt zurueck, ob ein passender Clip gefunden wurde; der Aufrufer
+   * kann daran erkennen, dass ein Modell ohne Animation geliefert
+   * wurde, statt stumm nichts zu tun.
+   */
+  spieleEinmal(root: TransformNode, wunsch: string, rueckwaerts = false): boolean {
+    const gruppen = this.animGruppen.get(root);
+    const ziel = gruppen?.find((g) => g.name.toLowerCase().includes(wunsch.toLowerCase()));
+    if (!ziel) return false;
+    for (const g of gruppen ?? []) g.stop();
+    ziel.start(false, rueckwaerts ? -1 : 1, ziel.from, ziel.to);
+    return true;
+  }
+
   wechsleAnimation(root: TransformNode, wunsch: string): void {
     const gruppen = this.animGruppen.get(root);
     if (!gruppen || gruppen.length === 0) return;

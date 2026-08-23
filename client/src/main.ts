@@ -46,11 +46,26 @@ import {
   TERRAIN_HIT_OPS,
   Inventory,
   findItem,
+  unpackContainer,
   WeatherManager,
   WORLD_TIME_LENGTH,
   FRACTION_SUNRISE,
   FRACTION_MIDDAY,
   FRACTION_SUNSET,
+  FIGUREN,
+  FIGUR_VORGABE,
+  istFigur,
+  modellDateiZu,
+  FRISUREN,
+  FRISUR_VORGABE,
+  istFrisur,
+  RUESTUNG,
+  istRuestung,
+  frisurZu,
+  ruestungZu,
+  AUSSEHEN_ORDNER,
+  istAusruestungsSlot,
+  WETTER_AUTOMATISCH,
 } from '@wov/shared';
 import type { NpcDef, NpcEinordnung, TerrainComp } from '@wov/shared';
 import { createWorld, DEFAULT_OFFLINE_SEED, type ClientWorld, type ClientWorldSettings } from './world/World';
@@ -91,6 +106,8 @@ import { LoadingScreen } from './ui/LoadingScreen';
 import { Equipment } from './player/Equipment';
 import { Hotbar } from './ui/Hotbar';
 import { InventoryPanel } from './ui/InventoryPanel';
+import { ContainerPanel } from './ui/ContainerPanel';
+import { OffeneTruhe } from './entities/OffeneTruhe';
 import { PlacementController } from './player/PlacementController';
 import { PieceSelection } from './ui/PieceSelection';
 import { ObjectLabels } from './ui/ObjectLabels';
@@ -99,6 +116,7 @@ import { Namensschilder } from './ui/Namensschild';
 import { WorldMap } from './ui/WorldMap';
 import { setzeKartenMasse } from './ui/worldmap/mapTypes';
 import { SpawnPanel } from './editor/SpawnPanel';
+import { baumenueHinweis } from './player/BaumenueHinweis';
 import { RoutenEditor } from './editor/RoutenEditor';
 import { RoutenVorschau } from './editor/RoutenVorschau';
 import { BewuchsVorschau } from './editor/BewuchsVorschau';
@@ -109,6 +127,8 @@ import { DungeonEditor } from './ui/DungeonEditor';
 import { Minimap } from './ui/Minimap';
 import { LightPool } from './engine/LightPool';
 import { CraftingPanel } from './ui/CraftingPanel';
+import { CharakterPanel } from './ui/CharakterPanel';
+import { ChatPanel } from './ui/ChatPanel';
 import { GameAudio } from './engine/GameAudio';
 import {
   aktiviereWebGpuGlslKompatibilitaet,
@@ -262,10 +282,182 @@ async function main() {
   const seedInput = document.getElementById('world-seed') as HTMLInputElement;
   const genSeedBtn = document.getElementById('gen-seed-btn') as HTMLButtonElement;
   const seedHint = document.getElementById('seed-hint')!;
+  const figurSelect = document.getElementById('figur-wahl') as HTMLSelectElement;
   const timeSelect = document.getElementById('start-time') as HTMLSelectElement;
   const timeHint = document.getElementById('time-hint')!;
   const connectBtn = document.getElementById('connect-btn') as HTMLButtonElement;
   const connectStatus = document.getElementById('connect-status')!;
+
+  // ── Figurenwahl im Verbinden-Fenster ────────────────────────────────
+  //
+  // Die Eintraege kommen aus FIGUREN (shared/figuren.ts) — derselben
+  // Liste, gegen die der Server die eingehende Wahl prueft und aus der
+  // das Modell geladen wird. Die letzte Wahl steht im localStorage, damit
+  // man sie nicht bei jeder Anmeldung neu treffen muss; die WAHRHEIT ist
+  // sie nicht — der Server kennt die gespeicherte Figur des Spielstands
+  // und hat sie schon gesetzt, bevor der Client sein SetFigur schickt.
+  const FIGUR_SPEICHER = 'wov-figur';
+  for (const f of FIGUREN) {
+    const opt = document.createElement('option');
+    opt.value = f.id;
+    opt.textContent = f.name;
+    figurSelect.appendChild(opt);
+  }
+  const gemerkteFigur = localStorage.getItem(FIGUR_SPEICHER);
+  figurSelect.value = gemerkteFigur && istFigur(gemerkteFigur) ? gemerkteFigur : FIGUR_VORGABE;
+
+  // ── Uebergabe von der Charaktererstellung ──────────────────────────
+  // world-of-vikings.com/erstellen.html haengt die Wahl an die Adresse.
+  //
+  // WARUM UEBER DIE ADRESSE und nicht ueber den Server: Webseite und
+  // Spielserver sind verschiedene Ursprünge, localStorage wird zwischen
+  // ihnen nicht geteilt. Und der Weg ueber den Spielstand ist versperrt —
+  // der Server schluesselt Staende seit der Sicherheitspruefung F3 ueber
+  // eine Sitzungs-spielerId, nicht mehr ueber den frei getippten Namen,
+  // den die Webseite als einziges kennt.
+  //
+  // Manipulierbar ist so nur das EIGENE Aussehen, und das darf man
+  // ohnehin: Der Server prueft jede Kennung gegen dieselben Listen
+  // (istFigur/istFrisur/istRuestung), aus denen die Auswahl stammt.
+  const ausAdresse = new URLSearchParams(window.location.search);
+  const vonSeite = {
+    name: ausAdresse.get('name'),
+    figur: ausAdresse.get('figur'),
+    frisur: ausAdresse.get('frisur'),
+    ober: ausAdresse.get('ober'),
+    beine: ausAdresse.get('beine'),
+    // Wunschstunde (0-23) — die Seite bietet sie nur fuer das Testgestade an.
+    zeit: ausAdresse.get('zeit'),
+    // Direkt anmelden, ohne dieses Fenster zu zeigen. Die Wahl ist auf
+    // world-of-vikings.com getroffen; hier gibt es nichts mehr zu fragen.
+    //
+    // Das ist KEIN neues Recht: Der Schalter loest genau denselben Weg
+    // aus wie ein Klick auf "Verbinden", und Anmelden steht ohnehin
+    // jedem offen — der Server vergibt die Kennung selbst und traut dem
+    // Client dabei nichts. Er spart einen Klick, nicht eine Pruefung.
+    los: ausAdresse.has('los'),
+  };
+
+  // ── Charaktererstellung: Vorschau, Frisur, Ruestung ────────────────
+  // Die Auswahlen kommen aus shared/aussehen.ts — derselben Liste, gegen
+  // die der Server die eingehende Wahl prueft. Eine hier eingetragene
+  // Option waere eine zweite Wahrheit.
+  const FRISUR_SPEICHER = 'wov-frisur';
+  const RUESTUNG_SPEICHER = 'wov-ruestung';
+  const frisurSelect = document.getElementById('frisur-wahl') as HTMLSelectElement;
+  const oberSelect = document.getElementById('oberkoerper-wahl') as HTMLSelectElement;
+  const beineSelect = document.getElementById('beine-wahl') as HTMLSelectElement;
+  const vorschauCanvas = document.getElementById('vorschau-canvas') as HTMLCanvasElement;
+  const vorschauLaedt = document.getElementById('vorschau-laedt') as HTMLElement;
+  const vorschauZurueck = document.getElementById('vorschau-zurueck') as HTMLButtonElement;
+
+  for (const f of FRISUREN) {
+    const opt = document.createElement('option');
+    opt.value = f.id;
+    opt.textContent = f.name;
+    frisurSelect.appendChild(opt);
+  }
+  const gemerkteFrisur = localStorage.getItem(FRISUR_SPEICHER);
+  frisurSelect.value = gemerkteFrisur && istFrisur(gemerkteFrisur)
+    ? gemerkteFrisur : FRISUR_VORGABE;
+
+  // Ruestung je Slot, mit einer Leeroption: "nichts" ist eine gueltige
+  // Wahl und braucht keinen Sonderfall im Server.
+  const slotFelder: Array<[HTMLSelectElement, 'oberkoerper' | 'beine']> = [
+    [oberSelect, 'oberkoerper'], [beineSelect, 'beine'],
+  ];
+  for (const [feld, slot] of slotFelder) {
+    const leer = document.createElement('option');
+    leer.value = '';
+    leer.textContent = '— nichts —';
+    feld.appendChild(leer);
+    for (const r of RUESTUNG.filter((x) => x.slot === slot)) {
+      const opt = document.createElement('option');
+      opt.value = r.id;
+      opt.textContent = r.name;
+      feld.appendChild(opt);
+    }
+  }
+  const gemerkteRuestung = (() => {
+    try { return JSON.parse(localStorage.getItem(RUESTUNG_SPEICHER) ?? '{}'); }
+    catch { return {}; }
+  })() as Record<string, string>;
+  for (const [feld, slot] of slotFelder) {
+    const wert = gemerkteRuestung[slot];
+    if (istRuestung(wert) && wert) feld.value = wert;
+  }
+
+  let vorschau: import('./ui/CharakterVorschau.js').CharakterVorschau | null = null;
+  const merkeRuestung = () => {
+    localStorage.setItem(RUESTUNG_SPEICHER, JSON.stringify({
+      oberkoerper: oberSelect.value, beine: beineSelect.value,
+    }));
+  };
+  const zeigeAussehen = async () => {
+    if (!vorschau) return;
+    await vorschau.setze('frisur', frisurZu(frisurSelect.value).datei);
+    for (const [feld, slot] of slotFelder) {
+      const teil = ruestungZu(feld.value);
+      await vorschau.setze(slot, teil ? teil.datei : null);
+    }
+  };
+
+  // Die Vorschau haengt an Babylon und waere im Startpfad totes Gewicht,
+  // wenn jemand direkt in die Welt springt. Deshalb erst hier nachladen.
+  void (async () => {
+    try {
+      const mod = await import('./ui/CharakterVorschau.js');
+      vorschau = new mod.CharakterVorschau(vorschauCanvas);
+      await vorschau.ladeKoerper();
+      await zeigeAussehen();
+      vorschauLaedt.classList.add('fertig');
+    } catch (e) {
+      console.warn('[vorschau] nicht verfuegbar:', e);
+      vorschauLaedt.textContent = 'Vorschau nicht verfügbar';
+    }
+  })();
+
+  frisurSelect.addEventListener('change', () => {
+    localStorage.setItem(FRISUR_SPEICHER, frisurSelect.value);
+    void zeigeAussehen();
+  });
+  for (const [feld] of slotFelder) {
+    feld.addEventListener('change', () => { merkeRuestung(); void zeigeAussehen(); });
+  }
+  vorschauZurueck.addEventListener('click', () => vorschau?.blickZurueck());
+
+  // Was die Webseite mitgeschickt hat, schlaegt das Gemerkte — wer gerade
+  // dort gewaehlt hat, will das sehen und nicht seinen letzten Stand.
+  // Geprueft wird gegen dieselben Listen wie im Server; Unbekanntes wird
+  // still verworfen statt zu einem kaputten Zustand zu fuehren.
+  if (vonSeite.name) {
+    (document.getElementById('player-name') as HTMLInputElement).value =
+      vonSeite.name.slice(0, 24);
+  }
+  if (vonSeite.figur && istFigur(vonSeite.figur)) {
+    figurSelect.value = vonSeite.figur;
+    localStorage.setItem(FIGUR_SPEICHER, vonSeite.figur);
+  }
+  if (vonSeite.frisur && istFrisur(vonSeite.frisur)) {
+    frisurSelect.value = vonSeite.frisur;
+    localStorage.setItem(FRISUR_SPEICHER, vonSeite.frisur);
+  }
+  for (const [feld, slot] of slotFelder) {
+    const wert = slot === 'oberkoerper' ? vonSeite.ober : vonSeite.beine;
+    if (wert !== null && istRuestung(wert)) {
+      const teil = ruestungZu(wert);
+      if (!wert || (teil && teil.slot === slot)) feld.value = wert;
+    }
+  }
+  if (vonSeite.figur || vonSeite.frisur || vonSeite.ober || vonSeite.beine) {
+    merkeRuestung();
+    void zeigeAussehen();
+  }
+
+
+  figurSelect.addEventListener('change', () => {
+    localStorage.setItem(FIGUR_SPEICHER, figurSelect.value);
+  });
 
   // ── Uhrzeit-Auswahl im Verbinden-Fenster ────────────────────────────
   //
@@ -293,6 +485,15 @@ async function main() {
       o.textContent = `${String(h).padStart(2, '0')}:00${marke ? ` – ${marke}` : ''}`;
       timeSelect.appendChild(o);
     }
+  }
+
+  // Was die Seite mitgeschickt hat, in die Auswahl setzen — nicht in eine
+  // eigene Variable. Damit gibt es weiterhin nur EINE Stelle, die die
+  // gewuenschte Stunde kennt, und wer das Fenster doch zu sehen bekommt
+  // (Verbindung fehlgeschlagen), sieht dort seine Wahl stehen.
+  if (vonSeite.zeit !== null) {
+    const h = Number(vonSeite.zeit);
+    if (Number.isInteger(h) && h >= 0 && h < 24) timeSelect.value = String(h);
   }
 
   /** Gewählte Stunde, oder null für "Serverzeit übernehmen". */
@@ -346,6 +547,25 @@ async function main() {
   const input = new InputManager(canvas);
   const assets = new AssetManager(scene);
   const hud = new Hud();
+
+  // F16 (Roadmap): EINE Sammelstelle für Fehler, die sonst spurlos in der
+  // Konsole verschwinden. Anlass: In der Nacht auf den 20.08.2026 lief der
+  // Anmelde-Handshake (GameSocket.ts) in einem `void (async () => {…})()`
+  // ohne `catch` — jede Anmeldung schlug still fehl, nur ein Server-seitiger
+  // Zehn-Sekunden-Timeout deutete überhaupt auf einen Fehler hin. Diese
+  // beiden Ereignisse sind das Sicherheitsnetz für GENAU diesen Fall: jede
+  // unbehandelte Ausnahme bzw. abgelehnte Promise, egal wo im Client sie
+  // auftritt, landet jetzt sichtbar im HUD statt nur in der Konsole.
+  // `addEventListener` statt `window.onerror =` / `window.onunhandledrejection =`,
+  // damit ein künftiger zweiter Listener sich nicht gegenseitig überschreibt.
+  window.addEventListener('error', (ev) => {
+    console.error('[global] Unerwarteter Fehler:', ev.error ?? ev.message);
+    hud.meldeFehler('Unerwarteter Fehler — Einzelheiten in der Browser-Konsole (F12)', 'schwer');
+  });
+  window.addEventListener('unhandledrejection', (ev) => {
+    console.error('[global] Unbehandelte Promise-Ablehnung:', ev.reason);
+    hud.meldeFehler('Unerwarteter Fehler — Einzelheiten in der Browser-Konsole (F12)', 'schwer');
+  });
 
   // Without the pointer lock the mouse buttons do nothing and the camera can't
   // be turned — the game looks broken while it is only waiting for a click on
@@ -415,6 +635,9 @@ async function main() {
   let equipment: Equipment | null = null;
   let hotbar: Hotbar | null = null;
   let inventoryPanel: InventoryPanel | null = null;
+  let containerPanel: ContainerPanel | null = null;
+  /** Deckel-Animation der geoeffneten Truhe, s. entities/OffeneTruhe.ts. */
+  let offeneTruhe: OffeneTruhe | null = null;
   let placement: PlacementController | null = null;
   let pieceSelection: PieceSelection | null = null;
   let worldMap: WorldMap | null = null;
@@ -427,6 +650,101 @@ async function main() {
       if (!socket?.connected) return false;
       socket.sendCraft(ergebnis);
       return true;
+    }
+  );
+  /**
+   * Was die Figur tragen soll — aus DREI Quellen zusammengesetzt:
+   * Frisur aus der Charaktererstellung, Ruestung aus der ANGELEGTEN
+   * Ausruestung. Seit Kleidung aus Gegenstaenden besteht, ist das
+   * Auswahlfeld des Anmeldebildschirms nicht mehr die Wahrheit ueber das,
+   * was jemand traegt — die Ausruestung ist es. Das Feld bleibt der
+   * Startzustand fuer die Charaktererstellung.
+   *
+   * Rueckgabe: Aussehen-Slot → BLOSSER Dateiname (ohne Ordner/Endung),
+   * so wie AvatarRig und CharakterVorschau ihn erwarten.
+   */
+  const aussehenTeile = (): Record<string, string | null> => {
+    const teile: Record<string, string | null> = {
+      frisur: frisurZu(frisurSelect.value).datei,
+      oberkoerper: null,
+      beine: null,
+    };
+    const getragen = equipment?.aussehen() ?? {};
+    for (const [slot, kennung] of Object.entries(getragen)) {
+      teile[slot] = ruestungZu(kennung)?.datei ?? null;
+    }
+    return teile;
+  };
+
+  /**
+   * Dieselben Teile MIT Ordner — die Form, die `AvatarRig` braucht.
+   *
+   * Zwei Formen sind kein Versehen: `AvatarRig.ladeTeil` baut
+   * `/assets/models/<datei>.glb` und braucht den Ordner darin;
+   * `CharakterVorschau.setze` schickt seinen Namen durch `teilPfad()`,
+   * das den Ordner selbst davorsetzt. Eine gemeinsame Form haette an
+   * einer der beiden Stellen `wikingerin/wikingerin/…` ergeben.
+   */
+  const aussehenFuerRig = (): Record<string, string | null> => {
+    const teile = aussehenTeile();
+    const mitOrdner: Record<string, string | null> = {};
+    for (const [slot, datei] of Object.entries(teile)) {
+      mitOrdner[slot] = datei ? `${AUSSEHEN_ORDNER}/${datei}` : null;
+    }
+    return mitOrdner;
+  };
+
+  /** Kennungen statt Dateinamen — genau das, was SetAussehen erwartet. */
+  const aussehenKennungen = (): { frisur: string; ober: string; beine: string } => {
+    const g = equipment?.aussehen() ?? {};
+    return {
+      frisur: frisurSelect.value,
+      ober: g.oberkoerper ?? '',
+      beine: g.beine ?? '',
+    };
+  };
+
+  const charakterPanel = new CharakterPanel(
+    () => equipment,
+    aussehenTeile
+  );
+
+  /**
+   * Beide Fenster nebeneinander, sobald beide offen sind.
+   *
+   * WARUM NICHT EINS DAS ANDERE SCHLIESST (wie bisher): Gegenstaende
+   * sollen sich aus dem Inventar auf die Slots ziehen lassen. Dafuer
+   * muessen beide gleichzeitig sichtbar UND anklickbar sein.
+   */
+  const ordneFenster = (): void => {
+    const beide = charakterPanel.isVisible && inventoryPanel?.isVisible === true;
+    charakterPanel.setzePlatz(beide ? 'links' : 'mitte');
+    inventoryPanel?.setzePlatz(beide ? 'rechts' : 'mitte');
+  };
+
+  /**
+   * Aussehen an die eigene Figur legen UND melden.
+   *
+   * Beides zusammen, nie einzeln: Wer nur die eigene Figur anzieht, sieht
+   * sich richtig und alle anderen sehen den alten Stand — der Fehler,
+   * der bei F17 den halben Auftrag gekostet haette.
+   */
+  const uebernehmeAussehen = (): void => {
+    void player?.avatar.setzeAussehen(aussehenFuerRig());
+    const k = aussehenKennungen();
+    socket?.sendAussehen(k.frisur, k.ober, k.beine);
+    charakterPanel.zeichne();
+  };
+
+  // F14: Chat-Eingabe + Verlauf. `wiederFangen` verweist auf `cursorNoetig`
+  // und `input`, die beide erst weiter unten in dieser Funktion entstehen
+  // — als Closure unproblematisch, weil der Callback selbst erst durch
+  // einen Tastendruck während des laufenden Spiels aufgerufen wird, lange
+  // nach der Initialisierung.
+  const chatPanel = new ChatPanel(
+    (text, chatType) => socket?.sendChat(text, chatType),
+    () => {
+      if (!cursorNoetig()) input.captureFromGesture();
     }
   );
   let socket: GameSocket | null = null;
@@ -447,8 +765,27 @@ async function main() {
   let dungeonLadenSeit = 0;
   /** Schlag-Sperre (s) — verhindert Dauerfeuer beim Klicken. */
   let angriffCooldown = 0;
+  /**
+   * Schlagtakt in Sekunden — kürzester Abstand zwischen zwei Schlägen.
+   *
+   * Dieselbe Zahl steuert die LÄNGE der Schlaganimation (AvatarRig
+   * staucht den Clip darauf). Als Konstante statt zweier Literale, weil
+   * ein Auseinanderlaufen genau das Aussetzen erzeugt, das Mike gemeldet
+   * hat: Ein Clip, der länger dauert als der Takt, wird beim nächsten
+   * Klick mitten im Lauf neu angestossen.
+   */
+  const ANGRIFF_TAKT = 0.5;
   /** Letzte Server-Spielerposition (PlayerState) — Soft-Reconciliation. */
   let serverPos: { x: number; y: number; z: number } | null = null;
+  /**
+   * F6: letzte vom Server bestätigte Eingabe-Sequenznummer (PlayerState,
+   * angehängtes Feld). Nur ausgelesen und in der Diagnosezeile angezeigt —
+   * es gibt noch keine Vorhersage-Warteschlange, die sie zum Verwerfen
+   * bestätigter Eingaben nutzen könnte (s. client/src/net/Eingabeverwerfung.ts
+   * für die isolierte, bereits getestete Verwerfungsregel und die
+   * Begründung, warum hier aufgehört wurde).
+   */
+  let letzterBestaetigterInputSeq = -1;
   // Audio: startet mit der ersten Nutzergeste (Browser-Autoplay-Regel).
   const audio = new GameAudio();
   window.addEventListener('pointerdown', () => audio.start(), { once: true });
@@ -532,6 +869,17 @@ async function main() {
   });
   /** ?env= pins the weather — don't let the biome tracker override it. */
   let envPinned = false;
+  /**
+   * Vom Server festgenagelte Umgebung (server.yml `wetter.umgebung`),
+   * oder null.
+   *
+   * Getrennt von `envPinned` gehalten, weil der WeatherManager erst in
+   * der ersten Bildschleife entsteht — beim Eintreffen des Pakets gibt es
+   * ihn noch nicht. Der Name muss also bis dorthin liegen bleiben.
+   * `?env=` in der Adresszeile schlägt die Servervorgabe: Es ist das
+   * Werkzeug, mit dem man am laufenden Server etwas anderes ansieht.
+   */
+  let serverUmgebung: string | null = null;
 
   // ── Connect-screen seed field: only meaningful offline (see file header) ──
   function updateSeedFieldState(): void {
@@ -550,7 +898,13 @@ async function main() {
 
   const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
   urlInput.value = `${wsProto}://${location.host}/ws`;
-  nameInput.value = `Viking${Math.floor(Math.random() * 1000)}`;
+  // Zufallsname nur, wenn keiner mitgeliefert wurde. Diese Zeile lief
+  // frueher bedingungslos und ueberschrieb den Namen, den die
+  // Charaktererstellung auf world-of-vikings.com uebergeben hatte —
+  // sichtbar daran, dass aus "Sigrun" ein "Viking941" wurde.
+  if (!vonSeite.name) {
+    nameInput.value = `Viking${Math.floor(Math.random() * 1000)}`;
+  }
 
   /**
    * Zeitmessung je Abschnitt der Spielschleife (nur Diagnose).
@@ -671,7 +1025,24 @@ async function main() {
     // mehr gibt. Trifft das Paket erst später ein, greift derselbe Aufruf
     // aus seinem Handler.
     wendeTerrainCompsAn();
-    player = new PlayerController(scene, input, world, assets);
+    player = new PlayerController(scene, input, world, assets, modellDateiZu(figurSelect.value));
+    // Schlaganimation auf den Schlagtakt stauchen — wie der Sprungclip auf
+    // die Flugdauer. Der Rohclip ist mit 1,29 s deutlich laenger als der
+    // Takt; ungestaucht wirkt der Schlag traege und jeder zweite Klick
+    // faellt mitten hinein.
+    player.avatar.setAngriffDauer(ANGRIFF_TAKT);
+    // Frisur und Ruestung an die Spielfigur — dieselben Teildateien, die
+    // schon in der Vorschau steckten, jetzt am Skelett des Avatars.
+    // Der Aufruf darf vor dem Laden des Modells kommen: AvatarRig merkt
+    // sich das Aussehen und zieht es nach, sobald der Koerper da ist.
+    void player.avatar.setzeAussehen(aussehenFuerRig());
+    // Pruefzugang, NUR im Entwicklungsmodus — wie bei der Vorschau. Ohne
+    // ihn laesst sich von aussen nicht messen, ob ein Kleidungsstueck am
+    // Koerper sitzt; Babylon liegt als ES-Modul vor und nichts ist global.
+    // Vite entfernt den Zweig im Build.
+    if (import.meta.env.DEV) {
+      (window as unknown as Record<string, unknown>).__avatar = player.avatar;
+    }
     entities = new EntityManager(scene, world, assets, terrain);
     entities.setHundertFpsProfil(gameSettings.get().hundertFpsProfil);
     entities.setVegetationsGrenze(
@@ -836,6 +1207,34 @@ async function main() {
       colliderPositions: () => entities?.colliderPositions() ?? [],
       playerBody: () => player?.bodyInfo ?? null,
       teleport: (x: number, z: number, yaw: number) => player?.debugTeleport(x, z, yaw),
+      /**
+       * Intern hoeher rendern, als das Fenster gross ist — nur fuer Aufnahmen.
+       *
+       * Die Einstellung "Renderaufloesung" reicht dafuer nicht: RENDER_SCALE
+       * endet bei 1.0, also bei der Fenstergroesse. Auf einem Bildschirm mit
+       * 1080 Punkten Hoehe ist das fuer einen Hintergrundfilm zu wenig.
+       *
+       * setHardwareScalingLevel(0.5) rendert mit doppelter Kantenlaenge, also
+       * vierfacher Pixelzahl. Die Kosten steigen entsprechend — das ist ein
+       * Werkzeug fuer Aufnahmen, keine Spieleinstellung.
+       */
+      ueberaufloesung: (faktor: number) => {
+        engine.setHardwareScalingLevel(1 / faktor);
+        return engine.getHardwareScalingLevel();
+      },
+      /**
+       * Figur aus- und einblenden — fuer Hintergrundaufnahmen, in denen der
+       * Spieler nicht im Bild stehen soll (die Charaktererstellung auf
+       * world-of-vikings.com laeuft vor so einem Film).
+       *
+       * isVisible statt setEnabled: Bewegung, Kamera und Physik sollen
+       * weiterrechnen, nur gezeichnet werden soll nichts. Dasselbe Mittel
+       * benutzt AvatarRig beim Modellwechsel.
+       */
+      figur: (an: boolean) => {
+        for (const m of player?.avatar.root.getChildMeshes() ?? []) m.isVisible = an;
+        return an;
+      },
       /** Admin-Kommandozeile für Tests und Konsole: __vb.admin('dungeon list'). */
       admin: (line: string) => {
         socket?.sendAdminCommand(line);
@@ -1051,6 +1450,7 @@ async function main() {
     if (params.has('offline')) {
       for (const [name, menge] of [
         ['Hammer', 1], ['AxeFlint', 1], ['Hoe', 1], ['PickaxeAntler', 1],
+        ['Messer', 1],
         ['Cultivator', 1], ['Wood', 12], ['Stone', 30],
       ] as Array<[string, number]>) {
         inventory.addItem(findItem(name)!, menge);
@@ -1058,6 +1458,39 @@ async function main() {
     }
     hotbar = new Hotbar(inventory, equipment);
     inventoryPanel = new InventoryPanel(inventory, equipment);
+    // Ziehen aus dem Inventar auf einen Ausruestungsslot. Das Inventar
+    // kennt das Charakterfenster nicht — es fragt nur, ob jemand den
+    // Gegenstand genommen hat (s. InventoryPanel.aufFremdesZiel).
+    inventoryPanel.aufFremdesZiel = (item, ziel) => {
+      const zelle = (ziel as Element | null)?.closest<HTMLElement>('[data-slot]');
+      const slot = zelle?.dataset.slot;
+      if (!slot || !istAusruestungsSlot(slot)) return false;
+      // In den FALSCHEN Slot legen ist kein stiller Fehlschlag: Wer eine
+      // Hose auf den Kopf zieht, soll erfahren, warum nichts passiert.
+      const gehoert = equipment!.slotFuer(item);
+      if (gehoert !== slot) {
+        hud.meldung(`${item.shared.label} gehört nicht in diesen Slot`);
+        return true;
+      }
+      equipment!.equip(item, slot as import('@wov/shared').AusruestungsSlot);
+      return true;
+    };
+    // Jede Aenderung an der Ausruestung schlaegt auf Figur, Server und
+    // Fenster durch — an EINER Stelle, damit nichts davon vergessen wird.
+    equipment.onChanged(() => uebernehmeAussehen());
+    // F1 (Roadmap): Truhen-UI. aufAktion reicht die ZDOID aus dem
+    // zuletzt empfangenen ContainerSync unveraendert an den Server
+    // zurueck (s. ContainerPanel-Kopfkommentar) — der Client entscheidet
+    // nichts ueber Bestand oder Reichweite, das prueft WovServer.
+    offeneTruhe = new OffeneTruhe(assets, entities);
+    containerPanel = new ContainerPanel(inventory, (zdoUserId, zdoId, richtung, itemName, amount) => {
+      socket?.sendContainerAction(zdoUserId, zdoId, richtung, itemName, amount);
+    });
+    // Schliesst das Fenster auf welchem Weg auch immer (Escape, Klick
+    // daneben, Karte auf, Inventar auf), faellt der Deckel zu. Der
+    // Rueckruf sitzt im Fenster selbst, damit keiner der fuenf
+    // hide()-Aufrufer ihn vergessen kann.
+    containerPanel.onGeschlossen = () => offeneTruhe?.schliesse();
     placement = new PlacementController(scene, input, world, terrain, grass, player, equipment);
     // Das Mausrad zoomt die Kamera, im Baumodus wählt es aber das Stück und
     // stellt den Radius. Der PlayerController läuft hier VOR dem
@@ -1159,7 +1592,10 @@ async function main() {
       lighting.timeOfDay = Number(params.get('t'));
       lighting.paused = true;
     }
-    if (params.has('fog')) scene.fogDensity = Number(params.get('fog'));
+    // ?fog=<dichte> — schrieb bis 22.08.2026 in `scene.fogDensity` und war
+    // damit WIRKUNGSLOS: `Lighting.apply()` überschreibt den Wert im
+    // nächsten Frame. Jetzt über denselben Schalter wie die Servervorgabe.
+    if (params.has('fog')) lighting.nebelDichteFest = Number(params.get('fog'));
     // ?env=Clear|Misty|SwampRain|… pins one weather (console `env` equivalent)
     if (params.has('env')) {
       if (lighting.setEnvironmentByName(params.get('env')!)) envPinned = true;
@@ -1212,6 +1648,38 @@ async function main() {
       } else {
         buildWorld(worldSeed, settings);
       }
+    });
+
+    // Wettervorgabe des Servers (server.yml `wetter:`) — kommt direkt
+    // hinter der ServerConfig, s. WovServer.onPeerAuthenticated.
+    socket.on(PacketType.WeltWetter, (reader) => {
+      const umgebung = reader.readString();
+      const dichte = reader.readFloat32();
+
+      if (umgebung !== WETTER_AUTOMATISCH && !envPinned) {
+        if (lighting.setEnvironmentByName(umgebung)) {
+          envPinned = true;
+          serverUmgebung = umgebung;
+          // Der WeatherManager entsteht erst in der Bildschleife; ist er
+          // schon da, wird er sofort nachgezogen (Neuanmeldung ohne
+          // Seitenwechsel).
+          weather?.setEnvironmentOverride(umgebung);
+        } else {
+          // Kann nur passieren, wenn Server und Client verschiedene
+          // Umgebungslisten haben — der Server prüft den Namen selbst.
+          console.warn(`[wetter] Server nennt unbekannte Umgebung "${umgebung}"`);
+        }
+      }
+
+      // Der Server schickt NEBEL_AUTOMATISCH (negativ), wenn nichts
+      // eingestellt ist; `null` heisst hier „der Tageszeit folgen".
+      lighting.nebelDichteFest = dichte >= 0 ? dichte : null;
+
+      console.log(
+        `[wetter] Servervorgabe: Umgebung ${umgebung || '(gewürfelt)'}, ` +
+          `Nebeldichte ${dichte >= 0 ? dichte.toFixed(4) : '(nach Tageszeit)'}` +
+          (envPinned && serverUmgebung === null ? ' — ?env= aus der Adresszeile hat Vorrang' : '')
+      );
     });
 
     socket.on(PacketType.WorldLayoutData, (reader) => {
@@ -1269,9 +1737,24 @@ async function main() {
       const health = reader.readFloat32();
       const stamina = reader.readFloat32();
       if (reader.remaining >= 12) serverPos = reader.readVector3();
+      // F6: angehängtes Feld, älterer/neuerer Leser kommen sich nicht in
+      // die Quere — s. Kommentar in WovServer.sendPlayerState.
+      if (reader.remaining >= 4) letzterBestaetigterInputSeq = reader.readInt32();
       hud.setVitals(health, stamina);
       // Dieselbe Zahl im eigenen Namensschild — eine Quelle, zwei Anzeigen.
       namensschilder?.setSpielerLeben(health);
+    });
+
+    // F14: eingehende Chat-Nachricht — Reichweitenfilterung macht der
+    // Server (WovServer.handleChatMessage), der Client zeigt nur an, was
+    // ankommt.
+    socket.on(PacketType.ChatMessage, (reader) => {
+      reader.readString(); // senderId — heute ungenutzt, Name reicht für die Anzeige
+      const senderName = reader.readString();
+      const chatType = reader.readInt32();
+      const text = reader.readString();
+      reader.readVector3(); // Position des Absenders — heute ungenutzt (keine Sprechblase)
+      chatPanel.empfangen(senderName, chatType, text);
     });
 
     // D9: Endzustand des Terraformings beim Verbinden — je bearbeiteter
@@ -1288,6 +1771,10 @@ async function main() {
           offeneTerrainComps.push(dekodiereTerrainComp(roh));
         } catch (err) {
           console.warn('[terrain] TerrainComp unlesbar, übersprungen:', err);
+          // warnung, nicht hinweis: ein übersprungener Abschnitt kann ein
+          // sichtbar falsches Gelände hinterlassen (z. B. eine nicht
+          // eingetragene Grabung), auch wenn das Spiel weiterläuft.
+          hud.meldeFehler('Geländedaten teilweise beschädigt — ein Abschnitt wurde übersprungen', 'warnung');
         }
       }
       wendeTerrainCompsAn();
@@ -1340,6 +1827,23 @@ async function main() {
       } catch {
         console.error('[Client] InventorySync: kaputtes JSON');
       }
+    });
+
+    // Truheninhalt (F1, Roadmap) — kommt NUR als direkte Antwort auf das
+    // eigene Interact (Oeffnen) oder die eigene ContainerAction (s.
+    // PacketType.ContainerSync, WovServer.sendeTruheInhalt) — nie
+    // unaufgefordert fuer eine Truhe, die dieser Client gar nicht selbst
+    // gerade angefasst hat. zeigeInhalt() darf deshalb hier bedenkenlos
+    // OEFFNEN, nicht nur aktualisieren.
+    socket.on(PacketType.ContainerSync, (reader) => {
+      const zdoUserId = reader.readString();
+      const zdoId = reader.readInt32();
+      const json = reader.readString();
+      containerPanel?.zeigeInhalt(zdoUserId, zdoId, unpackContainer(json));
+      // Der Deckel geht auf. `oeffne` ist gegen Mehrfachaufrufe
+      // abgesichert — bei jedem Umschichten kommt ein neues
+      // ContainerSync, und der Deckel soll davon nicht neu aufspringen.
+      void offeneTruhe?.oeffne(`${zdoUserId}:${zdoId}`);
     });
 
     // Serverantworten auf Admin-Kommandos (dungeon enter/leave, teleport …)
@@ -1410,6 +1914,13 @@ async function main() {
 
     socket.onConnected = () => {
       netStatus = 'verbunden';
+      // Wahl melden, sobald die Verbindung steht. Der Server prueft sie
+      // und schreibt sie ans Charakter-ZDO — erst dadurch sehen die
+      // anderen Spieler dieselbe Figur wie man selbst.
+      socket?.sendFigur(figurSelect.value);
+      // Frisur und Ruestung auf demselben Weg. Ohne das saehe jeder nur
+      // sich selbst richtig — die anderen bekaemen die Vorgabefrisur.
+      socket?.sendAussehen(frisurSelect.value, oberSelect.value, beineSelect.value);
       connectScreen.style.display = 'none';
       connectStatus.textContent = '';
       connectBtn.removeAttribute('disabled');
@@ -1427,6 +1938,12 @@ async function main() {
         window.setTimeout(() => connectOnline(name, url), wartezeit);
         return;
       }
+      // Oberflaeche wieder einblenden: Wer mit F1 ausgeblendet hatte und
+      // dann die Verbindung verliert, saehe sonst einen leeren Bildschirm.
+      document.body.classList.remove('ui-versteckt');
+      // Direktanmeldung zuruecknehmen: Ab hier muss der Spieler etwas
+      // entscheiden koennen, und dafuer braucht er die Felder.
+      document.body.classList.remove('direkt');
       connectScreen.style.display = 'flex';
       connectStatus.textContent = reason ? `Getrennt: ${reason}` : 'Verbindung zum Server verloren';
       connectBtn.removeAttribute('disabled');
@@ -1435,7 +1952,7 @@ async function main() {
     netStatus = 'verbinde…';
   }
 
-  connectBtn.addEventListener('click', () => {
+  function verbinden(): void {
     const name = nameInput.value.trim() || 'Viking';
     namensschilder?.setSpielerName(name);
     connectBtn.setAttribute('disabled', 'true');
@@ -1459,7 +1976,23 @@ async function main() {
     // Wird beim ersten TimeSync eingelöst — siehe `zeitWunsch`.
     zeitWunsch = zeitGewuenscht ? (stunde! / 24) * WORLD_TIME_LENGTH : null;
     connectOnline(name, urlInput.value.trim() || `${wsProto}://${location.host}/ws`);
-  });
+  }
+
+  connectBtn.addEventListener('click', verbinden);
+
+  // ── Direktanmeldung von der Charaktererstellung (?los=1) ───────────
+  //
+  // Das Fenster bleibt im DOM und wird nur per CSS auf Ueberschrift und
+  // Statuszeile eingedampft (body.direkt in index.html). Schlaegt die
+  // Verbindung fehl, nimmt onDisconnected die Klasse weg und das
+  // vollstaendige Fenster steht da — ein Rueckweg, nicht zwei.
+  //
+  // `offline` schliesst das aus: Dort gibt es keinen Server, und der
+  // Block weiter unten hat den Fall bereits.
+  if (vonSeite.los && !params.has('offline')) {
+    document.body.classList.add('direkt');
+    verbinden();
+  }
 
   // ?offline=1 skips the connect screen for quick dev/Playwright probes.
   // ?layout=editor lädt zusätzlich den Editor-Entwurf aus localStorage —
@@ -2251,30 +2784,84 @@ async function main() {
   // was what made picking a mode and then using it fall apart.
   const cursorNoetig = (): boolean =>
     inventoryPanel?.isVisible === true ||
+    containerPanel?.isVisible === true ||
     settingsPanel.isVisible ||
     worldMap?.isVisible === true ||
     craftingPanel.isVisible ||
+    // Ohne diese Zeile bliebe die Maus gefangen, waehrend das
+    // Charakterfenster offen ist — man saehe die Liste und koennte nicht
+    // daraufklicken.
+    charakterPanel.isVisible ||
     dungeonEditor?.isVisible === true ||
     spawnEditorOffen() ||
-    routenEditorOffen();
+    routenEditorOffen() ||
+    chatPanel.istOffen;
+  /**
+   * F1 — Oberflaeche aus und wieder an.
+   *
+   * Umgesetzt als eine Klasse am <body>, nicht als Liste von Fenstern:
+   * Alles haengt direkt am Dokumentkoerper, und eine CSS-Regel erfasst
+   * damit auch, was spaeter dazukommt (siehe index.html). Eine Liste
+   * muesste jedes Mal nachgezogen werden — und ein vergessenes Element
+   * faellt erst auf dem fertigen Bildschirmfoto auf.
+   *
+   * NUR IM SPIEL: Auf dem Anmeldebildschirm wuerde die Taste das Panel
+   * mit ausblenden, und der Bildschirm waere schwarz ohne sichtbaren Weg
+   * zurueck — die Taste, die es beheben wuerde, sieht man dann ja nicht.
+   *
+   * Die Mausfang-Antwort ist dieselbe wie sonst (`!cursorNoetig()`): Das
+   * Ausblenden aendert nichts daran, ob gerade ein Fenster offen ist.
+   */
+  const uiSichtbarkeitUmschalten = (): void => {
+    if (connectScreen.style.display !== 'none') return;
+    document.body.classList.toggle('ui-versteckt');
+  };
+  input.onMenuKey('F1', () => {
+    uiSichtbarkeitUmschalten();
+    return !cursorNoetig();
+  });
+
   input.onMenuKey('KeyM', () => {
     // Die Karte braucht die Maus (Ziehen, Zoomen, Abfrage unter dem Zeiger),
     // liegt also im selben Lager wie das Inventar: Zeiger frei.
     worldMap?.toggle();
     if (worldMap?.isVisible) {
       inventoryPanel?.hide();
+      containerPanel?.hide();
       placement?.closeMenu();
     }
     return !cursorNoetig();
   });
   input.onMenuKey('KeyI', () => {
     inventoryPanel?.toggle();
-    // Opening the inventory closes the tool menu, so only one is ever up.
-    if (inventoryPanel?.isVisible) placement?.closeMenu();
+    // Das Werkzeugmenue weicht weiterhin — das Charakterfenster NICHT:
+    // Beide zusammen sind der Sinn der Sache (Ziehen von dort nach hier).
+    if (inventoryPanel?.isVisible) {
+      containerPanel?.hide();
+      placement?.closeMenu();
+    }
+    ordneFenster();
     return !cursorNoetig();
   });
   input.onMenuKey('Tab', () => {
+    // Sagen, WARUM nichts passiert. `toggleMenu()` steigt still aus, wenn
+    // das gehaltene Werkzeug keine Bauteile fuehrt — das Menue haengt an
+    // `equipment.pieceTable`, also am Gegenstand in der HAND. Mike stand
+    // am 21.08.2026 genau davor: erst die falsche Taste (B ist nur im
+    // Editor-Testflug belegt), dann die richtige ohne Hammer in der Hand,
+    // und beide Male schwieg das Spiel. Begruendung der Faelle in
+    // player/BaumenueHinweis.ts.
+    const hinweis = baumenueHinweis({
+      bauteile: placement?.pieces.length ?? 0,
+      gehalten: equipment?.rightItem?.shared.name ?? null,
+      werkzeugImInventar: (inventory?.countOf('Hammer') ?? 0) > 0,
+    });
+    if (hinweis !== null) {
+      hud.meldung(hinweis);
+      return !cursorNoetig();
+    }
     if (inventoryPanel?.isVisible) inventoryPanel.hide();
+    containerPanel?.hide();
     placement?.toggleMenu();
     return !cursorNoetig();
   });
@@ -2282,18 +2869,44 @@ async function main() {
     craftingPanel.toggle();
     if (craftingPanel.isVisible) {
       inventoryPanel?.hide();
+      containerPanel?.hide();
+      charakterPanel.hide();
       placement?.closeMenu();
     }
+    return !cursorNoetig();
+  });
+  // K wie Charakter. C waere die Gewohnheit aus anderen Spielen, ist hier
+  // aber seit langem das Handwerksfenster; I, Tab, B, E, F, P und M sind
+  // ebenfalls vergeben.
+  input.onMenuKey('KeyK', () => {
+    charakterPanel.toggle();
+    if (charakterPanel.isVisible) {
+      // Das Inventar bleibt bewusst stehen, wenn es offen ist.
+      containerPanel?.hide();
+      craftingPanel.hide();
+      placement?.closeMenu();
+    }
+    ordneFenster();
+    return !cursorNoetig();
+  });
+  input.onMenuKey('Enter', () => {
+    // Nur das ÖFFNEN läuft hier — s. Kommentar oben. Ein zweites Enter
+    // erreicht diesen Handler nie: ChatPanel stoppt die Weiterleitung an
+    // window, solange die Eingabezeile fokussiert ist.
+    if (!chatPanel.istOffen) chatPanel.oeffnen();
     return !cursorNoetig();
   });
   input.onMenuKey('Escape', () => {
     // Escape closes whatever is open. The browser drops the lock on Escape
     // anyway — this way that is a deliberate step, not a broken state.
     inventoryPanel?.hide();
+    containerPanel?.hide();
     placement?.closeMenu();
     worldMap?.hide();
     craftingPanel.hide();
+    charakterPanel.hide();
     dungeonEditor?.hide();
+    ordneFenster();
     return false;
   });
   // F4: Dungeon-Editor (Phase G) — nur sinnvoll IN einer Instanz, weil der
@@ -2405,7 +3018,8 @@ async function main() {
       weather = new WeatherManager(biome, worldTime);
       // ?env=<name> pinnt nicht nur die Optik, sondern das ganze Wetter —
       // sonst zöge der Niederschlag weiter dem Biom-Würfel hinterher.
-      if (envPinned) weather.setEnvironmentOverride(params.get('env'));
+      // Dasselbe gilt für die Servervorgabe; die Adresszeile schlägt sie.
+      if (envPinned) weather.setEnvironmentOverride(params.get('env') ?? serverUmgebung);
     }
     weather.setBiome(biome);
     const wx = weather.update(worldTime, dt);
@@ -2619,7 +3233,13 @@ async function main() {
       !placement?.selectedPiece &&
       !cursorNoetig()
     ) {
-      angriffCooldown = 0.5;
+      angriffCooldown = ANGRIFF_TAKT;
+      // Die Geste ist für Waffe UND Faust dieselbe: Was der Schlag
+      // anrichtet, entscheidet der Server anhand der geprüften Waffe
+      // (handleAttack → WAFFEN_SCHADEN, Faust = 4). Zwei Animationen
+      // hätten hier nichts zu unterscheiden — das Modell bringt genau
+      // einen Schlagclip mit.
+      player.avatar.schlage();
       socket.sendAttack(
         player.position.x,
         player.position.y,
@@ -2712,7 +3332,7 @@ async function main() {
         // Baumodus (Editor-Testflug, Taste V): sichtbar machen, WARUM die
         // Figur gerade schwebt und die Kamera so weit heraus darf.
         (player.bauModus ? `BAUMODUS  V beendet — Leer steigt, X sinkt\n` : '') +
-        `renderer ${engine.isWebGPU ? 'WebGPU' : 'WebGL2'}  pos ${player.position.x.toFixed(1)}, ${player.position.z.toFixed(1)}  h ${player.position.y.toFixed(1)}${swimming ? ' (Wasser)' : ''}\n` +
+        `renderer ${engine.isWebGPU ? 'WebGPU' : 'WebGL2'}  pos ${player.position.x.toFixed(1)}, ${player.position.z.toFixed(1)}  h ${player.position.y.toFixed(1)}${swimming ? ' (Wasser)' : ''}  seq ${letzterBestaetigterInputSeq}\n` +
         `chunks ${terrain.chunkCount} (+${terrain.queuedCount})  zdo s:${entities.staticCount} d:${entities.dynamicCount}\n` +
         `zeit ${(lighting.timeOfDay * 24).toFixed(1)}h  assets-fehler ${assets.failed.size}\n` +
         `env ${lighting.environmentName}${envPinned ? ' (pinned)' : ''}  ` +

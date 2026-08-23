@@ -93,7 +93,9 @@ export class InputManager {
       // the canvas and the next keystroke goes somewhere else entirely.
       // Space springt — der Browser würde damit sonst die Seite scrollen oder
       // ein Element betätigen, das gerade den Fokus hat.
-      if (e.code === 'Tab' || e.code === 'Space') e.preventDefault();
+      // F1 blendet die Oberflaeche aus; ohne preventDefault oeffnet der
+      // Browser stattdessen seine eigene Hilfe.
+      if (e.code === 'Tab' || e.code === 'Space' || e.code === 'F1') e.preventDefault();
       this.keys.add(e.code);
       this.keysPressed.add(e.code);
 

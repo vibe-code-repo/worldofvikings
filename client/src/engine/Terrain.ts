@@ -18,11 +18,14 @@
  * The index order matches the C++ collision mesh (Heightmap.cpp):
  * T1=(v00,v01,v10), T2=(v10,v01,v11).
  */
-import { Mesh, VertexData } from '@babylonjs/core/Meshes';
+import { Mesh, TransformNode, VertexData } from '@babylonjs/core/Meshes';
 import { PhysicsBody } from '@babylonjs/core/Physics/v2/physicsBody';
-import { PhysicsShapeMesh } from '@babylonjs/core/Physics/v2/physicsShape';
+import { PhysicsShape } from '@babylonjs/core/Physics/v2/physicsShape';
 import { misst } from './Zeitmessung';
-import { PhysicsMotionType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin';
+import {
+  PhysicsMotionType,
+  PhysicsShapeType,
+} from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Material } from '@babylonjs/core/Materials/material';
 import { Constants } from '@babylonjs/core/Engines/constants';
@@ -88,14 +91,73 @@ function blend(colors: Float32Array, vi: number, target: [number, number, number
  * mit genau EINER "mindestens eins"-Ausnahme über alle drei Kategorien
  * hinweg (s. TerrainBudget) begrenzt das auf höchstens einen
  * unbudgetierten Posten pro Frame statt bis zu drei.
+ *
+ * ── Am 21.08.2026 auf FÜNF Kategorien erweitert ──────────────────────
+ * Genau derselbe Fehler steckte noch zweimal im selben `update()`: Der
+ * Ufer-Bake und die Tiefenkarte sind SPÄTER dazugekommen und haben je
+ * ein eigenes 4-ms-Budget mit eigener "mindestens eins"-Ausnahme
+ * mitgebracht. Damit konnten in einem Frame wieder drei unbudgetierte
+ * Posten zusammentreffen: ein Chunk-Bau (~20 ms), eine Ufer-Reihe (bis
+ * 16,7 ms) und eine Tiefenkarten-Zone (bis 8,5 ms).
+ *
+ * Der Beleg dafür ist eine Zahl aus der Feinmessung, die man leicht
+ * überliest: `terrain` hatte Frames von **46,3 ms**, während KEIN
+ * einzelner Feinposten über 16,7 ms lag. Ein solcher Frame muss also
+ * mehrere enthalten haben. Chromes Ablaufspur bestätigt es von der
+ * anderen Seite: Die längsten Ereignisse des Laufs sind
+ * `FireAnimationFrame` mit bis zu 65 ms — nicht Shader-Übersetzung
+ * (0,6 ms) und nicht Speicherbereinigung (max 2,0 ms).
+ *
+ * Seither teilen sich ALLE fünf dasselbe Fenster und dieselbe eine
+ * Ausnahme. Die Reihenfolge ist damit eine Rangfolge: Collider und
+ * Nahbau zuerst (ohne sie fehlt Boden unter den Füssen), dann Ufer und
+ * Tiefenkarte, zuletzt der Fernring.
  */
 const TERRAIN_BUDGET_MS = 4;
 
-/** Gemeinsames Zeitfenster + "mindestens eins"-Flag für syncColliders()
- *  und die Chunk-Bau-Schleifen in update() — s. TERRAIN_BUDGET_MS. */
-interface TerrainBudget {
+/**
+ * Gemeinsames Zeitfenster + "mindestens eins"-Flag für den gesamten
+ * Terrain-Unterhalt eines Frames — s. TERRAIN_BUDGET_MS.
+ *
+ * Exportiert, weil die Tiefenkarte (WaterDepthMap) darin mitzählt.
+ */
+export interface TerrainBudget {
   readonly ende: number;
   gebaut: boolean;
+}
+
+/**
+ * Darf dieser Posten in diesem Frame noch arbeiten?
+ *
+ * `true`, solange das Fenster offen ist ODER in diesem Frame noch gar
+ * nichts Teures gelaufen ist — das ist die eine "mindestens eins"-
+ * Ausnahme, die verhindert, dass bei dauerhaft knappem Budget nichts
+ * mehr vorankommt.
+ */
+export function budgetOffen(budget: TerrainBudget): boolean {
+  return !budget.gebaut || performance.now() < budget.ende;
+}
+
+/**
+ * A/B-Schalter für die Messung: Teilen sich Ufer-Bake und Tiefenkarte das
+ * Fenster mit dem Rest (neu, `true`) oder haben sie wieder ihr eigenes
+ * (alt, `false`)?
+ *
+ * NUR ZUM MESSEN. Zwei Läufe in verschiedenen Sitzungen sind nicht
+ * vergleichbar, wenn sich zwischendurch die Maschine ändert — am
+ * 21.08.2026 fiel derselbe Aufbau um 18 Uhr von 80 auf 60 fps, gleichmässig
+ * über ALLE Teilsysteme, auch die unveränderten. Mit dem Schalter laufen
+ * beide Stände verschränkt im selben Zeitfenster.
+ */
+let uferUndTiefeTeilenBudget = true;
+export function budgetSchalter(an: boolean): void {
+  uferUndTiefeTeilenBudget = an;
+}
+/** Fenster für einen Posten, der den Schalter beachtet. */
+function eigenesOderGeteiltes(budget: TerrainBudget): TerrainBudget {
+  return uferUndTiefeTeilenBudget
+    ? budget
+    : { ende: performance.now() + TERRAIN_BUDGET_MS, gebaut: false };
 }
 
 // G-POP distant ring
@@ -131,26 +193,21 @@ const DEFAULT_DETAIL_QUALITY = 2;
  */
 export const WATER_STEP = 4;
 /**
- * Zeitbudget für das Backen der Ufer-Nähe (ms je Frame).
- *
+/**
  * Die Ufer-Nähe braucht einen `getGroundHeight()`-Aufruf je Wasser-Vertex
  * (129² ≈ 16,6k bei 512 m / 4 m). Neu gebacken wird, sobald das Wasser
  * umgesetzt wird — alle 64 m, beim Sprint also alle ~8,5 s.
  *
- * Vorher stand hier `SHORE_ROWS_PER_FRAME = 16` mit der Annahme, sechzehn
- * Reihen seien "unauffällig". Die Messung vom 16.08.2026 sagt etwas
- * anderes: Dieser Posten ist mit **37 % der Terrain-Zeit der grösste
- * überhaupt** — grösser als die Zonengenerierung, grösser als das
- * Havok-Cooking. Der Grund ist derselbe wie bei den drei bereits
- * korrigierten Stellen im Projekt: `getGroundHeight()` ist variabel teuer.
- * Liegt die Zone im Cache, kostet der Aufruf fast nichts; muss sie erst
- * erzeugt werden, rechnet er eine ganze Zone durch. Eine feste Reihenzahl
- * trifft damit mal nichts und mal alles.
+ * `getGroundHeight()` ist dabei variabel teuer: Liegt die Zone im Cache,
+ * kostet der Aufruf fast nichts; muss sie erst erzeugt werden, rechnet er
+ * eine ganze Zone durch. Eine feste Reihenzahl trifft damit mal nichts
+ * und mal alles — deshalb Sollwert UND Obergrenze.
  *
- * Vier Millisekunden sind derselbe Wert wie `TERRAIN_BUDGET_MS` und
- * `GrassClutter.CELL_BUILD_BUDGET_MS`.
+ * Das Zeitfenster kommt seit dem 21.08.2026 von aussen: Der Bake hatte
+ * ein eigenes 4-ms-Budget mit eigener "mindestens eins"-Ausnahme und
+ * konnte deshalb im selben Frame zuschlagen wie ein Chunk-Bau. Jetzt
+ * teilt er sich `TerrainBudget` mit allen anderen Terrain-Posten.
  */
-const UFER_BUDGET_MS = 4;
 /**
  * Sollwert an Reihen je Frame — das Budget oben ist nur die OBERGRENZE.
  *
@@ -259,6 +316,95 @@ function sstep(t: number): number {
   return t * t * (3 - 2 * t);
 }
 
+/** Vertexdaten eines Terrain-Gitters (Nah- wie Fern-Chunk). */
+interface GitterDaten {
+  positions: Float32Array;
+  normals: Float32Array;
+  /** Geteilt über alle Chunks derselben Gitterweite — s. indizesFuer(). */
+  indices: Uint32Array;
+  colors: Float32Array;
+  aTiles: Float32Array;
+  aWeights: Float32Array;
+  aLava: Float32Array;
+  aSnow: Float32Array;
+  aRockTile: Float32Array;
+  aMaskUV: Float32Array;
+}
+
+/**
+ * Ein Nah-Chunk, der über mehrere Frames entsteht.
+ *
+ * WARUM: Ein Chunk-Bau war am 21.08.2026 der letzte grosse
+ * Terrain-Ausreisser — `zonenRaster` (Weltgenerierung, bis 15,9 ms) plus
+ * `gitterbau` (4.225 Vertices, bis 18,1 ms) plus Upload liefen in EINEM
+ * Frame, und zwar unbudgetiert: Die "mindestens eins"-Ausnahme lässt
+ * genau einen solchen Posten pro Frame ungebremst durch (s.
+ * TERRAIN_BUDGET_MS). Gemessene `terrain`-Frames bis 46 ms.
+ *
+ * Jetzt ist der Bau in Schritte zerlegt, die einzeln ins Zeitfenster
+ * passen: erst die Weltgenerierung allein (die lässt sich nicht teilen —
+ * `getZone()` rechnet eine ganze Zone), dann Zeilenpakete zu je
+ * ZEILEN_JE_SCHRITT, zuletzt Mesh und Upload.
+ */
+interface TeilBau {
+  /** Linke untere Zone des Chunks. */
+  zoneX: number;
+  zoneY: number;
+  /** 1 für Nah-Chunks, FAR_ZONES_PER_CHUNK für Fern-Chunks. */
+  zonesPerSide: number;
+  /** Vertexabstand in Metern. */
+  step: number;
+  yBias: number;
+  /** Stützpunkte je Achse (65 nah, 33 fern). */
+  n: number;
+  /** Fern-Chunks werden anders abgeschlossen (kein Terraforming, kein Collider). */
+  fern: boolean;
+  daten: GitterDaten;
+  /** Nächste zu füllende Vertexzeile. */
+  zeile: number;
+  /** Wie viele der zonesPerSide² Zonen sind schon erzeugt? */
+  zonen: number;
+  /**
+   * Die erzeugten Zonen, FESTGEHALTEN bis der Chunk steht.
+   *
+   * Ohne diese Referenzen holt sich jedes Zeilenpaket seine Zonen neu aus
+   * dem LRU-Cache — und weil zwischen zwei Frames anderes durch denselben
+   * Cache läuft (Nachbarzonen für die Normalen, Ufer-Bake, Tiefenkarte),
+   * fliegt dabei eine heraus und wird komplett neu gerechnet. Gemessen am
+   * 21.08.2026, als der Teilbau noch je Paket nachschlug: `zonenRaster`
+   * von 277 auf 881 ms, `terrain` insgesamt von 1.745 auf 4.637 ms. Ein
+   * Chunk über mehrere Frames zu bauen heisst, seine Eingangsdaten über
+   * mehrere Frames zu HALTEN.
+   */
+  hms: Heightmap[];
+  /**
+   * Die vier (nah) bzw. acht (fern) ORTHOGONALEN Nachbarzonen, ebenfalls
+   * festgehalten — und zwar samt Schlüssel, weil sie nicht über `hms`
+   * erreichbar sind.
+   *
+   * Warum sie überhaupt gebraucht werden: Die Normalen entstehen aus der
+   * zentralen Differenz, also aus rx±1 / ry±1. An jeder Chunkkante zeigt
+   * das über den Rand hinaus — 65 Vertices je Seite greifen auf die
+   * Nachbarzone zu. (Diagonalen nicht: rx und ry werden nie gleichzeitig
+   * versetzt.)
+   *
+   * Warum sie festgehalten werden müssen: Sonst läuft der Zugriff über
+   * `getZone()`, und dieselbe Verdrängung wie bei `hms` schlägt zu — nur
+   * unauffälliger, weil sie in `gitterbau` landet statt in
+   * `zonenRaster`. Gemessen am 21.08.2026: Zeilenpakete bis 16,5 ms,
+   * obwohl vier Zeilen rund 1 ms kosten.
+   */
+  nachbarn: Map<string, Heightmap>;
+}
+
+/**
+ * Vertexzeilen je Schritt. 65 Zeilen kosten zusammen ~18 ms, eine also
+ * ~0,28 ms; vier Zeilen sind gut 1 ms — fein genug, um das 4-ms-Fenster
+ * nicht nennenswert zu überziehen, und grob genug, dass die Prüfung
+ * nicht mehr kostet als die Arbeit.
+ */
+const ZEILEN_JE_SCHRITT = 4;
+
 interface Chunk {
   mesh: Mesh;
   zoneX: number;
@@ -291,6 +437,8 @@ export class TerrainManager {
   readonly flatMode: boolean;
   private readonly chunks = new Map<string, Chunk>();
   private readonly buildQueue: Array<[number, number]> = [];
+  /** Der eine Nah-Chunk, der gerade über mehrere Frames entsteht. */
+  private teilBau: TeilBau | null = null;
   private readonly water: Mesh;
   // G-POP far terrain ring
   private readonly farChunks = new Map<string, FarChunk>();
@@ -309,10 +457,46 @@ export class TerrainManager {
   private readonly waterVertsPerRow: number;
   /** Nächste zu backende Zeile; -1 = nichts zu tun (siehe bakeShoreRows). */
   private shoreBakeRow = -1;
-  private shoreBakeOriginX = 0;
-  private shoreBakeOriginZ = 0;
+  /**
+   * Mitte, für die die gebackenen Tiefen gelten.
+   *
+   * Startet auf NaN, nicht auf 0: Der erste `update()`-Aufruf muss den
+   * Bake in Gang setzen, und ein Spieler, der zufällig bei (0,0) einsteigt,
+   * hätte mit 0 als Startwert dauerhaft ein Wasser ohne Ufersaum.
+   * `NaN !== NaN` erledigt das ohne zusätzliches Flag.
+   */
+  private shoreBakeOriginX = NaN;
+  private shoreBakeOriginZ = NaN;
+  /**
+   * Weltmeter je Spalte bzw. je Zeile des Wassergitters — aus den echten
+   * Mesh-Koordinaten abgeleitet, nicht angenommen: `Mesh.CreateGround`
+   * zählt z RÜCKWÄRTS. Eine geratene Richtung würde `uferUmzug()`
+   * spiegelverkehrt verschieben, und der Fehler wäre ein falscher
+   * Ufersaum — kein Absturz, also nichts, was von selbst auffällt.
+   */
+  private readonly uferSchrittX: number;
+  private readonly uferSchrittZ: number;
+  /** Mesh-lokales z des ersten Vertex — Bezug für `uferZeileFuerZ()`. */
+  private readonly uferBasisZ0: number;
+  /** Zwischenspeicher fürs Verschieben, s. uferUmzug(). */
+  private readonly uferPuffer: Float32Array;
+  /** Zeilen [von,bis), die GANZ neu zu backen sind. */
+  private uferZeileVon = 0;
+  private uferZeileBis = 0;
+  /** Spalten [von,bis), die in allen ÜBRIGEN Zeilen neu zu backen sind. */
+  private uferSpalteVon = 0;
+  private uferSpalteBis = 0;
   /** Siehe `ready` — bis dahin bleibt das Wasser unsichtbar. */
   private initialReady = false;
+  /**
+   * Zone, für die die Ring-Buchhaltung zuletzt gelaufen ist. NaN, damit
+   * der erste `update()`-Aufruf sie in jedem Fall auslöst.
+   */
+  private letzteRingZoneX = NaN;
+  private letzteRingZoneY = NaN;
+  /** Ring neu bewerten, obwohl der Spieler in derselben Zone steht —
+   *  s. update(). */
+  private ringDreckig = false;
   // "Detailgrad" setting (see DETAIL_PRESETS) — full-res / low-LOD ring radii
   private viewRadius = DETAIL_PRESETS[DEFAULT_DETAIL_QUALITY].view;
   private farRadius = DETAIL_PRESETS[DEFAULT_DETAIL_QUALITY].far;
@@ -380,6 +564,12 @@ export class TerrainManager {
     // Ufer-Schaum ab.
     this.waterDepth = new Float32Array(waterVerts);
     this.waterVertsPerRow = waterSeg + 1;
+    // Schrittweiten aus dem gebauten Gitter LESEN, s. uferSchrittX/Z.
+    this.uferSchrittX = this.waterBaseXZ[2] - this.waterBaseXZ[0];
+    this.uferSchrittZ =
+      this.waterBaseXZ[this.waterVertsPerRow * 2 + 1] - this.waterBaseXZ[1];
+    this.uferBasisZ0 = this.waterBaseXZ[1];
+    this.uferPuffer = new Float32Array(waterVerts);
     water.setVerticesData('aDepth', this.waterDepth, true, 1);
     // Plugin erst NACH setVerticesData anhängen (es meldet `aDepth` als
     // benötigtes Attribut an; fehlt der Buffer beim ersten Kompilieren,
@@ -474,22 +664,42 @@ export class TerrainManager {
    * ist. Der Shader leitet daraus Wellenamplitude (÷10 m) und Schaumsaum
    * ab — siehe WaterPlugin.ts.
    *
-   * Über mehrere Frames verteilt (SHORE_ROWS_PER_FRAME), weil je Vertex
-   * ein getGroundHeight()-Aufruf mit voller Worldgen-Noise anfällt.
+   * Über mehrere Frames verteilt (UFER_REIHEN_SOLL, Fenster aus
+   * `TerrainBudget`), weil
+   * je Vertex ein getGroundHeight()-Aufruf mit voller Worldgen-Noise
+   * anfällt.
+   *
+   * Gebacken wird NUR, was `uferUmzug()` bzw. `uferNachTerraforming()`
+   * angemeldet haben. Bis zum 21.08.2026 startete update() den Bake
+   * stattdessen sofort wieder neu, sobald er fertig war
+   * (`|| this.shoreBakeRow === -1`) — 16.641 Höhenabfragen alle acht
+   * Frames, im Stehen wie im Lauf, für ein Ergebnis, das sich ohne
+   * Ortswechsel gar nicht ändern kann. In der Messung vom 21.08. war
+   * dieser Posten mit 659 ms auf 79 s der grösste des ganzen Terrains.
+   * Das Gegenstück nebenan (WaterDepthMap) hat es immer richtig gemacht:
+   * neu aufbauen bei Ortswechsel, sonst nur auf `invalidiere()`.
    */
-  private bakeShoreRows(): void {
+  private bakeShoreRows(budget: TerrainBudget): void {
     if (this.shoreBakeRow < 0) return;
+    // Hat dieser Frame sein Fenster schon aufgebraucht, ist der Bake
+    // dran, wenn wieder Zeit ist — er hat ~8,5 s Luft (s. oben).
+    if (!budgetOffen(budget)) return;
     const perRow = this.waterVertsPerRow;
     const originX = this.shoreBakeOriginX;
     const originZ = this.shoreBakeOriginZ;
-    // Sollwert UND Obergrenze, s. UFER_REIHEN_SOLL. Die erste Reihe geht
-    // immer durch, sonst käme der Bake bei knappem Budget nie ans Ende und
-    // das Wasser bliebe dauerhaft ohne Ufersaum.
-    const ende = performance.now() + UFER_BUDGET_MS;
+    // Sollwert UND Obergrenze, s. UFER_REIHEN_SOLL.
+    const ende = budget.ende;
     const soll = Math.min(perRow, this.shoreBakeRow + UFER_REIHEN_SOLL);
     let row = this.shoreBakeRow;
     for (; row < soll; row++) {
-      for (let col = 0; col < perRow; col++) {
+      // Nach einem 64-m-Umzug ist der grösste Teil des Gitters verschoben
+      // und damit gültig — neu sind nur der Randstreifen in Laufrichtung
+      // (ganze Zeilen) und, quer dazu, ein Spaltenstreifen in den übrigen
+      // Zeilen. Ohne diese Unterscheidung würde jede Zeile voll gerechnet.
+      const ganzeZeile = row >= this.uferZeileVon && row < this.uferZeileBis;
+      const spalteVon = ganzeZeile ? 0 : this.uferSpalteVon;
+      const spalteBis = ganzeZeile ? perRow : this.uferSpalteBis;
+      for (let col = spalteVon; col < spalteBis; col++) {
         const i = row * perRow + col;
         const x = this.waterBaseXZ[i * 2] + originX;
         const z = this.waterBaseXZ[i * 2 + 1] + originZ;
@@ -501,6 +711,7 @@ export class TerrainManager {
       }
       // Nach der Reihe prüfen, nicht davor: so ist die "mindestens eins"-
       // Ausnahme ohne zweiten Zähler erfüllt.
+      budget.gebaut = true;
       if (performance.now() >= ende) {
         row++;
         break;
@@ -511,6 +722,125 @@ export class TerrainManager {
       this.shoreBakeRow = -1;
       this.water.updateVerticesData('aDepth', this.waterDepth);
     }
+  }
+
+  /** Das ganze Gitter neu backen — Ersteinstieg, Teleport, Terraforming
+   *  während eines laufenden Bakes. */
+  private uferVollNeu(): void {
+    this.uferZeileVon = 0;
+    this.uferZeileBis = this.waterVertsPerRow;
+    this.uferSpalteVon = 0;
+    this.uferSpalteBis = 0;
+    this.shoreBakeRow = 0;
+  }
+
+  /**
+   * Das Wasser ist auf eine neue Zonenmitte gerückt.
+   *
+   * Statt alle 129×129 Tiefen neu zu rechnen, wird der überlappende Teil
+   * VERSCHOBEN: Bei 64 m Versatz sind 16 von 129 Spalten wirklich neu, die
+   * übrigen 113 stehen schon da. Das ist keine Näherung — die Tiefe hängt
+   * ausschliesslich an der Weltposition, ein verschobener Wert ist
+   * derselbe Wert.
+   *
+   * Gerechnet wird über Index-Verschiebungen, nicht über Koordinaten:
+   * `neu[i]` gilt für dieselbe Weltstelle wie `alt[i + dcol + drow*perRow]`.
+   */
+  private uferUmzug(wx: number, wz: number): void {
+    const perRow = this.waterVertsPerRow;
+    const dcol = Math.round((wx - this.shoreBakeOriginX) / this.uferSchrittX);
+    const drow = Math.round((wz - this.shoreBakeOriginZ) / this.uferSchrittZ);
+    this.shoreBakeOriginX = wx;
+    this.shoreBakeOriginZ = wz;
+    // Voll neu, wenn nichts zu verschieben ist: erster Aufruf (Origin NaN),
+    // Sprung über die Kachel hinaus (Teleport) — oder ein noch laufender
+    // Bake, dessen Zeilen teils zur alten, teils zur neuen Mitte gehören.
+    // Verschieben würde beide Stände vermischen, und das Ergebnis wäre ein
+    // Ufersaum, der um 64 m daneben liegt.
+    if (
+      !Number.isFinite(dcol) ||
+      !Number.isFinite(drow) ||
+      Math.abs(dcol) >= perRow ||
+      Math.abs(drow) >= perRow ||
+      this.shoreBakeRow !== -1
+    ) {
+      this.uferVollNeu();
+      return;
+    }
+    if (dcol === 0 && drow === 0) return;
+
+    this.uferPuffer.set(this.waterDepth);
+    for (let row = 0; row < perRow; row++) {
+      const qrow = row + drow;
+      if (qrow < 0 || qrow >= perRow) continue;
+      const ziel = row * perRow;
+      const quelle = qrow * perRow;
+      for (let col = 0; col < perRow; col++) {
+        const qcol = col + dcol;
+        if (qcol < 0 || qcol >= perRow) continue;
+        this.waterDepth[ziel + col] = this.uferPuffer[quelle + qcol];
+      }
+    }
+
+    // Was aus dem alten Gitter herausfällt, ist neu zu rechnen.
+    if (drow > 0) {
+      this.uferZeileVon = perRow - drow;
+      this.uferZeileBis = perRow;
+    } else if (drow < 0) {
+      this.uferZeileVon = 0;
+      this.uferZeileBis = -drow;
+    } else {
+      this.uferZeileVon = 0;
+      this.uferZeileBis = 0;
+    }
+    if (dcol > 0) {
+      this.uferSpalteVon = perRow - dcol;
+      this.uferSpalteBis = perRow;
+    } else if (dcol < 0) {
+      this.uferSpalteVon = 0;
+      this.uferSpalteBis = -dcol;
+    } else {
+      this.uferSpalteVon = 0;
+      this.uferSpalteBis = 0;
+    }
+    this.shoreBakeRow = 0;
+  }
+
+  /**
+   * Nach dem Graben: Über den geänderten Zonen stimmt die gebackene
+   * Wassertiefe nicht mehr. Gegenstück zu `WaterDepthMap.invalidiere()`.
+   *
+   * Angemeldet werden die betroffenen ZEILEN in voller Breite statt des
+   * genauen Rechtecks. Das rechnet etwas mehr als nötig (16 Zeilen à 129
+   * Werte statt 16×16), bleibt dafür bei EINEM Bereichsmodell — zwei
+   * Rechtecke zu verschneiden wäre mehr Code als die 2.000 Höhenabfragen
+   * kosten, die es spart.
+   */
+  private uferNachTerraforming(zones: ReadonlyArray<readonly [number, number]>): void {
+    if (zones.length === 0 || !Number.isFinite(this.shoreBakeOriginZ)) return;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const [, zy] of zones) {
+      minZ = Math.min(minZ, zy * ZONE_UNITS - ZONE_UNITS / 2);
+      maxZ = Math.max(maxZ, zy * ZONE_UNITS + ZONE_UNITS / 2);
+    }
+    const perRow = this.waterVertsPerRow;
+    const zeile = (z: number): number =>
+      (z - this.shoreBakeOriginZ - this.uferBasisZ0) / this.uferSchrittZ;
+    const a = Math.max(0, Math.floor(Math.min(zeile(minZ), zeile(maxZ))));
+    const b = Math.min(perRow, Math.ceil(Math.max(zeile(minZ), zeile(maxZ))) + 1);
+    if (a >= b) return; // ausserhalb der Wasserkachel — nichts zu tun
+    if (this.shoreBakeRow !== -1) {
+      // Ein laufender Bake hat einen eigenen Bereich; statt zwei Bereiche
+      // zu vereinigen, wird der seltene Fall voll gerechnet.
+      this.uferVollNeu();
+      return;
+    }
+    this.uferZeileVon = a;
+    this.uferZeileBis = b;
+    this.uferSpalteVon = 0;
+    this.uferSpalteBis = 0;
+    this.shoreBakeRow = a;
   }
 
   /**
@@ -534,6 +864,10 @@ export class TerrainManager {
     const preset = DETAIL_PRESETS[Math.max(0, Math.min(DETAIL_PRESETS.length - 1, level))];
     this.viewRadius = preset.view;
     this.farRadius = preset.far;
+    // Der Ring ändert sich, ohne dass der Spieler die Zone wechselt —
+    // ohne diese Marke bliebe die Einstellung bis zum nächsten
+    // Zonenwechsel wirkungslos (s. update()).
+    this.ringDreckig = true;
   }
 
   /**
@@ -572,6 +906,11 @@ export class TerrainManager {
     this.scene.blockMaterialDirtyMechanism = gesperrt;
   }
 
+  /** Nur zum Messen: A/B-Schalter fuers gemeinsame Budget, s. budgetSchalter(). */
+  setzeBudgetGeteilt(an: boolean): void {
+    budgetSchalter(an);
+  }
+
   /** Call every frame with the camera/player position. */
   update(px: number, pz: number, elapsed: number): void {
     const cz = HeightmapProvider.worldToZone(px);
@@ -583,56 +922,96 @@ export class TerrainManager {
 
     misst('terrain.colliderSync', () => this.syncColliders(cz, cw, budget));
 
-    // queue missing chunks inside the ring (center-out)
-    misst('terrain.ringScan', () => {
-    for (let r = 0; r <= this.viewRadius; r++) {
-      for (let dy = -r; dy <= r; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-          const zx = cz + dx;
-          const zy = cw + dy;
-          const key = `${zx},${zy}`;
-          if (!this.chunks.has(key) && !this.buildQueue.some(([qx, qy]) => qx === zx && qy === zy)) {
-            this.buildQueue.push([zx, zy]);
+    /**
+     * Ring-Buchhaltung nur bei Zonenwechsel.
+     *
+     * Welche Zonen im Ring fehlen, welche herausfallen und welche
+     * Fern-Chunks anstehen, hängt AUSSCHLIESSLICH an der Zone, in der der
+     * Spieler steht — und die wechselt beim Sprinten alle ~8,5 s, nicht
+     * 60-mal je Sekunde. Trotzdem liefen alle drei Schleifen in jedem
+     * Frame: 121 Zonen absuchen (mit einer linearen Suche über die
+     * Bauliste je Zone), die Chunk-Liste durchgehen und die Fern-Liste
+     * neu aufbauen UND sortieren.
+     *
+     * Gemessen am 21.08.2026 über 79 s Sprint: `fernRing` 424 ms,
+     * `ringScan` 251 ms, `chunkVerwerfen` 90 ms — zusammen 765 ms oder
+     * 22 % der gesamten Terrain-Zeit, für ein Ergebnis, das sich in 99 %
+     * der Frames nicht ändern kann. Dieselbe Krankheit wie beim
+     * Ufer-Bake (s. bakeShoreRows), nur an drei weiteren Stellen.
+     *
+     * `ringDreckig` deckt die Fälle ab, in denen sich die Lage OHNE
+     * Zonenwechsel ändert: Terraforming wirft Chunks weg (rebuildZones),
+     * und die Einstellung "Detailgrad" ändert den Radius.
+     */
+    if (cz !== this.letzteRingZoneX || cw !== this.letzteRingZoneY || this.ringDreckig) {
+      this.letzteRingZoneX = cz;
+      this.letzteRingZoneY = cw;
+      this.ringDreckig = false;
+
+      // queue missing chunks inside the ring (center-out)
+      misst('terrain.ringScan', () => {
+        for (let r = 0; r <= this.viewRadius; r++) {
+          for (let dy = -r; dy <= r; dy++) {
+            for (let dx = -r; dx <= r; dx++) {
+              if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+              const zx = cz + dx;
+              const zy = cw + dy;
+              const key = `${zx},${zy}`;
+              if (
+                !this.chunks.has(key) &&
+                !this.buildQueue.some(([qx, qy]) => qx === zx && qy === zy)
+              ) {
+                this.buildQueue.push([zx, zy]);
+              }
+            }
           }
         }
-      }
-    }
-    });
+      });
 
-    // drop chunks outside the ring
-    misst('terrain.chunkVerwerfen', () => {
-    for (const [key, chunk] of this.chunks) {
-      if (Math.max(Math.abs(chunk.zoneX - cz), Math.abs(chunk.zoneY - cw)) > this.viewRadius + 1) {
-        chunk.mesh.dispose();
-        this.chunks.delete(key);
-      }
-    }
-    });
+      // drop chunks outside the ring
+      misst('terrain.chunkVerwerfen', () => {
+        // Auch den halbfertigen: Wer aus dem Ring gelaufen ist, braucht
+        // ihn nicht mehr, und die halb gefüllten Puffer wären beim
+        // nächsten Bedarf ohnehin neu zu rechnen.
+        if (
+          this.teilBau &&
+          Math.max(Math.abs(this.teilBau.zoneX - cz), Math.abs(this.teilBau.zoneY - cw)) >
+            this.viewRadius + 1
+        ) {
+          this.teilBau = null;
+        }
+        for (const [key, chunk] of this.chunks) {
+          if (
+            Math.max(Math.abs(chunk.zoneX - cz), Math.abs(chunk.zoneY - cw)) >
+            this.viewRadius + 1
+          ) {
+            chunk.mesh.dispose();
+            this.chunks.delete(key);
+          }
+        }
+      });
 
-    // budgeted near builds — teilt sich `budget` mit syncColliders() und
-    // dem Fernbau unten, s. TERRAIN_BUDGET_MS.
-    while (this.buildQueue.length > 0 && (!budget.gebaut || performance.now() < budget.ende)) {
-      const [zx, zy] = this.buildQueue.shift()!;
-      if (this.chunks.has(`${zx},${zy}`)) continue;
-      this.buildChunk(zx, zy);
-      budget.gebaut = true;
+      // G-POP: far chunk ring — queue/dispose
+      misst('terrain.fernRing', () => this.refreshFarChunks(cz, cw));
     }
 
-    // G-POP: far chunk ring — queue/dispose
-    misst('terrain.fernRing', () => this.refreshFarChunks(cz, cw));
-    // budgeted far builds (only when no near chunk is pending), gleiches
-    // Budget wie oben.
-    if (this.buildQueue.length === 0) {
-      while (
-        this.farBuildQueue.length > 0 &&
-        (!budget.gebaut || performance.now() < budget.ende)
-      ) {
-        const [fx, fy] = this.farBuildQueue.shift()!;
-        if (this.farChunks.has(`${fx},${fy}`)) continue;
-        this.buildFarChunk(fx, fy);
-        budget.gebaut = true;
+    // Nahbau hat Vorrang vor dem Fernbau: Steht ein Nah-Chunk an, wird ein
+    // laufender FERN-Teilbau verworfen. Gelände unter den Füssen geht vor
+    // grobem Fernbild, und der Fern-Chunk wird sofort wieder eingereiht —
+    // refreshFarChunks() baut die Fernliste bei jedem Zonenwechsel neu auf,
+    // und nur dann entstehen überhaupt neue Nah-Chunks.
+    if (this.teilBau?.fern && this.buildQueue.length > 0) this.teilBau = null;
+
+    // Teilbau-Schleife: den laufenden Chunk weiterführen oder den nächsten
+    // aus der Nah-Warteschlange beginnen. Teilt sich `budget` mit
+    // syncColliders() und allem Weiteren, s. TERRAIN_BUDGET_MS.
+    while (budgetOffen(budget) && (this.teilBau !== null || this.buildQueue.length > 0)) {
+      if (this.teilBau === null) {
+        const [zx, zy] = this.buildQueue.shift()!;
+        if (this.chunks.has(`${zx},${zy}`)) continue;
+        this.teilBau = TerrainManager.teilBauBeginnen(zx, zy, 1, 1, 0, false);
       }
+      this.teilBauSchritt(budget);
     }
 
     // water follows the player (snapped to zone grid for wave phase stability)
@@ -643,18 +1022,45 @@ export class TerrainManager {
     this.waterRing.position.x = wx;
     this.waterRing.position.z = wz;
 
-    // Ufer-Nähe neu backen, sobald das Wasser umgesetzt wurde
-    if (wx !== this.shoreBakeOriginX || wz !== this.shoreBakeOriginZ || this.shoreBakeRow === -1) {
-      if (wx !== this.shoreBakeOriginX || wz !== this.shoreBakeOriginZ) {
-        this.shoreBakeOriginX = wx;
-        this.shoreBakeOriginZ = wz;
-      }
-      this.shoreBakeRow = 0;
+    // Ufer-Nähe nachziehen, sobald das Wasser umgesetzt wurde — und NUR
+    // dann. Hier stand bis zum 21.08.2026 zusätzlich `|| shoreBakeRow ===
+    // -1`, was den fertigen Bake sofort wieder von vorn startete; s.
+    // bakeShoreRows().
+    if (wx !== this.shoreBakeOriginX || wz !== this.shoreBakeOriginZ) {
+      this.uferUmzug(wx, wz);
     }
-    misst('terrain.uferBacken', () => this.bakeShoreRows());
+    misst('terrain.uferBacken', () => this.bakeShoreRows(eigenesOderGeteiltes(budget)));
     // Tiefenkarte fürs Fragment — dieselbe gesnappte Mitte wie die Meshes.
     this.depthMap.setzeMitte(wx, wz);
-    misst('terrain.tiefenkarte', () => this.depthMap.schritt());
+    misst('terrain.tiefenkarte', () => this.depthMap.schritt(eigenesOderGeteiltes(budget)));
+
+    // Fernbau ZULETZT und nur, wenn kein Nah-Chunk aussteht: Er ist der
+    // Posten, dessen Fehlen am wenigsten weh tut (grobes Gelände jenseits
+    // von 640 m). Vor dem 21.08.2026 stand er vor Ufer und Tiefenkarte
+    // und konnte ihnen das Fenster wegnehmen.
+    // Auch der Fernbau läuft über TeilBau: Ein Fern-Chunk deckt 2×2 Zonen
+    // ab, und die vier Zonengenerierungen in einem Frame waren nach der
+    // Zerlegung des Nahbaus der grösste verbliebene Ausreisser
+    // (`terrain`-Frames bis 46 ms, während kein Feinposten über 17 ms lag
+    // — die Zeit steckte im nicht einzeln gemessenen buildFarChunk).
+    while (
+      this.teilBau === null &&
+      this.buildQueue.length === 0 &&
+      this.farBuildQueue.length > 0 &&
+      budgetOffen(budget)
+    ) {
+      const [fx, fy] = this.farBuildQueue.shift()!;
+      if (this.farChunks.has(`${fx},${fy}`)) continue;
+      this.teilBau = TerrainManager.teilBauBeginnen(
+        fx * FAR_ZONES_PER_CHUNK,
+        fy * FAR_ZONES_PER_CHUNK,
+        FAR_ZONES_PER_CHUNK,
+        FAR_STRIDE,
+        FAR_BIAS,
+        true
+      );
+      while (this.teilBau !== null && budgetOffen(budget)) this.teilBauSchritt(budget);
+    }
 
     // Nah-Ring vollständig + Ufer-Nähe einmal gebacken ⇒ Wasser einblenden
     // und den Ladebildschirm freigeben.
@@ -697,6 +1103,11 @@ export class TerrainManager {
   rebuildZones(zones: ReadonlyArray<readonly [number, number]>): void {
     // Der Meeresgrund hat sich geändert — die Wassertiefe stimmt nicht mehr.
     if (zones.length > 0) this.depthMap.invalidiere();
+    this.uferNachTerraforming(zones);
+    // Hier fallen Chunks weg, ohne dass der Spieler die Zone wechselt —
+    // der Ring muss sie neu einreihen (s. update()).
+    if (zones.length > 0) this.ringDreckig = true;
+    this.verwerfeTeilBau(zones);
     for (const [zx, zy] of zones) {
       const chunk = this.chunks.get(`${zx},${zy}`);
       if (chunk) {
@@ -782,11 +1193,20 @@ export class TerrainManager {
     zy0: number,
     zonesPerSide: number,
     step: number,
-    yBias: number
-  ): { positions: Float32Array; normals: Float32Array; indices: Uint32Array;
-       colors: Float32Array;
-       aTiles: Float32Array; aWeights: Float32Array; aLava: Float32Array;
-       aSnow: Float32Array; aRockTile: Float32Array; aMaskUV: Float32Array } {
+    yBias: number,
+    /**
+     * Zielpuffer für einen TEILBAU. Ist er gesetzt, werden nur die Zeilen
+     * `[zeileVon, zeileBis)` hineingeschrieben und nichts belegt — so
+     * lässt sich ein Chunk über mehrere Frames bauen (s. TeilBau).
+     */
+    ziel?: GitterDaten,
+    zeileVon = 0,
+    zeileBis = Number.POSITIVE_INFINITY,
+    /** Bereits erzeugte Zonen des Teilbaus — s. TeilBau.hms. */
+    hmsVorgabe?: Heightmap[],
+    /** Festgehaltene Nachbarzonen des Teilbaus — s. TeilBau.nachbarn. */
+    nachbarnVorgabe?: Map<string, Heightmap>
+  ): GitterDaten {
     const n = (zonesPerSide * ZONE_UNITS) / step + 1; // vertices per axis
     const ox = zx0 * ZONE_UNITS - ZONE_UNITS / 2;
     const oz = zy0 * ZONE_UNITS - ZONE_UNITS / 2;
@@ -802,15 +1222,17 @@ export class TerrainManager {
     // rund hundertmal langsamer waere als eine gewoehnliche
     // Rauschfunktion. Entweder stimmt die Annahme nicht, oder hier liegt
     // ein algorithmisches Problem.
-    const hms: Heightmap[] = misst('terrain.zonenRaster', () => {
-      const raus: Heightmap[] = [];
-      for (let dz = 0; dz < zonesPerSide; dz++) {
-        for (let dx = 0; dx < zonesPerSide; dx++) {
-          raus.push(this.world.heightmaps.getZone(zx0 + dx, zy0 + dz));
+    const hms: Heightmap[] =
+      hmsVorgabe ??
+      misst('terrain.zonenRaster', () => {
+        const raus: Heightmap[] = [];
+        for (let dz = 0; dz < zonesPerSide; dz++) {
+          for (let dx = 0; dx < zonesPerSide; dx++) {
+            raus.push(this.world.heightmaps.getZone(zx0 + dx, zy0 + dz));
+          }
         }
-      }
-      return raus;
-    });
+        return raus;
+      });
     const hmAt = (dx: number, dz: number): Heightmap => hms[dz * zonesPerSide + dx];
 
     /**
@@ -835,24 +1257,20 @@ export class TerrainManager {
           return hmAt(dx, dz).heights[ry * E_WIDTH + rx];
         }
       }
-      return this.heightAcrossZones(zx, zy, rx, ry);
+      return this.heightAcrossZones(zx, zy, rx, ry, nachbarnVorgabe);
     };
 
-    const positions = new Float32Array(vertexCount * 3);
-    const normals = new Float32Array(vertexCount * 3);
-    const colors = new Float32Array(vertexCount * 3);
-    const aTiles = new Float32Array(vertexCount * 4);
-    const aWeights = new Float32Array(vertexCount * 4);
-    const aLava = new Float32Array(vertexCount);
-    const aSnow = new Float32Array(vertexCount);
-    const aRockTile = new Float32Array(vertexCount);
-    const aMaskUV = new Float32Array(vertexCount * 2);
+    const daten = ziel ?? TerrainManager.leererGitterPuffer(vertexCount, n);
+    const { positions, normals, colors, aTiles, aWeights, aLava, aSnow, aRockTile, aMaskUV } =
+      daten;
     // Fern-Chunks decken 2×2 Zonen ab und zeigen kein Paint (wie im Original,
     // wo entfernte Heightmaps TerrainComp überspringen) — sie bekommen den
     // dauerhaft leeren Atlas-Slot.
     const farMaskUV = zonesPerSide > 1 ? maskUVEmpty() : null;
 
-    for (let iy = 0; iy < n; iy++) {
+    const von = Math.max(0, zeileVon);
+    const bis = Math.min(n, zeileBis);
+    for (let iy = von; iy < bis; iy++) {
       const wz = oz + iy * step;
       const dz = Math.min(zonesPerSide - 1, (iy * step) / ZONE_UNITS | 0);
       const ry = iy * step - dz * ZONE_UNITS;
@@ -944,6 +1362,27 @@ export class TerrainManager {
       }
     }
 
+    return daten;
+  }
+
+  /**
+   * Leerer Gitterpuffer samt Indexliste.
+   *
+   * Die Indexliste hängt NUR an der Gitterweite: Jeder Nah-Chunk hat
+   * dieselben 24.576 Indizes über 65×65 Stützpunkte, jeder Fern-Chunk
+   * dieselben über 33×33. Sie wird deshalb je Weite EINMAL gebaut und
+   * von allen Chunks geteilt statt je Chunk neu gerechnet und belegt
+   * (98 KB und 24.576 Schleifendurchläufe pro Chunk).
+   *
+   * Geteilt heisst: niemand darf sie verändern. Das tut auch niemand —
+   * Terraforming schreibt ausschliesslich Positionen, Normalen und
+   * `aSnow` um (s. refreshZones), die Topologie bleibt immer dieselbe.
+   */
+  private static readonly indexCache = new Map<number, Uint32Array>();
+
+  private static indizesFuer(n: number): Uint32Array {
+    const da = TerrainManager.indexCache.get(n);
+    if (da) return da;
     // Indices: T1=(v00,v01,v10), T2=(v10,v01,v11) — matches C++ Heightmap.cpp
     const cells = n - 1;
     const indices = new Uint32Array(cells * cells * 6);
@@ -958,8 +1397,23 @@ export class TerrainManager {
         indices[ii++] = v10; indices[ii++] = v01; indices[ii++] = v11;
       }
     }
+    TerrainManager.indexCache.set(n, indices);
+    return indices;
+  }
 
-    return { positions, normals, indices, colors, aTiles, aWeights, aLava, aSnow, aRockTile, aMaskUV };
+  private static leererGitterPuffer(vertexCount: number, n: number): GitterDaten {
+    return {
+      positions: new Float32Array(vertexCount * 3),
+      normals: new Float32Array(vertexCount * 3),
+      indices: TerrainManager.indizesFuer(n),
+      colors: new Float32Array(vertexCount * 3),
+      aTiles: new Float32Array(vertexCount * 4),
+      aWeights: new Float32Array(vertexCount * 4),
+      aLava: new Float32Array(vertexCount),
+      aSnow: new Float32Array(vertexCount),
+      aRockTile: new Float32Array(vertexCount),
+      aMaskUV: new Float32Array(vertexCount * 2),
+    };
   }
 
   // ── Collision ────────────────────────────────────────────────────
@@ -972,7 +1426,19 @@ export class TerrainManager {
 
   /** Chebyshev radius in zones that carries a ground collider. */
   private static readonly COLLIDER_RADIUS = 1;
-  private readonly groundBodies = new Map<string, PhysicsBody>();
+  /**
+   * Je Zone der Körper UND sein Trägerknoten.
+   *
+   * Der Knoten ist neu mit dem Höhenfeld (P2): Ein HEIGHTFIELD liegt in
+   * seinem EIGENEN lokalen System (Mitte des Feldes = Ursprung), während
+   * die Chunk-Meshes ihre Vertices in Weltkoordinaten führen und selbst
+   * am Nullpunkt stehen. Hinge der Körper am Mesh, läge das Höhenfeld um
+   * die Zonenkoordinate daneben.
+   */
+  private readonly groundBodies = new Map<
+    string,
+    { body: PhysicsBody; knoten: TransformNode }
+  >();
   private physicsEnabled = false;
 
   /** Called once Havok is up (initPhysics resolves asynchronously). */
@@ -988,17 +1454,17 @@ export class TerrainManager {
    * Sprinten ~8,5 s) bringt bis zu drei neue Zonen auf einmal in den
    * 3×3-Ring (die Vorderkante in Laufrichtung); ohne Budget cookte das für
    * alle drei synchron im selben Frame PhysicsShapeMesh — eine Havok-BVH
-   * über ~8k Dreiecke je Zone.
+   * über ~8k Dreiecke je Zone. Seit P2 ist es ein Höhenfeld ohne BVH, das
+   * Budget bleibt trotzdem: Der Aufbau kostet weiterhin etwas, und die
+   * Begründung "alle drei im selben Frame" gilt unverändert.
    */
   private syncColliders(cz: number, cw: number, budget: TerrainBudget): void {
     if (!this.physicsEnabled) return;
     const r = TerrainManager.COLLIDER_RADIUS;
-    for (const [key, body] of this.groundBodies) {
+    for (const [key, eintrag] of this.groundBodies) {
       const [zx, zy] = key.split(',').map(Number);
       if (Math.max(Math.abs(zx - cz), Math.abs(zy - cw)) > r) {
-        body.shape?.dispose();
-        body.dispose();
-        this.groundBodies.delete(key);
+        this.entferneGroundBody(key, eintrag);
       }
     }
     // Neue Collider verteilt aufbauen statt alle im selben Frame.
@@ -1007,44 +1473,216 @@ export class TerrainManager {
     // oben überspringt bereits vorhandene).
     outer: for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
-        if (budget.gebaut && performance.now() >= budget.ende) break outer;
+        if (!budgetOffen(budget)) break outer;
         const key = `${cz + dx},${cw + dy}`;
         if (this.groundBodies.has(key)) continue;
         const chunk = this.chunks.get(key);
         if (!chunk) continue;
-        this.buildGroundBody(key, chunk.mesh);
+        this.buildGroundBody(key, chunk);
         budget.gebaut = true;
       }
     }
   }
 
-  private buildGroundBody(key: string, mesh: Mesh): void {
-    const body = new PhysicsBody(mesh, PhysicsMotionType.STATIC, false, this.scene);
-    // Der teure Posten: PhysicsShapeMesh cookt eine Havok-BVH ueber die
-    // ~8k Dreiecke der Zone. Getrennt gemessen, weil genau hier der
-    // Verdacht liegt — ein Gelaendestueck ist ein Hoehenfeld, und
-    // PhysicsShapeType.HEIGHTFIELD braucht gar keine BVH.
-    body.shape = misst('terrain.havokShape', () => new PhysicsShapeMesh(mesh, this.scene));
-    this.groundBodies.set(key, body);
+  /**
+   * Boden-Collider einer Zone als Havok-HÖHENFELD.
+   *
+   * Vorher: `new PhysicsShapeMesh(mesh)`. Das cookt eine BVH über die
+   * ~8.192 Dreiecke der Zone und war in der Messung vom 21.08.2026 mit
+   * bis zu 18,1 ms der grösste Einzelausreisser des ganzen Terrains
+   * (507 ms auf 79 s, 20 % der Terrain-Zeit). Ein Gelände IST aber ein
+   * Höhenfeld: Havok braucht dafür nur ein flaches `Float32Array` und
+   * baut gar keinen Baum.
+   *
+   * ── Die Umrechnung, und warum sie gemessen und nicht gelesen ist ──
+   * Babylons `havokPlugin` dreht die Daten beim Anlegen um
+   * (`hkIndex = z*numX + x` aus `bjsIndex = (numX-1-x)*numZ + z`), der
+   * Ground-Mesh-Pfad daneben spiegelt z noch einmal und zieht `minY` ab.
+   * Aus dem Quelltext allein ist die Lage im Raum nicht sicher
+   * abzulesen. Deshalb wurde sie mit einem 5×5-Feld unterscheidbarer
+   * Höhen und einem Raster von Havok-Strahlen ausgemessen
+   * (`p2-heightfield-probe.mjs`, Befund im Vault). Ergebnis:
+   *
+   *   daten[i * n + j]  liegt bei  lokal x = j - (n-1)/2
+   *                                lokal z = (n-1)/2 - i
+   *
+   * Der Ursprung ist also die MITTE des Feldes, der schnelle Index läuft
+   * mit +x, der langsame gegen -z. Mit `heights[ry*65 + rx]` auf
+   * Weltposition (zoneX*64 - 32 + rx, zoneY*64 - 32 + ry) folgt daraus
+   * Knoten auf die Zonenmitte und `i = 64 - ry`, `j = rx`.
+   *
+   * Die Kante bei lokal +x/+z gehört nicht mehr zum Feld (im Versuch kam
+   * dort kein Treffer). Das ist unschädlich, weil die Nachbarzone ihre
+   * -x/-z-Kante einschliesst: zwischen zwei Zonen bleibt kein Spalt.
+   *
+   * Was sich fachlich ändert: Havok teilt die Vierecke nach seiner
+   * eigenen Regel in Dreiecke, das Chunk-Mesh nach `Heightmap.cpp`
+   * (T1=v00,v01,v10). Auf dem 1-m-Gitter weicht die Kollisionsfläche
+   * dadurch in der Mitte eines Vierecks um wenige Zentimeter vom
+   * gezeichneten Dreieck ab. An den Stützstellen selbst ist sie identisch.
+   */
+  private buildGroundBody(key: string, chunk: Chunk): void {
+    const knoten = new TransformNode(`groundHf_${key}`, this.scene);
+    knoten.position.set(chunk.zoneX * ZONE_UNITS, 0, chunk.zoneY * ZONE_UNITS);
+    knoten.computeWorldMatrix(true);
+
+    // Aus den CHUNK-Positionen, nicht aus `getZone()`: Das ist genau die
+    // Fläche, die der Spieler sieht — auch nach dem Graben, wo
+    // refreshZones() die Positionen an Ort und Stelle umschreibt.
+    const daten = new Float32Array(E_WIDTH * E_WIDTH);
+    const pos = chunk.positions;
+    for (let ry = 0; ry < E_WIDTH; ry++) {
+      const zeileQuelle = ry * E_WIDTH;
+      const zeileZiel = (E_WIDTH - 1 - ry) * E_WIDTH;
+      for (let rx = 0; rx < E_WIDTH; rx++) {
+        daten[zeileZiel + rx] = pos[(zeileQuelle + rx) * 3 + 1];
+      }
+    }
+
+    const body = new PhysicsBody(knoten, PhysicsMotionType.STATIC, false, this.scene);
+    body.shape = misst(
+      'terrain.havokShape',
+      () =>
+        new PhysicsShape(
+          {
+            type: PhysicsShapeType.HEIGHTFIELD,
+            parameters: {
+              numHeightFieldSamplesX: E_WIDTH,
+              numHeightFieldSamplesZ: E_WIDTH,
+              heightFieldSizeX: ZONE_UNITS,
+              heightFieldSizeZ: ZONE_UNITS,
+              heightFieldData: daten,
+            },
+          },
+          this.scene
+        )
+    );
+    this.groundBodies.set(key, { body, knoten });
+  }
+
+  /** Körper, Form UND Trägerknoten abräumen — der Knoten bliebe sonst als
+   *  Leiche in der Szene zurück (einer je 64-m-Zone beim Laufen). */
+  private entferneGroundBody(
+    key: string,
+    eintrag: { body: PhysicsBody; knoten: TransformNode }
+  ): void {
+    eintrag.body.shape?.dispose();
+    eintrag.body.dispose();
+    eintrag.knoten.dispose();
+    this.groundBodies.delete(key);
   }
 
   /** Rebuild a zone's collider after terraforming changed its heights. */
   private refreshGroundBody(zx: number, zy: number): void {
     const key = `${zx},${zy}`;
-    const body = this.groundBodies.get(key);
-    if (!body) return;
-    body.shape?.dispose();
-    body.dispose();
-    this.groundBodies.delete(key);
+    const eintrag = this.groundBodies.get(key);
+    if (!eintrag) return;
+    this.entferneGroundBody(key, eintrag);
     const chunk = this.chunks.get(key);
-    if (chunk) this.buildGroundBody(key, chunk.mesh);
+    if (chunk) this.buildGroundBody(key, chunk);
   }
 
-  /** Build one near zone chunk (1 zone, 1m stride, no bias). */
-  private buildChunk(zoneX: number, zoneY: number): void {
-    // Gitterbau: Vertexdaten, Normalen, Biom-Attribute. Enthaelt den
-    // Zonenraster-Posten nicht mehr — misst() zieht Kindabschnitte ab.
-    const geo = misst('terrain.gitterbau', () => this.buildGridGeometry(zoneX, zoneY, 1, 1, 0));
+  /**
+   * Einen Schritt am laufenden Nah-Chunk arbeiten (s. TeilBau).
+   *
+   * Gibt `true` zurück, solange derselbe Chunk noch Arbeit hat — der
+   * Aufrufer entscheidet anhand des Budgets, ob er weitermacht.
+   */
+  private teilBauSchritt(budget: TerrainBudget): boolean {
+    const tb = this.teilBau;
+    if (!tb) return false;
+
+    // Schritt 1..z: Weltgenerierung, EINE Zone je Schritt. Nicht weiter
+    // teilbar — `getZone()` rechnet eine ganze Zone (65×65
+    // Rauschauswertungen) oder gar nichts, gemessene 12–17 ms. Ein
+    // Fern-Chunk deckt 2×2 Zonen ab; die alle vier in einem Frame zu
+    // erzeugen war der teuerste Einzelposten überhaupt.
+    const gesamtZonen = tb.zonesPerSide * tb.zonesPerSide;
+    if (tb.zonen < gesamtZonen) {
+      // Mehrere Zonen je Frame, solange das Fenster offen ist: Eine
+      // bereits erzeugte Zone kostet nichts (Cache-Treffer), und ein
+      // Fern-Chunk deckt vier ab. Ist eine wirklich neu, sprengt sie das
+      // Fenster und die Schleife endet nach genau dieser einen.
+      misst('terrain.zonenRaster', () => {
+        while (tb.zonen < gesamtZonen && budgetOffen(budget)) {
+          const dz = Math.floor(tb.zonen / tb.zonesPerSide);
+          const dx = tb.zonen % tb.zonesPerSide;
+          tb.hms.push(this.world.heightmaps.getZone(tb.zoneX + dx, tb.zoneY + dz));
+          tb.zonen++;
+          budget.gebaut = true;
+        }
+      });
+      return true;
+    }
+
+    // Schritt z+1..k: Vertexzeilen in Paketen.
+    misst('terrain.gitterbau', () => {
+      while (tb.zeile < tb.n && budgetOffen(budget)) {
+        const bis = Math.min(tb.n, tb.zeile + ZEILEN_JE_SCHRITT);
+        this.buildGridGeometry(
+          tb.zoneX, tb.zoneY, tb.zonesPerSide, tb.step, tb.yBias,
+          tb.daten, tb.zeile, bis, tb.hms, tb.nachbarn
+        );
+        tb.zeile = bis;
+        budget.gebaut = true;
+      }
+    });
+    if (tb.zeile < tb.n) return true;
+
+    // Schritt k+1: Mesh und Upload.
+    if (tb.fern) this.fernChunkFertigstellen(tb);
+    else this.chunkFertigstellen(tb);
+    this.teilBau = null;
+    return false;
+  }
+
+  /** Einen Teilbau anlegen — Puffer belegen, Zähler auf Null. */
+  private static teilBauBeginnen(
+    zoneX: number,
+    zoneY: number,
+    zonesPerSide: number,
+    step: number,
+    yBias: number,
+    fern: boolean
+  ): TeilBau {
+    const n = (zonesPerSide * ZONE_UNITS) / step + 1;
+    return {
+      zoneX,
+      zoneY,
+      zonesPerSide,
+      step,
+      yBias,
+      n,
+      fern,
+      daten: TerrainManager.leererGitterPuffer(n * n, n),
+      zeile: 0,
+      zonen: 0,
+      hms: [],
+      nachbarn: new Map(),
+    };
+  }
+
+  /**
+   * Läuft gerade ein Teilbau auf einer der geänderten Zonen? Dann weg
+   * damit — der Ring reiht die Zone neu ein, und sie beginnt von vorn.
+   */
+  private verwerfeTeilBau(zones: ReadonlyArray<readonly [number, number]>): void {
+    const tb = this.teilBau;
+    if (!tb) return;
+    for (const [zx, zy] of zones) {
+      if (zx === tb.zoneX && zy === tb.zoneY) {
+        this.teilBau = null;
+        this.ringDreckig = true;
+        return;
+      }
+    }
+  }
+
+  /** Mesh, Upload und Eintrag in die Chunk-Liste — der Abschluss eines TeilBaus. */
+  private chunkFertigstellen(tb: TeilBau): void {
+    const zoneX = tb.zoneX;
+    const zoneY = tb.zoneY;
+    const geo = tb.daten;
 
     const vd = new VertexData();
     vd.positions = geo.positions;
@@ -1119,6 +1757,17 @@ export class TerrainManager {
    */
   refreshZones(zones: ReadonlyArray<readonly [number, number]>): void {
     const SNOW_LINE = 80;
+    // Ein halbfertiger Chunk derselben Zone trüge in den schon gefüllten
+    // Zeilen die ALTEN Höhen und in den übrigen die neuen — er wird
+    // deshalb verworfen und neu begonnen.
+    this.verwerfeTeilBau(zones);
+    // Wassertiefe und Tiefenkarte hängen an denselben Höhen — das Graben
+    // ändert beide. Bis zum 21.08.2026 fiel das nur deshalb nicht auf,
+    // weil der Ufer-Bake ohnehin dauernd von vorn lief; die Tiefenkarte
+    // wurde hier NIE nachgezogen (nur in rebuildZones), obwohl das der
+    // Weg ist, den jede Grabung nimmt.
+    this.depthMap.invalidiereZonen(zones);
+    this.uferNachTerraforming(zones);
     for (const [zx, zy] of zones) {
       const chunk = this.chunks.get(`${zx},${zy}`);
       if (!chunk) continue;
@@ -1187,19 +1836,44 @@ export class TerrainManager {
   }
 
   /** Height at a zone-local vertex, following across zone borders. */
-  private heightAcrossZones(zx: number, zy: number, rx: number, ry: number): number {
+  private heightAcrossZones(
+    zx: number,
+    zy: number,
+    rx: number,
+    ry: number,
+    /**
+     * Vom Teilbau festgehaltene Nachbarzonen. Der Schlüssel wird nur hier
+     * gebaut, und hierher kommen ausschliesslich RANDvertices — bei einem
+     * Nah-Chunk rund 260 von 4.225. Im Inneren greift der Schnellpfad in
+     * `heightAcross` und dieser Aufruf entfällt ganz.
+     */
+    gehalten?: Map<string, Heightmap>
+  ): number {
     if (rx < 0) { zx--; rx += ZONE_UNITS; }
     else if (rx >= E_WIDTH) { zx++; rx -= ZONE_UNITS; }
     if (ry < 0) { zy--; ry += ZONE_UNITS; }
     else if (ry >= E_WIDTH) { zy++; ry -= ZONE_UNITS; }
-    return this.world.heightmaps.getZone(zx, zy).heights[ry * E_WIDTH + rx];
+    if (!gehalten) return this.world.heightmaps.getZone(zx, zy).heights[ry * E_WIDTH + rx];
+    // Beim ERSTEN Zugriff holen und behalten, nicht vorsorglich alle
+    // erzeugen: Vorsorglich kostete in der Messung vom 21.08.2026 rund
+    // 25 % mehr Terrain-Zeit, ohne dass ein Frame besser wurde — die
+    // teuerste Zone bleibt die teuerste Zone, egal welcher Posten sie
+    // bezahlt. Gebraucht wird nur, dass sie NICHT ZWEIMAL erzeugt wird,
+    // wenn der Cache sie zwischen zwei Zeilenpaketen verdrängt.
+    const schluessel = `${zx},${zy}`;
+    let hm = gehalten.get(schluessel);
+    if (!hm) {
+      hm = this.world.heightmaps.getZone(zx, zy);
+      gehalten.set(schluessel, hm);
+    }
+    return hm.heights[ry * E_WIDTH + rx];
   }
 
   /** G-POP: build one far chunk (FAR_ZONES_PER_CHUNK² zones, FAR_STRIDE stride, biased down). */
-  private buildFarChunk(fx: number, fy: number): void {
-    const zx0 = fx * FAR_ZONES_PER_CHUNK;
-    const zy0 = fy * FAR_ZONES_PER_CHUNK;
-    const geo = this.buildGridGeometry(zx0, zy0, FAR_ZONES_PER_CHUNK, FAR_STRIDE, FAR_BIAS);
+  private fernChunkFertigstellen(tb: TeilBau): void {
+    const fx = tb.zoneX / FAR_ZONES_PER_CHUNK;
+    const fy = tb.zoneY / FAR_ZONES_PER_CHUNK;
+    const geo = tb.daten;
 
     const vd = new VertexData();
     vd.positions = geo.positions;

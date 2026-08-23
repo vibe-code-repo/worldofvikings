@@ -2,6 +2,8 @@
  * Phase 1 — minimal DOM overlay (FPS, position, time). Replaced by Babylon
  * GUI in Phase 5 (Docs/03-Rendering-und-Engine.md).
  */
+import { Fehlersammler, type Schweregrad, type FehlerAnzeige } from './Fehlermeldungen';
+
 /** Fadenkreuz im Normalzustand — `s_whiteHalfAlpha` des Originals. */
 const FK_NORMAL = 'rgba(255,255,255,.5)';
 /** Fadenkreuz auf einem Ziel — `Color.yellow`, also voll deckend. */
@@ -165,10 +167,75 @@ export class Hud {
     }, 4000);
   }
 
+  // ── F16: Fehleranzeige ────────────────────────────────────────────
+  //
+  // Eigener Stapel UNTER der Server-`meldung()` (die bleibt für kurze
+  // Spielmeldungen wie "Dungeon betreten" reserviert — eine gemeinsame
+  // Anzeige hätte eine echte Spielmeldung durch einen Asset-Hinweis
+  // wegblitzen lassen können). Logik (Dedupe, Deckel, Ablauf) steckt
+  // bewusst NICHT hier: Fehlermeldungen.ts ist DOM-frei und getestet,
+  // hier wird nur noch gerendert.
+  private readonly fehlerSammler = new Fehlersammler();
+  private fehlerContainer: HTMLDivElement | null = null;
+
+  private static readonly FEHLER_FARBE: Record<Schweregrad, string> = {
+    hinweis: 'rgba(60,90,140,.88)',
+    warnung: 'rgba(180,128,20,.9)',
+    schwer: 'rgba(172,32,32,.92)',
+  };
+
+  /**
+   * Meldet einen Fehler zur Anzeige. Wiederholt sich derselbe Text im
+   * selben Schweregrad (typischerweise: derselbe Fehler tritt jedes Bild
+   * erneut auf), zählt der bestehende Eintrag nur hoch ("3×") statt neue
+   * Zeilen zu erzeugen — s. Fehlersammler.
+   */
+  meldeFehler(text: string, schweregrad: Schweregrad = 'warnung'): void {
+    this.fehlerSammler.melden(text, schweregrad);
+    this.renderFehler();
+  }
+
+  private renderFehler(): void {
+    const eintraege = this.fehlerSammler.aktive();
+    if (eintraege.length === 0) {
+      if (this.fehlerContainer) this.fehlerContainer.style.display = 'none';
+      return;
+    }
+    if (!this.fehlerContainer) {
+      this.fehlerContainer = document.createElement('div');
+      // top:90px — unter der Server-`meldung()` (top:48px, ~34px hoch
+      // inkl. Padding), damit beide gleichzeitig lesbar bleiben statt
+      // sich zu überlappen.
+      this.fehlerContainer.style.cssText =
+        'position:fixed;top:90px;left:50%;transform:translateX(-50%);' +
+        'display:flex;flex-direction:column;gap:4px;align-items:center;' +
+        'pointer-events:none;z-index:6';
+      document.body.appendChild(this.fehlerContainer);
+    }
+    this.fehlerContainer.style.display = 'flex';
+    this.fehlerContainer.textContent = '';
+    for (const eintrag of eintraege) {
+      this.fehlerContainer.appendChild(this.baueFehlerZeile(eintrag));
+    }
+  }
+
+  private baueFehlerZeile(eintrag: FehlerAnzeige): HTMLDivElement {
+    const zeile = document.createElement('div');
+    zeile.style.cssText =
+      `font:13px sans-serif;color:#fff;background:${Hud.FEHLER_FARBE[eintrag.schweregrad]};` +
+      'padding:5px 12px;border-radius:4px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.4)';
+    zeile.textContent = eintrag.anzahl > 1 ? `${eintrag.text} (${eintrag.anzahl}×)` : eintrag.text;
+    return zeile;
+  }
+
   update(dt: number, fps: number, text: string): void {
     this.acc += dt;
     if (this.acc < 0.25) return;
     this.acc = 0;
     this.el.textContent = `${fps.toFixed(0)} fps\n${text}`;
+    // Selbes 0,25-s-Raster wie der Diagnosetext reicht für eine 6-s-TTL
+    // locker aus und spart ein zweites Timer/Intervall.
+    this.fehlerSammler.tick();
+    this.renderFehler();
   }
 }

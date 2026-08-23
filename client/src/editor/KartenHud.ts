@@ -55,6 +55,7 @@
  * füllt.
  */
 
+import { baueKuratierungsAuswahl } from './KuratierungsAuswahl';
 import {
   BIOME_BY_NAME,
   DEFAULT_BASE_LEVEL,
@@ -1024,47 +1025,27 @@ export class KartenHud {
     stufenGruppe.title = 'Locations mit höherer Stufe entstehen hier nicht. „frei" = keine Beschränkung.';
     rumpf.appendChild(stufenGruppe);
 
+    // Seit B3 eine durchsuchbare Auswahl statt eines Freitextfeldes. Die
+    // drei Zustaende bleiben unveraendert — "Standard" entfernt das Feld,
+    // "keine" setzt ein leeres Array, eine Liste setzt die Auswahl. Die
+    // Reihenfolge ist bedeutungstragend (der Streudurchlauf arbeitet die
+    // Tabelle von vorn nach hinten ab, wer zuerst kommt bekommt den Platz),
+    // deshalb erhaelt die Auswahl sie und sortiert nicht um.
     rumpf.appendChild(
-      this.kuratierung('Vegetation', r.vegetation, (v) => this.setzeEntwurf({ vegetation: v }))
+      baueKuratierungsAuswahl('vegetation', 'Vegetation', r.vegetation, (v) =>
+        this.setzeEntwurf({ vegetation: v })
+      )
     );
-    rumpf.appendChild(this.kuratierung('Locations', r.locations, (v) => this.setzeEntwurf({ locations: v })));
-    rumpf.appendChild(this.kuratierung('Spawns', r.spawns, (v) => this.setzeEntwurf({ spawns: v })));
+    rumpf.appendChild(
+      baueKuratierungsAuswahl('locations', 'Locations', r.locations, (v) =>
+        this.setzeEntwurf({ locations: v })
+      )
+    );
+    rumpf.appendChild(
+      baueKuratierungsAuswahl('spawns', 'Spawns', r.spawns, (v) => this.setzeEntwurf({ spawns: v }))
+    );
   }
 
-  /**
-   * Eine Kuratierungsliste mit ihren drei Zuständen. Die beiden Marken
-   * setzen „Standard" (Feld weg) und „keine" (leeres Feld) — Zustände,
-   * die man über das Textfeld allein nicht auseinanderhalten könnte:
-   * Ein leeres Eingabefeld sieht in beiden Fällen gleich aus, bedeutet
-   * aber einmal „alle Standardeinträge" und einmal „gar nichts".
-   */
-  private kuratierung(
-    titel: string,
-    wert: readonly string[] | undefined,
-    setz: (v: readonly string[] | undefined) => void
-  ): HTMLDivElement {
-    const g = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '5px' }));
-    const kopf = el('div', stil({ display: 'flex', 'align-items': 'center', gap: '5px' }));
-    kopf.append(
-      el('span', beschriftungStil(), titel),
-      luecke(),
-      marke('Standard', wert === undefined, () => setz(undefined)),
-      marke('keine', wert !== undefined && wert.length === 0, () => setz([]))
-    );
-    const eingabe = feld(
-      wert?.join(', ') ?? '',
-      (v) => {
-        const teile = v
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
-        setz(teile.length > 0 ? teile : undefined);
-      },
-      { breite: '100%' }
-    );
-    g.append(kopf, eingabe);
-    return g;
-  }
 
   // ── Reiter „Objekte" ───────────────────────────────────────────────
   private reiterObjekte(rumpf: HTMLElement, eigene: readonly PlacementDef[]): void {

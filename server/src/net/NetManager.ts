@@ -301,13 +301,6 @@ export class NetManager {
       return;
     }
 
-    // Check duplicate name
-    if (this.onlinePeers.some(p => p.name === playerName)) {
-      peer.status = ConnectionStatus.ErrorAlreadyConnected;
-      peer.disconnect('Name already in use');
-      return;
-    }
-
     // F3 (Security-Review, schliesst Luecke A + B): Identitaet kommt
     // AUSSCHLIESSLICH vom Server. Ein gueltiges SessionToken liefert eine
     // zuvor ausgestellte spielerId + die dabei eingefrorene Altlast-userId
@@ -336,6 +329,34 @@ export class NetManager {
       // also weder die spielerId noch die daraus abgeleitete userId
       // beeinflussen.
       altlastUserId = BigInt(getStableHash(spielerId) & 0x7fffffff);
+    }
+
+    // Duplicate name — checked AFTER the identity is resolved, deliberately.
+    //
+    // Until 2026-08-23 this check ran first, and a returning player was
+    // locked out by their own ghost: closing a tab does not drop the peer
+    // right away, so signing in again from world-of-vikings.com hit
+    // "Name already in use". The direct login (?los=1) then failed and the
+    // old connect window appeared — precisely what the character creator
+    // was built to replace.
+    //
+    // A matching spielerId means the SAME identity is returning, and the
+    // session token proved that above. So drop the stale connection rather
+    // than refuse the new one. A DIFFERENT player claiming a taken name is
+    // still refused, exactly as before.
+    const namensgleich = this.onlinePeers.find((p) => p.name === playerName);
+    if (namensgleich) {
+      if (namensgleich.spielerId === spielerId) {
+        namensgleich.disconnect('Von einer neuen Verbindung abgelöst');
+        // Clean up synchronously: peer.disconnect() only closes the socket,
+        // handleDisconnect would follow later. Until then two peers with the
+        // same name would sit in onlinePeers.
+        this.handleDisconnect(namensgleich);
+      } else {
+        peer.status = ConnectionStatus.ErrorAlreadyConnected;
+        peer.disconnect('Name already in use');
+        return;
+      }
     }
 
     (peer as { name: string }).name = playerName;

@@ -1,0 +1,12 @@
+# World of Vikings — https://world-of-vikings.com
+#
+# robots.txt gilt je Host. Die Spiel- und Editor-Hosts (play./editor.,
+# je live und .dev) liegen auf anderen Hostnamen und antworten ohne
+# Anmeldung mit HTTP 401 — ein Crawler kommt dort gar nicht erst hinein.
+# Hier steht deshalb nur, was fuer diese Seite gilt.
+
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://world-of-vikings.com/sitemap.xml

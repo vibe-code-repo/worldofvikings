@@ -1,0 +1,143 @@
+{
+  "erzeugt_von": "tools/aussehen-json.mjs aus shared/src/aussehen.ts — nicht von Hand bearbeiten",
+  "ordner": "wikingerin",
+  "koerper": "WikingerinKoerper",
+  "figuren": [
+    {
+      "id": "wikingerin",
+      "modell": "wikingerin/WikingerinKoerper",
+      "name": "Wikingerin"
+    }
+  ],
+  "figurVorgabe": "wikingerin",
+  "frisuren": [
+    {
+      "id": "H_01",
+      "datei": "H_01",
+      "name": "Kurzer Bob"
+    },
+    {
+      "id": "H_02",
+      "datei": "H_02",
+      "name": "Glatt, schulterlang"
+    },
+    {
+      "id": "H_03",
+      "datei": "H_03",
+      "name": "Wellig, lang"
+    },
+    {
+      "id": "H_04",
+      "datei": "H_04",
+      "name": "Seitenscheitel"
+    },
+    {
+      "id": "H_05",
+      "datei": "H_05",
+      "name": "Lang, offen"
+    },
+    {
+      "id": "H_06",
+      "datei": "H_06",
+      "name": "Voll, gestuft"
+    },
+    {
+      "id": "H_07",
+      "datei": "H_07",
+      "name": "Sehr lang"
+    },
+    {
+      "id": "H_08",
+      "datei": "H_08",
+      "name": "Kurz, gescheitelt"
+    },
+    {
+      "id": "H_09",
+      "datei": "H_09",
+      "name": "Mittellang"
+    },
+    {
+      "id": "H_10",
+      "datei": "H_10",
+      "name": "Halblang, gewellt"
+    },
+    {
+      "id": "H_11",
+      "datei": "H_11",
+      "name": "Anliegend"
+    },
+    {
+      "id": "H_12",
+      "datei": "H_12",
+      "name": "Lockig"
+    },
+    {
+      "id": "H_13",
+      "datei": "H_13",
+      "name": "Stufig"
+    },
+    {
+      "id": "H_14",
+      "datei": "H_14",
+      "name": "Zurückgekämmt"
+    },
+    {
+      "id": "H_15",
+      "datei": "H_15",
+      "name": "Sehr kurz"
+    },
+    {
+      "id": "H_16",
+      "datei": "H_16",
+      "name": "Strähnig, lang"
+    },
+    {
+      "id": "H_17",
+      "datei": "H_17",
+      "name": "Wallend"
+    },
+    {
+      "id": "H_18",
+      "datei": "H_18",
+      "name": "Dicht, lang"
+    },
+    {
+      "id": "H_19",
+      "datei": "H_19",
+      "name": "Strähnig, mittel"
+    },
+    {
+      "id": "H_20",
+      "datei": "H_20",
+      "name": "Strähnig, kurz"
+    },
+    {
+      "id": "H_21",
+      "datei": "H_21",
+      "name": "Zottelig"
+    }
+  ],
+  "frisurVorgabe": "H_01",
+  "ruestung": [
+    {
+      "id": "leder_bh",
+      "datei": "R_LederBH",
+      "name": "Leder-Oberteil",
+      "slot": "oberkoerper"
+    },
+    {
+      "id": "leder_shorts",
+      "datei": "R_LederShorts",
+      "name": "Lederhose, kurz",
+      "slot": "beine"
+    }
+  ],
+  "tageszeit": {
+    "marken": {
+      "0": "Mitternacht",
+      "3": "Sonnenaufgang",
+      "12": "Mittag",
+      "20": "Sonnenuntergang"
+    }
+  }
+}

@@ -292,6 +292,7 @@
       <video
         class="buehne-video"
         src={videoQuelle}
+        poster="/assets/video/schwarzwald.webp"
         autoplay
         muted
         loop

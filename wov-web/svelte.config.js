@@ -110,6 +110,15 @@ export default {
       // lautlose Rückschritt, den dieser Umbau vermeiden soll.
       handleHttpError: 'fail',
       handleMissingId: 'fail',
+      /*
+        `'*'` erfasst nur Routen OHNE dynamische Segmente — seit dem
+        Sprachumbau liegt aber jede Seite unter `[lang=lang]`, und der
+        Vorgabewert allein fände deshalb nur noch die Sprachweiche und die
+        Sitemap. Die beiden Sprachwurzeln stehen darum ausdrücklich hier;
+        alles Weitere findet der Crawler von dort aus über die Kopfleiste,
+        die ihre Links bereits mit Sprachpräfix schreibt.
+      */
+      entries: ['*', '/de', '/en'],
     },
   },
 };

@@ -7,6 +7,8 @@
  * beide Seiten arbeiten.
  */
 
+import type { MessageKey } from './i18n';
+
 export interface Ausruestungsstueck {
   name: string;
   bild: string;
@@ -37,12 +39,17 @@ export interface Recke {
  *
  * Eine neue Rangliste kostet einen Eintrag hier und keine neue Funktion —
  * dieselbe Idee wie in der alten `ruhmeshalle.js`, nur getypt.
+ *
+ * `titel` und `spalte` tragen seit dem Sprachumbau Katalogschlüssel statt
+ * Texten. `zeigen()` bleibt sprachlos: Was es zurückgibt, sind Zahlen und
+ * Einheitenzeichen („12 / 5“, „340 h“), und die sind in beiden Sprachen
+ * dieselben.
  */
 export interface Tafel {
   id: string;
-  titel: string;
-  /** Überschrift der Wertespalte. */
-  spalte: string;
+  titel: MessageKey;
+  /** Katalogschlüssel der Überschrift der Wertespalte. */
+  spalte: MessageKey;
   wert: (r: Recke) => number;
   zeigen: (r: Recke) => string;
   grossIstBesser: boolean;
@@ -51,32 +58,32 @@ export interface Tafel {
 export const TAFELN: Tafel[] = [
   {
     id: 'rang',
-    titel: 'Runenrang',
-    spalte: 'Rang',
+    titel: 'recken.tafel.rang.titel',
+    spalte: 'recken.tafel.rang.spalte',
     wert: (r) => r.stufe,
     zeigen: (r) => String(r.stufe),
     grossIstBesser: true,
   },
   {
     id: 'waechter',
-    titel: 'Bezwungene Wächter',
-    spalte: 'Wächter',
+    titel: 'recken.tafel.waechter.titel',
+    spalte: 'recken.tafel.waechter.spalte',
     wert: (r) => r.bosse.filter((b) => b.erlegt).length,
     zeigen: (r) => `${r.bosse.filter((b) => b.erlegt).length} / ${r.bosse.length}`,
     grossIstBesser: true,
   },
   {
     id: 'fahrt',
-    titel: 'Zeit auf Fahrt',
-    spalte: 'Stunden',
+    titel: 'recken.tafel.fahrt.titel',
+    spalte: 'recken.tafel.fahrt.spalte',
     wert: (r) => r.spielzeit_stunden,
     zeigen: (r) => `${r.spielzeit_stunden} h`,
     grossIstBesser: true,
   },
   {
     id: 'hel',
-    titel: 'Selten gefallen',
-    spalte: 'Fahrten nach Hel',
+    titel: 'recken.tafel.hel.titel',
+    spalte: 'recken.tafel.hel.spalte',
     wert: (r) => r.tode,
     zeigen: (r) => String(r.tode),
     grossIstBesser: false,

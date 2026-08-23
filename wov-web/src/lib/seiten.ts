@@ -5,36 +5,71 @@
  * `sitemap.xml`. Als am 21.08. die Karte dazukam, musste sie an neun Stellen
  * nachgetragen werden — genau die Sorte Arbeit, die man einmal vergisst und
  * dann monatelang nicht bemerkt. Ab hier: eine Zeile hier, überall sichtbar.
+ *
+ * Seit dem Sprachumbau stehen in `titel` und `kurz` keine Texte mehr, sondern
+ * Katalogschlüssel. Der Typ ist `MessageKey`, nicht `string` — ein Tippfehler
+ * im Schlüssel bricht damit `npm run check`, statt „undefined“ in die
+ * Kopfleiste zu schreiben.
+ *
+ * `pfad` bleibt sprachlos (`/saga`, nicht `/de/saga`): Das Präfix hängt der
+ * Leser an, über `localizedPath()`. Sonst stünde jede Adresse zweimal hier
+ * und die Sitemap müsste raten, welche gemeint ist.
  */
 
+import type { MessageKey } from './i18n';
+
 export interface Seite {
-  /** Adresse ohne Endung. nginx liefert sowohl /saga als auch /saga.html. */
+  /** Adresse OHNE Sprachpräfix und ohne Endung, z. B. `/saga`. */
   pfad: string;
-  /** Beschriftung in der Kopfleiste. */
-  titel: string;
-  /** Kürzere Beschriftung für die Mobilleiste. */
-  kurz?: string;
+  /** Katalogschlüssel der Beschriftung in der Kopfleiste. */
+  titel: MessageKey;
+  /** Katalogschlüssel der kürzeren Beschriftung für die Mobilleiste. */
+  kurz?: MessageKey;
   /** Symbol im Vorrat, ohne das Präfix `i-`. */
   ikone?: string;
   /** Trägt in der Kopfleiste die Marke „bald“. */
   bald?: boolean;
-  /** Steht in der Sitemap (erstellen.html ist noindex). */
+  /** Steht in der Sitemap (erstellen ist noindex). */
   indexieren?: boolean;
 }
 
 export const HAUPTNAV: Seite[] = [
-  { pfad: '/', titel: 'Halle', kurz: 'Halle', ikone: 'burg', indexieren: true },
-  { pfad: '/saga', titel: 'Die Saga', kurz: 'Saga', ikone: 'buch', indexieren: true },
-  { pfad: '/karte', titel: 'Die Karte', kurz: 'Karte', ikone: 'karte', indexieren: true },
+  {
+    pfad: '/',
+    titel: 'seiten.hauptnav.halle.titel',
+    kurz: 'seiten.hauptnav.halle.kurz',
+    ikone: 'burg',
+    indexieren: true,
+  },
+  {
+    pfad: '/saga',
+    titel: 'seiten.hauptnav.saga.titel',
+    kurz: 'seiten.hauptnav.saga.kurz',
+    ikone: 'buch',
+    indexieren: true,
+  },
+  {
+    pfad: '/karte',
+    titel: 'seiten.hauptnav.karte.titel',
+    kurz: 'seiten.hauptnav.karte.kurz',
+    ikone: 'karte',
+    indexieren: true,
+  },
   // Ohne Symbol: Die Rüstkammer steht nicht in der Mobilleiste, und nur dort
   // werden Symbole gebraucht. Eines einzutragen, das es im Vorrat nicht gibt,
   // wäre ein leerer Kasten, der erst auffällt, wenn jemand sie dort einhängt.
-  { pfad: '/ruestkammer', titel: 'Rüstkammer', indexieren: true },
-  { pfad: '/ruhmeshalle', titel: 'Ruhmeshalle', kurz: 'Ruhm', ikone: 'orden', indexieren: true },
+  { pfad: '/ruestkammer', titel: 'seiten.hauptnav.ruestkammer.titel', indexieren: true },
+  {
+    pfad: '/ruhmeshalle',
+    titel: 'seiten.hauptnav.ruhmeshalle.titel',
+    kurz: 'seiten.hauptnav.ruhmeshalle.kurz',
+    ikone: 'orden',
+    indexieren: true,
+  },
   {
     pfad: '/thing',
-    titel: 'Das Thing',
-    kurz: 'Thing',
+    titel: 'seiten.hauptnav.thing.titel',
+    kurz: 'seiten.hauptnav.thing.kurz',
     ikone: 'leute',
     bald: true,
     indexieren: true,
@@ -59,5 +94,5 @@ export const MOBILNAV: Seite[] = [
 /** Wohin „Auf Fahrt gehen“ führt — die Charaktererstellung, nicht direkt ins Spiel. */
 export const FAHRT = '/erstellen';
 
-/** Alle Adressen, die in die Sitemap gehören. */
+/** Alle Adressen (ohne Sprachpräfix), die in die Sitemap gehören. */
 export const SITEMAP = HAUPTNAV.filter((s) => s.indexieren).map((s) => s.pfad);

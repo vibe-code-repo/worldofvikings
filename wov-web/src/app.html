@@ -10,8 +10,18 @@
   vorkommen: Epilogue in der Marke und der Überschrift, Hanken Grotesk im
   Fließtext. Die vier übrigen Schnitte holt der Browser erst, wenn er sie
   braucht.
+
+  Den Platzhalter im lang-Attribut unten ersetzt `src/hooks.server.ts` durch
+  das erste Pfadsegment. Das ist die einzige Stelle des Sprachumbaus, die
+  ausserhalb einer Komponente liegt — <html> steht ausserhalb der
+  Anwendungswurzel, keine Svelte-Komponente kommt daran.
+
+  Der Platzhalter darf in dieser Datei nur EINMAL vorkommen, und zwar dort.
+  Stand er (wie zuerst) auch in diesem Kommentar, ersetzte der Hook den
+  Kommentar und liess das Attribut stehen — die Seiten trugen dann alle
+  `lang="%lang%"`, was jeder Vorleser als „unbekannte Sprache“ liest.
 -->
-<html lang="de">
+<html lang="%lang%">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />

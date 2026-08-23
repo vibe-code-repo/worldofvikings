@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { page } from '$app/state';
   import { datumZeit, holeJson } from './formate';
+  import { type MessageKey, localeFrom, messages } from './i18n';
 
   /**
    * Der Kartenbetrachter.
@@ -40,6 +42,9 @@
 
   let { start = 'live' }: { start?: string } = $props();
 
+  const lang = $derived(localeFrom(page.params.lang));
+  const t = $derived(messages(lang));
+
   let flaeche = $state<HTMLDivElement | null>(null);
   let uebersicht = $state<Uebersicht | null>(null);
   let welt = $state<Weltkarte | null>(null);
@@ -51,7 +56,13 @@
     Sichtbar wird das Leere nie: Die Knöpfe entstehen erst mit der Übersicht.
   */
   let instanz = $state('');
-  let fehler = $state('');
+  /*
+    Gespeichert wird der KATALOGSCHLUESSEL, nicht der fertige Satz: Wer die
+    Sprache wechselt, waehrend eine Fehlermeldung steht, bekaeme sonst den
+    Text der alten Sprache zu sehen — eingefroren im Moment des Fehlers.
+  */
+  let fehlerSchluessel = $state<MessageKey | ''>('');
+  const fehler = $derived(fehlerSchluessel ? t[fehlerSchluessel] : '');
 
   /* Ansicht: Bildpunkte des Kartenbildes je Bildschirmpunkt, plus Versatz. */
   let zoom = $state(1);
@@ -182,7 +193,7 @@
       history.replaceState(null, '', adresse);
     } catch (e) {
       console.warn(e);
-      fehler = 'Diese Karte ist gerade nicht erreichbar.';
+      fehlerSchluessel = 'kartenbetrachter.fehler.karte';
     }
   }
 
@@ -191,7 +202,7 @@
       uebersicht = await holeJson<Uebersicht>('/assets/karten/karten.json');
     } catch (e) {
       console.warn(e);
-      fehler = 'Die Karten sind gerade nicht erreichbar.';
+      fehlerSchluessel = 'kartenbetrachter.fehler.karten';
       return;
     }
     const gewuenscht = new URLSearchParams(location.search).get('welt');
@@ -309,7 +320,7 @@
   {:else if fehler}
     <span class="leer-zustand" style="padding:0">{fehler}</span>
   {:else}
-    <span class="leer-zustand" style="padding:0">Karten werden geholt …</span>
+    <span class="leer-zustand" style="padding:0">{t['kartenbetrachter.laedt']}</span>
   {/if}
 </div>
 
@@ -328,7 +339,7 @@
     class:greift
     tabindex="0"
     role="application"
-    aria-label="Weltkarte — ziehen zum Schieben, Mausrad zum Zoomen"
+    aria-label={t['kartenbetrachter.flaeche.aria']}
     onwheel={rad}
     onpointerdown={runter}
     onpointermove={bewegt}
@@ -341,7 +352,9 @@
     {#if welt}
       <img
         src="/assets/karten/{welt.bild}"
-        alt="Weltkarte von {welt.name} — {(welt.spanneMeter / 1000).toFixed(1)} Kilometer Kantenlänge"
+        alt="{t['kartenbetrachter.bild.alt_vorn']} {welt.name} — {(
+          welt.spanneMeter / 1000
+        ).toFixed(1)} {t['kartenbetrachter.bild.alt_hinten']}"
         draggable="false"
         style="width:{bildBreite * zoom}px; transform:translate({vx}px,{vy}px)"
         onload={() => { messen(); einpassen(); }}
@@ -365,22 +378,22 @@
     <button
       class="knopf knopf-schlicht"
       type="button"
-      aria-label="Näher heran"
+      aria-label={t['kartenbetrachter.naeher']}
       onclick={() => zoomen(1.4, flaechenBreite / 2, flaechenHoehe / 2)}>+</button
     >
     <button
       class="knopf knopf-schlicht"
       type="button"
-      aria-label="Weiter weg"
+      aria-label={t['kartenbetrachter.weiter_weg']}
       onclick={() => zoomen(1 / 1.4, flaechenBreite / 2, flaechenHoehe / 2)}>−</button
     >
-    <button class="knopf knopf-schlicht" type="button" onclick={einpassen}>Ganze Welt</button>
+    <button class="knopf knopf-schlicht" type="button" onclick={einpassen}>{t['kartenbetrachter.ganze_welt']}</button>
   </div>
 
   <div class="karten-fuss">
     <span class="massstab" style="width:{massstab.breite}px" data-text={massstab.text} aria-hidden="true"
     ></span>
-    <span class="karten-koord">Zeiger: <b>{zeigerText}</b></span>
+    <span class="karten-koord">{t['kartenbetrachter.zeiger']} <b>{zeigerText}</b></span>
   </div>
 </div>
 
@@ -389,39 +402,42 @@
     {fehler}
   {:else if welt}
     <b>{uebersicht?.welten.find((w) => w.instanz === instanz)?.anzeige ?? welt.name}</b>
-    · {welt.regionen.length} Regionen · {(welt.spanneMeter / 1000).toFixed(1)} km Kante · Stand
-    {datumZeit(welt.gerendert)}
+    · {welt.regionen.length} {t['kartenbetrachter.stand.regionen']} · {(
+      welt.spanneMeter / 1000
+    ).toFixed(1)} {t['kartenbetrachter.stand.km_kante']} · {t['kartenbetrachter.stand.stand']}
+    {datumZeit(welt.gerendert, lang)}
   {:else}
-    wird geholt …
+    {t['kartenbetrachter.stand.laedt']}
   {/if}
 </p>
 
 <div class="gitter gitter-2" style="margin-top:2.5rem">
   <article class="tafel">
-    <h3>Was die Farben bedeuten</h3>
+    <h3>{t['kartenbetrachter.farben.titel']}</h3>
     <ul class="legende">
       {#each welt?.legende ?? [] as l (l.bit)}
         <li><i style="background:{l.farbe}"></i>{l.name}</li>
       {/each}
     </ul>
     <p style="color:var(--matt);font-size:.9rem;margin:1rem 0 0">
-      Dunklere Flächen innerhalb eines Landes sind Wald, hellere sind höheres Gelände. Die
-      Schummerung zeigt Hänge — so liest man Täler und Grate, die in einer flachen Einfärbung
-      untergingen.
+      {t['kartenbetrachter.farben.text']}
     </p>
   </article>
 
   <article class="tafel">
-    <h3>Zwei Welten, zwei Karten</h3>
+    <h3>{t['kartenbetrachter.zwei.titel']}</h3>
+    <!-- Der Weltname steht fett im Satz: zwei Bausteine, das <b> bleibt hier. -->
     <p style="color:var(--matt);font-size:.95rem">
-      <b style="color:var(--runengold);font-weight:400">Midgard</b> ist die bleibende Welt. Was
-      dort steht, bleibt stehen — und die Karte ändert sich nur, wenn das Land selbst umgebaut
-      wird.
+      <b style="color:var(--runengold);font-weight:400"
+        >{t['kartenbetrachter.zwei.midgard.name']}</b
+      >
+      {t['kartenbetrachter.zwei.midgard.text']}
     </p>
     <p style="color:var(--matt);font-size:.95rem;margin:0">
-      <b style="color:var(--runengold);font-weight:400">Die Werkstatt</b> ist der Bauplatz. Dort
-      entstehen neue Inseln und Landstriche, bevor sie nach Midgard wandern; sie wird ohne
-      Vorwarnung zurückgesetzt.
+      <b style="color:var(--runengold);font-weight:400"
+        >{t['kartenbetrachter.zwei.werkstatt.name']}</b
+      >
+      {t['kartenbetrachter.zwei.werkstatt.text']}
     </p>
   </article>
 </div>

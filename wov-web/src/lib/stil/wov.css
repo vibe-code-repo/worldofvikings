@@ -312,8 +312,12 @@ main { flex: 1 0 auto; }
   border-radius: 0;
 }
 
+/* Der Text der Marke kommt aus dem Attribut, nicht aus dieser Regel: Er ist
+   das einzige Wort der Kopfleiste, das im Stylesheet stand, und ein
+   Stylesheet gibt es nur einmal für beide Sprachen. Kopf.svelte setzt
+   `data-bald` auf den Katalogtext („bald“ bzw. „soon“). */
 .nav a[data-bald]::after {
-  content: "bald";
+  content: attr(data-bald);
   font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -326,6 +330,39 @@ main { flex: 1 0 auto; }
 }
 
 .kopf-tat { display: flex; align-items: center; gap: 12px; }
+
+/*
+  Der Sprachumschalter. Zwei gewöhnliche Links, durch einen Strich getrennt —
+  bewusst kein Aufklappmenü: Bei zwei Sprachen kostet ein Menü einen Klick
+  mehr und braucht ein Skript, das die Seite sonst nirgends braucht.
+  Die aktive Sprache bleibt anklickbar (sie führt auf dieselbe Seite), ist
+  aber gedämpft und trägt aria-current.
+*/
+.sprachwahl { display: flex; align-items: center; gap: 0.5rem; }
+
+.sprachwahl a {
+  font-family: var(--schrift-kappen);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-matt);
+  padding: 0.25rem 0.1rem;
+  transition: color 0.3s;
+}
+.sprachwahl a:hover { color: var(--primaer); text-decoration: none; }
+.sprachwahl a[aria-current] { color: var(--runengold); }
+
+/* Trennstrich zwischen den Sprachen, nicht davor und nicht dahinter. */
+.sprachwahl a + a::before {
+  content: "";
+  display: inline-block;
+  width: 1px;
+  height: 0.85em;
+  margin-right: 0.5rem;
+  vertical-align: -0.1em;
+  background: var(--umriss-matt);
+}
 
 /* ---------------------------------------------------------- Mobilleiste */
 

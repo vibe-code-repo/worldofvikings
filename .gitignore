@@ -27,6 +27,12 @@ tools/asset-extractor/extract.d.ts.map
 assets/*
 !assets/manifest.json
 server/data/worlds/
+# Kontendatenbank (SQLite). Laufzeitzustand wie die Spielstaende darueber --
+# und darin stehen Passwort-Hashes und E-Mail-Adressen echter Leute. Die
+# haben in einem oeffentlichen Repo nichts verloren, auch nicht als
+# scrypt-Eintrag: Ein Hash ist kein Schutz vor dem Durchprobieren, nur ein
+# Preis dafuer.
+server/data/konten/
 # G12: Betriebsmetriken-Schnappschuss, einmal je Sekunde vom laufenden
 # Spielserver ueberschrieben -- Laufzeitzustand wie die Spielstaende oben,
 # gehoert nicht ins Repo.

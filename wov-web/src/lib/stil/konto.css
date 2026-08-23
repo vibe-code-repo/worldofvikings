@@ -1,0 +1,153 @@
+/*
+  Styles for the account pages: /registrieren, /anmelden, /konto and the
+  sign-in gate on /erstellen.
+
+  ── Why a separate file and not `wov.css` ────────────────────────────
+  `wov.css` is loaded by the layout, so every one of the fifteen public
+  pages would carry these rules to display four of them. Imported from the
+  pages that use it, Vite gives the bundle its own stylesheet and only
+  those routes link it.
+
+  ── Why not scoped `<style>` blocks ──────────────────────────────────
+  The same form appears on four pages. Scoped styles would mean four copies
+  of the field, label and error rules, and the first divergence between them
+  would look like a rendering bug rather than a forgotten paste.
+
+  Every class is prefixed `konto-`: this file is global, and a bare `.feld`
+  would collide with the next component that wants that name.
+*/
+
+/* The forms are read top to bottom, not scanned — a full-width column
+   would force the eye back across 1400px between label and field. */
+.konto-schmal {
+  width: min(34rem, 100%);
+  margin-inline: auto;
+}
+
+.konto-tafel {
+  border: 1px solid var(--umriss-matt);
+  border-radius: var(--r-xl);
+  background: var(--tafel-bg);
+  padding: 1.6rem 1.5rem;
+}
+
+.konto-feld {
+  margin-bottom: 1rem;
+}
+
+.konto-name {
+  display: block;
+  font-family: var(--schrift-kappen);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--umriss);
+  margin-bottom: 0.35rem;
+}
+
+.konto-eingabe {
+  width: 100%;
+  height: 2.4rem;
+  background: var(--flaeche-tief);
+  color: var(--text);
+  border: 1px solid var(--umriss-matt);
+  border-radius: var(--r-lg);
+  padding: 0 0.7rem;
+  font-family: var(--schrift);
+  font-size: 15px;
+}
+.konto-eingabe:focus {
+  outline: none;
+  border-color: var(--primaer);
+}
+
+.konto-hilfe {
+  font-size: 12px;
+  color: var(--umriss);
+  margin-top: 0.35rem;
+  line-height: 1.45;
+}
+
+/*
+  Fehlertexte tragen NICHT nur Farbe: Wer Rot nicht von Grau unterscheiden
+  kann, sieht sonst gar nichts. Darum steht vor jedem ein „!“ als Zeichen,
+  und das Feld selbst bekommt zusaetzlich aria-invalid.
+*/
+.konto-fehler {
+  font-size: 13px;
+  color: var(--dritt);
+  margin-top: 0.35rem;
+  line-height: 1.45;
+}
+.konto-fehler::before {
+  content: "! ";
+  color: var(--blut);
+  font-weight: 700;
+  filter: brightness(1.9);
+}
+
+.konto-melder {
+  border-left: 3px solid var(--blut);
+  background: rgba(139, 0, 0, 0.14);
+  padding: 0.7rem 1rem;
+  border-radius: 0 var(--r-lg) var(--r-lg) 0;
+  font-size: 14px;
+  color: var(--text-matt);
+  margin-bottom: 1rem;
+}
+
+.konto-tat {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 1.2rem;
+}
+
+.konto-wechsel {
+  font-size: 14px;
+  color: var(--umriss);
+  margin-top: 1.2rem;
+}
+
+/* ------------------------------------------------------------ Recken */
+
+.konto-liste {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.2rem;
+}
+
+.konto-recke {
+  border: 1px solid var(--umriss-matt);
+  border-radius: var(--r-xl);
+  background: var(--flaeche-tief);
+  padding: 1.1rem 1.2rem;
+}
+
+.konto-recke-name {
+  font-family: var(--schrift-kopf);
+  font-size: 20px;
+  color: var(--runengold);
+  margin: 0 0 0.4rem;
+}
+
+.konto-recke-daten {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.1rem;
+  font-size: 13px;
+  color: var(--umriss);
+  margin: 0 0 0.6rem;
+}
+
+.konto-recke-daten b {
+  color: var(--text-matt);
+  font-weight: 400;
+}
+
+.konto-leer {
+  color: var(--text-matt);
+  font-size: 15px;
+  margin-top: 1rem;
+}

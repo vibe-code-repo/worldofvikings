@@ -228,6 +228,18 @@ Object.assign(PIECES, {
   bau_kipine: bau('bau_kipine', 'KI-Kiefer', 'sapling_pine', 'KiPine2', [{ item: 'Wood', amount: 1 }]),
   // bau_steinkreis entfiel mit dem alten Steinkreis (2026-08-06);
   // als setzbarer Stein dient jetzt der GrabMenhir.
+  // Die erste benutzbare Truhe des Projekts.
+  //
+  // ⚠ Kostet NUR Holz, obwohl das Modell Eisenbeschlaege traegt: Das
+  // Item `Iron` gibt es im Spiel nicht — der Bestand kennt Wood, Stone,
+  // Flint, Resin und Nahrung, sonst nichts. Der erste Entwurf verlangte
+  // 2x Iron, und `handlePlacePiece` lehnte jede Platzierung mit
+  // "Material fehlt: 2x Iron" ab. Gefunden am 20.08.2026, weil Mike die
+  // Truhe nicht bauen konnte, die KI-Kiefer (1x Wood) dagegen schon.
+  // Sobald es Erz gibt (Roadmap N12), gehoert der Preis neu bemessen.
+  bau_truhe: bau('bau_truhe', 'Holztruhe', 'chest_wood', 'HolzTruhe', [
+    { item: 'Wood', amount: 10 },
+  ]),
   bau_menhir: bau('bau_menhir', 'Menhir', 'guardstone', 'GrabMenhir', [
     { item: 'Stone', amount: 12 },
   ]),
@@ -261,6 +273,7 @@ function hammerTabelle(): string[] {
   const roh = [
     'bau_boden', 'bau_wand', 'bau_tuer', 'bau_dach',
     'bau_werkbank', 'bau_bett', 'bau_portal', 'bau_kipine', 'bau_menhir',
+    'bau_truhe',
   ];
   const liste = roh.filter((n) => {
     const prefab = PIECES[n]?.bauPrefab;

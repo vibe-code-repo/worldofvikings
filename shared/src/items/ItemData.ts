@@ -47,6 +47,26 @@ export interface ItemShared {
   toolTier: number;
 
   /**
+   * In welchen Ausrüstungsslot dieser Gegenstand gehört
+   * (shared/ausruestung.ts). Fehlt das Feld, geht er in die HAND — so
+   * verhalten sich alle Werkzeuge und Waffen wie bisher, ohne dass ihre
+   * Einträge angefasst werden mussten.
+   */
+  ausruestung?: string;
+
+  /**
+   * Kennung des sichtbaren Rüstungsteils (shared/aussehen.ts), das beim
+   * Anlegen an der Figur erscheint.
+   *
+   * WARUM NICHT `model`: `model` ist das Ding, das man in der HAND hält
+   * (eine Axt, ein Hammer) und als eigenes Objekt in die Szene kommt. Ein
+   * Kleidungsstück ist etwas anderes — es wird auf das SKELETT der Figur
+   * gezogen und teilt sich deren Gelenkliste. Beides in ein Feld zu
+   * pressen hiesse, an der Ladestelle raten zu müssen, was gemeint ist.
+   */
+  ruestungsteil?: string;
+
+  /**
    * Where the model sits in the hand, as [x, y, z] metres and [x, y, z]
    * radians relative to the hand node.
    *

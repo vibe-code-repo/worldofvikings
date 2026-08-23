@@ -497,6 +497,15 @@ export const HINT_DEFS: PrefabDef[] = [
     localScale: { x: 2.6, y: 2.6, z: 2.6 } },
   { ...def('GrabRunenstein', F.PERSISTENT, 'guardstone', 0.8, 3.4, 'GrabRunenstein'),
     localScale: { x: 3.4, y: 3.4, z: 3.4 } },
+  // Die benutzbare Holztruhe (F1). Eigenes Modell aus
+  // tools/truhe-generieren.py — 196 Dreiecke, 61 KB, gemessene
+  // Aussenmasse 0,96 x 0,61 m.
+  //
+  // Warum nicht `piece_chest_wood` weiterverwenden: Der Eintrag traegt
+  // zwar schon CONTAINER, ist aber ein Valheim-Name und faellt damit
+  // durch `istEigenesModell()` — die Hammer-Tabelle wuerde ihn
+  // ueberspringen. Eigene Modelle tragen im Projekt deutsche Namen.
+  { ...def('HolzTruhe', F.PIECE | F.CONTAINER | F.PERSISTENT, 'chest_wood', 0.96, 0.61, 'HolzTruhe') },
   { ...def('GrabTruhe', F.PERSISTENT, 'cryptkey', 0.9, 0.9, 'GrabTruhe'),
     localScale: { x: 1.25, y: 1.25, z: 1.25 } },
   { ...def('GrabDrachenkopf', F.PERSISTENT, 'guardstone', 0.5, 1.6, 'GrabDrachenkopf'),
@@ -855,6 +864,11 @@ export const PREFAB_DEFS: PrefabDef[] = buildRegistry();
  * hat dieselbe Antwort wie „darf es in der Welt stehen?".
  */
 export const EIGENE_MODELLE: readonly string[] = [
+  // Erster Gegenstand mit eigenem Modell (23.08.2026). Gebaut von
+  // tools/messer-erzeugen.py — prozedural, 74 Flaechen, in ECHTEN
+  // Metern, weil AvatarRig die Figurenskalierung an `handR` wieder
+  // herausrechnet.
+  'Messer',
   // Wieder aufgenommen 16.08.2026 — siehe HINT_DEFS.
   'Steinkreis',
   'BirkeHoch1',
@@ -985,6 +999,7 @@ export const EIGENE_MODELLE: readonly string[] = [
   'GrabMenhir',
   'GrabRunenstein',
   'GrabTruhe',
+  'HolzTruhe',
   'GrabDrachenkopf',
   'KiPine2',
   'KiPine3',

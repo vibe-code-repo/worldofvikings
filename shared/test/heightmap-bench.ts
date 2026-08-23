@@ -1,4 +1,12 @@
 /**
+ * G1-Durchsicht 20.08.2026: Werkzeug, kein Test — druckt Messwerte, hat
+ * keine Zusicherung und keinen process.exit(1)-Pfad. Gehoert deshalb NICHT
+ * in scripts/run-tests.mjs (Regel: "bench"/"compare" im Namen oder Inhalt
+ * misst statt zu behaupten). Zusaetzlich liest sie server/data/welten/
+ * live.json direkt — laut Lauf-Auftrag TABU zum Ausfuehren waehrend
+ * parallel daran gearbeitet wird, deshalb hier nur per Quelltext
+ * eingeordnet und NICHT ausgefuehrt.
+ *
  * Heightmap-Messbank — isoliert `HeightmapProvider.getZone()` und
  * `getGroundHeight()` aus dem Bild heraus und misst sie ohne Renderer.
  *

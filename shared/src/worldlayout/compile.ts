@@ -33,14 +33,14 @@ import {
 export const FIELD_CHUNK_SIZE = 1024;
 export const FIELD_CELL_SIZE = 32;
 const CELLS = FIELD_CHUNK_SIZE / FIELD_CELL_SIZE; // 32
-const MAX_KANDIDATEN = 4;
+export const MAX_KANDIDATEN = 4;
 /**
  * Sicherheitsmarge um jede Region: Zelldiagonale + Grundpuffer + die
  * maximale Küstenrausch-Amplitude von RegionGeo (±110 m verschieben die
  * effektive Randdistanz). Zu knapp bemessen "ploppt" am Feldende Land aus
  * dem Ozean — gemessen als 6,8-m-Kante im Phase-2-Test.
  */
-const MARGE = 256;
+export const MARGE = 256;
 
 export interface FieldSample {
   /** Gewinner nach Z-Regel; null = offener Ozean (keine Region in Reichweite). */

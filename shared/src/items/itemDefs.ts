@@ -22,6 +22,44 @@ import { istEigenesModell } from '../prefabs.js';
  */
 const ITEM_DEFS_ROH: readonly ItemShared[] = [
   {
+    // Sax — das wikingerzeitliche Allzweckmesser. Kein Fund aus dem
+    // Valheim-Bestand, sondern eigens gebaut (tools/messer-erzeugen.py),
+    // und der erste Gegenstand mit eigenem Modell UND eigenem Symbol.
+    // Das Symbol ist ein Render desselben Modells — so koennen Bild und
+    // Gegenstand nicht auseinanderlaufen.
+    name: 'Messer',
+    label: 'Sax (Messer)',
+    itemType: ItemType.Tool,
+    icon: 'messer',
+    model: 'Messer',
+    maxStackSize: 1,
+    weight: 0.6,
+    toolTier: 0,
+    // Haltung GEMESSEN, nicht geschaetzt — anders als bei den uebrigen
+    // Eintraegen (s. Kommentar an holdPosition in ItemData.ts).
+    //
+    // In Blender an den Knochen gesetzt und gerendert
+    // (tools/messer-in-hand.py): Griff 0,02 Modelleinheiten aus der
+    // Handflaeche, 0,075 zu den Knoecheln, Klinge hochkant. Das mal 1,8,
+    // weil holdPosition in echten Metern zaehlt: handR traegt
+    // 1/modellSkalierung, die Weltskalierung am Huellknoten ist also 1.
+    //
+    // Dass die Achsen zwischen Blender und Babylon UEBERHAUPT gleich
+    // liegen, ist nachgemessen (tools/out/achsen-messen.mjs), nicht
+    // angenommen — der glTF-Export darf Knochen mitdrehen:
+    //   Handknoten +Y  → zu den Fingern   (Blender: ebenso)
+    //   Handknoten +Z  → zum Koerper hin  (Blender: ebenso)
+    //   Klinge bei Drehung null → -Z
+    // Daraus folgt rotation.x = +PI/2 (Klinge zu den Fingern) und
+    // rotation.z = +PI/2 (Schneide nach vorn; Babylon wendet Z zuerst
+    // an, also im Modellrahmen um die Klingenachse).
+    holdPosition: [0.036, 0.135, 0],
+    holdRotation: [1.5708, 0, 1.5708],
+    maxDurability: 120,
+    useDurabilityDrain: 1,
+    attackStamina: 3,
+  },
+  {
     // verified: $item_hoe, m_itemType 19, maxDurability 200, drain 1, stamina 5
     name: 'Hoe',
     label: 'Hacke (Hoe)',
@@ -322,6 +360,48 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
 ];
 
 /**
+ * ── Kleidung ────────────────────────────────────────────────────────
+ *
+ * WARUM `itemType: Material` UND NICHT EIN EIGENER TYP: `ItemType` bildet
+ * Valheims Aufzaehlung nach, und die hat fuer Ruestung eigene Werte. Wir
+ * portieren aber keine Valheim-Ruestung — was diese Teile koennen, steht
+ * in `ausruestung` (wohin sie gehoeren) und `ruestungsteil` (was man
+ * sieht). Eine geratene Zahl in eine fremde Aufzaehlung zu schreiben
+ * haette nur die Gefahr gebracht, spaeter mit dem echten Wert zu kollidieren.
+ *
+ * `model: null` ist Absicht: Kleidung ist kein Ding in der Hand, sondern
+ * wird auf das Skelett der Figur gezogen (siehe `ruestungsteil` in
+ * ItemData.ts). Ein Sprite gibt es noch nicht — `itemVisual()` zeigt dann
+ * die ersten zwei Buchstaben der Beschriftung statt eines kaputten Bildes.
+ */
+const KLEIDUNG: ItemShared[] = [
+  {
+    name: 'LederBH',
+    label: 'Leder-Oberteil',
+    itemType: ItemType.Material,
+    icon: 'leder_bh',
+    model: null,
+    maxStackSize: 1,
+    weight: 0.6,
+    toolTier: 0,
+    ausruestung: 'hemd',
+    ruestungsteil: 'leder_bh',
+  },
+  {
+    name: 'LederShorts',
+    label: 'Lederhose, kurz',
+    itemType: ItemType.Material,
+    icon: 'leder_shorts',
+    model: null,
+    maxStackSize: 1,
+    weight: 1.2,
+    toolTier: 0,
+    ausruestung: 'hose',
+    ruestungsteil: 'leder_shorts',
+  },
+];
+
+/**
  * Die ausgelieferten Gegenstände — Rohbestand mit geprüftem `model`.
  *
  * Gestrichen wird das MODELL, nicht der Gegenstand. Das ist der
@@ -344,14 +424,14 @@ export const ITEM_DEFS: readonly ItemShared[] = bauItemDefs();
 
 function bauItemDefs(): ItemShared[] {
   let ohneModell = 0;
-  const liste = ITEM_DEFS_ROH.map((d) => {
+  const liste = [...ITEM_DEFS_ROH, ...KLEIDUNG].map((d) => {
     if (d.model === null || istEigenesModell(d.model)) return d;
     ohneModell++;
     return { ...d, model: null };
   });
   if (ohneModell > 0) {
     console.warn(
-      `[items] ${ohneModell} von ${ITEM_DEFS_ROH.length} Eintraegen ohne eigenes Modell uebersprungen (Symbol bleibt)`
+      `[items] ${ohneModell} von ${ITEM_DEFS_ROH.length + KLEIDUNG.length} Eintraegen ohne eigenes Modell uebersprungen (Symbol bleibt)`
     );
   }
   return liste;
@@ -364,6 +444,7 @@ export const ITEMS_BY_NAME: ReadonlyMap<string, ItemShared> = new Map(
 export function findItem(name: string): ItemShared | undefined {
   return ITEMS_BY_NAME.get(name);
 }
+
 
 /**
  * Essbares (Taste F): maxHP-Bonus und Wirkdauer — stark vereinfachtes

@@ -8,6 +8,7 @@
   "//sideEffects": "Jedes Modul in shared/src ist reine Daten oder reine Funktionen - kein Import traegt eine Nebenwirkung (keine Registry-Eintraege, kein globalThis/window-Zugriff auf Modulebene). Diese Zusage erlaubt Rollup, aus dem Barrel wegzuwerfen, was ein Einstieg nicht anfasst: der Karten-Worker braucht nur die Weltgenerierung, schleppte aber die komplette Prefab-, Feature- und Dungeon-Tabelle mit, weil ohne diese Angabe jedes Modul als potenziell nebenwirkend gilt.",
   "sideEffects": false,
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
   }
 }

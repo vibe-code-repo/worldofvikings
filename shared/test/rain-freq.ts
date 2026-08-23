@@ -1,3 +1,12 @@
+/**
+ * Werkzeug, kein Test (G1-Durchsicht 20.08.2026): misst und druckt nur die
+ * Niederschlagsverteilung je Biom, behauptet nichts und hat keinen
+ * process.exit(1)-Pfad — es kann nicht fehlschlagen, egal was
+ * precipitationOf()/selectWeather() liefern. Die eigentlichen
+ * Zusicherungen zu Wetter/Niederschlag stehen in weather.ts (Sektion
+ * "Niederschlag"), das gehört in scripts/run-tests.mjs. Diese Datei bleibt
+ * ausserhalb — von Hand laufen lassen: npx tsx shared/test/rain-freq.ts
+ */
 /** Wie oft regnet es? Anteil der Wetterperioden mit Niederschlag je Biom. */
 import { selectWeather, precipitationOf, ENVIRONMENT_DURATION } from '../src/weather.js';
 import { Biome } from '../src/types.js';

@@ -156,7 +156,11 @@ console.log('── zone seam ──');
   // Both own that column of vertices: rx=64 in zone 0, rx=0 in zone 1.
   const p = makeProvider();
   const ground = p.getGroundHeight(32, 0);
-  const affected = p.applyTerrainOp(32, ground - 3, 0, op({ level: true, levelRadius: 2.5 }));
+  // applyTerrainOp gibt seit der Paint/Height-Trennung ein TerrainOpEffect
+  // { heights, paint } zurueck, nicht mehr die flache Zonenliste selbst —
+  // der Test griff bislang direkt auf das Ergebnis als Array zu und brach
+  // mit "affected.some is not a function".
+  const { heights: affected } = p.applyTerrainOp(32, ground - 3, 0, op({ level: true, levelRadius: 2.5 }));
 
   const touchesBoth =
     affected.some(([zx]) => zx === 0) && affected.some(([zx]) => zx === 1);
@@ -230,7 +234,9 @@ console.log('── comp hygiene ──');
   // but no vertex of zone 1 is within reach.
   const p = makeProvider();
   const ground = p.getGroundHeight(31, 0);
-  const affected = p.applyTerrainOp(31, ground - 1, 0, op({ level: true, levelRadius: 0.4 }));
+  // Selbe TerrainOpEffect-Form wie oben — level-Operationen schreiben
+  // Hoehen, also ist .heights die richtige Liste hier.
+  const { heights: affected } = p.applyTerrainOp(31, ground - 1, 0, op({ level: true, levelRadius: 0.4 }));
   const comps = [...p.listTerrainComps()];
 
   check(

@@ -1,8 +1,15 @@
 /**
  * Network protocol definitions for Client <-> Server communication.
- * Replaces Steam Networking Sockets with WebSocket + MessagePack.
+ * Replaces Steam Networking Sockets with WebSocket + einem
+ * handgeschriebenen Binaerformat (kein MessagePack) — Port von
+ * DataStream.h (Valhalla2.0 C++), siehe server/src/io/{Reader,Writer}.ts.
  *
- * Packet framing: [type: u8][payload: MessagePack binary]
+ * Packet framing: [type: u8][payload: custom binary]
+ *
+ * Die Interfaces hier sind die LOGISCHE Form der Pakete, nicht
+ * zwangslaeufig die exakte Feldreihenfolge auf dem Draht — wo beide
+ * auseinanderlaufen, steht das als NOTE bei der jeweiligen Packet-Definition
+ * (z. B. PlayerInputPacket, PlayerStatePacket).
  */
 
 import type { Vector3, Quaternion, ZDOSnapshot, PeerInfo, WorldMeta } from './types.js';
@@ -124,6 +131,20 @@ export interface PlayerInputPacket {
   interact: boolean;
 }
 
+/**
+ * PlayerStatePacket — logical server->client state (F6).
+ *
+ * NOTE: like PlayerInputPacket above, the actual wire format (custom
+ * binary, WovServer.sendPlayerState -> main.ts PlayerState handler)
+ * serializes only a SUBSET, in this order:
+ *   health(f32, percent of maxHealth), stamina(f32), position(vec3),
+ *   seq(i32, peer.lastInputSeq — appended LAST on purpose, see
+ *   sendPlayerState: an older reader stops after its known fields and
+ *   never sees the extra bytes, a newer reader checks
+ *   BinaryReader.remaining before reading them; this is why the field
+ *   could be added without a protocol version bump).
+ * userId/rotation/velocity/animation below are NOT on the wire yet.
+ */
 export interface PlayerStatePacket {
   userId: string;
   seq: number;
@@ -175,25 +196,6 @@ export interface AdminEventPacket {
   active: boolean;
   message: string;
 }
-
-// === Packet type map for serialization ===
-export const PACKET_REGISTRY: Record<number, string> = {
-  [PacketType.VersionCheck]: 'VersionCheckPacket',
-  [PacketType.AuthChallenge]: 'AuthChallengePacket',
-  [PacketType.PasswordAuth]: 'PasswordAuthPacket',
-  [PacketType.PeerInfo]: 'PeerInfoPacket',
-  [PacketType.Disconnect]: 'DisconnectPacket',
-  [PacketType.ZDOSync]: 'ZDOSyncPacket',
-  [PacketType.ZDOAssign]: 'ZDOAssignPacket',
-  [PacketType.TimeSync]: 'TimeSyncPacket',
-  [PacketType.HeightmapData]: 'HeightmapDataPacket',
-  [PacketType.PlayerInput]: 'PlayerInputPacket',
-  [PacketType.PlayerState]: 'PlayerStatePacket',
-  [PacketType.ChatMessage]: 'ChatMessagePacket',
-  [PacketType.RpcCall]: 'RpcCallPacket',
-  [PacketType.AdminCommand]: 'AdminCommandPacket',
-  [PacketType.AdminEvent]: 'AdminEventPacket',
-};
 
 /**
  * Ersatzschluessel fuer den Nonce/HMAC-Handshake, wenn KEIN Serverpasswort

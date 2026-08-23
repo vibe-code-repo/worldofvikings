@@ -111,6 +111,26 @@ export enum ChatMsgType {
 }
 
 // === Global Keys (ZoneManager.h) ===
+//
+// F5-Befund: dieses Enum fasst ZWEI verschiedene Dinge aus dem Vorbild in
+// EINEM Werteraum zusammen — der Name "GlobalKey" fuer beide stammt aus
+// ZoneManager.h, der C++-Referenz.
+//
+//   - PlayerDamage..NonServerOption: WELTMODIFIKATOREN. Bei der Welt-
+//     ERZEUGUNG gewaehlte Schwierigkeitsgrad-Presets, danach fuer die
+//     Lebensdauer der Welt FEST — Erzeugungs-Konfiguration, keine
+//     Laufzeit-Flagge (gehoert konzeptionell neben worldSeed/
+//     worldGenVersion, s. WorldManager.ts).
+//   - defeated_eikthyr..KilledBat: FORTSCHRITTSMARKEN. Waehrend des
+//     Spiels gesetzte JA/NEIN-Flaggen. Im Vorbild sind das freie
+//     Zeichenketten (ZoneSystem::SetGlobalKey("defeated_eikthyr")), hier
+//     aus Typsicherheit als Enum-Werte abgebildet.
+//
+// server/src/world/WeltMarken.ts bedient NUR die zweite Gruppe (s. dessen
+// Kopfkommentar) — das ist die Gruppe, an der server/src/world/
+// WorldManager.ts (globalKeys/startingGlobalKeys) und die Eikthyr-
+// Anwendung wirklich haengen. Die erste Gruppe bleibt unbenutzt, bis es
+// eine Welterzeugungs-Konfiguration gibt, die sie liest.
 export enum GlobalKey {
   PlayerDamage,
   EnemyDamage,
@@ -263,6 +283,63 @@ export enum PacketType {
    * Payload: String nonce (Hex, EINMALIG pro Verbindung).
    */
   AuthChallenge = 68,
+
+  /**
+   * Client → Server: Truhen-Aktion (Umschichten zwischen eigenem
+   * Inventar und einer offenen Truhe, Roadmap F1). Payload: String
+   * zdoUserId, Int32 zdoId, Int32 richtung (0 = aus der Truhe nehmen,
+   * 1 = in die Truhe legen), String itemName, Int32 amount. Reichweite
+   * und Bestand prüft der Server anhand der ECHTEN ZDO-/Peer-Position
+   * bzw. des ECHTEN Truheninhalts — kein Feld hier ist vom Client
+   * behauptet (s. WovServer.handleContainerAction).
+   */
+  ContainerAction = 69,
+  /**
+   * Server → Client, NUR an den anfragenden Peer: aktueller Inhalt einer
+   * Truhe — direkte Antwort auf Interact (Öffnen, F.CONTAINER) oder auf
+   * eine eigene ContainerAction. Payload: String zdoUserId, Int32 zdoId,
+   * String inhaltJson (Format: shared/items/Container.ts packContainer).
+   * Geht NICHT an andere Peers in Reichweite (s. Kommentar bei
+   * TRUHE_INHALT_MEMBER in constants.ts für den Persistenz-/Sync-Weg
+   * über den ZDO-Member selbst).
+   */
+  ContainerSync = 70,
+  /**
+   * Client → Server: gewählte Spielfigur. Payload: String figurId
+   * (Kennung aus shared/figuren.ts).
+   *
+   * ADDITIV angehängt, ohne Erhöhung der Protokollversion — dieselbe
+   * Überlegung wie bei `seq` im PlayerState (F6): Ein älterer Server
+   * kennt den Typ nicht und verwirft das Paket, ein älterer Client
+   * schickt es nie. Beides ist harmlos, während ein Versionssprung alle
+   * offenen Tabs mit „Client-Version veraltet" hinauswürfe (erlebt in
+   * der Nacht zum 20.08.2026).
+   */
+  SetFigur = 71,
+  /**
+   * Server → Client: festgenageltes Wetter und feste Nebeldichte aus
+   * `server.yml`. Payload: String umgebung (leer = würfeln wie bisher),
+   * Float32 nebelDichte (negativ = der Tageszeit folgen). Siehe
+   * shared/wetterVorgabe.ts.
+   *
+   * EIGENES PAKET statt zwei Felder an die ServerConfig: Ein Feld an ein
+   * bestehendes Paket zu hängen verschiebt dessen Aufbau — ein noch
+   * offener Tab mit altem Client läse ab dort Unsinn, ohne dass es
+   * auffiele. Ein unbekannter Pakettyp landet dagegen im `default: break`
+   * des Clients und wird still verworfen. Additiv, kein Versionssprung
+   * (Begründung s. SetFigur).
+   */
+  WeltWetter = 72,
+  /**
+   * Client → Server: Frisur und Ruestung (SetAussehen). Payload: drei
+   * Strings — frisurId, oberkoerperId, beineId; Leerstring heisst "nichts".
+   *
+   * EIGENES PAKET statt Felder an SetFigur: Ein Feld an ein bestehendes
+   * Paket zu haengen verschiebt dessen Aufbau, und ein noch offener Tab
+   * mit altem Client laese ab dort Unsinn. Additiv, kein Versionssprung
+   * — dieselbe Ueberlegung wie bei SetFigur und WeltWetter.
+   */
+  SetAussehen = 73,
 }
 
 // === Vector3 (Vector.h) ===

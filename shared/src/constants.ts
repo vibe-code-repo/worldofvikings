@@ -55,6 +55,27 @@ export const ANIM_MEMBER = 'anim';
  */
 export const HEALTH_MEMBER = 'health';
 
+/**
+ * Name des ZDO-Members, in dem eine Truhe (PrefabFlag.CONTAINER) ihren
+ * Inhalt trägt (Roadmap F1). Kompakte JSON-Tupelform, s.
+ * shared/items/Container.ts (packContainer/unpackContainer) — dieselbe
+ * Begründung wie bei HEALTH_MEMBER: ein String-Member statt eines
+ * eigenen Pakettyps läuft automatisch im vorhandenen ZDO-Sync mit, landet
+ * im Save und erreicht jeden Peer im Sichtradius, der die Truhe ohnehin
+ * schon sieht (WovServer.SICHT_RADIUS_ZONEN) — nicht das ganze
+ * Weltinventar an alle, sondern exakt die Truhen, die ein Peer sowieso
+ * schon in Reichweite hat.
+ */
+export const TRUHE_INHALT_MEMBER = 'truheInhalt';
+
+/**
+ * 1-Bit-Marker "hat ihre Erstbefüllung schon bekommen" (vor F1: "wurde
+ * geplündert"). Alt-Saves kennen nur dieses Bit — die Migration beim
+ * Umbau auf echten Truheninhalt steht bei TRUHE_INHALT_MEMBER und im
+ * F.CONTAINER-Zweig von WovServer.handleInteract.
+ */
+export const TRUHE_LOOTED_MEMBER = 'looted';
+
 /** Bewegungszustand → Animationsgruppe: steht/läuft. */
 export type Gangart = 'idle' | 'walk';
 

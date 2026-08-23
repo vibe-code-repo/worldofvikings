@@ -30,8 +30,6 @@ import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color4 } from '@babylonjs/core/Maths/math.color';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader';
-import { Layer } from '@babylonjs/core/Layers/layer';
-import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 /*
   Nebenwirkungs-Import. Babylons Baumschnitt-freundliche Module tragen ihre
@@ -49,21 +47,6 @@ import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import '@babylonjs/loaders/glTF';
-
-/**
- * Die Farbe, in der Boden und Himmel sich treffen.
- *
- * Aus shared/src/envData.json, Umgebung "DeepForest Mist" — das ist die
- * Wetterlage des SCHWARZWALDS mit Abstand (Gewicht 2 gegen je 0,1 fuer
- * Regen, Nebel und Gewitter), also das, was man dort ueblicherweise sieht.
- * fogColorDay rgb(61,126,163).
- *
- * EINE Konstante, weil derselbe Wert an drei Stellen stimmen muss: im
- * Verlauf der Kuppel, in scene.fogColor und als Bezug fuer den Boden.
- * Weichen sie voneinander ab, sieht man die Naht.
- */
-const HORIZONT = 'rgb(61, 126, 163)';
-const HORIZONT3 = new Color3(61 / 255, 126 / 255, 163 / 255);
 
 interface Teil {
   netze: AbstractMesh[];

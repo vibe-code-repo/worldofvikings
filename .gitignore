@@ -79,3 +79,11 @@ server/test/tmp-*/
 # Bauergebnis von tools/vorschau-buendeln.mjs -- 2,7 MB, aus
 # tools/web/vorschau-web.ts jederzeit neu erzeugbar.
 tools/web/vorschau.js
+
+# Die Webseite (wov-web/) ist ein eigenes npm-Projekt im selben Repo, aber
+# BEWUSST KEIN Workspace: sonst zoege `npm ci` an der Wurzel SvelteKit und
+# Vite auf jeden Container, auch auf den reinen Spielserver. Sie bringt
+# deshalb ihre eigenen node_modules mit (die Regel ganz oben greift) und
+# ihre eigenen Build-Ausgaben:
+wov-web/build/
+wov-web/.svelte-kit/

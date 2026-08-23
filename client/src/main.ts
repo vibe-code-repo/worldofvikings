@@ -323,6 +323,37 @@ async function main() {
   // Manipulierbar ist so nur das EIGENE Aussehen, und das darf man
   // ohnehin: Der Server prueft jede Kennung gegen dieselben Listen
   // (istFigur/istFrisur/istRuestung), aus denen die Auswahl stammt.
+  // ── Spielticket aus dem Adressfragment ────────────────────────────
+  //
+  // world-of-vikings.com tauscht einen gewaehlten Charakter gegen ein
+  // SessionToken (POST /api/konto/charaktere/<id>/spielen) und haengt es
+  // als #ticket= an die Adresse hierher. Von da an ist es das ganz normale
+  // Token, das GameSocket ohnehin aus dem localStorage vorlegt -- der
+  // Anmeldeweg im Server bleibt unveraendert.
+  //
+  // WARUM DAS FRAGMENT UND KEIN ?parameter: Ein Ticket ist ein
+  // Zugangsnachweis. Ein Adressparameter wandert in den Browserverlauf,
+  // in jedes Serverprotokoll und in die Referer-Kopfzeile jeder
+  // Folgeanfrage. Das Fragment wird gar nicht erst an einen Server
+  // geschickt.
+  //
+  // Und weil der Verlauf bleibt, wird es SOFORT wieder aus der Adresse
+  // gestrichen (replaceState, nicht pushState -- der Eintrag soll ersetzt
+  // und nicht um einen weiteren ergaenzt werden).
+  {
+    const roh = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
+    const ticket = new URLSearchParams(roh).get('ticket');
+    if (ticket) {
+      try {
+        localStorage.setItem('wov-session-token', ticket);
+      } catch {
+        // Privater Modus: dann eben nur fuer diese eine Verbindung. Das
+        // Token liegt gleich ohnehin im Speicher des GameSocket.
+      }
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  }
+
   const ausAdresse = new URLSearchParams(window.location.search);
   const vonSeite = {
     name: ausAdresse.get('name'),

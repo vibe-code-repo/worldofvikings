@@ -83,7 +83,17 @@ export default {
         // 'unsafe-inline' nur für Stile: Die Seiten tragen an vielen Stellen
         // ein style="…"-Attribut. Für Skripte gilt es ausdrücklich nicht.
         'style-src': ['self', 'unsafe-inline'],
-        'img-src': ['self', 'data:'],
+        /*
+          `blob:` ist fuer die Charaktervorschau noetig, nicht fuer die
+          Seite: Babylon laedt Texturen aus einem GLB, legt sie als Blob im
+          Speicher ab und reicht dem Browser eine blob:-Adresse. Ohne diese
+          Erlaubnis blockt die CSP genau dort — am 23.08.2026 gemessen,
+          nachdem die connect-src-Sperre gefallen war. Ein blob: entsteht
+          nur im eigenen Dokument; es oeffnet keine fremde Quelle.
+        */
+        'img-src': ['self', 'data:', 'blob:'],
+        // Babylon legt Dekodierarbeit in Worker, die es aus einem Blob baut.
+        'worker-src': ['self', 'blob:'],
         'font-src': ['self'],
         'connect-src': [
           'self',

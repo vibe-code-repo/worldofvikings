@@ -50,7 +50,7 @@ Der erste Prototyp lief auf Three.js und hat Server, Weltgenerierung und Asset-P
 
 1. **Basis-Beleuchtung skaliert**: Clustered Lighting löst das Fackel-Problem strukturell statt per Licht-Budget-Hack.
 2. **Weniger Client-Eigenbau**: CSM, God Rays, GUI, Physik, Inspector entfallen als Entwicklungsaufgaben.
-3. **Server/Shared/Tools bleiben**: ~80 % der bisherigen Arbeit (siehe [02](02-Migration-von-valheim-browser.md), Herkunft des Clients) wandert unverändert weiter.
+3. **Server/Shared/Tools bleiben**: ~80 % der bisherigen Arbeit (siehe [02](02-Herkunft-des-Clients.md), Herkunft des Clients) wandert unverändert weiter.
 4. **Besseres Debugging**: Inspector ersetzt ratenbasiertes Debugging; reproduzierbare Render-Zustände sind schneller auffindbar.
 
 ---
@@ -59,7 +59,7 @@ Der erste Prototyp lief auf Three.js und hat Server, Weltgenerierung und Asset-P
 
 | Risiko | Gegenmaßnahme |
 |---|---|
-| Lernkurve Babylon-API (Node/TransformNode statt Object3D, Observables statt Events) | Mapping-Tabelle in [02](02-Migration-von-valheim-browser.md); kleine Spikes pro Feature |
+| Lernkurve Babylon-API (Node/TransformNode statt Object3D, Observables statt Events) | Mapping-Tabelle in [02](02-Herkunft-des-Clients.md); kleine Spikes pro Feature |
 | Bundle-Größe (Babylon ist groß) | ES6-Packages (`@babylonjs/core`) + Tree-Shaking; gezielte Imports |
 | WebGPU-Reife in Browsern | WebGL2-Fallback bleibt dauerhaft eingerichtet und im CI getestet |
 | Clustered-Lighting-Kosten auf schwacher Hardware | SceneOptimizer-Stufen; Licht-Reichweiten/Dichte begrenzen; Fallback auf wenige Lichter |

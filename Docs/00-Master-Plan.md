@@ -180,7 +180,7 @@ server/data/welten/<instanz>.json   # das Weltdokument, in Git
 2. **Neu bauen**: `client/` komplett auf Babylon.js. Die Three.js-Client-Dateien (`Renderer.ts`, `Terrain.ts`, `StaticInstancer.ts`, `GrassClutter.ts`, `AssetManager.ts`, `InputManager.ts`, `WorldMap.ts`) dienen als fachliche Referenz, nicht als Code-Basis.
 3. **Protokoll stabil halten**: `shared/protocol.ts` ändert sich nicht — alter und neuer Client können zeitweise parallel gegen denselben Server laufen.
 
-Details: [02 — Herkunft des Clients](02-Migration-von-valheim-browser.md)
+Details: [02 — Herkunft des Clients](02-Herkunft-des-Clients.md)
 
 ---
 

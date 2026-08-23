@@ -10,7 +10,7 @@
 > Notiz **„World of Vikings Roadmap"** im Obsidian-Vault, nicht dieses Repo. Wer wissen will,
 > warum etwas so ist, wie es ist, ist hier richtig.
 
-Reihenfolge beachtet die Abhängigkeiten aus dem Analyse-Bericht (Weltgen existiert und ist verifiziert → Client kann direkt auf echten Daten aufsetzen). P0-Fallstricke aus [02](02-Migration-von-valheim-browser.md) sind in den betreffenden Phasen eingeplant.
+Reihenfolge beachtet die Abhängigkeiten aus dem Analyse-Bericht (Weltgen existiert und ist verifiziert → Client kann direkt auf echten Daten aufsetzen). P0-Fallstricke aus [02](02-Herkunft-des-Clients.md) sind in den betreffenden Phasen eingeplant.
 
 ---
 

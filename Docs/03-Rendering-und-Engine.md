@@ -410,7 +410,7 @@ Ausgelöst durch die Meldung „merkwürdige braune Spiegelungen, ein Wellenlaye
 mesh.thinInstanceSetBuffer("matrix", matrixData, 16, false);
 ```
 
-- **Datenfluss:** Server-SpawnSystem (vegetationData) → ZDO/Spawn-Pakete → Client gruppiert nach (Zone, Prefab) → Matrix-Arrays (Position, Rotation Y zufällig, **Scale zufällig aus min/max der Vegetationsdaten** — siehe Fallstricke in [02](02-Migration-von-valheim-browser.md#4-bekannte-fallstricke-aus-dem-analyse-bericht-p0--im-neuaufbau-von-anfang-an-richtig-machen)).
+- **Datenfluss:** Server-SpawnSystem (vegetationData) → ZDO/Spawn-Pakete → Client gruppiert nach (Zone, Prefab) → Matrix-Arrays (Position, Rotation Y zufällig, **Scale zufällig aus min/max der Vegetationsdaten** — siehe Fallstricke in [02](02-Herkunft-des-Clients.md#4-bekannte-fallstricke-aus-dem-analyse-bericht-p0--im-neuaufbau-von-anfang-an-richtig-machen)).
 - **Foliage-Material:** `alphaMode = ALPHATEST`, `backFaceCulling = false`, Wind-Vertex-Animation via `NodeMaterial` (Zeit + Weltposition → Sinus-Verschiebung, stärker an Blatt-Vertices via Vertexfarbe/UV2).
 - **Gras:** dichtes Gras als Thin Instances in reduziertem Radius (~40 m), weiter entfernt nur Terrain-Färbung.
 - **Zerstörbares:** Baum fällen ⇒ Thin-Instance-Matrix entfernen (Buffer-Update) + fallendes Animations-Mesh kurz einblenden.

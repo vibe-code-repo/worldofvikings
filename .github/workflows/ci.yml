@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run lint
+
+      # Kein GPU/Browser im Runner: der Testlauf braucht keinen -- alle
+      # Client-Tests der KERNLISTE laufen ueber Babylons NullEngine
+      # (Software, kein WebGL) oder sind DOM-frei (s. Kopfkommentare in
+      # scripts/run-tests.mjs). Playwright-gestuetzte Messungen (tools/pw-*)
+      # sind bewusst NICHT hier drin -- die laufen laut Projektnotiz nur
+      # lokal gegen den :5274-Tunnel, auf einem reinen Server-Container
+      # startet dort kein Chromium.
+      - run: npm test

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+out/
+tools/out/
+assets/
+screenshots/
+mess/
+server/data/

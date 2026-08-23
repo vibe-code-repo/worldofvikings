@@ -18,8 +18,19 @@ tools/asset-extractor/extract.js
 tools/asset-extractor/extract.js.map
 tools/asset-extractor/extract.d.ts
 tools/asset-extractor/extract.d.ts.map
-assets/
+# F2 (Roadmap): assets/manifest.json ist Ergebnis UND Vertrag zugleich --
+# tools/asset-manifest.mjs erzeugt es aus dem Plattenbestand, aber der
+# Abgleich gegen shared/src/prefabs.ts (renderScale) und der
+# Vollstaendigkeits-Test (tools/test/manifest-vollstaendig.ts) brauchen eine
+# committete Fassung -- sonst gibt es nichts, wogegen sie pruefen koennten.
+# Deshalb NICHT wie der Rest von assets/ ignoriert.
+assets/*
+!assets/manifest.json
 server/data/worlds/
+# G12: Betriebsmetriken-Schnappschuss, einmal je Sekunde vom laufenden
+# Spielserver ueberschrieben -- Laufzeitzustand wie die Spielstaende oben,
+# gehoert nicht ins Repo.
+server/data/metriken.json
 # Rohmaterial: Unity-AssetBundles (Willybach HD u. a.)
 screenshots/newtexture/
 *.bundle
@@ -29,7 +40,20 @@ screenshots/newtexture/
 # stehen aber im Dokument, damit die Argumentation ohne die Dateien
 # nachvollziehbar bleibt.
 screenshots/
-server/data/dungeons/
+# S7 (2026-08-20, Begruendung siehe Konzept Dungeons und Instanzen, Ebene 3+6):
+# server/data/dungeons/<welt>/*.json ist DungeonDocument mit Feld "mode".
+# "custom" = von Hand im F4-Editor gebaut, nicht reproduzierbar -- Autorenarbeit,
+# muss ins Repo. Aktuell einziges Beispiel: dev/forestcrypt-1092.json, 34 Raeume,
+# 11 Tueren, entstanden 02.08. -- existiert sonst auf genau einer Platte.
+# "generated" = aus base+seed jederzeit neu erzeugbar (DungeonManager.ts
+# Kopfkommentar), entsteht als Nebenprodukt von Admin-Testbefehlen
+# ("dungeon create"/"dungeon regen") oder beim ersten Betreten -- Massenware,
+# bleibt ignoriert. Ebenso entrances.json: reine Laufzeit-Zuordnung, faul befuellt,
+# eine frische Welt bucht ueber 1000 Eingaenge -- Ausnahme unten betrifft sie nicht.
+server/data/dungeons/*
+!server/data/dungeons/dev/
+server/data/dungeons/dev/*
+!server/data/dungeons/dev/forestcrypt-1092.json
 
 # Review-Punkt 30: Build-Artefakte, Rip-Werkzeug, Sicherungen
 tsc-log.txt

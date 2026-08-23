@@ -7,12 +7,12 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@wov/shared": "*",
     "ws": "^8.18.0",
-    "msgpackr": "^1.11.0",
     "yaml": "^2.5.0",
     "tsx": "^4.19.0"
   },

@@ -9,7 +9,13 @@
  *
  * NICHT enthalten sind die C++-Golden-Tests (geo-compare, heightmap-compare,
  * geo-map): sie brauchen Referenz-Dumps als Argument und gehören zum
- * eingefrorenen valheim-Übergangspfad.
+ * eingefrorenen valheim-Übergangspfad. Ebenso math-golden.ts (dieselbe Art
+ * Referenz-Dumps, random_values.txt/perlin_values.txt) sowie geo-correlate.ts
+ * — alle vier tragen die Begründung bereits im eigenen Kopfkommentar.
+ *
+ * Reine Werkzeuge/Messbänke, keine Tests (drucken Zahlen, behaupten nichts,
+ * kein process.exit(1)-Pfad — s. jeweiliger Kopfkommentar):
+ * shared/test/rain-freq.ts, shared/test/heightmap-bench.ts.
  */
 import { spawnSync } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -22,6 +28,10 @@ const KERN = [
   // laeuft in Sekunden und faengt genau den Fehler, den sonst niemand sieht.
   ['shared', 'test/weltdaten-schnitt.ts'],
   ['shared', 'test/worldlayout.ts'],
+  // B6/B7 (Roadmap): Zellbelegung fuers Ueberlappungs-Bild im Editor und
+  // die Flaechenrechnung der Kopfzeile -- reine Geometrie, DOM-frei,
+  // Sekunden.
+  ['shared', 'test/karten-auswertung.ts'],
   ['shared', 'test/region-geo.ts'],
   ['shared', 'test/geo-smoke.ts'],
   // Die Hoehenfunktion aus shared/ fahren Server UND Client. Der Test haelt
@@ -30,6 +40,8 @@ const KERN = [
   // Beschleunigung, die die Welt unter den Fuessen des Spielers verschiebt.
   ['shared', 'test/heightmap-determinismus.ts'],
   ['shared', 'test/dungeon-generator.ts'],
+  ['shared', 'test/dungeon-raster.ts'],
+  ['shared', 'test/bauteile-kosten.ts'],
   ['server', 'test/h1-layout.ts'],
   ['server', 'test/h2-routen.ts'],
   ['server', 'test/h3-routen-vorschau.ts'],
@@ -38,6 +50,14 @@ const KERN = [
   ['server', 'test/d8-save-async.ts'],
   ['server', 'test/d9-terrain-verdichtung.ts'],
   ['server', 'test/g2-persistence.ts'],
+  // F5 (Roadmap): Fortschrittsmarken (GlobalKey-Laufzeitflaggen) — reine
+  // WeltMarken-Logik (Idempotenz, Namensaufloesung), der Admin-Befehl
+  // 'marke', ECHTES Speichern/Laden ueber zwei Zyklen, der Migrationspfad
+  // fuer einen Altstand ohne globalKeys-Feld (handgebaut UND gegen eine
+  // Kopie des echten 250k-ZDO-Standes dev.db.zst unter /tmp, niemals das
+  // Original), und die einzige verdrahtete Anwendung: Eikthyr besiegen
+  // setzt defeated_eikthyr, ein Reh NICHT (Regressionswache). ~2s.
+  ['server', 'test/f5-weltmarken.ts'],
   ['server', 'test/g4-creatures.ts'],
   ['server', 'test/e2-vegetation.ts'],
   // A2 (Security-Review): reine Funktion — Paketwaffe zaehlt nur, wenn sie
@@ -47,6 +67,26 @@ const KERN = [
   // Funktion (Drossel.ts kennt weder Peer noch Socket), Zeit kommt als
   // Parameter herein — Sekunden, kein Server/Socket noetig.
   ['server', 'test/a4-drossel.ts'],
+  // A14 (Roadmap): server.yml verspricht nichts, was niemand liest. Die
+  // Dauer-Syntax, die Wache gegen einen neu eingetragenen toten Schluessel
+  // in der ECHTEN server/data/server.yml, die Startwarnung — und der Draht
+  // bis zum Ende: ein echter Server speichert wirklich im Takt der Datei
+  // (400 ms statt der 30-min-Konstante). Startet dafuer kurz einen Server
+  // auf Port 2593, raeumt sein Datenverzeichnis in `finally` weg. ~4s.
+  ['server', 'test/a14-server-yml.ts'],
+  ['server', 'test/f17-figurenwahl.ts'],
+  ['server', 'test/f19-wettervorgabe.ts'],
+  // G12 (Roadmap): Betriebsmetriken -- reine Auswertung (Zaehler,
+  // Sekundenabschluss, Prometheus-Formatierung), kein Server/Socket noetig
+  // (Metriken.ts und shared/src/metrik.ts kennen beide weder Peer noch
+  // WovServer). Sekunden.
+  ['server', 'test/g12-metriken.ts'],
+  // F14 (Roadmap): Reichweiten-Auswahl der Chat-Empfänger (Whisper/
+  // Normal/Shout, Herleitung s. Kopfkommentar von ChatReichweite.ts),
+  // Grenzwert exakt auf der Reichweite, Absender immer dabei, sowie die
+  // serverseitige Textlängengrenze. Reine Funktion, kein Server/Socket,
+  // Sekunden.
+  ['server', 'test/f14-chat-reichweite.ts'],
   // A3 (Security-Review): SetTimeOfDay ist admin-gated. E2E ueber echten
   // WebSocket-Handshake — haelt sowohl den Admin-Erfolgspfad als auch die
   // Ablehnung (InteractResult, kein TimeSync-Broadcast) fest.
@@ -81,6 +121,12 @@ const KERN = [
   // es jemandem auffiel. Prueft die Abgleichlogik gegen das ECHTE
   // Bestandsdokument — DOM-frei, Sekunden, gehoert damit hierher.
   ['client', 'test/welt-abgleich.ts'],
+  // F6 (Roadmap): seq-Verwerfungsregel für Client-Vorhersage-
+  // Reconciliation (client/src/net/Eingabeverwerfung.ts) — reine
+  // Funktion, NICHT in eine Vorhersage-Warteschlange verdrahtet (die
+  // gibt es im Client noch nicht, s. Kopfkommentar der Produktivdatei
+  // und Bericht, Abschnitt "offen"). DOM-frei, Sekunden.
+  ['client', 'test/f6-seq-verwerfung.ts'],
   ['client', 'test/entity-index.ts'],
   // Die Grafikoption begrenzt die gemeinsamen Bild-/Schattenmatrizen der
   // Vegetation. Der reine Kreisfilter sichert den unveraenderten Standard
@@ -90,6 +136,7 @@ const KERN = [
   // Minute/Sonnenstand, DOM-frei. Haelt Mitternacht, Mittag, die beiden
   // Uebergangsschwellen und den Tages-Ueberlauf fest.
   ['client', 'test/weltzeit.ts'],
+  ['client', 'test/baumenue-hinweis.ts'],
   // Schweregrad-Klassifikation des Editor-Prüfberichts (Aufgabe B1): reine
   // Einstufung eines LayoutBefund nach Fehler/Hinweis, DOM-frei — anders
   // als editorMain.ts selbst, das beim Import sofort die Editor-Shell
@@ -98,6 +145,23 @@ const KERN = [
   // damit ein geänderter Wortlaut in pruefung.ts hier auffällt statt erst
   // als falsch gefärbte Zeile im Editor.
   ['client', 'test/befund-schwere.ts'],
+  // Regions-Vorlagen, Feldvalidierung, Kontinente und Startpunkt-Logik
+  // (Aufgaben B2/B10): reine Funktionen aus regionsWerkzeuge.ts, DOM-frei
+  // aus demselben Grund wie befund-schwere.ts. Prueft jede Vorlage einzeln
+  // UND gegen echte sanitizeWorldLayout-/pruefeLayout-Laeufe.
+  ['client', 'test/region-werkzeuge.ts'],
+  // WorldLayout-MCP-Server (Aufgabe B8): echter Client-Handshake gegen den
+  // echten Server-Unterprozess (stdio), alle Werkzeuge vorhanden UND ihre
+  // Wirkung im Dokument geprueft (Regionsregler, Kontinent/Fluss/See/
+  // Route/Platzierung/Startpunkt, layout_pruefen, die meadows-Ablehnung,
+  // die layout_deploy-Bremse unter WOV_LAYOUT_PFAD). Schreibt NIE in
+  // server/data/welten/ -- baut sich eine eigene Welt unter /tmp und raeumt
+  // sie in `finally` wieder weg (s. Kopfkommentar der Testdatei). ~2-3s.
+  ['tools/worldlayout-mcp', 'probe.ts'],
+  // Kuratierungskatalog (Roadmap B3): Katalogaufbau aus FOLIAGE/FEATURES/
+  // SPAWN_TABLE, Suche und ordnungserhaltendes Hinzufuegen/Entfernen fuer
+  // die Auswahl-Widgets der drei Kuratierungslisten. DOM-frei, Sekunden.
+  ['client', 'test/kuratierungs-katalog.ts'],
   // Die Keulung der Schattenwerfer pro Instanz ist konservativ in genau
   // EINER Richtung: Was ueberlebt, wird eingereicht — verworfen wird nur,
   // was seitlich sicher ausserhalb des Lichtkastens liegt. Ein Fehler hier
@@ -146,6 +210,130 @@ const KERN = [
   // Ein misslungener Speichervorgang darf die Welt nicht beschaedigen;
   // wer das erst nach dem Ausrollen merkt, merkt es an der Welt.
   ['admin', 'test/betriebsdienst.ts'],
+  // G4 (Testluecken-Durchsicht): ERGAENZT betriebsdienst.ts, deckt nicht
+  // ab, was dort schon steht. Unbekannte WOV_INSTANZ (echter Prozessstart,
+  // bricht vor jedem Dateizugriff ab), GET /status, GET/PUT /einstellungen/
+  // server (Feldvalidierung, tatsaechlich geschriebener Wert, Sicherung),
+  // GET /einstellungen/auslieferung (nur lesen), und der Testwelt-
+  // Umschalter GET/POST /api/testwelt — dort NUR die Entscheidungslogik
+  // vor dem echten systemctl-Aufruf (der Erfolgspfad wuerde den echten
+  // wov-server neu starten, s. Kopfkommentar der Testdatei). Deckt
+  // nebenbei einen echten Befund auf: ein ungueltiger Einstellungswert
+  // (falscher Typ, Zahl ausserhalb der Grenzen) liefert heute HTTP 500
+  // statt 400 (Sammel-catch in admin/src/main.ts stuft nur
+  // LayoutUngueltig/SyntaxError als Eingabefehler ein). ~1s.
+  ['admin', 'test/testwelt-einstellungen.ts'],
+  // G1-Durchsicht (verwaiste Tests, 20.08.2026): init() ohne start() —
+  // kein Port, kein Socket. Haelt getGroundHeight(0,0) gegen den
+  // D1-verifizierten Wert UND die Fallphysik-Konvergenz fest, damit ein
+  // Rueckfall auf den alten Radial-Spawnpunkt sofort auffiele.
+  ['server', 'test/d6-smoke.ts'],
+  // G1-Durchsicht: Admin-Befehlsregister + serverautoritativer Flugmodus
+  // (Space/Ctrl/Shift), reiner Funktionsaufruf ueber echten Writer/Reader,
+  // kein Socket. War tot wegen einer veralteten Fake-Peer-Attrappe (siehe
+  // Kommentar im Test) — Fix ist NUR im Test, nicht in WovServer.ts.
+  ['server', 'test/g1-admin-fly.ts'],
+  // G1-Durchsicht: einziger E2E-Test fuer Dungeon-Betreten/-Verlassen ueber
+  // echten WebSocket-Handshake. War tot durch ZWEI unabhaengige
+  // Test-Bugs (Handshake-HMAC und ZDOSync-Parser bauten die Produktivlogik
+  // von Hand nach statt sie zu rufen — s. Importkommentare im Test).
+  // ~4s, kein einziges Byte davon war ein echter Produktivfehler.
+  ['server', 'test/g6-dungeon-e2e.ts'],
+  // G1-Durchsicht: Wetter/Wind-Port (Timing aus den Assets, Determinismus,
+  // Ziehungsgewichte, Windclamp/-rampe, windData-Alpha, Niederschlags-
+  // zuordnung). Reine Funktion, kein Server/Socket, Sekunden.
+  ['shared', 'test/weather.ts'],
+  // G1-Durchsicht: Inventar-Paritaet zu Unity Inventory.cs (Stapeln,
+  // Fuellrichtung, Hotbar, Verschieben/Tauschen, Kapazitaet, Speichern/
+  // Laden, Gewicht). Reine Funktion, Sekunden.
+  ['shared', 'test/inventory.ts'],
+  // G1-Durchsicht: Terraforming-Paritaet (Level/Raise/Smooth-Grenzwerte,
+  // Zonennaht bit-identisch, baseHeights bleibt unberuehrt, Cache-Eviktion,
+  // Comp-Hygiene). War tot durch eine veraltete Annahme ueber den
+  // applyTerrainOp-Rueckgabewert (frueher ein flaches Array, jetzt
+  // {heights, paint}) — Fix nur im Test. ~7s, kein Server/Socket.
+  ['shared', 'test/terrain-comp.ts'],
+  // G1-Durchsicht: B5 modernes AshLands-Noise hinter dem Feature-Flag
+  // (Legacy-Pfad unveraendert, Lava-Maske in [0,1] und variiert,
+  // preGeneration bleibt zwischen den Modi identisch, das Terrain aendert
+  // sich wirklich). Reine Funktion, Sekunden.
+  ['shared', 'test/b5-ashlands-modern.ts'],
+  // F16 (Roadmap): Fehlersammler fuer die HUD-Fehleranzeige — Dedupe
+  // gleicher Meldungen ("3x"), Deckel fuer gleichzeitige Eintraege,
+  // TTL-Ablauf. DOM-frei (Hud.ts rendert, diese Datei entscheidet nur
+  // was/wie lange), Sekunden.
+  ['client', 'test/fehlermeldungen.ts'],
+  // G2 (Roadmap, "die groesste Testluecke"): Kampf ueber den ECHTEN
+  // Paketpfad (handleAttack/handleHarvest) — Schaden nur aus dem
+  // Server-Inventar (A2 im Draht), Ausdauerverbrauch, Reichweite gegen die
+  // Server-Position, Cooldown ueber die Drossel, Tod und garantierte Beute.
+  // Kein Server/Socket-Nachbau: echter WebSocket-Handshake, echte Pakete.
+  ['server', 'test/g7-kampf.ts'],
+  // G2: Bauen und Abreissen ueber den ECHTEN Paketpfad (handlePlacePiece/
+  // handleRemovePiece) — Materialkosten, 'besitzer'-Member, Abriss durch
+  // Fremde bleibt wirkungslos, halbe Rueckerstattung beim Eigentuemer,
+  // Reichweitenpruefung.
+  ['server', 'test/g7-bauen.ts'],
+  // G2: Craften und Essen ueber den ECHTEN Paketpfad (handleCraft/
+  // handleEat) — Rezeptpruefung, GAR KEIN Abzug bei nur einer fehlenden
+  // Zutat, unbekanntes Rezept, Essens-Buff, wirkungsloses Essen ohne Item.
+  ['server', 'test/g7-craft-essen.ts'],
+  // G2: Terraforming ueber den ECHTEN Paketpfad (handleTerrainOp) —
+  // d9-terrain-verdichtung.ts prueft die Datenstruktur direkt, dieser Test
+  // den Paketpfad davor: anwenden, speichern, laden, keine Verdopplung des
+  // WELTZUSTANDS. Deckt nebenbei einen echten Befund auf (s. Kopfkommentar
+  // der Testdatei): der Broadcast-Sparpfad in handleTerrainOp greift beim
+  // 'level'-Zweig NICHT — ein zweiter Klick auf bereits planierten Boden
+  // loest trotzdem einen weiteren TerrainOpSync an alle Peers aus.
+  ['server', 'test/g7-terraforming.ts'],
+  // G2: Rate-Limits IM ECHTEN PAKETPFAD (NetManager.handlePacket →
+  // Drossel) — a4-drossel.ts prueft nur die reine Token-Bucket-Logik.
+  // Haelt fest, DASS die Drossel greift (PlacePiece-Stoss von 9: genau 8
+  // kommen durch) UND dass legitimes Spielen nicht abgewuergt wird — allen
+  // voran PlayerInput bei der ECHTEN 20-Hz-Client-Frequenz ueber eine volle
+  // Sekunde ohne ein einziges verworfenes Paket.
+  ['server', 'test/g7-drossel-einbau.ts'],
+  // G2: Handshake-Fehlerpfade ueber den ECHTEN NetManager — falsches
+  // Passwort, veraltete Client-Version, ein abgeschnittenes Paket (Server-
+  // PROZESS ueberlebt, nur die eine Verbindung wird getrennt) und ein
+  // Paket vor der Anmeldung (stumm verworfen, Verbindung bleibt offen).
+  ['server', 'test/g7-handshake-fehler.ts'],
+  // G2: ZDO-Interest-Management ueber den ECHTEN Sync-Pfad (syncZDOs →
+  // ZonenFenster, echter Client-Parser wie d6-zdo-delta.ts) — ein Peer
+  // bekommt, was in seiner Naehe liegt (256 m, SICHT_RADIUS_ZONEN), nicht
+  // was weit weg liegt, und das Fenster folgt seiner Position.
+  ['server', 'test/g7-zdo-interessen.ts'],
+  // F1 (Roadmap, Security-Review-Paket 3): Truhen mit echtem, entnehmbarem
+  // Inhalt statt des alten Ein-Bit-Schalters. E2E ueber echte WebSocket-
+  // Verbindungen (handleTruheOeffnen/handleContainerAction sind private
+  // Paket-Handler, nur so erreichbar): Erstbefuellung genau einmal,
+  // Nehmen+Legen konserviert die Menge, eine bereits geplünderte Alt-Truhe
+  // startet leer, ein Spieler ausserhalb der 6-m-Reichweite wird abgewiesen,
+  // der Inhalt uebersteht Speichern/Laden. Drei gestartete Server + ein
+  // init()-only Reload, ~5s.
+  ['server', 'test/f1-truhe.ts'],
+  // G3 (Testluecken-Durchsicht, "kein einziger Test mit zwei
+  // gleichzeitigen Clients"): echte WebSocket-Handshakes fuer ZWEI+ Peers
+  // gleichzeitig gegen einen echten WovServer. Gegenseitige ZDO-
+  // Sichtbarkeit (echter Client-Parser parseZDOSync/ZDOSpiegel, wie
+  // g7-zdo-interessen.ts), Chat-Reichweite (F14) ueber echte Pakete an
+  // fuenf Peers in kontrollierten Abstaenden, gleichzeitiges Bauen am
+  // selben Ort (Ist-Zustand: keine Kollisionspruefung, zwei ueberlappende
+  // ZDOs), eine Truhe zu zweit (F1: gleichzeitig derselbe Stapel — in
+  // Summe entsteht nichts), und ein Peer, der geht (der andere merkt es,
+  // Drossel-/Peer-Zustand wird aufgeraeumt). Deckt nebenbei einen echten
+  // Befund auf (s. Kopfkommentar der Testdatei, Test 1): verlaesst ein
+  // ZDO nur das Sichtfenster eines Peers, OHNE zerstoert zu werden (ein
+  // Spieler laeuft weg, bleibt aber verbunden), bekommt der Peer NIE eine
+  // Abmeldung — ein eingefrorener Geist an der letzten bekannten Position
+  // statt eines verschwindenden Spielers. ~4s.
+  ['server', 'test/g3-mehrspieler-e2e.ts'],
+  // F2 (Roadmap): assets/manifest.json (tools/asset-manifest.mjs) haelt Huellbox,
+  // Dreieckszahl, Animationen und mesh-lose Rigs je GLB fest -- ohne diesen Test
+  // veraltet es lautlos (neues Modell ohne Eintrag, geloeschtes mit Leiche im
+  // Manifest). Liest nur Dateinamen gegeneinander, baut die glTF-Messung nicht
+  // nach. Kein Server/Socket, Sekunden.
+  ['tools', 'test/manifest-vollstaendig.ts'],
 ];
 
 const LANG = [
@@ -157,6 +345,40 @@ const LANG = [
 const liste = process.argv.includes('--alle') ? [...KERN, ...LANG] : KERN;
 let fehler = 0;
 const start = Date.now();
+
+/**
+ * Ausgabe eines fehlgeschlagenen Tests aufbereiten.
+ *
+ * Vorher standen hier nur die letzten 15 Zeilen. Das ging so lange gut,
+ * wie ein Test seine Fehlschläge zum Schluss zusammenfasst — und ging
+ * am 23.08.2026 schief: g3-mehrspieler-e2e.ts meldete "4 FEHLGESCHLAGEN",
+ * die vier FAIL-Zeilen selbst standen aber weiter oben und wurden
+ * abgeschnitten. Übrig blieben fünf PASS-Zeilen und eine Zahl, die zu
+ * ihnen nicht passte — der Sammellauf zeigte also genau die eine
+ * Information NICHT, für die man ihn liest.
+ *
+ * Deshalb jetzt: JEDE Zeile, die nach Befund aussieht, plus der Schwanz
+ * für den Zusammenhang. Der Schnitt bleibt, weil Server-Tests hunderte
+ * Fortschrittszeilen drucken ("[WoV] Vegetation: +1 zone(s) …") — nur
+ * schneidet er nicht mehr das weg, worum es geht.
+ */
+const BEFUND = /\bFAIL\b|\bFEHL|✗|^\s*Error\b|\bAssertionError\b/;
+function ausgabeAufbereiten(stdout) {
+  const zeilen = (stdout ?? '').split('\n');
+  const schwanzAb = Math.max(0, zeilen.length - 15);
+  const befunde = [];
+  for (let i = 0; i < schwanzAb; i++) {
+    if (BEFUND.test(zeilen[i])) befunde.push(zeilen[i]);
+  }
+  const teile = [];
+  if (befunde.length > 0) {
+    teile.push(`  ── ${befunde.length} Befund-Zeile(n) weiter oben im Protokoll ──`);
+    teile.push(...befunde);
+    teile.push('  ── letzte 15 Zeilen ──');
+  }
+  teile.push(...zeilen.slice(schwanzAb));
+  return teile.join('\n');
+}
 
 for (const [paket, datei] of liste) {
   const t0 = Date.now();
@@ -172,7 +394,7 @@ for (const [paket, datei] of liste) {
   } else {
     fehler++;
     console.log(`FEHLGESCHLAGEN (${dauer}s)`);
-    console.log((lauf.stdout ?? '').split('\n').slice(-15).join('\n'));
+    console.log(ausgabeAufbereiten(lauf.stdout));
     console.log(lauf.stderr ?? '');
   }
 }

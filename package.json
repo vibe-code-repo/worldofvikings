@@ -26,13 +26,25 @@
     "extract:assets": "npm run extract --workspace=tools/asset-extractor",
     "parse:prefabs": "npm run parse --workspace=tools/prefab-parser",
     "test": "node scripts/run-tests.mjs",
-    "typecheck": "(cd shared && ../node_modules/.bin/tsc --noEmit) && (cd server && ../node_modules/.bin/tsc --noEmit) && (cd client && ../node_modules/.bin/tsc --noEmit) && (cd admin && ../node_modules/.bin/tsc --noEmit)"
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "npm run typecheck --workspace=shared && npm run typecheck --workspace=server && npm run typecheck --workspace=client && npm run typecheck --workspace=admin",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.8.1",
+    "eslint-config-prettier": "10.1.8",
+    "globals": "16.5.0",
+    "husky": "9.1.7",
+    "lint-staged": "17.3.0",
     "playwright": "^1.61.1",
+    "prettier": "3.9.6",
     "sharp": "^0.35.3",
     "three": "^0.185.1",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "typescript-eslint": "8.67.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

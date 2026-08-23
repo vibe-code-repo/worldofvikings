@@ -1,0 +1,232 @@
+{
+  "_hinweis": "DEMO-DATEN. Erfundene Recken, damit die Ruestkammer eine Form hat. Das Spiel kennt bisher keine Konten (server.yml: players.offline = true), es gibt also noch nichts Echtes zu zeigen. Sobald Charaktere gespeichert werden, liefert wov-live dieses Format aus und die Datei faellt weg.",
+  "_format": {
+    "stufe": "Runenrang — abgeleitet aus der Summe der Fertigkeiten, nicht aus Erfahrungspunkten.",
+    "guete": "Aufwertungsstufe der Werkbank (1-4), keine Item-Seltenheit. Das Spiel kennt keine Qualitaetsfarben.",
+    "bild": "Platzhalter-Glyphe. Spaeter der echte Sprite aus assets/sprites/ (lower_snake_case)."
+  },
+  "recken": [
+    {
+      "id": "ragnvald",
+      "name": "Ragnvald",
+      "beiname": "der Sturmgaenger",
+      "sippe": "Sippe der Raben",
+      "welt": "Midgard",
+      "stufe": 34,
+      "erschaffen": "2026-06-02",
+      "zuletzt_gesehen": "2026-08-14T16:02:00Z",
+      "spielzeit_stunden": 87,
+      "tode": 6,
+      "werte": { "leben": 100, "ausdauer": 90, "eitr": 0, "traglast": 340 },
+      "ausruestung": {
+        "waffe":     { "name": "Bronzeschwert (SwordBronze)", "guete": 3, "bild": "⚔️" },
+        "nebenhand": { "name": "Bronzebuckler (ShieldBronzeBuckler)", "guete": 2, "bild": "🛡️" },
+        "kopf":      { "name": "Bronzehelm (HelmetBronze)", "guete": 2, "bild": "⛑️" },
+        "brust":     { "name": "Bronzepanzer (ArmorBronzeChest)", "guete": 2, "bild": "🦺" },
+        "beine":     { "name": "Bronzebeinschutz (ArmorBronzeLegs)", "guete": 2, "bild": "👖" },
+        "umhang":    { "name": "Trollfellumhang (CapeTrollHide)", "guete": 1, "bild": "🧥" },
+        "werkzeug":  { "name": "Bronzeaxt (AxeBronze)", "guete": 3, "bild": "🪓" },
+        "guertel":   null
+      },
+      "fertigkeiten": [
+        { "name": "Schwerter", "stufe": 42 }, { "name": "Blocken", "stufe": 38 },
+        { "name": "Aexte", "stufe": 31 }, { "name": "Laufen", "stufe": 46 },
+        { "name": "Springen", "stufe": 39 }, { "name": "Holzfaellen", "stufe": 35 },
+        { "name": "Spitzhacken", "stufe": 28 }, { "name": "Boegen", "stufe": 18 },
+        { "name": "Schleichen", "stufe": 12 }, { "name": "Schwimmen", "stufe": 24 }
+      ],
+      "bosse": [
+        { "name": "Eikthyr", "erlegt": true }, { "name": "Der Aelteste", "erlegt": true },
+        { "name": "Knochenmasse", "erlegt": true }, { "name": "Moder", "erlegt": false },
+        { "name": "Yagluth", "erlegt": false }, { "name": "Die Koenigin", "erlegt": false }
+      ],
+      "trophaeen": ["Hirschtrophaee", "Eikthyr-Trophaee", "Graugnom-Trophaee", "Trolltrophaee"],
+      "biome": ["Wiesen", "Schwarzwald", "Sumpf", "Berge"]
+    },
+    {
+      "id": "sigrun",
+      "name": "Sigrun",
+      "beiname": "Pfeilschnell",
+      "sippe": "Sippe der Raben",
+      "welt": "Midgard",
+      "stufe": 29,
+      "erschaffen": "2026-06-11",
+      "zuletzt_gesehen": "2026-08-14T15:41:00Z",
+      "spielzeit_stunden": 64,
+      "tode": 3,
+      "werte": { "leben": 85, "ausdauer": 105, "eitr": 0, "traglast": 300 },
+      "ausruestung": {
+        "waffe":     { "name": "Feinholzbogen (BowFineWood)", "guete": 3, "bild": "🏹" },
+        "nebenhand": null,
+        "kopf":      { "name": "Lederkappe (HelmetLeather)", "guete": 2, "bild": "⛑️" },
+        "brust":     { "name": "Trollfellwams (ArmorTrollLeatherChest)", "guete": 3, "bild": "🦺" },
+        "beine":     { "name": "Trollfellhose (ArmorTrollLeatherLegs)", "guete": 3, "bild": "👖" },
+        "umhang":    { "name": "Trollfellumhang (CapeTrollHide)", "guete": 2, "bild": "🧥" },
+        "werkzeug":  { "name": "Geweihspitzhacke (PickaxeAntler)", "guete": 1, "bild": "⛏️" },
+        "guertel":   { "name": "Megingjord", "guete": 1, "bild": "📿" }
+      },
+      "fertigkeiten": [
+        { "name": "Boegen", "stufe": 54 }, { "name": "Schleichen", "stufe": 41 },
+        { "name": "Laufen", "stufe": 44 }, { "name": "Springen", "stufe": 33 },
+        { "name": "Messer", "stufe": 27 }, { "name": "Schwimmen", "stufe": 30 },
+        { "name": "Blocken", "stufe": 9 }, { "name": "Holzfaellen", "stufe": 22 },
+        { "name": "Angeln", "stufe": 19 }, { "name": "Spitzhacken", "stufe": 15 }
+      ],
+      "bosse": [
+        { "name": "Eikthyr", "erlegt": true }, { "name": "Der Aelteste", "erlegt": true },
+        { "name": "Knochenmasse", "erlegt": true }, { "name": "Moder", "erlegt": true },
+        { "name": "Yagluth", "erlegt": false }, { "name": "Die Koenigin", "erlegt": false }
+      ],
+      "trophaeen": ["Eikthyr-Trophaee", "Der-Aelteste-Trophaee", "Moder-Trophaee", "Draugr-Trophaee"],
+      "biome": ["Wiesen", "Schwarzwald", "Sumpf", "Berge", "Ebenen"]
+    },
+    {
+      "id": "halvar",
+      "name": "Halvar",
+      "beiname": "Steinbeisser",
+      "sippe": "Die Hammerschmiede",
+      "welt": "Midgard",
+      "stufe": 26,
+      "erschaffen": "2026-06-20",
+      "zuletzt_gesehen": "2026-08-13T21:15:00Z",
+      "spielzeit_stunden": 71,
+      "tode": 11,
+      "werte": { "leben": 110, "ausdauer": 75, "eitr": 0, "traglast": 300 },
+      "ausruestung": {
+        "waffe":     { "name": "Steinaxt (AxeFlint)", "guete": 4, "bild": "🪓" },
+        "nebenhand": { "name": "Holzschild (ShieldWood)", "guete": 2, "bild": "🛡️" },
+        "kopf":      null,
+        "brust":     { "name": "Lederwams (ArmorLeatherChest)", "guete": 2, "bild": "🦺" },
+        "beine":     { "name": "Lederhose (ArmorLeatherLegs)", "guete": 2, "bild": "👖" },
+        "umhang":    null,
+        "werkzeug":  { "name": "Hammer", "guete": 1, "bild": "🔨" },
+        "guertel":   null
+      },
+      "fertigkeiten": [
+        { "name": "Aexte", "stufe": 48 }, { "name": "Holzfaellen", "stufe": 52 },
+        { "name": "Spitzhacken", "stufe": 44 }, { "name": "Blocken", "stufe": 26 },
+        { "name": "Laufen", "stufe": 31 }, { "name": "Keulen", "stufe": 21 },
+        { "name": "Springen", "stufe": 24 }, { "name": "Schwimmen", "stufe": 17 },
+        { "name": "Faustkampf", "stufe": 8 }, { "name": "Boegen", "stufe": 6 }
+      ],
+      "bosse": [
+        { "name": "Eikthyr", "erlegt": true }, { "name": "Der Aelteste", "erlegt": true },
+        { "name": "Knochenmasse", "erlegt": false }, { "name": "Moder", "erlegt": false },
+        { "name": "Yagluth", "erlegt": false }, { "name": "Die Koenigin", "erlegt": false }
+      ],
+      "trophaeen": ["Hirschtrophaee", "Eikthyr-Trophaee", "Eberkopf"],
+      "biome": ["Wiesen", "Schwarzwald", "Sumpf"]
+    },
+    {
+      "id": "astrid",
+      "name": "Astrid",
+      "beiname": "die Nebelkundige",
+      "sippe": "Sippe der Raben",
+      "welt": "Midgard",
+      "stufe": 31,
+      "erschaffen": "2026-06-05",
+      "zuletzt_gesehen": "2026-08-14T11:28:00Z",
+      "spielzeit_stunden": 79,
+      "tode": 4,
+      "werte": { "leben": 80, "ausdauer": 70, "eitr": 65, "traglast": 300 },
+      "ausruestung": {
+        "waffe":     { "name": "Gluthstab (StaffFireball)", "guete": 2, "bild": "🪄" },
+        "nebenhand": { "name": "Totenkopfschild (StaffShield)", "guete": 1, "bild": "🛡️" },
+        "kopf":      { "name": "Kapuze der Nebel (HelmetMage)", "guete": 2, "bild": "⛑️" },
+        "brust":     { "name": "Nebelgewand (ArmorMageChest)", "guete": 2, "bild": "🦺" },
+        "beine":     { "name": "Nebelbeinkleid (ArmorMageLegs)", "guete": 2, "bild": "👖" },
+        "umhang":    { "name": "Federumhang (CapeFeather)", "guete": 1, "bild": "🧥" },
+        "werkzeug":  { "name": "Hacke (Hoe)", "guete": 1, "bild": "🥌" },
+        "guertel":   { "name": "Wischbeutel (BeltStrength)", "guete": 1, "bild": "📿" }
+      },
+      "fertigkeiten": [
+        { "name": "Elementarmagie", "stufe": 47 }, { "name": "Blutmagie", "stufe": 29 },
+        { "name": "Laufen", "stufe": 38 }, { "name": "Schleichen", "stufe": 33 },
+        { "name": "Springen", "stufe": 26 }, { "name": "Messer", "stufe": 22 },
+        { "name": "Schwimmen", "stufe": 28 }, { "name": "Angeln", "stufe": 31 },
+        { "name": "Holzfaellen", "stufe": 14 }, { "name": "Blocken", "stufe": 11 }
+      ],
+      "bosse": [
+        { "name": "Eikthyr", "erlegt": true }, { "name": "Der Aelteste", "erlegt": true },
+        { "name": "Knochenmasse", "erlegt": true }, { "name": "Moder", "erlegt": true },
+        { "name": "Yagluth", "erlegt": true }, { "name": "Die Koenigin", "erlegt": false }
+      ],
+      "trophaeen": ["Eikthyr-Trophaee", "Moder-Trophaee", "Yagluth-Trophaee", "Seher-Trophaee", "Lohe-Trophaee"],
+      "biome": ["Wiesen", "Schwarzwald", "Sumpf", "Berge", "Ebenen", "Nebelland"]
+    },
+    {
+      "id": "bjorn",
+      "name": "Bjoern",
+      "beiname": "Wellenreiter",
+      "sippe": "Die Langschiffbauer",
+      "welt": "Midgard",
+      "stufe": 22,
+      "erschaffen": "2026-07-01",
+      "zuletzt_gesehen": "2026-08-12T19:50:00Z",
+      "spielzeit_stunden": 43,
+      "tode": 2,
+      "werte": { "leben": 90, "ausdauer": 85, "eitr": 0, "traglast": 300 },
+      "ausruestung": {
+        "waffe":     { "name": "Bronzespeer (SpearBronze)", "guete": 2, "bild": "🔱" },
+        "nebenhand": { "name": "Bannerschild (ShieldBanded)", "guete": 1, "bild": "🛡️" },
+        "kopf":      { "name": "Lederkappe (HelmetLeather)", "guete": 1, "bild": "⛑️" },
+        "brust":     { "name": "Lederwams (ArmorLeatherChest)", "guete": 3, "bild": "🦺" },
+        "beine":     { "name": "Lederhose (ArmorLeatherLegs)", "guete": 3, "bild": "👖" },
+        "umhang":    { "name": "Fellumhang (CapeDeerHide)", "guete": 1, "bild": "🧥" },
+        "werkzeug":  { "name": "Pflug (Cultivator)", "guete": 1, "bild": "🌱" },
+        "guertel":   null
+      },
+      "fertigkeiten": [
+        { "name": "Speere", "stufe": 36 }, { "name": "Schwimmen", "stufe": 49 },
+        { "name": "Angeln", "stufe": 44 }, { "name": "Laufen", "stufe": 29 },
+        { "name": "Blocken", "stufe": 23 }, { "name": "Holzfaellen", "stufe": 33 },
+        { "name": "Springen", "stufe": 18 }, { "name": "Boegen", "stufe": 14 },
+        { "name": "Spitzhacken", "stufe": 20 }, { "name": "Schleichen", "stufe": 7 }
+      ],
+      "bosse": [
+        { "name": "Eikthyr", "erlegt": true }, { "name": "Der Aelteste", "erlegt": true },
+        { "name": "Knochenmasse", "erlegt": false }, { "name": "Moder", "erlegt": false },
+        { "name": "Yagluth", "erlegt": false }, { "name": "Die Koenigin", "erlegt": false }
+      ],
+      "trophaeen": ["Hirschtrophaee", "Eikthyr-Trophaee", "Neck-Trophaee"],
+      "biome": ["Wiesen", "Schwarzwald", "Ozean"]
+    },
+    {
+      "id": "gunnhild",
+      "name": "Gunnhild",
+      "beiname": "Schildmaid",
+      "sippe": "Die Hammerschmiede",
+      "welt": "Midgard",
+      "stufe": 28,
+      "erschaffen": "2026-06-25",
+      "zuletzt_gesehen": "2026-08-14T09:07:00Z",
+      "spielzeit_stunden": 58,
+      "tode": 8,
+      "werte": { "leben": 115, "ausdauer": 70, "eitr": 0, "traglast": 320 },
+      "ausruestung": {
+        "waffe":     { "name": "Eisenkeule (MaceIron)", "guete": 3, "bild": "🔨" },
+        "nebenhand": { "name": "Eisenturmschild (ShieldIronTower)", "guete": 3, "bild": "🛡️" },
+        "kopf":      { "name": "Eisenhelm (HelmetIron)", "guete": 2, "bild": "⛑️" },
+        "brust":     { "name": "Eisenpanzer (ArmorIronChest)", "guete": 2, "bild": "🦺" },
+        "beine":     { "name": "Eisenbeinschutz (ArmorIronLegs)", "guete": 2, "bild": "👖" },
+        "umhang":    { "name": "Wolfspelzumhang (CapeWolf)", "guete": 1, "bild": "🧥" },
+        "werkzeug":  { "name": "Eisenspitzhacke (PickaxeIron)", "guete": 2, "bild": "⛏️" },
+        "guertel":   { "name": "Megingjord", "guete": 1, "bild": "📿" }
+      },
+      "fertigkeiten": [
+        { "name": "Blocken", "stufe": 51 }, { "name": "Keulen", "stufe": 45 },
+        { "name": "Laufen", "stufe": 34 }, { "name": "Springen", "stufe": 29 },
+        { "name": "Spitzhacken", "stufe": 37 }, { "name": "Aexte", "stufe": 24 },
+        { "name": "Schwimmen", "stufe": 21 }, { "name": "Holzfaellen", "stufe": 26 },
+        { "name": "Faustkampf", "stufe": 13 }, { "name": "Boegen", "stufe": 11 }
+      ],
+      "bosse": [
+        { "name": "Eikthyr", "erlegt": true }, { "name": "Der Aelteste", "erlegt": true },
+        { "name": "Knochenmasse", "erlegt": true }, { "name": "Moder", "erlegt": true },
+        { "name": "Yagluth", "erlegt": false }, { "name": "Die Koenigin", "erlegt": false }
+      ],
+      "trophaeen": ["Eikthyr-Trophaee", "Knochenmasse-Trophaee", "Wolfstrophaee", "Draugr-Trophaee"],
+      "biome": ["Wiesen", "Schwarzwald", "Sumpf", "Berge"]
+    }
+  ]
+}

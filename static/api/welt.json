@@ -1,0 +1,30 @@
+{
+  "_hinweis": "DEMO-DATEN. Statische Datei, damit die Seite ohne Backend steht. Sobald wov-live einen HTTP-Endpunkt hat, wird /api/ per nginx dorthin geleitet und diese Datei geloescht — das Format bleibt gleich.",
+  "stand": "2026-08-14T17:30:00Z",
+  "welten": [
+    {
+      "id": "midgard",
+      "name": "Midgard",
+      "art": "Live-Welt",
+      "zustand": "offen",
+      "spieler": 3,
+      "plaetze": 10,
+      "saat": "KxSYuZquuw",
+      "weltzeit": "Tag 87",
+      "wetter": "Nebel ueber den Wiesen",
+      "beschreibung": "Die dauerhafte Welt. Was hier gebaut wird, bleibt stehen."
+    },
+    {
+      "id": "bau",
+      "name": "Werkstatt",
+      "art": "Bau- und Testwelt",
+      "zustand": "offen",
+      "spieler": 0,
+      "plaetze": 4,
+      "saat": "Testflug",
+      "weltzeit": "Tag 1",
+      "wetter": "Klar",
+      "beschreibung": "Zum Ausprobieren. Wird ohne Vorwarnung zurueckgesetzt."
+    }
+  ]
+}

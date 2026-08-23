@@ -1,0 +1,27 @@
+{
+  "erzeugt": "2026-08-21T04:17:20.777Z",
+  "welten": [
+    {
+      "instanz": "dev",
+      "name": "World of Vikings",
+      "gerendert": "2026-08-21T04:17:07.446Z",
+      "fingerabdruck": "221becf48e46907d",
+      "spanneMeter": 44469,
+      "regionen": 19,
+      "anzeige": "Werkstatt",
+      "bild": "dev.webp",
+      "beschreibung": "dev.json"
+    },
+    {
+      "instanz": "live",
+      "name": "World of Vikings",
+      "gerendert": "2026-08-21T04:17:19.762Z",
+      "fingerabdruck": "61c1324039523573",
+      "spanneMeter": 40320,
+      "regionen": 17,
+      "anzeige": "Midgard",
+      "bild": "live.webp",
+      "beschreibung": "live.json"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+<!doctype html>
+<!--
+  Grundgerüst jeder Seite von world-of-vikings.com.
+
+  Was hier steht, steht auf JEDER Seite — Symbole, Schriften, Stylesheet.
+  Was je Seite verschieden ist (Titel, Beschreibung, canonical, Open Graph),
+  setzt die Seite selbst über <svelte:head>.
+
+  Die beiden Schriften werden vorgeladen, weil sie im ersten Bildschirm
+  vorkommen: Epilogue in der Marke und der Überschrift, Hanken Grotesk im
+  Fließtext. Die vier übrigen Schnitte holt der Browser erst, wenn er sie
+  braucht.
+-->
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Symbole. Abgeleitet aus dem vorhandenen Wappen, auf das Rundschild
+         beschnitten: Der Schriftzug darunter ergäbe bei 16 px nur eine
+         graue Fläche. (Roadmap H1) -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/assets/fonts/epilogue-latin.woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/assets/fonts/hanken-grotesk-latin.woff2"
+      crossorigin
+    />
+
+    %sveltekit.head%
+  </head>
+  <body data-sveltekit-preload-data="hover">
+    <div style="display: contents">%sveltekit.body%</div>
+  </body>
+</html>

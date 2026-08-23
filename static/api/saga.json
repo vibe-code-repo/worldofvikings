@@ -1,0 +1,29 @@
+{
+  "_hinweis": "DEMO-DATEN. Siehe welt.json.",
+  "eintraege": [
+    {
+      "datum": "2026-08-14",
+      "titel": "Das Grasland der Wiesen waechst",
+      "art": "Welt",
+      "text": "Die Wiesen tragen jetzt hohes Gras mit eigener Windbewegung. Der Weltschnitt wurde neu gesetzt, das alte Layout liegt als Sicherung daneben."
+    },
+    {
+      "datum": "2026-08-13",
+      "titel": "Verliese oeffnen ihre Tueren",
+      "art": "Spiel",
+      "text": "Das Verliessystem ist angeschlossen: gesetzte Saat, echte Tueren, Raumketten nach Vorlage. Die Schluesselpflicht fuer Ereignisse steht."
+    },
+    {
+      "datum": "2026-08-09",
+      "titel": "Der Server zieht auf eigenen Grund",
+      "art": "Betrieb",
+      "text": "Live-Welt, Bauwelt und Webseite laufen ab sofort in getrennten Containern. Ein Fehler in der Werkstatt legt die Live-Welt nicht mehr lahm."
+    },
+    {
+      "datum": "2026-08-05",
+      "titel": "Erste Fahrt mit Babylon",
+      "art": "Technik",
+      "text": "Der neue Client rendert Gelaende, Vegetation und Schattenkaskaden. Der alte Three.js-Prototyp ist damit abgeloest."
+    }
+  ]
+}

@@ -120,6 +120,77 @@ export function ruestungZu(id: string | null | undefined): Ruestungsteil | null 
   return RUESTUNG.find((r) => r.id === id) ?? null;
 }
 
+export interface Haarfarbe {
+  /** Stabile Kennung — steht im Spielstand. Nie ändern. */
+  readonly id: string;
+  /** Beschriftung in der Charaktererstellung. */
+  readonly name: string;
+  /**
+   * Grundfarbe als sRGB-Hex — also das, was ein Mensch liest und was
+   * die Webseite unverändert als Farbfleck neben die Auswahl setzen
+   * kann.
+   *
+   * WARUM HEX UND NICHT LINEARE ZAHLEN: Das Material erwartet lineares
+   * RGB, aber `#6B4A2F` sagt jedem etwas und `0.148, 0.068, 0.028`
+   * niemandem. Die Umrechnung steht an EINER Stelle im Client
+   * (`Color3.FromHexString(hex).toLinearSpace()`); stünde sie in der
+   * Liste, müsste sie jeder Ersteller einer neuen Farbe von Hand
+   * richtig machen.
+   */
+  readonly hex: string;
+}
+
+/**
+ * Haarfarben.
+ *
+ * WARUM EINE PALETTE UND KEIN FARBWÄHLER: Der Server prüft jede
+ * eingehende Kennung nach dem Muster "steht sie in der Liste"
+ * (istFigur/istFrisur/istRuestung). Eine Palette fügt sich da ohne
+ * Sonderfall ein. Ein freier Wert bräuchte eine eigene Prüfart, und
+ * gewonnen wäre wenig: Die Frisuren tragen eine FLACHE Farbe ohne
+ * Textur, zwölf gewählte Töne decken davon alles Sinnvolle ab.
+ *
+ * Die Vorgabe `mittelbraun` liegt bewusst dicht an der bisherigen
+ * Platzhalterfarbe des Materials (linear 0,16/0,10/0,05) — Spielstände
+ * ohne gespeicherte Farbe sollen nicht plötzlich anders aussehen.
+ */
+export const HAARFARBEN: readonly Haarfarbe[] = [
+  { id: 'rabenschwarz', name: 'Rabenschwarz', hex: '#1A1613' },
+  { id: 'dunkelbraun', name: 'Dunkelbraun', hex: '#2E2018' },
+  { id: 'kastanie', name: 'Kastanienbraun', hex: '#4A2C1A' },
+  // #6F593F ist NICHT gerundet, sondern die Platzhalterfarbe des
+  // Materials (linear 0,16/0,10/0,05) in sRGB. Damit sieht ein
+  // Spielstand ohne gespeicherte Farbe exakt aus wie bisher.
+  { id: 'mittelbraun', name: 'Mittelbraun', hex: '#6F593F' },
+  { id: 'hellbraun', name: 'Hellbraun', hex: '#8A6A45' },
+  { id: 'aschblond', name: 'Aschblond', hex: '#A89272' },
+  { id: 'weizenblond', name: 'Weizenblond', hex: '#C8AB77' },
+  { id: 'hellblond', name: 'Hellblond', hex: '#E0CDA0' },
+  { id: 'fuchsrot', name: 'Fuchsrot', hex: '#8C3A17' },
+  { id: 'kupfer', name: 'Kupferrot', hex: '#B5602A' },
+  { id: 'eisgrau', name: 'Eisgrau', hex: '#9A9691' },
+  { id: 'schneeweiss', name: 'Schneeweiß', hex: '#DED9D0' },
+] as const;
+
+/** Was ein Spieler bekommt, der nie gewählt hat. */
+export const HAARFARBE_VORGABE = 'mittelbraun';
+
+/** Kennt die Liste diese Haarfarbe? Der Server glaubt dem Client nichts. */
+export function istHaarfarbe(id: unknown): boolean {
+  return typeof id === 'string' && HAARFARBEN.some((h) => h.id === id);
+}
+
+/**
+ * Kennung → Haarfarbe. Unbekanntes fällt auf die Vorgabe zurück statt
+ * zu werfen — dieselbe Regel wie bei frisurZu().
+ */
+export function haarfarbeZu(id: string | null | undefined): Haarfarbe {
+  return (
+    HAARFARBEN.find((h) => h.id === id) ??
+    HAARFARBEN.find((h) => h.id === HAARFARBE_VORGABE)!
+  );
+}
+
 /** Pfad einer Teildatei, relativ zu assets/models/. */
 export function teilPfad(datei: string): string {
   return `${AUSSEHEN_ORDNER}/${datei}.glb`;
@@ -133,3 +204,4 @@ export function teilPfad(datei: string): string {
  */
 export const FRISUR_MEMBER = 'frisur';
 export const RUESTUNG_MEMBER = 'ruestung';
+export const HAARFARBE_MEMBER = 'haarfarbe';

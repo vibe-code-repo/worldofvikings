@@ -7,11 +7,11 @@
  * per-weather lighting keyframes; this file is the layer above it.
  *
  * ── Everything here is a pure function of the world time ─────────────
- * Valheim derives both the weather and the wind from the world clock plus
+ * The reference derives both the weather and the wind from the world clock plus
  * Unity's seeded PRNG — no state is synchronised between machines. Two
  * clients showing the same second show the same storm from the same angle.
  * Reproducing that means reproducing the PRNG, which XorShiftRandom does
- * (it is Unity's generator, reverse-engineered by the Valhalla project).
+ * (it is Unity's generator, reverse-engineered by the reference project).
  *
  * So: no randomness that is not seeded, and integer division where C# had
  * `long`s — `timeSec / (m_windPeriodDuration / octave)` truncates twice,

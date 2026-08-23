@@ -50,6 +50,7 @@ import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import '@babylonjs/loaders/glTF';
 
 import { AUSSEHEN_KOERPER, teilPfad } from '@wov/shared';
+import { faerbeHaar } from '../player/haarfarbe.js';
 
 const WURZEL = '/assets/models/';
 
@@ -68,6 +69,8 @@ export class CharakterVorschau {
   /** Bereits geladene Teile, nach Dateiname. Siehe Kopfkommentar. */
   private readonly geladen = new Map<string, Teil>();
   private aktuell = new Map<string, string>();   // Slot → Dateiname
+  /** sRGB-Hex; leer = Farbe des Modells stehen lassen. */
+  private haarHex = '';
   private zerstoert = false;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -147,6 +150,24 @@ export class CharakterVorschau {
       this.geladen.set(datei, { netze, eigenes: res.skeletons[0] ?? null });
     }
     this.zeige(datei, true);
+    // Nach dem Anzeigen faerben: Eine frisch geladene Frisur bringt ihr
+    // eigenes Material mit und waere sonst wieder platzhalterbraun.
+    this.faerbeFrisur();
+  }
+
+  /** Haarfarbe setzen; gilt auch fuer jede spaeter gewaehlte Frisur. */
+  setzeHaarfarbe(hex: string): void {
+    this.haarHex = hex;
+    this.faerbeFrisur();
+  }
+
+  private faerbeFrisur(): void {
+    if (!this.haarHex) return;
+    const datei = this.aktuell.get('frisur');
+    if (!datei) return;
+    // Kein Klon: hier laedt `ImportMeshAsync` je Vorschau eigene
+    // Materialien, geteilt wird nichts (s. player/haarfarbe.ts).
+    faerbeHaar(this.geladen.get(datei)?.netze ?? [], this.haarHex, false);
   }
 
   private zeige(datei: string, sichtbar: boolean): void {

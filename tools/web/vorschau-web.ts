@@ -60,6 +60,8 @@ export class Vorschau {
   private ruhe: AnimationGroup | null = null;
   private readonly geladen = new Map<string, Teil>();
   private readonly aktuell = new Map<string, string>();
+  /** sRGB-Hex der Haarfarbe; leer = Farbe des Modells stehen lassen. */
+  private haarHex = '';
   private zerstoert = false;
   private beobachter: ResizeObserver | null = null;
   private sonne!: DirectionalLight;
@@ -305,6 +307,40 @@ export class Vorschau {
       this.geladen.set(datei, { netze });
     }
     this.zeige(datei, true);
+    // Nach dem Anzeigen faerben — eine frisch geladene Frisur bringt ihr
+    // eigenes Material mit und waere sonst wieder platzhalterbraun.
+    this.faerbeFrisur();
+  }
+
+  /**
+   * Haarfarbe setzen. Erwartet sRGB-Hex, wie es aussehen.json liefert.
+   *
+   * KEIN Materialklon noetig: Jede Frisur kommt hier ueber einen eigenen
+   * `ImportMeshAsync` und bringt ihr eigenes Material mit. Im Spiel ist
+   * das anders — dort teilen sich Mitspieler den Container-Cache, und
+   * dort MUSS geklont werden (client/src/player/haarfarbe.ts).
+   *
+   * `toLinearSpace()` ist nicht kosmetisch: glTF legt `baseColorFactor`
+   * unveraendert in `albedoColor`, und der ist linear definiert. Ohne
+   * die Umrechnung sieht jede Farbe sichtbar zu hell aus.
+   */
+  setzeHaarfarbe(hex: string): void {
+    this.haarHex = hex;
+    this.faerbeFrisur();
+  }
+
+  private faerbeFrisur(): void {
+    if (!this.haarHex) return;
+    const datei = this.aktuell.get('frisur');
+    if (!datei) return;
+    const farbe = Color3.FromHexString(this.haarHex).toLinearSpace();
+    for (const m of this.geladen.get(datei)?.netze ?? []) {
+      const mat = m.material as unknown as Record<string, unknown> | null;
+      if (!mat) continue;
+      // Nach Bauart statt nach Klasse: glTF liefert ein PBR-Material.
+      if ('albedoColor' in mat) mat['albedoColor'] = farbe;
+      else if ('diffuseColor' in mat) mat['diffuseColor'] = farbe;
+    }
   }
 
   private zeige(datei: string, sichtbar: boolean): void {

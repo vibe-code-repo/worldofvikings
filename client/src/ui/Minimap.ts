@@ -1,5 +1,5 @@
 /**
- * Minimap (Phase G) — runder HUD-Ausschnitt oben rechts im Valheim-Stil.
+ * Minimap (Phase G) — runder HUD-Ausschnitt oben rechts im Stil des Vorbilds.
  *
  * Anders als die Weltkarte (M, 10 m je Texel aus dem Worker-Raster) tastet
  * die Minimap ihr Umfeld LIVE und deutlich feiner ab (~1,6 m je Sample),
@@ -25,7 +25,7 @@
  * Vierte, optionale Leiste unter dem Kreis: die Weltzeit (Uhrzeit +
  * Sonnenstand-Symbol, abschaltbar über GameSettings.weltzeit). Sitzt
  * bewusst HIER und nicht im Hud-Diagnosetext — sie ist Spielelement wie
- * der Windzeiger, kein Werkzeug, und Valheims eigenes UI hängt die Uhr
+ * der Windzeiger, kein Werkzeug, und das UI des Vorbilds hängt die Uhr
  * genauso unter den Kompass. Eigenes Modul (Weltzeit.ts) für die reine
  * Umrechnung, damit sie ohne DOM testbar bleibt.
  */

@@ -7,7 +7,7 @@ Rinde.
     python3 tools/busch-texturen.py --art wacholder # nur eine
 
 ── Warum diese Datei existiert ──────────────────────────────────────
-Wie `tools/eiche-texturen.py`: nichts davon stammt aus Valheim, alles
+Wie `tools/eiche-texturen.py`: nichts davon ist extrahiert, alles
 wird gerechnet. Die Buesche sind damit vollstaendig frei von fremden
 Rechten — Geometrie aus Sapling, Bild aus diesem Skript.
 

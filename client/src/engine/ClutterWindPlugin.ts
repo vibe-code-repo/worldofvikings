@@ -1,7 +1,7 @@
 /**
  * ClutterWindPlugin — wind sway + camera push + distance shrink/fade for
  * the grass clutter (Babylon-Port of the three.js injectClutterShader,
- * valheim-browser GrassClutter.ts).
+ * GrassClutter.ts des ersten Prototyps).
  *
  * Vertex stage (per instance): blades shrink smoothly toward 5% size across
  * [fadeMin, fadeMax*jitter], sway by vertex height with a per-instance

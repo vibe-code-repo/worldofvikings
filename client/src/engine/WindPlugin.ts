@@ -48,7 +48,7 @@ export class WindPlugin extends MaterialPluginBase {
   /**
    * Wind direction in XZ and its 0..1 strength, fed from WeatherManager
    * (EnvMan.GetWindForce). Statics because every foliage material shares
-   * one wind — the same reason Valheim puts it in a global shader vector.
+   * one wind — the same reason the original puts it in a global shader vector.
    *
    * Defaults reproduce the old fixed sway until someone sets them, so a
    * scene without a WeatherManager still looks alive.
@@ -137,7 +137,7 @@ export class WindPlugin extends MaterialPluginBase {
   getCustomCode(shaderType: string): Record<string, string> | null {
     if (shaderType !== 'vertex') return null;
     return {
-      // Two parts, as in Valheim's foliage shader: a steady lean INTO the
+      // Two parts, as in the original foliage shader: a steady lean INTO the
       // wind direction that grows with its strength, plus a flutter across
       // it so the crown never looks frozen at constant wind. Both scale
       // with local height, keeping trunks planted.

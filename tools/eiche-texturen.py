@@ -5,7 +5,7 @@ Erzeugt die beiden Texturen der Eiche — Laubkarte und Rinde.
     python3 tools/eiche-texturen.py [--ziel assets/textures]
 
 ── Warum diese Datei existiert ──────────────────────────────────────
-Alle bisherigen Baumtexturen stammen aus Valheim, mit AssetRipper aus
+Alle bisherigen Baumtexturen stammen aus dem Fremdexport, mit AssetRipper aus
 den Unity-Bundles gezogen. Die Eiche kommt ohne solches Material aus:
 Beide Karten werden hier prozedural gezeichnet und sind damit frei von
 fremden Rechten. Der Rest der Kette bleibt unveraendert — die Bilder

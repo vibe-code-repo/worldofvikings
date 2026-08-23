@@ -1,15 +1,15 @@
 # World of Vikings — Master Plan
 
-*(Das Projekt hieß beim Verfassen dieses Plans `valheim-babylon`. Der Name steht in älteren
-Absätzen weiter da, wo er den damaligen Stand bezeichnet.)*
+*(Das Projekt trug beim Verfassen dieses Plans noch einen Arbeitstitel. Wo ältere Absätze
+vom „Vorgänger-Repo" sprechen, ist der damalige Stand gemeint.)*
 
 > **Zwei Annahmen dieses Plans gelten nicht mehr.** Sie stehen unten in den betroffenen
 > Abschnitten richtiggestellt; hier zusammengefasst, weil sie das Zielbild verschieben:
 >
-> 1. **Original-Assets** (überholt am 16.08.2026). Das Projekt benutzt keine aus Valheim
->    extrahierten Modelle und Texturen mehr. Alles ist Eigenbau.
-> 2. **Radiale Welt** (überholt am 03.08.2026). Die Welt kommt nicht mehr aus Valheims
->    Seed-Kreis, sondern aus einem WorldLayout-Dokument.
+> 1. **Original-Assets** (überholt am 16.08.2026). Das Projekt benutzt keine extrahierten
+>    Fremdmodelle und -texturen mehr. Alles ist Eigenbau.
+> 2. **Radiale Welt** (überholt am 03.08.2026). Die Welt kommt nicht mehr aus einem
+>    radialen Seed-Kreis, sondern aus einem WorldLayout-Dokument.
 >
 > Beides steht im Abschnitt „Was 08/2026 anders kam".
 >
@@ -18,14 +18,14 @@ Absätzen weiter da, wo er den damaligen Stand bezeichnet.)*
 
 ## Ziel
 
-Den Valheim-Server (`valheim.community`, C++ / Valhalla2.0) als **Browsergame auf Basis von Babylon.js** portieren — mit einem authoritativen TypeScript-Server (1:1-Nachbau der C++-Logik).
+Einen quelloffenen C++-Referenzserver als **Browsergame auf Basis von Babylon.js** portieren — mit einem authoritativen TypeScript-Server (1:1-Nachbau der C++-Logik).
 
 > Bis 08/2026 stand hier „mit Original-Assets aus dem Dedicated Server". Das war der
 > ursprüngliche Weg: Der entpackte Client lieferte Modelle, Texturen und Zahlenwerte frei
 > Haus, und ohne ihn wäre der Prototyp nie so weit gekommen. Geändert am 16.08.2026, weil ein
 > öffentlich spielbares Spiel keine fremden Assets ausliefern kann. Näheres unten.
 
-Dieses Projekt ist der Nachfolger von [`valheim-browser`](../valheim-browser) (Three.js). Der Three.js-Prototyp hat die Machbarkeit bewiesen, stößt aber an Engine-Grenzen (siehe [01-Warum-Babylon.md](01-Warum-Babylon.md)).
+Dieses Projekt ist der Nachfolger des ersten Prototyps (Three.js). Der hat die Machbarkeit bewiesen, stößt aber an Engine-Grenzen (siehe [01-Warum-Babylon.md](01-Warum-Babylon.md)).
 
 ---
 
@@ -33,11 +33,11 @@ Dieses Projekt ist der Nachfolger von [`valheim-browser`](../valheim-browser) (T
 
 | Projekt | Rolle | Stand |
 |---|---|---|
-| `valheim.community` | C++ Referenz-Server (Valhalla2.0), 126 Quelldateien: ZDO, Prefabs, Weltgen, Dungeons, Netzwerk | Referenz, bleibt unverändert |
-| `valheim-browser` | Three.js-Prototyp: Server + Shared + Tools + Assets weitgehend fertig, Client früh (Terrain, Grass, Instancing, WorldMap) | Wird als Code-Spender und Referenz genutzt |
-| `valheim-babylon` | **Dieses Projekt** — Babylon.js-Client + wiederverwendeter Server | Neu |
+| Referenzserver | C++ (126 Quelldateien: ZDO, Prefabs, Weltgen, Dungeons, Netzwerk) | Referenz, bleibt unverändert |
+| Erster Prototyp | Three.js: Server + Shared + Tools + Assets weitgehend fertig, Client früh (Terrain, Grass, Instancing, WorldMap) | Wird als Code-Spender und Referenz genutzt |
+| Dieses Projekt | Babylon.js-Client + wiederverwendeter Server | Neu |
 
-**Zentrale Erkenntnis:** Der Server (`server/`) und die geteilte Weltgenerierung (`shared/`) in `valheim-browser` sind **engine-unabhängiges TypeScript**. Sie werden nahezu 1:1 übernommen. Nur der Client (Rendering) wird mit Babylon.js neu gebaut.
+**Zentrale Erkenntnis:** Der Server (`server/`) und die geteilte Weltgenerierung (`shared/`) des Prototyps sind **engine-unabhängiges TypeScript**. Sie werden nahezu 1:1 übernommen. Nur der Client (Rendering) wird mit Babylon.js neu gebaut.
 
 *(Die Erkenntnis hat getragen: Der Import lief am 26.07.2026, Server und Shared kamen unverändert durch. Was danach am Server gewachsen ist — Layout-Welt, Routen, Dungeons —, hat im C++-Vorbild keine Entsprechung; siehe [05](05-Server-Architektur.md).)*
 
@@ -62,7 +62,7 @@ Auch `hdClutter` und die HD-Mod-Texturen sind restlos entfernt — dieselbe Frag
 
 ### Weltmodell: Layout statt radialem Seed-Kreis *(03.08.2026)*
 
-Der Plan übernahm Valheims Weltmodell mitsamt seiner Form: eine radiale Insel um den Ursprung, alles aus einem Seed, Progression über die Distanz zum Weltzentrum. Das ist portiert, verifiziert und läuft — als `world.mode: valheim`, dem eingefrorenen Übergangspfad.
+Der Plan übernahm das Weltmodell des Vorbilds mitsamt seiner Form: eine radiale Insel um den Ursprung, alles aus einem Seed, Progression über die Distanz zum Weltzentrum. Das ist portiert, verifiziert und läuft — als `world.mode: valheim`, dem eingefrorenen Übergangspfad.
 
 Die Welt des Projekts entsteht heute aus einem **WorldLayout-Dokument** (`world.mode: layout`): Regionen als Polygone und Kreise mit Biom und Terrainparametern auf unbegrenzter Karte, alles außerhalb ist Ozean; der Server kompiliert das Dokument zu einem Distanzfeld. Das Perlin-Detail *innerhalb* einer Region stammt weiterhin aus den Original-Biomhöhenfunktionen — der Port ist also nicht verworfen, sondern umgehängt. Näheres in [10-Weltbau-Layout-und-Editor.md](10-Weltbau-Layout-und-Editor.md).
 
@@ -89,7 +89,7 @@ Die **Live-Welt** ist am 16.08.2026 neu entstanden (Weltschnitt): 17 Regionen, 1
                          │ WebSocket (Binary / MessagePack)
 ┌────────────────────────┴─────────────────────────────────────┐
 │              AUTHORITATIVE SERVER (ÜBERNOMMEN)                │
-│  Node.js + TypeScript (1:1 Port von Valhalla2.0 C++)         │
+│  Node.js + TypeScript (1:1 Port des C++-Referenzservers)     │
 │                                                              │
 │  ZDOManager │ PrefabManager │ ZoneManager │ Heightmap        │
 │  WorldManager (Persistenz) │ NetManager (Peers, RPC)         │
@@ -103,14 +103,14 @@ Die **Live-Welt** ist am 16.08.2026 neu entstanden (Weltschnitt): 17 Regionen, 1
 
 > Der Ist-Aufbau steht in der README. Abweichungen, die man kennen sollte: `admin/`
 > (Betriebsdienst) und `deploy/` (systemd, nginx) kamen später dazu; `assets/` ist keine
-> Kopie des Valheim-Exports mehr, sondern der eigene Bestand; das Weltdokument liegt unter
+> Kopie des Fremdexports mehr, sondern der eigene Bestand; das Weltdokument liegt unter
 > `server/data/welten/<instanz>.json`.
 
 ```
 worldofvikings/
 ├── Docs/                      # Diese Dokumentation
 ├── package.json               # npm-Workspace (client, server, shared)
-├── shared/                    # ÜBERNOMMEN aus valheim-browser/shared
+├── shared/                    # ÜBERNOMMEN aus dem Prototyp
 │   └── src/
 │       ├── worldgen/          # FastNoise, Heightmap, GeoManager, Perlin
 │       ├── prefabs.ts / prefabData.json
@@ -119,9 +119,9 @@ worldofvikings/
 │       ├── spawnData.ts, locationOverrides.json, terrainModifiers.json
 │       ├── protocol.ts, types.ts, constants.ts, hash.ts
 │       └── index.ts
-├── server/                    # ÜBERNOMMEN aus valheim-browser/server
+├── server/                    # ÜBERNOMMEN aus dem Prototyp
 │   └── src/
-│       ├── main.ts, ValhallaServer.ts
+│       ├── main.ts, WovServer.ts
 │       ├── net/               # NetManager, Peer, Rpc, WebSocketAcceptor
 │       ├── zdo/               # ZDO, ZDOID, ZDOManager
 │       ├── world/             # WorldManager, ZoneManager, SpawnSystem
@@ -149,13 +149,13 @@ worldofvikings/
 │       │   └── Interpolation.ts
 │       └── ui/
 │           ├── HUD.ts             # Babylon GUI
-│           ├── WorldMap.ts        # Port aus valheim-browser
+│           ├── WorldMap.ts        # Port aus dem Prototyp
 │           └── Inventory.ts
-├── tools/                     # ÜBERNOMMEN aus valheim-browser/tools
+├── tools/                     # ÜBERNOMMEN aus dem Prototyp
 │   ├── assetripper/
 │   ├── prefab-parser/
 │   └── *.mjs / *.ts           # GLB-Inspektions- & Playwright-Tools
-└── assets/                    # Symlink/Kopie von valheim_browser_assets
+└── assets/                    # Symlink/Kopie des Asset-Ordners
     ├── models/  (GLB)
     ├── textures/ (KTX2)
     ├── audio/
@@ -180,7 +180,7 @@ server/data/welten/<instanz>.json   # das Weltdokument, in Git
 2. **Neu bauen**: `client/` komplett auf Babylon.js. Die Three.js-Client-Dateien (`Renderer.ts`, `Terrain.ts`, `StaticInstancer.ts`, `GrassClutter.ts`, `AssetManager.ts`, `InputManager.ts`, `WorldMap.ts`) dienen als fachliche Referenz, nicht als Code-Basis.
 3. **Protokoll stabil halten**: `shared/protocol.ts` ändert sich nicht — alter und neuer Client können zeitweise parallel gegen denselben Server laufen.
 
-Details: [02-Migration-von-valheim-browser.md](02-Migration-von-valheim-browser.md)
+Details: [02 — Herkunft des Clients](02-Migration-von-valheim-browser.md)
 
 ---
 
@@ -227,6 +227,6 @@ des Repos geführt — die Roadmap ist ihr Vorgänger und bleibt als Historie st
 | Betriebsdienst `admin/` | **2468** | — (gab es noch nicht) |
 | Vite-Proxy `/ws` | → 2467 | → 2466 |
 
-Die geplanten Nummern waren mit Blick auf `valheim-browser` (2456/5173) gewählt, damit beide
+Die geplanten Nummern waren mit Blick auf den Prototyp (2456/5173) gewählt, damit beide
 Projekte parallel laufen können. Die tatsächlichen liegen um eins höher; **warum**, ist aus
-dem Code nicht mehr ablesbar — vermutlich, weil `valheim-babylon` 2466/5273 belegt hielt.
+dem Code nicht mehr ablesbar — vermutlich, weil das Vorgänger-Repo 2466/5273 belegt hielt.

@@ -19,7 +19,7 @@ import { GeoManager } from '../src/worldgen/GeoManager.js';
 import { HeightmapProvider } from '../src/worldgen/Heightmap.js';
 import { Biome } from '../src/types.js';
 
-const exportDir = process.argv[2] ?? '../../valheim.community/build/geo-export-run';
+const exportDir = process.argv[2] ?? '../../referenz-server/build/geo-export-run';
 const seedName = process.argv[3] ?? 'KxSYuZquuw';
 
 const f32buf = new Float32Array(1);

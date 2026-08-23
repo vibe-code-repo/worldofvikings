@@ -1,7 +1,7 @@
 /**
  * Physics — Havok, standing in for Unity's PhysX.
  *
- * Valheim does not hand-roll collision: Character carries a Rigidbody and a
+ * The original does not hand-roll collision: Character carries a Rigidbody and a
  * CapsuleCollider (Character.cs:234/236) and PhysX resolves the rest. The
  * closest equivalent available to us is Havok, which Babylon ships as a
  * WASM plugin — so this file wires that up rather than approximating
@@ -47,7 +47,7 @@ import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
 
 /**
- * Gravitation (m/s²) — Valheim weicht vom Unity-Default ab: die
+ * Gravitation (m/s²) — das Original weicht vom Unity-Default ab: die
  * ProjectSettings des Spiels stehen auf −20 (`m_Gravity.m_Y` in
  * PhysicsManager.json des AssetRipper-Exports). Muss mit der Gravitation
  * im PlayerController übereinstimmen, sonst fallen Spieler und Weltobjekte
@@ -106,7 +106,7 @@ const TRUNK_MAX_RADIUS_RATIO = 0.6;
 /** Never produce a collider thinner than this — degenerate shapes tunnel. */
 const MIN_RADIUS = 0.12;
 /**
- * Unter dieser Höhe bekommt ein Objekt gar keinen Kollider. Valheim lässt
+ * Unter dieser Höhe bekommt ein Objekt gar keinen Kollider. Das Original lässt
  * einen über kniehohe Steine steigen und durch Büsche laufen; gäbe man
  * jedem davon einen Körper, stünde der Spieler ständig auf knöchelhohen
  * Sockeln statt auf dem Boden (gemessen: in 61 % der Proben kein
@@ -409,7 +409,7 @@ export function deriveCollider(
  *
  * PhysicsBody mirrors a node's thin instances into one body per instance
  * (see `numInstances`), so a whole forest costs one body object and one
- * shape — which is what makes this affordable at Valheim's vegetation
+ * shape — which is what makes this affordable at the original's vegetation
  * density.
  */
 export class StaticColliderSet {

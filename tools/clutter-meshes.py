@@ -57,7 +57,7 @@ duerfen die Karten hier auch keine Sprite-Atlas-Kacheln abgreifen:
 Senkrechte Streifen ueber die volle Bildhoehe sind der einzige
 Zuschnitt, der zu einem Vollbild-Billboard passt.
 
-Ein frueherer Versuch, die 128er-Originalmaske aus Valheim mit diesen
+Ein frueherer Versuch, die 128er-Originalmaske aus dem Fremdexport mit diesen
 Meshes zu benutzen, scheiterte genau daran (siehe MEADOWS_TINT in
 GrassClutter.ts, 2026-07-29: „die Halme zerfielen zu eckigen
 Schollen"). Der Kommentar dort schliesst mit „Dafuer braucht es die zum
@@ -68,7 +68,7 @@ sich eine dokumentierte Konvention.
 
 ── Warum die Abmessungen des Originals eingehalten werden ───────────
 Die Bounding-Boxen (siehe PROFILE) sind auf die Masse der frueheren
-Valheim-GLBs gelegt. Das ist keine Nachahmung um ihrer selbst willen,
+Fremd-GLBs gelegt. Das ist keine Nachahmung um ihrer selbst willen,
 sondern Ruecksicht auf getunte Zahlen: `ENTRIES` in GrassClutter.ts
 traegt je Eintrag ein `prefabScale` und `scaleMin/scaleMax`, und
 `topY` (der hoechste Vertex) geht in die Normierung des Windwedelns

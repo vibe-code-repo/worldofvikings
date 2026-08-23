@@ -70,7 +70,7 @@ interface FeatureJson extends Omit<Feature, 'hash'> {}
  *
  * Seit Block A benutzt das Projekt ausschliesslich selbst gebaute Modelle.
  * Eine Location ist nichts als eine Anordnung von Prefabs aus dem
- * Valheim-Export; keiner der 146 Namen steht auf der Whitelist, die Liste
+ * Fremdexport; keiner der 146 Namen steht auf der Whitelist, die Liste
  * ist also leer. Das ist der beschlossene Zwischenzustand, kein Defekt —
  * bis eigene Bauwerke vorliegen, hat die Welt keine Locations.
  *
@@ -79,7 +79,7 @@ interface FeatureJson extends Omit<Feature, 'hash'> {}
  * zöge aber `featurePieces.ts` (23 228 Pieces, ~6 MB) in dieses Modul —
  * und damit über den Barrel zurück in jedes Client-Bundle, dessen
  * Abtrennung der Bundle-Schnitt oben gerade erst erkauft hat. Am Ergebnis
- * änderte es ohnehin nichts: Die Pieces sind durchweg Valheim-Geometrie.
+ * änderte es ohnehin nichts: Die Pieces sind durchweg Fremdgeometrie.
  *
  * Der Rohbestand bleibt in `featuresData.json` liegen. Er ist die
  * Datengrundlage der Naht zu `featurePiecesData.json` (geprüft von

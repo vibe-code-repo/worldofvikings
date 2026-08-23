@@ -1,10 +1,9 @@
 /**
  * SettingsStore — persisted, user-adjustable render settings.
  *
- * Mirrors two real Valheim graphics settings (Settings.SettingsGui/
- * GraphicsSettings.cs, GraphicsSettingInt enum — see extracted_assets in
- * /root/Valheim_Client for the decompiled source and localization strings
- * this project uses verbatim):
+ * Mirrors two graphics settings of the original (GraphicsSettingInt enum —
+ * see the local asset export for the decompiled source and the
+ * localization strings this project uses verbatim):
  *  - "Vegetationsqualität" (settings_vegetation, GraphicsSettingInt.Vegetation)
  *    → GrassClutter's clutter render/fade distance (GrassClutter.ts,
  *    VEGETATION_QUALITY_SCALE).

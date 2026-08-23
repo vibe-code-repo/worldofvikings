@@ -1,7 +1,7 @@
 # 04 — Asset-Pipeline
 
-> **Stand 16.08.2026.** Dieses Dokument beschrieb bis dahin den AssetRipper-Weg: Valheim
-> entpacken, GLBs kopieren, Manifest anreichern. Dieser Weg ist beendet. Das Projekt baut
+> **Stand 16.08.2026.** Dieses Dokument beschrieb bis dahin den AssetRipper-Weg: einen
+> fremden Client entpacken, GLBs kopieren, Manifest anreichern. Dieser Weg ist beendet. Das Projekt baut
 > seine Modelle ausschließlich selbst. Der alte Weg steht weiter unten — er erklärt, woher
 > die 7.463 Modelle kamen, mit denen zwei Monate lang entwickelt wurde, und warum sie
 > gegangen sind.
@@ -25,7 +25,7 @@ und nicht als Vorschlag.
 | `assets/models/` | 119 GLB — Bäume, Sträucher, Blumen, Felsen, Clutter-Meshes, Grabhügel, NPCs, Spieleravatar | `tools/baeume-bauen.sh`, `buesche-bauen.sh`, `blumen-bauen.sh`, `felsen-bauen.sh`, `grabhuegel-bauen.py`, `clutter-meshes.py`, `tripo-generate.mjs`, die `*-rig.py`-Reihe |
 | `assets/textures/` | 66 PNG — Rinde/Laub je Art, Bodenbewuchs, die neun Terrainkarten, die vier Wasserkarten | `terrain-texturen.py`, `wasser-texturen.py`, `clutter-texturen.py`, `gen-grass-texture.py`, `blumen-texturen.py`, `busch-texturen.py`, `felsen-texturen.py`, `eiche-texturen.py`, `grabhuegel-texturen.py` |
 | `assets/sprites/` | 26 Item-Icons | `tools/item-icons.py` (64², gezeichnet, nicht extrahiert) |
-| `assets/audio/` | `hintergrundmusik.mp3` | eigenes Material; Valheim-Aufnahmen wurden nie verwendet |
+| `assets/audio/` | `hintergrundmusik.mp3` | eigenes Material; Fremdaufnahmen wurden nie verwendet |
 
 Gesamt: **212 Dateien, 158 MB.** Vorher waren es 11.869 Dateien und 5,1 GB.
 
@@ -36,7 +36,7 @@ Baum für Baum denselben Baum. Generativ über
 [Tripo](https://www.tripo3d.ai) (`tools/tripo-generate.mjs`) für Einzelstücke, die sich
 prozedural nicht sinnvoll beschreiben lassen. Beim generativen Weg ist `face_limit` der
 entscheidende Parameter: ohne ihn kam der erste Baum mit 1.907.396 Dreiecken und 70 MB
-zurück — Valheims `Pinetree_01` hat 2.532.
+zurück — das fremde `Pinetree_01` hat 2.532.
 
 ### Nachlauf bei Vegetation: Rinde und Laub zusammenlegen (Pflicht)
 
@@ -70,7 +70,7 @@ zurück — Valheims `Pinetree_01` hat 2.532.
 
 `EIGENE_MODELLE` in `shared/src/prefabs.ts` listet jedes Modell, das es geben darf;
 `istEigenesModell(name)` ist der Test. Die Liste ist **handgepflegt und nicht heuristisch**:
-Ob ein Prefab aus dem Valheim-Paket oder aus unseren Werkzeugen stammt, steht ihm nicht am
+Ob ein Prefab aus dem Fremdpaket oder aus unseren Werkzeugen stammt, steht ihm nicht am
 Namen an.
 
 Sie wird an allen Entstehungsstellen der Welt abgefragt — `features.ts`, `vegetation.ts`,
@@ -91,7 +91,7 @@ FOLIAGE speist sich nicht mehr aus `vegetation.pkg`, sondern aus `shared/src/flo
 
 **Folge, die klar dastehen muss: Bis eigene Modelle vorliegen, kann im Spiel nicht gebaut
 und nicht gekämpft werden.** Das ist ein bewusst gewählter Zwischenzustand, kein Defekt.
-Die Alternative — Valheim-Prefabs weiter buchen und nur clientseitig ausblenden — wurde
+Die Alternative — Fremdprefabs weiter buchen und nur clientseitig ausblenden — wurde
 verworfen: Dann stünden Geister-ZDOs im Spielstand, die später nicht mehr zu der Buchung
 passen, die mit eigenen Modellen entsteht.
 
@@ -99,7 +99,7 @@ passen, die mit eigenen Modellen entsteht.
 
 Ein Blick in `assets/textures/` legt einen falschen Schluss nahe: Dateien wie
 `terrain_d_array.png`, `water_normals_real.png`, `vass_texture01.png` oder
-`autumn_ormbunke_green.png` heißen wie ihre Valheim-Vorbilder. Sie sind es nicht — die
+`autumn_ormbunke_green.png` heißen wie ihre fremden Vorbilder. Sie sind es nicht — die
 Namen sind **Schnittstellen**, weil die Shader sie so ansprechen. Erzeugt werden sie von
 `tools/terrain-texturen.py` (die neun Bodentexturen), `wasser-texturen.py` (vier
 Wasserkarten plus `grass_terrain_color.png`), `clutter-texturen.py` und
@@ -110,10 +110,10 @@ Solange `TerrainSplat.ts` ohne `terrain_d_array.png` schwarzen Boden zeichnete, 
 ganze Client am Rip.
 
 ⚠️ **Damit ist `tools/recover-textures.mjs` gegenstandslos geworden.** Es holte Texturen
-über die PathIDs der Material-Assets aus `Valheim_Client/extracted_assets/` zurück (siehe
+über die PathIDs der Material-Assets aus dem Client-Export zurück (siehe
 [03-Rendering-und-Engine.md](03-Rendering-und-Engine.md) §3.1 und Einschränkung 33 im
 Analyse-Bericht) und war der Weg, auf dem die Wasser- und Terrainkarten ursprünglich ins
-Projekt kamen. Der Client-Export unter `/root/Valheim_Client` existiert auf keinem
+Projekt kamen. Der Client-Export existiert auf keinem
 Container mehr; das Skript liegt noch in `tools/`, läuft aber ins Leere.
 
 Die Maßvorgaben der Shader sind dadurch zu **harten Vorgaben der Werkzeuge** geworden: die
@@ -136,11 +136,11 @@ entstanden, und viele Befunde gelten weiter.
 
 | Schritt | Werkzeug | Ergebnis |
 |---|---|---|
-| Quelle | `Valheim_Client/Valheim/valheim_Data` (Linux-Client 0.221.12) | — |
+| Quelle | lokaler Client-Export (Linux-Client 0.221.12) | — |
 | Extraktion | AssetRipper 1.3.14.0 (GUI), PNG-Export, DirectExport, StaticMeshSeparation | `tools/assetripper/export/` |
 | Modelle | 1:1-Kopie der PrefabHierarchyObject-GLBs | **7463 GLB, 4,8 GB**, Texturen eingebettet |
 | Sprites | Item-Icons | 1595 Icons |
-| Audio | **entfiel schon damals** — die 3318 `.ogg` des Exports wurden gelöscht, Valheim-Aufnahmen kamen nie zum Einsatz | — |
+| Audio | **entfiel schon damals** — die 3318 `.ogg` des Exports wurden gelöscht, Fremdaufnahmen kamen nie zum Einsatz | — |
 | Index | `manifest.json` (4687 Einträge) | ohne Bounding-Boxen/Skalen |
 | Kompression | keine (kein KTX2, kein Draco) | 4,8 GB Rohbestand |
 

@@ -5,7 +5,7 @@
 > `server/data/server.yml` setzt `dungeons.enabled: false`. **Das ist keine Änderung an
 > diesem System** — alles, was unten steht, ist unverändert vorhanden, getestet und
 > lauffähig. Abgeschaltet ist es aus einem Materialgrund: Sämtliche Raumteile und alle zehn
-> Eingangshüllen-Modelle sind Valheim-Exporte, und seit Block A steht ausschließlich
+> Eingangshüllen-Modelle sind Fremdexporte, und seit Block A steht ausschließlich
 > eigener Bau in der Welt (`EIGENE_MODELLE` / `istEigenesModell()`,
 > siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md)).
 >
@@ -52,10 +52,10 @@ spielbaren Welt (Außenkante ±8 192 m):
   Koordinaten nativ, **keine Protokolländerung am ZDO-Sync nötig**.
 - Idee nach dem Vorbild von world-of-claudecraft (`instanceOrigin`-Muster).
 
-Konsequenzen im Server (`ValhallaServer.ts`):
+Konsequenzen im Server (`WovServer.ts`):
 - `update()`: Peers im Band treiben weder Vegetations-Zonen noch Spawns an.
 - `saveWorld()`: Band-ZDOs werden **nie** gespeichert — Instanzen werden aus
-  ihrem Dokument re-materialisiert (Loot-Reset beim Neustart, wie Valheims
+  ihrem Dokument re-materialisiert (Loot-Reset beim Neustart, wie die
   eigene Dungeon-Regeneration).
 - `handlePlayerInput()`: im Band gibt es keine Heightmap; der Client meldet
   seine Physik-Höhe über das `moveY`-Feld (geclampt auf −100…300).
@@ -65,7 +65,7 @@ Konsequenzen im Server (`ValhallaServer.ts`):
 ## Datenfluss
 
 ```
-dungeons.pkg (valheim.community)
+dungeons.pkg (Referenzserver)
   └─ tools/prefab-parser/parse-dungeons.ts        (Format: DungeonManager.cpp:19-201)
       ├─ shared/src/dungeonsData.json             13 DG_*-Generatoren, 392 Räume (Kopf)
       │   └─ shared/src/dungeons.ts               DungeonDef/RoomDef/Connection-Registry
@@ -152,7 +152,7 @@ Räume außerhalb des Basis-Kits.
     für alle Eingänge erneut (`spawnAllEntranceHulls`), gespeicherte Hüllen würden sich
     sonst bei jedem Boot verdoppeln.
   - ⛔ **Seit Block A entsteht dabei kein ZDO mehr.** Alle zehn Namen in
-    `ENTRANCE_HULL_MODELS` sind Valheim-Exporte; die Prüfung sitzt in
+    `ENTRANCE_HULL_MODELS` sind Fremdexporte; die Prüfung sitzt in
     `spawnEntranceHull()` und nicht beim Aufrufer, weil dort drei Wege durchlaufen
     (Zonen-Hook, Boot-Backfill, Admin-Befehl). Registrierte Eingänge bleiben damit
     Buchhaltung ohne Weltwirkung — keine Hülle, keine Kartenmarke, kein betretbarer
@@ -169,7 +169,7 @@ Räume außerhalb des Basis-Kits.
 
 `dungeon list | entrances | create <basis> [seed] | enter [id] | leave |
 assign <id> | regen <id> [seed] | reset <id> | delete <id>` — registriert in
-`ValhallaServer.registerDungeonCommands()`. `teleport` ist dungeon-bewusst
+`WovServer.registerDungeonCommands()`. `teleport` ist dungeon-bewusst
 überschrieben (Strg+Klick auf die Karte verlässt die Instanz sauber).
 Serverantworten erscheinen als HUD-Meldung (AdminEvent-Handler im Client).
 

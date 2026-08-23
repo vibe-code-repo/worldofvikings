@@ -2,7 +2,7 @@
  * Network protocol definitions for Client <-> Server communication.
  * Replaces Steam Networking Sockets with WebSocket + einem
  * handgeschriebenen Binaerformat (kein MessagePack) — Port von
- * DataStream.h (Valhalla2.0 C++), siehe server/src/io/{Reader,Writer}.ts.
+ * DataStream.h des C++-Referenzservers, siehe server/src/io/{Reader,Writer}.ts.
  *
  * Packet framing: [type: u8][payload: custom binary]
  *

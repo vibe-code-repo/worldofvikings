@@ -42,7 +42,7 @@
  * allen drei Pfaden identisch.
  *
  * ── Warum die Potenzierung weg muss und nicht umgekehrt ──────────────
- * Unity — und damit Valheim — mischt den Nebel im linearen Raum mit dem
+ * Unity — und damit das Vorbild — mischt den Nebel im linearen Raum mit dem
  * ROHEN Faktor (`UNITY_APPLY_FOG`). Babylons Extra-Schritt ist eine
  * Eigenheit ihres PBR-Pfads, keine physikalische Notwendigkeit. Die
  * beiden anderen Pfade an PBR anzugleichen hieße, den Fehler zu
@@ -66,7 +66,7 @@ import type { Scene } from '@babylonjs/core/scene';
 const RX_PBR_NEBELKURVE = '!!fog=toLinearSpace\\(fog\\);';
 
 /** Nicht-leerer Ersatz — siehe Kopfkommentar. */
-const ERSATZ = '// valheim: PBR-Nebelkurve an Terrain/Standard angeglichen (PbrNebelFix.ts)';
+const ERSATZ = '// wov: PBR-Nebelkurve an Terrain/Standard angeglichen (PbrNebelFix.ts)';
 
 class PbrNebelFixPlugin extends MaterialPluginBase {
   constructor(material: Material) {

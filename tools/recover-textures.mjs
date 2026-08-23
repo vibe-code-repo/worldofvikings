@@ -12,11 +12,11 @@
  *
  * ── Die Rettung ─────────────────────────────────────────────────────
  * Die Bilddaten sind NICHT verloren. Unter
- *   /root/Valheim_Client/extracted_assets/Texture2D/
+ *   <Client-Export>/extracted_assets/Texture2D/
  * liegen 1.605 echte PNGs — nur nach Unity-PathID benannt
  * (`unnamed_<PathID>.png`) statt nach Klarnamen. Die Zuordnung liefern
  * die Material-Assets unter
- *   /root/Valheim_Client/extracted_assets/Material/
+ *   <Client-Export>/extracted_assets/Material/
  * die BEIDES enthalten: einen Klarnamen (`m_Name`, z. B. "water") und
  * die Textur-Slots mit ihren PathIDs (`m_SavedProperties.m_TexEnvs`,
  * z. B. `_FoamTex` → PathID -305452523777261620).

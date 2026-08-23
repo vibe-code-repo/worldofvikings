@@ -1,6 +1,6 @@
 /**
  * Quaternion math utilities.
- * 1:1 port of Quaternion.h from Valhalla2.0 C++.
+ * 1:1 port of Quaternion.h from the C++ reference server.
  */
 
 import type { Quaternion, Vector3 } from '@wov/shared';

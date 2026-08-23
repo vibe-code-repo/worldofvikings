@@ -95,11 +95,13 @@ dort.)*
    Commit und nicht mehr der, der zuletzt deployt hat.
 
 6. **npm-Scripts/Units steuern das falsche Projekt**
-   - Root-`package.json` `service:*`-Scripts zeigen auf `valheim.target` —
-     `npm run service:restart` im wov-Repo startet valheim-babylon neu.
+   - Root-`package.json` `service:*`-Scripts zeigten auf das Target des
+     Vorgängerprojekts — `npm run service:restart` startete im wov-Repo
+     das falsche Projekt neu.
    - Die laufenden wov-Units (`/etc/systemd/system/wov-*.service`,
      `wov.target`) sind nicht versioniert; `deploy/systemd/` enthält noch
-     die valheim-Units mit alten Ports; `deploy/install-services.sh` ebenso.
+     die alten Units des Vorgängerprojekts mit alten Ports;
+     `deploy/install-services.sh` ebenso.
 
    ✅ **erledigt, Endfassung 16.08.2026 (Block A):** `deploy/systemd/`
    trägt genau drei Units — `wov-server` (2467), `wov-client` (5274),
@@ -297,7 +299,7 @@ dort.)*
     → Dev-Ports auf LAN/VPN beschränken oder Reverse-Proxy mit Auth.
 
 30. **Repo-/Platten-Hygiene** — ~13 GB Rohdaten doppelt zwischen
-    valheim-babylon und worldofvikings (Hardlinks/`/root/shared-assets`);
+    dem Vorgänger-Repo und worldofvikings (Hardlinks/`/root/shared-assets`);
     `tsc-log.txt` eingecheckt (veraltet); `tools/worldlayout-mcp` fehlt
     in den Workspaces; `probe.ts` ohne Assertions; `.mcp.json` mit
     hartkodiertem Pfad; `.gitignore`-Lücken bei `tools/assetripper/`.
@@ -305,7 +307,7 @@ dort.)*
     Workspaces, `.mcp.json` trägt einen relativen Pfad, `tsc-log.txt`
     ist weg, `tools/assetripper/` fällt unter `.gitignore`. Die
     Platten-Deduplizierung hat sich am 16.08.2026 von selbst erledigt:
-    Der Valheim-Export ist gelöscht (11.869 Dateien, 5,1 GB), `assets/`
+    Der Fremdexport ist gelöscht (11.869 Dateien, 5,1 GB), `assets/`
     trägt 212 eigene Dateien / 158 MB. `tools/assetripper/` ist auf
     32 KB geschrumpft — womit auch die Werkzeuge, die aus dem Export
     lesen (`dump-envsetup.mjs`, `recover-textures.mjs`), keine Quelle

@@ -1,17 +1,17 @@
-# 02 — Migration von valheim-browser
+# 02 — Herkunft des Clients: vom Three.js-Prototyp zu Babylon.js
 
-Die wichtigste strategische Entscheidung: **Server, Shared-Code, Tools und Assets werden übernommen — nur der Client wird neu gebaut.** Der bestehende Three.js-Client ist früher MVP (laut [Analyse-Bericht](../../valheim-browser/Docs/Analyse-Modelle-und-Weltgenerierung.md): ~6 FPS, Placeholder-Terrain, keine Animation/Audio/LOD) — ein Rewrite auf Babylon kostet daher wenig, weil ohnehin fast alles neu entstehen musste.
+Die wichtigste strategische Entscheidung: **Server, Shared-Code, Tools und Assets werden übernommen — nur der Client wird neu gebaut.** Der Three.js-Client des Prototyps war früher MVP (laut damaligem Analyse-Bericht: ~6 FPS, Placeholder-Terrain, keine Animation/Audio/LOD) — ein Rewrite auf Babylon kostet daher wenig, weil ohnehin fast alles neu entstehen musste.
 
 ---
 
 ## 1. Unverändert übernehmen (Copy)
 
-| Quelle (`valheim-browser/`) | Ziel (`valheim-babylon/`) | Bemerkung |
+| Quelle (Prototyp) | Ziel (dieses Repo) | Bemerkung |
 |---|---|---|
 | `shared/` (komplett) | `shared/` | **Kernstück.** Enthält die gegen C++ verifizierte Weltgenerierung (FastNoise, GeoManager, Heightmap, Perlin — Phasen B–D laut Analyse abgeschlossen), alle Datenpakete als JSON (vegetation, features, prefabs, spawn, terrainModifiers) und das Netzwerk-Protokoll |
 | `server/` (komplett) | `server/` | Authoritativer Server: ZDO, Prefab, Zone, Spawn, Net, IO. Engine-unabhängig |
 | `tools/` | `tools/` | GLB-Inspektion, Playwright-Shots, Prefab-Parser, AssetRipper-Export + Logs |
-| `valheim_browser_assets/` | `assets/` (Verweis) | 7463 GLBs / 4,8 GB, Sprites, Manifest. Nicht kopieren — per Vite-`publicDir`/Symlink einbinden wie bisher |
+| Asset-Ordner des Prototyps | `assets/` (Verweis) | 7463 GLBs / 4,8 GB, Sprites, Manifest. Nicht kopieren — per Vite-`publicDir`/Symlink einbinden wie bisher |
 | `server/data/` | `server/data/` | server.yml, Welten |
 
 **Konsequenz:** Das Netzwerk-Protokoll (`shared/src/protocol.ts`) bleibt stabil. Der alte Three.js-Client und der neue Babylon-Client können parallel gegen denselben Server laufen — A/B-Vergleiche sind möglich.
@@ -62,16 +62,16 @@ Diese Fehler des Three.js-Clients **nicht mitportieren**:
 3. **Alpha-Cutout + DoubleSided für Nadel-/Laub-Planes**: `material.alphaMode = ALPHATEST`, `backFaceCulling = false` für Foliage — sonst "falsche Tannenform".
 4. **Kreaturen-GLBs ohne Meshes**: `Neck.glb`, `Greyling.glb`, `Troll.glb` sind Bone-Rigs ohne Meshes (Stand 2026-07-25). Meshed-Varianten suchen/nach-exportieren (`tools/assetripper/export`); `*_fixed.glb`-Muster (Boar/Deer/Greydwarf) als Vorlage. Spawn-Tabellen erst erweitern, wenn Assets da sind.
 5. **Instancing von Anfang an**: Der alte Client lief mit ~6 FPS ohne Instancing. Vegetation/Props kommen im Babylon-Client **nur** als Thin Instances, nie als Einzel-Meshes.
-6. **Audio**: Valheim-Aufnahmen werden **nicht** übernommen. Die `.ogg` aus dem AssetRipper-Export sind gelöscht; `assets/audio/` enthält nur eigenes Material (siehe [04](04-Asset-Pipeline.md), Schritt 3).
+6. **Audio**: Fremdaufnahmen werden **nicht** übernommen. Die `.ogg` aus dem AssetRipper-Export sind gelöscht; `assets/audio/` enthält nur eigenes Material (siehe [04](04-Asset-Pipeline.md), Schritt 3).
 
 ## 5. Vorgehen beim Kopieren
 
 ```powershell
-# Im neuen Workspace (valheim-babylon), nach dem Git-Init:
-git checkout -b import/valheim-browser
-robocopy ..\valheim-browser\shared shared /MIR /XD node_modules dist
-robocopy ..\valheim-browser\server server /MIR /XD node_modules dist
-robocopy ..\valheim-browser\tools tools /MIR /XD node_modules out
+# Im neuen Workspace, nach dem Git-Init:
+git checkout -b import/prototyp
+robocopy ..\prototyp\shared shared /MIR /XD node_modules dist
+robocopy ..\prototyp\server server /MIR /XD node_modules dist
+robocopy ..\prototyp\tools tools /MIR /XD node_modules out
 # package.json (Workspace), tsconfig, vite anpassen; Client NICHT kopieren
 ```
 

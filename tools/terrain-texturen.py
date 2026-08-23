@@ -5,7 +5,7 @@ Die neun Bodentexturen des Terrains — eigene, gerechnete statt gerippte.
     python3 tools/terrain-texturen.py [--nur splat|noise|normal]
 
 ── Warum ────────────────────────────────────────────────────────────
-`TerrainSplat.ts` war der letzte grosse Block, der ohne Valheim-Material
+`TerrainSplat.ts` war der letzte grosse Block, der ohne Fremdmaterial
 nicht rendert: ohne `terrain_d_array.png` hat das Terrain keine Albedo
 und der Boden bleibt schwarz. Diese neun Dateien sind damit dieselbe
 Uebung wie `eiche-texturen.py` fuer die Eiche, nur fuer den Untergrund.

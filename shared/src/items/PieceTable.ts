@@ -3,13 +3,13 @@
  *
  * C# reference: PieceTable.cs, Piece.cs, Player.SetPlaceMode.
  *
- * Simplified against the original: Valheim keeps a 15×6 grid with 8 categories
+ * Simplified against the original: it keeps a 15×6 grid with 8 categories
  * because the hammer has hundreds of build pieces. The hoe has four modes and
  * the cultivator three, so a flat list per tool is enough. `category` is kept
  * in the shape so adding the hammer later does not require a rewrite.
  *
  * Every ground piece carries the TerrainOp settings that get applied when it is
- * placed. In Valheim the piece prefab literally has both a `Piece` and a
+ * placed. In the original the piece prefab literally has both a `Piece` and a
  * `TerrainOp` component (verified on `raise`, `path` and `cultivate`); placing
  * it instantiates the prefab, whose TerrainOp deforms the terrain and then
  * destroys itself. We skip the prefab round-trip and apply the settings
@@ -260,7 +260,7 @@ export const PIECE_TABLES: Record<string, readonly string[]> = {
  * benutzbar.
  *
  * Beim Hammer bleiben von neun Teilen zwei: KI-Kiefer und Menhir. Boden,
- * Wand, Tür, Dach, Werkbank, Bett und Portal sind Valheim-Prefabs und
+ * Wand, Tür, Dach, Werkbank, Bett und Portal sind Fremdprefabs und
  * fallen weg — bis eigene Bauteile vorliegen, kann nicht gebaut werden.
  * Das ist der beschlossene Zwischenzustand.
  *

@@ -1,6 +1,6 @@
 /**
  * ZDO — Zone Data Object.
- * 1:1 port of ZDO.h from Valhalla2.0 C++.
+ * 1:1 port of ZDO.h from the C++ reference server.
  *
  * C++ reference:
  *   class ZDO {

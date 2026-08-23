@@ -1,8 +1,8 @@
-# Migrationsplan: valheim-babylon — Differenzen & Aufgaben zur Server-Parität
+# Migrationsplan — Differenzen & Aufgaben zur Server-Parität
 
 **Datum:** 26.07.2026
-**Referenz-Projekt (Soll):** `valheim-browser` (Three.js, feature-vollständig)
-**Ziel-Projekt (Ist):** `valheim-babylon` (Babylon.js 8, WebGPU/WebGL2)
+**Referenz-Projekt (Soll):** der erste Prototyp (Three.js, feature-vollständig)
+**Ziel-Projekt (Ist):** dieses Repo (Babylon.js 8, WebGPU/WebGL2)
 **Grundlage:** `Docs/Analyse-Modelle-und-Weltgenerierung.md` (Umsetzungsplan Phase A–G)
 
 ---
@@ -18,9 +18,9 @@
 > **Was seither anders gekommen ist, in Stichworten:**
 >
 > - **Die Namen stimmen nicht mehr.** Das Projekt heißt World of Vikings; das Shared-Paket
->   ist `@wov/shared`, der Server `WovServer.ts`. `valheim-babylon` und `valheim-browser`
+>   ist `@wov/shared`, der Server `WovServer.ts`. Das Vorgänger-Repo und der Prototyp
 >   sind hier Namen aus der Migrationszeit.
-> - **Die Referenz ist keine mehr.** `valheim-browser` (Three.js) diente als Soll, bis der
+> - **Die Referenz ist keine mehr.** Der Three.js-Prototyp diente als Soll, bis der
 >   Babylon-Client sie eingeholt hatte. Vergleiche gegen sie stehen nur noch als
 >   historische Messungen in [03-Rendering-und-Engine.md](03-Rendering-und-Engine.md).
 > - **Der Aufgabenplan M0–M3 ist weitgehend abgearbeitet und teils überholt.** Schatten,
@@ -30,7 +30,7 @@
 >   [07-Grafik-Konzept.md](07-Grafik-Konzept.md), nicht hier.
 > - **Der Materialstand hat sich vollständig gedreht (16.08.2026).** Der Plan setzt
 >   durchgängig voraus, dass der AssetRipper-Export vorliegt: `preloadModels` über ~43
->   Valheim-Prefabs, Placeholder→GLB-Swap, `loadSprite` auf 1595 Item-Icons. Der Export ist
+>   Fremdprefabs, Placeholder→GLB-Swap, `loadSprite` auf 1595 Item-Icons. Der Export ist
 >   gelöscht; die Welt besteht aus 119 eigenen Modellen, `EIGENE_MODELLE` in
 >   `shared/src/prefabs.ts` ist die Whitelist. Siehe
 >   [04-Asset-Pipeline.md](04-Asset-Pipeline.md).
@@ -65,7 +65,7 @@
 
 ## TL;DR
 
-1. **Server & Shared sind bereits 1:1 portiert.** `server/src`, `shared/src` und alle Tests sind inhaltlich identisch mit der Three.js-Referenz (einzig Paketname `@valheim-babylon/shared` und CRLF-Zeilenenden weichen ab). Die gesamte Server-Logik (ZoneManager, PopulateFoliage, prepareFeatures, Persistenz, SpawnSystem, Admin-Fly, TimeSync, ServerConfig-Paket, Gravitation, viewRadius 4) **existiert bereits im Babylon-Repo**.
+1. **Server & Shared sind bereits 1:1 portiert.** `server/src`, `shared/src` und alle Tests sind inhaltlich identisch mit der Three.js-Referenz (einzig der alte Paketname und CRLF-Zeilenenden weichen ab). Die gesamte Server-Logik (ZoneManager, PopulateFoliage, prepareFeatures, Persistenz, SpawnSystem, Admin-Fly, TimeSync, ServerConfig-Paket, Gravitation, viewRadius 4) **existiert bereits im Babylon-Repo**.
 2. **Die eigentliche Arbeit liegt ausschließlich im Client.** Der Babylon-Client ist ein frischer Neuaufbau (~2 340 Zeilen in 15 Dateien) gegenüber dem reifen Three.js-Client (~4 300 Zeilen). Er rendert Welt + Gras + Entities bereits, aber ihm fehlen fast alle Produktiv-Features der Phasen D–G.
 3. **Kritischster Blocker: der ServerConfig-Handshake fehlt.** Der Babylon-Client baut seinen GeoManager aus einem **hartkodierten Seed** (`world/World.ts`) statt aus dem ServerConfig-Paket (Typ 52). Läuft der Server mit anderem Seed/Flags, rendern Client und Server **verschiedene Welten**. Das ist die einzige Stelle, an der Client und Server faktisch auseinanderlaufen können.
 4. **Vier Feature-Blöcke fehlen komplett** (AssetLog, Weltkarte, Fern-Terrain-Ring, Fly-Modus), ~15 weitere sind nur teilweise portiert (Schatten, Tag/Nacht-Fog, Interpolation, Placeholder/Retry/Throttle, Wasser, Kamera, HUD/Login).
@@ -77,7 +77,7 @@
 | Bereich | Status | Detail |
 |---|---|---|
 | `shared/src/*` | ✅ identisch | worldgen (GeoManager, Heightmap, Perlin, FastNoise, Random, Mathf), vegetation/features/spawnData/prefabs/protocol/types/constants/hash/locationConfig + alle JSON-Daten |
-| `server/src/*` | ✅ identisch | ValhallaServer, NetManager, Peer, ZDO/ZDOManager, ZoneManager, SpawnSystem, WorldManager, AdminCommands, io, util |
+| `server/src/*` | ✅ identisch | Server-Orchestrator, NetManager, Peer, ZDO/ZDOManager, ZoneManager, SpawnSystem, WorldManager, AdminCommands, io, util |
 | `server/test` (9) + `shared/test` (7) | ✅ identisch | d6, e2, f2, f3, g1–g4, b5, geo-*, heightmap-compare, math-golden |
 
 **→ Keine Aufgaben auf Server-/Shared-Ebene.** Der Server kann unverändert mit dem Babylon-Client betrieben werden (gleiches Wire-Protokoll, gleiche Paket-Typen).
@@ -88,7 +88,7 @@
 
 ### 2.1 Datei-Mapping & Umfang
 
-| Three.js (`valheim-browser/client/src`) | Zeilen | Babylon (`valheim-babylon/client/src`) | Zeilen | Status |
+| Three.js (Prototyp, `client/src`) | Zeilen | Babylon (dieses Repo, `client/src`) | Zeilen | Status |
 |---|---|---|---|---|
 | `main.ts` | 368 | `main.ts` | 163 | ⚠️ stark reduziert |
 | `engine/Renderer.ts` | 541 | *(aufgeteilt)* `engine/Lighting.ts` 96 · `entities/EntityManager.ts` 277 · `player/PlayerController.ts` 99 | 472 | ⚠️ Features fehlen |
@@ -139,7 +139,7 @@
 - **Skalierung:** Babylon-Client nutzt GLB-Naturgröße × scaleScalar (die three.js-Höhen-Normalisierungs-Falle wurde nie eingebaut). ✅
 - **Doppel-Transform-Fix:** Master-Meshes detachen + Identity nach Capture (26.07). ✅
 - **Alpha-Cutout-Kette:** `transparencyMode = MATERIAL_ALPHATEST` + `alphaCutOff = 0.5` + `useAlphaFromAlbedoTexture` + `hasAlpha` (26.07). ✅
-- **GrassClutter:** nahezu 1:1 inkl. Wind, Player-Push, Dither-Fade, dropZones. ✅ — aber (26.07) `grass_meadows`/`grass_meadows_short`/`grass_heath` sind kaputte AssetRipper-Exporte (Blatt-Kunst in einem schmalen Streifen statt über die 3 UV-Spalten des `grasscross`-Meshs verteilt, siehe `tools/gen-grass-texture.py`-Kommentar). Die generierten Ersatztexturen lagen bereits unter `valheim_browser_assets/textures/*_gen.png`, waren aber nirgendwo verdrahtet — jetzt in `GrassClutter.ts` als `texture: 'grass_meadows_gen'`/`'grass_heath_gen'` referenziert + Dateien nach `valheim-babylon/assets/textures/` kopiert. `grass_heath_redflower.png` war zusätzlich 0 Byte (kaputte Kopie) — von `valheim_browser_assets/textures/clutter/` nachkopiert. `grass_toon1_yellow.png` (swampGrass) hat dieselbe Alpha-Signatur wie das kaputte `grass_meadows_short.png` (statistisch identisch, per Spalten-Sampling verglichen), nur subtiler: Alpha über volle Höhe verteilt, aber nur 1px-Linien statt Blattfläche — bei Renderdistanz praktisch unsichtbar. Ergänzt in `gen-grass-texture.py` (dritte Palette, Sumpf-Gelbgrün) → `grass_toon1_yellow_gen.png`. **Gleicher Fix fehlt noch in valheim-browser** (three.js-Referenz hat dasselbe Problem, `_gen`-Dateien liegen dort ungenutzt daneben).
+- **GrassClutter:** nahezu 1:1 inkl. Wind, Player-Push, Dither-Fade, dropZones. ✅ — aber (26.07) `grass_meadows`/`grass_meadows_short`/`grass_heath` sind kaputte AssetRipper-Exporte (Blatt-Kunst in einem schmalen Streifen statt über die 3 UV-Spalten des `grasscross`-Meshs verteilt, siehe `tools/gen-grass-texture.py`-Kommentar). Die generierten Ersatztexturen lagen bereits im Texturordner des Prototyps (`*_gen.png`), waren aber nirgendwo verdrahtet — jetzt in `GrassClutter.ts` als `texture: 'grass_meadows_gen'`/`'grass_heath_gen'` referenziert + Dateien nach `assets/textures/` kopiert. `grass_heath_redflower.png` war zusätzlich 0 Byte (kaputte Kopie) — aus dem Clutter-Texturordner des Prototyps nachkopiert. `grass_toon1_yellow.png` (swampGrass) hat dieselbe Alpha-Signatur wie das kaputte `grass_meadows_short.png` (statistisch identisch, per Spalten-Sampling verglichen), nur subtiler: Alpha über volle Höhe verteilt, aber nur 1px-Linien statt Blattfläche — bei Renderdistanz praktisch unsichtbar. Ergänzt in `gen-grass-texture.py` (dritte Palette, Sumpf-Gelbgrün) → `grass_toon1_yellow_gen.png`. **Gleicher Fix fehlt noch im Prototyp** (three.js-Referenz hat dasselbe Problem, `_gen`-Dateien liegen dort ungenutzt daneben).
 - **ClutterWindPlugin war komplett wirkungslos (26.07, gravierendster Fund):** `MaterialPluginBase`-Konstruktor hat `enable = false` als Default (6. Parameter) — der Aufruf `super(material, 'ClutterWind', 210, { CLUTTERWIND: true })` hat den Plugin nie in `_activePlugins` aufgenommen. Ohne das läuft `getUniforms()` zwar (Uniform-Deklarationen `clutterTime` etc. stehen im Shader), aber `getCustomCode()` (Wind-Sway, Distanz-Fade/Shrink, Player-Push) und `bindForSubMesh()` (die Uniform-Werte) laufen **nie** — die komplette Gras-Optik war seit Einführung des Plugins tot, nur die (nutzlosen, nie gesetzten) Uniform-Deklarationen waren sichtbar. Per Live-Shader-Dump (`effect.fragmentSourceCode`/`vertexSourceCode`) verifiziert, nicht nur vermutet. Zusätzlich zwei Folgefehler, die erst nach dem Enable-Fix auffielen (Shader-Compile-Fehler):
   - `scene.vEyePosition` existiert nicht — die UBO hat keinen Instanznamen, der Uniform heißt schlicht `vEyePosition` (wie im Babylon-Kern-Shader).
   - `varying float vClutterFade;` (+ die `clutterHash`-Funktion) standen am Injection-Point `CUSTOM_VERTEX_MAIN_BEGIN`/`CUSTOM_FRAGMENT_MAIN_BEGIN` — **innerhalb** von `main()`. Babylon übersetzt `varying`→`out`/`in` für WebGL2/GLSL300es; ein Storage-Qualifier auf einer lokalen Variable ist ein GLSL-Fehler. Verschoben nach `CUSTOM_VERTEX_DEFINITIONS`/`CUSTOM_FRAGMENT_DEFINITIONS` (vor `main()`).

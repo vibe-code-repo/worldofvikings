@@ -1,8 +1,8 @@
 /**
  * C6 comparison harness: TS GeoManager port vs. C++ server reference export.
  *
- * Reads the three CSVs produced by valhalla_geo_export (C++ server,
- * library/test/geo) and verifies the TypeScript port bit-for-bit:
+ * Reads the three CSVs produced by the geo export of the C++ reference
+ * server (library/test/geo) and verifies the TypeScript port bit-for-bit:
  *
  *   geo_structure.csv    seed/offsets/seeds + every lake/river/stream (f32)
  *   geo_riverpoints.csv  the full river point grid, per-grid insertion order
@@ -18,7 +18,7 @@
  * including the lava mask.
  *
  * Run:  npx tsx shared/test/geo-compare.ts [exportDir] [seedName]
- *       defaults: ../../valheim.community/build/geo-export-run, KxSYuZquuw
+ *       defaults: ../../referenz-server/build/geo-export-run, KxSYuZquuw
  */
 
 import { readFileSync } from 'node:fs';
@@ -26,7 +26,7 @@ import { join } from 'node:path';
 import { getStableHash } from '../src/hash.js';
 import { GeoManager } from '../src/worldgen/GeoManager.js';
 
-const exportDir = process.argv[2] ?? '../../valheim.community/build/geo-export-run';
+const exportDir = process.argv[2] ?? '../../referenz-server/build/geo-export-run';
 const seedName = process.argv[3] ?? 'KxSYuZquuw';
 
 // ── float32 bit helpers ───────────────────────────────────────────

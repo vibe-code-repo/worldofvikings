@@ -29,7 +29,7 @@ aber er verschiebt den Stand mehrerer Phasen — deshalb steht er vorne und nich
       `shared/src/instanz.ts`, unbekannter Wert bricht den Start hart ab.
       `server/data/worldlayout.json` gibt es nicht mehr; `server.yml` ist umgebungsfrei
       (`world.world` und `world.layout` entfernt).
-- [x] **Nur noch eigene Modelle.** Valheim-Export von live gelöscht (11.869 Dateien, 5,1 GB);
+- [x] **Nur noch eigene Modelle.** Fremdexport von live gelöscht (11.869 Dateien, 5,1 GB);
       übrig 212 Dateien / 158 MB Eigenbau. `EIGENE_MODELLE` in `shared/src/prefabs.ts` ist
       die Whitelist, `istEigenesModell()` der Test. Gefiltert werden FEATURES (146 → 0),
       SPAWN_TABLE (3 → 0), die Bauteile des Hammers (9 → 2), die `model`-Felder der
@@ -58,7 +58,7 @@ aber er verschiebt den Stand mehrerer Phasen — deshalb steht er vorne und nich
 > **Was Block A dem Spiel genommen hat, und warum das so bleiben soll:** Bauen und Kämpfen
 > sind aus, bis eigene Modelle vorliegen. Das ist keine Regression, sondern der Preis der
 > Entscheidung — und er wird bewusst *im Datenbestand* bezahlt statt im Renderer. Die
-> verworfene Alternative war, die Valheim-Prefabs nur clientseitig auszublenden: Dann
+> verworfene Alternative war, die Fremdprefabs nur clientseitig auszublenden: Dann
 > stünden weiterhin Geister-ZDOs im Spielstand, die zu der Buchung, die später mit eigenen
 > Modellen entsteht, nicht mehr passen. Welche Phasenpunkte davon betroffen sind, steht
 > jeweils dort vermerkt.
@@ -69,10 +69,10 @@ aber er verschiebt den Stand mehrerer Phasen — deshalb steht er vorne und nich
 
 - [x] Projektordner + Docs + Git-Repo angelegt
 - [x] npm-Workspace aufsetzen (`client`, `server`, `shared`), tsconfig, Vite
-- [x] Import aus `valheim-browser`: `shared/`, `server/`, `tools/` (ohne node_modules/dist) — Paket-Scope `@valheim-babylon/*`, eigenständiges Projekt
+- [x] Import aus dem Prototyp: `shared/`, `server/`, `tools/` (ohne node_modules/dist) — eigener Paket-Scope, eigenständiges Projekt
 - [x] Assets **kopiert** nach `assets/` (4,9 GB, gitignored) — keine externe Referenz; Vite serviert `/assets` aus dem Projekt
-      *(Überholt am 16.08.2026: Der Valheim-Export ist gelöscht, `assets/` trägt 212 eigene Dateien / 158 MB — siehe Block A.)*
-- [x] **Eigene Ports:** Game-Server WS **2466**, Vite Dev **5273**, Proxy `/ws` → 2466 (valheim-browser bleibt auf 2456/5173 — Parallelbetrieb möglich)
+      *(Überholt am 16.08.2026: Der Fremdexport ist gelöscht, `assets/` trägt 212 eigene Dateien / 158 MB — siehe Block A.)*
+- [x] **Eigene Ports:** Game-Server WS **2466**, Vite Dev **5273**, Proxy `/ws` → 2466 (der Prototyp bleibt auf 2456/5173 — Parallelbetrieb möglich)
       *(Heute: 2467 / 5274, dazu 2468 für den Betriebsdienst.)*
 - [x] **Abnahme:** `shared/test/math-golden` + `geo-smoke` + `server/test/d6-smoke` grün; Server generiert Welt mit Seed `KxSYuZquuw` identisch (getGroundHeight(0,0) = 36,052001953125); Vite-Build läuft
 
@@ -87,7 +87,7 @@ aber er verschiebt den Stand mehrerer Phasen — deshalb steht er vorne und nich
 
 ## Phase 2 — Vegetation & Assets *(Welt wird lebendig)* 🟡 **Nacharbeit läuft**
 
-- [x] Server: Spawn-Pakete um **Scale/Rotation** erweitern (P0) — *war bereits serverseitig vorhanden (Phase E aus valheim-browser mit-importiert: `ZoneManager` sendet `scaleScalar`-ZDO + Boden-Neigungs-Rotation)*
+- [x] Server: Spawn-Pakete um **Scale/Rotation** erweitern (P0) — *war bereits serverseitig vorhanden (Phase E aus dem Prototyp mit-importiert: `ZoneManager` sendet `scaleScalar`-ZDO + Boden-Neigungs-Rotation)*
 - [x] `EntityManager.ts` statt `Vegetation.ts`: Thin Instances pro **Prefab-Hash** (nicht Zone × Prefab — ein Buffer pro Prefab, Swap-Remove bei ZDO-Destroy), Matrix = `masterLocal × zdoWorld`; dynamische Entities (Kreaturen/Items/Schiffe) als Instanzen mit Placeholder-Fallback
 - [x] Foliage-Material-Profil: Alpha-Test + DoubleSided + Wind — als `MaterialPluginBase` (`WindPlugin.ts`, Vertex-Sway ∝ Höhe) statt NodeMaterial; Alpha-Erkennung per Readback (`forceAlphaTest`, `backFaceCulling=false`)
 - [ ] Gras-Thin-Instances (Nahbereich) — Nachfolger von GrassClutter → **Phase 3**
@@ -118,7 +118,7 @@ aber er verschiebt den Stand mehrerer Phasen — deshalb steht er vorne und nich
 ## Phase 3 — Beleuchtung & Atmosphäre *(der Babylon-Gewinn)* 🟡 **läuft**
 
 - [x] **EnvSetup/EnvMan-Modell portiert** (`shared/src/environment.ts`): 4-Keyframe-Interpolation (Morning/Day/Evening/Night) für Nebelfarbe, Sonnen-Nebelfarbe, Nebeldichte und Sonnenfarbe, 2-Keyframe-Ambient, `lightIntensityDay/Night`, `sunAngle`, `alwaysDark` — Details und Quellenlage in [03 §2.1](03-Rendering-und-Engine.md)
-- [x] **Tag/Nacht-Zyklus wie Valheim**: Phasenanker aus den bereits verifizierten C++-Konstanten (`TIME_MORNING/DAY/AFTERNOON/NIGHT` = Fraktion 0.1333 / 0.15 / 0.5 / 0.85) statt vier gleicher Viertel ⇒ 21 min Tag / 9 min Nacht, Dämmerung zur richtigen Uhrzeit; Sonne *und* Mond aus einem Hauptlicht; Sky-Dome an der echten (nachts untergegangenen) Sonnenposition
+- [x] **Tag/Nacht-Zyklus wie im Vorbild**: Phasenanker aus den bereits verifizierten C++-Konstanten (`TIME_MORNING/DAY/AFTERNOON/NIGHT` = Fraktion 0.1333 / 0.15 / 0.5 / 0.85) statt vier gleicher Viertel ⇒ 21 min Tag / 9 min Nacht, Dämmerung zur richtigen Uhrzeit; Sonne *und* Mond aus einem Hauptlicht; Sky-Dome an der echten (nachts untergegangenen) Sonnenposition
 - [x] **Wetter folgt dem Biom** (`EnvMan.m_biomeEnvironments`) mit ~4 s Cross-Fade; `?env=<name>` pinnt eines (Konsolen-`env`-Äquivalent)
 - [x] **Gerichteter Nebel** (`fogColor` ↔ `fogColorSun` nach Blickwinkel zur Sonne) — pro Frame auf der CPU, damit alle drei Material-Pfade dieselbe Nebelfarbe sehen
 - [x] **Extraktions-Tool** `tools/dump-envsetup.mjs` → `shared/src/envData.json` überschreibt die handabgestimmten Farbwerte feldweise mit Ground truth aus dem lokalen AssetRipper-Export (leer ausgeliefert, gleiches Muster wie `prefabData.json`)
@@ -172,13 +172,13 @@ aber er verschiebt den Stand mehrerer Phasen — deshalb steht er vorne und nich
 > **Block A wirkt hier am stärksten.** Gebaut ist alles, was unten abgehakt steht; wirksam
 > ist es nur, soweit ein eigenes Modell dahintersteht. Vom Hammer bleiben zwei von neun
 > Bauteilen (KI-Kiefer und Menhir) — Boden, Wand, Tür, Dach, Werkbank, Bett und Portal sind
-> Valheim-Prefabs und fallen weg. Die `model`-Felder aller Gegenstände sind auf `null`, das
+> Fremdprefabs und fallen weg. Die `model`-Felder aller Gegenstände sind auf `null`, das
 > Symbol im Inventar bleibt: Der Wikinger hält nichts sichtbar in der Hand, behält aber
 > Rezepte und Truheninhalte. Kreaturen spawnen keine mehr, also gibt es auch nichts zu
 > bekämpfen. **Der Core-Loop ist damit vorübergehend nicht spielbar** — bewusst, und die
 > Abnahme unten wartet darauf.
 
-- [x] Havok: Terrain-Physik, `PhysicsCharacterController` (Kapsel, Sprung, Valheim-Gravitation −20), Kollisions-Fenster 48 m
+- [x] Havok: Terrain-Physik, `PhysicsCharacterController` (Kapsel, Sprung, Gravitation −20 wie im Vorbild), Kollisions-Fenster 48 m
 - [x] Bau-Vorschau: `PlacementController` + `PieceSelection` (Hammer/Hoe/Cultivator, Ghost, Raster)
 - [x] Inventar/Hotbar/Equipment (`shared/items`), WorldMap (M) mit Dungeon-Markern, Minimap mit Windzeiger (✅ 2026-08-02)
 - [x] Interaktionen (Interact-Paket statt RPC-Routing): Aufsammeln → Inventar, Türen/Gitter, Truhen-Beute ✅ 2026-08-02 (Container-UI offen — bräuchte Server-Inventare)
@@ -194,18 +194,18 @@ aber er verschiebt den Stand mehrerer Phasen — deshalb steht er vorne und nich
 - [ ] **Abnahme:** Loop "Holz sammeln → Werkbank → Basis bauen → Nacht überstehen" mit 2 Spielern
       — *nicht durchführbar, bis eigene Bauteil- und Kreaturenmodelle vorliegen (Block A)*
 
-## Phase 6 — Content & Polish *(Valheim-Gefühl)* 🟡 **Dungeon-Block fertig, seit 16.08.2026 stillgelegt**
+## Phase 6 — Content & Polish *(Spielgefühl)* 🟡 **Dungeon-Block fertig, seit 16.08.2026 stillgelegt**
 
-> Fast alles in dieser Phase hängt an Valheim-Exporten und ist seit Block A abgeschaltet —
+> Fast alles in dieser Phase hängt an Fremdexporten und ist seit Block A abgeschaltet —
 > `world.features: false` und `dungeons.enabled: false` in `server/data/server.yml`. Der Code
 > bleibt, die Buchung nicht: Locations und Dungeons würden ZDOs anlegen, die der Client nicht
-> darstellen kann. Beides gilt für dev **und** live; der Verzicht auf Valheim-Modelle ist eine
+> darstellen kann. Beides gilt für dev **und** live; der Verzicht auf Fremdmodelle ist eine
 > Projektentscheidung, kein Umgebungsunterschied.
 
 - [x] Locations aus features.pkg (146, Phase F) inkl. Terrain-Leveling-Regeln (Piece-Grundfläche, Vegetations-Invariante ✅ 2026-08-02)
-      — *stillgelegt 16.08.2026: alle 146 Einträge sind Valheim-Exporte, `FEATURES` ist damit leer*
+      — *stillgelegt 16.08.2026: alle 146 Einträge sind Fremdexporte, `FEATURES` ist damit leer*
 - [x] **Dungeon-System** (✅ 2026-08-02, über Plan hinaus): dungeons.pkg-Parser (392 Räume), Generator-Port, **eigene Instanzen** im Koordinaten-Band x=100000, Dokumente mit eigener ID, Eingangs-Registry + Hüllen, E-Betreten/Verlassen, F4-Editor, Kartenmarker — [08-Dungeon-System.md](08-Dungeon-System.md)
-      — *stillgelegt 16.08.2026: folgt zwingend aus `world.features` (ohne gebuchte Krypta kein Eingang), und die Raumteile selbst sind ebenfalls durchweg Valheim-Exporte — eine betretbare Instanz wäre ein leerer Raum aus unsichtbaren Wänden*
+      — *stillgelegt 16.08.2026: folgt zwingend aus `world.features` (ohne gebuchte Krypta kein Eingang), und die Raumteile selbst sind ebenfalls durchweg Fremdexporte — eine betretbare Instanz wäre ein leerer Raum aus unsichtbaren Wänden*
 - [x] Kreaturen-Spawning + Wandern (G2), Wetter/Niederschlag, Kaskaden-Schatten (3 Kaskaden)
       — *Spawning stillgelegt 16.08.2026: `SPAWN_TABLE` ist auf 0 Einträge gefiltert. Wetter und Schatten laufen weiter*
 - [x] **Camps in der Oberwelt** (CampRadial-Port + Boot-Backfill): Dörfer, Farmen, GoblinCamps, Ruinen-Cluster ✅ 2026-08-02
@@ -216,7 +216,7 @@ aber er verschiebt den Stand mehrerer Phasen — deshalb steht er vorne und nich
       — *ohne Kreaturen derzeit ohne Wirkung*
 - [x] Kreaturen-KI: Chase + Angriff (Aggro 20 m) ✅ 2026-08-02 — Boss-Encounter offen
       — *dito: der Code läuft, es gibt niemanden, der angreift*
-- [x] Audio-Grundgerüst (WebAudio) ✅ 2026-08-02 — auf eigene Hintergrundmusik zurückgebaut (2026-08-06): Valheim-Aufnahmen entfernt, Wind/Schritte/One-Shots brauchen neue, lizenzfreie Quellen
+- [x] Audio-Grundgerüst (WebAudio) ✅ 2026-08-02 — auf eigene Hintergrundmusik zurückgebaut (2026-08-06): Fremdaufnahmen entfernt, Wind/Schritte/One-Shots brauchen neue, lizenzfreie Quellen
 - [ ] Optional: RouteManager, Housing/Discord/REST, Lua-Modding, KTX2/Draco
 
 **Bewusst nicht begonnen (eigene Projekte, nicht "Restpunkte"):**
@@ -242,6 +242,6 @@ aber er verschiebt den Stand mehrerer Phasen — deshalb steht er vorne und nich
 ## Arbeitsregeln
 
 - **Protokoll-Stabilität:** Änderungen an `shared/protocol.ts` nur mit Version-Bump + Abgleich beider Clients.
-- **Verifikation gegen C++:** Bei jeder Portierung aus `valheim.community` Zahlenwerte 1:1 übernehmen und mit Test/Diff belegen (Vorbild: Weltkarten-Diff in valheim-browser/Docs).
+- **Verifikation gegen C++:** Bei jeder Portierung aus dem Referenzserver Zahlenwerte 1:1 übernehmen und mit Test/Diff belegen (Vorbild: der Weltkarten-Diff des Prototyps).
 - **Keine Client-Tricks für Datenfehler:** Skalen, Formen, Spawns werden in Daten/Server korrigiert, nicht im Renderer zurechtgenormt (Lehre aus der Höhen-Normalisierung).
 - **Performance-Budgets aus [03](03-Rendering-und-Engine.md)** sind Abnahmekriterien, keine Empfehlungen.

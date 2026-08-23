@@ -3,7 +3,7 @@
  * ("noisy grids", "REAL BUG?") ohne je zu behaupten oder process.exit(1)
  * aufzurufen, gehoert also unabhaengig von den fehlenden Daten nicht in
  * scripts/run-tests.mjs. Braucht ausserdem dieselben externen C++-Dumps
- * wie geo-compare.ts (geo_riverpoints.csv aus valhalla_geo_export) — hier
+ * wie geo-compare.ts (geo_riverpoints.csv aus dem Geo-Export) — hier
  * nicht vorhanden.
  *
  * One-off: correlate the riverWeight/riverWidth sample mismatches with
@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { getStableHash } from '../src/hash.js';
 import { GeoManager } from '../src/worldgen/GeoManager.js';
 
-const exportDir = process.argv[2] ?? '../../valheim.community/build/geo-export-run';
+const exportDir = process.argv[2] ?? '../../referenz-server/build/geo-export-run';
 const f32buf = new Float32Array(1);
 const u32buf = new Uint32Array(f32buf.buffer);
 const bits = (x: number) => {

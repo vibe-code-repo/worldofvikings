@@ -48,7 +48,7 @@
  * ── Werfen und Empfangen sind getrennt ───────────────────────────────
  * Clutter ist von den WERFERN ausgenommen: Zehntausende Alpha-getestete
  * Halme durch vier Kaskaden zu schicken ist der teuerste denkbare Posten
- * und im Ergebnis kaum sichtbar. Valheims `InstanceRenderer` hat dafür
+ * und im Ergebnis kaum sichtbar. Der `InstanceRenderer` des Vorbilds hat dafür
  * ein eigenes Flag (`m_shadowCasting`); wir setzen es für Gras auf aus.
  *
  * EMPFANGEN darf das Gras dagegen sehr wohl — das kostet nur eine
@@ -194,7 +194,7 @@ const NIE_WERFEN =
 /**
  * Meshes, die keinen Schatten EMPFANGEN — dieselbe Liste OHNE `clutter`.
  *
- * Gras im Waldschatten ist ein Kernstück von Valheims Optik: Ein
+ * Gras im Waldschatten ist ein Kernstück der angestrebten Optik: Ein
  * Grasteppich, der unter einer Baumkrone genauso hell bleibt wie in der
  * prallen Sonne, ist einer der Hauptgründe, warum unser Bild flach wirkt
  * (Docs/07, Ursache B). Der Preis ist eine zusätzliche Schattenabtastung

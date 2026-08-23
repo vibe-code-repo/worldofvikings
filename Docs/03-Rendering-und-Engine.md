@@ -1,6 +1,6 @@
 # 03 — Rendering & Engine (Babylon.js)
 
-Konzept für den neuen Client. Zielbild: offene Valheim-Welt mit verifiziertem Terrain, dichter Vegetation, vielen dynamischen Lichtern und stimmungsvoller Atmosphäre — bei stabilen 60 FPS auf Mittelklasse-Hardware.
+Konzept für den neuen Client. Zielbild: offene Welt mit verifiziertem Terrain, dichter Vegetation, vielen dynamischen Lichtern und stimmungsvoller Atmosphäre — bei stabilen 60 FPS auf Mittelklasse-Hardware.
 
 ---
 
@@ -23,11 +23,11 @@ const engine = await (async () => {
 
 ## 2. Beleuchtung (das Herzstück)
 
-### 2.1 Sonne + Himmel — Valheims EnvSetup/EnvMan-Modell
+### 2.1 Sonne + Himmel — das Keyframe-Umgebungsmodell
 
-**Grundsatz:** Valheim leitet die Beleuchtung *nicht* aus einer generischen
-Sonnenstands-Formel ab. Jedes Wetter ist ein `EnvSetup`-ScriptableObject mit
-**Keyframes für vier Tageszeiten**, zwischen denen `EnvMan` anhand der
+**Grundsatz:** Das Vorbild leitet die Beleuchtung *nicht* aus einer generischen
+Sonnenstands-Formel ab. Jedes Wetter ist ein Datensatz mit
+**Keyframes für vier Tageszeiten**, zwischen denen anhand der
 Tagesfraktion interpoliert. Den Look nachzubilden heißt daher, *dieses
 Datenmodell* nachzubilden — implementiert in `shared/src/environment.ts`.
 
@@ -49,14 +49,14 @@ Zwei Konsequenzen für den Renderer:
 
 1. **Nebel hat ZWEI Farben pro Keyframe.** `fogColorSun*` gilt in
    Blickrichtung *zur* Sonne, `fogColor*` *weg* von ihr. Dieser gerichtete,
-   sonnengetönte Dunst ist der wiedererkennbarste Teil von Valheims Optik —
-   eine einzelne flache Nebelfarbe wirkt nie „nach Valheim", egal wie gut
+   sonnengetönte Dunst ist der wiedererkennbarste Teil der angestrebten Optik —
+   eine einzelne flache Nebelfarbe trifft sie nie, egal wie gut
    abgestimmt.
 2. **Ambient hat nur 2 Keys**, Nebel/Sonne aber 4 → beide laufen auf
    **unterschiedlichen Kurven**.
 
 **Verifiziertes Timing** — die Phasenanker lagen bereits im Repo, 1:1 aus dem
-C++-Server portiert (`shared/src/constants.ts`, `ValhallaServer.h`):
+C++-Referenzserver portiert (`shared/src/constants.ts`):
 
 ```
 WORLD_TIME_LENGTH = 1800 s  → Fraktion 1.0     voller Zyklus (30 min)
@@ -72,10 +72,10 @@ bestätigt unabhängig die Nachtfraktion 0.3, die Tageslängen-Mods offenlegen.
 **Wichtig:** Die vier Segmente sind dadurch *unterschiedlich lang* — vier
 gleiche Viertel anzunehmen ist der naheliegende Fehler und legt Dämmerung auf
 die falsche Uhrzeit. Ebenso bewegt sich die Sonne nachts ~2,5× schneller;
-der Knick in der Winkelgeschwindigkeit am Horizont ist Valheim-eigen, kein
+der Knick in der Winkelgeschwindigkeit am Horizont stammt aus dem Vorbild, ist kein
 Bug (Werte bleiben stetig, per Halbierungstest nachgewiesen).
 
-**Umsetzung.** `DirectionalLight` (Sonne *und* Mond — Valheim hat ein
+**Umsetzung.** `DirectionalLight` (Sonne *und* Mond — das Vorbild hat ein
 Hauptlicht, das nachts zu Mondlicht wird; `lightDir.y` nutzt `|height|`,
 damit es nie von unten durchs Terrain scheint), `HemisphericLight` für
 Ambient, `SkyMaterial` mit der *echten* Sonnenposition (nachts unter dem
@@ -131,13 +131,13 @@ dieser Werte von Hand erfolgen muss statt aus dem Export.
 **Babylons `SkyMaterial` war hier falsch, nicht nur suboptimal.**
 `@babylonjs/materials/sky` implementiert das **Preetham-Tageslichtmodell**:
 Es leitet die Himmelsfarbe *physikalisch* aus Turbidity und Sonnenstand ab und
-kennt die EnvSetup-Farben überhaupt nicht. Der Horizont, den es malt, **kann**
+kennt die Farben des Umgebungsmodells überhaupt nicht. Der Horizont, den es malt, **kann**
 `scene.fogColor` nicht treffen — Himmel und Nebel widersprechen sich genau
-dort, wo sie sich berühren. In Valheim stimmen sie per Konstruktion: **der
+dort, wo sie sich berühren. Im Vorbild stimmen sie per Konstruktion: **der
 Horizont *ist* die Nebelfarbe.** Genau deshalb wirkt die Welt wie eine
 Atmosphäre statt wie eine Kulisse hinter einer nebligen Szene.
 
-Valheims Himmel ist ohnehin nicht physikalisch, sondern ein stilisierter
+Dessen Himmel ist ohnehin nicht physikalisch, sondern ein stilisierter
 Vertikalgradient mit Sonnen-/Mondscheibe, Sternen und driftenden Wolken.
 Die Kuppel wird daher aus demselben `EnvState` gespeist:
 
@@ -236,7 +236,7 @@ Alle vier Effekte sind — wie im Original (`GraphicsSettingBool`) — einzeln �
 ## 3. Terrain
 
 - **Datenquelle:** `shared/worldgen` (Heightmap, GeoManager — gegen C++ verifiziert). **Kein Placeholder-Terrain** wie im Three.js-Client.
-- **Chunk-Mesh:** pro Zone (64×64 m, Valheim-Sektor) ein Mesh via `VertexData`: Positionen + Normalen aus Heightmap, UVs für Splat-Mapping.
+- **Chunk-Mesh:** pro Zone (64×64 m, ein Sektor) ein Mesh via `VertexData`: Positionen + Normalen aus Heightmap, UVs für Splat-Mapping.
 - **Texturierung:** Custom-`NodeMaterial` mit Biom-Splatting (Wiese/Wald/Sumpf/Berg/Planes-Texturen + Neigung → Fels, Höhe → Schnee). Splat-Gewichte serverseitig/shared berechenbar (Biom-Blend existiert bereits im shared Code).
 - **LOD/Streaming:** Ring-Puffer um den Spieler (z. B. Radius 5 Zonen voll, 6–10 vereinfacht). Höhen per Heightmap-Downsample für Fern-Chunks.
 - **UV-Rotation aus der Variety-Noise (`TerrainSplat.ts`):** Die Tile-UVs werden pro Pixel um `noise.r · 2π` gedreht (three.js-Referenz: `vec2 uv = mat2(ca,sa,-sa,ca) * wuv`). Ohne diese Drehung wiederholt sich jede Tile-Textur stur im 2-m-Raster — genau der gleichförmig gekachelte Boden, den der Nutzer als „Boden braucht noch Texturen" gemeldet hat. War hier mit dem Vermerk „erzeugt harte Nähte" abgeschaltet; die Referenz fährt dieselbe Rotation auf denselben absoluten Welt-UVs ohne das Problem (der Winkel ändert sich durch die bilineare Filterung stetig, `fract()` + 0.02-Inset in `sampleLayer()` fangen den Rest ab — beides bei uns identisch vorhanden).
@@ -249,9 +249,9 @@ Alle vier Effekte sind — wie im Original (`GraphicsSettingBool`) — einzeln �
 - **Tile-Normal-Maps (G-TEX2) ✅:** Blend über dieselben Eckgewichte wie die Diffuse-Tiles, dann tangentenfreie Störung nach Schüler (Basis pro Pixel aus `dFdx/dFdy` von Weltposition und UV) — unsere Terrain-Geometrie führt keine Tangenten mit. Umgesetzt als `CustomBlock` im NodeMaterial (echtes GLSL statt Blockgraph). **Ohne diese Ebene ist das Terrain nur eine flach beleuchtete Farbfläche** — genau der vom Nutzer gemeldete „wir sehen immer noch das Standard-Terrain als Untergrund"-Eindruck. Wichtig: beleuchtet wird mit der gestörten Normalen, die Fels-/Schnee-Schwellen benutzen weiter die **geometrische** (sonst flackern Fels- und Schneegrenzen mit dem Texturdetail).
   - ⚠️ **Korrektur 16.08.2026 — es sind sieben Karten, nicht drei.** Hier stand: „`terraintile_n_0/1/2.png`; der Rip enthält kein 16-Ebenen-Normal-Array, nur drei Rauheitsgruppen; die Zuordnung Tile→Gruppe ist 1:1 aus der Referenz gespiegelt." Das beschrieb die Grenze des Exports, nicht die des Materials: `Heightmap_basematerial` führt neben dem Array **fünf eigene** Normal-Maps mit sprechenden Slots (`_CliffNormal`, `_ForestNormal`, `_SnowNormal`, `_PavedNormal`, `_CultivatedNormal`), und die drei „Rauheitsgruppen" waren nichts als die entpackten Layer 0–2 desselben Arrays — Fels bekam damit dieselbe Körnung wie Sumpfschlamm. `normalTexs` in `TerrainSplat.ts` hat heute sieben Einträge (`terraintile_n_0`, `forest_n`, `terraintile_n_1`, `cultivated_n`, `gouacherock_big_n`, `paved_n`, `snow_normal`). `terraintile_n_2` gibt es nicht mehr.
 
-**Asset-Stand (2026-07-27, überholt):** Alle 16 Tiles in `terrain_d_array.png` sind gefüllt (per `tools/png-stats.mjs --slices 16` mit korrekter Rückrechnung der PNG-Zeilenfilter gemessen — eine frühere Prüfung ohne Filter-Rückrechnung war nur indikativ). Der damalige Abgleich gegen `/root/valheim_browser_assets` ergab: von den Texturen **und** Modellen, die die three.js-Referenz benutzt, fehlt keine einzige.
+**Asset-Stand (2026-07-27, überholt):** Alle 16 Tiles in `terrain_d_array.png` sind gefüllt (per `tools/png-stats.mjs --slices 16` mit korrekter Rückrechnung der PNG-Zeilenfilter gemessen — eine frühere Prüfung ohne Filter-Rückrechnung war nur indikativ). Der damalige Abgleich gegen den Asset-Ordner des Prototyps ergab: von den Texturen **und** Modellen, die die three.js-Referenz benutzt, fehlt keine einzige.
 
-⚠️ **Diese Prüfung ist seit dem 16.08.2026 hinfällig** — und zwar nicht, weil sie falsch war, sondern weil ihre Bezugsgröße weg ist. `/root/valheim_browser_assets` und der AssetRipper-Export existieren auf keinem Container mehr; `terrain_d_array.png` und alle Normal-Maps erzeugt `tools/terrain-texturen.py` selbst, mit den vom Shader vorgegebenen Maßen und der Tile-Reihenfolge aus dem `TILE`-Enum. Die Frage „fehlt uns etwas gegenüber der Referenz?" hat sich damit erledigt; an ihre Stelle tritt „stimmen unsere erzeugten Karten mit dem überein, was der Shader erwartet?" — siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md).
+⚠️ **Diese Prüfung ist seit dem 16.08.2026 hinfällig** — und zwar nicht, weil sie falsch war, sondern weil ihre Bezugsgröße weg ist. Der Asset-Ordner des Prototyps und der AssetRipper-Export existieren auf keinem Container mehr; `terrain_d_array.png` und alle Normal-Maps erzeugt `tools/terrain-texturen.py` selbst, mit den vom Shader vorgegebenen Maßen und der Tile-Reihenfolge aus dem `TILE`-Enum. Die Frage „fehlt uns etwas gegenüber der Referenz?" hat sich damit erledigt; an ihre Stelle tritt „stimmen unsere erzeugten Karten mit dem überein, was der Shader erwartet?" — siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md).
 
 ### 3.2 Warum der Boden trotzdem flach aussieht — gemessen, nicht geraten
 
@@ -297,7 +297,7 @@ Nach der Klarstellung „es geht um das Terrain, nicht das Gras" wurde erstmals 
 | Render (vorher) | (162, 185, 138) |
 | Vorhersage bei Doppel-Gamma | 0.333^(1/2.2) = 0.61 → **156** |
 | Render (nach Fix) | **(75, 112, 44)** |
-| valheim-browser | (55, 84, 40) |
+| Prototyp | (55, 84, 40) |
 
 Die Tile-Werte sind **sRGB**, wurden aber als lineare Werte beleuchtet — und das ImageProcessing hängt am Ende nochmal die Gamma-Kurve an. Der Boden kam dadurch doppelt so hell heraus wie die Quelldatei; bei ohnehin kontrastarmen Kacheln bleibt ein ausgewaschener Pastellteppich, in dem die Textur faktisch unsichtbar ist. Sättigung 26 % → **61 %** (VB: 53 %).
 
@@ -305,24 +305,24 @@ Die Tile-Werte sind **sRGB**, wurden aber als lineare Werte beleuchtet — und d
 
 **UV-Rotation endgültig deaktiviert.** Der A/B am nackten Terrain zeigt mit Rotation großflächig verschmierte Wirbel statt Grasstruktur, ohne Rotation eine saubere gefleckte Oberfläche. ⚠️ **Methodenlehre:** Die Nachbardifferenz-Metrik erfasst das *nicht* (1.00 mit vs. 1.20 ohne) — großflächige Verzerrung ist für sie unsichtbar. Frühere Runden hatten die Rotation allein anhand dieser Zahl freigesprochen; erst der Blick aufs Bild entschied. Der ursprüngliche Projektkommentar („erzeugt Artefakte") war korrekt, die Rotation der Referenz ist hier nicht übertragbar.
 
-### 3.3 Direkter Vergleich mit valheim-browser (2026-07-27, zweite Runde)
+### 3.3 Direkter Vergleich mit dem Prototyp (2026-07-27, zweite Runde)
 
-Auf erneute Meldung „Texturen immer noch nicht sichtbar" wurde valheim-browser lokal gestartet und **bei Mittagslicht** gerendert (dessen Default-Weltzeit 270 ist dort noch dunkel; für den Vergleichsshot temporär auf 900 gesetzt, danach zurück). Ergebnis der Regionsmessung:
+Auf erneute Meldung „Texturen immer noch nicht sichtbar" wurde der Prototyp lokal gestartet und **bei Mittagslicht** gerendert (dessen Default-Weltzeit 270 ist dort noch dunkel; für den Vergleichsshot temporär auf 900 gesetzt, danach zurück). Ergebnis der Regionsmessung:
 
 | | RGB (Boden) | Varianz (sd) | Nachbardiff | Sättigung |
 |---|---|---|---|---|
-| valheim-browser | (55, 84, 40) | 10.0 | 4.41 | 53 % |
+| Prototyp | (55, 84, 40) | 10.0 | 4.41 | 53 % |
 | wir (vorher) | (26, 61, **2**) | 3.9 | 1.64 | **98 %** |
 
 **Kernbefund: eine Farb-Pipeline-Differenz, keine Asset- oder Splat-Differenz.** Der Blaukanal war bei uns auf 2 zerquetscht — hyper-gesättigtes Neongrün, halbierte Tonwert-Varianz. Geclippte Kanäle löschen genau die Textur-Tonwerte aus, die als „man sieht die Texturen nicht" wahrgenommen werden. VB rendert linear + `ACESFilmicToneMapping`; wir renderten Gamma + KHR-Neutral (hue-erhaltend, entsättigt nicht).
 
-Der echte Terrain-Shader (`Heightmap.json`-Dump, `m_PropInfo` lesbar) lieferte nebenbei die vollständige Slot-Liste: u. a. `_ColorVarietyNoise` („Color Variation" — Farbfleckigkeit des Bodens, Textur nicht im Export), getrennte Normal-Maps je Untergrundtyp, `_Tess`/`_Displacement`. Kompilierter Fragment-Code ist im Dump **nicht** enthalten (nur GPU-Programm-Referenzen) — die Referenz bleibt daher valheim-browser.
+Der echte Terrain-Shader (`Heightmap.json`-Dump, `m_PropInfo` lesbar) lieferte nebenbei die vollständige Slot-Liste: u. a. `_ColorVarietyNoise` („Color Variation" — Farbfleckigkeit des Bodens, Textur nicht im Export), getrennte Normal-Maps je Untergrundtyp, `_Tess`/`_Displacement`. Kompilierter Fragment-Code ist im Dump **nicht** enthalten (nur GPU-Programm-Referenzen) — die Referenz bleibt daher der Prototyp.
 
 **Änderungen** (jeweils einzeln per A/B-Render geprüft):
 1. **Anisotrope Filterung** auf Maximum für alle Terrain-Texturen (`TerrainSplat.ts`; VB: `getMaxAnisotropy()`, wir vorher Babylon-Default 4). Headless nicht messbar (SwiftShader meldet 16×, ignoriert es aber praktisch); auf echter GPU der Standard-Fix gegen matschigen Boden im flachen Blickwinkel.
 2. **Kontrast 1.2 → 1.0** (`PostProcessing.ts`): Unity wendet die 1.2 in linearem HDR an, bei uns traf sie das fertige LDR/Gamma-Bild. Messung: praktisch wirkungslos auf die Sättigungskrise (Blau blieb 2) — der Crush kam nicht aus dem Post-Processing; trotzdem korrekt, den falsch übertragenen Wert zu neutralisieren.
 3. **ACES-Experiment VERWORFEN**: Tonemapping testweise auf ACES (wie VB) — machte es messbar schlechter (RGB(26,61,2) → (6,37,0)), weil Babylons ACES hier auf Gamma-LDR-Input trifft und doppelt abdunkelt. Zurück auf KHR-Neutral.
-4. **Die eigentliche Ursache — doppelte Grün-Multiplikation im Gras** (`GrassClutter.ts`): Der Meadows-Tint multipliziert die Terrainfarbe (`grass_terrain_color.png`, ø(89,119,66)) auf die Halme. Das Original-Design erwartet dafür eine WEISSE Halm-Textur — unsere generierten Atlanten sind aber bereits voll grün (ø(81,122,46)). Grün × Grün = Neonteppich mit zerquetschtem Blaukanal. **Der Beweis über die Referenz:** in valheim-browser ist `grass_terrain_color.png` ein 0-Byte-Stub — der Tint-Load schlägt dort fehl, Fallback Weiß, einfache Färbung, korrekter Look. Fix: Tönung neutralisiert (Referenz-Parität), wieder aktivierbar sobald ein echter weißer Halm-Atlas existiert.
+4. **Die eigentliche Ursache — doppelte Grün-Multiplikation im Gras** (`GrassClutter.ts`): Der Meadows-Tint multipliziert die Terrainfarbe (`grass_terrain_color.png`, ø(89,119,66)) auf die Halme. Das Original-Design erwartet dafür eine WEISSE Halm-Textur — unsere generierten Atlanten sind aber bereits voll grün (ø(81,122,46)). Grün × Grün = Neonteppich mit zerquetschtem Blaukanal. **Der Beweis über die Referenz:** im Prototyp ist `grass_terrain_color.png` ein 0-Byte-Stub — der Tint-Load schlägt dort fehl, Fallback Weiß, einfache Färbung, korrekter Look. Fix: Tönung neutralisiert (Referenz-Parität), wieder aktivierbar sobald ein echter weißer Halm-Atlas existiert.
 
 Plausibler ist **Höhe/Parallax**: dasselbe Material setzt `_Parallax: 0.02`, `_Displacement: 0.05` und `_Tess: 4.0` — das Original tesselliert und verschiebt den Boden anhand einer Höhenkarte. Solange nicht belegt ist, dass diese Höhenkarte der Albedo-Alpha ist, bleibt der Kanal ungenutzt statt geraten.
 
@@ -370,7 +370,7 @@ Die feste Deckkraft war ein echter Fehler: im Original ist flaches Wasser fast d
 >
 > Bis dahin stand hier `node tools/recover-textures.mjs water _FoamTex=… _Normal=…`, das die
 > echten Bilddaten über die PathIDs der Material-Assets aus dem Client-Export zurückholte.
-> Voraussetzung war der Export unter `/root/Valheim_Client`; den gibt es auf keinem
+> Voraussetzung war der lokale Client-Export; den gibt es auf keinem
 > Container mehr, das Skript läuft ins Leere. Die **Helligkeiten sind dabei Teil der
 > Rechnung**, nicht Geschmack: Der Shader teilt den Schaum durch feste Werte
 > (`r / 0.65`, `r / 0.52`) und zieht für den Curl 0,33 ab — deshalb schreibt
@@ -477,7 +477,7 @@ Randfarben danach gegen die Quelle messen.
 - `EntityManager` mappt ZDOID → `TransformNode`. Statische Prefabs (Gebäudeteile!) als Thin Instances wo möglich; interaktive/animierte (Türen, Truhen, Kreaturen, Spieler) als echte Meshes mit `AssetContainer.instantiateModelsToScene()`.
 - **Animation:** GLBs bringen `AnimationGroup`s mit (Idle/Walk/Run/Attack) — Mapping-Tabelle Zustand → AnimationGroup, Crossfade.
 - **Interpolation:** Remote-Entities puffern 100–150 ms Server-Zustände, interpolieren Position/Rotation.
-- **Kreaturen: die Bühne ist leer** (Stand 16.08.2026). Bis dahin stand hier „Kreaturen ohne Meshes (Neck, Greyling, Troll): nicht spawnbar, bis Assets gefixt sind" — das beschrieb einen Sonderfall von dreien. Heute ist es die Regel: `SPAWN_TABLE` (`shared/src/spawnData.ts`) läuft gegen `istEigenesModell()`, und Deer, Boar und Greydwarf sind Valheim-Modelle. Von drei Einträgen bleiben null; es spawnt **kein Wesen mehr**. Auch der Eikthyr-Altar verweigert die Beschwörung, statt eine unsichtbare Hülle in den Spielstand zu schreiben. Eigene Figuren (`Furloc*`, `Surtr`, `Voelva`, `PlayerAvatar`) existieren und werden über gesetzte Platzierungen bzw. injizierte Einträge in die Welt gebracht, nicht über die Streutabelle. **Folge, die dazugehört: Ohne Kreaturen wird nicht gekämpft.** Das ist der beschlossene Zwischenzustand, siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md).
+- **Kreaturen: die Bühne ist leer** (Stand 16.08.2026). Bis dahin stand hier „Kreaturen ohne Meshes (Neck, Greyling, Troll): nicht spawnbar, bis Assets gefixt sind" — das beschrieb einen Sonderfall von dreien. Heute ist es die Regel: `SPAWN_TABLE` (`shared/src/spawnData.ts`) läuft gegen `istEigenesModell()`, und Deer, Boar und Greydwarf sind Fremdmodelle. Von drei Einträgen bleiben null; es spawnt **kein Wesen mehr**. Auch der Eikthyr-Altar verweigert die Beschwörung, statt eine unsichtbare Hülle in den Spielstand zu schreiben. Eigene Figuren (`Furloc*`, `Surtr`, `Voelva`, `PlayerAvatar`) existieren und werden über gesetzte Platzierungen bzw. injizierte Einträge in die Welt gebracht, nicht über die Streutabelle. **Folge, die dazugehört: Ohne Kreaturen wird nicht gekämpft.** Das ist der beschlossene Zwischenzustand, siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md).
 
 ## 6. Physik (Havok)
 

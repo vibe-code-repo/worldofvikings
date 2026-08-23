@@ -1,10 +1,10 @@
 /**
- * ValheimDof — die Fern-Unschärfe des Originals.
+ * ValheimDof — die Fern-Unschärfe des Vorbilds.
  *
  * ── Warum es diese Datei überhaupt gibt ──────────────────────────────
  * `PostProcessing.ts` hielt bisher fest: "Depth of Field AUS — im
  * Original-Profil ebenfalls deaktiviert". Das stimmt, greift aber zu
- * kurz und war der Grund, warum uns die weiche Ferne fehlte: Valheim
+ * kurz und war der Grund, warum uns die weiche Ferne fehlte: Das Vorbild
  * benutzt für DOF gar nicht den PostProcessing-Stack v2. Im Profil
  * (`unnamed_-5654458244375810705.json`) ist `depthOfField` tatsächlich
  * aus — die Unschärfe kommt aus einer ZWEITEN, separaten Komponente auf

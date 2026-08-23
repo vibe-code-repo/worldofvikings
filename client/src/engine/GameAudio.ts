@@ -5,7 +5,7 @@
  * lohnt kein Engine-Subsystem. Die Quelle ist eine eigene MP3 unter
  * `assets/audio/` — die früheren Original-oggs aus dem Ripper-Export
  * (Biom-Musik, Wind, Schritte, One-Shots) sind entfernt, das Projekt
- * verwendet keine Valheim-Aufnahmen mehr.
+ * verwendet keine fremden Aufnahmen mehr.
  *
  * Browser-Regel: Ein AudioContext startet erst nach einer Nutzergeste —
  * start() hängt sich an den ersten Klick/Tastendruck.

@@ -80,7 +80,7 @@ EOF
 )
 
 # ── Urwaldriesen (Spalte 7: Stammfaktor) ─────────────────────────────
-# Nach den Vorbildern aus Valheim: Was den Wald tief wirken laesst, ist
+# Nach dem Vorbild: Was den Wald tief wirken laesst, ist
 # nicht die Kronenhoehe, sondern der STAMM. Bei ratio 0.014 misst eine
 # 22-m-Fichte 62 cm im Durchmesser und liest sich als Stange mit Gruen
 # obendrauf; erst mit gut einem Meter wird der Stamm zum dominanten
@@ -142,7 +142,7 @@ EOF
 )
 
 # Die Eiche braucht ihre Texturen, und die liegen wie die Modelle NICHT im
-# Repo (assets/ ist gitignored). Anders als die Valheim-Atlanten lassen sie
+# Repo (assets/ ist gitignored). Anders als die Fremdatlanten lassen sie
 # sich aber wiederherstellen — sie werden gezeichnet, nicht gerippt.
 if [ ! -f assets/textures/eiche_leaf.png ] || [ ! -f assets/textures/eiche_bark.png ]; then
   echo "Eichentexturen fehlen — werden erzeugt"

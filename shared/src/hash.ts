@@ -1,7 +1,7 @@
 /**
- * Stable hash — 1:1 port of `get_stable_hash` from Valhalla2.0 `Hashes.h`.
+ * Stable hash — 1:1 port of `get_stable_hash` from the C++ reference server.
  *
- * This is Valheim's own string hash (a two-accumulator djb2 variant), NOT
+ * This is the reference implementation's string hash (a two-accumulator djb2 variant), NOT
  * FNV-1a. It MUST match the C++ server exactly, because prefab hashes,
  * RPC method hashes and ZDO member-name hashes are all derived from it.
  *

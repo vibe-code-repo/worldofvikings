@@ -76,7 +76,7 @@
 #                       einzige Stelle, an der dev und live sich
 #                       unterscheiden — deshalb liegt es außerhalb des
 #                       Baums und wird von hier nur gelesen.
-# tools/assetripper/    5,1 GB entpackte Valheim-Bundles. deploy.sh musste
+# tools/assetripper/    5,1 GB entpackte Fremd-Bundles. deploy.sh musste
 #                       sie beim tar von Hand ausschließen; beim ersten
 #                       Lauf ging das Code-Paket sonst mit 2,7 GB und
 #                       39.901 Dateien hinaus statt mit ein paar hundert

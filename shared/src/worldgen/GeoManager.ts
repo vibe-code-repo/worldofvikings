@@ -1,5 +1,5 @@
 /**
- * GeoManager — 1:1 port of Valhalla2.0 `IGeoManager` (GeoManager.cpp/.h).
+ * GeoManager — 1:1 port of the C++ reference server's `IGeoManager`.
  *
  * Deterministic world generation: seed offsets, lakes, rivers, streams,
  * base height, biome classification and per-biome height functions.
@@ -1142,7 +1142,7 @@ export class GeoManager {
   // ── Biome classification ────────────────────────────────────────
 
   /**
-   * C++ valhalla::util::Biome IGeoManager::GetBiome(float wx, float wy).
+   * C++ reference: Biome IGeoManager::GetBiome(float wx, float wy).
    * The decision order is significant (ashlands rim → ocean → deep north →
    * mountain → swamp → mistlands → plains → black forest → meadows).
    */
@@ -1223,7 +1223,7 @@ export class GeoManager {
   }
 
   /**
-   * C++ valhalla::util::Biome IGeoManager::GetBiomes(x, z).
+   * C++ reference: Biome IGeoManager::GetBiomes(x, z).
    *
    * ⚠ C++ QUIRK REPLICATED ON PURPOSE: the C++ code combines the five
    * samples with the LOGICAL operator `||` (not the bitwise `|` of the
@@ -1247,7 +1247,7 @@ export class GeoManager {
 
   /**
    * Bitwise OR of the five GetBiome() corner samples — what the ORIGINAL
-   * Unity Valheim GetBiomes() returns. Provided for future use (e.g. if the
+   * the original Unity GetBiomes() returns. Provided for future use (e.g. if the
    * C++ server fixes the `||` typo); the 1:1 port above is the reference.
    */
   getBiomesMask(x: number, z: number): Biome {
@@ -1262,7 +1262,7 @@ export class GeoManager {
   }
 
   /**
-   * C++ valhalla::util::BiomeArea IGeoManager::GetBiomeArea(point) —
+   * C++ reference: BiomeArea IGeoManager::GetBiomeArea(point) —
    * Median when the biome is identical across the 8 surrounding zone
    * centers, Edge otherwise.
    */

@@ -1,6 +1,6 @@
 /**
  * WorldManager — world persistence (save/load).
- * 1:1 concept port of WorldManager.cpp from Valhalla2.0 C++.
+ * 1:1 concept port of WorldManager.cpp from the C++ reference server.
  *
  * C++ reference:
  *   IWorldManager::WriteFileDB  — .db: WORLD version, worldTime (double),
@@ -104,6 +104,8 @@ export interface SavedPlayer {
    * Altstaende bleiben lesbar, weil ein fehlendes Feld die Vorgabe ergibt.
    */
   frisur?: string;
+  /** Fehlt bei Spielstaenden von vor dem 23.08.2026 — dann Vorgabe. */
+  haarfarbe?: string;
   ruestung?: string;
 }
 

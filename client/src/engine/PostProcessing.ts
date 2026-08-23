@@ -1,9 +1,9 @@
 /**
- * PostProcessing — Nachbildung des Original-Post-Process-Stacks von Valheim.
+ * PostProcessing — Nachbildung des Original-Post-Process-Stacks.
  *
- * Quelle der Werte: das echte Ingame-Post-Process-Profil (Unity
- * PostProcessing-Stack v2) aus dem AssetRipper-Export des Clients,
- * `/root/Valheim_Client/extracted_assets/MonoBehaviour/
+ * Quelle der Werte: das Ingame-Post-Process-Profil des Vorbilds (Unity
+ * PostProcessing-Stack v2) aus dem Asset-Export,
+ * `extracted_assets/MonoBehaviour/
  *  unnamed_-5654458244375810705.json`. Gemessene Defaults dort:
  *
  *   Bloom                AN   intensity 0.3, threshold 0.7, softKnee 0.7,
@@ -18,7 +18,7 @@
  *   Vignette/Grain/LUT/SSR/EyeAdaptation  AUS
  *
  * ACHTUNG beim DOF: Dass es in diesem Profil aus ist, heißt NICHT, dass
- * Valheim keine Tiefenunschärfe hat. Das Spiel benutzt dafür eine
+ * das Vorbild keine Tiefenunschärfe hat. Es benutzt dafür eine
  * zweite, unabhängige Komponente auf derselben Kamera — den alten Image
  * Effect `UnityStandardAssets.ImageEffects.DepthOfField`, gesteuert von
  * `CameraEffects.cs`, standardmäßig AN. Genau daher kommt die weiche
@@ -347,7 +347,7 @@ export class PostProcessing {
 
     // Das DOF DIESER Pipeline bleibt aus — es ist Babylons physikalisches
     // Kameramodell (Blende/Brennweite) und verwischt auch den Vordergrund.
-    // Valheims Unschärfe ist eine reine Fernunschärfe und hängt separat
+    // Die Unschärfe des Vorbilds ist eine reine Fernunschärfe und hängt separat
     // an der Kamera, siehe ValheimDof.
     this.pipeline.depthOfFieldEnabled = false;
     this.pipeline.grainEnabled = false;
@@ -561,7 +561,7 @@ export class PostProcessing {
   }
 
   /**
-   * Sonnenstrahlen — Valheims `SunShafts` (GraphicsSettingBool.SunShafts,
+   * Sonnenstrahlen — `SunShafts` des Vorbilds (GraphicsSettingBool.SunShafts,
    * gesetzt in CameraEffects.SetSunShafts). Das Original benutzt den
    * Unity-Image-Effect gleichen Namens; Babylons direkter Gegenpart ist
    * `VolumetricLightScatteringPostProcess` (radiales Blur ausgehend von der
@@ -575,7 +575,7 @@ export class PostProcessing {
    * Auflösung sieht man ihm nicht an), kostet aber nur noch einen Bruchteil.
    *
    * Deshalb steht er als EINZIGER Grafikschalter abweichend vom Original auf
-   * "aus" (Valheim liefert SunShafts standardmässig an aus). Begründung: Der
+   * "aus" (das Vorbild liefert SunShafts standardmässig an aus). Begründung: Der
    * Nutzer hat den Framerate-Verfall ausdrücklich als Problem benannt; ein
    * Effekt, der die Bildrate halbiert, gehört nicht in die Voreinstellung.
    * Einschaltbar bleibt er über die Einstellungen.

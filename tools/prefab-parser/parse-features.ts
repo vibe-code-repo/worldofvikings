@@ -1,9 +1,9 @@
 /**
- * Features Parser — reads features.pkg from the Valhalla C++ dedicated
- * server (valheim.community) and exports all zone locations (features) as
+ * Features Parser — reads features.pkg from the C++ reference
+ * server and exports all zone locations (features) as
  * JSON for the browser game (used by the server's location placement, Phase F).
  *
- * Binary format (valheim.community/library/src/ZoneManager.cpp:48-157):
+ * Binary format (reference server, ZoneManager.cpp:48-157):
  *
  *   header:
  *     string  comment            (.NET BinaryWriter: 7-bit varint length + UTF-8)
@@ -49,7 +49,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DEFAULT_PKG = resolve(__dirname, '../../../valheim.community/data/features.pkg');
+const DEFAULT_PKG = resolve(__dirname, '../../../referenz-server/data/features.pkg');
 const OUTPUT_DIR = resolve(__dirname, '../../shared/src');
 
 interface ParsedRandomSpawn {
@@ -101,7 +101,7 @@ interface ParsedFeature {
 function main(): void {
   const pkgPath = process.argv[2] ? resolve(process.argv[2]) : DEFAULT_PKG;
 
-  console.log('Valheim features.pkg parser');
+  console.log('features.pkg parser');
   console.log(`  source: ${pkgPath}`);
 
   if (!existsSync(pkgPath)) {
@@ -257,7 +257,7 @@ function main(): void {
   }
 }
 
-/** Little-endian binary reader matching Valhalla's DataReader. */
+/** Little-endian binary reader matching the reference DataReader. */
 class BinReader {
   pos = 0;
   constructor(private buf: Buffer) {}

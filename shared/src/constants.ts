@@ -1,5 +1,5 @@
 /**
- * Shared constants ported from Valhalla2.0 C++ server.
+ * Shared constants ported from the C++ reference server.
  * Source: WovServer.h, ZoneManager.h, Prefab.h, Types.h
  */
 

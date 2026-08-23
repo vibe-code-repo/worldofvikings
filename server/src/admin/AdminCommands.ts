@@ -71,10 +71,10 @@ export class AdminCommandRegistry {
      * Serverantwort wartet.
      *
      * Die Höhe kommt aus der Heightmap, aber mindestens Wasserlinie —
-     * sonst landet man beim Klick aufs Meer auf dem Grund. Valheim macht
-     * es genauso (`Minimap.DebugTeleport`: `Heightmap.GetHeight` dann
-     * `Math.max(0f, height)`; dort liegt der Meeresspiegel bei 0, bei uns
-     * bei WATER_LEVEL).
+     * sonst landet man beim Klick aufs Meer auf dem Grund. Der
+     * Debug-Teleport des Vorbilds klemmt genauso (Heightmap-Höhe, dann
+     * gegen den Meeresspiegel geklemmt; dort liegt der bei 0, bei uns bei
+     * WATER_LEVEL).
      */
     this.register('teleport', (peer, args) => {
       const x = Number(args[0]);

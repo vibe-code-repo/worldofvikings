@@ -1,25 +1,24 @@
 # World of Vikings
 
-Ein Browser-MMORPG „Angelsachsen gegen Wikinger" auf Basis von **Babylon.js** — Valheim als
-Browsergame, ohne Download. Kürzel: **wov**.
+Ein Browser-MMORPG „Angelsachsen gegen Wikinger" auf Basis von **Babylon.js** — Survival und
+Aufbau im Browser, ohne Download. Kürzel: **wov**.
 
-Der Server ist ein 1:1-Port des C++-Servers aus Valhalla2.0 nach TypeScript und ist
-autoritativ für Bewegung, Inventar, Craft- und Baukosten, Terraforming und Beute. Der Client
-ist mit Babylon.js neu gebaut: WebGPU mit WebGL2-Rückfall, Thin Instances, Havok-Physik,
-Kaskadenschatten, Volumetrics. Die Weltgenerierung teilen sich Client und Server über
-`shared/` — sie ist gegen den C++-Server bit-genau verifiziert.
+Der Server ist in TypeScript geschrieben und autoritativ für Bewegung, Inventar, Craft- und
+Baukosten, Terraforming und Beute. Der Client ist mit Babylon.js gebaut: WebGPU mit
+WebGL2-Rückfall, Thin Instances, Havok-Physik, Kaskadenschatten, Volumetrics. Die
+Weltgenerierung teilen sich Client und Server über `shared/` — sie ist deterministisch und
+über Golden-Tests bit-genau abgesichert.
 
-Die Welt kommt **nicht** aus Valheims radialem Seed-Kreis, sondern aus einem
+Die Welt kommt **nicht** aus einem radialen Seed-Kreis, sondern aus einem
 **WorldLayout-Dokument**: Regionen als Polygone und Kreise mit Biom und Terrainparametern auf
 unbegrenzter Karte, alles außerhalb ist Ozean. Der Weltbau-Editor schreibt dieses Dokument,
 der Server kompiliert es zu einem Distanzfeld. Das Perlin-Detail *innerhalb* einer Region
-stammt weiterhin aus den Original-Biomhöhenfunktionen.
+stammt weiterhin aus den Biomhöhenfunktionen.
 
 > [!IMPORTANT]
-> **Alle Modelle und Texturen sind Eigenbau.** Seit dem 16.08.2026 benutzt das Projekt keine
-> aus Valheim extrahierten Assets mehr — weder in der Welt noch im Spielinhalt. Die Whitelist
-> ist `EIGENE_MODELLE` in `shared/src/prefabs.ts`; alles andere wird aus den Tabellen
-> gefiltert.
+> **Alle Modelle und Texturen sind Eigenbau.** Seit dem 16.08.2026 stecken weder in der Welt
+> noch im Spielinhalt fremde Assets. Die Whitelist ist `EIGENE_MODELLE` in
+> `shared/src/prefabs.ts`; alles andere wird aus den Tabellen gefiltert.
 >
 > **Folge, solange die eigenen Modelle fehlen: Im Spiel kann nicht gebaut und nicht gekämpft
 > werden.** Von neun Bauteilen haben zwei ein Modell, Kreaturen und Locations keines. Das ist
@@ -163,7 +162,7 @@ dort meist schon den Grund, warum sie getroffen wurde.
 |---|---|
 | [00 — Master Plan](Docs/00-Master-Plan.md) | Zielbild und Gesamtaufbau |
 | [01 — Warum Babylon.js?](Docs/01-Warum-Babylon.md) | Engine-Entscheidung |
-| [02 — Migration von valheim-browser](Docs/02-Migration-von-valheim-browser.md) | Herkunft aus dem Three.js-Prototyp |
+| [02 — Herkunft des Clients](Docs/02-Migration-von-valheim-browser.md) | Weg vom ersten Prototyp zur heutigen Engine |
 | [03 — Rendering und Engine](Docs/03-Rendering-und-Engine.md) | Client-Innenleben |
 | [04 — Asset-Pipeline](Docs/04-Asset-Pipeline.md) | Wie Modelle und Texturen entstehen |
 | [05 — Server-Architektur](Docs/05-Server-Architektur.md) | ZDOs, Zonen, Betrieb |

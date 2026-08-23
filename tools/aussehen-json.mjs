@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import {
   FIGUREN, FIGUR_VORGABE,
   FRISUREN, FRISUR_VORGABE,
+  HAARFARBEN, HAARFARBE_VORGABE,
   RUESTUNG, AUSSEHEN_ORDNER, AUSSEHEN_KOERPER,
   FRACTION_SUNRISE, FRACTION_MIDDAY, FRACTION_SUNSET,
 } from '@wov/shared';
@@ -44,10 +45,16 @@ const daten = {
   figurVorgabe: FIGUR_VORGABE,
   frisuren: FRISUREN.map((f) => ({ id: f.id, datei: f.datei, name: f.name })),
   frisurVorgabe: FRISUR_VORGABE,
+  // Der Hex-Wert geht MIT: Die Webseite setzt ihn als Farbfleck neben
+  // die Auswahl und reicht ihn an die Vorschau weiter. Sie kennt
+  // shared/aussehen.ts nicht — vorschau-web.ts importiert bewusst nur
+  // Babylon.
+  haarfarben: HAARFARBEN.map((h) => ({ id: h.id, name: h.name, hex: h.hex })),
+  haarfarbeVorgabe: HAARFARBE_VORGABE,
   ruestung: RUESTUNG.map((r) => ({ id: r.id, datei: r.datei, name: r.name, slot: r.slot })),
   // Tageszeit-Marken fuer die Uhrzeit-Auswahl der Webseite.
   //
-  // Aus dem Umgebungsmodell abgeleitet, nicht abgeschrieben: Valheims
+  // Aus dem Umgebungsmodell abgeleitet, nicht abgeschrieben: die
   // Sonnenaufgang liegt bei 0.1333 des Tages, also gegen 03:00 und NICHT
   // bei 06:00. Eine von Hand getippte Beschriftung wuerde das frueher oder
   // spaeter falsch behaupten -- dieselbe Begruendung wie fuer die Listen
@@ -65,6 +72,7 @@ const daten = {
 mkdirSync(dirname(AUS), { recursive: true });
 writeFileSync(AUS, JSON.stringify(daten, null, 2) + '\n', 'utf8');
 console.log(
-  'GESCHRIEBEN %s — %d Figuren, %d Frisuren, %d Ruestungsteile',
-  AUS, daten.figuren.length, daten.frisuren.length, daten.ruestung.length
+  'GESCHRIEBEN %s — %d Figuren, %d Frisuren, %d Ruestungsteile, %d Haarfarben',
+  AUS, daten.figuren.length, daten.frisuren.length, daten.ruestung.length,
+  daten.haarfarben.length
 );

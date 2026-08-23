@@ -1,6 +1,6 @@
 /**
  * Peer — represents a connected client.
- * 1:1 port of Peer.h from Valhalla2.0 C++.
+ * 1:1 port of Peer.h from the C++ reference server.
  *
  * C++ reference:
  *   class Peer : public enable_shared_from_this<Peer>,
@@ -78,6 +78,8 @@ export class Peer {
    * Gewaehlte Frisur (Kennung aus shared/aussehen.ts).
    */
   frisur: string = '';
+  /** Kennung aus HAARFARBEN (shared/aussehen.ts), nicht die Farbe selbst. */
+  haarfarbe: string = '';
   /**
    * Getragene Ruestung als "oberkoerperId|beineId" — ein leerer Teil
    * heisst "nichts angezogen". Zusammengefasst statt zweier Felder, damit

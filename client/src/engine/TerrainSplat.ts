@@ -1,8 +1,8 @@
 /**
- * G-TEX (Babylon-Port) — Original-Valheim-Terrain-Texturen als Splat-Shader.
+ * G-TEX (Babylon-Port) — die Original-Terrain-Texturen als Splat-Shader.
  *
- * Babylon-Äquivalent zum three.js-Referenzprojekt (valheim-browser
- * Terrain.ts, siehe Docs/Analyse-Modelle-und-Weltgenerierung.md „G-TEX"):
+ * Babylon-Äquivalent zum three.js-Prototyp (dessen Terrain.ts, siehe
+ * Docs/Analyse-Modelle-und-Weltgenerierung.md „G-TEX"):
  * statt Vertex-Farben sampelt ein NodeMaterial die 16 gestapelten
  * Original-Tiles (`terrain_d_array.png`, 256×4096) mit den
  * Zonen-Eckbiomen × denselben Smoothstep-Gewichten wie der Heightmap-Blend
@@ -98,7 +98,7 @@ const TEX_BASE = '/assets/textures/';
 /**
  * Paint mask atlas — one 65×65 tile per visible zone in a single texture.
  *
- * Valheim gives every Heightmap its own 65×65 `_ClearedMaskTex`, which works
+ * The original gives every Heightmap its own 65×65 `_ClearedMaskTex`, which works
  * there because each zone has its own material instance. Our terrain shares a
  * single NodeMaterial across all chunks (NodeMaterial.clone() would rebuild
  * the graph per chunk — 80+ shader programs and a compile stutter whenever the
@@ -463,7 +463,7 @@ export class TerrainSplatMaterial {
 
     // ── Variety-Noise-UV-Rotation + fract(uv) ───────────────────────
     // Die Tile-UVs werden pro Pixel um einen aus der Variety-Noise
-    // gelesenen Winkel gedreht (Referenz valheim-browser Terrain.ts:
+    // gelesenen Winkel gedreht (Referenz: Terrain.ts des Prototyps,
     //   float ang = nz.r * 6.2831853;
     //   vec2 uv = mat2(ca, sa, -sa, ca) * wuv;
     // ). Ohne diese Drehung wiederholt sich jede Tile-Textur stur im
@@ -853,7 +853,7 @@ export class TerrainSplatMaterial {
     const sandLerp = new LerpBlock('sandLerp'); colBright.output.connectTo(sandLerp.left); sandSample.connectTo(sandLerp.right); sandK.output.connectTo(sandLerp.gradient);
 
     // ── Fels auf steilen Flanken ────────────────────────────────────
-    // Exakt die Werte der three.js-Referenz (valheim-browser
+    // Exakt die Werte der three.js-Referenz (Prototyp,
     // Terrain.ts): rockK = clamp((0.72 - ny) / 0.25, 0, 1) * 0.85.
     //
     // HINWEIS: Hier stand zwischenzeitlich eine Variante mit Schwelle
@@ -986,7 +986,7 @@ export class TerrainSplatMaterial {
     // Ohne diese Ebene ist das Terrain nur eine flach beleuchtete
     // Farbfläche — genau der "wir sehen immer noch das Standard-Terrain
     // als Untergrund"-Eindruck, den der Nutzer gemeldet hat. Die
-    // three.js-Referenz (valheim-browser Terrain.ts, G-TEX2) benutzt sie;
+    // three.js-Referenz (Terrain.ts des Prototyps, G-TEX2) benutzt sie;
     // bei uns lagen die Dateien zwar vor (256², valide Tangent-Space-Maps),
     // wurden aber nie gesampelt.
     //

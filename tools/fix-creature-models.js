@@ -265,7 +265,7 @@ function rebuildFromBindSpace({ outName, srcFile, scale, basePng, normalPng, mat
 // Prefab separate Attach-Meshes unter dem Head-Bone). Das original Deer.glb
 // (.bak) enthaelt die 5 Geweih-Varianten samt Node-Transforms in Prefab-Space
 // (Y-up, Hirsch ~1,79 m hoch) — derselbe Space wie der gebackene Koerper.
-// Wir uebernehmen EINE Variante (Valheim-Hirsche haben grosses Geweih):
+// Wir uebernehmen EINE Variante (die Hirsche des Vorbilds haben grosses Geweih):
 // Mesh-Daten mit der Node-Welt-Matrix transformieren und als zweites Mesh
 // an Deer_fixed.glb anhaengen (Material "deer" wird geteilt).
 

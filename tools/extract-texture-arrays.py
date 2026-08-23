@@ -3,8 +3,8 @@
 extract-texture-arrays.py — Texture2DArrays und Texture3D aus dem Client holen.
 
 ── Warum es dieses Werkzeug gibt ────────────────────────────────────
-Der vorhandene Client-Export unter `Valheim_Client/extracted_assets/`
-enthält NUR `Texture2D`. Valheims Boden liegt aber als `Texture2DArray`
+Der vorhandene Client-Export unter `extracted_assets/`
+enthält NUR `Texture2D`. Der Boden liegt dort aber als `Texture2DArray`
 vor, und genau die beiden fehlten deshalb komplett:
 
     terrain_d_array   256×256, 16 Layer   (_DiffuseArrayTex)
@@ -15,7 +15,7 @@ Beide hängen am Terrain-Material `Heightmap_basematerial`
 weiteren Slots — von denen im Export nur vier lagen.
 
 ── Wo die Daten stecken ─────────────────────────────────────────────
-NICHT in resources.assets oder sharedassets0.assets: Valheim lädt sie
+NICHT in resources.assets oder sharedassets0.assets: der Client lädt sie
 aus einem AssetBundle unter
 
     valheim_Data/StreamingAssets/SoftRef/Bundles/c4210710

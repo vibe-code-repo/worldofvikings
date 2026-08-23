@@ -1,7 +1,7 @@
 /**
  * Spawn table (Phase G2) — AUTHORED, not ported.
  *
- * The C++ reference server (valheim.community) contains NO server-side
+ * The C++ reference server contains NO server-side
  * creature spawn system: in the original architecture the owning Unity
  * client runs the SpawnSystem (its rules live in ZoneSystem.m_spawnLists,
  * which neither repo has). The C++ server merely replicates the resulting
@@ -166,7 +166,7 @@ const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
  * Spawn-Tabelle gegen die Whitelist `EIGENE_MODELLE` (prefabs.ts).
  *
  * Seit Block A steht ausschliesslich eigener Bau in der Welt. Deer, Boar
- * und Greydwarf sind Valheim-Modelle — sie fallen alle drei weg, und damit
+ * und Greydwarf sind Fremdmodelle — sie fallen alle drei weg, und damit
  * spawnt zunächst gar kein Wesen mehr. Das ist der beschlossene
  * Zwischenzustand: ohne eigene Kreaturmodelle wird nicht gekämpft.
  *

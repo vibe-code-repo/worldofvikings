@@ -21,11 +21,11 @@ den Weg vom Entwurf in die Live-Umgebung.
 
 ## Idee
 
-Statt des radialen Valheim-Seeds (10-km-Kreis, Biom-Ringe) beschreibt ein
+Statt des radialen Seed-Kreises (10 km, Biom-Ringe) beschreibt ein
 **WorldLayout-Dokument** die Welt: Regionen (Polygone/Kreise) mit Biom und
 Terrainparametern auf einer unbegrenzten Karte. **Alles außerhalb von
 Regionen ist offener Ozean.** Das Perlin-Detail INNERHALB einer Region
-(Hügel, Wald, Küstenrauschen) liefern unverändert die Valheim-
+(Hügel, Wald, Küstenrauschen) liefern unverändert die ursprünglichen
 Biomhöhenfunktionen — nur die radiale Basis ist ersetzt.
 
 ## Datenfluss
@@ -171,7 +171,7 @@ Regionen (blackforest, swamp, deepnorth, ashlands) trotz gefüllter
 Kuratierungsliste vollständig kahl geblieben, ohne Fehlermeldung. Seit
 `ALLE_BIOME` ist die Maske durchlässig und die Liste die alleinige
 Autorität. Umgekehrt gilt seitdem: Eine Region **ohne** Liste bleibt kahl,
-weil `FOLIAGE` nach dem Herausfiltern der Valheim-Einträge nur noch aus
+weil `FOLIAGE` nach dem Herausfiltern der Fremdeinträge nur noch aus
 eigener Flora besteht (73 Einträge) und eigene Flora ohne Kuratierung
 ausgeschlossen ist. Die „Biom-Standardtabelle" aus `vegetation.pkg` gibt es
 nicht mehr — alle 17 Regionen der Live-Welt sind deshalb kuratiert.
@@ -592,16 +592,16 @@ In einer Region entstehen nur Locations bis zu ihrer Stufe
 eigene `locations`, gilt ausschließlich diese Liste.
 
 > **Seit 16.08.2026 liegt dieser ganze Mechanismus still.** Mit dem
-> Verzicht auf Valheim-Modelle steht `world.features` auf `false` und
+> Verzicht auf Fremdmodelle steht `world.features` auf `false` und
 > `dungeons.enabled` ebenso: Alle 146 Einträge in `FEATURES` waren
-> Valheim-Exporte, keiner steht in `EIGENE_MODELLE`. Gebucht würden sie
+> Fremdexporte, keiner steht in `EIGENE_MODELLE`. Gebucht würden sie
 > trotzdem — jede Instanz legte ZDOs an, die der Client nicht darstellen
 > kann, und der Spieler liefe durch unsichtbare Grabhügel. *Verworfen:
 > sie nur clientseitig auszublenden; dann stünden die Geister-ZDOs
 > weiterhin im Save und passten später nicht mehr zu der Buchung, die mit
 > eigenen Modellen entsteht.* Ebenso gefiltert: `SPAWN_TABLE` (3 → 0),
 > Bau-Pieces (9 → 2), die `model`-Felder der Gegenstände (25 → 0) und
-> `FOLIAGE` — dort fielen alle 120 Einträge aus Valheims `vegetation.pkg`
+> `FOLIAGE` — dort fielen alle 120 Einträge der alten `vegetation.pkg`
 > weg, übrig sind die 73 eigenen aus `shared/src/flora.ts`.
 >
 > **Die Folge, die klar dastehen muss:** Bis eigene Modelle vorliegen,

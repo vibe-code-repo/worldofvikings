@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 
 const CONFIG_DIR = dirname(fileURLToPath(import.meta.url));
 
-/** Game-Server (server/data/server.yml → server.port). Eigener Port — valheim-browser nutzt 2456. */
+/** Game-Server (server/data/server.yml → server.port). Eigener Port — 2456 ist belegt. */
 const GAME_SERVER_PORT = 2467;
 
 /**
@@ -160,7 +160,7 @@ export default defineConfig({
     exclude: ['@babylonjs/havok'],
   },
   server: {
-    // Eigener Dev-Port — valheim-browser nutzt 3000/5173
+    // Eigener Dev-Port — 3000/5173 sind die üblichen Vorbelegungen
     port: 5274,
     host: true,
     // Vite blockt seit 5.x fremde Host-Header (DNS-Rebinding-Schutz). Der
@@ -173,7 +173,7 @@ export default defineConfig({
     // setzt die Liste, damit ein neuer Betriebsort keine Codeänderung braucht.
     allowedHosts: process.env.WOV_ALLOWED_HOSTS
       ? process.env.WOV_ALLOWED_HOSTS.split(',').map((h) => h.trim())
-      : ['testserver.valheim.community', '.valheim.community', 'localhost'],
+      : ['.world-of-vikings.com', 'localhost'],
 
     /**
      * /api/* geht an den Betriebsdienst (admin/src/main.ts, Port 2468).

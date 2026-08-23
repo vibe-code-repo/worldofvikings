@@ -13,7 +13,7 @@ import { Biome, BiomeArea } from '@wov/shared';
 
 export type RGB = readonly [number, number, number];
 
-/** Grundfarbe je Biome (0..255), Valheim-Kartenlook. */
+/** Grundfarbe je Biome (0..255), Kartenlook des Vorbilds. */
 export const BIOME_COLOR: Record<number, RGB> = {
   [Biome.Meadows]: [104, 148, 76],
   [Biome.Swamp]: [62, 72, 58],

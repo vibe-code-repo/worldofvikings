@@ -32,7 +32,7 @@ const layout = {
       // Kuratiert: NUR eine Birkenart — alles andere (Eichen, Felsen,
       // Büsche …) darf nicht erscheinen.
       //
-      // Bis Block A stand hier `Beech1`, eine Valheim-Buche. Sie kann
+      // Bis Block A stand hier `Beech1`, eine fremde Buche. Sie kann
       // nicht mehr wachsen: FOLIAGE ist gegen `istEigenesModell()`
       // gefiltert (shared/src/vegetation.ts) und enthält nur noch
       // eigene Modelle. Eine Kuratierungsliste ohne Streueintrag bleibt

@@ -1,6 +1,6 @@
 /**
  * Binary Stream base class.
- * 1:1 port of DataStream.h (Stream) from Valhalla2.0 C++ server.
+ * 1:1 port of DataStream.h (Stream) from the C++ reference server.
  *
  * All data is little-endian (matching the C++ static_assert).
  */

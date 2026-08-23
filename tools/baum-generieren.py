@@ -1,7 +1,7 @@
 #!/usr/bin/env blender --background --python
 """
 Erzeugt einen Nadelbaum als GLB — prozedurale Geometrie mit den
-Original-Nadelkarten von Valheim.
+Original-Nadelkarten des Vorbilds.
 
     blender --background --python tools/baum-generieren.py -- \
         --name Fichte1 --seed 3 --hoehe 12 --ziel assets/models
@@ -180,7 +180,7 @@ ARTEN = {
     # ── Eiche ────────────────────────────────────────────────────────
     # Die einzige Art mit EIGENEN Texturen: `eiche_leaf.png` und
     # `eiche_bark.png` werden von `tools/eiche-texturen.py` prozedural
-    # gezeichnet, nicht aus Valheim gezogen. Beide sind eine ganze Karte,
+    # gezeichnet, nicht aus einem Fremdexport gezogen. Beide sind eine ganze Karte,
     # daher wie bei der Birke nur ein UV-Feld.
     #
     # Eine Eiche ist kein hoher schlanker Baum, sondern ein BREITER. Der
@@ -205,7 +205,7 @@ ARTEN = {
             # dicke Birke.
             # Breit ja, aber nicht ausufernd: Mit 0.56 und downAngle 80 kam
             # eine Krone von 15,7 m Breite bei 13,2 m Hoehe heraus — breiter
-            # als hoch. Valheims eigenes `Oak1` steht bei 6,0 × 9,0 m, also
+            # als hoch. Das `Oak1` des Vorbilds steht bei 6,0 × 9,0 m, also
             # Verhaeltnis 1,5 wie bei den anderen Arten auch. Ein Baum, der
             # im Wald doppelt so viel Platz braucht wie jeder andere, sprengt
             # die Bepflanzungsdichte.

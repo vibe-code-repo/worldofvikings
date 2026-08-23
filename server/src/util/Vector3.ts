@@ -1,6 +1,6 @@
 /**
  * Vector3 math utilities.
- * 1:1 port of Vector.h / VUtilsMath.h from Valhalla2.0 C++.
+ * 1:1 port of Vector.h / VUtilsMath.h from the C++ reference server.
  */
 
 import type { Vector3 } from '@wov/shared';

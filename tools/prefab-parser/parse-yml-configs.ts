@@ -19,7 +19,7 @@ import { parse as parseYaml } from 'yaml';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DATA_DIR = resolve(__dirname, '../../../valheim.community/data');
+const DATA_DIR = resolve(__dirname, '../../../referenz-server/data');
 const OUTPUT_DIR = resolve(__dirname, '../../shared/src');
 
 function main(): void {

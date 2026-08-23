@@ -10,7 +10,7 @@
  * Pure diagnostic — no game code touched. PNG writer uses node:zlib only.
  *
  * Run:  npx tsx shared/test/geo-map.ts [seedName] [size] [exportDir]
- *       defaults: KxSYuZquuw, 1250 (=> 16 m/px), ../../valheim.community/build/geo-export-run
+ *       defaults: KxSYuZquuw, 1250 (=> 16 m/px), ../../referenz-server/build/geo-export-run
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -22,7 +22,7 @@ import { Biome } from '../src/types.js';
 
 const seedName = process.argv[2] ?? 'KxSYuZquuw';
 const size = Number(process.argv[3] ?? 1250);
-const exportDir = process.argv[4] ?? '../../valheim.community/build/geo-export-run';
+const exportDir = process.argv[4] ?? '../../referenz-server/build/geo-export-run';
 const outDir = 'Docs';
 
 // ── minimal PNG encoder (8-bit truecolor, no interlace) ───────────
@@ -64,7 +64,7 @@ function encodePng(w: number, h: number, rgb: Buffer): Buffer {
   ]);
 }
 
-// ── map colors (Valheim-ish) ──────────────────────────────────────
+// ── map colors ────────────────────────────────────────────────────
 
 type RGB = [number, number, number];
 const BIOME_COLOR: Record<number, RGB> = {

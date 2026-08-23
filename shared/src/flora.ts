@@ -1,7 +1,7 @@
 /**
  * Eigene Flora — Streuparameter für die selbst gebauten Pflanzen.
  *
- * `shared/src/vegetation.ts` las bis Block A die 120 Einträge aus Valheims
+ * `shared/src/vegetation.ts` las bis Block A die 120 Einträge aus der alten
  * `vegetation.pkg`. Dort standen ausschliesslich Original-Prefabs; unsere
  * prozeduralen Bäume, Sträucher und Bodenpflanzen (tools/baeume-bauen.sh,
  * tools/buesche-bauen.sh, tools/blumen-bauen.sh) kamen darin nicht vor.
@@ -391,7 +391,7 @@ const NADELWALD_FLORA_DUENN: readonly Foliage[] = [
   // Ein paar Birken am Rand — ein reiner Fichtenforst wirkt gepflanzt.
   //
   // BEWUSST eine Art, die das Grasland nicht benutzt. Mehrere
-  // Streueintraege je Prefab waeren an sich moeglich (Valheim fuehrt
+  // Streueintraege je Prefab waeren an sich moeglich (das Vorbild fuehrt
   // `FirTree` dreifach), aber die Kuratierung arbeitet ueber den NAMEN
   // und kann zwei Eintraege desselben Prefabs nicht unterscheiden —
   // beide wuerden greifen.

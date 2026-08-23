@@ -38,7 +38,7 @@ sie nicht auf, weil dort nur Rauschen liegt.
 0,90 x 0,52 x 0,58 m (B x T x H, Deckel geschlossen). Angelehnt an den
 Eintrag `piece_chest_wood` in `shared/src/prefabs.ts`, der mit
 renderScale 1.0 x 0.8 gefuehrt wird — der Wert stammt aber vom
-geloeschten Valheim-Modell. Der tatsaechliche Wert wird unten gemessen
+geloeschten Fremdmodell. Der tatsaechliche Wert wird unten gemessen
 und ausgegeben; er gehoert in den Prefab-Eintrag.
 
 Der Pivot liegt auf dem BODEN (min z = 0), anders als bei den Felsen,

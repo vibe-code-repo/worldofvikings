@@ -1,6 +1,6 @@
 /**
  * Prefab — object type definition.
- * 1:1 port of Prefab.h from Valhalla2.0 C++.
+ * 1:1 port of Prefab.h from the C++ reference server.
  *
  * C++ reference:
  *   class Prefab {

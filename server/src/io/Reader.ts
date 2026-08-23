@@ -1,5 +1,5 @@
 /**
- * Binary Reader — 1:1 port of DataStream.h (Reader) from Valhalla2.0 C++.
+ * Binary Reader — 1:1 port of DataStream.h (Reader) from the C++ reference server.
  *
  * Reads primitive types, strings, byte arrays, Vector3, Quaternion
  * from a little-endian binary buffer.

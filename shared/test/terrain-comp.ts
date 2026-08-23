@@ -1,7 +1,7 @@
 /**
  * Player terrain modification — TerrainComp parity checks.
  *
- * Covers the properties that make Valheim's terraforming feel the way it does,
+ * Covers the properties that make the original's terraforming feel the way it does,
  * and the two failure modes that are easy to introduce and hard to spot later:
  *
  *  1. Level produces a flat plateau at exactly the requested height.
@@ -254,7 +254,7 @@ console.log('── comp hygiene ──');
 // ── 9. raise(delta=0) behaves like the original ───────────────────
 console.log('── raise delta 0 ──');
 {
-  // Documenting a real Valheim quirk rather than asserting a nicer behaviour:
+  // Documenting a real quirk of the original rather than asserting a nicer behaviour:
   // RaiseTerrain has no early-out for delta === 0. Both direction guards test
   // `delta < 0` and `delta > 0`, so zero falls through and the vertex is set
   // to worldPos.y — i.e. it acts as a level, not as a no-op.

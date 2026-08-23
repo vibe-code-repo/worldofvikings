@@ -187,7 +187,7 @@ export class AssetManager {
       return null;
     }
     // Gewünschte Animationsgruppe in Schleife starten (PrefabDef.animation
-    // — eigene NPC-GLBs bringen echte Skin-Clips mit; der Valheim-Export
+    // — eigene NPC-GLBs bringen echte Skin-Clips mit; der Fremdexport
     // nicht, dort ist die Liste schlicht leer und nichts passiert).
     if (animation && inst.animationGroups.length > 0) {
       const gruppe =
@@ -350,7 +350,7 @@ export class AssetManager {
   /**
    * Alpha-cutout + double-sided detection for foliage (see header).
    *
-   * Mirrors the three.js reference (`valheim-browser` AssetManager
+   * Mirrors the three.js reference of the first prototype (AssetManager
    * applyAlphaCutoutIfNeeded: alphaTest=0.5 + DoubleSide on any texture
    * with an alpha channel) — with refinements verified against the
    * Babylon source in node_modules (not by screenshot guessing):
@@ -397,7 +397,7 @@ export class AssetManager {
    *
    * ── Woher der Wert kommt ────────────────────────────────────────────
    * Aus den 1.489 Original-Materialien mit `_Metallic` in
-   * `Valheim_Client/extracted_assets/Material/`: 1.299 davon stehen auf 0,
+   * des Fremdexports (`extracted_assets/Material/`): 1.299 davon stehen auf 0,
    * also 87 %. Rinde, Laub, Fels, Holz, Stoff — alles Dielektrika. Auf 1
    * stehen 153, praktisch ausschliesslich Erzadern, Metallwaffen und
    * -rüstungen; die deckt METALLISCH ab.
@@ -667,7 +667,7 @@ export class AssetManager {
  * Submeshes mit verschiedenen Vertexattributen getrennt bleiben (s.u.).
  *
  * ── Diese Zahlen sind Geschichte (Stand D10, 2026-08-15) ─────────────
- * Sie stammen aus der Zeit der Valheim-Rips. Der Bestand unter
+ * Sie stammen aus der Zeit der Fremdexporte. Der Bestand unter
  * `assets/models` ist inzwischen ein EIGENER Satz von 119 GLBs
  * (tools/baeume-bauen.sh und Geschwister) — `wood_roof_top` und seine 54
  * Submeshes gibt es dort nicht mehr. Über alle 119 Dateien ausgezählt:
@@ -885,7 +885,7 @@ function zuMaster(mesh: Mesh): PrefabMaster {
  * Materialien, die im Original wirklich metallisch sind.
  *
  * Abgeleitet aus den 158 Materialien mit `_Metallic >= 0.9` in
- * `Valheim_Client/extracted_assets/Material/` — das sind Erzadern
+ * `extracted_assets/Material/` des Fremdexports — das sind Erzadern
  * (`silverore`, `rock_silver_internal`), Metallwaffen und -rüstungen
  * (`blackmetalsword`, `BronzeArmorMesh_Mat`, `SilverShield_Mat`), Schmiede
  * und Kochgerät (`Forge_mat`, `MeadCauldron_MAT`, `Vise_mat`) sowie

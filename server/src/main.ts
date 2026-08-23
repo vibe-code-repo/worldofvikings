@@ -1,13 +1,7 @@
 /**
  * Server entry point.
- * 1:1 port of Main.cpp from Valhalla2.0 C++.
- *
- * C++ reference:
- *   int main(int argc, char** argv) {
- *     std::filesystem::current_path("./data/");
- *     Valhalla()->Start();
- *     return 0;
- *   }
+ * 1:1 port of the C++ reference server's entry point: switch into the
+ * data directory, build the server, start it.
  */
 
 import { resolve, dirname } from 'path';
@@ -46,7 +40,7 @@ process.on('unhandledRejection', (grund) => {
 
 console.log('╔══════════════════════════════════════════╗');
 console.log('║   World of Vikings Server (WoV TS)       ║');
-console.log('║   Basis: 1:1-Port von Valhalla2.0 C++    ║');
+console.log('║   Autoritativer TypeScript-Server        ║');
 console.log('╚══════════════════════════════════════════╝');
 console.log();
 
@@ -65,5 +59,5 @@ process.on('SIGTERM', () => {
   process.exit(0);
 });
 
-// Start the server (C++ Valhalla()->Start())
+// Start the server
 server.start();

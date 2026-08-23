@@ -1,6 +1,6 @@
 /**
  * NetManager — manages all connected peers, handshake, and packet routing.
- * 1:1 port of NetManager.h from Valhalla2.0 C++.
+ * 1:1 port of NetManager.h from the C++ reference server.
  *
  * C++ reference:
  *   class INetManager {

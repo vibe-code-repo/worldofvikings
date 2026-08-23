@@ -1,6 +1,6 @@
 /**
  * GameSocket — WebSocket client for server communication (Phase 2).
- * Ported 1:1 from the valheim-browser client (protocol code only, no
+ * Ported 1:1 from the first prototype client (protocol code only, no
  * engine dependencies). Binary framing: [type: u8][payload].
  */
 
@@ -484,11 +484,21 @@ export class GameSocket {
    * Leerstring heisst "nichts angezogen" und ist eine gueltige Wahl —
    * deshalb kein Sonderfall im Server.
    */
-  sendAussehen(frisurId: string, oberkoerperId: string, beineId: string): void {
+  sendAussehen(
+    frisurId: string,
+    oberkoerperId: string,
+    beineId: string,
+    haarfarbeId: string
+  ): void {
     const w = new BinaryWriter();
     w.writeString(frisurId);
     w.writeString(oberkoerperId);
     w.writeString(beineId);
+    // Vierter Wert, ANGEHAENGT statt eingeschoben: Ein Server, der ihn
+    // noch nicht kennt, liest die ersten drei und laesst den Rest
+    // liegen — die Frisur kommt an, nur die Farbe nicht. Vorne
+    // eingeschoben waere das Paket fuer ihn Unsinn.
+    w.writeString(haarfarbeId);
     this.sendPacket(PacketType.SetAussehen, w.toUint8Array());
   }
 

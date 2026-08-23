@@ -1,9 +1,9 @@
 /**
  * Golden-value tests for the Unity math ports (Phase B1/B2 verification).
  *
- * Reference data + generator semantics from the original Valhalla project
+ * Reference data + generator semantics from the C++ reference project
  * (Avledet, commit aafde42 "backup", include/Tests.h — the files in
- * valheim.community/data/tests/ are unchanged from that commit):
+ * the reference project's data/tests/ are unchanged from that commit):
  *
  *   void Test_Random() {
  *     auto&& values = ReadFileLines("random_values.txt");
@@ -43,7 +43,7 @@ import { perlinNoise } from '../src/worldgen/Perlin.js';
 const f32 = Math.fround;
 
 const testsDir =
-  process.argv[2] ?? 'c:/Users/Administrator/Modding/valheim.community/data/tests';
+  process.argv[2] ?? 'c:/Users/Administrator/Modding/referenz-server/data/tests';
 
 let failures = 0;
 

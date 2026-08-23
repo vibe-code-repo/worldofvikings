@@ -4,7 +4,7 @@
  * One mesh per 64m zone (65×65 shared-edge vertices ⇒ no seams, see
  * Heightmap.ts header). Vertices are zone-local (f32 precision), the mesh
  * node carries the world offset. G-TEX (2026-07-26): the shared material is
- * the TerrainSplat NodeMaterial (original Valheim tiles, biome blending,
+ * the TerrainSplat NodeMaterial (original tiles, biome blending,
  * sand/rock/snow/lava rules) instead of the placeholder vertex colors.
  * The splat vertex attributes (aTiles/aWeights/aLava/aSnow/aRockTile) are
  * baked per chunk from cornerBiomes × smoothstep weights (same math as
@@ -166,7 +166,7 @@ const FAR_ZONES_PER_CHUNK = 2; // 2×2 zones = 128m per far chunk
 const FAR_BIAS = -0.35; // push the coarse mesh below the detailed one
 
 /**
- * "Detailgrad" (real Valheim GraphicsSettingInt.LOD — settings_lod, "Draw
+ * "Detailgrad" (GraphicsSettingInt.LOD des Originals — settings_lod, "Draw
  * distance / level of detail") — near-ring radius (full-res, zones) and
  * far-ring radius (low-LOD, zones) per quality level. Index matches
  * SettingsStore's 0=Niedrig/1=Mittel/2=Hoch/3=Sehr hoch; index 2 is the
@@ -505,7 +505,7 @@ export class TerrainManager {
     this.scene = scene;
     this.world = world;
 
-    // G-TEX: original Valheim tiles + biome blending (replaces vertex colors)
+    // G-TEX: original tiles + biome blending (replaces vertex colors)
     this.splat = new TerrainSplatMaterial(scene, WATER_LEVEL, sonne);
     this.material = this.splat.material;
 
@@ -625,7 +625,7 @@ export class TerrainManager {
     // die Wasserfläche wanderte also je nach Qualitätsstufe zwischen
     // opakem und transparentem Durchgang, ohne dass das irgendwo stand.
     //
-    // Gruppe 1 ist frei (nur ValheimSky setzt überhaupt einen Wert,
+    // Gruppe 1 ist frei (nur die Himmelskuppel setzt überhaupt einen Wert,
     // nämlich 0). Die zweite Zeile ist dabei PFLICHT: autoClear ist für
     // Gruppen > 0 per Default an, und ohne sie löscht Babylon vor
     // Gruppe 1 den Tiefenpuffer — das Wasser zeichnete sich dann über

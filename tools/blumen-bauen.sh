@@ -17,7 +17,7 @@
 # 55 cm sieht man den Unterschied, zwischen 35 und 45 nicht.
 #
 # Die Karten zeichnet `tools/blumen-texturen.py`; nichts davon stammt aus
-# Valheim.
+# dem Vorbild.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

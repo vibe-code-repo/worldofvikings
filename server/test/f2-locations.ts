@@ -3,7 +3,7 @@
  *
  * ── RUHEND seit 16.08.2026, läuft in keiner Testliste ────────────────
  * Das Projekt benutzt seither ausschließlich selbst gebaute Modelle. Alle
- * 146 Locations aus features.pkg sind Valheim-Exporte und werden in
+ * 146 Locations aus features.pkg sind Fremdexporte und werden in
  * shared/src/features.ts gegen EIGENE_MODELLE herausgefiltert — FEATURES
  * ist leer. Jede der sieben Prüfungen unten setzt voraus, dass überhaupt
  * eine Location existiert; gemessen sind 4 von 9 rot, der Rest liefe

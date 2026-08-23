@@ -100,7 +100,7 @@ export interface WorldMapOptions {
    * Admin: Strg+Klick auf die Karte. Fehlt der Rückruf, ist die Funktion
    * abgeschaltet (und der Hinweis in der Kopfzeile bleibt weg).
    *
-   * Vorbild ist Valheims Debug-Teleport (`Minimap.OnMapMiddleClick` →
+   * Vorbild ist dessen Debug-Teleport (`Minimap.OnMapMiddleClick` →
    * `DebugTeleport`), dort an Strg+MITTELklick. Im Browser ist die
    * mittlere Taste unzuverlässig (Autoscroll, oft gar nicht vorhanden),
    * deshalb hört das hier zusätzlich auf die linke.

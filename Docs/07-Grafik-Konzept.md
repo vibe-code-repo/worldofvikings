@@ -1,7 +1,7 @@
-# 07 — Grafik-Konzept: Valheim-Atmosphäre statt Minecraft-Look
+# 07 — Grafik-Konzept: dichte Atmosphäre statt Minecraft-Look
 
-> Erstellt 2026-08-01 auf die Meldung „unser Bild erinnert eher an Minecraft als an
-> Valheim". Ergänzt [03-Rendering-und-Engine.md](03-Rendering-und-Engine.md) um eine
+> Erstellt 2026-08-01 auf die Meldung „unser Bild erinnert eher an Minecraft als an das
+> Vorbild". Ergänzt [03-Rendering-und-Engine.md](03-Rendering-und-Engine.md) um eine
 > Ursachenanalyse und eine Umsetzungsreihenfolge; die dortigen Detailbefunde bleiben gültig,
 > **außer** den beiden hier ausdrücklich korrigierten (Schattenempfang des Terrains,
 > Clutter-UV-Layout).
@@ -9,7 +9,7 @@
 > **Nachgezogen 2026-08-16.** Die Diagnose (Ursachen A–E) und die Stufen 1–5 stehen
 > unverändert — es sind Befunde über unsere Farb- und Beleuchtungspipeline, und die hat
 > sich nicht geändert. Was sich geändert hat, ist die **Materialgrundlage**: Der
-> Valheim-Export ist gelöscht, es gibt keine gerippten Modelle und keine gerippten Texturen
+> Fremdexport ist gelöscht, es gibt keine gerippten Modelle und keine gerippten Texturen
 > mehr (siehe [04-Asset-Pipeline.md](04-Asset-Pipeline.md)). Die Vorgabe *streng
 > originalgetreu, kein HD-Mod-Material* ist damit schärfer geworden als sie gemeint war:
 > Vorbild bleibt das Original, **Material** kommt ausschließlich aus eigener Hand. Betroffen
@@ -22,7 +22,7 @@
 
 ## Ausgangslage
 
-Die Screenshots `screenshots/{fels,wasser,bei_nacht}.png` zeigen Original-Valheim: sehr
+Die Screenshots `screenshots/{fels,wasser,bei_nacht}.png` zeigen das Vorbild: sehr
 dunkle, blaugrüne Nachtszenen mit dichtem, vielgestaltigem Unterholz, weichen
 Tiefenstaffelungen und Nebelschichten. Unser Client (`screenshots/2026-07-29_20-32.png`,
 `2026-07-31_20-20.png`) wirkt dagegen wie ein Voxelspiel: gleichmäßig gefärbte Flächen,
@@ -252,7 +252,7 @@ Danach funktionieren PCF/PCSS/Poisson im NodeMaterial → `usePercentageCloserFi
   Kaskadendistanz liegt, bekommt nie `receiveShadows = true`, und `werferNeuBestimmen()`
   (Zeile 163-171) setzt nur die `renderList` neu. Empfangen muss unabhängig gesetzt werden.
 - **Gras: empfangen JA, werfen NEIN.** `AUSGENOMMEN` (Zeile 76) sperrt `clutter*` für beides.
-  Gras im Waldschatten ist ein Kernstück von Valheims Optik und kostet nur eine zusätzliche
+  Gras im Waldschatten ist ein Kernstück der angestrebten Optik und kostet nur eine zusätzliche
   Abtastung pro Fragment; Werfen bleibt gesperrt (jede Kaskade rendert die volle Werferliste).
 
 **1d — Default setzen.** `Settings.ts:119` auf `shadowQuality: 2` (Original-Default,
@@ -408,7 +408,7 @@ Stufe 3 jetzt wieder ansteht:
 |---|---|---|
 | `grass_meadows_gen` (heutiger und einziger Stand) | 61 % | **62 %** |
 | `grasscross_meadows` (HD-Pack, entfernt) | 32 % | **30 %** |
-| Valheim-Original (Screenshot, Boden) | — | **31 %** |
+| Vorbild (Screenshot, Boden) | — | **31 %** |
 
 Die selbst generierte Karte verfehlt den Originalwert um das Doppelte; die Wiese wirkt
 damit wieder so grell, wie Stufe 1 es beschreibt. Die Antwort darauf ist nicht ein
@@ -499,7 +499,7 @@ ist damit so bunt wie ihre Tönung, und nicht mehr bunter — der Mechanismus st
 hängt an einer Textur.
 
 Ob die Karte entsättigt gehört, ist eine Entscheidung über die Bildsprache: Sie ist die
-Farbe, die Valheims Wiesen *haben*. Damit ist Stufe 3 an dem Punkt, an dem gemessene
+Farbe, die die Wiesen des Vorbilds *haben*. Damit ist Stufe 3 an dem Punkt, an dem gemessene
 Ursachenarbeit endet und Geschmack anfängt.
 
 #### Coverage-erhaltende Mipmaps: gemessen, und **nicht nötig** (17.08.2026)
@@ -894,7 +894,7 @@ echten Lücke Code ändern."*
 Die Diagnose-vor-Änderung-Haltung bleibt richtig. Die Datenlage ist es nicht mehr:
 `vegetationData.json` liegt unverändert im Quelltext, aber jeder Eintrag läuft in
 `shared/src/vegetation.ts` gegen `istEigenesModell()`, und in `vegetation.pkg` steht
-ausschließlich Valheim-Material. Der gesamte Block fällt heraus. **`FOLIAGE` ist heute
+ausschließlich Fremdmaterial. Der gesamte Block fällt heraus. **`FOLIAGE` ist heute
 `shared/src/flora.ts`** — die eigene Streutabelle, nicht mehr ein Anhang an die
 Original-Tabelle. Von 174 Roheinträgen bleiben 73 eigene.
 
@@ -915,7 +915,7 @@ Kuratierungsliste der Region.
 **Flora — kein einziger Totfall.** `tools/flora-zensus.ts` streut je Biom 13×13 Zonen einer
 Testinsel und zählt die abgelegten ZDOs nach Art. Ergebnis: **0 Arten mit null Vorkommen**,
 über alle vier gefüllten Bündel. Der Verdacht, der diese Stufe ausgelöst hat, gehörte zur
-gelöschten Valheim-Tabelle und ist mit ihr verschwunden.
+gelöschten Fremdtabelle und ist mit ihr verschwunden.
 
 | Bündel | Arten | Pflanzen auf 13×13 Zonen |
 |---|---|---|
@@ -952,7 +952,7 @@ Der Grund ist nicht `inForest`, sondern `maxAlt: 4.0` — vier Meter über der W
 
 Landfläche gesamt: 64,26 km². **Der Farn ist damit auf 4,6 % der Welt beschränkt, bevor Biom-
 und Waldfilter überhaupt greifen** — und die Graslandregionen liegen ausgerechnet auf
-30–120 m. Valheims Wiesen liegen dicht am Meeresspiegel; ein authentischer Wert trifft hier
+30–120 m. Die Wiesen des Vorbilds liegen dicht am Meeresspiegel; ein authentischer Wert trifft hier
 auf eine Welt, für die er nicht gedacht war.
 
 > [!important] Bewusst nicht eigenmächtig geändert
@@ -1445,7 +1445,7 @@ deshalb erst gemessen, ob sie noch nötig ist.
   `assets/textures/hd-clutter/` liegt noch auf einem der beiden Container; in
   `assets/textures/` stehen 66 selbst erzeugte Karten und sonst nichts. Fremdes Material
   gehört generell nicht in `assets/` — was der Client ausliefert, ist öffentlich abrufbar.
-  Derselbe Grundsatz hat inzwischen auch den Valheim-Export selbst erledigt (siehe
+  Derselbe Grundsatz hat inzwischen auch den Fremdexport selbst erledigt (siehe
   [04-Asset-Pipeline.md](04-Asset-Pipeline.md)).
 - **Triplanar-Terrain**, **`terrain_n_array.png`**, **Wolken-/Sterntexturen**: geringer
   Gewinn bzw. würden die Kopplung des prozeduralen Himmels an das EnvSetup schwächen.
@@ -1463,7 +1463,7 @@ Client aus) und `wov-admin` (Betriebsdienst, Port 2468; dort liegen auch
 `/api/worldlayout` und `/api/serverlog`). Ob der Server im Watch-Modus läuft, entscheidet
 `WOV_WATCH` in `/etc/wov.env`, nicht der Quelltext; auf live bleibt die Variable leer.
 
-*(Bis dahin stand hier `systemctl start valheim.target` mit Server 2466 und Client 5273 —
+*(Bis dahin stand hier das alte Sammelziel des Vorgängerprojekts mit Server 2466 und Client 5273 —
 ein Sammelziel aus der Zeit, als dev und live sich in Quelldateien unterschieden. Ports und
 Unit-Namen stimmen beide nicht mehr.)*
 

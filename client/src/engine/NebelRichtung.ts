@@ -1,12 +1,12 @@
 /**
- * NebelRichtung — Valheims zweifarbiger Nebel, pro Pixel statt pro Frame.
+ * NebelRichtung — zweifarbiger Nebel, pro Pixel statt pro Frame.
  *
  * ── Worum es geht ────────────────────────────────────────────────────
  * Jeder Keyframe des Umgebungsmodells führt ZWEI Nebelfarben: `fogColor`
  * für den Blick von der Sonne weg und `fogColorSun` für den Blick zu ihr
  * hin. Dieser gerichtete, sonnengefärbte Dunst ist der wiedererkennbarste
- * Teil der Bildsprache — ein einziger flacher Nebelton liest sich nie als
- * Valheim, egal wie gut er abgestimmt ist.
+ * Teil der Bildsprache — ein einziger flacher Nebelton trifft das nie,
+ * egal wie gut er abgestimmt ist.
  *
  * Babylons Nebel kennt nur EINEN szenenweiten Uniform (`vFogColor`,
  * `ShadersInclude/fogFragmentDeclaration`). Bis hierher hat `Lighting`

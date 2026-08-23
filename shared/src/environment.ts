@@ -1,16 +1,15 @@
 /**
- * Environment model — port of Valheim's `EnvSetup` / `EnvMan` lighting data.
+ * Environment model — keyframe-based lighting data.
  *
- * Valheim does NOT drive lighting from a generic "sun angle over 24 h"
- * formula. Every weather is an `EnvSetup` ScriptableObject holding
- * KEYFRAMES for four times of day, and `EnvMan` interpolates between them
- * using the day fraction. Faithfully reproducing the look therefore means
- * reproducing that data model, not inventing a curve.
+ * Lighting is NOT driven by a generic "sun angle over 24 h" formula. Every
+ * weather is a data record holding KEYFRAMES for four times of day, and the
+ * environment manager interpolates between them using the day fraction.
+ * Faithfully reproducing the look therefore means reproducing that data
+ * model, not inventing a curve.
  *
  * ── Verified field set ────────────────────────────────────────────────
- * The field list below is 1:1 the EnvSetup surface exposed by
- * Expand World Data (JereKuusela), which writes vanilla EnvSetup objects
- * to YAML — see docs/environments.md in that repo:
+ * The field list below is 1:1 the surface of the reference environment
+ * record, as exposed by a third-party YAML exporter for that format:
  *
  *   fogColor{Morning,Day,Evening,Night}       base fog color
  *   fogColorSun{Morning,Day,Evening,Night}    fog color TOWARDS the sun
@@ -26,15 +25,15 @@
  *  1. Fog has TWO colors per keyframe. The rendered fog color depends on
  *     the VIEW DIRECTION relative to the sun (`fogColorSun*` towards it,
  *     `fogColor*` away from it). This directional, sun-tinted fog is the
- *     single most characteristic part of Valheim's look, and it is why a
- *     plain single-color `scene.fogColor` never reads as "Valheim".
+ *     single most characteristic part of the look we are after, and it is
+ *     why a plain single-color `scene.fogColor` never gets there.
  *     Babylon's built-in fog is single-color → see ValheimFogPlugin.
  *  2. Ambient has only day/night keys while fog/sun have four, so the
  *     two are interpolated on DIFFERENT curves.
  *
  * ── Verified timing ──────────────────────────────────────────────────
  * The phase anchors come from constants.ts, which was ported 1:1 from the
- * C++ server (Valhalla2.0, WovServer.h) and matches vanilla:
+ * C++ reference server:
  *
  *   WORLD_TIME_LENGTH = 1800 s   full cycle (30 min)  → EnvMan.m_dayLengthSec
  *   TIME_MORNING      =  240 s   → fraction 0.1333    sunrise
@@ -55,7 +54,7 @@
  *
  *   node tools/dump-envsetup.mjs <AssetRipper-export-dir>
  *
- * which writes shared/src/envData.json from the local Valheim export
+ * which writes shared/src/envData.json from a local asset export
  * (same approach that produced the verified clutter table).
  */
 
@@ -96,7 +95,7 @@ export interface EnvSetup {
   sunColorDay: EnvColor;
   sunColorEvening: EnvColor;
   sunColorNight: EnvColor;
-  /** Ambient has only two keys in Valheim, not four. */
+  /** Ambient has only two keys in the reference data, not four. */
   ambColorDay: EnvColor;
   ambColorNight: EnvColor;
   lightIntensityDay: number;
@@ -445,7 +444,7 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
  * Overlay extracted ground truth (envData.json) onto the hand-tuned table.
  *
  * envData.json ships EMPTY and is filled by tools/dump-envsetup.mjs from a
- * local Valheim export, so this is a no-op until that has been run — the
+ * local asset export, so this is a no-op until that has been run — the
  * same arrangement as prefabData.json in prefabs.ts. Merging happens FIELD
  * BY FIELD so a partial extraction (a cave env with only a handful of keys
  * set, for instance) sharpens what it knows without punching holes into the
@@ -545,7 +544,7 @@ function lerpColor(a: EnvColor, b: EnvColor, t: number): EnvColor {
 }
 
 /**
- * Where we sit between the four keyframes. Valheim's keys are anchored at
+ * Where we sit between the four keyframes. The keys are anchored at
  * night (midnight), morning (sunrise), day (midday) and evening (sunset),
  * so the segments are NOT equally long — using four equal quarters is the
  * usual mistake and makes dawn/dusk land at the wrong clock time.
@@ -633,7 +632,7 @@ function elevationFactor(dayFraction: number): number {
  * danach aussieht. Die vier Gewichte entstehen unabhängig voneinander und
  * werden anschliessend AUFSUMMIERT, und ihre Summe ist ausdrücklich nicht
  * 1: um 19.7 h liefert die Formel nur `nacht = 0.53`, alles andere 0.
- * Genau daraus entsteht Valheims Dämmerung — die Farben werden nicht zur
+ * Genau daraus entsteht die Dämmerung — die Farben werden nicht zur
  * nächsten Tageszeit hin verschoben, sondern gegen Schwarz gedämpft.
  *
  * Ein normalisierter Zwei-Key-Blend (der Vorgänger dieser Funktion) kann
@@ -749,7 +748,7 @@ export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
     lightIntensity: env.lightIntensityDay * w.day + env.lightIntensityNight * w.night,
     cloudAlpha: env.rainCloudAlpha,
     // Light travels from the sky towards the ground → negate. |height|
-    // keeps the MOON overhead at night (Valheim has one main light that
+    // keeps the MOON overhead at night (there is one main light that
     // becomes moonlight, it never shines up from below the terrain).
     lightDir: {
       x: -Math.cos(azimuth) * horiz,

@@ -27,7 +27,7 @@
  * abgefangen:
  *   - `AssetManager.instantiate()` liefert null, wenn die GLB fehlt (der
  *     Ladefehler ist gefangen) ODER wenn die Hierarchie keine sichtbaren
- *     Vertices hat (mesh-lose Bone-Rigs des Valheim-Exports). Beides
+ *     Vertices hat (mesh-lose Bone-Rigs des Fremdexports). Beides
  *     endet im selben sauberen Platzhalter: ein Drahtgitter-Quader in
  *     Prefab-Größe plus Klartext im Metadatenblock.
  *   - Zusätzlich eine Zeitgrenze (LADE_TIMEOUT): Hängt eine Anfrage

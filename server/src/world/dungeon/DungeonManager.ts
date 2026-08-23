@@ -1,7 +1,7 @@
 /**
  * DungeonManager (Phase G) — dungeons as standalone instances.
  *
- * Concept (deliberately different from Valheim's "+5000 m sky" hack):
+ * Concept (deliberately different from the usual "+5000 m in the sky" hack):
  * every dungeon lives in its own instance slot in the dungeon band — the
  * same world coordinate system, but far outside the playable world
  * (x = DUNGEON_INSTANCE_X_BASE, one slot every DUNGEON_INSTANCE_SPACING
@@ -20,7 +20,7 @@
  *     reassignable via admin command.
  *   DungeonInstance (ephemeral) — materialized ZDOs of one document in an
  *     instance slot. Never saved with the world (loot state resets on
- *     server restart, like Valheim's own dungeon regeneration).
+ *     server restart — dungeons regenerate).
  *
  * C++ reference: DungeonManager.cpp / DungeonGenerator.cpp (the generation
  * itself lives in shared/src/dungeonGenerator.ts).
@@ -373,7 +373,7 @@ export class DungeonManager {
   spawnEntranceHull(entrance: DungeonEntrance): boolean {
     if (this.hullSpawned.has(entrance.zoneKey)) return false;
     if (!ENTRANCE_HULL_MODELS.has(entrance.feature)) return false;
-    // Block A: alle zehn Hüllennamen sind Valheim-Exporte, keiner steht in
+    // Block A: alle zehn Hüllennamen sind Fremdexporte, keiner steht in
     // EIGENE_MODELLE. Ein ZDO dafür wäre ein Geist — der Client bekäme es
     // zugestellt, fände kein Modell und zeichnete nichts, während die
     // Weltkarte weiter eine Marke auf eine unsichtbare Krypta setzte.

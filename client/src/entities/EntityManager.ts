@@ -2,7 +2,7 @@
  * EntityManager (Phase 2) — maps ZDO updates to the scene.
  *
  * Static ZDOs (trees, rocks, building pieces, …) become THIN INSTANCES in
- * per-prefab buckets (the only sane way to render Valheim's vegetation
+ * per-prefab buckets (the only sane way to render this much vegetation
  * density — see Docs/03 §4). Dynamic ZDOs (creatures, item drops, ships,
  * other players) become instantiated hierarchies with per-entity
  * transforms. LocationProxy ZDOs carry the feature hash for terrain
@@ -29,10 +29,12 @@ import {
   modellZu,
   AUSSEHEN_ORDNER,
   frisurZu,
+  haarfarbeZu,
   ruestungZu,
   istFrisur,
 } from '@wov/shared';
 import type { NpcEinordnung } from '@wov/shared';
+import { faerbeHaar } from '../player/haarfarbe.js';
 import { buildMeshCollider, deriveCollider, StaticColliderSet } from '../engine/Physics';
 
 import {
@@ -185,7 +187,7 @@ export function vegetationsMatrizenImRadius<T extends { m: ArrayLike<number> }>(
  *
  * Vorher hing die Auswahl an der GEOMETRIE ("alles über 0,5 m"). Genau
  * daher kamen die riesigen Kollisionsboxen um Äste und Deko: Ein liegender
- * Ast ist gross, aber in Valheim läuft man hindurch, weil er auf keinem
+ * Ast ist gross, aber im Vorbild läuft man hindurch, weil er auf keinem
  * soliden Layer liegt.
  */
 const COLLIDING_FLAGS =
@@ -222,7 +224,7 @@ const NEVER_COLLIDING_FLAGS =
  * Weiche Vegetation, durch die man läuft, obwohl sie DESTRUCTIBLE ist.
  *
  * Büsche, Sträucher und herumliegende Äste sind zerstörbar, aber kein
- * Hindernis — in Valheim entscheidet darüber der Layer, den unser Export
+ * Hindernis — im Vorbild entscheidet darüber der Layer, den unser Export
  * nicht enthält (die Prefab-Roots fehlen). Der Name ist hier der
  * verlässlichste verfügbare Ersatz; er trifft AshlandsBranch1-3, Bush01,
  * RaspberryBush, shrub_2 und Verwandte, während Beech_small, FirTree_small,
@@ -310,7 +312,7 @@ const RENDER_ZELLE_M = 384;
 /**
  * Harte Obergrenze der Instanzen je Zell-Master (E19 c).
  *
- * Übernommen vom Vorbild: Valheims InstanceRenderer bündelt höchstens
+ * Übernommen vom Vorbild: Dessen InstanceRenderer bündelt höchstens
  * 1024 Instanzen je Gruppe und prüft das Frustum pro Gruppe. Eine dichte
  * 128-m-Zelle kann mehr als das halten (leaves_merged hat insgesamt bis
  * 3391), deshalb hält jede Zelle eine LISTE von Meshes und füllt sie in
@@ -1049,11 +1051,17 @@ export class EntityManager {
       wurzel.rotationQuaternion = null;
       wurzel.rotation.setAll(0);
       wurzel.scaling.setAll(1);
-      for (const m of wurzel.getChildMeshes()) {
-        if (m.getTotalVertices() > 0) {
-          m.skeleton = skelett;
-          m.isPickable = false;
-        }
+      const netze = wurzel.getChildMeshes().filter((m) => m.getTotalVertices() > 0);
+      for (const m of netze) {
+        m.skeleton = skelett;
+        m.isPickable = false;
+      }
+      // MIT Klon: Diese Netze stammen aus dem Container-Cache, und
+      // `instantiateModelsToScene` teilt Materialien zwischen allen
+      // Instanzen. Ohne Klon faerbte der erste Spieler mit dieser
+      // Frisur alle anderen mit (s. haarfarbe.ts).
+      if (slot === 'frisur') {
+        faerbeHaar(netze, haarfarbeZu(u.haarfarbe).hex, true);
       }
       dyn.aussehen.set(slot, { datei, wurzel });
     }

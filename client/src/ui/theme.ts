@@ -2,7 +2,7 @@
  * Shared look for the DOM overlays (settings, hotbar, inventory).
  *
  * Extracted from SettingsPanel so the new panels do not re-invent the palette.
- * As noted there: this approximates Valheim's dark-leather/bronze UI with CSS
+ * As noted there: this approximates the dark-leather/bronze UI with CSS
  * only — the extracted Sprite assets are keyed by opaque PathIDs with no
  * recovered name mapping, so the real panel textures are not usable yet.
  */

@@ -86,7 +86,7 @@ def gen(path, base_rgb, tip_rgb, blades_per_col, seed):
 # Ziel ist assets/textures im Projekt, ueber den Ort DIESER Datei
 # bestimmt statt relativ zum Arbeitsverzeichnis.
 #
-# Stand bis 2026-08-13 auf '../valheim_browser_assets/textures/' — dem
+# Stand bis 2026-08-13 auf dem Texturordner des Vorlaeufer-Prototyps — dem
 # Ordner des three.js-Vorlaeuferprojekts, der hier gar nicht existiert.
 # Das Werkzeug legte seine drei Atlanten also entweder neben das Repo
 # oder brach mit FileNotFoundError ab; in `assets/textures/` landete

@@ -1,6 +1,6 @@
 # 05 — Server-Architektur (C++ → TypeScript)
 
-Der Kern des Servers ist der 1:1-Port des C++-Servers aus `valheim.community` (Valhalla2.0). Er wurde in `valheim-browser` weitgehend umgesetzt und **unverändert übernommen** — die Engine-Migration berührte ihn nicht. Seither ist Eigenes dazugekommen, das im C++-Vorbild keine Entsprechung hat: die Layout-Welt ([10](10-Weltbau-Layout-und-Editor.md)), NPC-Routen, Dungeon-Instanzen ([08](08-Dungeon-System.md)) — und der Betriebsteil am Ende dieses Dokuments.
+Der Kern des Servers ist der 1:1-Port des C++-Referenzservers. Er wurde im ersten Prototyp weitgehend umgesetzt und **unverändert übernommen** — die Engine-Migration berührte ihn nicht. Seither ist Eigenes dazugekommen, das im C++-Vorbild keine Entsprechung hat: die Layout-Welt ([10](10-Weltbau-Layout-und-Editor.md)), NPC-Routen, Dungeon-Instanzen ([08](08-Dungeon-System.md)) — und der Betriebsteil am Ende dieses Dokuments.
 
 > Dieses Dokument ist auch **Betriebsanleitung**. `deploy/systemd/wov-server.service` verweist
 > mit `Documentation=` hierher; wer den Dienst untersucht, landet auf dieser Seite. Deshalb
@@ -10,10 +10,10 @@ Der Kern des Servers ist der 1:1-Port des C++-Servers aus `valheim.community` (V
 
 ## C++ → TypeScript Mapping
 
-| C++ (`valheim.community/library/src`) | TypeScript (`server/src`) | Status |
+| C++ (Referenzserver, `library/src`) | TypeScript (`server/src`) | Status |
 |---|---|---|
 | `Main.cpp` (core) | `main.ts` | ✅ vorhanden |
-| `ValhallaServer.cpp` | `WovServer.ts` (hieß beim Import `ValhallaServer.ts`) | ✅ vorhanden |
+| Server-Orchestrator | `WovServer.ts` | ✅ vorhanden |
 | `ZDO.cpp / ZDOManager.cpp` | `zdo/ZDO.ts, ZDOManager.ts` | ✅ vorhanden |
 | `ZDOID.cpp` | `zdo/ZDOID.ts` | ✅ vorhanden |
 | `Prefab.cpp / PrefabManager.cpp` | `prefab/Prefab.ts, PrefabManager.ts` | ✅ vorhanden |
@@ -35,7 +35,7 @@ Der Kern des Servers ist der 1:1-Port des C++-Servers aus `valheim.community` (V
 | `DiscordManager.cpp, RestApiManager.cpp` | — | ⬜ optional (Admin/Integration) |
 | `ModManager.cpp` (Lua) | — | ⬜ bewusst später — Lua-Modding API |
 
-> Hinweis: Die Tabelle ist der Auszug aus dem Mapping in valheim-browser/PLAN.md plus Datei-Abgleich mit `valheim.community/library/src`. Der Import (Phase 0) ist am 2026-07-26 gelaufen; die Statusspalte trägt seither den Ist-Stand dieses Repos, nicht mehr den von valheim-browser.
+> Hinweis: Die Tabelle ist der Auszug aus dem Mapping des Prototyps plus Datei-Abgleich mit `library/src` des Referenzservers. Der Import (Phase 0) ist am 2026-07-26 gelaufen; die Statusspalte trägt seither den Ist-Stand dieses Repos, nicht mehr den des Prototyps.
 
 ---
 
@@ -56,8 +56,8 @@ Server (autoritativ)
 
 1. ~~**Spawn-Daten komplettieren**: Scale/Rotation in die Spawn-Pakete~~ — ✅ war mit Phase E bereits importiert (`ZoneManager` sendet `scaleScalar` + Boden-Neigungs-Rotation).
 2. ~~**Vegetationssystem serverseitig**~~ — ✅ portiert. Seit 2026-08-16 läuft jeder Eintrag gegen `istEigenesModell()`; aus `vegetation.pkg` bleibt damit nichts übrig (120 von 120 gefiltert). `FOLIAGE` besteht heute aus den 73 eigenen Einträgen in `shared/src/flora.ts`. Folge: Es gibt keine Biom-Standardtabelle mehr — eine Region ohne Kuratierungsliste bleibt kahl.
-3. **Locations** (Analyse Phase F): Die features.pkg-Platzierung (146 Locations) ist gebaut, steht aber seit 2026-08-16 auf `world.features: false`. Grund: Alle 146 Einträge sind Valheim-Exporte. Gebucht würden sie trotzdem — jede Instanz legte ZDOs an, die der Client nicht darstellen kann, und der Spieler liefe durch unsichtbare Grabhügel. Verworfen wurde, sie nur clientseitig auszublenden: dann stünden die Geister-ZDOs weiter im Save und passten später nicht mehr zu der Buchung, die mit eigenen Modellen entsteht. Dasselbe gilt für `dungeons.enabled: false`, das zwingend folgt — ohne gebuchte Krypta gibt es keinen Eingang.
-4. **Tests**: `npm run typecheck` und `node scripts/run-tests.mjs` sind seit Block A das Tor im Ausrollskript und müssen grün bleiben (23 Tests, Kernliste 20). Das Weltgen-Diff-Tool gegen C++ (`geo-compare`, `heightmap-compare`, `geo-map`) braucht Referenz-Dumps als Argument und steht bewusst außerhalb der Liste — es gehört zum eingefrorenen `valheim`-Übergangspfad.
+3. **Locations** (Analyse Phase F): Die features.pkg-Platzierung (146 Locations) ist gebaut, steht aber seit 2026-08-16 auf `world.features: false`. Grund: Alle 146 Einträge sind Fremdexporte. Gebucht würden sie trotzdem — jede Instanz legte ZDOs an, die der Client nicht darstellen kann, und der Spieler liefe durch unsichtbare Grabhügel. Verworfen wurde, sie nur clientseitig auszublenden: dann stünden die Geister-ZDOs weiter im Save und passten später nicht mehr zu der Buchung, die mit eigenen Modellen entsteht. Dasselbe gilt für `dungeons.enabled: false`, das zwingend folgt — ohne gebuchte Krypta gibt es keinen Eingang.
+4. **Tests**: `npm run typecheck` und `node scripts/run-tests.mjs` sind seit Block A das Tor im Ausrollskript und müssen grün bleiben (23 Tests, Kernliste 20). Das Weltgen-Diff-Tool gegen C++ (`geo-compare`, `heightmap-compare`, `geo-map`) braucht Referenz-Dumps als Argument und steht bewusst außerhalb der Liste — es gehört zum eingefrorenen radialen Übergangspfad.
 5. **Kreaturen**: `SPAWN_TABLE` ist aus demselben Grund leer (3 von 3 Einträgen gefiltert). Der Spawn-Code läuft, findet aber nichts zu spawnen — bis eigene Kreaturenmodelle vorliegen, kann im Spiel nicht gekämpft werden.
 
 ---

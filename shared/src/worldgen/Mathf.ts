@@ -1,5 +1,5 @@
 /**
- * Math helpers — 1:1 ports from Valhalla2.0 `VUtilsMath.cpp` / `VUtilsMathf.cpp`.
+ * Math helpers — 1:1 ports from the C++ reference server's math utilities.
  *
  * Two precision flavors exist side by side in the C++ code:
  *  - `VUtils::Math::*` double-precision variants (HEIGHTFIX-02) used in height

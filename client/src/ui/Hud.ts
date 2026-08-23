@@ -147,7 +147,7 @@ export class Hud {
 
   /**
    * Kurzlebige Bildschirmmeldung (Serverantworten wie "Dungeon betreten",
-   * Valheims MessageHud.TopLeft-Äquivalent). Ersetzt eine noch stehende
+   * Äquivalent zum MessageHud oben links des Vorbilds). Ersetzt eine noch stehende
    * Meldung statt zu stapeln.
    */
   meldung(text: string): void {

@@ -1,5 +1,5 @@
 /**
- * Player inventory — 1:1 model of Unity `Inventory` (assembly_valheim/Inventory.cs).
+ * Player inventory — 1:1 model of the reference implementation's `Inventory`.
  *
  * Deliberately a FLAT LIST with a grid position per item, not a 2D array. That
  * is how the original stores it (`List<ItemData>` + `m_gridPos`), and it keeps

@@ -17,7 +17,7 @@
  * Bauwerk auf der Whitelist), SPAWN_TABLE 0 (kein eigenes Kreaturmodell
  * lauffähig) — siehe features.ts/spawnData.ts. Die Roadmap-Zahl "120" für
  * die Vegetation stammt aus `vegetationData.json` (den geparsten
- * Valheim-Originalen); seit Block A fallen die vollständig heraus (siehe
+ * Fremdmodellen); seit Block A fallen die vollständig heraus (siehe
  * Kopfkommentar von vegetation.ts), übrig bleiben die 102 eigenen Arten
  * aus flora.ts. Locations und Spawns haben deshalb HEUTE keinen einzigen
  * wählbaren Eintrag — der Katalog liefert für sie eine leere Liste, kein
@@ -134,7 +134,7 @@ function locationsKatalog(): KatalogEintrag[] {
  * Spawns: Name + Biome + Gruppengrösse + Monster/friedlich
  * (`aggro === false` → NPC laut spawnData.ts-Kopfkommentar). Heute immer
  * leer (SPAWN_TABLE.length === 0) — Deer/Boar/Greydwarf sind
- * Valheim-Modelle und fallen bei `bauSpawnTabelle()` alle heraus.
+ * Fremdmodelle und fallen bei `bauSpawnTabelle()` alle heraus.
  */
 function spawnsKatalog(): KatalogEintrag[] {
   return SPAWN_TABLE.map((e) => {

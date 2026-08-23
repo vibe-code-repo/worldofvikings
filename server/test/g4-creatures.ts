@@ -28,7 +28,7 @@
  * BLOCK A: Geprueft wird die MECHANIK, nicht der Inhalt der
  * Auslieferungstabelle. SPAWN_TABLE ist gegen die Whitelist
  * `EIGENE_MODELLE` gefiltert und damit leer — Deer, Boar und Greydwarf
- * sind Valheim-Modelle. Ein Test, der von dort seine Eintraege zieht,
+ * sind Fremdmodelle. Ein Test, der von dort seine Eintraege zieht,
  * pruefte ab sofort an einer leeren Liste vorbei und waere lautlos gruen.
  * Er faehrt deshalb eine eigene PROBE_TABELLE aus drei Wesen mit eigenem
  * Modell, die die drei Rollen der alten Tabelle 1:1 uebernehmen. Das ist

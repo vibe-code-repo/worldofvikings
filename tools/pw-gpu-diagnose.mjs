@@ -56,7 +56,7 @@ const LAYOUT = arg('layout', '');
 /**
  * Vollstaendige Umgebung aus dem echten Browserprofil.
  *
- * Datei mit {"wov-editor-layout": "...", "valheim-babylon-settings-v1":
+ * Datei mit {"wov-editor-layout": "...", "<Einstellungsschluessel>":
  * "..."} — ausgelesen aus Firefox' localStorage-Datenbank. Ohne die
  * misst man mit den VOREINSTELLUNGEN, und die sind eine Stufe niedriger
  * als das, was Mike faehrt (Detail/Schatten/Wasser je 3 statt 2, dazu

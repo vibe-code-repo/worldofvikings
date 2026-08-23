@@ -11,7 +11,7 @@ import { chromium } from 'playwright';
 import { mkdirSync } from 'fs';
 
 const url = process.argv[2] ?? 'http://localhost:5274/?offline=1&t=0.35';
-const outDir = process.argv[3] ?? '/tmp/claude-0/-root-valheim-babylon/c908a284-e68f-40e4-9cf1-4e2877d70dbe/scratchpad';
+const outDir = process.argv[3] ?? 'tools/out';
 mkdirSync(outDir, { recursive: true });
 
 const browser = await chromium.launch();

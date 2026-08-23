@@ -45,7 +45,7 @@ export interface HeightmapSettings {
 /**
  * Terrain leveling modifier (Unity TerrainModifier::LevelTerrain, Phase F4).
  * The C++ reference server does NOT level terrain under locations (its
- * TerrainModifier.cpp only feeds ClearArea params) — in original Valheim the
+ * TerrainModifier.cpp only feeds ClearArea params) — in the original the
  * leveling is a Unity client behavior. We bake it into `Heightmap.heights`
  * on BOTH server (ground truth) and client (rendering) with identical math,
  * so locations sit on a flat plateau instead of floating on slopes.

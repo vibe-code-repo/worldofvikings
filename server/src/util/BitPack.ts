@@ -1,6 +1,6 @@
 /**
  * BitPack — compile-time bitfield packing.
- * 1:1 port of BitPack.h from Valhalla2.0 C++.
+ * 1:1 port of BitPack.h from the C++ reference server.
  *
  * C++ reference:
  *   template<typename T, std::size_t... Bits>

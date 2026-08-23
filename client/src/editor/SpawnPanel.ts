@@ -160,7 +160,7 @@ const KATEGORIEN: ReadonlyArray<{ name: string; namen: () => string[] }> = [
 
 /**
  * Vorgabe der Vorauswahl. Hier stand 'Beech1' — eine Buche aus dem
- * Valheim-Export, die es seit Block A nicht mehr gibt. Die hohe Birke ist
+ * Fremdexport, die es seit Block A nicht mehr gibt. Die hohe Birke ist
  * der nächstliegende Ersatz: derselbe Zweck (ein Laubbaum zum
  * Ausprobieren) und der erste Eintrag von EIGENE_MODELLE, also das, was
  * die Liste beim Öffnen ohnehin ganz oben zeigt.
@@ -172,7 +172,7 @@ const VORGABE_PREFAB = 'BirkeHoch1';
  * gehört.
  *
  * Jeder Browser, der den Editor vor Block A offen hatte, trägt einen
- * Valheim-Namen in localStorage. Gesetzt bekäme man ihn zwar nicht (der
+ * Fremdnamen in localStorage. Gesetzt bekäme man ihn zwar nicht (der
  * Platzier-Modus wird erst durch den Klick auf eine Listenzeile scharf,
  * und gesperrte Zeilen nehmen keinen Klick mehr an), aber er stünde in
  * der Fußzeile als „Vorauswahl: Beech1" — eine Angabe, die die Liste

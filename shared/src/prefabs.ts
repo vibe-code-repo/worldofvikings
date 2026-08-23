@@ -3,8 +3,8 @@
  * used by both server (spawning/logic) and client (rendering/assets).
  *
  * The base data (name, localScale, flags) is parsed 1:1 from the C++
- * server's prefabs.pkg (valheim.community/data/prefabs.pkg, see
- * PrefabManager::Register in valheim.community/library/src/PrefabManager.cpp)
+ * reference server's prefabs.pkg (data/prefabs.pkg, see
+ * PrefabManager::Register in dessen library/src/PrefabManager.cpp)
  * into prefabData.json — regenerate with:
  *
  *   npm run parse:prefabs
@@ -42,7 +42,7 @@ export interface PrefabDef {
   /**
    * Animationsgruppe der GLB, die nach dem Instanzieren in Schleife läuft
    * (nur dynamische Prefabs, Namens-Teiltreffer genügt). Eigene NPCs
-   * bringen — anders als der Valheim-Export — brauchbare Skin-Animationen
+   * bringen — anders als der Fremdexport — brauchbare Skin-Animationen
    * mit.
    */
   animation?: string;
@@ -88,7 +88,7 @@ function def(
 }
 
 /**
- * Hand-maintained render hints. Names match Valheim prefab names 1:1;
+ * Hand-maintained render hints. Names match the reference prefab names 1:1;
  * entries here override the automatic defaults (sprite/model = prefab
  * name, renderScale = localScale) for prefabs from prefabs.pkg.
  * Entries that no longer exist in the pkg are kept as legacy extras
@@ -153,7 +153,7 @@ export const HINT_DEFS: PrefabDef[] = [
   def('Fichte3', F.TREE_BASE | F.PERSISTENT, 'sapling_fir', 5.4, 10.0, 'Fichte3'),
   // Tannen nach dem Original-Prefab `FirTree` (gedrungen, waagerechte Äste),
   // mit dessen eigener Nadeltextur Pine_tree_texture_d.png — feiner gefiedert
-  // als die Kiefernkarten der Fichten. Vier Größen, weil Valheim dieselbe
+  // als die Kiefernkarten der Fichten. Vier Größen, weil das Vorbild dieselbe
   // Tanne über `scale 2.0–2.5` (gross) und `0.3–0.7` (FirTree_small) verteilt;
   // getrennte Modelle statt Skalierung, damit auch die FORM variiert.
   // Dreiecksbudget staffelt über --dichte mit: 4.214 / 3.316 / 1.910 / 1.182.
@@ -177,7 +177,7 @@ export const HINT_DEFS: PrefabDef[] = [
   def('BirkeDicht3', F.TREE_BASE | F.PERSISTENT, 'sapling_birch', 8.4, 12.5, 'BirkeDicht3'),
   // Eichen — die einzige Art mit EIGENEN Texturen. eiche_leaf.png und
   // eiche_bark.png zeichnet tools/eiche-texturen.py prozedural, nichts davon
-  // stammt aus Valheim. Der Rest der Kette ist unverändert.
+  // ist extrahiert. Der Rest der Kette ist unverändert.
   //
   // Habitus: kurzer dicker Stamm, tief ansetzende Äste, die waagerecht
   // herausgehen und sich erst außen aufrichten. Breiter als Fichte und Birke
@@ -268,7 +268,7 @@ export const HINT_DEFS: PrefabDef[] = [
   // ── Felsen ───────────────────────────────────────────────────────
   // Aus tools/felsen-generieren.py: verformte Ikosphären, 80 Dreiecke je
   // Stück, Textur aus tools/felsen-texturen.py (Granit, Basalt,
-  // Sandstein — alle gerechnet, nichts aus Valheim).
+  // Sandstein — alle gerechnet, nichts extrahiert).
   //
   // KEIN TREE_BASE und kein DESTRUCTIBLE: Beide stehen in COLLIDING_FLAGS
   // (EntityManager.ts:115). Ein Fels SOLL zwar aufhalten — aber der
@@ -297,7 +297,7 @@ export const HINT_DEFS: PrefabDef[] = [
 
   // ── Gebüsch ──────────────────────────────────────────────────────
   // Fünf Straucharten aus tools/busch-generieren.py, je drei Größen.
-  // Wie die Eiche vollständig OHNE Valheim-Material: Laubkarte und Rinde
+  // Wie die Eiche vollständig OHNE Fremdmaterial: Laubkarte und Rinde
   // zeichnet tools/busch-texturen.py, das Rezept steht in
   // tools/buesche-bauen.sh.
   //
@@ -502,7 +502,7 @@ export const HINT_DEFS: PrefabDef[] = [
   // Aussenmasse 0,96 x 0,61 m.
   //
   // Warum nicht `piece_chest_wood` weiterverwenden: Der Eintrag traegt
-  // zwar schon CONTAINER, ist aber ein Valheim-Name und faellt damit
+  // zwar schon CONTAINER, ist aber ein Fremdname und faellt damit
   // durch `istEigenesModell()` — die Hammer-Tabelle wuerde ihn
   // ueberspringen. Eigene Modelle tragen im Projekt deutsche Namen.
   { ...def('HolzTruhe', F.PIECE | F.CONTAINER | F.PERSISTENT, 'chest_wood', 0.96, 0.61, 'HolzTruhe') },
@@ -848,7 +848,7 @@ export const PREFAB_DEFS: PrefabDef[] = buildRegistry();
  * kennen und ihn eintippen.
  *
  * Bewusst eine HANDGEPFLEGTE Liste und keine Heuristik: Ob ein Prefab aus
- * dem Valheim-Paket oder aus unseren Werkzeugen stammt, lässt sich am
+ * dem Fremdpaket oder aus unseren Werkzeugen stammt, lässt sich am
  * Namen nicht ablesen, und die Alternative (alles, was nur als Hint
  * existiert) fischt Dungeon-Räume und Altlasten mit ein.
  *
@@ -1021,13 +1021,13 @@ export const EIGENE_MODELLE: readonly string[] = [
   // die eigene Reihe überhaupt anfing (s. HINT_DEFS oben).
   //
   // 'Player' ist der einzige Eintrag der Liste, dessen NAME aus dem
-  // Valheim-Paket stammt (er steht in prefabData.json). Das ist kein
+  // Fremdpaket stammt (er steht in prefabData.json). Das ist kein
   // Widerspruch: Die Whitelist entscheidet über das MODELL, nicht über die
   // Herkunft des Namens. Player.glb ist mesh-los, deshalb zeigt der
   // Render-Hint seit jeher ebenfalls auf npc_1_walk.glb; die eigene Figur
   // des angemeldeten Spielers kommt aus PlayerAvatar.glb (Tripo-Export,
   // client/src/player/AvatarRig.ts) und damit ebenfalls nicht aus dem
-  // Export. Es gibt also keinen Blickwinkel, aus dem hier Valheim-Geometrie
+  // Export. Es gibt also keinen Blickwinkel, aus dem hier Fremdgeometrie
   // steht — und den Spieler-Avatar auszuschliessen hiesse, den Spieler
   // unsichtbar zu machen.
   'NPC_1',
@@ -1150,7 +1150,7 @@ export function isRenderable(def: PrefabDef): boolean {
   // model client-side. Our server spawns the location PIECES as ZDOs
   // directly, so the proxy ZDO itself must stay invisible.
   if (def.name === 'LocationProxy') return false;
-  // Logic/marker prefabs that are invisible in Valheim as well (found
+  // Logic/marker prefabs that are invisible in the original as well (found
   // live-verified 2026-07-25 as ~46 permanent placeholder boxes around the
   // spawn meadows): ambient music volumes, creature spawn markers, and the
   // flies particle effect (no particle system in the client). Their GLBs
@@ -1166,7 +1166,7 @@ export function isRenderable(def: PrefabDef): boolean {
   // export is a 0-mesh empty hierarchy (AssetRipper found no MeshRenderer
   // for it in the Unity project either — the visible loot in a Dolmen is
   // the separate "treasure_pile" decoration piece; this prefab is purely
-  // the invisible pickup trigger). Hiding it matches vanilla Valheim, where
+  // the invisible pickup trigger). Hiding it matches the original, where
   // it has no visible mesh.
   if (def.name === 'Pickable_DolmenTreasure') return false;
   const NO_RENDER = PrefabFlag.PROJECTILE | PrefabFlag.TERRAIN_MODIFIER;

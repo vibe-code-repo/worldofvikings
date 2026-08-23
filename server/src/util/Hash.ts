@@ -1,10 +1,9 @@
 /**
  * Stable hash functions.
- * Delegates to the shared 1:1 port of `get_stable_hash` from Hashes.h
- * (Valhalla2.0 C++), so client and server always agree on hashes.
+ * Delegates to the shared 1:1 port of `get_stable_hash` from the C++
+ * reference server, so client and server always agree on hashes.
  *
- * C++ reference: library/include/Hashes.h
- *   avledet::util::get_stable_hash(std::string_view) -> Hash (int32)
+ * C++ reference: get_stable_hash(std::string_view) -> Hash (int32)
  */
 
 import type { Hash } from '@wov/shared';

@@ -22,7 +22,7 @@
  * gefiltert und leer, es wird keine Location mehr platziert. Geprüft wird
  * jetzt die Gegenprobe — nichts gebucht, Gelände unberührt. Das ist keine
  * Verlegenheitslösung, sondern der Wächter dagegen, dass sich über
- * irgendeinen Pfad doch wieder eine Valheim-Location in die Welt schiebt
+ * irgendeinen Pfad doch wieder eine fremde Location in die Welt schiebt
  * und Terrassen ins Gelände schneidet.
  *
  * Punkt 1 prüft weiter alle drei Zweige der Regel. Er zieht seine drei

@@ -1,6 +1,6 @@
 # 01 — Warum Babylon.js statt Three.js?
 
-Der Three.js-Prototyp (`valheim-browser`) hat Server, Weltgenerierung und Asset-Pipeline validiert. Beim Client zeigten sich jedoch strukturelle Grenzen, die mit wachsendem Inhalt (viele Lichter, dichte Vegetation, große Sichtweiten) immer teurer zu umschiffen sind. Babylon.js bringt genau die fehlenden Bausteine **ab Werk** mit.
+Der erste Prototyp lief auf Three.js und hat Server, Weltgenerierung und Asset-Pipeline validiert. Beim Client zeigten sich jedoch strukturelle Grenzen, die mit wachsendem Inhalt (viele Lichter, dichte Vegetation, große Sichtweiten) immer teurer zu umschiffen sind. Babylon.js bringt genau die fehlenden Bausteine **ab Werk** mit.
 
 ---
 
@@ -23,7 +23,7 @@ Der Three.js-Prototyp (`valheim-browser`) hat Server, Weltgenerierung und Asset-
 ### Beleuchtung & Schatten
 - **Clustered Lighting** (`ClusteredLightingContainer`, seit Babylon 6): Dutzende bis hunderte Punktlichter pro Sichtkachel; ideal für Basen mit vielen Fackeln/Feuern. Funktioniert unter WebGPU und WebGL2.
 - **CascadedShadowGenerator (CSM)**: Abgestufte Sonnenschatten über große Distanzen — Standard für Open-World-Terrain.
-- **VolumetricLightScatteringPostProcess (God Rays)**: Fertiger Postprocess für Lichtstrahlen durch Vegetation; kombinierbar mit `Fog`/`FogExp2` und Screen-Space-Effekten für Mistlands-Atmosphäre.
+- **VolumetricLightScatteringPostProcess (God Rays)**: Fertiger Postprocess für Lichtstrahlen durch Vegetation; kombinierbar mit `Fog`/`FogExp2` und Screen-Space-Effekten für dichte Nebelstimmung.
 - **DefaultRenderingPipeline**: Bloom, Tonemapping (ACES), FXAA/MSAA, SSAO2, SSR, Depth of Field — konfigurierbar statt selbst gebaut.
 
 ### Performance
@@ -50,7 +50,7 @@ Der Three.js-Prototyp (`valheim-browser`) hat Server, Weltgenerierung und Asset-
 
 1. **Basis-Beleuchtung skaliert**: Clustered Lighting löst das Fackel-Problem strukturell statt per Licht-Budget-Hack.
 2. **Weniger Client-Eigenbau**: CSM, God Rays, GUI, Physik, Inspector entfallen als Entwicklungsaufgaben.
-3. **Server/Shared/Tools bleiben**: ~80 % der bisherigen Arbeit (siehe [02](02-Migration-von-valheim-browser.md)) wandert unverändert weiter.
+3. **Server/Shared/Tools bleiben**: ~80 % der bisherigen Arbeit (siehe [02](02-Migration-von-valheim-browser.md), Herkunft des Clients) wandert unverändert weiter.
 4. **Besseres Debugging**: Inspector ersetzt ratenbasiertes Debugging; reproduzierbare Render-Zustände sind schneller auffindbar.
 
 ---

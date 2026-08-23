@@ -1,6 +1,6 @@
 /**
  * ZDOID — Zone Data Object Identifier.
- * 1:1 port of ZDOID.h from Valhalla2.0 C++.
+ * 1:1 port of ZDOID.h from the C++ reference server.
  *
  * C++ reference:
  *   class ZDOID {

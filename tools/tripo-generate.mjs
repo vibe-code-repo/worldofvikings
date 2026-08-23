@@ -17,7 +17,7 @@
  * ── face_limit ist der wichtigste Parameter ──────────────────────────
  * Ohne ihn liefert Tripo die Rohausgabe. Gemessen am ersten Baum, der so
  * entstand: 1.907.396 Dreiecke und 70 MB für EIN Modell. Zum Vergleich hat
- * das Original `Pinetree_01` aus Valheim 2.532 Dreiecke — Faktor 753. Für
+ * das fremde `Pinetree_01` 2.532 Dreiecke — Faktor 753. Für
  * einen einzelnen Blickfang geht das noch, ein Wald daraus ist unmöglich.
  *
  * ── Tripo normiert auf 1×1×1 ─────────────────────────────────────────

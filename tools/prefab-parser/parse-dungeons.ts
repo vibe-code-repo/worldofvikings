@@ -1,11 +1,11 @@
 /**
- * Dungeons Parser — reads dungeons.pkg from the Valhalla C++ dedicated
- * server (valheim.community) and exports all dungeon generators with their
+ * Dungeons Parser — reads dungeons.pkg from the C++ reference
+ * server and exports all dungeon generators with their
  * complete room kits (sizes, connections, contained net views, random
  * spawns) as JSON. This is the data the Unity Room/RoomConnection
  * components carry, which the GLB exports do not contain.
  *
- * Binary format (valheim.community/library/src/DungeonManager.cpp:19-201):
+ * Binary format (reference server, DungeonManager.cpp:19-201):
  *
  *   header:
  *     string  comment            (.NET BinaryWriter: 7-bit varint length + UTF-8)
@@ -83,7 +83,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DEFAULT_PKG = resolve(__dirname, '../../../valheim.community/data/dungeons.pkg');
+const DEFAULT_PKG = resolve(__dirname, '../../../referenz-server/data/dungeons.pkg');
 const OUTPUT_DIR = resolve(__dirname, '../../shared/src');
 
 interface Vec3 {
@@ -177,7 +177,7 @@ interface ParsedDungeon {
   rooms: ParsedRoom[];
 }
 
-/** Valheim's stable string hash (copy of shared/src/hash.ts, kept standalone). */
+/** The reference stable string hash (copy of shared/src/hash.ts, kept standalone). */
 function getStableHash(name: string): number {
   let num = 5381 >>> 0;
   let num2 = 5381 >>> 0;
@@ -204,7 +204,7 @@ const ANCHOR_VIEW = getStableHash('dungeonView');
 function main(): void {
   const pkgPath = process.argv[2] ? resolve(process.argv[2]) : DEFAULT_PKG;
 
-  console.log('Valheim dungeons.pkg parser');
+  console.log('dungeons.pkg parser');
   console.log(`  source: ${pkgPath}`);
 
   if (!existsSync(pkgPath)) {
@@ -420,7 +420,7 @@ function main(): void {
   }
 }
 
-/** Little-endian binary reader matching Valhalla's DataReader. */
+/** Little-endian binary reader matching the reference DataReader. */
 class BinReader {
   pos = 0;
   constructor(private buf: Buffer) {}

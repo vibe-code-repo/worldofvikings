@@ -155,7 +155,7 @@ check('backfill entrances listed', mgr.listEntrances().length === 3, `${mgr.list
 
 // Eingangs-Hüllen: GEGENPROBE seit der Umstellung auf eigene Modelle
 // (16.08.2026). Alle zehn Namen in ENTRANCE_HULL_MODELS — Crypt2/3/4,
-// SunkenCrypt4, MountainCave02 … — sind Valheim-Exporte und stehen nicht
+// SunkenCrypt4, MountainCave02 … — sind Fremdexporte und stehen nicht
 // in EIGENE_MODELLE. spawnEntranceHull() weist sie deshalb ab.
 //
 // Vorher prüfte dieser Abschnitt, dass drei Hüllen entstehen. Die

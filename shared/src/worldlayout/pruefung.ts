@@ -9,7 +9,7 @@
  *
  * Seit Block A prüft sie zusätzlich gegen die Whitelist der selbst gebauten
  * Modelle (`istEigenesModell`): Ein Name kann bekannt UND trotzdem nicht
- * mehr erwünscht sein — das sind die aus Valheim extrahierten Prefabs, die
+ * mehr erwünscht sein — das sind die extrahierten Fremdprefabs, die
  * aus Welt und Spielinhalt verschwinden. Die Prüfung MELDET das nur; wer
  * die Welt ändert, ist der nächste Schritt und nicht sie.
  */

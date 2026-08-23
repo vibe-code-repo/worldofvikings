@@ -52,7 +52,7 @@ const MODIFIERS_BY_HASH: ReadonlyMap<number, ModifierJson> = new Map(
 /**
  * Terrain leveling parameters for a feature (Phase F4).
  *
- * In original Valheim, location prefabs carry Unity TerrainModifier
+ * In the original, location prefabs carry Unity TerrainModifier
  * components that flatten the ground under the location (client-side).
  * The C++ reference server does NOT level terrain — this is a deliberate,
  * documented deviation with Unity parity: without it, location pieces

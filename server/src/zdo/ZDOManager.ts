@@ -1,6 +1,6 @@
 /**
  * ZDOManager — manages all ZDOs, sector-based storage, and network sync.
- * 1:1 port of ZDOManager.h from Valhalla2.0 C++.
+ * 1:1 port of ZDOManager.h from the C++ reference server.
  *
  * C++ reference:
  *   class IZDOManager {

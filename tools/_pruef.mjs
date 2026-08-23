@@ -42,6 +42,6 @@ const r = await p.evaluate(async () => {
   return { info, png: cv.toDataURL('image/png') };
 });
 console.log(JSON.stringify(r.info, null, 1));
-writeFileSync(`/tmp/claude-0/-root-valheim-babylon/5a35adc6-4d2f-4076-90fc-73445079abca/scratchpad/pruef_${name}.png`, Buffer.from(r.png.split(',')[1],'base64'));
+writeFileSync(`tools/out/pruef_${name}.png`, Buffer.from(r.png.split(',')[1],'base64'));
 if (logs.length) console.log('\nLogs:\n' + logs.slice(0,6).join('\n'));
 await b.close();

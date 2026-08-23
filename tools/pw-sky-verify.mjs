@@ -1,7 +1,7 @@
 /**
- * pw-sky-verify — headless verification of ValheimSky's GLSL.
+ * pw-sky-verify — headless verification of the sky dome's GLSL.
  *
- * Raw GLSL can't be checked by tsc, so this bundles the real ValheimSky +
+ * Raw GLSL can't be checked by tsc, so this bundles the real sky dome +
  * shared environment model, runs them in Chromium (SwiftShader), and
  * asserts the things that actually matter:
  *

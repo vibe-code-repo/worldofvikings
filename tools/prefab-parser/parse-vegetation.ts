@@ -1,9 +1,9 @@
 /**
- * Vegetation Parser — reads vegetation.pkg from the Valhalla C++ dedicated
- * server (valheim.community) and exports all foliage entries as JSON for the
+ * Vegetation Parser — reads vegetation.pkg from the C++ reference
+ * server and exports all foliage entries as JSON for the
  * browser game (used by the server's PopulateFoliage port, Phase E).
  *
- * Binary format (valheim.community/library/src/ZoneManager.cpp:166-227):
+ * Binary format (reference server, ZoneManager.cpp:166-227):
  *
  *   header:
  *     string  comment            (.NET BinaryWriter: 7-bit varint length + UTF-8)
@@ -35,7 +35,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DEFAULT_PKG = resolve(__dirname, '../../../valheim.community/data/vegetation.pkg');
+const DEFAULT_PKG = resolve(__dirname, '../../../referenz-server/data/vegetation.pkg');
 const OUTPUT_DIR = resolve(__dirname, '../../shared/src');
 
 interface ParsedFoliage {
@@ -76,7 +76,7 @@ interface ParsedFoliage {
 function main(): void {
   const pkgPath = process.argv[2] ? resolve(process.argv[2]) : DEFAULT_PKG;
 
-  console.log('Valheim vegetation.pkg parser');
+  console.log('vegetation.pkg parser');
   console.log(`  source: ${pkgPath}`);
 
   if (!existsSync(pkgPath)) {
@@ -144,7 +144,7 @@ function main(): void {
   console.log(`  wrote ${foliage.length} foliage entries -> ${outPath}`);
 }
 
-/** Little-endian binary reader matching Valhalla's DataReader. */
+/** Little-endian binary reader matching the reference DataReader. */
 class BinReader {
   pos = 0;
   constructor(private buf: Buffer) {}

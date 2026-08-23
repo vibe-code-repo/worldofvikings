@@ -1,6 +1,6 @@
 /**
  * WebSocketAcceptor — accepts incoming WebSocket connections.
- * Replaces NetAcceptorSteamDedicated.h from Valhalla2.0 C++.
+ * Replaces the Steam-based acceptor of the C++ reference server.
  *
  * C++ reference:
  *   class AcceptorSteam : public IAcceptor {

@@ -1,7 +1,7 @@
 /**
- * dump-envsetup — extract Valheim's real EnvSetup lighting values.
+ * dump-envsetup — extract the real environment lighting values.
  *
- * shared/src/environment.ts reproduces Valheim's EnvSetup/EnvMan STRUCTURE
+ * shared/src/environment.ts reproduces the reference STRUCTURE
  * and TIMING from verified sources, but its colour numbers are hand-tuned
  * approximations. This tool replaces them with ground truth from the local
  * AssetRipper export — the same route that produced the verified clutter

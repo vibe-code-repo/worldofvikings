@@ -13,7 +13,7 @@
 # sind, die in shared/src/prefabs.ts eingetragen sind.
 #
 # Die Texturen zeichnet `tools/felsen-texturen.py`; nichts davon stammt
-# aus Valheim.
+# aus einem Fremdexport.
 #
 # ── Zur Groessenstaffelung ───────────────────────────────────────────
 # `--hoehe` ist die SICHTBARE Hoehe ueber Grund: Jeder Fels steckt zu

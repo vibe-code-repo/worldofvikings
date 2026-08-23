@@ -1090,7 +1090,7 @@ bpy.ops.object.mode_set(mode='OBJECT')
 #
 # Welche Blender-Achse das ist, wurde NICHT hergeleitet, sondern an den
 # beiden Modellen abgelesen, die im Spiel nachweislich richtig herum
-# laufen: npc_1_walk.glb (Valheim-Export, Animation "Walking") und
+# laufen: npc_1_walk.glb (Fremdexport, Animation "Walking") und
 # Voelva.glb (nach ihrer Korrektur). Beide schauen im importierten
 # Blender-Raum nach -Y. Surtr schaut nach +X (Gesicht, Bart und Zehen
 # liegen dort). Von +X nach -Y sind es -90 Grad um die HOCHACHSE Z.

@@ -1,5 +1,5 @@
 /**
- * Binary Writer — 1:1 port of DataStream.h (Writer) from Valhalla2.0 C++.
+ * Binary Writer — 1:1 port of DataStream.h (Writer) from the C++ reference server.
  *
  * Writes primitive types, strings, byte arrays, Vector3, Quaternion
  * to a little-endian binary buffer with auto-growth.

@@ -1,9 +1,9 @@
 /**
- * Prefab Parser — reads prefabs.pkg from the Valhalla C++ dedicated server
- * (valheim.community) and exports all prefab definitions as JSON for the
+ * Prefab Parser — reads prefabs.pkg from the C++ reference server
+ * and exports all prefab definitions as JSON for the
  * browser game (shared registry used by server and client).
  *
- * Binary format (verified against valheim.community/library/src/PrefabManager.cpp
+ * Binary format (verified against the reference server's PrefabManager.cpp
  * and a hex dump of the file):
  *
  *   header:
@@ -27,8 +27,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Default: the C++ server data directory next to the valheim-browser project
-const DEFAULT_PKG = resolve(__dirname, '../../../valheim.community/data/prefabs.pkg');
+// Default: the C++ reference server's data directory next to this project
+const DEFAULT_PKG = resolve(__dirname, '../../../referenz-server/data/prefabs.pkg');
 const OUTPUT_DIR = resolve(__dirname, '../../shared/src');
 
 interface ParsedPrefab {
@@ -43,7 +43,7 @@ interface ParsedPrefab {
 function main(): void {
   const pkgPath = process.argv[2] ? resolve(process.argv[2]) : DEFAULT_PKG;
 
-  console.log('Valheim prefabs.pkg parser');
+  console.log('prefabs.pkg parser');
   console.log(`  source: ${pkgPath}`);
 
   if (!existsSync(pkgPath)) {
@@ -95,7 +95,7 @@ function main(): void {
   console.log(`  wrote ${prefabs.length} prefabs -> ${outPath}`);
 }
 
-/** Little-endian binary reader matching Valhalla's DataReader. */
+/** Little-endian binary reader matching the reference DataReader. */
 class BinReader {
   pos = 0;
   constructor(private buf: Buffer) {}

@@ -1,8 +1,8 @@
 /**
- * GrassClutter — G-VEG (Babylon-Port): original Valheim clutter system.
+ * GrassClutter — G-VEG (Babylon-Port): the original clutter system.
  *
- * Port of the three.js reference (valheim-browser GrassClutter.ts, itself a
- * faithful port of the dumped ClutterSystem.cs + ZoneSystem scene data —
+ * Port of the three.js reference (the first prototype's GrassClutter.ts,
+ * itself a faithful port of the dumped ClutterSystem.cs + ZoneSystem data —
  * see Docs/Analyse-Modelle-und-Weltgenerierung.md G-VEG/G-VEG2/G-VEG3).
  *
  * Original algorithm: 10m patches, 45m radius, per-entry deterministic RNG,
@@ -63,7 +63,7 @@ const AMOUNT_SCALE = 1.0;
  *   Quality.Med => clutter.m_amount / 2
  *   _           => clutter.m_amount
  *
- * Valheim regelt die Grasmenge also über die ANZAHL, nicht über die
+ * Das Original regelt die Grasmenge also über die ANZAHL, nicht über die
  * Sichtweite — dass wir bisher nur letztere hatten, war die Abweichung.
  * Die Stufe 0 (ganz aus) gibt es im Original nicht; sie ist als
  * Notausgang für schwache Geräte ergänzt.
@@ -157,7 +157,7 @@ interface ClutterEntry {
  *   unser Atlas grass_meadows_gen          →  (82, 122,  46)
  *
  * Der fehlende Blauanteil ist genau das, was unser Gras giftiger wirken
- * lässt als Valheims. Der Faktor bringt das Verhältnis auf den Originalwert.
+ * lässt als das Original. Der Faktor bringt das Verhältnis auf den Originalwert.
  *
  * NEU BERECHNET am 2026-08-01. Der bisherige Wert (0.76, 0.68, 1.0) war im
  * GAMMA-Raum hergeleitet — als reines Verhältnis der beiden sRGB-Mittel.
@@ -209,7 +209,7 @@ const B = Biome;
  * also nur bis vier Meter über der Wasserlinie. In unserer Layout-Welt
  * liegen davon **4,57 % der Landfläche** (2,94 von 64,26 km², gemessen
  * über `tools/hoehen-histogramm.ts`), und darauf kommen noch die Filter
- * `inForest: true` und Biom Meadows. Valheims Wiesen liegen dicht am
+ * `inForest: true` und Biom Meadows. Die Wiesen des Originals liegen dicht am
  * Meeresspiegel; unsere Graslandregionen liegen auf 30–120 m. Ein
  * authentischer Wert trifft damit auf eine Welt, für die er nicht gedacht
  * war.
@@ -261,8 +261,8 @@ const ENTRIES: readonly ClutterEntry[] = [
  * texture. Addressed without touching the verified ENTRIES data, via two
  * engine-level, user-adjustable knobs (see ClutterWindPlugin.ts for the
  * shader side, Settings.ts/SettingsPanel.ts for the "Vegetationsqualität"
- * UI control — real Valheim setting, GraphicsSettingInt.Vegetation):
- *  - VEGETATION_QUALITY_SCALE (real Valheim "Vegetationsqualität" levels:
+ * UI control — Einstellung des Originals, GraphicsSettingInt.Vegetation):
+ *  - VEGETATION_QUALITY_SCALE ("Vegetationsqualität"-Stufen des Originals:
  *    Niedrig/Mittel/Hoch/Sehr hoch) multiplies the per-entry fadeMin/
  *    fadeMax uniformly, applied every frame as ClutterWindPlugin's
  *    clutterDistanceScale uniform — NOT baked in at load time, because it
@@ -287,7 +287,7 @@ const ENTRIES: readonly ClutterEntry[] = [
  * the player crosses a full PATCH boundary, so that set can already be up
  * to one PATCH (10 m) stale by the time it's evaluated.
  */
-/** Real Valheim "Vegetationsqualität" levels (settings_vegetation /
+/** "Vegetationsqualität"-Stufen des Originals (settings_vegetation /
  *  GraphicsSettingInt.Vegetation) — index 0=Niedrig..3=Sehr hoch. Index 2
  *  (Hoch) matches this project's previous fixed default (1.25). */
 const VEGETATION_QUALITY_SCALE: readonly number[] = [0.7, 0.95, 1.25, 1.6];
@@ -404,7 +404,7 @@ interface CellMesh {
 /**
  * Radius (m), in dem um ein aufsammelbares Objekt kein Gras wächst.
  *
- * Valheim hält die Bodenvegetation von Pickables frei, sonst verschwinden
+ * Das Original hält die Bodenvegetation von Pickables frei, sonst verschwinden
  * Feuerstein, Stein und Löwenzahn im hohen Gras und man findet sie nur
  * durch Zufall. 0,6 m ist knapp genug, dass keine kahlen Flecken
  * entstehen, und weit genug, dass der Gegenstand freisteht.

@@ -9,7 +9,7 @@
  * geparste Vorlage und zugleich die Herkunftsangabe der Zahlen in
  * `flora.ts`. Was sich geändert hat, ist der Aufbau von FOLIAGE: Jeder
  * Eintrag läuft jetzt gegen `istEigenesModell()`, und da in
- * `vegetation.pkg` ausschliesslich Valheim-Prefabs stehen, fällt der
+ * `vegetation.pkg` ausschliesslich Fremdprefabs stehen, fällt der
  * gesamte Block heraus. Übrig bleibt die eigene Flora.
  *
  * Die Folge ist gross genug, um sie hier hinzuschreiben: Es gibt keine

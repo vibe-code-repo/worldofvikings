@@ -1,17 +1,17 @@
 /**
- * ValheimSky — stylised sky dome driven by the SAME EnvSetup data as the fog.
+ * ValheimSky — stylised sky dome driven by the SAME environment data as the fog.
  *
  * ── Why not Babylon's SkyMaterial ────────────────────────────────────
  * `@babylonjs/materials/sky` implements the **Preetham analytic daylight
  * model**: it derives the sky colour physically from turbidity and the sun
- * position, and it has no knowledge whatsoever of Valheim's EnvSetup
+ * position, and it has no knowledge whatsoever of our environment
  * colours. That is a real defect, not a matter of taste — the horizon it
  * paints CANNOT match `scene.fogColor`, so sky and fog visibly disagree
- * exactly where they meet. In Valheim they match by construction: the
+ * exactly where they meet. In the original they match by construction: the
  * horizon *is* the fog colour, which is why the world reads as one
  * atmosphere instead of a backdrop behind a foggy scene.
  *
- * Valheim's sky is also not physical to begin with — it is a stylised
+ * That sky is also not physical to begin with — it is a stylised
  * vertical gradient with a sun/moon disc, stars and scrolling cloud
  * layers, in the same family as the well-known stylised-skybox recipe
  * (three-stop gradient, sun/moon from the directional light, stars masked

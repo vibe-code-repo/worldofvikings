@@ -1,11 +1,11 @@
 /**
  * SettingsPanel — DOM options overlay for the two render-quality settings
- * in Settings.ts, using the same labels/levels as real Valheim's graphics
- * menu (Valheim.SettingsGui.GraphicsSettings, localization strings from
- * /root/Valheim_Client/extracted_assets/TextAsset — see field comments).
+ * in Settings.ts, using the same labels/levels as the graphics menu of the
+ * original (localization strings from the local asset export,
+ * extracted_assets/TextAsset — see field comments).
  *
  * This is a plain styled DOM overlay, not a pixel-accurate reproduction of
- * Valheim's actual UI sprites: the extracted Sprite assets are keyed by
+ * the original UI sprites: the extracted Sprite assets are keyed by
  * opaque PathID hashes with no name mapping recovered, so lifting the real
  * panel/button textures would need substantial additional reverse-
  * engineering. The styling below (dark leather panel, bronze border, serif

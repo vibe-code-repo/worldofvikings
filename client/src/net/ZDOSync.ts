@@ -16,7 +16,7 @@
  * gelesen und die Kreatur bei jedem Schritt zusammenschrumpfen.
  */
 import {
-  ANIM_MEMBER, FIGUR_MEMBER, FRISUR_MEMBER, RUESTUNG_MEMBER,
+  ANIM_MEMBER, FIGUR_MEMBER, FRISUR_MEMBER, RUESTUNG_MEMBER, HAARFARBE_MEMBER,
   HEALTH_MEMBER, LAYOUT_ID_MEMBER, getStableHash,
 } from '@wov/shared';
 import type { Vector3, Quaternion, NpcEinordnung } from '@wov/shared';
@@ -34,6 +34,7 @@ const FIGUR_HASH = getStableHash(FIGUR_MEMBER);
 /** Frisur und Ruestung am Charakter-ZDO (shared/aussehen.ts). */
 const FRISUR_HASH = getStableHash(FRISUR_MEMBER);
 const RUESTUNG_HASH = getStableHash(RUESTUNG_MEMBER);
+const HAARFARBE_HASH = getStableHash(HAARFARBE_MEMBER);
 
 export interface ZDOEntityUpdate {
   /** `${userId}:${id}` */
@@ -91,6 +92,7 @@ export interface ZDOEntityUpdate {
    * Charakter-ZDO gesetzt; ohne sie traegt er gar keine.
    */
   frisur?: string;
+  haarfarbe?: string;
   /**
    * Getragene Ruestung als "oberkoerperId|beineId" — ein leerer Teil
    * heisst "nichts angezogen". EIN Member statt zweier, damit ein
@@ -187,6 +189,7 @@ export function parseZDOSync(
     let layoutId: string | undefined = basis?.layoutId;
     let figur: string | undefined = basis?.figur;
     let frisur: string | undefined = basis?.frisur;
+    let haarfarbe: string | undefined = basis?.haarfarbe;
     let ruestung: string | undefined = basis?.ruestung;
     const memberCount = reader.readInt32();
     for (let m = 0; m < memberCount; m++) {
@@ -206,6 +209,8 @@ export function parseZDOSync(
         figur = reader.readString();
       } else if (memberHash === FRISUR_HASH && memberType === 5) {
         frisur = reader.readString();
+      } else if (memberHash === HAARFARBE_HASH && memberType === 5) {
+        haarfarbe = reader.readString();
       } else if (memberHash === RUESTUNG_HASH && memberType === 5) {
         ruestung = reader.readString();
       } else if (prefabHash === LOCATION_PROXY_HASH && memberHash === LOCATION_MEMBER_HASH && memberType === 3) {
@@ -237,6 +242,7 @@ export function parseZDOSync(
       layoutId,
       figur,
       frisur,
+      haarfarbe,
       ruestung,
       isOwnPlayer: hasOwner && ownerUserId === ownUserId,
     };

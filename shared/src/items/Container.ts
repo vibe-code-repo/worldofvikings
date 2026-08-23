@@ -41,7 +41,7 @@ import type { SavedItemStack } from './ItemData.js';
 
 /** Truhengröße — ein Wert für alle Containertypen (wood chest, Beute-
  *  Truhen, Grabtruhe …). Wie bei den Item-Werten in itemDefs.ts eine
- *  PLAUSIBLE ANNAHME (angelehnt an Valheims Holztruhe, 6×2), nicht aus
+ *  PLAUSIBLE ANNAHME (angelehnt an eine Holztruhe mit 6×2), nicht aus
  *  den Asset-Dumps verifiziert — die liegen für Container nicht vor. */
 export const CONTAINER_WIDTH = 6;
 export const CONTAINER_HEIGHT = 2;

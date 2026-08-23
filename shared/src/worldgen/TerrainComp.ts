@@ -1,8 +1,8 @@
 /**
  * Player terrain modification — 1:1 port of Unity `TerrainComp` (the delta-based
- * system Valheim uses today, not the legacy object-based `TerrainModifier`).
+ * system the original uses today, not the legacy object-based `TerrainModifier`).
  *
- * C# reference: assembly_valheim/TerrainComp.cs
+ * C# reference: the original `TerrainComp` component
  *   LevelTerrain   (:335-360)  RaiseTerrain (:362-417)
  *   SmoothTerrain  (:419-448)  PaintCleared (:450-505)
  *   ApplyToHeightmap (:242-277)
@@ -12,7 +12,7 @@
  *
  *     clamp(genHeight + levelDelta + smoothDelta, base − 8, base + 8)
  *
- * which is why Valheim caps digging/raising at ±8 m and why the terrain snaps
+ * which is why the original caps digging/raising at ±8 m and why the terrain snaps
  * back to the generated shape once the deltas are cleared.
  *
  * All arithmetic goes through f32 (`Math.fround`), including the C# special
@@ -139,7 +139,7 @@ export class TerrainComp {
   private _levelDelta: Float32Array | null = null;
   private _smoothDelta: Float32Array | null = null;
   private _modifiedHeight: Uint8Array | null = null;
-  /** RGBA8, 65×65. Valheim stores f32 per channel; the 0.1 paint falloff makes
+  /** RGBA8, 65×65. The original stores f32 per channel; the 0.1 paint falloff makes
    *  the mask effectively binary, so u8 halves the footprint invisibly. */
   private _paintMask: Uint8Array | null = null;
   private _modifiedPaint: Uint8Array | null = null;
@@ -401,7 +401,7 @@ export function smoothTerrain(
  *
  *     f = (1 - clamp01(d / r))^0.1
  *
- * That exponent is what gives Valheim its hard-edged paths: at d/r = 0.9 it is
+ * That exponent is what gives the original its hard-edged paths: at d/r = 0.9 it is
  * still ≈ 0.79, so the mask is effectively binary and only the very rim fades.
  *
  * Notes on faithfulness:

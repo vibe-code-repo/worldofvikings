@@ -33,7 +33,7 @@ JSON_PATH = os.path.join(OUT_DIR, "textures.json")
 TSV_PATH = os.path.join(OUT_DIR, "textures.tsv")
 
 # ── Map-Typ aus dem Namenssuffix ─────────────────────────────────────────────
-# Valheim benennt Texturen nach Unity-Konvention: _d albedo, _n normal,
+# Der Fremdexport benennt Texturen nach Unity-Konvention: _d albedo, _n normal,
 # _m Metallic/Smoothness-Maske, _e Emission.
 MAP_SUFFIX = [
     (r"_d(_hildir)?$", "albedo"),

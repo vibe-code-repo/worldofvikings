@@ -10,7 +10,7 @@
  *     gibt, läuft dieser Block leer durch — genau so ist er gemeint: Der
  *     Wächter steht, bevor das erste Modell entsteht.
  *
- * ⚠ Die 374 geparsten Valheim-Räume werden ABSICHTLICH nicht geprüft.
+ * ⚠ Die 374 geparsten Fremdräume werden ABSICHTLICH nicht geprüft.
  * Sie halten das 4-m-Raster nicht ein (2-m-Schritte, Connectors auf
  * verschiedenen Höhen) und sollen es nicht — sie sind Fremddaten ohne
  * Modelle. Ein Test, der sie einbezöge, wäre am ersten Tag rot und am

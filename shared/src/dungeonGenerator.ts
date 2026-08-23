@@ -1,7 +1,7 @@
 /**
  * Dungeon generator (Phase G) — 1:1 port of the C++ server's
- * DungeonGenerator (valheim.community DungeonGenerator.cpp, itself a port
- * of assembly_valheim DungeonGenerator.cs) for the `Dungeon` algorithm.
+ * DungeonGenerator — port of the reference implementation's dungeon
+ * generator for the `Dungeon` algorithm.
  *
  * Differences to the original, deliberate:
  *  - Generation happens in LOCAL dungeon space around the origin: the start
@@ -25,7 +25,7 @@ import type { Quaternion, Vector3 } from './types.js';
 import { XorShiftRandom } from './worldgen/Random.js';
 import { quatEuler, quatMul, quatMulVec3 } from './worldgen/Math3d.js';
 
-/** Mirrors the C++ VAL_SETTINGS dungeon defaults (ValhallaServer.cpp:450-484). */
+/** Mirrors the dungeon defaults of the C++ reference server. */
 export interface DungeonGeneratorSettings {
   /** Growth bounds (cube edge length) centered on the origin. */
   zoneSize: number;

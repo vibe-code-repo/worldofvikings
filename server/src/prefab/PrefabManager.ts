@@ -1,6 +1,6 @@
 /**
  * PrefabManager — registry of all prefab definitions.
- * 1:1 port of PrefabManager.h from Valhalla2.0 C++.
+ * 1:1 port of PrefabManager.h from the C++ reference server.
  *
  * C++ reference:
  *   class IPrefabManager {

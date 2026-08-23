@@ -1,8 +1,8 @@
 /**
- * FastNoise — 1:1 port of Valhalla2.0 `FastNoise.h/.cpp` (ASHLANDS_2.0).
+ * FastNoise — 1:1 port of the C++ reference server's `FastNoise.h/.cpp`.
  *
  * The C++ class is itself a direct port of the ORIGINAL FastNoise class
- * used by the Valheim client (assembly_utils.dll) — NOT FastNoiseLite
+ * used by the original client — NOT FastNoiseLite
  * (different algorithms!). Only the 2D paths the GeoManager actually calls
  * are ported: GetCellular (Euclidean / Distance) and GetSimplexFractal
  * (FBM). 3D tables (GRAD_3D, Hash3D) and the Billow/RigidMulti fractals

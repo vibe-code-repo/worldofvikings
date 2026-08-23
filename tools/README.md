@@ -42,17 +42,17 @@ node tools/<skript>.mjs <argumente>                              # Node, oft mit
 
 | Werkzeug | Zweck |
 |---|---|
-| `eiche-texturen.py` | Laubkarte und Rinde der Eiche — die einzige Baumart ohne Valheim-Material. |
+| `eiche-texturen.py` | Laubkarte und Rinde der Eiche — die einzige Baumart ohne Fremdmaterial. |
 | `felsen-texturen.py` | Drei Gesteinsarten (Granit kristallin mit Moos, Basalt feinkörnig dunkel, Sandstein waagerecht geschichtet). Periodisch, weil die Kugelprojektion die Textur mehrfach über den Fels wiederholt. |
 | `busch-texturen.py` | Laubkarte und Rinde je Strauchart, alle zehn gerechnet statt gerippt. Fünf Blattformen (rund-gesägt, lanzettlich, gefiedert, derb-gezähnt, Schuppe) plus Nadelquirle, dazu Beerendolden, einzeln sitzende Früchte und Blütenähren; Rinde wahlweise längsrissig oder glatt mit Lentizellen. 128² statt 256² — ein Busch nimmt im Bild nie so viel Platz ein wie ein Baum. |
 | `blumen-texturen.py` | Je Blumen- und Unkrautart EINE Karte (Straucharten brauchen zwei, weil ihr Holz sichtbar ist — eine Blume hat keins). Vier Kartenbauarten (Stengel mit Blüte, beblätterter Stengel, Grashorst, Farnwedel) und sieben Blütenformen von der nickenden Glocke bis zum Distelkorb. 96², gefiederte Arten 128². |
 | `grabhuegel-texturen.py` | Stein, Grassode, Holz, Schild-Atlas und Segel des Grabhügels. |
-| `gen-grass-texture.py` | Die drei Gras-Atlanten für die Bündel-Meshes (`grass_meadows_gen`, `grass_heath_gen`, `grass_toon1_yellow_gen`) — Wiese, Heide, Sumpf. Zeichnet in **drei senkrechte Spalten**; dieselbe Aufteilung greift `clutter-meshes.py` als UV ab, wer sie hier verschiebt, muss dort mitziehen. (Schrieb bis 08/2026 nach `../valheim_browser_assets/` — dem Ordner des three.js-Vorläufers, der hier nicht existiert.) |
+| `gen-grass-texture.py` | Die drei Gras-Atlanten für die Bündel-Meshes (`grass_meadows_gen`, `grass_heath_gen`, `grass_toon1_yellow_gen`) — Wiese, Heide, Sumpf. Zeichnet in **drei senkrechte Spalten**; dieselbe Aufteilung greift `clutter-meshes.py` als UV ab, wer sie hier verschiebt, muss dort mitziehen. (Schrieb bis 08/2026 in den Asset-Ordner des three.js-Vorläufers, der hier nicht existiert.) |
 | `clutter-texturen.py` | Die acht Clutter-Texturen, die `gen-grass-texture.py` nicht abdeckt: Waldboden (grün/braun), Farnwedel (grün/Sumpf), Strauch, Heideblume, Schilf, Seerosenblatt. Alle nach derselben Konvention wie die Gras-Atlanten — **Vollbild-Billboard, v=1 ist der Boden**, weil der HD-Umschalter in `GrassClutter.ts` die Textur tauscht, ohne die UVs anzufassen. `forest_groundcover(_brown)` kachelt waagerecht (ENTRIES setzt dort `texRepeatU: 2`). Deckungsgrade bewusst niedrig gehalten — 60 % gefüllte Halmkarten waren der „Neonteppich" aus dem `MEADOWS_TINT`-Kommentar. |
 | `wasser-texturen.py` | Die vier Wassertexturen für `WaterPlugin.ts` plus `grass_terrain_color.png`. **Achtung:** `water_normals_real.png` ist Unity-DXT5nm gepackt — `(1, y, y, x)`, X liegt im Alphakanal und B muss exakt gleich G sein, sonst kippt das Wasser dauerhaft in eine Richtung. Die Schaum-Mittelwerte gehen als feste Divisoren in den Shader ein. |
 | `item-icons.py` | Die 25 Item-Icons aus `itemDefs.ts` (`icon:`) plus `cultivate_ground` aus `PieceTable.ts` als 64² RGBA, vierfach überabgetastet gezeichnet. `--nur name1,name2` für einzelne, `--blatt` legt eine Übersicht nach `out/icons.png`. Die Bauteil-Icons landen im selben Ordner `/assets/sprites/`; `hoe` und `stone` fallen mit Gegenstands-Icons zusammen, `cultivate_ground` ist das einzige eigene. |
 | `terrain-texturen.py` | Die neun Bodentexturen für `TerrainSplat.ts` — 16 Albedo-Tiles im 256×4096-Stapel, der Variety-Noise und sieben Normal-Maps. Drei Vorgaben sind nicht frei wählbar: die Tile-Reihenfolge (`TILE`-Enum), die Kanalmittel des Noise (im Shader als `VAR_MITTE_*` fest verdrahtet) und die Periodizität, weil der Shader mit `fract(uv)` kachelt. `--nur splat\|noise\|normal` baut einzelne Gruppen. |
-| `texture-catalog.py` | Katalogisiert die extrahierten Valheim-Texturen nach Unity-Namenskonvention (`_d` Albedo, `_n` Normal, `_m` Maske, `_e` Emission). |
+| `texture-catalog.py` | Katalogisiert die extrahierten Fremdtexturen nach Unity-Namenskonvention (`_d` Albedo, `_n` Normal, `_m` Maske, `_e` Emission). |
 | `lib/karten.py` | Geteilte Bausteine der Pflanzenkarten (`mischen`, `gedreht`, `umriss`, `achse`, `abschliessen`). Benutzt von `busch-texturen.py` und `blumen-texturen.py`. Enthält die zwei Regeln, an denen beide hängen: Stiel bei v=0, und Hintergrund in mittlerer Pflanzenfarbe statt transparentem Schwarz. |
 | `lib/rauschen.py` | Geteilte Rauschfunktionen (`wertrauschen`, `oktaven`, `furchen`, `normiert`). **Periodisch**, weil alle Texturen gekachelt werden. |
 
@@ -98,15 +98,15 @@ node tools/<skript>.mjs <argumente>                              # Node, oft mit
 | `recover-textures.mjs` | Holt echte Texturen aus dem Client-Export zurück (2.639 von 2.763 PNGs waren 0 Byte). |
 | `test-glb-parse.ts` | Lädt GLBs durch threes GLTFLoader wie der Client, um „Model missing" außerhalb des Browsers zu reproduzieren. |
 
-## Assets aus Valheim holen
+## Fremdassets extrahieren (historisch, seit Block A ungenutzt)
 
 | Werkzeug | Zweck |
 |---|---|
 | `asset-extractor/` | Workspace-Paket, `npm run extract:assets`. |
 | `prefab-parser/` | Workspace-Paket, `npm run parse:prefabs` → `prefabData.json`. |
 | `assetripper/` | Arbeitsverzeichnis von AssetRipper (Ex- und Import). |
-| `extract-texture-arrays.py` | Holt `Texture2DArray` und `Texture3D` aus dem Client — der normale Export enthält nur `Texture2D`, Valheims Boden liegt aber als Array vor. |
-| `dump-envsetup.mjs` | Extrahiert Valheims echte EnvSetup-Lichtwerte für `shared/src/environment.ts`. |
+| `extract-texture-arrays.py` | Holt `Texture2DArray` und `Texture3D` aus dem Client — der normale Export enthält nur `Texture2D`, der Boden liegt dort aber als Array vor. |
+| `dump-envsetup.mjs` | Extrahiert die echten Lichtwerte des Vorbilds für `shared/src/environment.ts`. |
 
 ## Live-Prüfung im Browser (`pw-*`)
 
@@ -117,7 +117,7 @@ statt Vermutungen.
 |---|---|
 | `pw-shots.mjs` | Allgemeine Screenshot-Strecke, robust gegen Reconnects. |
 | `pw-grafik-messung.mjs` | Die Kennzahlen hinter `Docs/07-Grafik-Konzept.md` aus der laufenden Szene. |
-| `pw-sky-verify.mjs` | Prüft ValheimSkys GLSL headless — rohes GLSL sieht kein `tsc`. |
+| `pw-sky-verify.mjs` | Prüft das GLSL der Himmelskuppel headless — rohes GLSL sieht kein `tsc`. |
 | `pw-daylight-shots.mjs` | Erzwingt Morgenlicht clientseitig und schießt definierte Motive. |
 | `pw-terraform-check.mjs` | Belegt Höhenänderungen numerisch **und** im Bild. |
 | `pw-placement-check.mjs` | Bau-Modus, Modus-Menü, Terrain-Operationen; jeder Abschnitt an unberührter Weltstelle. |

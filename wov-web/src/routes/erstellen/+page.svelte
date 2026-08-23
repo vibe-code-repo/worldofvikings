@@ -34,7 +34,7 @@
      * Stunde → Beschriftung, z. B. { "3": "Sonnenaufgang" }.
      *
      * Kommt aus der erzeugten Datei und steht hier bewusst NICHT fest:
-     * Valheims Sonnenaufgang liegt bei 0,1333 des Tages, also gegen 03:00
+     * Der Sonnenaufgang liegt bei 0,1333 des Tages, also gegen 03:00
      * und nicht bei 06:00. Eine hier getippte Beschriftung wäre eine
      * zweite Wahrheit neben dem Umgebungsmodell des Spiels.
      */

@@ -9,7 +9,7 @@
  * ground truth; the look below is ours.
  *
  * ── Why the emitter follows the player ───────────────────────────────
- * Valheim parents the systems to the camera rig, so the particles only
+ * The original parents the systems to the camera rig, so the particles only
  * ever exist in a small box around the viewer instead of over the whole
  * world. Same here: one box emitter overhead, moved every frame. That
  * keeps the count in the low thousands no matter how far you travel.

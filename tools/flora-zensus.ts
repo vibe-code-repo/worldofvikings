@@ -2,7 +2,7 @@
  * E9 — Vegetationsvielfalt: erst messen, dann ändern.
  *
  * Die Aufgabe stammt aus der Zeit vor Block A und nannte einen konkreten
- * Verdacht an der ALTEN Valheim-Tabelle (ein Farn mit `inForest: true` und
+ * Verdacht an der ALTEN Fremdtabelle (ein Farn mit `inForest: true` und
  * zugleich `maxAlt: 4.0`, der damit praktisch nie erscheint). Diese Tabelle
  * gibt es nicht mehr — `shared/src/flora.ts` ist seit Block A reine
  * Eigenflora. Die Frage dahinter gilt weiter, muss aber neu gestellt werden:

@@ -4,7 +4,7 @@
  * Ein Layout beschreibt Regionen (Polygone/Kreise mit Biom und
  * Terrainparametern) auf einer unbegrenzten Karte. Alles außerhalb von
  * Regionen ist offener Ozean; das Detail INNERHALB einer Region liefern
- * weiterhin die Valheim-Biomhöhenfunktionen (RegionGeo ersetzt nur die
+ * weiterhin die ursprünglichen Biomhöhenfunktionen (RegionGeo ersetzt nur die
  * radiale Basis). Die Reihenfolge in `regions` ist die Z-Ordnung: spätere
  * Regionen überdecken frühere — so malt man ein Gebirge mitten auf einen
  * Wiesen-Kontinent.

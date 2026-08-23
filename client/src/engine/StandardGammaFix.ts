@@ -84,7 +84,7 @@ const RX_DOPPELTES_GAMMA =
   '!!color\\.rgb=toLinearSpace\\(color\\.rgb\\);(?!color=applyImageProcessing)';
 
 /** Nicht-leerer Ersatz — siehe Fallstrick 1 im Kopfkommentar. */
-const ERSATZ = '// valheim: doppelte Gamma-Kodierung entfernt (Docs/07, Ursache A)';
+const ERSATZ = '// wov: doppelte Gamma-Kodierung entfernt (Docs/07, Ursache A)';
 
 class StandardGammaFixPlugin extends MaterialPluginBase {
   constructor(material: Material) {

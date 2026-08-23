@@ -1,10 +1,10 @@
 /**
- * Playwright smoke/screenshot harness for the Valheim browser client.
+ * Playwright smoke/screenshot harness for the browser client.
  * SwiftShader (software WebGL) is SLOW (~1 fps) and the server kicks idle
  * clients — so the flow is defensive: reconnect when the connect screen
  * reappears, every step wrapped so later shots still happen.
  *
- * Run: node tools/pw-shots.mjs   (from valheim-browser root)
+ * Run: node tools/pw-shots.mjs   (from the repo root)
  */
 import { chromium } from 'playwright';
 import { mkdirSync } from 'fs';

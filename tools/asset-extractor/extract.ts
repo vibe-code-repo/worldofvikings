@@ -1,7 +1,7 @@
 /**
  * Asset Extractor — reads Unity AssetBundle manifest and catalogs available bundles.
  *
- * Source: Valheim dedicated server/valheim_server_Data/StreamingAssets/SoftRef/
+ * Quelle: der lokale Dedicated-Server-Export (StreamingAssets/SoftRef/)
  *
  * The SoftRef system uses hash-named bundles with a YAML manifest describing
  * dependencies between bundles.
@@ -31,14 +31,14 @@ interface BundleInfo {
 
 function main(): void {
   console.log('╔══════════════════════════════════════════╗');
-  console.log('║   Valheim Asset Extractor                ║');
+  console.log('║   Asset Extractor                        ║');
   console.log('╚══════════════════════════════════════════╝');
   console.log();
 
   // Check source exists
   if (!existsSync(SOFTREF_DIR)) {
     console.error(`[ERROR] SoftRef directory not found: ${SOFTREF_DIR}`);
-    console.error('Make sure the Valheim dedicated server files are present.');
+    console.error('Make sure the dedicated server files are present.');
     process.exit(1);
   }
 

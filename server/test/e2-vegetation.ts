@@ -4,7 +4,7 @@
  * ── Der Bezugswert hat sich mit Block A geändert ─────────────────────
  * Dieser Test hielt seit Phase E einen bitgleichen ZDO-Abzug der
  * RADIALWELT gegen sich selbst: 81 Zonen um den Nullpunkt, ein paar
- * tausend Bäume aus Valheims `vegetation.pkg`, zweimal gewürfelt, Zeichen
+ * tausend Bäume aus der alten `vegetation.pkg`, zweimal gewürfelt, Zeichen
  * für Zeichen verglichen. Diese Grundlage gibt es nicht mehr. FOLIAGE
  * enthält seit Block A nur noch eigene Modelle (shared/src/vegetation.ts),
  * und eigene Flora wächst NUR auf Bestellung durch die Kuratierungsliste
@@ -199,7 +199,7 @@ for (const zdo of listL) {
   }
 }
 // Bäume heissen jetzt Eiche, Birke, Fichte, Tanne und Kiefer — die
-// Valheim-Namen (Beech1, FirTree, …) gibt es in FOLIAGE nicht mehr.
+// alten Fremdnamen (Beech1, FirTree, …) gibt es in FOLIAGE nicht mehr.
 const baumHashes = new Set(
   [...GRASLAND_FLORA_NAMEN, ...NADELWALD_FLORA_NAMEN]
     .filter((n) => /^(Eiche|Birke|Fichte|Tanne|Kiefer)/.test(n))

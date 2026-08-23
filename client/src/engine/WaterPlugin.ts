@@ -25,7 +25,7 @@
  * soll. Das Original dämpft zwar auch zum Ufer hin, aber über 10 m statt
  * 2,5 m und mit einer Rohamplitude, die selbst bei 1 m Tiefe noch
  * Dezimeter- bis Meterhub übrig lässt. Die three.js-Referenz
- * (valheim-browser) dämpft sogar überhaupt nicht — dort ist genau das der
+ * (der erste Prototyp) dämpft sogar überhaupt nicht — dort ist genau das der
  * Grund, warum der Strand sichtbar überspült wird.
  *
  * Die Verschiebung passiert jetzt im VERTEX-SHADER statt auf der CPU:
@@ -137,7 +137,7 @@ const COLOR_SHALLOW = [0.196, 0.176, 0.106] as const;
 const COLOR_DEEP = [0.098, 0.196, 0.169] as const;
 /**
  * `_ColorTop` — die Farbe der Wasserfläche selbst, sobald der Grund nicht
- * mehr durchscheint. Das ist der helle Grünton, der Valheim-Meer ausmacht.
+ * mehr durchscheint. Das ist der helle Grünton, der das Meer ausmacht.
  * Er stand bisher ungenutzt im Material: ohne Refraktion gab es keinen
  * Punkt, an dem "Grund" und "Wasserkörper" getrennt gewesen wären.
  */
@@ -167,7 +167,7 @@ const SONNE_ANTEIL = 0.25;
 /**
  * Farbstich auf die Wasserkörperfarben — BEWUSSTE ABWEICHUNG VOM ORIGINAL.
  *
- * Valheims Werte sind grün: `_ColorTop` (0.315, 0.524, 0.361) hat 1,45-mal
+ * Die Werte des Vorbilds sind grün: `_ColorTop` (0.315, 0.524, 0.361) hat 1,45-mal
  * so viel Grün wie Blau, `_ColorBottom` (0.098, 0.196, 0.169) ähnlich.
  * Solange sie unverändert die Nahfarbe bestimmen, BLEIBT die Fläche
  * türkisgrün — nachgemessen an einer Seeposition, Blick übers Wasser bei
@@ -805,7 +805,7 @@ export class WaterPlugin extends MaterialPluginBase {
             // Was ankommt: gedämpfter Grund + was die Wassersäule selbst
             // streut.
             //
-            // Die In-Streuung ist _ColorTop (das Valheim-Grün) — NICHT
+            // Die In-Streuung ist _ColorTop (das Meergrün) — NICHT
             // mehr eine Mischung, die bei geringer Tiefe gegen
             // _ColorBottomShallow läuft. Der Name sagt schon, was der
             // Wert ist: "Bottom Shallow" ist die Tönung des GRUNDES bei

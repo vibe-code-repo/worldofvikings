@@ -1,9 +1,9 @@
 /**
  * Unity-compatible 2D Perlin noise — 1:1 port of `VUtils::Math::PerlinNoise`
- * from Valhalla2.0 `VUtilsMath.cpp` (HEIGHTFIX-02 double-precision variant).
+ * from the C++ reference server (HEIGHTFIX-02 double-precision variant).
  *
- * This is UnityEngine.Mathf.PerlinNoise, reverse-engineered by the Valhalla
- * project, with the Valhalla2.0 "HEIGHTFIX-02" patch: all intermediates are
+ * This is UnityEngine.Mathf.PerlinNoise, reverse-engineered by the reference
+ * project, with its "HEIGHTFIX-02" patch: all intermediates are
  * computed in DOUBLE precision. Since JS numbers are float64, the port is
  * bit-exact without any float32 emulation — as long as callers pass the same
  * argument values. (Where the C++ caller computes the ARGUMENT in float32,

@@ -1,9 +1,9 @@
 /**
- * Unity-compatible xorshift128 RNG — 1:1 port of `valhalla::util::CSU::Random`
- * from Valhalla2.0 `VUtilsRandom.cpp` (alias `VUtils::Random::State`).
+ * Unity-compatible xorshift128 RNG — 1:1 port of the C++ reference server's
+ * random state (`VUtils::Random::State`).
  *
  * This is THE random generator Unity uses (Random.InitState / Random.Range /
- * Random.value), reverse-engineered by the Valhalla project. It drives all
+ * Random.value), reverse-engineered by the reference project. It drives all
  * randomized world generation in GeoManager (seed offsets, river/stream
  * placement), so it must reproduce the exact same sequence as the C++ server.
  *

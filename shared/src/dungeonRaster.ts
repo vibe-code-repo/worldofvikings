@@ -36,7 +36,7 @@
  * hieße alles neu bauen.
  *
  * ── Wogegen die Prüfung NICHT läuft ──────────────────────────────────
- * Gegen die 374 geparsten Valheim-Räume. Die halten dieses Raster nicht
+ * Gegen die 374 geparsten Fremdräume. Die halten dieses Raster nicht
  * ein (2-m-Schritte, Connectors auf verschiedenen Höhen) und sollen es
  * auch nicht — sie sind Fremddaten ohne Modelle. Geprüft wird
  * ausschließlich, was `istEigenesModell()` als eigenes Modell führt.

@@ -1,0 +1,36 @@
+[Unit]
+# Rendert die Weltkarten fuer world-of-vikings.com und legt sie auf wov-web.
+#
+# NUR AUF wov-dev. Anders als wov-server oder wov-sicherung ist das keine
+# Unit, die auf beiden Containern dasselbe tut: Sie rendert BEIDE Instanzen
+# (dev und live) aus den beiden Weltdateien, die im Arbeitsbaum von wov-dev
+# ohnehin nebeneinander liegen. Auf wov-live liefe sie zweimal dieselbe
+# Rechnung und braeuchte einen zweiten Schluessel nach wov-web.
+# install-services.sh richtet sie deshalb nur auf dev ein.
+Description=World of Vikings — Weltkarten fuer die Webseite rendern und veroeffentlichen
+Documentation=file:///opt/worldofvikings/tools/weltkarte-veroeffentlichen.mjs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/worldofvikings
+EnvironmentFile=/etc/wov.env
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/bin/node /opt/worldofvikings/tools/weltkarte-veroeffentlichen.mjs
+# Kein Restart: Wie bei wov-sicherung soll ein Fehlschlag im Log stehen und
+# nicht in einer Schleife wiederholt werden. Der Timer versucht es zur
+# naechsten Stunde erneut; die Karte ist bis dahin nicht falsch, nur alt.
+#
+# Der Lauf rendert nur, wenn sich der Fingerabdruck der Weltdatei geaendert
+# hat — der Normalfall ist also ein Lauf von unter einer Sekunde.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wov-karten
+
+# Der Prozess braucht Lesezugriff auf den Arbeitsbaum, Schreibzugriff auf
+# /var/lib/wov-karten und den Schluessel /root/.ssh/wov_karten. Mehr nicht.
+StateDirectory=wov-karten
+
+[Install]
+WantedBy=multi-user.target

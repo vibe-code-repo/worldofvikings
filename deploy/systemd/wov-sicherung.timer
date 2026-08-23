@@ -1,0 +1,20 @@
+[Unit]
+Description=World of Vikings — nächtliche Sicherung (siehe wov-sicherung.service)
+
+[Timer]
+# 03:17 statt einer vollen Stunde: keine besondere Begründung ausser
+# "nicht genau Mitternacht oder Punkt-Stunde", wo andere Jobs sich stauen.
+OnCalendar=*-*-* 03:17:00
+# Bis zu 10 Minuten Streuung — falls der Zeitpunkt einmal mit einem der
+# 30-Minuten-Weltsaves zusammenfällt, trifft der nächste Lauf ihn nicht
+# nochmal auf die Sekunde genau. Ein getroffenes Save-Fenster ist ohnehin
+# durch die zstd-Prüfung in wov-sicherung.sh abgefangen (Wiederholung),
+# das hier verkleinert nur zusätzlich die Wahrscheinlichkeit.
+RandomizedDelaySec=600
+# War der Container zum geplanten Zeitpunkt aus (Wartung, Neustart), holt
+# der Timer den verpassten Lauf beim nächsten Hochfahren nach, statt bis
+# zum nächsten Tag zu warten.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

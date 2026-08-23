@@ -31,7 +31,11 @@ ENV_DATEI="/etc/wov.env"
 ENV_VORLAGE="$PROJECT_DIR/deploy/wov.env.beispiel"
 
 DIENSTE=(wov-server.service wov-client.service wov-admin.service)
-UNITS=("${DIENSTE[@]}" wov.target)
+# wov-karten ist ein oneshot mit Timer, kein Dauerdienst — deshalb nicht in
+# DIENSTE, aber sehr wohl in UNITS: Die Dateien gehoeren dem Code und werden
+# auf beiden Containern abgelegt. Aktiviert wird der Timer nur auf dev
+# (Begruendung unten beim Autostart).
+UNITS=("${DIENSTE[@]}" wov.target wov-karten.service wov-karten.timer)
 
 if [[ $EUID -ne 0 ]]; then
   echo "Bitte mit root-Rechten ausführen: sudo $0" >&2
@@ -92,9 +96,17 @@ if [[ "${1:-}" != "--no-enable" ]]; then
   ZU_AKTIVIEREN=(wov.target wov-server.service wov-admin.service)
   if [[ "$INSTANZ" == "dev" ]]; then
     ZU_AKTIVIEREN+=(wov-client.service)
+    # Der Kartenlauf rendert BEIDE Instanzen aus den beiden Weltdateien, die
+    # nur hier nebeneinander im Arbeitsbaum liegen (dev.json ist das
+    # Original, live.json die committete Kopie, die live zieht). Auf live
+    # waere derselbe Lauf dieselbe Rechnung ueber dieselben Dokumente — und
+    # brauchte einen zweiten Schluessel nach wov-web.
+    ZU_AKTIVIEREN+=(wov-karten.timer)
   else
     systemctl disable wov-client.service >/dev/null 2>&1 || true
     echo "nicht aktiviert (Instanz '$INSTANZ'): wov-client.service"
+    systemctl disable wov-karten.timer >/dev/null 2>&1 || true
+    echo "nicht aktiviert (Instanz '$INSTANZ'): wov-karten.timer"
   fi
   systemctl enable "${ZU_AKTIVIEREN[@]}" >/dev/null
   echo "Autostart aktiviert: ${ZU_AKTIVIEREN[*]}"

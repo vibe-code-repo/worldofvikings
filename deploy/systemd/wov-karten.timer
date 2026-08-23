@@ -1,0 +1,21 @@
+[Unit]
+Description=World of Vikings — stuendliche Pruefung, ob die Weltkarte neu gerendert werden muss (siehe wov-karten.service)
+
+[Timer]
+# Stuendlich zur 23. Minute. Nicht zur vollen Stunde, wo sich andere Jobs
+# stauen, und nicht zur 17., wo die naechtliche Sicherung liegt.
+#
+# Warum stuendlich und nicht seltener: Die Welt aendert sich im Editor, und
+# wer dort etwas umbaut, will es auf der Webseite sehen, ohne bis zum
+# naechsten Tag zu warten. Warum nicht haeufiger: Der Lauf ohne Aenderung
+# kostet zwar fast nichts, aber ein Rendern kostet ~30 s CPU — und die Welt
+# aendert sich nicht im Minutentakt.
+OnCalendar=*-*-* *:23:00
+RandomizedDelaySec=120
+# Nach einem Neustart des Containers einmal nachholen: Sonst zeigt die
+# Webseite nach einer Wartung im schlechtesten Fall eine Stunde lang den
+# Stand von davor.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,21 @@
+[Unit]
+# Dieselbe Unit auf dev und live, wie wov-server.service — die Instanz
+# steckt in tools/wov-sicherung.sh nicht im Aufruf, sondern wird dort aus
+# /etc/wov.env gelesen.
+Description=World of Vikings — Sicherung von Spielstand und Weltdokumenten (Instanz aus /etc/wov.env)
+Documentation=file:///opt/worldofvikings/tools/wov-sicherung.sh
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/worldofvikings
+EnvironmentFile=/etc/wov.env
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/opt/worldofvikings/tools/wov-sicherung.sh
+# Kein Restart=always: ein oneshot-Job, der scheitert, soll scheitern und
+# im Log stehen — ein automatischer Neuversuch mitten in der Nacht würde
+# nur denselben Fehler wiederholen (zu wenig Platz, kaputte Quelle) und den
+# eigentlichen Befund verschleiern. Der Timer probiert es beim nächsten
+# planmässigen Lauf ohnehin erneut.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wov-sicherung

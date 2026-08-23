@@ -30,6 +30,15 @@
     ruestung: Eintrag[];
     figurVorgabe?: string;
     frisurVorgabe?: string;
+    /**
+     * Stunde → Beschriftung, z. B. { "3": "Sonnenaufgang" }.
+     *
+     * Kommt aus der erzeugten Datei und steht hier bewusst NICHT fest:
+     * Valheims Sonnenaufgang liegt bei 0,1333 des Tages, also gegen 03:00
+     * und nicht bei 06:00. Eine hier getippte Beschriftung wäre eine
+     * zweite Wahrheit neben dem Umgebungsmodell des Spiels.
+     */
+    tageszeit?: { marken: Record<string, string> };
   }
 
   const SERVER: Record<string, { name: string; url: string }> = {
@@ -64,6 +73,14 @@
   // Testgestade steht zuerst und ist Vorgabe: Live trägt den neuen Charakter
   // erst, wenn der Stand dorthin ausgerollt ist.
   let gestade = $state('dev');
+  /**
+   * Wunsch-Uhrzeit, '' = Serverzeit übernehmen.
+   *
+   * Nur für das Testgestade angeboten. Auf Midgard setzt der Server die
+   * Zeit für ALLE Spieler, und er lässt das nur Admins tun — ein Regler,
+   * der dort für die meisten nichts täte, wäre schlimmer als keiner.
+   */
+  let zeit = $state('');
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let vorschau: any = null;
@@ -86,11 +103,19 @@
    */
   const modellWurzel = $derived(`${(SERVER[gestade] ?? SERVER.live).url}/assets/models/`);
 
+  /** 00:00 … 23:00, die markanten Stunden mit Namen dahinter. */
+  const stunden = $derived(
+    Array.from({ length: 24 }, (_, h) => {
+      const marke = daten?.tageszeit?.marken[String(h)];
+      return { wert: String(h), text: `${String(h).padStart(2, '0')}:00${marke ? ` – ${marke}` : ''}` };
+    })
+  );
+
   function merke() {
     try {
       localStorage.setItem(
         SPEICHER,
-        JSON.stringify({ figur, frisur, ober, beine, name: spielerName, server: gestade })
+        JSON.stringify({ figur, frisur, ober, beine, name: spielerName, server: gestade, zeit })
       );
     } catch {
       /* privater Modus: dann eben nicht */
@@ -152,6 +177,19 @@
     const p = new URLSearchParams({ name: spielerName.trim() || 'Viking', figur, frisur });
     if (ober) p.set('ober', ober);
     if (beine) p.set('beine', beine);
+    // Nur mitschicken, was auch angeboten wurde. Ein `zeit` aus einem
+    // früheren Testgestade-Besuch darf nicht heimlich nach Midgard reisen.
+    if (gestade === 'dev' && zeit !== '') p.set('zeit', zeit);
+    /*
+      `los=1` meldet drüben sofort an, statt das Verbinden-Fenster zu
+      zeigen. Diese Seite IST die Anmeldung — ein zweites Fenster, das
+      dieselben Fragen noch einmal stellt, ist genau der Bruch, den wir
+      loswerden wollten.
+
+      Schlägt die Verbindung fehl, blendet der Client sein vollständiges
+      Fenster ein. Der Weg zurück geht also nicht verloren.
+    */
+    p.set('los', '1');
     location.href = `${s.url}/?${p.toString()}`;
   }
 
@@ -189,6 +227,12 @@
     beine = gueltig(daten.ruestung, alt.beine) ?? '';
     if (alt.name) spielerName = alt.name;
     if (alt.server && SERVER[alt.server]) gestade = alt.server;
+    // Gemerktes prüfen statt übernehmen: Ein unsinniger Wert liesse den
+    // Auswahlkasten leer erscheinen, und was hier steht, reist als ?zeit=
+    // weiter. Der Client prüft ebenfalls — hier ist es die Anzeige.
+    if (alt.zeit === '' || (/^\d{1,2}$/.test(alt.zeit ?? '') && Number(alt.zeit) < 24)) {
+      zeit = alt.zeit;
+    }
 
     /*
       Das Vorschau-Bündel ist eine gewöhnliche Datei unter /assets/js/ und
@@ -330,6 +374,19 @@
         <option value="live">Midgard — das offene Land</option>
       </select>
       <p class="gestade-hinweis">{gestadeHinweis}</p>
+
+      {#if gestade === 'dev'}
+        <label class="feldname" for="zeit-wahl">Uhrzeit</label>
+        <select id="zeit-wahl" bind:value={zeit} onchange={merke}>
+          <option value="">Serverzeit übernehmen</option>
+          {#each stunden as s (s.wert)}
+            <option value={s.wert}>{s.text}</option>
+          {/each}
+        </select>
+        <p class="gestade-hinweis">
+          Setzt die Weltzeit für alle auf dem Testgestade — dort ist jeder Admin.
+        </p>
+      {/if}
     </aside>
   </div>
 

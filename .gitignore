@@ -51,3 +51,11 @@ mess/
 /data/
 # Wegwerf-Verzeichnisse der Servertests (tmp-g6, tmp-verbindungsdeckel, …).
 server/test/tmp-*/
+
+# Die Webseite (wov-web/) ist ein eigenes npm-Projekt im selben Repo, aber
+# BEWUSST KEIN Workspace: sonst zoege `npm ci` an der Wurzel SvelteKit und
+# Vite auf jeden Container, auch auf den reinen Spielserver. Sie bringt
+# deshalb ihre eigenen node_modules mit (die Regel oben greift) und ihre
+# eigenen Build-Ausgaben:
+wov-web/build/
+wov-web/.svelte-kit/

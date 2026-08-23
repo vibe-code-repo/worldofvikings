@@ -7,12 +7,20 @@
 # braucht `wov-host` (nur der Proxmox-Host kommt per `pct` in CT 103 hinein).
 # Beides zusammen hat nur der Arbeitsplatz.
 #
+# Seit dem 23.08.2026 liegt die Seite IM Spiel-Repo (wov-web/). Der Grund
+# steht in Docs/, kurz: Client und Seite teilen sich einen Vertrag ueber die
+# Adressparameter (?name, ?figur, ?zeit, ?los) und zwei erzeugte Dateien
+# (assets/aussehen.json, assets/js/vorschau.js). Getrennte Repos machten aus
+# jeder solchen Aenderung zwei Commits, die niemand zusammen zuruecknehmen
+# kann -- und genau dieser Versionsversatz war am 23.08. der Fehler, durch
+# den Midgard die Wahl von der Webseite gar nicht erst annahm.
+#
 #   tools/ausrollen.sh            baut und rollt aus
 #   tools/ausrollen.sh --trocken  baut und zeigt nur den Unterschied
 set -euo pipefail
 
 BAU=wov-bau
-QUELLE=/opt/wov-web
+QUELLE=/opt/worldofvikings/wov-web
 HOST=wov-host
 CT=103
 ZIEL=/var/www/wov

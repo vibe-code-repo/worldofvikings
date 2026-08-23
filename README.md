@@ -7,9 +7,7 @@ Open a tab, create a character, walk into a world that keeps running after you c
 client is Babylon.js, the server is authoritative TypeScript, and both sides share one
 deterministic world generator.
 
-<!-- Sobald Docs/bilder/spiel.webp liegt, die nächste Zeile freistellen:
-![In-game: the player character in the meadows](Docs/bilder/spiel.webp)
--->
+![In-game: the meadows, seen from behind the character](Docs/bilder/spiel.webp)
 
 > ### This project is entirely vibe coded
 >
@@ -37,22 +35,33 @@ lives in `shared/` and runs identically on both sides — deterministic, and pin
 by golden tests, because a client that computes a different hill than the server is a client
 that falls through the ground.
 
+![Terraforming: a pit dug into a hillside, with the cut faces of the terrain visible](Docs/bilder/gelaende.webp)
+
+The terrain is not scenery. Digging and levelling are server-side operations on the height
+field, and what one player carves out stays carved out for everyone.
+
+![Night in the meadows](Docs/bilder/nacht.webp)
+
 **Everything you see is self-made.** Models, textures, sounds — no foreign material anywhere in
 the world or the game content. The allowlist is `EIGENE_MODELLE` in `shared/src/prefabs.ts`,
-`istEigenesModell()` is the check, 146 entries at the moment. Whatever is not on it gets
+`istEigenesModell()` is the check, 145 entries at the moment. Whatever is not on it gets
 filtered out of the tables rather than rendered as a placeholder.
 
 ## Where it stands
 
+Characters are created on the website, before the game is even loaded. The preview runs the
+same Babylon build as the client, bundled out of this repository, so the figure standing in the
+browser is the one that walks into the world.
+
+![Character creation on the website: figure, hairstyle, hair colour and clothing, with a live 3D preview](Docs/bilder/erstellen.webp)
+
 **Running today** — walking, running, jumping, swimming · day and night · weather and fog,
-steerable from the server · character creation with figure, 35 hairstyles and hair colour ·
+steerable from the server · character creation with figure, 21 hairstyles and 12 hair colours ·
 equipment slots as a paperdoll, with clothing as real inventory items · inventory, chests,
 crafting · terraforming with hoe and cultivator · attack on the left mouse button, weapon or
 fist · multiplayer with zone-based replication · world editor, world map, chat.
 
-<!-- Sobald Docs/bilder/charakter.webp liegt, die nächste Zeile freistellen:
-![Character window and inventory side by side](Docs/bilder/charakter.webp)
--->
+![The character window and the inventory, open side by side](Docs/bilder/charakter.webp)
 
 **Switched off on purpose** — building, creature combat, locations and dungeons. Those systems
 are built and tested; they are off in `server/data/server.yml` because the models they would
@@ -167,15 +176,22 @@ in `shared/` und läuft auf beiden Seiten gleich — deterministisch und über G
 bit-genau festgenagelt, denn ein Client, der einen anderen Hügel rechnet als der Server, ist
 ein Client, der durch den Boden fällt.
 
+Das Gelände ist keine Kulisse. Graben und Einebnen sind serverseitige Eingriffe ins Höhenfeld,
+und was einer aushebt, bleibt für alle ausgehoben.
+
 **Alles, was man sieht, ist Eigenbau.** Modelle, Texturen, Klänge — nirgends fremdes Material
 in der Welt oder im Spielinhalt. Die Erlaubnisliste ist `EIGENE_MODELLE` in
-`shared/src/prefabs.ts`, `istEigenesModell()` ist der Test, derzeit 146 Einträge. Was nicht
+`shared/src/prefabs.ts`, `istEigenesModell()` ist der Test, derzeit 145 Einträge. Was nicht
 daraufsteht, wird aus den Tabellen gefiltert, statt als Platzhalter aufzutauchen.
 
 ## Wo es steht
 
+Figuren entstehen auf der Webseite, noch bevor das Spiel geladen ist. Die Vorschau fährt
+dasselbe Babylon wie der Client, aus diesem Repo gebündelt — die Figur, die im Browser steht,
+ist die, die nachher durch die Welt läuft.
+
 **Läuft heute** — Gehen, Rennen, Springen, Schwimmen · Tag und Nacht · Wetter und Nebel, vom
-Server steuerbar · Charaktererstellung mit Figur, 35 Frisuren und Haarfarbe · Ausrüstungsslots
+Server steuerbar · Charaktererstellung mit Figur, 21 Frisuren und 12 Haarfarben · Ausrüstungsslots
 als Paperdoll, mit Kleidung als echten Inventargegenständen · Inventar, Truhen, Handwerk ·
 Terraforming mit Hacke und Kultivator · Schlagen auf der linken Maustaste, mit Waffe oder Faust
 · Mehrspieler mit zonenbasierter Replikation · Welteditor, Weltkarte, Chat.

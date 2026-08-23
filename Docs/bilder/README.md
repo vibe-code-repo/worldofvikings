@@ -1,24 +1,30 @@
 # Bilder fürs README
 
-Hier liegen die Bilder, die das README einbindet. Was hier nicht liegt, wird dort
-auch nicht angezeigt — die Plätze für die Spielbilder stehen im README als
-HTML-Kommentar, damit GitHub kein kaputtes Bildsymbol zeigt, solange sie fehlen.
+Hier liegen die Bilder, die das README einbindet — sonst nichts. Wer eines
+austauscht, behält den Dateinamen; dann muss im README nichts nachgezogen
+werden.
 
-## Was gebraucht wird
+| Datei | Was drauf ist |
+|---|---|
+| `spiel.webp` | Die Figur in Wiese und Wald, Lebens- und Ausdauerleiste, Schnellleiste |
+| `weltkarte.webp` | Die Live-Welt, aus dem Weltdokument gerendert |
+| `gelaende.webp` | Terraforming: eine ausgehobene Grube mit den Schnittflächen des Geländes |
+| `nacht.webp` | Dieselbe Gegend bei Nacht |
+| `erstellen.webp` | Charaktererstellung auf der Webseite mit der 3D-Vorschau |
+| `charakter.webp` | Charakterfenster und Inventar nebeneinander |
 
-| Datei | Was drauf sein soll | Stand |
-|---|---|---|
-| `weltkarte.webp` | Die Live-Welt aus dem Weltdokument gerendert | liegt hier |
-| `spiel.webp` | Ein Spielbild: Figur in der Landschaft, ohne Debug-Kasten (F3) und ohne Maushinweis | fehlt |
-| `charakter.webp` | Charakterfenster und Inventar nebeneinander | fehlt |
+## Aufnehmen
 
-Sind die Dateien da, im README die beiden `<!-- ... -->` um die `![...]`-Zeilen
-entfernen.
+**F3** blendet den Debug-Kasten aus, **F1** die gesamte Oberfläche. Beides vor
+dem Auslösen — ein Bild lässt sich beschneiden, aber nicht entrümpeln.
+`spiel.webp` und `charakter.webp` sind rechts beschnitten, weil der Debug-Kasten
+und die Minikarte in der Ecke standen; das ist ein Schnitt, keine Retusche, aber
+mit F3 wäre es keiner gewesen.
 
 ## Format
 
-WebP, rund 1600 px breit, Qualität 85–90. Das landet bei 40–150 KB pro Bild.
-Aus einem PNG:
+WebP, rund 1600 px breit, Qualität 88. Das landet bei 40–190 KB pro Bild. Aus
+einem PNG:
 
 ```bash
 magick bild.png -resize 1600x -quality 88 spiel.webp
@@ -26,8 +32,8 @@ magick bild.png -resize 1600x -quality 88 spiel.webp
 
 Grösser lohnt nicht: GitHub skaliert die Anzeige ohnehin herunter, und jedes
 Byte hier liegt für immer in der Historie, die jeder Klon mitzieht. Deshalb
-gehören auch nur wenige, ausgesuchte Bilder hierher — die 500 Modelle und
-Texturen bleiben aus gutem Grund draussen (siehe README).
+gehören auch nur wenige, ausgesuchte Bilder hierher — die Modelle und Texturen
+bleiben aus demselben Grund ganz draussen (siehe README).
 
 ## Die Weltkarte neu erzeugen
 

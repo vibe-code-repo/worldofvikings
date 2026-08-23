@@ -1,0 +1,70 @@
+#!/usr/bin/env node
+/**
+ * Schreibt die Aussehen-Listen als JSON fuer die Webseite.
+ *
+ *   node_modules/.bin/tsx tools/aussehen-json.mjs [--aus <datei>]
+ *
+ * ── Warum erzeugt und nicht abgeschrieben ────────────────────────────
+ * Die Charaktererstellung liegt auf world-of-vikings.com, die Pruefung
+ * der eingehenden Wahl im Spielserver. Das sind zwei getrennte Systeme
+ * auf zwei Rechnern — genau die Lage, in der zwei Listen unweigerlich
+ * auseinanderlaufen. In diesem Projekt ist das schon zweimal passiert
+ * (das MCP-Schema kannte `meadows`, als die Welt laengst `grassland`
+ * hiess; `server.yml` versprach sechzehn Schluessel, die niemand las),
+ * und `figuren.ts` traegt deshalb im Kopf denselben Hinweis.
+ *
+ * Hier bleibt shared/src/aussehen.ts die eine Quelle. Die Webseite
+ * bekommt eine ERZEUGTE Datei; wer sie von Hand bearbeitet, verliert
+ * seine Aenderung beim naechsten Lauf.
+ *
+ * Braucht tsx statt `node`, weil `@wov/shared` TypeScript ist — dieselbe
+ * Begruendung wie bei tools/asset-manifest.mjs.
+ */
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  FIGUREN, FIGUR_VORGABE,
+  FRISUREN, FRISUR_VORGABE,
+  RUESTUNG, AUSSEHEN_ORDNER, AUSSEHEN_KOERPER,
+  FRACTION_SUNRISE, FRACTION_MIDDAY, FRACTION_SUNSET,
+} from '@wov/shared';
+
+const HIER = dirname(fileURLToPath(import.meta.url));
+const argv = process.argv.slice(2);
+const AUS = argv.includes('--aus')
+  ? argv[argv.indexOf('--aus') + 1]
+  : resolve(HIER, '../assets/aussehen.json');
+
+const daten = {
+  erzeugt_von: 'tools/aussehen-json.mjs aus shared/src/aussehen.ts — nicht von Hand bearbeiten',
+  ordner: AUSSEHEN_ORDNER,
+  koerper: AUSSEHEN_KOERPER,
+  figuren: FIGUREN.map((f) => ({ id: f.id, modell: f.modell, name: f.name })),
+  figurVorgabe: FIGUR_VORGABE,
+  frisuren: FRISUREN.map((f) => ({ id: f.id, datei: f.datei, name: f.name })),
+  frisurVorgabe: FRISUR_VORGABE,
+  ruestung: RUESTUNG.map((r) => ({ id: r.id, datei: r.datei, name: r.name, slot: r.slot })),
+  // Tageszeit-Marken fuer die Uhrzeit-Auswahl der Webseite.
+  //
+  // Aus dem Umgebungsmodell abgeleitet, nicht abgeschrieben: Valheims
+  // Sonnenaufgang liegt bei 0.1333 des Tages, also gegen 03:00 und NICHT
+  // bei 06:00. Eine von Hand getippte Beschriftung wuerde das frueher oder
+  // spaeter falsch behaupten -- dieselbe Begruendung wie fuer die Listen
+  // darueber. main.ts baut seine Auswahl aus genau diesen Konstanten.
+  tageszeit: {
+    marken: Object.fromEntries([
+      [0, 'Mitternacht'],
+      [Math.round(FRACTION_SUNRISE * 24), 'Sonnenaufgang'],
+      [Math.round(FRACTION_MIDDAY * 24), 'Mittag'],
+      [Math.round(FRACTION_SUNSET * 24), 'Sonnenuntergang'],
+    ]),
+  },
+};
+
+mkdirSync(dirname(AUS), { recursive: true });
+writeFileSync(AUS, JSON.stringify(daten, null, 2) + '\n', 'utf8');
+console.log(
+  'GESCHRIEBEN %s — %d Figuren, %d Frisuren, %d Ruestungsteile',
+  AUS, daten.figuren.length, daten.frisuren.length, daten.ruestung.length
+);

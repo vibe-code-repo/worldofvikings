@@ -1,0 +1,4794 @@
+{
+ "erzeugt": "2026-08-23T06:59:51.957Z",
+ "quelle": "tools/asset-manifest.mjs",
+ "anzahl": 176,
+ "modelle": {
+  "Ampfer1": {
+   "datei": "Ampfer1.glb",
+   "foliage": true,
+   "bytes": 10900,
+   "huelle": {
+    "min": [
+     -0.372,
+     0,
+     -0.386
+    ],
+    "max": [
+     0.369,
+     0.486,
+     0.326
+    ]
+   },
+   "breite": 0.741,
+   "hoehe": 0.486,
+   "tiefe": 0.712,
+   "dreiecke": 24,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Ampfer2": {
+   "datei": "Ampfer2.glb",
+   "foliage": true,
+   "bytes": 10896,
+   "huelle": {
+    "min": [
+     -0.815,
+     0,
+     -0.675
+    ],
+    "max": [
+     0.691,
+     0.872,
+     0.72
+    ]
+   },
+   "breite": 1.506,
+   "hoehe": 0.872,
+   "tiefe": 1.394,
+   "dreiecke": 24,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeDicht1": {
+   "datei": "BirkeDicht1.glb",
+   "foliage": true,
+   "bytes": 197892,
+   "huelle": {
+    "min": [
+     -2.373,
+     0,
+     -2.602
+    ],
+    "max": [
+     2.828,
+     6.119,
+     2.44
+    ]
+   },
+   "breite": 5.201,
+   "hoehe": 6.119,
+   "tiefe": 5.042,
+   "dreiecke": 1660,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeDicht1Dick": {
+   "datei": "BirkeDicht1Dick.glb",
+   "foliage": true,
+   "bytes": 197892,
+   "huelle": {
+    "min": [
+     -2.373,
+     0,
+     -2.602
+    ],
+    "max": [
+     2.828,
+     6.119,
+     2.44
+    ]
+   },
+   "breite": 5.201,
+   "hoehe": 6.119,
+   "tiefe": 5.042,
+   "dreiecke": 1660,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeDicht2": {
+   "datei": "BirkeDicht2.glb",
+   "foliage": true,
+   "bytes": 278488,
+   "huelle": {
+    "min": [
+     -3.295,
+     0,
+     -4.124
+    ],
+    "max": [
+     3.091,
+     9.55,
+     3.165
+    ]
+   },
+   "breite": 6.386,
+   "hoehe": 9.55,
+   "tiefe": 7.289,
+   "dreiecke": 3018,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeDicht2Dick": {
+   "datei": "BirkeDicht2Dick.glb",
+   "foliage": true,
+   "bytes": 278488,
+   "huelle": {
+    "min": [
+     -3.295,
+     0,
+     -4.124
+    ],
+    "max": [
+     3.091,
+     9.55,
+     3.165
+    ]
+   },
+   "breite": 6.386,
+   "hoehe": 9.55,
+   "tiefe": 7.289,
+   "dreiecke": 3018,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeDicht3": {
+   "datei": "BirkeDicht3.glb",
+   "foliage": true,
+   "bytes": 333660,
+   "huelle": {
+    "min": [
+     -4.03,
+     0,
+     -4.253
+    ],
+    "max": [
+     3.679,
+     12.511,
+     4.117
+    ]
+   },
+   "breite": 7.709,
+   "hoehe": 12.511,
+   "tiefe": 8.369,
+   "dreiecke": 3808,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeDicht3Dick": {
+   "datei": "BirkeDicht3Dick.glb",
+   "foliage": true,
+   "bytes": 333660,
+   "huelle": {
+    "min": [
+     -4.03,
+     0,
+     -4.253
+    ],
+    "max": [
+     3.679,
+     12.511,
+     4.117
+    ]
+   },
+   "breite": 7.709,
+   "hoehe": 12.511,
+   "tiefe": 8.369,
+   "dreiecke": 3808,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeDicht4": {
+   "datei": "BirkeDicht4.glb",
+   "foliage": true,
+   "bytes": 311540,
+   "huelle": {
+    "min": [
+     -5.992,
+     0,
+     -6.039
+    ],
+    "max": [
+     5.553,
+     15.699,
+     5.847
+    ]
+   },
+   "breite": 11.546,
+   "hoehe": 15.699,
+   "tiefe": 11.886,
+   "dreiecke": 3514,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeDicht4Dick": {
+   "datei": "BirkeDicht4Dick.glb",
+   "foliage": true,
+   "bytes": 311540,
+   "huelle": {
+    "min": [
+     -5.992,
+     0,
+     -6.039
+    ],
+    "max": [
+     5.553,
+     15.699,
+     5.847
+    ]
+   },
+   "breite": 11.546,
+   "hoehe": 15.699,
+   "tiefe": 11.886,
+   "dreiecke": 3514,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeHoch1": {
+   "datei": "BirkeHoch1.glb",
+   "foliage": true,
+   "bytes": 166612,
+   "huelle": {
+    "min": [
+     -1.877,
+     0,
+     -1.721
+    ],
+    "max": [
+     2.06,
+     5.131,
+     2.036
+    ]
+   },
+   "breite": 3.937,
+   "hoehe": 5.131,
+   "tiefe": 3.757,
+   "dreiecke": 1034,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeHoch1Dick": {
+   "datei": "BirkeHoch1Dick.glb",
+   "foliage": true,
+   "bytes": 166612,
+   "huelle": {
+    "min": [
+     -1.877,
+     0,
+     -1.721
+    ],
+    "max": [
+     2.06,
+     5.131,
+     2.036
+    ]
+   },
+   "breite": 3.937,
+   "hoehe": 5.131,
+   "tiefe": 3.757,
+   "dreiecke": 1034,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeHoch2": {
+   "datei": "BirkeHoch2.glb",
+   "foliage": true,
+   "bytes": 216440,
+   "huelle": {
+    "min": [
+     -2.642,
+     0,
+     -2.781
+    ],
+    "max": [
+     2.737,
+     9.69,
+     2.346
+    ]
+   },
+   "breite": 5.379,
+   "hoehe": 9.69,
+   "tiefe": 5.127,
+   "dreiecke": 1850,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeHoch2Dick": {
+   "datei": "BirkeHoch2Dick.glb",
+   "foliage": true,
+   "bytes": 216440,
+   "huelle": {
+    "min": [
+     -2.642,
+     0,
+     -2.781
+    ],
+    "max": [
+     2.737,
+     9.69,
+     2.346
+    ]
+   },
+   "breite": 5.379,
+   "hoehe": 9.69,
+   "tiefe": 5.127,
+   "dreiecke": 1850,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeHoch3": {
+   "datei": "BirkeHoch3.glb",
+   "foliage": true,
+   "bytes": 271488,
+   "huelle": {
+    "min": [
+     -4.021,
+     0,
+     -4.141
+    ],
+    "max": [
+     3.293,
+     12.402,
+     3.143
+    ]
+   },
+   "breite": 7.314,
+   "hoehe": 12.402,
+   "tiefe": 7.284,
+   "dreiecke": 2704,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeHoch3Dick": {
+   "datei": "BirkeHoch3Dick.glb",
+   "foliage": true,
+   "bytes": 271488,
+   "huelle": {
+    "min": [
+     -4.021,
+     0,
+     -4.141
+    ],
+    "max": [
+     3.293,
+     12.402,
+     3.143
+    ]
+   },
+   "breite": 7.314,
+   "hoehe": 12.402,
+   "tiefe": 7.284,
+   "dreiecke": 2704,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeHoch4": {
+   "datei": "BirkeHoch4.glb",
+   "foliage": true,
+   "bytes": 276272,
+   "huelle": {
+    "min": [
+     -5.102,
+     0,
+     -5.154
+    ],
+    "max": [
+     5.121,
+     17.237,
+     5.478
+    ]
+   },
+   "breite": 10.223,
+   "hoehe": 17.237,
+   "tiefe": 10.632,
+   "dreiecke": 2820,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "BirkeHoch4Dick": {
+   "datei": "BirkeHoch4Dick.glb",
+   "foliage": true,
+   "bytes": 276272,
+   "huelle": {
+    "min": [
+     -5.102,
+     0,
+     -5.154
+    ],
+    "max": [
+     5.121,
+     17.237,
+     5.478
+    ]
+   },
+   "breite": 10.223,
+   "hoehe": 17.237,
+   "tiefe": 10.632,
+   "dreiecke": 2820,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Brennnessel1": {
+   "datei": "Brennnessel1.glb",
+   "foliage": true,
+   "bytes": 12884,
+   "huelle": {
+    "min": [
+     -0.582,
+     0,
+     -0.493
+    ],
+    "max": [
+     0.517,
+     0.72,
+     0.591
+    ]
+   },
+   "breite": 1.099,
+   "hoehe": 0.72,
+   "tiefe": 1.084,
+   "dreiecke": 40,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Brennnessel2": {
+   "datei": "Brennnessel2.glb",
+   "foliage": true,
+   "bytes": 12884,
+   "huelle": {
+    "min": [
+     -0.939,
+     0,
+     -0.924
+    ],
+    "max": [
+     0.96,
+     1.227,
+     0.96
+    ]
+   },
+   "breite": 1.899,
+   "hoehe": 1.227,
+   "tiefe": 1.884,
+   "dreiecke": 40,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Brombeere1": {
+   "datei": "Brombeere1.glb",
+   "foliage": true,
+   "bytes": 66476,
+   "huelle": {
+    "min": [
+     -0.575,
+     0,
+     -0.502
+    ],
+    "max": [
+     0.788,
+     0.62,
+     0.536
+    ]
+   },
+   "breite": 1.363,
+   "hoehe": 0.62,
+   "tiefe": 1.038,
+   "dreiecke": 748,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Brombeere2": {
+   "datei": "Brombeere2.glb",
+   "foliage": true,
+   "bytes": 86304,
+   "huelle": {
+    "min": [
+     -0.79,
+     0,
+     -0.689
+    ],
+    "max": [
+     0.853,
+     0.902,
+     0.634
+    ]
+   },
+   "breite": 1.643,
+   "hoehe": 0.902,
+   "tiefe": 1.323,
+   "dreiecke": 1194,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Brombeere3": {
+   "datei": "Brombeere3.glb",
+   "foliage": false,
+   "bytes": 101416,
+   "huelle": {
+    "min": [
+     -0.953,
+     0,
+     -0.809
+    ],
+    "max": [
+     0.859,
+     1.302,
+     0.965
+    ]
+   },
+   "breite": 1.812,
+   "hoehe": 1.302,
+   "tiefe": 1.774,
+   "dreiecke": 1536,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Distel1": {
+   "datei": "Distel1.glb",
+   "foliage": true,
+   "bytes": 9852,
+   "huelle": {
+    "min": [
+     -0.386,
+     0,
+     -0.428
+    ],
+    "max": [
+     0.386,
+     0.627,
+     0.417
+    ]
+   },
+   "breite": 0.772,
+   "hoehe": 0.627,
+   "tiefe": 0.845,
+   "dreiecke": 20,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Distel2": {
+   "datei": "Distel2.glb",
+   "foliage": false,
+   "bytes": 9848,
+   "huelle": {
+    "min": [
+     -0.747,
+     0,
+     -0.77
+    ],
+    "max": [
+     0.659,
+     1.157,
+     0.753
+    ]
+   },
+   "breite": 1.406,
+   "hoehe": 1.157,
+   "tiefe": 1.523,
+   "dreiecke": 20,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Eiche1": {
+   "datei": "Eiche1.glb",
+   "foliage": true,
+   "bytes": 303520,
+   "huelle": {
+    "min": [
+     -5.057,
+     0,
+     -4.767
+    ],
+    "max": [
+     5.437,
+     12.785,
+     4.71
+    ]
+   },
+   "breite": 10.494,
+   "hoehe": 12.785,
+   "tiefe": 9.477,
+   "dreiecke": 2368,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Eiche1Dick": {
+   "datei": "Eiche1Dick.glb",
+   "foliage": true,
+   "bytes": 303520,
+   "huelle": {
+    "min": [
+     -5.057,
+     0,
+     -4.767
+    ],
+    "max": [
+     5.437,
+     12.785,
+     4.71
+    ]
+   },
+   "breite": 10.494,
+   "hoehe": 12.785,
+   "tiefe": 9.477,
+   "dreiecke": 2368,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Eiche2": {
+   "datei": "Eiche2.glb",
+   "foliage": true,
+   "bytes": 269608,
+   "huelle": {
+    "min": [
+     -4.523,
+     0,
+     -4.163
+    ],
+    "max": [
+     4.39,
+     10.712,
+     4.169
+    ]
+   },
+   "breite": 8.913,
+   "hoehe": 10.712,
+   "tiefe": 8.332,
+   "dreiecke": 1794,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Eiche2Dick": {
+   "datei": "Eiche2Dick.glb",
+   "foliage": true,
+   "bytes": 269608,
+   "huelle": {
+    "min": [
+     -4.523,
+     0,
+     -4.163
+    ],
+    "max": [
+     4.39,
+     10.712,
+     4.169
+    ]
+   },
+   "breite": 8.913,
+   "hoehe": 10.712,
+   "tiefe": 8.332,
+   "dreiecke": 1794,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Eiche3": {
+   "datei": "Eiche3.glb",
+   "foliage": true,
+   "bytes": 305824,
+   "huelle": {
+    "min": [
+     -6.589,
+     0,
+     -6.548
+    ],
+    "max": [
+     6.086,
+     16.123,
+     5.088
+    ]
+   },
+   "breite": 12.675,
+   "hoehe": 16.123,
+   "tiefe": 11.636,
+   "dreiecke": 2432,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Eiche3Dick": {
+   "datei": "Eiche3Dick.glb",
+   "foliage": true,
+   "bytes": 305824,
+   "huelle": {
+    "min": [
+     -6.589,
+     0,
+     -6.548
+    ],
+    "max": [
+     6.086,
+     16.123,
+     5.088
+    ]
+   },
+   "breite": 12.675,
+   "hoehe": 16.123,
+   "tiefe": 11.636,
+   "dreiecke": 2432,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Eiche4": {
+   "datei": "Eiche4.glb",
+   "foliage": true,
+   "bytes": 300272,
+   "huelle": {
+    "min": [
+     -8.948,
+     0,
+     -8.6
+    ],
+    "max": [
+     9.918,
+     23.977,
+     9.722
+    ]
+   },
+   "breite": 18.866,
+   "hoehe": 23.977,
+   "tiefe": 18.323,
+   "dreiecke": 2318,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Eiche4Dick": {
+   "datei": "Eiche4Dick.glb",
+   "foliage": true,
+   "bytes": 300272,
+   "huelle": {
+    "min": [
+     -8.948,
+     0,
+     -8.6
+    ],
+    "max": [
+     9.918,
+     23.977,
+     9.722
+    ]
+   },
+   "breite": 18.866,
+   "hoehe": 23.977,
+   "tiefe": 18.323,
+   "dreiecke": 2318,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Farn1": {
+   "datei": "Farn1.glb",
+   "foliage": true,
+   "bytes": 8296,
+   "huelle": {
+    "min": [
+     -0.381,
+     0,
+     -0.328
+    ],
+    "max": [
+     0.305,
+     0.448,
+     0.355
+    ]
+   },
+   "breite": 0.686,
+   "hoehe": 0.448,
+   "tiefe": 0.683,
+   "dreiecke": 18,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Farn2": {
+   "datei": "Farn2.glb",
+   "foliage": true,
+   "bytes": 8296,
+   "huelle": {
+    "min": [
+     -0.537,
+     0,
+     -0.558
+    ],
+    "max": [
+     0.594,
+     0.809,
+     0.567
+    ]
+   },
+   "breite": 1.131,
+   "hoehe": 0.809,
+   "tiefe": 1.124,
+   "dreiecke": 18,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Felsblock1": {
+   "datei": "Felsblock1.glb",
+   "foliage": true,
+   "bytes": 56788,
+   "huelle": {
+    "min": [
+     -0.455,
+     -0.14,
+     -0.588
+    ],
+    "max": [
+     0.771,
+     0.86,
+     0.598
+    ]
+   },
+   "breite": 1.226,
+   "hoehe": 1,
+   "tiefe": 1.186,
+   "dreiecke": 80,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Felsblock2": {
+   "datei": "Felsblock2.glb",
+   "foliage": true,
+   "bytes": 56788,
+   "huelle": {
+    "min": [
+     -1.314,
+     -0.294,
+     -1.304
+    ],
+    "max": [
+     1.139,
+     1.806,
+     1.099
+    ]
+   },
+   "breite": 2.452,
+   "hoehe": 2.1,
+   "tiefe": 2.403,
+   "dreiecke": 80,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Felsblock3": {
+   "datei": "Felsblock3.glb",
+   "foliage": false,
+   "bytes": 56784,
+   "huelle": {
+    "min": [
+     -2.262,
+     -0.504,
+     -2.101
+    ],
+    "max": [
+     2.274,
+     3.096,
+     2.19
+    ]
+   },
+   "breite": 4.536,
+   "hoehe": 3.6,
+   "tiefe": 4.291,
+   "dreiecke": 80,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Felsnadel1": {
+   "datei": "Felsnadel1.glb",
+   "foliage": true,
+   "bytes": 56788,
+   "huelle": {
+    "min": [
+     -0.68,
+     -0.77,
+     -0.825
+    ],
+    "max": [
+     0.714,
+     2.73,
+     0.548
+    ]
+   },
+   "breite": 1.394,
+   "hoehe": 3.5,
+   "tiefe": 1.374,
+   "dreiecke": 80,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Felsnadel2": {
+   "datei": "Felsnadel2.glb",
+   "foliage": false,
+   "bytes": 56784,
+   "huelle": {
+    "min": [
+     -1.223,
+     -1.32,
+     -1.231
+    ],
+    "max": [
+     1.164,
+     4.68,
+     1.251
+    ]
+   },
+   "breite": 2.386,
+   "hoehe": 6,
+   "tiefe": 2.482,
+   "dreiecke": 80,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Felsplatte1": {
+   "datei": "Felsplatte1.glb",
+   "foliage": true,
+   "bytes": 80300,
+   "huelle": {
+    "min": [
+     -1.057,
+     -0.21,
+     -1.039
+    ],
+    "max": [
+     1.019,
+     0.49,
+     1.033
+    ]
+   },
+   "breite": 2.076,
+   "hoehe": 0.7,
+   "tiefe": 2.073,
+   "dreiecke": 80,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Felsplatte2": {
+   "datei": "Felsplatte2.glb",
+   "foliage": true,
+   "bytes": 80264,
+   "huelle": {
+    "min": [
+     -2.241,
+     -0.42,
+     -1.961
+    ],
+    "max": [
+     2.163,
+     0.98,
+     2.149
+    ]
+   },
+   "breite": 4.404,
+   "hoehe": 1.4,
+   "tiefe": 4.11,
+   "dreiecke": 80,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Felsplatte3": {
+   "datei": "Felsplatte3.glb",
+   "foliage": false,
+   "bytes": 80296,
+   "huelle": {
+    "min": [
+     -3.778,
+     -0.72,
+     -3.992
+    ],
+    "max": [
+     3.594,
+     1.68,
+     3.148
+    ]
+   },
+   "breite": 7.372,
+   "hoehe": 2.4,
+   "tiefe": 7.14,
+   "dreiecke": 80,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Fichte1": {
+   "datei": "Fichte1.glb",
+   "foliage": true,
+   "bytes": 237880,
+   "huelle": {
+    "min": [
+     -3.367,
+     0,
+     -3.006
+    ],
+    "max": [
+     2.472,
+     12.181,
+     2.613
+    ]
+   },
+   "breite": 5.839,
+   "hoehe": 12.181,
+   "tiefe": 5.619,
+   "dreiecke": 3474,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Fichte1Dick": {
+   "datei": "Fichte1Dick.glb",
+   "foliage": true,
+   "bytes": 237880,
+   "huelle": {
+    "min": [
+     -3.367,
+     0,
+     -3.006
+    ],
+    "max": [
+     2.472,
+     12.181,
+     2.613
+    ]
+   },
+   "breite": 5.839,
+   "hoehe": 12.181,
+   "tiefe": 5.619,
+   "dreiecke": 3474,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Fichte2": {
+   "datei": "Fichte2.glb",
+   "foliage": true,
+   "bytes": 236608,
+   "huelle": {
+    "min": [
+     -3.161,
+     0,
+     -3.188
+    ],
+    "max": [
+     3.105,
+     14.178,
+     3.096
+    ]
+   },
+   "breite": 6.266,
+   "hoehe": 14.178,
+   "tiefe": 6.285,
+   "dreiecke": 3412,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Fichte2Dick": {
+   "datei": "Fichte2Dick.glb",
+   "foliage": true,
+   "bytes": 236608,
+   "huelle": {
+    "min": [
+     -3.161,
+     0,
+     -3.188
+    ],
+    "max": [
+     3.105,
+     14.178,
+     3.096
+    ]
+   },
+   "breite": 6.266,
+   "hoehe": 14.178,
+   "tiefe": 6.285,
+   "dreiecke": 3412,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Fichte3": {
+   "datei": "Fichte3.glb",
+   "foliage": true,
+   "bytes": 231300,
+   "huelle": {
+    "min": [
+     -2.23,
+     0,
+     -2.768
+    ],
+    "max": [
+     2.151,
+     10.654,
+     2.434
+    ]
+   },
+   "breite": 4.381,
+   "hoehe": 10.654,
+   "tiefe": 5.202,
+   "dreiecke": 3252,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Fichte3Dick": {
+   "datei": "Fichte3Dick.glb",
+   "foliage": true,
+   "bytes": 231300,
+   "huelle": {
+    "min": [
+     -2.23,
+     0,
+     -2.768
+    ],
+    "max": [
+     2.151,
+     10.654,
+     2.434
+    ]
+   },
+   "breite": 4.381,
+   "hoehe": 10.654,
+   "tiefe": 5.202,
+   "dreiecke": 3252,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Fichte4": {
+   "datei": "Fichte4.glb",
+   "foliage": true,
+   "bytes": 236000,
+   "huelle": {
+    "min": [
+     -5.561,
+     0,
+     -4.851
+    ],
+    "max": [
+     4.196,
+     19.015,
+     3.803
+    ]
+   },
+   "breite": 9.756,
+   "hoehe": 19.015,
+   "tiefe": 8.654,
+   "dreiecke": 3396,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Fichte4Dick": {
+   "datei": "Fichte4Dick.glb",
+   "foliage": true,
+   "bytes": 236000,
+   "huelle": {
+    "min": [
+     -5.561,
+     0,
+     -4.851
+    ],
+    "max": [
+     4.196,
+     19.015,
+     3.803
+    ]
+   },
+   "breite": 9.756,
+   "hoehe": 19.015,
+   "tiefe": 8.654,
+   "dreiecke": 3396,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Fichte5": {
+   "datei": "Fichte5.glb",
+   "foliage": true,
+   "bytes": 235032,
+   "huelle": {
+    "min": [
+     -4.931,
+     0,
+     -5.087
+    ],
+    "max": [
+     4.515,
+     21.477,
+     5.108
+    ]
+   },
+   "breite": 9.446,
+   "hoehe": 21.477,
+   "tiefe": 10.195,
+   "dreiecke": 3342,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Fichte5Dick": {
+   "datei": "Fichte5Dick.glb",
+   "foliage": true,
+   "bytes": 235032,
+   "huelle": {
+    "min": [
+     -4.931,
+     0,
+     -5.087
+    ],
+    "max": [
+     4.515,
+     21.477,
+     5.108
+    ]
+   },
+   "breite": 9.446,
+   "hoehe": 21.477,
+   "tiefe": 10.195,
+   "dreiecke": 3342,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Fichte6": {
+   "datei": "Fichte6.glb",
+   "foliage": true,
+   "bytes": 235128,
+   "huelle": {
+    "min": [
+     -6.364,
+     0,
+     -5.414
+    ],
+    "max": [
+     4.577,
+     23.597,
+     5.44
+    ]
+   },
+   "breite": 10.942,
+   "hoehe": 23.597,
+   "tiefe": 10.855,
+   "dreiecke": 3358,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Findling1": {
+   "datei": "Findling1.glb",
+   "foliage": true,
+   "bytes": 80268,
+   "huelle": {
+    "min": [
+     -0.724,
+     -0.162,
+     -0.673
+    ],
+    "max": [
+     0.655,
+     0.738,
+     0.741
+    ]
+   },
+   "breite": 1.378,
+   "hoehe": 0.9,
+   "tiefe": 1.414,
+   "dreiecke": 80,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Findling2": {
+   "datei": "Findling2.glb",
+   "foliage": true,
+   "bytes": 80232,
+   "huelle": {
+    "min": [
+     -1.317,
+     -0.324,
+     -1.288
+    ],
+    "max": [
+     1.316,
+     1.476,
+     1.374
+    ]
+   },
+   "breite": 2.633,
+   "hoehe": 1.8,
+   "tiefe": 2.662,
+   "dreiecke": 80,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Findling3": {
+   "datei": "Findling3.glb",
+   "foliage": true,
+   "bytes": 80296,
+   "huelle": {
+    "min": [
+     -2.825,
+     -0.576,
+     -2.628
+    ],
+    "max": [
+     2.175,
+     2.624,
+     2.595
+    ]
+   },
+   "breite": 5.001,
+   "hoehe": 3.2,
+   "tiefe": 5.224,
+   "dreiecke": 80,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Findling4": {
+   "datei": "Findling4.glb",
+   "foliage": false,
+   "bytes": 80264,
+   "huelle": {
+    "min": [
+     -3.959,
+     -0.9,
+     -4.122
+    ],
+    "max": [
+     3.833,
+     4.1,
+     4.27
+    ]
+   },
+   "breite": 7.792,
+   "hoehe": 5,
+   "tiefe": 8.391,
+   "dreiecke": 80,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "FurlocAeltester": {
+   "datei": "FurlocAeltester.glb",
+   "foliage": false,
+   "bytes": 3580108,
+   "huelle": {
+    "min": [
+     -0.948,
+     -0.045,
+     -0.419
+    ],
+    "max": [
+     0.947,
+     1.407,
+     0.42
+    ]
+   },
+   "breite": 1.895,
+   "hoehe": 1.452,
+   "tiefe": 0.839,
+   "dreiecke": 10038,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [
+    {
+     "name": "attack",
+     "dauer": 1.4
+    },
+    {
+     "name": "idle",
+     "dauer": 4
+    },
+    {
+     "name": "walk",
+     "dauer": 0.158
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "FurlocFischer": {
+   "datei": "FurlocFischer.glb",
+   "foliage": false,
+   "bytes": 4058408,
+   "huelle": {
+    "min": [
+     -0.95,
+     -0.023,
+     -0.452
+    ],
+    "max": [
+     0.948,
+     1.525,
+     0.458
+    ]
+   },
+   "breite": 1.898,
+   "hoehe": 1.548,
+   "tiefe": 0.91,
+   "dreiecke": 10374,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [
+    {
+     "name": "attack",
+     "dauer": 1.3
+    },
+    {
+     "name": "idle",
+     "dauer": 4
+    },
+    {
+     "name": "walk",
+     "dauer": 0.267
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "FurlocHaeuptling": {
+   "datei": "FurlocHaeuptling.glb",
+   "foliage": false,
+   "bytes": 3343908,
+   "huelle": {
+    "min": [
+     -0.949,
+     -0.046,
+     -0.383
+    ],
+    "max": [
+     0.947,
+     1.215,
+     0.385
+    ]
+   },
+   "breite": 1.897,
+   "hoehe": 1.261,
+   "tiefe": 0.768,
+   "dreiecke": 10119,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [
+    {
+     "name": "attack",
+     "dauer": 1.4
+    },
+    {
+     "name": "idle",
+     "dauer": 4
+    },
+    {
+     "name": "walk",
+     "dauer": 0.233
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "FurlocKind": {
+   "datei": "FurlocKind.glb",
+   "foliage": false,
+   "bytes": 3379264,
+   "huelle": {
+    "min": [
+     -0.949,
+     0,
+     -0.518
+    ],
+    "max": [
+     0.948,
+     1.774,
+     0.518
+    ]
+   },
+   "breite": 1.897,
+   "hoehe": 1.774,
+   "tiefe": 1.036,
+   "dreiecke": 9930,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [
+    {
+     "name": "attack",
+     "dauer": 1.4
+    },
+    {
+     "name": "idle",
+     "dauer": 4
+    },
+    {
+     "name": "walk",
+     "dauer": 0.094
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "FurlocKrieger": {
+   "datei": "FurlocKrieger.glb",
+   "foliage": false,
+   "bytes": 4232044,
+   "huelle": {
+    "min": [
+     -1.33,
+     -0.023,
+     -0.57
+    ],
+    "max": [
+     1.33,
+     1.868,
+     0.57
+    ]
+   },
+   "breite": 2.66,
+   "hoehe": 1.891,
+   "tiefe": 1.14,
+   "dreiecke": 10151,
+   "materialien": 1,
+   "bilder": 2,
+   "animationen": [
+    {
+     "name": "attack",
+     "dauer": 0.708
+    },
+    {
+     "name": "idle",
+     "dauer": 3
+    },
+    {
+     "name": "walk",
+     "dauer": 1.042
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "FurlocSchamane": {
+   "datei": "FurlocSchamane.glb",
+   "foliage": false,
+   "bytes": 3732116,
+   "huelle": {
+    "min": [
+     -0.949,
+     -0.019,
+     -0.445
+    ],
+    "max": [
+     0.948,
+     1.36,
+     0.447
+    ]
+   },
+   "breite": 1.897,
+   "hoehe": 1.379,
+   "tiefe": 0.892,
+   "dreiecke": 10175,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [
+    {
+     "name": "attack",
+     "dauer": 1.4
+    },
+    {
+     "name": "idle",
+     "dauer": 4
+    },
+    {
+     "name": "walk",
+     "dauer": 0.208
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "Ginster1": {
+   "datei": "Ginster1.glb",
+   "foliage": false,
+   "bytes": 87028,
+   "huelle": {
+    "min": [
+     -0.414,
+     0,
+     -0.368
+    ],
+    "max": [
+     0.436,
+     0.8,
+     0.403
+    ]
+   },
+   "breite": 0.85,
+   "hoehe": 0.8,
+   "tiefe": 0.771,
+   "dreiecke": 790,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Ginster2": {
+   "datei": "Ginster2.glb",
+   "foliage": false,
+   "bytes": 106228,
+   "huelle": {
+    "min": [
+     -0.692,
+     0,
+     -0.8
+    ],
+    "max": [
+     0.769,
+     1.4,
+     0.698
+    ]
+   },
+   "breite": 1.461,
+   "hoehe": 1.4,
+   "tiefe": 1.498,
+   "dreiecke": 1152,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Ginster3": {
+   "datei": "Ginster3.glb",
+   "foliage": false,
+   "bytes": 123136,
+   "huelle": {
+    "min": [
+     -1.061,
+     0,
+     -1.136
+    ],
+    "max": [
+     1.064,
+     2.007,
+     1.241
+    ]
+   },
+   "breite": 2.125,
+   "hoehe": 2.007,
+   "tiefe": 2.377,
+   "dreiecke": 1474,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Glockenblume1": {
+   "datei": "Glockenblume1.glb",
+   "foliage": false,
+   "bytes": 10340,
+   "huelle": {
+    "min": [
+     -0.345,
+     0,
+     -0.333
+    ],
+    "max": [
+     0.387,
+     0.411,
+     0.324
+    ]
+   },
+   "breite": 0.732,
+   "hoehe": 0.411,
+   "tiefe": 0.657,
+   "dreiecke": 28,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Glockenblume2": {
+   "datei": "Glockenblume2.glb",
+   "foliage": true,
+   "bytes": 10336,
+   "huelle": {
+    "min": [
+     -0.51,
+     0,
+     -0.527
+    ],
+    "max": [
+     0.534,
+     0.645,
+     0.635
+    ]
+   },
+   "breite": 1.044,
+   "hoehe": 0.645,
+   "tiefe": 1.162,
+   "dreiecke": 28,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "GrabDrachenkopf": {
+   "datei": "GrabDrachenkopf.glb",
+   "foliage": false,
+   "bytes": 4063484,
+   "huelle": {
+    "min": [
+     -0.151,
+     0,
+     -0.448
+    ],
+    "max": [
+     0.151,
+     1,
+     0.448
+    ]
+   },
+   "breite": 0.303,
+   "hoehe": 1,
+   "tiefe": 0.896,
+   "dreiecke": 2428,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "GrabMenhir": {
+   "datei": "GrabMenhir.glb",
+   "foliage": false,
+   "bytes": 4133456,
+   "huelle": {
+    "min": [
+     -0.197,
+     0,
+     -0.367
+    ],
+    "max": [
+     0.197,
+     1,
+     0.367
+    ]
+   },
+   "breite": 0.395,
+   "hoehe": 1,
+   "tiefe": 0.735,
+   "dreiecke": 3411,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "GrabRunenstein": {
+   "datei": "GrabRunenstein.glb",
+   "foliage": false,
+   "bytes": 4141384,
+   "huelle": {
+    "min": [
+     -0.113,
+     0,
+     -0.311
+    ],
+    "max": [
+     0.113,
+     1,
+     0.311
+    ]
+   },
+   "breite": 0.226,
+   "hoehe": 1,
+   "tiefe": 0.623,
+   "dreiecke": 4447,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "GrabTruhe": {
+   "datei": "GrabTruhe.glb",
+   "foliage": false,
+   "bytes": 3495516,
+   "huelle": {
+    "min": [
+     -0.35,
+     0,
+     -0.5
+    ],
+    "max": [
+     0.35,
+     0.72,
+     0.5
+    ]
+   },
+   "breite": 0.7,
+   "hoehe": 0.72,
+   "tiefe": 1,
+   "dreiecke": 2774,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Grabhuegel": {
+   "datei": "Grabhuegel.glb",
+   "foliage": false,
+   "bytes": 17153512,
+   "huelle": {
+    "min": [
+     -22.756,
+     -0.4,
+     -15.412
+    ],
+    "max": [
+     19.838,
+     12,
+     15.345
+    ]
+   },
+   "breite": 42.594,
+   "hoehe": 12.4,
+   "tiefe": 30.757,
+   "dreiecke": 37339,
+   "materialien": 10,
+   "bilder": 18,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Hartriegel1": {
+   "datei": "Hartriegel1.glb",
+   "foliage": true,
+   "bytes": 79608,
+   "huelle": {
+    "min": [
+     -0.78,
+     0,
+     -0.976
+    ],
+    "max": [
+     0.962,
+     1.4,
+     1.091
+    ]
+   },
+   "breite": 1.741,
+   "hoehe": 1.4,
+   "tiefe": 2.068,
+   "dreiecke": 900,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Hartriegel2": {
+   "datei": "Hartriegel2.glb",
+   "foliage": false,
+   "bytes": 90928,
+   "huelle": {
+    "min": [
+     -1.243,
+     0,
+     -1.347
+    ],
+    "max": [
+     1.373,
+     2.205,
+     1.454
+    ]
+   },
+   "breite": 2.616,
+   "hoehe": 2.205,
+   "tiefe": 2.801,
+   "dreiecke": 1102,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Hartriegel3": {
+   "datei": "Hartriegel3.glb",
+   "foliage": false,
+   "bytes": 108208,
+   "huelle": {
+    "min": [
+     -2.088,
+     0,
+     -1.931
+    ],
+    "max": [
+     1.99,
+     3,
+     1.82
+    ]
+   },
+   "breite": 4.078,
+   "hoehe": 3,
+   "tiefe": 3.751,
+   "dreiecke": 1422,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Hasel1": {
+   "datei": "Hasel1.glb",
+   "foliage": false,
+   "bytes": 64788,
+   "huelle": {
+    "min": [
+     -0.847,
+     0,
+     -0.935
+    ],
+    "max": [
+     0.979,
+     1.4,
+     1.004
+    ]
+   },
+   "breite": 1.826,
+   "hoehe": 1.4,
+   "tiefe": 1.94,
+   "dreiecke": 552,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Hasel2": {
+   "datei": "Hasel2.glb",
+   "foliage": true,
+   "bytes": 79880,
+   "huelle": {
+    "min": [
+     -1.515,
+     0,
+     -1.312
+    ],
+    "max": [
+     1.39,
+     2.223,
+     1.41
+    ]
+   },
+   "breite": 2.905,
+   "hoehe": 2.223,
+   "tiefe": 2.722,
+   "dreiecke": 826,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Hasel3": {
+   "datei": "Hasel3.glb",
+   "foliage": true,
+   "bytes": 102912,
+   "huelle": {
+    "min": [
+     -1.808,
+     0,
+     -2.085
+    ],
+    "max": [
+     2.232,
+     3.045,
+     1.697
+    ]
+   },
+   "breite": 4.04,
+   "hoehe": 3.045,
+   "tiefe": 3.783,
+   "dreiecke": 1250,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Heidekraut1": {
+   "datei": "Heidekraut1.glb",
+   "foliage": true,
+   "bytes": 125116,
+   "huelle": {
+    "min": [
+     -0.175,
+     0,
+     -0.187
+    ],
+    "max": [
+     0.176,
+     0.26,
+     0.191
+    ]
+   },
+   "breite": 0.351,
+   "hoehe": 0.26,
+   "tiefe": 0.379,
+   "dreiecke": 1158,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Heidekraut2": {
+   "datei": "Heidekraut2.glb",
+   "foliage": true,
+   "bytes": 117432,
+   "huelle": {
+    "min": [
+     -0.28,
+     0,
+     -0.308
+    ],
+    "max": [
+     0.313,
+     0.4,
+     0.342
+    ]
+   },
+   "breite": 0.593,
+   "hoehe": 0.4,
+   "tiefe": 0.65,
+   "dreiecke": 1008,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Heidekraut3": {
+   "datei": "Heidekraut3.glb",
+   "foliage": true,
+   "bytes": 127616,
+   "huelle": {
+    "min": [
+     -0.355,
+     0,
+     -0.353
+    ],
+    "max": [
+     0.355,
+     0.556,
+     0.312
+    ]
+   },
+   "breite": 0.71,
+   "hoehe": 0.556,
+   "tiefe": 0.665,
+   "dreiecke": 1212,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Heidelbeere1": {
+   "datei": "Heidelbeere1.glb",
+   "foliage": false,
+   "bytes": 74048,
+   "huelle": {
+    "min": [
+     -0.164,
+     0,
+     -0.167
+    ],
+    "max": [
+     0.15,
+     0.25,
+     0.178
+    ]
+   },
+   "breite": 0.315,
+   "hoehe": 0.25,
+   "tiefe": 0.345,
+   "dreiecke": 826,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Heidelbeere2": {
+   "datei": "Heidelbeere2.glb",
+   "foliage": true,
+   "bytes": 92612,
+   "huelle": {
+    "min": [
+     -0.386,
+     0,
+     -0.294
+    ],
+    "max": [
+     0.308,
+     0.401,
+     0.314
+    ]
+   },
+   "breite": 0.693,
+   "hoehe": 0.401,
+   "tiefe": 0.608,
+   "dreiecke": 1168,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Heidelbeere3": {
+   "datei": "Heidelbeere3.glb",
+   "foliage": true,
+   "bytes": 90888,
+   "huelle": {
+    "min": [
+     -0.329,
+     0,
+     -0.324
+    ],
+    "max": [
+     0.326,
+     0.553,
+     0.289
+    ]
+   },
+   "breite": 0.655,
+   "hoehe": 0.553,
+   "tiefe": 0.614,
+   "dreiecke": 1136,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Holunder1": {
+   "datei": "Holunder1.glb",
+   "foliage": false,
+   "bytes": 87104,
+   "huelle": {
+    "min": [
+     -0.832,
+     0,
+     -0.92
+    ],
+    "max": [
+     0.95,
+     1.6,
+     0.992
+    ]
+   },
+   "breite": 1.782,
+   "hoehe": 1.6,
+   "tiefe": 1.912,
+   "dreiecke": 520,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Holunder2": {
+   "datei": "Holunder2.glb",
+   "foliage": true,
+   "bytes": 100560,
+   "huelle": {
+    "min": [
+     -1.335,
+     0,
+     -1.275
+    ],
+    "max": [
+     1.303,
+     2.4,
+     1.368
+    ]
+   },
+   "breite": 2.638,
+   "hoehe": 2.4,
+   "tiefe": 2.643,
+   "dreiecke": 778,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Holunder3": {
+   "datei": "Holunder3.glb",
+   "foliage": false,
+   "bytes": 107744,
+   "huelle": {
+    "min": [
+     -1.853,
+     0,
+     -1.793
+    ],
+    "max": [
+     1.647,
+     3.243,
+     2.074
+    ]
+   },
+   "breite": 3.5,
+   "hoehe": 3.243,
+   "tiefe": 3.866,
+   "dreiecke": 916,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "HolzTruhe": {
+   "datei": "HolzTruhe.glb",
+   "foliage": false,
+   "bytes": 70988,
+   "huelle": {
+    "min": [
+     -0.48,
+     0,
+     -0.308
+    ],
+    "max": [
+     0.48,
+     0.605,
+     0.338
+    ]
+   },
+   "breite": 0.96,
+   "hoehe": 0.605,
+   "tiefe": 0.646,
+   "dreiecke": 292,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [
+    {
+     "name": "oeffnen",
+     "dauer": 0.708
+    }
+   ],
+   "meshlos": false,
+   "skins": 0
+  },
+  "KiPine2": {
+   "datei": "KiPine2.glb",
+   "foliage": false,
+   "bytes": 2254168,
+   "huelle": {
+    "min": [
+     -0.31,
+     0,
+     -0.27
+    ],
+    "max": [
+     0.305,
+     1.003,
+     0.272
+    ]
+   },
+   "breite": 0.616,
+   "hoehe": 1.003,
+   "tiefe": 0.542,
+   "dreiecke": 4904,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "KiPine3": {
+   "datei": "KiPine3.glb",
+   "foliage": false,
+   "bytes": 3844552,
+   "huelle": {
+    "min": [
+     -0.307,
+     0,
+     -0.346
+    ],
+    "max": [
+     0.307,
+     1,
+     0.346
+    ]
+   },
+   "breite": 0.614,
+   "hoehe": 1,
+   "tiefe": 0.691,
+   "dreiecke": 13898,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Kiefer1": {
+   "datei": "Kiefer1.glb",
+   "foliage": true,
+   "bytes": 186080,
+   "huelle": {
+    "min": [
+     -7.854,
+     0,
+     -5.833
+    ],
+    "max": [
+     6.416,
+     18.281,
+     5.393
+    ]
+   },
+   "breite": 14.27,
+   "hoehe": 18.281,
+   "tiefe": 11.226,
+   "dreiecke": 2160,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Kiefer1Dick": {
+   "datei": "Kiefer1Dick.glb",
+   "foliage": true,
+   "bytes": 186080,
+   "huelle": {
+    "min": [
+     -7.854,
+     0,
+     -5.833
+    ],
+    "max": [
+     6.416,
+     18.281,
+     5.393
+    ]
+   },
+   "breite": 14.27,
+   "hoehe": 18.281,
+   "tiefe": 11.226,
+   "dreiecke": 2160,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Kiefer2": {
+   "datei": "Kiefer2.glb",
+   "foliage": true,
+   "bytes": 243920,
+   "huelle": {
+    "min": [
+     -7.659,
+     0,
+     -8.553
+    ],
+    "max": [
+     9.835,
+     21.581,
+     6.484
+    ]
+   },
+   "breite": 17.495,
+   "hoehe": 21.581,
+   "tiefe": 15.037,
+   "dreiecke": 3074,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Kiefer2Dick": {
+   "datei": "Kiefer2Dick.glb",
+   "foliage": true,
+   "bytes": 243920,
+   "huelle": {
+    "min": [
+     -7.659,
+     0,
+     -8.553
+    ],
+    "max": [
+     9.835,
+     21.581,
+     6.484
+    ]
+   },
+   "breite": 17.495,
+   "hoehe": 21.581,
+   "tiefe": 15.037,
+   "dreiecke": 3074,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Kiefer3": {
+   "datei": "Kiefer3.glb",
+   "foliage": true,
+   "bytes": 244764,
+   "huelle": {
+    "min": [
+     -11.417,
+     0,
+     -11.238
+    ],
+    "max": [
+     10.538,
+     25.914,
+     9.713
+    ]
+   },
+   "breite": 21.955,
+   "hoehe": 25.914,
+   "tiefe": 20.951,
+   "dreiecke": 3108,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Kiefer3Dick": {
+   "datei": "Kiefer3Dick.glb",
+   "foliage": true,
+   "bytes": 244764,
+   "huelle": {
+    "min": [
+     -11.417,
+     0,
+     -11.238
+    ],
+    "max": [
+     10.538,
+     25.914,
+     9.713
+    ]
+   },
+   "breite": 21.955,
+   "hoehe": 25.914,
+   "tiefe": 20.951,
+   "dreiecke": 3108,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Kiefer4": {
+   "datei": "Kiefer4.glb",
+   "foliage": true,
+   "bytes": 236188,
+   "huelle": {
+    "min": [
+     -11.605,
+     0,
+     -12.849
+    ],
+    "max": [
+     12.099,
+     28.783,
+     11.218
+    ]
+   },
+   "breite": 23.704,
+   "hoehe": 28.783,
+   "tiefe": 24.068,
+   "dreiecke": 2958,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Margerite1": {
+   "datei": "Margerite1.glb",
+   "foliage": true,
+   "bytes": 8884,
+   "huelle": {
+    "min": [
+     -0.402,
+     0,
+     -0.412
+    ],
+    "max": [
+     0.359,
+     0.409,
+     0.379
+    ]
+   },
+   "breite": 0.762,
+   "hoehe": 0.409,
+   "tiefe": 0.791,
+   "dreiecke": 26,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Margerite2": {
+   "datei": "Margerite2.glb",
+   "foliage": true,
+   "bytes": 8880,
+   "huelle": {
+    "min": [
+     -0.602,
+     0,
+     -0.588
+    ],
+    "max": [
+     0.498,
+     0.601,
+     0.621
+    ]
+   },
+   "breite": 1.101,
+   "hoehe": 0.601,
+   "tiefe": 1.208,
+   "dreiecke": 26,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Messer": {
+   "datei": "Messer.glb",
+   "foliage": false,
+   "bytes": 8576,
+   "huelle": {
+    "min": [
+     -0.015,
+     -0.011,
+     -0.179
+    ],
+    "max": [
+     0.015,
+     0.026,
+     0.101
+    ]
+   },
+   "breite": 0.03,
+   "hoehe": 0.036,
+   "tiefe": 0.28,
+   "dreiecke": 151,
+   "materialien": 2,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "PlayerAvatar": {
+   "datei": "PlayerAvatar.glb",
+   "foliage": false,
+   "bytes": 1418692,
+   "huelle": {
+    "min": [
+     -0.499,
+     -0.99,
+     -0.136
+    ],
+    "max": [
+     0.499,
+     0,
+     0.136
+    ]
+   },
+   "breite": 0.998,
+   "hoehe": 0.99,
+   "tiefe": 0.271,
+   "dreiecke": 2996,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [
+    {
+     "name": "idle",
+     "dauer": 1.967
+    },
+    {
+     "name": "gehen",
+     "dauer": 2.533
+    },
+    {
+     "name": "rennen",
+     "dauer": 0.8
+    },
+    {
+     "name": "springen",
+     "dauer": 0.8
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "Schafgarbe1": {
+   "datei": "Schafgarbe1.glb",
+   "foliage": true,
+   "bytes": 13716,
+   "huelle": {
+    "min": [
+     -0.405,
+     0,
+     -0.442
+    ],
+    "max": [
+     0.399,
+     0.574,
+     0.432
+    ]
+   },
+   "breite": 0.804,
+   "hoehe": 0.574,
+   "tiefe": 0.875,
+   "dreiecke": 24,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Schafgarbe2": {
+   "datei": "Schafgarbe2.glb",
+   "foliage": false,
+   "bytes": 13716,
+   "huelle": {
+    "min": [
+     -0.768,
+     0,
+     -0.581
+    ],
+    "max": [
+     0.593,
+     0.816,
+     0.63
+    ]
+   },
+   "breite": 1.361,
+   "hoehe": 0.816,
+   "tiefe": 1.21,
+   "dreiecke": 24,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Schlehe1": {
+   "datei": "Schlehe1.glb",
+   "foliage": true,
+   "bytes": 84680,
+   "huelle": {
+    "min": [
+     -1.004,
+     0,
+     -1.123
+    ],
+    "max": [
+     0.783,
+     1.6,
+     1.079
+    ]
+   },
+   "breite": 1.787,
+   "hoehe": 1.6,
+   "tiefe": 2.202,
+   "dreiecke": 634,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Schlehe2": {
+   "datei": "Schlehe2.glb",
+   "foliage": true,
+   "bytes": 103884,
+   "huelle": {
+    "min": [
+     -1.093,
+     0,
+     -1.565
+    ],
+    "max": [
+     1.704,
+     2.4,
+     1.216
+    ]
+   },
+   "breite": 2.797,
+   "hoehe": 2.4,
+   "tiefe": 2.781,
+   "dreiecke": 996,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Schlehe3": {
+   "datei": "Schlehe3.glb",
+   "foliage": false,
+   "bytes": 134032,
+   "huelle": {
+    "min": [
+     -2.008,
+     0,
+     -2.221
+    ],
+    "max": [
+     2.08,
+     3,
+     1.518
+    ]
+   },
+   "breite": 4.088,
+   "hoehe": 3,
+   "tiefe": 3.739,
+   "dreiecke": 1562,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Seggen1": {
+   "datei": "Seggen1.glb",
+   "foliage": true,
+   "bytes": 8248,
+   "huelle": {
+    "min": [
+     -0.306,
+     0,
+     -0.323
+    ],
+    "max": [
+     0.349,
+     0.394,
+     0.243
+    ]
+   },
+   "breite": 0.655,
+   "hoehe": 0.394,
+   "tiefe": 0.566,
+   "dreiecke": 30,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Seggen2": {
+   "datei": "Seggen2.glb",
+   "foliage": true,
+   "bytes": 8252,
+   "huelle": {
+    "min": [
+     -0.46,
+     0,
+     -0.539
+    ],
+    "max": [
+     0.472,
+     0.644,
+     0.523
+    ]
+   },
+   "breite": 0.933,
+   "hoehe": 0.644,
+   "tiefe": 1.062,
+   "dreiecke": 30,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Seggen3": {
+   "datei": "Seggen3.glb",
+   "foliage": true,
+   "bytes": 7976,
+   "huelle": {
+    "min": [
+     -0.194,
+     0,
+     -0.19
+    ],
+    "max": [
+     0.201,
+     0.259,
+     0.201
+    ]
+   },
+   "breite": 0.395,
+   "hoehe": 0.259,
+   "tiefe": 0.391,
+   "dreiecke": 26,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Steinbank1": {
+   "datei": "Steinbank1.glb",
+   "foliage": true,
+   "bytes": 58968,
+   "huelle": {
+    "min": [
+     -1.303,
+     -0.3,
+     -1.303
+    ],
+    "max": [
+     1.308,
+     1.2,
+     1.297
+    ]
+   },
+   "breite": 2.611,
+   "hoehe": 1.5,
+   "tiefe": 2.6,
+   "dreiecke": 80,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Steinbank2": {
+   "datei": "Steinbank2.glb",
+   "foliage": false,
+   "bytes": 58964,
+   "huelle": {
+    "min": [
+     -2.641,
+     -0.56,
+     -2.784
+    ],
+    "max": [
+     2.497,
+     2.24,
+     2.243
+    ]
+   },
+   "breite": 5.138,
+   "hoehe": 2.8,
+   "tiefe": 5.027,
+   "dreiecke": 80,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Steinkreis": {
+   "datei": "Steinkreis.glb",
+   "foliage": false,
+   "bytes": 4276860,
+   "huelle": {
+    "min": [
+     -0.446,
+     0,
+     -0.5
+    ],
+    "max": [
+     0.446,
+     0.802,
+     0.5
+    ]
+   },
+   "breite": 0.892,
+   "hoehe": 0.802,
+   "tiefe": 1,
+   "dreiecke": 11362,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Surtr": {
+   "datei": "Surtr.glb",
+   "foliage": false,
+   "bytes": 4871864,
+   "huelle": {
+    "min": [
+     -0.469,
+     0,
+     -0.278
+    ],
+    "max": [
+     0.469,
+     1,
+     0.278
+    ]
+   },
+   "breite": 0.939,
+   "hoehe": 1,
+   "tiefe": 0.556,
+   "dreiecke": 14568,
+   "materialien": 1,
+   "bilder": 4,
+   "animationen": [
+    {
+     "name": "attack",
+     "dauer": 2.6
+    },
+    {
+     "name": "idle",
+     "dauer": 6
+    },
+    {
+     "name": "walk",
+     "dauer": 3.4
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "Tanne1": {
+   "datei": "Tanne1.glb",
+   "foliage": true,
+   "bytes": 535540,
+   "huelle": {
+    "min": [
+     -5.294,
+     0,
+     -4.458
+    ],
+    "max": [
+     4.651,
+     13.124,
+     4.324
+    ]
+   },
+   "breite": 9.945,
+   "hoehe": 13.124,
+   "tiefe": 8.782,
+   "dreiecke": 4214,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Tanne1Dick": {
+   "datei": "Tanne1Dick.glb",
+   "foliage": true,
+   "bytes": 535540,
+   "huelle": {
+    "min": [
+     -5.294,
+     0,
+     -4.458
+    ],
+    "max": [
+     4.651,
+     13.124,
+     4.324
+    ]
+   },
+   "breite": 9.945,
+   "hoehe": 13.124,
+   "tiefe": 8.782,
+   "dreiecke": 4214,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Tanne2": {
+   "datei": "Tanne2.glb",
+   "foliage": true,
+   "bytes": 478436,
+   "huelle": {
+    "min": [
+     -2.975,
+     0,
+     -3.432
+    ],
+    "max": [
+     3.253,
+     9.646,
+     3.064
+    ]
+   },
+   "breite": 6.227,
+   "hoehe": 9.646,
+   "tiefe": 6.496,
+   "dreiecke": 3316,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Tanne2Dick": {
+   "datei": "Tanne2Dick.glb",
+   "foliage": true,
+   "bytes": 478436,
+   "huelle": {
+    "min": [
+     -2.975,
+     0,
+     -3.432
+    ],
+    "max": [
+     3.253,
+     9.646,
+     3.064
+    ]
+   },
+   "breite": 6.227,
+   "hoehe": 9.646,
+   "tiefe": 6.496,
+   "dreiecke": 3316,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Tanne3": {
+   "datei": "Tanne3.glb",
+   "foliage": true,
+   "bytes": 398572,
+   "huelle": {
+    "min": [
+     -2.595,
+     0,
+     -2.619
+    ],
+    "max": [
+     2.066,
+     6.981,
+     2.436
+    ]
+   },
+   "breite": 4.661,
+   "hoehe": 6.981,
+   "tiefe": 5.055,
+   "dreiecke": 1910,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Tanne3Dick": {
+   "datei": "Tanne3Dick.glb",
+   "foliage": true,
+   "bytes": 398572,
+   "huelle": {
+    "min": [
+     -2.595,
+     0,
+     -2.619
+    ],
+    "max": [
+     2.066,
+     6.981,
+     2.436
+    ]
+   },
+   "breite": 4.661,
+   "hoehe": 6.981,
+   "tiefe": 5.055,
+   "dreiecke": 1910,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Tanne4": {
+   "datei": "Tanne4.glb",
+   "foliage": true,
+   "bytes": 356652,
+   "huelle": {
+    "min": [
+     -1.572,
+     0.033,
+     -1.682
+    ],
+    "max": [
+     1.511,
+     4.159,
+     1.374
+    ]
+   },
+   "breite": 3.083,
+   "hoehe": 4.126,
+   "tiefe": 3.057,
+   "dreiecke": 1182,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Tanne4Dick": {
+   "datei": "Tanne4Dick.glb",
+   "foliage": true,
+   "bytes": 356652,
+   "huelle": {
+    "min": [
+     -1.572,
+     0.033,
+     -1.682
+    ],
+    "max": [
+     1.511,
+     4.159,
+     1.374
+    ]
+   },
+   "breite": 3.083,
+   "hoehe": 4.126,
+   "tiefe": 3.057,
+   "dreiecke": 1182,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Tanne5": {
+   "datei": "Tanne5.glb",
+   "foliage": true,
+   "bytes": 536664,
+   "huelle": {
+    "min": [
+     -4.719,
+     0,
+     -5.907
+    ],
+    "max": [
+     5.639,
+     16.33,
+     5.45
+    ]
+   },
+   "breite": 10.358,
+   "hoehe": 16.33,
+   "tiefe": 11.357,
+   "dreiecke": 4274,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Tanne5Dick": {
+   "datei": "Tanne5Dick.glb",
+   "foliage": true,
+   "bytes": 536664,
+   "huelle": {
+    "min": [
+     -4.719,
+     0,
+     -5.907
+    ],
+    "max": [
+     5.639,
+     16.33,
+     5.45
+    ]
+   },
+   "breite": 10.358,
+   "hoehe": 16.33,
+   "tiefe": 11.357,
+   "dreiecke": 4274,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Tanne6": {
+   "datei": "Tanne6.glb",
+   "foliage": true,
+   "bytes": 536916,
+   "huelle": {
+    "min": [
+     -7.201,
+     0,
+     -5.866
+    ],
+    "max": [
+     6.492,
+     20.04,
+     7.023
+    ]
+   },
+   "breite": 13.693,
+   "hoehe": 20.04,
+   "tiefe": 12.889,
+   "dreiecke": 4252,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Tanne6Dick": {
+   "datei": "Tanne6Dick.glb",
+   "foliage": true,
+   "bytes": 536916,
+   "huelle": {
+    "min": [
+     -7.201,
+     0,
+     -5.866
+    ],
+    "max": [
+     6.492,
+     20.04,
+     7.023
+    ]
+   },
+   "breite": 13.693,
+   "hoehe": 20.04,
+   "tiefe": 12.889,
+   "dreiecke": 4252,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Tanne7": {
+   "datei": "Tanne7.glb",
+   "foliage": true,
+   "bytes": 537904,
+   "huelle": {
+    "min": [
+     -8.372,
+     0,
+     -7.92
+    ],
+    "max": [
+     7.516,
+     22.512,
+     7.065
+    ]
+   },
+   "breite": 15.888,
+   "hoehe": 22.512,
+   "tiefe": 14.985,
+   "dreiecke": 4310,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Trollblume1": {
+   "datei": "Trollblume1.glb",
+   "foliage": false,
+   "bytes": 9652,
+   "huelle": {
+    "min": [
+     -0.269,
+     0,
+     -0.311
+    ],
+    "max": [
+     0.28,
+     0.37,
+     0.256
+    ]
+   },
+   "breite": 0.549,
+   "hoehe": 0.37,
+   "tiefe": 0.567,
+   "dreiecke": 22,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Trollblume2": {
+   "datei": "Trollblume2.glb",
+   "foliage": true,
+   "bytes": 9652,
+   "huelle": {
+    "min": [
+     -0.573,
+     0,
+     -0.567
+    ],
+    "max": [
+     0.489,
+     0.584,
+     0.365
+    ]
+   },
+   "breite": 1.063,
+   "hoehe": 0.584,
+   "tiefe": 0.932,
+   "dreiecke": 22,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Voelva": {
+   "datei": "Voelva.glb",
+   "foliage": false,
+   "bytes": 3085536,
+   "huelle": {
+    "min": [
+     -0.284,
+     0,
+     -0.221
+    ],
+    "max": [
+     0.284,
+     1,
+     0.221
+    ]
+   },
+   "breite": 0.567,
+   "hoehe": 1,
+   "tiefe": 0.442,
+   "dreiecke": 11443,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [
+    {
+     "name": "idle",
+     "dauer": 5
+    },
+    {
+     "name": "walk",
+     "dauer": 1
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "Wacholder1": {
+   "datei": "Wacholder1.glb",
+   "foliage": true,
+   "bytes": 122060,
+   "huelle": {
+    "min": [
+     -0.419,
+     0,
+     -0.521
+    ],
+    "max": [
+     0.547,
+     0.7,
+     0.461
+    ]
+   },
+   "breite": 0.966,
+   "hoehe": 0.7,
+   "tiefe": 0.982,
+   "dreiecke": 1040,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Wacholder2": {
+   "datei": "Wacholder2.glb",
+   "foliage": true,
+   "bytes": 143188,
+   "huelle": {
+    "min": [
+     -0.671,
+     0,
+     -0.819
+    ],
+    "max": [
+     0.637,
+     1.2,
+     0.826
+    ]
+   },
+   "breite": 1.309,
+   "hoehe": 1.2,
+   "tiefe": 1.645,
+   "dreiecke": 1404,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Wacholder3": {
+   "datei": "Wacholder3.glb",
+   "foliage": true,
+   "bytes": 145748,
+   "huelle": {
+    "min": [
+     -1.322,
+     0,
+     -1.293
+    ],
+    "max": [
+     1.109,
+     1.8,
+     1.314
+    ]
+   },
+   "breite": 2.431,
+   "hoehe": 1.8,
+   "tiefe": 2.607,
+   "dreiecke": 1448,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Walkuere": {
+   "datei": "Walkuere.glb",
+   "foliage": false,
+   "bytes": 4002732,
+   "huelle": {
+    "min": [
+     -0.006,
+     -0.002,
+     -0.01
+    ],
+    "max": [
+     0.006,
+     0.002,
+     0.01
+    ]
+   },
+   "breite": 0.012,
+   "hoehe": 0.003,
+   "tiefe": 0.019,
+   "dreiecke": 21030,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [
+    {
+     "name": "idle",
+     "dauer": 16.6
+    },
+    {
+     "name": "gehen",
+     "dauer": 0.933
+    },
+    {
+     "name": "rennen",
+     "dauer": 2.533
+    },
+    {
+     "name": "angriff",
+     "dauer": 1
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "Weide1": {
+   "datei": "Weide1.glb",
+   "foliage": true,
+   "bytes": 86180,
+   "huelle": {
+    "min": [
+     -0.583,
+     0,
+     -0.722
+    ],
+    "max": [
+     0.639,
+     1.2,
+     0.821
+    ]
+   },
+   "breite": 1.222,
+   "hoehe": 1.2,
+   "tiefe": 1.542,
+   "dreiecke": 900,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Weide2": {
+   "datei": "Weide2.glb",
+   "foliage": true,
+   "bytes": 93516,
+   "huelle": {
+    "min": [
+     -1.016,
+     0,
+     -1.102
+    ],
+    "max": [
+     0.937,
+     1.998,
+     1.144
+    ]
+   },
+   "breite": 1.953,
+   "hoehe": 1.998,
+   "tiefe": 2.246,
+   "dreiecke": 1034,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Weide3": {
+   "datei": "Weide3.glb",
+   "foliage": true,
+   "bytes": 111120,
+   "huelle": {
+    "min": [
+     -1.73,
+     0,
+     -1.399
+    ],
+    "max": [
+     1.684,
+     2.798,
+     1.643
+    ]
+   },
+   "breite": 3.414,
+   "hoehe": 2.798,
+   "tiefe": 3.042,
+   "dreiecke": 1366,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "WikingerBasis": {
+   "datei": "WikingerBasis.glb",
+   "foliage": false,
+   "bytes": 2483272,
+   "huelle": {
+    "min": [
+     -0.296,
+     0,
+     -0.102
+    ],
+    "max": [
+     0.296,
+     1,
+     0.102
+    ]
+   },
+   "breite": 0.591,
+   "hoehe": 1,
+   "tiefe": 0.204,
+   "dreiecke": 9730,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [
+    {
+     "name": "angriff",
+     "dauer": 1.4
+    },
+    {
+     "name": "gehen",
+     "dauer": 0.933
+    },
+    {
+     "name": "idle",
+     "dauer": 6
+    },
+    {
+     "name": "rennen",
+     "dauer": 0.733
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "WikingerStatue": {
+   "datei": "WikingerStatue.glb",
+   "foliage": false,
+   "bytes": 3950300,
+   "huelle": {
+    "min": [
+     -0.257,
+     0,
+     -0.346
+    ],
+    "max": [
+     0.257,
+     1,
+     0.346
+    ]
+   },
+   "breite": 0.513,
+   "hoehe": 1,
+   "tiefe": 0.692,
+   "dreiecke": 8843,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "WikingerinBasis": {
+   "datei": "WikingerinBasis.glb",
+   "foliage": false,
+   "bytes": 1891628,
+   "huelle": {
+    "min": [
+     -0.31,
+     0,
+     -0.082
+    ],
+    "max": [
+     0.309,
+     1,
+     0.082
+    ]
+   },
+   "breite": 0.619,
+   "hoehe": 1,
+   "tiefe": 0.164,
+   "dreiecke": 21030,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [
+    {
+     "name": "angriff",
+     "dauer": 2.167
+    },
+    {
+     "name": "gehen",
+     "dauer": 1
+    },
+    {
+     "name": "idle",
+     "dauer": 16.667
+    },
+    {
+     "name": "rennen",
+     "dauer": 2.583
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "Wollgras1": {
+   "datei": "Wollgras1.glb",
+   "foliage": true,
+   "bytes": 9388,
+   "huelle": {
+    "min": [
+     -0.278,
+     0,
+     -0.326
+    ],
+    "max": [
+     0.294,
+     0.404,
+     0.319
+    ]
+   },
+   "breite": 0.572,
+   "hoehe": 0.404,
+   "tiefe": 0.645,
+   "dreiecke": 32,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Wollgras2": {
+   "datei": "Wollgras2.glb",
+   "foliage": true,
+   "bytes": 9388,
+   "huelle": {
+    "min": [
+     -0.424,
+     0,
+     -0.349
+    ],
+    "max": [
+     0.405,
+     0.572,
+     0.364
+    ]
+   },
+   "breite": 0.829,
+   "hoehe": 0.572,
+   "tiefe": 0.713,
+   "dreiecke": 32,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Wollgras3": {
+   "datei": "Wollgras3.glb",
+   "foliage": true,
+   "bytes": 9528,
+   "huelle": {
+    "min": [
+     -0.391,
+     0,
+     -0.452
+    ],
+    "max": [
+     0.409,
+     0.596,
+     0.446
+    ]
+   },
+   "breite": 0.799,
+   "hoehe": 0.596,
+   "tiefe": 0.898,
+   "dreiecke": 34,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "Wollgras4": {
+   "datei": "Wollgras4.glb",
+   "foliage": true,
+   "bytes": 9944,
+   "huelle": {
+    "min": [
+     -0.787,
+     0,
+     -0.867
+    ],
+    "max": [
+     0.89,
+     1.003,
+     0.755
+    ]
+   },
+   "breite": 1.678,
+   "hoehe": 1.003,
+   "tiefe": 1.622,
+   "dreiecke": 40,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "clutter_default": {
+   "datei": "clutter_default.glb",
+   "foliage": false,
+   "bytes": 2980,
+   "huelle": {
+    "min": [
+     -0.471,
+     -0.029,
+     -0.466
+    ],
+    "max": [
+     0.43,
+     0.246,
+     0.285
+    ]
+   },
+   "breite": 0.902,
+   "hoehe": 0.275,
+   "tiefe": 0.75,
+   "dreiecke": 36,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "clutter_fern": {
+   "datei": "clutter_fern.glb",
+   "foliage": false,
+   "bytes": 7208,
+   "huelle": {
+    "min": [
+     -1.225,
+     -0.11,
+     -1.2
+    ],
+    "max": [
+     1.346,
+     0.876,
+     1.248
+    ]
+   },
+   "breite": 2.571,
+   "hoehe": 0.986,
+   "tiefe": 2.448,
+   "dreiecke": 144,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "clutter_lily": {
+   "datei": "clutter_lily.glb",
+   "foliage": false,
+   "bytes": 2036,
+   "huelle": {
+    "min": [
+     -1.181,
+     0,
+     -0.992
+    ],
+    "max": [
+     1.168,
+     0.04,
+     1.01
+    ]
+   },
+   "breite": 2.349,
+   "hoehe": 0.04,
+   "tiefe": 2.002,
+   "dreiecke": 12,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "clutter_plane": {
+   "datei": "clutter_plane.glb",
+   "foliage": false,
+   "bytes": 1412,
+   "huelle": {
+    "min": [
+     -1,
+     0,
+     -1
+    ],
+    "max": [
+     1,
+     1,
+     1
+    ]
+   },
+   "breite": 2,
+   "hoehe": 1,
+   "tiefe": 2,
+   "dreiecke": 4,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "clutter_vass": {
+   "datei": "clutter_vass.glb",
+   "foliage": false,
+   "bytes": 10104,
+   "huelle": {
+    "min": [
+     -0.891,
+     -0.633,
+     -0.992
+    ],
+    "max": [
+     0.868,
+     1.404,
+     0.68
+    ]
+   },
+   "breite": 1.758,
+   "hoehe": 2.037,
+   "tiefe": 1.672,
+   "dreiecke": 200,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "grasscross": {
+   "datei": "grasscross.glb",
+   "foliage": false,
+   "bytes": 2964,
+   "huelle": {
+    "min": [
+     -0.405,
+     -0.16,
+     -0.397
+    ],
+    "max": [
+     0.529,
+     0.288,
+     0.389
+    ]
+   },
+   "breite": 0.934,
+   "hoehe": 0.448,
+   "tiefe": 0.786,
+   "dreiecke": 36,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "npc_1_walk": {
+   "datei": "npc_1_walk.glb",
+   "foliage": false,
+   "bytes": 59475620,
+   "huelle": {
+    "min": [
+     -0.008,
+     0,
+     -0.004
+    ],
+    "max": [
+     0.008,
+     0.014,
+     0.004
+    ]
+   },
+   "breite": 0.017,
+   "hoehe": 0.014,
+   "tiefe": 0.008,
+   "dreiecke": 10374,
+   "materialien": 1,
+   "bilder": 2,
+   "animationen": [
+    {
+     "name": "Run_02",
+     "dauer": 0.733
+    },
+    {
+     "name": "Running",
+     "dauer": 0.633
+    },
+    {
+     "name": "Walking",
+     "dauer": 1.033
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_01": {
+   "datei": "wikingerin/H_01.glb",
+   "foliage": false,
+   "bytes": 487184,
+   "huelle": {
+    "min": [
+     -0.056,
+     0.858,
+     -0.077
+    ],
+    "max": [
+     0.059,
+     1.016,
+     0.052
+    ]
+   },
+   "breite": 0.115,
+   "hoehe": 0.157,
+   "tiefe": 0.13,
+   "dreiecke": 4011,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_02": {
+   "datei": "wikingerin/H_02.glb",
+   "foliage": false,
+   "bytes": 436096,
+   "huelle": {
+    "min": [
+     -0.088,
+     0.739,
+     -0.109
+    ],
+    "max": [
+     0.066,
+     1.008,
+     0.077
+    ]
+   },
+   "breite": 0.154,
+   "hoehe": 0.268,
+   "tiefe": 0.187,
+   "dreiecke": 3947,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_03": {
+   "datei": "wikingerin/H_03.glb",
+   "foliage": false,
+   "bytes": 568548,
+   "huelle": {
+    "min": [
+     -0.054,
+     0.875,
+     -0.069
+    ],
+    "max": [
+     0.053,
+     1.007,
+     0.052
+    ]
+   },
+   "breite": 0.107,
+   "hoehe": 0.131,
+   "tiefe": 0.12,
+   "dreiecke": 9001,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_04": {
+   "datei": "wikingerin/H_04.glb",
+   "foliage": false,
+   "bytes": 604092,
+   "huelle": {
+    "min": [
+     -0.078,
+     0.876,
+     -0.077
+    ],
+    "max": [
+     0.078,
+     1.014,
+     0.059
+    ]
+   },
+   "breite": 0.157,
+   "hoehe": 0.138,
+   "tiefe": 0.137,
+   "dreiecke": 9708,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_05": {
+   "datei": "wikingerin/H_05.glb",
+   "foliage": false,
+   "bytes": 441784,
+   "huelle": {
+    "min": [
+     -0.047,
+     0.692,
+     -0.141
+    ],
+    "max": [
+     0.047,
+     1.009,
+     0.053
+    ]
+   },
+   "breite": 0.095,
+   "hoehe": 0.317,
+   "tiefe": 0.194,
+   "dreiecke": 7080,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_06": {
+   "datei": "wikingerin/H_06.glb",
+   "foliage": false,
+   "bytes": 851668,
+   "huelle": {
+    "min": [
+     -0.047,
+     0.89,
+     -0.072
+    ],
+    "max": [
+     0.048,
+     1.037,
+     0.053
+    ]
+   },
+   "breite": 0.096,
+   "hoehe": 0.148,
+   "tiefe": 0.125,
+   "dreiecke": 15014,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_07": {
+   "datei": "wikingerin/H_07.glb",
+   "foliage": false,
+   "bytes": 1793396,
+   "huelle": {
+    "min": [
+     -0.05,
+     0.841,
+     -0.095
+    ],
+    "max": [
+     0.052,
+     1.01,
+     0.05
+    ]
+   },
+   "breite": 0.102,
+   "hoehe": 0.17,
+   "tiefe": 0.145,
+   "dreiecke": 31566,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_08": {
+   "datei": "wikingerin/H_08.glb",
+   "foliage": false,
+   "bytes": 602376,
+   "huelle": {
+    "min": [
+     -0.083,
+     0.738,
+     -0.093
+    ],
+    "max": [
+     0.082,
+     1.01,
+     0.099
+    ]
+   },
+   "breite": 0.164,
+   "hoehe": 0.272,
+   "tiefe": 0.192,
+   "dreiecke": 9812,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_09": {
+   "datei": "wikingerin/H_09.glb",
+   "foliage": false,
+   "bytes": 689928,
+   "huelle": {
+    "min": [
+     -0.058,
+     0.742,
+     -0.079
+    ],
+    "max": [
+     0.065,
+     1.009,
+     0.082
+    ]
+   },
+   "breite": 0.122,
+   "hoehe": 0.267,
+   "tiefe": 0.161,
+   "dreiecke": 9466,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_10": {
+   "datei": "wikingerin/H_10.glb",
+   "foliage": false,
+   "bytes": 569460,
+   "huelle": {
+    "min": [
+     -0.086,
+     0.769,
+     -0.108
+    ],
+    "max": [
+     0.08,
+     1.006,
+     0.083
+    ]
+   },
+   "breite": 0.166,
+   "hoehe": 0.237,
+   "tiefe": 0.191,
+   "dreiecke": 7868,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_11": {
+   "datei": "wikingerin/H_11.glb",
+   "foliage": false,
+   "bytes": 427504,
+   "huelle": {
+    "min": [
+     -0.062,
+     0.879,
+     -0.072
+    ],
+    "max": [
+     0.062,
+     1.014,
+     0.057
+    ]
+   },
+   "breite": 0.123,
+   "hoehe": 0.135,
+   "tiefe": 0.129,
+   "dreiecke": 6841,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_12": {
+   "datei": "wikingerin/H_12.glb",
+   "foliage": false,
+   "bytes": 617784,
+   "huelle": {
+    "min": [
+     -0.051,
+     0.87,
+     -0.087
+    ],
+    "max": [
+     0.051,
+     1.021,
+     0.054
+    ]
+   },
+   "breite": 0.103,
+   "hoehe": 0.151,
+   "tiefe": 0.141,
+   "dreiecke": 9901,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_13": {
+   "datei": "wikingerin/H_13.glb",
+   "foliage": false,
+   "bytes": 534640,
+   "huelle": {
+    "min": [
+     -0.066,
+     0.878,
+     -0.074
+    ],
+    "max": [
+     0.065,
+     1.035,
+     0.053
+    ]
+   },
+   "breite": 0.131,
+   "hoehe": 0.157,
+   "tiefe": 0.127,
+   "dreiecke": 8377,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_14": {
+   "datei": "wikingerin/H_14.glb",
+   "foliage": false,
+   "bytes": 478924,
+   "huelle": {
+    "min": [
+     -0.058,
+     0.875,
+     -0.066
+    ],
+    "max": [
+     0.058,
+     1.013,
+     0.055
+    ]
+   },
+   "breite": 0.115,
+   "hoehe": 0.138,
+   "tiefe": 0.121,
+   "dreiecke": 7411,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_15": {
+   "datei": "wikingerin/H_15.glb",
+   "foliage": false,
+   "bytes": 294060,
+   "huelle": {
+    "min": [
+     -0.053,
+     0.824,
+     -0.122
+    ],
+    "max": [
+     0.05,
+     1.019,
+     0.054
+    ]
+   },
+   "breite": 0.103,
+   "hoehe": 0.194,
+   "tiefe": 0.175,
+   "dreiecke": 4507,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_16": {
+   "datei": "wikingerin/H_16.glb",
+   "foliage": false,
+   "bytes": 676656,
+   "huelle": {
+    "min": [
+     -0.057,
+     0.639,
+     -0.085
+    ],
+    "max": [
+     0.059,
+     1.015,
+     0.061
+    ]
+   },
+   "breite": 0.116,
+   "hoehe": 0.376,
+   "tiefe": 0.146,
+   "dreiecke": 12476,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_17": {
+   "datei": "wikingerin/H_17.glb",
+   "foliage": false,
+   "bytes": 807716,
+   "huelle": {
+    "min": [
+     -0.081,
+     0.712,
+     -0.111
+    ],
+    "max": [
+     0.074,
+     1.008,
+     0.085
+    ]
+   },
+   "breite": 0.155,
+   "hoehe": 0.296,
+   "tiefe": 0.196,
+   "dreiecke": 11359,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_18": {
+   "datei": "wikingerin/H_18.glb",
+   "foliage": false,
+   "bytes": 930636,
+   "huelle": {
+    "min": [
+     -0.071,
+     0.742,
+     -0.119
+    ],
+    "max": [
+     0.071,
+     1.012,
+     0.071
+    ]
+   },
+   "breite": 0.142,
+   "hoehe": 0.269,
+   "tiefe": 0.19,
+   "dreiecke": 18094,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_19": {
+   "datei": "wikingerin/H_19.glb",
+   "foliage": false,
+   "bytes": 429924,
+   "huelle": {
+    "min": [
+     -0.116,
+     0.709,
+     -0.139
+    ],
+    "max": [
+     0.115,
+     1.006,
+     0.053
+    ]
+   },
+   "breite": 0.231,
+   "hoehe": 0.297,
+   "tiefe": 0.192,
+   "dreiecke": 7288,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_20": {
+   "datei": "wikingerin/H_20.glb",
+   "foliage": false,
+   "bytes": 427132,
+   "huelle": {
+    "min": [
+     -0.065,
+     0.718,
+     -0.106
+    ],
+    "max": [
+     0.07,
+     1.009,
+     0.085
+    ]
+   },
+   "breite": 0.135,
+   "hoehe": 0.291,
+   "tiefe": 0.191,
+   "dreiecke": 7827,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/H_21": {
+   "datei": "wikingerin/H_21.glb",
+   "foliage": false,
+   "bytes": 631652,
+   "huelle": {
+    "min": [
+     -0.067,
+     0.791,
+     -0.112
+    ],
+    "max": [
+     0.066,
+     1.01,
+     0.081
+    ]
+   },
+   "breite": 0.133,
+   "hoehe": 0.219,
+   "tiefe": 0.194,
+   "dreiecke": 11848,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/R_LederBH": {
+   "datei": "wikingerin/R_LederBH.glb",
+   "foliage": false,
+   "bytes": 366156,
+   "huelle": {
+    "min": [
+     -0.089,
+     0.608,
+     -0.073
+    ],
+    "max": [
+     0.088,
+     0.855,
+     0.076
+    ]
+   },
+   "breite": 0.178,
+   "hoehe": 0.247,
+   "tiefe": 0.149,
+   "dreiecke": 2759,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/R_LederShorts": {
+   "datei": "wikingerin/R_LederShorts.glb",
+   "foliage": false,
+   "bytes": 763460,
+   "huelle": {
+    "min": [
+     -0.119,
+     0.39,
+     -0.085
+    ],
+    "max": [
+     0.118,
+     0.661,
+     0.078
+    ]
+   },
+   "breite": 0.237,
+   "hoehe": 0.271,
+   "tiefe": 0.163,
+   "dreiecke": 3525,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 1
+  },
+  "wikingerin/WikingerinKoerper": {
+   "datei": "wikingerin/WikingerinKoerper.glb",
+   "foliage": false,
+   "bytes": 3938980,
+   "huelle": {
+    "min": [
+     -0.31,
+     0,
+     -0.082
+    ],
+    "max": [
+     0.309,
+     1,
+     0.082
+    ]
+   },
+   "breite": 0.619,
+   "hoehe": 1,
+   "tiefe": 0.164,
+   "dreiecke": 21030,
+   "materialien": 1,
+   "bilder": 1,
+   "animationen": [
+    {
+     "name": "angriff",
+     "dauer": 1.25
+    },
+    {
+     "name": "gehen",
+     "dauer": 1.208
+    },
+    {
+     "name": "idle",
+     "dauer": 10.417
+    },
+    {
+     "name": "rennen",
+     "dauer": 3.208
+    },
+    {
+     "name": "springen",
+     "dauer": 3.25
+    },
+    {
+     "name": "weitsprung",
+     "dauer": 0.917
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
+  }
+ }
+}

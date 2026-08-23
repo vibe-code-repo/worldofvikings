@@ -103,8 +103,36 @@ const KNOCHEN = {
   'mixamorig:RightFoot': 'R_Foot',
   'mixamorig:RightToeBase': 'R_ToeBase',
 };
+/**
+ * Rollen, die der Umbau namentlich braucht — in UNSERER Schreibweise.
+ * `zielName()` übersetzt sie auf das Skelett, das gerade beliefert wird.
+ */
 /** Der einzige Knochen, dessen Verschiebung übernommen wird. */
-const WURZEL_ZIEL = 'Hip';
+const WURZEL_ROLLE = 'Hip';
+
+/**
+ * Rolle → wie der Knochen im ZIELskelett wirklich heisst.
+ *
+ * WARUM DAS NÖTIG IST: Vier Stellen im Umbau sprechen Knochen namentlich
+ * an — die Hüfte (deren Verschiebung als einzige übernommen wird), Kopf
+ * und Fuss (Grössenverhältnis), Kopf/Hüfte/Oberschenkel (Achsenkreuz) und
+ * beide Füsse (Schrittweite). Sie standen als `'Hip'`, `'L_Foot'` fest im
+ * Code, also in der Tripo-Schreibweise unserer eigenen Modelle.
+ *
+ * Ein bei Mixamo geriggtes Ziel — die Walküre — nennt dieselben Knochen
+ * `mixamorig:Hips` und `mixamorig:LeftFoot`. Für so ein Ziel greift die
+ * Zuordnung `gleichnamig` (Quelle und Ziel heissen gleich, das
+ * Retargeting rechnet die Identität), aber die vier festen Namen liefen
+ * ins Leere: keine Hüftverschiebung, Grössenfaktor 1, kein Achsenkreuz.
+ * Das Ergebnis wäre nicht abgestürzt, sondern eine Figur, die auf der
+ * Stelle zappelt — ein Fehler, den man nur im Spiel sieht.
+ */
+function zielName(zuordnung, rolle) {
+  // Zuordnung 'mixamo' liefert bereits unsere Schreibweise.
+  if (zuordnung.art === 'mixamo') return rolle;
+  const quellname = Object.entries(KNOCHEN).find(([, z]) => z === rolle)?.[0];
+  return zuordnung.paare.find(([q]) => q === quellname)?.[1] ?? rolle;
+}
 
 /**
  * Vereinheitlicht Mixamo-Knochennamen auf die Schreibweise mit Doppelpunkt.
@@ -385,7 +413,8 @@ function groessenFaktor(quelle, ziel, ruhe, zuordnung) {
     const z = ziel.ruheWeltPos.get(io).distanceTo(ziel.ruheWeltPos.get(iu));
     return q > 1e-6 ? z / q : null;
   };
-  return strecke('Head', 'L_Foot') ?? strecke('Head', 'Hip') ?? 1;
+  const N = (rolle) => zielName(zuordnung, rolle);
+  return strecke(N('Head'), N('L_Foot')) ?? strecke(N('Head'), N('Hip')) ?? 1;
 }
 
 /**
@@ -477,8 +506,9 @@ function raumKorrektur(quelleRuhe, ziel, zuordnung) {
     return new Matrix4().makeBasis(seit, hoch, vorn);
   };
 
-  const mQ = dreibein('Head', 'Hip', 'L_Thigh', 'R_Thigh', pQ);
-  const mZ = dreibein('Head', 'Hip', 'L_Thigh', 'R_Thigh', pZ);
+  const N = (rolle) => zielName(zuordnung, rolle);
+  const mQ = dreibein(N('Head'), N('Hip'), N('L_Thigh'), N('R_Thigh'), pQ);
+  const mZ = dreibein(N('Head'), N('Hip'), N('L_Thigh'), N('R_Thigh'), pZ);
   if (!mQ || !mZ) {
     console.warn('[warnung] Achsenkreuz nicht bestimmbar — Bewegung kann verdreht ankommen.');
     return { C: new Quaternion(), vornZiel: new Vector3(0, 0, 1) };
@@ -550,15 +580,16 @@ function retargete(clip, quelle, ziel, ruhe, hoehenFaktor, zuordnung) {
   paare.sort((a, b) => tiefe(a.idx, eltern) - tiefe(b.idx, eltern));
 
   // Raumkorrektur aus dem Achsenkreuz beider Körper (siehe raumKorrektur).
-  const hüfteQuellName = zuordnung.paare.find(([, z]) => z === WURZEL_ZIEL)?.[0];
-  const hüfteIdx = nachName.get(WURZEL_ZIEL);
+  const wurzelZiel = zielName(zuordnung, WURZEL_ROLLE);
+  const hüfteQuellName = zuordnung.paare.find(([, z]) => z === wurzelZiel)?.[0];
+  const hüfteIdx = nachName.get(wurzelZiel);
   const { C, vornZiel } = raumKorrektur(ruhe, ziel, zuordnung);
   const Cinv = C.clone().invert();
   const hüftePos = new Float32Array(frames * 3);
   // Fußstellung relativ zur Hüfte je Bild. Daraus wird die Schrittweite
   // bestimmt, falls der Clip auf der Stelle läuft (siehe backeSchrittWeg).
   const fuesse = [];
-  for (const zn of ['L_Foot', 'R_Foot']) {
+  for (const zn of [zielName(zuordnung, 'L_Foot'), zielName(zuordnung, 'R_Foot')]) {
     const qn = zuordnung.paare.find(([, z]) => z === zn)?.[0];
     const b = qn ? quelle.knochen.get(qn) : null;
     if (b) fuesse.push({ b, spur: [] });

@@ -44,6 +44,18 @@
   let fertig = $state(false);
   let fussHinweis = $state('');
 
+  /*
+    Der Hintergrundfilm. Leer, solange die Datei nicht liegt.
+
+    Nachgefragt wird mit HEAD, BEVOR das <video> eine Quelle bekommt: Ein
+    <video src> auf eine fehlende Datei schreibt eine 404 in die Konsole und
+    feuert ein error-Ereignis — Rauschen, das bei der naechsten echten
+    Stoerung im Weg steht. So bleibt es still, und sobald die Datei da ist,
+    laeuft sie ohne dass jemand die Seite neu bauen muss.
+  */
+  let videoQuelle = $state('');
+  const VIDEO = '/assets/video/schwarzwald.webm';
+
   let figur = $state('');
   let frisur = $state('');
   let ober = $state('');
@@ -144,6 +156,16 @@
   }
 
   onMount(async () => {
+    // Erst nachsehen, ob es den Film gibt — siehe Kommentar bei videoQuelle.
+    void (async () => {
+      try {
+        const antwort = await fetch(VIDEO, { method: 'HEAD' });
+        if (antwort.ok) videoQuelle = VIDEO;
+      } catch {
+        /* kein Film, kein Problem: die Buehne behaelt ihren Verlauf */
+      }
+    })();
+
     try {
       daten = await holeJson<Aussehen>('/assets/aussehen.json');
     } catch (e) {
@@ -249,6 +271,35 @@
 
     <!-- Mitte: Bühne -->
     <div class="buehne">
+      <!--
+        Der Hintergrund ist ein gewoehnliches <video> HINTER der Leinwand,
+        nicht Teil der 3D-Szene. Das ist der billigste Weg: Der Browser
+        dekodiert es in Hardware und die Grafikkarte setzt es zusammen —
+        kein Texturupload je Frame, keine Weltgenerierung, keine Instanzen.
+
+        `muted` ist Pflicht, sonst verweigern Browser das Selbststarten.
+        `playsinline` verhindert, dass iOS es in den Vollbildspieler reisst.
+        Der Faktor --zoom kommt aus der Vorschau und laesst den Wald beim
+        Heranzoomen leicht mitwachsen; ohne das sieht man sofort, dass die
+        Figur vor einer Leinwand steht.
+
+        Faellt das Video aus — weil es fehlt, weil jemand Autoplay sperrt
+        oder weniger Bewegung verlangt —, bleibt das Standbild stehen.
+        Deshalb `poster`, und deshalb hat die Buehne darunter weiter ihren
+        Farbverlauf.
+      -->
+      {#if videoQuelle}
+      <video
+        class="buehne-video"
+        src={videoQuelle}
+        autoplay
+        muted
+        loop
+        playsinline
+        preload="auto"
+        aria-hidden="true"
+      ></video>
+      {/if}
       <canvas bind:this={leinwand}></canvas>
       <div class="buehne-hinweis" class:fertig>{hinweis}</div>
       <div class="buehne-werkzeug">
@@ -319,7 +370,41 @@
     height: min(68vh, 700px);
     background: radial-gradient(120% 90% at 50% 6%, #2c2b26 0%, #17171b 55%, #0d0d0f 100%);
   }
-  .buehne canvas { width: 100%; height: 100%; display: block; outline: none; }
+  .buehne canvas {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    display: block;
+    outline: none;
+    /* Die Leinwand ist durchsichtig — sie zeigt nur die Figur, alles
+       andere kommt vom Video darunter. */
+    background: transparent;
+    cursor: grab;
+    touch-action: none;
+  }
+  .buehne canvas:active { cursor: grabbing; }
+
+  .buehne-video {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* Beim Heranzoomen waechst der Hintergrund leicht mit. Den Faktor setzt
+       die Vorschau als CSS-Variable; ohne sie bleibt er bei 1. */
+    transform: scale(var(--zoom, 1));
+    transform-origin: 50% 55%;
+    transition: transform 0.12s linear;
+    pointer-events: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    /* Wer weniger Bewegung will, bekommt das Standbild. Das Video laeuft
+       zwar weiter, aber der mitwachsende Zoom faellt weg. */
+    .buehne-video { transition: none; transform: none; }
+  }
   .buehne-hinweis {
     position: absolute;
     inset: 0;
@@ -331,9 +416,16 @@
     text-align: center;
     padding: 20px;
     pointer-events: none;
+    z-index: 2;
   }
   .buehne-hinweis.fertig { display: none; }
-  .buehne-werkzeug { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 6px; }
+  /*
+    ueber der Leinwand. Die traegt seit dem Videohintergrund z-index 1, und
+    ohne eigenen Wert lagen die Knoepfe DARUNTER — sichtbar, aber nicht
+    anklickbar. Aufgefallen ist es nur, weil ein Pruefschuss beim Klick in
+    einen Timeout lief.
+  */
+  .buehne-werkzeug { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 6px; z-index: 2; }
   .buehne-werkzeug button {
     width: 32px; height: 32px; padding: 0; font-size: 15px; line-height: 1;
     background: rgba(0, 0, 0, 0.5);

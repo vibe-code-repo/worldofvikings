@@ -80,6 +80,8 @@ import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/Worl
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, type WorldContext } from './world/WorldContext.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
+import { Kontendatenbank } from './konto/Kontendatenbank.js';
+import { KontoApi } from './konto/KontoApi.js';
 import { Peer } from './net/Peer.js';
 import { Reader } from './io/Reader.js';
 import { Writer } from './io/Writer.js';
@@ -212,6 +214,8 @@ export class WovServer {
   readonly zdos: ZDOManager;
   readonly prefabs: PrefabManager;
   readonly net: NetManager;
+  /** Konten und Charaktere. Eigene Datei je Instanz, wie die Welt. */
+  private readonly kontenDb: Kontendatenbank;
   /** Extensible admin command concept (fly, later teleport/god/...). */
   readonly adminCommands: AdminCommandRegistry;
   /** F5: gesetzte Fortschrittsmarken (GlobalKey) — s. WeltMarken.ts Kopfkommentar. */
@@ -343,8 +347,22 @@ export class WovServer {
     // durch, und es ist ohnehin kein Passwort gesetzt.
     const sessionSecret = this.config.sessionSecret ?? randomBytes(32);
 
+    // ── Konten ─────────────────
+    // Eigene Datei je Instanz, wie die Welt und wie die Dungeons darueber:
+    // Auf dem Testgestade wird absichtlich zurueckgesetzt, dort haben
+    // echte Zugangsdaten nichts zu suchen.
+    //
+    // Die API haengt am SPIELPORT statt an einem eigenen -- dann greift die
+    // vorhandene Proxy-Regel fuer play(.dev).world-of-vikings.com.
+    // Begruendung ausfuehrlich in KontoApi.ts.
+    this.kontenDb = new Kontendatenbank(
+      resolve(this.config.worldsDir, '..', 'konten', `${this.config.worldName}.db`),
+    );
+    const kontoApi = new KontoApi(this.kontenDb, sessionSecret);
+
     this.net = new NetManager({
       port: this.config.port,
+      httpBehandler: (req, res) => kontoApi.behandle(req, res),
       password: this.config.password,
       serverName: this.config.name,
       maxPlayers: this.config.maxPlayers,

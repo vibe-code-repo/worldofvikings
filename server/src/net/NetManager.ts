@@ -18,7 +18,7 @@
 import type { WebSocket } from 'ws';
 import { PacketType, ConnectionStatus, MAX_PLAYERS } from '@wov/shared';
 import { Peer } from './Peer.js';
-import { WebSocketAcceptor } from './WebSocketAcceptor.js';
+import { WebSocketAcceptor, type HttpBehandler } from './WebSocketAcceptor.js';
 import { Reader } from '../io/Reader.js';
 import { Writer } from '../io/Writer.js';
 import { getStableHash } from '../util/Hash.js';
@@ -53,6 +53,12 @@ export interface NetManagerConfig {
    * ODER-Verknuepfung beider Quellen.
    */
   istAdminId: (id: SpielerId) => boolean;
+  /**
+   * Optionaler HTTP-Behandler fuer den SPIELPORT. Damit beantwortet die
+   * Konto-API (/api/konto/...) Anfragen auf 2467, statt einen zweiten
+   * Host samt Zertifikat zu brauchen -- Begruendung in KontoApi.ts.
+   */
+  httpBehandler?: HttpBehandler;
 }
 
 /**
@@ -106,9 +112,13 @@ export class NetManager {
   // ── Lifecycle ────────────────────────────────────────────────────
 
   start(): void {
-    this.acceptor.listen(this.config.port, (socket, address) => {
-      this.handleNewConnection(socket, address);
-    });
+    this.acceptor.listen(
+      this.config.port,
+      (socket, address) => {
+        this.handleNewConnection(socket, address);
+      },
+      this.config.httpBehandler,
+    );
     console.log(`[NetManager] Started on port ${this.config.port}`);
   }
 

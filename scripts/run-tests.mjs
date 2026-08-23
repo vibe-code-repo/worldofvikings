@@ -82,6 +82,7 @@ const KERN = [
   // (Metriken.ts und shared/src/metrik.ts kennen beide weder Peer noch
   // WovServer). Sekunden.
   ['server', 'test/g12-metriken.ts'],
+  ['server', 'test/k1-konten.ts'],
   // F14 (Roadmap): Reichweiten-Auswahl der Chat-Empfänger (Whisper/
   // Normal/Shout, Herleitung s. Kopfkommentar von ChatReichweite.ts),
   // Grenzwert exakt auf der Reichweite, Absender immer dabei, sowie die

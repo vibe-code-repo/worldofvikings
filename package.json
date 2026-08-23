@@ -1,0 +1,17 @@
+{
+  "name": "wov-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "world-of-vikings.com — SvelteKit, vollstaendig vorgerendert",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "vorschau": "vite build && vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "ohne-js": "bash tools/ohne-js-pruefen.sh",
+    "ausrollen": "bash tools/ausrollen.sh"
+  }
+}

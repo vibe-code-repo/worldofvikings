@@ -1,0 +1,220 @@
+{
+  "instanz": "dev",
+  "name": "World of Vikings",
+  "detailSeed": "wov-alpha",
+  "fingerabdruck": "221becf48e46907d",
+  "gerendert": "2026-08-21T04:17:07.446Z",
+  "bild": "dev.webp",
+  "breite": 4096,
+  "spanneMeter": 44469,
+  "meterProPunkt": 10.856689453125,
+  "grenzen": {
+    "minX": -31320,
+    "maxZ": 9487.5,
+    "maxX": 13149,
+    "minZ": -34981.5
+  },
+  "bbox": {
+    "minX": -29320,
+    "minZ": -26518,
+    "maxX": 11149,
+    "maxZ": 1024
+  },
+  "kontinente": [
+    {
+      "id": "startgebiet",
+      "name": "Startgebiet",
+      "faction": "neutral",
+      "spawn": [
+        -28400,
+        -5660
+      ]
+    }
+  ],
+  "regionen": [
+    {
+      "id": "insel-1",
+      "biome": "grassland",
+      "name": "Wiesen",
+      "x": -17620,
+      "z": -5700,
+      "radius": 1500
+    },
+    {
+      "id": "insel-2",
+      "biome": "blackforest",
+      "name": "Schwarzwald",
+      "x": -27820,
+      "z": -5900,
+      "radius": 1500
+    },
+    {
+      "id": "land-1",
+      "biome": "deepnorth",
+      "name": "Hochnord",
+      "x": -21940,
+      "z": -16540,
+      "radius": null
+    },
+    {
+      "id": "insel-3",
+      "biome": "swamp",
+      "name": "Sumpf",
+      "x": -8380,
+      "z": -13160,
+      "radius": 1500
+    },
+    {
+      "id": "insel-5",
+      "biome": "grassland",
+      "name": "Wiesen",
+      "x": -11354.066666666668,
+      "z": -18937.8,
+      "radius": null
+    },
+    {
+      "id": "insel-6",
+      "biome": "grassland",
+      "name": "Wiesen",
+      "x": -11609.233333333334,
+      "z": -15434.5,
+      "radius": null
+    },
+    {
+      "id": "insel-7",
+      "biome": "grassland",
+      "name": "Wiesen",
+      "x": -11162.833333333334,
+      "z": -12884.533333333333,
+      "radius": null
+    },
+    {
+      "id": "insel-8",
+      "biome": "grassland",
+      "name": "Wiesen",
+      "x": -10435.666666666666,
+      "z": -14312.7,
+      "radius": null
+    },
+    {
+      "id": "insel-9",
+      "biome": "grassland",
+      "name": "Wiesen",
+      "x": -11604.3,
+      "z": -14199.8,
+      "radius": null
+    },
+    {
+      "id": "insel-10",
+      "biome": "grassland",
+      "name": "Wiesen",
+      "x": -16228.9,
+      "z": -10610.166666666666,
+      "radius": null
+    },
+    {
+      "id": "insel-11",
+      "biome": "grassland",
+      "name": "Wiesen",
+      "x": -14591.166666666666,
+      "z": -11031.3,
+      "radius": null
+    },
+    {
+      "id": "insel-12",
+      "biome": "grassland",
+      "name": "Wiesen",
+      "x": -14798.333333333334,
+      "z": -11486.066666666668,
+      "radius": null
+    },
+    {
+      "id": "insel-13",
+      "biome": "grassland",
+      "name": "Wiesen",
+      "x": -16285.066666666668,
+      "z": -13679.7,
+      "radius": null
+    },
+    {
+      "id": "insel-14",
+      "biome": "grassland",
+      "name": "Wiesen",
+      "x": -15085.933333333332,
+      "z": -12026.2,
+      "radius": null
+    },
+    {
+      "id": "insel-15",
+      "biome": "grassland",
+      "name": "Wiesen",
+      "x": -13454.7,
+      "z": -11556.066666666668,
+      "radius": null
+    },
+    {
+      "id": "insel-4",
+      "biome": "grassland",
+      "name": "Wiesen",
+      "x": -2084,
+      "z": -25952,
+      "radius": 566
+    },
+    {
+      "id": "insel-16",
+      "biome": "ashlands",
+      "name": "Aschelande",
+      "x": 5500,
+      "z": -8200,
+      "radius": 1500
+    },
+    {
+      "id": "insel-17",
+      "biome": "grassland",
+      "name": "Wiesen",
+      "x": 5305.346153846154,
+      "z": -18310.26923076923,
+      "radius": null
+    },
+    {
+      "id": "insel-18",
+      "biome": "grassland",
+      "name": "Wiesen",
+      "x": 9618.6,
+      "z": -18336.75,
+      "radius": null
+    }
+  ],
+  "legende": [
+    {
+      "bit": 1,
+      "name": "Wiesen",
+      "farbe": "#68944c"
+    },
+    {
+      "bit": 8,
+      "name": "Schwarzwald",
+      "farbe": "#264220"
+    },
+    {
+      "bit": 64,
+      "name": "Hochnord",
+      "farbe": "#c4d6e4"
+    },
+    {
+      "bit": 2,
+      "name": "Sumpf",
+      "farbe": "#3e483a"
+    },
+    {
+      "bit": 32,
+      "name": "Aschelande",
+      "farbe": "#3a3234"
+    },
+    {
+      "bit": 256,
+      "name": "Meer",
+      "farbe": "#2c5482"
+    }
+  ]
+}

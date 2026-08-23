@@ -77,6 +77,34 @@ export interface SavedPlayer {
    * ermittleGespeichertenStand).
    */
   spielerId?: string;
+  /**
+   * Gewählte Spielfigur (Kennung aus shared/figuren.ts; optional —
+   * Altstände haben keine und bekommen die Vorgabe).
+   *
+   * Sie steht hier UND als Member am Charakter-ZDO. Das ist kein
+   * Versehen und auch keine zweite Wahrheit: Das ZDO ist der Weg zu den
+   * anderen Spielern (es synchronisiert sich von selbst), der Spielstand
+   * ist der Weg über den Serverneustart hinweg — Charakter-ZDOs werden
+   * bewusst NICHT gespeichert (s. WovServer.saveWorld). Ohne den Eintrag
+   * hier stünde nach jedem Neustart jeder wieder als Vorgabefigur da.
+   */
+  figur?: string;
+  /**
+   * Frisur (Kennung aus shared/aussehen.ts) und Ruestung, optional —
+   * Altstaende haben nichts davon und bekommen die Vorgabe.
+   *
+   * Warum sie hier UND am Charakter-ZDO stehen: dieselbe Begruendung wie
+   * bei `figur` — das ZDO traegt sie zu den anderen Spielern, der
+   * Spielstand ueber den Serverneustart. Charakter-ZDOs werden bewusst
+   * nicht gespeichert.
+   *
+   * `ruestung` ist "oberkoerperId|beineId"; ein leerer Teil heisst
+   * "nichts angezogen". EIN Feld statt zweier, damit ein weiterer Slot
+   * (Kopf, Haende) spaeter kein drittes Feld im Spielstand braucht —
+   * Altstaende bleiben lesbar, weil ein fehlendes Feld die Vorgabe ergibt.
+   */
+  frisur?: string;
+  ruestung?: string;
 }
 
 export interface WorldSaveData {
@@ -112,6 +140,21 @@ export interface WorldSaveData {
    * 65×65 Vertices je Zone statt linear mit der Spielzeit wachsend.
    */
   terrainComps?: string[];
+  /**
+   * F5: gesetzte Fortschrittsmarken (GlobalKey-NAMEN, s. WeltMarken.ts
+   * Kopfkommentar — NICHT die nackten Enum-Zahlen, die sind gegen
+   * spaetere Enum-Umbauten nicht stabil).
+   *
+   * Migration: optional, weil zwei ununterscheidbare Faelle dieselbe Form
+   * haben — ein Altstand von VOR diesem Umbau (Feld fehlt komplett) und
+   * eine frische Welt ohne eine einzige gesetzte Marke. Beide bedeuten
+   * "keine Marken", keiner davon ist ein Fehler: WeltMarken.ausListe()
+   * behandelt ein fehlendes Feld als leere Menge. Der naechste Save nach
+   * dem Laden eines Altstands schreibt das Feld erstmals (und sei es als
+   * leeres Array) — kein gesonderter Migrationsschritt noetig, der
+   * Schreibpfad ist bereits derselbe wie fuer jedes andere Feld.
+   */
+  globalKeys?: string[];
 }
 
 /**

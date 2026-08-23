@@ -2,7 +2,17 @@
   "version": 1,
   "name": "World of Vikings",
   "detailSeed": "wov-alpha",
-  "continents": [],
+  "continents": [
+    {
+      "id": "startgebiet",
+      "name": "Startgebiet",
+      "faction": "neutral",
+      "spawn": [
+        -28400,
+        -5660
+      ]
+    }
+  ],
   "regions": [
     {
       "id": "insel-1",

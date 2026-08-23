@@ -108,6 +108,15 @@ export const STANDARD_DROSSEL: ReadonlyMap<PacketType, DrosselKonfiguration> = n
   // ohne jede Vorgeschichte im Eimer ankommen können.
   [PacketType.Interact, { eimergroesse: 4, fuellrateProSekunde: 1 / 0.3 }],
 
+  // ContainerAction (F1, Roadmap): ein Truhenpaket ist billiger zu
+  // SENDEN als zu BEARBEITEN (JSON parsen, Inventory auf- und wieder
+  // zusammenbauen, ZDO-Member neu schreiben — s. WovServer.
+  // handleContainerAction). Gleiche Grössenordnung wie Interact: schnelles
+  // Umschichten mehrerer Stapel hintereinander beim Ausräumen einer
+  // vollen Truhe ist normales Spielverhalten und soll nicht schon nach
+  // wenigen Klicks anschlagen, Dauerfeuer eines Skripts aber schon.
+  [PacketType.ContainerAction, { eimergroesse: 6, fuellrateProSekunde: 1 / 0.25 }],
+
   // AdminCommand ist getippter Text und heute wegen everyone-admin:true
   // wirkungslos gegated (siehe Befund) — gerade deshalb soll wenigstens
   // die RATE nicht offen sein. Ein Mensch tippt keine 5 Befehle pro

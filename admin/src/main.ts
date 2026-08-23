@@ -71,6 +71,12 @@ import {
   layoutLesen,
   layoutSchreiben,
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
+// G12: Betriebsmetriken -- admin/ MISST nichts selbst (eigener Prozess,
+// kein Zugriff auf den Spielserver-Zustand), sondern liest nur die Datei,
+// die der Spielserver einmal je Sekunde schreibt, und formatiert sie mit
+// demselben Code, der auch das Datenformat definiert (s. metrikenAusgeben
+// weiter unten).
+import { formatierePrometheus, type MetrikSchnappschuss } from '@wov/shared/src/metrik.js';
 
 const ausfuehren = promisify(execFile);
 
@@ -87,6 +93,9 @@ const SERVER_YML = resolve(WURZEL, 'server/data/server.yml');
 const LAYOUT_DATEI = weltDatei(WURZEL, INSTANZ);
 const WELTEN_ORDNER = resolve(WURZEL, 'server/data/worlds');
 const NGINX_SITE = '/etc/nginx/sites-available/wov';
+// G12: derselbe Pfad, den WovServer.schreibeMetriken() befuellt
+// (server/src/main.ts setzt ServerConfig.metrikenDatei genauso).
+const METRIKEN_DATEI = resolve(WURZEL, 'server/data/metriken.json');
 
 /** Dienste, die dieser Prozess anfassen darf. Positivliste, keine Freitexte. */
 const ERLAUBTE_DIENSTE = ['wov-server', 'nginx'] as const;
@@ -449,6 +458,42 @@ function serverLogStroemen(req: IncomingMessage, res: ServerResponse): void {
   res.on('close', aufraeumen);
 }
 
+// ── Betriebsmetriken (G12): GET /metriken ───────────────────────────────
+//
+// Prometheus-Textformat statt JSON, s. shared/src/metrik.ts fuer die
+// Begruendung. admin/ MISST nichts selbst -- kein In-Process-Zugriff auf
+// den Spielserver (eigener Prozess, kein HTTP-Server dort, s.
+// Kopfkommentar oben im Datei-Header). Stattdessen liest dieser Endpunkt
+// nur die Datei, die der Spielserver einmal je Sekunde schreibt
+// (WovServer.schreibeMetriken) -- der einfachste Kanal zwischen den
+// beiden Prozessen ohne neue Abhaengigkeit: kein IPC, kein zweiter
+// HTTP-Server im Spielserver, den man erst wieder absichern muesste.
+function metrikenAusgeben(res: ServerResponse): void {
+  let text: string;
+  let code = 200;
+  try {
+    const roh = readFileSync(METRIKEN_DATEI, 'utf-8');
+    const schnappschuss = JSON.parse(roh) as MetrikSchnappschuss;
+    text = formatierePrometheus(schnappschuss, Date.now());
+  } catch {
+    // Datei fehlt (Server lief noch nie, oder metrikenDatei ist nicht
+    // gesetzt) oder ist kaputt. Eine Prometheus-Zeile statt eines nackten
+    // HTTP-Fehlers, damit ein Scraper den Ausfall selbst sieht statt nur
+    // einen Verbindungsfehler zu protokollieren.
+    code = 503;
+    text =
+      '# HELP wov_metriken_verfuegbar Ob die Metrikdatei lesbar war (1) oder nicht (0)\n' +
+      '# TYPE wov_metriken_verfuegbar gauge\n' +
+      'wov_metriken_verfuegbar 0\n';
+  }
+  const puffer = Buffer.from(text, 'utf-8');
+  res.writeHead(code, {
+    'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
+    'Content-Length': puffer.length,
+  });
+  res.end(puffer);
+}
+
 // ── Routen ────────────────────────────────────────────────────────────
 
 type Antwort = { code: number; daten: unknown };
@@ -712,6 +757,13 @@ const dienst = createServer((req, res) => {
       if (pfad === '/api/serverlog') {
         if (req.method !== 'GET') return json(res, 405, { ok: false, fehler: 'GET erwartet', message: 'GET erwartet' });
         return serverLogStroemen(req, res);
+      }
+
+      // G12: ebenfalls vor der JSON-Weiche -- die Antwort ist
+      // Prometheus-Text, kein { code, daten }-Dokument (s. metrikenAusgeben).
+      if (pfad === '/metriken') {
+        if (req.method !== 'GET') return json(res, 405, { ok: false, fehler: 'GET erwartet', message: 'GET erwartet' });
+        return metrikenAusgeben(res);
       }
 
       const leib = req.method === 'PUT' || req.method === 'POST' ? await leibLesen(req) : null;

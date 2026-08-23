@@ -22,6 +22,8 @@ import {
   WORLD_TIME_LENGTH,
   TIME_DAY,
   SAVE_INTERVAL_MS,
+  WETTER_VORGABE_AUS,
+  type WetterVorgabe,
   ZDO_SEND_INTERVAL_MS,
   ZDO_MAX_SEND_THRESHOLD,
   ZDO_MIN_SEND_THRESHOLD,
@@ -41,6 +43,15 @@ import {
   terrainCompNachBase64,
   terrainCompAusBase64,
   istEigenesModell,
+  GlobalKey,
+  FIGUR_MEMBER,
+  FIGUR_VORGABE,
+  istFigur,
+  istFrisur,
+  istRuestung,
+  FRISUR_MEMBER,
+  RUESTUNG_MEMBER,
+  FRISUR_VORGABE,
 } from '@wov/shared';
 import type { Biome, Vector3, ZoneID } from '@wov/shared';
 import {
@@ -65,11 +76,13 @@ import { DungeonManager } from './world/dungeon/DungeonManager.js';
 import { ZDO } from './zdo/ZDO.js';
 import { ZDOID } from './zdo/ZDOID.js';
 import { PrefabManager } from './prefab/PrefabManager.js';
+import type { Prefab } from './prefab/Prefab.js';
 import { ZoneManager } from './world/ZoneManager.js';
 import { SpawnSystem } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
 import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
+import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, type WorldContext } from './world/WorldContext.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
 import { Peer } from './net/Peer.js';
@@ -78,10 +91,28 @@ import { Writer } from './io/Writer.js';
 import { AdminCommandRegistry } from './admin/AdminCommands.js';
 import { AdminListe } from './admin/AdminListe.js';
 import { istSpielerId, type SpielerId } from './net/Identitaet.js';
-import { ZONE_SIZE, findItem, REZEPTE, type Inventory } from '@wov/shared';
+import {
+  ZONE_SIZE,
+  findItem,
+  REZEPTE,
+  type Inventory,
+  packContainer,
+  unpackContainer,
+  TRUHE_INHALT_MEMBER,
+  TRUHE_LOOTED_MEMBER,
+} from '@wov/shared';
 import { resolve } from 'path';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
+import { waehleChatEmpfaenger, kuerzeChatText } from './spiel/ChatReichweite.js';
+// G12: Betriebsmetriken (Tick-Dauer, ZDO-Anzahl, Sync-Bytes/s, Peers) --
+// eigenes schmales Modul, s. dessen Kopfkommentar fuer die Abgrenzung zu
+// Zeitmessung.ts.
+import { erfasseTick, schliesseSekundeAb } from './Metriken.js';
+import type { MetrikSchnappschuss } from '@wov/shared/src/metrik.js';
+// G12 Schritt 1: strukturierte Logs hinter einem Schalter, s. Kopfkommentar.
+import { strukturLog } from './util/StrukturLog.js';
 
 export interface ServerConfig {
   name: string;
@@ -108,6 +139,23 @@ export interface ServerConfig {
   worldCreatures: boolean;
   /** G1: directory holding <worldName>.db.zst saves (C++ ./worlds). */
   worldsDir: string;
+  /**
+   * G12: Pfad, unter dem einmal je Sekunde ein Betriebsmetriken-
+   * Schnappschuss abgelegt wird (der Betriebsdienst admin/ liest ihn,
+   * s. dessen GET /metriken). OPTIONAL und standardmaessig UNGESETZT:
+   * Tests, die start() rufen, sollen nicht versehentlich in die echte
+   * server/data/metriken.json des laufenden Servers schreiben, nur weil
+   * sie worldsDir wie ueblich auf ein Testverzeichnis umbiegen, dieses
+   * Feld aber vergessen. main.ts setzt ihn fuer den echten Betrieb.
+   */
+  metrikenDatei?: string;
+  /**
+   * Festgenageltes Wetter und feste Nebeldichte (server.yml `wetter:`).
+   * Der Server RECHNET damit nicht — Wetter und Licht sind reine
+   * Clientsache —, er reicht die Vorgabe beim Anmelden durch, damit alle
+   * Spieler dieselbe Stimmung sehen. Siehe shared/wetterVorgabe.ts.
+   */
+  wetterVorgabe: WetterVorgabe;
   /** Kartengenerierungs-Umbau: 'layout' = designer-definierte Welt. */
   worldMode: 'valheim' | 'layout';
   /** Pfad des WorldLayout-Dokuments (nur worldMode 'layout'). */
@@ -130,6 +178,7 @@ const DEFAULT_CONFIG: ServerConfig = {
   everyoneAdmin: true,
   worldName: 'world',
   worldSeed: 'KxSYuZquuw',
+  wetterVorgabe: WETTER_VORGABE_AUS,
   saveIntervalMs: SAVE_INTERVAL_MS,
   worldGenVersion: 2,
   worldBlendSmoothStep: true,
@@ -170,6 +219,8 @@ export class WovServer {
   readonly net: NetManager;
   /** Extensible admin command concept (fly, later teleport/god/...). */
   readonly adminCommands: AdminCommandRegistry;
+  /** F5: gesetzte Fortschrittsmarken (GlobalKey) — s. WeltMarken.ts Kopfkommentar. */
+  readonly weltMarken = new WeltMarken();
 
   // ── Worldgen (D6) — built in init(), ground truth for terrain ──
   geo!: IGeo;
@@ -264,6 +315,7 @@ export class WovServer {
     this.registerSpawnCommand();
     this.registerAbbauCommand();
     this.registerAdminListeCommands();
+    this.registerMarkeCommand();
     // Karten-Marker: Eingangs-Änderungen an alle Peers verteilen.
     this.dungeons.onEntrancesChanged = () => {
       for (const peer of this.net.getPeers()) this.sendDungeonEntrances(peer);
@@ -733,7 +785,11 @@ export class WovServer {
     // Main update loop (~60fps server tick)
     const TICK_MS = 1000 / 30; // 30 ticks per second
     this.updateTimer = setInterval(() => {
+      // G12: EIN Zeitstempelpaar je Tick, kein Profiling im Inneren von
+      // update() -- billig genug, um immer zu laufen (s. Metriken.ts).
+      const t0 = performance.now();
       this.update();
+      erfasseTick(performance.now() - t0);
     }, TICK_MS);
 
     // Periodic world save — D8: asynchron, damit die 30-Minuten-Sicherung
@@ -849,6 +905,39 @@ export class WovServer {
       // Dungeon-Regeneration: leere Instanzen nach Ablauf abreißen.
       this.dungeons.tick(now);
       this.eventTick(now);
+
+      // G12: Betriebsmetriken im selben 1-Sekunden-Takt abschliessen --
+      // kein zusaetzlicher Timer, derselbe Grund wie beim Rest dieses
+      // Blocks. `peers` ist die oben in update() bereits geholte Liste.
+      const metrikSchnappschuss = schliesseSekundeAb(this.zdos.totalZDOCount, peers.length, now);
+      this.schreibeMetriken(metrikSchnappschuss);
+    }
+  }
+
+  /**
+   * G12: Schnappschuss fuer den Betriebsdienst rausschreiben. Optional
+   * (s. `metrikenDatei` in ServerConfig) -- ohne Pfad passiert nichts,
+   * die Akkumulatoren wurden in schliesseSekundeAb() trotzdem schon
+   * geleert.
+   *
+   * Erst in eine `.tmp`-Datei, dann umbenennen: derselbe Grund wie beim
+   * Weltsave (s. saveWorldAsync) -- ein Leser (admin/) soll nie eine
+   * Datei sehen, die mitten im Schreiben steht. Bei 1x/Sekunde und
+   * wenigen hundert Bytes ist der zusaetzliche Rename-Syscall billig.
+   */
+  private schreibeMetriken(schnappschuss: MetrikSchnappschuss): void {
+    const pfad = this.config.metrikenDatei;
+    if (!pfad) return;
+    try {
+      const tmp = `${pfad}.tmp`;
+      writeFileSync(tmp, JSON.stringify(schnappschuss));
+      renameSync(tmp, pfad);
+    } catch (fehler) {
+      // Ein Metrik-Ausfall darf den Spielbetrieb nicht stoeren -- nur
+      // sichtbar machen. Kein wiederholtes Alarmieren noetig, das laeuft
+      // ohnehin nur 1x/Sekunde und der naechste Durchgang versucht es
+      // wieder.
+      console.error(`[WoV] Metrik-Datei konnte nicht geschrieben werden: ${(fehler as Error).message}`);
     }
   }
 
@@ -1068,6 +1157,14 @@ export class WovServer {
       if (this.config.worldMode === 'layout') flags |= FLAG_LAYOUT_MODE;
       w.writeUInt8(flags);
     });
+    // Wettervorgabe direkt hinterher, VOR dem Weltdokument: Der Client
+    // baut daraus seine Beleuchtung, bevor die erste Zone steht — sonst
+    // sähe man beim Anmelden kurz das gewürfelte Wetter und erst danach
+    // das eingestellte.
+    peer.sendPacketWith(PacketType.WeltWetter, (w) => {
+      w.writeString(this.config.wetterVorgabe.umgebung);
+      w.writeFloat32(this.config.wetterVorgabe.nebelDichte);
+    });
     // Layout-Modus: Das Weltdokument folgt SOFORT auf die ServerConfig —
     // der Client wartet darauf, bevor er seine Welt baut (Flag Bit 5).
     if (this.config.worldMode === 'layout' && this.worldLayoutRaw) {
@@ -1098,6 +1195,21 @@ export class WovServer {
     peer.characterID = characterZDO.zdoid;
     peer.position = spawnPos;
 
+    // Gewaehlte Figur aus dem Spielstand wiederherstellen und an das
+    // Charakter-ZDO haengen. Ueber den ZDO-Member sehen ALLE anderen
+    // Spieler dieselbe Figur — ohne ihn saehe jeder nur sich selbst
+    // richtig. Der Client schickt seine Wahl direkt nach dem Anmelden
+    // per SetFigur; bis dahin gilt der gespeicherte Stand.
+    peer.figur = saved?.figur && istFigur(saved.figur) ? saved.figur : FIGUR_VORGABE;
+    characterZDO.setString(FIGUR_MEMBER, peer.figur);
+
+    // Aussehen aus dem Spielstand — gleiche Begruendung wie bei der Figur:
+    // Ueber die ZDO-Member sehen ALLE anderen Spieler dieselbe Frisur.
+    peer.frisur = saved?.frisur && istFrisur(saved.frisur) ? saved.frisur : FRISUR_VORGABE;
+    peer.ruestung = typeof saved?.ruestung === 'string' ? saved.ruestung : '|';
+    characterZDO.setString(FRISUR_MEMBER, peer.frisur);
+    characterZDO.setString(RUESTUNG_MEMBER, peer.ruestung);
+
     // Server-Inventar (Review-Punkt 8): aus dem Save wiederherstellen,
     // Neulinge bekommen die Startausrüstung SERVERSEITIG (der Client
     // startet mit leerem Inventar und lebt vom InventorySync).
@@ -1107,6 +1219,11 @@ export class WovServer {
       const START: Array<[string, number]> = [
         ['Hammer', 1], ['AxeFlint', 1], ['Hoe', 1], ['PickaxeAntler', 1],
         ['Cultivator', 1], ['Wood', 12], ['Stone', 30],
+        // Kleidung als GEGENSTAENDE: Seit sie in Ausruestungsslots liegt,
+        // waere ein neuer Charakter sonst nackt und haette keinen Weg,
+        // daran etwas zu aendern -- die Teile lassen sich (noch) nirgends
+        // herstellen oder finden.
+        ['LederBH', 1], ['LederShorts', 1],
       ];
       for (const [name, menge] of START) {
         const def = findItem(name);
@@ -1156,6 +1273,9 @@ export class WovServer {
       position: { ...peer.position },
       flying: peer.flying,
       spawnPoint: peer.spawnPoint ?? undefined,
+      figur: peer.figur,
+      frisur: peer.frisur,
+      ruestung: peer.ruestung,
     });
     // Destroy player character ZDO
     if (!peer.characterID.isNone()) {
@@ -1240,9 +1360,6 @@ export class WovServer {
       case PacketType.ChatMessage:
         this.handleChatMessage(peer, reader);
         break;
-      case PacketType.RpcCall:
-        this.handleRpcCall(peer, reader);
-        break;
       case PacketType.SetTimeOfDay:
         this.handleSetTimeOfDay(peer, reader);
         break;
@@ -1269,6 +1386,15 @@ export class WovServer {
         break;
       case PacketType.Eat:
         this.handleEat(peer, reader);
+        break;
+      case PacketType.ContainerAction:
+        this.handleContainerAction(peer, reader);
+        break;
+      case PacketType.SetFigur:
+        this.handleSetFigur(peer, reader);
+        break;
+      case PacketType.SetAussehen:
+        this.handleSetAussehen(peer, reader);
         break;
       case PacketType.DungeonEditRequest:
         this.handleDungeonEditRequest(peer, reader);
@@ -1494,13 +1620,21 @@ export class WovServer {
 
   private handleChatMessage(peer: Peer, reader: Reader): void {
     const chatType = reader.readInt32();
-    const text = reader.readString().slice(0, 256);
+    // Serverseitige Längengrenze (F14) — eine rein clientseitige Grenze
+    // hält einen manipulierten/zweiten Client nie auf. kuerzeChatText
+    // statt eines nackten .slice(), damit der Test dieselbe Funktion
+    // ruft wie hier.
+    const text = kuerzeChatText(reader.readString());
     // Frequenzlimit (vormals hier als fester 300-ms-Cooldown, Review-Punkt
     // 11): A4 (Security-Review) ersetzt das durch die Token-Bucket-
     // Drosselung in NetManager.handlePacket, VOR diesem Handler — ein zu
     // schnelles ChatMessage-Paket kommt hier gar nicht mehr an.
 
-    // Broadcast to all peers
+    // Broadcast — aber nur an Empfänger in Reichweite (F14). Herleitung
+    // der drei Reichweiten (Whisper/Normal/Shout) im Kopfkommentar von
+    // ChatReichweite.ts. Der Absender ist über waehleChatEmpfaenger IMMER
+    // dabei, auch ohne Empfänger in der Nähe — sonst wirkt der Chat für
+    // ihn kaputt.
     const writer = new Writer();
     writer.writeString(peer.userId.toString());
     writer.writeString(peer.name);
@@ -1509,25 +1643,15 @@ export class WovServer {
     writer.writeVector3(peer.position);
     const payload = writer.toBuffer();
 
-    for (const p of this.net.getPeers()) {
-      p.sendPacket(PacketType.ChatMessage, payload);
+    const senderId = peer.userId.toString();
+    const kandidaten = this.net
+      .getPeers()
+      .map((p) => ({ id: p.userId.toString(), position: p.position, peer: p }));
+    for (const empfaenger of waehleChatEmpfaenger(kandidaten, senderId, peer.position, chatType)) {
+      empfaenger.peer.sendPacket(PacketType.ChatMessage, payload);
     }
 
     console.log(`[Chat] ${peer.name}: ${text}`);
-  }
-
-  private handleRpcCall(peer: Peer, reader: Reader): void {
-    const methodHash = reader.readInt32();
-    const hasTarget = reader.readBool();
-
-    if (hasTarget) {
-      const targetUserId = reader.readString();
-      const targetId = reader.readInt32();
-      // TODO: route to target ZDO
-    }
-
-    // Invoke RPC on peer
-    peer.rpc.invoke(peer, methodHash, reader);
   }
 
   /**
@@ -1783,6 +1907,15 @@ export class WovServer {
       w.writeFloat32((peer.health / this.maxHealth(peer)) * 100);
       w.writeFloat32(peer.stamina);
       w.writeVector3(peer.position);
+      // F6: letzte verarbeitete Eingabe-Sequenznummer, ANGEHÄNGT statt
+      // zwischen die bestehenden Felder eingefügt — genau das Muster, das
+      // der Client beim Lesen schon kennt (main.ts:
+      // `if (reader.remaining >= 12) serverPos = reader.readVector3()`):
+      // ein älterer Leser liest seine bekannten Felder und lässt den Rest
+      // liegen, ein neuerer prüft `remaining`, bevor er zugreift. Deshalb
+      // KEINE Protokollversion nötig für diese Änderung (s. Bericht,
+      // Abschnitt Drahtformat).
+      w.writeInt32(peer.lastInputSeq);
     });
   }
 
@@ -1922,6 +2055,13 @@ export class WovServer {
     const hp = (ziel.getInt(HEALTH_MEMBER) || maxLeben(name)) - schaden;
     if (hp <= 0) {
       this.zdos.destroyZDO(ziel.zdoid);
+      // F5: einzige verdrahtete Anwendung der Fortschrittsmarken — Eikthyr
+      // besiegt heisst defeated_eikthyr, unabhaengig davon wie oft er ueber
+      // den Altar (StatueDeer-Zweig oben) erneut beschworen wird. setzen()
+      // ist idempotent, ein erneuter Sieg setzt die Marke einfach nochmal.
+      if (name === 'Eikthyr') {
+        this.weltMarken.setzen(GlobalKey.defeated_eikthyr);
+      }
       const beute = wuerfleDrop(name);
       if (beute) this.gebeItem(peer, beute.name, beute.amount);
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
@@ -2181,15 +2321,210 @@ export class WovServer {
     }
 
     if ((flags & F.CONTAINER) !== 0n) {
-      if (ziel.getInt('looted') === 1) return antwort(true, 'Die Truhe ist leer');
-      ziel.setInt('looted', 1);
-      ziel.revision.reviseData();
-      ziel.dirty = true;
-      const beute = wuerfleTruhe(def?.name ?? '');
-      return antwort(true, `Gefunden: ${beute.amount}× ${beute.name}`, beute.name, beute.amount);
+      this.handleTruheOeffnen(peer, ziel, def);
+      return;
     }
 
     return antwort(false, 'Damit kann man nichts machen');
+  }
+
+  /**
+   * Truhe öffnen (F.CONTAINER, Roadmap F1) — ersetzt den früheren
+   * Ein-Bit-Schalter samt direkt an den Spieler ausgezahlter
+   * Zufallsbeute durch echten, entnehmbaren Inhalt (Container.ts).
+   *
+   * MIGRATION (Alt-Saves kennen nur TRUHE_LOOTED_MEMBER als Bit):
+   *  - Bit noch nicht gesetzt → erste Berührung seit diesem Umbau.
+   *    wuerfleTruhe() bleibt die EINZIGE Zufallsquelle (unverändert
+   *    gegenüber vorher) und befüllt jetzt die Truhe statt den Spieler
+   *    direkt zu beschenken. Das Bit wird SOFORT gesetzt — ein zweiter
+   *    Login oder ein zweiter Öffner würfelt nie ein zweites Mal, exakt
+   *    dieselbe Garantie wie vorher, nur eine Ebene tiefer (jetzt „hat
+   *    ihre Erstbefüllung schon", vorher „wurde geplündert").
+   *  - Bit bereits gesetzt (Alt-Save VOR diesem Umbau hatte die Truhe
+   *    schon per Direktauszahlung geplündert) → sie startet leer. Ihr
+   *    einziger Gegenstand ist damals schon beim Spieler gelandet, es
+   *    gibt nichts nachzuholen.
+   *
+   * Jede weitere Öffnung liest nur noch den vorhandenen Inhalt — die
+   * eigentliche Truhen-UI (nehmen/legen) läuft über ContainerAction
+   * (handleContainerAction).
+   */
+  private handleTruheOeffnen(peer: Peer, ziel: ZDO, def: Prefab | undefined): void {
+    if (ziel.getInt(TRUHE_LOOTED_MEMBER) !== 1) {
+      ziel.setInt(TRUHE_LOOTED_MEMBER, 1);
+      const inv = unpackContainer(ziel.getString(TRUHE_INHALT_MEMBER));
+      const beute = wuerfleTruhe(def?.name ?? '');
+      const beuteDef = findItem(beute.name);
+      if (beuteDef) inv.addItem(beuteDef, beute.amount);
+      ziel.setString(TRUHE_INHALT_MEMBER, packContainer(inv));
+      ziel.revision.reviseData();
+      ziel.dirty = true;
+    }
+    peer.sendPacketWith(PacketType.InteractResult, (w) => {
+      w.writeBool(true);
+      w.writeString('Truhe geöffnet');
+      w.writeString('');
+      w.writeInt32(0);
+    });
+    this.sendeTruheInhalt(peer, ziel);
+  }
+
+  /** Aktuellen Truheninhalt an GENAU diesen Peer schicken (s. PacketType.ContainerSync). */
+  private sendeTruheInhalt(peer: Peer, ziel: ZDO): void {
+    peer.sendPacketWith(PacketType.ContainerSync, (w) => {
+      w.writeString(ziel.zdoid.userId.toString());
+      w.writeInt32(ziel.zdoid.id);
+      w.writeString(ziel.getString(TRUHE_INHALT_MEMBER));
+    });
+  }
+
+  /**
+   * Figurenwahl des Clients (Paket SetFigur).
+   *
+   * WAS HIER GEPRUEFT WIRD: Der Client schickt eine Kennung, und der
+   * Server glaubt sie NICHT — `istFigur()` entscheidet, ob sie in der
+   * gemeinsamen Liste steht. Ohne diese Pruefung landete ein beliebiger
+   * String am ZDO, und jeder andere Client versuchte, ihn als
+   * Modelldateinamen zu laden.
+   *
+   * WARUM DER WEG UEBER DAS ZDO: Der Member am Charakter-ZDO ist der
+   * einzige Ort, an dem die Wahl AUTOMATISCH bei allen ankommt, die den
+   * Spieler sehen — ZDOSync erledigt Verteilung und Nachzuegler. Ein
+   * eigenes Broadcast-Paket muesste beides selbst loesen und wuerde bei
+   * jemandem, der spaeter in Sichtweite kommt, schweigen.
+   *
+   * Ein Wechsel MITTEN IM SPIEL ist damit ebenfalls abgedeckt: Er
+   * aendert denselben Member, und der Sync traegt ihn weiter.
+   */
+  /**
+   * Frisur und Ruestung des Clients (Paket SetAussehen).
+   *
+   * Wie handleSetFigur: geprueft wird gegen die GEMEINSAME Liste
+   * (shared/aussehen.ts), aus der auch die Charaktererstellung ihre
+   * Auswahl baut — der Server glaubt dem Client nichts. Geschrieben wird
+   * an ZDO-Member, weil ZDOSync Verteilung und Nachzuegler von selbst
+   * loest; ein eigenes Broadcast-Paket muesste beides nachbauen und
+   * schwiege bei jedem, der spaeter in Sichtweite kommt.
+   *
+   * Leerstring ist gueltig und heisst "nichts angezogen".
+   */
+  private handleSetAussehen(peer: Peer, reader: Reader): void {
+    const frisur = reader.readString();
+    const ober = reader.readString();
+    const beine = reader.readString();
+    if (!istFrisur(frisur) || !istRuestung(ober) || !istRuestung(beine)) {
+      console.warn(
+        `[WoV] SetAussehen von "${peer.name}" abgelehnt: ` +
+          `frisur="${frisur.slice(0, 24)}" ober="${ober.slice(0, 24)}" ` +
+          `beine="${beine.slice(0, 24)}" — steht nicht in shared/aussehen.ts`
+      );
+      return;
+    }
+    peer.frisur = frisur;
+    peer.ruestung = `${ober}|${beine}`;
+    const charZDO = this.zdos.getZDO(peer.characterID);
+    if (charZDO) {
+      charZDO.setString(FRISUR_MEMBER, frisur);
+      charZDO.setString(RUESTUNG_MEMBER, peer.ruestung);
+    }
+  }
+
+  private handleSetFigur(peer: Peer, reader: Reader): void {
+    const gewuenscht = reader.readString();
+    if (!istFigur(gewuenscht)) {
+      console.warn(
+        `[WoV] SetFigur von "${peer.name}" abgelehnt: "${gewuenscht.slice(0, 40)}" ` +
+          `steht nicht in FIGUREN (shared/figuren.ts)`
+      );
+      return;
+    }
+    if (peer.figur === gewuenscht) return;
+    peer.figur = gewuenscht;
+    const charZDO = this.zdos.getZDO(peer.characterID);
+    if (charZDO) charZDO.setString(FIGUR_MEMBER, gewuenscht);
+    console.log(`[WoV] "${peer.name}" spielt jetzt als "${gewuenscht}"`);
+  }
+
+  /**
+   * Umschichten zwischen Spieler-Inventar und einer Truhe (Roadmap F1,
+   * Punkt 7: Pakete hinter die Drossel, Reichweite serverseitig
+   * nachmessen — s. STANDARD_DROSSEL für ContainerAction).
+   *
+   * DUPLIKAT-SICHERHEIT (Punkt 5): Diese Methode läuft synchron zu Ende
+   * (kein `await` zwischen Lesen und Zurückschreiben von `inv`/
+   * `peer.inventar`) — Node verarbeitet ein Paket vollständig, bevor das
+   * nächste an der Reihe ist. Zwei Spieler, die „gleichzeitig" in
+   * dieselbe Truhe greifen, werden vom Server deshalb strikt
+   * NACHEINANDER bedient, immer gegen den zu diesem Zeitpunkt echten
+   * Inhalt — nie gegen einen Stand, den ein anderer Peer sich nur lokal
+   * einbildet. Der zweite Zugriff sieht entweder noch genug (Erfolg) oder
+   * zu wenig (Ablehnung mit Meldung) — nie eine Verdopplung.
+   *
+   * Bewusst NICHT gelöst: Hat ein zweiter Peer dieselbe Truhe ebenfalls
+   * offen, aktualisiert sich sein Panel nicht von selbst (ContainerSync
+   * geht nur an den HANDELNDEN Peer zurück, s. PacketType.ContainerSync).
+   * Er merkt eine Änderung erst beim nächsten eigenen Öffnen/Zugriff —
+   * dann aber garantiert korrekt, weil jede Aktion hier neu gegen den
+   * echten ZDO-Member prüft statt gegen einen zwischengespeicherten
+   * Client-Stand.
+   */
+  private handleContainerAction(peer: Peer, reader: Reader): void {
+    const zdoUserId = reader.readString();
+    const zdoId = reader.readInt32();
+    const richtung = reader.readInt32(); // 0 = aus der Truhe nehmen, 1 = hineinlegen
+    const itemName = reader.readString();
+    const amount = reader.readInt32();
+
+    const antwort = (ok: boolean, message: string) => {
+      peer.sendPacketWith(PacketType.InteractResult, (w) => {
+        w.writeBool(ok);
+        w.writeString(message);
+        w.writeString('');
+        w.writeInt32(0);
+      });
+    };
+
+    if (amount <= 0) return;
+    const ziel = this.zdos.getZDO(ZDOID.fromTuple(zdoUserId, zdoId));
+    if (!ziel) return antwort(false, 'Truhe nicht mehr da');
+    const def = this.prefabs.getByHash(ziel.prefabHash);
+    if (((def?.flags ?? 0n) & PrefabFlag.CONTAINER) === 0n) return; // gefälschte ZDOID — kein Container
+
+    // Reichweite exakt wie handleInteract, aber gegen die ECHTE
+    // ZDO-Position statt gegen einen vom Client behaupteten Punkt — ein
+    // ContainerAction trägt (anders als Interact) gar keine Positionsangabe,
+    // die der Client fälschen könnte (Punkt 7 der Vorgabe).
+    const dx = ziel.position.x - peer.position.x;
+    const dz = ziel.position.z - peer.position.z;
+    if (dx * dx + dz * dz > 6 * 6) return antwort(false, 'Zu weit weg');
+
+    const itemDef = findItem(itemName);
+    if (!itemDef) return antwort(false, 'Unbekannter Gegenstand');
+
+    const inv = unpackContainer(ziel.getString(TRUHE_INHALT_MEMBER));
+
+    if (richtung === 0) {
+      // Nehmen: aus der Truhe entfernen, dem Spieler geben. Passt nicht
+      // alles ins Inventar (voll), bleibt der Rest in der Truhe — kein
+      // Gegenstand geht verloren, nur die Bewegung ist teilweise
+      // fehlgeschlagen.
+      if (!inv.removeByName(itemName, amount)) return antwort(false, 'Nicht genug in der Truhe');
+      const rest = peer.inventar.addItem(itemDef, amount);
+      if (rest > 0) inv.addItem(itemDef, rest);
+    } else {
+      // Legen: umgekehrt — passt nicht alles in die Truhe (voll), bleibt
+      // der Rest im Inventar.
+      if (!peer.inventar.removeByName(itemName, amount)) return antwort(false, 'Nicht genug im Inventar');
+      const rest = inv.addItem(itemDef, amount);
+      if (rest > 0) peer.inventar.addItem(itemDef, rest);
+    }
+
+    ziel.setString(TRUHE_INHALT_MEMBER, packContainer(inv));
+    ziel.revision.reviseData();
+    ziel.dirty = true;
+    this.inventarSync(peer);
+    this.sendeTruheInhalt(peer, ziel);
   }
 
   // ── Dungeons (Phase G) ─────────────────────────────────────────
@@ -2337,6 +2672,58 @@ export class WovServer {
 
       return { ok: false, active: false,
         message: 'Aufruf: admin liste | admin add <Name> | admin remove <Name>' };
+    });
+  }
+
+  /**
+   * `marke liste` / `marke setzen <Name>` — Fortschrittsmarken (F5) von
+   * Hand setzen und anzeigen. Ueber peer.isAdmin gegated (der einzige Weg
+   * zu dieser Methode ist AdminCommandRegistry.execute(), das jeden
+   * Befehl schon vor dem Dispatch gegen canUseAdminCommands prueft) —
+   * nicht jeder Spieler soll sich selbst die Boss-Progression schenken.
+   *
+   * Bewusst NUR die Fortschrittsmarken-Haelfte von GlobalKey bedient, s.
+   * Kopfkommentar von shared/src/types.ts und WeltMarken.ts — die
+   * Weltmodifikator-Haelfte (WorldLevel, PlayerDamage, ...) ist
+   * Welterzeugungs-Konfiguration und gehoert nicht in einen
+   * Laufzeit-Befehl.
+   */
+  private registerMarkeCommand(): void {
+    this.adminCommands.register('marke', (_peer, args) => {
+      const sub = (args.shift() ?? '').toLowerCase();
+
+      if (sub === 'liste' || sub === 'list') {
+        const namen = this.weltMarken.alsNamen();
+        return {
+          ok: true,
+          active: false,
+          message:
+            namen.length > 0
+              ? `${namen.length} gesetzte Marke(n): ${namen.join(', ')}`
+              : 'Keine Marke gesetzt',
+        };
+      }
+
+      if (sub === 'setzen' || sub === 'set') {
+        const name = args[0];
+        if (!name) {
+          return { ok: false, active: false, message: 'Aufruf: marke setzen <Name>' };
+        }
+        const marke = globalKeyVonName(name);
+        if (marke === undefined) {
+          return { ok: false, active: false, message: `Unbekannte Marke: "${name}"` };
+        }
+        const neu = this.weltMarken.setzen(marke);
+        return {
+          ok: true,
+          active: false,
+          message: neu
+            ? `Marke "${GlobalKey[marke]}" gesetzt`
+            : `Marke "${GlobalKey[marke]}" war schon gesetzt`,
+        };
+      }
+
+      return { ok: false, active: false, message: 'Aufruf: marke liste | marke setzen <Name>' };
     });
   }
 
@@ -2760,6 +3147,10 @@ export class WovServer {
     if (terrainZonen > 0) {
       console.log(`[WoV] Terraforming: ${terrainZonen} Zone(n) aus dem Save übernommen`);
     }
+    // F5: Fortschrittsmarken — ausListe() behandelt ein fehlendes Feld
+    // (Altstand vor diesem Umbau) genau wie eine leere Liste als "keine
+    // Marken gesetzt", s. WorldSaveData.globalKeys und WeltMarken.ts.
+    this.weltMarken.ausListe(data.globalKeys);
     const restoredZDOs = this.zdos.restoreFromSnapshots(data.zdos);
     // F3 (Security-Review): unter der spielerId einlagern, WENN das
     // Save-Format schon eine gueltige mitbringt (Staende ab diesem
@@ -2832,6 +3223,15 @@ export class WovServer {
         `${aufnahme.kopf.zones.length} zones, ${aufnahme.kopf.players.length} players ` +
         `(${Date.now() - t0}ms)`
     );
+    // G12 Schritt 1: dieselben Zahlen zusaetzlich maschinenlesbar, s.
+    // util/StrukturLog.ts fuer Begruendung und Schalter.
+    strukturLog('world_saved', {
+      zdoAnzahl: aufnahme.zdos.length,
+      zonenAnzahl: aufnahme.kopf.zones.length,
+      spielerAnzahl: aufnahme.kopf.players.length,
+      dauerMs: Date.now() - t0,
+      asynchron: false,
+    });
   }
 
   /** D8: Läuft gerade ein asynchroner Save? */
@@ -2882,6 +3282,13 @@ export class WovServer {
           `${aufnahme.kopf.zones.length} zones, ${aufnahme.kopf.players.length} players ` +
           `(${Date.now() - t0}ms, asynchron)`
       );
+      strukturLog('world_saved', {
+        zdoAnzahl: aufnahme.zdos.length - uebersprungen,
+        zonenAnzahl: aufnahme.kopf.zones.length,
+        spielerAnzahl: aufnahme.kopf.players.length,
+        dauerMs: Date.now() - t0,
+        asynchron: true,
+      });
     } catch (err) {
       // Kein erneuter Versuch: Die vorige Datei steht unangetastet da (die
       // `.tmp` wird erst am Ende umbenannt), also ist Nichtstun der sichere
@@ -2941,6 +3348,9 @@ export class WovServer {
             : { ...peer.position },
         flying: peer.flying,
         spawnPoint: peer.spawnPoint ?? undefined,
+        figur: peer.figur,
+        frisur: peer.frisur,
+        ruestung: peer.ruestung,
         inventar: peer.inventar.serialize(),
       });
     }
@@ -2956,6 +3366,8 @@ export class WovServer {
         terrainComps: [...this.heightmaps.listTerrainComps()]
           .filter((c) => !c.isEmpty)
           .map((c) => terrainCompNachBase64(c)),
+        // F5: gesetzte Fortschrittsmarken, s. WorldSaveData.globalKeys.
+        globalKeys: this.weltMarken.alsNamen(),
       },
       zdos: persistentZDOs,
     };

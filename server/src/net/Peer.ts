@@ -25,13 +25,15 @@ import { Inventory } from '@wov/shared';
 import { ZDOID } from '../zdo/ZDOID.js';
 import { ZDORevision } from '../zdo/ZDO.js';
 import { ZonenFenster } from '../zdo/ZonenFenster.js';
-import { RpcRegistry } from './Rpc.js';
 import { Writer } from '../io/Writer.js';
 import { Reader } from '../io/Reader.js';
 import { PacketType } from '@wov/shared';
 import type { WebSocket } from 'ws';
 import { randomBytes } from 'node:crypto';
 import type { SpielerId } from './Identitaet.js';
+// G12: Sync-Bytes/s am Ort des Versands zaehlen, nicht nachtraeglich aus
+// den ZDO-Saetzen hochrechnen -- s. Kopfkommentar von ../Metriken.ts.
+import { erfasseSyncBytes } from '../Metriken.js';
 
 /** ZDO tracking entry per peer (matches C++ pair<Rev, float>) */
 export interface PeerZDOEntry {
@@ -62,6 +64,26 @@ export class Peer {
    *  bis NetManager.handlePasswordAuth sie zuweist. Der Client kann sie
    *  weder waehlen noch beeinflussen (Luecke A/B). */
   spielerId: SpielerId = '';
+
+  /**
+   * Gewaehlte Spielfigur (Kennung aus shared/figuren.ts).
+   *
+   * Der Wert kommt vom Client (Paket SetFigur), wird aber NIE ungeprueft
+   * uebernommen — `istFigur()` entscheidet, sonst stuende hier ein
+   * beliebiger String aus dem Netz und der Client versuchte, ihn als
+   * Dateinamen zu laden. Vorbelegt beim Anmelden aus dem Spielstand.
+   */
+  figur: string = '';
+  /**
+   * Gewaehlte Frisur (Kennung aus shared/aussehen.ts).
+   */
+  frisur: string = '';
+  /**
+   * Getragene Ruestung als "oberkoerperId|beineId" — ein leerer Teil
+   * heisst "nichts angezogen". Zusammengefasst statt zweier Felder, damit
+   * ein weiterer Slot spaeter weder Peer noch Spielstand aufbläht.
+   */
+  ruestung: string = '|';
 
   /** Connection status */
   status: ConnectionStatus;
@@ -143,9 +165,6 @@ export class Peer {
   /** Sync data (key-value pairs sent to client) */
   syncData: Map<string, string>;
 
-  /** RPC registry for this peer */
-  readonly rpc: RpcRegistry;
-
   /** Last ping timestamp */
   lastPingTime: number;
 
@@ -181,7 +200,6 @@ export class Peer {
     this.forceSend = new Set();
     this.invalidSectors = new Set();
     this.syncData = new Map();
-    this.rpc = new RpcRegistry();
     this.lastPingTime = Date.now();
     this.ping = 0;
     this.lastInputSeq = 0;
@@ -298,6 +316,7 @@ export class Peer {
     packet.writeUInt8(type, 0);
     payload.copy(packet, 1);
     this.socket.send(packet);
+    erfasseSyncBytes(packet.length);
   }
 
   /** Send a packet built from a Writer callback. */
@@ -311,6 +330,7 @@ export class Peer {
   sendRaw(data: Buffer): void {
     if (this.socket.readyState !== 1) return;
     this.socket.send(data);
+    erfasseSyncBytes(data.length);
   }
 
   /** Disconnect this peer. */

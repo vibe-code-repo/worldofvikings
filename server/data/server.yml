@@ -1,21 +1,57 @@
 # World of Vikings Server Configuration
 # Ported from Valhalla2.0 data/server.yml
+#
+# WAS HIER STEHT, WIRKT AUCH. Jeder Schluessel dieser Datei wird in
+# server/src/ServerKonfig.ts ausgewertet; was dort nicht in
+# BEKANNTE_SCHLUESSEL steht, meldet der Server beim Start als
+# "liest niemand" statt es stumm zu ignorieren. Festgehalten in
+# server/test/a14-server-yml.ts. Das ist der Riegel gegen den Zustand,
+# den A14 aufgeraeumt hat: sechzehn Schluessel, die etwas versprachen und
+# nichts bewirkten.
+#
+# WO DIE GESTRICHENEN ZUGANGS-SCHLUESSEL HEUTE LEBEN (A14):
+#   authenticate  Der Handshake authentifiziert IMMER, ein Schalter dafuer
+#                 waere sinnlos: server/src/net/NetManager.ts laesst vor
+#                 der Anmeldung ausschliesslich Handshake-Pakete durch,
+#                 und server/src/net/Identitaet.ts vergibt die Spieler-ID
+#                 serverseitig und signiert sie als HMAC-SessionToken.
+#                 Der alte Schluessel meinte ein Steam-Ticket, das es hier
+#                 nie gab.
+#   timeout       Fest verdrahtet in NetManager.pruefeTimeouts(): 30 s ohne
+#                 Paket fuer angemeldete Peers (der Client pingt alle 5 s),
+#                 10 s fuer nicht angemeldete. Bewusst NICHT wieder
+#                 konfigurierbar gemacht -- der Wert, der hier zuletzt
+#                 stand, war "0s", und der haette die Trennung halboffener
+#                 Sockets abgeschaltet statt sie einzustellen.
+#   whitelist     Hat KEINEN gleichwertigen Nachfolger. Zugang regelt heute
+#                 allein server.password (unten), Rechte regelt die
+#                 Admin-Liste (server/src/admin/AdminListe.ts), und
+#                 NetManager.kick() wirkt nur bis zum naechsten Verbinden.
+#                 Eine dauerhafte Zugangs-/Bannliste fehlt: offene Aufgabe,
+#                 kein erledigter Umzug.
+#   max-online    War ein Duplikat von players.max (unten).
+#   pregenerate   Es gibt keine Vorab-Generierung. Zonen entstehen erst,
+#                 wenn ein Spieler in ihre Naehe kommt
+#                 (ZoneManager.enqueueNearbyZones), im layout-Modus nur
+#                 innerhalb der Layout-Bbox. Ein "true" haette nichts
+#                 anzustossen gehabt.
 
 server:
   name: World of Vikings Server
   password: ""
   port: 2467
-  public: false
-  dedicated: true
+  # public, dedicated: verworfen (A14, 20.08.) -- es gibt keine Server-
+  # Browser-Registrierung (kein Steam-Layer), an die diese Flags anknuepfen
+  # koennten; der Prozess ist ohnehin immer "dedicated" (ein Node-Skript,
+  # kein Listen-Server mit lokalem Spieler).
 
 players:
-  whitelist: false
   max: 10
-  offline: true
-  timeout: 0s
-  list-send-interval: 2s
-  max-online: 10
-  authenticate: true
+  # Verworfen (A14): whitelist, offline, timeout, list-send-interval,
+  # max-online, authenticate -- keinen davon las Code. Wo ihre Funktion
+  # heute liegt, steht im Kopf dieser Datei; "offline" und
+  # "list-send-interval" gehoerten beide zur Steam-Server-Registrierung,
+  # die es hier nicht gibt.
   everyone-admin: true
 
 world:
@@ -29,9 +65,16 @@ world:
   # Achtung: Der Modus muss zum Save passen — ein bestehender valheim-Save
   # gehört nicht unter eine layout-Welt (andere Weltform).
   mode: layout
-  pregenerate: false
+  # pregenerate, modern, heightmap-threading: verworfen (A14) -- kein Code
+  # las sie. Zu pregenerate steht die Begruendung im Kopf dieser Datei;
+  # "modern" traf nichts (worldGenVersion ist eine fixe Konstante, kein
+  # Schalter aus dieser Datei), und Heightmap-Threading gibt es nicht.
+  # save-interval: seit A14 tatsaechlich ausgewertet
+  # (ServerKonfig.parseDauerMs -> WovServer.start(), Syntax: 30min | 45s |
+  # 500ms | 2h). Vorher stand hier ein Wert, den niemand las -- der Takt kam
+  # allein aus SAVE_INTERVAL_MS. Aendern wirkt jetzt; ein unlesbarer Wert
+  # ("30 min", "30m") faellt auf diese Konstante zurueck.
   save-interval: 30min
-  modern: true
   # Block A: Locations stillgelegt. Alle 146 Einträge in FEATURES sind
   # Valheim-Exporte; keiner steht in EIGENE_MODELLE. Gebucht würden sie
   # trotzdem — jede Instanz legte ZDOs an, die der Client nicht darstellen
@@ -46,17 +89,34 @@ world:
   vegetation: true
   creatures: true
   seed: KxSYuZquuw
-  heightmap-threading: 1
   # C++ server.yml: experimental-location-overrides: true (ShipSetting01)
   experimental-location-overrides: true
   # C++ server.yml:35 — modern FastNoise Ashlands (ASHLANDS_2.0), C++ default true
   experimental-ashlands-modern-noise: true
 
-zdos:
-  send-interval: 50ms
-  max-send-threshold: 10240
-  min-send-threshold: 2048
-  assign-interval: 2s
+  # Auf welcher Hoehe steht der Spieler?
+  #
+  # AUS (Vorgabe, C++-Port) schnappt getGroundHeight auf den NAECHSTEN
+  # Gitterpunkt: floor(v + 0.5). Das Terrain wird aber als Dreiecksnetz
+  # zwischen den Punkten gezeichnet. Die Figur laeuft dadurch eine Treppe,
+  # waehrend der Hang glatt aussieht -- gemessen am 23.08.2026 auf einer
+  # 4-m-Strecke mit 0,307 m Anstieg: fuenf Plateaus, das laengste einen
+  # ganzen Meter lang, dazwischen Spruenge von rund 7 cm.
+  #
+  # AN interpoliert baryzentrisch ueber DIESELBEN Dreiecke, aus denen das
+  # Mesh und die Kollision bestehen (T1=v00,v01,v10 / T2=v10,v01,v11).
+  # Damit steht die Figur auf dem, was man sieht.
+  experimental-bilinear-height-sampling: true
+
+# zdos: Alle vier Werte (send-interval, max-send-threshold,
+# min-send-threshold, assign-interval) wurden nie aus dieser Datei
+# gelesen -- die tatsaechlichen Werte sind fixe Konstanten in
+# shared/src/constants.ts (ZDO_SEND_INTERVAL_MS = 50,
+# ZDO_MAX_SEND_THRESHOLD = 10240, ZDO_MIN_SEND_THRESHOLD = 2048,
+# ZDO_ASSIGN_INTERVAL_MS = 2000 -- dieselben Zahlen, die hier standen).
+# Konfigurierbar machen hiesse, sie durch ZDOManager/WovServer
+# durchzureichen -- ein groesserer Schnitt als A14, deshalb entfernt
+# statt stillschweigend wirkungslos gelassen. Block A14 (20.08.).
 
 dungeons:
   # Folgt zwingend aus world.features: Dungeons hängen an Locations. Ohne
@@ -65,11 +125,40 @@ dungeons:
   # leerer Raum aus unsichtbaren Wänden.
   # Ebenfalls für beide Instanzen, aus demselben Grund wie oben.
   enabled: false
-  doors: true
-  seeded: true
+  # doors, seeded: verworfen (A14, 20.08.) -- Tueren steuert das jeweilige
+  # Kit selbst (RoomDef.doorTypes/doorChance in
+  # shared/src/dungeonGenerator.ts), kein globaler Schalter liest "doors".
+  # "seeded" traf kein Konzept: Dungeon-Generierung ist immer seed-basiert,
+  # einen ungeseedeten Modus gibt es nicht.
 
-events:
-  chance: 0.2
-  interval: 46min
-  activation-radius: 96
-  require-keys: true
+# events: chance und interval wurden nie aus dieser Datei gelesen -- die
+# echten Werte sind fixe Konstanten in shared/src/constants.ts
+# (EVENT_CHANCE = 0.2, EVENT_INTERVAL_MS = 46 Minuten, dieselben Zahlen
+# wie hier). activation-radius und require-keys entsprachen von Anfang an
+# keinem implementierten Konzept -- die Ueberfall-Logik in WovServer.ts
+# kennt beides nicht. Aus demselben Grund wie zdos oben entfernt statt
+# stillschweigend wirkungslos gelassen. Block A14 (20.08.).
+
+# ── Wetter und Nebel ───────────────────────────────────────────────────
+# Ohne diesen Abschnitt bleibt alles wie bisher: Das Wetter ist eine reine
+# Funktion der Weltzeit (shared/src/weather.ts), alle 666 s zieht ein
+# gesetzter Zufallsgenerator aus dem Topf des Bioms. Fuer Wiesen sind das
+# 86 % Clear und je 3,4 % Rain, Misty, ThunderStorm, LightRain.
+#
+# Beide Werte gehen beim Anmelden als Paket WeltWetter an jeden Client,
+# damit ALLE Spieler dieselbe Stimmung sehen. Der Server selbst rechnet
+# nicht damit -- Wetter und Licht sind Clientsache.
+wetter:
+  # Name einer Umgebung aus shared/src/envData.json (Clear, Misty, Rain,
+  # ThunderStorm, LightRain, Snow, SwampRain, ...). Leer = wuerfeln wie
+  # bisher. Ein unbekannter Name wird beim Start gemeldet und ignoriert.
+  umgebung: Misty
+  # Feste Nebeldichte (EXP2). Leer oder fehlend = der Tageszeit folgen.
+  #
+  # WARUM HIER EINE ZAHL STEHT UND NICHT NUR Misty: Die Dichte einer
+  # Umgebung schwankt ueber den Tag erheblich -- Misty steht mittags auf
+  # 0,020 und nachts auf 0,150, dem Achtfachen. 0.0171 ist der Wert, den
+  # Misty um 13.6 h liefert; festgenagelt bleibt diese Sicht rund um die
+  # Uhr. Die Nebel-FARBE folgt weiter der Tageszeit, nachts wird es also
+  # dunkler, aber nicht dichter.
+  nebeldichte: 0.0171

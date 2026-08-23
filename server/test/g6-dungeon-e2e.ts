@@ -18,9 +18,28 @@ import WebSocket from 'ws';
 import { rmSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { createHmac } from 'node:crypto';
 import { DUNGEON_INSTANCE_BAND_MIN, getStableHash } from '@wov/shared';
 import { createWovServer } from '../src/WovServer.js';
+// F4-Lehre (siehe Kopfkommentar scripts/run-tests.mjs / CLAUDE.md): die
+// Handshake-Antwort MUSS ueber die Produktivfunktion laufen, nicht ueber
+// eine eigene HMAC-Zeile. Der Test baute bislang createHmac('sha256', '')
+// direkt nach — bei leerem Passwort ersetzt antwortBerechnen den leeren
+// Schluessel aber durch HANDSHAKE_LEERPASSWORT_SCHLUESSEL (Identitaet.ts,
+// spiegelt client/src/net/GameSocket.ts). Die Nachbau-Zeile lieferte daher
+// eine falsche Antwort, der Server verwarf sie (Wrong password) und der
+// Test hing bis zum 30s-Timeout in Phase 'create' — nie in der
+// ZDOSync-Stelle, die eigentlich geprueft werden sollte.
+import { antwortBerechnen } from '../src/net/Identitaet.js';
+// D6-Lehre (dieselbe Regel, zweites Vorkommen in dieser Datei): das
+// ZDOSync-Drahtformat hat seit D6 zwei Satzarten (VOLLSTAND/DELTA, ein
+// Flagbyte VOR der userId, prefabHash und das zweite Flagbyte nur beim
+// Vollstand) — der Test parste das Paket bisher von Hand nach einem
+// ÄLTEREN, flacheren Format nach (kein Flagbyte, prefabHash immer
+// vorhanden) und stürzte prompt mit "Invalid typed array length" ab,
+// sobald der erste echte Satz ankam. Fix: den ECHTEN Client-Parser
+// verwenden, exakt wie server/test/d6-zdo-delta.ts es vormacht.
+import { BinaryReader } from '../../client/src/net/GameSocket';
+import { parseZDOSync, ZDOSpiegel } from '../../client/src/net/ZDOSync';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(__dirname, 'tmp-g6');
@@ -88,6 +107,10 @@ async function main(): Promise<void> {
   let phase: 'create' | 'enter' | 'zdos' | 'leave' | 'done' = 'create';
   let roomShellSeen = false;
   const roomShellCandidates = new Set<number>();
+  // Wie ein echter Client: EIN Spiegel für die ganze Verbindung, sonst
+  // verwirft parseZDOSync jedes Delta als "ohne Vollstand" (siehe
+  // ZDOSync.ts deltaLueckeGemeldet-Warnung).
+  const spiegel = new ZDOSpiegel();
 
   const done = new Promise<void>((resolvePromise, reject) => {
     const timeout = setTimeout(
@@ -108,7 +131,7 @@ async function main(): Promise<void> {
         if (!authSent) {
           authSent = true;
           const [nonce] = readString(view, 0);
-          const antwort = createHmac('sha256', '').update(nonce).digest('hex');
+          const antwort = antwortBerechnen(nonce, '');
           const payload = [...writeString(antwort), ...writeString('Tester'), ...writeString('')];
           ws.send(Buffer.from([P.PasswordAuth, ...payload]));
           // Handshake fertig → Phase 1
@@ -163,53 +186,18 @@ async function main(): Promise<void> {
           phase = 'done';
           resolvePromise();
         }
-      } else if (type === P.ZDOSync && phase === 'zdos') {
-        // ZDOSync: int32 tick, int32 count, dann pro ZDO: string userId,
-        // int32 id, int32 prefabHash, Vector3 pos, ... — wir parsen nur bis
-        // zur Position des ersten Feldes jedes Eintrags weiter unten nicht
-        // vollständig; stattdessen genügt: irgendein Eintrag mit Position im
-        // Band und bekanntem Raum-Hash.
-        let pos = 4;
-        const count = view.getInt32(pos, true);
-        pos += 4;
-        for (let i = 0; i < count; i++) {
-          let userId: string;
-          [userId, pos] = readString(view, pos);
-          pos += 4; // zdo id
-          const prefabHash = view.getInt32(pos, true);
-          pos += 4;
-          const px = view.getFloat32(pos, true);
-          pos += 12; // vector3
-          pos += 16; // quaternion
-          pos += 4; // revision
-          pos += 1; // flags
-          const hasOwner = view.getUint8(pos) !== 0;
-          pos += 1;
-          if (hasOwner) {
-            [, pos] = readString(view, pos);
-            pos += 4;
-          }
-          const memberCount = view.getInt32(pos, true);
-          pos += 4;
-          for (let m = 0; m < memberCount; m++) {
-            pos += 4; // member hash
-            const mtype = view.getUint8(pos);
-            pos += 1;
-            // writeByTypeTag: Float=4B, Vec3=12B, Quat=16B, Int=4B, Long=8B,
-            // String=varint+len, ByteArray=int32+len
-            if (mtype === 0) pos += 4;
-            else if (mtype === 1) pos += 12;
-            else if (mtype === 2) pos += 16;
-            else if (mtype === 3) pos += 4;
-            else if (mtype === 4) pos += 8;
-            else if (mtype === 5) [, pos] = readString(view, pos);
-            else if (mtype === 6) {
-              const len = view.getInt32(pos, true);
-              pos += 4 + len;
+      } else if (type === P.ZDOSync) {
+        // Echter Client-Parser statt Nachbau (s. Importkommentar oben).
+        // Läuft auch ausserhalb von Phase 'zdos' mit — ein Vollstand vor
+        // dem Dungeon-Eintritt füllt den Spiegel, sonst würfe das erste
+        // Delta danach die "ohne Vollstand"-Warnung.
+        const reader = new BinaryReader(data.buffer, data.byteOffset + 1);
+        const { updates } = parseZDOSync(reader, 'Tester', spiegel);
+        if (phase === 'zdos') {
+          for (const u of updates) {
+            if (u.position.x > DUNGEON_INSTANCE_BAND_MIN && roomShellCandidates.has(u.prefabHash)) {
+              roomShellSeen = true;
             }
-          }
-          if (px > DUNGEON_INSTANCE_BAND_MIN && roomShellCandidates.has(prefabHash)) {
-            roomShellSeen = true;
           }
         }
       }

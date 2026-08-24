@@ -195,6 +195,24 @@ export default defineConfig({
      * Fehlermeldung ist als ein Speicherknopf, der auf live nichts tut.
      */
     proxy: {
+      /*
+       * Konto-API des SPIELSERVERS (server/src/konto/KontoApi.ts).
+       *
+       * Muss vor '/api/' stehen? Nein — sie liegt bewusst auf einem
+       * eigenen Praefix. '/api/' fuehrt zum Betriebsdienst auf 2468, und
+       * genau daran ist die erste Fassung gescheitert: /api/konto/... kam
+       * dort an und bekam 404. Zwei verschiedene Dienste unter einem
+       * Praefix zu sortieren waere eine Falle fuer jeden, der spaeter eine
+       * Regel dazwischenschiebt.
+       *
+       * Ohne diese Zeilen ist die Anmeldung auf world-of-vikings.com gegen
+       * das Testgestade nicht erreichbar — der Vite-Server beantwortet
+       * alles, was er nicht kennt, mit der Client-Seite.
+       */
+      '/konten/': {
+        target: `http://127.0.0.1:${GAME_SERVER_PORT}`,
+        changeOrigin: false,
+      },
       '/api/': {
         target: `http://${ADMIN_ADRESSE}:${ADMIN_PORT}`,
         // Der Betriebsdienst wertet den Host-Kopf nicht aus; ihn

@@ -1,5 +1,5 @@
 /**
- * Accounts and characters — the browser half of `/api/konto`.
+ * Accounts and characters — the browser half of `/konten`.
  *
  * ── Why this is a module and not four copies of `fetch` ───────────────
  * Four pages talk to the same API: `/registrieren`, `/anmelden`, `/konto`
@@ -305,7 +305,10 @@ interface Aufruf {
 async function call<T>(shore: ShoreId, pfad: string, a: Aufruf): Promise<T> {
   const kopf: Record<string, string> = {};
   if (a.body !== undefined) kopf['content-type'] = 'application/json';
-  if (a.token) kopf.authorization = `Bearer ${a.token}`;
+  // X-WoV-Konto statt Authorization: Der Proxy vor dem Testgestade leert
+  // die Authorization-Kopfzeile (proxy_set_header Authorization ""), ein
+  // Bearer-Token kaeme dort nie an. Begruendung in KontoApi.ts.
+  if (a.token) kopf['x-wov-konto'] = a.token;
 
   let antwort: Response;
   try {
@@ -344,7 +347,7 @@ export function registrieren(
   email: string,
   passwort: string,
 ): Promise<Anmeldung> {
-  return call<Anmeldung>(shore, '/api/konto/registrieren', {
+  return call<Anmeldung>(shore, '/konten/registrieren', {
     method: 'POST',
     body: { benutzername, email, passwort },
   });
@@ -355,14 +358,14 @@ export function anmelden(
   benutzername: string,
   passwort: string,
 ): Promise<Anmeldung> {
-  return call<Anmeldung>(shore, '/api/konto/anmelden', {
+  return call<Anmeldung>(shore, '/konten/anmelden', {
     method: 'POST',
     body: { benutzername, passwort },
   });
 }
 
 export function ich(shore: ShoreId, token: string): Promise<Ich> {
-  return call<Ich>(shore, '/api/konto/ich', { method: 'GET', token });
+  return call<Ich>(shore, '/konten/ich', { method: 'GET', token });
 }
 
 export function charakterAnlegen(
@@ -370,7 +373,7 @@ export function charakterAnlegen(
   token: string,
   charakter: { name: string; figur: string; frisur: string; ober: string; beine: string },
 ): Promise<{ charakter: Charakter }> {
-  return call<{ charakter: Charakter }>(shore, '/api/konto/charaktere', {
+  return call<{ charakter: Charakter }>(shore, '/konten/charaktere', {
     method: 'POST',
     token,
     body: charakter,
@@ -382,7 +385,7 @@ export function charakterLoeschen(
   token: string,
   id: number,
 ): Promise<{ ok: true }> {
-  return call<{ ok: true }>(shore, `/api/konto/charaktere/${id}`, {
+  return call<{ ok: true }>(shore, `/konten/charaktere/${id}`, {
     method: 'DELETE',
     token,
   });
@@ -390,7 +393,7 @@ export function charakterLoeschen(
 
 /** Trade a character for a session ticket — the only way into the world. */
 export function spielen(shore: ShoreId, token: string, id: number): Promise<Ticket> {
-  return call<Ticket>(shore, `/api/konto/charaktere/${id}/spielen`, {
+  return call<Ticket>(shore, `/konten/charaktere/${id}/spielen`, {
     method: 'POST',
     token,
   });

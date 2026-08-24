@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Konto-API am Spielport durchspielen. Prueft vor allem, was NICHT gehen darf.
 set -u
-B=http://127.0.0.1:2467/api/konto
+B=http://127.0.0.1:2467/konten
 N="probe$RANDOM$RANDOM"
 
 ok=0; fehl=0

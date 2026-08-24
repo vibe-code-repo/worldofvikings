@@ -3,11 +3,28 @@
  *
  * ── Why it rides on the game port ────────────────────────────────────
  * `ws` already runs an HTTP server on 2467 (that is where the 426 comes
- * from that tools/wov-update.sh uses as a health check). Hanging /api/
- * off the same server means the existing proxy entry for
- * play(.dev).world-of-vikings.com routes it — no second host, no second
- * port, no second certificate. Anything that is not /api/ still gets the
- * old 426, so the health check keeps working.
+ * from that tools/wov-update.sh uses as a health check). Hanging the
+ * account endpoints off the same server saves a second host, port and
+ * certificate. Anything else still gets the old 426, so the health check
+ * keeps working.
+ *
+ * ── Why /konten/ and NOT /api/konto/ ─────────────────────────────────
+ * /api/ is already taken, and it does not lead here. On dev, Vite proxies
+ * /api/ to the ADMIN service on 2468 (client/vite.config.ts); on live,
+ * deploy/nginx-live.conf does the same and additionally gates it behind a
+ * host check, so play.world-of-vikings.com/api/ returns 404 by design.
+ * Endpoints placed under /api/konto/ were therefore never reached — the
+ * first version of this file claimed the opposite and was wrong. A prefix
+ * of its own avoids squeezing into a block that carries a host gate and a
+ * header rewrite.
+ *
+ * ── Why X-WoV-Konto and not Authorization ────────────────────────────
+ * The proxy in front of dev sets `proxy_set_header Authorization ""` in
+ * its `location /` — basic-auth credentials are deliberately not passed
+ * through, and a Bearer token in that header is stripped along with them.
+ * The admin service hit the same wall and solved it the same way, with
+ * `x-wov-token`. Authorization is still accepted, so a direct call to
+ * 127.0.0.1:2467 keeps working.
  *
  * ── Two kinds of token, deliberately not interchangeable ─────────────
  * An ACCOUNT token says "this is Mike". A PLAYER token (Identitaet.ts)
@@ -62,12 +79,12 @@ export class KontoApi {
    */
   behandle(req: IncomingMessage, res: ServerResponse): boolean {
     const pfad = new URL(req.url ?? '/', 'http://x').pathname.replace(/\/+$/, '');
-    if (!pfad.startsWith('/api/konto')) return false;
+    if (!pfad.startsWith('/konten')) return false;
 
     const ursprung = req.headers.origin;
     if (ursprung && ERLAUBTE_URSPRUENGE.has(ursprung)) {
       res.setHeader('Access-Control-Allow-Origin', ursprung);
-      res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization');
+      res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization, x-wov-konto');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
       res.setHeader('Vary', 'Origin');
     }
@@ -86,15 +103,15 @@ export class KontoApi {
   private async leite(req: IncomingMessage, res: ServerResponse, pfad: string): Promise<void> {
     const m = req.method ?? 'GET';
 
-    if (pfad === '/api/konto/registrieren' && m === 'POST') return this.registrieren(req, res);
-    if (pfad === '/api/konto/anmelden' && m === 'POST') return this.anmelden(req, res);
-    if (pfad === '/api/konto/ich' && m === 'GET') return this.ich(req, res);
-    if (pfad === '/api/konto/charaktere' && m === 'POST') return this.charakterAnlegen(req, res);
+    if (pfad === '/konten/registrieren' && m === 'POST') return this.registrieren(req, res);
+    if (pfad === '/konten/anmelden' && m === 'POST') return this.anmelden(req, res);
+    if (pfad === '/konten/ich' && m === 'GET') return this.ich(req, res);
+    if (pfad === '/konten/charaktere' && m === 'POST') return this.charakterAnlegen(req, res);
 
-    const spielen = /^\/api\/konto\/charaktere\/(\d+)\/spielen$/.exec(pfad);
+    const spielen = /^\/konten\/charaktere\/(\d+)\/spielen$/.exec(pfad);
     if (spielen && m === 'POST') return this.spielen(req, res, Number(spielen[1]));
 
-    const loeschen = /^\/api\/konto\/charaktere\/(\d+)$/.exec(pfad);
+    const loeschen = /^\/konten\/charaktere\/(\d+)$/.exec(pfad);
     if (loeschen && m === 'DELETE') return this.charakterLoeschen(req, res, Number(loeschen[1]));
 
     this.json(res, 404, { fehler: 'unbekannter-endpunkt' });
@@ -237,8 +254,12 @@ export class KontoApi {
 
   /** Account id from the Authorization header, or null. */
   private kontoAus(req: IncomingMessage): number | null {
+    // X-WoV-Konto zuerst: Authorization wird vom Proxy vor dev geleert.
+    const eigen = req.headers['x-wov-konto'];
     const kopf = req.headers.authorization ?? '';
-    const token = kopf.startsWith('Bearer ') ? kopf.slice(7).trim() : '';
+    const token = typeof eigen === 'string' && eigen.trim()
+      ? eigen.trim()
+      : kopf.startsWith('Bearer ') ? kopf.slice(7).trim() : '';
     const teile = token.split('.');
     if (teile.length !== 2 || !teile[0] || !teile[1]) return null;
 

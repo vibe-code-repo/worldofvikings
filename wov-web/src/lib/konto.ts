@@ -30,7 +30,7 @@
  *
  * ── What never travels through the address ────────────────────────────
  * Passwords are posted in a request body and are never stored. The session
- * ticket from `/spielen` goes into the address FRAGMENT (`#ticket=`), which
+ * ticket from `/play` goes into the address FRAGMENT (`#ticket=`), which
  * no browser sends to any server — see `playUrl`.
  */
 import type { MessageKey } from './i18n';
@@ -393,7 +393,7 @@ export function charakterLoeschen(
 
 /** Trade a character for a session ticket — the only way into the world. */
 export function spielen(shore: ShoreId, token: string, id: number): Promise<Ticket> {
-  return call<Ticket>(shore, `/accounts/characters/${id}/spielen`, {
+  return call<Ticket>(shore, `/accounts/characters/${id}/play`, {
     method: 'POST',
     token,
   });

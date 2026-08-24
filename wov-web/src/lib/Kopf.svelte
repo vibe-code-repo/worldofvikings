@@ -35,14 +35,14 @@
   <div class="mitte">
     <a class="marke" href={localizedPath(lang, '/')}>
       <Ikone name="schwerter" />
-      {t['kopf.marke']}
+      {t['header.brand']}
     </a>
 
-    <nav class="nav" aria-label={t['kopf.nav.aria']}>
+    <nav class="nav" aria-label={t['header.nav.aria']}>
       {#each HAUPTNAV as s (s.pfad)}
         <a
           href={localizedPath(lang, s.pfad)}
-          data-bald={s.bald ? t['kopf.bald'] : undefined}
+          data-bald={s.bald ? t['header.soon'] : undefined}
           aria-current={hier === s.pfad ? 'page' : undefined}>{t[s.titel]}</a
         >
       {/each}
@@ -55,7 +55,7 @@
         `localizedPath` setzt das andere davor. Zwei gewöhnliche Links, kein
         Skript — ohne JavaScript funktioniert der Wechsel genauso.
       -->
-      <nav class="sprachwahl" aria-label={t['kopf.sprache.aria']}>
+      <nav class="sprachwahl" aria-label={t['header.language.aria']}>
         {#each LOCALES as l (l)}
           <a
             href={localizedPath(l, hier)}
@@ -66,7 +66,7 @@
         {/each}
       </nav>
 
-      <a class="knopf" href={localizedPath(lang, FAHRT)}>{t['kopf.fahrt.knopf']}</a>
+      <a class="knopf" href={localizedPath(lang, FAHRT)}>{t['header.voyage.button']}</a>
     </div>
   </div>
 </header>

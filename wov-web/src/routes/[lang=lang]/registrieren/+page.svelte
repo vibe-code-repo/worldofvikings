@@ -11,204 +11,206 @@
     type ShoreId,
     errorMessageKey,
     readShore,
-    registrieren,
+    register,
     writeShore,
     writeToken,
-  } from '$lib/konto';
-  import '$lib/stil/konto.css';
+  } from '$lib/account';
+  import '$lib/stil/account.css';
 
   /**
-   * Konto anlegen.
+   * Creating an account.
    *
-   * ── Warum hier kein echtes Formular abgeschickt wird ─────────────────
-   * Die Seite ist vorgerendert und liegt als Datei auf nginx; es gibt
-   * keinen Prozess, der ein POST entgegennehmen könnte. Ein natives
-   * `action="https://play…"` wäre ausserdem von der CSP verboten
-   * (`form-action: ['self']`). Der Weg zum Gestade führt deshalb über
-   * `fetch`, und das braucht JavaScript.
+   * ── Why no real form is submitted here ───────────────────────────────
+   * The page is prerendered and sits as a file on nginx; there is no
+   * process that could take a POST. A native `action="https://play…"`
+   * would moreover be forbidden by the CSP (`form-action: ['self']`). The
+   * way to the shore therefore goes through `fetch`, and that needs
+   * JavaScript.
    *
-   * ── Warum der Knopf erst mit JavaScript erscheint ────────────────────
-   * Ein Knopf, der ohne Skript nichts tut, sieht aus wie ein Fehler. An
-   * seiner Stelle steht darum im vorgerenderten HTML der Satz, der es
-   * erklärt (`konto.ohne_js`), und `onMount` tauscht ihn gegen den Knopf.
-   * Alles Übrige — Überschrift, Beschriftungen, Hilfetexte, die Links zu
-   * den Nachbarseiten — steht ohne Skript vollständig da.
+   * ── Why the button only appears with JavaScript ──────────────────────
+   * A button that does nothing without scripting looks like a fault. In
+   * its place the prerendered HTML holds the sentence that explains it
+   * (`account.without_js`), and `onMount` swaps it for the button.
+   * Everything else — heading, labels, hints, the links to the neighbouring
+   * pages — is fully there without scripting.
    *
-   * ── Warum das Formular trotzdem `method="post"` trägt ────────────────
-   * Es hat ohne Skript keinen Absendeknopf, und mehr als ein Textfeld
-   * verhindert die stille Absendung per Eingabetaste. Sollte doch einmal
-   * ein Weg dorthin führen, entscheidet `method`, wohin das PASSWORT
-   * gerät: bei `get` in die Adresszeile, den Verlauf und jedes Protokoll —
-   * bei `post` in einen Rumpf, den nginx mit 405 abweist. Ein Passwort
-   * gehört unter keinen Umständen in eine Adresse.
+   * ── Why the form carries `method="post"` all the same ────────────────
+   * It has no submit button without scripting, and more than one text field
+   * prevents the silent submit on Enter. Should a way there ever open up
+   * anyway, `method` decides where the PASSWORD ends up: with `get` in the
+   * address bar, the history and every log — with `post` in a body that
+   * nginx rejects with 405. A password belongs in an address under no
+   * circumstances.
    */
 
   const lang = $derived(localeFrom(page.params.lang));
   const t = $derived(messages(lang));
 
   /** True as soon as scripting has taken over — see the header comment. */
-  let bereit = $state(false);
-  let laeuft = $state(false);
+  let ready = $state(false);
+  let running = $state(false);
 
-  let gestade = $state<ShoreId>('dev');
-  let benutzername = $state('');
+  let shore = $state<ShoreId>('dev');
+  let username = $state('');
   let email = $state('');
-  let passwort = $state('');
-  let passwortWieder = $state('');
-  let fehler = $state<MessageKey | null>(null);
+  let password = $state('');
+  let passwordRepeat = $state('');
+  let error = $state<MessageKey | null>(null);
 
   onMount(() => {
-    bereit = true;
-    gestade = readShore() ?? 'dev';
+    ready = true;
+    shore = readShore() ?? 'dev';
   });
 
-  function gestadeGemerkt() {
-    writeShore(gestade);
+  function shoreRemembered() {
+    writeShore(shore);
   }
 
-  async function absenden(e: SubmitEvent) {
+  async function submit(e: SubmitEvent) {
     e.preventDefault();
-    if (laeuft) return;
-    fehler = null;
+    if (running) return;
+    error = null;
 
-    // Der Abgleich der Wiederholung passiert NUR hier. Sie wird nie
-    // mitgeschickt — der Server hat mit ihr nichts zu tun.
-    if (passwort !== passwortWieder) {
-      fehler = 'registrieren.fehler.ungleich';
+    // The repetition is compared ONLY here. It is never sent along — the
+    // server has nothing to do with it.
+    if (password !== passwordRepeat) {
+      error = 'register.error.mismatch';
       return;
     }
 
-    laeuft = true;
+    running = true;
     try {
-      const antwort = await registrieren(gestade, benutzername.trim(), email.trim(), passwort);
-      writeToken(gestade, antwort.token);
-      writeShore(gestade);
-      // Das Passwort verlässt den Speicher, sobald es nicht mehr gebraucht
-      // wird. Abgelegt wird es ohnehin nirgends.
-      passwort = '';
-      passwortWieder = '';
+      const answer = await register(shore, username.trim(), email.trim(), password);
+      writeToken(shore, answer.token);
+      writeShore(shore);
+      // The password leaves memory as soon as it is no longer needed. It is
+      // not stored anywhere in the first place.
+      password = '';
+      passwordRepeat = '';
       /*
-        Ein frisches Konto hat keine Recken. Der Umweg über /konto wäre eine
-        leere Liste mit genau einem Knopf darin — deshalb geht es direkt auf
-        die Bühne. Die Abfrage bleibt trotzdem stehen: Sie kostet nichts und
-        stimmt auch dann noch, wenn es einmal Konten mit Recken von anderswo
-        gibt.
+        A fresh account has no characters. The detour via /konto would be an
+        empty list with exactly one button in it — which is why this goes
+        straight to the stage. The check stays all the same: it costs
+        nothing and still holds once there are accounts with characters
+        from elsewhere.
       */
-      await goto(localizedPath(lang, antwort.characters.length ? '/konto' : '/erstellen'));
+      await goto(localizedPath(lang, answer.characters.length ? '/konto' : '/erstellen'));
     } catch (err) {
-      fehler = err instanceof ApiError ? errorMessageKey(err.key) : 'konto.fehler.unerwartet';
-      laeuft = false;
+      error = err instanceof ApiError ? errorMessageKey(err.key) : 'account.error.unexpected';
+      running = false;
     }
   }
 </script>
 
 <Kopfdaten
-  titel={t['registrieren.kopf.titel']}
-  beschreibung={t['registrieren.kopf.beschreibung']}
+  titel={t['register.meta.title']}
+  beschreibung={t['register.meta.description']}
   noindex
 />
 
 <main class="mitte seite">
-  <div class="konto-schmal">
-    <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['registrieren.ueberschrift']}</h1>
-    <p style="color:var(--matt)">{t['registrieren.einleitung']}</p>
+  <div class="account-narrow">
+    <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['register.heading']}</h1>
+    <p style="color:var(--matt)">{t['register.intro']}</p>
 
-    <div class="konto-tafel" style="margin-top:1.5rem">
-      <form method="post" onsubmit={absenden}>
-        <div class="konto-feld">
-          <label class="konto-name" for="reg-gestade">{t['erstellen.fahrt.gestade.label']}</label>
+    <div class="account-panel" style="margin-top:1.5rem">
+      <form method="post" onsubmit={submit}>
+        <div class="account-field">
+          <label class="account-label" for="register-shore">{t['create.voyage.shore.label']}</label>
           <select
-            class="konto-eingabe"
-            id="reg-gestade"
-            bind:value={gestade}
-            onchange={gestadeGemerkt}
+            class="account-input"
+            id="register-shore"
+            bind:value={shore}
+            onchange={shoreRemembered}
           >
             {#each SHORE_IDS as s (s)}
               <option value={s}>{t[SHORE_LABEL[s]]}</option>
             {/each}
           </select>
-          <p class="konto-hilfe">{t['konto.gestade.hilfe']}</p>
+          <p class="account-hint">{t['account.shore.hint']}</p>
         </div>
 
-        <div class="konto-feld">
-          <label class="konto-name" for="reg-name">{t['registrieren.benutzername.label']}</label>
+        <div class="account-field">
+          <label class="account-label" for="register-username">{t['register.username.label']}</label>
           <input
-            class="konto-eingabe"
-            id="reg-name"
+            class="account-input"
+            id="register-username"
             type="text"
-            name="benutzername"
+            name="username"
             autocomplete="username"
             maxlength="24"
-            placeholder={t['registrieren.benutzername.platzhalter']}
-            bind:value={benutzername}
+            placeholder={t['register.username.placeholder']}
+            bind:value={username}
           />
-          <p class="konto-hilfe">{t['registrieren.benutzername.hilfe']}</p>
+          <p class="account-hint">{t['register.username.hint']}</p>
         </div>
 
-        <div class="konto-feld">
-          <label class="konto-name" for="reg-email">{t['registrieren.email.label']}</label>
+        <div class="account-field">
+          <label class="account-label" for="register-email">{t['register.email.label']}</label>
           <input
-            class="konto-eingabe"
-            id="reg-email"
+            class="account-input"
+            id="register-email"
             type="email"
             name="email"
             autocomplete="email"
             maxlength="254"
-            placeholder={t['registrieren.email.platzhalter']}
+            placeholder={t['register.email.placeholder']}
             bind:value={email}
           />
-          <p class="konto-hilfe">{t['registrieren.email.hilfe']}</p>
+          <p class="account-hint">{t['register.email.hint']}</p>
         </div>
 
-        <div class="konto-feld">
-          <label class="konto-name" for="reg-passwort">{t['registrieren.passwort.label']}</label>
+        <div class="account-field">
+          <label class="account-label" for="register-password">{t['register.password.label']}</label>
           <input
-            class="konto-eingabe"
-            id="reg-passwort"
+            class="account-input"
+            id="register-password"
             type="password"
-            name="passwort"
+            name="password"
             autocomplete="new-password"
             maxlength="200"
-            bind:value={passwort}
+            bind:value={password}
           />
-          <p class="konto-hilfe">{t['registrieren.passwort.hilfe']}</p>
+          <p class="account-hint">{t['register.password.hint']}</p>
         </div>
 
-        <div class="konto-feld">
-          <label class="konto-name" for="reg-passwort2">{t['registrieren.passwort2.label']}</label>
+        <div class="account-field">
+          <label class="account-label" for="register-password-repeat">
+            {t['register.password_repeat.label']}
+          </label>
           <input
-            class="konto-eingabe"
-            id="reg-passwort2"
+            class="account-input"
+            id="register-password-repeat"
             type="password"
-            name="passwort-wieder"
+            name="password-repeat"
             autocomplete="new-password"
             maxlength="200"
-            bind:value={passwortWieder}
+            bind:value={passwordRepeat}
           />
-          <p class="konto-hilfe">{t['registrieren.passwort2.hilfe']}</p>
+          <p class="account-hint">{t['register.password_repeat.hint']}</p>
         </div>
 
-        <!-- role="alert" wird beim Einfügen vorgelesen. Die Meldung
-             erscheint erst nach einem Klick — ohne das erführe niemand
-             davon, der die Seite vorlesen lässt. -->
-        {#if fehler}
-          <p class="konto-melder" role="alert">{t[fehler]}</p>
+        <!-- role="alert" is read out when it is inserted. The message only
+             appears after a click — without it, nobody who has the page read
+             aloud would ever learn of it. -->
+        {#if error}
+          <p class="account-notice" role="alert">{t[error]}</p>
         {/if}
 
-        <div class="konto-tat">
-          {#if bereit}
-            <button class="knopf" type="submit" disabled={laeuft}>
-              {laeuft ? t['registrieren.knopf.laeuft'] : t['registrieren.knopf']}
+        <div class="account-actions">
+          {#if ready}
+            <button class="knopf" type="submit" disabled={running}>
+              {running ? t['register.button.loading'] : t['register.button']}
             </button>
           {:else}
-            <p class="konto-hilfe" style="margin:0">{t['konto.ohne_js']}</p>
+            <p class="account-hint" style="margin:0">{t['account.without_js']}</p>
           {/if}
         </div>
       </form>
 
-      <p class="konto-wechsel">
-        {t['registrieren.wechsel.text']}
-        <a href={localizedPath(lang, '/anmelden')}>{t['registrieren.wechsel.link']}</a>
+      <p class="account-switch">
+        {t['register.switch.text']}
+        <a href={localizedPath(lang, '/anmelden')}>{t['register.switch.link']}</a>
       </p>
     </div>
   </div>

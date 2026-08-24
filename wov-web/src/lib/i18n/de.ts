@@ -23,465 +23,462 @@
  * side before the build is green again.
  */
 export const de = {
-  /* ------------------------------------------------------------- Kopf */
-  'kopf.marke': 'World of Vikings',
-  'kopf.nav.aria': 'Hauptnavigation',
-  /* Steht per CSS (`content: attr(data-bald)`) hinter einem Navigationspunkt. */
-  'kopf.bald': 'bald',
-  'kopf.fahrt.knopf': 'Auf Fahrt gehen',
-  'kopf.sprache.aria': 'Sprache',
+  /* ----------------------------------------------------------- header */
+  'header.brand': 'World of Vikings',
+  'header.nav.aria': 'Hauptnavigation',
+  /* Rendered by CSS (`content: attr(data-bald)`) after a nav entry. */
+  'header.soon': 'bald',
+  'header.voyage.button': 'Auf Fahrt gehen',
+  'header.language.aria': 'Sprache',
 
-  /* --------------------------------------------------------- MobilNav */
-  'mobilnav.nav.aria': 'Hauptnavigation (schmal)',
-  'mobilnav.fahrt.vorlesen': 'Auf Fahrt gehen',
+  /* ------------------------------------------------------ mobile_nav */
+  'mobile_nav.nav.aria': 'Hauptnavigation (schmal)',
+  'mobile_nav.voyage.label': 'Auf Fahrt gehen',
 
-  /* ------------------------------------------------------------- Fuss */
-  'fuss.marke': 'WORLD OF VIKINGS',
-  'fuss.beschreibung': 'Ein Wikinger-Browserspiel auf eigenem Grund.',
-  'fuss.halle.ueberschrift': 'Halle',
-  'fuss.halle.start': 'Startseite',
-  'fuss.halle.saga': 'Die Saga',
-  'fuss.halle.karte': 'Die Karte',
-  'fuss.halle.spielen': 'Spielen ›',
-  'fuss.recken.ueberschrift': 'Recken',
-  'fuss.recken.ruestkammer': 'Rüstkammer',
-  'fuss.recken.ruhmeshalle': 'Ruhmeshalle',
-  'fuss.recken.thing': 'Das Thing',
-  'fuss.sprache.ueberschrift': 'Sprache',
-  'fuss.schluss':
+  /* ----------------------------------------------------------- footer */
+  'footer.brand': 'WORLD OF VIKINGS',
+  'footer.description': 'Ein Wikinger-Browserspiel auf eigenem Grund.',
+  'footer.hall.heading': 'Halle',
+  'footer.hall.home': 'Startseite',
+  'footer.hall.saga': 'Die Saga',
+  'footer.hall.map': 'Die Karte',
+  'footer.hall.play': 'Spielen ›',
+  'footer.characters.heading': 'Recken',
+  'footer.characters.armory': 'Rüstkammer',
+  'footer.characters.hall_of_fame': 'Ruhmeshalle',
+  'footer.characters.thing': 'Das Thing',
+  'footer.language.heading': 'Sprache',
+  'footer.closing':
     '© 865–2026 World of Vikings. Gefertigt in den Hallen von Midgard. Keine Installation erforderlich.',
 
-  /* --------------------------------------------------------- Kopfdaten */
-  /* Der Zusatz hinter jedem Seitentitel und der og:site_name. */
-  'kopfdaten.marke': 'World of Vikings',
+  /* ------------------------------------------------------------- meta */
+  /* The suffix after every page title, and the og:site_name. */
+  'meta.brand': 'World of Vikings',
 
-  /* ----------------------------------------------------------- seiten */
-  /* Beschriftungen der Navigation. `titel` steht in der Kopfleiste,
-     `kurz` in der Mobilleiste, wo weniger Platz ist. */
-  'seiten.hauptnav.halle.titel': 'Halle',
-  'seiten.hauptnav.halle.kurz': 'Halle',
-  'seiten.hauptnav.saga.titel': 'Die Saga',
-  'seiten.hauptnav.saga.kurz': 'Saga',
-  'seiten.hauptnav.karte.titel': 'Die Karte',
-  'seiten.hauptnav.karte.kurz': 'Karte',
-  'seiten.hauptnav.ruestkammer.titel': 'Rüstkammer',
-  'seiten.hauptnav.ruhmeshalle.titel': 'Ruhmeshalle',
-  'seiten.hauptnav.ruhmeshalle.kurz': 'Ruhm',
-  'seiten.hauptnav.thing.titel': 'Das Thing',
-  'seiten.hauptnav.thing.kurz': 'Thing',
+  /* --------------------------------------------- pages (seiten.ts) */
+  /* Labels of the navigation. `title` goes into the header bar,
+     `short` into the mobile bar, where there is less room. */
+  'pages.main_nav.hall.title': 'Halle',
+  'pages.main_nav.hall.short': 'Halle',
+  'pages.main_nav.saga.title': 'Die Saga',
+  'pages.main_nav.saga.short': 'Saga',
+  'pages.main_nav.map.title': 'Die Karte',
+  'pages.main_nav.map.short': 'Karte',
+  'pages.main_nav.armory.title': 'Rüstkammer',
+  'pages.main_nav.hall_of_fame.title': 'Ruhmeshalle',
+  'pages.main_nav.hall_of_fame.short': 'Ruhm',
+  'pages.main_nav.thing.title': 'Das Thing',
+  'pages.main_nav.thing.short': 'Thing',
 
-  /* ------------------------------------------------------------ Halle */
-  'halle.kopf.titel': 'World of Vikings — Ein Wikinger-Browserspiel',
-  'halle.kopf.beschreibung':
+  /* ------------------------------------------------------------- hall */
+  'hall.meta.title': 'World of Vikings — Ein Wikinger-Browserspiel',
+  'hall.meta.description':
     'Angelsachsen gegen Wikinger. Ein Browserspiel ohne Download: Welt erkunden, bauen, die Wächter Midgards bezwingen.',
-  'halle.held.wappen_alt':
-    'Wappen von World of Vikings: ein Langschiff in einem Steinring aus Runen',
-  'halle.held.h1': 'World of Vikings',
-  'halle.held.unter':
+  'hall.hero.crest_alt': 'Wappen von World of Vikings: ein Langschiff in einem Steinring aus Runen',
+  'hall.hero.heading': 'World of Vikings',
+  'hall.hero.subtitle':
     'Angelsachsen gegen Wikinger. Eine Welt aus Wiesen, Schwarzwald und Sumpf, die im Browser läuft — kein Download, keine Anmeldung. Öffnen und loslaufen.',
-  'halle.held.knopf.fahrt': 'Auf Fahrt gehen',
-  'halle.held.knopf.welten': 'Die Welten sehen',
-  /* Das Bifröst-Band setzt sich im Markup aus Weltname, Zahlen und diesen
-     vier Bausteinen zusammen: „Midgard offen — 3 von 20 auf Fahrt“. */
-  'halle.held.band.offen': 'offen',
-  'halle.held.band.von': 'von',
-  'halle.held.band.auf_fahrt': 'auf Fahrt',
-  'halle.held.band.geschlossen': 'geschlossen',
-  'halle.held.band.wird_geprueft': 'Bifröst — Zustand wird geprüft …',
-  'halle.held.band.frueher_stand': 'Früher Stand.',
-  'halle.held.band.aufbau': 'Die Welt ist im Aufbau.',
-  'halle.erwartet.kopf': 'Was dich erwartet',
-  'halle.erwartet.neun_lande.bild_alt': 'Bemalter Rundschild mit Rabenzeichen',
-  'halle.erwartet.neun_lande.titel': 'Neun Lande',
-  'halle.erwartet.neun_lande.text':
+  'hall.hero.button.voyage': 'Auf Fahrt gehen',
+  'hall.hero.button.worlds': 'Die Welten sehen',
+  /* The Bifröst ribbon is assembled in the markup from the world name,
+     numbers and these four blocks: "Midgard open — 3 of 20 underway". */
+  'hall.hero.ribbon.open': 'offen',
+  'hall.hero.ribbon.of': 'von',
+  'hall.hero.ribbon.underway': 'auf Fahrt',
+  'hall.hero.ribbon.closed': 'geschlossen',
+  'hall.hero.ribbon.checking': 'Bifröst — Zustand wird geprüft …',
+  'hall.hero.ribbon.early_days': 'Früher Stand.',
+  'hall.hero.ribbon.under_construction': 'Die Welt ist im Aufbau.',
+  'hall.awaits.heading': 'Was dich erwartet',
+  'hall.awaits.nine_lands.image_alt': 'Bemalter Rundschild mit Rabenzeichen',
+  'hall.awaits.nine_lands.title': 'Neun Lande',
+  'hall.awaits.nine_lands.text':
     'Von den Wiesen über den Schwarzwald und den Sumpf bis in die Berge, die Ebenen und das Nebelland. Jedes Land hat eigenes Wetter, eigene Bewohner und eigene Wege, dich umzubringen.',
-  'halle.erwartet.fuenf_waechter.bild_alt': 'Steinerner Schädel mit leuchtender Rune',
-  'halle.erwartet.fuenf_waechter.titel': 'Fünf Wächter',
-  'halle.erwartet.fuenf_waechter.text':
+  'hall.awaits.five_guardians.image_alt': 'Steinerner Schädel mit leuchtender Rune',
+  'hall.awaits.five_guardians.title': 'Fünf Wächter',
+  'hall.awaits.five_guardians.text':
     'Eikthyr, der Älteste, die Knochenmasse, Moder und Yagluth. Jeder gefallene Wächter öffnet das nächste Land — und trägt sich in deine Rüstkammer ein.',
-  'halle.erwartet.bauen.bild_alt': 'Schmiedehammer über gekreuzten Balken',
-  'halle.erwartet.bauen.titel': 'Bauen, was bleibt',
-  'halle.erwartet.bauen.text':
+  'hall.awaits.building.image_alt': 'Schmiedehammer über gekreuzten Balken',
+  'hall.awaits.building.title': 'Bauen, was bleibt',
+  'hall.awaits.building.text':
     'Langhaus, Werkbank, Hafen. Der Bau folgt echter Statik: Was nicht getragen wird, fällt. Was du in Midgard errichtest, steht auch morgen noch.',
-  'halle.erwartet.verliese.bild_alt': 'Moosbewachsener Höhleneingang mit Fackeln',
-  'halle.erwartet.verliese.titel': 'Verliese mit Saat',
-  'halle.erwartet.verliese.text':
+  'hall.awaits.dungeons.image_alt': 'Moosbewachsener Höhleneingang mit Fackeln',
+  'hall.awaits.dungeons.title': 'Verliese mit Saat',
+  'hall.awaits.dungeons.text':
     'Gruften und Höhlen entstehen aus gesetzter Saat mit echten Türen und Raumketten — bei jedem neu, aber für alle gleich.',
-  'halle.technik.kein_konto.titel': 'Kein Konto, kein Client',
-  'halle.technik.kein_konto.text':
+  'hall.technology.no_account.title': 'Kein Konto, kein Client',
+  'hall.technology.no_account.text':
     'Der Browser ist der Client. Keine Installation, kein Ladebalken über Gigabyte — die Welt wird gestreamt, während du gehst.',
-  'halle.technik.ehrlicher_server.titel': 'Ein ehrlicher Server',
-  'halle.technik.ehrlicher_server.text':
+  'hall.technology.honest_server.title': 'Ein ehrlicher Server',
+  'hall.technology.honest_server.text':
     'Die Spielregeln liegen beim Server, nicht im Browser. Was dein Recke kann, entscheidet Midgard — nicht dein Rechner.',
-  'halle.welten.titel': 'Die Welten',
-  'halle.welten.text':
+  'hall.worlds.title': 'Die Welten',
+  'hall.worlds.text':
     'Midgard ist die bleibende Welt — was dort steht, bleibt stehen. Die Werkstatt ist zum Ausprobieren da und wird ohne Vorwarnung zurückgesetzt.',
-  'halle.welten.fehler': 'Die Weltliste ist gerade nicht erreichbar.',
-  'halle.welten.laedt': 'Die Weltliste wird geholt …',
-  'halle.welten.zustand_offen': 'offen',
-  'halle.welten.zustand_geschlossen': 'geschlossen',
-  'halle.welten.wert.auf_fahrt': 'auf Fahrt',
-  'halle.welten.wert.weltzeit': 'Weltzeit',
-  'halle.welten.wert.art': 'Art',
-  'halle.welten.wetter_label': 'Wetter:',
-  'halle.welten.saat_label': 'Saat:',
-  'halle.welten.karte_link': 'Beide Welten auf der Karte ansehen ›',
-  'halle.ruhmeshalle.titel': 'Aus der Ruhmeshalle',
-  'halle.ruhmeshalle.spalte.raute': '#',
-  'halle.ruhmeshalle.spalte.recke': 'Recke',
-  'halle.ruhmeshalle.spalte.sippe': 'Sippe',
-  'halle.ruhmeshalle.spalte.runenrang': 'Runenrang',
-  'halle.ruhmeshalle.fehler': 'Die Tafel ist gerade verhängt.',
-  'halle.ruhmeshalle.laedt': 'wird geholt …',
-  'halle.ruhmeshalle.link': 'Die ganze Tafel ansehen ›',
-  'halle.thing.titel': 'Das Thing wird einberufen',
-  'halle.thing.text':
+  'hall.worlds.error': 'Die Weltliste ist gerade nicht erreichbar.',
+  'hall.worlds.loading': 'Die Weltliste wird geholt …',
+  'hall.worlds.state_open': 'offen',
+  'hall.worlds.state_closed': 'geschlossen',
+  'hall.worlds.value.underway': 'auf Fahrt',
+  'hall.worlds.value.world_time': 'Weltzeit',
+  'hall.worlds.value.type': 'Art',
+  'hall.worlds.weather_label': 'Wetter:',
+  'hall.worlds.seed_label': 'Saat:',
+  'hall.worlds.map_link': 'Beide Welten auf der Karte ansehen ›',
+  'hall.hall_of_fame.title': 'Aus der Ruhmeshalle',
+  'hall.hall_of_fame.column.hash': '#',
+  'hall.hall_of_fame.column.character': 'Recke',
+  'hall.hall_of_fame.column.clan': 'Sippe',
+  'hall.hall_of_fame.column.rune_rank': 'Runenrang',
+  'hall.hall_of_fame.error': 'Die Tafel ist gerade verhängt.',
+  'hall.hall_of_fame.loading': 'wird geholt …',
+  'hall.hall_of_fame.link': 'Die ganze Tafel ansehen ›',
+  'hall.thing.title': 'Das Thing wird einberufen',
+  'hall.thing.text':
     'Beim Thing versammelten sich die Freien, um zu beraten und zu richten. Unseres wird das Forum: ein Ort für Bauwerke, Fundstücke, Streit über Ausrüstung und die Frage, wer als Nächstes gegen Moder zieht.',
-  'halle.thing.knopf': 'Was dort entstehen soll',
-  'halle.saga_anriss.titel': 'Neues aus Midgard',
-  'halle.saga_anriss.fehler': 'Die Saga schweigt gerade.',
-  'halle.saga_anriss.laedt': 'wird geholt …',
-  'halle.saga_anriss.link': 'Die ganze Saga lesen ›',
+  'hall.thing.button': 'Was dort entstehen soll',
+  'hall.saga_teaser.title': 'Neues aus Midgard',
+  'hall.saga_teaser.error': 'Die Saga schweigt gerade.',
+  'hall.saga_teaser.loading': 'wird geholt …',
+  'hall.saga_teaser.link': 'Die ganze Saga lesen ›',
 
-  /* ------------------------------------------------------------- Saga */
-  'saga.kopf.titel': 'Die Saga',
-  'saga.kopf.beschreibung': 'Was sich in Midgard tut: Neuigkeiten zu Welt, Spiel und Server.',
-  'saga.h1': 'Die Saga',
-  'saga.einleitung':
+  /* ------------------------------------------------------------- saga */
+  'saga.meta.title': 'Die Saga',
+  'saga.meta.description': 'Was sich in Midgard tut: Neuigkeiten zu Welt, Spiel und Server.',
+  'saga.heading': 'Die Saga',
+  'saga.intro':
     'Was in Midgard gebaut, geändert und repariert wurde — in der Reihenfolge, in der es geschah.',
-  'saga.fehler': 'Die Saga schweigt gerade.',
-  'saga.laedt': 'Die Saga wird aufgeschlagen …',
-  'saga.leer': 'Noch kein Eintrag.',
+  'saga.error': 'Die Saga schweigt gerade.',
+  'saga.loading': 'Die Saga wird aufgeschlagen …',
+  'saga.empty': 'Noch kein Eintrag.',
 
-  /* ------------------------------------------------------------ Karte */
-  'karte.titel': 'Die Karte',
-  'karte.beschreibung':
+  /* -------------------------------------------------------------- map */
+  'map.title': 'Die Karte',
+  'map.description':
     'Die Weltkarten von World of Vikings: Midgard und die Werkstatt, gerechnet aus der Welt, die der Server wirklich fährt.',
-  'karte.ueberschrift': 'Die Karte',
-  'karte.einleitung':
+  'map.heading': 'Die Karte',
+  'map.intro':
     'So sieht Midgard von oben aus. Das Bild ist keine Zeichnung, sondern die Welt selbst: dieselbe Geländeberechnung, die der Server fährt, wenn du an Land gehst. Ändert sich die Welt, ändert sich die Karte.',
-  'karte.hinweis.fett': 'Ohne JavaScript kein Betrachter.',
-  'karte.hinweis.text': 'Die Karten liegen aber als gewöhnliche Bilder bereit:',
-  'karte.hinweis.link_midgard': 'Midgard',
-  'karte.hinweis.verbindung': 'und',
-  'karte.hinweis.link_werkstatt': 'Werkstatt',
-  'karte.cta': 'Selbst hinfahren',
+  'map.hint.bold': 'Ohne JavaScript kein Betrachter.',
+  'map.hint.text': 'Die Karten liegen aber als gewöhnliche Bilder bereit:',
+  'map.hint.link_midgard': 'Midgard',
+  'map.hint.and': 'und',
+  'map.hint.link_workshop': 'Werkstatt',
+  'map.cta': 'Selbst hinfahren',
 
-  /* --------------------------------------------------- Kartenbetrachter */
-  'kartenbetrachter.laedt': 'Karten werden geholt …',
-  'kartenbetrachter.fehler.karten': 'Die Karten sind gerade nicht erreichbar.',
-  'kartenbetrachter.fehler.karte': 'Diese Karte ist gerade nicht erreichbar.',
-  'kartenbetrachter.flaeche.aria': 'Weltkarte — ziehen zum Schieben, Mausrad zum Zoomen',
-  /* Der Alt-Text lautet zusammengesetzt: „Weltkarte von Midgard — 10,2 Kilometer Kantenlänge“. */
-  'kartenbetrachter.bild.alt_vorn': 'Weltkarte von',
-  'kartenbetrachter.bild.alt_hinten': 'Kilometer Kantenlänge',
-  'kartenbetrachter.naeher': 'Näher heran',
-  'kartenbetrachter.weiter_weg': 'Weiter weg',
-  'kartenbetrachter.ganze_welt': 'Ganze Welt',
-  'kartenbetrachter.zeiger': 'Zeiger:',
-  'kartenbetrachter.stand.regionen': 'Regionen',
-  'kartenbetrachter.stand.km_kante': 'km Kante',
-  'kartenbetrachter.stand.stand': 'Stand',
-  'kartenbetrachter.stand.laedt': 'wird geholt …',
-  'kartenbetrachter.farben.titel': 'Was die Farben bedeuten',
-  'kartenbetrachter.farben.text':
+  /* ------------------------------ map_viewer (Kartenbetrachter.svelte) */
+  'map_viewer.loading': 'Karten werden geholt …',
+  'map_viewer.error.maps': 'Die Karten sind gerade nicht erreichbar.',
+  'map_viewer.error.map': 'Diese Karte ist gerade nicht erreichbar.',
+  'map_viewer.area.aria': 'Weltkarte — ziehen zum Schieben, Mausrad zum Zoomen',
+  /* Assembled, the alt text reads: "World map of Midgard — 10.2 kilometres to a side". */
+  'map_viewer.image.alt_prefix': 'Weltkarte von',
+  'map_viewer.image.alt_suffix': 'Kilometer Kantenlänge',
+  'map_viewer.zoom_in': 'Näher heran',
+  'map_viewer.zoom_out': 'Weiter weg',
+  'map_viewer.whole_world': 'Ganze Welt',
+  'map_viewer.pointer': 'Zeiger:',
+  'map_viewer.status.regions': 'Regionen',
+  'map_viewer.status.km_side': 'km Kante',
+  'map_viewer.status.as_of': 'Stand',
+  'map_viewer.status.loading': 'wird geholt …',
+  'map_viewer.colors.title': 'Was die Farben bedeuten',
+  'map_viewer.colors.text':
     'Dunklere Flächen innerhalb eines Landes sind Wald, hellere sind höheres Gelände. Die Schummerung zeigt Hänge — so liest man Täler und Grate, die in einer flachen Einfärbung untergingen.',
-  'kartenbetrachter.zwei.titel': 'Zwei Welten, zwei Karten',
-  'kartenbetrachter.zwei.midgard.name': 'Midgard',
-  'kartenbetrachter.zwei.midgard.text':
+  'map_viewer.two.title': 'Zwei Welten, zwei Karten',
+  'map_viewer.two.midgard.name': 'Midgard',
+  'map_viewer.two.midgard.text':
     'ist die bleibende Welt. Was dort steht, bleibt stehen — und die Karte ändert sich nur, wenn das Land selbst umgebaut wird.',
-  'kartenbetrachter.zwei.werkstatt.name': 'Die Werkstatt',
-  'kartenbetrachter.zwei.werkstatt.text':
+  'map_viewer.two.workshop.name': 'Die Werkstatt',
+  'map_viewer.two.workshop.text':
     'ist der Bauplatz. Dort entstehen neue Inseln und Landstriche, bevor sie nach Midgard wandern; sie wird ohne Vorwarnung zurückgesetzt.',
 
-  /* ------------------------------------------------------ Rüstkammer */
-  'ruestkammer.titel': 'Rüstkammer',
-  'ruestkammer.beschreibung':
+  /* ----------------------------------------------------------- armory */
+  'armory.title': 'Rüstkammer',
+  'armory.description':
     'Sieh dir Recken aus Midgard an: Ausrüstung, Fertigkeiten, bezwungene Wächter und Trophäen.',
-  'ruestkammer.ueberschrift': 'Rüstkammer',
-  'ruestkammer.einleitung':
+  'armory.heading': 'Rüstkammer',
+  'armory.intro':
     'Wer wie durch Midgard zieht: Ausrüstung, Fertigkeiten, bezwungene Wächter und Trophäen. Suche nach einem Recken, einer Sippe oder einem Beinamen.',
-  'ruestkammer.hinweis.fett': 'Noch Beispieldaten.',
-  'ruestkammer.hinweis.text':
+  'armory.hint.bold': 'Noch Beispieldaten.',
+  'armory.hint.text':
     'Das Spiel kennt bisher keine Konten — es gibt also noch keine echten Recken zu zeigen. Die Kammer steht aber fertig und füllt sich von selbst, sobald der Server Charaktere speichert.',
-  'ruestkammer.zurueck': '‹ Zurück zur Suche',
-  'ruestkammer.suche.label': 'Recke suchen',
-  'ruestkammer.suche.platzhalter': 'Name, Beiname oder Sippe …',
-  'ruestkammer.suche.knopf': 'Suchen',
-  'ruestkammer.zustand.fehler':
+  'armory.back': '‹ Zurück zur Suche',
+  'armory.search.label': 'Recke suchen',
+  'armory.search.placeholder': 'Name, Beiname oder Sippe …',
+  'armory.search.button': 'Suchen',
+  'armory.state.error':
     'Die Kammer ist gerade verschlossen — die Reckenliste liess sich nicht laden.',
-  'ruestkammer.zustand.laedt': 'Die Kammer wird aufgeschlossen …',
-  'ruestkammer.zustand.leer': 'Kein Recke dieses Namens in der Kammer.',
-  'ruestkammer.karte.runenrang': 'Runenrang',
-  'ruestkammer.karte.zuletzt': 'zuletzt',
+  'armory.state.loading': 'Die Kammer wird aufgeschlossen …',
+  'armory.state.empty': 'Kein Recke dieses Namens in der Kammer.',
+  'armory.card.rune_rank': 'Runenrang',
+  'armory.card.last_seen': 'zuletzt',
 
-  /* ----------------------------------------------------- Ruhmeshalle */
-  'ruhmeshalle.titel': 'Ruhmeshalle',
-  'ruhmeshalle.beschreibung':
+  /* ---------------------------------------------------- hall_of_fame */
+  'hall_of_fame.title': 'Ruhmeshalle',
+  'hall_of_fame.description':
     'Die Bestenlisten aus Midgard: Runenrang, bezwungene Wächter, Zeit auf Fahrt.',
-  'ruhmeshalle.ueberschrift': 'Ruhmeshalle',
-  'ruhmeshalle.einleitung':
+  'hall_of_fame.heading': 'Ruhmeshalle',
+  'hall_of_fame.intro':
     'Wer sich in Midgard einen Namen gemacht hat. Die Tafeln werden neu berechnet, sobald die Welt gespeichert wird.',
-  'ruhmeshalle.hinweis.fett': 'Noch Beispieldaten.',
-  'ruhmeshalle.hinweis.text':
+  'hall_of_fame.hint.bold': 'Noch Beispieldaten.',
+  'hall_of_fame.hint.text':
     'Solange es keine Konten gibt, stehen hier erfundene Recken — die Tafeln selbst sind fertig.',
-  'ruhmeshalle.tabelle.raute': '#',
-  'ruhmeshalle.tabelle.recke': 'Recke',
-  'ruhmeshalle.tabelle.sippe': 'Sippe',
-  'ruhmeshalle.zustand.fehler': 'Die Tafeln sind gerade verhängt.',
-  'ruhmeshalle.zustand.laedt': 'wird geholt …',
+  'hall_of_fame.table.hash': '#',
+  'hall_of_fame.table.character': 'Recke',
+  'hall_of_fame.table.clan': 'Sippe',
+  'hall_of_fame.state.error': 'Die Tafeln sind gerade verhängt.',
+  'hall_of_fame.state.loading': 'wird geholt …',
 
-  /* ----------------------------------------------- Tafeln (recken.ts) */
-  'recken.tafel.rang.titel': 'Runenrang',
-  'recken.tafel.rang.spalte': 'Rang',
-  'recken.tafel.waechter.titel': 'Bezwungene Wächter',
-  'recken.tafel.waechter.spalte': 'Wächter',
-  'recken.tafel.fahrt.titel': 'Zeit auf Fahrt',
-  'recken.tafel.fahrt.spalte': 'Stunden',
-  'recken.tafel.hel.titel': 'Selten gefallen',
-  'recken.tafel.hel.spalte': 'Fahrten nach Hel',
+  /* ------------------------------------------ characters (recken.ts) */
+  'characters.board.rank.title': 'Runenrang',
+  'characters.board.rank.column': 'Rang',
+  'characters.board.guardian.title': 'Bezwungene Wächter',
+  'characters.board.guardian.column': 'Wächter',
+  'characters.board.voyage.title': 'Zeit auf Fahrt',
+  'characters.board.voyage.column': 'Stunden',
+  'characters.board.hel.title': 'Selten gefallen',
+  'characters.board.hel.column': 'Fahrten nach Hel',
 
-  /* ----------------------------------------------------- Reckenprofil */
-  'reckenprofil.slot.kopf': 'Kopf',
-  'reckenprofil.slot.brust': 'Brust',
-  'reckenprofil.slot.beine': 'Beine',
-  'reckenprofil.slot.umhang': 'Umhang',
-  'reckenprofil.slot.waffe': 'Waffe',
-  'reckenprofil.slot.nebenhand': 'Nebenhand',
-  'reckenprofil.slot.werkzeug': 'Werkzeug',
-  'reckenprofil.slot.guertel': 'Gürtel',
-  'reckenprofil.slot.guete': 'Güte',
-  'reckenprofil.slot.leer': '— leer —',
-  'reckenprofil.runenrang': 'Runenrang',
-  'reckenprofil.zuletzt_gesehen': 'zuletzt gesehen',
-  'reckenprofil.wert.leben': 'Leben',
-  'reckenprofil.wert.ausdauer': 'Ausdauer',
-  'reckenprofil.wert.eitr': 'Eitr',
-  'reckenprofil.wert.traglast': 'Traglast',
-  'reckenprofil.wert.auf_fahrt': 'auf Fahrt',
-  'reckenprofil.wert.hel': 'Fahrten nach Hel',
-  'reckenprofil.ausruestung.titel': 'Ausrüstung',
-  'reckenprofil.figur.aria': 'Umriss eines Recken',
-  'reckenprofil.fertigkeiten.titel': 'Fertigkeiten',
-  'reckenprofil.waechter.titel': 'Bezwungene Wächter',
-  'reckenprofil.waechter.von': 'von',
-  'reckenprofil.lande.titel': 'Bereiste Lande',
-  'reckenprofil.trophaeen.titel': 'Trophäen',
-  'reckenprofil.erschaffen': 'Erschaffen am',
+  /* ------------------------ character_profile (Reckenprofil.svelte) */
+  'character_profile.slot.head': 'Kopf',
+  'character_profile.slot.chest': 'Brust',
+  'character_profile.slot.legs': 'Beine',
+  'character_profile.slot.cape': 'Umhang',
+  'character_profile.slot.weapon': 'Waffe',
+  'character_profile.slot.off_hand': 'Nebenhand',
+  'character_profile.slot.tool': 'Werkzeug',
+  'character_profile.slot.belt': 'Gürtel',
+  'character_profile.slot.quality': 'Güte',
+  'character_profile.slot.empty': '— leer —',
+  'character_profile.rune_rank': 'Runenrang',
+  'character_profile.last_seen': 'zuletzt gesehen',
+  'character_profile.value.health': 'Leben',
+  'character_profile.value.stamina': 'Ausdauer',
+  'character_profile.value.eitr': 'Eitr',
+  'character_profile.value.carry_weight': 'Traglast',
+  'character_profile.value.underway': 'auf Fahrt',
+  'character_profile.value.hel': 'Fahrten nach Hel',
+  'character_profile.gear.title': 'Ausrüstung',
+  'character_profile.figure.aria': 'Umriss eines Recken',
+  'character_profile.skills.title': 'Fertigkeiten',
+  'character_profile.guardian.title': 'Bezwungene Wächter',
+  'character_profile.guardian.of': 'von',
+  'character_profile.lands.title': 'Bereiste Lande',
+  'character_profile.trophies.title': 'Trophäen',
+  'character_profile.created': 'Erschaffen am',
 
-  /* ------------------------------------------------------------ Thing */
-  'thing.titel': 'Das Thing',
-  'thing.beschreibung':
+  /* ------------------------------------------------------------ thing */
+  'thing.title': 'Das Thing',
+  'thing.description':
     'Das Thing wird das Forum von World of Vikings: Bretter für Bauwerke, Fahrten, Ausrüstung und Sippen.',
-  'thing.ueberschrift': 'Das Thing',
-  /* Der Name steht im Satz kursiv; darum zwei Bausteine und ein <i> im Markup. */
-  'thing.einleitung.name': 'Thing',
-  'thing.einleitung.vorn': 'Das',
-  'thing.einleitung.hinten':
+  'thing.heading': 'Das Thing',
+  /* The name is italic inside the sentence; hence two blocks and an <i> in the markup. */
+  'thing.intro.name': 'Thing',
+  'thing.intro.prefix': 'Das',
+  'thing.intro.suffix':
     'war bei den Nordleuten die Versammlung der Freien: Dort wurde beraten, gestritten und Recht gesprochen — jeder mit Stimme, keiner mit letztem Wort. Genau das soll das Forum von World of Vikings werden.',
-  'thing.hinweis.fett': 'Noch nicht einberufen.',
-  'thing.hinweis.text':
+  'thing.hint.bold': 'Noch nicht einberufen.',
+  'thing.hint.text':
     'Unten steht, welche Bretter geplant sind. Schreiben kann hier noch niemand — die Seite hält den Platz und das Aussehen bereit.',
-  'thing.bretter.ueberschrift': 'Die geplanten Bretter',
-  'thing.bretter.tabelle.brett': 'Brett',
-  'thing.bretter.tabelle.wofuer': 'Wofür',
-  'thing.bretter.tabelle.beitraege': 'Beiträge',
-  'thing.bretter.methalle.name': 'Die Met-Halle',
-  'thing.bretter.methalle.beschreibung':
+  'thing.boards.heading': 'Die geplanten Bretter',
+  'thing.boards.table.board': 'Brett',
+  'thing.boards.table.purpose': 'Wofür',
+  'thing.boards.table.posts': 'Beiträge',
+  'thing.boards.mead_hall.name': 'Die Met-Halle',
+  'thing.boards.mead_hall.description':
     'Alles, was keinen eigenen Platz hat. Vorstellen, plaudern, streiten.',
-  'thing.bretter.hoefe.name': 'Höfe & Langhäuser',
-  'thing.bretter.hoefe.beschreibung': 'Bauwerke zeigen, Statik-Kniffe teilen, Grundrisse tauschen.',
-  'thing.bretter.fahrten.name': 'Fahrten & Fundstücke',
-  'thing.bretter.fahrten.beschreibung':
+  'thing.boards.steadings.name': 'Höfe & Langhäuser',
+  'thing.boards.steadings.description':
+    'Bauwerke zeigen, Statik-Kniffe teilen, Grundrisse tauschen.',
+  'thing.boards.voyages.name': 'Fahrten & Fundstücke',
+  'thing.boards.voyages.description':
     'Wo liegt was. Karten, Verliese, gute Plätze für den nächsten Hafen.',
-  'thing.bretter.waffen.name': 'Waffen & Rüstung',
-  'thing.bretter.waffen.beschreibung': 'Was trägt man gegen wen. Direkter Draht zur Rüstkammer.',
-  'thing.bretter.sippen.name': 'Sippen & Verabredungen',
-  'thing.bretter.sippen.beschreibung':
+  'thing.boards.weapons.name': 'Waffen & Rüstung',
+  'thing.boards.weapons.description': 'Was trägt man gegen wen. Direkter Draht zur Rüstkammer.',
+  'thing.boards.clans.name': 'Sippen & Verabredungen',
+  'thing.boards.clans.description':
     'Mitstreiter suchen, Sippen gründen, den Zug gegen Moder planen.',
-  'thing.bretter.schmiede.name': 'Die Schmiede',
-  'thing.bretter.schmiede.beschreibung':
-    'Fehler melden, Vorschläge machen, über die Technik reden.',
-  'thing.anschluss.ueberschrift': 'Wie es angeschlossen wird',
-  'thing.anschluss.ort.titel': 'Eigener Ort, gleiche Hülle',
-  /* Drei Bausteine, weil zwei <code>-Schnipsel mitten im Satz stehen. */
-  'thing.anschluss.ort.text_1': 'Das Forum bekommt einen eigenen Dienst unter',
-  'thing.anschluss.ort.text_2':
+  'thing.boards.forge.name': 'Die Schmiede',
+  'thing.boards.forge.description': 'Fehler melden, Vorschläge machen, über die Technik reden.',
+  'thing.connection.heading': 'Wie es angeschlossen wird',
+  'thing.connection.location.title': 'Eigener Ort, gleiche Hülle',
+  /* Three blocks, because two <code> snippets sit inside the sentence. */
+  'thing.connection.location.text_1': 'Das Forum bekommt einen eigenen Dienst unter',
+  'thing.connection.location.text_2':
     '. Der Nginx im Container hat den Ort bereits vorgesehen — es fehlt nur das',
-  'thing.anschluss.ort.text_3': 'auf die Software. Kopf, Fuß und Palette kommen aus',
-  'thing.anschluss.ort.text_4': ', damit das Forum nicht wie ein Fremdkörper aussieht.',
-  'thing.anschluss.konto.titel': 'Ein Konto für alles',
-  'thing.anschluss.konto.text':
+  'thing.connection.location.text_3': 'auf die Software. Kopf, Fuß und Palette kommen aus',
+  'thing.connection.location.text_4': ', damit das Forum nicht wie ein Fremdkörper aussieht.',
+  'thing.connection.account.title': 'Ein Konto für alles',
+  'thing.connection.account.text':
     'Sobald das Spiel Konten kennt, meldet man sich einmal an — für Spiel, Rüstkammer und Thing. Bis dahin gibt es bewusst keine Anmeldung, denn ein Forumskonto, das später nicht zum Spielkonto passt, macht mehr Ärger als es wert ist.',
-  'thing.anschluss.recke.titel': 'Recke am Beitrag',
-  'thing.anschluss.recke.text_1':
+  'thing.connection.character.title': 'Recke am Beitrag',
+  'thing.connection.character.text_1':
     'Jeder Beitrag soll den Recken des Schreibers zeigen — Name, Sippe, Runenrang — verlinkt in die Rüstkammer. Die Daten dafür liegen schon im richtigen Format unter',
-  'thing.anschluss.recke.text_2': '.',
-  'thing.anschluss.lesen.titel': 'Erst lesen, dann schreiben',
-  'thing.anschluss.lesen.text':
+  'thing.connection.character.text_2': '.',
+  'thing.connection.reading.title': 'Erst lesen, dann schreiben',
+  'thing.connection.reading.text':
     'Das Thing wird ohne Anmeldung lesbar sein. Wer schreiben will, braucht ein Konto — das hält Suchmaschinen drin und Werbemüll draußen.',
   'thing.cta': 'Solange lieber auf Fahrt gehen',
 
-  /* -------------------------------------------------------- erstellen */
-  /* `{…}` sind Platzhalter, die die Seite selbst füllt (`fuelle()` in
-     `erstellen/+page.svelte`) — sie sind kein Format, das eine Bibliothek
-     auswertet. Sie stehen nur in Fehlertexten der Bühne, wo eine Zahl oder
-     eine Systemmeldung mitten im Satz landet. */
-  'erstellen.kopf.titel': 'Charakter erstellen',
-  'erstellen.kopf.beschreibung':
-    'Wähle Aussehen und Ausrüstung deiner Wikingerin und geh auf Fahrt.',
-  'erstellen.titel': 'Charakter erstellen',
-  'erstellen.einleitung':
+  /* --------------------------------------------- create (/erstellen) */
+  /* `{…}` are placeholders the page fills in itself (`fuelle()` in
+     `erstellen/+page.svelte`) — they are not a format any library reads.
+     They occur only in error texts of the stage, where a status code or a
+     system message lands in the middle of a sentence. */
+  'create.meta.title': 'Charakter erstellen',
+  'create.meta.description': 'Wähle Aussehen und Ausrüstung deiner Wikingerin und geh auf Fahrt.',
+  'create.title': 'Charakter erstellen',
+  'create.intro':
     'Wähle Aussehen und Ausrüstung — die Vorschau zeigt dich, wie du in Midgard stehst.',
-  'erstellen.aussehen.titel': 'Aussehen',
-  'erstellen.aussehen.figur.label': 'Figur',
-  'erstellen.aussehen.frisur.label': 'Frisur',
-  'erstellen.aussehen.frisur.vorige': 'Vorige Frisur',
-  'erstellen.aussehen.frisur.naechste': 'Nächste Frisur',
-  'erstellen.aussehen.oberkoerper.label': 'Oberkörper',
-  'erstellen.aussehen.oberkoerper.voriges': 'Voriges Teil',
-  'erstellen.aussehen.oberkoerper.nichts': '— nichts —',
-  'erstellen.aussehen.oberkoerper.naechstes': 'Nächstes Teil',
-  'erstellen.aussehen.beine.label': 'Beine',
-  'erstellen.aussehen.beine.voriges': 'Voriges Teil',
-  'erstellen.aussehen.beine.nichts': '— nichts —',
-  'erstellen.aussehen.beine.naechstes': 'Nächstes Teil',
-  'erstellen.buehne.hinweis.laedt': 'Figur wird geladen …',
-  'erstellen.buehne.hinweis.datei_erreichbar':
+  'create.appearance.title': 'Aussehen',
+  'create.appearance.figure.label': 'Figur',
+  'create.appearance.hair.label': 'Frisur',
+  'create.appearance.hair.previous': 'Vorige Frisur',
+  'create.appearance.hair.next': 'Nächste Frisur',
+  'create.appearance.chest.label': 'Oberkörper',
+  'create.appearance.chest.previous': 'Voriges Teil',
+  'create.appearance.chest.none': '— nichts —',
+  'create.appearance.chest.next': 'Nächstes Teil',
+  'create.appearance.legs.label': 'Beine',
+  'create.appearance.legs.previous': 'Voriges Teil',
+  'create.appearance.legs.none': '— nichts —',
+  'create.appearance.legs.next': 'Nächstes Teil',
+  'create.stage.hint.loading': 'Figur wird geladen …',
+  'create.stage.hint.file_reachable':
     'Datei erreichbar ({status}), aber der Lader kam nicht damit zurecht.',
-  'erstellen.buehne.hinweis.server_status': 'Server antwortet mit {status}.',
-  'erstellen.buehne.hinweis.kein_zugriff': 'Kein Zugriff über die Domaingrenze ({fehler}).',
-  'erstellen.buehne.hinweis.nicht_geladen': 'Figur nicht geladen — {grund}',
-  'erstellen.buehne.hinweis.listen_fehlen':
+  'create.stage.hint.server_status': 'Server antwortet mit {status}.',
+  'create.stage.hint.no_access': 'Kein Zugriff über die Domaingrenze ({fehler}).',
+  'create.stage.hint.not_loaded': 'Figur nicht geladen — {grund}',
+  'create.stage.hint.lists_missing':
     'Die Auswahllisten fehlen — assets/aussehen.json nicht erreichbar.',
-  'erstellen.buehne.hinweis.modul_fehlt': 'Vorschau-Modul nicht ladbar — {fehler}',
-  'erstellen.buehne.dreh_links': 'Drehen',
-  'erstellen.buehne.dreh_rechts': 'Drehen',
-  'erstellen.buehne.blick_zurueck': 'Blick zurücksetzen',
-  'erstellen.fahrt.titel': 'Fahrt',
-  'erstellen.fahrt.name.label': 'Name',
-  'erstellen.fahrt.name.platzhalter': 'Wie man dich ruft',
-  'erstellen.fahrt.name.hilfe':
-    '2 bis 24 Zeichen. Jeden Namen gibt es auf einem Gestade nur einmal.',
-  'erstellen.fahrt.gestade.label': 'Gestade',
-  'erstellen.fahrt.gestade.dev': 'Testgestade — hier wird gebaut',
-  'erstellen.fahrt.gestade.live': 'Midgard — das offene Land',
-  'erstellen.fahrt.gestade.hinweis.dev':
+  'create.stage.hint.module_missing': 'Vorschau-Modul nicht ladbar — {fehler}',
+  'create.stage.rotate_left': 'Drehen',
+  'create.stage.rotate_right': 'Drehen',
+  'create.stage.reset_view': 'Blick zurücksetzen',
+  'create.voyage.title': 'Fahrt',
+  'create.voyage.name.label': 'Name',
+  'create.voyage.name.placeholder': 'Wie man dich ruft',
+  'create.voyage.name.hint': '2 bis 24 Zeichen. Jeden Namen gibt es auf einem Gestade nur einmal.',
+  'create.voyage.shore.label': 'Gestade',
+  'create.voyage.shore.dev': 'Testgestade — hier wird gebaut',
+  'create.voyage.shore.live': 'Midgard — das offene Land',
+  'create.voyage.shore.hint.dev':
     'Hier wird gebaut — Welt und Fortschritt können jederzeit zurückgesetzt werden.',
-  'erstellen.fahrt.gestade.hinweis.live': 'Das offene Land. Hier bleibt, was du baust.',
-  'erstellen.fahrt.zeit.label': 'Uhrzeit',
-  'erstellen.fahrt.zeit.serverzeit': 'Serverzeit übernehmen',
-  'erstellen.fahrt.zeit.hinweis':
+  'create.voyage.shore.hint.live': 'Das offene Land. Hier bleibt, was du baust.',
+  'create.voyage.time.label': 'Uhrzeit',
+  'create.voyage.time.server_time': 'Serverzeit übernehmen',
+  'create.voyage.time.hint':
     'Setzt die Weltzeit für alle auf dem Testgestade — dort ist jeder Admin.',
-  'erstellen.fuss.hinweis': 'Ziehen dreht die Figur, Rad zoomt.',
-  'erstellen.fuss.zurueck': 'Zurück',
-  'erstellen.knopf.losfahren': 'Auf Fahrt gehen',
-  'erstellen.knopf.laeuft': 'Recke wird angelegt …',
-  /* Die Anmeldesperre. Das ist der Zustand, den auch ein Browser ohne
-     JavaScript zu sehen bekommt — deshalb erklärt er sich vollständig. */
-  'erstellen.sperre.titel': 'Erst anmelden',
-  'erstellen.sperre.text':
+  'create.footer.hint': 'Ziehen dreht die Figur, Rad zoomt.',
+  'create.footer.back': 'Zurück',
+  'create.button.set_sail': 'Auf Fahrt gehen',
+  'create.button.loading': 'Recke wird angelegt …',
+  /* The sign-in gate. This is the state a browser without JavaScript gets
+     to see as well — which is why it explains itself in full. */
+  'create.gate.title': 'Erst anmelden',
+  'create.gate.text':
     'Ein Recke gehört zu einem Konto, darum steht die Bühne erst offen, wenn du angemeldet bist. Ein Konto ist in einer Minute angelegt: Benutzername, E-Mail, Passwort — die Adresse wird nicht geprüft, das Konto steht sofort.',
-  'erstellen.sperre.anmelden': 'Anmelden',
-  'erstellen.sperre.registrieren': 'Konto anlegen',
-  'erstellen.zu_konto': 'Deine Recken',
+  'create.gate.login': 'Anmelden',
+  'create.gate.register': 'Konto anlegen',
+  'create.to_account': 'Deine Recken',
 
-  /* ------------------------------------------------------------ Konto */
-  /* Gemeinsame Texte der Kontoseiten (/registrieren, /anmelden, /konto)
-     und der Anmeldesperre auf /erstellen. */
-  'konto.gestade.hilfe':
+  /* ---------------------------------------------------------- account */
+  /* Texts shared by the account pages (/registrieren, /anmelden, /konto)
+     and the sign-in gate on /erstellen. */
+  'account.shore.hint':
     'Jedes Gestade führt seine eigenen Konten — ein Konto vom Testgestade gibt es auf Midgard nicht.',
-  /* Steht dort, wo mit JavaScript der Absendeknopf sitzt. Ein Knopf, der
-     ohne Skript nichts tut, wäre schlimmer als ein Satz, der es erklärt. */
-  'konto.ohne_js':
+  /* Stands where the submit button sits when JavaScript is running. A
+     button that does nothing without scripting would be worse than a
+     sentence that explains why there is none. */
+  'account.without_js':
     'Zum Absenden dieses Formulars wird JavaScript gebraucht. Ohne Skript bleibt die Seite lesbar — sie zeigt dann aber keinen Knopf, der ohnehin nichts täte.',
-  'konto.abmelden': 'Abmelden',
+  'account.logout': 'Abmelden',
 
-  /* Die API antwortet mit Schlüsseln, nicht mit Sätzen. Genau deshalb
-     stehen die Sätze hier und gibt es sie in beiden Sprachen. */
-  'konto.fehler.benutzername_ungueltig':
+  /* The API answers with keys, not with sentences. That is precisely why
+     the sentences live here and exist in both languages. */
+  'account.error.username_invalid':
     'Benutzername: 3 bis 24 Zeichen, nur Buchstaben, Ziffern, _ oder -.',
-  'konto.fehler.email_ungueltig': 'Das sieht nicht nach einer gültigen E-Mail-Adresse aus.',
-  'konto.fehler.passwort_zu_kurz': 'Das Passwort muss mindestens 8 Zeichen lang sein.',
-  'konto.fehler.benutzername_vergeben': 'Diesen Benutzernamen trägt schon jemand.',
-  'konto.fehler.anmeldung_fehlgeschlagen': 'Benutzername oder Passwort stimmt nicht.',
-  'konto.fehler.zu_viele_versuche':
+  'account.error.email_invalid': 'Das sieht nicht nach einer gültigen E-Mail-Adresse aus.',
+  'account.error.password_too_short': 'Das Passwort muss mindestens 8 Zeichen lang sein.',
+  'account.error.username_taken': 'Diesen Benutzernamen trägt schon jemand.',
+  'account.error.login_failed': 'Benutzername oder Passwort stimmt nicht.',
+  'account.error.too_many_attempts':
     'Zu viele Fehlversuche — bitte in einigen Minuten noch einmal versuchen.',
-  'konto.fehler.nicht_angemeldet': 'Deine Sitzung ist abgelaufen — bitte melde dich erneut an.',
-  'konto.fehler.name_ungueltig':
+  'account.error.not_logged_in': 'Deine Sitzung ist abgelaufen — bitte melde dich erneut an.',
+  'account.error.name_invalid':
     'Name des Recken: 2 bis 24 Zeichen, Buchstaben, Ziffern, Leerzeichen, _ oder -.',
-  'konto.fehler.name_vergeben': 'Diesen Namen trägt schon ein anderer Recke.',
-  'konto.fehler.unbekannt':
+  'account.error.name_taken': 'Diesen Namen trägt schon ein anderer Recke.',
+  'account.error.unknown':
     'Diesen Recken gibt es nicht mehr — schon gelöscht, oder er gehört zu einem anderen Konto.',
-  'konto.fehler.kaputter_koerper': 'Die Anfrage kam beschädigt an — bitte noch einmal versuchen.',
-  'konto.fehler.serverfehler':
+  'account.error.broken_body': 'Die Anfrage kam beschädigt an — bitte noch einmal versuchen.',
+  'account.error.server_error':
     'Das Gestade antwortet mit einem Fehler — bitte später noch einmal versuchen.',
-  'konto.fehler.netzwerk': 'Das Gestade ist nicht erreichbar — bitte die Verbindung prüfen.',
-  'konto.fehler.unerwartet': 'Unerwartete Antwort vom Gestade — bitte die Seite neu laden.',
+  'account.error.network': 'Das Gestade ist nicht erreichbar — bitte die Verbindung prüfen.',
+  'account.error.unexpected': 'Unerwartete Antwort vom Gestade — bitte die Seite neu laden.',
 
-  /* ------------------------------------------------------ registrieren */
-  'registrieren.kopf.titel': 'Konto anlegen',
-  'registrieren.kopf.beschreibung':
+  /* ------------------------------------------ register (/registrieren) */
+  'register.meta.title': 'Konto anlegen',
+  'register.meta.description':
     'Leg ein Konto auf einem Gestade von World of Vikings an — Benutzername, E-Mail, Passwort, fertig.',
-  'registrieren.ueberschrift': 'Konto anlegen',
-  'registrieren.einleitung':
+  'register.heading': 'Konto anlegen',
+  'register.intro':
     'Ein Konto hält deine Recken fest. Es entsteht sofort: Die E-Mail-Adresse wird gespeichert, aber nicht geprüft.',
-  'registrieren.benutzername.label': 'Benutzername',
-  'registrieren.benutzername.platzhalter': 'Wie du dich anmeldest',
-  'registrieren.benutzername.hilfe': '3 bis 24 Zeichen: Buchstaben, Ziffern, _ oder -.',
-  'registrieren.email.label': 'E-Mail',
-  'registrieren.email.platzhalter': 'du@beispiel.de',
-  'registrieren.email.hilfe':
+  'register.username.label': 'Benutzername',
+  'register.username.placeholder': 'Wie du dich anmeldest',
+  'register.username.hint': '3 bis 24 Zeichen: Buchstaben, Ziffern, _ oder -.',
+  'register.email.label': 'E-Mail',
+  'register.email.placeholder': 'du@beispiel.de',
+  'register.email.hint':
     'Wird gespeichert, aber weder geprüft noch bestätigt. Sie ist deshalb kein Nachweis und taugt für sich allein nicht dazu, ein Passwort zurückzusetzen.',
-  'registrieren.passwort.label': 'Passwort',
-  'registrieren.passwort.hilfe': 'Mindestens 8 Zeichen.',
-  'registrieren.passwort2.label': 'Passwort wiederholen',
-  'registrieren.passwort2.hilfe': 'Wird nur hier im Browser verglichen und niemals mitgeschickt.',
-  'registrieren.fehler.ungleich': 'Die beiden Passwörter stimmen nicht überein.',
-  'registrieren.knopf': 'Konto erstellen',
-  'registrieren.knopf.laeuft': 'Konto wird angelegt …',
-  'registrieren.wechsel.text': 'Schon ein Konto?',
-  'registrieren.wechsel.link': 'Hier anmelden',
+  'register.password.label': 'Passwort',
+  'register.password.hint': 'Mindestens 8 Zeichen.',
+  'register.password_repeat.label': 'Passwort wiederholen',
+  'register.password_repeat.hint': 'Wird nur hier im Browser verglichen und niemals mitgeschickt.',
+  'register.error.mismatch': 'Die beiden Passwörter stimmen nicht überein.',
+  'register.button': 'Konto erstellen',
+  'register.button.loading': 'Konto wird angelegt …',
+  'register.switch.text': 'Schon ein Konto?',
+  'register.switch.link': 'Hier anmelden',
 
-  /* ---------------------------------------------------------- anmelden */
-  'anmelden.kopf.titel': 'Anmelden',
-  'anmelden.kopf.beschreibung':
-    'Melde dich an deinem Gestade an und geh mit deinen Recken auf Fahrt.',
-  'anmelden.ueberschrift': 'Anmelden',
-  'anmelden.einleitung': 'Melde dich an, um deine Recken zu sehen und auf Fahrt zu gehen.',
-  'anmelden.benutzername.label': 'Benutzername',
-  'anmelden.passwort.label': 'Passwort',
-  'anmelden.knopf': 'Anmelden',
-  'anmelden.knopf.laeuft': 'Wird angemeldet …',
-  'anmelden.wechsel.text': 'Noch kein Konto?',
-  'anmelden.wechsel.link': 'Eines anlegen',
-  'anmelden.abgelaufen': 'Deine Sitzung ist abgelaufen — bitte melde dich erneut an.',
+  /* ------------------------------------------------ login (/anmelden) */
+  'login.meta.title': 'Anmelden',
+  'login.meta.description': 'Melde dich an deinem Gestade an und geh mit deinen Recken auf Fahrt.',
+  'login.heading': 'Anmelden',
+  'login.intro': 'Melde dich an, um deine Recken zu sehen und auf Fahrt zu gehen.',
+  'login.username.label': 'Benutzername',
+  'login.password.label': 'Passwort',
+  'login.button': 'Anmelden',
+  'login.button.loading': 'Wird angemeldet …',
+  'login.switch.text': 'Noch kein Konto?',
+  'login.switch.link': 'Eines anlegen',
+  'login.session_expired': 'Deine Sitzung ist abgelaufen — bitte melde dich erneut an.',
 
-  /* ------------------------------------------------------- Kontoseite */
-  'konto.seite.kopf.titel': 'Deine Recken',
-  'konto.seite.kopf.beschreibung':
+  /* -------------------------------------------- account.page (/konto) */
+  'account.page.meta.title': 'Deine Recken',
+  'account.page.meta.description':
     'Deine Recken auf einen Blick: auf Fahrt gehen, neue erschaffen, alte ziehen lassen.',
-  'konto.seite.ueberschrift': 'Deine Recken',
-  'konto.seite.unerreichbar.titel': 'Das Gestade antwortet nicht',
-  'konto.seite.unerreichbar.nochmal': 'Noch einmal versuchen',
-  'konto.seite.gesperrt.titel': 'Nicht angemeldet',
-  'konto.seite.gesperrt.text':
+  'account.page.heading': 'Deine Recken',
+  'account.page.unreachable.title': 'Das Gestade antwortet nicht',
+  'account.page.unreachable.retry': 'Noch einmal versuchen',
+  'account.page.locked.title': 'Nicht angemeldet',
+  'account.page.locked.text':
     'Wer angemeldet ist, sieht hier seine Recken. Diese Seite wird einmal zur Bauzeit gebaut und weiss deshalb nichts über dich, bis dein Browser das Gestade danach fragt.',
-  'konto.seite.gesperrt.anmelden': 'Anmelden',
-  'konto.seite.gesperrt.registrieren': 'Konto anlegen',
-  'konto.seite.laedt': 'Deine Recken werden geholt …',
-  'konto.seite.angemeldet_als': 'Angemeldet als',
-  'konto.seite.email': 'E-Mail',
-  'konto.seite.leer': 'Auf diesem Gestade steht noch kein Recke. Erschaffe den ersten.',
-  'konto.seite.erschaffen': 'erschaffen am',
-  'konto.seite.zuletzt': 'zuletzt auf Fahrt',
-  'konto.seite.nie': 'noch nie auf Fahrt',
-  'konto.seite.knopf.neu': 'Neuen Recken erschaffen',
-  'konto.seite.knopf.loeschen': 'Löschen',
-  'konto.seite.loeschen.frage':
+  'account.page.locked.login': 'Anmelden',
+  'account.page.locked.register': 'Konto anlegen',
+  'account.page.loading': 'Deine Recken werden geholt …',
+  'account.page.logged_in_as': 'Angemeldet als',
+  'account.page.email': 'E-Mail',
+  'account.page.empty': 'Auf diesem Gestade steht noch kein Recke. Erschaffe den ersten.',
+  'account.page.created': 'erschaffen am',
+  'account.page.last_seen': 'zuletzt auf Fahrt',
+  'account.page.never_sailed': 'noch nie auf Fahrt',
+  'account.page.button.new': 'Neuen Recken erschaffen',
+  'account.page.button.delete': 'Löschen',
+  'account.page.delete.question':
     'Diesen Recken endgültig löschen? Das lässt sich nicht rückgängig machen.',
-  'konto.seite.loeschen.ja': 'Ja, löschen',
-  'konto.seite.loeschen.nein': 'Doch nicht',
-  'konto.seite.loeschen.war_weg': 'Dieser Recke war schon gelöscht.',
-  'konto.seite.spielen.laeuft': 'Ticket wird geholt …',
+  'account.page.delete.yes': 'Ja, löschen',
+  'account.page.delete.no': 'Doch nicht',
+  'account.page.delete.already_gone': 'Dieser Recke war schon gelöscht.',
+  'account.page.play.loading': 'Ticket wird geholt …',
 } as const;

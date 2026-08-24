@@ -63,8 +63,8 @@ export function messages(l: Locale): Messages {
  * trailing slash. Everything else simply gets the prefix: `'/saga'` →
  * `'/de/saga'`.
  */
-export function localizedPath(l: Locale, pfad: string): string {
-  return pfad === '/' ? `/${l}` : `/${l}${pfad}`;
+export function localizedPath(l: Locale, path: string): string {
+  return path === '/' ? `/${l}` : `/${l}${path}`;
 }
 
 /**
@@ -75,8 +75,8 @@ export function localizedPath(l: Locale, pfad: string): string {
  * does not have to exist twice.
  */
 export function stripLocale(pathname: string): string {
-  const ohneEndung = pathname.replace(/\.html$/, '');
-  const teile = ohneEndung.split('/');
-  const rest = isLocale(teile[1]) ? `/${teile.slice(2).join('/')}` : ohneEndung;
+  const withoutSuffix = pathname.replace(/\.html$/, '');
+  const parts = withoutSuffix.split('/');
+  const rest = isLocale(parts[1]) ? `/${parts.slice(2).join('/')}` : withoutSuffix;
   return rest === '' || rest === '/' ? '/' : rest;
 }

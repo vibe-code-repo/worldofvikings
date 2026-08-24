@@ -193,7 +193,7 @@
       history.replaceState(null, '', adresse);
     } catch (e) {
       console.warn(e);
-      fehlerSchluessel = 'kartenbetrachter.fehler.karte';
+      fehlerSchluessel = 'map_viewer.error.map';
     }
   }
 
@@ -202,7 +202,7 @@
       uebersicht = await holeJson<Uebersicht>('/assets/karten/karten.json');
     } catch (e) {
       console.warn(e);
-      fehlerSchluessel = 'kartenbetrachter.fehler.karten';
+      fehlerSchluessel = 'map_viewer.error.maps';
       return;
     }
     const gewuenscht = new URLSearchParams(location.search).get('welt');
@@ -320,7 +320,7 @@
   {:else if fehler}
     <span class="leer-zustand" style="padding:0">{fehler}</span>
   {:else}
-    <span class="leer-zustand" style="padding:0">{t['kartenbetrachter.laedt']}</span>
+    <span class="leer-zustand" style="padding:0">{t['map_viewer.loading']}</span>
   {/if}
 </div>
 
@@ -339,7 +339,7 @@
     class:greift
     tabindex="0"
     role="application"
-    aria-label={t['kartenbetrachter.flaeche.aria']}
+    aria-label={t['map_viewer.area.aria']}
     onwheel={rad}
     onpointerdown={runter}
     onpointermove={bewegt}
@@ -352,9 +352,9 @@
     {#if welt}
       <img
         src="/assets/karten/{welt.bild}"
-        alt="{t['kartenbetrachter.bild.alt_vorn']} {welt.name} — {(
+        alt="{t['map_viewer.image.alt_prefix']} {welt.name} — {(
           welt.spanneMeter / 1000
-        ).toFixed(1)} {t['kartenbetrachter.bild.alt_hinten']}"
+        ).toFixed(1)} {t['map_viewer.image.alt_suffix']}"
         draggable="false"
         style="width:{bildBreite * zoom}px; transform:translate({vx}px,{vy}px)"
         onload={() => { messen(); einpassen(); }}
@@ -378,22 +378,22 @@
     <button
       class="knopf knopf-schlicht"
       type="button"
-      aria-label={t['kartenbetrachter.naeher']}
+      aria-label={t['map_viewer.zoom_in']}
       onclick={() => zoomen(1.4, flaechenBreite / 2, flaechenHoehe / 2)}>+</button
     >
     <button
       class="knopf knopf-schlicht"
       type="button"
-      aria-label={t['kartenbetrachter.weiter_weg']}
+      aria-label={t['map_viewer.zoom_out']}
       onclick={() => zoomen(1 / 1.4, flaechenBreite / 2, flaechenHoehe / 2)}>−</button
     >
-    <button class="knopf knopf-schlicht" type="button" onclick={einpassen}>{t['kartenbetrachter.ganze_welt']}</button>
+    <button class="knopf knopf-schlicht" type="button" onclick={einpassen}>{t['map_viewer.whole_world']}</button>
   </div>
 
   <div class="karten-fuss">
     <span class="massstab" style="width:{massstab.breite}px" data-text={massstab.text} aria-hidden="true"
     ></span>
-    <span class="karten-koord">{t['kartenbetrachter.zeiger']} <b>{zeigerText}</b></span>
+    <span class="karten-koord">{t['map_viewer.pointer']} <b>{zeigerText}</b></span>
   </div>
 </div>
 
@@ -402,42 +402,42 @@
     {fehler}
   {:else if welt}
     <b>{uebersicht?.welten.find((w) => w.instanz === instanz)?.anzeige ?? welt.name}</b>
-    · {welt.regionen.length} {t['kartenbetrachter.stand.regionen']} · {(
+    · {welt.regionen.length} {t['map_viewer.status.regions']} · {(
       welt.spanneMeter / 1000
-    ).toFixed(1)} {t['kartenbetrachter.stand.km_kante']} · {t['kartenbetrachter.stand.stand']}
+    ).toFixed(1)} {t['map_viewer.status.km_side']} · {t['map_viewer.status.as_of']}
     {datumZeit(welt.gerendert, lang)}
   {:else}
-    {t['kartenbetrachter.stand.laedt']}
+    {t['map_viewer.status.loading']}
   {/if}
 </p>
 
 <div class="gitter gitter-2" style="margin-top:2.5rem">
   <article class="tafel">
-    <h3>{t['kartenbetrachter.farben.titel']}</h3>
+    <h3>{t['map_viewer.colors.title']}</h3>
     <ul class="legende">
       {#each welt?.legende ?? [] as l (l.bit)}
         <li><i style="background:{l.farbe}"></i>{l.name}</li>
       {/each}
     </ul>
     <p style="color:var(--matt);font-size:.9rem;margin:1rem 0 0">
-      {t['kartenbetrachter.farben.text']}
+      {t['map_viewer.colors.text']}
     </p>
   </article>
 
   <article class="tafel">
-    <h3>{t['kartenbetrachter.zwei.titel']}</h3>
+    <h3>{t['map_viewer.two.title']}</h3>
     <!-- Der Weltname steht fett im Satz: zwei Bausteine, das <b> bleibt hier. -->
     <p style="color:var(--matt);font-size:.95rem">
       <b style="color:var(--runengold);font-weight:400"
-        >{t['kartenbetrachter.zwei.midgard.name']}</b
+        >{t['map_viewer.two.midgard.name']}</b
       >
-      {t['kartenbetrachter.zwei.midgard.text']}
+      {t['map_viewer.two.midgard.text']}
     </p>
     <p style="color:var(--matt);font-size:.95rem;margin:0">
       <b style="color:var(--runengold);font-weight:400"
-        >{t['kartenbetrachter.zwei.werkstatt.name']}</b
+        >{t['map_viewer.two.workshop.name']}</b
       >
-      {t['kartenbetrachter.zwei.werkstatt.text']}
+      {t['map_viewer.two.workshop.text']}
     </p>
   </article>
 </div>

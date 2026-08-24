@@ -61,8 +61,8 @@ export const SHORE_IDS: ShoreId[] = ['dev', 'live'];
  * place to translate, and the two names would drift apart on the first edit.
  */
 export const SHORE_LABEL: Record<ShoreId, MessageKey> = {
-  dev: 'erstellen.fahrt.gestade.dev',
-  live: 'erstellen.fahrt.gestade.live',
+  dev: 'create.voyage.shore.dev',
+  live: 'create.voyage.shore.live',
 };
 
 export function isShore(v: string | null | undefined): v is ShoreId {
@@ -71,8 +71,15 @@ export function isShore(v: string | null | undefined): v is ShoreId {
 
 /* -------------------------------------------------------------- types */
 
-/** A character as `nachAussen()` in `KontoApi.ts` hands it out. */
-export interface Charakter {
+/**
+ * A character as `nachAussen()` in `KontoApi.ts` hands it out.
+ *
+ * `figur`, `frisur`, `ober` and `beine` keep their German names on purpose:
+ * they are the ids from `shared/aussehen.ts` and the `?figur=` parameters of
+ * the game client. Renaming them here would decouple three places that have
+ * to agree, and nothing but a broken character would say so.
+ */
+export interface Character {
   id: number;
   name: string;
   figur: string;
@@ -84,27 +91,27 @@ export interface Charakter {
   lastPlayed: number | null;
 }
 
-export interface Konto {
+export interface Account {
   username: string;
   email: string;
 }
 
-/** What `/registrieren` and `/anmelden` answer with. */
-export interface Anmeldung {
+/** What `/register` and `/login` answer with. */
+export interface AuthResponse {
   token: string;
-  account: Konto;
-  characters: Charakter[];
+  account: Account;
+  characters: Character[];
 }
 
-/** What `/ich` answers with — the same, minus a fresh token. */
-export interface Ich {
-  account: Konto;
-  characters: Charakter[];
+/** What `/me` answers with — the same, minus a fresh token. */
+export interface Me {
+  account: Account;
+  characters: Character[];
 }
 
 export interface Ticket {
   sessionToken: string;
-  character: Charakter;
+  character: Character;
 }
 
 /* ------------------------------------------------------------- errors */
@@ -127,28 +134,33 @@ export class ApiError extends Error {
 /**
  * Error key → catalogue key.
  *
+ * The keys on the left are the API's vocabulary, not identifiers of this
+ * module: they travel over the wire and have to read exactly as the server
+ * writes them. That is why `serverfehler` and `netzwerk` are still German
+ * here while everything around them is not.
+ *
  * `unbekannter-endpunkt` is deliberately absent: it can only happen if this
  * module and the server disagree about a path, which is a bug and not
  * something a player can act on. It falls through to the generic entry.
  */
 const ERROR_MESSAGES: Record<string, MessageKey> = {
-  'username-invalid': 'konto.fehler.benutzername_ungueltig',
-  'email-invalid': 'konto.fehler.email_ungueltig',
-  'password-too-short': 'konto.fehler.passwort_zu_kurz',
-  'username-taken': 'konto.fehler.benutzername_vergeben',
-  'login-failed': 'konto.fehler.anmeldung_fehlgeschlagen',
-  'too-many-attempts': 'konto.fehler.zu_viele_versuche',
-  'not-signed-in': 'konto.fehler.nicht_angemeldet',
-  'name-invalid': 'konto.fehler.name_ungueltig',
-  'name-taken': 'konto.fehler.name_vergeben',
-  'unknown': 'konto.fehler.unbekannt',
-  'malformed-body': 'konto.fehler.kaputter_koerper',
-  serverfehler: 'konto.fehler.serverfehler',
-  netzwerk: 'konto.fehler.netzwerk',
+  'username-invalid': 'account.error.username_invalid',
+  'email-invalid': 'account.error.email_invalid',
+  'password-too-short': 'account.error.password_too_short',
+  'username-taken': 'account.error.username_taken',
+  'login-failed': 'account.error.login_failed',
+  'too-many-attempts': 'account.error.too_many_attempts',
+  'not-signed-in': 'account.error.not_logged_in',
+  'name-invalid': 'account.error.name_invalid',
+  'name-taken': 'account.error.name_taken',
+  unknown: 'account.error.unknown',
+  'malformed-body': 'account.error.broken_body',
+  serverfehler: 'account.error.server_error',
+  netzwerk: 'account.error.network',
 };
 
 export function errorMessageKey(key: string): MessageKey {
-  return ERROR_MESSAGES[key] ?? 'konto.fehler.unerwartet';
+  return ERROR_MESSAGES[key] ?? 'account.error.unexpected';
 }
 
 /** True when the call failed because the token is gone or expired. */
@@ -158,6 +170,12 @@ export function isLoggedOut(e: unknown): boolean {
 
 /* -------------------------------------------------------- token store */
 
+/*
+  The storage keys stay `wov-konto:` and `wov-gestade`. They are not
+  identifiers but data that already sits in visitors' browsers: renaming
+  them would silently sign everybody out and lose their remembered shore,
+  and nothing on the page would say why.
+*/
 const tokenKey = (shore: ShoreId) => `wov-konto:${shore}`;
 const SHORE_KEY = 'wov-gestade';
 
@@ -178,13 +196,13 @@ interface TokenPayload {
  * would answer 401 anyway. Every real decision is still made server-side.
  */
 function payloadOf(token: string): TokenPayload | null {
-  const teil = token.split('.')[0];
-  if (!teil) return null;
+  const part = token.split('.')[0];
+  if (!part) return null;
   try {
-    const b64 = teil.replace(/-/g, '+').replace(/_/g, '/');
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
     // atob wants a length divisible by four; base64url drops the padding.
-    const roh = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
-    const p: unknown = JSON.parse(roh);
+    const raw = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
+    const p: unknown = JSON.parse(raw);
     if (!p || typeof p !== 'object') return null;
     const e = (p as Record<string, unknown>).e;
     const k = (p as Record<string, unknown>).k;
@@ -289,32 +307,33 @@ export function writeShore(shore: ShoreId): void {
  * their token sits right there under the other key.
  */
 export function signedInShore(): ShoreId | null {
-  const gemerkt = readShore();
-  if (gemerkt && readToken(gemerkt)) return gemerkt;
+  const remembered = readShore();
+  if (remembered && readToken(remembered)) return remembered;
   return SHORE_IDS.find((s) => readToken(s)) ?? null;
 }
 
 /* ---------------------------------------------------------- API calls */
 
-interface Aufruf {
+interface Call {
   method: 'GET' | 'POST' | 'DELETE';
   token?: string;
   body?: unknown;
 }
 
-async function call<T>(shore: ShoreId, pfad: string, a: Aufruf): Promise<T> {
-  const kopf: Record<string, string> = {};
-  if (a.body !== undefined) kopf['content-type'] = 'application/json';
-  // X-WoV-Konto statt Authorization: Der Proxy vor dem Testgestade leert
-  // die Authorization-Kopfzeile (proxy_set_header Authorization ""), ein
-  // Bearer-Token kaeme dort nie an. Begruendung in KontoApi.ts.
-  if (a.token) kopf['x-wov-account'] = a.token;
+async function call<T>(shore: ShoreId, path: string, a: Call): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (a.body !== undefined) headers['content-type'] = 'application/json';
+  // X-WoV-Account instead of Authorization: the proxy in front of the test
+  // shore empties the Authorization header (proxy_set_header Authorization
+  // ""), so a bearer token would never arrive there. Reasoning in
+  // KontoApi.ts.
+  if (a.token) headers['x-wov-account'] = a.token;
 
-  let antwort: Response;
+  let response: Response;
   try {
-    antwort = await fetch(SHORES[shore].url + pfad, {
+    response = await fetch(SHORES[shore].url + path, {
       method: a.method,
-      headers: kopf,
+      headers,
       body: a.body === undefined ? undefined : JSON.stringify(a.body),
       // No cookies are involved, and asking for them would only add a
       // preflight the API does not answer for credentialed requests.
@@ -327,64 +346,57 @@ async function call<T>(shore: ShoreId, pfad: string, a: Aufruf): Promise<T> {
     throw new ApiError('netzwerk');
   }
 
-  let daten: unknown = null;
+  let data: unknown = null;
   try {
-    daten = await antwort.json();
+    data = await response.json();
   } catch {
     /* an empty or broken body is handled by the status below */
   }
 
-  if (!antwort.ok) {
-    const fehler = (daten as { fehler?: unknown } | null)?.fehler;
-    throw new ApiError(typeof fehler === 'string' ? fehler : 'server-error');
+  if (!response.ok) {
+    // `fehler` is the field name the API sends, not a variable of ours.
+    const key = (data as { fehler?: unknown } | null)?.fehler;
+    throw new ApiError(typeof key === 'string' ? key : 'server-error');
   }
-  return daten as T;
+  return data as T;
 }
 
-export function registrieren(
+export function register(
   shore: ShoreId,
   username: string,
   email: string,
   password: string,
-): Promise<Anmeldung> {
-  return call<Anmeldung>(shore, '/accounts/register', {
+): Promise<AuthResponse> {
+  return call<AuthResponse>(shore, '/accounts/register', {
     method: 'POST',
     body: { username, email, password },
   });
 }
 
-export function anmelden(
-  shore: ShoreId,
-  username: string,
-  password: string,
-): Promise<Anmeldung> {
-  return call<Anmeldung>(shore, '/accounts/login', {
+export function login(shore: ShoreId, username: string, password: string): Promise<AuthResponse> {
+  return call<AuthResponse>(shore, '/accounts/login', {
     method: 'POST',
     body: { username, password },
   });
 }
 
-export function ich(shore: ShoreId, token: string): Promise<Ich> {
-  return call<Ich>(shore, '/accounts/me', { method: 'GET', token });
+export function me(shore: ShoreId, token: string): Promise<Me> {
+  return call<Me>(shore, '/accounts/me', { method: 'GET', token });
 }
 
-export function charakterAnlegen(
+export function createCharacter(
   shore: ShoreId,
   token: string,
-  charakter: { name: string; figur: string; frisur: string; ober: string; beine: string },
-): Promise<{ character: Charakter }> {
-  return call<{ character: Charakter }>(shore, '/accounts/characters', {
+  character: { name: string; figur: string; frisur: string; ober: string; beine: string },
+): Promise<{ character: Character }> {
+  return call<{ character: Character }>(shore, '/accounts/characters', {
     method: 'POST',
     token,
-    body: charakter,
+    body: character,
   });
 }
 
-export function charakterLoeschen(
-  shore: ShoreId,
-  token: string,
-  id: number,
-): Promise<{ ok: true }> {
+export function deleteCharacter(shore: ShoreId, token: string, id: number): Promise<{ ok: true }> {
   return call<{ ok: true }>(shore, `/accounts/characters/${id}`, {
     method: 'DELETE',
     token,
@@ -392,7 +404,7 @@ export function charakterLoeschen(
 }
 
 /** Trade a character for a session ticket — the only way into the world. */
-export function spielen(shore: ShoreId, token: string, id: number): Promise<Ticket> {
+export function play(shore: ShoreId, token: string, id: number): Promise<Ticket> {
   return call<Ticket>(shore, `/accounts/characters/${id}/play`, {
     method: 'POST',
     token,
@@ -421,18 +433,21 @@ export function spielen(shore: ShoreId, token: string, id: number): Promise<Tick
  * (the client's own comment says manipulating one's OWN appearance is
  * allowed, and the server checks every id against the same lists), and
  * without `name` the client invents a random `Viking###`.
+ *
+ * The parameter names are the client's, not ours: `los`, `figur`, `frisur`,
+ * `ober`, `beine` and `zeit` are read verbatim in `client/src/main.ts`.
  */
 export function playUrl(
   shore: ShoreId,
-  c: Pick<Charakter, 'name' | 'figur' | 'frisur' | 'ober' | 'beine'>,
+  c: Pick<Character, 'name' | 'figur' | 'frisur' | 'ober' | 'beine'>,
   sessionToken: string,
-  zeit = '',
+  time = '',
 ): string {
   const p = new URLSearchParams({ los: '1', name: c.name, figur: c.figur, frisur: c.frisur });
   if (c.ober) p.set('ober', c.ober);
   if (c.beine) p.set('beine', c.beine);
   // Only send what was offered: a `zeit` from an earlier test-shore visit
   // must not quietly travel to Midgard.
-  if (shore === 'dev' && zeit !== '') p.set('zeit', zeit);
+  if (shore === 'dev' && time !== '') p.set('zeit', time);
   return `${SHORES[shore].url}/?${p.toString()}#ticket=${encodeURIComponent(sessionToken)}`;
 }

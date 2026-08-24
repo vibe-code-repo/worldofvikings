@@ -45,7 +45,7 @@
   const lang = $derived(localeFrom(page.params.lang));
   const t = $derived(messages(lang));
 
-  const ganzerTitel = $derived(blankerTitel ? titel : `${titel} — ${t['kopfdaten.marke']}`);
+  const ganzerTitel = $derived(blankerTitel ? titel : `${titel} — ${t['meta.brand']}`);
 
   /**
    * Die kanonische Adresse ist die OHNE Endung.
@@ -87,7 +87,7 @@
   {/if}
 
   <meta property="og:type" content="website" />
-  <meta property="og:site_name" content={t['kopfdaten.marke']} />
+  <meta property="og:site_name" content={t['meta.brand']} />
   <meta property="og:locale" content={OG_LOCALE[lang]} />
   {#each LOCALES.filter((l) => l !== lang) as l (l)}
     <meta property="og:locale:alternate" content={OG_LOCALE[l]} />

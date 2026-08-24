@@ -14,7 +14,7 @@
   const rechts = MOBILNAV.slice(2);
 </script>
 
-<nav class="mobil-nav" aria-label={t['mobilnav.nav.aria']}>
+<nav class="mobil-nav" aria-label={t['mobile_nav.nav.aria']}>
   {#each links as s (s.pfad)}
     <a href={localizedPath(lang, s.pfad)} aria-current={hier === s.pfad ? 'page' : undefined}>
       <Ikone name={s.ikone ?? 'burg'} />
@@ -24,7 +24,7 @@
 
   <a class="mobil-fahrt" href={localizedPath(lang, FAHRT)}>
     <span class="kreis"><Ikone name="segeln" /></span>
-    <span class="nur-vorlesen">{t['mobilnav.fahrt.vorlesen']}</span>
+    <span class="nur-vorlesen">{t['mobile_nav.voyage.label']}</span>
   </a>
 
   {#each rechts as s (s.pfad)}

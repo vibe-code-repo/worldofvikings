@@ -26,19 +26,19 @@
   });
 </script>
 
-<Kopfdaten titel={t['saga.kopf.titel']} beschreibung={t['saga.kopf.beschreibung']} />
+<Kopfdaten titel={t['saga.meta.title']} beschreibung={t['saga.meta.description']} />
 
 <main class="mitte seite">
-  <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['saga.h1']}</h1>
-  <p style="color:var(--matt);max-width:44rem">{t['saga.einleitung']}</p>
+  <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['saga.heading']}</h1>
+  <p style="color:var(--matt);max-width:44rem">{t['saga.intro']}</p>
 
   <div style="margin-top:2rem">
     {#if fehler}
-      <p class="leer-zustand">{t['saga.fehler']}</p>
+      <p class="leer-zustand">{t['saga.error']}</p>
     {:else if eintraege === null}
-      <p class="leer-zustand">{t['saga.laedt']}</p>
+      <p class="leer-zustand">{t['saga.loading']}</p>
     {:else if eintraege.length === 0}
-      <p class="leer-zustand">{t['saga.leer']}</p>
+      <p class="leer-zustand">{t['saga.empty']}</p>
     {:else}
       <!--
         `e.art`, `e.titel` und `e.text` stammen aus /api/saga.json und bleiben

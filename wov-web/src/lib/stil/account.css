@@ -13,29 +13,29 @@
   of the field, label and error rules, and the first divergence between them
   would look like a rendering bug rather than a forgotten paste.
 
-  Every class is prefixed `konto-`: this file is global, and a bare `.feld`
-  would collide with the next component that wants that name.
+  Every class is prefixed `account-`: this file is global, and a bare
+  `.field` would collide with the next component that wants that name.
 */
 
 /* The forms are read top to bottom, not scanned — a full-width column
    would force the eye back across 1400px between label and field. */
-.konto-schmal {
+.account-narrow {
   width: min(34rem, 100%);
   margin-inline: auto;
 }
 
-.konto-tafel {
+.account-panel {
   border: 1px solid var(--umriss-matt);
   border-radius: var(--r-xl);
   background: var(--tafel-bg);
   padding: 1.6rem 1.5rem;
 }
 
-.konto-feld {
+.account-field {
   margin-bottom: 1rem;
 }
 
-.konto-name {
+.account-label {
   display: block;
   font-family: var(--schrift-kappen);
   font-size: 11px;
@@ -45,7 +45,7 @@
   margin-bottom: 0.35rem;
 }
 
-.konto-eingabe {
+.account-input {
   width: 100%;
   height: 2.4rem;
   background: var(--flaeche-tief);
@@ -56,12 +56,12 @@
   font-family: var(--schrift);
   font-size: 15px;
 }
-.konto-eingabe:focus {
+.account-input:focus {
   outline: none;
   border-color: var(--primaer);
 }
 
-.konto-hilfe {
+.account-hint {
   font-size: 12px;
   color: var(--umriss);
   margin-top: 0.35rem;
@@ -69,24 +69,24 @@
 }
 
 /*
-  Fehlertexte tragen NICHT nur Farbe: Wer Rot nicht von Grau unterscheiden
-  kann, sieht sonst gar nichts. Darum steht vor jedem ein „!“ als Zeichen,
-  und das Feld selbst bekommt zusaetzlich aria-invalid.
+  Error texts do NOT carry colour alone: whoever cannot tell red from grey
+  would otherwise see nothing at all. That is why each one is prefixed with
+  a "!" as a sign, and the field itself additionally gets aria-invalid.
 */
-.konto-fehler {
+.account-error {
   font-size: 13px;
   color: var(--dritt);
   margin-top: 0.35rem;
   line-height: 1.45;
 }
-.konto-fehler::before {
+.account-error::before {
   content: "! ";
   color: var(--blut);
   font-weight: 700;
   filter: brightness(1.9);
 }
 
-.konto-melder {
+.account-notice {
   border-left: 3px solid var(--blut);
   background: rgba(139, 0, 0, 0.14);
   padding: 0.7rem 1rem;
@@ -96,7 +96,7 @@
   margin-bottom: 1rem;
 }
 
-.konto-tat {
+.account-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -104,35 +104,35 @@
   margin-top: 1.2rem;
 }
 
-.konto-wechsel {
+.account-switch {
   font-size: 14px;
   color: var(--umriss);
   margin-top: 1.2rem;
 }
 
-/* ------------------------------------------------------------ Recken */
+/* -------------------------------------------------------- characters */
 
-.konto-liste {
+.account-list {
   display: grid;
   gap: 1rem;
   margin-top: 1.2rem;
 }
 
-.konto-recke {
+.account-character {
   border: 1px solid var(--umriss-matt);
   border-radius: var(--r-xl);
   background: var(--flaeche-tief);
   padding: 1.1rem 1.2rem;
 }
 
-.konto-recke-name {
+.account-character-name {
   font-family: var(--schrift-kopf);
   font-size: 20px;
   color: var(--runengold);
   margin: 0 0 0.4rem;
 }
 
-.konto-recke-daten {
+.account-character-data {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem 1.1rem;
@@ -141,12 +141,12 @@
   margin: 0 0 0.6rem;
 }
 
-.konto-recke-daten b {
+.account-character-data b {
   color: var(--text-matt);
   font-weight: 400;
 }
 
-.konto-leer {
+.account-empty {
   color: var(--text-matt);
   font-size: 15px;
   margin-top: 1rem;

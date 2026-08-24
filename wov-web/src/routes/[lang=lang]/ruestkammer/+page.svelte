@@ -54,22 +54,22 @@
 </script>
 
 <Kopfdaten
-  titel={gewaehlt ? `${gewaehlt.name} — ${t['ruestkammer.titel']}` : t['ruestkammer.titel']}
-  beschreibung={t['ruestkammer.beschreibung']}
+  titel={gewaehlt ? `${gewaehlt.name} — ${t['armory.title']}` : t['armory.title']}
+  beschreibung={t['armory.description']}
 />
 
 <main class="mitte seite">
-  <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['ruestkammer.ueberschrift']}</h1>
-  <p style="color:var(--matt);max-width:44rem">{t['ruestkammer.einleitung']}</p>
+  <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['armory.heading']}</h1>
+  <p style="color:var(--matt);max-width:44rem">{t['armory.intro']}</p>
 
   <div class="hinweis" style="margin:1.5rem 0">
-    <b>{t['ruestkammer.hinweis.fett']}</b>
-    {t['ruestkammer.hinweis.text']}
+    <b>{t['armory.hint.bold']}</b>
+    {t['armory.hint.text']}
   </div>
 
   {#if gewaehlt}
     <a class="knopf knopf-schlicht" href={kammer} onclick={zurueck} style="margin-bottom:1.5rem"
-      >{t['ruestkammer.zurueck']}</a
+      >{t['armory.back']}</a
     >
     <Reckenprofil recke={gewaehlt} />
   {:else}
@@ -81,25 +81,25 @@
       Bildschirm.
     -->
     <form class="suche" style="margin:1.5rem 0 2rem" role="search" onsubmit={(e) => e.preventDefault()}>
-      <label class="nur-vorlesen" for="suchfeld">{t['ruestkammer.suche.label']}</label>
+      <label class="nur-vorlesen" for="suchfeld">{t['armory.search.label']}</label>
       <input
         id="suchfeld"
         class="feld"
         type="search"
-        placeholder={t['ruestkammer.suche.platzhalter']}
+        placeholder={t['armory.search.placeholder']}
         autocomplete="off"
         spellcheck="false"
         bind:value={suchtext}
       />
-      <button class="knopf" type="submit">{t['ruestkammer.suche.knopf']}</button>
+      <button class="knopf" type="submit">{t['armory.search.button']}</button>
     </form>
 
     {#if fehler}
-      <p class="leer-zustand">{t['ruestkammer.zustand.fehler']}</p>
+      <p class="leer-zustand">{t['armory.state.error']}</p>
     {:else if !geladen}
-      <p class="leer-zustand">{t['ruestkammer.zustand.laedt']}</p>
+      <p class="leer-zustand">{t['armory.state.loading']}</p>
     {:else if treffer.length === 0}
-      <p class="leer-zustand">{t['ruestkammer.zustand.leer']}</p>
+      <p class="leer-zustand">{t['armory.state.empty']}</p>
     {:else}
       <div class="gitter gitter-3">
         {#each treffer as r (r.id)}
@@ -107,8 +107,8 @@
             <h3 style="margin:0 0 .2em">{r.name}</h3>
             <div style="color:var(--matt);font-size:.9rem">{r.beiname} · {r.sippe}</div>
             <div style="margin-top:.6rem;font-size:.85rem;color:var(--matt)">
-              {t['ruestkammer.karte.runenrang']}
-              {r.stufe} · {r.welt} · {t['ruestkammer.karte.zuletzt']}
+              {t['armory.card.rune_rank']}
+              {r.stufe} · {r.welt} · {t['armory.card.last_seen']}
               {vorWieLange(r.zuletzt_gesehen, lang)}
             </div>
           </a>

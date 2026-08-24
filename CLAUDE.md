@@ -13,6 +13,17 @@ NICHT rueckwirkend -- eine Uebersetzung des Bestands waere ein eigenes
 Vorhaben. Wer neue Zeilen in eine deutsche Datei schreibt, moege sich am
 umgebenden Stil orientieren, statt eine Datei halb umzustellen.
 
+**Englisch heisst ALLES, was wir schreiben** -- nicht nur Kommentare:
+Bezeichner, CSS-Klassennamen, i18n-Schluessel, Dateinamen, Testdaten und
+erfundene Beispielnamen. Am 24.08.2026 fiel es an einem Testrecken namens
+`ReckeWeb39108` auf: Der englische Begriff ist `character`, und was fuer
+den Quelltext gilt, gilt auch fuer den Namen, den ein Testskript wuerfelt.
+
+Das SPIELWELT-VOKABULAR der sichtbaren Texte ist davon nicht betroffen.
+Auf der deutschen Seite heissen Spielfiguren weiter „Recken", die Karte
+„Die Karte" und das Forum „Das Thing" -- das ist die Uebersetzung, nicht
+der Code. Nur der Schluessel darueber ist englisch.
+
 ## Commit-Nachrichten: Englisch, darunter eine deutsche Uebersetzung
 
 ```

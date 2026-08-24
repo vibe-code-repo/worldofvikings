@@ -11,16 +11,16 @@
 
   /** Die Puppe: vier Slots links, vier rechts, Silhouette dazwischen. */
   const LINKS: Array<[string, MessageKey]> = [
-    ['kopf', 'reckenprofil.slot.kopf'],
-    ['brust', 'reckenprofil.slot.brust'],
-    ['beine', 'reckenprofil.slot.beine'],
-    ['umhang', 'reckenprofil.slot.umhang'],
+    ['kopf', 'character_profile.slot.head'],
+    ['brust', 'character_profile.slot.chest'],
+    ['beine', 'character_profile.slot.legs'],
+    ['umhang', 'character_profile.slot.cape'],
   ];
   const RECHTS: Array<[string, MessageKey]> = [
-    ['waffe', 'reckenprofil.slot.waffe'],
-    ['nebenhand', 'reckenprofil.slot.nebenhand'],
-    ['werkzeug', 'reckenprofil.slot.werkzeug'],
-    ['guertel', 'reckenprofil.slot.guertel'],
+    ['waffe', 'character_profile.slot.weapon'],
+    ['nebenhand', 'character_profile.slot.off_hand'],
+    ['werkzeug', 'character_profile.slot.tool'],
+    ['guertel', 'character_profile.slot.belt'],
   ];
 
   const erlegt = $derived(recke.bosse.filter((b) => b.erlegt).length);
@@ -37,7 +37,7 @@
       <span class="slot-text">
         <span class="slot-name">{stueck.name}</span>
         <span class="slot-rolle"
-          >{t[beschriftung]} · {t['reckenprofil.slot.guete']} {Number(stueck.guete) || 1}</span
+          >{t[beschriftung]} · {t['character_profile.slot.quality']} {Number(stueck.guete) || 1}</span
         >
       </span>
     </div>
@@ -45,7 +45,7 @@
     <div class="slot leer">
       <span class="slot-bild" aria-hidden="true">·</span>
       <span class="slot-text">
-        <span class="slot-name">{t['reckenprofil.slot.leer']}</span>
+        <span class="slot-name">{t['character_profile.slot.empty']}</span>
         <span class="slot-rolle">{t[beschriftung]}</span>
       </span>
     </div>
@@ -62,24 +62,24 @@
     sie in der Datei stehen — sie sind Inhalt, nicht Beschriftung.
   -->
   <p style="color:var(--matt);margin:.3rem 0 1.2rem">
-    {recke.sippe} · {recke.welt} · {t['reckenprofil.runenrang']}
-    {recke.stufe} · {t['reckenprofil.zuletzt_gesehen']}
+    {recke.sippe} · {recke.welt} · {t['character_profile.rune_rank']}
+    {recke.stufe} · {t['character_profile.last_seen']}
     {vorWieLange(recke.zuletzt_gesehen, lang)}
   </p>
 
   <div class="werte">
-    <div class="wert"><b>{recke.werte.leben}</b><span>{t['reckenprofil.wert.leben']}</span></div>
+    <div class="wert"><b>{recke.werte.leben}</b><span>{t['character_profile.value.health']}</span></div>
     <div class="wert">
-      <b>{recke.werte.ausdauer}</b><span>{t['reckenprofil.wert.ausdauer']}</span>
+      <b>{recke.werte.ausdauer}</b><span>{t['character_profile.value.stamina']}</span>
     </div>
-    <div class="wert"><b>{recke.werte.eitr}</b><span>{t['reckenprofil.wert.eitr']}</span></div>
+    <div class="wert"><b>{recke.werte.eitr}</b><span>{t['character_profile.value.eitr']}</span></div>
     <div class="wert">
-      <b>{recke.werte.traglast}</b><span>{t['reckenprofil.wert.traglast']}</span>
+      <b>{recke.werte.traglast}</b><span>{t['character_profile.value.carry_weight']}</span>
     </div>
     <div class="wert">
-      <b>{recke.spielzeit_stunden} h</b><span>{t['reckenprofil.wert.auf_fahrt']}</span>
+      <b>{recke.spielzeit_stunden} h</b><span>{t['character_profile.value.underway']}</span>
     </div>
-    <div class="wert"><b>{recke.tode}</b><span>{t['reckenprofil.wert.hel']}</span></div>
+    <div class="wert"><b>{recke.tode}</b><span>{t['character_profile.value.hel']}</span></div>
   </div>
 </div>
 
@@ -87,7 +87,7 @@
 
 <div class="gitter gitter-2">
   <section class="tafel">
-    <h3>{t['reckenprofil.ausruestung.titel']}</h3>
+    <h3>{t['character_profile.gear.title']}</h3>
     <div class="puppe">
       <div class="puppe-spalte">
         {#each LINKS as [k, b] (k)}{@render slot(k, b)}{/each}
@@ -98,7 +98,7 @@
           viewBox="0 0 80 170"
           width="110"
           role="img"
-          aria-label={t['reckenprofil.figur.aria']}
+          aria-label={t['character_profile.figure.aria']}
           style="opacity:.5"
         >
           <g fill="none" stroke="#8a6a34" stroke-width="2" stroke-linejoin="round">
@@ -119,7 +119,7 @@
   </section>
 
   <section class="tafel">
-    <h3>{t['reckenprofil.fertigkeiten.titel']}</h3>
+    <h3>{t['character_profile.skills.title']}</h3>
     {#each fertigkeiten as f (f.name)}
       <div class="balken-zeile">
         <div class="balken-kopf"><span>{f.name}</span><b>{f.stufe}</b></div>
@@ -132,9 +132,9 @@
 <div class="gitter gitter-2" style="margin-top:1.4rem">
   <section class="tafel">
     <h3>
-      {t['reckenprofil.waechter.titel']}
+      {t['character_profile.guardian.title']}
       <span style="color:var(--matt);font-size:.85rem"
-        >{erlegt} {t['reckenprofil.waechter.von']} {recke.bosse.length}</span
+        >{erlegt} {t['character_profile.guardian.of']} {recke.bosse.length}</span
       >
     </h3>
     <div class="marken">
@@ -143,19 +143,19 @@
       {/each}
     </div>
 
-    <h3 style="margin-top:1.4rem">{t['reckenprofil.lande.titel']}</h3>
+    <h3 style="margin-top:1.4rem">{t['character_profile.lands.title']}</h3>
     <div class="marken">
       {#each recke.biome as b (b)}<span class="made">{b}</span>{/each}
     </div>
   </section>
 
   <section class="tafel">
-    <h3>{t['reckenprofil.trophaeen.titel']}</h3>
+    <h3>{t['character_profile.trophies.title']}</h3>
     <div class="marken">
       {#each recke.trophaeen as tr (tr)}<span class="made">{tr}</span>{/each}
     </div>
     <p style="color:var(--matt);font-size:.85rem;margin-top:1.2rem">
-      {t['reckenprofil.erschaffen']}
+      {t['character_profile.created']}
       {datumKurz(recke.erschaffen, lang)}.
     </p>
   </section>

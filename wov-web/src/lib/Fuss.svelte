@@ -29,24 +29,24 @@
 <footer class="fuss">
   <div class="mitte">
     <div>
-      <div class="fuss-marke">{t['fuss.marke']}</div>
-      <p>{t['fuss.beschreibung']}<br />world-of-vikings.com</p>
+      <div class="fuss-marke">{t['footer.brand']}</div>
+      <p>{t['footer.description']}<br />world-of-vikings.com</p>
     </div>
     <div>
-      <h3>{t['fuss.halle.ueberschrift']}</h3>
+      <h3>{t['footer.hall.heading']}</h3>
       <ul>
-        <li><a href={p('/')}>{t['fuss.halle.start']}</a></li>
-        <li><a href={p('/saga')}>{t['fuss.halle.saga']}</a></li>
-        <li><a href={p('/karte')}>{t['fuss.halle.karte']}</a></li>
-        <li><a class="fuss-spielen" href={p(FAHRT)}>{t['fuss.halle.spielen']}</a></li>
+        <li><a href={p('/')}>{t['footer.hall.home']}</a></li>
+        <li><a href={p('/saga')}>{t['footer.hall.saga']}</a></li>
+        <li><a href={p('/karte')}>{t['footer.hall.map']}</a></li>
+        <li><a class="fuss-spielen" href={p(FAHRT)}>{t['footer.hall.play']}</a></li>
       </ul>
     </div>
     <div>
-      <h3>{t['fuss.recken.ueberschrift']}</h3>
+      <h3>{t['footer.characters.heading']}</h3>
       <ul>
-        <li><a href={p('/ruestkammer')}>{t['fuss.recken.ruestkammer']}</a></li>
-        <li><a href={p('/ruhmeshalle')}>{t['fuss.recken.ruhmeshalle']}</a></li>
-        <li><a href={p('/thing')}>{t['fuss.recken.thing']}</a></li>
+        <li><a href={p('/ruestkammer')}>{t['footer.characters.armory']}</a></li>
+        <li><a href={p('/ruhmeshalle')}>{t['footer.characters.hall_of_fame']}</a></li>
+        <li><a href={p('/thing')}>{t['footer.characters.thing']}</a></li>
       </ul>
     </div>
     <!--
@@ -56,7 +56,7 @@
       käme man auf dem Handy in keine andere Sprache.
     -->
     <div>
-      <h3>{t['fuss.sprache.ueberschrift']}</h3>
+      <h3>{t['footer.language.heading']}</h3>
       <ul>
         {#each LOCALES as l (l)}
           <li>
@@ -66,5 +66,5 @@
       </ul>
     </div>
   </div>
-  <p class="fuss-schluss">{t['fuss.schluss']}</p>
+  <p class="fuss-schluss">{t['footer.closing']}</p>
 </footer>

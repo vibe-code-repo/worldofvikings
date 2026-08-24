@@ -33,15 +33,15 @@
   });
 </script>
 
-<Kopfdaten titel={t['ruhmeshalle.titel']} beschreibung={t['ruhmeshalle.beschreibung']} />
+<Kopfdaten titel={t['hall_of_fame.title']} beschreibung={t['hall_of_fame.description']} />
 
 <main class="mitte seite">
-  <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['ruhmeshalle.ueberschrift']}</h1>
-  <p style="color:var(--matt);max-width:44rem">{t['ruhmeshalle.einleitung']}</p>
+  <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['hall_of_fame.heading']}</h1>
+  <p style="color:var(--matt);max-width:44rem">{t['hall_of_fame.intro']}</p>
 
   <div class="hinweis" style="margin:1.5rem 0">
-    <b>{t['ruhmeshalle.hinweis.fett']}</b>
-    {t['ruhmeshalle.hinweis.text']}
+    <b>{t['hall_of_fame.hint.bold']}</b>
+    {t['hall_of_fame.hint.text']}
   </div>
 
   <div class="marken" style="margin:2rem 0 1.2rem" role="tablist">
@@ -62,17 +62,17 @@
       <table class="tabelle">
         <thead>
           <tr>
-            <th class="zahl">{t['ruhmeshalle.tabelle.raute']}</th>
-            <th>{t['ruhmeshalle.tabelle.recke']}</th>
-            <th>{t['ruhmeshalle.tabelle.sippe']}</th>
+            <th class="zahl">{t['hall_of_fame.table.hash']}</th>
+            <th>{t['hall_of_fame.table.character']}</th>
+            <th>{t['hall_of_fame.table.clan']}</th>
             <th class="zahl">{t[tafel.spalte]}</th>
           </tr>
         </thead>
         <tbody>
           {#if fehler}
-            <tr><td colspan="4">{t['ruhmeshalle.zustand.fehler']}</td></tr>
+            <tr><td colspan="4">{t['hall_of_fame.state.error']}</td></tr>
           {:else if !geladen}
-            <tr><td colspan="4">{t['ruhmeshalle.zustand.laedt']}</td></tr>
+            <tr><td colspan="4">{t['hall_of_fame.state.loading']}</td></tr>
           {:else}
             {#each sortiert as r, i (r.id)}
               <tr>

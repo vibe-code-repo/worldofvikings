@@ -10,156 +10,155 @@
     SHORE_IDS,
     SHORE_LABEL,
     type ShoreId,
-    anmelden,
     errorMessageKey,
+    login,
     readShore,
     writeShore,
     writeToken,
-  } from '$lib/konto';
-  import '$lib/stil/konto.css';
+  } from '$lib/account';
+  import '$lib/stil/account.css';
 
   /**
-   * Anmelden.
+   * Signing in.
    *
-   * Aufbau und Begründungen wie bei `/registrieren`: kein natives Absenden
-   * (vorgerenderte Datei, CSP `form-action: 'self'`), der Knopf erscheint
-   * erst mit JavaScript, und `method="post"` sorgt dafür, dass ein Passwort
-   * selbst im unmöglichen Fall nicht in die Adresszeile geraten kann.
+   * Structure and reasoning as on `/registrieren`: no native submit
+   * (prerendered file, CSP `form-action: 'self'`), the button only appears
+   * with JavaScript, and `method="post"` makes sure a password cannot end up
+   * in the address bar even in the impossible case.
    */
 
   const lang = $derived(localeFrom(page.params.lang));
   const t = $derived(messages(lang));
 
   /**
-   * Hinweis nach einem abgelaufenen Token.
+   * The notice after an expired token.
    *
-   * `/erstellen` und `/konto` schicken bei einer 401 hierher und hängen
-   * `?abgelaufen=1` an — kein Zugangsnachweis, nur eine Begründung, warum
-   * man plötzlich wieder hier steht. Im vorgerenderten HTML steht die
-   * Adresse ohne Parameter, der Hinweis fehlt dort also; er ist ein Zusatz
-   * zur Erklärung und trägt keinen Inhalt, den es sonst nirgends gäbe.
+   * `/erstellen` and `/konto` send you here on a 401 and append
+   * `?abgelaufen=1` — no credential, only a reason why you are suddenly
+   * standing here again. The prerendered HTML holds the address without the
+   * parameter, so the notice is absent there; it is an addition to the
+   * explanation and carries nothing that exists nowhere else.
    *
-   * `browser &&` ist Pflicht, nicht Vorsicht: Beim Vorrendern wirft der
-   * Zugriff auf `url.searchParams` («Cannot access url.searchParams on a
-   * page with prerendering enabled»), und der Build bleibt stehen. Er MUSS
-   * dort werfen — zur Bauzeit gibt es keine Anfrage, aus der ein Parameter
-   * kommen könnte, und eine Datei kann nicht für jeden Parameterwert eine
-   * andere sein.
+   * `browser &&` is mandatory, not caution: during prerendering, reading
+   * `url.searchParams` throws («Cannot access url.searchParams on a page
+   * with prerendering enabled») and the build stops. It MUST throw there —
+   * at build time there is no request a parameter could come from, and one
+   * file cannot be a different file for every parameter value.
    */
-  const abgelaufen = $derived(browser && page.url.searchParams.get('abgelaufen') === '1');
+  const expired = $derived(browser && page.url.searchParams.get('abgelaufen') === '1');
 
-  let bereit = $state(false);
-  let laeuft = $state(false);
+  let ready = $state(false);
+  let running = $state(false);
 
-  let gestade = $state<ShoreId>('dev');
-  let benutzername = $state('');
-  let passwort = $state('');
-  let fehler = $state<MessageKey | null>(null);
+  let shore = $state<ShoreId>('dev');
+  let username = $state('');
+  let password = $state('');
+  let error = $state<MessageKey | null>(null);
 
   onMount(() => {
-    bereit = true;
-    gestade = readShore() ?? 'dev';
+    ready = true;
+    shore = readShore() ?? 'dev';
   });
 
-  function gestadeGemerkt() {
-    writeShore(gestade);
+  function shoreRemembered() {
+    writeShore(shore);
   }
 
-  async function absenden(e: SubmitEvent) {
+  async function submit(e: SubmitEvent) {
     e.preventDefault();
-    if (laeuft) return;
-    fehler = null;
-    laeuft = true;
+    if (running) return;
+    error = null;
+    running = true;
     try {
-      const antwort = await anmelden(gestade, benutzername.trim(), passwort);
-      writeToken(gestade, antwort.token);
-      writeShore(gestade);
-      passwort = '';
+      const answer = await login(shore, username.trim(), password);
+      writeToken(shore, answer.token);
+      writeShore(shore);
+      password = '';
       /*
-        Wer noch keinen Recken hat, will keine leere Liste sehen, sondern
-        einen erschaffen. Wer welche hat, will wählen. Die Antwort der
-        Anmeldung sagt beides bereits — ein zweiter Aufruf wäre nur Wartezeit.
+        Whoever has no character yet does not want to see an empty list but
+        to create one. Whoever has some wants to choose. The sign-in answer
+        already says both — a second call would be nothing but waiting time.
       */
-      await goto(localizedPath(lang, antwort.characters.length ? '/konto' : '/erstellen'));
+      await goto(localizedPath(lang, answer.characters.length ? '/konto' : '/erstellen'));
     } catch (err) {
-      fehler = err instanceof ApiError ? errorMessageKey(err.key) : 'konto.fehler.unerwartet';
-      laeuft = false;
+      error = err instanceof ApiError ? errorMessageKey(err.key) : 'account.error.unexpected';
+      running = false;
     }
   }
 </script>
 
-<Kopfdaten titel={t['anmelden.kopf.titel']} beschreibung={t['anmelden.kopf.beschreibung']} noindex />
+<Kopfdaten titel={t['login.meta.title']} beschreibung={t['login.meta.description']} noindex />
 
 <main class="mitte seite">
-  <div class="konto-schmal">
-    <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['anmelden.ueberschrift']}</h1>
-    <p style="color:var(--matt)">{t['anmelden.einleitung']}</p>
+  <div class="account-narrow">
+    <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['login.heading']}</h1>
+    <p style="color:var(--matt)">{t['login.intro']}</p>
 
-    {#if abgelaufen}
-      <div class="hinweis" style="margin:1.2rem 0">{t['anmelden.abgelaufen']}</div>
+    {#if expired}
+      <div class="hinweis" style="margin:1.2rem 0">{t['login.session_expired']}</div>
     {/if}
 
-    <div class="konto-tafel" style="margin-top:1.5rem">
-      <form method="post" onsubmit={absenden}>
-        <div class="konto-feld">
-          <label class="konto-name" for="an-gestade">{t['erstellen.fahrt.gestade.label']}</label>
+    <div class="account-panel" style="margin-top:1.5rem">
+      <form method="post" onsubmit={submit}>
+        <div class="account-field">
+          <label class="account-label" for="login-shore">{t['create.voyage.shore.label']}</label>
           <select
-            class="konto-eingabe"
-            id="an-gestade"
-            bind:value={gestade}
-            onchange={gestadeGemerkt}
+            class="account-input"
+            id="login-shore"
+            bind:value={shore}
+            onchange={shoreRemembered}
           >
             {#each SHORE_IDS as s (s)}
               <option value={s}>{t[SHORE_LABEL[s]]}</option>
             {/each}
           </select>
-          <p class="konto-hilfe">{t['konto.gestade.hilfe']}</p>
+          <p class="account-hint">{t['account.shore.hint']}</p>
         </div>
 
-        <div class="konto-feld">
-          <label class="konto-name" for="an-name">{t['anmelden.benutzername.label']}</label>
+        <div class="account-field">
+          <label class="account-label" for="login-username">{t['login.username.label']}</label>
           <input
-            class="konto-eingabe"
-            id="an-name"
+            class="account-input"
+            id="login-username"
             type="text"
-            name="benutzername"
+            name="username"
             autocomplete="username"
             maxlength="24"
-            bind:value={benutzername}
+            bind:value={username}
           />
         </div>
 
-        <div class="konto-feld">
-          <label class="konto-name" for="an-passwort">{t['anmelden.passwort.label']}</label>
+        <div class="account-field">
+          <label class="account-label" for="login-password">{t['login.password.label']}</label>
           <input
-            class="konto-eingabe"
-            id="an-passwort"
+            class="account-input"
+            id="login-password"
             type="password"
-            name="passwort"
+            name="password"
             autocomplete="current-password"
             maxlength="200"
-            bind:value={passwort}
+            bind:value={password}
           />
         </div>
 
-        {#if fehler}
-          <p class="konto-melder" role="alert">{t[fehler]}</p>
+        {#if error}
+          <p class="account-notice" role="alert">{t[error]}</p>
         {/if}
 
-        <div class="konto-tat">
-          {#if bereit}
-            <button class="knopf" type="submit" disabled={laeuft}>
-              {laeuft ? t['anmelden.knopf.laeuft'] : t['anmelden.knopf']}
+        <div class="account-actions">
+          {#if ready}
+            <button class="knopf" type="submit" disabled={running}>
+              {running ? t['login.button.loading'] : t['login.button']}
             </button>
           {:else}
-            <p class="konto-hilfe" style="margin:0">{t['konto.ohne_js']}</p>
+            <p class="account-hint" style="margin:0">{t['account.without_js']}</p>
           {/if}
         </div>
       </form>
 
-      <p class="konto-wechsel">
-        {t['anmelden.wechsel.text']}
-        <a href={localizedPath(lang, '/registrieren')}>{t['anmelden.wechsel.link']}</a>
+      <p class="account-switch">
+        {t['login.switch.text']}
+        <a href={localizedPath(lang, '/registrieren')}>{t['login.switch.link']}</a>
       </p>
     </div>
   </div>

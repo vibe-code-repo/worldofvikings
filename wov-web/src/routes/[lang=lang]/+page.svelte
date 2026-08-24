@@ -70,8 +70,8 @@
 
 <Kopfdaten
   blankerTitel
-  titel={t['halle.kopf.titel']}
-  beschreibung={t['halle.kopf.beschreibung']}
+  titel={t['hall.meta.title']}
+  beschreibung={t['hall.meta.description']}
 />
 
 <main>
@@ -87,10 +87,10 @@
         src="/assets/bilder/wappen.webp"
         width="768"
         height="768"
-        alt={t['halle.held.wappen_alt']}
+        alt={t['hall.hero.crest_alt']}
       />
-      <h1 class="nur-vorlesen">{t['halle.held.h1']}</h1>
-      <p class="held-unter">{t['halle.held.unter']}</p>
+      <h1 class="nur-vorlesen">{t['hall.hero.heading']}</h1>
+      <p class="held-unter">{t['hall.hero.subtitle']}</p>
       <div class="held-knoepfe">
         <!--
           Führt in die Charaktererstellung, nicht direkt ins Spiel. Kopfleiste
@@ -99,11 +99,11 @@
         -->
         <a class="knopf knopf-gross" href={p(FAHRT)}>
           <Ikone name="schwerter" />
-          {t['halle.held.knopf.fahrt']}
+          {t['hall.hero.button.voyage']}
         </a>
         <a class="knopf knopf-gross knopf-schlicht" href="#welten">
           <Ikone name="kompass" />
-          {t['halle.held.knopf.welten']}
+          {t['hall.hero.button.worlds']}
         </a>
       </div>
     </div>
@@ -123,20 +123,20 @@
           {#if midgard}
             {#if midgard.zustand === 'offen'}
               {midgard.name}
-              {t['halle.held.band.offen']} — {midgard.spieler}
-              {t['halle.held.band.von']}
+              {t['hall.hero.ribbon.open']} — {midgard.spieler}
+              {t['hall.hero.ribbon.of']}
               {midgard.plaetze}
-              {t['halle.held.band.auf_fahrt']}
+              {t['hall.hero.ribbon.underway']}
             {:else}
-              {midgard.name} {t['halle.held.band.geschlossen']}
+              {midgard.name} {t['hall.hero.ribbon.closed']}
             {/if}
           {:else}
-            {t['halle.held.band.wird_geprueft']}
+            {t['hall.hero.ribbon.checking']}
           {/if}
         </span>
       </span>
       <span class="band-nebensatz"
-        ><b>{t['halle.held.band.frueher_stand']}</b> {t['halle.held.band.aufbau']}</span
+        ><b>{t['hall.hero.ribbon.early_days']}</b> {t['hall.hero.ribbon.under_construction']}</span
       >
     </div>
   </section>
@@ -146,32 +146,32 @@
     <div class="mitte">
       <div class="abschnitt-kopf">
         <span class="runen" aria-hidden="true">ᚹᛖᚷ</span>
-        <h2>{t['halle.erwartet.kopf']}</h2>
+        <h2>{t['hall.awaits.heading']}</h2>
       </div>
 
       <div class="gitter gitter-4">
         <article class="tafel kachel">
-          <img class="kachel-bild" src="/assets/bilder/ik1.webp" width="480" height="512" alt={t['halle.erwartet.neun_lande.bild_alt']} />
-          <h3>{t['halle.erwartet.neun_lande.titel']}</h3>
-          <p>{t['halle.erwartet.neun_lande.text']}</p>
+          <img class="kachel-bild" src="/assets/bilder/ik1.webp" width="480" height="512" alt={t['hall.awaits.nine_lands.image_alt']} />
+          <h3>{t['hall.awaits.nine_lands.title']}</h3>
+          <p>{t['hall.awaits.nine_lands.text']}</p>
         </article>
 
         <article class="tafel kachel" style="--kachel-schein:rgba(139,0,0,.14)">
-          <img class="kachel-bild" src="/assets/bilder/ik2.webp" width="480" height="512" alt={t['halle.erwartet.fuenf_waechter.bild_alt']} />
-          <h3>{t['halle.erwartet.fuenf_waechter.titel']}</h3>
-          <p>{t['halle.erwartet.fuenf_waechter.text']}</p>
+          <img class="kachel-bild" src="/assets/bilder/ik2.webp" width="480" height="512" alt={t['hall.awaits.five_guardians.image_alt']} />
+          <h3>{t['hall.awaits.five_guardians.title']}</h3>
+          <p>{t['hall.awaits.five_guardians.text']}</p>
         </article>
 
         <article class="tafel kachel" style="--kachel-schein:rgba(195,204,140,.12)">
-          <img class="kachel-bild" src="/assets/bilder/ik3.webp" width="480" height="512" alt={t['halle.erwartet.bauen.bild_alt']} />
-          <h3>{t['halle.erwartet.bauen.titel']}</h3>
-          <p>{t['halle.erwartet.bauen.text']}</p>
+          <img class="kachel-bild" src="/assets/bilder/ik3.webp" width="480" height="512" alt={t['hall.awaits.building.image_alt']} />
+          <h3>{t['hall.awaits.building.title']}</h3>
+          <p>{t['hall.awaits.building.text']}</p>
         </article>
 
         <article class="tafel kachel" style="--kachel-schein:rgba(227,201,186,.12)">
-          <img class="kachel-bild" src="/assets/bilder/ik4.webp" width="480" height="512" alt={t['halle.erwartet.verliese.bild_alt']} />
-          <h3>{t['halle.erwartet.verliese.titel']}</h3>
-          <p>{t['halle.erwartet.verliese.text']}</p>
+          <img class="kachel-bild" src="/assets/bilder/ik4.webp" width="480" height="512" alt={t['hall.awaits.dungeons.image_alt']} />
+          <h3>{t['hall.awaits.dungeons.title']}</h3>
+          <p>{t['hall.awaits.dungeons.text']}</p>
         </article>
       </div>
     </div>
@@ -184,17 +184,17 @@
         <div class="tafel" style="background:rgba(19,19,19,.9);backdrop-filter:blur(6px);padding:2rem">
           <div class="merkmal-kopf">
             <span class="ikonen-kasten" aria-hidden="true"><Ikone name="welt" /></span>
-            <h3>{t['halle.technik.kein_konto.titel']}</h3>
+            <h3>{t['hall.technology.no_account.title']}</h3>
           </div>
-          <p style="color:var(--matt);margin:0">{t['halle.technik.kein_konto.text']}</p>
+          <p style="color:var(--matt);margin:0">{t['hall.technology.no_account.text']}</p>
 
           <hr class="strich" />
 
           <div class="merkmal-kopf">
             <span class="ikonen-kasten" aria-hidden="true"><Ikone name="hammer" /></span>
-            <h3>{t['halle.technik.ehrlicher_server.titel']}</h3>
+            <h3>{t['hall.technology.honest_server.title']}</h3>
           </div>
-          <p style="color:var(--matt);margin:0">{t['halle.technik.ehrlicher_server.text']}</p>
+          <p style="color:var(--matt);margin:0">{t['hall.technology.honest_server.text']}</p>
         </div>
 
         <div>
@@ -211,15 +211,15 @@
               style="color:var(--runengold);font-family:var(--schrift-kappen);font-size:12px;letter-spacing:.1em;text-transform:uppercase;display:flex;align-items:center;gap:.5rem"
             >
               <Ikone name="kreis" klasse="ikone" />
-              {t['halle.welten.titel']}
+              {t['hall.worlds.title']}
             </h4>
-            <p style="color:var(--matt);font-size:14px">{t['halle.welten.text']}</p>
+            <p style="color:var(--matt);font-size:14px">{t['hall.worlds.text']}</p>
 
             <div class="gitter">
               {#if weltenFehler}
-                <p class="leer-zustand" style="padding:1.5rem 1rem">{t['halle.welten.fehler']}</p>
+                <p class="leer-zustand" style="padding:1.5rem 1rem">{t['hall.worlds.error']}</p>
               {:else if welten === null}
-                <p class="leer-zustand" style="padding:1.5rem 1rem">{t['halle.welten.laedt']}</p>
+                <p class="leer-zustand" style="padding:1.5rem 1rem">{t['hall.worlds.loading']}</p>
               {:else}
                 {#each welten as w (w.id)}
                   <article class="tafel">
@@ -228,23 +228,23 @@
                       <span class="bifroest" data-zustand={w.zustand}>
                         <span class="ampel" aria-hidden="true"></span>
                         {w.zustand === 'offen'
-                          ? t['halle.welten.zustand_offen']
-                          : t['halle.welten.zustand_geschlossen']}
+                          ? t['hall.worlds.state_open']
+                          : t['hall.worlds.state_closed']}
                       </span>
                     </div>
                     <p style="color:var(--matt);font-size:.95rem;margin:.6rem 0 1rem">{w.beschreibung}</p>
                     <div class="werte">
                       <div class="wert">
-                        <b>{w.spieler}/{w.plaetze}</b><span>{t['halle.welten.wert.auf_fahrt']}</span>
+                        <b>{w.spieler}/{w.plaetze}</b><span>{t['hall.worlds.value.underway']}</span>
                       </div>
                       <div class="wert">
-                        <b>{w.weltzeit}</b><span>{t['halle.welten.wert.weltzeit']}</span>
+                        <b>{w.weltzeit}</b><span>{t['hall.worlds.value.world_time']}</span>
                       </div>
-                      <div class="wert"><b>{w.art}</b><span>{t['halle.welten.wert.art']}</span></div>
+                      <div class="wert"><b>{w.art}</b><span>{t['hall.worlds.value.type']}</span></div>
                     </div>
                     <p style="color:var(--matt);font-size:.85rem;margin:1rem 0 0">
-                      {t['halle.welten.wetter_label']}
-                      {w.wetter} · {t['halle.welten.saat_label']} <code>{w.saat}</code>
+                      {t['hall.worlds.weather_label']}
+                      {w.wetter} · {t['hall.worlds.seed_label']} <code>{w.saat}</code>
                     </p>
                   </article>
                 {/each}
@@ -252,7 +252,7 @@
             </div>
 
             <p style="margin:1.2rem 0 0">
-              <a href={p('/karte')} class="kappen">{t['halle.welten.karte_link']}</a>
+              <a href={p('/karte')} class="kappen">{t['hall.worlds.map_link']}</a>
             </p>
           </div>
         </div>
@@ -268,24 +268,24 @@
           <span class="runen" aria-hidden="true" style="display:block;font-size:18px;margin-bottom:.5rem">ᚱᚢᚺᛗ</span>
           <h2 style="display:flex;align-items:center;gap:.75rem">
             <Ikone name="pokal" />
-            {t['halle.ruhmeshalle.titel']}
+            {t['hall.hall_of_fame.title']}
           </h2>
           <div class="tafel tafel-tabelle">
             <div class="rollbar">
               <table class="tabelle">
                 <thead>
                   <tr>
-                    <th class="zahl">{t['halle.ruhmeshalle.spalte.raute']}</th>
-                    <th>{t['halle.ruhmeshalle.spalte.recke']}</th>
-                    <th>{t['halle.ruhmeshalle.spalte.sippe']}</th>
-                    <th class="zahl">{t['halle.ruhmeshalle.spalte.runenrang']}</th>
+                    <th class="zahl">{t['hall.hall_of_fame.column.hash']}</th>
+                    <th>{t['hall.hall_of_fame.column.character']}</th>
+                    <th>{t['hall.hall_of_fame.column.clan']}</th>
+                    <th class="zahl">{t['hall.hall_of_fame.column.rune_rank']}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {#if recken2Fehler}
-                    <tr><td colspan="4">{t['halle.ruhmeshalle.fehler']}</td></tr>
+                    <tr><td colspan="4">{t['hall.hall_of_fame.error']}</td></tr>
                   {:else if beste === null}
-                    <tr><td colspan="4">{t['halle.ruhmeshalle.laedt']}</td></tr>
+                    <tr><td colspan="4">{t['hall.hall_of_fame.loading']}</td></tr>
                   {:else}
                     {#each beste as r, i (r.id)}
                       <tr>
@@ -304,14 +304,14 @@
             </div>
           </div>
           <p style="margin:1.2rem 0 0">
-            <a href={p('/ruhmeshalle')} class="kappen">{t['halle.ruhmeshalle.link']}</a>
+            <a href={p('/ruhmeshalle')} class="kappen">{t['hall.hall_of_fame.link']}</a>
           </p>
         </div>
 
         <div>
           <h2 style="display:flex;align-items:center;gap:.75rem;margin-top:2rem">
             <Ikone name="forum" />
-            {t['halle.thing.titel']}
+            {t['hall.thing.title']}
           </h2>
           <div class="tafel" style="padding:2rem">
             <span
@@ -321,9 +321,9 @@
               <Ikone name="blase" klasse="ikone ikone-deko" />
             </span>
             <p style="color:var(--matt);position:relative;margin-bottom:1.6rem">
-              {t['halle.thing.text']}
+              {t['hall.thing.text']}
             </p>
-            <a class="knopf" href={p('/thing')}>{t['halle.thing.knopf']}</a>
+            <a class="knopf" href={p('/thing')}>{t['hall.thing.button']}</a>
           </div>
         </div>
       </div>
@@ -335,13 +335,13 @@
     <div class="mitte">
       <div class="abschnitt-kopf">
         <span class="runen" aria-hidden="true">ᛊᚨᚷᚨ</span>
-        <h2>{t['halle.saga_anriss.titel']}</h2>
+        <h2>{t['hall.saga_teaser.title']}</h2>
       </div>
       <div class="gitter gitter-3">
         {#if sagaFehler}
-          <p class="leer-zustand">{t['halle.saga_anriss.fehler']}</p>
+          <p class="leer-zustand">{t['hall.saga_teaser.error']}</p>
         {:else if saga === null}
-          <p class="leer-zustand">{t['halle.saga_anriss.laedt']}</p>
+          <p class="leer-zustand">{t['hall.saga_teaser.loading']}</p>
         {:else}
           {#each saga as e (e.datum + e.titel)}
             <article class="tafel-matt">
@@ -355,7 +355,7 @@
         {/if}
       </div>
       <p style="margin-top:1.6rem;text-align:center">
-        <a href={p('/saga')} class="kappen">{t['halle.saga_anriss.link']}</a>
+        <a href={p('/saga')} class="kappen">{t['hall.saga_teaser.link']}</a>
       </p>
     </div>
   </section>

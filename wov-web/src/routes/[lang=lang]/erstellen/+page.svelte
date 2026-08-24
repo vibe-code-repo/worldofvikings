@@ -11,18 +11,18 @@
     SHORE_IDS,
     SHORE_LABEL,
     type ShoreId,
-    charakterAnlegen,
     clearToken,
+    createCharacter,
     errorMessageKey,
     isLoggedOut,
+    play,
     playUrl,
     readShore,
     readToken,
     signedInShore,
-    spielen,
     writeShore,
-  } from '$lib/konto';
-  import '$lib/stil/konto.css';
+  } from '$lib/account';
+  import '$lib/stil/account.css';
 
   /**
    * Charaktererstellung — Auswahl, Vorschau und Übergabe an den Spielserver.
@@ -36,7 +36,7 @@
    * den Recken erst am Konto an (POST /api/konto/charaktere) und tauscht ihn
    * dann gegen ein Sitzungsticket (POST …/spielen). Das Ticket steht im
    * Adressfragment (`#ticket=`), nie in einem Parameter — die Begründung
-   * dazu steht bei `playUrl()` in `$lib/konto.ts`.
+   * dazu steht bei `playUrl()` in `$lib/account.ts`.
    *
    * Manipulierbar ist an den Parametern nur das EIGENE Aussehen, und das
    * darf man ohnehin — der Server prüft jede eingehende Kennung gegen
@@ -170,8 +170,8 @@
 
   const gestadeHinweis = $derived(
     gestade === 'dev'
-      ? t['erstellen.fahrt.gestade.hinweis.dev']
-      : t['erstellen.fahrt.gestade.hinweis.live'],
+      ? t['create.voyage.shore.hint.dev']
+      : t['create.voyage.shore.hint.live'],
   );
 
   /**
@@ -241,15 +241,15 @@
       try {
         const probe = await fetch(url, { method: 'GET' });
         grund = probe.ok
-          ? fuelle(t['erstellen.buehne.hinweis.datei_erreichbar'], { status: probe.status })
-          : fuelle(t['erstellen.buehne.hinweis.server_status'], { status: probe.status });
+          ? fuelle(t['create.stage.hint.file_reachable'], { status: probe.status })
+          : fuelle(t['create.stage.hint.server_status'], { status: probe.status });
       } catch (netz) {
-        grund = fuelle(t['erstellen.buehne.hinweis.kein_zugriff'], {
+        grund = fuelle(t['create.stage.hint.no_access'], {
           fehler: String(netz).slice(0, 60),
         });
       }
       fertig = false;
-      hinweisText = fuelle(t['erstellen.buehne.hinweis.nicht_geladen'], { grund });
+      hinweisText = fuelle(t['create.stage.hint.not_loaded'], { grund });
     }
   }
 
@@ -287,7 +287,7 @@
         daten = await holeJson<Aussehen>('/assets/aussehen.json');
       } catch (e) {
         console.error('[erstellung]', e);
-        hinweisText = t['erstellen.buehne.hinweis.listen_fehlen'];
+        hinweisText = t['create.stage.hint.lists_missing'];
         return;
       }
       vorgabenWaehlen();
@@ -308,7 +308,7 @@
         vorschau = new modul.Vorschau(leinwand, modellWurzel);
       } catch (e) {
         console.error('[erstellung] vorschau.js', e);
-        hinweisText = fuelle(t['erstellen.buehne.hinweis.modul_fehlt'], {
+        hinweisText = fuelle(t['create.stage.hint.module_missing'], {
           fehler: String(e).slice(0, 90),
         });
         return;
@@ -392,14 +392,14 @@
 
     sendet = true;
     try {
-      const neu = await charakterAnlegen(gestade, token, {
+      const neu = await createCharacter(gestade, token, {
         name: spielerName.trim(),
         figur,
         frisur,
         ober,
         beine,
       });
-      const ticket = await spielen(gestade, token, neu.character.id);
+      const ticket = await play(gestade, token, neu.character.id);
       location.href = playUrl(gestade, ticket.character, ticket.sessionToken, zeit);
     } catch (err) {
       sendet = false;
@@ -410,7 +410,7 @@
         // stehen, und der Blick landet dort, wo etwas zu ändern ist.
         namensFehler = errorMessageKey(schluessel);
       } else {
-        sendeFehler = schluessel ? errorMessageKey(schluessel) : 'konto.fehler.unerwartet';
+        sendeFehler = schluessel ? errorMessageKey(schluessel) : 'account.error.unexpected';
       }
     }
   }
@@ -448,60 +448,60 @@
 </script>
 
 <Kopfdaten
-  titel={t['erstellen.kopf.titel']}
-  beschreibung={t['erstellen.kopf.beschreibung']}
+  titel={t['create.meta.title']}
+  beschreibung={t['create.meta.description']}
   noindex
 />
 
 <main class="mitte" style="padding-block: 22px 34px">
   <div class="erstellen-kopfzeile">
-    <h1>{t['erstellen.titel']}</h1>
-    <p>{t['erstellen.einleitung']}</p>
+    <h1>{t['create.title']}</h1>
+    <p>{t['create.intro']}</p>
   </div>
 
   {#if angemeldet}
     <div class="erstellen-raster">
       <!-- links: Aussehen -->
       <aside class="tafel">
-        <h2>{t['erstellen.aussehen.titel']}</h2>
+        <h2>{t['create.appearance.title']}</h2>
 
-        <label class="feldname" for="figur-wahl">{t['erstellen.aussehen.figur.label']}</label>
+        <label class="feldname" for="figur-wahl">{t['create.appearance.figure.label']}</label>
         <select id="figur-wahl" bind:value={figur} onchange={() => { merke(); void ladeAlles(); }}>
           {#each daten?.figuren ?? [] as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
         </select>
 
-        <label class="feldname" for="frisur-wahl">{t['erstellen.aussehen.frisur.label']}</label>
+        <label class="feldname" for="frisur-wahl">{t['create.appearance.hair.label']}</label>
         <div class="waehler">
-          <button type="button" aria-label={t['erstellen.aussehen.frisur.vorige']}
+          <button type="button" aria-label={t['create.appearance.hair.previous']}
             onclick={() => { frisur = schritt(daten?.frisuren ?? [], frisur, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
           <select id="frisur-wahl" bind:value={frisur} onchange={() => { merke(); void zeigeAussehen(); }}>
             {#each daten?.frisuren ?? [] as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
           </select>
-          <button type="button" aria-label={t['erstellen.aussehen.frisur.naechste']}
+          <button type="button" aria-label={t['create.appearance.hair.next']}
             onclick={() => { frisur = schritt(daten?.frisuren ?? [], frisur, 1, false); merke(); void zeigeAussehen(); }}>›</button>
         </div>
 
-        <label class="feldname" for="oberkoerper-wahl">{t['erstellen.aussehen.oberkoerper.label']}</label>
+        <label class="feldname" for="oberkoerper-wahl">{t['create.appearance.chest.label']}</label>
         <div class="waehler">
-          <button type="button" aria-label={t['erstellen.aussehen.oberkoerper.voriges']}
+          <button type="button" aria-label={t['create.appearance.chest.previous']}
             onclick={() => { ober = schritt(oberTeile, ober, -1, true); merke(); void zeigeAussehen(); }}>‹</button>
           <select id="oberkoerper-wahl" bind:value={ober} onchange={() => { merke(); void zeigeAussehen(); }}>
-            <option value="">{t['erstellen.aussehen.oberkoerper.nichts']}</option>
+            <option value="">{t['create.appearance.chest.none']}</option>
             {#each oberTeile as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
           </select>
-          <button type="button" aria-label={t['erstellen.aussehen.oberkoerper.naechstes']}
+          <button type="button" aria-label={t['create.appearance.chest.next']}
             onclick={() => { ober = schritt(oberTeile, ober, 1, true); merke(); void zeigeAussehen(); }}>›</button>
         </div>
 
-        <label class="feldname" for="beine-wahl">{t['erstellen.aussehen.beine.label']}</label>
+        <label class="feldname" for="beine-wahl">{t['create.appearance.legs.label']}</label>
         <div class="waehler">
-          <button type="button" aria-label={t['erstellen.aussehen.beine.voriges']}
+          <button type="button" aria-label={t['create.appearance.legs.previous']}
             onclick={() => { beine = schritt(beinTeile, beine, -1, true); merke(); void zeigeAussehen(); }}>‹</button>
           <select id="beine-wahl" bind:value={beine} onchange={() => { merke(); void zeigeAussehen(); }}>
-            <option value="">{t['erstellen.aussehen.beine.nichts']}</option>
+            <option value="">{t['create.appearance.legs.none']}</option>
             {#each beinTeile as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
           </select>
-          <button type="button" aria-label={t['erstellen.aussehen.beine.naechstes']}
+          <button type="button" aria-label={t['create.appearance.legs.next']}
             onclick={() => { beine = schritt(beinTeile, beine, 1, true); merke(); void zeigeAussehen(); }}>›</button>
         </div>
       </aside>
@@ -540,37 +540,37 @@
         {/if}
         <canvas bind:this={leinwand}></canvas>
         <div class="buehne-hinweis" class:fertig>
-          {hinweisText ?? t['erstellen.buehne.hinweis.laedt']}
+          {hinweisText ?? t['create.stage.hint.loading']}
         </div>
         <div class="buehne-werkzeug">
-          <button type="button" title={t['erstellen.buehne.dreh_links']} onclick={() => vorschau?.drehe(-0.35)}>↺</button>
-          <button type="button" title={t['erstellen.buehne.dreh_rechts']} onclick={() => vorschau?.drehe(0.35)}>↻</button>
-          <button type="button" title={t['erstellen.buehne.blick_zurueck']} onclick={() => vorschau?.blickZurueck()}>⌂</button>
+          <button type="button" title={t['create.stage.rotate_left']} onclick={() => vorschau?.drehe(-0.35)}>↺</button>
+          <button type="button" title={t['create.stage.rotate_right']} onclick={() => vorschau?.drehe(0.35)}>↻</button>
+          <button type="button" title={t['create.stage.reset_view']} onclick={() => vorschau?.blickZurueck()}>⌂</button>
         </div>
       </div>
 
       <!-- rechts: Fahrt -->
       <aside class="tafel">
-        <h2>{t['erstellen.fahrt.titel']}</h2>
+        <h2>{t['create.voyage.title']}</h2>
 
-        <label class="feldname" for="spieler-name">{t['erstellen.fahrt.name.label']}</label>
+        <label class="feldname" for="spieler-name">{t['create.voyage.name.label']}</label>
         <input
           type="text"
           id="spieler-name"
           maxlength="24"
-          placeholder={t['erstellen.fahrt.name.platzhalter']}
+          placeholder={t['create.voyage.name.placeholder']}
           aria-invalid={namensFehler ? 'true' : undefined}
           aria-describedby="name-hilfe"
           bind:value={spielerName}
           onchange={merke}
         />
         {#if namensFehler}
-          <p class="konto-fehler" id="name-hilfe" role="alert">{t[namensFehler]}</p>
+          <p class="account-error" id="name-hilfe" role="alert">{t[namensFehler]}</p>
         {:else}
-          <p class="gestade-hinweis" id="name-hilfe">{t['erstellen.fahrt.name.hilfe']}</p>
+          <p class="gestade-hinweis" id="name-hilfe">{t['create.voyage.name.hint']}</p>
         {/if}
 
-        <label class="feldname" for="server-wahl">{t['erstellen.fahrt.gestade.label']}</label>
+        <label class="feldname" for="server-wahl">{t['create.voyage.shore.label']}</label>
         <select id="server-wahl" bind:value={gestade} onchange={gestadeGewechselt}>
           {#each SHORE_IDS as s (s)}
             <option value={s}>{t[SHORE_LABEL[s]]}</option>
@@ -579,28 +579,28 @@
         <p class="gestade-hinweis">{gestadeHinweis}</p>
 
         {#if gestade === 'dev'}
-          <label class="feldname" for="zeit-wahl">{t['erstellen.fahrt.zeit.label']}</label>
+          <label class="feldname" for="zeit-wahl">{t['create.voyage.time.label']}</label>
           <select id="zeit-wahl" bind:value={zeit} onchange={merke}>
-            <option value="">{t['erstellen.fahrt.zeit.serverzeit']}</option>
+            <option value="">{t['create.voyage.time.server_time']}</option>
             {#each stunden as s (s.wert)}
               <option value={s.wert}>{s.text}</option>
             {/each}
           </select>
-          <p class="gestade-hinweis">{t['erstellen.fahrt.zeit.hinweis']}</p>
+          <p class="gestade-hinweis">{t['create.voyage.time.hint']}</p>
         {/if}
 
         {#if sendeFehler}
-          <p class="konto-melder" role="alert">{t[sendeFehler]}</p>
+          <p class="account-notice" role="alert">{t[sendeFehler]}</p>
         {/if}
       </aside>
     </div>
 
     <div class="erstellen-fuss">
-      <span class="hinweis-klein">{fussHinweisAn ? t['erstellen.fuss.hinweis'] : ''}</span>
-      <a class="knopf knopf-rand" href={localizedPath(lang, '/konto')}>{t['erstellen.zu_konto']}</a>
-      <a class="knopf knopf-rand" href={localizedPath(lang, '/')}>{t['erstellen.fuss.zurueck']}</a>
+      <span class="hinweis-klein">{fussHinweisAn ? t['create.footer.hint'] : ''}</span>
+      <a class="knopf knopf-rand" href={localizedPath(lang, '/konto')}>{t['create.to_account']}</a>
+      <a class="knopf knopf-rand" href={localizedPath(lang, '/')}>{t['create.footer.back']}</a>
       <button type="button" class="knopf knopf-gross" disabled={sendet} onclick={losfahren}>
-        {sendet ? t['erstellen.knopf.laeuft'] : t['erstellen.knopf.losfahren']}
+        {sendet ? t['create.button.loading'] : t['create.button.set_sail']}
       </button>
     </div>
   {:else}
@@ -608,29 +608,29 @@
       Die Anmeldesperre. Genau dieser Zustand steht im vorgerenderten HTML
       und ist damit auch das, was ohne JavaScript dasteht.
     -->
-    <div class="konto-schmal">
-      <div class="konto-tafel">
-        <h2 style="margin-top:0">{t['erstellen.sperre.titel']}</h2>
-        <p style="color:var(--matt)">{t['erstellen.sperre.text']}</p>
+    <div class="account-narrow">
+      <div class="account-panel">
+        <h2 style="margin-top:0">{t['create.gate.title']}</h2>
+        <p style="color:var(--matt)">{t['create.gate.text']}</p>
 
         {#if bereit}
           <!-- Die Gestadewahl steht nur mit Skript da: ohne Skript wäre sie
                ein Kasten, dessen Umstellen nichts bewirkt. -->
-          <label class="feldname" for="sperre-gestade">{t['erstellen.fahrt.gestade.label']}</label>
+          <label class="feldname" for="sperre-gestade">{t['create.voyage.shore.label']}</label>
           <select id="sperre-gestade" bind:value={gestade} onchange={gestadeGewechselt}>
             {#each SHORE_IDS as s (s)}
               <option value={s}>{t[SHORE_LABEL[s]]}</option>
             {/each}
           </select>
-          <p class="gestade-hinweis">{t['konto.gestade.hilfe']}</p>
+          <p class="gestade-hinweis">{t['account.shore.hint']}</p>
         {/if}
 
-        <div class="konto-tat">
+        <div class="account-actions">
           <a class="knopf" href={localizedPath(lang, '/anmelden')}>
-            {t['erstellen.sperre.anmelden']}
+            {t['create.gate.login']}
           </a>
           <a class="knopf knopf-rand" href={localizedPath(lang, '/registrieren')}>
-            {t['erstellen.sperre.registrieren']}
+            {t['create.gate.register']}
           </a>
         </div>
       </div>

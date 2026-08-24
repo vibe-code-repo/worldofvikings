@@ -10,28 +10,28 @@
 </script>
 
 <Kopfdaten
-  titel={t['karte.titel']}
-  beschreibung={t['karte.beschreibung']}
+  titel={t['map.title']}
+  beschreibung={t['map.description']}
   bild="/assets/karten/live.webp"
 />
 
 <main class="mitte seite">
-  <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['karte.ueberschrift']}</h1>
-  <p style="color:var(--matt);max-width:46rem">{t['karte.einleitung']}</p>
+  <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['map.heading']}</h1>
+  <p style="color:var(--matt);max-width:46rem">{t['map.intro']}</p>
 
   <Kartenbetrachter />
 
   <noscript>
     <div class="hinweis" style="margin:1.5rem 0">
-      <b>{t['karte.hinweis.fett']}</b>
-      {t['karte.hinweis.text']}
-      <a href="/assets/karten/live.webp">{t['karte.hinweis.link_midgard']}</a>
-      {t['karte.hinweis.verbindung']}
-      <a href="/assets/karten/dev.webp">{t['karte.hinweis.link_werkstatt']}</a>.
+      <b>{t['map.hint.bold']}</b>
+      {t['map.hint.text']}
+      <a href="/assets/karten/live.webp">{t['map.hint.link_midgard']}</a>
+      {t['map.hint.and']}
+      <a href="/assets/karten/dev.webp">{t['map.hint.link_workshop']}</a>.
     </div>
   </noscript>
 
   <p style="margin-top:2.5rem;text-align:center">
-    <a class="knopf" href={localizedPath(lang, FAHRT)}>{t['karte.cta']}</a>
+    <a class="knopf" href={localizedPath(lang, FAHRT)}>{t['map.cta']}</a>
   </p>
 </main>

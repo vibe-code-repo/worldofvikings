@@ -39,17 +39,17 @@
 <Kopfdaten
   blankerTitel
   titel="World of Vikings"
-  beschreibung="{de['halle.kopf.beschreibung']} — {en['halle.kopf.beschreibung']}"
+  beschreibung="{de['hall.meta.description']} — {en['hall.meta.description']}"
 />
 
 <main class="mitte seite">
   <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">World of Vikings</h1>
 
   <p style="color:var(--matt);max-width:44rem" lang="de">
-    {de['halle.held.unter']}
+    {de['hall.hero.subtitle']}
   </p>
   <p style="color:var(--matt);max-width:44rem" lang="en">
-    {en['halle.held.unter']}
+    {en['hall.hero.subtitle']}
   </p>
 
   <div class="runen-trenner" aria-hidden="true">ᚹᛖᚷ</div>

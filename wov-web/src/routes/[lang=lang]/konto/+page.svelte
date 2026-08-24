@@ -6,284 +6,282 @@
   import { type MessageKey, localeFrom, localizedPath, messages } from '$lib/i18n';
   import { datumKurz, holeJson, vorWieLange } from '$lib/formate';
   import {
+    type Account,
     ApiError,
-    type Charakter,
-    type Konto,
+    type Character,
     SHORE_IDS,
     SHORE_LABEL,
     type ShoreId,
-    charakterLoeschen,
     clearAllTokens,
     clearToken,
+    deleteCharacter,
     errorMessageKey,
-    ich,
     isLoggedOut,
+    me,
+    play,
     playUrl,
     readShore,
     readToken,
     signedInShore,
-    spielen,
     writeShore,
-  } from '$lib/konto';
-  import '$lib/stil/konto.css';
+  } from '$lib/account';
+  import '$lib/stil/account.css';
 
   /**
-   * Die Kontoseite: welche Recken es gibt, und was man mit ihnen tun kann.
+   * The account page: which characters exist, and what can be done with them.
    *
-   * ── Warum der Vorgabezustand „nicht angemeldet“ ist ──────────────────
-   * Die Seite wird zur Bauzeit einmal geschrieben. Zu diesem Zeitpunkt kann
-   * niemand wissen, wer sie später öffnet — „nicht angemeldet“ ist deshalb
-   * nicht nur die sichere, sondern die einzige Annahme, die überhaupt
-   * feststeht. Genau dieser Zustand ist auch das, was ein Browser ohne
-   * JavaScript zu sehen bekommt: ein erklärender Absatz und zwei Links,
-   * niemals eine leere Liste, die nach einem Fehler aussieht.
+   * ── Why the default state is "not signed in" ─────────────────────────
+   * The page is written once at build time. At that moment nobody can know
+   * who will open it later — "not signed in" is therefore not merely the
+   * safe assumption but the only one that actually holds. That same state is
+   * also what a browser without JavaScript gets to see: an explanatory
+   * paragraph and two links, never an empty list that looks like a failure.
    *
-   * ── Warum die Liste trotz der Anmeldeantwort noch einmal geholt wird ──
-   * Wer aus /anmelden kommt, hätte sie schon. Wer ein Lesezeichen öffnet
-   * oder die Seite neu lädt, hat nur den Token im localStorage und sonst
-   * nichts. Ein zweiter Weg für diesen Fall wäre ein zweiter Weg, der
-   * seltener benutzt und deshalb später kaputt ist.
+   * ── Why the list is fetched again despite the sign-in answer ──────────
+   * Whoever arrives from /anmelden would already have it. Whoever opens a
+   * bookmark or reloads the page has nothing but the token in localStorage.
+   * A second code path for that case would be a second code path that is
+   * used more rarely and is therefore broken LATER -- broken without anyone
+   * noticing, until the day somebody walks it.
    */
 
   const lang = $derived(localeFrom(page.params.lang));
   const t = $derived(messages(lang));
 
-  let bereit = $state(false);
-  let gestade = $state<ShoreId>('dev');
-  let angemeldet = $state(false);
+  let ready = $state(false);
+  let shore = $state<ShoreId>('dev');
+  let signedIn = $state(false);
   /**
-   * Das Gestade hat nicht geantwortet (oder mit einem Fehler, der nichts
-   * ueber die Anmeldung aussagt). Ein eigener Zustand neben `angemeldet`,
-   * weil weder „angemeldet“ noch „nicht angemeldet“ hier stimmt — beides
-   * behauptete etwas, das gerade niemand weiss.
+   * The shore did not answer (or answered with an error that says nothing
+   * about the sign-in). A state of its own next to `signedIn`, because
+   * neither "signed in" nor "not signed in" is true here — both would claim
+   * something nobody knows at that moment.
    */
-  let unerreichbar = $state(false);
-  let laedt = $state(false);
-  let konto = $state<Konto | null>(null);
-  let charaktere = $state<Charakter[]>([]);
-  let fehler = $state<MessageKey | null>(null);
-  /** Der Recke, für den gerade die Löschfrage steht. */
-  let loeschFrage = $state<number | null>(null);
-  /** Der Recke, an dem gerade ein Aufruf läuft — sperrt nur dessen Knöpfe. */
-  let beschaeftigt = $state<number | null>(null);
+  let unreachable = $state(false);
+  let loading = $state(false);
+  let account = $state<Account | null>(null);
+  let characters = $state<Character[]>([]);
+  let error = $state<MessageKey | null>(null);
+  /** The character the delete question is currently standing for. */
+  let deleteAsk = $state<number | null>(null);
+  /** The character a call is running for — locks only that one's buttons. */
+  let busy = $state<number | null>(null);
 
-  /* ---------------------------------------------------------- Aussehen */
+  /* -------------------------------------------------------- appearance */
 
-  interface AussehenEintrag {
+  interface AppearanceEntry {
     id: string;
     name: string;
   }
-  interface Aussehen {
-    figuren: AussehenEintrag[];
-    frisuren: AussehenEintrag[];
-    ruestung: AussehenEintrag[];
+  interface Appearance {
+    figuren: AppearanceEntry[];
+    frisuren: AppearanceEntry[];
+    ruestung: AppearanceEntry[];
   }
 
   /**
-   * id → Anzeigename, aus derselben Datei, aus der /erstellen seine Auswahl
-   * baut. Bleibt leer, wenn die Datei fehlt; dann steht die nackte Kennung
-   * da. Das ist hässlicher, aber es ist wahr — und es bringt die Seite nicht
-   * um, wenn ein Ausrollen die Datei vergisst.
+   * id → display name, out of the same file /erstellen builds its choices
+   * from. Stays empty when the file is missing; then the bare id is what
+   * shows. That is uglier, but it is true — and it does not kill the page
+   * when a rollout forgets the file.
    *
-   * Die Namen darin sind deutsch, wie die übrigen Laufzeitdaten unter
-   * `static/api/`. Auf /en/konto steht deshalb ein englischer Rahmen um
-   * deutsche Kleidungsnamen — dieselbe offene Stelle, die auch Saga und
-   * Ruhmeshalle haben.
+   * The names in it are German, like the rest of the runtime data under
+   * `static/api/`. On /en/konto there is therefore an English frame around
+   * German clothing names — the same open spot the saga and the hall of
+   * fame have.
    */
-  let namen = $state<Record<string, string>>({});
+  let names = $state<Record<string, string>>({});
 
-  function benenne(id: string): string {
-    return id ? (namen[id] ?? id) : t['erstellen.aussehen.oberkoerper.nichts'];
+  function nameOf(id: string): string {
+    return id ? (names[id] ?? id) : t['create.appearance.chest.none'];
   }
 
-  /* ------------------------------------------------------------- Laden */
+  /* ------------------------------------------------------------ loading */
 
-  async function laden() {
-    fehler = null;
-    unerreichbar = false;
-    loeschFrage = null;
-    const token = readToken(gestade);
+  async function load() {
+    error = null;
+    unreachable = false;
+    deleteAsk = null;
+    const token = readToken(shore);
     if (!token) {
-      angemeldet = false;
-      konto = null;
-      charaktere = [];
+      signedIn = false;
+      account = null;
+      characters = [];
       return;
     }
-    laedt = true;
+    loading = true;
     try {
-      const daten = await ich(gestade, token);
-      konto = daten.account;
-      charaktere = daten.characters;
-      angemeldet = true;
+      const data = await me(shore, token);
+      account = data.account;
+      characters = data.characters;
+      signedIn = true;
     } catch (err) {
       if (isLoggedOut(err)) {
-        clearToken(gestade);
-        angemeldet = false;
-        konto = null;
-        charaktere = [];
+        clearToken(shore);
+        signedIn = false;
+        account = null;
+        characters = [];
       } else {
-        // Ein Serverfehler oder eine abgerissene Leitung ist KEINE
-        // bestaetigte Anmeldung. Vorher stand hier `angemeldet = true`:
-        // Dann zeigte die Seite die Oberflaeche eines angemeldeten Kontos
-        // samt LEERER Reckenliste — also „du hast keine Recken“, wo
-        // richtig „wir haben das Gestade nicht erreicht“ gewesen waere.
+        // A server error or a broken connection is NOT a confirmed sign-in.
+        // This used to say `signedIn = true`: the page then showed the
+        // surface of a signed-in account together with an EMPTY character
+        // list — that is, "you have no characters", where "we did not
+        // reach the shore" would have been right.
         //
-        // Der Token bleibt liegen (nicht clearToken): Er kann in Ordnung
-        // sein, wir wissen es bloss gerade nicht. Beim naechsten Laden
-        // wird es sich zeigen.
-        unerreichbar = true;
-        fehler = err instanceof ApiError ? errorMessageKey(err.key) : 'konto.fehler.unerwartet';
+        // The token stays put (no clearToken): it may well be fine, we
+        // simply do not know right now. The next load will tell.
+        unreachable = true;
+        error = err instanceof ApiError ? errorMessageKey(err.key) : 'account.error.unexpected';
       }
     } finally {
-      laedt = false;
+      loading = false;
     }
   }
 
-  async function gestadeGewechselt() {
-    writeShore(gestade);
-    await laden();
+  async function shoreChanged() {
+    writeShore(shore);
+    await load();
   }
 
-  /* ----------------------------------------------------------- Aktionen */
+  /* ------------------------------------------------------------ actions */
 
-  /** Token weg, zurück zur Anmeldung — der einzige Weg nach einer 401. */
-  async function zurAnmeldung() {
-    clearToken(gestade);
-    angemeldet = false;
+  /** Token gone, back to sign-in — the only way out after a 401. */
+  async function toLogin() {
+    clearToken(shore);
+    signedIn = false;
     await goto(`${localizedPath(lang, '/anmelden')}?abgelaufen=1`);
   }
 
-  async function aufFahrt(c: Charakter) {
-    if (beschaeftigt !== null) return;
-    const token = readToken(gestade);
-    if (!token) return zurAnmeldung();
-    fehler = null;
-    beschaeftigt = c.id;
+  async function setSail(c: Character) {
+    if (busy !== null) return;
+    const token = readToken(shore);
+    if (!token) return toLogin();
+    error = null;
+    busy = c.id;
     try {
-      const ticket = await spielen(gestade, token, c.id);
-      // Der Zugangsnachweis reist im Adressfragment, nie als Parameter —
-      // die Begründung steht bei `playUrl` in `$lib/konto.ts`.
-      location.href = playUrl(gestade, ticket.character, ticket.sessionToken);
+      const ticket = await play(shore, token, c.id);
+      // The credential travels in the address fragment, never as a
+      // parameter — the reasoning is at `playUrl` in `$lib/account.ts`.
+      location.href = playUrl(shore, ticket.character, ticket.sessionToken);
     } catch (err) {
-      beschaeftigt = null;
-      if (isLoggedOut(err)) return zurAnmeldung();
+      busy = null;
+      if (isLoggedOut(err)) return toLogin();
       if (err instanceof ApiError && err.key === 'unbekannt') {
-        // Ein zweiter Tab hat ihn gelöscht. Die Liste hier ist damit falsch,
-        // nicht die Antwort — also wird die Liste berichtigt.
-        charaktere = charaktere.filter((x) => x.id !== c.id);
-        fehler = 'konto.seite.loeschen.war_weg';
+        // A second tab deleted it. That makes the list here wrong, not the
+        // answer — so the list is the thing that gets corrected.
+        characters = characters.filter((x) => x.id !== c.id);
+        error = 'account.page.delete.already_gone';
         return;
       }
-      fehler = err instanceof ApiError ? errorMessageKey(err.key) : 'konto.fehler.unerwartet';
+      error = err instanceof ApiError ? errorMessageKey(err.key) : 'account.error.unexpected';
     }
   }
 
-  async function loeschen(c: Charakter) {
-    if (beschaeftigt !== null) return;
-    const token = readToken(gestade);
-    if (!token) return zurAnmeldung();
-    fehler = null;
-    beschaeftigt = c.id;
+  async function remove(c: Character) {
+    if (busy !== null) return;
+    const token = readToken(shore);
+    if (!token) return toLogin();
+    error = null;
+    busy = c.id;
     try {
-      await charakterLoeschen(gestade, token, c.id);
-      charaktere = charaktere.filter((x) => x.id !== c.id);
+      await deleteCharacter(shore, token, c.id);
+      characters = characters.filter((x) => x.id !== c.id);
     } catch (err) {
-      if (isLoggedOut(err)) return zurAnmeldung();
+      if (isLoggedOut(err)) return toLogin();
       if (err instanceof ApiError && err.key === 'unbekannt') {
-        // 404 heisst hier „war schon weg“ — das Ziel ist erreicht, also
-        // verschwindet er aus der Liste statt eine Fehlermeldung zu erben.
-        charaktere = charaktere.filter((x) => x.id !== c.id);
-        fehler = 'konto.seite.loeschen.war_weg';
+        // A 404 means "was already gone" here — the goal is reached, so it
+        // disappears from the list instead of inheriting an error message.
+        characters = characters.filter((x) => x.id !== c.id);
+        error = 'account.page.delete.already_gone';
       } else {
-        fehler = err instanceof ApiError ? errorMessageKey(err.key) : 'konto.fehler.unerwartet';
+        error = err instanceof ApiError ? errorMessageKey(err.key) : 'account.error.unexpected';
       }
     } finally {
-      beschaeftigt = null;
-      loeschFrage = null;
+      busy = null;
+      deleteAsk = null;
     }
   }
 
   /**
-   * Abmelden heisst: den Token vergessen.
+   * Signing out means: forgetting the token.
    *
-   * Mehr ist nicht möglich und wird hier auch nicht vorgetäuscht. Der Token
-   * ist selbsttragend und HMAC-signiert, die API kennt keinen Endpunkt zum
-   * Widerrufen — er läuft nach 30 Tagen von selbst ab.
+   * More is not possible and is not pretended here either. The token is
+   * self-carrying and HMAC-signed, the API knows no endpoint for revoking
+   * it — it expires by itself after 30 days.
    */
-  function abmelden() {
-    // ALLE Gestade, nicht nur das gewaehlte — siehe clearAllTokens().
+  function logout() {
+    // ALL shores, not just the chosen one — see clearAllTokens().
     clearAllTokens();
-    angemeldet = false;
-    unerreichbar = false;
-    konto = null;
-    charaktere = [];
-    fehler = null;
+    signedIn = false;
+    unreachable = false;
+    account = null;
+    characters = [];
+    error = null;
   }
 
   onMount(async () => {
-    bereit = true;
-    gestade = signedInShore() ?? readShore() ?? 'dev';
+    ready = true;
+    shore = signedInShore() ?? readShore() ?? 'dev';
 
     void (async () => {
       try {
-        const daten = await holeJson<Aussehen>('/assets/aussehen.json');
-        const karte: Record<string, string> = {};
-        for (const e of [...daten.figuren, ...daten.frisuren, ...daten.ruestung]) {
-          karte[e.id] = e.name;
+        const data = await holeJson<Appearance>('/assets/aussehen.json');
+        const map: Record<string, string> = {};
+        for (const e of [...data.figuren, ...data.frisuren, ...data.ruestung]) {
+          map[e.id] = e.name;
         }
-        namen = karte;
+        names = map;
       } catch {
-        /* keine Namen: dann stehen die Kennungen da */
+        /* no names: then the ids are what shows */
       }
     })();
 
-    await laden();
+    await load();
   });
 </script>
 
 <Kopfdaten
-  titel={t['konto.seite.kopf.titel']}
-  beschreibung={t['konto.seite.kopf.beschreibung']}
+  titel={t['account.page.meta.title']}
+  beschreibung={t['account.page.meta.description']}
   noindex
 />
 
 <main class="mitte seite">
-  <div class="konto-schmal">
-    <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['konto.seite.ueberschrift']}</h1>
+  <div class="account-narrow">
+    <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['account.page.heading']}</h1>
 
-    {#if unerreichbar}
+    {#if unreachable}
       <!--
-        Weder angemeldet noch abgemeldet: Das Gestade hat nicht geantwortet.
-        Beides zu behaupten waere falsch — „Nicht angemeldet“ schickte
-        jemanden zum Anmelden, obwohl sein Token in Ordnung sein kann, und
-        die angemeldete Ansicht zeigte eine leere Reckenliste, als haette
-        er keine.
+        Neither signed in nor signed out: the shore did not answer. Claiming
+        either would be wrong — "Not signed in" would send somebody off to
+        sign in although their token may be perfectly fine, and the signed-in
+        view would show an empty character list as if they had none.
       -->
-      <div class="konto-tafel" style="margin-top:1.2rem">
-        <h2 style="margin-top:0">{t['konto.seite.unerreichbar.titel']}</h2>
-        {#if fehler}
-          <p class="konto-melder" role="alert" style="margin:0.8rem 0 0">{t[fehler]}</p>
+      <div class="account-panel" style="margin-top:1.2rem">
+        <h2 style="margin-top:0">{t['account.page.unreachable.title']}</h2>
+        {#if error}
+          <p class="account-notice" role="alert" style="margin:0.8rem 0 0">{t[error]}</p>
         {/if}
-        <div class="konto-tat">
-          <button class="knopf" type="button" onclick={() => void laden()}>
-            {t['konto.seite.unerreichbar.nochmal']}
+        <div class="account-actions">
+          <button class="knopf" type="button" onclick={() => void load()}>
+            {t['account.page.unreachable.retry']}
           </button>
-          <button class="knopf knopf-rand" type="button" onclick={abmelden}>
-            {t['konto.abmelden']}
+          <button class="knopf knopf-rand" type="button" onclick={logout}>
+            {t['account.logout']}
           </button>
         </div>
       </div>
-    {:else if angemeldet}
-      <div class="konto-tafel" style="margin-top:1.2rem">
-        <div class="konto-feld" style="margin-bottom:0.8rem">
-          <label class="konto-name" for="konto-gestade">
-            {t['erstellen.fahrt.gestade.label']}
+    {:else if signedIn}
+      <div class="account-panel" style="margin-top:1.2rem">
+        <div class="account-field" style="margin-bottom:0.8rem">
+          <label class="account-label" for="account-shore">
+            {t['create.voyage.shore.label']}
           </label>
           <select
-            class="konto-eingabe"
-            id="konto-gestade"
-            bind:value={gestade}
-            onchange={gestadeGewechselt}
+            class="account-input"
+            id="account-shore"
+            bind:value={shore}
+            onchange={shoreChanged}
           >
             {#each SHORE_IDS as s (s)}
               <option value={s}>{t[SHORE_LABEL[s]]}</option>
@@ -291,103 +289,103 @@
           </select>
         </div>
 
-        {#if konto}
-          <p class="konto-recke-daten" style="margin-bottom:0">
-            <span>{t['konto.seite.angemeldet_als']} <b>{konto.username}</b></span>
-            <span>{t['konto.seite.email']} <b>{konto.email}</b></span>
+        {#if account}
+          <p class="account-character-data" style="margin-bottom:0">
+            <span>{t['account.page.logged_in_as']} <b>{account.username}</b></span>
+            <span>{t['account.page.email']} <b>{account.email}</b></span>
           </p>
         {/if}
 
-        <div class="konto-tat">
+        <div class="account-actions">
           <a class="knopf" href={localizedPath(lang, '/erstellen')}>
-            {t['konto.seite.knopf.neu']}
+            {t['account.page.button.new']}
           </a>
-          <button class="knopf knopf-rand" type="button" onclick={abmelden}>
-            {t['konto.abmelden']}
+          <button class="knopf knopf-rand" type="button" onclick={logout}>
+            {t['account.logout']}
           </button>
         </div>
       </div>
 
-      {#if fehler}
-        <p class="konto-melder" role="alert" style="margin-top:1.2rem">{t[fehler]}</p>
+      {#if error}
+        <p class="account-notice" role="alert" style="margin-top:1.2rem">{t[error]}</p>
       {/if}
 
-      {#if laedt}
-        <p class="konto-leer">{t['konto.seite.laedt']}</p>
-      {:else if fehler && charaktere.length === 0}
+      {#if loading}
+        <p class="account-empty">{t['account.page.loading']}</p>
+      {:else if error && characters.length === 0}
         <!--
-          Nichts weiter. „Noch kein Recke“ wäre hier eine Behauptung über
-          das Gestade, die niemand geprüft hat: Die Liste ist leer, weil
-          die Antwort ausblieb — nicht, weil dort keiner steht. Die
-          Fehlermeldung darüber sagt bereits, was los ist.
+          Nothing further. "No character yet" would be a claim about the
+          shore that nobody has checked: the list is empty because the
+          answer never came — not because none stands there. The error
+          message above already says what is going on.
         -->
-      {:else if charaktere.length === 0}
-        <p class="konto-leer">{t['konto.seite.leer']}</p>
+      {:else if characters.length === 0}
+        <p class="account-empty">{t['account.page.empty']}</p>
       {:else}
-        <div class="konto-liste">
-          {#each charaktere as c (c.id)}
-            <article class="konto-recke">
-              <h2 class="konto-recke-name">{c.name}</h2>
-              <p class="konto-recke-daten">
-                <span>{t['erstellen.aussehen.figur.label']} <b>{benenne(c.figur)}</b></span>
-                <span>{t['erstellen.aussehen.frisur.label']} <b>{benenne(c.frisur)}</b></span>
-                <span>{t['erstellen.aussehen.oberkoerper.label']} <b>{benenne(c.ober)}</b></span>
-                <span>{t['erstellen.aussehen.beine.label']} <b>{benenne(c.beine)}</b></span>
+        <div class="account-list">
+          {#each characters as c (c.id)}
+            <article class="account-character">
+              <h2 class="account-character-name">{c.name}</h2>
+              <p class="account-character-data">
+                <span>{t['create.appearance.figure.label']} <b>{nameOf(c.figur)}</b></span>
+                <span>{t['create.appearance.hair.label']} <b>{nameOf(c.frisur)}</b></span>
+                <span>{t['create.appearance.chest.label']} <b>{nameOf(c.ober)}</b></span>
+                <span>{t['create.appearance.legs.label']} <b>{nameOf(c.beine)}</b></span>
               </p>
-              <p class="konto-recke-daten">
+              <p class="account-character-data">
                 <span>
-                  {t['konto.seite.erschaffen']}
+                  {t['account.page.created']}
                   <b>{datumKurz(new Date(c.created).toISOString(), lang)}</b>
                 </span>
                 <span>
                   {#if c.lastPlayed === null}
-                    <b>{t['konto.seite.nie']}</b>
+                    <b>{t['account.page.never_sailed']}</b>
                   {:else}
-                    {t['konto.seite.zuletzt']}
+                    {t['account.page.last_seen']}
                     <b>{vorWieLange(new Date(c.lastPlayed).toISOString(), lang)}</b>
                   {/if}
                 </span>
               </p>
 
-              {#if loeschFrage === c.id}
-                <!-- Zwei Schritte statt eines Browserfensters: `confirm()`
-                     lässt sich weder übersetzen noch gestalten, und es hält
-                     nebenbei den ganzen Reiter an. -->
-                <p class="konto-melder" style="margin:0.8rem 0 0">
-                  {t['konto.seite.loeschen.frage']}
+              {#if deleteAsk === c.id}
+                <!-- Two steps instead of a browser dialog: `confirm()` can
+                     neither be translated nor styled, and it halts the whole
+                     tab while it is up. -->
+                <p class="account-notice" style="margin:0.8rem 0 0">
+                  {t['account.page.delete.question']}
                 </p>
-                <div class="konto-tat">
+                <div class="account-actions">
                   <button
                     class="knopf knopf-rand"
                     type="button"
-                    disabled={beschaeftigt === c.id}
-                    onclick={() => loeschen(c)}
+                    disabled={busy === c.id}
+                    onclick={() => remove(c)}
                   >
-                    {t['konto.seite.loeschen.ja']}
+                    {t['account.page.delete.yes']}
                   </button>
-                  <button class="knopf" type="button" onclick={() => (loeschFrage = null)}>
-                    {t['konto.seite.loeschen.nein']}
+                  <button class="knopf" type="button" onclick={() => (deleteAsk = null)}>
+                    {t['account.page.delete.no']}
                   </button>
                 </div>
               {:else}
-                <div class="konto-tat">
+                <div class="account-actions">
                   <button
                     class="knopf"
                     type="button"
-                    disabled={beschaeftigt !== null}
-                    onclick={() => aufFahrt(c)}
+                    disabled={busy !== null}
+                    onclick={() => setSail(c)}
                   >
-                    {beschaeftigt === c.id
-                      ? t['konto.seite.spielen.laeuft']
-                      : t['erstellen.knopf.losfahren']}
+                    {busy === c.id
+                      ? t['account.page.play.loading']
+                      : t['create.button.set_sail']}
                   </button>
                   <button
                     class="knopf knopf-rand"
                     type="button"
-                    disabled={beschaeftigt !== null}
-                    onclick={() => (loeschFrage = c.id)}
+                    disabled={busy !== null}
+                    onclick={() => (deleteAsk = c.id)}
                   >
-                    {t['konto.seite.knopf.loeschen']}
+                    {t['account.page.button.delete']}
                   </button>
                 </div>
               {/if}
@@ -397,22 +395,22 @@
       {/if}
     {:else}
       <!--
-        Der Vorgabezustand. Er steht so im vorgerenderten HTML und ist damit
-        auch das, was ohne JavaScript dasteht: eine Erklärung und zwei Wege
-        weiter, kein halber Knopf und keine leere Liste.
+        The default state. It stands like this in the prerendered HTML and is
+        therefore also what shows without JavaScript: an explanation and two
+        ways onward, no half button and no empty list.
       -->
-      <div class="konto-tafel" style="margin-top:1.2rem">
-        <h2 style="margin-top:0">{t['konto.seite.gesperrt.titel']}</h2>
-        <p style="color:var(--matt)">{t['konto.seite.gesperrt.text']}</p>
-        {#if bereit && laedt}
-          <p class="konto-leer">{t['konto.seite.laedt']}</p>
+      <div class="account-panel" style="margin-top:1.2rem">
+        <h2 style="margin-top:0">{t['account.page.locked.title']}</h2>
+        <p style="color:var(--matt)">{t['account.page.locked.text']}</p>
+        {#if ready && loading}
+          <p class="account-empty">{t['account.page.loading']}</p>
         {/if}
-        <div class="konto-tat">
+        <div class="account-actions">
           <a class="knopf" href={localizedPath(lang, '/anmelden')}>
-            {t['konto.seite.gesperrt.anmelden']}
+            {t['account.page.locked.login']}
           </a>
           <a class="knopf knopf-rand" href={localizedPath(lang, '/registrieren')}>
-            {t['konto.seite.gesperrt.registrieren']}
+            {t['account.page.locked.register']}
           </a>
         </div>
       </div>

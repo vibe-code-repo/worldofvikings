@@ -74,9 +74,9 @@
     name: string;
   }
   interface Appearance {
-    figuren: AppearanceEntry[];
-    frisuren: AppearanceEntry[];
-    ruestung: AppearanceEntry[];
+    figures: AppearanceEntry[];
+    hairstyles: AppearanceEntry[];
+    equipment: AppearanceEntry[];
   }
 
   /**
@@ -225,9 +225,9 @@
 
     void (async () => {
       try {
-        const data = await holeJson<Appearance>('/assets/aussehen.json');
+        const data = await holeJson<Appearance>('/assets/appearance.json');
         const map: Record<string, string> = {};
-        for (const e of [...data.figuren, ...data.frisuren, ...data.ruestung]) {
+        for (const e of [...data.figures, ...data.hairstyles, ...data.equipment]) {
           map[e.id] = e.name;
         }
         names = map;
@@ -327,10 +327,10 @@
             <article class="account-character">
               <h2 class="account-character-name">{c.name}</h2>
               <p class="account-character-data">
-                <span>{t['create.appearance.figure.label']} <b>{nameOf(c.figur)}</b></span>
-                <span>{t['create.appearance.hair.label']} <b>{nameOf(c.frisur)}</b></span>
-                <span>{t['create.appearance.chest.label']} <b>{nameOf(c.ober)}</b></span>
-                <span>{t['create.appearance.legs.label']} <b>{nameOf(c.beine)}</b></span>
+                <span>{t['create.appearance.figure.label']} <b>{nameOf(c.figure)}</b></span>
+                <span>{t['create.appearance.hair.label']} <b>{nameOf(c.hairstyle)}</b></span>
+                <span>{t['create.appearance.chest.label']} <b>{nameOf(c.top)}</b></span>
+                <span>{t['create.appearance.legs.label']} <b>{nameOf(c.legs)}</b></span>
               </p>
               <p class="account-character-data">
                 <span>

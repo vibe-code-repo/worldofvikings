@@ -355,15 +355,23 @@ async function main() {
   }
 
   const ausAdresse = new URLSearchParams(window.location.search);
+  //
+  // ── Englische PARAMETERNAMEN, deutsche WERTE ─────────────────────
+  // Die Namen sind Drahtformat und heissen englisch; gesetzt werden
+  // sie in wov-web/src/lib/account.ts (playUrl). Aendert sich einer
+  // hier ohne dort, bricht die Uebergabe STILL: der Client sieht den
+  // Parameter einfach nicht und faellt auf das Gemerkte zurueck.
+  // Die WERTE bleiben, wie shared/aussehen.ts sie fuehrt --
+  // 'wikingerin', 'H_01', 'leder_bh' stehen im Weltspeicher.
   const vonSeite = {
     name: ausAdresse.get('name'),
-    figur: ausAdresse.get('figur'),
-    frisur: ausAdresse.get('frisur'),
-    ober: ausAdresse.get('ober'),
-    beine: ausAdresse.get('beine'),
-    haarfarbe: ausAdresse.get('haarfarbe'),
+    figure: ausAdresse.get('figure'),
+    hairstyle: ausAdresse.get('hairstyle'),
+    top: ausAdresse.get('top'),
+    legs: ausAdresse.get('legs'),
+    hairColor: ausAdresse.get('hairColor'),
     // Wunschstunde (0-23) — die Seite bietet sie nur fuer das Testgestade an.
-    zeit: ausAdresse.get('zeit'),
+    time: ausAdresse.get('time'),
     // Direkt anmelden, ohne dieses Fenster zu zeigen. Die Wahl ist auf
     // world-of-vikings.com getroffen; hier gibt es nichts mehr zu fragen.
     //
@@ -371,7 +379,7 @@ async function main() {
     // aus wie ein Klick auf "Verbinden", und Anmelden steht ohnehin
     // jedem offen — der Server vergibt die Kennung selbst und traut dem
     // Client dabei nichts. Er spart einen Klick, nicht eine Pruefung.
-    los: ausAdresse.has('los'),
+    go: ausAdresse.has('go'),
   };
 
   // ── Charaktererstellung: Vorschau, Frisur, Ruestung ────────────────
@@ -487,28 +495,28 @@ async function main() {
     (document.getElementById('player-name') as HTMLInputElement).value =
       vonSeite.name.slice(0, 24);
   }
-  if (vonSeite.figur && istFigur(vonSeite.figur)) {
-    figurSelect.value = vonSeite.figur;
-    localStorage.setItem(FIGUR_SPEICHER, vonSeite.figur);
+  if (vonSeite.figure && istFigur(vonSeite.figure)) {
+    figurSelect.value = vonSeite.figure;
+    localStorage.setItem(FIGUR_SPEICHER, vonSeite.figure);
   }
-  if (vonSeite.frisur && istFrisur(vonSeite.frisur)) {
-    frisurSelect.value = vonSeite.frisur;
-    localStorage.setItem(FRISUR_SPEICHER, vonSeite.frisur);
+  if (vonSeite.hairstyle && istFrisur(vonSeite.hairstyle)) {
+    frisurSelect.value = vonSeite.hairstyle;
+    localStorage.setItem(FRISUR_SPEICHER, vonSeite.hairstyle);
   }
   for (const [feld, slot] of slotFelder) {
-    const wert = slot === 'oberkoerper' ? vonSeite.ober : vonSeite.beine;
+    const wert = slot === 'oberkoerper' ? vonSeite.top : vonSeite.legs;
     if (wert !== null && istRuestung(wert)) {
       const teil = ruestungZu(wert);
       if (!wert || (teil && teil.slot === slot)) feld.value = wert;
     }
   }
-  if (vonSeite.haarfarbe && istHaarfarbe(vonSeite.haarfarbe)) {
-    haarfarbeSelect.value = vonSeite.haarfarbe;
-    localStorage.setItem(HAARFARBE_SPEICHER, vonSeite.haarfarbe);
+  if (vonSeite.hairColor && istHaarfarbe(vonSeite.hairColor)) {
+    haarfarbeSelect.value = vonSeite.hairColor;
+    localStorage.setItem(HAARFARBE_SPEICHER, vonSeite.hairColor);
   }
   if (
-    vonSeite.figur || vonSeite.frisur || vonSeite.ober || vonSeite.beine ||
-    vonSeite.haarfarbe
+    vonSeite.figure || vonSeite.hairstyle || vonSeite.top || vonSeite.legs ||
+    vonSeite.hairColor
   ) {
     merkeRuestung();
     void zeigeAussehen();
@@ -551,8 +559,8 @@ async function main() {
   // eigene Variable. Damit gibt es weiterhin nur EINE Stelle, die die
   // gewuenschte Stunde kennt, und wer das Fenster doch zu sehen bekommt
   // (Verbindung fehlgeschlagen), sieht dort seine Wahl stehen.
-  if (vonSeite.zeit !== null) {
-    const h = Number(vonSeite.zeit);
+  if (vonSeite.time !== null) {
+    const h = Number(vonSeite.time);
     if (Number.isInteger(h) && h >= 0 && h < 24) timeSelect.value = String(h);
   }
 
@@ -2048,7 +2056,7 @@ async function main() {
 
   connectBtn.addEventListener('click', verbinden);
 
-  // ── Direktanmeldung von der Charaktererstellung (?los=1) ───────────
+  // ── Direktanmeldung von der Charaktererstellung (?go=1) ────────────
   //
   // Das Fenster bleibt im DOM und wird nur per CSS auf Ueberschrift und
   // Statuszeile eingedampft (body.direkt in index.html). Schlaegt die
@@ -2057,7 +2065,7 @@ async function main() {
   //
   // `offline` schliesst das aus: Dort gibt es keinen Server, und der
   // Block weiter unten hat den Fall bereits.
-  if (vonSeite.los && !params.has('offline')) {
+  if (vonSeite.go && !params.has('offline')) {
     document.body.classList.add('direkt');
     verbinden();
   }

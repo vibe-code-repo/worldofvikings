@@ -329,7 +329,7 @@ export const en: Messages = {
   'create.stage.hint.no_access': 'No access across the domain boundary ({fehler}).',
   'create.stage.hint.not_loaded': 'Figure not loaded — {grund}',
   'create.stage.hint.lists_missing':
-    'The selection lists are missing — assets/aussehen.json is unreachable.',
+    'The selection lists are missing — assets/appearance.json is unreachable.',
   'create.stage.hint.module_missing': 'Preview module could not be loaded — {fehler}',
   'create.stage.rotate_left': 'Rotate',
   'create.stage.rotate_right': 'Rotate',

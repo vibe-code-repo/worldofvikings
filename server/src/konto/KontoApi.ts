@@ -201,11 +201,16 @@ export class KontoApi {
     const name = String(k.name ?? '').trim();
     if (!/^[\p{L}\p{N} _-]{2,24}$/u.test(name)) return this.json(res, 400, { error: 'name-invalid' });
 
+    // Wire field -> database column. The two vocabularies are separate on
+    // purpose: the columns in `Kontendatenbank.ts` still read `figur`,
+    // `frisur`, `ober`, `beine` because renaming them would be an ALTER
+    // TABLE on live data, not a rename. The translation lives here and in
+    // `nachAussen()` below — those two are the only places that know both.
     const r = this.db.charakterAnlegen(kontoId, name, {
-      figur: String(k.figur ?? ''),
-      frisur: String(k.frisur ?? ''),
-      ober: String(k.ober ?? ''),
-      beine: String(k.beine ?? ''),
+      figur: String(k.figure ?? ''),
+      frisur: String(k.hairstyle ?? ''),
+      ober: String(k.top ?? ''),
+      beine: String(k.legs ?? ''),
     });
     if (!r.ok) return this.json(res, 409, { error: r.fehler });
     console.log(`[Konto] Charakter "${name}" fuer Konto ${kontoId}`);
@@ -218,7 +223,7 @@ export class KontoApi {
     // Scoped by konto_id in SQL, so a foreign id simply does not match —
     // there is no path here that could delete someone else's character.
     const weg = this.db.charakterLoeschen(kontoId, id);
-    this.json(res, weg ? 200 : 404, weg ? { ok: true } : { error: 'unbekannt' });
+    this.json(res, weg ? 200 : 404, weg ? { ok: true } : { error: 'unknown' });
   }
 
   /**
@@ -233,7 +238,7 @@ export class KontoApi {
     if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
 
     const c = this.db.charakterVonKonto(kontoId, id);
-    if (!c) return this.json(res, 404, { error: 'unbekannt' });
+    if (!c) return this.json(res, 404, { error: 'unknown' });
 
     this.db.gespieltVermerken(c.id);
     this.json(res, 200, {
@@ -284,7 +289,7 @@ export class KontoApi {
   // ── Plumbing ────────────────────────────────────────────────────────
 
   private herkunft(req: IncomingMessage): string {
-    return req.socket.remoteAddress ?? 'unbekannt';
+    return req.socket.remoteAddress ?? 'unknown';
   }
 
   private gesperrt(ip: string): boolean {
@@ -336,11 +341,20 @@ export class KontoApi {
   }
 }
 
-/** Never let spielerId or altlastUserId leave the server. */
+/**
+ * Never let spielerId or altlastUserId leave the server.
+ *
+ * This is also the one place where the database vocabulary turns into the
+ * wire vocabulary: the columns are `figur`/`frisur`/`ober`/`beine` and stay
+ * that way (renaming them is an ALTER TABLE on live accounts, not a
+ * rename), the fields the browser sees are English. The VALUES are
+ * untouched on the way through — `wikingerin`, `H_01`, `leder_bh` are ids
+ * from `shared/aussehen.ts` and mean the same on both sides.
+ */
 function nachAussen(c: Charakter): Record<string, unknown> {
   return {
-    id: c.id, name: c.name, figur: c.figur, frisur: c.frisur,
-    ober: c.ober, beine: c.beine,
+    id: c.id, name: c.name, figure: c.figur, hairstyle: c.frisur,
+    top: c.ober, legs: c.beine,
     created: c.erstellt, lastPlayed: c.zuletztGespielt,
   };
 }

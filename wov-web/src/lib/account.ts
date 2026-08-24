@@ -74,18 +74,24 @@ export function isShore(v: string | null | undefined): v is ShoreId {
 /**
  * A character as `nachAussen()` in `KontoApi.ts` hands it out.
  *
- * `figur`, `frisur`, `ober` and `beine` keep their German names on purpose:
- * they are the ids from `shared/aussehen.ts` and the `?figur=` parameters of
- * the game client. Renaming them here would decouple three places that have
- * to agree, and nothing but a broken character would say so.
+ * ── English field names, German values ────────────────────────────────
+ * The FIELD names are wire format and read English, like everything else
+ * between server and browser. The VALUES do not: `wikingerin`, `H_01`,
+ * `leder_bh` are the ids from `shared/aussehen.ts`, and they sit in the
+ * world save and in the accounts database. Translating them would be a
+ * data migration, not a rename.
+ *
+ * The SQLite columns are still `figur`/`frisur`/`ober`/`beine` for the
+ * same reason; `KontoApi.ts` translates between column and field in one
+ * place (`nachAussen`) so this side never has to know.
  */
 export interface Character {
   id: number;
   name: string;
-  figur: string;
-  frisur: string;
-  ober: string;
-  beine: string;
+  figure: string;
+  hairstyle: string;
+  top: string;
+  legs: string;
   /** Epoch milliseconds — the database stores numbers, not ISO strings. */
   created: number;
   lastPlayed: number | null;
@@ -155,8 +161,10 @@ const ERROR_MESSAGES: Record<string, MessageKey> = {
   'name-taken': 'account.error.name_taken',
   unknown: 'account.error.unknown',
   'malformed-body': 'account.error.broken_body',
-  serverfehler: 'account.error.server_error',
-  netzwerk: 'account.error.network',
+  'server-error': 'account.error.server_error',
+  // Not from the server: account.ts raises this itself when fetch() throws,
+  // so it never has to match a wire key.
+  network: 'account.error.network',
 };
 
 export function errorMessageKey(key: string): MessageKey {
@@ -343,7 +351,7 @@ async function call<T>(shore: ShoreId, path: string, a: Call): Promise<T> {
   } catch {
     // A rejected fetch is the one failure the API cannot name itself:
     // the request never arrived.
-    throw new ApiError('netzwerk');
+    throw new ApiError('network');
   }
 
   let data: unknown = null;
@@ -354,8 +362,12 @@ async function call<T>(shore: ShoreId, path: string, a: Call): Promise<T> {
   }
 
   if (!response.ok) {
-    // `fehler` is the field name the API sends, not a variable of ours.
-    const key = (data as { fehler?: unknown } | null)?.fehler;
+    // `error` is the field name the API sends, not a variable of ours —
+    // every `this.json(res, …)` in `KontoApi.ts` writes that key. This
+    // used to read `fehler`, which is never present: the key came back
+    // `undefined` and every failure showed the generic sentence instead
+    // of the reason the server had named.
+    const key = (data as { error?: unknown } | null)?.error;
     throw new ApiError(typeof key === 'string' ? key : 'server-error');
   }
   return data as T;
@@ -387,7 +399,7 @@ export function me(shore: ShoreId, token: string): Promise<Me> {
 export function createCharacter(
   shore: ShoreId,
   token: string,
-  character: { name: string; figur: string; frisur: string; ober: string; beine: string },
+  character: { name: string; figure: string; hairstyle: string; top: string; legs: string },
 ): Promise<{ character: Character }> {
   return call<{ character: Character }>(shore, '/accounts/characters', {
     method: 'POST',
@@ -423,9 +435,9 @@ export function play(shore: ShoreId, token: string, id: number): Promise<Ticket>
  * `#ticket=`, stores it as the ordinary session token and strips it from
  * the address again (commit b57ce2b).
  *
- * ── Why `los=1` is still there ───────────────────────────────────────
+ * ── Why `go=1` is still there ────────────────────────────────────────
  * Measured, not assumed: in `client/src/main.ts` the ticket block and the
- * auto-connect block are separate, and only `if (vonSeite.los …)` skips
+ * auto-connect block are separate, and only `if (vonSeite.go …)` skips
  * the connect window. A ticket alone would store the token and then show
  * the connect dialog anyway — the very break this flow removes.
  *
@@ -434,20 +446,24 @@ export function play(shore: ShoreId, token: string, id: number): Promise<Ticket>
  * allowed, and the server checks every id against the same lists), and
  * without `name` the client invents a random `Viking###`.
  *
- * The parameter names are the client's, not ours: `los`, `figur`, `frisur`,
- * `ober`, `beine` and `zeit` are read verbatim in `client/src/main.ts`.
+ * The parameter names are the client's, not ours: `go`, `figure`,
+ * `hairstyle`, `top`, `legs` and `time` are read verbatim in
+ * `client/src/main.ts`. Change one side and the handover breaks in
+ * silence — the client simply sees no parameter and falls back.
  */
 export function playUrl(
   shore: ShoreId,
-  c: Pick<Character, 'name' | 'figur' | 'frisur' | 'ober' | 'beine'>,
+  c: Pick<Character, 'name' | 'figure' | 'hairstyle' | 'top' | 'legs'>,
   sessionToken: string,
   time = '',
 ): string {
-  const p = new URLSearchParams({ los: '1', name: c.name, figur: c.figur, frisur: c.frisur });
-  if (c.ober) p.set('ober', c.ober);
-  if (c.beine) p.set('beine', c.beine);
-  // Only send what was offered: a `zeit` from an earlier test-shore visit
+  const p = new URLSearchParams({
+    go: '1', name: c.name, figure: c.figure, hairstyle: c.hairstyle,
+  });
+  if (c.top) p.set('top', c.top);
+  if (c.legs) p.set('legs', c.legs);
+  // Only send what was offered: a `time` from an earlier test-shore visit
   // must not quietly travel to Midgard.
-  if (shore === 'dev' && time !== '') p.set('zeit', time);
+  if (shore === 'dev' && time !== '') p.set('time', time);
   return `${SHORES[shore].url}/?${p.toString()}#ticket=${encodeURIComponent(sessionToken)}`;
 }

@@ -1,0 +1,206 @@
+{
+  "generatedBy": "tools/aussehen-json.mjs aus shared/src/aussehen.ts — nicht von Hand bearbeiten",
+  "folder": "wikingerin",
+  "body": "WikingerinKoerper",
+  "figures": [
+    {
+      "id": "wikingerin",
+      "model": "wikingerin/WikingerinKoerper",
+      "name": "Wikingerin"
+    }
+  ],
+  "defaultFigure": "wikingerin",
+  "hairstyles": [
+    {
+      "id": "H_01",
+      "file": "H_01",
+      "name": "Kurzer Bob"
+    },
+    {
+      "id": "H_02",
+      "file": "H_02",
+      "name": "Glatt, schulterlang"
+    },
+    {
+      "id": "H_03",
+      "file": "H_03",
+      "name": "Wellig, lang"
+    },
+    {
+      "id": "H_04",
+      "file": "H_04",
+      "name": "Seitenscheitel"
+    },
+    {
+      "id": "H_05",
+      "file": "H_05",
+      "name": "Lang, offen"
+    },
+    {
+      "id": "H_06",
+      "file": "H_06",
+      "name": "Voll, gestuft"
+    },
+    {
+      "id": "H_07",
+      "file": "H_07",
+      "name": "Sehr lang"
+    },
+    {
+      "id": "H_08",
+      "file": "H_08",
+      "name": "Kurz, gescheitelt"
+    },
+    {
+      "id": "H_09",
+      "file": "H_09",
+      "name": "Mittellang"
+    },
+    {
+      "id": "H_10",
+      "file": "H_10",
+      "name": "Halblang, gewellt"
+    },
+    {
+      "id": "H_11",
+      "file": "H_11",
+      "name": "Anliegend"
+    },
+    {
+      "id": "H_12",
+      "file": "H_12",
+      "name": "Lockig"
+    },
+    {
+      "id": "H_13",
+      "file": "H_13",
+      "name": "Stufig"
+    },
+    {
+      "id": "H_14",
+      "file": "H_14",
+      "name": "Zurückgekämmt"
+    },
+    {
+      "id": "H_15",
+      "file": "H_15",
+      "name": "Sehr kurz"
+    },
+    {
+      "id": "H_16",
+      "file": "H_16",
+      "name": "Strähnig, lang"
+    },
+    {
+      "id": "H_17",
+      "file": "H_17",
+      "name": "Wallend"
+    },
+    {
+      "id": "H_18",
+      "file": "H_18",
+      "name": "Dicht, lang"
+    },
+    {
+      "id": "H_19",
+      "file": "H_19",
+      "name": "Strähnig, mittel"
+    },
+    {
+      "id": "H_20",
+      "file": "H_20",
+      "name": "Strähnig, kurz"
+    },
+    {
+      "id": "H_21",
+      "file": "H_21",
+      "name": "Zottelig"
+    }
+  ],
+  "defaultHairstyle": "H_01",
+  "hairColors": [
+    {
+      "id": "rabenschwarz",
+      "name": "Rabenschwarz",
+      "hex": "#1A1613"
+    },
+    {
+      "id": "dunkelbraun",
+      "name": "Dunkelbraun",
+      "hex": "#2E2018"
+    },
+    {
+      "id": "kastanie",
+      "name": "Kastanienbraun",
+      "hex": "#4A2C1A"
+    },
+    {
+      "id": "mittelbraun",
+      "name": "Mittelbraun",
+      "hex": "#6F593F"
+    },
+    {
+      "id": "hellbraun",
+      "name": "Hellbraun",
+      "hex": "#8A6A45"
+    },
+    {
+      "id": "aschblond",
+      "name": "Aschblond",
+      "hex": "#A89272"
+    },
+    {
+      "id": "weizenblond",
+      "name": "Weizenblond",
+      "hex": "#C8AB77"
+    },
+    {
+      "id": "hellblond",
+      "name": "Hellblond",
+      "hex": "#E0CDA0"
+    },
+    {
+      "id": "fuchsrot",
+      "name": "Fuchsrot",
+      "hex": "#8C3A17"
+    },
+    {
+      "id": "kupfer",
+      "name": "Kupferrot",
+      "hex": "#B5602A"
+    },
+    {
+      "id": "eisgrau",
+      "name": "Eisgrau",
+      "hex": "#9A9691"
+    },
+    {
+      "id": "schneeweiss",
+      "name": "Schneeweiß",
+      "hex": "#DED9D0"
+    }
+  ],
+  "defaultHairColor": "mittelbraun",
+  "equipment": [
+    {
+      "id": "leder_bh",
+      "file": "R_LederBH",
+      "name": "Leder-Oberteil",
+      "slot": "oberkoerper"
+    },
+    {
+      "id": "leder_shorts",
+      "file": "R_LederShorts",
+      "name": "Lederhose, kurz",
+      "slot": "beine"
+    }
+  ],
+  "timeOfDay": {
+    "marks": {
+      "0": "Mitternacht",
+      "3": "Sonnenaufgang",
+      "12": "Mittag",
+      "20": "Sonnenuntergang"
+    }
+  }
+}

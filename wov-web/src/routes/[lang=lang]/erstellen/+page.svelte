@@ -53,15 +53,24 @@
    * sie ist eine 3D-Vorschau.
    */
 
-  interface Eintrag { id: string; name: string; datei?: string; slot?: string }
+  /**
+   * Ein Eintrag aus `assets/appearance.json`.
+   *
+   * Die FELDNAMEN sind englisch, weil sie Drahtformat sind — dieselbe
+   * Datei liest auch /konto. Die WERTE (`id`, `slot`) bleiben, wie
+   * `shared/aussehen.ts` sie fuehrt: `wikingerin`, `H_01`, `leder_bh`,
+   * `oberkoerper`. Sie stehen im Weltspeicher und in der
+   * Kontendatenbank; sie zu uebersetzen waere eine Datenwanderung.
+   */
+  interface Eintrag { id: string; name: string; file?: string; slot?: string }
   interface Aussehen {
-    ordner: string;
-    koerper: string;
-    figuren: Eintrag[];
-    frisuren: Eintrag[];
-    ruestung: Eintrag[];
-    figurVorgabe?: string;
-    frisurVorgabe?: string;
+    folder: string;
+    body: string;
+    figures: Eintrag[];
+    hairstyles: Eintrag[];
+    equipment: Eintrag[];
+    defaultFigure?: string;
+    defaultHairstyle?: string;
     /**
      * Stunde → Beschriftung, z. B. { "3": "Sonnenaufgang" }.
      *
@@ -70,7 +79,7 @@
      * und nicht bei 06:00. Eine hier getippte Beschriftung wäre eine
      * zweite Wahrheit neben dem Umgebungsmodell des Spiels.
      */
-    tageszeit?: { marken: Record<string, string> };
+    timeOfDay?: { marks: Record<string, string> };
   }
 
   /** Was vom Vorschau-Bündel benutzt wird — gemessen an `vorschau.js`. */
@@ -165,8 +174,8 @@
   /** Was beim letzten Besuch gewählt war; nur beim Start gelesen. */
   let alt: Record<string, string> = {};
 
-  const oberTeile = $derived(daten?.ruestung.filter((r) => r.slot === 'oberkoerper') ?? []);
-  const beinTeile = $derived(daten?.ruestung.filter((r) => r.slot === 'beine') ?? []);
+  const oberTeile = $derived(daten?.equipment.filter((r) => r.slot === 'oberkoerper') ?? []);
+  const beinTeile = $derived(daten?.equipment.filter((r) => r.slot === 'beine') ?? []);
 
   const gestadeHinweis = $derived(
     gestade === 'dev'
@@ -186,7 +195,7 @@
   /** 00:00 … 23:00, die markanten Stunden mit Namen dahinter. */
   const stunden = $derived(
     Array.from({ length: 24 }, (_, h) => {
-      const marke = daten?.tageszeit?.marken[String(h)];
+      const marke = daten?.timeOfDay?.marks[String(h)];
       return { wert: String(h), text: `${String(h).padStart(2, '0')}:00${marke ? ` – ${marke}` : ''}` };
     })
   );
@@ -209,16 +218,16 @@
 
   function datei(liste: Eintrag[], id: string): string | null {
     const e = liste.find((x) => x.id === id);
-    return e?.datei && daten ? `${daten.ordner}/${e.datei}` : null;
+    return e?.file && daten ? `${daten.folder}/${e.file}` : null;
   }
 
   /* -------------------------------------------------------- Die Bühne */
 
   async function zeigeAussehen() {
     if (!vorschau || !daten) return;
-    await vorschau.setze('frisur', datei(daten.frisuren, frisur) ?? datei(daten.frisuren, daten.frisuren[0]?.id ?? ''));
-    await vorschau.setze('oberkoerper', datei(daten.ruestung, ober));
-    await vorschau.setze('beine', datei(daten.ruestung, beine));
+    await vorschau.setze('frisur', datei(daten.hairstyles, frisur) ?? datei(daten.hairstyles, daten.hairstyles[0]?.id ?? ''));
+    await vorschau.setze('oberkoerper', datei(daten.equipment, ober));
+    await vorschau.setze('beine', datei(daten.equipment, beine));
   }
 
   async function ladeAlles() {
@@ -227,7 +236,7 @@
     hinweisText = null;
     try {
       await vorschau.setzeWurzel(modellWurzel);
-      await vorschau.ladeKoerper(`${daten.ordner}/${daten.koerper}`);
+      await vorschau.ladeKoerper(`${daten.folder}/${daten.body}`);
       await zeigeAussehen();
       fertig = true;
     } catch (e) {
@@ -235,7 +244,7 @@
       // „liess sich nicht laden“ — damit war weder zu erkennen, ob der Server
       // schweigt, ob die Datei fehlt oder ob der Browser die Domaingrenze
       // blockt, und jede Fehlersuche begann mit Raten.
-      const url = `${modellWurzel}${daten.ordner}/${daten.koerper}.glb`;
+      const url = `${modellWurzel}${daten.folder}/${daten.body}.glb`;
       console.warn('[erstellung] Laden fehlgeschlagen:', url, e);
       let grund = String(e instanceof Error ? e.message : e);
       try {
@@ -258,13 +267,13 @@
     const gueltig = (liste: Eintrag[], wert?: string) =>
       wert && liste.some((e) => e.id === wert) ? wert : undefined;
 
-    figur = gueltig(daten.figuren, alt.figur) ?? daten.figurVorgabe ?? daten.figuren[0]?.id ?? '';
-    frisur = gueltig(daten.frisuren, alt.frisur) ?? daten.frisurVorgabe ?? daten.frisuren[0]?.id ?? '';
-    ober = gueltig(daten.ruestung, alt.ober) ?? '';
-    beine = gueltig(daten.ruestung, alt.beine) ?? '';
+    figur = gueltig(daten.figures, alt.figur) ?? daten.defaultFigure ?? daten.figures[0]?.id ?? '';
+    frisur = gueltig(daten.hairstyles, alt.frisur) ?? daten.defaultHairstyle ?? daten.hairstyles[0]?.id ?? '';
+    ober = gueltig(daten.equipment, alt.ober) ?? '';
+    beine = gueltig(daten.equipment, alt.beine) ?? '';
     if (alt.name) spielerName = alt.name;
     // Gemerktes prüfen statt übernehmen: Ein unsinniger Wert liesse den
-    // Auswahlkasten leer erscheinen, und was hier steht, reist als ?zeit=
+    // Auswahlkasten leer erscheinen, und was hier steht, reist als ?time=
     // weiter. Der Client prüft ebenfalls — hier ist es die Anzeige.
     if (alt.zeit === '' || (/^\d{1,2}$/.test(alt.zeit ?? '') && Number(alt.zeit) < 24)) {
       zeit = alt.zeit;
@@ -284,7 +293,7 @@
 
     if (!daten) {
       try {
-        daten = await holeJson<Aussehen>('/assets/aussehen.json');
+        daten = await holeJson<Aussehen>('/assets/appearance.json');
       } catch (e) {
         console.error('[erstellung]', e);
         hinweisText = t['create.stage.hint.lists_missing'];
@@ -394,10 +403,10 @@
     try {
       const neu = await createCharacter(gestade, token, {
         name: spielerName.trim(),
-        figur,
-        frisur,
-        ober,
-        beine,
+        figure: figur,
+        hairstyle: frisur,
+        top: ober,
+        legs: beine,
       });
       const ticket = await play(gestade, token, neu.character.id);
       location.href = playUrl(gestade, ticket.character, ticket.sessionToken, zeit);
@@ -465,27 +474,27 @@
       <aside class="tafel">
         <h2>{t['create.appearance.title']}</h2>
 
-        <label class="feldname" for="figur-wahl">{t['create.appearance.figure.label']}</label>
-        <select id="figur-wahl" bind:value={figur} onchange={() => { merke(); void ladeAlles(); }}>
-          {#each daten?.figuren ?? [] as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
+        <label class="feldname" for="create-figure">{t['create.appearance.figure.label']}</label>
+        <select id="create-figure" bind:value={figur} onchange={() => { merke(); void ladeAlles(); }}>
+          {#each daten?.figures ?? [] as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
         </select>
 
-        <label class="feldname" for="frisur-wahl">{t['create.appearance.hair.label']}</label>
+        <label class="feldname" for="create-hairstyle">{t['create.appearance.hair.label']}</label>
         <div class="waehler">
           <button type="button" aria-label={t['create.appearance.hair.previous']}
-            onclick={() => { frisur = schritt(daten?.frisuren ?? [], frisur, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
-          <select id="frisur-wahl" bind:value={frisur} onchange={() => { merke(); void zeigeAussehen(); }}>
-            {#each daten?.frisuren ?? [] as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
+            onclick={() => { frisur = schritt(daten?.hairstyles ?? [], frisur, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
+          <select id="create-hairstyle" bind:value={frisur} onchange={() => { merke(); void zeigeAussehen(); }}>
+            {#each daten?.hairstyles ?? [] as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
           </select>
           <button type="button" aria-label={t['create.appearance.hair.next']}
-            onclick={() => { frisur = schritt(daten?.frisuren ?? [], frisur, 1, false); merke(); void zeigeAussehen(); }}>›</button>
+            onclick={() => { frisur = schritt(daten?.hairstyles ?? [], frisur, 1, false); merke(); void zeigeAussehen(); }}>›</button>
         </div>
 
-        <label class="feldname" for="oberkoerper-wahl">{t['create.appearance.chest.label']}</label>
+        <label class="feldname" for="create-top">{t['create.appearance.chest.label']}</label>
         <div class="waehler">
           <button type="button" aria-label={t['create.appearance.chest.previous']}
             onclick={() => { ober = schritt(oberTeile, ober, -1, true); merke(); void zeigeAussehen(); }}>‹</button>
-          <select id="oberkoerper-wahl" bind:value={ober} onchange={() => { merke(); void zeigeAussehen(); }}>
+          <select id="create-top" bind:value={ober} onchange={() => { merke(); void zeigeAussehen(); }}>
             <option value="">{t['create.appearance.chest.none']}</option>
             {#each oberTeile as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
           </select>
@@ -493,11 +502,11 @@
             onclick={() => { ober = schritt(oberTeile, ober, 1, true); merke(); void zeigeAussehen(); }}>›</button>
         </div>
 
-        <label class="feldname" for="beine-wahl">{t['create.appearance.legs.label']}</label>
+        <label class="feldname" for="create-legs">{t['create.appearance.legs.label']}</label>
         <div class="waehler">
           <button type="button" aria-label={t['create.appearance.legs.previous']}
             onclick={() => { beine = schritt(beinTeile, beine, -1, true); merke(); void zeigeAussehen(); }}>‹</button>
-          <select id="beine-wahl" bind:value={beine} onchange={() => { merke(); void zeigeAussehen(); }}>
+          <select id="create-legs" bind:value={beine} onchange={() => { merke(); void zeigeAussehen(); }}>
             <option value="">{t['create.appearance.legs.none']}</option>
             {#each beinTeile as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
           </select>
@@ -553,25 +562,25 @@
       <aside class="tafel">
         <h2>{t['create.voyage.title']}</h2>
 
-        <label class="feldname" for="spieler-name">{t['create.voyage.name.label']}</label>
+        <label class="feldname" for="create-name">{t['create.voyage.name.label']}</label>
         <input
           type="text"
-          id="spieler-name"
+          id="create-name"
           maxlength="24"
           placeholder={t['create.voyage.name.placeholder']}
           aria-invalid={namensFehler ? 'true' : undefined}
-          aria-describedby="name-hilfe"
+          aria-describedby="create-name-hint"
           bind:value={spielerName}
           onchange={merke}
         />
         {#if namensFehler}
-          <p class="account-error" id="name-hilfe" role="alert">{t[namensFehler]}</p>
+          <p class="account-error" id="create-name-hint" role="alert">{t[namensFehler]}</p>
         {:else}
-          <p class="gestade-hinweis" id="name-hilfe">{t['create.voyage.name.hint']}</p>
+          <p class="gestade-hinweis" id="create-name-hint">{t['create.voyage.name.hint']}</p>
         {/if}
 
-        <label class="feldname" for="server-wahl">{t['create.voyage.shore.label']}</label>
-        <select id="server-wahl" bind:value={gestade} onchange={gestadeGewechselt}>
+        <label class="feldname" for="create-shore">{t['create.voyage.shore.label']}</label>
+        <select id="create-shore" bind:value={gestade} onchange={gestadeGewechselt}>
           {#each SHORE_IDS as s (s)}
             <option value={s}>{t[SHORE_LABEL[s]]}</option>
           {/each}
@@ -579,8 +588,8 @@
         <p class="gestade-hinweis">{gestadeHinweis}</p>
 
         {#if gestade === 'dev'}
-          <label class="feldname" for="zeit-wahl">{t['create.voyage.time.label']}</label>
-          <select id="zeit-wahl" bind:value={zeit} onchange={merke}>
+          <label class="feldname" for="create-time">{t['create.voyage.time.label']}</label>
+          <select id="create-time" bind:value={zeit} onchange={merke}>
             <option value="">{t['create.voyage.time.server_time']}</option>
             {#each stunden as s (s.wert)}
               <option value={s.wert}>{s.text}</option>
@@ -616,8 +625,8 @@
         {#if bereit}
           <!-- Die Gestadewahl steht nur mit Skript da: ohne Skript wäre sie
                ein Kasten, dessen Umstellen nichts bewirkt. -->
-          <label class="feldname" for="sperre-gestade">{t['create.voyage.shore.label']}</label>
-          <select id="sperre-gestade" bind:value={gestade} onchange={gestadeGewechselt}>
+          <label class="feldname" for="locked-shore">{t['create.voyage.shore.label']}</label>
+          <select id="locked-shore" bind:value={gestade} onchange={gestadeGewechselt}>
             {#each SHORE_IDS as s (s)}
               <option value={s}>{t[SHORE_LABEL[s]]}</option>
             {/each}

@@ -68,7 +68,7 @@ Es wird im **Spiel-Repo** gebaut (`tools/vorschau-buendeln.mjs`), weil Babylon
 dort ohnehin liegt. Die Seite bekommt nur das Ergebnis und lädt es zur Laufzeit
 mit `import(/* @vite-ignore */ …)`.
 
-Ebenso erzeugt und nur hierher kopiert: `static/assets/aussehen.json`
+Ebenso erzeugt und nur hierher kopiert: `static/assets/appearance.json`
 (`tools/aussehen-json.mjs`) und `static/assets/karten/*`
 (`tools/weltkarte-veroeffentlichen.mjs`).
 

@@ -2,6 +2,15 @@
 /**
  * Schreibt die Aussehen-Listen als JSON fuer die Webseite.
  *
+ * ── Englische FELDNAMEN, deutsche WERTE ─────────────────────────────
+ * Die Schluessel dieser Datei sind Drahtformat: sie werden von
+ * wov-web (/erstellen, /konto) gelesen und heissen deshalb englisch,
+ * wie alles andere zwischen Server und Browser. Die WERTE bleiben,
+ * wie shared/src/aussehen.ts sie fuehrt -- 'wikingerin', 'H_01',
+ * 'leder_bh' sind Kennungen, die im Weltspeicher und in der
+ * Kontendatenbank liegen. Sie zu uebersetzen waere eine
+ * Datenwanderung, kein Umbenennen.
+ *
  *   node_modules/.bin/tsx tools/aussehen-json.mjs [--aus <datei>]
  *
  * ── Warum erzeugt und nicht abgeschrieben ────────────────────────────
@@ -35,23 +44,23 @@ const HIER = dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 const AUS = argv.includes('--aus')
   ? argv[argv.indexOf('--aus') + 1]
-  : resolve(HIER, '../assets/aussehen.json');
+  : resolve(HIER, '../assets/appearance.json');
 
 const daten = {
-  erzeugt_von: 'tools/aussehen-json.mjs aus shared/src/aussehen.ts — nicht von Hand bearbeiten',
-  ordner: AUSSEHEN_ORDNER,
-  koerper: AUSSEHEN_KOERPER,
-  figuren: FIGUREN.map((f) => ({ id: f.id, modell: f.modell, name: f.name })),
-  figurVorgabe: FIGUR_VORGABE,
-  frisuren: FRISUREN.map((f) => ({ id: f.id, datei: f.datei, name: f.name })),
-  frisurVorgabe: FRISUR_VORGABE,
+  generatedBy: 'tools/aussehen-json.mjs aus shared/src/aussehen.ts — nicht von Hand bearbeiten',
+  folder: AUSSEHEN_ORDNER,
+  body: AUSSEHEN_KOERPER,
+  figures: FIGUREN.map((f) => ({ id: f.id, model: f.modell, name: f.name })),
+  defaultFigure: FIGUR_VORGABE,
+  hairstyles: FRISUREN.map((f) => ({ id: f.id, file: f.datei, name: f.name })),
+  defaultHairstyle: FRISUR_VORGABE,
   // Der Hex-Wert geht MIT: Die Webseite setzt ihn als Farbfleck neben
   // die Auswahl und reicht ihn an die Vorschau weiter. Sie kennt
   // shared/aussehen.ts nicht — vorschau-web.ts importiert bewusst nur
   // Babylon.
-  haarfarben: HAARFARBEN.map((h) => ({ id: h.id, name: h.name, hex: h.hex })),
-  haarfarbeVorgabe: HAARFARBE_VORGABE,
-  ruestung: RUESTUNG.map((r) => ({ id: r.id, datei: r.datei, name: r.name, slot: r.slot })),
+  hairColors: HAARFARBEN.map((h) => ({ id: h.id, name: h.name, hex: h.hex })),
+  defaultHairColor: HAARFARBE_VORGABE,
+  equipment: RUESTUNG.map((r) => ({ id: r.id, file: r.datei, name: r.name, slot: r.slot })),
   // Tageszeit-Marken fuer die Uhrzeit-Auswahl der Webseite.
   //
   // Aus dem Umgebungsmodell abgeleitet, nicht abgeschrieben: die
@@ -59,8 +68,8 @@ const daten = {
   // bei 06:00. Eine von Hand getippte Beschriftung wuerde das frueher oder
   // spaeter falsch behaupten -- dieselbe Begruendung wie fuer die Listen
   // darueber. main.ts baut seine Auswahl aus genau diesen Konstanten.
-  tageszeit: {
-    marken: Object.fromEntries([
+  timeOfDay: {
+    marks: Object.fromEntries([
       [0, 'Mitternacht'],
       [Math.round(FRACTION_SUNRISE * 24), 'Sonnenaufgang'],
       [Math.round(FRACTION_MIDDAY * 24), 'Mittag'],
@@ -73,6 +82,6 @@ mkdirSync(dirname(AUS), { recursive: true });
 writeFileSync(AUS, JSON.stringify(daten, null, 2) + '\n', 'utf8');
 console.log(
   'GESCHRIEBEN %s — %d Figuren, %d Frisuren, %d Ruestungsteile, %d Haarfarben',
-  AUS, daten.figuren.length, daten.frisuren.length, daten.ruestung.length,
-  daten.haarfarben.length
+  AUS, daten.figures.length, daten.hairstyles.length, daten.equipment.length,
+  daten.hairColors.length
 );

@@ -61,10 +61,24 @@ export interface Charakter {
 }
 
 /** Everything that can go wrong in a way the caller must tell apart. */
+/**
+ * Everything that can go wrong in a way the caller must tell apart.
+ *
+ * These strings are ENGLISH because they are not internal: KontoApi hands
+ * them to the browser unchanged (`{ error: r.fehler }`), so they are part
+ * of the HTTP contract and belong to the same vocabulary as every other
+ * error key there.
+ *
+ * They were German until 2026-08-24, and nobody noticed -- the website was
+ * reading the response field under its old German name, so every error
+ * came out as the generic "unexpected" message. Renaming that field made
+ * nine of thirteen keys work and left these three broken in a way that was
+ * now visible.
+ */
 export type KontoFehler =
-  | 'benutzername-vergeben'
-  | 'name-vergeben'
-  | 'unbekannt';
+  | 'username-taken'
+  | 'name-taken'
+  | 'unknown';
 
 export class Kontendatenbank {
   private readonly db: DatabaseSync;
@@ -131,7 +145,7 @@ export class Kontendatenbank {
     } catch (e) {
       // UNIQUE violation is the expected case, not an exception worth
       // logging: someone picked a name that is taken.
-      if (String(e).includes('UNIQUE')) return { ok: false, fehler: 'benutzername-vergeben' };
+      if (String(e).includes('UNIQUE')) return { ok: false, fehler: 'username-taken' };
       throw e;
     }
   }
@@ -201,7 +215,7 @@ export class Kontendatenbank {
         },
       };
     } catch (e) {
-      if (String(e).includes('UNIQUE')) return { ok: false, fehler: 'name-vergeben' };
+      if (String(e).includes('UNIQUE')) return { ok: false, fehler: 'name-taken' };
       throw e;
     }
   }

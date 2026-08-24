@@ -351,7 +351,7 @@ export const de = {
   'create.stage.hint.no_access': 'Kein Zugriff über die Domaingrenze ({fehler}).',
   'create.stage.hint.not_loaded': 'Figur nicht geladen — {grund}',
   'create.stage.hint.lists_missing':
-    'Die Auswahllisten fehlen — assets/aussehen.json nicht erreichbar.',
+    'Die Auswahllisten fehlen — assets/appearance.json nicht erreichbar.',
   'create.stage.hint.module_missing': 'Vorschau-Modul nicht ladbar — {fehler}',
   'create.stage.rotate_left': 'Drehen',
   'create.stage.rotate_right': 'Drehen',

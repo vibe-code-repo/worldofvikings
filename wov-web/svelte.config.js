@@ -117,8 +117,25 @@ export default {
         Sitemap. Die beiden Sprachwurzeln stehen darum ausdrücklich hier;
         alles Weitere findet der Crawler von dort aus über die Kopfleiste,
         die ihre Links bereits mit Sprachpräfix schreibt.
+
+        Die drei englischen Kontoadressen stehen zusätzlich einzeln da, und
+        zwar weil sie NICHT aus dem Dateibaum abzuleiten sind: Der Ordner
+        heisst `konto`, die Adresse heisst `/en/account`. Die
+        `entries`-Erzeuger in den `+page.ts` der Kontoseiten kennen nur
+        Routenparameter und können deshalb nur `/en/konto` erzeugen — den
+        Ordnernamen, nicht die veröffentlichte Adresse.
+
+        `/en/login` und `/en/register` fände der Crawler zwar auch über die
+        Anmeldesperre auf `/en/create`; sie stehen hier trotzdem, damit die
+        englischen Adressen nicht davon abhängen, welcher Zweig einer Seite
+        gerade vorgerendert wird.
+
+        Diese Liste prüft sich selbst: Ändert sich ein Slug in der Tabelle in
+        `src/lib/i18n/index.ts`, ohne dass die Zeile hier mitgeht, findet
+        `reroute` (src/hooks.ts) keine Route mehr, der Vorrenderer bekommt
+        eine 404 — und `handleHttpError: 'fail'` hält den Build an.
       */
-      entries: ['*', '/de', '/en'],
+      entries: ['*', '/de', '/en', '/en/login', '/en/register', '/en/account'],
     },
   },
 };

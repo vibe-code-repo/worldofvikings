@@ -9,7 +9,7 @@
 #
 # Seit dem 23.08.2026 liegt die Seite IM Spiel-Repo (wov-web/). Kurz: Client
 # und Seite teilen sich einen Vertrag ueber die Adressparameter (?name,
-# ?figur, ?zeit, ?los) und zwei erzeugte Dateien (assets/aussehen.json,
+# ?figure, ?time, ?go) und zwei erzeugte Dateien (assets/appearance.json,
 # assets/js/vorschau.js). Getrennte Repos machten aus jeder solchen
 # Aenderung zwei Commits, die niemand zusammen zuruecknehmen kann.
 #

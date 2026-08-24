@@ -56,15 +56,28 @@ MINDESTENS = 250
 # Ausdruecklich aufgezaehlt statt die Schwelle fuer alle zu senken: So steht
 # die Einschraenkung sichtbar da, statt sich in einer weichen Zahl zu
 # verstecken. Jede Zeile braucht einen Grund.
+#
+# ── Warum hier Slugs stehen und keine Seiten (24.08.2026) ────────────────
+# Der Schluessel ist der letzte Teil der ADRESSE, und der ist seit den
+# englischen Adressen je Sprache verschieden: dieselbe Seite heisst
+# build/de/konto.html und build/en/account.html. Ein Eintrag deckt deshalb
+# nicht mehr automatisch beide Sprachen ab — genau das war am 24.08. der
+# Befund, /en/account fiel mit 204 Zeichen gegen die Regelschwelle von 250.
+# Die Slug-Tabelle steht in src/lib/i18n/index.ts; wer dort einen Slug einer
+# Seite aendert, die hier steht, muss die Zeile hier mitnehmen. Das faellt
+# beim naechsten Lauf auf und ist damit laut, nicht still.
 NACHGELADEN = {
-    # Eintraege kommen aus /api/saga.json (Altbestand).
+    # Eintraege kommen aus /api/saga.json (Altbestand). In beiden Sprachen
+    # derselbe Slug, deshalb nur eine Zeile.
     'saga': 90,
     # Tafeln werden im Browser umgeschaltet (Altbestand).
     'ruhmeshalle': 300,
+    'hall-of-fame': 300,
     # Zeigt die Recken des ANGEMELDETEN Kontos. Vorgerendert kann hier
     # nichts Persoenliches stehen; die Seite erklaert genau das und bietet
     # Anmelden und Konto anlegen an. Kurz, aber nicht leer.
     'konto': 180,
+    'account': 180,
 }
 
 def eigener_text(datei: pathlib.Path) -> tuple[int, bool]:

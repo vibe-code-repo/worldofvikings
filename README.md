@@ -12,7 +12,7 @@ deterministic world generator.
 > ### This project is entirely vibe coded
 >
 > Every line of the server, the client, the shared world generation, the tools and this
-> document was written by an AI (Claude) in dialogue with Mike Kaldig, who directs the work,
+> document was written by an AI (Claude), who directs the work,
 > decides, measures and rejects. That is not a footnote — it is the method the thing is built
 > with, and the commit history is its record: the messages carry the reasoning, the numbers and
 > what got refuted along the way.

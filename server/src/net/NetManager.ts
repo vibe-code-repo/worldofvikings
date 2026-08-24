@@ -59,6 +59,15 @@ export interface NetManagerConfig {
    * Host samt Zertifikat zu brauchen -- Begruendung in KontoApi.ts.
    */
   httpBehandler?: HttpBehandler;
+  /**
+   * Look up the character an identity belongs to, or null when the token
+   * predates accounts (or the character was deleted).
+   *
+   * NetManager deliberately gets a FUNCTION rather than the database: it
+   * has no business knowing where accounts live, and this keeps the
+   * dependency pointing one way.
+   */
+  charakterZuSpielerId?: (id: SpielerId) => { name: string } | null;
 }
 
 /**
@@ -295,7 +304,7 @@ export class NetManager {
 
   private handlePasswordAuth(peer: Peer, reader: Reader): void {
     const antwort = reader.readString();
-    const playerName = reader.readString();
+    let playerName = reader.readString();
     const sessionToken = reader.readString();
 
     // F4 (Security-Review): Nonce ist EINMALIG und wird HIER verbraucht,
@@ -340,6 +349,19 @@ export class NetManager {
       // beeinflussen.
       altlastUserId = BigInt(getStableHash(spielerId) & 0x7fffffff);
     }
+
+    // The NAME comes from the account, not from the client.
+    //
+    // Until 2026-08-24 the browser sent it and the server believed it, so
+    // anybody could appear under any name that happened to be free. Now
+    // the session token identifies a character, and that character's row
+    // carries the name -- there is nothing left to claim.
+    //
+    // The client-supplied name still applies when the token belongs to no
+    // character: a direct visit to play.* without an account, which is
+    // still how the connect screen works.
+    const ausKonto = this.config.charakterZuSpielerId?.(spielerId) ?? null;
+    if (ausKonto) playerName = ausKonto.name;
 
     // Duplicate name — checked AFTER the identity is resolved, deliberately.
     //

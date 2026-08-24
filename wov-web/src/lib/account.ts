@@ -451,19 +451,21 @@ export function play(shore: ShoreId, token: string, id: number): Promise<Ticket>
  * `client/src/main.ts`. Change one side and the handover breaks in
  * silence — the client simply sees no parameter and falls back.
  */
-export function playUrl(
-  shore: ShoreId,
-  c: Pick<Character, 'name' | 'figure' | 'hairstyle' | 'top' | 'legs'>,
-  sessionToken: string,
-  time = '',
-): string {
-  const p = new URLSearchParams({
-    go: '1', name: c.name, figure: c.figure, hairstyle: c.hairstyle,
-  });
-  if (c.top) p.set('top', c.top);
-  if (c.legs) p.set('legs', c.legs);
-  // Only send what was offered: a `time` from an earlier test-shore visit
-  // must not quietly travel to Midgard.
-  if (shore === 'dev' && time !== '') p.set('time', time);
-  return `${SHORES[shore].url}/?${p.toString()}#ticket=${encodeURIComponent(sessionToken)}`;
+export function playUrl(shore: ShoreId, sessionToken: string, time?: string): string {
+  const url = new URL(SHORES[shore].url);
+  // Nur die gewuenschte Weltzeit steht noch im Suchteil, und auch die nur,
+  // wenn eine gewaehlt wurde: Sie ist kein Merkmal des Charakters, sondern
+  // ein Wunsch an die Welt.
+  if (time) url.searchParams.set('time', time);
+  // Alles andere ist weg, und das ist der Punkt: Das Ticket traegt die
+  // spielerId, der Server kennt damit den Charakter und holt Namen und
+  // Aussehen selbst. Name, figure, hairstyle, top und legs an die Adresse
+  // zu haengen war Doppelung -- und der Name war obendrein eine Behauptung
+  // des Browsers, der der Server geglaubt hat.
+  //
+  // Das Ticket gehoert ins FRAGMENT, nicht in den Suchteil: Es ist ein
+  // Zugangsnachweis, und ein Fragment wird nicht an Server geschickt.
+  url.hash = `ticket=${encodeURIComponent(sessionToken)}`;
+  return url.toString();
 }
+

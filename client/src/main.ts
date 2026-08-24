@@ -323,6 +323,18 @@ async function main() {
   // Manipulierbar ist so nur das EIGENE Aussehen, und das darf man
   // ohnehin: Der Server prueft jede Kennung gegen dieselben Listen
   // (istFigur/istFrisur/istRuestung), aus denen die Auswahl stammt.
+  /**
+   * Wurde diese Sitzung mit einem Spielticket eroeffnet?
+   *
+   * Dann gehoert der Charakter einem Konto, und Name wie Aussehen stehen
+   * serverseitig fest. Der Client darf sie nach dem Verbinden NICHT
+   * melden -- er wuerde den gespeicherten Stand mit dem ueberschreiben,
+   * was zufaellig in seinen Auswahlfeldern steht.
+   */
+  let mitTicket = false;
+  /** Lag ein Ticket in der Adresse? Dann ist die Anmeldung gewollt. */
+  let ticketVorgelegt = false;
+
   // ── Spielticket aus dem Adressfragment ────────────────────────────
   //
   // world-of-vikings.com tauscht einen gewaehlten Charakter gegen ein
@@ -344,6 +356,8 @@ async function main() {
     const roh = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
     const ticket = new URLSearchParams(roh).get('ticket');
     if (ticket) {
+      mitTicket = true;
+      ticketVorgelegt = true;
       try {
         localStorage.setItem('wov-session-token', ticket);
       } catch {
@@ -375,11 +389,18 @@ async function main() {
     // Direkt anmelden, ohne dieses Fenster zu zeigen. Die Wahl ist auf
     // world-of-vikings.com getroffen; hier gibt es nichts mehr zu fragen.
     //
+    // EIN TICKET IST FUER SICH SCHON DIE ABSICHT. Bis zum 24.08.2026 hing
+    // die Direktanmeldung an einem eigenen ?go=1, und als die Adresse auf
+    // das blosse Ticket eingedampft wurde, fiel sie lautlos aus: Der
+    // Charakter entstand, der Client zeigte aber wieder sein Fenster und
+    // wartete auf einen Klick. Wer ein Ticket vorlegt, will hinein --
+    // ?go=1 bleibt nur fuer den Fall ohne Konto erhalten.
+    //
     // Das ist KEIN neues Recht: Der Schalter loest genau denselben Weg
     // aus wie ein Klick auf "Verbinden", und Anmelden steht ohnehin
     // jedem offen — der Server vergibt die Kennung selbst und traut dem
     // Client dabei nichts. Er spart einen Klick, nicht eine Pruefung.
-    go: ausAdresse.has('go'),
+    go: ausAdresse.has('go') || ticketVorgelegt,
   };
 
   // ── Charaktererstellung: Vorschau, Frisur, Ruestung ────────────────
@@ -1990,13 +2011,23 @@ async function main() {
       // Wahl melden, sobald die Verbindung steht. Der Server prueft sie
       // und schreibt sie ans Charakter-ZDO — erst dadurch sehen die
       // anderen Spieler dieselbe Figur wie man selbst.
-      socket?.sendFigur(figurSelect.value);
-      // Frisur und Ruestung auf demselben Weg. Ohne das saehe jeder nur
-      // sich selbst richtig — die anderen bekaemen die Vorgabefrisur.
-      socket?.sendAussehen(
-        frisurSelect.value, oberSelect.value, beineSelect.value,
-        haarfarbeSelect.value
-      );
+      //
+      // NICHT bei einer Ticket-Anmeldung: Dann gehoert der Charakter einem
+      // Konto, und der Server hat Aussehen und Namen bereits gesetzt --
+      // aus dem Spielstand, ersatzweise aus der Kontendatenbank. Wuerde
+      // der Client hier melden, was gerade in seinen Auswahlfeldern steht
+      // (Vorgabewerte, denn das Fenster war nie zu sehen), ueberschriebe
+      // er genau das. Ein im Spiel geaenderter Haarschnitt waere nach
+      // jedem Neuladen wieder weg.
+      if (!mitTicket) {
+        socket?.sendFigur(figurSelect.value);
+        // Frisur und Ruestung auf demselben Weg. Ohne das saehe jeder nur
+        // sich selbst richtig — die anderen bekaemen die Vorgabefrisur.
+        socket?.sendAussehen(
+          frisurSelect.value, oberSelect.value, beineSelect.value,
+          haarfarbeSelect.value
+        );
+      }
       connectScreen.style.display = 'none';
       connectStatus.textContent = '';
       connectBtn.removeAttribute('disabled');

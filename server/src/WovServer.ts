@@ -369,6 +369,9 @@ export class WovServer {
       everyoneAdmin: this.config.everyoneAdmin,
       sessionSecret,
       istAdminId: (id) => this.adminListe.enthaelt(id),
+      // Der Name kommt aus dem Konto, nicht aus der Behauptung des
+      // Browsers -- Begruendung in NetManager.handlePasswordAuth.
+      charakterZuSpielerId: (id) => this.kontenDb.charakterZuSpielerId(id),
     });
 
     // Time
@@ -1213,15 +1216,40 @@ export class WovServer {
     // Spieler dieselbe Figur — ohne ihn saehe jeder nur sich selbst
     // richtig. Der Client schickt seine Wahl direkt nach dem Anmelden
     // per SetFigur; bis dahin gilt der gespeicherte Stand.
-    peer.figur = saved?.figur && istFigur(saved.figur) ? saved.figur : FIGUR_VORGABE;
+    // Erstanmeldung eines Charakters: Es gibt noch keinen Spielstand, aber
+    // sehr wohl eine getroffene Wahl -- sie steht in der Kontendatenbank,
+    // seit die Charaktererstellung auf world-of-vikings.com dorthin
+    // schreibt. Ohne diese Zeile bekaeme ein frisch angelegter Recke die
+    // Vorgabe und nicht das, was der Spieler ausgesucht hat.
+    //
+    // Reihenfolge: Spielstand SCHLAEGT Konto. Das Aussehen laesst sich im
+    // Spiel aendern (Charakterfenster, sendAussehen), und dann ist der
+    // Spielstand die lebende Wahrheit -- die Kontendatenbank haelt nur
+    // den Anlegestand.
+    const ausKonto = this.kontenDb.charakterZuSpielerId(peer.spielerId);
+
+    peer.figur = saved?.figur && istFigur(saved.figur)
+      ? saved.figur
+      : ausKonto && istFigur(ausKonto.figur)
+        ? ausKonto.figur
+        : FIGUR_VORGABE;
     characterZDO.setString(FIGUR_MEMBER, peer.figur);
 
     // Aussehen aus dem Spielstand — gleiche Begruendung wie bei der Figur:
     // Ueber die ZDO-Member sehen ALLE anderen Spieler dieselbe Frisur.
-    peer.frisur = saved?.frisur && istFrisur(saved.frisur) ? saved.frisur : FRISUR_VORGABE;
+    peer.frisur = saved?.frisur && istFrisur(saved.frisur)
+      ? saved.frisur
+      : ausKonto && istFrisur(ausKonto.frisur)
+        ? ausKonto.frisur
+        : FRISUR_VORGABE;
     peer.haarfarbe =
       saved?.haarfarbe && istHaarfarbe(saved.haarfarbe) ? saved.haarfarbe : HAARFARBE_VORGABE;
-    peer.ruestung = typeof saved?.ruestung === 'string' ? saved.ruestung : '|';
+    // Ruestung wandert als "ober|beine" durch einen einzigen String.
+    peer.ruestung = typeof saved?.ruestung === 'string'
+      ? saved.ruestung
+      : ausKonto
+        ? `${ausKonto.ober}|${ausKonto.beine}`
+        : '|';
     characterZDO.setString(FRISUR_MEMBER, peer.frisur);
     characterZDO.setString(HAARFARBE_MEMBER, peer.haarfarbe);
     characterZDO.setString(RUESTUNG_MEMBER, peer.ruestung);

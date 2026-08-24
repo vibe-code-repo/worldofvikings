@@ -220,6 +220,21 @@ export class Kontendatenbank {
     }
   }
 
+  /**
+   * Find a character by the identity the session token carries.
+   *
+   * This is what lets the play link be nothing but a ticket. Name and
+   * appearance are properties OF THE CHARACTER; sending them along in the
+   * address duplicated data the server already owns, and the name in
+   * particular was a claim made by the browser.
+   */
+  charakterZuSpielerId(spielerId: SpielerId): Charakter | null {
+    const z = this.db
+      .prepare('SELECT * FROM charaktere WHERE spieler_id = ?')
+      .get(spielerId) as Record<string, unknown> | undefined;
+    return z ? this.zuCharakter(z) : null;
+  }
+
   charaktereVonKonto(kontoId: number): Charakter[] {
     const zeilen = this.db
       .prepare('SELECT * FROM charaktere WHERE konto_id = ? ORDER BY erstellt')

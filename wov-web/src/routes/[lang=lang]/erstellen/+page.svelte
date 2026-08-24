@@ -399,8 +399,8 @@
         ober,
         beine,
       });
-      const ticket = await spielen(gestade, token, neu.charakter.id);
-      location.href = playUrl(gestade, ticket.charakter, ticket.sessionToken, zeit);
+      const ticket = await spielen(gestade, token, neu.character.id);
+      location.href = playUrl(gestade, ticket.character, ticket.sessionToken, zeit);
     } catch (err) {
       sendet = false;
       if (isLoggedOut(err)) return zurAnmeldung();

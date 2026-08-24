@@ -8,7 +8,7 @@
  * certificate. Anything else still gets the old 426, so the health check
  * keeps working.
  *
- * ── Why /konten/ and NOT /api/konto/ ─────────────────────────────────
+ * ── Why /accounts/ and NOT /api/konto/ ─────────────────────────────────
  * /api/ is already taken, and it does not lead here. On dev, Vite proxies
  * /api/ to the ADMIN service on 2468 (client/vite.config.ts); on live,
  * deploy/nginx-live.conf does the same and additionally gates it behind a
@@ -18,7 +18,7 @@
  * of its own avoids squeezing into a block that carries a host gate and a
  * header rewrite.
  *
- * ── Why X-WoV-Konto and not Authorization ────────────────────────────
+ * ── Why X-WoV-Account and not Authorization ────────────────────────────
  * The proxy in front of dev sets `proxy_set_header Authorization ""` in
  * its `location /` — basic-auth credentials are deliberately not passed
  * through, and a Bearer token in that header is stripped along with them.
@@ -79,12 +79,12 @@ export class KontoApi {
    */
   behandle(req: IncomingMessage, res: ServerResponse): boolean {
     const pfad = new URL(req.url ?? '/', 'http://x').pathname.replace(/\/+$/, '');
-    if (!pfad.startsWith('/konten')) return false;
+    if (!pfad.startsWith('/accounts')) return false;
 
     const ursprung = req.headers.origin;
     if (ursprung && ERLAUBTE_URSPRUENGE.has(ursprung)) {
       res.setHeader('Access-Control-Allow-Origin', ursprung);
-      res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization, x-wov-konto');
+      res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization, x-wov-account');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
       res.setHeader('Vary', 'Origin');
     }
@@ -95,7 +95,7 @@ export class KontoApi {
 
     void this.leite(req, res, pfad).catch((e) => {
       console.error('[Konto] unerwarteter Fehler:', e);
-      this.json(res, 500, { fehler: 'serverfehler' });
+      this.json(res, 500, { error: 'server-error' });
     });
     return true;
   }
@@ -103,54 +103,54 @@ export class KontoApi {
   private async leite(req: IncomingMessage, res: ServerResponse, pfad: string): Promise<void> {
     const m = req.method ?? 'GET';
 
-    if (pfad === '/konten/registrieren' && m === 'POST') return this.registrieren(req, res);
-    if (pfad === '/konten/anmelden' && m === 'POST') return this.anmelden(req, res);
-    if (pfad === '/konten/ich' && m === 'GET') return this.ich(req, res);
-    if (pfad === '/konten/charaktere' && m === 'POST') return this.charakterAnlegen(req, res);
+    if (pfad === '/accounts/register' && m === 'POST') return this.registrieren(req, res);
+    if (pfad === '/accounts/login' && m === 'POST') return this.anmelden(req, res);
+    if (pfad === '/accounts/me' && m === 'GET') return this.ich(req, res);
+    if (pfad === '/accounts/characters' && m === 'POST') return this.charakterAnlegen(req, res);
 
-    const spielen = /^\/konten\/charaktere\/(\d+)\/spielen$/.exec(pfad);
+    const spielen = /^\/accounts\/characters\/(\d+)\/play$/.exec(pfad);
     if (spielen && m === 'POST') return this.spielen(req, res, Number(spielen[1]));
 
-    const loeschen = /^\/konten\/charaktere\/(\d+)$/.exec(pfad);
+    const loeschen = /^\/accounts\/characters\/(\d+)$/.exec(pfad);
     if (loeschen && m === 'DELETE') return this.charakterLoeschen(req, res, Number(loeschen[1]));
 
-    this.json(res, 404, { fehler: 'unbekannter-endpunkt' });
+    this.json(res, 404, { error: 'unknown-endpoint' });
   }
 
   // ── Endpoints ───────────────────────────────────────────────────────
 
   private async registrieren(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const k = await this.koerper(req);
-    if (!k) return this.json(res, 400, { fehler: 'kaputter-koerper' });
+    if (!k) return this.json(res, 400, { error: 'malformed-body' });
 
-    const benutzername = String(k.benutzername ?? '').trim();
+    const benutzername = String(k.username ?? '').trim();
     const email = String(k.email ?? '').trim();
-    const passwort = String(k.passwort ?? '');
+    const passwort = String(k.password ?? '');
 
     const maengel = pruefeAnmeldedaten(benutzername, email, passwort);
-    if (maengel) return this.json(res, 400, { fehler: maengel });
+    if (maengel) return this.json(res, 400, { error: maengel });
 
     const eintrag = await passwortEinlagern(passwort);
     const r = this.db.kontoAnlegen(benutzername, email, eintrag);
-    if (!r.ok) return this.json(res, 409, { fehler: r.fehler });
+    if (!r.ok) return this.json(res, 409, { error: r.fehler });
 
     console.log(`[Konto] angelegt: "${benutzername}"`);
     this.json(res, 201, {
       token: this.kontoTokenAusstellen(r.konto.id),
-      konto: { benutzername: r.konto.benutzername, email: r.konto.email },
-      charaktere: [],
+      account: { username: r.konto.benutzername, email: r.konto.email },
+      characters: [],
     });
   }
 
   private async anmelden(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const ip = this.herkunft(req);
-    if (this.gesperrt(ip)) return this.json(res, 429, { fehler: 'zu-viele-versuche' });
+    if (this.gesperrt(ip)) return this.json(res, 429, { error: 'too-many-attempts' });
 
     const k = await this.koerper(req);
-    if (!k) return this.json(res, 400, { fehler: 'kaputter-koerper' });
+    if (!k) return this.json(res, 400, { error: 'malformed-body' });
 
-    const benutzername = String(k.benutzername ?? '').trim();
-    const passwort = String(k.passwort ?? '');
+    const benutzername = String(k.username ?? '').trim();
+    const passwort = String(k.password ?? '');
     const konto = benutzername ? this.db.kontoNachName(benutzername) : null;
 
     // Always run the (expensive) check, even when the account does not
@@ -163,7 +163,7 @@ export class KontoApi {
     if (!konto || !stimmt) {
       this.fehlversuchZaehlen(ip);
       // One message for both cases — "unknown user" would be an oracle.
-      return this.json(res, 401, { fehler: 'anmeldung-fehlgeschlagen' });
+      return this.json(res, 401, { error: 'login-failed' });
     }
 
     this.fehlversuche.delete(ip);
@@ -175,31 +175,31 @@ export class KontoApi {
 
     this.json(res, 200, {
       token: this.kontoTokenAusstellen(konto.id),
-      konto: { benutzername: konto.benutzername, email: konto.email },
-      charaktere: this.db.charaktereVonKonto(konto.id).map(nachAussen),
+      account: { username: konto.benutzername, email: konto.email },
+      characters: this.db.charaktereVonKonto(konto.id).map(nachAussen),
     });
   }
 
   private ich(req: IncomingMessage, res: ServerResponse): void {
     const kontoId = this.kontoAus(req);
-    if (kontoId === null) return this.json(res, 401, { fehler: 'nicht-angemeldet' });
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
     const konto = this.db.kontoNachId(kontoId);
-    if (!konto) return this.json(res, 401, { fehler: 'nicht-angemeldet' });
+    if (!konto) return this.json(res, 401, { error: 'not-signed-in' });
     this.json(res, 200, {
-      konto: { benutzername: konto.benutzername, email: konto.email },
-      charaktere: this.db.charaktereVonKonto(kontoId).map(nachAussen),
+      account: { username: konto.benutzername, email: konto.email },
+      characters: this.db.charaktereVonKonto(kontoId).map(nachAussen),
     });
   }
 
   private async charakterAnlegen(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const kontoId = this.kontoAus(req);
-    if (kontoId === null) return this.json(res, 401, { fehler: 'nicht-angemeldet' });
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
 
     const k = await this.koerper(req);
-    if (!k) return this.json(res, 400, { fehler: 'kaputter-koerper' });
+    if (!k) return this.json(res, 400, { error: 'malformed-body' });
 
     const name = String(k.name ?? '').trim();
-    if (!/^[\p{L}\p{N} _-]{2,24}$/u.test(name)) return this.json(res, 400, { fehler: 'name-ungueltig' });
+    if (!/^[\p{L}\p{N} _-]{2,24}$/u.test(name)) return this.json(res, 400, { error: 'name-invalid' });
 
     const r = this.db.charakterAnlegen(kontoId, name, {
       figur: String(k.figur ?? ''),
@@ -207,18 +207,18 @@ export class KontoApi {
       ober: String(k.ober ?? ''),
       beine: String(k.beine ?? ''),
     });
-    if (!r.ok) return this.json(res, 409, { fehler: r.fehler });
+    if (!r.ok) return this.json(res, 409, { error: r.fehler });
     console.log(`[Konto] Charakter "${name}" fuer Konto ${kontoId}`);
-    this.json(res, 201, { charakter: nachAussen(r.charakter) });
+    this.json(res, 201, { character: nachAussen(r.charakter) });
   }
 
   private charakterLoeschen(req: IncomingMessage, res: ServerResponse, id: number): void {
     const kontoId = this.kontoAus(req);
-    if (kontoId === null) return this.json(res, 401, { fehler: 'nicht-angemeldet' });
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
     // Scoped by konto_id in SQL, so a foreign id simply does not match —
     // there is no path here that could delete someone else's character.
     const weg = this.db.charakterLoeschen(kontoId, id);
-    this.json(res, weg ? 200 : 404, weg ? { ok: true } : { fehler: 'unbekannt' });
+    this.json(res, weg ? 200 : 404, weg ? { ok: true } : { error: 'unbekannt' });
   }
 
   /**
@@ -230,15 +230,15 @@ export class KontoApi {
    */
   private spielen(req: IncomingMessage, res: ServerResponse, id: number): void {
     const kontoId = this.kontoAus(req);
-    if (kontoId === null) return this.json(res, 401, { fehler: 'nicht-angemeldet' });
+    if (kontoId === null) return this.json(res, 401, { error: 'not-signed-in' });
 
     const c = this.db.charakterVonKonto(kontoId, id);
-    if (!c) return this.json(res, 404, { fehler: 'unbekannt' });
+    if (!c) return this.json(res, 404, { error: 'unbekannt' });
 
     this.db.gespieltVermerken(c.id);
     this.json(res, 200, {
       sessionToken: tokenAusstellen(c.spielerId, c.altlastUserId, this.sessionSecret),
-      charakter: nachAussen(c),
+      character: nachAussen(c),
     });
   }
 
@@ -254,8 +254,8 @@ export class KontoApi {
 
   /** Account id from the Authorization header, or null. */
   private kontoAus(req: IncomingMessage): number | null {
-    // X-WoV-Konto zuerst: Authorization wird vom Proxy vor dev geleert.
-    const eigen = req.headers['x-wov-konto'];
+    // X-WoV-Account zuerst: Authorization wird vom Proxy vor dev geleert.
+    const eigen = req.headers['x-wov-account'];
     const kopf = req.headers.authorization ?? '';
     const token = typeof eigen === 'string' && eigen.trim()
       ? eigen.trim()
@@ -341,7 +341,7 @@ function nachAussen(c: Charakter): Record<string, unknown> {
   return {
     id: c.id, name: c.name, figur: c.figur, frisur: c.frisur,
     ober: c.ober, beine: c.beine,
-    erstellt: c.erstellt, zuletztGespielt: c.zuletztGespielt,
+    created: c.erstellt, lastPlayed: c.zuletztGespielt,
   };
 }
 
@@ -349,11 +349,11 @@ function nachAussen(c: Charakter): Record<string, unknown> {
 export function pruefeAnmeldedaten(
   benutzername: string, email: string, passwort: string,
 ): string | null {
-  if (!/^[\p{L}\p{N}_-]{3,24}$/u.test(benutzername)) return 'benutzername-ungueltig';
+  if (!/^[\p{L}\p{N}_-]{3,24}$/u.test(benutzername)) return 'username-invalid';
   // Deliberately loose: the address is never verified, so a strict pattern
   // would only reject valid unusual addresses without buying anything.
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return 'email-ungueltig';
-  if (passwort.length < 8 || passwort.length > 200) return 'passwort-zu-kurz';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return 'email-invalid';
+  if (passwort.length < 8 || passwort.length > 200) return 'password-too-short';
   return null;
 }
 

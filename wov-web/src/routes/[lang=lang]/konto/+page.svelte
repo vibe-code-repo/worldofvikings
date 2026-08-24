@@ -112,8 +112,8 @@
     laedt = true;
     try {
       const daten = await ich(gestade, token);
-      konto = daten.konto;
-      charaktere = daten.charaktere;
+      konto = daten.account;
+      charaktere = daten.characters;
       angemeldet = true;
     } catch (err) {
       if (isLoggedOut(err)) {
@@ -163,7 +163,7 @@
       const ticket = await spielen(gestade, token, c.id);
       // Der Zugangsnachweis reist im Adressfragment, nie als Parameter —
       // die Begründung steht bei `playUrl` in `$lib/konto.ts`.
-      location.href = playUrl(gestade, ticket.charakter, ticket.sessionToken);
+      location.href = playUrl(gestade, ticket.character, ticket.sessionToken);
     } catch (err) {
       beschaeftigt = null;
       if (isLoggedOut(err)) return zurAnmeldung();
@@ -293,7 +293,7 @@
 
         {#if konto}
           <p class="konto-recke-daten" style="margin-bottom:0">
-            <span>{t['konto.seite.angemeldet_als']} <b>{konto.benutzername}</b></span>
+            <span>{t['konto.seite.angemeldet_als']} <b>{konto.username}</b></span>
             <span>{t['konto.seite.email']} <b>{konto.email}</b></span>
           </p>
         {/if}
@@ -337,14 +337,14 @@
               <p class="konto-recke-daten">
                 <span>
                   {t['konto.seite.erschaffen']}
-                  <b>{datumKurz(new Date(c.erstellt).toISOString(), lang)}</b>
+                  <b>{datumKurz(new Date(c.created).toISOString(), lang)}</b>
                 </span>
                 <span>
-                  {#if c.zuletztGespielt === null}
+                  {#if c.lastPlayed === null}
                     <b>{t['konto.seite.nie']}</b>
                   {:else}
                     {t['konto.seite.zuletzt']}
-                    <b>{vorWieLange(new Date(c.zuletztGespielt).toISOString(), lang)}</b>
+                    <b>{vorWieLange(new Date(c.lastPlayed).toISOString(), lang)}</b>
                   {/if}
                 </span>
               </p>

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Konto-API am Spielport durchspielen. Prueft vor allem, was NICHT gehen darf.
 set -u
-B=http://127.0.0.1:2467/konten
+B=http://127.0.0.1:2467/accounts
 N="probe$RANDOM$RANDOM"
 
 ok=0; fehl=0
@@ -34,7 +34,7 @@ pruef "falsches Passwort" 401 "$(code -X POST $B/anmelden -H 'content-type: appl
   -d "{\"benutzername\":\"$N\",\"passwort\":\"falsch\"}")"
 pruef "unbekannter Benutzer, gleiche Meldung" 401 "$(code -X POST $B/anmelden -H 'content-type: application/json' \
   -d '{"benutzername":"gibtsnicht","passwort":"egal"}')"
-pruef "  und derselbe Fehlerschluessel" "anmeldung-fehlgeschlagen" "$(J "['fehler']")"
+pruef "  und derselbe Fehlerschluessel" "login-failed" "$(J "['fehler']")"
 
 echo "── Zugriffsschutz ──"
 pruef "ohne Token"            401 "$(code $B/ich)"

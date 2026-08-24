@@ -94,7 +94,7 @@
         stimmt auch dann noch, wenn es einmal Konten mit Recken von anderswo
         gibt.
       */
-      await goto(localizedPath(lang, antwort.charaktere.length ? '/konto' : '/erstellen'));
+      await goto(localizedPath(lang, antwort.characters.length ? '/konto' : '/erstellen'));
     } catch (err) {
       fehler = err instanceof ApiError ? errorMessageKey(err.key) : 'konto.fehler.unerwartet';
       laeuft = false;

@@ -209,7 +209,7 @@ export default defineConfig({
        * das Testgestade nicht erreichbar — der Vite-Server beantwortet
        * alles, was er nicht kennt, mit der Client-Seite.
        */
-      '/konten/': {
+      '/accounts/': {
         target: `http://127.0.0.1:${GAME_SERVER_PORT}`,
         changeOrigin: false,
       },

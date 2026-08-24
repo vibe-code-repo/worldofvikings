@@ -1,5 +1,5 @@
 /**
- * Accounts and characters — the browser half of `/konten`.
+ * Accounts and characters — the browser half of `/accounts`.
  *
  * ── Why this is a module and not four copies of `fetch` ───────────────
  * Four pages talk to the same API: `/registrieren`, `/anmelden`, `/konto`
@@ -80,31 +80,31 @@ export interface Charakter {
   ober: string;
   beine: string;
   /** Epoch milliseconds — the database stores numbers, not ISO strings. */
-  erstellt: number;
-  zuletztGespielt: number | null;
+  created: number;
+  lastPlayed: number | null;
 }
 
 export interface Konto {
-  benutzername: string;
+  username: string;
   email: string;
 }
 
 /** What `/registrieren` and `/anmelden` answer with. */
 export interface Anmeldung {
   token: string;
-  konto: Konto;
-  charaktere: Charakter[];
+  account: Konto;
+  characters: Charakter[];
 }
 
 /** What `/ich` answers with — the same, minus a fresh token. */
 export interface Ich {
-  konto: Konto;
-  charaktere: Charakter[];
+  account: Konto;
+  characters: Charakter[];
 }
 
 export interface Ticket {
   sessionToken: string;
-  charakter: Charakter;
+  character: Charakter;
 }
 
 /* ------------------------------------------------------------- errors */
@@ -112,7 +112,7 @@ export interface Ticket {
 /**
  * A failed call. `key` is the API's error key, never a sentence.
  *
- * The API answers with keys (`benutzername-vergeben`, …) precisely so that
+ * The API answers with keys (`username-taken`, …) precisely so that
  * the wording lives in the catalogue and exists in both languages. Turning
  * the key into text here would put one German sentence in a module that
  * knows nothing about the reader's language.
@@ -132,17 +132,17 @@ export class ApiError extends Error {
  * something a player can act on. It falls through to the generic entry.
  */
 const ERROR_MESSAGES: Record<string, MessageKey> = {
-  'benutzername-ungueltig': 'konto.fehler.benutzername_ungueltig',
-  'email-ungueltig': 'konto.fehler.email_ungueltig',
-  'passwort-zu-kurz': 'konto.fehler.passwort_zu_kurz',
-  'benutzername-vergeben': 'konto.fehler.benutzername_vergeben',
-  'anmeldung-fehlgeschlagen': 'konto.fehler.anmeldung_fehlgeschlagen',
-  'zu-viele-versuche': 'konto.fehler.zu_viele_versuche',
-  'nicht-angemeldet': 'konto.fehler.nicht_angemeldet',
-  'name-ungueltig': 'konto.fehler.name_ungueltig',
-  'name-vergeben': 'konto.fehler.name_vergeben',
-  unbekannt: 'konto.fehler.unbekannt',
-  'kaputter-koerper': 'konto.fehler.kaputter_koerper',
+  'username-invalid': 'konto.fehler.benutzername_ungueltig',
+  'email-invalid': 'konto.fehler.email_ungueltig',
+  'password-too-short': 'konto.fehler.passwort_zu_kurz',
+  'username-taken': 'konto.fehler.benutzername_vergeben',
+  'login-failed': 'konto.fehler.anmeldung_fehlgeschlagen',
+  'too-many-attempts': 'konto.fehler.zu_viele_versuche',
+  'not-signed-in': 'konto.fehler.nicht_angemeldet',
+  'name-invalid': 'konto.fehler.name_ungueltig',
+  'name-taken': 'konto.fehler.name_vergeben',
+  'unknown': 'konto.fehler.unbekannt',
+  'malformed-body': 'konto.fehler.kaputter_koerper',
   serverfehler: 'konto.fehler.serverfehler',
   netzwerk: 'konto.fehler.netzwerk',
 };
@@ -153,7 +153,7 @@ export function errorMessageKey(key: string): MessageKey {
 
 /** True when the call failed because the token is gone or expired. */
 export function isLoggedOut(e: unknown): boolean {
-  return e instanceof ApiError && e.key === 'nicht-angemeldet';
+  return e instanceof ApiError && e.key === 'not-signed-in';
 }
 
 /* -------------------------------------------------------- token store */
@@ -308,7 +308,7 @@ async function call<T>(shore: ShoreId, pfad: string, a: Aufruf): Promise<T> {
   // X-WoV-Konto statt Authorization: Der Proxy vor dem Testgestade leert
   // die Authorization-Kopfzeile (proxy_set_header Authorization ""), ein
   // Bearer-Token kaeme dort nie an. Begruendung in KontoApi.ts.
-  if (a.token) kopf['x-wov-konto'] = a.token;
+  if (a.token) kopf['x-wov-account'] = a.token;
 
   let antwort: Response;
   try {
@@ -336,44 +336,44 @@ async function call<T>(shore: ShoreId, pfad: string, a: Aufruf): Promise<T> {
 
   if (!antwort.ok) {
     const fehler = (daten as { fehler?: unknown } | null)?.fehler;
-    throw new ApiError(typeof fehler === 'string' ? fehler : 'serverfehler');
+    throw new ApiError(typeof fehler === 'string' ? fehler : 'server-error');
   }
   return daten as T;
 }
 
 export function registrieren(
   shore: ShoreId,
-  benutzername: string,
+  username: string,
   email: string,
-  passwort: string,
+  password: string,
 ): Promise<Anmeldung> {
-  return call<Anmeldung>(shore, '/konten/registrieren', {
+  return call<Anmeldung>(shore, '/accounts/register', {
     method: 'POST',
-    body: { benutzername, email, passwort },
+    body: { username, email, password },
   });
 }
 
 export function anmelden(
   shore: ShoreId,
-  benutzername: string,
-  passwort: string,
+  username: string,
+  password: string,
 ): Promise<Anmeldung> {
-  return call<Anmeldung>(shore, '/konten/anmelden', {
+  return call<Anmeldung>(shore, '/accounts/login', {
     method: 'POST',
-    body: { benutzername, passwort },
+    body: { username, password },
   });
 }
 
 export function ich(shore: ShoreId, token: string): Promise<Ich> {
-  return call<Ich>(shore, '/konten/ich', { method: 'GET', token });
+  return call<Ich>(shore, '/accounts/me', { method: 'GET', token });
 }
 
 export function charakterAnlegen(
   shore: ShoreId,
   token: string,
   charakter: { name: string; figur: string; frisur: string; ober: string; beine: string },
-): Promise<{ charakter: Charakter }> {
-  return call<{ charakter: Charakter }>(shore, '/konten/charaktere', {
+): Promise<{ character: Charakter }> {
+  return call<{ character: Charakter }>(shore, '/accounts/characters', {
     method: 'POST',
     token,
     body: charakter,
@@ -385,7 +385,7 @@ export function charakterLoeschen(
   token: string,
   id: number,
 ): Promise<{ ok: true }> {
-  return call<{ ok: true }>(shore, `/konten/charaktere/${id}`, {
+  return call<{ ok: true }>(shore, `/accounts/characters/${id}`, {
     method: 'DELETE',
     token,
   });
@@ -393,7 +393,7 @@ export function charakterLoeschen(
 
 /** Trade a character for a session ticket — the only way into the world. */
 export function spielen(shore: ShoreId, token: string, id: number): Promise<Ticket> {
-  return call<Ticket>(shore, `/konten/charaktere/${id}/spielen`, {
+  return call<Ticket>(shore, `/accounts/characters/${id}/spielen`, {
     method: 'POST',
     token,
   });

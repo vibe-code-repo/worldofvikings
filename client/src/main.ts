@@ -335,6 +335,59 @@ async function main() {
   /** Lag ein Ticket in der Adresse? Dann ist die Anmeldung gewollt. */
   let ticketVorgelegt = false;
 
+  /**
+   * Liegt ein SessionToken im Speicher? Dann war der Besucher schon einmal
+   * hier, und das Anmeldefenster hat ihm nichts zu sagen.
+   *
+   * Bis zum 24.08.2026 galt nur ein Ticket in der Adresse als Absicht. Wer
+   * sich ueber world-of-vikings.com angemeldet hatte und play.* danach neu
+   * lud oder spaeter wieder aufrief, sah wieder das alte Fenster -- mit
+   * einem gueltigen Token im Speicher, das genau daneben lag. Genau der
+   * Schritt, den die Charaktererstellung ersetzen sollte.
+   *
+   * Ist das Token abgelaufen oder gefaelscht, weist der Server die
+   * Verbindung ab, onDisconnected nimmt die Klasse `direkt` wieder weg und
+   * das vollstaendige Fenster steht da. Der Rueckweg bleibt also derselbe
+   * -- es wird nur nicht mehr vorsorglich gefragt.
+   */
+  function tokenLiegtVor(): boolean {
+    let roh: string;
+    try {
+      roh = localStorage.getItem('wov-session-token') ?? '';
+    } catch {
+      // Privater Modus: kein Speicher, also auch kein Token.
+      return false;
+    }
+    if (!roh) return false;
+
+    // Ablauf pruefen, BEVOR daraus eine Anmeldeabsicht wird.
+    //
+    // Die Signatur kann der Client nicht pruefen -- das Geheimnis liegt im
+    // Server, und das ist richtig so. Das Ablaufdatum steht aber offen in
+    // der Nutzlast, und das genuegt fuer die Frage, die hier ansteht.
+    //
+    // WARUM DAS NOETIG IST: Ein ungueltiges Token weist der Server nicht
+    // ab, er vergibt eine NEUE Identitaet (F3, Sicherheitspruefung --
+    // ausdruecklich kein stiller Rueckfall auf ein Client-Feld). Ohne
+    // diese Pruefung landete jemand mit abgelaufenem Token wortlos als
+    // frischer, namenloser Charakter in der Welt, waehrend sein eigener
+    // weiter im Spielstand liegt. Er soll stattdessen das Fenster sehen
+    // und sich neu anmelden koennen.
+    //
+    // Ein GEFAELSCHTES Token kommt hier durch; das faengt der Server.
+    try {
+      const teile = roh.split('.');
+      if (teile.length !== 2 || !teile[0]) return false;
+      const nutzlast = JSON.parse(atob(teile[0].replace(/-/g, '+').replace(/_/g, '/'))) as {
+        e?: unknown;
+      };
+      return typeof nutzlast.e === 'number' && nutzlast.e > Date.now();
+    } catch {
+      // Unlesbar heisst unbrauchbar.
+      return false;
+    }
+  }
+
   // ── Spielticket aus dem Adressfragment ────────────────────────────
   //
   // world-of-vikings.com tauscht einen gewaehlten Charakter gegen ein
@@ -400,7 +453,7 @@ async function main() {
     // aus wie ein Klick auf "Verbinden", und Anmelden steht ohnehin
     // jedem offen — der Server vergibt die Kennung selbst und traut dem
     // Client dabei nichts. Er spart einen Klick, nicht eine Pruefung.
-    go: ausAdresse.has('go') || ticketVorgelegt,
+    go: ausAdresse.has('go') || ticketVorgelegt || tokenLiegtVor(),
   };
 
   // ── Charaktererstellung: Vorschau, Frisur, Ruestung ────────────────

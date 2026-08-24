@@ -98,6 +98,10 @@ export type KanonischerPfad = OhneSprachpraefix<RouteId>;
 export const SLUGS = {
   '/saga': { de: 'saga', en: 'saga' },
   '/thing': { de: 'thing', en: 'thing' },
+  /* Same word in both languages, like `saga` and `thing` — a German
+     `/de/wissen` against an English `/en/wiki` would be two names for one
+     page where the English one is already the German one too. */
+  '/wiki': { de: 'wiki', en: 'wiki' },
   '/karte': { de: 'karte', en: 'map' },
   '/ruestkammer': { de: 'ruestkammer', en: 'armory' },
   '/ruhmeshalle': { de: 'ruhmeshalle', en: 'hall-of-fame' },

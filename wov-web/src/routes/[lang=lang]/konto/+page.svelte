@@ -247,8 +247,18 @@
 />
 
 <main class="mitte seite">
-  <div class="account-narrow">
-    <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['account.page.heading']}</h1>
+  <div class="account-wide">
+    <div class="account-head" style="margin-bottom:2rem">
+      <h1 style="font-size:clamp(28px,4.5vw,38px)">{t['account.page.heading']}</h1>
+      <!--
+        The intro paragraph only stands where it is TRUE. "Pick one or
+        create a new one" above a sign-in prompt would name two things that
+        are not there.
+      -->
+      {#if signedIn}
+        <p>{t['account.page.intro']}</p>
+      {/if}
+    </div>
 
     {#if unreachable}
       <!--
@@ -257,13 +267,13 @@
         sign in although their token may be perfectly fine, and the signed-in
         view would show an empty character list as if they had none.
       -->
-      <div class="account-panel" style="margin-top:1.2rem">
-        <h2 style="margin-top:0">{t['account.page.unreachable.title']}</h2>
+      <div class="account-panel" style="max-width:460px">
+        <h2>{t['account.page.unreachable.title']}</h2>
         {#if error}
-          <p class="account-notice" role="alert" style="margin:0.8rem 0 0">{t[error]}</p>
+          <p class="account-notice" role="alert">{t[error]}</p>
         {/if}
         <div class="account-actions">
-          <button class="knopf" type="button" onclick={() => void load()}>
+          <button class="knopf account-primary" type="button" onclick={() => void load()}>
             {t['account.page.unreachable.retry']}
           </button>
           <button class="knopf knopf-rand" type="button" onclick={logout}>
@@ -272,8 +282,26 @@
         </div>
       </div>
     {:else if signedIn}
-      <div class="account-panel" style="margin-top:1.2rem">
-        <div class="account-field" style="margin-bottom:0.8rem">
+      <!--
+        "Signed in as" is a line, not a box: it says who you are, and that is
+        not a thing to be done. The shore select rides along because it
+        decides WHICH account is meant — the databases are separate per
+        shore.
+      -->
+      <div class="account-signedin">
+        <div>
+          {#if account}
+            <span class="account-signedin-who">
+              {t['account.page.logged_in_as']}
+              <b>{account.username}</b>
+            </span>
+            <p class="account-character-data" style="margin:0.3rem 0 0">
+              <span>{t['account.page.email']} <b>{account.email}</b></span>
+            </p>
+          {/if}
+        </div>
+
+        <div class="account-signedin-tools">
           <label class="account-label" for="account-shore">
             {t['create.voyage.shore.label']}
           </label>
@@ -287,19 +315,6 @@
               <option value={s}>{t[SHORE_LABEL[s]]}</option>
             {/each}
           </select>
-        </div>
-
-        {#if account}
-          <p class="account-character-data" style="margin-bottom:0">
-            <span>{t['account.page.logged_in_as']} <b>{account.username}</b></span>
-            <span>{t['account.page.email']} <b>{account.email}</b></span>
-          </p>
-        {/if}
-
-        <div class="account-actions">
-          <a class="knopf" href={localizedPath(lang, '/erstellen')}>
-            {t['account.page.button.new']}
-          </a>
           <button class="knopf knopf-rand" type="button" onclick={logout}>
             {t['account.logout']}
           </button>
@@ -307,7 +322,7 @@
       </div>
 
       {#if error}
-        <p class="account-notice" role="alert" style="margin-top:1.2rem">{t[error]}</p>
+        <p class="account-notice" role="alert">{t[error]}</p>
       {/if}
 
       {#if loading}
@@ -319,9 +334,10 @@
           answer never came — not because none stands there. The error
           message above already says what is going on.
         -->
-      {:else if characters.length === 0}
-        <p class="account-empty">{t['account.page.empty']}</p>
       {:else}
+        {#if characters.length === 0}
+          <p class="account-empty">{t['account.page.empty']}</p>
+        {/if}
         <div class="account-list">
           {#each characters as c (c.id)}
             <article class="account-character">
@@ -351,9 +367,7 @@
                 <!-- Two steps instead of a browser dialog: `confirm()` can
                      neither be translated nor styled, and it halts the whole
                      tab while it is up. -->
-                <p class="account-notice" style="margin:0.8rem 0 0">
-                  {t['account.page.delete.question']}
-                </p>
+                <p class="account-notice">{t['account.page.delete.question']}</p>
                 <div class="account-actions">
                   <button
                     class="knopf knopf-rand"
@@ -363,14 +377,18 @@
                   >
                     {t['account.page.delete.yes']}
                   </button>
-                  <button class="knopf" type="button" onclick={() => (deleteAsk = null)}>
+                  <button
+                    class="knopf account-primary"
+                    type="button"
+                    onclick={() => (deleteAsk = null)}
+                  >
                     {t['account.page.delete.no']}
                   </button>
                 </div>
               {:else}
                 <div class="account-actions">
                   <button
-                    class="knopf"
+                    class="knopf account-primary"
                     type="button"
                     disabled={busy !== null}
                     onclick={() => setSail(c)}
@@ -391,6 +409,12 @@
               {/if}
             </article>
           {/each}
+
+          <!-- The last cell of the grid, not a button above it: the way to a
+               new character stands WHERE the new character will stand. -->
+          <a class="account-new" href={localizedPath(lang, '/erstellen')}>
+            + {t['account.page.button.new']}
+          </a>
         </div>
       {/if}
     {:else}
@@ -399,14 +423,14 @@
         therefore also what shows without JavaScript: an explanation and two
         ways onward, no half button and no empty list.
       -->
-      <div class="account-panel" style="margin-top:1.2rem">
-        <h2 style="margin-top:0">{t['account.page.locked.title']}</h2>
-        <p style="color:var(--matt)">{t['account.page.locked.text']}</p>
+      <div class="account-panel" style="max-width:460px">
+        <h2>{t['account.page.locked.title']}</h2>
+        <p style="color:var(--text-matt)">{t['account.page.locked.text']}</p>
         {#if ready && loading}
           <p class="account-empty">{t['account.page.loading']}</p>
         {/if}
         <div class="account-actions">
-          <a class="knopf" href={localizedPath(lang, '/anmelden')}>
+          <a class="knopf account-primary" href={localizedPath(lang, '/anmelden')}>
             {t['account.page.locked.login']}
           </a>
           <a class="knopf knopf-rand" href={localizedPath(lang, '/registrieren')}>

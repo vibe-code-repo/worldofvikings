@@ -152,6 +152,60 @@
   --ebenen: #c2a558;
   --nebelland: #6d6a80;
   --aschelande: #a4482f;
+
+  /*
+    Neu aus dem Entwurf "Rune & Iron". Englisch benannt, weil neu
+    Geschriebenes englisch benannt wird; die deutschen Marken oben bleiben
+    unangetastet — an ihnen haengt die ganze Seite.
+
+    Hier steht nur, was sich in KEINER vorhandenen Marke wiederfindet. Alles
+    uebrige aus dem Entwurf deckt sich Wert fuer Wert mit oben und bekommt
+    ausdruecklich KEINEN zweiten Namen: #131313 --grund, #121212 --eisen,
+    #0e0e0e --flaeche-tiefst, #1c1b1b --flaeche-tief, #20201f --flaeche,
+    #2a2a2a --flaeche-hoch, #393939 --flaeche-hell, #e5e2e1 --text,
+    #d0c5af --text-matt, #e5d3b3 --pergament, #99907c --umriss,
+    #4d4635 --umriss-matt, #f2ca50 --primaer, #3c2f00 --auf-primaer,
+    #d4af37 --primaer-behaelter, #554300 --auf-primaer-behaelter,
+    #ffd700 --runengold, #c3cc8c --zweit und die sieben Biom-Farben.
+
+    Die Kleiderfarben und Haarfarben des Entwurfs (#4a3324, #c1601f, …)
+    stehen bewusst nicht hier: das sind Spieldaten aus appearance.json,
+    keine Marken der Seite.
+  */
+
+  /* Unterster Stopp des dreistufigen Goldverlaufs auf dem Hauptknopf des
+     Entwurfs (--primaer 0% → --primaer-behaelter 55% → hier 100%). NICHT
+     --auf-primaer-behaelter: das ist mit #554300 deutlich dunkler und
+     brauner. */
+  --gold-gradient-foot: #8f7317;
+  /* Glanzkante innen oben auf demselben Knopf (inset 0 1px 0 …). Das
+     einzige Weiss im ganzen Entwurf. */
+  --gold-gradient-sheen: rgba(255, 255, 255, 0.35);
+
+  /* Wasserblau unter dem Kartenbild: die Flaeche, die man sieht, solange
+     die Kachel noch nicht da ist oder neben ihr steht. */
+  --map-water: #162e4e;
+
+  /* Fehlerkasten in Anmelden/Registrieren — Terrakotta, NICHT --blut
+     (#8b0000), das ist deutlich dunkler und roter. Flaeche ist derselbe
+     Ton bei 12 %. */
+  --error-border: #b4553a;
+  --error-surface: rgba(180, 85, 58, 0.12);
+  --error-text: #e8c4b6;
+
+  /* Buehne der Reckenvorschau. Waldgruen steht hinter der Figur auf
+     /erstellen, bevor das Bild geladen ist; der Mittelton ist der zweite
+     Stopp des radialen Verlaufs hinter der Figur
+     (--flaeche-hoch → hier → --flaeche-tiefst). */
+  --stage-forest: #16200f;
+  --stage-radial-mid: #141414;
+
+  /* Silber und Bronze der Plaetze 2 und 3 in der Ruhmeshalle. Standen
+     bisher als Literale in .rang-2/.rang-3; der Entwurf setzt dieselben
+     Werte, also bekommen sie hier einen Namen. Platz 1 ist --runengold,
+     ab Platz 4 --text-matt. */
+  --rank-silver: #c9d1d9;
+  --rank-bronze: #c08b52;
 }
 
 /* ---------------------------------------------------------- Grundgerüst */
@@ -973,8 +1027,8 @@ main { flex: 1 0 auto; }
 
 .rang { color: var(--text-matt); font-variant-numeric: tabular-nums; }
 .rang-1 { color: var(--runengold); font-weight: 700; }
-.rang-2 { color: #c9d1d9; }
-.rang-3 { color: #c08b52; }
+.rang-2 { color: var(--rank-silver); }
+.rang-3 { color: var(--rank-bronze); }
 
 /* Breite Tabellen dürfen scrollen, die Seite selbst nicht. */
 .rollbar { overflow-x: auto; }

@@ -90,16 +90,18 @@
 <Kopfdaten titel={t['login.meta.title']} beschreibung={t['login.meta.description']} noindex />
 
 <main class="mitte seite">
-  <div class="account-narrow">
-    <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['login.heading']}</h1>
-    <p style="color:var(--matt)">{t['login.intro']}</p>
+  <div class="account-column">
+    <div class="account-head">
+      <h1 style="font-size:clamp(28px,4.5vw,38px)">{t['login.heading']}</h1>
+      <p>{t['login.intro']}</p>
+    </div>
 
     {#if expired}
-      <div class="hinweis" style="margin:1.2rem 0">{t['login.session_expired']}</div>
+      <div class="hinweis">{t['login.session_expired']}</div>
     {/if}
 
-    <div class="account-panel" style="margin-top:1.5rem">
-      <form method="post" onsubmit={submit}>
+    <div class="account-panel">
+      <form class="account-form" method="post" onsubmit={submit}>
         <div class="account-field">
           <label class="account-label" for="login-shore">{t['create.voyage.shore.label']}</label>
           <select
@@ -147,11 +149,11 @@
 
         <div class="account-actions">
           {#if ready}
-            <button class="knopf" type="submit" disabled={running}>
+            <button class="knopf account-primary" type="submit" disabled={running}>
               {running ? t['login.button.loading'] : t['login.button']}
             </button>
           {:else}
-            <p class="account-hint" style="margin:0">{t['account.without_js']}</p>
+            <p class="account-hint">{t['account.without_js']}</p>
           {/if}
         </div>
       </form>

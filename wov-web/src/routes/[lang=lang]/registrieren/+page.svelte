@@ -109,12 +109,14 @@
 />
 
 <main class="mitte seite">
-  <div class="account-narrow">
-    <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['register.heading']}</h1>
-    <p style="color:var(--matt)">{t['register.intro']}</p>
+  <div class="account-column">
+    <div class="account-head">
+      <h1 style="font-size:clamp(28px,4.5vw,38px)">{t['register.heading']}</h1>
+      <p>{t['register.intro']}</p>
+    </div>
 
-    <div class="account-panel" style="margin-top:1.5rem">
-      <form method="post" onsubmit={submit}>
+    <div class="account-panel">
+      <form class="account-form" method="post" onsubmit={submit}>
         <div class="account-field">
           <label class="account-label" for="register-shore">{t['create.voyage.shore.label']}</label>
           <select
@@ -199,11 +201,11 @@
 
         <div class="account-actions">
           {#if ready}
-            <button class="knopf" type="submit" disabled={running}>
+            <button class="knopf account-primary" type="submit" disabled={running}>
               {running ? t['register.button.loading'] : t['register.button']}
             </button>
           {:else}
-            <p class="account-hint" style="margin:0">{t['account.without_js']}</p>
+            <p class="account-hint">{t['account.without_js']}</p>
           {/if}
         </div>
       </form>

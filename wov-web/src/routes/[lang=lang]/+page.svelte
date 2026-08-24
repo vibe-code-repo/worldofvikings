@@ -2,25 +2,37 @@
   import { onMount } from 'svelte';
   import { page } from '$app/state';
   import Kopfdaten from '$lib/Kopfdaten.svelte';
-  import Ikone from '$lib/Ikone.svelte';
-  import { datumLang, holeJson } from '$lib/formate';
-  import type { Recke } from '$lib/recken';
+  import { holeJson } from '$lib/formate';
   import { FAHRT } from '$lib/seiten';
   import { localeFrom, localizedPath, messages } from '$lib/i18n';
 
+  /**
+   * Die Halle als Tor.
+   *
+   * Der Entwurf "Rune & Iron" macht aus der Startseite eine einzige Schwelle:
+   * Wappen, eine Zeile, ein Absatz, eine Karte mit Weltanzeige, dem grossen
+   * Knopf, dem Hinweis auf den fruehen Stand und dem Weg zum Thing auf
+   * Discord. Die frueheren fuenf Abschnitte (Kacheln, Technik/Welten,
+   * Ruhmeshalle, Thing, Saga-Anriss) stehen nicht mehr hier — ihre Seiten
+   * haengen in der Kopfleiste, und der Entwurf zeigt fuer die Halle
+   * ausdruecklich nichts unterhalb dieser Karte.
+   *
+   * Nur die Weltliste wandert mit: sie steckt jetzt im Aufklapper der Karte.
+   */
+
+  /**
+   * Drahtformat von /api/welt.json. Die Datei fuehrt je Welt mehr Felder
+   * (beschreibung, wetter, saat) — hier stehen die, die das Tor zeigt.
+   */
   interface Welt {
     id: string;
     name: string;
     zustand: string;
-    beschreibung: string;
+    art: string;
     spieler: number;
     plaetze: number;
     weltzeit: string;
-    art: string;
-    wetter: string;
-    saat: string;
   }
-  interface Sagaeintrag { art: string; datum: string; titel: string; text: string }
 
   const lang = $derived(localeFrom(page.params.lang));
   const t = $derived(messages(lang));
@@ -30,40 +42,42 @@
      404, sondern nur ein falscher Sprachwechsel. */
   const p = $derived.by(() => (pfad: string) => localizedPath(lang, pfad));
 
+  /**
+   * Die Einladung stammt aus dem Entwurf und ist NICHT geprüft — im Code
+   * stand vorher nirgends ein Discord-Link. Vor dem Ausrollen muss die
+   * Adresse bestätigt werden; sie steht deshalb als eine Zeile hier und
+   * nicht dreimal im Markup.
+   */
+  const DISCORD = 'https://discord.gg/worldofvikings';
+
+  /**
+   * Schlüsselgrafik der Halle. Erwartet wird
+   * `/assets/bilder/halle-hintergrund.webp` (1376×768) — solange sie fehlt,
+   * steht hier das vorhandene Heldbild als PLATZHALTER. Ist die Datei da,
+   * ist diese eine Zeile die ganze Änderung; die Maße stimmen bereits.
+   */
+  const HINTERGRUND = '/assets/bilder/held.webp';
+
   /*
-    Die drei Blöcke holen ihre Daten einzeln und scheitern einzeln — fällt die
-    Saga aus, steht die Weltliste trotzdem. Deshalb kein gemeinsames await.
+    Die Weltliste wird im Browser geholt und scheitert für sich allein: fällt
+    sie aus, steht das Tor trotzdem. Vorgerendert ist `welten` null — dann
+    zeigt die Karte den neutralen Text und keine Ampel, die Grün behauptet,
+    während der Server aus ist.
   */
   let welten = $state<Welt[] | null>(null);
   let weltenFehler = $state(false);
 
-  let beste = $state<Recke[] | null>(null);
-  let recken2Fehler = $state(false);
-
-  let saga = $state<Sagaeintrag[] | null>(null);
-  let sagaFehler = $state(false);
-
-  /** Zustand von Midgard für die Statusleiste im Held. */
-  const midgard = $derived(welten?.find((w) => w.id === 'midgard') ?? welten?.[0] ?? null);
+  /** Die Welt, die der Auslöser zeigt: Midgard, sonst die erste. */
+  const aktiv = $derived(welten?.find((w) => w.id === 'midgard') ?? welten?.[0] ?? null);
 
   onMount(() => {
     void (async () => {
       try {
         welten = (await holeJson<{ welten?: Welt[] }>('/api/welt.json')).welten ?? [];
-      } catch (e) { console.warn(e); weltenFehler = true; }
-    })();
-
-    void (async () => {
-      try {
-        const alle = (await holeJson<{ recken?: Recke[] }>('/api/recken.json')).recken ?? [];
-        beste = [...alle].sort((a, b) => b.stufe - a.stufe).slice(0, 5);
-      } catch (e) { console.warn(e); recken2Fehler = true; }
-    })();
-
-    void (async () => {
-      try {
-        saga = ((await holeJson<{ eintraege?: Sagaeintrag[] }>('/api/saga.json')).eintraege ?? []).slice(0, 3);
-      } catch (e) { console.warn(e); sagaFehler = true; }
+      } catch (e) {
+        console.warn(e);
+        weltenFehler = true;
+      }
     })();
   });
 </script>
@@ -74,298 +88,463 @@
   beschreibung={t['hall.meta.description']}
 />
 
-<main>
-  <!-- ------------------------------------------------------------- Held -->
-  <section class="held">
-    <div class="held-bild" aria-hidden="true">
-      <img src="/assets/bilder/held.webp" alt="" width="1376" height="768" fetchpriority="high" />
-    </div>
+<!--
+  Der Hintergrund liegt fest im Bildschirm und mit z-index:-1 unter allem:
+  So läuft er wie im Entwurf hinter der Kopfleiste durch (die ist mattiert)
+  statt am oberen Rand des Inhalts abzuschneiden. `pointer-events:none`,
+  damit die Fläche nichts abfängt.
+-->
+<div class="gate-backdrop" aria-hidden="true">
+  <img src={HINTERGRUND} alt="" width="1376" height="768" fetchpriority="high" />
+  <div class="gate-vignette"></div>
+</div>
 
-    <div class="held-inhalt">
-      <img
-        class="held-wappen"
-        src="/assets/bilder/wappen.webp"
-        width="768"
-        height="768"
-        alt={t['hall.hero.crest_alt']}
-      />
-      <h1 class="nur-vorlesen">{t['hall.hero.heading']}</h1>
-      <p class="held-unter">{t['hall.hero.subtitle']}</p>
-      <div class="held-knoepfe">
-        <!--
-          Führt in die Charaktererstellung, nicht direkt ins Spiel. Kopfleiste
-          und Mobilleiste taten das schon; dieser Knopf sprang noch an ihr
-          vorbei und liess einen ohne Figurenwahl auflaufen.
-        -->
-        <a class="knopf knopf-gross" href={p(FAHRT)}>
-          <Ikone name="schwerter" />
-          {t['hall.hero.button.voyage']}
-        </a>
-        <a class="knopf knopf-gross knopf-schlicht" href="#welten">
-          <Ikone name="kompass" />
-          {t['hall.hero.button.worlds']}
-        </a>
-      </div>
-    </div>
+<main class="gate">
+  <img
+    class="gate-crest"
+    src="/assets/bilder/wappen.webp"
+    width="768"
+    height="768"
+    alt={t['hall.hero.crest_alt']}
+  />
 
-    <div class="band">
-      <!--
-        Ohne JavaScript bleibt der neutrale Text stehen. Lieber „unbekannt“ als
-        eine Ampel, die Grün behauptet, während der Server aus ist.
+  <div class="gate-words">
+    <!--
+      Die h1 ist im Entwurf sichtbar, aber klein und gesperrt — sie trägt den
+      Namen der Seite, die Marke trägt das Wappen darüber. Deshalb hier kein
+      `nur-vorlesen` mehr.
+    -->
+    <h1>{t['hall.gate.eyebrow']}</h1>
+    <p>{t['hall.gate.intro']}</p>
+  </div>
 
-        Weltname und Zahlen stehen NEBEN den Textbausteinen, nicht in ihnen:
-        „Midgard offen — 3 von 20 auf Fahrt“ ist im Katalog vier kurze Wörter
-        und kein Satz mit Platzhaltern, die jemand falsch zählen könnte.
-      -->
-      <span class="bifroest" data-zustand={midgard?.zustand}>
-        <span class="ampel" aria-hidden="true"></span>
-        <span>
-          {#if midgard}
-            {#if midgard.zustand === 'offen'}
-              {midgard.name}
-              {t['hall.hero.ribbon.open']} — {midgard.spieler}
-              {t['hall.hero.ribbon.of']}
-              {midgard.plaetze}
-              {t['hall.hero.ribbon.underway']}
-            {:else}
-              {midgard.name} {t['hall.hero.ribbon.closed']}
-            {/if}
-          {:else}
-            {t['hall.hero.ribbon.checking']}
-          {/if}
+  <div class="gate-panel">
+    <!--
+      Die Weltanzeige ist ein natives <details>. Ein Umschalter aus
+      JavaScript bliebe ohne JavaScript für immer zu — das Aufklappen ist
+      hier Sache des Browsers, und der Inhalt steht im HTML.
+
+      Sie WÄHLT nichts aus: eine Weltwahl gibt es im Spielfluss (noch) nicht,
+      der Knopf führt in die Figurenwahl. Sie zeigt, was los ist. Deshalb
+      Zeilen und keine Schaltflächen — ein Knopf, der nichts tut, wäre eine
+      Behauptung.
+    -->
+    <details class="world-switch">
+      <summary>
+        <span class="bifroest" data-zustand={aktiv?.zustand} aria-hidden="true">
+          <span class="ampel"></span>
         </span>
-      </span>
-      <span class="band-nebensatz"
-        ><b>{t['hall.hero.ribbon.early_days']}</b> {t['hall.hero.ribbon.under_construction']}</span
-      >
-    </div>
-  </section>
+        <span class="world-switch-labels">
+          <span class="world-switch-name">{aktiv ? aktiv.name : t['hall.worlds.title']}</span>
+          <!--
+            Zahlen und Name stehen NEBEN den Textbausteinen, nicht in ihnen:
+            „3 von 10 auf Fahrt“ ist im Katalog drei kurze Wörter und kein
+            Satz mit Platzhaltern, die jemand falsch zählen könnte.
+          -->
+          <span class="world-switch-state">
+            {#if aktiv}
+              {aktiv.spieler}
+              {t['hall.hero.ribbon.of']}
+              {aktiv.plaetze}
+              {t['hall.hero.ribbon.underway']} · {aktiv.weltzeit}
+            {:else if weltenFehler}
+              {t['hall.worlds.error']}
+            {:else}
+              {t['hall.hero.ribbon.checking']}
+            {/if}
+          </span>
+        </span>
+        <span class="world-switch-arrow" aria-hidden="true">▾</span>
+      </summary>
 
-  <!-- ------------------------------------------------------ Was dich -->
-  <section class="abschnitt">
-    <div class="mitte">
-      <div class="abschnitt-kopf">
-        <span class="runen" aria-hidden="true">ᚹᛖᚷ</span>
-        <h2>{t['hall.awaits.heading']}</h2>
-      </div>
-
-      <div class="gitter gitter-4">
-        <article class="tafel kachel">
-          <img class="kachel-bild" src="/assets/bilder/ik1.webp" width="480" height="512" alt={t['hall.awaits.nine_lands.image_alt']} />
-          <h3>{t['hall.awaits.nine_lands.title']}</h3>
-          <p>{t['hall.awaits.nine_lands.text']}</p>
-        </article>
-
-        <article class="tafel kachel" style="--kachel-schein:rgba(139,0,0,.14)">
-          <img class="kachel-bild" src="/assets/bilder/ik2.webp" width="480" height="512" alt={t['hall.awaits.five_guardians.image_alt']} />
-          <h3>{t['hall.awaits.five_guardians.title']}</h3>
-          <p>{t['hall.awaits.five_guardians.text']}</p>
-        </article>
-
-        <article class="tafel kachel" style="--kachel-schein:rgba(195,204,140,.12)">
-          <img class="kachel-bild" src="/assets/bilder/ik3.webp" width="480" height="512" alt={t['hall.awaits.building.image_alt']} />
-          <h3>{t['hall.awaits.building.title']}</h3>
-          <p>{t['hall.awaits.building.text']}</p>
-        </article>
-
-        <article class="tafel kachel" style="--kachel-schein:rgba(227,201,186,.12)">
-          <img class="kachel-bild" src="/assets/bilder/ik4.webp" width="480" height="512" alt={t['hall.awaits.dungeons.image_alt']} />
-          <h3>{t['hall.awaits.dungeons.title']}</h3>
-          <p>{t['hall.awaits.dungeons.text']}</p>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <!-- ------------------------------------------------- Technik & Welten -->
-  <section class="parallax" id="welten">
-    <div class="mitte">
-      <div class="parallax-gitter">
-        <div class="tafel" style="background:rgba(19,19,19,.9);backdrop-filter:blur(6px);padding:2rem">
-          <div class="merkmal-kopf">
-            <span class="ikonen-kasten" aria-hidden="true"><Ikone name="welt" /></span>
-            <h3>{t['hall.technology.no_account.title']}</h3>
-          </div>
-          <p style="color:var(--matt);margin:0">{t['hall.technology.no_account.text']}</p>
-
-          <hr class="strich" />
-
-          <div class="merkmal-kopf">
-            <span class="ikonen-kasten" aria-hidden="true"><Ikone name="hammer" /></span>
-            <h3>{t['hall.technology.honest_server.title']}</h3>
-          </div>
-          <p style="color:var(--matt);margin:0">{t['hall.technology.honest_server.text']}</p>
-        </div>
-
-        <div>
-          <div
-            class="runen"
-            aria-hidden="true"
-            style="font-size:clamp(22px,3vw,34px);text-align:right;margin-bottom:1.4rem;opacity:.4"
-          >
-            ᛗᛁᛞᚷᚨᚱᛞ
-          </div>
-
-          <div class="tafel-matt" style="backdrop-filter:blur(6px)">
-            <h4
-              style="color:var(--runengold);font-family:var(--schrift-kappen);font-size:12px;letter-spacing:.1em;text-transform:uppercase;display:flex;align-items:center;gap:.5rem"
-            >
-              <Ikone name="kreis" klasse="ikone" />
-              {t['hall.worlds.title']}
-            </h4>
-            <p style="color:var(--matt);font-size:14px">{t['hall.worlds.text']}</p>
-
-            <div class="gitter">
-              {#if weltenFehler}
-                <p class="leer-zustand" style="padding:1.5rem 1rem">{t['hall.worlds.error']}</p>
-              {:else if welten === null}
-                <p class="leer-zustand" style="padding:1.5rem 1rem">{t['hall.worlds.loading']}</p>
-              {:else}
-                {#each welten as w (w.id)}
-                  <article class="tafel">
-                    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap">
-                      <h3 style="margin:0">{w.name}</h3>
-                      <span class="bifroest" data-zustand={w.zustand}>
-                        <span class="ampel" aria-hidden="true"></span>
-                        {w.zustand === 'offen'
-                          ? t['hall.worlds.state_open']
-                          : t['hall.worlds.state_closed']}
-                      </span>
-                    </div>
-                    <p style="color:var(--matt);font-size:.95rem;margin:.6rem 0 1rem">{w.beschreibung}</p>
-                    <div class="werte">
-                      <div class="wert">
-                        <b>{w.spieler}/{w.plaetze}</b><span>{t['hall.worlds.value.underway']}</span>
-                      </div>
-                      <div class="wert">
-                        <b>{w.weltzeit}</b><span>{t['hall.worlds.value.world_time']}</span>
-                      </div>
-                      <div class="wert"><b>{w.art}</b><span>{t['hall.worlds.value.type']}</span></div>
-                    </div>
-                    <p style="color:var(--matt);font-size:.85rem;margin:1rem 0 0">
-                      {t['hall.worlds.weather_label']}
-                      {w.wetter} · {t['hall.worlds.seed_label']} <code>{w.saat}</code>
-                    </p>
-                  </article>
-                {/each}
-              {/if}
-            </div>
-
-            <p style="margin:1.2rem 0 0">
-              <a href={p('/karte')} class="kappen">{t['hall.worlds.map_link']}</a>
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ------------------------------------------------ Ruhmeshalle & Thing -->
-  <section class="abschnitt">
-    <div class="mitte">
-      <div class="gitter gitter-2" style="gap:4rem">
-        <div>
-          <span class="runen" aria-hidden="true" style="display:block;font-size:18px;margin-bottom:.5rem">ᚱᚢᚺᛗ</span>
-          <h2 style="display:flex;align-items:center;gap:.75rem">
-            <Ikone name="pokal" />
-            {t['hall.hall_of_fame.title']}
-          </h2>
-          <div class="tafel tafel-tabelle">
-            <div class="rollbar">
-              <table class="tabelle">
-                <thead>
-                  <tr>
-                    <th class="zahl">{t['hall.hall_of_fame.column.hash']}</th>
-                    <th>{t['hall.hall_of_fame.column.character']}</th>
-                    <th>{t['hall.hall_of_fame.column.clan']}</th>
-                    <th class="zahl">{t['hall.hall_of_fame.column.rune_rank']}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#if recken2Fehler}
-                    <tr><td colspan="4">{t['hall.hall_of_fame.error']}</td></tr>
-                  {:else if beste === null}
-                    <tr><td colspan="4">{t['hall.hall_of_fame.loading']}</td></tr>
-                  {:else}
-                    {#each beste as r, i (r.id)}
-                      <tr>
-                        <td class="zahl rang rang-{i + 1}">{i + 1}</td>
-                        <td>
-                          <a href="{p('/ruestkammer')}?reck={encodeURIComponent(r.id)}">{r.name}</a>
-                          <span style="color:var(--matt)"> {r.beiname}</span>
-                        </td>
-                        <td style="color:var(--matt)">{r.sippe}</td>
-                        <td class="zahl">{r.stufe}</td>
-                      </tr>
-                    {/each}
-                  {/if}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <p style="margin:1.2rem 0 0">
-            <a href={p('/ruhmeshalle')} class="kappen">{t['hall.hall_of_fame.link']}</a>
-          </p>
-        </div>
-
-        <div>
-          <h2 style="display:flex;align-items:center;gap:.75rem;margin-top:2rem">
-            <Ikone name="forum" />
-            {t['hall.thing.title']}
-          </h2>
-          <div class="tafel" style="padding:2rem">
-            <span
-              aria-hidden="true"
-              style="position:absolute;top:1rem;right:1rem;color:var(--umriss-matt);opacity:.12"
-            >
-              <Ikone name="blase" klasse="ikone ikone-deko" />
-            </span>
-            <p style="color:var(--matt);position:relative;margin-bottom:1.6rem">
-              {t['hall.thing.text']}
-            </p>
-            <a class="knopf" href={p('/thing')}>{t['hall.thing.button']}</a>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ------------------------------------------------------- Saga-Anriss -->
-  <section class="abschnitt" style="padding-top:0">
-    <div class="mitte">
-      <div class="abschnitt-kopf">
-        <span class="runen" aria-hidden="true">ᛊᚨᚷᚨ</span>
-        <h2>{t['hall.saga_teaser.title']}</h2>
-      </div>
-      <div class="gitter gitter-3">
-        {#if sagaFehler}
-          <p class="leer-zustand">{t['hall.saga_teaser.error']}</p>
-        {:else if saga === null}
-          <p class="leer-zustand">{t['hall.saga_teaser.loading']}</p>
+      <div class="world-switch-panel">
+        {#if weltenFehler}
+          <p class="world-switch-note">{t['hall.worlds.error']}</p>
+        {:else if welten === null}
+          <p class="world-switch-note">{t['hall.worlds.loading']}</p>
         {:else}
-          {#each saga as e (e.datum + e.titel)}
-            <article class="tafel-matt">
-              <div style="color:var(--met);font-size:.8rem;letter-spacing:.08em;text-transform:uppercase">
-                {e.art} · {datumLang(e.datum, lang)}
-              </div>
-              <h3 style="margin:.4rem 0 .5rem">{e.titel}</h3>
-              <p style="color:var(--matt);font-size:.95rem;margin:0">{e.text}</p>
-            </article>
-          {/each}
+          <ul class="world-list">
+            {#each welten as w (w.id)}
+              <li>
+                <span class="bifroest" data-zustand={w.zustand} aria-hidden="true">
+                  <span class="ampel"></span>
+                </span>
+                <span class="world-row-labels">
+                  <span class="world-row-name">{w.name}</span>
+                  <span class="world-row-sub">{w.art}</span>
+                </span>
+                <span class="world-row-badge">
+                  {#if w.zustand === 'offen'}
+                    {w.spieler}/{w.plaetze}
+                    {t['hall.worlds.state_open']}
+                  {:else}
+                    {t['hall.gate.world_badge_closed']}
+                  {/if}
+                </span>
+              </li>
+            {/each}
+          </ul>
         {/if}
       </div>
-      <p style="margin-top:1.6rem;text-align:center">
-        <a href={p('/saga')} class="kappen">{t['hall.saga_teaser.link']}</a>
-      </p>
-    </div>
-  </section>
+    </details>
+
+    <!--
+      Führt in die Charaktererstellung, nicht direkt ins Spiel — wie der alte
+      Knopf „Auf Fahrt gehen“. Nur Beschriftung und Gewicht ändern sich.
+    -->
+    <a class="gate-play" href={p(FAHRT)}>{t['hall.gate.play_button']}</a>
+
+    <div class="gate-rule" aria-hidden="true"></div>
+
+    <p class="gate-note">
+      <b>{t['hall.hero.ribbon.early_days']}</b>
+      {t['hall.gate.early_access_text']}
+    </p>
+
+    <a class="gate-discord" href={DISCORD}>{t['hall.gate.discord_cta']}</a>
+  </div>
 </main>
 
 <style>
-  /* Die Deko-Sprechblase im Thing-Kasten ist gross und blass — sie gehört
-     nicht in wov.css, weil sie nur hier vorkommt. */
-  :global(.ikone-deko) {
-    width: 64px;
-    height: 64px;
+  /* ------------------------------------------------------------ Grund */
+
+  .gate-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  .gate-backdrop img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* Der Ausschnitt sitzt leicht über der Mitte — sonst schneidet die
+       Karte dem Bild den Kopf ab. */
+    object-position: 60% 45%;
+    opacity: 0.8;
+  }
+
+  /* Radial statt linear: Das Bild bleibt in der Mitte hell und wird nach
+     aussen dunkel. Der äusserste Ton bleibt bei 94 % — es wird also nie
+     ganz schwarz, anders als beim alten Held, der unten hart in den Grund
+     lief, weil dort ein nächster Abschnitt folgte. */
+  .gate-vignette {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      120% 90% at 50% 45%,
+      color-mix(in srgb, var(--grund) 25%, transparent) 0%,
+      color-mix(in srgb, var(--grund) 72%, transparent) 55%,
+      color-mix(in srgb, var(--flaeche-tiefst) 94%, transparent) 100%
+    );
+  }
+
+  /* -------------------------------------------------------------- Tor */
+
+  .gate {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+    padding: clamp(32px, 6vh, 72px) var(--luft-seite);
+  }
+
+  /* Auf dem Schirm liegt die Kopfleiste fest über der Seite; darunter
+     (unter 880px) steht die Mobilleiste unten und der Platz wird nicht
+     gebraucht. */
+  @media (min-width: 880px) {
+    .gate {
+      padding-top: calc(64px + clamp(32px, 6vh, 72px));
+    }
+  }
+
+  .gate-crest {
+    width: clamp(180px, 26vw, 280px);
+    /* Prozentual, damit die Rundung mit dem Wappen wächst. */
+    border-radius: 9%;
+    filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.85));
+  }
+
+  .gate-words {
+    max-width: 44rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    text-align: center;
+  }
+
+  .gate-words h1 {
+    margin: 0;
+    font-family: var(--schrift-kappen);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    line-height: 1.4;
+    text-transform: uppercase;
+    color: var(--primaer);
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+  }
+
+  .gate-words p {
+    margin: 0;
+    color: var(--pergament);
+    font-size: clamp(15px, 1.6vw, 17px);
+    line-height: 1.65;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+    text-wrap: pretty;
+  }
+
+  /* ------------------------------------------------------------ Karte */
+
+  /*
+    Nicht `.tafel`: die trägt laut wov.css bewusst eine scharfe Kante (4px,
+    kein Schatten). Das Tor ist der eine Kasten, der schweben soll —
+    8px und ein tiefer Schatten, damit er sich vom Bild löst.
+  */
+  .gate-panel {
+    width: min(470px, 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+    padding: 1.6rem;
+    background: color-mix(in srgb, var(--grund) 90%, transparent);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--umriss-matt);
+    border-radius: var(--r-xl);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  }
+
+  /* ------------------------------------------------------- Weltanzeige */
+
+  .world-switch {
+    position: relative;
+  }
+
+  .world-switch summary {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.85rem 1rem;
+    background: var(--flaeche);
+    border: 1px solid var(--umriss-matt);
+    border-radius: var(--r-lg);
+    cursor: pointer;
+    transition: border-color 0.22s;
+    /* Das Dreieck des Browsers fällt weg; der Pfeil steht rechts im
+       Markup und dreht sich beim Aufklappen. */
+    list-style: none;
+  }
+  .world-switch summary::-webkit-details-marker {
+    display: none;
+  }
+  .world-switch summary:hover {
+    border-color: var(--umriss);
+  }
+
+  .world-switch-labels {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .world-switch-name {
+    display: block;
+    font-family: var(--schrift-kopf);
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .world-switch-state {
+    display: block;
+    margin-top: 2px;
+    font-family: var(--schrift-kappen);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-matt);
+  }
+
+  .world-switch-arrow {
+    flex: 0 0 auto;
+    color: var(--umriss);
+    font-size: 12px;
+    transition: transform 0.22s;
+  }
+  .world-switch[open] .world-switch-arrow {
+    transform: rotate(180deg);
+  }
+
+  /* Der Aufklapper legt sich ÜBER den Knopf darunter, statt ihn zu
+     schieben — sonst hüpft die halbe Karte beim Öffnen. */
+  .world-switch-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 5;
+    background: var(--flaeche-tief);
+    border: 1px solid var(--umriss-matt);
+    border-radius: var(--r-lg);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7);
+    overflow: hidden;
+  }
+
+  .world-switch-note {
+    margin: 0;
+    padding: 0.8rem 1rem;
+    color: var(--text-matt);
+    font-size: 13px;
+  }
+
+  .world-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .world-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--umriss-matt) 50%, transparent);
+  }
+  .world-list li:last-child {
+    border-bottom: none;
+  }
+
+  .world-row-labels {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .world-row-name {
+    display: block;
+    font-size: 15px;
+    color: var(--text);
+  }
+
+  .world-row-sub {
+    display: block;
+    font-size: 12px;
+    color: var(--text-matt);
+  }
+
+  .world-row-badge {
+    flex: 0 0 auto;
+    font-family: var(--schrift-kappen);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--zweit);
+  }
+
+  /* ------------------------------------------------------------ Knöpfe */
+
+  /*
+    Der eine grosse Knopf des Entwurfs. Nicht `.knopf`: der ist mit 13px und
+    zwei Verlaufsstopps die Regel der Seite, dieser hier ist die eine
+    Ausnahme — 20px, weit gesperrt, drei Stopps und eine Glanzkante.
+  */
+  .gate-play {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.15rem 2rem;
+    border-radius: var(--r-lg);
+    background: linear-gradient(
+      180deg,
+      var(--primaer) 0%,
+      var(--primaer-behaelter) 55%,
+      var(--gold-gradient-foot) 100%
+    );
+    box-shadow:
+      inset 0 1px 0 var(--gold-gradient-sheen),
+      inset 0 -2px 8px rgba(0, 0, 0, 0.35),
+      0 0 28px color-mix(in srgb, var(--runengold) 28%, transparent);
+    color: var(--auf-primaer);
+    font-family: var(--schrift-kappen);
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    line-height: 1;
+    text-transform: uppercase;
+    /* Die Sperrung hängt auch hinter dem letzten Buchstaben; ohne den
+       Einzug stünde das Wort um ein Viertel Zeichen zu weit links. */
+    text-indent: 0.22em;
+    transition: filter 0.2s;
+  }
+  .gate-play:hover {
+    filter: brightness(1.08);
+    color: var(--auf-primaer);
+    text-decoration: none;
+  }
+
+  .gate-discord {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    padding: 0.8rem 1rem;
+    border: 1px solid var(--umriss-matt);
+    border-radius: var(--r-lg);
+    background: color-mix(in srgb, var(--flaeche) 80%, transparent);
+    color: var(--text);
+    font-family: var(--schrift-kappen);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    transition:
+      border-color 0.22s,
+      color 0.22s;
+  }
+  .gate-discord:hover {
+    border-color: var(--umriss);
+    color: var(--primaer);
+    text-decoration: none;
+  }
+
+  /* ----------------------------------------------------------- Hinweis */
+
+  /* Dasselbe Muster wie .runen-trenner::before im gemeinsamen Stylesheet:
+     ein Strich, der an beiden Enden ausläuft. */
+  .gate-rule {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--umriss-matt), transparent);
+  }
+
+  .gate-note {
+    margin: 0;
+    color: var(--text-matt);
+    font-size: 13px;
+    line-height: 1.6;
+    text-align: center;
+  }
+
+  .gate-note b {
+    font-family: var(--schrift-kappen);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--primaer);
+  }
+
+  /* Wer weniger Bewegung will, bekommt keine — die Ampel in der
+     Weltanzeige pulst aus wov.css heraus. */
+  @media (prefers-reduced-motion: reduce) {
+    .world-switch-arrow,
+    .gate-play {
+      transition: none;
+    }
   }
 </style>

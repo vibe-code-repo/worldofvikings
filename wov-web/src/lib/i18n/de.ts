@@ -29,6 +29,13 @@ export const de = {
   /* Rendered by CSS (`content: attr(data-bald)`) after a nav entry. */
   'header.soon': 'bald',
   'header.voyage.button': 'Auf Fahrt gehen',
+  /* The header bar of the "Rune & Iron" draft: one gold play button plus
+     three plain links to its right. `header.voyage.button` stays as it is —
+     that is the older, longer wording and still in use elsewhere. */
+  'header.nav.play_button': 'Spielen',
+  'header.signin.link': 'Anmelden',
+  'header.account.link': 'Konto',
+  'header.discord.link': 'Discord',
   'header.language.aria': 'Sprache',
 
   /* ------------------------------------------------------ mobile_nav */
@@ -51,6 +58,18 @@ export const de = {
   'footer.closing':
     '© 865–2026 World of Vikings. Gefertigt in den Hallen von Midgard. Keine Installation erforderlich.',
 
+  /* The link row and the two controls of the draft's footer. The controls
+     only do anything with JavaScript; without it they are simply absent. */
+  'footer.opensource.link': 'Open-Source-Projekt',
+  'footer.discord.link': 'Discord',
+  'footer.legal.imprint': 'Impressum',
+  'footer.legal.privacy': 'Datenschutz',
+  'footer.legal.terms': 'Nutzungsbedingungen',
+  'footer.controls.graphics_label': 'Grafik',
+  'footer.controls.graphics_option_auto': 'Auto',
+  'footer.controls.graphics_option_high': 'Hoch',
+  'footer.controls.graphics_option_low': 'Niedrig',
+  'footer.controls.contrast_button': 'Hoher Kontrast',
   /* ------------------------------------------------------------- meta */
   /* The suffix after every page title, and the og:site_name. */
   'meta.brand': 'World of Vikings',
@@ -70,10 +89,24 @@ export const de = {
   'pages.main_nav.thing.title': 'Das Thing',
   'pages.main_nav.thing.short': 'Thing',
 
+  'pages.main_nav.wiki.title': 'Wiki',
+  'pages.main_nav.wiki.short': 'Wiki',
   /* ------------------------------------------------------------- hall */
   'hall.meta.title': 'World of Vikings — Ein Wikinger-Browserspiel',
   'hall.meta.description':
     'Angelsachsen gegen Wikinger. Ein Browserspiel ohne Download: Welt erkunden, bauen, die Wächter Midgards bezwingen.',
+  /* The gate — the draft's new opening of the hall: eyebrow, one paragraph,
+     the play button, the early-access note, the call to Discord. It stands
+     beside the older hero block; which of the two a page shows is decided in
+     the markup, not here. */
+  'hall.gate.eyebrow': 'Offizielle Seite von World of Vikings',
+  'hall.gate.intro':
+    'world-of-vikings.com ist das offizielle Browserspiel um Midgard: Angelsachsen gegen Wikinger, neun Lande, fünf Wächter. Kein Download, kein Client — Welt erkunden, bauen, bestehen. Karte, Saga und Ruhmeshalle liegen auf dieser Seite.',
+  'hall.gate.play_button': 'Spielen',
+  'hall.gate.early_access_text':
+    'Midgard ist im Aufbau. Was gebaut wird, bleibt stehen — aber Regeln, Welten und Werte können sich noch ändern.',
+  'hall.gate.discord_cta': 'Tritt dem Thing auf Discord bei',
+  'hall.gate.world_badge_closed': 'zu',
   'hall.hero.crest_alt': 'Wappen von World of Vikings: ein Langschiff in einem Steinring aus Runen',
   'hall.hero.heading': 'World of Vikings',
   'hall.hero.subtitle':
@@ -166,6 +199,8 @@ export const de = {
   'map.hint.link_workshop': 'Werkstatt',
   'map.cta': 'Selbst hinfahren',
 
+  /* Heading above the biome legend next to the map. */
+  'map.legend.title': 'Lande',
   /* ------------------------------ map_viewer (Kartenbetrachter.svelte) */
   'map_viewer.loading': 'Karten werden geholt …',
   'map_viewer.error.maps': 'Die Karten sind gerade nicht erreichbar.',
@@ -268,6 +303,9 @@ export const de = {
   'character_profile.trophies.title': 'Trophäen',
   'character_profile.created': 'Erschaffen am',
 
+  /* Sits under the character preview and says what can be done with it.
+     The preview itself stays the existing Babylon bundle. */
+  'character_profile.preview.hint': 'Reckenvorschau · ziehen zum Drehen',
   /* ------------------------------------------------------------ thing */
   'thing.title': 'Das Thing',
   'thing.description':
@@ -321,6 +359,35 @@ export const de = {
     'Das Thing wird ohne Anmeldung lesbar sein. Wer schreiben will, braucht ein Konto — das hält Suchmaschinen drin und Werbemüll draußen.',
   'thing.cta': 'Solange lieber auf Fahrt gehen',
 
+  /* ------------------------------------------------------------- wiki */
+  /* The draft adds a wiki. No route exists for it yet — the texts come
+     first, so that both catalogues stay in step with each other.
+     `wiki.description` is not from the draft; it is the meta description
+     every other page here has, shortened from `wiki.intro`. */
+  'wiki.title': 'Das Wiki',
+  'wiki.description':
+    'Wie Midgard funktioniert: Lande und Wetter, die fünf Wächter, Bau und Statik, Verliese und ihre Saat.',
+  'wiki.heading': 'Das Wiki',
+  'wiki.intro':
+    'Wie Midgard funktioniert: Lande und Wetter, die fünf Wächter, Bau und Statik, Verliese und ihre Saat. Nachgeschlagen, nicht geraten — jeder Eintrag beschreibt, was der Server tatsächlich rechnet.',
+  'wiki.hint.bold': 'Im Aufbau.',
+  'wiki.hint.text': 'Vier Bücher stehen, die Einträge darunter wachsen mit dem Spiel.',
+  'wiki.books.lands.title': 'Neun Lande',
+  'wiki.books.lands.text':
+    'Wiesen, Schwarzwald, Sumpf, Berge, Ebenen, Nebelland, Aschelande — Wetter, Bewohner und Baustoffe je Land, mit den Übergängen dazwischen.',
+  'wiki.books.lands.image_alt': 'Bemalter Rundschild mit Rabenzeichen',
+  'wiki.books.guardians.title': 'Fünf Wächter',
+  'wiki.books.guardians.text':
+    'Eikthyr, der Älteste, die Knochenmasse, Moder, Yagluth: Beschwörung, Angriffsmuster, Beute — und was jeder gefallene Wächter freigibt.',
+  'wiki.books.guardians.image_alt': 'Steinerner Schädel mit leuchtender Rune',
+  'wiki.books.building.title': 'Bauen & Statik',
+  'wiki.books.building.text':
+    'Tragwerk, Spannweiten, Werkbankradius, Aufwertung bis Güte 4. Was nicht getragen wird, fällt — hier steht, was trägt.',
+  'wiki.books.building.image_alt': 'Schmiedehammer über gekreuzten Balken',
+  'wiki.books.dungeons.title': 'Verliese & Saat',
+  'wiki.books.dungeons.text':
+    'Gruften und Höhlen entstehen aus gesetzter Saat mit echten Türen und Raumketten — bei jedem neu, aber für alle gleich.',
+  'wiki.books.dungeons.image_alt': 'Moosbewachsener Höhleneingang mit Fackeln',
   /* --------------------------------------------- create (/erstellen) */
   /* `{…}` are placeholders the page fills in itself (`fuelle()` in
      `erstellen/+page.svelte`) — they are not a format any library reads.
@@ -336,6 +403,7 @@ export const de = {
   'create.appearance.hair.label': 'Frisur',
   'create.appearance.hair.previous': 'Vorige Frisur',
   'create.appearance.hair.next': 'Nächste Frisur',
+  'create.appearance.haircolor.label': 'Haarfarbe',
   'create.appearance.chest.label': 'Oberkörper',
   'create.appearance.chest.previous': 'Voriges Teil',
   'create.appearance.chest.none': '— nichts —',
@@ -459,6 +527,8 @@ export const de = {
   'account.page.meta.description':
     'Deine Recken auf einen Blick: auf Fahrt gehen, neue erschaffen, alte ziehen lassen.',
   'account.page.heading': 'Deine Recken',
+  'account.page.intro':
+    'Deine Recken auf diesem Gestade. Wähle einen aus oder erschaffe einen neuen.',
   'account.page.unreachable.title': 'Das Gestade antwortet nicht',
   'account.page.unreachable.retry': 'Noch einmal versuchen',
   'account.page.locked.title': 'Nicht angemeldet',

@@ -33,6 +33,14 @@ export interface Seite {
   indexieren?: boolean;
 }
 
+/**
+ * Die Reihenfolge ist die des Entwurfs „Rune & Iron“: Ruhmeshalle, Karte,
+ * Wiki, Saga, Rüstkammer, Thing. Die Halle steht weiter vorn in der Liste,
+ * erscheint in der Kopfleiste aber NICHT als eigener Punkt — dort führt das
+ * Wappen dorthin (siehe Kopf.svelte). Aus der Liste nehmen kann man sie
+ * trotzdem nicht: `SITEMAP` und `MOBILNAV` hängen daran, und `/` fiele sonst
+ * still aus der Sitemap.
+ */
 export const HAUPTNAV: Seite[] = [
   {
     pfad: '/',
@@ -42,10 +50,10 @@ export const HAUPTNAV: Seite[] = [
     indexieren: true,
   },
   {
-    pfad: '/saga',
-    titel: 'pages.main_nav.saga.title',
-    kurz: 'pages.main_nav.saga.short',
-    ikone: 'buch',
+    pfad: '/ruhmeshalle',
+    titel: 'pages.main_nav.hall_of_fame.title',
+    kurz: 'pages.main_nav.hall_of_fame.short',
+    ikone: 'orden',
     indexieren: true,
   },
   {
@@ -55,17 +63,30 @@ export const HAUPTNAV: Seite[] = [
     ikone: 'karte',
     indexieren: true,
   },
+  /*
+    Das Wiki trägt KEINE Marke „bald“. Die Seite steht, sie ist vorgerendert
+    und sie hat Inhalt; dass ihre Einträge noch wachsen, sagt der Kasten auf
+    der Seite selbst („Im Aufbau.“). Eine Marke in der Leiste heisst hier:
+    diese Seite gibt es noch nicht — das wäre für das Wiki schlicht falsch.
+  */
+  {
+    pfad: '/wiki',
+    titel: 'pages.main_nav.wiki.title',
+    kurz: 'pages.main_nav.wiki.short',
+    ikone: 'buch',
+    indexieren: true,
+  },
+  {
+    pfad: '/saga',
+    titel: 'pages.main_nav.saga.title',
+    kurz: 'pages.main_nav.saga.short',
+    ikone: 'buch',
+    indexieren: true,
+  },
   // Ohne Symbol: Die Rüstkammer steht nicht in der Mobilleiste, und nur dort
   // werden Symbole gebraucht. Eines einzutragen, das es im Vorrat nicht gibt,
   // wäre ein leerer Kasten, der erst auffällt, wenn jemand sie dort einhängt.
   { pfad: '/ruestkammer', titel: 'pages.main_nav.armory.title', indexieren: true },
-  {
-    pfad: '/ruhmeshalle',
-    titel: 'pages.main_nav.hall_of_fame.title',
-    kurz: 'pages.main_nav.hall_of_fame.short',
-    ikone: 'orden',
-    indexieren: true,
-  },
   {
     pfad: '/thing',
     titel: 'pages.main_nav.thing.title',
@@ -77,19 +98,46 @@ export const HAUPTNAV: Seite[] = [
 ];
 
 /**
- * Die Mobilleiste zeigt fünf Ziele, nicht sechs.
+ * Ein Eintrag der Hauptnavigation, über seinen Pfad geholt.
+ *
+ * Vorher stand in `MOBILNAV` `HAUPTNAV[4] // Ruhmeshalle`. Das war eine
+ * stille Falle: Ein neuer Punkt weiter oben — genau das ist mit dem Wiki
+ * passiert — verschiebt jeden Index, und die Mobilleiste hätte dann
+ * wortlos vier andere Ziele gezeigt. Ein falscher Pfad hier wirft dagegen
+ * beim Bauen, weil dieses Modul beim Vorrendern ausgeführt wird.
+ */
+function eintrag(pfad: string): Seite {
+  const s = HAUPTNAV.find((e) => e.pfad === pfad);
+  if (!s) throw new Error(`seiten.ts: kein HAUPTNAV-Eintrag für ${pfad}`);
+  return s;
+}
+
+/**
+ * Die Mobilleiste zeigt vier Ziele plus den Fahrt-Knopf, nicht alle sieben.
  *
  * In der Mitte sitzt der erhobene Fahrt-Knopf, links und rechts davon je
- * zwei. Was hier fehlt (Rüstkammer, Thing), steht im Fuß — eine Leiste mit
- * sieben Symbolen trifft auf 360 px niemand mehr mit dem Daumen. Das ist
+ * zwei. Was hier fehlt (Rüstkammer, Wiki, Thing), steht im Fuß — eine Leiste
+ * mit sieben Symbolen trifft auf 360 px niemand mehr mit dem Daumen. Das ist
  * zugleich die Antwort auf Roadmap H5.
  */
 export const MOBILNAV: Seite[] = [
-  HAUPTNAV[0], // Halle
-  HAUPTNAV[1], // Saga
-  HAUPTNAV[4], // Ruhmeshalle
-  HAUPTNAV[2], // Karte
+  eintrag('/'),
+  eintrag('/saga'),
+  eintrag('/ruhmeshalle'),
+  eintrag('/karte'),
 ];
+
+/**
+ * Was die Mobilleiste nicht zeigt, muss der Fuß zeigen.
+ *
+ * Unterhalb von 880 px ist die Kopfleiste ausgeblendet (wov.css). Ohne diese
+ * Liste wären Rüstkammer, Wiki und Thing auf dem Handy von keiner Seite aus
+ * erreichbar — der schlanke Fußbalken des Entwurfs hat die alten
+ * Linkspalten abgelöst, aber nicht deren Aufgabe.
+ */
+export const FUSSNAV: Seite[] = HAUPTNAV.filter(
+  (s) => !MOBILNAV.includes(s) && s.pfad !== '/',
+);
 
 /** Wohin „Auf Fahrt gehen“ führt — die Charaktererstellung, nicht direkt ins Spiel. */
 export const FAHRT = '/erstellen';

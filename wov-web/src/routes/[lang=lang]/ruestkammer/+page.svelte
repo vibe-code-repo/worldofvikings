@@ -8,6 +8,15 @@
   import Reckenprofil from '$lib/Reckenprofil.svelte';
   import { localeFrom, localizedPath, messages } from '$lib/i18n';
 
+  /**
+   * Die Rüstkammer im Entwurf "Rune & Iron".
+   *
+   * Zwei Zustände wie bisher: Suche mit Trefferraster, oder ein Profil. Der
+   * Entwurf schaltet zwischen beiden im Browser um — hier bleibt es bei der
+   * Adresse (?reck=…), damit jedes Profil verlinkbar und vorrenderbar bleibt
+   * und der Zurück-Knopf des Browsers tut, was er soll.
+   */
+
   const lang = $derived(localeFrom(page.params.lang));
   const t = $derived(messages(lang));
 
@@ -58,19 +67,23 @@
   beschreibung={t['armory.description']}
 />
 
-<main class="mitte seite">
-  <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['armory.heading']}</h1>
-  <p style="color:var(--matt);max-width:44rem">{t['armory.intro']}</p>
+<main class="mitte seite armory-page">
+  <span class="runen kicker" aria-hidden="true">ᚱᚢᛊᛏ</span>
+  <h1>{t['armory.heading']}</h1>
+  <p class="intro">{t['armory.intro']}</p>
 
-  <div class="hinweis" style="margin:1.5rem 0">
+  <!--
+    Der Entwurf zeigt diesen Kasten für die Rüstkammer nicht. Er bleibt
+    trotzdem: Die Recken hier sind erfunden, und das darf die Seite nicht
+    verschweigen, nur weil eine Vorlage den Platz anders verplant.
+  -->
+  <div class="hinweis note">
     <b>{t['armory.hint.bold']}</b>
     {t['armory.hint.text']}
   </div>
 
   {#if gewaehlt}
-    <a class="knopf knopf-schlicht" href={kammer} onclick={zurueck} style="margin-bottom:1.5rem"
-      >{t['armory.back']}</a
-    >
+    <a class="knopf knopf-schlicht back" href={kammer} onclick={zurueck}>{t['armory.back']}</a>
     <Reckenprofil recke={gewaehlt} />
   {:else}
     <!--
@@ -78,9 +91,13 @@
       gar nicht gab — damit hatte das Suchfeld keinen zugänglichen Namen
       (Roadmap H4). Jetzt trägt es `nur-vorlesen`, eine Klasse, die in
       wov.css tatsächlich existiert: sichtbar für Screenreader, unsichtbar am
-      Bildschirm.
+      Bildschirm. Der Entwurf zeigt gar kein Label — das ist der eine Punkt,
+      an dem ihm hier nicht gefolgt wird.
+
+      Der Absende-Knopf ist dagegen weg, wie im Entwurf: Gefiltert wird bei
+      jedem Tastendruck, der Knopf hätte nichts zu tun gehabt.
     -->
-    <form class="suche" style="margin:1.5rem 0 2rem" role="search" onsubmit={(e) => e.preventDefault()}>
+    <form class="suche search" role="search" onsubmit={(e) => e.preventDefault()}>
       <label class="nur-vorlesen" for="suchfeld">{t['armory.search.label']}</label>
       <input
         id="suchfeld"
@@ -91,7 +108,6 @@
         spellcheck="false"
         bind:value={suchtext}
       />
-      <button class="knopf" type="submit">{t['armory.search.button']}</button>
     </form>
 
     {#if fehler}
@@ -101,12 +117,12 @@
     {:else if treffer.length === 0}
       <p class="leer-zustand">{t['armory.state.empty']}</p>
     {:else}
-      <div class="gitter gitter-3">
+      <div class="results">
         {#each treffer as r (r.id)}
-          <a class="tafel-matt karte" href="{kammer}?reck={encodeURIComponent(r.id)}">
-            <h3 style="margin:0 0 .2em">{r.name}</h3>
-            <div style="color:var(--matt);font-size:.9rem">{r.beiname} · {r.sippe}</div>
-            <div style="margin-top:.6rem;font-size:.85rem;color:var(--matt)">
+          <a class="tafel-matt karte result" href="{kammer}?reck={encodeURIComponent(r.id)}">
+            <h3>{r.name}</h3>
+            <div class="result-sub">{r.beiname} · {r.sippe}</div>
+            <div class="result-line">
               {t['armory.card.rune_rank']}
               {r.stufe} · {r.welt} · {t['armory.card.last_seen']}
               {vorWieLange(r.zuletzt_gesehen, lang)}
@@ -117,3 +133,85 @@
     {/if}
   {/if}
 </main>
+
+<style>
+  /* Die breiteste der vier Unterseiten: das Profil stellt zwei Spalten
+     nebeneinander, und die rechte darf nicht zur Rinne werden. */
+  .armory-page {
+    width: min(1200px, 100%);
+  }
+
+  .kicker {
+    display: block;
+    font-size: 18px;
+    margin-bottom: 0.6rem;
+  }
+
+  h1 {
+    margin: 0 0 0.6rem;
+    font-size: clamp(30px, 5vw, 44px);
+  }
+
+  .intro {
+    margin: 0 0 1.5rem;
+    max-width: 44rem;
+    color: var(--text-matt);
+    font-size: 17px;
+    line-height: 1.65;
+  }
+
+  .note {
+    margin-bottom: 2rem;
+  }
+
+  /* ------------------------------------------------------------- Suche */
+
+  .search {
+    margin: 1.5rem 0 2rem;
+  }
+
+  /* Etwas breiter als die Regel in wov.css (14rem): Der Platzhalter nennt
+     drei Möglichkeiten und soll nicht abgeschnitten werden. */
+  .search .feld {
+    flex: 1 1 16rem;
+    padding: 0.8rem 1rem;
+  }
+
+  /* ---------------------------------------------------------- Treffer */
+
+  .results {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+    gap: 20px;
+  }
+
+  .result {
+    padding: 1.2rem 1.3rem;
+  }
+
+  /* Drei Stufen im Text der Karte: Name gold, Zeile darunter matt, die
+     Nebensachen noch eine Stufe zurück. */
+  .result h3 {
+    margin: 0 0 0.2em;
+  }
+
+  .result-sub {
+    color: var(--text-matt);
+    font-size: 14px;
+  }
+
+  .result-line {
+    margin-top: 0.7rem;
+    font-size: 13px;
+    color: var(--umriss);
+  }
+
+  /* ---------------------------------------------------------- Zurück */
+
+  .back {
+    margin-bottom: 1.5rem;
+    padding: 0.7rem 1.2rem;
+    font-size: 12px;
+    text-transform: uppercase;
+  }
+</style>

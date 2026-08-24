@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import { page } from '$app/state';
   import { datumZeit, holeJson } from './formate';
-  import { type MessageKey, localeFrom, messages } from './i18n';
+  import { type MessageKey, localeFrom, localizedPath, messages } from './i18n';
+  import { FAHRT } from './seiten';
 
   /**
    * Der Kartenbetrachter.
@@ -19,6 +20,24 @@
    * Die Marken liegen in einer EIGENEN, nicht skalierten Ebene — sonst würden
    * Punkte und Beschriftungen mitwachsen und beim Hineinzoomen die halbe
    * Karte verdecken.
+   *
+   * ── Aussehen nach "Rune & Iron" (Entwurf) ────────────────────────────
+   * Der Entwurf stellt Karte und Erklärung NEBENeinander statt untereinander:
+   * links das Bild, rechts eine schmale Leiste aus Farblegende, Hinweis und
+   * einem Knopf ins Spiel. Drei Dinge des Entwurfs sind hier absichtlich
+   * anders:
+   *
+   *  1. Die Weltwahl (Midgard / Werkstatt) bleibt. Der Entwurf kennt nur eine
+   *     Karte und hat deshalb keinen Umschalter — es gibt aber zwei Welten,
+   *     und die zweite wäre sonst nicht mehr erreichbar.
+   *  2. Die Legende wird weiter aus `welt.legende` gefüllt. Der Entwurf zählt
+   *     sieben Lande mit festen Farben auf; die ausgelieferte Karte führt
+   *     andere Namen (Hochnord, Meer) und andere Farbwerte. Eine abgeschriebene
+   *     Liste behauptete etwas über ein Bild, das daneben steht.
+   *     Sie heisst deshalb weiter "Was die Farben bedeuten" und nicht "Lande":
+   *     "Meer" ist kein Land.
+   *  3. Unten links steht weiter Massstab und Zeigerkoordinate. Der Entwurf
+   *     hat dort eine feste Zeile mit einer erfundenen Saat.
    */
 
   interface Region { id: string; biome: string; name?: string; x: number; z: number }
@@ -305,139 +324,258 @@
 
 <svelte:window onresize={messen} />
 
-<div id="weltwahl" class="marken" style="margin:1.8rem 0 1rem" role="tablist">
-  {#if uebersicht}
-    {#each uebersicht.welten as w (w.instanz)}
-      <button
-        class="knopf knopf-schlicht"
-        type="button"
-        role="tab"
-        aria-selected={w.instanz === instanz}
-        style={w.instanz === instanz ? 'color:var(--runengold);border-color:var(--umriss)' : ''}
-        onclick={() => weltLaden(w.instanz)}>{w.anzeige}</button
-      >
-    {/each}
-  {:else if fehler}
-    <span class="leer-zustand" style="padding:0">{fehler}</span>
-  {:else}
-    <span class="leer-zustand" style="padding:0">{t['map_viewer.loading']}</span>
-  {/if}
-</div>
+<div class="map-grid">
+  <div class="map-column">
 
-<div class="karten-rahmen">
-  <!--
-    tabindex="0" ist hier kein Versehen: Die Karte laesst sich mit den
-    Pfeiltasten schieben und mit +/-/0 zoomen (siehe `taste`), und dafuer muss
-    sie den Fokus annehmen koennen. Ohne den Eintrag waere der Betrachter nur
-    mit der Maus bedienbar — das waere der Rueckschritt, nicht die Warnung.
-  -->
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div
-    bind:this={flaeche}
-    class="kartenflaeche"
-    class:greift
-    tabindex="0"
-    role="application"
-    aria-label={t['map_viewer.area.aria']}
-    onwheel={rad}
-    onpointerdown={runter}
-    onpointermove={bewegt}
-    onpointerup={hoch}
-    onpointercancel={hoch}
-    onpointerleave={hoch}
-    ondblclick={(e) => zoomen(1.8, ...punktIn(e))}
-    onkeydown={taste}
-  >
-    {#if welt}
-      <img
-        src="/assets/karten/{welt.bild}"
-        alt="{t['map_viewer.image.alt_prefix']} {welt.name} — {(
-          welt.spanneMeter / 1000
-        ).toFixed(1)} {t['map_viewer.image.alt_suffix']}"
-        draggable="false"
-        style="width:{bildBreite * zoom}px; transform:translate({vx}px,{vy}px)"
-        onload={() => { messen(); einpassen(); }}
-      />
-      <div class="marken-ebene" aria-hidden="true">
-        {#each marken as m (m.art + m.titel)}
-          <div
-            class="marke-punkt marke-{m.art}"
-            class:ohne-text={!m.zeigen}
-            title={m.titel}
-            style="transform:translate({m.sx}px,{m.sy}px)"
-          >
-            <span class="marke-text">{m.text}</span>
-          </div>
-        {/each}
-      </div>
+  <div class="marken world-tabs" role="tablist">
+    {#if uebersicht}
+      {#each uebersicht.welten as w (w.instanz)}
+        <button
+          class="knopf knopf-schlicht"
+          type="button"
+          role="tab"
+          aria-selected={w.instanz === instanz}
+          onclick={() => weltLaden(w.instanz)}>{w.anzeige}</button
+        >
+      {/each}
+    {:else if fehler}
+      <span class="leer-zustand bare">{fehler}</span>
+    {:else}
+      <span class="leer-zustand bare">{t['map_viewer.loading']}</span>
     {/if}
   </div>
 
-  <div class="karten-bedienung">
-    <button
-      class="knopf knopf-schlicht"
-      type="button"
-      aria-label={t['map_viewer.zoom_in']}
-      onclick={() => zoomen(1.4, flaechenBreite / 2, flaechenHoehe / 2)}>+</button
+  <div class="karten-rahmen">
+    <!--
+      tabindex="0" ist hier kein Versehen: Die Karte laesst sich mit den
+      Pfeiltasten schieben und mit +/-/0 zoomen (siehe `taste`), und dafuer muss
+      sie den Fokus annehmen koennen. Ohne den Eintrag waere der Betrachter nur
+      mit der Maus bedienbar — das waere der Rueckschritt, nicht die Warnung.
+    -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div
+      bind:this={flaeche}
+      class="kartenflaeche"
+      class:greift
+      tabindex="0"
+      role="application"
+      aria-label={t['map_viewer.area.aria']}
+      onwheel={rad}
+      onpointerdown={runter}
+      onpointermove={bewegt}
+      onpointerup={hoch}
+      onpointercancel={hoch}
+      onpointerleave={hoch}
+      ondblclick={(e) => zoomen(1.8, ...punktIn(e))}
+      onkeydown={taste}
     >
-    <button
-      class="knopf knopf-schlicht"
-      type="button"
-      aria-label={t['map_viewer.zoom_out']}
-      onclick={() => zoomen(1 / 1.4, flaechenBreite / 2, flaechenHoehe / 2)}>−</button
-    >
-    <button class="knopf knopf-schlicht" type="button" onclick={einpassen}>{t['map_viewer.whole_world']}</button>
+      {#if welt}
+        <img
+          src="/assets/karten/{welt.bild}"
+          alt="{t['map_viewer.image.alt_prefix']} {welt.name} — {(
+            welt.spanneMeter / 1000
+          ).toFixed(1)} {t['map_viewer.image.alt_suffix']}"
+          draggable="false"
+          style="width:{bildBreite * zoom}px; transform:translate({vx}px,{vy}px)"
+          onload={() => { messen(); einpassen(); }}
+        />
+        <div class="marken-ebene" aria-hidden="true">
+          {#each marken as m (m.art + m.titel)}
+            <div
+              class="marke-punkt marke-{m.art}"
+              class:ohne-text={!m.zeigen}
+              title={m.titel}
+              style="transform:translate({m.sx}px,{m.sy}px)"
+            >
+              <span class="marke-text">{m.text}</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+
+    <div class="karten-bedienung">
+      <!-- Näher und weiter tragen im Entwurf den Goldverlauf, also den vollen
+           `.knopf` — sie sind die beiden Griffe, nach denen man sucht. -->
+      <button
+        class="knopf"
+        type="button"
+        aria-label={t['map_viewer.zoom_in']}
+        onclick={() => zoomen(1.4, flaechenBreite / 2, flaechenHoehe / 2)}>+</button
+      >
+      <button
+        class="knopf"
+        type="button"
+        aria-label={t['map_viewer.zoom_out']}
+        onclick={() => zoomen(1 / 1.4, flaechenBreite / 2, flaechenHoehe / 2)}>−</button
+      >
+      <!--
+        Der dritte Knopf ist im Entwurf anders gehalten als die beiden über ihm:
+        matt statt golden, kleiner, gesperrt. Er heisst weiter "Ganze Welt" und
+        nicht "RESET" — er passt die Welt ins Bild ein, und das ist mehr, als
+        "zurücksetzen" verspricht.
+      -->
+      <button class="knopf knopf-schlicht fit-all" type="button" onclick={einpassen}
+        >{t['map_viewer.whole_world']}</button
+      >
+    </div>
+
+    <div class="karten-fuss">
+      <span class="massstab" style="width:{massstab.breite}px" data-text={massstab.text} aria-hidden="true"
+      ></span>
+      <span class="karten-koord">{t['map_viewer.pointer']} <b>{zeigerText}</b></span>
+    </div>
   </div>
 
-  <div class="karten-fuss">
-    <span class="massstab" style="width:{massstab.breite}px" data-text={massstab.text} aria-hidden="true"
-    ></span>
-    <span class="karten-koord">{t['map_viewer.pointer']} <b>{zeigerText}</b></span>
+  <p class="karten-stand">
+    {#if fehler}
+      {fehler}
+    {:else if welt}
+      <b>{uebersicht?.welten.find((w) => w.instanz === instanz)?.anzeige ?? welt.name}</b>
+      · {welt.regionen.length} {t['map_viewer.status.regions']} · {(
+        welt.spanneMeter / 1000
+      ).toFixed(1)} {t['map_viewer.status.km_side']} · {t['map_viewer.status.as_of']}
+      {datumZeit(welt.gerendert, lang)}
+    {:else}
+      {t['map_viewer.status.loading']}
+    {/if}
+  </p>
+
   </div>
-</div>
 
-<p class="karten-stand">
-  {#if fehler}
-    {fehler}
-  {:else if welt}
-    <b>{uebersicht?.welten.find((w) => w.instanz === instanz)?.anzeige ?? welt.name}</b>
-    · {welt.regionen.length} {t['map_viewer.status.regions']} · {(
-      welt.spanneMeter / 1000
-    ).toFixed(1)} {t['map_viewer.status.km_side']} · {t['map_viewer.status.as_of']}
-    {datumZeit(welt.gerendert, lang)}
-  {:else}
-    {t['map_viewer.status.loading']}
-  {/if}
-</p>
+  <div class="map-side">
+    <section class="tafel-matt side-panel">
+      <h2 class="panel-eyebrow">{t['map_viewer.colors.title']}</h2>
+      <ul class="legende">
+        {#each welt?.legende ?? [] as l (l.bit)}
+          <!--
+            Die Farbe kommt aus der Kartendatei und ist genau die Farbe, mit der
+            das Bild daneben gemalt wurde. Sie steht deshalb inline und nicht als
+            Marke: Sie gehört zu den Daten, nicht zur Gestaltung.
+          -->
+          <li><i style="background:{l.farbe}"></i>{l.name}</li>
+        {/each}
+      </ul>
+      <p class="legend-note">{t['map_viewer.colors.text']}</p>
+    </section>
 
-<div class="gitter gitter-2" style="margin-top:2.5rem">
-  <article class="tafel">
-    <h3>{t['map_viewer.colors.title']}</h3>
-    <ul class="legende">
-      {#each welt?.legende ?? [] as l (l.bit)}
-        <li><i style="background:{l.farbe}"></i>{l.name}</li>
-      {/each}
-    </ul>
-    <p style="color:var(--matt);font-size:.9rem;margin:1rem 0 0">
-      {t['map_viewer.colors.text']}
-    </p>
-  </article>
-
-  <article class="tafel">
-    <h3>{t['map_viewer.two.title']}</h3>
     <!-- Der Weltname steht fett im Satz: zwei Bausteine, das <b> bleibt hier. -->
-    <p style="color:var(--matt);font-size:.95rem">
-      <b style="color:var(--runengold);font-weight:400"
-        >{t['map_viewer.two.midgard.name']}</b
-      >
-      {t['map_viewer.two.midgard.text']}
-    </p>
-    <p style="color:var(--matt);font-size:.95rem;margin:0">
-      <b style="color:var(--runengold);font-weight:400"
-        >{t['map_viewer.two.workshop.name']}</b
-      >
-      {t['map_viewer.two.workshop.text']}
-    </p>
-  </article>
+    <div class="hinweis two-worlds">
+      <p>
+        <b>{t['map_viewer.two.midgard.name']}</b>
+        {t['map_viewer.two.midgard.text']}
+      </p>
+      <p>
+        <b>{t['map_viewer.two.workshop.name']}</b>
+        {t['map_viewer.two.workshop.text']}
+      </p>
+    </div>
+
+    <a class="knopf map-cta" href={localizedPath(lang, FAHRT)}>{t['map.cta']}</a>
+  </div>
+
 </div>
+
+<style>
+  /*
+    Karte links, Leiste rechts — dasselbe fliessende Raster wie im Entwurf.
+    Unter etwa 40rem Gesamtbreite bricht `auto-fit` von selbst auf eine
+    Spalte um; dann steht die Leiste wieder unter der Karte.
+  */
+  .map-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+    gap: var(--gutter);
+    align-items: start;
+    margin-top: 1.8rem;
+  }
+
+  .map-column {
+    min-width: 0;
+  }
+
+  /*
+    Das Kartenbild ist quadratisch (4096²). In der schmalen Spalte des
+    Entwurfs stand es in einem zu hohen Kasten: gemessen 564 breit, 622 hoch,
+    Bild darin 318 — oben und unten blieb je gut hundert Punkte Wasser.
+    Mit dem Seitenverhältnis füllt die Welt ihre Spalte aus. Die feste Höhe
+    aus wov.css (clamp 320–760) gilt weiter für Betrachter ausserhalb dieses
+    Rasters; hier wird sie ersetzt, nicht gelöscht.
+  */
+  .kartenflaeche {
+    height: auto;
+    aspect-ratio: 1;
+    min-height: 320px;
+    max-height: 700px;
+  }
+
+  .map-side {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+  }
+
+  .world-tabs {
+    margin-bottom: 1rem;
+  }
+
+  .world-tabs button {
+    padding: 0.7rem 1.2rem;
+    font-size: 12px;
+    text-transform: uppercase;
+  }
+
+  /* Welche Welt offen ist, steht in `aria-selected` — daran hängt auch das
+     Aussehen, damit beides nicht auseinanderlaufen kann. */
+  .world-tabs button[aria-selected='true'] {
+    color: var(--runengold);
+    border-color: var(--umriss);
+  }
+
+  /* In der Markenzeile steht der Lade- oder Fehlertext an der Stelle der
+     Knöpfe und braucht deren Polsterung nicht. */
+  .bare {
+    padding: 0;
+  }
+
+  .fit-all {
+    padding: 0.45rem 0.55rem;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+  }
+
+  /* ------------------------------------------------------------ Leiste */
+
+  .side-panel {
+    padding: 1.3rem;
+  }
+
+  /* Die Panelüberschrift des Entwurfs: klein, gesperrt, in Versalien —
+     nicht die 18px-Epilogue-Zeile der globalen h3-Regel. */
+  .panel-eyebrow {
+    margin: 0 0 1rem;
+    font-family: var(--schrift-kappen);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--runengold);
+  }
+
+  .legend-note {
+    margin: 1rem 0 0;
+    color: var(--text-matt);
+    font-size: 14px;
+  }
+
+  .two-worlds p:last-child {
+    margin-bottom: 0;
+  }
+
+  .map-cta {
+    width: 100%;
+    padding: 0.9rem 1.5rem;
+    text-transform: uppercase;
+  }
+</style>

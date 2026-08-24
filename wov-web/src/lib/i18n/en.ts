@@ -19,6 +19,13 @@ export const en: Messages = {
   'header.nav.aria': 'Main navigation',
   'header.soon': 'soon',
   'header.voyage.button': 'Set Sail',
+  /* The header bar of the "Rune & Iron" draft: one gold play button plus
+     three plain links to its right. `header.voyage.button` stays as it is —
+     that is the older, longer wording and still in use elsewhere. */
+  'header.nav.play_button': 'Play',
+  'header.signin.link': 'Sign in',
+  'header.account.link': 'Account',
+  'header.discord.link': 'Discord',
   'header.language.aria': 'Language',
 
   /* ------------------------------------------------------ mobile_nav */
@@ -41,6 +48,18 @@ export const en: Messages = {
   'footer.closing':
     '© 865–2026 World of Vikings. Forged in the halls of Midgard. No installation required.',
 
+  /* The link row and the two controls of the draft's footer. The controls
+     only do anything with JavaScript; without it they are simply absent. */
+  'footer.opensource.link': 'Open source project',
+  'footer.discord.link': 'Discord',
+  'footer.legal.imprint': 'Imprint',
+  'footer.legal.privacy': 'Privacy',
+  'footer.legal.terms': 'Terms of use',
+  'footer.controls.graphics_label': 'Graphics',
+  'footer.controls.graphics_option_auto': 'Auto',
+  'footer.controls.graphics_option_high': 'High',
+  'footer.controls.graphics_option_low': 'Low',
+  'footer.controls.contrast_button': 'High contrast',
   /* ------------------------------------------------------------- meta */
   'meta.brand': 'World of Vikings',
 
@@ -57,10 +76,24 @@ export const en: Messages = {
   'pages.main_nav.thing.title': 'The Thing',
   'pages.main_nav.thing.short': 'Thing',
 
+  'pages.main_nav.wiki.title': 'Wiki',
+  'pages.main_nav.wiki.short': 'Wiki',
   /* ------------------------------------------------------------- hall */
   'hall.meta.title': 'World of Vikings — A Viking Browser Game',
   'hall.meta.description':
     'Saxons against Vikings. A browser game with no download: explore the world, build, and fell the guardians of Midgard.',
+  /* The gate — the draft's new opening of the hall: eyebrow, one paragraph,
+     the play button, the early-access note, the call to Discord. It stands
+     beside the older hero block; which of the two a page shows is decided in
+     the markup, not here. */
+  'hall.gate.eyebrow': 'The official World of Vikings site',
+  'hall.gate.intro':
+    'world-of-vikings.com is the official browser game set in Midgard: Anglo-Saxons against Vikings, nine lands, five guardians. No download, no client — explore the world, build, endure. The map, the saga and the hall of fame all live on this site.',
+  'hall.gate.play_button': 'Play',
+  'hall.gate.early_access_text':
+    'Midgard is under construction. What gets built stays built — but rules, worlds and values may still change.',
+  'hall.gate.discord_cta': 'Join the Thing on Discord',
+  'hall.gate.world_badge_closed': 'closed',
   'hall.hero.crest_alt':
     'Crest of World of Vikings: a longship within a ring of rune-carved stones',
   'hall.hero.heading': 'World of Vikings',
@@ -152,6 +185,8 @@ export const en: Messages = {
   'map.hint.link_workshop': 'Workshop',
   'map.cta': 'Sail there yourself',
 
+  /* Heading above the biome legend next to the map. */
+  'map.legend.title': 'Realms',
   /* ------------------------------ map_viewer (Kartenbetrachter.svelte) */
   'map_viewer.loading': 'Fetching maps …',
   'map_viewer.error.maps': 'The maps are unreachable right now.',
@@ -252,6 +287,9 @@ export const en: Messages = {
   'character_profile.trophies.title': 'Trophies',
   'character_profile.created': 'Created on',
 
+  /* Sits under the character preview and says what can be done with it.
+     The preview itself stays the existing Babylon bundle. */
+  'character_profile.preview.hint': 'Character preview · drag to rotate',
   /* ------------------------------------------------------------ thing */
   'thing.title': 'The Thing',
   'thing.description':
@@ -303,6 +341,35 @@ export const en: Messages = {
     'The Thing will be readable without logging in. Anyone who wants to post needs an account — that keeps search engines in and spam out.',
   'thing.cta': 'Better go voyaging in the meantime',
 
+  /* ------------------------------------------------------------- wiki */
+  /* The draft adds a wiki. No route exists for it yet — the texts come
+     first, so that both catalogues stay in step with each other.
+     `wiki.description` is not from the draft; it is the meta description
+     every other page here has, shortened from `wiki.intro`. */
+  'wiki.title': 'The Wiki',
+  'wiki.description':
+    'How Midgard works: lands and weather, the five guardians, building and structural load, dungeons and their seed.',
+  'wiki.heading': 'The Wiki',
+  'wiki.intro':
+    'How Midgard actually works: lands and weather, the five guardians, building and structural load, dungeons and their seed. Looked up, not guessed — every entry describes what the server actually computes.',
+  'wiki.hint.bold': 'Under construction.',
+  'wiki.hint.text': 'Four books already stand; the entries beneath them grow with the game.',
+  'wiki.books.lands.title': 'Nine Lands',
+  'wiki.books.lands.text':
+    'Meadows, Blackwood, Swamp, Mountains, Plains, Mistlands, Ashlands — weather, inhabitants and building materials per land, with the transitions between them.',
+  'wiki.books.lands.image_alt': 'Painted round shield bearing a raven sigil',
+  'wiki.books.guardians.title': 'Five Guardians',
+  'wiki.books.guardians.text':
+    'Eikthyr, the Elder, the Bonemass, Moder, Yagluth: summoning, attack patterns, loot — and what each fallen guardian unlocks.',
+  'wiki.books.guardians.image_alt': 'Stone skull marked with a glowing rune',
+  'wiki.books.building.title': 'Building & Structure',
+  'wiki.books.building.text':
+    "Load-bearing frames, spans, workbench radius, upgrades up to tier 4. What isn't supported falls — this is where it says what holds.",
+  'wiki.books.building.image_alt': "Smith's hammer crossed over timber beams",
+  'wiki.books.dungeons.title': 'Dungeons & Seed',
+  'wiki.books.dungeons.text':
+    'Crypts and caves are generated from a placed seed with real doors and room chains — new for everyone, but the same for everyone.',
+  'wiki.books.dungeons.image_alt': 'Moss-covered cave entrance lit by torches',
   /* --------------------------------------------- create (/erstellen) */
   'create.meta.title': 'Create Character',
   'create.meta.description': 'Choose the appearance and gear of your shieldmaiden, then set sail.',
@@ -314,6 +381,7 @@ export const en: Messages = {
   'create.appearance.hair.label': 'Hair',
   'create.appearance.hair.previous': 'Previous hairstyle',
   'create.appearance.hair.next': 'Next hairstyle',
+  'create.appearance.haircolor.label': 'Hair colour',
   'create.appearance.chest.label': 'Chest',
   'create.appearance.chest.previous': 'Previous piece',
   'create.appearance.chest.none': '— none —',
@@ -425,6 +493,7 @@ export const en: Messages = {
   'account.page.meta.description':
     'Your heroes at a glance: set sail, create new ones, let old ones go.',
   'account.page.heading': 'Your heroes',
+  'account.page.intro': 'Your characters on this shore. Pick one or create a new one.',
   'account.page.unreachable.title': 'The shore is not answering',
   'account.page.unreachable.retry': 'Try again',
   'account.page.locked.title': 'Not signed in',

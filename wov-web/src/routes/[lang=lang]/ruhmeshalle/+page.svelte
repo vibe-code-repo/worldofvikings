@@ -6,6 +6,14 @@
   import { TAFELN, type Recke } from '$lib/recken';
   import { localeFrom, localizedPath, messages } from '$lib/i18n';
 
+  /**
+   * Die Ruhmeshalle im Entwurf "Rune & Iron".
+   *
+   * Diese Seite stand dem Entwurf schon am nächsten: Marken oben, darunter
+   * eine Tafel mit rollbarer Tabelle. Neu sind die Runenzeile, die feste
+   * Zeilenbreite des Intros und die gesperrte Versaloptik der Marken.
+   */
+
   const lang = $derived(localeFrom(page.params.lang));
   const t = $derived(messages(lang));
 
@@ -35,23 +43,29 @@
 
 <Kopfdaten titel={t['hall_of_fame.title']} beschreibung={t['hall_of_fame.description']} />
 
-<main class="mitte seite">
-  <h1 style="font-size:clamp(1.8rem,5vw,2.8rem)">{t['hall_of_fame.heading']}</h1>
-  <p style="color:var(--matt);max-width:44rem">{t['hall_of_fame.intro']}</p>
+<main class="mitte seite hall-page">
+  <span class="runen kicker" aria-hidden="true">ᚱᚢᚺᛗ</span>
+  <h1>{t['hall_of_fame.heading']}</h1>
+  <p class="intro">{t['hall_of_fame.intro']}</p>
 
-  <div class="hinweis" style="margin:1.5rem 0">
+  <div class="hinweis note">
     <b>{t['hall_of_fame.hint.bold']}</b>
     {t['hall_of_fame.hint.text']}
   </div>
 
-  <div class="marken" style="margin:2rem 0 1.2rem" role="tablist">
+  <div class="marken tabs" role="tablist">
     {#each TAFELN as tf (tf.id)}
+      <!--
+        Welche Marke offen ist, steht in `aria-selected` — und genau daran
+        hängt auch ihr Aussehen. Eine zweite Klasse daneben könnte
+        auseinanderlaufen; ein Stil, der am Zustandsattribut hängt, kann das
+        nicht.
+      -->
       <button
         class="knopf knopf-schlicht"
         type="button"
         role="tab"
         aria-selected={tf.id === aktiv}
-        style={tf.id === aktiv ? 'color:var(--runengold);border-color:var(--umriss)' : ''}
         onclick={() => (aktiv = tf.id)}>{t[tf.titel]}</button
       >
     {/each}
@@ -82,9 +96,9 @@
                     href="{localizedPath(lang, '/ruestkammer')}?reck={encodeURIComponent(r.id)}"
                     >{r.name}</a
                   >
-                  <span style="color:var(--matt)"> {r.beiname}</span>
+                  <span class="byname">{r.beiname}</span>
                 </td>
-                <td style="color:var(--matt)">{r.sippe}</td>
+                <td>{r.sippe}</td>
                 <td class="zahl">{tafel.zeigen(r)}</td>
               </tr>
             {/each}
@@ -94,3 +108,77 @@
     </div>
   </div>
 </main>
+
+<style>
+  .hall-page {
+    width: min(1100px, 100%);
+  }
+
+  .kicker {
+    display: block;
+    font-size: 18px;
+    margin-bottom: 0.6rem;
+  }
+
+  h1 {
+    margin: 0 0 0.6rem;
+    font-size: clamp(30px, 5vw, 44px);
+  }
+
+  /* Enger als auf der Saga: Hier folgt gleich ein Hinweiskasten, und zwei
+     Blöcke mit 2.5rem dazwischen fielen auseinander. */
+  .intro {
+    margin: 0 0 1.5rem;
+    max-width: 44rem;
+    color: var(--text-matt);
+    font-size: 17px;
+    line-height: 1.65;
+  }
+
+  .note {
+    margin-bottom: 2rem;
+  }
+
+  .tabs {
+    margin-bottom: 1.2rem;
+  }
+
+  .tabs button {
+    padding: 0.7rem 1.2rem;
+    font-size: 12px;
+    text-transform: uppercase;
+  }
+
+  .tabs button[aria-selected='true'] {
+    color: var(--runengold);
+    border-color: var(--umriss);
+  }
+
+  /* Der Beiname steht hinter dem verlinkten Namen und ist kein Link — er
+     muss sich davon absetzen, sonst liest sich die Zelle als ein Name. */
+  .byname {
+    color: var(--text-matt);
+  }
+
+  /*
+    Gold, Silber, Bronze auf den ersten drei Plätzen — der Entwurf färbt die
+    Platzziffer, und wov.css hält die drei Farben längst bereit.
+
+    Warum die Regeln hier stehen und nicht dort: `.rang-1` ist eine Klasse
+    (0,1,0), `.tabelle td` ist Klasse plus Element (0,1,1) und gewinnt. Die
+    Platzziffern standen deshalb bisher alle in --text-matt; gemessen am
+    24.08.2026 an Platz 1: rgb(208,197,175) statt Runengold. Die Zeile
+    `td.rang-1` hier ist spezifisch genug — sauberer wäre dieselbe
+    Verschärfung in wov.css, aber die Datei gehört zu dieser Aufgabe nicht.
+  */
+  .tabelle td.rang-1 {
+    color: var(--runengold);
+    font-weight: 700;
+  }
+  .tabelle td.rang-2 {
+    color: var(--rank-silver);
+  }
+  .tabelle td.rang-3 {
+    color: var(--rank-bronze);
+  }
+</style>

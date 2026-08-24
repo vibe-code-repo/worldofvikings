@@ -54,6 +54,7 @@ export interface Charakter {
   name: string;
   figur: string;
   frisur: string;
+  haarfarbe: string;
   ober: string;
   beine: string;
   erstellt: number;
@@ -92,6 +93,30 @@ export class Kontendatenbank {
     // Off by default in SQLite, and we rely on it for ON DELETE CASCADE.
     this.db.exec('PRAGMA foreign_keys = ON');
     this.schemaAnlegen();
+    this.spaltenNachziehen();
+  }
+
+  /**
+   * Columns added after the table already existed in the wild.
+   *
+   * CREATE TABLE IF NOT EXISTS silently does nothing once the table is
+   * there, so a new column in the statement above never reaches a
+   * database that has already been created. On dev that is exactly what
+   * happened: characters existed, the column did not, and the missing
+   * value only surfaced as "the hair colour picker is gone".
+   *
+   * Idempotent by construction: it asks what is there and adds only what
+   * is missing, so it may run on every start.
+   */
+  private spaltenNachziehen(): void {
+    const vorhanden = new Set(
+      (this.db.prepare('PRAGMA table_info(charaktere)').all() as Record<string, unknown>[])
+        .map((z) => String(z.name)),
+    );
+    if (!vorhanden.has('haarfarbe')) {
+      this.db.exec("ALTER TABLE charaktere ADD COLUMN haarfarbe TEXT NOT NULL DEFAULT ''");
+      console.log('[Konto] Spalte charaktere.haarfarbe nachgezogen');
+    }
   }
 
   private schemaAnlegen(): void {
@@ -116,6 +141,7 @@ export class Kontendatenbank {
         name             TEXT NOT NULL UNIQUE COLLATE NOCASE,
         figur            TEXT NOT NULL,
         frisur           TEXT NOT NULL,
+        haarfarbe        TEXT NOT NULL DEFAULT '',
         ober             TEXT NOT NULL DEFAULT '',
         beine            TEXT NOT NULL DEFAULT '',
         erstellt         INTEGER NOT NULL,
@@ -195,7 +221,7 @@ export class Kontendatenbank {
   charakterAnlegen(
     kontoId: number,
     name: string,
-    aussehen: { figur: string; frisur: string; ober: string; beine: string },
+    aussehen: { figur: string; frisur: string; haarfarbe: string; ober: string; beine: string },
   ): { ok: true; charakter: Charakter } | { ok: false; fehler: KontoFehler } {
     const spielerId = spielerIdErzeugen();
     const altlastUserId = BigInt(getStableHash(spielerId) & 0x7fffffff);
@@ -203,10 +229,11 @@ export class Kontendatenbank {
     try {
       const r = this.db
         .prepare(`INSERT INTO charaktere
-          (konto_id, spieler_id, altlast_user_id, name, figur, frisur, ober, beine, erstellt)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          (konto_id, spieler_id, altlast_user_id, name, figur, frisur, haarfarbe, ober, beine, erstellt)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(kontoId, spielerId, altlastUserId.toString(16), name,
-             aussehen.figur, aussehen.frisur, aussehen.ober, aussehen.beine, jetzt);
+             aussehen.figur, aussehen.frisur, aussehen.haarfarbe,
+             aussehen.ober, aussehen.beine, jetzt);
       return {
         ok: true,
         charakter: {
@@ -275,6 +302,7 @@ export class Kontendatenbank {
       name: String(z.name),
       figur: String(z.figur),
       frisur: String(z.frisur),
+      haarfarbe: String(z.haarfarbe ?? ''),
       ober: String(z.ober),
       beine: String(z.beine),
       erstellt: Number(z.erstellt),

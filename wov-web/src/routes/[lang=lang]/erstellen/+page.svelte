@@ -62,15 +62,19 @@
    * `oberkoerper`. Sie stehen im Weltspeicher und in der
    * Kontendatenbank; sie zu uebersetzen waere eine Datenwanderung.
    */
-  interface Eintrag { id: string; name: string; file?: string; slot?: string }
+  interface Eintrag {
+    /** sRGB-Hex, nur bei Haarfarben belegt. */
+    hex?: string; id: string; name: string; file?: string; slot?: string }
   interface Aussehen {
     folder: string;
     body: string;
     figures: Eintrag[];
     hairstyles: Eintrag[];
+    hairColors: Eintrag[];
     equipment: Eintrag[];
     defaultFigure?: string;
     defaultHairstyle?: string;
+    defaultHairColor?: string;
     /**
      * Stunde → Beschriftung, z. B. { "3": "Sonnenaufgang" }.
      *
@@ -87,6 +91,8 @@
     setzeWurzel(url: string): Promise<void>;
     ladeKoerper(pfad: string): Promise<void>;
     setze(slot: string, datei: string | null): Promise<void>;
+    /** sRGB-Hex; leer laesst die Farbe des Modells stehen. */
+    setzeHaarfarbe(hex: string): void;
     drehe(winkel: number): void;
     blickZurueck(): void;
     dispose(): void;
@@ -149,6 +155,7 @@
 
   let figur = $state('');
   let frisur = $state('');
+  let haarfarbe = $state('');
   let ober = $state('');
   let beine = $state('');
   let spielerName = $state('Viking');
@@ -209,7 +216,7 @@
         // `server` steht hier nicht mehr drin: Welches Gestade gewählt ist,
         // führt seit den Kontoseiten `wov-gestade` (writeShore), und zwei
         // Orte für dieselbe Angabe laufen früher oder später auseinander.
-        JSON.stringify({ figur, frisur, ober, beine, name: spielerName, zeit })
+        JSON.stringify({ figur, frisur, haarfarbe, ober, beine, name: spielerName, zeit })
       );
     } catch {
       /* privater Modus: dann eben nicht */
@@ -226,6 +233,12 @@
   async function zeigeAussehen() {
     if (!vorschau || !daten) return;
     await vorschau.setze('frisur', datei(daten.hairstyles, frisur) ?? datei(daten.hairstyles, daten.hairstyles[0]?.id ?? ''));
+    // Die Haarfarbe ist kein Modell, sondern eine Toenung auf dem
+    // Frisurmodell -- deshalb NACH der Frisur und ueber einen eigenen Weg.
+    // Ohne diesen Aufruf steht die Auswahl da und die Vorschau zeigt sie
+    // nicht; genau so war es, bevor der Auswaehler ueberhaupt fehlte.
+    const ton = (daten.hairColors ?? []).find((h) => h.id === haarfarbe)?.hex ?? '';
+    vorschau.setzeHaarfarbe(ton);
     await vorschau.setze('oberkoerper', datei(daten.equipment, ober));
     await vorschau.setze('beine', datei(daten.equipment, beine));
   }
@@ -269,6 +282,8 @@
 
     figur = gueltig(daten.figures, alt.figur) ?? daten.defaultFigure ?? daten.figures[0]?.id ?? '';
     frisur = gueltig(daten.hairstyles, alt.frisur) ?? daten.defaultHairstyle ?? daten.hairstyles[0]?.id ?? '';
+    haarfarbe =
+      gueltig(daten.hairColors, alt.haarfarbe) ?? daten.defaultHairColor ?? daten.hairColors[0]?.id ?? '';
     ober = gueltig(daten.equipment, alt.ober) ?? '';
     beine = gueltig(daten.equipment, alt.beine) ?? '';
     if (alt.name) spielerName = alt.name;
@@ -405,6 +420,7 @@
         name: spielerName.trim(),
         figure: figur,
         hairstyle: frisur,
+        hairColor: haarfarbe,
         top: ober,
         legs: beine,
       });
@@ -497,6 +513,19 @@
             </select>
             <button type="button" aria-label={t['create.appearance.hair.next']}
               onclick={() => { frisur = schritt(daten?.hairstyles ?? [], frisur, 1, false); merke(); void zeigeAussehen(); }}>›</button>
+          </div>
+        </div>
+
+        <div class="erstellen-feld">
+          <label class="feldname" for="create-haircolor">{t['create.appearance.haircolor.label']}</label>
+          <div class="waehler">
+            <button type="button" aria-label={t['create.appearance.haircolor.previous']}
+              onclick={() => { haarfarbe = schritt(daten?.hairColors ?? [], haarfarbe, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
+            <select id="create-haircolor" bind:value={haarfarbe} onchange={() => { merke(); void zeigeAussehen(); }}>
+              {#each daten?.hairColors ?? [] as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
+            </select>
+            <button type="button" aria-label={t['create.appearance.haircolor.next']}
+              onclick={() => { haarfarbe = schritt(daten?.hairColors ?? [], haarfarbe, 1, false); merke(); void zeigeAussehen(); }}>›</button>
           </div>
         </div>
 

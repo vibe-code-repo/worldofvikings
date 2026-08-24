@@ -382,6 +382,8 @@ export const en: Messages = {
   'create.appearance.hair.previous': 'Previous hairstyle',
   'create.appearance.hair.next': 'Next hairstyle',
   'create.appearance.haircolor.label': 'Hair colour',
+  'create.appearance.haircolor.previous': 'Previous hair colour',
+  'create.appearance.haircolor.next': 'Next hair colour',
   'create.appearance.chest.label': 'Chest',
   'create.appearance.chest.previous': 'Previous piece',
   'create.appearance.chest.none': '— none —',

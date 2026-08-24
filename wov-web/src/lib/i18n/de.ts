@@ -404,6 +404,8 @@ export const de = {
   'create.appearance.hair.previous': 'Vorige Frisur',
   'create.appearance.hair.next': 'Nächste Frisur',
   'create.appearance.haircolor.label': 'Haarfarbe',
+  'create.appearance.haircolor.previous': 'Vorige Haarfarbe',
+  'create.appearance.haircolor.next': 'Nächste Haarfarbe',
   'create.appearance.chest.label': 'Oberkörper',
   'create.appearance.chest.previous': 'Voriges Teil',
   'create.appearance.chest.none': '— nichts —',

@@ -209,6 +209,7 @@ export class KontoApi {
     const r = this.db.charakterAnlegen(kontoId, name, {
       figur: String(k.figure ?? ''),
       frisur: String(k.hairstyle ?? ''),
+      haarfarbe: String(k.hairColor ?? ''),
       ober: String(k.top ?? ''),
       beine: String(k.legs ?? ''),
     });
@@ -354,6 +355,7 @@ export class KontoApi {
 function nachAussen(c: Charakter): Record<string, unknown> {
   return {
     id: c.id, name: c.name, figure: c.figur, hairstyle: c.frisur,
+    hairColor: c.haarfarbe,
     top: c.ober, legs: c.beine,
     created: c.erstellt, lastPlayed: c.zuletztGespielt,
   };

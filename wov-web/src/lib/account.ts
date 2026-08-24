@@ -90,6 +90,7 @@ export interface Character {
   name: string;
   figure: string;
   hairstyle: string;
+  hairColor: string;
   top: string;
   legs: string;
   /** Epoch milliseconds — the database stores numbers, not ISO strings. */
@@ -399,7 +400,14 @@ export function me(shore: ShoreId, token: string): Promise<Me> {
 export function createCharacter(
   shore: ShoreId,
   token: string,
-  character: { name: string; figure: string; hairstyle: string; top: string; legs: string },
+  character: {
+    name: string;
+    figure: string;
+    hairstyle: string;
+    hairColor: string;
+    top: string;
+    legs: string;
+  },
 ): Promise<{ character: Character }> {
   return call<{ character: Character }>(shore, '/accounts/characters', {
     method: 'POST',

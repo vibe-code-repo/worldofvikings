@@ -99,7 +99,7 @@ import { SettingsPanel } from './ui/SettingsPanel';
 import { PostProcessing } from './engine/PostProcessing';
 import { Shadows } from './engine/Shadows';
 import { RENDER_SCALE } from './ui/Settings';
-import { LoadingScreen } from './ui/LoadingScreen';
+import { LoadingScreen, type GameLanguage } from './ui/LoadingScreen';
 import { Equipment } from './player/Equipment';
 import { Hotbar } from './ui/Hotbar';
 import { InventoryPanel } from './ui/InventoryPanel';
@@ -366,6 +366,8 @@ async function main() {
   }
 
   const ausAdresse = new URLSearchParams(window.location.search);
+  const gameLanguage: GameLanguage = ausAdresse.get('lang') === 'en' ? 'en' : 'de';
+  document.documentElement.lang = gameLanguage;
   //
   // ── Englische PARAMETERNAMEN, deutsche WERTE ─────────────────────
   // Die Namen sind Drahtformat und heissen englisch; gesetzt werden
@@ -391,7 +393,8 @@ async function main() {
   const offlineMode = ausAdresse.has('offline');
   const accountSessionPresent = ticketVorgelegt || storedSessionPresent;
   const websiteLoginUrl = (expired = false): URL => {
-    const url = new URL('/de/anmelden', 'https://world-of-vikings.com');
+    const loginPath = gameLanguage === 'en' ? '/en/login' : '/de/anmelden';
+    const url = new URL(loginPath, 'https://world-of-vikings.com');
     url.searchParams.set(
       'shore',
       window.location.hostname.includes('.dev.') ? 'dev' : 'live',
@@ -1337,7 +1340,7 @@ async function main() {
       waterLevel: WATER_LEVEL,
     });
     // Blende über die Aufbauphase (Chunks poppen, Wasser noch aus)
-    loading = new LoadingScreen();
+    loading = new LoadingScreen(gameLanguage);
 
     // Inventar + Ausrüstung. Startausstattung, bis Item-Drops in der Welt
     // liegen: der Bauhammer, die drei Boden-Werkzeuge und etwas Material.

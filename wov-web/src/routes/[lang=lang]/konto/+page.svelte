@@ -162,7 +162,7 @@
       const ticket = await play(shore, token, c.id);
       // The credential travels in the address fragment, never as a
       // parameter — the reasoning is at `playUrl` in `$lib/account.ts`.
-      location.href = playUrl(shore, ticket.sessionToken);
+      location.href = playUrl(shore, ticket.sessionToken, lang);
     } catch (err) {
       busy = null;
       if (isLoggedOut(err)) return toLogin();

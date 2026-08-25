@@ -33,7 +33,7 @@
  * ticket from `/play` goes into the address FRAGMENT (`#ticket=`), which
  * no browser sends to any server — see `playUrl`.
  */
-import type { MessageKey } from './i18n';
+import type { Locale, MessageKey } from './i18n';
 
 /* ------------------------------------------------------------- shores */
 
@@ -446,14 +446,23 @@ export function play(shore: ShoreId, token: string, id: number): Promise<Ticket>
  * The ticket is now the complete hand-off. The game no longer contains a
  * second login or character picker, and the former `go=1` switch has been
  * removed. Name and appearance live behind the ticket on the server; only
- * `time` remains an ordinary parameter because it is a request for the
- * test realm, not a character property.
+ * `lang` and `time` remain ordinary parameters: language selects client
+ * copy, while time is a request for the test realm. Neither is a character
+ * property or a credential.
  */
-export function playUrl(shore: ShoreId, sessionToken: string, time?: string): string {
+export function playUrl(
+  shore: ShoreId,
+  sessionToken: string,
+  language: Locale,
+  time?: string,
+): string {
   const url = new URL(SHORES[shore].url);
-  // Nur die gewuenschte Weltzeit steht noch im Suchteil, und auch die nur,
-  // wenn eine gewaehlt wurde: Sie ist kein Merkmal des Charakters, sondern
-  // ein Wunsch an die Welt.
+  // Language is explicit rather than inferred by the game host: the website
+  // URL is the user's choice, while browser preferences may differ. Keeping
+  // it in the query also preserves it on game reloads.
+  url.searchParams.set('lang', language);
+  // Only the optional world time joins it in the query. It is not a
+  // character trait, but a request to the test realm.
   if (time) url.searchParams.set('time', time);
   // Alles andere ist weg, und das ist der Punkt: Das Ticket traegt die
   // spielerId, der Server kennt damit den Charakter und holt Namen und

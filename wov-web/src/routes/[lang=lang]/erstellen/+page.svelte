@@ -425,7 +425,7 @@
         legs: beine,
       });
       const ticket = await play(gestade, token, neu.character.id);
-      location.href = playUrl(gestade, ticket.sessionToken, zeit);
+      location.href = playUrl(gestade, ticket.sessionToken, lang, zeit);
     } catch (err) {
       sendet = false;
       if (isLoggedOut(err)) return zurAnmeldung();

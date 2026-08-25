@@ -128,6 +128,10 @@ const KERN = [
   // failures return to the one remaining login on the public website.
   // Source-level and DOM-free, so it belongs in the fast core list.
   ['client', 'test/direct-handoff.ts'],
+  // The website URL is the language authority. Both character launch paths
+  // must pass it to the game, where every loading-screen string is selected
+  // from one complete locale object. Pure source/data assertions, no DOM.
+  ['client', 'test/loading-language.ts'],
   // F6 (Roadmap): seq-Verwerfungsregel für Client-Vorhersage-
   // Reconciliation (client/src/net/Eingabeverwerfung.ts) — reine
   // Funktion, NICHT in eine Vorhersage-Warteschlange verdrahtet (die

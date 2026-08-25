@@ -7,11 +7,11 @@
 # braucht `wov-host` (nur der Proxmox-Host kommt per `pct` in CT 103 hinein).
 # Beides zusammen hat nur der Arbeitsplatz.
 #
-# Seit dem 23.08.2026 liegt die Seite IM Spiel-Repo (wov-web/). Kurz: Client
-# und Seite teilen sich einen Vertrag ueber die Adressparameter (?name,
-# ?figure, ?time, ?go) und zwei erzeugte Dateien (assets/appearance.json,
-# assets/js/vorschau.js). Getrennte Repos machten aus jeder solchen
-# Aenderung zwei Commits, die niemand zusammen zuruecknehmen kann.
+# Seit dem 23.08.2026 liegt die Seite IM Spiel-Repo (wov-web/). Client und
+# Seite teilen sich die Ticket-Uebergabe im Adressfragment, den optionalen
+# Zeitparameter sowie die Aussehensdaten fuer die Charaktererstellung.
+# Getrennte Repos machten aus jeder solchen Aenderung zwei Commits, die
+# niemand zusammen zuruecknehmen kann.
 #
 #   tools/ausrollen.sh            baut und rollt aus
 #   tools/ausrollen.sh --trocken  baut und zeigt nur den Unterschied

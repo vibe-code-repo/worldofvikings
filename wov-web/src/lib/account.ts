@@ -443,21 +443,11 @@ export function play(shore: ShoreId, token: string, id: number): Promise<Ticket>
  * `#ticket=`, stores it as the ordinary session token and strips it from
  * the address again (commit b57ce2b).
  *
- * ── Why `go=1` is still there ────────────────────────────────────────
- * Measured, not assumed: in `client/src/main.ts` the ticket block and the
- * auto-connect block are separate, and only `if (vonSeite.go …)` skips
- * the connect window. A ticket alone would store the token and then show
- * the connect dialog anyway — the very break this flow removes.
- *
- * Name and appearance stay ordinary parameters. They are not credentials
- * (the client's own comment says manipulating one's OWN appearance is
- * allowed, and the server checks every id against the same lists), and
- * without `name` the client invents a random `Viking###`.
- *
- * The parameter names are the client's, not ours: `go`, `figure`,
- * `hairstyle`, `top`, `legs` and `time` are read verbatim in
- * `client/src/main.ts`. Change one side and the handover breaks in
- * silence — the client simply sees no parameter and falls back.
+ * The ticket is now the complete hand-off. The game no longer contains a
+ * second login or character picker, and the former `go=1` switch has been
+ * removed. Name and appearance live behind the ticket on the server; only
+ * `time` remains an ordinary parameter because it is a request for the
+ * test realm, not a character property.
  */
 export function playUrl(shore: ShoreId, sessionToken: string, time?: string): string {
   const url = new URL(SHORES[shore].url);
@@ -476,4 +466,3 @@ export function playUrl(shore: ShoreId, sessionToken: string, time?: string): st
   url.hash = `ticket=${encodeURIComponent(sessionToken)}`;
   return url.toString();
 }
-

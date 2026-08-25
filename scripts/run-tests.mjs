@@ -123,6 +123,11 @@ const KERN = [
   // es jemandem auffiel. Prueft die Abgleichlogik gegen das ECHTE
   // Bestandsdokument — DOM-frei, Sekunden, gehoert damit hierher.
   ['client', 'test/welt-abgleich.ts'],
+  // Account hand-off from wov-web: the legacy connection panel must be
+  // absent from the static HTML, online entry requires a session, and
+  // failures return to the one remaining login on the public website.
+  // Source-level and DOM-free, so it belongs in the fast core list.
+  ['client', 'test/direct-handoff.ts'],
   // F6 (Roadmap): seq-Verwerfungsregel für Client-Vorhersage-
   // Reconciliation (client/src/net/Eingabeverwerfung.ts) — reine
   // Funktion, NICHT in eine Vorhersage-Warteschlange verdrahtet (die

@@ -10,14 +10,14 @@
  * client waits for the server's ServerConfig packet (type 52) and builds
  * its GeoManager from the server's actual seed + worldgen flags — client
  * and server can no longer render different worlds. A custom seed can
- * only be chosen for the OFFLINE (no server) case on the connect screen,
+ * only be chosen for the OFFLINE (no server) URL mode,
  * since a live multiplayer world's seed is fixed for good the moment the
  * server finishes booting (world generation completes before the server
  * even starts listening — see Docs/Migrationsplan-Differenzen-und-Aufgaben.md).
  * To play with a custom seed online, start a fresh server with
  * WORLD_SEED=<seed> (server/src/main.ts) instead.
  *
- * ?offline=1 skips the connect screen and builds a local world immediately
+ * ?offline=1 builds a local world immediately
  * (?seed=<seed> optional); useful for quick dev/Playwright probes.
  */
 import { Engine, WebGPUEngine } from '@babylonjs/core/Engines';
@@ -49,20 +49,13 @@ import {
   unpackContainer,
   WeatherManager,
   WORLD_TIME_LENGTH,
-  FRACTION_SUNRISE,
-  FRACTION_MIDDAY,
-  FRACTION_SUNSET,
-  FIGUREN,
   FIGUR_VORGABE,
   istFigur,
   modellDateiZu,
-  FRISUREN,
   FRISUR_VORGABE,
-  HAARFARBEN,
   HAARFARBE_VORGABE,
   istFrisur,
   istHaarfarbe,
-  RUESTUNG,
   istRuestung,
   frisurZu,
   haarfarbeZu,
@@ -164,14 +157,6 @@ const FLAG_LAYOUT_MODE = 1 << 5;
 function compass(deg: number): string {
   const points = ['N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW'];
   return points[Math.round(deg / 45) % 8];
-}
-
-/** Random 10-char alnum seed for the "🎲" button / offline default. */
-function randomSeed(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let s = '';
-  for (let i = 0; i < 10; i++) s += chars[Math.floor(Math.random() * chars.length)];
-  return s;
 }
 
 async function createEngine(canvas: HTMLCanvasElement) {
@@ -279,57 +264,18 @@ function aktivierePerformanceDiagnose(
 
 async function main() {
   const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
-  const connectScreen = document.getElementById('connect-screen')!;
-  const nameInput = document.getElementById('player-name') as HTMLInputElement;
-  const urlInput = document.getElementById('server-url') as HTMLInputElement;
-  const offlineToggle = document.getElementById('offline-toggle') as HTMLInputElement;
-  const seedInput = document.getElementById('world-seed') as HTMLInputElement;
-  const genSeedBtn = document.getElementById('gen-seed-btn') as HTMLButtonElement;
-  const seedHint = document.getElementById('seed-hint')!;
-  const figurSelect = document.getElementById('figur-wahl') as HTMLSelectElement;
-  const timeSelect = document.getElementById('start-time') as HTMLSelectElement;
-  const timeHint = document.getElementById('time-hint')!;
-  const connectBtn = document.getElementById('connect-btn') as HTMLButtonElement;
-  const connectStatus = document.getElementById('connect-status')!;
-
-  // ── Figurenwahl im Verbinden-Fenster ────────────────────────────────
-  //
-  // Die Eintraege kommen aus FIGUREN (shared/figuren.ts) — derselben
-  // Liste, gegen die der Server die eingehende Wahl prueft und aus der
-  // das Modell geladen wird. Die letzte Wahl steht im localStorage, damit
-  // man sie nicht bei jeder Anmeldung neu treffen muss; die WAHRHEIT ist
-  // sie nicht — der Server kennt die gespeicherte Figur des Spielstands
-  // und hat sie schon gesetzt, bevor der Client sein SetFigur schickt.
-  const FIGUR_SPEICHER = 'wov-figur';
-  for (const f of FIGUREN) {
-    const opt = document.createElement('option');
-    opt.value = f.id;
-    opt.textContent = f.name;
-    figurSelect.appendChild(opt);
-  }
-  const gemerkteFigur = localStorage.getItem(FIGUR_SPEICHER);
-  figurSelect.value = gemerkteFigur && istFigur(gemerkteFigur) ? gemerkteFigur : FIGUR_VORGABE;
 
   // ── Uebergabe von der Charaktererstellung ──────────────────────────
-  // world-of-vikings.com/erstellen.html haengt die Wahl an die Adresse.
-  //
-  // WARUM UEBER DIE ADRESSE und nicht ueber den Server: Webseite und
-  // Spielserver sind verschiedene Ursprünge, localStorage wird zwischen
-  // ihnen nicht geteilt. Und der Weg ueber den Spielstand ist versperrt —
-  // der Server schluesselt Staende seit der Sicherheitspruefung F3 ueber
-  // eine Sitzungs-spielerId, nicht mehr ueber den frei getippten Namen,
-  // den die Webseite als einziges kennt.
-  //
-  // Manipulierbar ist so nur das EIGENE Aussehen, und das darf man
-  // ohnehin: Der Server prueft jede Kennung gegen dieselben Listen
-  // (istFigur/istFrisur/istRuestung), aus denen die Auswahl stammt.
+  // world-of-vikings.com tauscht die serverseitig gespeicherte Figur gegen
+  // ein kurzlebiges Spielticket. In der Adresse steht nur noch dieses
+  // Ticket; Name und Aussehen kommen aus der Konten- und Weltdatenbank.
   /**
    * Wurde diese Sitzung mit einem Spielticket eroeffnet?
    *
    * Dann gehoert der Charakter einem Konto, und Name wie Aussehen stehen
    * serverseitig fest. Der Client darf sie nach dem Verbinden NICHT
-   * melden -- er wuerde den gespeicherten Stand mit dem ueberschreiben,
-   * was zufaellig in seinen Auswahlfeldern steht.
+   * melden -- er wuerde den gespeicherten Stand mit lokalen Vorgabewerten
+   * ueberschreiben.
    */
   let mitTicket = false;
   /** Lag ein Ticket in der Adresse? Dann ist die Anmeldung gewollt. */
@@ -337,7 +283,7 @@ async function main() {
 
   /**
    * Liegt ein SessionToken im Speicher? Dann war der Besucher schon einmal
-   * hier, und das Anmeldefenster hat ihm nichts zu sagen.
+   * hier und kann ohne einen zweiten Anmeldeschritt zurueckkehren.
    *
    * Bis zum 24.08.2026 galt nur ein Ticket in der Adresse als Absicht. Wer
    * sich ueber world-of-vikings.com angemeldet hatte und play.* danach neu
@@ -345,10 +291,8 @@ async function main() {
    * einem gueltigen Token im Speicher, das genau daneben lag. Genau der
    * Schritt, den die Charaktererstellung ersetzen sollte.
    *
-   * Ist das Token abgelaufen oder gefaelscht, weist der Server die
-   * Verbindung ab, onDisconnected nimmt die Klasse `direkt` wieder weg und
-   * das vollstaendige Fenster steht da. Der Rueckweg bleibt also derselbe
-   * -- es wird nur nicht mehr vorsorglich gefragt.
+   * Ist das Token abgelaufen, geht der Client zur Anmeldung auf der
+   * Webseite zurueck. Einen zweiten Anmeldeweg im Spiel gibt es nicht mehr.
    */
   function tokenLiegtVor(): boolean {
     let roh: string;
@@ -430,6 +374,9 @@ async function main() {
   // Parameter einfach nicht und faellt auf das Gemerkte zurueck.
   // Die WERTE bleiben, wie shared/aussehen.ts sie fuehrt --
   // 'wikingerin', 'H_01', 'leder_bh' stehen im Weltspeicher.
+  const storedSessionPresent = tokenLiegtVor();
+  if (storedSessionPresent) mitTicket = true;
+
   const vonSeite = {
     name: ausAdresse.get('name'),
     figure: ausAdresse.get('figure'),
@@ -439,228 +386,64 @@ async function main() {
     hairColor: ausAdresse.get('hairColor'),
     // Wunschstunde (0-23) — die Seite bietet sie nur fuer das Testgestade an.
     time: ausAdresse.get('time'),
-    // Direkt anmelden, ohne dieses Fenster zu zeigen. Die Wahl ist auf
-    // world-of-vikings.com getroffen; hier gibt es nichts mehr zu fragen.
-    //
-    // EIN TICKET IST FUER SICH SCHON DIE ABSICHT. Bis zum 24.08.2026 hing
-    // die Direktanmeldung an einem eigenen ?go=1, und als die Adresse auf
-    // das blosse Ticket eingedampft wurde, fiel sie lautlos aus: Der
-    // Charakter entstand, der Client zeigte aber wieder sein Fenster und
-    // wartete auf einen Klick. Wer ein Ticket vorlegt, will hinein --
-    // ?go=1 bleibt nur fuer den Fall ohne Konto erhalten.
-    //
-    // Das ist KEIN neues Recht: Der Schalter loest genau denselben Weg
-    // aus wie ein Klick auf "Verbinden", und Anmelden steht ohnehin
-    // jedem offen — der Server vergibt die Kennung selbst und traut dem
-    // Client dabei nichts. Er spart einen Klick, nicht eine Pruefung.
-    go: ausAdresse.has('go') || ticketVorgelegt || tokenLiegtVor(),
   };
 
-  // ── Charaktererstellung: Vorschau, Frisur, Ruestung ────────────────
-  // Die Auswahlen kommen aus shared/aussehen.ts — derselben Liste, gegen
-  // die der Server die eingehende Wahl prueft. Eine hier eingetragene
-  // Option waere eine zweite Wahrheit.
-  const FRISUR_SPEICHER = 'wov-frisur';
-  const RUESTUNG_SPEICHER = 'wov-ruestung';
-  const HAARFARBE_SPEICHER = 'wov-haarfarbe';
-  const frisurSelect = document.getElementById('frisur-wahl') as HTMLSelectElement;
-  const haarfarbeSelect = document.getElementById('haarfarbe-wahl') as HTMLSelectElement;
-  const oberSelect = document.getElementById('oberkoerper-wahl') as HTMLSelectElement;
-  const beineSelect = document.getElementById('beine-wahl') as HTMLSelectElement;
-  const vorschauCanvas = document.getElementById('vorschau-canvas') as HTMLCanvasElement;
-  const vorschauLaedt = document.getElementById('vorschau-laedt') as HTMLElement;
-  const vorschauZurueck = document.getElementById('vorschau-zurueck') as HTMLButtonElement;
+  const offlineMode = ausAdresse.has('offline');
+  const accountSessionPresent = ticketVorgelegt || storedSessionPresent;
+  const websiteLoginUrl = (expired = false): URL => {
+    const url = new URL('/de/anmelden', 'https://world-of-vikings.com');
+    url.searchParams.set(
+      'shore',
+      window.location.hostname.includes('.dev.') ? 'dev' : 'live',
+    );
+    if (expired) url.searchParams.set('abgelaufen', '1');
+    return url;
+  };
 
-  for (const f of FRISUREN) {
-    const opt = document.createElement('option');
-    opt.value = f.id;
-    opt.textContent = f.name;
-    frisurSelect.appendChild(opt);
+  // Online play is account-only. The former anonymous `?go=1` route and
+  // the in-game login/character picker were removed as one unit.
+  if (!offlineMode && !accountSessionPresent) {
+    window.location.replace(websiteLoginUrl());
+    return;
   }
-  const gemerkteFrisur = localStorage.getItem(FRISUR_SPEICHER);
-  frisurSelect.value = gemerkteFrisur && istFrisur(gemerkteFrisur)
-    ? gemerkteFrisur : FRISUR_VORGABE;
 
-  for (const h of HAARFARBEN) {
-    const opt = document.createElement('option');
-    opt.value = h.id;
-    opt.textContent = h.name;
-    haarfarbeSelect.appendChild(opt);
-  }
-  const gemerkteFarbe = localStorage.getItem(HAARFARBE_SPEICHER);
-  haarfarbeSelect.value = gemerkteFarbe && istHaarfarbe(gemerkteFarbe)
-    ? gemerkteFarbe : HAARFARBE_VORGABE;
-
-  // Ruestung je Slot, mit einer Leeroption: "nichts" ist eine gueltige
-  // Wahl und braucht keinen Sonderfall im Server.
-  const slotFelder: Array<[HTMLSelectElement, 'oberkoerper' | 'beine']> = [
-    [oberSelect, 'oberkoerper'], [beineSelect, 'beine'],
-  ];
-  for (const [feld, slot] of slotFelder) {
-    const leer = document.createElement('option');
-    leer.value = '';
-    leer.textContent = '— nichts —';
-    feld.appendChild(leer);
-    for (const r of RUESTUNG.filter((x) => x.slot === slot)) {
-      const opt = document.createElement('option');
-      opt.value = r.id;
-      opt.textContent = r.name;
-      feld.appendChild(opt);
-    }
-  }
-  const gemerkteRuestung = (() => {
-    try { return JSON.parse(localStorage.getItem(RUESTUNG_SPEICHER) ?? '{}'); }
+  const stored = (key: string): string => {
+    try { return localStorage.getItem(key) ?? ''; }
+    catch { return ''; }
+  };
+  const storedArmour = (() => {
+    try { return JSON.parse(stored('wov-ruestung') || '{}') as Record<string, string>; }
     catch { return {}; }
-  })() as Record<string, string>;
-  for (const [feld, slot] of slotFelder) {
-    const wert = gemerkteRuestung[slot];
-    if (istRuestung(wert) && wert) feld.value = wert;
-  }
-
-  let vorschau: import('./ui/CharakterVorschau.js').CharakterVorschau | null = null;
-  const merkeRuestung = () => {
-    localStorage.setItem(RUESTUNG_SPEICHER, JSON.stringify({
-      oberkoerper: oberSelect.value, beine: beineSelect.value,
-    }));
-  };
-  const zeigeAussehen = async () => {
-    if (!vorschau) return;
-    await vorschau.setze('frisur', frisurZu(frisurSelect.value).datei);
-    vorschau.setzeHaarfarbe(haarfarbeZu(haarfarbeSelect.value).hex);
-    for (const [feld, slot] of slotFelder) {
-      const teil = ruestungZu(feld.value);
-      await vorschau.setze(slot, teil ? teil.datei : null);
-    }
-  };
-
-  // Die Vorschau haengt an Babylon und waere im Startpfad totes Gewicht,
-  // wenn jemand direkt in die Welt springt. Deshalb erst hier nachladen.
-  void (async () => {
-    try {
-      const mod = await import('./ui/CharakterVorschau.js');
-      vorschau = new mod.CharakterVorschau(vorschauCanvas);
-      await vorschau.ladeKoerper();
-      await zeigeAussehen();
-      vorschauLaedt.classList.add('fertig');
-    } catch (e) {
-      console.warn('[vorschau] nicht verfuegbar:', e);
-      vorschauLaedt.textContent = 'Vorschau nicht verfügbar';
-    }
   })();
-
-  frisurSelect.addEventListener('change', () => {
-    localStorage.setItem(FRISUR_SPEICHER, frisurSelect.value);
-    void zeigeAussehen();
-  });
-  haarfarbeSelect.addEventListener('change', () => {
-    localStorage.setItem(HAARFARBE_SPEICHER, haarfarbeSelect.value);
-    void zeigeAussehen();
-  });
-  for (const [feld] of slotFelder) {
-    feld.addEventListener('change', () => { merkeRuestung(); void zeigeAussehen(); });
-  }
-  vorschauZurueck.addEventListener('click', () => vorschau?.blickZurueck());
-
-  // Was die Webseite mitgeschickt hat, schlaegt das Gemerkte — wer gerade
-  // dort gewaehlt hat, will das sehen und nicht seinen letzten Stand.
-  // Geprueft wird gegen dieselben Listen wie im Server; Unbekanntes wird
-  // still verworfen statt zu einem kaputten Zustand zu fuehren.
-  if (vonSeite.name) {
-    (document.getElementById('player-name') as HTMLInputElement).value =
-      vonSeite.name.slice(0, 24);
-  }
-  if (vonSeite.figure && istFigur(vonSeite.figure)) {
-    figurSelect.value = vonSeite.figure;
-    localStorage.setItem(FIGUR_SPEICHER, vonSeite.figure);
-  }
-  if (vonSeite.hairstyle && istFrisur(vonSeite.hairstyle)) {
-    frisurSelect.value = vonSeite.hairstyle;
-    localStorage.setItem(FRISUR_SPEICHER, vonSeite.hairstyle);
-  }
-  for (const [feld, slot] of slotFelder) {
-    const wert = slot === 'oberkoerper' ? vonSeite.top : vonSeite.legs;
-    if (wert !== null && istRuestung(wert)) {
-      const teil = ruestungZu(wert);
-      if (!wert || (teil && teil.slot === slot)) feld.value = wert;
-    }
-  }
-  if (vonSeite.hairColor && istHaarfarbe(vonSeite.hairColor)) {
-    haarfarbeSelect.value = vonSeite.hairColor;
-    localStorage.setItem(HAARFARBE_SPEICHER, vonSeite.hairColor);
-  }
-  if (
-    vonSeite.figure || vonSeite.hairstyle || vonSeite.top || vonSeite.legs ||
-    vonSeite.hairColor
-  ) {
-    merkeRuestung();
-    void zeigeAussehen();
-  }
-
-
-  figurSelect.addEventListener('change', () => {
-    localStorage.setItem(FIGUR_SPEICHER, figurSelect.value);
-  });
-
-  // ── Uhrzeit-Auswahl im Verbinden-Fenster ────────────────────────────
-  //
-  // Ein Spieltag dauert WORLD_TIME_LENGTH Sekunden; angezeigt wird er wie
-  // eine 24-Stunden-Uhr, genau wie im HUD ("zeit 4.3h"). Die Marken kommen
-  // aus dem Umgebungsmodell statt aus einer zweiten Tabelle — die
-  // Sonnenaufgang liegt bei 0.1333 des Tages, also gegen 03:00, nicht bei
-  // 06:00, und eine handgeschriebene Beschriftung würde das früher oder
-  // später falsch behaupten.
-  const STUNDEN_MARKEN = new Map<number, string>([
-    [0, 'Mitternacht'],
-    [Math.round(FRACTION_SUNRISE * 24), 'Sonnenaufgang'],
-    [Math.round(FRACTION_MIDDAY * 24), 'Mittag'],
-    [Math.round(FRACTION_SUNSET * 24), 'Sonnenuntergang'],
-  ]);
-  {
-    const serverOption = document.createElement('option');
-    serverOption.value = '';
-    serverOption.textContent = 'Serverzeit übernehmen';
-    timeSelect.appendChild(serverOption);
-    for (let h = 0; h < 24; h++) {
-      const o = document.createElement('option');
-      o.value = String(h);
-      const marke = STUNDEN_MARKEN.get(h);
-      o.textContent = `${String(h).padStart(2, '0')}:00${marke ? ` – ${marke}` : ''}`;
-      timeSelect.appendChild(o);
-    }
-  }
-
-  // Was die Seite mitgeschickt hat, in die Auswahl setzen — nicht in eine
-  // eigene Variable. Damit gibt es weiterhin nur EINE Stelle, die die
-  // gewuenschte Stunde kennt, und wer das Fenster doch zu sehen bekommt
-  // (Verbindung fehlgeschlagen), sieht dort seine Wahl stehen.
-  if (vonSeite.time !== null) {
-    const h = Number(vonSeite.time);
-    if (Number.isInteger(h) && h >= 0 && h < 24) timeSelect.value = String(h);
-  }
-
-  /** Gewählte Stunde, oder null für "Serverzeit übernehmen". */
-  const gewaehlteStunde = (): number | null => {
-    if (timeSelect.value === '') return null;
-    const h = Number(timeSelect.value);
-    return Number.isFinite(h) ? h : null;
+  const armourFor = (value: string | null, slot: 'oberkoerper' | 'beine'): string => {
+    const candidate = value ?? storedArmour[slot] ?? '';
+    const part = ruestungZu(candidate);
+    return !candidate || (istRuestung(candidate) && part?.slot === slot) ? candidate : '';
   };
 
-  const updateTimeHint = (): void => {
-    const h = gewaehlteStunde();
-    timeHint.textContent =
-      h === null
-        ? 'Die Welt startet mit der Zeit, die der Server gerade hat.'
-        : offlineToggle.checked
-          ? 'Wird lokal gesetzt.'
-          // Server prüft das gegen peer.isAdmin (WovServer.handleSetTimeOfDay,
-          // A2/A3-Review) — hier vor dem Verbinden ist noch nicht bekannt, ob
-          // der Account einer wird, deshalb nur "angefragt" statt "gesetzt".
-          // Nicht-Admins bekommen die Ablehnung als HUD-Meldung zurück.
-          : 'Wird beim Server angefragt — nur Admins setzen die Zeit für alle.';
-  };
-  timeSelect.addEventListener('change', updateTimeHint);
-  offlineToggle.addEventListener('change', updateTimeHint);
-  updateTimeHint();
+  // The website is the only character picker. These values remain solely
+  // for offline probes and for the pre-account URL contract; ticket-backed
+  // characters are authoritative on the server and are never overwritten.
+  const storedFigure = stored('wov-figur');
+  const storedHairstyle = stored('wov-frisur');
+  const storedHairColor = stored('wov-haarfarbe');
+  const selectedFigure = vonSeite.figure && istFigur(vonSeite.figure)
+    ? vonSeite.figure
+    : istFigur(storedFigure) ? storedFigure : FIGUR_VORGABE;
+  const selectedHairstyle = vonSeite.hairstyle && istFrisur(vonSeite.hairstyle)
+    ? vonSeite.hairstyle
+    : istFrisur(storedHairstyle) ? storedHairstyle : FRISUR_VORGABE;
+  const selectedHairColor = vonSeite.hairColor && istHaarfarbe(vonSeite.hairColor)
+    ? vonSeite.hairColor
+    : istHaarfarbe(storedHairColor) ? storedHairColor : HAARFARBE_VORGABE;
+  const selectedTop = armourFor(vonSeite.top, 'oberkoerper');
+  const selectedLegs = armourFor(vonSeite.legs, 'beine');
+  const playerName = vonSeite.name?.slice(0, 24) || 'Viking';
+  const requestedHour = (() => {
+    if (vonSeite.time === null) return null;
+    const hour = Number(vonSeite.time);
+    return Number.isInteger(hour) && hour >= 0 && hour < 24 ? hour : null;
+  })();
 
   const engine = await createEngine(canvas);
   const scene = new Scene(engine);
@@ -730,7 +513,7 @@ async function main() {
   document.body.appendChild(lockHint);
   let lockHintState = '';
   const updateLockHint = (): void => {
-    // Only once a world exists — during the connect screen it would be noise.
+    // Only once a world exists — during startup it would be noise.
     // Deliberately playing without the lock needs no hint at all: the drag
     // controls are the normal ones then, not a fallback.
     const show = world !== null && document.pointerLockElement !== canvas && !input.playingUnlocked;
@@ -795,19 +578,17 @@ async function main() {
     }
   );
   /**
-   * Was die Figur tragen soll — aus DREI Quellen zusammengesetzt:
-   * Frisur aus der Charaktererstellung, Ruestung aus der ANGELEGTEN
-   * Ausruestung. Seit Kleidung aus Gegenstaenden besteht, ist das
-   * Auswahlfeld des Anmeldebildschirms nicht mehr die Wahrheit ueber das,
-   * was jemand traegt — die Ausruestung ist es. Das Feld bleibt der
-   * Startzustand fuer die Charaktererstellung.
+   * Was die Figur tragen soll — aus Frisur der Charaktererstellung und
+   * ANGELEGTER Ausruestung zusammengesetzt. Seit Kleidung aus Gegenstaenden
+   * besteht, ist die Auswahl auf der Webseite nur der Startzustand; im Spiel
+   * ist die Ausruestung die Wahrheit ueber das, was jemand traegt.
    *
    * Rueckgabe: Aussehen-Slot → BLOSSER Dateiname (ohne Ordner/Endung),
    * so wie AvatarRig und CharakterVorschau ihn erwarten.
    */
   const aussehenTeile = (): Record<string, string | null> => {
     const teile: Record<string, string | null> = {
-      frisur: frisurZu(frisurSelect.value).datei,
+      frisur: frisurZu(selectedHairstyle).datei,
       oberkoerper: null,
       beine: null,
     };
@@ -842,10 +623,10 @@ async function main() {
   } => {
     const g = equipment?.aussehen() ?? {};
     return {
-      frisur: frisurSelect.value,
+      frisur: selectedHairstyle,
       ober: g.oberkoerper ?? '',
       beine: g.beine ?? '',
-      haarfarbe: haarfarbeSelect.value,
+      haarfarbe: selectedHairColor,
     };
   };
 
@@ -953,7 +734,7 @@ async function main() {
    */
   let worldTime = 0;
   /**
-   * Im Verbinden-Fenster gewählte Uhrzeit, in Sekunden innerhalb des Tages;
+   * Von der Webseite gewünschte Uhrzeit, in Sekunden innerhalb des Tages;
    * null heisst "Serverzeit übernehmen".
    *
    * Gesendet wird erst beim ERSTEN TimeSync, nicht in `onConnected`: Das
@@ -1027,30 +808,7 @@ async function main() {
    */
   let serverUmgebung: string | null = null;
 
-  // ── Connect-screen seed field: only meaningful offline (see file header) ──
-  function updateSeedFieldState(): void {
-    const offline = offlineToggle.checked;
-    seedInput.disabled = !offline;
-    genSeedBtn.disabled = !offline;
-    seedHint.textContent = offline
-      ? 'Eigener Seed für die lokale Welt (leer = zufällig).'
-      : 'Seed wird vom Server vorgegeben (nur im Offline-Modus wählbar).';
-  }
-  offlineToggle.addEventListener('change', updateSeedFieldState);
-  genSeedBtn.addEventListener('click', () => {
-    seedInput.value = randomSeed();
-  });
-  updateSeedFieldState();
-
   const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
-  urlInput.value = `${wsProto}://${location.host}/ws`;
-  // Zufallsname nur, wenn keiner mitgeliefert wurde. Diese Zeile lief
-  // frueher bedingungslos und ueberschrieb den Namen, den die
-  // Charaktererstellung auf world-of-vikings.com uebergeben hatte —
-  // sichtbar daran, dass aus "Sigrun" ein "Viking941" wurde.
-  if (!vonSeite.name) {
-    nameInput.value = `Viking${Math.floor(Math.random() * 1000)}`;
-  }
 
   /**
    * Zeitmessung je Abschnitt der Spielschleife (nur Diagnose).
@@ -1171,7 +929,7 @@ async function main() {
     // mehr gibt. Trifft das Paket erst später ein, greift derselbe Aufruf
     // aus seinem Handler.
     wendeTerrainCompsAn();
-    player = new PlayerController(scene, input, world, assets, modellDateiZu(figurSelect.value));
+    player = new PlayerController(scene, input, world, assets, modellDateiZu(selectedFigure));
     // Schlaganimation auf den Schlagtakt stauchen — wie der Sprungclip auf
     // die Flugdauer. Der Rohclip ist mit 1,29 s deutlich laenger als der
     // Takt; ungestaucht wirkt der Schlag traege und jeder zweite Klick
@@ -1182,7 +940,7 @@ async function main() {
     // Der Aufruf darf vor dem Laden des Modells kommen: AvatarRig merkt
     // sich das Aussehen und zieht es nach, sobald der Koerper da ist.
     void player.avatar.setzeAussehen(aussehenFuerRig());
-    player.avatar.setzeHaarfarbe(haarfarbeZu(haarfarbeSelect.value).hex);
+    player.avatar.setzeHaarfarbe(haarfarbeZu(selectedHairColor).hex);
     // Pruefzugang, NUR im Entwicklungsmodus — wie bei der Vorschau. Ohne
     // ihn laesst sich von aussen nicht messen, ob ein Kleidungsstueck am
     // Koerper sitzt; Babylon liegt als ES-Modul vor und nichts ist global.
@@ -1213,7 +971,7 @@ async function main() {
     namensschilder = new Namensschilder(scene, player.camera, () => entities, {
       bodenHoehe: (x, z) => world?.getGroundHeight(x, z) ?? -1000,
     });
-    namensschilder.setSpielerName(nameInput.value);
+    namensschilder.setSpielerName(playerName);
     namensschilder.setEnabled(gameSettings.get().nameplates);
     namensschilder.setEigenes(gameSettings.get().eigenesNameplate);
 
@@ -2068,29 +1826,25 @@ async function main() {
       // NICHT bei einer Ticket-Anmeldung: Dann gehoert der Charakter einem
       // Konto, und der Server hat Aussehen und Namen bereits gesetzt --
       // aus dem Spielstand, ersatzweise aus der Kontendatenbank. Wuerde
-      // der Client hier melden, was gerade in seinen Auswahlfeldern steht
-      // (Vorgabewerte, denn das Fenster war nie zu sehen), ueberschriebe
-      // er genau das. Ein im Spiel geaenderter Haarschnitt waere nach
-      // jedem Neuladen wieder weg.
+      // der Client hier lokale Vorgabewerte melden, ueberschriebe er genau
+      // das. Ein im Spiel geaenderter Haarschnitt waere nach jedem Neuladen
+      // wieder weg.
       if (!mitTicket) {
-        socket?.sendFigur(figurSelect.value);
+        socket?.sendFigur(selectedFigure);
         // Frisur und Ruestung auf demselben Weg. Ohne das saehe jeder nur
         // sich selbst richtig — die anderen bekaemen die Vorgabefrisur.
         socket?.sendAussehen(
-          frisurSelect.value, oberSelect.value, beineSelect.value,
-          haarfarbeSelect.value
+          selectedHairstyle, selectedTop, selectedLegs,
+          selectedHairColor
         );
       }
-      connectScreen.style.display = 'none';
-      connectStatus.textContent = '';
-      connectBtn.removeAttribute('disabled');
       reconnectVersuch = 0;
     };
     socket.onDisconnected = (reason) => {
       netStatus = `getrennt${reason ? `: ${reason}` : ''}`;
       // Auto-Reconnect (Review-Punkt 9): drei Versuche mit wachsendem
-      // Abstand, erst danach zurück zum Connect-Screen. Ein Kick durch den
-      // Server (reason gesetzt) wird NICHT automatisch wiederholt.
+      // Abstand, erst danach zur Anmeldung auf der Webseite. Ein Kick durch
+      // den Server (reason gesetzt) wird NICHT automatisch wiederholt.
       if (!reason && reconnectVersuch < 3) {
         reconnectVersuch++;
         const wartezeit = 1000 * 2 ** (reconnectVersuch - 1);
@@ -2098,68 +1852,46 @@ async function main() {
         window.setTimeout(() => connectOnline(name, url), wartezeit);
         return;
       }
-      // Oberflaeche wieder einblenden: Wer mit F1 ausgeblendet hatte und
-      // dann die Verbindung verliert, saehe sonst einen leeren Bildschirm.
       document.body.classList.remove('ui-versteckt');
-      // Direktanmeldung zuruecknehmen: Ab hier muss der Spieler etwas
-      // entscheiden koennen, und dafuer braucht er die Felder.
-      document.body.classList.remove('direkt');
-      connectScreen.style.display = 'flex';
-      connectStatus.textContent = reason ? `Getrennt: ${reason}` : 'Verbindung zum Server verloren';
-      connectBtn.removeAttribute('disabled');
+      const message = reason ? `Getrennt: ${reason}` : 'Verbindung zum Server verloren';
+      hud.meldeFehler(`${message} — zurück zur Anmeldung …`, 'schwer');
+
+      // The game no longer owns an account or character picker. Once all
+      // reconnect attempts are exhausted, the only honest recovery path is
+      // the website that issued the session. Keeping a second login here
+      // would recreate the legacy layer this flow removes.
+      window.setTimeout(
+        () => window.location.replace(websiteLoginUrl(Boolean(reason))),
+        1_200,
+      );
     };
     socket.connect();
     netStatus = 'verbinde…';
   }
 
   function verbinden(): void {
-    const name = nameInput.value.trim() || 'Viking';
-    namensschilder?.setSpielerName(name);
-    connectBtn.setAttribute('disabled', 'true');
-
-    const stunde = gewaehlteStunde();
+    namensschilder?.setSpielerName(playerName);
     // `?t=` bleibt der stärkere Schalter: Der hält die Uhr zusätzlich an
     // (siehe buildWorld), und beides gleichzeitig anzuwenden ergäbe eine
     // angehaltene Uhr auf einer anderen Zeit als der ausgewählten.
-    const zeitGewuenscht = stunde !== null && !params.has('t');
+    const zeitGewuenscht = requestedHour !== null && !params.has('t');
 
-    if (offlineToggle.checked) {
-      connectScreen.style.display = 'none';
-      buildWorld(seedInput.value.trim() || randomSeed());
-      // Offline gibt es keinen Server, der die Zeit verteilen könnte —
-      // hier ist die Beleuchtung selbst die Welt-Uhr.
-      if (zeitGewuenscht) lighting.timeOfDay = stunde! / 24;
-      return;
-    }
-
-    connectStatus.textContent = 'Verbinde…';
     // Wird beim ersten TimeSync eingelöst — siehe `zeitWunsch`.
-    zeitWunsch = zeitGewuenscht ? (stunde! / 24) * WORLD_TIME_LENGTH : null;
-    connectOnline(name, urlInput.value.trim() || `${wsProto}://${location.host}/ws`);
+    zeitWunsch = zeitGewuenscht ? (requestedHour! / 24) * WORLD_TIME_LENGTH : null;
+    connectOnline(playerName, `${wsProto}://${location.host}/ws`);
   }
 
-  connectBtn.addEventListener('click', verbinden);
-
-  // ── Direktanmeldung von der Charaktererstellung (?go=1) ────────────
-  //
-  // Das Fenster bleibt im DOM und wird nur per CSS auf Ueberschrift und
-  // Statuszeile eingedampft (body.direkt in index.html). Schlaegt die
-  // Verbindung fehl, nimmt onDisconnected die Klasse weg und das
-  // vollstaendige Fenster steht da — ein Rueckweg, nicht zwei.
-  //
-  // `offline` schliesst das aus: Dort gibt es keinen Server, und der
-  // Block weiter unten hat den Fall bereits.
-  if (vonSeite.go && !params.has('offline')) {
-    document.body.classList.add('direkt');
+  // Online has exactly one entry now: an account session issued by wov-web.
+  // There is no intermediate screen and no second connect button.
+  if (!offlineMode) {
     verbinden();
   }
 
-  // ?offline=1 skips the connect screen for quick dev/Playwright probes.
+  // ?offline=1 remains available for quick dev/Playwright probes.
   // ?layout=editor lädt zusätzlich den Editor-Entwurf aus localStorage —
   // der "Testflug" des 3D-Map-Generators: die unveröffentlichte Welt im
   // echten Spiel-Terrain begehen (editor.html setzt den Eintrag).
-  if (params.has('offline')) {
-    connectScreen.style.display = 'none';
+  if (offlineMode) {
     let testflug: unknown = null;
     if (params.get('layout') === 'editor') {
       try {
@@ -2170,6 +1902,7 @@ async function main() {
       if (!testflug) console.warn('[Testflug] Kein Editor-Entwurf in localStorage');
     }
     buildWorld(params.get('seed') ?? DEFAULT_OFFLINE_SEED, undefined, testflug ?? undefined);
+    if (requestedHour !== null && !params.has('t')) lighting.timeOfDay = requestedHour / 24;
 
     // ── Editor-Spawn im 3D-Testflug ─────────────────────────────────
     // Platzierungen des Entwurfs sichtbar machen und per Taste B + Klick
@@ -2965,15 +2698,14 @@ async function main() {
    * muesste jedes Mal nachgezogen werden — und ein vergessenes Element
    * faellt erst auf dem fertigen Bildschirmfoto auf.
    *
-   * NUR IM SPIEL: Auf dem Anmeldebildschirm wuerde die Taste das Panel
-   * mit ausblenden, und der Bildschirm waere schwarz ohne sichtbaren Weg
-   * zurueck — die Taste, die es beheben wuerde, sieht man dann ja nicht.
+   * NUR IM SPIEL: Vor dem Aufbau einer Welt gibt es noch keine sichtbare
+   * Oberflaeche, die diese Taste sinnvoll umschalten koennte.
    *
    * Die Mausfang-Antwort ist dieselbe wie sonst (`!cursorNoetig()`): Das
    * Ausblenden aendert nichts daran, ob gerade ein Fenster offen ist.
    */
   const uiSichtbarkeitUmschalten = (): void => {
-    if (connectScreen.style.display !== 'none') return;
+    if (!world) return;
     document.body.classList.toggle('ui-versteckt');
   };
   input.onMenuKey('F1', () => {

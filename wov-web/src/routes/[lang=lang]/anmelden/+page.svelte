@@ -57,7 +57,10 @@
 
   onMount(() => {
     ready = true;
-    shore = readShore() ?? 'dev';
+    const requestedShore = page.url.searchParams.get('shore');
+    shore = SHORE_IDS.includes(requestedShore as ShoreId)
+      ? requestedShore as ShoreId
+      : readShore() ?? 'dev';
   });
 
   function shoreRemembered() {

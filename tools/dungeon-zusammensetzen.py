@@ -183,12 +183,26 @@ spanne = max(
 )
 
 if INNEN:
-    # Augenhoehe der Figur, Blick die laengste Achse hinunter.
+    # Augenhoehe der Figur, Blick die laengste Achse hinunter. `--stand`
+    # und `--blick` setzen beides von aussen ("x,y,z") — die automatische
+    # Wahl trifft bei einem geraden Gang, aber nicht bei einer Kammer am
+    # Ende eines Gangs, wo es darauf ankommt, aus WELCHER Richtung man
+    # hineinsieht.
+    def punkt(text, vorgabe):
+        if not text:
+            return vorgabe
+        a, b, c = (float(v) for v in text.split(','))
+        return Vector((a, b, c))
+
     laengs_x = (max(p.x for p in ecken) - min(p.x for p in ecken)) >= \
                (max(p.y for p in ecken) - min(p.y for p in ecken))
     anfang = (min(p.x for p in ecken) if laengs_x else min(p.y for p in ecken)) + 1.2
-    stand = Vector((anfang, mitte.y, 1.7)) if laengs_x else Vector((mitte.x, anfang, 1.7))
-    ziel = Vector((mitte.x * 2, mitte.y, 1.55)) if laengs_x else Vector((mitte.x, mitte.y * 2, 1.55))
+    stand = punkt(arg('stand'),
+                  Vector((anfang, mitte.y, 1.7)) if laengs_x
+                  else Vector((mitte.x, anfang, 1.7)))
+    ziel = punkt(arg('blick'),
+                 Vector((mitte.x * 2, mitte.y, 1.55)) if laengs_x
+                 else Vector((mitte.x, mitte.y * 2, 1.55)))
     bpy.ops.object.camera_add(location=stand)
     kam = bpy.context.object
     kam.data.lens = 22

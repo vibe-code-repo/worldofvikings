@@ -168,13 +168,20 @@ def streuung(*schluessel):
     return (h / 0xFFFFFFFF) * 2.0 - 1.0
 
 
-def lagenzahl():
-    """Wie viele Steinlagen zwischen Boden und Decke passen."""
-    return int(round((HOEHE - DECKENSTAERKE) / LAGENHOEHE))
+def lagenzahl(hoehe=None):
+    """
+    Wie viele Steinlagen zwischen Boden und Decke passen.
+
+    `hoehe` ist die AUSSENHOEHE des Teils. Die Grabkammer ist hoeher als
+    ein Gang, und die Lagen muessen trotzdem ohne Rest aufgehen — eine
+    angeschnittene Lage unter der Decke sieht in jedem Raum wie ein
+    Fehler aus. Wer hier eine Hoehe uebergibt, hat sie so gewaehlt.
+    """
+    return int(round(((hoehe if hoehe is not None else HOEHE) - DECKENSTAERKE) / LAGENHOEHE))
 
 
 def mauerwerk_flaeche(kennung, achse, ebene, richtung, von, bis, teile,
-                      kuerzung=None, lage_von=0, lage_bis=None):
+                      kuerzung=None, lage_von=0, lage_bis=None, hoehe=None):
     """
     Behauene Quader im Laeuferverband auf EINE senkrechte Wandflaeche.
 
@@ -195,7 +202,7 @@ def mauerwerk_flaeche(kennung, achse, ebene, richtung, von, bis, teile,
     # `lage_von`/`lage_bis` grenzen die Hoehe ein. Gebraucht wird das von
     # der Tueroeffnung: Unter dem Sturz steht auf der Breite des Durchgangs
     # kein Stein, darueber schon.
-    for lage in range(lage_von, lage_bis if lage_bis is not None else lagenzahl()):
+    for lage in range(lage_von, lage_bis if lage_bis is not None else lagenzahl(hoehe)):
         z0 = lage * LAGENHOEHE
         kurz_v, kurz_h = kuerzung(lage) if kuerzung else (0.0, 0.0)
         anfang, ende = von + kurz_v, bis - kurz_h
@@ -259,7 +266,7 @@ def mauerwerk_boden(bereich, teile):
             ))
 
 
-def mauerwerk_decke(bereich, quer, teile):
+def mauerwerk_decke(bereich, quer, teile, hoehe=None):
     """
     Deckenbalken — Platten, die auf den Waenden aufliegen.
 
@@ -269,7 +276,7 @@ def mauerwerk_decke(bereich, quer, teile):
     quer zur Laufrichtung — der Gang wirkt kuerzer statt endlos.
     """
     x_von, x_bis, y_von, y_bis = bereich
-    unterkante = HOEHE - DECKENSTAERKE
+    unterkante = (hoehe if hoehe is not None else HOEHE) - DECKENSTAERKE
     laengs = (y_von, y_bis) if quer == 'x' else (x_von, x_bis)
     reihen = max(1, int(round((laengs[1] - laengs[0]) / QUADERLAENGE)))
     schritt = (laengs[1] - laengs[0]) / reihen
@@ -602,6 +609,120 @@ def baue_kreuzung():
     }
 
 
+def baue_kammer():
+    """
+    Die Grabkammer: 8 x 12 m, drei Durchgaenge, und HOEHER als alles
+    andere im Kit.
+
+    ── Warum sie hoeher ist, und warum genau 6,40 m ─────────────────
+    Ein Raum, der so hoch ist wie der Gang davor, ist kein Raum, sondern
+    ein breiter Gang. Die Hoehe macht den Unterschied — man tritt aus
+    3,60 m in 6,00 m lichte Hoehe, und das merkt man ohne ein einziges
+    Ausstattungsstueck.
+
+    6,40 ist nicht gerundet: 6,40 minus 0,40 Decke sind 6,00 m lichte
+    Hoehe, und die gehen ohne Rest in zehn Steinlagen zu 0,60 m auf.
+    Dieselbe Regel wie beim Gang, nur mit anderer Zahl.
+
+    ── Die Oeffnungen bleiben auf Ganghoehe ─────────────────────────
+    3,50 x 3,60 m, also genau der Querschnitt eines Gangs. Ueber jeder
+    Oeffnung stehen dadurch 2,40 m Wand — das Bogenfeld, das den
+    Hoehensprung ueberhaupt erst sichtbar macht. Waeren die Oeffnungen
+    so hoch wie die Kammer, liefe die Decke des Gangs ins Leere.
+
+    ── Warum keine Ausstattung ──────────────────────────────────────
+    Kein Podest, keine Nische, kein Sarkophag. Das Level Design Book
+    warnt vor Varianten, bevor die Grundteile stehen — und die
+    Ausstattung ist die naechste Etappe des Plans: Deko wird im Spiel
+    gesetzt und landet im Dungeon-Dokument. Ein eingebautes Podest waere
+    genau der Gegenstand, den man dort nie wieder verschieben kann.
+
+    ── Beifang, der spaeter wichtig wird ────────────────────────────
+    `roomOverlapsLayout` rechnet mit `pos ± size/2`, behandelt den
+    Ursprung also als MITTE. Unsere Teile haben ihn auf dem BODEN. Bei
+    lauter gleich hohen Teilen faellt das nicht auf; die Kammer ist das
+    erste, bei dem es auffallen KOENNTE. Folgenlos bleibt es, weil alle
+    Teile auf einer Ebene stehen — wer aber Ebenen einfuehrt (Treppe),
+    stolpert genau hier zuerst.
+    """
+    breite = 8.0
+    tiefe = 12.0
+    hoehe = 6.4
+    halb_x, halb_y = breite / 2, tiefe / 2
+    innen_x, innen_y = halb_x - WANDSTAERKE, halb_y - WANDSTAERKE
+    lichte_hoehe = hoehe - DECKENSTAERKE
+    # Halbe lichte Weite eines Gangs — so breit ist jede Oeffnung.
+    oeffnung = BREITE / 2 - WANDSTAERKE
+    # Ganghoehe in Lagen: 3,60 m sind sechs Lagen.
+    lagen_oeffnung = int(round((HOEHE - DECKENSTAERKE) / LAGENHOEHE))
+    feld_hoehe = lichte_hoehe - lagen_oeffnung * LAGENHOEHE
+
+    teile = [
+        quader('Boden', (0, 0, -(BELAGSTAERKE + BODENSTAERKE) / 2),
+               (breite, tiefe, BODENSTAERKE - BELAGSTAERKE)),
+        quader('Decke', (0, 0, hoehe - DECKENSTAERKE / 2),
+               (breite, tiefe, DECKENSTAERKE)),
+        # Westwand ohne Oeffnung: laeuft durch.
+        quader('WandWest', (-(halb_x - WANDSTAERKE / 2), 0, lichte_hoehe / 2),
+               (WANDSTAERKE, tiefe, lichte_hoehe)),
+    ]
+
+    # Drei Seiten mit Oeffnung: Sued (y = -6), Nord (y = +6), Ost (x = +4).
+    # Je Seite zwei Wandstuecke daneben und ein Bogenfeld darueber.
+    for seite, achse in ((-1, 'y'), (+1, 'y'), (+1, 'x')):
+        laengs_halb = halb_x if achse == 'y' else halb_y
+        quer_halb = halb_y if achse == 'y' else halb_x
+        rest = laengs_halb - oeffnung
+        mitte_rest = (oeffnung + laengs_halb) / 2
+        quer_mitte = seite * (quer_halb - WANDSTAERKE / 2)
+
+        for vz in (-1, +1):
+            ort = ((vz * mitte_rest, quer_mitte) if achse == 'y'
+                   else (quer_mitte, vz * mitte_rest))
+            gr = (rest, WANDSTAERKE) if achse == 'y' else (WANDSTAERKE, rest)
+            teile.append(quader(f'Wand{achse}{seite}{vz}',
+                                (ort[0], ort[1], lichte_hoehe / 2),
+                                (gr[0], gr[1], lichte_hoehe)))
+
+        ort = (0.0, quer_mitte) if achse == 'y' else (quer_mitte, 0.0)
+        gr = ((2 * oeffnung, WANDSTAERKE) if achse == 'y'
+              else (WANDSTAERKE, 2 * oeffnung))
+        teile.append(quader(f'Bogenfeld{achse}{seite}',
+                            (ort[0], ort[1], lichte_hoehe - feld_hoehe / 2),
+                            (gr[0], gr[1], feld_hoehe)))
+
+    # ── Mauerwerk ───────────────────────────────────────────────────
+    # Westwand durchgehend. Die drei anderen Seiten je zweimal ueber die
+    # volle Hoehe und einmal nur im Bogenfeld — dort, wo unten die
+    # Oeffnung sitzt.
+    mauerwerk_flaeche('KaW', 'x', -innen_x, +1, -halb_y, halb_y, teile, hoehe=hoehe)
+    mauerwerk_flaeche('KaO1', 'x', +innen_x, -1, -halb_y, -oeffnung, teile, hoehe=hoehe)
+    mauerwerk_flaeche('KaO2', 'x', +innen_x, -1, oeffnung, halb_y, teile, hoehe=hoehe)
+    mauerwerk_flaeche('KaO3', 'x', +innen_x, -1, -oeffnung, oeffnung, teile,
+                      lage_von=lagen_oeffnung, hoehe=hoehe)
+    for seite, kennung in ((-1, 'KaS'), (+1, 'KaN')):
+        ebene, richtung = seite * innen_y, -seite
+        mauerwerk_flaeche(f'{kennung}1', 'y', ebene, richtung, -halb_x, -oeffnung,
+                          teile, hoehe=hoehe)
+        mauerwerk_flaeche(f'{kennung}2', 'y', ebene, richtung, oeffnung, halb_x,
+                          teile, hoehe=hoehe)
+        mauerwerk_flaeche(f'{kennung}3', 'y', ebene, richtung, -oeffnung, oeffnung,
+                          teile, lage_von=lagen_oeffnung, hoehe=hoehe)
+
+    bereich = (-halb_x, halb_x, -halb_y, halb_y)
+    mauerwerk_boden(bereich, teile)
+    mauerwerk_decke(bereich, 'x', teile, hoehe=hoehe)
+
+    return teile, {
+        'soll_x': breite,
+        'soll_y': tiefe,
+        'lichte_breite': 2 * (innen_x - VORSPRUNG),
+        'oeffnungen': (f'Sued/Nord bei y = ±{halb_y:.0f}, Ost bei x = +{halb_x:.0f}, '
+                       f'je {2 * oeffnung:.2f} x {lagen_oeffnung * LAGENHOEHE:.2f} m'),
+        'hoehe': hoehe,
+    }
+
+
 def baue_tuer():
     """
     Die Tueroeffnung — und das einzige Teil, das KEIN Raum ist.
@@ -709,9 +830,10 @@ def main():
     leere_szene()
 
     bauer = {'gang': baue_gang, 'ecke': baue_ecke, 'endkappe': baue_endkappe,
-             'kreuzung': baue_kreuzung, 'tuer': baue_tuer}.get(TEIL)
+             'kreuzung': baue_kreuzung, 'tuer': baue_tuer,
+             'kammer': baue_kammer}.get(TEIL)
     if bauer is None:
-        raise SystemExit(f'Unbekanntes Teil: {TEIL} (bekannt: gang, ecke, endkappe, kreuzung, tuer)')
+        raise SystemExit(f'Unbekanntes Teil: {TEIL} (bekannt: gang, ecke, endkappe, kreuzung, tuer, kammer)')
 
     teile, angaben = bauer()
     obj = vereinen(teile, NAME)
@@ -762,9 +884,9 @@ def main():
               f'({masse["y"][1] - masse["y"][0]:.3f} m — Kern {soll_y:.2f} m '
               f'plus Mauerwerk beidseits)')
     print(f'  Hoehe       z {masse["z"][0]:+.3f} … {masse["z"][1]:+.3f}  '
-          f'(Bodenflaeche auf 0, Decke auf {HOEHE:.3f})')
+          f'(Bodenflaeche auf 0, Decke auf {angaben.get("hoehe", HOEHE):.3f})')
     print(f'  lichte Weite: {angaben["lichte_breite"]:.3f} m, '
-          f'{HOEHE - DECKENSTAERKE:.3f} m hoch')
+          f'{angaben.get("hoehe", HOEHE) - DECKENSTAERKE:.3f} m hoch')
     print(f'  Durchgaenge:  {angaben["oeffnungen"]}, offen')
 
     # Rasterprobe an der eigenen Ausgabe: Jedes Aussenmass MUSS ein

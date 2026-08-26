@@ -1060,6 +1060,7 @@ export const EIGENE_MODELLE: readonly string[] = [
   'SteingrabEcke',
   'SteingrabEndkappe',
   'SteingrabKreuzung',
+  'SteingrabKammer',
   // Kein Raum, sondern der Tuertyp des Kits — Eintrag in HINT_DEFS oben.
   'SteingrabTuer',
 ];

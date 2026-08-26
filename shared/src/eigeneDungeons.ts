@@ -30,9 +30,9 @@
  *    `DUNGEONS`), der Name muss zusätzlich in `EIGENE_MODELLE` stehen.
  *
  * ── Stand des Startsatzes ────────────────────────────────────────────
- * Gebaut sind Gang, Ecke, Endkappe, Kreuzung und die Türöffnung. Es
- * fehlen **Raum** und **Treppe**; sie kommen als eigene Einträge dazu,
- * sobald ihre Modelle stehen.
+ * Gebaut sind Gang, Ecke, Endkappe, Kreuzung, Türöffnung und Grabkammer. Es
+ * fehlt allein die **Treppe**; sie kommt als eigener Eintrag dazu,
+ * sobald ihr Modell steht.
  *
  * `SteingrabGang` und `SteingrabGangDurch` sind DASSELBE Modell in zwei
  * Rollen — der Generator wählt Folgeräume ausdrücklich unter den
@@ -334,6 +334,69 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
             allowDoor: true,
             doorOnlyIfOtherAlsoAllowsDoor: false,
             localPos: { x: 2, y: 0, z: 0 },
+            localRot: VIERTEL_DREHUNG,
+          },
+        ],
+      },
+      {
+        /*
+          Die Grabkammer. 8 x 12 m Grundflaeche — und 6,40 m hoch statt
+          4,00 m wie alles andere.
+
+          Die Hoehe ist der Zweck des Teils: Ein Raum, der so hoch ist
+          wie der Gang davor, ist ein breiter Gang. Man tritt aus 3,60 m
+          in 6,00 m lichte Hoehe, und das merkt man ohne ein einziges
+          Ausstattungsstueck. Die Oeffnungen bleiben trotzdem auf
+          Ganghoehe (3,50 x 3,60 m), sonst liefe die Decke des Gangs ins
+          Leere.
+
+          `size.y` = 6,4 stoert das Raster nicht: `dungeonRaster.ts`
+          prueft die GRUNDFLAECHE auf Vielfache von 4 m und die Hoehe nur
+          gegen einen Mindestwert.
+
+          Drei Durchgaenge, Sued und Nord gegenueber, Ost quer dazu — so
+          liegt die Kammer in einem Weg statt an seinem Ende, und der
+          Generator kann hinter ihr weiterbauen.
+
+          Kleines Gewicht: Eine Krypta, die zur Haelfte aus Grabkammern
+          besteht, hat keine mehr.
+        */
+        name: 'SteingrabKammer',
+        divider: false,
+        endCap: false,
+        endCapPrio: 0,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 8, y: 6.4, z: 12 },
+        theme: THEMA_KRYPTA,
+        weight: 0.3,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            type: '',
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: 6 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            type: '',
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: -6 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            type: '',
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 4, y: 0, z: 0 },
             localRot: VIERTEL_DREHUNG,
           },
         ],

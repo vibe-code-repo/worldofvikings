@@ -329,6 +329,8 @@ def baue_gang():
     mauerwerk_decke(bereich, 'x', teile)
 
     return teile, {
+        'soll_x': BREITE,
+        'soll_y': LAENGE,
         'lichte_breite': 2 * (innen_x - VORSPRUNG),
         'oeffnungen': f'y = {-LAENGE / 2:+.3f} und {LAENGE / 2:+.3f}',
     }
@@ -398,6 +400,8 @@ def baue_ecke():
     mauerwerk_decke(bereich, 'x', teile)
 
     return teile, {
+        'soll_x': BREITE,
+        'soll_y': BREITE,
         'lichte_breite': innen + halb - VORSPRUNG,
         'oeffnungen': f'y = {-halb:+.3f} (Sued) und x = {halb:+.3f} (Ost)',
     }
@@ -451,6 +455,150 @@ def kanten_brechen(obj, weite=0.02):
     mod.angle_limit = math.radians(30)
 
 
+def baue_endkappe():
+    """
+    Der Abschluss: 4 x 4 m, EIN Durchgang, drei geschlossene Seiten.
+
+    ── Warum sie das dringendste Teil nach der Ecke ist ──────────────
+    Ohne sie endet jeder erzeugte Dungeon dort, wo dem Generator die
+    Anschlussmoeglichkeiten ausgehen — in einem offenen Loch ins
+    Nichts. Der Generator kennt dafuer eigens das Flag `endCap` und
+    setzt solche Teile bevorzugt auf uebrig gebliebene Connectors;
+    `attachRoom` laesst sie sogar ohne Ueberschneidungspruefung zu,
+    weil sie per Entwurf nur verschliessen.
+
+    Offen ist Sued (y = -2), also im Spiel +z — dieselbe Richtung wie
+    der erste Durchgang der Ecke, damit beide gleich koppeln.
+
+    Zwei Innenecken statt einer: Der Verband muss hier zweimal um die
+    Ecke, und die Verzahnung wechselt an beiden Seiten gegenlaeufig zur
+    Rueckwand — laeuft die Rueckwand durch, treten beide Seitenwaende
+    zurueck, und in der naechsten Lage umgekehrt.
+    """
+    halb = BREITE / 2
+    innen = halb - WANDSTAERKE
+    lichte_hoehe = HOEHE - DECKENSTAERKE
+
+    teile = [
+        quader('Boden', (0, 0, -(BELAGSTAERKE + BODENSTAERKE) / 2),
+               (BREITE, BREITE, BODENSTAERKE - BELAGSTAERKE)),
+        quader('WandNord', (0, halb - WANDSTAERKE / 2, lichte_hoehe / 2),
+               (BREITE, WANDSTAERKE, lichte_hoehe)),
+        quader('WandWest', (-(halb - WANDSTAERKE / 2), -WANDSTAERKE / 2, lichte_hoehe / 2),
+               (WANDSTAERKE, BREITE - WANDSTAERKE, lichte_hoehe)),
+        quader('WandOst', (halb - WANDSTAERKE / 2, -WANDSTAERKE / 2, lichte_hoehe / 2),
+               (WANDSTAERKE, BREITE - WANDSTAERKE, lichte_hoehe)),
+        quader('Decke', (0, 0, HOEHE - DECKENSTAERKE / 2),
+               (BREITE, BREITE, DECKENSTAERKE)),
+    ]
+
+    def kuerzung_seite(lage):
+        return (0.0, 0.0 if lage % 2 == 0 else VORSPRUNG)
+
+    def kuerzung_rueck(lage):
+        k = VORSPRUNG if lage % 2 == 0 else 0.0
+        return (k, k)
+
+    mauerwerk_flaeche('KW', 'x', -innen, +1, -halb, innen, teile,
+                      kuerzung=kuerzung_seite)
+    mauerwerk_flaeche('KO', 'x', +innen, -1, -halb, innen, teile,
+                      kuerzung=kuerzung_seite)
+    mauerwerk_flaeche('KN', 'y', +innen, -1, -innen, innen, teile,
+                      kuerzung=kuerzung_rueck)
+    bereich = (-innen, innen, -halb, innen)
+    mauerwerk_boden(bereich, teile)
+    mauerwerk_decke(bereich, 'x', teile)
+
+    return teile, {
+        'soll_x': BREITE,
+        'soll_y': BREITE,
+        'lichte_breite': 2 * (innen - VORSPRUNG),
+        'oeffnungen': f'y = {-halb:+.3f} (Sued), sonst geschlossen',
+    }
+
+
+def baue_kreuzung():
+    """
+    Die Vierwegkreuzung: 8 x 8 m, vier Durchgaenge, einer je Seite.
+
+    ── Warum 8 x 8 und nicht 4 x 4 ──────────────────────────────────
+    Bei 4 x 4 waeren alle vier Seiten offen, und stehen bliebe von den
+    Waenden nichts als vier Pfosten von 25 x 25 cm, auf denen eine
+    Steindecke liegt. Das ist keine Frage des Geschmacks: Stein baut so
+    nicht, und man sieht einem 25-cm-Pfosten an, dass er 3,6 m Decke
+    nicht traegt. Mit zwei Rastereinheiten bleibt neben jedem Durchgang
+    ein gutes Stueck Wand stehen, und die Kreuzung liest sich als
+    Kammer mit vier Ausgaengen statt als Loch mit vier Loechern.
+
+    ── Warum die Oeffnungen 3,50 m breit sind und nicht 4,00 m ──────
+    Sie sind genau so breit wie der LICHTE Gang. Damit trifft die
+    Innenflaeche der Gangwand auf die Kante der Oeffnung, und der
+    Uebergang ist fugenlos. Bei 4,00 m staende der Gang mit seinen
+    Waenden 25 cm im Nichts.
+    """
+    aussen = 8.0
+    halb = aussen / 2
+    innen = halb - WANDSTAERKE
+    # Halbe lichte Weite eines Gangs — so weit reicht die Oeffnung.
+    oeffnung = BREITE / 2 - WANDSTAERKE
+    lichte_hoehe = HOEHE - DECKENSTAERKE
+
+    teile = [
+        quader('Boden', (0, 0, -(BELAGSTAERKE + BODENSTAERKE) / 2),
+               (aussen, aussen, BODENSTAERKE - BELAGSTAERKE)),
+        quader('Decke', (0, 0, HOEHE - DECKENSTAERKE / 2),
+               (aussen, aussen, DECKENSTAERKE)),
+    ]
+
+    # Acht Wandstuecke: je Seite zwei, links und rechts der Oeffnung.
+    laenge_stueck = halb - oeffnung
+    mitte_stueck = (oeffnung + halb) / 2
+    for vorzeichen in (-1, +1):
+        for seite in (-1, +1):
+            teile.append(quader(
+                f'WandNS{vorzeichen}{seite}',
+                (seite * mitte_stueck, vorzeichen * (halb - WANDSTAERKE / 2), lichte_hoehe / 2),
+                (laenge_stueck, WANDSTAERKE, lichte_hoehe)))
+            teile.append(quader(
+                f'WandOW{vorzeichen}{seite}',
+                (vorzeichen * (halb - WANDSTAERKE / 2), seite * mitte_stueck, lichte_hoehe / 2),
+                (WANDSTAERKE, laenge_stueck, lichte_hoehe)))
+
+    # Mauerwerk auf die acht Innenflaechen. Die Verzahnung sitzt an den
+    # vier Aussenecken; die Enden AN DER OEFFNUNG bleiben unverkuerzt,
+    # dort stoesst kein zweite Wand an, sondern der Nachbargang.
+    def kuerzung_zur_ecke(lage):
+        return (0.0, 0.0 if lage % 2 == 0 else VORSPRUNG)
+
+    def kuerzung_von_ecke(lage):
+        return (VORSPRUNG if lage % 2 == 0 else 0.0, 0.0)
+
+    for vorzeichen in (-1, +1):
+        richtung = -vorzeichen
+        ebene = vorzeichen * innen
+        # Nord-/Suedwand: laeuft entlang x, zwei Stuecke.
+        mauerwerk_flaeche(f'ZN{vorzeichen}', 'y', ebene, richtung, -halb, -oeffnung,
+                          teile, kuerzung=kuerzung_von_ecke)
+        mauerwerk_flaeche(f'ZS{vorzeichen}', 'y', ebene, richtung, oeffnung, halb,
+                          teile, kuerzung=kuerzung_zur_ecke)
+        # Ost-/Westwand: laeuft entlang y.
+        mauerwerk_flaeche(f'ZW{vorzeichen}', 'x', ebene, richtung, -halb, -oeffnung,
+                          teile, kuerzung=kuerzung_zur_ecke)
+        mauerwerk_flaeche(f'ZO{vorzeichen}', 'x', ebene, richtung, oeffnung, halb,
+                          teile, kuerzung=kuerzung_von_ecke)
+
+    bereich = (-halb, halb, -halb, halb)
+    mauerwerk_boden(bereich, teile)
+    mauerwerk_decke(bereich, 'x', teile)
+
+    return teile, {
+        'soll_x': aussen,
+        'soll_y': aussen,
+        'lichte_breite': 2 * (innen - VORSPRUNG),
+        'oeffnungen': f'je Seite eine, {2 * oeffnung:.2f} m breit, bei ±{halb:.0f} m',
+    }
+
+
 def messen(obj):
     """
     Nachmessen statt annehmen.
@@ -477,9 +625,10 @@ def messen(obj):
 def main():
     leere_szene()
 
-    bauer = {'gang': baue_gang, 'ecke': baue_ecke}.get(TEIL)
+    bauer = {'gang': baue_gang, 'ecke': baue_ecke, 'endkappe': baue_endkappe,
+             'kreuzung': baue_kreuzung}.get(TEIL)
     if bauer is None:
-        raise SystemExit(f'Unbekanntes Teil: {TEIL} (bekannt: gang, ecke)')
+        raise SystemExit(f'Unbekanntes Teil: {TEIL} (bekannt: gang, ecke, endkappe, kreuzung)')
 
     teile, angaben = bauer()
     obj = vereinen(teile, NAME)
@@ -512,11 +661,11 @@ def main():
     )
 
     groesse = os.path.getsize(ziel_pfad) / 1e6
+    soll_x, soll_y = angaben['soll_x'], angaben['soll_y']
     print()
     print(f'FERTIG {ziel_pfad} — {dreiecke} Dreiecke, {groesse:.3f} MB')
     print(f'  Aussenmass  x {masse["x"][0]:+.3f} … {masse["x"][1]:+.3f}  '
-          f'({masse["x"][1] - masse["x"][0]:.3f} m, Soll {BREITE:.3f})')
-    soll_y = LAENGE if TEIL == 'gang' else BREITE
+          f'({masse["x"][1] - masse["x"][0]:.3f} m, Soll {soll_x:.3f})')
     print(f'  Tiefe       y {masse["y"][0]:+.3f} … {masse["y"][1]:+.3f}  '
           f'({masse["y"][1] - masse["y"][0]:.3f} m, Soll {soll_y:.3f})')
     print(f'  Hoehe       z {masse["z"][0]:+.3f} … {masse["z"][1]:+.3f}  '
@@ -529,13 +678,13 @@ def main():
     # Vielfaches von RASTER sein. Faellt das hier durch, faellt es sonst
     # erst in `shared/test/dungeon-raster.ts` auf — nach dem Kopieren,
     # nach dem Eintragen, drei Schritte zu spaet.
-    for achse, soll in (('x', BREITE), ('y', soll_y)):
+    for achse, soll in (('x', soll_x), ('y', soll_y)):
         gemessen = masse[achse][1] - masse[achse][0]
         if abs(gemessen - soll) > 0.0005 or abs(soll % RASTER) > 0.0005:
             raise SystemExit(
                 f'RASTERFEHLER {achse}: {gemessen:.4f} m gemessen, {soll:.4f} m '
                 f'erwartet, Raster {RASTER} m')
-    print(f'  Raster:       {BREITE:.0f} x {soll_y:.0f} m, Vielfaches von {RASTER:.0f} m — ok')
+    print(f'  Raster:       {soll_x:.0f} x {soll_y:.0f} m, Vielfaches von {RASTER:.0f} m — ok')
 
 
 main()

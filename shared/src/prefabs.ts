@@ -1040,6 +1040,8 @@ export const EIGENE_MODELLE: readonly string[] = [
   // Modell?" — und damit, ob `dungeonRaster.ts` das Teil prüft.
   'SteingrabGang',
   'SteingrabEcke',
+  'SteingrabEndkappe',
+  'SteingrabKreuzung',
 ];
 
 /**

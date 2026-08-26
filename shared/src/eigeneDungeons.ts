@@ -63,6 +63,13 @@ const KEINE_DREHUNG: Quaternion = { x: 0, y: 0, z: 0, w: 1 };
 const HALBE_DREHUNG: Quaternion = { x: 0, y: 1, z: 0, w: 0 };
 /** 90° um die Hochachse — aus „nach +z“ wird „nach +x“. */
 const VIERTEL_DREHUNG: Quaternion = { x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 };
+/** −90° um die Hochachse — aus „nach +z“ wird „nach −x“. */
+const VIERTEL_DREHUNG_ZURUECK: Quaternion = {
+  x: 0,
+  y: -Math.SQRT1_2,
+  z: 0,
+  w: Math.SQRT1_2,
+};
 
 /**
  * Dieselbe Form wie ein Eintrag in `dungeonsData.json`: ohne `hash`, den
@@ -246,6 +253,108 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
             doorOnlyIfOtherAlsoAllowsDoor: false,
             localPos: { x: 2, y: 0, z: 0 },
             localRot: VIERTEL_DREHUNG,
+          },
+        ],
+      },
+      {
+        /*
+          Der Abschluss. EIN Durchgang, drei geschlossene Seiten.
+
+          `endCap: true` ist hier kein Beiwerk, sondern der Zweck: Der
+          Generator setzt Endkappen bevorzugt auf Connectors, die sonst
+          offen blieben, und `attachRoom` laesst sie ohne
+          Ueberschneidungspruefung zu — sie verschliessen per Entwurf.
+          Ohne sie endet jeder erzeugte Dungeon in einem Loch ins Nichts.
+
+          `endCapPrio` hoeher als 0, damit sie vor einem beliebigen
+          anderen Raum genommen wird, wenn beides ginge.
+        */
+        name: 'SteingrabEndkappe',
+        divider: false,
+        endCap: true,
+        endCapPrio: 10,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 4, y: 4, z: 4 },
+        theme: THEMA_KRYPTA,
+        weight: 1,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            type: '',
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: 2 },
+            localRot: KEINE_DREHUNG,
+          },
+        ],
+      },
+      {
+        /*
+          Die Vierwegkreuzung, 8 x 8 m — zwei Rastereinheiten.
+
+          Warum nicht 4 x 4: Bei vier offenen Seiten bliebe von den
+          Waenden nichts als vier Pfosten von 25 x 25 cm unter einer
+          Steindecke. Die Herleitung steht bei `baue_kreuzung` in
+          `tools/steingrab-erzeugen.py`; hier zaehlt die Folge fuer das
+          Datenmodell: Die Huellbox ist doppelt so gross wie beim Gang,
+          und die vier Connectors sitzen entsprechend bei ±4 statt ±2.
+
+          Erst dieses Teil laesst den Grundriss verzweigen. Mit Gang,
+          Ecke und Endkappe kann der Generator nur eine Kette bauen —
+          eine Kreuzung macht daraus ein Netz.
+        */
+        name: 'SteingrabKreuzung',
+        divider: false,
+        endCap: false,
+        endCapPrio: 0,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 8, y: 4, z: 8 },
+        theme: THEMA_KRYPTA,
+        // Seltener als Gang und Ecke: Eine Krypta aus lauter Kreuzungen
+        // ist ein Gitter, kein Grab.
+        weight: 0.4,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            type: '',
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: 4 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            type: '',
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: -4 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            type: '',
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 4, y: 0, z: 0 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            type: '',
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -4, y: 0, z: 0 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
           },
         ],
       },

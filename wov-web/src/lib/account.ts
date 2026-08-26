@@ -54,6 +54,31 @@ export const SHORES: Record<ShoreId, { url: string }> = {
 export const SHORE_IDS: ShoreId[] = ['dev', 'live'];
 
 /**
+ * Which shore actually takes accounts today.
+ *
+ * ── Why this is a hard-coded table and not a probe ───────────────────
+ * Midgard answers **405 from nginx** to `POST /accounts/login` (measured
+ * 26.08.2026): the account API is simply not proxied on the live host,
+ * because the game there still runs an older commit. That is not a
+ * temporary outage a health check could ride out — it is a shore that has
+ * no accounts at all, and asking it on every page load would spend a
+ * request to learn something that only changes when somebody deploys.
+ *
+ * ── Why it is here and not in the hall ───────────────────────────────
+ * The hall gate is not the only door. `/anmelden`, `/registrieren`,
+ * `/konto` and `/erstellen` all offer the same choice in a select, and a
+ * shore that is closed in one place and open in four others is worse than
+ * one that is honestly closed everywhere.
+ *
+ * ── What to do when Midgard opens ────────────────────────────────────
+ * Set `live: true`. Nothing else: every picker reads this table.
+ */
+export const SHORE_OPEN: Record<ShoreId, boolean> = {
+  dev: true,
+  live: false,
+};
+
+/**
  * How a shore is named in the picker.
  *
  * These are the keys `/erstellen` already used before there were accounts.
@@ -377,11 +402,20 @@ export function clearAllTokens(): void {
   for (const shore of SHORE_IDS) clearToken(shore);
 }
 
-/** The shore last chosen, or null when nothing is remembered yet. */
+/**
+ * The shore last chosen, or null when nothing is remembered yet.
+ *
+ * A remembered shore that has since CLOSED counts as nothing remembered.
+ * The value stays in storage — when Midgard opens, the old choice comes
+ * back on its own — but no page may act on it in the meantime: a picker
+ * would stand on an option it also marks as "not open yet", and the button
+ * beside it would aim there. That happened on `/anmelden` the moment the
+ * hall gate started writing `live`.
+ */
 export function readShore(): ShoreId | null {
   try {
     const s = localStorage.getItem(SHORE_KEY);
-    return isShore(s) ? s : null;
+    return isShore(s) && SHORE_OPEN[s] ? s : null;
   } catch {
     return null;
   }

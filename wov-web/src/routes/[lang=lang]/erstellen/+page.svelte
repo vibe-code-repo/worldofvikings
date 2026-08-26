@@ -10,6 +10,7 @@
     SHORES,
     SHORE_IDS,
     SHORE_LABEL,
+    SHORE_OPEN,
     type ShoreId,
     clearToken,
     createCharacter,
@@ -465,7 +466,8 @@
     // Token unter dem anderen Schlüssel bereitliegt. `alt.server` ist der
     // Rest aus der Zeit vor `wov-gestade` und wird noch einmal gelesen,
     // damit niemand seine Wahl verliert.
-    const gemerkt = readShore() ?? (alt.server === 'live' || alt.server === 'dev' ? alt.server : null);
+    const altWert = alt.server === 'live' || alt.server === 'dev' ? alt.server : null;
+    const gemerkt = readShore() ?? (altWert && SHORE_OPEN[altWert] ? altWert : null);
 
     /*
       Ein `?shore=` in der Adresse schlägt alles andere. Es steht dort, weil
@@ -478,9 +480,10 @@
       `url.searchParams` (die Seite hat keine Anfrage, aus der ein Parameter
       stammen könnte) und der Build bliebe stehen.
     */
-    const gewuenscht = page.url.searchParams.get('shore');
-    gestade = isShore(gewuenscht) ? gewuenscht : (signedInShore() ?? gemerkt ?? 'dev');
-    if (isShore(gewuenscht)) writeShore(gewuenscht);
+    const roh = page.url.searchParams.get('shore');
+    const gewuenscht = isShore(roh) && SHORE_OPEN[roh] ? roh : null;
+    gestade = gewuenscht ?? signedInShore() ?? gemerkt ?? 'dev';
+    if (gewuenscht) writeShore(gewuenscht);
     angemeldet = readToken(gestade) !== null;
 
     if (angemeldet) await starteBuehne();
@@ -652,7 +655,9 @@
           <label class="feldname" for="create-shore">{t['create.voyage.shore.label']}</label>
           <select id="create-shore" bind:value={gestade} onchange={gestadeGewechselt}>
             {#each SHORE_IDS as s (s)}
-              <option value={s}>{t[SHORE_LABEL[s]]}</option>
+              <option value={s} disabled={!SHORE_OPEN[s]}>
+                {t[SHORE_LABEL[s]]}{SHORE_OPEN[s] ? '' : ` — ${t['account.shore.closed']}`}
+              </option>
             {/each}
           </select>
           <p class="gestade-hinweis">{gestadeHinweis}</p>
@@ -719,7 +724,9 @@
               onchange={gestadeGewechselt}
             >
               {#each SHORE_IDS as s (s)}
-                <option value={s}>{t[SHORE_LABEL[s]]}</option>
+                <option value={s} disabled={!SHORE_OPEN[s]}>
+                {t[SHORE_LABEL[s]]}{SHORE_OPEN[s] ? '' : ` — ${t['account.shore.closed']}`}
+              </option>
               {/each}
             </select>
             <p class="account-hint">{t['account.shore.hint']}</p>

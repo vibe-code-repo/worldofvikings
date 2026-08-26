@@ -445,6 +445,9 @@ export const en: Messages = {
     'Every server keeps its own accounts — an account from the Test Server does not exist on Midgard.',
   'account.shore.short.dev': 'Test Server',
   'account.shore.short.live': 'Midgard',
+  'account.shore.closed': 'not open yet',
+  'account.shore.closed.hint':
+    'Midgard does not take accounts yet — until it does, the Test Server is where you play.',
   'account.without_js':
     'Submitting this form needs JavaScript. Without scripting the page stays readable — it simply shows no button that would do nothing anyway.',
   'account.logout': 'Sign out',

@@ -8,6 +8,7 @@
     ApiError,
     SHORE_IDS,
     SHORE_LABEL,
+    SHORE_OPEN,
     type ShoreId,
     errorMessageKey,
     readShore,
@@ -129,7 +130,9 @@
             onchange={shoreRemembered}
           >
             {#each SHORE_IDS as s (s)}
-              <option value={s}>{t[SHORE_LABEL[s]]}</option>
+              <option value={s} disabled={!SHORE_OPEN[s]}>
+                {t[SHORE_LABEL[s]]}{SHORE_OPEN[s] ? '' : ` — ${t['account.shore.closed']}`}
+              </option>
             {/each}
           </select>
           <p class="account-hint">{t['account.shore.hint']}</p>

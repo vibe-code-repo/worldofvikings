@@ -9,8 +9,10 @@
     ApiError,
     SHORE_IDS,
     SHORE_LABEL,
+    SHORE_OPEN,
     type ShoreId,
     errorMessageKey,
+    isShore,
     login,
     readShore,
     writeAccountName,
@@ -58,10 +60,14 @@
 
   onMount(() => {
     ready = true;
+    // Ein Server, der keine Konten annimmt, kommt auch aus der Adresse nicht
+    // ins Feld — sonst stünde das Auswahlfeld auf einem Eintrag, den es im
+    // selben Atemzug als „noch nicht offen“ ausweist.
     const requestedShore = page.url.searchParams.get('shore');
-    shore = SHORE_IDS.includes(requestedShore as ShoreId)
-      ? requestedShore as ShoreId
-      : readShore() ?? 'dev';
+    shore =
+      isShore(requestedShore) && SHORE_OPEN[requestedShore]
+        ? requestedShore
+        : readShore() ?? 'dev';
   });
 
   function shoreRemembered() {
@@ -118,7 +124,9 @@
             onchange={shoreRemembered}
           >
             {#each SHORE_IDS as s (s)}
-              <option value={s}>{t[SHORE_LABEL[s]]}</option>
+              <option value={s} disabled={!SHORE_OPEN[s]}>
+                {t[SHORE_LABEL[s]]}{SHORE_OPEN[s] ? '' : ` — ${t['account.shore.closed']}`}
+              </option>
             {/each}
           </select>
           <p class="account-hint">{t['account.shore.hint']}</p>

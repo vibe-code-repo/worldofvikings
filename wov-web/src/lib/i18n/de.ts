@@ -486,6 +486,13 @@ export const de = {
      Zeile darunter. */
   'account.shore.short.dev': 'Testserver',
   'account.shore.short.live': 'Midgard',
+  /* Steht an jedem Server, der heute keine Konten annimmt — als Plakette in
+     der Zeile des Tores und hinter dem Namen in jedem Auswahlfeld. Nicht
+     „geschlossen“: Midgard läuft, es fehlt dort nur die Kontenschnittstelle,
+     und „geschlossen“ hiesse, die Welt sei aus. */
+  'account.shore.closed': 'noch nicht offen',
+  'account.shore.closed.hint':
+    'Midgard nimmt noch keine Konten an — bis dahin geht es auf dem Testserver weiter.',
   /* Stands where the submit button sits when JavaScript is running. A
      button that does nothing without scripting would be worse than a
      sentence that explains why there is none. */

@@ -9,6 +9,7 @@
     SHORE_HINT,
     SHORE_IDS,
     SHORE_LABEL,
+    SHORE_OPEN,
     SHORE_SHORT,
     type ShoreId,
     readShore,
@@ -160,6 +161,12 @@
   }
 
   onMount(() => {
+    /*
+      `readShore()` gibt einen geschlossenen Server gar nicht erst heraus —
+      wer heute Nachmittag Midgard angeklickt hat, hat `live` gespeichert,
+      und das Tor stünde sonst auf einem Server, den es im selben Atemzug
+      als „noch nicht offen“ ausweist. Die Begründung steht dort.
+    */
     gestade = readShore() ?? 'dev';
 
     void (async () => {
@@ -254,26 +261,52 @@
         <ul class="world-list" aria-label={t['hall.gate.shore.aria']}>
           {#each SHORE_IDS as s (s)}
             <li>
-              <a
-                class="world-row"
-                href={spielPfad(s)}
-                aria-current={s === gestade ? 'true' : undefined}
-                onclick={(e) => waehle(e, s)}
-              >
-                <span class="bifroest" data-zustand={weltVon(s)?.zustand} aria-hidden="true">
-                  <span class="ampel"></span>
-                </span>
-                <span class="world-row-labels">
-                  <span class="world-row-name">
-                    {t[SHORE_LABEL[s]]}
-                    {#if s === gestade}
-                      <span class="nur-vorlesen">({t['hall.gate.shore.chosen']})</span>
-                    {/if}
+              <!--
+                Ein Server, der keine Konten annimmt, ist KEIN Link.
+
+                Die Zeile bleibt stehen — dass es Midgard gibt, ist wahr und
+                soll man sehen. Anklickbar wäre sie eine Einladung in eine
+                Sackgasse: `/erstellen` käme bis zur Anmeldung und meldete
+                dort „Der Server ist nicht erreichbar“, was nach einer
+                Störung aussieht statt nach dem, was es ist. Deshalb ein
+                <span> statt eines <a>, rote Ampel, Plakette daneben und der
+                Grund als Satz darunter.
+              -->
+              {#if SHORE_OPEN[s]}
+                <a
+                  class="world-row"
+                  href={spielPfad(s)}
+                  aria-current={s === gestade ? 'true' : undefined}
+                  onclick={(e) => waehle(e, s)}
+                >
+                  <span class="bifroest" data-zustand={weltVon(s)?.zustand} aria-hidden="true">
+                    <span class="ampel"></span>
                   </span>
-                  <span class="world-row-sub">{zustandsZeile(s)}</span>
+                  <span class="world-row-labels">
+                    <span class="world-row-name">
+                      {t[SHORE_LABEL[s]]}
+                      {#if s === gestade}
+                        <span class="nur-vorlesen">({t['hall.gate.shore.chosen']})</span>
+                      {/if}
+                    </span>
+                    <span class="world-row-sub">{zustandsZeile(s)}</span>
+                  </span>
+                  <span class="world-row-badge">{plakette(s)}</span>
+                </a>
+              {:else}
+                <span class="world-row world-row-zu">
+                  <span class="bifroest" data-zustand="zu" aria-hidden="true">
+                    <span class="ampel"></span>
+                  </span>
+                  <span class="world-row-labels">
+                    <span class="world-row-name">{t[SHORE_LABEL[s]]}</span>
+                    <span class="world-row-sub">{t['account.shore.closed.hint']}</span>
+                  </span>
+                  <span class="world-row-badge world-row-badge-zu">
+                    {t['account.shore.closed']}
+                  </span>
                 </span>
-                <span class="world-row-badge">{plakette(s)}</span>
-              </a>
+              {/if}
             </li>
           {/each}
         </ul>
@@ -539,6 +572,23 @@
 
   .world-row[aria-current] .world-row-name {
     color: var(--primaer);
+  }
+
+  /* Die geschlossene Zeile ist gedämpft, aber lesbar — sie ist eine
+     Auskunft, keine ausgegraute Schaltfläche. Kein Zeiger, kein
+     Hover-Wechsel: Es gibt hier nichts zu treffen. */
+  .world-row-zu {
+    cursor: default;
+  }
+
+  .world-row-zu .world-row-name,
+  .world-row-zu .world-row-sub {
+    color: var(--text-matt);
+  }
+
+  .world-row-badge-zu {
+    color: var(--blut);
+    filter: brightness(1.7);
   }
 
   .world-row-labels {

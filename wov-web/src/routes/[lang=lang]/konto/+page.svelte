@@ -11,6 +11,7 @@
     type Character,
     SHORE_IDS,
     SHORE_LABEL,
+    SHORE_OPEN,
     type ShoreId,
     clearAllTokens,
     clearToken,
@@ -317,7 +318,9 @@
             onchange={shoreChanged}
           >
             {#each SHORE_IDS as s (s)}
-              <option value={s}>{t[SHORE_LABEL[s]]}</option>
+              <option value={s} disabled={!SHORE_OPEN[s]}>
+                {t[SHORE_LABEL[s]]}{SHORE_OPEN[s] ? '' : ` — ${t['account.shore.closed']}`}
+              </option>
             {/each}
           </select>
           <button class="knopf knopf-rand" type="button" onclick={logout}>

@@ -2,6 +2,7 @@
   import { page } from '$app/state';
   import { HAUPTNAV, FAHRT } from './seiten';
   import { LOCALES, localeFrom, localizedPath, messages, stripLocale } from './i18n';
+  import { ACCOUNT_EVENT, type ShoreId, readAccountName, signedInShore } from './account';
 
   /**
    * Sprache und Texte kommen aus der Adresse, nicht aus einem Store.
@@ -39,9 +40,78 @@
    * Fuß; bestätigt wird sie an allen drei Stellen zugleich.
    */
   const DISCORD = 'https://discord.gg/worldofvikings';
+
+  /**
+   * Wer angemeldet ist — und warum das erst im Browser steht.
+   *
+   * Diese Seite wird vorgerendert: Zur Bauzeit weiss niemand, wer sie später
+   * liest, und die Anmeldung lebt allein im Browser (`account.ts`). In der
+   * gebauten Datei steht deshalb „Anmelden“, und wer ein gültiges Token
+   * mitbringt, sieht nach der Hydration den Kontoknopf an derselben Stelle.
+   * Das ist genau einmal ein sichtbarer Wechsel, und der ist der Preis dafür,
+   * dass die Seite ohne JavaScript nicht mit einem Kontoknopf dasteht, der
+   * niemandem gehört. Beide Knöpfe tragen dieselbe Klasse und dieselben
+   * Innenabstände, damit dabei nichts springt.
+   *
+   * Der Name kommt aus dem Zwischenspeicher neben dem Token, nicht aus
+   * `/accounts/me`: Die Kopfleiste steht auf JEDER Seite, und ein Abruf je
+   * Seitenaufruf für ein einziges Wort wäre ein Preis, den ein unerreichbares
+   * Gestade obendrein mit einer leeren Leiste bezahlen liesse. Fehlt der Name
+   * (Token aus der Zeit vor dem Zwischenspeicher), steht dort „Konto“ —
+   * nicht „Anmelden“: Angemeldet ist man trotzdem.
+   */
+  let konto = $state<{ gestade: ShoreId; name: string | null } | null>(null);
+
+  function kontoNachsehen() {
+    const gestade = signedInShore();
+    konto = gestade ? { gestade, name: readAccountName(gestade) } : null;
+  }
+
+  /*
+    Nachgesehen wird bei jeder Navigation, nicht nur beim Einhängen: Nach dem
+    Anmelden wechselt `/anmelden` per `goto()` hinüber zum Konto, und dabei
+    bleibt diese Komponente stehen. Ein blosses `onMount` hiesse, dass die
+    Leiste bis zum nächsten harten Neuladen „Anmelden“ zeigt, während man
+    längst angemeldet ist.
+
+    `$effect` läuft ausschliesslich im Browser — beim Vorrendern gibt es ihn
+    nicht, und genau das ist hier richtig.
+  */
+  $effect(() => {
+    void hier;
+    kontoNachsehen();
+  });
+
+  /*
+    Zwei Meldewege, weil es zwei Fälle gibt.
+
+    `ACCOUNT_EVENT` kommt aus `account.ts` und meldet, was im EIGENEN Tab
+    geschieht: Abmelden auf `/konto` verlässt die Seite nicht, und ein
+    abgelaufenes Token räumt sich beim Nachsehen selbst weg — beides ist
+    keine Navigation, und der Effekt oben bekäme davon nichts mit.
+
+    `storage` meldet FREMDE Tabs; wer sich woanders abmeldet, soll hier
+    nicht angemeldet bleiben. Den eigenen Tab löst es nie aus — das ist
+    keine Nachlässigkeit des Browsers, sondern seine Regel.
+  */
+  $effect(() => {
+    const beiAenderung = () => kontoNachsehen();
+    const beiFremdemTab = (e: StorageEvent) => {
+      if (e.key === null || e.key.startsWith('wov-konto')) kontoNachsehen();
+    };
+    window.addEventListener(ACCOUNT_EVENT, beiAenderung);
+    window.addEventListener('storage', beiFremdemTab);
+    return () => {
+      window.removeEventListener(ACCOUNT_EVENT, beiAenderung);
+      window.removeEventListener('storage', beiFremdemTab);
+    };
+  });
+
+  /** Was auf dem Knopf steht: der Benutzername, sonst das Wort „Konto“. */
+  const kontoName = $derived(konto?.name || t['header.account.link']);
 </script>
 
-<header class="kopf">
+<header class="kopf" class:kopf-angemeldet={konto !== null}>
   <div class="mitte kopf-reihe">
     <!--
       Wappen statt Schriftzug. Der Alternativtext ist der Markenname: Das
@@ -106,19 +176,32 @@
       </nav>
 
       <!--
-        Nur „Anmelden“, nie „Konto“.
+        Angemeldet oder nicht — die Begründung steht oben bei `konto`.
 
-        Der Entwurf zeigt an dieser Stelle zwei einander ausschliessende
-        Zustände. Diese Seite ist vorgerendert: Zur Bauzeit weiss niemand,
-        wer liest, und die Anmeldung lebt erst im Browser (account.ts). Ein
-        Umschalten nach der Hydration hiesse, dass jede Seite erst „Anmelden“
-        zeigt und den Text danach austauscht — sichtbar, und ohne Skript
-        bliebe die falsche Hälfte stehen. Der Weg zum eigenen Konto führt
-        deshalb über die Anmeldeseite, die angemeldete Leser weiterleitet.
+        Der sichtbare Text ist im angemeldeten Fall nur noch der
+        Benutzername; „Angemeldet als …“ steht als Vorlesetext daneben, denn
+        ein Name allein sagt einem Vorleser nicht, wohin der Knopf führt.
+
+        Abgemeldet wird auf `/konto`, wo der Knopf schon steht. Hier bleibt
+        es bei EINER Schaltfläche je Zustand: Der Platz, den der Name über
+        „Anmelden“ hinaus braucht, ist bereits der des Discord-Knopfes (siehe
+        `.kopf-angemeldet` im Stilteil) — ein zweiter Knopf hätte als
+        nächstes die Punktereihe gekostet.
       -->
-      <a class="knopf knopf-rand account-link" href={localizedPath(lang, '/anmelden')}
-        >{t['header.signin.link']}</a
-      >
+      {#if konto}
+        <a
+          class="knopf knopf-rand account-link account-link-an"
+          href={localizedPath(lang, '/konto')}
+          aria-label={`${t['header.account.signed_in_aria']} ${kontoName}`}
+        >
+          <span class="account-ampel" aria-hidden="true"></span>
+          <span class="account-name">{kontoName}</span>
+        </a>
+      {:else}
+        <a class="knopf knopf-rand account-link" href={localizedPath(lang, '/anmelden')}
+          >{t['header.signin.link']}</a
+        >
+      {/if}
 
       <a class="knopf discord-link" href={DISCORD}>{t['header.discord.link']}</a>
     </div>
@@ -279,6 +362,53 @@
     text-transform: uppercase;
   }
 
+  /*
+    Der angemeldete Zustand ist derselbe Knopf mit zwei Zutaten: einer
+    grünen Glut davor und einem Namen, der abgeschnitten wird, statt die
+    Leiste zu dehnen. Ein Benutzername darf 24 Zeichen lang sein — in
+    Versalien und gesperrt wäre das breiter als die halbe rechte Gruppe.
+  */
+  .kopf .account-link-an {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .kopf .account-ampel {
+    flex: 0 0 auto;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--zweit);
+    box-shadow: 0 0 8px var(--zweit);
+  }
+
+  .kopf .account-name {
+    max-width: 9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /*
+    Angemeldet gibt die Leiste den Discord-Knopf auf — und zwar sofort, nicht
+    erst unter 1260 px.
+
+    Gemessen bei 1280 px: „ANMELDEN“ ist 106 px breit, der Kontoknopf mit
+    einem 24 Zeichen langen Namen 193 px. Ab 145 px bricht die Punktereihe um
+    und die Leiste steht 101 px hoch da — genau der Fehler, den der
+    Kommentar weiter unten für 900 px beschreibt, und `.seite` in wov.css
+    rechnet unbeirrt mit 64 px.
+
+    Was stattdessen weicht, sagt derselbe Kommentar: zuerst Discord, „er
+    steht im Fuss noch einmal“. Hier gilt nur ein anderer Auslöser als die
+    Schirmbreite. Nachgemessen bei 1261 und 1280 px: Leiste einzeilig, auch
+    mit dem längsten erlaubten Benutzernamen.
+  */
+  .kopf-angemeldet .discord-link {
+    display: none;
+  }
+
   .kopf .account-link:hover {
     border-color: var(--umriss);
     color: var(--runengold);
@@ -339,6 +469,9 @@
     }
     .kopf .account-link {
       padding: 0.55rem 0.7rem;
+    }
+    .kopf .account-name {
+      max-width: 6rem;
     }
   }
 

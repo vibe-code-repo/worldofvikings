@@ -12,6 +12,7 @@
     errorMessageKey,
     readShore,
     register,
+    writeAccountName,
     writeShore,
     writeToken,
   } from '$lib/account';
@@ -83,6 +84,8 @@
       const answer = await register(shore, username.trim(), email.trim(), password);
       writeToken(shore, answer.token);
       writeShore(shore);
+      // Für die Kopfleiste — Begründung in `account.ts`.
+      writeAccountName(shore, answer.account.username);
       // The password leaves memory as soon as it is no longer needed. It is
       // not stored anywhere in the first place.
       password = '';

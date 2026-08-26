@@ -35,6 +35,10 @@ export const de = {
   'header.nav.play_button': 'Spielen',
   'header.signin.link': 'Anmelden',
   'header.account.link': 'Konto',
+  /* Steht als Vorlesetext auf dem Kontoknopf, wenn jemand angemeldet ist:
+     der sichtbare Text ist dann nur noch der Benutzername, und „Erik“ allein
+     sagt einem Vorleser nicht, wohin der Knopf führt. */
+  'header.account.signed_in_aria': 'Angemeldet als',
   'header.discord.link': 'Discord',
   'header.language.aria': 'Sprache',
 
@@ -107,6 +111,13 @@ export const de = {
     'Midgard ist im Aufbau. Was gebaut wird, bleibt stehen — aber Regeln, Welten und Werte können sich noch ändern.',
   'hall.gate.discord_cta': 'Tritt dem Thing auf Discord bei',
   'hall.gate.world_badge_closed': 'zu',
+  /* Der Aufklapper im Tor WÄHLT seit dem 26.08.2026 das Gestade aus — vorher
+     zeigte er nur die Weltliste an. Deshalb tragen seine Zeilen jetzt einen
+     Zustand, und der braucht Worte: „gewählt“ steht nur für Vorleser da, zu
+     sehen ist es an Gold und Haken. */
+  'hall.gate.shore.aria': 'Gestade wählen',
+  'hall.gate.shore.chosen': 'gewählt',
+  'hall.gate.shore.hint': 'Hier wird gespielt. Zum Wechseln aufklappen.',
   'hall.hero.crest_alt': 'Wappen von World of Vikings: ein Langschiff in einem Steinring aus Runen',
   'hall.hero.heading': 'World of Vikings',
   'hall.hero.subtitle':
@@ -458,6 +469,11 @@ export const de = {
      and the sign-in gate on /erstellen. */
   'account.shore.hint':
     'Jedes Gestade führt seine eigenen Konten — ein Konto vom Testgestade gibt es auf Midgard nicht.',
+  /* Der blosse Name ohne den Halbsatz hinter dem Gedankenstrich. Die Halle
+     setzt ihn als Überschrift ihres Tores; die Erklärung steht dort in der
+     Zeile darunter. */
+  'account.shore.short.dev': 'Testgestade',
+  'account.shore.short.live': 'Midgard',
   /* Stands where the submit button sits when JavaScript is running. A
      button that does nothing without scripting would be worse than a
      sentence that explains why there is none. */

@@ -65,6 +65,31 @@ export const SHORE_LABEL: Record<ShoreId, MessageKey> = {
   live: 'create.voyage.shore.live',
 };
 
+/**
+ * The bare name, without the half-sentence behind the dash.
+ *
+ * `SHORE_LABEL` reads "Midgard — the open land": right for an option in a
+ * list, too long for a headline. The hall shows the chosen shore as the
+ * title line of its gate, and there the explanation stands underneath it
+ * anyway.
+ */
+export const SHORE_SHORT: Record<ShoreId, MessageKey> = {
+  dev: 'account.shore.short.dev',
+  live: 'account.shore.short.live',
+};
+
+/**
+ * The sentence that explains a shore.
+ *
+ * These are the two hints `/erstellen` shows under its picker. Named here
+ * so that the hall does not build the key from a string of its own — a
+ * third place that would have to be edited when a shore is added.
+ */
+export const SHORE_HINT: Record<ShoreId, MessageKey> = {
+  dev: 'create.voyage.shore.hint.dev',
+  live: 'create.voyage.shore.hint.live',
+};
+
 export function isShore(v: string | null | undefined): v is ShoreId {
   return v === 'dev' || v === 'live';
 }
@@ -188,6 +213,37 @@ export function isLoggedOut(e: unknown): boolean {
 const tokenKey = (shore: ShoreId) => `wov-konto:${shore}`;
 const SHORE_KEY = 'wov-gestade';
 
+/*
+  The account name next to the token — kept ONLY so that a page can say who
+  is signed in without asking the shore first.
+
+  The header sits on every page, including the prerendered ones. Reading the
+  name out of `/accounts/me` there would mean one request per page view for a
+  single word, and a header that says nothing whenever the shore is slow or
+  unreachable. The name is not a credential and nothing is decided by it:
+  every real answer still comes from the token, server-side.
+
+  It can only go stale if the account disappears, and then the token stops
+  working on the next call anyway. There is no rename endpoint in `KontoApi`.
+*/
+const nameKey = (shore: ShoreId) => `wov-konto-name:${shore}`;
+
+/**
+ * Fired on this window whenever a token or an account name changes.
+ *
+ * The header shows who is signed in and sits on every page — but signing out
+ * happens on `/konto` WITHOUT leaving the page, and a token can expire under
+ * a reader who is standing still. Neither is a navigation, and `storage`
+ * only ever reaches other tabs, never the one that wrote. Without this
+ * signal the bar would keep greeting somebody who just left.
+ */
+export const ACCOUNT_EVENT = 'wov-konto-geaendert';
+
+function announce(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(ACCOUNT_EVENT));
+}
+
 interface TokenPayload {
   /** account id */
   k: number;
@@ -256,6 +312,7 @@ export function writeToken(shore: ShoreId, token: string): void {
   } catch {
     /* private mode: then the login lasts for this tab only */
   }
+  announce();
 }
 
 /**
@@ -267,9 +324,40 @@ export function writeToken(shore: ShoreId, token: string): void {
 export function clearToken(shore: ShoreId): void {
   try {
     localStorage.removeItem(tokenKey(shore));
+    // The name goes with the token, always. A name without a token would
+    // be a header that greets somebody who is not signed in — and since
+    // readToken() calls this on expiry, that is exactly what would stand
+    // there after thirty days.
+    localStorage.removeItem(nameKey(shore));
   } catch {
     /* nothing stored, nothing to forget */
   }
+  announce();
+}
+
+/**
+ * Who is signed in on this shore, as far as this browser remembers.
+ *
+ * Returns null when nothing was stored — a token from before this cache
+ * existed is perfectly valid, and the caller then has to make do with a
+ * generic word. That is why the header falls back to "Account" instead of
+ * treating the missing name as "signed out".
+ */
+export function readAccountName(shore: ShoreId): string | null {
+  try {
+    return localStorage.getItem(nameKey(shore));
+  } catch {
+    return null;
+  }
+}
+
+export function writeAccountName(shore: ShoreId, name: string): void {
+  try {
+    localStorage.setItem(nameKey(shore), name);
+  } catch {
+    /* private mode: then the header shows the generic word */
+  }
+  announce();
 }
 
 /**

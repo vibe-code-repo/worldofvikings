@@ -15,6 +15,7 @@
     createCharacter,
     errorMessageKey,
     isLoggedOut,
+    isShore,
     play,
     playUrl,
     readShore,
@@ -465,7 +466,21 @@
     // Rest aus der Zeit vor `wov-gestade` und wird noch einmal gelesen,
     // damit niemand seine Wahl verliert.
     const gemerkt = readShore() ?? (alt.server === 'live' || alt.server === 'dev' ? alt.server : null);
-    gestade = signedInShore() ?? gemerkt ?? 'dev';
+
+    /*
+      Ein `?shore=` in der Adresse schlägt alles andere. Es steht dort, weil
+      jemand im Tor der Halle gerade eben ein Gestade angeklickt hat — eine
+      frische, ausdrückliche Wahl wiegt schwerer als ein Token, das noch beim
+      anderen Gestade liegt. Ohne den Vorrang führte ein Klick auf „Midgard“
+      zurück ans Testgestade, sobald man dort einmal angemeldet war.
+
+      Gelesen wird das erst hier, in `onMount`: Beim Vorrendern wirft
+      `url.searchParams` (die Seite hat keine Anfrage, aus der ein Parameter
+      stammen könnte) und der Build bliebe stehen.
+    */
+    const gewuenscht = page.url.searchParams.get('shore');
+    gestade = isShore(gewuenscht) ? gewuenscht : (signedInShore() ?? gemerkt ?? 'dev');
+    if (isShore(gewuenscht)) writeShore(gewuenscht);
     angemeldet = readToken(gestade) !== null;
 
     if (angemeldet) await starteBuehne();

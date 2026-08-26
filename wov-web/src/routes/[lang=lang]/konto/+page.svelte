@@ -23,6 +23,7 @@
     readShore,
     readToken,
     signedInShore,
+    writeAccountName,
     writeShore,
   } from '$lib/account';
   import '$lib/stil/account.css';
@@ -115,6 +116,10 @@
       account = data.account;
       characters = data.characters;
       signedIn = true;
+      // Die frischeste Auskunft über den Namen, die es gibt — sie geht
+      // gleich an die Kopfleiste weiter, die ihn sonst selbst erfragen
+      // müsste (Begründung in `account.ts`).
+      writeAccountName(shore, data.account.username);
     } catch (err) {
       if (isLoggedOut(err)) {
         clearToken(shore);

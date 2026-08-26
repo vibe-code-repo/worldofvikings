@@ -25,6 +25,7 @@ export const en: Messages = {
   'header.nav.play_button': 'Play',
   'header.signin.link': 'Sign in',
   'header.account.link': 'Account',
+  'header.account.signed_in_aria': 'Signed in as',
   'header.discord.link': 'Discord',
   'header.language.aria': 'Language',
 
@@ -94,6 +95,9 @@ export const en: Messages = {
     'Midgard is under construction. What gets built stays built — but rules, worlds and values may still change.',
   'hall.gate.discord_cta': 'Join the Thing on Discord',
   'hall.gate.world_badge_closed': 'closed',
+  'hall.gate.shore.aria': 'Choose a shore',
+  'hall.gate.shore.chosen': 'chosen',
+  'hall.gate.shore.hint': 'This is where you play. Open to switch.',
   'hall.hero.crest_alt':
     'Crest of World of Vikings: a longship within a ring of rune-carved stones',
   'hall.hero.heading': 'World of Vikings',
@@ -432,6 +436,8 @@ export const en: Messages = {
   /* ---------------------------------------------------------- account */
   'account.shore.hint':
     'Every shore keeps its own accounts — an account from the Test Shore does not exist on Midgard.',
+  'account.shore.short.dev': 'Test Shore',
+  'account.shore.short.live': 'Midgard',
   'account.without_js':
     'Submitting this form needs JavaScript. Without scripting the page stays readable — it simply shows no button that would do nothing anyway.',
   'account.logout': 'Sign out',

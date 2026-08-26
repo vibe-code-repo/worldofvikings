@@ -5,6 +5,15 @@
   import { holeJson } from '$lib/formate';
   import { FAHRT } from '$lib/seiten';
   import { localeFrom, localizedPath, messages } from '$lib/i18n';
+  import {
+    SHORE_HINT,
+    SHORE_IDS,
+    SHORE_LABEL,
+    SHORE_SHORT,
+    type ShoreId,
+    readShore,
+    writeShore,
+  } from '$lib/account';
 
   /**
    * Die Halle als Tor.
@@ -67,10 +76,92 @@
   let welten = $state<Welt[] | null>(null);
   let weltenFehler = $state(false);
 
-  /** Die Welt, die der Auslöser zeigt: Midgard, sonst die erste. */
-  const aktiv = $derived(welten?.find((w) => w.id === 'midgard') ?? welten?.[0] ?? null);
+  /* --------------------------------------------------------- Gestadewahl */
+
+  /**
+   * Das gewählte Gestade — was der SPIELEN-Knopf ansteuert.
+   *
+   * Vorgabe ist `dev` wie überall sonst im Einstieg (/erstellen, /anmelden,
+   * /registrieren lesen dieselbe Angabe unter `wov-gestade`). Die Halle
+   * nennt damit dasselbe Gestade, in das ihr Knopf führt; stünde hier fest
+   * „Midgard“, wäre die Überschrift genau die Behauptung, die dieser Umbau
+   * beseitigt — Midgard nimmt bis heute keine Konten an (kein `/accounts/`
+   * am Live-Host, nachgemessen am 26.08.2026).
+   *
+   * Gelesen wird die gemerkte Wahl erst im Browser: In der vorgerenderten
+   * Datei steht die Vorgabe, und wer zuletzt Midgard gewählt hat, sieht sie
+   * nach der Hydration.
+   */
+  let gestade = $state<ShoreId>('dev');
+
+  /** Ob der Aufklapper offen steht — zum Zumachen nach der Wahl. */
+  let offen = $state(false);
+
+  /**
+   * Welche Welt zu welchem Gestade gehört.
+   *
+   * `/api/welt.json` ist bis heute eine DEMO-Datei auf der Webseite selbst
+   * (ihr eigenes `_hinweis`-Feld sagt das) und kein Abruf beim Gestade — sie
+   * führt deshalb keine Gestade-Kennung, und die Zuordnung steht hier, an
+   * einer Stelle und sichtbar. Sobald ein Gestade seinen Zustand selbst
+   * meldet, fällt diese Tabelle weg und jede Zeile fragt ihren eigenen
+   * Server.
+   *
+   * Eine Welt ohne Gestade wird hier nicht gezeigt; die vollständige Liste
+   * steht auf der Karte.
+   */
+  const WELT_JE_GESTADE: Record<ShoreId, string> = { live: 'midgard', dev: 'bau' };
+
+  function weltVon(s: ShoreId): Welt | null {
+    return welten?.find((w) => w.id === WELT_JE_GESTADE[s]) ?? null;
+  }
+
+  /**
+   * Die kleine Zeile unter dem Namen.
+   *
+   * Zahlen nur, wo welche bekannt sind. Ist die Liste noch unterwegs oder
+   * ausgefallen, steht dort der Satz, der das Gestade beschreibt — und keine
+   * Ampel-Behauptung über einen Server, den niemand gefragt hat.
+   */
+  function zustandsZeile(s: ShoreId): string {
+    const w = weltVon(s);
+    if (w) {
+      return `${w.spieler} ${t['hall.hero.ribbon.of']} ${w.plaetze} ${t['hall.hero.ribbon.underway']} · ${w.weltzeit}`;
+    }
+    if (welten === null && !weltenFehler) return t['hall.hero.ribbon.checking'];
+    return t[SHORE_HINT[s]];
+  }
+
+  /** Die Plakette rechts in der Zeile: Zahlen, „zu“ — oder nichts. */
+  function plakette(s: ShoreId): string {
+    const w = weltVon(s);
+    if (!w) return '';
+    if (w.zustand !== 'offen') return t['hall.gate.world_badge_closed'];
+    return `${w.spieler}/${w.plaetze} ${t['hall.worlds.state_open']}`;
+  }
+
+  /**
+   * Der Weg ins Spiel für ein Gestade.
+   *
+   * Die Wahl steht als Parameter in der Adresse und nicht nur im
+   * Zwischenspeicher: Ohne JavaScript ist das der EINZIGE Weg, auf dem sie
+   * ankommt — dann ist jede Zeile ein gewöhnlicher Link, und keine
+   * Schaltfläche, die nichts tut.
+   */
+  const spielPfad = $derived.by(() => (s: ShoreId) => `${p(FAHRT)}?shore=${s}`);
+
+  function waehle(e: MouseEvent, s: ShoreId) {
+    // Mit Skript wird gewählt statt gesprungen; die Adresse im href bleibt
+    // trotzdem richtig, für Mittelklick, „in neuem Tab öffnen“ und ohne JS.
+    e.preventDefault();
+    gestade = s;
+    writeShore(s);
+    offen = false;
+  }
 
   onMount(() => {
+    gestade = readShore() ?? 'dev';
+
     void (async () => {
       try {
         welten = (await holeJson<{ welten?: Welt[] }>('/api/welt.json')).welten ?? [];
@@ -120,79 +211,81 @@
 
   <div class="gate-panel">
     <!--
-      Die Weltanzeige ist ein natives <details>. Ein Umschalter aus
+      Die Gestadewahl ist ein natives <details>. Ein Umschalter aus
       JavaScript bliebe ohne JavaScript für immer zu — das Aufklappen ist
       hier Sache des Browsers, und der Inhalt steht im HTML.
 
-      Sie WÄHLT nichts aus: eine Weltwahl gibt es im Spielfluss (noch) nicht,
-      der Knopf führt in die Figurenwahl. Sie zeigt, was los ist. Deshalb
-      Zeilen und keine Schaltflächen — ein Knopf, der nichts tut, wäre eine
-      Behauptung.
+      Sie WÄHLT seit dem 26.08.2026 auch aus. Vorher zeigte sie nur die
+      Weltliste, und ihr Kopfkommentar begründete das damit, dass ein Knopf,
+      der nichts tut, eine Behauptung wäre. Das gilt weiter — deshalb ist
+      jede Zeile ein LINK auf den Einstieg dieses Gestades und keine
+      Schaltfläche: Ohne Skript führt sie dorthin, mit Skript wählt sie
+      (`waehle` hält den Sprung an), und in beiden Fällen kommt die Wahl als
+      `?shore=` bei `/erstellen` an.
+
+      Die Zeilen sind die GESTADE, nicht mehr die Welten. Gewählt wird der
+      Server, an dem das Konto liegt; welche Welt darauf läuft, steht als
+      Zahlenzeile daneben, solange die Zuordnung bekannt ist. Die
+      vollständige Weltliste steht auf der Karte.
     -->
-    <details class="world-switch">
+    <details class="world-switch" bind:open={offen}>
       <summary>
-        <span class="bifroest" data-zustand={aktiv?.zustand} aria-hidden="true">
+        <span class="bifroest" data-zustand={weltVon(gestade)?.zustand} aria-hidden="true">
           <span class="ampel"></span>
         </span>
         <span class="world-switch-labels">
-          <span class="world-switch-name">{aktiv ? aktiv.name : t['hall.worlds.title']}</span>
+          <span class="world-switch-name">{t[SHORE_SHORT[gestade]]}</span>
           <!--
             Zahlen und Name stehen NEBEN den Textbausteinen, nicht in ihnen:
             „3 von 10 auf Fahrt“ ist im Katalog drei kurze Wörter und kein
             Satz mit Platzhaltern, die jemand falsch zählen könnte.
           -->
-          <span class="world-switch-state">
-            {#if aktiv}
-              {aktiv.spieler}
-              {t['hall.hero.ribbon.of']}
-              {aktiv.plaetze}
-              {t['hall.hero.ribbon.underway']} · {aktiv.weltzeit}
-            {:else if weltenFehler}
-              {t['hall.worlds.error']}
-            {:else}
-              {t['hall.hero.ribbon.checking']}
-            {/if}
-          </span>
+          <span class="world-switch-state">{zustandsZeile(gestade)}</span>
         </span>
         <span class="world-switch-arrow" aria-hidden="true">▾</span>
       </summary>
 
       <div class="world-switch-panel">
         {#if weltenFehler}
+          <!-- Die Wahl bleibt trotzdem stehen: Welches Gestade man ansteuert,
+               hängt nicht daran, ob die Weltliste gerade zu holen war. -->
           <p class="world-switch-note">{t['hall.worlds.error']}</p>
-        {:else if welten === null}
-          <p class="world-switch-note">{t['hall.worlds.loading']}</p>
-        {:else}
-          <ul class="world-list">
-            {#each welten as w (w.id)}
-              <li>
-                <span class="bifroest" data-zustand={w.zustand} aria-hidden="true">
+        {/if}
+        <ul class="world-list" aria-label={t['hall.gate.shore.aria']}>
+          {#each SHORE_IDS as s (s)}
+            <li>
+              <a
+                class="world-row"
+                href={spielPfad(s)}
+                aria-current={s === gestade ? 'true' : undefined}
+                onclick={(e) => waehle(e, s)}
+              >
+                <span class="bifroest" data-zustand={weltVon(s)?.zustand} aria-hidden="true">
                   <span class="ampel"></span>
                 </span>
                 <span class="world-row-labels">
-                  <span class="world-row-name">{w.name}</span>
-                  <span class="world-row-sub">{w.art}</span>
+                  <span class="world-row-name">
+                    {t[SHORE_LABEL[s]]}
+                    {#if s === gestade}
+                      <span class="nur-vorlesen">({t['hall.gate.shore.chosen']})</span>
+                    {/if}
+                  </span>
+                  <span class="world-row-sub">{zustandsZeile(s)}</span>
                 </span>
-                <span class="world-row-badge">
-                  {#if w.zustand === 'offen'}
-                    {w.spieler}/{w.plaetze}
-                    {t['hall.worlds.state_open']}
-                  {:else}
-                    {t['hall.gate.world_badge_closed']}
-                  {/if}
-                </span>
-              </li>
-            {/each}
-          </ul>
-        {/if}
+                <span class="world-row-badge">{plakette(s)}</span>
+              </a>
+            </li>
+          {/each}
+        </ul>
       </div>
     </details>
 
     <!--
       Führt in die Charaktererstellung, nicht direkt ins Spiel — wie der alte
-      Knopf „Auf Fahrt gehen“. Nur Beschriftung und Gewicht ändern sich.
+      Knopf „Auf Fahrt gehen“. Das gewählte Gestade reist als Parameter mit,
+      damit die Wahl auch ohne Zwischenspeicher ankommt.
     -->
-    <a class="gate-play" href={p(FAHRT)}>{t['hall.gate.play_button']}</a>
+    <a class="gate-play" href={spielPfad(gestade)}>{t['hall.gate.play_button']}</a>
 
     <div class="gate-rule" aria-hidden="true"></div>
 
@@ -409,15 +502,43 @@
     list-style: none;
   }
 
-  .world-list li {
+  /* Der Trennstrich sitzt ZWISCHEN den Zeilen, nicht unter jeder: Der
+     Zeileninhalt ist jetzt ein Link, und ein unterer Rand am letzten
+     schnitte die Fläche mitten durch die Rundung des Aufklappers. */
+  .world-list li + li {
+    border-top: 1px solid color-mix(in srgb, var(--umriss-matt) 50%, transparent);
+  }
+
+  /*
+    Die ganze Zeile ist die Klickfläche, nicht nur der Name — auf dem
+    Telefon ist das der Unterschied zwischen treffen und zielen.
+  */
+  .world-row {
     display: flex;
     align-items: center;
     gap: 0.8rem;
     padding: 0.8rem 1rem;
-    border-bottom: 1px solid color-mix(in srgb, var(--umriss-matt) 50%, transparent);
-  }
-  .world-list li:last-child {
+    color: var(--text);
     border-bottom: none;
+    transition: background-color 0.18s ease;
+  }
+
+  .world-row:hover {
+    background: rgba(242, 202, 80, 0.08);
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  /* Die getroffene Wahl trägt Gold: ein Balken an der Kante und der Name
+     in der Leitfarbe. Farbe allein wäre zu wenig — der Balken steht
+     daneben, und für Vorleser sagt es `aria-current` samt „gewählt“. */
+  .world-row[aria-current] {
+    background: rgba(242, 202, 80, 0.12);
+    box-shadow: inset 3px 0 0 var(--runengold);
+  }
+
+  .world-row[aria-current] .world-row-name {
+    color: var(--primaer);
   }
 
   .world-row-labels {
@@ -543,6 +664,7 @@
      Weltanzeige pulst aus wov.css heraus. */
   @media (prefers-reduced-motion: reduce) {
     .world-switch-arrow,
+    .world-row,
     .gate-play {
       transition: none;
     }

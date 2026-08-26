@@ -13,6 +13,7 @@
     errorMessageKey,
     login,
     readShore,
+    writeAccountName,
     writeShore,
     writeToken,
   } from '$lib/account';
@@ -76,6 +77,9 @@
       const answer = await login(shore, username.trim(), password);
       writeToken(shore, answer.token);
       writeShore(shore);
+      // Für die Kopfleiste, die auf jeder Seite steht und den Namen sonst
+      // einzeln beim Gestade erfragen müsste — Begründung in `account.ts`.
+      writeAccountName(shore, answer.account.username);
       password = '';
       /*
         Whoever has no character yet does not want to see an empty list but

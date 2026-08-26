@@ -29,20 +29,18 @@
  *    Registry legt den Eintrag selbst an (`prefabs.ts`, Schleife über
  *    `DUNGEONS`), der Name muss zusätzlich in `EIGENE_MODELLE` stehen.
  *
- * ── Warum zunächst genau EIN Bauteil ─────────────────────────────────
- * Das erste Teil beantwortet die Frage, die keine Liste beantwortet:
- * trägt die Kette vom Blender-Export bis zum begehbaren Raum? Klemmt es,
- * findet man die Stelle mit einem Teil und nicht mit sieben. Der
- * Generator baut aus diesem Kit deshalb einen Dungeon aus einem einzigen
- * Raum — er wählt Folgeräume ausdrücklich unter den NICHT-Eingangsräumen
- * aus (`dungeonGenerator.ts`), und andere gibt es hier noch nicht. Im
- * Karteneditor lässt sich der Gang trotzdem aneinanderreihen: `attachRoom`
- * kennt diese Einschränkung nicht.
+ * ── Stand des Startsatzes ────────────────────────────────────────────
+ * Gebaut sind Gang, Ecke, Endkappe, Kreuzung und die Türöffnung. Es
+ * fehlen **Raum** und **Treppe**; sie kommen als eigene Einträge dazu,
+ * sobald ihre Modelle stehen.
  *
- * Die weiteren sechs Teile des Startsatzes (Ecke, Kreuzung, Raum,
- * Türöffnung, Treppe, Endkappe) kommen als eigene Einträge dazu, sobald
- * ihre Modelle stehen.
+ * `SteingrabGang` und `SteingrabGangDurch` sind DASSELBE Modell in zwei
+ * Rollen — der Generator wählt Folgeräume ausdrücklich unter den
+ * NICHT-Eingangsräumen aus, und ohne die zweite Rolle könnte der einzige
+ * gerade Gang nie ein zweites Mal gesetzt werden. Die Datei dahinter
+ * teilen sie über `MODELL_ALIAS`.
  */
+import { getStableHash } from './hash.js';
 import type { Quaternion, Vector3 } from './types.js';
 
 /*
@@ -131,10 +129,10 @@ export interface EigenesKitJson {
 /**
  * Das Steingrab — erstes eigenes Kit.
  *
- * `doorTypes` ist leer, solange kein Türmodell existiert: Ein Türtyp ohne
- * GLB setzte unsichtbare Türen in jeden Durchgang, und die stünden dann
- * als Hash im gespeicherten Dokument, wo sie später niemand mehr von
- * echten unterscheidet.
+ * `doorTypes` trägt seit dem 26.08.2026 die Türöffnung. Vorher war es
+ * bewusst leer: Ein Türtyp ohne GLB setzte unsichtbare Türen in jeden
+ * Durchgang, und die stünden als Hash im gespeicherten Dokument, wo sie
+ * später niemand mehr von echten unterscheidet.
  *
  * `interiorPosition` bleibt null. Das Feld trägt in der Vorlage den
  * Versatz innerhalb eines Location-Prefabs; im Projekt liest es niemand
@@ -150,8 +148,34 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
     alternativeFunctionality: false,
     campRadiusMax: 0,
     campRadiusMin: 0,
-    doorChance: 0,
-    doorTypes: [],
+    /*
+      Wie oft eine Verbindung eine Tuer bekommt, wenn der Tuertyp selbst
+      keine eigene Wahrscheinlichkeit mitbringt. Nicht jede: Ein Grab, in
+      dem hinter jedem Durchgang ein Sturz steht, liest sich wie ein
+      Buerogang.
+    */
+    doorChance: 0.35,
+    doorTypes: [
+      {
+        /*
+          Die Tueroeffnung. Sie ist KEIN Raum und steht deshalb hier statt
+          in `rooms`: `placeDoors` im Generator setzt sie auf
+          `connection.pos` mit `connection.rot`, also genau in die
+          Kopplungsebene zwischen zwei Raeumen.
+
+          `chance: 0` heisst nicht "nie", sondern "keine eigene
+          Wahrscheinlichkeit" — dann entscheidet `doorChance` des Kits.
+          So liest der Generator es (`doorDef.chance <= 0 || ...`).
+
+          Der leere `connectionType` passt auf die Connectors aller
+          eigenen Raeume; die tragen ebenfalls den leeren Typ.
+        */
+        prefabName: 'SteingrabTuer',
+        prefabHash: getStableHash('SteingrabTuer'),
+        connectionType: '',
+        chance: 0,
+      },
+    ],
     gridSize: 4,
     // Zahl der VERSUCHE, nicht der Räume — so heisst das Feld in der
     // Vorlage, und so wertet der Generator es aus.

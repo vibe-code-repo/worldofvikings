@@ -174,7 +174,7 @@ def lagenzahl():
 
 
 def mauerwerk_flaeche(kennung, achse, ebene, richtung, von, bis, teile,
-                      kuerzung=None):
+                      kuerzung=None, lage_von=0, lage_bis=None):
     """
     Behauene Quader im Laeuferverband auf EINE senkrechte Wandflaeche.
 
@@ -192,7 +192,10 @@ def mauerwerk_flaeche(kennung, achse, ebene, richtung, von, bis, teile,
     Lage an ihren Enden verkuerzt wird. Damit entsteht die Verzahnung an
     einer Innenecke: Mal laeuft die eine Wand durch, mal die andere.
     """
-    for lage in range(lagenzahl()):
+    # `lage_von`/`lage_bis` grenzen die Hoehe ein. Gebraucht wird das von
+    # der Tueroeffnung: Unter dem Sturz steht auf der Breite des Durchgangs
+    # kein Stein, darueber schon.
+    for lage in range(lage_von, lage_bis if lage_bis is not None else lagenzahl()):
         z0 = lage * LAGENHOEHE
         kurz_v, kurz_h = kuerzung(lage) if kuerzung else (0.0, 0.0)
         anfang, ende = von + kurz_v, bis - kurz_h
@@ -599,6 +602,86 @@ def baue_kreuzung():
     }
 
 
+def baue_tuer():
+    """
+    Die Tueroeffnung — und das einzige Teil, das KEIN Raum ist.
+
+    ── Warum sie anders funktioniert als alles bisherige ─────────────
+    Raeume setzt der Generator an Connectors. Tueren setzt er IN sie:
+    `placeDoors` schreibt `pos: connection.pos, rot: connection.rot`,
+    also genau in die Kopplungsebene zwischen zwei Raeumen, auf
+    Bodenhoehe und mit der Blickrichtung des Connectors. Der Ursprung
+    dieses Teils gehoert deshalb in die Mitte des Durchgangs auf y = 0,
+    und die Wand steht in der Ebene x/z — duenn in Blenders y, weil aus
+    -y beim Export das +z des Connectors wird.
+
+    Es steht folglich nicht in `rooms`, sondern in `doorTypes` des Kits.
+    Solange das leer war, konnte kein erzeugter Dungeon eine Tuer haben.
+
+    ── Die Masse kommen aus dem Durchgang, nicht aus dem Geschmack ───
+    Der Durchgang ist 3,50 m breit (Huelle 4 m minus zwei Waende) und
+    3,60 m hoch (bis zur Deckenunterkante). Genau das fuellt die
+    Tuerwand aus — sie schliesst den Querschnitt und laesst in der
+    Mitte eine Oeffnung von 1,60 x 2,40 m. Die 2,40 m sind vier
+    Steinlagen, keine gerundete Zahl: Der Sturz liegt dadurch auf einer
+    Lagenfuge und nicht mitten in einem Stein.
+
+    ── Der Sturz ist EIN Stein ──────────────────────────────────────
+    Ueber der Oeffnung liegt kein Verband, sondern ein durchgehender
+    Block von Wange zu Wange. So traegt ein Steingrab eine Oeffnung —
+    und ein Verband, der ueber 1,60 m frei spannt, waere gelogen.
+    """
+    durchgang = BREITE - 2 * WANDSTAERKE          # 3,50 m
+    hoehe = HOEHE - DECKENSTAERKE                 # 3,60 m
+    halb = durchgang / 2
+    oeffnung_halb = 0.80                          # 1,60 m lichte Breite
+    sturz_lage = 4                                # 4 x 0,60 m = 2,40 m
+    sturz_z = sturz_lage * LAGENHOEHE
+    dicke = 0.30                                  # halb in jedem Nachbarraum
+    halbe_dicke = dicke / 2
+
+    teile = [
+        # Tragende Wangen und das Feld ueber der Oeffnung.
+        quader('WangeLinks',
+               (-(halb + oeffnung_halb) / 2, 0, hoehe / 2),
+               (halb - oeffnung_halb, dicke, hoehe)),
+        quader('WangeRechts',
+               ((halb + oeffnung_halb) / 2, 0, hoehe / 2),
+               (halb - oeffnung_halb, dicke, hoehe)),
+        quader('Feld',
+               (0, 0, (sturz_z + hoehe) / 2),
+               (2 * oeffnung_halb, dicke, hoehe - sturz_z)),
+    ]
+
+    # Mauerwerk auf BEIDE Seiten: Eine Tuer wird von vorn und von hinten
+    # gesehen, und die Rueckseite ist der Nachbarraum.
+    for seite in (-1, +1):
+        ebene = seite * halbe_dicke
+        richtung = seite
+        kennung = f'T{"V" if seite > 0 else "H"}'
+        # Wangen ueber die volle Hoehe.
+        mauerwerk_flaeche(f'{kennung}L', 'y', ebene, richtung, -halb, -oeffnung_halb, teile)
+        mauerwerk_flaeche(f'{kennung}R', 'y', ebene, richtung, oeffnung_halb, halb, teile)
+        # Ueber dem Sturz weiter im Verband, aber erst ab der Lage darueber.
+        mauerwerk_flaeche(f'{kennung}O', 'y', ebene, richtung, -halb, halb, teile,
+                          lage_von=sturz_lage + 1)
+        # Der Sturz selbst: ein Stein von Wange zu Wange.
+        vor = VORSPRUNG + UEBERDECKUNG
+        teile.append(quader(
+            f'Sturz{kennung}',
+            (0, ebene + richtung * (vor / 2 - UEBERDECKUNG / 2), sturz_z + LAGENHOEHE / 2),
+            (2 * halb - FUGE, vor, LAGENHOEHE - FUGE),
+        ))
+
+    return teile, {
+        'soll_x': durchgang,
+        'soll_y': dicke,
+        'lichte_breite': 2 * oeffnung_halb,
+        'oeffnungen': f'{2 * oeffnung_halb:.2f} x {sturz_z:.2f} m Durchgang, Sturz auf {sturz_z:.2f} m',
+        'raster_pruefen': False,
+    }
+
+
 def messen(obj):
     """
     Nachmessen statt annehmen.
@@ -626,9 +709,9 @@ def main():
     leere_szene()
 
     bauer = {'gang': baue_gang, 'ecke': baue_ecke, 'endkappe': baue_endkappe,
-             'kreuzung': baue_kreuzung}.get(TEIL)
+             'kreuzung': baue_kreuzung, 'tuer': baue_tuer}.get(TEIL)
     if bauer is None:
-        raise SystemExit(f'Unbekanntes Teil: {TEIL} (bekannt: gang, ecke, endkappe, kreuzung)')
+        raise SystemExit(f'Unbekanntes Teil: {TEIL} (bekannt: gang, ecke, endkappe, kreuzung, tuer)')
 
     teile, angaben = bauer()
     obj = vereinen(teile, NAME)
@@ -666,8 +749,18 @@ def main():
     print(f'FERTIG {ziel_pfad} — {dreiecke} Dreiecke, {groesse:.3f} MB')
     print(f'  Aussenmass  x {masse["x"][0]:+.3f} … {masse["x"][1]:+.3f}  '
           f'({masse["x"][1] - masse["x"][0]:.3f} m, Soll {soll_x:.3f})')
-    print(f'  Tiefe       y {masse["y"][0]:+.3f} … {masse["y"][1]:+.3f}  '
-          f'({masse["y"][1] - masse["y"][0]:.3f} m, Soll {soll_y:.3f})')
+    if angaben.get('raster_pruefen', True):
+        print(f'  Tiefe       y {masse["y"][0]:+.3f} … {masse["y"][1]:+.3f}  '
+              f'({masse["y"][1] - masse["y"][0]:.3f} m, Soll {soll_y:.3f})')
+    else:
+        # Bei der Tuer ist `soll_y` der KERN. Das Mauerwerk steht beidseits
+        # davor, die gemessene Tiefe ist deshalb groesser — kein Fehler,
+        # sondern der Verband. Ein "Soll" danebenzuschreiben, das die
+        # Messung nie trifft, waere eine Zeile, die jeder Leser einmal
+        # nachrechnet und dann kuenftig ueberliest.
+        print(f'  Tiefe       y {masse["y"][0]:+.3f} … {masse["y"][1]:+.3f}  '
+              f'({masse["y"][1] - masse["y"][0]:.3f} m — Kern {soll_y:.2f} m '
+              f'plus Mauerwerk beidseits)')
     print(f'  Hoehe       z {masse["z"][0]:+.3f} … {masse["z"][1]:+.3f}  '
           f'(Bodenflaeche auf 0, Decke auf {HOEHE:.3f})')
     print(f'  lichte Weite: {angaben["lichte_breite"]:.3f} m, '
@@ -678,6 +771,15 @@ def main():
     # Vielfaches von RASTER sein. Faellt das hier durch, faellt es sonst
     # erst in `shared/test/dungeon-raster.ts` auf — nach dem Kopieren,
     # nach dem Eintragen, drei Schritte zu spaet.
+    #
+    # Nicht fuer die Tuer: Sie ist kein Raum, sondern steht IN der Fuge
+    # zwischen zweien. Ihre Masse kommen aus dem Durchgang (3,50 x 3,60 m),
+    # und das ist mit Absicht kein Rastervielfaches — das Raster gilt fuer
+    # Huellboxen von Raeumen, und `dungeonRaster.ts` prueft auch nur die.
+    if not angaben.get('raster_pruefen', True):
+        print('  Raster:       entfaellt — Tuer ist kein Raum, sondern sitzt in der Fuge')
+        return
+
     for achse, soll in (('x', soll_x), ('y', soll_y)):
         gemessen = masse[achse][1] - masse[achse][0]
         if abs(gemessen - soll) > 0.0005 or abs(soll % RASTER) > 0.0005:

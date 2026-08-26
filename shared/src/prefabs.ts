@@ -510,6 +510,21 @@ export const HINT_DEFS: PrefabDef[] = [
     localScale: { x: 1.25, y: 1.25, z: 1.25 } },
   { ...def('GrabDrachenkopf', F.PERSISTENT, 'guardstone', 0.5, 1.6, 'GrabDrachenkopf'),
     localScale: { x: 1.6, y: 1.6, z: 1.6 } },
+  /*
+    Die Tueroeffnung des Kits `DG_Steingrab`.
+
+    Sie MUSS von Hand hier stehen, waehrend die Raeume desselben Kits
+    automatisch in die Registry wandern: Die Schleife weiter unten laeuft
+    ueber `DUNGEONS` und traegt deren `rooms` ein — Tueren stehen aber in
+    `doorTypes`, und die sieht sie nicht. Fehlt der Eintrag, erzeugt der
+    Server beim Materialisieren ein ZDO mit einem Hash, zu dem der Client
+    kein Modell findet: eine unsichtbare Tuer, die niemanden aufhaelt und
+    in keiner Fehlermeldung auftaucht.
+
+    PERSISTENT aus demselben Grund wie bei den Raumhuellen; im
+    Instanz-Band wird ohnehin nichts gespeichert.
+  */
+  { ...def('SteingrabTuer', F.PERSISTENT, null, 3.5, 3.6, 'SteingrabTuer') },
   // Zweiter Baumversuch mit v3.1 und 15.000 face_limit (KiPine2 lief noch auf
   // v2.5). Die Textur ist deutlich besser — Farben stimmen, Rinde stellenweise
   // erkennbar —, bleibt aber ein Flickenteppich: Anders als beim Steinkreis
@@ -1045,6 +1060,8 @@ export const EIGENE_MODELLE: readonly string[] = [
   'SteingrabEcke',
   'SteingrabEndkappe',
   'SteingrabKreuzung',
+  // Kein Raum, sondern der Tuertyp des Kits — Eintrag in HINT_DEFS oben.
+  'SteingrabTuer',
 ];
 
 /**

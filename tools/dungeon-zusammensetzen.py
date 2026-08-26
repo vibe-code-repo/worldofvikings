@@ -79,7 +79,10 @@ ALIAS = dict(
 bpy.ops.wm.read_factory_settings(use_empty=True)
 
 with open(LAYOUT, encoding='utf-8') as f:
-    raeume = json.load(f)
+    geladen = json.load(f)
+# Aeltere Ablagen sind eine blosse Raumliste; neuere tragen {rooms, doors}.
+raeume = geladen['rooms'] if isinstance(geladen, dict) else geladen
+tueren = geladen.get('doors', []) if isinstance(geladen, dict) else []
 
 # Jedes Modell EINMAL laden, danach nur noch Kopien mit gemeinsamen
 # Netzdaten. Sechs volle Importe waeren sechsmal dieselbe Geometrie im
@@ -148,6 +151,25 @@ for i, r in enumerate(raeume):
     kopie.name = f'{r["room"]}_{i}'
     gesetzt += 1
 
+# Tueren sitzen NICHT an einem Connector, sondern IN ihm: Der Generator
+# schreibt ihnen `connection.pos` und `connection.rot`, also die
+# Kopplungsebene zwischen zwei Raeumen. Genau deshalb gehoeren sie in
+# dieses Bild — steht eine Tuer quer, ist das Modell in der falschen
+# Ebene gebaut, und im Zahlenwerk sieht man davon nichts.
+gesetzte_tueren = 0
+for i, t in enumerate(tueren):
+    quelle = vorlage(t['prefabName'])
+    kopie = quelle.copy()
+    kopie.hide_render = False
+    bpy.context.collection.objects.link(kopie)
+    p = t['pos']
+    kopie.location = Vector((p['x'], -p['z'], p['y']))
+    q = t['rot']
+    kopie.rotation_mode = 'QUATERNION'
+    kopie.rotation_quaternion = Quaternion((q['w'], q['x'], -q['z'], q['y']))
+    kopie.name = f'{t["prefabName"]}_{i}'
+    gesetzte_tueren += 1
+
 netze = [o for o in bpy.context.scene.objects if o.type == 'MESH' and not o.hide_render]
 ecken = [o.matrix_world @ Vector(e) for o in netze for e in o.bound_box]
 mitte = Vector((
@@ -161,10 +183,25 @@ spanne = max(
 )
 
 if INNEN:
-    bpy.ops.object.camera_add(location=mitte + Vector((0, 0, 1.7)))
+    # Augenhoehe der Figur, Blick die laengste Achse hinunter.
+    laengs_x = (max(p.x for p in ecken) - min(p.x for p in ecken)) >= \
+               (max(p.y for p in ecken) - min(p.y for p in ecken))
+    anfang = (min(p.x for p in ecken) if laengs_x else min(p.y for p in ecken)) + 1.2
+    stand = Vector((anfang, mitte.y, 1.7)) if laengs_x else Vector((mitte.x, anfang, 1.7))
+    ziel = Vector((mitte.x * 2, mitte.y, 1.55)) if laengs_x else Vector((mitte.x, mitte.y * 2, 1.55))
+    bpy.ops.object.camera_add(location=stand)
     kam = bpy.context.object
     kam.data.lens = 22
-    kam.rotation_euler = (math.radians(85), 0, math.radians(35))
+    kam.rotation_euler = (ziel - stand).to_track_quat('-Z', 'Y').to_euler()
+
+    # Eine Fackel, denn drinnen ist drinnen: Sonne und Flaechenlicht
+    # stehen ueber der Decke und kommen nicht herein. Der erste Lauf
+    # dieses Zweigs lieferte ein vollstaendig schwarzes Bild.
+    bpy.ops.object.light_add(type='POINT', location=stand + Vector((0, 0, 0.4)))
+    fackel = bpy.context.object
+    fackel.data.energy = 600
+    fackel.data.color = (1.0, 0.72, 0.42)
+    fackel.data.shadow_soft_size = 0.3
 else:
     # Von oben, leicht gekippt: Senkrecht von oben saehe man die Waende
     # gar nicht, und ob zwei Teile buendig stossen, entscheidet sich an
@@ -203,5 +240,6 @@ szene.view_settings.look = 'AgX - Base Contrast'
 bpy.ops.render.render(write_still=True)
 
 dreiecke = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in netze)
-print(f'\nZUSAMMENBAU {OUT} — {gesetzt} Raeume aus {len(vorlagen)} Bauteilen, '
-      f'{dreiecke} Dreiecke, Ausdehnung {spanne:.1f} m')
+print(f'\nZUSAMMENBAU {OUT} — {gesetzt} Raeume und {gesetzte_tueren} Tuer(en) '
+      f'aus {len(vorlagen)} Bauteilen, {dreiecke} Dreiecke, '
+      f'Ausdehnung {spanne:.1f} m')

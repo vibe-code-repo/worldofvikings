@@ -70,10 +70,22 @@ hoehe = maxz - minz
 
 # Kamera kurz hinter dem einen Durchgang, leicht aus der Mitte, damit
 # beide Waende im Bild sind und die Flucht nicht symmetrisch einschlaeft.
-bpy.ops.object.camera_add(location=(0.55, miny + 0.4, AUGENHOEHE))
+#
+# Bei einem Teil, das nicht gerade durchlaeuft, stimmt dieser Standpunkt
+# nicht: In einer 4-m-Ecke steht die Kamera dann an der Wand. `--stand`
+# und `--blick` setzen ihn deshalb von aussen, jeweils als "x,y,z".
+def punkt(text, vorgabe):
+    if not text:
+        return vorgabe
+    a, b, c = (float(v) for v in text.split(','))
+    return Vector((a, b, c))
+
+
+stand = punkt(arg('stand'), Vector((0.55, miny + 0.4, AUGENHOEHE)))
+bpy.ops.object.camera_add(location=stand)
 kam = bpy.context.object
 kam.data.lens = 24  # weit, wie eine Spielkamera — sonst wirkt der Gang eng
-ziel = Vector((-0.2, maxy, AUGENHOEHE * 0.92))
+ziel = punkt(arg('blick'), Vector((-0.2, maxy, AUGENHOEHE * 0.92)))
 kam.rotation_euler = (ziel - kam.location).to_track_quat('-Z', 'Y').to_euler()
 bpy.context.scene.camera = kam
 

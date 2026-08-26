@@ -161,61 +161,72 @@ def streuung(*schluessel):
     """
     h = 2166136261
     for k in schluessel:
-        h = (h ^ (int(k) & 0xFFFFFFFF)) * 16777619 & 0xFFFFFFFF
+        # Kennungen sind Zeichenketten ('WL', 'EN'), Indizes sind Zahlen.
+        zahlen = [ord(c) for c in k] if isinstance(k, str) else [int(k)]
+        for z in zahlen:
+            h = (h ^ (z & 0xFFFFFFFF)) * 16777619 & 0xFFFFFFFF
     return (h / 0xFFFFFFFF) * 2.0 - 1.0
 
 
-def mauerwerk_wand(seite, teile):
-    """
-    Behauene Quader im Laeuferverband auf EINE Wandinnenseite.
+def lagenzahl():
+    """Wie viele Steinlagen zwischen Boden und Decke passen."""
+    return int(round((HOEHE - DECKENSTAERKE) / LAGENHOEHE))
 
-    Der Verband: Jede zweite Lage ist um einen halben Stein versetzt. An
-    den Enden entstehen dadurch halbe Steine — genau wie beim echten
-    Mauern, und wichtig fuers Kit: Die Lagen enden buendig bei y = ±4,
-    damit die Fugen zweier aneinandergesetzter Gaenge durchlaufen und
-    kein Stein ueber die Kopplungsfuge hinausragt.
-    """
-    lagen = int(round((HOEHE - DECKENSTAERKE) / LAGENHOEHE))
-    innen = BREITE / 2 - WANDSTAERKE
-    # Vorzeichen: -1 ist die linke Wand, +1 die rechte. Die Quader stehen
-    # zur Gangmitte hin vor, also entgegen der Wandnormalen.
-    richtung = -seite
 
-    for lage in range(lagen):
+def mauerwerk_flaeche(kennung, achse, ebene, richtung, von, bis, teile,
+                      kuerzung=None):
+    """
+    Behauene Quader im Laeuferverband auf EINE senkrechte Wandflaeche.
+
+    `achse` ist die Achse, auf der die Wandnormale liegt ('x' oder 'y');
+    gemauert wird entlang der jeweils anderen. `ebene` ist die Innenflaeche
+    der tragenden Wand, `richtung` (+1/-1) zeigt in den Raum hinein.
+
+    Der Verband: Jede zweite Lage ist um einen halben Stein versetzt, und
+    jede Lage mischt drei Steinlaengen. An den Enden entstehen dadurch
+    halbe Steine — genau wie beim echten Mauern, und wichtig fuers Kit:
+    Die Lagen enden IMMER buendig bei `von` und `bis`, sonst ragte ein
+    Stein ueber die Kopplungsfuge ins Nachbarteil.
+
+    `kuerzung(lage)` liefert je Lage ein Paar (vorn, hinten), um das die
+    Lage an ihren Enden verkuerzt wird. Damit entsteht die Verzahnung an
+    einer Innenecke: Mal laeuft die eine Wand durch, mal die andere.
+    """
+    for lage in range(lagenzahl()):
         z0 = lage * LAGENHOEHE
+        kurz_v, kurz_h = kuerzung(lage) if kuerzung else (0.0, 0.0)
+        anfang, ende = von + kurz_v, bis - kurz_h
         versatz = (QUADERLAENGE / 2) if lage % 2 else 0.0
-        # Von der linken Kante durchgehen und an y = ±LAENGE/2 abschneiden.
-        # Die Lage endet dadurch IMMER buendig, auch wenn die Steine
-        # unterschiedlich lang sind — sonst ragte einer ueber die
-        # Kopplungsfuge zum Nachbarteil hinaus.
-        y = -LAENGE / 2 - versatz
+        s = anfang - versatz
         stein = 0
-        while y < LAENGE / 2 - 1e-6:
+        while s < ende - 1e-6:
             stein += 1
             wahl = QUADERLAENGEN[
-                int((streuung(seite, lage, stein, 7) + 1) / 2 * len(QUADERLAENGEN))
+                int((streuung(kennung, lage, stein, 7) + 1) / 2 * len(QUADERLAENGEN))
                 % len(QUADERLAENGEN)
             ]
-            y0 = max(y, -LAENGE / 2)
-            y1 = min(y + wahl, LAENGE / 2)
-            laenge = y1 - y0 - FUGE
-            y = y + wahl
+            a = max(s, anfang)
+            b = min(s + wahl, ende)
+            laenge = b - a - FUGE
+            s = s + wahl
             # Ein Reststueck schmaler als die Fuge waere ein Splitter.
             if laenge < FUGE:
                 continue
-            vor = VORSPRUNG + TIEFENSTREUUNG * streuung(seite, lage, stein)
+            vor = VORSPRUNG + TIEFENSTREUUNG * streuung(kennung, lage, stein)
             tiefe = vor + UEBERDECKUNG
             # Mittelpunkt so, dass die Rueckseite IN der Wand steckt und
             # die Vorderseite um `vor` heraussteht.
-            mitte_x = seite * innen + richtung * (tiefe / 2 - UEBERDECKUNG)
+            quer = ebene + richtung * (tiefe / 2 - UEBERDECKUNG)
+            mitte = (quer, (a + b) / 2) if achse == 'x' else ((a + b) / 2, quer)
+            groesse = (tiefe, laenge) if achse == 'x' else (laenge, tiefe)
             teile.append(quader(
-                f'Quader{seite}_{lage}_{stein}',
-                (mitte_x, (y0 + y1) / 2, z0 + LAGENHOEHE / 2),
-                (tiefe, laenge, LAGENHOEHE - FUGE),
+                f'Quader{kennung}_{lage}_{stein}',
+                (mitte[0], mitte[1], z0 + LAGENHOEHE / 2),
+                (groesse[0], groesse[1], LAGENHOEHE - FUGE),
             ))
 
 
-def mauerwerk_boden(teile):
+def mauerwerk_boden(bereich, teile):
     """
     Bodenplatten, buendig auf z = 0.
 
@@ -225,43 +236,56 @@ def mauerwerk_boden(teile):
     liegt, hoebe den Boden um seine Dicke an — und dann stimmt die
     Kopplungshoehe des ganzen Kits nicht mehr.
     """
-    innen = BREITE / 2 - WANDSTAERKE
-    spalten = max(1, int(round((2 * innen) / QUADERLAENGE)))
-    reihen = int(round(LAENGE / QUADERLAENGE))
-    breite_platte = (2 * innen) / spalten
+    x_von, x_bis, y_von, y_bis = bereich
+    spalten = max(1, int(round((x_bis - x_von) / QUADERLAENGE)))
+    reihen = max(1, int(round((y_bis - y_von) / QUADERLAENGE)))
+    breite_platte = (x_bis - x_von) / spalten
+    tiefe_platte = (y_bis - y_von) / reihen
     dicke = BELAGSTAERKE + UEBERDECKUNG
 
     for r in range(reihen):
         for s in range(spalten):
-            x0 = -innen + s * breite_platte
-            y0 = -LAENGE / 2 + r * QUADERLAENGE
+            x0 = x_von + s * breite_platte
+            y0 = y_von + r * tiefe_platte
             teile.append(quader(
                 f'Platte_{r}_{s}',
                 # Oberseite genau auf 0, Unterseite `UEBERDECKUNG` tief in
                 # der Bodenplatte darunter.
-                (x0 + breite_platte / 2, y0 + QUADERLAENGE / 2, -dicke / 2),
-                (breite_platte - FUGE, QUADERLAENGE - FUGE, dicke),
+                (x0 + breite_platte / 2, y0 + tiefe_platte / 2, -dicke / 2),
+                (breite_platte - FUGE, tiefe_platte - FUGE, dicke),
             ))
 
 
-def mauerwerk_decke(teile):
+def mauerwerk_decke(bereich, quer, teile):
     """
-    Deckenbalken quer zum Gang — Platten, die auf beiden Waenden aufliegen.
+    Deckenbalken — Platten, die auf den Waenden aufliegen.
 
-    Quer und nicht laengs, weil ein Steingrab so gedeckt wird: Die
-    Spannweite ist die kurze Richtung. Nebenbei laufen die Fugen dadurch
-    quer zur Laufrichtung und der Gang wirkt kuerzer statt endlos.
+    `quer` sagt, in welcher Richtung die Balken liegen: 'x' heisst, sie
+    spannen ueber x und reihen sich entlang y. Ein Steingrab wird ueber
+    die KURZE Spannweite gedeckt, und nebenbei laufen die Fugen dadurch
+    quer zur Laufrichtung — der Gang wirkt kuerzer statt endlos.
     """
+    x_von, x_bis, y_von, y_bis = bereich
     unterkante = HOEHE - DECKENSTAERKE
-    reihen = int(round(LAENGE / QUADERLAENGE))
+    laengs = (y_von, y_bis) if quer == 'x' else (x_von, x_bis)
+    reihen = max(1, int(round((laengs[1] - laengs[0]) / QUADERLAENGE)))
+    schritt = (laengs[1] - laengs[0]) / reihen
+
     for r in range(reihen):
-        y0 = -LAENGE / 2 + r * QUADERLAENGE
+        p0 = laengs[0] + r * schritt
         vor = VORSPRUNG + TIEFENSTREUUNG * streuung(9, r)
         dicke = vor + UEBERDECKUNG
+        mitte_z = unterkante - dicke / 2 + UEBERDECKUNG
+        if quer == 'x':
+            mitte = ((x_von + x_bis) / 2, p0 + schritt / 2)
+            groesse = (x_bis - x_von, schritt - FUGE)
+        else:
+            mitte = (p0 + schritt / 2, (y_von + y_bis) / 2)
+            groesse = (schritt - FUGE, y_bis - y_von)
         teile.append(quader(
-            f'Balken_{r}',
-            (0, y0 + QUADERLAENGE / 2, unterkante - dicke / 2 + UEBERDECKUNG),
-            (BREITE - 2 * WANDSTAERKE, QUADERLAENGE - FUGE, dicke),
+            f'Balken{quer}_{r}',
+            (mitte[0], mitte[1], mitte_z),
+            (groesse[0], groesse[1], dicke),
         ))
 
 
@@ -298,12 +322,85 @@ def baue_gang():
         quader('Decke', (0, 0, HOEHE - DECKENSTAERKE / 2), (BREITE, LAENGE, DECKENSTAERKE)),
     ]
 
-    mauerwerk_wand(-1, teile)
-    mauerwerk_wand(+1, teile)
-    mauerwerk_boden(teile)
-    mauerwerk_decke(teile)
+    bereich = (-innen_x, innen_x, -LAENGE / 2, LAENGE / 2)
+    mauerwerk_flaeche('WL', 'x', -innen_x, +1, -LAENGE / 2, LAENGE / 2, teile)
+    mauerwerk_flaeche('WR', 'x', +innen_x, -1, -LAENGE / 2, LAENGE / 2, teile)
+    mauerwerk_boden(bereich, teile)
+    mauerwerk_decke(bereich, 'x', teile)
 
-    return teile, innen_x - VORSPRUNG
+    return teile, {
+        'lichte_breite': 2 * (innen_x - VORSPRUNG),
+        'oeffnungen': f'y = {-LAENGE / 2:+.3f} und {LAENGE / 2:+.3f}',
+    }
+
+
+def baue_ecke():
+    """
+    Die Vierteldrehung: 4 x 4 m Grundflaeche, zwei Oeffnungen auf
+    ANEINANDERGRENZENDEN Seiten.
+
+    ── Wo die Oeffnungen liegen ─────────────────────────────────────
+    Offen sind Sued (y = -2) und Ost (x = +2), Wand steht auf Nord und
+    West. Beim Export nach Y-hoch wird aus Blenders -y ein +z, aus x
+    bleibt x — im Spiel liegen die Durchgaenge also auf +z und +x. So
+    stehen sie auch in `eigeneDungeons.ts`; wer eines von beiden aendert,
+    muss das andere mitaendern, sonst koppelt der Editor an eine Wand.
+
+    ── Die Verzahnung in der Innenecke ──────────────────────────────
+    Hier entscheidet sich, ob der Verband um 90° herum aufgeht. Zwei
+    Waende, die beide bis zur Ecke durchlaufen, stossen dort in einer
+    durchgehenden senkrechten Fuge zusammen — das ist genau die Fuge,
+    an der echtes Mauerwerk reisst, und man sieht es sofort.
+
+    Deshalb wechseln sich die Lagen ab: In der einen laeuft die
+    Westwand bis in die Ecke und die Nordwand setzt davor an, in der
+    naechsten umgekehrt. Der Wechsel kostet ein `kuerzung`-Paar je Wand
+    und ist der ganze Unterschied zwischen Mauerwerk und Tapete.
+    """
+    halb = BREITE / 2
+    innen = halb - WANDSTAERKE
+    lichte_hoehe = HOEHE - DECKENSTAERKE
+
+    teile = [
+        quader('Boden',
+               (0, 0, -(BELAGSTAERKE + BODENSTAERKE) / 2),
+               (BREITE, BREITE, BODENSTAERKE - BELAGSTAERKE)),
+        # Westwand: laeuft ueber die volle Tiefe durch.
+        quader('WandWest',
+               (-(halb - WANDSTAERKE / 2), 0, lichte_hoehe / 2),
+               (WANDSTAERKE, BREITE, lichte_hoehe)),
+        # Nordwand: setzt an der Westwand an, damit sich die tragenden
+        # Koerper nicht ueberschneiden.
+        quader('WandNord',
+               ((-halb + WANDSTAERKE + halb) / 2, halb - WANDSTAERKE / 2, lichte_hoehe / 2),
+               (BREITE - WANDSTAERKE, WANDSTAERKE, lichte_hoehe)),
+        quader('Decke', (0, 0, HOEHE - DECKENSTAERKE / 2),
+               (BREITE, BREITE, DECKENSTAERKE)),
+    ]
+
+    # Abwechselnd laeuft die eine oder die andere Wand in die Ecke.
+    # `VORSPRUNG` ist genau die Dicke, um die der Nachbar zuruecktritt —
+    # so stossen die Steine an der sichtbaren Vorderkante zusammen.
+    def kuerzung_west(lage):
+        return (0.0, 0.0 if lage % 2 == 0 else VORSPRUNG)
+
+    def kuerzung_nord(lage):
+        return (VORSPRUNG if lage % 2 == 0 else 0.0, 0.0)
+
+    bereich = (-innen, halb, -halb, innen)
+    mauerwerk_flaeche('EW', 'x', -innen, +1, -halb, innen, teile,
+                      kuerzung=kuerzung_west)
+    mauerwerk_flaeche('EN', 'y', +innen, -1, -innen, halb, teile,
+                      kuerzung=kuerzung_nord)
+    mauerwerk_boden(bereich, teile)
+    # Balken laengs x, also gereiht entlang y: Sie liegen auf der Nordwand
+    # auf und ueberspannen die Oeffnung nach Sueden.
+    mauerwerk_decke(bereich, 'x', teile)
+
+    return teile, {
+        'lichte_breite': innen + halb - VORSPRUNG,
+        'oeffnungen': f'y = {-halb:+.3f} (Sued) und x = {halb:+.3f} (Ost)',
+    }
 
 
 def vereinen(teile, name):
@@ -380,10 +477,11 @@ def messen(obj):
 def main():
     leere_szene()
 
-    if TEIL != 'gang':
-        raise SystemExit(f'Unbekanntes Teil: {TEIL} (bisher nur "gang")')
+    bauer = {'gang': baue_gang, 'ecke': baue_ecke}.get(TEIL)
+    if bauer is None:
+        raise SystemExit(f'Unbekanntes Teil: {TEIL} (bekannt: gang, ecke)')
 
-    teile, innen_x = baue_gang()
+    teile, angaben = bauer()
     obj = vereinen(teile, NAME)
     material_setzen(obj)
     kanten_brechen(obj)
@@ -418,13 +516,26 @@ def main():
     print(f'FERTIG {ziel_pfad} — {dreiecke} Dreiecke, {groesse:.3f} MB')
     print(f'  Aussenmass  x {masse["x"][0]:+.3f} … {masse["x"][1]:+.3f}  '
           f'({masse["x"][1] - masse["x"][0]:.3f} m, Soll {BREITE:.3f})')
-    print(f'  Laenge      y {masse["y"][0]:+.3f} … {masse["y"][1]:+.3f}  '
-          f'({masse["y"][1] - masse["y"][0]:.3f} m, Soll {LAENGE:.3f})')
+    soll_y = LAENGE if TEIL == 'gang' else BREITE
+    print(f'  Tiefe       y {masse["y"][0]:+.3f} … {masse["y"][1]:+.3f}  '
+          f'({masse["y"][1] - masse["y"][0]:.3f} m, Soll {soll_y:.3f})')
     print(f'  Hoehe       z {masse["z"][0]:+.3f} … {masse["z"][1]:+.3f}  '
           f'(Bodenflaeche auf 0, Decke auf {HOEHE:.3f})')
-    print(f'  lichter Gang: {2 * innen_x:.3f} m breit, '
+    print(f'  lichte Weite: {angaben["lichte_breite"]:.3f} m, '
           f'{HOEHE - DECKENSTAERKE:.3f} m hoch')
-    print(f'  Durchgaenge:  y = {-LAENGE / 2:+.3f} und {LAENGE / 2:+.3f}, offen')
+    print(f'  Durchgaenge:  {angaben["oeffnungen"]}, offen')
+
+    # Rasterprobe an der eigenen Ausgabe: Jedes Aussenmass MUSS ein
+    # Vielfaches von RASTER sein. Faellt das hier durch, faellt es sonst
+    # erst in `shared/test/dungeon-raster.ts` auf — nach dem Kopieren,
+    # nach dem Eintragen, drei Schritte zu spaet.
+    for achse, soll in (('x', BREITE), ('y', soll_y)):
+        gemessen = masse[achse][1] - masse[achse][0]
+        if abs(gemessen - soll) > 0.0005 or abs(soll % RASTER) > 0.0005:
+            raise SystemExit(
+                f'RASTERFEHLER {achse}: {gemessen:.4f} m gemessen, {soll:.4f} m '
+                f'erwartet, Raster {RASTER} m')
+    print(f'  Raster:       {BREITE:.0f} x {soll_y:.0f} m, Vielfaches von {RASTER:.0f} m — ok')
 
 
 main()

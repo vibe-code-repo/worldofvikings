@@ -61,6 +61,8 @@ const NULL_PUNKT: Vector3 = { x: 0, y: 0, z: 0 };
 const KEINE_DREHUNG: Quaternion = { x: 0, y: 0, z: 0, w: 1 };
 /** 180° um die Hochachse — der Connector zeigt nach −z statt nach +z. */
 const HALBE_DREHUNG: Quaternion = { x: 0, y: 1, z: 0, w: 0 };
+/** 90° um die Hochachse — aus „nach +z“ wird „nach +x“. */
+const VIERTEL_DREHUNG: Quaternion = { x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 };
 
 /**
  * Dieselbe Form wie ein Eintrag in `dungeonsData.json`: ohne `hash`, den
@@ -195,6 +197,55 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
             doorOnlyIfOtherAlsoAllowsDoor: false,
             localPos: { x: 0, y: 0, z: 4 },
             localRot: KEINE_DREHUNG,
+          },
+        ],
+      },
+      {
+        /*
+          Die Vierteldrehung. 4 x 4 m, zwei Durchgaenge auf
+          ANEINANDERGRENZENDEN Seiten: einer nach +z, einer nach +x.
+
+          Diese beiden Richtungen sind keine freie Wahl, sondern das
+          Ergebnis der Achsdrehung beim Export: In Blender sind Sued
+          (−y) und Ost (+x) offen, und `export_yup` macht aus −y ein
+          +z. Wer `tools/steingrab-erzeugen.py` dort aendert, muss diese
+          zwei Connectors mitaendern — sonst koppelt der Editor an eine
+          Wand, und im Grundriss sieht alles richtig aus.
+
+          Kein Eingangsraum: Der Eingang des Kits ist der Gang. Erst
+          dieser Raum hier macht das Kit ueberhaupt wachsend — der
+          Generator waehlt Folgeraeume ausdruecklich unter den
+          NICHT-Eingangsraeumen aus.
+        */
+        name: 'SteingrabEcke',
+        divider: false,
+        endCap: false,
+        endCapPrio: 0,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 4, y: 4, z: 4 },
+        theme: THEMA_KRYPTA,
+        weight: 1,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            type: '',
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: 2 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            type: '',
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 2, y: 0, z: 0 },
+            localRot: VIERTEL_DREHUNG,
           },
         ],
       },

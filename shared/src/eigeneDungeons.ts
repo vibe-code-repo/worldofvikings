@@ -209,6 +209,64 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
       },
       {
         /*
+          Derselbe Gang noch einmal — ohne die Eingangsrolle.
+
+          Der Generator waehlt Folgeraeume ausdruecklich unter den
+          NICHT-Eingangsraeumen aus. Solange `SteingrabGang` der einzige
+          gerade Gang war UND der Eingangsraum, konnte er kein zweites
+          Mal gesetzt werden: Aus Seed 7 entstanden 54 Raeume mit 25
+          Ecken, 19 Endkappen, 9 Kreuzungen und genau EINEM Gang. Ein
+          Gewirr aus Ecken, keine Krypta mit Gaengen.
+
+          Kein zweites Modell: `MODELL_ALIAS` in
+          `client/src/engine/AssetManager.ts` zeigt diesen Namen auf
+          `SteingrabGang.glb`. Die Geometrie IST dieselbe, nur die Rolle
+          im Kit ist eine andere — und Rollen unterscheidet das
+          Datenmodell ueber den Raumnamen, nicht ueber die Datei.
+
+          Wenn spaeter ein eigenes Eingangsteil dazukommt (eine
+          Vorkammer, an der das Portal sitzt), verliert `SteingrabGang`
+          seine Sonderrolle und die beiden Eintraege fallen wieder zu
+          einem zusammen.
+
+          Hoeheres Gewicht als Ecke und Kreuzung: Gerade Strecke ist das
+          Ruhige zwischen den Wendungen. Ohne Uebergewicht bleibt es bei
+          jeder zweiten Abbiegung.
+        */
+        name: 'SteingrabGangDurch',
+        divider: false,
+        endCap: false,
+        endCapPrio: 0,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 4, y: 4, z: 8 },
+        theme: THEMA_KRYPTA,
+        weight: 2.5,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            type: '',
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: -4 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            type: '',
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: 4 },
+            localRot: KEINE_DREHUNG,
+          },
+        ],
+      },
+      {
+        /*
           Die Vierteldrehung. 4 x 4 m, zwei Durchgaenge auf
           ANEINANDERGRENZENDEN Seiten: einer nach +z, einer nach +x.
 

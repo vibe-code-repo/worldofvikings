@@ -71,6 +71,23 @@ const FEHLENDE_ALBEDO: Readonly<Record<string, string>> = {
  */
 export const MODELL_ALIAS: Readonly<Record<string, string>> = {
   GrabhuegelGras: 'Grabhuegel',
+  /*
+    `SteingrabGangDurch` ist derselbe Gang wie `SteingrabGang`, nur ohne
+    die Eingangsrolle.
+
+    Warum es ihn ueberhaupt gibt: Der Generator waehlt Folgeraeume
+    ausdruecklich unter den NICHT-Eingangsraeumen aus. Solange der einzige
+    gerade Gang des Kits der Eingangsraum war, konnte er kein zweites Mal
+    gesetzt werden — aus Seed 7 wurden 54 Raeume mit 25 Ecken, 19
+    Endkappen, 9 Kreuzungen und EINEM Gang. Ein Gewirr aus Ecken statt
+    einer Krypta mit Gaengen.
+
+    Zwei Eintraege auf derselben Datei loesen das ohne ein zweites Modell:
+    Die Geometrie ist buchstaeblich dieselbe, nur die Rolle im Kit ist
+    eine andere. Der eigene Container ist dabei kein Preis, sondern
+    Voraussetzung — aus demselben Grund wie bei `GrabhuegelGras`.
+  */
+  SteingrabGangDurch: 'SteingrabGang',
 };
 
 /**

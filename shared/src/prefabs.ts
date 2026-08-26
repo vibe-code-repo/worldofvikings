@@ -1039,6 +1039,9 @@ export const EIGENE_MODELLE: readonly string[] = [
   // Dieser Eintrag entscheidet allein die Frage „ist das ein eigenes
   // Modell?" — und damit, ob `dungeonRaster.ts` das Teil prüft.
   'SteingrabGang',
+  // Derselbe Baukoerper, andere Rolle im Kit — die Datei dahinter ist
+  // ueber MODELL_ALIAS dieselbe. Begruendung in `eigeneDungeons.ts`.
+  'SteingrabGangDurch',
   'SteingrabEcke',
   'SteingrabEndkappe',
   'SteingrabKreuzung',

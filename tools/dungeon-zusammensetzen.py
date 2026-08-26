@@ -60,6 +60,22 @@ INNEN = '--innen' in argv
 # noch als Waende zu sehen sind, aber unter der Decke.
 SCHNITTHOEHE = float(arg('schnitt', '2.4'))
 
+# Raeume, die sich eine GLB teilen — als "Raumname=Dateiname", mehrere
+# durch Komma getrennt:
+#
+#   --alias SteingrabGangDurch=SteingrabGang
+#
+# Die Tabelle wird hier NICHT gefuehrt. Ihre Wahrheit steht in
+# `MODELL_ALIAS` in `client/src/engine/AssetManager.ts`, und eine zweite
+# Fassung daneben liefe beim ersten Eintrag auseinander, den jemand nur an
+# einer Stelle nachtraegt. Wer das Werkzeug ruft, gibt sie mit.
+#
+# Fehlt sie, meldet Blender „Please select a file" und nennt keinen Namen —
+# darum steht der Grund hier und nicht im Fehlerprotokoll.
+ALIAS = dict(
+    paar.split('=', 1) for paar in (arg('alias', '') or '').split(',') if '=' in paar
+)
+
 bpy.ops.wm.read_factory_settings(use_empty=True)
 
 with open(LAYOUT, encoding='utf-8') as f:
@@ -97,7 +113,12 @@ def deckel_abnehmen(netz, hoehe):
 def vorlage(name):
     if name in vorlagen:
         return vorlagen[name]
-    pfad = os.path.join(MODELLE, f'{name}.glb')
+    datei = ALIAS.get(name, name)
+    pfad = os.path.join(MODELLE, f'{datei}.glb')
+    if not os.path.exists(pfad):
+        raise SystemExit(
+            f'{pfad} fehlt. Traegt der Raum "{name}" einen Alias? '
+            f'Dann --alias {name}=<Dateiname> mitgeben (siehe MODELL_ALIAS).')
     vorher = set(bpy.context.scene.objects)
     bpy.ops.import_scene.gltf(filepath=pfad)
     neu = [o for o in bpy.context.scene.objects if o not in vorher and o.type == 'MESH']

@@ -2518,6 +2518,13 @@ function kartenMassBauen(): void {
     betriebsart = id;
     filterMarke = filter;
     if (w) werkzeug = w;
+    // Die Spalte faerbt sich NICHT von selbst um: `shell.betriebsart()`
+    // meldet den Klick nur, damit ein abgelehnter Wechsel die Leiste nicht
+    // schon umgestellt hat, bevor er scheitert (Kommentar dort). Hier wird
+    // nie abgelehnt -- ohne diese Zeile wechselte der Seitenkopf, waehrend
+    // die Spalte fuer immer auf "Terrain" stehen blieb, und die Leiste sah
+    // aus, als taete sie nichts.
+    shell.setzeBetriebsart(id);
     seitenkopfSetzen();
     seiteBauen();
     zeichneOverlay();

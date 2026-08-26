@@ -95,7 +95,7 @@ export const en: Messages = {
     'Midgard is under construction. What gets built stays built — but rules, worlds and values may still change.',
   'hall.gate.discord_cta': 'Join the Thing on Discord',
   'hall.gate.world_badge_closed': 'closed',
-  'hall.gate.shore.aria': 'Choose a shore',
+  'hall.gate.shore.aria': 'Choose a server',
   'hall.gate.shore.chosen': 'chosen',
   'hall.gate.shore.hint': 'This is where you play. Open to switch.',
   'hall.hero.crest_alt':
@@ -411,9 +411,9 @@ export const en: Messages = {
   'create.voyage.title': 'Voyage',
   'create.voyage.name.label': 'Name',
   'create.voyage.name.placeholder': 'What they will call you',
-  'create.voyage.name.hint': '2 to 24 characters. Each name exists only once on a shore.',
-  'create.voyage.shore.label': 'Shore',
-  'create.voyage.shore.dev': 'Test Shore — under construction',
+  'create.voyage.name.hint': '2 to 24 characters. Each name exists only once on a server.',
+  'create.voyage.shore.label': 'Server',
+  'create.voyage.shore.dev': 'Test Server — under construction',
   'create.voyage.shore.live': 'Midgard — the open land',
   'create.voyage.shore.hint.dev':
     'Under construction — the world and your progress may be reset at any time.',
@@ -421,7 +421,7 @@ export const en: Messages = {
   'create.voyage.time.label': 'Time of Day',
   'create.voyage.time.server_time': 'Use server time',
   'create.voyage.time.hint':
-    'Sets the world time for everyone on the Test Shore — there, everyone is an admin.',
+    'Sets the world time for everyone on the Test Server — there, everyone is an admin.',
   'create.footer.hint': 'Drag to rotate the figure, scroll to zoom.',
   'create.footer.back': 'Back',
   'create.button.set_sail': 'Set Sail',
@@ -434,9 +434,16 @@ export const en: Messages = {
   'create.to_account': 'Your heroes',
 
   /* ---------------------------------------------------------- account */
+  /*
+    "Server", not "shore" — since 26.08.2026, and in both languages. The
+    key names still read `shore`, as does the code and the stored
+    `wov-gestade`: that key already sits in visitors' browsers, and
+    renaming it would silently throw away every remembered choice. The
+    word is translated here and nowhere else.
+  */
   'account.shore.hint':
-    'Every shore keeps its own accounts — an account from the Test Shore does not exist on Midgard.',
-  'account.shore.short.dev': 'Test Shore',
+    'Every server keeps its own accounts — an account from the Test Server does not exist on Midgard.',
+  'account.shore.short.dev': 'Test Server',
   'account.shore.short.live': 'Midgard',
   'account.without_js':
     'Submitting this form needs JavaScript. Without scripting the page stays readable — it simply shows no button that would do nothing anyway.',
@@ -455,14 +462,14 @@ export const en: Messages = {
   'account.error.unknown':
     'That hero is gone — already deleted, or they belong to a different account.',
   'account.error.broken_body': 'The request arrived damaged — please try again.',
-  'account.error.server_error': 'The shore answered with an error — please try again later.',
-  'account.error.network': 'The shore cannot be reached — please check your connection.',
-  'account.error.unexpected': 'Unexpected answer from the shore — please reload the page.',
+  'account.error.server_error': 'The server answered with an error — please try again later.',
+  'account.error.network': 'The server cannot be reached — please check your connection.',
+  'account.error.unexpected': 'Unexpected answer from the server — please reload the page.',
 
   /* ------------------------------------------ register (/registrieren) */
   'register.meta.title': 'Create an account',
   'register.meta.description':
-    'Create an account on a World of Vikings shore — username, e-mail, password, done.',
+    'Create an account on a World of Vikings server — username, e-mail, password, done.',
   'register.heading': 'Create an account',
   'register.intro':
     'An account keeps your heroes. It works immediately: the e-mail address is stored, but never verified.',
@@ -485,7 +492,7 @@ export const en: Messages = {
 
   /* ------------------------------------------------ login (/anmelden) */
   'login.meta.title': 'Sign in',
-  'login.meta.description': 'Sign in to your shore and set sail with your heroes.',
+  'login.meta.description': 'Sign in to your server and set sail with your heroes.',
   'login.heading': 'Sign in',
   'login.intro': 'Sign in to see your heroes and set sail.',
   'login.username.label': 'Username',
@@ -501,18 +508,18 @@ export const en: Messages = {
   'account.page.meta.description':
     'Your heroes at a glance: set sail, create new ones, let old ones go.',
   'account.page.heading': 'Your heroes',
-  'account.page.intro': 'Your characters on this shore. Pick one or create a new one.',
-  'account.page.unreachable.title': 'The shore is not answering',
+  'account.page.intro': 'Your characters on this server. Pick one or create a new one.',
+  'account.page.unreachable.title': 'The server is not answering',
   'account.page.unreachable.retry': 'Try again',
   'account.page.locked.title': 'Not signed in',
   'account.page.locked.text':
-    'Once signed in, you see your heroes here. This page is built once at build time and therefore knows nothing about you until your browser asks the shore.',
+    'Once signed in, you see your heroes here. This page is built once at build time and therefore knows nothing about you until your browser asks the server.',
   'account.page.locked.login': 'Sign in',
   'account.page.locked.register': 'Create an account',
   'account.page.loading': 'Fetching your heroes …',
   'account.page.logged_in_as': 'Signed in as',
   'account.page.email': 'E-mail',
-  'account.page.empty': 'No hero stands on this shore yet. Create the first one.',
+  'account.page.empty': 'No hero stands on this server yet. Create the first one.',
   'account.page.created': 'created on',
   'account.page.last_seen': 'last voyage',
   'account.page.never_sailed': 'never sailed',

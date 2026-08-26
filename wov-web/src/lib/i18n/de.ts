@@ -111,11 +111,11 @@ export const de = {
     'Midgard ist im Aufbau. Was gebaut wird, bleibt stehen — aber Regeln, Welten und Werte können sich noch ändern.',
   'hall.gate.discord_cta': 'Tritt dem Thing auf Discord bei',
   'hall.gate.world_badge_closed': 'zu',
-  /* Der Aufklapper im Tor WÄHLT seit dem 26.08.2026 das Gestade aus — vorher
+  /* Der Aufklapper im Tor WÄHLT seit dem 26.08.2026 den Server aus — vorher
      zeigte er nur die Weltliste an. Deshalb tragen seine Zeilen jetzt einen
      Zustand, und der braucht Worte: „gewählt“ steht nur für Vorleser da, zu
      sehen ist es an Gold und Haken. */
-  'hall.gate.shore.aria': 'Gestade wählen',
+  'hall.gate.shore.aria': 'Server wählen',
   'hall.gate.shore.chosen': 'gewählt',
   'hall.gate.shore.hint': 'Hier wird gespielt. Zum Wechseln aufklappen.',
   'hall.hero.crest_alt': 'Wappen von World of Vikings: ein Langschiff in einem Steinring aus Runen',
@@ -440,9 +440,9 @@ export const de = {
   'create.voyage.title': 'Fahrt',
   'create.voyage.name.label': 'Name',
   'create.voyage.name.placeholder': 'Wie man dich ruft',
-  'create.voyage.name.hint': '2 bis 24 Zeichen. Jeden Namen gibt es auf einem Gestade nur einmal.',
-  'create.voyage.shore.label': 'Gestade',
-  'create.voyage.shore.dev': 'Testgestade — hier wird gebaut',
+  'create.voyage.name.hint': '2 bis 24 Zeichen. Jeden Namen gibt es auf einem Server nur einmal.',
+  'create.voyage.shore.label': 'Server',
+  'create.voyage.shore.dev': 'Testserver — hier wird gebaut',
   'create.voyage.shore.live': 'Midgard — das offene Land',
   'create.voyage.shore.hint.dev':
     'Hier wird gebaut — Welt und Fortschritt können jederzeit zurückgesetzt werden.',
@@ -450,7 +450,7 @@ export const de = {
   'create.voyage.time.label': 'Uhrzeit',
   'create.voyage.time.server_time': 'Serverzeit übernehmen',
   'create.voyage.time.hint':
-    'Setzt die Weltzeit für alle auf dem Testgestade — dort ist jeder Admin.',
+    'Setzt die Weltzeit für alle auf dem Testserver — dort ist jeder Admin.',
   'create.footer.hint': 'Ziehen dreht die Figur, Rad zoomt.',
   'create.footer.back': 'Zurück',
   'create.button.set_sail': 'Auf Fahrt gehen',
@@ -467,12 +467,24 @@ export const de = {
   /* ---------------------------------------------------------- account */
   /* Texts shared by the account pages (/registrieren, /anmelden, /konto)
      and the sign-in gate on /erstellen. */
+  /*
+    Die deutschen Texte sagen „Server“ und „Testserver“, seit dem
+    26.08.2026 durchgehend. Vorher stand hier „Gestade“ und
+    „Testgestade“ — ein Wort aus der Erzählwelt an einer Stelle, an der
+    niemand erzählt, sondern jemand eine technische Wahl treffen muss.
+
+    Der CODE heisst weiter `shore`, `ShoreId`, `gestade`, und der Speicher
+    weiter `wov-gestade`. Das ist kein Versehen: Der Schlüssel liegt schon
+    in den Browsern der Besucher, und ihn umzubenennen hiesse, jede
+    gemerkte Wahl stillschweigend wegzuwerfen (siehe `account.ts`).
+    Übersetzt wird an genau einer Stelle — hier.
+  */
   'account.shore.hint':
-    'Jedes Gestade führt seine eigenen Konten — ein Konto vom Testgestade gibt es auf Midgard nicht.',
+    'Jeder Server führt seine eigenen Konten — ein Konto vom Testserver gibt es auf Midgard nicht.',
   /* Der blosse Name ohne den Halbsatz hinter dem Gedankenstrich. Die Halle
      setzt ihn als Überschrift ihres Tores; die Erklärung steht dort in der
      Zeile darunter. */
-  'account.shore.short.dev': 'Testgestade',
+  'account.shore.short.dev': 'Testserver',
   'account.shore.short.live': 'Midgard',
   /* Stands where the submit button sits when JavaScript is running. A
      button that does nothing without scripting would be worse than a
@@ -499,14 +511,14 @@ export const de = {
     'Diesen Recken gibt es nicht mehr — schon gelöscht, oder er gehört zu einem anderen Konto.',
   'account.error.broken_body': 'Die Anfrage kam beschädigt an — bitte noch einmal versuchen.',
   'account.error.server_error':
-    'Das Gestade antwortet mit einem Fehler — bitte später noch einmal versuchen.',
-  'account.error.network': 'Das Gestade ist nicht erreichbar — bitte die Verbindung prüfen.',
-  'account.error.unexpected': 'Unerwartete Antwort vom Gestade — bitte die Seite neu laden.',
+    'Der Server antwortet mit einem Fehler — bitte später noch einmal versuchen.',
+  'account.error.network': 'Der Server ist nicht erreichbar — bitte die Verbindung prüfen.',
+  'account.error.unexpected': 'Unerwartete Antwort vom Server — bitte die Seite neu laden.',
 
   /* ------------------------------------------ register (/registrieren) */
   'register.meta.title': 'Konto anlegen',
   'register.meta.description':
-    'Leg ein Konto auf einem Gestade von World of Vikings an — Benutzername, E-Mail, Passwort, fertig.',
+    'Leg ein Konto auf einem Server von World of Vikings an — Benutzername, E-Mail, Passwort, fertig.',
   'register.heading': 'Konto anlegen',
   'register.intro':
     'Ein Konto hält deine Recken fest. Es entsteht sofort: Die E-Mail-Adresse wird gespeichert, aber nicht geprüft.',
@@ -529,7 +541,7 @@ export const de = {
 
   /* ------------------------------------------------ login (/anmelden) */
   'login.meta.title': 'Anmelden',
-  'login.meta.description': 'Melde dich an deinem Gestade an und geh mit deinen Recken auf Fahrt.',
+  'login.meta.description': 'Melde dich an deinem Server an und geh mit deinen Recken auf Fahrt.',
   'login.heading': 'Anmelden',
   'login.intro': 'Melde dich an, um deine Recken zu sehen und auf Fahrt zu gehen.',
   'login.username.label': 'Benutzername',
@@ -546,18 +558,18 @@ export const de = {
     'Deine Recken auf einen Blick: auf Fahrt gehen, neue erschaffen, alte ziehen lassen.',
   'account.page.heading': 'Deine Recken',
   'account.page.intro':
-    'Deine Recken auf diesem Gestade. Wähle einen aus oder erschaffe einen neuen.',
-  'account.page.unreachable.title': 'Das Gestade antwortet nicht',
+    'Deine Recken auf diesem Server. Wähle einen aus oder erschaffe einen neuen.',
+  'account.page.unreachable.title': 'Der Server antwortet nicht',
   'account.page.unreachable.retry': 'Noch einmal versuchen',
   'account.page.locked.title': 'Nicht angemeldet',
   'account.page.locked.text':
-    'Wer angemeldet ist, sieht hier seine Recken. Diese Seite wird einmal zur Bauzeit gebaut und weiss deshalb nichts über dich, bis dein Browser das Gestade danach fragt.',
+    'Wer angemeldet ist, sieht hier seine Recken. Diese Seite wird einmal zur Bauzeit gebaut und weiss deshalb nichts über dich, bis dein Browser den Server danach fragt.',
   'account.page.locked.login': 'Anmelden',
   'account.page.locked.register': 'Konto anlegen',
   'account.page.loading': 'Deine Recken werden geholt …',
   'account.page.logged_in_as': 'Angemeldet als',
   'account.page.email': 'E-Mail',
-  'account.page.empty': 'Auf diesem Gestade steht noch kein Recke. Erschaffe den ersten.',
+  'account.page.empty': 'Auf diesem Server steht noch kein Recke. Erschaffe den ersten.',
   'account.page.created': 'erschaffen am',
   'account.page.last_seen': 'zuletzt auf Fahrt',
   'account.page.never_sailed': 'noch nie auf Fahrt',

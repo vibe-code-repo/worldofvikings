@@ -12,6 +12,7 @@
 
 import type { Inventory, ItemStack } from '@wov/shared';
 import type { Equipment } from '../player/Equipment';
+import type { GameI18n } from '../i18n';
 import { UI, overlayStyle, panelStyle, slotStyle, titleStyle } from './theme';
 import { itemVisual } from './Hotbar';
 
@@ -45,7 +46,8 @@ export class InventoryPanel {
 
   constructor(
     private readonly inventory: Inventory,
-    private readonly equipment: Equipment
+    private readonly equipment: Equipment,
+    private readonly i18n: GameI18n,
   ) {
     const root = document.createElement('div');
     root.style.cssText = overlayStyle();
@@ -59,7 +61,6 @@ export class InventoryPanel {
     this.panel = panel;
 
     const title = document.createElement('div');
-    title.textContent = 'Inventar';
     title.style.cssText = titleStyle();
     panel.appendChild(title);
 
@@ -78,7 +79,6 @@ export class InventoryPanel {
     this.weightLabel = weight;
 
     const hint = document.createElement('div');
-    hint.textContent = 'Ziehen zum Umsortieren · Klick zum Ausrüsten · I/Esc schließt';
     hint.style.cssText = `margin-top:6px;text-align:center;font-size:12px;color:${UI.muted};opacity:.75`;
     panel.appendChild(hint);
 
@@ -91,6 +91,11 @@ export class InventoryPanel {
 
     this.unsubscribe.push(this.inventory.onChanged(() => this.render()));
     this.unsubscribe.push(this.equipment.onChanged(() => this.render()));
+    this.unsubscribe.push(this.i18n.onChange(() => {
+      title.textContent = this.i18n.t('inventory.title');
+      hint.textContent = this.i18n.t('inventory.hint');
+      this.render();
+    }));
     this.render();
   }
 
@@ -163,7 +168,9 @@ export class InventoryPanel {
       }
     }
 
-    this.weightLabel.textContent = `Gewicht ${this.inventory.totalWeight().toFixed(1)}`;
+    this.weightLabel.textContent = this.i18n.t('inventory.weight', {
+      weight: this.inventory.totalWeight().toFixed(1),
+    });
   }
 
   private startDrag(e: PointerEvent, item: ItemStack): void {

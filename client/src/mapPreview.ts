@@ -7,11 +7,13 @@
  */
 import { createWorld, DEFAULT_OFFLINE_SEED } from './world/World';
 import { WorldMap } from './ui/WorldMap';
+import { GameI18n } from './i18n';
 
 const params = new URLSearchParams(location.search);
 const seed = params.get('seed') ?? DEFAULT_OFFLINE_SEED;
 const px = Number(params.get('x') ?? 0);
 const pz = Number(params.get('z') ?? 0);
+const i18n = new GameI18n(params.get('lang'));
 
 const world = createWorld(seed);
 const karte = new WorldMap({
@@ -19,7 +21,7 @@ const karte = new WorldMap({
   settings: {},
   world,
   spieler: () => ({ x: px, z: pz, yaw: 0 }),
-});
+}, i18n);
 karte.vorberechnen();
 karte.show();
 

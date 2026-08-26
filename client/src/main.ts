@@ -99,7 +99,8 @@ import { SettingsPanel } from './ui/SettingsPanel';
 import { PostProcessing } from './engine/PostProcessing';
 import { Shadows } from './engine/Shadows';
 import { RENDER_SCALE } from './ui/Settings';
-import { LoadingScreen, type GameLanguage } from './ui/LoadingScreen';
+import { LoadingScreen } from './ui/LoadingScreen';
+import { GameI18n } from './i18n';
 import { Equipment } from './player/Equipment';
 import { Hotbar } from './ui/Hotbar';
 import { InventoryPanel } from './ui/InventoryPanel';
@@ -366,8 +367,7 @@ async function main() {
   }
 
   const ausAdresse = new URLSearchParams(window.location.search);
-  const gameLanguage: GameLanguage = ausAdresse.get('lang') === 'en' ? 'en' : 'de';
-  document.documentElement.lang = gameLanguage;
+  const i18n = new GameI18n(ausAdresse.get('lang'));
   //
   // ── Englische PARAMETERNAMEN, deutsche WERTE ─────────────────────
   // Die Namen sind Drahtformat und heissen englisch; gesetzt werden
@@ -393,7 +393,7 @@ async function main() {
   const offlineMode = ausAdresse.has('offline');
   const accountSessionPresent = ticketVorgelegt || storedSessionPresent;
   const websiteLoginUrl = (expired = false): URL => {
-    const loginPath = gameLanguage === 'en' ? '/en/login' : '/de/anmelden';
+    const loginPath = i18n.language === 'en' ? '/en/login' : '/de/anmelden';
     const url = new URL(loginPath, 'https://world-of-vikings.com');
     url.searchParams.set(
       'shore',
@@ -474,7 +474,7 @@ async function main() {
   const lighting = new Lighting(scene);
   const input = new InputManager(canvas);
   const assets = new AssetManager(scene);
-  const hud = new Hud();
+  const hud = new Hud(i18n);
 
   // F16 (Roadmap): EINE Sammelstelle für Fehler, die sonst spurlos in der
   // Konsole verschwinden. Anlass: In der Nacht auf den 20.08.2026 lief der
@@ -500,11 +500,9 @@ async function main() {
   // the canvas. Clicking a hotbar slot or the connect button never grabs it, so
   // say so instead of leaving the player guessing.
   const lockHint = document.createElement('div');
-  const HINT_CLICK = 'Ins Bild klicken, um die Maus zu fangen (Esc gibt sie frei)';
   // The browser refuses the lock in cases we cannot control (right after an
   // Escape unlock, for one). Drag-look keeps the game playable there.
-  const HINT_DENIED = 'Maus konnte nicht gefangen werden — zum Umsehen mit gedrückter linker Taste ziehen, kurzer Klick benutzt das Werkzeug';
-  lockHint.textContent = HINT_CLICK;
+  lockHint.textContent = i18n.t('pointer.click');
   lockHint.style.cssText = [
     'position:fixed', 'left:50%', 'top:24px', 'transform:translateX(-50%)',
     'z-index:960', 'display:none', 'pointer-events:none',
@@ -524,9 +522,13 @@ async function main() {
     if (state === lockHintState) return;
     lockHintState = state;
     lockHint.style.display = show ? 'block' : 'none';
-    if (show) lockHint.textContent = state === 'denied' ? HINT_DENIED : HINT_CLICK;
+    if (show) lockHint.textContent = i18n.t(state === 'denied' ? 'pointer.denied' : 'pointer.click');
   };
   document.addEventListener('pointerlockchange', updateLockHint);
+  i18n.onChange(() => {
+    lockHintState = '';
+    updateLockHint();
+  });
 
   const params = new URLSearchParams(location.search);
 
@@ -578,7 +580,8 @@ async function main() {
       if (!socket?.connected) return false;
       socket.sendCraft(ergebnis);
       return true;
-    }
+    },
+    i18n
   );
   /**
    * Was die Figur tragen soll — aus Frisur der Charaktererstellung und
@@ -635,7 +638,8 @@ async function main() {
 
   const charakterPanel = new CharakterPanel(
     () => equipment,
-    aussehenTeile
+    aussehenTeile,
+    i18n
   );
 
   /**
@@ -675,7 +679,8 @@ async function main() {
     (text, chatType) => socket?.sendChat(text, chatType),
     () => {
       if (!cursorNoetig()) input.captureFromGesture();
-    }
+    },
+    i18n
   );
   let socket: GameSocket | null = null;
   let netStatus = 'offline';
@@ -762,7 +767,7 @@ async function main() {
   // fires its callback immediately with the current state, and referencing
   // those bindings any earlier throws (temporal dead zone).
   const gameSettings = new SettingsStore();
-  const settingsPanel = new SettingsPanel(gameSettings);
+  const settingsPanel = new SettingsPanel(gameSettings, i18n);
   gameSettings.onChange((s) => {
     terrain?.setDetailQuality(s.detailQuality);
     terrain?.setWaterQuality(s.waterQuality);
@@ -1340,7 +1345,7 @@ async function main() {
       waterLevel: WATER_LEVEL,
     });
     // Blende über die Aufbauphase (Chunks poppen, Wasser noch aus)
-    loading = new LoadingScreen(gameLanguage);
+    loading = new LoadingScreen(i18n);
 
     // Inventar + Ausrüstung. Startausstattung, bis Item-Drops in der Welt
     // liegen: der Bauhammer, die drei Boden-Werkzeuge und etwas Material.
@@ -1365,7 +1370,7 @@ async function main() {
       }
     }
     hotbar = new Hotbar(inventory, equipment);
-    inventoryPanel = new InventoryPanel(inventory, equipment);
+    inventoryPanel = new InventoryPanel(inventory, equipment, i18n);
     // Ziehen aus dem Inventar auf einen Ausruestungsslot. Das Inventar
     // kennt das Charakterfenster nicht — es fragt nur, ob jemand den
     // Gegenstand genommen hat (s. InventoryPanel.aufFremdesZiel).
@@ -1393,7 +1398,7 @@ async function main() {
     offeneTruhe = new OffeneTruhe(assets, entities);
     containerPanel = new ContainerPanel(inventory, (zdoUserId, zdoId, richtung, itemName, amount) => {
       socket?.sendContainerAction(zdoUserId, zdoId, richtung, itemName, amount);
-    });
+    }, i18n);
     // Schliesst das Fenster auf welchem Weg auch immer (Escape, Klick
     // daneben, Karte auf, Inventar auf), faellt der Deckel zu. Der
     // Rueckruf sitzt im Fenster selbst, damit keiner der fuenf
@@ -1404,7 +1409,7 @@ async function main() {
     // stellt den Radius. Der PlayerController läuft hier VOR dem
     // PlacementController und würde das Ereignis sonst wegkonsumieren.
     player.zoomErlaubt = () => !placement!.menuOpen && !placement!.selectedPiece;
-    pieceSelection = new PieceSelection(placement, input);
+    pieceSelection = new PieceSelection(placement, input, i18n);
     // Terraforming server-autoritativ: online senden statt lokal graben.
     placement.sendeOp = (x, y, z, json) => {
       if (!socket?.connected) return false;
@@ -1463,7 +1468,7 @@ async function main() {
         player?.debugTeleport(x, z, player.yaw);
         socket?.sendAdminCommand(`teleport ${x.toFixed(2)} ${z.toFixed(2)}`);
       },
-    });
+    }, i18n);
     worldMap.vorberechnen();
     // Fackel-/Feuer-Lichter: Pool wandert auf die nächsten Quellen.
     lightPool = new LightPool(scene, (x, z, r) => entities?.lichtquellen(x, z, r) ?? []);

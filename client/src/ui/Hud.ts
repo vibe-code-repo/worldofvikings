@@ -3,6 +3,7 @@
  * GUI in Phase 5 (Docs/03-Rendering-und-Engine.md).
  */
 import { Fehlersammler, type Schweregrad, type FehlerAnzeige } from './Fehlermeldungen';
+import type { GameI18n } from '../i18n';
 
 /** Fadenkreuz im Normalzustand — `s_whiteHalfAlpha` des Originals. */
 const FK_NORMAL = 'rgba(255,255,255,.5)';
@@ -16,7 +17,7 @@ export class Hud {
   private aufZiel = false;
   private acc = 0;
 
-  constructor() {
+  constructor(i18n: GameI18n) {
     this.fadenkreuz = this.baueFadenkreuz();
     this.el = document.createElement('div');
     // Diagnosetext nach UNTEN RECHTS.
@@ -48,14 +49,18 @@ export class Hud {
     const hint = document.createElement('div');
     // F9 nur nennen, wenn es die Taste auch gibt: Der Babylon-Inspector
     // steckt seit dem Bundle-Schnitt nur noch im Dev-Server (main.ts, F9).
-    hint.textContent =
-      'Klicken für Maussteuerung — WASD laufen, Shift rennen' +
-      (import.meta.env.DEV ? ', F9 Inspector' : '');
     hint.style.cssText =
       'position:fixed;bottom:12px;left:50%;transform:translateX(-50%);color:#ddd;' +
       'font:13px sans-serif;background:rgba(0,0,0,.45);padding:6px 12px;border-radius:4px;pointer-events:none';
     document.body.appendChild(hint);
-    setTimeout(() => hint.remove(), 12000);
+    const unsubscribe = i18n.onChange(() => {
+      hint.textContent = i18n.t('hud.controls') +
+        (import.meta.env.DEV ? i18n.t('hud.inspector') : '');
+    });
+    setTimeout(() => {
+      unsubscribe();
+      hint.remove();
+    }, 12000);
   }
 
   /**

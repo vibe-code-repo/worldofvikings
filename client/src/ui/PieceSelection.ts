@@ -19,6 +19,7 @@
 import type { PlacementController } from '../player/PlacementController';
 import type { InputManager } from '../engine/InputManager';
 import { UI, panelStyle, slotStyle } from './theme';
+import type { GameI18n } from '../i18n';
 
 const SLOT = 64;
 
@@ -27,13 +28,15 @@ export class PieceSelection {
   private readonly row: HTMLDivElement;
   private readonly label: HTMLDivElement;
   private readonly activeLabel!: HTMLDivElement;
+  private readonly hint: HTMLDivElement;
   private readonly unsubscribe: Array<() => void> = [];
   /** Last rendered (open, selected) pair — render() runs every frame. */
   private rendered = '';
 
   constructor(
     private readonly placement: PlacementController,
-    private readonly input?: InputManager
+    private readonly input: InputManager | undefined,
+    private readonly i18n: GameI18n
   ) {
     const root = document.createElement('div');
     root.style.cssText = [
@@ -57,9 +60,9 @@ export class PieceSelection {
     this.label = label;
 
     const hint = document.createElement('div');
-    hint.textContent = 'Tasten 1-5 wählen · Mausrad blättert · Linksklick/Tab/Esc schließt';
     hint.style.cssText = `margin-top:2px;text-align:center;font-size:11px;color:${UI.muted};opacity:.7`;
     panel.appendChild(hint);
+    this.hint = hint;
 
     document.body.appendChild(root);
     this.root = root;
@@ -77,6 +80,11 @@ export class PieceSelection {
     this.activeLabel = active;
 
     this.unsubscribe.push(this.placement.onChanged(() => this.render()));
+    this.unsubscribe.push(this.i18n.onChange(() => {
+      this.hint.textContent = this.i18n.t('build.hint');
+      this.rendered = '';
+      this.render();
+    }));
     // Escape closes it, like the original.
     const onKey = (e: KeyboardEvent): void => {
       if (e.code === 'Escape' && this.placement.menuOpen) {
@@ -123,7 +131,10 @@ export class PieceSelection {
     // Kept up to date even while hidden, so closing the menu shows the mode
     // that was just picked rather than the previous one.
     if (selected) {
-      this.activeLabel.textContent = `Modus: ${selected.label} · Radius ${radius.toFixed(1)} m (Mausrad)`;
+      this.activeLabel.textContent = this.i18n.t('build.active', {
+        mode: selected.label,
+        radius: radius.toFixed(1),
+      });
     }
 
     if (!open) return;

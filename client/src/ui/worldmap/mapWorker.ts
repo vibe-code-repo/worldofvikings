@@ -55,7 +55,8 @@ const ctx = self as unknown as {
 };
 
 const post = (m: MapWorkerMessage, transfer?: Transferable[]): void => ctx.postMessage(m, transfer);
-const fortschritt = (anteil: number, text: string): void => post({ t: 'fortschritt', anteil, text });
+const fortschritt = (anteil: number, text: import('./mapTypes').MapProgressKey): void =>
+  post({ t: 'fortschritt', anteil, text });
 
 /** Deterministischer Kleinzufall für Streuung und Drehung der Baumsignaturen. */
 function mulberry32(a: number): () => number {
@@ -93,7 +94,7 @@ function farbe(biome: Biome, hoehe: number, wald: number, out: Uint8Array, o: nu
 
 function bauen(req: MapBuildRequest): void {
   const start = Date.now();
-  fortschritt(0.02, 'Welt wird erzeugt …');
+  fortschritt(0.02, 'map.progress.world');
 
   // Layout-Modus: Maße des Panels übernehmen — dieser Worker ist ein
   // eigener Modulkontext, setzeKartenMasse() im Panel erreicht ihn nicht.
@@ -112,7 +113,7 @@ function bauen(req: MapBuildRequest): void {
   });
 
   // ---- 1. Reliefgitter -----------------------------------------------------
-  fortschritt(0.12, 'Relief wird vermessen …');
+  fortschritt(0.12, 'map.progress.relief');
   const gN = GRID_N;
   const schritt = MAP_SPAN / (gN - 1);
   const hoehen = new Float32Array(gN * gN);
@@ -122,7 +123,7 @@ function bauen(req: MapBuildRequest): void {
       const wx = -MAP_SPAN / 2 + c * schritt;
       hoehen[r * gN + c] = geo.getHeight(wx, wz);
     }
-    if ((r & 63) === 0) fortschritt(0.12 + 0.18 * (r / gN), 'Relief wird vermessen …');
+    if ((r & 63) === 0) fortschritt(0.12 + 0.18 * (r / gN), 'map.progress.relief');
   }
 
   const positions = new Float32Array(gN * gN * 3);
@@ -185,7 +186,7 @@ function bauen(req: MapBuildRequest): void {
   ]);
 
   // ---- 2. Kartenbild -------------------------------------------------------
-  fortschritt(0.32, 'Biome werden kartiert …');
+  fortschritt(0.32, 'map.progress.biomes');
   const sN = SAMPLE_N;
   const sSchritt = MAP_SPAN / sN;
   const sBiome = new Uint16Array(sN * sN);
@@ -229,14 +230,14 @@ function bauen(req: MapBuildRequest): void {
       }
     }
     post({ t: 'texturteil', y: ty0, hoehe: ty1 - ty0, data: teil }, [teil.buffer]);
-    fortschritt(0.32 + 0.42 * (r1 / sN), 'Biome werden kartiert …');
+    fortschritt(0.32 + 0.42 * (r1 / sN), 'map.progress.biomes');
   }
 
   post({ t: 'raster', biome: sBiome, hoehe: sHoehe, wald: sWald, n: sN });
 
   // Endgültiges Bild: bilinear hochskaliert, damit die Biome-Grenzen weich
   // auslaufen statt in 41-m-Stufen zu treppen.
-  fortschritt(0.76, 'Kartenbild wird gezeichnet …');
+  fortschritt(0.76, 'map.progress.image');
   const skala = TEX_N / sN;
   for (let ty = 0; ty < TEX_N; ty++) {
     const fy = (ty + 0.5) / skala - 0.5;
@@ -303,7 +304,7 @@ function bauen(req: MapBuildRequest): void {
   post({ t: 'textur', data: texKopie }, [texKopie.buffer]);
 
   // ---- 3. Baumsignaturen ---------------------------------------------------
-  fortschritt(0.88, 'Wälder werden eingetragen …');
+  fortschritt(0.88, 'map.progress.forests');
   const rnd = mulberry32(getStableHash(req.seed) ^ 0x5f3a91);
   const listen = new Map<number, number[]>();
   for (let wz = -MAP_RADIUS; wz <= MAP_RADIUS; wz += TREE_STEP) {

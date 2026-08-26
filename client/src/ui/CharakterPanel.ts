@@ -31,6 +31,7 @@ import {
   type ItemStack,
 } from '@wov/shared';
 import type { Equipment } from '../player/Equipment';
+import type { GameI18n, TranslationKey } from '../i18n';
 import { UI, panelStyle, slotStyle, titleStyle } from './theme';
 import { itemVisual } from './Hotbar';
 
@@ -49,7 +50,9 @@ export class CharakterPanel {
   private readonly unten: HTMLDivElement;
   private readonly leinwand: HTMLCanvasElement;
   private readonly ladehinweis: HTMLDivElement;
+  private readonly unsubscribe: () => void;
   private vorschau: import('./CharakterVorschau.js').CharakterVorschau | null = null;
+  private previewFailed = false;
   /** Verhindert, dass ein spätes Laden in ein längst geschlossenes Fenster fällt. */
   private oeffnungsZaehler = 0;
 
@@ -61,7 +64,8 @@ export class CharakterPanel {
      * setzt `CharakterVorschau` über `teilPfad()` selbst — würde er hier
      * schon davorstehen, entstünde `wikingerin/wikingerin/…`.
      */
-    private readonly aussehenTeile: () => Record<string, string | null>
+    private readonly aussehenTeile: () => Record<string, string | null>,
+    private readonly i18n: GameI18n
   ) {
     this.wurzel = document.createElement('div');
     this.wurzel.id = 'charakter-fenster';
@@ -80,7 +84,6 @@ export class CharakterPanel {
 
     const titel = document.createElement('div');
     titel.style.cssText = titleStyle();
-    titel.textContent = 'Charakter';
     this.panel.appendChild(titel);
 
     // ── Mittelteil: Slots | Figur | Slots ────────────────────────────
@@ -106,7 +109,6 @@ export class CharakterPanel {
     this.ladehinweis.style.cssText =
       `position:absolute;inset:0;display:flex;align-items:center;justify-content:center;` +
       `color:${UI.muted};font-size:13px`;
-    this.ladehinweis.textContent = 'lädt …';
     figurRahmen.appendChild(this.ladehinweis);
 
     reihe.append(this.spalteLinks, figurRahmen, this.spalteRechts);
@@ -118,12 +120,18 @@ export class CharakterPanel {
 
     const fuss = document.createElement('div');
     fuss.style.cssText = `color:${UI.muted};font-size:12px;margin-top:12px;text-align:center;line-height:1.5`;
-    fuss.innerHTML =
-      'Gegenstand aus dem Inventar auf einen Slot ziehen · Klick auf einen belegten Slot legt ab<br>K schliesst · I öffnet das Inventar daneben';
     this.panel.appendChild(fuss);
 
     this.wurzel.appendChild(this.panel);
     document.body.appendChild(this.wurzel);
+    this.unsubscribe = this.i18n.onChange(() => {
+      titel.textContent = this.i18n.t('character.title');
+      this.ladehinweis.textContent = this.i18n.t(
+        this.previewFailed ? 'character.preview_unavailable' : 'character.loading',
+      );
+      fuss.innerHTML = this.i18n.t('character.hint');
+      this.zeichne();
+    });
   }
 
   get isVisible(): boolean {
@@ -178,6 +186,8 @@ export class CharakterPanel {
       return;
     }
     const marke = ++this.oeffnungsZaehler;
+    this.previewFailed = false;
+    this.ladehinweis.textContent = this.i18n.t('character.loading');
     try {
       const mod = await import('./CharakterVorschau.js');
       if (marke !== this.oeffnungsZaehler) return; // inzwischen geschlossen
@@ -192,7 +202,8 @@ export class CharakterPanel {
       this.ladehinweis.style.display = 'none';
     } catch (e) {
       console.warn('[charakter] Vorschau nicht verfuegbar:', e);
-      this.ladehinweis.textContent = 'Vorschau nicht verfügbar';
+      this.previewFailed = true;
+      this.ladehinweis.textContent = this.i18n.t('character.preview_unavailable');
     }
   }
 
@@ -213,7 +224,8 @@ export class CharakterPanel {
     this.unten.replaceChildren();
 
     for (const def of AUSRUESTUNG_SLOTS) {
-      const zelle = this.baueSlot(def.id, def.name, eq?.imSlot(def.id) ?? null);
+      const slotKey = `character.slot.${def.id}` as TranslationKey;
+      const zelle = this.baueSlot(def.id, this.i18n.t(slotKey), eq?.imSlot(def.id) ?? null);
       const ziel =
         def.seite === 'links' ? this.spalteLinks : def.seite === 'rechts' ? this.spalteRechts : this.unten;
       ziel.appendChild(zelle);
@@ -227,7 +239,9 @@ export class CharakterPanel {
     // DAS Attribut, an dem der Einwurf aus dem Inventar erkennt, dass hier
     // ein Ausrüstungsslot liegt (siehe InventoryPanel.aufFremdesZiel).
     zelle.dataset.slot = id;
-    zelle.title = item ? `${item.shared.label} — Klick legt ab` : name;
+    zelle.title = item
+      ? this.i18n.t('character.unequip', { item: item.shared.label })
+      : name;
 
     if (item) {
       zelle.appendChild(itemVisual(item));
@@ -246,6 +260,7 @@ export class CharakterPanel {
   }
 
   dispose(): void {
+    this.unsubscribe();
     this.oeffnungsZaehler++;
     this.vorschau?.dispose();
     this.wurzel.remove();

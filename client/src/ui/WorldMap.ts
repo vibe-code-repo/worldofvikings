@@ -35,6 +35,7 @@ import '@babylonjs/core/Culling/ray';
 import '@babylonjs/core/Rendering/edgesRenderer';
 import { Biome, BiomeArea, WATER_LEVEL } from '@wov/shared';
 import type { ClientWorld, ClientWorldSettings } from '../world/World';
+import type { GameI18n } from '../i18n';
 import { UI } from './theme';
 import {
   BIOME_LABEL,
@@ -114,6 +115,12 @@ export class WorldMap {
   private readonly statusZeile: HTMLDivElement;
   private readonly infoZeile: HTMLDivElement;
   private readonly balken: HTMLDivElement;
+  private readonly titelEl: HTMLDivElement;
+  private readonly seedEl: HTMLDivElement;
+  private readonly biomeTitelEl: HTMLDivElement;
+  private readonly bewuchsTitelEl: HTMLDivElement;
+  private readonly hinweisEl: HTMLDivElement;
+  private readonly unsubscribeI18n: () => void;
 
   private engine: Engine | null = null;
   private scene: Scene | null = null;
@@ -149,7 +156,10 @@ export class WorldMap {
   private rasterWald: Float32Array | null = null;
   private rasterN = 0;
 
-  constructor(private readonly opts: WorldMapOptions) {
+  constructor(
+    private readonly opts: WorldMapOptions,
+    private readonly i18n: GameI18n,
+  ) {
     this.root = document.createElement('div');
     this.root.style.cssText = css(
       'position:fixed', 'inset:0', 'z-index:980', 'display:none',
@@ -161,37 +171,43 @@ export class WorldMap {
     this.canvas.style.cssText = css('position:absolute', 'inset:0', 'width:100%', 'height:100%', 'display:block', 'touch-action:none');
     this.root.appendChild(this.canvas);
 
-    this.root.appendChild(this.kopfzeile());
+    const { root: kopf, titel, seed } = this.kopfzeile();
+    this.titelEl = titel;
+    this.seedEl = seed;
+    this.root.appendChild(kopf);
     this.balken = this.fortschrittsbalken();
     this.root.appendChild(this.balken);
     this.statusZeile = this.status();
     this.root.appendChild(this.statusZeile);
-    this.root.appendChild(this.legende());
+    const { root: legende, biomeTitel, bewuchsTitel } = this.legende();
+    this.biomeTitelEl = biomeTitel;
+    this.bewuchsTitelEl = bewuchsTitel;
+    this.root.appendChild(legende);
     this.infoZeile = this.info();
     this.root.appendChild(this.infoZeile);
-    this.root.appendChild(this.hinweis());
+    this.hinweisEl = this.hinweis();
+    this.root.appendChild(this.hinweisEl);
 
     this.mausBinden();
     document.body.appendChild(this.root);
+    this.unsubscribeI18n = this.i18n.onChange(() => this.uebersetzeChrome());
   }
 
   // ---------------------------------------------------------------- Chrome --
 
-  private kopfzeile(): HTMLDivElement {
+  private kopfzeile(): { root: HTMLDivElement; titel: HTMLDivElement; seed: HTMLDivElement } {
     const kopf = document.createElement('div');
     kopf.style.cssText = css(
       'position:absolute', 'top:18px', 'left:0', 'right:0', 'text-align:center', 'pointer-events:none',
     );
     const titel = document.createElement('div');
-    titel.textContent = 'Karte';
     titel.style.cssText = css(
       'font-size:26px', 'letter-spacing:.22em', `color:${UI.gold}`, 'text-shadow:0 2px 6px #000',
     );
     const seed = document.createElement('div');
-    seed.textContent = `Welt „${this.opts.seed}"`;
     seed.style.cssText = css('font-size:12px', 'letter-spacing:.12em', `color:${UI.muted}`, 'margin-top:2px');
     kopf.append(titel, seed);
-    return kopf;
+    return { root: kopf, titel, seed };
   }
 
   private fortschrittsbalken(): HTMLDivElement {
@@ -217,7 +233,11 @@ export class WorldMap {
   }
 
   /** Legende: Biome links, Waldsignaturen rechts daneben. */
-  private legende(): HTMLDivElement {
+  private legende(): {
+    root: HTMLDivElement;
+    biomeTitel: HTMLDivElement;
+    bewuchsTitel: HTMLDivElement;
+  } {
     const box = document.createElement('div');
     box.style.cssText = css(
       'position:absolute', 'top:50%', 'right:22px', 'transform:translateY(-50%)',
@@ -228,7 +248,6 @@ export class WorldMap {
     );
 
     const t1 = document.createElement('div');
-    t1.textContent = 'Biome';
     t1.style.cssText = css(`color:${UI.gold}`, 'letter-spacing:.14em', 'margin-bottom:6px', 'font-size:13px');
     box.appendChild(t1);
 
@@ -247,7 +266,6 @@ export class WorldMap {
     }
 
     const t2 = document.createElement('div');
-    t2.textContent = 'Bewuchs';
     t2.style.cssText = css(`color:${UI.gold}`, 'letter-spacing:.14em', 'margin:12px 0 6px', 'font-size:13px');
     box.appendChild(t2);
 
@@ -273,7 +291,7 @@ export class WorldMap {
       zeile.append(sym, name);
       box.appendChild(zeile);
     }
-    return box;
+    return { root: box, biomeTitel: t1, bewuchsTitel: t2 };
   }
 
   private info(): HTMLDivElement {
@@ -290,15 +308,22 @@ export class WorldMap {
 
   private hinweis(): HTMLDivElement {
     const el = document.createElement('div');
-    // Der Teleport-Hinweis erscheint nur, wenn die Funktion auch
-    // verdrahtet ist — sonst stünde dort eine Bedienung, die nichts tut.
-    const basis = 'Ziehen: verschieben · Mausrad: zoomen · Leertaste: zum Spieler · M oder Esc: schliessen';
-    el.textContent = this.opts.aufTeleport ? `${basis} · Strg+Klick: hierhin teleportieren` : basis;
     el.style.cssText = css(
       'position:absolute', 'left:0', 'right:0', 'bottom:18px', 'text-align:center',
       'font-size:12px', `color:${UI.muted}`, 'letter-spacing:.06em', 'pointer-events:none',
     );
     return el;
+  }
+
+  private uebersetzeChrome(): void {
+    this.titelEl.textContent = this.i18n.t('map.title');
+    this.seedEl.textContent = this.i18n.t('map.world', { seed: this.opts.seed });
+    this.biomeTitelEl.textContent = this.i18n.t('map.biomes');
+    this.bewuchsTitelEl.textContent = this.i18n.t('map.vegetation');
+    const basis = this.i18n.t('map.hint');
+    this.hinweisEl.textContent = this.opts.aufTeleport
+      ? `${basis} · ${this.i18n.t('map.teleport_hint')}`
+      : basis;
   }
 
   // ----------------------------------------------------------------- Maus ---
@@ -381,11 +406,13 @@ export class WorldMap {
     try {
       this.worker = new Worker(new URL('./worldmap/mapWorker.ts', import.meta.url), { type: 'module' });
     } catch (err) {
-      this.statusZeile.textContent = `Karte nicht verfügbar: ${String(err)}`;
+      this.statusZeile.textContent = this.i18n.t('map.unavailable', { error: String(err) });
       return;
     }
     this.worker.onmessage = (e: MessageEvent<MapWorkerMessage>) => this.nachricht(e.data);
-    this.worker.onerror = (e) => { this.statusZeile.textContent = `Kartenfehler: ${e.message}`; };
+    this.worker.onerror = (e) => {
+      this.statusZeile.textContent = this.i18n.t('map.error', { error: e.message });
+    };
     // Kartenmaße mitgeben: Der Worker hat einen EIGENEN Modulkontext —
     // setzeKartenMasse() im Panel erreicht ihn nicht.
     this.worker.postMessage({
@@ -401,7 +428,7 @@ export class WorldMap {
     switch (m.t) {
       case 'fortschritt':
         (this.balken.firstElementChild as HTMLDivElement).style.width = `${(m.anteil * 100).toFixed(0)}%`;
-        this.statusZeile.textContent = m.text;
+        this.statusZeile.textContent = this.i18n.t(m.text);
         return;
       case 'raster':
         this.rasterBiome = m.biome;
@@ -420,7 +447,7 @@ export class WorldMap {
         this.worker = null;
         return;
       case 'fehler':
-        this.statusZeile.textContent = `Karte konnte nicht gebaut werden: ${m.text}`;
+        this.statusZeile.textContent = this.i18n.t('map.build_failed', { error: m.text });
         return;
       default:
         // Alles Geometrische braucht die Szene — solange die noch nicht
@@ -986,6 +1013,7 @@ export class WorldMap {
   get bereit(): boolean { return this.fertig; }
 
   dispose(): void {
+    this.unsubscribeI18n();
     this.worker?.terminate();
     this.worker = null;
     window.removeEventListener('resize', this.aufResize);

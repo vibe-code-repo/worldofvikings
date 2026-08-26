@@ -16,36 +16,18 @@
  * CSS, keine Assets: die UI-Sprites des Originals liegen nur unter
  * undurchsichtigen Hash-IDs ohne Namenszuordnung vor.
  */
-export type GameLanguage = 'de' | 'en';
-
-export const LOADING_SCREEN_TEXT = {
-  de: {
-    title: 'Die Welt erwacht…',
-    building: 'Gelände wird aufgebaut',
-    ready: 'Bereit',
-  },
-  en: {
-    title: 'The world awakens…',
-    building: 'Building the terrain',
-    ready: 'Ready',
-  },
-} as const satisfies Record<GameLanguage, {
-  title: string;
-  building: string;
-  ready: string;
-}>;
+import type { GameI18n } from '../i18n';
 
 export class LoadingScreen {
   private readonly root: HTMLDivElement;
   private readonly bar: HTMLDivElement;
   private readonly hint: HTMLDivElement;
-  private readonly readyText: string;
+  private readonly unsubscribe: () => void;
   private done = false;
 
-  constructor(language: GameLanguage = 'de') {
-    const text = LOADING_SCREEN_TEXT[language];
+  constructor(private readonly i18n: GameI18n) {
     const root = document.createElement('div');
-    root.lang = language;
+    root.lang = i18n.language;
     root.style.cssText = [
       'position:fixed', 'inset:0', 'z-index:900',
       'display:flex', 'align-items:center', 'justify-content:center',
@@ -56,7 +38,6 @@ export class LoadingScreen {
     ].join(';');
 
     const title = document.createElement('div');
-    title.textContent = text.title;
     title.style.cssText =
       'font-size:26px;letter-spacing:.08em;color:#f2c86a;text-shadow:0 2px 6px #000';
     root.appendChild(title);
@@ -77,7 +58,6 @@ export class LoadingScreen {
     root.appendChild(track);
 
     const hint = document.createElement('div');
-    hint.textContent = text.building;
     hint.style.cssText = 'font-size:13px;color:#a8916a;letter-spacing:.04em';
     root.appendChild(hint);
 
@@ -85,7 +65,11 @@ export class LoadingScreen {
     this.root = root;
     this.bar = bar;
     this.hint = hint;
-    this.readyText = text.ready;
+    this.unsubscribe = this.i18n.onChange(() => {
+      root.lang = this.i18n.language;
+      title.textContent = this.i18n.t('loading.title');
+      hint.textContent = this.i18n.t('loading.building');
+    });
   }
 
   /**
@@ -99,13 +83,14 @@ export class LoadingScreen {
     const shown = ready ? 1 : Math.min(0.96, progress);
     this.bar.style.width = `${(shown * 100).toFixed(0)}%`;
     if (ready) {
-      this.hint.textContent = this.readyText;
+      this.hint.textContent = this.i18n.t('loading.ready');
       this.finish();
     }
   }
 
   private finish(): void {
     this.done = true;
+    this.unsubscribe();
     this.root.style.opacity = '0';
     // Erst nach dem Ausfaden aus dem Layout nehmen, sonst springt das Bild
     window.setTimeout(() => this.root.remove(), 700);

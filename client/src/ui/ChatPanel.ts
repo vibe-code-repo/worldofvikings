@@ -21,6 +21,7 @@
  * hier selbst behandelt.
  */
 import { ChatMsgType } from '@wov/shared';
+import type { GameI18n } from '../i18n';
 
 const MAX_VERLAUF = 50;
 /**
@@ -37,11 +38,6 @@ interface VerlaufEintrag {
   readonly text: string;
 }
 
-const TYP_PRAEFIX: Partial<Record<number, string>> = {
-  [ChatMsgType.Whisper]: 'flüstert',
-  [ChatMsgType.Shout]: 'ruft',
-};
-
 const TYP_FARBE: Partial<Record<number, string>> = {
   [ChatMsgType.Whisper]: '#a8916a',
   [ChatMsgType.Shout]: '#f2c86a',
@@ -52,6 +48,7 @@ export class ChatPanel {
   private readonly verlaufEl: HTMLDivElement;
   private readonly eingabeEl: HTMLInputElement;
   private readonly eintraege: VerlaufEintrag[] = [];
+  private readonly unsubscribe: () => void;
   private offen = false;
 
   constructor(
@@ -59,7 +56,8 @@ export class ChatPanel {
     private readonly senden: (text: string, chatType: number) => void,
     /** Zeiger zurückfordern, wenn die Eingabe schliesst — main.ts prüft
      *  dort selbst, ob noch ein anderes Panel offen ist. */
-    private readonly wiederFangen: () => void
+    private readonly wiederFangen: () => void,
+    private readonly i18n: GameI18n
   ) {
     this.verlaufEl = document.createElement('div');
     this.verlaufEl.style.cssText =
@@ -71,7 +69,6 @@ export class ChatPanel {
     this.eingabeEl = document.createElement('input');
     this.eingabeEl.type = 'text';
     this.eingabeEl.maxLength = MAX_LAENGE_CLIENT;
-    this.eingabeEl.placeholder = 'Nachricht … (Enter senden, Esc abbrechen)';
     this.eingabeEl.style.cssText =
       'position:fixed;left:8px;bottom:34px;width:340px;display:none;z-index:5;' +
       'font:13px sans-serif;padding:5px 8px;border-radius:4px;box-sizing:border-box;' +
@@ -99,6 +96,10 @@ export class ChatPanel {
     // losgelassen wird. Ungefaehrlich: InputManager.keys.delete() auf einem
     // Code, der (wegen des keydown-Stopps) nie eingetragen wurde, ist ein
     // No-op.
+    this.unsubscribe = this.i18n.onChange(() => {
+      this.eingabeEl.placeholder = this.i18n.t('chat.placeholder');
+      this.neuZeichnen();
+    });
   }
 
   get istOffen(): boolean {
@@ -143,7 +144,11 @@ export class ChatPanel {
     this.verlaufEl.textContent = '';
     for (const e of this.eintraege) {
       const zeile = document.createElement('div');
-      const praefix = TYP_PRAEFIX[e.chatType];
+      const praefix = e.chatType === ChatMsgType.Whisper
+        ? this.i18n.t('chat.whispers')
+        : e.chatType === ChatMsgType.Shout
+          ? this.i18n.t('chat.shouts')
+          : null;
       const farbe = TYP_FARBE[e.chatType] ?? FARBE_NORMAL;
       zeile.style.cssText =
         `color:${farbe};background:rgba(0,0,0,.4);padding:2px 6px;border-radius:3px;width:fit-content;max-width:100%`;
@@ -153,5 +158,11 @@ export class ChatPanel {
     // Neueste Nachricht sichtbar halten, statt sie unten aus dem
     // begrenzten `max-height` herauslaufen zu lassen.
     this.verlaufEl.scrollTop = this.verlaufEl.scrollHeight;
+  }
+
+  dispose(): void {
+    this.unsubscribe();
+    this.verlaufEl.remove();
+    this.eingabeEl.remove();
   }
 }

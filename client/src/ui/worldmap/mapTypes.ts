@@ -59,7 +59,7 @@ export interface MapBuildRequest {
 
 export type MapWorkerMessage =
   /** Fortschritt für die Statuszeile (0..1). */
-  | { t: 'fortschritt'; anteil: number; text: string }
+  | { t: 'fortschritt'; anteil: number; text: MapProgressKey }
   /** Fertiges Reliefgitter (Positionen in Karteneinheiten). */
   | { t: 'relief'; positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices: Uint32Array }
   /** Teilbild der Kartentextur während des Rasterns (RGBA, `hoehe` Zeilen ab `y`). */
@@ -75,3 +75,10 @@ export type MapWorkerMessage =
   | { t: 'raster'; biome: Uint16Array; hoehe: Float32Array; wald: Float32Array; n: number }
   | { t: 'fertig'; dauerMs: number }
   | { t: 'fehler'; text: string };
+
+export type MapProgressKey =
+  | 'map.progress.world'
+  | 'map.progress.relief'
+  | 'map.progress.biomes'
+  | 'map.progress.image'
+  | 'map.progress.forests';

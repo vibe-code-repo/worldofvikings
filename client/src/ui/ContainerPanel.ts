@@ -22,6 +22,7 @@ import type { Inventory, ItemStack } from '@wov/shared';
 import { CONTAINER_WIDTH, INVENTORY_WIDTH } from '@wov/shared';
 import { UI, overlayStyle, panelStyle, slotStyle, titleStyle } from './theme';
 import { itemVisual } from './Hotbar';
+import type { GameI18n } from '../i18n';
 
 const SLOT = 56;
 const GAP = 4;
@@ -54,7 +55,8 @@ export class ContainerPanel {
       richtung: 0 | 1,
       itemName: string,
       amount: number
-    ) => void
+    ) => void,
+    private readonly i18n: GameI18n
   ) {
     const root = document.createElement('div');
     root.style.cssText = overlayStyle();
@@ -67,7 +69,6 @@ export class ContainerPanel {
     root.appendChild(panel);
 
     const title = document.createElement('div');
-    title.textContent = 'Truhe';
     title.style.cssText = titleStyle();
     panel.appendChild(title);
 
@@ -75,15 +76,14 @@ export class ContainerPanel {
     spalten.style.cssText = 'display:flex;gap:20px;align-items:flex-start';
     panel.appendChild(spalten);
 
-    const [eigeneSpalte, eigenesGrid] = this.bauSpalte('Inventar', INVENTORY_WIDTH);
-    const [truheSpalte, truheGrid] = this.bauSpalte('Truhe', CONTAINER_WIDTH);
+    const [eigeneSpalte, eigenesGrid, eigenesLabel] = this.bauSpalte(INVENTORY_WIDTH);
+    const [truheSpalte, truheGrid, truheLabel] = this.bauSpalte(CONTAINER_WIDTH);
     spalten.appendChild(eigeneSpalte);
     spalten.appendChild(truheSpalte);
     this.eigenesGrid = eigenesGrid;
     this.truheGrid = truheGrid;
 
     const hint = document.createElement('div');
-    hint.textContent = 'Klick verschiebt den ganzen Stapel · Esc schließt';
     hint.style.cssText = `margin-top:10px;text-align:center;font-size:12px;color:${UI.muted};opacity:.75`;
     panel.appendChild(hint);
 
@@ -93,13 +93,19 @@ export class ContainerPanel {
     // Eigenes Inventar kann sich AUCH aendern, waehrend die Truhe offen
     // ist (Ernten, Craften nebenbei) — die linke Spalte bleibt live.
     this.unsubscribe.push(this.eigenesInventar.onChanged(() => this.render()));
+    this.unsubscribe.push(this.i18n.onChange(() => {
+      title.textContent = this.i18n.t('container.title');
+      eigenesLabel.textContent = this.i18n.t('container.inventory');
+      truheLabel.textContent = this.i18n.t('container.chest');
+      hint.textContent = this.i18n.t('container.hint');
+      this.render();
+    }));
   }
 
-  private bauSpalte(beschriftung: string, spalten: number): [HTMLDivElement, HTMLDivElement] {
+  private bauSpalte(spalten: number): [HTMLDivElement, HTMLDivElement, HTMLDivElement] {
     const spalte = document.createElement('div');
     spalte.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px';
     const label = document.createElement('div');
-    label.textContent = beschriftung;
     label.style.cssText = `font-size:13px;color:${UI.muted};letter-spacing:.04em`;
     spalte.appendChild(label);
     const grid = document.createElement('div');
@@ -109,7 +115,7 @@ export class ContainerPanel {
       `gap:${GAP}px`,
     ].join(';');
     spalte.appendChild(grid);
-    return [spalte, grid];
+    return [spalte, grid, label];
   }
 
   get isVisible(): boolean {
@@ -163,7 +169,10 @@ export class ContainerPanel {
         if (item) {
           cell.appendChild(itemVisual(item));
           cell.style.cursor = 'pointer';
-          cell.title = `${item.shared.label} × ${item.stack} verschieben`;
+          cell.title = this.i18n.t('container.move', {
+            item: item.shared.label,
+            amount: item.stack,
+          });
           cell.addEventListener('click', () => this.verschiebe(item, richtung));
         }
         grid.appendChild(cell);

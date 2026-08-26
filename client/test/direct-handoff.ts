@@ -35,7 +35,7 @@ check('main.ts no longer looks up legacy connection controls', !/getElementById\
 check(
   'an online visit without an account session returns to wov-web',
   main.includes('if (!offlineMode && !accountSessionPresent)') &&
-    main.includes("gameLanguage === 'en' ? '/en/login' : '/de/anmelden'") &&
+    main.includes("i18n.language === 'en' ? '/en/login' : '/de/anmelden'") &&
     main.includes("new URL(loginPath, 'https://world-of-vikings.com')"),
 );
 check(

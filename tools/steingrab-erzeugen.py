@@ -80,7 +80,47 @@ LAENGE = 8.0    # y in Blender — zwei Rastereinheiten
 
 WANDSTAERKE = 0.25
 BODENSTAERKE = 0.30
-DECKENSTAERKE = 0.30
+# 0,40 m ist keine runde Zahl aus Bequemlichkeit, sondern damit die lichte
+# Hoehe 3,60 m betraegt — und die geht ohne Rest in sechs Steinlagen zu je
+# 0,60 m auf. Eine angeschnittene Lage unter der Decke sieht aus wie ein
+# Fehler, und zwar in jedem einzelnen Raum des Kits.
+DECKENSTAERKE = 0.40
+
+# ── Mauerwerk ───────────────────────────────────────────────────────
+# Behauene Quader im Laeuferverband: jede zweite Lage um einen halben
+# Stein versetzt, damit die Stossfugen nicht uebereinander durchlaufen.
+# So mauert man wirklich, und man sieht sofort, wenn es fehlt.
+LAGENHOEHE = 0.60
+QUADERLAENGE = 1.00
+# Die Fuge ist der SPALT zwischen zwei Steinen. Sie entsteht dadurch,
+# dass jeder Quader um diesen Betrag kleiner ist als sein Rasterfeld —
+# nicht durch eine eingeschnittene Rille. Deshalb liegt der Stein vor der
+# Wand und die Fuge zeigt die Wandflaeche dahinter.
+FUGE = 0.035
+# Wie weit die Quader vor der tragenden Flaeche stehen. Klein genug, dass
+# der lichte Gang breit bleibt, gross genug, dass die Fuge unter
+# Fackellicht einen Schatten wirft.
+VORSPRUNG = 0.05
+# Jeder Stein steht ein wenig anders vor. Behauen heisst nicht geschliffen.
+#
+# Beim ersten Lauf standen hier 0,012 m, und das Ergebnis las sich wie
+# gefliest: Bei gleicher Tiefe UND gleicher Laenge wirkt eine Wand
+# industriell, egal wie gut die Fuge sitzt.
+TIEFENSTREUUNG = 0.025
+# Aus diesen Laengen wird je Lage gemischt. Ein Steinmetz haut, was der
+# Block hergibt — gleich lange Steine ueber acht Meter gibt es nur, wo
+# eine Maschine schneidet.
+QUADERLAENGEN = (1.2, 1.0, 0.8)
+# Dicke der Bodenplatten. Sie liegen IN einer Vertiefung, nicht auf dem
+# Boden — siehe `mauerwerk_boden`.
+BELAGSTAERKE = 0.06
+# Jeder Quader steckt um diesen Betrag IN der tragenden Flaeche.
+#
+# Ohne das lägen zwei Flächen exakt in derselben Ebene, und die Grafikkarte
+# hat dann keine Regel, welche vorne ist: Beim ersten Lauf war der ganze
+# Boden schwarz. Ein Zentimeter Ueberdeckung kostet kein Dreieck und
+# beendet die Frage.
+UEBERDECKUNG = 0.01
 
 # Farbe: kalter, leicht gruenstichiger Grauton. Nicht neutralgrau —
 # das wirkt unter dem warmen Fackellicht des Spiels wie Beton.
@@ -109,17 +149,144 @@ def quader(name, mitte, groesse):
     return obj
 
 
+def streuung(*schluessel):
+    """
+    Eine Zahl zwischen -1 und 1, die allein von den Ganzzahlen abhaengt.
+
+    KEIN `random`: Zwei Laeufe desselben Skripts muessen dieselbe Datei
+    ergeben, sonst ist jede Wiederholung ein neuer Export mit neuem
+    Pruefsumme — und man kann nicht mehr sehen, ob sich wirklich etwas
+    geaendert hat. Der Hash ist die uebliche Streuung ueber drei grosse
+    Primzahlen.
+    """
+    h = 2166136261
+    for k in schluessel:
+        h = (h ^ (int(k) & 0xFFFFFFFF)) * 16777619 & 0xFFFFFFFF
+    return (h / 0xFFFFFFFF) * 2.0 - 1.0
+
+
+def mauerwerk_wand(seite, teile):
+    """
+    Behauene Quader im Laeuferverband auf EINE Wandinnenseite.
+
+    Der Verband: Jede zweite Lage ist um einen halben Stein versetzt. An
+    den Enden entstehen dadurch halbe Steine — genau wie beim echten
+    Mauern, und wichtig fuers Kit: Die Lagen enden buendig bei y = ±4,
+    damit die Fugen zweier aneinandergesetzter Gaenge durchlaufen und
+    kein Stein ueber die Kopplungsfuge hinausragt.
+    """
+    lagen = int(round((HOEHE - DECKENSTAERKE) / LAGENHOEHE))
+    innen = BREITE / 2 - WANDSTAERKE
+    # Vorzeichen: -1 ist die linke Wand, +1 die rechte. Die Quader stehen
+    # zur Gangmitte hin vor, also entgegen der Wandnormalen.
+    richtung = -seite
+
+    for lage in range(lagen):
+        z0 = lage * LAGENHOEHE
+        versatz = (QUADERLAENGE / 2) if lage % 2 else 0.0
+        # Von der linken Kante durchgehen und an y = ±LAENGE/2 abschneiden.
+        # Die Lage endet dadurch IMMER buendig, auch wenn die Steine
+        # unterschiedlich lang sind — sonst ragte einer ueber die
+        # Kopplungsfuge zum Nachbarteil hinaus.
+        y = -LAENGE / 2 - versatz
+        stein = 0
+        while y < LAENGE / 2 - 1e-6:
+            stein += 1
+            wahl = QUADERLAENGEN[
+                int((streuung(seite, lage, stein, 7) + 1) / 2 * len(QUADERLAENGEN))
+                % len(QUADERLAENGEN)
+            ]
+            y0 = max(y, -LAENGE / 2)
+            y1 = min(y + wahl, LAENGE / 2)
+            laenge = y1 - y0 - FUGE
+            y = y + wahl
+            # Ein Reststueck schmaler als die Fuge waere ein Splitter.
+            if laenge < FUGE:
+                continue
+            vor = VORSPRUNG + TIEFENSTREUUNG * streuung(seite, lage, stein)
+            tiefe = vor + UEBERDECKUNG
+            # Mittelpunkt so, dass die Rueckseite IN der Wand steckt und
+            # die Vorderseite um `vor` heraussteht.
+            mitte_x = seite * innen + richtung * (tiefe / 2 - UEBERDECKUNG)
+            teile.append(quader(
+                f'Quader{seite}_{lage}_{stein}',
+                (mitte_x, (y0 + y1) / 2, z0 + LAGENHOEHE / 2),
+                (tiefe, laenge, LAGENHOEHE - FUGE),
+            ))
+
+
+def mauerwerk_boden(teile):
+    """
+    Bodenplatten, buendig auf z = 0.
+
+    Sie liegen IM Boden statt darauf: Die begehbare Flaeche muss auf 0
+    bleiben (dort sitzen die Connectors), also ist die Oberseite jeder
+    Platte 0 und die Fuge eine Rille nach unten. Ein Belag, der obenauf
+    liegt, hoebe den Boden um seine Dicke an — und dann stimmt die
+    Kopplungshoehe des ganzen Kits nicht mehr.
+    """
+    innen = BREITE / 2 - WANDSTAERKE
+    spalten = max(1, int(round((2 * innen) / QUADERLAENGE)))
+    reihen = int(round(LAENGE / QUADERLAENGE))
+    breite_platte = (2 * innen) / spalten
+    dicke = BELAGSTAERKE + UEBERDECKUNG
+
+    for r in range(reihen):
+        for s in range(spalten):
+            x0 = -innen + s * breite_platte
+            y0 = -LAENGE / 2 + r * QUADERLAENGE
+            teile.append(quader(
+                f'Platte_{r}_{s}',
+                # Oberseite genau auf 0, Unterseite `UEBERDECKUNG` tief in
+                # der Bodenplatte darunter.
+                (x0 + breite_platte / 2, y0 + QUADERLAENGE / 2, -dicke / 2),
+                (breite_platte - FUGE, QUADERLAENGE - FUGE, dicke),
+            ))
+
+
+def mauerwerk_decke(teile):
+    """
+    Deckenbalken quer zum Gang — Platten, die auf beiden Waenden aufliegen.
+
+    Quer und nicht laengs, weil ein Steingrab so gedeckt wird: Die
+    Spannweite ist die kurze Richtung. Nebenbei laufen die Fugen dadurch
+    quer zur Laufrichtung und der Gang wirkt kuerzer statt endlos.
+    """
+    unterkante = HOEHE - DECKENSTAERKE
+    reihen = int(round(LAENGE / QUADERLAENGE))
+    for r in range(reihen):
+        y0 = -LAENGE / 2 + r * QUADERLAENGE
+        vor = VORSPRUNG + TIEFENSTREUUNG * streuung(9, r)
+        dicke = vor + UEBERDECKUNG
+        teile.append(quader(
+            f'Balken_{r}',
+            (0, y0 + QUADERLAENGE / 2, unterkante - dicke / 2 + UEBERDECKUNG),
+            (BREITE - 2 * WANDSTAERKE, QUADERLAENGE - FUGE, dicke),
+        ))
+
+
 def baue_gang():
     """
-    Bodenplatte, zwei Waende, Decke. Die Schmalseiten bleiben OFFEN —
-    dort koppeln die Nachbarteile, eine Wand davor waere eine Sackgasse.
+    Bodenplatte, zwei Waende, Decke — und darauf das Mauerwerk. Die
+    Schmalseiten bleiben OFFEN: Dort koppeln die Nachbarteile, eine Wand
+    davor waere eine Sackgasse.
+
+    Die glatten Platten bleiben als TRAGENDE Schicht darunter stehen. Sie
+    sind der Koerper, an dem die Huellmasse haengen, und sie schliessen
+    die Fugen nach hinten — ohne sie saehe man zwischen den Quadern
+    hindurch ins Freie.
     """
     halbe_breite = BREITE / 2
     innen_x = halbe_breite - WANDSTAERKE
 
     teile = [
-        # Boden: volle Aussenbreite, Oberkante auf z = 0.
-        quader('Boden', (0, 0, -BODENSTAERKE / 2), (BREITE, LAENGE, BODENSTAERKE)),
+        # Boden: volle Aussenbreite. Seine Oberkante liegt UM DIE
+        # BELAGSTAERKE TIEFER als 0 — die Platten darauf bringen die
+        # begehbare Flaeche wieder auf 0, und die Fuge zwischen ihnen
+        # zeigt diese Flaeche hier als Rille.
+        quader('Boden',
+               (0, 0, -(BELAGSTAERKE + BODENSTAERKE) / 2),
+               (BREITE, LAENGE, BODENSTAERKE - BELAGSTAERKE)),
         # Zwei Waende, INNEN an der Huelle, vom Boden bis unter die Decke.
         quader('WandLinks',
                (-(halbe_breite - WANDSTAERKE / 2), 0, (HOEHE - DECKENSTAERKE) / 2),
@@ -130,7 +297,13 @@ def baue_gang():
         # Decke: Oberkante genau auf Huellhoehe.
         quader('Decke', (0, 0, HOEHE - DECKENSTAERKE / 2), (BREITE, LAENGE, DECKENSTAERKE)),
     ]
-    return teile, innen_x
+
+    mauerwerk_wand(-1, teile)
+    mauerwerk_wand(+1, teile)
+    mauerwerk_boden(teile)
+    mauerwerk_decke(teile)
+
+    return teile, innen_x - VORSPRUNG
 
 
 def vereinen(teile, name):

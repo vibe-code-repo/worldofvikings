@@ -19,6 +19,7 @@
  */
 
 import dungeonsData from './dungeonsData.json';
+import { EIGENE_KITS } from './eigeneDungeons.js';
 import { getStableHash } from './hash.js';
 import type { Quaternion, Vector3 } from './types.js';
 
@@ -126,10 +127,21 @@ interface DungeonJson extends Omit<DungeonDef, 'hash' | 'rooms' | 'algorithm'> {
   readonly rooms: readonly Omit<RoomDef, 'hash'>[];
 }
 
-/** All 13 dungeon generators from dungeons.pkg, in pkg order. */
-export const DUNGEONS: readonly DungeonDef[] = (
-  (dungeonsData as unknown as { dungeons: DungeonJson[] }).dungeons
-).map((d) => ({
+/**
+ * Alle Kits: die 13 geparsten aus `dungeons.pkg` in pkg-Reihenfolge, dahinter
+ * die eigenen aus `eigeneDungeons.ts`.
+ *
+ * Zwei Quellen und keine dritte: `dungeonsData.json` ist erzeugt und wird vom
+ * Parser überschrieben, die eigenen Kits stehen deshalb in einer Datei, die er
+ * nicht anfasst. Zusammengeführt wird genau hier, damit alles Weitere —
+ * `DUNGEONS_BY_NAME`, die Raum-Registry in `prefabs.ts`, der Generator, der
+ * Editor — nur EINE Liste kennt und eigene Räume nirgends nachgetragen werden
+ * müssen.
+ */
+export const DUNGEONS: readonly DungeonDef[] = [
+  ...(dungeonsData as unknown as { dungeons: DungeonJson[] }).dungeons,
+  ...(EIGENE_KITS as unknown as DungeonJson[]),
+].map((d) => ({
   ...d,
   hash: getStableHash(d.name),
   algorithm: d.algorithm as DungeonAlgorithm,

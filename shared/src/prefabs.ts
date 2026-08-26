@@ -1032,6 +1032,13 @@ export const EIGENE_MODELLE: readonly string[] = [
   // unsichtbar zu machen.
   'NPC_1',
   'Player',
+  // Erstes eigenes Dungeon-Bauteil (26.08.2026). Anders als alles darüber
+  // steht der Name NICHT nur hier: Er kommt aus dem Kit `DG_Steingrab` in
+  // `eigeneDungeons.ts`, und `buildRegistry()` legt den Prefab-Eintrag
+  // samt Modellverweis selbst an (Schleife über DUNGEONS, weiter unten).
+  // Dieser Eintrag entscheidet allein die Frage „ist das ein eigenes
+  // Modell?" — und damit, ob `dungeonRaster.ts` das Teil prüft.
+  'SteingrabGang',
 ];
 
 /**

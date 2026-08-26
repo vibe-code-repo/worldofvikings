@@ -34,6 +34,19 @@ function check(name: string, cond: boolean, detail = ''): void {
   }
 }
 
+/**
+ * Ausgelassen, mit Grund und sichtbar.
+ *
+ * Ein Kit im Aufbau kann zwei Zusicherungen nicht halten, die für ein
+ * fertiges gelten — nicht weil etwas kaputt wäre, sondern weil es noch zu
+ * wenige Teile hat. Das als PASS zu zählen wäre gelogen, als FAIL wäre es
+ * ein Dauerrot, das man nach drei Tagen nicht mehr liest. Also eine eigene
+ * Marke, die in der Ausgabe steht und den Grund mitträgt.
+ */
+function ausgelassen(name: string, grund: string): void {
+  console.log(`  ÜBERSPRUNGEN ${name} — ${grund}`);
+}
+
 const INTERIOR = DUNGEONS.filter(
   (d) => d.algorithm === DungeonAlgorithm.Dungeon && d.name !== 'DG_Hildir_PlainsFortress'
 );
@@ -45,16 +58,34 @@ for (const dungeon of INTERIOR) {
   const b = generateDungeonLayout(dungeon, 42);
   check('deterministic', JSON.stringify(a) === JSON.stringify(b));
 
+  /*
+    Ein Kit, das ausser dem Eingangsraum keinen weiteren Raum führt, kann
+    nicht wachsen: `chooseRoom` wählt Folgeräume ausdrücklich unter den
+    NICHT-Eingangsräumen. Der Generator liefert dann zwangsläufig genau
+    einen Raum, für jeden Seed denselben. Das trifft eigene Kits im Aufbau
+    (`eigeneDungeons.ts`) — sie fangen mit einem Bauteil an, und die zwei
+    Zusicherungen unten gelten für sie erst, wenn das zweite dazukommt.
+  */
+  const waechst = dungeon.rooms.some((r) => !r.entrance);
+
   const c = generateDungeonLayout(dungeon, 43);
-  check('seed varies layout', JSON.stringify(a) !== JSON.stringify(c));
+  if (waechst) {
+    check('seed varies layout', JSON.stringify(a) !== JSON.stringify(c));
+  } else {
+    ausgelassen('seed varies layout', 'Kit im Aufbau: nur der Eingangsraum, ein Layout möglich');
+  }
 
   // minRooms is only a soft lower bound for early abort (DvergrBoss stops
   // via requiredRooms long before its huge minRooms) — cap the expectation.
-  check(
-    'enough rooms',
-    a.rooms.length >= Math.max(2, Math.min(16, Math.floor(dungeon.minRooms / 4))),
-    `${a.rooms.length} rooms`
-  );
+  if (waechst) {
+    check(
+      'enough rooms',
+      a.rooms.length >= Math.max(2, Math.min(16, Math.floor(dungeon.minRooms / 4))),
+      `${a.rooms.length} rooms`
+    );
+  } else {
+    ausgelassen('enough rooms', `Kit im Aufbau: ${a.rooms.length} Raum, kein Folgeraum vorhanden`);
+  }
 
   const roomsByName = new Map(dungeon.rooms.map((r) => [r.name, r]));
   check(

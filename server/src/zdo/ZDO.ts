@@ -331,6 +331,46 @@ export class ZDO {
     };
   }
 
+  /**
+   * Die MITGLIEDER eines Schnappschusses übernehmen — Position, Drehung,
+   * Besitzer und ID bleiben, wie sie sind.
+   *
+   * Gebraucht beim Weltwechsel eines Spielers: ZDO-Kennungen werden je
+   * ZDO-Raum vergeben, ein ZDO lässt sich also nicht von einer Welt in
+   * eine andere hängen. Der Charakter bekommt in der Zielwelt ein neues
+   * und übernimmt hier, was an ihm hing.
+   *
+   * ALLE Mitglieder, nicht eine Auswahl: Figur, Frisur, Haarfarbe,
+   * Rüstung, Name — und alles, was jemand später dazuhängt, ohne diese
+   * Stelle zu kennen. Eine Liste von Hand wäre genau die Stelle, an der
+   * ein neues Merkmal beim Betreten eines Dungeons still verschwindet.
+   */
+  uebernehmeMitglieder(daten: Record<string, unknown>): void {
+    const members = daten.members as Record<string, { t: number; v: unknown }> | undefined;
+    if (!members) return;
+    for (const [hashStr, member] of Object.entries(members)) {
+      const hash = parseInt(hashStr, 10);
+      let value: ZDOMemberValue;
+      switch (member.t) {
+        case 4:
+          value = BigInt(member.v as string);
+          break;
+        case 6:
+          value = Buffer.from(member.v as string, 'base64');
+          break;
+        default:
+          value = member.v as ZDOMemberValue;
+      }
+      // `rev` auf die AKTUELLE Datenrevision, nicht auf 0: Der Peer
+      // vergleicht `rev > peerRev`, um zu wissen, was er noch nicht hat.
+      // Mit 0 haette er alles Uebernommene fuer laengst gesehen gehalten
+      // und die Figur des Umgezogenen nie bekommen.
+      this.members.set(hash, { type: member.t, value, rev: this.revision.dataRevision });
+    }
+    this.revision.reviseData();
+    this.dirty = true;
+  }
+
   /** Restore from a snapshot (persistence load). */
   static fromSnapshot(data: Record<string, unknown>): ZDO {
     const idData = data.id as { userId: string; id: number };

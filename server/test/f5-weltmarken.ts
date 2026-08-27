@@ -49,6 +49,7 @@ import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import { ZDOID } from '../src/zdo/ZDOID.js';
 import type { Peer } from '../src/net/Peer.js';
+import { HAUPTWELT_ID } from '../src/world/Welt.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SEED = 'KxSYuZquuw';
@@ -143,6 +144,9 @@ console.log("\n[2] Admin-Befehl 'marke':");
       health: 100,
       foodBis: 0,
       foodBonus: 0,
+      // Wie am echten Peer vorbelegt — sonst haelt der Server den
+      // Testspieler fuer jemanden in einer Instanzwelt.
+      worldId: HAUPTWELT_ID,
       inventar: new Inventory(),
       sendPacketWith: () => {},
       sendPacket: () => {},
@@ -366,6 +370,9 @@ console.log('\n[6] Eikthyr-Kill setzt die Marke:');
       health: 100,
       foodBis: 0,
       foodBonus: 0,
+      // Wie am echten Peer vorbelegt — sonst haelt der Server den
+      // Testspieler fuer jemanden in einer Instanzwelt.
+      worldId: HAUPTWELT_ID,
       inventar: new Inventory(),
       sendPacketWith: () => {},
       sendPacket: () => {},

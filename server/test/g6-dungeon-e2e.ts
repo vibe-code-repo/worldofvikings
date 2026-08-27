@@ -4,11 +4,13 @@
  * Boots the server on a test port, handshakes a fake client, then:
  *  1. AdminCommand "dungeon create forestcrypt 4242" → AdminEvent with the
  *     new document id.
- *  2. AdminCommand "dungeon enter <id>" → Teleport packet into the
- *     instance band (x = DUNGEON_INSTANCE_X_BASE) with inDungeon=true and
- *     an interior environment name.
- *  3. ZDOSync soon after delivers the materialized room-shell ZDOs at
- *     band coordinates (interest management follows the teleported peer).
+ *  2. AdminCommand "dungeon enter <id>" → Teleport packet with
+ *     inDungeon=true, an interior environment name, and coordinates NAHE
+ *     DEM URSPRUNG: Seit dem 27.08.2026 ist eine Instanz eine eigene Welt
+ *     mit eigenem ZDO-Raum, kein Band ab x = 100.000 mehr. Genau das
+ *     prueft die Schranke unten — sie faengt einen Rueckfall aufs Band.
+ *  3. ZDOSync soon after delivers the materialized room-shell ZDOs of THAT
+ *     world (interest management follows the teleported peer).
  *  4. AdminCommand "dungeon leave" → Teleport back (inDungeon=false,
  *     overworld coordinates).
  *
@@ -18,7 +20,15 @@ import WebSocket from 'ws';
 import { rmSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { DUNGEON_INSTANCE_BAND_MIN, getStableHash } from '@wov/shared';
+import { getStableHash } from '@wov/shared';
+
+/**
+ * Wie weit ein Dungeon hoechstens vom Ursprung seiner Welt entfernt liegen
+ * darf. Grosszuegig: Ein erzeugtes Layout misst gut 70 m, und spaetere
+ * Instanzen duerfen groesser werden. Eng genug ist es trotzdem — der alte
+ * Bandversatz betrug 100.000 m.
+ */
+const INSTANZ_MAX_ABSTAND_M = 5_000;
 import { createWovServer } from '../src/WovServer.js';
 // F4-Lehre (siehe Kopfkommentar scripts/run-tests.mjs / CLAUDE.md): die
 // Handshake-Antwort MUSS ueber die Produktivfunktion laufen, nicht ueber
@@ -166,22 +176,25 @@ async function main(): Promise<void> {
         );
 
         if (phase === 'enter') {
-          if (!inDungeon || x < DUNGEON_INSTANCE_BAND_MIN) {
-            return reject(new Error('enter teleport not in instance band'));
+          if (!inDungeon) return reject(new Error('enter teleport not flagged inDungeon'));
+          if (Math.abs(x) > INSTANZ_MAX_ABSTAND_M || Math.abs(z) > INSTANZ_MAX_ABSTAND_M) {
+            return reject(
+              new Error(`enter teleport far from instance origin: (${x}, ${z}) — Band zurueck?`)
+            );
           }
           if (id !== dungeonId) return reject(new Error(`teleport id mismatch: ${id}`));
           if (env !== 'Crypt') return reject(new Error(`unexpected env: ${env}`));
           phase = 'zdos';
           // ZDOSync-Interesse folgt der neuen Position — kurz warten.
           setTimeout(() => {
-            if (!roomShellSeen) return reject(new Error('no room-shell ZDOs synced in band'));
+            if (!roomShellSeen) {
+              return reject(new Error('no room-shell ZDOs synced in the instance world'));
+            }
             phase = 'leave';
             sendAdmin(ws, 'dungeon leave');
           }, 2000);
         } else if (phase === 'leave') {
-          if (inDungeon || x > DUNGEON_INSTANCE_BAND_MIN) {
-            return reject(new Error('leave teleport still in band'));
-          }
+          if (inDungeon) return reject(new Error('leave teleport still flagged inDungeon'));
           clearTimeout(timeout);
           phase = 'done';
           resolvePromise();
@@ -195,9 +208,11 @@ async function main(): Promise<void> {
         const { updates } = parseZDOSync(reader, 'Tester', spiegel);
         if (phase === 'zdos') {
           for (const u of updates) {
-            if (u.position.x > DUNGEON_INSTANCE_BAND_MIN && roomShellCandidates.has(u.prefabHash)) {
-              roomShellSeen = true;
-            }
+            // Kein Koordinatentest mehr: Der Peer steht in der Welt der
+            // Instanz, und alles, was ihn ueber diese Verbindung erreicht,
+            // stammt aus ihrem ZDO-Raum. Dass es die Raumhuellen sind,
+            // sagt der Prefab-Hash.
+            if (roomShellCandidates.has(u.prefabHash)) roomShellSeen = true;
           }
         }
       }

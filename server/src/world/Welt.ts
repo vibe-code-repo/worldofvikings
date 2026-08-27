@@ -33,7 +33,7 @@ import type { HeightmapProvider, IGeo, Vector3 } from '@wov/shared';
 import type { GeoManager } from '@wov/shared';
 import { ZDOManager } from '../zdo/ZDOManager.js';
 import { ZoneManager, type ZoneManagerOptions } from './ZoneManager.js';
-import { SpawnSystem } from './SpawnSystem.js';
+import { SpawnSystem, type SpawnSystemOptions } from './SpawnSystem.js';
 import { AggroSystem } from './AggroSystem.js';
 import { RoutenLaeufer } from './RoutenLaeufer.js';
 
@@ -67,6 +67,30 @@ export interface WeltBauplan {
   /** Kreaturen-Spawnsystem anlegen? (server.yml `world.creatures`) */
   readonly mitKreaturen: boolean;
   /**
+   * Einstellungen des Spawnsystems — vor allem seine TABELLE.
+   *
+   * Eine Instanz bekommt hier eine leere: Das System soll da sein, damit
+   * die Kreaturen aus der Raum-Einrichtung wandern und kaempfen, aber es
+   * soll nichts von sich aus setzen. Ein Steingrab, in dem Wiesen-Wild
+   * nachwaechst, waere kein Steingrab. Der Unterschied zwischen Hauptwelt
+   * und Instanz ist damit ein WERT und keine Fallunterscheidung im Code.
+   */
+  readonly spawnOptionen?: SpawnSystemOptions;
+  /**
+   * Zonen um die Spieler herum erzeugen? Vorgabe: ja.
+   *
+   * Eine Welt ohne Landmasse hat nichts zu erzeugen — kein Gelaende, keine
+   * Vegetation, keine Locations. Der ZoneManager liefe trotzdem ueber jede
+   * betretene Zone, baute ihre Heightmap und meldete sie als generiert:
+   * Arbeit und Speicher fuer ein Ergebnis, das garantiert leer ist. Beim
+   * ersten Durchlauf im Steingrab waren das 81 Zonen in wenigen Sekunden,
+   * nur weil der Spieler durch die Gaenge lief.
+   *
+   * Ein WERT, keine Fallunterscheidung: Bekommt eine Instanz spaeter eine
+   * eigene Landmasse, steht hier wieder  und sonst nichts.
+   */
+  readonly mitZonengenerierung?: boolean;
+  /**
    * Vorhandener ZDO-Raum. Die Hauptwelt reicht ihren eigenen herein, weil
    * er im Konstruktor des Servers entsteht — vor jeder Geo. Eine Instanz
    * lässt ihn hier anlegen.
@@ -85,9 +109,11 @@ export class Welt {
   readonly spawns: SpawnSystem | null;
   readonly aggro: AggroSystem;
   readonly routen: RoutenLaeufer;
+  private readonly mitZonengenerierung: boolean;
 
   constructor(bauplan: WeltBauplan, umgebung: WeltUmgebung) {
     this.id = bauplan.id;
+    this.mitZonengenerierung = bauplan.mitZonengenerierung ?? true;
     this.geo = bauplan.geo;
     this.heightmaps = bauplan.heightmaps;
     this.zdos = bauplan.zdos ?? new ZDOManager(bauplan.serverUserId);
@@ -101,7 +127,13 @@ export class Welt {
     );
 
     this.spawns = bauplan.mitKreaturen
-      ? new SpawnSystem(this.zdos, this.geo as GeoManager, this.heightmaps, this.zones)
+      ? new SpawnSystem(
+          this.zdos,
+          this.geo as GeoManager,
+          this.heightmaps,
+          this.zones,
+          bauplan.spawnOptionen ?? {}
+        )
       : null;
     if (this.spawns) {
       this.spawns.onCreatureAttack = (pos, dmg, r) => umgebung.kreaturTrifft(pos, dmg, r);
@@ -135,7 +167,7 @@ export class Welt {
    * deshalb kostet eine leerstehende Instanz nichts.
    */
   tick(deltaSec: number, positionen: readonly Vector3[]): { neueZonen: number } {
-    const neueZonen = this.zones.update(positionen);
+    const neueZonen = this.mitZonengenerierung ? this.zones.update(positionen) : 0;
     this.spawns?.update(deltaSec, positionen);
     this.routen.update(deltaSec, positionen);
     this.aggro.update(deltaSec, positionen);

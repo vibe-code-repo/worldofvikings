@@ -5,12 +5,14 @@
  *  1. createGenerated persists a document with a stable ID; reload from a
  *     fresh manager sees the same document (disk round-trip through the
  *     sanitizer).
- *  2. getOrCreateInstance materializes ZDOs in the instance band (room
- *     shells + net views + doors), all in the instance's slot volume,
- *     far outside the playable world.
- *  3. Two instances occupy different slots (no interest overlap: origins
- *     ≥ DUNGEON_INSTANCE_SPACING apart).
- *  4. destroyInstance removes every materialized ZDO and frees the slot.
+ *  2. getOrCreateInstance materialisiert in einer EIGENEN WELT (Raumhüllen
+ *     + netViews + Türen), rund um deren Ursprung. Seit dem 27.08.2026 ist
+ *     das kein Slot in einem Koordinatenband ab x = 100.000 mehr, sondern
+ *     ein eigener ZDO-Raum — der Grund: float32 löst dort nur noch auf
+ *     7,8 mm auf.
+ *  3. Zwei Instanzen liegen in zwei verschiedenen Welten (statt in zwei
+ *     Slots derselben) und können sich schon deshalb nicht sehen.
+ *  4. destroyInstance entfernt jede ZDO und die Welt gleich mit.
  *  5. upsertDocument (editor path) sanitizes garbage away and tears down
  *     the live instance so the next enter sees the new layout.
  *  6. registerEntrance auto-creates a deterministic document and keeps an
@@ -22,14 +24,11 @@
 import { rmSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import {
-  DUNGEON_INSTANCE_SPACING,
-  DUNGEON_INSTANCE_X_BASE,
-  getStableHash,
-  isInDungeonBand,
-} from '@wov/shared';
+import { HeightmapProvider, getStableHash } from '@wov/shared';
+import { LeereGeo } from '@wov/shared/src/worldgen/LeereGeo.js';
 import { ZDOManager } from '../src/zdo/ZDOManager.js';
 import { DungeonManager } from '../src/world/dungeon/DungeonManager.js';
+import { Welt } from '../src/world/Welt.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DUNGEONS_DIR = resolve(__dirname, 'tmp-g5-dungeons');
@@ -46,8 +45,41 @@ function check(name: string, cond: boolean, detail = ''): void {
 
 rmSync(DUNGEONS_DIR, { recursive: true, force: true });
 
+/** ZDO-Raum der Hauptwelt — hier landen nur die Eingangshüllen. */
 const zdos = new ZDOManager(1n);
-const mgr = new DungeonManager(zdos, DUNGEONS_DIR);
+
+/**
+ * Weltfabrik wie im Server, nur ohne Server: dieselbe `Welt`-Klasse,
+ * dieselbe `LeereGeo`. Der Test baut damit den echten Weg nach und nicht
+ * einen zweiten, der auseinanderlaufen kann.
+ */
+const geo = new LeereGeo();
+const welten = new Map<string, Welt>();
+const umgebung = { prefabName: () => undefined, kreaturTrifft: () => {} };
+const weltAnlegen = (weltId: string): Welt => {
+  const vorhanden = welten.get(weltId);
+  if (vorhanden) return vorhanden;
+  const welt = new Welt(
+    {
+      id: weltId,
+      geo,
+      heightmaps: new HeightmapProvider(geo),
+      zonenSeed: getStableHash(weltId),
+      zonenOptionen: { worldFeatures: false, worldVegetation: false },
+      mitKreaturen: false,
+      mitZonengenerierung: false,
+      serverUserId: 1n,
+    },
+    umgebung
+  );
+  welten.set(weltId, welt);
+  return welt;
+};
+const weltEntfernen = (weltId: string): void => {
+  welten.delete(weltId);
+};
+
+const mgr = new DungeonManager(zdos, DUNGEONS_DIR, weltAnlegen, weltEntfernen);
 mgr.load();
 
 // ── 1. Document round-trip ─────────────────────────────────────────
@@ -56,7 +88,7 @@ const doc = mgr.createGenerated('DG_ForestCrypt', 4242);
 check('createGenerated', doc !== null, doc?.id);
 check('layout stored', (doc?.layout.rooms.length ?? 0) > 5, `${doc?.layout.rooms.length} rooms`);
 
-const mgr2 = new DungeonManager(zdos, DUNGEONS_DIR);
+const mgr2 = new DungeonManager(zdos, DUNGEONS_DIR, weltAnlegen, weltEntfernen);
 mgr2.load();
 const reloaded = mgr2.getDocument(doc!.id);
 check('disk round-trip', reloaded !== null && reloaded !== undefined);
@@ -67,14 +99,21 @@ check(
 
 // ── 2. Instance materialization ────────────────────────────────────
 console.log('\nInstances:');
-const before = zdos.totalZDOCount;
 const inst = mgr.getOrCreateInstance(doc!.id);
 check('instance created', inst !== null);
-const created = zdos.totalZDOCount - before;
+const instZdos = inst!.welt.zdos;
+const created = instZdos.totalZDOCount;
 check('ZDOs materialized', created > doc!.layout.rooms.length, `${created} ZDOs`);
-check('instance in band', isInDungeonBand(inst!.origin.x));
+check('eigene Welt', welten.has(inst!.welt.id), inst!.welt.id);
+check(
+  'Ursprung im Ursprung',
+  inst!.origin.x === 0 && inst!.origin.y === 0 && inst!.origin.z === 0
+);
+check('Hauptwelt bleibt leer', zdos.totalZDOCount === 0, `${zdos.totalZDOCount} ZDOs`);
 
-const near = zdos.getZDOsInRadius(inst!.origin, DUNGEON_INSTANCE_SPACING / 2);
+// Grosszuegiger Radius: Ein erzeugtes Layout misst gut 70 m, spaetere
+// Instanzen duerfen groesser werden. Er faengt einen Rueckfall aufs Band.
+const near = instZdos.getZDOsInRadius(inst!.origin, 5_000);
 check('all ZDOs near origin', near.length === created, `${near.length}/${created}`);
 
 const roomHash = getStableHash(doc!.layout.rooms[0].room);
@@ -87,19 +126,26 @@ check(
 const doc2 = mgr.createGenerated('DG_SunkenCrypt', 777);
 const inst2 = mgr.getOrCreateInstance(doc2!.id);
 check(
-  'slots separated',
-  Math.abs(inst2!.origin.z - inst!.origin.z) >= DUNGEON_INSTANCE_SPACING &&
-    inst2!.origin.x === DUNGEON_INSTANCE_X_BASE
+  'getrennte Welten',
+  inst2!.welt.id !== inst!.welt.id && inst2!.welt.zdos !== inst!.welt.zdos,
+  `${inst!.welt.id} / ${inst2!.welt.id}`
+);
+check(
+  'beide im Ursprung, ohne sich zu stoeren',
+  inst2!.origin.x === 0 && inst2!.origin.z === 0
 );
 check('same instance reused', mgr.getOrCreateInstance(doc!.id) === inst);
 
 // ── 4. Destroy ─────────────────────────────────────────────────────
 console.log('\nTeardown:');
+const weltVorher = inst!.welt.id;
 mgr.destroyInstance(doc!.id);
-const afterDestroy = zdos.getZDOsInRadius(inst!.origin, DUNGEON_INSTANCE_SPACING / 2);
+const afterDestroy = instZdos.getZDOsInRadius(inst!.origin, 5_000);
 check('ZDOs destroyed', afterDestroy.length === 0, `${afterDestroy.length} left`);
+check('Welt weggeraeumt', !welten.has(weltVorher), weltVorher);
 const inst3 = mgr.getOrCreateInstance(doc!.id);
 check('slot reused after destroy', inst3!.slot === inst!.slot);
+check('frische Welt fuer dieselbe Kennung', welten.has(inst3!.welt.id));
 
 // ── 5. Editor upsert ───────────────────────────────────────────────
 console.log('\nEditor upsert:');

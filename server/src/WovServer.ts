@@ -79,6 +79,10 @@ import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
+// Ueber den expliziten Pfad, nicht ueber den Barrel: eine Geo ohne
+// Landmasse braucht nur der Server, und der Client-Bundle-Schnitt soll
+// nicht daran wachsen.
+import { LeereGeo } from '@wov/shared/src/worldgen/LeereGeo.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
 import { Kontendatenbank } from './konto/Kontendatenbank.js';
 import { KontoApi } from './konto/KontoApi.js';
@@ -249,6 +253,67 @@ export class WovServer {
   };
 
   /**
+   * Die Geo aller Instanzen ohne Landmasse — EINE für alle.
+   *
+   * Sie ist nach dem Bauen unveränderlich (Höhen und Biome sind reine
+   * Funktionen des Ortes), teilen ist deshalb gefahrlos. Was NICHT geteilt
+   * werden darf, ist der `HeightmapProvider`: Der hält die Geländeeingriffe
+   * (`mods`, `comps`) einer Welt, und geteilt trüge eine Instanz die
+   * Grabungen einer anderen.
+   */
+  private readonly leereGeo = new LeereGeo();
+
+  /**
+   * Eine Instanzwelt anlegen — dieselbe Bauform wie die Hauptwelt.
+   *
+   * Der Unterschied steckt in den WERTEN, nicht im Code: eine Geo ohne
+   * Landmasse, keine Vegetation, keine Locations, und eine LEERE
+   * Spawn-Tabelle. Das Spawnsystem selbst ist da — sonst wanderten und
+   * kämpften die Skelette aus der Raum-Einrichtung nicht. Es soll nur
+   * nichts von sich aus setzen: Ein Steingrab, in dem Wiesen-Kreaturen
+   * nachwachsen, wäre kein Steingrab.
+   */
+  instanzWeltAnlegen(weltId: string): Welt {
+    const vorhanden = this.welten.get(weltId);
+    if (vorhanden) return vorhanden;
+    const welt = new Welt(
+      {
+        id: weltId,
+        geo: this.leereGeo,
+        heightmaps: new HeightmapProvider(this.leereGeo, {
+          blendSmoothStep: this.config.worldBlendSmoothStep,
+          bilinearSampling: this.config.worldBilinearHeight,
+        }),
+        zonenSeed: getStableHash(weltId),
+        zonenOptionen: {
+          worldFeatures: false,
+          worldVegetation: false,
+          locationOverrides: false,
+          dungeonsEnabled: false,
+        },
+        mitKreaturen: this.config.worldCreatures,
+        spawnOptionen: { table: [] },
+        mitZonengenerierung: false,
+        serverUserId: this.serverUserId,
+      },
+      this.weltUmgebung
+    );
+    this.welten.set(weltId, welt);
+    return welt;
+  }
+
+  /**
+   * Eine Instanzwelt wegwerfen.
+   *
+   * Die Hauptwelt ist ausdrücklich ausgenommen. Ein Tippfehler in einer
+   * Dungeon-Kennung soll nicht den Boden unter allen Spielern entfernen.
+   */
+  instanzWeltEntfernen(weltId: string): void {
+    if (weltId === HAUPTWELT_ID) return;
+    this.welten.delete(weltId);
+  }
+
+  /**
    * Die Welt, in der dieser Peer gerade steht.
    *
    * Bis hierher war „die Welt" immer die Hauptwelt, und jeder ZDO-Zugriff
@@ -367,7 +432,9 @@ export class WovServer {
     // gelandet als der Server, der sie mit derselben Config startet.
     this.dungeons = new DungeonManager(
       this.zdos,
-      resolve(this.config.worldsDir, '..', 'dungeons', this.config.worldName)
+      resolve(this.config.worldsDir, '..', 'dungeons', this.config.worldName),
+      (weltId) => this.instanzWeltAnlegen(weltId),
+      (weltId) => this.instanzWeltEntfernen(weltId)
     );
     // S6 (Security-Review): dauerhafte Admin-Liste — Pfad und Begruendung
     // (warum server/data/worlds/ statt server.yml) stehen in AdminListe.ts.
@@ -1057,11 +1124,24 @@ export class WovServer {
     // verbrauchte Liste wäre für ihn dann für immer weg (Leiche in der
     // Welt). Ohne Spieler trotzdem leeren, sonst wächst sie unbegrenzt
     // (Review-Punkt 29).
-    const destroyList = this.zdos.consumeDestroyList();
-    if (peers.length === 0) return;
-    if (destroyList.length > 0) {
-      for (const peer of peers) peer.stelleZerstoerungenEin(destroyList);
+    //
+    // JE WELT abholen und nur an die Peers DIESER Welt verteilen. Vorher
+    // gab es eine Liste, weil es einen ZDO-Raum gab; jetzt hat jede Welt
+    // ihre eigene. Ein Peer, der die Zerstörungen einer fremden Welt
+    // bekäme, entfernte Objekte, die er nie gesehen hat — die IDs sind je
+    // ZDO-Raum vergeben und kollidieren zwangsläufig.
+    //
+    // Auch ohne Spieler geleert, sonst wächst die Liste unbegrenzt
+    // (Review-Punkt 29) — und gerade eine leerstehende Instanz, die
+    // gerade abgerissen wurde, hat eine volle.
+    for (const welt of this.welten.values()) {
+      const destroyList = welt.zdos.consumeDestroyList();
+      if (destroyList.length === 0) continue;
+      for (const peer of peers) {
+        if (peer.worldId === welt.id) peer.stelleZerstoerungenEin(destroyList);
+      }
     }
+    if (peers.length === 0) return;
 
     const tick = Math.floor(this.worldTime * 1000);
 
@@ -1077,7 +1157,7 @@ export class WovServer {
 
       const peerZone = worldToZone(peer.position);
       const fenster = peer.fenster.hole(
-        this.zdos,
+        this.zdosVon(peer),
         peerZone.x,
         peerZone.y,
         WovServer.SICHT_RADIUS_ZONEN
@@ -1248,9 +1328,13 @@ export class WovServer {
     // the real ground at the world spawn (D6)
     const playerPrefab = this.prefabs.getByName('Player');
     const saved = this.ermittleGespeichertenStand(peer);
-    // Phase G: never respawn inside the dungeon band — the instance the
-    // player was in may no longer exist (onPeerQuit stores the return
-    // position, this is only the belt for crashes/old saves).
+    // Nie in einer Instanz wieder einsteigen. Sie überlebt keinen
+    // Neustart, und ihre Koordinaten bedeuten in der Oberwelt nichts.
+    // `onPeerQuit` legt die Rückkehrposition ab; das hier ist der Gurt für
+    // Abstürze — und für Spielstände aus der Zeit des Koordinatenbandes,
+    // in denen noch Positionen ab x = 100.000 stehen können. Genau dafür
+    // bleibt `isInDungeonBand`: als Lesehilfe für alte Daten, nicht mehr
+    // als Weltgrenze.
     const savedPos =
       saved && !isInDungeonBand(saved.position.x) ? { ...saved.position } : null;
     const spawnPos: Vector3 = savedPos ?? this.weltSpawn();
@@ -1676,7 +1760,7 @@ export class WovServer {
       // safety clamp against endless vertical drift
       const y = Math.min(2000, Math.max(-100, peer.position.y + moveY * flySpeed * deltaSec));
       newPos = { x: newX, y, z: newZ };
-    } else if (isInDungeonBand(peer.position.x)) {
+    } else if (peer.worldId !== HAUPTWELT_ID) {
       // Phase G: inside a dungeon instance there is no terrain heightmap —
       // floors/stairs are room colliders that only the client simulates
       // (EntityManager/Havok). The client reports its physics-resolved
@@ -1967,7 +2051,9 @@ export class WovServer {
     this.naechstesEvent = now + EVENT_INTERVAL_MS;
     if (Math.random() >= EVENT_CHANCE) return;
 
-    const kandidaten = this.net.getPeers().filter((p) => !isInDungeonBand(p.position.x));
+    // Nur Spieler in der Oberwelt. Ein Weltereignis hängt an Weltzeit und
+    // Weltgegend; in einer Instanz gibt es weder das eine noch das andere.
+    const kandidaten = this.net.getPeers().filter((p) => p.worldId === HAUPTWELT_ID);
     if (kandidaten.length === 0) return;
     const ziel = kandidaten[(Math.random() * kandidaten.length) | 0]!;
 
@@ -2659,6 +2745,41 @@ export class WovServer {
    * its camera/physics immediately (position is server-authoritative;
    * without the packet the client would lerp through 100 km of nothing).
    */
+  /**
+   * Den Charakter eines Peers in eine andere Welt umhängen.
+   *
+   * Ein ZDO kann das nicht: Seine Kennung wird je ZDO-Raum vergeben, und
+   * dieselbe Zahl bedeutet in zwei Welten zwei verschiedene Dinge. Der
+   * Charakter bekommt deshalb in der Zielwelt ein NEUES ZDO und übernimmt
+   * alle Mitglieder des alten (s. `ZDO.uebernehmeMitglieder`) — Figur,
+   * Frisur, Haarfarbe, Rüstung, Name, und alles, was später dazukommt.
+   *
+   * Das alte wird zerstört, und zwar VOR dem Wechsel: Das füllt die
+   * Zerstörungsliste der Herkunftswelt, und nur darüber erfahren die
+   * Spieler, die dort zurückbleiben, dass der Mitspieler weg ist. Ohne das
+   * stünde eine reglose Kopie von ihm in der Oberwelt, solange er im
+   * Dungeon ist.
+   */
+  private charakterUmziehen(peer: Peer, ziel: Welt, pos: Vector3): void {
+    const quelle = this.zdosVon(peer);
+    const alt = quelle.getZDO(peer.characterID);
+    const daten = alt?.toSnapshot();
+    const prefabHash = alt?.prefabHash ?? 0;
+    if (!peer.characterID.isNone()) quelle.destroyZDO(peer.characterID);
+
+    peer.worldId = ziel.id;
+    const neu = ziel.zdos.createZDO(prefabHash, pos, { x: 0, y: 0, z: 0, w: 1 });
+    if (daten) neu.uebernehmeMitglieder(daten);
+    neu.setOwner(new ZDOID(peer.userId, 0));
+    peer.characterID = neu.zdoid;
+
+    // Das Sichtfenster gehört zur alten Welt: Es merkt sich, welche ZDOs
+    // dieser Peer schon kennt, und diese Kennungen gelten drüben nicht.
+    // Ohne Zurücksetzen bekäme er in der neuen Welt genau die Objekte
+    // NICHT geschickt, deren Nummern er zufällig schon gesehen hat.
+    peer.weltWechselVorbereiten();
+  }
+
   private teleportPeer(
     peer: Peer,
     pos: Vector3,
@@ -2669,16 +2790,12 @@ export class WovServer {
     // Weltwechsel-Seam (Review 15): Die Signatur trägt die Zielwelt schon —
     // der eigentliche Kontext-Swap ist das Housing-Folgeprojekt.
     if (worldId !== peer.worldId) {
-      if (!this.welten.has(worldId)) {
+      const ziel = this.welten.get(worldId);
+      if (!ziel) {
         console.warn(`[WoV] teleportPeer: unbekannte Welt "${worldId}" — bleibe in "${peer.worldId}"`);
         return;
       }
-      // NOCH OFFEN (Etappe 2): Das Charakter-ZDO liegt im ZDO-Raum der
-      // ALTEN Welt. Ab der Zuweisung unten sucht `zdosVon(peer)` es in der
-      // neuen und findet nichts. Solange kein Aufrufer eine andere worldId
-      // uebergibt, kann das nicht eintreten — der Umzug des Charakters
-      // gehoert in denselben Schritt wie die Instanzwelt selbst.
-      peer.worldId = worldId;
+      this.charakterUmziehen(peer, ziel, pos);
     }
     peer.position = { ...pos };
     const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
@@ -2711,7 +2828,10 @@ export class WovServer {
       peer,
       this.dungeons.getSpawnPoint(instance),
       dungeonId,
-      doc ? interiorEnvironment(doc.base) : 'Crypt'
+      doc ? interiorEnvironment(doc.base) : 'Crypt',
+      // Die Welt der Instanz. Ab hier laeuft ALLES fuer diesen Peer dort:
+      // ZDO-Sync, Bauen, Abbauen, Kaempfen, Gelaende — s. `welt(peer)`.
+      instance.welt.id
     );
     return { ok: true, message: `Dungeon betreten: ${doc?.name ?? dungeonId}` };
   }
@@ -2725,7 +2845,7 @@ export class WovServer {
     peer.dungeonId = null;
     const back = peer.dungeonReturn ?? { x: 0, y: this.getGroundHeight(0, 0), z: 0 };
     peer.dungeonReturn = null;
-    this.teleportPeer(peer, back, null);
+    this.teleportPeer(peer, back, null, '', HAUPTWELT_ID);
     return { ok: true, message: 'Dungeon verlassen' };
   }
 
@@ -3438,10 +3558,14 @@ export class WovServer {
       .filter(
         (z) =>
           z.prefabHash !== playerHash &&
-          // Phase G: dungeon-instance ZDOs are never saved — instances are
-          // re-materialized from their DungeonDocument on demand (saving
-          // them would resurrect orphan geometry the manager doesn't know).
-          !isInDungeonBand(z.position.x) &&
+          // Gespeichert wird die HAUPTWELT. Instanz-ZDOs tauchen hier gar
+          // nicht mehr auf: Die Quelle dieser Liste ist `this.zdos`, und
+          // das ist der ZDO-Raum der Hauptwelt. Vorher stand hier ein
+          // Koordinatenfilter, weil alles in einem Raum lag.
+          //
+          // Eine Instanz wird aus ihrem DungeonDocument neu materialisiert;
+          // sie zu speichern hiesse, Geometrie auferstehen zu lassen, die
+          // der Manager nicht mehr kennt.
           (this.prefabs.getByHash(z.prefabHash)?.isPersistent() ?? false)
       );
 

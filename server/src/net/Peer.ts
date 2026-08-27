@@ -240,6 +240,22 @@ export class Peer {
     });
   }
 
+  /**
+   * Alles vergessen, was aus der bisherigen Welt stammt.
+   *
+   * ZDO-Kennungen werden JE ZDO-RAUM vergeben: Die erste ZDO einer frisch
+   * angelegten Instanz trägt dieselbe Nummer wie die erste der Oberwelt.
+   * Bliebe `knownZDOs` stehen, hielte der Server jede davon für „kennt er
+   * schon" und schickte sie nie — der Spieler stünde in einem leeren
+   * Dungeon. Dasselbe gilt für die offenen Zerstörungen: Sie zeigen auf
+   * Nummern, die drüben etwas anderes bedeuten.
+   */
+  weltWechselVorbereiten(): void {
+    this.knownZDOs.clear();
+    this.fenster.zuruecksetzen();
+    this.quittiereZerstoerungen();
+  }
+
   /** Remove a ZDO from this peer's known set. */
   removeKnownZDO(zdoid: ZDOID): void {
     this.knownZDOs.delete(zdoid.toString());

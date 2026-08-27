@@ -1,14 +1,17 @@
 /**
  * DungeonManager (Phase G) — dungeons as standalone instances.
  *
- * Concept (deliberately different from the usual "+5000 m in the sky" hack):
- * every dungeon lives in its own instance slot in the dungeon band — the
- * same world coordinate system, but far outside the playable world
- * (x = DUNGEON_INSTANCE_X_BASE, one slot every DUNGEON_INSTANCE_SPACING
- * meters along z). Slot spacing far exceeds the ZDO interest radius, so
- * instances are invisible to the overworld and to each other; entering and
- * leaving is a plain teleport. The ZDOManager's outer-sector storage
- * handles these coordinates natively.
+ * Konzept: Jeder Dungeon lebt in einer EIGENEN WELT (`server/src/world/
+ * Welt.ts`) — eigener ZDO-Raum, eigenes (leeres) Gelaende, eigene Systeme,
+ * Ursprung im Ursprung. Betreten und Verlassen ist ein Weltwechsel, kein
+ * Teleport quer durch dieselbe Welt.
+ *
+ * Bis zum 27.08.2026 lag stattdessen jede Instanz in einem "Band" ab
+ * x = 100.000 im SELBEN ZDO-Raum wie die Welt, weit ausserhalb des
+ * bespielbaren Gebiets. Das funktionierte, kostete aber, was float32 dort
+ * verlangt: Zwei benachbarte darstellbare Werte liegen bei 100.000 ganze
+ * 7,8 mm auseinander. Eigene Welten nehmen den Grund fuer den Abstand weg,
+ * statt den Abstand zu verwalten.
  *
  * Three layers:
  *   DungeonDocument (persistent, has the ID) — data/dungeons/<id>.json.
@@ -30,9 +33,6 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFile
 import { join } from 'path';
 import {
   DUNGEON_REGEN_INTERVAL_MS,
-  DUNGEON_INSTANCE_SPACING,
-  DUNGEON_INSTANCE_X_BASE,
-  DUNGEON_INSTANCE_Y_BASE,
   DungeonDocument,
   DungeonLayout,
   ENTRANCE_HULL_MODELS,
@@ -52,12 +52,30 @@ import {
 import { flattenLayout } from '@wov/shared/src/dungeonFlatten.js';
 import type { Vector3 } from '@wov/shared';
 import type { ZDOManager } from '../../zdo/ZDOManager.js';
+import type { Welt } from '../Welt.js';
 import type { ZDOID } from '../../zdo/ZDOID.js';
 
 /** A live, materialized dungeon (one per document at a time). */
 export interface DungeonInstance {
   dungeonId: string;
+  /**
+   * Die Welt dieser Instanz — eigener ZDO-Raum, eigenes (leeres) Gelände,
+   * eigene Systeme. Sie ist der Grund, warum `origin` unten (0,0,0) ist:
+   * Es gibt nichts mehr, wovon man Abstand halten müsste.
+   */
+  welt: Welt;
   slot: number;
+  /**
+   * Ursprung der Instanz IN IHRER WELT — seit dem Umbau auf eigene Welten
+   * immer (0, 0, 0).
+   *
+   * Das Feld bleibt, weil `getSpawnPoint` und die Materialisierung damit
+   * rechnen und eine spätere Instanz mit Landmasse ihren Dungeon durchaus
+   * versetzt hineinsetzen darf. Was verschwunden ist, ist der GRUND für
+   * einen Versatz: Vorher lagen alle Instanzen im selben ZDO-Raum wie die
+   * Welt und mussten sich ab x = 100.000 aus dem Weg gehen — und zahlten
+   * dort 7,8 mm Abstand zwischen zwei darstellbaren float32-Werten.
+   */
   origin: Vector3;
   zdoids: ZDOID[];
   /** Peer names currently inside. */
@@ -111,9 +129,23 @@ export class DungeonManager {
   onEntrancesChanged: (() => void) | null = null;
 
   constructor(
+    /**
+     * ZDO-Raum der HAUPTWELT. Der Dungeon-Manager schreibt dort genau
+     * eines hinein: die sichtbare Eingangshülle in der Oberwelt. Alles
+     * andere lebt in der Welt der jeweiligen Instanz.
+     */
     private readonly zdos: ZDOManager,
-    private readonly dungeonsDir: string
+    private readonly dungeonsDir: string,
+    /** Legt die Welt einer Instanz an (WovServer kennt die Umgebung). */
+    private readonly weltAnlegen: (weltId: string) => Welt,
+    /** Räumt sie wieder weg. */
+    private readonly weltEntfernen: (weltId: string) => void
   ) {}
+
+  /** Welt-Kennung einer Instanz — stabil und im Log lesbar. */
+  static weltId(dungeonId: string): string {
+    return `dungeon:${dungeonId}`;
+  }
 
   // ── Documents ────────────────────────────────────────────────────
 
@@ -436,17 +468,16 @@ export class DungeonManager {
     if (!doc) return null;
 
     const slot = this.freeSlots.pop() ?? this.nextSlot++;
-    const origin: Vector3 = {
-      x: DUNGEON_INSTANCE_X_BASE,
-      y: DUNGEON_INSTANCE_Y_BASE,
-      z: slot * DUNGEON_INSTANCE_SPACING,
-    };
+    // Der Ursprung liegt im Ursprung. Eine eigene Welt braucht keinen
+    // Sicherheitsabstand zu einer anderen — s. `DungeonInstance.origin`.
+    const origin: Vector3 = { x: 0, y: 0, z: 0 };
+    const welt = this.weltAnlegen(DungeonManager.weltId(dungeonId));
 
-    const zdoids = this.materialize(doc.layout, doc, origin);
-    const instance: DungeonInstance = { dungeonId, slot, origin, zdoids, players: new Set() };
+    const zdoids = this.materialize(doc.layout, doc, origin, welt.zdos);
+    const instance: DungeonInstance = { dungeonId, welt, slot, origin, zdoids, players: new Set() };
     this.instances.set(dungeonId, instance);
     console.log(
-      `[Dungeon] Instance '${dungeonId}' materialized in slot ${slot}: ` +
+      `[Dungeon] Instance '${dungeonId}' materialized in world '${welt.id}': ` +
         `${doc.layout.rooms.length} rooms, ${zdoids.length} ZDOs`
     );
     return instance;
@@ -456,11 +487,17 @@ export class DungeonManager {
   destroyInstance(dungeonId: string): boolean {
     const instance = this.instances.get(dungeonId);
     if (!instance) return false;
+    // ERST die ZDOs einzeln zerstören, DANN die Welt wegwerfen: Das
+    // Zerstören füllt die Zerstörungsliste ihres ZDO-Raums, und nur
+    // darüber erfährt ein Client, der noch drinsteht, dass die Räume weg
+    // sind. Wer die Welt zuerst aus der Karte nimmt, lässt ihn mit einem
+    // Dungeon zurück, den es nicht mehr gibt.
     for (const zdoid of instance.zdoids) {
-      this.zdos.destroyZDO(zdoid);
+      instance.welt.zdos.destroyZDO(zdoid);
     }
     this.instances.delete(dungeonId);
     this.freeSlots.push(instance.slot);
+    this.weltEntfernen(instance.welt.id);
     console.log(`[Dungeon] Instance '${dungeonId}' destroyed (${instance.zdoids.length} ZDOs)`);
     return true;
   }
@@ -490,13 +527,18 @@ export class DungeonManager {
    * (geometry + colliders come from the room GLB client-side), one ZDO per
    * net view (chests, spawners, torches, …) and per door.
    */
-  private materialize(layout: DungeonLayout, doc: DungeonDocument, origin: Vector3): ZDOID[] {
+  private materialize(
+    layout: DungeonLayout,
+    doc: DungeonDocument,
+    origin: Vector3,
+    zdos: ZDOManager
+  ): ZDOID[] {
     const zdoids: ZDOID[] = [];
     const spawned = flattenLayout(layout, doc.base);
 
     for (const item of spawned) {
       const pos = { x: origin.x + item.pos.x, y: origin.y + item.pos.y, z: origin.z + item.pos.z };
-      const zdo = this.zdos.createZDO(item.prefabHash, pos, item.rot);
+      const zdo = zdos.createZDO(item.prefabHash, pos, item.rot);
       zdoids.push(zdo.zdoid);
 
       // Spawner erwachen: aus 'Spawner_Skeleton(_respawn_30)' wird beim
@@ -505,7 +547,7 @@ export class DungeonManager {
       if (item.kind === 'netView') {
         const kreatur = spawnerCreature(item.prefabName);
         if (kreatur !== null) {
-          const c = this.zdos.createZDO(getStableHash(kreatur), { ...pos, y: pos.y + 0.2 }, item.rot);
+          const c = zdos.createZDO(getStableHash(kreatur), { ...pos, y: pos.y + 0.2 }, item.rot);
           zdoids.push(c.zdoid);
         }
       }

@@ -21,6 +21,7 @@ import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import { ZDOID } from '../src/zdo/ZDOID.js';
 import type { Peer } from '../src/net/Peer.js';
+import { HAUPTWELT_ID } from '../src/world/Welt.js';
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ''): void {
@@ -55,6 +56,10 @@ function makePeer(isAdmin: boolean): Peer {
     name: 'TestViking',
     isAdmin,
     flying: false,
+    // Wie am echten Peer vorbelegt: Ohne diese Zeile ist worldId
+    // undefined, und der Server haelt den Testspieler fuer jemanden in
+    // einer Instanz — dort gilt keine Schwerkraft.
+    worldId: HAUPTWELT_ID,
     position: { x: 0, y: 100, z: 0 },
     lastInputSeq: 0,
     lastInputTime: 0,

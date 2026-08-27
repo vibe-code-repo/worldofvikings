@@ -72,6 +72,22 @@ export class ZonenFenster {
   }
 
   /**
+   * Das Fenster verwerfen.
+   *
+   * Gebraucht beim Weltwechsel: Das Fenster gilt nur zusammen mit den
+   * Zonen-Generationen SEINES ZDO-Raums, und die zählen in jeder Welt bei
+   * null los. Ohne Verwerfen könnte ein Peer, der die Zone (0,0) der
+   * Oberwelt kennt, die Zone (0,0) einer frischen Instanz für unverändert
+   * halten — beide stehen auf Generation 0 — und bekäme dort nichts
+   * geschickt.
+   */
+  zuruecksetzen(): void {
+    this.zoneX = NaN;
+    this.zoneY = NaN;
+    this.liste.length = 0;
+  }
+
+  /**
    * (dx, dy) aller Fensterzonen, nach Chebyshev-Abstand aufsteigend. Einmal
    * je Radius gebaut; der Radius ist heute konstant, aber ein Fenster, das
    * sich beim ersten Aufruf still auf den falschen Radius festlegt, wäre ein

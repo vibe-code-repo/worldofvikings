@@ -1,7 +1,7 @@
 {
- "erzeugt": "2026-08-23T06:59:51.957Z",
+ "erzeugt": "2026-08-27T04:52:03.433Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 176,
+ "anzahl": 183,
  "modelle": {
   "Ampfer1": {
    "datei": "Ampfer1.glb",
@@ -3037,6 +3037,188 @@
    "dreiecke": 80,
    "materialien": 1,
    "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "SteingrabAbschluss": {
+   "datei": "SteingrabAbschluss.glb",
+   "foliage": false,
+   "bytes": 72976,
+   "huelle": {
+    "min": [
+     -2,
+     -0.3,
+     -0.118
+    ],
+    "max": [
+     2,
+     4,
+     0.125
+    ]
+   },
+   "breite": 4,
+   "hoehe": 4.3,
+   "tiefe": 0.243,
+   "dreiecke": 1232,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "SteingrabEcke": {
+   "datei": "SteingrabEcke.glb",
+   "foliage": false,
+   "bytes": 195828,
+   "huelle": {
+    "min": [
+     -2,
+     -0.3,
+     -2
+    ],
+    "max": [
+     2,
+     4,
+     2
+    ]
+   },
+   "breite": 4,
+   "hoehe": 4.3,
+   "tiefe": 4,
+   "dreiecke": 3344,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "SteingrabEndkappe": {
+   "datei": "SteingrabEndkappe.glb",
+   "foliage": false,
+   "bytes": 265176,
+   "huelle": {
+    "min": [
+     -2,
+     -0.3,
+     -2
+    ],
+    "max": [
+     2,
+     4,
+     2
+    ]
+   },
+   "breite": 4,
+   "hoehe": 4.3,
+   "tiefe": 4,
+   "dreiecke": 4532,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "SteingrabGang": {
+   "datei": "SteingrabGang.glb",
+   "foliage": false,
+   "bytes": 383296,
+   "huelle": {
+    "min": [
+     -2,
+     -0.3,
+     -4
+    ],
+    "max": [
+     2,
+     4,
+     4
+    ]
+   },
+   "breite": 4,
+   "hoehe": 4.3,
+   "tiefe": 8,
+   "dreiecke": 6556,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "SteingrabKammer": {
+   "datei": "SteingrabKammer.glb",
+   "foliage": false,
+   "bytes": 1325776,
+   "huelle": {
+    "min": [
+     -4,
+     -0.3,
+     -6
+    ],
+    "max": [
+     4,
+     6.4,
+     6
+    ]
+   },
+   "breite": 8,
+   "hoehe": 6.7,
+   "tiefe": 12,
+   "dreiecke": 22704,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "SteingrabKreuzung": {
+   "datei": "SteingrabKreuzung.glb",
+   "foliage": false,
+   "bytes": 570768,
+   "huelle": {
+    "min": [
+     -4,
+     -0.3,
+     -4
+    ],
+    "max": [
+     4,
+     4,
+     4
+    ]
+   },
+   "breite": 8,
+   "hoehe": 4.3,
+   "tiefe": 8,
+   "dreiecke": 9768,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "SteingrabTuer": {
+   "datei": "SteingrabTuer.glb",
+   "foliage": false,
+   "bytes": 142128,
+   "huelle": {
+    "min": [
+     -1.75,
+     0,
+     -0.222
+    ],
+    "max": [
+     1.75,
+     3.6,
+     0.223
+    ]
+   },
+   "breite": 3.5,
+   "hoehe": 3.6,
+   "tiefe": 0.446,
+   "dreiecke": 2420,
+   "materialien": 1,
+   "bilder": 0,
    "animationen": [],
    "meshlos": false,
    "skins": 0

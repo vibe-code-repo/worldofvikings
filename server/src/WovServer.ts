@@ -78,7 +78,7 @@ import { RoutenLaeufer } from './world/RoutenLaeufer.js';
 import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
-import { HAUPTWELT_ID, type WorldContext } from './world/WorldContext.js';
+import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
 import { Kontendatenbank } from './konto/Kontendatenbank.js';
 import { KontoApi } from './konto/KontoApi.js';
@@ -222,19 +222,83 @@ export class WovServer {
   readonly weltMarken = new WeltMarken();
 
   // ── Worldgen (D6) — built in init(), ground truth for terrain ──
-  geo!: IGeo;
-  /** Alle Welten dieses Prozesses — heute genau die Hauptwelt (Review 15). */
-  readonly welten = new Map<string, WorldContext>();
+  /**
+   * Die Hauptwelt. Entsteht in `init()` und ist von da an die einzige
+   * Quelle für Geo, Gelände, Zonen und die weltgebundenen Systeme.
+   *
+   * Die Zugriffe darunter (`geo`, `heightmaps`, `zones`, `spawns`,
+   * `aggro`, `routen`) zeigen ausdrücklich HIERHER und nicht „auf die
+   * Welt". Jede Stelle, die sie benutzt, sagt damit: „gilt nur für die
+   * Hauptwelt". Was für jede Welt gelten soll, gehört in `Welt` und wird
+   * über `welt(peer)` erreicht.
+   */
+  hauptwelt!: Welt;
+  /** Alle Welten dieses Prozesses: die Hauptwelt und je eine je Instanz. */
+  readonly welten = new Map<string, Welt>();
+
+  /**
+   * Was JEDE Welt vom Server braucht — und nur das.
+   *
+   * Bewusst zwei schmale Rückrufe statt einer Server-Referenz: Eine Welt,
+   * die den Server hält, könnte alles, und dann wandert beim nächsten
+   * Umbau wieder Weltlogik hierher zurück, weil es so bequem ist.
+   */
+  private readonly weltUmgebung: WeltUmgebung = {
+    prefabName: (hash) => this.prefabs.getByHash(hash)?.name,
+    kreaturTrifft: (pos, dmg, r) => this.applyCreatureAttack(pos, dmg, r),
+  };
+
+  /**
+   * Die Welt, in der dieser Peer gerade steht.
+   *
+   * Bis hierher war „die Welt" immer die Hauptwelt, und jeder ZDO-Zugriff
+   * griff ueber `this.zdos` direkt dorthin. Dungeon-Instanzen behalfen
+   * sich deshalb mit einem Koordinatenband ab x = 100.000 im SELBEN
+   * ZDO-Raum — mit dem Preis, den float32 dort verlangt: Der Abstand
+   * zweier darstellbarer Werte betraegt bei 100.000 ganze 7,8 mm.
+   *
+   * Diese Funktion ist die Naht, an der daraus echte Welten werden. Solange
+   * jeder Peer in `HAUPTWELT_ID` steht, liefert sie genau das, was vorher
+   * fest verdrahtet war; das ist Absicht, damit der Umbau selbst nichts
+   * aendert und die Tests ihn tragen.
+   *
+   * Unbekannte `worldId` faellt auf die Hauptwelt zurueck statt zu werfen:
+   * Ein Peer ohne Welt waere ein Spieler ohne Boden, und ein stiller
+   * Rueckfall ist hier das kleinere Uebel als ein Absturz mitten im Tick.
+   */
+  private welt(peer: Peer): Welt {
+    return this.welten.get(peer.worldId) ?? this.welten.get(HAUPTWELT_ID)!;
+  }
+
+  /** Kurzform fuer den ZDO-Raum eines Peers — s. `welt()`. */
+  private zdosVon(peer: Peer): ZDOManager {
+    return this.welt(peer).zdos;
+  }
   /** Roh-JSON des WorldLayouts (Layout-Modus) — geht in Phase 4 an Clients. */
   worldLayoutRaw: unknown = null;
-  heightmaps!: HeightmapProvider;
-  /** Phase E — vegetation zone population around players. */
-  zones!: ZoneManager;
-  /** G2: creature spawning/wander — null when worldCreatures is off. */
-  spawns: SpawnSystem | null = null;
-  /** Routen-NPCs des Layouts (feste Wegpunkt-Folgen) — in init() gebaut. */
-  routen: RoutenLaeufer | null = null;
-  aggro: AggroSystem | null = null;
+  get geo(): IGeo {
+    return this.hauptwelt.geo;
+  }
+
+  get heightmaps(): HeightmapProvider {
+    return this.hauptwelt.heightmaps;
+  }
+
+  get zones(): ZoneManager {
+    return this.hauptwelt.zones;
+  }
+
+  get spawns(): SpawnSystem | null {
+    return this.hauptwelt.spawns;
+  }
+
+  get routen(): RoutenLaeufer {
+    return this.hauptwelt.routen;
+  }
+
+  get aggro(): AggroSystem {
+    return this.hauptwelt.aggro;
+  }
   /** G1: world persistence (C++ IWorldManager) — created in init(). */
   worldManager!: WorldManager;
   /** Phase G: dungeon documents, entrances and instances. */
@@ -435,7 +499,7 @@ export class WovServer {
       this.config.worldMode === 'layout'
         ? (sanitizeWorldLayout(this.worldLayoutRaw)?.detailSeed ?? this.config.worldSeed)
         : this.config.worldSeed;
-    this.geo = createGeo({
+    const geo = createGeo({
       mode: this.config.worldMode,
       worldSeed: getStableHash(layoutSeed),
       layout: this.worldLayoutRaw ?? undefined,
@@ -451,23 +515,33 @@ export class WovServer {
         `[WoV] WorldLayout "${(this.worldLayoutRaw as { name?: string })?.name}" geladen (${this.config.worldLayoutPath})`
       );
     }
-    this.heightmaps = new HeightmapProvider(this.geo, {
+    const heightmaps = new HeightmapProvider(geo, {
       blendSmoothStep: this.config.worldBlendSmoothStep,
       bilinearSampling: this.config.worldBilinearHeight,
     });
-    // E2/E3: vegetation zone population (C++ IZoneManager)
-    this.zones = new ZoneManager(
-      this.geo,
-      this.heightmaps,
-      this.zdos,
-      getStableHash(this.config.worldSeed),
+    // Die Hauptwelt — gebaut wie jede andere Welt auch (s. `Welt`). Sie
+    // reicht ihren ZDO-Raum herein, weil der schon im Konstruktor
+    // entsteht: Der Dungeon-Manager und die Admin-Befehle hängen daran,
+    // lange bevor es eine Geo gibt.
+    this.hauptwelt = new Welt(
       {
-        worldFeatures: this.config.worldFeatures,
-        worldVegetation: this.config.worldVegetation,
-        locationOverrides: this.config.worldLocationOverrides,
-        dungeonsEnabled: this.config.dungeonsEnabled,
-      }
+        id: HAUPTWELT_ID,
+        geo,
+        heightmaps,
+        zonenSeed: getStableHash(this.config.worldSeed),
+        zonenOptionen: {
+          worldFeatures: this.config.worldFeatures,
+          worldVegetation: this.config.worldVegetation,
+          locationOverrides: this.config.worldLocationOverrides,
+          dungeonsEnabled: this.config.dungeonsEnabled,
+        },
+        mitKreaturen: this.config.worldCreatures,
+        zdos: this.zdos,
+        serverUserId: this.serverUserId,
+      },
+      this.weltUmgebung
     );
+    this.welten.set(HAUPTWELT_ID, this.hauptwelt);
     console.log(`[WoV] Worldgen ready in ${Date.now() - t0}ms (seed "${this.config.worldSeed}")`);
 
     // Phase G: dungeon documents/entrances from disk, then wire the
@@ -573,18 +647,6 @@ export class WovServer {
     );
     this.loadWorld();
 
-    // Multi-World-Fundament (Review 15): Die Hauptwelt als WorldContext —
-    // die Felder oben ZEIGEN auf dieselben Bausteine; künftige Welten
-    // (Housing) werden weitere Einträge dieser Map.
-    this.welten.set(HAUPTWELT_ID, {
-      id: HAUPTWELT_ID,
-      geo: this.geo,
-      heightmaps: this.heightmaps,
-      zones: this.zones,
-      zdos: this.zdos,
-      worldManager: this.worldManager,
-    });
-
     // Phase G: Camps (Dörfer, Farmen, GoblinCamps) in bereits generierten
     // Zonen nachziehen — vor dem Camp-Generator wurden sie übersprungen.
     this.zones.backfillCamps();
@@ -599,10 +661,10 @@ export class WovServer {
 
     // G2: creature spawning — AFTER loadWorld so creatures restored from
     // the save can be adopted (their spawn position = wander anchor).
-    if (this.config.worldCreatures) {
-      this.spawns = new SpawnSystem(this.zdos, this.geo, this.heightmaps, this.zones);
-      // Kampf: Kreaturen-Treffer auf Spieler routen (Chase-Modus).
-      this.spawns.onCreatureAttack = (pos, dmg, r) => this.applyCreatureAttack(pos, dmg, r);
+    if (this.spawns) {
+      // Das System selbst gehört der Welt (s. `Welt`); hier wird nur noch
+      // übernommen, was aus dem Spielstand zurückkam — und das kann erst
+      // NACH loadWorld passieren.
       this.spawns.adoptPersisted();
       // Eigene NPCs wandern passiv; gespeicherte Bosse behalten ihre KI.
       for (const zdo of this.zdos.getZDOByPrefab(getStableHash('NPC_1'))) {
@@ -621,23 +683,10 @@ export class WovServer {
     // NOTE: spawnDemoWorld was removed in Phase E (E5) — the world is now
     // populated by the real vegetation system (ZoneManager).
 
-    // Routen-NPCs: MUSS vor spawnLayoutPlacements stehen — dort werden die
-    // Platzierungen mit `route` angemeldet. Die Höhe kommt bewusst über
-    // getGroundHeight (dieselbe Quelle wie Spawn-Höhe und Kreaturen), damit
-    // der NPC dem Gelände folgt, statt eine gespeicherte Höhe zu tragen.
-    this.routen = new RoutenLaeufer(this.zdos, (x, z) => this.getGroundHeight(x, z));
-
-    // Kampf: feindliche NPCs wenden sich dem Spieler zu und schlagen zu.
-    // Braucht kein Register — es sucht selbst um die Spieler herum (s.
-    // AggroSystem). Der RoutenLaeufer bekommt nur die Menge der NPCs, die
-    // gerade kämpfen, damit er ihnen nicht ins Steuer greift.
-    this.aggro = new AggroSystem(
-      this.zdos,
-      (hash) => this.prefabs.getByHash(hash)?.name,
-      (x, z) => this.getGroundHeight(x, z)
-    );
-    this.routen.gesperrt = this.aggro.gesperrt;
-
+    // Routen-NPCs und Aggro gehören der Welt und stehen längst (s.
+    // `Welt`). `spawnLayoutPlacements` meldet nur noch die Platzierungen
+    // mit `route` beim RoutenLaeufer an — und MUSS deshalb hier stehen,
+    // nach dem Aufbau der Welt.
     this.spawnLayoutPlacements();
 
     console.log('[WoV] Initialized');
@@ -783,9 +832,15 @@ export class WovServer {
     return sauber ? getStableHash(JSON.stringify(sauber)) : null;
   }
 
-  /** Ground height via the shared heightmap (D6 server ground truth). */
+  /**
+   * Geländehöhe der HAUPTWELT (D6 server ground truth).
+   *
+   * Wer die Höhe für einen Peer braucht, fragt `welt(peer).bodenHoehe()` —
+   * in einer Instanz ohne Landmasse antwortet diese Funktion hier sonst
+   * mit dem Gelände der Oberwelt, und das ist an x = 0 ein Ozeanboden.
+   */
   getGroundHeight(x: number, z: number): number {
-    return this.heightmaps.getGroundHeight(x, z);
+    return this.hauptwelt.bodenHoehe(x, z);
   }
 
   start(): void {
@@ -860,31 +915,31 @@ export class WovServer {
     // per peer; budgeted drain instead of C++'s blocking inline generation)
     const peers = this.net.getPeers();
     if (peers.length > 0) {
-      // Phase G: peers inside dungeon instances don't drive overworld
-      // systems — no vegetation zones or creature spawning in the band.
-      const peerPositions = peers
-        .filter((p) => !isInDungeonBand(p.position.x))
-        .map((p) => p.position);
-      if (peerPositions.length > 0) {
-        const generatedNow = this.zones.update(peerPositions);
-        if (generatedNow > 0) {
+      // JEDE Welt tickt, nicht nur die Hauptwelt — und jede mit den
+      // Spielern, die IN IHR stehen. Vorher stand hier ein Filter, der
+      // Spieler im Dungeon-Band von den Oberweltsystemen fernhielt; das
+      // war die Krücke, die nötig war, solange alles einen ZDO-Raum
+      // teilte. Jetzt trennen die Welten selbst.
+      //
+      // Eine Welt ohne Spieler bekommt eine leere Liste und rechnet
+      // deshalb fast nichts: Vegetation, Kreaturen und Routen hängen alle
+      // am Umkreis der Spieler. Eine leerstehende Instanz kostet nichts.
+      const positionenJeWelt = new Map<string, Vector3[]>();
+      for (const p of peers) {
+        const liste = positionenJeWelt.get(p.worldId);
+        if (liste) liste.push(p.position);
+        else positionenJeWelt.set(p.worldId, [p.position]);
+      }
+      for (const welt of this.welten.values()) {
+        const positionen = positionenJeWelt.get(welt.id);
+        if (!positionen?.length) continue;
+        const { neueZonen } = welt.tick(deltaSec, positionen);
+        if (neueZonen > 0) {
           console.log(
-            `[WoV] Vegetation: +${generatedNow} zone(s) (${this.zones.generatedZoneCount} total, ${this.zdos.totalZDOCount} ZDOs)`
+            `[WoV] Vegetation (${welt.id}): +${neueZonen} zone(s) ` +
+              `(${welt.zones.generatedZoneCount} total, ${welt.zdoAnzahl} ZDOs)`
           );
         }
-
-        // G2: creature spawn/despawn + wander simulation around players
-        this.spawns?.update(deltaSec, peerPositions);
-
-        // Routen-NPCs laufen ihre Wegpunkte ab (autoritativ wie die
-        // Kreaturen; die Position geht über den normalen ZDO-Sync raus).
-        this.routen?.update(deltaSec, peerPositions);
-
-        // Kampf NACH den Routen: Das AggroSystem darf das letzte Wort
-        // haben. Läuft ein NPC gerade und bekommt in diesem Tick Aggro,
-        // überschreibt es das eben gesetzte 'walk' mit 'attack' — nicht
-        // umgekehrt.
-        this.aggro?.update(deltaSec, peerPositions);
       }
     }
 
@@ -1202,7 +1257,7 @@ export class WovServer {
     peer.flying = saved?.flying ?? false;
     peer.spawnPoint = saved?.spawnPoint ? { ...saved.spawnPoint } : null;
 
-    const characterZDO = this.zdos.createZDO(
+    const characterZDO = this.zdosVon(peer).createZDO(
       playerPrefab?.hash ?? 0,
       spawnPos,
       { x: 0, y: 0, z: 0, w: 1 }
@@ -1277,7 +1332,7 @@ export class WovServer {
     this.inventarSync(peer);
     // Piece-Budget: eigene Bauten einmalig zählen (15k-ZDO-Scan, nur Login).
     const meineId = peer.userId.toString();
-    peer.bautenAnzahl = this.zdos
+    peer.bautenAnzahl = this.zdosVon(peer)
       .getAllZDOs()
       .filter((z) => z.getInt('spieler') === 1 && z.getString('besitzer') === meineId).length;
 
@@ -1324,7 +1379,7 @@ export class WovServer {
     });
     // Destroy player character ZDO
     if (!peer.characterID.isNone()) {
-      this.zdos.destroyZDO(peer.characterID);
+      this.zdosVon(peer).destroyZDO(peer.characterID);
     }
     console.log(`[WoV] Player "${peer.name}" left`);
   }
@@ -1655,9 +1710,9 @@ export class WovServer {
     peer.position = newPos;
 
     // Update character ZDO position
-    const charZDO = this.zdos.getZDO(peer.characterID);
+    const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
     if (charZDO) {
-      this.zdos.updateZDOZone(charZDO, newPos);
+      this.zdosVon(peer).updateZDOZone(charZDO, newPos);
       charZDO.revision.reviseData();
       charZDO.dirty = true;
     }
@@ -1736,7 +1791,7 @@ export class WovServer {
     this.inventarSync(peer);
     peer.bautenAnzahl++;
 
-    const zdo = this.zdos.createZDO(prefabHash, pos, rot);
+    const zdo = this.zdosVon(peer).createZDO(prefabHash, pos, rot);
     zdo.setInt('spieler', 1);
     // Besitzer festhalten — nur der Erbauer darf abreißen (Review-Punkt 4).
     zdo.setString('besitzer', peer.userId.toString());
@@ -1757,7 +1812,7 @@ export class WovServer {
     }
     let ziel: ZDO | null = null;
     let best = 3 * 3;
-    for (const zdo of this.zdos.getZDOsInRadius(pos, 4)) {
+    for (const zdo of this.zdosVon(peer).getZDOsInRadius(pos, 4)) {
       if (zdo.getInt('spieler') !== 1) continue;
       // Nur eigene Bauten (Altbestand ohne 'besitzer' bleibt abreißbar,
       // sonst wären die vor diesem Patch gebauten Stücke für immer fest).
@@ -1771,7 +1826,7 @@ export class WovServer {
     }
     if (!ziel) return;
     const def = this.prefabs.getByHash(ziel.prefabHash);
-    this.zdos.destroyZDO(ziel.zdoid);
+    this.zdosVon(peer).destroyZDO(ziel.zdoid);
     // Halbe Materialkosten zurueck (je Zutat eine Meldung).
     if (peer.bautenAnzahl > 0) peer.bautenAnzahl--;
     const piece = Object.values(PIECES).find((p) => p.bauPrefab === def?.name);
@@ -2081,7 +2136,7 @@ export class WovServer {
     const schaden = WAFFEN_SCHADEN[waffe] ?? 4; // Faust
     let ziel: import('./zdo/ZDO.js').ZDO | null = null;
     let best = 2.8 * 2.8;
-    for (const zdo of this.zdos.getZDOsInRadius(pos, 3.5)) {
+    for (const zdo of this.zdosVon(peer).getZDOsInRadius(pos, 3.5)) {
       const def = this.prefabs.getByHash(zdo.prefabHash);
       const flags = def?.flags ?? 0n;
       if ((flags & (PrefabFlag.ANIMAL_AI | PrefabFlag.MONSTER_AI)) === 0n) continue;
@@ -2099,7 +2154,7 @@ export class WovServer {
     // vom Spawn mit, und `adoptPersisted` trägt sie den alten nach.
     const hp = (ziel.getInt(HEALTH_MEMBER) || maxLeben(name)) - schaden;
     if (hp <= 0) {
-      this.zdos.destroyZDO(ziel.zdoid);
+      this.zdosVon(peer).destroyZDO(ziel.zdoid);
       // F5: einzige verdrahtete Anwendung der Fortschrittsmarken — Eikthyr
       // besiegt heisst defeated_eikthyr, unabhaengig davon wie oft er ueber
       // den Altar (StatueDeer-Zweig oben) erneut beschworen wird. setzen()
@@ -2154,7 +2209,7 @@ export class WovServer {
     let ziel: ZDO | null = null;
     let art: 'baum' | 'fels' | 'weich' | null = null;
     let best = 3.2 * 3.2;
-    for (const zdo of this.zdos.getZDOsInRadius(pos, 4)) {
+    for (const zdo of this.zdosVon(peer).getZDOsInRadius(pos, 4)) {
       const def = this.prefabs.getByHash(zdo.prefabHash);
       if (!def) continue;
       const flags = def.flags;
@@ -2194,7 +2249,7 @@ export class WovServer {
       ziel.dirty = true;
       return;
     }
-    this.zdos.destroyZDO(ziel.zdoid);
+    this.zdosVon(peer).destroyZDO(ziel.zdoid);
     const menge = art === 'weich' ? 2 : 6 + ((Math.random() * 5) | 0);
     const item = art === 'fels' ? 'Stone' : 'Wood';
     antwort(`${art === 'baum' ? 'Baum gefällt' : art === 'fels' ? 'Fels zerbrochen' : 'Zerlegt'} — ${menge}× ${item}`, item, menge);
@@ -2251,7 +2306,7 @@ export class WovServer {
 
     let ziel = null as import('./zdo/ZDO.js').ZDO | null;
     let best = 2.5 * 2.5;
-    for (const zdo of this.zdos.getZDOsInRadius(pos, 3)) {
+    for (const zdo of this.zdosVon(peer).getZDOsInRadius(pos, 3)) {
       if (zdo.prefabHash !== prefabHash) continue;
       const ddx = zdo.position.x - pos.x;
       const ddz = zdo.position.z - pos.z;
@@ -2268,7 +2323,7 @@ export class WovServer {
     const F = PrefabFlag;
 
     if ((flags & (F.PICKABLE | F.PICKABLE_ITEM | F.ITEM_DROP)) !== 0n) {
-      this.zdos.destroyZDO(ziel.zdoid);
+      this.zdosVon(peer).destroyZDO(ziel.zdoid);
       const item = pickableItem(def?.name ?? '');
       return antwort(true, `Aufgesammelt: ${item?.name ?? def?.name ?? '?'}`, item?.name ?? '', item?.amount ?? 0);
     }
@@ -2278,7 +2333,7 @@ export class WovServer {
       // fehlen im Export, Rotation sähe an der Mitte aufgehängt aus.
       const offen = ziel.getInt('state') === 1;
       ziel.setInt('state', offen ? 0 : 1);
-      this.zdos.updateZDOZone(ziel, {
+      this.zdosVon(peer).updateZDOZone(ziel, {
         x: ziel.position.x,
         y: ziel.position.y + (offen ? -2.1 : 2.1),
         z: ziel.position.z,
@@ -2293,7 +2348,7 @@ export class WovServer {
     if (def?.name === 'portal_wood') {
       let anderes: ZDO | null = null;
       let bestD = Infinity;
-      for (const p of this.zdos.getZDOByPrefab(ziel.prefabHash)) {
+      for (const p of this.zdosVon(peer).getZDOByPrefab(ziel.prefabHash)) {
         if (p.zdoid.toString() === ziel.zdoid.toString()) continue;
         const d = (p.position.x - ziel.position.x) ** 2 + (p.position.z - ziel.position.z) ** 2;
         if (d < bestD) {
@@ -2312,7 +2367,7 @@ export class WovServer {
 
     // Boss-Altar: die Hirsch-Statue am Eikthyr-Altar beschwört den Boss.
     if (def?.name === 'StatueDeer') {
-      const schonDa = this.zdos
+      const schonDa = this.zdosVon(peer)
         .getZDOsInRadius(ziel.position, 60)
         .some((z) => z.prefabHash === EIKTHYR_HASH);
       if (schonDa) return antwort(true, 'Eikthyr ist bereits erwacht!');
@@ -2330,7 +2385,7 @@ export class WovServer {
       }
       peer.inventar.removeByName('TrophyDeer', 2);
       this.inventarSync(peer);
-      const boss = this.zdos.createZDO(EIKTHYR_HASH, {
+      const boss = this.zdosVon(peer).createZDO(EIKTHYR_HASH, {
         x: ziel.position.x + 4,
         y: ziel.position.y + 0.5,
         z: ziel.position.z + 4,
@@ -2479,7 +2534,7 @@ export class WovServer {
     peer.frisur = frisur;
     peer.haarfarbe = haarfarbe;
     peer.ruestung = `${ober}|${beine}`;
-    const charZDO = this.zdos.getZDO(peer.characterID);
+    const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
     if (charZDO) {
       charZDO.setString(FRISUR_MEMBER, frisur);
       charZDO.setString(HAARFARBE_MEMBER, haarfarbe);
@@ -2498,7 +2553,7 @@ export class WovServer {
     }
     if (peer.figur === gewuenscht) return;
     peer.figur = gewuenscht;
-    const charZDO = this.zdos.getZDO(peer.characterID);
+    const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
     if (charZDO) charZDO.setString(FIGUR_MEMBER, gewuenscht);
     console.log(`[WoV] "${peer.name}" spielt jetzt als "${gewuenscht}"`);
   }
@@ -2543,7 +2598,7 @@ export class WovServer {
     };
 
     if (amount <= 0) return;
-    const ziel = this.zdos.getZDO(ZDOID.fromTuple(zdoUserId, zdoId));
+    const ziel = this.zdosVon(peer).getZDO(ZDOID.fromTuple(zdoUserId, zdoId));
     if (!ziel) return antwort(false, 'Truhe nicht mehr da');
     const def = this.prefabs.getByHash(ziel.prefabHash);
     if (((def?.flags ?? 0n) & PrefabFlag.CONTAINER) === 0n) return; // gefälschte ZDOID — kein Container
@@ -2618,12 +2673,17 @@ export class WovServer {
         console.warn(`[WoV] teleportPeer: unbekannte Welt "${worldId}" — bleibe in "${peer.worldId}"`);
         return;
       }
+      // NOCH OFFEN (Etappe 2): Das Charakter-ZDO liegt im ZDO-Raum der
+      // ALTEN Welt. Ab der Zuweisung unten sucht `zdosVon(peer)` es in der
+      // neuen und findet nichts. Solange kein Aufrufer eine andere worldId
+      // uebergibt, kann das nicht eintreten — der Umzug des Charakters
+      // gehoert in denselben Schritt wie die Instanzwelt selbst.
       peer.worldId = worldId;
     }
     peer.position = { ...pos };
-    const charZDO = this.zdos.getZDO(peer.characterID);
+    const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
     if (charZDO) {
-      this.zdos.updateZDOZone(charZDO, peer.position);
+      this.zdosVon(peer).updateZDOZone(charZDO, peer.position);
       charZDO.revision.reviseData();
       charZDO.dirty = true;
     }
@@ -2812,9 +2872,9 @@ export class WovServer {
       }
       const radius = Math.min(200, Math.max(1, Number(args[1]) || 10));
       let weg = 0;
-      for (const zdo of this.zdos.getZDOsInRadius(peer.position, radius)) {
+      for (const zdo of this.zdosVon(peer).getZDOsInRadius(peer.position, radius)) {
         if (zdo.prefabHash !== prefab.hash) continue;
-        this.zdos.destroyZDO(zdo.zdoid);
+        this.zdosVon(peer).destroyZDO(zdo.zdoid);
         weg++;
       }
       return {
@@ -2871,7 +2931,7 @@ export class WovServer {
       // getGroundHeight direkt (s. spawnLayoutPlacements).
       const y = this.getGroundHeight(x, z);
 
-      const zdo = this.zdos.createZDO(prefab.hash, { x, y, z });
+      const zdo = this.zdosVon(peer).createZDO(prefab.hash, { x, y, z });
       // Blick Richtung Spieler, damit ein NPC einen ansieht statt wegzuschauen.
       const dx = peer.position.x - x;
       const dz = peer.position.z - z;

@@ -23,12 +23,12 @@
  * Lauf: npx tsx shared/test/weltdaten-schnitt.ts   (aus shared/)
  */
 
-import { DUNGEONS } from '../src/dungeons.js';
 import { getFeaturePieces } from '../src/featurePieces.js';
 import { getRoomPieces } from '../src/roomPieces.js';
 import featuresData from '../src/featuresData.json';
 import featurePiecesData from '../src/featurePiecesData.json';
 import roomPiecesData from '../src/roomPiecesData.json';
+import dungeonsData from '../src/dungeonsData.json';
 
 /**
  * Geprueft werden die DATEIEN, nicht die ausgelieferte Tabelle.
@@ -112,7 +112,19 @@ check(
 );
 
 // ── 3: Dungeon-Raeume ──────────────────────────────────────────────────
-const raumNamen = new Set(DUNGEONS.flatMap((d) => d.rooms.map((r) => r.name)));
+//
+// Aus `dungeonsData.json` und NICHT aus `DUNGEONS`: Geprueft wird die Naht
+// zwischen den beiden GEPARSTEN Dateien, und `DUNGEONS` traegt seit dem
+// eigenen Kit auch Raeume, die der Parser nie gesehen hat (`eigeneDungeons.ts`).
+// Die stehen zu Recht nicht in `roomPiecesData.json` — ihre Einrichtung
+// kommt spaeter als Deko im Dungeon-Dokument, nicht aus einer Fremddatei.
+// Ueber `DUNGEONS` gepruefft meldete dieser Test sie als fehlend und haette
+// damit verlangt, Fremddaten von Hand um eigene Namen zu ergaenzen.
+const raumNamen = new Set(
+  (dungeonsData as { dungeons: { rooms: { name: string }[] }[] }).dungeons.flatMap((d) =>
+    d.rooms.map((r) => r.name)
+  )
+);
 const ohneEinrichtung: string[] = [];
 let netViewSumme = 0;
 

@@ -175,6 +175,49 @@ export function pruefeConnector(
 }
 
 /**
+ * Die eine Achse, auf der dieses Bauteil dünner als das Raster sein DARF —
+ * oder null, wenn es keine gibt.
+ *
+ * ── Warum es diese Ausnahme gibt ─────────────────────────────────────
+ * Ein Verschlussteil kachelt nicht, es stopft ein Loch. Der Generator
+ * nimmt Abschlüsse ausdrücklich vom Überschneidungstest aus und setzt sie
+ * notfalls ganz ohne Prüfung (`dungeonGenerator.ts`, `placeEndCaps`) —
+ * ein überlappender Abschluss ist ihm lieber als ein offenes Loch. Ein
+ * Abschluss, der ein volles Rasterfeld beansprucht, steckt deshalb
+ * regelmäßig im Stein seines Nachbarn. Gemessen an `DG_Steingrab` über
+ * 40 Seeds: 268 von 553 Abschlüssen, also fast die Hälfte.
+ *
+ * ── Warum sie so eng gefasst ist ─────────────────────────────────────
+ * Die Ausnahme gilt nur, wenn ALLES davon zutrifft: `endCap`, genau EIN
+ * Connector, genau EINE dünne Achse, und dieser Connector liegt auf einer
+ * Hüllfläche, die senkrecht auf eben dieser Achse steht. Damit beschreibt
+ * sie ein Brett quer im Durchgang und sonst nichts. Ohne die
+ * Einschränkungen wäre `endCap: true` ein Freibrief, mit dem jeder zu
+ * klein geratene Raum durchrutscht — und die Prüfung stünde für nichts.
+ */
+export function verschlussAchse(
+  raum: RoomDef,
+  raster: number = DUNGEON_RASTER_M
+): 'x' | 'z' | null {
+  if (!raum.endCap) return null;
+  if (raum.connections.length !== 1) return null;
+
+  const duenne = (['x', 'z'] as const).filter(
+    (a) => raum.size[a] + RASTER_TOLERANZ_M < raster
+  );
+  if (duenne.length !== 1) return null;
+
+  const achse = duenne[0]!;
+  const c = raum.connections[0]!;
+  // Die Hüllfläche, auf der der Connector sitzt, muss senkrecht auf der
+  // dünnen Achse stehen — sonst liegt das Brett längs statt quer, und
+  // dann ist es kein Verschluss, sondern eine zu schmale Wand.
+  if (!nahe(Math.abs(c.localPos[achse]), raum.size[achse] / 2)) return null;
+
+  return achse;
+}
+
+/**
  * Prüft ein Bauteil gegen das Raster. Leeres Ergebnis heißt: passt.
  *
  * `raster` ist überschreibbar, damit ein späteres Kit mit feinerem Raster
@@ -182,9 +225,11 @@ export function pruefeConnector(
  */
 export function pruefeRaumRaster(raum: RoomDef, raster: number = DUNGEON_RASTER_M): RasterBefund[] {
   const befunde: RasterBefund[] = [];
+  const duenn = verschlussAchse(raum, raster);
 
   for (const achse of ['x', 'z'] as const) {
     const wert = raum.size[achse];
+    if (achse === duenn) continue;
     if (!istVielfaches(wert, raster)) {
       befunde.push({
         raum: raum.name,

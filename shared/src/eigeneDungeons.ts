@@ -40,6 +40,7 @@
  * gerade Gang nie ein zweites Mal gesetzt werden. Die Datei dahinter
  * teilen sie über `MODELL_ALIAS`.
  */
+import type { DungeonGeneratorSettings } from './dungeonGenerator.js';
 import { getStableHash } from './hash.js';
 import type { Quaternion, Vector3 } from './types.js';
 
@@ -76,6 +77,8 @@ const VIERTEL_DREHUNG_ZURUECK: Quaternion = {
  */
 export interface EigenesKitJson {
   readonly name: string;
+  /** Abweichungen von DEFAULT_GENERATOR_SETTINGS — s. `DungeonDef`. */
+  readonly generatorEinstellungen?: Partial<DungeonGeneratorSettings>;
   readonly interiorPosition: Vector3 | null;
   readonly originalPosition: Vector3 | null;
   readonly algorithm: number;
@@ -142,6 +145,36 @@ export interface EigenesKitJson {
 export const EIGENE_KITS: readonly EigenesKitJson[] = [
   {
     name: 'DG_Steingrab',
+    /*
+      Abschlüsse prüfen sich hier gegen die schon gesetzten Räume — anders
+      als in der Vorlage, wo sie ausgenommen sind.
+
+      Der Vorgabewert `false` bildet das Original ab: Dort sind Abschlüsse
+      dünne Verschlussstücke, deren Überschneidung folgenlos bleibt. Dieses
+      Kit hat mit `SteingrabEndkappe` aber eine begehbare Grabnische von
+      4 × 4 × 4 m an dieser Stelle, und die verschwand damit reihenweise im
+      Stein ihres Nachbarn: Über 40 Seeds gemessen 268 von 553 Abschlüssen,
+      340 Überschneidungen gegen 0 ohne Abschlüsse.
+
+      WICHTIG — der Schalter allein reicht NICHT, es braucht alle drei
+      Teile zusammen:
+
+        1. `SteingrabAbschluss` als Ausweichteil. Mit nur EINEM
+           Abschlusstyp landet jede abgelehnte Nische sofort im
+           Notfallzweig, und die Messung ist auf die Überschneidung genau
+           dieselbe — nachgeprüft, nicht vermutet.
+        2. `endcapsCollision`, damit die Nische überhaupt geprüft wird.
+        3. `endcapsFallbackByPrio`, damit der Notfallzweig den ANSPRUCHS-
+           LOSESTEN nimmt. Ohne ihn greift er auf `endCaps[0]` zu — und
+           `findEndCaps` MISCHT die Liste, der Zugriff trifft also einen
+           beliebigen. Gemessen: 163 Notfallsetzungen über 40 Seeds,
+           ausnahmslos die Nische.
+
+      Die Reihenfolge der Räume in diesem Kit spielt dabei KEINE Rolle.
+      Wer sich darauf verlässt, verlässt sich auf eine Liste, die vorher
+      durchgemischt wird.
+    */
+    generatorEinstellungen: { endcapsCollision: true, endcapsFallbackByPrio: true },
     interiorPosition: null,
     originalPosition: null,
     algorithm: ALGORITHMUS_DUNGEON,
@@ -403,16 +436,74 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
       },
       {
         /*
-          Der Abschluss. EIN Durchgang, drei geschlossene Seiten.
+          Die zugemauerte Sackgasse — Abschluss ohne Raum dahinter.
+
+          ── Warum sie VOR der Grabnische steht ────────────────────
+          Diese Reihenfolge ist kein Geschmack, sie ist die Absicherung
+          gegen den Notfallzweig von `placeEndCaps`: Passt kein Abschluss,
+          nimmt der Generator `endCaps[0]` und setzt ihn ohne Prüfung.
+          `endCaps[0]` ist der erste Treffer aus `findEndCaps` — und das
+          ist die UNSORTIERTE Reihenfolge dieser Liste hier, NICHT die
+          nach `endCapPrio`. Wer das Teil hinter die Nische schiebt, dreht
+          damit still den Notfall um: Dann wird wieder eine 4-m-Nische
+          hineingezwungen, wo 25 cm gepasst hätten, und nichts meldet es.
+
+          `endCapPrio: 0` gegen 10 bei der Nische heißt: Wo Platz ist,
+          gewinnt die Nische. Nur wo keiner ist, wird gemauert. Über
+          40 Seeds ist das ungefähr halbe-halbe — für ein Steingrab die
+          richtigere Mischung als ein Kit, in dem jeder Gang in einer
+          Kammer endet.
+
+          `allowDoor: false`: Ein Türsturz vor einer zugemauerten Wand
+          wäre eine Tür, die nirgendwohin führt.
+
+          Die Hülle ist 0,25 m tief und damit KEIN Rastervielfaches. Das
+          ist der Zweck des Teils und in `dungeonRaster.ts` als eng
+          gefasste Ausnahme geführt (`verschlussAchse`) — nicht als
+          Freibrief für dünne Räume.
+        */
+        name: 'SteingrabAbschluss',
+        divider: false,
+        endCap: true,
+        endCapPrio: 0,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 4, y: 4, z: 0.25 },
+        theme: THEMA_KRYPTA,
+        weight: 1,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            type: '',
+            entrance: false,
+            allowDoor: false,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: -0.125 },
+            localRot: HALBE_DREHUNG,
+          },
+        ],
+      },
+      {
+        /*
+          Der Abschluss mit Raum dahinter: die Grabnische. EIN Durchgang,
+          drei geschlossene Seiten.
 
           `endCap: true` ist hier kein Beiwerk, sondern der Zweck: Der
           Generator setzt Endkappen bevorzugt auf Connectors, die sonst
-          offen blieben, und `attachRoom` laesst sie ohne
-          Ueberschneidungspruefung zu — sie verschliessen per Entwurf.
-          Ohne sie endet jeder erzeugte Dungeon in einem Loch ins Nichts.
+          offen blieben. Ohne sie endet jeder erzeugte Dungeon in einem
+          Loch ins Nichts.
 
-          `endCapPrio` hoeher als 0, damit sie vor einem beliebigen
-          anderen Raum genommen wird, wenn beides ginge.
+          Die Vorlage laesst Endkappen dabei OHNE Ueberschneidungspruefung
+          zu — sie verschliessen dort per Entwurf. Fuer dieses Kit ist das
+          abgeschaltet (`generatorEinstellungen` oben), weil diese Kappe
+          eine begehbare Nische ist und keine Blende: Sie darf nur
+          gesetzt werden, wo sie wirklich hinpasst.
+
+          `endCapPrio: 10` gegen 0 beim `SteingrabAbschluss` heisst: Wo
+          Platz ist, gewinnt die Nische; sonst wird zugemauert.
         */
         name: 'SteingrabEndkappe',
         divider: false,

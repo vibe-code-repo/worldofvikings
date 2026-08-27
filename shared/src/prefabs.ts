@@ -1059,6 +1059,9 @@ export const EIGENE_MODELLE: readonly string[] = [
   'SteingrabGangDurch',
   'SteingrabEcke',
   'SteingrabEndkappe',
+  // Der zugemauerte Abschluss — kein Raum zum Betreten, aber ein Raum
+  // im Sinne des Kits: Der Generator setzt ihn an einen Connector.
+  'SteingrabAbschluss',
   'SteingrabKreuzung',
   'SteingrabKammer',
   // Kein Raum, sondern der Tuertyp des Kits — Eintrag in HINT_DEFS oben.

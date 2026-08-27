@@ -723,6 +723,84 @@ def baue_kammer():
     }
 
 
+def baue_abschluss():
+    """
+    Die zugemauerte Sackgasse — ein Abschluss, der nur verschliesst.
+
+    ── Warum es sie neben der Endkappe geben MUSS ────────────────────
+    Der Generator nimmt Abschlussteile vom Ueberschneidungstest aus
+    (`dungeonGenerator.ts`, `roomOverlapsLayout`: `if (room.endCap &&
+    !settings.endcapsCollision) return false`) und setzt notfalls
+    sogar ohne jede Pruefung — ein ueberlappender Abschluss schlaegt
+    ein offenes Loch ins Nichts. In der Vorlage ist das harmlos, weil
+    Abschluesse dort duenne Verschlussstuecke sind.
+
+    `SteingrabEndkappe` ist keins: Sie ist eine 4 x 4 x 4 m grosse
+    Grabnische. Gemessen ueber 40 Seeds steckte damit fast die HAELFTE
+    aller Endkappen (268 von 553) im Stein eines Nachbarn — 340
+    Ueberschneidungen, wo ohne Abschluesse null waren. Dieses Teil ist
+    die Ausweichmoeglichkeit, die dem Kit gefehlt hat: Wo die Nische
+    nicht hinpasst, wird zugemauert.
+
+    ── Masse ────────────────────────────────────────────────────────
+    Die Wand fuellt den GANZEN Querschnitt, nicht nur den lichten Gang:
+    4 m breit, von der Bodenplattenunterkante (-0,30) bis zur
+    Deckenoberkante (4,00). Der Nachbarraum endet mit Boden UND Decke
+    an der Kopplungsebene; blieben die 0,30 unten und die 0,40 oben
+    offen, sahe man von schraeg unten bzw. durch die Decke ins Nichts.
+
+    Tief ist sie 0,25 m — dieselbe Wandstaerke wie ueberall im Kit, und
+    duenn genug, dass sie in den Platz passt, der uebrig ist. Genau das
+    ist ihr Zweck.
+
+    Mauerwerk nur auf EINER Seite: Die andere zeigt in den Fels. Der
+    Betrachter steht im Nachbarraum, also auf +y in Blender (das ist im
+    Spiel -z, die Richtung, in die der Connector zeigt).
+    """
+    halb = BREITE / 2
+    dicke = WANDSTAERKE
+    halbe_dicke = dicke / 2
+    lichte_hoehe = HOEHE - DECKENSTAERKE
+
+    # Der Kern ist DUENNER als die zugesagte Tiefe, und zwar um genau das,
+    # was das Mauerwerk davor auftraegt (VORSPRUNG plus die Streuung nach
+    # oben). Sonst staende der Verband vor der Huelle — und die Huelle ist
+    # die Zusage, innerhalb derer alles Stein zu liegen hat. Bei allen
+    # anderen Teilen faellt das nicht auf, weil deren Waende weit innerhalb
+    # der Huelle stehen; hier IST die Wand die Huelle.
+    auftrag = VORSPRUNG + TIEFENSTREUUNG
+    kern_tiefe = dicke - auftrag
+    kern_mitte_y = -halbe_dicke + kern_tiefe / 2
+    sichtflaeche = -halbe_dicke + kern_tiefe
+
+    # Ein Block ueber den vollen Querschnitt. Unterkante auf
+    # -BODENSTAERKE, Oberkante auf HOEHE — deckungsgleich mit dem, was
+    # der Nachbarraum an der Kopplungsebene zeigt.
+    unten = -BODENSTAERKE
+    teile = [
+        quader('Kern', (0, kern_mitte_y, (unten + HOEHE) / 2),
+               (BREITE, kern_tiefe, HOEHE - unten)),
+    ]
+
+    # Sichtseite verblenden — nur ueber die lichte Hoehe, darueber liegt
+    # die Decke des Nachbarn davor und darunter sein Boden.
+    mauerwerk_flaeche('AB', 'y', sichtflaeche, +1, -halb, halb, teile)
+
+    return teile, {
+        'soll_x': BREITE,
+        'soll_y': dicke,
+        'lichte_breite': 0.0,
+        'oeffnungen': 'keine — verschliesst den Querschnitt',
+        # Die Tiefe ist mit Absicht KEIN Rastervielfaches: Ein Abschluss
+        # kachelt nicht, er stopft ein Loch. `dungeonRaster.ts` kennt
+        # dieselbe Ausnahme (Regel `grundflaeche-raster`), und sie ist
+        # dort an `endCap` UND an genau einen Connector gebunden — damit
+        # sie nicht zum Freibrief fuer duenne Raeume wird.
+        'duenne_achse': 'y',
+        'hinweis_lichte_weite': f'geschlossen, {lichte_hoehe:.2f} m hoch verblendet',
+    }
+
+
 def baue_tuer():
     """
     Die Tueroeffnung — und das einzige Teil, das KEIN Raum ist.
@@ -831,9 +909,10 @@ def main():
 
     bauer = {'gang': baue_gang, 'ecke': baue_ecke, 'endkappe': baue_endkappe,
              'kreuzung': baue_kreuzung, 'tuer': baue_tuer,
-             'kammer': baue_kammer}.get(TEIL)
+             'kammer': baue_kammer, 'abschluss': baue_abschluss}.get(TEIL)
     if bauer is None:
-        raise SystemExit(f'Unbekanntes Teil: {TEIL} (bekannt: gang, ecke, endkappe, kreuzung, tuer, kammer)')
+        raise SystemExit(f'Unbekanntes Teil: {TEIL} (bekannt: gang, ecke, endkappe, '
+                         f'kreuzung, tuer, kammer, abschluss)')
 
     teile, angaben = bauer()
     obj = vereinen(teile, NAME)
@@ -885,8 +964,11 @@ def main():
               f'plus Mauerwerk beidseits)')
     print(f'  Hoehe       z {masse["z"][0]:+.3f} … {masse["z"][1]:+.3f}  '
           f'(Bodenflaeche auf 0, Decke auf {angaben.get("hoehe", HOEHE):.3f})')
-    print(f'  lichte Weite: {angaben["lichte_breite"]:.3f} m, '
-          f'{angaben.get("hoehe", HOEHE) - DECKENSTAERKE:.3f} m hoch')
+    if angaben.get('hinweis_lichte_weite'):
+        print(f'  lichte Weite: {angaben["hinweis_lichte_weite"]}')
+    else:
+        print(f'  lichte Weite: {angaben["lichte_breite"]:.3f} m, '
+              f'{angaben.get("hoehe", HOEHE) - DECKENSTAERKE:.3f} m hoch')
     print(f'  Durchgaenge:  {angaben["oeffnungen"]}, offen')
 
     # Rasterprobe an der eigenen Ausgabe: Jedes Aussenmass MUSS ein
@@ -902,13 +984,40 @@ def main():
         print('  Raster:       entfaellt — Tuer ist kein Raum, sondern sitzt in der Fuge')
         return
 
+    # Eine Achse darf duenner als das Raster sein — aber nur bei einem
+    # Abschluss, und das Mass wird trotzdem auf den Zentelmillimeter
+    # geprueft. Ohne die zweite Haelfte waere die Ausnahme ein Loch, durch
+    # das jedes ungenaue Teil passt.
+    duenn = angaben.get('duenne_achse')
     for achse, soll in (('x', soll_x), ('y', soll_y)):
         gemessen = masse[achse][1] - masse[achse][0]
-        if abs(gemessen - soll) > 0.0005 or abs(soll % RASTER) > 0.0005:
+        if achse == duenn:
+            # Obergrenze statt Sollmass: Wie weit der aeusserste Stein
+            # vorsteht, entscheidet die Streuung im Verband. Zugesagt ist,
+            # dass NICHTS ueber die Huelle hinausragt. Die untere Schranke
+            # steht daneben, damit ein versehentlich auf 5 cm geratener
+            # Kern nicht als "passt ja rein" durchgeht.
+            if gemessen > soll + 0.0005:
+                raise SystemExit(
+                    f'RASTERFEHLER {achse}: {gemessen:.4f} m ragen ueber die '
+                    f'zugesagte Huelle von {soll:.4f} m hinaus')
+            if gemessen < soll / 2:
+                raise SystemExit(
+                    f'RASTERFEHLER {achse}: {gemessen:.4f} m sind weniger als die '
+                    f'Haelfte der zugesagten {soll:.4f} m — stimmt der Kern?')
+            continue
+        if abs(gemessen - soll) > 0.0005:
             raise SystemExit(
-                f'RASTERFEHLER {achse}: {gemessen:.4f} m gemessen, {soll:.4f} m '
-                f'erwartet, Raster {RASTER} m')
-    print(f'  Raster:       {soll_x:.0f} x {soll_y:.0f} m, Vielfaches von {RASTER:.0f} m — ok')
+                f'RASTERFEHLER {achse}: {gemessen:.4f} m gemessen, {soll:.4f} m erwartet')
+        if abs(soll % RASTER) > 0.0005:
+            raise SystemExit(
+                f'RASTERFEHLER {achse}: {soll:.4f} m ist kein Vielfaches von {RASTER} m')
+    if duenn:
+        anderes = soll_y if duenn == 'x' else soll_x
+        print(f'  Raster:       {anderes:.0f} m im Raster, {duenn} = '
+              f'{(soll_x if duenn == "x" else soll_y):.2f} m als Verschluss — ok')
+    else:
+        print(f'  Raster:       {soll_x:.0f} x {soll_y:.0f} m, Vielfaches von {RASTER:.0f} m — ok')
 
 
 main()

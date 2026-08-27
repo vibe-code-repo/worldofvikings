@@ -145,9 +145,15 @@ export class AssetManager {
 
   constructor(private readonly scene: Scene) {}
 
-  /** Load (once) and cache the container; null on failure. */
-  private loadContainer(name: string): Promise<AssetContainer | null> {
-    let p = this.containers.get(name);
+  /**
+   * Load (once) and cache the container; null on failure.
+   *
+   * `schluessel` trennt Container, die dieselbe Datei tragen, aber
+   * verschiedene Schicksale haben — s. `instantiate`, Parameter
+   * `containerSchluessel`.
+   */
+  private loadContainer(name: string, schluessel = name): Promise<AssetContainer | null> {
+    let p = this.containers.get(schluessel);
     if (!p) {
       // Varianten laden die Datei ihres Alias-Ziels, behalten aber ihren
       // eigenen Container (Cache-Schlüssel bleibt `name` — s. MODELL_ALIAS).
@@ -158,7 +164,7 @@ export class AssetManager {
           console.warn(`[assets] load failed: ${name}`, err);
           return null;
         });
-      this.containers.set(name, p);
+      this.containers.set(schluessel, p);
     }
     return p;
   }
@@ -170,8 +176,31 @@ export class AssetManager {
    * GLB is 0 renderable meshes; callers are expected to fall back to a
    * differently-named "_fixed"/body variant or a placeholder).
    */
-  async instantiate(name: string, animation?: string): Promise<TransformNode | null> {
-    const container = await this.loadContainer(name);
+  /**
+   * Eine frische Hierarchie fuer ein dynamisches Objekt.
+   *
+   * `containerSchluessel` ist der Ausweg aus einer Falle, die lange
+   * unsichtbar war: `getMasters` flacht die Hierarchie des GECACHTEN
+   * Containers ein — `zuMaster` setzt `parent = null` und schaltet das
+   * Quellmesh ab, weil Thin-Instance-Matrizen Weltmatrizen sind. Danach
+   * klont dieser Aufruf fuer denselben Namen eine Wurzel OHNE Kinder.
+   *
+   * Betroffen ist nur, was BEIDES ist: statisch gesetzt (Bucket-Pfad) und
+   * dynamisch instanziert (Geist, NPC). Bei der Wandfackel traf beides
+   * zusammen, und das Ergebnis war ein Geist ohne Geometrie —
+   * `__vb.deko()` meldete `geistGeladen: true, geistTeile: 0`.
+   *
+   * Wer einen eigenen Schluessel uebergibt, bekommt einen zweiten
+   * Container aus derselben Datei, den der Bucket-Pfad nie anfasst. Das
+   * kostet eine Kopie je geisternden Prefab — gegen ein Modell, das man
+   * nicht sieht, ist das nichts.
+   */
+  async instantiate(
+    name: string,
+    animation?: string,
+    containerSchluessel?: string
+  ): Promise<TransformNode | null> {
+    const container = await this.loadContainer(name, containerSchluessel ?? name);
     if (!container) return null;
     // doNotInstantiate: ECHTE Klone statt InstancedMesh.
     //

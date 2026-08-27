@@ -137,7 +137,7 @@ check('gültiger Raumverweis bleibt', sauber.layout.props[0]!.roomIndex === 1);
 // ── 2. Materialisieren ─────────────────────────────────────────────
 console.log('\nInstanz:');
 const gespeichert = mgr.upsertDocument(sauber)!;
-check('gespeichert', gespeichert !== null && gespeichert.layout.props.length === 2);
+check('gespeichert', gespeichert !== null && gespeichert.doc.layout.props.length === 2);
 
 const inst = mgr.getOrCreateInstance(doc.id)!;
 const zaehleFackeln = (welt: Welt): number =>
@@ -150,6 +150,42 @@ mgr.destroyInstance(doc.id);
 const inst2 = mgr.getOrCreateInstance(doc.id)!;
 check('Fackeln nach dem Abriss wieder da', zaehleFackeln(inst2.welt) === 2, `${zaehleFackeln(inst2.welt)}`);
 check('frische Welt', inst2.welt !== inst.welt);
+
+// ── 3b. Deko aendern, ohne die Instanz abzureissen ─────────────────
+//
+// Das ist die Voraussetzung dafuer, dass Setzen automatisch speichern
+// darf: Riesse jeder gesetzte Gegenstand die Instanz ab, wuerde der
+// Spieler bei jeder Fackel an den Eingang teleportiert.
+console.log('\nDeko aendern ohne Abriss:');
+const raeumeVorher = inst2.zdoids.length - inst2.propZdoids.length;
+const nochEine = JSON.parse(JSON.stringify(mgr.getDocument(doc.id))) as DungeonDocument;
+nochEine.layout.props.push({
+  prefabName: 'CryptWallTorch',
+  prefabHash: FACKEL,
+  pos: { x: -1.75, y: 1.8, z: 0 },
+  rot: { x: 0, y: 0, z: 0, w: 1 },
+  roomIndex: 1,
+});
+const inkrementell = mgr.upsertDocument(nochEine)!;
+check('Instanz steht noch', inkrementell.instanzErhalten === true);
+check('dieselbe Instanz', mgr.getInstance(doc.id) === inst2);
+check('dritte Fackel da', zaehleFackeln(inst2.welt) === 3, String(zaehleFackeln(inst2.welt)));
+check(
+  'Raeume unangetastet',
+  inst2.zdoids.length - inst2.propZdoids.length === raeumeVorher,
+  String(inst2.zdoids.length - inst2.propZdoids.length)
+);
+
+// Und die Gegenprobe: Raeume geaendert heisst weiterhin Abriss.
+const wenigerRaeume = JSON.parse(JSON.stringify(mgr.getDocument(doc.id))) as DungeonDocument;
+wenigerRaeume.layout.rooms = wenigerRaeume.layout.rooms.slice(0, 5);
+wenigerRaeume.layout.props = [];
+const mitAbriss = mgr.upsertDocument(wenigerRaeume)!;
+check('Raumaenderung reisst weiterhin ab', mitAbriss.instanzErhalten === false);
+
+// Und wieder zurueck auf den Stand mit Deko: Der Neustart-Abschnitt unten
+// liest von Platte, und die Gegenprobe hat gerade dorthin geschrieben.
+mgr.upsertDocument(JSON.parse(JSON.stringify(gespeichert.doc)));
 
 // ── 4. Serverneustart ──────────────────────────────────────────────
 console.log('\nNeustart (frischer Manager auf demselben Ordner):');

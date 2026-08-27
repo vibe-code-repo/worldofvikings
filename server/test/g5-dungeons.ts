@@ -154,8 +154,11 @@ const edited = JSON.parse(JSON.stringify(doc));
 edited.layout.rooms = edited.layout.rooms.slice(0, 5);
 edited.mode = 'custom';
 const upserted = mgr.upsertDocument(edited);
-check('edited accepted', upserted !== null && upserted.layout.rooms.length === 5);
-check('live instance torn down', mgr.getInstance(doc!.id) === undefined);
+check('edited accepted', upserted !== null && upserted.doc.layout.rooms.length === 5);
+// Raeume geaendert: Die Instanz MUSS fallen. Nur eine reine
+// Deko-Aenderung darf sie stehen lassen (s. g8-dungeon-deko).
+check('live instance torn down', upserted?.instanzErhalten === false);
+check('  und wirklich weg', mgr.getInstance(doc!.id) === undefined);
 
 // ── 6. Entrances ───────────────────────────────────────────────────
 console.log('\nEntrances:');

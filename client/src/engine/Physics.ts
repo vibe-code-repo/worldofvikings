@@ -239,6 +239,55 @@ export function bodenHoeheUnter(scene: Scene, x: number, y: number, z: number, m
   return sondenTreffer.hasHit ? sondenTreffer.hitPointWorld.y : null;
 }
 
+/** Was ein Strahl getroffen hat: Punkt und Flaechennormale, in Weltkoordinaten. */
+export interface StrahlTreffer {
+  x: number;
+  y: number;
+  z: number;
+  /** Normale der getroffenen Flaeche — zeigt aus ihr HERAUS. */
+  nx: number;
+  ny: number;
+  nz: number;
+}
+
+// Eigene Ergebnisobjekte: `bodenHoeheUnter` laeuft jeden Frame, und eine
+// geteilte Instanz waere genau die Art Kopplung, die man erst bemerkt, wenn
+// zwei Aufrufer im selben Frame verschiedene Antworten bekommen.
+const strahlTrefferRoh = new PhysicsRaycastResult();
+const strahlVon = new Vector3();
+const strahlBis = new Vector3();
+
+/**
+ * Erster Kollisionskoerper auf einer Strecke — oder null.
+ *
+ * Anders als `bodenHoeheUnter` liefert das hier auch die NORMALE, und die
+ * ist der eigentliche Grund fuer diese Funktion: Wer eine Wandfackel
+ * setzt, braucht nicht nur die Stelle, sondern die Richtung, in die die
+ * Wand zeigt. Aus ihr folgt die Drehung, statt sie zu raten.
+ *
+ * Der Strahl trifft die Raum-Kollisionskoerper der Instanz (EntityManager
+ * legt sie im Umkreis an) — in einem Dungeon gibt es kein Gelaende, gegen
+ * das man sonst zielen koennte.
+ */
+export function strahlTreffer(
+  scene: Scene,
+  vonX: number, vonY: number, vonZ: number,
+  richtungX: number, richtungY: number, richtungZ: number,
+  weite: number
+): StrahlTreffer | null {
+  const engine = scene.getPhysicsEngine() as unknown as {
+    raycastToRef?: (von: Vector3, bis: Vector3, ergebnis: PhysicsRaycastResult) => void;
+  } | null;
+  if (!engine?.raycastToRef) return null;
+  strahlVon.set(vonX, vonY, vonZ);
+  strahlBis.set(vonX + richtungX * weite, vonY + richtungY * weite, vonZ + richtungZ * weite);
+  engine.raycastToRef(strahlVon, strahlBis, strahlTrefferRoh);
+  if (!strahlTrefferRoh.hasHit) return null;
+  const p = strahlTrefferRoh.hitPointWorld;
+  const n = strahlTrefferRoh.hitNormalWorld;
+  return { x: p.x, y: p.y, z: p.z, nx: n.x, ny: n.y, nz: n.z };
+}
+
 /**
  * Collect world-space Y and radial extents from a mesh's vertices.
  *

@@ -1639,14 +1639,27 @@ export class WovServer {
     } catch {
       return sendData(false, 'Ungültiges JSON');
     }
-    const doc = this.dungeons.upsertDocument(raw);
-    if (!doc) return sendData(false, 'Dokument abgelehnt (Basis/ID/Räume ungültig)');
+    const ergebnis = this.dungeons.upsertDocument(raw);
+    if (!ergebnis) return sendData(false, 'Dokument abgelehnt (Basis/ID/Räume ungültig)');
+    const { doc, instanzErhalten } = ergebnis;
 
-    if (peer.dungeonId === doc.id) {
+    // Zurückteleportieren NUR, wenn die Instanz abgerissen wurde. Hat sich
+    // bloss die Deko geändert, steht sie noch — und der Spieler soll dort
+    // bleiben, wo er gerade eine Fackel gesetzt hat, statt am Eingang
+    // aufzuwachen. Genau das machte das Setzen vorher unbenutzbar.
+    if (peer.dungeonId === doc.id && !instanzErhalten) {
       this.enterDungeon(peer, doc.id);
     }
-    sendData(true, `Gespeichert: ${doc.id} (${doc.layout.rooms.length} Räume)`, JSON.stringify(doc));
-    console.log(`[Dungeon] '${peer.name}' saved document '${doc.id}' (${doc.layout.rooms.length} rooms)`);
+    sendData(
+      true,
+      `Gespeichert: ${doc.id} (${doc.layout.rooms.length} Räume, ${doc.layout.props.length} Deko)`,
+      JSON.stringify(doc)
+    );
+    console.log(
+      `[Dungeon] '${peer.name}' saved document '${doc.id}' ` +
+        `(${doc.layout.rooms.length} rooms, ${doc.layout.props.length} props` +
+        `${instanzErhalten ? ', instance kept' : ''})`
+    );
   }
 
   /**

@@ -141,6 +141,18 @@ export class InputManager {
       this.lockDenied = true;
     });
     document.addEventListener('mousemove', (e) => {
+      // Umleitung: Solange sie gesetzt ist, bekommt SIE die Bewegung und
+      // die Kamera gar nichts. Gebraucht beim Platzieren, wo die Maus das
+      // Objekt dreht statt den Blick.
+      //
+      // Hier und nicht im PlayerController: Dort muesste die Bewegung erst
+      // verbraucht und dann verworfen werden, und wer die Reihenfolge der
+      // Verbraucher spaeter aendert, dreht wieder die Kamera mit. An der
+      // Quelle gibt es diese Reihenfolge nicht.
+      if (this.mausUmlenkung) {
+        this.mausUmlenkung(e.movementX, e.movementY);
+        return;
+      }
       // Unlocked drag-look: same deltas, only while the button is held.
       if (!this.pointerLocked && this.dragging) {
         this.dx += e.movementX;
@@ -246,6 +258,13 @@ export class InputManager {
         // Rad-Moduswechsel des Baumenüs funktioniert also weiter.
         if (!this.pointerLocked && e.target !== this.canvas) return;
         e.preventDefault();
+        // Umleitung zuerst: Ist sie gesetzt, sieht die Kamera das Rad nie.
+        // Ohne sie haette das Rad ZWEI Abnehmer — die Fackel drehte sich
+        // und der Blick zoomte im selben Ereignis heraus.
+        if (this.radUmlenkung) {
+          this.radUmlenkung(e.deltaY > 0 ? 1 : -1);
+          return;
+        }
         this.wheel += e.deltaY;
       },
       { passive: false }
@@ -375,6 +394,21 @@ export class InputManager {
   wasMousePressed(button: number): boolean {
     return this.mousePressed.has(button);
   }
+
+  /**
+   * Solange gesetzt, gehen Mausbewegungen dorthin statt an die Kamera.
+   * Null heisst Normalbetrieb. S. den -Zuhoerer.
+   */
+  mausUmlenkung: ((dx: number, dy: number) => void) | null = null;
+
+  /**
+   * Dasselbe fuer das Mausrad.
+   *
+   * Ohne sie bekaeme das Rad ZWEI Abnehmer: den Platzierungsmodus und die
+   * Kamera — die Fackel drehte sich, und der Blick zoomte gleichzeitig
+   * heraus. Ein Ereignis, zwei Wirkungen, und keine davon gewollt.
+   */
+  radUmlenkung: ((richtung: number) => void) | null = null;
 
   /** Consumes the accumulated mouse deltas. */
   consumeMouseDelta(): [number, number] {

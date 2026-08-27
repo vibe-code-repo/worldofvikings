@@ -26,6 +26,17 @@ import {
   type OpenConnection,
 } from '@wov/shared';
 
+/**
+ * Wie lange nach dem letzten Setzen gewartet wird, bevor gespeichert wird
+ * (ms).
+ *
+ * Ohne diese Pause ginge bei zwanzig Fackeln zwanzigmal ein Dokument über
+ * die Leitung, und der Server schriebe zwanzigmal eine Datei. Mit ihr wird
+ * aus einer Reihe schnell gesetzter Fackeln EIN Speichervorgang, und wer
+ * einzeln setzt, merkt von der Pause nichts.
+ */
+const SPEICHER_VERZUG_MS = 800;
+
 /** Höhe über dem Spielerfuss, auf der eine Wandfackel sitzt (m). */
 const DEKO_HOEHE_M = 1.8;
 /**
@@ -57,6 +68,16 @@ export interface DungeonEditorCallbacks {
    * gemerkter Wert wäre genau der, an dem die Fackel dann NICHT landet.
    */
   spielerPose(): { x: number; y: number; z: number; yaw: number } | null;
+  /**
+   * In den freien Platzierungsmodus wechseln: Panel zu, Geist ans
+   * Fadenkreuz, Linksklick setzt (s. `DekoPlatzierung`).
+   *
+   * Das Panel gibt hier die Kontrolle ab und bekommt das Ergebnis über
+   * `dekoAusWelt` zurück. Es könnte den Modus auch selbst führen — aber
+   * dann bräuchte es Szene, Physik und Kamera, und ein DOM-Panel, das
+   * Strahlen schiesst, ist der Anfang vom Ende der Trennung.
+   */
+  freiSetzen(prefab: string): void;
 }
 
 export class DungeonEditor {
@@ -72,6 +93,7 @@ export class DungeonEditor {
   private raumWahl!: HTMLSelectElement;
   private dekoWahl!: HTMLSelectElement;
   private dekoListe!: HTMLDivElement;
+  private speicherTimer: ReturnType<typeof setTimeout> | null = null;
   private idFeld!: HTMLInputElement;
   private seedFeld!: HTMLInputElement;
   private status!: HTMLDivElement;
@@ -141,6 +163,17 @@ export class DungeonEditor {
     this.dekoWahl.style.cssText = this.selectStil() + ';flex:1 1 200px';
     deko.appendChild(this.dekoWahl);
     deko.appendChild(this.knopf('Hier setzen', () => this.dekoSetzen()));
+    deko.appendChild(
+      this.knopf('Frei setzen', () => {
+        const wahl = this.dekoWahl.value;
+        if (!wahl) {
+          this.status.textContent = 'Kein Deko-Teil gewählt';
+          return;
+        }
+        this.hide();
+        this.cb.freiSetzen(wahl);
+      })
+    );
     panel.appendChild(deko);
 
     this.dekoListe = document.createElement('div');
@@ -337,25 +370,12 @@ export class DungeonEditor {
     // Prüfstand genau diese flach an der Wand.
     const halb = (pose.yaw + Math.PI) / 2;
 
-    // Nächstgelegener Raum. Er entscheidet nur, was beim Entfernen dieses
-    // Raums mitgeht — ein Fehlgriff kostet eine Fackel, keinen Absturz.
-    let roomIndex = -1;
-    let beste = Infinity;
-    doc.layout.rooms.forEach((r, i) => {
-      const d =
-        (r.pos.x - pos.x) * (r.pos.x - pos.x) + (r.pos.z - pos.z) * (r.pos.z - pos.z);
-      if (d < beste) {
-        beste = d;
-        roomIndex = i;
-      }
-    });
-
     doc.layout.props.push({
       prefabName: typ.prefabName,
       prefabHash: typ.prefabHash,
       pos,
       rot: { x: 0, y: Math.sin(halb), z: 0, w: Math.cos(halb) },
-      roomIndex,
+      roomIndex: this.naechsterRaum(pos),
     });
     this.status.textContent =
       `${typ.label ?? typ.prefabName} gesetzt (ungespeichert) — ` +
@@ -363,12 +383,85 @@ export class DungeonEditor {
     this.aktualisieren();
   }
 
+  /**
+   * Deko übernehmen, die im Spiel gesetzt wurde.
+   *
+   * Die Koordinaten kommen aus der WELT der Instanz und wandern
+   * unverändert ins Dokument. Das ist erst seit dem Umbau auf eigene
+   * Instanzwelten richtig: Vorher lag eine Instanz bei x ≈ 100.000, und
+   * hier hätte ein Abzug des Instanz-Ursprungs stehen müssen — mit dem
+   * float32-Fehler, den man sich dort einhandelt.
+   */
+  dekoAusWelt(prefab: string, pos: { x: number; y: number; z: number }, yawGrad: number): void {
+    const doc = this.doc;
+    if (!doc) return;
+    const def = DUNGEONS_BY_NAME.get(doc.base);
+    const typ = (def?.propTypes ?? []).find((p) => p.prefabName === prefab);
+    if (!typ) return;
+    if (doc.layout.props.length >= MAX_DUNGEON_PROPS) {
+      this.cb.meldung(`Grenze erreicht (${MAX_DUNGEON_PROPS})`);
+      return;
+    }
+    const halb = (yawGrad * Math.PI) / 360;
+    doc.layout.props.push({
+      prefabName: typ.prefabName,
+      prefabHash: typ.prefabHash,
+      pos: { ...pos },
+      rot: { x: 0, y: Math.sin(halb), z: 0, w: Math.cos(halb) },
+      roomIndex: this.naechsterRaum(pos),
+    });
+    this.cb.meldung(`${typ.label ?? typ.prefabName} gesetzt (${doc.layout.props.length})`);
+    this.aktualisieren();
+    this.baldSpeichern();
+  }
+
+  /**
+   * Speichern anstossen, aber erst wenn eine Weile nichts mehr gesetzt
+   * wurde.
+   *
+   * Der Server lässt die Instanz stehen, solange sich nur Deko geändert hat
+   * (`upsertDocument`, `instanzErhalten`) — es gibt also weder Abriss noch
+   * Teleport. Das ist die Voraussetzung dafür, dass Setzen überhaupt
+   * automatisch speichern DARF.
+   */
+  private baldSpeichern(): void {
+    if (this.speicherTimer !== null) clearTimeout(this.speicherTimer);
+    this.speicherTimer = setTimeout(() => {
+      this.speicherTimer = null;
+      if (!this.doc) return;
+      this.cb.speichern(JSON.stringify(this.doc));
+      this.cb.meldung('Deko gespeichert');
+    }, SPEICHER_VERZUG_MS);
+  }
+
+  /**
+   * Nächstgelegener Raum zu einem Punkt.
+   *
+   * Er entscheidet nur, was beim Entfernen dieses Raums mitgeht — ein
+   * Fehlgriff kostet eine Fackel, keinen Absturz.
+   */
+  private naechsterRaum(pos: { x: number; z: number }): number {
+    const doc = this.doc;
+    if (!doc) return -1;
+    let index = -1;
+    let beste = Infinity;
+    doc.layout.rooms.forEach((r, i) => {
+      const d = (r.pos.x - pos.x) ** 2 + (r.pos.z - pos.z) ** 2;
+      if (d < beste) {
+        beste = d;
+        index = i;
+      }
+    });
+    return index;
+  }
+
   private dekoEntfernen(index: number): void {
     const doc = this.doc;
     if (!doc) return;
     doc.layout.props.splice(index, 1);
-    this.status.textContent = 'Deko entfernt (ungespeichert)';
+    this.status.textContent = 'Deko entfernt';
     this.aktualisieren();
+    this.baldSpeichern();
   }
 
   private speichern(alsId: string | null): void {

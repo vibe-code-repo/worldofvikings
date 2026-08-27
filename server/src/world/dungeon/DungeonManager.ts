@@ -79,6 +79,15 @@ export interface DungeonInstance {
    */
   origin: Vector3;
   zdoids: ZDOID[];
+  /**
+   * Die ZDOs der von Hand gesetzten Deko — Teilmenge von `zdoids`.
+   *
+   * Getrennt geführt, damit eine Deko-Änderung nur diese anfassen muss.
+   * Ohne die Liste bliebe nur „alles abreissen und neu bauen", und das
+   * heisst für jeden gesetzten Gegenstand: Instanz weg, Instanz neu,
+   * Spieler teleportiert. Bei zwanzig Fackeln zwanzigmal.
+   */
+  propZdoids: ZDOID[];
   /** Peer names currently inside. */
   players: Set<string>;
   /** Für die Regeneration: letzter Zeitpunkt mit Spielern (ms epoch). */
@@ -213,12 +222,38 @@ export class DungeonManager {
    * document or null. Existing instance is torn down so the next enter
    * materializes the new state.
    */
-  upsertDocument(raw: unknown): DungeonDocument | null {
+  /**
+   * Ein Dokument annehmen (Editor-Weg).
+   *
+   * `instanzErhalten` sagt dem Aufrufer, ob die laufende Instanz stehen
+   * geblieben ist. Nur dann darf er auf das Zurückteleportieren
+   * verzichten — und nur dann bleibt der Spieler beim Setzen einer Fackel
+   * dort, wo er steht.
+   */
+  upsertDocument(raw: unknown): { doc: DungeonDocument; instanzErhalten: boolean } | null {
     const doc = sanitizeDungeonDocument(raw);
     if (!doc) return null;
+    const vorher = this.documents.get(doc.id);
     this.saveDocument(doc);
+
+    const instance = this.instances.get(doc.id);
+    // Nur Deko geändert UND die Instanz läuft: angleichen statt abreissen.
+    // Der Vergleich läuft über die serialisierten Räume und Türen — beide
+    // stammen aus demselben Sanitizer und sind deshalb feldweise
+    // vergleichbar; ein selbstgeschriebener Vergleich wäre die Stelle, an
+    // der ein neues Feld eines Tages stillschweigend durchrutscht.
+    const nurDeko =
+      instance !== undefined &&
+      vorher !== undefined &&
+      JSON.stringify(vorher.layout.rooms) === JSON.stringify(doc.layout.rooms) &&
+      JSON.stringify(vorher.layout.doors) === JSON.stringify(doc.layout.doors);
+
+    if (nurDeko) {
+      this.dekoAngleichen(instance, doc);
+      return { doc, instanzErhalten: true };
+    }
     this.destroyInstance(doc.id);
-    return doc;
+    return { doc, instanzErhalten: false };
   }
 
   deleteDocument(id: string): boolean {
@@ -479,8 +514,10 @@ export class DungeonManager {
     const origin: Vector3 = { x: 0, y: 0, z: 0 };
     const welt = this.weltAnlegen(DungeonManager.weltId(dungeonId));
 
-    const zdoids = this.materialize(doc.layout, doc, origin, welt.zdos);
-    const instance: DungeonInstance = { dungeonId, welt, slot, origin, zdoids, players: new Set() };
+    const { zdoids, propZdoids } = this.materialize(doc.layout, doc, origin, welt.zdos);
+    const instance: DungeonInstance = {
+      dungeonId, welt, slot, origin, zdoids, propZdoids, players: new Set(),
+    };
     this.instances.set(dungeonId, instance);
     console.log(
       `[Dungeon] Instance '${dungeonId}' materialized in world '${welt.id}': ` +
@@ -538,14 +575,16 @@ export class DungeonManager {
     doc: DungeonDocument,
     origin: Vector3,
     zdos: ZDOManager
-  ): ZDOID[] {
+  ): { zdoids: ZDOID[]; propZdoids: ZDOID[] } {
     const zdoids: ZDOID[] = [];
+    const propZdoids: ZDOID[] = [];
     const spawned = flattenLayout(layout, doc.base);
 
     for (const item of spawned) {
       const pos = { x: origin.x + item.pos.x, y: origin.y + item.pos.y, z: origin.z + item.pos.z };
       const zdo = zdos.createZDO(item.prefabHash, pos, item.rot);
       zdoids.push(zdo.zdoid);
+      if (item.kind === 'prop') propZdoids.push(zdo.zdoid);
 
       // Spawner erwachen: aus 'Spawner_Skeleton(_respawn_30)' wird beim
       // Materialisieren EINE Kreatur an Ort und Stelle (das Spawner-Piece
@@ -558,7 +597,38 @@ export class DungeonManager {
         }
       }
     }
-    return zdoids;
+    return { zdoids, propZdoids };
+  }
+
+  /**
+   * Die Deko einer LAUFENDEN Instanz an ein neues Dokument angleichen.
+   *
+   * Alle Deko-ZDOs weg, alle neuen hin. Kein Vergleich Stück für Stück:
+   * Es sind eine Handvoll ZDOs, das Zerstören füllt ohnehin die
+   * Zerstörungsliste, über die der Client es erfährt, und ein Diff wäre
+   * Code, den niemand je gegen den Ernstfall prüft.
+   *
+   * Die Räume bleiben stehen — und genau darum geht es: Der Spieler
+   * bleibt, wo er ist, und sieht die Fackel erscheinen, statt in einer
+   * neu gebauten Instanz aufzuwachen.
+   */
+  private dekoAngleichen(instance: DungeonInstance, doc: DungeonDocument): void {
+    const zdos = instance.welt.zdos;
+    const weg = new Set(instance.propZdoids.map((id) => id.toString()));
+    for (const id of instance.propZdoids) zdos.destroyZDO(id);
+    instance.zdoids = instance.zdoids.filter((id) => !weg.has(id.toString()));
+    instance.propZdoids = [];
+
+    for (const prop of doc.layout.props) {
+      const pos = {
+        x: instance.origin.x + prop.pos.x,
+        y: instance.origin.y + prop.pos.y,
+        z: instance.origin.z + prop.pos.z,
+      };
+      const zdo = zdos.createZDO(prop.prefabHash, pos, prop.rot);
+      instance.zdoids.push(zdo.zdoid);
+      instance.propZdoids.push(zdo.zdoid);
+    }
   }
 
   /**

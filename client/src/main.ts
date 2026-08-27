@@ -122,6 +122,7 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { DungeonEditor } from './ui/DungeonEditor';
+import { DekoPlatzierung } from './ui/DekoPlatzierung';
 import { Minimap } from './ui/Minimap';
 import { LightPool } from './engine/LightPool';
 import { CraftingPanel } from './ui/CraftingPanel';
@@ -739,6 +740,50 @@ async function main() {
   window.addEventListener('keydown', () => audio.start(), { once: true });
   /** Dungeon-Eingänge vom Server — Kartenmarker (kommen ggf. vor buildWorld). */
   let dungeonEingaenge: Array<{ feature: string; dungeonId: string; x: number; z: number }> = [];
+  // Letzte Zeigerposition — Ursprung des Zielstrahls beim Platzieren.
+  // Fensterweit gefuehrt, weil der Zeiger beim Platzieren frei ist und
+  // auch ueber Randbereiche wandern darf.
+  let zeigerX = window.innerWidth / 2;
+  let zeigerY = window.innerHeight / 2;
+  window.addEventListener('mousemove', (e) => {
+    zeigerX = e.clientX;
+    zeigerY = e.clientY;
+  });
+
+  /**
+   * Freies Setzen von Deko im Dungeon (F4 → „Frei setzen").
+   *
+   * Steht VOR dem Editor, weil der hineinruft. Umgekehrt reicht der Modus
+   * sein Ergebnis über `dungeonEditor.dekoAusWelt` zurück — deshalb greifen
+   * beide Richtungen erst zur Laufzeit auf die andere Seite zu.
+   */
+  const dekoPlatzierung = new DekoPlatzierung(scene, {
+    // Eigener Container: Der Bucket-Pfad flacht den geteilten ein, und
+    // ein Geist daraus haette keine Geometrie mehr (s. AssetManager).
+    ladeGeist: (prefab) => assets.instantiate(prefab, undefined, `geist:${prefab}`),
+    strahl: () => {
+      if (!player) return null;
+      // Strahl durch den ZEIGER, nicht durch die Bildmitte. Dieselbe
+      // Technik, die der Welt-Editor fuer seine Maus-Platzierung benutzt
+      // (`scene.createPickingRay`) — nur trifft er hier die Physik und
+      // nicht das Hoehenfeld.
+      const strahl = scene.createPickingRay(zeigerX, zeigerY, null, player.camera);
+      return {
+        x: strahl.origin.x, y: strahl.origin.y, z: strahl.origin.z,
+        dx: strahl.direction.x, dy: strahl.direction.y, dz: strahl.direction.z,
+      };
+    },
+    spielerYaw: () => player?.yaw ?? 0,
+    gesetzt: (prefab, pos, yaw) => dungeonEditor.dekoAusWelt(prefab, pos, yaw),
+    mausUmlenken: (fn) => {
+      input.mausUmlenkung = fn;
+    },
+    radUmlenken: (fn) => {
+      input.radUmlenkung = fn;
+    },
+    meldung: (text) => hud.meldung(text),
+  });
+
   // F4-Editor: DOM-Panel, existiert von Anfang an (nur online nutzbar —
   // die Callbacks greifen dynamisch auf `socket` zu).
   const dungeonEditor = new DungeonEditor({
@@ -753,7 +798,53 @@ async function main() {
       player
         ? { x: player.position.x, y: player.position.y, z: player.position.z, yaw: player.yaw }
         : null,
+    freiSetzen: (prefab) => dekoPlatzierung.starte(prefab),
   });
+
+  // ── Bedienung des Platzierungsmodus ───────────────────────────────
+  //
+  // Eigene Zuhörer statt eines Zweigs in der allgemeinen Eingabe: Der
+  // Modus ist kurz, hat drei Tasten, und ein `if (dekoPlatzierung.aktiv)`
+  // in der Bewegungsschleife wäre eine Abzweigung, an der später jeder
+  // vorbeiliest.
+  window.addEventListener('mousedown', (e) => {
+    // Zeiger ist beim Platzieren FREI — es gibt keinen Lock, gegen den man
+    // pruefen koennte. Stattdessen zaehlt, worauf geklickt wurde: Klicks
+    // auf ein Panel gehoeren dem Panel.
+    if (!dekoPlatzierung.aktiv || e.target !== canvas) return;
+    if (e.button === 0) {
+      dekoPlatzierung.setze();
+      // NICHT beenden: Wer eine Fackel setzt, setzt meistens mehrere.
+      // Escape beendet, und die Meldung sagt das auch.
+    } else if (e.button === 2) {
+      dekoPlatzierung.beende();
+      hud.meldung('Platzieren abgebrochen');
+    }
+  });
+  window.addEventListener('keydown', (e) => {
+    if (!dekoPlatzierung.aktiv) return;
+    dekoPlatzierung.setzeModifikatoren(e.shiftKey, e.ctrlKey);
+    if (e.code === 'Escape') {
+      dekoPlatzierung.beende();
+      hud.meldung('Platzieren beendet');
+    } else if (e.code === 'KeyF') {
+      dekoPlatzierung.zuruecksetzen();
+      hud.meldung('Drehung und Abstand zurückgesetzt');
+    } else if (e.code === 'KeyR' && !e.repeat) {
+      // Ab jetzt dreht die Maus das Objekt und nicht mehr den Blick.
+      dekoPlatzierung.dreheBeginn();
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    if (!dekoPlatzierung.aktiv) return;
+    dekoPlatzierung.setzeModifikatoren(e.shiftKey, e.ctrlKey);
+    if (e.code === 'KeyR') dekoPlatzierung.dreheEnde();
+  });
+  // Verliert das Fenster den Fokus, während R gedrückt ist, kommt kein
+  // keyup mehr — die Maus bliebe für immer umgeleitet und die Kamera
+  // stünde still. Das ist die Art Fehler, die man dem Platzieren nie
+  // zuordnet.
+  window.addEventListener('blur', () => dekoPlatzierung.dreheEnde());
   /**
    * Absolute world seconds. Seeded by TimeSync and advanced locally in
    * between, because the weather and the wind are pure functions of it —
@@ -1172,6 +1263,10 @@ async function main() {
         socket?.sendAdminCommand(line);
         return socket?.connected ?? false;
       },
+      /** Diagnose: Platzierungsmodus (F4 -> Frei setzen). */
+      deko: () => dekoPlatzierung.diagnose(),
+      /** Messhilfe: Grundausrichtung um N Grad versetzen (s. DekoPlatzierung). */
+      dekoVersatz: (grad: number) => dekoPlatzierung.setzeVersatz(grad),
       /** Diagnose: Dungeon-Zustand des Clients. */
       dungeon: () => ({ imDungeon, env: dungeonEnv, spawn: { ...dungeonSpawn } }),
       /** Diagnose: Server-Inventar aus Client-Sicht. */
@@ -1436,7 +1531,12 @@ async function main() {
       return true;
     };
     // Hammer-Bausystem: Ghost aus dem AssetManager, Pieces zum Server.
-    placement.ladeGhost = (prefab) => assets.instantiate(prefab);
+    // Eigener Container, aus demselben Grund wie beim Deko-Geist: Sobald
+    // ein Bauteil einmal statisch gesetzt wurde, hat der Bucket-Pfad die
+    // Hierarchie des geteilten Containers eingeflacht, und der Geist
+    // waere leer. Bisher unentdeckt, weil ein Bauteil meist zuerst als
+    // Geist erscheint und erst danach steht.
+    placement.ladeGhost = (prefab) => assets.instantiate(prefab, undefined, `geist:${prefab}`);
     placement.inventar = () => inventory;
     placement.sendePiece = (prefab, x, y, z, yawGrad) => {
       if (!socket?.connected) return false;
@@ -2713,6 +2813,9 @@ async function main() {
     // daraufklicken.
     charakterPanel.isVisible ||
     dungeonEditor?.isVisible === true ||
+    // Platzieren mit freiem Zeiger: gezielt wird mit der Maus, nicht mit
+    // dem Kopf.
+    dekoPlatzierung.aktiv ||
     spawnEditorOffen() ||
     routenEditorOffen() ||
     chatPanel.istOffen;
@@ -2922,6 +3025,9 @@ async function main() {
     // Zielen/Ghost/Auslösen nach der Spielerbewegung, damit Kamera und
     // Fußhöhe im selben Frame aktuell sind.
     placement?.update(dt);
+    // Geist am Fadenkreuz nachführen — nur im Platzierungsmodus, sonst
+    // kehrt die Funktion sofort zurück.
+    dekoPlatzierung.update();
     pieceSelection?.render();
     // Im Dungeon kein Terrain-Streaming: Es gäbe an x≈100000 nichts zu
     // bauen, und das Wasser würde dem Spieler in die Instanz folgen.

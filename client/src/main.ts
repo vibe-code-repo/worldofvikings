@@ -499,6 +499,18 @@ async function main() {
   // be turned — the game looks broken while it is only waiting for a click on
   // the canvas. Clicking a hotbar slot or the connect button never grabs it, so
   // say so instead of leaving the player guessing.
+  /**
+   * Die Welt. Sie steht hier und nicht bei den uebrigen welt-abhaengigen
+   * Feldern weiter unten, weil `updateLockHint` sie liest — und
+   * `i18n.onChange` ruft seinen Zuhoerer SOFORT einmal auf (i18n/index.ts,
+   * `onChange`). Stand die Deklaration unten, warf dieser erste Aufruf
+   * `can't access lexical declaration 'world' before initialization` und
+   * riss den ganzen Start mit: kein Zeiger, keine Kamera, nur ein Bild.
+   * TypeScript sieht das nicht — die zeitliche Tote Zone ist eine
+   * Laufzeitregel.
+   */
+  let world: ClientWorld | null = null;
+
   const lockHint = document.createElement('div');
   // The browser refuses the lock in cases we cannot control (right after an
   // Escape unlock, for one). Drag-look keeps the game playable there.
@@ -533,7 +545,7 @@ async function main() {
   const params = new URLSearchParams(location.search);
 
   // World-dependent systems — only exist once the world (seed) is known.
-  let world: ClientWorld | null = null;
+  // `world` selbst steht weiter oben, beim Zeiger-Hinweis — Begruendung dort.
   /** Spawn-Editor des Testflugs offen? (gibt die Maus frei, s. cursorNoetig) */
   let spawnEditorOffen: () => boolean = () => false;
   /** Routen-Editor des Testflugs offen? (dito — Liste/Regler brauchen den Zeiger) */

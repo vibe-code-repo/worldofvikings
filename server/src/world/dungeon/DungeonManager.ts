@@ -44,6 +44,7 @@ import {
   isInstanceableDungeon,
   isValidDungeonId,
   istEigenesModell,
+  DUNGEON_DOCUMENT_VERSION,
   sanitizeDungeonDocument,
 } from '@wov/shared';
 // Serverseitige Weltdaten: NICHT ueber den Barrel, sondern ueber den
@@ -252,7 +253,12 @@ export class DungeonManager {
 
     const layout = generateDungeonLayout(def, seed);
     const doc: DungeonDocument = {
-      version: 1,
+      // Die KONSTANTE, nicht die Zahl. Sie steht in `shared/src/dungeons.ts`
+      // und stand hier als Literal daneben — beim Sprung auf 2 (Deko im
+      // Dokument) schrieb der Generator weiter eine 1, waehrend der
+      // Sanitizer beim naechsten Laden 2 daraus machte. Folgenlos, aber
+      // eine Zahl, die zwei Dinge behauptet, ist keine Versionsangabe.
+      version: DUNGEON_DOCUMENT_VERSION,
       id: finalId,
       name: `${baseName.replace(/^DG_/, '')} #${(seed >>> 0).toString(16)}`,
       base: baseName,

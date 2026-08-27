@@ -588,7 +588,8 @@ export function generateDungeonLayout(
     seed: r.seed,
   }));
 
-  return { rooms, doors };
+  // Ein erzeugtes Layout traegt keine Deko — die setzt jemand von Hand.
+  return { rooms, doors, props: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -730,6 +731,7 @@ export function generateCampLayout(
       seed: roomSeed(p.pos),
     })),
     doors: [],
+    props: [],
   };
 }
 
@@ -870,6 +872,17 @@ export function removeRoom(
       (d) => !conns.some((c) => sqDist(c.pos, d.pos) < 0.3 * 0.3)
     );
   }
+  // Deko dieses Raums geht mit. Ohne das bliebe eine Fackel dort in der
+  // Luft haengen, wo eben noch eine Wand war.
+  //
+  // Und die Indizes RUTSCHEN: `splice` verschiebt jeden Raum hinter dem
+  // entfernten um eins nach vorn. Ein `roomIndex`, der nicht mitzieht,
+  // zeigt danach auf den falschen Raum — und das faellt erst auf, wenn
+  // jemand viel spaeter einen zweiten Raum entfernt und die Fackeln eines
+  // dritten verschwinden.
+  layout.props = (layout.props ?? [])
+    .filter((p) => p.roomIndex !== index)
+    .map((p) => (p.roomIndex > index ? { ...p, roomIndex: p.roomIndex - 1 } : p));
   layout.rooms.splice(index, 1);
   return { ok: true };
 }

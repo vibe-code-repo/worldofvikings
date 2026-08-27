@@ -20,7 +20,7 @@ import { getRoomPieces } from './roomPieces.js';
 import type { Quaternion, Vector3 } from './types.js';
 import { quatMul, quatMulVec3 } from './worldgen/Math3d.js';
 
-export type FlattenedKind = 'room' | 'netView' | 'door';
+export type FlattenedKind = 'room' | 'netView' | 'door' | 'prop';
 
 /** One concrete prefab instance of a flattened layout (local dungeon space). */
 export interface FlattenedPiece {
@@ -76,6 +76,24 @@ export function flattenLayout(layout: DungeonLayout, baseName: string): Flattene
       });
     }
   });
+
+  // Von Hand gesetzte Deko. Sie steht schon in lokalen Dungeon-Koordinaten
+  // — anders als die netViews eines Raums, die relativ zu IHM liegen und
+  // deshalb oben mitgedreht werden muessen.
+  //
+  // `DungeonManager.materialize` laeuft generisch ueber diese Liste und
+  // bleibt unveraendert: ein Stueck mehr in der Liste, kein Zweig mehr im
+  // Server.
+  for (const prop of layout.props ?? []) {
+    pieces.push({
+      kind: 'prop',
+      prefabName: prop.prefabName,
+      prefabHash: prop.prefabHash,
+      pos: { ...prop.pos },
+      rot: { ...prop.rot },
+      roomIndex: prop.roomIndex,
+    });
+  }
 
   for (const door of layout.doors) {
     pieces.push({

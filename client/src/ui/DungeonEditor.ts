@@ -18,12 +18,26 @@
  */
 import {
   DUNGEONS_BY_NAME,
+  MAX_DUNGEON_PROPS,
   attachRoom,
   computeOpenConnections,
   removeRoom,
   type DungeonDocument,
   type OpenConnection,
 } from '@wov/shared';
+
+/** Höhe über dem Spielerfuss, auf der eine Wandfackel sitzt (m). */
+const DEKO_HOEHE_M = 1.8;
+/**
+ * Wie weit vor dem Spieler die Deko landet (m).
+ *
+ * Der Editor kennt keinen Strahlentest — er ist bewusst ein reiner
+ * Dokument-Editor (s. Kopfkommentar). 1,2 m ist die Armlänge zur Wand:
+ * Wer sich vor eine stellt und setzt, trifft sie. Wer daneben steht,
+ * korrigiert und setzt neu; das kostet zwei Klicks und keine zweite
+ * Physik-Welt im Editor.
+ */
+const DEKO_ABSTAND_M = 1.2;
 
 export interface DungeonEditorCallbacks {
   /** Dokument vom Server anfordern ('' = aktueller Dungeon). */
@@ -34,6 +48,15 @@ export interface DungeonEditorCallbacks {
   admin(line: string): void;
   /** Kurzmeldung im HUD. */
   meldung(text: string): void;
+  /**
+   * Wo der Spieler steht und wohin er sieht — Ursprung jeder gesetzten
+   * Deko.
+   *
+   * Der Editor fragt beim Klick und merkt sich nichts: Die Position ändert
+   * sich zwischen Öffnen des Panels und dem Setzen ständig, und ein
+   * gemerkter Wert wäre genau der, an dem die Fackel dann NICHT landet.
+   */
+  spielerPose(): { x: number; y: number; z: number; yaw: number } | null;
 }
 
 export class DungeonEditor {
@@ -47,6 +70,8 @@ export class DungeonEditor {
   private raumListe!: HTMLDivElement;
   private connWahl!: HTMLSelectElement;
   private raumWahl!: HTMLSelectElement;
+  private dekoWahl!: HTMLSelectElement;
+  private dekoListe!: HTMLDivElement;
   private idFeld!: HTMLInputElement;
   private seedFeld!: HTMLInputElement;
   private status!: HTMLDivElement;
@@ -107,6 +132,22 @@ export class DungeonEditor {
     anfuegen.appendChild(anfBtn);
     anfuegen.appendChild(tuerBtn);
     panel.appendChild(anfuegen);
+
+    // ── Deko ─────────────────────────────────────────────────────────
+    panel.appendChild(this.abschnitt('Deko setzen'));
+    const deko = document.createElement('div');
+    deko.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap';
+    this.dekoWahl = document.createElement('select');
+    this.dekoWahl.style.cssText = this.selectStil() + ';flex:1 1 200px';
+    deko.appendChild(this.dekoWahl);
+    deko.appendChild(this.knopf('Hier setzen', () => this.dekoSetzen()));
+    panel.appendChild(deko);
+
+    this.dekoListe = document.createElement('div');
+    this.dekoListe.style.cssText =
+      'max-height:140px;overflow-y:auto;border:1px solid #5a4626;border-radius:4px;' +
+      'padding:4px 6px;margin-bottom:14px;font-size:13px;background:rgba(0,0,0,.25)';
+    panel.appendChild(this.dekoListe);
 
     // ── Aktionen ─────────────────────────────────────────────────────
     panel.appendChild(this.abschnitt('Aktionen'));
@@ -252,6 +293,84 @@ export class DungeonEditor {
     this.status.textContent = 'Raum entfernt (ungespeichert)';
   }
 
+  /**
+   * Deko dort setzen, wo der Spieler steht — genauer: eine Armlänge vor
+   * ihm, auf Kopfhöhe, ihm zugewandt.
+   *
+   * Die Drehung ist die des Spielers plus 180°: Wer eine Wandfackel setzt,
+   * steht vor der Wand und sieht sie an; die Fackel soll zurückschauen.
+   */
+  private dekoSetzen(): void {
+    const doc = this.doc;
+    if (!doc) return;
+    const def = DUNGEONS_BY_NAME.get(doc.base);
+    const typ = (def?.propTypes ?? []).find((p) => p.prefabName === this.dekoWahl.value);
+    if (!typ) {
+      this.status.textContent = 'Kein Deko-Teil gewählt';
+      return;
+    }
+    if (doc.layout.props.length >= MAX_DUNGEON_PROPS) {
+      this.status.textContent = `Grenze erreicht (${MAX_DUNGEON_PROPS})`;
+      return;
+    }
+    const pose = this.cb.spielerPose();
+    if (!pose) {
+      this.status.textContent = 'Spielerposition unbekannt';
+      return;
+    }
+
+    // Blickrichtung aus dem Gierwinkel. Die Konvention steht in
+    // `PlayerController`: „increasing yaw sweeps forward from -Z towards
+    // -X" — bei yaw 0 sieht die Figur nach -z, bei 90 Grad nach -x. Daraus
+    // folgt das MINUS. Mit Plus landete die Deko hinter dem Spieler, und
+    // das merkt man erst, wenn man sich umdreht.
+    const pos = {
+      x: pose.x - Math.sin(pose.yaw) * DEKO_ABSTAND_M,
+      y: pose.y + DEKO_HOEHE_M,
+      z: pose.z - Math.cos(pose.yaw) * DEKO_ABSTAND_M,
+    };
+    // Die halbe Drehung dazu: Wer vor einer Wand steht und sie ansieht,
+    // hat den Rücken zum Raum — die Fackel soll andersherum stehen.
+    // Nachgerechnet an der +x-Wand: Der Spieler steht dort auf Gierwinkel
+    // 270, die Fackel braucht 90, und 270 + 180 = 90. Die 90 sind kein
+    // Überschlag, sondern gemessen: Von den vier Vierteldrehungen sitzt im
+    // Prüfstand genau diese flach an der Wand.
+    const halb = (pose.yaw + Math.PI) / 2;
+
+    // Nächstgelegener Raum. Er entscheidet nur, was beim Entfernen dieses
+    // Raums mitgeht — ein Fehlgriff kostet eine Fackel, keinen Absturz.
+    let roomIndex = -1;
+    let beste = Infinity;
+    doc.layout.rooms.forEach((r, i) => {
+      const d =
+        (r.pos.x - pos.x) * (r.pos.x - pos.x) + (r.pos.z - pos.z) * (r.pos.z - pos.z);
+      if (d < beste) {
+        beste = d;
+        roomIndex = i;
+      }
+    });
+
+    doc.layout.props.push({
+      prefabName: typ.prefabName,
+      prefabHash: typ.prefabHash,
+      pos,
+      rot: { x: 0, y: Math.sin(halb), z: 0, w: Math.cos(halb) },
+      roomIndex,
+    });
+    this.status.textContent =
+      `${typ.label ?? typ.prefabName} gesetzt (ungespeichert) — ` +
+      `${doc.layout.props.length} Stück`;
+    this.aktualisieren();
+  }
+
+  private dekoEntfernen(index: number): void {
+    const doc = this.doc;
+    if (!doc) return;
+    doc.layout.props.splice(index, 1);
+    this.status.textContent = 'Deko entfernt (ungespeichert)';
+    this.aktualisieren();
+  }
+
   private speichern(alsId: string | null): void {
     if (!this.doc) return;
     const doc = { ...this.doc, layout: this.doc.layout };
@@ -270,7 +389,8 @@ export class DungeonEditor {
     if (!doc) return;
     this.kopf.textContent =
       `${doc.id} — Basis ${doc.base}, ${doc.mode}, Seed ${doc.seed}, ` +
-      `${doc.layout.rooms.length} Räume, ${doc.layout.doors.length} Türen`;
+      `${doc.layout.rooms.length} Räume, ${doc.layout.doors.length} Türen, ` +
+      `${doc.layout.props.length} Deko`;
 
     // Raumliste
     this.raumListe.textContent = '';
@@ -303,6 +423,51 @@ export class DungeonEditor {
       const raumName = doc.layout.rooms[c.roomIndex]?.room ?? '?';
       opt.textContent = `${raumName}#${c.roomIndex}/${c.connIndex}${c.type ? ` [${c.type}]` : ''}`;
       this.connWahl.appendChild(opt);
+    });
+
+    // Deko-Katalog und gesetzte Deko.
+    //
+    // Der Katalog kommt aus `propTypes` des Kits — derselben Liste, gegen
+    // die der Server sanitisiert. Aus einer Quelle, damit hier nichts
+    // angeboten wird, was beim Speichern stillschweigend verschwindet.
+    const basis = DUNGEONS_BY_NAME.get(doc.base);
+    const gewaehlt = this.dekoWahl.value;
+    this.dekoWahl.textContent = '';
+    for (const p of basis?.propTypes ?? []) {
+      const opt = document.createElement('option');
+      opt.value = p.prefabName;
+      opt.textContent = p.label ?? p.prefabName;
+      this.dekoWahl.appendChild(opt);
+    }
+    if (gewaehlt) this.dekoWahl.value = gewaehlt;
+
+    this.dekoListe.textContent = '';
+    if (doc.layout.props.length === 0) {
+      const leer = document.createElement('div');
+      leer.style.cssText = 'color:#8a7350;padding:2px';
+      leer.textContent = basis?.propTypes?.length
+        ? 'Noch nichts gesetzt.'
+        : 'Dieses Kit kennt keine setzbare Deko.';
+      this.dekoListe.appendChild(leer);
+    }
+    doc.layout.props.forEach((p, i) => {
+      const zeile = document.createElement('div');
+      zeile.style.cssText =
+        'display:flex;justify-content:space-between;align-items:center;padding:1px 2px';
+      const label = document.createElement('span');
+      label.textContent =
+        `${i}: ${p.prefabName} (${p.pos.x.toFixed(1)},${p.pos.y.toFixed(1)},${p.pos.z.toFixed(1)})` +
+        (p.roomIndex >= 0 ? ` → Raum ${p.roomIndex}` : '');
+      zeile.appendChild(label);
+      const del = document.createElement('button');
+      del.textContent = '✕';
+      del.title = 'Deko entfernen';
+      del.style.cssText =
+        'background:none;border:1px solid #8a6a34;color:#e8d9b8;border-radius:3px;' +
+        'cursor:pointer;font-size:11px;padding:0 6px';
+      del.addEventListener('click', () => this.dekoEntfernen(i));
+      zeile.appendChild(del);
+      this.dekoListe.appendChild(zeile);
     });
 
     // Raum-Palette der Basis (Endcaps ans Ende sortiert)

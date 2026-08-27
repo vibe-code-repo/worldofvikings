@@ -71,6 +71,19 @@ const LIGHT_HINTS: ReadonlyMap<string, NonNullable<PrefabDef['light']>> = new Ma
   ['bonfire', { color: [1.0, 0.55, 0.22], intensity: 24, range: 20, offsetY: 0.8, flicker: true }],
   ['hearth', { color: [1.0, 0.55, 0.22], intensity: 20, range: 18, offsetY: 0.6, flicker: true }],
   ['dvergrlantern', { color: [0.45, 0.85, 1.0], intensity: 10, range: 11, offsetY: 0.4, flicker: false }],
+  /*
+    Die eigene Wandfackel des Steingrabs.
+
+    Schwächer und kürzer als die Bodenfackeln der Vorlage (12/12 gegen
+    14/14), und das ist Absicht: Ein Gang ist 3,50 m breit und 3,60 m hoch.
+    Eine Reichweite von 14 m leuchtet drei Räume weit und nimmt dem Grab
+    genau das, wofür man Fackeln setzt — die Dunkelheit dazwischen.
+
+    `offsetY: 0.35` hebt die Lichtquelle auf die Flamme statt auf den
+    Ursprung des Modells, der an der Wandhalterung sitzt. Ohne den Versatz
+    säße das Licht IM Mauerwerk, und die Wand darüber bliebe schwarz.
+  */
+  ['CryptWallTorch', { color: [1.0, 0.62, 0.28], intensity: 12, range: 12, offsetY: 0.35, flicker: true }],
 ]);
 
 const F = PrefabFlag;
@@ -504,7 +517,8 @@ export const HINT_DEFS: PrefabDef[] = [
   // Warum nicht `piece_chest_wood` weiterverwenden: Der Eintrag traegt
   // zwar schon CONTAINER, ist aber ein Fremdname und faellt damit
   // durch `istEigenesModell()` — die Hammer-Tabelle wuerde ihn
-  // ueberspringen. Eigene Modelle tragen im Projekt deutsche Namen.
+  // ueberspringen. Eigene Modelle des Altbestands tragen deutsche Namen;
+  // neue heissen seit dem 27.08.2026 englisch (s. CryptWallTorch unten).
   { ...def('HolzTruhe', F.PIECE | F.CONTAINER | F.PERSISTENT, 'chest_wood', 0.96, 0.61, 'HolzTruhe') },
   { ...def('GrabTruhe', F.PERSISTENT, 'cryptkey', 0.9, 0.9, 'GrabTruhe'),
     localScale: { x: 1.25, y: 1.25, z: 1.25 } },
@@ -525,6 +539,29 @@ export const HINT_DEFS: PrefabDef[] = [
     Instanz-Band wird ohnehin nichts gespeichert.
   */
   { ...def('SteingrabTuer', F.PERSISTENT, null, 3.5, 3.6, 'SteingrabTuer') },
+  /*
+    Die Wandfackel — setzbare Deko des Kits `DG_Steingrab`.
+
+    ENGLISCHER Name, waehrend das Kit um sie herum deutsch heisst. Seit dem
+    27.08.2026 bekommen neue Prefabs englische Namen (der Kommentar bei
+    `HolzTruhe` weiter oben behauptet noch das Gegenteil und gilt nur fuer
+    den Altbestand). Umbenannt wird rueckwirkend NICHTS: Ein Prefab-Hash ist
+    `getStableHash(name)`, und ein neuer Hash entwertet jede gespeicherte
+    ZDO und jedes Dungeon-Dokument.
+
+    Auch sie steht von Hand hier, und zwar aus demselben Grund wie die Tür
+    darüber: Die Registry-Schleife läuft über `DUNGEONS` und trägt deren
+    `rooms` ein. `propTypes` sieht sie so wenig wie `doorTypes`.
+
+    PERSISTENT, obwohl in einer Instanz ohnehin nichts gespeichert wird:
+    Das Flag beschreibt die ABSICHT („dieses Objekt gehört zur Welt und
+    nicht zum Augenblick"), und die Fackel wird ihre Dauerhaftigkeit
+    ohnehin aus dem Dungeon-Dokument beziehen, nicht aus dem Spielstand.
+
+    Der Radius von 0,3 m ist der Griffbereich für die E-Taste, nicht die
+    Ausdehnung des Modells.
+  */
+  { ...def('CryptWallTorch', F.PERSISTENT, null, 0.3, 0.7, 'CryptWallTorch') },
   // Zweiter Baumversuch mit v3.1 und 15.000 face_limit (KiPine2 lief noch auf
   // v2.5). Die Textur ist deutlich besser — Farben stimmen, Rinde stellenweise
   // erkennbar —, bleibt aber ein Flickenteppich: Anders als beim Steinkreis
@@ -1066,6 +1103,8 @@ export const EIGENE_MODELLE: readonly string[] = [
   'SteingrabKammer',
   // Kein Raum, sondern der Tuertyp des Kits — Eintrag in HINT_DEFS oben.
   'SteingrabTuer',
+  // Ebenfalls kein Raum: setzbare Deko aus `propTypes` des Kits.
+  'CryptWallTorch',
 ];
 
 /**

@@ -42,6 +42,7 @@
  */
 import type { DungeonGeneratorSettings } from './dungeonGenerator.js';
 import { getStableHash } from './hash.js';
+import type { DungeonPropDef } from './dungeons.js';
 import type { Quaternion, Vector3 } from './types.js';
 
 /*
@@ -79,6 +80,8 @@ export interface EigenesKitJson {
   readonly name: string;
   /** Abweichungen von DEFAULT_GENERATOR_SETTINGS — s. `DungeonDef`. */
   readonly generatorEinstellungen?: Partial<DungeonGeneratorSettings>;
+  /** Setzbare Deko dieses Kits — s. `DungeonPropDef`. */
+  readonly propTypes?: readonly DungeonPropDef[];
   readonly interiorPosition: Vector3 | null;
   readonly originalPosition: Vector3 | null;
   readonly algorithm: number;
@@ -207,6 +210,25 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
         prefabHash: getStableHash('SteingrabTuer'),
         connectionType: '',
         chance: 0,
+      },
+    ],
+    /*
+      Was in diesem Grab gesetzt werden darf.
+
+      Die Liste steht am KIT und nicht an „allen eigenen Modellen": Der
+      Sanitizer prueft gegen sie, und der Editor liest sie als Katalog.
+      Beides aus einer Quelle — sonst zeigt der Katalog irgendwann etwas
+      an, das der Server danach wegwirft, und niemand versteht, warum die
+      gesetzte Fackel nach dem Speichern fehlt.
+
+      Es ist auch die richtige Aussage: nicht „jedes eigene Modell darf in
+      jeden Dungeon", sondern „dieses Kit kennt diese Teile".
+    */
+    propTypes: [
+      {
+        prefabName: 'CryptWallTorch',
+        prefabHash: getStableHash('CryptWallTorch'),
+        label: 'Wandfackel',
       },
     ],
     gridSize: 4,

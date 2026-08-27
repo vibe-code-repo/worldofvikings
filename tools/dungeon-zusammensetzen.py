@@ -92,6 +92,7 @@ with open(LAYOUT, encoding='utf-8') as f:
 # Aeltere Ablagen sind eine blosse Raumliste; neuere tragen {rooms, doors}.
 raeume = geladen['rooms'] if isinstance(geladen, dict) else geladen
 tueren = geladen.get('doors', []) if isinstance(geladen, dict) else []
+deko = geladen.get('props', []) if isinstance(geladen, dict) else []
 
 # Jedes Modell EINMAL laden, danach nur noch Kopien mit gemeinsamen
 # Netzdaten. Sechs volle Importe waeren sechsmal dieselbe Geometrie im
@@ -189,6 +190,26 @@ for i, t in enumerate(tueren):
     kopie.name = f'{t["prefabName"]}_{i}'
     gesetzte_tueren += 1
 
+# Gesetzte Deko (`layout.props`, Dokumentversion 2). Sie steht schon in
+# lokalen Dungeon-Koordinaten — anders als die Einrichtung eines Raums, die
+# relativ zu IHM liegt. Fuer dieses Bild ist sie der eigentliche Pruefstein:
+# Eine Wandfackel, die falsch herum in der Wand steckt, sieht man hier und
+# sonst nirgends, bis jemand im Spiel davorsteht.
+gesetzte_deko = 0
+for i, d in enumerate(deko):
+    quelle = vorlage(d['prefabName'])
+    kopie = quelle.copy()
+    kopie.hide_render = False
+    bpy.context.collection.objects.link(kopie)
+    p = d['pos']
+    kopie.location = Vector((p['x'], -p['z'], p['y']))
+    q = d['rot']
+    kopie.rotation_mode = 'QUATERNION'
+    kopie.rotation_quaternion = Quaternion((q['w'], q['x'], -q['z'], q['y']))
+    kopie.scale = Vector((-1.0, 1.0, 1.0))
+    kopie.name = f'{d["prefabName"]}_{i}'
+    gesetzte_deko += 1
+
 netze = [o for o in bpy.context.scene.objects if o.type == 'MESH' and not o.hide_render]
 ecken = [o.matrix_world @ Vector(e) for o in netze for e in o.bound_box]
 mitte = Vector((
@@ -273,6 +294,6 @@ szene.view_settings.look = 'AgX - Base Contrast'
 bpy.ops.render.render(write_still=True)
 
 dreiecke = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in netze)
-print(f'\nZUSAMMENBAU {OUT} — {gesetzt} Raeume und {gesetzte_tueren} Tuer(en) '
+print(f'\nZUSAMMENBAU {OUT} — {gesetzt} Raeume, {gesetzte_tueren} Tuer(en) und {gesetzte_deko} Deko '
       f'aus {len(vorlagen)} Bauteilen, {dreiecke} Dreiecke, '
       f'Ausdehnung {spanne:.1f} m')

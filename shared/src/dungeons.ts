@@ -124,6 +124,12 @@ export interface DungeonDef {
   readonly tileWidth: number;
   readonly rooms: readonly RoomDef[];
   /**
+   * Deko, die in diesem Kit gesetzt werden darf. Fehlt das Feld (alle
+   * geparsten Kits), ist nichts erlaubt — Fremdkits haben keine eigenen
+   * Modelle, und ohne Modell ist eine gesetzte Deko ein unsichtbarer Hash.
+   */
+  readonly propTypes?: readonly DungeonPropDef[];
+  /**
    * Abweichungen dieses Kits von `DEFAULT_GENERATOR_SETTINGS`.
    *
    * WARUM AM KIT UND NICHT AM AUFRUFER: Die Vorgabewerte bilden das
@@ -206,6 +212,26 @@ export interface PlacedRoom {
   seed: number;
 }
 
+/**
+ * Ein Deko-Teil, das in diesem Kit gesetzt werden darf.
+ *
+ * WARUM AM KIT: Der Sanitizer muss „ist das ein erlaubtes Prefab?"
+ * beantworten, ohne die Prefab-Registry zu kennen — `prefabs.ts` liest
+ * seinerseits `DUNGEONS`, ein Import zurück wäre ein Ringschluss. Türen
+ * lösen dasselbe Problem seit jeher über `doorTypes`; Deko geht denselben
+ * Weg.
+ *
+ * Es ist auch die bessere Aussage: Nicht „jedes eigene Modell darf in jeden
+ * Dungeon", sondern „dieses Kit kennt diese Teile". Ein Steingrab mit
+ * Bienenstöcken wäre sonst nur eine Frage der Zeit.
+ */
+export interface DungeonPropDef {
+  prefabName: string;
+  prefabHash: number;
+  /** Beschriftung im Editor-Katalog; fehlt sie, steht dort der Prefabname. */
+  label?: string;
+}
+
 /** One placed door in a dungeon layout (local dungeon space). */
 export interface PlacedDoor {
   prefabName: string;
@@ -214,17 +240,65 @@ export interface PlacedDoor {
   rot: Quaternion;
 }
 
+/**
+ * Ein einzeln gesetztes Deko-Teil (lokaler Dungeon-Raum).
+ *
+ * Der Unterschied zur Raum-EINRICHTUNG (`roomPieces.ts`): Die hängt fest am
+ * Raum-Prefab und kommt aus Fremddaten. Ein `PlacedProp` steht im Dokument,
+ * hat jemand von Hand dorthin gestellt, und überlebt deshalb `dungeon regen`
+ * und den Serverneustart.
+ */
+export interface PlacedProp {
+  prefabName: string;
+  prefabHash: number;
+  pos: Vector3;
+  rot: Quaternion;
+  /**
+   * Raum, zu dem dieses Teil gehört — Index in `layout.rooms`, oder -1 für
+   * „gehört zu keinem".
+   *
+   * Er entscheidet, was beim Entfernen eines Raums mitgeht: Ohne ihn bliebe
+   * eine Fackel in der Luft stehen, wo eben noch eine Wand war. Beim
+   * Entfernen rutschen die Indizes der nachfolgenden Räume nach — s.
+   * `removeRoom`.
+   */
+  roomIndex: number;
+}
+
 /** The complete geometry of one dungeon — rooms + doors in local space. */
 export interface DungeonLayout {
   rooms: PlacedRoom[];
   doors: PlacedDoor[];
+  /**
+   * Von Hand gesetzte Deko. Additiv eingeführt (Dokumentversion 2): Ein
+   * Dokument ohne dieses Feld lädt unverändert weiter, `props` wird dann
+   * zur leeren Liste.
+   */
+  props: PlacedProp[];
 }
 
-export const DUNGEON_DOCUMENT_VERSION = 1;
+/**
+ * 1 → 2: `layout.props` dazugekommen (von Hand gesetzte Deko).
+ *
+ * Die Zahl steht im gespeicherten Dokument und ist rein informativ — der
+ * Sanitizer schreibt sie beim Laden ohnehin auf den aktuellen Stand. Sie
+ * dient dem Menschen, der sich eine Datei ansieht, und dem Fall, dass eine
+ * künftige Änderung NICHT mehr additiv ist.
+ */
+export const DUNGEON_DOCUMENT_VERSION = 2;
 
 /** Hard cap on rooms in a (user-editable) dungeon document. */
 export const MAX_DUNGEON_ROOMS = 256;
 export const MAX_DUNGEON_DOORS = 256;
+/**
+ * Obergrenze für gesetzte Deko.
+ *
+ * Grosszügiger als Räume und Türen, weil Deko das ist, wovon man viel
+ * setzt: Eine Fackel alle acht Meter ergibt in einem 50-Raum-Grab schon
+ * gut hundert. Eine Grenze braucht es trotzdem — das Dokument kommt vom
+ * Client, und ohne sie wäre eine Datei beliebiger Grösse einladbar.
+ */
+export const MAX_DUNGEON_PROPS = 512;
 
 /**
  * A saved dungeon with its own ID — either generated (reproducible from
@@ -341,9 +415,14 @@ export function sanitizeDungeonDocument(input: unknown): DungeonDocument | null 
   const roomsByName = new Map(def.rooms.map((r) => [r.name, r]));
   const doorHashes = new Set(def.doorTypes.map((d) => d.prefabHash));
 
+  const propHashes = new Map((def.propTypes ?? []).map((p) => [p.prefabHash, p]));
+
   const layoutIn = (o.layout ?? {}) as Record<string, unknown>;
   const roomsIn = Array.isArray(layoutIn.rooms) ? layoutIn.rooms : [];
   const doorsIn = Array.isArray(layoutIn.doors) ? layoutIn.doors : [];
+  // Fehlt `props` ganz, ist das ein Dokument der Version 1 — es laedt
+  // unveraendert weiter und bekommt eine leere Liste.
+  const propsIn = Array.isArray(layoutIn.props) ? layoutIn.props : [];
 
   const rooms: PlacedRoom[] = [];
   for (const r of roomsIn.slice(0, MAX_DUNGEON_ROOMS)) {
@@ -380,6 +459,41 @@ export function sanitizeDungeonDocument(input: unknown): DungeonDocument | null 
     });
   }
 
+  // ── Deko ─────────────────────────────────────────────────────────
+  //
+  // Geprueft wird gegen die `propTypes` DIESES Kits, nicht gegen „alle
+  // eigenen Modelle". Das Dokument kommt vom Client; ein beliebiger Hash
+  // von aussen wuerde sonst zu einem ZDO, zu dem niemand ein Modell hat —
+  // unsichtbar, unloeschbar, und in keiner Fehlermeldung.
+  //
+  // Der Name kommt aus dem Kit und nicht aus dem Dokument: Sonst stuende
+  // im Dokument ein Name, der zum Hash nicht passt, und der Server baute
+  // daraus zwei verschiedene Wahrheiten.
+  const props: PlacedProp[] = [];
+  for (const p of propsIn.slice(0, MAX_DUNGEON_PROPS)) {
+    const po = (p ?? {}) as Record<string, unknown>;
+    const hash =
+      typeof po.prefabHash === 'number' && Number.isFinite(po.prefabHash)
+        ? po.prefabHash | 0
+        : 0;
+    const propDef = propHashes.get(hash);
+    if (!propDef) continue;
+    const roh =
+      typeof po.roomIndex === 'number' && Number.isFinite(po.roomIndex)
+        ? Math.trunc(po.roomIndex)
+        : -1;
+    props.push({
+      prefabName: propDef.prefabName,
+      prefabHash: hash,
+      pos: sanitizeVec3(po.pos),
+      rot: sanitizeQuat(po.rot),
+      // Auf die Raeume begrenzen, die es nach dem Saeubern WIRKLICH gibt.
+      // Ein Verweis ins Leere waere kein Absturz, aber `removeRoom` raeumte
+      // dann fuer immer am falschen Ende auf.
+      roomIndex: roh >= 0 && roh < rooms.length ? roh : -1,
+    });
+  }
+
   return {
     version: DUNGEON_DOCUMENT_VERSION,
     id,
@@ -394,6 +508,6 @@ export function sanitizeDungeonDocument(input: unknown): DungeonDocument | null 
       typeof o.zoneSize === 'number' && Number.isFinite(o.zoneSize)
         ? Math.max(16, Math.min(512, o.zoneSize))
         : 64,
-    layout: { rooms, doors },
+    layout: { rooms, doors, props },
   };
 }

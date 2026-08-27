@@ -1,7 +1,7 @@
 {
- "erzeugt": "2026-08-27T04:52:03.433Z",
+ "erzeugt": "2026-08-27T17:12:45.355Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 183,
+ "anzahl": 184,
  "modelle": {
   "Ampfer1": {
    "datei": "Ampfer1.glb",
@@ -597,6 +597,32 @@
    "dreiecke": 1536,
    "materialien": 1,
    "bilder": 1,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "CryptWallTorch": {
+   "datei": "CryptWallTorch.glb",
+   "foliage": false,
+   "bytes": 398688,
+   "huelle": {
+    "min": [
+     -0.125,
+     -0.393,
+     -0.744
+    ],
+    "max": [
+     0.125,
+     0.393,
+     0
+    ]
+   },
+   "breite": 0.25,
+   "hoehe": 0.786,
+   "tiefe": 0.744,
+   "dreiecke": 3117,
+   "materialien": 1,
+   "bilder": 3,
    "animationen": [],
    "meshlos": false,
    "skins": 0

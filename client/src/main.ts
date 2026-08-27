@@ -746,6 +746,13 @@ async function main() {
     speichern: (json) => socket?.sendDungeonEditSave(json),
     admin: (line) => socket?.sendAdminCommand(line),
     meldung: (text) => hud.meldung(text),
+    // Beim Klick gefragt, nicht gemerkt: Zwischen Oeffnen des Panels und
+    // dem Setzen laeuft der Spieler weiter, und ein gemerkter Wert waere
+    // genau der, an dem die Deko dann NICHT landet.
+    spielerPose: () =>
+      player
+        ? { x: player.position.x, y: player.position.y, z: player.position.z, yaw: player.yaw }
+        : null,
   });
   /**
    * Absolute world seconds. Seeded by TimeSync and advanced locally in

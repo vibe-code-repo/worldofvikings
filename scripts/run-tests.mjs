@@ -315,6 +315,9 @@ const KERN = [
   // bekommt, was in seiner Naehe liegt (256 m, SICHT_RADIUS_ZONEN), nicht
   // was weit weg liegt, und das Fenster folgt seiner Position.
   ['server', 'test/g7-zdo-interessen.ts'],
+  // Etappe 5: von Hand gesetzte Deko ueberlebt Abriss und Neustart.
+  // Kein Socket, kein Server — reine Dokument- und Instanzpruefung, Sekunden.
+  ['server', 'test/g8-dungeon-deko.ts'],
   // F1 (Roadmap, Security-Review-Paket 3): Truhen mit echtem, entnehmbarem
   // Inhalt statt des alten Ein-Bit-Schalters. E2E ueber echte WebSocket-
   // Verbindungen (handleTruheOeffnen/handleContainerAction sind private

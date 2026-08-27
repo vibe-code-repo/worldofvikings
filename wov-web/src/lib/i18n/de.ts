@@ -111,6 +111,13 @@ export const de = {
     'Midgard ist im Aufbau. Was gebaut wird, bleibt stehen — aber Regeln, Welten und Werte können sich noch ändern.',
   'hall.gate.discord_cta': 'Tritt dem Thing auf Discord bei',
   'hall.gate.world_badge_closed': 'zu',
+  /* Die Zustandszeile im Tor wird aus einzelnen Wörtern gebaut, nicht aus
+     einem Satz mit Platzhaltern: „3 von 10 auf Fahrt · Tag 87 · 12 Konten“.
+     Deshalb steht hier „Tag“ allein, und die Konten in zwei Formen — „1
+     Konten“ wäre die Art Fehler, die keine Übersetzung mehr heilt. */
+  'hall.gate.day': 'Tag',
+  'hall.gate.accounts_one': 'Konto',
+  'hall.gate.accounts_many': 'Konten',
   /* Der Aufklapper im Tor WÄHLT seit dem 26.08.2026 den Server aus — vorher
      zeigte er nur die Weltliste an. Deshalb tragen seine Zeilen jetzt einen
      Zustand, und der braucht Worte: „gewählt“ steht nur für Vorleser da, zu

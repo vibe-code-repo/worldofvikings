@@ -489,7 +489,16 @@ export class WovServer {
     this.kontenDb = new Kontendatenbank(
       resolve(this.config.worldsDir, '..', 'konten', `${this.config.worldName}.db`),
     );
-    const kontoApi = new KontoApi(this.kontenDb, sessionSecret);
+    // Der dritte Parameter beantwortet `/accounts/status` fuer die
+    // Webseite. Er wird als Funktion uebergeben und nicht als Wert: `this.net`
+    // entsteht erst in der naechsten Anweisung, und die Spielerzahl aendert
+    // sich danach staendig, ohne dass die KontoApi davon erfaehrt.
+    const kontoApi = new KontoApi(this.kontenDb, sessionSecret, () => ({
+      spieler: this.net.peerCount,
+      plaetze: this.config.maxPlayers,
+      tag: this.getDay(),
+      welt: this.config.worldName,
+    }));
 
     this.net = new NetManager({
       port: this.config.port,

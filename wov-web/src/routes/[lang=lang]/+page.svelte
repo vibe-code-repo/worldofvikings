@@ -12,7 +12,9 @@
     SHORE_OPEN,
     SHORE_SHORT,
     type ShoreId,
+    type ShoreStatus,
     readShore,
+    shoreStatus,
     writeShore,
   } from '$lib/account';
 
@@ -117,24 +119,79 @@
     return welten?.find((w) => w.id === WELT_JE_GESTADE[s]) ?? null;
   }
 
+  /* -------------------------------------------------------- Servermeldung */
+
+  /**
+   * Was die Server selbst über sich sagen — je Gestade eine Antwort.
+   *
+   * `undefined` heisst „noch nicht gefragt“, `null` „gefragt, keine
+   * Antwort“. Der Unterschied ist sichtbar: das erste zeigt „wird geprüft“,
+   * das zweite fällt auf die Beschreibung des Gestades zurück.
+   *
+   * Warum das überhaupt da ist: `/api/welt.json` ist eine von Hand
+   * geschriebene DEMO-Datei neben den vorgerenderten Seiten. Sie behauptet
+   * drei Spieler auf Midgard, auch wenn niemand spielt, und sie behauptet
+   * null in der Werkstatt, während Mike drinsteht. Eine vorgerenderte Datei
+   * kann nicht mitzählen. `/accounts/status` fragt den Server, der die
+   * Verbindungen wirklich hält.
+   */
+  let meldung = $state<Record<ShoreId, ShoreStatus | null | undefined>>({
+    // Beide Schlüssel stehen von Anfang an da: Ein Feld, das erst später
+    // entsteht, liest sich bis dahin wie „nicht gefragt“ — und in einem
+    // $state-Objekt hängt an einem fehlenden Schlüssel auch keine
+    // Abhängigkeit, die Svelte später wecken könnte.
+    dev: undefined,
+    live: undefined,
+  });
+
+  /**
+   * Ampelfarbe: was der Server sagt, schlägt die Weltliste.
+   *
+   * Antwortet ein Gestade, ist es offen — das ist keine Auslegung, sondern
+   * die Antwort selbst.
+   */
+  function ampelZustand(s: ShoreId): string | undefined {
+    if (meldung[s]) return 'offen';
+    return weltVon(s)?.zustand;
+  }
+
+  /** „12 Konten“ bzw. „1 Konto“ — Zahl und Wort, nie ein Satz mit Lücke. */
+  function konten(n: number): string {
+    return `${n} ${n === 1 ? t['hall.gate.accounts_one'] : t['hall.gate.accounts_many']}`;
+  }
+
   /**
    * Die kleine Zeile unter dem Namen.
    *
-   * Zahlen nur, wo welche bekannt sind. Ist die Liste noch unterwegs oder
-   * ausgefallen, steht dort der Satz, der das Gestade beschreibt — und keine
-   * Ampel-Behauptung über einen Server, den niemand gefragt hat.
+   * Reihenfolge der Wahrheiten: erst der Server selbst, dann die
+   * Weltliste, dann der Satz, der das Gestade beschreibt. Zahlen stehen
+   * dort nur, wenn sie jemand gemessen hat — eine Ampel-Behauptung über
+   * einen Server, den niemand gefragt hat, wäre schlimmer als gar keine.
    */
   function zustandsZeile(s: ShoreId): string {
+    const z = meldung[s];
+    if (z) {
+      return (
+        `${z.players} ${t['hall.hero.ribbon.of']} ${z.slots} ${t['hall.hero.ribbon.underway']}` +
+        ` · ${t['hall.gate.day']} ${z.day}` +
+        ` · ${konten(z.accounts)}`
+      );
+    }
     const w = weltVon(s);
     if (w) {
       return `${w.spieler} ${t['hall.hero.ribbon.of']} ${w.plaetze} ${t['hall.hero.ribbon.underway']} · ${w.weltzeit}`;
     }
-    if (welten === null && !weltenFehler) return t['hall.hero.ribbon.checking'];
+    // Solange irgendetwas noch unterwegs ist, wird nichts behauptet.
+    if (meldung[s] === undefined || (welten === null && !weltenFehler)) {
+      return t['hall.hero.ribbon.checking'];
+    }
     return t[SHORE_HINT[s]];
   }
 
   /** Die Plakette rechts in der Zeile: Zahlen, „zu“ — oder nichts. */
   function plakette(s: ShoreId): string {
+    const z = meldung[s];
+    if (z) return `${z.players}/${z.slots} ${t['hall.worlds.state_open']}`;
     const w = weltVon(s);
     if (!w) return '';
     if (w.zustand !== 'offen') return t['hall.gate.world_badge_closed'];
@@ -150,6 +207,48 @@
    * Schaltfläche, die nichts tut.
    */
   const spielPfad = $derived.by(() => (s: ShoreId) => `${p(FAHRT)}?shore=${s}`);
+
+  /**
+   * Jedes Gestade fragen — beim Aufruf und danach alle halbe Minute.
+   *
+   * Jede Zeile wird EINZELN gefragt und scheitert einzeln: Midgard
+   * antwortet heute 405 (dort ist `/accounts/` gar nicht durchgereicht),
+   * und das darf die Zahl der Werkstatt nicht mitreissen. Deshalb ein
+   * eigener try je Gestade statt eines Promise.all mit einem Fangarm.
+   *
+   * Nur offene Gestade werden gefragt. Ein geschlossenes zeigt ohnehin
+   * seinen Grund statt Zahlen — ein Abruf wäre eine Anfrage, deren Antwort
+   * nirgends hinkommt.
+   */
+  function meldungenHolen(): void {
+    for (const s of SHORE_IDS) {
+      if (!SHORE_OPEN[s]) {
+        // Nicht gefragt ist trotzdem beantwortet: `null` statt `undefined`,
+        // sonst stünde an einem geschlossenen Server für immer „wird
+        // geprüft“, sollte ihn doch einmal jemand mit dieser Zeile zeigen.
+        meldung[s] = null;
+        continue;
+      }
+      void (async () => {
+        try {
+          meldung[s] = await shoreStatus(s);
+        } catch (e) {
+          console.warn(`[Halle] Gestade ${s} meldet sich nicht:`, e);
+          /*
+            Eine ausgefallene NACHfrage lässt die letzte Zahl stehen; nur
+            der erste Versuch schreibt `null`.
+
+            Das ist bewusst nicht symmetrisch. `null` fällt auf
+            `/api/welt.json` zurück, und das sind DEMO-Zahlen — eine echte
+            Zahl von vor dreissig Sekunden ist näher an der Wahrheit als
+            eine erfundene von heute. Fällt der Server länger aus, bleibt
+            die Zahl stehen; das ist der Preis, und er ist kleiner.
+          */
+          if (meldung[s] === undefined) meldung[s] = null;
+        }
+      })();
+    }
+  }
 
   function waehle(e: MouseEvent, s: ShoreId) {
     // Mit Skript wird gewählt statt gesprungen; die Adresse im href bleibt
@@ -169,6 +268,23 @@
     */
     gestade = readShore() ?? 'dev';
 
+    meldungenHolen();
+    // Alle halbe Minute nachfragen, solange die Seite zu sehen ist. Der
+    // Zähler steht sonst auf dem Stand des Seitenaufrufs — wer die Halle
+    // offen liegen lässt, bekäme eine Stunde später eine Zahl von vor einer
+    // Stunde gezeigt, ohne dass ihr das anzusehen wäre.
+    const uhr = setInterval(() => {
+      if (document.visibilityState === 'visible') meldungenHolen();
+    }, 30_000);
+    // Und sofort beim Zurückkommen: Ein Reiter, der eine Stunde im
+    // Hintergrund lag, hat keine Abrufe gemacht (siehe oben) und zeigt beim
+    // Hinsehen sonst genau die alte Zahl, bis die nächste halbe Minute um
+    // ist. Das ist der Moment, in dem jemand wirklich hinschaut.
+    const beimHinsehen = () => {
+      if (document.visibilityState === 'visible') meldungenHolen();
+    };
+    document.addEventListener('visibilitychange', beimHinsehen);
+
     void (async () => {
       try {
         welten = (await holeJson<{ welten?: Welt[] }>('/api/welt.json')).welten ?? [];
@@ -177,6 +293,11 @@
         weltenFehler = true;
       }
     })();
+
+    return () => {
+      clearInterval(uhr);
+      document.removeEventListener('visibilitychange', beimHinsehen);
+    };
   });
 </script>
 
@@ -237,7 +358,7 @@
     -->
     <details class="world-switch" bind:open={offen}>
       <summary>
-        <span class="bifroest" data-zustand={weltVon(gestade)?.zustand} aria-hidden="true">
+        <span class="bifroest" data-zustand={ampelZustand(gestade)} aria-hidden="true">
           <span class="ampel"></span>
         </span>
         <span class="world-switch-labels">
@@ -279,7 +400,7 @@
                   aria-current={s === gestade ? 'true' : undefined}
                   onclick={(e) => waehle(e, s)}
                 >
-                  <span class="bifroest" data-zustand={weltVon(s)?.zustand} aria-hidden="true">
+                  <span class="bifroest" data-zustand={ampelZustand(s)} aria-hidden="true">
                     <span class="ampel"></span>
                   </span>
                   <span class="world-row-labels">

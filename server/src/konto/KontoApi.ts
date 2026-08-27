@@ -60,6 +60,25 @@ const FEHLVERSUCHE_FENSTER_MS = 15 * 60 * 1000;
 
 interface KontoTokenPayload { k: number; i: number; e: number }
 
+/**
+ * What the server says about itself when anyone asks.
+ *
+ * Deliberately four numbers and a name: it is the only endpoint here that
+ * answers WITHOUT a token, so everything in it is public by definition.
+ * No player names — who is online is not the website's business, only how
+ * many.
+ */
+export interface Serverzustand {
+  /** Players connected right now. */
+  spieler: number;
+  /** Seats, i.e. `maxPlayers` from the server config. */
+  plaetze: number;
+  /** World day, as the game counts it. */
+  tag: number;
+  /** Instance name (`worldName`), so a shore can be told apart in a log. */
+  welt: string;
+}
+
 export class KontoApi {
   private readonly kontoSchluessel: Buffer;
   private readonly fehlversuche = new Map<string, { anzahl: number; bis: number }>();
@@ -67,6 +86,14 @@ export class KontoApi {
   constructor(
     private readonly db: Kontendatenbank,
     private readonly sessionSecret: Buffer,
+    /**
+     * Asked on every `/accounts/status`, never cached here.
+     *
+     * A callback and not a snapshot: the number of players online changes
+     * without this class hearing about it, and a value handed in at
+     * construction time would be the count at server start forever.
+     */
+    private readonly zustand: () => Serverzustand,
   ) {
     // Domain separation: a different key for account tokens, derived from
     // the same secret. See the header comment.
@@ -103,6 +130,7 @@ export class KontoApi {
   private async leite(req: IncomingMessage, res: ServerResponse, pfad: string): Promise<void> {
     const m = req.method ?? 'GET';
 
+    if (pfad === '/accounts/status' && m === 'GET') return this.status(res);
     if (pfad === '/accounts/register' && m === 'POST') return this.registrieren(req, res);
     if (pfad === '/accounts/login' && m === 'POST') return this.anmelden(req, res);
     if (pfad === '/accounts/me' && m === 'GET') return this.ich(req, res);
@@ -118,6 +146,51 @@ export class KontoApi {
   }
 
   // ── Endpoints ───────────────────────────────────────────────────────
+
+  /**
+   * The one endpoint without a token: what this shore looks like right now.
+   *
+   * ── Why it lives here and not under /api/ ────────────────────────────
+   * `/api/` on the game host is the admin service on 2468 and answers 404
+   * by host gate; `/accounts/` is the prefix that is actually proxied to
+   * the game port, with `auth_basic off` and the CORS headers above. A
+   * status endpoint anywhere else would have to earn all three again.
+   *
+   * ── Why the website could not simply keep its file ───────────────────
+   * `wov-web/static/api/welt.json` is a hand-written demo file. It says
+   * "3 players" whether anybody plays or not, and it says it from a
+   * prerendered site that nobody redeploys when somebody logs in — the
+   * player count on the front page was never a measurement.
+   *
+   * ── What is deliberately NOT in the answer ───────────────────────────
+   * No player names, no character names, no e-mails, no ids. Counts only:
+   * the endpoint is unauthenticated, so every field in it is public to
+   * anyone who can reach the host.
+   */
+  private status(res: ServerResponse): void {
+    const z = this.zustand();
+    const gezaehlt = this.db.zaehlen();
+    // Kein `Access-Control-Allow-Origin: *`, obwohl die Zahlen öffentlich
+    // sind und es nahe läge: Der Proxy vor den Spielhosts VERSTECKT die
+    // Kopfzeile des Backends und setzt eine eigene aus seiner eigenen
+    // Liste erlaubter Ursprünge (nachgemessen am 27.08.2026 — mit
+    // `Origin: http://localhost:4173` kommt gar keine an, mit dem Ursprung
+    // der Webseite genau eine). Ein `*` hier wäre deshalb ein Versprechen,
+    // das an der Haustür wieder eingesammelt wird; wer die Seite lokal
+    // gegen ein Gestade laufen lassen will, muss den Proxy erweitern.
+    // no-store rather than a short max-age: the whole point of the number
+    // is that it is current, and a proxy holding it for a minute would
+    // reintroduce the stale count this endpoint exists to replace.
+    res.setHeader('Cache-Control', 'no-store');
+    this.json(res, 200, {
+      world: z.welt,
+      players: z.spieler,
+      slots: z.plaetze,
+      day: z.tag,
+      accounts: gezaehlt.konten,
+      characters: gezaehlt.charaktere,
+    });
+  }
 
   private async registrieren(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const k = await this.koerper(req);

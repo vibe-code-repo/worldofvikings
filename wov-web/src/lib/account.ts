@@ -449,6 +449,16 @@ interface Call {
   method: 'GET' | 'POST' | 'DELETE';
   token?: string;
   body?: unknown;
+  /**
+   * Give up after this many milliseconds.
+   *
+   * Only the status call sets it. A login may wait as long as it takes —
+   * the person is watching a spinner they asked for. The status line is
+   * nobody's request: a shore whose host accepts the connection and then
+   * says nothing would otherwise leave "checking …" standing forever,
+   * which is the same lie as a wrong number, only slower.
+   */
+  timeoutMs?: number;
 }
 
 async function call<T>(shore: ShoreId, path: string, a: Call): Promise<T> {
@@ -470,6 +480,7 @@ async function call<T>(shore: ShoreId, path: string, a: Call): Promise<T> {
       // preflight the API does not answer for credentialed requests.
       credentials: 'omit',
       cache: 'no-store',
+      signal: a.timeoutMs === undefined ? undefined : AbortSignal.timeout(a.timeoutMs),
     });
   } catch {
     // A rejected fetch is the one failure the API cannot name itself:
@@ -494,6 +505,57 @@ async function call<T>(shore: ShoreId, path: string, a: Call): Promise<T> {
     throw new ApiError(typeof key === 'string' ? key : 'server-error');
   }
   return data as T;
+}
+
+/**
+ * What a shore reports about itself — the only call that needs no account.
+ *
+ * Field names are the wire format from `KontoApi.status()`.
+ */
+export interface ShoreStatus {
+  /** Instance name of the world running there (`bau`, `world`, …). */
+  world: string;
+  /** Players connected right now. */
+  players: number;
+  /** Seats (`maxPlayers`). */
+  slots: number;
+  /** World day. */
+  day: number;
+  /** Registered accounts on this shore. */
+  accounts: number;
+  /** Characters across all of them. */
+  characters: number;
+}
+
+/**
+ * Ask a shore how it is doing.
+ *
+ * ── Why this replaces a number from a file ───────────────────────────
+ * The hall used to read `/api/welt.json`, a static demo file next to the
+ * prerendered pages. It claims three players on Midgard and zero on the
+ * workshop, and it claims it while somebody is playing — the site is
+ * built once and the file does not learn. This asks the server that
+ * actually holds the connections.
+ *
+ * Called for every shore on the front page, so it must fail quietly and
+ * quickly: a closed shore (Midgard answers 405, no `/accounts/` there)
+ * or an unreachable one throws `ApiError` like any other call, and the
+ * hall falls back to the sentence that describes the shore.
+ */
+export async function shoreStatus(shore: ShoreId): Promise<ShoreStatus> {
+  const s = await call<ShoreStatus | null>(shore, '/accounts/status', {
+    method: 'GET',
+    timeoutMs: 4000,
+  });
+  // A 200 is not proof that the game answered. Midgard's host serves the
+  // game's index.html for unknown paths (measured 27.08.2026: 200,
+  // text/html), so `call` comes back with `null` from the failed JSON
+  // parse. Without this check a shore would show "0 of 0 underway" —
+  // numbers made of nothing, which is exactly what this replaces.
+  if (!s || typeof s.players !== 'number' || typeof s.slots !== 'number') {
+    throw new ApiError('server-error');
+  }
+  return s;
 }
 
 export function register(

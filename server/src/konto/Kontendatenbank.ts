@@ -203,6 +203,29 @@ export class Kontendatenbank {
     };
   }
 
+  /**
+   * How many accounts and characters this realm holds.
+   *
+   * Public numbers: `/accounts/status` hands them to the website, where
+   * they stand next to the players online. They are counts and nothing
+   * else -- no name, no e-mail, no id leaves through this door.
+   *
+   * Counted on every call rather than cached: both tables are small (an
+   * account is a row, and there are hundreds at most), SQLite answers a
+   * COUNT over them from the index, and a cached number would be wrong
+   * for exactly as long as the cache lives -- right after a registration,
+   * which is the one moment somebody looks.
+   */
+  zaehlen(): { konten: number; charaktere: number } {
+    const z = this.db
+      .prepare(
+        'SELECT (SELECT COUNT(*) FROM konten) AS konten,' +
+        ' (SELECT COUNT(*) FROM charaktere) AS charaktere',
+      )
+      .get() as Record<string, unknown>;
+    return { konten: Number(z.konten), charaktere: Number(z.charaktere) };
+  }
+
   /** Rewrite a password record, e.g. after raising the scrypt cost. */
   passwortErsetzen(kontoId: number, passwortEintrag: string): void {
     this.db.prepare('UPDATE konten SET passwort = ? WHERE id = ?').run(passwortEintrag, kontoId);

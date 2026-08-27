@@ -43,6 +43,27 @@ export interface DungeonGeneratorSettings {
   endcapsInsetFrac: number;
   /** Whether end caps collide with rooms (default off — they seal openings). */
   endcapsCollision: boolean;
+  /**
+   * Welchen Abschluss der Notfallzweig nimmt, wenn KEINER passt.
+   *
+   * Vorgabe `false` = das Verhalten der Vorlage: `endCaps[0]` aus der
+   * frisch gemischten Liste, also ein beliebiger. Dort ist das harmlos,
+   * weil Abschlüsse in der Vorlage durchweg dünne Blenden sind — welche
+   * es wird, ändert nichts.
+   *
+   * `true` nimmt stattdessen den mit dem KLEINSTEN `endCapPrio`, also den
+   * anspruchslosesten. Das ist für ein Kit gedacht, das begehbare Räume
+   * UND ein bloßes Verschlussstück als Abschluss führt: Wenn nichts mehr
+   * passt, soll zugemauert werden und nicht ein Raum in den Fels
+   * getrieben. Ohne diesen Schalter nützt `endcapsCollision` dort nichts —
+   * jede abgelehnte Nische landet im Notfallzweig und wird dort ohne
+   * Prüfung doch gesetzt. Gemessen an `DG_Steingrab`: 163 solcher
+   * Notfallsetzungen über 40 Seeds, ausnahmslos die Nische.
+   *
+   * Die Mischung bleibt in beiden Fällen unangetastet — sie zieht aus dem
+   * RNG, und die Ziehreihenfolge ist Teil des Vertrags.
+   */
+  endcapsFallbackByPrio: boolean;
   /** Place doors on eligible connections. */
   doorsEnabled: boolean;
 }
@@ -56,6 +77,7 @@ export const DEFAULT_GENERATOR_SETTINGS: DungeonGeneratorSettings = {
   endcapsEnabled: true,
   endcapsInsetFrac: 0.5,
   endcapsCollision: false,
+  endcapsFallbackByPrio: false,
   doorsEnabled: true,
 };
 
@@ -151,7 +173,11 @@ export function generateDungeonLayout(
     );
   }
 
-  const settings = { ...DEFAULT_GENERATOR_SETTINGS, ...settingsIn };
+  // Reihenfolge ist Absicht: Vorgabe der Vorlage, darüber das Kit,
+  // darüber der Aufrufer. So bleibt eine Messzelle oder ein Test in der
+  // Lage, eine Kit-Einstellung gezielt zu übersteuern, ohne dass das Kit
+  // seine Zusage für den Normalbetrieb verliert.
+  const settings = { ...DEFAULT_GENERATOR_SETTINGS, ...def.generatorEinstellungen, ...settingsIn };
   const state = new XorShiftRandom(seed | 0);
 
   const placedRooms: RoomInstance[] = [];
@@ -497,9 +523,17 @@ export function generateDungeonLayout(
       }
 
       if (!placed) {
-        // Nothing fit — force-place the first candidate without collision
-        // check; an overlapping end cap beats an open hole into the void.
-        const roomData = endCaps[0];
+        // Nothing fit — force-place a candidate without collision check;
+        // an overlapping end cap beats an open hole into the void.
+        //
+        // WELCHER Kandidat, ist die Frage: `findEndCaps` MISCHT die Liste
+        // (Ziehung aus dem RNG, Teil des Vertrags), `endCaps[0]` ist also
+        // ein beliebiger. Ein Kit, dessen Abschlüsse unterschiedlich viel
+        // Platz brauchen, bekommt hier sonst reihenweise seinen größten
+        // in den Fels getrieben — s. `endcapsFallbackByPrio`.
+        const roomData = settings.endcapsFallbackByPrio
+          ? [...endCaps].sort((a, b) => a.endCapPrio - b.endCapPrio)[0]
+          : endCaps[0];
         if (roomData) {
           const connection2 = getConnection(roomData, connection.def);
           const attachRot = settings.roomsFlipped

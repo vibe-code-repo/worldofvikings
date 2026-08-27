@@ -20,6 +20,9 @@
 
 import dungeonsData from './dungeonsData.json';
 import { EIGENE_KITS } from './eigeneDungeons.js';
+// Nur der Typ — zur Laufzeit entsteht daraus kein Import und damit
+// auch kein Ringschluss mit `dungeonGenerator.ts`, das hier einliest.
+import type { DungeonGeneratorSettings } from './dungeonGenerator.js';
 import { getStableHash } from './hash.js';
 import type { Quaternion, Vector3 } from './types.js';
 
@@ -120,6 +123,20 @@ export interface DungeonDef {
   readonly themes: number;
   readonly tileWidth: number;
   readonly rooms: readonly RoomDef[];
+  /**
+   * Abweichungen dieses Kits von `DEFAULT_GENERATOR_SETTINGS`.
+   *
+   * WARUM AM KIT UND NICHT AM AUFRUFER: Die Vorgabewerte bilden das
+   * Verhalten der Vorlage ab, und die dreizehn geparsten Kits müssen
+   * genau dabei bleiben — sonst erzeugt derselbe Seed ab heute einen
+   * anderen Dungeon als gestern. Ein eigenes Kit darf abweichen, aber
+   * die Abweichung gehört neben seine Räume und nicht in jeden
+   * einzelnen Aufrufer von `generateDungeonLayout` (Server, F4-Editor,
+   * Tests) — vergessen wird sie sonst genau dort, wo niemand hinsieht.
+   *
+   * Fehlt das Feld, gilt der Vorgabewert. Alle Fremdkits lassen es leer.
+   */
+  readonly generatorEinstellungen?: Partial<DungeonGeneratorSettings>;
 }
 
 interface DungeonJson extends Omit<DungeonDef, 'hash' | 'rooms' | 'algorithm'> {

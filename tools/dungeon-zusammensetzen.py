@@ -28,6 +28,15 @@ mitgedreht werden:
 
 Beides ist dieselbe Achsvertauschung, einmal auf einen Punkt und
 einmal auf den Vektorteil eines Quaternions angewandt.
+
+Dazu kommt eine SPIEGELUNG der x-Achse je Bauteil. Sie ist keine
+Achsvertauschung, sondern eine Nachbildung des Clients: Babylon laedt
+GLBs in eine linkshaendige Szene und legt dafuer einen `__root__`-Knoten
+mit Determinante -1 darueber (nachgerechnet in
+`mess/babylon-orientierung.ts`), waehrend die Positionen aus dem ZDO
+unveraendert bleiben. Wer hier ohne diese Spiegelung rendert, bekommt ein
+schoenes Bild von etwas, das im Spiel anders steht — und genau das ist am
+26./27.08.2026 passiert.
 """
 
 import sys
@@ -148,6 +157,11 @@ for i, r in enumerate(raeume):
     q = r['rot']
     kopie.rotation_mode = 'QUATERNION'
     kopie.rotation_quaternion = Quaternion((q['w'], q['x'], -q['z'], q['y']))
+    # x spiegeln — genau das, was der Client tut, und deshalb das, was
+    # dieses Bild zeigen muss. Sonst sagt der Zusammenbau „passt" ueber
+    # eine Anordnung, die im Spiel nicht so aussieht. Begruendung und
+    # Messung in `steingrab-erzeugen.py`, `in_spielachsen_spiegeln`.
+    kopie.scale = Vector((-1.0, 1.0, 1.0))
     kopie.name = f'{r["room"]}_{i}'
     gesetzt += 1
 
@@ -167,6 +181,11 @@ for i, t in enumerate(tueren):
     q = t['rot']
     kopie.rotation_mode = 'QUATERNION'
     kopie.rotation_quaternion = Quaternion((q['w'], q['x'], -q['z'], q['y']))
+    # x spiegeln — genau das, was der Client tut, und deshalb das, was
+    # dieses Bild zeigen muss. Sonst sagt der Zusammenbau „passt" ueber
+    # eine Anordnung, die im Spiel nicht so aussieht. Begruendung und
+    # Messung in `steingrab-erzeugen.py`, `in_spielachsen_spiegeln`.
+    kopie.scale = Vector((-1.0, 1.0, 1.0))
     kopie.name = f'{t["prefabName"]}_{i}'
     gesetzte_tueren += 1
 

@@ -881,6 +881,63 @@ def baue_tuer():
     }
 
 
+def in_spielachsen_spiegeln(obj):
+    """
+    Die x-Achse spiegeln — sonst steht das Teil im Spiel seitenverkehrt.
+
+    ── Der Befund, gemessen am 27.08.2026 ────────────────────────────
+    Der Client laedt GLBs mit Babylon in eine LINKSHAENDIGE Szene. Der
+    glTF-Import legt dafuer einen `__root__`-Knoten ueber das Modell, der
+    die Haendigkeit umrechnet. Nachgerechnet mit Babylons eigener
+    NullEngine (`mess/babylon-orientierung.ts`):
+
+        localMatrix Determinante: -1.000
+        (1,0,0) -> (-1.00, 0.00, 0.00)
+
+    Die GEOMETRIE wird also an der x-Achse gespiegelt. Die POSITIONEN
+    aus dem ZDO werden dagegen unveraendert uebernommen
+    (`EntityManager.composeZdoWorld`), und die Weltmatrix entsteht als
+    `local.multiply(zdo)` — erst spiegeln, dann drehen und schieben.
+
+    Fuer einen Baum, einen Felsen, eine Truhe faellt das nie auf: Sie
+    stehen fuer sich, und ein gespiegelter Felsen ist ein Felsen. Fuer
+    ein KIT ist es toedlich. Die Ecke ist an +x und +z offen; im Spiel
+    ist sie an -x und +z offen und koppelt damit an eine Wand. Genau das
+    war „die Raeume sind nicht richtig verbunden".
+
+    ── Warum die Spiegelung hierher gehoert und nicht in den Client ──
+    Die Weltkoordinaten des Spiels sind die der Vorlage, also
+    linkshaendig. Die Fremdmodelle kommen ueber AssetRipper aus derselben
+    linkshaendigen Quelle und tragen dessen Umrechnung bereits in sich —
+    fuer sie hebt Babylons `__root__` genau das wieder auf, und alles
+    passt. Ein Blender-Export mit `export_yup` macht diese Umrechnung
+    NICHT. Eigene Modelle sind damit die Ausnahme im Haus, nicht die
+    Regel; sie in dieselbe Konvention zu bringen ist billiger und
+    ungefaehrlicher, als im Renderpfad eine Sonderbehandlung
+    einzubauen, die jeder spaeter uebersieht.
+
+    ── Folge fuer den Leser ──────────────────────────────────────────
+    In der EXPORTIERTEN Datei liegt die Ecke an -x offen, im Kit
+    (`eigeneDungeons.ts`) steht +x. Das ist kein Widerspruch, sondern
+    diese Umrechnung. `tools/oeffnung-messen.py` rechnet sie zurueck und
+    misst in Spielachsen; dort stimmen Datei und Kit wieder ueberein.
+
+    Die Flaechennormalen muessen mitgedreht werden: Eine negative
+    Skalierung stuelpt jedes Netz um, und ein umgestuelptes Netz wird
+    von innen gezeichnet — Waende, durch die man von aussen hindurchsieht.
+    """
+    for o in bpy.context.selected_objects:
+        o.select_set(False)
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    obj.scale.x = -1.0
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.flip_normals()
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+
 def messen(obj):
     """
     Nachmessen statt annehmen.
@@ -918,6 +975,9 @@ def main():
     obj = vereinen(teile, NAME)
     material_setzen(obj)
     kanten_brechen(obj)
+    # ZULETZT, nach allem Bauen: ab hier steht das Teil in Spielachsen,
+    # und jede Zahl aus dem Bauteil-Code waere hier seitenverkehrt.
+    in_spielachsen_spiegeln(obj)
 
     masse, dreiecke = messen(obj)
 
@@ -970,6 +1030,8 @@ def main():
         print(f'  lichte Weite: {angaben["lichte_breite"]:.3f} m, '
               f'{angaben.get("hoehe", HOEHE) - DECKENSTAERKE:.3f} m hoch')
     print(f'  Durchgaenge:  {angaben["oeffnungen"]}, offen')
+    print('  Achsen:       x gespiegelt fuer die linkshaendigen Spielachsen '
+          '(s. in_spielachsen_spiegeln)')
 
     # Rasterprobe an der eigenen Ausgabe: Jedes Aussenmass MUSS ein
     # Vielfaches von RASTER sein. Faellt das hier durch, faellt es sonst

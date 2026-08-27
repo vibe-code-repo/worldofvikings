@@ -123,6 +123,7 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { DungeonEditor } from './ui/DungeonEditor';
 import { DekoPlatzierung } from './ui/DekoPlatzierung';
+import { FlammenAtlas } from './engine/FlammenAtlas';
 import { Minimap } from './ui/Minimap';
 import { LightPool } from './engine/LightPool';
 import { CraftingPanel } from './ui/CraftingPanel';
@@ -1265,6 +1266,26 @@ async function main() {
       },
       /** Diagnose: Platzierungsmodus (F4 -> Frei setzen). */
       deko: () => dekoPlatzierung.diagnose(),
+      /** Diagnose: laufen die Flammen-Atlanten? */
+      flammen: () => FlammenAtlas.diagnose(),
+      /**
+       * Diagnose: Woran haengt es, wenn eine Fackel nicht leuchtet?
+       *
+       * Drei Stationen, die von aussen gleich aussehen: Der Pool existiert
+       * gar nicht, er findet keine Quelle, oder er hat sie und das Licht
+       * kommt trotzdem nicht an.
+       */
+      fackeln: () => {
+        const p = player?.position;
+        const nah = p ? (entities?.lichtquellen(p.x, p.z, 45) ?? []) : [];
+        return {
+          poolDa: lightPool !== null,
+          poolInfo: lightPool?.info ?? null,
+          quellenImUmkreis: nah.length,
+          erste: nah[0] ?? null,
+          plaetze: FackelLichter.plaetze,
+        };
+      },
       /** Messhilfe: Grundausrichtung um N Grad versetzen (s. DekoPlatzierung). */
       dekoVersatz: (grad: number) => dekoPlatzierung.setzeVersatz(grad),
       /** Diagnose: Dungeon-Zustand des Clients. */

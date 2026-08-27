@@ -70,7 +70,18 @@ const LIGHT_HINTS: ReadonlyMap<string, NonNullable<PrefabDef['light']>> = new Ma
   ['fire_pit', { color: [1.0, 0.55, 0.22], intensity: 18, range: 16, offsetY: 0.5, flicker: true }],
   ['bonfire', { color: [1.0, 0.55, 0.22], intensity: 24, range: 20, offsetY: 0.8, flicker: true }],
   ['hearth', { color: [1.0, 0.55, 0.22], intensity: 20, range: 18, offsetY: 0.6, flicker: true }],
-  ['dvergrlantern', { color: [0.45, 0.85, 1.0], intensity: 10, range: 11, offsetY: 0.4, flicker: false }],
+  /*
+    ENTFERNT am 27.08.2026: `dvergrlantern` gibt es nicht. Die Prefabs
+    heissen `dvergrprops_lantern`, `dvergrprops_lantern_standing`,
+    `piece_dvergr_lantern` und `piece_dvergr_lantern_pole` — der Hint war
+    ein Tippfehler und hat seit seinem ersten Tag nichts beleuchtet.
+
+    Bewusst NICHT auf die echten Namen umgebogen: Das setzte vier neue
+    Lichtquellen in die Welt, und das ist eine Entscheidung ueber das
+    Aussehen der Dvergr-Gebiete und kein Aufraeumen nebenbei. Wer sie
+    leuchten lassen will, traegt sie hier ein — der Weg funktioniert
+    jetzt nachweislich (s. shared/test/licht-hints.ts).
+  */
   /*
     Die eigene Wandfackel des Steingrabs.
 
@@ -85,6 +96,16 @@ const LIGHT_HINTS: ReadonlyMap<string, NonNullable<PrefabDef['light']>> = new Ma
   */
   ['CryptWallTorch', { color: [1.0, 0.62, 0.28], intensity: 12, range: 12, offsetY: 0.35, flicker: true }],
 ]);
+
+/**
+ * Namen aller Prefabs mit Licht-Hint.
+ *
+ * Nur zum Pruefen da (`shared/test/licht-hints.ts`): Ein Prefab, dem der
+ * Hint nicht angehaengt wurde, ist nicht kaputt — es ist dunkel, und
+ * dunkel ist im Dungeon der Normalzustand. Ohne diese Liste gaebe es
+ * nichts, wogegen man das pruefen koennte.
+ */
+export const LICHT_PREFAB_NAMEN: readonly string[] = [...LIGHT_HINTS.keys()];
 
 const F = PrefabFlag;
 const ONE: Vector3 = { x: 1, y: 1, z: 1 };
@@ -1167,8 +1188,18 @@ function buildRegistry(): PrefabDef[] {
   }
 
   // Legacy extras (hints whose prefab no longer exists in the pkg)
+  //
+  // MIT den Licht-Hints, genau wie oben. Sie standen hier nicht, weil bis
+  // zum 27.08.2026 jede Lichtquelle aus `prefabs.pkg` kam und damit ueber
+  // den Zweig darueber lief. Die erste eigene — `CryptWallTorch` — gibt es
+  // nur hier, und sie kam ohne `light` in die Registry: Das Modell stand
+  // an der Wand, `EntityManager.lichtquellen()` uebersprang es zu Recht,
+  // und der LightPool meldete `0/16`. Ein Prefab, das dunkel bleibt, sagt
+  // von sich aus nicht, warum.
   for (const hint of HINT_DEFS) {
-    if (!seen.has(hint.name)) defs.push(hint);
+    if (!seen.has(hint.name)) {
+      defs.push({ ...hint, light: hint.light ?? LIGHT_HINTS.get(hint.name) });
+    }
   }
 
   // Phase G: dungeon room shells. Rooms are not ZNetView prefabs (absent

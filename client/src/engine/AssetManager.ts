@@ -31,6 +31,7 @@ import type { Scene } from '@babylonjs/core/scene';
 import '@babylonjs/loaders/glTF/2.0';
 import { ShadowDepthWrapper } from '@babylonjs/core/Materials/shadowDepthWrapper';
 import { WindPlugin } from './WindPlugin';
+import { FlammenAtlas } from './FlammenAtlas';
 import { GlutPuls } from './GlutPuls';
 
 const MODEL_BASE_URL = '/assets/models/';
@@ -120,8 +121,30 @@ const WIND_TROTZ_OPAKER_TEXTUR = /^KiPine/i;
  * Die Karte selbst entsteht offline aus der BaseColor (tools/glb-glut.py)
  * und leuchtet für sich genommen konstant — was sich als angemalt liest.
  * Erst die Schwankung macht daraus Feuer, und die kommt aus GlutPuls.
+ *
+ *  ist der zweite Eintrag und der erste, bei dem NUR ein
+ * Teil des Modells glüht: Der Detektor in  hat die Flamme
+ * anhand von Rotanteil und Sättigung gefunden (4,1 % der Textur) und das
+ * Eisen der Halterung dunkel gelassen. Das Modell braucht dafür kein
+ * zweites Material — die Emissive-Karte IST die Trennung.
+ *
+ * Alle Fackeln teilen sich dieses eine Material und pulsen deshalb im
+ * Gleichtakt. Das fällt weniger auf, als es klingt: Die LICHTER flackern
+ * je Platz für sich (), und das ist die
+ * Bewegung, die man im Raum wahrnimmt.
  */
 const GLUEHEND = /^Surtr/i;
+
+/**
+ * Materialname, der ein Feuer kennzeichnet.
+ *
+ * Die Konvention statt einer Modell-Liste: `tools/flame-cards.py` setzt
+ * gekreuzte Karten mit einem Material `Flamme` in ein beliebiges Modell,
+ * und der Client macht daraus Feuer — `FlammenAtlas` schaltet den
+ * Sprite-Atlas weiter und stellt die Darstellung ein. Wer ein Lagerfeuer
+ * baut, braucht hier nichts nachzutragen.
+ */
+const FLAMME = /^Flamme/i;
 /** Unity LOD shells: Lod0/Lod1/…/LOD3_primitive1 etc. */
 const LOD_NAME = /^lod\d/i;
 const LOD0_NAME = /^lod0/i;
@@ -493,6 +516,20 @@ export class AssetManager {
     mesh?: AbstractMesh
   ): Promise<void> {
     if (!material || !(material instanceof PBRMaterial)) return;
+
+    // Feuer zuerst, und mit einem eigenen return: Ein Flammenmaterial ist
+    // unbeleuchtet, beidseitig und durchsichtig — alles, was danach kommt
+    // (Metallgrad, Wind, Cutout-Behandlung), waere daran entweder
+    // wirkungslos oder schaedlich.
+    //
+    // Erkannt am NAMEN und nicht am Modell: Damit brennt jedes eigene
+    // Modell, das ein Material `Flamme` traegt — Wandfackel heute,
+    // Lagerfeuer und Feuerschale spaeter, ohne eine Zeile hier.
+    if (FLAMME.test(material.name)) {
+      FlammenAtlas.registriere(material, this.scene);
+      return;
+    }
+
     this.setzeMetallgrad(material);
 
     // Wind für Modelle ohne Cutout-Laub — muss VOR dem Cutout-Block

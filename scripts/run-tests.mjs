@@ -318,6 +318,9 @@ const KERN = [
   // Etappe 5: von Hand gesetzte Deko ueberlebt Abriss und Neustart.
   // Kein Socket, kein Server — reine Dokument- und Instanzpruefung, Sekunden.
   ['server', 'test/g8-dungeon-deko.ts'],
+  // Licht-Hints kommen an der Registry an. Ein Prefab ohne `light` ist
+  // nicht kaputt, es ist dunkel — und dunkel faellt nirgends auf.
+  ['shared', 'test/licht-hints.ts'],
   // F1 (Roadmap, Security-Review-Paket 3): Truhen mit echtem, entnehmbarem
   // Inhalt statt des alten Ein-Bit-Schalters. E2E ueber echte WebSocket-
   // Verbindungen (handleTruheOeffnen/handleContainerAction sind private

@@ -1,5 +1,5 @@
 {
- "erzeugt": "2026-08-27T17:12:45.355Z",
+ "erzeugt": "2026-08-27T19:51:17.414Z",
  "quelle": "tools/asset-manifest.mjs",
  "anzahl": 184,
  "modelle": {
@@ -604,25 +604,25 @@
   "CryptWallTorch": {
    "datei": "CryptWallTorch.glb",
    "foliage": false,
-   "bytes": 398688,
+   "bytes": 450268,
    "huelle": {
     "min": [
      -0.125,
      -0.393,
-     -0.744
+     -0.83
     ],
     "max": [
-     0.125,
-     0.393,
+     0.16,
+     0.41,
      0
     ]
    },
-   "breite": 0.25,
-   "hoehe": 0.786,
-   "tiefe": 0.744,
-   "dreiecke": 3117,
-   "materialien": 1,
-   "bilder": 3,
+   "breite": 0.285,
+   "hoehe": 0.803,
+   "tiefe": 0.83,
+   "dreiecke": 2790,
+   "materialien": 2,
+   "bilder": 5,
    "animationen": [],
    "meshlos": false,
    "skins": 0

@@ -207,7 +207,8 @@ export class DungeonSeite {
           this.grundriss.zeichne();
         }),
         knopf('Prüfen', () => this.pruefe(doc)),
-        speichernKnopf
+        speichernKnopf,
+        knopf('Betreten', () => this.betrete(doc))
       )
     );
     if (this.schmutzig) {
@@ -296,6 +297,73 @@ export class DungeonSeite {
       'Gelesen wird über den Betriebsdienst, geschrieben über den Spielserver — der muss ' +
       'zum Speichern laufen, zum Ansehen nicht.';
     b.appendChild(fuss);
+  }
+
+  /**
+   * Den Dungeon im ONLINE-Client oeffnen.
+   *
+   * Nicht im Testflug: Der laeuft mit `?offline=1` ohne Server, und eine
+   * Instanz lebt auf dem Server. Ein Testflug in einen Dungeon zeigte
+   * nichts und saehe aus wie ein kaputter Knopf.
+   *
+   * ── Welcher Host ─────────────────────────────────────────────────
+   * Der Spielclient braucht die Sitzung aus dem localStorage, und der
+   * haengt am Ursprung. Auf dev ist das einfach: play.dev liefert Spiel
+   * UND Editor aus (`/` und `/editor.html`, siehe
+   * deploy/npm-play-dev.conf), gleicher Ursprung, ein relativer Verweis
+   * genuegt — und er behaelt nebenbei automatisch dev bzw. live.
+   *
+   * Auf live gibt es zwei Namen auf demselben nginx, und nur einer davon
+   * traegt die Sitzung. Deshalb faellt ein fuehrendes `editor.` weg. Nur
+   * dieses eine Praefix, und nur am Anfang: Alles Weitere waere Raten an
+   * einer Adresse, und eine falsch geratene fuehrt auf eine
+   * Anmeldeseite statt in den Dungeon.
+   */
+  private betrete(doc: DungeonDocument): void {
+    if (this.schmutzig) {
+      // Betreten zeigt, was auf der PLATTE steht. Ungespeichertes waere
+      // nicht dabei, und man suchte im Dungeon nach einem Raum, den man
+      // gerade erst gezeichnet hat.
+      this.cb.meldung('Erst speichern — betreten zeigt den gespeicherten Stand.', true);
+      return;
+    }
+    const host = location.host.startsWith('editor.') ? location.host.slice(7) : location.host;
+    const ziel = `${location.protocol}//${host}/?dungeon=${encodeURIComponent(doc.id)}`;
+
+    // ── Ohne Anmeldung geht die Dungeon-Wahl unterwegs verloren ──────
+    //
+    // Der Spielclient leitet ohne Sitzung zur Anmeldung auf der Webseite
+    // um, und diese Adresse trägt KEIN Ziel zurück (`websiteLoginUrl` in
+    // client/src/main.ts kennt nur `shore` und `abgelaufen`). Nach dem
+    // Anmelden landet man also in der Welt statt im Dungeon — wortlos,
+    // was schlimmer ist als ein Fehler.
+    //
+    // Gefragt wird NUR, wenn das Ziel derselbe Ursprung ist. Auf live
+    // trägt der Editor einen eigenen Namen, der localStorage dort ist ein
+    // anderer, und die Antwort wäre schlicht falsch: „nicht angemeldet"
+    // für jemanden, der es sehr wohl ist. Lieber nichts sagen als etwas
+    // Unzutreffendes.
+    if (host === location.host) {
+      let token = '';
+      try {
+        token = localStorage.getItem('wov-session-token') ?? '';
+      } catch {
+        // Privater Modus: kein Speicher, also auch keine Auskunft.
+        token = '';
+      }
+      if (!token) {
+        this.cb.meldung(
+          `Nicht im Spiel angemeldet — ${doc.id} geht bei der Anmeldung verloren. ` +
+            'Erst anmelden, dann noch einmal auf „Betreten".',
+          true
+        );
+        window.open(`${location.protocol}//${host}/`, '_blank');
+        return;
+      }
+    }
+
+    this.cb.meldung(`${doc.id} wird im Spiel geöffnet …`);
+    window.open(ziel, '_blank');
   }
 
   /**

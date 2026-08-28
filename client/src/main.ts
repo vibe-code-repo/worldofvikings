@@ -554,6 +554,31 @@ async function main() {
   let routenEditorOffen: () => boolean = () => false;
   /** Auto-Reconnect-Zähler (Review-Punkt 9) — Reset bei erfolgreicher Verbindung. */
   let reconnectVersuch = 0;
+  /**
+   * `?dungeon=<id>`: nach dem Anmelden EINMAL in diese Instanz springen.
+   *
+   * Der Knopf „Betreten" im Karteneditor setzt ihn. Geprüft wird hier mit
+   * demselben Muster, das der Betriebsdienst benutzt, bevor er aus einer
+   * ID einen Dateinamen macht — der Wert geht zwar nur in eine
+   * Befehlszeile, aber ein Adressparameter ist Fremdeingabe, und die
+   * Zeile wird serverseitig zerlegt.
+   *
+   * NUR online: Eine Instanz lebt auf dem Server. Im Testflug (`?offline=1`)
+   * gäbe es nichts zu betreten, und ein Befehl ins Leere sähe aus wie ein
+   * kaputter Knopf.
+   */
+  const dungeonWunsch = (() => {
+    const roh = params.get('dungeon') ?? '';
+    return /^[a-z0-9-]{1,64}$/.test(roh) ? roh : null;
+  })();
+  /**
+   * Schon gesprungen?
+   *
+   * Der Auto-Reconnect baut die Verbindung neu auf, und ohne diese Marke
+   * risse er einen aus dem Dungeon wieder in denselben zurück — auch dann,
+   * wenn man ihn inzwischen absichtlich verlassen hat.
+   */
+  let dungeonSprungGetan = false;
   /** Layout-Handshake: ServerConfig kündigte ein WorldLayoutData an. */
   let layoutErwartet: { worldSeed: string; settings: ClientWorldSettings } | null = null;
   /** Aktives WorldLayout (Layout-Modus) — Karte/Editor lesen es mit. */
@@ -1787,6 +1812,19 @@ async function main() {
 
     // Health/Stamina vom Server (Kampf-Basis).
     socket.on(PacketType.PlayerState, (reader) => {
+      // Der Sprung haengt am ERSTEN PlayerState und nicht an
+      // `socket.onConnected`.
+      //
+      // `onConnected` feuert, sobald der Client die Anmeldung ABGESCHICKT
+      // hat — der Server hat da noch nichts beantwortet, es gibt weder
+      // Rechte noch Charakter. Das erste PlayerState dagegen schickt der
+      // Server in onPeerAuthenticated, nach dem Spawn. Ab da gibt es
+      // jemanden, den man teleportieren kann.
+      if (dungeonWunsch && !dungeonSprungGetan) {
+        dungeonSprungGetan = true;
+        hud.meldung(`Betrete ${dungeonWunsch} …`);
+        socket?.sendAdminCommand(`dungeon enter ${dungeonWunsch}`);
+      }
       const health = reader.readFloat32();
       const stamina = reader.readFloat32();
       if (reader.remaining >= 12) serverPos = reader.readVector3();

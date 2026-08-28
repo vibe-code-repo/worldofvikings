@@ -91,6 +91,13 @@ DECKENSTAERKE = 0.40
 # Stein versetzt, damit die Stossfugen nicht uebereinander durchlaufen.
 # So mauert man wirklich, und man sieht sofort, wenn es fehlt.
 LAGENHOEHE = 0.60
+
+# ── Treppe ───────────────────────────────────────────────────────────
+# Ein Stockwerk misst 8 m (DUNGEON_EBENE_M in shared/src/dungeonRaster.ts —
+# dort steht auch, warum nicht 4). 12 m Lauf ergeben 33,7°.
+STEIGUNG = 8.0
+TREPPENLAENGE = 12.0
+STUFENHOEHE = 0.40
 QUADERLAENGE = 1.00
 # Die Fuge ist der SPALT zwischen zwei Steinen. Sie entsteht dadurch,
 # dass jeder Quader um diesen Betrag kleiner ist als sein Rasterfeld —
@@ -181,7 +188,8 @@ def lagenzahl(hoehe=None):
 
 
 def mauerwerk_flaeche(kennung, achse, ebene, richtung, von, bis, teile,
-                      kuerzung=None, lage_von=0, lage_bis=None, hoehe=None):
+                      kuerzung=None, lage_von=0, lage_bis=None, hoehe=None,
+                      basis_z=0.0):
     """
     Behauene Quader im Laeuferverband auf EINE senkrechte Wandflaeche.
 
@@ -203,7 +211,11 @@ def mauerwerk_flaeche(kennung, achse, ebene, richtung, von, bis, teile,
     # der Tueroeffnung: Unter dem Sturz steht auf der Breite des Durchgangs
     # kein Stein, darueber schon.
     for lage in range(lage_von, lage_bis if lage_bis is not None else lagenzahl(hoehe)):
-        z0 = lage * LAGENHOEHE
+        # `basis_z` hebt die ganze Wand an. Gebraucht von der Treppe:
+        # Dort steht jedes Wandstueck auf SEINER Stufe, nicht auf dem
+        # Boden des Teils. Vorgabe 0 — alle aelteren Aufrufe merken
+        # nichts davon.
+        z0 = basis_z + lage * LAGENHOEHE
         kurz_v, kurz_h = kuerzung(lage) if kuerzung else (0.0, 0.0)
         anfang, ende = von + kurz_v, bis - kurz_h
         versatz = (QUADERLAENGE / 2) if lage % 2 else 0.0
@@ -266,7 +278,7 @@ def mauerwerk_boden(bereich, teile):
             ))
 
 
-def mauerwerk_decke(bereich, quer, teile, hoehe=None):
+def mauerwerk_decke(bereich, quer, teile, hoehe=None, basis_z=0.0):
     """
     Deckenbalken — Platten, die auf den Waenden aufliegen.
 
@@ -276,7 +288,7 @@ def mauerwerk_decke(bereich, quer, teile, hoehe=None):
     quer zur Laufrichtung — der Gang wirkt kuerzer statt endlos.
     """
     x_von, x_bis, y_von, y_bis = bereich
-    unterkante = (hoehe if hoehe is not None else HOEHE) - DECKENSTAERKE
+    unterkante = basis_z + (hoehe if hoehe is not None else HOEHE) - DECKENSTAERKE
     laengs = (y_von, y_bis) if quer == 'x' else (x_von, x_bis)
     reihen = max(1, int(round((laengs[1] - laengs[0]) / QUADERLAENGE)))
     schritt = (laengs[1] - laengs[0]) / reihen
@@ -723,6 +735,96 @@ def baue_kammer():
     }
 
 
+def baue_treppe():
+    """
+    Ein volles Stockwerk hoch — das erste Teil, das zwei Ebenen verbindet.
+
+    ── Die Zahlen ───────────────────────────────────────────────────
+    8 m Steigung (DUNGEON_EBENE_M, Begruendung dort) auf 12 m Lauf, in
+    20 Stufen: 0,40 m hoch bei 0,60 m Auftritt, also 33,7°. Steil genug
+    fuer eine Krypta, flach genug zum Gehen — und beide Endmasse sind
+    Rastervielfache.
+
+    ── Warum Stufe fuer Stufe gebaut wird ───────────────────────────
+    Naheliegend waere: eine schraege Flaeche, Stufen als Zierat darauf.
+    Das Gelaende hier ist aber KOLLISIONSGEOMETRIE — die Figur laeuft
+    auf dem, was gebaut ist. Eine Rampe mit aufgesetzten Stufen liefe
+    sich wie eine Rampe an, und man saehe sich durch die Stufen
+    hindurchgleiten.
+
+    Jede Stufe traegt deshalb ihr eigenes Stueck Wand und Decke. Die
+    lichte Hoehe bleibt dadurch ueber die ganze Laenge dieselbe wie im
+    Gang (HOEHE − DECKENSTAERKE), statt am unteren Ende in den Fels zu
+    laufen.
+    """
+    halbe_breite = BREITE / 2
+    innen_x = halbe_breite - WANDSTAERKE
+    stufen = int(round(STEIGUNG / STUFENHOEHE))
+    auftritt = TREPPENLAENGE / stufen
+    y0 = -TREPPENLAENGE / 2
+
+    teile = []
+    for i in range(1, stufen + 1):
+        # Tritt `i` liegt auf i * STUFENHOEHE und deckt den Abschnitt
+        # davor ab. Der Block reicht bewusst tiefer als eine Stufenhoehe
+        # (plus BODENSTAERKE) nach unten: So ueberlappt er den Tritt
+        # darunter, statt auf Kante zu stossen — eine Fuge in einer
+        # begehbaren Flaeche waere ein Spalt, durch den man sieht.
+        z_oben = i * STUFENHOEHE
+        y_von = y0 + (i - 1) * auftritt
+        dicke = STUFENHOEHE + BODENSTAERKE
+        teile.append(quader(
+            f'Tritt{i}',
+            (0, y_von + auftritt / 2, z_oben - dicke / 2),
+            (BREITE, auftritt, dicke),
+        ))
+
+        # Wandstuecke und Decke MIT der Stufe steigend.
+        z_wand = z_oben
+        teile.append(quader(
+            f'WandLinks{i}',
+            (-(halbe_breite - WANDSTAERKE / 2), y_von + auftritt / 2,
+             z_wand + (HOEHE - DECKENSTAERKE) / 2),
+            (WANDSTAERKE, auftritt, HOEHE - DECKENSTAERKE),
+        ))
+        teile.append(quader(
+            f'WandRechts{i}',
+            (halbe_breite - WANDSTAERKE / 2, y_von + auftritt / 2,
+             z_wand + (HOEHE - DECKENSTAERKE) / 2),
+            (WANDSTAERKE, auftritt, HOEHE - DECKENSTAERKE),
+        ))
+        teile.append(quader(
+            f'Decke{i}',
+            (0, y_von + auftritt / 2, z_wand + HOEHE - DECKENSTAERKE / 2),
+            (BREITE, auftritt, DECKENSTAERKE),
+        ))
+
+        # Behauene Quader auf beide Wandflaechen dieser Stufe. `lage_bis`
+        # begrenzt sie auf die lichte Hoehe — sonst mauerte die Schleife
+        # bis zur vollen Teilhoehe und die Steine staenden ueber der
+        # Decke im Freien.
+        lagen = max(1, int(round((HOEHE - DECKENSTAERKE) / LAGENHOEHE)))
+        y_bis = y_von + auftritt
+        mauerwerk_flaeche(f'TL{i}', 'x', -innen_x, +1, y_von, y_bis, teile,
+                          lage_bis=lagen, basis_z=z_wand)
+        mauerwerk_flaeche(f'TR{i}', 'x', +innen_x, -1, y_von, y_bis, teile,
+                          lage_bis=lagen, basis_z=z_wand)
+        mauerwerk_decke((-innen_x, innen_x, y_von, y_bis), 'x', teile,
+                        basis_z=z_wand)
+
+    return teile, {
+        'soll_x': BREITE,
+        'soll_y': TREPPENLAENGE,
+        'lichte_breite': 2 * (innen_x - VORSPRUNG),
+        'steigung': STEIGUNG,
+        'stufen': stufen,
+        'oeffnungen': (
+            f'y = {y0:+.3f} auf z = 0,000 und '
+            f'y = {TREPPENLAENGE / 2:+.3f} auf z = {STEIGUNG:.3f}'
+        ),
+    }
+
+
 def baue_abschluss():
     """
     Die zugemauerte Sackgasse — ein Abschluss, der nur verschliesst.
@@ -966,10 +1068,11 @@ def main():
 
     bauer = {'gang': baue_gang, 'ecke': baue_ecke, 'endkappe': baue_endkappe,
              'kreuzung': baue_kreuzung, 'tuer': baue_tuer,
-             'kammer': baue_kammer, 'abschluss': baue_abschluss}.get(TEIL)
+             'kammer': baue_kammer, 'abschluss': baue_abschluss,
+             'treppe': baue_treppe}.get(TEIL)
     if bauer is None:
         raise SystemExit(f'Unbekanntes Teil: {TEIL} (bekannt: gang, ecke, endkappe, '
-                         f'kreuzung, tuer, kammer, abschluss)')
+                         f'kreuzung, tuer, kammer, abschluss, treppe)')
 
     teile, angaben = bauer()
     obj = vereinen(teile, NAME)

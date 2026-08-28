@@ -177,7 +177,7 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
       Wer sich darauf verlässt, verlässt sich auf eine Liste, die vorher
       durchgemischt wird.
     */
-    generatorEinstellungen: { endcapsCollision: true, endcapsFallbackByPrio: true },
+    generatorEinstellungen: { endcapsCollision: true, endcapsFallbackByPrio: true, roomBodyFromFloor: true },
     interiorPosition: null,
     originalPosition: null,
     algorithm: ALGORITHMUS_DUNGEON,
@@ -282,6 +282,72 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
             allowDoor: true,
             doorOnlyIfOtherAlsoAllowsDoor: false,
             localPos: { x: 0, y: 0, z: 4 },
+            localRot: KEINE_DREHUNG,
+          },
+        ],
+      },
+      {
+        /*
+          Die Treppe — das erste Bauteil, das zwei Ebenen verbindet.
+
+          ── Warum 8 m und nicht 4 ────────────────────────────────────
+          Ausfuehrlich bei `DUNGEON_EBENE_M` in dungeonRaster.ts. Kurz:
+          Bei 4 m Stufenhoehe laegen die Bodenplatte des oberen Gangs
+          (3,64 … 4,00) und die Decke des unteren (3,60 … 4,00)
+          ineinander, und zwei deckungsgleiche, nach oben zeigende
+          Flaechen bei genau 4,00 ergaeben Z-Fighting auf einer
+          BEGEHBAREN Flaeche. 8 m lassen 3,64 m Fels dazwischen.
+
+          ── Warum 12 m lang ──────────────────────────────────────────
+          8 m Steigung auf 12 m Lauf sind 33,7° — steil genug fuer eine
+          Krypta, flach genug zum Gehen. Die Stufe misst damit rund
+          0,40 m hoch bei 0,60 m Auftritt. 16 m waeren bequemer (26,6°),
+          fuellen aber vier Rastereinheiten fuer einen Gang, in dem
+          nichts passiert.
+
+          ── Warum size.y 12 ist ──────────────────────────────────────
+          Der obere Ausgang liegt auf 8 m und braucht dort Kopfraum:
+          8 + 4 = 12. Genau das verlangt die Regel `ebenensprung-hoehe`
+          — sie ist die Gegenprobe dazu, dass die gelockerte
+          Hoehenregel kein Freibrief wird.
+
+          KEIN Eingangsraum und KEIN Abschluss: Eine Treppe, die im
+          Nichts beginnt, ist ein Loch im Boden.
+        */
+        name: 'SteingrabTreppe',
+        divider: false,
+        endCap: false,
+        endCapPrio: 0,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 4, y: 12, z: 12 },
+        theme: THEMA_KRYPTA,
+        // Seltener als ein Gang. Eine Krypta, in der jeder dritte Raum
+        // eine Treppe ist, liest sich als Treppenhaus.
+        weight: 0.4,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            // Unten. Zeigt nach draussen (−z), wie bei jedem Gang.
+            type: '',
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: -6 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            // Oben, ein volles Stockwerk hoeher. Der einzige Connector
+            // des Kits mit y != 0 — bis zum 28.08.2026 verbot die
+            // Rasterpruefung genau das.
+            type: '',
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 8, z: 6 },
             localRot: KEINE_DREHUNG,
           },
         ],

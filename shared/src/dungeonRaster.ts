@@ -58,6 +58,29 @@ export const DUNGEON_RASTER_M = 4;
 export const DUNGEON_MIN_HOEHE_M = 4;
 
 /**
+ * Höhenunterschied zwischen zwei Ebenen in Metern.
+ *
+ * ── Warum 8 und nicht 4 ──────────────────────────────────────────────
+ * 4 wäre das naheliegende Maß — eine Rastereinheit, und die Regelhöhe
+ * eines Gangs ist ebenfalls 4. Es geht trotzdem nicht, und zwar aus
+ * Zahlen, die in `tools/steingrab-erzeugen.py` stehen:
+ *
+ *   HOEHE         4,00  Bodenfläche bis Decken*ober*kante
+ *   DECKENSTAERKE 0,40  → Decke liegt auf 3,60 … 4,00
+ *   Bodenplatte   0,36  → hängt UNTER y = 0, also −0,36 … 0
+ *
+ * Bei 4 m Stufenhöhe läge die Bodenplatte des oberen Gangs auf
+ * 3,64 … 4,00 und die Decke des unteren auf 3,60 … 4,00: 0,36 m
+ * Durchdringung — und schlimmer, zwei deckungsgleiche, nach oben
+ * zeigende Flächen bei genau 4,00. Das ist Z-Fighting auf einer
+ * BEGEHBAREN Fläche, also genau dort, wo man hinsieht.
+ *
+ * 8 m sind zwei Rastereinheiten, lassen 3,64 m Fels zwischen den Ebenen
+ * und lesen sich als zwei Stockwerke statt als Empore.
+ */
+export const DUNGEON_EBENE_M = 8;
+
+/**
  * Toleranz für Fließkommavergleiche in Metern.
  *
  * Ein Blender-Export trifft die 0 nicht exakt — 1e-7 ist normal, 1 mm
@@ -78,7 +101,8 @@ export interface RasterBefund {
     | 'connector-drehung'
     | 'connector-auf-huellflaeche'
     | 'grundflaeche-raster'
-    | 'lichte-hoehe';
+    | 'lichte-hoehe'
+    | 'ebenensprung-hoehe';
   readonly text: string;
 }
 
@@ -142,12 +166,29 @@ export function pruefeConnector(
   const befunde: RasterBefund[] = [];
   const wo = `Connector ${index + 1}`;
 
-  if (!nahe(c.localPos.y, 0)) {
+  // ── Höhe: 0 oder ein ganzes Stockwerk ───────────────────────────
+  //
+  // Die Regel hiess bis zum 28.08.2026 schlicht „muss 0 sein", mit der
+  // Begründung, Räume würden sonst gegeneinander treppen. Das stimmte,
+  // solange es nur eine Ebene gab. Eine Treppe tut genau das absichtlich.
+  //
+  // Gelockert wird trotzdem nicht auf „beliebig": Ein versehentlich
+  // verschobener Connector ist unsichtbar, bis genug Teile da sind, dass
+  // man die Ursache in der falschen Ecke sucht — davor steht dieses
+  // Modul. Erlaubt sind deshalb nur ganze Vielfache von
+  // `DUNGEON_EBENE_M`, und die Zweitprüfung unten bindet den Sprung an
+  // etwas Nachprüfbares: Das Teil muss hoch genug sein, ihn zu
+  // enthalten. Ein `y: 8` an einem 4 m hohen Gang faellt damit weiter
+  // auf, obwohl 8 ein gueltiges Vielfaches ist.
+  const ebenen = c.localPos.y / DUNGEON_EBENE_M;
+  if (!nahe(ebenen, Math.round(ebenen))) {
     befunde.push({
       raum: raumName,
       schwere: 'fehler',
       regel: 'connector-hoehe',
-      text: `${wo} liegt auf y = ${c.localPos.y.toFixed(3)} statt auf 0 — Räume würden gegeneinander treppen.`,
+      text:
+        `${wo} liegt auf y = ${c.localPos.y.toFixed(3)} — erlaubt sind 0 oder ganze ` +
+        `Stockwerke (Vielfache von ${DUNGEON_EBENE_M} m). Dazwischen treppen Räume gegeneinander.`,
     });
   }
 
@@ -249,6 +290,35 @@ export function pruefeRaumRaster(raum: RoomDef, raster: number = DUNGEON_RASTER_
         `Lichte Höhe ${raum.size.y} m liegt unter ${DUNGEON_MIN_HOEHE_M} m. ` +
         `Die Figur ist 1,8 m hoch — darunter wirkt der Raum geduckt statt gewölbt.`,
     });
+  }
+
+  // ── Ein Ebenensprung muss ins Teil passen ───────────────────────
+  //
+  // Die Zweitprüfung zur gelockerten Höhenregel in `pruefeConnector`.
+  // Dort ist jedes ganze Vielfache von DUNGEON_EBENE_M erlaubt — hier
+  // muss das Teil den Sprung auch enthalten können.
+  //
+  // Ohne sie wäre die Lockerung ein Freibrief: Ein vertipptes `y: 8` an
+  // einem 4 m hohen Gang wäre ein gültiges Vielfaches und käme durch,
+  // und der Fehler zeigte sich erst als Loch in der Decke — an einem
+  // Bauteil, das nie eine Treppe sein wollte.
+  //
+  // Verlangt wird die HÜLLHÖHE über dem höchsten Connector plus der
+  // Mindesthöhe: Wer 8 m überwindet, braucht oben noch Kopfraum.
+  const hoechster = Math.max(0, ...raum.connections.map((c) => Math.abs(c.localPos.y)));
+  if (hoechster > 0) {
+    const noetig = hoechster + DUNGEON_MIN_HOEHE_M;
+    if (raum.size.y + RASTER_TOLERANZ_M < noetig) {
+      befunde.push({
+        raum: raum.name,
+        schwere: 'fehler',
+        regel: 'ebenensprung-hoehe',
+        text:
+          `Ein Connector liegt ${hoechster} m hoch, das Teil ist aber nur ${raum.size.y} m. ` +
+          `Nötig sind ${noetig} m (Sprung plus ${DUNGEON_MIN_HOEHE_M} m Kopfraum oben) — ` +
+          `so steht der Ausgang im Fels.`,
+      });
+    }
   }
 
   raum.connections.forEach((c, i) => {

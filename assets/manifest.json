@@ -1,7 +1,7 @@
 {
- "erzeugt": "2026-08-27T19:51:17.414Z",
+ "erzeugt": "2026-08-28T15:23:50.032Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 184,
+ "anzahl": 185,
  "modelle": {
   "Ampfer1": {
    "datei": "Ampfer1.glb",
@@ -3217,6 +3217,32 @@
    "hoehe": 4.3,
    "tiefe": 8,
    "dreiecke": 9768,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "SteingrabTreppe": {
+   "datei": "SteingrabTreppe.glb",
+   "foliage": false,
+   "bytes": 1068960,
+   "huelle": {
+    "min": [
+     -2,
+     -0.3,
+     -6
+    ],
+    "max": [
+     2,
+     12,
+     6
+    ]
+   },
+   "breite": 4,
+   "hoehe": 12.3,
+   "tiefe": 12,
+   "dreiecke": 18304,
    "materialien": 1,
    "bilder": 0,
    "animationen": [],

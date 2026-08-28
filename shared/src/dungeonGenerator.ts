@@ -64,6 +64,27 @@ export interface DungeonGeneratorSettings {
    * RNG, und die Ziehreihenfolge ist Teil des Vertrags.
    */
   endcapsFallbackByPrio: boolean;
+  /**
+   * Höhe der Überschneidungsprüfung ab der BODENFLÄCHE statt um `pos.y`.
+   *
+   * ── Der Befund, gemessen am 28.08.2026 ─────────────────────────────
+   * Die Vorlage prüft `pos.y ± size.y / 2`. Die Modelle haben ihren
+   * Ursprung aber auf dem BODEN (nachgemessen beim Export: z = −0,30 …
+   * +12,00 bei size.y = 12), nicht in der Mitte. Die geprüfte Box liegt
+   * damit um size.y / 2 zu tief.
+   *
+   * Solange alle Räume gleich hoch sind und auf einer Ebene stehen,
+   * fällt das nie auf — der Versatz ist bei allen gleich. Mit der
+   * Treppe fällt es sofort auf: 12 m hoch, gesetzt auf y = −8, prüft
+   * der Generator [−14, −2], während sie wirklich auf [−8, +4] steht.
+   * Er baute Gänge mitten durch ihr Obergeschoss. Über 40 Seeds:
+   * 5 Durchdringungen, alle an der Treppe.
+   *
+   * Vorgabe `false` — die 13 geparsten Fremdkits sollen sich weiter
+   * verhalten wie die Vorlage. Eigene Kits mit Ebenensprüngen schalten
+   * es über `generatorEinstellungen` ein.
+   */
+  roomBodyFromFloor: boolean;
   /** Place doors on eligible connections. */
   doorsEnabled: boolean;
 }
@@ -78,6 +99,7 @@ export const DEFAULT_GENERATOR_SETTINGS: DungeonGeneratorSettings = {
   endcapsInsetFrac: 0.5,
   endcapsCollision: false,
   endcapsFallbackByPrio: false,
+  roomBodyFromFloor: false,
   doorsEnabled: true,
 };
 
@@ -276,9 +298,15 @@ export function generateDungeonLayout(
     // End caps seal openings — by default they only check zone bounds.
     if (room.endCap && !settings.endcapsCollision) return false;
 
+    // Bezugspunkt statt Vergleichslogik — Begruendung an
+    // `roomBodyFromFloor`. `rectOverlapRect` bleibt unangetastet und
+    // damit die der Vorlage.
+    const alsMitte = (p: Vector3, sz: Vector3): Vector3 =>
+      settings.roomBodyFromFloor ? { x: p.x, y: p.y + sz.y / 2, z: p.z } : p;
+    const eigene = alsMitte(pos, size);
     for (const other of placedRooms) {
       const otherSize = rotatedSize(other.room, other.rot);
-      if (rectOverlapRect(size, pos, otherSize, other.pos)) return true;
+      if (rectOverlapRect(size, eigene, otherSize, alsMitte(other.pos, otherSize))) return true;
     }
     return false;
   }
@@ -783,22 +811,30 @@ function roomOverlapsLayout(
   room: RoomDef,
   pos: Vector3,
   rot: Quaternion,
-  inset: number
+  inset: number,
+  fromFloor: boolean
 ): boolean {
   if (room.size.x === 0 || room.size.z === 0) return false;
   const s = quatMulVec3(rot, room.size);
   const size = { x: Math.abs(s.x) - inset, y: s.y - inset, z: Math.abs(s.z) - inset };
+  // Statt die Vergleiche umzubauen, wandert der BEZUGSPUNKT: Liegt der
+  // Ursprung des Modells auf dem Boden, ist die Mitte um size.y / 2
+  // hoeher. Die sechs Zeilen darunter bleiben damit die der Vorlage.
+  const mitteY = (p: Vector3, sz: Vector3): number =>
+    fromFloor ? p.y + sz.y / 2 : p.y;
+  const yA = mitteY(pos, size);
   for (const placed of layout.rooms) {
     const other = roomsByName.get(placed.room);
     if (!other || other.size.x === 0 || other.size.z === 0) continue;
     const os = quatMulVec3(placed.rot, other.size);
     const otherSize = { x: Math.abs(os.x), y: os.y, z: Math.abs(os.z) };
+    const yB = mitteY(placed.pos, otherSize);
     const overlap = !(
       pos.x + size.x / 2 < placed.pos.x - otherSize.x / 2 ||
-      pos.y + size.y / 2 < placed.pos.y - otherSize.y / 2 ||
+      yA + size.y / 2 < yB - otherSize.y / 2 ||
       pos.z + size.z / 2 < placed.pos.z - otherSize.z / 2 ||
       pos.x - size.x / 2 > placed.pos.x + otherSize.x / 2 ||
-      pos.y - size.y / 2 > placed.pos.y + otherSize.y / 2 ||
+      yA - size.y / 2 > yB + otherSize.y / 2 ||
       pos.z - size.z / 2 > placed.pos.z + otherSize.z / 2
     );
     if (overlap) return true;
@@ -823,6 +859,11 @@ export function attachRoom(
   if (!def || !room) return { ok: false, reason: `Unbekannter Raum: ${roomName}` };
 
   const roomsByName = new Map(def.rooms.map((r) => [r.name, r]));
+  // Der Editor muss denselben Koerper pruefen wie der Generator, sonst
+  // laesst er von Hand zu, was jener ablehnt — und der Unterschied faellt
+  // erst im Spiel auf. Die Einstellung kommt deshalb aus dem KIT.
+  const fromFloor =
+    def.generatorEinstellungen?.roomBodyFromFloor ?? DEFAULT_GENERATOR_SETTINGS.roomBodyFromFloor;
   const matching = room.connections.filter((c) => c.type === open.type);
   if (matching.length === 0) {
     return { ok: false, reason: `Raum hat keinen Connector vom Typ '${open.type || 'Standard'}'` };
@@ -832,7 +873,10 @@ export function attachRoom(
   for (const conn of matching) {
     const outRot = quatMul(attachRot, quatInverse(conn.localRot));
     const outPos = vSub(open.pos, quatMulVec3(outRot, conn.localPos));
-    if (!room.endCap && roomOverlapsLayout(layout, roomsByName, room, outPos, outRot, 0.1)) {
+    if (
+      !room.endCap &&
+      roomOverlapsLayout(layout, roomsByName, room, outPos, outRot, 0.1, fromFloor)
+    ) {
       continue;
     }
     return {

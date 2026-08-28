@@ -1122,6 +1122,10 @@ export const EIGENE_MODELLE: readonly string[] = [
   'SteingrabAbschluss',
   'SteingrabKreuzung',
   'SteingrabKammer',
+  // Das einzige Teil des Kits, das zwei Ebenen verbindet: 8 m Steigung
+  // auf 12 m Lauf. Sein oberer Connector liegt auf y = 8 — bis zum
+  // 28.08.2026 verbot `dungeonRaster.ts` genau das.
+  'SteingrabTreppe',
   // Kein Raum, sondern der Tuertyp des Kits — Eintrag in HINT_DEFS oben.
   'SteingrabTuer',
   // Ebenfalls kein Raum: setzbare Deko aus `propTypes` des Kits.

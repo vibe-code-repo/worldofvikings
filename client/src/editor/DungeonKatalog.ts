@@ -6,12 +6,18 @@
  * Vorbild ist die Aufteilung von `RoutenEditor.ts`: Der Editor-Einstieg
  * verdrahtet, die Arbeit steht daneben.
  *
- * ── Was hier NICHT passiert ──────────────────────────────────────────
- * Gespeichert wird nicht. Der Betriebsdienst darf Dungeon-Dateien nicht
- * schreiben (Begründung in `DungeonDokument.ts`), und der Weg über den
- * Spielserver ist die nächste Etappe. Der Knopf „Prüfen" sagt deshalb nur,
- * ob das Ergebnis den Sanitizer überstünde — das ist genau die Frage, die
- * man vor dem Speichern beantwortet haben will.
+ * ── Zwei Richtungen, zwei Wege ───────────────────────────────────────
+ * GELESEN wird über den Betriebsdienst, GESCHRIEBEN über den Spielserver.
+ * Das ist kein Versehen: Der Betriebsdienst darf Dungeon-Dateien nicht
+ * schreiben, weil der laufende Spielserver sie nicht bemerken würde
+ * (Begründung in `DungeonDokument.ts`); der Spielserver wiederum muss zum
+ * Lesen nicht laufen. Jede Richtung nimmt den Weg, der ohne Überraschung
+ * funktioniert.
+ *
+ * „Prüfen" bleibt daneben stehen, obwohl es Speichern gibt: Es beantwortet
+ * dieselbe Frage OHNE Server und ohne Nebenwirkung — überlebt das
+ * Dokument den Sanitizer? Das will man wissen, bevor man einen offenen
+ * Spielclient dafür abmeldet.
  */
 import {
   DUNGEONS_BY_NAME,
@@ -20,6 +26,7 @@ import {
 } from '@wov/shared';
 import type { DungeonGrundriss } from './DungeonGrundriss';
 import { DungeonLadeFehler, holeDungeon, holeDungeonListe, type DungeonKopf } from './DungeonDokument';
+import { speichereDungeon } from './DungeonSpeichern';
 
 export interface DungeonSeiteRueckrufe {
   meldung(text: string, fehler?: boolean): void;
@@ -76,6 +83,16 @@ export class DungeonSeite {
   private koepfe: DungeonKopf[] = [];
   private instanz = '?';
   private ladend = false;
+  /**
+   * Steht etwas Ungespeichertes an?
+   *
+   * Nicht aus dem Dokument ableitbar: Der Editor hat keinen Vergleichsstand
+   * vom Server im Speicher, und ein Tiefenvergleich wuerde beim naechsten
+   * Feld im Schema still falsch. Gesetzt wird die Marke dort, wo wirklich
+   * etwas geaendert wurde — Anfuegen und Entfernen.
+   */
+  private schmutzig = false;
+  private speichertGerade = false;
 
   constructor(
     private readonly behaelter: HTMLElement,
@@ -175,15 +192,38 @@ export class DungeonSeite {
       b.appendChild(ew);
     }
 
+    const speichernKnopf = knopf(
+      this.speichertGerade ? 'Speichert …' : this.schmutzig ? 'Speichern *' : 'Speichern',
+      () => void this.speichere(doc)
+    );
+    if (this.speichertGerade) {
+      speichernKnopf.disabled = true;
+      speichernKnopf.style.opacity = '.5';
+    }
     b.appendChild(
       zeile(
         knopf('Einpassen', () => {
           this.grundriss.passeEin();
           this.grundriss.zeichne();
         }),
-        knopf('Prüfen', () => this.pruefe(doc))
+        knopf('Prüfen', () => this.pruefe(doc)),
+        speichernKnopf
       )
     );
+    if (this.schmutzig) {
+      const warnung = document.createElement('div');
+      warnung.style.cssText = 'font-size:11px;color:#c8a24a;line-height:1.5';
+      // Der Satz stand hier zuerst andersherum: „ein offener Spielclient
+      // wird abgemeldet". Das war gemessen richtig — der Server nimmt den
+      // Namen aus dem Konto, beide Verbindungen tragen ihn, und die
+      // aeltere wurde abgeloest. Statt das dem Benutzer zu erklaeren,
+      // wurde es abgestellt (`Peer.nurEditor`), und der Satz sagt jetzt
+      // die neue Wahrheit. Bewacht von server/test/g9-editor-verbindung.ts.
+      warnung.textContent =
+        'Ungespeichert. Speichern verbindet sich kurz mit dem Spielserver; ein offener ' +
+        'Spielclient bleibt dabei verbunden.';
+      b.appendChild(warnung);
+    }
 
     // ── Gewählter Raum ────────────────────────────────────────────────
     const i = this.grundriss.gewaehlterRaum;
@@ -198,7 +238,9 @@ export class DungeonSeite {
       b.appendChild(
         zeile(
           knopf('Raum entfernen', () => {
-            if (this.grundriss.entferne(i)) this.cb.meldung(`Raum #${i} entfernt (ungespeichert)`);
+            if (!this.grundriss.entferne(i)) return;
+            this.schmutzig = true;
+            this.cb.meldung(`Raum #${i} entfernt (ungespeichert)`);
           })
         )
       );
@@ -242,7 +284,7 @@ export class DungeonSeite {
       zeile(
         knopf('Anfügen', () => {
           if (offene.length === 0) return;
-          this.grundriss.fuegeAn(Number(cw.value), rw.value);
+          if (this.grundriss.fuegeAn(Number(cw.value), rw.value)) this.schmutzig = true;
         })
       )
     );
@@ -251,8 +293,35 @@ export class DungeonSeite {
     fuss.style.cssText = 'font-size:11px;color:#8a7350;line-height:1.5';
     fuss.textContent =
       'Angefügt wird mit denselben Funktionen wie im Spiel (attachRoom, removeRoom). ' +
-      'Speichern kommt in der nächsten Etappe — bis dahin bleiben Änderungen im Browser.';
+      'Gelesen wird über den Betriebsdienst, geschrieben über den Spielserver — der muss ' +
+      'zum Speichern laufen, zum Ansehen nicht.';
     b.appendChild(fuss);
+  }
+
+  /**
+   * Zum Spielserver schicken und die Antwort uebernehmen.
+   *
+   * Uebernommen wird das Dokument, das der SERVER zurueckgibt, nicht das
+   * gesendete: Der Sanitizer dort ist die letzte Instanz, und was er
+   * geaendert hat, soll man im Grundriss sehen und nicht erst beim
+   * naechsten Oeffnen.
+   */
+  private async speichere(doc: DungeonDocument): Promise<void> {
+    if (this.speichertGerade) return;
+    this.speichertGerade = true;
+    this.baue();
+    this.cb.meldung(`${doc.id} wird gespeichert …`);
+    const ergebnis = await speichereDungeon(doc);
+    this.speichertGerade = false;
+    if (ergebnis.ok) {
+      this.schmutzig = false;
+      if (ergebnis.doc) this.grundriss.setzeDokument(ergebnis.doc);
+      // Die Liste traegt Raum- und Dekozahlen im Text; nach dem Speichern
+      // stimmen sie sonst nicht mehr mit dem ueberein, was danebensteht.
+      void this.laden();
+    }
+    this.cb.meldung(ergebnis.meldung, !ergebnis.ok);
+    this.baue();
   }
 
   private async oeffne(id: string): Promise<void> {
@@ -260,6 +329,11 @@ export class DungeonSeite {
     try {
       const doc = await holeDungeon(id);
       this.grundriss.setzeDokument(doc);
+      // Frisch vom Server geholt heisst: nichts steht mehr an. Ohne diese
+      // Zeile schleppt die Marke sich ueber einen Dokumentwechsel hinweg
+      // und behauptet Aenderungen an einem Dungeon, den man gerade erst
+      // geoeffnet hat.
+      this.schmutzig = false;
       this.cb.meldung(
         `${doc.id} geladen: ${doc.layout.rooms.length} Räume, ${doc.layout.doors.length} Türen`
       );

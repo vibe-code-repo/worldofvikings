@@ -56,10 +56,25 @@ screenshots/
 # ("dungeon create"/"dungeon regen") oder beim ersten Betreten -- Massenware,
 # bleibt ignoriert. Ebenso entrances.json: reine Laufzeit-Zuordnung, faul befuellt,
 # eine frische Welt bucht ueber 1000 Eingaenge -- Ausnahme unten betrifft sie nicht.
+#
+# ── Warum hier NAMEN stehen und kein Muster ─────────────────────────
+# Die Unterscheidung haengt an einem Feld IM Dokument ("mode"), und das
+# kann git nicht lesen. Ein "!*.json" nach dem Ausschluss holte auch die
+# Wegwerf-Dungeons aus `dungeon create` herein — vier liegen allein in
+# dieser Instanz. Also wird jeder von Hand gebaute Dungeon einzeln
+# freigeschaltet; das ist eine Zeile je Autorenarbeit und macht beim
+# Hinzufuegen bewusst, dass hier gerade etwas Unwiederbringliches
+# entsteht.
 server/data/dungeons/*
 !server/data/dungeons/dev/
 server/data/dungeons/dev/*
 !server/data/dungeons/dev/forestcrypt-1092.json
+# 27.08.: erstes Kit-Dungeon aus DG_Steingrab, acht Raeume und neun von
+# Hand gesetzte Wandfackeln. "mode" steht auf "generated", weil es aus
+# Seed 10 entstanden ist — die DEKO ist es aber nicht: Sie steckt in
+# `layout.props` und waere bei einer Neuerzeugung weg. Autorenarbeit
+# haengt also nicht am Feld "mode" allein.
+!server/data/dungeons/dev/steingrab-7.json
 
 # Review-Punkt 30: Build-Artefakte, Rip-Werkzeug, Sicherungen
 tsc-log.txt

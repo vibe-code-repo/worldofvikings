@@ -49,6 +49,8 @@ import {
 } from '@wov/shared';
 import { setzeKartenMasse, type MapWorkerMessage } from '../ui/worldmap/mapTypes';
 import { EditorShell } from './Shell';
+import { DungeonGrundriss } from './DungeonGrundriss';
+import { DungeonSeite } from './DungeonKatalog';
 import { befundSchwere } from './befundSchwere';
 import {
   alter,
@@ -418,6 +420,13 @@ const pruefSeite = shell.sektion('Prüfbericht');
  */
 const weltSeite = shell.sektion('Welt');
 
+/**
+ * Seitenleiste der Dungeon-Betriebsart. Eigene Sektion aus demselben Grund
+ * wie `weltSeite`: `seiteBauen()` leert nur `seite`, nicht diese hier —
+ * und der Dungeon-Bereich hat mit den Weltwerkzeugen keine Zeile gemeinsam.
+ */
+const dungeonSeiteBehaelter = shell.sektion('Dungeons');
+
 const vorschau = document.createElement('canvas');
 vorschau.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
 flaeche.appendChild(vorschau);
@@ -425,6 +434,28 @@ flaeche.appendChild(vorschau);
 const overlay = document.createElement('canvas');
 overlay.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;';
 flaeche.appendChild(overlay);
+
+/**
+ * Grundriss-Ansicht der Betriebsart „Dungeons".
+ *
+ * Eigene Zeichenfläche NEBEN den beiden Karten-Canvas, nicht statt ihnen:
+ * Ein Dungeon-Grundriss hat mit der Weltkarte keine Koordinaten gemeinsam,
+ * und ein gemeinsamer Canvas hiesse, in jedem Zeichenschritt zu fragen,
+ * welche Welt gerade gemeint ist. Umgeschaltet wird über `display`.
+ */
+const dungeonGrundriss = new DungeonGrundriss(flaeche, {
+  meldung: (text, fehler) => shell.meldung(text, fehler),
+  // Die Seite zeichnet sich neu, wenn der Grundriss die Auswahl aendert.
+  // Der Umweg ueber die Funktion ist noetig, weil `dungeonSeite` erst eine
+  // Zeile spaeter entsteht — sie braucht den Grundriss.
+  auswahlGeaendert: () => dungeonSeite.baue(),
+});
+
+/** Seitenleiste dieser Betriebsart — s. `DungeonKatalog.ts`. */
+const dungeonSeite = new DungeonSeite(dungeonSeiteBehaelter, dungeonGrundriss, {
+  meldung: (text, fehler) => shell.meldung(text, fehler),
+});
+dungeonSeite.baue();
 
 // ── Schwebende Bedienflächen über der Karte (KartenHud.ts) ────────────
 // NACH den beiden Zeichenflächen eingehängt: Die Reihenfolge im DOM
@@ -1179,7 +1210,7 @@ let suchFokus = false;
  * Werkzeug. „Testflug" ist deshalb auch keine Betriebsart, die stehen
  * bleibt, sondern eine Handlung (s. `testflug()`).
  */
-type SeitenBetriebsart = 'terrain' | 'gewaesser' | 'objekte' | 'biome' | 'routen';
+type SeitenBetriebsart = 'terrain' | 'gewaesser' | 'objekte' | 'biome' | 'routen' | 'dungeons';
 let betriebsart: SeitenBetriebsart = 'terrain';
 const KOPF_JE_BETRIEBSART: Record<SeitenBetriebsart, readonly [string, string]> = {
   terrain: [
@@ -1201,6 +1232,10 @@ const KOPF_JE_BETRIEBSART: Record<SeitenBetriebsart, readonly [string, string]> 
   routen: [
     'Routen',
     'NPC-Routen liegen im Weltdokument. Der Karteneditor hat für sie noch keinen eigenen Bereich.',
+  ],
+  dungeons: [
+    'Dungeons',
+    'Grundriss von oben. Klick wählt einen Raum, Rad zoomt, Ziehen verschiebt.',
   ],
 };
 
@@ -2514,10 +2549,49 @@ function kartenMassBauen(): void {
  * einem anderen Fenster statt — hier ändert sich nichts.
  */
 {
+  /**
+   * Karte und Grundriss schliessen einander aus.
+   *
+   * Sichtbar gemacht wird ueber `display`, nicht durch Abbauen: Der
+   * Grundriss behaelt so seinen Massstab und seine Mitte, und wer zwischen
+   * Welt und Dungeon hin und her schaltet, findet den Ausschnitt wieder,
+   * den er verlassen hat.
+   *
+   * Die Seitenleiste zieht mit: `seite` und `weltSeite` gehoeren zur
+   * Weltbearbeitung und haetten im Dungeon keine einzige gueltige Zeile.
+   */
+  const zeigeDungeonBetrieb = (an: boolean): void => {
+    vorschau.style.display = an ? 'none' : 'block';
+    overlay.style.display = an ? 'none' : 'block';
+    dungeonGrundriss.zeige(an);
+    // Verborgen wird die ganze Seitenleiste bis auf EINE Sektion, statt
+    // die Weltsektionen einzeln aufzuzaehlen.
+    //
+    // Der erste Versuch zaehlte `seite` und `weltSeite` auf — und liess
+    // „Pruefbericht" und „Landflaeche" im Dungeon stehen, wo sie ueber
+    // Inseln und Ueberlappungen der WELT sprachen. Eine Aufzaehlung ist
+    // hier grundsaetzlich falsch: Die naechste Sektion, die jemand
+    // hinzufuegt, taucht wieder auf, und niemand denkt beim Anlegen einer
+    // Weltsektion an die Dungeon-Betriebsart.
+    //
+    // `sektion()` gibt den INHALT zurueck; der Block samt Kopfzeile ist
+    // dessen Elternteil — sonst bliebe eine Ueberschrift ohne Inhalt.
+    const meinBlock = dungeonSeiteBehaelter.parentElement;
+    for (const kind of [...(meinBlock?.parentElement?.children ?? [])]) {
+      (kind as HTMLElement).style.display = (kind === meinBlock) === an ? '' : 'none';
+    }
+    // Der Fuss der Leiste steht ausserhalb der Sektionen und traegt
+    // „Region hinzufuegen" samt Papierkorb. Beide handeln von Inseln der
+    // Weltkarte; im Dungeon setzte der Knopf ein Werkzeug scharf, das auf
+    // eine Karte zielt, die gerade gar nicht zu sehen ist.
+    shell.seitenfuss.style.display = an ? 'none' : '';
+  };
+
   const stelleEin = (id: SeitenBetriebsart, filter: FilterId, w?: WerkzeugId): void => {
     betriebsart = id;
     filterMarke = filter;
     if (w) werkzeug = w;
+    zeigeDungeonBetrieb(id === 'dungeons');
     // Die Spalte faerbt sich NICHT von selbst um: `shell.betriebsart()`
     // meldet den Klick nur, damit ein abgelehnter Wechsel die Leiste nicht
     // schon umgestellt hat, bevor er scheitert (Kommentar dort). Hier wird
@@ -2540,12 +2614,22 @@ function kartenMassBauen(): void {
         'noch keinen eigenen Bereich.'
     );
   });
+  shell.betriebsart('dungeons', 'Dungeons', PFAD.dungeons, () => {
+    stelleEin('dungeons', 'alle');
+    // Beim ERSTEN Oeffnen die Liste holen. Danach nicht mehr von selbst:
+    // Wer zwischen Welt und Dungeon hin und her schaltet, will nicht bei
+    // jedem Wechsel auf den Betriebsdienst warten — „Liste neu" steht als
+    // Knopf daneben.
+    void dungeonSeite.laden();
+  });
   shell.betriebsart('flug', 'Testflug', PFAD.flug, () => {
     testflug();
     shell.setzeBetriebsart(betriebsart);
   });
   shell.setzeBetriebsart(betriebsart);
   seitenkopfSetzen();
+  // Startzustand: Welt sichtbar, Dungeon-Bereich verborgen.
+  zeigeDungeonBetrieb(false);
 
   // Fuß der Symbolspalte. Der Entwurf zeigt hier zwei Sinnbilder; das
   // zweite (Zahnrad) hat im Editor kein Gegenstück und bleibt weg.

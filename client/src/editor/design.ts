@@ -220,6 +220,10 @@ export const PFAD = {
   objekte: 'M12 3l8 5v8l-8 5-8-5V8zM4 8l8 5 8-5M12 13v10',
   biome: 'M4 20h16M12 4v16M12 8l5-3M12 13l-5-3',
   routen: 'M5 19a3 3 0 1 0 0-6c5 0 8-2 8-5a3 3 0 1 1 6 0',
+  // Grundriss: ein Rechteck mit zwei Kammern und einem Durchgang —
+  // das, was die Betriebsart zeigt, und nicht ein Totenkopf, der von
+  // Gegnern spraeche, die es dort nicht gibt.
+  dungeons: 'M3 4h8v7H3z M13 4h8v7h-8z M3 13h18v7H3z M11 7.5h2',
   // Zeichenwerkzeuge der Seitenleiste
   inselForm: 'M4 16l4-5 3 3 3-4 6 6z',
   polygon: 'M6 4l14 5-4 11-9-2z',

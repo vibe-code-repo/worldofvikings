@@ -378,6 +378,112 @@ try {
   rmSync(WELT_DATEI);
   const ohneDatei = await anfrage({ port, pfad: '/api/worldlayout' });
   check('fehlende Weltdatei → 404', ohneDatei.code === 404, `= ${ohneDatei.code}`);
+
+  // 10) Dungeon-Dokumente lesen.
+  //
+  // Diese Endpunkte machen aus einem Teil des Pfades einen DATEINAMEN —
+  // die einzige Stelle im Dienst, an der das passiert. Der Riegel dagegen
+  // ist eine einzige Zeile (`/^[a-z0-9-]{1,64}$/`), und eine einzige Zeile
+  // faellt beim Umbau lautlos weg. Deshalb steht sie hier.
+  const ohneOrdner = await anfrage({ port, pfad: '/api/dungeons' });
+  check(
+    'ohne Dungeon-Ordner → 200 mit leerer Liste',
+    ohneOrdner.code === 200 && Array.isArray(ohneOrdner.daten.dungeons) &&
+      (ohneOrdner.daten.dungeons as unknown[]).length === 0,
+    `= ${ohneOrdner.code} ${ohneOrdner.text.slice(0, 80)}`
+  );
+
+  const DUNGEONS = resolve(ORDNER, 'server/data/dungeons/dev');
+  mkdirSync(DUNGEONS, { recursive: true });
+  // Ein Dokument, das der Sanitizer durchlaesst, und eines, das er nicht
+  // durchlaesst. Beide muessen in der Liste zum richtigen Ergebnis fuehren:
+  // das gute gezaehlt, das kaputte gemeldet statt den ganzen Aufruf zu
+  // versenken.
+  writeFileSync(
+    resolve(DUNGEONS, 'probe-1.json'),
+    JSON.stringify({
+      version: 2,
+      id: 'probe-1',
+      name: 'Probe',
+      base: 'DG_Steingrab',
+      mode: 'generated',
+      seed: 7,
+      zoneSize: 64,
+      layout: { rooms: [{ room: 'SteingrabGang', pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, seed: 1 }], doors: [], props: [] },
+    })
+  );
+  writeFileSync(resolve(DUNGEONS, 'kaputt.json'), '{ das ist kein JSON');
+
+  const liste = await anfrage({ port, pfad: '/api/dungeons' });
+  const eintraege = (liste.daten.dungeons ?? []) as { id: string }[];
+  check(
+    'Liste zaehlt das gute Dokument',
+    liste.code === 200 && eintraege.length === 1 && eintraege[0]?.id === 'probe-1',
+    `= ${liste.code} ${liste.text.slice(0, 120)}`
+  );
+  check(
+    'unlesbares Dokument versenkt die Liste nicht, sondern wird gemeldet',
+    String(liste.daten.message ?? '').includes('kaputt.json'),
+    `message = ${String(liste.daten.message)}`
+  );
+
+  const einzeln = await anfrage({ port, pfad: '/api/dungeons/probe-1' });
+  check('einzelnes Dokument → 200', einzeln.code === 200, `= ${einzeln.code}`);
+  const fehlend = await anfrage({ port, pfad: '/api/dungeons/gibtesnicht' });
+  check('unbekannte ID → 404', fehlend.code === 404, `= ${fehlend.code}`);
+  const unbrauchbar = await anfrage({ port, pfad: '/api/dungeons/kaputt' });
+  check('unbrauchbares Dokument → 422', unbrauchbar.code === 422, `= ${unbrauchbar.code}`);
+
+  // Der eigentliche Punkt: Aus der ID darf kein Pfad werden.
+  //
+  // ── Warum hier auf 400 geprueft wird und nicht auf „nicht 200" ──────
+  // Die erste Fassung fragte `code !== 200`. Sie war gruen — auch mit
+  // AUSGEBAUTEM Riegel, nachgemessen. Der Ausbruch scheiterte naemlich
+  // gar nicht an der Sperre, sondern daran, dass `/etc/passwd.json` nicht
+  // existiert: 404 statt 200, Haken dran, nichts geprueft. Ein Test, der
+  // ohne die Zusicherung genauso gruen ist, misst nichts.
+  //
+  // 400 ist die Antwort, die NUR der Riegel gibt. Faellt er weg, kommt
+  // 404 oder 422, und diese Zeilen schlagen an.
+  for (const boese of [
+    '/api/dungeons/..%2F..%2F..%2Fetc%2Fpasswd',
+    '/api/dungeons/%2e%2e%2fdev',
+    '/api/dungeons/probe-1%00.txt',
+    '/api/dungeons/PROBE-1',
+  ]) {
+    const weg = await anfrage({ port, pfad: boese });
+    check(`Riegel weist ${boese.slice(15)} ab`, weg.code === 400, `= ${weg.code}`);
+  }
+  // Diese Form kommt gar nicht erst an: node normalisiert sie im Pfad,
+  // und die Weiche sieht /api/welten/dev. Mitgeprueft, weil ein spaeterer
+  // Umbau der Weiche sie wieder durchreichen koennte.
+  const normalisiert = await anfrage({ port, pfad: '/api/dungeons/../welten/dev' });
+  check('vom Kern normalisierter Pfad → 404', normalisiert.code === 404, `= ${normalisiert.code}`);
+
+  // Eine LESBARE Datei ausserhalb des Dungeon-Ordners.
+  //
+  // Ehrlichkeitshalber: Ohne den Riegel kaeme man an sie heute TROTZDEM
+  // nicht heran. `new URL(...).pathname` (Zeile ~837 in main.ts) loest
+  // `../` auf und dekodiert `%2F` NICHT — aus der ID wuerde ein
+  // Dateiname mit literalem „%2F" darin, den es nicht gibt. Nachgemessen,
+  // nicht angenommen.
+  //
+  // Der Riegel ist damit die zweite Reihe, und diese Pruefung bewacht
+  // genau das: dass die zweite Reihe steht, falls die erste faellt — ein
+  // `decodeURIComponent` beim naechsten Umbau, eine andere Weiche, ein
+  // Wechsel des HTTP-Kerns. Keine dieser Aenderungen sieht wie eine
+  // Sicherheitsaenderung aus, und genau deshalb faellt der Ausfall sonst
+  // niemandem auf.
+  writeFileSync(
+    resolve(ORDNER, 'server/data/geheim.json'),
+    readFileSync(resolve(DUNGEONS, 'probe-1.json'), 'utf-8')
+  );
+  const ausbruch = await anfrage({ port, pfad: '/api/dungeons/..%2Fgeheim' });
+  check(
+    'lesbare Datei ausserhalb des Ordners bleibt unerreichbar',
+    ausbruch.code === 400,
+    `= ${ausbruch.code} ${ausbruch.text.slice(0, 80)}`
+  );
 } finally {
   kind.kill('SIGTERM');
   rmSync(ORDNER, { recursive: true, force: true });

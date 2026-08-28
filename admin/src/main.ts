@@ -71,6 +71,12 @@ import {
   layoutLesen,
   layoutSchreiben,
 } from '@wov/shared/src/worldlayout/layoutDatei.js';
+// Dungeon-Dokumente werden hier NUR gelesen, aber durch dieselbe Pruefung
+// geschickt wie beim Server. Der Editor soll sehen, was auch der
+// Spielserver sieht — ein Rohtext koennte Raeume enthalten, die dort
+// stillschweigend wegfallen, und dann zeichnete der Grundriss etwas, das
+// es im Spiel nicht gibt.
+import { sanitizeDungeonDocument } from '@wov/shared/src/dungeons.js';
 // G12: Betriebsmetriken -- admin/ MISST nichts selbst (eigener Prozess,
 // kein Zugriff auf den Spielserver-Zustand), sondern liest nur die Datei,
 // die der Spielserver einmal je Sekunde schreibt, und formatiert sie mit
@@ -92,6 +98,11 @@ const INSTANZ = instanzName();
 const SERVER_YML = resolve(WURZEL, 'server/data/server.yml');
 const LAYOUT_DATEI = weltDatei(WURZEL, INSTANZ);
 const WELTEN_ORDNER = resolve(WURZEL, 'server/data/worlds');
+// Je Instanz ein eigener Unterordner — dieselbe Ableitung wie im
+// Spielserver (`DungeonManager`, resolve(worldsDir, '..', 'dungeons',
+// worldName)). Zwei Wege zu einem Ordner waeren zwei Gelegenheiten,
+// beim naechsten Umbau auseinanderzulaufen.
+const DUNGEON_ORDNER = resolve(WELTEN_ORDNER, '..', 'dungeons', INSTANZ);
 const NGINX_SITE = '/etc/nginx/sites-available/wov';
 // G12: derselbe Pfad, den WovServer.schreibeMetriken() befuellt
 // (server/src/main.ts setzt ServerConfig.metrikenDatei genauso).
@@ -593,6 +604,100 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
       },
     };
   }
+  // ── Dungeon-Dokumente (nur lesen) ──
+  //
+  // Der Karteneditor zeichnet Grundrisse daraus. GESCHRIEBEN wird hier
+  // nichts: Der Betriebsdienst ist ein anderer Prozess als der
+  // Spielserver, und eine Datei, die er anlegt, kennt dessen `documents`
+  // im Arbeitsspeicher nicht. Speichern laeuft deshalb ueber den
+  // Spielserver-Socket (`DungeonEditSave`), der sanitisiert, persistiert
+  // und die Instanz gleich neu aufbaut.
+  if (pfad === '/api/dungeons' && methode === 'GET') {
+    if (!existsSync(DUNGEON_ORDNER)) {
+      // Kein Ordner heisst „noch keiner gebaut" und ist kein Fehler —
+      // anders als eine fehlende Weltdatei, ohne die der Server nicht
+      // startet. Eine leere Liste ist die ehrliche Antwort.
+      return {
+        code: 200,
+        daten: { ok: true, message: `Keine Dungeons (Instanz ${INSTANZ})`, instanz: INSTANZ, dungeons: [] },
+      };
+    }
+    const liste: unknown[] = [];
+    const kaputt: string[] = [];
+    for (const datei of readdirSync(DUNGEON_ORDNER)) {
+      if (!datei.endsWith('.json') || datei === 'entrances.json') continue;
+      try {
+        const roh = JSON.parse(readFileSync(resolve(DUNGEON_ORDNER, datei), 'utf-8'));
+        const doc = sanitizeDungeonDocument(roh);
+        if (!doc) {
+          kaputt.push(datei);
+          continue;
+        }
+        // Nur der Kopf, nicht das Layout: Ein Dokument mit 50 Raeumen ist
+        // schnell 20 kB, und die Liste dient dem Auswaehlen. Das Layout
+        // holt der Editor beim Oeffnen einzeln.
+        liste.push({
+          id: doc.id,
+          name: doc.name,
+          base: doc.base,
+          mode: doc.mode,
+          seed: doc.seed,
+          raeume: doc.layout.rooms.length,
+          tueren: doc.layout.doors.length,
+          deko: doc.layout.props.length,
+        });
+      } catch {
+        kaputt.push(datei);
+      }
+    }
+    liste.sort((a, b) => String((a as { id: string }).id).localeCompare(String((b as { id: string }).id)));
+    return {
+      code: 200,
+      daten: {
+        ok: true,
+        message:
+          `${liste.length} Dungeon(s) in Instanz ${INSTANZ}` +
+          (kaputt.length ? `, ${kaputt.length} unlesbar (${kaputt.join(', ')})` : ''),
+        instanz: INSTANZ,
+        dungeons: liste,
+      },
+    };
+  }
+  if (pfad.startsWith('/api/dungeons/') && methode === 'GET') {
+    const id = pfad.slice('/api/dungeons/'.length);
+    // Kein Pfad, sondern eine Kennung: Alles ausser Kleinbuchstaben,
+    // Ziffern und Bindestrich fliegt raus, BEVOR daraus ein Dateiname
+    // wird. Ohne diese Zeile waere `../../etc/passwd` eine gueltige
+    // Dungeon-ID.
+    if (!/^[a-z0-9-]{1,64}$/.test(id)) {
+      return { code: 400, daten: { ok: false, fehler: 'Ungueltige Dungeon-ID', message: 'Ungueltige Dungeon-ID' } };
+    }
+    const datei = resolve(DUNGEON_ORDNER, `${id}.json`);
+    if (!existsSync(datei)) {
+      const fehlt = `Dungeon ${id} nicht gefunden (Instanz ${INSTANZ})`;
+      return { code: 404, daten: { ok: false, fehler: fehlt, message: fehlt } };
+    }
+    let doc: ReturnType<typeof sanitizeDungeonDocument> = null;
+    try {
+      doc = sanitizeDungeonDocument(JSON.parse(readFileSync(datei, 'utf-8')));
+    } catch {
+      doc = null;
+    }
+    if (!doc) {
+      const kaputt = `${id}.json ist unbrauchbar (Basis, ID oder Raeume ungueltig)`;
+      return { code: 422, daten: { ok: false, fehler: kaputt, message: kaputt } };
+    }
+    return {
+      code: 200,
+      daten: {
+        ok: true,
+        message: `${doc.id}: ${doc.layout.rooms.length} Raum/Raeume, ${doc.layout.doors.length} Tuer(en), ${doc.layout.props.length} Deko`,
+        instanz: INSTANZ,
+        dungeon: doc,
+      },
+    };
+  }
+
   if (pfad === '/api/worldlayout' && methode === 'POST') {
     // Gepruefte wird mit sanitizeWorldLayout, der STRENGEN Pruefung —
     // die Vite-Konfig konnte @wov/shared nicht laden und musste sich mit

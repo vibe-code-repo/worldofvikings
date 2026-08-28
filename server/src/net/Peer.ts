@@ -92,6 +92,16 @@ export class Peer {
 
   /** Whether this peer has completed authentication */
   authenticated: boolean;
+  /**
+   * Verbindung, die nur Editor-Pakete schickt und die Welt NICHT betritt.
+   *
+   * Gesetzt aus dem Handshake (angehaengtes Feld in PasswordAuth). Ein
+   * solcher Peer bekommt keinen Charakter, kein Inventar, kein Terrain und
+   * keinen Platz in der Namensvergabe — er ist zum Speichern da und wieder
+   * weg. Rechte gibt die Marke keine: Der Admin-Riegel vor den
+   * Editor-Paketen bleibt `isAdmin`.
+   */
+  nurEditor = false;
 
   /** Whether this peer is an admin */
   isAdmin: boolean;

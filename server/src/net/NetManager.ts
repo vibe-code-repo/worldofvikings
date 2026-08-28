@@ -306,6 +306,12 @@ export class NetManager {
     const antwort = reader.readString();
     let playerName = reader.readString();
     const sessionToken = reader.readString();
+    // ANGEHAENGTES Feld: Wer es nicht schickt, meint `false` — aeltere und
+    // neuere Leser kommen sich so nicht in die Quere (dasselbe Muster wie
+    // bei PlayerState). Es steht bewusst NACH der Token-Pruefung im
+    // Ablauf: Eine Verbindung, die sich als Editor ausgibt, muss dieselbe
+    // Anmeldung bestehen wie jede andere.
+    const nurEditor = reader.remaining() > 0 ? reader.readBool() : false;
 
     // F4 (Security-Review): Nonce ist EINMALIG und wird HIER verbraucht,
     // unabhaengig vom Ausgang — ein zweiter PasswordAuth-Versuch (egal ob
@@ -376,7 +382,17 @@ export class NetManager {
     // session token proved that above. So drop the stale connection rather
     // than refuse the new one. A DIFFERENT player claiming a taken name is
     // still refused, exactly as before.
-    const namensgleich = this.onlinePeers.find((p) => p.name === playerName);
+    // Eine Editor-Verbindung nimmt keinen Namen in Anspruch: Sie steht
+    // nicht in der Welt, es kann sie also auch niemand doppelt sehen.
+    //
+    // Das ist nicht nur Ordnung, sondern der Punkt: Der Name kommt aus dem
+    // Konto (s. oben), zwei Verbindungen derselben Kennung tragen also
+    // denselben — und ohne diese Ausnahme loeste ein Klick auf
+    // „Speichern" im Karteneditor den offenen Spielclient ab. Genau die
+    // Schleife, fuer die der Editor gebaut ist.
+    const namensgleich = nurEditor
+      ? undefined
+      : this.onlinePeers.find((p) => p.name === playerName);
     if (namensgleich) {
       if (namensgleich.spielerId === spielerId) {
         namensgleich.disconnect('Von einer neuen Verbindung abgelöst');
@@ -392,6 +408,7 @@ export class NetManager {
     }
 
     (peer as { name: string }).name = playerName;
+    peer.nurEditor = nurEditor;
     peer.spielerId = spielerId;
     peer.userId = altlastUserId;
     peer.authenticated = true;

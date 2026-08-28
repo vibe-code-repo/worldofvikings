@@ -1302,6 +1302,24 @@ export class WovServer {
   // ── Peer lifecycle ─────────────────────────────────────────────
 
   private onPeerAuthenticated(peer: Peer): void {
+    // Editor-Verbindungen betreten die Welt NICHT.
+    //
+    // Gemessen am 28.08.2026, bevor es diesen Zweig gab: Jeder Klick auf
+    // „Speichern" im Karteneditor legte einen Charakter „Editor" an —
+    // Charakter-ZDO, Startausruestung, 12,3 KB Terraforming, ein
+    // 15k-ZDO-Scan fuers Baubudget — und meldete ihn eine Sekunde spaeter
+    // wieder ab. Ein Phantom-Wikinger je Speichervorgang, sichtbar fuer
+    // alle anderen.
+    //
+    // Was so ein Peer noch kann, steht unveraendert: Er ist
+    // authentifiziert, `isAdmin` gilt wie fuer jeden anderen, und die
+    // Editor-Pakete gehen ihren Weg. Er bekommt nur nichts von der Welt —
+    // und die Welt nichts von ihm.
+    if (peer.nurEditor) {
+      console.log(`[WoV] Editor-Verbindung "${peer.name}" (betritt die Welt nicht)`);
+      return;
+    }
+
     // D6: world info first — the client builds its GeoManager from this
     // and swaps the placeholder terrain for the real world (D3).
     peer.sendPacketWith(PacketType.ServerConfig, (w) => {
@@ -1447,6 +1465,16 @@ export class WovServer {
   }
 
   private onPeerQuit(peer: Peer): void {
+    // Gegenstueck zum Zweig in onPeerAuthenticated — und hier waere das
+    // Vergessen TEUER gewesen: `savedPlayers` ist ueber die spielerId
+    // geschluesselt, und eine Editor-Verbindung mit Mikes Sitzungstoken
+    // traegt Mikes spielerId. Ohne diese Zeilen ueberschriebe jedes
+    // Speichern im Karteneditor seinen gemerkten Standort, sein Fliegen
+    // und seinen Spawnpunkt mit dem Nichts einer Verbindung, die nie in
+    // der Welt war. Kein Fehler, keine Meldung — man stuende beim
+    // naechsten Anmelden woanders.
+    if (peer.nurEditor) return;
+
     // Phase G: quitting inside a dungeon counts as leaving it — the saved
     // position is the overworld return point, never the instance band.
     if (peer.dungeonId) {

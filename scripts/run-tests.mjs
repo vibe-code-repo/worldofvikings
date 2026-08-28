@@ -318,6 +318,7 @@ const KERN = [
   // Etappe 5: von Hand gesetzte Deko ueberlebt Abriss und Neustart.
   // Kein Socket, kein Server — reine Dokument- und Instanzpruefung, Sekunden.
   ['server', 'test/g8-dungeon-deko.ts'],
+  ['server', 'test/g9-editor-verbindung.ts'],
   // Licht-Hints kommen an der Registry an. Ein Prefab ohne `light` ist
   // nicht kaputt, es ist dunkel — und dunkel faellt nirgends auf.
   ['shared', 'test/licht-hints.ts'],

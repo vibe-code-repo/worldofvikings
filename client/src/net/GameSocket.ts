@@ -194,10 +194,18 @@ export class GameSocket {
   onConnected: (() => void) | null = null;
   onDisconnected: ((reason?: string) => void) | null = null;
   private disconnectReason = '';
+  private readonly nurEditor: boolean = false;
 
-  constructor(url: string, playerName: string) {
+  /**
+   * @param nurEditor Verbindung, die nur Editor-Pakete schickt und die Welt
+   *   nicht betritt (Karteneditor, `DungeonSpeichern.ts`). Der Server legt
+   *   dafuer keinen Charakter an und nimmt den Namen nicht in die
+   *   Namensvergabe auf — ein offener Spielclient bleibt also verbunden.
+   */
+  constructor(url: string, playerName: string, nurEditor = false) {
     this.url = url;
     this.playerName = playerName;
+    this.nurEditor = nurEditor;
   }
 
   connect(password = ''): void {
@@ -257,6 +265,10 @@ export class GameSocket {
             // (nie anhand eines frei gewählten Feldes), welche Identität
             // dieser Peer bekommt.
             w.writeString(localStorage.getItem(SESSION_TOKEN_KEY) ?? '');
+            // ANGEHAENGT, nicht eingeschoben: Ein Server, der das Feld noch
+            // nicht kennt, liest die drei Zeichenketten davor unveraendert
+            // und ignoriert den Rest.
+            w.writeBool(this.nurEditor);
             this.sendPacket(PacketType.PasswordAuth, w.toUint8Array());
             this.connected = true;
             this.startePing();

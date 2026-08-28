@@ -132,6 +132,7 @@ const KERN = [
   // must pass it to the game, where every loading-screen string is selected
   // from one complete locale object. Pure source/data assertions, no DOM.
   ['client', 'test/loading-language.ts'],
+  ['client', 'test/spielhost.ts'],
   ['client', 'test/menu-i18n.ts'],
   // F6 (Roadmap): seq-Verwerfungsregel für Client-Vorhersage-
   // Reconciliation (client/src/net/Eingabeverwerfung.ts) — reine

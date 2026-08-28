@@ -79,6 +79,31 @@ function zeile(...teile: (HTMLElement | string)[]): HTMLDivElement {
   return d;
 }
 
+/**
+ * Auf welchem Host läuft das SPIEL, wenn der Editor auf diesem hier läuft?
+ *
+ * ── Der Fehler, den diese Funktion behebt ────────────────────────────
+ * Die erste Fassung STRICH ein führendes `editor.`. Das ergab aus
+ * `editor.dev.world-of-vikings.com` den Host `dev.world-of-vikings.com`
+ * — und der antwortet gar nicht. Nachgemessen am 28.08.2026:
+ *
+ *   dev.world-of-vikings.com              keine Antwort
+ *   play.dev.world-of-vikings.com         200   ← das Spiel
+ *   editor.dev.world-of-vikings.com       302   ← der Editor
+ *
+ * Der Editor heisst also nicht `editor.<Spielhost>`, sondern beide
+ * tragen ein eigenes Präfix vor demselben Rest. Ersetzt wird deshalb,
+ * nicht gestrichen.
+ *
+ * ── Und warum das hier eine Funktion ist ─────────────────────────────
+ * Weil sie sich prüfen lässt. Als Ausdruck mitten im Klick-Handler war
+ * sie es nicht, und der Fehler fiel erst auf, als jemand darauf klickte.
+ * `mess/spielhost.ts` fährt sie gegen alle drei echten Namen.
+ */
+export function spielHost(host: string): string {
+  return host.startsWith('editor.') ? `play.${host.slice('editor.'.length)}` : host;
+}
+
 export class DungeonSeite {
   private koepfe: DungeonKopf[] = [];
   private instanz = '?';
@@ -313,11 +338,9 @@ export class DungeonSeite {
    * deploy/npm-play-dev.conf), gleicher Ursprung, ein relativer Verweis
    * genuegt — und er behaelt nebenbei automatisch dev bzw. live.
    *
-   * Auf live gibt es zwei Namen auf demselben nginx, und nur einer davon
-   * traegt die Sitzung. Deshalb faellt ein fuehrendes `editor.` weg. Nur
-   * dieses eine Praefix, und nur am Anfang: Alles Weitere waere Raten an
-   * einer Adresse, und eine falsch geratene fuehrt auf eine
-   * Anmeldeseite statt in den Dungeon.
+   * Sonst uebersetzt `spielHost()` den Editor-Namen in den Spielnamen.
+   * Die erste Fassung riet dabei falsch und schickte auf einen Host, den
+   * es nicht gibt — die Begruendung steht dort, samt gemessener Tabelle.
    */
   private betrete(doc: DungeonDocument): void {
     if (this.schmutzig) {
@@ -327,7 +350,7 @@ export class DungeonSeite {
       this.cb.meldung('Erst speichern — betreten zeigt den gespeicherten Stand.', true);
       return;
     }
-    const host = location.host.startsWith('editor.') ? location.host.slice(7) : location.host;
+    const host = spielHost(location.host);
     const ziel = `${location.protocol}//${host}/?dungeon=${encodeURIComponent(doc.id)}`;
 
     // ── Ohne Anmeldung geht die Dungeon-Wahl unterwegs verloren ──────

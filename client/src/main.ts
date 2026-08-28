@@ -147,6 +147,34 @@ const INPUT_SEND_RATE_MS = 50; // 20 Hz like the old client / original
  */
 const INNENRAUM_OHNE_GRAS = /^(Grabhuegel)/i;
 
+/**
+ * Dasselbe Muster, das der Betriebsdienst benutzt, bevor er aus einer
+ * Dungeon-ID einen Dateinamen macht. Der Wert geht hier zwar nur in eine
+ * Befehlszeile, aber ein Adressparameter ist Fremdeingabe, und die Zeile
+ * wird serverseitig zerlegt.
+ */
+const DUNGEON_ID_MUSTER = /^[a-z0-9-]{1,64}$/;
+/**
+ * Hinterlegter Dungeon-Wunsch, der eine Anmeldung überdauert.
+ *
+ * ── Warum diese drei auf MODULEBENE stehen ──────────────────────────
+ * Sie werden an zwei Stellen gebraucht, die in verschiedenen Funktionen
+ * liegen: an der Anmeldeweiche (der Wunsch wird hinterlegt) und beim
+ * Start der Welt (er wird eingelöst). Der erste Versuch legte sie neben
+ * die zweite Stelle — der Typecheck schwieg, weil es eben zwei Funktionen
+ * sind, und zur Laufzeit hätte die Anmeldeweiche einen ReferenceError
+ * geworfen. Genau dieselbe Falle wie beim hochgezogenen `world` weiter
+ * unten.
+ */
+const DUNGEON_WUNSCH_SCHLUESSEL = 'wov-dungeon-wunsch';
+/**
+ * Wie lange so ein Wunsch gilt. Großzügig genug für eine Anmeldung samt
+ * Passwortsuche, kurz genug, dass er nicht in die nächste Sitzung
+ * hineinreicht — sonst führe man Tage später beim normalen Spielen
+ * unvermittelt in einen Dungeon, den man einmal im Editor angeklickt hat.
+ */
+const DUNGEON_WUNSCH_FRIST_MS = 10 * 60 * 1000;
+
 // ServerConfig packet flag bits (D6) — same order server-side (WovServer.ts)
 const FLAG_BLEND_SMOOTHSTEP = 1 << 0;
 const FLAG_BILINEAR_HEIGHT = 1 << 1;
@@ -408,6 +436,34 @@ async function main() {
   // Online play is account-only. The former anonymous `?go=1` route and
   // the in-game login/character picker were removed as one unit.
   if (!offlineMode && !accountSessionPresent) {
+    // `?dungeon=` würde hier verloren gehen.
+    //
+    // Die Anmeldeadresse trägt kein Rückziel — sie kennt nur `shore` und
+    // `abgelaufen`. Wer aus dem Karteneditor auf „Betreten" klickt und
+    // hier noch keine Sitzung hat, landet nach dem Anmelden also in der
+    // WELT statt im Dungeon, wortlos. Genau das ist am 28.08.2026
+    // passiert.
+    //
+    // Hinterlegt statt an die Adresse gehängt: Nach dem Anmelden schickt
+    // die Webseite auf genau diesen Ursprung zurück
+    // (wov-web/src/lib/account.ts, `dev: play.dev.world-of-vikings.com`).
+    // Der localStorage von eben ist dann derselbe — die Webseite muss
+    // dafür nichts wissen und nichts weiterreichen.
+    // Direkt aus der Adresse, nicht aus einer Variablen von weiter
+    // unten: Diese Weiche liegt in einer ANDEREN Funktion als das
+    // Einlösen, und ein Vorgriff wäre hier ein ReferenceError.
+    const wunsch = ausAdresse.get('dungeon') ?? '';
+    if (DUNGEON_ID_MUSTER.test(wunsch)) {
+      try {
+        localStorage.setItem(
+          DUNGEON_WUNSCH_SCHLUESSEL,
+          JSON.stringify({ id: wunsch, um: Date.now() })
+        );
+      } catch {
+        // Privater Modus: kein Speicher. Dann geht der Wunsch verloren
+        // wie bisher — das ist kein Grund, die Anmeldung zu verweigern.
+      }
+    }
     window.location.replace(websiteLoginUrl());
     return;
   }
@@ -568,8 +624,29 @@ async function main() {
    * kaputter Knopf.
    */
   const dungeonWunsch = (() => {
-    const roh = params.get('dungeon') ?? '';
-    return /^[a-z0-9-]{1,64}$/.test(roh) ? roh : null;
+    const ausAdresse = params.get('dungeon') ?? '';
+    if (DUNGEON_ID_MUSTER.test(ausAdresse)) return ausAdresse;
+
+    // Kein Parameter — liegt einer von vor der Anmeldung bereit?
+    //
+    // VERBRAUCHT beim Lesen, und mit Verfallsdatum. Ohne beides führe
+    // man Tage später beim normalen Spielen unvermittelt in einen
+    // Dungeon, den man einmal im Editor angeklickt hat.
+    let roh = '';
+    try {
+      roh = localStorage.getItem(DUNGEON_WUNSCH_SCHLUESSEL) ?? '';
+      if (roh) localStorage.removeItem(DUNGEON_WUNSCH_SCHLUESSEL);
+    } catch {
+      return null;
+    }
+    if (!roh) return null;
+    try {
+      const w = JSON.parse(roh) as { id?: unknown; um?: unknown };
+      const frisch = typeof w.um === 'number' && Date.now() - w.um < DUNGEON_WUNSCH_FRIST_MS;
+      return typeof w.id === 'string' && DUNGEON_ID_MUSTER.test(w.id) && frisch ? w.id : null;
+    } catch {
+      return null;
+    }
   })();
   /**
    * Schon gesprungen?
@@ -1812,15 +1889,31 @@ async function main() {
 
     // Health/Stamina vom Server (Kampf-Basis).
     socket.on(PacketType.PlayerState, (reader) => {
-      // Der Sprung haengt am ERSTEN PlayerState und nicht an
-      // `socket.onConnected`.
+      // Der Sprung wartet, bis die WELT FERTIG GELADEN ist.
       //
-      // `onConnected` feuert, sobald der Client die Anmeldung ABGESCHICKT
-      // hat — der Server hat da noch nichts beantwortet, es gibt weder
-      // Rechte noch Charakter. Das erste PlayerState dagegen schickt der
-      // Server in onPeerAuthenticated, nach dem Spawn. Ab da gibt es
-      // jemanden, den man teleportieren kann.
-      if (dungeonWunsch && !dungeonSprungGetan) {
+      // ── Der Fehler, den das behebt ──────────────────────────────────
+      // Zuerst hing er am ersten PlayerState — der kommt aus
+      // `onPeerAuthenticated`, also eine Sekunde nach dem Anmelden und
+      // damit MITTEN im Aufbau der Oberwelt. Der Teleport nimmt dem
+      // Ladebildschirm dann genau das Gelände weg, auf dessen
+      // Fertigstellung er wartet: `LoadingScreen.update()` blendet
+      // ausschliesslich auf `terrain.ready` aus, und in einer
+      // Dungeon-Instanz gibt es kein Gelände (`LeereGeo`) — es entstehen
+      // dort keine Chunks mehr, `ready` wird nie wahr, der Vorhang hebt
+      // sich nie.
+      //
+      // Am 28.08.2026 sah das so aus: `imDungeon: true`, 19 richtige
+      // Instanzen ringsum, 9 brennende Fackeln, kein einziger Fehler in
+      // der Konsole — und darüber „The world awakens… / Building the
+      // terrain" bei 0 %. Alles funktionierte, man sah es nur nicht.
+      //
+      // Von Hand (Taste E, Admin-Befehl) trat der Fehler nie auf: Da ist
+      // der Ladebildschirm längst weg und `update()` kehrt sofort zurück.
+      //
+      // `PlayerState` kommt fortlaufend, nicht nur einmal — die Marke
+      // bleibt also ungesetzt, bis die Bedingung stimmt, und das
+      // naechste Paket loest aus.
+      if (dungeonWunsch && !dungeonSprungGetan && terrain?.ready) {
         dungeonSprungGetan = true;
         hud.meldung(`Betrete ${dungeonWunsch} …`);
         socket?.sendAdminCommand(`dungeon enter ${dungeonWunsch}`);

@@ -108,10 +108,32 @@ const SPRUNG_SPERRE = 0.15;
 const FALL_SCHWELLE = 4;
 
 // ── Physics body (C# Character: Rigidbody + CapsuleCollider) ─────────
-/** Capsule radius — a Viking is about 0.4 m wide at the shoulders. */
-const BODY_RADIUS = 0.4;
-/** Capsule height, matching EYE_HEIGHT plus a bit of head. */
-const BODY_HEIGHT = 1.8;
+/**
+ * Capsule radius — a Viking is about 0.4 m wide at the shoulders.
+ * Kapselradius. EXPORTIERT, weil ein Testlaeufer die Figur nachbauen muss und
+ * eine abgeschriebene Zahl still auseinanderlaufen wuerde.
+ * EXPORTED because a test runner has to rebuild the figure, and a copied number
+ * would silently drift apart.
+ */
+export const BODY_RADIUS = 0.4;
+/** Capsule height, matching EYE_HEIGHT plus a bit of head. / Kapselhoehe. */
+export const BODY_HEIGHT = 1.8;
+/**
+ * Steigungsgrenze in Grad: darueber rutscht die Figur ab (Babylons Vorgabe
+ * waeren 60). Ebenfalls exportiert — eine Treppe, die steiler ist als dieser
+ * Wert, ist unbegehbar, und genau das muss ein Test messen koennen.
+ * Slope limit in degrees; steeper and the figure slides. Also exported — a
+ * staircase steeper than this value is unwalkable, and a test must be able to
+ * measure exactly that.
+ */
+export const STEIGUNGS_GRENZE_GRAD = 40;
+/**
+ * Beschleunigung des Charaktercontrollers. Babylons Vorgabe (0,05) ist so
+ * traege, dass die Figur an einer Steigung gar nicht erst in Fahrt kommt.
+ * Character controller acceleration; Babylon's default (0.05) is so sluggish
+ * the figure never gets going on a slope.
+ */
+export const FIGUR_BESCHLEUNIGUNG = 8;
 /**
  * Endgeschwindigkeit im freien Fall (m/s). Begrenzt, damit die Kapsel bei
  * einem Bildraten-Einbruch nicht in einem einzigen Frame durch das
@@ -404,10 +426,10 @@ export class PlayerController {
     // der Charakter kommt gar nicht erst in Fahrt: gemessen 1,1 m in 4 s an
     // einem 37-%-Hang statt der vollen 18 m. Das Vorbild beschleunigt praktisch
     // sofort, deshalb hier ein Vielfaches davon.
-    this.controller.acceleration = 8;
+    this.controller.acceleration = FIGUR_BESCHLEUNIGUNG;
     // Steigungsgrenze wie im Vorbild: etwa 40° sind noch begehbar, steiler
     // rutscht man ab (Babylon-Vorgabe wären 60°).
-    this.controller.maxSlopeCosine = Math.cos((40 * Math.PI) / 180);
+    this.controller.maxSlopeCosine = Math.cos((STEIGUNGS_GRENZE_GRAD * Math.PI) / 180);
   }
 
   /**

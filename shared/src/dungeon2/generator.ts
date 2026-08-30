@@ -258,47 +258,55 @@ const MAX_TYP_VERSUCHE = 4;
 const MAX_AUFFUELLUNGEN = 4000;
 
 /**
- * Anstieg EINER Treppenzelle in Hoehenstufen. Eine Ebene ist
- * `EBENE_IN_HOEHEN_SCHRITTEN` = 16 Stufen hoch; zwei Laeufe zu 8 Stufen (4 m)
- * ueber je eine 4-m-Zelle ergeben 45 Grad. Ein einziger Lauf muesste 8 m auf
- * 4 m schaffen (63 Grad) — das ist keine Treppe mehr, sondern eine Leiter, und
- * drei Laeufe teilten 16 nicht ganzzahlig.
- * Rise of ONE stair cell in height steps. A storey is
- * `EBENE_IN_HOEHEN_SCHRITTEN` = 16 steps tall; two runs of 8 steps (4 m) across
- * one 4 m cell each make 45 degrees. A single run would have to climb 8 m over
- * 4 m (63 degrees) — that is a ladder, not a staircase, and three runs would
- * not divide 16 evenly.
+ * Anstieg der Treppenlaeufe in Hoehenstufen, von unten nach oben. Summe =
+ * `EBENE_IN_HOEHEN_SCHRITTEN` (16), je Lauf EINE Zelle (4 m) waagerecht.
+ *
+ * WARUM DREI UNGLEICHE LAEUFE UND NICHT ZWEI GLEICHE? Zwei Laeufe zu 8 Stufen
+ * ergeben 4 m Anstieg auf 4 m Lauf — genau 45 Grad. Die Spielfigur kommt dort
+ * NICHT hinauf: `PlayerController` setzt `maxSlopeCosine` auf
+ * `STEIGUNGS_GRENZE_GRAD` = 40 Grad, und Havoks Charaktercontroller laesst eine
+ * steilere Flaeche nicht als Boden gelten. Gemessen am 2026-08-30
+ * (`client/test/dungeon2-laeufer.ts`, Seed 2, Lauf (-7,-4,E0)):
+ *
+ *   Steigungsgrenze 40 Grad -> hoechste Fusshoehe 6,00 m (Start 6,00 m)
+ *   Steigungsgrenze 45 Grad -> hoechste Fusshoehe 6,00 m
+ *   Steigungsgrenze 46 Grad -> hoechste Fusshoehe 7,62 m
+ *
+ * Die Kapsel bewegte sich also KEINEN Zentimeter aufwaerts, solange die Grenze
+ * unter dem Rampenwinkel lag. Der Fehler hatte keine Zaehlung gegen sich: die
+ * Treppe stand, sah richtig aus, war regelkonform — und war unbegehbar.
+ *
+ * 16 teilt sich nicht durch 3, also sind die Laeufe ungleich: 6 + 5 + 5. Das
+ * ergibt 36,9 / 32,0 / 32,0 Grad, alle unter der Grenze. Gleich lange Laeufe
+ * waeren huebscher, aber es gibt sie bei 16 Stufen und drei Laeufen nicht, und
+ * eine Ebenenhoehe zu aendern hiesse das eingefrorene Format zu aendern.
+ * Rise of the stair runs in height steps, bottom to top; the sum is one storey,
+ * one cell (4 m) of horizontal run each. WHY THREE UNEQUAL RUNS AND NOT TWO
+ * EQUAL ONES? Two runs of 8 steps are exactly 45 degrees, and the player figure
+ * does NOT get up there: `PlayerController` sets `maxSlopeCosine` to 40 degrees
+ * and Havok's character controller refuses a steeper face as ground. Measured on
+ * 2026-08-30: at a 40 and at a 45 degree limit the capsule moved up not one
+ * centimetre; at 46 degrees it climbed. 16 does not divide by 3, so the runs are
+ * unequal: 6 + 5 + 5, i.e. 36.9 / 32.0 / 32.0 degrees.
  */
-const TREPPE_ANSTIEG_STUFEN = EBENE_IN_HOEHEN_SCHRITTEN / 2;
+const TREPPE_ANSTIEGE: readonly number[] = [6, 5, 5];
+/** Bodenhoehe je Lauf, aufsummiert. / Floor height per run, accumulated. */
+const TREPPE_BODEN: readonly number[] = TREPPE_ANSTIEGE.reduce<number[]>(
+  (liste, anstieg) => [...liste, liste[liste.length - 1]! + anstieg],
+  [0]
+).slice(0, TREPPE_ANSTIEGE.length);
 /**
- * Kopfraum ueber der OBERSTEN Stufe des UNTEREN Laufs, in Hoehenstufen
- * (6 = 3 m). Die Zahl ist die groesste, die passt, keine gewaehlte, und die
- * bindende Schranke ist NICHT die Regel `ebenen-abstand`:
- *
- *   Anstieg (8) + Kopfraum + `DECKE_DICKE_STUFEN` (2) <= 16
- *
- * `ebenen-abstand` vergleicht `boden + decke` mit der Sohle darueber und laesst
- * damit die DICKE der Deckenplatte aus. Bei Kopfraum 7 bliebe die Regel gruen,
- * die Deckenplatte des unteren Laufs stuende aber einen halben Meter ueber der
- * Sohle der Ebene darueber und legte sich quer in die Tuer eines Raums, der
- * dort spaeter waechst. Der Fehler hatte kein Symptom in der Pruefung, nur
- * einen im Gang: `client/test/dungeon2-bauer.ts` meldete einen „Haenger".
- * Headroom above the TOPMOST step of the LOWER run, in height steps (6 = 3 m).
- * The largest that fits, not a chosen number, and the binding bound is NOT the
- * `ebenen-abstand` rule: rise (8) + headroom + `DECKE_DICKE_STUFEN` (2) <= 16.
- * That rule compares `boden + decke` against the sole above and thereby omits
- * the ceiling slab's THICKNESS. At headroom 7 the rule would stay green while
- * the lower run's ceiling slab stood half a metre above the storey sole and lay
- * across the doorway of a room growing there later. The fault had no symptom in
- * validation, only one in the walk.
- * Der OBERE Lauf braucht die Konstante nicht: ueber ihm steht die
- * Schachtmuendung, `hatDeckenPlatte()` laesst dort die Platte weg und
- * `obenStufen()` zieht seine lichte Saeule bis zu deren Sohle durch.
- * The UPPER run does not need the constant: the shaft mouth stands above it,
- * `hatDeckenPlatte()` omits the slab there and `obenStufen()` runs its clear
- * column up to that sole.
+ * Deckenunterkante ALLER Laeufe: die Ebenensohle. Ueber jedem Lauf steht eine
+ * Schachtzelle, also gibt es dort gar keine Deckenplatte — `obenStufen()` zieht
+ * die lichte Saeule ohnehin bis zur Schachtsohle. Der Wert sorgt nur dafuer,
+ * dass `Zelle.decke` nicht DARUEBER hinausreicht: sonst waere die Saeule des
+ * Laufs hoeher als die Sohle, und die Wand der Schachtzelle stuende mitten
+ * darin (`dungeon2-builder.ts` (G)).
+ * Ceiling underside of ALL runs: the storey sole. A shaft cell stands above every
+ * run, so there is no ceiling slab at all. The value only keeps `Zelle.decke`
+ * from reaching BEYOND the sole.
  */
-const TREPPE_KOPFRAUM_STUFEN = 6;
+const TREPPE_DECKE_STUFEN = EBENE_IN_HOEHEN_SCHRITTEN;
 
 /**
  * P0..P10 in einem Durchlauf. Lang, aber am Stueck lesbar — die Phasengrenzen
@@ -364,28 +372,9 @@ export function erzeugeLayoutMitBericht(
   let naechsteId = 0;
   let auffuellungen = 0;
 
-  /**
-   * Zellen, die frei BLEIBEN muessen, ohne selbst zu existieren. Bisher nur die
-   * Zelle ueber dem UNTEREN Treppenlauf: dort passt kein Stockwerk hin, weil
-   * der Lauf 8 Stufen steigt und darueber noch Kopfraum, Deckenplatte, ein
-   * Fels-Abstand und die Bodenplatte des Stockwerks Platz brauchen — zusammen
-   * mehr als die 16 Stufen einer Ebene. Wuchs dort ein Raum, blieben dem
-   * Treppenlauf 1,5 m lichte Hoehe: die Kapsel (1,8 m) kommt nicht durch, und
-   * `lichte-hoehe` sieht es nicht, weil `Zelle.decke` an der TIEFEN Laufkante
-   * gemessen wird.
-   * Cells that must STAY free without existing themselves. So far only the cell
-   * above the LOWER stair run: no storey fits there, because the run climbs 8
-   * steps and above it headroom, ceiling slab, a rock gap and the floor slab of
-   * the storey above all need room — together more than the 16 steps of one
-   * storey. With a room grown there the run kept 1.5 m of clear height: the
-   * capsule (1.8 m) does not fit, and `lichte-hoehe` does not see it because
-   * `Zelle.decke` is measured at the run's LOW edge.
-   */
-  const gesperrt = new Set<string>();
 
   const frei = (x: number, z: number, ebene: number): boolean =>
     !belegung.has(schluesselZelle(x, z, ebene)) &&
-    !gesperrt.has(schluesselZelle(x, z, ebene)) &&
     x >= grenzen.minX &&
     x <= grenzen.maxX &&
     z >= grenzen.minZ &&
@@ -624,12 +613,25 @@ export function erzeugeLayoutMitBericht(
     z: number,
     ebene: number,
     neigung: Kante,
-    boden: number
+    boden: number,
+    decke: number
   ): void => {
     const e = korrekturEintrag(x, z, ebene);
     e.art = ZELLEN_ART.Treppe;
     e.neigung = neigung;
     e.boden = boden;
+    // Die lichte Hoehe kommt als KORREKTUR, nicht als Stempelhoehe: der oberste
+    // Lauf endet an der Ebenensohle und ist damit nur 5 Stufen hoch, waehrend
+    // die Dokumentregel `stempel-lichte` von jedem Stempel `MIN_LICHTE_STUFEN`
+    // verlangt. Sie darf das auch — ein Stempel kennt keinen Schacht. Dass die
+    // Saeule dieses Laufs durch die Muendung weiterlaeuft, weiss erst das
+    // Gitter, und dort prueft `lichte-hoehe` (validation.ts) genau das.
+    // The clear height arrives as a FIX, not as a stamp height: the topmost run
+    // ends at the storey sole and is thus only 5 steps tall, while the document
+    // rule `stempel-lichte` demands `MIN_LICHTE_STUFEN` of every stamp. It may:
+    // a stamp knows nothing of a shaft. That this run's column continues through
+    // the mouth is known only to the grid, and there `lichte-hoehe` checks it.
+    e.decke = decke;
   };
   /**
    * Erzwingt einen Durchgang an einer Kante. Innerhalb eines Treppenlaufs
@@ -743,14 +745,27 @@ export function erzeugeLayoutMitBericht(
       // the shaft mouth the upper run emerges into. The check runs over ALL
       // three — this is exactly where the old generator slipped.
       if (a.ebene + 1 > grenzen.maxEbene) return false;
-      if (belegung.size + 3 > ziel[1]) return false;
-      const m = nachbarZelle(n.x, n.z, a.kante);
-      if (!rechteckFrei(n.x, n.z, a.ebene, 1, 1)) return false;
-      if (!rechteckFrei(m.x, m.z, a.ebene, 1, 1)) return false;
-      if (!rechteckFrei(m.x, m.z, a.ebene + 1, 1, 1)) return false;
-      // Ueber dem UNTEREN Lauf muss es frei sein UND frei bleiben (`gesperrt`).
-      // Above the LOWER run it must be free AND stay free (`gesperrt`).
-      if (!frei(n.x, n.z, a.ebene + 1)) return false;
+      if (belegung.size + 2 * TREPPE_ANSTIEGE.length > ziel[1]) return false;
+      // Die Zellen der Laeufe, in Anstiegsrichtung hintereinander. Der letzte
+      // traegt die Muendung ueber sich.
+      // The run cells, one behind the other along the ascent. The last one
+      // carries the mouth above it.
+      const laufZellen: { x: number; z: number }[] = [{ x: n.x, z: n.z }];
+      while (laufZellen.length < TREPPE_ANSTIEGE.length) {
+        const vor = laufZellen[laufZellen.length - 1]!;
+        laufZellen.push(nachbarZelle(vor.x, vor.z, a.kante));
+      }
+      const m = laufZellen[laufZellen.length - 1]!;
+      for (const c of laufZellen) {
+        if (!rechteckFrei(c.x, c.z, a.ebene, 1, 1)) return false;
+      }
+      // Ueber JEDEM Lauf muss die Zelle der Ebene darueber frei sein: das
+      // Treppenhaus IST ein Schacht und belegt sie selbst.
+      // Above EVERY run the cell of the storey above must be free: the stairwell
+      // IS a shaft and occupies it itself.
+      for (const c of laufZellen) {
+        if (!rechteckFrei(c.x, c.z, a.ebene + 1, 1, 1)) return false;
+      }
 
       // Merkposten fuer den Rueckbau. Ein Treppenhaus, an dessen Muendung oben
       // KEIN echter Raum anschliessbar ist, wird als GANZES verworfen — eine
@@ -786,54 +801,83 @@ export function erzeugeLayoutMitBericht(
         // Korrektureintraege koennen also nur von hier stammen.
         // The stairwell's three cells were free before placement, so their fix
         // entries can only come from here.
-        korrekturRoh.delete(schluesselZelle(n.x, n.z, a.ebene));
-        korrekturRoh.delete(schluesselZelle(m.x, m.z, a.ebene));
-        korrekturRoh.delete(schluesselZelle(m.x, m.z, a.ebene + 1));
-        gesperrt.delete(schluesselZelle(n.x, n.z, a.ebene + 1));
+        for (const c of laufZellen) {
+          korrekturRoh.delete(schluesselZelle(c.x, c.z, a.ebene));
+          korrekturRoh.delete(schluesselZelle(c.x, c.z, a.ebene + 1));
+        }
       };
-      gesperrt.add(schluesselZelle(n.x, n.z, a.ebene + 1));
 
-      const lauf1 = setzeStempel(
-        'treppe',
-        n.x,
-        n.z,
-        a.ebene,
-        1,
-        1,
-        TREPPE_ANSTIEG_STUFEN + TREPPE_KOPFRAUM_STUFEN,
-        a.tiefe + 1,
-        a.stempelId
-      );
-      const lauf2 = setzeStempel(
-        'treppe',
-        m.x,
-        m.z,
-        a.ebene,
-        1,
-        1,
-        TREPPE_ANSTIEG_STUFEN,
-        a.tiefe + 2,
-        lauf1.id
-      );
-      const muendung = setzeStempel(
-        'treppe',
-        m.x,
-        m.z,
-        a.ebene + 1,
-        1,
-        1,
-        hoehe,
-        a.tiefe + 3,
-        lauf2.id
-      );
-      // Erster Lauf: von der Ebenensohle bis zur halben Ebenenhoehe. Zweiter
-      // Lauf: von dort bis zur Sohle der Ebene darueber, wo er in die
-      // Schachtmuendung austritt.
-      // First run: from the storey sole to half the storey height. Second run:
-      // from there up to the sole of the storey above, where it emerges into
-      // the shaft mouth.
-      setzeTreppe(n.x, n.z, a.ebene, a.kante, 0);
-      setzeTreppe(m.x, m.z, a.ebene, a.kante, TREPPE_ANSTIEG_STUFEN);
+      const laufStempel: RaumStempel[] = [];
+      let elternId = a.stempelId;
+      for (let i = 0; i < TREPPE_ANSTIEGE.length; i++) {
+        const c = laufZellen[i]!;
+        const lauf = setzeStempel(
+          'treppe',
+          c.x,
+          c.z,
+          a.ebene,
+          1,
+          1,
+          MIN_LICHTE_STUFEN,
+          a.tiefe + 1 + i,
+          elternId
+        );
+        laufStempel.push(lauf);
+        elternId = lauf.id;
+      }
+      // UEBER JEDEM Lauf eine Schachtzelle, nicht nur ueber dem obersten.
+      //
+      // Ein Treppenhaus IST ein Schacht. Wer nur die Muendung als `Schacht`
+      // setzt und die Zellen ueber den unteren Laeufen als Fels stehen laesst,
+      // gibt diesen Laeufen eine DECKENPLATTE — und die liegt bei einer Ebene
+      // von 16 Stufen zwangslaeufig knapp: Gemessen blieb die Kapsel (1,8 m) am
+      // Uebergang vom mittleren zum obersten Lauf haengen, weil ihr Kopf in die
+      // Deckenplatte des mittleren stiess (`client/test/dungeon2-laeufer.ts`,
+      // Seeds 2 und 5, je zwei Haenger, in beide Richtungen).
+      // Es gibt keinen Deckenwert, der das aufloest: unter 16 ist der Kopfraum
+      // zu klein, bei 16 faellt die Unterseite der Platte mit der Unterseite der
+      // Muendungswand zusammen (4,00 m x 0,50 m koplanar, (F)), ueber 16 ragt
+      // die lichte Saeule in die Ebene darueber ((G)). Ohne Platte gibt es die
+      // Frage nicht mehr.
+      // A SHAFT CELL ABOVE EVERY RUN, not only above the topmost. A stairwell IS
+      // a shaft. Setting only the mouth as `Schacht` leaves the lower runs with a
+      // CEILING SLAB, and with a 16 step storey that slab is inevitably tight:
+      // measured, the capsule got stuck at the transition from the middle to the
+      // topmost run because its head hit the middle run's ceiling slab. No
+      // ceiling value resolves it; without a slab the question disappears.
+      const schaechte: RaumStempel[] = [];
+      for (let i = 0; i < laufZellen.length; i++) {
+        const c = laufZellen[i]!;
+        schaechte.push(
+          setzeStempel(
+            'treppe',
+            c.x,
+            c.z,
+            a.ebene + 1,
+            1,
+            1,
+            hoehe,
+            a.tiefe + 1 + TREPPE_ANSTIEGE.length + i,
+            elternId
+          )
+        );
+      }
+      const muendung = schaechte[schaechte.length - 1]!;
+      // Jeder Lauf traegt seine Bodenhoehe an der TIEFEN Kante; der oberste
+      // tritt nach oben in die Muendung aus.
+      // Each run carries its floor height at the LOW edge; the topmost emerges
+      // upwards into the mouth.
+      for (let i = 0; i < TREPPE_ANSTIEGE.length; i++) {
+        const c = laufZellen[i]!;
+        setzeTreppe(
+          c.x,
+          c.z,
+          a.ebene,
+          a.kante,
+          TREPPE_BODEN[i]!,
+          TREPPE_DECKE_STUFEN - TREPPE_BODEN[i]!
+        );
+      }
       // Ein Treppenhaus ist eine Roehre: alles ausser Fuss und Kopf des Laufs
       // wird zugemauert. Das ist nicht Geschmack. Ein Raum, der spaeter seitlich
       // an den OBEREN Lauf stoesst, stiesse an eine Zelle, deren Boden 4 m
@@ -852,25 +896,43 @@ export function erzeugeLayoutMitBericht(
           ? [KANTE.Ost, KANTE.West]
           : [KANTE.Nord, KANTE.Sued];
       for (const q of quer) {
-        mauereKante(n.x, n.z, a.ebene, q);
-        mauereKante(m.x, m.z, a.ebene, q);
+        for (const c of laufZellen) mauereKante(c.x, c.z, a.ebene, q);
+        // Auf der oberen Ebene wird die MUENDUNG ausgenommen: sie ist der
+        // Ausgang, und ihre Querkanten sind die Kandidaten, an denen der Raum
+        // oben anwaechst. Wer sie mitzumauert, laesst den Raum HINTER einer Wand
+        // entstehen — gemessen 35 von 200 Seeds mit `erreichbar`-Befund und
+        // Rueckfall auf die einfache Form.
+        // On the upper storey the MOUTH is exempt: it is the exit, and its cross
+        // edges are the candidates the upstairs room grows from. Walling them
+        // grows the room BEHIND a wall — measured, 35 of 200 seeds fell back.
+        for (const c of laufZellen.slice(0, -1)) mauereKante(c.x, c.z, a.ebene + 1, q);
       }
       mauereKante(m.x, m.z, a.ebene, a.kante);
-      treppenLaeufe.add(lauf1.id);
-      treppenLaeufe.add(lauf2.id);
+      // Der Fuss des Schachts wird zugemauert: dort ist er nur Luft ueber dem
+      // untersten Lauf, und ein Raum, der sich dort anlegte, blickte in ein
+      // Loch. Die MUENDUNG bleibt offen — sie ist der Ausgang.
+      // The shaft's foot is walled: there it is mere air above the lowest run.
+      // The MOUTH stays open — it is the exit.
+      mauereKante(laufZellen[0]!.x, laufZellen[0]!.z, a.ebene + 1, gegenKante(a.kante));
+      for (const lauf of laufStempel) treppenLaeufe.add(lauf.id);
+      // Aus den Schachtzellen UNTER der Muendung waechst nichts: sie sind Luft
+      // ueber der Treppe, kein Zimmer.
+      // Nothing grows out of the shaft cells below the mouth: they are air above
+      // the stairs, not a room.
+      for (const sch of schaechte.slice(0, -1)) treppenLaeufe.add(sch.id);
       // Die Kante zwischen den beiden Laeufen: 8 Hoehenstufen Unterschied
       // erzwingen nach §3.3 eine Wand, die den Lauf in der Mitte zumauern
       // wuerde.
       // The edge between the two runs: 8 height steps of difference force a
       // wall per §3.3 that would seal the run in its middle.
-      oeffneKante(n.x, n.z, a.ebene, a.kante);
+      for (const c of laufZellen.slice(0, -1)) oeffneKante(c.x, c.z, a.ebene, a.kante);
       // Die Muendung wird `Schacht` — die einzige Zellenart, ueber die
       // `erreichbareZellen()` (cells.ts, AP2) senkrecht laeuft, und die einzige,
       // die keine Bodenplatte bekommt, wenn unter ihr etwas Offenes liegt.
       // The mouth becomes `Schacht` — the only cell type through which
       // `erreichbareZellen()` (cells.ts, AP2) travels vertically, and the only
       // one that gets no floor slab when something open lies below it.
-      setzeArt(m.x, m.z, a.ebene + 1, ZELLEN_ART.Schacht);
+      for (const c of laufZellen) setzeArt(c.x, c.z, a.ebene + 1, ZELLEN_ART.Schacht);
       verbindungHinzu(a.x, a.z, a.ebene, a.kante);
       // Die Muendung MUSS an einen echten Raum derselben Ebene anschliessen.
       // Vorher hing das am Zufall: die Muendung wurde nur als Wachstumsfront
@@ -885,13 +947,38 @@ export function erzeugeLayoutMitBericht(
       // was 1 and that edge pointed into rock), a 1x1 closet stayed up there —
       // four of six mouths at seed 2. So a room is grown out of the mouth RIGHT
       // HERE instead of leaving it to the main loop.
+      // GERADEAUS ZUERST.
+      //
+      // Die Muendung hat keine Bodenplatte — unter ihr steht die Rampe, und die
+      // erreicht die Ebenensohle erst an ihrer OBEREN Kante. In der Zellmitte
+      // steht man 1,25 m TIEFER. Tritt die Figur geradeaus aus, laeuft sie die
+      // Rampe hinauf und ohne Absatz auf die Bodenplatte des Raums. Jede ANDERE
+      // offene Kante der Muendung waere eine Stufe von 1,25 m, und Havoks
+      // Charaktercontroller kennt keine Stufenhoehe: gemessen blieb die Kapsel
+      // an genau solchen Kanten stehen (`client/test/dungeon2-laeufer.ts`,
+      // Seed 5, Zellen (9,4,E1) und (11,4,E1)). Deshalb bleibt am Ende GENAU
+      // EINE Kante offen — die, durch die der Raum gewachsen ist.
+      // STRAIGHT AHEAD FIRST. The mouth has no
+      // floor slab; at its centre one stands 1.25 m below the storey sole.
+      // Straight ahead the figure walks up the ramp onto the room's floor with no
+      // step; every OTHER open edge of the mouth is a 1.25 m step, and Havok's
+      // character controller knows no step height. Those edges stay open and are
+      // carried as a documented residue: walling them made 35 of 200 seeds
+      // unreachable (measured).
       const obenKanten = randKanten(muendung).filter((k) => {
         const o = nachbarZelle(k.x, k.z, k.kante);
         return frei(o.x, o.z, k.ebene);
       });
+      const geradeaus = obenKanten.findIndex((k) => k.kante === a.kante);
+      if (geradeaus > 0) obenKanten.unshift(obenKanten.splice(geradeaus, 1)[0]!);
       let angebunden = false;
+      // Der bevorzugte Ausgang wird OHNE Ziehung genommen — sonst verschoebe die
+      // Bevorzugung den Architekturstrom (W7).
+      // The preferred exit is taken WITHOUT a draw.
+      let ersterVersuch = obenKanten.length > 0 && obenKanten[0]!.kante === a.kante;
       while (obenKanten.length > 0 && !angebunden) {
-        const j = arch.rangeInt(0, obenKanten.length);
+        const j = ersterVersuch ? 0 : arch.rangeInt(0, obenKanten.length);
+        ersterVersuch = false;
         const k = obenKanten.splice(j, 1)[0]!;
         const o = nachbarZelle(k.x, k.z, k.kante);
         const anOben: Anschluss = { ...k, stempelId: muendung.id, tiefe: muendung.tiefeImBaum };

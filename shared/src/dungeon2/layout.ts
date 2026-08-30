@@ -50,6 +50,18 @@ export const ZELLE_M = 4; // Kantenlaenge einer Zelle / cell edge length
 export const EBENE_M = 8; // Stockwerkshoehe / storey height
 export const HOEHEN_SCHRITT_M = 0.5; // feinste Hoehenstufe / finest height step
 export const MIN_LICHTE_STUFEN = 8; // 4 m Mindesthoehe / minimum headroom
+/**
+ * Mindestkopfraum ueber der OBERSTEN Stufe eines Treppenlaufs, in Hoehenstufen
+ * (4 = 2 m). NICHT `MIN_LICHTE_STUFEN`: ein Treppenabsatz ist kein Raum, und
+ * 4 m Kopfraum ueber jeder Stufe waeren mit einer Ebenenhoehe von 8 m und einer
+ * begehbaren Steigung nicht erreichbar. Die 2 m sind die Spielerkapsel (1,8 m)
+ * plus eine Handbreit.
+ * Minimum headroom above the TOPMOST step of a stair run, in height steps
+ * (4 = 2 m). NOT `MIN_LICHTE_STUFEN`: a landing is not a room, and 4 m of
+ * headroom over every step is unreachable with an 8 m storey and a walkable
+ * gradient. The 2 m are the player capsule (1.8 m) plus a hand's breadth.
+ */
+export const TREPPE_KOPFRAUM_STUFEN = 4;
 export const BLOCK_ZELLEN = 8; // 8x8 Zellen = 32 m je Block / cells per block
 
 /**

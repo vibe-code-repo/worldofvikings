@@ -28,6 +28,7 @@ import {
   ANKER_ORT,
   KANTE,
   MIN_LICHTE_STUFEN,
+  TREPPE_KOPFRAUM_STUFEN,
   ZELLEN_ART,
   gegenKante,
   nachbarZelle,
@@ -100,14 +101,48 @@ export function validateZellgitter(layout: DungeonLayout2, gitter: ZellenGitter)
   }
 
   // ── lichte-hoehe ───────────────────────────────────────────────────────
+  //
+  // NICHT `zelle.decke`, sondern die WIRKLICHE lichte Saeule. Zwei Gruende,
+  // beide am 2026-08-30 gemessen:
+  //
+  // (a) Steht ein `Schacht` ueber der Zelle, laesst `hatDeckenPlatte()` die
+  //     Decke weg und die Saeule laeuft durch bis zur Decke des Schachts. Das
+  //     rohe Feld `decke` ist dort nicht die Hoehe des Raums, sondern nur die
+  //     Zahl, mit der der Stempel gesetzt wurde. Ein Treppenlauf, der oben in
+  //     eine Muendung austritt, MUSS `decke` an der Ebenensohle enden lassen
+  //     (sonst steht die Muendungswand in seiner Saeule) — mit dem rohen Feld
+  //     waere er damit gleichzeitig „zu niedrig".
+  // (b) Bei einer TREPPE ist `boden` die Hoehe an der TIEFEN Kante. Die Regel
+  //     mass damit den Kopfraum am Fuss des Laufs, nie ueber seiner obersten
+  //     Stufe — und genau dort ist er knapp. Gemessen: ein Raum, der ueber
+  //     einem Lauf wuchs, liess ihm 1,5 m; die Regel blieb stumm, die
+  //     Spielerkapsel (1,8 m) kam nicht durch.
+  // NOT `zelle.decke` but the REAL clear column. (a) With a `Schacht` above, the
+  // ceiling slab is omitted and the column runs on up to the shaft's ceiling.
+  // (b) On a stair `boden` is the height at the LOW edge, so the rule measured
+  // the headroom at the run's foot, never over its topmost step — which is
+  // exactly where it is tight. Measured: a room grown above a run left it 1.5 m
+  // and the rule stayed silent; the player capsule (1.8 m) did not fit.
   for (const zelle of zellenSortiert(gitter)) {
     if (!offen(zelle.art)) continue;
-    if (zelle.decke < MIN_LICHTE_STUFEN) {
+    const deckeAbsolut = saeuleDurchSchaechte(gitter, zelle);
+    const lichte = deckeAbsolut - bodenStufen(zelle);
+    if (lichte < MIN_LICHTE_STUFEN) {
       melde(
         `Zelle (${zelle.x},${zelle.z},E${zelle.ebene})`,
         'fehler',
         'lichte-hoehe',
-        `decke ${zelle.decke} liegt unter MIN_LICHTE_STUFEN (${MIN_LICHTE_STUFEN})`
+        `lichte Saeule ${lichte} liegt unter MIN_LICHTE_STUFEN (${MIN_LICHTE_STUFEN})`
+      );
+    }
+    if (zelle.art !== ZELLEN_ART.Treppe) continue;
+    const kopf = deckeAbsolut - treppenOberkante(gitter, zelle);
+    if (kopf < TREPPE_KOPFRAUM_STUFEN) {
+      melde(
+        `Treppe (${zelle.x},${zelle.z},E${zelle.ebene})`,
+        'fehler',
+        'lichte-hoehe',
+        `Kopfraum ueber der obersten Stufe ${kopf} liegt unter TREPPE_KOPFRAUM_STUFEN (${TREPPE_KOPFRAUM_STUFEN})`
       );
     }
   }
@@ -314,4 +349,48 @@ export function validateLayoutVoll(
   const dokumentBefunde = validateLayout(layout);
   const gitter = zellenAufbauen(layout, optionen);
   return [...dokumentBefunde, ...validateZellgitter(layout, gitter)];
+}
+
+/**
+ * Oberkante der lichten Saeule einer Zelle, durch gestapelte `Schacht`-Zellen
+ * hindurch. Ein Schacht ueber einer offenen Zelle IST die senkrechte Oeffnung —
+ * beide Platten fehlen dort, die Saeule ist EINE, und wer sie an der Zellgrenze
+ * abschneidet, misst einen Raum, den es nicht gibt.
+ * Top of a cell's clear column, through stacked `Schacht` cells. A shaft above
+ * an open cell IS the vertical opening — both slabs are missing there, the
+ * column is ONE, and cutting it at the cell border measures a room that does not
+ * exist.
+ */
+function saeuleDurchSchaechte(gitter: ZellenGitter, zelle: Zelle): number {
+  let aktuell = zelle;
+  let oben = obenStufen(gitter, aktuell);
+  // Die Schleife ist beschraenkt: jeder Schritt geht eine Ebene hoeher, und das
+  // Gitter hat endlich viele. / Bounded: each step goes one storey up.
+  for (;;) {
+    const drueber = zelleImGitter(gitter, aktuell.x, aktuell.z, aktuell.ebene + 1);
+    if (drueber === undefined || drueber.art !== ZELLEN_ART.Schacht) return oben;
+    aktuell = drueber;
+    oben = obenStufen(gitter, aktuell);
+  }
+}
+
+/**
+ * Hoehe der OBERSTEN Stufe eines Treppenlaufs. Sie steht nicht im Format: das
+ * Ziel liegt in der Nachbarzelle in Neigungsrichtung (Hoehensprung im
+ * Stockwerk) oder in der Schachtmuendung darueber (letzter Lauf eines
+ * Aufgangs) — dieselbe Fallunterscheidung wie `anstiegStufen()` im Bauer.
+ * Height of the TOPMOST step of a stair run. It is not in the format: the target
+ * sits in the neighbour cell along the ascent, or in the shaft mouth above.
+ */
+function treppenOberkante(gitter: ZellenGitter, zelle: Zelle): number {
+  const unten = bodenStufen(zelle);
+  if (zelle.neigung === undefined || !istGueltigeKante(zelle.neigung)) return unten;
+  const p = nachbarZelle(zelle.x, zelle.z, zelle.neigung);
+  const seitlich = zelleImGitter(gitter, p.x, p.z, zelle.ebene);
+  if (seitlich !== undefined && offen(seitlich.art) && bodenStufen(seitlich) > unten) {
+    return bodenStufen(seitlich);
+  }
+  const muendung = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene + 1);
+  if (muendung !== undefined && muendung.art === ZELLEN_ART.Schacht) return bodenStufen(muendung);
+  return unten;
 }

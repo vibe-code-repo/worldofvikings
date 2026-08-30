@@ -260,6 +260,22 @@ for (let i = 0; i < SEEDS; i++) {
     for (const zelle of zellenSortiert(gitter)) {
       if (zelle.art !== ZELLEN_ART.Schacht) continue;
       hatTreppe = true;
+      // Seit dem 2026-08-30 steht ueber JEDEM Lauf eine Schachtzelle — das
+      // Treppenhaus ist eine durchgehende Roehre. MUENDUNG ist nur die oberste:
+      // die ueber dem Lauf, in dessen Anstiegsrichtung kein weiterer Lauf mehr
+      // folgt. Die beiden darunter sind Luft ueber der Treppe und haben nichts
+      // anzubinden. Ohne diese Unterscheidung zaehlte der Test 492 Muendungen
+      // statt 164 und meldete zwei Drittel davon als Sackgasse.
+      // Since 2026-08-30 a shaft cell stands above EVERY run. Only the topmost is
+      // the MOUTH: the one above the run that has no further run along its
+      // ascent. Without this distinction the test counted 492 mouths instead of
+      // 164 and reported two thirds of them as dead ends.
+      const laufDarunter = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene - 1);
+      if (laufDarunter !== undefined && laufDarunter.art === ZELLEN_ART.Treppe) {
+        const w = nachbarZelle(laufDarunter.x, laufDarunter.z, laufDarunter.neigung ?? KANTE.Nord);
+        const weiter = zelleImGitter(gitter, w.x, w.z, laufDarunter.ebene);
+        if (weiter !== undefined && weiter.art === ZELLEN_ART.Treppe) continue;
+      }
       muendungenGesamt++;
       let angebunden = false;
       for (const kante of KANTEN) {
@@ -482,12 +498,13 @@ const EINGEFROREN: readonly (readonly [number, string, number, number, number, n
   // Neu eingefroren am 2026-08-30 (siehe `design/decisions-log.md`): P8b
   // beschneidet die Decke unter einem belegten Stockwerk, und die Zelle ueber
   // dem unteren Treppenlauf ist gesperrt.
-  // Re-frozen on 2026-08-30 — deliberate layout change, see the decisions log.
+  // Zweites Mal am selben Tag: dreilaeufiges Treppenhaus mit Schachtroehre.
+  // Re-frozen twice on 2026-08-30 — deliberate layout changes.
   [0, '77f521e6', 35, 303, 16, 91],
-  [1, 'c214a245', 45, 336, 14, 90],
-  [7, '75f8553f', 49, 317, 16, 84],
+  [1, '2faf1f2b', 38, 337, 10, 100],
+  [7, '0fc9954d', 59, 324, 18, 90],
   [42, 'c3c5d958', 32, 309, 10, 95],
-  [199, '375464b0', 32, 286, 6, 75],
+  [199, 'e81c0d61', 52, 296, 10, 92],
 ];
 
 {

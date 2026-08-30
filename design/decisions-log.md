@@ -2040,3 +2040,103 @@ wurde und keine Rechenregel.
 einfache Form; Zyklusanteil 195/200, mehrstöckig 102/200, mit Treppe 98/200,
 alle 176 Mündungen angebunden. Der Beschnitt kostet Deckenhöhe nur dort, wo ein
 Stockwerk darüber liegt (235 Zellen über 60 Seeds).
+
+---
+
+## 2026-08-30 · M1-1 · Der Läufer: Havok unter Node — und die Treppen waren unbegehbar
+
+**Das Paket.** `client/test/dungeon2-laeufer.ts`: eine Spielerkapsel (1,8 m ×
+r 0,4 m, Steigungsgrenze 40°, Beschleunigung 8 — alles aus `PlayerController`
+IMPORTIERT, nicht abgeschrieben) läuft mit echtem Havok, echtem `DungeonBauer`
+(`physik: true`) und echtem `PhysicsCharacterController` mehrere Seeds ab.
+
+**Havok läuft unter Node** — der Kopfkommentar von `dungeon2-bauer.ts` sagte
+„startet unter Node nicht verlässlich". Das galt für den Standardweg: die
+UMD-Fassung ruft `fetch('HavokPhysics.wasm')` und das ist unter Node ein
+`ERR_INVALID_URL`. Reicht man das WASM als Puffer (`wasmBinary`), startet sie.
+Damit braucht der Beweis **keinen** Browser und keine GPU — er ist ein
+gewöhnlicher Testlauf.
+
+**Gemessen wird die Strecke, nicht die Zeit** (Vault-Notiz): jeder Lauf endet an
+einem Wegpunkt, die Kennzahl ist „Meter abgelaufen".
+
+**Messzahlen, 6 Seeds** (Stand nach den Fixes): 13.212 m in 199.860
+Physikschritten · 0 Durchfälle · 0 Hänger · Treppen 4/4 · Türen 55/55 (jede
+Kante in BEIDE Richtungen) · 2 dokumentierte Mündungsabsätze (siehe unten).
+
+### Was der Läufer gefunden hat (vor jedem Fix, mit Zahlen)
+
+**(1) Die Treppen waren unbegehbar. Alle.** Zwei Läufe zu 8 Höhenstufen über je
+eine 4-m-Zelle sind genau 45°; `PlayerController` setzt `maxSlopeCosine` auf 40°.
+Gemessen am Lauf (−7,−4,E0), Seed 2:
+
+| Steigungsgrenze | höchste Fußhöhe (Start 6,00 m, Ziel 8,00 m) |
+|---|---|
+| 40° (das Spiel) | **6,00 m** — die Kapsel bewegte sich keinen Zentimeter |
+| 45° | 6,00 m |
+| 46° | 7,62 m |
+
+Der Fehler hatte kein Symptom in irgendeiner Prüfung: die Treppe stand, sah
+richtig aus, war regelkonform. **Fix:** drei ungleiche Läufe 6 + 5 + 5 Stufen
+(36,9° / 32,0° / 32,0°). 16 teilt sich nicht durch 3; gleich lange Läufe gibt es
+bei 16 Stufen und drei Läufen nicht, und die Ebenenhöhe ist eingefrorenes Format.
+
+**(2) Das Treppenhaus braucht eine Schachtröhre, keine Decke.** Mit drei Läufen
+stieß die Kapsel am Übergang vom mittleren zum obersten Lauf mit dem KOPF in die
+Deckenplatte des mittleren (je zwei Hänger in Seeds 2 und 5, in beide
+Richtungen). Es gibt keinen Deckenwert, der das auflöst: unter 16 Stufen ist der
+Kopfraum zu klein, bei 16 fällt die Unterseite der Platte mit der Unterseite der
+Mündungswand zusammen (4,00 m × 0,50 m koplanar → (F)), über 16 ragt die lichte
+Säule in die Ebene darüber → (G). **Fix:** über JEDEM Lauf steht eine
+Schachtzelle. Ein Treppenhaus IST ein Schacht; ohne Platte gibt es die Frage
+nicht mehr.
+
+**(3) `NavZelle.mitte.y` log über einem Schacht ohne Bodenplatte.** Sie meldete
+die Sohle des Schachts — dort steht aber niemand, darunter liegt die Rampe.
+Zwei bis vier Meter Luft, und die Spawn-Platzprüfung des Servers hätte den
+Spieler dort abgesetzt. **Fix:** die Standhöhe wird durch die Schächte hindurch
+auf die tragende Zelle zurückgeführt.
+
+**(4) Der Ausgang oben muss geradeaus liegen.** Die Mündung hat keine
+Bodenplatte; in der Zellmitte steht man 1,25 m unter der Ebenensohle. In
+Anstiegsrichtung läuft die Rampe ohne Absatz auf die Bodenplatte des Raums —
+seitlich ist es eine 1,25-m-Stufe, und Havoks Charaktercontroller kennt keine
+Stufenhöhe. **Fix:** der Raum oben wächst bevorzugt geradeaus, und zwar **ohne
+Ziehung** (eine Ziehung hätte den Architekturstrom verschoben, W7).
+**Nicht** gefixt: die übrigen Mündungskanten bleiben offen. Sie zuzumauern hat
+**35 von 200 Seeds** unerreichbar gemacht (gemessen) — die Lösung gehört zur
+Form der Mündung und ist ein eigener Arbeitsschritt. Der Läufer führt sie als
+**dokumentierten Rest**: „Mündungsabsatz", höchstens 2 je Seed, getrennt vom
+Hänger-Zähler, der auf NULL steht. Zwei Klassen, und die Trennung ist der Befund.
+
+### Falschmessungen des Läufers, die erst der Lauf zeigte
+
+- **Durchfallen gegen `nav.mitte.y` zu messen ist falsch:** bei einer Treppe ist
+  das die Standhöhe in der ZELLMITTE, eine halbe Steigung über dem Zellboden. So
+  gemessen war jeder Spieler am FUSS eines Laufs „durchgefallen" — 70 falsche
+  Meldungen über fünf Seeds. Gemessen wird jetzt gegen `bodenStufen()` aus dem
+  Gitter.
+- **Nach `setPosition` trägt der Controller einen Schritt lang die alten
+  Kontakte.** Ohne zehn Ruhebilder blieb die Kapsel am Fuß des untersten Laufs
+  stehen, obwohl derselbe Aufgang von einem frisch angelegten Controller aus
+  mühelos begangen wird. Ein Messgerät, das den vorigen Standort misst, misst
+  nichts.
+
+### Mitgezogen
+
+`PlayerController` exportiert jetzt `BODY_RADIUS`, `BODY_HEIGHT`,
+`STEIGUNGS_GRENZE_GRAD` und `FIGUR_BESCHLEUNIGUNG` — ein Testläufer mit
+abgeschriebenen Zahlen läuft still auseinander. Die beiden Literale im
+Quelltext sind durch die Konstanten ersetzt.
+
+Angepasste Erwartungen (alle mit Begründung im Test): (E) zählt jetzt eine
+Trittfläche je Höhenstufe statt acht je Zelle und prüft zusätzlich, dass die
+Läufe eines Aufgangs ZUSAMMEN eine Ebene überwinden; die Mündung ist nur noch
+die oberste Schachtzelle (sonst zählte der Generator-Test 492 Mündungen statt
+163); die Schranke des dokumentierten Restes in (F) steigt von 60 auf 80 Fälle,
+weil das Treppenhaus sechs Zellen statt drei belegt — die GRÖSSE des Restes ist
+dabei von 1,00 m² auf 0,50 m² **gesunken**.
+
+**Golden zum zweiten Mal am selben Tag neu eingefroren** (`DUNGEON2_EINFRIEREN=1`).
+Sweep unverändert gut: 200 Seeds, **0** Rückfälle, 191 mit Zyklus, 102
+mehrstöckig, 98 mit Treppe, 163/163 Mündungen angebunden.

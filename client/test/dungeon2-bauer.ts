@@ -505,7 +505,17 @@ for (const seed of SEEDS) {
       // IS the vertical opening, and `nachUnten` says so.
       if (n.nachUnten) {
         schaechte++;
-        const drunter = oberkante(index, n.mitte.x, n.mitte.z, n.mitte.y - 1e-6);
+        // Gemessen wird von KNAPP UEBER der gemeldeten Standflaeche aus, nicht
+        // von knapp darunter. Seit dem 2026-08-30 meldet `NavZelle.mitte.y`
+        // eines Schachts ohne eigene Bodenplatte die Flaeche, auf der man dort
+        // WIRKLICH steht (die Rampe darunter) statt seiner Sohle — von knapp
+        // darunter aus gemessen faende man deshalb nichts mehr, obwohl genau
+        // diese Flaeche traegt. Die Frage bleibt dieselbe: liegt unter der
+        // gemeldeten Standhoehe etwas?
+        // Measured from JUST ABOVE the reported standing surface, not from just
+        // below it: since 2026-08-30 a floorless shaft's `NavZelle.mitte.y` is
+        // the surface one REALLY stands on (the ramp below) rather than its sole.
+        const drunter = oberkante(index, n.mitte.x, n.mitte.z, n.mitte.y + 1e-6);
         assert.ok(drunter !== null, `Schacht ${n.x}/${n.z}/${n.ebene} fuehrt ins Bodenlose`);
         continue;
       }
@@ -748,15 +758,19 @@ pruefe('Babylons Quaternion kippt die Rampe genauso wie unsere Rechnung', () => 
 // Die Zaehlpruefungen oben (Vertices = Bauteile x 24) bleiben gruen, wenn die
 // Stufen flach sind oder wenn jemand `stufe` in `NIEDRIG_ENTFAELLT` aufnimmt
 // und dabei nur die Formel mitzieht. Gemessen wird deshalb an den fertigen
-// Meshes: in der Zellsaeule einer Treppe muessen ACHT verschiedene waagerechte
-// Flaechenhoehen liegen — die Trittflaechen. Ein flacher Boden hat eine.
+// Meshes: in der Zellsaeule einer Treppe muessen so viele verschiedene
+// waagerechte Flaechenhoehen liegen, wie der Lauf Hoehenstufen steigt — die
+// Trittflaechen. Ein flacher Boden hat eine. Seit dem 2026-08-30 steigt ein Lauf
+// 6 oder 5 Stufen ueber acht Achtel (frueher 8 ueber 8, also 45 Grad — von der
+// Spielfigur nicht begehbar, siehe `generator.ts` `TREPPE_ANSTIEGE`), also sind
+// es sechs bzw. fuenf Hoehen bei unveraendert acht Quadern.
 // The counting checks above stay green if the steps are flat, or if someone
 // adds `stufe` to `NIEDRIG_ENTFAELLT` and adjusts the formula along with it.
 // So the measurement is taken on the finished meshes: eight distinct horizontal
 // face heights must sit in a stair cell's column — the treads. A flat floor has
 // one.
 
-pruefe('Treppe: die Stufen des Generators werden zu Geometrie (acht Trittflaechen)', () => {
+pruefe('Treppe: die Stufen des Generators werden zu Geometrie (eine Trittflaeche je Hoehenstufe)', () => {
   // Seed 2 hat gemessen 12 Treppenzellen; 1234 hat keine — deshalb NICHT der
   // Seed der uebrigen Pruefungen.
   // Seed 2 measurably has 12 stair cells; 1234 has none.
@@ -782,7 +796,29 @@ pruefe('Treppe: die Stufen des Generators werden zu Geometrie (acht Trittflaeche
   const zelle = treppen[0]!;
   const x0 = zelle.x * ZELLE_M;
   const z0 = zelle.z * ZELLE_M;
-  const yBoden = (zelle.ebene * (8 / HOEHEN_SCHRITT_M) + zelle.boden) * HOEHEN_SCHRITT_M;
+  const EBENE_STUFEN = 8 / HOEHEN_SCHRITT_M;
+  const absolut = (c: { ebene: number; boden: number }): number => c.ebene * EBENE_STUFEN + c.boden;
+  // Der Anstieg wird GEMESSEN, nicht angenommen: das obere Ende des Laufs ist
+  // die Nachbarzelle in Neigungsrichtung ODER die Schachtmuendung darueber —
+  // dieselbe Fallunterscheidung wie `anstiegStufen()` im Bauer.
+  // The rise is MEASURED, not assumed: the run's upper end is the neighbour
+  // along the ascent OR the shaft mouth above.
+  const nachbar = dungeon2.nachbarZelle(zelle.x, zelle.z, zelle.neigung!);
+  const seitlich = dungeon2.zelleImGitter(gitter, nachbar.x, nachbar.z, zelle.ebene);
+  const muendung = dungeon2.zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene + 1);
+  const zielStufen =
+    seitlich !== undefined && absolut(seitlich) > absolut(zelle)
+      ? absolut(seitlich)
+      : muendung !== undefined
+        ? absolut(muendung)
+        : absolut(zelle);
+  const anstieg = zielStufen - absolut(zelle);
+  assert.ok(anstieg > 0, 'dieser Lauf steigt gar nicht');
+  const yBoden = absolut(zelle) * HOEHEN_SCHRITT_M;
+  // Obergrenze ist die SOHLE DES ZIELS, nicht „eine halbe Ebene": darueber
+  // liegen Wand- und Deckenflaechen, die keine Trittflaechen sind.
+  // The upper bound is the TARGET'S SOLE, not "half a storey".
+  const yZiel = zielStufen * HOEHEN_SCHRITT_M;
   const hoehen = new Set<string>();
   for (const knoten of bauer.wurzel.getChildren()) {
     const mesh = knoten as Mesh;
@@ -797,14 +833,17 @@ pruefe('Treppe: die Stufen des Generators werden zu Geometrie (acht Trittflaeche
       // Nur die Trittflaechen: ueber dem Zellboden, hoechstens eine halbe
       // Ebene darueber.
       // Treads only: above the cell floor, at most half a storey higher.
-      if (y <= yBoden + 1e-6 || y > yBoden + 4 + 1e-6) continue;
+      if (y <= yBoden + 1e-6 || y > yZiel + 1e-6) continue;
       hoehen.add(y.toFixed(4));
     }
   }
+  // Der Anstieg wird GEMESSEN, nicht angenommen: die Nachbarzelle in
+  // Neigungsrichtung traegt das obere Ende des Laufs.
+  // The rise is MEASURED, not assumed.
   assert.equal(
     hoehen.size,
-    8,
-    `${hoehen.size} verschiedene Trittflaechenhoehen in Zelle (${zelle.x},${zelle.z},E${zelle.ebene}) statt 8`
+    anstieg,
+    `${hoehen.size} verschiedene Trittflaechenhoehen in Zelle (${zelle.x},${zelle.z},E${zelle.ebene}) statt ${anstieg}`
   );
   bauer.dispose();
 });

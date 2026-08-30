@@ -1316,11 +1316,31 @@ export function baueGeometrie(layout: DungeonLayout2, auswahl?: BauAuswahl): Bau
     // `Zelle.boden` (which per the format is the height at the LOW edge). With
     // the edge height here every path search and spawn check would see the
     // stair two metres too low — and find air.
-    const standHoehe =
-      zelle.art === ZELLEN_ART.Treppe
-        ? (bodenStufen(zelle) + anstiegStufen(gitter, zelle, zelle.neigung ?? KANTE.Nord) / 2) *
-          HOEHEN_SCHRITT_M
-        : bodenStufen(zelle) * HOEHEN_SCHRITT_M;
+    //
+    // Und: Ein `Schacht` OHNE eigene Bodenplatte hat keine Standflaeche — unter
+    // ihm liegt die offene Zelle, die er oeffnet. Seine Standhoehe ist deren
+    // Standhoehe, nicht seine eigene Sohle. Steht dort die Sohle, meldet die
+    // Navigation eine Flaeche zwei bis vier Meter ueber dem, worauf man
+    // tatsaechlich steht, und die Spawn-Platzpruefung setzt den Spieler in die
+    // Luft (gemessen: die Laeufer-Kapsel „kam nicht an", weil ihr Ziel keinen
+    // Boden hatte).
+    // And: a `Schacht` WITHOUT its own floor slab has no standing surface — the
+    // open cell it opens lies below it. Its standing height is that cell's, not
+    // its own sole. With the sole here, navigation reports a surface two to four
+    // metres above what one actually stands on.
+    const standFlaeche = (z: Zelle): number =>
+      z.art === ZELLEN_ART.Treppe
+        ? (bodenStufen(z) + anstiegStufen(gitter, z, z.neigung ?? KANTE.Nord) / 2) * HOEHEN_SCHRITT_M
+        : bodenStufen(z) * HOEHEN_SCHRITT_M;
+    let traeger = zelle;
+    // Die Schleife ist beschraenkt: jeder Schritt geht eine Ebene tiefer.
+    // Bounded: each step goes one storey down.
+    while (!hatBodenPlatte(gitter, traeger)) {
+      const drunter = zelleImGitter(gitter, traeger.x, traeger.z, traeger.ebene - 1);
+      if (drunter === undefined || !offen(drunter.art)) break;
+      traeger = drunter;
+    }
+    const standHoehe = standFlaeche(traeger);
     nav.push({
       x: zelle.x,
       z: zelle.z,

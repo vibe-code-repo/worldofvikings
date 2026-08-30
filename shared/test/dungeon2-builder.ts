@@ -380,12 +380,15 @@ const EINGEFROREN: readonly (readonly [number, string, number, number, number])[
   // der PLATTEN, der Generator beschneidet die Decke unter einem Stockwerk
   // (P8b) und sperrt die Zelle ueber dem unteren Treppenlauf. Beides aendert
   // Layouts absichtlich; Begruendung im `design/decisions-log.md`.
-  // Re-frozen on 2026-08-30 — deliberate layout change, see the decisions log.
+  // Zweites Mal am selben Tag: das Treppenhaus hat drei Laeufe statt zwei und
+  // eine Schachtroehre darueber, weil zwei Laeufe 45 Grad steil und damit
+  // unbegehbar waren (gemessen, `client/test/dungeon2-laeufer.ts`).
+  // Re-frozen twice on 2026-08-30 — deliberate layout changes, see the log.
   [0, 'b3271d8c', 1018, 939, 303],
-  [1, 'a1c40d02', 1199, 1088, 336],
-  [7, 'b5d577d7', 1260, 1106, 317],
+  [1, 'b0d6eb91', 1172, 1061, 337],
+  [7, '3e9af54e', 1230, 1063, 324],
   [42, '8d6bc869', 1039, 958, 309],
-  [199, '366fbd9e', 973, 879, 286],
+  [199, 'f4be67da', 1113, 969, 296],
 ];
 
 {
@@ -1045,6 +1048,8 @@ function stempel(teile: Partial<RaumStempel> & { id: number }): RaumStempel {
   let ersterFlacher = '';
   let obersteStufeAmEnde = 0;
   let treppenZellen = 0;
+  let hubGesamt = 0;
+  let aufgaenge = 0;
 
   for (let i = 0; i < 12; i++) {
     const layout = erzeugeLayout(thema, seedsFuer(i));
@@ -1053,6 +1058,19 @@ function stempel(teile: Partial<RaumStempel> & { id: number }): RaumStempel {
     if (treppen.length === 0) continue;
     seedsMitTreppe++;
     treppenZellen += treppen.length;
+    // Ein Aufgang ist eine MUENDUNG: die Schachtzelle ueber dem obersten Lauf.
+    // Ueber den unteren Laeufen steht ebenfalls je eine Schachtzelle (das
+    // Treppenhaus ist eine durchgehende Roehre), die zaehlt hier nicht mit.
+    // One ascent is one MOUTH: the shaft cell above the topmost run. A shaft cell
+    // stands above the lower runs too, and those do not count here.
+    aufgaenge += zellenSortiert(gitter).filter((z) => {
+      if (z.art !== ZELLEN_ART.Schacht) return false;
+      const unten = zelleImGitter(gitter, z.x, z.z, z.ebene - 1);
+      if (unten === undefined || unten.art !== ZELLEN_ART.Treppe) return true;
+      const w = nachbarZelle(unten.x, unten.z, unten.neigung ?? KANTE.Nord);
+      const weiter = zelleImGitter(gitter, w.x, w.z, unten.ebene);
+      return weiter === undefined || weiter.art !== ZELLEN_ART.Treppe;
+    }).length;
     const ergebnis = baue(layout, gitter);
     const stufen = ergebnis.stuecke.filter((s) => s.art === 'stufe');
     stufenGesamt += stufen.length;
@@ -1066,25 +1084,38 @@ function stempel(teile: Partial<RaumStempel> & { id: number }): RaumStempel {
           s.mitte.z < (zelle.z + 1) * ZELLE_M &&
           Math.abs(s.mitte.y - bodenStufen(zelle) * HOEHEN_SCHRITT_M) < ZELLE_M * 2
       );
-      // Acht Quader je Treppenzelle, und acht VERSCHIEDENE Oberkanten. Waere
-      // der Anstieg 0, waeren es acht gleiche — die Zahl bliebe acht.
-      // Eight boxes per stair cell, and eight DISTINCT top faces. At a rise of 0
-      // there would be eight equal ones — the count would still be eight.
+      // Acht Quader je Treppenzelle, und so viele VERSCHIEDENE Oberkanten, wie
+      // der Lauf Hoehenstufen steigt. Waere der Anstieg 0, waere es EINE — die
+      // Zahl der Quader bliebe acht.
+      //
+      // Seit dem 2026-08-30 steigt ein Lauf 6 oder 5 Stufen ueber acht Achtel
+      // (frueher 8 ueber 8, also 45 Grad — unbegehbar, siehe `generator.ts`
+      // `TREPPE_ANSTIEGE`). Acht Achtel auf fuenf Stufen zu verteilen heisst,
+      // dass drei Trittflaechen zwei Achtel tief sind statt eines; die Quader
+      // bleiben acht, die Oberkanten werden fuenf.
+      // Eight boxes per stair cell, and as many DISTINCT top faces as the run
+      // climbs height steps. Since 2026-08-30 a run climbs 6 or 5 steps across
+      // eight eighths (formerly 8 over 8, i.e. 45 degrees — unwalkable).
       const oberkanten = new Set(inZelle.map((s) => s.mitte.y + s.groesse.y / 2));
-      if (inZelle.length !== 8 || oberkanten.size !== 8) {
+      const anstieg = treppenAnstieg(gitter, zelle);
+      if (inZelle.length !== 8 || oberkanten.size !== anstieg) {
         flacheLaeufe++;
         if (ersterFlacher === '') {
           ersterFlacher = `Seed ${i}: Zelle (${zelle.x},${zelle.z},E${zelle.ebene}) hat ${inZelle.length} Stufenquader mit ${oberkanten.size} verschiedenen Oberkanten`;
         }
         continue;
       }
-      // Die oberste Stufe endet an der Sohle des Ziels — bei einem Aufgang also
-      // genau eine halbe Ebene ueber dem eigenen Boden.
-      // The topmost step ends at the target's sole — for an ascent exactly half
-      // a storey above its own floor.
+      // Die oberste Stufe endet an der Sohle des Ziels — also genau `anstieg`
+      // Hoehenstufen ueber dem eigenen Boden. NICHT mehr „eine halbe Ebene":
+      // ein Aufgang besteht seit dem 2026-08-30 aus drei ungleichen Laeufen
+      // (6 + 5 + 5 = 16), und ihre SUMME ist die Ebene.
+      // The topmost step ends at the target's sole, i.e. exactly `anstieg` height
+      // steps above its own floor. No longer "half a storey": an ascent consists
+      // of three unequal runs whose SUM is the storey.
       const hoechste = Math.max(...oberkanten);
       const hub = hoechste - bodenStufen(zelle) * HOEHEN_SCHRITT_M;
-      if (Math.abs(hub - EBENE_M / 2) < 1e-9) obersteStufeAmEnde++;
+      if (Math.abs(hub - anstieg * HOEHEN_SCHRITT_M) < 1e-9) obersteStufeAmEnde++;
+      hubGesamt += hub;
     }
   }
 
@@ -1099,9 +1130,20 @@ function stempel(teile: Partial<RaumStempel> & { id: number }): RaumStempel {
     ersterFlacher !== '' ? ersterFlacher : `${stufenGesamt} Stuecke bei ${treppenZellen} Zellen`
   );
   pruefe(
-    `(E) jeder Lauf ueberwindet eine halbe Ebene (${EBENE_M / 2} m)`,
+    `(E) jeder Lauf endet an der Sohle seines Ziels (${obersteStufeAmEnde} von ${treppenZellen} Laeufen)`,
     obersteStufeAmEnde === treppenZellen,
     `${obersteStufeAmEnde} von ${treppenZellen} Laeufen`
+  );
+  // Und die SUMME ist die Ebene: drei Laeufe je Aufgang, zusammen 8 m. Ohne
+  // diese Zeile koennte jeder Lauf einzeln „an der Sohle seines Ziels" enden und
+  // der Aufgang trotzdem auf halber Hoehe steckenbleiben.
+  // And the SUM is the storey: three runs per ascent, 8 m together. Without this
+  // line every run could end "at its target's sole" and the ascent still stop
+  // halfway.
+  pruefe(
+    `(E) die Laeufe eines Aufgangs ueberwinden zusammen eine Ebene (${EBENE_M} m)`,
+    aufgaenge > 0 && Math.abs(hubGesamt - aufgaenge * EBENE_M) < 1e-9,
+    `${hubGesamt.toFixed(2)} m ueber ${aufgaenge} Aufgaenge`
   );
 }
 
@@ -1137,6 +1179,29 @@ function stempel(teile: Partial<RaumStempel> & { id: number }): RaumStempel {
 // are a contact surface, which every box build lives on. And only what can be
 // SEEN: the probe a hair in front of the face must lie in the clear space of a
 // walkable cell and must not sit inside a third piece.
+
+/**
+ * Anstieg einer Treppenzelle in Hoehenstufen, GEMESSEN wie im Bauer: am oberen
+ * Ende des Laufs, und das ist entweder die Nachbarzelle in Neigungsrichtung
+ * oder die Schachtmuendung darueber.
+ * Rise of a stair cell in height steps, MEASURED as in the builder.
+ */
+function treppenAnstieg(gitter: ZellenGitter, zelle: dungeon2.Zelle): number {
+  const unten = bodenStufen(zelle);
+  const neigung = zelle.neigung;
+  if (neigung !== undefined) {
+    const p = nachbarZelle(zelle.x, zelle.z, neigung);
+    const seitlich = zelleImGitter(gitter, p.x, p.z, zelle.ebene);
+    if (seitlich !== undefined && offen(seitlich.art) && bodenStufen(seitlich) > unten) {
+      return bodenStufen(seitlich) - unten;
+    }
+  }
+  const muendung = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene + 1);
+  if (muendung !== undefined && muendung.art === ZELLEN_ART.Schacht) {
+    return bodenStufen(muendung) - unten;
+  }
+  return 0;
+}
 
 const KOPLANAR_SEEDS = 12;
 const KOPLANAR_EPS = 1e-4;
@@ -1293,7 +1358,15 @@ function flaechenVon(s: BauStueck, stueck: number): Flaeche[] {
   // pieces that BOTH terminate at the same cell border. See decisions-log.
   pruefe(
     `(F) der dokumentierte Rest bleibt klein (${restStreit} Faelle, groesste ${groessteFlaeche.toFixed(2)} m²)`,
-    restStreit <= 60 && groessteFlaeche <= 1 + 1e-9,
+    // Schranke am 2026-08-30 von 60 auf 80 gehoben: Das Treppenhaus belegt
+    // seither sechs Zellen statt drei (drei Laeufe, darueber drei Schachtzellen),
+    // und jede Zellgrenze mehr bringt ein paar Eckstuecke mit. Die GROESSE des
+    // Restes ist dabei GESUNKEN — von 1,00 m² auf 0,50 m² —, und das ist die
+    // Zahl, die das Bild betrifft.
+    // Bound raised from 60 to 80 on 2026-08-30: the stairwell now occupies six
+    // cells instead of three, and every extra cell border brings a few corner
+    // pieces. The SIZE of the residue FELL, from 1.00 m² to 0.50 m².
+    restStreit <= 80 && groessteFlaeche <= 1 + 1e-9,
     `erster: ${ersterRest} | groesster: ${groesserRest}`
   );
 }

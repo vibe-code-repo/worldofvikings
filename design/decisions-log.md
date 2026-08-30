@@ -166,3 +166,172 @@ Schichtentest, der den **Rohtext** scannt, meldet diese Dateien falsch rot.
 `shared/test/dungeon2-schichten.ts` (AP0) muss Kommentare und Zeichenketten
 **vor** dem Scannen entfernen — sonst ist der Schutzzaun ab der ersten Datei
 unbrauchbar.
+
+---
+
+## 2026-08-30 · AP2 · Drehformel für Stempel-Fußabdrücke
+
+**Lücke:** `RaumStempel.drehung` ist eingefroren (§3.4), aber weder
+`ARCHITECTURE.md` noch `data-model.md` sagen, WIE ein `breite`×`tiefe`-
+Fußabdruck bei einer Vierteldrehung auf dem Raster abgebildet wird. Die einzige
+Angabe ist „Ankerzelle (kleinste x/z-Ecke) **vor** der Drehung" —
+`editor-integration.md` §3.5 nennt die Rotationsdarstellung selbst als offene
+Frage ans Datenmodell.
+
+**Entscheidung:** `stempelVersaetze()` (`cells.ts`) rotiert jeden lokalen
+Zellversatz `(lx,lz) ∈ [0,breite)×[0,tiefe)` gegen den Uhrzeigersinn
+(Norden=+z, Osten=+x) um den Ursprung und verschiebt das Ergebnis so, dass es
+wieder bei `(0,0)` beginnt:
+
+```
+drehung 0: (lx, lz)
+drehung 1: (lz, breite-1-lx)
+drehung 2: (breite-1-lx, tiefe-1-lz)
+drehung 3: (tiefe-1-lz, lx)
+```
+
+Die Weltposition der Ankerzelle (`stempel.x`/`stempel.z`) bleibt bei jeder
+Drehung unverändert; bei 90°/270° tauschen `breite` und `tiefe` ihre
+Ausdehnung.
+
+**Grund:** Konservativ und symmetrisch — die einzige Eigenschaft, die
+ARCHITECTURE tatsächlich festlegt ("kleinste x/z-Ecke bleibt Anker"), ist
+mit dieser Formel für alle vier Drehungen erfüllt, ohne eine Annahme über
+Templates oder Richtungsmuster zu treffen, die es in AP2 noch nicht gibt.
+`generator.ts` (AP4) ist der einzige heutige Erzeuger von `drehung` und prüft
+dort, ob die Konvention seinen Anforderungen genügt — bis dahin ist das eine
+dokumentierte Wahl, kein Vertrag.
+
+---
+
+## 2026-08-30 · AP2 · `zellKanteZuQuader()` wird NICHT in AP2 gebaut
+
+**Widerspruch:** `ARCHITECTURE.md` §1.2 listet `zellKanteZuQuader()` in der
+Dateizeile von `cells.ts`; §3.8 beschreibt dieselbe Funktion aber explizit als
+Teil des **Bauer-Vertrags** ("Sichtgeometrie und Kollision rufen dieselbe
+Funktion") — also als Sache von `builder.ts` (AP3). Der AP2-Arbeitsauftrag
+selbst nennt nur `zellenAufbauen`, `wandZwischen`, `stempelSetzen`/
+`-Entfernen` und die Kantenableitung.
+
+**Entscheidung:** `zellKanteZuQuader()` bleibt für AP3 offen. AP2 liefert
+stattdessen `zelleOderLeer()`, `nachbarBegehbar()` und
+`EBENE_IN_HOEHEN_SCHRITTEN` als die Bausteine, die eine spätere
+Kantenfunktion sowieso braucht.
+
+**Grund:** Konservativ entscheiden heißt hier: keine Geometriefunktion mit
+Metern und Vierteldrehungen bauen, deren tatsächliche Anforderungen erst der
+Paritätstest aus AP3 (Wand liegt auf Kollision, beide Richtungen) festlegt.
+Eine in AP2 geratene Fassung würde in AP3 vermutlich verworfen, nicht verfeinert.
+
+---
+
+## 2026-08-30 · AP2 · Was `stempelSetzen()` an Zellfeldern befüllt
+
+**Lücke:** `RaumStempel` trägt keinen `materialTag`, keine Wand-/
+Durchgangsmuster und keine `ZellenArt` außer implizit "begehbarer Raum". Diese
+Felder gehören zu `Zelle`, nicht zu `RaumStempel` — die Themen-/Materiallogik
+lebt aber erst in `themen.ts`/`generator.ts` (AP4).
+
+**Entscheidung:** `stempelSetzen()` erzeugt für jede Fußabdruckzelle
+`art = Boden`, `boden = stempel.bodenVersatz`, `decke = stempel.hoehe`,
+`materialTag = 2` (Boden-Platten, Platzhalter), `wandErzwungen =
+durchgangErzwungen = 0`, `oberflaeche = 0`. `generator.ts`/`themen.ts` (AP4)
+überschreiben `materialTag`/`oberflaeche` über eigene Logik oder Korrekturen;
+Treppen/Sonderarten entstehen ebenfalls über `ZellenKorrektur` (siehe
+Treppentest in `dungeon2-invarianten.ts`).
+
+**Grund:** Ein fester, dokumentierter Platzhalter ist ehrlicher als eine
+geratene Materiallogik, die AP4 ohnehin ersetzt. Die Wandableitung bleibt
+unberührt, weil sie nur von `art`/`boden`/`wandErzwungen`/`durchgangErzwungen`
+abhängt — alles Felder, die hier explizit und neutral gesetzt werden.
+
+---
+
+## 2026-08-30 · AP2 · `stempelEntfernen()` arbeitet auf dem Gitter, nicht auf dem Dokument
+
+**Lücke:** `data-model.md` §1.4 nennt `stempelSetzen`/`stempelEntfernen` als
+Teil der „Bau-Logik in `shared/`", ohne zu sagen, ob sie auf dem
+`DungeonLayout2`-Dokument oder auf dem bereits ausgerollten `ZellenGitter`
+operieren.
+
+**Entscheidung:** Beide Funktionen operieren auf `ZellenGitter` (reine
+Funktionen, Gitter rein → Gitter raus). `stempelEntfernen()` löscht alle
+Zellen, deren AKTUELLER `stempelId` passt, und gibt sie auf Fels zurück. Ein
+darunterliegender, zuvor überschriebener Stempel kommt dadurch NICHT zurück —
+dafür muss der Aufrufer den Stempel aus `layout.stempel` streichen und
+`zellenAufbauen()` neu laufen lassen.
+
+**Grund:** `zellenAufbauen()` aus dem Dokument ist die einzige vollständig
+korrekte Quelle der Wahrheit (Stempel sind Autorenschicht, Zellen sind
+Wahrheit, W1). Eine Gitter-Operation ist die billige Editor-Vorschau für den
+Regelfall „letzten Raum wieder wegnehmen" — sie als Vollrückbau misszuverstehen
+wäre die gefährlichere Annahme.
+
+---
+
+## 2026-08-30 · AP2 · Vertikale Erreichbarkeit läuft über `Schacht`-Zellen
+
+**Lücke:** `ZellenArt.Schacht` ist als "offen nach oben/unten" dokumentiert
+(`layout.ts`-Kommentar zum Enum), aber keine der fünf Quellanalysen sagt, WIE
+die Erreichbarkeitsprüfung (§3.7, "Flutfüllung über offene Kanten") zwischen
+zwei `ebene`-Werten wechselt — `Kante` ist nur eine horizontale Bitmaske.
+
+**Entscheidung:** `erreichbareZellen()` (`cells.ts`) behandelt `Schacht`-Zellen
+als zusätzliche vertikale Verbindung zu `(x,z,ebene±1)`, wenn die
+Nachbarzelle begehbar ist — ohne Wandprüfung (Wände sind ein horizontales
+Konzept). Alle anderen Zellenarten verbinden nur horizontal über
+`nachbarZelle`/`wandZwischen`.
+
+**Grund:** Das ist die einzige Lesart, die den Namen und den Kommentar der
+Zellenart ernst nimmt, ohne ein neues Datenfeld zu erfinden. Ein Stockwerk-
+wechsel ohne jede Schachtzelle wäre unsichtbar kaputt — die Flutfüllung würde
+ihn ohnehin als unerreichbar melden, was korrekt ist, solange Treppen künftig
+(`generator.ts`, AP4) ebenfalls über eine Schachtzelle an die nächste Ebene
+anschließen oder ganz innerhalb einer Ebene bleiben.
+
+---
+
+## 2026-08-30 · AP2 · `rueckgrat` prüft die notwendige, nicht die hinreichende Bedingung
+
+**Lücke:** §3.7 letzte Zeile verlangt „ein garantiertes Rückgrat vom Eingang
+zum tiefsten Pflichtraum, das kein Stempel überschreiben darf". Das
+eingefrorene Format kennzeichnet aber keinen „Pflichtraum" — es gibt nur
+`RaumStempel.tiefeImBaum`, eine Zahl ohne definierte Bedeutung „das ist die
+Zielkammer".
+
+**Entscheidung:** `validateZellgitter()` prüft: der Stempel mit der größten
+`tiefeImBaum` (Tiebreak: kleinste `id`) hat mindestens eine Zelle, die vom
+Eingang aus erreichbar ist. Die stärkere Zusage — dass KEIN künftiger Stempel
+dieses Rückgrat kappen darf — ist eine Erzeugungsregel für `generator.ts`
+(AP4), keine statische Eigenschaft eines fertigen Layouts.
+
+**Grund:** Das ist die einzige Teilprüfung, die mit den heute eingefrorenen
+Feldern überhaupt entscheidbar ist. Sie überschneidet sich in der Praxis oft
+mit `erreichbar` (ein unerreichbarer tiefster Raum ist auch eine unerreichbare
+Zelle), meldet aber unter ihrem EIGENEN Regelnamen — das reicht, damit AP4
+später eine schärfere, generatorseitige Zusage daraufsetzen kann, ohne den
+Regelnamen zu verschieben.
+
+---
+
+## 2026-08-30 · AP2 · `mische`/`hashPos`: Seed zuerst avalanchen
+
+**Risiko (beim Testen entdeckt, kein Beschluss verletzt):** Eine erste Fassung
+von `mische(seed, salt) = avalanche32((seed ^ salt) >>> 0)` liefert für
+**jedes** `seed === salt` (als Bitmuster, auch `seed = salt = -1`) exakt `0` —
+`avalanche32(0) === 0` ist ein bekannter Fixpunkt des Murmur3-Finalizers.
+Zwei nach Zufall gleich benannte Ströme (z. B. ein Stempel mit `id` gleich dem
+`architektur`-Seed) wären damit ununterscheidbar von einem zweiten, ebenso
+degenerierten Fall.
+
+**Entscheidung:** `mische()`/`hashPos()` avalanchen den Seed zuerst für sich
+(`avalanche32(seed >>> 0)`) und verrühren erst DANACH mit Salz bzw.
+Koordinaten. `mische(0, 0)` (und `hashPos(0,0,0,0)`) bleiben `0` — der einzige
+verbleibende Fixpunkt ist der vollständig degenerierte Fall „alles Null", der
+in der Praxis nicht als echter Seed vorkommt.
+
+**Grund:** Determinismus verlangt keine kryptographische Bijektivität, aber
+zwei erkennbar verschiedene Eingaben sollten nicht auf denselben Strom-Seed
+fallen, nur weil sie zufällig bitgleich sind. Die eingefrorene Wertetabelle in
+`shared/test/dungeon2-hashing.ts` ist gegen die KORRIGIERTE Fassung
+eingefroren.

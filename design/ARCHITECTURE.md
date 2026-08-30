@@ -10,15 +10,15 @@ erstellt: 2026-08-30
 die Verträge ein, auf denen die Umsetzungs-Workflows aufsetzen.
 
 Quellen (alle fünf gelesen, alle Aussagen unten sind gegen sie geprüft):
-`design/woc-analyse.md` · `design/datenmodell.md` · `design/render-technik.md` ·
-`design/editor-anbindung.md` · `design/material-plan.md`
+`design/woc-analysis.md` · `design/data-model.md` · `design/render-tech.md` ·
+`design/editor-integration.md` · `design/material-plan.md`
 Maßgebliche Beschlüsse: `02 Projekte/World-of-Vikings/Dungeon Generator 2.0.md` (Vault).
 
 Worktree `/home/mike/wov-wt-dungeon2`, Branch `dungeon-generator-2` ab `origin/main`.
 
 > **Verbindliche Kommentar-Regel (gilt für jede neue Zeile Code in diesem Vorhaben):**
 > **Code-Kommentare sind zweisprachig — Deutsch UND Englisch, beide Sprachen am selben Kommentar.**
-> Muster (aus `datenmodell.md` §1.2, so und nicht anders):
+> Muster (aus `data-model.md` §1.2, so und nicht anders):
 > ```ts
 > /**
 >  * Rasterkonstanten. Sie stehen ZUSÄTZLICH im Dokument, weil eine Konstante
@@ -69,7 +69,7 @@ Worktree `/home/mike/wov-wt-dungeon2`, Branch `dungeon-generator-2` ab `origin/m
 ```
 
 **Die harte Grenze wird durch einen Dauertest erzwungen, nicht durch Disziplin.** WoC hat dafür
-`tests/architecture.test.ts` (`woc-analyse.md` §1). Unsere Fassung: `shared/test/dungeon2-schichten.ts` scannt
+`tests/architecture.test.ts` (`woc-analysis.md` §1). Unsere Fassung: `shared/test/dungeon2-schichten.ts` scannt
 `shared/src/dungeon2/**` und lässt nicht zu: `@babylonjs/*`, `node:*`, `window`/`document`, `Math.random`,
 `Date.now`, `performance.now`, `Math.sin`/`Math.cos` in Hash-Pfaden. Das ist billig und verhindert genau den
 Rückfall, der uns zwingen würde, Geometrie über die Leitung zu schicken.
@@ -126,8 +126,8 @@ benannt, entschieden und begründet. **Die Entscheidung unten gilt, nicht das Qu
 
 ### W1 — Sind Stempel Teil des gespeicherten Dokuments?
 
-- `datenmodell.md` §1.4: Ja. Das Dokument speichert **Stempel + Korrekturen**, `zellenAufbauen()` rollt aus.
-- `editor-anbindung.md` §3.3: Nein — „der Stempel selbst ist kein persistentes Objekt im Dokument, sondern nur
+- `data-model.md` §1.4: Ja. Das Dokument speichert **Stempel + Korrekturen**, `zellenAufbauen()` rollt aus.
+- `editor-integration.md` §3.3: Nein — „der Stempel selbst ist kein persistentes Objekt im Dokument, sondern nur
   der Weg, wie die Zellen entstanden sind".
 
 **Entscheidung: Stempel werden gespeichert (datenmodell gewinnt).** Drei Gründe, die die Editor-Sicht schlagen:
@@ -142,8 +142,8 @@ Verhalten. Kein Bauer-, Kollisions- oder Shader-Pfad darf `stempelId` auswerten.
 
 ### W2 — Wann kippt ein erzeugter Dungeon auf „von Hand gebaut"?
 
-- `editor-anbindung.md` §3.4: bei **jedem** Handeingriff (`mode = 'custom'`, wie im Altbestand).
-- `datenmodell.md` §4.5: erst wenn jemand **die Stempel** anfasst; Zellen-Korrekturen lassen `modus: 'erzeugt'`
+- `editor-integration.md` §3.4: bei **jedem** Handeingriff (`mode = 'custom'`, wie im Altbestand).
+- `data-model.md` §4.5: erst wenn jemand **die Stempel** anfasst; Zellen-Korrekturen lassen `modus: 'erzeugt'`
   stehen.
 
 **Entscheidung: datenmodell gewinnt, mit einer Zusatzregel.** Der Gewinn ist konkret — „regenerieren und meine
@@ -156,8 +156,8 @@ gewürfelt werden (das ist der ganze Sinn der Seed-Dreiteilung).
 
 ### W3 — Was ist die Chunk-Grenze für Rendering?
 
-- `render-technik.md` §5.1: der **Raum**.
-- `datenmodell.md` §3.2 (4): der **Block** = 8×8 Zellen einer Ebene (32 m).
+- `render-tech.md` §5.1: der **Raum**.
+- `data-model.md` §3.2 (4): der **Block** = 8×8 Zellen einer Ebene (32 m).
 
 **Entscheidung: der Block (datenmodell gewinnt).** Räume sind als Chunk untauglich, weil Stempel sich
 überlappen dürfen („Gang durch Saal", `ordnung`) — eine Zelle kann dann zu zwei Räumen gehören, und ein Chunk mit
@@ -172,9 +172,9 @@ nur mit Block statt Terrain-Cell. Die Blockgröße 8×8 steht unter Messvorbehal
 ### W4 — Woher kommt die „Feuchte in Ecken"?
 
 - Beschluss/`material-plan.md` §2: Blend-Layer über eine Maske.
-- `render-technik.md` §2.2: SSAO ist im Material-Shader **nicht lesbar** (Post-Process nach dem Material-Pass);
+- `render-tech.md` §2.2: SSAO ist im Material-Shader **nicht lesbar** (Post-Process nach dem Material-Pass);
   Ersatz `fwidth`-Cavity **plus** Zellen-Attribut.
-- `datenmodell.md` §3.1: Der Bauer rechnet `hoeheUeberBoden` und `kantenAbstand` je Ecke aus und legt sie in
+- `data-model.md` §3.1: Der Bauer rechnet `hoeheUeberBoden` und `kantenAbstand` je Ecke aus und legt sie in
   `BlendAttribute` ab; im Client wandern sie in `uv2`.
 
 **Entscheidung: Das Zellen-/Bauer-Attribut ist die Wahrheit, `fwidth` ist optionale Verfeinerung auf Stufe Hoch.**
@@ -189,7 +189,7 @@ Ein bildraum-abhängiger Ersatzpfad wäre ein zweites Verhalten für denselben E
 ### W5 — ORM oder ORH? Und Atlas, Array oder Einzeltexturen?
 
 - `material-plan.md` §2: pro Material **Albedo, Normal, ORM (Occlusion/Rauheit/Metallic), Height**, je 1K, KTX2.
-- `render-technik.md` §1.5: drei `sampler2DArray` — `dungeonAlbedoArray`, `dungeonNormalArray`,
+- `render-tech.md` §1.5: drei `sampler2DArray` — `dungeonAlbedoArray`, `dungeonNormalArray`,
   **`dungeonOrhArray` (Occlusion/Rauheit/Height)**.
 
 Das ist ein echter Kanalkonflikt: Der dritte Kanal ist einmal Metallic, einmal Height.
@@ -229,8 +229,8 @@ dürfen nie als `materialTag` einer Zelle auftauchen — `pruefeLayout()` prüft
 
 ### W6 — Welcher Zufallsgenerator?
 
-- `woc-analyse.md` §3: mulberry32, `Math.imul`, engine-unabhängig.
-- `datenmodell.md` §2.1: `XorShiftRandom` aus `shared/src/worldgen/Random.ts` bleibt.
+- `woc-analysis.md` §3: mulberry32, `Math.imul`, engine-unabhängig.
+- `data-model.md` §2.1: `XorShiftRandom` aus `shared/src/worldgen/Random.ts` bleibt.
 
 **Entscheidung: `XorShiftRandom` bleibt — der Einwand trifft ihn nicht.** Nachgelesen: der Generator ist
 uint32-basiert (`Math.imul`, `>>>`), `nextFloat()` ist per `Math.fround` bit-exakt auf float32 normiert, und die
@@ -255,7 +255,7 @@ Etage jedes Seeds".
 
 ### W8 — Zieht der Bauer oder hasht er?
 
-`datenmodell.md` §3.2 (2) sagt hashen. Kein anderes Dokument widerspricht, aber `render-technik.md` §2.4 spricht
+`data-model.md` §3.2 (2) sagt hashen. Kein anderes Dokument widerspricht, aber `render-tech.md` §2.4 spricht
 von „prozeduralem Rauschen mit `theme.seed`" im Shader. **Beides ist dasselbe und wird festgeschrieben:**
 CPU-Bauer und GPU-Shader benutzen **denselben ganzzahligen Hash** über Weltposition und `seeds.material`.
 Nur so ist ein Moosfleck, den der Shader zeichnet, an derselben Stelle wie eine Kante, die der Bauer geformt hat.
@@ -265,8 +265,8 @@ Spawnblöcke zuerst, Rest nachziehen, ohne dass sich etwas ändert.
 ### W9 — Was gehört in Meilenstein 1?
 
 - Beschluss: „Vollausbau Stufe 1: SSAO, Godrays, SSR, Parallax".
-- `render-technik.md` §3.2: „Meilenstein 1 ohne SSR".
-- `datenmodell.md` §7: Atmosphäre erst nach dem Adapter.
+- `render-tech.md` §3.2: „Meilenstein 1 ohne SSR".
+- `data-model.md` §7: Atmosphäre erst nach dem Adapter.
 
 **Entscheidung: Meilenstein 1 endet beim begehbaren, texturierten Dungeon mit dungeon-kalibriertem SSAO.**
 SSR, Godrays und Parallax sind **Meilenstein 2**. Der Beschluss „Vollausbau" bleibt gültig als Ziel des
@@ -278,7 +278,7 @@ nebenbei trifft, während der Grundriss noch nicht steht.
 ### W10 — Wer prüft die Kollision?
 
 - Beschluss: „Server braucht den Bauer für Kollision".
-- `datenmodell.md` Befund 1: Der Server prüft **heute keine** Kollision; die gesamte Physik ist Client/Havok, die
+- `data-model.md` Befund 1: Der Server prüft **heute keine** Kollision; die gesamte Physik ist Client/Havok, die
   Form wird aus den GLBs gemessen.
 
 **Entscheidung: In Meilenstein 1 wird die Spielerbewegung nicht serverautoritativ.** Der Bauer liegt trotzdem in
@@ -289,8 +289,8 @@ Laufgefühl), und autoritative Bewegung ist später eine reine Server-Entscheidu
 
 ### W11 — Blend-Gewichte: weiche Potenz oder Dominanz-Kollaps?
 
-- `render-technik.md` §1.1: `pow(abs(n), SCHAERFE)` mit Schärfe 3–6, normalisiert.
-- `woc-analyse.md` §6: WoCs Kollaps `w = normalize(pow(|n|,4))`, dann `w = normalize(max(w - 0.15, 0))` — macht
+- `render-tech.md` §1.1: `pow(abs(n), SCHAERFE)` mit Schärfe 3–6, normalisiert.
+- `woc-analysis.md` §6: WoCs Kollaps `w = normalize(pow(|n|,4))`, dann `w = normalize(max(w - 0.15, 0))` — macht
   achsnahe Flächen **exakt** one-hot und erlaubt einen Ein-Tap-Schnellpfad.
 
 **Entscheidung: Dominanz-Kollaps (woc-analyse gewinnt).** Für ein Barrow aus ruhigen, achsausgerichteten Quadern
@@ -305,14 +305,14 @@ der Sonderfall wird also billig statt teuer.
 
 ### W12 — Editor: 2D oder 3D als primäre Fläche?
 
-- `editor-anbindung.md` §3.5: 2D-Draufsicht primär, 3D als zweite Ebene, Debouncing bei Bedarf.
+- `editor-integration.md` §3.5: 2D-Draufsicht primär, 3D als zweite Ebene, Debouncing bei Bedarf.
 
 Kein Widerspruch, aber eine **Ergänzung aus dem Datenmodell**, die dort noch fehlt: Weil der Bauer blockweise und
 reihenfolgefrei ist (W8), braucht die 3D-Vorschau **kein** Debouncing im üblichen Sinn — ein Pinselstrich baut
 genau die betroffenen Blöcke neu. Das ist der Grund, warum der Hash-statt-Strom-Beschluss im Bauer keine
 Detailfrage ist. Debouncing bleibt als Rückfallebene, wenn die Messung etwas anderes sagt.
 
-Und die drei offenen Fragen aus `editor-anbindung.md` §4 sind hiermit beantwortet:
+Und die drei offenen Fragen aus `editor-integration.md` §4 sind hiermit beantwortet:
 Bodenhöhe **pro Zelle flach** (`boden`), plus `neigung` nur bei Treppen · Wandflags als **Bitmaske je Kante**
 (`Kante`-Enum, zwei Masken: erzwungen/durchgang) · Theme-Referenz als **`thema: string` + `seeds`** im Dokument,
 die Seitenleiste braucht einen Theme-Wähler und drei Seed-Felder.
@@ -521,7 +521,7 @@ Ecklücken-Klasse bei uns bauartbedingt entfällt.
 Deshalb steht in jedem Paket unten ein Prüfkriterium, das **ohne Bild** entscheidbar ist, und erst die Pakete
 AP7/AP11 liefern Bilder. Nichts wird ausgerollt, bevor Mike die Bilder gesehen hat.
 
-Der Grundsatz aus `datenmodell.md` §7 ist übernommen: **das erste Rendering zeigt graue Kästen, nicht Material** —
+Der Grundsatz aus `data-model.md` §7 ist übernommen: **das erste Rendering zeigt graue Kästen, nicht Material** —
 ein Fehler im Grundriss verschwindet unter einer schönen Oberfläche.
 
 ### Abhängigkeitsbild
@@ -642,7 +642,7 @@ Dateien: `shared/src/dungeon2/bauer.ts`, `shared/test/dungeon2-bauer.ts`,
 ### AP4 — `generator.ts` + `themen.ts`
 **Modell: Opus.** **Braucht: AP2** (kann parallel zu AP3 laufen).
 
-Umfang: Phasen P0–P10 nach `datenmodell.md` §2.3, Thema `steingrab`. Zielgröße in **Zellen**, nicht in Räumen.
+Umfang: Phasen P0–P10 nach `data-model.md` §2.3, Thema `steingrab`. Zielgröße in **Zellen**, nicht in Räumen.
 Ausdrückliche **Schleifenphase P5** — ohne sie ist jeder erzeugte Dungeon ein Baum, und Bäume laufen sich als
 Sackgassenparcours an. Validierung mit **deterministischem Rückfall** auf eine einfache Form (nie neu würfeln —
 neu würfeln kostet Determinismus-Klarheit). Garantiertes Rückgrat (§3.7, letzte Zeile).
@@ -794,7 +794,7 @@ Ladezeit protokolliert.
 ### AP13 — Adapter an die Instanz-Infrastruktur
 **Modell: Opus** (hier hängen die drei gelösten Fallen aus der Vault-Notiz). **Braucht: AP7.**
 
-Umfang nach `datenmodell.md` §4: `DungeonDokument2` mit `version >= 10` als Weiche im Sanitizer;
+Umfang nach `data-model.md` §4: `DungeonDokument2` mit `version >= 10` als Weiche im Sanitizer;
 `materialisiere2()` — ZDOs **nur** für Bewegliches/Interaktives (Architektur bekommt keine ZDOs mehr, Größenordnung
 ein Fünftel); `getSpawnPoint()` → `BauErgebnis.spawnPunkt`; `dekoAngleichen()` → `ankerAngleichen()`
 (**Deko ändern reißt die Instanz nicht ab** — sonst teleportiert jede gesetzte Fackel den Spieler an den Eingang);

@@ -519,12 +519,23 @@ export function erzeugeLayoutMitBericht(
    * keeps the order of `thema.raumTypen` — a fixed data list, not a set
    * iteration.
    */
-  const zieheTyp = (a: Anschluss): RaumTypProfil | undefined => {
+  const zieheTyp = (a: Anschluss, nurEchteRaeume = false): RaumTypProfil | undefined => {
     const kandidaten = thema.raumTypen.filter((p) => {
       if (p.gewicht <= 0) return false;
       if (p.minTiefe !== undefined && a.tiefe + 1 < p.minTiefe) return false;
       if (p.maxAnzahl !== undefined && anzahlTyp(p.typ) >= p.maxAnzahl) return false;
       if (p.typ === 'treppe' && a.ebene + 1 > grenzen.maxEbene) return false;
+      // An einer Schachtmuendung zaehlt nur ein echter Raum. `nische` und
+      // `abschluss` sind 1x1-Verschlaege ohne eigene Ausgaenge — sie machen aus
+      // der Sackgasse eine Sackgasse mit einem Schritt mehr, und ein zweites
+      // Treppenhaus verschiebt die Frage nur eine Ebene hoeher.
+      // At a shaft mouth only a real room counts. `nische` and `abschluss` are
+      // 1x1 closets without exits of their own — they turn the dead end into a
+      // dead end plus one step — and a second stairwell merely moves the
+      // question one storey up.
+      if (nurEchteRaeume && (p.typ === 'treppe' || p.typ === 'nische' || p.typ === 'abschluss')) {
+        return false;
+      }
       return true;
     });
     if (kandidaten.length === 0) return undefined;
@@ -712,6 +723,45 @@ export function erzeugeLayoutMitBericht(
       if (!rechteckFrei(m.x, m.z, a.ebene, 1, 1)) return false;
       if (!rechteckFrei(m.x, m.z, a.ebene + 1, 1, 1)) return false;
 
+      // Merkposten fuer den Rueckbau. Ein Treppenhaus, an dessen Muendung oben
+      // KEIN echter Raum anschliessbar ist, wird als GANZES verworfen — eine
+      // Treppe in einen 1x1-Verschlag ohne Ausgang ist regelkonform und trotzdem
+      // Unsinn (`erreichbar` ist erfuellt, begehbar ist sie nicht).
+      // Bookmarks for the rollback. A stairwell whose mouth cannot attach to a
+      // real room upstairs is discarded ENTIRELY — a staircase into a 1x1 closet
+      // without an exit passes the rules and is nonsense all the same
+      // (`reachable` holds, walkable it is not).
+      const zurueckId = naechsteId;
+      const zurueckStempel = stempel.length;
+      const zurueckVerbindungen = verbindungsListe.length;
+      const zurueckAnschluesse = anschluesse.length;
+      const verwirfTreppenhaus = (): void => {
+        for (let i = stempel.length - 1; i >= zurueckStempel; i--) {
+          const s = stempel[i]!;
+          for (let dx = 0; dx < s.breite; dx++) {
+            for (let dz = 0; dz < s.tiefe; dz++) {
+              belegung.delete(schluesselZelle(s.x + dx, s.z + dz, s.ebene));
+            }
+          }
+          eltern.delete(s.id);
+          treppenLaeufe.delete(s.id);
+        }
+        stempel.length = zurueckStempel;
+        naechsteId = zurueckId;
+        for (let i = verbindungsListe.length - 1; i >= zurueckVerbindungen; i--) {
+          verbindungen.delete(kantenSchluessel(verbindungsListe[i]!));
+        }
+        verbindungsListe.length = zurueckVerbindungen;
+        anschluesse.length = zurueckAnschluesse;
+        // Die drei Zellen des Treppenhauses waren vor dem Setzen frei, ihre
+        // Korrektureintraege koennen also nur von hier stammen.
+        // The stairwell's three cells were free before placement, so their fix
+        // entries can only come from here.
+        korrekturRoh.delete(schluesselZelle(n.x, n.z, a.ebene));
+        korrekturRoh.delete(schluesselZelle(m.x, m.z, a.ebene));
+        korrekturRoh.delete(schluesselZelle(m.x, m.z, a.ebene + 1));
+      };
+
       const lauf1 = setzeStempel(
         'treppe',
         n.x,
@@ -791,6 +841,42 @@ export function erzeugeLayoutMitBericht(
       // one that gets no floor slab when something open lies below it.
       setzeArt(m.x, m.z, a.ebene + 1, ZELLEN_ART.Schacht);
       verbindungHinzu(a.x, a.z, a.ebene, a.kante);
+      // Die Muendung MUSS an einen echten Raum derselben Ebene anschliessen.
+      // Vorher hing das am Zufall: die Muendung wurde nur als Wachstumsfront
+      // eingetragen, und wenn die Zielgroesse vorher erreicht war (oder die
+      // gezogene Ausgangszahl 1 lautete und die Kante ins Gestein zeigte), blieb
+      // oben ein 1x1-Verschlag stehen — bei Seed 2 vier von sechs Muendungen.
+      // Deshalb waechst hier SOFORT ein Raum aus der Muendung, statt es der
+      // Hauptschleife zu ueberlassen.
+      // The mouth MUST attach to a real room on the same storey. Before, this
+      // was left to chance: the mouth was merely registered as a frontier edge,
+      // and if the target size had already been reached (or the drawn exit count
+      // was 1 and that edge pointed into rock), a 1x1 closet stayed up there —
+      // four of six mouths at seed 2. So a room is grown out of the mouth RIGHT
+      // HERE instead of leaving it to the main loop.
+      const obenKanten = randKanten(muendung).filter((k) => {
+        const o = nachbarZelle(k.x, k.z, k.kante);
+        return frei(o.x, o.z, k.ebene);
+      });
+      let angebunden = false;
+      while (obenKanten.length > 0 && !angebunden) {
+        const j = arch.rangeInt(0, obenKanten.length);
+        const k = obenKanten.splice(j, 1)[0]!;
+        const o = nachbarZelle(k.x, k.z, k.kante);
+        const anOben: Anschluss = { ...k, stempelId: muendung.id, tiefe: muendung.tiefeImBaum };
+        for (let versuch = 0; versuch < MAX_TYP_VERSUCHE; versuch++) {
+          const obenProfil = zieheTyp(anOben, true);
+          if (obenProfil === undefined) break;
+          if (versucheZuSetzen(obenProfil, anOben, o)) {
+            angebunden = true;
+            break;
+          }
+        }
+      }
+      if (!angebunden) {
+        verwirfTreppenhaus();
+        return false;
+      }
       // Die Laeufe bekommen keine eigenen Ausgaenge — sie sind der Aufstieg,
       // nicht ein Raum. Die Front waechst an der Muendung weiter.
       // The runs get no exits of their own — they are the ascent, not a room.

@@ -1732,3 +1732,81 @@ von der Seite zeigen, nie von oben herab.
 Vermutung — und ein Kommentar, der das offen sagt („der Generator erzeugt über
 120 Seeds KEINE einzige Treppenzelle"), ist ein Fehlerbericht, den niemand als
 solchen gelesen hat.
+
+---
+
+## 2026-08-30 · AP4 · Ein Treppenaufgang muss oben in einen Raum münden
+
+**Lücke:** Der Vorgänger machte die Treppen echt, ließ aber offen, wohin sie
+führen. Der Aufgang setzte drei Zellen (zwei Läufe unten, die `Schacht`-Mündung
+oben) und trug die Mündung nur als **Wachstumsfront** ein. Ob dort je ein Raum
+wuchs, entschied der Zufall: war die gezogene Zielgröße erreicht, bevor die
+Hauptschleife die Mündungskante zog, blieb oben eine 1×1-Kammer ohne Ausgang
+stehen. Regelkonform — `erreichbar` ist erfüllt, sobald der Schacht vom Eingang
+aus erreicht wird — und trotzdem Unsinn. Gemessen über 200 Seeds: **171 von 225
+Mündungen (76 %) angebunden**, bei Vorschau-Seed 2 **vier von sechs Mündungen
+ohne jeden Nachbarn**, eine fünfte nur an eine 1×1-Nische.
+
+**Entscheidung 1 — die Anbindung wird erzwungen, nicht gehofft.** Direkt nach
+dem Setzen des Treppenhauses wächst aus der Mündung **sofort** ein Raum: die
+freien Randkanten der Mündung werden in gezogener Reihenfolge durchprobiert, je
+Kante bis zu `MAX_TYP_VERSUCHE` Raumtypen. Das ist derselbe Weg, den die
+Hauptschleife geht (`versucheZuSetzen` ruft sich rekursiv auf) — kein zweiter
+Setzpfad, den niemand misst.
+
+**Entscheidung 2 — an einer Mündung zählt nur ein echter Raum.** `zieheTyp()`
+bekommt den Schalter `nurEchteRaeume`, der `treppe`, `nische` und `abschluss`
+aussortiert. Eine 1×1-Nische verschöbe die Sackgasse um einen Schritt, ein
+zweites Treppenhaus um eine Ebene. Übrig bleiben `gang` (1×L, L≥3), `kammer`,
+`saal`, `schatzkammer`, `grabkammer`.
+
+**Entscheidung 3 — geht oben nichts, fällt das GANZE Treppenhaus.** Eine Treppe
+in einen Verschlag ist schlechter als keine Treppe. `verwirfTreppenhaus()` baut
+alle drei Stempel zurück: Belegung, Eltern, `treppenLaeufe`, die
+Verbindungskante, die drei Korrektureinträge, die Anschlussliste und
+`naechsteId`. Die **Ziehungen** werden nicht zurückgenommen — das wäre ein
+zweiter Zufallszustand neben dem Strom. Determinismus verlangt gleiche Eingabe →
+gleiche Ausgabe, nicht ziehungsfreie Sackgassen.
+
+**Nicht angefasst — die beiden dokumentierten Fallen bleiben stehen:** Die
+**Röhren-Regel** (alles außer Fuß und Kopf der Läufe wird zugemauert, und die
+Läufe stehen in `treppenLaeufe`, also weder in `nachwuchs()` noch in den
+Berührungskanten) gilt unverändert; die Mündung ist ausdrücklich **kein** Lauf
+und darf deshalb Türen tragen. `TREPPE_KOPFRAUM_STUFEN = 6` ist unberührt.
+
+**Wächter** (`shared/test/dungeon2-generator.ts`, Kriterium (g), 200 Seeds):
+Jede `Schacht`-Zelle hat mindestens einen Nachbarn derselben Ebene, der offen
+ist, keine Wand dazwischen hat (`wandZwischen`, also inklusive der abgeleiteten
+Höhenregel), zu einem **Nicht-Treppen**-Stempel gehört und **größer als 1×1**
+ist. Dazu die Gegenprobe gegen das billige Grün: **wie viele Seeds überhaupt
+noch eine Treppe haben** — sonst erfüllte man (g), indem man alle Treppen
+wegwirft.
+
+| | vorher | nachher |
+|---|---|---|
+| Seeds mit Treppe (von 200) | 98 (49 %) | **98 (49 %)** |
+| Schachtmündungen gesamt | 225 | 183 |
+| davon angebunden | 171 (76 %) | **183 (100 %)** |
+
+Die Zahl der Mündungen sinkt um 19 % — das sind die verworfenen Treppenhäuser.
+Die Zahl der Seeds **mit** Treppe bleibt gleich; kein Grab verliert seine
+Mehrstöckigkeit, es werden nur die überzähligen Aufgänge knapper. Der Test hält
+die Schranke bei 90 von 200, damit ein echter Einbruch auffällt statt sich als
+„immer noch Treppen da" wegzureden.
+
+**Eingefrorene Tabellen neu ausgegeben** (`dungeon2-generator.ts`,
+`dungeon2-builder.ts`, `golden/dungeon2-e2e.json`, Verfahren
+`DUNGEON2_EINFRIEREN=1`): Der Grundriss ändert sich absichtlich — ein verworfenes
+Treppenhaus verschiebt alles, was danach gezogen wird.
+
+**Bildbeweis** (Seed 2, Vorschau auf :5901, Chromium mit ANGLE/Vulkan):
+`~/.cache/wov-tripo-test/dungeon2-muendung.png`, Kamera in der Mündung
+(−7,−4) auf Ebene 1, Weltmitte (−26, −12.8), 10 m hoch, Blick 180°, Neigung 6°.
+Links steht die Laibung der Mündung, dahinter öffnet sich der angeschlossene
+**Saal 6×7 Zellen (24 × 28 m)** mit Fackel und ferner Südwand — kein
+1×1-Verschlag. Bei diesem Seed bleibt nach dem Fix genau **eine** Mündung übrig
+(vorher sechs), und die führt in den größten Raum der oberen Ebene.
+
+**Lehre:** „Erreichbar" ist keine Aussage über Begehbarkeit. Eine Regel, die nur
+fragt, ob der Spieler **hinkommt**, sagt nichts darüber, ob es sich lohnt — und
+genau diese Lücke hatte in (a)–(d) kein einziges Symptom.

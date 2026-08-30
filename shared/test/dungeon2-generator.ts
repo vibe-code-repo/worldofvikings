@@ -36,6 +36,13 @@
  *       plus eine eingefrorene Wertetabelle.
  *       Determinism: same seed -> identical checksum, over 100 seeds, plus a
  *       frozen value table.
+ *   (g) Jede `Schacht`-Muendung eines Treppenhauses schliesst an einen ECHTEN
+ *       Raum derselben Ebene an (kein Treppenstempel, kein 1x1-Verschlag).
+ *       Gegenprobe gegen billiges Gruen: die Zahl der Seeds MIT Treppe darf
+ *       dabei nicht einbrechen.
+ *       Every `Schacht` mouth of a stairwell attaches to a REAL room on the same
+ *       storey (no stair stamp, no 1x1 closet). Counter-check against cheap
+ *       green: the number of seeds WITH a staircase must not collapse.
  *
  * Dazu die Stromtrennung aus `ARCHITECTURE.md` W7/W8 und ein paar
  * Profil-Invarianten, die sonst niemand prueft.
@@ -44,14 +51,25 @@
  */
 
 import {
+  KANTEN,
   MIN_LICHTE_STUFEN,
   MAX_MATERIAL_TAG,
+  ZELLEN_ART,
   layoutPruefsumme,
+  nachbarZelle,
   nurFehler,
   type DungeonLayout2,
   type LayoutSeeds,
 } from '../src/dungeon2/layout.js';
-import { erreichbareZellen, schluesselZelle, zellenAufbauen, zellenSortiert } from '../src/dungeon2/cells.js';
+import {
+  erreichbareZellen,
+  offen,
+  schluesselZelle,
+  wandZwischen,
+  zelleImGitter,
+  zellenAufbauen,
+  zellenSortiert,
+} from '../src/dungeon2/cells.js';
 import { validateLayoutVoll } from '../src/dungeon2/validation.js';
 import {
   einfacheForm,
@@ -150,6 +168,10 @@ let ankerGesamt = 0;
 let auffuellungenGesamt = 0;
 let ersterFehler = '';
 let ersteZielAbweichung = '';
+let muendungenGesamt = 0;
+let muendungenAngebunden = 0;
+let treppenSeeds = 0;
+let ersteSackgasse = '';
 
 for (let i = 0; i < SEEDS; i++) {
   const seeds = seedsFuer(i);
@@ -221,6 +243,48 @@ for (let i = 0; i < SEEDS; i++) {
     if (!erreichbareStempel.has(s.id)) unerreichbareRaeume++;
   }
 
+  // (g) Jede Schachtmuendung fuehrt in einen ECHTEN Raum derselben Ebene.
+  // Regelkonform war eine Muendung schon vorher: `erreichbar` ist erfuellt,
+  // sobald der Schacht vom Eingang aus erreicht wird. Begehbar war sie deshalb
+  // nicht — bei Seed 2 endeten vier von sechs Muendungen in einer 1x1-Kammer
+  // ohne Ausgang. Ein Treppenhaus, das nirgendwohin fuehrt, hat kein Symptom in
+  // (a)-(d); es braucht diesen eigenen Zeugen.
+  // (g) Every shaft mouth leads into a REAL room on the same storey. A mouth was
+  // rule-conformant before: `reachable` holds as soon as the shaft is reached
+  // from the entrance. Walkable it was not — at seed 2 four of six mouths ended
+  // in a 1x1 chamber without an exit. A stairwell leading nowhere has no symptom
+  // in (a)-(d); it needs this witness of its own.
+  {
+    const stempelNachId = new Map(layout.stempel.map((s) => [s.id, s]));
+    let hatTreppe = false;
+    for (const zelle of zellenSortiert(gitter)) {
+      if (zelle.art !== ZELLEN_ART.Schacht) continue;
+      hatTreppe = true;
+      muendungenGesamt++;
+      let angebunden = false;
+      for (const kante of KANTEN) {
+        const p = nachbarZelle(zelle.x, zelle.z, kante);
+        const n = zelleImGitter(gitter, p.x, p.z, zelle.ebene);
+        if (n === undefined || !offen(n.art)) continue;
+        if (wandZwischen(zelle, n)) continue;
+        const s = stempelNachId.get(n.stempelId);
+        if (s === undefined || s.typ === 'treppe') continue;
+        // Ein 1x1-Stempel ist eine Fuellkammer, kein Raum — er verschoebe die
+        // Sackgasse nur um einen Schritt.
+        // A 1x1 stamp is a filler chamber, not a room — it would move the dead
+        // end by one step only.
+        if (s.breite * s.tiefe < 2) continue;
+        angebunden = true;
+        break;
+      }
+      if (angebunden) muendungenAngebunden++;
+      else if (ersteSackgasse === '') {
+        ersteSackgasse = `Seed ${i}: Muendung (${zelle.x},${zelle.z}) auf Ebene ${zelle.ebene}`;
+      }
+    }
+    if (hatTreppe) treppenSeeds++;
+  }
+
   if (bericht.ebenenZahl > 1) mehrEbenenSeeds++;
   tuerenGesamt += layout.tueren.length;
   ankerGesamt += layout.anker.length;
@@ -256,6 +320,24 @@ pruefe(
   'ueber 200 Seeds entsteht mindestens ein mehrstoeckiges Grab',
   mehrEbenenSeeds > 0,
   `${mehrEbenenSeeds} Seeds`
+);
+pruefe(
+  `(g) jede Schachtmuendung schliesst an einen echten Raum derselben Ebene an`,
+  muendungenGesamt > 0 && muendungenAngebunden === muendungenGesamt,
+  `${muendungenAngebunden}/${muendungenGesamt} angebunden; erste Sackgasse: ${ersteSackgasse}`
+);
+// Gegenprobe zum Wegwerfen ganzer Treppenhaeuser: Wenn die Anbindungspflicht
+// die Treppen aus dem Generator draengt, ist (g) trivial gruen. Vor dem Fix
+// hatten 98 von 200 Seeds eine Treppe; die Schranke liegt bewusst knapp
+// darunter, damit ein echter Einbruch auffaellt.
+// Counter-check to discarding whole stairwells: if the attachment duty pushes
+// stairs out of the generator, (g) is trivially green. Before the fix 98 of 200
+// seeds had a staircase; the bound sits deliberately just below, so a real
+// collapse shows up.
+pruefe(
+  `(g) die Anbindungspflicht kostet keine nennenswerte Zahl an Treppen-Seeds`,
+  treppenSeeds >= 90,
+  `nur ${treppenSeeds}/${SEEDS} Seeds mit Treppe (vor dem Fix: 98)`
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -398,10 +480,10 @@ pruefe(
 const EINGEFROREN: readonly (readonly [number, string, number, number, number, number])[] = [
   // [Seed-Index, pruefsumme, Stempel, Zellen, Tueren, Anker]
   [0, '77f521e6', 35, 303, 16, 91],
-  [1, '1ecb0edf', 48, 338, 12, 101],
-  [7, 'eeff600e', 31, 317, 5, 100],
+  [1, '5027738e', 47, 337, 10, 90],
+  [7, '616084ad', 49, 317, 16, 87],
   [42, 'c3c5d958', 32, 309, 10, 95],
-  [199, 'd0ddbd01', 43, 287, 10, 88],
+  [199, '2f28fe93', 38, 295, 10, 101],
 ];
 
 {
@@ -447,6 +529,7 @@ const EINGEFROREN: readonly (readonly [number, string, number, number, number, n
 console.log(
   `dungeon2-generator: ${gutZahl} Pruefungen gruen, ${fehlerListe.length} rot ` +
     `(Sweep: ${SEEDS} Seeds, ${mitZyklus} mit Zyklus, ${mehrEbenenSeeds} mehrstoeckig, ` +
+    `${treppenSeeds} mit Treppe, ${muendungenAngebunden}/${muendungenGesamt} Muendungen angebunden, ` +
     `${tuerenGesamt} Tueren, ${ankerGesamt} Anker, ${auffuellungenGesamt} Auffuellungen)`
 );
 for (const f of fehlerListe) console.log(`  ROT  ${f}`);

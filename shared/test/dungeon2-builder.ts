@@ -372,10 +372,10 @@ const GLEICH_SEEDS = 100;
 // Frozen table. Reprint with DUNGEON2_EINFRIEREN=1 (see below).
 const EINGEFROREN: readonly (readonly [number, string, number, number, number])[] = [
   [0, '453626be', 1042, 963, 303],
-  [1, '1a60d53b', 1252, 1109, 338],
-  [7, '57b19f4c', 1052, 954, 317],
+  [1, '97fa3537', 1218, 1095, 337],
+  [7, '4d64fe3d', 1249, 1113, 317],
   [42, 'bf14a2d6', 1055, 974, 309],
-  [199, 'f74b1253', 1086, 955, 287],
+  [199, '80463c01', 1076, 976, 295],
 ];
 
 {

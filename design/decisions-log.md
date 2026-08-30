@@ -335,3 +335,200 @@ zwei erkennbar verschiedene Eingaben sollten nicht auf denselben Strom-Seed
 fallen, nur weil sie zufällig bitgleich sind. Die eingefrorene Wertetabelle in
 `shared/test/dungeon2-hashing.ts` ist gegen die KORRIGIERTE Fassung
 eingefroren.
+
+---
+
+## 2026-08-30 · AP4 · Paketnummer: Auftrag „AP3" = ARCHITECTURE-„AP4"
+
+**Widerspruch:** Der Arbeitsauftrag überschreibt dieses Paket mit „AP3 — der
+Auto-Generator (`shared/src/dungeon2/generator.ts`)". In `ARCHITECTURE.md` §4 ist
+AP3 der **Geometrie-Bauer** (`builder.ts`) und AP4 sind `generator.ts` +
+`themen.ts`.
+
+**Entscheidung:** Gebaut wurde der **Inhalt** des Auftrags — `generator.ts` und
+`themen.ts` — und geprüft wurde gegen die **AP4-Prüfkriterien** aus
+`ARCHITECTURE.md` (200 Seeds, Zellenzahl, Schleifen, Erreichbarkeit,
+Reihenfolge-Stabilität), ergänzt um den Determinismus über 100 Seeds aus dem
+Auftrag.
+
+**Grund:** Der Auftrag benennt Datei, Phasen und Prüfkriterien eindeutig; die
+Nummer ist die einzige Abweichung. `builder.ts` (das ARCHITECTURE-AP3) bleibt
+unberührt und offen.
+
+---
+
+## 2026-08-30 · AP4 · Der Auto-Generator dreht keine Stempel (`drehung: 0`)
+
+**Lücke:** `RaumStempel.drehung` ist eingefroren, aber `ARCHITECTURE.md` sagt
+nirgends, wer Drehungen erzeugt. AP2 hat eine Drehformel geschrieben und
+ausdrücklich angemerkt, dass AP4 sie gegenprüfen soll.
+
+**Entscheidung:** Der Auto-Generator setzt **immer `drehung: 0`**. Die
+Ausrichtung eines Raums an der Anschlussachse geschieht durch **Tausch von
+`breite` und `tiefe`** (ein Gang nach Osten ist entlang x lang).
+
+**Grund:** Ein um 90° gedrehtes Rechteck *ist* dasselbe Rechteck mit
+vertauschter Breite und Tiefe. Die Drehformel wäre damit halb benutzt —
+belastbar für die vier achsparallelen Fälle, ungeprüft für alles andere. Halb
+benutzt ist die schlechteste Lage: Sie sieht nach Deckung aus, ohne welche zu
+sein. Die Formel bleibt für den Editor (Handarbeit) erhalten, im Auto-Generator
+unbenutzt. **Folge für AP2s offenen Punkt:** Die Drehformel ist von AP4 *nicht*
+gegengeprüft — sie ist umgangen. Der erste echte Prüfer wird der Editor (AP15).
+
+---
+
+## 2026-08-30 · AP4 · `materialTag` kommt aus dem Raumtyp, über eine Rückrufoption
+
+**Lücke:** `cells.ts` (AP2) setzt beim Stempeln einen festen Platzhalter
+(`materialTag = 2`) und vermerkt als offenen Punkt, dass AP4 ihn über `themen.ts`
+ersetzen muss. Das Dokument nennt sein Thema aber nur als **Text**; ein
+Themen-Nachschlag im Zellkern wäre eine Registry im reinen Modul und würde die
+`"sideEffects": false`-Zusage von `shared/package.json` untergraben.
+
+**Entscheidung:** `cells.ts` bekommt einen **optionalen, additiven** Parameter
+`AufbauOptionen { materialTagFuerStempel?(s): number }`, den
+`stempelSetzen`/`zellenAufbauen`/`validateLayoutVoll` durchreichen. Ohne Option
+bleibt der Platzhalter — das Verhalten von AP2, unverändert, AP2s Tests bleiben
+grün. Der Materialtag selbst hängt **nur am Raumtyp** (`RaumTypProfil.materialTag`),
+nicht an einer Ziehung.
+
+**Grund:** Der Aufrufer kennt das Thema, der Zellkern nicht. Eine reine Funktion
+hereinzureichen ist billiger als eine Themen-Tabelle in `cells.ts` und hält die
+Schichtgrenze. Dass der Tag nicht gezogen wird, ist die Voraussetzung dafür, dass
+ein neuer `seeds.material` den Grundriss nicht verschiebt (W2).
+
+---
+
+## 2026-08-30 · AP4 · `variante` wird gehasht, nicht gezogen; `VARIANTEN` ist eine Modulkonstante
+
+**Lücke:** `RaumStempel.variante` heißt „Themenvariante (Materialsatz-Index)",
+aber weder `ARCHITECTURE.md` noch `data-model.md` §2.2 nennen einen Wertebereich
+oder eine Quelle.
+
+**Entscheidung:** `variante = hashPos(x, z, ebene, seeds.material) % VARIANTEN`,
+mit `VARIANTEN = 4` als Konstante in `themen.ts` — **keine** neue Feld im
+eingefrorenen `ThemenProfil`.
+
+**Grund:** W2 sagt zu, dass der Material-Seed jederzeit neu gewürfelt werden
+darf. Eine Ziehung aus dem Architekturstrom würde den Grundriss an den
+Material-Seed binden; ein Hash über die Position tut das nicht (W8, derselbe
+Grundsatz wie beim Bauer). Der Test misst genau das: anderer Material-Seed →
+gleiche Fußabdrücke, andere Varianten.
+
+---
+
+## 2026-08-30 · AP4 · Ebenenwechsel läuft über `Schacht`, nicht über `Treppe`
+
+**Widerspruch:** `data-model.md` §2.3 P4 sagt „Treppenstempel spannen zwei
+Ebenen". AP2 hat die Erreichbarkeit aber so gebaut, dass die Flutfüllung
+**ausschließlich über `ZellenArt.Schacht`** senkrecht läuft (AP2-Entscheidung 5,
+aus dem Enum-Kommentar „offen nach oben/unten"), und `treppe-anschluss` prüft
+Nachbarn **derselben** Ebene.
+
+**Entscheidung:** Ein `treppe`-Stempel erzeugt **zwei** 1×1-Stempel an derselben
+(x,z) auf `ebene` und `ebene+1`, deren Zellen per Korrektur zu `Schacht` werden.
+Die Belegungsprüfung läuft über beide Ebenen (genau die Zusage von P4). Der
+Raumtyp heißt weiter `treppe` — er ist der Durchstieg, wie die Stufen darin
+aussehen, entscheidet der Bauer.
+
+**Grund:** Die Alternative wäre gewesen, AP2s Erreichbarkeit zu ändern. Das ist
+teurer und riskanter als ein Stempelpaar: `art: Treppe` bedeutet in AP2 eine
+Rampe **innerhalb** einer Ebene, und diese Bedeutung ist bereits durch acht
+Invarianten und deren Negativfälle abgestützt.
+
+---
+
+## 2026-08-30 · AP4 · Zielgröße wird einmal gezogen; `zielZellen[1]` bleibt harte Grenze
+
+**Lücke:** „Zellenzahl liegt in `zielZellen`" sagt nicht, ob man bei der
+Untergrenze aufhört oder eine Größe zieht.
+
+**Entscheidung:** **Eine** Ziehung `zielMenge = rangeInt(min, max+1)` in P0; die
+Wachstumsschleife läuft, bis `zielMenge` erreicht ist, und jede Platzierung, die
+`zielZellen[1]` überschreiten würde, wird abgelehnt.
+
+**Grund:** Ohne die Ziehung war gemessen jedes Grab 220–227 Zellen groß — die
+obere Hälfte des Bereichs wäre Zierde gewesen. Die harte Obergrenze bleibt
+daneben stehen, weil der letzte gesetzte Saal die Zielmenge sonst überschießen
+könnte.
+
+---
+
+## 2026-08-30 · AP4 · P2b: deterministische Auffüllung statt Neuwürfeln
+
+**Lücke:** `ARCHITECTURE.md` AP4 verlangt „Validierung mit **deterministischem
+Rückfall** auf eine einfache Form (nie neu würfeln)", sagt aber nichts über den
+Fall, dass das gewichtete Wachstum die Zielmenge gar nicht erreicht (jeder freie
+Platz ist zu klein für die gezogenen Typen).
+
+**Entscheidung:** Eine **ziehungsfreie** Phase P2b setzt auf die kanonisch erste
+freie Nachbarzelle einen 1×1-`abschluss`, bis die Zielmenge steht. Die Zahl der
+Auffüllungen steht im `Erzeugungsbericht` und wird vom Test ausgegeben
+(gemessen: **0 über 200 Seeds** — das Netz hängt, es trägt heute nichts).
+
+**Grund:** Ein Netz, das nie zieht und nie würfelt, kostet nichts und macht das
+Kriterium „Zellenzahl in `zielZellen`" zu einer Zusage statt zu einer Hoffnung.
+
+---
+
+## 2026-08-30 · AP4 · Anker-Id aus der Layout-Position, nicht aus der Ziehreihenfolge
+
+**Lücke:** `DekoAnker.id` ist eingefroren, aber niemand sagt, woher sie kommt.
+
+**Entscheidung:**
+`id = (((ebene' · 4096 + z') · 4096 + x') · 4 + ort) · |ROLLEN| + rollenIndex`,
+mit grenzenrelativen Koordinaten (`x' = x − grenzen.minX` usw.). Liegt eine
+Position außerhalb der Spannweiten oder ist die Id schon vergeben, entsteht
+**kein** Anker.
+
+**Grund:** `ARCHITECTURE.md` AP13: „Objekt-IDs kommen aus der Layout-Position
+(Zellindex + Rolle), nie aus der Ziehreihenfolge — sonst wandert der ZDO-Zustand
+einer geöffneten Truhe auf eine andere." Die Folge ist, dass `ROLLEN` in
+`themen.ts` **nur angehängt, nie umsortiert** werden darf; das steht dort als
+Kommentar an der Liste.
+
+---
+
+## 2026-08-30 · AP4 · Ein Architekturstrom für P0–P8, verschlossene Türen nur an der Schatzkammer
+
+**Entscheidung 1:** P0–P8 teilen sich **einen** `XorShiftRandom`, wie W7 es
+wörtlich sagt — P5 (Schleifen) und P8 (Türen) bekommen **keine** eigenen Ströme.
+
+**Grund:** W7 erlaubt eigene Ströme ausdrücklich nur für *neue* Merkmale.
+Schleifen und Türen sind in der eingefrorenen Phasenliste enthalten, also keine
+neuen Merkmale. Der Buchstabe ist hier konservativer als die Bequemlichkeit.
+
+**Entscheidung 2:** `zustand: 'verschlossen'` entsteht **nur** an einer Kante,
+an der eine `schatzkammer` liegt, immer mit `schluessel: '<thema>-schatzkammer'`.
+
+**Grund:** `validateLayout` lehnt eine verschlossene Tür ohne Schlüssel ab
+(`tuer-feld`). Ein zufällig verteilter Schlüsselbedarf ohne Schlüsselquelle wäre
+ein Spielproblem, das der Generator nicht lösen kann; die Schatzkammer ist der
+eine Ort, an dem ein Schloss etwas erzählt.
+
+---
+
+## 2026-08-30 · AP4 · `bodenVersatz` ist immer 0
+
+**Entscheidung:** Alle erzeugten Stempel stehen auf der Ebenensohle.
+
+**Grund:** Die abgeleitete Wandregel (§3.3) setzt eine Wand, sobald
+`|boden_A − boden_B| > 1`. Ein gezogener Bodenversatz würde also Verbindungen
+still zumauern, die der Generator gerade geöffnet hat — und der Fehler hätte
+kein Symptom außer „dieser Raum ist manchmal nicht erreichbar". Höhenspiel
+gehört in eine spätere Phase mit einer eigenen Zusage, nicht als Nebenwirkung
+einer Ziehung in P2.
+
+---
+
+## 2026-08-30 · AP4 · `zusatzZiehungInP9` ist ein Messhaken in der Schnittstelle
+
+**Entscheidung:** `Erzeugungsvorgaben` trägt ein Feld, das in P9 je Stempel
+**eine** zusätzliche Ziehung in den Deko-Strom schiebt — ausschließlich, damit
+`shared/test/dungeon2-generator.ts` das Abnahmekriterium (e) messen kann.
+
+**Grund:** Die Alternative wäre ein Test, der den Generator nachbaut. Ein Test,
+der den Prüfling nachbaut, misst den Nachbau. Der Haken kostet ein `boolean` und
+ist in beiden Sprachen als reines Messwerkzeug beschriftet; die Gegenprobe im
+Test (die **Anker müssen** sich ändern) sorgt dafür, dass er nicht versehentlich
+wirkungslos wird.

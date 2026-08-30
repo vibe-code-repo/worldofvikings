@@ -50,6 +50,7 @@ import {
   zellenAufbauen,
   zellenSortiert,
   wandZwischen,
+  type AufbauOptionen,
   type ZellenGitter,
 } from './cells.js';
 
@@ -244,8 +245,11 @@ export function validateZellgitter(layout: DungeonLayout2, gitter: ZellenGitter)
  * (this module). Builds the grid itself — editor, generator and server
  * normally call this function, not the two parts separately.
  */
-export function validateLayoutVoll(layout: DungeonLayout2): Befund[] {
+export function validateLayoutVoll(
+  layout: DungeonLayout2,
+  optionen?: AufbauOptionen
+): Befund[] {
   const dokumentBefunde = validateLayout(layout);
-  const gitter = zellenAufbauen(layout);
+  const gitter = zellenAufbauen(layout, optionen);
   return [...dokumentBefunde, ...validateZellgitter(layout, gitter)];
 }

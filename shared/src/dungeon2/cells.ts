@@ -218,6 +218,27 @@ export function wandZwischen(a: Zelle, b: Zelle): boolean {
 const STEMPEL_MATERIAL_PLATZHALTER = 2;
 
 /**
+ * Optionen des Ausrollens. Heute genau eine: woher der `materialTag` einer
+ * frisch gestempelten Zelle kommt.
+ * Roll-out options. Exactly one today: where the `materialTag` of a freshly
+ * stamped cell comes from.
+ *
+ * ENTSCHEIDUNG (AP4, siehe `design/decisions-log.md` AP4-2): `cells.ts` darf
+ * `themen.ts` nicht importieren — das Dokument nennt sein Thema nur als Text,
+ * und eine Themensuche im Zellkern waere eine Registry im reinen Modul. Statt
+ * dessen reicht der Aufrufer, der das Thema kennt, eine reine Funktion herein.
+ * Ohne Option bleibt der Platzhalter — das Verhalten von AP2, unveraendert.
+ * DECISION (AP4, see `design/decisions-log.md` AP4-2): `cells.ts` must not
+ * import `themen.ts` — the document names its theme only as text, and a theme
+ * lookup inside the cell core would be a registry inside the pure module.
+ * Instead the caller, who knows the theme, hands in a pure function. Without
+ * the option the placeholder stays — AP2's behaviour, unchanged.
+ */
+export interface AufbauOptionen {
+  readonly materialTagFuerStempel?: (stempel: RaumStempel) => number;
+}
+
+/**
  * Ein lokaler Zellversatz (vor Rasterverschiebung um die Stempelposition).
  * A local cell offset (before translating by the stamp's grid position).
  */
@@ -287,8 +308,13 @@ function stempelVersaetze(stempel: RaumStempel): LokalerVersatz[] {
  * "later stamps overwrite the cells of earlier ones" (`ordnung`, ARCHITECTURE
  * §3.4). Pure function: takes a grid, returns a new one.
  */
-export function stempelSetzen(gitter: ZellenGitter, stempel: RaumStempel): ZellenGitter {
+export function stempelSetzen(
+  gitter: ZellenGitter,
+  stempel: RaumStempel,
+  optionen?: AufbauOptionen
+): ZellenGitter {
   const zellen = new Map(gitter.zellen);
+  const materialTag = optionen?.materialTagFuerStempel?.(stempel) ?? STEMPEL_MATERIAL_PLATZHALTER;
   for (const { lx, lz } of stempelVersaetze(stempel)) {
     const x = stempel.x + lx;
     const z = stempel.z + lz;
@@ -301,7 +327,7 @@ export function stempelSetzen(gitter: ZellenGitter, stempel: RaumStempel): Zelle
       decke: stempel.hoehe,
       wandErzwungen: 0,
       durchgangErzwungen: 0,
-      materialTag: STEMPEL_MATERIAL_PLATZHALTER,
+      materialTag,
       oberflaeche: 0,
       stempelId: stempel.id,
     };
@@ -355,10 +381,10 @@ export function stempelEntfernen(gitter: ZellenGitter, stempelId: number): Zelle
  * edge — setting a door does not require separately opening the wall,
  * `data-model.md` §1.5).
  */
-export function zellenAufbauen(layout: DungeonLayout2): ZellenGitter {
+export function zellenAufbauen(layout: DungeonLayout2, optionen?: AufbauOptionen): ZellenGitter {
   const stempelSortiert = [...layout.stempel].sort((a, b) => a.ordnung - b.ordnung || a.id - b.id);
   let gitter: ZellenGitter = { zellen: new Map() };
-  for (const stempel of stempelSortiert) gitter = stempelSetzen(gitter, stempel);
+  for (const stempel of stempelSortiert) gitter = stempelSetzen(gitter, stempel, optionen);
 
   const korrekturenSortiert = [...layout.korrekturen].sort(
     (a, b) => a.ebene - b.ebene || a.z - b.z || a.x - b.x

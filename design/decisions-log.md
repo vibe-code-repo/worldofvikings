@@ -1810,3 +1810,157 @@ Links steht die Laibung der Mündung, dahinter öffnet sich der angeschlossene
 **Lehre:** „Erreichbar" ist keine Aussage über Begehbarkeit. Eine Regel, die nur
 fragt, ob der Spieler **hinkommt**, sagt nichts darüber, ob es sich lohnt — und
 genau diese Lücke hatte in (a)–(d) kein einziges Symptom.
+
+---
+
+## 2026-08-30 · AP6 · Zwei Geometriefehler des Bauers: Streifen im Boden, Quader vor der Wand
+
+**Befund (Mike, Vorschau STEINGRAB, zwei Screenshots).** (1) Auf Bodenflächen
+flackerten streifenweise helle Mauerwerkstexturen durch. (2) An manchen Stellen
+standen langgestreckte Quader sichtbar VOR einer sonst planen Wand.
+
+### Befund 1 — Z-Fighting: die Wand steckte in Boden- und Deckenplatte
+
+**Ursache** (`shared/src/dungeon2/cells.ts`, `zellKanteZuQuaderGanz`): Die
+senkrechte Ausdehnung eines Wandquaders war die Vereinigung der **Bau**-Säulen
+(`saeuleUnten`/`saeuleOben`), also *einschliesslich* Boden- und Deckenplatte.
+Damit lag die Unterseite der Wand exakt in der Ebene der Bodenplatten-Unterseite
+und ihre Oberseite exakt in der Ebene der Deckenplatten-Oberseite. Zwei
+deckungsgleiche Flächen in einer Ebene sind Z-Fighting; sichtbar wurde es auf dem
+Stockwerk **darüber**, weil `materialFuer()` senkrechten Bauteilen den WAND-Tag
+gibt und waagerechten den Zell-Tag — heller Sandstein gegen dunklen Boden.
+Dieselbe Ursache in drei weiteren Bauteilen: Tür**pfosten** (`untenMin` aus
+`saeuleUnten`), Tür**sturz** (`ys1 = max(saeuleOben)`) und die Deckenplatte
+selbst, die im bündigen Fall volumengleich mit der Bodenplatte des Stockwerks
+darüber lag.
+
+**Fix — was in einer Platte steckt, bekommt keine Fläche:**
+
+* Wandquader: `ys0 = min(bodenStufen)`, `ys1 = max(obenStufen)` — Aussenhaut von
+  der Boden-OBERKANTE bis zur Decken-UNTERKANTE. Dicht bleibt es, weil dort die
+  Platte selbst steht; sie deckt den ganzen Zellfussabdruck ab, also auch die
+  Hälfte des Wandstreifens, die in der Zelle liegt.
+* Neuer Deckel `deckelDurchStockwerkDarueber()`: kein Wandquader fährt durch die
+  Bodenplatte des Stockwerks darüber. Er gilt für **beide** Seiten des Streifens,
+  auch für eine Felsseite — über Fels kann sehr wohl ein Raum liegen, und genau
+  dort fuhren die Aussenwände durch dessen Boden. (Der Fall entsteht, weil
+  `obenStufen()` die lichte Säule bis an einen Schachtboden hebt: steht der
+  Schacht nur über EINER der beiden Zellen, nimmt der Quader trotzdem die höhere
+  Säule.)
+* `deckenOberkante()`: die Deckenplatte endet spätestens an der Unterkante der
+  Bodenplatte darüber. Wird der Deckel bindend, entfällt sie ganz — von unten
+  sieht man dann die Unterseite des Bodens darüber statt einer zweiten Platte.
+* Türpfosten beginnen an der Boden-Oberkante, der Sturz endet an der
+  **niedrigeren** Deckenunterkante und fällt danach in denselben Laibungs-Zweig
+  wie eine Öffnung ohne Tür: eine Türkante IST eine offene Kante mit Rahmen.
+* Simse: keine in Treppenzellen (dort ist der Boden selbst gestuft), Enden um die
+  halbe Wanddicke eingezogen, und an einer Ecke mit zwei Simsen weicht der
+  entlang X — sonst belegen beide dasselbe Eckstück.
+
+### Befund 2 — das Füllstück über einer Öffnung nahm den ganzen Kantenstreifen
+
+**Ursache** (`shared/src/dungeon2/builder.ts`, `baueKante`, alter Zweig
+`obenMax > obenMin`): Über einer offenen Kante mit ungleichen Deckenhöhen wurde
+ein Quader über den **ganzen** Kantenstreifen gelegt. Der Streifen liegt mittig
+auf der Zellgrenze — also ragte ein halber Meter davon in den lichten Raum des
+höheren Raums. Gemessen über 8 Seeds: **75 solcher Balken**, bis zu 2,5 m hoch,
+0,5 m vor der Wandflucht. Zusätzlich reichte das Stück bis zur Decken-OBERkante
+statt bis zur Decken-Unterkante.
+
+**Fix — die Laibung ist eine halbe Sache:** neu `kantenStreifenHaelfte()`; das
+Stück belegt nur die Hälfte auf der Seite der **niedrigeren** Zelle, von deren
+Deckenplatten-Oberkante bis zur höchsten Deckenunterkante. Die andere Hälfte hat
+nichts zu dichten — dort steht die Deckenplatte des höheren Raums.
+
+### Zwei Sackgassen, beide gemessen und beide verworfen
+
+1. **Trittflächen quer stutzen.** Naheliegend (die Stufen stecken eine halbe
+   Wanddicke in der flankierenden Wand) und **falsch**: unter dem oberen Lauf
+   eines Treppenhauses SIND die Stufenquader der Unterbau (`sockelStufen`), die
+   flankierende Wand beginnt aber erst vier Meter höher an der Bodenoberkante
+   ihrer Zelle. Der Beschnitt riss dort eine handbreite Spalte auf.
+2. **Die Wand an der niedrigeren Decke enden lassen** und darüber einen halben
+   Streifen aufsetzen. Auf der hohen Seite bündig — aber hinter dem Aufsatz
+   bleibt ein Hohlraum, den (B2) zu Recht als Leck meldet; auf der niedrigen
+   Seite klafft stattdessen eine halbmeter-tiefe Nische durch den ganzen Raum.
+   Ein Wandeck Z-Fighting ist beides Mal das kleinere Übel.
+
+Der Beschnitt entfernt seither nur, was **nachweislich** von einer Platte oder
+einer Wand verdeckt ist. Deshalb auch zwei Einzugsregeln: `einzugZier` (Pfosten,
+dichten nichts — eine Querwand auf EINER Seite genügt) und `einzugDicht` (Sturz —
+BEIDE Seiten müssen eine Querwand haben, sonst nimmt man dem Sturz auf der
+wandlosen Seite ein Stück weg, das niemand ersetzt; genau so entstand im ersten
+Anlauf ein schwarzer Spalt neben der Laibung).
+
+### Wächter
+
+**(F) Koplanarität** (`shared/test/dungeon2-builder.ts`, 12 Seeds): gesucht sind
+Flächenpaare, die (1) in derselben Ebene liegen, (2) in dieselbe Richtung
+blicken und (3) sich mit echter Fläche überlappen — nur diese drei zusammen sind
+Z-Fighting. Zwei koplanare Flächen, die voneinander WEG blicken, sind eine
+Berührung; davon lebt jeder Quaderbau. Und nur, was man sehen kann: die Probe
+einen Hauch vor der Fläche muss im lichten Raum liegen und darf nicht in einem
+dritten Bauteil stecken.
+
+| | vorher | nachher |
+|---|---|---|
+| waagerechte Sichtfläche (Boden/Decke/Stufe/Sims), grösser als ein Wandeck | Seed 0: `decke/wand`, **0,5 m × 4,0 m** | **0** |
+| Rest (senkrechte Stirnflächen, Eckstücke) | 478 Fälle, grösste 4,00 m² | 49 Fälle, grösste 0,75 m² |
+
+Der **Rest** ist benannt und beschränkt, nicht weggeredet: Wandzug, Laibung und
+Deckenplatte laufen an derselben Zellgrenze aus und enden dort in einer Ebene.
+Er ist höchstens ein Wandeck breit und liegt am Rand des Blickfelds; beide
+Versuche, ihn wegzuschneiden, stehen oben.
+
+**(G) Wandflucht** (12 Seeds): der lichte Raum jeder begehbaren Zelle —
+waagerecht bis an die Wandflucht (halbe Wanddicke an jeder Kante mit Wand ODER
+Türrahmen, denn der Rahmen IST dort die Wandflucht), senkrecht von der
+Bodenoberkante bis zur Deckenunterkante. Kein Stück darf mit echtem Volumen
+darin liegen.
+
+| | vorher | nachher |
+|---|---|---|
+| Stücke vor der Wandflucht | Seed 0: `wand` ragt **0,5 m × 1,0 m** in Zelle (−14,−7) | **0** |
+
+Zwei Ausnahmen mit eigener Regel statt eines Freibriefs: Trittflächen in
+Treppenzellen (sie SIND dort der Boden) und Simse — deren Auskragung ist
+gewollt und wird darum nicht übergangen, sondern **schärfer** geprüft: genau
+`SIMS_TIEFE_ACHTEL` tief und nur an einer Kante mit Wand (5 400 Simse geprüft).
+
+**(B2) verschärft.** Die Dichtheitsprobe sass bisher in der MITTE jeder Zellkante
+und sah die Naht nicht, an der die Wandstreifen zweier Richtungen aneinander
+stossen. Sie probt jetzt an **drei** Stellen jeder Kante, dicht bei beiden Ecken
+— und genau dort hat sie die Spalte aus Sackgasse 1 gefunden (387 306 statt
+129 102 Proben). Eine Probe in der Mitte misst die Wand, nicht ihre Nähte.
+
+**Nebenbefund, nicht gefixt:** Die Regel `ebenen-abstand` vergleicht
+`boden + decke` mit der Sohle darüber und lässt die **Dicke** der Bodenplatte des
+Stockwerks darüber aus. Wo der Abstand knapp ist, hängt diese Platte bis zu einen
+halben Meter in den Raum darunter; `NavZelle.lichteHoehe` ist dort um so viel zu
+gross. (G) misst deshalb gegen die wirkliche Deckenunterkante. Das gehört in die
+Layoutregel, nicht in den Bauer.
+
+**Eingefrorene Tabellen neu ausgegeben** (`dungeon2-builder.ts`,
+`golden/dungeon2-e2e.json`, `DUNGEON2_EINFRIEREN=1`): Die Geometrie ändert sich
+absichtlich. Der Grundriss NICHT — `layoutPruefsumme` ist unverändert, nur
+`bauPruefsumme` und die Blockschlüssel. Seed 0: 1042 → **1018 Stücke**, 963 →
+939 Körper, Nav unverändert (303). Es entstehen weniger Dreiecke, nicht mehr:
+weggeschnitten wird nur, was ohnehin niemand sah.
+
+**Bildbeweis** (Vorschau auf :5901, Chromium mit ANGLE/Vulkan, je ein Vorher-Bild
+zum Vergleich geschossen):
+`~/.cache/wov-tripo-test/dungeon2-boden-fix.png` — Seed 11, Ebene 1, flacher
+Blick über den Korridorboden bei (2, 9.4, −6), Blick 90°, Neigung 6°. Vorher lag
+quer über dem Boden am Korridorende ein heller Mauerwerksstreifen; nachher ist
+der Boden durchgehend dunkel, und der Blick geht bis ans Ende durch.
+`dungeon2-flucht-fix.png` — Seed 7, Schrägblick eine lange Wand entlang bei
+(7, 2.3, −46), Blick −6°, Neigung −7°. Vorher stand über der Öffnung ein Sturz
+einen halben Meter vor der Wandflucht (im Bild als vorspringende Platte mit
+eigener Untersicht); nachher ist die Wand plan. Beide Bilder auf sehr dunkle
+Pixel abgesucht: **null** — keine schwarzen Spalten an Boden- oder Deckenkante.
+
+**Lehre:** Ein Beschnitt ist kein Sparprogramm, sondern eine Behauptung — „das
+verdeckt jemand anders". Wo die Behauptung nicht bewiesen ist, entsteht statt
+eines Flackerns ein Loch, und das Loch sieht man erst im Bild. Die Regel, die
+daraus folgt: im Zweifel weniger schneiden, und die Dichtheitsprobe dorthin
+setzen, wo die Bauteile enden — nicht dorthin, wo sie am dicksten sind.

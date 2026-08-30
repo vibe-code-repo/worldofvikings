@@ -712,6 +712,73 @@ export function kantenStreifen(
 }
 
 /**
+ * Hoechste Hoehenstufe, bis zu der ueber dieser Zelle noch gebaut werden darf:
+ * die UNTERKANTE der Bodenplatte des Stockwerks darueber, sonst unbeschraenkt.
+ *
+ * Wozu: `obenStufen()` hebt die lichte Saeule einer Zelle bis an den Schachtboden
+ * darueber. Ein Wandquader nimmt die HOECHSTE lichte Saeule seiner beiden
+ * Beteiligten — steht der Schacht nur ueber der EINEN, faehrt die Wand auf der
+ * anderen Seite durch deren Bodenplatte im Stockwerk darueber hindurch, und ihre
+ * Oberflaeche liegt dann koplanar zur Bodenoberflaeche des oberen Raums: der
+ * helle Mauerwerksstreifen im dunklen Boden. Was der Deckel wegnimmt, ersetzt
+ * genau diese Bodenplatte — sie deckt den ganzen Zellfussabdruck ab, also auch
+ * die Haelfte des Wandstreifens, die unter ihr liegt.
+ * Highest height step up to which anything may be built above this cell: the
+ * UNDERSIDE of the floor slab of the storey above, otherwise unbounded. Why:
+ * `obenStufen()` lifts a cell's clear column up to the shaft floor above. A wall
+ * box takes the HIGHEST clear column of its two participants — if the shaft
+ * stands above only ONE of them, the wall drives through the other one's floor
+ * slab on the storey above, and its top face then lies coplanar with the upper
+ * room's floor surface: the light masonry stripe in the dark floor. What the cap
+ * removes is replaced by exactly that floor slab — it covers the whole cell
+ * footprint, hence also the half of the wall strip beneath it.
+ */
+function deckelDurchStockwerkDarueber(gitter: ZellenGitter, zelle: Zelle): number {
+  const drueber = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene + 1);
+  if (drueber === undefined || !offen(drueber.art) || !hatBodenPlatte(gitter, drueber)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return bodenStufen(drueber) - BODEN_DICKE_STUFEN;
+}
+
+/**
+ * Die HAELFTE eines Kantenstreifens, die in der eigenen Zelle liegt
+ * (`eigeneSeite = true`) bzw. die in der Nachbarzelle liegt. Der Streifen ist
+ * mittig auf der Zellgrenze, also je ein Achtel je Seite.
+ *
+ * Wozu: Ein Fuellstueck ueber einer OFFENEN Kante (Sturz, Laibung) darf nur die
+ * Haelfte belegen, die hinter der Wandflucht der Nachbarin liegt. Nimmt es den
+ * ganzen Streifen, ragt es einen halben Meter in den lichten Raum des anderen
+ * Raums hinein — sichtbar als Quader, der vor einer sonst planen Wand steht.
+ * The HALF of an edge strip that lies inside the own cell (`eigeneSeite =
+ * true`) resp. inside the neighbour cell. The strip is centred on the cell
+ * border, i.e. one eighth per side. Why: a filler above an OPEN edge (header,
+ * reveal) may only occupy the half that sits behind the neighbour's wall line.
+ * Taking the whole strip makes it stick half a metre into the other room's
+ * clear space — visible as a box standing in front of an otherwise flat wall.
+ */
+export function kantenStreifenHaelfte(
+  x: number,
+  z: number,
+  kante: Kante,
+  eigeneSeite: boolean
+): { xa0: number; xa1: number; za0: number; za1: number } {
+  const s = kantenStreifen(x, z, kante);
+  const halb = WAND_DICKE_ACHTEL / 2;
+  // Nord und Ost grenzen an der OBEREN Koordinate der Zelle an: dort ist die
+  // eigene Haelfte die untere des Streifens. Bei Sued und West umgekehrt.
+  // North and east border at the cell's UPPER coordinate: there the own half is
+  // the lower one of the strip. For south and west it is the other way round.
+  const untereHaelfte = kante === KANTE.Nord || kante === KANTE.Ost ? eigeneSeite : !eigeneSeite;
+  if (kante === KANTE.Nord || kante === KANTE.Sued) {
+    return untereHaelfte
+      ? { ...s, za1: s.za0 + halb }
+      : { ...s, za0: s.za1 - halb };
+  }
+  return untereHaelfte ? { ...s, xa1: s.xa0 + halb } : { ...s, xa0: s.xa1 - halb };
+}
+
+/**
  * DIE geteilte Kantenfunktion aus ARCHITECTURE §3.8: Sichtgeometrie UND
  * Kollision rufen sie, nie zwei gleich gemeinte Rechnungen nebeneinander. Sie
  * liefert den Wandquader zwischen `zelle` und ihrer Nachbarin an `kante` —
@@ -723,12 +790,38 @@ export function kantenStreifen(
  * `kante` — or `null` when no wall stands there (`wandZwischen`) or when both
  * sides are rock (nothing to build, just undisturbed mountain).
  *
- * Die senkrechte Ausdehnung ist die VEREINIGUNG der Wandsaeulen beider
- * begehbaren Beteiligten. Auch das ist symmetrisch: eine Trennwand mitten im
- * Saal ist von beiden Seiten aus derselbe Quader.
- * The vertical extent is the UNION of the wall columns of both walkable
- * participants. Symmetric as well: a partition wall in the middle of a hall is
- * the same box seen from either side.
+ * Die senkrechte Ausdehnung ist die VEREINIGUNG der LICHTEN Saeulen beider
+ * begehbaren Beteiligten: von der tiefsten Bodenoberkante bis zur hoechsten
+ * Deckenunterkante. Auch das ist symmetrisch: eine Trennwand mitten im Saal ist
+ * von beiden Seiten aus derselbe Quader.
+ * The vertical extent is the UNION of the CLEAR columns of both walkable
+ * participants: from the lowest floor top to the highest ceiling underside.
+ * Symmetric as well: a partition wall in the middle of a hall is the same box
+ * seen from either side.
+ *
+ * NICHT `saeuleUnten`/`saeuleOben` (die Bau-Saeule EINSCHLIESSLICH Boden- und
+ * Deckenplatte). Eine Wand, die bis unter die Bodenplatte und bis ueber die
+ * Deckenplatte reicht, steckt mit ihrem unteren und oberen Ende IN diesen
+ * Platten — und ihre Deckflaechen liegen dann exakt in derselben Ebene wie
+ * deren Deckflaechen. Zwei deckungsgleiche Flaechen in einer Ebene sind
+ * Z-Fighting; auf der Bodenflaeche des Stockwerks DARUEBER erschien das als
+ * heller Mauerwerksstreifen im dunklen Boden, weil `materialFuer()` senkrechten
+ * Bauteilen den Wand-Tag gibt. Die Aussenhaut beginnt deshalb an der
+ * Boden-OBERKANTE und endet an der Decken-UNTERKANTE: was in der Platte steckt,
+ * bekommt keine Flaeche. Das spart nebenbei Dreiecke, und dicht bleibt es, weil
+ * genau dort die Platte selbst steht (sie deckt den ganzen Zellfussabdruck ab,
+ * also auch die Haelfte des Wandstreifens, die in der Zelle liegt).
+ * NOT `saeuleUnten`/`saeuleOben` (the structural column INCLUDING floor and
+ * ceiling slab). A wall reaching below the floor slab and above the ceiling
+ * slab is stuck INSIDE those slabs — and its end faces then lie in exactly the
+ * same plane as theirs. Two coincident faces in one plane are z-fighting; on
+ * the floor of the storey ABOVE this showed up as a light masonry stripe in the
+ * dark floor, because `materialFuer()` gives vertical pieces the wall tag. The
+ * outer skin therefore starts at the floor TOP and ends at the ceiling
+ * UNDERSIDE: what is stuck inside a slab gets no face. This saves triangles as
+ * a side effect, and it stays sealed because the slab itself stands exactly
+ * there (it covers the whole cell footprint, hence also the half of the wall
+ * strip that lies inside the cell).
  */
 export function zellKanteZuQuaderGanz(
   gitter: ZellenGitter,
@@ -744,13 +837,47 @@ export function zellKanteZuQuaderGanz(
 
   let ys0 = Number.POSITIVE_INFINITY;
   let ys1 = Number.NEGATIVE_INFINITY;
+  let deckel = Number.POSITIVE_INFINITY;
   for (const teilnehmer of [zelle, nachbar]) {
+    // Der Deckel gilt fuer BEIDE Seiten des Streifens, auch fuer eine Felsseite:
+    // der Streifen liegt zur Haelfte in ihr, und ueber Fels kann sehr wohl ein
+    // Raum mit Bodenplatte liegen. Wer hier nur die begehbaren Beteiligten
+    // fragt, laesst genau die Aussenwaende durch den Boden des Stockwerks
+    // darueber fahren.
+    // The cap applies to BOTH sides of the strip, a rock side included: half the
+    // strip lies inside it, and a room with a floor slab may well sit above
+    // rock. Asking only the walkable participants lets exactly the outer walls
+    // drive through the floor of the storey above.
+    const d = deckelDurchStockwerkDarueber(gitter, teilnehmer);
+    if (d < deckel) deckel = d;
     if (!offen(teilnehmer.art)) continue;
-    const u = saeuleUnten(gitter, teilnehmer);
-    const o = saeuleOben(gitter, teilnehmer);
+    const u = bodenStufen(teilnehmer);
+    const o = obenStufen(gitter, teilnehmer);
     if (u < ys0) ys0 = u;
+    // Die HOECHSTE lichte Saeule beider Seiten. Auf der niedrigeren Seite steckt
+    // das obere Ende damit in deren Deckenplatte — gemessen sind das je Grab ein
+    // paar Stirnflaechen an einer Zellgrenze, koplanar mit denen der Platte
+    // (dokumentierter Rest in `dungeon2-builder.ts` (F)).
+    //
+    // Der Versuch, stattdessen an der NIEDRIGEREN Decke zu enden und darueber
+    // einen halben Streifen auf der hoeheren Seite aufzusetzen, war schlechter:
+    // buendig zwar, aber hinter dem Aufsatz bleibt ein Hohlraum, den (B2) zu
+    // Recht als Leck meldet — und setzt man den Aufsatz auf die niedrigere
+    // Seite, klafft ueber der fremden Deckenplatte eine halbmeter-tiefe Nische
+    // durch den ganzen Raum. Ein Wandeck Z-Fighting ist beides Mal das kleinere
+    // Uebel.
+    // The HIGHEST clear column of both sides. On the lower side the upper end is
+    // thus stuck inside that side's ceiling slab — measured, that is a handful of
+    // end faces per barrow at a cell border, coplanar with the slab's
+    // (documented residue in `dungeon2-builder.ts` (F)). Ending at the LOWER
+    // ceiling and capping with a half strip above was worse: flush, yes, but a
+    // cavity remains behind the cap which (B2) rightly reports as a leak — and
+    // putting the cap on the lower side opens a half-metre niche above the
+    // foreign ceiling slab along the whole room. One wall corner of z-fighting is
+    // the lesser evil either way.
     if (o > ys1) ys1 = o;
   }
+  if (deckel < ys1) ys1 = deckel;
   if (!Number.isFinite(ys0) || ys1 <= ys0) return null;
 
   const streifen = kantenStreifen(zelle.x, zelle.z, kante);

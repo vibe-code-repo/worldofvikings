@@ -57,17 +57,18 @@ import {
   ACHTEL_M,
   BODEN_DICKE_STUFEN,
   DECKE_DICKE_STUFEN,
+  WAND_DICKE_ACHTEL,
   ZELL_ACHTEL,
   bodenStufen,
   hatBodenPlatte,
   hatDeckenPlatte,
   kantenDrehung,
   kantenStreifen,
+  kantenStreifenHaelfte,
   obenStufen,
   offen,
   quaderInMeter,
   saeuleOben,
-  saeuleUnten,
   zelleImGitter,
   zellenAufbauen,
   zellenSortiert,
@@ -538,10 +539,43 @@ function baueZelle(sammler: Sammler, gitter: ZellenGitter, zelle: Zelle): void {
       zelle,
       block,
       'decke',
-      { ...fuss, ys0: oben, ys1: oben + DECKE_DICKE_STUFEN, drehung: 0 },
+      { ...fuss, ys0: oben, ys1: deckenOberkante(gitter, zelle, oben), drehung: 0 },
       true
     );
   }
+}
+
+/**
+ * Oberkante der Deckenplatte in Hoehenstufen. Normalerweise
+ * `oben + DECKE_DICKE_STUFEN` — aber nie hoeher als die UNTERKANTE der
+ * Bodenplatte des Stockwerks darueber.
+ *
+ * Ohne den Deckel liegen die beiden Platten im buendigen Fall (Deckenoberkante
+ * = Bodenoberkante oben) im selben Raumteil, und ihre Oberseiten fallen in eine
+ * Ebene. Der Spieler im oberen Raum sieht dann zwei Flaechen um dieselben Pixel
+ * streiten: die dunkle Bodenplatte seines Raums und die Deckenplatte des Raums
+ * darunter, die nach `materialFuer()` den WAND-Tag traegt — das gemeldete
+ * "helles Mauerwerk flackert durch den Boden". Wird der Deckel bindend, faellt
+ * die Deckenplatte ganz weg (`trage()` verwirft entartete Quader): dicht bleibt
+ * es, weil die Bodenplatte darueber genau denselben Zellfussabdruck hat, und
+ * von unten sieht man dann ihre Unterseite statt einer zweiten Platte.
+ * Top of the ceiling slab in height steps. Normally
+ * `oben + DECKE_DICKE_STUFEN` — but never higher than the UNDERSIDE of the
+ * floor slab of the storey above. Without that cap the two slabs occupy the
+ * same space in the flush case and their top faces fall into one plane; the
+ * player in the upper room then sees two surfaces fight over the same pixels —
+ * the reported "light masonry flickering through the floor". If the cap binds,
+ * the ceiling slab drops out entirely (`trage()` discards degenerate boxes): it
+ * stays sealed because the floor slab above has exactly the same cell
+ * footprint, and from below one then sees its underside instead of a second
+ * slab.
+ */
+function deckenOberkante(gitter: ZellenGitter, zelle: Zelle, oben: number): number {
+  const voll = oben + DECKE_DICKE_STUFEN;
+  const drueber = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene + 1);
+  if (drueber === undefined || !offen(drueber.art) || !hatBodenPlatte(gitter, drueber)) return voll;
+  const sohle = bodenStufen(drueber) - BODEN_DICKE_STUFEN;
+  return sohle < voll ? sohle : voll;
 }
 
 /**
@@ -652,6 +686,25 @@ function baueStufen(
 
   const anZahl = ZELL_ACHTEL;
   const laengsX = neigung === KANTE.Ost || neigung === KANTE.West;
+  // Die Trittflaechen werden NICHT auf die lichte Breite gestutzt, obwohl sie
+  // eine halbe Wanddicke in die flankierende Wand ragen und dort koplanare
+  // Deck- und Stirnflaechen erzeugen.
+  //
+  // Grund, gemessen: unter dem OBEREN Lauf eines Treppenhauses sind die
+  // Stufenquader der Unterbau (`sockelStufen` zieht sie bis zur Bodenunterkante
+  // der tieferen Nachbarin hinab), die flankierende Wand beginnt aber erst an
+  // der Bodenoberkante IHRER Zelle — also vier Meter hoeher. Ein Beschnitt
+  // schnitt dort eine handbreite Spalte auf, durch die man vom unteren Lauf aus
+  // unter den oberen sah. Der Wandflucht-Waechter (G) haelt fest, dass die
+  // Stufen nur in der eigenen Treppenzelle stehen; die paar koplanaren
+  // Eckflaechen bleiben im dokumentierten Rest von (F).
+  // The treads are NOT trimmed to the clear width, although they reach half a
+  // wall thickness into the flanking wall and produce coplanar top and end faces
+  // there. Reason, measured: beneath the UPPER run of a staircase the step boxes
+  // ARE the substructure (`sockelStufen` pulls them down to the lower
+  // neighbour's floor underside), while the flanking wall only starts at the
+  // floor top of ITS cell — four metres higher. Trimming tore open a slit there
+  // through which one saw under the upper run from the lower one.
   for (let i = 0; i < anZahl; i++) {
     // Fortschritt entlang der Neigung: Schritt i liegt bei i..i+1 Achteln,
     // gezaehlt von der TIEFEN Seite aus.
@@ -701,8 +754,73 @@ function baueStufen(
  * Low tier — were it solid, the way it walks would depend on the graphics tier
  * (contract rule 5).
  */
+/**
+ * Traegt diese Kante der Zelle einen Sims? Genau dann, wenn dort eine Wand
+ * steht und der Ortshash unter der Schwelle liegt. Als eigene Funktion, weil
+ * ein Sims auch die Frage nach dem Sims der QUERKANTE beantworten koennen muss
+ * (Eckregel unten) — und weil zwei Ableitungen derselben Bedingung frueher oder
+ * spaeter auseinanderlaufen.
+ * Does this edge of the cell carry a ledge? Exactly when a wall stands there
+ * and the position hash is below the threshold. Its own function, because a
+ * ledge must also be able to answer the question for the PERPENDICULAR edge
+ * (corner rule below) — and because two derivations of one condition drift
+ * apart sooner or later.
+ */
+function hatSims(gitter: ZellenGitter, zelle: Zelle, kante: Kante, seedSims: number): boolean {
+  if (zellKanteZuQuaderGanz(gitter, zelle, kante) === null) return false;
+  return hashPos(zelle.x, zelle.z, zelle.ebene, mische(seedSims, kante)) < SIMS_SCHWELLE;
+}
+
+/**
+ * Einzug eines Sims-Endes in Zellachteln an der QUERKANTE `quer`:
+ *
+ *   0 — dort steht keine Wand, der Sims laeuft bis an die Zellgrenze und stoesst
+ *       stumpf an den Sims der Nachbarzelle (Flaechen Ruecken an Ruecken);
+ *   1 — dort steht eine Wand: um genau ihre halbe Dicke, sonst steckte das
+ *       Sims-Ende IN der Wand und seine Stirnflaeche laege in derselben Ebene
+ *       wie die Wandflaeche;
+ *   2 — dort steht eine Wand UND ein Sims, und dieser Sims muss ihm weichen:
+ *       zusaetzlich um die Auskragung, sonst belegen beide dasselbe Eckstueck
+ *       und ihre Deck- und Bodenflaechen streiten um dieselben Pixel.
+ *
+ * Weichen muessen die Simse entlang X (Nord/Sued) — eine feste, willkuerfreie
+ * Vorfahrt. Wichen beide, bliebe im Eck ein Loch; wiche keiner, bliebe das
+ * Z-Fighting. Ohne Vorfahrt entschiede die Reihenfolge, und die darf nie
+ * entscheiden (Determinismus-Gesetz).
+ * Inset of a ledge end in cell eighths at the PERPENDICULAR edge: 0 — no wall
+ * there, the ledge runs to the cell border and butts against the neighbour's
+ * ledge back to back; 1 — a wall stands there, by exactly its half thickness,
+ * otherwise the ledge end is stuck INSIDE the wall and its end face lies in the
+ * same plane as the wall face; 2 — a wall AND a ledge stand there and this
+ * ledge must yield: additionally by the overhang, otherwise both occupy the
+ * same corner block and their top and bottom faces fight over the same pixels.
+ * The ledges along X (north/south) are the ones that yield — a fixed,
+ * arbitrariness-free right of way. If both yielded, a hole would remain in the
+ * corner; if neither did, the z-fighting would remain. Without a right of way
+ * the order would decide, and order must never decide (determinism law).
+ */
+function simsEinzug(
+  gitter: ZellenGitter,
+  zelle: Zelle,
+  quer: Kante,
+  seedSims: number,
+  weicht: boolean
+): number {
+  if (zellKanteZuQuaderGanz(gitter, zelle, quer) === null) return 0;
+  const wand = WAND_DICKE_ACHTEL / 2;
+  if (!weicht || !hatSims(gitter, zelle, quer, seedSims)) return wand;
+  return wand + SIMS_TIEFE_ACHTEL;
+}
+
 function baueSimse(sammler: Sammler, gitter: ZellenGitter, zelle: Zelle, seedSims: number): void {
   if (!offen(zelle.art)) return;
+  // In einer Treppenzelle IST der Boden gestuft; ein Sims auf halber Hoehe
+  // schneidet dort in die Stufenquader und liefert waagerechte Flaechen in
+  // deren Ebene. Ein Wandbrett im Treppenhaus ist ohnehin keine Architektur.
+  // In a stair cell the floor ITSELF is stepped; a ledge at mid height cuts
+  // into the step boxes there and yields horizontal faces in their plane. A
+  // wall board inside a staircase is not architecture anyway.
+  if (zelle.art === ZELLEN_ART.Treppe) return;
   const unten = bodenStufen(zelle);
   const oben = obenStufen(gitter, zelle);
   if (oben - unten < SIMS_MIN_HOEHE_STUFEN) return;
@@ -711,17 +829,23 @@ function baueSimse(sammler: Sammler, gitter: ZellenGitter, zelle: Zelle, seedSim
   const ys0 = unten + SIMS_HOEHE_STUFEN;
   const ys1 = ys0 + SIMS_DICKE_STUFEN;
   for (const kante of KANTEN) {
-    if (zellKanteZuQuaderGanz(gitter, zelle, kante) === null) continue;
-    if (hashPos(zelle.x, zelle.z, zelle.ebene, mische(seedSims, kante)) >= SIMS_SCHWELLE) continue;
+    if (!hatSims(gitter, zelle, kante, seedSims)) continue;
     const streifen = kantenStreifen(zelle.x, zelle.z, kante);
+    const laengsX = kante === KANTE.Nord || kante === KANTE.Sued;
+    const weicht = laengsX;
+    const a = simsEinzug(gitter, zelle, laengsX ? KANTE.West : KANTE.Sued, seedSims, weicht);
+    const b = simsEinzug(gitter, zelle, laengsX ? KANTE.Ost : KANTE.Nord, seedSims, weicht);
+    const laengs = laengsX
+      ? { xa0: streifen.xa0 + a, xa1: streifen.xa1 - b, za0: streifen.za0, za1: streifen.za1 }
+      : { xa0: streifen.xa0, xa1: streifen.xa1, za0: streifen.za0 + a, za1: streifen.za1 - b };
     const innen =
       kante === KANTE.Nord
-        ? { xa0: streifen.xa0, xa1: streifen.xa1, za0: streifen.za0 - SIMS_TIEFE_ACHTEL, za1: streifen.za0 }
+        ? { ...laengs, za0: streifen.za0 - SIMS_TIEFE_ACHTEL, za1: streifen.za0 }
         : kante === KANTE.Sued
-          ? { xa0: streifen.xa0, xa1: streifen.xa1, za0: streifen.za1, za1: streifen.za1 + SIMS_TIEFE_ACHTEL }
+          ? { ...laengs, za0: streifen.za1, za1: streifen.za1 + SIMS_TIEFE_ACHTEL }
           : kante === KANTE.Ost
-            ? { xa0: streifen.xa0 - SIMS_TIEFE_ACHTEL, xa1: streifen.xa0, za0: streifen.za0, za1: streifen.za1 }
-            : { xa0: streifen.xa1, xa1: streifen.xa1 + SIMS_TIEFE_ACHTEL, za0: streifen.za0, za1: streifen.za1 };
+            ? { ...laengs, xa0: streifen.xa0 - SIMS_TIEFE_ACHTEL, xa1: streifen.xa0 }
+            : { ...laengs, xa0: streifen.xa1, xa1: streifen.xa1 + SIMS_TIEFE_ACHTEL };
     trage(sammler, gitter, zelle, block, 'sims', { ...innen, ys0, ys1, drehung: kantenDrehung(kante) }, false);
   }
 }
@@ -771,38 +895,118 @@ function baueKante(
   // classic leak.
   const streifen = kantenStreifen(a.x, a.z, kante);
   const tuer = tuerAnKante.get(kantenSchluessel(a.x, a.z, a.ebene, kante));
-  const obenA = saeuleOben(gitter, a);
-  const obenB = saeuleOben(gitter, b);
-  const obenMax = obenA > obenB ? obenA : obenB;
+  // Bau-Saeulen (mit Platten) fuer die Frage "wo endet die Deckenplatte",
+  // LICHTE Saeulen fuer die Frage "wie weit sieht jemand hindurch".
+  // Structural columns (with slabs) for "where does the ceiling slab end",
+  // CLEAR columns for "how far can anyone see through".
+  const saeuleA = saeuleOben(gitter, a);
+  const saeuleB = saeuleOben(gitter, b);
+  const lichtMax = Math.max(obenStufen(gitter, a), obenStufen(gitter, b));
+  const lichtMin = Math.min(obenStufen(gitter, a), obenStufen(gitter, b));
+  const laengsX = kante === KANTE.Nord || kante === KANTE.Sued;
+
+  // Einzug eines Stueck-ENDES an der Querkante `quer`, in Zellachteln. Steht
+  // dort eine Wand (oder, bei den Stuecken, die weichen muessen, ein
+  // Tuerrahmen), so ragt sie eine halbe Wanddicke in die Zelle: ein Stueck, das
+  // bis an die Zellgrenze laeuft, steckt genau so tief in ihr, und seine
+  // Stirnflaeche liegt in derselben Ebene wie ihre. Vorfahrt hat die Kante
+  // entlang Z (Ost/West) — dieselbe willkuerfreie Regel wie beim Sims, damit im
+  // Eck weder ein Loch noch eine doppelte Flaeche bleibt.
+  // Inset of a piece END at the perpendicular edge `quer`, in cell eighths. If a
+  // wall stands there (or, for the pieces that must yield, a door frame), it
+  // reaches half a wall thickness into the cell: a piece running to the cell
+  // border is sunk exactly that deep into it, and its end face lies in the same
+  // plane as the wall's. Right of way belongs to the edge along Z (east/west) —
+  // the same arbitrariness-free rule as for the ledge, so that neither a hole
+  // nor a doubled face remains in the corner.
+  //
+  // ZWEI Faelle, und der Unterschied ist der zwischen huebsch und dicht:
+  //
+  //   `einzugZier` — fuer Stuecke, die NICHTS dichten (die Tuerpfosten). Hier
+  //     genuegt eine Querwand auf EINER der beiden Seiten: was in ihr steckt,
+  //     bekommt keine Flaeche, und was dabei auf der anderen Seite wegfaellt,
+  //     hat nie etwas verschlossen.
+  //   `einzugDicht` — fuer Stuecke, die einen Schlitz schliessen (den Sturz).
+  //     Hier muessen BEIDE Seiten eine Querwand haben, sonst nimmt man dem
+  //     Sturz auf der wandlosen Seite ein Stueck weg, das dort niemand ersetzt.
+  //     Genau so entstand beim ersten Anlauf ein schwarzer Spalt neben der
+  //     Laibung — im Bild sofort zu sehen, in keiner Zaehlung.
+  // TWO cases, and the difference is the one between pretty and sealed:
+  // `einzugZier` for pieces that seal NOTHING (the door posts) — a perpendicular
+  // wall on EITHER side suffices. `einzugDicht` for pieces that close a slit
+  // (the header) — BOTH sides must have one, otherwise the header loses a piece
+  // on the wall-less side that nobody replaces. That is exactly how a black slit
+  // appeared beside the reveal on the first attempt — obvious in the picture, in
+  // no count.
+  const querWand = (zelle: Zelle, quer: Kante): boolean =>
+    zellKanteZuQuaderGanz(gitter, zelle, quer) !== null;
+  const einzugZier = (quer: Kante): number => {
+    const halb = WAND_DICKE_ACHTEL / 2;
+    if (querWand(a, quer) || querWand(b, quer)) return halb;
+    if (!laengsX) return 0;
+    const tuerDort =
+      tuerAnKante.has(kantenSchluessel(a.x, a.z, a.ebene, quer)) ||
+      tuerAnKante.has(kantenSchluessel(b.x, b.z, b.ebene, quer));
+    return tuerDort ? halb : 0;
+  };
+  const einzugDicht = (quer: Kante): number =>
+    querWand(a, quer) && querWand(b, quer) ? WAND_DICKE_ACHTEL / 2 : 0;
+  /** Ein Kantenstueck auf die lichte Laenge zwischen den Querwaenden stutzen. */
+  /** Trim an edge piece to the clear length between the perpendicular walls. */
+  const gestutzt = (
+    s: { xa0: number; xa1: number; za0: number; za1: number },
+    einzug: (quer: Kante) => number
+  ): { xa0: number; xa1: number; za0: number; za1: number } => {
+    const e0 = einzug(laengsX ? KANTE.West : KANTE.Sued);
+    const e1 = einzug(laengsX ? KANTE.Ost : KANTE.Nord);
+    return laengsX
+      ? { ...s, xa0: s.xa0 + e0, xa1: s.xa1 - e1 }
+      : { ...s, za0: s.za0 + e0, za1: s.za1 - e1 };
+  };
 
   if (tuer !== undefined) {
     const bodenMax = Math.max(bodenStufen(a), bodenStufen(b));
     const sturzUnten = bodenMax + TUER_HOEHE_STUFEN;
+    // Der Sturz endet an der NIEDRIGEREN Deckenunterkante. Was darueber noch zu
+    // schliessen ist, schliesst die Laibung weiter unten — dasselbe Stueck wie
+    // an einer Oeffnung ohne Tuer, denn eine Tuerkante IST eine offene Kante mit
+    // Rahmen. Reichte der Sturz bis zur hoechsten Deckenunterkante, laege sein
+    // oberes Ende in der Deckenplatte des niedrigeren Raums, und seine
+    // Stirnflaechen fielen mit deren Stirnflaechen in eine Ebene.
+    // The header ends at the LOWER ceiling underside. Whatever remains to be
+    // closed above it is closed by the reveal further down — the same piece as
+    // at an opening without a door, because a door edge IS an open edge with a
+    // frame. Were the header to reach the highest ceiling underside, its upper
+    // end would sit inside the lower room's ceiling slab, and its end faces
+    // would fall into one plane with that slab's.
     trage(
       sammler,
       gitter,
       eigner,
       block,
       'wand',
-      { ...streifen, ys0: sturzUnten, ys1: obenMax, drehung: kantenDrehung(kante) },
+      { ...gestutzt(streifen, einzugDicht), ys0: sturzUnten, ys1: lichtMin, drehung: kantenDrehung(kante) },
       true
     );
-    const laengsX = kante === KANTE.Nord || kante === KANTE.Sued;
-    const untenMin = Math.min(saeuleUnten(gitter, a), saeuleUnten(gitter, b));
+    // Wie die Wand: der Pfosten beginnt an der Boden-OBERKANTE. Was darunter
+    // liegt, steckt in der Bodenplatte und faellt koplanar mit deren Unterseite
+    // zusammen.
+    // Like the wall: the post starts at the floor TOP. What lies below is stuck
+    // inside the floor slab and falls coplanar with its underside.
+    const untenMin = Math.min(bodenStufen(a), bodenStufen(b));
+    // Die Pfosten stehen an den Enden des LICHTEN Durchgangs, nicht an den Enden
+    // der Zelle: ein Pfosten am Zellende waere in der dortigen Querwand versenkt.
+    // The posts stand at the ends of the CLEAR opening, not at the ends of the
+    // cell: a post at the cell end would be sunk into the perpendicular wall.
     for (const seite of [0, 1] as const) {
+      const zier = gestutzt(streifen, einzugZier);
+      const von = laengsX ? zier.xa0 : zier.za0;
+      const bis = laengsX ? zier.xa1 : zier.za1;
+      const p0 = seite === 0 ? von : bis - TUER_PFOSTEN_ACHTEL;
+      const p1 = seite === 0 ? von + TUER_PFOSTEN_ACHTEL : bis;
       const pfosten = laengsX
-        ? {
-            xa0: seite === 0 ? streifen.xa0 : streifen.xa1 - TUER_PFOSTEN_ACHTEL,
-            xa1: seite === 0 ? streifen.xa0 + TUER_PFOSTEN_ACHTEL : streifen.xa1,
-            za0: streifen.za0,
-            za1: streifen.za1,
-          }
-        : {
-            xa0: streifen.xa0,
-            xa1: streifen.xa1,
-            za0: seite === 0 ? streifen.za0 : streifen.za1 - TUER_PFOSTEN_ACHTEL,
-            za1: seite === 0 ? streifen.za0 + TUER_PFOSTEN_ACHTEL : streifen.za1,
-          };
+        ? { xa0: p0, xa1: p1, za0: streifen.za0, za1: streifen.za1 }
+        : { xa0: streifen.xa0, xa1: streifen.xa1, za0: p0, za1: p1 };
       trage(
         sammler,
         gitter,
@@ -813,18 +1017,47 @@ function baueKante(
         true
       );
     }
-    return;
   }
 
-  const obenMin = obenA < obenB ? obenA : obenB;
-  if (obenMax > obenMin) {
+  // Die LAIBUNG einer Oeffnung: der Schlitz ueber der niedrigeren Deckenplatte.
+  // Er faengt an deren OBERKANTE an (darunter steht die Platte selbst) und
+  // reicht bis zur hoechsten Deckenunterkante — so weit blickt jemand aus dem
+  // hoeheren Raum durch die Oeffnung.
+  //
+  // Und er belegt nur die HAELFTE des Kantenstreifens, die auf der Seite der
+  // niedrigeren Zelle liegt. Der ganze Streifen ragte einen halben Meter ueber
+  // die Wandflucht in den hoeheren Raum hinein — das war der gemeldete Quader,
+  // der vor einer sonst planen Wand steht. Die andere Haelfte hat nichts zu
+  // dichten: dort steht die Deckenplatte des hoeheren Raums.
+  // The REVEAL of an opening: the slit above the lower ceiling slab. It starts
+  // at that slab's TOP (below it stands the slab itself) and reaches up to the
+  // highest ceiling underside — that is how far someone in the higher room sees
+  // through the opening. And it occupies only the HALF of the edge strip on the
+  // lower cell's side. The whole strip stuck half a metre past the wall line
+  // into the higher room — that was the reported box standing in front of an
+  // otherwise flat wall. The other half has nothing to seal: the higher room's
+  // ceiling slab stands there.
+  const niedrigIstA = saeuleA < saeuleB;
+  const laibungUnten = niedrigIstA ? saeuleA : saeuleB;
+  if (lichtMax > laibungUnten) {
     trage(
       sammler,
       gitter,
       eigner,
       block,
       'wand',
-      { ...streifen, ys0: obenMin, ys1: obenMax, drehung: kantenDrehung(kante) },
+      {
+        // NICHT gestutzt: die Laibung reicht bis zur hoechsten Deckenunterkante,
+        // und eine Querwand endet an IHRER eigenen — die kann tiefer liegen.
+        // Wer hier stutzt, schneidet ein Loch in die Decke der Oeffnung.
+        // NOT trimmed: the reveal reaches the highest ceiling underside, while a
+        // perpendicular wall ends at ITS own, which may be lower. Trimming here
+        // cuts a hole into the opening's head.
+        ...kantenStreifenHaelfte(a.x, a.z, kante, niedrigIstA),
+        ys0: laibungUnten,
+        ys1: lichtMax,
+        drehung: kantenDrehung(kante),
+      },
       true
     );
   }

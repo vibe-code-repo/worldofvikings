@@ -45,6 +45,7 @@ import {
   MAX_MATERIAL_TAG,
   ZELLE_M,
   ZELLEN_ART,
+  kanonisiereKante,
   mitPruefsumme,
   nachbarZelle,
   type DungeonLayout2,
@@ -56,6 +57,8 @@ import {
 } from '../src/dungeon2/layout.js';
 import {
   ACHTEL_M,
+  WAND_DICKE_ACHTEL,
+  ZELL_ACHTEL,
   bodenStufen,
   kantenDrehung,
   obenStufen,
@@ -69,6 +72,7 @@ import {
 import {
   bauKanonisch,
   baueGeometrie,
+  type BauStueckArt,
   blockSchluessel,
   blockVonZelle,
   bloeckeDesGitters,
@@ -371,11 +375,11 @@ const GLEICH_SEEDS = 100;
 // Eingefrorene Tabelle. Neuausgabe mit DUNGEON2_EINFRIEREN=1 (siehe unten).
 // Frozen table. Reprint with DUNGEON2_EINFRIEREN=1 (see below).
 const EINGEFROREN: readonly (readonly [number, string, number, number, number])[] = [
-  [0, '453626be', 1042, 963, 303],
-  [1, '97fa3537', 1218, 1095, 337],
-  [7, '4d64fe3d', 1249, 1113, 317],
-  [42, 'bf14a2d6', 1055, 974, 309],
-  [199, '80463c01', 1076, 976, 295],
+  [0, 'b3271d8c', 1018, 939, 303],
+  [1, 'cd7a7e76', 1185, 1063, 337],
+  [7, 'dc901c6b', 1229, 1096, 317],
+  [42, '8d6bc869', 1039, 958, 309],
+  [199, 'fbfa33c2', 1059, 960, 295],
 ];
 
 {
@@ -535,10 +539,10 @@ function raum(x: number, y: number, z: number): string {
   return `${Math.floor(x / RASTER_M)}|${Math.floor(y / RASTER_M)}|${Math.floor(z / RASTER_M)}`;
 }
 
-function baueIndex(stuecke: readonly BauStueck[]): Map<string, BauStueck[]> {
+function baueIndex(stuecke: readonly BauStueck[], alleArten = false): Map<string, BauStueck[]> {
   const index = new Map<string, BauStueck[]>();
   for (const s of stuecke) {
-    if (!FESTE_ARTEN.has(s.art)) continue;
+    if (!alleArten && !FESTE_ARTEN.has(s.art)) continue;
     const x0 = Math.floor((s.mitte.x - s.groesse.x / 2) / RASTER_M);
     const x1 = Math.floor((s.mitte.x + s.groesse.x / 2) / RASTER_M);
     const y0 = Math.floor((s.mitte.y - s.groesse.y / 2) / RASTER_M);
@@ -559,8 +563,16 @@ function baueIndex(stuecke: readonly BauStueck[]): Map<string, BauStueck[]> {
   return index;
 }
 
-function imFesten(index: Map<string, BauStueck[]>, x: number, y: number, z: number): boolean {
+function imFesten(
+  index: Map<string, BauStueck[]>,
+  x: number,
+  y: number,
+  z: number,
+  ausser1?: BauStueck,
+  ausser2?: BauStueck
+): boolean {
   for (const s of index.get(raum(x, y, z)) ?? []) {
+    if (s === ausser1 || s === ausser2) continue;
     if (Math.abs(x - s.mitte.x) >= s.groesse.x / 2) continue;
     if (Math.abs(y - s.mitte.y) >= s.groesse.y / 2) continue;
     if (Math.abs(z - s.mitte.z) >= s.groesse.z / 2) continue;
@@ -628,20 +640,47 @@ const LECK_SEEDS = 10;
 
       // Vier Seiten: unmittelbar HINTER der Zellgrenze (halbes Achtel weiter)
       // muss Fels sein — also festes Bauteil oder Nachbarraum.
+      //
+      // Und zwar an DREI Stellen jeder Kante, nicht nur in ihrer Mitte: dicht
+      // bei beiden Ecken und dazwischen. In den Ecken stossen die Wandstreifen
+      // zweier Richtungen aneinander, dort stutzen Sturz, Laibung und Pfosten
+      // ihre Enden — und genau dort riss ein Beschnitt beim ersten Anlauf eine
+      // handbreite schwarze Spalte auf, die die Mittenprobe nicht sah. Eine
+      // Probe in der Mitte misst die Wand, nicht ihre Naehte.
       // Four sides: immediately BEHIND the cell border (half an eighth further)
-      // there must be rock — i.e. solid piece or neighbouring room.
+      // there must be rock — i.e. solid piece or neighbouring room. And at THREE
+      // places along every edge, not only at its middle: close to both corners
+      // and in between. In the corners the wall strips of two directions meet,
+      // and there header, reveal and posts trim their ends — exactly where one
+      // trim tore open a black slit on the first attempt, which the middle probe
+      // did not see. A probe in the middle measures the wall, not its seams.
+      const laengsProben = [ACHTEL_M / 2, ZELLE_M / 2, ZELLE_M - ACHTEL_M / 2];
       for (const kante of KANTEN) {
         const n = nachbarZelle(zelle.x, zelle.z, kante);
-        const px = kante === KANTE.Ost ? (zelle.x + 1) * ZELLE_M + ACHTEL_M / 2 : kante === KANTE.West ? zelle.x * ZELLE_M - ACHTEL_M / 2 : mx;
-        const pz = kante === KANTE.Nord ? (zelle.z + 1) * ZELLE_M + ACHTEL_M / 2 : kante === KANTE.Sued ? zelle.z * ZELLE_M - ACHTEL_M / 2 : mz;
         void n;
-        for (let stufe = unten; stufe < oben; stufe++) {
-          const y = (stufe + 0.5) * HOEHEN_SCHRITT_M;
-          proben++;
-          if (imFesten(index, px, y, pz) || imLichten(gitter, px, y, pz)) continue;
-          lecks++;
-          if (erstesLeck === '') {
-            erstesLeck = `Seed ${i}: Zelle (${zelle.x},${zelle.z},${zelle.ebene}) Kante ${kante} bei y=${y}`;
+        const querKante = kante === KANTE.Nord || kante === KANTE.Sued;
+        for (const versatz of laengsProben) {
+          const px =
+            kante === KANTE.Ost
+              ? (zelle.x + 1) * ZELLE_M + ACHTEL_M / 2
+              : kante === KANTE.West
+                ? zelle.x * ZELLE_M - ACHTEL_M / 2
+                : zelle.x * ZELLE_M + versatz;
+          const pz =
+            kante === KANTE.Nord
+              ? (zelle.z + 1) * ZELLE_M + ACHTEL_M / 2
+              : kante === KANTE.Sued
+                ? zelle.z * ZELLE_M - ACHTEL_M / 2
+                : zelle.z * ZELLE_M + versatz;
+          void querKante;
+          for (let stufe = unten; stufe < oben; stufe++) {
+            const y = (stufe + 0.5) * HOEHEN_SCHRITT_M;
+            proben++;
+            if (imFesten(index, px, y, pz) || imLichten(gitter, px, y, pz)) continue;
+            lecks++;
+            if (erstesLeck === '') {
+              erstesLeck = `Seed ${i}: Zelle (${zelle.x},${zelle.z},${zelle.ebene}) Kante ${kante} bei x=${px}, y=${y}, z=${pz}`;
+            }
           }
         }
       }
@@ -1057,6 +1096,325 @@ function stempel(teile: Partial<RaumStempel> & { id: number }): RaumStempel {
     `(E) jeder Lauf ueberwindet eine halbe Ebene (${EBENE_M / 2} m)`,
     obersteStufeAmEnde === treppenZellen,
     `${obersteStufeAmEnde} von ${treppenZellen} Laeufen`
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (F) Koplanaritaet — keine zwei Flaechen streiten um dieselben Pixel
+// (F) coplanarity — no two faces fight over the same pixels
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// WAECHTER zu einem Befund aus der Vorschau: auf Bodenflaechen flackerten
+// streifenweise helle Mauerwerkstexturen durch. Ursache war, dass Waende und
+// Tuerpfosten bis UNTER die Bodenplatte und bis UEBER die Deckenplatte reichten
+// und ihre Deckflaechen damit exakt in deren Ebenen fielen — auf dem Stockwerk
+// darueber sah man das als Streifen, weil senkrechte Bauteile den Wand-Tag
+// tragen (`materialFuer`), waagerechte den Zell-Tag.
+//
+// Was gemessen wird: Flaechenpaare, die (1) in DERSELBEN Ebene liegen,
+// (2) in DIESELBE Richtung blicken und (3) sich mit echter Flaeche ueberlappen.
+// Nur diese drei zusammen sind Z-Fighting. Zwei koplanare Flaechen, die
+// VONEINANDER WEG blicken, sind eine Beruehrung — davon lebt jeder Quaderbau,
+// und ein Test, der sie meldet, meldet die Bauart statt einen Fehler.
+//
+// Und nur, was man SEHEN kann: die Probe einen Hauch vor der Flaeche muss im
+// lichten Raum einer begehbaren Zelle liegen und darf nicht in einem dritten
+// Bauteil stecken. Zwei Wandenden, die sich tief im Fels durchdringen,
+// flackern nirgends.
+//
+// GUARD for a finding from the preview: light masonry textures flickered
+// through the floor in stripes. Cause: walls and door posts reached BELOW the
+// floor slab and ABOVE the ceiling slab, so their end faces fell exactly into
+// those slabs' planes. Measured are face pairs that (1) lie in the SAME plane,
+// (2) look in the SAME direction and (3) overlap with real area — only all
+// three together are z-fighting; coplanar faces looking AWAY from each other
+// are a contact surface, which every box build lives on. And only what can be
+// SEEN: the probe a hair in front of the face must lie in the clear space of a
+// walkable cell and must not sit inside a third piece.
+
+const KOPLANAR_SEEDS = 12;
+const KOPLANAR_EPS = 1e-4;
+/**
+ * Arten, deren waagerechte Flaechen der Spieler unmittelbar ansieht: Boden und
+ * Trittflaeche unter den Fuessen, Decke ueber dem Kopf, Sims auf Augenhoehe.
+ * Genau hier trat der gemeldete Fehler auf, und genau hier gilt NULL.
+ * Kinds whose horizontal faces the player looks at directly. Exactly where the
+ * reported fault appeared, and exactly where ZERO holds.
+ */
+const SICHTFLAECHEN = new Set<BauStueckArt>(['boden', 'decke', 'stufe', 'sims']);
+interface Flaeche {
+  readonly achse: 0 | 1 | 2;
+  readonly koord: number;
+  readonly a0: number;
+  readonly a1: number;
+  readonly b0: number;
+  readonly b1: number;
+  readonly richtung: 1 | -1;
+  readonly stueck: number;
+}
+
+function flaechenVon(s: BauStueck, stueck: number): Flaeche[] {
+  const x0 = s.mitte.x - s.groesse.x / 2;
+  const x1 = s.mitte.x + s.groesse.x / 2;
+  const y0 = s.mitte.y - s.groesse.y / 2;
+  const y1 = s.mitte.y + s.groesse.y / 2;
+  const z0 = s.mitte.z - s.groesse.z / 2;
+  const z1 = s.mitte.z + s.groesse.z / 2;
+  return [
+    { achse: 0, koord: x0, a0: y0, a1: y1, b0: z0, b1: z1, richtung: -1, stueck },
+    { achse: 0, koord: x1, a0: y0, a1: y1, b0: z0, b1: z1, richtung: 1, stueck },
+    { achse: 1, koord: y0, a0: x0, a1: x1, b0: z0, b1: z1, richtung: -1, stueck },
+    { achse: 1, koord: y1, a0: x0, a1: x1, b0: z0, b1: z1, richtung: 1, stueck },
+    { achse: 2, koord: z0, a0: x0, a1: x1, b0: y0, b1: y1, richtung: -1, stueck },
+    { achse: 2, koord: z1, a0: x0, a1: x1, b0: y0, b1: y1, richtung: 1, stueck },
+  ];
+}
+
+{
+  let sichtflaechenStreit = 0;
+  let restStreit = 0;
+  let groessteFlaeche = 0;
+  let ersterStreit = '';
+  let ersterRest = '';
+
+  for (let i = 0; i < KOPLANAR_SEEDS; i++) {
+    const layout = erzeugeLayout(thema, seedsFuer(i));
+    const gitter = zellenAufbauen(layout, materialOptionen);
+    const ergebnis = baue(layout, gitter);
+    // Der Index deckt hier ALLE Arten ab (auch den Sims): fuer die Frage
+    // "verdeckt etwas diese Flaeche" zaehlt jeder Quader, nicht nur die festen.
+    // The index covers ALL kinds here (the ledge too): for "does something cover
+    // this face" every box counts, not only the solid ones.
+    const index = baueIndex(ergebnis.stuecke, true);
+
+    const eimer = new Map<string, Flaeche[]>();
+    ergebnis.stuecke.forEach((s, n) => {
+      for (const f of flaechenVon(s, n)) {
+        const schluessel = `${f.achse}|${f.koord}|${f.richtung}`;
+        const liste = eimer.get(schluessel);
+        if (liste === undefined) eimer.set(schluessel, [f]);
+        else liste.push(f);
+      }
+    });
+
+    for (const liste of eimer.values()) {
+      for (let p = 0; p < liste.length; p++) {
+        for (let q = p + 1; q < liste.length; q++) {
+          const f = liste[p]!;
+          const g = liste[q]!;
+          if (f.stueck === g.stueck) continue;
+          const a0 = Math.max(f.a0, g.a0);
+          const a1 = Math.min(f.a1, g.a1);
+          const b0 = Math.max(f.b0, g.b0);
+          const b1 = Math.min(f.b1, g.b1);
+          if (a1 - a0 <= 1e-9 || b1 - b0 <= 1e-9) continue;
+
+          const am = (a0 + a1) / 2;
+          const bm = (b0 + b1) / 2;
+          const c = f.koord + f.richtung * KOPLANAR_EPS;
+          const px = f.achse === 0 ? c : am;
+          const py = f.achse === 1 ? c : f.achse === 0 ? am : bm;
+          const pz = f.achse === 2 ? c : bm;
+          const s1 = ergebnis.stuecke[f.stueck]!;
+          const s2 = ergebnis.stuecke[g.stueck]!;
+          if (imFesten(index, px, py, pz, s1, s2)) continue;
+          if (!imLichten(gitter, px, py, pz)) continue;
+
+          // ZWEI Klassen, und die Trennung ist der gemeldete Fehler selbst:
+          //
+          //   STRENG (null erlaubt): eine WAAGERECHTE Flaeche, an der ein Boden,
+          //     eine Decke, eine Trittflaeche oder ein Sims beteiligt ist, und
+          //     die weiter reicht als ein WANDECK (eine halbe Wanddicke, 0,5 m,
+          //     in beide Richtungen). Das ist genau das gemeldete Bild: ein
+          //     halben Meter breiter, aber vier Meter langer Mauerwerksstreifen
+          //     im Boden. Es ist die Klasse, die man beim Gehen ansieht.
+          //   REST (nur beschraenkt): senkrechte Stirnflaechen und Eckstuecke —
+          //     dort, wo ein Wandzug, eine Laibung und eine Platte an derselben
+          //     Zellgrenze auslaufen. Sie sind hoechstens ein Wandeck breit,
+          //     stehen am Rand des Blickfelds, und jeder Versuch, sie
+          //     wegzuschneiden, hat entweder ein Leck oder eine halbmeter-tiefe
+          //     Nische erzeugt (siehe `cells.ts`, `zellKanteZuQuaderGanz`, und
+          //     den decisions-log-Eintrag). Die Schranke haelt fest, dass ihre
+          //     Zahl nicht wieder waechst.
+          // TWO classes, and the split is the reported fault itself: STRICT (zero
+          // allowed) — a HORIZONTAL face involving a floor, ceiling, tread or
+          // ledge that reaches further than a WALL CORNER (half a wall thickness,
+          // 0.5 m, in both directions); exactly the reported picture, and the
+          // class one looks at while walking. RESIDUE (bounded only) — vertical
+          // end faces and corner blocks where a wall run, a reveal and a slab all
+          // run out at the same cell border; every attempt to cut them away
+          // produced either a leak or a half-metre niche.
+          const eck = (WAND_DICKE_ACHTEL * ACHTEL_M) / 2;
+          const flaeche = (a1 - a0) * (b1 - b0);
+          const waagerecht = f.achse === 1;
+          const sichtbar = SICHTFLAECHEN.has(s1.art) || SICHTFLAECHEN.has(s2.art);
+          const grosz = a1 - a0 > eck + 1e-9 || b1 - b0 > eck + 1e-9;
+          const text = `Seed ${i}: ${s1.art}/${s2.art}, Ebene Achse ${f.achse} = ${f.koord}, Ueberlappung ${(a1 - a0).toFixed(2)} m x ${(b1 - b0).toFixed(2)} m`;
+          if (waagerecht && sichtbar && grosz) {
+            sichtflaechenStreit++;
+            if (ersterStreit === '') ersterStreit = text;
+          } else {
+            restStreit++;
+            if (flaeche > groessteFlaeche) groessteFlaeche = flaeche;
+            if (ersterRest === '') ersterRest = text;
+          }
+        }
+      }
+    }
+  }
+
+  pruefe(
+    `(F) keine flackernde waagerechte Sichtflaeche groesser als ein Wandeck (${KOPLANAR_SEEDS} Seeds)`,
+    sichtflaechenStreit === 0,
+    ersterStreit
+  );
+  // Regressionsbremse fuer den dokumentierten Rest: senkrechte Stirnflaechen
+  // zweier Stuecke, die BEIDE an derselben Zellgrenze enden — ein Wandzug, der
+  // an einer Oeffnung ausläuft, und die Deckenplatte derselben Zelle. Sie sind
+  // hoechstens ein Wandeck gross. Der Fix dafuer verlangte, dass ein Wandquader
+  // in zwei Quader zerfaellt (siehe decisions-log); die Schranke haelt fest,
+  // dass die Zahl nicht wieder waechst.
+  // Regression brake for the documented residue: vertical end faces of two
+  // pieces that BOTH terminate at the same cell border. See decisions-log.
+  pruefe(
+    `(F) der dokumentierte Rest bleibt klein (${restStreit} Faelle, groesste ${groessteFlaeche.toFixed(2)} m²)`,
+    restStreit <= 60 && groessteFlaeche <= 1 + 1e-9,
+    ersterRest
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (G) Wandflucht — nichts steht vor der Wand
+// (G) wall line — nothing stands in front of the wall
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// WAECHTER zum zweiten Befund aus der Vorschau: einzelne langgestreckte Quader
+// standen sichtbar VOR einer sonst planen Wand. Es waren die Fuellstuecke ueber
+// Oeffnungen: sie belegten den GANZEN Kantenstreifen, und der liegt mittig auf
+// der Zellgrenze — also ragte ein halber Meter davon in den lichten Raum der
+// Nachbarzelle.
+//
+// Gemessen wird der lichte Raum jeder begehbaren Zelle: waagerecht bis an die
+// Wandflucht (ein Achtel, die halbe Wanddicke, an jeder Kante mit Wand oder
+// Tuer), senkrecht von der Bodenoberkante bis zur Deckenunterkante. Kein Stueck
+// darf mit echtem Volumen darin liegen. Zwei Ausnahmen mit eigener Regel:
+//   * `stufe` in einer Treppenzelle — die Trittflaechen SIND dort der Boden;
+//   * `sims` — die Auskragung ist gewollt. Sie wird darum nicht uebergangen,
+//     sondern SCHAERFER geprueft: genau SIMS_TIEFE_ACHTEL tief und nur an einer
+//     Kante, an der auch eine Wand steht.
+// GUARD for the second finding: single elongated boxes stood visibly IN FRONT
+// of an otherwise flat wall — the fillers above openings, which occupied the
+// WHOLE edge strip although that strip straddles the cell border. Measured is
+// every walkable cell's clear space; no piece may sit inside it with real
+// volume. Two exceptions with rules of their own: stair treads (they ARE the
+// floor there) and ledges (the overhang is intended — and therefore checked
+// more strictly, not skipped).
+
+const FLUCHT_SEEDS = 12;
+
+{
+  let vorDerFlucht = 0;
+  let ersterVorstand = '';
+  let simse = 0;
+  let simsFalsch = 0;
+  let ersterSims = '';
+
+  for (let i = 0; i < FLUCHT_SEEDS; i++) {
+    const layout = erzeugeLayout(thema, seedsFuer(i));
+    const gitter = zellenAufbauen(layout, materialOptionen);
+    const ergebnis = baue(layout, gitter);
+    const tuerKanten = new Set(
+      layout.tueren.map((t) => {
+        const k = kanonisiereKante(t.x, t.z, t.ebene, t.kante);
+        return `${k.ebene}|${k.z}|${k.x}|${k.kante}`;
+      })
+    );
+
+    for (const zelle of zellenSortiert(gitter)) {
+      if (!offen(zelle.art)) continue;
+      // Die Wandflucht liegt eine halbe Wanddicke in der Zelle — an jeder Kante,
+      // an der eine Wand ODER ein Tuerrahmen steht (der Rahmen IST dort die
+      // Wandflucht, er belegt denselben Streifen wie die Waende links und
+      // rechts von ihm).
+      // The wall line lies half a wall thickness inside the cell — at every edge
+      // carrying a wall OR a door frame (the frame IS the wall line there).
+      const flucht = (kante: Kante): number => {
+        if (zellKanteZuQuader(gitter, zelle, kante) !== null) return WAND_DICKE_ACHTEL / 2;
+        const k = kanonisiereKante(zelle.x, zelle.z, zelle.ebene, kante);
+        return tuerKanten.has(`${k.ebene}|${k.z}|${k.x}|${k.kante}`) ? WAND_DICKE_ACHTEL / 2 : 0;
+      };
+      const xa = zelle.x * ZELL_ACHTEL;
+      const za = zelle.z * ZELL_ACHTEL;
+      const lx0 = (xa + flucht(KANTE.West)) * ACHTEL_M;
+      const lx1 = (xa + ZELL_ACHTEL - flucht(KANTE.Ost)) * ACHTEL_M;
+      const lz0 = (za + flucht(KANTE.Sued)) * ACHTEL_M;
+      const lz1 = (za + ZELL_ACHTEL - flucht(KANTE.Nord)) * ACHTEL_M;
+      const ly0 = bodenStufen(zelle) * HOEHEN_SCHRITT_M;
+      // Die WIRKLICHE Deckenunterkante: `obenStufen()` ist die geplante, aber
+      // die Regel `ebenen-abstand` vergleicht nur `boden + decke` mit der Sohle
+      // darueber und laesst die DICKE der Bodenplatte des Stockwerks darueber
+      // aus. Wo der Abstand knapp ist, haengt diese Platte darum bis zu einen
+      // halben Meter in den Raum — gemessen, nicht vermutet (siehe
+      // decisions-log). Das ist kein Vorstand vor die Wandflucht, sondern eine
+      // zu grosszuegige Layoutregel; der Wandflucht-Waechter misst deshalb gegen
+      // die wirkliche Unterkante.
+      // The REAL ceiling underside: `obenStufen()` is the planned one, but the
+      // `ebenen-abstand` rule leaves the THICKNESS of the storey above's floor
+      // slab out of the comparison. Where the gap is tight, that slab hangs up
+      // to half a metre into the room — measured, not assumed. That is not a
+      // piece in front of the wall line but a too generous layout rule, so the
+      // wall-line guard measures against the real underside.
+      const drueber = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene + 1);
+      const sohleDrueber =
+        drueber !== undefined && offen(drueber.art) && drueber.art !== ZELLEN_ART.Schacht
+          ? (bodenStufen(drueber) - 2) * HOEHEN_SCHRITT_M
+          : Number.POSITIVE_INFINITY;
+      const ly1 = Math.min(obenStufen(gitter, zelle) * HOEHEN_SCHRITT_M, sohleDrueber);
+
+      for (const s of ergebnis.stuecke) {
+        const ux = Math.min(s.mitte.x + s.groesse.x / 2, lx1) - Math.max(s.mitte.x - s.groesse.x / 2, lx0);
+        const uy = Math.min(s.mitte.y + s.groesse.y / 2, ly1) - Math.max(s.mitte.y - s.groesse.y / 2, ly0);
+        const uz = Math.min(s.mitte.z + s.groesse.z / 2, lz1) - Math.max(s.mitte.z - s.groesse.z / 2, lz0);
+        if (ux <= 1e-9 || uy <= 1e-9 || uz <= 1e-9) continue;
+        if (s.art === 'stufe' && zelle.art === ZELLEN_ART.Treppe) continue;
+        if (s.art === 'sims') {
+          simse++;
+          // Ein Sims kragt genau um SIMS_TIEFE_ACHTEL aus, und nur an einer
+          // Kante mit Wand. Weiter waere er ein Vorsprung, ohne Wand ein
+          // Schwebebrett.
+          // A ledge overhangs by exactly SIMS_TIEFE_ACHTEL, and only at an edge
+          // with a wall. Further would be a ledge sticking out, without a wall a
+          // floating board.
+          const tiefe = Math.min(ux, uz);
+          const ander = tiefe === ux ? uz : ux;
+          const anWand = KANTEN.some(
+            (k) => zellKanteZuQuader(gitter, zelle, k) !== null && flucht(k) > 0
+          );
+          if (Math.abs(tiefe - ACHTEL_M) > 1e-9 || ander <= 0 || !anWand) {
+            simsFalsch++;
+            if (ersterSims === '') {
+              ersterSims = `Seed ${i}: Zelle (${zelle.x},${zelle.z},E${zelle.ebene}) Sims kragt ${tiefe.toFixed(2)} m aus`;
+            }
+          }
+          continue;
+        }
+        vorDerFlucht++;
+        if (ersterVorstand === '') {
+          ersterVorstand = `Seed ${i}: Zelle (${zelle.x},${zelle.z},E${zelle.ebene}) — ${s.art} ragt ${Math.min(ux, uz).toFixed(2)} m x ${uy.toFixed(2)} m in den lichten Raum`;
+        }
+      }
+    }
+  }
+
+  pruefe(
+    `(G) kein Bauteil ragt vor die Wandflucht in den lichten Raum (${FLUCHT_SEEDS} Seeds)`,
+    vorDerFlucht === 0,
+    ersterVorstand
+  );
+  pruefe(
+    `(G) jeder Sims kragt genau ${ACHTEL_M} m aus, an einer Wand (${simse} Simse)`,
+    simsFalsch === 0 && simse > 500,
+    ersterSims !== '' ? ersterSims : `${simse} Simse`
   );
 }
 

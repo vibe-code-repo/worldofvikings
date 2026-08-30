@@ -39,8 +39,11 @@ import {
   type Zelle,
 } from './layout.js';
 import {
-  EBENE_IN_HOEHEN_SCHRITTEN,
+  BODEN_DICKE_STUFEN,
+  DECKE_DICKE_STUFEN,
+  bodenStufen,
   erreichbareZellen,
+  obenStufen,
   istGueltigeKante,
   nachbarBegehbar,
   offen,
@@ -132,6 +135,12 @@ export function validateZellgitter(layout: DungeonLayout2, gitter: ZellenGitter)
   for (const zelle of zellenSortiert(gitter)) {
     const oben = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene + 1);
     if (oben === undefined) continue;
+    // Zwei Platten koennen sich nur durchdringen, wenn es beide gibt. Ist eine
+    // der beiden Zellen Fels, baut der Bauer dort nichts (`baueZelle` steigt bei
+    // `!offen(art)` sofort aus) — dann gibt es nichts zu trennen.
+    // Two slabs can only intersect if both exist. If either cell is rock the
+    // builder builds nothing there (`baueZelle` returns on `!offen(art)`).
+    if (!offen(zelle.art) || !offen(oben.art)) continue;
     // Ein `Schacht` unmittelbar ueber einer offenen Zelle IST die senkrechte
     // Oeffnung: `hatBodenPlatte()`/`hatDeckenPlatte()` (cells.ts) lassen dort
     // beide Platten weg und `obenStufen()` zieht die eine lichte Saeule bis zur
@@ -145,9 +154,34 @@ export function validateZellgitter(layout: DungeonLayout2, gitter: ZellenGitter)
     // There are no two slabs that could intersect — the rule would be checking
     // a part the builder never builds, and would forbid exactly the ascent the
     // shaft exists for.
-    if (oben.art === ZELLEN_ART.Schacht && offen(zelle.art)) continue;
-    const deckenOberkanteUnten = zelle.ebene * EBENE_IN_HOEHEN_SCHRITTEN + zelle.boden + zelle.decke;
-    const bodenUnterkanteOben = oben.ebene * EBENE_IN_HOEHEN_SCHRITTEN + oben.boden;
+    if (oben.art === ZELLEN_ART.Schacht) continue;
+    // KANTEN DER PLATTEN, nicht Kanten des Luftraums.
+    //
+    // Bis zum 2026-08-30 stand hier `boden + decke` gegen `boden` der Zelle
+    // darueber — also die Decken-UNTERkante gegen die Boden-OBERkante. Beide
+    // Male die falsche Flaeche, und beide Fehler zeigen in dieselbe Richtung:
+    // Die Regel liess `DECKE_DICKE_STUFEN + BODEN_DICKE_STUFEN` = 4 Stufen
+    // (2 m) Ueberdeckung durchgehen, die der Regeltext (`ARCHITECTURE.md` §3.7:
+    // "Deckenoberkante unten < Bodenunterkante oben") ausdruecklich verbietet.
+    // Gemessen ueber 60 Seeds waren 86 von 783 gestapelten Zellpaaren betroffen;
+    // sichtbar wurde es nicht als Loch, sondern an der Deckenplatte:
+    // `deckenOberkante()` im Bauer stutzt sie stillschweigend auf die Sohle
+    // darueber, und so entstanden 52 Deckenplatten der Dicke NULL und 34 der
+    // halben Dicke — Nullkoerper, die als Sichtgeometrie UND als Havok-Box in
+    // den Bau gingen. Bei `hoehe = 15` unter einer belegten Zelle waere die
+    // gestutzte Platte sogar negativ dick geworden.
+    // EDGES OF THE SLABS, not edges of the air space. Until 2026-08-30 this
+    // compared the ceiling UNDERSIDE against the floor TOPSIDE — the wrong
+    // surface twice, and both errors point the same way: the rule let
+    // `DECKE_DICKE_STUFEN + BODEN_DICKE_STUFEN` = 4 steps (2 m) of overlap pass
+    // that the rule's own text forbids. Measured over 60 seeds, 86 of 783
+    // stacked cell pairs were affected; the symptom was not a hole but the
+    // ceiling slab: the builder's `deckenOberkante()` silently trims it to the
+    // sole above, producing 52 ceiling slabs of thickness ZERO and 34 of half
+    // thickness — degenerate bodies that went into the build as visual geometry
+    // AND as a Havok box.
+    const deckenOberkanteUnten = obenStufen(gitter, zelle) + DECKE_DICKE_STUFEN;
+    const bodenUnterkanteOben = bodenStufen(oben) - BODEN_DICKE_STUFEN;
     if (!(deckenOberkanteUnten < bodenUnterkanteOben)) {
       melde(
         `Zelle (${zelle.x},${zelle.z},E${zelle.ebene}/E${oben.ebene})`,

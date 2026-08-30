@@ -58,6 +58,7 @@ import {
   BODEN_DICKE_STUFEN,
   DECKE_DICKE_STUFEN,
   WAND_DICKE_ACHTEL,
+  deckelDurchStockwerkDarueber,
   ZELL_ACHTEL,
   bodenStufen,
   hatBodenPlatte,
@@ -1039,7 +1040,21 @@ function baueKante(
   // ceiling slab stands there.
   const niedrigIstA = saeuleA < saeuleB;
   const laibungUnten = niedrigIstA ? saeuleA : saeuleB;
-  if (lichtMax > laibungUnten) {
+  // Dieselbe Deckelung wie beim Wandquader (`zellKanteZuQuaderGanz`): die
+  // Laibung steht auf der Seite der NIEDRIGEREN Zelle und darf nicht durch die
+  // Bodenplatte des Stockwerks ueber DIESER Zelle fahren. Ohne den Deckel
+  // schnitt sie sich einen halben Meter in die Platte und ihre Stirnflaeche lag
+  // koplanar zu deren Stirnflaeche — gemessen 4,00 m x 0,50 m, also das
+  // Vierfache des dokumentierten Restmasses ((F) in `dungeon2-builder.ts`).
+  // Was der Deckel wegnimmt, ersetzt genau diese Bodenplatte.
+  // The same cap as for the wall box (`zellKanteZuQuaderGanz`): the reveal
+  // stands on the LOWER cell's side and must not drive through the floor slab of
+  // the storey above THAT cell. Without the cap it cut half a metre into the
+  // slab and its end face lay coplanar with the slab's — measured 4.00 m x
+  // 0.50 m. What the cap removes is replaced by exactly that floor slab.
+  const laibungDeckel = deckelDurchStockwerkDarueber(gitter, niedrigIstA ? a : b);
+  const laibungOben = lichtMax < laibungDeckel ? lichtMax : laibungDeckel;
+  if (laibungOben > laibungUnten) {
     trage(
       sammler,
       gitter,
@@ -1055,7 +1070,7 @@ function baueKante(
         // cuts a hole into the opening's head.
         ...kantenStreifenHaelfte(a.x, a.z, kante, niedrigIstA),
         ys0: laibungUnten,
-        ys1: lichtMax,
+        ys1: laibungOben,
         drehung: kantenDrehung(kante),
       },
       true

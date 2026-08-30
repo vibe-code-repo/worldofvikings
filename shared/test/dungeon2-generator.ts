@@ -479,11 +479,15 @@ pruefe(
 
 const EINGEFROREN: readonly (readonly [number, string, number, number, number, number])[] = [
   // [Seed-Index, pruefsumme, Stempel, Zellen, Tueren, Anker]
+  // Neu eingefroren am 2026-08-30 (siehe `design/decisions-log.md`): P8b
+  // beschneidet die Decke unter einem belegten Stockwerk, und die Zelle ueber
+  // dem unteren Treppenlauf ist gesperrt.
+  // Re-frozen on 2026-08-30 — deliberate layout change, see the decisions log.
   [0, '77f521e6', 35, 303, 16, 91],
-  [1, '5027738e', 47, 337, 10, 90],
-  [7, '616084ad', 49, 317, 16, 87],
+  [1, 'c214a245', 45, 336, 14, 90],
+  [7, '75f8553f', 49, 317, 16, 84],
   [42, 'c3c5d958', 32, 309, 10, 95],
-  [199, '2f28fe93', 38, 295, 10, 101],
+  [199, '375464b0', 32, 286, 6, 75],
 ];
 
 {

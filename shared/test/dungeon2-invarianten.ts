@@ -302,6 +302,35 @@ function pruefeInvariante(
     ],
   });
   pruefeInvariante('ebenen-abstand', 'ebenen-abstand', positiv, negativ);
+
+  // WAECHTER zum Fund vom 2026-08-30: Die Regel verglich die Decken-UNTERkante
+  // mit der Boden-OBERkante und liess damit `DECKE_DICKE_STUFEN +
+  // BODEN_DICKE_STUFEN` = 4 Stufen (2 m) Ueberdeckung durchgehen. Die drei
+  // Faelle unten liegen GENAU in dieser Luecke — die alte Formel meldete bei
+  // allen dreien nichts (nachgerechnet: `boden + decke` = 11/12/14 ist bei
+  // jedem kleiner als die 16 der Ebene darueber), die neue meldet alle drei.
+  //
+  // 11 ist die groesste Hoehe, die unter einem belegten Stockwerk noch passt:
+  // 11 + DECKE_DICKE (2) = 13 < 16 - BODEN_DICKE (2) = 14.
+  // GUARD for the finding of 2026-08-30: the rule compared the ceiling
+  // UNDERSIDE against the floor TOPSIDE and thereby let 4 steps (2 m) of
+  // overlap pass. The three cases below sit exactly in that gap — the old
+  // formula reported nothing for any of them, the new one reports all three.
+  for (const [hoehe, erwartetFehler] of [[11, false], [12, true], [13, true], [14, true]] as const) {
+    const fall = basisLayout({
+      ...gemeinsam,
+      stempel: [
+        stempel({ id: 0, x: 0, z: 0, ebene: 0, ordnung: 0, tiefeImBaum: 0, typ: 'eingang', hoehe }),
+        stempel({ id: 1, x: 0, z: 0, ebene: 1, ordnung: 1, tiefeImBaum: 1, typ: 'kammer' }),
+      ],
+    });
+    const befunde = validateZellgitter(fall, zellenAufbauen(fall));
+    pruefe(
+      `ebenen-abstand: hoehe ${hoehe} unter einem belegten Stockwerk ${erwartetFehler ? 'wird gemeldet' : 'bleibt gruen'}`,
+      hatFehler(befunde, 'ebenen-abstand') === erwartetFehler,
+      befunde.map((b) => `${b.regel}: ${b.text}`).join(' | ')
+    );
+  }
 }
 
 // treppe-anschluss — Positiv: eine Treppenzelle mitten im Raum, beide Enden

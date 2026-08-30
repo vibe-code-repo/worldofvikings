@@ -57,6 +57,7 @@ import {
 } from '../src/dungeon2/layout.js';
 import {
   ACHTEL_M,
+  DECKE_DICKE_STUFEN,
   WAND_DICKE_ACHTEL,
   ZELL_ACHTEL,
   bodenStufen,
@@ -375,11 +376,16 @@ const GLEICH_SEEDS = 100;
 // Eingefrorene Tabelle. Neuausgabe mit DUNGEON2_EINFRIEREN=1 (siehe unten).
 // Frozen table. Reprint with DUNGEON2_EINFRIEREN=1 (see below).
 const EINGEFROREN: readonly (readonly [number, string, number, number, number])[] = [
+  // Neu eingefroren am 2026-08-30: `ebenen-abstand` prueft seither die Kanten
+  // der PLATTEN, der Generator beschneidet die Decke unter einem Stockwerk
+  // (P8b) und sperrt die Zelle ueber dem unteren Treppenlauf. Beides aendert
+  // Layouts absichtlich; Begruendung im `design/decisions-log.md`.
+  // Re-frozen on 2026-08-30 — deliberate layout change, see the decisions log.
   [0, 'b3271d8c', 1018, 939, 303],
-  [1, 'cd7a7e76', 1185, 1063, 337],
-  [7, 'dc901c6b', 1229, 1096, 317],
+  [1, 'a1c40d02', 1199, 1088, 336],
+  [7, 'b5d577d7', 1260, 1106, 317],
   [42, '8d6bc869', 1039, 958, 309],
-  [199, 'fbfa33c2', 1059, 960, 295],
+  [199, '366fbd9e', 973, 879, 286],
 ];
 
 {
@@ -1176,6 +1182,7 @@ function flaechenVon(s: BauStueck, stueck: number): Flaeche[] {
   let groessteFlaeche = 0;
   let ersterStreit = '';
   let ersterRest = '';
+  let groesserRest = '';
 
   for (let i = 0; i < KOPLANAR_SEEDS; i++) {
     const layout = erzeugeLayout(thema, seedsFuer(i));
@@ -1255,7 +1262,15 @@ function flaechenVon(s: BauStueck, stueck: number): Flaeche[] {
             if (ersterStreit === '') ersterStreit = text;
           } else {
             restStreit++;
-            if (flaeche > groessteFlaeche) groessteFlaeche = flaeche;
+            if (flaeche > groessteFlaeche) {
+              groessteFlaeche = flaeche;
+              // Der GROESSTE Rest, nicht nur der erste: die Schranke faellt an
+              // der Flaeche, und wer dann den ersten Fall liest, sucht am
+              // falschen Ort.
+              // The LARGEST residue, not merely the first: the bound trips on
+              // the area, and reading the first case then searches the wrong spot.
+              groesserRest = text;
+            }
             if (ersterRest === '') ersterRest = text;
           }
         }
@@ -1279,7 +1294,7 @@ function flaechenVon(s: BauStueck, stueck: number): Flaeche[] {
   pruefe(
     `(F) der dokumentierte Rest bleibt klein (${restStreit} Faelle, groesste ${groessteFlaeche.toFixed(2)} m²)`,
     restStreit <= 60 && groessteFlaeche <= 1 + 1e-9,
-    ersterRest
+    `erster: ${ersterRest} | groesster: ${groesserRest}`
   );
 }
 
@@ -1415,6 +1430,79 @@ const FLUCHT_SEEDS = 12;
     `(G) jeder Sims kragt genau ${ACHTEL_M} m aus, an einer Wand (${simse} Simse)`,
     simsFalsch === 0 && simse > 500,
     ersterSims !== '' ? ersterSims : `${simse} Simse`
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (H) Kein Nullkoerper — jede Platte hat ihre volle Dicke
+// (H) no degenerate body — every slab has its full thickness
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// WAECHTER zum Fund vom 2026-08-30 (`ebenen-abstand` verglich die falschen
+// Flaechen, siehe `validation.ts`). Das Symptom war KEIN Loch: `deckenOberkante()`
+// stutzt die Deckenplatte stillschweigend auf die Sohle des Stockwerks
+// darueber, und wo die Regel eine Ueberdeckung durchliess, blieb davon eine
+// Platte der Dicke NULL uebrig — ein Quader ohne Volumen, der als Sichtgeometrie
+// UND als Havok-Box in den Bau ging.
+//
+// GEGENPROBE (gemessen am Stand vor dem Fix, dieselben 60 Seeds): 52 Deckenplatten
+// der Dicke 0 und 34 der halben Dicke; danach 0 und 0. Der Waechter ist also
+// nachweislich rot gewesen.
+// GUARD for the finding of 2026-08-30. The symptom was NOT a hole:
+// `deckenOberkante()` silently trims the ceiling slab to the sole of the storey
+// above, and where the rule let an overlap pass, a slab of thickness ZERO
+// remained — a box without volume that went into the build as visual geometry
+// AND as a Havok box. COUNTER-CHECK (measured on the pre-fix state, same 60
+// seeds): 52 ceiling slabs of thickness 0 and 34 of half thickness; afterwards 0
+// and 0.
+const NULLKOERPER_SEEDS = 60;
+{
+  let duenneDecken = 0;
+  let nullkoerper = 0;
+  let deckenZahl = 0;
+  let erstesDuenn = '';
+  let erstesNull = '';
+  const MASZ = DECKE_DICKE_STUFEN * HOEHEN_SCHRITT_M;
+
+  for (let i = 0; i < NULLKOERPER_SEEDS; i++) {
+    const layout = erzeugeLayout(thema, seedsFuer(i));
+    const gitter = zellenAufbauen(layout, materialOptionen);
+    const ergebnis = baue(layout, gitter);
+    for (const s of ergebnis.stuecke) {
+      if (s.groesse.x <= 1e-9 || s.groesse.y <= 1e-9 || s.groesse.z <= 1e-9) {
+        nullkoerper++;
+        if (erstesNull === '') {
+          erstesNull = `Seed ${i}: ${s.art} ${s.groesse.x}x${s.groesse.y}x${s.groesse.z} bei (${s.mitte.x},${s.mitte.y},${s.mitte.z})`;
+        }
+      }
+      if (s.art !== 'decke') continue;
+      deckenZahl++;
+      if (Math.abs(s.groesse.y - MASZ) > 1e-9) {
+        duenneDecken++;
+        if (erstesDuenn === '') {
+          erstesDuenn = `Seed ${i}: Deckenplatte ${s.groesse.y} m statt ${MASZ} m bei (${s.mitte.x},${s.mitte.y},${s.mitte.z})`;
+        }
+      }
+    }
+    for (const k of ergebnis.kollision) {
+      if (k.groesse.x <= 1e-9 || k.groesse.y <= 1e-9 || k.groesse.z <= 1e-9) {
+        nullkoerper++;
+        if (erstesNull === '') {
+          erstesNull = `Seed ${i}: Kollisionskoerper ${k.groesse.x}x${k.groesse.y}x${k.groesse.z}`;
+        }
+      }
+    }
+  }
+
+  pruefe(
+    `(H) kein Bauteil und kein Kollisionskoerper ohne Volumen (${NULLKOERPER_SEEDS} Seeds)`,
+    nullkoerper === 0,
+    erstesNull
+  );
+  pruefe(
+    `(H) jede Deckenplatte ist ${MASZ} m dick (${deckenZahl} Platten, ${NULLKOERPER_SEEDS} Seeds)`,
+    duenneDecken === 0 && deckenZahl > 10000,
+    erstesDuenn !== '' ? erstesDuenn : `${deckenZahl} Platten`
   );
 }
 

@@ -47,6 +47,7 @@ import {
   KANTEN,
   LAYOUT_FORMAT,
   LAYOUT_VERSION,
+  MIN_LICHTE_STUFEN,
   ZELLE_M,
   ZELLEN_ART,
   gegenKante,
@@ -70,9 +71,14 @@ import {
   type ZellenKorrektur,
 } from './layout.js';
 import {
+  BODEN_DICKE_STUFEN,
+  DECKE_DICKE_STUFEN,
   EBENE_IN_HOEHEN_SCHRITTEN,
+  bodenStufen,
+  offen,
   schluesselZelle,
   wandZwischen,
+  zelleImGitter,
   zelleOderLeer,
   zellenAufbauen,
   zellenSortiert,
@@ -358,8 +364,28 @@ export function erzeugeLayoutMitBericht(
   let naechsteId = 0;
   let auffuellungen = 0;
 
+  /**
+   * Zellen, die frei BLEIBEN muessen, ohne selbst zu existieren. Bisher nur die
+   * Zelle ueber dem UNTEREN Treppenlauf: dort passt kein Stockwerk hin, weil
+   * der Lauf 8 Stufen steigt und darueber noch Kopfraum, Deckenplatte, ein
+   * Fels-Abstand und die Bodenplatte des Stockwerks Platz brauchen — zusammen
+   * mehr als die 16 Stufen einer Ebene. Wuchs dort ein Raum, blieben dem
+   * Treppenlauf 1,5 m lichte Hoehe: die Kapsel (1,8 m) kommt nicht durch, und
+   * `lichte-hoehe` sieht es nicht, weil `Zelle.decke` an der TIEFEN Laufkante
+   * gemessen wird.
+   * Cells that must STAY free without existing themselves. So far only the cell
+   * above the LOWER stair run: no storey fits there, because the run climbs 8
+   * steps and above it headroom, ceiling slab, a rock gap and the floor slab of
+   * the storey above all need room — together more than the 16 steps of one
+   * storey. With a room grown there the run kept 1.5 m of clear height: the
+   * capsule (1.8 m) does not fit, and `lichte-hoehe` does not see it because
+   * `Zelle.decke` is measured at the run's LOW edge.
+   */
+  const gesperrt = new Set<string>();
+
   const frei = (x: number, z: number, ebene: number): boolean =>
     !belegung.has(schluesselZelle(x, z, ebene)) &&
+    !gesperrt.has(schluesselZelle(x, z, ebene)) &&
     x >= grenzen.minX &&
     x <= grenzen.maxX &&
     z >= grenzen.minZ &&
@@ -722,6 +748,9 @@ export function erzeugeLayoutMitBericht(
       if (!rechteckFrei(n.x, n.z, a.ebene, 1, 1)) return false;
       if (!rechteckFrei(m.x, m.z, a.ebene, 1, 1)) return false;
       if (!rechteckFrei(m.x, m.z, a.ebene + 1, 1, 1)) return false;
+      // Ueber dem UNTEREN Lauf muss es frei sein UND frei bleiben (`gesperrt`).
+      // Above the LOWER run it must be free AND stay free (`gesperrt`).
+      if (!frei(n.x, n.z, a.ebene + 1)) return false;
 
       // Merkposten fuer den Rueckbau. Ein Treppenhaus, an dessen Muendung oben
       // KEIN echter Raum anschliessbar ist, wird als GANZES verworfen — eine
@@ -760,7 +789,9 @@ export function erzeugeLayoutMitBericht(
         korrekturRoh.delete(schluesselZelle(n.x, n.z, a.ebene));
         korrekturRoh.delete(schluesselZelle(m.x, m.z, a.ebene));
         korrekturRoh.delete(schluesselZelle(m.x, m.z, a.ebene + 1));
+        gesperrt.delete(schluesselZelle(n.x, n.z, a.ebene + 1));
       };
+      gesperrt.add(schluesselZelle(n.x, n.z, a.ebene + 1));
 
       const lauf1 = setzeStempel(
         'treppe',
@@ -1146,7 +1177,7 @@ export function erzeugeLayoutMitBericht(
   }
 
   // ── Dokument ohne Anker zusammensetzen / assemble the document sans anchors ─
-  const korrekturen: ZellenKorrektur[] = [...korrekturRoh.values()]
+  const baueKorrekturen = (): ZellenKorrektur[] => [...korrekturRoh.values()]
     .sort((a, b) => a.ebene - b.ebene || a.z - b.z || a.x - b.x)
     .map((k) => {
       // Feste Feldreihenfolge, gesetzte Felder nur wenn belegt. `art`
@@ -1171,7 +1202,7 @@ export function erzeugeLayoutMitBericht(
     });
 
   const kennung = vorgaben?.id ?? `${thema.id}-${hex8(seeds.architektur)}`;
-  const ohneAnker: DungeonLayout2 = {
+  const baueOhneAnker = (korrekturen: readonly ZellenKorrektur[]): DungeonLayout2 => ({
     format: LAYOUT_FORMAT,
     version: LAYOUT_VERSION,
     id: kennung,
@@ -1191,7 +1222,61 @@ export function erzeugeLayoutMitBericht(
     tueren,
     anker: [],
     pruefsumme: '',
-  };
+  });
+
+  // ── P8b: Deckenbeschnitt ────────────────────────────────────────────────
+  // P8b: ceiling trim.
+  //
+  // Ein Stempel waehlt seine `hoehe`, BEVOR feststeht, ob spaeter ein Raum
+  // ueber ihm waechst. Die Regel `ebenen-abstand` verlangt aber, dass die
+  // Deckenplatte einer Zelle unter der Bodenplatte der Zelle darueber bleibt —
+  // mit `DECKE_DICKE_STUFEN` + `BODEN_DICKE_STUFEN` = 4 Stufen Bauteil dazwischen
+  // und einer Stufe Fels als echtem Abstand. Statt alle Raumhoehen global auf
+  // dieses Maximum zu deckeln (ein Saal waere dann UEBERALL 5,5 m statt 7,5 m
+  // hoch, auch dort, wo ueber ihm nur Fels steht), beschneidet diese Phase die
+  // lichte Hoehe genau in den Zellen, unter denen wirklich ein Stockwerk liegt.
+  // A stamp picks its `hoehe` BEFORE it is known whether a room will later grow
+  // above it. The `ebenen-abstand` rule requires a cell's ceiling slab to stay
+  // below the floor slab of the cell above. Rather than capping every room
+  // height globally (a hall would then be 5.5 m instead of 7.5 m EVERYWHERE,
+  // even where only rock sits above it), this phase trims the clear height in
+  // exactly those cells that really have a storey over them.
+  //
+  // Die Phase zieht NICHT: sie rechnet. Sie steht deshalb nach P8 und vor P9
+  // und verschiebt keine einzige Ziehung des Architekturstroms (W7).
+  // The phase does not draw, it computes. It therefore sits between P8 and P9
+  // and shifts no draw of the architecture stream (W7).
+  {
+    const vorlaeufig = zellenAufbauen(baueOhneAnker(baueKorrekturen()), materialOptionen);
+    for (const zelle of zellenSortiert(vorlaeufig)) {
+      if (!offen(zelle.art)) continue;
+      const oben = zelleImGitter(vorlaeufig, zelle.x, zelle.z, zelle.ebene + 1);
+      if (oben === undefined || !offen(oben.art)) continue;
+      // Der Schacht ueber einer offenen Zelle IST die senkrechte Oeffnung —
+      // dort gibt es beide Platten nicht (siehe `validation.ts`).
+      // The shaft above an open cell IS the vertical opening — neither slab
+      // exists there.
+      if (oben.art === ZELLEN_ART.Schacht) continue;
+      const bodenUnterkanteOben = bodenStufen(oben) - BODEN_DICKE_STUFEN;
+      // `obenStufen` statt `boden + decke`: eine Zelle, ueber der ein Schacht
+      // steht, zieht ihre lichte Saeule bis zu dessen Sohle — die faellt aber
+      // schon durch die Ausnahme oben heraus. Hier sind beide gleich.
+      // `obenStufen` rather than `boden + decke`; here the two coincide.
+      const hoechsteDecke = bodenUnterkanteOben - DECKE_DICKE_STUFEN - 1 - bodenStufen(zelle);
+      if (zelle.decke <= hoechsteDecke) continue;
+      // Unter `MIN_LICHTE_STUFEN` wird NICHT beschnitten: eine Zelle, die nur
+      // noch geduckt begehbar waere, ist ein Fehler des Grundrisses, kein Fall
+      // fuer eine stille Korrektur. Sie bleibt stehen, `validateLayoutVoll`
+      // meldet sie in P10, und der Rueckfall greift — laut statt still.
+      // No trim below `MIN_LICHTE_STUFEN`: a cell that would only be walkable
+      // stooping is a floor-plan error, not a case for a silent fix. It stays,
+      // P10 reports it and the fallback takes over — loudly, not silently.
+      if (hoechsteDecke < MIN_LICHTE_STUFEN) continue;
+      korrekturEintrag(zelle.x, zelle.z, zelle.ebene).decke = hoechsteDecke;
+    }
+  }
+
+  const ohneAnker = baueOhneAnker(baueKorrekturen());
 
   // ── P9: Deko-Anker ──────────────────────────────────────────────────────
   // P9: decor anchors.

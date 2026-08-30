@@ -733,7 +733,7 @@ export function kantenStreifen(
  * removes is replaced by exactly that floor slab — it covers the whole cell
  * footprint, hence also the half of the wall strip beneath it.
  */
-function deckelDurchStockwerkDarueber(gitter: ZellenGitter, zelle: Zelle): number {
+export function deckelDurchStockwerkDarueber(gitter: ZellenGitter, zelle: Zelle): number {
   const drueber = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene + 1);
   if (drueber === undefined || !offen(drueber.art) || !hatBodenPlatte(gitter, drueber)) {
     return Number.POSITIVE_INFINITY;

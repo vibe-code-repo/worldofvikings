@@ -1964,3 +1964,79 @@ verdeckt jemand anders". Wo die Behauptung nicht bewiesen ist, entsteht statt
 eines Flackerns ein Loch, und das Loch sieht man erst im Bild. Die Regel, die
 daraus folgt: im Zweifel weniger schneiden, und die Dichtheitsprobe dorthin
 setzen, wo die Bauteile enden — nicht dorthin, wo sie am dicksten sind.
+
+---
+
+## 2026-08-30 · AP2/AP4 · `ebenen-abstand` verglich die falschen Flächen — Regel korrigiert, Generator nachgezogen, Golden neu eingefroren
+
+**Aufgegriffener Nebenbefund** (Eintrag „Gefundene Lücke in `validation.ts`" vom
+selben Tag). Nachgemessen ist er größer als dort beschrieben: Der Code verglich
+die Decken-UNTERkante (`boden + decke`) mit der Boden-OBERkante der Zelle
+darüber (`boden`). Beide Male die falsche Fläche, und beide Fehler zeigen in
+dieselbe Richtung — die Regel ließ `DECKE_DICKE_STUFEN + BODEN_DICKE_STUFEN` =
+4 Stufen (2 m) Überdeckung durch, die ihr eigener Text (`ARCHITECTURE.md` §3.7:
+„Deckenoberkante unten < Bodenunterkante oben") verbietet.
+
+**Was wirklich passierte, gemessen über 60 Seeds:** Die Platte hing *nicht* in
+den Raum darunter — 0 von 783 gestapelten Zellpaaren. Betroffen waren 86 Paare,
+und das Symptom saß eine Ebene tiefer: `deckenOberkante()` im Bauer stutzt die
+Deckenplatte stillschweigend auf die Sohle des Stockwerks darüber. Wo die Regel
+Überdeckung durchließ, blieb davon eine Deckenplatte der Dicke **null** (52
+Fälle) oder der halben Dicke (34 Fälle) übrig — ein Quader ohne Volumen, der als
+Sichtgeometrie **und** als Havok-Box in den Bau ging. Bei `hoehe = 15` unter
+einer belegten Zelle wäre die gestutzte Platte sogar negativ dick geworden; kein
+Seed traf das, das Format erlaubt es.
+
+**Entscheidung (drei Teile):**
+
+1. **`validation.ts`** vergleicht die Kanten der PLATTEN:
+   `obenStufen(zelle) + DECKE_DICKE_STUFEN < bodenStufen(oben) - BODEN_DICKE_STUFEN`.
+   Geprüft wird nur noch, wo es beide Platten gibt (beide Zellen begehbar); ist
+   eine Seite Fels, baut `baueZelle()` dort nichts. Die Schacht-Ausnahme bleibt.
+2. **`generator.ts`, neue Phase P8b „Deckenbeschnitt"**: statt alle Raumhöhen
+   global auf das Maximum unter einem Stockwerk zu deckeln (ein Saal wäre dann
+   ÜBERALL 5,5 m statt 7,5 m hoch, auch dort, wo über ihm nur Fels steht),
+   beschneidet die Phase `decke` genau in den Zellen, unter denen wirklich ein
+   Stockwerk liegt. Sie **zieht nicht, sie rechnet** — sie steht zwischen P8 und
+   P9 und verschiebt keine Ziehung des Architekturstroms (W7). Unter
+   `MIN_LICHTE_STUFEN` wird nicht beschnitten: das ist ein Grundrissfehler und
+   gehört laut in P10, nicht still in eine Korrektur.
+3. **`generator.ts`, `gesperrt`-Menge**: Über dem UNTEREN Treppenlauf darf kein
+   Raum wachsen. Rechnung: 8 Stufen Anstieg + Kopfraum + Deckenplatte (2) +
+   ein Stufe Fels + Bodenplatte des Stockwerks darüber (2) passen nicht in die
+   16 Stufen einer Ebene. Gemessen wuchs über 60 Seeds in **24** Fällen ein Raum
+   über einen Lauf; dem Lauf blieben dann 1,5 m lichte Höhe — die Spielerkapsel
+   (1,8 m) kommt dort nicht durch, und `lichte-hoehe` sieht es **nicht**, weil
+   `Zelle.decke` an der TIEFEN Laufkante gemessen wird. Nach der Sperre: 0.
+
+**Folgefehler derselben Familie, im selben Zug gefunden und behoben:** Die
+LAIBUNG über einer Öffnung (`builder.ts`) bekam nicht den Deckel, den der
+Wandquader in `c1cc08c` bekommen hat. Nach dem Deckenbeschnitt fuhr sie einen
+halben Meter in die Bodenplatte des Stockwerks darüber, und ihre Stirnfläche lag
+koplanar zu deren Stirnfläche: gemessen **4,00 m × 0,50 m**, das Vierfache des in
+`dungeon2-builder.ts` (F) dokumentierten Restmaßes von 1 m². `zellKanteZuQuaderGanz`
+und die Laibung benutzen jetzt beide `deckelDurchStockwerkDarueber()`.
+
+**Wächter mit Gegenprobe (beide nachweislich rot gewesen):**
+- `dungeon2-invarianten.ts`: vier Fälle `hoehe = 11|12|13|14` unter einem
+  belegten Stockwerk. Gegenprobe mit der alten Formel: **3 rot** (12/13/14
+  blieben stumm), mit der neuen: 27/27 grün.
+- `dungeon2-builder.ts` (H): „jede Deckenplatte ist 1 m dick" + „kein Bauteil und
+  kein Kollisionskörper ohne Volumen", 60 Seeds. Gegenprobe am Stand vor dem Fix:
+  **rot** (`Seed 9: Deckenplatte 0.5 m statt 1 m bei (14, 6.75, -10)`, 17499
+  Platten), danach grün.
+- (F) meldet jetzt zusätzlich den GRÖSSTEN Rest, nicht nur den ersten — die
+  Schranke fällt an der Fläche, und wer dann den ersten Fall liest, sucht am
+  falschen Ort.
+
+**Golden neu eingefroren** (`DUNGEON2_EINFRIEREN=1`), weil die Layoutänderung
+gewollt ist: `dungeon2-builder.ts` (Bau-Werte), `dungeon2-generator.ts`
+(Wertetabelle), `shared/test/golden/dungeon2-e2e.json`.
+`golden/dungeon2-hashpos-1000.json` blieb **unverändert** — der Hash hat sich
+nicht bewegt, und das ist der Zeuge dafür, dass hier ein Grundriss geändert
+wurde und keine Rechenregel.
+
+**Nicht geändert:** 200 Seeds erzeugen weiterhin **0** Rückfälle auf die
+einfache Form; Zyklusanteil 195/200, mehrstöckig 102/200, mit Treppe 98/200,
+alle 176 Mündungen angebunden. Der Beschnitt kostet Deckenhöhe nur dort, wo ein
+Stockwerk darüber liegt (235 Zellen über 60 Seeds).

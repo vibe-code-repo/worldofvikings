@@ -1131,3 +1131,247 @@ Rauheit fällt auf 0.12 — der Shader kann daraus beides bauen (nur Rauheit, od
 Rauheit plus Abdunklung), ohne dass eine zweite Bake-Form nötig wird. Eine
 Textur, die es nicht gibt, kann man später nicht mehr wollen; eine, die man
 nicht benutzt, kostet nichts.
+
+---
+
+## 2026-08-30 · AP10 · Dateinamen `DungeonMaterial.ts` + `DungeonMaterialArrays.ts`
+
+**Lücke:** `ARCHITECTURE.md` §1.2 nennt für AP10 genau eine Datei,
+`client/src/engine/DungeonMaterial.ts`, und daneben `DungeonAtmosphere.ts`
+(SSAO). Der Lader für die Textur-Arrays kommt in keinem der fünf Dokumente vor.
+
+**Entscheidung:** Zwei Dateien: `client/src/engine/DungeonMaterial.ts` (Plugin,
+Theme, Stufen, Notbremse) und `client/src/engine/DungeonMaterialArrays.ts`
+(Streifen-PNG → `RawTexture2DArray`). `DungeonAtmosphere.ts` gehört nicht zu
+diesem Auftrag und ist NICHT gebaut.
+
+**Grund:** AP12 schreibt jede Ebene als senkrechten Streifen in EINE PNG-Datei
+(Entscheidung „Senkrechter Streifen als Array-Dateiform"). Babylon hat keinen
+Loader, der daraus ein `Texture2DArray` macht — `RawTexture2DArray` will einen
+Puffer mit hintereinanderliegenden Ebenen. Dazwischen fehlt derselbe Schritt,
+den W5 zwischen Bake und Array schon einmal gefunden hat, nur eine Ebene
+weiter. Er gehört nicht in das Plugin: das Plugin darf nicht wissen, in welcher
+Datei eine Textur liegt.
+
+---
+
+## 2026-08-30 · AP10 · Die vier Einspritzpunkte, am installierten Babylon 8.56.2 gemessen
+
+**Lücke:** R3 sagt ausdrücklich, die Injektionsmarken seien unbekannt und AP8
+messe sie; AP8 ist nicht gelaufen. `render-tech.md` §1.2 nennt vier
+Injektionsorte (Albedo, Normal, Roughness/Metal, AO), aber keine Namen.
+
+**Entscheidung (nachgemessen, nicht erinnert):**
+1. `CUSTOM_FRAGMENT_DEFINITIONS` — Sampler, Varyings, Hilfsfunktionen.
+2. `CUSTOM_FRAGMENT_BEFORE_LIGHTS` — Albedo UND Normale zusammen.
+3. `CUSTOM_FRAGMENT_UPDATE_METALLICROUGHNESS` — Rauheit und Metallic.
+4. Ein `!!`-Regex auf den Aufruf von `ambientOcclusionBlock(...)` — Occlusion.
+
+**Grund:** `CUSTOM_FRAGMENT_UPDATE_ALBEDO` und `CUSTOM_FRAGMENT_BUMP_FRAGMENT`
+scheiden aus, obwohl sie nach ihren Namen passen. Der Albedo-Punkt liegt im
+Rumpf von `albedoOpacityBlock()`, und `ShaderCodeInliner` wird in Babylon
+8.56.2 nur von `webgpuEngine.js` und `thinNativeEngine.js` gebaut — unter
+WebGL2 bleibt das eine echte Funktion, in der `normalW` (eine Local von
+`main()`) nicht existiert. Der Bump-Punkt steht unter
+`#ifdef BUMP && OBJECTSPACE_NORMALMAP`, und wir haben keine Bump-Textur.
+`CUSTOM_FRAGMENT_BEFORE_LIGHTS` ist der einzige Punkt, an dem `normalW` UND
+`surfaceAlbedo` beide deklariert und noch veränderbar sind und der trotzdem vor
+Occlusion, Reflectivity und Lichtrechnung liegt.
+Für die Occlusion gibt es in 8.56.2 **keinen** `CUSTOM_*`-Punkt — deshalb der
+Regex, nach dem Muster von `PbrNebelFix.ts`. Er hängt eine Zeile HINTER den
+gefundenen Aufruf (`$0` setzt den Fund wieder ein); trifft er nach einem
+Babylon-Update nicht mehr, fällt nur die Occlusion aus, nicht der Shader.
+`client/test/dungeon2-material.ts` misst alle vier Orte bei jedem Lauf am
+`ShaderStore` nach, damit ein Update nicht still ein texturloses Material
+hinterlässt.
+
+---
+
+## 2026-08-30 · AP10 · Zwischenwerte als GLSL-Globals, nicht als Locals
+
+**Lücke:** Nicht behandelt: die vier Einspritzpunkte liegen in DREI
+verschiedenen Gültigkeitsbereichen (`main()`, Rumpf von `reflectivityBlock()`,
+hinter dem AO-Aufruf in `main()`).
+
+**Entscheidung:** `dgAlbedo`, `dgNormal`, `dgRauheit`, `dgMetall` und `dgAo`
+sind globale Variablen, deklariert an `CUSTOM_FRAGMENT_DEFINITIONS`. Der
+Rechenblock läuft genau EINMAL, an `CUSTOM_FRAGMENT_BEFORE_LIGHTS`; die beiden
+anderen Punkte lesen nur.
+
+**Grund:** `CUSTOM_FRAGMENT_DEFINITIONS` steht in `pbr.fragment` vor
+`#include<pbrBlockReflectivity>` — nur deshalb sind die Globals im Rumpf jener
+Funktion überhaupt sichtbar. Die Alternative (dreimal rechnen) wäre dreimal
+Triplanar je Bildpunkt; die andere Alternative (Locals durchreichen) ginge nur
+mit Inlining, und das gibt es unter WebGL2 nicht.
+
+---
+
+## 2026-08-30 · AP10 · Schicht als Vertexattribut mit Uniform-Rückfall
+
+**Widerspruch:** ARCHITECTURE W3/AP6 merged je (Block × `materialTag`) — dann
+wäre die Array-Ebene eine Materialkonstante. Der Auftrag verlangt „Layer aus
+Vertex-Attribut".
+
+**Entscheidung:** Beides. Attribut `dgSchicht` (ein float je Ecke) wenn das Mesh
+es führt (`DUNGEON_SCHICHT_ATTRIBUT`), sonst die feste Ebene aus `dgFest.x`.
+Blend-Attribut ist `uv2` (`DUNGEON_BLEND_ATTRIBUT`); fehlt es, kommt
+`vec2(999, 999)` an — „weit vom Boden, weit von jeder Kante", also Moos,
+Schmutz und Feuchte AUS. Das ist wörtlich W4: „fehlt es, ist Feuchte aus."
+
+**Grund:** Das Attribut kostet vier Byte je Ecke und hält den Weg offen, einen
+Block mit sechs belegten Tags als EINEN Zeichenaufruf zu merken statt als sechs.
+Der Rückfall kostet nichts und macht das Plugin an einem Mesh ohne Zusatzdaten
+(Vorschau, Testquader) trotzdem brauchbar. Ein Ersatzwert von 0 statt 999 wäre
+falsch gewesen: er hätte „direkt an der Kante" bedeutet und überall Feuchte
+erfunden, die niemand gemessen hat.
+
+---
+
+## 2026-08-30 · AP10 · Moos wächst UNTEN, nicht oben — `render-tech.md` §2.1 ist verdreht
+
+**Widerspruch:** `render-tech.md` §2.1 schreibt
+`smoothstep(mossHoehe - 0.3, mossHoehe + 0.3, worldPos.y)`. Das steigt MIT der
+Höhe, Moos wüchse also oben am stärksten. Der Fließtext daneben sagt das
+Gegenteil („welcher Boden näher am Grundwasser/Erdreich liegt"), und
+ARCHITECTURE W4 sagt es auch: `hoeheUeberBoden` treibt Moos und Schmutz.
+
+**Entscheidung:** `1 - smoothstep(...)` über `vDgBlend.x` — Moos und Schmutz
+sind unten stark und verschwinden nach oben.
+
+**Grund:** Der Fließtext und W4 sind zweimal dasselbe, die Formel einmal das
+Gegenteil; zwei gegen eins, und die Formel ist die Stelle, an der sich ein
+Vorzeichen am leichtesten verirrt. Zweitens ist `worldPos.y` nicht dasselbe wie
+`hoeheUeberBoden`: die absolute Welthöhe wäre in einem mehrstöckigen Grab
+sinnlos, weil das zweite Stockwerk dann gar kein Moos bekäme. Der Bauer liefert
+genau deshalb die RELATIVE Höhe.
+
+---
+
+## 2026-08-30 · AP10 · Der Seed reist als zwei 16-Bit-Hälften
+
+**Lücke:** `render-tech.md` §1.4 nennt `seed: number` im Theme-Struct, sagt
+aber nicht, wie eine uint32 in einen Shader kommt.
+
+**Entscheidung:** `dgTriplanar.zw` tragen die untere und obere 16-Bit-Hälfte von
+`seeds.material`; der Shader baut daraus
+`uint(dgTriplanar.z) | (uint(dgTriplanar.w) << 16u)`.
+
+**Grund:** Ein einzelner float verliert oberhalb von 2²⁴ die unteren Bits. Der
+Seed käme dann gerundet an, das Rauschen folgte `seeds.material` nicht mehr —
+und zwar still, weil ein gerundeter Seed genauso deterministisch aussieht wie
+ein richtiger. Genau die Klasse Fehler, gegen die W8 den ganzzahligen Hash
+überhaupt vorschreibt.
+
+---
+
+## 2026-08-30 · AP10 · Der GPU-Hash ist eine zeichengenaue Portierung, kein zweiter Hash
+
+**Lücke:** W8 verlangt „denselben ganzzahligen Hash" auf CPU und GPU, sagt aber
+nicht, wie das gegen Auseinanderdriften gesichert wird.
+
+**Entscheidung:** `dgAvalanche`/`dgVerruehren`/`dgHashPos` im GLSL sind Zeile
+für Zeile `shared/src/dungeon2/hashing.ts`. Der Test liest die beiden
+Murmur3-Konstanten und die drei Shift-Weiten aus dem TypeScript-QUELLTEXT und
+verlangt sie im GLSL wieder — abgeschrieben wird nichts.
+
+**Grund:** `Math.imul` ist eine 32-Bit-Multiplikation mit Überlauf; in GLSL ist
+`uint * uint` genau das, ohne Zutun. Der einzige verbleibende Unterschied ist
+die letzte Stelle: JS teilt in `double` durch 2³², der Shader rundet beim
+`float(uint)` auf float32. Das verschiebt eine Schwellwertentscheidung um
+~1e-7 und ist für Risskanten folgenlos — der Bauer entscheidet nichts, was der
+Shader bildpunktgenau nachvollziehen müsste. Dass die beiden Fassungen
+überhaupt bit-nah bleiben, ist trotzdem Bedingung: sonst läge ein Moosfleck
+neben der Kante, die der Bauer geformt hat.
+
+---
+
+## 2026-08-30 · AP10 · Stufe ist Define UND Textunterschied
+
+**Lücke:** ARCHITECTURE AP10 verlangt „Tier-Werte als Defines, nicht als
+Uniforms" und zugleich als Prüfkriterium „Niedrig enthält keinen
+Blending-Block".
+
+**Entscheidung:** Beides. `DUNGEON_STUFE` ist ein Zahlen-Define (Cache-Schlüssel),
+UND `dungeonDefinitionenGlsl()` erzeugt auf Niedrig einen echt kürzeren Text
+ohne Blending-Block und ohne Rauschfunktion.
+
+**Grund:** Das Define allein reichte nicht für das Prüfkriterium (der tote
+Zweig stünde noch da), der Textunterschied allein nicht für die Wirkung:
+Babylon schlüsselt seinen Effekt-Cache über die Define-Zeichenkette, ein
+Stufenwechsel ohne Define-Änderung bekäme den ALTEN Shader zurück — ein
+Schalter ohne Symptom außer dem fehlenden Effekt.
+Nebenbefund, der leicht kostet: **alle** Defines müssen im Konstruktor-Objekt
+von `MaterialPluginBase` stehen. `collectDefines()` legt genau dessen Schlüssel
+an; ein in `prepareDefinesBeforeAttributes()` gesetzter, dort fehlender Name
+taucht in der Define-Zeichenkette nie auf, und der `#ifdef` ist still immer
+falsch.
+
+---
+
+## 2026-08-30 · AP10 · Parallax ist gebaut, aber standardmäßig aus
+
+**Widerspruch:** W9 stellt Parallax in Meilenstein 2. Prüfkriterium 1 von AP10
+verlangt, dass die Stufe Hoch den Parallax-`#ifdef` enthält.
+
+**Entscheidung:** Der Zweig (Offset-Limiting, nur dominante Ebene, ein
+zusätzlicher Tap) steht im Quelltext der Stufe Hoch. Das Define
+`DUNGEON_PARALLAX` ist nur gesetzt, wenn `erlaubeDungeonParallax(true)` es
+ausdrücklich freigibt — Voreinstellung aus.
+
+**Grund:** So ist R6 („Parallax bleibt teuer, das ist eine Schätzung, keine
+Messung") messbar, ohne dass Meilenstein 1 ihn trägt. Ein Zweig, den man erst
+schreiben muss, um ihn zu messen, wird nie gemessen.
+
+---
+
+## 2026-08-30 · AP10 · sRGB wird im Shader linearisiert, nicht beim Hochladen
+
+**Lücke:** Nicht behandelt: `RawTexture2DArray` hat keinen `useSRGBBuffer`.
+
+**Entscheidung:** Das Albedo-Array wird roh (sRGB-kodiert) hochgeladen und im
+Shader mit Babylons eigenem `toLinearSpace()` linearisiert. Normale und ORH
+sind linear und bleiben unangetastet.
+
+**Grund:** Die Alternative wäre, beim Laden auf der CPU zu linearisieren — das
+hieße 8 Bit linear, und die dunklen Stufen einer gedämpften Barrow-Palette
+brächen sichtbar in Bänder auf. `toLinearSpace()` ist außerdem genau die
+Funktion, die der PBR-Shader für `GAMMAALBEDO` benutzt; damit ist der
+Farbraumweg derselbe wie bei jedem anderen Material im Spiel.
+
+---
+
+## 2026-08-30 · AP10 · Das Plugin hängt sich NICHT global an
+
+**Widerspruch:** Die vier bestehenden Plugins hängen über
+`scene.onNewMaterialAddedObservable` an jedem Material.
+
+**Entscheidung:** `erzeugeDungeonMaterial()` hängt das Plugin gezielt an das
+eine Material, das es baut.
+
+**Grund:** Jene vier korrigieren eine globale Eigenschaft (Nebelkurve,
+Gammafehler) oder liefern einen globalen Dienst (Fackellicht). Dieses braucht
+material-spezifische Theme-Daten — global angehängt bekäme jeder Baum und jeder
+Fels fünf zusätzliche Sampler und einen Triplanar-Block, den er nie benutzt.
+Die Verträglichkeit mit den vier globalen Plugins bleibt: sie stapeln sich auf
+demselben Material, und der Test belegt, dass keines ihrer drei Regex-Muster
+unseren eingespritzten Code trifft und dass ihre Anker die Einspritzung
+unverändert überstehen.
+
+---
+
+## 2026-08-30 · AP10 · Kein `node_modules` im Worktree — der Client-Test braucht eine Brücke
+
+**Lücke:** Nicht behandelt: `client/test/*` importiert `@babylonjs/core`, im
+Worktree fehlt aber `node_modules`.
+
+**Entscheidung:** Der Test wird mit `tsx` aus `/home/mike/wov-wt-bundle` gefahren
+und braucht dafür ein `node_modules` im Worktree, das auf die Einträge des
+Bündel-Worktrees zeigt (`@wov/*` allerdings auf die EIGENEN Pakete). Das ist
+Werkzeug, kein Zustand: es wird nach dem Lauf wieder entfernt, weil ein
+`node_modules`, das auf einen anderen Worktree zeigt, sonst still den falschen
+`shared`-Stand typprüfen ließe.
+
+**Grund:** `@wov/shared` ist im Bündel-Worktree ein relativer Symlink auf dessen
+eigenes `shared/`. Wer nur `node_modules` verlinkt, prüft seinen Client gegen
+ein fremdes `shared` — und merkt es genau dann nicht, wenn beide Stände zufällig
+noch zusammenpassen.

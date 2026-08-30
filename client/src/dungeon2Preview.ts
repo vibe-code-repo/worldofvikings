@@ -18,7 +18,7 @@
  *   ?deko=9           Deko-Seed — treibt die Prefab-Wahl
  *   ?stufe=0|1|2      Grafikstufe: Niedrig | Mittel | Hoch
  *   ?arrays=0         Texturen NICHT laden — graue Kästen (der AP6-Zustand)
- *   ?physik=1         Havok starten und den Betrachter fallen lassen
+ *   ?physik=1         Havok starten und Kollisionskoerper bauen
  *   ?triplanar=off    Killschalter des Materials (A/B-Messung)
  *   ?px=&py=&pz=      Kamerastandort in Metern / camera position in metres
  *   ?blick=Grad       Blickrichtung (0 = Nord/+z, 90 = Ost/+x)
@@ -137,9 +137,25 @@ async function starte(): Promise<void> {
   // only get it after their first compile — i.e. with a visible recompile.
   const plaetze = installiereFackelLicht(scene);
 
+  // Havok VOR dem Bau starten. `?physik=1` allein reichte nicht: der Bauer
+  // fragt `scene.getPhysicsEngine()` und stieg still aus, wenn keine da war —
+  // der Schalter war also seit AP6 wirkungslos, ohne Symptom. Vault-Notiz
+  // „Messzellen brauchen Zeugen": ohne Zustandsgroesse merkt man einen
+  // wirkungslosen Schalter nie. Die Zahl steht deshalb in der Meldezeile.
+  // Start Havok BEFORE the build. `?physik=1` alone was not enough: the builder
+  // asks `scene.getPhysicsEngine()` and bailed out silently when there was none,
+  // so the switch had been inert since AP6, without a symptom. The number is in
+  // the status line for that reason.
+  const physikGewuenscht = params.get('physik') === '1';
+  if (physikGewuenscht) {
+    meldung('Havok wird gestartet …');
+    const { initPhysics } = await import('./engine/Physics');
+    await initPhysics(scene);
+  }
+
   meldung('Geometrie wird gebaut …');
   const beginnBau = performance.now();
-  const bauer = new DungeonBauer(scene, layout, { arrays, physik: params.get('physik') === '1' });
+  const bauer = new DungeonBauer(scene, layout, { arrays, physik: physikGewuenscht });
   bauer.baueSpawnBloecke();
   const dauerSpawn = performance.now() - beginnBau;
   await bauer.dungeonBereit;
@@ -201,7 +217,8 @@ async function starte(): Promise<void> {
   meldung(
     `Seed ${seeds.architektur} · ${layout.stempel.length} Stempel · ${s.bloeckeGebaut}/${s.bloeckeGesamt} Blöcke · ` +
       `${s.meshes} Meshes · ${s.dreiecke} Dreiecke · ${s.koerper} Körper (${s.formen} Formen) · ` +
-      `${bauer.dekoTeile.length} Deko · Layout ${dauerLayout.toFixed(1)} ms · Spawn ${dauerSpawn.toFixed(1)} ms · ` +
+      `${bauer.dekoTeile.length} Deko · Physik ${physikGewuenscht ? (scene.getPhysicsEngine() === null ? 'AUS (Start fehlgeschlagen)' : 'Havok') : 'aus'} · ` +
+      `Layout ${dauerLayout.toFixed(1)} ms · Spawn ${dauerSpawn.toFixed(1)} ms · ` +
       `alles ${dauerBau.toFixed(1)} ms · Material ${arrays === null ? 'grau' : 'Arrays'} · ` +
       `${plaetze} Fackelplätze` +
       (bericht.rueckfall ? ' · RÜCKFALLFORM' : '')

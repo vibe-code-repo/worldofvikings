@@ -2140,3 +2140,28 @@ dabei von 1,00 m² auf 0,50 m² **gesunken**.
 **Golden zum zweiten Mal am selben Tag neu eingefroren** (`DUNGEON2_EINFRIEREN=1`).
 Sweep unverändert gut: 200 Seeds, **0** Rückfälle, 191 mit Zyklus, 102
 mehrstöckig, 98 mit Treppe, 163/163 Mündungen angebunden.
+
+---
+
+## 2026-08-30 · AP6 · `?physik=1` war seit AP6 wirkungslos
+
+**Befund:** Die Vorschau reichte `physik: params.get('physik') === '1'` an den
+Bauer weiter — der fragt aber `scene.getPhysicsEngine()` und steigt still aus,
+wenn keine Engine da ist. Die Vorschauseite hat Havok nie gestartet. Der
+Schalter war also seit AP6 ein Schalter ohne Draht, und zwar **ohne Symptom**:
+die Seite lief, das Bild stand, nur Kollisionskörper gab es keine.
+Vault-Notiz „Messzellen brauchen Zeugen": ohne Zustandsgröße merkt man einen
+wirkungslosen Schalter nie.
+
+**Entscheidung:** `?physik=1` startet Havok (`initPhysics`, dynamisch importiert
+wie im Spielclient) **vor** dem Bau, und die Meldezeile trägt seither das Feld
+`Physik: Havok | aus | AUS (Start fehlgeschlagen)`. Gemessen, Seed 14:
+`19 Körper (988 Formen) · Physik Havok`.
+
+**Nebenbefund, kein Produktfehler:** Im **Dev-Server** dieses Worktrees lässt
+sich das Havok-WASM nicht laden — `node_modules` ist eine Brücke in einen
+anderen Worktree, Vite löst das `?url`-Import darum über `/@fs/…` auf und
+liefert `application/wasm` an einen Modul-Import. Im **gebauten** Client
+(`vite build` + `vite preview`) funktioniert es. Für Bilder mit Material muss
+man die Texturen dann nach `client/dist/dungeon2/` kopieren, weil das
+`assetFolder`-Plugin nur im Dev-Server läuft.

@@ -150,6 +150,13 @@ export default defineConfig({
         index: resolve(CONFIG_DIR, 'index.html'),
         editor: resolve(CONFIG_DIR, 'editor.html'),
         karte: resolve(CONFIG_DIR, 'karte.html'),
+        // Prüfstand des Dungeon-Generators 2.0 (client/src/dungeon2Preview.ts).
+        // Er steht hier, WEIL der Kommentar oben es sagt: ohne Eintrag baut
+        // Vite die Seite stillschweigend nicht, und im Dev-Server fällt das
+        // nie auf.
+        // Test bench of dungeon generator 2.0 — without an entry Vite silently
+        // omits the page, which never shows up on the dev server.
+        dungeon2: resolve(CONFIG_DIR, 'dungeon2.html'),
       },
     },
   },

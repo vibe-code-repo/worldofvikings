@@ -196,10 +196,28 @@ for (const [name, stufe] of STUFEN) {
     assert.equal(boese.length, 0, `Nicht-ASCII gefunden: ${boese.slice(0, 5).join('')}`);
   });
 
-  pruefe(`${name}: die drei Array-Sampler sind deklariert`, () => {
+  pruefe(`${name}: die drei Array-Sampler sind deklariert — MIT Praezision`, () => {
+    // `highp` ist Teil der Zusicherung, nicht Formsache: GLSL ES 3.00 gibt
+    // sampler2D eine Vorgabepraezision, sampler2DArray NICHT. Ohne den
+    // Qualifizierer scheitert die Uebersetzung mit „No precision specified",
+    // die Notbremse greift, und der ganze Dungeon ist grau. Gemessen am
+    // 30.08.2026 auf ANGLE/Vulkan ueber die AP6-Vorschauseite — dieser Test
+    // war vorher gruen, weil er nur nach dem Namen sah.
+    // `highp` is part of the assertion, not cosmetics: GLSL ES 3.00 gives
+    // sampler2D a default precision but NOT sampler2DArray. Without the
+    // qualifier compilation fails with "No precision specified", the emergency
+    // brake trips and the whole dungeon turns grey. Measured 2026-08-30 on
+    // ANGLE/Vulkan through the AP6 preview page.
     for (const s of ['dungeonAlbedoArray', 'dungeonNormalArray', 'dungeonOrhArray']) {
-      assert.ok(code.includes(`uniform sampler2DArray ${s};`), `${s} fehlt`);
+      assert.ok(code.includes(`uniform highp sampler2DArray ${s};`), `${s} fehlt oder ohne highp`);
     }
+    // Und der Funktionsparameter, den derselbe Uebersetzer als vierten Fehler
+    // gemeldet hat: ein Sampler-Parameter hat ebenfalls keine Vorgabe.
+    // And the function parameter the same compiler reported as a fourth error.
+    assert.ok(
+      code.includes('dgTap(highp sampler2DArray tex'),
+      'dgTap nimmt den Sampler ohne Praezision entgegen'
+    );
   });
 
   pruefe(`${name}: Dominanz-Kollaps und Ein-Tap-Schnellpfad sind drin`, () => {

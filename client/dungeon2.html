@@ -1,0 +1,37 @@
+<!doctype html>
+<!--
+  Prüfstand für Dungeon Generator 2.0: baut ein erzeugtes Steingrab lokal,
+  ohne Server, ohne Anmeldung, ohne Weltwechsel.
+  Test bench for dungeon generator 2.0: builds a generated barrow locally,
+  with no server, no login, no world switch.
+
+  Aufruf / call:
+    http://localhost:5274/dungeon2.html?seed=1234
+    ?seed=  Architektur   ?material=  Oberflächen   ?deko=  Bestückung
+    ?stufe=0|1|2 (Niedrig|Mittel|Hoch)   ?arrays=0 (graue Kästen)
+    ?physik=1 (Havok)   ?triplanar=off (Killschalter, A/B-Messung)
+
+  WASD/Pfeile bewegen, Maus zieht die Blickrichtung (Klick in das Bild).
+  WASD/arrows move, the mouse turns the view (click into the picture first).
+-->
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dungeon 2.0 — Vorschau</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #05070a; overflow: hidden; }
+      #leinwand { width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+      #meldung {
+        position: fixed; left: 0; right: 0; bottom: 0;
+        font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #cfd6e0; background: rgba(5, 7, 10, 0.82);
+        padding: 6px 10px; white-space: pre-wrap; pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="leinwand"></canvas>
+    <div id="meldung">wird geladen …</div>
+    <script type="module" src="/src/dungeon2Preview.ts"></script>
+  </body>
+</html>

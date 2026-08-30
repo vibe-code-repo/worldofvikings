@@ -1375,3 +1375,172 @@ Werkzeug, kein Zustand: es wird nach dem Lauf wieder entfernt, weil ein
 eigenes `shared/`. Wer nur `node_modules` verlinkt, prüft seinen Client gegen
 ein fremdes `shared` — und merkt es genau dann nicht, wenn beide Stände zufällig
 noch zusammenpassen.
+
+---
+
+## 2026-08-30 · AP6 · `dungeon2` erreicht den Client als Namensraum, nicht flach
+
+**Lücke:** Nicht behandelt: wie der Client an `shared/src/dungeon2/**` kommt.
+`shared/package.json` hat kein `exports`-Feld, `main` zeigt auf `src/index.ts`,
+und `dungeon2` stand im Barrel nicht drin. Ein Tiefimport
+(`@wov/shared/src/dungeon2/builder.js`) hinge daran, dass der Bundler die Endung
+`.js` auf die vorhandene `.ts` zurückbildet; ein relativer Pfad aus
+`client/test/` heraus scheitert an `rootDir` (TS6059, gemessen).
+
+**Entscheidung:** Neues Sammelmodul `shared/src/dungeon2/index.ts` (nur
+Wiederausfuhren), im Hauptbarrel als **`export * as dungeon2`**.
+
+**Grund:** Ein flaches `export *` wäre die Falle: `dungeon2/layout.ts` exportiert
+`Kante`, `Tuer`, `ZELLE_M` — Namen, die `dungeons.ts` und `dungeonRaster.ts`
+ähnlich führen. TypeScript meldet einen solchen Konflikt **nicht**, es lässt den
+Namen still weg, und der Fehler erscheint erst an der Aufrufstelle als „gibt es
+nicht". Der Namensraum macht die Herkunft außerdem am Aufruf sichtbar
+(`dungeon2.baueGeometrie`), was bei zwei koexistierenden Dungeon-Systemen kein
+Schmuck ist.
+
+---
+
+## 2026-08-30 · AP6 · Ein Mesh je (Block × materialTag) — trotz Schichtattribut
+
+**Lücke:** `DungeonMaterial.ts` trägt das Vertexattribut `dgSchicht`. Damit wäre
+**ein** Mesh je Block möglich (alle Tags in einem Zeichenaufruf), was die
+Zeichenaufrufe halbierte: gemessen 28 Meshes bei 14 Blöcken, also genau zwei
+belegte Tags je Block.
+
+**Entscheidung:** Es bleibt bei einem Mesh je (Block × materialTag), wie
+ARCHITECTURE AP6 es festschreibt. Das Attribut wird trotzdem geschrieben.
+
+**Grund:** Das Prüfkriterium (a) des Pakets ist die Formel „Blöcke × belegte
+materialTags"; sie stillschweigend zu unterschreiten hieße, das Kriterium
+umzudefinieren statt zu erfüllen. Das Attribut **muss** trotzdem geschrieben
+werden: ohne es fällt der Shader auf `dgFest.x` zurück, und das Plugin bindet
+dort fest `0` — jede Wand trüge dann das Material der Ebene 0. Der
+Zusammenlegungsgewinn ist damit gemessen und jederzeit hebbar, ohne dass
+irgendetwas anderes sich ändern müsste.
+
+---
+
+## 2026-08-30 · AP6 · Rampenkollision als gekippte Platte, nicht als Stufenquader
+
+**Lücke:** `KollisionsKoerper` mit `form: 'rampe'` liefert eine achsparallele
+Hülle plus `steigung`; wie daraus eine Havok-Form wird, steht nirgends.
+
+**Entscheidung:** Eine um `atan2(Hub, Lauf)` gekippte Platte von Bodendicke,
+deren **Oberfläche** von der Bodenoberkante der tiefen Seite bis `Hub` darüber
+läuft. Verschoben wird sie entlang der **Flächennormalen**, nicht senkrecht.
+
+**Grund:** Der Bauer trennt ausdrücklich „Optik gestuft, Kollision glatt"; die
+acht Stufenquader zu nehmen machte eine feinere Treppe zu einer Änderung des
+Laufgefühls. Die Verschiebung entlang der Normalen ist kein Feinschliff: senkrecht
+läge die Oberfläche um `(1−cos α)·Dicke/2` daneben, bei 45° also 15 cm — genug
+für einen Hänger an der Treppenkante. Die Drehrichtung ist mit Babylons **eigener**
+Matrix nachgerechnet (Test „Babylons Quaternion kippt die Rampe genauso"), weil
+ein Vorzeichenfehler an einer Drehachse kein Symptom hat außer einer Treppe, die
+nach unten führt.
+
+**Fund nebenbei:** Der Generator erzeugt über 120 Seeds **keine einzige**
+Treppenzelle (gemessen). Mehrstöckigkeit entsteht über Schächte. Die
+Rampenrechnung ist deshalb an einem von Hand gebauten Layout geprüft — ein
+Zweig, den kein Test betritt, ist kein Code, sondern eine Vermutung. Für AP4 ist
+das ein offener Punkt, nicht für AP6.
+
+---
+
+## 2026-08-30 · AP6 · Ein Havok-Körper je Block, Sammelform statt Einzelkörper
+
+**Entscheidung:** `PhysicsShapeContainer` mit einer `PhysicsShapeBox` je
+Kollisionskörper, dazu **ein** `PhysicsBody` je Block.
+
+**Grund:** Ein Steingrab hat 790 bis 1010 Kollisionskörper (gemessen über drei
+Seeds). So viele Havok-Körper wären dieselbe Broadphase-Last wie ein ganzer Wald.
+Nicht Havoks Instanz-Modus: `StaticColliderSet` hält fest, dass Babylons
+`PhysicsCharacterController` instanzierte Körper **nicht** sieht — gegen einen
+einzeln angelegten Körper stoppte der Spieler, durch einen instanzierten lief er
+hindurch.
+
+---
+
+## 2026-08-30 · AP6 · Materialbesitz über einen Nutzerzähler, Texturen nie
+
+**Entscheidung:** Ein Material je (Szene, Material-Seed, Thema-Kennwerte), mit
+Zähler; die letzte Instanz gibt es mit `dispose(true, false)` frei. Meshes werden
+mit `dispose(false, false)` abgeräumt. Die Texturarrays gehören dem Aufrufer und
+werden hier **nie** freigegeben.
+
+**Grund:** AP6 nennt die Falle wörtlich — `mesh.dispose(_, true)` schösse das
+geteilte Dungeon-Material aller laufenden Instanzen ab. Der Zähler ist die
+messbare Fassung davon: der Test baut zwei Instanzen, räumt die erste ab und
+prüft, dass die zweite ihr Material behält; und er baut zwanzigmal auf und ab und
+verlangt, dass Mesh-, Material-, Textur- und Knotenzahl der Szene **exakt** auf
+den Ausgangswert zurückkehren. Der Material-Seed gehört in den Schlüssel, weil er
+als Uniform im Shader steckt: zwei Gräber mit verschiedenem Material-Seed dürften
+sich sonst ein Material teilen und hätten dieselben Risse.
+
+---
+
+## 2026-08-30 · AP6/AP10 · SSAO bekommt eine eigene Pipeline, mit gemessenen Zahlen
+
+**Entscheidung:** `DungeonAtmosphere.ts` baut eine zweite
+`SSAO2RenderingPipeline` (`dungeon2SSAO`) und trennt beim Betreten die
+Außenwelt-Pipeline (`valheimSSAO`) von der Kamera — aber nur, wenn sie an dieser
+Kamera überhaupt hing, und hängt genau die beim Verlassen zurück.
+`maxZ = 60 m`, `radius = 0.45 m`.
+
+**Grund und Messung:** Die Außen-Pipeline ist auf 4 km kalibriert
+(`SSAO_MAX_Z = 1000`). Die Zahlen hier sind an der **Geometrie** gemessen, nicht
+übernommen: über 40 erzeugte Steingräber und 47.328 Sichtlinien (freie Strecke
+von jeder begehbaren Zelle in alle vier Richtungen) liegt der Median bei 8 m, das
+90. Perzentil bei 28 m, das 99. bei 60 m, die längste bei 112 m — 60 m deckt also
+99 % und ist zugleich das obere Ende des von `render-tech.md` §3 genannten
+Fensters. Der Radius folgt `kantenAbstand`, der Größe, die SSAO zeigen soll:
+über 330.376 Ecken Mittel 0,35 m, 90. Perzentil 1,0 m. Zwei Pipelines auf einer
+Kamera rechneten die Verdeckung doppelt; das sieht nicht nach „doppelt" aus,
+sondern nach „zu dunkel", und man sucht es im Material.
+
+**Grenze, ausdrücklich:** Das ist eine Messung an der Geometrie, **kein Bild**.
+AP10-Kriterium 3 verlangt gemessene Werte; ob sie gut *aussehen*, entscheidet
+AP11.
+
+---
+
+## 2026-08-30 · AP6 · Zwei GPU-Fehler in AP10, die nur ein echter Lauf zeigt
+
+Die Vorschauseite (`client/dungeon2.html`) hat beim ersten Lauf auf ANGLE/Vulkan
+zwei Fehler in fremden, bereits „grünen" Dateien freigelegt. Beide sind hier
+behoben, weil sie nachgewiesen sind und der Dungeon sonst grau bzw. schwarz
+bleibt:
+
+1. **`DungeonMaterial.ts`: `sampler2DArray` ohne Präzision.** GLSL ES 3.00 gibt
+   `sampler2D` eine Vorgabepräzision, `sampler2DArray` **nicht**. Der
+   Fragmentshader scheiterte viermal mit „No precision specified", die Notbremse
+   griff, das ganze Grab war grau. Behoben mit `highp` an den drei Uniforms und
+   am Parameter von `dgTap`. Die Shader-Textprüfung war vorher grün, weil sie nur
+   nach dem **Namen** sah — sie verlangt jetzt die Präzision mit.
+2. **`DungeonMaterialArrays.ts`: Maße nach `ImageBitmap.close()` gelesen.** Die
+   Spezifikation setzt `width`/`height` beim Schließen auf 0. Die Bilddaten waren
+   richtig, die Maße 0×0 — `RawTexture2DArray` legte drei Texturen der Größe 0
+   an, jeder `texture()`-Zugriff lieferte Schwarz. Kein Fehler in der Konsole,
+   nur eine WebGL-Warnung über Mipmaps einer „zero-size texture". Behoben, plus
+   eine harte Prüfung auf 0×0.
+
+**Lehre (dieselbe wie „Node-Krypto ist nicht Browser-Krypto"):** Eine
+Shader-Textprüfung ohne GPU findet, was im Text steht, nicht was der Übersetzer
+verlangt. Der eine Lauf gegen echte Hardware hat mehr gefunden als 41
+Textprüfungen.
+
+---
+
+## 2026-08-30 · AP6 · Der Vorschaupfad fasst den Betriebspfad nicht an
+
+**Entscheidung:** Eigene Seite `client/dungeon2.html` + `src/dungeon2Preview.ts`,
+eigener Vite-Einstieg. `client/src/main.ts` bleibt **unberührt** — der Einbau in
+die Weltwechsel-Logik gehört zu AP13 (Adapter, Teleportpaket, Sanitizer-Weiche).
+
+**Grund:** Ein Bauer, den man nur im Vollbetrieb sehen kann, wird im Vollbetrieb
+gesucht: Anmeldung, Weltwechsel und Teleportpaket lägen zwischen jedem Versuch
+und dem Bild. Die Seite lädt die Texturen zuerst unter `/assets/dungeon2/` (der
+Entwicklungsserver reicht den Repo-Ordner dort durch) und fällt auf
+`/dungeon2/` zurück, den Fundort im ausgelieferten Client — dieselbe Seite läuft
+damit in beiden Fällen. Der Eintrag in `vite.config.ts` ist Pflicht und kein
+Beiwerk: ohne ihn baut Vite die Seite stillschweigend nicht, und im Dev-Server
+fällt das nie auf.

@@ -145,13 +145,29 @@ async function lesePixel(url: string): Promise<{ daten: Uint8ClampedArray; breit
   const antwort = await fetch(url);
   if (!antwort.ok) throw new Error(`${url}: HTTP ${antwort.status}`);
   const bild = await createImageBitmap(await antwort.blob());
-  const leinwand = new OffscreenCanvas(bild.width, bild.height);
+  // Masse VOR `close()` festhalten. `ImageBitmap.close()` setzt `width` und
+  // `height` laut Spezifikation auf 0 — wer sie danach liest, bekommt ein
+  // 0x0-Array mit richtigen Bilddaten und falschen Massen. Das Symptom ist
+  // KEIN Fehler, sondern ein pechschwarzer Dungeon: `RawTexture2DArray` legt
+  // eine Textur der Groesse 0 an, jeder `texture()`-Zugriff liefert Schwarz,
+  // und die einzige Spur ist eine WebGL-Warnung ueber Mipmaps einer
+  // „zero-size texture". Gemessen am 30.08.2026 auf ANGLE/Vulkan.
+  // Capture the dimensions BEFORE `close()`. Per spec `ImageBitmap.close()`
+  // sets `width` and `height` to 0 — reading them afterwards yields a 0x0
+  // array with correct pixels and wrong dimensions. The symptom is NOT an
+  // error but a pitch black dungeon.
+  const breite = bild.width;
+  const hoehe = bild.height;
+  const leinwand = new OffscreenCanvas(breite, hoehe);
   const ctx = leinwand.getContext('2d');
   if (!ctx) throw new Error(`${url}: kein 2d-Kontext / no 2d context`);
   ctx.drawImage(bild, 0, 0);
-  const bilddaten = ctx.getImageData(0, 0, bild.width, bild.height);
+  const bilddaten = ctx.getImageData(0, 0, breite, hoehe);
   bild.close();
-  return { daten: bilddaten.data, breite: bild.width, hoehe: bild.height };
+  if (breite === 0 || hoehe === 0) {
+    throw new Error(`${url}: 0x0 Bildpunkte / 0x0 pixels`);
+  }
+  return { daten: bilddaten.data, breite, hoehe };
 }
 
 /**

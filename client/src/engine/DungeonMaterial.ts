@@ -401,9 +401,17 @@ export function dungeonDefinitionenGlsl(stufe: DungeonGrafikStufe): string {
   return /* glsl */ `
 #ifdef DUNGEON_TRIPLANAR
   // ---- three array samplers for all base materials together (render-tech 1.5)
-  uniform sampler2DArray dungeonAlbedoArray;
-  uniform sampler2DArray dungeonNormalArray;
-  uniform sampler2DArray dungeonOrhArray;
+  //
+  // "highp" is NOT decoration. GLSL ES 3.00 gives sampler2D a default
+  // precision but NOT sampler2DArray, so the declaration below fails to
+  // compile without a qualifier: "'sampler2DArray' : No precision specified",
+  // four times, after which the emergency brake turned the whole barrow grey.
+  // Measured on 2026-08-30 on ANGLE/Vulkan (AMD RADV) through the AP6 preview
+  // page -- the shader text checks in dungeon2-material.ts cannot see this,
+  // because the missing qualifier is a fault of the GLSL, not of the injection.
+  uniform highp sampler2DArray dungeonAlbedoArray;
+  uniform highp sampler2DArray dungeonNormalArray;
+  uniform highp sampler2DArray dungeonOrhArray;
   uniform sampler2D dungeonMoosAlbedo;
   uniform sampler2D dungeonMoosNormal;
 
@@ -451,7 +459,10 @@ export function dungeonDefinitionenGlsl(stufe: DungeonGrafikStufe): string {
 ${rauschen}
 
   // ---- one array tap on one world plane
-  vec4 dgTap(sampler2DArray tex, vec2 uv, float schicht) {
+  // "highp" here for the same reason as at the uniforms above: a parameter of
+  // sampler type has no default precision either, and the compiler reports it
+  // as a fourth error at exactly this line.
+  vec4 dgTap(highp sampler2DArray tex, vec2 uv, float schicht) {
     return texture(tex, vec3(uv, schicht));
   }
 

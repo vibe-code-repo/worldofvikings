@@ -36,6 +36,21 @@ export * from './worldgen/index.js';
 export * from './items/index.js';
 export * from './worldlayout/index.js';
 
+/**
+ * Dungeon Generator 2.0 als NAMENSRAUM, nicht flach.
+ *
+ * `dungeon2/layout.ts` exportiert `Kante`, `Tuer`, `ZELLE_M` — Namen, die der
+ * Altbestand (`dungeons.ts`, `dungeonRaster.ts`) aehnlich fuehrt. Bei einem
+ * flachen `export *` laesst TypeScript einen kollidierenden Namen STILL weg;
+ * der Fehler zeigte sich erst an der Aufrufstelle als „gibt es nicht", und die
+ * Ursache saehe nach etwas ganz anderem aus. Ausfuehrliche Begruendung im
+ * Kopf von `dungeon2/index.ts`.
+ * Dungeon generator 2.0 as a NAMESPACE, not flat: `dungeon2/layout.ts` exports
+ * `Kante`, `Tuer`, `ZELLE_M` — names the legacy modules carry similarly. On a
+ * flat `export *` TypeScript drops the clashing name SILENTLY.
+ */
+export * as dungeon2 from './dungeon2/index.js';
+
 // Rein typseitige Bruecken zu den serverseitigen Datenmodulen — `export type`
 // verschwindet beim Kompilieren restlos und zieht kein JSON nach.
 export type { FeaturePiece, FeatureRandomSpawn } from './featurePieces.js';

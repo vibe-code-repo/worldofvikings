@@ -12,11 +12,13 @@
  * `Math.random`, no clock, no trigonometry.
  */
 
+import type { Vector3 } from '../types.js';
 import {
   EBENE_M,
   HOEHEN_SCHRITT_M,
   KANTE,
   KANTEN,
+  ZELLE_M,
   ZELLEN_ART,
   gegenKante,
   nachbarZelle,
@@ -485,3 +487,270 @@ export function erreichbareZellen(
  * `EBENE_M / HOEHEN_SCHRITT_M` is exactly 16, an integer.
  */
 export const EBENE_IN_HOEHEN_SCHRITTEN = EBENE_M / HOEHEN_SCHRITT_M;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. Die EINE geteilte Kantenfunktion (AP3) / the ONE shared edge function
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Achtel einer Zelle als Meterwert. Alle waagerechten Masse dieses Moduls
+ * werden in GANZEN Achteln gerechnet und genau einmal am Schluss mit dieser
+ * Konstanten multipliziert — nie akkumuliert addiert (Bauer-Vertragsregel 3,
+ * ARCHITECTURE §3.8). ZELLE_M/8 = 0.5 ist binaer exakt, damit ist jede
+ * Zellgrenze auf beiden Seiten bitgleich und ein Haarriss bauartbedingt
+ * unmoeglich.
+ * One eighth of a cell in metres. Every horizontal measure in this module is
+ * computed in WHOLE eighths and multiplied by this constant exactly once at
+ * the end — never accumulated by addition (builder contract rule 3,
+ * ARCHITECTURE §3.8). ZELLE_M/8 = 0.5 is exact in binary, so every cell border
+ * is bit-identical from both sides and a hairline crack is impossible by
+ * construction.
+ */
+export const ACHTEL_M = ZELLE_M / 8;
+
+/** Achtel je Zelle. / Eighths per cell. */
+export const ZELL_ACHTEL = 8;
+
+/**
+ * Dicke der Bodenplatte, der Deckenplatte und der Waende. Boden und Decke in
+ * HOEHEN_SCHRITT_M (2 = 1 m), Waende in Zellachteln (2 = 1 m). Ganzzahlen,
+ * damit die Umrechnung in Meter exakt bleibt.
+ * Thickness of the floor slab, the ceiling slab and the walls. Floor and
+ * ceiling in height steps (2 = 1 m), walls in cell eighths (2 = 1 m).
+ * Integers, so the conversion to metres stays exact.
+ */
+export const BODEN_DICKE_STUFEN = 2;
+export const DECKE_DICKE_STUFEN = 2;
+export const WAND_DICKE_ACHTEL = 2;
+
+/**
+ * Ein achsparalleler Quader in METERN — das gemeinsame Ergebnis von
+ * Sichtgeometrie und Kollision. `drehung` ist bei achsparallelen Quadern
+ * kosmetisch (sie sagt dem Adapter, wohin die Flaeche blickt), aber sie steht
+ * im eingefrorenen Vertrag (`BauStueck`, `KollisionsKoerper`) und wird deshalb
+ * hier schon mitgeliefert.
+ * An axis-aligned box in METRES — the shared result of visual geometry and
+ * collision. `drehung` is cosmetic for axis-aligned boxes (it tells the adapter
+ * which way the face looks), but it is part of the frozen contract
+ * (`BauStueck`, `KollisionsKoerper`) and is therefore supplied here already.
+ */
+export interface Quader {
+  readonly mitte: Vector3;
+  readonly groesse: Vector3;
+  readonly drehung: 0 | 1 | 2 | 3;
+}
+
+/**
+ * Ein Quader in GANZEN Rastereinheiten: waagerecht in Zellachteln, senkrecht in
+ * Hoehenstufen. Die interne Rechenform — `quaderInMeter()` ist der einzige Ort,
+ * an dem daraus Meter werden.
+ * A box in WHOLE grid units: horizontally in cell eighths, vertically in height
+ * steps. The internal computation form — `quaderInMeter()` is the only place it
+ * becomes metres.
+ */
+export interface GanzQuader {
+  readonly xa0: number;
+  readonly xa1: number;
+  readonly ys0: number;
+  readonly ys1: number;
+  readonly za0: number;
+  readonly za1: number;
+  readonly drehung: 0 | 1 | 2 | 3;
+}
+
+/**
+ * Ganzzahliger Quader -> Meter. Mitte und Groesse entstehen durch je EINE
+ * Multiplikation einer Ganzzahl mit einer binaer exakten Konstanten
+ * (ACHTEL_M/2 = 0.25, HOEHEN_SCHRITT_M/2 = 0.25). Damit sind auch die aus
+ * `mitte ± groesse/2` zurueckgerechneten Ecken wieder exakt.
+ * Integer box -> metres. Centre and size each arise from ONE multiplication of
+ * an integer with a binary-exact constant (ACHTEL_M/2 = 0.25,
+ * HOEHEN_SCHRITT_M/2 = 0.25). Corners recovered as `mitte ± groesse/2` are
+ * therefore exact as well.
+ */
+export function quaderInMeter(q: GanzQuader): Quader {
+  return {
+    mitte: {
+      x: (q.xa0 + q.xa1) * (ACHTEL_M / 2),
+      y: (q.ys0 + q.ys1) * (HOEHEN_SCHRITT_M / 2),
+      z: (q.za0 + q.za1) * (ACHTEL_M / 2),
+    },
+    groesse: {
+      x: (q.xa1 - q.xa0) * ACHTEL_M,
+      y: (q.ys1 - q.ys0) * HOEHEN_SCHRITT_M,
+      z: (q.za1 - q.za0) * ACHTEL_M,
+    },
+    drehung: q.drehung,
+  };
+}
+
+/**
+ * Vierteldrehung einer Kante — dieselbe Zuordnung wie `themen.kanteZuDrehung`
+ * (Nord = 0, dann im Uhrzeigersinn). Sie steht hier ein zweites Mal, weil
+ * `cells.ts` `themen.ts` nicht importieren darf (Registry im reinen Modul,
+ * `sideEffects: false`); der Test `dungeon2-builder.ts` haelt beide Fassungen
+ * gegeneinander, damit sie nicht auseinanderlaufen.
+ * Quarter turn of an edge — the same mapping as `themen.kanteZuDrehung`
+ * (north = 0, then clockwise). It appears here a second time because
+ * `cells.ts` must not import `themen.ts` (registry inside the pure module,
+ * `sideEffects: false`); the test `dungeon2-builder.ts` holds both versions
+ * against each other so they cannot drift apart.
+ */
+export function kantenDrehung(kante: Kante): 0 | 1 | 2 | 3 {
+  if (kante === KANTE.Nord) return 0;
+  if (kante === KANTE.Ost) return 1;
+  if (kante === KANTE.Sued) return 2;
+  return 3;
+}
+
+/** Bodenoberkante einer Zelle in Hoehenstufen, absolut. / Floor top, absolute. */
+export function bodenStufen(zelle: Zelle): number {
+  return zelle.ebene * EBENE_IN_HOEHEN_SCHRITTEN + zelle.boden;
+}
+
+/**
+ * Hat diese Zelle eine Bodenplatte? Nein genau dann, wenn sie ein `Schacht`
+ * ist UND darunter eine begehbare Zelle liegt — dann IST sie die senkrechte
+ * Oeffnung, und eine Platte waere ihr Gegenteil.
+ * Does this cell get a floor slab? No exactly when it is a `Schacht` AND a
+ * walkable cell lies below — then it IS the vertical opening, and a slab would
+ * be its opposite.
+ */
+export function hatBodenPlatte(gitter: ZellenGitter, zelle: Zelle): boolean {
+  if (zelle.art !== ZELLEN_ART.Schacht) return true;
+  const unten = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene - 1);
+  return unten === undefined || !offen(unten.art);
+}
+
+/** Der `Schacht` unmittelbar ueber dieser Zelle, falls es einen gibt. */
+/** The `Schacht` directly above this cell, if there is one. */
+function schachtDarueber(gitter: ZellenGitter, zelle: Zelle): Zelle | undefined {
+  if (!offen(zelle.art)) return undefined;
+  const oben = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene + 1);
+  if (oben === undefined || oben.art !== ZELLEN_ART.Schacht) return undefined;
+  return oben;
+}
+
+/** Hat diese Zelle eine Deckenplatte? Nein, wenn ueber ihr ein Schacht steht. */
+/** Does this cell get a ceiling slab? No if a shaft stands above it. */
+export function hatDeckenPlatte(gitter: ZellenGitter, zelle: Zelle): boolean {
+  return schachtDarueber(gitter, zelle) === undefined;
+}
+
+/**
+ * Deckenunterkante der lichten Saeule dieser Zelle in Hoehenstufen. Steht ein
+ * Schacht darueber, reicht die Saeule bis zu dessen Bodenhoehe hinauf — sonst
+ * bliebe zwischen der (weggelassenen) Decke unten und dem Schachtboden oben ein
+ * Ring ohne Wand, und genau das waere ein Leck.
+ * Ceiling underside of this cell's clear column in height steps. If a shaft
+ * stands above, the column reaches up to the shaft's floor height — otherwise
+ * a ring without walls would remain between the (omitted) ceiling below and the
+ * shaft floor above, and that is exactly what a leak is.
+ */
+export function obenStufen(gitter: ZellenGitter, zelle: Zelle): number {
+  const eigen = bodenStufen(zelle) + zelle.decke;
+  const schacht = schachtDarueber(gitter, zelle);
+  if (schacht === undefined) return eigen;
+  const schachtBoden = bodenStufen(schacht);
+  return schachtBoden > eigen ? schachtBoden : eigen;
+}
+
+/** Unterkante der WANDSAEULE (also inklusive Bodenplatte, wenn es eine gibt). */
+/** Bottom of the WALL column (i.e. including the floor slab, if there is one). */
+export function saeuleUnten(gitter: ZellenGitter, zelle: Zelle): number {
+  const boden = bodenStufen(zelle);
+  return hatBodenPlatte(gitter, zelle) ? boden - BODEN_DICKE_STUFEN : boden;
+}
+
+/** Oberkante der WANDSAEULE (also inklusive Deckenplatte, wenn es eine gibt). */
+/** Top of the WALL column (i.e. including the ceiling slab, if there is one). */
+export function saeuleOben(gitter: ZellenGitter, zelle: Zelle): number {
+  const oben = obenStufen(gitter, zelle);
+  return hatDeckenPlatte(gitter, zelle) ? oben + DECKE_DICKE_STUFEN : oben;
+}
+
+/**
+ * Ganzzahliger Fussabdruck einer Kante: der Streifen ueber der Zellgrenze, so
+ * breit wie die Zelle und `WAND_DICKE_ACHTEL` dick, mittig auf der Grenze.
+ * Mittig heisst: die Funktion liefert fuer (A, Nord) und (B, Sued) genau
+ * denselben Streifen — die Symmetrie ist geometrisch, nicht nur logisch.
+ * Integer footprint of an edge: the strip across the cell border, as wide as
+ * the cell and `WAND_DICKE_ACHTEL` thick, centred on the border. Centred means
+ * the function yields exactly the same strip for (A, Nord) and (B, Sued) — the
+ * symmetry is geometric, not merely logical.
+ */
+export function kantenStreifen(
+  x: number,
+  z: number,
+  kante: Kante
+): { xa0: number; xa1: number; za0: number; za1: number } {
+  const halb = WAND_DICKE_ACHTEL / 2;
+  const xa = x * ZELL_ACHTEL;
+  const za = z * ZELL_ACHTEL;
+  switch (kante) {
+    case KANTE.Nord:
+      return { xa0: xa, xa1: xa + ZELL_ACHTEL, za0: za + ZELL_ACHTEL - halb, za1: za + ZELL_ACHTEL + halb };
+    case KANTE.Sued:
+      return { xa0: xa, xa1: xa + ZELL_ACHTEL, za0: za - halb, za1: za + halb };
+    case KANTE.Ost:
+      return { xa0: xa + ZELL_ACHTEL - halb, xa1: xa + ZELL_ACHTEL + halb, za0: za, za1: za + ZELL_ACHTEL };
+    default:
+      return { xa0: xa - halb, xa1: xa + halb, za0: za, za1: za + ZELL_ACHTEL };
+  }
+}
+
+/**
+ * DIE geteilte Kantenfunktion aus ARCHITECTURE §3.8: Sichtgeometrie UND
+ * Kollision rufen sie, nie zwei gleich gemeinte Rechnungen nebeneinander. Sie
+ * liefert den Wandquader zwischen `zelle` und ihrer Nachbarin an `kante` —
+ * oder `null`, wenn dort keine Wand steht (`wandZwischen`) bzw. beide Seiten
+ * Fels sind (dann gibt es nichts zu bauen, nur ungestoerten Berg).
+ * THE shared edge function from ARCHITECTURE §3.8: visual geometry AND
+ * collision both call it, never two separately written calculations that mean
+ * the same. It returns the wall box between `zelle` and its neighbour across
+ * `kante` — or `null` when no wall stands there (`wandZwischen`) or when both
+ * sides are rock (nothing to build, just undisturbed mountain).
+ *
+ * Die senkrechte Ausdehnung ist die VEREINIGUNG der Wandsaeulen beider
+ * begehbaren Beteiligten. Auch das ist symmetrisch: eine Trennwand mitten im
+ * Saal ist von beiden Seiten aus derselbe Quader.
+ * The vertical extent is the UNION of the wall columns of both walkable
+ * participants. Symmetric as well: a partition wall in the middle of a hall is
+ * the same box seen from either side.
+ */
+export function zellKanteZuQuaderGanz(
+  gitter: ZellenGitter,
+  zelle: Zelle,
+  kante: Kante
+): GanzQuader | null {
+  const p = nachbarZelle(zelle.x, zelle.z, kante);
+  const nachbar = zelleOderLeer(gitter, p.x, p.z, zelle.ebene);
+  const aOffen = offen(zelle.art);
+  const bOffen = offen(nachbar.art);
+  if (!aOffen && !bOffen) return null;
+  if (!wandZwischen(zelle, nachbar)) return null;
+
+  let ys0 = Number.POSITIVE_INFINITY;
+  let ys1 = Number.NEGATIVE_INFINITY;
+  for (const teilnehmer of [zelle, nachbar]) {
+    if (!offen(teilnehmer.art)) continue;
+    const u = saeuleUnten(gitter, teilnehmer);
+    const o = saeuleOben(gitter, teilnehmer);
+    if (u < ys0) ys0 = u;
+    if (o > ys1) ys1 = o;
+  }
+  if (!Number.isFinite(ys0) || ys1 <= ys0) return null;
+
+  const streifen = kantenStreifen(zelle.x, zelle.z, kante);
+  return { ...streifen, ys0, ys1, drehung: kantenDrehung(kante) };
+}
+
+/** Dieselbe Funktion, Ergebnis in Metern. / The same function, result in metres. */
+export function zellKanteZuQuader(
+  gitter: ZellenGitter,
+  zelle: Zelle,
+  kante: Kante
+): Quader | null {
+  const ganz = zellKanteZuQuaderGanz(gitter, zelle, kante);
+  return ganz === null ? null : quaderInMeter(ganz);
+}

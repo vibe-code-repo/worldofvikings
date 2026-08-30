@@ -532,3 +532,237 @@ der den Prüfling nachbaut, misst den Nachbau. Der Haken kostet ein `boolean` un
 ist in beiden Sprachen als reines Messwerkzeug beschriftet; die Gegenprobe im
 Test (die **Anker müssen** sich ändern) sorgt dafür, dass er nicht versehentlich
 wirkungslos wird.
+
+---
+
+## 2026-08-30 · AP-Bauer · Paketnummer: „AP4" im Auftrag, „AP3" in ARCHITECTURE
+
+**Widerspruch:** Der Arbeitsauftrag nennt dieses Paket „AP4 — der Geometrie-Bauer";
+`ARCHITECTURE.md` §4 führt `builder.ts` als **AP3** und `generator.ts`+`themen.ts`
+als AP4 (die das Vorgängerpaket bereits gebaut hat, dort ebenfalls unter einer
+verschobenen Nummer).
+
+**Entscheidung:** Gebaut wurde der **Inhalt** des Auftrags (`builder.ts`), geprüft
+gegen die **Kriterien von ARCHITECTURE-AP3** plus die drei im Auftrag zusätzlich
+genannten (blockweise Gleichheit über Seeds, geschlossene Volumina als
+Kanten-Manifold-Zahlentest, Kollision aus demselben Layout).
+
+**Grund:** Der Inhalt ist eindeutig, die Nummer nicht. Wer nach der Nummer statt
+nach dem Inhalt baut, baut das falsche Modul.
+
+---
+
+## 2026-08-30 · AP-Bauer · `BauStueck` bleibt Quader; Netzdaten sind eine ABGELEITETE Schicht
+
+**Widerspruch:** `ARCHITECTURE.md` §3.8 friert `BauStueck` als **Quader** ein
+(`mitte`, `groesse`, `drehung`, `blend`). Der Arbeitsauftrag verlangt vom Bauer
+„Positionen/Indizes/Normalen/Materiallayer/Blend-Attribute".
+
+**Entscheidung:** Der eingefrorene Quadervertrag bleibt unangetastet. Daneben
+steht `stueckZuNetz(stueck)` → `Netz { positionen, normalen, uv2, indizes }` als
+**reine, ableitende** Funktion.
+
+**Grund:** Das Eingefrorene zu ändern wäre laut §3 eine Versionserhöhung, kein
+Edit — und der Client-Adapter (AP6) merged ohnehin je (Block × materialTag), er
+braucht also Netzdaten, nicht ein anderes `BauStueck`. Die Ableitung erfüllt die
+Forderung des Auftrags vollständig und macht zusätzlich die
+Kanten-Manifold-Prüfung überhaupt erst möglich (ohne Dreiecke gibt es keine
+Kanten zu zählen). 24 Eckpunkte je Quader (vier je Fläche), damit die Normalen
+flach bleiben; `drehung` wird beim Vernetzen **nicht** angewandt, weil die Quader
+achsparallel sind und `groesse` bereits in Weltachsen steht — sie ist reine
+Ausrichtungsangabe für den Adapter.
+
+---
+
+## 2026-08-30 · AP-Bauer · Alles in ganzen Achteln und Höhenstufen, genau eine Multiplikation
+
+**Lücke:** ARCHITECTURE Vertragsregel 3 sagt „Meter durch Multiplikation, nie
+durch Addition", legt aber keine Rechenform fest.
+
+**Entscheidung:** Jede waagerechte Länge wird in **ganzen Zellachteln**
+(`ACHTEL_M = ZELLE_M/8 = 0,5`), jede senkrechte in **ganzen Höhenstufen**
+(`HOEHEN_SCHRITT_M = 0,5`) gerechnet; `quaderInMeter()` ist der **einzige** Ort,
+an dem daraus Meter werden — Mitte über `(a0+a1) * 0,25`, Größe über
+`(a1-a0) * 0,5`.
+
+**Grund:** Beide Konstanten sind binär exakt. Damit ist jede Zellgrenze von
+beiden Seiten bitgleich, der Haarriss ist bauartbedingt unmöglich statt nur
+klein, und auch die aus `mitte ± groesse/2` zurückgerechneten Ecken sind exakt.
+Der Test misst die stärkere Zusage: größte Lücke **0**, nicht < 1e-6.
+
+---
+
+## 2026-08-30 · AP-Bauer · Eigentümer einer Kante ist der Block ihrer KANONISCHEN Zelle
+
+**Lücke:** ARCHITECTURE W3 legt den Block als Chunk fest, sagt aber nicht, zu
+welchem Block eine Wand **zwischen** zwei Blöcken gehört.
+
+**Entscheidung:** Zellteile (Boden, Decke, Stufen, Simse) gehören dem Block ihrer
+Zelle; Kantenteile (Wand, Sturz, Türrahmen) gehören dem Block der **kanonischen**
+Zelle der Kante (`kanonisiereKante`, also der mit kleinerem (ebene,z,x)).
+`bloeckeDesGitters()` nimmt deshalb ausdrücklich **auch** die Blöcke der
+kanonisierten Kanten auf, nicht nur die der Zellen.
+
+**Grund:** Ohne eine solche Regel käme eine Wand an einer Blockgrenze entweder
+doppelt oder gar nicht — beides bricht die blockweise Gleichheit. Die kanonische
+Zelle ist bereits die Konvention des Formats (Türen, §3.4), eine zweite wäre eine
+zweite. Der Nebenpunkt ist teuer erkauft: die kanonische Zelle darf **Fels** sein
+und außerhalb jedes bewohnten Blocks liegen (die Südkante von `z = -8`
+kanonisiert auf `z = -9`, also einen Blockstreifen tiefer). Wer diese Blöcke aus
+der Blockliste vergisst, verliert genau die Außenwände am unteren/linken
+Blockrand — und zwar still, weil nur die Vereinigung sie verliert, der Vollbau
+aber nicht. Genau das ist beim Bauen passiert und hat den Test rot gemacht.
+
+---
+
+## 2026-08-30 · AP-Bauer · Schächte: keine Bodenplatte, keine Decke darunter — und die Wandsäule wächst hoch
+
+**Lücke:** `ZellenArt.Schacht` heißt „offen nach oben/unten"; der Vorgänger (AP4)
+gibt als offenen Punkt weiter, der Bauer müsse dort „Stufen erzeugen, sonst ist
+es ein Loch". ARCHITECTURE sagt dazu nichts.
+
+**Entscheidung:** Eine `Schacht`-Zelle über einer begehbaren Zelle bekommt
+**keine Bodenplatte**, die Zelle darunter **keine Deckenplatte** — und
+`obenStufen()` zieht die lichte Säule der unteren Zelle bis auf die **Bodenhöhe
+des Schachts** hinauf, damit die Wände beider Zellen lückenlos aneinander
+stoßen. **Stufen erfindet der Bauer nicht.**
+
+**Grund:** Der Bauer darf keine Entscheidung treffen, die dem Generator gehört.
+Ob ein Ebenenwechsel eine Wendeltreppe, eine Leiter (ein Deko-Anker) oder eine
+`Treppe`-Zellenkette ist, ist Spielgefühl und gehört vor Mikes Blick — eine
+erfundene 8-m-Stiege in einer 4-m-Zelle wäre ein 63°-Steilstück und würde
+verworfen, nicht verfeinert. Was der Bauer sehr wohl schuldet, ist die
+**Dichtheit**: ohne die hochgezogene Säule bliebe zwischen der weggelassenen
+Decke unten und dem Schachtboden oben ein Ring ohne Wand. Der Handfall im Test
+misst genau das (Sabotage-Probe: Säule nicht hochziehen → 92 Lecks).
+
+---
+
+## 2026-08-30 · AP-Bauer · Der Sturz: offene Kanten mit verschiedenen Deckenhöhen werden oben geschlossen
+
+**Lücke:** Nirgends steht, was an einer offenen Kante zwischen zwei Räumen
+UNGLEICHER Deckenhöhe geschieht.
+
+**Entscheidung:** Der Bauer setzt dort einen **Sturz** — einen `wand`-Quader über
+der Kantenbreite, senkrecht von der niedrigeren bis zur höheren Deckenoberkante.
+An einer Tür übernimmt der Türsturz dieselbe Aufgabe (er reicht von der lichten
+Türhöhe bis zur höheren Deckenoberkante).
+
+**Grund:** Ohne ihn sieht man vom höheren Raum aus über die Decke des niedrigeren
+hinweg in den Fels. Das ist der klassische Leak, er hat kein Symptom in einer
+Invariantenprüfung des Layouts, und er ist genau die Klasse, die WoCs
+Paritätstest gefunden hat. Die Sabotage-Probe (Sturz weglassen) macht die
+Hüllenprüfung rot.
+
+---
+
+## 2026-08-30 · AP-Bauer · Wandmaterial: Zelltag für Waagerechtes, Tag 0 für Senkrechtes — außer im Fels
+
+**Lücke:** `Zelle.materialTag` ist laut `themen.ts` das **Zell**material (der
+Boden des Raumtyps); die W5-Tabelle führt Tag 0 als „Wand-Quader" und Tag 1 als
+„Fels roh". Welcher Tag an eine Wand gehört, steht nirgends.
+
+**Entscheidung:** `boden` und `stufe` nehmen `zelle.materialTag`; `wand`,
+`decke`, `sims` und `tuerrahmen` nehmen Tag **0** — außer die Zelle trägt Tag 1
+(Fels roh), dann nehmen sie ebenfalls 1.
+
+**Grund:** Ein aus dem Fels geschlagener Raum hat Felswände, ein verlegter Boden
+hat trotzdem Quaderwände. Jede feinere Regel wäre eine Materialentscheidung, und
+die gehört ins Themenprofil, nicht in den Bauer — sie kann dort später als Feld
+nachgereicht werden, ohne den eingefrorenen Vertrag zu berühren.
+
+---
+
+## 2026-08-30 · AP-Bauer · `kantenAbstand` ist der Abstand zu Boden, Decke und Wandebenen der eigenen Zelle
+
+**Lücke:** ARCHITECTURE W4 verlangt `kantenAbstand` als „Meter zur nächsten
+konkaven Kante", definiert „konkave Kante" aber nicht rechnerisch.
+
+**Entscheidung:** Je Quaderecke das Minimum aus (a) Abstand zur
+Bodenoberkante der Eigentümerzelle, (b) Abstand zu ihrer Deckenunterkante,
+(c) Abstand zu jeder Zellgrenze der Eigentümerzelle, an der eine Wand steht —
+gedeckelt bei **2 m**.
+
+**Grund:** Die konkaven Kanten eines Quaderdungeons sind genau die Linien, an
+denen eine Wand auf Boden oder Decke trifft; (a)–(c) sind die Ebenen, deren
+Schnitt diese Linien sind, und das Minimum der Ebenenabstände ist die
+konservative (nie zu große) Schätzung des Kantenabstands. Der Deckel bei 2 m ist
+kein Sparzwang, sondern Präzision: weiter weg ist „mittendrin", und ein
+unbegrenzter Wert verschenkt in `uv2` nur Auflösung.
+
+---
+
+## 2026-08-30 · AP-Bauer · Simse sind die einzige Variation — und sie sind rein optisch
+
+**Lücke:** Vertragsregel 2 („der Bauer hasht") und Regel 5 („der Bauer kennt
+keine Grafikstufe, `art` entscheidet") verlangen beide etwas, das es im Modell
+noch nicht gab: eine gehashte Variation und ein Bauteil, das auf Niedrig
+entfallen darf.
+
+**Entscheidung:** An rund einem Viertel der Wandkanten (Schwelle auf
+`hashPos(x, z, ebene, mische(seeds.material, kante))`) sitzt ein `sims` — ein
+Simsband auf 3 m Höhe, 0,5 m auskragend. Es bekommt **keinen**
+Kollisionskörper.
+
+**Grund:** Ohne ein einziges gehashtes Merkmal wäre Regel 2 unbelegt und die
+blockweise Gleichheit triviale Buchhaltung statt einer Messung. Und die Kollision
+darf nicht an der Grafikstufe hängen: ein Sims, den man auf Niedrig nicht sieht,
+darf einen auf Niedrig auch nicht aufhalten. Der Paritätstest nimmt Simse
+deshalb ausdrücklich aus — und prüft im selben Atemzug, dass es überhaupt welche
+gibt, denn eine Ausnahme, die nie greift, ist eine Zeile Prosa.
+
+---
+
+## 2026-08-30 · AP-Bauer · Treppen: gestufte Optik, glatte Rampe als Kollision
+
+**Lücke:** `ZellenArt.Treppe` und `Zelle.neigung` stehen im eingefrorenen Format,
+der heutige Generator erzeugt sie nicht, und `KollisionsKoerper.form: 'rampe'`
+hat bisher keinen Erzeuger.
+
+**Entscheidung:** Eine `Treppe`-Zelle liefert **acht** `stufe`-Quader entlang der
+Neigungsachse (ohne eigene Kollision) und **einen** Rampenkörper mit
+`steigung` = gemessener Anstieg in Höhenstufen. Der Anstieg wird an der
+Nachbarzelle in Neigungsrichtung gemessen, nicht angenommen.
+
+**Grund:** Genau Vertragsregel 1 — ein späterer Kunstpass darf die Treppe feiner
+stufen, ohne das Laufgefühl zu ändern. Gemessen, nicht angenommen, weil
+`Zelle.boden` laut Format die Höhe an der Kante mit dem kleineren Index ist und
+das Ziel damit ausschließlich in der Nachbarzelle steht. Ein Handfall im Test
+deckt den Pfad ab, den der Auto-Generator heute nie betritt.
+
+---
+
+## 2026-08-30 · AP-Bauer · `zellKanteZuQuader` ist symmetrisch in Mitte und Größe, gegenläufig in `drehung`
+
+**Lücke:** ARCHITECTURE §3.8 verlangt „eine geteilte Kantenfunktion, nicht zwei
+gleiche" und nennt Mitte, Größe **und** Vierteldrehung als Ergebnis — sagt aber
+nicht, ob die Drehung von beiden Seiten dieselbe ist.
+
+**Entscheidung:** Mitte und Größe sind von beiden Seiten **bitgleich** (der
+Streifen liegt mittig auf der Zellgrenze, die senkrechte Ausdehnung ist die
+Vereinigung beider Wandsäulen). `drehung` ist **absichtlich gegenläufig**: sie
+sagt, welche Seite in den Raum blickt, und das ist von Norden aus etwas anderes
+als von Süden. Der Test prüft beides getrennt.
+
+**Grund:** Hätte man `drehung` mitsymmetrisiert, wäre die Angabe wertlos; hätte
+man sie stillschweigend mitverglichen, wäre der Symmetrietest falsch rot (genau
+das ist beim Bauen passiert). Die Wandquader des Bauers entstehen ohnehin immer
+aus der **kanonischen** Kante, sind also eindeutig.
+
+---
+
+## 2026-08-30 · AP-Bauer · Spawnpunkt und Prüfsumme bei Teilbauten
+
+**Lücke:** `BauErgebnis` trägt `spawnPunkt`, `huelle` und `pruefsumme`; was diese
+drei bei `baueGeometrie(l, {bloecke:[b]})` bedeuten, steht nicht da.
+
+**Entscheidung:** `spawnPunkt` wird **immer** aus dem vollen Gitter gerechnet und
+ist von der Blockauswahl unabhängig (der Test misst das). `huelle` und
+`pruefsumme` beziehen sich dagegen ausdrücklich nur auf das **Gebaute** — die
+Prüfsumme eines Teilbaus ist die Prüfsumme dieses Teils.
+
+**Grund:** Der Spawnpunkt ist eine Eigenschaft des Grabes, nicht des Chunks; ein
+Teilbau, der den Spieler woandershin setzt, wäre ein Fehler mit dem Symptom
+„manchmal steht man falsch". Huelle und Prüfsumme dagegen sind Eigenschaften der
+Ausgabe; eine „Prüfsumme des Ganzen" an einem Teil wäre eine Lüge über etwas,
+das gar nicht gebaut wurde.

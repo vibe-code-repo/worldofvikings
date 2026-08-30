@@ -925,3 +925,81 @@ für Testcode ad absurdum führen. Die Duplikation ist absichtlich: zwei
 unabhängig geschriebene Fassungen derselben Zahlenreihe sind ein stärkerer
 Zeuge als eine geteilte Fassung, die auf beiden Seiten gleich falsch sein
 könnte.
+
+---
+
+## 2026-08-30 · Bestuecker · Dateiname `decorator.ts`, nicht `bestuecker.ts`
+
+**Lücke:** `ARCHITECTURE.md` §1.2/§1.1 nennt die Datei `bestuecker.ts`; der
+Arbeitsauftrag verlangt englische Dateinamen für alles Neue.
+
+**Entscheidung:** Die Datei heißt `shared/src/dungeon2/decorator.ts`, die
+Funktion und der Typname bleiben deutsch (`bestuecke()`, `BestuecktesTeil`) wie
+in `data-model.md` §2.5 eingefroren. Der Kopfkommentar nennt beide Namen
+ausdrücklich, damit ein Leser, der von `ARCHITECTURE.md` kommt, die Datei
+findet.
+
+**Grund:** Nur der Dateiname ist von der Englisch-Vorgabe erfasst; Bezeichner
+im eingefrorenen Datenformat/den eingefrorenen Signaturen zu übersetzen wäre
+eine stille Formatänderung.
+
+---
+
+## 2026-08-30 · Bestuecker · Eingabe ist `dekoPlaetze` (Meter), nicht `DungeonLayout2`
+
+**Lücke:** `data-model.md` §2.5 friert `bestuecke(layout, thema)` ein;
+`ARCHITECTURE.md` §1.3 zeigt im Datenfluss dagegen `dekoPlaetze -> bestuecke ->
+ZDOs`, also `BauErgebnis.dekoPlaetze` als Eingabe.
+
+**Entscheidung:** `bestuecke(dekoPlaetze: readonly DekoPlatz[], thema:
+ThemenProfil): readonly BestuecktesTeil[]` — die Datenfluss-Fassung aus
+`ARCHITECTURE.md` gewinnt.
+
+**Grund:** Nur der Bauer (`builder.ts`, `ankerPosition()`) übersetzt
+Anker-Rasterkoordinaten (Achtel, Höhenstufen) in Meter. Ein zweiter,
+unabhängig im Bestücker geschriebener Umrechnungspfad wäre ein Duplikat, das
+mit der Zeit vom Bauer abweichen kann, ohne dass es auffiele — genau die Art
+Fehler, die dieses Vorhaben an anderer Stelle (die geteilte Kantenfunktion,
+§3.8) ausdrücklich vermeidet. `DekoPlatz.seed` ist bereits
+`mische(seeds.deko, anker.id)` (von `generator.ts` in P9 gesetzt), also exakt
+der Strom, den W7 für den Bestücker verlangt — der Bestücker muss `seeds.deko`
+gar nicht kennen.
+
+---
+
+## 2026-08-30 · Bestuecker · Gefundene Lücke in `validation.ts`: `ebenen-abstand` vergleicht gegen die BodenOBERkante, nicht die -UNTERkante
+
+**Fund, kein Umbau:** Der Determinismus-/Kollisionstest von
+`dungeon2-decorator.ts` (Prüfung C2) stieß bei Seed 37 (Standard-Seedreihe
+dieses Testpakets) auf ein bestücktes Bodenteil, dessen Position **innerhalb**
+eines Kollisionskörpers der EIGENEN Ebene lag — nach Einschränkung auf die
+eigene Ebene löste sich der Fall auf: Der Konflikt lag zwischen der Decke von
+Ebene E und dem Boden von Ebene E+1 direkt darüber.
+
+Ursache in `validation.ts` (`validateZellgitter`, Regel `ebenen-abstand`):
+`bodenUnterkanteOben = oben.ebene * EBENE_IN_HOEHEN_SCHRITTEN + oben.boden`
+verwendet die BodenOBERkante der oberen Zelle (die begehbare Fläche), nicht
+ihre -UNTERkante (`... + oben.boden - BODEN_DICKE_STUFEN`, wie es der Bauer für
+die tatsächliche Bodenplatte benutzt, `builder.ts`, `ys0: unten -
+BODEN_DICKE_STUFEN`). Der Text der Regel in `ARCHITECTURE.md` §3.7 verlangt
+wörtlich "Bodenunterkante", der Code prüft aber die Bodenoberkante — eine Lücke
+von `BODEN_DICKE_STUFEN` (2 Stufen, 1 m), innerhalb derer eine Deckenplatte der
+Ebene darunter bis 0,5 m in die Bodenplatte der Ebene darüber hineinragen kann,
+ohne dass `validateLayoutVoll` das meldet. Beide Platten bleiben massiv
+(kein sichtbares Loch), aber eine Bestückung, die exakt auf der Bodenoberkante
+sitzt, kann numerisch innerhalb der fremden Deckenplatte liegen.
+
+**Keine Änderung an `validation.ts`/`generator.ts` durch dieses Paket:** Eine
+Korrektur der Formel kann für manche Seeds ein Layout, das bisher als gültig
+durchging, neu als `fehler` einstufen und damit den P10-Rückfall auslösen —
+das ändert erzeugte Layouts (und damit die eingefrorenen Golden-Prüfsummen aus
+AP5) für Seeds, die dieses Paket nicht vermisst. Das ist eine Entscheidung für
+den Eigentümer von AP2/AP4, nicht für den Bestücker. `decorator.ts` selbst ist
+nicht betroffen: Der Bestücker übernimmt Positionen unverändert aus
+`dekoPlaetze` und trifft keine eigene Höhenannahme.
+
+**Testkonsequenz:** Prüfung C2 in `dungeon2-decorator.ts` vergleicht deshalb
+bewusst nur gegen Kollisionskörper DERSELBEN Ebene wie das bestückte Teil
+(Ebene über den begleitenden `BauStueck`-Eintrag nachgeschlagen) — ob die Decke
+der Ebene darunter korrekt unter dem Boden dieser Ebene bleibt, ist die
+`ebenen-abstand`-Invariante, keine Eigenschaft des Bestückers.

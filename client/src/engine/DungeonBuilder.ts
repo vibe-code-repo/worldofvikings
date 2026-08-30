@@ -738,7 +738,45 @@ export class DungeonBauer {
         normalen.push(...netz.normalen);
         uv2.push(...netz.uv2);
         for (let i = 0; i < netz.positionen.length / 3; i++) schicht.push(stueck.materialTag);
-        for (const index of netz.indizes) indizes.push(basis + index);
+        // UMLAUFRICHTUNG UMDREHEN — hier ist die Grenze zwischen der Mathematik
+        // des Bauers und Babylons Rasterisierer, und die beiden zaehlen
+        // gegenlaeufig.
+        //
+        // `stueckZuNetz` liefert die Dreiecke so, dass die Rechte-Hand-Normale
+        // aus der Umlaufrichtung MIT der ausgeschriebenen Flaechennormale
+        // zusammenfaellt; `shared/test/dungeon2-builder.ts` (B1) haengt daran
+        // („vorzeichenbehaftetes Volumen positiv"). Babylon zaehlt in seinem
+        // linkshaendigen System umgekehrt: bei `CreateBoxVertexData` steht die
+        // Rechte-Hand-Normale ENTGEGEN der Flaechennormale. Uebernimmt man die
+        // Indizes unveraendert, verwirft die Rueckflaechenentfernung genau die
+        // Seiten, die in den Raum blicken — sichtbar bleibt die Rueckseite jedes
+        // Quaders, und ihre Normale zeigt VON der Kamera weg.
+        //
+        // Das hat drei Symptome, von denen nur das dritte auffiel: der Raum
+        // wirkt um eine Wandstaerke groesser; das Hemisphaerenlicht beleuchtet
+        // die Decke wie einen Boden; und SSAO2 legt seine Halbkugel in den
+        // Stein statt in den Raum, findet dort jede Probe verdeckt und loescht
+        // ab Stufe Mittel das ganze Bild aus (gemessen: 1290 von 1290
+        // GBuffer-Pixeln mit `dot(Normale, Sichtstrahl) > 0`).
+        //
+        // Die Umkehr steht HIER und nicht in `shared`: `shared/src/dungeon2`
+        // kennt keine Engine, und die Vorzeichenregel des Volumens ist eine
+        // Aussage ueber Geometrie, keine ueber Babylon.
+        //
+        // REVERSE THE WINDING — this is the seam between the builder's
+        // mathematics and Babylon's rasteriser, and the two count in opposite
+        // directions. `stueckZuNetz` emits triangles whose right-hand normal
+        // agrees with the written face normal (the shared test asserts a
+        // positive signed volume). Babylon's left-handed convention is the
+        // reverse (see `CreateBoxVertexData`). Taken verbatim, back-face
+        // culling drops exactly the sides facing into the room; what remains
+        // is each box's far side, with its normal pointing AWAY from the
+        // camera — which made SSAO2 sample into solid rock and black out the
+        // whole image from tier Medium upwards. The reversal belongs here, not
+        // in `shared`: `shared/src/dungeon2` knows no engine.
+        for (let t = 0; t < netz.indizes.length; t += 3) {
+          indizes.push(basis + netz.indizes[t]!, basis + netz.indizes[t + 2]!, basis + netz.indizes[t + 1]!);
+        }
       }
 
       const mesh = new Mesh(`${this.name}_${eintrag.schluessel}_t${tag}`, this.scene);

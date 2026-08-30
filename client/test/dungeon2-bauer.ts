@@ -270,7 +270,19 @@ for (const seed of SEEDS) {
       const netz = stueckZuNetz(stueck);
       for (let i = 0; i < netz.indizes.length; i += 3) {
         const ecken: string[] = [];
-        for (let e = 0; e < 3; e++) {
+        // Die Eckenreihenfolge ist HIER umgedreht, weil `DungeonBauer` sie
+        // umdreht: `stueckZuNetz` rechnet mit der Rechte-Hand-Regel (positives
+        // Volumen, `shared/test/dungeon2-builder.ts` B1), Babylon zaehlt
+        // linkshaendig. Ohne diese Umkehr bliebe der Vergleich auch dann gruen,
+        // wenn der Bauer die seine verloere — die MENGE der Dreiecke ist von der
+        // Umlaufrichtung unabhaengig, und genau daran ist die Verdrehung lange
+        // unbemerkt geblieben.
+        // The corner order is reversed HERE because `DungeonBauer` reverses it:
+        // `stueckZuNetz` follows the right-hand rule, Babylon counts
+        // left-handed. Without it the comparison would stay green even if the
+        // builder lost its reversal — the SET of triangles does not care about
+        // winding, which is exactly why the flipped faces went unnoticed.
+        for (const e of [0, 2, 1]) {
           const v = netz.indizes[i + e]! * 3;
           ecken.push(
             `${netz.positionen[v]!.toFixed(4)},${netz.positionen[v + 1]!.toFixed(4)},${netz.positionen[v + 2]!.toFixed(4)}`
@@ -287,6 +299,47 @@ for (const seed of SEEDS) {
         assert.fail(`erstes abweichendes Dreieck bei ${i}: ${ausMeshes[i]} != ${ausBauer[i]}`);
       }
     }
+  });
+
+  pruefe(`Seed ${seed}: Umlaufrichtung passt zu Babylon (Rueckflaeche = Aussenseite)`, () => {
+    // Wozu das hier steht: Eine verdrehte Umlaufrichtung hat KEIN Symptom in
+    // irgendeiner Zaehlung. Das Grab bleibt sichtbar (man sieht nur die
+    // Rueckseite jedes Quaders), Dreiecks- und Vertexzahlen stimmen, jeder
+    // Manifold-Test bleibt gruen. Sichtbar wird sie erst dort, wo die NORMALE
+    // gebraucht wird: die Hemisphaere von SSAO2 landet im Stein statt im Raum
+    // und loescht ab Stufe Mittel das ganze Bild aus.
+    //
+    // Babylons Konvention, an `CreateBoxVertexData` abgelesen: die
+    // Rechte-Hand-Normale der Umlaufrichtung zeigt ENTGEGEN der ausgeschriebenen
+    // Flaechennormale. Genau das wird hier je Dreieck geprueft.
+    // Why this test exists: a reversed winding has NO symptom in any count.
+    // Babylon's convention, read off `CreateBoxVertexData`: the right-hand
+    // normal of the winding points AGAINST the written face normal.
+    let geprueft = 0;
+    for (const knoten of bauer.wurzel.getChildren()) {
+      const mesh = knoten as Mesh;
+      if (typeof mesh.getIndices !== 'function') continue;
+      const idx = mesh.getIndices();
+      const pos = mesh.getVerticesData('position');
+      const nrm = mesh.getVerticesData('normal');
+      if (idx === null || pos === null || nrm === null) continue;
+      for (let t = 0; t < idx.length; t += 3) {
+        const a = idx[t]! * 3;
+        const b = idx[t + 1]! * 3;
+        const c = idx[t + 2]! * 3;
+        const e1 = [pos[b]! - pos[a]!, pos[b + 1]! - pos[a + 1]!, pos[b + 2]! - pos[a + 2]!];
+        const e2 = [pos[c]! - pos[a]!, pos[c + 1]! - pos[a + 1]!, pos[c + 2]! - pos[a + 2]!];
+        const kreuz = [
+          e1[1]! * e2[2]! - e1[2]! * e2[1]!,
+          e1[2]! * e2[0]! - e1[0]! * e2[2]!,
+          e1[0]! * e2[1]! - e1[1]! * e2[0]!,
+        ];
+        const punkt = kreuz[0]! * nrm[a]! + kreuz[1]! * nrm[a + 1]! + kreuz[2]! * nrm[a + 2]!;
+        assert.ok(punkt < 0, `Dreieck ${t / 3} in ${mesh.name}: Rechte-Hand-Normale zeigt MIT der Flaechennormale`);
+        geprueft++;
+      }
+    }
+    assert.ok(geprueft > 1000, `nur ${geprueft} Dreiecke geprueft`);
   });
 
   pruefe(`Seed ${seed}: jedes Mesh traegt uv2 UND die Schichtnummer`, () => {

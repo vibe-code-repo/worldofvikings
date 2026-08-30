@@ -1544,3 +1544,63 @@ Entwicklungsserver reicht den Repo-Ordner dort durch) und fällt auf
 damit in beiden Fällen. Der Eintrag in `vite.config.ts` ist Pflicht und kein
 Beiwerk: ohne ihn baut Vite die Seite stillschweigend nicht, und im Dev-Server
 fällt das nie auf.
+
+---
+
+## 2026-08-30 · AP6/AP11 · Die Quader waren verdreht — SSAO hat es nur sichtbar gemacht
+
+**Befund:** Ab Grafikstufe Mittel wurde das Bild fast schwarz (gemessen, Seed
+4242, Spawnblick: Niedrig Ø 87,2, Mittel Ø 18,9 = 21,7 %). Verdächtigt war die
+`SSAO2RenderingPipeline` in `DungeonAtmosphere.ts` — `forceGeometryBuffer`,
+`HALF_FLOAT`, die Kalibrierung, ein Konflikt mit den Material-Plugins. Keines
+davon war es. Ein Parametersweep an der lebenden Vorschau zeigte, dass die
+Verdunkelung mit dem Radius skaliert (0,05 → Ø 55,9; 0,15 → Ø 37,8; 0,45 →
+Ø 22,5) und mit `epsilon` verschwindet (0,5 → Ø 77,2) — das Muster einer
+**gleichmäßig falschen Halbkugelrichtung**, nicht einer Fehlkalibrierung.
+
+**Ursache:** `shared/src/dungeon2/builder.ts` (`stueckZuNetz`, `FLAECHEN`)
+liefert die Dreiecke so, dass die Rechte-Hand-Normale der Umlaufrichtung **mit**
+der ausgeschriebenen Flächennormale zusammenfällt; `shared/test/dungeon2-builder.ts`
+(B1) verlangt genau das („vorzeichenbehaftetes Volumen positiv"). Babylon zählt
+in seinem linkshändigen System umgekehrt — an `CreateBoxVertexData` abgelesen:
+dort zeigt die Rechte-Hand-Normale **entgegen** der Flächennormale.
+`DungeonBuilder.baueMeshes` hat die Indizes unverändert übernommen. Folge: die
+Rückflächenentfernung verwarf genau die Seiten, die in den Raum blicken, und
+sichtbar blieb die Rückseite jedes Quaders. Am GeometryBuffer nachgemessen:
+**1290 von 1290 sichtbaren Pixeln mit `dot(Normale, Sichtstrahl) > 0`** — jede
+Normale zeigte von der Kamera weg. SSAO2 legte seine Halbkugel damit in den
+Stein, fand jede Probe verdeckt und löschte das Bild aus.
+
+**Entscheidung:** Die Umkehr steht in `client/src/engine/DungeonBuilder.ts`,
+nicht in `shared`. `shared/src/dungeon2` kennt keine Engine, und die
+Vorzeichenregel des Volumens ist eine Aussage über Geometrie, keine über
+Babylon. Die SSAO-Zahlen (`maxZ = 60`, `radius = 0,45`, `totalStrength = 1,1`)
+bleiben unverändert — sie waren nie das Problem.
+
+**Messung nach dem Fix** (Seed 4242, 1280×720, Fackelflackern angehalten,
+mittlere Bildhelligkeit 0–255):
+
+| Framing | Niedrig | Mittel ohne SSAO | Mittel | Hoch | Mittel/Niedrig | SSAO-Anteil |
+|---|---|---|---|---|---|---|
+| Gang | 91,2 | 80,8 | 78,7 | 79,5 | 86,2 % | 2,7 % |
+| Raum | 92,2 | 62,9 | 62,4 | 62,5 | 67,8 % | 0,8 % |
+| Übergang | 90,0 | 78,4 | 77,9 | 77,8 | 86,5 % | 0,8 % |
+
+Der Rest des Abstands Niedrig→Mittel ist **nicht** SSAO, sondern das
+Material-Blending, das auf Niedrig aus ist: die Spalte „Mittel ohne SSAO" trennt
+beides. Im Raum-Framing liegt Mittel bei 67,8 % statt der als Richtwert
+genannten 70 % — der Boden dieses Raums ist stark bemoost (Moos wächst unten),
+und das ist Materialentwurf, keine Auslöschung. SSAO selbst kostet dort 0,8 %
+Gesamthelligkeit bei lokal bis zu 41/255 Verdunkelung in den konkaven Kanten.
+
+**Wächter:** Eine verdrehte Umlaufrichtung hat in **keiner** Zählung ein
+Symptom — Dreiecks- und Vertexzahlen stimmen, jeder Manifold-Test bleibt grün,
+das Grab bleibt sichtbar. `client/test/dungeon2-bauer.ts` prüft deshalb jetzt je
+Dreieck, dass die Rechte-Hand-Normale entgegen der Flächennormale zeigt, und der
+Vergleich „kein Dreieck verloren" baut seine Erwartung mit derselben Umkehr auf —
+ohne das bliebe er auch dann grün, wenn der Bauer die Umkehr wieder verlöre.
+
+**Lehre (verwandt mit „Zwei GPU-Fehler in AP10"):** Der erste Verdacht lag auf
+dem zuletzt geänderten Modul. Gefunden hat es erst eine Messung an der Zwischen-
+stufe — dem GeometryBuffer —, nicht am Endbild. Wo ein Effekt „global" statt
+lokal wirkt, ist meist seine Eingabe verdreht und nicht sein Parameter falsch.

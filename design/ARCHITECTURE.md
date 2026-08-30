@@ -42,22 +42,22 @@ Worktree `/home/mike/wov-wt-dungeon2`, Branch `dungeon-generator-2` ab `origin/m
 │                        außerhalb des gesetzten Rng, keine Uhr.              │
 │                                                                             │
 │   layout.ts      Typen · Konstanten · Kanonisierung · Prüfsumme · Migration  │
-│   zellen.ts      Stempel + Korrekturen → Zellgitter · Wandableitung          │
+│   cells.ts      Stempel + Korrekturen → Zellgitter · Wandableitung          │
 │   generator.ts   erzeugeLayout(thema, seeds) — P0..P10                       │
 │   themen.ts      ThemenProfil · 'steingrab' als erstes Thema                 │
-│   bauer.ts       baueGeometrie(layout) → Optik | Kollision | Nav | Anker     │
+│   builder.ts       baueGeometrie(layout) → Optik | Kollision | Nav | Anker     │
 │   bestuecker.ts  Anker (Rolle) → Prefab                                      │
-│   pruefung.ts    Invarianten, Befund[]                                       │
-│   hashwerk.ts    ganzzahlige Positions-Hashes (Math.imul), mische(seed,salt) │
+│   validation.ts    Invarianten, Befund[]                                       │
+│   hashing.ts    ganzzahlige Positions-Hashes (Math.imul), mische(seed,salt) │
 └───────────────┬─────────────────────────────┬───────────────────────────────┘
                 │                             │
    ┌────────────▼───────────────┐  ┌──────────▼────────────────────────────┐
    │ client/                    │  │ server/                               │
-   │  engine/DungeonBauer.ts    │  │  world/dungeon/Materialisierung2.ts   │
+   │  engine/DungeonBuilder.ts    │  │  world/dungeon/Materialisierung2.ts   │
    │    Meshes, Havok, Blöcke   │  │    ZDOs aus dekoPlaetze               │
    │  engine/DungeonMaterial.ts │  │  world/dungeon/DungeonManager.ts      │
    │    Triplanar-Plugin        │  │    (bleibt; 3 Methoden ersetzt)       │
-   │  engine/DungeonAtmo.ts     │  │  kollision/nav → Spawn-Platzprüfung,  │
+   │  engine/DungeonAtmosphere.ts     │  │  kollision/nav → Spawn-Platzprüfung,  │
    │    SSAO/SSR/Godrays,Stufen │  │    NPC-Wegfindung                     │
    └────────────┬───────────────┘  └───────────────────────────────────────┘
                 │
@@ -81,20 +81,20 @@ Zusage halten (keine Registry-Einträge auf Modulebene), sonst schleppt der Kart
 
 | Datei | Inhalt | Woher |
 |---|---|---|
-| `shared/src/dungeon2/layout.ts` | `DungeonLayout2`, `Zelle`, `RaumStempel`, `Tuer`, `DekoAnker`, `LayoutSeeds`, Rasterkonstanten, `kanonisch()`, `layoutPruefsumme()`, `migriere()` | datenmodell §1 |
-| `shared/src/dungeon2/zellen.ts` | `zellenAufbauen()`, `wandZwischen()`, `stempelSetzen()`, `stempelEntfernen()`, `zellKanteZuQuader()` | datenmodell §1.3/§4.5 |
-| `shared/src/dungeon2/hashwerk.ts` | `mische(seed, salt)`, `hashPos(x,z,ebene,seed)` — **ganzzahlig, `Math.imul`** | woc-analyse §3 (Korrektur der `Math.sin`-Falle) |
-| `shared/src/dungeon2/generator.ts` | `erzeugeLayout()`, Phasen P0–P10 | datenmodell §2 |
-| `shared/src/dungeon2/themen.ts` | `ThemenProfil`, `RaumTypProfil`, `steingrab` | datenmodell §2.2, material-plan §3 |
-| `shared/src/dungeon2/bauer.ts` | `baueGeometrie()` → `BauErgebnis` | datenmodell §3 |
-| `shared/src/dungeon2/bestuecker.ts` | `bestuecke()` — Rolle → Prefab | datenmodell §2.5 |
-| `shared/src/dungeon2/pruefung.ts` | `pruefeLayout()` → `Befund[]` | datenmodell §1.10 |
-| `shared/src/campGenerator.ts` | herausgelöstes `generateCampLayout`/`CampGround` — **bleibt aktiv** | datenmodell §5.1 |
-| `client/src/engine/DungeonBauer.ts` | Babylon-Adapter: Merge je Block×materialTag, Havok aus `kollision`, `dungeonBereit` | datenmodell §3.3 |
-| `client/src/engine/DungeonMaterial.ts` | Triplanar-`MaterialPluginBase` + Blending, Grafikstufen als Defines, Notbremse | render-technik §1/§2 |
-| `client/src/engine/DungeonAtmo.ts` | dungeon-kalibriertes SSAO, später SSR/Godrays, `DungeonGrafikStufe` | render-technik §3/§4 |
-| `client/src/editor/dungeon2/*.ts` | sechs Dateien, siehe §1.1 | editor-anbindung §3 |
-| `server/src/world/dungeon/Materialisierung2.ts` | ZDOs nur für Bewegliches/Interaktives | datenmodell §4.3 |
+| `shared/src/dungeon2/layout.ts` | `DungeonLayout2`, `Zelle`, `RaumStempel`, `Tuer`, `DekoAnker`, `LayoutSeeds`, Rasterkonstanten, `kanonisch()`, `layoutPruefsumme()`, `migriere()` | data-model §1 |
+| `shared/src/dungeon2/cells.ts` | `zellenAufbauen()`, `wandZwischen()`, `stempelSetzen()`, `stempelEntfernen()`, `zellKanteZuQuader()` | data-model §1.3/§4.5 |
+| `shared/src/dungeon2/hashing.ts` | `mische(seed, salt)`, `hashPos(x,z,ebene,seed)` — **ganzzahlig, `Math.imul`** | woc-analysis §3 (Korrektur der `Math.sin`-Falle) |
+| `shared/src/dungeon2/generator.ts` | `erzeugeLayout()`, Phasen P0–P10 | data-model §2 |
+| `shared/src/dungeon2/themen.ts` | `ThemenProfil`, `RaumTypProfil`, `steingrab` | data-model §2.2, material-plan §3 |
+| `shared/src/dungeon2/builder.ts` | `baueGeometrie()` → `BauErgebnis` | data-model §3 |
+| `shared/src/dungeon2/bestuecker.ts` | `bestuecke()` — Rolle → Prefab | data-model §2.5 |
+| `shared/src/dungeon2/validation.ts` | `validateLayout()` → `Befund[]` | data-model §1.10 |
+| `shared/src/campGenerator.ts` | herausgelöstes `generateCampLayout`/`CampGround` — **bleibt aktiv** | data-model §5.1 |
+| `client/src/engine/DungeonBuilder.ts` | Babylon-Adapter: Merge je Block×materialTag, Havok aus `kollision`, `dungeonBereit` | data-model §3.3 |
+| `client/src/engine/DungeonMaterial.ts` | Triplanar-`MaterialPluginBase` + Blending, Grafikstufen als Defines, Notbremse | render-tech §1/§2 |
+| `client/src/engine/DungeonAtmosphere.ts` | dungeon-kalibriertes SSAO, später SSR/Godrays, `DungeonGrafikStufe` | render-tech §3/§4 |
+| `client/src/editor/dungeon2/*.ts` | sechs Dateien, siehe §1.1 | editor-integration §3 |
+| `server/src/world/dungeon/Materialisierung2.ts` | ZDOs nur für Bewegliches/Interaktives | data-model §4.3 |
 | `tools/bake-barrow-materials.py` | 8 Materialien prozedural in Blender, gebacken | material-plan §4 |
 | `tools/pack-material-arrays.py` | PNG-Sätze → drei `Texture2DArray`-Quellen → KTX2 | **neu, siehe Widerspruch W5** |
 | `shared/test/dungeon2-*.ts` | Schichten, Determinismus, Invarianten, Bauer, Parität | §4 |
@@ -105,10 +105,10 @@ Zusage halten (keine Registry-Einträge auf Modulebene), sonst schleppt der Kart
 ```
 Instanz-Dokument {modus:'erzeugt', thema, seeds, pruefsumme}
         │  (über die Leitung reist der Deskriptor, nie Geometrie)
-        ├── Server: erzeugeLayout → pruefeLayout → baueGeometrie
+        ├── Server: erzeugeLayout → validateLayout → baueGeometrie
         │            └→ kollision + nav → Spawn-Platzprüfung, NPC-Wege
         │            └→ dekoPlaetze → bestuecke → ZDOs (nur Interaktives)
-        └── Client: erzeugeLayout → pruefeLayout → Prüfsumme vergleichen
+        └── Client: erzeugeLayout → validateLayout → Prüfsumme vergleichen
                      └→ baueGeometrie (Spawnblöcke zuerst)
                      └→ DungeonBauer: Meshes + Havok + Material
                      └→ dungeonBereit → Ladebildschirm aus
@@ -225,7 +225,7 @@ Bake-Weg darauf festlegt (Risiko R4).
 | 9 | Ruß-Overlay (Theme Feuer) | nein — Overlay |
 
 Das Basis-Array hat also **sechs** Layer, nicht acht. Die Overlays sind Blend-Layer im selben Fragmentblock und
-dürfen nie als `materialTag` einer Zelle auftauchen — `pruefeLayout()` prüft das (`materialTag <= 5`).
+dürfen nie als `materialTag` einer Zelle auftauchen — `validateLayout()` prüft das (`materialTag <= 5`).
 
 ### W6 — Welcher Zufallsgenerator?
 
@@ -239,7 +239,7 @@ zusätzlich projektweit erprobt.
 **Aber der Kern des WoC-Einwands gilt trotzdem, an anderer Stelle:** `XorShiftRandom.insideUnitCircle()` benutzt
 `Math.cos`/`Math.sin` und warnt selbst davor („can differ by ~1 ulp"). **Regel: kein Dungeon-2.0-Pfad ruft
 `insideUnitCircle()` auf**, und kein geteilter Hash ist trigonometrisch. Alle Positions-Hashes gehen durch
-`hashwerk.ts` (`Math.imul`-Kette). Der Schichtentest verbietet `Math.sin`/`Math.cos` in `dungeon2/`.
+`hashing.ts` (`Math.imul`-Kette). Der Schichtentest verbietet `Math.sin`/`Math.cos` in `dungeon2/`.
 
 ### W7 — Ein Rng-Strom oder mehrere?
 
@@ -299,7 +299,7 @@ Tap statt drei**. Das ist das entscheidende Performance-Argument für Stufe Mitt
 `SCHAERFE` bleibt als Theme-Parameter erhalten (Exponent vor dem Kollaps), der Subtraktionsschwellwert 0.15 wird
 gemessen, nicht geglaubt.
 
-Folgeentscheidung, die W11 gratis mitliefert: **Parallax läuft nur auf der dominanten Ebene** (render-technik §3.4
+Folgeentscheidung, die W11 gratis mitliefert: **Parallax läuft nur auf der dominanten Ebene** (render-tech §3.4
 empfahl das aus Kostengründen) — nach dem Kollaps ist „die dominante Ebene" fast überall die **einzige** Ebene,
 der Sonderfall wird also billig statt teuer.
 
@@ -469,7 +469,7 @@ sieht dieser Dungeon aus", nicht „woher kommt er".
 - **Migration ist eine Kette reiner Schritte** v_n → v_{n+1}, nie ein wachsender Sanitizer. Der Sanitizer sagt
   „ist das gültig", die Migration sagt „was bedeutete das damals". Auch additive Felder erhöhen die Version.
 
-### 3.7 Invarianten (`pruefung.ts`)
+### 3.7 Invarianten (`validation.ts`)
 
 | Regel | Warum |
 |---|---|
@@ -537,12 +537,12 @@ AP0 ──▶ AP1 ──▶ AP2 ──▶ AP3 ──▶ AP4 ──┬─▶ AP6 
 | AP | Umfang | Braucht | Modell |
 |---|---|---|---|
 | 0 | Vorbereitung: Datei teilen, Schichtentest, LEGACY.md anlegen | — | Sonnet |
-| 1 | `layout.ts` + `hashwerk.ts` | AP0 | Opus |
-| 2 | `zellen.ts` + `pruefung.ts` | AP1 | Opus |
-| 3 | `bauer.ts` | AP2 | Opus |
+| 1 | `layout.ts` + `hashing.ts` | AP0 | Opus |
+| 2 | `cells.ts` + `validation.ts` | AP1 | Opus |
+| 3 | `builder.ts` | AP2 | Opus |
 | 4 | `generator.ts` + `themen.ts` | AP2 | Opus |
 | 5 | Determinismus-Prüfstand Node↔Browser | AP4 | Sonnet |
-| 6 | `DungeonBauer.ts` (graue Kästen + Havok) | AP3, AP4 | Opus |
+| 6 | `DungeonBuilder.ts` (graue Kästen + Havok) | AP3, AP4 | Opus |
 | 7 | **Erstes Rendering** + Parität + Begehbarkeit lokal | AP6 | Sonnet |
 | 8 | Babylon-Recherche: Injektionsmarken, Sampler-Budget, Klon-Verhalten | AP0 | Opus |
 | 9 | `tools/bake-barrow-materials.py` | — (parallel) | Opus |
@@ -580,32 +580,32 @@ Datei Zeilenenden prüfen.
 
 ---
 
-### AP1 — `layout.ts` + `hashwerk.ts`
+### AP1 — `layout.ts` + `hashing.ts`
 **Modell: Opus** (Format-Entscheidungen mit Langzeitfolgen). **Braucht: AP0.**
 
 Umfang: §3.2–§3.6 dieses Dokuments als Code. Typen, Konstanten, `kanonisch()`, `layoutPruefsumme()` (FNV-1a),
-`migriere()`-Gerüst. `hashwerk.ts`: `mische(seed, salt)` und `hashPos(x, z, ebene, seed)`, beide
+`migriere()`-Gerüst. `hashing.ts`: `mische(seed, salt)` und `hashPos(x, z, ebene, seed)`, beide
 `Math.imul`-basiert, mit einer eingefrorenen Werte-Tabelle im Test.
 
-Dateien: `shared/src/dungeon2/layout.ts`, `shared/src/dungeon2/hashwerk.ts`,
+Dateien: `shared/src/dungeon2/layout.ts`, `shared/src/dungeon2/hashing.ts`,
 `shared/test/dungeon2-layout.ts`.
 
 **Prüfkriterium (Messung):** (a) Ein von Hand geschriebenes Zwei-Raum-Layout wird kanonisiert und ergibt eine
 eingefrorene Prüfsumme; (b) dieselben Daten in **anderer Feld- und Array-Reihenfolge** ergeben **dieselbe**
 Prüfsumme; (c) `hashPos` liefert für 1000 eingefrorene Eingaben identische Werte in Node und im Browser-Bündel;
 (d) ein Layout mit einer eingeschmuggelten Fließkommazahl wird von der Typprüfung **und** von
-`pruefeLayout` abgelehnt.
+`validateLayout` abgelehnt.
 
 ---
 
-### AP2 — `zellen.ts` + `pruefung.ts`
+### AP2 — `cells.ts` + `validation.ts`
 **Modell: Opus.** **Braucht: AP1.**
 
 Umfang: `zellenAufbauen()` (Stempel nach `ordnung`, dann Korrekturen), `wandZwischen()` mit der symmetrischen
 Regel aus §3.3, `zellKanteZuQuader()` (die eine geteilte Kantenfunktion), `stempelSetzen`/`stempelEntfernen`,
 alle Invarianten aus §3.7 als `Befund[]` mit stabilem `regel`-Kurznamen.
 
-Dateien: `shared/src/dungeon2/zellen.ts`, `shared/src/dungeon2/pruefung.ts`,
+Dateien: `shared/src/dungeon2/cells.ts`, `shared/src/dungeon2/validation.ts`,
 `shared/test/dungeon2-invarianten.ts`.
 
 **Prüfkriterium (Messung):** (a) **Symmetrietest**: für 10.000 zufällig (seed-fest) erzeugte Zellpaare gilt
@@ -616,14 +616,14 @@ gemischter Array-Reihenfolge (bei gleicher `ordnung`) ergeben dasselbe Gitter.
 
 ---
 
-### AP3 — `bauer.ts`
+### AP3 — `builder.ts`
 **Modell: Opus** (die fünf Vertragsregeln sind subtil). **Braucht: AP2.**
 
 Umfang: `baueGeometrie(layout, auswahl?)` nach §3.8. Böden, Wände, Decken, Stufen, Türrahmen als Quader;
 `kollision` als getrennte Box-/Rampenliste; `nav`; `dekoPlaetze` in Metern; `blend`-Attribute
 (`hoeheUeberBoden`, `kantenAbstand`) je Ecke; `spawnPunkt`; `huelle`.
 
-Dateien: `shared/src/dungeon2/bauer.ts`, `shared/test/dungeon2-bauer.ts`,
+Dateien: `shared/src/dungeon2/builder.ts`, `shared/test/dungeon2-builder.ts`,
 `shared/test/dungeon2-paritaet.ts`.
 
 **Prüfkriterium (Messung) — das wichtigste Paket, drei Tests:**
@@ -651,7 +651,7 @@ lösten ein Problem, das nur existiert, wenn Wände Bauteile mit Platzbedarf sin
 
 Dateien: `shared/src/dungeon2/generator.ts`, `shared/src/dungeon2/themen.ts`.
 
-**Prüfkriterium (Messung):** über 200 Seeds: (a) `pruefeLayout` liefert **null** Befunde der Schwere `fehler`;
+**Prüfkriterium (Messung):** über 200 Seeds: (a) `validateLayout` liefert **null** Befunde der Schwere `fehler`;
 (b) Zellenzahl liegt in `zielZellen`; (c) Schleifenanteil > 0 (mindestens ein Zyklus im Raumgraphen) bei
 ≥ 90 % der Seeds; (d) kein Seed erzeugt einen unerreichbaren Raum; (e) **Reihenfolge-Stabilität**: das Einfügen
 einer zusätzlichen Ziehung in P9 (Deko) verändert **kein** einziges Stempel-Feld — das misst, ob die
@@ -674,7 +674,7 @@ Build-Schritt — nach jedem Bauen `vite preview` neu starten, sonst misst man s
 
 ---
 
-### AP6 — `DungeonBauer.ts` im Client (graue Kästen)
+### AP6 — `DungeonBuilder.ts` im Client (graue Kästen)
 **Modell: Opus** (Havok- und Lebenszyklus-Fallen). **Braucht: AP3, AP4.**
 
 Umfang: je (Block × `materialTag`) ein gemergtes Mesh mit Standardmaterial in Grau; `blend`-Werte nach `uv2`;
@@ -684,7 +684,7 @@ blendet erst aus, wenn die Blöcke um den Spawn stehen — in einer Instanz gibt
 Ressourcenbesitz je Instanzwurzel mit „geteilt"-Markierung, weil `mesh.dispose(_, true)` sonst das geteilte
 Dungeon-Material für **alle** laufenden Instanzen abschießt.
 
-Dateien: `client/src/engine/DungeonBauer.ts`, Anbindung in der Weltwechsel-Logik.
+Dateien: `client/src/engine/DungeonBuilder.ts`, Anbindung in der Weltwechsel-Logik.
 
 **Prüfkriterium (Messung, headless):** (a) Draw-Call- und Mesh-Zahl je Block ausgezählt und gegen die erwartete
 Formel (Blöcke × belegte materialTags) geprüft; (b) ein Spielercharakter, headless über das Layout geschoben,
@@ -756,7 +756,7 @@ rekompiliert Babylon beim Stufenwechsel nicht. `setzeStufe()` + `markAllDefinesA
 darf nicht den ganzen begehbaren Dungeon unsichtbar machen. Plus ein Dev-Killschalter (`?triplanar=off`), damit
 A/B-Messung ohne Codeänderung geht.
 
-Dateien: `client/src/engine/DungeonMaterial.ts`, `client/src/engine/DungeonAtmo.ts` (nur SSAO in M1).
+Dateien: `client/src/engine/DungeonMaterial.ts`, `client/src/engine/DungeonAtmosphere.ts` (nur SSAO in M1).
 
 **Prüfkriterium (Messung vor Bild):**
 1. **Shader-Textprüfung ohne GPU** (WoCs `worn_stone_shader.test.ts`-Muster): `getCustomCode()` je Stufe direkt
@@ -866,11 +866,11 @@ Dasselbe kleiner in `shared/src/dungeons.ts`: die Datei bleibt (Camps, `getDunge
 | `shared/src/eigeneDungeons.ts` (`DG_Steingrab`, 687 Z.) | **LEGACY** | RoomDefs mit Connectors; `propTypes` wandert nach `dungeon2/themen.ts` |
 | `shared/src/dungeons.ts` — `RoomDef`, `RoomConnectionDef`, `PlacedRoom`, `PlacedDoor`, `PlacedProp`, `DungeonLayout`, `DungeonPropDef`, `sanitizeDungeonDocument`, `MAX_DUNGEON_*`, `DUNGEON_DOCUMENT_VERSION` | **LEGACY-Block** | Altformat; Rest der Datei bleibt |
 | `shared/src/roomPieces.ts`, `roomPiecesData.json` (4,9 MB) | **LEGACY für Dungeons** | wird nur noch von Camps gelesen; nach dem Umbau prüfen, ob Camps wirklich alle 289 Räume brauchen |
-| `shared/test/dungeon-generator.ts`, `shared/test/dungeon-raster.ts` | **LEGACY** | ersetzt durch `dungeon2-determinismus.ts`, `-invarianten.ts`, `-bauer.ts`, `-paritaet.ts`, `-schichten.ts` |
+| `shared/test/dungeon-generator.ts`, `shared/test/dungeon-raster.ts` | **LEGACY** | ersetzt durch `dungeon2-determinismus.ts`, `-invarianten.ts`, `-builder.ts`, `-paritaet.ts`, `-schichten.ts` |
 | `server/src/world/dungeon/DungeonManager.ts` — `materialize()`, `dekoAngleichen()`, `getSpawnPoint()` | **ersetzt** | Rest der Klasse bleibt unverändert |
 | `client/src/ui/DungeonEditor.ts` (F4) | **LEGACY** | baut über Connectors |
-| `client/src/ui/DekoPlatzierung.ts` | **LEGACY** | setzt `PlacedProp` mit `roomIndex` |
-| `client/src/editor/DungeonGrundriss.ts`, `DungeonKatalog.ts`, `DungeonDokument.ts`, `DungeonSpeichern.ts` | **LEGACY** | Raumbibliothek + Connector-Grundriss; ersetzt durch `editor/dungeon2/` |
+| `client/src/ui/DecorPlacement.ts` | **LEGACY** | setzt `PlacedProp` mit `roomIndex` |
+| `client/src/editor/DungeonFloorplan.ts`, `DungeonCatalog.ts`, `DungeonDocument.ts`, `DungeonSpeichern.ts` | **LEGACY** | Raumbibliothek + Connector-Grundriss; ersetzt durch `editor/dungeon2/` |
 | `client/src/engine/Physics.ts` — Mesh-Collider-Zweig für Dungeon-Räume (`kind: 'mesh'`, ~Z. 134/143/553) | **LEGACY-Zweig** | Kollision kommt aus `BauErgebnis.kollision`, nicht aus dem Mesh |
 | `tools/steingrab-erzeugen.py`, `tools/dungeon-zusammensetzen.py` | **LEGACY** | erzeugen Architektur-GLBs |
 | `assets/models/Steingrab*.glb` (außerhalb des Repos) | **LEGACY** | Mike sichert `assets/` selbst — **nicht löschen**, nur aus `EIGENE_MODELLE` nehmen |

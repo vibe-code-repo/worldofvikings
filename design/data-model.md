@@ -343,7 +343,7 @@ Drei Festlegungen:
 
 ### 1.10 Invarianten — was ein gültiges Layout zusagt
 
-Modul `shared/src/dungeon2/pruefung.ts`, benutzt von Generator (nach dem Bauen), Editor (nach jeder Änderung), Server (beim Laden) und Test.
+Modul `shared/src/dungeon2/validation.ts`, benutzt von Generator (nach dem Bauen), Editor (nach jeder Änderung), Server (beim Laden) und Test.
 
 | Regel | Warum |
 |---|---|
@@ -444,7 +444,7 @@ export interface ThemenProfil {
 | P7 | Abschlüsse | Übrige offene Anschlüsse zumauern (`wandErzwungen`) oder mit `nische`/`abschluss` schließen. Kein Notfallzweig, der ohne Prüfung setzt — im Zellmodell ist „zumauern" immer möglich, weil eine Wand kein Bauteil braucht |
 | P8 | Türen | Auf Kanten zwischen zwei Stempeln, nach `tuerChance` und `tuerArten` |
 | P9 | Deko-Anker | Je Stempel Muster aus `dekoMuster` anwenden, mit dem Raumstrom aus §2.1 |
-| P10 | Abnahme | `pruefeLayout()` (§1.10). Ein Befund der Schwere `fehler` wirft — ein Generator, der kaputte Layouts ausliefert, verschiebt die Diagnose in den Client |
+| P10 | Abnahme | `validateLayout()` (§1.10). Ein Befund der Schwere `fehler` wirft — ein Generator, der kaputte Layouts ausliefert, verschiebt die Diagnose in den Client |
 
 Bemerkenswert an P7: Der Altgenerator braucht dafür `endcapsFallbackByPrio`, `endcapsCollision`, `endcapsInsetFrac` und einen Zweig, der „force-place a candidate without collision check" macht — gemessene 163 solcher Notfallsetzungen über 40 Seeds. **Diese ganze Familie von Einstellungen verschwindet ersatzlos**, weil sie ein Problem löst, das nur entsteht, wenn Wände Bauteile mit Platzbedarf sind.
 
@@ -470,7 +470,7 @@ Getrennt vom Generator, weil er getrennt laufen muss: Der Server ruft ihn beim M
 
 ## 3. Der Geometrie-Bauer
 
-Modul: **`shared/src/dungeon2/bauer.ts`**. Rein, ohne Babylon, ohne DOM, ohne `node:`-Importe — er muss im Server, im Client und im Test laufen.
+Modul: **`shared/src/dungeon2/builder.ts`**. Rein, ohne Babylon, ohne DOM, ohne `node:`-Importe — er muss im Server, im Client und im Test laufen.
 
 ```ts
 export function baueGeometrie(
@@ -538,7 +538,7 @@ export interface KollisionsKoerper {
 
 ### 3.3 Client-Adapter
 
-**`client/src/engine/DungeonBauer.ts`** — der einzige Ort mit Babylon-Bezug:
+**`client/src/engine/DungeonBuilder.ts`** — der einzige Ort mit Babylon-Bezug:
 
 - je Block und `materialTag` ein gemergtes Mesh, Blend-Attribute in `uv2`;
 - Material aus dem Triplanar-Plugin (`MaterialPluginBase`, Muster: `PbrNebelFix.ts`, `NebelRichtung.ts`, `StandardGammaFix.ts` — alle im Client vorhanden);
@@ -612,7 +612,7 @@ Die ZDO-Ersparnis ist der Nebeneffekt, der die Zahl erklärt: Ein Steingrab mit 
 2. `getOrCreateInstance(id)` — unverändert bis auf `materialisiere2()`.
 3. Der Server sendet im vorhandenen Teleport-Paket (das heute schon `dungeonId` und `interiorEnv` trägt) **zwei Felder mehr**: `thema` und `seeds` bei `modus: 'erzeugt'`, plus `pruefsumme`. Kein neuer Lebenszyklus, kein neues Protokollverfahren.
 4. Bei `modus: 'gebaut'` folgt das Layout über eine eigene Anfrage (`RPC_DungeonLayout`), weil es zu groß für das Teleportpaket ist.
-5. Client: `erzeugeLayout` bzw. Layout empfangen → `pruefeLayout` → `baueGeometrie` (Spawnblöcke zuerst) → `dungeonBereit` → Ladebildschirm aus.
+5. Client: `erzeugeLayout` bzw. Layout empfangen → `validateLayout` → `baueGeometrie` (Spawnblöcke zuerst) → `dungeonBereit` → Ladebildschirm aus.
 6. `charakterUmziehen` in die Instanzwelt — unverändert.
 
 ### 4.5 Editor
@@ -624,7 +624,7 @@ Der Karteneditor-Modus `dungeons` (Etappe 4 des Altkonzepts) schreibt **dasselbe
 
 Ein erzeugter Dungeon wird durch die erste Handänderung nicht zu `'gebaut'` — er behält `thema` und `seeds` und bekommt Korrekturen obendrauf. Erst wenn jemand die Stempel selbst anfasst, wird das Layout eingefroren und `modus` wechselt. Damit bleibt „regenerieren, meine Fackeln behalten" möglich, was heute nicht geht (`dungeon regen <id>` wirft die Deko weg).
 
-Die Bau-Logik liegt in `shared/` (`zellenAufbauen`, `stempelSetzen`, `stempelEntfernen`, `pruefeLayout`) und wird von Editor, Generator und Server benutzt — **keine zweite Bau-Logik**, dieselbe Regel wie im Altkonzept, und sie hat sich bewährt.
+Die Bau-Logik liegt in `shared/` (`zellenAufbauen`, `stempelSetzen`, `stempelEntfernen`, `validateLayout`) und wird von Editor, Generator und Server benutzt — **keine zweite Bau-Logik**, dieselbe Regel wie im Altkonzept, und sie hat sich bewährt.
 
 Zwei Vorsichtsmaßnahmen aus dem Gedächtnis: Der Editor darf zum Erproben **nicht** in Mikes `dev.json` schreiben (eigene Erprobungskopie), und vor jedem Schreiben werden Änderungszeiten geprüft (parallele Sitzungen).
 
@@ -656,11 +656,11 @@ Dasselbe gilt in kleinerem Maßstab für `shared/src/dungeons.ts`: Die Datei ble
 | `shared/src/eigeneDungeons.ts` (`DG_Steingrab`, 687 Z.) | **LEGACY** | RoomDefs mit Connectors. `propTypes` wandert in `dungeon2/themen.ts` |
 | `shared/src/dungeons.ts` — `RoomDef`, `RoomConnectionDef`, `PlacedRoom`, `PlacedDoor`, `PlacedProp`, `DungeonLayout`, `DungeonPropDef`, `sanitizeDungeonDocument`, `MAX_DUNGEON_*`, `DUNGEON_DOCUMENT_VERSION` | **LEGACY-Block** | Altformat; Rest der Datei bleibt |
 | `shared/src/roomPieces.ts`, `roomPiecesData.json` (4,9 MB) | **LEGACY für Dungeons** | wird nur noch von Camps gelesen; nach dem Umbau prüfen, ob die Camps wirklich alle 289 Räume brauchen |
-| `shared/test/dungeon-generator.ts`, `shared/test/dungeon-raster.ts` | **LEGACY** | ersetzt durch `dungeon2-determinismus.ts`, `dungeon2-invarianten.ts`, `dungeon2-bauer.ts` |
+| `shared/test/dungeon-generator.ts`, `shared/test/dungeon-raster.ts` | **LEGACY** | ersetzt durch `dungeon2-determinismus.ts`, `dungeon2-invarianten.ts`, `dungeon2-builder.ts` |
 | `server/src/world/dungeon/DungeonManager.ts` — `materialize()`, `dekoAngleichen()`, `getSpawnPoint()` | **ersetzt** | Rest der Klasse bleibt |
 | `client/src/ui/DungeonEditor.ts` (F4) | **LEGACY** | baut über Connectors |
-| `client/src/ui/DekoPlatzierung.ts` | **LEGACY** | setzt `PlacedProp` mit `roomIndex` |
-| `client/src/editor/DungeonGrundriss.ts`, `DungeonKatalog.ts`, `DungeonDokument.ts`, `DungeonSpeichern.ts` | **LEGACY** | Raumbibliothek + Connector-Grundriss; ersetzt durch das Zellen-Modul |
+| `client/src/ui/DecorPlacement.ts` | **LEGACY** | setzt `PlacedProp` mit `roomIndex` |
+| `client/src/editor/DungeonFloorplan.ts`, `DungeonCatalog.ts`, `DungeonDocument.ts`, `DungeonSpeichern.ts` | **LEGACY** | Raumbibliothek + Connector-Grundriss; ersetzt durch das Zellen-Modul |
 | `client/src/engine/Physics.ts` — Mesh-Collider-Zweig für Dungeon-Räume (`kind: 'mesh'`, ~Z. 134/143/553) | **LEGACY-Zweig** | Kollision kommt künftig aus `BauErgebnis.kollision`, nicht aus dem Mesh |
 | `tools/steingrab-erzeugen.py`, `tools/dungeon-zusammensetzen.py` | **LEGACY** | erzeugen Architektur-GLBs |
 | `assets/models/Steingrab*.glb` (liegt außerhalb des Repos) | **LEGACY** | Mike sichert `assets/` selbst — nicht löschen, nur aus `EIGENE_MODELLE` nehmen |
@@ -670,14 +670,14 @@ Dasselbe gilt in kleinerem Maßstab für `shared/src/dungeons.ts`: Die Datei ble
 
 ```
 shared/src/dungeon2/layout.ts       Typen, Konstanten, Kanonisierung, Prüfsumme, Migration
-shared/src/dungeon2/zellen.ts       Stempel + Korrekturen → Zellgitter, Wandableitung
+shared/src/dungeon2/cells.ts       Stempel + Korrekturen → Zellgitter, Wandableitung
 shared/src/dungeon2/generator.ts    erzeugeLayout (P0–P10)
 shared/src/dungeon2/themen.ts       ThemenProfil, 'steingrab' als erstes Thema
-shared/src/dungeon2/bauer.ts        baueGeometrie (rein, ohne Babylon)
+shared/src/dungeon2/builder.ts        baueGeometrie (rein, ohne Babylon)
 shared/src/dungeon2/bestuecker.ts   Anker → Prefabs
-shared/src/dungeon2/pruefung.ts     Invarianten (§1.10)
+shared/src/dungeon2/validation.ts     Invarianten (§1.10)
 shared/src/campGenerator.ts         herausgelöst, bleibt aktiv
-client/src/engine/DungeonBauer.ts   Babylon-Adapter: Meshes, Havok, Blöcke, Bereitschaft
+client/src/engine/DungeonBuilder.ts   Babylon-Adapter: Meshes, Havok, Blöcke, Bereitschaft
 client/src/engine/DungeonMaterial.ts  Triplanar-MaterialPluginBase
 server/src/world/dungeon/Materialisierung2.ts  ZDOs aus dekoPlaetze
 LEGACY.md                           Sammelliste
@@ -698,10 +698,10 @@ LEGACY.md                           Sammelliste
 
 Der Beschluss nennt als Meilenstein 1 den *begehbaren Auto-Dungeon auf wov-dev*. In dieser Reihenfolge trägt jeder Schritt den nächsten und ist für sich prüfbar:
 
-1. `layout.ts` + `zellen.ts` + `pruefung.ts`, mit Test — ein von Hand geschriebenes Zwei-Raum-Layout, das die Invarianten besteht.
-2. `bauer.ts` mit Test auf Prüfsumme und Hüllmaße — noch ohne Client, noch ohne Bilder.
+1. `layout.ts` + `cells.ts` + `validation.ts`, mit Test — ein von Hand geschriebenes Zwei-Raum-Layout, das die Invarianten besteht.
+2. `builder.ts` mit Test auf Prüfsumme und Hüllmaße — noch ohne Client, noch ohne Bilder.
 3. `generator.ts` + `themen.ts` (`steingrab`), Determinismustest über 100 Seeds.
-4. `DungeonBauer.ts` im Client: graue Kästen, Havok, Ladebereitschaft. **Hier das erste Rendering für Mike** — vor dem Material, weil ein Fehler im Grundriss unter einer schönen Oberfläche verschwindet.
+4. `DungeonBuilder.ts` im Client: graue Kästen, Havok, Ladebereitschaft. **Hier das erste Rendering für Mike** — vor dem Material, weil ein Fehler im Grundriss unter einer schönen Oberfläche verschwindet.
 5. `DungeonMaterial.ts`: Triplanar + Blending. Zweites Rendering.
 6. Adapter (§4): `materialisiere2`, Weichensteller im Sanitizer, Teleportpaket. Betreten auf wov-dev.
 7. Atmosphäre (SSAO, Godrays, SSR, Parallax) hinter Grafikstufen. Messung auf Stufe Mittel.

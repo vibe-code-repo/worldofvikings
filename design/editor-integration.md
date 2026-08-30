@@ -20,15 +20,15 @@ Farben/Maße kommen ausschließlich aus `design.ts` (`F`, `M`, `SCHRIFT`, `PFAD`
 
 Drei Dateien, sauber getrennt, exakt das Muster, dem das neue Modul folgen sollte:
 
-- **`DungeonGrundriss.ts`** — die Zeichenfläche (eigenes Canvas im Viewport, Draufsicht, Pan/Zoom ums Mausrad, Klick wählt einen Raum). Wichtigster Grundsatz, wörtlich aus dem Kopfkommentar: *„Gebaut wird ausschließlich mit `attachRoom`, `removeRoom` und `computeOpenConnections` aus `shared/src/dungeonGenerator.ts` — denselben Funktionen, die Server, Generator und der F4-Editor benutzen. Eine zweite Bau-Logik im Editor wäre die eine Sache, die dieses Vorhaben ausdrücklich ausschließt."* Das ist die Regel, die das neue Modul 1:1 übernimmt, nur mit dem neuen Geometrie-Bauer statt `attachRoom`.
-- **`DungeonKatalog.ts`** (Klasse `DungeonSeite`) — die Seitenleiste: Dungeon-Liste laden, Kopfzeile mit Kennzahlen, Ebenen-Filter, Raumbibliothek als `<select>`, Anfügen/Entfernen, Prüfen (Sanitizer-Trockenlauf ohne Server), Speichern, Betreten (öffnet den Dungeon im echten Spielclient in neuem Tab).
+- **`DungeonFloorplan.ts`** — die Zeichenfläche (eigenes Canvas im Viewport, Draufsicht, Pan/Zoom ums Mausrad, Klick wählt einen Raum). Wichtigster Grundsatz, wörtlich aus dem Kopfkommentar: *„Gebaut wird ausschließlich mit `attachRoom`, `removeRoom` und `computeOpenConnections` aus `shared/src/dungeonGenerator.ts` — denselben Funktionen, die Server, Generator und der F4-Editor benutzen. Eine zweite Bau-Logik im Editor wäre die eine Sache, die dieses Vorhaben ausdrücklich ausschließt."* Das ist die Regel, die das neue Modul 1:1 übernimmt, nur mit dem neuen Geometrie-Bauer statt `attachRoom`.
+- **`DungeonCatalog.ts`** (Klasse `DungeonSeite`) — die Seitenleiste: Dungeon-Liste laden, Kopfzeile mit Kennzahlen, Ebenen-Filter, Raumbibliothek als `<select>`, Anfügen/Entfernen, Prüfen (Sanitizer-Trockenlauf ohne Server), Speichern, Betreten (öffnet den Dungeon im echten Spielclient in neuem Tab).
 - **`DungeonSpeichern.ts`** — der Netzwerkweg zum Schreiben (siehe 2.2).
 
 Zwei-Wege-Prinzip, das für das neue Modul unverändert gilt: **Gelesen wird über den Betriebsdienst** (`GET /api/…`, kein Spielserver nötig, dev und live gleichermaßen erreichbar), **geschrieben wird über den Spielserver** (der hält Dokument und Instanz im Speicher, eine vom Betriebsdienst geschriebene Datei sähe er nicht, bis er neu startet).
 
 ### 1.3 Editor-Hauptdatei (`client/src/editor/editorMain.ts`, 3465 Zeilen)
 
-Verdrahtet nur — Werkzeuge stehen daneben, genau nach dem in `DungeonKatalog.ts` benannten Vorbild von `RoutenEditor.ts`. Andockpunkt für ein neues Modul ist eine weitere `shell.betriebsart('dungeon2', …)`-Zeile plus Instanziierung von zwei bis drei neuen Klassen (Canvas-Werkzeug + Seitenleiste + ggf. Zellen-Ebene), analog zu den Zeilen um 446–460, wo `DungeonGrundriss` und `DungeonSeite` gebaut werden.
+Verdrahtet nur — Werkzeuge stehen daneben, genau nach dem in `DungeonCatalog.ts` benannten Vorbild von `RoutenEditor.ts`. Andockpunkt für ein neues Modul ist eine weitere `shell.betriebsart('dungeon2', …)`-Zeile plus Instanziierung von zwei bis drei neuen Klassen (Canvas-Werkzeug + Seitenleiste + ggf. Zellen-Ebene), analog zu den Zeilen um 446–460, wo `DungeonGrundriss` und `DungeonSeite` gebaut werden.
 
 ## 2. Editor-Verbindung ohne Weltbeitritt (`Peer.nurEditor`)
 
@@ -65,14 +65,14 @@ Dateizuschnitt parallel zum Altbestand, LEGACY bleibt unter den bisherigen Namen
 
 ```
 client/src/editor/
-  DungeonGrundriss.ts        LEGACY (Räume/GLB, unverändert)
-  DungeonKatalog.ts          LEGACY (unverändert)
+  DungeonFloorplan.ts        LEGACY (Räume/GLB, unverändert)
+  DungeonCatalog.ts          LEGACY (unverändert)
   DungeonSpeichern.ts        LEGACY (unverändert)
   dungeon2/
-    ZellenCanvas.ts          neue Zeichenfläche (Zellen + Räume + Live-Vorschau)
-    ZellenWerkzeuge.ts       Boden heben/senken, Wandflags, Materialtag-Pinsel
-    RaumStempelPalette.ts    Seitenleiste: Stempel wählen, aufs Raster setzen
-    Dungeon2Katalog.ts       Seitenleiste: Laden/Speichern/Prüfen/Betreten (Analogie zu DungeonKatalog)
+    CellCanvas.ts          neue Zeichenfläche (Zellen + Räume + Live-Vorschau)
+    CellTools.ts       Boden heben/senken, Wandflags, Materialtag-Pinsel
+    RoomStampPalette.ts    Seitenleiste: Stempel wählen, aufs Raster setzen
+    Dungeon2Catalog.ts       Seitenleiste: Laden/Speichern/Prüfen/Betreten (Analogie zu DungeonKatalog)
     Dungeon2Speichern.ts     Netzwerkweg (Analogie zu DungeonSpeichern, neues Paket)
     Dungeon2Vorschau.ts      Live-3D-Vorschau über denselben Geometrie-Bauer (Babylon-Canvas statt 2D)
 ```
@@ -106,7 +106,7 @@ Palette-UI wie die bestehende Raumbibliothek in `DungeonKatalog.baue()`: `<selec
 
 Gleicher Zwei-Wege-Fluss wie beim Altbestand:
 
-- **Laden**: `GET /api/…` (Betriebsdienst) liefert das Zellen-Layout-Dokument — Katalogliste + Einzeldokument, analog zu `holeDungeonListe()`/`holeDungeon()` in `DungeonDokument.ts`.
+- **Laden**: `GET /api/…` (Betriebsdienst) liefert das Zellen-Layout-Dokument — Katalogliste + Einzeldokument, analog zu `holeDungeonListe()`/`holeDungeon()` in `DungeonDocument.ts`.
 - **Ein generiertes Layout ist ab dem ersten Handeingriff `mode: 'custom'`** — exakt das bestehende Prinzip aus `DungeonGrundriss.fuegeAn()`/`entferne()` (`doc.mode = 'custom'`, mit Kommentar: „Von Hand gebaut heisst 'custom': Ein 'generated'-Dokument wird beim nächsten Materialisieren aus Seed und Regeln neu erzeugt, und der angefügte Raum wäre spurlos weg"). Für Zellen gilt dasselbe: Sobald ein Pinselstrich oder Stempel eine generierte Zelle überschreibt, kippt das Dokument auf `custom`, sonst verschluckt der nächste Seed-Rebuild die Handarbeit.
 - **Prüfen ohne Speichern**: Client-seitiger Sanitizer-Trockenlauf wie `DungeonKatalog.pruefe()` — mit dem deterministischen Geometrie-Bauer zusätzlich möglich: eine echte Baukosten-Schätzung (Zellenzahl, Dreieckszahl, Materialwechsel) direkt im Editor, bevor überhaupt gespeichert wird.
 
@@ -146,7 +146,7 @@ Gleicher Roundtrip wie `speichereDungeon()`, mit den unter 2.3 genannten Anpassu
 | Betriebsart-Registrierung | 1:1 Muster | `Shell.betriebsart()` |
 | Seitenleiste-Bausteine | 1:1 Muster | `Shell.sektion()`, `seitenkopf()` |
 | Canvas-Koexistenz im Viewport | 1:1 Muster | `DungeonGrundriss`-Konstruktor |
-| „Ein Weg baut, keine zweite Logik" | Prinzip 1:1, Funktion neu (Geometrie-Bauer statt `attachRoom`) | Kopfkommentar `DungeonGrundriss.ts` |
+| „Ein Weg baut, keine zweite Logik" | Prinzip 1:1, Funktion neu (Geometrie-Bauer statt `attachRoom`) | Kopfkommentar `DungeonFloorplan.ts` |
 | `schmutzig`/Speichern-Knopf-Zustände | 1:1 Muster | `DungeonKatalog.baue()` |
 | Editor-Verbindung ohne Weltbeitritt | 1:1 unverändert übernehmen | `nurEditor` (Peer.ts, GameSocket.ts, WovServer.ts) |
 | Kurzlebiger Speicher-Socket | 1:1 Muster, neues Paket | `DungeonSpeichern.ts` |

@@ -64,6 +64,7 @@ import {
 } from './DungeonMaterial';
 import type { DungeonMaterialArrays } from './DungeonMaterialArrays';
 import type { Lichtquelle } from './LightPool';
+import { DungeonDeko, type DekoBauStatistik, type DekoModellQuelle } from './DungeonDeko';
 
 type BlockId = dungeon2.BlockId;
 type BauStueck = dungeon2.BauStueck;
@@ -435,6 +436,18 @@ export class DungeonBauer {
   readonly spawnPunkt: Vector3;
   /** Deko-Plaetze mit aufgeloestem Prefab. / Decor places with resolved prefabs. */
   readonly dekoTeile: readonly dungeon2.BestuecktesTeil[];
+  /**
+   * Sichtbare Instanzen der Deko-Anker (M1-Schritt 2) — `null`, solange
+   * `baueDeko()` nicht aufgerufen wurde. Bewusst NICHT Teil von `baueAlles`:
+   * das Laden braucht ein Netz (GLB-Fetch) und darf einen Node-Test ohne
+   * Dateisystem/Server nicht ausbremsen (`client/test/dungeon2-bauer.ts`
+   * laeuft ohne jedes Modell).
+   * Visible instances of the decor anchors — `null` until `baueDeko()` is
+   * called. Deliberately NOT part of `baueAlles`: loading needs the network,
+   * and must not slow down a Node test that has none.
+   */
+  private deko: DungeonDeko | null = null;
+  dekoStatistik: DekoBauStatistik | null = null;
 
   constructor(scene: Scene, layout: DungeonLayout2, optionen: DungeonBauOptionen = {}) {
     this.scene = scene;
@@ -576,6 +589,31 @@ export class DungeonBauer {
     return quellen;
   }
 
+  /**
+   * Sichtbare Deko-Instanzen bauen (M1-Schritt 2) — Fackeln und, wo ein GLB
+   * vorliegt, jede weitere Rolle aus `dekoTeile`.
+   *
+   * `quelle` ist ausdruecklich ein Parameter und keine eigene Instanz: Ein
+   * `AssetManager` gehoert der SZENE (er cacht Master ueber alle Prefabs
+   * hinweg, genau wie fuer die gestreute Aussenwelt), nicht diesem einen
+   * Bauer. Zwei Instanzen desselben Themas teilen sich dadurch ihre
+   * Fackel-Master — billiger, aber mit einer offenen Einschraenkung: ihre
+   * Thin-Instance-Puffer ueberschreiben sich gegenseitig, wenn beide
+   * gleichzeitig `baueDeko()` aufrufen (siehe `design/decisions-log.md`).
+   * Fuer eine einzelne laufende Instanz je Thema — der heutige Stand — ist
+   * das folgenlos.
+   * Builds visible decor instances — torches, and any other role for which a
+   * GLB exists. `quelle` is deliberately a parameter, not an owned instance:
+   * an `AssetManager` belongs to the SCENE and caches masters across every
+   * prefab, the same way it does for the scattered outdoor world.
+   */
+  async baueDeko(quelle: DekoModellQuelle): Promise<DekoBauStatistik> {
+    this.deko?.dispose();
+    this.deko = new DungeonDeko(quelle);
+    this.dekoStatistik = await this.deko.baue(this.dekoTeile);
+    return this.dekoStatistik;
+  }
+
   /** Alle Kollisionsformen dieses Baus. / All collision shapes of this build. */
   formen(): KollisionsForm[] {
     const alle: KollisionsForm[] = [];
@@ -623,6 +661,8 @@ export class DungeonBauer {
   dispose(): void {
     if (this.abgeraeumt) return;
     this.abgeraeumt = true;
+    this.deko?.dispose();
+    this.deko = null;
     for (const block of this.gebaut.values()) this.raeumeBlock(block);
     this.gebaut.clear();
     if (this.material !== null) {

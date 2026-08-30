@@ -2165,3 +2165,76 @@ liefert `application/wasm` an einen Modul-Import. Im **gebauten** Client
 (`vite build` + `vite preview`) funktioniert es. Für Bilder mit Material muss
 man die Texturen dann nach `client/dist/dungeon2/` kopieren, weil das
 `assetFolder`-Plugin nur im Dev-Server läuft.
+
+---
+
+## 2026-08-31 · M1-Schritt 2 · Sichtbare Deko: `AssetManager` wiederverwendet, nicht neu gebaut
+
+**Lücke:** Der Arbeitsauftrag verlangt „Nachladen und Platzieren der
+sichtbaren Modelle im Client-Renderer", sagt aber nichts darüber, ob der
+Bauer sein eigenes Ladewerkzeug bekommt oder ein vorhandenes benutzt.
+
+**Entscheidung:** `DungeonBauer.baueDeko(quelle: DekoModellQuelle)` nimmt eine
+Modellquelle als Parameter, statt selbst einen `AssetManager` zu besitzen.
+`DekoModellQuelle` ist strukturell nur `{ getMasters(name) }` — die eine
+Methode, die `client/src/engine/AssetManager.ts` (Phase 2, gestreute
+Aussenwelt) bereits liefert: Ein Ladevorgang je Prefab, Thin-Instance-Master,
+Submesh-Zusammenlegung, Metallgrad-/Wind-/Flammen-Fixups — alles bereits
+vorhanden und geprüft. Ein zweites, dungeon-eigenes Ladewerkzeug wäre ein
+zweiter, unabhängig geschriebener Pfad zu genau demselben Ziel.
+
+**Grund:** `AssetManager` ist ausdrücklich scenen-, nicht bauer-gebunden
+(sein Cache gilt über alle Prefabs der Szene hinweg). Ein Fackel-Modell, das
+auch im Dorf oder in einer zweiten Dungeon-Instanz vorkommt, lädt dadurch
+nur einmal.
+
+**Offener Punkt, dokumentiert statt verschwiegen:** Zwei GLEICHZEITIG
+laufende `DungeonBauer`-Instanzen DESSELBEN Themas teilen sich denselben
+Fackel-Master — ihre Thin-Instance-Puffer überschreiben sich beim zweiten
+`baueDeko()`-Aufruf gegenseitig (`master.mesh.thinInstanceSetBuffer` kennt
+nur EINEN aktuellen Puffer je Mesh). Für die heutige Vorschau (eine Instanz)
+und für serverseitige Dungeon-Instanzen mit je eigener Szene ist das
+folgenlos; für zwei Spieler in DEMSELBEN Dungeon-Thema in DERSELBEN Szene
+(client-seitiges Multi-Instancing, gibt es heute nicht) wäre es ein
+Symptom ohne Fehlermeldung — genau die Klasse Fehler, die dieses Log
+festhält, damit niemand sie zweimal findet.
+
+---
+
+## 2026-08-31 · M1-Schritt 2 · Deko-Wächter testet mit einer Attrappen-Modellquelle, nicht mit echten GLBs
+
+**Lücke:** Das Kriterium „Ankerzahl == platzierte Instanzen (kein stiller
+Schwund)" lässt offen, WIE unter Node geprüft wird — ein echter GLB-Fetch
+scheitert dort (kein Vite-Devserver, kein `fetch` auf `/assets/models/…`),
+wie es bereits `design/decisions-log.md`s AP6-Eintrag zu Havok für WASM
+festhält.
+
+**Entscheidung:** `DungeonDeko.baue()` hängt an einer strukturellen
+Schnittstelle (`DekoModellQuelle`), nicht an `AssetManager` selbst.
+`client/test/dungeon2-deko.ts` setzt eine Attrappe ein (ein `MeshBuilder`-
+Würfel statt eines geladenen GLB) und prüft damit den ECHTEN Weg —
+Gruppierung, Matrixbau, `thinInstanceSetBuffer`, Buchhaltung — ohne Netz.
+Die sichtbare Fackel selbst ist per Bildschirmfoto geprüft
+(`/home/mike/dungeon2-deko.png`, `/home/mike/dungeon2-deko-nah.png`), nicht
+per Node-Test.
+
+**Grund:** Ein Test, der `fetch` gegen einen Dev-Server unter Node
+nachbildet, prüft seinen eigenen Nachbau, nicht den Bauer. Die pure
+Trennung (Gruppierung/Matrixmathematik vs. Engine-Aufruf) ist dagegen
+deterministisch und lief bereits als Gegenprobe rot, bevor die
+`ohneModell`-Zählung eingebaut war (siehe Test „Gegenprobe: die
+Schwund-Fassung färbt dieselbe Zusicherung rot").
+
+**Nebenbefund:** Von den acht Deko-Rollen des Steingrabs hat nur `fackel`
+(`CryptWallTorch`) heute ein GLB im erreichbaren Bestand
+(`/home/mike/wov-dungeon-bau/ausgabe/CryptWallTorch.glb`, nach
+`assets/models/` kopiert — `assets/` ist vollständig `.gitignore`t). Die
+übrigen sieben Prefabnamen (`Steingrab_Geroell_A/B`, `Steingrab_Altar`,
+`Steingrab_Sarkophag`, `Steingrab_Saeule`, `Steingrab_Urne`,
+`piece_walltorch`, `chest_wood`, `Spawner_Skeleton`) sind laut
+`themen.ts`-Kommentar ausdrücklich Platzhalter für künftige Tripo-Unikate
+bzw. legacy Fremdmodelle, die auf dieser Maschine nicht vorliegen —
+`DungeonDeko` zählt ihre Anker korrekt als `ohneModell`, baut aber nichts
+Sichtbares (gemessen, Seed 14: 28 platziert, 74 ohne Modell). Kein Fehler
+dieses Pakets — der Arbeitsauftrag erlaubt „1-2 weitere Rollen, wenn
+passende GLBs im Bestand sind", und keine weitere Rolle ist es.

@@ -42,6 +42,7 @@ import '@babylonjs/core/Rendering/geometryBufferRendererSceneComponent';
 import { dungeon2 } from '@wov/shared';
 import { installiereFackelLicht, FackelLichter } from './engine/FackelLicht';
 import { LightPool } from './engine/LightPool';
+import { AssetManager } from './engine/AssetManager';
 import { DungeonBauer } from './engine/DungeonBuilder';
 import { DungeonAtmosphaere } from './engine/DungeonAtmosphere';
 import { DungeonGrafikStufe } from './engine/DungeonMaterial';
@@ -162,6 +163,18 @@ async function starte(): Promise<void> {
   bauer.baueAlles();
   const dauerBau = performance.now() - beginnBau;
 
+  // Sichtbare Deko (M1-Schritt 2) — NACH der Architektur, aber vor der
+  // Meldezeile: die Zahlen unten sollen den echten Ausgang zeigen, nicht
+  // "noch am Laden". `assets` gehoert der Szene, nicht dem Bauer (siehe
+  // `DungeonBauer.baueDeko`-Kommentar).
+  // Visible decor (M1 step 2) — AFTER the architecture but before the status
+  // line, so the numbers below reflect the real outcome.
+  meldung('Deko wird geladen …');
+  const beginnDeko = performance.now();
+  const assets = new AssetManager(scene);
+  const deko = await bauer.baueDeko(assets);
+  const dauerDeko = performance.now() - beginnDeko;
+
   const kamera = new UniversalCamera(
     'vorschauKamera',
     // Augenhoehe ueber dem Spawnpunkt — 1,7 m, nicht 0: der Spawnpunkt ist die
@@ -217,9 +230,12 @@ async function starte(): Promise<void> {
   meldung(
     `Seed ${seeds.architektur} · ${layout.stempel.length} Stempel · ${s.bloeckeGebaut}/${s.bloeckeGesamt} Blöcke · ` +
       `${s.meshes} Meshes · ${s.dreiecke} Dreiecke · ${s.koerper} Körper (${s.formen} Formen) · ` +
-      `${bauer.dekoTeile.length} Deko · Physik ${physikGewuenscht ? (scene.getPhysicsEngine() === null ? 'AUS (Start fehlgeschlagen)' : 'Havok') : 'aus'} · ` +
+      `${bauer.dekoTeile.length} Deko (${deko.platziert} sichtbar` +
+      (deko.ohneModell > 0 ? `, ${deko.ohneModell} ohne Modell [${deko.prefabsOhneModell.join(', ')}]` : '') +
+      `) · Physik ${physikGewuenscht ? (scene.getPhysicsEngine() === null ? 'AUS (Start fehlgeschlagen)' : 'Havok') : 'aus'} · ` +
       `Layout ${dauerLayout.toFixed(1)} ms · Spawn ${dauerSpawn.toFixed(1)} ms · ` +
-      `alles ${dauerBau.toFixed(1)} ms · Material ${arrays === null ? 'grau' : 'Arrays'} · ` +
+      `alles ${dauerBau.toFixed(1)} ms · Deko ${dauerDeko.toFixed(1)} ms · ` +
+      `Material ${arrays === null ? 'grau' : 'Arrays'} · ` +
       `${plaetze} Fackelplätze` +
       (bericht.rueckfall ? ' · RÜCKFALLFORM' : '')
   );
@@ -236,6 +252,7 @@ async function starte(): Promise<void> {
     pool,
     statistik: () => bauer.statistik(),
     fackeln: () => ({ plaetze: FackelLichter.plaetze, an: FackelLichter.anzahl }),
+    deko: () => bauer.dekoStatistik,
     stufe: (n: number) => {
       atmosphaere.setzeStufe(n as DungeonGrafikStufe);
       bauer.setzeStufe(n as DungeonGrafikStufe);

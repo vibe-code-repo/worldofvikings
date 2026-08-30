@@ -869,6 +869,46 @@ ersten abweichenden Seed, nicht erst beim tausendsten.
 
 ---
 
+## 2026-08-30 · AP0 · LEGACY-Markierung ohne Dateiteilung; Datei-/Symbolnamen wie im Repo, nicht wie in ARCHITECTURE.md
+
+**Lücke/Widerspruch:** Der Arbeitsauftrag zu diesem Paket verlangt exakt
+„LEGACY-Markierung ... NICHTS funktional ändern, reine Kommentare/Doku".
+`ARCHITECTURE.md` AP0 fasst Markierung, Dateiteilung
+(`dungeonGenerator.ts` → `campGenerator.ts`) und den Schichtentest zu
+einem Paket zusammen. Der Schichtentest wurde bereits in AP5 vorgezogen
+(s. dortiger Eintrag oben); die Dateiteilung ist zum Zeitpunkt dieses
+Pakets ebenfalls noch nicht erfolgt (`shared/src/campGenerator.ts`
+existiert nicht, `generateCampLayout`/`CampGround` stehen weiterhin in
+`dungeonGenerator.ts`).
+
+**Entscheidung:** Nur die Markierung wurde gebaut. `dungeonGenerator.ts`
+bekommt **keinen** Ganzdatei-Kopfkommentar, weil die Datei den noch aktiven
+Camp-Teil enthält — stattdessen einen Kopfkommentar mit ausdrücklicher
+Ausnahme plus gezielte LEGACY-Marken um `DungeonGeneratorSettings`,
+`DEFAULT_GENERATOR_SETTINGS`, `generateDungeonLayout`,
+`DungeonGenerationError` und den Editor-Helfer-Block
+(`OpenConnection`/`computeOpenConnections`/`attachRoom`/`removeRoom`), und
+eine "bleibt aktiv"-Gegenmarke um `CampGround`/`generateCampLayout`. Die
+Dateiteilung selbst bleibt offen für einen künftigen AP0-Schritt.
+
+Zusätzlich: Die Editor-Dateien tragen im Repo weiterhin deutsche Namen
+(`DungeonGrundriss.ts`, `DungeonKatalog.ts`, `DungeonDokument.ts`,
+`client/src/ui/DekoPlatzierung.ts`), während `ARCHITECTURE.md` §1.2/§5
+bereits die künftigen englischen Namen (`DungeonFloorplan.ts`,
+`DungeonCatalog.ts`, `DungeonDocument.ts`, `DecorPlacement.ts`) nennt. Die
+Markierung sitzt an den tatsächlichen Dateien; `LEGACY.md` vermerkt die
+Abweichung ausdrücklich, damit ein künftiges Umbenennen die Liste nicht
+stillschweigend entwertet.
+
+**Grund:** Eine Dateiteilung ist keine reine Kommentaränderung — sie
+verschiebt Code zwischen Modulen und damit Importe, und das war
+ausdrücklich nicht der Umfang dieses Pakets. Die Ganzdatei-Markierung von
+`dungeonGenerator.ts` vor der Teilung wäre sachlich falsch gewesen (sie
+hätte aktiven Oberweltcode als Löschkandidat gebrandmarkt) und wurde
+deshalb bewusst nicht gesetzt.
+
+---
+
 ## 2026-08-30 · AP5 · Browser-Entry dupliziert die Erzeugerfunktionen, statt sie zu importieren
 
 **Lücke:** `dungeon2-determinismus.ts` und `dungeon2-browser-check.ts`

@@ -1,4 +1,13 @@
 /**
+ * LEGACY — wird nach Erfolg von Dungeon Generator 2.0 geloescht / will be
+ * deleted once Dungeon Generator 2.0 succeeds. Setzt `PlacedProp` mit
+ * `roomIndex`; ersetzt durch `DekoAnker`/`bestuecke()` in
+ * `shared/src/dungeon2/bestuecker.ts` (`stempelId` statt `roomIndex`,
+ * kein Index-Rutschproblem mehr). Siehe `LEGACY.md`.
+ * Places `PlacedProp` with `roomIndex`; replaced by `DekoAnker`/
+ * `bestuecke()` in `shared/src/dungeon2/bestuecker.ts` (`stempelId`
+ * instead of `roomIndex`, no more index-shift problem). See `LEGACY.md`.
+ *
  * DekoPlatzierung — Gegenstände im Dungeon setzen, mit Geist am Fadenkreuz.
  *
  * ── Bedienung ────────────────────────────────────────────────────────

@@ -1,5 +1,14 @@
 #!/usr/bin/env blender --background --python
 """
+LEGACY — wird nach Erfolg von Dungeon Generator 2.0 geloescht / will be
+deleted once Dungeon Generator 2.0 succeeds. Erzeugt Architektur-GLBs
+bzw. setzt sie zusammen; die zellbasierte Architektur unter
+shared/src/dungeon2/ baut ihre Geometrie prozedural (builder.ts), nicht
+aus GLB-Bauteilen. Siehe LEGACY.md.
+Generates/assembles architecture GLBs; the cell-based architecture
+under shared/src/dungeon2/ builds its geometry procedurally
+(builder.ts), not from GLB parts. See LEGACY.md.
+
 Setzt ein erzeugtes Dungeon-Layout aus den Bauteil-GLBs zusammen und
 rendert es von oben.
 

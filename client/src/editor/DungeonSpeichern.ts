@@ -1,4 +1,13 @@
 /**
+ * LEGACY — wird nach Erfolg von Dungeon Generator 2.0 geloescht / will be
+ * deleted once Dungeon Generator 2.0 succeeds. Speichert das Altformat
+ * (`DungeonDocument`); ersetzt durch `client/src/editor/dungeon2/`
+ * (design/ARCHITECTURE.md §1.1/§1.2, Dungeon2Speichern). Siehe
+ * `LEGACY.md`.
+ * Saves the old format (`DungeonDocument`); replaced by
+ * `client/src/editor/dungeon2/` (design/ARCHITECTURE.md §1.1/§1.2,
+ * Dungeon2Speichern). See `LEGACY.md`.
+ *
  * Dungeon-Dokument aus dem Karteneditor speichern.
  *
  * Gelesen wird über den Betriebsdienst (`DungeonDokument.ts`), geschrieben

@@ -1,4 +1,11 @@
 /**
+ * LEGACY — wird nach Erfolg von Dungeon Generator 2.0 geloescht / will be
+ * deleted once Dungeon Generator 2.0 succeeds. Ersetzt durch `baueGeometrie()`
+ * in `shared/src/dungeon2/builder.ts` — Architektur ist dort keine
+ * Prefab-Liste mehr. Siehe `LEGACY.md`.
+ * Replaced by `baueGeometrie()` in `shared/src/dungeon2/builder.ts` —
+ * architecture is no longer a list of prefabs there. See `LEGACY.md`.
+ *
  * Layout → konkrete Prefab-Instanzen (Phase G).
  *
  * WARUM GETRENNT VON dungeonGenerator.ts: `flattenLayout` ist die einzige

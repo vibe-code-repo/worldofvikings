@@ -51,7 +51,19 @@ export enum DungeonAlgorithm {
   CampRadial = 2,
 }
 
-/** C++ RoomConnection — a connector transform inside a room prefab. */
+/**
+ * LEGACY fuer Dungeons (s. `LEGACY.md`) — wird nach Erfolg von Dungeon
+ * Generator 2.0 fuer Dungeons geloescht / LEGACY for dungeons (see
+ * `LEGACY.md`) — will be deleted for dungeons once Dungeon Generator 2.0
+ * succeeds.
+ *
+ * ACHTUNG: `campGenerator.ts` (Oberwelt, bleibt aktiv) importiert denselben
+ * Typ fuer Camp-Raeume weiter — nicht loeschen, bevor Camps umgezogen sind.
+ * NOTE: `campGenerator.ts` (overworld, stays active) keeps importing this
+ * same type for camp rooms — do not delete before camps have moved off it.
+ *
+ * C++ RoomConnection — a connector transform inside a room prefab.
+ */
 export interface RoomConnectionDef {
   /** Coupling type; rooms only attach to connectors of the same type ('' is common). */
   readonly type: string;
@@ -62,7 +74,14 @@ export interface RoomConnectionDef {
   readonly localRot: Quaternion;
 }
 
-/** C++ Room (DungeonRoom.h) — one placeable room prefab. */
+/**
+ * LEGACY fuer Dungeons (s. `LEGACY.md`), gleiche Ausnahme wie bei
+ * `RoomConnectionDef` oben (Camps benutzen `RoomDef` weiter) / LEGACY for
+ * dungeons (see `LEGACY.md`), same exception as `RoomConnectionDef` above
+ * (camps keep using `RoomDef`).
+ *
+ * C++ Room (DungeonRoom.h) — one placeable room prefab.
+ */
 export interface RoomDef {
   /** Prefab name — also the GLB model name under assets/models/. */
   readonly name: string;
@@ -198,6 +217,21 @@ export function getRoomByHash(hash: number): RoomDef | undefined {
 
 // ---------------------------------------------------------------------------
 // Layout & document — our own instance-based dungeon format
+//
+// LEGACY-Block (s. `LEGACY.md`) — wird nach Erfolg von Dungeon Generator 2.0
+// geloescht: `PlacedRoom`, `DungeonPropDef`, `PlacedDoor`, `PlacedProp`,
+// `DungeonLayout`, `DUNGEON_DOCUMENT_VERSION`, `MAX_DUNGEON_*` und weiter
+// unten `sanitizeDungeonDocument`. Altformat, ersetzt durch
+// `shared/src/dungeon2/layout.ts` (`DungeonLayout2`) und dessen
+// Kanonisierung/Prüfsumme. Der Rest dieser Datei (Raum-Katalog,
+// `getDungeonByHash` usw.) bleibt.
+// LEGACY block (see `LEGACY.md`) — will be deleted once Dungeon Generator
+// 2.0 succeeds: `PlacedRoom`, `DungeonPropDef`, `PlacedDoor`, `PlacedProp`,
+// `DungeonLayout`, `DUNGEON_DOCUMENT_VERSION`, `MAX_DUNGEON_*`, and further
+// below `sanitizeDungeonDocument`. Old format, replaced by
+// `shared/src/dungeon2/layout.ts` (`DungeonLayout2`) and its
+// canonicalization/checksum. The rest of this file (room catalog,
+// `getDungeonByHash`, etc.) stays.
 // ---------------------------------------------------------------------------
 
 /** One placed room in a dungeon layout (local dungeon space, origin = entrance connector). */

@@ -134,11 +134,27 @@ export interface ColliderSpec {
    * Nur kind 'mesh' (Dungeon-Räume): die zusammengeführte, unsichtbare
    * Kollisionsgeometrie in Prefab-Koordinaten. Eine Box wäre hier fatal —
    * sie würde das begehbare INNERE des Raums massiv machen.
+   *
+   * LEGACY-ZWEIG (s. `LEGACY.md`) — der `kind: 'mesh'`-Zweig (dieses Feld,
+   * `buildMeshCollider()` unten sowie die Aufrufstellen in dieser Datei)
+   * wird nach Erfolg von Dungeon Generator 2.0 geloescht: Kollision kommt
+   * dann aus `BauErgebnis.kollision`, nicht mehr aus dem gerenderten Mesh
+   * (design/ARCHITECTURE.md W10, AP-Bauer). `kind: 'capsule' | 'box'`
+   * bleiben unveraendert.
+   * LEGACY BRANCH (see `LEGACY.md`) — the `kind: 'mesh'` branch (this
+   * field, `buildMeshCollider()` below, and its call sites in this file)
+   * will be deleted once Dungeon Generator 2.0 succeeds: collision then
+   * comes from `BauErgebnis.kollision`, not from the rendered mesh
+   * (design/ARCHITECTURE.md W10, AP-Bauer). `kind: 'capsule' | 'box'`
+   * stay unchanged.
    */
   mesh?: Mesh;
 }
 
 /**
+ * LEGACY-ZWEIG (s. Feldkommentar `ColliderSpec.mesh` oben) / LEGACY BRANCH
+ * (see the `ColliderSpec.mesh` field comment above).
+ *
  * Exakte Mesh-Kollision für Prefabs, deren Inneres begehbar ist
  * (Dungeon-Räume): alle Submeshes mit ihren lokalen Transforms zu einem
  * unsichtbaren Kollisionsmesh zusammenbacken. Havok trianguliert es einmal
@@ -495,6 +511,7 @@ export class StaticColliderSet {
 
   private buildShape(): PhysicsShape {
     const s = this.spec;
+    // LEGACY-Zweig (s. ColliderSpec.mesh) / LEGACY branch (see ColliderSpec.mesh).
     if (s.kind === 'mesh') {
       return new PhysicsShapeMesh(s.mesh!, this.scene);
     }
@@ -552,6 +569,7 @@ export class StaticColliderSet {
     const s = this.spec;
     // Mesh-Collider (Dungeon-Räume): die Form IST die Geometrie — ein
     // Drahtgitter-Proxy hätte keinen Mehrwert.
+    // LEGACY-Zweig (s. ColliderSpec.mesh) / LEGACY branch (see ColliderSpec.mesh).
     if (s.kind === 'mesh') return;
     const proto =
       s.kind === 'capsule'

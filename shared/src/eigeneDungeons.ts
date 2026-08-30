@@ -1,4 +1,11 @@
 /**
+ * LEGACY — wird nach Erfolg von Dungeon Generator 2.0 geloescht / will be
+ * deleted once Dungeon Generator 2.0 succeeds. RoomDefs mit Connectors
+ * (`DG_Steingrab`); `propTypes` wandert nach `shared/src/dungeon2/themen.ts`.
+ * Siehe `LEGACY.md`.
+ * RoomDefs with connectors (`DG_Steingrab`); `propTypes` moves to
+ * `shared/src/dungeon2/themen.ts`. See `LEGACY.md`.
+ *
  * Eigene Dungeon-Kits — der Gegenentwurf zu `dungeonsData.json`.
  *
  * ── Warum das eine eigene Datei ist ──────────────────────────────────

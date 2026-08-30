@@ -1,4 +1,12 @@
 /**
+ * LEGACY — wird nach Erfolg von Dungeon Generator 2.0 geloescht / will be
+ * deleted once Dungeon Generator 2.0 succeeds. Raumbibliothek +
+ * Connector-Grundriss; ersetzt durch `client/src/editor/dungeon2/`
+ * (design/ARCHITECTURE.md §1.1/§1.2, ZellenCanvas). Siehe `LEGACY.md`.
+ * Room library + connector floorplan; replaced by
+ * `client/src/editor/dungeon2/` (design/ARCHITECTURE.md §1.1/§1.2,
+ * ZellenCanvas). See `LEGACY.md`.
+ *
  * Grundriss eines Dungeon-Dokuments im Karteneditor — Etappe 2.
  *
  * Eigene Zeichenfläche im Viewport der Shell; die Weltkarten-Canvas wird

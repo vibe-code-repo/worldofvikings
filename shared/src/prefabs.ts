@@ -1105,6 +1105,13 @@ export const EIGENE_MODELLE: readonly string[] = [
   // unsichtbar zu machen.
   'NPC_1',
   'Player',
+  // LEGACY-Eintraege (s. LEGACY.md) — muessen mit dem Kit `DG_Steingrab`
+  // fallen, sonst zeigt die Registry auf Modelle ohne Verwender. Wird nach
+  // Erfolg von Dungeon Generator 2.0 geloescht.
+  // LEGACY entries (see LEGACY.md) — must fall together with the
+  // `DG_Steingrab` kit, otherwise the registry points at models with no
+  // consumer. Will be deleted once Dungeon Generator 2.0 succeeds.
+  //
   // Erstes eigenes Dungeon-Bauteil (26.08.2026). Anders als alles darüber
   // steht der Name NICHT nur hier: Er kommt aus dem Kit `DG_Steingrab` in
   // `eigeneDungeons.ts`, und `buildRegistry()` legt den Prefab-Eintrag

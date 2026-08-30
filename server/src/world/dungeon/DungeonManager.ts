@@ -546,6 +546,14 @@ export class DungeonManager {
   }
 
   /**
+   * ERSETZT (s. `LEGACY.md`) — wird nach Erfolg von Dungeon Generator 2.0
+   * durch `BauErgebnis.spawnPunkt` abgeloest (design/ARCHITECTURE.md AP13,
+   * `getSpawnPoint()` → `BauErgebnis.spawnPunkt`). Der Rest der Klasse
+   * bleibt unveraendert.
+   * REPLACED (see `LEGACY.md`) — will be superseded by
+   * `BauErgebnis.spawnPunkt` once Dungeon Generator 2.0 succeeds
+   * (design/ARCHITECTURE.md AP13). The rest of the class is unchanged.
+   *
    * Spawn point inside an instance: 2 m from the entrance connector
    * (= instance origin) toward the start room center — independent of
    * connector orientation conventions.
@@ -566,6 +574,14 @@ export class DungeonManager {
   }
 
   /**
+   * ERSETZT (s. `LEGACY.md`) — wird nach Erfolg von Dungeon Generator 2.0
+   * durch `Materialisierung2.ts` abgeloest (design/ARCHITECTURE.md AP13,
+   * `materialize()` → `materialisiere2()`, ZDOs nur fuer Bewegliches/
+   * Interaktives). Der Rest der Klasse bleibt unveraendert.
+   * REPLACED (see `LEGACY.md`) — will be superseded by
+   * `Materialisierung2.ts` once Dungeon Generator 2.0 succeeds
+   * (design/ARCHITECTURE.md AP13). The rest of the class is unchanged.
+   *
    * Materialize a layout at an origin: one static ZDO per room shell
    * (geometry + colliders come from the room GLB client-side), one ZDO per
    * net view (chests, spawners, torches, …) and per door.
@@ -601,6 +617,14 @@ export class DungeonManager {
   }
 
   /**
+   * ERSETZT (s. `LEGACY.md`) — wird nach Erfolg von Dungeon Generator 2.0
+   * durch `ankerAngleichen()` abgeloest (design/ARCHITECTURE.md AP13,
+   * `dekoAngleichen()` → `ankerAngleichen()`). Der Rest der Klasse bleibt
+   * unveraendert.
+   * REPLACED (see `LEGACY.md`) — will be superseded by `ankerAngleichen()`
+   * once Dungeon Generator 2.0 succeeds (design/ARCHITECTURE.md AP13). The
+   * rest of the class is unchanged.
+   *
    * Die Deko einer LAUFENDEN Instanz an ein neues Dokument angleichen.
    *
    * Alle Deko-ZDOs weg, alle neuen hin. Kein Vergleich Stück für Stück:

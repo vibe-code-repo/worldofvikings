@@ -1,4 +1,13 @@
 /**
+ * LEGACY FUER DUNGEONS (s. `LEGACY.md`) — wird nach Erfolg von Dungeon
+ * Generator 2.0 nur noch von Camps gelesen; nach dem Umbau pruefen, ob
+ * Camps wirklich alle 289 Raeume brauchen (`roomPiecesData.json`, 4,9 MB,
+ * bleibt vorerst unangetastet).
+ * LEGACY FOR DUNGEONS (see `LEGACY.md`) — will only be read by camps once
+ * Dungeon Generator 2.0 succeeds; check after the rebuild whether camps
+ * really need all 289 rooms (`roomPiecesData.json`, 4.9 MB, is left
+ * untouched for now).
+ *
  * Die Einrichtung der Dungeon-Raeume (Phase G) — netViews und randomSpawns
  * je Raum-Prefab, aus dungeons.pkg geparst
  * (tools/prefab-parser/parse-dungeons.ts).

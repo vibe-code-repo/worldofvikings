@@ -1,4 +1,12 @@
 /**
+ * LEGACY — wird nach Erfolg von Dungeon Generator 2.0 geloescht / will be
+ * deleted once Dungeon Generator 2.0 succeeds. Raumbibliothek +
+ * Connector-Grundriss; ersetzt durch `client/src/editor/dungeon2/`
+ * (design/ARCHITECTURE.md §1.1/§1.2, Dungeon2Katalog). Siehe `LEGACY.md`.
+ * Room library + connector floorplan; replaced by
+ * `client/src/editor/dungeon2/` (design/ARCHITECTURE.md §1.1/§1.2,
+ * Dungeon2Katalog). See `LEGACY.md`.
+ *
  * Seitenleiste der Betriebsart „Dungeons" — Auswahl, Raumbibliothek,
  * Anfügen und Entfernen.
  *

@@ -1,4 +1,22 @@
 /**
+ * LEGACY — wird nach Erfolg von Dungeon Generator 2.0 geloescht / will be
+ * deleted once Dungeon Generator 2.0 succeeds.
+ *
+ * Betrifft NICHT die ganze Datei: `generateCampLayout`/`CampGround`
+ * (Oberwelt — Doerfer, Hoefe, Goblinlager) bleiben aktiv und wandern erst
+ * beim Teilen dieser Datei (siehe design/ARCHITECTURE.md AP0) nach
+ * `shared/src/campGenerator.ts`. Alles andere hier — die Connector-basierte
+ * Dungeon-Erzeugung (`generateDungeonLayout`, `attachRoom`, `removeRoom`,
+ * `computeOpenConnections`) — wird durch die zellbasierte Erzeugung unter
+ * `shared/src/dungeon2/` ersetzt. Siehe `LEGACY.md`.
+ * Does NOT apply to the whole file: `generateCampLayout`/`CampGround`
+ * (overworld — villages, farms, goblin camps) stay active and only move to
+ * `shared/src/campGenerator.ts` once this file is split (see
+ * design/ARCHITECTURE.md AP0). Everything else here — the connector-based
+ * dungeon generation (`generateDungeonLayout`, `attachRoom`, `removeRoom`,
+ * `computeOpenConnections`) — is replaced by the cell-based generation
+ * under `shared/src/dungeon2/`. See `LEGACY.md`.
+ *
  * Dungeon generator (Phase G) — 1:1 port of the C++ server's
  * DungeonGenerator — port of the reference implementation's dungeon
  * generator for the `Dungeon` algorithm.
@@ -25,7 +43,12 @@ import type { Quaternion, Vector3 } from './types.js';
 import { XorShiftRandom } from './worldgen/Random.js';
 import { quatEuler, quatMul, quatMulVec3 } from './worldgen/Math3d.js';
 
-/** Mirrors the dungeon defaults of the C++ reference server. */
+/**
+ * LEGACY (s. Kopfkommentar dieser Datei) / LEGACY (see this file's header
+ * comment) — inkl. `endcaps*`, `roomsFlipped`, `roomsInsetSize`,
+ * `roomBodyFromFloor`, alle unten in dieser Interface-Definition.
+ * Mirrors the dungeon defaults of the C++ reference server.
+ */
 export interface DungeonGeneratorSettings {
   /** Growth bounds (cube edge length) centered on the origin. */
   zoneSize: number;
@@ -89,6 +112,7 @@ export interface DungeonGeneratorSettings {
   doorsEnabled: boolean;
 }
 
+// LEGACY (s. Kopfkommentar) / LEGACY (see header comment).
 export const DEFAULT_GENERATOR_SETTINGS: DungeonGeneratorSettings = {
   zoneSize: 64,
   roomsFlipped: true,
@@ -178,9 +202,15 @@ function makeRoomInstance(
   return { room, pos, rot, placeOrder, seed: roomSeed(pos), connections };
 }
 
+// LEGACY (s. Kopfkommentar) / LEGACY (see header comment).
 export class DungeonGenerationError extends Error {}
 
 /**
+ * LEGACY (s. Kopfkommentar) — ersetzt durch `erzeugeLayout()` in
+ * `shared/src/dungeon2/generator.ts`.
+ * LEGACY (see header comment) — replaced by `erzeugeLayout()` in
+ * `shared/src/dungeon2/generator.ts`.
+ *
  * Generate a dungeon layout — pure and deterministic: same (def, seed,
  * settings) always yields the same layout.
  */
@@ -622,6 +652,13 @@ export function generateDungeonLayout(
 
 // ---------------------------------------------------------------------------
 // Camp generation (CampRadial) — villages, farms, goblin camps IN THE WORLD
+//
+// BLEIBT AKTIV — keine LEGACY-Markierung. Oberweltinhalt, unabhaengig vom
+// Dungeon Generator 2.0. Wandert erst beim Teilen dieser Datei (AP0) nach
+// `shared/src/campGenerator.ts`, s. Kopfkommentar dieser Datei.
+// STAYS ACTIVE — no LEGACY marker. Overworld content, independent of
+// Dungeon Generator 2.0. Only moves to `shared/src/campGenerator.ts` once
+// this file is split (AP0), see this file's header comment.
 // ---------------------------------------------------------------------------
 
 /** Terrain sample for camp placement (height + surface normal y). */
@@ -765,6 +802,11 @@ export function generateCampLayout(
 
 // ---------------------------------------------------------------------------
 // Editor helpers — layout inspection and manual room placement
+//
+// LEGACY (s. Kopfkommentar dieser Datei) — ersetzt durch
+// `stempelSetzen`/`stempelEntfernen` in `shared/src/dungeon2/cells.ts`.
+// LEGACY (see this file's header comment) — replaced by
+// `stempelSetzen`/`stempelEntfernen` in `shared/src/dungeon2/cells.ts`.
 // ---------------------------------------------------------------------------
 
 /** A connector of a placed room with no counterpart touching it. */

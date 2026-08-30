@@ -1,4 +1,13 @@
 /**
+ * LEGACY — wird nach Erfolg von Dungeon Generator 2.0 geloescht / will be
+ * deleted once Dungeon Generator 2.0 succeeds. Ersetzt durch
+ * `dungeon2-determinismus.ts`, `-invarianten.ts`, `-builder.ts`,
+ * `-paritaet.ts`, `-schichten.ts`. Bis dahin bleibt dieser Test gruen und
+ * ungeaendert (prueft den Altbestand, den er noch begleitet).
+ * Replaced by `dungeon2-determinismus.ts`, `-invarianten.ts`,
+ * `-builder.ts`, `-paritaet.ts`, `-schichten.ts`. Until then this test
+ * stays green and unchanged (it tests the legacy code it still covers).
+ *
  * Phase G smoke test — dungeon generator + document sanitizer.
  *
  *  1. Determinism: same (dungeon, seed) → identical layout.

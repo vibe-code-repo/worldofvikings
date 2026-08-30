@@ -1,4 +1,13 @@
 /**
+ * LEGACY — wird nach Erfolg von Dungeon Generator 2.0 geloescht / will be
+ * deleted once Dungeon Generator 2.0 succeeds. Ersetzt durch
+ * `dungeon2-determinismus.ts`, `-invarianten.ts`, `-builder.ts`,
+ * `-paritaet.ts`, `-schichten.ts`. Bis dahin bleibt dieser Test gruen und
+ * ungeaendert.
+ * Replaced by `dungeon2-determinismus.ts`, `-invarianten.ts`,
+ * `-builder.ts`, `-paritaet.ts`, `-schichten.ts`. Until then this test
+ * stays green and unchanged.
+ *
  * Wächter für die Rasterprüfung eigener Dungeon-Bauteile.
  *
  * Zwei Blöcke, und der zweite ist der eigentliche Zweck:

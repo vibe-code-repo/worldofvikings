@@ -1,4 +1,14 @@
 /**
+ * LEGACY — wird nach Erfolg von Dungeon Generator 2.0 geloescht / will be
+ * deleted once Dungeon Generator 2.0 succeeds. Prueft GLB-Bauteile, die es
+ * im zellbasierten Bauer nicht mehr gibt. Konstanten und Herleitung (Raster
+ * 4 m, Figurenmasse, Z-Fighting-Rechnung) wandern nach
+ * `shared/src/dungeon2/layout.ts` (`ZELLE_M`, `EBENE_M`, `MIN_LICHTE_STUFEN`).
+ * Siehe `LEGACY.md`.
+ * Checks GLB parts that no longer exist under the cell-based builder. The
+ * constants and their derivation (4 m grid, character measurements, the
+ * z-fighting math) move to `shared/src/dungeon2/layout.ts`. See `LEGACY.md`.
+ *
  * Rasterprüfung für eigene Dungeon-Bauteile.
  *
  * ── Warum es das gibt ────────────────────────────────────────────────

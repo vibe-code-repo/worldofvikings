@@ -1003,3 +1003,131 @@ bewusst nur gegen Kollisionskörper DERSELBEN Ebene wie das bestückte Teil
 (Ebene über den begleitenden `BauStueck`-Eintrag nachgeschlagen) — ob die Decke
 der Ebene darunter korrekt unter dem Boden dieser Ebene bleibt, ist die
 `ebenen-abstand`-Invariante, keine Eigenschaft des Bestückers.
+
+---
+
+## 2026-08-30 · AP9/AP12 · Dateinamen `tools/dungeon2/make-materials.py` statt `tools/bake-barrow-materials.py`
+
+**Lücke:** `ARCHITECTURE.md` §1.2 nennt `tools/bake-barrow-materials.py` und
+`tools/pack-material-arrays.py`; der Arbeitsauftrag nennt
+`tools/dungeon2/make-materials.py` und `tools/dungeon2/pack-material-arrays.py`.
+
+**Entscheidung:** Die Namen des Arbeitsauftrags gelten. Beide Werkzeuge liegen
+in `tools/dungeon2/`, die Ausgabe unter `assets/dungeon2/materials/<name>/`
+(Ordnernamen englisch, Bindestrich, gleich dem `name` in `material.json`).
+
+**Grund:** `tools/` enthält bereits über sechzig Skripte ohne Unterordner; ein
+eigener Ordner je Vorhaben ist die Form, die den Dungeon-2.0-Bestand
+zusammenhält. „bake" im Namen beschreibt zudem nur den halben Vorgang — das
+Skript backt zwei Größen und rechnet Normale und Occlusion danach selbst.
+
+---
+
+## 2026-08-30 · AP9 · EMIT-Bake mit einem Sample statt DIFFUSE/NORMAL/ROUGHNESS-Bakes
+
+**Lücke:** `material-plan.md` §4 (5) verlangt „Bake pro Kanal
+(`bpy.ops.object.bake`, Typ `DIFFUSE`/`NORMAL`/`ROUGHNESS`)". Diese Bake-Typen
+sind Monte-Carlo-Integrale: ihr Rauschen hängt an Sample-Zahl, Tile- und
+Thread-Aufteilung. Das Determinismus-Gesetz verlangt aber byte-gleiche PNGs.
+
+**Entscheidung:** Gebacken wird ausschließlich mit `type='EMIT'` und
+`samples=1`. Gebacken werden nur ZWEI Größen: Albedo, und ein RGB-Paket aus
+(Höhe, Rauheit, Overlay-Maske). **Normale und Occlusion werden danach in numpy
+aus der Höhenkarte gerechnet**, im Wickel-Modus (`np.roll`), damit die Kachel
+nahtlos bleibt.
+
+**Grund:** Ein EMIT-Bake wertet den Shader an der Texelmitte aus, statt zu
+integrieren — ein Sample genügt, das Ergebnis ist exakt. Ein NORMAL-Bake
+bräuchte außerdem ein Hochpoly-Quellobjekt, das es hier gar nicht gibt: die
+Struktur steckt im Node-Graph, nicht in der Geometrie. Die Occlusion aus einer
+Mehrskalen-Kavität ist für eine flächige Optik völlig ausreichend und im
+Gegensatz zu einem AO-Bake exakt reproduzierbar. Gemessen: zwei Läufe mit
+gleichem Seed liefern byte-identische Dateien (`diff -r`), und ein Lauf mit
+`--only metal,wall-block` (Tag 5 VOR Tag 0) liefert für beide dieselben Bytes.
+
+---
+
+## 2026-08-30 · AP9 · 4D-Torusabbildung für kachelnde Prozeduren
+
+**Lücke:** `material-plan.md` verlangt „tileable" Maps und nennt als Bausteine
+`Voronoi`, `Noise`, `ColorRamp` — sagt aber nicht, wie eine Blender-Prozedur
+kachelt. Sie kachelt nicht: `Noise Texture` auf UV zeigt an der Kachelnaht eine
+harte Kante.
+
+**Entscheidung:** Jede Rauschquelle bekommt ihre Koordinaten aus
+`torus(u, v)` = (cos 2πu, sin 2πu, cos 2πv) plus W = sin 2πv, also einen Punkt
+auf einem Torus im 4D-Raum. Jede Funktion darauf ist in u UND v periodisch.
+Rasterprozeduren (Quaderverband, Bretter) tilen über `WRAP` auf ganzzahlige
+Spalten-/Reihenzahlen; die Zellindizes werden modulo Spalten/Reihen genommen.
+
+**Grund:** Triplanar wiederholt jede Kachel über zehn Meter Wand — eine Naht
+wäre nicht der Randfall, sondern die Regel. Sichtprüfung: alle zehn Materialien
+2×2 gekachelt nebeneinander, keine Naht sichtbar.
+
+---
+
+## 2026-08-30 · AP9 · Das Werkzeug der Stilisierung ist die CONSTANT-ColorRamp — und ein Streckschritt davor
+
+**Lücke:** „stilisiert-flächig, kein Fotorealismus" ist ein Bild, keine
+Anweisung. `material-plan.md` nennt ColorRamp „zur Kontrastkurve".
+
+**Entscheidung:** Jede Farbe entsteht aus einer ColorRamp mit Interpolation
+`CONSTANT` und drei bis vier Stützstellen — das quantisiert jedes Rauschen in
+wenige Flächen. Davor steht zwingend `spread()`, eine Map-Range von 0.33..0.67
+auf 0..1.
+
+**Grund, und das ist der Fehler, der zweimal auftrat:** Blenders `Noise
+Texture`-Fac liegt fast vollständig zwischen 0.35 und 0.65. Eine Ramp mit
+Stützstellen bei 0.0/0.4/0.7 sieht davon genau eine Stufe — das Ergebnis ist
+eine einfarbige Fläche. Der Fehler hat kein Symptom außer „sieht langweilig
+aus", und genau deshalb steht die Begründung im Quelltext an `spread()`.
+(Der zweite Fehler derselben Klasse: `ramp()` verband anfangs seinen
+`Fac`-Eingang nicht und wertete deshalb immer bei 0.5 aus — sichtbar erst am
+Kontaktabzug, nicht an einer Ausnahme.)
+
+---
+
+## 2026-08-30 · AP12 · Senkrechter Streifen als Array-Dateiform; KTX2 optional statt Pflicht
+
+**Lücke:** `ARCHITECTURE.md` AP12 verlangt „drei Layer-Stapel … → KTX2
+(`toktx`)". `toktx` ist auf dieser Maschine nicht vorhanden, und Risiko R4
+(`Texture2DArray` + Basis Universal) ist laut ARCHITECTURE ausdrücklich
+unverifiziert und wird erst von AP8 entschieden.
+
+**Entscheidung:** Die tragende Ausgabe ist ein senkrechter Streifen je Array
+(Breite × Höhe·Layer) als PNG plus `materialArrayIndex.json`. `toktx` wird
+benutzt, WENN es im Pfad liegt, und der Schritt sonst **laut** übersprungen
+(Meldung auf stderr mit Verweis auf R4/AP8).
+
+**Grund:** Das Projekt hat für „Texture2DArray auf der Platte" bereits eine
+Form — `tools/extract-texture-arrays.py` schreibt und
+`client/src/engine/TerrainSplat.ts` liest genau diesen senkrechten Streifen.
+Sich hier auf KTX2 festzulegen, hieße eine unbewiesene Annahme in ein
+Dateiformat zu gießen, bevor AP8 sie geprüft hat. Der Streifen lädt mit einem
+einzigen `RawTexture2DArray`-Aufruf und ist in jedem Bildbetrachter prüfbar.
+
+**Zusätzlich hart geprüft (nicht angenommen):** Bittiefe und Farbtyp jedes
+Layers werden aus dem PNG-IHDR gelesen, nicht aus Pillows `mode` abgeleitet;
+ein Layer mit abweichender Auflösung bricht den Lauf ab. Negativ geprüft: ein
+auf 512² verkleinerter Layer beendet den Packer mit Code 1 und nennt Datei,
+Ist- und Sollformat.
+
+---
+
+## 2026-08-30 · AP9 · Zehn Materialien, `mask.png` nur für die vier Overlays
+
+**Lücke:** `material-plan.md` §2 spricht von acht Materialien, ARCHITECTURE W5
+friert zehn Tags ein (0–5 Basis, 6–9 Overlays) und sagt zu Tag 7 „nur
+Rauheitsabsenkung, keine eigene Textur".
+
+**Entscheidung:** Alle zehn Tags werden gebacken. Tags 0–5 bekommen
+Albedo/Normal/ORH, Tags 6–9 zusätzlich `mask.png` (Deckungsmaske, im Bake als
+B-Kanal des Paket-Bakes erzeugt). Auch Tag 7 (Feuchte) bekommt Albedo und ORH.
+
+**Grund:** Die Maske ist die Größe, die der Shader für einen Blend-Layer
+wirklich braucht, und sie kostet im Paket-Bake keinen eigenen Durchlauf. Für
+Tag 7 ist das Albedo bewusst eine Abdunklungsfarbe, kein Materialton, und die
+Rauheit fällt auf 0.12 — der Shader kann daraus beides bauen (nur Rauheit, oder
+Rauheit plus Abdunklung), ohne dass eine zweite Bake-Form nötig wird. Eine
+Textur, die es nicht gibt, kann man später nicht mehr wollen; eine, die man
+nicht benutzt, kostet nichts.

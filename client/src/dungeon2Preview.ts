@@ -20,6 +20,9 @@
  *   ?arrays=0         Texturen NICHT laden — graue Kästen (der AP6-Zustand)
  *   ?physik=1         Havok starten und den Betrachter fallen lassen
  *   ?triplanar=off    Killschalter des Materials (A/B-Messung)
+ *   ?px=&py=&pz=      Kamerastandort in Metern / camera position in metres
+ *   ?blick=Grad       Blickrichtung (0 = Nord/+z, 90 = Ost/+x)
+ *   ?neigung=Grad     Nickwinkel, positiv nach unten / pitch, positive = down
  *
  * Der Vorschaupfad rührt NICHTS an, was der Spielclient benutzt: eigene Seite,
  * eigene Szene, eigener Einstieg. Das ist Absicht — die Vault-Notiz „Agenten
@@ -160,6 +163,28 @@ async function starte(): Promise<void> {
   kamera.keysDown = [83, 40];
   kamera.keysLeft = [65, 37];
   kamera.keysRight = [68, 39];
+
+  // Optionale Kamera-Vorgabe aus der URL (?px=&py=&pz=&blick=Grad&neigung=Grad)
+  // — fuer reproduzierbare Beweisbilder an einer bestimmten Stelle des
+  // Dungeons. `neigung` ist der Nickwinkel, positiv nach UNTEN (Babylon zaehlt
+  // `rotation.x` so herum): ohne ihn laesst sich eine Treppe nur von der Seite
+  // zeigen, nie von oben herab.
+  // Optional camera pose from the URL — for reproducible proof shots.
+  // `neigung` is the pitch, positive DOWNWARD (that is how Babylon counts
+  // `rotation.x`): without it a staircase can only be shown from the side,
+  // never looking down it.
+  const px = params.get('px'); const pz = params.get('pz');
+  if (px !== null && pz !== null) {
+    kamera.position.set(Number(px), zahl(params, 'py', kamera.position.y), Number(pz));
+  }
+  const blick = params.get('blick');
+  if (blick !== null) kamera.rotation.y = (Number(blick) * Math.PI) / 180;
+  const neigung = params.get('neigung');
+  if (neigung !== null) kamera.rotation.x = (Number(neigung) * Math.PI) / 180;
+
+  // Debug-Handle fuer Werkzeuge und Konsole — nur die Vorschau tut das.
+  // Debug handle for tooling and the console — only the preview does this.
+  (window as unknown as Record<string, unknown>).dungeon2Vorschau = { kamera, bauer };
 
   const atmosphaere = new DungeonAtmosphaere(scene, kamera, stufe);
   atmosphaere.betrete();

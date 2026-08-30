@@ -132,6 +132,20 @@ export function validateZellgitter(layout: DungeonLayout2, gitter: ZellenGitter)
   for (const zelle of zellenSortiert(gitter)) {
     const oben = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene + 1);
     if (oben === undefined) continue;
+    // Ein `Schacht` unmittelbar ueber einer offenen Zelle IST die senkrechte
+    // Oeffnung: `hatBodenPlatte()`/`hatDeckenPlatte()` (cells.ts) lassen dort
+    // beide Platten weg und `obenStufen()` zieht die eine lichte Saeule bis zur
+    // Schachtsohle durch. Es gibt also gar keine zwei Platten, die sich
+    // durchdringen koennten — die Regel prueft hier ein Bauteil, das der Bauer
+    // nie baut, und verbietet damit genau den Aufgang, fuer den es den Schacht
+    // gibt.
+    // A `Schacht` directly above an open cell IS the vertical opening:
+    // `hatBodenPlatte()`/`hatDeckenPlatte()` (cells.ts) omit both slabs there
+    // and `obenStufen()` runs the single clear column up to the shaft's sole.
+    // There are no two slabs that could intersect — the rule would be checking
+    // a part the builder never builds, and would forbid exactly the ascent the
+    // shaft exists for.
+    if (oben.art === ZELLEN_ART.Schacht && offen(zelle.art)) continue;
     const deckenOberkanteUnten = zelle.ebene * EBENE_IN_HOEHEN_SCHRITTEN + zelle.boden + zelle.decke;
     const bodenUnterkanteOben = oben.ebene * EBENE_IN_HOEHEN_SCHRITTEN + oben.boden;
     if (!(deckenOberkanteUnten < bodenUnterkanteOben)) {
@@ -152,7 +166,21 @@ export function validateZellgitter(layout: DungeonLayout2, gitter: ZellenGitter)
       melde(wo, 'fehler', 'treppe-anschluss', 'neigung fehlt oder ist kein einzelnes Kantenbit');
       continue;
     }
-    const obenBegehbar = nachbarBegehbar(gitter, zelle, zelle.neigung);
+    // Das obere Ende ist zweierlei: die Nachbarzelle in Neigungsrichtung auf
+    // DERSELBEN Ebene (Hoehensprung im Stockwerk) ODER die Schachtmuendung
+    // direkt darueber (letzter Lauf eines Aufgangs — der Lauf tritt nach oben
+    // aus, nicht zur Seite). Ohne den zweiten Fall waere ein Aufgang zwischen
+    // zwei Ebenen im eingefrorenen Format nicht ausdrueckbar; siehe
+    // `design/decisions-log.md`, Eintrag "Treppen waren tote Zweige".
+    // The upper end is two things: the neighbour in the ascent direction on the
+    // SAME storey (height jump within a storey) OR the shaft mouth directly
+    // above (last run of a staircase — the run emerges upwards, not sideways).
+    // Without the second case a storey-linking staircase would be inexpressible
+    // in the frozen format.
+    const muendung = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene + 1);
+    const obenBegehbar =
+      nachbarBegehbar(gitter, zelle, zelle.neigung) ||
+      (muendung !== undefined && muendung.art === ZELLEN_ART.Schacht);
     const untenBegehbar = nachbarBegehbar(gitter, zelle, gegenKante(zelle.neigung));
     if (!obenBegehbar || !untenBegehbar) {
       melde(wo, 'fehler', 'treppe-anschluss', 'Treppe hat nicht an beiden Enden eine begehbare Nachbarzelle');

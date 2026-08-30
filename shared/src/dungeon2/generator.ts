@@ -65,10 +65,12 @@ import {
   type Tuer,
   type TuerZustand,
   type Zelle,
+  type ZellenAenderung,
   type ZellenArt,
   type ZellenKorrektur,
 } from './layout.js';
 import {
+  EBENE_IN_HOEHEN_SCHRITTEN,
   schluesselZelle,
   wandZwischen,
   zelleOderLeer,
@@ -250,6 +252,49 @@ const MAX_TYP_VERSUCHE = 4;
 const MAX_AUFFUELLUNGEN = 4000;
 
 /**
+ * Anstieg EINER Treppenzelle in Hoehenstufen. Eine Ebene ist
+ * `EBENE_IN_HOEHEN_SCHRITTEN` = 16 Stufen hoch; zwei Laeufe zu 8 Stufen (4 m)
+ * ueber je eine 4-m-Zelle ergeben 45 Grad. Ein einziger Lauf muesste 8 m auf
+ * 4 m schaffen (63 Grad) — das ist keine Treppe mehr, sondern eine Leiter, und
+ * drei Laeufe teilten 16 nicht ganzzahlig.
+ * Rise of ONE stair cell in height steps. A storey is
+ * `EBENE_IN_HOEHEN_SCHRITTEN` = 16 steps tall; two runs of 8 steps (4 m) across
+ * one 4 m cell each make 45 degrees. A single run would have to climb 8 m over
+ * 4 m (63 degrees) — that is a ladder, not a staircase, and three runs would
+ * not divide 16 evenly.
+ */
+const TREPPE_ANSTIEG_STUFEN = EBENE_IN_HOEHEN_SCHRITTEN / 2;
+/**
+ * Kopfraum ueber der OBERSTEN Stufe des UNTEREN Laufs, in Hoehenstufen
+ * (6 = 3 m). Die Zahl ist die groesste, die passt, keine gewaehlte, und die
+ * bindende Schranke ist NICHT die Regel `ebenen-abstand`:
+ *
+ *   Anstieg (8) + Kopfraum + `DECKE_DICKE_STUFEN` (2) <= 16
+ *
+ * `ebenen-abstand` vergleicht `boden + decke` mit der Sohle darueber und laesst
+ * damit die DICKE der Deckenplatte aus. Bei Kopfraum 7 bliebe die Regel gruen,
+ * die Deckenplatte des unteren Laufs stuende aber einen halben Meter ueber der
+ * Sohle der Ebene darueber und legte sich quer in die Tuer eines Raums, der
+ * dort spaeter waechst. Der Fehler hatte kein Symptom in der Pruefung, nur
+ * einen im Gang: `client/test/dungeon2-bauer.ts` meldete einen „Haenger".
+ * Headroom above the TOPMOST step of the LOWER run, in height steps (6 = 3 m).
+ * The largest that fits, not a chosen number, and the binding bound is NOT the
+ * `ebenen-abstand` rule: rise (8) + headroom + `DECKE_DICKE_STUFEN` (2) <= 16.
+ * That rule compares `boden + decke` against the sole above and thereby omits
+ * the ceiling slab's THICKNESS. At headroom 7 the rule would stay green while
+ * the lower run's ceiling slab stood half a metre above the storey sole and lay
+ * across the doorway of a room growing there later. The fault had no symptom in
+ * validation, only one in the walk.
+ * Der OBERE Lauf braucht die Konstante nicht: ueber ihm steht die
+ * Schachtmuendung, `hatDeckenPlatte()` laesst dort die Platte weg und
+ * `obenStufen()` zieht seine lichte Saeule bis zu deren Sohle durch.
+ * The UPPER run does not need the constant: the shaft mouth stands above it,
+ * `hatDeckenPlatte()` omits the slab there and `obenStufen()` runs its clear
+ * column up to that sole.
+ */
+const TREPPE_KOPFRAUM_STUFEN = 6;
+
+/**
  * P0..P10 in einem Durchlauf. Lang, aber am Stueck lesbar — die Phasengrenzen
  * stehen als Ueberschriften im Rumpf, weil eine Zerlegung in zehn Funktionen
  * zehn Parameterlisten mit demselben Zustand bedeutet haette.
@@ -293,6 +338,17 @@ export function erzeugeLayoutMitBericht(
 
   /** (ebene|z|x) -> stempelId. Nie als Reihenfolge gelesen. / Never read as an order. */
   const belegung = new Map<string, number>();
+  /**
+   * Stempel der beiden Treppenlaeufe. Aus ihnen waechst NICHTS nach: eine
+   * Verbindung an ihrer Flanke wuerde zu einer Tuer, und die Tuer schluege die
+   * Wand des Treppenhauses wieder auf (`durchgangErzwungen` schlaegt
+   * `wandErzwungen`). Die Front waechst nur an der Schachtmuendung weiter.
+   * Stamps of the two stair runs. NOTHING grows out of them: a connection on
+   * their flank would become a door, and the door would tear the stairwell wall
+   * open again (`durchgangErzwungen` beats `wandErzwungen`). The frontier grows
+   * on at the shaft mouth only.
+   */
+  const treppenLaeufe = new Set<number>();
   const stempel: RaumStempel[] = [];
   /** stempelId -> elternId (-1 = Wurzel). / stamp id -> parent id (-1 = root). */
   const eltern = new Map<number, number>();
@@ -494,7 +550,11 @@ export function erzeugeLayoutMitBericht(
     readonly z: number;
     readonly ebene: number;
     art?: ZellenArt;
+    boden?: number;
+    decke?: number;
+    neigung?: Kante;
     wandErzwungen?: number;
+    durchgangErzwungen?: number;
   }
   const korrekturRoh = new Map<string, KorrekturRoh>();
   const korrekturEintrag = (x: number, z: number, ebene: number): KorrekturRoh => {
@@ -511,6 +571,43 @@ export function erzeugeLayoutMitBericht(
   const mauereKante = (x: number, z: number, ebene: number, kante: Kante): void => {
     const e = korrekturEintrag(x, z, ebene);
     e.wandErzwungen = (e.wandErzwungen ?? 0) | kante;
+  };
+  /**
+   * Macht eine Zelle zur Treppenstufe eines Laufs: Art, Anstiegsrichtung und
+   * die Bodenhoehe an der TIEFEN Kante (`Zelle.boden` ist laut Format genau
+   * das). Die lichte Hoehe bleibt beim Stempel — sie ist kein Sonderfall der
+   * Treppe, sondern die gewoehnliche Raumhoehe ueber DIESEM Boden.
+   * Turns a cell into one run of a staircase: kind, ascent direction and the
+   * floor height at the LOW edge (per the format that is exactly what
+   * `Zelle.boden` is). The clear height stays with the stamp — it is no special
+   * case of the stair but the ordinary room height above THIS floor.
+   */
+  const setzeTreppe = (
+    x: number,
+    z: number,
+    ebene: number,
+    neigung: Kante,
+    boden: number
+  ): void => {
+    const e = korrekturEintrag(x, z, ebene);
+    e.art = ZELLEN_ART.Treppe;
+    e.neigung = neigung;
+    e.boden = boden;
+  };
+  /**
+   * Erzwingt einen Durchgang an einer Kante. Innerhalb eines Treppenlaufs
+   * unterscheiden sich die Bodenhoehen zweier Nachbarzellen um mehr als eine
+   * Stufe, und die abgeleitete Wandregel (§3.3) wuerde den Lauf sonst genau in
+   * der Mitte zumauern — der Fehler haette kein Symptom ausser „diese Treppe
+   * fuehrt nirgendwohin".
+   * Forces an opening on an edge. Inside a staircase run two neighbouring cells
+   * differ in floor height by more than one step, and the derived wall rule
+   * (§3.3) would otherwise wall the run up right in its middle — a fault whose
+   * only symptom would be "this staircase leads nowhere".
+   */
+  const oeffneKante = (x: number, z: number, ebene: number, kante: Kante): void => {
+    const e = korrekturEintrag(x, z, ebene);
+    e.durchgangErzwungen = (e.durchgangErzwungen ?? 0) | kante;
   };
 
   // ── P1: Eingang ─────────────────────────────────────────────────────────
@@ -598,30 +695,107 @@ export function erzeugeLayoutMitBericht(
     const rueckKante: KantenPlatz = { x: n.x, z: n.z, ebene: a.ebene, kante: gegenKante(a.kante) };
 
     if (profil.typ === 'treppe') {
-      // Ein Schacht belegt dieselbe Zellsaeule auf zwei Ebenen. Die Pruefung
-      // laeuft ueber BEIDE — der Altgenerator hat genau hier gepatzt
-      // (`roomBodyFromFloor`, `data-model.md` §2.3 P4).
-      // A shaft occupies the same cell column on two storeys. The check runs
-      // over BOTH — this is exactly where the old generator slipped.
+      // Ein Treppenaufgang belegt DREI Zellen auf zwei Ebenen: zwei
+      // Treppenzellen auf der unteren Ebene, die den Ebenenabstand in zwei
+      // gleichen Laeufen ueberwinden, und darueber die Schachtmuendung, in die
+      // der obere Lauf austritt. Die Pruefung laeuft ueber ALLE drei — der
+      // Altgenerator hat genau hier gepatzt (`roomBodyFromFloor`,
+      // `data-model.md` §2.3 P4).
+      // A staircase occupies THREE cells on two storeys: two stair cells on the
+      // lower storey that span the storey gap in two equal runs, and above them
+      // the shaft mouth the upper run emerges into. The check runs over ALL
+      // three — this is exactly where the old generator slipped.
       if (a.ebene + 1 > grenzen.maxEbene) return false;
-      if (belegung.size + 2 > ziel[1]) return false;
+      if (belegung.size + 3 > ziel[1]) return false;
+      const m = nachbarZelle(n.x, n.z, a.kante);
       if (!rechteckFrei(n.x, n.z, a.ebene, 1, 1)) return false;
-      if (!rechteckFrei(n.x, n.z, a.ebene + 1, 1, 1)) return false;
+      if (!rechteckFrei(m.x, m.z, a.ebene, 1, 1)) return false;
+      if (!rechteckFrei(m.x, m.z, a.ebene + 1, 1, 1)) return false;
 
-      const unten = setzeStempel('treppe', n.x, n.z, a.ebene, 1, 1, hoehe, a.tiefe + 1, a.stempelId);
-      const oben = setzeStempel('treppe', n.x, n.z, a.ebene + 1, 1, 1, hoehe, a.tiefe + 2, unten.id);
-      // Beide Schachtzellen werden `Schacht` — die einzige Zellenart, ueber die
-      // `erreichbareZellen()` (cells.ts, AP2) senkrecht laeuft.
-      // Both shaft cells become `Schacht` — the only cell type through which
-      // `erreichbareZellen()` (cells.ts, AP2) travels vertically.
-      setzeArt(n.x, n.z, a.ebene, ZELLEN_ART.Schacht);
-      setzeArt(n.x, n.z, a.ebene + 1, ZELLEN_ART.Schacht);
+      const lauf1 = setzeStempel(
+        'treppe',
+        n.x,
+        n.z,
+        a.ebene,
+        1,
+        1,
+        TREPPE_ANSTIEG_STUFEN + TREPPE_KOPFRAUM_STUFEN,
+        a.tiefe + 1,
+        a.stempelId
+      );
+      const lauf2 = setzeStempel(
+        'treppe',
+        m.x,
+        m.z,
+        a.ebene,
+        1,
+        1,
+        TREPPE_ANSTIEG_STUFEN,
+        a.tiefe + 2,
+        lauf1.id
+      );
+      const muendung = setzeStempel(
+        'treppe',
+        m.x,
+        m.z,
+        a.ebene + 1,
+        1,
+        1,
+        hoehe,
+        a.tiefe + 3,
+        lauf2.id
+      );
+      // Erster Lauf: von der Ebenensohle bis zur halben Ebenenhoehe. Zweiter
+      // Lauf: von dort bis zur Sohle der Ebene darueber, wo er in die
+      // Schachtmuendung austritt.
+      // First run: from the storey sole to half the storey height. Second run:
+      // from there up to the sole of the storey above, where it emerges into
+      // the shaft mouth.
+      setzeTreppe(n.x, n.z, a.ebene, a.kante, 0);
+      setzeTreppe(m.x, m.z, a.ebene, a.kante, TREPPE_ANSTIEG_STUFEN);
+      // Ein Treppenhaus ist eine Roehre: alles ausser Fuss und Kopf des Laufs
+      // wird zugemauert. Das ist nicht Geschmack. Ein Raum, der spaeter seitlich
+      // an den OBEREN Lauf stoesst, stiesse an eine Zelle, deren Boden 4 m
+      // hoeher liegt — die Ableitung setzt dort zwar eine Wand, aber eine Tuer
+      // auf derselben Kante schlaegt sie wieder auf (`durchgangErzwungen`
+      // gewinnt), und dahinter liegt der massive Unterbau der Treppe. Der
+      // Fehler zeigte sich als Loch in der Wand, nicht als Fehlermeldung.
+      // A stairwell is a tube: everything but the run's foot and head is walled
+      // up. Not a matter of taste. A room later abutting the UPPER run sideways
+      // would meet a cell whose floor is 4 m higher — the derivation does put a
+      // wall there, but a door on the same edge tears it open again
+      // (`durchgangErzwungen` wins), and behind it lies the stair's solid
+      // substructure. The fault showed as a hole in a wall, not as a finding.
+      const quer: readonly Kante[] =
+        a.kante === KANTE.Nord || a.kante === KANTE.Sued
+          ? [KANTE.Ost, KANTE.West]
+          : [KANTE.Nord, KANTE.Sued];
+      for (const q of quer) {
+        mauereKante(n.x, n.z, a.ebene, q);
+        mauereKante(m.x, m.z, a.ebene, q);
+      }
+      mauereKante(m.x, m.z, a.ebene, a.kante);
+      treppenLaeufe.add(lauf1.id);
+      treppenLaeufe.add(lauf2.id);
+      // Die Kante zwischen den beiden Laeufen: 8 Hoehenstufen Unterschied
+      // erzwingen nach §3.3 eine Wand, die den Lauf in der Mitte zumauern
+      // wuerde.
+      // The edge between the two runs: 8 height steps of difference force a
+      // wall per §3.3 that would seal the run in its middle.
+      oeffneKante(n.x, n.z, a.ebene, a.kante);
+      // Die Muendung wird `Schacht` — die einzige Zellenart, ueber die
+      // `erreichbareZellen()` (cells.ts, AP2) senkrecht laeuft, und die einzige,
+      // die keine Bodenplatte bekommt, wenn unter ihr etwas Offenes liegt.
+      // The mouth becomes `Schacht` — the only cell type through which
+      // `erreichbareZellen()` (cells.ts, AP2) travels vertically, and the only
+      // one that gets no floor slab when something open lies below it.
+      setzeArt(m.x, m.z, a.ebene + 1, ZELLEN_ART.Schacht);
       verbindungHinzu(a.x, a.z, a.ebene, a.kante);
-      // Der untere Schacht bekommt keine eigenen Ausgaenge — er ist der
-      // Durchstieg, nicht ein Raum. Die Front waechst oben weiter.
-      // The lower shaft gets no exits of its own — it is the passage, not a
-      // room. The frontier grows on the upper storey.
-      neueAnschluesse(oben, profil, undefined);
+      // Die Laeufe bekommen keine eigenen Ausgaenge — sie sind der Aufstieg,
+      // nicht ein Raum. Die Front waechst an der Muendung weiter.
+      // The runs get no exits of their own — they are the ascent, not a room.
+      // The frontier grows at the mouth.
+      neueAnschluesse(muendung, profil, undefined);
       return true;
     }
 
@@ -638,6 +812,7 @@ export function erzeugeLayoutMitBericht(
   const nachwuchs = (): void => {
     const alle = [...stempel].sort((p, q) => p.ordnung - q.ordnung || p.id - q.id);
     for (const s of alle) {
+      if (treppenLaeufe.has(s.id)) continue;
       for (const k of randKanten(s)) {
         const n = nachbarZelle(k.x, k.z, k.kante);
         if (frei(n.x, n.z, k.ebene)) {
@@ -683,6 +858,7 @@ export function erzeugeLayoutMitBericht(
     let bester: { k: KantenPlatz; eltern: RaumStempel } | undefined;
     const alle = [...stempel].sort((p, q) => p.ordnung - q.ordnung || p.id - q.id);
     for (const s of alle) {
+      if (treppenLaeufe.has(s.id)) continue;
       for (const k of randKanten(s)) {
         const n = nachbarZelle(k.x, k.z, k.kante);
         if (!frei(n.x, n.z, k.ebene)) continue;
@@ -740,6 +916,18 @@ export function erzeugeLayoutMitBericht(
         const n = nachbarZelle(c.x, c.z, kante);
         const idB = belegung.get(schluesselZelle(n.x, n.z, c.ebene));
         if (idB === undefined || idA === idB) continue;
+        // Eine Flanke eines Treppenlaufs ist kein Kandidat — weder fuer eine
+        // Schleife (P5) noch fuer eine Tuer (P8). Der Boden eines Laufs liegt
+        // bis zu 4 m ueber dem der Nachbarzelle; eine Schleife dort waere kein
+        // Weg, sondern ein Loch in der Wand ueber dem massiven Unterbau. P7
+        // mauert diese Kanten zwar zu, aber eine Tuer schlueg die Wand wieder
+        // auf (`durchgangErzwungen` schlaegt `wandErzwungen`).
+        // A stair run's flank is no candidate — neither for a loop (P5) nor for
+        // a door (P8). A run's floor sits up to 4 m above its neighbour's; a
+        // loop there would be no path but a hole in the wall above the solid
+        // substructure. P7 does wall these edges up, but a door would tear the
+        // wall open again (`durchgangErzwungen` beats `wandErzwungen`).
+        if ((idA !== undefined && treppenLaeufe.has(idA)) || treppenLaeufe.has(idB)) continue;
         const platz: KantenPlatz = { x: c.x, z: c.z, ebene: c.ebene, kante };
         if (verbindungen.has(kantenSchluessel(platz))) continue;
         beruehrungen.push(platz);
@@ -874,17 +1062,27 @@ export function erzeugeLayoutMitBericht(
   // ── Dokument ohne Anker zusammensetzen / assemble the document sans anchors ─
   const korrekturen: ZellenKorrektur[] = [...korrekturRoh.values()]
     .sort((a, b) => a.ebene - b.ebene || a.z - b.z || a.x - b.x)
-    .map((k) => ({
-      x: k.x,
-      z: k.z,
-      ebene: k.ebene,
-      aendere:
-        k.art === undefined
-          ? { wandErzwungen: k.wandErzwungen ?? 0 }
-          : k.wandErzwungen === undefined
-            ? { art: k.art }
-            : { art: k.art, wandErzwungen: k.wandErzwungen },
-    }));
+    .map((k) => {
+      // Feste Feldreihenfolge, gesetzte Felder nur wenn belegt. `art`
+      // ausgelassen heisst „Stempelwert behalten"; deshalb bekommt eine reine
+      // Wandkorrektur `wandErzwungen: 0` als ausdruecklichen Grundwert, wie
+      // bisher.
+      // Fixed field order, fields only when set. An omitted `art` means "keep
+      // the stamped value"; a pure wall fix therefore keeps its explicit
+      // `wandErzwungen: 0` base value, as before.
+      const aendere: ZellenAenderung = {};
+      if (k.art !== undefined) (aendere as { art?: ZellenArt }).art = k.art;
+      if (k.boden !== undefined) (aendere as { boden?: number }).boden = k.boden;
+      if (k.decke !== undefined) (aendere as { decke?: number }).decke = k.decke;
+      if (k.neigung !== undefined) (aendere as { neigung?: Kante }).neigung = k.neigung;
+      if (k.wandErzwungen !== undefined || k.art === undefined) {
+        (aendere as { wandErzwungen?: number }).wandErzwungen = k.wandErzwungen ?? 0;
+      }
+      if (k.durchgangErzwungen !== undefined) {
+        (aendere as { durchgangErzwungen?: number }).durchgangErzwungen = k.durchgangErzwungen;
+      }
+      return { x: k.x, z: k.z, ebene: k.ebene, aendere };
+    });
 
   const kennung = vorgaben?.id ?? `${thema.id}-${hex8(seeds.architektur)}`;
   const ohneAnker: DungeonLayout2 = {

@@ -398,10 +398,10 @@ pruefe(
 const EINGEFROREN: readonly (readonly [number, string, number, number, number, number])[] = [
   // [Seed-Index, pruefsumme, Stempel, Zellen, Tueren, Anker]
   [0, '77f521e6', 35, 303, 16, 91],
-  [1, 'a6896103', 35, 335, 10, 96],
-  [7, 'ab4b3807', 32, 323, 9, 91],
+  [1, '1ecb0edf', 48, 338, 12, 101],
+  [7, 'eeff600e', 31, 317, 5, 100],
   [42, 'c3c5d958', 32, 309, 10, 95],
-  [199, '02c601b7', 40, 308, 12, 96],
+  [199, 'd0ddbd01', 43, 287, 10, 88],
 ];
 
 {

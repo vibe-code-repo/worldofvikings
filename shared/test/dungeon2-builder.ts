@@ -38,6 +38,7 @@
 import { XorShiftRandom } from '../src/worldgen/Random.js';
 import {
   BLOCK_ZELLEN,
+  EBENE_M,
   HOEHEN_SCHRITT_M,
   KANTE,
   KANTEN,
@@ -371,10 +372,10 @@ const GLEICH_SEEDS = 100;
 // Frozen table. Reprint with DUNGEON2_EINFRIEREN=1 (see below).
 const EINGEFROREN: readonly (readonly [number, string, number, number, number])[] = [
   [0, '453626be', 1042, 963, 303],
-  [1, '364abc43', 1125, 1050, 335],
-  [7, '309ff08e', 1047, 981, 323],
+  [1, '1a60d53b', 1252, 1109, 338],
+  [7, '57b19f4c', 1052, 954, 317],
   [42, 'bf14a2d6', 1055, 974, 309],
-  [199, '8f4b84d9', 1088, 1014, 308],
+  [199, 'f74b1253', 1086, 955, 287],
 ];
 
 {
@@ -609,8 +610,21 @@ const LECK_SEEDS = 10;
       if (!offen(zelle.art)) continue;
       const unten = bodenStufen(zelle);
       const oben = obenStufen(gitter, zelle);
-      const mx = (zelle.x * 2 + 1) * (ZELLE_M / 2);
-      const mz = (zelle.z * 2 + 1) * (ZELLE_M / 2);
+      // Der Probenpunkt in der Zellflaeche liegt ein halbes Achtel NEBEN der
+      // Zellmitte. Grund: die Mitte faellt genau auf die Naht zwischen dem
+      // vierten und fuenften Stufenquader einer Treppenzelle, und `imFesten`
+      // zaehlt (richtigerweise, `>=`) einen Punkt genau auf einer Flaeche als
+      // aussen. Eine nahtbreite Fuge ist kein Leck — wer sie als eines meldet,
+      // misst das Probenraster statt das Grab. Der Versatz bleibt weit
+      // innerhalb der Zelle und trifft weiter jede echte Luecke.
+      // The in-plane probe point sits half an eighth BESIDE the cell centre.
+      // Reason: the centre falls exactly on the seam between the fourth and
+      // fifth step box of a stair cell, and `imFesten` counts (rightly, `>=`) a
+      // point exactly on a face as outside. A seam of zero width is not a leak
+      // — reporting it as one measures the probe grid, not the barrow. The
+      // offset stays well inside the cell and still hits every real gap.
+      const mx = (zelle.x * 2 + 1) * (ZELLE_M / 2) + ACHTEL_M / 2;
+      const mz = (zelle.z * 2 + 1) * (ZELLE_M / 2) + ACHTEL_M / 2;
 
       // Vier Seiten: unmittelbar HINTER der Zellgrenze (halbes Achtel weiter)
       // muss Fels sein — also festes Bauteil oder Nachbarraum.
@@ -958,6 +972,92 @@ function stempel(teile: Partial<RaumStempel> & { id: number }): RaumStempel {
     }
   }
   pruefe('der Schacht bleibt dicht (keine offene Kante zwischen den Ebenen)', lecks === 0, `${lecks}`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (E) Treppen kommen an / stairs arrive
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// WAECHTER. Der Fehler, den dieser Block fangen soll, hatte in KEINER Zaehlung
+// ein Symptom: `baueStufen()` war jahrelang tot, weil der Generator keine
+// einzige `Treppe`-Zelle erzeugte (er verband Ebenen mit zwei Schachtzellen),
+// und als es sie gab, mass der obere Lauf einen Anstieg von 0 und baute acht
+// gleich hohe Quader — also einen flachen Boden. Stueckzahl, Dreieckszahl,
+// Manifold, Dichtheit: alles blieb gruen. Gemessen wird deshalb nicht "es gibt
+// Stufenstuecke", sondern "sie steigen", und zwar an der ZAHL DER
+// VERSCHIEDENEN Oberkanten.
+// GUARD. The fault this block catches had a symptom in NO count: `baueStufen()`
+// was dead because the generator produced not a single `Treppe` cell, and once
+// it did, the upper run measured a rise of 0 and built eight boxes of equal
+// height — a flat floor. Piece count, triangle count, manifold, tightness: all
+// stayed green. So what is measured is not "step pieces exist" but "they rise",
+// via the NUMBER OF DISTINCT top faces.
+
+{
+  let seedsMitTreppe = 0;
+  let stufenGesamt = 0;
+  let flacheLaeufe = 0;
+  let ersterFlacher = '';
+  let obersteStufeAmEnde = 0;
+  let treppenZellen = 0;
+
+  for (let i = 0; i < 12; i++) {
+    const layout = erzeugeLayout(thema, seedsFuer(i));
+    const gitter = zellenAufbauen(layout, materialOptionen);
+    const treppen = zellenSortiert(gitter).filter((z) => z.art === ZELLEN_ART.Treppe);
+    if (treppen.length === 0) continue;
+    seedsMitTreppe++;
+    treppenZellen += treppen.length;
+    const ergebnis = baue(layout, gitter);
+    const stufen = ergebnis.stuecke.filter((s) => s.art === 'stufe');
+    stufenGesamt += stufen.length;
+
+    for (const zelle of treppen) {
+      const inZelle = stufen.filter(
+        (s) =>
+          s.mitte.x > zelle.x * ZELLE_M &&
+          s.mitte.x < (zelle.x + 1) * ZELLE_M &&
+          s.mitte.z > zelle.z * ZELLE_M &&
+          s.mitte.z < (zelle.z + 1) * ZELLE_M &&
+          Math.abs(s.mitte.y - bodenStufen(zelle) * HOEHEN_SCHRITT_M) < ZELLE_M * 2
+      );
+      // Acht Quader je Treppenzelle, und acht VERSCHIEDENE Oberkanten. Waere
+      // der Anstieg 0, waeren es acht gleiche — die Zahl bliebe acht.
+      // Eight boxes per stair cell, and eight DISTINCT top faces. At a rise of 0
+      // there would be eight equal ones — the count would still be eight.
+      const oberkanten = new Set(inZelle.map((s) => s.mitte.y + s.groesse.y / 2));
+      if (inZelle.length !== 8 || oberkanten.size !== 8) {
+        flacheLaeufe++;
+        if (ersterFlacher === '') {
+          ersterFlacher = `Seed ${i}: Zelle (${zelle.x},${zelle.z},E${zelle.ebene}) hat ${inZelle.length} Stufenquader mit ${oberkanten.size} verschiedenen Oberkanten`;
+        }
+        continue;
+      }
+      // Die oberste Stufe endet an der Sohle des Ziels — bei einem Aufgang also
+      // genau eine halbe Ebene ueber dem eigenen Boden.
+      // The topmost step ends at the target's sole — for an ascent exactly half
+      // a storey above its own floor.
+      const hoechste = Math.max(...oberkanten);
+      const hub = hoechste - bodenStufen(zelle) * HOEHEN_SCHRITT_M;
+      if (Math.abs(hub - EBENE_M / 2) < 1e-9) obersteStufeAmEnde++;
+    }
+  }
+
+  pruefe(
+    `(E) erzeugte Grabmaeler enthalten Treppenzellen (${seedsMitTreppe} von 12 Seeds, ${treppenZellen} Zellen)`,
+    seedsMitTreppe >= 6 && treppenZellen >= 12,
+    `${seedsMitTreppe} Seeds, ${treppenZellen} Zellen`
+  );
+  pruefe(
+    `(E) jede Treppenzelle liefert acht STEIGENDE Stufenquader (${stufenGesamt} Stuecke)`,
+    flacheLaeufe === 0 && stufenGesamt === treppenZellen * 8,
+    ersterFlacher !== '' ? ersterFlacher : `${stufenGesamt} Stuecke bei ${treppenZellen} Zellen`
+  );
+  pruefe(
+    `(E) jeder Lauf ueberwindet eine halbe Ebene (${EBENE_M / 2} m)`,
+    obersteStufeAmEnde === treppenZellen,
+    `${obersteStufeAmEnde} von ${treppenZellen} Laeufen`
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

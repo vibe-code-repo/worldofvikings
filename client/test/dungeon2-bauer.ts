@@ -539,18 +539,32 @@ for (const seed of SEEDS) {
         if (n.nachUnten || ziel.nachUnten) continue;
         const laenge = Math.hypot(ziel.mitte.x - n.mitte.x, ziel.mitte.z - n.mitte.z);
         const schritte = Math.max(1, Math.round(laenge / SCHRITT_M));
+        // Gemessen wird die STETIGKEIT des Bodens von Probe zu Probe, nicht der
+        // Abstand zu einer geraden Linie zwischen den beiden Zellmitten. Ueber
+        // eine Treppe ist der Boden flach, dann geneigt, dann wieder flach —
+        // eine Gerade zwischen den Mitten laege dort bis zu 2 m daneben, ohne
+        // dass ein einziger Schritt zu gross waere. Wer die Gerade prueft,
+        // verbietet Rampen; wer die Stetigkeit prueft, verbietet Stuerze.
+        // What is measured is the CONTINUITY of the floor from sample to sample,
+        // not the distance to a straight line between the two cell centres.
+        // Across a stair the floor is flat, then sloped, then flat again — a
+        // straight line would be off by up to 2 m there without a single step
+        // being too large. Checking the line forbids ramps; checking continuity
+        // forbids falls.
+        let vorher: number | null = null;
         for (let i = 0; i <= schritte; i++) {
           const t = i / schritte;
           const x = n.mitte.x + (ziel.mitte.x - n.mitte.x) * t;
           const z = n.mitte.z + (ziel.mitte.z - n.mitte.z) * t;
-          const erwartet = n.mitte.y + (ziel.mitte.y - n.mitte.y) * t;
+          const suchHoehe = (vorher ?? n.mitte.y) + HOEHEN_SCHRITT_M;
           proben++;
-          const boden = oberkante(index, x, z, erwartet + HOEHEN_SCHRITT_M);
+          const boden = oberkante(index, x, z, suchHoehe);
           assert.ok(boden !== null, `Sturz bei ${x.toFixed(2)}/${z.toFixed(2)} (Ebene ${n.ebene})`);
           assert.ok(
-            Math.abs(boden! - erwartet) <= HOEHEN_SCHRITT_M + 1e-6,
-            `Bodenversatz ${(boden! - erwartet).toFixed(3)} m bei ${x.toFixed(2)}/${z.toFixed(2)}`
+            vorher === null || Math.abs(boden! - vorher) <= HOEHEN_SCHRITT_M + 1e-6,
+            `Bodensprung ${(boden! - (vorher ?? 0)).toFixed(3)} m bei ${x.toFixed(2)}/${z.toFixed(2)}`
           );
+          vorher = boden!;
           // Haengt der Koerper? Acht Punkte auf dem Figurenumfang, von
           // Stolperhoehe bis Kopfhoehe — nichts darf dort massiv sein.
           // Does the body snag? Eight points around the body's circumference,
@@ -584,12 +598,20 @@ for (const seed of SEEDS) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Der Generator erzeugt ueber 120 Seeds KEINE einzige Treppenzelle (gemessen).
- * Die Rampenrechnung waere damit ungeprueft — also wird ein Layout von Hand
- * gebaut. Ein Zweig, den kein Test je betritt, ist kein Code, sondern eine
- * Vermutung.
- * The generator produces NOT ONE stair cell over 120 seeds (measured). The ramp
- * maths would then be untested, so a layout is built by hand.
+ * Ein Layout von Hand, damit alle VIER Neigungsrichtungen einzeln geprueft
+ * werden koennen — der Generator baut je Aufgang nur eine davon.
+ *
+ * Bis zum 30.08.2026 stand hier „der Generator erzeugt ueber 120 Seeds KEINE
+ * einzige Treppenzelle (gemessen)". Das stimmte, und es war der eigentliche
+ * Befund: `baueStufen()` im Bauer war toter Code, und im Spiel lag an jedem
+ * Aufgang ein flacher Boden. Siehe `design/decisions-log.md`, „Treppen waren
+ * tote Zweige". Der Satz bleibt als Warnung stehen: ein Zweig, den kein Test je
+ * betritt, ist kein Code, sondern eine Vermutung.
+ * A hand-built layout, so all FOUR ascent directions can be checked separately —
+ * the generator builds only one of them per staircase. Until 2026-08-30 this
+ * comment read "the generator produces NOT ONE stair cell over 120 seeds
+ * (measured)". That was true, and it was the actual finding: `baueStufen()` was
+ * dead code and every ascent in the game was a flat floor.
  */
 function treppenLayout(neigung: number): DungeonLayout2 {
   const roh = {
@@ -716,6 +738,75 @@ pruefe('Babylons Quaternion kippt die Rampe genauso wie unsere Rechnung', () => 
   // Und das Ende, das steigen soll, steigt auch: Nord = +z.
   assert.ok(welt.z > form.mitte.z, 'falsches Ende getroffen');
   assert.ok(welt.y > form.mitte.y, 'Babylon kippt die Rampe nach unten');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4b. WAECHTER: Stufenstuecke kommen als GEOMETRIE an
+//     GUARD: step pieces arrive as GEOMETRY
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Die Zaehlpruefungen oben (Vertices = Bauteile x 24) bleiben gruen, wenn die
+// Stufen flach sind oder wenn jemand `stufe` in `NIEDRIG_ENTFAELLT` aufnimmt
+// und dabei nur die Formel mitzieht. Gemessen wird deshalb an den fertigen
+// Meshes: in der Zellsaeule einer Treppe muessen ACHT verschiedene waagerechte
+// Flaechenhoehen liegen — die Trittflaechen. Ein flacher Boden hat eine.
+// The counting checks above stay green if the steps are flat, or if someone
+// adds `stufe` to `NIEDRIG_ENTFAELLT` and adjusts the formula along with it.
+// So the measurement is taken on the finished meshes: eight distinct horizontal
+// face heights must sit in a stair cell's column — the treads. A flat floor has
+// one.
+
+pruefe('Treppe: die Stufen des Generators werden zu Geometrie (acht Trittflaechen)', () => {
+  // Seed 2 hat gemessen 12 Treppenzellen; 1234 hat keine — deshalb NICHT der
+  // Seed der uebrigen Pruefungen.
+  // Seed 2 measurably has 12 stair cells; 1234 has none.
+  const layout = baueLayout(2);
+  const gitter = zellenAufbauen(layout);
+  const treppen = dungeon2
+    .zellenSortiert(gitter)
+    .filter((z) => z.art === ZELLEN_ART.Treppe);
+  assert.ok(treppen.length > 0, 'dieser Seed hat gar keine Treppe — der Test misst nichts');
+
+  const voll = baueGeometrie(layout, { gitter });
+  const stufen = voll.stuecke.filter((s) => s.art === 'stufe');
+  assert.equal(
+    stufen.length,
+    treppen.length * 8,
+    `${stufen.length} Stufenstuecke bei ${treppen.length} Treppenzellen`
+  );
+
+  setzeDungeonStufe(DungeonGrafikStufe.Mittel);
+  const bauer = new DungeonBauer(szene, layout, { arrays: null, physik: false });
+  bauer.baueAlles();
+
+  const zelle = treppen[0]!;
+  const x0 = zelle.x * ZELLE_M;
+  const z0 = zelle.z * ZELLE_M;
+  const yBoden = (zelle.ebene * (8 / HOEHEN_SCHRITT_M) + zelle.boden) * HOEHEN_SCHRITT_M;
+  const hoehen = new Set<string>();
+  for (const knoten of bauer.wurzel.getChildren()) {
+    const mesh = knoten as Mesh;
+    if (typeof mesh.getVerticesData !== 'function') continue;
+    const pos = mesh.getVerticesData(VertexBuffer.PositionKind);
+    if (pos === null) continue;
+    for (let i = 0; i < pos.length; i += 3) {
+      const x = pos[i]!;
+      const y = pos[i + 1]!;
+      const z = pos[i + 2]!;
+      if (x < x0 || x > x0 + ZELLE_M || z < z0 || z > z0 + ZELLE_M) continue;
+      // Nur die Trittflaechen: ueber dem Zellboden, hoechstens eine halbe
+      // Ebene darueber.
+      // Treads only: above the cell floor, at most half a storey higher.
+      if (y <= yBoden + 1e-6 || y > yBoden + 4 + 1e-6) continue;
+      hoehen.add(y.toFixed(4));
+    }
+  }
+  assert.equal(
+    hoehen.size,
+    8,
+    `${hoehen.size} verschiedene Trittflaechenhoehen in Zelle (${zelle.x},${zelle.z},E${zelle.ebene}) statt 8`
+  );
+  bauer.dispose();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

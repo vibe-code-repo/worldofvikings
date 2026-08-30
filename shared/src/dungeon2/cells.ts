@@ -458,14 +458,26 @@ export function erreichbareZellen(
       if (n !== undefined && offen(n.art) && !wandZwischen(aktuell, n)) kandidaten.push(n);
     }
     // Schacht = "offen nach oben/unten" (layout.ts, ZellenArt-Kommentar) — die
-    // einzige vertikale Verbindung zwischen zwei Ebenen.
-    // Schacht = "open upward/downward" (layout.ts, ZellenArt comment) — the
-    // only vertical connection between two storeys.
+    // einzige vertikale Verbindung zwischen zwei Ebenen. Die Bedingung haengt
+    // am SCHACHT, nicht an der Zelle, von der aus man kommt: nach OBEN geht es,
+    // wenn ueber einem ein Schacht steht (dieselbe Bedingung, unter der
+    // `hatBodenPlatte()` die Bodenplatte weglaesst), nach UNTEN, wenn man
+    // selbst der Schacht ist. Nur so ist die Verbindung in beide Richtungen
+    // dieselbe — ein Treppenlauf, der in eine Schachtmuendung austritt, ist von
+    // unten her sonst eine Sackgasse, und das faellt erst als „obere Ebene
+    // nicht erreichbar" auf.
+    // Schacht = "open upward/downward" (layout.ts) — the only vertical
+    // connection between two storeys. The condition hangs on the SHAFT, not on
+    // the cell one comes from: UPWARD works when a shaft stands above (the same
+    // condition under which `hatBodenPlatte()` omits the floor slab), DOWNWARD
+    // when one is the shaft oneself. Only that makes the link the same in both
+    // directions — otherwise a stair run emerging into a shaft mouth is a dead
+    // end from below, which only shows up as "upper storey unreachable".
+    const darueber = zelleImGitter(gitter, aktuell.x, aktuell.z, aktuell.ebene + 1);
+    if (darueber !== undefined && darueber.art === ZELLEN_ART.Schacht) kandidaten.push(darueber);
     if (aktuell.art === ZELLEN_ART.Schacht) {
-      for (const deltaEbene of [-1, 1] as const) {
-        const n = zelleImGitter(gitter, aktuell.x, aktuell.z, aktuell.ebene + deltaEbene);
-        if (n !== undefined && offen(n.art)) kandidaten.push(n);
-      }
+      const darunter = zelleImGitter(gitter, aktuell.x, aktuell.z, aktuell.ebene - 1);
+      if (darunter !== undefined && offen(darunter.art)) kandidaten.push(darunter);
     }
 
     for (const n of kandidaten) {

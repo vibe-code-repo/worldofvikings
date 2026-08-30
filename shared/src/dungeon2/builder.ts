@@ -44,6 +44,7 @@ import {
   ZELLE_M,
   ZELLEN_ART,
   fnv1a32,
+  gegenKante,
   kanonisiereKante,
   nachbarZelle,
   type DekoAnker,
@@ -560,6 +561,83 @@ function baueZelle(sammler: Sammler, gitter: ZellenGitter, zelle: Zelle): void {
  * assumed: per the format, `Zelle.boden` is the height at the lower-index edge,
  * and the target sits in the neighbour cell.
  */
+/**
+ * Anstieg einer Treppenzelle in Hoehenstufen, GEMESSEN statt angenommen.
+ * Gemessen wird am oberen Ende des Laufs, und das kann zweierlei sein:
+ *
+ *   (1) die Nachbarzelle in Neigungsrichtung auf DERSELBEN Ebene — der Fall
+ *       „Hoehensprung innerhalb eines Stockwerks";
+ *   (2) die Schachtmuendung DIREKT UEBER dieser Zelle — der Fall „letzter Lauf
+ *       eines Aufgangs". Der Lauf tritt dann nicht seitlich aus, sondern nach
+ *       oben in die Muendung, deren Sohle die Oberkante der letzten Stufe ist.
+ *
+ * Ohne (2) misst der oberste Lauf eines Aufgangs einen Anstieg von 0 und baut
+ * acht gleich hohe Quader — also einen flachen Boden. Der Fehler hat keine
+ * Zaehlung gegen sich: es entstehen genau so viele Stufenstuecke wie sonst.
+ * Rise of a stair cell in height steps, MEASURED instead of assumed. Measured
+ * at the run's upper end, which can be two things: (1) the neighbour cell in
+ * the ascent direction on the SAME storey — "height jump within a storey"; or
+ * (2) the shaft mouth DIRECTLY ABOVE this cell — "last run of a staircase",
+ * where the run emerges upwards and the mouth's sole is the top of the last
+ * step. Without (2) the topmost run measures a rise of 0 and builds eight boxes
+ * of equal height — a flat floor. The fault has no count against it: exactly as
+ * many step pieces are produced as otherwise.
+ */
+function anstiegStufen(gitter: ZellenGitter, zelle: Zelle, neigung: Kante): number {
+  const unten = bodenStufen(zelle);
+  const p = nachbarZelle(zelle.x, zelle.z, neigung);
+  const seitlich = zelleImGitter(gitter, p.x, p.z, zelle.ebene);
+  if (seitlich !== undefined && offen(seitlich.art)) {
+    const anstieg = bodenStufen(seitlich) - unten;
+    if (anstieg > 0) return anstieg;
+  }
+  const muendung = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene + 1);
+  if (muendung !== undefined && muendung.art === ZELLEN_ART.Schacht) {
+    const anstieg = bodenStufen(muendung) - unten;
+    if (anstieg > 0) return anstieg;
+  }
+  return 0;
+}
+
+/**
+ * Unterkante der SICHTBAREN Stufenquader in Hoehenstufen. Eine Treppe steht auf
+ * einem massiven Unterbau, sie schwebt nicht: liegt die Zelle am tiefen Ende
+ * des Laufs hoeher als ihre Nachbarin (zweiter Lauf eines Aufgangs), reichen
+ * die Quader bis zu deren Bodenunterkante hinunter.
+ *
+ * Der Grund ist nicht Schoenheit, sondern Dichtheit: zwischen zwei Laeufen
+ * steht KEINE Wand (der Generator erzwingt dort einen Durchgang, sonst mauerte
+ * die Hoehenregel §3.3 die Treppe in ihrer Mitte zu). Ohne Unterbau blickte man
+ * an dieser Kante unter den oberen Lauf ins Nichts — ein Leck, das
+ * `dungeon2-builder.ts` (B2) als offene Zellkante meldet.
+ *
+ * Der RAMPENKOERPER bleibt davon unberuehrt: sein `ys0` ist
+ * `unten - BODEN_DICKE_STUFEN`, und `client/src/engine/DungeonBuilder.ts`
+ * (`kollisionsForm`) rechnet die Laufflaeche genau daraus zurueck.
+ * Underside of the VISIBLE step boxes in height steps. A staircase stands on
+ * solid substructure, it does not float: if the cell sits higher at the run's
+ * low end than its neighbour (second run of an ascent), the boxes reach down to
+ * that neighbour's floor underside. The reason is not beauty but tightness:
+ * there is NO wall between two runs (the generator forces an opening there,
+ * otherwise the height rule §3.3 would seal the stair in its middle). Without
+ * the substructure one would look under the upper run into nothing — a leak
+ * that `dungeon2-builder.ts` (B2) reports as an open cell edge. The RAMP body
+ * is untouched: its `ys0` stays `unten - BODEN_DICKE_STUFEN`, and
+ * `kollisionsForm` in the client recovers the tread from exactly that.
+ */
+function sockelStufen(
+  gitter: ZellenGitter,
+  zelle: Zelle,
+  neigung: Kante,
+  unten: number
+): number {
+  const p = nachbarZelle(zelle.x, zelle.z, gegenKante(neigung));
+  const tief = zelleImGitter(gitter, p.x, p.z, zelle.ebene);
+  const nachbarUnten =
+    tief !== undefined && offen(tief.art) ? bodenStufen(tief) : unten;
+  return (nachbarUnten < unten ? nachbarUnten : unten) - BODEN_DICKE_STUFEN;
+}
+
 function baueStufen(
   sammler: Sammler,
   gitter: ZellenGitter,
@@ -569,10 +647,8 @@ function baueStufen(
   unten: number
 ): void {
   const neigung: Kante = zelle.neigung ?? KANTE.Nord;
-  const p = nachbarZelle(zelle.x, zelle.z, neigung);
-  const ziel = zelleImGitter(gitter, p.x, p.z, zelle.ebene);
-  const zielBoden = ziel !== undefined && offen(ziel.art) ? bodenStufen(ziel) : unten;
-  const anstieg = zielBoden - unten;
+  const anstieg = anstiegStufen(gitter, zelle, neigung);
+  const sockel = sockelStufen(gitter, zelle, neigung, unten);
 
   const anZahl = ZELL_ACHTEL;
   const laengsX = neigung === KANTE.Ost || neigung === KANTE.West;
@@ -593,7 +669,7 @@ function baueStufen(
       zelle,
       block,
       'stufe',
-      { ...teil, ys0: unten - BODEN_DICKE_STUFEN, ys1: stufenOben, drehung: kantenDrehung(neigung) },
+      { ...teil, ys0: sockel, ys1: stufenOben, drehung: kantenDrehung(neigung) },
       false
     );
   }
@@ -981,6 +1057,22 @@ export function baueGeometrie(layout: DungeonLayout2, auswahl?: BauAuswahl): Bau
     }
     const untenZelle = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene - 1);
     const obenZelle = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene + 1);
+    // Standhoehe IN DER ZELLMITTE, nicht an der Kante. Bei einer flachen Zelle
+    // ist das dasselbe; bei einer Treppe liegt die Mitte der Lauflaeche eine
+    // halbe Steigung ueber `Zelle.boden` (das laut Format die Hoehe an der
+    // TIEFEN Kante ist). Stuende hier die Kantenhoehe, saehe jede Wegfindung
+    // und jede Spawnpruefung die Treppe zwei Meter zu tief — und faende dort
+    // Luft.
+    // Standing height AT THE CELL CENTRE, not at the edge. For a flat cell they
+    // are the same; on a stair the middle of the tread lies half a rise above
+    // `Zelle.boden` (which per the format is the height at the LOW edge). With
+    // the edge height here every path search and spawn check would see the
+    // stair two metres too low — and find air.
+    const standHoehe =
+      zelle.art === ZELLEN_ART.Treppe
+        ? (bodenStufen(zelle) + anstiegStufen(gitter, zelle, zelle.neigung ?? KANTE.Nord) / 2) *
+          HOEHEN_SCHRITT_M
+        : bodenStufen(zelle) * HOEHEN_SCHRITT_M;
     nav.push({
       x: zelle.x,
       z: zelle.z,
@@ -988,7 +1080,7 @@ export function baueGeometrie(layout: DungeonLayout2, auswahl?: BauAuswahl): Bau
       block,
       mitte: {
         x: (zelle.x * 2 + 1) * (ZELLE_M / 2),
-        y: bodenStufen(zelle) * HOEHEN_SCHRITT_M,
+        y: standHoehe,
         z: (zelle.z * 2 + 1) * (ZELLE_M / 2),
       },
       lichteHoehe: (obenStufen(gitter, zelle) - bodenStufen(zelle)) * HOEHEN_SCHRITT_M,

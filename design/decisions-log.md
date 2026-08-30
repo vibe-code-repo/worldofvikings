@@ -1604,3 +1604,131 @@ ohne das bliebe er auch dann grün, wenn der Bauer die Umkehr wieder verlöre.
 dem zuletzt geänderten Modul. Gefunden hat es erst eine Messung an der Zwischen-
 stufe — dem GeometryBuffer —, nicht am Endbild. Wo ein Effekt „global" statt
 lokal wirkt, ist meist seine Eingabe verdreht und nicht sein Parameter falsch.
+
+---
+
+## 2026-08-30 · AP4/AP-Bauer · Treppen waren tote Zweige — der Generator baute Schächte, nie Stufen
+
+**Befund (gemessen, nicht vermutet):** Im Spiel lag an jedem Aufgang ein
+**flacher Boden**. `shared/src/dungeon2/builder.ts` behauptet ab `baueStufen()`
+„acht Stufenquader entlang der Neigungsachse". Die Zählung am erzeugten Grab
+(Seed 2, STEINGRAB):
+
+| | Treppenzellen | `stufe`-Stücke | Kollision `rampe` |
+|---|---|---|---|
+| vorher | **0** | **0** | **0** |
+| nachher | 12 | 96 | 12 |
+
+**Ursache:** `baueStufen()` war unerreichbar. `stempelSetzen()` (`cells.ts`)
+schreibt jeder Zelle `art = Boden`; die einzige Stelle, an der `generator.ts`
+die Art überschrieb, setzte **`Schacht`** — für beide Zellen des
+`treppe`-Stempels, auf zwei Ebenen übereinander. Ein Schacht ist ein Loch: die
+Ebene darüber war erreichbar (`erreichbareZellen()` läuft senkrecht durch
+Schächte), aber es gab nichts zum Hinaufsteigen — acht Meter Luft. Die Regel
+`treppe-anschluss` und die Rampenrechnung im Client waren damit ebenfalls
+ungeprüfter Code; `client/test/dungeon2-bauer.ts` sagte es sogar wörtlich: „Der
+Generator erzeugt über 120 Seeds KEINE einzige Treppenzelle (gemessen)."
+
+**Entscheidung 1 — der Aufgang ist ein Treppenhaus aus DREI Zellen:** zwei
+`Treppe`-Zellen auf der unteren Ebene (je 8 Höhenstufen = 4 m Anstieg über eine
+4-m-Zelle, also 45°) und darüber die `Schacht`-Mündung, in die der obere Lauf
+austritt. Zwei Läufe, weil 16 Höhenstufen durch 2 ganzzahlig teilbar sind und
+durch 3 nicht; ein einziger Lauf müsste 8 m auf 4 m schaffen (63°) — das ist
+eine Leiter, keine Treppe.
+
+**Entscheidung 2 — das obere Ende einer Treppe darf senkrecht sein.** Die Regel
+`treppe-anschluss` verlangte an beiden Enden eine begehbare Nachbarzelle **auf
+derselben Ebene**. Damit war ein Aufgang zwischen zwei Ebenen im eingefrorenen
+Format **nicht ausdrückbar**. Sie akzeptiert jetzt zusätzlich die
+Schachtmündung direkt über der Zelle; `baueStufen()` misst den Anstieg an
+derselben Stelle (`anstiegStufen()`).
+
+**Entscheidung 3 — `ebenen-abstand` gilt nicht unter einem Schacht.** Steht ein
+`Schacht` unmittelbar über einer offenen Zelle, lässt `hatBodenPlatte()` die
+Bodenplatte und `hatDeckenPlatte()` die Deckenplatte weg, und `obenStufen()`
+zieht **eine** lichte Säule durch. Es gibt dort keine zwei Platten, die sich
+durchdringen könnten — die Regel prüfte ein Bauteil, das der Bauer nie baut,
+und verbot genau den Aufstieg, für den es den Schacht gibt.
+
+**Entscheidung 4 — `erreichbareZellen()` hängt am Schacht, nicht am Herkommen.**
+Nach OBEN geht es, wenn über einem ein Schacht steht (dieselbe Bedingung, unter
+der `hatBodenPlatte()` die Platte weglässt), nach UNTEN, wenn man selbst der
+Schacht ist. Vorher war die Verbindung einseitig; ein Treppenlauf, der in eine
+Mündung austritt, war von unten her eine Sackgasse — sichtbar erst als „obere
+Ebene nicht erreichbar".
+
+**Entscheidung 5 — ein Treppenhaus ist eine Röhre.** Aus den Läufen wächst
+nichts nach (P2/P2b überspringen sie), ihre Flanken sind keine
+Schleifen-Kandidaten (P5) und werden zugemauert (P7). Grund: eine Schleife an
+der Flanke des oberen Laufs wird in P8 zu einer **Tür**, und
+`durchgangErzwungen` schlägt `wandErzwungen` — die Tür riss die gerade gesetzte
+Wand wieder auf und öffnete sie auf den massiven Unterbau der Treppe.
+
+**Zwei Fallen, die keine Prüfung meldete:**
+
+1. *Der Unterbau.* Zwischen den beiden Läufen steht **keine** Wand (sonst mauert
+   die Höhenregel §3.3 die Treppe in ihrer Mitte zu). Die Stufenquader des
+   oberen Laufs begannen aber erst an seiner eigenen Bodenunterkante — man sah
+   an dieser Kante **unter** den oberen Lauf ins Nichts. `sockelStufen()` zieht
+   die Quader jetzt bis zur Bodenunterkante der tieferen Nachbarin hinab. Der
+   **Rampenkörper bleibt unverändert**: `kollisionsForm()` im Client rechnet die
+   Lauffläche aus `ys0 = unten − BODEN_DICKE_STUFEN` zurück.
+2. *Der Kopfraum.* `TREPPE_KOPFRAUM_STUFEN = 6`, nicht 7. Die bindende Schranke
+   ist **nicht** `ebenen-abstand`: die Regel vergleicht `boden + decke` mit der
+   Sohle darüber und lässt die **Dicke** der Deckenplatte aus. Bei 7 blieb sie
+   grün, die Deckenplatte des unteren Laufs stand aber einen halben Meter über
+   der Sohle der Ebene darüber und legte sich quer in die Tür eines Raums, der
+   dort später wuchs — gefunden hat es allein der Begehbarkeitslauf
+   (`client/test/dungeon2-bauer.ts`, „Hänger").
+
+**`NavZelle.mitte.y` ist die Standhöhe in der ZELLMITTE**, bei einer Treppe also
+eine halbe Steigung über `Zelle.boden` (das laut Format die Höhe an der TIEFEN
+Kante ist). Vorher hätte jede Wegfindung und jede Spawnprüfung die Treppe zwei
+Meter zu tief gesehen.
+
+**Zwei Tests mussten sich ändern, weil sie das Probenraster maßen, nicht das
+Grab:**
+
+* `dungeon2-builder.ts` (B2) probte in der **Zellmitte** — die fällt bei einer
+  Treppenzelle genau auf die Naht zwischen dem vierten und fünften Stufenquader,
+  und `imFesten()` zählt einen Punkt genau auf einer Fläche (richtigerweise) als
+  außen. Eine nahtbreite Fuge ist kein Leck. Die Probe liegt jetzt ein halbes
+  Achtel daneben.
+* `dungeon2-bauer.ts` (Begehbarkeit) verglich die Bodenhöhe mit einer **Geraden
+  zwischen zwei Zellmitten**. Über eine Treppe ist der Boden flach, dann
+  geneigt, dann flach — die Gerade läge dort bis zu 2 m daneben, ohne dass ein
+  einziger Schritt zu groß wäre. Gemessen wird jetzt die **Stetigkeit von Probe
+  zu Probe**: wer die Gerade prüft, verbietet Rampen; wer die Stetigkeit prüft,
+  verbietet Stürze. Gemessene Strecke stieg von 3304 m auf **4796 m** — die
+  Treppen sind jetzt begehbar.
+
+**Wächter.** Der Fehler hatte in **keiner** Zählung ein Symptom: acht
+Stufenquader entstehen auch bei Anstieg 0, jeder Manifold- und Dichtheitstest
+bleibt grün, und das Grab sieht vollständig aus. Gemessen wird deshalb die
+**Zahl der verschiedenen Oberkanten** je Treppenzelle — acht, nicht eine:
+
+* `shared/test/dungeon2-builder.ts` (E): Treppenzellen kommen in erzeugten
+  Grabmälern vor, jede liefert acht **steigende** Quader, und jeder Lauf
+  überwindet genau eine halbe Ebene (4 m). Gegenprobe: nimmt man den senkrechten
+  Zweig aus `anstiegStufen()` heraus, meldet der Test „8 Stufenquader mit **1**
+  verschiedenen Oberkanten".
+* `client/test/dungeon2-bauer.ts`: in der Zellsäule einer Treppe liegen acht
+  verschiedene waagerechte Flächenhöhen — die Trittflächen erreichen die
+  fertigen Meshes.
+
+**Eingefrorene Tabellen neu ausgegeben** (`dungeon2-generator.ts`,
+`dungeon2-builder.ts`, `golden/dungeon2-e2e.json`): der Grundriss ändert sich
+absichtlich, weil ein Aufgang jetzt drei Zellen statt zwei belegt.
+
+**Bildbeweis** (Seed 2, Vorschau auf :5901, Chromium mit ANGLE/Vulkan):
+`~/.cache/wov-tripo-test/dungeon2-treppe.png` (vom Fuß, Zelle (−2,6)) und
+`dungeon2-treppe-oben.png` (aus der Mündung auf Ebene 1, 8 m, 45° herab). Die
+Stufen sind plastisch, das Triplanar liegt auf den Trittflächen, am Übergang
+Boden→Treppe und Treppe→Mündung ist kein Loch. Die Vorschau nimmt dafür jetzt
+zusätzlich `?neigung=Grad` (Nickwinkel) — ohne ihn lässt sich eine Treppe nur
+von der Seite zeigen, nie von oben herab.
+
+**Lehre:** Ein Zweig, den kein Test je betritt, ist kein Code, sondern eine
+Vermutung — und ein Kommentar, der das offen sagt („der Generator erzeugt über
+120 Seeds KEINE einzige Treppenzelle"), ist ein Fehlerbericht, den niemand als
+solchen gelesen hat.

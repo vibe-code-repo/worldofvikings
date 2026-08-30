@@ -766,3 +766,122 @@ Teilbau, der den Spieler woandershin setzt, wäre ein Fehler mit dem Symptom
 „manchmal steht man falsch". Huelle und Prüfsumme dagegen sind Eigenschaften der
 Ausgabe; eine „Prüfsumme des Ganzen" an einem Teil wäre eine Lüge über etwas,
 das gar nicht gebaut wurde.
+
+---
+
+## 2026-08-30 · AP5 · `dungeon2-schichten.ts` wird in AP5 nachgeholt, nicht in AP0
+
+**Lücke:** `design/ARCHITECTURE.md` weist den Schichtentest (§4, AP0, Umfang 2)
+ausdrücklich AP0 zu. AP0 ist laut allen vier bisherigen Arbeitsberichten
+(AP1–AP4) nie gelaufen — es gibt weder `LEGACY.md` noch die Trennung von
+`dungeonGenerator.ts`. Der AP5-Arbeitsauftrag verlangt aber wörtlich
+„Schichtentest NEGATIV geprüft" als Teil der Beweis-Suite.
+
+**Entscheidung:** `shared/test/dungeon2-schichten.ts` wird hier gebaut, mit dem
+vollen Umfang aus ARCHITECTURE §4/AP0 (alle sieben verbotenen Muster,
+negativ geprüft). Die Datei ersetzt AP0s Umfang 2 vollständig; die übrigen
+AP0-Aufgaben (Datei teilen, `LEGACY.md`) bleiben offen und sind nicht Teil von
+AP5.
+
+**Grund:** Der Arbeitsauftrag ist eindeutiger als die Abhängigkeitsreihenfolge
+im Dokument, und der Test ist ohnehin unabhängig von AP0s anderen zwei
+Aufgaben (Datei-Trennung, `LEGACY.md`) — er braucht nur die bereits
+existierenden `shared/src/dungeon2/*.ts`-Dateien. Ihn zurückzuhalten, bis AP0
+nachgeholt wird, hätte die Beweis-Suite unvollständig gelassen, ohne dass
+irgendetwas an AP0 dadurch schneller fertig würde.
+
+---
+
+## 2026-08-30 · AP5 · Zwei getrennte Scan-Durchläufe statt eines gemeinsamen
+
+**Lücke:** ARCHITECTURE nennt die verbotenen Muster als eine Liste, sagt aber
+nichts darüber, WIE gescannt wird — und die naheliegende Umsetzung (Kommentare
+und Zeichenketten vor dem Scan entfernen, wie AP1 es AP0 ausdrücklich als
+Warnung mitgab) widerspricht sich selbst bei Import-Pfaden: `import ... from
+'@babylonjs/core'` benutzt eine Zeichenkette als Modulpfad. Wer erst alle
+Zeichenketten entfernt, entfernt genau den Beweis, den er sucht.
+
+**Entscheidung:** Import-/Require-/dynamische-Import-Spezifizierer werden mit
+einer eigenen Regex auf dem ROHEN Quelltext gesucht (`from '...'`,
+`require('...')`, `import('...')`). Alle übrigen Muster (`window`, `document`,
+`Math.random`, `Date.now`, `performance.now`, `Math.sin`, `Math.cos`,
+`insideUnitCircle`) werden erst NACH Entfernen von Kommentaren und
+Zeichenketten gesucht.
+
+**Grund:** Die Pflichtkommentare dieses Vorhabens nennen die verbotenen Muster
+wörtlich (`generator.ts` Kopf: „kein `Math.random`, keine Uhr...") — ein
+Scanner ohne Bereinigung färbt jede korrekt dokumentierte Datei rot. Ein
+Scanner, der ALLES bereinigt, findet nie einen echten `@babylonjs`-Import,
+weil der Pfad selbst eine Zeichenkette ist. Beide Fehler sind über
+synthetische Positiv-/Negativ-Fixturen im Test selbst nachgewiesen (nicht nur
+einmalig von Hand geprüft), plus eine Gegenprobe, dass die echten Dateien
+`node:` und „Babylon" tatsächlich wörtlich in Kommentaren nennen — sonst wäre
+die Bereinigung nie gefordert gewesen.
+
+---
+
+## 2026-08-30 · AP5 · Browser-Abgleich über `http.server` + In-Page-Vergleich, nicht `file://` + Rücktransport
+
+**Lücke:** ARCHITECTURE nennt eine „Browser-Prüfseite" ohne Verfahren. Der
+naheliegende Weg — Seite per `file://` öffnen, Ergebnistext zurück ins
+Gespräch holen, dort mit den Node-Werten vergleichen — scheiterte praktisch:
+`navigate` auf eine `file://`-URL blockierte wiederholt bis zum Timeout
+(https-URLs funktionierten sofort), und der Ergebnistext (1000 Hash- plus 40
+Bauwerte als JSON) sprengte die Ausgabegrenze des Text-Werkzeugs.
+
+**Entscheidung:** Die Seite wird per `python3 -m http.server` aus
+`shared/test/` lokal ausgeliefert (`http://127.0.0.1:8934/...`), NICHT per
+`file://`. Der Vergleich gegen die Golden-Dateien läuft als `fetch()` +
+Vergleichsschleife INNERHALB der Seite (per `javascript_tool`), nicht durch
+Rücktransport der vollen Werte-Listen. Zurückgegeben wird nur eine
+Zusammenfassung (Anzahl Werte, Anzahl Abweichungen, erste Abweichung).
+Zusätzlich negativ geprüft: ein absichtlich verfälschter Golden-Wert lässt den
+Vergleich genau eine Abweichung melden, bevor die Sabotage zurückgenommen
+wurde (im Speicher der Seite, nicht in der Datei — die Golden-Datei blieb
+unangetastet).
+
+**Grund:** `file://` in dieser Umgebung ist unzuverlässig (vermutlich eine
+Berechtigungsabfrage, die hier nie beantwortet wird); ein lokaler HTTP-Server
+ist ohnehin das im Projekt etablierte Muster (`vite preview`). Ein
+In-Page-Vergleich ist zudem die einzige Art, 1000 Werte zu prüfen, ohne an die
+Textgrenze des Werkzeugs zu stoßen — und er prüft dieselbe Sache: JS-Werte, die
+im Browser gerechnet wurden, gegen die in Node eingefrorenen.
+
+---
+
+## 2026-08-30 · AP5 · Seed-Umfang: 1000 für `hashPos` (billig), 40 für volle Geometrie (teuer)
+
+**Lücke:** ARCHITECTURE AP1-Kriterium (c) nennt „1000 eingefrorene
+`hashPos`-Werte", der AP5-Arbeitsauftrag sagt nur „mehrfach" für die
+Ende-zu-Ende-Prüfung, ohne eine Zahl zu nennen.
+
+**Entscheidung:** Die `hashPos`-Tabelle hat exakt 1000 Einträge (reine
+Ganzzahlarithmetik, im Browser wie in Node Millisekunden). Die
+Ende-zu-Ende-Prüfung (Layout **und** volle Geometrie, blockweise) läuft über
+40 Seeds — dieselbe Größenordnung, die AP3/AP4 für vollständige Geometrie-Sweeps
+gewählt haben (10–50 Seeds je nach Prüfung), weil ein voller Bau pro Seed
+sowohl in Node als auch im Browser-Bundle Sekunden statt Millisekunden kostet.
+
+**Grund:** Beide Zahlen sind an die Kosten der jeweiligen Operation angepasst,
+nicht an eine runde Zahl. Der eigentliche Beweis (Node ≡ Browser) ist bei 40
+Seeds genauso hart wie bei 1000 — ein Determinismus-Fehler zeigt sich beim
+ersten abweichenden Seed, nicht erst beim tausendsten.
+
+---
+
+## 2026-08-30 · AP5 · Browser-Entry dupliziert die Erzeugerfunktionen, statt sie zu importieren
+
+**Lücke:** `dungeon2-determinismus.ts` und `dungeon2-browser-check.ts`
+brauchen dieselben `seedsFuer`/`hashEingabeFuer`-Hilfsfunktionen.
+
+**Entscheidung:** Die Browser-Seite schreibt diese zwei kleinen Funktionen
+noch einmal aus, statt sie aus der Node-Testdatei zu importieren.
+
+**Grund:** Ein gemeinsames drittes Modul für zwei Testdateien wäre eine neue,
+ungeprüfte Kopplungsstelle; ein Import der Node-Testdatei in ein
+Browser-Bundle würde `node:fs`/`node:path` mitziehen (die Datei liest/schreibt
+Golden-Dateien) und entweder das Bundle sprengen oder den Schichtentest-Sinn
+für Testcode ad absurdum führen. Die Duplikation ist absichtlich: zwei
+unabhängig geschriebene Fassungen derselben Zahlenreihe sind ein stärkerer
+Zeuge als eine geteilte Fassung, die auf beiden Seiten gleich falsch sein
+könnte.

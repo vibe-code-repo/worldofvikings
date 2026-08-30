@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<title>Dungeon 2.0 — Browser-Abgleich (AP5)</title>
+</head>
+<body>
+<!--
+  Statische Pruefseite fuer AP5, siehe dungeon2-browser-check.ts. Kein
+  Rendering des Dungeons — nur Zahlen als Text, damit die Seite ohne GPU und
+  ohne Spielserver laeuft (file:// genuegt).
+  Static test page for AP5, see dungeon2-browser-check.ts. No dungeon
+  rendering — just numbers as text, so the page runs without a GPU and
+  without a game server (file:// is enough).
+-->
+<h1>Dungeon 2.0 — Determinismus-Abgleich (Browser)</h1>
+<p>Gegen <code>golden/dungeon2-hashpos-1000.json</code> und <code>golden/dungeon2-e2e.json</code> halten.</p>
+<pre id="ergebnis">(rechnet...)</pre>
+<script src="./dungeon2-browser-check.bundle.js"></script>
+</body>
+</html>

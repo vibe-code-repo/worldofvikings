@@ -1,5 +1,10 @@
 node_modules/
 dist/
+# AP5-Browser-Pruefseite: Bundle ist ein Build-Ausgabeprodukt, siehe
+# shared/test/dungeon2-browser-check.ts.
+# AP5 browser test page: the bundle is a build output, see
+# shared/test/dungeon2-browser-check.ts.
+shared/test/dungeon2-browser-check.bundle.js
 # Zwischenstaende des atomaren Client-Tauschs in wov-update.sh. Der EXIT-Trap
 # raeumt sie weg; der Eintrag hier ist der zweite Guertel.
 client/dist.neu/

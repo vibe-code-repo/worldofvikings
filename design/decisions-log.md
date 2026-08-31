@@ -2727,3 +2727,61 @@ Zahl, die im Spiel eine andere Wirkung hat.
 (Die Sonnenintensität ist in `Crypt` ohnehin 0 — die Innenumgebung hat keine.
 Das Grundlicht kommt dort aus Hemisphäre und Umgebung, und genau die beiden
 fallen bei `ambient=0` auf null.)
+
+### Nachweis auf play.dev (wov-dev), 31.08.2026
+
+**Testcharakter, kein Konto, kein Passwort.** Der Client prüft an einem
+Sitzungstoken nur die FORM und das Ablaufdatum (die Signatur kann er nicht
+prüfen, das Geheimnis liegt im Server). Ein formgerechtes, nicht abgelaufenes,
+aber ungültig signiertes Token passiert diese Weiche — und der Server würfelt
+daraufhin eine FRISCHE Identität (`NetManager`, F3). Der Name kommt dann aus
+`?name=`. Mikes Charakter und `steingrab-7` sind unberührt geblieben.
+
+Zwei Fallen aus diesem Lauf, weil beide Zeit gekostet haben und beide
+wiederkommen:
+
+1. **Basic-Auth NICHT in die Adresse einbetten**, sondern über Playwrights
+   `httpCredentials`. Eingebettete Zugangsdaten vererben sich auf Vites
+   `/@fs/`-Adressen, und `fetch` verweigert eine URL mit Zugangsdaten — Folge:
+   `[physics] Havok konnte nicht geladen werden`, also ein Grab ohne
+   Kollision und eine Fußmessung ohne Boden. Sieht aus wie ein Fehler des
+   Bauers, ist einer der Messanordnung. (Ergänzt die Vault-Notiz
+   „Browser-Basic-Auth eingebettete Zugangsdaten".)
+2. **Je Lauf ein eigener Name.** Zweimal derselbe Name, während der vorige Peer
+   noch hängt, heißt „Name already in use" — und der Lauf stirbt in einem
+   Timeout, der nach einem kaputten Client aussieht.
+
+**Gegenprobe zu Befund 1, gemessen am NOCH NICHT ausgerollten Stand** (das
+Fenster dafür gibt es nur einmal): Die Figur stand in `steingrab-2` auf
+y = 0,00; `world.getGroundHeight()` an derselben Stelle lieferte
+**−55,47 m**. Das war die Fläche, gegen die die Fußanpassung maß — 55 Meter
+unter dem Boden, auf dem die Figur stand. `messeFussVersatz()` verlangte
+folglich in jedem Bild die volle Absenkung und lief in den Deckel
+`FUSS_ABSENK_MAX`; deshalb war der Fehler auch konstant und nicht schwankend.
+
+**Nach dem Ausrollen, gemessen an derselben Stelle:**
+
+| | |
+|---|---|
+| Renderer | ANGLE (AMD Radeon RX 7900 XT, RADV NAVI31) — kein SwiftShader |
+| Prüfsumme Server == Client | `185c11a6` |
+| Sohle über Boden | **−1,3 · 10⁻⁷ m** (Sonde `bodenY` = 0,000) |
+| Fußversatz | −0,00007 m (vorher: der Deckel −0,35 m) |
+| Fackeln | 50 im Grab, 31 im Umkreis, **16 von 16 brennen** — HUD `fackeln 16/16 array` |
+| Grundhelligkeit `steingrab-2` | ambientLicht 1, verdrahtet, Sonne 0 / Hemisphäre 0,868 / Umgebung 1 |
+| Grundhelligkeit `steingrab-dunkel` | ambientLicht 0 → Sonne 0 / Hemisphäre **0** / Umgebung **0**, Fackeln weiter 16/16 |
+
+Die Zeile `fackeln 16/16 array` im Debug-Overlay ist die unmittelbare
+Gegenschrift zu Mikes `fackeln 0/16 array`.
+
+**Beweisbilder:** `~/.cache/wov-tripo-test/dungeon2-fixes4.png` (Testcharakter
+vor einer Wandfackel: Fackel AN der Wand, Lichtschein auf dem Mauerwerk, Füße
+flach auf der Bodenplatte) und `~/.cache/wov-tripo-test/dungeon2-dunkel.png`
+(dieselbe Stelle in `steingrab-dunkel`, `ambient=0` — nur noch Fackellicht,
+die Figur als Schattenriss, die Nachbargänge schwarz).
+
+**Angelegt für den Nachweis:** `steingrab-dunkel`
+(`dungeon create2 steingrab 2 steingrab-dunkel 0`) — dasselbe Layout wie
+`steingrab-2`, nur ohne Eigenhelligkeit. Kann gelöscht werden
+(`dungeon delete steingrab-dunkel`), ist aber als lebendes Beispiel des
+Merkmals nützlich.

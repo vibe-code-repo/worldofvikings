@@ -61,6 +61,7 @@ import {
   findPrefabByHash,
   interiorEnvironment,
   isInDungeonBand,
+  dungeon2,
 } from '@wov/shared';
 // Serverseitige Weltdaten: NICHT ueber den Barrel, sondern ueber den
 // expliziten Pfad — sie tragen die Rohdaten der Weltvorlagen (Pieces bzw.
@@ -1638,6 +1639,12 @@ export class WovServer {
     };
     if (!peer.isAdmin) return sendData(false, 'Keine Berechtigung');
     const id = requested || peer.dungeonId || '';
+    // AP13: Beide Formate reisen als JSON durch DASSELBE Paket. Der Editor
+    // erkennt an `version >= 10`, welches er vor sich hat — dieselbe Weiche
+    // wie im Sanitizer, und deshalb braucht es kein zweites Paket.
+    // AP13: both formats travel as JSON through THE SAME packet.
+    const doc2 = id ? this.dungeons.getDokument2(id) : undefined;
+    if (doc2) return sendData(true, doc2.id, JSON.stringify(doc2));
     const doc = id ? this.dungeons.getDocument(id) : undefined;
     if (!doc) return sendData(false, `Unbekannter Dungeon: ${id || '(keiner)'}`);
     sendData(true, doc.id, JSON.stringify(doc));
@@ -1666,6 +1673,27 @@ export class WovServer {
       raw = JSON.parse(json);
     } catch {
       return sendData(false, 'Ungültiges JSON');
+    }
+    // Die Weiche, ein zweites Mal (AP13). Sie steht hier und nicht in
+    // `upsertDocument`, weil die beiden Rückgabetypen verschieden sind —
+    // und weil ein 2.0-Dokument im Alt-Sanitizer als „ungültig" gemeldet
+    // würde statt als „falscher Weg".
+    // The switch, a second time.
+    if (dungeon2.istDokument2(raw)) {
+      const erg2 = this.dungeons.upsertDokument2(raw);
+      if (!erg2) return sendData(false, 'Dokument 2.0 abgelehnt (Thema/ID/Seeds ungültig)');
+      const { doc: d2, instanzErhalten: erhalten2 } = erg2;
+      if (peer.dungeonId === d2.id && !erhalten2) this.enterDungeon(peer, d2.id);
+      sendData(
+        true,
+        `Gespeichert: ${d2.id} (2.0, Thema ${d2.thema}, Prüfsumme ${d2.pruefsumme})`,
+        JSON.stringify(d2)
+      );
+      console.log(
+        `[Dungeon] '${peer.name}' saved 2.0 document '${d2.id}' ` +
+          `(${d2.thema}, ${d2.pruefsumme}${erhalten2 ? ', instance kept' : ''})`
+      );
+      return;
     }
     const ergebnis = this.dungeons.upsertDocument(raw);
     if (!ergebnis) return sendData(false, 'Dokument abgelehnt (Basis/ID/Räume ungültig)');
@@ -2835,7 +2863,20 @@ export class WovServer {
     pos: Vector3,
     dungeonId: string | null,
     interiorEnv = '',
-    worldId: string = HAUPTWELT_ID
+    worldId: string = HAUPTWELT_ID,
+    /**
+     * AP13: Der Layout-Deskriptor einer 2.0-Instanz — Thema, Seeds,
+     * Prüfsumme, Layout-Formatversion. `null` heisst „Altbestand oder
+     * Oberwelt"; der Client baut dann nichts selbst.
+     *
+     * ÜBER DIE LEITUNG REIST DER DESKRIPTOR, NIE GEOMETRIE. Ein Grab sind
+     * hier vier Zahlen und zwei Zeichenketten statt einiger hundert
+     * Kilobyte — und die Prüfsumme ist zugleich der Zeuge dafür, dass beide
+     * Seiten dasselbe erzeugt haben.
+     * AP13: the layout descriptor of a 2.0 instance. THE DESCRIPTOR TRAVELS
+     * THE WIRE, NEVER GEOMETRY.
+     */
+    deskriptor: dungeon2.LayoutDeskriptor | null = null
   ): void {
     // Weltwechsel-Seam (Review 15): Die Signatur trägt die Zielwelt schon —
     // der eigentliche Kontext-Swap ist das Housing-Folgeprojekt.
@@ -2859,6 +2900,18 @@ export class WovServer {
       w.writeBool(dungeonId !== null);
       w.writeString(dungeonId ?? '');
       w.writeString(interiorEnv);
+      // ANGEHÄNGTE Felder (dasselbe Muster wie bei PlayerState): Ein
+      // älterer Leser hört nach `interiorEnv` auf, ein neuerer liest
+      // weiter. Leeres `thema` heisst „kein 2.0" — ein eigenes Flagbyte
+      // wäre eine zweite Wahrheit über dieselbe Frage.
+      // APPENDED fields: an empty `thema` means "not 2.0".
+      w.writeString(deskriptor?.thema ?? '');
+      w.writeInt32(deskriptor?.seeds.architektur ?? 0);
+      w.writeInt32(deskriptor?.seeds.material ?? 0);
+      w.writeInt32(deskriptor?.seeds.deko ?? 0);
+      w.writeString(deskriptor?.pruefsumme ?? '');
+      w.writeInt32(deskriptor?.layoutVersion ?? 0);
+      w.writeString(deskriptor?.name ?? '');
     });
   }
 
@@ -2874,16 +2927,28 @@ export class WovServer {
     peer.dungeonId = dungeonId;
     instance.players.add(peer.name);
     const doc = this.dungeons.getDocument(dungeonId);
+    // AP13: Bei 2.0 kommt die Innen-Umgebung aus dem THEMA statt aus dem
+    // Kit — 2.0 hat keine Kits mehr. Die Aufrufstelle bleibt dieselbe, wie
+    // data-model.md §4.2 es zusagt.
+    // AP13: for 2.0 the interior environment comes from the THEME.
+    const doc2 = this.dungeons.getDokument2(dungeonId);
+    const deskriptor = doc2 ? dungeon2.deskriptorVon(doc2) : null;
+    const umgebung = doc2
+      ? dungeon2.themaFinden(doc2.thema)?.innenUmgebung ?? 'Crypt'
+      : doc
+        ? interiorEnvironment(doc.base)
+        : 'Crypt';
     this.teleportPeer(
       peer,
       this.dungeons.getSpawnPoint(instance),
       dungeonId,
-      doc ? interiorEnvironment(doc.base) : 'Crypt',
+      umgebung,
       // Die Welt der Instanz. Ab hier laeuft ALLES fuer diesen Peer dort:
       // ZDO-Sync, Bauen, Abbauen, Kaempfen, Gelaende — s. `welt(peer)`.
-      instance.welt.id
+      instance.welt.id,
+      deskriptor
     );
-    return { ok: true, message: `Dungeon betreten: ${doc?.name ?? dungeonId}` };
+    return { ok: true, message: `Dungeon betreten: ${doc2?.name ?? doc?.name ?? dungeonId}` };
   }
 
   /** Leave the current dungeon back to the stored overworld position. */
@@ -3125,6 +3190,7 @@ export class WovServer {
    *   dungeon list                      documents + live instances
    *   dungeon entrances                 world entrances + assignments
    *   dungeon create <base> [seed]      generate + save a new document
+   *   dungeon create2 <theme> [seed] [id]  generate + save a 2.0 document
    *   dungeon enter [id]                enter by id, or the nearest entrance
    *   dungeon leave                     back to the overworld
    *   dungeon assign <id>               assign nearest entrance (≤16 m) to id
@@ -3225,15 +3291,73 @@ export class WovServer {
       switch (sub) {
         case 'list': {
           const docs = this.dungeons.listDocuments();
-          if (docs.length === 0) {
+          const docs2 = this.dungeons.listDokumente2();
+          if (docs.length === 0 && docs2.length === 0) {
             return { ok: true, active: false, message: 'Keine Dungeons vorhanden' };
           }
-          const lines = docs.map((d) => {
-            const inst = this.dungeons.getInstance(d.id);
-            const live = inst ? ` [aktiv, ${inst.players.size} Spieler]` : '';
-            return `${d.id} (${d.base}, ${d.mode}, ${d.layout.rooms.length} Räume)${live}`;
-          });
+          const aktiv = (id: string): string => {
+            const inst = this.dungeons.getInstance(id);
+            return inst ? ` [aktiv, ${inst.players.size} Spieler]` : '';
+          };
+          const lines = [
+            ...docs.map(
+              (d) => `${d.id} (${d.base}, ${d.mode}, ${d.layout.rooms.length} Räume)${aktiv(d.id)}`
+            ),
+            // 2.0 zählt keine Räume, sondern Stempel — und das Dokument
+            // kennt sie gar nicht, es kennt nur das Rezept. Was hier steht,
+            // ist deshalb das Rezept, nicht sein Ergebnis.
+            // 2.0 documents know the recipe, not its result.
+            ...docs2.map(
+              (d) =>
+                `${d.id} (2.0, ${d.thema}, ${d.modus}, Seeds ` +
+                `${d.seeds.architektur}/${d.seeds.material}/${d.seeds.deko}, ` +
+                `Prüfsumme ${d.pruefsumme})${aktiv(d.id)}`
+            ),
+          ];
           return { ok: true, active: false, message: lines.join(' | ') };
+        }
+
+        // AP13: Ein 2.0-Dokument anlegen. Eigener Unterbefehl statt eines
+        // Schalters an `create`: Die beiden Formate teilen sich kein
+        // Argument — dort ein Kit, hier ein Thema — und ein Befehl, dessen
+        // Argumente von einem Schalter abhängen, ist ein Befehl, den man
+        // falsch aufruft.
+        // AP13: create a 2.0 document. Its own sub-command, because the two
+        // formats share no argument.
+        case 'create2': {
+          const thema = (args[0] ?? 'steingrab').toLowerCase();
+          if (dungeon2.themaFinden(thema) === undefined) {
+            const bekannt = dungeon2.THEMEN.map((t) => t.id).join(', ');
+            return {
+              ok: false,
+              active: false,
+              message: `Aufruf: dungeon create2 <thema> [seed] — bekannt: ${bekannt}`,
+            };
+          }
+          const seed = Number.isFinite(Number(args[1]))
+            ? Number(args[1]) | 0
+            : (Math.random() * 0x7fffffff) | 0;
+          // Drei Seeds aus einem: Wer nur eine Zahl nennt, will einen
+          // reproduzierbaren Dungeon, keine Seed-Verwaltung. Gemischt statt
+          // dreimal derselbe Wert — gleiche Seeds in drei Strömen wären drei
+          // gleich laufende Ströme.
+          // Three seeds from one — mixed, not the same value three times.
+          const seeds: dungeon2.LayoutSeeds = {
+            architektur: seed >>> 0,
+            material: dungeon2.mische(seed, 1),
+            deko: dungeon2.mische(seed, 2),
+          };
+          const doc = this.dungeons.erzeugeDungeon2(thema, seeds, args[2]);
+          if (!doc) {
+            return { ok: false, active: false, message: `Erzeugung fehlgeschlagen (${thema})` };
+          }
+          return {
+            ok: true,
+            active: false,
+            message:
+              `Dungeon 2.0 erzeugt: ${doc.id} (Thema ${doc.thema}, Seed ${seed}, ` +
+              `Prüfsumme ${doc.pruefsumme})`,
+          };
         }
 
         case 'entrances': {
@@ -3292,7 +3416,9 @@ export class WovServer {
 
         case 'assign': {
           const id = args[0];
-          if (!id || !this.dungeons.getDocument(id)) {
+          // Beide Formate: Ein Eingang darf auf ein 2.0-Dokument zeigen.
+          // Both formats: an entrance may point at a 2.0 document.
+          if (!id || !this.dungeons.hatDokument(id)) {
             return { ok: false, active: false, message: `Unbekannter Dungeon: ${id ?? '?'}` };
           }
           const entrance = this.dungeons.findEntranceNear(peer.position, 16);
@@ -3350,7 +3476,7 @@ export class WovServer {
             ok: false,
             active: false,
             message:
-              'Aufruf: dungeon list|entrances|create|enter|leave|assign|regen|reset|delete',
+              'Aufruf: dungeon list|entrances|create|create2|enter|leave|assign|regen|reset|delete',
           };
       }
     });

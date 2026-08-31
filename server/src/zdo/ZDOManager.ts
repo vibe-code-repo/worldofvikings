@@ -104,6 +104,23 @@ export class ZDOManager {
   // ── ZDO Creation ─────────────────────────────────────────────────
   // C++ reference: IZDOManager::CreateZDO(Hash prefabHash, Vector3 pos, Quaternion rot)
 
+  /**
+   * Die Kennung dieses ZDO-Raums für eine VORGEGEBENE Objektnummer.
+   *
+   * Für Aufrufer, die ihre Nummer selbst herleiten statt sie zu ziehen —
+   * die 2.0-Dungeon-Materialisierung leitet sie aus der Anker-Id ab, damit
+   * der Zustand einer geöffneten Truhe nicht auf eine andere wandert
+   * (`Materialisierung2.ts`). Der Getter existiert, damit die
+   * `serverUserId` privat bleiben kann: Wer eine Kennung braucht, fragt
+   * den Raum danach, statt sich seine Nutzerkennung auszuleihen.
+   * The id of this ZDO space for a GIVEN object number — for callers that
+   * derive their number instead of drawing it. The getter exists so that
+   * `serverUserId` can stay private.
+   */
+  zdoidFuer(id: number): ZDOID {
+    return new ZDOID(this.serverUserId, id);
+  }
+
   createZDO(prefabHash: Hash, position: Vector3, rotation: Quaternion = { x: 0, y: 0, z: 0, w: 1 }): ZDO {
     const zdoid = new ZDOID(this.serverUserId, this.nextUid++);
     const zdo = new ZDO(zdoid, prefabHash, position, rotation);

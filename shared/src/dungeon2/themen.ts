@@ -93,6 +93,17 @@ export interface ThemenProfil {
   readonly zielZellen: readonly [number, number];
   /** Verweis auf den Triplanar-Materialsatz des Bauers. / Builder material set. */
   readonly materialSatz: string;
+  /**
+   * Name der Innen-Umgebung (Unity `Location.m_interiorEnvironment`) — die
+   * Beleuchtung, die der Client in dieser Instanz erzwingt. Der Altbestand
+   * fuehrt dieselbe Zuordnung als `interiorEnvironment(base)` ueber das Kit
+   * (`shared/src/dungeons.ts`); 2.0 hat keine Kits mehr, also traegt sie das
+   * Thema. Muss ein Name aus `envData.json` sein.
+   * Name of the interior lighting environment the client forces inside this
+   * instance. Legacy keeps the same mapping keyed by kit; 2.0 has no kits, so
+   * the theme carries it. Must be a name from `envData.json`.
+   */
+  readonly innenUmgebung: string;
   /** Deko-Tabellen: Rolle -> gewichtete Prefabliste. / Decor tables: role -> prefabs. */
   readonly dekoTabellen: Readonly<Record<string, readonly PrefabGewicht[]>>;
 }
@@ -132,6 +143,30 @@ export const ROLLEN: readonly string[] = [
 /** Index einer Rolle in `ROLLEN`, oder -1. / Index of a role in `ROLLEN`, or -1. */
 export function rollenIndex(rolle: string): number {
   return ROLLEN.indexOf(rolle);
+}
+
+/**
+ * Die Rollen, die BEWEGLICH oder INTERAKTIV sind und deshalb als ZDO leben —
+ * alles andere baut der Client selbst aus dem Layout (`DungeonDeko`).
+ *
+ * Diese Liste ist die EINE Trennlinie zwischen Server und Client, und sie steht
+ * absichtlich hier und nicht zweimal: Der Server materialisiert genau diese
+ * Rollen (`Materialisierung2.ts`), der Client laesst genau diese Rollen beim
+ * Deko-Bau aus. Stuende sie zweimal, saehe ein Spieler eine Truhe doppelt —
+ * einmal als Thin Instance, einmal als Entity — und niemand haette einen
+ * Fehler gemacht.
+ *
+ * The roles that are MOVABLE or INTERACTIVE and therefore live as ZDOs —
+ * everything else the client builds itself from the layout. This list is the
+ * ONE dividing line between server and client, and it deliberately exists once:
+ * the server materialises exactly these roles, the client omits exactly these
+ * roles when building decor. Written twice, a player would see a chest twice.
+ */
+export const ROLLEN_MIT_ZDO: readonly string[] = ['truhe', 'spawner'];
+
+/** Gehoert diese Rolle dem Server? / Does this role belong to the server? */
+export function rolleHatZdo(rolle: string): boolean {
+  return ROLLEN_MIT_ZDO.includes(rolle);
 }
 
 /**
@@ -353,6 +388,12 @@ export const STEINGRAB: ThemenProfil = {
   tuerArten: ['steinplatte', 'holz', 'gitter', 'bogen'],
   zielZellen: [220, 340],
   materialSatz: 'barrow',
+  // Dieselbe Umgebung, die der Altbestand fuer `DG_Steingrab` fuehrt
+  // (`INTERIOR_ENV` in `shared/src/dungeons.ts`) — der Wechsel auf 2.0 soll das
+  // LICHT nicht mit umstellen, sonst misst man zwei Aenderungen als eine.
+  // The same environment legacy keeps for `DG_Steingrab` — moving to 2.0 must
+  // not also change the LIGHT, or two changes get measured as one.
+  innenUmgebung: 'Crypt',
   // Prefabnamen ohne Registry-Eintrag sind PLATZHALTER fuer die Tripo-Unikate
   // (Altar, Sarkophag, Saeule, Urne); der Bestuecker (eigenes Paket) gleicht
   // sie gegen `shared/src/prefabs.ts` ab. Der Generator liest diese Tabelle

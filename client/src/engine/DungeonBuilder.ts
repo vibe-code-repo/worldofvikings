@@ -607,10 +607,27 @@ export class DungeonBauer {
    * an `AssetManager` belongs to the SCENE and caches masters across every
    * prefab, the same way it does for the scattered outdoor world.
    */
-  async baueDeko(quelle: DekoModellQuelle): Promise<DekoBauStatistik> {
+  async baueDeko(
+    quelle: DekoModellQuelle,
+    /**
+     * Rollen, die hier NICHT gebaut werden, weil sie als ZDO vom Server
+     * kommen (`dungeon2.ROLLEN_MIT_ZDO`). Voreinstellung leer: Die Vorschau
+     * hat keinen Server und soll alles sehen; der Spielweg reicht die Liste
+     * herein. Ohne den Parameter stuende eine Truhe doppelt — einmal als
+     * Thin Instance, einmal als Entity —, und niemand haette einen Fehler
+     * gemacht.
+     * Roles NOT built here because they arrive as ZDOs from the server.
+     * Default empty: the preview has no server and should see everything.
+     */
+    ausgelasseneRollen: readonly string[] = []
+  ): Promise<DekoBauStatistik> {
     this.deko?.dispose();
     this.deko = new DungeonDeko(quelle);
-    this.dekoStatistik = await this.deko.baue(this.dekoTeile);
+    const teile =
+      ausgelasseneRollen.length === 0
+        ? this.dekoTeile
+        : this.dekoTeile.filter((t) => !ausgelasseneRollen.includes(t.rolle));
+    this.dekoStatistik = await this.deko.baue(teile);
     return this.dekoStatistik;
   }
 

@@ -474,10 +474,10 @@ sieht dieser Dungeon aus", nicht „woher kommt er".
 | Regel | Warum |
 |---|---|
 | Jede begehbare Zelle ist vom Eingang aus erreichbar (Flutfüllung über offene Kanten) | Ein abgeschnittener Raum ist unsichtbar kaputt |
-| `decke ≥ MIN_LICHTE_STUFEN` in jeder begehbaren Zelle | Sonst geduckt statt gewölbt |
+| Die **lichte Säule** (Decke durch offene Schächte hindurch minus Boden) `≥ MIN_LICHTE_STUFEN` in jeder begehbaren Zelle | Sonst geduckt statt gewölbt. NICHT das rohe Feld `decke`: Steht ein Schacht darüber, fällt die Deckenplatte weg und `decke` ist nur noch die Zahl, mit der der Stempel gesetzt wurde — ein Treppenlauf, der oben in eine Mündung austritt, wäre damit gleichzeitig „zu niedrig“ (decisions-log, 30.08.2026) |
 | Keine zwei begehbaren Zellen mit gleichem (x,z,ebene) | Der Zellenaufbau darf nicht doppelt belegen |
 | Zwei Ebenen übereinander: Deckenoberkante unten < Bodenunterkante oben | Die Z-Fighting-Rechnung hinter `EBENE_M = 8` |
-| Jede Treppenzelle hat oben und unten je eine begehbare Nachbarzelle | Treppe ins Nichts |
+| Jede Treppenzelle hat oben und unten je eine begehbare Nachbarzelle, und über ihrer **obersten Stufe** stehen `TREPPE_KOPFRAUM_STUFEN = 4` (2 m) frei | Treppe ins Nichts — und ein Lauf, unter dem man nicht durchkommt. Der Kopfraum wird ausdrücklich nicht an `MIN_LICHTE_STUFEN` gemessen: Ein Absatz ist kein Raum, und 4 m über jeder Stufe sind bei 8 m Ebenenhöhe und begehbarer Steigung nicht erreichbar. Gemessen: ein Raum über einem Lauf liess ihm 1,5 m, die Regel blieb stumm, die Spielerkapsel (1,8 m) kam nicht durch |
 | Jede Tür sitzt auf einer Kante zwischen zwei begehbaren Zellen | Türen im Fels |
 | Jeder Anker liegt in einer begehbaren Zelle; `Wand`-Anker an einer Kante mit Wand | Fackeln in der Luft |
 | `materialTag ≤ 5` | Overlays (6–9) sind Blend-Layer, keine Zellmaterialien (W5) |

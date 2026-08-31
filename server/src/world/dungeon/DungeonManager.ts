@@ -46,7 +46,9 @@ import {
   istEigenesModell,
   DUNGEON_DOCUMENT_VERSION,
   sanitizeDungeonDocument,
+  dungeon2,
 } from '@wov/shared';
+import { materialisiere2 } from './Materialisierung2.js';
 // Serverseitige Weltdaten: NICHT ueber den Barrel, sondern ueber den
 // expliziten Pfad — sie tragen die Rohdaten der Weltvorlagen (Pieces bzw.
 // Raum-Einrichtung) und haetten im Barrel jedes Client-Bundle aufgeblaeht.
@@ -92,6 +94,29 @@ export interface DungeonInstance {
   players: Set<string>;
   /** Für die Regeneration: letzter Zeitpunkt mit Spielern (ms epoch). */
   zuletztBetreten?: number;
+
+  // ── Dungeon Generator 2.0 (AP13) ─────────────────────────────────
+  // Zusatzfelder, KEIN zweiter Instanztyp: Betreten, Verlassen, Slots,
+  // Regeneration und die ZDO-Zerstörungsreihenfolge sollen für beide
+  // Formate genau derselbe Code bleiben. Ein `if` am Materialisieren ist
+  // billiger als eine zweite Instanzverwaltung, die zwei Jahre später
+  // auseinandergelaufen ist.
+  // Extra fields, NOT a second instance type: entering, leaving, slots,
+  // regeneration and the ZDO destruction order must remain exactly the
+  // same code for both formats.
+
+  /** Das ausgerollte 2.0-Layout — nur bei 2.0-Instanzen. / 2.0 layouts only. */
+  layout2?: dungeon2.DungeonLayout2;
+  /**
+   * Das Bauergebnis der Instanz. Es trägt den Spawnpunkt (ausdrücklich,
+   * nicht hergeleitet) und die Kollisions-/Navzellen, aus denen die
+   * Spawn-Platzprüfung und später die NPC-Wegfindung lesen.
+   * The instance's build result — carries the explicit spawn point and the
+   * collision/nav cells the spawn placement check reads from.
+   */
+  bau?: dungeon2.BauErgebnis;
+  /** Anker-Id → ZDO. Grundlage von `ankerAngleichen`. / Anchor id → ZDO. */
+  ankerZuZdo?: Map<number, ZDOID>;
 }
 
 /** 'Spawner_Skeleton_respawn_30' → 'Skeleton'; 'BonePileSpawner' → 'Skeleton'. */
@@ -130,6 +155,19 @@ interface EntranceFile {
 
 export class DungeonManager {
   private readonly documents = new Map<string, DungeonDocument>();
+  /**
+   * Die 2.0-Dokumente — eine ZWEITE Karte neben den alten, kein Union-Typ.
+   *
+   * Der Grund ist die Abnahmebedingung (a) aus AP13: „ein 2.0-Dokument läuft
+   * nachweislich NIE durch den Alt-Sanitizer und umgekehrt". Mit einer
+   * gemeinsamen Karte und einem Union-Typ wäre jede der rund zwei Dutzend
+   * Aufrufstellen (`doc.base`, `doc.layout.rooms`, der Editor, der
+   * Betriebsdienst) eine Stelle, an der man sich vertun kann. Zwei Karten
+   * sind die Aussage „das sind zwei Formate", und der Übersetzer hält sie.
+   * The 2.0 documents — a SECOND map beside the old one, not a union type.
+   * Two maps state "these are two formats", and the compiler holds it.
+   */
+  private readonly dokumente2 = new Map<string, dungeon2.DungeonDokument2>();
   private readonly instances = new Map<string, DungeonInstance>();
   private readonly entrances = new Map<string, DungeonEntrance>();
   private readonly freeSlots: number[] = [];
@@ -167,6 +205,18 @@ export class DungeonManager {
       if (!file.endsWith('.json') || file === 'entrances.json') continue;
       try {
         const raw = JSON.parse(readFileSync(join(this.dungeonsDir, file), 'utf-8'));
+        // DIE WEICHE (AP13). Sie sieht nur auf `version` — ein 2.0-Dokument
+        // kommt nie beim Alt-Sanitizer an und umgekehrt.
+        // THE SWITCH — it looks only at `version`.
+        if (dungeon2.istDokument2(raw)) {
+          const doc2 = dungeon2.sanitizeDungeonDokument2(raw);
+          if (doc2) {
+            this.dokumente2.set(doc2.id, doc2);
+          } else {
+            console.warn(`[Dungeon] ${file}: invalid 2.0 document — skipped`);
+          }
+          continue;
+        }
         const doc = sanitizeDungeonDocument(raw);
         if (doc) {
           this.documents.set(doc.id, doc);
@@ -192,11 +242,73 @@ export class DungeonManager {
       }
     }
 
-    if (this.documents.size > 0 || this.entrances.size > 0) {
+    if (this.documents.size > 0 || this.dokumente2.size > 0 || this.entrances.size > 0) {
       console.log(
-        `[Dungeon] Loaded ${this.documents.size} document(s), ${this.entrances.size} entrance(s)`
+        `[Dungeon] Loaded ${this.documents.size} document(s), ` +
+          `${this.dokumente2.size} 2.0 document(s), ${this.entrances.size} entrance(s)`
       );
     }
+  }
+
+  // ── Dokumente 2.0 (AP13) ─────────────────────────────────────────
+
+  getDokument2(id: string): dungeon2.DungeonDokument2 | undefined {
+    return this.dokumente2.get(id);
+  }
+
+  listDokumente2(): dungeon2.DungeonDokument2[] {
+    return [...this.dokumente2.values()];
+  }
+
+  /**
+   * Gibt es zu dieser Kennung überhaupt ein Dokument — gleich welchen
+   * Formats? Die Aufrufstellen, die nur „kenne ich das?" fragen wollen
+   * (`dungeon enter`, der Editor-Weg), sollen sich nicht entscheiden müssen.
+   * Is there any document under this id, whichever format?
+   */
+  hatDokument(id: string): boolean {
+    return this.documents.has(id) || this.dokumente2.has(id);
+  }
+
+  /** Persist a (sanitized) 2.0 document and register it. */
+  saveDokument2(doc: dungeon2.DungeonDokument2): void {
+    this.dokumente2.set(doc.id, doc);
+    mkdirSync(this.dungeonsDir, { recursive: true });
+    const path = join(this.dungeonsDir, `${doc.id}.json`);
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, JSON.stringify(doc, null, 1));
+    renameSync(tmp, path);
+  }
+
+  /**
+   * Ein erzeugtes 2.0-Dokument anlegen und ablegen. Gegenstück zu
+   * `createGenerated`, nur ohne Kit: Thema und Seeds sind das ganze Rezept.
+   * Create and persist a generated 2.0 document — the counterpart to
+   * `createGenerated`, only without a kit: theme and seeds are the whole
+   * recipe.
+   */
+  erzeugeDungeon2(
+    thema: string,
+    seeds: dungeon2.LayoutSeeds,
+    id?: string
+  ): dungeon2.DungeonDokument2 | null {
+    const kennung = id ?? `${thema}-${(seeds.architektur >>> 0).toString(16)}`;
+    const name = `${thema} #${(seeds.architektur >>> 0).toString(16)}`;
+    const doc = dungeon2.erzeugeDokument2(kennung, name, thema, seeds);
+    if (!doc) return null;
+    this.saveDokument2(doc);
+    return doc;
+  }
+
+  /**
+   * Der Deskriptor einer 2.0-Instanz für das Teleportpaket — Thema, Seeds,
+   * Prüfsumme, Layout-Formatversion. Über die Leitung reist er, nie die
+   * Geometrie.
+   * The descriptor of a 2.0 instance for the teleport packet.
+   */
+  deskriptor2(dungeonId: string): dungeon2.LayoutDeskriptor | null {
+    const doc = this.dokumente2.get(dungeonId);
+    return doc ? dungeon2.deskriptorVon(doc) : null;
   }
 
   getDocument(id: string): DungeonDocument | undefined {
@@ -231,6 +343,11 @@ export class DungeonManager {
    * dort, wo er steht.
    */
   upsertDocument(raw: unknown): { doc: DungeonDocument; instanzErhalten: boolean } | null {
+    // Dieselbe Weiche wie in `load()`. Ein 2.0-Dokument darf hier nicht
+    // durchrutschen: Der Alt-Sanitizer würde es an `base` scheitern lassen
+    // und `null` melden — „ungültig" statt „falscher Weg".
+    // The same switch as in `load()`.
+    if (dungeon2.istDokument2(raw)) return null;
     const doc = sanitizeDungeonDocument(raw);
     if (!doc) return null;
     const vorher = this.documents.get(doc.id);
@@ -256,8 +373,49 @@ export class DungeonManager {
     return { doc, instanzErhalten: false };
   }
 
+  /**
+   * Ein 2.0-Dokument annehmen (Editor-Weg).
+   *
+   * Verglichen wird die PRÜFSUMME, nicht `JSON.stringify` — sauberer und
+   * billiger als ein Stringvergleich, und es fällt keine neue Eigenschaft
+   * still durch, weil die Prüfsumme über die Kanonisierung des GANZEN
+   * Layouts läuft. Anker gehen NICHT in diesen Vergleich ein: Sie sind
+   * genau das, was sich ändern darf, ohne dass die Instanz abgerissen wird
+   * (sonst teleportiert jede gesetzte Fackel den Spieler an den Eingang).
+   *
+   * Accept a 2.0 document. The CHECKSUM is compared, not `JSON.stringify`.
+   * Anchors are excluded from that comparison: they are exactly what may
+   * change without tearing the instance down.
+   */
+  upsertDokument2(
+    raw: unknown
+  ): { doc: dungeon2.DungeonDokument2; instanzErhalten: boolean } | null {
+    if (!dungeon2.istDokument2(raw)) return null;
+    const doc = dungeon2.sanitizeDungeonDokument2(raw);
+    if (!doc) return null;
+    const vorher = this.dokumente2.get(doc.id);
+    this.saveDokument2(doc);
+
+    const instance = this.instances.get(doc.id);
+    const nurAnker =
+      instance !== undefined &&
+      vorher !== undefined &&
+      dungeon2.pruefsummeOhneAnker(vorher) === dungeon2.pruefsummeOhneAnker(doc);
+
+    if (nurAnker) {
+      this.ankerAngleichen(instance, doc);
+      return { doc, instanzErhalten: true };
+    }
+    this.destroyInstance(doc.id);
+    return { doc, instanzErhalten: false };
+  }
+
   deleteDocument(id: string): boolean {
-    if (!this.documents.delete(id)) return false;
+    // Beide Kartensätze, EIN Löschweg: Die Eingangs-Zuordnungen, die
+    // Instanz und die Datei sind für beide Formate dieselben Dinge.
+    // Both maps, ONE delete path.
+    const geloescht = this.documents.delete(id) || this.dokumente2.delete(id);
+    if (!geloescht) return false;
     this.destroyInstance(id);
     // Drop entrance assignments pointing at the deleted dungeon.
     for (const [key, e] of this.entrances) {
@@ -492,6 +650,12 @@ export class DungeonManager {
     const existing = this.instances.get(dungeonId);
     if (existing) return existing;
 
+    // 2.0 zuerst — die beiden Kartensätze sind disjunkt (die Weiche in
+    // `load()`), die Reihenfolge ist also nur Lesbarkeit, kein Vorrang.
+    // 2.0 first — the two maps are disjoint, so the order is readability.
+    const doc2 = this.dokumente2.get(dungeonId);
+    if (doc2) return this.instanz2Anlegen(doc2);
+
     let doc = this.documents.get(dungeonId);
     if (!doc) {
       // Lazy auto-document: an entrance carries the recipe (base+seed),
@@ -524,6 +688,109 @@ export class DungeonManager {
         `${doc.layout.rooms.length} rooms, ${zdoids.length} ZDOs`
     );
     return instance;
+  }
+
+  /**
+   * Eine 2.0-Instanz anlegen (AP13).
+   *
+   * ALLES ab hier ist derselbe Weg wie für den Altbestand: Slot, Ursprung,
+   * `weltAnlegen`, Eintrag in `instances`. Nur das Materialisieren ist ein
+   * anderes — und genau darum geht es beim Wort „Adapter".
+   * EVERYTHING from here on is the same path as for legacy: slot, origin,
+   * `weltAnlegen`, entry in `instances`. Only the materialisation differs.
+   */
+  private instanz2Anlegen(doc: dungeon2.DungeonDokument2): DungeonInstance | null {
+    const thema = dungeon2.themaFinden(doc.thema);
+    if (thema === undefined) {
+      console.warn(`[Dungeon] '${doc.id}': unbekanntes Thema '${doc.thema}' — keine Instanz`);
+      return null;
+    }
+    const layout = dungeon2.layoutVonDokument2(doc);
+    if (layout === null) {
+      console.warn(`[Dungeon] '${doc.id}': Layout nicht herstellbar — keine Instanz`);
+      return null;
+    }
+    // Der Server prüft SEIN Layout, bevor er darauf baut. Ein Grab mit
+    // einem abgeschnittenen Raum ist unsichtbar kaputt — und es wäre der
+    // Client, der es ausbadet, weil er dieselbe Rechnung noch einmal macht.
+    // The server validates ITS layout before building on it.
+    const fehler = dungeon2.nurFehler(dungeon2.validateLayout(layout));
+    if (fehler.length > 0) {
+      console.warn(
+        `[Dungeon] '${doc.id}': ${fehler.length} Layout-Fehler ` +
+          `(${fehler.slice(0, 3).map((f) => f.regel).join(', ')}) — keine Instanz`
+      );
+      return null;
+    }
+    // Die Prüfsumme des Dokuments gegen das eben Erzeugte. Geht das
+    // auseinander, hat sich der Generator seit dem Anlegen des Dokuments
+    // geändert — das ist eine stille Datenmigration, und sie soll laut sein.
+    // Checksum of the document against what was just generated.
+    const gerechnet = dungeon2.layoutPruefsumme(layout);
+    if (gerechnet !== doc.pruefsumme) {
+      console.warn(
+        `[Dungeon] '${doc.id}': Prüfsumme abweichend (Dokument ${doc.pruefsumme}, ` +
+          `erzeugt ${gerechnet}) — der Generator hat sich seit dem Anlegen geändert`
+      );
+    }
+
+    const bau = dungeon2.baueGeometrie(layout);
+    const slot = this.freeSlots.pop() ?? this.nextSlot++;
+    const origin: Vector3 = { x: 0, y: 0, z: 0 };
+    const welt = this.weltAnlegen(DungeonManager.weltId(doc.id));
+
+    const erg = materialisiere2(bau, thema, origin, welt.zdos);
+    const instance: DungeonInstance = {
+      dungeonId: doc.id,
+      welt,
+      slot,
+      origin,
+      zdoids: erg.zdoids,
+      propZdoids: erg.ankerZdoids,
+      players: new Set(),
+      layout2: layout,
+      bau,
+      ankerZuZdo: erg.ankerZuZdo,
+    };
+    this.instances.set(doc.id, instance);
+    const ohne = erg.ohnePrefab.length;
+    console.log(
+      `[Dungeon] Instance '${doc.id}' (2.0) materialized in world '${welt.id}': ` +
+        `${layout.stempel.length} stamps, ${bau.stuecke.length} pieces, ` +
+        `${bau.nav.length} nav cells, ${erg.zdoids.length} ZDOs` +
+        (ohne > 0 ? `, ${ohne} anchor(s) without a registered prefab` : '')
+    );
+    return instance;
+  }
+
+  /**
+   * Die Deko-ZDOs einer LAUFENDEN 2.0-Instanz an ein neues Dokument
+   * angleichen — das Gegenstück zu `dekoAngleichen()`, gleiche Bauform,
+   * gleiches Ziel: Die Architektur bleibt stehen, der Spieler bleibt, wo er
+   * ist, und sieht die Fackel erscheinen.
+   * Align the decor ZDOs of a LIVE 2.0 instance with a new document.
+   */
+  private ankerAngleichen(instance: DungeonInstance, doc: dungeon2.DungeonDokument2): void {
+    const thema = dungeon2.themaFinden(doc.thema);
+    const layout = dungeon2.layoutVonDokument2(doc);
+    if (thema === undefined || layout === null) return;
+
+    const zdos = instance.welt.zdos;
+    const weg = new Set(instance.propZdoids.map((id) => id.toString()));
+    for (const id of instance.propZdoids) zdos.destroyZDO(id);
+    instance.zdoids = instance.zdoids.filter((id) => !weg.has(id.toString()));
+
+    // Neu gebaut wird NUR für die Anker — die Architektur bleibt die alte.
+    // `baueGeometrie` ist rein und blockweise aufrufbar (W8), der zweite
+    // Aufruf liefert also dieselben Plätze, wenn sich nichts geändert hat.
+    // Only the anchors are rebuilt — the architecture stays as it was.
+    const bau = dungeon2.baueGeometrie(layout);
+    const erg = materialisiere2(bau, thema, instance.origin, zdos);
+    instance.zdoids.push(...erg.zdoids);
+    instance.propZdoids = erg.ankerZdoids;
+    instance.ankerZuZdo = erg.ankerZuZdo;
+    instance.layout2 = layout;
+    instance.bau = bau;
   }
 
   /** Tear down a live instance (ZDOs destroyed, slot freed). */
@@ -559,6 +826,20 @@ export class DungeonManager {
    * connector orientation conventions.
    */
   getSpawnPoint(instance: DungeonInstance): Vector3 {
+    // 2.0: der AUSDRÜCKLICHE Punkt aus dem Bauergebnis statt einer
+    // Herleitung. Der Bauer weiß, wo der Boden der Eingangszelle liegt; die
+    // Herleitung unten musste ihn aus der Richtung zum ersten Raum raten und
+    // setzte y hart auf 0,5 — in einem Grab mit Ebenen ist das die falsche
+    // Etage.
+    // 2.0: the EXPLICIT point from the build result instead of a derivation.
+    if (instance.bau) {
+      const p = instance.bau.spawnPunkt;
+      return {
+        x: instance.origin.x + p.x,
+        y: instance.origin.y + p.y,
+        z: instance.origin.z + p.z,
+      };
+    }
     const doc = this.documents.get(instance.dungeonId);
     const start = doc?.layout.rooms[0];
     let dir = { x: 0, y: 0, z: 1 };

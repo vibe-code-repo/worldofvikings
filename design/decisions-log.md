@@ -2238,3 +2238,197 @@ bzw. legacy Fremdmodelle, die auf dieser Maschine nicht vorliegen —
 Sichtbares (gemessen, Seed 14: 28 platziert, 74 ohne Modell). Kein Fehler
 dieses Pakets — der Arbeitsauftrag erlaubt „1-2 weitere Rollen, wenn
 passende GLBs im Bestand sind", und keine weitere Rolle ist es.
+
+---
+
+## 2026-08-31 · AP13 · Zwei Dokumentenkarten im `DungeonManager`, kein Union-Typ
+
+**Lücke:** `data-model.md` §4.1 sagt, `sanitizeDungeonDokument(raw)` werde zum
+Weichensteller (`version >= 10` → neuer Weg). Es sagt nicht, wie der
+`DungeonManager` danach BEIDE Formate hält — er führt eine
+`Map<string, DungeonDocument>`, und rund zwei Dutzend Stellen im Server, im
+Betriebsdienst und im Editor lesen `doc.base` oder `doc.layout.rooms`.
+
+**Entscheidung:** Eine ZWEITE Karte (`dokumente2`) neben der ersten, kein
+Union-Typ in einer gemeinsamen. `getDocument()` sieht weiterhin nur
+Altdokumente, `getDokument2()` nur 2.0-Dokumente, und `hatDokument(id)` ist für
+die Aufrufstellen da, die nur „kenne ich das?" fragen.
+
+**Grund:** Das Abnahmekriterium (a) aus `ARCHITECTURE.md` AP13 lautet, ein
+2.0-Dokument dürfe nachweislich NIE durch den Alt-Sanitizer laufen und
+umgekehrt. Mit einem Union-Typ wäre jede dieser zwei Dutzend Stellen eine
+Stelle, an der ein `if` fehlen kann — und der Fehler zeigte sich als
+`undefined` in einer Textausgabe, nicht als Übersetzerfehler. Mit zwei Karten
+hält der Übersetzer die Aussage „das sind zwei Formate" selbst. Der Preis ist
+ein zweiter Getter; er ist gering und sichtbar.
+
+**Zwei Stellen, an denen die Weiche ein zweites Mal steht** (bewusst, nicht
+aus Versehen): `upsertDocument()` lehnt ein 2.0-Dokument ausdrücklich ab, statt
+es an den Alt-Sanitizer zu reichen — der würde an `base` scheitern und „ungültig"
+melden, wo „falscher Weg" gemeint ist. Und `handleDungeonEditSave` in
+`WovServer.ts` verzweigt, weil die beiden `upsert`-Rückgabetypen verschieden
+sind.
+
+---
+
+## 2026-08-31 · AP13 · Die ZDO-Kennung kommt aus der Anker-Id — mit einer Faltung, die begründet werden muss
+
+**Lücke:** AP13 verlangt „Objekt-IDs kommen aus der Layout-Position (Zellindex
++ Rolle), nie aus der Ziehreihenfolge". `DekoAnker.id` ist genau das. Aber
+`ZDOID` packt Nutzerindex und Objektnummer in ein uint32 und lässt der Nummer
+**22 Bit** (`server/src/zdo/ZDOID.ts`) — die Anker-Id ist ein 32-Bit-Hash.
+
+**Entscheidung:** `ankerId & 0x3FFFFF`, und bei Kollision lineares Sondieren
+(höchstens 64 Schritte, danach eine fortlaufende Kennung). `ZDOManager` bekommt
+dafür `zdoidFuer(id)`, damit `serverUserId` privat bleiben kann.
+
+**Grund:** Die Zusage, die AP13 meint, ist „dieselbe Truhe behält ihren
+Zustand, auch wenn sich anderswo etwas ändert" — und die hält die Faltung: Die
+Anker werden in fester Reihenfolge (nach `ankerId`, `bestuecke()` sortiert
+selbst) durchlaufen, dieselbe Instanz ergibt also immer dieselbe Zuordnung. Bei
+einigen hundert Ankern in vier Millionen Plätzen ist der erste Versuch
+praktisch immer frei.
+
+**Falle, die ein Lauf gezeigt hat:** `createZDOWithID()` ist für das
+WIEDEREINLESEN aus dem Spielstand gebaut und setzt deshalb `isNew` und `dirty`
+auf `false`. `collectDirtyZDOs()` sammelt ausschliesslich, was eines von beiden
+trägt. Ohne die zwei Zeilen, die beide Flags danach wieder setzen, stünde der
+Spieler in einer Instanz ohne Truhen — ohne Fehlermeldung, ohne Warnung, ohne
+irgendetwas Auffälliges.
+
+---
+
+## 2026-08-31 · AP13 · `ROLLEN_MIT_ZDO` ist die EINE Trennlinie zwischen Server und Client
+
+**Lücke:** `data-model.md` §4.3 sagt, 2.0 vergebe ZDOs „nur für Bewegliches/
+Interaktives: Türen, Truhen, Fackeln, Spawner, Kreaturen". Seit M1-Schritt 2
+baut der Client aber ALLE Deko-Anker selbst als Thin Instances
+(`DungeonDeko`) — Fackeln eingeschlossen. Beides zusammen hiesse: Eine Truhe
+steht zweimal da, einmal als Instanz und einmal als Entity.
+
+**Entscheidung:** `shared/src/dungeon2/themen.ts` führt
+`ROLLEN_MIT_ZDO = ['truhe', 'spawner']`. Der Server materialisiert genau diese
+Rollen, der Client lässt genau diese Rollen beim Deko-Bau aus
+(`baueDeko(quelle, ausgelasseneRollen)`). Fackeln, Geröll, Altar, Sarkophag,
+Säule und Urne haben keinen Zustand und bleiben Client-Geometrie.
+
+**Grund:** Die Liste ist eine Trennlinie, und eine Trennlinie darf nur an
+einer Stelle stehen. Zweimal geschrieben wäre die Doppelung kein
+Übersetzungsfehler, sondern eine doppelte Truhe im Bild — und niemand hätte
+etwas falsch gemacht.
+
+**Nebenbefund, gemessen (Seed 4242/77/99):** 83 Anker, davon genau **einer**
+mit Zustand (`TreasureChest_meadows`). Ein Spawner-Anker kam in diesem Layout
+nicht vor. Die ZDO-Zahl je Instanz fällt damit von **306** (Altbestand,
+34-Raum-ForestCrypt) auf **1**. `data-model.md` schätzte „Größenordnung ein
+Fünftel"; die Schätzung war viel zu vorsichtig, weil sie noch damit rechnete,
+dass Fackeln ZDOs bleiben.
+
+---
+
+## 2026-08-31 · AP13 · Der Ladebildschirm fällt auf `dungeonBereit`, und der Vorhang bekommt eine Kennung
+
+**Lücke:** Die Vault-Notiz „Ladebildschirm hängt am Gelände" beschreibt den
+gelösten Fall: Der Auto-Sprung (`?dungeon=`) wartet, bis `terrain.ready` steht,
+damit der Vorhang vorher fällt. Für 2.0 genügt das nicht — wer über Taste E
+oder den Admin-Befehl mitten im Weltaufbau eintritt, steht in einer fertig
+gebauten Instanz unter einem Vorhang bei 1 %.
+
+**Entscheidung:** `Dungeon2Instanz.betrete()` löst auf, sobald
+`DungeonBauer.dungeonBereit` erfüllt ist; erst dann ruft `main.ts`
+`loading.update(1, true)`, taut die Figur auf und setzt sie an ihren Platz.
+Der Ladebildschirm bekommt zusätzlich die Kennung `loading-screen`.
+
+**Grund für die Kennung:** Ohne sie liesse sich der Vorhang von aussen nur an
+seinem TEXT erkennen — und der ist übersetzt. Eine Messung, die an der Sprache
+hängt, misst irgendwann die Sprache. Der Ende-zu-Ende-Lauf prüft damit beides:
+`vorhangSteht: true` vor dem Betreten (bei `terrain.ready = false`,
+Ladefortschritt 1,2 %) und `vorhangWeg: true` danach.
+
+**Reihenfolge, die nicht umgestellt werden darf:** `DungeonAtmosphaere.betrete()`
+hängt die Postprocessing-Kette des Spiels von der Kamera AB, `verlasse()` hängt
+dieselbe wieder an. `Dungeon2Instanz.verlasse()` gibt sie deshalb ZUERST zurück
+und reisst erst danach ab — andernfalls liesse ein Fehler beim Abriss die
+Oberwelt ohne Tiefenunschärfe zurück, und man sähe es zwei Räume später.
+
+---
+
+## 2026-08-31 · AP13 · Der Ende-zu-Ende-Lauf betritt über den Admin-Befehl, nicht über `?dungeon=`
+
+**Lücke:** Der naheliegende Weg für einen Ende-zu-Ende-Lauf ist die Adresse
+`?dungeon=<id>` — der Client springt dann von selbst hinein.
+
+**Entscheidung:** `tools/dungeon2-e2e.mjs` öffnet die Seite OHNE den Parameter
+und schickt `dungeon enter <id>` als Admin-Befehl, sobald der Socket steht.
+
+**Zwei Gründe:** (a) Der Auto-Sprung wartet auf `terrain.ready`. In einer frisch
+erzeugten Radialwelt ohne Spielstand dauert das Gelände beliebig lange —
+gemessen: nach 300 s stand der Ladefortschritt bei 1,2 %. Der Lauf hätte damit
+die Oberwelt gemessen statt den Dungeon. (b) Der Admin-Weg ist der SCHÄRFERE
+Fall: Dort steht der Ladebildschirm beim Betreten noch, und nur die neue
+Auflösung über `dungeonBereit` kann ihn fallen lassen. Der Auto-Sprung hätte
+den Fehler, den dieses Paket behebt, gar nicht auslösen können.
+
+**Drei Dinge, die der Lauf über die Umgebung gelernt hat und die notiert
+gehören, weil sie sonst jeder wieder findet:**
+
+1. **Vite muss aus `client/` gestartet werden.** `vite.config.ts` sagt
+   `root: '.'`; aus der Wurzel heraus findet Vite die `index.html` nicht und
+   liefert eine leere Seite mit genau EINEM 404 — ohne jeden Hinweis worauf.
+2. **Der Worktree-Symlink auf `@babylonjs` bricht Havok.** `node_modules/@babylonjs`
+   zeigt auf `wov-wt-bundle`; Vite liefert `HavokPhysics.wasm` dann über
+   `/@fs/…` mit MIME `application/wasm` aus, und der Modulimport scheitert an
+   der strengen MIME-Prüfung. Folge: `[physics] Havok konnte nicht geladen
+   werden`, keine Kollision, kein begehbarer Dungeon. Behelf auf dieser
+   Maschine: die Scope-Verknüpfung durch ein echtes Verzeichnis mit
+   Einzel-Symlinks ersetzen und `@babylonjs/havok` (4,2 MB) wirklich hineinkopieren.
+   Kein Repo-Änderung, eine Umgebungsfrage — aber eine, die aussieht wie ein
+   Fehler des Bauers.
+3. **Der Client gibt nach drei Verbindungsversuchen auf** und geht zur Anmeldung
+   auf der Webseite (`main.ts`, `onDisconnected`). Trifft der erste Versuch den
+   Vite-Proxy, bevor dessen WebSocket-Weiterleitung steht, ist der Lauf
+   unwiderruflich weg — nicht weil etwas kaputt ist, sondern weil der Client
+   sich genau richtig verhält. Der Lauf wiederholt deshalb bis zu viermal.
+
+**Die Anmeldeschranke wird nicht umgangen, sondern bedient:** Das Startskript
+des Laufs würfelt das Sitzungsgeheimnis selbst und reicht es in
+`createWovServer({ sessionSecret })`; damit kann derselbe Prozess über
+`tokenAusstellen()` ein GÜLTIGES Token ausstellen. Ein zurechtgebasteltes Token
+täte es auch (der Server vergibt dann eine frische Identität), aber dann prüfte
+der Lauf einen Rückfallpfad statt des Wegs, den ein Spieler geht.
+
+**Messzahlen des grünen Laufs** (Chromium headless, ANGLE/Vulkan auf einer
+RX 7900 XT — kein SwiftShader, der Renderer-String wird geprüft):
+Prüfsumme Server `b852b8a2` == Client `b852b8a2`, 0 Layout-Fehler,
+**744 ms bis baubereit**, 818 ms bis vollständig, 15 Blöcke, 29 Meshes,
+11 112 Dreiecke, 15 Havok-Körper aus 868 Formen, ein Material, Deko 23 gesetzt
+/ 60 ohne Modell, gelaufene Strecke 1,27 m (die Figur läuft in die Gangwand —
+die Kollision steht), y bleibt bei 0,003 (kein Durchfallen),
+0 Konsolenfehler, 0 unbehandelte Ausnahmen, 0 Prefab-Fehler, 0 ZDO-Fehler.
+Beweisbild: `~/.cache/wov-tripo-test/dungeon2-ingame.png`.
+
+---
+
+## 2026-08-31 · Hygiene · Vierzehn Dungeon-2.0-Tests liefen nur von Hand
+
+**Befund:** Sämtliche `shared/test/dungeon2-*.ts` und `client/test/dungeon2-*.ts`
+waren in `scripts/run-tests.mjs` nicht eingetragen — vom Schichtenwächter über
+den Determinismus-Prüfstand bis zum Havok-Läufer. Alle vierzehn zusammen
+brauchen unter einer Minute.
+
+**Entscheidung:** Alle in `KERN`, mit je einer Begründungszeile nach Hausbrauch.
+Ausgenommen bleibt `shared/test/dungeon2-browser-check.ts`: Das ist kein
+Node-Test, sondern der Bündel-Einstieg der Browser-Seite des
+Determinismus-Prüfstands — er benutzt `document` und stürbe unter `tsx` sofort.
+Die Ausnahme steht jetzt im Kopfkommentar des Runners, neben den vier anderen.
+
+**Grund:** Ein Test, der da ist, grün ist und den niemand fährt, ist die
+gefährlichste Sorte: Er beruhigt, ohne zu prüfen. Der Zeitgewinn des
+Nicht-Fahrens war knapp fünfzig Sekunden.
+
+**Gesamtlauf danach:** 88 von 91 grün. Die drei roten sind alle
+umgebungsbedingt und älter als dieses Paket: `tools/test/manifest-vollstaendig.ts`
+und `server/test/f17-figurenwahl.ts` scheitern daran, dass `assets/models/` auf
+dieser Maschine bis auf eine Datei leer ist (Mike sichert die Modelle
+ausserhalb des Repos), und `server/test/k1-konten.ts` erwartet den Fehlercode
+`benutzername-vergeben`, wo die Konten-API `username-taken` liefert.

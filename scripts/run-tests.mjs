@@ -16,6 +16,12 @@
  * Reine Werkzeuge/Messbänke, keine Tests (drucken Zahlen, behaupten nichts,
  * kein process.exit(1)-Pfad — s. jeweiliger Kopfkommentar):
  * shared/test/rain-freq.ts, shared/test/heightmap-bench.ts.
+ *
+ * Ebenfalls NICHT enthalten: shared/test/dungeon2-browser-check.ts. Das ist
+ * kein Node-Test, sondern der BÜNDEL-EINSTIEG der Browser-Seite des
+ * Determinismus-Prüfstands (AP5) — er benutzt `document` und stürbe unter
+ * tsx sofort. Er wird per esbuild gebaut und im Browser geöffnet; die
+ * Anleitung steht in seinem eigenen Kopfkommentar.
  */
 import { spawnSync } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -354,6 +360,76 @@ const KERN = [
   // Manifest). Liest nur Dateinamen gegeneinander, baut die glTF-Messung nicht
   // nach. Kein Server/Socket, Sekunden.
   ['tools', 'test/manifest-vollstaendig.ts'],
+
+  // ── Dungeon Generator 2.0 ──────────────────────────────────────────
+  //
+  // Vierzehn Dateien, die bis zum 31.08.2026 nur von Hand liefen. Das ist
+  // die gefährlichste Sorte Test: Er ist da, er ist grün, und niemand
+  // merkt, wenn er es aufhört zu sein. Alle zusammen brauchen unter einer
+  // Minute — es gab nie einen Grund ausser dem, dass es niemand getan hat.
+  //
+  // Fourteen files that ran by hand only until 2026-08-31 — the most
+  // dangerous kind of test: present, green, and nobody notices when it
+  // stops being green. Together under a minute.
+
+  // Die harte Schichtgrenze: `shared/src/dungeon2/**` ohne Babylon, ohne
+  // `node:`, ohne `window`/`document`, ohne `Math.random`/`Date.now`.
+  // Erzwungen durch einen Dauertest, nicht durch Disziplin — genau der
+  // Rückfall, der uns zwingen würde, Geometrie über die Leitung zu
+  // schicken. Zehntelsekunden.
+  ['shared', 'test/dungeon2-schichten.ts'],
+  // Das eingefrorene Layout-Datenformat v1 samt Kanonisierung und
+  // Prüfsumme. Ändert sich die Kanonisierung, fällt der Test — das ist
+  // sein ganzer Zweck.
+  ['shared', 'test/dungeon2-layout.ts'],
+  // Ganzzahlige Positions-Hashes (`Math.imul`). Der `Math.sin`-Hash, den
+  // die Vorlage benutzte, läuft in Node und im Browser verschieden — und
+  // zwar still.
+  ['shared', 'test/dungeon2-hashing.ts'],
+  // Die Invarianten aus ARCHITECTURE.md §3.7, je Regel ein Positiv- UND
+  // ein Negativfall.
+  ['shared', 'test/dungeon2-invarianten.ts'],
+  // Der Generator: Zyklen, Ebenen, Treppen, Mündungen, und das
+  // Abnahmekriterium „eine zusätzliche Ziehung im Deko-Strom verändert
+  // kein einziges Stempel-Feld". ~3 s.
+  ['shared', 'test/dungeon2-generator.ts'],
+  // Der Bauer: Optik und Kollision als zwei Ausgaben, blockweise und
+  // reihenfolgefrei aufrufbar, Meter durch Multiplikation. ~8 s.
+  ['shared', 'test/dungeon2-builder.ts'],
+  // Der Bestücker: Rolle → Prefab, jeder Anker aus seinem eigenen Strom.
+  // ~5 s.
+  ['shared', 'test/dungeon2-decorator.ts'],
+  // Determinismus gegen die eingefrorenen Golden-Dateien. Die Browser-
+  // Seite desselben Prüfstands liegt daneben und läuft von Hand (s. o.).
+  // ~4 s.
+  ['shared', 'test/dungeon2-determinismus.ts'],
+  // Parität Zellgitter ↔ Geometrie: über eine halbe Million Proben hin
+  // und her. ~2 s.
+  ['shared', 'test/dungeon2-paritaet.ts'],
+  // AP13: Das 2.0-Instanz-Dokument und die Weiche im Sanitizer — ein
+  // 2.0-Dokument darf nie durch den Alt-Sanitizer laufen und umgekehrt,
+  // beide Richtungen geprüft.
+  ['shared', 'test/dungeon2-dokument.ts'],
+  // Der Client-Bauer an einer NullEngine: Meshes je Block, Begehbarkeit
+  // über die Kollisionsformen, und Bau/Abriss ×20 zurück auf exakt den
+  // Ausgangsstand. ~7 s.
+  ['client', 'test/dungeon2-bauer.ts'],
+  // Das Triplanar-Plugin gegen den ECHTEN `pbrPixelShader` aus dem
+  // ShaderStore — alle vier Einspritzpunkte inklusive Reihenfolge und
+  // `highp`. Fällt, sobald ein Babylon-Update die Ankerzeilen verschiebt.
+  ['client', 'test/dungeon2-material.ts'],
+  // Sichtbare Deko als Thin Instances, gegen eine Attrappen-Modellquelle
+  // statt echter GLBs (assets/ liegt ausserhalb des Repos).
+  ['client', 'test/dungeon2-deko.ts'],
+  // Der Läufer: eine echte Havok-Kapsel läuft durch erzeugte Gräber und
+  // misst STRECKE statt Zeit — Durchfallen, Hängenbleiben, Treppen,
+  // Türdurchgänge. ~5 s, echtes Havok unter Node.
+  ['client', 'test/dungeon2-laeufer.ts'],
+  // AP13: Der Adapter an die Instanz-Infrastruktur über echte Pakete —
+  // Teleport mit Thema/Seeds/Prüfsumme, Betreten/Verlassen ×20 ohne
+  // ZDO-Leck, Anker-Änderung ohne Instanz-Abriss, ZDO-Zahl alt gegen neu.
+  // ~10 s (die Leitungsrunden warten auf die AdminCommand-Drossel).
+  ['server', 'test/g9-dungeon2-e2e.ts'],
 ];
 
 const LANG = [

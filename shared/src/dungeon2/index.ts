@@ -43,3 +43,4 @@ export * from './generator.js';
 export * from './themen.js';
 export * from './builder.js';
 export * from './decorator.js';
+export * from './document.js';

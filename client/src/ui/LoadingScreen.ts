@@ -27,6 +27,18 @@ export class LoadingScreen {
 
   constructor(private readonly i18n: GameI18n) {
     const root = document.createElement('div');
+    // Eine Kennung, damit man den Vorhang von aussen SEHEN kann.
+    //
+    // Der Ende-zu-Ende-Lauf des Dungeon-Generators 2.0 muss belegen, dass der
+    // Ladebildschirm ueber einer Instanz faellt — in einer Instanz gibt es
+    // kein `terrain.ready`, und genau daran hing er bis zum 31.08.2026. Ohne
+    // Kennung bliebe nur, den Vorhang an seinem Text zu erkennen; der ist
+    // uebersetzt, und die Messung haenge damit an der Sprache.
+    // An id so the curtain can be SEEN from outside: the dungeon 2.0
+    // end-to-end run must show that the loading screen drops over an
+    // instance. Without an id one would have to recognise it by its text —
+    // which is translated, tying the measurement to the language.
+    root.id = 'loading-screen';
     root.lang = i18n.language;
     root.style.cssText = [
       'position:fixed', 'inset:0', 'z-index:900',

@@ -8,8 +8,22 @@ import { fileURLToPath } from 'url';
 
 const CONFIG_DIR = dirname(fileURLToPath(import.meta.url));
 
-/** Game-Server (server/data/server.yml → server.port). Eigener Port — 2456 ist belegt. */
-const GAME_SERVER_PORT = 2467;
+/**
+ * Game-Server (server/data/server.yml → server.port). Eigener Port — 2456 ist
+ * belegt.
+ *
+ * Über `WOV_SPIEL_PORT` überschreibbar, und `WOV_CLIENT_PORT` verschiebt den
+ * Dev-Server selbst. Beides braucht der Ende-zu-Ende-Lauf des Dungeon-
+ * Generators 2.0 (`tools/dungeon2-e2e.mjs`): Er startet einen EIGENEN
+ * Spielserver auf dieser Maschine und darf dabei weder den DEV-Spielserver
+ * (2467) noch dessen Vite (5274) verdrängen. Ohne die zwei Variablen müsste
+ * man dafür diese Datei anfassen — und würde sie irgendwann so committen.
+ * Overridable via `WOV_SPIEL_PORT` / `WOV_CLIENT_PORT`. The dungeon 2.0
+ * end-to-end run needs both: it starts its OWN game server on this machine and
+ * must displace neither the DEV game server nor its Vite.
+ */
+const GAME_SERVER_PORT = Number(process.env.WOV_SPIEL_PORT ?? 2467);
+const CLIENT_PORT = Number(process.env.WOV_CLIENT_PORT ?? 5274);
 
 /**
  * Betriebsdienst (admin/src/main.ts). Dieselben Umgebungsvariablen wie
@@ -168,7 +182,7 @@ export default defineConfig({
   },
   server: {
     // Eigener Dev-Port — 3000/5173 sind die üblichen Vorbelegungen
-    port: 5274,
+    port: CLIENT_PORT,
     host: true,
     // Vite blockt seit 5.x fremde Host-Header (DNS-Rebinding-Schutz). Der
     // Testserver wird über seinen Domainnamen aufgerufen, nicht über die IP,

@@ -126,6 +126,7 @@ import { DekoPlatzierung } from './ui/DekoPlatzierung';
 import { FlammenAtlas } from './engine/FlammenAtlas';
 import { Minimap } from './ui/Minimap';
 import { LightPool } from './engine/LightPool';
+import { Dungeon2Instanz, type Dungeon2Deskriptor } from './engine/Dungeon2Instanz';
 import { CraftingPanel } from './ui/CraftingPanel';
 import { CharakterPanel } from './ui/CharakterPanel';
 import { ChatPanel } from './ui/ChatPanel';
@@ -814,6 +815,25 @@ async function main() {
   let dungeonSpawn = { x: 0, y: 0, z: 0 };
   /** Zeitpunkt des Instanz-Teleports — Timeout-Schranke fürs Einfrieren. */
   let dungeonLadenSeit = 0;
+  /**
+   * Die laufende 2.0-Instanz (AP13) — `null` in der Oberwelt UND in einer
+   * Instanz des Altbestands. Der Altbestand bekommt seine Architektur weiter
+   * als ZDOs zugestellt; nur 2.0 baut der Client selbst aus dem Deskriptor,
+   * den das Teleportpaket trägt.
+   * The live 2.0 instance — `null` in the overworld AND in a legacy instance.
+   */
+  let dungeon2Instanz: Dungeon2Instanz | null = null;
+  /**
+   * Läuft gerade ein `Dungeon2Instanz.betrete()`?
+   *
+   * Das Betreten ist asynchron (Texturen laden, Blöcke bauen), und ein
+   * zweites Teleportpaket darf in dieser Zeit nicht ein zweites Grab in
+   * dieselbe Szene bauen. Eine Zählmarke statt eines Abbruchs: Der laufende
+   * Bau wird beim Eintreffen verworfen, wenn seine Marke nicht mehr die
+   * aktuelle ist.
+   * Is a `betrete()` in flight? A generation counter, not a cancel.
+   */
+  let dungeon2Marke = 0;
   /** Schlag-Sperre (s) — verhindert Dauerfeuer beim Klicken. */
   let angriffCooldown = 0;
   /**
@@ -2045,8 +2065,37 @@ async function main() {
     socket.on(PacketType.Teleport, (reader) => {
       const pos = reader.readVector3();
       const drin = reader.readBool();
-      reader.readString(); // dungeonId — später für HUD/Karte interessant
+      const dungeonId = reader.readString();
       const env = reader.readString();
+      // AP13 — die ANGEHÄNGTEN Felder des 2.0-Deskriptors. Ein leeres
+      // `thema` heisst „kein 2.0"; ein Server ohne diese Felder (älterer
+      // Stand) liefert gar nichts mehr, und `remaining` fängt das ab, statt
+      // über das Pufferende zu lesen.
+      // AP13 — the APPENDED fields of the 2.0 descriptor.
+      let deskriptor: Dungeon2Deskriptor | null = null;
+      if (reader.remaining > 0) {
+        const thema = reader.readString();
+        const architektur = reader.readInt32();
+        const material = reader.readInt32();
+        const deko = reader.readInt32();
+        const pruefsumme = reader.readString();
+        const layoutVersion = reader.readInt32();
+        const name = reader.readString();
+        if (thema) {
+          deskriptor = {
+            thema,
+            seeds: {
+              architektur: architektur >>> 0,
+              material: material >>> 0,
+              deko: deko >>> 0,
+            },
+            pruefsumme,
+            layoutVersion,
+            id: dungeonId,
+            name,
+          };
+        }
+      }
       // Die letzte bekannte Server-Position ist nach einem harten Sprung
       // bedeutungslos — stünde sie weiter, zöge die Reconciliation den
       // Spieler sofort zur ALTEN Stelle zurück (so entstand die Schleife
@@ -2070,6 +2119,69 @@ async function main() {
       // In der Instanz gibt es kein Gelände zum Abtasten — Minimap aus.
       minimap?.setVisible(!drin);
       hud.meldung(drin ? 'Dungeon wird geladen…' : 'Zurück in der Oberwelt');
+
+      // ── Dungeon 2.0 (AP13) ────────────────────────────────────────
+      // Ein laufendes Grab wird IMMER abgeräumt — auch beim Wechsel von
+      // einer 2.0-Instanz in die nächste. Die Marke steigt dabei, damit ein
+      // noch fliegendes `betrete()` sein Ergebnis wegwirft statt es in eine
+      // Szene zu hängen, die schon einer anderen Instanz gehört.
+      // A live barrow is ALWAYS torn down — the counter makes an in-flight
+      // `betrete()` discard its result.
+      dungeon2Marke++;
+      if (dungeon2Instanz) {
+        dungeon2Instanz.verlasse();
+        dungeon2Instanz = null;
+      }
+      if (drin && deskriptor && player) {
+        const marke = dungeon2Marke;
+        const spielerRef = player;
+        void Dungeon2Instanz.betrete(deskriptor, {
+          scene,
+          kamera: spielerRef.camera,
+          assets,
+          meldung: (t) => hud.meldung(t),
+        })
+          .then((instanz) => {
+            if (instanz === null) return;
+            if (marke !== dungeon2Marke) {
+              // Überholt: Es gab inzwischen einen weiteren Weltwechsel.
+              // Overtaken by a later world change.
+              instanz.verlasse();
+              return;
+            }
+            dungeon2Instanz = instanz;
+            // JETZT erst geht der Vorhang hoch. In einer Instanz gibt es
+            // kein `terrain.ready`, und `LoadingScreen` blendet
+            // ausschliesslich darauf aus — ohne diese Zeile bliebe „The
+            // world awakens…" bei 0 % über einem fertig gebauten Grab
+            // stehen (Vault: „Ladebildschirm hängt am Gelände").
+            // ONLY NOW does the curtain rise.
+            loading?.update(1, true);
+            // Und JETZT erst darf die Figur laufen: Der Bauer hat seine
+            // Havok-Körper gesetzt, es liegt etwas unter ihr.
+            // And ONLY NOW may the character walk.
+            spielerRef.frozen = false;
+            spielerRef.teleportTo(pos.x, pos.y, pos.z);
+            hud.meldung(
+              `${deskriptor.name || deskriptor.id} betreten ` +
+                `(${instanz.messung.msBisBereit.toFixed(0)} ms) — E am Eingang: verlassen`
+            );
+            // Messfenster für den Ende-zu-Ende-Lauf. Absichtlich ein
+            // eigener Name neben `__dg2` (der Vorschau) — beide dürfen
+            // gleichzeitig existieren, ohne sich zu überschreiben.
+            // Measurement handle for the end-to-end run.
+            (window as unknown as Record<string, unknown>).__dg2live = {
+              messung: instanz.messung,
+              layout: instanz.layout,
+              statistik: () => instanz.bauer.statistik(),
+              vollstaendig: () => instanz.bauer.vollstaendig,
+            };
+          })
+          .catch((e: unknown) => {
+            console.error('[dungeon2] Betreten fehlgeschlagen:', e);
+            hud.meldung('Dungeon konnte nicht gebaut werden — siehe Konsole');
+          });
+      }
       console.log(
         drin
           ? `[dungeon] Instanz betreten @ (${pos.x.toFixed(0)}, ${pos.y.toFixed(0)}, ${pos.z.toFixed(0)}), env=${env}`
@@ -3185,6 +3297,14 @@ async function main() {
     // bauen, und das Wasser würde dem Spieler in die Instanz folgen.
     if (!imDungeon) {
       miss('terrain', () => terrain!.update(player!.position.x, player!.position.z, elapsed));
+    } else {
+      // Das Gegenstück zum Gelände-Streaming: In der 2.0-Instanz zieht der
+      // Bauer die restlichen Blöcke nach, während man schon läuft. Der
+      // Spawnblock stand vor dem Auftauen (`Dungeon2Instanz.betrete`), alles
+      // Weitere kommt hier — blockweise, damit ein grosses Grab keinen
+      // Ruckler von einer halben Sekunde erzeugt.
+      // The counterpart to terrain streaming: the builder catches up here.
+      dungeon2Instanz?.weiterbauen();
     }
     // Weather follows the biome under the player (EnvMan.m_biomeEnvironments);
     // Lighting cross-fades, so calling this every frame is cheap and smooth.
@@ -3563,7 +3683,16 @@ async function main() {
       staerke: (v: number) => { FackelLichter.staerke = v; },
       notbremse: () => fackelNotbremse('von Hand über __dbg ausgelöst'),
       notbremseLoesen: fackelNotbremseLoesen,
-    } };
+    },
+    // AP13: Der Ende-zu-Ende-Lauf (`tools/dungeon2-e2e.mjs`) muss von aussen
+    // sehen koennen, ob der Client in einer Instanz steht, und ihn wieder
+    // herausschicken. Getter, keine Werte — `socket` und `imDungeon` aendern
+    // sich beide waehrend des Spiels.
+    // AP13: the end-to-end run must be able to see from outside whether the
+    // client is inside an instance, and send it back out. Getters, not values.
+    get socket() { return socket; },
+    get imDungeon() { return imDungeon; },
+    get dungeon2() { return dungeon2Instanz; } };
 }
 
 void main();

@@ -39,6 +39,7 @@ export const de = {
   'settings.shadow_quality': 'Schattenqualität',
   'settings.distant_shadows': 'Ferne Schatten',
   'settings.water_quality': 'Wasserqualität',
+  'settings.dungeon_quality': 'Dungeon-Grafik',
   'settings.anti_aliasing': 'Kantenglättung',
   'settings.temporal_aa': 'Zeitliche Glättung (TAA)',
   'settings.performance_profile': '100-FPS-Profil',

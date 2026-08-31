@@ -4,11 +4,15 @@
  * DungeonAtmosphere — the interior look: dungeon calibrated SSAO and the
  * graphics tier switch (AP10, milestone 1).
  *
- * SSR, Godrays und Parallax stehen ausdruecklich NICHT hier: sie sind
- * Meilenstein 2 (ARCHITECTURE W9). Der Parallax-Zweig existiert im Shader und
- * ist ueber `erlaubeDungeonParallax()` zuschaltbar — dieses Modul schaltet ihn
- * nicht ein.
- * SSR, godrays and parallax are explicitly NOT here: they are milestone 2.
+ * Seit M2 haengen hier auch Parallax, Godrays und SSR — die Stufe ist der EINE
+ * Schalter, und jeder Effekt hat daneben seinen eigenen. Godrays und SSR sind
+ * eigene Module (`DungeonGodrays.ts`, `DungeonReflections.ts`), weil beide
+ * einen Zustand haben, der nichts mit SSAO zu tun hat: der eine sucht sich je
+ * Bild seinen Schacht, der andere entscheidet zwischen drei Bauweisen. Diese
+ * Klasse besitzt sie und schaltet sie; sie rechnet nicht in ihnen.
+ * Since M2 parallax, godrays and SSR hang here too — the tier is the ONE
+ * switch, with a per-effect switch beside it. Godrays and SSR are separate
+ * modules because each holds state that has nothing to do with SSAO.
  *
  * ── Warum eine eigene Pipeline und nicht die von `PostProcessing.ts` ────────
  * Die Aussenwelt-Pipeline ist auf 4 km kalibriert (`SSAO_MAX_Z = 1000`). Ihr
@@ -35,7 +39,16 @@ import { SSAO2RenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipe
 import { Constants } from '@babylonjs/core/Engines/constants';
 import type { Camera } from '@babylonjs/core/Cameras/camera';
 import type { Scene } from '@babylonjs/core/scene';
-import { DungeonGrafikStufe, setzeDungeonStufe } from './DungeonMaterial';
+import {
+  DungeonGrafikStufe,
+  PARALLAX_SCHRITTE_HOCH,
+  dungeonParallaxZustand,
+  erlaubeDungeonParallax,
+  setzeDungeonStufe,
+} from './DungeonMaterial';
+import { DungeonGodrays } from './DungeonGodrays';
+import { DungeonSpiegelung, DungeonSsrWeg } from './DungeonReflections';
+import type { dungeon2 } from '@wov/shared';
 
 /**
  * Tiefenbereich der Verdeckungsrechnung in Metern.
@@ -133,6 +146,69 @@ export interface Grundlicht {
   setzeDungeonDaempfung(faktor: number | null): void;
 }
 
+/**
+ * Der SSR-Weg der Stufe Hoch: KEINER. Das Ergebnis der Messreihe von M2
+ * (Zahlen im `decisions-log.md`, 31.08.2026) und deshalb EINE Konstante — wer
+ * sie aendert, aendert eine Entscheidung, nicht eine Einstellung.
+ *
+ * Warum nicht: SSR ueber den GeometryBuffer kostete gemessen +52,6 % Bildzeit
+ * und veraenderte das Bild um 13 % der Bildpunkte bei mittlerer Abweichung
+ * 16,6 — das ist der Flackerunterschied zweier Fackelbilder, nicht eine
+ * Spiegelung. Die Ursache ist strukturell und nicht einstellbar: Der
+ * GeometryBufferRenderer baut seinen eigenen Effekt, MaterialPlugins laufen
+ * darin nicht, und deshalb sieht SSR von unserem Triplanar-Material nur den
+ * MATERIALWERT `metallic = 0, roughness = 1`. Die nasse Stelle, auf die es
+ * spiegeln soll, entsteht erst im Fragment-Shader.
+ * Die Schwelle so weit zu senken, dass etwas sichtbar wird, macht nicht den
+ * feuchten Boden spiegelnd, sondern JEDEN trockenen Felsen — das waere genau
+ * der Kirmes-Effekt, den das Leitbild ausschliesst.
+ * The SSR route of tier High: NONE. Measured +52.6 % frame time for a change of
+ * 13 % of the pixels at mean delta 16.6 — the difference between two torch
+ * flicker frames, not a reflection. The cause is structural: material plugins
+ * do not run in the GBuffer pass, so SSR sees the MATERIAL value, not the wet
+ * pixel. Lowering the threshold until something shows would make every DRY rock
+ * reflect.
+ *
+ * Der Weg bleibt gebaut und ueber `?ssr=` waehlbar: Die Entscheidung haengt an
+ * einer Eigenschaft von Babylon 8.56, und die naechste Fassung kann sie
+ * aendern. Ein geloeschter Weg waere dann eine Messung, die man neu bauen muss.
+ * The route stays built and selectable, because the decision hangs off a
+ * property of Babylon 8.56 that a later version may change.
+ */
+export const SSR_WEG_HOCH = DungeonSsrWeg.Aus;
+
+/**
+ * Einzelschalter je Effekt. `undefined` heisst „der Stufe folgen" — und das ist
+ * NICHT dasselbe wie `false`.
+ *
+ * Der Unterschied traegt: Die Vorschau soll `?godrays=0` auf Stufe Hoch sagen
+ * koennen (Hoch, aber ohne Godrays — die A/B-Messung), und sie soll ohne
+ * Angabe genau das bekommen, was die Stufe vorsieht. Mit einem blossen
+ * `boolean` waere „nicht angegeben" und „aus" derselbe Wert, und jede Messung
+ * auf Hoch liefe ohne Effekte, ohne dass es auffiele.
+ * Per-effect switches. `undefined` means "follow the tier" and is NOT the same
+ * as `false`: with a plain boolean, "unspecified" and "off" would be the same
+ * value and every High-tier measurement would silently run without effects.
+ */
+export interface DungeonEffektWahl {
+  /** Parallax-Schritte; 0 = aus. / Parallax steps; 0 = off. */
+  readonly parallax?: number;
+  readonly godrays?: boolean;
+  readonly ssr?: DungeonSsrWeg;
+}
+
+/** Was eine Stufe von sich aus einschaltet. / What a tier switches on itself. */
+function stufenWahl(stufe: DungeonGrafikStufe): Required<DungeonEffektWahl> {
+  if (stufe < DungeonGrafikStufe.Hoch) {
+    // Mittel und Niedrig bleiben BEIM HEUTIGEN UMFANG. Das ist eine Zusage aus
+    // dem M2-Auftrag und keine Vorsicht: Wer auf Mittel spielt, hat einen
+    // Grund, und ein Vollausbau, der sich dorthin durchdrueckt, nimmt ihm den.
+    // Medium and Low stay at today's scope — a promise, not caution.
+    return { parallax: 0, godrays: false, ssr: DungeonSsrWeg.Aus };
+  }
+  return { parallax: PARALLAX_SCHRITTE_HOCH, godrays: true, ssr: SSR_WEG_HOCH };
+}
+
 export class DungeonAtmosphaere {
   private pipeline: SSAO2RenderingPipeline | null = null;
   private angehaengt = false;
@@ -144,6 +220,8 @@ export class DungeonAtmosphaere {
   /** Aufloesungsanteil, mit dem die lebende Pipeline gebaut wurde; -1 = keine. */
   /** Ratio the living pipeline was built with; -1 = none. */
   private gebautMit = -1;
+  private readonly godrays: DungeonGodrays;
+  private readonly spiegelung: DungeonSpiegelung;
 
   constructor(
     private readonly scene: Scene,
@@ -157,9 +235,35 @@ export class DungeonAtmosphaere {
      * The base brightness of this dungeon and the knob it applies to.
      */
     private readonly ambientLicht: number = 1,
-    private readonly licht: Grundlicht | null = null
+    private readonly licht: Grundlicht | null = null,
+    /**
+     * Die Lichtschacht-Muendungen dieses Dungeons (`dungeon2.lichtschaechte`).
+     * Leer heisst: keine Godrays, egal welche Stufe — nicht „Godrays ohne
+     * Quelle", das waere dieselbe Passage fuer ein leeres Bild.
+     * The shaft mouths of this dungeon. Empty means no godrays at any tier.
+     */
+    schaechte: readonly dungeon2.Lichtschacht[] = [],
+    /** Einzelschalter; leer = der Stufe folgen. / Per-effect overrides. */
+    private readonly wahl: DungeonEffektWahl = {}
   ) {
     this.stufe = stufe;
+    this.godrays = new DungeonGodrays(scene, kamera, schaechte);
+    this.spiegelung = new DungeonSpiegelung(scene, kamera);
+  }
+
+  /**
+   * Je Bild aufzurufen — nur die Godrays brauchen es (sie suchen sich ihren
+   * Schacht). Ein eigener Aufruf und kein `scene.onBeforeRenderObservable`:
+   * Ein Beobachter, den diese Klasse selbst anhaengt, muss beim Verlassen
+   * wieder ab, und ein vergessener haelt die Kamera und den ganzen Dungeon am
+   * Leben. Der Aufrufer hat ohnehin eine Bildschleife (Vorschau wie Spiel).
+   * To be called per frame — only the godrays need it. A plain call rather than
+   * an observable: one this class attaches must come off again on leaving, and
+   * a forgotten one keeps camera and whole dungeon alive.
+   */
+  aktualisiere(x: number, y: number, z: number): void {
+    if (this.abgeraeumt) return;
+    this.godrays.aktualisiere(x, y, z);
   }
 
   /** Die gerade gesetzte Stufe. / The currently set tier. */
@@ -195,6 +299,16 @@ export class DungeonAtmosphaere {
     // Give the base brightness back FIRST — an error further down would
     // otherwise leave the overworld in dungeon lighting.
     this.licht?.setzeDungeonDaempfung(null);
+    // Die drei M2-Effekte gehen mit. Parallax ausdruecklich auch: Es ist die
+    // einzige GLOBALE Groesse hier (`erlaubeDungeonParallax` gilt fuer alle
+    // Dungeon-Materialien der Sitzung) — bliebe sie an, traege der naechste
+    // Dungeon auf Mittel den Parallax-Shader des vorigen.
+    // The three M2 effects go too. Parallax explicitly as well: it is the only
+    // GLOBAL quantity here, and left on, the next dungeon at tier Medium would
+    // carry the previous one's parallax shader.
+    erlaubeDungeonParallax(false);
+    this.godrays.setzeAn(false);
+    this.spiegelung.setzeWeg(DungeonSsrWeg.Aus);
     this.haengeAb();
     for (const name of this.getrennt) {
       this.scene.postProcessRenderPipelineManager.attachCamerasToRenderPipeline(name, this.kamera);
@@ -226,6 +340,8 @@ export class DungeonAtmosphaere {
     this.abgeraeumt = true;
     this.pipeline?.dispose();
     this.pipeline = null;
+    this.godrays.dispose();
+    this.spiegelung.dispose();
   }
 
   /** Nur zum Messen: die tatsaechlich gesetzten Werte. / For measuring only. */
@@ -237,8 +353,16 @@ export class DungeonAtmosphaere {
     an: boolean;
     ambientLicht: number;
     lichtVerdrahtet: boolean;
+    stufe: number;
+    parallax: { erlaubt: boolean; schritte: number };
+    godrays: ReturnType<DungeonGodrays['werte']>;
+    ssr: ReturnType<DungeonSpiegelung['werte']>;
   } {
     return {
+      stufe: this.stufe,
+      parallax: dungeonParallaxZustand(),
+      godrays: this.godrays.werte(),
+      ssr: this.spiegelung.werte(),
       maxZ: this.pipeline?.maxZ ?? DUNGEON_SSAO_MAX_Z,
       radius: this.pipeline?.radius ?? DUNGEON_SSAO_RADIUS,
       proben: this.pipeline?.samples ?? 0,
@@ -255,7 +379,30 @@ export class DungeonAtmosphaere {
 
   // ── innen / internals ─────────────────────────────────────────────────────
 
+  /**
+   * Parallax, Godrays und SSR an die Stufe (und die Einzelschalter) anpassen.
+   *
+   * Steht VOR dem SSAO-Teil in `wendeStufeAn()` und nicht darin: Auf Niedrig
+   * verlaesst die SSAO-Logik die Methode frueh (`return`), und die drei
+   * Effekte muessen auch dort abgeschaltet werden — sonst waere ein Wechsel von
+   * Hoch auf Niedrig genau der Fall, in dem die teuersten Effekte
+   * weiterlaufen.
+   * Applied BEFORE the SSAO part, because on Low the SSAO logic returns early
+   * and the three effects must be switched off there too — otherwise High to
+   * Low would be exactly the case where the most expensive effects keep going.
+   */
+  private wendeEffekteAn(): void {
+    const vorgabe = stufenWahl(this.stufe);
+    const parallax = this.wahl.parallax ?? vorgabe.parallax;
+    const godrays = this.wahl.godrays ?? vorgabe.godrays;
+    const ssr = this.wahl.ssr ?? vorgabe.ssr;
+    erlaubeDungeonParallax(parallax > 0, parallax > 0 ? parallax : PARALLAX_SCHRITTE_HOCH);
+    this.godrays.setzeAn(godrays);
+    this.spiegelung.setzeWeg(ssr);
+  }
+
   private wendeStufeAn(): void {
+    this.wendeEffekteAn();
     if (this.stufe === DungeonGrafikStufe.Niedrig) {
       this.haengeAb();
       return;

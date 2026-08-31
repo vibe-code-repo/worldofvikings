@@ -143,6 +143,28 @@ export const enum DungeonGrafikStufe {
 }
 
 /**
+ * Schritte des Parallax-Strahls auf Stufe Hoch.
+ *
+ * `render-tech.md` §3.4 empfiehlt 4–8 Griffe und AUSDRUECKLICH kein Steep-POM
+ * mit 16–32 Schichten. 6 liegt in der Mitte dieses Fensters; die endgueltige
+ * Zahl ist eine Messung (`tools/pw-dungeon2-effekte.mjs`, `?parallax=N`), nicht
+ * eine Meinung, und steht deshalb als eine Konstante hier statt verstreut.
+ * Steps of the parallax ray at tier High. render-tech §3.4 recommends 4-8 taps
+ * and EXPLICITLY no steep POM with 16-32 layers.
+ */
+export const PARALLAX_SCHRITTE_HOCH = 6;
+
+/**
+ * Obergrenze fuer `?parallax=N`. Sie schuetzt nicht vor schlechtem Geschmack,
+ * sondern vor einer Uebersetzung, die den Treiber minutenlang beschaeftigt:
+ * die Schleife wird vom Compiler bei bekannter Grenze ausgerollt.
+ * Upper bound for `?parallax=N` — it guards against a shader compile that keeps
+ * the driver busy for minutes, because the loop bound is a compile time
+ * constant and gets unrolled.
+ */
+export const PARALLAX_SCHRITTE_MAX = 32;
+
+/**
  * Name des Vertexattributs, das die Array-Ebene traegt.
  * Name of the vertex attribute carrying the array layer.
  *
@@ -491,17 +513,56 @@ ${rauschen}
     vec2 uvZ = vec2(n.z < 0.0 ? wp.x : -wp.x, wp.y);
 
 #ifdef DUNGEON_PARALLAX
-    // Offset limiting parallax on the DOMINANT plane only (render-tech 3.4).
-    // After the collapse that plane is almost everywhere the only one, so the
+    // Parallax on the DOMINANT plane only (render-tech 3.4). After the
+    // dominance collapse that plane is almost everywhere the only one, so the
     // special case is cheap instead of expensive.
+    //
+    // Two variants behind ONE branch, chosen by DUNGEON_PARALLAX_SCHRITTE:
+    //   1  -> offset limiting, a single extra tap (the M1 branch)
+    //   >1 -> parallax OCCLUSION: march the view ray through the height field
+    //         and stop at the first step the field has risen above.
+    // The step count is a numeric define and therefore part of the effect cache
+    // key -- as a uniform, a change would return the OLD shader.
     {
       vec3 sicht = normalize(vEyePosition.xyz - vPositionW);
-      vec2 uvDom = w.x >= max(w.y, w.z) ? uvX : (w.y >= w.z ? uvY : uvZ);
-      float hoehe = dgTap(dungeonOrhArray, uvDom, schichtF).b - 0.5;
-      vec2 richtung = w.x >= max(w.y, w.z)
+      bool domX = w.x >= max(w.y, w.z);
+      bool domY = !domX && w.y >= w.z;
+      vec2 uvDom = domX ? uvX : (domY ? uvY : uvZ);
+      // The view direction expressed in the dominant plane's own 2D frame --
+      // the same axis pairing the taps below use for that plane.
+      vec2 richtung = domX
         ? vec2(sicht.z, sicht.y)
-        : (w.y >= w.z ? vec2(sicht.x, sicht.z) : vec2(sicht.x, sicht.y));
-      vec2 versatz = richtung * (hoehe * dgFest.y);
+        : (domY ? vec2(sicht.x, sicht.z) : vec2(sicht.x, sicht.y));
+      vec2 versatz;
+#if DUNGEON_PARALLAX_SCHRITTE <= 1
+      float hoehe = dgTap(dungeonOrhArray, uvDom, schichtF).b - 0.5;
+      versatz = richtung * (hoehe * dgFest.y);
+#else
+      // The ray enters the height field at h = 1 and walks down to h = 0. At
+      // ray height r its texture coordinate is uvDom + richtung * tiefe * r
+      // (no division by the plane normal component -- that IS the offset
+      // limiting, and it keeps grazing angles from smearing).
+      vec2 ganz = richtung * dgFest.y;
+      float schrittH = 1.0 / float(DUNGEON_PARALLAX_SCHRITTE);
+      vec2 schrittUv = ganz * schrittH;
+      float rayH = 1.0;
+      vec2 lauf = uvDom + ganz;
+      float feld = dgTap(dungeonOrhArray, lauf, schichtF).b;
+      for (int i = 0; i < DUNGEON_PARALLAX_SCHRITTE; i++) {
+        if (feld >= rayH) break;
+        rayH -= schrittH;
+        lauf -= schrittUv;
+        feld = dgTap(dungeonOrhArray, lauf, schichtF).b;
+      }
+      // One linear refinement between the last two steps. Without it the
+      // silhouette of every stone shows the step count as visible terracing --
+      // and one would then blame the height map.
+      vec2 davor = lauf + schrittUv;
+      float nachHier = feld - rayH;
+      float nachDavor = dgTap(dungeonOrhArray, davor, schichtF).b - (rayH + schrittH);
+      float anteil = nachHier / max(nachHier - nachDavor, 1e-4);
+      versatz = mix(lauf, davor, clamp(anteil, 0.0, 1.0)) - uvDom;
+#endif
       uvX += versatz * w.x;
       uvY += versatz * w.y;
       uvZ += versatz * w.z;
@@ -688,6 +749,21 @@ let stufeGlobal: DungeonGrafikStufe = DungeonGrafikStufe.Mittel;
  */
 let parallaxErlaubt = false;
 
+/**
+ * Zahl der Schritte des Parallax-Strahls. 1 = Offset-Limiting (ein Zusatzgriff,
+ * der M1-Zweig), >1 = Parallax Occlusion mit so vielen Griffen im ungünstigsten
+ * Fall.
+ *
+ * Warum das eine Zahl und kein Wahrheitswert ist: Die Kosten hängen linear an
+ * ihr, und die Entscheidung „wie viele" ist eine Messung. Ein `?parallax=6`
+ * in der Vorschau misst also genau das, was die Stufe Hoch später fest
+ * einstellt — und nicht „Parallax an oder aus".
+ * Number of steps of the parallax ray. 1 = offset limiting (one extra tap),
+ * >1 = parallax occlusion with that many taps at worst. A number rather than a
+ * flag because the cost is linear in it and "how many" is a measurement.
+ */
+let parallaxSchritte = PARALLAX_SCHRITTE_HOCH;
+
 class DungeonMaterialPlugin extends MaterialPluginBase {
   /** false schaltet den Rechenblock per Define aus (Notbremse). */
   private an = true;
@@ -722,6 +798,7 @@ class DungeonMaterialPlugin extends MaterialPluginBase {
         DUNGEON_BLENDING: true,
         DUNGEON_CAVITY: false,
         DUNGEON_PARALLAX: false,
+        DUNGEON_PARALLAX_SCHRITTE: 1,
         DUNGEON_SCHICHT_ATTRIBUT: false,
         DUNGEON_BLEND_ATTRIBUT: false,
       },
@@ -769,6 +846,13 @@ class DungeonMaterialPlugin extends MaterialPluginBase {
     defines.DUNGEON_BLENDING = aktiv && stufeGlobal >= DungeonGrafikStufe.Mittel;
     defines.DUNGEON_CAVITY = aktiv && stufeGlobal >= DungeonGrafikStufe.Hoch;
     defines.DUNGEON_PARALLAX = aktiv && parallaxErlaubt && stufeGlobal >= DungeonGrafikStufe.Hoch;
+    // Auch dann setzen, wenn Parallax aus ist: Ein Define, das nur manchmal in
+    // der Zeichenkette steht, ist ein zweiter Cache-Schluessel fuer denselben
+    // Shader — und `#if` auf einen fehlenden Namen ist in GLSL 0, nicht ein
+    // Fehler, also faellt es niemandem auf.
+    // Set even when parallax is off: a define that only sometimes appears in
+    // the string is a second cache key for the same shader.
+    defines.DUNGEON_PARALLAX_SCHRITTE = parallaxSchritte;
     defines.DUNGEON_SCHICHT_ATTRIBUT =
       aktiv && mesh.isVerticesDataPresent(DUNGEON_SCHICHT_ATTRIBUT);
     defines.DUNGEON_BLEND_ATTRIBUT = aktiv && mesh.isVerticesDataPresent(DUNGEON_BLEND_ATTRIBUT);
@@ -993,10 +1077,24 @@ export function dungeonStufe(): DungeonGrafikStufe {
  * darueber entschieden wird (R6).
  * Enables the parallax branch (milestone 2 / AP16).
  */
-export function erlaubeDungeonParallax(an: boolean): void {
-  if (parallaxErlaubt === an) return;
+export function erlaubeDungeonParallax(an: boolean, schritte: number = PARALLAX_SCHRITTE_HOCH): void {
+  // Geklemmt statt geprueft: Eine 0 aus einer Adresszeile ergaebe eine
+  // Schleife, die nie laeuft, und `#if <= 1` faenge sie zwar ab — aber eine
+  // 400 ergaebe einen Shader, an dem der Treiber minutenlang uebersetzt.
+  // Clamped rather than validated: a 0 from a URL would yield a loop that never
+  // runs, a 400 a shader the driver compiles on for minutes.
+  const zahl = Number.isFinite(schritte)
+    ? Math.min(PARALLAX_SCHRITTE_MAX, Math.max(1, Math.trunc(schritte)))
+    : PARALLAX_SCHRITTE_HOCH;
+  if (parallaxErlaubt === an && parallaxSchritte === zahl) return;
   parallaxErlaubt = an;
+  parallaxSchritte = zahl;
   for (const p of angehaengt) p.markAllDefinesAsDirty();
+}
+
+/** Nur zum Messen: der tatsaechliche Zustand des Zweigs. / For measuring only. */
+export function dungeonParallaxZustand(): { erlaubt: boolean; schritte: number } {
+  return { erlaubt: parallaxErlaubt, schritte: parallaxSchritte };
 }
 
 /**

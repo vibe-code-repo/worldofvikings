@@ -25,6 +25,19 @@
  *   ?neigung=Grad     Nickwinkel, positiv nach unten / pitch, positive = down
  *   ?ambient=0..1     Grundhelligkeit; 0 = stockdunkel, nur Fackeln
  *                     base brightness; 0 = pitch dark, torches only
+ *   ?parallax=N       Parallax-Schritte; 0 = aus, 1 = Offset-Limiting,
+ *                     >1 = Parallax Occlusion / parallax steps
+ *   ?godrays=0|1      Lichtschacht-Strahlen / light shaft godrays
+ *   ?ssr=0|1|2|3      Spiegelung: aus | einfach | GBuffer | PrePass
+ *                     reflections: off | legacy | gbuffer | prepass
+ *
+ * Die drei letzten sind EINZELSCHALTER ueber der Stufe: Ohne Angabe entscheidet
+ * `?stufe=`, mit Angabe die Angabe. `?stufe=2&godrays=0` ist damit die
+ * A/B-Messung „Hoch ohne Godrays" — mit einem blossen An/Aus waere sie
+ * ununterscheidbar von „Hoch, aber ich habe nichts gesagt".
+ * The last three are PER-EFFECT overrides above the tier: unspecified, the tier
+ * decides. `?stufe=2&godrays=0` is thus the A/B measurement "High without
+ * godrays", which a plain on/off could not express.
  *
  * Der Vorschaupfad rührt NICHTS an, was der Spielclient benutzt: eigene Seite,
  * eigene Szene, eigener Einstieg. Das ist Absicht — die Vault-Notiz „Agenten
@@ -46,7 +59,12 @@ import { installiereFackelLicht, FackelLichter } from './engine/FackelLicht';
 import { LightPool } from './engine/LightPool';
 import { AssetManager } from './engine/AssetManager';
 import { DungeonBauer } from './engine/DungeonBuilder';
-import { DungeonAtmosphaere, type Grundlicht } from './engine/DungeonAtmosphere';
+import {
+  DungeonAtmosphaere,
+  type DungeonEffektWahl,
+  type Grundlicht,
+} from './engine/DungeonAtmosphere';
+import { DungeonSsrWeg } from './engine/DungeonReflections';
 import { DungeonGrafikStufe } from './engine/DungeonMaterial';
 import { ladeDungeonMaterialArrays, type DungeonMaterialArrays } from './engine/DungeonMaterialArrays';
 
@@ -108,6 +126,26 @@ async function starte(): Promise<void> {
   const stufe = ([DungeonGrafikStufe.Niedrig, DungeonGrafikStufe.Mittel, DungeonGrafikStufe.Hoch][
     zahl(params, 'stufe', 1)
   ] ?? DungeonGrafikStufe.Mittel) as DungeonGrafikStufe;
+
+  // Einzelschalter der M2-Effekte. `undefined` bleibt `undefined` — genau das
+  // heisst „der Stufe folgen"; eine 0 als Ersatzwert waere „aus", und damit
+  // liefe jede Messung auf Stufe Hoch ohne Effekte.
+  // Per-effect overrides: `undefined` STAYS undefined, which is what "follow
+  // the tier" means; a 0 as a stand-in would mean "off".
+  const wahlZahl = (name: string): number | undefined => {
+    const roh = params.get(name);
+    if (roh === null) return undefined;
+    const wert = Number(roh);
+    return Number.isFinite(wert) ? Math.trunc(wert) : undefined;
+  };
+  const parallaxWahl = wahlZahl('parallax');
+  const godraysWahl = wahlZahl('godrays');
+  const ssrWahl = wahlZahl('ssr');
+  const effektWahl: DungeonEffektWahl = {
+    ...(parallaxWahl === undefined ? {} : { parallax: parallaxWahl }),
+    ...(godraysWahl === undefined ? {} : { godrays: godraysWahl !== 0 }),
+    ...(ssrWahl === undefined ? {} : { ssr: ssrWahl as DungeonSsrWeg }),
+  };
 
   const engine = new Engine(leinwand, true, { preserveDrawingBuffer: true, stencil: true }, true);
   const scene = new Scene(engine);
@@ -237,7 +275,15 @@ async function starte(): Promise<void> {
   // Debug handle for tooling and the console — only the preview does this.
   (window as unknown as Record<string, unknown>).dungeon2Vorschau = { kamera, bauer };
 
-  const atmosphaere = new DungeonAtmosphaere(scene, kamera, stufe, ambientLicht, grundlicht);
+  const atmosphaere = new DungeonAtmosphaere(
+    scene,
+    kamera,
+    stufe,
+    ambientLicht,
+    grundlicht,
+    bauer.lichtschaechte,
+    effektWahl
+  );
   atmosphaere.betrete();
   bauer.setzeStufe(stufe);
 
@@ -276,6 +322,20 @@ async function starte(): Promise<void> {
     statistik: () => bauer.statistik(),
     fackeln: () => ({ plaetze: FackelLichter.plaetze, an: FackelLichter.anzahl }),
     ambient: () => ({ ...atmosphaere.werte(), lichtIntensitaet: licht.intensity }),
+    // Der Zeuge der Messreihe: WELCHER Effekt haengt wirklich. Ohne ihn misst
+    // `tools/pw-dungeon2-effekte.mjs` einen wirkungslosen Schalter und nennt
+    // ihn kostenlos (Vault: „Messzellen brauchen Zeugen").
+    // The witness of the measurement series: WHICH effect is really attached.
+    effekte: () => {
+      const w = atmosphaere.werte();
+      return {
+        stufe: w.stufe,
+        parallax: w.parallax,
+        godrays: w.godrays,
+        ssr: w.ssr,
+        schaechte: bauer.lichtschaechte.length,
+      };
+    },
     deko: () => bauer.dekoStatistik,
     stufe: (n: number) => {
       atmosphaere.setzeStufe(n as DungeonGrafikStufe);
@@ -290,6 +350,12 @@ async function starte(): Promise<void> {
     // Delta time in seconds — a fixed 1/60 would make the flicker run faster on
     // faster hardware.
     pool.update(kamera.position.x, kamera.position.y, kamera.position.z, engine.getDeltaTime() / 1000);
+    // Godrays suchen sich je Bild ihren Schacht — derselbe Aufruf steht im
+    // Spielclient (`Dungeon2Instanz`), damit die Vorschau nicht etwas anderes
+    // misst als das Spiel zeigt.
+    // The godrays pick their shaft per frame; the same call is in the game
+    // client, so the preview does not measure something the game does not show.
+    atmosphaere.aktualisiere(kamera.position.x, kamera.position.y, kamera.position.z);
     scene.render();
   });
   window.addEventListener('resize', () => engine.resize());

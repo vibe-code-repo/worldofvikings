@@ -92,7 +92,9 @@ Zusage halten (keine Registry-Einträge auf Modulebene), sonst schleppt der Kart
 | `shared/src/campGenerator.ts` | herausgelöstes `generateCampLayout`/`CampGround` — **bleibt aktiv** | data-model §5.1 |
 | `client/src/engine/DungeonBuilder.ts` | Babylon-Adapter: Merge je Block×materialTag, Havok aus `kollision`, `dungeonBereit` | data-model §3.3 |
 | `client/src/engine/DungeonMaterial.ts` | Triplanar-`MaterialPluginBase` + Blending, Grafikstufen als Defines, Notbremse | render-tech §1/§2 |
-| `client/src/engine/DungeonAtmosphere.ts` | dungeon-kalibriertes SSAO, später SSR/Godrays, `DungeonGrafikStufe` | render-tech §3/§4 |
+| `client/src/engine/DungeonAtmosphere.ts` | dungeon-kalibriertes SSAO, Stufen- und Einzelschalter, besitzt Godrays und SSR | render-tech §3/§4 |
+| `client/src/engine/DungeonGodrays.ts` | EINE Verdeckungspassage für den jeweils nächsten Lichtschacht (M2) | render-tech §3.3 |
+| `client/src/engine/DungeonReflections.ts` | drei SSR-Wege, gebaut und gemessen; keiner in Stufe Hoch (M2) | render-tech §3.2 |
 | `client/src/editor/dungeon2/*.ts` | sechs Dateien, siehe §1.1 | editor-integration §3 |
 | `server/src/world/dungeon/Materialisierung2.ts` | ZDOs nur für Bewegliches/Interaktives | data-model §4.3 |
 | `tools/bake-barrow-materials.py` | 8 Materialien prozedural in Blender, gebacken | material-plan §4 |
@@ -274,6 +276,25 @@ Vorhabens, nicht als Inhalt des ersten Meilensteins — und der Beschluss selbst
 „begehbarer Auto-Dungeon". Der Grund ist die Abnahmeregel: SSR über den PrePassRenderer ist eine
 Architekturentscheidung (zweite Vollgeometrie-Passage neben dem GeometryBufferRenderer), die man nicht
 nebenbei trifft, während der Grundriss noch nicht steht.
+
+**Nachtrag 31.08.2026 (M2 abgeschlossen, Zahlen im `decisions-log.md`).** Meilenstein 2 ist gebaut und
+gemessen, und er endet anders als geplant:
+
+- **Parallax** ist in Stufe Hoch (Parallax Occlusion, sechs Schritte, +10,5 % Bildzeit). R6 ist damit
+  beantwortet: Er kostet ein Zehntel, nicht ein Drittel.
+- **Godrays** sind in Stufe Hoch — EINE Passage für den jeweils nächsten Lichtschacht, nicht eine je Schacht
+  (±0 % gemessen, weil sie außerhalb von 30 m gar nicht laufen).
+- **SSR ist NICHT in Stufe Hoch.** Nicht aus Kostengründen allein (+52,6 %), sondern weil es auf dem einzig
+  gangbaren Weg nichts zeigen KANN: MaterialPlugins laufen in der GBuffer-Passage nicht, also sieht SSR von
+  unserem Triplanar-Material nur `metallic = 0, roughness = 1` — die feuchte Stelle entsteht erst im
+  Fragment-Shader. Gemessen: 13 % geänderte Bildpunkte bei mittlerer Abweichung 16,6, also der
+  Flacker-Unterschied zweier Fackelbilder.
+- **Die PrePass-Frage ist entschieden: nein.** Und die Begründung ist eine andere als erwartet — nicht „zwei
+  Passagen sind zu teuer", sondern: `scene.enablePrePassRenderer()` SCHALTET DEN GEOMETRYBUFFERRENDERER AB
+  (`PrePassRenderer._refreshGeometryBufferRendererLink`). Danach rechnet unser SSAO2 ins Leere. Der PrePass-Lauf
+  war deshalb *schneller* als die Grundlinie — daran erkennt man ihn.
+- Nebenbefund gegen `render-tech.md` §3.2: Babylon 8.56 HAT eine Reflektivitäts-MRT im GeometryBufferRenderer.
+  Die dortige Aussage „daran führt kein Weg vorbei" ist überholt und dort korrigiert.
 
 ### W10 — Wer prüft die Kollision?
 

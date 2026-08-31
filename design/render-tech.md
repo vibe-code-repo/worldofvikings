@@ -319,6 +319,17 @@ Babylon 8 bietet **zwei** SSR-Wege:
   (Babylon 8-Generation, physikalisch plausibler, braucht den
   **PrePassRenderer** mit Normal+Reflectivity-MRTs).
 
+> **ÜBERHOLT, 31.08.2026 — bitte zuerst lesen.** Der folgende Abschnitt geht
+> davon aus, dass der GeometryBufferRenderer keine Reflektivitäts-MRT liefert.
+> In Babylon 8.56 tut er es (`REFLECTIVITY_TEXTURE_TYPE = 4`), und
+> `SSRRenderingPipeline(..., forceGeometryBuffer = true)` schaltet sie selbst
+> ein. Der PrePassRenderer ist für SSR also nicht nötig — und er ist
+> ausserdem unverträglich: Er SCHALTET den GeometryBufferRenderer AB, womit
+> unser SSAO2 aufhört zu rechnen. Gemessen, mit Zahlen und Zeugen, im
+> `decisions-log.md` vom 31.08.2026. Ergebnis: kein PrePass, und SSR ist
+> nicht Teil der Stufe Hoch, weil MaterialPlugins in der GBuffer-Passage
+> nicht laufen und SSR die feuchte Stelle daher gar nicht sehen kann.
+
 **Fallstrick mit bestehendem Code**: Der PrePassRenderer wird im Projekt
 bislang **bewusst gemieden** — `PostProcessing.ts` (Motion-Blur-Kommentar)
 hält ausdrücklich fest, dass `scene.enablePrePassRenderer()` bei den
@@ -449,10 +460,10 @@ der Grafikstufe, nicht nur Post-Processing).
 |---|---|---|---|
 | Triplanar Basis (Albedo/Normal/Rough/AO) | an | an | an |
 | Material-Blending (Moos/Feuchte/Schmutz/Risse) | aus (nur Basisschicht) | an | an |
-| Parallax (dominante Ebene) | aus | aus | an |
+| Parallax (dominante Ebene) | aus | aus | an (Occlusion, 6 Schritte) |
 | SSAO2 (dungeon-kalibriert) | aus | an | an, höhere `totalStrength` |
-| SSR | aus | aus | an (Variante 2 zuerst, s. 3.2) |
-| Godrays (nur an Editor-markierten Lichtschächten) | aus | aus | an |
+| SSR | aus | aus | **aus** — gebaut, gemessen, zurückgestellt (s. Kasten in 3.2) |
+| Godrays (EINE Passage, nächster Lichtschacht) | aus | aus | an |
 | TAA | aus | Nutzeroption (wie Außenwelt) | Nutzeroption |
 | Bloom/Chrom. Aberration/FXAA | wie Außenwelt-Voreinstellung, unverändert | gleich | gleich |
 

@@ -62,6 +62,7 @@ import {
   ZELL_ACHTEL,
   bodenStufen,
   kantenDrehung,
+  lichtschaechte,
   obenStufen,
   offen,
   zelleImGitter,
@@ -1588,6 +1589,107 @@ const NULLKOERPER_SEEDS = 60;
     duenneDecken === 0 && deckenZahl > 10000,
     erstesDuenn !== '' ? erstesDuenn : `${deckenZahl} Platten`
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lichtschacht-Muendungen (M2 / AP18) / light shaft mouths
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Godrays haengen an `lichtschaechte()`. Die Funktion darf drei Fehler nicht
+ * machen, und alle drei waeren im Bild NICHT als Fehler zu erkennen — man saehe
+ * nur „zu viele Strahlen" oder „ein Strahl im Fels" und suchte im Effekt:
+ *
+ *  (a) Ein Schachtstapel ist EINE Muendung. Drei uebereinanderliegende
+ *      Schachtzellen ergaeben sonst drei Godray-Quellen im selben Loch — und
+ *      auf Stufe Hoch dreimal dieselbe Verdeckungspassage.
+ *  (b) Eine Muendung steht ueber einer BEGEHBAREN Zelle. Ein Schacht ueber
+ *      Fels ist ein Loch im Fels; ein Strahl dort leuchtete in einen Raum, den
+ *      es nicht gibt. Es ist dieselbe Unterscheidung, die `hatBodenPlatte()`
+ *      fuer die Geometrie trifft — der Test haelt beide gegeneinander.
+ *  (c) Die Hoehe ist die OBERKANTE der lichten Saeule (`obenStufen`), nicht der
+ *      Boden. Eine Quelle am Boden des Schachtes saehe aus wie eine Fackel.
+ * Godrays hang off `lichtschaechte()`, and none of its three possible mistakes
+ * would read as a mistake in the picture.
+ */
+{
+  let stapelEinfach = true;
+  let ueberBegehbar = true;
+  let hoeheStimmt = true;
+  let muendungen = 0;
+  let mitSchacht = 0;
+  let erstesProblem = '';
+  for (let i = 0; i < 12; i++) {
+    const layout = erzeugeLayout(thema, seedsFuer(i));
+    const gitter = zellenAufbauen(layout, materialOptionen);
+    const gefunden = lichtschaechte(gitter, layout);
+    muendungen += gefunden.length;
+    if (gefunden.some((l) => l.art === 'schacht')) mitSchacht += 1;
+
+    // (a) Kein Stapel doppelt: die Zahl der Muendungen darf nie groesser sein
+    //     als die Zahl der Schacht-SAEULEN (x,z,ebene-unabhaengig gezaehlt ist
+    //     zu grob — gezaehlt werden Schaechte OHNE Schacht darueber).
+    const spitzen = zellenSortiert(gitter).filter((z) => {
+      if (z.art !== ZELLEN_ART.Schacht) return false;
+      const oben = zelleImGitter(gitter, z.x, z.z, z.ebene + 1);
+      return oben === undefined || oben.art !== ZELLEN_ART.Schacht;
+    }).length;
+    const ausSchacht = gefunden.filter((l) => l.art === 'schacht').length;
+    if (ausSchacht > spitzen) {
+      stapelEinfach = false;
+      if (erstesProblem === '') erstesProblem = `Seed ${i}: ${ausSchacht} > ${spitzen} Spitzen`;
+    }
+
+    for (const l of gefunden) {
+      const zelle = zelleImGitter(gitter, l.x, l.z, l.ebene);
+      if (zelle === undefined) {
+        ueberBegehbar = false;
+        if (erstesProblem === '') erstesProblem = `Seed ${i}: Muendung ohne Zelle`;
+        continue;
+      }
+      if (l.art === 'schacht') {
+        // (b) darunter muss etwas Begehbares liegen
+        const unten = zelleImGitter(gitter, l.x, l.z, l.ebene - 1);
+        if (unten === undefined || !offen(unten.art)) {
+          ueberBegehbar = false;
+          if (erstesProblem === '') erstesProblem = `Seed ${i}: Schacht ueber Fels`;
+        }
+        // (c) Hoehe = Oberkante der lichten Saeule
+        if (Math.abs(l.mitte.y - obenStufen(gitter, zelle) * HOEHEN_SCHRITT_M) > 1e-9) {
+          hoeheStimmt = false;
+          if (erstesProblem === '') erstesProblem = `Seed ${i}: Hoehe ${l.mitte.y}`;
+        }
+      }
+      // Waagerecht immer die Zellmitte — dieselbe Rechnung wie der Bauer.
+      if (
+        Math.abs(l.mitte.x - (l.x + 0.5) * ZELLE_M) > 1e-9 ||
+        Math.abs(l.mitte.z - (l.z + 0.5) * ZELLE_M) > 1e-9
+      ) {
+        hoeheStimmt = false;
+        if (erstesProblem === '') erstesProblem = `Seed ${i}: Mitte verrutscht`;
+      }
+    }
+  }
+  pruefe('lichtschaechte: ein Schachtstapel ergibt eine Muendung', stapelEinfach, erstesProblem);
+  pruefe('lichtschaechte: jede Muendung steht ueber einer begehbaren Zelle', ueberBegehbar, erstesProblem);
+  pruefe('lichtschaechte: Muendung sitzt auf der Oberkante der lichten Saeule', hoeheStimmt, erstesProblem);
+  // Der Zeuge gegen eine Funktion, die immer die leere Liste liefert: Ein
+  // Godray-Modul mit null Quellen schaltet sich selbst ab und saehe von aussen
+  // aus wie „Godrays kosten nichts".
+  // The witness against a function that always returns the empty list.
+  pruefe(
+    'lichtschaechte: findet ueberhaupt etwas (Eingang immer, Schacht meistens)',
+    muendungen >= 12 && mitSchacht > 0,
+    `${muendungen} Muendungen, ${mitSchacht} Graeber mit Schacht`
+  );
+
+  // Determinismus: zweimal dasselbe Layout, zweimal dieselbe Liste — inklusive
+  // Reihenfolge. Die Godray-Wahl haengt an Indizes.
+  // Determinism: the same layout twice yields the same list, order included.
+  const l1 = erzeugeLayout(thema, seedsFuer(3));
+  const a = JSON.stringify(lichtschaechte(zellenAufbauen(l1, materialOptionen), l1));
+  const b = JSON.stringify(lichtschaechte(zellenAufbauen(l1, materialOptionen), l1));
+  pruefe('lichtschaechte ist deterministisch (Liste und Reihenfolge)', a === b);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

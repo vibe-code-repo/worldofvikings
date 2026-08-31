@@ -38,7 +38,7 @@ import { DungeonAtmosphaere, type Grundlicht } from './DungeonAtmosphere.js';
 import { DungeonBauer, formOberkante, type KollisionsForm } from './DungeonBuilder.js';
 import type { DekoModellQuelle } from './DungeonDeko.js';
 import type { Lichtquelle } from './LightPool.js';
-import { STEINGRAB_THEMA, dungeonStufe } from './DungeonMaterial.js';
+import { STEINGRAB_THEMA, dungeonStufe, type DungeonGrafikStufe } from './DungeonMaterial.js';
 import {
   ladeDungeonMaterialArrays,
   type DungeonMaterialArrays,
@@ -123,7 +123,15 @@ export class Dungeon2Instanz {
       umgebung.kamera,
       dungeonStufe(),
       deskriptor.ambientLicht,
-      umgebung.licht ?? null
+      umgebung.licht ?? null,
+      // Die Lichtschaechte kommen aus dem BAUER, also aus dem Layout, das
+      // dieser Client selbst gerechnet hat — nicht aus dem Deskriptor. Der
+      // Server schickt nie Geometrie (ARCHITECTURE §3), und eine Liste von
+      // Weltpositionen waere genau das.
+      // The shafts come from the BUILDER, i.e. from the layout this client
+      // computed itself — the server never sends geometry, and a list of world
+      // positions would be exactly that.
+      bauer.lichtschaechte
     );
   }
 
@@ -233,6 +241,16 @@ export class Dungeon2Instanz {
    * Build the next batch of blocks — belongs in the frame loop.
    */
   weiterbauen(): void {
+    // Die Atmosphaere zuerst — und AUSSERHALB der `vollstaendig`-Schranke
+    // darunter. Die Godrays suchen sich je Bild ihren Schacht; haengte der
+    // Aufruf hinter dem `return`, hoerte der Effekt in dem Moment auf zu
+    // folgen, in dem der Dungeon fertig gebaut ist — also immer dann, wenn man
+    // ihn tatsaechlich anschaut.
+    // The atmosphere first, and OUTSIDE the `vollstaendig` guard below: behind
+    // the `return`, the godrays would stop following the moment the dungeon is
+    // finished — i.e. exactly when one is looking at it.
+    const k = this.umgebung.kamera.globalPosition;
+    this.atmosphaere.aktualisiere(k.x, k.y, k.z);
     if (this.bauer.vollstaendig) return;
     const rest = this.bauer.baueWeiter();
     this.formenZwischenspeicher = null;
@@ -249,6 +267,25 @@ export class Dungeon2Instanz {
   /** Ob die Bloecke um den Spawn stehen. / Whether the spawn blocks stand. */
   get bereit(): boolean {
     return this.bauer.bereit;
+  }
+
+  /**
+   * Grafikstufe zur Laufzeit umstellen — Material, Nachbearbeitung UND
+   * Geometrie.
+   *
+   * Alle drei, weil die Stufe im Dungeon nicht nur Nachbearbeitung ist: Der
+   * Bauer legt auf Niedrig andere Geometrie zusammen (`DungeonBauer.setzeStufe`
+   * baut deshalb neu), die Atmosphaere haengt SSAO, Godrays und SSR um, und
+   * das Material wechselt seine Defines. Wer nur eines davon ruft, bekommt
+   * einen halb umgestellten Dungeon — und der sieht nicht nach „halb" aus,
+   * sondern nach einem Fehler an der Stelle, die man gerade ansieht.
+   * Switch the graphics tier at runtime — material, post processing AND
+   * geometry. Calling only one of the three yields a half-switched dungeon,
+   * which does not look "half" but like a bug wherever one happens to look.
+   */
+  setzeStufe(stufe: DungeonGrafikStufe): void {
+    this.atmosphaere.setzeStufe(stufe);
+    this.bauer.setzeStufe(stufe);
   }
 
   /** Nur zum Messen: die Werte der Atmosphaere. / For measuring only. */

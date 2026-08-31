@@ -56,6 +56,26 @@ export interface GameSettings {
    */
   waterQuality: number;
   /**
+   * Grafikstufe im Dungeon (0 Niedrig, 1 Mittel, 2 Hoch) — die EINE Zahl, die
+   * `DungeonGrafikStufe` fuer den Spieler sichtbar macht.
+   *
+   * Warum ein eigener Regler und nicht einer der bestehenden: Die
+   * Dungeon-Effekte messen sich an einer anderen Szene. Draussen kostet die
+   * Verdeckungspassage die Vegetation, drinnen die Waende; draussen gibt es
+   * eine Sonne, drinnen sechzehn Fackeln. Wer den Aussenregler mitzoege,
+   * verordnete eine Entscheidung, die fuer den anderen Ort gemessen wurde
+   * (dieselbe Lehre wie `DUNGEON_SSAO_MAX_Z`: 1000 aus der Aussenwelt
+   * uebernommen war der Fehler).
+   *
+   * Voreinstellung MITTEL, nicht Hoch: Hoch schaltet Parallax, Godrays und
+   * SSR zu. Alle drei sind gemessen (decisions-log, 31.08.2026), aber sie
+   * kosten, und die Voreinstellung gehoert dem, der nicht sucht.
+   * Graphics tier inside a dungeon (0 low, 1 medium, 2 high). Its own control
+   * because the dungeon effects measure against a different scene; default
+   * MEDIUM because High adds parallax, godrays and SSR.
+   */
+  dungeonQuality: number;
+  /**
    * Ferne Schatten (GraphicsSettingBool.DistantShadows, im Original an).
    * Aus: Kleinzeug wirft nicht mehr, und Werfer jenseits der halben
    * Kaskadendistanz fallen weg — siehe Shadows.darfWerfen().
@@ -196,6 +216,7 @@ const DEFAULTS: GameSettings = {
    * dort nicht auszumachen — sie kostet aber nur ein Viertel der Pixel.
    */
   waterQuality: 2,
+  dungeonQuality: 1,
   distantShadows: true,
   hundertFpsProfil: false,
   bloom: true,
@@ -234,7 +255,7 @@ function loadSaved(): Partial<GameSettings> {
     if (!raw) return {};
     const parsed = JSON.parse(raw) as Partial<GameSettings>;
     const out: Partial<GameSettings> = {};
-    const q = { vegetationQuality: clamp(parsed.vegetationQuality), vegetationRange: clamp(parsed.vegetationRange), detailQuality: clamp(parsed.detailQuality), renderScale: clamp(parsed.renderScale), grassDensity: clamp(parsed.grassDensity), shadowQuality: clamp(parsed.shadowQuality), waterQuality: clamp(parsed.waterQuality) };
+    const q = { vegetationQuality: clamp(parsed.vegetationQuality), vegetationRange: clamp(parsed.vegetationRange), detailQuality: clamp(parsed.detailQuality), renderScale: clamp(parsed.renderScale), grassDensity: clamp(parsed.grassDensity), shadowQuality: clamp(parsed.shadowQuality), waterQuality: clamp(parsed.waterQuality), dungeonQuality: clamp(parsed.dungeonQuality) };
     if (q.vegetationQuality !== undefined) out.vegetationQuality = q.vegetationQuality;
     if (q.vegetationRange !== undefined) out.vegetationRange = q.vegetationRange;
     if (q.detailQuality !== undefined) out.detailQuality = q.detailQuality;
@@ -242,6 +263,7 @@ function loadSaved(): Partial<GameSettings> {
     if (q.grassDensity !== undefined) out.grassDensity = q.grassDensity;
     if (q.shadowQuality !== undefined) out.shadowQuality = q.shadowQuality;
     if (q.waterQuality !== undefined) out.waterQuality = q.waterQuality;
+    if (q.dungeonQuality !== undefined) out.dungeonQuality = q.dungeonQuality;
     const b = {
       bloom: bool(parsed.bloom),
       motionBlur: bool(parsed.motionBlur),

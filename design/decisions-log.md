@@ -2785,3 +2785,270 @@ die Figur als Schattenriss, die Nachbargänge schwarz).
 `steingrab-2`, nur ohne Eigenhelligkeit. Kann gelöscht werden
 (`dungeon delete steingrab-dunkel`), ist aber als lebendes Beispiel des
 Merkmals nützlich.
+
+---
+
+## 31.08.2026 — Grafischer Vollausbau (M2): Parallax, Godrays, SSR und die PrePass-Frage
+
+Der Beschluss „Vollausbau Stufe 1: SSAO, Godrays, SSR, Parallax"
+(ARCHITECTURE §W9) wird eingelöst — mit einem Ergebnis, das von der
+Erwartung abweicht: **Zwei der drei nachgezogenen Effekte gehen in die Stufe
+Hoch, der dritte nicht.** Stufe Mittel bleibt unverändert bei Umfang und
+Tempo von M1; das war Bedingung und ist gemessen (siehe Tabelle).
+
+### Der Messstand — und warum die erste Messreihe wertlos war
+
+`tools/pw-dungeon2-effekte.mjs`: eigener Vite, Vorschauseite, feste Kamera,
+je Variante 600 Bilder, vier **verschränkte** Durchgänge (die Lehre aus
+`PostProcessing.setSSAO()`: die ersten Läufe werden systematisch schneller).
+
+**Drei** Fehler dieses Messstands haben je einen Lauf gekostet, und alle drei
+sind so gebaut, dass sie wie ein Erfolg aussehen:
+
+1. **Bildschirmsynchronisation.** Der erste Lauf meldete für ALLE elf
+   Varianten exakt `16,70 ms / 59,9 fps` — von „Niedrig" bis „Hoch mit
+   allem". Das ist der 60-Hz-Takt von `requestAnimationFrame`, nicht das
+   Bild. Eine Tabelle voller identischer Zahlen liest sich als „die Effekte
+   kosten nichts". Behoben mit `--disable-gpu-vsync --disable-frame-rate-limit`.
+2. **Die Kamera stand im Fels.** Die Messstelle wurde aus dem nächsten
+   Lichtschacht berechnet, aber auf Spawn-Höhe gesetzt — bei einem Schacht
+   im Stockwerk darüber steht die Kamera dann in einer Wand. Bildzeit
+   0,4 ms, jeder Effekt 0 %. Behoben, indem `Lichtschacht` seither die
+   Bodenhöhe des Raumes UNTER der Mündung mitführt (`boden`).
+3. **Der Median hatte nicht genug Auflösung.** `performance.now()` ist in
+   Chromium auf 100 µs gerundet; bei einer Bildzeit um 1,8 ms kann ein Median
+   deshalb nur in Schritten von 5,6 % springen. Zwei Läufe derselben Sache
+   widersprachen sich scheinbar (Parallax 6 einmal +10,5 %, einmal 0,0 %) —
+   nicht weil die Messung schwankte, sondern weil die Zahl gar nichts
+   Feineres annehmen KANN. Gewertet wird deshalb der MITTELWERT über alle
+   Bilder; er mittelt die Rundung heraus, und die Streuung zwischen den vier
+   Durchgängen fiel damit unter 1 % (Spalte „Spanne").
+
+Renderer: `ANGLE (AMD Radeon RX 7900 XT (RADV NAVI31), radv)`, 1920×1080,
+Seed 2 (dasselbe Grab wie `steingrab-2` auf wov-dev), Messstelle: Schacht
+bei (−22 / 15,5 / −14), Kamera 12 m davor.
+
+### Die PrePass-Frage: NEIN — und die bisherige Begründung war überholt
+
+`render-tech.md` §3.2 hielt fest, für echtes SSR führe am PrePassRenderer
+kein Weg vorbei, weil der GeometryBufferRenderer keine Reflektivitäts-MRT
+liefere. **Das stimmt für Babylon 8.56 nicht mehr:**
+`GeometryBufferRenderer.REFLECTIVITY_TEXTURE_TYPE = 4` existiert, und
+`SSRRenderingPipeline(..., forceGeometryBuffer = true)` schaltet sie selbst
+ein (`ssrRenderingPipeline.js`, Zeile 486 ff.). Modernes SSR hängt sich
+damit an GENAU DIE Passage, die unser SSAO2 (`forceGeometryBuffer = true`)
+ohnehin bezahlt.
+
+Der PrePass-Weg wurde trotzdem gebaut und gemessen — und er ist nicht
+„teuer", sondern **unverträglich**:
+
+> `scene.enablePrePassRenderer()` ruft
+> `PrePassRenderer._refreshGeometryBufferRendererLink()`, und dieser Pfad
+> ruft `scene.disableGeometryBufferRenderer()`. Danach ist
+> `scene.geometryBufferRenderer` **null** — und unser SSAO2, das ihn je Bild
+> liest, rechnet ins Leere.
+
+Der Zeuge steht in der Messreihe: Der PrePass-Lauf ist der EINZIGE mit
+`{prepass: true, gbuffer: false}`, alle anderen haben `gbuffer: true`.
+Und er ist mit 1,357 ms **schneller** als die Grundlinie Hoch (1,775 ms,
+−23,5 %) — genau daran erkennt man ihn. Ein Effekt, der die Bildrate hebt,
+hat etwas abgeschaltet. Das Bild bestätigt es: 99,9 % der Bildpunkte
+geändert, mittlere Abweichung 76,9, sichtbar dunkler und körniger.
+
+**Beschluss:** Kein PrePassRenderer. Der Seiteneffekt-Import
+(`prePassRendererSceneComponent`) wird deshalb NACHGELADEN und nicht oben
+importiert — er hängt eine Szenenkomponente an jede Szene des Clients, auch
+an die der Oberwelt, die ihn seit jeher meidet. Ein Weg, der die Messung
+verlieren kann, darf den ausgelieferten Client nicht dauerhaft belasten.
+
+### SSR: gebaut, gemessen, NICHT in Stufe Hoch
+
+| Weg | Bildzeit | ggü. Hoch-M1 | geänderte Bildpunkte | mittlere Abweichung |
+|---|---|---|---|---|
+| `?ssr=1` `ScreenSpaceReflectionPostProcess` | 5,056 ms | **+184,9 %** | 13,7 % | 14,2 |
+| `?ssr=2` `SSRRenderingPipeline` über GBuffer | 2,462 ms | **+38,7 %** | **0,7 %** | 25,3 |
+| `?ssr=3` dieselbe über PrePass | 1,357 ms | −23,5 % | 99,9 % | 76,9 (SSAO tot) |
+
+**0,7 % geänderte Bildpunkte für 38,7 % Bildzeit.** Zum Vergleich, an
+derselben Stelle: der Unterschied zwischen Stufe Mittel und Stufe Hoch
+(also Cavity an oder aus) ändert 16,5 % der Bildpunkte. SSR ändert ein
+Fünfundzwanzigstel davon. Die beiden Bilder sind mit bloßem Auge nicht zu
+unterscheiden — nachgesehen, nicht nur gerechnet.
+
+**Die Ursache ist strukturell und nicht durch Zahlen zu drehen:** Der
+GeometryBufferRenderer baut seinen Effekt aus einer festen Liste
+(`geometryBufferRenderer.js`) — **MaterialPlugins laufen darin nicht**.
+Unser Triplanar-Plugin rechnet Normale, Rauheit und die Feuchte-Maske im
+Fragment-Shader des Materials; in der GBuffer-Passage kommt davon nichts an.
+SSR sieht `metallic = 0, roughness = 1`, also den Materialwert, nicht den
+Bildpunktwert. „Nur der feuchte Boden spiegelt" ist auf diesem Weg nicht
+wissbar. Die Schwelle so weit zu senken, bis etwas erscheint, ließe JEDEN
+trockenen Felsen spiegeln — der Kirmes-Effekt, den das Leitbild ausschließt.
+
+**Beschluss:** SSR ist nicht Teil der Stufe Hoch (`SSR_WEG_HOCH = Aus`). Der
+Code bleibt gebaut und über `?ssr=0|1|2|3` wählbar, weil die Entscheidung an
+einer Eigenschaft von Babylon 8.56 hängt, die eine spätere Fassung ändern
+kann. Ein gelöschter Weg wäre eine Messung, die man neu bauen muss.
+
+Der Weg zurück, falls SSR doch gewollt ist, ist damit auch benannt und ist
+KEINE Einstellung: Die Feuchte müsste als eigener Kanal aus dem Material
+heraus in den GBuffer — also entweder ein Vertex-Attribut „nass" schon im
+Bauer (dann weiß es die GBuffer-Passage über das Material) oder der
+PrePass-Weg, und der kostet nach heutigem Stand das SSAO.
+
+### Godrays: EINE Passage, der nächste Schacht, sonst nichts
+
+`VolumetricLightScatteringPostProcess` rendert eine eigene
+Verdeckungspassage der ganzen Szene — je Instanz. `render-tech.md` §3.3
+verbot „ein Godray je Fackel"; dieselbe Rechnung verbietet auch „eines je
+Schacht". Gebaut ist deshalb **eine** Instanz, deren Quelle je Bild auf die
+nächstgelegene Schachtmündung gesetzt wird (Reichweite 30 m — das
+90. Perzentil der gemessenen Sichtstrecken; Hysterese 0,8, damit die Quelle
+zwischen zwei gleich weit entfernten Schächten nicht springt).
+
+Die Mündungen kommen aus `dungeon2.lichtschaechte()` im REINEN Modul, nicht
+aus dem Client: Zwei Clients mit demselben Seed müssen dieselben Schächte
+finden, sonst leuchtet ein Effekt bei einem Spieler und beim Nachbarn nicht.
+Eine Mündung ist die oberste `Schacht`-Zelle eines Stapels über einer
+begehbaren Zelle — beide Bedingungen tragen, und beide sind geprüft
+(`shared/test/dungeon2-builder.ts`): ohne die erste hinge an einem tiefen
+Schacht dreimal derselbe Effekt, ohne die zweite leuchtete ein Strahl in
+einen Raum, den es nicht gibt.
+
+**Zwei Fallstricke, beide gemessen:**
+
+1. **Babylon lässt seine Verdeckungspassage liegen.** Der Konstruktor mit
+   Kamera legt die Zieltextur in `camera.customRenderTargets`, `dispose(camera)`
+   räumt aber nur `scene.customRenderTargets` auf
+   (`volumetricLightScatteringPostProcess.js`, Zeile 260 gegen 291). Wer sich
+   darauf verlässt, lässt bei JEDEM Stufenwechsel eine vollständige
+   Szenenpassage in der Kamera liegen: Effekt weg, Kosten bleiben. Die Klasse
+   räumt die Liste selbst. Leckprobe (10× Hoch↔Mittel): Verdeckungspassagen an
+   der Kamera **1**, nicht 11.
+2. **Ohne Schacht in Reichweite war der Effekt trotzdem sichtbar.** Die Quelle
+   nur hinter die Kamera zu schieben genügt nicht — der radiale Blur zieht
+   seine Probe trotzdem durchs Bild, und das Ergebnis ist ein flächiger
+   Schleier. Der liest sich nicht als „Godray", sondern als „das Grab ist auf
+   Hoch flauer", und man suchte ihn in der Beleuchtung. Behoben mit
+   `exposure = 0`, wenn kein Schacht gewählt ist — damit ist der Effekt
+   ausserhalb von 30 m nicht nur unauffällig, sondern beitragsfrei.
+
+### Parallax: Occlusion mit sechs Schritten, nur Stufe Hoch
+
+Der `#ifdef`-Zweig existierte seit M1 als Offset-Limiting mit einem
+Zusatzgriff. Neu ist ein zweiter Zweig hinter demselben `#ifdef`, gewählt
+über das ZAHLEN-Define `DUNGEON_PARALLAX_SCHRITTE`: Der Strahl läuft durch
+das Höhenfeld und hält beim ersten Schritt, den das Feld überragt, mit einer
+linearen Verfeinerung zwischen den letzten beiden Schritten (ohne sie zeigt
+die Silhouette jedes Steins die Schrittzahl als Terrassen — und man
+verdächtigte die Höhenkarte).
+
+Ein Define und kein Uniform, aus demselben Grund wie bei `DUNGEON_STUFE`:
+Babylon schlüsselt seinen Effekt-Cache über die Define-Zeichenkette; als
+Uniform bekäme ein Wechsel von 1 auf 6 denselben Schlüssel und damit den
+ALTEN Shader zurück.
+
+| Schritte | Bildzeit | ggü. Hoch-M1 | geänderte Bildpunkte |
+|---|---|---|---|
+| aus | 1,775 ms | 0 % | — |
+| 1 (Offset-Limiting, M1) | 1,808 ms | +1,8 % | 59,2 % |
+| **6 (gewählt)** | **1,860 ms** | **+4,8 %** | 73,2 % |
+| 12 | 1,912 ms | +7,7 % | 73,4 % |
+
+6 liegt im von `render-tech.md` §3.4 genannten Fenster 4–8, und der Sprung
+von 6 auf 12 kostet weitere drei Prozentpunkte, ohne das Bild noch messbar zu
+ändern (73,2 % gegen 73,4 %). Damit ist auch **R6 beantwortet**: Parallax
+bleibt, er kostet ein Zwanzigstel und nicht ein Drittel — und der Schritt von
+Offset-Limiting auf Occlusion kostet drei Prozent und bringt 14 Prozentpunkte
+mehr geänderte Bildfläche.
+
+### Die Tabelle
+
+Vorschau, 1920×1080, Seed 2, feste Kamera 12 m vor einer Schachtmündung,
+Median aus vier verschränkten Durchgängen à 600 Bildern; gewertet wird der
+Mittelwert der Bildzeit. Bildvergleich jeweils gegen `hoch-M1`.
+
+| Variante | Bildzeit | fps | p95 | Spanne | ggü. Mittel | ggü. Hoch-M1 | geänderte Bildpunkte |
+|---|---|---|---|---|---|---|---|
+| Niedrig | 0,592 ms | 1690 | 1,30 | 0,494–0,632 | −58,0 % | −66,7 % | — |
+| **Mittel (unverändert)** | **1,408 ms** | **710** | 2,50 | 1,364–1,600 | 0 % | −20,7 % | 16,5 % |
+| Hoch wie in M1 | 1,775 ms | 563 | 2,60 | 1,769–1,799 | +26,1 % | 0 % | (Grundlage) |
+| Hoch + Parallax 1 | 1,808 ms | 553 | 2,70 | 1,791–1,814 | +28,4 % | +1,8 % | 59,2 % |
+| **Hoch + Parallax 6** | 1,860 ms | 538 | 2,90 | 1,855–1,873 | +32,1 % | **+4,8 %** | 73,2 % |
+| Hoch + Parallax 12 | 1,912 ms | 523 | 2,80 | 1,892–1,917 | +35,9 % | +7,7 % | 73,4 % |
+| **Hoch + Godrays** | 1,707 ms | 586 | 2,80 | 1,692–1,714 | +21,3 % | **−3,8 %** | 91,5 % |
+| Hoch + SSR einfach | 5,056 ms | 198 | 5,80 | 5,012–5,079 | +259,2 % | +184,9 % | 13,7 % |
+| Hoch + SSR GBuffer | 2,462 ms | 406 | 3,30 | 2,424–2,464 | +74,9 % | +38,7 % | 0,7 % |
+| Hoch + SSR PrePass | 1,357 ms | 737 | 2,00 | 1,156–1,377 | −3,6 % | −23,5 % | 99,9 % (SSAO tot) |
+| **Hoch, Vollausbau wie ausgeliefert** | **1,729 ms** | **578** | 2,90 | 1,707–1,732 | +22,8 % | **−2,6 %** | 89,5 % |
+
+**Der ganze Vollausbau kostet gegenüber der Stufe Hoch von M1 nichts** — er
+misst sich sogar 2,6 % schneller. Das ist die Zeile, die man nicht glauben
+soll, ohne die Zeugen zu lesen, denn genau so sah der kaputte PrePass-Lauf
+auch aus. Hier sind sie: `parallax {erlaubt: true, schritte: 6}`,
+`godrays {an: true, gewaehlt: 2, passagen: 1}`, `gbuffer: true` — der
+GeometryBuffer läuft, das SSAO rechnet, beide Effekte hängen, und 89,5 % der
+Bildpunkte sind andere als ohne sie.
+
+**Die Godray-Zeile bleibt trotzdem eine offene Frage.** −3,8 % über vier
+Durchgänge mit einer Streuung unter 1,5 % ist kein Rauschen. Ausgeschlossen
+ist der Verdacht „der Effekt läuft gar nicht" (Zeuge oben, und 91,5 %
+geänderte Bildpunkte). Der naheliegende Rest: Ein zusätzlicher
+Nachbearbeitungsschritt ändert die Passagenkette — das Szenenbild geht in ein
+Zwischenziel, statt direkt in den Bildpuffer, und was Babylon dabei an
+Auflöse-Arbeit spart, ist offenbar mehr als die Verdeckungspassage in einem
+Innenraum kostet. Aufgeschrieben als Beobachtung, nicht als Erklärung.
+
+**Stufe Mittel ist unverändert.** Die Zeile ist kein Nebenbefund, sondern
+die Zusage des Auftrags — und sie steht als Zahl da, nicht als Behauptung:
+Der Zeuge `effekte()` meldet für Mittel `parallax {erlaubt: false}`,
+`godrays {an: false}`, `ssr {weg: 0}`.
+
+### Der Schalter für den Spieler
+
+Neu in den Grafikeinstellungen: **„Dungeon-Grafik"** (Niedrig / Mittel /
+Hoch), Voreinstellung Mittel. Ein eigener Regler und nicht einer der
+bestehenden, aus demselben Grund, aus dem `DUNGEON_SSAO_MAX_Z` nicht 1000
+ist: Die Dungeon-Effekte messen sich an einer anderen Szene. Draußen kostet
+die Verdeckungspassage die Vegetation, drinnen die Wände; draußen gibt es
+eine Sonne, drinnen sechzehn Fackeln.
+
+Er wirkt zur Laufzeit, auch im offenen Dungeon
+(`Dungeon2Instanz.setzeStufe()` stellt Material, Nachbearbeitung UND
+Geometrie um — wer nur eines davon ruft, bekommt einen halb umgestellten
+Dungeon, und der sieht nicht nach „halb" aus, sondern nach einem Fehler an
+der Stelle, die man gerade ansieht). Und er wirkt auch, wenn gerade kein
+Dungeon offen ist: `setzeDungeonStufe()` ist die globale Größe, die der
+nächste Dungeon beim Betreten liest.
+
+### Und dieselbe Frage im ECHTEN Client
+
+Die Vorschau hat weder Oberwelt-Nachbearbeitung noch Figur, HUD oder Netz.
+Ein Effekt steht dort vor einem viel kleineren Nenner — +4,8 % in der
+Vorschau sind nicht +4,8 % im Spiel. Deshalb misst `tools/dungeon2-e2e.mjs`
+jetzt am Ende jedes Laufes 400 Bilder im fertig betretenen Dungeon, und die
+Stufe kommt über `DG2_STUFE` in die **gespeicherten Einstellungen** — genau
+die Tür, die der Regler „Dungeon-Grafik" im Spiel benutzt. Ein Lauf, der
+eine andere Tür nimmt, beweist nichts über die, die der Spieler bedient.
+
+| Stufe | Bildzeit | fps | p95 | Zeugen |
+|---|---|---|---|---|
+| Mittel | 5,110 ms | 196 | 6,80 ms | `proben 8`, `verhaeltnis 0.5`, Parallax aus, Godrays aus |
+| **Hoch, Vollausbau** | **5,657 ms** | **177** | 7,60 ms | `proben 16`, `verhaeltnis 0.75`, `parallax {schritte: 6}`, `godrays {gewaehlt: 9, passagen: 1}` |
+
+**+10,7 % Bildzeit für den Sprung von Mittel auf den kompletten Vollausbau**
+— und darin steckt das dichtere SSAO (16 statt 8 Proben, 0,75 statt 0,5
+Auflösung) genauso wie Parallax und Godrays.
+
+**Mit eingeschalteter Bildschirmsynchronisation halten beide Stufen 60 fps**
+(gemessen: 16,666 ms, p95 16,70 ms, in beiden Läufen). Das ist die Zahl, die
+für Mike zählt; die 5,7 ms darüber sagen, wie viel Luft bis dahin bleibt.
+
+Der Lauf ohne Synchronisation braucht `DG2_OHNE_VSYNC=1` und ist
+ausdrücklich NICHT die Voreinstellung: Der E2E-Lauf prüft in erster Linie die
+Kette und soll den Client so laufen lassen wie beim Spieler.
+
+**Alle drei E2E-Pfade grün** (direkt Stufe Mittel, direkt Stufe Hoch, aus der
+Normalwelt heraus Stufe Hoch): Prüfsumme Server == Client, 19/19 Blöcke,
+34 Meshes, 0 Konsolen-/ZDO-/Prefab-Fehler, `imDungeon = false` nach dem
+Verlassen.

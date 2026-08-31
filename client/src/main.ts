@@ -127,6 +127,7 @@ import { FlammenAtlas } from './engine/FlammenAtlas';
 import { Minimap } from './ui/Minimap';
 import { LightPool } from './engine/LightPool';
 import { Dungeon2Instanz, type Dungeon2Deskriptor } from './engine/Dungeon2Instanz';
+import { DungeonGrafikStufe, setzeDungeonStufe } from './engine/DungeonMaterial';
 import { CraftingPanel } from './ui/CraftingPanel';
 import { CharakterPanel } from './ui/CharakterPanel';
 import { ChatPanel } from './ui/ChatPanel';
@@ -1034,6 +1035,18 @@ async function main() {
     namensschilder?.setEnabled(s.nameplates);
     namensschilder?.setEigenes(s.eigenesNameplate);
     minimap?.setZeitSichtbar(s.weltzeit);
+    // Dungeon-Grafikstufe. Der Aufruf steht auch dann hier, wenn gerade kein
+    // Dungeon offen ist: `setzeDungeonStufe` ist die GLOBALE Groesse, die der
+    // naechste Dungeon beim Betreten liest (`Dungeon2Instanz` ruft
+    // `dungeonStufe()` im Konstruktor). Ohne diese Zeile wirkte eine im Freien
+    // umgestellte Stufe erst nach einem Neuladen — und der Spieler haette den
+    // Regler bewegt, ohne dass irgendetwas passiert.
+    // Dungeon graphics tier — set even with no dungeon open, because it is the
+    // GLOBAL value the next dungeon reads on entering. Without this line the
+    // control would do nothing until a reload.
+    const stufe = Math.min(2, Math.max(0, Math.trunc(s.dungeonQuality))) as DungeonGrafikStufe;
+    setzeDungeonStufe(stufe);
+    dungeon2Instanz?.setzeStufe(stufe);
   });
   /** ?env= pins the weather — don't let the biome tracker override it. */
   let envPinned = false;

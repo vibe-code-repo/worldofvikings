@@ -115,6 +115,17 @@ const OBERWELT_FRIST_S = Number(process.env.DG2_OBERWELT_FRIST_S ?? 300);
  * bug that killed the client in Firefox.
  */
 const STILLSTAND_GRENZE_MS = Number(process.env.DG2_STILLSTAND_MS ?? 2000);
+/**
+ * Grafikstufe des Dungeons (0 Niedrig, 1 Mittel, 2 Hoch) oder `null` = nichts
+ * setzen, also die Voreinstellung des Clients. `DG2_STUFE=2` ist der Lauf, der
+ * den Vollausbau im ECHTEN Client prueft — die Vorschau hat weder Oberwelt
+ * noch Nachbearbeitungskette der Aussenwelt, und was dort 5 % kostet, kann
+ * hier ein anderer Anteil sein.
+ * Dungeon graphics tier or `null` = leave the client default. `DG2_STUFE=2` is
+ * the run that checks the full build in the REAL client.
+ */
+const STUFE = process.env.DG2_STUFE === undefined ? null : Number(process.env.DG2_STUFE) | 0;
+
 const BILD =
   argv.includes('--bild')
     ? argv[argv.indexOf('--bild') + 1]
@@ -130,6 +141,20 @@ const GPU_FLAGS = [
   '--enable-features=Vulkan',
   '--ignore-gpu-blocklist',
   '--enable-gpu-rasterization',
+  // `DG2_OHNE_VSYNC=1` hebt die Bildschirmsynchronisation auf — NUR zum Messen.
+  //
+  // Warum nicht immer: Der Lauf prueft in erster Linie die KETTE, und dafuer
+  // soll der Client so laufen wie beim Spieler. Warum ueberhaupt: Ohne die
+  // Flaggen meldet die Bildzeit fuer JEDE Grafikstufe exakt 16,666 ms, weil
+  // der Browser `requestAnimationFrame` im 60-Hz-Takt ausreicht. Das ist eine
+  // wahre und nuetzliche Aussage („der Vollausbau haelt die 60") — aber sie
+  // ist keine Kostenmessung, und man kann sie mit einer verwechseln.
+  // `DG2_OHNE_VSYNC=1` lifts vsync — FOR MEASURING ONLY. Without it the frame
+  // time reads exactly 16.666 ms for every tier: a true and useful statement
+  // ("the full build holds 60"), but not a cost measurement.
+  ...(process.env.DG2_OHNE_VSYNC === '1'
+    ? ['--disable-gpu-vsync', '--disable-frame-rate-limit']
+    : []),
 ];
 
 const TMP = mkdtempSync(join(tmpdir(), 'wov-dg2-e2e-'));
@@ -338,6 +363,35 @@ console.log('[e2e] BEREIT');
   await seite.addInitScript((t) => {
     localStorage.setItem('wov-session-token', t);
   }, token);
+
+  // Grafikstufe des Dungeons (M2). Ueber die GESPEICHERTEN Einstellungen und
+  // nicht ueber einen Debug-Griff: Genau diesen Weg geht der Regler
+  // „Dungeon-Grafik" im Spiel, und ein Lauf, der eine andere Tuer benutzt,
+  // beweist nichts ueber die, die der Spieler bedient. `addInitScript` laeuft
+  // VOR dem Seitenskript — `SettingsStore` liest den Schluessel im
+  // Konstruktor, ein spaeteres Schreiben kaeme zu spaet.
+  // The dungeon graphics tier via the STORED settings, not a debug handle:
+  // that is the door the player's control uses, and a run using another one
+  // proves nothing about it.
+  if (STUFE !== null) {
+    await seite.addInitScript((stufe) => {
+      // Der Schluessel steht woertlich in `client/src/ui/Settings.ts`
+      // (`STORAGE_KEY`). Ein erfundener Name schriebe still an der
+      // Einstellung vorbei, und der Lauf meldete Stufe Hoch mit den Zahlen
+      // von Mittel.
+      // The key is verbatim from `Settings.ts`; an invented one would write
+      // past the setting and report tier High with Medium's numbers.
+      const key = 'valheim-babylon-settings-v1';
+      let stand = {};
+      try {
+        stand = JSON.parse(localStorage.getItem(key) ?? '{}');
+      } catch {
+        stand = {};
+      }
+      stand.dungeonQuality = stufe;
+      localStorage.setItem(key, JSON.stringify(stand));
+    }, STUFE);
+  }
 
   /**
    * Der ZEUGE fuer den Einfrierfehler: ein eigener `requestAnimationFrame`-
@@ -727,6 +781,46 @@ console.log('[e2e] BEREIT');
         `(Deskriptor ${ambient.ambientLicht}, Lighting ${ambient.daempfungAnLichtung})`
     );
   }
+
+  // ── 5b. Bildzeit im ECHTEN Client ───────────────────────────────────
+  // Dieselbe Messung wie in `tools/pw-dungeon2-effekte.mjs`, aber in der
+  // vollen Spielszene: Oberwelt-Nachbearbeitung, Figur, HUD, Netz. Der
+  // Prozentsatz, den ein Effekt hier kostet, ist der, den der Spieler merkt —
+  // in der Vorschau steht derselbe Effekt vor einem viel kleineren Nenner.
+  // The same measurement as in the effect tool, but in the full game scene:
+  // the percentage an effect costs HERE is the one the player notices.
+  const bildzeit = await seite.evaluate(async () => {
+    const dauern = [];
+    let vorher = 0;
+    await new Promise((fertig) => {
+      const takt = (t) => {
+        if (vorher !== 0) dauern.push(t - vorher);
+        vorher = t;
+        if (dauern.length >= 400) {
+          fertig();
+          return;
+        }
+        requestAnimationFrame(takt);
+      };
+      requestAnimationFrame(takt);
+    });
+    const sortiert = [...dauern].sort((a, b) => a - b);
+    return {
+      mittel: dauern.reduce((a, b) => a + b, 0) / dauern.length,
+      p50: sortiert[Math.floor(sortiert.length / 2)],
+      p95: sortiert[Math.floor(sortiert.length * 0.95)],
+    };
+  });
+  messwerte.bildzeit = bildzeit;
+  messwerte.atmosphaere = await seite.evaluate(
+    () => window.__dbg?.dungeon2?.atmosphaereWerte ?? null
+  );
+  console.log(
+    `Bildzeit im Dungeon: Mittel ${bildzeit.mittel.toFixed(3)} ms ` +
+      `(${(1000 / bildzeit.mittel).toFixed(0)} fps), p95 ${bildzeit.p95.toFixed(2)} ms` +
+      (STUFE === null ? '' : ` — Stufe ${STUFE}`)
+  );
+  console.log(`Effekte: ${JSON.stringify(messwerte.atmosphaere)}`);
 
   // ── 6. Das Bild ─────────────────────────────────────────────────────
   const fertig = await seite.evaluate(() => window.__dg2live.vollstaendig());

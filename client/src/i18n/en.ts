@@ -41,6 +41,7 @@ export const en = {
   'settings.shadow_quality': 'Shadow quality',
   'settings.distant_shadows': 'Distant shadows',
   'settings.water_quality': 'Water quality',
+  'settings.dungeon_quality': 'Dungeon graphics',
   'settings.anti_aliasing': 'Anti-aliasing',
   'settings.temporal_aa': 'Temporal anti-aliasing (TAA)',
   'settings.performance_profile': '100 FPS profile',

@@ -934,3 +934,115 @@ export function zellKanteZuQuader(
   const ganz = zellKanteZuQuaderGanz(gitter, zelle, kante);
   return ganz === null ? null : quaderInMeter(ganz);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. Lichtschaechte (M2 / AP18) / light shafts
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Eine Stelle, an der Licht von OBEN in den Dungeon faellt — der Aufhaenger
+ * fuer Godrays (`render-tech.md` §3.3, AP18).
+ *
+ * Warum das im reinen Modul steht und nicht im Client: Die Menge folgt aus dem
+ * Layout, also aus Thema und Seed. Rechnete der Client sie sich selbst
+ * zusammen, haetten zwei Clients mit demselben Seed womoeglich verschiedene
+ * Schaechte — und ein Effekt, der bei einem Spieler leuchtet und beim
+ * Nachbarn nicht, ist nicht als Grafikstufe erklaerbar. Ausserdem laesst sich
+ * die Liste hier ohne GPU pruefen.
+ * A place where light falls in from ABOVE — the anchor for godrays. It lives in
+ * the pure module because the set follows from the layout, i.e. from theme and
+ * seed: two clients on the same seed must find the same shafts.
+ */
+export interface Lichtschacht {
+  /** Mitte der Muendung in Metern. / Centre of the mouth in metres. */
+  readonly mitte: Vector3;
+  /** Woher das Licht kommt. / Where the light comes from. */
+  readonly art: 'schacht' | 'eingang';
+  /**
+   * Bodenoberkante des Raumes DARUNTER in Metern — das Ende der Strecke, die
+   * das Licht faellt. Sie steht hier und wird nicht vom Aufrufer nachgeschlagen,
+   * weil sie beim Suchen der Muendung ohnehin anfaellt: Ohne die begehbare
+   * Zelle darunter gibt es die Muendung gar nicht.
+   * Floor top of the room BELOW in metres — the end of the fall. It is here
+   * because it falls out of the search anyway: without the walkable cell below,
+   * the mouth does not exist.
+   */
+  readonly boden: number;
+  /** Zelle, in der die Muendung sitzt. / The cell the mouth sits in. */
+  readonly x: number;
+  readonly z: number;
+  readonly ebene: number;
+}
+
+/**
+ * Alle Lichtschacht-Muendungen eines Gitters, in stabiler Reihenfolge.
+ *
+ * Eine Muendung ist die OBERSTE `Schacht`-Zelle eines Schachtstapels, der auf
+ * einer begehbaren Zelle steht. Beide Bedingungen tragen:
+ * - „oberste": ein Stapel aus drei Schachtzellen ist EIN Lichtschacht, nicht
+ *   drei. Ohne die Bedingung haengte an einem tiefen Schacht dreimal derselbe
+ *   Effekt uebereinander — und die Kosten waeren die dreifachen fuer ein Bild,
+ *   das gleich aussieht.
+ * - „auf einer begehbaren Zelle": ein Schacht ueber Fels ist ein Loch im Fels,
+ *   kein Lichtschacht. `hatBodenPlatte()` unterscheidet genau das schon fuer
+ *   die Geometrie, und die Godrays folgen derselben Unterscheidung — sonst
+ *   leuchtete ein Strahl in einen Raum, den es nicht gibt.
+ *
+ * Die Hoehe der Muendung ist die OBERKANTE ihrer lichten Saeule
+ * (`obenStufen`), nicht ihr Boden: Dort ist das Loch, und dorthin gehoert die
+ * Quelle. Der Eingang kommt als eigene Art dazu — dort faellt Tageslicht
+ * waagerecht herein, und er ist die einzige Muendung, die jeder Dungeon hat.
+ * All shaft mouths of a grid, in stable order. A mouth is the TOPMOST `Schacht`
+ * cell of a stack standing on a walkable cell; both conditions carry weight
+ * (a three-cell stack is ONE shaft, and a shaft over rock is a hole in rock).
+ * The mouth's height is the TOP of its clear column, because that is where the
+ * hole is. The entrance is added as its own kind.
+ */
+export function lichtschaechte(
+  gitter: ZellenGitter,
+  layout?: Pick<DungeonLayout2, 'eingang'>
+): Lichtschacht[] {
+  const gefunden: Lichtschacht[] = [];
+  for (const zelle of zellenSortiert(gitter)) {
+    if (zelle.art !== ZELLEN_ART.Schacht) continue;
+    const oben = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene + 1);
+    if (oben !== undefined && oben.art === ZELLEN_ART.Schacht) continue;
+    const unten = zelleImGitter(gitter, zelle.x, zelle.z, zelle.ebene - 1);
+    if (unten === undefined || !offen(unten.art)) continue;
+    gefunden.push({
+      mitte: {
+        x: (zelle.x + 0.5) * ZELLE_M,
+        y: obenStufen(gitter, zelle) * HOEHEN_SCHRITT_M,
+        z: (zelle.z + 0.5) * ZELLE_M,
+      },
+      art: 'schacht',
+      boden: bodenStufen(unten) * HOEHEN_SCHRITT_M,
+      x: zelle.x,
+      z: zelle.z,
+      ebene: zelle.ebene,
+    });
+  }
+  if (layout !== undefined) {
+    const e = layout.eingang;
+    const zelle = zelleImGitter(gitter, e.x, e.z, e.ebene);
+    if (zelle !== undefined && offen(zelle.art)) {
+      gefunden.push({
+        mitte: {
+          x: (e.x + 0.5) * ZELLE_M,
+          // Auf halber lichter Hoehe: Tageslicht faellt am Eingang WAAGERECHT
+          // herein, nicht von oben — eine Quelle an der Decke saehe dort aus
+          // wie ein zweiter Schacht.
+          // At half clear height: daylight enters HORIZONTALLY at the entrance.
+          y: (bodenStufen(zelle) + obenStufen(gitter, zelle)) * (HOEHEN_SCHRITT_M / 2),
+          z: (e.z + 0.5) * ZELLE_M,
+        },
+        art: 'eingang',
+        boden: bodenStufen(zelle) * HOEHEN_SCHRITT_M,
+        x: e.x,
+        z: e.z,
+        ebene: e.ebene,
+      });
+    }
+  }
+  return gefunden;
+}

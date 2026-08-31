@@ -211,6 +211,16 @@ export class SettingsPanel {
           this.i18n.t('quality.medium'), this.i18n.t('quality.high'),
         ])
     );
+    // Drei Stufen und nicht vier: `DungeonGrafikStufe` kennt Niedrig, Mittel
+    // und Hoch — ein viertes Feld waere ein Versprechen ohne Gegenstueck.
+    // Three steps, not four: the tier enum has exactly three values.
+    this.content.appendChild(
+      this.buildRow('settings.dungeon_quality', (s) => s.dungeonQuality,
+        (value) => this.settings.set({ dungeonQuality: value }), [
+          this.i18n.t('quality.low'), this.i18n.t('quality.medium'),
+          this.i18n.t('quality.high'),
+        ])
+    );
     this.content.appendChild(
       this.buildToggle('settings.anti_aliasing', (s) => s.antiAliasing,
         (value) => this.settings.set({ antiAliasing: value }))

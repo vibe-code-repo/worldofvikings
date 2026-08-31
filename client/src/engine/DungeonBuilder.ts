@@ -434,6 +434,17 @@ export class DungeonBauer {
 
   /** Der ausdrueckliche Spawnpunkt aus dem Bauer. / The explicit spawn point. */
   readonly spawnPunkt: Vector3;
+  /**
+   * Die Lichtschacht-Muendungen dieses Layouts (M2 / AP18) — der Aufhaenger
+   * der Godrays. Aus dem Gitter berechnet und nicht aus den Meshes: Sie
+   * existieren, bevor der erste Block gebaut ist, und ein Godray, der auf den
+   * Bau eines Blocks warten muesste, ginge beim Betreten des Dungeons an oder
+   * nicht — je nach Ladereihenfolge.
+   * The shaft mouths of this layout — computed from the grid, not the meshes:
+   * they exist before the first block is built, and a godray waiting for a
+   * block would switch on or not depending on load order.
+   */
+  readonly lichtschaechte: readonly dungeon2.Lichtschacht[];
   /** Deko-Plaetze mit aufgeloestem Prefab. / Decor places with resolved prefabs. */
   readonly dekoTeile: readonly dungeon2.BestuecktesTeil[];
   /**
@@ -478,6 +489,7 @@ export class DungeonBauer {
 
     this.physikGewuenscht = optionen.physik ?? scene.getPhysicsEngine() !== null;
 
+    this.lichtschaechte = dungeon2.lichtschaechte(this.gitter, layout);
     this.reihenfolge = sortiereNachSpawn(dungeon2.bloeckeDesGitters(this.gitter), voll.spawnPunkt);
 
     this.wurzel = new TransformNode(this.name, scene);

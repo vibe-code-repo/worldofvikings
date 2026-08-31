@@ -44,6 +44,10 @@ import {
   dungeonAoGlsl,
   dungeonAufrufGlsl,
   dungeonDefinitionenGlsl,
+  dungeonParallaxZustand,
+  erlaubeDungeonParallax,
+  PARALLAX_SCHRITTE_HOCH,
+  PARALLAX_SCHRITTE_MAX,
   dungeonReflectivityGlsl,
   dungeonVertexDefinitionenGlsl,
   dungeonVertexHauptGlsl,
@@ -483,6 +487,70 @@ pruefe('die Einspritzung waechst den Shader, statt ihn zu ersetzen', () => {
       assert.equal(nachher, vorher, `Anker ${muster.slice(0, 30)}: ${vorher} -> ${nachher}`);
     }
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Parallax (M2 / AP16) — der Zweig, den nur die Stufe Hoch sieht
+// ─────────────────────────────────────────────────────────────────────────────
+
+pruefe('Parallax-Occlusion: die Schleife steht im Quelltext und laeuft ueber das Define', () => {
+  const code = dungeonDefinitionenGlsl(DungeonGrafikStufe.Hoch);
+  // Beide Zweige muessen DA sein — der Praeprozessor waehlt, nicht dieser Test.
+  // Ohne den `#if` waere der Schrittzaehler eine Zahl ohne Wirkung, und
+  // `?parallax=12` unterschiede sich von `?parallax=1` nur in der Meldezeile.
+  // Both branches must be present; the preprocessor chooses, not this test.
+  assert.ok(
+    code.includes('#if DUNGEON_PARALLAX_SCHRITTE <= 1'),
+    'Der Zweig fuer Offset-Limiting fehlt'
+  );
+  assert.ok(
+    /for \(int i = 0; i < DUNGEON_PARALLAX_SCHRITTE; i\+\+\)/.test(code),
+    'Die Occlusion-Schleife laeuft nicht ueber DUNGEON_PARALLAX_SCHRITTE'
+  );
+  // Genau EIN Griff je Schleifendurchlauf plus Einstieg plus Verfeinerung:
+  // Der Test zaehlt die Griffe in den Hoehenkanal, weil die Kostenaussage
+  // („4-8 Taps", render-tech 3.4) sonst eine Behauptung bleibt.
+  // Exactly one tap per iteration plus entry plus refinement — the test counts
+  // the taps into the height channel, otherwise the cost claim stays a claim.
+  const parallaxBlock = code.slice(
+    code.indexOf('#ifdef DUNGEON_PARALLAX'),
+    code.indexOf('-- albedo')
+  );
+  const griffe = (parallaxBlock.match(/dgTap\(dungeonOrhArray/g) ?? []).length;
+  assert.equal(griffe, 4, `Griffe im Parallax-Block: ${griffe} (erwartet 4)`);
+});
+
+pruefe('Der Schrittzaehler ist ein Define und wandert in die Cache-Zeichenkette', () => {
+  // Die Begruendung steht bei `DungeonGrafikStufe`: Babylon schluesselt seinen
+  // Effekt-Cache ueber die Define-Zeichenkette. Waere die Schrittzahl ein
+  // Uniform, bekaeme ein Wechsel von 1 auf 6 denselben Schluessel und damit
+  // den ALTEN Shader — der Schalter haette kein Symptom ausser dem fehlenden
+  // Effekt.
+  // Were the step count a uniform, switching 1 -> 6 would return the OLD
+  // shader from the cache.
+  const quelle = readFileSync(resolve(ENGINE, 'DungeonMaterial.ts'), 'utf8');
+  assert.ok(
+    /DUNGEON_PARALLAX_SCHRITTE: 1,/.test(quelle),
+    'DUNGEON_PARALLAX_SCHRITTE fehlt in der Define-Liste des Konstruktors'
+  );
+  assert.ok(
+    /defines\.DUNGEON_PARALLAX_SCHRITTE = parallaxSchritte;/.test(quelle),
+    'Der Schrittzaehler wird nicht in die Defines geschrieben'
+  );
+});
+
+pruefe('erlaubeDungeonParallax klemmt die Schrittzahl', () => {
+  erlaubeDungeonParallax(true, 999);
+  assert.equal(dungeonParallaxZustand().schritte, PARALLAX_SCHRITTE_MAX, 'Obergrenze greift nicht');
+  erlaubeDungeonParallax(true, 0);
+  assert.equal(dungeonParallaxZustand().schritte, 1, 'Untergrenze greift nicht');
+  erlaubeDungeonParallax(true, Number.NaN);
+  assert.equal(dungeonParallaxZustand().schritte, PARALLAX_SCHRITTE_HOCH, 'NaN faellt nicht zurueck');
+  // Zurueck in den Ausgangszustand: Der Zweig ist eine GLOBALE Groesse, und
+  // ein hier angelassener Parallax faerbte jede folgende Pruefung.
+  // Back to the initial state: the branch is a GLOBAL quantity.
+  erlaubeDungeonParallax(false);
+  assert.equal(dungeonParallaxZustand().erlaubt, false);
 });
 
 szene.dispose();

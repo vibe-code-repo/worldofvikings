@@ -2432,3 +2432,83 @@ und `server/test/f17-figurenwahl.ts` scheitern daran, dass `assets/models/` auf
 dieser Maschine bis auf eine Datei leer ist (Mike sichert die Modelle
 ausserhalb des Repos), und `server/test/k1-konten.ts` erwartet den Fehlercode
 `benutzername-vergeben`, wo die Konten-API `username-taken` liefert.
+
+---
+
+## 2026-08-31 · Fehler · Der Teleport in `steingrab-2` riss die Verbindung ab
+
+**Der Befund von aussen:** `?dungeon=steingrab-2` auf play.dev. Serverseitig
+stand alles: `54 stamps, 1154 pieces, 333 nav cells`. Im Client keine einzige
+`[dungeon2]`-Zeile, dann ein Reconnect zurück in die Oberwelt
+(„bestehende Weltsysteme werden weiterverwendet", „0 Eingänge"). Der
+Ende-zu-Ende-Lauf war grün.
+
+**Die Ursache** (`server/src/WovServer.ts`, `teleportPeer`): Die drei
+Layout-Seeds gingen mit `writeInt32` über die Leitung. Sie sind aber **uint32**
+— `dungeon2.mische()` erzeugt sie so, und `dungeon create2` mischt damit
+Material- und Deko-Seed. `Buffer.writeInt32LE` **wirft** über 2^31-1, statt
+abzuschneiden. Für `steingrab-2` ist der Deko-Seed 3 333 651 121; die Ausnahme
+fiel mitten in den Paketaufbau, `NetManager` wertete sie als Paketfehler und
+**trennte die Verbindung**:
+
+    [NetManager] Paketfehler von Viking: The value of "value" is out of range.
+    It must be >= -2147483648 and <= 2147483647. Received 3333651121
+    — Verbindung wird getrennt
+
+Der Client hing also nie. Er war ausgeworfen. Der Firefox-Abbruch in
+`isInFrustum`/`_evaluateActiveMeshes`, den man daneben sah, war nicht die
+Ursache — der längste gemessene Frame-Stillstand beim Wechsel liegt bei
+**309 ms**.
+
+**Die Behebung:** `writeUInt32`. Die Leitung ändert sich nicht — vier Bytes
+little-endian, dieselben Bits; der Client liest sie ohnehin schon als
+`readInt32() >>> 0`.
+
+**Warum der grüne Lauf nichts wusste** — und das ist die eigentliche Lehre:
+Beide Prüfstände wählten ihre Seeds **von Hand und klein**. `tools/dungeon2-e2e.mjs`
+nahm `{4242, 77, 99}`, `server/test/g9-dungeon2-e2e.ts` dieselben. Der Weg, den
+ein Spieler geht, mischt sie dagegen mit `mische()` — und damit liegt jeder
+zweite Seed über 2^31-1. Eine handgewählte Zahl im Prüfstand, wo im Betrieb
+eine gewürfelte steht, ist eine Prüfung, die genau den Wertebereich auslässt,
+in dem der Fehler wohnt.
+
+**Wächter, damit es nicht wiederkommt:**
+
+1. `g9-dungeon2-e2e.ts` mischt die Seeds jetzt wie `dungeon create2` und prüft
+   zuerst, dass **mindestens einer über 2^31-1 liegt** (der Zeuge für den
+   Zeugen), danach, dass Material- und Deko-Seed **unversehrt** am anderen Ende
+   ankommen. Negativ geprüft: mit `writeInt32` bricht der Test mit genau der
+   Meldung von wov-dev ab.
+2. `tools/dungeon2-e2e.mjs` kennt `--ausNormalwelt`: Betreten erst **nach**
+   `terrain.ready` und weggeblendetem Ladebildschirm — der Weg, den Mike ging.
+   Dazu `DG2_SEED` (mit `DG2_SEED=2` entsteht exakt `steingrab-2`), ein
+   Reconnect-Zähler über den Wechsel (0 verlangt) und ein eigener
+   rAF-Zeuge für den **längsten Frame-Stillstand** (Grenze 2000 ms; Firefox
+   beendet Skripte bei 10 s, Chromium hält länger durch und zeigt denselben
+   Fehler deshalb NICHT).
+
+**Nebenbefund im selben Journal, eigene Ursache:** „0 ZDOs, 1 anchor without a
+registered prefab". Die Truhen-Tabelle von `steingrab` führte
+`chest_wood` — das ist der **Modellname** des Registry-Eintrags, nicht sein
+**Prefabname** (`HolzTruhe`). `findPrefabByName` fand nichts, und
+`Materialisierung2` lässt einen unbekannten Anker ausdrücklich weg. Die einzige
+Truhe von `steingrab-2` fehlte damit ganz. Behoben; Wächter in
+`shared/test/dungeon2-decorator.ts`: Jedes Prefab einer Rolle aus
+`ROLLEN_MIT_ZDO` muss registriert sein — und nur die, denn die übrige Deko baut
+der Client aus GLBs und braucht keinen Registry-Eintrag.
+
+**Messzahlen nach der Behebung** (Chromium headless, ANGLE/Vulkan, RX 7900 XT,
+`DG2_SEED=2` = `steingrab-2`):
+
+| | direkt (Ladebildschirm) | aus der Normalwelt |
+|---|---|---|
+| Szene vor dem Wechsel | 17 Meshes, 1 Chunk | 265 Meshes, 81 Chunks, `terrain.ready` |
+| Reconnects beim Wechsel | 0 | 0 |
+| längster Frame-Stillstand | 244 ms | 309 ms |
+| bis baubereit | 574 ms | 574 ms |
+| Prüfsumme Server == Client | `1a875b7f` | `1a875b7f` |
+| Materialisierung | 54 Stempel, 1154 Stücke, 333 Navzellen, **1 ZDO** (vorher 0) | dito |
+| gelaufene Strecke | 1,28 m | 1,28 m |
+
+Vorher, mit demselben Seed und derselben Oberwelt: Abbruch, `imDungeon: false`,
+Reconnect nach 1,0 s.

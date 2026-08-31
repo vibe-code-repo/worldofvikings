@@ -5,7 +5,18 @@
  * End-to-end run of dungeon generator 2.0 — OWN game server, OWN Vite, a real
  * game client in Chromium, and a screenshot at the end.
  *
- *   node tools/dungeon2-e2e.mjs [--sichtbar] [--bild <pfad>]
+ *   node tools/dungeon2-e2e.mjs [--sichtbar] [--bild <pfad>] [--ausNormalwelt]
+ *
+ * ── Zwei Wege hinein, und der zweite ist der scharfe ──────────────────
+ * `--ausNormalwelt` betritt die Instanz ERST, nachdem die Oberwelt fertig
+ * geladen ist (`terrain.ready`, Ladebildschirm weg, Gelaende/Vegetation/
+ * Kollisionskoerper alle da). Genau diesen Weg geht ein Spieler, und genau
+ * dort brach der Client am 29.08.2026 weg: Firefox beendete das Skript in
+ * `_evaluateActiveMeshes`, danach Reconnect in die Normalwelt.
+ * Ohne den Schalter wird wie bisher aus dem stehenden Ladebildschirm heraus
+ * betreten — die Szene ist dann fast leer, und der Fehler zeigt sich nicht.
+ * `--ausNormalwelt` enters only AFTER the overworld has finished loading —
+ * the path a player takes, and the one that broke.
  *
  * ── Was der Lauf beweist ──────────────────────────────────────────────
  * Dass die Kette traegt: Server erzeugt das Layout aus Thema und Seeds,
@@ -53,14 +64,48 @@ const SPIEL_PORT = 2477;
 const CLIENT_PORT = 5299;
 const DUNGEON_ID = 'steingrab-live';
 const THEMA = 'steingrab';
-const SEED = 4242;
+/**
+ * Der Architektur-Seed. Ueber `DG2_SEED` waehlbar, weil die GROESSE des Grabes
+ * am Seed haengt und der Fehlerfall ein grosses braucht: `DG2_SEED=2` erzeugt
+ * exakt das Grab, das auf wov-dev als `steingrab-2` liegt (54 Stempel, 1154
+ * Stuecke, 333 Navzellen — nachgerechnet, nicht geraten), waehrend die
+ * Voreinstellung 4242 ein mittleres liefert.
+ * The architecture seed, selectable via `DG2_SEED`: the size of the barrow
+ * hangs off it, and `DG2_SEED=2` reproduces wov-dev's `steingrab-2` exactly.
+ */
+const SEED = Number(process.env.DG2_SEED ?? 4242) | 0;
 
 const argv = process.argv.slice(2);
 const SICHTBAR = argv.includes('--sichtbar');
+/**
+ * Erst in der Oberwelt ankommen, dann wechseln — der Spielerweg.
+ * Arrive in the overworld first, then switch — the player's path.
+ */
+const AUS_NORMALWELT = argv.includes('--ausNormalwelt');
+/**
+ * Wie lange auf `terrain.ready` gewartet wird (Sekunden). Eine frisch
+ * gewuerfelte Radialwelt braucht auf dieser Maschine rund eine Minute; die
+ * Reserve ist grosszuegig, weil ein Abbruch hier nichts ueber den Dungeon
+ * aussagt.
+ * How long to wait for `terrain.ready`.
+ */
+const OBERWELT_FRIST_S = Number(process.env.DG2_OBERWELT_FRIST_S ?? 300);
+/**
+ * Laengster erlaubter Frame-Stillstand beim Wechsel (ms).
+ *
+ * Der Wert ist kein Schoenheitsmass, sondern die Grenze, ab der ein Browser
+ * das Skript abschiesst: Firefox zieht bei `dom.max_script_run_time` (10 s)
+ * den Stecker, Chromium haelt laenger durch und zeigt denselben Fehler
+ * deshalb NICHT. 2000 ms lassen einem grossen Grab Luft und schlagen lange
+ * an, bevor ein Spieler herausfliegt.
+ * Longest permitted frame stall during the switch (ms) — the guard for the
+ * bug that killed the client in Firefox.
+ */
+const STILLSTAND_GRENZE_MS = Number(process.env.DG2_STILLSTAND_MS ?? 2000);
 const BILD =
   argv.includes('--bild')
     ? argv[argv.indexOf('--bild') + 1]
-    : `${process.env.HOME}/.cache/wov-tripo-test/dungeon2-ingame.png`;
+    : `${process.env.HOME}/.cache/wov-tripo-test/dungeon2-ingame${AUS_NORMALWELT ? '-normalwelt' : ''}.png`;
 
 /**
  * ANGLE/Vulkan statt SwiftShader. Ohne diese Flags rendert headless
@@ -179,6 +224,7 @@ async function main() {
     `import { randomBytes } from 'node:crypto';
 import { createWovServer } from ${JSON.stringify(resolve(WURZEL, 'server/src/WovServer.ts'))};
 import { spielerIdErzeugen, tokenAusstellen } from ${JSON.stringify(resolve(WURZEL, 'server/src/net/Identitaet.ts'))};
+import { dungeon2 } from ${JSON.stringify(resolve(WURZEL, 'shared/src/index.ts'))};
 
 // Das Sitzungsgeheimnis wird HIER gewuerfelt und in den Server gereicht,
 // damit derselbe Prozess ein GUELTIGES Token ausstellen kann. Ein
@@ -196,9 +242,17 @@ const server = createWovServer({
   sessionSecret: geheimnis,
 });
 server.start();
+// Die Seeds werden GENAU SO gemischt wie in \`dungeon create2\` (WovServer) —
+// sonst erzeugte derselbe Seed hier ein anderes Grab als auf wov-dev, und der
+// Lauf pruefte etwas anderes, als der Fehlerbericht beschreibt.
+// The seeds are mixed EXACTLY as in \`dungeon create2\`.
 const doc = server.dungeons.erzeugeDungeon2(
   ${JSON.stringify(THEMA)},
-  { architektur: ${SEED}, material: 77, deko: 99 },
+  {
+    architektur: ${SEED} >>> 0,
+    material: dungeon2.mische(${SEED}, 1),
+    deko: dungeon2.mische(${SEED}, 2),
+  },
   ${JSON.stringify(DUNGEON_ID)}
 );
 const spielerId = spielerIdErzeugen();
@@ -271,6 +325,38 @@ console.log('[e2e] BEREIT');
     localStorage.setItem('wov-session-token', t);
   }, token);
 
+  /**
+   * Der ZEUGE fuer den Einfrierfehler: ein eigener `requestAnimationFrame`-
+   * Reigen, der nichts tut als die Luecke zwischen zwei Bildern zu messen.
+   *
+   * Warum nicht die FPS-Anzeige des Spiels: Die mittelt. Gesucht ist aber der
+   * EINE Frame, in dem alles stillstand — der Browser bemerkt genau den und
+   * beendet daraufhin das Skript. Ein Mittelwert ueber zehn Sekunden mit einem
+   * Zehn-Sekunden-Loch sieht harmlos aus.
+   * The WITNESS for the freeze: an own rAF chain measuring the gap between
+   * frames. Averages hide the one frame in which everything stood still.
+   */
+  await seite.addInitScript(() => {
+    const stand = { maxMs: 0, letzte: performance.now(), bilder: 0 };
+    window.__dg2stall = {
+      lies: () => ({ maxMs: stand.maxMs, bilder: stand.bilder }),
+      zuruecksetzen: () => {
+        stand.maxMs = 0;
+        stand.bilder = 0;
+        stand.letzte = performance.now();
+      },
+    };
+    const takt = () => {
+      const jetzt = performance.now();
+      const luecke = jetzt - stand.letzte;
+      stand.letzte = jetzt;
+      if (luecke > stand.maxMs) stand.maxMs = luecke;
+      stand.bilder++;
+      requestAnimationFrame(takt);
+    };
+    requestAnimationFrame(takt);
+  });
+
   // OHNE `?dungeon=`. Der Auto-Sprung dort wartet auf `terrain.ready`
   // (`main.ts`, PlayerState) — richtig so, aber in einer frisch erzeugten
   // Radialwelt dauert das Gelände beliebig lange, und der Lauf misst dann
@@ -341,19 +427,72 @@ console.log('[e2e] BEREIT');
     fehler.push(`Software-Rasterisierung (${renderer}) — die Zeiten unten messen nicht das Spiel`);
   }
 
+  // ── 4. Erst ankommen (nur mit --ausNormalwelt) ──────────────────────
+  // Ohne diesen Block wird aus dem stehenden Ladebildschirm heraus betreten:
+  // Die Szene ist dann fast leer, und der teuerste Teil des Wechsels — eine
+  // vollstaendig aufgebaute Oberwelt abzuraeumen — findet gar nicht statt.
+  // Without this block the scene is nearly empty and the expensive part of
+  // the switch never happens.
+  if (AUS_NORMALWELT) {
+    console.log(`Warte auf die fertige Oberwelt (bis ${OBERWELT_FRIST_S} s) …`);
+    const bis = Date.now() + OBERWELT_FRIST_S * 1000;
+    let bereit = false;
+    while (Date.now() < bis) {
+      const st = await seite.evaluate(() => ({
+        ready: window.__dbg?.terrain?.ready ?? false,
+        fortschritt: window.__dbg?.terrain?.loadProgress ?? 0,
+        chunks: window.__dbg?.terrain?.chunkCount ?? 0,
+        vorhang: document.getElementById('loading-screen') !== null,
+      }));
+      if (st.ready && !st.vorhang) {
+        bereit = true;
+        break;
+      }
+      await seite.waitForTimeout(1000);
+    }
+    if (!bereit) throw new Error('Die Oberwelt wurde nicht fertig — der Wechselfall ist so nicht prüfbar');
+    // Noch fünf Sekunden laufen lassen: Vegetation, Impostoren und die
+    // Kollisionskörper ziehen über ihre Frame-Budgets nach, und erst danach
+    // steht die Szene, die der Wechsel abräumen muss.
+    // Five more seconds: vegetation, impostors and colliders catch up.
+    await seite.waitForTimeout(5000);
+  }
+
   const vorEintritt = await seite.evaluate(() => ({
     terrainBereit: window.__dbg?.terrain?.ready ?? null,
     ladefortschritt: window.__dbg?.terrain?.loadProgress ?? null,
+    chunks: window.__dbg?.terrain?.chunkCount ?? null,
     vorhangSteht: document.getElementById('loading-screen') !== null,
+    // Die GRÖSSE der Szene, die der Wechsel gleich abräumen muss. Ohne die
+    // Zahl steht in einem roten Lauf nur „eingefroren" ohne das Warum.
+    // The SIZE of the scene the switch has to deal with.
+    meshes: window.__dbg?.scene?.meshes?.length ?? null,
+    materialien: window.__dbg?.scene?.materials?.length ?? null,
+    zdoStatisch: window.__dbg?.entities?.staticCount ?? null,
   }));
   messwerte.vorEintritt = vorEintritt;
   console.log(
     `Verbunden. Gelände: ready=${vorEintritt.terrainBereit}, ` +
-      `Fortschritt=${vorEintritt.ladefortschritt}, ` +
-      `Ladebildschirm ${vorEintritt.vorhangSteht ? 'steht' : 'weg'}`
+      `Fortschritt=${vorEintritt.ladefortschritt}, Chunks=${vorEintritt.chunks}, ` +
+      `Ladebildschirm ${vorEintritt.vorhangSteht ? 'steht' : 'weg'}, ` +
+      `Szene: ${vorEintritt.meshes} Meshes / ${vorEintritt.materialien} Materialien / ` +
+      `${vorEintritt.zdoStatisch} statische ZDOs`
   );
+  if (AUS_NORMALWELT && !vorEintritt.terrainBereit) {
+    fehler.push('Die Oberwelt war beim Wechsel nicht fertig — der scharfe Fall wurde nicht geprüft');
+  }
 
   console.log(`Betrete '${DUNGEON_ID}' …`);
+  await seite.evaluate(() => window.__dg2stall.zuruecksetzen());
+  // Wie viele Verbindungen VOR dem Befehl schon dastanden. Kommt danach eine
+  // dazu, hat der Server getrennt und der Auto-Reconnect hat den Spieler in
+  // die Oberwelt zurückgeholt — genau das Bild vom 29.08.2026. Ohne diesen
+  // Zähler endet der Lauf in einem nackten „Timeout beim Warten", und man
+  // sucht den Fehler im Bauer statt in der Leitung.
+  // How many connections stood BEFORE the command — one more afterwards means
+  // the server dropped the peer and the auto-reconnect returned the player to
+  // the overworld.
+  const verbindungenVorher = konsole.filter((z) => /GameSocket\] Connected/.test(z)).length;
   await seite.evaluate(
     (id) => window.__dbg.socket.sendAdminCommand(`dungeon enter ${id}`),
     DUNGEON_ID
@@ -374,13 +513,57 @@ console.log('[e2e] BEREIT');
       ladefortschritt: window.__dbg?.terrain?.loadProgress ?? null,
       imDungeon: window.__dbg?.imDungeon ?? null,
       hatDbg: window.__dbg != null,
+      stillstand: window.__dg2stall?.lies() ?? null,
+      meshes: window.__dbg?.scene?.meshes?.length ?? null,
     })).catch(() => null);
     console.log('Stand beim Abbruch:', JSON.stringify(stand, null, 1));
+    const neuVerbunden =
+      konsole.filter((z) => /GameSocket\] Connected/.test(z)).length - verbindungenVorher;
+    if (neuVerbunden > 0) {
+      console.log(
+        `DIAGNOSE: Der Server hat die Verbindung beim Betreten GETRENNT ` +
+          `(${neuVerbunden} zusätzliche Verbindung(en) danach). Der Client hängt ` +
+          `nicht — er ist ausgeworfen und in der Oberwelt neu angekommen. Die ` +
+          `Ursache steht im SERVER-Log, nicht in der Browserkonsole ` +
+          `(DG2_LAUT=1 zeigt beides).`
+      );
+    }
     console.log('Letzte Konsolenzeilen:');
     for (const z of konsole.slice(-40)) console.log(`  ${z}`);
     for (const z of seitenFehler.slice(-10)) console.log(`  AUSNAHME ${z}`);
     throw e;
   }
+  // Der laengste Frame-Stillstand ZWISCHEN Befehl und Baubereitschaft — die
+  // Zahl, die den Fehler vom 29.08.2026 sichtbar macht.
+  // The longest frame stall between command and readiness.
+  // Die Leitung hat gehalten. Auch das ist eine Zusage, und sie muss gemessen
+  // werden: Ein Auto-Reconnect mitten im Wechsel führte am 29.08.2026 in die
+  // Oberwelt zurück, und danach hätte `__dg2live` von einem zweiten Anlauf
+  // stammen können.
+  // The connection held — an auto-reconnect mid-switch is a failure of its own.
+  const verbindungenNachher = konsole.filter((z) => /GameSocket\] Connected/.test(z)).length;
+  messwerte.reconnectsBeimWechsel = verbindungenNachher - verbindungenVorher;
+  if (messwerte.reconnectsBeimWechsel > 0) {
+    fehler.push(
+      `Die Verbindung riss beim Wechsel ab (${messwerte.reconnectsBeimWechsel} Reconnect(s)) — ` +
+        `der Server hat den Spieler getrennt statt ihn hineinzuschicken`
+    );
+  }
+
+  const stillstand = await seite.evaluate(() => window.__dg2stall.lies());
+  messwerte.stillstandMs = Math.round(stillstand.maxMs);
+  messwerte.bilderWaehrendWechsel = stillstand.bilder;
+  console.log(
+    `Längster Frame-Stillstand beim Wechsel: ${stillstand.maxMs.toFixed(0)} ms ` +
+      `(${stillstand.bilder} Bilder gezählt)`
+  );
+  if (stillstand.maxMs > STILLSTAND_GRENZE_MS) {
+    fehler.push(
+      `Der Wechsel blockierte den Hauptthread ${stillstand.maxMs.toFixed(0)} ms ` +
+        `(Grenze ${STILLSTAND_GRENZE_MS} ms) — in Firefox stirbt der Client daran`
+    );
+  }
+
   const messung = await seite.evaluate(() => window.__dg2live.messung);
   messwerte.instanz = messung;
   console.log(

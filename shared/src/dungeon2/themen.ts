@@ -415,7 +415,18 @@ export const STEINGRAB: ThemenProfil = {
     sarkophag: [{ prefab: 'Steingrab_Sarkophag', gewicht: 1 }],
     truhe: [
       { prefab: 'TreasureChest_meadows', gewicht: 2 },
-      { prefab: 'chest_wood', gewicht: 1 },
+      // `HolzTruhe`, nicht `chest_wood`: `chest_wood` ist der MODELLNAME des
+      // Eintrags, nicht sein Prefabname (s. `shared/src/prefabs.ts`). Hier
+      // stehen Prefabnamen — `findPrefabByName('chest_wood')` ist `undefined`,
+      // und die Materialisierung laesst einen unbekannten Anker ausdruecklich
+      // WEG (`Materialisierung2.ts`, `ohnePrefab`). Auf wov-dev sah man das am
+      // 29.08.2026 als „0 ZDOs, 1 anchor without a registered prefab" bei
+      // `steingrab-2` — dem einzigen Grab, dessen Deko-Wurf auf diese Zeile
+      // fiel. Die Truhe fehlte dort ganz, und zwar wortlos.
+      // `HolzTruhe`, not `chest_wood`: the latter is the MODEL name of that
+      // registry entry, not its prefab name. This table holds prefab names,
+      // and an unknown one is silently dropped during materialisation.
+      { prefab: 'HolzTruhe', gewicht: 1 },
     ],
     saeule: [{ prefab: 'Steingrab_Saeule', gewicht: 1 }],
     urne: [{ prefab: 'Steingrab_Urne', gewicht: 1 }],

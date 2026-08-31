@@ -40,7 +40,14 @@ import {
 } from '../src/dungeon2/layout.js';
 import { baueGeometrie, type BauErgebnis, type DekoPlatz, type KollisionsKoerper } from '../src/dungeon2/builder.js';
 import { erzeugeLayout } from '../src/dungeon2/generator.js';
-import { STEINGRAB, materialTagFuerStempel } from '../src/dungeon2/themen.js';
+import { STEINGRAB, THEMEN, ROLLEN_MIT_ZDO, materialTagFuerStempel } from '../src/dungeon2/themen.js';
+// Die Prefab-Registry gehoert NICHT zu `shared/src/dungeon2/**` (der
+// Schichtentest verbietet dort jede Abhaengigkeit nach aussen). Hier im TEST
+// ist sie erlaubt und noetig: Nur sie weiss, welche Namen der Server
+// materialisieren kann.
+// The prefab registry does not belong to `shared/src/dungeon2/**`; in the
+// TEST it is allowed and needed.
+import { findPrefabByName } from '../src/prefabs.js';
 import { bestuecke, type BestuecktesTeil } from '../src/dungeon2/decorator.js';
 import type { RaumStempel } from '../src/dungeon2/layout.js';
 
@@ -364,6 +371,51 @@ for (let i = 0; i < SEED_ZAHL; i++) {
   };
   const ergebnis = bestuecke([unbekannt], thema);
   pruefe('unbekannte Rolle ohne Tabelle wird ausgelassen, nicht geworfen', ergebnis.length === 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (D) Jedes Prefab einer ZDO-Rolle ist in der Registry / every ZDO-role prefab
+//     is registered
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Was hier gefangen wird: `themen.ts` fuehrt Deko-Tabellen mit PREFABNAMEN.
+// Fuer die Rollen aus `ROLLEN_MIT_ZDO` (Truhe, Spawner) schlaegt der Server
+// diese Namen in der Prefab-Registry nach und LAESST WEG, was er nicht findet
+// (`server/src/world/dungeon/Materialisierung2.ts`). Ein Tippfehler oder ein
+// versehentlich eingetragener MODELLname kostet damit still eine Truhe — im
+// Log steht nur „1 anchor without a registered prefab", und ob je jemand
+// hinsieht, entscheidet der Zufall des Deko-Wurfs: Auf wov-dev traf es am
+// 29.08.2026 ausgerechnet `steingrab-2`, waehrend jedes zweite Grab den
+// anderen Tabelleneintrag zog und heil aussah.
+//
+// GEPRUEFT WIRD NUR, WAS EIN ZDO WIRD. Die uebrige Deko (Saeule, Urne,
+// Sarkophag …) baut der CLIENT aus GLBs und braucht keinen Registry-Eintrag —
+// die haerte Regel „alles muss registriert sein" waere schlicht falsch.
+//
+// What this catches: a typo or a MODEL name in a ZDO-role decor table costs a
+// chest silently. ONLY ZDO roles are checked — the rest is built client-side
+// from GLBs and needs no registry entry.
+{
+  let geprueft = 0;
+  for (const thema of THEMEN) {
+    for (const rolle of ROLLEN_MIT_ZDO) {
+      const tabelle = thema.dekoTabellen[rolle];
+      if (tabelle === undefined) continue;
+      for (const eintrag of tabelle) {
+        geprueft++;
+        pruefe(
+          `Thema '${thema.id}', Rolle '${rolle}': Prefab '${eintrag.prefab}' ist registriert`,
+          findPrefabByName(eintrag.prefab) !== undefined,
+          'sonst laesst die Materialisierung den Anker wortlos weg'
+        );
+      }
+    }
+  }
+  // Der Zeuge fuer den Zeugen: Ohne diese Zeile bliebe unbemerkt, wenn
+  // `ROLLEN_MIT_ZDO` oder die Tabellen einmal leer laufen und die Schleife
+  // oben gar nichts prueft.
+  // The witness for the witness: without this, an empty loop would pass.
+  pruefe('… und es wurde überhaupt etwas geprüft', geprueft > 0, `${geprueft} Einträge`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

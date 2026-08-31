@@ -2906,9 +2906,35 @@ export class WovServer {
       // wäre eine zweite Wahrheit über dieselbe Frage.
       // APPENDED fields: an empty `thema` means "not 2.0".
       w.writeString(deskriptor?.thema ?? '');
-      w.writeInt32(deskriptor?.seeds.architektur ?? 0);
-      w.writeInt32(deskriptor?.seeds.material ?? 0);
-      w.writeInt32(deskriptor?.seeds.deko ?? 0);
+      // VORZEICHENLOS schreiben, nicht vorzeichenbehaftet.
+      //
+      // Die drei Seeds sind uint32 — `dungeon2.mische()` liefert sie so, und
+      // `dungeon create2` erzeugt Material- und Deko-Seed genau damit. Jeder
+      // zweite Seed liegt deshalb ueber 2^31-1, und `Buffer.writeInt32LE`
+      // WIRFT dort, statt abzuschneiden. Die Ausnahme fliegt mitten im
+      // Paketaufbau, `NetManager` wertet sie als Paketfehler und TRENNT die
+      // Verbindung — der Spieler landet nach dem Auto-Reconnect wieder in der
+      // Oberwelt und hat nie erfahren, warum.
+      //
+      // Am 29.08.2026 traf das `steingrab-2` (Deko-Seed 3333651121): Die
+      // Instanz stand serverseitig fertig da (54 Stempel, 1154 Stuecke), und
+      // genau das Paket, das den Client hineingeschickt haette, riss die
+      // Leitung ab. Es gab keine einzige `[dungeon2]`-Zeile im Client, weil
+      // dort nie etwas ankam.
+      //
+      // Die Leitung aendert sich dadurch NICHT: vier Bytes little-endian,
+      // dieselben Bits. Der Client liest sie mit `readInt32()` und macht
+      // `>>> 0` daraus (main.ts, PacketType.Teleport) — er wollte immer schon
+      // uint32.
+      //
+      // Write UNSIGNED, not signed: the three seeds are uint32, and
+      // `Buffer.writeInt32LE` THROWS above 2^31-1 rather than truncating. The
+      // exception lands inside the packet build, `NetManager` reads it as a
+      // packet error and DROPS the connection. Same four bytes on the wire;
+      // the client already reads them as `readInt32() >>> 0`.
+      w.writeUInt32(deskriptor?.seeds.architektur ?? 0);
+      w.writeUInt32(deskriptor?.seeds.material ?? 0);
+      w.writeUInt32(deskriptor?.seeds.deko ?? 0);
       w.writeString(deskriptor?.pruefsumme ?? '');
       w.writeInt32(deskriptor?.layoutVersion ?? 0);
       w.writeString(deskriptor?.name ?? '');

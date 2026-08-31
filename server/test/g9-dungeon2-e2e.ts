@@ -196,11 +196,29 @@ async function main(): Promise<void> {
 
   const alt = dungeons.createGenerated('DG_ForestCrypt', 4242, ALT_ID);
   pruefe('Altdokument angelegt', alt !== null);
-  const neu = dungeons.erzeugeDungeon2(
-    'steingrab',
-    { architektur: 4242, material: 77, deko: 99 },
-    DUNGEON2_ID
+  // Die Seeds werden GEMISCHT wie in `dungeon create2` (WovServer) und nicht
+  // von Hand klein gewaehlt.
+  //
+  // Der Grund ist ein Fehler, den 77/99 nicht finden konnten: `mische()`
+  // liefert uint32, also liegt jeder zweite Seed ueber 2^31-1. Der Teleport
+  // schrieb sie mit `writeInt32`, und `Buffer.writeInt32LE` WIRFT dort. Die
+  // Ausnahme galt als Paketfehler, der Server trennte die Verbindung, und der
+  // Spieler landete nach dem Auto-Reconnect wieder in der Oberwelt (wov-dev,
+  // 29.08.2026, `steingrab-2`). Mit 77 und 99 lief derselbe Weg gruen — die
+  // Zahlen waren einfach zu klein.
+  // The seeds are MIXED as in `dungeon create2` rather than hand-picked small:
+  // `mische()` yields uint32, and 77/99 could never have found the overflow.
+  const SEEDS: dungeon2.LayoutSeeds = {
+    architektur: 4242,
+    material: dungeon2.mische(4242, 1),
+    deko: dungeon2.mische(4242, 2),
+  };
+  pruefe(
+    'Mindestens ein Seed liegt über 2^31-1 (sonst prüft der Teleport-Test nichts)',
+    SEEDS.material > 0x7fffffff || SEEDS.deko > 0x7fffffff,
+    `${SEEDS.architektur}/${SEEDS.material}/${SEEDS.deko}`
   );
+  const neu = dungeons.erzeugeDungeon2('steingrab', SEEDS, DUNGEON2_ID);
   pruefe('2.0-Dokument angelegt', neu !== null);
   if (!alt || !neu) {
     console.log('g9-dungeon2-e2e: ABBRUCH — Dokumente nicht anlegbar');
@@ -504,6 +522,13 @@ async function main(): Promise<void> {
     pruefeGleich('Teleport trägt die Layout-Formatversion', tp.layoutVersion, dungeon2.LAYOUT_VERSION);
     pruefeGleich('Teleport trägt die Prüfsumme', tp.pruefsumme, neu.pruefsumme);
     pruefeGleich('Teleport trägt den Architektur-Seed', tp.seeds.architektur, 4242);
+    // UNVERSEHRT, nicht bloss „irgendwie da": Der Fehler vom 29.08.2026 lag
+    // genau hier — ein Seed über 2^31-1 riss beim Schreiben die Verbindung ab.
+    // Dass die Verbindung überhaupt noch steht, beweist der Test schon durch
+    // die 20 Runden darüber; diese zwei Zeilen sagen, WELCHE Zahl es war.
+    // INTACT, not merely "somehow present".
+    pruefeGleich('Teleport trägt den Material-Seed unversehrt', tp.seeds.material, SEEDS.material);
+    pruefeGleich('Teleport trägt den Deko-Seed unversehrt', tp.seeds.deko, SEEDS.deko);
 
     // DER DETERMINISMUS-ZEUGE IM BETRIEB: Aus den Feldern des Pakets — und
     // NUR aus ihnen — dasselbe Layout erzeugen wie der Server.

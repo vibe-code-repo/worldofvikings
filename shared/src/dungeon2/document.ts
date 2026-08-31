@@ -64,7 +64,37 @@ import { themaFinden } from './themen.js';
  * leaves the legacy format room for further versions without ever reaching the
  * switch.
  */
-export const DUNGEON_DOKUMENT_VERSION_2 = 10;
+/**
+ * Die WEICHE: ab dieser Zahl ist ein Dokument ein 2.0-Dokument. Sie ist
+ * eingefroren und darf nie steigen — sie trennt die beiden FORMATE, nicht die
+ * Fassungen innerhalb von 2.0.
+ * The SWITCH: from this number on a document is a 2.0 document. Frozen; it
+ * separates the two FORMATS, not the revisions within 2.0.
+ */
+export const DOKUMENT_2_AB_VERSION = 10;
+
+/**
+ * Die Fassung, die dieser Build SCHREIBT.
+ *
+ *   10 — Grundform (AP13): Thema, Seeds, Pruefsumme, Layout-Formatversion.
+ *   11 — `ambientLicht` (31.08.2026): Grundhelligkeit je Dokument, 0..1.
+ *
+ * Ein Dokument der Fassung 10 wird beim Lesen auf 11 gehoben, indem
+ * `ambientLicht` WEGGELASSEN wird — Weglassen heisst „nimm die Vorgabe des
+ * Themas", und die ist der heutige Wert. Die Migration ist damit
+ * wertneutral: Kein bestehendes Grab aendert sein Bild, weil dieses Feld
+ * dazugekommen ist. Genau deshalb ist das Feld OPTIONAL und nicht mit einer
+ * Vorgabe belegt — ein hineingeschriebener Wert waere eine Behauptung ueber
+ * einen Dungeon, die niemand aufgestellt hat, und beim naechsten Wechsel der
+ * Themen-Vorgabe wuerde er sie stumm ueberstimmen.
+ *
+ * The revision this build WRITES. A revision-10 document is lifted to 11 by
+ * OMITTING `ambientLicht` — omission means "take the theme's default", which
+ * is today's value, so the migration is value-neutral. That is why the field
+ * is optional rather than defaulted: a written-in value would be a claim
+ * nobody made, and it would silently outvote a later change to the theme.
+ */
+export const DUNGEON_DOKUMENT_VERSION_2 = 11;
 
 /**
  * Dasselbe Muster wie `isValidDungeonId()` in `shared/src/dungeons.ts` — die
@@ -120,6 +150,18 @@ export interface DungeonDokument2 {
    * data migration.
    */
   readonly layoutVersion: number;
+  /**
+   * Grundhelligkeit dieser EINEN Instanz, 0..1 — ueberschreibt
+   * `ThemenProfil.ambientLicht`. Ab Dokumentfassung 11.
+   *
+   * FEHLT das Feld, gilt das Thema. Das ist nicht dasselbe wie `1`: Wer
+   * spaeter die Vorgabe des Themas senkt, will, dass die Graeber ohne eigene
+   * Angabe mitgehen — und genau die erkennt man daran, dass hier nichts
+   * steht.
+   * Base brightness of this ONE instance, 0..1 — overrides the theme's value.
+   * ABSENT means "use the theme", which is not the same as `1`.
+   */
+  readonly ambientLicht?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,7 +183,15 @@ function istGanz(x: unknown): x is number {
  */
 export function istDokument2(roh: unknown): boolean {
   if (!istObjekt(roh)) return false;
-  return istGanz(roh.version) && roh.version >= DUNGEON_DOKUMENT_VERSION_2;
+  // Gegen `DOKUMENT_2_AB_VERSION`, NICHT gegen die geschriebene Fassung:
+  // Sonst faellt jedes bereits gespeicherte 2.0-Dokument aus dem Format
+  // heraus, sobald hier eine Fassung dazukommt — und zwar still, weil
+  // `istDokument2() === false` „Altformat" bedeutet und der Alt-Sanitizer
+  // dann „ungueltig" meldet, wo „aeltere Fassung" gemeint ist.
+  // Against the FORMAT threshold, NOT the written revision: otherwise every
+  // stored 2.0 document would silently drop out of the format the moment a
+  // revision is added here.
+  return istGanz(roh.version) && roh.version >= DOKUMENT_2_AB_VERSION;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -156,6 +206,29 @@ function leseSeeds(roh: unknown): LayoutSeeds | null {
     material: roh.material >>> 0,
     deko: roh.deko >>> 0,
   };
+}
+
+/**
+ * `ambientLicht` aus einem rohen Dokument lesen — oder `undefined`, wenn es
+ * fehlt bzw. unbrauchbar ist.
+ *
+ * Ein KAPUTTER Wert (Text, NaN, -3, 17) macht das Dokument NICHT ungueltig,
+ * er faellt auf „nicht gesetzt" zurueck. Der Grund ist die Asymmetrie der
+ * Folgen: Ein Grab, das wegen einer verrutschten Helligkeitszahl gar nicht
+ * mehr laedt, ist ein verlorener Spielstand; eines, das die Vorgabe des
+ * Themas nimmt, ist ein Grab mit der Helligkeit von gestern. Ausserhalb von
+ * 0..1 wird deshalb geklemmt und nicht abgelehnt — 1,2 heisst „so hell wie
+ * moeglich", nicht „Datei kaputt".
+ *
+ * Read `ambientLicht` from a raw document, or `undefined` when absent or
+ * unusable. A BROKEN value does not invalidate the document, it falls back to
+ * "not set": a barrow that no longer loads because of a slipped brightness
+ * number is a lost save; one that takes the theme's default is a barrow with
+ * yesterday's brightness. Out-of-range values are clamped, not rejected.
+ */
+function leseAmbientLicht(roh: unknown): number | undefined {
+  if (typeof roh !== 'number' || !Number.isFinite(roh)) return undefined;
+  return Math.min(1, Math.max(0, roh));
 }
 
 /**
@@ -200,6 +273,15 @@ export function sanitizeDungeonDokument2(roh: unknown): DungeonDokument2 | null 
   const layoutVersion = istGanz(o.layoutVersion) ? o.layoutVersion : LAYOUT_VERSION;
   if (layoutVersion < 1 || layoutVersion > LAYOUT_VERSION) return null;
 
+  // Die Anhebung von Fassung 10 auf 11 IST diese eine Zeile: Ein altes
+  // Dokument hat `ambientLicht` nicht, `leseAmbientLicht` liefert `undefined`,
+  // und `undefined` heisst „nimm das Thema". Die Fassung wird unten auf
+  // `DUNGEON_DOKUMENT_VERSION_2` gehoben — das Dokument ist danach eines von
+  // heute, ohne dass sich an ihm irgendetwas geaendert haette.
+  // The lift from revision 10 to 11 IS this one line.
+  const ambientLicht = leseAmbientLicht(o.ambientLicht);
+  const ambientFeld = ambientLicht === undefined ? {} : { ambientLicht };
+
   if (modus === 'gebaut') {
     // `migriere()` ist der EINE Weg in ein Layout hinein — es prueft Format,
     // Version und Felder und zieht aeltere Fassungen nach.
@@ -218,6 +300,7 @@ export function sanitizeDungeonDokument2(roh: unknown): DungeonDokument2 | null 
       layout,
       pruefsumme: layoutPruefsumme(layout),
       layoutVersion: layout.version,
+      ...ambientFeld,
     };
   }
 
@@ -239,6 +322,7 @@ export function sanitizeDungeonDokument2(roh: unknown): DungeonDokument2 | null 
     seeds,
     pruefsumme: layoutPruefsumme(layout),
     layoutVersion: layout.version,
+    ...ambientFeld,
   };
 }
 
@@ -286,12 +370,20 @@ export function erzeugeDokument2(
   id: string,
   name: string,
   thema: string,
-  seeds: LayoutSeeds
+  seeds: LayoutSeeds,
+  /**
+   * Grundhelligkeit dieser Instanz (0..1). Weggelassen = Vorgabe des Themas
+   * — und Weglassen ist der Normalfall, nicht ein Versaeumnis.
+   * Base brightness (0..1). Omitted = the theme's default, which is the
+   * normal case, not an oversight.
+   */
+  ambientLicht?: number
 ): DungeonDokument2 | null {
   const kleinId = id.toLowerCase();
   if (!ID_MUSTER.test(kleinId)) return null;
   const layout = layoutErzeugen({ id: kleinId, name, thema, seeds });
   if (layout === null) return null;
+  const ambient = leseAmbientLicht(ambientLicht);
   return {
     version: DUNGEON_DOKUMENT_VERSION_2,
     id: kleinId,
@@ -301,6 +393,7 @@ export function erzeugeDokument2(
     seeds,
     pruefsumme: layoutPruefsumme(layout),
     layoutVersion: layout.version,
+    ...(ambient === undefined ? {} : { ambientLicht: ambient }),
   };
 }
 
@@ -337,6 +430,29 @@ export interface LayoutDeskriptor {
   readonly layoutVersion: number;
   readonly id: string;
   readonly name: string;
+  /**
+   * Die AUFGELOESTE Grundhelligkeit (0..1) — Dokument schlaegt Thema.
+   *
+   * Aufgeloest und nicht optional: Der Client haette sonst zwei Faelle zu
+   * unterscheiden ("Feld fehlt" vs. "Wert 0"), und der eine davon ist genau
+   * der neue Feature-Fall (stockdunkel). Die Aufloesung gehoert dorthin, wo
+   * beide Quellen bekannt sind — auf den Server.
+   * The RESOLVED base brightness (0..1) — document beats theme. Resolved and
+   * not optional: the client would otherwise have to tell "field missing"
+   * from "value 0", and the latter is exactly the new feature case.
+   */
+  readonly ambientLicht: number;
+}
+
+/**
+ * Die Aufloesung selbst — EINE Stelle, damit "Dokument schlaegt Thema" nicht
+ * an drei Orten unabhaengig hingeschrieben steht.
+ * The resolution itself — ONE place, so "document beats theme" is not written
+ * down independently in three.
+ */
+export function ambientLichtVon(doc: DungeonDokument2): number {
+  if (doc.ambientLicht !== undefined) return doc.ambientLicht;
+  return themaFinden(doc.thema)?.ambientLicht ?? 1;
 }
 
 export function deskriptorVon(doc: DungeonDokument2): LayoutDeskriptor {
@@ -347,6 +463,7 @@ export function deskriptorVon(doc: DungeonDokument2): LayoutDeskriptor {
     layoutVersion: doc.layoutVersion,
     id: doc.id,
     name: doc.name,
+    ambientLicht: ambientLichtVon(doc),
   };
 }
 

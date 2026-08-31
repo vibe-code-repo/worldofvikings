@@ -339,7 +339,59 @@ export class PlayerController {
     // Fussanpassung (Stufe 1): Die Figur hebt sich so weit, dass kein Fuss
     // im Hang steckt. Dieselbe Hoehenquelle wie die Physik — waeren es
     // zwei, liefen Bild und Kollision auseinander.
-    this.avatar.setBodenSonde((x, z) => this.world.getGroundHeight(x, z));
+    this.avatar.setBodenSonde((x, z) => this.bodenFuerFuesse(x, z));
+  }
+
+  /**
+   * Der Boden, gegen den die FUSSANPASSUNG misst — dieselbe Flaeche, auf der
+   * die Kapsel steht, in der Oberwelt WIE in einer Instanz.
+   *
+   * DER FEHLER, DEN DAS BEHEBT (gemeldet 31.08.2026, „Spielfigur steht mit
+   * den Fuessen im Boden"): Diese Sonde griff fest nach
+   * `world.getGroundHeight()` — der HEIGHTMAP der Oberwelt. In einem Dungeon
+   * gibt es die Heightmap zwar noch, aber sie beschreibt das Gelaende ueber
+   * bzw. neben der Instanz und nicht deren Bodenplatte. `messeFussVersatz()`
+   * verglich die Sohle also mit einer voellig anderen Flaeche und zog die
+   * Figur um die Differenz nach unten — gedeckelt bei `FUSS_ABSENK_MAX`
+   * (0,35 m), also genau so weit, dass es wie „knoecheltief im Stein" aussah
+   * und nicht wie ein Fehler.
+   *
+   * Warum genau `this.bodenSonde`: Das ist DIESELBE Sonde, die zwanzig
+   * Zeilen weiter unten in `stepPhysics()` die Hoehe der Kapsel im Dungeon
+   * haelt (`bodenHoeheUnter`, ein Havok-Strahl gegen die Instanzkoerper).
+   * Zwei verschiedene Boeden fuer Kapsel und Bild waeren wieder der Fehler,
+   * den dieser Kommentar beschreibt — nur eine Ebene hoeher.
+   *
+   * The ground the FOOT ADJUSTMENT measures against — the same surface the
+   * capsule stands on, in the overworld AS WELL AS in an instance. The probe
+   * used to reach unconditionally for the overworld heightmap; inside a
+   * dungeon that describes the terrain above the instance, not its floor
+   * slab, so the rig was pulled down by the difference (capped at 0.35 m).
+   */
+  private bodenFuerFuesse(x: number, z: number): number {
+    if (this.dungeonMode && this.bodenSonde !== null) {
+      const treffer = this.bodenSonde(x, this.position.y, z);
+      // Kein Treffer heisst „Kollisionskoerper noch nicht da" — dann gilt
+      // dieselbe Haltehoehe, mit der auch die Kapsel wartet. Ein Rueckfall
+      // auf die Heightmap waere hier genau der Fehler von oben.
+      // No hit means the collider is not there yet — then the same hold
+      // height the capsule waits on applies.
+      return treffer ?? this.dungeonHalteY;
+    }
+    return this.world.getGroundHeight(x, z);
+  }
+
+  /**
+   * Nur zum Messen: Wie weit steckt die Figur im Boden (negativ) bzw. schwebt
+   * sie darueber (positiv)? Die Groesse, die der Ende-zu-Ende-Lauf prueft.
+   * For measuring only: how deep the figure sits in the floor (negative) or
+   * hovers above it (positive) — the quantity the end-to-end run checks.
+   */
+  get fussDiagnose(): { sohleY: number; bodenY: number | null; versatz: number } {
+    const bodenY = this.dungeonMode
+      ? (this.bodenSonde?.(this.position.x, this.position.y, this.position.z) ?? null)
+      : this.world.getGroundHeight(this.position.x, this.position.z);
+    return { sohleY: this.avatar.sohleWeltY, bodenY, versatz: this.avatar.fussVersatzMeter };
   }
 
   // ── Physics ──────────────────────────────────────────────────────

@@ -1396,16 +1396,29 @@ async function main() {
        * Drei Stationen, die von aussen gleich aussehen: Der Pool existiert
        * gar nicht, er findet keine Quelle, oder er hat sie und das Licht
        * kommt trotzdem nicht an.
+       *
+       * `quelle` sagt, WELCHE der beiden Listen gerade zaehlt. Ohne diese
+       * Zeile las sich die Diagnose in einem 2.0-Grab wie „keine Fackeln
+       * gebaut", wo in Wahrheit „falsche Liste gefragt" stand — sie fragte
+       * fest `entities`, waehrend der Pool laengst umschaltet.
+       * `quelle` names WHICH of the two lists currently counts.
        */
       fackeln: () => {
         const p = player?.position;
-        const nah = p ? (entities?.lichtquellen(p.x, p.z, 45) ?? []) : [];
+        const ausDungeon = dungeon2Instanz !== null;
+        const nah = p
+          ? ausDungeon
+            ? dungeon2Instanz!.lichtquellen(p.x, p.z, 45)
+            : (entities?.lichtquellen(p.x, p.z, 45) ?? [])
+          : [];
         return {
           poolDa: lightPool !== null,
           poolInfo: lightPool?.info ?? null,
+          quelle: ausDungeon ? 'dungeon2' : 'entities',
           quellenImUmkreis: nah.length,
           erste: nah[0] ?? null,
           plaetze: FackelLichter.plaetze,
+          an: FackelLichter.anzahl,
         };
       },
       /** Messhilfe: Grundausrichtung um N Grad versetzen (s. DekoPlatzierung). */
@@ -1733,7 +1746,23 @@ async function main() {
     }, i18n);
     worldMap.vorberechnen();
     // Fackel-/Feuer-Lichter: Pool wandert auf die nächsten Quellen.
-    lightPool = new LightPool(scene, (x, z, r) => entities?.lichtquellen(x, z, r) ?? []);
+    //
+    // Die Quelle ist UMSCHALTBAR, nicht fest: In einer Dungeon-2.0-Instanz
+    // liegen die Fackeln als Thin Instances beim Bauer und nicht als ZDOs
+    // beim `EntityManager` (`dungeon2.ROLLEN_MIT_ZDO` führt nur `truhe` und
+    // `spawner`). Der feste Griff nach `entities` lieferte dort null Quellen
+    // — im Debug-Overlay `fackeln 0/16 array`, im Bild ein Grab mit fünfzig
+    // Fackeln, von denen keine leuchtet. Die Vorschau hatte die Kopplung
+    // (`bauer.lichtquellen`) von Anfang an; nur der Spielweg nicht.
+    // The source is SWITCHABLE, not fixed: inside a dungeon 2.0 instance the
+    // torches live as thin instances on the builder, not as ZDOs on the
+    // entity manager. Reaching for `entities` unconditionally yielded zero
+    // sources there.
+    lightPool = new LightPool(scene, (x, z, r) =>
+      dungeon2Instanz !== null
+        ? dungeon2Instanz.lichtquellen(x, z, r)
+        : (entities?.lichtquellen(x, z, r) ?? [])
+    );
     // Minimap (Phase G): runder Detailausschnitt oben rechts mit Windzeiger.
     minimap = new Minimap(world);
     // Objekt-Ebene: Bäume/Felsen/Bauwerke aus den echten Entity-Instanzen.
@@ -2081,6 +2110,13 @@ async function main() {
         const pruefsumme = reader.readString();
         const layoutVersion = reader.readInt32();
         const name = reader.readString();
+        // Grundhelligkeit (Dokumentfassung 11) — erst ab diesem Serverstand
+        // im Paket. `remaining` entscheidet, NICHT ein Versionsfeld: Ein
+        // Server ohne das Feld ist kein Fehler, er hat nur nichts dazu zu
+        // sagen, und dann gilt „wie bisher" (1).
+        // Base brightness (document revision 11) — only in the packet from
+        // this server build on. `remaining` decides, not a version field.
+        const ambientLicht = reader.remaining >= 4 ? reader.readFloat32() : 1;
         if (thema) {
           deskriptor = {
             thema,
@@ -2093,6 +2129,7 @@ async function main() {
             layoutVersion,
             id: dungeonId,
             name,
+            ambientLicht,
           };
         }
       }
@@ -2140,6 +2177,12 @@ async function main() {
           kamera: spielerRef.camera,
           assets,
           meldung: (t) => hud.meldung(t),
+          // Die Grundhelligkeit des Grabs liegt an der WELTBELEUCHTUNG an,
+          // nicht an einem eigenen Licht der Instanz: `lighting.apply()`
+          // schreibt Sonne und Hemisphärenlicht in jedem Bild neu, ein
+          // zweites Licht daneben würde nur addieren statt zu dämpfen.
+          // The barrow's base brightness applies to the WORLD lighting.
+          licht: lighting,
         })
           .then((instanz) => {
             if (instanz === null) return;
@@ -2175,6 +2218,42 @@ async function main() {
               layout: instanz.layout,
               statistik: () => instanz.bauer.statistik(),
               vollstaendig: () => instanz.bauer.vollstaendig,
+              /**
+               * Befund 2 (31.08.2026): Speist der Pool sich wirklich aus
+               * DIESEM Grab? `quellen` ist die Zahl, die vorher 0 war.
+               * Does the pool really feed from THIS barrow?
+               */
+              fackeln: () => {
+                const p = spielerRef.position;
+                return {
+                  quellen: instanz.lichtquellen(p.x, p.z, 45).length,
+                  gesamt: instanz.lichtquellen(0, 0, 1e9).length,
+                  poolInfo: lightPool?.info ?? null,
+                  an: FackelLichter.anzahl,
+                  plaetze: FackelLichter.plaetze,
+                };
+              },
+              /**
+               * Befund 1: Stehen die Füsse auf dem Boden? `sohleY` ist die
+               * gemessene Sohle, `bodenY` die Fläche darunter.
+               * Do the feet stand on the floor?
+               */
+              fuesse: () => {
+                const d = spielerRef.fussDiagnose;
+                return {
+                  ...d,
+                  spielerY: spielerRef.position.y,
+                  abstand: d.bodenY === null ? null : d.sohleY - d.bodenY,
+                };
+              },
+              /** Befund 4: die Grundhelligkeit dieses Grabs. / Base brightness. */
+              ambient: () => ({
+                ...instanz.atmosphaereWerte,
+                daempfungAnLichtung: lighting.dungeonDaempfung,
+                sonne: +lighting.sun.intensity.toFixed(4),
+                hemisphaere: +lighting.ambient.intensity.toFixed(4),
+                umgebung: +scene.environmentIntensity.toFixed(4),
+              }),
             };
           })
           .catch((e: unknown) => {

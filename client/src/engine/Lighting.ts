@@ -211,10 +211,34 @@ function lerpEnvState(a: EnvState, b: EnvState, t: number): EnvState {
   };
 }
 
+/**
+ * Umgebungsintensität der Szene im Normalbetrieb. Eine benannte Konstante,
+ * weil die Dungeon-Grundhelligkeit sie skaliert und danach WIEDERHERSTELLEN
+ * muss — eine zweite, an anderer Stelle hingeschriebene `1` wäre die Zeile,
+ * die beim nächsten Umbau stehenbleibt.
+ * The scene's environment intensity in normal operation. A named constant
+ * because the dungeon base brightness scales it and must RESTORE it.
+ */
+const UMGEBUNGS_INTENSITAET = 1;
+
 export class Lighting {
   readonly sun: DirectionalLight;
   readonly ambient: HemisphericLight;
   readonly sky: ValheimSky;
+
+  /**
+   * Grundhelligkeit einer Dungeon-Instanz (0..1) oder `null` = Oberwelt.
+   *
+   * Der Faktor wird in `apply()` auf Sonne, Hemisphärenlicht UND die
+   * Umgebungsintensität gelegt — alle drei, weil alle drei Grundlicht
+   * liefern. Nur zwei davon zu dämpfen ergäbe bei `0` kein stockdunkles
+   * Grab, sondern ein Grab mit Himmelsschimmer auf jeder Wand, und man
+   * suchte den Rest im Material.
+   * Base brightness of a dungeon instance (0..1), or `null` = overworld.
+   * Applied to sun, hemispheric light AND environment intensity — damping
+   * only two of the three would leave a sky sheen on every wall at `0`.
+   */
+  private dungeonAmbient: number | null = null;
 
   /** 0..1, 0 = midnight, 0.5 = midday (EnvMan day fraction). */
   timeOfDay = 0.33;
@@ -339,7 +363,7 @@ export class Lighting {
     // Die Umgebungsintensität ist der Regler, mit dem das Grundlicht aus
     // dem Himmel gegen das Hemispheric-Licht abgewogen wird; die
     // Aufteilung steht bei `AMBIENT_ANTEIL_HIMMEL`.
-    scene.environmentIntensity = 1;
+    scene.environmentIntensity = UMGEBUNGS_INTENSITAET;
 
     scene.fogMode = Scene.FOGMODE_EXP2;
 
@@ -411,6 +435,31 @@ export class Lighting {
     if (!env) return false;
     this.setEnvironment(env);
     return true;
+  }
+
+  /**
+   * Die Grundhelligkeit einer Dungeon-Instanz setzen — `null` gibt die
+   * Oberwelt-Beleuchtung unverändert zurück.
+   *
+   * `null` ist ausdrücklich NICHT dasselbe wie `1`: Bei `1` liegt weiterhin
+   * eine (wirkungslose) Multiplikation an und `environmentIntensity` wird
+   * jedes Bild neu geschrieben. Bei `null` fasst diese Klasse den Regler gar
+   * nicht mehr an — und nur so kann jemand anders ihn benutzen, ohne dass
+   * ihn ein Dungeon, den man vor zehn Minuten verlassen hat, überschreibt.
+   *
+   * Set the base brightness of a dungeon instance; `null` gives the overworld
+   * lighting back untouched. `null` is deliberately not the same as `1`.
+   */
+  setzeDungeonDaempfung(faktor: number | null): void {
+    this.dungeonAmbient = faktor === null ? null : Math.min(1, Math.max(0, faktor));
+    if (this.dungeonAmbient === null) {
+      this.scene.environmentIntensity = UMGEBUNGS_INTENSITAET;
+    }
+  }
+
+  /** Nur zum Messen: die anliegende Dungeon-Dämpfung. / For measuring only. */
+  get dungeonDaempfung(): number | null {
+    return this.dungeonAmbient;
   }
 
   private setEnvironment(env: EnvSetup): void {
@@ -486,6 +535,24 @@ export class Lighting {
         ? Math.min(1, this.sky.umgebungsHelligkeit / ambLeuchtdichte)
         : 0;
     this.ambient.intensity = 1 - AMBIENT_ANTEIL_HIMMEL * himmelsAnteil;
+
+    // ── Grundhelligkeit einer Dungeon-Instanz ─────────────────────
+    //
+    // HIER und nicht einmalig beim Betreten: `apply()` schreibt beide
+    // Intensitäten in JEDEM Bild neu aus der Umgebung. Ein einmal gesetzter
+    // Wert wäre einen Frame später wieder überschrieben — der Schalter sähe
+    // aus wie eingebaut und täte nichts (Vault: „Messzellen brauchen
+    // Zeugen"). Deshalb ist es ein Faktor an dieser Stelle und keine
+    // Zuweisung anderswo.
+    // HERE and not once on entering: `apply()` rewrites both intensities
+    // every frame from the environment, so a value set once would be
+    // overwritten one frame later — the switch would look wired and do
+    // nothing.
+    if (this.dungeonAmbient !== null) {
+      this.sun.intensity *= this.dungeonAmbient;
+      this.ambient.intensity *= this.dungeonAmbient;
+      this.scene.environmentIntensity = UMGEBUNGS_INTENSITAET * this.dungeonAmbient;
+    }
 
     // ── Sky ───────────────────────────────────────────────────────
     // The dome derives horizon/glow from this same state, so it fuses with

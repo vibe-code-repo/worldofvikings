@@ -43,6 +43,12 @@
  *       Every `Schacht` mouth of a stairwell attaches to a REAL room on the same
  *       storey (no stair stamp, no 1x1 closet). Counter-check against cheap
  *       green: the number of seeds WITH a staircase must not collapse.
+ *   (h) Jeder Wandanker liegt IN der Wandflaeche (gemessen gegen die gebaute
+ *       Kollisionsgeometrie, Toleranz 5 cm). Vor dem Fix vom 31.08.2026 lag er
+ *       ueber alle Seeds bei genau 1,500 m davor — die Zellmitte.
+ *       Every wall anchor lies IN the wall face (measured against the built
+ *       collision geometry, 5 cm tolerance). Before the 2026-08-31 fix it lay
+ *       exactly 1.500 m in front of it across every seed — the cell centre.
  *
  * Dazu die Stromtrennung aus `ARCHITECTURE.md` W7/W8 und ein paar
  * Profil-Invarianten, die sonst niemand prueft.
@@ -51,6 +57,7 @@
  */
 
 import {
+  ANKER_ORT,
   KANTEN,
   MIN_LICHTE_STUFEN,
   MAX_MATERIAL_TAG,
@@ -71,6 +78,7 @@ import {
   zellenSortiert,
 } from '../src/dungeon2/cells.js';
 import { validateLayoutVoll } from '../src/dungeon2/validation.js';
+import { baueGeometrie } from '../src/dungeon2/builder.js';
 import {
   einfacheForm,
   erzeugeLayout,
@@ -500,11 +508,18 @@ const EINGEFROREN: readonly (readonly [number, string, number, number, number, n
   // dem unteren Treppenlauf ist gesperrt.
   // Zweites Mal am selben Tag: dreilaeufiges Treppenhaus mit Schachtroehre.
   // Re-frozen twice on 2026-08-30 — deliberate layout changes.
-  [0, '77f521e6', 35, 303, 16, 91],
-  [1, '2faf1f2b', 38, 337, 10, 100],
-  [7, '0fc9954d', 59, 324, 18, 90],
-  [42, 'c3c5d958', 32, 309, 10, 95],
-  [199, 'e81c0d61', 52, 296, 10, 92],
+  // Neu eingefroren am 2026-08-31 (Befund 3): Wandanker sitzen jetzt in der
+  // Wandflaeche statt in der Zellmitte. Nur die PRUEFSUMME wandert — Stempel,
+  // Zellen, Tueren und Ankerzahl stehen Spalte fuer Spalte unveraendert da
+  // (35/303/16/91 usw.). Genau das ist die Begruendung: Es sind dieselben
+  // Anker an anderen Stellen, nicht andere Anker.
+  // Re-frozen on 2026-08-31 (finding 3): only the CHECKSUM moves; stamps,
+  // cells, doors and anchor counts stand unchanged column by column.
+  [0, '118a5836', 35, 303, 16, 91],
+  [1, 'df426a9a', 38, 337, 10, 100],
+  [7, 'c2460d54', 59, 324, 18, 90],
+  [42, '8a41ff4d', 32, 309, 10, 95],
+  [199, 'c9451694', 52, 296, 10, 92],
 ];
 
 {
@@ -540,6 +555,84 @@ const EINGEFROREN: readonly (readonly [number, string, number, number, number, n
     'eingefrorene Wertetabelle stimmt',
     abweichungen === 0,
     `${abweichungen} Zeilen abweichend — mit DUNGEON2_EINFRIEREN=1 neu ausgeben`
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (h) Wandanker haengen AN der Wand, nicht davor
+// (h) wall anchors hang ON the wall, not in front of it
+//
+// Gemessen wird gegen die GEBAUTE Kollisionsgeometrie, nicht gegen
+// `wandAnkerVersatz()` — sonst prueft der Test die Funktion an sich selbst.
+// Fuer jeden Wandanker: der kleinste waagerechte Abstand zu einem
+// Kollisionsquader, der auf Ankerhoehe steht. Soll 0 sein (der Anker liegt in
+// der Flaeche); zugelassen sind 5 cm.
+//
+// DIE ZAHL, DIE DEN FEHLER ZEIGTE: Mit dem alten, fest hingeschriebenen
+// `u = 4, v = 4` (Zellmitte) lag dieser Abstand ueber alle geprueften Seeds
+// bei genau 1,500 m — Median wie Maximum. Gleichmaessig heisst systematisch;
+// im Bild hing jede Fackel frei vor ihrer Wand.
+// Measured against the BUILT collision geometry, not against
+// `wandAnkerVersatz()` — otherwise the test would check the function against
+// itself. With the old hard-coded cell centre this distance was exactly
+// 1.500 m across every seed, median and maximum alike.
+// ─────────────────────────────────────────────────────────────────────────────
+
+{
+  const TOLERANZ_M = 0.05;
+  let ankerGeprueft = 0;
+  let schlimmster = 0;
+  const abstaende: number[] = [];
+
+  for (let i = 0; i < 40; i++) {
+    const layout = erzeugeLayout(thema, seedsFuer(i));
+    const bau = baueGeometrie(layout);
+    const wandPlaetze = bau.dekoPlaetze.filter((p) => p.ort === ANKER_ORT.Wand);
+    for (const platz of wandPlaetze) {
+      let naechste = Number.POSITIVE_INFINITY;
+      for (const k of bau.kollision) {
+        // Nur Koerper, die auf der Hoehe des Ankers ueberhaupt stehen — sonst
+        // misst der Boden unter der Fackel den Abstand weg.
+        // Only bodies that actually stand at the anchor's height.
+        const y0 = k.mitte.y - k.groesse.y / 2;
+        const y1 = k.mitte.y + k.groesse.y / 2;
+        if (platz.position.y < y0 - 0.01 || platz.position.y > y1 + 0.01) continue;
+        const dx = Math.max(
+          k.mitte.x - k.groesse.x / 2 - platz.position.x,
+          0,
+          platz.position.x - (k.mitte.x + k.groesse.x / 2)
+        );
+        const dz = Math.max(
+          k.mitte.z - k.groesse.z / 2 - platz.position.z,
+          0,
+          platz.position.z - (k.mitte.z + k.groesse.z / 2)
+        );
+        const d = Math.hypot(dx, dz);
+        if (d < naechste) naechste = d;
+      }
+      if (!Number.isFinite(naechste)) continue;
+      ankerGeprueft++;
+      abstaende.push(naechste);
+      if (naechste > schlimmster) schlimmster = naechste;
+    }
+  }
+  abstaende.sort((a, b) => a - b);
+  const median = abstaende[abstaende.length >> 1] ?? 0;
+
+  pruefe(
+    'genug Wandanker zum Messen (sonst misst der Test nichts)',
+    ankerGeprueft >= 500,
+    `nur ${ankerGeprueft} Wandanker in 40 Seeds`
+  );
+  pruefe(
+    'jeder Wandanker liegt in der Wandflaeche (<= 5 cm)',
+    schlimmster <= TOLERANZ_M,
+    `schlimmster Abstand ${schlimmster.toFixed(3)} m, Median ${median.toFixed(3)} m ` +
+      `ueber ${ankerGeprueft} Anker — 1,500 m war der Zustand VOR dem Fix (Zellmitte)`
+  );
+  console.log(
+    `  Wandanker: ${ankerGeprueft} geprueft, Median ${median.toFixed(3)} m, ` +
+      `Maximum ${schlimmster.toFixed(3)} m Abstand zur Wandflaeche`
   );
 }
 

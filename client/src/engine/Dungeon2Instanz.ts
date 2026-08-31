@@ -34,9 +34,10 @@
 import type { Camera } from '@babylonjs/core/Cameras/camera';
 import type { Scene } from '@babylonjs/core/scene';
 import { dungeon2 } from '@wov/shared';
-import { DungeonAtmosphaere } from './DungeonAtmosphere.js';
+import { DungeonAtmosphaere, type Grundlicht } from './DungeonAtmosphere.js';
 import { DungeonBauer, formOberkante, type KollisionsForm } from './DungeonBuilder.js';
 import type { DekoModellQuelle } from './DungeonDeko.js';
+import type { Lichtquelle } from './LightPool.js';
 import { STEINGRAB_THEMA, dungeonStufe } from './DungeonMaterial.js';
 import {
   ladeDungeonMaterialArrays,
@@ -61,6 +62,13 @@ export interface Dungeon2Deskriptor {
   readonly layoutVersion: number;
   readonly id: string;
   readonly name: string;
+  /**
+   * Grundhelligkeit dieser Instanz (0..1), vom Server bereits aufgeloest
+   * (Dokument schlaegt Thema, `dungeon2.ambientLichtVon`). 1 = wie bisher,
+   * 0 = stockdunkel, nur die Fackeln.
+   * Base brightness (0..1), already resolved by the server.
+   */
+  readonly ambientLicht: number;
 }
 
 export interface Dungeon2Umgebung {
@@ -70,6 +78,12 @@ export interface Dungeon2Umgebung {
   readonly assets: DekoModellQuelle;
   /** HUD-Zeile. / HUD line. */
   readonly meldung: (text: string) => void;
+  /**
+   * Die Weltbeleuchtung, an der die Grundhelligkeit anliegt. Optional, weil
+   * ein Prüfstand ohne sie auskommen soll — im Spielweg ist sie immer da.
+   * The world lighting the base brightness applies to.
+   */
+  readonly licht?: Grundlicht;
 }
 
 /** Zahlen eines Betretens — fuer die Messung und fuer `window.__dg2live`. */
@@ -104,7 +118,13 @@ export class Dungeon2Instanz {
     readonly messung: Dungeon2Messung,
     private readonly umgebung: Dungeon2Umgebung
   ) {
-    this.atmosphaere = new DungeonAtmosphaere(umgebung.scene, umgebung.kamera, dungeonStufe());
+    this.atmosphaere = new DungeonAtmosphaere(
+      umgebung.scene,
+      umgebung.kamera,
+      dungeonStufe(),
+      deskriptor.ambientLicht,
+      umgebung.licht ?? null
+    );
   }
 
   /**
@@ -231,6 +251,11 @@ export class Dungeon2Instanz {
     return this.bauer.bereit;
   }
 
+  /** Nur zum Messen: die Werte der Atmosphaere. / For measuring only. */
+  get atmosphaereWerte(): ReturnType<DungeonAtmosphaere['werte']> {
+    return this.atmosphaere.werte();
+  }
+
   /**
    * Boden unter einem Punkt — aus den KOLLISIONSFORMEN des Bauers, nicht aus
    * einem Havok-Strahl.
@@ -250,6 +275,35 @@ export class Dungeon2Instanz {
       if (y !== null && (hoechste === null || y > hoechste)) hoechste = y;
     }
     return hoechste;
+  }
+
+  /**
+   * Die Lichtquellen DIESER Instanz — die Schnittstelle, aus der sich der
+   * `LightPool` des Spiels speist, solange man drin steht.
+   *
+   * WARUM ES DIESE ZEILE BRAUCHT (Befund vom 31.08.2026, `fackeln 0/16 array`
+   * im Debug-Overlay): Der Pool des Spiels wird EINMAL beim Weltaufbau
+   * angelegt und fragt `EntityManager.lichtquellen()` — also die ZDO-
+   * Entitaeten. Die Fackeln eines 2.0-Grabs sind aber ausdruecklich KEINE
+   * ZDOs (`ROLLEN_MIT_ZDO` fuehrt nur `truhe` und `spawner`), sondern Thin
+   * Instances des Clients. Der Pool fand deshalb in einem Grab mit
+   * fuenfzig Fackeln genau null Quellen — und ein Pool ohne Quellen sieht
+   * von aussen aus wie ein Dungeon ohne Fackeln, nicht wie ein falsch
+   * verdrahteter Pool.
+   *
+   * Die Vorschau (`dungeon2Preview.ts`) hatte die Kopplung von Anfang an
+   * (`new LightPool(scene, (x, z, r) => bauer.lichtquellen(x, z, r))`) und
+   * sah deshalb richtig aus. Genau das ist die Falle: Zwei Wege, von denen
+   * nur einer verdrahtet ist, und der verdrahtete ist der, den man ansieht.
+   *
+   * This instance's light sources — the interface the game's `LightPool`
+   * feeds from while the player is inside. The game pool is created ONCE at
+   * world build time and asks the ZDO entities; a 2.0 barrow's torches are
+   * deliberately NOT ZDOs but client thin instances, so the pool found zero
+   * sources in a barrow with fifty torches.
+   */
+  lichtquellen(x: number, z: number, radius: number): Lichtquelle[] {
+    return this.bauer.lichtquellen(x, z, radius);
   }
 
   /** Der ausdrueckliche Spawnpunkt des Bauers. / The builder's spawn point. */

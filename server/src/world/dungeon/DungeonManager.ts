@@ -290,11 +290,17 @@ export class DungeonManager {
   erzeugeDungeon2(
     thema: string,
     seeds: dungeon2.LayoutSeeds,
-    id?: string
+    id?: string,
+    /**
+     * Grundhelligkeit dieses Grabs (0..1). Weggelassen = Vorgabe des Themas
+     * — und das ist der Normalfall.
+     * Base brightness (0..1); omitted = the theme's default.
+     */
+    ambientLicht?: number
   ): dungeon2.DungeonDokument2 | null {
     const kennung = id ?? `${thema}-${(seeds.architektur >>> 0).toString(16)}`;
     const name = `${thema} #${(seeds.architektur >>> 0).toString(16)}`;
-    const doc = dungeon2.erzeugeDokument2(kennung, name, thema, seeds);
+    const doc = dungeon2.erzeugeDokument2(kennung, name, thema, seeds, ambientLicht);
     if (!doc) return null;
     this.saveDokument2(doc);
     return doc;

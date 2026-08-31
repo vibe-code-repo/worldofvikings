@@ -1213,6 +1213,34 @@ export class AvatarRig {
     this.bodenSonde = sonde;
   }
 
+  /** Nur zum Messen: der aktuell wirkende Fussversatz in Metern. */
+  /** For measuring only: the foot offset currently applied, in metres. */
+  get fussVersatzMeter(): number {
+    return this.fussVersatz;
+  }
+
+  /**
+   * Nur zum Messen: die Welthöhe der SOHLE — der tiefere der beiden
+   * Fussknochen, abzüglich der beim Laden gemessenen Knöchelhöhe.
+   *
+   * Warum nicht die Bounding-Box: Vault-Notiz „Begrenzungskörper lügt bei
+   * Skinning" — eine Box über einem verformten Netz meldet die BINDEPOSE.
+   * Der Knochen ist der Zeuge, und `knoechelHoehe` ist genau der Betrag, der
+   * ihn in eine Sohle übersetzt (beim Laden aus der Ruhepose gemessen).
+   *
+   * For measuring only: the world height of the SOLE — the lower of the two
+   * foot bones minus the ankle height measured at load time. Not the bounding
+   * box: a box over a skinned mesh reports the bind pose.
+   */
+  get sohleWeltY(): number {
+    let tiefste = Number.POSITIVE_INFINITY;
+    for (const knoten of this.fussKnoten) {
+      knoten.computeWorldMatrix(true);
+      tiefste = Math.min(tiefste, knoten.getAbsolutePosition().y - this.knoechelHoehe);
+    }
+    return Number.isFinite(tiefste) ? tiefste : this.root.getAbsolutePosition().y;
+  }
+
   setSprungDauer(sekunden: number): void {
     if (sekunden > 0) this.sprungDauer = sekunden;
   }

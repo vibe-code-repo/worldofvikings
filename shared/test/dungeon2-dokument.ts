@@ -43,7 +43,10 @@ import {
   sanitizeDungeonDocument,
 } from '../src/dungeons.js';
 import {
+  DOKUMENT_2_AB_VERSION,
   DUNGEON_DOKUMENT_VERSION_2,
+  STEINGRAB,
+  ambientLichtVon,
   deskriptorVon,
   erzeugeDokument2,
   istDokument2,
@@ -158,7 +161,87 @@ pruefe(
   'Ein Dokument mit version 9 gilt NICHT als 2.0',
   !istDokument2({ ...doc2, version: 9 }) && sanitizeDungeonDokument2({ ...doc2, version: 9 }) === null
 );
-pruefeGleich('Versionsnummer der Weiche', DUNGEON_DOKUMENT_VERSION_2, 10);
+// Die WEICHE ist eingefroren, die geschriebene FASSUNG darf steigen. Zwei
+// Zahlen, zwei Pruefungen — waere es eine, wuerde jede neue Fassung
+// versehentlich auch das Format verschieben, und samtliche gespeicherten
+// 2.0-Dokumente fielen still auf den Alt-Sanitizer.
+// The SWITCH is frozen, the written REVISION may rise.
+pruefeGleich('Versionsnummer der Weiche (eingefroren)', DOKUMENT_2_AB_VERSION, 10);
+pruefe(
+  'geschriebene Fassung liegt auf oder ueber der Weiche',
+  DUNGEON_DOKUMENT_VERSION_2 >= DOKUMENT_2_AB_VERSION
+);
+pruefeGleich('geschriebene Fassung', DUNGEON_DOKUMENT_VERSION_2, 11);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (g) `ambientLicht` (Fassung 11): Dokument schlaegt Thema, und die
+//     Anhebung von Fassung 10 ist WERTNEUTRAL
+// (g) `ambientLicht` (revision 11): document beats theme, and the lift from
+//     revision 10 is VALUE-NEUTRAL
+// ─────────────────────────────────────────────────────────────────────────────
+
+{
+  const seeds: LayoutSeeds = { architektur: 4242, material: 77, deko: 99 };
+
+  // Fassung 10, ohne das Feld — genau so liegen die Dokumente auf wov-dev.
+  // Revision 10 without the field — exactly how the documents on wov-dev sit.
+  const alt = { ...erzeugeDokument2('alt-10', 'Alt', 'steingrab', seeds)!, version: 10 };
+  const gehoben = sanitizeDungeonDokument2(alt);
+  pruefe('Fassung 10 laeuft durch den 2.0-Sanitizer', gehoben !== null);
+  pruefeGleich('Fassung 10 wird auf 11 gehoben', gehoben?.version, DUNGEON_DOKUMENT_VERSION_2);
+  pruefeGleich(
+    'die Anhebung setzt KEIN ambientLicht (Weglassen heisst „nimm das Thema")',
+    gehoben?.ambientLicht,
+    undefined
+  );
+  pruefeGleich(
+    'und die aufgeloeste Helligkeit ist die des Themas — die Anhebung ist wertneutral',
+    gehoben === null ? -1 : ambientLichtVon(gehoben),
+    STEINGRAB.ambientLicht
+  );
+
+  // Mit Angabe je Dokument. 0 ist der Fall, der eine schlampige
+  // `?? vorgabe`-Zeile ueberleben wuerde, ohne dass es auffiele.
+  // With a per-document value. 0 is the case a sloppy `?? default` survives.
+  const dunkel = erzeugeDokument2('dunkel', 'Dunkel', 'steingrab', seeds, 0);
+  pruefeGleich('ambientLicht 0 bleibt 0 (kein Rueckfall auf die Vorgabe)', dunkel?.ambientLicht, 0);
+  pruefeGleich(
+    'und schlaegt das Thema',
+    dunkel === null ? -1 : ambientLichtVon(dunkel),
+    0
+  );
+  pruefeGleich(
+    'der Deskriptor traegt die AUFGELOESTE Zahl',
+    dunkel === null ? -1 : deskriptorVon(dunkel).ambientLicht,
+    0
+  );
+  pruefeGleich(
+    'ein Dokument ohne Angabe traegt im Deskriptor die Themen-Vorgabe',
+    gehoben === null ? -1 : deskriptorVon(gehoben).ambientLicht,
+    STEINGRAB.ambientLicht
+  );
+
+  // Kaputte Werte machen das Dokument nicht ungueltig, sondern fallen auf
+  // „nicht gesetzt" bzw. in den Bereich zurueck.
+  // Broken values do not invalidate the document.
+  const kaputt = sanitizeDungeonDokument2({ ...alt, ambientLicht: 'hell' });
+  pruefe('Text in ambientLicht macht das Dokument NICHT ungueltig', kaputt !== null);
+  pruefeGleich('… und laesst das Feld ungesetzt', kaputt?.ambientLicht, undefined);
+  pruefeGleich(
+    'ein Wert ueber 1 wird geklemmt, nicht abgelehnt',
+    sanitizeDungeonDokument2({ ...alt, ambientLicht: 5 })?.ambientLicht,
+    1
+  );
+  pruefeGleich(
+    'ein negativer Wert wird auf 0 geklemmt',
+    sanitizeDungeonDokument2({ ...alt, ambientLicht: -2 })?.ambientLicht,
+    0
+  );
+
+  // JSON hin und zurueck — dasselbe Kriterium wie (f), nur fuer das neue Feld.
+  const rund = sanitizeDungeonDokument2(JSON.parse(JSON.stringify(dunkel)) as unknown);
+  pruefeGleich('ambientLicht ueberlebt JSON hin und zurueck', rund?.ambientLicht, 0);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // (b) Das doppelt stehende Kennungsmuster / the duplicated id pattern

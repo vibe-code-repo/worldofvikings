@@ -779,6 +779,47 @@ export function kantenStreifenHaelfte(
 }
 
 /**
+ * Der zellinnere Achtel-Versatz (u, v) eines Ankers AN der Wandflaeche einer
+ * Kante — nicht an der Zellgrenze und erst recht nicht in der Zellmitte.
+ *
+ * WARUM ES DIESE FUNKTION GIBT: Ein Wandanker stand bis zum 31.08.2026 fest
+ * auf `u = 4, v = 4`, also in der ZELLMITTE. Gemessen ueber vier Seeds hing
+ * dadurch JEDE Wandfackel exakt 1,500 m vor ihrer Wand — gleichmaessig, und
+ * gleichmaessig heisst systematisch. Der Grund: Die Wand liegt nicht auf der
+ * Zellgrenze, sondern ist `WAND_DICKE_ACHTEL` dick und MITTIG auf ihr
+ * (`kantenStreifen`), ihre sichtbare Flaeche liegt also ein halbes Achtelmass
+ * INNERHALB der Zelle. Wer den Versatz von Hand hinschreibt, schreibt
+ * entweder die Zellmitte oder die Zellgrenze hin — beides ist falsch, und
+ * beides sieht im Quelltext gleich harmlos aus.
+ *
+ * Die Wandflaeche der Kante Nord/Ost liegt bei `ZELL_ACHTEL - halb`, die von
+ * Sued/West bei `+halb`. Die jeweils ANDERE Achse bleibt auf `ZELL_ACHTEL / 2`
+ * — mittig ENTLANG der Wand, das ist die Achse, auf der die Mitte richtig ist.
+ *
+ * The in-cell eighth offset (u, v) of an anchor ON the wall face of an edge —
+ * not on the cell border and certainly not in the cell centre. Until
+ * 2026-08-31 a wall anchor sat at a hard-coded `u = 4, v = 4`, i.e. the cell
+ * CENTRE; measured over four seeds every wall torch hung exactly 1.500 m in
+ * front of its wall. The wall is `WAND_DICKE_ACHTEL` thick and CENTRED on the
+ * cell border (`kantenStreifen`), so its visible face lies half that inside
+ * the cell. The other axis stays centred ALONG the wall.
+ */
+export function wandAnkerVersatz(kante: Kante): { u: number; v: number } {
+  const halb = WAND_DICKE_ACHTEL / 2;
+  const mitte = ZELL_ACHTEL / 2;
+  switch (kante) {
+    case KANTE.Nord:
+      return { u: mitte, v: ZELL_ACHTEL - halb };
+    case KANTE.Sued:
+      return { u: mitte, v: halb };
+    case KANTE.Ost:
+      return { u: ZELL_ACHTEL - halb, v: mitte };
+    default:
+      return { u: halb, v: mitte };
+  }
+}
+
+/**
  * DIE geteilte Kantenfunktion aus ARCHITECTURE §3.8: Sichtgeometrie UND
  * Kollision rufen sie, nie zwei gleich gemeinte Rechnungen nebeneinander. Sie
  * liefert den Wandquader zwischen `zelle` und ihrer Nachbarin an `kante` —

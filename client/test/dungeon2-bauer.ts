@@ -45,7 +45,12 @@ import {
   DungeonGrafikStufe,
   setzeDungeonStufe,
 } from '../src/engine/DungeonMaterial';
-import { DUNGEON_SSAO_MAX_Z, DUNGEON_SSAO_RADIUS } from '../src/engine/DungeonAtmosphere';
+import { UniversalCamera } from '@babylonjs/core/Cameras/universalCamera';
+import {
+  DUNGEON_SSAO_MAX_Z,
+  DUNGEON_SSAO_RADIUS,
+  DungeonAtmosphaere,
+} from '../src/engine/DungeonAtmosphere';
 // Ueber das Barrel, NICHT ueber `../../shared/src/...`: ein relativer Pfad aus
 // `client/test/` hinaus liegt ausserhalb des `rootDir` der Client-Typpruefung,
 // und `tsc` bricht dann mit TS6059 ab. Der Weg ueber `@wov/shared` ist derselbe,
@@ -1146,6 +1151,80 @@ mussWerfen('ein Material, das die erste Instanz der zweiten wegraeumt', () => {
   } finally {
     a.dispose();
     b.dispose();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (d) Befund 2 (31.08.2026): Ein Steingrab HAT Lichtquellen — und zwar am
+//     Bauer, nicht bei den Entitaeten.
+//
+//     Der Fehler, den das faengt, sass nicht hier, sondern in `main.ts` (der
+//     Spiel-Pool fragte fest den `EntityManager`). Diese Pruefung ist die
+//     UNTERE Haelfte des Zeugen: Sie belegt, dass die Liste, die dort nicht
+//     abgefragt wurde, ueberhaupt etwas enthaelt. Waere sie leer, saehe der
+//     Befund von aussen genauso aus, und man suchte an der falschen Stelle.
+// (d) A barrow HAS light sources — on the BUILDER, not on the entities. The
+//     bug itself sat in `main.ts`; this is the lower half of the witness.
+// ─────────────────────────────────────────────────────────────────────────────
+
+pruefe('Bauer liefert Lichtquellen fuer den LightPool (Befund 2)', () => {
+  const layout = dungeon2.erzeugeLayout(dungeon2.STEINGRAB, {
+    architektur: 4242,
+    material: 77,
+    deko: 99,
+  });
+  const bauer = new DungeonBauer(szene, layout, { arrays: null, physik: false });
+  try {
+    // Radius so gross, dass die ganze Anlage hineinfaellt — gemessen wird die
+    // EXISTENZ der Quellen, nicht die Ortsauswahl des Pools.
+    const alle = bauer.lichtquellen(0, 0, 1e9);
+    assert.ok(alle.length > 0, 'kein einziges Licht im ganzen Grab');
+    // Und der Umkreis um den Spawn ist nicht leer — sonst stuende der Spieler
+    // in einer Anlage, deren Lichter alle woanders sind.
+    const p = bauer.spawnPunkt;
+    const nah = bauer.lichtquellen(p.x, p.z, 45);
+    assert.ok(nah.length > 0, `keine Quelle im Umkreis von 45 m um den Spawn (${alle.length} gesamt)`);
+    console.log(`  --   Lichtquellen: ${alle.length} im Grab, ${nah.length} um den Spawn`);
+  } finally {
+    bauer.dispose();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (e) Befund 4: Die Grundhelligkeit kommt am LICHT an — und geht beim
+//     Verlassen wieder zurueck.
+//
+//     Vault-Notiz „Messzellen brauchen Zeugen": Ohne eine Zustandsgroesse
+//     merkt man einen wirkungslosen Schalter nie. Die Attrappe IST die
+//     Zustandsgroesse — sie schreibt jeden Aufruf mit, und der Test prueft die
+//     Reihenfolge, nicht nur den letzten Wert.
+// (e) The base brightness reaches the LIGHT, and is given back on leaving.
+// ─────────────────────────────────────────────────────────────────────────────
+
+pruefe('Grundhelligkeit erreicht das Licht und wird zurueckgegeben (Befund 4)', () => {
+  const mitschrift: (number | null)[] = [];
+  const attrappe = { setzeDungeonDaempfung: (f: number | null) => mitschrift.push(f) };
+  const kamera = new UniversalCamera('pruefKamera', Vector3.Zero(), szene);
+  try {
+    const a = new DungeonAtmosphaere(szene, kamera, DungeonGrafikStufe.Niedrig, 0.25, attrappe);
+    a.betrete();
+    assert.deepEqual(mitschrift, [0.25], 'betrete() hat den Wert nicht durchgereicht');
+    assert.equal(a.werte().ambientLicht, 0.25);
+    assert.equal(a.werte().lichtVerdrahtet, true);
+    a.verlasse();
+    assert.deepEqual(mitschrift, [0.25, null], 'verlasse() gibt die Beleuchtung nicht zurueck');
+    a.dispose();
+
+    // 0 muss ANKOMMEN und darf nicht als „nichts angegeben" durchfallen — das
+    // ist der ganze Sinn des Merkmals.
+    // 0 must ARRIVE and must not fall through as "nothing given".
+    mitschrift.length = 0;
+    const dunkel = new DungeonAtmosphaere(szene, kamera, DungeonGrafikStufe.Niedrig, 0, attrappe);
+    dunkel.betrete();
+    assert.deepEqual(mitschrift, [0], 'die 0 ist unterwegs zu einer 1 geworden');
+    dunkel.dispose();
+  } finally {
+    kamera.dispose();
   }
 });
 

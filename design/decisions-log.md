@@ -2512,3 +2512,218 @@ der Client aus GLBs und braucht keinen Registry-Eintrag.
 
 Vorher, mit demselben Seed und derselben Oberwelt: Abbruch, `imDungeon: false`,
 Reconnect nach 1,0 s.
+
+---
+
+## 2026-08-31 · Vier Befunde aus dem Durchlauf durch `steingrab-2` auf play.dev
+
+Mike ist durch `steingrab-2` gelaufen und hat vier Dinge gemeldet. Drei davon
+haben **dieselbe Ursache in verschiedenen Verkleidungen**, und die gehört
+zuerst notiert, weil sie sonst ein viertes Mal auftritt:
+
+> **Der Vorschauweg und der Spielweg sind zwei Wege, und nur einer wird
+> angesehen.** `dungeon2Preview.ts` verdrahtet den `LightPool` an
+> `bauer.lichtquellen()`, das Spiel tut es nicht. Die Vorschau hat keine
+> Spielfigur, das Spiel schon. Die Vorschau hat ein eigenes Licht, das Spiel
+> hat `Lighting`. Jedes Mal, wenn wir etwas „in der Vorschau gesehen" haben,
+> haben wir den anderen Weg NICHT gesehen — und der andere Weg ist der, den
+> Mike geht.
+
+Konsequenz für die Prüfstände: Die drei neuen Wächter stehen in
+`tools/dungeon2-e2e.mjs` und nicht in einem Modultest. Ein Modultest hätte
+alle drei Fehler mitgetragen, weil alle drei GRÜNE Bauteile falsch
+zusammengesteckt waren.
+
+### Befund 1 — die Füße stecken im Boden
+
+**Ursache** (`client/src/player/PlayerController.ts:342`, alte Fassung):
+
+    this.avatar.setBodenSonde((x, z) => this.world.getGroundHeight(x, z));
+
+Die Fußanpassung des Rigs (`AvatarRig.messeFussVersatz`) maß gegen die
+**Heightmap der Oberwelt** — fest, ohne Fallunterscheidung. In einer Instanz
+beschreibt die Heightmap das Gelände über bzw. neben dem Grab und nicht dessen
+Bodenplatte. Der Versatz wurde damit zur Differenz zweier völlig
+unterschiedlicher Flächen und lief in den Deckel `FUSS_ABSENK_MAX = 0,35 m`.
+
+Das ist der Grund, warum es wie ein Kunstfehler aussah und nicht wie ein
+Absturz: 0,35 m ist knöcheltief. Ein Meter wäre aufgefallen, zehn Zentimeter
+hätte niemand gemeldet.
+
+**Behebung:** `bodenFuerFuesse()` — im Dungeon dieselbe Sonde, die zwanzig
+Zeilen tiefer schon die KAPSEL trägt (`bodenHoeheUnter`, Havok-Strahl gegen die
+Instanzkörper), in der Oberwelt weiter die Heightmap. Kein Rückfall auf die
+Heightmap, wenn der Strahl nichts trifft: Dann gilt die Haltehöhe, mit der auch
+die Kapsel wartet — ein Rückfall wäre genau der Fehler von oben.
+
+**Wächter:** `__dg2live.fuesse()` liefert `sohleY` (tieferer Fußknochen minus
+der beim Laden gemessenen `knoechelHoehe` — der Knochen als Zeuge, nicht die
+Bounding-Box, s. Vault „Begrenzungskörper lügt bei Skinning"), `bodenY` und den
+Abstand. Der Lauf verlangt ±0,06 m.
+
+**Einschränkung, die notiert gehört:** Auf DIESER Maschine ist `assets/models/`
+bis auf eine Datei leer, es lädt also kein Figuren-GLB, `fussKnoten` bleibt
+leer und `messeFussVersatz()` liefert konstant 0. Der lokale Lauf kann diesen
+Befund deshalb **nicht** rot färben — er belegt nur, dass die Messkette steht.
+Die Gegenprobe ist auf play.dev gefahren worden.
+
+### Befund 2 — die Fackeln erzeugen kein Licht
+
+**Ursache** (`client/src/main.ts:1736`, alte Fassung):
+
+    lightPool = new LightPool(scene, (x, z, r) => entities?.lichtquellen(x, z, r) ?? []);
+
+Der Pool wird EINMAL beim Weltaufbau angelegt und fragt fest die
+ZDO-Entitäten. Die Fackeln eines 2.0-Grabs sind aber ausdrücklich keine ZDOs —
+`ROLLEN_MIT_ZDO` führt nur `truhe` und `spawner`, alles andere baut der Client
+als Thin Instances (die Entscheidung steht weiter oben in dieser Datei). Der
+Pool fand also in einem Grab mit **50 Fackeln** genau **0 Quellen**:
+`fackeln 0/16 array`.
+
+Bemerkenswert ist, wie widerspruchsfrei das aussah. Der Pool war da, das Array
+war da, die Plätze waren da, die Fackeln standen im Bild — es fehlte nur die
+Liste, und eine leere Liste sieht aus wie ein Dungeon ohne Fackeln.
+
+**Behebung:** Die Quelle des Pools ist umschaltbar. Steht eine 2.0-Instanz,
+liefert `Dungeon2Instanz.lichtquellen()`, sonst der `EntityManager`. Die Weiche
+sitzt im Pool-Konstruktor und damit an EINER Stelle; `__dbg.fackeln()` nennt
+seit heute zusätzlich, WELCHE Liste gerade zählt — vorher fragte die Diagnose
+fest `entities` und log ihrerseits.
+
+**Wächter, Gegenprobe gefahren:** Mit der alten Zeile meldet der Lauf
+`Fackeln: 37 Quellen im Umkreis (50 im Grab), 0/16 brennen — Pool 0/16 array`
+und wird ROT. Mit der neuen: `16/16 brennen`.
+
+### Befund 3 — die Fackeln schweben gleichmäßig vor der Wand
+
+**Ursache** (`shared/src/dungeon2/generator.ts`, `setzeAnker`, Muster
+`wandfackeln` und `wandnische`):
+
+    setze(wk.zelle, ANKER_ORT.Wand, 'fackel', 4, 4, 5, ...)
+
+`u = 4, v = 4` ist die **Zellmitte**. Eine Zelle ist 8 Achtel = 4 m, die Wand
+ist `WAND_DICKE_ACHTEL = 2` dick und liegt **mittig auf der Zellgrenze**
+(`kantenStreifen`), ihre Fläche also ein Achtel innerhalb der Zelle. Von der
+Mitte bis dorthin sind es 3 Achtel = **1,5 m**.
+
+**Gemessen vor dem Fix**, waagerechter Abstand jedes Wandankers zur nächsten
+Kollisionsfläche auf Ankerhöhe, über 40 Seeds und 1914 Anker:
+Median **1,500 m**, Maximum **1,500 m**. Über vier einzeln geprüfte Seeds
+(2, 1234, 7, 99) dasselbe Bild. Gleichmäßig heißt systematisch — Mikes
+Formulierung war schon die Diagnose.
+
+**Behebung:** `wandAnkerVersatz(kante)` in `cells.ts`, dort wo
+`WAND_DICKE_ACHTEL` wohnt und die Wandquader gerechnet werden. Nord/Ost →
+7 Achtel, Süd/West → 1 Achtel, die Achse ENTLANG der Wand bleibt auf 4 (dort
+ist die Mitte richtig). Der Generator schreibt die Zahl nicht mehr selbst hin.
+
+**Nach dem Fix:** Median **0,000 m**, Maximum **0,000 m** über dieselben
+1914 Anker.
+
+**Wächter:** `shared/test/dungeon2-generator.ts`, Kriterium (h). Er misst
+gegen die GEBAUTE Kollisionsgeometrie und nicht gegen `wandAnkerVersatz()` —
+sonst prüfte die Funktion sich selbst. Gegenprobe gefahren: mit dem alten
+`4, 4` meldet er `schlimmster Abstand 1.500 m, Median 1.500 m ueber 1914 Anker`
+und wird rot.
+
+**Golden neu eingefroren, mit Begründung:** Drei Tabellen wandern
+(`dungeon2-builder.ts`, `dungeon2-generator.ts`, `golden/dungeon2-e2e.json`).
+Die Rechtfertigung steht in den Zahlen NEBEN den Prüfsummen: Stücke, Körper,
+Navzellen, Stempel, Zellen, Türen und Ankerzahl sind **Spalte für Spalte
+unverändert** (1018/939/303, 35/303/16/91, …). Es hat sich kein Quader bewegt
+und kein Anker ist dazu- oder weggekommen — dieselben Anker an anderen
+Stellen. Wäre eine dieser Zahlen mitgewandert, wäre die Neueinfrierung nicht zu
+rechtfertigen gewesen. **Die ZDO-Kennungen bleiben unberührt:** `ankerId()`
+geht aus Zelle, Ebene, Ort und Rolle hervor, nicht aus `u`/`v` — eine geöffnete
+Truhe behält ihren Zustand.
+
+### Befund 4 — Grundhelligkeit je Dungeon (Feature)
+
+**Was es ist:** `ambientLicht` (0..1) — der Anteil der Eigenhelligkeit
+(Sonne, Hemisphärenlicht und Umgebungsintensität aus `innenUmgebung`), der
+drinnen ankommt. 1 = wie bisher, 0 = stockdunkel, nur die platzierten Quellen.
+
+**Warum ein Faktor und keine zweite `innenUmgebung`:** Der Umgebungsname trägt
+ein ganzes Bild (Nebelfarbe, Himmel, Sonnenfarbe). Ein Zwilling „Crypt, aber
+dunkler" wären zwei Einträge, die bei der nächsten Änderung an einem
+auseinanderlaufen. Ein Faktor bleibt eine Zahl mit einer Bedeutung.
+
+**Warum ALLE DREI Regler gedämpft werden** (Sonne, Hemisphäre,
+`scene.environmentIntensity`): Zwei hätten bei 0 kein dunkles Grab ergeben,
+sondern ein Grab mit Himmelsschimmer auf jeder Wand — und man hätte den Rest
+im Material gesucht. Gemessen bei `ambient=0`: Sonne 0, Hemisphäre 0,
+Umgebung 0, und die Fackeln brennen weiter (16/16).
+
+**Warum die Dämpfung in `Lighting.apply()` steht und nicht beim Betreten:**
+`apply()` schreibt beide Intensitäten in JEDEM Bild neu aus der Umgebung. Ein
+einmal gesetzter Wert wäre einen Frame später überschrieben — der Schalter
+sähe eingebaut aus und täte nichts (Vault: „Messzellen brauchen Zeugen").
+
+**`null` ist nicht `1`:** Bei `null` fasst `Lighting` den Regler gar nicht
+mehr an. Nur so kann ihn jemand anders benutzen, ohne dass ihn ein Dungeon,
+den man vor zehn Minuten verlassen hat, überschreibt.
+
+**Versionierung.** Die Dokumentfassung springt von 10 auf **11**, und die
+WEICHE wird davon getrennt: `DOKUMENT_2_AB_VERSION = 10` ist eingefroren und
+entscheidet allein, ob ein Dokument zum Format 2.0 gehört.
+
+Ohne diese Trennung wäre `istDokument2()` mit der Fassung mitgewandert, und
+sämtliche gespeicherten Fassung-10-Dokumente auf wov-dev wären still aus dem
+Format herausgefallen — `istDokument2() === false` heißt „Altformat", der
+Alt-Sanitizer scheitert an `base`, und die Meldung hieße „ungültig", wo
+„ältere Fassung" gemeint ist.
+
+Die Anhebung 10 → 11 ist **wertneutral**: Ein altes Dokument hat das Feld
+nicht, `leseAmbientLicht` liefert `undefined`, und `undefined` heißt „nimm die
+Vorgabe des Themas" — die auf dem heutigen Wert steht. Genau deshalb ist das
+Feld optional und nicht mit einer Vorgabe belegt: Ein hineingeschriebener Wert
+wäre eine Behauptung über einen Dungeon, die niemand aufgestellt hat, und
+würde eine spätere Änderung der Themen-Vorgabe stumm überstimmen.
+
+**Ein kaputter Wert macht das Dokument nicht ungültig.** Text, `NaN`, `-3`,
+`17` fallen auf „nicht gesetzt" zurück bzw. werden geklemmt. Die Asymmetrie
+der Folgen entscheidet: Ein Grab, das wegen einer verrutschten
+Helligkeitszahl nicht mehr lädt, ist ein verlorener Spielstand; eines mit der
+Helligkeit von gestern ist ein Grab.
+
+**Die 0 ist der Fall, an dem schlampiger Code scheitert.** `?? vorgabe`,
+`|| 1`, `Number('')` — alle drei machen aus der 0 klammheimlich die Vorgabe.
+Deshalb prüft der Admin-Befehl auf ANWESENHEIT des Arguments, der Deskriptor
+trägt die AUFGELÖSTE Zahl statt eines optionalen Feldes (der Client müsste
+sonst „fehlt" von „ist 0" unterscheiden), der Serverschreiber setzt als
+Ersatzwert `1` und nicht `0`, und drei Tests prüfen die 0 ausdrücklich.
+
+**Weg der Zahl:** `ThemenProfil.ambientLicht` (Vorgabe) bzw.
+`DungeonDokument2.ambientLicht` (Überschreibung) → `ambientLichtVon()` → 
+`LayoutDeskriptor` → Teleportpaket (`writeFloat32`, angehängt, `remaining`
+entscheidet) → `Dungeon2Deskriptor` → `DungeonAtmosphaere` → `Grundlicht`.
+
+`Grundlicht` ist eine Schnittstelle mit EINER Methode und kein `Lighting`-
+Import: Die Vorschau hat kein `Lighting`, sondern ein `HemisphericLight`, und
+sie soll denselben Regler bedienen — sonst misst man in der Vorschau eine
+Zahl, die im Spiel eine andere Wirkung hat.
+
+**Bedienung:**
+
+    dungeon create2 steingrab 2 steingrab-dunkel 0     # stockdunkel
+    dungeon create2 steingrab 2 steingrab-2            # Vorgabe des Themas
+    /dungeon2.html?seed=1234&ambient=0                 # Vorschau
+    DG2_AMBIENT=0 node tools/dungeon2-e2e.mjs          # Prüfstand
+
+### Messzahlen der grünen Läufe (Chromium headless, ANGLE/Vulkan, RX 7900 XT, `DG2_SEED=2`)
+
+| | direkt | aus der Normalwelt | `DG2_AMBIENT=0` |
+|---|---|---|---|
+| Prüfsumme Server == Client | `b5cb1d88` | `b5cb1d88` | `b5cb1d88` |
+| bis baubereit | 593 ms | 538 ms | 562 ms |
+| längster Frame-Stillstand | 330 ms | 293 ms | 303 ms |
+| Blöcke / Meshes / Körper | 19 / 30 / 16 | 19 / 30 / 16 | 19 / 30 / 16 |
+| Fackeln im Grab / im Umkreis / brennend | 50 / 37 / **16 von 16** | 50 / 37 / 16 | 50 / 37 / 16 |
+| Sohle über Boden | 0,003 m | 0,003 m | 0,003 m |
+| Sonne / Hemisphäre / Umgebung | 0 / 0,886 / 1 | 0 / 0,868 / 1 | **0 / 0 / 0** |
+| gelaufene Strecke | 1,28 m | 1,27 m | 1,28 m |
+| Konsolenfehler / ZDO / Prefab | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+
+(Die Sonnenintensität ist in `Crypt` ohnehin 0 — die Innenumgebung hat keine.
+Das Grundlicht kommt dort aus Hemisphäre und Umgebung, und genau die beiden
+fallen bei `ambient=0` auf null.)

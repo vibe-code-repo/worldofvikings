@@ -77,6 +77,7 @@ import {
   bodenStufen,
   offen,
   schluesselZelle,
+  wandAnkerVersatz,
   wandZwischen,
   zelleImGitter,
   zelleOderLeer,
@@ -1557,7 +1558,12 @@ function setzeAnker(
         case 'wandfackeln': {
           for (const wk of wandKanten) {
             if (strom.rangeInt(0, 100) >= 14) continue;
-            setze(wk.zelle, ANKER_ORT.Wand, 'fackel', 4, 4, 5, kanteZuDrehung(wk.kante), s.id, wk.kante);
+            // `wandAnkerVersatz` statt `4, 4`: eine Fackel gehoert AN die
+            // Wandflaeche, nicht in die Zellmitte (siehe `cells.ts`).
+            // `wandAnkerVersatz` instead of `4, 4`: a torch belongs ON the wall
+            // face, not in the centre of the cell.
+            const w = wandAnkerVersatz(wk.kante);
+            setze(wk.zelle, ANKER_ORT.Wand, 'fackel', w.u, w.v, 5, kanteZuDrehung(wk.kante), s.id, wk.kante);
           }
           break;
         }
@@ -1574,7 +1580,8 @@ function setzeAnker(
         case 'wandnische': {
           if (wandKanten.length === 0) break;
           const wk = wandKanten[strom.rangeInt(0, wandKanten.length)]!;
-          setze(wk.zelle, ANKER_ORT.Wand, 'urne', 4, 4, 3, kanteZuDrehung(wk.kante), s.id, wk.kante);
+          const w = wandAnkerVersatz(wk.kante);
+          setze(wk.zelle, ANKER_ORT.Wand, 'urne', w.u, w.v, 3, kanteZuDrehung(wk.kante), s.id, wk.kante);
           break;
         }
         case 'mitte-altar': {

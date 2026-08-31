@@ -2938,6 +2938,16 @@ export class WovServer {
       w.writeString(deskriptor?.pruefsumme ?? '');
       w.writeInt32(deskriptor?.layoutVersion ?? 0);
       w.writeString(deskriptor?.name ?? '');
+      // Grundhelligkeit (Dokumentfassung 11). Der Ersatzwert `1` bei fehlendem
+      // Deskriptor ist bedeutungslos — der Client liest die angehaengten
+      // Felder nur, wenn `thema` nicht leer ist —, aber er steht hier
+      // ausdruecklich, damit an dieser Stelle nie eine `0` durchrutscht: `0`
+      // ist im neuen Feld ein GUELTIGER Wert (stockdunkel) und damit ein
+      // Ersatzwert, den man von einer Angabe nicht unterscheiden koennte.
+      // Base brightness (document revision 11). The fallback is `1`, not `0`:
+      // `0` is a VALID value in this field (pitch dark) and would therefore be
+      // a fallback indistinguishable from a statement.
+      w.writeFloat32(deskriptor?.ambientLicht ?? 1);
     });
   }
 
@@ -3216,7 +3226,12 @@ export class WovServer {
    *   dungeon list                      documents + live instances
    *   dungeon entrances                 world entrances + assignments
    *   dungeon create <base> [seed]      generate + save a new document
-   *   dungeon create2 <theme> [seed] [id]  generate + save a 2.0 document
+   *   dungeon create2 <theme> [seed] [id] [ambient]
+   *                                     generate + save a 2.0 document;
+   *                                     `ambient` is the base brightness
+   *                                     0..1 (0 = pitch dark, only the
+   *                                     placed light sources). Omitted =
+   *                                     the theme's default.
    *   dungeon enter [id]                enter by id, or the nearest entrance
    *   dungeon leave                     back to the overworld
    *   dungeon assign <id>               assign nearest entrance (≤16 m) to id
@@ -3373,7 +3388,21 @@ export class WovServer {
             material: dungeon2.mische(seed, 1),
             deko: dungeon2.mische(seed, 2),
           };
-          const doc = this.dungeons.erzeugeDungeon2(thema, seeds, args[2]);
+          // Vierter Parameter: die Grundhelligkeit (0..1). Weggelassen heisst
+          // „Vorgabe des Themas" — und `Number('')` ist 0, also wird
+          // ausdrücklich auf „Argument da?" geprüft und nicht auf
+          // `Number.isFinite` allein: `dungeon create2 steingrab 2 grab-2`
+          // dürfte sonst ein stockdunkles Grab erzeugen, ohne dass jemand
+          // eine Helligkeit genannt hätte.
+          // Fourth argument: base brightness (0..1). Omitted means "theme
+          // default" — checked on PRESENCE, because `Number('')` is 0 and 0 is
+          // a valid brightness (pitch dark).
+          const ambientRoh = args[3];
+          const ambientLicht =
+            ambientRoh !== undefined && Number.isFinite(Number(ambientRoh))
+              ? Math.min(1, Math.max(0, Number(ambientRoh)))
+              : undefined;
+          const doc = this.dungeons.erzeugeDungeon2(thema, seeds, args[2], ambientLicht);
           if (!doc) {
             return { ok: false, active: false, message: `Erzeugung fehlgeschlagen (${thema})` };
           }
@@ -3382,7 +3411,9 @@ export class WovServer {
             active: false,
             message:
               `Dungeon 2.0 erzeugt: ${doc.id} (Thema ${doc.thema}, Seed ${seed}, ` +
-              `Prüfsumme ${doc.pruefsumme})`,
+              `Prüfsumme ${doc.pruefsumme}, Grundhelligkeit ` +
+              `${dungeon2.ambientLichtVon(doc).toFixed(2)}` +
+              `${doc.ambientLicht === undefined ? ' aus dem Thema' : ' je Dokument'})`,
           };
         }
 

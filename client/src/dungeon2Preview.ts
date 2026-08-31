@@ -23,6 +23,8 @@
  *   ?px=&py=&pz=      Kamerastandort in Metern / camera position in metres
  *   ?blick=Grad       Blickrichtung (0 = Nord/+z, 90 = Ost/+x)
  *   ?neigung=Grad     Nickwinkel, positiv nach unten / pitch, positive = down
+ *   ?ambient=0..1     Grundhelligkeit; 0 = stockdunkel, nur Fackeln
+ *                     base brightness; 0 = pitch dark, torches only
  *
  * Der Vorschaupfad rührt NICHTS an, was der Spielclient benutzt: eigene Seite,
  * eigene Szene, eigener Einstieg. Das ist Absicht — die Vault-Notiz „Agenten
@@ -44,7 +46,7 @@ import { installiereFackelLicht, FackelLichter } from './engine/FackelLicht';
 import { LightPool } from './engine/LightPool';
 import { AssetManager } from './engine/AssetManager';
 import { DungeonBauer } from './engine/DungeonBuilder';
-import { DungeonAtmosphaere } from './engine/DungeonAtmosphere';
+import { DungeonAtmosphaere, type Grundlicht } from './engine/DungeonAtmosphere';
 import { DungeonGrafikStufe } from './engine/DungeonMaterial';
 import { ladeDungeonMaterialArrays, type DungeonMaterialArrays } from './engine/DungeonMaterialArrays';
 
@@ -117,9 +119,29 @@ async function starte(): Promise<void> {
   // ONLY so grey boxes are visible without torches — a tool, not a lighting
   // statement.
   const licht = new HemisphericLight('vorschauLicht', new Vector3(0, 1, 0), scene);
-  licht.intensity = 0.55;
+  const GRUNDHELLIGKEIT = 0.55;
+  licht.intensity = GRUNDHELLIGKEIT;
   licht.diffuse = new Color3(0.8, 0.82, 0.9);
   licht.groundColor = new Color3(0.12, 0.11, 0.1);
+
+  // `?ambient=` — dieselbe Groesse wie `ThemenProfil.ambientLicht` bzw.
+  // `DungeonDokument2.ambientLicht` im Spiel, hier auf das eine Licht der
+  // Vorschau gelegt. Die Vorschau hat kein `Lighting`, aber sie erfuellt
+  // dieselbe Schnittstelle (`Grundlicht`) — und genau deshalb misst
+  // `?ambient=0` hier dasselbe wie `dungeon create2 … 0` dort: KEINE
+  // Grundhelligkeit, nur die platzierten Quellen.
+  // `?ambient=` — the same quantity as in the game, applied to the preview's
+  // single light through the same `Grundlicht` interface.
+  const grundlicht: Grundlicht = {
+    setzeDungeonDaempfung: (faktor) => {
+      licht.intensity = GRUNDHELLIGKEIT * (faktor ?? 1);
+    },
+  };
+  const ambientRoh = params.get('ambient');
+  const ambientLicht =
+    ambientRoh !== null && Number.isFinite(Number(ambientRoh))
+      ? Math.min(1, Math.max(0, Number(ambientRoh)))
+      : 1;
 
   meldung('Layout wird erzeugt …');
   const beginnLayout = performance.now();
@@ -215,7 +237,7 @@ async function starte(): Promise<void> {
   // Debug handle for tooling and the console — only the preview does this.
   (window as unknown as Record<string, unknown>).dungeon2Vorschau = { kamera, bauer };
 
-  const atmosphaere = new DungeonAtmosphaere(scene, kamera, stufe);
+  const atmosphaere = new DungeonAtmosphaere(scene, kamera, stufe, ambientLicht, grundlicht);
   atmosphaere.betrete();
   bauer.setzeStufe(stufe);
 
@@ -236,7 +258,8 @@ async function starte(): Promise<void> {
       `Layout ${dauerLayout.toFixed(1)} ms · Spawn ${dauerSpawn.toFixed(1)} ms · ` +
       `alles ${dauerBau.toFixed(1)} ms · Deko ${dauerDeko.toFixed(1)} ms · ` +
       `Material ${arrays === null ? 'grau' : 'Arrays'} · ` +
-      `${plaetze} Fackelplätze` +
+      `${plaetze} Fackelplätze · Grundhelligkeit ${ambientLicht.toFixed(2)} ` +
+      `(Licht ${licht.intensity.toFixed(3)})` +
       (bericht.rueckfall ? ' · RÜCKFALLFORM' : '')
   );
 
@@ -252,6 +275,7 @@ async function starte(): Promise<void> {
     pool,
     statistik: () => bauer.statistik(),
     fackeln: () => ({ plaetze: FackelLichter.plaetze, an: FackelLichter.anzahl }),
+    ambient: () => ({ ...atmosphaere.werte(), lichtIntensitaet: licht.intensity }),
     deko: () => bauer.dekoStatistik,
     stufe: (n: number) => {
       atmosphaere.setzeStufe(n as DungeonGrafikStufe);

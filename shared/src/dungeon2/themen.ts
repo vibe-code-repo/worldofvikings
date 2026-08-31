@@ -104,6 +104,31 @@ export interface ThemenProfil {
    * the theme carries it. Must be a name from `envData.json`.
    */
   readonly innenUmgebung: string;
+  /**
+   * Grundhelligkeit dieses Dungeons, 0..1 — der Anteil der Eigenhelligkeit
+   * (Sonne + Hemisphaerenanteil aus `innenUmgebung`), der drinnen ueberhaupt
+   * ankommt.
+   *
+   * 1 = wie bisher: die `innenUmgebung` wirkt unveraendert, der Raum hat eine
+   * sichtbare Grundhelligkeit auch ohne eine einzige Fackel. 0 = stockdunkel,
+   * nur die platzierten Lichtquellen leuchten.
+   *
+   * WARUM EIN FAKTOR UND KEINE ZWEITE UMGEBUNG: `innenUmgebung` ist ein Name
+   * aus `envData.json` und traegt ein ganzes Bild mit (Nebelfarbe, Himmel,
+   * Sonnenfarbe). Wer nur „dunkler" will, muesste dort einen Zwilling
+   * anlegen — und haette zwei Eintraege, die bei jeder Aenderung an einem
+   * auseinanderlaufen. Ein Faktor bleibt eine Zahl mit einer Bedeutung.
+   *
+   * Je Dokument ueberschreibbar (`DungeonDokument2.ambientLicht`); der Wert
+   * hier ist die Vorgabe des Themas.
+   *
+   * Base brightness of this dungeon, 0..1 — the share of the interior's own
+   * light (sun + hemispheric term from `innenUmgebung`) that arrives inside.
+   * 1 = as before; 0 = pitch dark, only placed light sources. A factor rather
+   * than a second environment, because `innenUmgebung` carries a whole look
+   * and a twin entry would drift apart. Overridable per document.
+   */
+  readonly ambientLicht: number;
   /** Deko-Tabellen: Rolle -> gewichtete Prefabliste. / Decor tables: role -> prefabs. */
   readonly dekoTabellen: Readonly<Record<string, readonly PrefabGewicht[]>>;
 }
@@ -394,6 +419,12 @@ export const STEINGRAB: ThemenProfil = {
   // The same environment legacy keeps for `DG_Steingrab` — moving to 2.0 must
   // not also change the LIGHT, or two changes get measured as one.
   innenUmgebung: 'Crypt',
+  // 1 = der heutige Zustand, unveraendert. Die Zahl steht ausdruecklich hier
+  // und nicht als Vorgabewert im Sanitizer: Wer sie senkt, aendert das Bild
+  // JEDES Steingrabs, und das soll eine sichtbare Zeile in einem Diff sein.
+  // 1 = today's state, unchanged. The number stands here explicitly and not as
+  // a default in the sanitizer: lowering it changes the look of EVERY barrow.
+  ambientLicht: 1,
   // Prefabnamen ohne Registry-Eintrag sind PLATZHALTER fuer die Tripo-Unikate
   // (Altar, Sarkophag, Saeule, Urne); der Bestuecker (eigenes Paket) gleicht
   // sie gegen `shared/src/prefabs.ts` ab. Der Generator liest diese Tabelle

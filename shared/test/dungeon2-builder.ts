@@ -384,11 +384,22 @@ const EINGEFROREN: readonly (readonly [number, string, number, number, number])[
   // eine Schachtroehre darueber, weil zwei Laeufe 45 Grad steil und damit
   // unbegehbar waren (gemessen, `client/test/dungeon2-laeufer.ts`).
   // Re-frozen twice on 2026-08-30 — deliberate layout changes, see the log.
-  [0, 'b3271d8c', 1018, 939, 303],
-  [1, 'b0d6eb91', 1172, 1061, 337],
-  [7, '3e9af54e', 1230, 1063, 324],
-  [42, '8d6bc869', 1039, 958, 309],
-  [199, 'f4be67da', 1113, 969, 296],
+  //
+  // Drittes Mal am 2026-08-31 (Befund 3): Wandanker sitzen nicht mehr in der
+  // Zellmitte, sondern in der Wandflaeche (`wandAnkerVersatz`). Die
+  // BEGRUENDUNG, warum das kein verstecktes zweites Ereignis ist, steht in den
+  // Zahlen daneben: Stuecke, Koerper und Navzellen sind Spalte fuer Spalte
+  // UNVERAENDERT (1018/939/303 usw.) — es hat sich kein Quader bewegt, nur die
+  // Ankerkoordinaten, die in dieselbe Pruefsumme eingehen. Waere hier eine
+  // Zahl mitgewandert, waere die Neueinfrierung nicht zu rechtfertigen.
+  // Third re-freeze on 2026-08-31 (finding 3): wall anchors moved from the
+  // cell centre onto the wall face. The justification stands in the numbers
+  // beside them: pieces, bodies and nav cells are UNCHANGED column by column.
+  [0, '11bf20b1', 1018, 939, 303],
+  [1, '249616c3', 1172, 1061, 337],
+  [7, '091f4e86', 1230, 1063, 324],
+  [42, 'd6811ea6', 1039, 958, 309],
+  [199, '14583bdc', 1113, 969, 296],
 ];
 
 {

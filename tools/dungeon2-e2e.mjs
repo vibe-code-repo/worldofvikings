@@ -74,6 +74,19 @@ const THEMA = 'steingrab';
  * hangs off it, and `DG2_SEED=2` reproduces wov-dev's `steingrab-2` exactly.
  */
 const SEED = Number(process.env.DG2_SEED ?? 4242) | 0;
+/**
+ * Grundhelligkeit des erzeugten Grabes (0..1) oder `null` = nichts angeben,
+ * also die Vorgabe des Themas. `DG2_AMBIENT=0` erzeugt das stockdunkle Grab.
+ *
+ * `null` und `0` sind hier ausdruecklich verschieden — genau die
+ * Unterscheidung, an der eine schlampige `|| vorgabe`-Zeile scheitern wuerde,
+ * und der Lauf ist die Stelle, an der man es merken soll.
+ * Base brightness of the generated barrow, or `null` = say nothing.
+ */
+const AMBIENT =
+  process.env.DG2_AMBIENT === undefined || process.env.DG2_AMBIENT === ''
+    ? null
+    : Math.min(1, Math.max(0, Number(process.env.DG2_AMBIENT)));
 
 const argv = process.argv.slice(2);
 const SICHTBAR = argv.includes('--sichtbar');
@@ -253,7 +266,8 @@ const doc = server.dungeons.erzeugeDungeon2(
     material: dungeon2.mische(${SEED}, 1),
     deko: dungeon2.mische(${SEED}, 2),
   },
-  ${JSON.stringify(DUNGEON_ID)}
+  ${JSON.stringify(DUNGEON_ID)},
+  ${AMBIENT === null ? 'undefined' : AMBIENT}
 );
 const spielerId = spielerIdErzeugen();
 const token = tokenAusstellen(spielerId, 1234567n, geheimnis);
@@ -622,6 +636,97 @@ console.log('[e2e] BEREIT');
   // herum, ein Durchfall wäre ein Sturz ins Bodenlose.
   // Not fallen through: a fall-through would be bottomless.
   if (nachher && nachher.y < -20) fehler.push(`Durch den Boden gefallen (y = ${nachher.y})`);
+
+  // ── 5b. Die drei Befunde vom 31.08.2026 ─────────────────────────────
+  //
+  // Alle drei sahen im Bild verschieden aus und liefen an derselben Stelle
+  // schief: Der SPIELWEG ist nicht dasselbe wie der Vorschauweg, und was nur
+  // in der Vorschau verdrahtet ist, fehlt im Spiel. Deshalb stehen sie HIER
+  // und nicht in einem Modultest — nur dieser Lauf geht den Spielweg.
+  // All three finding guards live HERE and not in a unit test, because only
+  // this run walks the GAME path — which is where all three broke.
+
+  // Befund 2: Der LightPool speist sich aus DIESEM Grab.
+  // Gemessen vor dem Fix: `quellen 0`, `an 0`, poolInfo `0/16 array`.
+  const fackeln = await seite.evaluate(() => window.__dg2live.fackeln());
+  messwerte.fackeln = fackeln;
+  console.log(
+    `Fackeln: ${fackeln.quellen} Quellen im Umkreis (${fackeln.gesamt} im Grab), ` +
+      `${fackeln.an}/${fackeln.plaetze} brennen — Pool ${fackeln.poolInfo}`
+  );
+  if (!(fackeln.gesamt > 0)) {
+    fehler.push(`Das Grab hat gar keine Lichtquellen (${fackeln.gesamt})`);
+  }
+  if (!(fackeln.quellen > 0)) {
+    fehler.push(
+      `Keine Lichtquelle im Umkreis des Spielers (Befund 2: der Pool fragte die falsche Liste)`
+    );
+  }
+  if (!(fackeln.an > 0)) {
+    fehler.push(
+      `Es brennt keine einzige Fackel (${fackeln.an}/${fackeln.plaetze}, Pool ${fackeln.poolInfo}) ` +
+        `— genau der Zustand „fackeln 0/16 array" aus dem Debug-Overlay`
+    );
+  }
+
+  // Befund 1: Die Füsse stehen auf dem Boden, nicht darin.
+  // 6 cm Toleranz: Die Fussanpassung glättet über `FUSS_GLAETTUNG_S`, und ein
+  // Bild mitten in der Bewegung darf ein paar Zentimeter danebenliegen. Der
+  // Fehlerfall war 0,35 m (der Deckel `FUSS_ABSENK_MAX`) — dazwischen liegt
+  // eine Grössenordnung, die Toleranz entscheidet also nichts.
+  // 6 cm tolerance; the failure case was 0.35 m — an order of magnitude apart.
+  const FUSS_TOLERANZ_M = 0.06;
+  const fuesse = await seite.evaluate(() => window.__dg2live.fuesse());
+  messwerte.fuesse = fuesse;
+  console.log(
+    `Füsse: Sohle y ${fuesse.sohleY?.toFixed(3)}, Boden y ${fuesse.bodenY?.toFixed?.(3) ?? '—'}, ` +
+      `Abstand ${fuesse.abstand === null ? '—' : `${fuesse.abstand.toFixed(3)} m`}, ` +
+      `Versatz ${fuesse.versatz.toFixed(3)} m (Spieler y ${fuesse.spielerY.toFixed(3)})`
+  );
+  if (fuesse.bodenY === null) {
+    fehler.push('Unter der Figur liegt kein Kollisionskörper — die Fussmessung hat keinen Boden');
+  } else if (Math.abs(fuesse.abstand) > FUSS_TOLERANZ_M) {
+    fehler.push(
+      `Die Füsse stehen ${fuesse.abstand < 0 ? 'IM' : 'über dem'} Boden: ` +
+        `${fuesse.abstand.toFixed(3)} m (Grenze ±${FUSS_TOLERANZ_M} m) — Befund 1`
+    );
+  }
+
+  // Befund 4: Die Grundhelligkeit ist verdrahtet und liegt an.
+  const ambient = await seite.evaluate(() => window.__dg2live.ambient());
+  messwerte.ambient = ambient;
+  console.log(
+    `Grundhelligkeit: ambientLicht ${ambient.ambientLicht}, verdrahtet ${ambient.lichtVerdrahtet}, ` +
+      `Dämpfung ${ambient.daempfungAnLichtung}, Sonne ${ambient.sonne}, ` +
+      `Hemisphäre ${ambient.hemisphaere}, Umgebung ${ambient.umgebung}`
+  );
+  if (!ambient.lichtVerdrahtet) {
+    fehler.push('Die Grundhelligkeit hängt an keiner Beleuchtung (Befund 4: Regler ohne Wirkung)');
+  }
+  // Wurde eine Helligkeit VERLANGT, muss genau sie ankommen — auch die 0.
+  // Was requested must arrive — the 0 included.
+  if (AMBIENT !== null && ambient.ambientLicht !== AMBIENT) {
+    fehler.push(
+      `Verlangt war ambient=${AMBIENT}, angekommen ist ${ambient.ambientLicht} ` +
+        `(Weg: Dokument → Deskriptor → Leitung → Instanz)`
+    );
+  }
+  // Und bei 0 muss die Eigenhelligkeit WIRKLICH weg sein. Ohne diese drei
+  // Zahlen wäre „0 kommt an" eine Buchhaltung, kein Bild: Der Wert könnte
+  // ankommen und trotzdem nirgends multipliziert werden.
+  // And at 0 the own brightness must REALLY be gone.
+  if (AMBIENT === 0 && (ambient.sonne > 0 || ambient.hemisphaere > 0 || ambient.umgebung > 0)) {
+    fehler.push(
+      `ambient=0, aber es leuchtet weiter: Sonne ${ambient.sonne}, ` +
+        `Hemisphäre ${ambient.hemisphaere}, Umgebung ${ambient.umgebung}`
+    );
+  }
+  if (ambient.daempfungAnLichtung !== ambient.ambientLicht) {
+    fehler.push(
+      `Die Grundhelligkeit kommt bei der Weltbeleuchtung nicht an ` +
+        `(Deskriptor ${ambient.ambientLicht}, Lighting ${ambient.daempfungAnLichtung})`
+    );
+  }
 
   // ── 6. Das Bild ─────────────────────────────────────────────────────
   const fertig = await seite.evaluate(() => window.__dg2live.vollstaendig());

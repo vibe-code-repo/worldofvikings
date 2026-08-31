@@ -116,6 +116,23 @@ const VERHAELTNIS_JE_STUFE: Readonly<Record<DungeonGrafikStufe, number>> = {
 /** Gesamtstaerke der Verdeckung. / Overall occlusion strength. */
 const STAERKE = 1.1;
 
+/**
+ * Alles, was diese Klasse von der Weltbeleuchtung braucht — eine Methode.
+ *
+ * Als Schnittstelle und nicht als `Lighting`-Import: Die Vorschau
+ * (`dungeon2Preview.ts`) hat kein `Lighting`, sondern ein einzelnes
+ * `HemisphericLight`, und sie soll denselben Regler bedienen koennen wie das
+ * Spiel — sonst prueft man in der Vorschau eine Zahl, die im Spiel eine
+ * andere Wirkung hat.
+ * Everything this class needs from the world lighting — one method. An
+ * interface rather than a `Lighting` import, because the preview has no
+ * `Lighting` but must drive the same knob.
+ */
+export interface Grundlicht {
+  /** `null` = Oberwelt, sonst der Faktor 0..1. / `null` = overworld. */
+  setzeDungeonDaempfung(faktor: number | null): void;
+}
+
 export class DungeonAtmosphaere {
   private pipeline: SSAO2RenderingPipeline | null = null;
   private angehaengt = false;
@@ -131,7 +148,16 @@ export class DungeonAtmosphaere {
   constructor(
     private readonly scene: Scene,
     private readonly kamera: Camera,
-    stufe: DungeonGrafikStufe = DungeonGrafikStufe.Mittel
+    stufe: DungeonGrafikStufe = DungeonGrafikStufe.Mittel,
+    /**
+     * Grundhelligkeit dieses Dungeons (0..1) und der Regler, an dem sie
+     * anliegt. Ohne `licht` bleibt `ambientLicht` folgenlos — dann gibt es
+     * niemanden, der die Beleuchtung besitzt, und diese Klasse macht sich
+     * keine eigene auf (der Bauer macht auch keine Lichter, s. `LightPool`).
+     * The base brightness of this dungeon and the knob it applies to.
+     */
+    private readonly ambientLicht: number = 1,
+    private readonly licht: Grundlicht | null = null
   ) {
     this.stufe = stufe;
   }
@@ -150,6 +176,7 @@ export class DungeonAtmosphaere {
     setzeDungeonStufe(this.stufe);
     this.trenneFremde();
     this.wendeStufeAn();
+    this.licht?.setzeDungeonDaempfung(this.ambientLicht);
   }
 
   /**
@@ -161,6 +188,13 @@ export class DungeonAtmosphaere {
    */
   verlasse(): void {
     if (this.abgeraeumt) return;
+    // Die Grundhelligkeit ZUERST zurueckgeben, aus demselben Grund, aus dem
+    // `Dungeon2Instanz.verlasse()` diese Klasse zuerst ruft: Ein Fehler weiter
+    // unten liesse die Oberwelt sonst in Dungeon-Beleuchtung stehen — ein
+    // Fehler, den man erst beim naechsten Sonnenaufgang sieht.
+    // Give the base brightness back FIRST — an error further down would
+    // otherwise leave the overworld in dungeon lighting.
+    this.licht?.setzeDungeonDaempfung(null);
     this.haengeAb();
     for (const name of this.getrennt) {
       this.scene.postProcessRenderPipelineManager.attachCamerasToRenderPipeline(name, this.kamera);
@@ -195,13 +229,27 @@ export class DungeonAtmosphaere {
   }
 
   /** Nur zum Messen: die tatsaechlich gesetzten Werte. / For measuring only. */
-  werte(): { maxZ: number; radius: number; proben: number; verhaeltnis: number; an: boolean } {
+  werte(): {
+    maxZ: number;
+    radius: number;
+    proben: number;
+    verhaeltnis: number;
+    an: boolean;
+    ambientLicht: number;
+    lichtVerdrahtet: boolean;
+  } {
     return {
       maxZ: this.pipeline?.maxZ ?? DUNGEON_SSAO_MAX_Z,
       radius: this.pipeline?.radius ?? DUNGEON_SSAO_RADIUS,
       proben: this.pipeline?.samples ?? 0,
       verhaeltnis: VERHAELTNIS_JE_STUFE[this.stufe],
       an: this.angehaengt,
+      ambientLicht: this.ambientLicht,
+      // Der Zeuge dafuer, dass `ambientLicht` ueberhaupt irgendwo ankommt.
+      // Ohne ihn saehe ein nicht verdrahteter Regler genauso aus wie einer,
+      // der auf 1 steht.
+      // The witness that `ambientLicht` reaches anything at all.
+      lichtVerdrahtet: this.licht !== null,
     };
   }
 

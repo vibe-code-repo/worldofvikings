@@ -86,12 +86,48 @@ const TMP = mkdtempSync(join(tmpdir(), 'wov-dg2-e2e-'));
  */
 const kinder = [];
 
+/**
+ * Kindprozesse abraeumen. Auch an SIGINT/SIGTERM gehaengt: Wird der Lauf von
+ * aussen abgebrochen (Strg-C, `timeout`), laeuft `finally` NICHT, und ein
+ * zurueckgelassener Spielserver haelt Port 2477 — der naechste Lauf scheitert
+ * dann an EADDRINUSE, und man sucht den Fehler im Adapter statt im Vorlauf.
+ * Tear down child processes — also on SIGINT/SIGTERM: when the run is aborted
+ * from outside, `finally` does NOT run and a left-behind game server holds the
+ * port, so the next run fails with EADDRINUSE and one looks for the bug in the
+ * adapter instead of in the preamble.
+ */
+function raeumeAuf() {
+  for (const k of kinder) {
+    try {
+      // Das MINUS ist der Punkt: an die Gruppe, nicht an den einen Prozess.
+      // The MINUS is the point: to the group, not to the single process.
+      process.kill(-k.pid, 'SIGKILL');
+    } catch {
+      /* schon tot / already gone */
+    }
+  }
+  kinder.length = 0;
+}
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(signal, () => {
+    raeumeAuf();
+    process.exit(130);
+  });
+}
+
 /** Ein Kindprozess mit gesammelter Ausgabe. / A child process with logs. */
 function starte(name, cmd, args, umgebung, verzeichnis = WURZEL) {
   const kind = spawn(cmd, args, {
     cwd: verzeichnis,
     env: { ...process.env, ...umgebung },
     stdio: ['ignore', 'pipe', 'pipe'],
+    // EIGENE Prozessgruppe. `tsx` und `vite` starten selbst ein weiteres
+    // Node — ein Signal an das Kind allein laesst den ENKEL stehen, und der
+    // haelt den Port. Gemessen: nach zehn Laeufen lagen zehn Spielserver auf
+    // 2477 herum, obwohl jeder Lauf sein Kind abgeraeumt hatte.
+    // Its OWN process group: `tsx` and `vite` each start a further Node, and a
+    // signal to the child alone leaves the GRANDCHILD holding the port.
+    detached: true,
   });
   const zeilen = [];
   const sammle = (puffer) => {
@@ -468,13 +504,7 @@ try {
   console.error('dungeon2-e2e: ABBRUCH —', e);
   process.exitCode = 1;
 } finally {
-  for (const k of kinder) {
-    try {
-      k.kill('SIGKILL');
-    } catch {
-      /* schon tot / already gone */
-    }
-  }
+  raeumeAuf();
   rmSync(TMP, { recursive: true, force: true });
   // Kindprozesse, die eine Ausnahme hinterlassen hat.
   // Child processes left behind by an exception.

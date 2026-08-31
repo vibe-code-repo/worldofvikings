@@ -3052,3 +3052,46 @@ Kette und soll den Client so laufen lassen wie beim Spieler.
 Normalwelt heraus Stufe Hoch): Prüfsumme Server == Client, 19/19 Blöcke,
 34 Meshes, 0 Konsolen-/ZDO-/Prefab-Fehler, `imDungeon = false` nach dem
 Verlassen.
+
+### Die Bilder von play.dev — und was sie NICHT zeigen
+
+`tools/pw-dungeon2-playdev.mjs` macht die Beweisbilder mit einem eigenen
+Testcharakter (`Pruefer<n><zufall>`, je Lauf ein anderer Name — zweimal
+derselbe heisst „Name already in use"). Mikes Charakter und `steingrab-7`
+sind unberührt.
+
+**Was bewiesen ist**, und zwar an Zeugen und nicht am Augenschein:
+
+- Die Stufe kommt über die **gespeicherte Einstellung** an, also über den
+  Regler, den der Spieler bedient: Stufe 2 meldet
+  `parallax {erlaubt: true, schritte: 6}`, `godrays {an: true, gewaehlt: 9,
+  passagen: 1}`, `proben 16`, `verhaeltnis 0.75`; Stufe 1 meldet alles davon
+  aus, `proben 8`, `verhaeltnis 0.5`.
+- `steingrab-dunkel` trägt `ambientLicht: 0`, und das Bild ist sichtbar
+  dunkler als dasselbe Bild in `steingrab-2` — dieselbe Stelle, dieselbe
+  Blickrichtung.
+- 19/19 Blöcke, 34 Meshes, `fackeln 16/16 array`, 58–60 fps, keine neuen
+  Konsolenfehler (die 10 sind die bekannten fehlenden GLBs dieser Maschine).
+- **Kein Artefakt-Regen, keine Auslöschung, nichts Kirmesbuntes.**
+
+**Was die Bilder NICHT zeigen, und das gehört dazu:** Die Aufnahmen
+entstehen nach einem Fußmarsch vom Eingang aus, und der endet in einem
+Gangstück, über dem der Himmel steht — es ist Nacht, also ist dort auch
+nichts zu sehen, wo tagsüber ein Lichtschacht wäre. **Ein Godray ist auf
+keinem dieser Bilder zu erkennen.** Der Grund ist nicht der Effekt, sondern
+die Kameraführung: Der Schacht in `steingrab-2` liegt bei (−22, −14), der
+Spawnpunkt bei (2, 2), und die Figur lässt sich nicht dorthin setzen —
+`teleportTo()` schreibt zwar `position`, aber der Havok-Charakterkörper zieht
+sie im nächsten Bild zurück (gemessen: nach `teleportTo(-22, 0.05, -14)`
+stand sie unverändert auf (2, 2)).
+
+Der Godray-Nachweis steht deshalb in der VORSCHAU, wo die Kamera frei ist:
+`~/.cache/wov-tripo-test/dungeon2-mess-hoch+godrays.png` gegen
+`dungeon2-mess-hoch-M1.png`, 91,5 % geänderte Bildpunkte an derselben Stelle.
+Das ist ein Beleg, aber es ist nicht dasselbe wie ein Bild aus dem Spiel.
+
+**Offen und ehrlich benannt:** ein Bild aus dem laufenden Spiel, auf dem ein
+Lichtschacht bei TAG in einen Raum leuchtet. Dafür braucht es einen Weg, die
+Figur im Dungeon gezielt zu versetzen (Admin-Teleport innerhalb der Instanz),
+und die Tageszeit muss gesetzt werden. Beides ist Werkzeugarbeit, keine
+Frage an den Effekt.

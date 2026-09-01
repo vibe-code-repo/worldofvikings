@@ -3335,3 +3335,31 @@ und legt seine Canvas an — keine Konsolenfehler in irgendeinem Schritt.
   den Spielserver, Betreten): steht für Mikes Begehung auf wov-dev.
 - **Sektions-Reihenfolge:** Anlegen sitzt über den Werkzeugen; ggf. per
   insertBefore hochziehen, sobald es im Bild stört.
+
+### Godray-Auflösung — eine Zahl, zwei Verhältnisse
+
+**Befund (Mikes Blick auf Stufe Hoch): das Bild ist pixelig.** Ursache:
+`VolumetricLightScatteringPostProcess` bekam eine EINZELNE Ratio (`0.25`).
+Babylon legt eine einzelne Zahl auf BEIDE Verhältnisse — die billige
+Verdeckungspassage UND den finalen Composite. Weil dieser Effekt kein Filter
+über dem fertigen Bild ist, sondern die Szene in seine eigene Zieltextur
+rendert (Kopfkommentar `DungeonGodrays.ts`), lief damit das ganze Bild in
+Viertel-Auflösung und wurde hochskaliert. Und weil der Pass auf Hoch auch ohne
+sichtbaren Schacht angehängt bleibt (nur `exposure = 0`), galt das ÜBERALL auf
+Hoch, nicht nur an Schächten — genau Mikes „pixelig".
+
+**Fix:** `{ passRatio: 0.25, postProcessRatio: 1 }` — Verdeckung billig, Bild
+scharf. Der Kommentar nannte `VERHAELTNIS` ohnehin schon „Auflösungsanteil der
+Verdeckungspassage"; die Absicht war passRatio, die Einzelzahl-Form hat still
+auch den Composite mitgenommen.
+
+**Wächter** `tools/dungeon2-godray-res.mjs`: rendert Hoch mit Godrays an/aus,
+misst die Schärfe (mittlerer Nachbarpixel-Betrag). Verhältnis an/aus vorher
+**0,393 (ROT)** — Godrays-an halb so scharf, 60 % identische Nachbarpixel —,
+nachher **1,093 (GRÜN)**, Blockanteil wieder gleichauf.
+
+**Die Lehre reiht sich ein:** Schon die Sprenkel waren „eine Zahl ohne Einheit"
+(`parallaxTiefe: 0.04` wovon?). Hier ist es „eine Zahl, die heimlich zwei Dinge
+setzt". Post-Process-Ratios in Babylon sind selten das, was sie auf den ersten
+Blick scheinen — im Zweifel die Objektform nehmen und beide Verhältnisse
+benennen.

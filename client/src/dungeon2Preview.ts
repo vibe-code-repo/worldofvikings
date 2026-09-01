@@ -67,6 +67,7 @@ import {
 import { DungeonSsrWeg } from './engine/DungeonReflections';
 import { DungeonGrafikStufe } from './engine/DungeonMaterial';
 import { ladeDungeonMaterialArrays, type DungeonMaterialArrays } from './engine/DungeonMaterialArrays';
+import { DungeonMinimap } from './ui/DungeonMinimap';
 
 /**
  * Fundort der Texturen im Entwicklungsserver.
@@ -294,6 +295,15 @@ async function starte(): Promise<void> {
   // same interface village camp fires use. The dungeon opens NO lights of its own.
   const pool = new LightPool(scene, (x, z, radius) => bauer.lichtquellen(x, z, radius));
 
+  // Dungeon-Minimap zum Ansehen/Prüfen (?minimap=1). Im echten Spiel haengt sie
+  // am Weltwechsel; hier fuettert sie die freie Vorschau-Kamera.
+  // Dungeon minimap for inspection (?minimap=1); fed by the free preview camera.
+  const dungeonMinimap = params.get('minimap') === '1' ? new DungeonMinimap() : null;
+  if (dungeonMinimap !== null) {
+    dungeonMinimap.setzeLayout(layout);
+    dungeonMinimap.setVisible(true);
+  }
+
   const s = bauer.statistik();
   meldung(
     `Seed ${seeds.architektur} · ${layout.stempel.length} Stempel · ${s.bloeckeGebaut}/${s.bloeckeGesamt} Blöcke · ` +
@@ -356,6 +366,7 @@ async function starte(): Promise<void> {
     // The godrays pick their shaft per frame; the same call is in the game
     // client, so the preview does not measure something the game does not show.
     atmosphaere.aktualisiere(kamera.position.x, kamera.position.y, kamera.position.z);
+    dungeonMinimap?.update(kamera.position.x, kamera.position.y, kamera.position.z, kamera.rotation.y);
     scene.render();
   });
   window.addEventListener('resize', () => engine.resize());

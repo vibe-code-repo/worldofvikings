@@ -125,6 +125,7 @@ import { DungeonEditor } from './ui/DungeonEditor';
 import { DekoPlatzierung } from './ui/DekoPlatzierung';
 import { FlammenAtlas } from './engine/FlammenAtlas';
 import { Minimap } from './ui/Minimap';
+import { DungeonMinimap } from './ui/DungeonMinimap';
 import { LightPool } from './engine/LightPool';
 import { Dungeon2Instanz, type Dungeon2Deskriptor } from './engine/Dungeon2Instanz';
 import { DungeonGrafikStufe, setzeDungeonStufe } from './engine/DungeonMaterial';
@@ -690,6 +691,9 @@ async function main() {
   let pieceSelection: PieceSelection | null = null;
   let worldMap: WorldMap | null = null;
   let minimap: Minimap | null = null;
+  // Dungeon-Minimap (M2): nur in einer 2.0-Instanz sichtbar, deckt sich beim
+  // Erkunden auf. / Dungeon minimap: visible only inside a 2.0 instance.
+  let dungeonMinimap: DungeonMinimap | null = null;
   let lightPool: LightPool | null = null;
   const craftingPanel = new CraftingPanel(
     () => inventory,
@@ -1778,6 +1782,10 @@ async function main() {
     );
     // Minimap (Phase G): runder Detailausschnitt oben rechts mit Windzeiger.
     minimap = new Minimap(world);
+    // Dungeon-Minimap (M2): sitzt am selben Platz, ist aber nur in einer
+    // 2.0-Instanz sichtbar — beide schliessen einander aus.
+    // Dungeon minimap (M2): same spot, visible only inside a 2.0 instance.
+    dungeonMinimap = new DungeonMinimap();
     // Objekt-Ebene: Bäume/Felsen/Bauwerke aus den echten Entity-Instanzen.
     minimap.setObjektQuelle((x, z, r) => entities?.nearbyInstances(x, z, r) ?? []);
     // Eingänge können vor buildWorld angekommen sein (der Server schickt
@@ -2168,6 +2176,12 @@ async function main() {
       terrain?.setInstanzModus(drin);
       // In der Instanz gibt es kein Gelände zum Abtasten — Minimap aus.
       minimap?.setVisible(!drin);
+      // Gegengleich die Dungeon-Minimap. Sichtbar sofort (sie zeichnet erst,
+      // wenn `betrete()` das Layout nachreicht); beim Verlassen den
+      // Fog-of-War-Zustand verwerfen, damit kein Grab ins nächste durchsickert.
+      // The dungeon minimap, inverted. Cleared on exit so no fog bleeds over.
+      dungeonMinimap?.setVisible(drin);
+      if (!drin) dungeonMinimap?.leere();
       hud.meldung(drin ? 'Dungeon wird geladen…' : 'Zurück in der Oberwelt');
 
       // ── Dungeon 2.0 (AP13) ────────────────────────────────────────
@@ -2206,6 +2220,11 @@ async function main() {
               return;
             }
             dungeon2Instanz = instanz;
+            // Die Dungeon-Minimap bekommt JETZT ihr Layout — vorher lag es
+            // nicht bereit. Sie ist bereits sichtbar geschaltet und beginnt
+            // mit dem nächsten Frame zu zeichnen (verdeckt, deckt sich auf).
+            // The dungeon minimap gets its layout NOW; it is already visible.
+            dungeonMinimap?.setzeLayout(instanz.layout);
             // JETZT erst geht der Vorhang hoch. In einer Instanz gibt es
             // kein `terrain.ready`, und `LoadingScreen` blendet
             // ausschliesslich darauf aus — ohne diese Zeile bliebe „The
@@ -3460,6 +3479,9 @@ async function main() {
     minimapWind.dirZ = wind1.dirZ;
     minimapWind.intensity = wind1.intensity;
     minimap?.update(player.position.x, player.position.z, player.yaw, minimapWind, lighting.timeOfDay);
+    // Dungeon-Minimap: y bestimmt die Ebene, x/z/yaw Position und Pfeil.
+    // Zeichnet nur, wenn sichtbar (in einer Instanz). / Only draws when visible.
+    dungeonMinimap?.update(player.position.x, player.position.y, player.position.z, player.yaw);
     // Regen/Schnee/Asche: Menge aus der Nässe-Rampe, Schräglage aus dem
     // Wind (GlobalWind.velocityOverLifetime im Original).
     // Gras um aufsammelbare Gegenstände freihalten (Flint, Stein, Löwenzahn

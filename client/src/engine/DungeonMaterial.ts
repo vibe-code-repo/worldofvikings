@@ -252,8 +252,38 @@ export interface DungeonThema {
   /** Normalenversatz des Risses. / Normal offset of the crack. */
   readonly rissTiefe: number;
 
-  /** Parallax-Tiefe in Kachelanteilen (nur Stufe Hoch). / Parallax depth. */
-  readonly parallaxTiefe: number;
+  /**
+   * Parallax-Tiefe in METERN (nur Stufe Hoch).
+   *
+   * Frueher war sie in Kachelanteilen angegeben, und genau daran hing der
+   * Sprenkel-Fehler: Eine Kachel ist vier Meter breit, also waren 0,04
+   * „Kachelanteile" SECHZEHN ZENTIMETER Reliefversatz auf einer Wand, deren
+   * Fugen zwei Zentimeter tief sind. In Metern laesst sich die Zahl gegen die
+   * Sache pruefen, in Kachelanteilen nicht.
+   * Parallax depth in METRES (tier High only). It used to be given in tile
+   * fractions, and that is where the speckle defect came from: a tile is four
+   * metres wide, so 0.04 "tile fractions" meant SIXTEEN CENTIMETRES of relief
+   * offset on a wall whose joints are two centimetres deep. In metres the
+   * number can be checked against the thing it describes; in tile fractions it
+   * cannot.
+   */
+  readonly parallaxTiefeM: number;
+
+  /**
+   * Ab welchem `|N·V|` der Parallax voll wirkt; darunter blendet er aus.
+   *
+   * Offset-Limiting begrenzt den Versatz auf die Tiefe — es fuehrt ihn NICHT
+   * gegen null. An einer streifend gesehenen Wand steht damit der volle
+   * Versatz auf einer Flaeche, die auf dem Bildschirm zu einem Streifen
+   * zusammenfaellt, und benachbarte Bildpunkte greifen weit auseinander in die
+   * Textur. Das ist der Sprenkelregen.
+   * The `|N·V|` above which parallax acts at full strength; below it it fades
+   * out. Offset limiting BOUNDS the shift at the depth, it does not take it to
+   * zero — so on a grazing wall the full shift lands on a surface that
+   * collapses to a sliver on screen, and neighbouring pixels tap far apart in
+   * the texture. That is the speckle rain.
+   */
+  readonly parallaxStreifSchwelle: number;
 }
 
 /**
@@ -284,7 +314,15 @@ export const STEINGRAB_THEMA: DungeonThema = {
   rissDichte: 0.55,
   rissSchwelle: 0.72,
   rissTiefe: 0.6,
-  parallaxTiefe: 0.04,
+  // Drei Zentimeter: die Tiefe einer Moertelfuge in einer Bruchsteinmauer.
+  // Nachgemessen wurde nicht am Bauwerk, sondern am Bild — bei sechzehn
+  // Zentimetern (dem alten Wert) schob der Effekt ganze Steine uebereinander.
+  // Three centimetres — the depth of a mortar joint in rubble masonry.
+  parallaxTiefeM: 0.03,
+  // 0,35 entspricht rund 20 Grad ueber dem streifenden Blick. Darueber ist der
+  // Effekt unveraendert, darunter blendet er weich aus.
+  // 0.35 is roughly 20 degrees off grazing.
+  parallaxStreifSchwelle: 0.35,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -484,8 +522,25 @@ ${rauschen}
   // "highp" here for the same reason as at the uniforms above: a parameter of
   // sampler type has no default precision either, and the compiler reports it
   // as a fourth error at exactly this line.
-  vec4 dgTap(highp sampler2DArray tex, vec2 uv, float schicht) {
+  //
+  // With parallax the tap takes EXPLICIT gradients, and that is not an
+  // optimisation. Two things break without them:
+  //   1. The taps of the occlusion march sit behind a 'break', i.e. in
+  //      non-uniform control flow, where GLSL ES leaves implicit derivatives
+  //      UNDEFINED -- the driver may return any mip level it likes.
+  //   2. The displaced coordinate jumps between neighbouring pixels wherever
+  //      the ray stops one step earlier, so even a defined implicit derivative
+  //      would be the derivative of the JUMP and not of the surface.
+  // The caller therefore hands in the gradients of the UNDISPLACED coordinate,
+  // which is what the mip level should follow.
+  // Without parallax the signature is the same but the parameters are unused,
+  // so tier Medium keeps the byte-identical implicit tap it had before.
+  vec4 dgTap(highp sampler2DArray tex, vec2 uv, float schicht, vec2 ddx, vec2 ddy) {
+#ifdef DUNGEON_PARALLAX
+    return textureGrad(tex, vec3(uv, schicht), ddx, ddy);
+#else
     return texture(tex, vec3(uv, schicht));
+#endif
   }
 
   /**
@@ -512,6 +567,24 @@ ${rauschen}
     vec2 uvY = vec2(wp.x, n.y < 0.0 ? -wp.z : wp.z);
     vec2 uvZ = vec2(n.z < 0.0 ? wp.x : -wp.x, wp.y);
 
+    // Gradients of the UNDISPLACED coordinates, taken ONCE and here, at the
+    // top level of the function: dFdx needs uniform control flow, and every
+    // tap below -- including the ones inside the parallax loop -- has to use
+    // these and not its own.
+    // Ohne Parallax werden sie nicht gebraucht; dgTap liest sie dann nicht.
+#ifdef DUNGEON_PARALLAX
+    vec2 gXdx = dFdx(uvX);
+    vec2 gXdy = dFdy(uvX);
+    vec2 gYdx = dFdx(uvY);
+    vec2 gYdy = dFdy(uvY);
+    vec2 gZdx = dFdx(uvZ);
+    vec2 gZdy = dFdy(uvZ);
+#else
+    vec2 gXdx = vec2(0.0), gXdy = vec2(0.0);
+    vec2 gYdx = vec2(0.0), gYdy = vec2(0.0);
+    vec2 gZdx = vec2(0.0), gZdy = vec2(0.0);
+#endif
+
 #ifdef DUNGEON_PARALLAX
     // Parallax on the DOMINANT plane only (render-tech 3.4). After the
     // dominance collapse that plane is almost everywhere the only one, so the
@@ -528,41 +601,70 @@ ${rauschen}
       bool domX = w.x >= max(w.y, w.z);
       bool domY = !domX && w.y >= w.z;
       vec2 uvDom = domX ? uvX : (domY ? uvY : uvZ);
+      vec2 gDomDx = domX ? gXdx : (domY ? gYdx : gZdx);
+      vec2 gDomDy = domX ? gXdy : (domY ? gYdy : gZdy);
       // The view direction expressed in the dominant plane's own 2D frame --
-      // the same axis pairing the taps below use for that plane.
+      // the same axis pairing the taps below use for that plane, MIRRORING
+      // INCLUDED. The mirror is not decoration: uvX flips its first axis on
+      // walls facing -x and uvZ flips its first axis on walls facing +z, and
+      // without the same flip here the offset ran BACKWARDS on exactly those
+      // walls. The relief then read inside out -- joints stood proud, stones
+      // sank in -- on half the barrow, which is hard to see as a fault and
+      // easy to see as "the height map is wrong".
       vec2 richtung = domX
-        ? vec2(sicht.z, sicht.y)
-        : (domY ? vec2(sicht.x, sicht.z) : vec2(sicht.x, sicht.y));
-      vec2 versatz;
+        ? vec2(n.x < 0.0 ? -sicht.z : sicht.z, sicht.y)
+        : (domY
+            ? vec2(sicht.x, n.y < 0.0 ? -sicht.z : sicht.z)
+            : vec2(n.z < 0.0 ? sicht.x : -sicht.x, sicht.y));
+
+      // How steeply we look at the plane: 1 head on, 0 edge on.
+      float ndv = abs(domX ? sicht.x : (domY ? sicht.y : sicht.z));
+
+      // Depth in METRES, converted into this layer's own uv by its tiling.
+      // skala is 1/tileMetres, so a depth of 0.03 m stays 0.03 m whether the
+      // layer tiles every four metres or every one.
+      float tiefeUv = dgFest.y * skala;
+
+      // ... and the fade that makes offset limiting actually limit. Offset
+      // limiting caps the shift at the depth; at a grazing angle the cap IS
+      // the shift, applied to a surface that occupies almost no screen area.
+      // Neighbouring pixels then tap centimetres apart in the texture, and
+      // that is the speckle. Above dgFest.z nothing changes at all.
+      float streifen = smoothstep(0.0, max(dgFest.z, 1e-3), ndv);
+      float staerke = tiefeUv * streifen;
+
+      vec2 versatz = vec2(0.0);
+      if (staerke > 0.0) {
 #if DUNGEON_PARALLAX_SCHRITTE <= 1
-      float hoehe = dgTap(dungeonOrhArray, uvDom, schichtF).b - 0.5;
-      versatz = richtung * (hoehe * dgFest.y);
+      float hoehe = dgTap(dungeonOrhArray, uvDom, schichtF, gDomDx, gDomDy).b - 0.5;
+      versatz = richtung * (hoehe * staerke);
 #else
       // The ray enters the height field at h = 1 and walks down to h = 0. At
-      // ray height r its texture coordinate is uvDom + richtung * tiefe * r
+      // ray height r its texture coordinate is uvDom + richtung * staerke * r
       // (no division by the plane normal component -- that IS the offset
-      // limiting, and it keeps grazing angles from smearing).
-      vec2 ganz = richtung * dgFest.y;
+      // limiting).
+      vec2 ganz = richtung * staerke;
       float schrittH = 1.0 / float(DUNGEON_PARALLAX_SCHRITTE);
       vec2 schrittUv = ganz * schrittH;
       float rayH = 1.0;
       vec2 lauf = uvDom + ganz;
-      float feld = dgTap(dungeonOrhArray, lauf, schichtF).b;
+      float feld = dgTap(dungeonOrhArray, lauf, schichtF, gDomDx, gDomDy).b;
       for (int i = 0; i < DUNGEON_PARALLAX_SCHRITTE; i++) {
         if (feld >= rayH) break;
         rayH -= schrittH;
         lauf -= schrittUv;
-        feld = dgTap(dungeonOrhArray, lauf, schichtF).b;
+        feld = dgTap(dungeonOrhArray, lauf, schichtF, gDomDx, gDomDy).b;
       }
       // One linear refinement between the last two steps. Without it the
       // silhouette of every stone shows the step count as visible terracing --
       // and one would then blame the height map.
       vec2 davor = lauf + schrittUv;
       float nachHier = feld - rayH;
-      float nachDavor = dgTap(dungeonOrhArray, davor, schichtF).b - (rayH + schrittH);
+      float nachDavor = dgTap(dungeonOrhArray, davor, schichtF, gDomDx, gDomDy).b - (rayH + schrittH);
       float anteil = nachHier / max(nachHier - nachDavor, 1e-4);
       versatz = mix(lauf, davor, clamp(anteil, 0.0, 1.0)) - uvDom;
 #endif
+      }
       uvX += versatz * w.x;
       uvY += versatz * w.y;
       uvZ += versatz * w.z;
@@ -576,35 +678,35 @@ ${rauschen}
     vec3 tn = vec3(0.0, 0.0, 1.0);
     vec3 normalWelt;
     if (w.x > 0.999) {
-      albedo = dgTap(dungeonAlbedoArray, uvX, schichtF).rgb;
-      orh = dgTap(dungeonOrhArray, uvX, schichtF).rgb;
-      tn = dgTap(dungeonNormalArray, uvX, schichtF).rgb * 2.0 - 1.0;
+      albedo = dgTap(dungeonAlbedoArray, uvX, schichtF, gXdx, gXdy).rgb;
+      orh = dgTap(dungeonOrhArray, uvX, schichtF, gXdx, gXdy).rgb;
+      tn = dgTap(dungeonNormalArray, uvX, schichtF, gXdx, gXdy).rgb * 2.0 - 1.0;
       normalWelt = normalize(vec3(tn.z * sign(n.x), tn.y, tn.x));
     } else if (w.y > 0.999) {
-      albedo = dgTap(dungeonAlbedoArray, uvY, schichtF).rgb;
-      orh = dgTap(dungeonOrhArray, uvY, schichtF).rgb;
-      tn = dgTap(dungeonNormalArray, uvY, schichtF).rgb * 2.0 - 1.0;
+      albedo = dgTap(dungeonAlbedoArray, uvY, schichtF, gYdx, gYdy).rgb;
+      orh = dgTap(dungeonOrhArray, uvY, schichtF, gYdx, gYdy).rgb;
+      tn = dgTap(dungeonNormalArray, uvY, schichtF, gYdx, gYdy).rgb * 2.0 - 1.0;
       normalWelt = normalize(vec3(tn.x, tn.z * sign(n.y), tn.y));
     } else if (w.z > 0.999) {
-      albedo = dgTap(dungeonAlbedoArray, uvZ, schichtF).rgb;
-      orh = dgTap(dungeonOrhArray, uvZ, schichtF).rgb;
-      tn = dgTap(dungeonNormalArray, uvZ, schichtF).rgb * 2.0 - 1.0;
+      albedo = dgTap(dungeonAlbedoArray, uvZ, schichtF, gZdx, gZdy).rgb;
+      orh = dgTap(dungeonOrhArray, uvZ, schichtF, gZdx, gZdy).rgb;
+      tn = dgTap(dungeonNormalArray, uvZ, schichtF, gZdx, gZdy).rgb * 2.0 - 1.0;
       normalWelt = normalize(vec3(tn.x, tn.y, tn.z * sign(n.z)));
     } else {
-      vec3 aX = dgTap(dungeonAlbedoArray, uvX, schichtF).rgb;
-      vec3 aY = dgTap(dungeonAlbedoArray, uvY, schichtF).rgb;
-      vec3 aZ = dgTap(dungeonAlbedoArray, uvZ, schichtF).rgb;
+      vec3 aX = dgTap(dungeonAlbedoArray, uvX, schichtF, gXdx, gXdy).rgb;
+      vec3 aY = dgTap(dungeonAlbedoArray, uvY, schichtF, gYdx, gYdy).rgb;
+      vec3 aZ = dgTap(dungeonAlbedoArray, uvZ, schichtF, gZdx, gZdy).rgb;
       albedo = aX * w.x + aY * w.y + aZ * w.z;
-      vec3 oX = dgTap(dungeonOrhArray, uvX, schichtF).rgb;
-      vec3 oY = dgTap(dungeonOrhArray, uvY, schichtF).rgb;
-      vec3 oZ = dgTap(dungeonOrhArray, uvZ, schichtF).rgb;
+      vec3 oX = dgTap(dungeonOrhArray, uvX, schichtF, gXdx, gXdy).rgb;
+      vec3 oY = dgTap(dungeonOrhArray, uvY, schichtF, gYdx, gYdy).rgb;
+      vec3 oZ = dgTap(dungeonOrhArray, uvZ, schichtF, gZdx, gZdy).rgb;
       orh = oX * w.x + oY * w.y + oZ * w.z;
       // Whiteout blend: the three tangent space normals live in three DIFFERENT
       // spaces, a weighted average of the raw vectors would average directions
       // across spaces. Swizzle each into world axes first, then add.
-      vec3 nX = dgTap(dungeonNormalArray, uvX, schichtF).rgb * 2.0 - 1.0;
-      vec3 nY = dgTap(dungeonNormalArray, uvY, schichtF).rgb * 2.0 - 1.0;
-      vec3 nZ = dgTap(dungeonNormalArray, uvZ, schichtF).rgb * 2.0 - 1.0;
+      vec3 nX = dgTap(dungeonNormalArray, uvX, schichtF, gXdx, gXdy).rgb * 2.0 - 1.0;
+      vec3 nY = dgTap(dungeonNormalArray, uvY, schichtF, gYdx, gYdy).rgb * 2.0 - 1.0;
+      vec3 nZ = dgTap(dungeonNormalArray, uvZ, schichtF, gZdx, gZdy).rgb * 2.0 - 1.0;
       vec3 tX = vec3(nX.xy + n.zy, nX.z * an.x);
       vec3 tY = vec3(nY.xy + n.xz, nY.z * an.y);
       vec3 tZ = vec3(nZ.xy + n.xy, nZ.z * an.z);
@@ -914,7 +1016,9 @@ class DungeonMaterialPlugin extends MaterialPluginBase {
       ubo: [
         // x = Schaerfe, y = Kollapsschwelle, z = Seed low 16, w = Seed high 16
         { name: 'dgTriplanar', size: 4, type: 'vec4' },
-        // x = feste Ebene ohne Attribut, y = Parallaxtiefe
+        // x = feste Ebene ohne Attribut, y = Parallaxtiefe in METERN,
+        // z = Streifwinkel-Schwelle des Parallax, w = frei
+        // x = fixed layer, y = parallax depth in METRES, z = grazing threshold
         { name: 'dgFest', size: 4, type: 'vec4' },
         // x = Mooshoehe, y = Uebergang, z = Normalenschwelle, w = Staerke
         { name: 'dgMoos', size: 4, type: 'vec4' },
@@ -949,7 +1053,7 @@ class DungeonMaterialPlugin extends MaterialPluginBase {
       seed & 0xffff,
       seed >>> 16
     );
-    uniformBuffer.updateFloat4('dgFest', 0, t.parallaxTiefe, 0, 0);
+    uniformBuffer.updateFloat4('dgFest', 0, t.parallaxTiefeM, t.parallaxStreifSchwelle, 0);
     uniformBuffer.updateFloat4(
       'dgMoos',
       t.moosHoehe,

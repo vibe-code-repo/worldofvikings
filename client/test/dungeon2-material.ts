@@ -48,6 +48,7 @@ import {
   erlaubeDungeonParallax,
   PARALLAX_SCHRITTE_HOCH,
   PARALLAX_SCHRITTE_MAX,
+  STEINGRAB_THEMA,
   dungeonReflectivityGlsl,
   dungeonVertexDefinitionenGlsl,
   dungeonVertexHauptGlsl,
@@ -536,6 +537,80 @@ pruefe('Der Schrittzaehler ist ein Define und wandert in die Cache-Zeichenkette'
   assert.ok(
     /defines\.DUNGEON_PARALLAX_SCHRITTE = parallaxSchritte;/.test(quelle),
     'Der Schrittzaehler wird nicht in die Defines geschrieben'
+  );
+});
+
+pruefe('Parallax greift mit EXPLIZITEN Ableitungen in die Arrays', () => {
+  // Warum das ein Test ist und keine Geschmacksfrage: Die Griffe der
+  // Occlusion-Schleife stehen hinter einem `break`, also in nicht-uniformem
+  // Kontrollfluss. GLSL ES laesst die impliziten Ableitungen dort
+  // UNDEFINIERT — der Treiber darf jede Mip-Stufe zurueckgeben, die ihm
+  // gefaellt. Und selbst wo sie definiert waeren, ist die Ableitung der
+  // VERSCHOBENEN Koordinate die Ableitung des Sprungs und nicht der Flaeche.
+  // Ohne `textureGrad` sieht man das als Sprenkelregen auf dem Mauerwerk.
+  // The occlusion taps sit in non-uniform control flow, where GLSL ES leaves
+  // implicit derivatives UNDEFINED — and the derivative of the DISPLACED
+  // coordinate would be the derivative of the jump, not of the surface.
+  const code = dungeonDefinitionenGlsl(DungeonGrafikStufe.Hoch);
+  assert.ok(code.includes('textureGrad(tex, vec3(uv, schicht), ddx, ddy)'), 'textureGrad fehlt');
+  for (const achse of ['X', 'Y', 'Z']) {
+    assert.ok(code.includes(`dFdx(uv${achse})`), `Ableitung von uv${achse} fehlt`);
+  }
+  // Die Ableitungen stehen VOR dem Parallax-Block, also im uniformen
+  // Kontrollfluss — `dFdx` in einem Zweig waere derselbe Fehler eine Etage
+  // tiefer. / They must be taken before the branch.
+  assert.ok(
+    code.indexOf('dFdx(uvX)') < code.indexOf('vec3 sicht = normalize'),
+    'Die Ableitungen werden erst im Parallax-Block genommen'
+  );
+});
+
+pruefe('Der Parallax-Versatz folgt der Spiegelung der uv-Achsen', () => {
+  // uvX kippt seine erste Achse auf Waenden mit n.x < 0, uvZ auf Waenden mit
+  // n.z >= 0. Ohne dieselbe Kippung in der Blickrichtung lief der Versatz auf
+  // genau diesen Waenden RUECKWAERTS, und das Relief las sich verkehrt herum —
+  // Fugen standen vor, Steine sanken ein. Das sieht nicht nach einem Fehler im
+  // Parallax aus, sondern nach einer falschen Hoehenkarte.
+  // Without the same mirroring in the view direction the offset ran BACKWARDS
+  // on exactly those walls and the relief read inside out.
+  const code = dungeonDefinitionenGlsl(DungeonGrafikStufe.Hoch);
+  assert.ok(
+    code.includes('vec2(n.x < 0.0 ? -sicht.z : sicht.z, sicht.y)'),
+    'Die x-dominante Richtung ist nicht gespiegelt'
+  );
+  assert.ok(
+    code.includes('vec2(n.z < 0.0 ? sicht.x : -sicht.x, sicht.y)'),
+    'Die z-dominante Richtung ist nicht gespiegelt'
+  );
+});
+
+pruefe('Die Parallaxtiefe ist ein Mass in Metern und blendet streifend aus', () => {
+  // Beides zusammen ist der Fix gegen die Sprenkel: Die Tiefe wird ueber
+  // `skala` (1/Kachelmeter) in uv gerechnet, statt roh als uv-Versatz zu
+  // gelten — 0,04 „Kachelanteile" waren auf einer Vier-Meter-Kachel 16 cm.
+  // Und der Versatz blendet gegen den streifenden Blick aus, denn
+  // Offset-Limiting DECKELT ihn nur, es fuehrt ihn nicht gegen null.
+  // Depth in metres via `skala`, and a fade towards grazing angles — offset
+  // limiting only CAPS the shift, it does not take it to zero.
+  const code = dungeonDefinitionenGlsl(DungeonGrafikStufe.Hoch);
+  assert.ok(code.includes('float tiefeUv = dgFest.y * skala;'), 'Die Tiefe wird nicht umgerechnet');
+  assert.ok(code.includes('smoothstep(0.0, max(dgFest.z, 1e-3), ndv)'), 'Die Streifblende fehlt');
+  assert.ok(
+    STEINGRAB_THEMA.parallaxTiefeM > 0 && STEINGRAB_THEMA.parallaxTiefeM <= 0.06,
+    `Parallaxtiefe ${STEINGRAB_THEMA.parallaxTiefeM} m ist keine Fugentiefe`
+  );
+  assert.ok(
+    STEINGRAB_THEMA.parallaxStreifSchwelle > 0 && STEINGRAB_THEMA.parallaxStreifSchwelle < 1,
+    'Die Streifschwelle liegt nicht zwischen 0 und 1'
+  );
+  // Die Schwelle muss auch WIRKLICH ankommen: eine Konstante im Thema, die
+  // niemand in den Puffer schreibt, ist ein wirkungsloser Schalter (Vault:
+  // „Messzellen brauchen Zeugen").
+  // The threshold must actually reach the shader.
+  const quelle = readFileSync(resolve(ENGINE, 'DungeonMaterial.ts'), 'utf8');
+  assert.ok(
+    /updateFloat4\('dgFest', 0, t\.parallaxTiefeM, t\.parallaxStreifSchwelle, 0\)/.test(quelle),
+    'dgFest traegt Tiefe und Streifschwelle nicht'
   );
 });
 

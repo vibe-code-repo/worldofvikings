@@ -3095,3 +3095,157 @@ Lichtschacht bei TAG in einen Raum leuchtet. Dafür braucht es einen Weg, die
 Figur im Dungeon gezielt zu versetzen (Admin-Teleport innerhalb der Instanz),
 und die Tageszeit muss gesetzt werden. Beides ist Werkzeugarbeit, keine
 Frage an den Effekt.
+
+## 01.09.2026 — Die Sprenkel auf dem Mauerwerk waren der Parallax, und zwar dreifach
+
+Auf `dungeon2-voll-vergleich.png` (rechte Hälfte, Stufe Hoch) liegen über dem
+Mauerwerk farbige Punkte und kurze senkrechte Striche — grün, orange, rot auf
+fast schwarzem Stein. Die linke Hälfte, Stufe Mittel, ist sauber. Der Eintrag
+„Die Bilder von play.dev" oben behauptet an dieser Stelle **„Kein
+Artefakt-Regen, nichts Kirmesbuntes"**. Das war falsch, und es stand auf
+demselben Bild, das den Satz belegen sollte. Die Lehre steht am Ende.
+
+### Was es war
+
+**Der Parallax, an streifend gesehenen Wänden.** Godrays, SSAO und der
+GeometryBuffer sind unbeteiligt: `?godrays=0` ändert nichts, `?parallax=0`
+räumt die Sprenkel restlos ab. Drei Fehler wirkten dabei zusammen, und zwei
+davon hätte auch ein sauber gemessener Vollausbau nicht gefunden, weil sie
+sich nur in einer Zahl äußern, die niemand gegen die Sache geprüft hat.
+
+**1. Die Tiefe war in der falschen Einheit.** `parallaxTiefe: 0.04` galt „in
+Kachelanteilen", und der Wert ging roh als uv-Versatz in den Shader. Eine
+Kachel des Steingrab-Materials ist aber **vier Meter** breit — 0,04 Kachel
+sind **16 Zentimeter** Reliefversatz auf einer Wand, deren Mörtelfugen zwei
+Zentimeter tief sind. Achtfach überzeichnet, und in „Kachelanteilen" sieht die
+Zahl 0,04 klein und harmlos aus. Neu heißt das Feld `parallaxTiefeM`, steht in
+**Metern** und wird im Shader über `skala` (1/Kachelmeter) in uv gerechnet.
+Gesetzt: **0,03 m**.
+
+**2. Die Spiegelung fehlte in der Blickrichtung.** `uvX` kippt seine erste
+Achse auf Wänden mit `n.x < 0`, `uvZ` auf Wänden mit `n.z >= 0` — sonst läse
+eine Ecke sich als Naht. Die Blickrichtung, mit der der Versatz gebildet wird,
+kippte NICHT mit. Auf genau diesen Wänden lief der Versatz also rückwärts und
+das Relief verkehrt herum: Fugen standen vor, Steine sanken ein. Das sieht
+nicht nach einem Fehler im Parallax aus, sondern nach einer falschen
+Höhenkarte — und danach hätte man gesucht.
+
+**3. Die Griffe hatten keine gültigen Ableitungen.** Die Schleife der
+Occlusion greift hinter einem `break` in das Array, also in nicht-uniformem
+Kontrollfluss; GLSL ES lässt die impliziten Ableitungen dort **undefiniert**.
+Und selbst wo ein Treiber sie liefert, ist es die Ableitung der VERSCHOBENEN
+Koordinate — also die Ableitung des Sprungs, den der Strahl macht, wenn ein
+Nachbarpixel einen Schritt früher hält, und nicht die der Fläche. Die Mip-Stufe
+folgte damit dem Zufall. Neu nimmt `dgBerechne` die Ableitungen der
+UNVERSCHOBENEN Koordinaten einmal und im uniformen Kontrollfluss (`dFdx(uvX)`
+und Geschwister, vor dem Zweig) und reicht sie an jeden Griff durch;
+`dgTap` benutzt unter `DUNGEON_PARALLAX` `textureGrad`. Ohne den `#ifdef` wäre
+auch Stufe Mittel umgestellt worden, und deren Bildgleichheit ist eine Zusage.
+
+**Und der Grund, warum das alles überhaupt sichtbar wurde:** Offset-Limiting
+**deckelt** den Versatz auf die Tiefe — es führt ihn nicht gegen null. An einer
+streifend gesehenen Wand steht deshalb der volle Versatz auf einer Fläche, die
+auf dem Bildschirm zu einem Streifen zusammenfällt; benachbarte Bildpunkte
+greifen zentimeterweit auseinander in dieselbe Textur. Neu blendet der Versatz
+unterhalb von `|N·V| = 0,35` (rund 20 Grad über dem streifenden Blick) weich
+aus — `parallaxStreifSchwelle`, ein Wert im Thema, kein Literal im Shader.
+
+### Der Wächter: `tools/dungeon2-speckle-guard.mjs`
+
+Zwei Anläufe, und der erste ist lehrreicher als der zweite.
+
+**Was NICHT funktioniert hat: „wie bunt ist das Bild".** Ein Maß auf
+Farbabweichung gegen die waagerechten Nachbarn hielt Stufe Mittel für
+**schlimmer** als Stufe Hoch (15 332 gegen 1 798 ppm) — und auf dem Beweisbild
+selbst ebenso (7 353 gegen 3 092 ppm). Der Grund: Fehler und Absicht teilen
+sich dieselbe Farbwelt, warmes Fackellicht auf braunem Stein, und die
+hellere Hälfte hat mehr Farbkanten, ganz gleich wer recht hat. Ein Maß, das
+das Beweisbild falsch herum bewertet, ist kein Wächter.
+
+**Was funktioniert:** der Unterschied, den der Effekt macht, gegen **dieselbe
+Stufe ohne ihn** (`?parallax=0`) — die einzige Gegenüberstellung, in der nicht
+auch SSAO, Auflösung und Nachbearbeitung wechseln. Daraus zwei Zahlen:
+
+- **Umkippanteil** — Bildpunkte, deren Helligkeit um mehr als 80 von 255
+  springt. Parallax darf Stein verschieben, er darf keine beleuchtete Fuge in
+  eine schwarze Fläche umkippen.
+- **Wirkanteil** — Bildpunkte, die sich überhaupt ändern. Ohne diese zweite
+  Zahl wäre der Wächter mit einem ABGESCHALTETEN Parallax grün, und genau das
+  ist der Fix, den Mike nicht will.
+
+Dazu eine **Rauschzeile**: dieselbe Adresse zweimal. Zwei Seitenaufrufe zeigen
+nicht dasselbe Bild, weil die Fackeln flackern; der Wirkanteil wird gegen
+diese gemessene Zahl gehalten und nicht gegen eine erfundene.
+
+Gemessen wird ohne Grundlicht (`?ambient=0`), weil das Beweisbild in einem
+Grab mit `ambientLicht: 0` entstand. Mit dem Grundlicht der Vorschau
+überstrahlt Streulicht die schwarzen Keile, und der Wächter wäre grün, während
+der Fehler dasteht.
+
+| Kamera | Stand | Rauschen umgekippt | Hoch umgekippt | Hoch gewirkt | Urteil |
+|---|---|---|---|---|---|
+| Schachtmündung, 12 m | **vorher** | 0,006 % | **2,046 %** | 69,11 % | ROT |
+| Schachtmündung, 12 m | **nachher** | 0,006 % | **0,247 %** | 38,91 % | GRÜN |
+| Gang, `blick=25` | vorher | 0,000 % | 0,001 % | 16,24 % | grün |
+| Gang, `blick=25` | nachher | 0,000 % | 0,000 % | 4,10 % | grün |
+
+**Die Gang-Zeile gehört mit in die Tabelle, obwohl sie nichts fängt.** Der
+Gang ist zu dunkel: Dort erreicht der Fehler die 80er-Schwelle nie, und ein
+Wächter, der nur dort stünde, hätte den Fehler durchgelassen. Die Kamera an
+der Schachtmündung ist die, die ihn sieht — dieselbe wie in
+`tools/pw-dungeon2-effekte.mjs`, damit Kosten und Bildfehler an derselben
+Stelle gemessen werden.
+
+### Was der Fix kostet, und was er an Wirkung nimmt
+
+| Größe | vorher | nachher |
+|---|---|---|
+| Bildzeit `hoch-voll` (3 Durchgänge, Median) | 1,617 ms / 618 fps | 1,624 ms / 616 fps |
+| Umkippanteil | 2,046 % | 0,247 % |
+| Wirkanteil des Parallax | 69,11 % | 38,91 % |
+
+**Der Fix ist umsonst** (+0,4 %, Spanne 1,611–1,629 gegen 1,612–1,621 — das ist
+Rauschen). `textureGrad` kostet nichts, was die weiche Streifblende nicht
+wieder einspart, weil sie den Marsch auf streifenden Bildpunkten ganz
+überspringt.
+
+**Was er kostet, ist Wirkung, und das gehört ausgesprochen:** Der Parallax
+ändert nach dem Fix 38,9 % statt 69,1 % der Bildpunkte. Die Differenz ist
+nicht Effekt, den man verliert, sondern Fehler, den man verliert — aber der
+Effekt ist damit **auch für sich schwächer**, denn 3 cm Fugentiefe auf einer
+Vier-Meter-Kachel sind aus zwölf Metern nun einmal wenig. Die alte Zeile
+„geänderte Bildpunkte 73,2 %" aus der Vollausbau-Tabelle oben war zu einem
+guten Teil der Fehler selbst, gemessen und für Wirkung gehalten. Wer den
+Effekt kräftiger will, dreht `parallaxTiefeM` hoch — und muss dann den Wächter
+laufen lassen, denn ab irgendeiner Tiefe kippt er wieder um.
+
+**Stufe Mittel ist unberührt**, und das steht als Zahl da: Bild vor dem Fix
+gegen Bild nach dem Fix, gleiche Kamera, hell wie dunkel — **0,0000 %
+umgekippt**, größter Einzelunterschied 79 von 255 auf einem Bildpunkt der
+Fackelflamme. Der Unterschied liegt damit UNTER dem Flackerrauschen zweier
+Aufrufe desselben Standes (0,010 % umgekippt).
+
+**Testreihe:** 88/91 grün, dieselben drei roten wie zuvor
+(`manifest-vollstaendig`, `f17-figurenwahl`, `k1-konten` — alle ausserhalb von
+Dungeon 2.0). Neu und grün: drei Prüfungen in
+`client/test/dungeon2-material.ts` auf `textureGrad`, auf die gespiegelte
+Richtung und darauf, dass Tiefe und Streifschwelle wirklich in `dgFest`
+ankommen. Keine neuen Konsolenfehler.
+
+**Beweisbilder** in `~/.cache/wov-tripo-test/`:
+`dungeon2-speckle-fix-vergleich.png` (Mittel neben Hoch nach dem Fix),
+`dungeon2-speckle-vorher-nachher.png` (Hoch vorher neben Hoch nachher, dieselbe
+Kamera) und `dungeon2-speckle-gang.png` (Gangansicht, drei Stände).
+
+### Die Lehre
+
+**Ein Beweisbild beweist erst, wenn jemand hineinsieht.** Der Satz „Kein
+Artefakt-Regen, nichts Kirmesbuntes" stand direkt über einem Bild, auf dem
+der Artefakt-Regen zu sehen ist. Alle Zeugen daneben stimmten — 19/19 Blöcke,
+`parallax {erlaubt: true, schritte: 6}`, 58–60 fps —, und genau deshalb hat
+die Zeugenliste hier nichts genützt: Sie belegt, dass der Effekt LÄUFT, nicht
+dass er RICHTIG läuft.
+
+**Und: eine Zahl ohne Einheit ist keine Zahl.** `parallaxTiefe: 0.04` war
+plausibel, solange niemand fragte, 0,04 wovon. Die Frage kostet einen Satz,
+die Antwort stand acht Wochen im Bild.

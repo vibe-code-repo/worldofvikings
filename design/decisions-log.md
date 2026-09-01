@@ -3249,3 +3249,89 @@ dass er RICHTIG läuft.
 **Und: eine Zahl ohne Einheit ist keine Zahl.** `parallaxTiefe: 0.04` war
 plausibel, solange niemand fragte, 0,04 wovon. Die Frage kostet einen Satz,
 die Antwort stand acht Wochen im Bild.
+
+## AP15 — Der Editor auf dem zellbasierten System (Meilenstein 2)
+
+Neue Betriebsart „Dungeon 2.0" im Karteneditor, parallel zum LEGACY-Dungeon-
+Werkzeug. Verteilt gebaut (Opus für Shader/Canvas-Mathematik, Sonnet für
+Netz-/Dienst-Fleiß), sieben Pakete, jedes mit rot-zuerst-Wächter.
+
+### Was die Kundschaftung falsch hatte — und der Code richtigstellte
+
+**Der `gebaut`-Kipp hängt NICHT am Architektur-Seed.** Die Vorab-Recherche
+behauptete, ein Dokument kippe nur bei Seed-Änderung von `erzeugt` auf
+`gebaut`. Der Code widerlegt das: `sanitizeDungeonDokument2` entscheidet den
+Modus allein aus `o.modus`, und der `erzeugt`-Zweig **verwirft jedes
+gesendete Layout** und baut aus den Seeds neu (`document.ts` ~L307–327). Eine
+Handkorrektur in einem `erzeugt`-Dokument hätte keinen Ort zum Wohnen und
+verschwände beim nächsten Materialisieren. Deshalb kippt jeder Handeingriff
+(`cellEdits.sicherstellenGebaut`) VOR dem Schreiben auf `gebaut` mit vollem
+Layout. Der Wächter belegt es empirisch, statt der Annahme zu glauben.
+
+**Kein neues Netzpaket.** Der Entwurf plante ein `DungeonZellenSave`. Der
+Server verzweigt aber längst im bestehenden `handleDungeonEditSave` über
+`istDokument2(raw)` auf `upsertDokument2` — 2.0 reist über denselben
+`DungeonEditSave`-Weg, das Dokument als JSON-String. Die uint32-Seed-Falle
+betrifft nur das Teleport-Paket, nicht diesen Weg (Seeds sind hier `Number`
+im JSON, die Store-Rundung passiert serverseitig).
+
+**Die echte Lücke war der Leseweg.** Der Betriebsdienst kannte 2.0-Dokumente
+nicht — der Alt-Sanitizer verlangt ein `base`-Feld, das 2.0 nie hat, also
+galt jede 2.0-Datei als kaputt. Neu: `/api/dungeons2[/:id]` gegen den
+2.0-Sanitizer; die Altrouten überspringen 2.0-Dateien jetzt (404 „anderes
+Format" statt 422 „kaputt"). Eigene Routen statt Format-Feld, weil der Server
+selbst zwei getrennte Dokument-Maps führt und der LEGACY-Client die 1.0-Kopf-
+form hart verdrahtet.
+
+### Andockung (AP15.7, von Hand)
+
+**Fit gegen Bearbeiten — der Diskriminator lag schon da.** Der Katalog ruft
+`zeichenflaeche.zeige(true)` nur beim Öffnen/Speichern/Anlegen, beim Pinseln
+nur `setzeLayout` (`Dungeon2Katalog.ts` Z.323 gegen Z.504). Also: Adapter-
+`setzeLayout` rollt nur neu aus (kein Kamera-Sprung beim Strich), Adapter-
+`zeige(true)` passt ein (frisch geöffneter Dungeon wird gerahmt). Ohne diesen
+Unterschied spränge die Ansicht bei jedem Pinselstrich auf Vollbild.
+
+**Babylon bleibt aus dem Erststart.** Wie `GegenstandsKatalog` wird die
+3D-Vorschau erst beim ersten Umschalten auf „3D" per `import()` geladen. Der
+`editor`-Chunk bleibt bei 159 kB; Babylon liegt in eigenen, nur bei Bedarf
+geladenen Chunks. Der leichte 2D-Teil (Canvas/Werkzeuge/Katalog, alle ohne
+Babylon) ist statisch.
+
+**3-Wege-Sichtbarkeit statt Bool.** Mit zwei Dungeon-Arten reicht das alte
+`zeigeDungeonBetrieb(an: boolean)` nicht. `zeigeFuerBetrieb(m)` blendet Blöcke
+nach Zugehörigkeit ein (Welt-Blöcke, LEGACY-Block, dungeon2-Container),
+zählt nicht auf — die nächste Weltsektion taucht so von selbst richtig auf.
+
+### Der Fehler, den erst der Browser zeigte
+
+**`baue()` vergessen.** Der Katalog-Konstruktor legt nur leere Sektions-
+Container an; erst `dungeon2Seite.baue()` zeichnet Liste, Dokument-Ansicht und
+das Anlegen-Formular (genau wie LEGACY `dungeonSeite.baue()`). Ohne den Aufruf
+standen die Sektions-Köpfe da, aber das Anlegen-Formular hatte null Felder —
+kein tsc-Fehler, kein Test schlug an (die Tests prüfen die reine Logik ohne
+DOM), erst der DOM-Dump im Browser (`inputs: 0`) deckte es auf. Lehre wie beim
+Sprenkel: grüne Tests plus sauberes tsc heißt nicht, dass das Zusammengesteckte
+im Fenster funktioniert — der Browser-Durchlauf gehört zur Abnahme.
+
+### Nachweis
+
+tsc sauber (client/shared/server/admin), Vite-Build grün (editor-Chunk 159 kB,
+Babylon ausgelagert), 92/95 Tests grün (dieselben drei bekannten roten). Im
+Browser Ende-zu-Ende geprüft ohne laufende Dienste: Betriebsart-Wechsel,
+Seitenleiste (Ansicht/Zellen-Werkzeuge/Raum-Stempel/Dokument/Anlegen), Welt-
+Fuß korrekt versteckt, „probe1" im Speicher angelegt → 2D-Canvas rendert die
+volle Zellgeometrie (538 384 gefärbte Pixel), 3D-Umschalter lädt Babylon nach
+und legt seine Canvas an — keine Konsolenfehler in irgendeinem Schritt.
+
+### Offen (bewusst, für die M2-Abnahme)
+
+- **Ambient je Dokument in der 3D-Vorschau:** heute fest `1`; `ambientLichtVon(doc)`
+  müsste beim Dokumentwechsel in die Atmosphäre gereicht werden (die Vorschau-
+  Steuerung sieht nur `layout`, nicht `doc`). Kleiner Nachzug in `Dungeon2Vorschau`.
+- **Kamerastand über Rebuilds halten:** die 3D-Vorschau zielt bei jedem Neubau
+  auf den Spawn statt den Blick zu behalten.
+- **Ende-zu-Ende gegen laufende Dienste** (Betriebsdienst-Liste, Speichern über
+  den Spielserver, Betreten): steht für Mikes Begehung auf wov-dev.
+- **Sektions-Reihenfolge:** Anlegen sitzt über den Werkzeugen; ggf. per
+  insertBefore hochziehen, sobald es im Bild stört.

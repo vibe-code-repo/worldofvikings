@@ -128,7 +128,18 @@ export class DungeonGodrays {
       if (this.schaechte.length === 0) return;
       const vls = new VolumetricLightScatteringPostProcess(
         'dungeon2Godrays',
-        VERHAELTNIS,
+        // WICHTIG: getrennte Verhaeltnisse. Eine EINZELNE Zahl setzt Babylon auf
+        // BEIDE — auch den finalen Composite —, und weil dieser Effekt kein
+        // Filter, sondern eine eigene Szenenpassage ist (Kopfkommentar), lief
+        // damit das ganze Bild auf Stufe Hoch in Viertel-Aufloesung und wurde
+        // hochskaliert (pixelig). `passRatio` haelt die billige Verdeckung klein,
+        // `postProcessRatio: 1` haelt das sichtbare Bild scharf.
+        // IMPORTANT: separate ratios. A SINGLE number sets BOTH — including the
+        // final composite — and since this effect is a scene pass, not a filter,
+        // that rendered the whole High-tier image at quarter resolution
+        // (pixelated). passRatio keeps the cheap occlusion small; postProcessRatio
+        // of 1 keeps the visible image sharp.
+        { passRatio: VERHAELTNIS, postProcessRatio: 1 },
         this.kamera,
         undefined,
         PROBEN,

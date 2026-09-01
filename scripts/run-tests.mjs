@@ -425,11 +425,47 @@ const KERN = [
   // misst STRECKE statt Zeit — Durchfallen, Hängenbleiben, Treppen,
   // Türdurchgänge. ~5 s, echtes Havok unter Node.
   ['client', 'test/dungeon2-laeufer.ts'],
+  // AP15.3/15.4/15.5: Die REINE Logik der Zellwerkzeuge des Editors — die
+  // Picking-Mathematik (Weltkoord->Zellindex und ->Kante, Zoom/Pan) und die
+  // Mutationen (Boden-Rasterung, Wandflag-Symmetrie über die kanonische Kante,
+  // Materialpinsel-Radius, Stempel-Rundlauf, das Gebaut-Kippen beim ersten
+  // Handeingriff). DOM-frei, Sekunden.
+  // AP15.3/15.4/15.5: the pure logic of the editor's cell tools — picking maths
+  // and mutations, DOM-free, seconds.
+  ['client', 'test/dungeon2-zellwerkzeuge.ts'],
+  // AP15.2: Die REINE Logik der Katalogseite (Laden/Speichern/Prüfen/Anlegen)
+  // — Antwort-Parser gegen `/api/dungeons2*` (gute und kaputte Einträge),
+  // die Speichern-Knopf-Zustandsmaschine (sauber→schmutzig→speichert→sauber,
+  // Fehlerfall bleibt schmutzig), die Prüf-Trockenlauf-Verzweigung 'erzeugt'
+  // vs. 'gebaut', ID-Muster und Zufalls-Seeds. DOM-frei, Sekunden.
+  // AP15.2: the PURE logic of the catalogue sidebar (load/save/check/create)
+  // — response parsers, the save-button state machine, the check-dry-run
+  // branch, id pattern and random seeds. DOM-free, seconds.
+  ['client', 'test/dungeon2-katalog.ts'],
+  // AP15.6: Die REINE Steuerung der eingebetteten 3D-Live-Vorschau
+  // (`vorschauSteuerung.ts`) — Entprellung (viele schnelle setzeLayout → EIN
+  // Neubau nach Ruhe), die Zustandsmaschine sichtbar/unsichtbar ↔ Render-
+  // Schleife an/aus, und dispose-Idempotenz (keine Schleife/kein Zeitgeber
+  // danach). KEIN WebGL/Babylon/DOM: 3D ist in Node nicht render-testbar, die
+  // Zustandslogik ist es sehr wohl. Über Attrappen für Treiber und Zeitgeber.
+  // DOM-frei, Zehntelsekunden.
+  // AP15.6: the PURE control of the embedded 3D live preview — debounce,
+  // visible↔loop state machine, dispose idempotency. No WebGL/Babylon/DOM.
+  ['client', 'test/dungeon2-vorschau.ts'],
   // AP13: Der Adapter an die Instanz-Infrastruktur über echte Pakete —
   // Teleport mit Thema/Seeds/Prüfsumme, Betreten/Verlassen ×20 ohne
   // ZDO-Leck, Anker-Änderung ohne Instanz-Abriss, ZDO-Zahl alt gegen neu.
   // ~10 s (die Leitungsrunden warten auf die AdminCommand-Drossel).
   ['server', 'test/g9-dungeon2-e2e.ts'],
+  // AP15.1: Client-Speicherweg des Editors (`Dungeon2Speichern.ts`) gegen
+  // einen echten WovServer — echter GameSocket, echter Handshake, echtes
+  // DungeonEditSave/DungeonEditData-Paket, echte Weiche im Sanitizer.
+  // Erfolg mit servergeprüfter Prüfsumme, Ablehnung (unbekanntes Thema) ohne
+  // Server-Seiteneffekt, und ein unerreichbarer Server läuft sauber in den
+  // Timeout statt zu hängen. ~10 s (der letzte Fall wartet FRIST_MS aus).
+  // AP15.1: the editor's client save path against a real WovServer — real
+  // GameSocket, real handshake, real packet pair, real sanitizer switch.
+  ['server', 'test/dungeon2-speichern-e2e.ts'],
 ];
 
 const LANG = [

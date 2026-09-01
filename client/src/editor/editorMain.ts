@@ -42,6 +42,7 @@ import {
   SUMPF_FLORA_NAMEN,
   HOCHNORD_FLORA_NAMEN,
   ASCHE_FLORA_NAMEN,
+  dungeon2,
   type BiomeName,
   type ContinentDef,
   type RegionDef,
@@ -51,6 +52,16 @@ import { setzeKartenMasse, type MapWorkerMessage } from '../ui/worldmap/mapTypes
 import { EditorShell } from './Shell';
 import { DungeonGrundriss } from './DungeonGrundriss';
 import { DungeonSeite } from './DungeonKatalog';
+// Dungeon Generator 2.0 (AP15.7): der leichte 2D-Teil wird statisch geladen,
+// die Babylon-schwere 3D-Vorschau erst beim ersten Umschalten auf „3D"
+// (dynamischer import, wie bei GegenstandsKatalog).
+// Dungeon Generator 2.0: the light 2D part is static, the Babylon-heavy 3D
+// preview is loaded on first switch to "3D" (dynamic import).
+import { CellCanvas } from './dungeon2/CellCanvas';
+import { CellTools, type WerkzeugHost } from './dungeon2/CellTools';
+import { RoomStampPalette } from './dungeon2/RoomStampPalette';
+import { Dungeon2Seite, type Dungeon2Zeichenflaeche } from './dungeon2/Dungeon2Katalog';
+import type { Dungeon2Vorschau } from './dungeon2/Dungeon2Vorschau';
 import { befundSchwere } from './befundSchwere';
 import {
   alter,
@@ -456,6 +467,162 @@ const dungeonSeite = new DungeonSeite(dungeonSeiteBehaelter, dungeonGrundriss, {
   meldung: (text, fehler) => shell.meldung(text, fehler),
 });
 dungeonSeite.baue();
+
+// ── Betriebsart „Dungeon 2.0" (AP15.7) ────────────────────────────────
+// Eigener Container in der Seitenmitte: Die 3-Wege-Sichtbarkeit
+// (Welt / dungeons / dungeon2) blendet EINEN Block ein/aus, statt einzelne
+// Sektionen aufzuzaehlen — dieselbe Lehre wie beim LEGACY-Dungeon-Block.
+// Own container in the sidebar middle so the 3-way visibility toggles ONE
+// block instead of enumerating sections.
+const seitenmitteEl = dungeonSeiteBehaelter.parentElement!.parentElement!;
+const dungeon2Behaelter = document.createElement('div');
+seitenmitteEl.appendChild(dungeon2Behaelter);
+
+// Shell-Adapter: `sektion()` baut den Block ueber die echte Shell und
+// verschiebt ihn in unseren Container — identische Sektions-Optik, ohne sie
+// nachzubauen. `seitenkopf` bleibt leer, weil `seitenkopfSetzen()` den Kopf
+// aus KOPF_JE_BETRIEBSART fuehrt.
+// Shell adapter: build sections via the real shell, then relocate them.
+const dungeon2Shell = {
+  seitenkopf: (_titel: string, _text: string): void => {},
+  sektion: (titel: string, offen = true): HTMLDivElement => {
+    const inhalt = shell.sektion(titel, offen);
+    const block = inhalt.parentElement;
+    if (block) dungeon2Behaelter.appendChild(block);
+    return inhalt;
+  },
+  meldung: (text: string, fehler?: boolean): void => shell.meldung(text, fehler),
+};
+
+// Die 2D-Zeichenflaeche (Zellen) ist leichtgewichtig — sofort angelegt.
+// The 2D cell canvas is lightweight — created immediately.
+const cellCanvas = new CellCanvas(flaeche, { meldung: (t, f) => shell.meldung(t, f) });
+
+// Die 3D-Vorschau zieht Babylon (~2 MB); wie GegenstandsKatalog erst beim
+// ersten Umschalten auf „3D" geladen. / Loaded on first switch to "3D".
+let dungeon2Vorschau: Dungeon2Vorschau | null = null;
+let dungeon2Ansicht: '2d' | '3d' = '2d';
+
+// Adapter, der beide Ansichten speist: `setzeLayout` rollt nur neu aus
+// (Bearbeiten — kein Kamera-Sprung), `zeige(true)` rahmt ein frisch
+// geoeffnetes Dokument ein. Der Katalog ruft `zeige(true)` NUR beim
+// Oeffnen/Speichern/Anlegen, nie beim Pinseln (Dungeon2Katalog.ts Z.323
+// gegen Z.504) — genau der Diskriminator, den wir brauchen.
+// Adapter feeding both views: setzeLayout re-rolls only (edit, no jump),
+// zeige(true) frames a freshly opened document.
+const dungeon2Zeichenflaeche: Dungeon2Zeichenflaeche = {
+  setzeLayout: (layout) => {
+    cellCanvas.aktualisiere(layout);
+    dungeon2Vorschau?.setzeLayout(layout);
+  },
+  zeige: (an) => {
+    if (an && dungeon2Ansicht === '2d') cellCanvas.passeEin();
+  },
+};
+
+// Der Katalog liest ueber den Betriebsdienst und speichert ueber den
+// Spielserver. Werkzeugandockung: Ein Dokumentwechsel waehlt laufende
+// Pinsel ab. / Catalogue reads via ops service, saves via game server.
+const dungeon2Seite = new Dungeon2Seite(dungeon2Shell, {
+  zeichenflaeche: dungeon2Zeichenflaeche,
+  werkzeuge: {
+    aufDokumentGewechselt: () => {
+      cellTools.abwaehlen();
+      roomStampPalette.abwaehlen();
+    },
+  },
+});
+
+// Gemeinsamer Werkzeug-Wirt: liest das aktuelle Dokument aus dem Katalog,
+// schreibt Handarbeit ueber `uebernehmeBearbeitung` zurueck (markiert
+// schmutzig, aktualisiert Zeichenflaeche + Seitenleiste).
+// Shared tool host: reads the current document, writes edits back.
+const dungeon2Wirt: WerkzeugHost = {
+  hole: () => dungeon2Seite.dokument(),
+  setze: (neu) => dungeon2Seite.uebernehmeBearbeitung(neu),
+  meldung: (t, f) => shell.meldung(t, f),
+};
+const cellTools = new CellTools(cellCanvas, dungeon2Wirt);
+const roomStampPalette = new RoomStampPalette(cellCanvas, dungeon2Wirt);
+
+// Ansichts-Umschalter 2D/3D. Der 3D-Zweig laedt die Vorschau bei Bedarf
+// nach und uebergibt ihr das aktuell geoeffnete Layout.
+// 2D/3D view switch. The 3D branch lazy-loads the preview on demand.
+const dungeon2AnsichtSektion = dungeon2Shell.sektion('Ansicht');
+const dungeon2WerkzeugSektion = dungeon2Shell.sektion('Zellen-Werkzeuge');
+dungeon2WerkzeugSektion.appendChild(cellTools.element());
+const dungeon2StempelSektion = dungeon2Shell.sektion('Raum-Stempel', false);
+dungeon2StempelSektion.appendChild(roomStampPalette.element());
+
+const setzeDungeon2Ansicht = async (a: '2d' | '3d'): Promise<void> => {
+  dungeon2Ansicht = a;
+  if (a === '3d' && dungeon2Vorschau === null) {
+    shell.meldung('3D-Vorschau wird geladen …');
+    const mod = await import('./dungeon2/Dungeon2Vorschau');
+    dungeon2Vorschau = new mod.Dungeon2Vorschau(flaeche, {
+      meldung: (t, f) => shell.meldung(t, f),
+    });
+    const doc = dungeon2Seite.dokument();
+    if (doc) dungeon2Vorschau.setzeLayout(dungeon2.layoutVonDokument2(doc));
+  }
+  const imDungeon2 = betriebsart === 'dungeon2';
+  cellCanvas.zeige(imDungeon2 && a === '2d');
+  dungeon2Vorschau?.zeige(imDungeon2 && a === '3d');
+  baueDungeon2AnsichtSchalter();
+};
+
+function baueDungeon2AnsichtSchalter(): void {
+  const reihe = el('div', stil({ display: 'flex', gap: '8px' }));
+  reihe.append(
+    knopf('2D-Grundriss', () => void setzeDungeon2Ansicht('2d'), {
+      art: dungeon2Ansicht === '2d' ? 'bronze' : 'flaeche',
+    }),
+    knopf('3D-Vorschau', () => void setzeDungeon2Ansicht('3d'), {
+      art: dungeon2Ansicht === '3d' ? 'bronze' : 'flaeche',
+    })
+  );
+  dungeon2AnsichtSektion.replaceChildren(reihe);
+}
+baueDungeon2AnsichtSchalter();
+
+// Katalog-Sektionen fuellen (Liste, Dokument, „Neu anlegen"). Wie beim
+// LEGACY-`dungeonSeite.baue()`: Der Konstruktor legt nur leere Container an,
+// erst `baue()` zeichnet ihren Inhalt.
+// Populate the catalogue sections; the constructor only makes empty
+// containers, baue() draws their content (like LEGACY dungeonSeite.baue()).
+dungeon2Seite.baue();
+
+/**
+ * 3-Wege-Sichtbarkeit: Welt-Bearbeitung, LEGACY-Dungeon, Dungeon 2.0.
+ *
+ * Ersetzt das fruehere `zeigeDungeonBetrieb(an)`: Mit zwei Dungeon-Arten
+ * reicht ein Bool nicht mehr. Bloecke werden nach Zugehoerigkeit ein-
+ * geblendet (Welt-Bloecke, der LEGACY-Block, unser dungeon2-Container),
+ * nicht aufgezaehlt — die naechste Weltsektion taucht so von selbst richtig
+ * auf. `sektion()` gibt den INHALT zurueck; der Block samt Kopf ist dessen
+ * Elternteil.
+ * 3-way visibility: world editing, LEGACY dungeon, Dungeon 2.0.
+ */
+const zeigeFuerBetrieb = (m: SeitenBetriebsart): void => {
+  const welt = m !== 'dungeons' && m !== 'dungeon2';
+  vorschau.style.display = welt ? 'block' : 'none';
+  overlay.style.display = welt ? 'block' : 'none';
+  dungeonGrundriss.zeige(m === 'dungeons');
+  const imDungeon2 = m === 'dungeon2';
+  cellCanvas.zeige(imDungeon2 && dungeon2Ansicht === '2d');
+  dungeon2Vorschau?.zeige(imDungeon2 && dungeon2Ansicht === '3d');
+  const legacyBlock = dungeonSeiteBehaelter.parentElement;
+  for (const kind of [...seitenmitteEl.children]) {
+    let sichtbar: boolean;
+    if (kind === legacyBlock) sichtbar = m === 'dungeons';
+    else if (kind === dungeon2Behaelter) sichtbar = imDungeon2;
+    else sichtbar = welt;
+    (kind as HTMLElement).style.display = sichtbar ? '' : 'none';
+  }
+  // Der Leisten-Fuss („Region hinzufuegen" + Papierkorb) handelt von
+  // Weltinseln — im Dungeon zielte er auf eine nicht sichtbare Karte.
+  shell.seitenfuss.style.display = welt ? '' : 'none';
+};
 
 // ── Schwebende Bedienflächen über der Karte (KartenHud.ts) ────────────
 // NACH den beiden Zeichenflächen eingehängt: Die Reihenfolge im DOM
@@ -1210,7 +1377,14 @@ let suchFokus = false;
  * Werkzeug. „Testflug" ist deshalb auch keine Betriebsart, die stehen
  * bleibt, sondern eine Handlung (s. `testflug()`).
  */
-type SeitenBetriebsart = 'terrain' | 'gewaesser' | 'objekte' | 'biome' | 'routen' | 'dungeons';
+type SeitenBetriebsart =
+  | 'terrain'
+  | 'gewaesser'
+  | 'objekte'
+  | 'biome'
+  | 'routen'
+  | 'dungeons'
+  | 'dungeon2';
 let betriebsart: SeitenBetriebsart = 'terrain';
 const KOPF_JE_BETRIEBSART: Record<SeitenBetriebsart, readonly [string, string]> = {
   terrain: [
@@ -1236,6 +1410,11 @@ const KOPF_JE_BETRIEBSART: Record<SeitenBetriebsart, readonly [string, string]> 
   dungeons: [
     'Dungeons',
     'Grundriss von oben. Klick wählt einen Raum, Rad zoomt, Ziehen verschiebt.',
+  ],
+  dungeon2: [
+    'Dungeons 2.0',
+    'Gelesen über den Betriebsdienst, gespeichert über den Spielserver. ' +
+      'Zellen pinseln oder Räume stempeln — 2D-Grundriss oder 3D-Vorschau.',
   ],
 };
 
@@ -2549,49 +2728,18 @@ function kartenMassBauen(): void {
  * einem anderen Fenster statt — hier ändert sich nichts.
  */
 {
-  /**
-   * Karte und Grundriss schliessen einander aus.
-   *
-   * Sichtbar gemacht wird ueber `display`, nicht durch Abbauen: Der
-   * Grundriss behaelt so seinen Massstab und seine Mitte, und wer zwischen
-   * Welt und Dungeon hin und her schaltet, findet den Ausschnitt wieder,
-   * den er verlassen hat.
-   *
-   * Die Seitenleiste zieht mit: `seite` und `weltSeite` gehoeren zur
-   * Weltbearbeitung und haetten im Dungeon keine einzige gueltige Zeile.
-   */
-  const zeigeDungeonBetrieb = (an: boolean): void => {
-    vorschau.style.display = an ? 'none' : 'block';
-    overlay.style.display = an ? 'none' : 'block';
-    dungeonGrundriss.zeige(an);
-    // Verborgen wird die ganze Seitenleiste bis auf EINE Sektion, statt
-    // die Weltsektionen einzeln aufzuzaehlen.
-    //
-    // Der erste Versuch zaehlte `seite` und `weltSeite` auf — und liess
-    // „Pruefbericht" und „Landflaeche" im Dungeon stehen, wo sie ueber
-    // Inseln und Ueberlappungen der WELT sprachen. Eine Aufzaehlung ist
-    // hier grundsaetzlich falsch: Die naechste Sektion, die jemand
-    // hinzufuegt, taucht wieder auf, und niemand denkt beim Anlegen einer
-    // Weltsektion an die Dungeon-Betriebsart.
-    //
-    // `sektion()` gibt den INHALT zurueck; der Block samt Kopfzeile ist
-    // dessen Elternteil — sonst bliebe eine Ueberschrift ohne Inhalt.
-    const meinBlock = dungeonSeiteBehaelter.parentElement;
-    for (const kind of [...(meinBlock?.parentElement?.children ?? [])]) {
-      (kind as HTMLElement).style.display = (kind === meinBlock) === an ? '' : 'none';
-    }
-    // Der Fuss der Leiste steht ausserhalb der Sektionen und traegt
-    // „Region hinzufuegen" samt Papierkorb. Beide handeln von Inseln der
-    // Weltkarte; im Dungeon setzte der Knopf ein Werkzeug scharf, das auf
-    // eine Karte zielt, die gerade gar nicht zu sehen ist.
-    shell.seitenfuss.style.display = an ? 'none' : '';
-  };
+  // Karte, LEGACY-Grundriss und Dungeon-2.0-Ansichten schliessen einander
+  // aus; umgeschaltet wird ueber `display` (Massstab/Mitte bleiben erhalten).
+  // Die 3-Wege-Sichtbarkeit steht weiter oben als `zeigeFuerBetrieb` — sie
+  // muss die dungeon2-Bausteine kennen, die dort entstehen.
+  // Map, LEGACY floor plan and Dungeon 2.0 views are mutually exclusive; see
+  // `zeigeFuerBetrieb` above.
 
   const stelleEin = (id: SeitenBetriebsart, filter: FilterId, w?: WerkzeugId): void => {
     betriebsart = id;
     filterMarke = filter;
     if (w) werkzeug = w;
-    zeigeDungeonBetrieb(id === 'dungeons');
+    zeigeFuerBetrieb(id);
     // Die Spalte faerbt sich NICHT von selbst um: `shell.betriebsart()`
     // meldet den Klick nur, damit ein abgelehnter Wechsel die Leiste nicht
     // schon umgestellt hat, bevor er scheitert (Kommentar dort). Hier wird
@@ -2622,14 +2770,21 @@ function kartenMassBauen(): void {
     // Knopf daneben.
     void dungeonSeite.laden();
   });
+  shell.betriebsart('dungeon2', 'Dungeon 2.0', PFAD.dungeon2, () => {
+    stelleEin('dungeon2', 'alle');
+    // Wie bei „Dungeons": beim ersten Oeffnen die 2.0-Liste vom
+    // Betriebsdienst holen, danach nur auf Knopfdruck.
+    // Like "Dungeons": fetch the 2.0 list on first open, then on demand.
+    void dungeon2Seite.laden();
+  });
   shell.betriebsart('flug', 'Testflug', PFAD.flug, () => {
     testflug();
     shell.setzeBetriebsart(betriebsart);
   });
   shell.setzeBetriebsart(betriebsart);
   seitenkopfSetzen();
-  // Startzustand: Welt sichtbar, Dungeon-Bereich verborgen.
-  zeigeDungeonBetrieb(false);
+  // Startzustand: Welt sichtbar, beide Dungeon-Bereiche verborgen.
+  zeigeFuerBetrieb(betriebsart);
 
   // Fuß der Symbolspalte. Der Entwurf zeigt hier zwei Sinnbilder; das
   // zweite (Zahnrad) hat im Editor kein Gegenstück und bleibt weg.

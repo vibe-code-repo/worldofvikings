@@ -224,6 +224,10 @@ export const PFAD = {
   // das, was die Betriebsart zeigt, und nicht ein Totenkopf, der von
   // Gegnern spraeche, die es dort nicht gibt.
   dungeons: 'M3 4h8v7H3z M13 4h8v7h-8z M3 13h18v7H3z M11 7.5h2',
+  // Dungeon 2.0: ein Zellenraster (3x3) statt der Kammern — die neue
+  // Betriebsart arbeitet zellbasiert, nicht raumbasiert.
+  // Dungeon 2.0: a 3x3 cell grid, not chambers — the mode is cell-based.
+  dungeon2: 'M3 3h18v18H3z M9 3v18 M15 3v18 M3 9h18 M3 15h18',
   // Zeichenwerkzeuge der Seitenleiste
   inselForm: 'M4 16l4-5 3 3 3-4 6 6z',
   polygon: 'M6 4l14 5-4 11-9-2z',

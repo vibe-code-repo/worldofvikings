@@ -30,6 +30,14 @@ import { fileURLToPath } from 'node:url';
 import { sanitizeWorldLayout } from '@wov/shared/src/worldlayout/sanitize.js';
 import { layoutSichern, layoutText } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import type { WorldLayout } from '@wov/shared/src/worldlayout/types.js';
+// AP15.0: Wächter für GET /api/dungeons2 und GET /api/dungeons2/:id — ein
+// echtes 2.0-Dokument erzeugen statt eines von Hand getippten Objekts, damit
+// die Testdatei nicht das Layoutformat nachbaut und beim nächsten Umbau
+// dessen Feldern hinterherläuft.
+// AP15.0: guard for GET /api/dungeons2 and GET /api/dungeons2/:id — build a
+// real 2.0 document instead of a hand-typed object, so this test file does
+// not re-implement the layout format.
+import { erzeugeDokument2, layoutVonDokument2 } from '@wov/shared/src/dungeon2/document.js';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const ADMIN = resolve(HIER, '..');
@@ -484,6 +492,128 @@ try {
     ausbruch.code === 400,
     `= ${ausbruch.code} ${ausbruch.text.slice(0, 80)}`
   );
+
+  // 11) Dungeon-Dokumente 2.0 lesen (AP15.0).
+  //
+  // DER WÄCHTER: `/api/dungeons2` existiert vor diesem AP nicht — der
+  // Aufruf faellt auf die Weiche ganz unten und liefert 404 „unbekannter
+  // Endpunkt". Ohne die neue Route waeren die folgenden Pruefungen also
+  // ROT (200 erwartet, 404 bekommen). Erst die Route macht sie GRUEN.
+  //
+  // THE GUARD: `/api/dungeons2` does not exist before this AP — the call
+  // falls through to the bottom switch and returns 404 "unknown endpoint".
+  // Without the new route the checks below are RED (200 expected, 404
+  // received); only the route turns them GREEN.
+  const SEEDS = { architektur: 1, material: 2, deko: 3 };
+  const erzeugt = erzeugeDokument2('probe2-erzeugt', 'Probe Erzeugt', 'steingrab', SEEDS);
+  if (erzeugt === null) throw new Error('erzeugeDokument2 lieferte null — Thema "steingrab" gibt es nicht mehr?');
+  writeFileSync(resolve(DUNGEONS, `${erzeugt.id}.json`), JSON.stringify(erzeugt, null, 1));
+
+  // Ein 'gebaut'-Dokument: dasselbe Layout, aber mitgeliefert statt aus
+  // Seeds hergestellt — damit die Liste eine Raum-/Tuerzahl zeigen kann,
+  // ohne den Generator anzuwerfen.
+  // A 'gebaut' document: same layout, but shipped instead of derived from
+  // seeds — so the list can show a room/door count without invoking the
+  // generator.
+  const layoutGebaut = layoutVonDokument2(erzeugt);
+  if (layoutGebaut === null) throw new Error('layoutVonDokument2(erzeugt) lieferte null');
+  const gebautRoh = {
+    version: erzeugt.version,
+    id: 'probe2-gebaut',
+    name: 'Probe Gebaut',
+    modus: 'gebaut',
+    thema: erzeugt.thema,
+    seeds: erzeugt.seeds,
+    layout: layoutGebaut,
+    pruefsumme: erzeugt.pruefsumme,
+    layoutVersion: erzeugt.layoutVersion,
+  };
+  writeFileSync(resolve(DUNGEONS, 'probe2-gebaut.json'), JSON.stringify(gebautRoh, null, 1));
+
+  // Ein unlesbares 2.0-Dokument — ueber der Weiche (version >= 10), aber
+  // mit einem Thema, das es nicht gibt.
+  // An unreadable 2.0 document — above the switch, but with a theme that
+  // does not exist.
+  writeFileSync(
+    resolve(DUNGEONS, 'probe2-kaputt.json'),
+    JSON.stringify({ version: 11, id: 'probe2-kaputt', name: 'x', modus: 'erzeugt', thema: 'gibtsnicht', seeds: SEEDS })
+  );
+
+  // 11a) Die Alt-Routen bleiben blind fuer 2.0-Dokumente — nicht "kaputt",
+  // sondern gar nicht erst gezaehlt.
+  const alteListe = await anfrage({ port, pfad: '/api/dungeons' });
+  const alteEintraege = (alteListe.daten.dungeons ?? []) as { id: string }[];
+  check(
+    '1.0-Liste zaehlt weiterhin nur das 1.0-Dokument',
+    alteListe.code === 200 && alteEintraege.length === 1 && alteEintraege[0]?.id === 'probe-1',
+    `= ${alteListe.code} ${JSON.stringify(alteEintraege)}`
+  );
+  const alteEinzeln = await anfrage({ port, pfad: `/api/dungeons/${erzeugt.id}` });
+  check(
+    '1.0-Einzelabruf auf eine 2.0-ID → 404, nicht 422',
+    alteEinzeln.code === 404,
+    `= ${alteEinzeln.code} ${alteEinzeln.text.slice(0, 80)}`
+  );
+
+  // 11b) Liste.
+  const liste2 = await anfrage({ port, pfad: '/api/dungeons2' });
+  const eintraege2 = (liste2.daten.dungeons ?? []) as Record<string, unknown>[];
+  check('2.0-Liste → 200', liste2.code === 200, `= ${liste2.code} ${liste2.text.slice(0, 120)}`);
+  check(
+    '2.0-Liste zaehlt genau die zwei guten Dokumente',
+    eintraege2.length === 2,
+    `= ${eintraege2.length} ${JSON.stringify(eintraege2)}`
+  );
+  check(
+    '2.0-Liste meldet das kaputte Dokument, statt daran zu scheitern',
+    String(liste2.daten.message ?? '').includes('probe2-kaputt.json')
+  );
+  const kopfErzeugt = eintraege2.find((e) => e.id === erzeugt.id);
+  check(
+    'Kopf des erzeugten Dokuments traegt Thema/Modus/Version/ambientLicht/Pruefsumme',
+    !!kopfErzeugt &&
+      kopfErzeugt.thema === 'steingrab' &&
+      kopfErzeugt.modus === 'erzeugt' &&
+      kopfErzeugt.version === erzeugt.version &&
+      typeof kopfErzeugt.ambientLicht === 'number' &&
+      kopfErzeugt.pruefsumme === erzeugt.pruefsumme,
+    JSON.stringify(kopfErzeugt)
+  );
+  check(
+    'erzeugtes Dokument traegt KEINE Raum-/Tuerzahl (kein Vollausbau in der Liste)',
+    !!kopfErzeugt && kopfErzeugt.raeume === undefined && kopfErzeugt.tueren === undefined
+  );
+  const kopfGebaut = eintraege2.find((e) => e.id === 'probe2-gebaut');
+  check(
+    'gebautes Dokument traegt Raum-/Tuerzahl aus dem mitgelieferten Layout',
+    !!kopfGebaut &&
+      kopfGebaut.raeume === layoutGebaut.stempel.length &&
+      kopfGebaut.tueren === layoutGebaut.tueren.length,
+    JSON.stringify(kopfGebaut)
+  );
+
+  // 11c) Einzeldokument.
+  const einzeln2 = await anfrage({ port, pfad: `/api/dungeons2/${erzeugt.id}` });
+  check('2.0-Einzeldokument → 200', einzeln2.code === 200, `= ${einzeln2.code} ${einzeln2.text.slice(0, 80)}`);
+  check(
+    '2.0-Einzeldokument ist durch den 2.0-Sanitizer gelaufen',
+    (einzeln2.daten.dungeon as { pruefsumme?: string } | undefined)?.pruefsumme === erzeugt.pruefsumme
+  );
+  const fehlend2 = await anfrage({ port, pfad: '/api/dungeons2/gibtesnicht' });
+  check('2.0 unbekannte ID → 404', fehlend2.code === 404, `= ${fehlend2.code}`);
+  const kaputt2 = await anfrage({ port, pfad: '/api/dungeons2/probe2-kaputt' });
+  check('2.0 unbrauchbares Dokument → 422', kaputt2.code === 422, `= ${kaputt2.code}`);
+  const alteAlsNeu = await anfrage({ port, pfad: '/api/dungeons2/probe-1' });
+  check(
+    '2.0-Einzelabruf auf eine 1.0-ID → 404, nicht 422',
+    alteAlsNeu.code === 404,
+    `= ${alteAlsNeu.code} ${alteAlsNeu.text.slice(0, 80)}`
+  );
+
+  // Derselbe Riegel wie bei /api/dungeons — die ID wird auch hier zum
+  // Dateinamen.
+  const weg2 = await anfrage({ port, pfad: '/api/dungeons2/..%2F..%2F..%2Fetc%2Fpasswd' });
+  check('2.0-Riegel weist Pfadausbruch ab', weg2.code === 400, `= ${weg2.code}`);
 } finally {
   kind.kill('SIGTERM');
   rmSync(ORDNER, { recursive: true, force: true });

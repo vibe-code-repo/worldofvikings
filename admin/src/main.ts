@@ -77,6 +77,21 @@ import {
 // stillschweigend wegfallen, und dann zeichnete der Grundriss etwas, das
 // es im Spiel nicht gibt.
 import { sanitizeDungeonDocument } from '@wov/shared/src/dungeons.js';
+// AP15.0: derselbe Lese-Grundsatz fuer das 2.0-Format. Direktimport an
+// shared/src/dungeon2/index.ts vorbei, aus demselben Grund wie bei
+// dungeons.js eine Zeile hoeher — nur dass hier NICHTS mitgezogen wird
+// (document.ts importiert dungeons.ts absichtlich nicht, s. Kopfkommentar
+// dort), der Direktimport ist also Konsistenz, keine Notwendigkeit.
+// AP15.0: the same read principle for the 2.0 format. Direct import past
+// the barrel, same reason as dungeons.js one line up — except this one
+// pulls nothing extra in (document.ts deliberately does not import
+// dungeons.ts), so the direct import is consistency, not necessity.
+import {
+  istDokument2,
+  sanitizeDungeonDokument2,
+  ambientLichtVon,
+  type DungeonDokument2,
+} from '@wov/shared/src/dungeon2/document.js';
 // G12: Betriebsmetriken -- admin/ MISST nichts selbst (eigener Prozess,
 // kein Zugriff auf den Spielserver-Zustand), sondern liest nur die Datei,
 // die der Spielserver einmal je Sekunde schreibt, und formatiert sie mit
@@ -628,6 +643,12 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
       if (!datei.endsWith('.json') || datei === 'entrances.json') continue;
       try {
         const roh = JSON.parse(readFileSync(resolve(DUNGEON_ORDNER, datei), 'utf-8'));
+        // AP15.0: Ein 2.0-Dokument ist hier nicht „kaputt", es ist nur am
+        // falschen Schalter. Dieselbe Weiche wie im Spielserver-Loader
+        // (DungeonManager.load) — s. GET /api/dungeons2 weiter unten.
+        // AP15.0: a 2.0 document is not "broken" here, it is simply at the
+        // wrong switch. Same fork as the game server's loader.
+        if (istDokument2(roh)) continue;
         const doc = sanitizeDungeonDocument(roh);
         if (!doc) {
           kaputt.push(datei);
@@ -677,12 +698,22 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
       const fehlt = `Dungeon ${id} nicht gefunden (Instanz ${INSTANZ})`;
       return { code: 404, daten: { ok: false, fehler: fehlt, message: fehlt } };
     }
-    let doc: ReturnType<typeof sanitizeDungeonDocument> = null;
+    let roh: unknown;
     try {
-      doc = sanitizeDungeonDocument(JSON.parse(readFileSync(datei, 'utf-8')));
+      roh = JSON.parse(readFileSync(datei, 'utf-8'));
     } catch {
-      doc = null;
+      roh = null;
     }
+    // AP15.0: Ein 2.0-Dokument unter dieser ID ist fuer DIESEN Endpunkt
+    // nicht vorhanden, nicht kaputt — es gehoert zu GET /api/dungeons2/:id.
+    // 404 statt 422 sagt „falscher Weg", nicht „Dokument beschaedigt".
+    // AP15.0: a 2.0 document under this id does not EXIST for THIS
+    // endpoint, it is not broken — it belongs to GET /api/dungeons2/:id.
+    if (roh !== null && istDokument2(roh)) {
+      const fehlt = `Dungeon ${id} nicht gefunden (Instanz ${INSTANZ})`;
+      return { code: 404, daten: { ok: false, fehler: fehlt, message: fehlt } };
+    }
+    const doc = roh === null ? null : sanitizeDungeonDocument(roh);
     if (!doc) {
       const kaputt = `${id}.json ist unbrauchbar (Basis, ID oder Raeume ungueltig)`;
       return { code: 422, daten: { ok: false, fehler: kaputt, message: kaputt } };
@@ -692,6 +723,138 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
       daten: {
         ok: true,
         message: `${doc.id}: ${doc.layout.rooms.length} Raum/Raeume, ${doc.layout.doors.length} Tuer(en), ${doc.layout.props.length} Deko`,
+        instanz: INSTANZ,
+        dungeon: doc,
+      },
+    };
+  }
+
+  // ── Dungeon-Dokumente 2.0 (AP15.0, nur lesen) ──
+  //
+  // EIGENE Routen statt eines Format-Feldes an den obigen — aus demselben
+  // Grund, aus dem `DungeonManager` zwei Karten statt einer mit Union-Typ
+  // haelt (s. Kommentar dort): Der Legacy-Client
+  // (`client/src/editor/DungeonDokument.ts`, holeDungeonListe/holeDungeon)
+  // erwartet an `/api/dungeons` fest die Kopf-Form { base, mode, seed,
+  // raeume, tueren, deko } und an `/api/dungeons/:id` ein volles
+  // DungeonDocument mit `layout.rooms`. Ein 2.0-Dokument hat weder `base`
+  // noch zwingend ein `layout` (Modus 'erzeugt' traegt nur Seeds) — jede
+  // gemeinsame Antwortform waere entweder fuer den Alt-Client eine Luecke
+  // (Felder fehlen) oder fuer den 2.0-Client eine Verrenkung (Felder, die
+  // nichts bedeuten). Zwei Routen sind die Aussage „zwei Formate" noch
+  // einmal, diesmal auf HTTP-Ebene, und der kommende 2.0-Katalog-Client
+  // (AP15.2) kann direkt gegen sie tippen, ohne ein `format`-Feld pruefen
+  // zu muessen.
+  //
+  // OWN routes instead of a format field on the ones above — the same
+  // reason `DungeonManager` keeps two maps rather than a union type: the
+  // legacy client expects a fixed head shape at `/api/dungeons` and a full
+  // DungeonDocument at `/api/dungeons/:id`. A 2.0 document has neither
+  // `base` nor necessarily a `layout`. Two routes state "two formats" once
+  // more, this time at the HTTP level, and the upcoming 2.0 catalogue
+  // client (AP15.2) can type against them directly.
+  if (pfad === '/api/dungeons2' && methode === 'GET') {
+    if (!existsSync(DUNGEON_ORDNER)) {
+      return {
+        code: 200,
+        daten: { ok: true, message: `Keine 2.0-Dungeons (Instanz ${INSTANZ})`, instanz: INSTANZ, dungeons: [] },
+      };
+    }
+    const liste: unknown[] = [];
+    const kaputt: string[] = [];
+    for (const datei of readdirSync(DUNGEON_ORDNER)) {
+      if (!datei.endsWith('.json') || datei === 'entrances.json') continue;
+      try {
+        const roh = JSON.parse(readFileSync(resolve(DUNGEON_ORDNER, datei), 'utf-8'));
+        if (!istDokument2(roh)) continue; // gehoert zu /api/dungeons, nicht hierher / belongs to /api/dungeons, not here
+        const doc = sanitizeDungeonDokument2(roh);
+        if (!doc) {
+          kaputt.push(datei);
+          continue;
+        }
+        // Raum-/Tuerzahl NUR bei modus 'gebaut': Dort steht das Layout
+        // schon im Dokument, Zaehlen kostet nichts. Bei 'erzeugt' fehlt es
+        // und muesste der Generator erst herstellen — fuer eine Liste, die
+        // ueber ALLE Dungeons laeuft, waere das der teure Vollausbau, den
+        // die Aufgabe ausdruecklich vermeiden will.
+        // Room/door count ONLY for modus 'gebaut': there the layout already
+        // sits in the document, counting is free. For 'erzeugt' it is
+        // absent and the generator would first have to produce it — across
+        // ALL dungeons in a list, that is exactly the expensive full build
+        // this endpoint must avoid.
+        const kennzahlen =
+          doc.modus === 'gebaut' && doc.layout
+            ? { raeume: doc.layout.stempel.length, tueren: doc.layout.tueren.length }
+            : {};
+        liste.push({
+          id: doc.id,
+          name: doc.name,
+          thema: doc.thema,
+          modus: doc.modus,
+          version: doc.version,
+          ambientLicht: ambientLichtVon(doc),
+          pruefsumme: doc.pruefsumme,
+          ...kennzahlen,
+        });
+      } catch {
+        kaputt.push(datei);
+      }
+    }
+    liste.sort((a, b) => String((a as { id: string }).id).localeCompare(String((b as { id: string }).id)));
+    return {
+      code: 200,
+      daten: {
+        ok: true,
+        message:
+          `${liste.length} 2.0-Dungeon(s) in Instanz ${INSTANZ}` +
+          (kaputt.length ? `, ${kaputt.length} unlesbar (${kaputt.join(', ')})` : ''),
+        instanz: INSTANZ,
+        dungeons: liste,
+      },
+    };
+  }
+  if (pfad.startsWith('/api/dungeons2/') && methode === 'GET') {
+    const id = pfad.slice('/api/dungeons2/'.length);
+    // Dasselbe Muster wie ID_MUSTER in shared/src/dungeon2/document.ts
+    // (Unterstrich erlaubt, anders als bei der 1.0-Route) — die
+    // Duplikation ist dort ausdruecklich in Kauf genommen (s. Kopfkommentar
+    // der Datei), damit dieser Prozess `document.ts` importieren kann, ohne
+    // dessen private Konstanten zu exportieren.
+    // Same pattern as ID_MUSTER in shared/src/dungeon2/document.ts
+    // (underscore allowed, unlike the 1.0 route) — the duplication is
+    // deliberately accepted there.
+    if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(id)) {
+      return { code: 400, daten: { ok: false, fehler: 'Ungueltige Dungeon-ID', message: 'Ungueltige Dungeon-ID' } };
+    }
+    const datei = resolve(DUNGEON_ORDNER, `${id}.json`);
+    if (!existsSync(datei)) {
+      const fehlt = `Dungeon ${id} nicht gefunden (Instanz ${INSTANZ})`;
+      return { code: 404, daten: { ok: false, fehler: fehlt, message: fehlt } };
+    }
+    let roh: unknown;
+    try {
+      roh = JSON.parse(readFileSync(datei, 'utf-8'));
+    } catch {
+      roh = null;
+    }
+    // Ein 1.0-Dokument unter dieser ID ist fuer DIESEN Endpunkt nicht
+    // vorhanden — spiegelbildlich zu oben.
+    // A 1.0 document under this id does not exist for THIS endpoint —
+    // the mirror image of the case above.
+    if (roh === null || !istDokument2(roh)) {
+      const fehlt = `Dungeon ${id} nicht gefunden (Instanz ${INSTANZ})`;
+      return { code: 404, daten: { ok: false, fehler: fehlt, message: fehlt } };
+    }
+    const doc: DungeonDokument2 | null = sanitizeDungeonDokument2(roh);
+    if (!doc) {
+      const kaputt = `${id}.json ist unbrauchbar (Thema, Kennung oder Seeds ungueltig)`;
+      return { code: 422, daten: { ok: false, fehler: kaputt, message: kaputt } };
+    }
+    return {
+      code: 200,
+      daten: {
+        ok: true,
+        message: `${doc.id}: Thema ${doc.thema}, Modus ${doc.modus}`,
         instanz: INSTANZ,
         dungeon: doc,
       },

@@ -117,6 +117,9 @@ interface TeleportPaket {
   pruefsumme: string;
   layoutVersion: number;
   name: string;
+  ambientLicht: number;
+  /** Das mitgelieferte Layout-JSON — leer bei erzeugten Gräbern. */
+  layoutJson: string;
 }
 
 /**
@@ -145,6 +148,8 @@ function leseTeleport(view: DataView): TeleportPaket {
   let material = 0;
   let deko = 0;
   let layoutVersion = 0;
+  let ambientLicht = 1;
+  let layoutJson = '';
   if (p < view.byteLength) {
     [thema, p] = readString(view, p);
     architektur = view.getInt32(p, true);
@@ -155,6 +160,16 @@ function leseTeleport(view: DataView): TeleportPaket {
     layoutVersion = view.getInt32(p, true);
     p += 4;
     [name, p] = readString(view, p);
+    // Angehängte Felder (Fassung 11 + Befund 01.09.2026): Grundhelligkeit,
+    // dann das mitgelieferte Layout-JSON. `byteLength` entscheidet, kein
+    // Versionsfeld — genau wie der Client.
+    if (p + 4 <= view.byteLength) {
+      ambientLicht = view.getFloat32(p, true);
+      p += 4;
+    }
+    if (p < view.byteLength) {
+      [layoutJson, p] = readString(view, p);
+    }
   }
   return {
     pos,
@@ -170,6 +185,8 @@ function leseTeleport(view: DataView): TeleportPaket {
     pruefsumme,
     layoutVersion,
     name,
+    ambientLicht,
+    layoutJson,
   };
 }
 
@@ -179,6 +196,8 @@ function sendAdmin(ws: WebSocket, line: string): void {
 
 const DUNGEON2_ID = 'steingrab-g9';
 const ALT_ID = 'forestcrypt-g9';
+/** Ein HANDGEBAUTES Grab (`modus: 'gebaut'`) für den Layout-Mitreise-Wächter. */
+const GEBAUT_ID = 'steingrab-gebaut-g9';
 
 async function main(): Promise<void> {
   rmSync(TMP, { recursive: true, force: true });
@@ -345,6 +364,45 @@ async function main(): Promise<void> {
   dungeons.destroyInstance(DUNGEON2_ID);
   dungeons.saveDokument2(neu);
 
+  // ── Layout-Mitreise-Wächter (Befund 01.09.2026) ───────────────────────────
+  // Ein HANDGEBAUTES Grab bekommt eine Handänderung, die aus den Seeds NICHT
+  // wiederherstellbar ist: eine gemalte Materialkennung auf einer vorhandenen
+  // Bodenzelle (genau, was der Pinsel im Editor tut). Über die Leitung muss
+  // dieses Grab sein Layout MITBRINGEN — sonst baut der Client aus den Seeds
+  // das ursprüngliche Grab und die Handarbeit ist unsichtbar. Das war der
+  // gemeldete Fehler „nachträglich gesetzte Räume fehlen im Spiel".
+  // A HAND-BUILT grave gets a hand edit that seeds cannot reproduce; over the
+  // wire it must SHIP its layout, or the client rebuilds the original grave.
+  const gebautBasis = dungeons.erzeugeDungeon2('steingrab', SEEDS, GEBAUT_ID);
+  pruefe('Basis für das handgebaute Grab angelegt', gebautBasis !== null);
+  let handZelle = { x: 0, z: 0, ebene: 0 };
+  let handAltTag = -1;
+  let handNeuTag = -1;
+  if (gebautBasis) {
+    const basisLayout = dungeon2.layoutVonDokument2(gebautBasis)!;
+    const bodenZelle = dungeon2
+      .zellenSortiert(dungeon2.zellenAufbauen(basisLayout))
+      .find((z) => z.art === dungeon2.ZELLEN_ART.Boden)!;
+    handZelle = { x: bodenZelle.x, z: bodenZelle.z, ebene: bodenZelle.ebene };
+    handAltTag = bodenZelle.materialTag;
+    // Garantiert anders und im gültigen Bereich (0..MAX_MATERIAL_TAG).
+    handNeuTag = handAltTag >= dungeon2.MAX_MATERIAL_TAG ? handAltTag - 1 : handAltTag + 1;
+    const handLayout = dungeon2.mitPruefsumme({
+      ...basisLayout,
+      korrekturen: [
+        ...basisLayout.korrekturen,
+        { x: handZelle.x, z: handZelle.z, ebene: handZelle.ebene, aendere: { materialTag: handNeuTag } },
+      ],
+    });
+    const gebaut2 = dungeons.upsertDokument2({ ...gebautBasis, modus: 'gebaut', layout: handLayout });
+    pruefe('Handgebautes Grab angenommen (gültig trotz Handänderung)', gebaut2 !== null);
+    pruefe(
+      'Die Handänderung ändert die Prüfsumme gegen die Seed-Fassung',
+      gebaut2 !== null && gebaut2.doc.pruefsumme !== gebautBasis.pruefsumme
+    );
+    dungeons.destroyInstance(GEBAUT_ID);
+  }
+
   // ── (b) Betreten/Verlassen x20 über die Leitung ───────────────────────────
   // (b) Enter/leave x20 over the wire.
 
@@ -369,6 +427,8 @@ async function main(): Promise<void> {
   const TAKT_MS = 1100;
   let drin = false;
   let ersterTeleport: TeleportPaket | null = null;
+  let gebautTeleport: TeleportPaket | null = null;
+  let phaseGebaut = false;
   let fertig = false;
 
   const zdoZahlen: number[] = [];
@@ -417,22 +477,37 @@ async function main(): Promise<void> {
 
       if (typ === P.Teleport) {
         const tp = leseTeleport(view);
-        if (process.env.G9_LAUT) console.log(`[g9] Teleport drin=${tp.drin} runden=${runden}`);
+        if (process.env.G9_LAUT)
+          console.log(`[g9] Teleport drin=${tp.drin} id=${tp.dungeonId} runden=${runden}`);
         if (tp.drin) {
           drin = true;
+          // Das handgebaute Grab (letzte Phase): sein Teleport wird erfasst,
+          // dann sofort wieder verlassen.
+          if (tp.dungeonId === GEBAUT_ID) {
+            gebautTeleport ??= tp;
+            spaeter('dungeon leave');
+            return;
+          }
           ersterTeleport ??= tp;
           const inst = dungeons.getInstance(DUNGEON2_ID);
           if (inst) zdoZahlen.push(inst.zdoids.length);
           spaeter('dungeon leave');
         } else if (drin) {
           drin = false;
-          runden++;
-          if (runden >= RUNDEN) {
+          // Das gebaute Grab wurde verlassen — jetzt ist der Lauf fertig.
+          if (phaseGebaut) {
             if (!fertig) {
               fertig = true;
               clearTimeout(uhr);
               aufloesen();
             }
+            return;
+          }
+          runden++;
+          if (runden >= RUNDEN) {
+            // Erzeugt-Runden durch — als letztes das HANDGEBAUTE Grab betreten.
+            phaseGebaut = true;
+            spaeter(`dungeon enter ${GEBAUT_ID}`);
             return;
           }
           spaeter(`dungeon enter ${DUNGEON2_ID}`);
@@ -557,6 +632,88 @@ async function main(): Promise<void> {
       'Der Instanz-Teleport liegt nahe am Ursprung seiner Welt',
       Math.hypot(tp.pos.x, tp.pos.z) < 5_000,
       `(${tp.pos.x}, ${tp.pos.z})`
+    );
+  }
+
+  // ── DER LAYOUT-MITREISE-WÄCHTER (Befund 01.09.2026) ───────────────────────
+  // Das handgebaute Grab kam über die LEITUNG. Beweise: (1) sein Paket trägt
+  // ein Layout-JSON, das erzeugte NICHT; (2) aus dem MITGELIEFERTEN Layout
+  // gebaut, überlebt die Handänderung bis in die Zelle; (3) aus den SEEDS
+  // allein fehlt sie — der rote Zeuge dafür, dass die Geometrie mitreisen MUSS.
+  // THE LAYOUT-SHIPPING GUARD: prove the hand edit survives via the shipped
+  // layout and would be LOST on the seed-only path.
+  pruefe('Das handgebaute Grab kam über die Leitung an', gebautTeleport !== null);
+  pruefe(
+    'Das erzeugte Grab trägt KEIN Layout-JSON (Leitung bleibt schlank)',
+    ersterTeleport?.layoutJson === '',
+    `layoutJson.length=${ersterTeleport?.layoutJson.length}`
+  );
+  if (gebautTeleport && handAltTag >= 0) {
+    const tp = gebautTeleport;
+    pruefeGleich('Das gebaute Grab trägt seine eigene Kennung', tp.dungeonId, GEBAUT_ID);
+    const hatLayout = tp.layoutJson.length > 0;
+    pruefe(
+      'Das handgebaute Grab trägt SEIN Layout im Teleport-Paket',
+      hatLayout,
+      `layoutJson.length=${tp.layoutJson.length}`
+    );
+
+    // (1) Aus dem MITGELIEFERTEN Layout — wie der Client es jetzt tut. Nur bei
+    // vorhandenem Layout; fehlt es (Gegenprobe/Regression), steht die Rot-
+    // Meldung schon oben, und ein `JSON.parse('')` soll den Lauf nicht
+    // ABBRECHEN, sondern der Wächter soll sauber rot bleiben.
+    if (hatLayout) {
+      const ausLayout = dungeon2.layoutAusMitgeliefert(
+        JSON.parse(tp.layoutJson) as unknown,
+        tp.pruefsumme
+      );
+      pruefe('Aus dem mitgelieferten Layout entsteht ein Grab', ausLayout.layout !== null);
+      pruefe(
+        'Mitgeliefertes Layout == Server-Layout (keine Abweichung)',
+        !ausLayout.abweichung,
+        `${ausLayout.erwartet} vs ${ausLayout.gerechnet}`
+      );
+      const zelleMit =
+        ausLayout.layout &&
+        dungeon2.zelleImGitter(
+          dungeon2.zellenAufbauen(ausLayout.layout),
+          handZelle.x,
+          handZelle.z,
+          handZelle.ebene
+        );
+      pruefeGleich(
+        'Die handgemalte Materialkennung überlebt bis in die gebaute Zelle',
+        zelleMit?.materialTag,
+        handNeuTag
+      );
+    }
+
+    // (2) DER ROTE ZEUGE: aus den SEEDS allein baut der alte Weg das
+    // URSPRÜNGLICHE Grab — die Handarbeit fehlt, die Prüfsumme weicht ab.
+    const ausSeeds = dungeon2.layoutAusDeskriptor({
+      thema: tp.thema,
+      seeds: tp.seeds,
+      pruefsumme: tp.pruefsumme,
+      layoutVersion: tp.layoutVersion,
+      id: tp.dungeonId,
+      name: tp.name,
+    });
+    pruefe(
+      'Der Seed-Weg allein weicht ab — Beleg, dass die Geometrie mitreisen muss',
+      ausSeeds.abweichung
+    );
+    const zelleSeed =
+      ausSeeds.layout &&
+      dungeon2.zelleImGitter(
+        dungeon2.zellenAufbauen(ausSeeds.layout),
+        handZelle.x,
+        handZelle.z,
+        handZelle.ebene
+      );
+    pruefeGleich(
+      '… und der Seed-Weg trägt die Handänderung NICHT (alte Kennung)',
+      zelleSeed?.materialTag,
+      handAltTag
     );
   }
 

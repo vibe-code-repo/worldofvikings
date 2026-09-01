@@ -492,11 +492,47 @@ export function layoutAusDeskriptor(d: LayoutDeskriptor): DeskriptorErgebnis {
   if (layout === null) {
     return { layout: null, abweichung: true, erwartet: d.pruefsumme, gerechnet: '', befunde: [] };
   }
+  return zeugePruefen(layout, d.pruefsumme);
+}
+
+/**
+ * Wie `layoutAusDeskriptor`, aber aus einem MITGELIEFERTEN Layout (rohes,
+ * ueber die Leitung gereistes Objekt) statt aus den Seeds erzeugt.
+ *
+ * Warum es das gibt: Ein handgebautes Grab (`modus === 'gebaut'`) laesst sich
+ * aus seinen Seeds NICHT wiederherstellen — die Stempel, Korrekturen, Tueren
+ * und Anker der Handarbeit stehen nur im Dokument, nicht im Generator. Fuer
+ * diese Graeber MUSS die Geometrie mitreisen; `layoutAusDeskriptor` (Seeds ->
+ * Layout) baut zwangslaeufig das URSPRUENGLICHE Grab und wirft jede Handarbeit
+ * weg. Das war der Fehler „nachtraeglich gesetzte Raeume fehlen im Spiel"
+ * (Befund 01.09.2026).
+ *
+ * `roh` geht durch `migriere()` — denselben EINEN Weg in ein Layout hinein wie
+ * der Sanitizer (Format, Version, Felder). Ist es unbrauchbar, wird `null`
+ * gemeldet: Der Aufrufer bricht dann LAUT ab, statt still auf das falsche
+ * Seed-Grab zurueckzufallen.
+ *
+ * Like `layoutAusDeskriptor`, but from a SHIPPED layout (raw object that
+ * travelled the wire) instead of generated from the seeds. A hand-built grave
+ * cannot be reconstructed from its seeds — the hand-made stamps, fixes, doors
+ * and anchors live only in the document. For those graves the geometry MUST
+ * travel; regenerating from seeds throws every edit away. `roh` goes through
+ * `migriere()`, the same one way into a layout as the sanitizer.
+ */
+export function layoutAusMitgeliefert(roh: unknown, pruefsumme: string): DeskriptorErgebnis {
+  const layout = migriere(roh);
+  if (layout === null) {
+    return { layout: null, abweichung: true, erwartet: pruefsumme, gerechnet: '', befunde: [] };
+  }
+  return zeugePruefen(layout, pruefsumme);
+}
+
+function zeugePruefen(layout: DungeonLayout2, pruefsumme: string): DeskriptorErgebnis {
   const gerechnet = layoutPruefsumme(layout);
   return {
     layout,
-    abweichung: gerechnet !== d.pruefsumme,
-    erwartet: d.pruefsumme,
+    abweichung: gerechnet !== pruefsumme,
+    erwartet: pruefsumme,
     gerechnet,
     befunde: nurFehler(validateLayout(layout)),
   };

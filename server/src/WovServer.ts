@@ -2876,7 +2876,21 @@ export class WovServer {
      * AP13: the layout descriptor of a 2.0 instance. THE DESCRIPTOR TRAVELS
      * THE WIRE, NEVER GEOMETRY.
      */
-    deskriptor: dungeon2.LayoutDeskriptor | null = null
+    deskriptor: dungeon2.LayoutDeskriptor | null = null,
+    /**
+     * Das MITGELIEFERTE Layout eines HANDGEBAUTEN Grabs als JSON, sonst ''.
+     *
+     * Die Ausnahme zum Grundsatz „nie Geometrie": Ein `modus === 'gebaut'`
+     * Grab traegt seine Stempel, Korrekturen, Tueren und Anker NUR im Dokument
+     * — aus den Seeds ist es nicht wiederherstellbar. Reist es nicht mit, baut
+     * der Client aus den Seeds das URSPRUENGLICHE Grab und wirft jede
+     * Handarbeit weg (Befund 01.09.2026 — „nachtraeglich gesetzte Raeume
+     * fehlen im Spiel"). Fuer erzeugte Graeber bleibt das Feld leer und die
+     * Leitung so schlank wie zuvor.
+     * The SHIPPED layout of a HAND-BUILT grave as JSON, else ''. The exception
+     * to "never geometry": a built grave cannot be regenerated from seeds.
+     */
+    layoutJson = ''
   ): void {
     // Weltwechsel-Seam (Review 15): Die Signatur trägt die Zielwelt schon —
     // der eigentliche Kontext-Swap ist das Housing-Folgeprojekt.
@@ -2948,6 +2962,13 @@ export class WovServer {
       // `0` is a VALID value in this field (pitch dark) and would therefore be
       // a fallback indistinguishable from a statement.
       w.writeFloat32(deskriptor?.ambientLicht ?? 1);
+      // ANGEHÄNGT hinter `ambientLicht` (Befund 01.09.2026): das Layout eines
+      // handgebauten Grabs. Leer bei erzeugten Gräbern — dann liest der Client
+      // nur einen Nullstring und baut wie bisher aus den Seeds. Ein älterer
+      // Client hört nach `ambientLicht` auf; ihn stört das zusätzliche Feld
+      // nicht (er liest es nie).
+      // APPENDED after `ambientLicht`: the hand-built grave's layout, else ''.
+      w.writeString(layoutJson);
     });
   }
 
@@ -2969,6 +2990,14 @@ export class WovServer {
     // AP13: for 2.0 the interior environment comes from the THEME.
     const doc2 = this.dungeons.getDokument2(dungeonId);
     const deskriptor = doc2 ? dungeon2.deskriptorVon(doc2) : null;
+    // Nur ein handgebautes Grab schickt seine Geometrie mit — ein erzeugtes
+    // baut der Client deterministisch aus den Seeds. `layoutVonDokument2`
+    // trifft dieselbe Fallunterscheidung server-seitig; hier reisst sie die
+    // Handarbeit auf die Leitung.
+    // Only a hand-built grave ships its geometry; a generated one is rebuilt
+    // from seeds on the client.
+    const layoutJson =
+      doc2?.modus === 'gebaut' && doc2.layout ? JSON.stringify(doc2.layout) : '';
     const umgebung = doc2
       ? dungeon2.themaFinden(doc2.thema)?.innenUmgebung ?? 'Crypt'
       : doc
@@ -2982,7 +3011,8 @@ export class WovServer {
       // Die Welt der Instanz. Ab hier laeuft ALLES fuer diesen Peer dort:
       // ZDO-Sync, Bauen, Abbauen, Kaempfen, Gelaende — s. `welt(peer)`.
       instance.welt.id,
-      deskriptor
+      deskriptor,
+      layoutJson
     );
     return { ok: true, message: `Dungeon betreten: ${doc2?.name ?? doc?.name ?? dungeonId}` };
   }

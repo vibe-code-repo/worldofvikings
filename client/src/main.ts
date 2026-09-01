@@ -2138,6 +2138,12 @@ async function main() {
         // Base brightness (document revision 11) — only in the packet from
         // this server build on. `remaining` decides, not a version field.
         const ambientLicht = reader.remaining >= 4 ? reader.readFloat32() : 1;
+        // Das MITGELIEFERTE Layout-JSON (Befund 01.09.2026) — nur bei
+        // handgebauten Graebern gefuellt, sonst leer. Angehaengt hinter
+        // `ambientLicht`; ein aelterer Server hat es nicht, dann greift der
+        // Seed-Weg. `remaining` entscheidet, kein Versionsfeld.
+        // The SHIPPED layout JSON — only present for hand-built graves.
+        const layoutJson = reader.remaining > 0 ? reader.readString() : '';
         if (thema) {
           deskriptor = {
             thema,
@@ -2151,6 +2157,7 @@ async function main() {
             id: dungeonId,
             name,
             ambientLicht,
+            layoutJson,
           };
         }
       }

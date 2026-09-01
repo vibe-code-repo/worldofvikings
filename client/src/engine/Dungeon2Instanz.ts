@@ -69,6 +69,16 @@ export interface Dungeon2Deskriptor {
    * Base brightness (0..1), already resolved by the server.
    */
   readonly ambientLicht: number;
+  /**
+   * Das MITGELIEFERTE Layout als JSON — nur bei handgebauten Graebern
+   * (`modus === 'gebaut'`) gesetzt, sonst leer/fehlend. Ein solches Grab
+   * laesst sich aus seinen Seeds nicht wiederherstellen; ohne dieses Feld
+   * baut der Client das URSPRUENGLICHE Grab und wirft jede Handarbeit weg
+   * (Befund 01.09.2026 — „nachtraeglich gesetzte Raeume fehlen im Spiel").
+   * The SHIPPED layout as JSON — set only for hand-built graves; a seed-only
+   * descriptor cannot carry hand edits.
+   */
+  readonly layoutJson?: string;
 }
 
 export interface Dungeon2Umgebung {
@@ -104,6 +114,21 @@ export interface Dungeon2Messung {
   readonly arraysGeladen: boolean;
   dekoPlatziert: number;
   dekoOhneModell: number;
+}
+
+/**
+ * Das mitgelieferte Layout-JSON zu einem Objekt lesen. Ein kaputter String
+ * ergibt `null` — `migriere()` weist ihn dann als unbrauchbar ab, und
+ * `betrete()` bricht LAUT ab, statt still das falsche Seed-Grab zu bauen.
+ * Parse the shipped layout JSON; a broken string yields `null`, which
+ * `migriere()` rejects and `betrete()` reports loudly.
+ */
+function leseLayoutJson(json: string): unknown {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
 }
 
 export class Dungeon2Instanz {
@@ -147,12 +172,20 @@ export class Dungeon2Instanz {
     umgebung: Dungeon2Umgebung
   ): Promise<Dungeon2Instanz | null> {
     const begonnen = performance.now();
-    const erg = dungeon2.layoutAusDeskriptor(deskriptor);
+    // Ein handgebautes Grab reist mit SEINEM Layout an (`layoutJson`); daraus
+    // wird gebaut, nicht aus den Seeds. Fehlt das Feld (erzeugtes Grab, oder
+    // aelterer Server), gilt der Seed-Weg wie bisher.
+    // A hand-built grave ships its OWN layout; build from that, not the seeds.
+    const erg = deskriptor.layoutJson
+      ? dungeon2.layoutAusMitgeliefert(leseLayoutJson(deskriptor.layoutJson), deskriptor.pruefsumme)
+      : dungeon2.layoutAusDeskriptor(deskriptor);
     if (erg.layout === null) {
       console.error(
-        `[dungeon2] Layout nicht herstellbar — Thema '${deskriptor.thema}' unbekannt?`
+        deskriptor.layoutJson
+          ? `[dungeon2] Mitgeliefertes Layout unbrauchbar — '${deskriptor.id}' nicht baubar.`
+          : `[dungeon2] Layout nicht herstellbar — Thema '${deskriptor.thema}' unbekannt?`
       );
-      umgebung.meldung('Dungeon konnte nicht gebaut werden (unbekanntes Thema)');
+      umgebung.meldung('Dungeon konnte nicht gebaut werden');
       return null;
     }
     if (erg.abweichung) {

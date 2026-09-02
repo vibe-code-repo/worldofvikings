@@ -49,7 +49,7 @@
  */
 import type { DungeonGeneratorSettings } from './dungeonGenerator.js';
 import { getStableHash } from './hash.js';
-import type { DungeonPropDef } from './dungeons.js';
+import type { DungeonPropDef, SteinKitConfig } from './dungeons.js';
 import type { Quaternion, Vector3 } from './types.js';
 
 /*
@@ -89,6 +89,8 @@ export interface EigenesKitJson {
   readonly generatorEinstellungen?: Partial<DungeonGeneratorSettings>;
   /** Setzbare Deko dieses Kits — s. `DungeonPropDef`. */
   readonly propTypes?: readonly DungeonPropDef[];
+  /** KI-Steinmaterial (Wand/Decke/Boden + Verwitterung) — s. `SteinKitConfig`. */
+  readonly steinKit?: SteinKitConfig;
   readonly interiorPosition: Vector3 | null;
   readonly originalPosition: Vector3 | null;
   readonly algorithm: number;
@@ -185,6 +187,22 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
       durchgemischt wird.
     */
     generatorEinstellungen: { endcapsCollision: true, endcapsFallbackByPrio: true, roomBodyFromFloor: true },
+    // KI-Steinmaterial: Wand/Boden heller Bruchstein, Decke Wikinger-Holz, dazu
+    // elementübergreifend eingestreutes Moos/Frost/Nass. Der Client (EntityManager
+    // → DungeonSteinMaterial) legt daraus ein PBRMaterial auf die Kit-Master.
+    // Texturen liegen unter assets/models/. Werte = die im Prüfstand bestätigten.
+    steinKit: {
+      wandTextur: '/assets/models/stein_clean.png',
+      deckeTextur: '/assets/models/stein_decke.png',
+      bodenTextur: '/assets/models/stein_clean.png',
+      verwitterung: { moos: 1.0, frost: 0.9, nass: 0.9 },
+      kachelM: 2,
+      deckeKachelM: 4,
+      moosSkala: 9,
+      frostSkala: 11,
+      nassSkala: 8,
+      deckeSchwelle: 0.45,
+    },
     interiorPosition: null,
     originalPosition: null,
     algorithm: ALGORITHMUS_DUNGEON,

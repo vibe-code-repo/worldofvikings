@@ -22,6 +22,7 @@ import {
   isRenderable,
   getFeatureByHash,
   getRoomByHash,
+  getKitByRoomHash,
   getStableHash,
   getTerrainLeveling,
   FOLIAGE_HASHES,
@@ -33,7 +34,9 @@ import {
   ruestungZu,
   istFrisur,
 } from '@wov/shared';
-import type { NpcEinordnung } from '@wov/shared';
+import type { NpcEinordnung, SteinKitConfig } from '@wov/shared';
+import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
+import { erzeugeSteinKitMaterial } from '../engine/DungeonSteinMaterial.js';
 import { faerbeHaar } from '../player/haarfarbe.js';
 import { buildMeshCollider, deriveCollider, StaticColliderSet } from '../engine/Physics';
 
@@ -1220,6 +1223,13 @@ export class EntityManager {
   private masterMeshes = new Map<string, import('@babylonjs/core/Meshes/mesh').Mesh[]>();
   private masterLocals = new Map<string, Matrix[]>();
   /**
+   * KI-Steinmaterialien der 1.0-Kits, gecacht je Konfiguration (Master leben die
+   * ganze Sitzung, also EIN Material je Kit). Ein gemeinsames Material für alle
+   * Kit-Teile heißt: die Verwitterungs-Masken leben in EINEM Weltraum und laufen
+   * nahtlos über Teilgrenzen. Siehe `DungeonSteinMaterial.ts`.
+   */
+  private steinMaterials = new Map<string, PBRMaterial>();
+  /**
    * Übergibt fertige Vegetations-Matrixpuffer an Shadows. Wert-Callback
    * statt Modulimport: EntityManager bleibt ohne Szene testbar und der
    * Schattenpfad kann die sichtbaren Puffer niemals selbst überschreiben.
@@ -1745,9 +1755,29 @@ export class EntityManager {
       }
       this.masterMeshes.set(prefabName, masters.map((m) => m.mesh));
       this.masterLocals.set(prefabName, masters.map((m) => m.localMatrix));
+      // 1.0-Steingrab-Kit: das gebackene GLB-Material durch das konfigurierte
+      // KI-Steinmaterial ersetzen. Nur Räume eines Kits mit `steinKit` — Bäume,
+      // Requisiten und andere Räume bleiben unberührt. Das Material wird beim
+      // PBRMaterial-Ctor automatisch vom Fackel-Pool erfasst.
+      const kitCfg = getKitByRoomHash(prefabHash)?.steinKit;
+      if (kitCfg) {
+        const mat = this.holeSteinMaterial(kitCfg);
+        for (const m of masters) m.mesh.material = mat;
+      }
       bucket.mastersReady = true;
       bucket.dirty = true; // rebuild with instances now
     });
+  }
+
+  /** Ein Steinmaterial je Konfiguration (Master sind sitzungs-gecacht). */
+  private holeSteinMaterial(cfg: SteinKitConfig): PBRMaterial {
+    const key = JSON.stringify(cfg);
+    let mat = this.steinMaterials.get(key);
+    if (!mat) {
+      mat = erzeugeSteinKitMaterial(this.scene, `steinKit_${this.steinMaterials.size}`, cfg);
+      this.steinMaterials.set(key, mat);
+    }
+    return mat;
   }
 
   /** bucket.matrices (flach) in Matrix-Objekte entpacken — von beiden

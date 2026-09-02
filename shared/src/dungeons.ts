@@ -113,6 +113,36 @@ export interface DungeonDoorDef {
 }
 
 /** C++ Dungeon (Dungeon.h) — a DG_* generator with its room kit. */
+/**
+ * Konfiguration des KI-Steinmaterials eines 1.0-Kits: je Fläche (Wand, Decke,
+ * Boden) eine Textur plus elementübergreifend eingestreute Verwitterung
+ * (Moos/Frost/Nass). Reine Daten (Texturpfade + Zahlen) — der Client baut daraus
+ * in `client/src/engine/DungeonSteinMaterial.ts` ein `PBRMaterial`. Fehlt das
+ * Feld am Kit, behalten die Räume ihr gebackenes GLB-Material.
+ * Config of a 1.0 kit's AI stone material: per-surface texture (wall/ceiling/
+ * floor) plus cross-piece weathering. Pure data; the client turns it into a
+ * PBRMaterial. Absent → rooms keep their baked GLB material.
+ */
+export interface SteinKitConfig {
+  readonly wandTextur: string;
+  readonly deckeTextur: string;
+  readonly bodenTextur: string;
+  readonly moosTextur?: string;
+  readonly frostTextur?: string;
+  readonly nassTextur?: string;
+  readonly verwitterung: { readonly moos: number; readonly frost: number; readonly nass: number };
+  /** Kachelgröße Wand/Boden in Weltmetern. / Wall/floor tile size in metres. */
+  readonly kachelM: number;
+  /** Kachelgröße der Decke (planar) in Weltmetern. */
+  readonly deckeKachelM: number;
+  /** Weltraum-Fleckengröße je Verwitterung (größer = größere, seltenere Flecken). */
+  readonly moosSkala: number;
+  readonly frostSkala: number;
+  readonly nassSkala: number;
+  /** Normalenschwelle n.y für „Decke". Vorgabe 0.45. */
+  readonly deckeSchwelle?: number;
+}
+
 export interface DungeonDef {
   /** DG_* prefab name. */
   readonly name: string;
@@ -162,6 +192,13 @@ export interface DungeonDef {
    * Fehlt das Feld, gilt der Vorgabewert. Alle Fremdkits lassen es leer.
    */
   readonly generatorEinstellungen?: Partial<DungeonGeneratorSettings>;
+  /**
+   * KI-Steinmaterial dieses Kits (Wand/Decke/Boden + Verwitterung). Fehlt das
+   * Feld (alle geparsten Kits), behalten die Räume ihr gebackenes GLB-Material.
+   * Client-seitig aufgelöst über {@link getKitByRoomHash}; nichts wird über die
+   * Leitung geschickt.
+   */
+  readonly steinKit?: SteinKitConfig;
 }
 
 interface DungeonJson extends Omit<DungeonDef, 'hash' | 'rooms' | 'algorithm'> {
@@ -202,6 +239,21 @@ export const DUNGEONS_BY_HASH: ReadonlyMap<number, DungeonDef> = new Map(
 export const ROOMS_BY_HASH: ReadonlyMap<number, RoomDef> = new Map(
   DUNGEONS.flatMap((d) => d.rooms.map((r) => [r.hash, r] as const))
 );
+
+/**
+ * Kit-Lookup über einen seiner Raum-Hashes. Der Client braucht zu einem
+ * platzierten Raum-Prefab das KIT (für `steinKit`), und `RoomDef` trägt keinen
+ * Rückverweis auf sein Kit.
+ * Kit lookup by any of its room hashes — the client needs a placed room's KIT
+ * (for `steinKit`), and `RoomDef` has no back-reference to its kit.
+ */
+export const KIT_BY_ROOM_HASH: ReadonlyMap<number, DungeonDef> = new Map(
+  DUNGEONS.flatMap((d) => d.rooms.map((r) => [r.hash, d] as const))
+);
+
+export function getKitByRoomHash(hash: number): DungeonDef | undefined {
+  return KIT_BY_ROOM_HASH.get(hash);
+}
 
 export function getDungeonByName(name: string): DungeonDef | undefined {
   return DUNGEONS_BY_NAME.get(name);

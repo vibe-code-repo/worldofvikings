@@ -561,6 +561,20 @@ export const HINT_DEFS: PrefabDef[] = [
   */
   { ...def('SteingrabTuer', F.PERSISTENT, null, 3.5, 3.6, 'SteingrabTuer') },
   /*
+    Der Torbogen des Modul-Kits `DG_StoneVault`.
+
+    Von Hand hier aus GENAU demselben Grund wie `SteingrabTuer` darueber:
+    Die Registry-Schleife weiter unten laeuft ueber `DUNGEONS` und traegt
+    deren `rooms` ein — `doorTypes` sieht sie nicht. Ohne diesen Eintrag
+    entstuende beim Materialisieren ein ZDO mit einem Hash, zu dem der
+    Client kein Modell findet.
+
+    Das Mass ist das Wandmodul des Modul-Formats: 2 m breit, 3,5 m hoch
+    (`/home/mike/wov-ai/elements/modulFormat.md`) — nicht 3,5 x 3,6 wie
+    die Steingrab-Tuer, die im 4-m-Raster steht.
+  */
+  { ...def('StoneVaultArch', F.PERSISTENT, null, 2, 3.5, 'StoneVaultArch') },
+  /*
     Die Wandfackel — setzbare Deko des Kits `DG_Steingrab`.
 
     ENGLISCHER Name, waehrend das Kit um sie herum deutsch heisst. Seit dem
@@ -1137,6 +1151,27 @@ export const EIGENE_MODELLE: readonly string[] = [
   'SteingrabTuer',
   // Ebenfalls kein Raum: setzbare Deko aus `propTypes` des Kits.
   'CryptWallTorch',
+  /*
+    Das Modul-Kit `DG_StoneVault` (s. `eigeneDungeons.ts`) — Zellen auf dem
+    2-m-Raster von `modulFormat.md` statt fertiger Raeume. Die Raum-
+    Eintraege der Registry legt `buildRegistry()` selbst an (Schleife ueber
+    DUNGEONS, weiter unten); hier steht die Antwort auf „ist das ein
+    eigenes Modell?".
+  */
+  'StoneVaultCell',
+  /*
+    Dieselbe Zelle in der Eingangsrolle — die Datei dahinter ist ueber
+    `MODELL_ALIAS` dieselbe, wie bei `SteingrabGangDurch`. Der Name steht
+    trotzdem eigens hier: `pruefeLayout` fragt diese Liste fuer JEDEN
+    Platzierungsnamen, und platziert wird der Raumname, nicht das
+    Alias-Ziel.
+  */
+  'StoneVaultEntry',
+  // Das Wandmodul: Abschluss des Kits, 0,3 m dick (Modul-Format).
+  'StoneVaultWall',
+  // Kein Raum, sondern der Tuertyp des Kits — Eintrag in HINT_DEFS oben,
+  // aus demselben Grund wie bei `SteingrabTuer`.
+  'StoneVaultArch',
 ];
 
 /**

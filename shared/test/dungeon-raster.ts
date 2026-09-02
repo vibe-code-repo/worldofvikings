@@ -189,9 +189,27 @@ console.log('Rasterprüfung für Dungeon-Bauteile');
 }
 
 // ── 8. Der echte Bestand — das eigentliche Ziel ──────────────────────
+//
+// Geprüft wird je Kit gegen SEIN Rastermass (`DungeonDef.gridSize`) statt
+// pauschal gegen 4 m. Der Grund steht im Kit: `DG_Steingrab` baut aus
+// fertigen Räumen auf 4 m, `DG_StoneVault` aus Modulzellen auf 2 m
+// (`/home/mike/wov-ai/elements/modulFormat.md`). Beide Masse sind gültig
+// — `pruefeRaumRaster` nimmt das Raster nicht umsonst als Parameter, und
+// 2 m ist eine VERFEINERUNG des 4-m-Rasters, keine Abweichung davon:
+// Was auf 4 passt, passt auch auf 2.
+//
+// Was hier NICHT nachgelassen wird: Connector-Lage, Connector-Drehung,
+// Mindesthöhe und die Verschluss-Ausnahme gelten unverändert für alle.
 {
   const eigene = DUNGEONS.flatMap((d) => d.rooms).filter((r) => istEigenesModell(r.name));
-  const befunde = pruefeRaeumeRaster(eigene);
+  const befunde = DUNGEONS.flatMap((d) =>
+    pruefeRaeumeRaster(
+      d.rooms.filter((r) => istEigenesModell(r.name)),
+      // Fremdkits deklarieren durchweg 4; ein Kit ohne brauchbares Mass
+      // fiele sonst still auf 0 zurück und würde gar nicht mehr geprüft.
+      d.gridSize > 0 ? d.gridSize : DUNGEON_RASTER_M
+    )
+  );
   console.log(
     `  eigene Bauteile: ${eigene.length}` +
       (eigene.length === 0 ? ' (noch keine — der Wächter steht bereit)' : `, Befunde: ${befunde.length}`)

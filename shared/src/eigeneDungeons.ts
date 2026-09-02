@@ -79,6 +79,17 @@ const VIERTEL_DREHUNG_ZURUECK: Quaternion = {
 };
 
 /**
+ * Kopplungstyp der Zellkanten im Modul-Kit `DG_StoneVault`.
+ *
+ * Der Generator koppelt Räume nur an Connectors GLEICHEN Typs
+ * (`haveConnection`), und `placeDoors` sucht Türtypen ebenso über
+ * Typgleichheit. Alle Fremdkits und das Steingrab tragen den LEEREN Typ —
+ * ein eigener String hier hält das 2-m-Raster für sich, statt sich an
+ * einen 4-m-Gang zu hängen, sobald jemand Kits mischt.
+ */
+const TYP_ZELLKANTE = 'cellEdge';
+
+/**
  * Dieselbe Form wie ein Eintrag in `dungeonsData.json`: ohne `hash`, den
  * `dungeons.ts` für beide Quellen gleich berechnet, und mit `algorithm`
  * als Zahl.
@@ -710,6 +721,337 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
             doorOnlyIfOtherAlsoAllowsDoor: false,
             localPos: { x: -4, y: 0, z: 0 },
             localRot: VIERTEL_DREHUNG_ZURUECK,
+          },
+        ],
+      },
+    ],
+  },
+  /**
+   * Das StoneVault — erstes Kit nach dem MODUL-Format.
+   *
+   * Der Unterschied zum Steingrab darüber ist nicht der Stil, sondern die
+   * Bauweise. Das Steingrab besteht aus fertigen Räumen: Gang, Ecke,
+   * Kreuzung, Kammer — jedes Teil trägt seine Wände schon in sich, und wo
+   * ein Durchgang sein soll, ist er in die GLB gebaut. Das StoneVault
+   * setzt stattdessen aus dem 2-m-Raster von `modulFormat.md` zusammen:
+   *
+   *   • **Zelle = Raum.** Grundfläche 2 × 2 m, lichte Höhe 3,5 m. Was der
+   *     Generator platziert, ist immer dieselbe Zelle; die Form des
+   *     Grundrisses entsteht allein daraus, WIE VIELE nebeneinander
+   *     liegen. Ein Gang ist eine Kette von Zellen, eine Halle ein Feld.
+   *   • **Wand = endCap.** Eine Zellkante, die offen bliebe, bekommt kein
+   *     Zimmer dahinter, sondern ein 0,3 m dünnes Wandmodul. Das ist die
+   *     `SteingrabAbschluss`-Rolle — hier aber die einzige, weil eine
+   *     begehbare Nische im Modulformat schlicht wieder eine Zelle wäre.
+   *   • **Torbogen = doorType.** Öffnungen werden nicht in die Wand
+   *     geschnitten, sie sind ein eigenes Modul, das `placeDoors` in die
+   *     Kopplungsebene zwischen zwei Zellen setzt.
+   *
+   * Verbindlich ist dabei `/home/mike/wov-ai/elements/modulFormat.md`
+   * (Modul-Format v0): Raster 2,0 m, Zellmitte bei `(ci*2, 0, cj*2)`,
+   * y = 0 ist die Bodenoberkante, Wand/Torbogen sitzen auf der Zellkante
+   * und zeigen mit ihrer lokalen +Z-Fläche in die Zelle. Wer die Modelle
+   * ändert, ändert dort zuerst.
+   *
+   * ACHTUNG — dies ist NICHT das 4-m-Raster von `dungeonRaster.ts`. Dessen
+   * Regeln (Grundfläche als Vielfaches von 4 m, Mindesthöhe 4 m) bilden das
+   * Steingrab und die Fremdkits ab; ein Modulkit auf 2 m hält sie
+   * absichtlich nicht. `pruefeRaumRaster` nimmt das Rastermaß deshalb als
+   * Parameter — geprüft wird dieses Kit gegen 2, nicht gegen 4.
+   *
+   * Der Connector-Typ ist ein eigener String (`cellEdge`) statt des leeren
+   * Typs, den das Steingrab benutzt: Der Generator koppelt Räume nur an
+   * Connectors GLEICHEN Typs, und mit dem leeren Typ würde eine 2-m-Zelle
+   * an einen 4-m-Gang des Steingrabs andocken, sobald jemand die Kits
+   * mischt. Ein eigener Typ macht das unmöglich, ohne dass es jemand
+   * bemerken muss.
+   */
+  {
+    name: 'DG_StoneVault',
+    /*
+      Wie beim Steingrab und aus demselben Grund: Der Abschluss dieses Kits
+      ist zwar eine dünne Wand (0,3 m) und damit der harmlose Fall, aber
+      `endcapsCollision` sorgt dafür, dass sie nicht in einem Nachbarn
+      steckt, und `endcapsFallbackByPrio` hält den Notfallzweig
+      vorhersagbar, falls das Kit später einen zweiten Abschlusstyp
+      bekommt. `roomBodyFromFloor` ist Pflicht: Die Modelle haben ihren
+      Ursprung auf dem BODEN (Modul-Format, Pivot = Bodenmitte), nicht in
+      der Mitte der Hülle.
+    */
+    generatorEinstellungen: {
+      endcapsCollision: true,
+      endcapsFallbackByPrio: true,
+      roomBodyFromFloor: true,
+      // Kleiner als die Vorgabe 64: Zellen sind 2 m, und 60 Versuche
+      // füllen selbst im Idealfall keine 48-m-Kante. Ein zu grosser
+      // Wachstumsraum streut die Kette nur weiter auseinander.
+      zoneSize: 48,
+    },
+    // Startwert: dieselben Texturen wie das Steingrab. Das Modulkit soll
+    // sich zuerst im GRUNDRISS beweisen; ein eigenes Material daneben
+    // vermischte zwei Fragen in einer Messung.
+    steinKit: {
+      wandTextur: '/assets/models/stein_clean.png',
+      deckeTextur: '/assets/models/stein_decke.png',
+      bodenTextur: '/assets/models/stein_clean.png',
+      verwitterung: { moos: 1.0, frost: 0.9, nass: 0.9 },
+      kachelM: 2,
+      deckeKachelM: 4,
+      moosSkala: 9,
+      frostSkala: 11,
+      nassSkala: 8,
+      deckeSchwelle: 0.45,
+    },
+    interiorPosition: null,
+    originalPosition: null,
+    algorithm: ALGORITHMUS_DUNGEON,
+    alternativeFunctionality: false,
+    campRadiusMax: 0,
+    campRadiusMin: 0,
+    /*
+      Ohne Wirkung, solange der einzige Türtyp eine EIGENE Wahrscheinlichkeit
+      mitbringt (s. `doorTypes` gleich darunter) — `placeDoors` fragt
+      `doorChance` nur, wenn `doorDef.chance <= 0`. Der Wert steht
+      trotzdem hier und nicht auf 0, damit ein zweiter Torbogen ohne
+      eigene Zahl später nicht stumm nie gesetzt wird.
+    */
+    doorChance: 0.35,
+    doorTypes: [
+      {
+        /*
+          Der Torbogen. KEIN Raum: `placeDoors` setzt ihn auf
+          `connection.pos` mit `connection.rot`, also genau in die
+          Kopplungsebene zwischen zwei Zellen — dorthin, wo im Modulformat
+          sonst ein Wandmodul stünde.
+
+          `chance: 0.5` ist hier eine EIGENE Wahrscheinlichkeit, anders als
+          beim Steingrab (`chance: 0`, dort entscheidet `doorChance`). So
+          liest der Generator es: `doorDef.chance <= 0 || rnd <= chance`
+          und `doorDef.chance > 0 || rnd <= doorChance` — ein Wert > 0
+          schaltet `doorChance` für diesen Typ ab. Jede zweite Öffnung
+          bekommt damit einen Rahmen, die andere bleibt ein blosser
+          Durchbruch; beides nebeneinander liest sich als gebaut statt
+          als generiert.
+
+          `connectionType` ist `cellEdge` und NICHT leer: Die Connectors
+          dieses Kits tragen denselben Typ, und `placeDoors` filtert auf
+          Gleichheit. Ein leerer Typ hier fände keine einzige Verbindung.
+        */
+        prefabName: 'StoneVaultArch',
+        prefabHash: getStableHash('StoneVaultArch'),
+        connectionType: TYP_ZELLKANTE,
+        chance: 0.5,
+      },
+    ],
+    // Das Rastermass des Kits. Der Generator liest das Feld nicht (er
+    // schnappt über Connectors, s. Kopf von `dungeonRaster.ts`); es steht
+    // hier als Aussage über die Modelle — 2 m, nicht die 4 m der
+    // Fremdkits.
+    gridSize: 2,
+    // Zahl der VERSUCHE, nicht der Räume. Höher als beim Steingrab (32),
+    // weil eine Zelle nur ein Viertel der Grundfläche eines Steingrab-
+    // Gangs belegt: Bei gleicher Versuchszahl entstünde ein Grundriss von
+    // einem Viertel der Ausdehnung.
+    maxRooms: 60,
+    maxTilt: 10,
+    minAltitude: 0,
+    minRequiredRooms: 0,
+    minRooms: 1,
+    perimeterBuffer: 0,
+    perimeterSections: 0,
+    requiredRooms: [],
+    spawnChance: 0,
+    themes: THEMA_KRYPTA,
+    tileWidth: 0,
+    rooms: [
+      {
+        /*
+          Die Eingangszelle. Geometrisch dieselbe Zelle wie
+          `StoneVaultCell` — die Datei dahinter teilen sie über
+          `MODELL_ALIAS`, wie `SteingrabGang`/`SteingrabGangDurch`.
+
+          Sie muss getrennt stehen, weil `entrance` eine ROLLE ist und
+          keine Form: `placeStartRoom` wählt unter den Räumen mit
+          `entrance: true`, `candidateRooms` wählt Folgeräume ausdrücklich
+          unter den NICHT-Eingangsräumen. Wäre die Zelle beides, könnte
+          der Generator sie nach dem Start kein zweites Mal setzen — und
+          das Kit hätte genau einen Raum.
+        */
+        name: 'StoneVaultEntry',
+        divider: false,
+        endCap: false,
+        endCapPrio: 0,
+        entrance: true,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 2, y: 3.5, z: 2 },
+        theme: THEMA_KRYPTA,
+        weight: 1,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        /*
+          Vier Kantenconnectors, einer je Himmelsrichtung. Sie sitzen auf
+          der senkrechten Hüllfläche (x oder z = ±size/2 = ±1) und auf
+          y = 0 — dieselbe Konvention wie `SteingrabKreuzung`, nur bei ±1
+          statt ±4, weil die Zelle 2 m misst statt 8. Die Drehung zeigt
+          aus der Zelle HINAUS; `attachRoom` dreht den Nachbarn um 180°
+          dagegen.
+        */
+        connections: [
+          {
+            // Nord (+z).
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: 1 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Süd (−z) — der Eingang des Kits. Der Generator setzt die
+            // Zelle so, dass dieser Connector auf (0,0,0) landet.
+            type: TYP_ZELLKANTE,
+            entrance: true,
+            allowDoor: false,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: -1 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            // Ost (+x).
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 1, y: 0, z: 0 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            // West (−x).
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -1, y: 0, z: 0 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
+          },
+        ],
+      },
+      {
+        /*
+          Die Zelle — der einzige Füller des Kits, und damit das Teil, aus
+          dem der ganze Grundriss besteht.
+
+          Vier offene Kanten und ein hohes Gewicht sind hier kein
+          Feintuning: Es ist der einzige Raum, den `candidateRooms`
+          auswählen kann (Entry ist Eingangsraum, Wall ist endCap). Das
+          Gewicht steht trotzdem ausdrücklich da, weil ein zweiter
+          Zelltyp — eine hohe Halle, eine Treppenzelle — sonst beim
+          Dazukommen still gleichrangig würde.
+        */
+        name: 'StoneVaultCell',
+        divider: false,
+        endCap: false,
+        endCapPrio: 0,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 2, y: 3.5, z: 2 },
+        theme: THEMA_KRYPTA,
+        weight: 3,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: 1 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: -1 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 1, y: 0, z: 0 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -1, y: 0, z: 0 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
+          },
+        ],
+      },
+      {
+        /*
+          Das Wandmodul — der Abschluss dieses Kits, und im Modulformat
+          das Gegenstück zum Torbogen: Eine Zellkante ist entweder Wand
+          oder Durchgang.
+
+          `endCap: true` markiert es für `placeEndCaps`: Der Generator
+          setzt es auf jeden Connector, der sonst offen ins Nichts zeigt.
+          Ohne dieses Teil endete jede Zellkette in einem Loch.
+
+          `allowDoor: false` — ein Torbogen vor einer geschlossenen Wand
+          wäre ein Rahmen um Stein.
+
+          Die 0,3 m Tiefe sind KEIN Vielfaches des 2-m-Rasters. Genau so
+          steht es im Modul-Format (Wand: 2 × 3,5 × 0,3), und in
+          `dungeonRaster.ts` fängt `verschlussAchse` diesen Fall als eng
+          gefasste Ausnahme ab — nicht als Freibrief für dünne Räume.
+        */
+        name: 'StoneVaultWall',
+        divider: false,
+        endCap: true,
+        endCapPrio: 0,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 2, y: 3.5, z: 0.3 },
+        theme: THEMA_KRYPTA,
+        weight: 1,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            /*
+              Auf der VORDERFLÄCHE der Platte (+size.z/2), nicht auf der
+              Rückfläche wie bei `SteingrabAbschluss`. Der Grund ist die
+              Kopplungsmathematik: `calculateRoomPosRot` dreht den Anbau
+              so, dass sein Connector dem der Zelle ENTGEGEN zeigt. Sitzt
+              der Connector hinten und zeigt nach hinten, bleibt die Wand
+              ungedreht — und ihre Reliefseite (+z) zeigt von der Zelle
+              weg. Nachgerechnet am Layout von Seed 7: 48 von 49 Wänden
+              standen mit der glatten Rückseite zum Spieler.
+
+              Vorn und nach vorn zeigend wird die Wand um 180° gedreht:
+              +z zeigt in die Zelle, der Körper liegt wie zuvor 0,3 m
+              hinter der Zellkante (ausserhalb der Zellfläche), die
+              Kollisionsprüfung bleibt dieselbe.
+            */
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: false,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: 0.15 },
+            localRot: KEINE_DREHUNG,
           },
         ],
       },

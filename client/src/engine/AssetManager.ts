@@ -89,6 +89,22 @@ export const MODELL_ALIAS: Readonly<Record<string, string>> = {
     Voraussetzung — aus demselben Grund wie bei `GrabhuegelGras`.
   */
   SteingrabGangDurch: 'SteingrabGang',
+  /*
+    `StoneVaultEntry` ist dieselbe Zelle wie `StoneVaultCell`, nur in der
+    Eingangsrolle des Modul-Kits `DG_StoneVault`.
+
+    Derselbe Fall wie `SteingrabGangDurch` darueber: Der Generator waehlt
+    den Startraum unter den Raeumen mit `entrance: true` und JEDEN
+    Folgeraum ausdruecklich unter den NICHT-Eingangsraeumen. Waere die
+    Zelle beides, koennte das Kit nach dem Start keine zweite Zelle
+    setzen — ein Dungeon aus genau einem Raum.
+
+    Die Geometrie ist buchstaeblich dieselbe (2 x 2 m, vier offene
+    Kanten); nur die Rolle unterscheidet sich, und Rollen unterscheidet
+    das Datenmodell ueber den Raumnamen. Der eigene Container ist auch
+    hier Voraussetzung und kein Preis — s. `GrabhuegelGras`.
+  */
+  StoneVaultEntry: 'StoneVaultCell',
 };
 
 /**

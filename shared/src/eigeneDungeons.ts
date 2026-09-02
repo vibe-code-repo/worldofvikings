@@ -138,6 +138,8 @@ export interface EigenesKitJson {
       readonly localPos: Vector3;
       readonly localRot: Quaternion;
     }[];
+    /** Raum-Override des Steinmaterials — s. `RoomDef.steinKit`. */
+    readonly steinKit?: Partial<SteinKitConfig>;
   }[];
 }
 
@@ -546,6 +548,10 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
             localRot: VIERTEL_DREHUNG,
           },
         ],
+        // BEISPIEL für Pro-Raum-Texturen: die Grabkammer ist feuchter/bemooster
+        // als die Gänge. Nur die gesetzten Felder überschreiben die Kit-Vorgabe.
+        // Frei anpassbar (auch wandTextur/deckeTextur/bodenTextur je Raum).
+        steinKit: { verwitterung: { moos: 1.6, frost: 0.2, nass: 1.3 } },
       },
       {
         /*

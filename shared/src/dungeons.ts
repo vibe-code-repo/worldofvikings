@@ -102,6 +102,15 @@ export interface RoomDef {
   readonly pos: Vector3;
   readonly rot: Quaternion;
   readonly connections: readonly RoomConnectionDef[];
+  /**
+   * Raum-spezifische Überschreibung des Kit-Steinmaterials (Wand/Decke/Boden +
+   * Verwitterung). Wird über die Kit-Vorgabe (`DungeonDef.steinKit`) gelegt —
+   * nur gesetzte Felder gewinnen. Fehlt es, gilt die Kit-Vorgabe. So kann eine
+   * Kammer anders aussehen als ein Gang.
+   * Per-room override of the kit stone material; only set fields win over the
+   * kit default. Lets a chamber look different from a corridor.
+   */
+  readonly steinKit?: Partial<SteinKitConfig>;
 }
 
 /** C++ Dungeon::DoorDef. */

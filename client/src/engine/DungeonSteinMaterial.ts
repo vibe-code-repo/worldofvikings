@@ -302,6 +302,23 @@ function ladeTextur(scene: Scene, datei: string): Texture {
 }
 
 /**
+ * Raum-Override über die Kit-Vorgabe legen — nur gesetzte Felder gewinnen,
+ * `verwitterung` wird tief gemischt. So kann ein Raum (z. B. Kammer) andere
+ * Texturen tragen als der Rest des Kits.
+ */
+export function mergeSteinKit(
+  basis: SteinKitConfig,
+  ueber?: Partial<SteinKitConfig>
+): SteinKitConfig {
+  if (!ueber) return basis;
+  return {
+    ...basis,
+    ...ueber,
+    verwitterung: { ...basis.verwitterung, ...(ueber.verwitterung ?? {}) },
+  };
+}
+
+/**
  * DAS Steinmaterial eines 1.0-Kits. Fällt auf ein graues, begehbares
  * PBRMaterial zurück, wenn `?stein=off` gesetzt ist oder der Shader nicht
  * übersetzt (Notbremse).

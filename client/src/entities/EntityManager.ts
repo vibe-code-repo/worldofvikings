@@ -36,7 +36,7 @@ import {
 } from '@wov/shared';
 import type { NpcEinordnung, SteinKitConfig } from '@wov/shared';
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
-import { erzeugeSteinKitMaterial } from '../engine/DungeonSteinMaterial.js';
+import { erzeugeSteinKitMaterial, mergeSteinKit } from '../engine/DungeonSteinMaterial.js';
 import { faerbeHaar } from '../player/haarfarbe.js';
 import { buildMeshCollider, deriveCollider, StaticColliderSet } from '../engine/Physics';
 
@@ -1761,7 +1761,10 @@ export class EntityManager {
       // PBRMaterial-Ctor automatisch vom Fackel-Pool erfasst.
       const kitCfg = getKitByPrefabHash(prefabHash)?.steinKit;
       if (kitCfg) {
-        const mat = this.holeSteinMaterial(kitCfg);
+        // Raum-Override über die Kit-Vorgabe legen (Türen sind keine Räume →
+        // getRoomByHash undefined → nur Kit-Vorgabe).
+        const merged = mergeSteinKit(kitCfg, getRoomByHash(prefabHash)?.steinKit);
+        const mat = this.holeSteinMaterial(merged);
         for (const m of masters) m.mesh.material = mat;
       }
       bucket.mastersReady = true;

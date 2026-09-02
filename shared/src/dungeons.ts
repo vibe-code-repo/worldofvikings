@@ -255,6 +255,24 @@ export function getKitByRoomHash(hash: number): DungeonDef | undefined {
   return KIT_BY_ROOM_HASH.get(hash);
 }
 
+/**
+ * Wie {@link getKitByRoomHash}, aber auch über die TÜR-Prefabs eines Kits
+ * (`doorTypes`) — Türen sind keine Räume, sollen aber dasselbe Material tragen,
+ * sonst behält der Türrahmen im Grab sein altes Material.
+ * Like {@link getKitByRoomHash} but also over a kit's DOOR prefabs — doors are
+ * not rooms yet must share the material, or the door frame keeps its old look.
+ */
+export const KIT_BY_PREFAB_HASH: ReadonlyMap<number, DungeonDef> = new Map(
+  DUNGEONS.flatMap((d) => [
+    ...d.rooms.map((r) => [r.hash, d] as const),
+    ...d.doorTypes.map((dt) => [dt.prefabHash, d] as const),
+  ])
+);
+
+export function getKitByPrefabHash(hash: number): DungeonDef | undefined {
+  return KIT_BY_PREFAB_HASH.get(hash);
+}
+
 export function getDungeonByName(name: string): DungeonDef | undefined {
   return DUNGEONS_BY_NAME.get(name);
 }

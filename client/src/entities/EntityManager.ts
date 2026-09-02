@@ -22,7 +22,7 @@ import {
   isRenderable,
   getFeatureByHash,
   getRoomByHash,
-  getKitByRoomHash,
+  getKitByPrefabHash,
   getStableHash,
   getTerrainLeveling,
   FOLIAGE_HASHES,
@@ -1759,7 +1759,7 @@ export class EntityManager {
       // KI-Steinmaterial ersetzen. Nur Räume eines Kits mit `steinKit` — Bäume,
       // Requisiten und andere Räume bleiben unberührt. Das Material wird beim
       // PBRMaterial-Ctor automatisch vom Fackel-Pool erfasst.
-      const kitCfg = getKitByRoomHash(prefabHash)?.steinKit;
+      const kitCfg = getKitByPrefabHash(prefabHash)?.steinKit;
       if (kitCfg) {
         const mat = this.holeSteinMaterial(kitCfg);
         for (const m of masters) m.mesh.material = mat;

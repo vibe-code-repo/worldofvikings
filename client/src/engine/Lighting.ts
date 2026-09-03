@@ -62,6 +62,11 @@ import {
   environmentForBiome,
   evaluateEnv,
   findEnvironment,
+  // Dieselbe Obergrenze wie der Dokument-Sanitizer, aus derselben Datei —
+  // eine hier hingeschriebene `3` wäre die zweite Wahrheit, die beim
+  // nächsten Anheben stehenbleibt.
+  // The same upper bound the document sanitizer clamps to, from the same file.
+  MAX_DUNGEON_AMBIENT as MAX_DUNGEON_DAEMPFUNG,
   type EnvColor,
   type EnvSetup,
   type EnvState,
@@ -449,9 +454,19 @@ export class Lighting {
    *
    * Set the base brightness of a dungeon instance; `null` gives the overworld
    * lighting back untouched. `null` is deliberately not the same as `1`.
+   *
+   * Der Bereich ist [0, MAX_DUNGEON_DAEMPFUNG] und nicht mehr [0, 1]: Die
+   * 1.0-Grundbeleuchtung (`DungeonDocument.ambientLicht`) darf ausdrücklich
+   * HELLER als die Umgebung sein — ein 1.0-Grab hat keine gesetzten
+   * Lichtquellen wie ein 2.0-Grab, und in einer stockdunklen Krypta ist
+   * „mehr Licht" ein genauso legitimer Wunsch wie „weniger". 2.0 liefert
+   * weiterhin nur 0..1 und merkt von der Erweiterung nichts.
+   * The range is [0, 3], not [0, 1]: the 1.0 base brightness may explicitly
+   * be BRIGHTER than the environment. 2.0 still only ever passes 0..1.
    */
   setzeDungeonDaempfung(faktor: number | null): void {
-    this.dungeonAmbient = faktor === null ? null : Math.min(1, Math.max(0, faktor));
+    this.dungeonAmbient =
+      faktor === null ? null : Math.min(MAX_DUNGEON_DAEMPFUNG, Math.max(0, faktor));
     if (this.dungeonAmbient === null) {
       this.scene.environmentIntensity = UMGEBUNGS_INTENSITAET;
     }

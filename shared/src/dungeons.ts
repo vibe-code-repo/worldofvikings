@@ -469,8 +469,19 @@ export interface DungeonLayout {
  * Raum). Wieder ADDITIV wie `props` und das Dokument-`steinKit`: Räume ohne
  * das Feld laden unverändert weiter, der Sanitizer legt es nicht an, und im
  * Spiel gilt dann wie bisher Kit → Dokument → `RoomDef`.
+ *
+ * 4 → 5: `ambientLicht` dazugekommen (Grundbeleuchtung je Dokument, 0..3).
+ * Wieder ADDITIV: Fehlt das Feld, erfindet der Sanitizer es nicht, und im
+ * Spiel liegt wie bisher die unveränderte Umgebungsbeleuchtung an (Wirkung
+ * 1). Das Vorbild ist `DungeonDokument2.ambientLicht` (Fassung 11) — hier
+ * aber bis 3 statt bis 1: Ein 1.0-Grab hat keine gesetzten Lichtquellen wie
+ * ein 2.0-Grab, es kann also auch HELLER als die Umgebung gebraucht werden.
+ * 4 → 5: `ambientLicht` added (per-document base brightness, 0..3). Additive
+ * as before; modeled on `DungeonDokument2.ambientLicht`, but up to 3 — a 1.0
+ * barrow has no placed light sources and may need to be BRIGHTER, not only
+ * darker, than the environment.
  */
-export const DUNGEON_DOCUMENT_VERSION = 4;
+export const DUNGEON_DOCUMENT_VERSION = 5;
 
 /** Hard cap on rooms in a (user-editable) dungeon document. */
 export const MAX_DUNGEON_ROOMS = 256;
@@ -513,7 +524,41 @@ export interface DungeonDocument {
    * the kit default and below the per-room override.
    */
   steinKit?: Partial<SteinKitConfig>;
+  /**
+   * Grundbeleuchtung dieses Grabs (Dokumentversion 5, additiv), 0..3.
+   *
+   * Ein FAKTOR auf die Weltbeleuchtung, keine eigene Lichtquelle: 1 = wie
+   * bisher (Umgebung unverändert), <1 dunkler, >1 heller. Fehlt das Feld,
+   * bleibt alles wie zuvor — deshalb `?` und deshalb legt der Sanitizer es
+   * nicht an. Wer den Ersatzwert braucht, nimmt {@link ambientLichtVon}.
+   *
+   * 0 ist ein GÜLTIGER Wert (stockdunkel) und ausdrücklich etwas anderes
+   * als „fehlt": Ein Grab, das nur von seinen Fackeln lebt, sagt das hier,
+   * und es darf beim Speichern nicht auf 1 zurückfallen.
+   * Per-document base brightness (document version 5, additive), 0..3. A
+   * FACTOR on the world lighting, not a light of its own: 1 = unchanged.
+   * Absent means unchanged; 0 is a VALID value (pitch dark), not "absent".
+   */
+  ambientLicht?: number;
 }
+
+/**
+ * Die Grundbeleuchtung eines 1.0-Dokuments — fehlendes Feld heisst 1
+ * („Umgebung wie bisher").
+ *
+ * Die EINE Stelle, an der aus „fehlt" eine Zahl wird. Stünde der Ersatzwert
+ * an jeder Aufrufstelle neu, driftete er dort auseinander, wo ihn niemand
+ * ansieht — und ausgerechnet die 0 (stockdunkel) sähe dann aus wie ein
+ * fehlendes Feld.
+ * The base brightness of a 1.0 document; absent means 1. The ONE place where
+ * "absent" turns into a number.
+ */
+export function ambientLichtVon(doc: DungeonDocument): number {
+  return doc.ambientLicht ?? 1;
+}
+
+/** Obergrenze der Grundbeleuchtung (0 = stockdunkel, 1 = wie die Umgebung). */
+export const MAX_DUNGEON_AMBIENT = 3;
 
 /**
  * Interior lighting environment per dungeon base (Unity
@@ -758,9 +803,25 @@ export function sanitizeDungeonDocument(input: unknown): DungeonDocument | null 
   // es, wird das Feld NICHT angelegt, und das Dokument sieht aus wie zuvor.
   const steinKit = sanitizeSteinKit(o.steinKit);
 
+  // Grundbeleuchtung (Version 5) — dasselbe additive Muster: NUR endliche
+  // Zahlen, auf [0, MAX_DUNGEON_AMBIENT] geklemmt; alles andere (Text, NaN,
+  // Unendlich, fehlend) lässt das Feld ungesetzt, statt das Dokument
+  // ungültig zu machen. Ein Grab wegen einer unlesbaren Helligkeit gar nicht
+  // mehr laden zu können wäre der schlechtere Tausch.
+  // Base brightness (version 5) — finite numbers only, clamped; anything else
+  // leaves the field unset rather than rejecting the whole document.
+  const ambientLicht =
+    typeof o.ambientLicht === 'number' && Number.isFinite(o.ambientLicht)
+      ? Math.max(0, Math.min(MAX_DUNGEON_AMBIENT, o.ambientLicht))
+      : undefined;
+
   return {
     version: DUNGEON_DOCUMENT_VERSION,
     ...(steinKit ? { steinKit } : {}),
+    // `!== undefined` und nicht `? :` — 0 ist ein gültiger Wert und fiele
+    // sonst still weg (dann wäre stockdunkel nicht speicherbar).
+    // `!== undefined`, not truthiness: 0 is a valid value.
+    ...(ambientLicht !== undefined ? { ambientLicht } : {}),
     id,
     name:
       typeof o.name === 'string' && o.name.trim().length > 0

@@ -62,6 +62,8 @@ import {
   findPrefabByHash,
   sanitizeSteinKit,
   steinTexturAufloesen,
+  ambientLichtVon,
+  MAX_DUNGEON_AMBIENT,
   interiorEnvironment,
   isInDungeonBand,
   dungeon2,
@@ -2906,7 +2908,23 @@ export class WovServer {
      * Appended BEHIND `layoutJson` so the field order stays unchanged for
      * older clients, which simply stop reading earlier.
      */
-    steinKitJson = ''
+    steinKitJson = '',
+    /**
+     * Die Grundbeleuchtung, die in das (seit Fassung 11 bestehende) Float
+     * geschrieben wird. `null` heisst „nimm die des Deskriptors" — also der
+     * 2.0-Weg, unverändert.
+     *
+     * Ein EIGENER Parameter und KEIN zweites Feld auf der Leitung: Das Float
+     * steht längst im Paket und wird für JEDES Teleport-Paket geschrieben,
+     * auch für 1.0-Gräber. Ein 1.0-Grab hat nur keinen Deskriptor, aus dem
+     * der Wert kommen könnte — hier reicht ihn die Aufrufstelle nach. Die
+     * Reihenfolge der Felder auf der Leitung ändert sich dadurch NICHT.
+     * The base brightness written into the (long existing) float. `null`
+     * means "take the descriptor's" — the unchanged 2.0 path. A separate
+     * parameter, not a second wire field: the float is already there, and
+     * the wire order stays exactly as it was.
+     */
+    ambientLicht: number | null = null
   ): void {
     // Weltwechsel-Seam (Review 15): Die Signatur trägt die Zielwelt schon —
     // der eigentliche Kontext-Swap ist das Housing-Folgeprojekt.
@@ -2977,7 +2995,15 @@ export class WovServer {
       // Base brightness (document revision 11). The fallback is `1`, not `0`:
       // `0` is a VALID value in this field (pitch dark) and would therefore be
       // a fallback indistinguishable from a statement.
-      w.writeFloat32(deskriptor?.ambientLicht ?? 1);
+      //
+      // NACHTRAG (1.0-Grundbeleuchtung, Dokumentversion 5): Der Parameter
+      // `ambientLicht` schlägt den Deskriptor, denn NUR er kennt den Wert
+      // eines 1.0-Dokuments — ein 1.0-Grab hat gar keinen Deskriptor. Bei
+      // 2.0 gibt die Aufrufstelle `null` und alles bleibt wie zuvor.
+      // ADDENDUM (1.0 base brightness): the `ambientLicht` parameter beats
+      // the descriptor — only it knows a 1.0 document's value. For 2.0 the
+      // caller passes `null` and nothing changes.
+      w.writeFloat32(ambientLicht ?? deskriptor?.ambientLicht ?? 1);
       // ANGEHÄNGT hinter `ambientLicht` (Befund 01.09.2026): das Layout eines
       // handgebauten Grabs. Leer bei erzeugten Gräbern — dann liest der Client
       // nur einen Nullstring und baut wie bisher aus den Seeds. Ein älterer
@@ -3034,6 +3060,12 @@ export class WovServer {
     // der String leer — der Client hält dann an der Kit-Vorgabe fest.
     // The per-document stone material belongs to the 1.0 format only.
     const steinKitJson = !doc2 && doc?.steinKit ? JSON.stringify(doc.steinKit) : '';
+    // Grundbeleuchtung: bei 2.0 wie bisher aus dem Deskriptor (`null` heisst
+    // „nicht nachreichen"), bei 1.0 aus dem Dokument. `ambientLichtVon`
+    // macht aus einem fehlenden Feld die 1 — genau EINMAL, hier.
+    // Base brightness: 2.0 keeps taking it from the descriptor (`null` =
+    // don't override), 1.0 takes it from the document.
+    const ambientLicht = doc2 ? null : doc ? ambientLichtVon(doc) : null;
     const umgebung = doc2
       ? dungeon2.themaFinden(doc2.thema)?.innenUmgebung ?? 'Crypt'
       : doc
@@ -3049,7 +3081,8 @@ export class WovServer {
       instance.welt.id,
       deskriptor,
       layoutJson,
-      steinKitJson
+      steinKitJson,
+      ambientLicht
     );
     // Kurze Rückmeldung, wenn wirklich neu gewürfelt wurde — sonst hielte der
     // Spieler den anderen Grundriss für einen Fehler. Der Fall 'besetzt' wird
@@ -3328,6 +3361,12 @@ export class WovServer {
    *                                     out of `STEIN_TEXTUREN`.
    *                                     `dungeon steinkit <id> reset` clears
    *                                     it (back to the kit default).
+   *   dungeon licht <id> <0..3>         set the 1.0 document's base
+   *                                     brightness — a FACTOR on the world
+   *                                     lighting: 1 = as before, <1 darker,
+   *                                     >1 brighter. `dungeon licht <id>
+   *                                     reset` clears it (back to 1); with no
+   *                                     value it just reports the current one.
    *   dungeon reset <id>                tear down the live instance
    *   dungeon delete <id>               delete document + assignments
    */
@@ -3790,6 +3829,65 @@ export class WovServer {
           };
         }
 
+        // ── Grundbeleuchtung je 1.0-Dokument ──────────────────────────
+        //
+        // Gleicher Aufbau wie `steinkit`: prüfen, ins Dokument schreiben,
+        // `saveDocument`, `destroyInstance` — erst das nächste Teleport-Paket
+        // trägt den neuen Wert zum Client, eine laufende Instanz weiss von
+        // ihm nichts (Vault: „server.yml erreicht laufende Clients nicht").
+        // Same shape as `steinkit`; only the next teleport packet carries the
+        // new value to a client, so the live instance is dropped.
+        case 'licht': {
+          const doc = args[0] ? this.dungeons.getDocument(args[0]) : undefined;
+          if (!doc) {
+            return { ok: false, active: false, message: `Unbekannter 1.0-Dungeon: ${args[0] ?? '?'}` };
+          }
+          if (args[1] === undefined) {
+            return {
+              ok: false,
+              active: false,
+              message:
+                `${doc.id}: Grundbeleuchtung ${ambientLichtVon(doc).toFixed(2)}` +
+                `${doc.ambientLicht === undefined ? ' (Vorgabe, Feld nicht gesetzt)' : ''} — ` +
+                `Aufruf: dungeon licht <id> <0..${MAX_DUNGEON_AMBIENT}> | dungeon licht <id> reset`,
+            };
+          }
+          if (args[1] === 'reset') {
+            delete doc.ambientLicht;
+            this.dungeons.saveDocument(doc);
+            this.dungeons.destroyInstance(doc.id);
+            return {
+              ok: true,
+              active: false,
+              message: `${doc.id}: Grundbeleuchtung gelöscht — es gilt wieder die Umgebung (1)`,
+            };
+          }
+          const wert = Number(args[1]);
+          // `Number('')` ist 0 und `Number('abc')` ist NaN — beides muss hier
+          // heraus, sonst schriebe ein Vertipper stillschweigend „stockdunkel".
+          // `Number('')` is 0, so an empty argument must be rejected here.
+          if (args[1].trim() === '' || !Number.isFinite(wert)) {
+            return { ok: false, active: false, message: `Keine Zahl: ${args[1]}` };
+          }
+          if (wert < 0 || wert > MAX_DUNGEON_AMBIENT) {
+            return {
+              ok: false,
+              active: false,
+              message: `Grundbeleuchtung muss zwischen 0 und ${MAX_DUNGEON_AMBIENT} liegen — ${wert} liegt ausserhalb`,
+            };
+          }
+          doc.ambientLicht = wert;
+          this.dungeons.saveDocument(doc);
+          this.dungeons.destroyInstance(doc.id);
+          return {
+            ok: true,
+            active: false,
+            message:
+              `${doc.id}: Grundbeleuchtung ${wert.toFixed(2)} gesetzt` +
+              `${wert < 1 ? ' (dunkler als die Umgebung)' : wert > 1 ? ' (heller als die Umgebung)' : ' (wie die Umgebung)'}`,
+          };
+        }
+
         case 'reset': {
           const ok = args[0] ? this.dungeons.destroyInstance(args[0]) : false;
           return {
@@ -3813,7 +3911,7 @@ export class WovServer {
             ok: false,
             active: false,
             message:
-              'Aufruf: dungeon list|entrances|entrance-mode|create|create2|enter|leave|assign|regen|steinkit|reset|delete',
+              'Aufruf: dungeon list|entrances|entrance-mode|create|create2|enter|leave|assign|regen|steinkit|licht|reset|delete',
           };
       }
     });

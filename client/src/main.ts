@@ -2129,6 +2129,13 @@ async function main() {
       // Declared here because it is used OUTSIDE `if (thema)` below — a 1.0
       // document has no theme at all and is exactly what carries this field.
       let steinKitJson = '';
+      // Die Grundbeleuchtung — aus demselben Grund hier oben. Bei 2.0 wandert
+      // sie in den Deskriptor und wird von `DungeonAtmosphere` angelegt; bei
+      // 1.0 gibt es keinen Deskriptor, und dann legt sie unten der
+      // 1.0-Zweig selbst an. Vorbelegt mit 1 = „Umgebung wie bisher".
+      // The base brightness, hoisted for the same reason: 2.0 carries it in
+      // the descriptor, 1.0 applies it directly below.
+      let ambientLicht = 1;
       if (reader.remaining > 0) {
         const thema = reader.readString();
         const architektur = reader.readInt32();
@@ -2143,7 +2150,7 @@ async function main() {
         // sagen, und dann gilt „wie bisher" (1).
         // Base brightness (document revision 11) — only in the packet from
         // this server build on. `remaining` decides, not a version field.
-        const ambientLicht = reader.remaining >= 4 ? reader.readFloat32() : 1;
+        ambientLicht = reader.remaining >= 4 ? reader.readFloat32() : 1;
         // Das MITGELIEFERTE Layout-JSON (Befund 01.09.2026) — nur bei
         // handgebauten Graebern gefuellt, sonst leer. Angehaengt hinter
         // `ambientLicht`; ein aelterer Server hat es nicht, dann greift der
@@ -2233,6 +2240,37 @@ async function main() {
         dungeon2Instanz.verlasse();
         dungeon2Instanz = null;
       }
+
+      // ── Grundbeleuchtung eines 1.0-Grabs ──────────────────────────
+      //
+      // NUR für 1.0, also nur OHNE Deskriptor: Bei 2.0 setzt und löscht
+      // `DungeonAtmosphere` (`betrete()`/`verlasse()`) denselben Regler, und
+      // zwei Schreiber auf einer Grösse überschreiben einander irgendwann in
+      // der falschen Reihenfolge — `Dungeon2Instanz.betrete()` läuft
+      // asynchron, würde also NACH dieser Zeile landen und sie stillschweigend
+      // gewinnen. Deshalb hier die ausdrückliche Bedingung `!deskriptor`
+      // statt eines „schadet ja nicht".
+      //
+      // Die Stelle ist bewusst NACH dem Abräumen oben: Kommt man aus einem
+      // 2.0-Grab in ein 1.0-Grab, hat `verlasse()` den Regler gerade auf
+      // `null` gestellt — erst danach darf der neue Wert stehen.
+      //
+      // Beim Verlassen (`drin === false`) IMMER zurück auf `null`, auch wenn
+      // gar kein 1.0-Grab anlag: Ein Regler, den man beim Hinausgehen nicht
+      // zurückgibt, färbt die Oberwelt — und das sieht man erst beim nächsten
+      // Sonnenaufgang.
+      //
+      // 1.0 ONLY (i.e. no descriptor): for 2.0 the very same knob is set and
+      // cleared by `DungeonAtmosphere`, and its async `betrete()` would land
+      // AFTER this line and silently win. Placed after the teardown above so a
+      // 2.0→1.0 transition sets the new value last. On leaving, always
+      // released — a knob kept on exit tints the overworld.
+      if (!drin) {
+        lighting.setzeDungeonDaempfung(null);
+      } else if (!deskriptor) {
+        lighting.setzeDungeonDaempfung(ambientLicht);
+      }
+
       if (drin && deskriptor && player) {
         const marke = dungeon2Marke;
         const spielerRef = player;

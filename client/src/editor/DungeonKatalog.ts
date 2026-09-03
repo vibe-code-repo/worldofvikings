@@ -31,9 +31,14 @@
  */
 import {
   DUNGEONS_BY_NAME,
+  MAX_DUNGEON_AMBIENT,
+  STEIN_TEXTUREN,
+  STEIN_VERWITTERUNG_MAX,
+  ambientLichtVon,
   ausrichtungsOptionen,
   sanitizeDungeonDocument,
   type DungeonDocument,
+  type SteinKitConfig,
 } from '@wov/shared';
 import type { DungeonGrundriss } from './DungeonGrundriss';
 import { DungeonLadeFehler, holeDungeon, holeDungeonListe, type DungeonKopf } from './DungeonDokument';
@@ -92,6 +97,23 @@ function feld(platzhalter: string, breite: string): HTMLInputElement {
     `width:${breite}`,
   ].join(';');
   return i;
+}
+
+/** Zwischenüberschrift im Stil von „Neu anlegen". */
+function abschnitt(text: string): HTMLDivElement {
+  const d = document.createElement('div');
+  d.textContent = text;
+  d.style.cssText =
+    'font-size:12px;letter-spacing:.06em;color:#a8916a;margin-top:4px;text-transform:uppercase';
+  return d;
+}
+
+/** Kleingedruckter Hinweis unter einem Abschnitt. */
+function hinweis(text: string): HTMLDivElement {
+  const d = document.createElement('div');
+  d.textContent = text;
+  d.style.cssText = 'font-size:11px;color:#8a7350;line-height:1.5';
+  return d;
 }
 
 function zeile(...teile: (HTMLElement | string)[]): HTMLDivElement {
@@ -405,6 +427,9 @@ export class DungeonSeite {
       )
     );
 
+    this.baueLicht(b, doc);
+    this.baueSteinKit(b, doc);
+
     const fuss = document.createElement('div');
     fuss.style.cssText = 'font-size:11px;color:#8a7350;line-height:1.5';
     fuss.textContent =
@@ -479,6 +504,181 @@ export class DungeonSeite {
       'es muss also kein Abschluss erst abgerissen werden. Gespeichert wird ' +
       'über den Spielserver; der muss dafür laufen.';
     b.appendChild(hinweis);
+  }
+
+  /**
+   * Abschnitt „Grundbeleuchtung" — der Regler auf `doc.ambientLicht`.
+   *
+   * Der Wert steht IM DOKUMENT und nicht an der Klasse, anders als die
+   * Felder von „Neu anlegen": Das Dokument überlebt `baue()`, ein zweiter
+   * Stand daneben würde beim nächsten Öffnen still auseinanderlaufen.
+   * Gelesen wird deshalb bei jedem Aufbau frisch aus `doc`.
+   *
+   * ── Warum „Vorgabe" nicht dasselbe ist wie „auf 1 ziehen" ───────────
+   * `ambientLicht` FEHLEN zu lassen heisst „Umgebung unverändert"; eine
+   * eingetragene 1 sagt dasselbe, aber als Entscheidung. Solange beide
+   * gleich wirken, ist der Unterschied Geschmack — sobald der Ersatzwert
+   * je Kit verschieden würde, ist er es nicht mehr. Der Knopf löscht
+   * deshalb wirklich, statt 1 zu schreiben.
+   *
+   * ── oninput schreibt, onchange baut ────────────────────────────────
+   * Ein `baue()` bei jedem Zwischenwert risse den Regler unter dem
+   * Mauszeiger weg. Geschrieben wird deshalb sofort (damit „Speichern"
+   * nichts verpasst), neu gebaut erst am Ende des Ziehens.
+   */
+  private baueLicht(b: HTMLElement, doc: DungeonDocument): void {
+    b.appendChild(abschnitt('Grundbeleuchtung'));
+
+    const regler = document.createElement('input');
+    regler.type = 'range';
+    regler.min = '0';
+    regler.max = String(MAX_DUNGEON_AMBIENT);
+    regler.step = '0.05';
+    regler.value = String(ambientLichtVon(doc));
+    regler.title = 'Faktor auf die Weltbeleuchtung — 1 = wie die Umgebung';
+    regler.style.cssText = 'flex:1 1 130px';
+
+    const anzeige = document.createElement('span');
+    anzeige.style.cssText = 'font-size:12px;color:#e8d9b8;min-width:76px;text-align:right';
+    const beschrifte = (): void => {
+      anzeige.textContent =
+        ambientLichtVon(doc).toFixed(2) + (doc.ambientLicht === undefined ? ' (Vorgabe)' : '');
+    };
+    beschrifte();
+
+    regler.oninput = () => {
+      doc.ambientLicht = Number(regler.value);
+      this.schmutzig = true;
+      beschrifte();
+    };
+    regler.onchange = () => {
+      doc.ambientLicht = Number(regler.value);
+      this.schmutzig = true;
+      this.baue();
+    };
+
+    b.appendChild(
+      zeile(
+        regler,
+        anzeige,
+        knopf('Vorgabe', () => {
+          delete doc.ambientLicht;
+          this.schmutzig = true;
+          this.baue();
+        })
+      )
+    );
+  }
+
+  /**
+   * Abschnitt „Steinmaterial (Dokument)".
+   *
+   * Angeboten wird NUR, was in `STEIN_TEXTUREN` steht — derselben
+   * Erlaubnisliste, gegen die der Server sanitisiert. Ein freies Textfeld
+   * wäre hier bequemer und ergäbe eine schwarze Wand ohne Fehlermeldung,
+   * sobald sich jemand vertippt.
+   *
+   * Angezeigt wird der blosse Dateiname: Der Pfad ist in jeder Zeile
+   * derselbe und macht die Auswahl nur unlesbar.
+   *
+   * Leer bzw. „Kit-Vorgabe" heisst — wie beim Licht — FEHLENDES Feld und
+   * nicht „irgendein Ersatzwert": Nur dann greift die Kit-Vorgabe aus
+   * `eigeneDungeons.ts` wieder durch.
+   */
+  private baueSteinKit(b: HTMLElement, doc: DungeonDocument): void {
+    b.appendChild(abschnitt('Steinmaterial (Dokument)'));
+
+    const kurz = (pfad: string): string => pfad.split('/').pop()!.replace(/\.png$/, '');
+    const flaechen = [
+      ['Wand', 'wandTextur'],
+      ['Decke', 'deckeTextur'],
+      ['Boden', 'bodenTextur'],
+    ] as const;
+
+    for (const [beschriftung, schluessel] of flaechen) {
+      const w = auswahl();
+      w.style.cssText += ';width:auto;flex:1 1 140px';
+      const vorgabe = document.createElement('option');
+      vorgabe.value = '';
+      vorgabe.textContent = 'Kit-Vorgabe';
+      w.appendChild(vorgabe);
+      for (const t of STEIN_TEXTUREN) {
+        const o = document.createElement('option');
+        o.value = t;
+        o.textContent = kurz(t);
+        if (doc.steinKit?.[schluessel] === t) o.selected = true;
+        w.appendChild(o);
+      }
+      w.value = doc.steinKit?.[schluessel] ?? '';
+      w.onchange = () => {
+        const gewaehlt = w.value;
+        this.schreibeSteinKit(doc, (kit) => {
+          if (gewaehlt === '') delete kit[schluessel];
+          else kit[schluessel] = gewaehlt;
+        });
+      };
+      b.appendChild(zeile(beschriftung, w));
+    }
+
+    // Verwitterung: leer heisst „nicht gesetzt", nicht „null". Deshalb ein
+    // Textfeld mit Zahlentyp und kein Regler — ein Regler hat keinen
+    // leeren Zustand, und man könnte die Kit-Vorgabe nie zurückgeben.
+    const verwitterungen = [
+      ['moos', 'moos'],
+      ['frost', 'frost'],
+      ['nass', 'nass'],
+    ] as const;
+    const felder: HTMLElement[] = [];
+    for (const [schluessel, platzhalter] of verwitterungen) {
+      const f = feld(platzhalter, '58px');
+      f.type = 'number';
+      f.min = '0';
+      f.max = String(STEIN_VERWITTERUNG_MAX);
+      f.step = '0.1';
+      const wert = doc.steinKit?.verwitterung?.[schluessel];
+      f.value = wert === undefined ? '' : String(wert);
+      f.onchange = () => {
+        const roh = f.value.trim();
+        const zahl = roh === '' ? undefined : Number(roh);
+        this.schreibeSteinKit(doc, (kit) => {
+          const v: Record<string, number> = { ...(kit.verwitterung as Record<string, number>) };
+          if (zahl === undefined || !Number.isFinite(zahl)) delete v[schluessel];
+          else v[schluessel] = Math.max(0, Math.min(STEIN_VERWITTERUNG_MAX, zahl));
+          if (Object.keys(v).length === 0) delete kit.verwitterung;
+          else kit.verwitterung = v;
+        });
+      };
+      felder.push(f);
+    }
+    b.appendChild(zeile('Verwitterung', ...felder));
+
+    b.appendChild(
+      hinweis('Wirkt nach Speichern beim nächsten Betreten (die Instanz wird neu aufgebaut).')
+    );
+  }
+
+  /**
+   * `doc.steinKit` ändern — über eine KOPIE, und ein leer gewordenes Objekt
+   * verschwindet ganz.
+   *
+   * Die Kopie ist keine Vorsicht, sondern nötig: `Partial<SteinKitConfig>`
+   * ist durchweg `readonly`, an Ort und Stelle liesse sich nichts
+   * zuweisen. Und ein zurückbleibendes `steinKit: {}` wäre kein leeres
+   * Feld, sondern ein gesetztes ohne Inhalt — der Sanitizer wirft es zwar
+   * weg, aber der Grundriss zeigte bis zum Speichern etwas anderes an, als
+   * der Server danach hat.
+   */
+  private schreibeSteinKit(
+    doc: DungeonDocument,
+    aendere: (kit: Record<string, unknown>) => void
+  ): void {
+    const kit: Record<string, unknown> = { ...(doc.steinKit ?? {}) };
+    if (kit.verwitterung) kit.verwitterung = { ...(kit.verwitterung as Record<string, number>) };
+    aendere(kit);
+    if (Object.keys(kit).length === 0) delete doc.steinKit;
+    else doc.steinKit = kit as Partial<SteinKitConfig>;
+    this.schmutzig = true;
+    this.baue();
   }
 
   /**

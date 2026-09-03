@@ -29,7 +29,9 @@
  */
 import {
   DUNGEONS_BY_NAME,
+  MAX_DUNGEON_AMBIENT,
   MAX_DUNGEON_PROPS,
+  ambientLichtVon,
   attachRoom,
   ausrichtungsOptionen,
   computeOpenConnections,
@@ -104,6 +106,8 @@ export class DungeonEditor {
   private connWahl!: HTMLSelectElement;
   private raumWahl!: HTMLSelectElement;
   private ausrichtungWahl!: HTMLSelectElement;
+  private lichtRegler!: HTMLInputElement;
+  private lichtAnzeige!: HTMLSpanElement;
   private dekoWahl!: HTMLSelectElement;
   private dekoListe!: HTMLDivElement;
   private speicherTimer: ReturnType<typeof setTimeout> | null = null;
@@ -181,6 +185,60 @@ export class DungeonEditor {
     anfuegen.appendChild(anfBtn);
     anfuegen.appendChild(tuerBtn);
     panel.appendChild(anfuegen);
+
+    // ── Grundbeleuchtung ─────────────────────────────────────────────
+    //
+    // Eine Zeile, kein eigener Abschnitt: Sie ist EIN Wert, und der Platz
+    // im Panel ist knapp. Dasselbe Bedienelement steht in der Dungeon-Seite
+    // des Karteneditors (`client/src/editor/DungeonKatalog.ts`); dort
+    // gehört auch das Steinmaterial dazu, hier nicht — im Spiel setzt man
+    // Texturen über die Konsole (`dungeon steinkit …`), und ein Panel, das
+    // alles kann, findet man auf einem Wandbildschirm nicht mehr.
+    //
+    // Gespeichert wird NICHT sofort: Anders als eine gesetzte Fackel reisst
+    // ein Lichtwechsel die Instanz ab (`upsertDocument` zählt ihn nicht zu
+    // „nur Deko", weil das Teleport-Paket den Wert trägt). Automatisches
+    // Speichern hiesse also, beim Ziehen am Regler wiederholt an den
+    // Eingang teleportiert zu werden.
+    const licht = document.createElement('div');
+    licht.style.cssText =
+      'display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap';
+    const lichtLabel = document.createElement('span');
+    lichtLabel.textContent = 'Grundbeleuchtung';
+    lichtLabel.style.cssText = 'font-size:13px;color:#a8916a';
+    this.lichtRegler = document.createElement('input');
+    this.lichtRegler.type = 'range';
+    this.lichtRegler.min = '0';
+    this.lichtRegler.max = String(MAX_DUNGEON_AMBIENT);
+    this.lichtRegler.step = '0.05';
+    this.lichtRegler.value = '1';
+    this.lichtRegler.title = 'Faktor auf die Weltbeleuchtung — 1 = wie die Umgebung';
+    this.lichtRegler.style.cssText = 'flex:1 1 150px';
+    this.lichtAnzeige = document.createElement('span');
+    this.lichtAnzeige.style.cssText =
+      'font-size:13px;color:#e8d9b8;min-width:78px;text-align:right';
+    this.lichtRegler.addEventListener('input', () => {
+      if (!this.doc) return;
+      this.doc.ambientLicht = Number(this.lichtRegler.value);
+      this.lichtBeschriften();
+      this.status.textContent = 'Grundbeleuchtung geändert (ungespeichert)';
+    });
+    licht.appendChild(lichtLabel);
+    licht.appendChild(this.lichtRegler);
+    licht.appendChild(this.lichtAnzeige);
+    // „Vorgabe" LÖSCHT das Feld, statt 1 einzutragen: Fehlen heisst
+    // „Umgebung unverändert", eine eingetragene 1 heisst dasselbe als
+    // Entscheidung — und nur das Fehlen zieht einen künftigen Kit-Wert
+    // nach.
+    licht.appendChild(
+      this.knopf('Vorgabe', () => {
+        if (!this.doc) return;
+        delete this.doc.ambientLicht;
+        this.lichtBeschriften();
+        this.status.textContent = 'Grundbeleuchtung auf Vorgabe (ungespeichert)';
+      })
+    );
+    panel.appendChild(licht);
 
     // ── Deko ─────────────────────────────────────────────────────────
     panel.appendChild(this.abschnitt('Deko setzen'));
@@ -628,7 +686,25 @@ export class DungeonEditor {
       if (gewaehlterRaum) this.raumWahl.value = gewaehlterRaum;
     }
 
+    this.lichtBeschriften();
     this.ausrichtungenFuellen();
+  }
+
+  /**
+   * Regler und Zahl aus dem Dokument nachziehen.
+   *
+   * Beim EMPFANGEN eines Dokuments muss das sein, sonst zeigte der Regler
+   * nach dem Öffnen die 1 aus dem Konstruktor und behauptete für ein
+   * stockdunkles Grab „wie die Umgebung". `ambientLichtVon` ist dabei die
+   * einzige Stelle, an der aus „fehlt" eine Zahl wird — der Zusatz
+   * „(Vorgabe)" sagt daneben, welcher der beiden Fälle vorliegt.
+   */
+  private lichtBeschriften(): void {
+    const doc = this.doc;
+    if (!doc) return;
+    this.lichtRegler.value = String(ambientLichtVon(doc));
+    this.lichtAnzeige.textContent =
+      ambientLichtVon(doc).toFixed(2) + (doc.ambientLicht === undefined ? ' (Vorgabe)' : '');
   }
 
   /**

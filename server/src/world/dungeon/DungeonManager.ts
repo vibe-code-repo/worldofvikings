@@ -389,11 +389,26 @@ export class DungeonManager {
     // stammen aus demselben Sanitizer und sind deshalb feldweise
     // vergleichbar; ein selbstgeschriebener Vergleich wäre die Stelle, an
     // der ein neues Feld eines Tages stillschweigend durchrutscht.
+    //
+    // Licht und Steinmaterial stehen NEBEN dem Layout und müssen trotzdem
+    // in diesen Vergleich: Beide werden beim AUFBAU der Instanz gelesen und
+    // fahren von dort im Teleport-Paket mit. Ohne sie hier hätte ein
+    // Lichtwechsel Räume und Türen unverändert gelassen, wäre als „nur
+    // Deko" durchgegangen — und man sähe den neuen Wert erst beim
+    // ÜBERNÄCHSTEN Betreten. Der Editor sagte „gespeichert", und im Grab
+    // bliebe es dunkel; genau das ist die Art Fehler, die niemand meldet,
+    // weil sie sich beim zweiten Versuch selbst heilt.
+    // Light and stone material sit BESIDE the layout but must join this
+    // comparison: both are read when the instance is built and travel in
+    // the teleport packet, so leaving them out would show the new value
+    // only on the second entry.
     const nurDeko =
       instance !== undefined &&
       vorher !== undefined &&
       JSON.stringify(vorher.layout.rooms) === JSON.stringify(doc.layout.rooms) &&
-      JSON.stringify(vorher.layout.doors) === JSON.stringify(doc.layout.doors);
+      JSON.stringify(vorher.layout.doors) === JSON.stringify(doc.layout.doors) &&
+      vorher.ambientLicht === doc.ambientLicht &&
+      JSON.stringify(vorher.steinKit) === JSON.stringify(doc.steinKit);
 
     if (nurDeko) {
       this.dekoAngleichen(instance, doc);

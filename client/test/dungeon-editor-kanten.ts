@@ -32,6 +32,7 @@
  */
 import {
   DUNGEONS_BY_NAME,
+  STEIN_TEXTUREN,
   ausrichtungsOptionen,
   computeOpenConnections,
   kantenName,
@@ -39,32 +40,69 @@ import {
 } from '@wov/shared';
 
 // ── DOM-Stummel, VOR dem Import des Grundrisses gesetzt ──────────────
-interface StummelKnoten {
-  style: { cssText: string };
-  width: number;
-  height: number;
-  addEventListener(): void;
-  appendChild(): void;
-  getContext(): null;
-}
-function stummelKnoten(): StummelKnoten {
-  return {
-    style: { cssText: '' },
-    width: 0,
-    height: 0,
-    addEventListener: () => undefined,
-    appendChild: () => undefined,
-    getContext: () => null,
-  };
+//
+// Er kann seit der Prüfung der Seitenleiste (Abschnitt 8) etwas mehr als
+// nur „nichts tun": Kinder, `textContent`, `value` und die drei
+// Ereignisfelder, die `DungeonKatalog.ts` benutzt. Das ist immer noch
+// kein jsdom — es gibt kein Layout, keine Ereignisausbreitung und keine
+// Attribute. Es ist genau so viel Browser, wie nötig ist, um einen
+// Regler zu FINDEN und ihn anzustossen; alles darüber hinaus wäre ein
+// zweiter Browser, den niemand pflegt.
+class StummelKnoten {
+  readonly style = { cssText: '' };
+  readonly kinder: StummelKnoten[] = [];
+  width = 0;
+  height = 0;
+  value = '';
+  type = '';
+  min = '';
+  max = '';
+  step = '';
+  title = '';
+  placeholder = '';
+  selected = false;
+  disabled = false;
+  label = '';
+  onclick: (() => void) | null = null;
+  onchange: (() => void) | null = null;
+  oninput: (() => void) | null = null;
+  private eigenerText = '';
+
+  constructor(readonly tag: string) {}
+
+  /** Wie im Browser: Text setzen wirft die Kinder weg. */
+  get textContent(): string {
+    return this.eigenerText;
+  }
+  set textContent(t: string) {
+    this.eigenerText = t;
+    this.kinder.length = 0;
+  }
+  set innerHTML(_h: string) {
+    this.kinder.length = 0;
+    this.eigenerText = '';
+  }
+  addEventListener(): void {}
+  appendChild(k: StummelKnoten): void {
+    this.kinder.push(k);
+  }
+  getContext(): null {
+    return null;
+  }
+  /** Alle Knoten im Teilbaum — die Suchhilfe der Prüfungen unten. */
+  alle(): StummelKnoten[] {
+    return this.kinder.flatMap((k) => [k, ...k.alle()]);
+  }
 }
 const g = globalThis as unknown as Record<string, unknown>;
-g.document = { createElement: () => stummelKnoten() };
+g.document = { createElement: (tag: string) => new StummelKnoten(tag) };
 g.window = { addEventListener: () => undefined, devicePixelRatio: 1 };
 
 const { DungeonGrundriss, ebeneVon, rasterVonBasis, zeichenHuelle } = await import(
   '../src/editor/DungeonGrundriss'
 );
 const { neuesDungeonDokument, waehlbareBasen } = await import('../src/editor/DungeonNeuesDokument');
+const { DungeonSeite } = await import('../src/editor/DungeonKatalog');
 
 let fehler = 0;
 function pruefe(bedingung: boolean, was: string, zusatz = ''): void {
@@ -238,6 +276,163 @@ pruefe(obereOffen.length === 1, 'genau ein offener Connector liegt auf 3,5', `${
 pruefe(
   mitTreppe.dok.layout.rooms.every((r) => ebeneVon(r.pos.y) === 0),
   'dabei steht jeder RAUM noch auf 0 — nach dem Raum sortiert wäre der Ausgang unsichtbar'
+);
+
+// ── 8. Seitenleiste: Grundbeleuchtung und Steinmaterial ─────────────
+//
+// Gemessen wird, was die Bedienelemente INS DOKUMENT schreiben — nicht,
+// dass sie dastehen. Der Unterschied ist der ganze Test: Ein Regler ohne
+// `oninput` sieht auf einem Bildschirmfoto genauso aus wie einer mit,
+// und „gespeichert" stünde trotzdem in der Meldung.
+//
+// Warum das Löschen eine eigene Prüfung hat: `ambientLicht` FEHLEN zu
+// lassen heisst „Umgebung unverändert" und ist ausdrücklich etwas
+// anderes als eine eingetragene 1 (s. `dungeons.ts`). Ein „Vorgabe",
+// das in Wahrheit 1 schreibt, fiele sonst nie auf.
+console.log('\nSeitenleiste:');
+const behaelter = new StummelKnoten('div');
+const seiteDoc = JSON.parse(JSON.stringify(frisch)) as typeof frisch;
+const seite = new DungeonSeite(
+  behaelter as unknown as HTMLElement,
+  grundrissMit(seiteDoc),
+  { meldung: () => undefined }
+);
+seite.baue();
+
+const suche = {
+  regler: () => behaelter.alle().find((k) => k.type === 'range'),
+  vorgabe: () =>
+    behaelter.alle().find((k) => k.tag === 'button' && k.textContent === 'Vorgabe'),
+  // Die drei Flächen-Auswahlen erkennt man an ihrem ersten Eintrag: Nur
+  // sie bieten „Kit-Vorgabe" an.
+  steinWahlen: () =>
+    behaelter
+      .alle()
+      .filter((k) => k.tag === 'select' && k.kinder.some((o) => o.textContent === 'Kit-Vorgabe')),
+  zahlen: () => behaelter.alle().filter((k) => k.type === 'number'),
+};
+
+const regler = suche.regler();
+pruefe(regler !== undefined, 'die Leiste hat einen Regler');
+pruefe(regler?.max === '3' && regler?.step === '0.05', 'Bereich 0..3 in Schritten von 0,05',
+  `${regler?.min}..${regler?.max} / ${regler?.step}`);
+pruefe(regler?.value === '1', 'Vorgabe 1, solange das Feld fehlt', regler?.value);
+pruefe(
+  seiteDoc.ambientLicht === undefined,
+  'und der blosse Aufbau schreibt das Feld NICHT ins Dokument'
+);
+
+regler!.value = '0.35';
+regler!.oninput!();
+pruefe(seiteDoc.ambientLicht === 0.35, 'der Regler schreibt doc.ambientLicht', String(seiteDoc.ambientLicht));
+
+// Beim nächsten Aufbau muss der Wert AUS DEM DOKUMENT zurückkommen —
+// sonst stünde die Leiste nach jeder anderen Aktion wieder auf 1.
+seite.baue();
+pruefe(suche.regler()?.value === '0.35', 'nach dem Neuaufbau steht der Wert im Regler',
+  suche.regler()?.value);
+
+// 0 ist ein GÜLTIGER Wert (stockdunkel) und darf nicht als „nicht
+// gesetzt" verschwinden.
+const reglerNull = suche.regler()!;
+reglerNull.value = '0';
+reglerNull.oninput!();
+pruefe(seiteDoc.ambientLicht === 0, 'die 0 überlebt als Wert', String(seiteDoc.ambientLicht));
+
+suche.vorgabe()!.onclick!();
+pruefe(!('ambientLicht' in seiteDoc), '„Vorgabe" LÖSCHT das Feld, statt 1 zu schreiben');
+pruefe(suche.regler()?.value === '1', 'und der Regler zeigt danach wieder 1');
+
+// ── Steinmaterial ───────────────────────────────────────────────────
+const wahlen = suche.steinWahlen();
+pruefe(wahlen.length === 3, 'drei Flächen zur Wahl (Wand/Decke/Boden)', `${wahlen.length}`);
+pruefe(
+  wahlen[0]!.kinder.length === STEIN_TEXTUREN.length + 1,
+  'jede bietet die Erlaubnisliste plus „Kit-Vorgabe"',
+  `${wahlen[0]!.kinder.length}`
+);
+pruefe(
+  wahlen[0]!.kinder[1]!.textContent === 'stein_clean',
+  'angezeigt wird der blosse Dateiname',
+  wahlen[0]!.kinder[1]!.textContent
+);
+
+wahlen[0]!.value = '/assets/models/stein_moos.png';
+wahlen[0]!.onchange!();
+pruefe(
+  JSON.stringify(seiteDoc.steinKit) === '{"wandTextur":"/assets/models/stein_moos.png"}',
+  'die Wand-Auswahl schreibt NUR ihr eigenes Feld',
+  JSON.stringify(seiteDoc.steinKit)
+);
+pruefe(
+  suche.steinWahlen()[0]!.value === '/assets/models/stein_moos.png',
+  'und sie steht beim Neuaufbau vorbelegt da'
+);
+
+const zahlen = suche.zahlen();
+pruefe(zahlen.length === 3, 'drei Verwitterungszahlen', `${zahlen.length}`);
+pruefe(zahlen.every((z) => z.value === ''), 'ungesetzt heisst leer, nicht 0');
+zahlen[0]!.value = '1.5';
+zahlen[0]!.onchange!();
+pruefe(
+  seiteDoc.steinKit?.verwitterung?.moos === 1.5 &&
+    seiteDoc.steinKit?.verwitterung?.frost === undefined,
+  'nur das gefüllte Verwitterungsfeld landet im Dokument',
+  JSON.stringify(seiteDoc.steinKit?.verwitterung)
+);
+pruefe(suche.zahlen()[0]!.value === '1.5', 'auch die Zahl kommt vorbelegt zurück');
+
+// Leeren nimmt den Schlüssel wieder heraus — und wenn das letzte Feld
+// geht, muss `steinKit` GANZ verschwinden: Ein `steinKit: {}` wäre kein
+// leeres Feld, sondern ein gesetztes ohne Inhalt.
+const zahlLeeren = suche.zahlen()[0]!;
+zahlLeeren.value = '';
+zahlLeeren.onchange!();
+pruefe(
+  seiteDoc.steinKit?.verwitterung === undefined,
+  'leeres Feld nimmt den Schlüssel heraus',
+  JSON.stringify(seiteDoc.steinKit)
+);
+const wandZurueck = suche.steinWahlen()[0]!;
+wandZurueck.value = '';
+wandZurueck.onchange!();
+pruefe(!('steinKit' in seiteDoc), '„Kit-Vorgabe" auf der letzten Fläche löscht steinKit ganz',
+  JSON.stringify(seiteDoc.steinKit));
+
+// Und die Gegenprobe zum Vorbelegen: ein Dokument, das die Werte schon
+// mitbringt, zeigt sie ohne einen einzigen Klick.
+const vorbelegt = JSON.parse(JSON.stringify(frisch)) as typeof frisch;
+vorbelegt.ambientLicht = 2.5;
+vorbelegt.steinKit = {
+  bodenTextur: '/assets/models/stein_frost.png',
+  verwitterung: { moos: 0, frost: 3, nass: 0.5 },
+};
+const behaelter2 = new StummelKnoten('div');
+const seite2 = new DungeonSeite(
+  behaelter2 as unknown as HTMLElement,
+  grundrissMit(vorbelegt),
+  { meldung: () => undefined }
+);
+seite2.baue();
+pruefe(
+  behaelter2.alle().find((k) => k.type === 'range')?.value === '2.5',
+  'ein geöffnetes Dokument bringt seinen Lichtwert mit'
+);
+const wahlen2 = behaelter2
+  .alle()
+  .filter((k) => k.tag === 'select' && k.kinder.some((o) => o.textContent === 'Kit-Vorgabe'));
+pruefe(
+  wahlen2[2]?.value === '/assets/models/stein_frost.png' && wahlen2[0]?.value === '',
+  'der Boden steht auf Frost, Wand und Decke auf Kit-Vorgabe',
+  `${wahlen2[0]?.value} | ${wahlen2[1]?.value} | ${wahlen2[2]?.value}`
+);
+pruefe(
+  behaelter2
+    .alle()
+    .filter((k) => k.type === 'number')
+    .map((z) => z.value)
+    .join(',') === '0,3,0.5',
+  'und die Verwitterung steht in den Zahlenfeldern'
 );
 
 console.log(fehler === 0 ? '\nAlles grün.' : `\n${fehler} Prüfung(en) fehlgeschlagen.`);

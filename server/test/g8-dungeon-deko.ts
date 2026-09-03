@@ -188,6 +188,42 @@ wenigerRaeume.layout.props = [];
 const mitAbriss = mgr.upsertDocument(wenigerRaeume)!;
 check('Raumaenderung reisst weiterhin ab', mitAbriss.instanzErhalten === false);
 
+// ── 3c. Licht und Steinmaterial reissen die Instanz ab ─────────────
+//
+// Ein reiner Licht- oder Texturwechsel laesst Raeume und Tueren
+// unangetastet — genau die zwei Listen, ueber die `upsertDocument`
+// „nur Deko" entscheidet. Bliebe die Instanz deshalb stehen, truege erst
+// das UEBERNAECHSTE Betreten den neuen Wert zum Client: Beides wird beim
+// AUFBAU der Instanz gelesen und faehrt im Teleport-Paket mit. Der
+// Editor sagte dann „gespeichert", und im Spiel bliebe es dunkel.
+console.log('\nLicht/Stein reissen die Instanz ab:');
+mgr.getOrCreateInstance(doc.id);
+const heller = JSON.parse(JSON.stringify(mgr.getDocument(doc.id))) as DungeonDocument;
+heller.ambientLicht = 0.25;
+check('Lichtwechsel reisst ab', mgr.upsertDocument(heller)!.instanzErhalten === false);
+check('  und die Instanz ist wirklich weg', mgr.getInstance(doc.id) === undefined);
+check('  der Wert steht im Dokument', mgr.getDocument(doc.id)?.ambientLicht === 0.25);
+
+mgr.getOrCreateInstance(doc.id);
+const anderesGestein = JSON.parse(JSON.stringify(mgr.getDocument(doc.id))) as DungeonDocument;
+anderesGestein.steinKit = { wandTextur: '/assets/models/stein_moos.png' };
+check('Texturwechsel reisst ab', mgr.upsertDocument(anderesGestein)!.instanzErhalten === false);
+check(
+  '  das Steinmaterial steht im Dokument',
+  mgr.getDocument(doc.id)?.steinKit?.wandTextur === '/assets/models/stein_moos.png'
+);
+
+// Gegenprobe: Bleiben Licht und Stein gleich, entscheidet weiterhin
+// allein die Deko — sonst haette diese Ergaenzung das Fackelsetzen
+// mitgerissen.
+mgr.getOrCreateInstance(doc.id);
+const nurNochDeko = JSON.parse(JSON.stringify(mgr.getDocument(doc.id))) as DungeonDocument;
+nurNochDeko.layout.props = nurNochDeko.layout.props.slice(0, 1);
+check(
+  'Deko allein laesst die Instanz weiterhin stehen',
+  mgr.upsertDocument(nurNochDeko)!.instanzErhalten === true
+);
+
 // Und wieder zurueck auf den Stand mit Deko: Der Neustart-Abschnitt unten
 // liest von Platte, und die Gegenprobe hat gerade dorthin geschrieben.
 mgr.upsertDocument(JSON.parse(JSON.stringify(gespeichert.doc)));

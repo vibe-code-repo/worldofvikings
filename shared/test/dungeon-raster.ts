@@ -28,6 +28,7 @@
 import {
   DUNGEONS,
   DUNGEON_RASTER_M,
+  innenmassAchsen,
   istAchsparallel,
   istEigenesModell,
   liegtAufHuellflaeche,
@@ -166,6 +167,73 @@ console.log('Rasterprüfung für Dungeon-Bauteile');
   // 16×16 ist ein Vielfaches und muss durchgehen.
   const gross = gang({ size: v(16, 8, 16), connections: [connector(v(0, 0, 8))] });
   pruefe(pruefeRaumRaster(gross).length === 0, '16×16-Kammer fälschlich beanstandet');
+}
+
+// ── 5b. Innenmass bei eingebauten Wänden ─────────────────────────────
+//
+// Die zweite Ausnahme der Grundflächenregel, neben `verschlussAchse` —
+// und wie diese eng gefasst. Ein Modul mit EINGEBAUTER Wand (StoneVault:
+// Corridor, Corner, Junction) nennt als Hülle das Innenmass zwischen den
+// Wänden: 1,4 = 2 − 2 × 0,3. Auf dem Raster steht es trotzdem, seine
+// Connectors liegen auf der Rasterkante (± 1), nicht auf der Hülle.
+//
+// Geprüft wird hier vor allem, was NICHT durchkommt: ein Mass, das
+// irgendwie kleiner ist, ein Raum mit Connector auf der Innenfläche
+// (dann ist er wirklich so klein) und ein Abschluss.
+{
+  const korridor = gang({
+    name: 'PruefKorridor',
+    size: v(1.4, 3.5, 2),
+    connections: [connector(v(0, 0, 1)), connector(v(0, 0, -1), VIERTEL)],
+  });
+  pruefe(innenmassAchsen(korridor, 2).join(',') === 'x', 'x wurde nicht als Innenmass erkannt');
+  pruefe(
+    pruefeRaumRaster(korridor, 2).every((x) => x.schwere !== 'fehler'),
+    `1,4-Innenmass beanstandet: ${pruefeRaumRaster(korridor, 2).map((x) => x.regel).join(', ')}`
+  );
+
+  // Beide Achsen eingebaut (die Ecke) — und die Connectors auf ± 1 dürfen
+  // dabei nicht als „ausserhalb der Hülle" gelten.
+  const ecke = gang({
+    name: 'PruefEcke',
+    size: v(1.4, 3.5, 1.4),
+    connections: [connector(v(0, 0, 1)), connector(v(1, 0, 0), VIERTEL)],
+  });
+  pruefe(
+    pruefeRaumRaster(ecke, 2).every((x) => x.schwere !== 'fehler'),
+    'Ecke mit Innenmass auf beiden Achsen beanstandet'
+  );
+
+  // 1,2 ist NICHT 2 − 2 × 0,3 — nur „irgendwie kleiner" reicht nicht.
+  const krumm = gang({ ...korridor, size: v(1.2, 3.5, 2) });
+  pruefe(
+    pruefeRaumRaster(krumm, 2).some((x) => x.regel === 'grundflaeche-raster'),
+    '1,2 m Grundfläche kam über die Innenmass-Ausnahme durch'
+  );
+
+  // Ein Connector auf der Innenfläche heisst: Der Raum ist wirklich
+  // 1,4 m breit. Dann gilt die Ausnahme nicht.
+  const echtSchmal = gang({
+    ...korridor,
+    connections: [connector(v(0.7, 0, 0), VIERTEL), connector(v(0, 0, 1))],
+  });
+  pruefe(
+    innenmassAchsen(echtSchmal, 2).length === 0,
+    'Connector auf der Innenfläche hob die Ausnahme nicht auf'
+  );
+
+  // Abschlüsse gehen weiter durch `verschlussAchse` und bekommen die
+  // Ausnahme nicht — sonst wäre `endCap` ein zweiter Freibrief.
+  const abschluss = gang({
+    ...korridor,
+    endCap: true,
+    connections: [connector(v(0, 0, 1))],
+  });
+  pruefe(innenmassAchsen(abschluss, 2).length === 0, 'Abschluss bekam die Innenmass-Ausnahme');
+  pruefe(
+    pruefeRaumRaster(abschluss, 2).some((x) => x.regel === 'grundflaeche-raster'),
+    'Abschluss mit 1,4 m quer zum Connector kam durch'
+  );
 }
 
 // ── 6. Lichte Höhe ist Hinweis, nicht Fehler ─────────────────────────

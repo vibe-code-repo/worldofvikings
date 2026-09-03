@@ -955,15 +955,17 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
       },
       {
         /*
-          Die Zelle — der einzige Füller des Kits, und damit das Teil, aus
-          dem der ganze Grundriss besteht.
+          Die Zelle — der offene Füller des Kits: vier freie Kanten, keine
+          eingebaute Wand.
 
-          Vier offene Kanten und ein hohes Gewicht sind hier kein
-          Feintuning: Es ist der einzige Raum, den `candidateRooms`
-          auswählen kann (Entry ist Eingangsraum, Wall ist endCap). Das
-          Gewicht steht trotzdem ausdrücklich da, weil ein zweiter
-          Zelltyp — eine hohe Halle, eine Treppenzelle — sonst beim
-          Dazukommen still gleichrangig würde.
+          Sie war bis zum 03.09.2026 der EINZIGE Raum, den
+          `candidateRooms` auswählen konnte (Entry ist Eingangsraum, Wall
+          ist endCap) — daher das hohe Gewicht 3. Mit den vier
+          Zellvarianten darunter (Corridor, Corner, Junction, Hall) ist
+          das Gewicht kein Formalismus mehr, sondern die Mischung: Auf 2
+          gesenkt bleibt die offene Zelle das häufigste Teil und füllt
+          weiter die Flächen zwischen den Gängen, ohne dass der Grundriss
+          wieder zu einem einzigen Feld gleicher Quadrate wird.
         */
         name: 'StoneVaultCell',
         divider: false,
@@ -975,7 +977,7 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
         perimeter: false,
         size: { x: 2, y: 3.5, z: 2 },
         theme: THEMA_KRYPTA,
-        weight: 3,
+        weight: 2,
         pos: NULL_PUNKT,
         rot: KEINE_DREHUNG,
         connections: [
@@ -1009,6 +1011,287 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
             allowDoor: true,
             doorOnlyIfOtherAlsoAllowsDoor: false,
             localPos: { x: -1, y: 0, z: 0 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
+          },
+        ],
+      },
+      {
+        /*
+          Der Korridor — dieselbe Zelle, aber mit EINGEBAUTEN Seitenwänden
+          nach Ost und West. Offen bleiben Nord und Süd; eine Kette
+          solcher Zellen ist ein Gang mit durchlaufenden Wänden statt
+          einer Reihe von Quadraten, die erst der endCap zumauert.
+
+          ── Warum die Hülle 1,4 misst und nicht 2 ──────────────────────
+          Die Wände liegen INNERHALB der Zelle, im Streifen 0,7 … 1,0 von
+          der Mitte aus — also AUSSERHALB dieser Hülle. Das ist Absicht
+          und der Kern des Teils:
+
+          Der Wandabschluss (`StoneVaultWall`) einer offenen Nachbarzelle
+          ragt von der gemeinsamen Kante aus 0,3 m in die Nachbarzelle
+          hinein, sein Körper liegt also bei 1,0 … 1,3 von deren Mitte
+          gemessen. Läge unsere Hülle bei 2 (± 1,0), stiesse jeder solche
+          Abschluss dagegen: `endcapsCollision` lehnte ihn ab, und der
+          Generator setzte ihn über den Notfallzweig von `placeEndCaps`
+          trotzdem — eine dokumentierte Krücke, die man nicht zum
+          Regelfall machen darf (s. `endcapsFallbackByPrio` im Generator
+          und den Fund in `server/test/m3-stonevault-seeds.ts`).
+
+          Mit 1,4 (± 0,7) stehen Abschluss und Innenwand Rücken an
+          Rücken, jede mit ihrem Relief in ihre eigene Zelle. Der Streifen
+          0,7 … 1,0 kann dabei nie anders belegt werden: Alle
+          Platzierungen dieses Kits liegen auf dem 2-m-Raster, dort steht
+          also entweder unsere Wand oder gar nichts.
+
+          Die Connectors bleiben deshalb auf ± 1 — auf der RASTERKANTE,
+          nicht auf der Hüllfläche. `dungeonRaster.ts` führt genau diesen
+          Fall als benannte Ausnahme (`innenmassAchsen`, „Innenmass bei
+          eingebauten Wänden").
+        */
+        name: 'StoneVaultCorridor',
+        divider: false,
+        endCap: false,
+        endCapPrio: 0,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        // x = 1,4: Innenmass zwischen den beiden eingebauten Wänden.
+        // z = 2: in Laufrichtung ist nichts eingebaut, hier gilt das
+        // volle Rastermass.
+        size: { x: 1.4, y: 3.5, z: 2 },
+        theme: THEMA_KRYPTA,
+        // Das höchste Gewicht der Varianten: Gänge sind das, wovon eine
+        // Krypta am meisten hat.
+        weight: 5,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            // Nord (+z).
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: 1 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Süd (−z).
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: -1 },
+            localRot: HALBE_DREHUNG,
+          },
+        ],
+      },
+      {
+        /*
+          Die Ecke — Wände nach Süd und West, offen nach Nord und Ost. Sie
+          ist das Teil, das eine Gangkette um 90° umlenkt, ohne dass an
+          der Innenseite der Kurve ein Abschluss eingesetzt werden muss.
+
+          Die beiden Wände treffen sich in der SW-Ecke stumpf: Die
+          Westwand läuft durch (z = −1 … 1), die Südwand setzt bündig bei
+          x = −0,7 an. Weder ein Loch noch zwei Körper im selben Raum —
+          die Begründung steht beim Modell (`make-stonevault.py`, `ecke`).
+
+          Hülle 1,4 auf BEIDEN Achsen, aus demselben Grund wie beim
+          Korridor darüber: Hier ist auf jeder Achse eine Wand eingebaut.
+        */
+        name: 'StoneVaultCorner',
+        divider: false,
+        endCap: false,
+        endCapPrio: 0,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 1.4, y: 3.5, z: 1.4 },
+        theme: THEMA_KRYPTA,
+        weight: 3,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            // Nord (+z).
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: 1 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Ost (+x).
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 1, y: 0, z: 0 },
+            localRot: VIERTEL_DREHUNG,
+          },
+        ],
+      },
+      {
+        /*
+          Der Abzweig — nur die Westwand ist eingebaut, offen sind Nord,
+          Ost und Süd. Das T-Stück des Kits: Ein Gang läuft weiter und
+          gibt zur Seite hin einen Ausgang frei.
+
+          Hülle 1,4 nur auf x (dort steht die Wand), 2 auf z — s.
+          Korridor.
+        */
+        name: 'StoneVaultJunction',
+        divider: false,
+        endCap: false,
+        endCapPrio: 0,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 1.4, y: 3.5, z: 2 },
+        theme: THEMA_KRYPTA,
+        // Seltener als Korridor und Ecke: Ein Abzweig an jeder zweiten
+        // Zelle liest sich als Labyrinth, nicht als gebaute Anlage.
+        weight: 2,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            // Nord (+z).
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: 1 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Ost (+x).
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 1, y: 0, z: 0 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            // Süd (−z).
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: -1 },
+            localRot: HALBE_DREHUNG,
+          },
+        ],
+      },
+      {
+        /*
+          Die Halle — vier Zellen als EIN Teil: 4 × 4 m Boden und Decke
+          ohne jede Wand, Plattenmuster durchlaufend, Pivot in der
+          Bodenmitte.
+
+          Sie ist die einzige Variante, deren Hülle das volle Rastermass
+          hat (4 = 2 × 2 m), denn sie hat keine eingebaute Wand. Dafür
+          trägt sie ACHT Connectors: je zwei auf jeder Seite, auf den
+          Zellkanten bei ± 1 der jeweils anderen Achse. Ein einzelner
+          Connector in der Seitenmitte läge bei 0 und damit auf keiner
+          Zellkante — die anschliessende 2-m-Zelle stünde dann um 1 m
+          versetzt zum Raster, und ab da passte im ganzen Zweig nichts
+          mehr zusammen.
+
+          `weight: 1` ist das kleinste Gewicht des Kits: Die Halle belegt
+          die vierfache Fläche einer Zelle, bei gleichem Gewicht wäre der
+          Grundriss aus Sälen statt aus Gängen mit Sälen.
+        */
+        name: 'StoneVaultHall',
+        divider: false,
+        endCap: false,
+        endCapPrio: 0,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 4, y: 3.5, z: 4 },
+        theme: THEMA_KRYPTA,
+        weight: 1,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            // Nord (+z), westliche Zellkante.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -1, y: 0, z: 2 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Nord (+z), östliche Zellkante.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 1, y: 0, z: 2 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Süd (−z), westliche Zellkante.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -1, y: 0, z: -2 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            // Süd (−z), östliche Zellkante.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 1, y: 0, z: -2 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            // Ost (+x), südliche Zellkante.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 2, y: 0, z: -1 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            // Ost (+x), nördliche Zellkante.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 2, y: 0, z: 1 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            // West (−x), südliche Zellkante.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -2, y: 0, z: -1 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
+          },
+          {
+            // West (−x), nördliche Zellkante.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -2, y: 0, z: 1 },
             localRot: VIERTEL_DREHUNG_ZURUECK,
           },
         ],

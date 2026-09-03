@@ -1167,6 +1167,21 @@ export const EIGENE_MODELLE: readonly string[] = [
     Alias-Ziel.
   */
   'StoneVaultEntry',
+  /*
+    Die vier Zellvarianten mit EINGEBAUTEN Waenden bzw. groesserer
+    Grundflaeche. Geometrisch eigene GLBs (kein `MODELL_ALIAS`): Sie tragen
+    ihre Waende selbst, statt sie dem endCap zu ueberlassen — Begruendung
+    und die Rechnung zur 1,4-Huelle stehen bei den Raeumen in
+    `eigeneDungeons.ts`.
+  */
+  // Gang: Waende Ost + West, offen Nord/Sued.
+  'StoneVaultCorridor',
+  // Ecke: Waende Sued + West, offen Nord/Ost.
+  'StoneVaultCorner',
+  // T-Stueck: Wand West, offen Nord/Ost/Sued.
+  'StoneVaultJunction',
+  // Saal: 4 x 4 Boden und Decke ohne Waende, acht Zellkanten-Connectors.
+  'StoneVaultHall',
   // Das Wandmodul: Abschluss des Kits, 0,3 m dick (Modul-Format).
   'StoneVaultWall',
   // Kein Raum, sondern der Tuertyp des Kits — Eintrag in HINT_DEFS oben,

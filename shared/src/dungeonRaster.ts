@@ -269,6 +269,60 @@ export function verschlussAchse(
 }
 
 /**
+ * Dicke eines Wandmoduls im Modul-Format (Wand: 2 × 3,5 × 0,3 m,
+ * `/home/mike/wov-ai/elements/modulFormat.md`). Steht hier, weil die
+ * Ausnahme darunter mit genau diesem Mass rechnet — und mit keinem
+ * anderen.
+ */
+export const MODUL_WANDDICKE_M = 0.3;
+
+/**
+ * Die Achsen, auf denen dieses Bauteil sein INNENMASS angibt statt des
+ * Rastermasses — leer, wenn es keine gibt.
+ *
+ * ── Warum es diese Ausnahme gibt ─────────────────────────────────────
+ * Ein Modulkit kann seine Wände auf zwei Arten bekommen: als eigenes
+ * Wandmodul auf der Zellkante (`StoneVaultWall`, der endCap) oder in die
+ * Zelle EINGEBAUT (`StoneVaultCorridor` und Geschwister). Im zweiten Fall
+ * liegt die Wand innerhalb der 2-m-Zelle, im Streifen 0,7 … 1,0 von der
+ * Zellmitte aus. Die Kollisionshülle muss dann VOR der Wand enden, also
+ * bei 1,4 statt 2 — sonst stösst der Abschluss der offenen Nachbarzelle,
+ * der von der Kante aus 0,3 m hereinragt, gegen diese Hülle und der
+ * Generator setzt ihn über den Notfallzweig von `placeEndCaps`.
+ *
+ * Der Raum ist also nicht zu klein geraten, er nennt ein anderes Mass:
+ * Rastermass minus zwei Wanddicken. Auf dem Raster steht er trotzdem —
+ * seine Connectors liegen auf der Rasterkante, nicht auf der Hülle, und
+ * deshalb korrigiert `pruefeRaumRaster` mit dieser Auskunft AUCH die
+ * Hüllflächenprüfung.
+ *
+ * ── Warum sie so eng gefasst ist ─────────────────────────────────────
+ * Sie gilt nur, wenn ALLES davon zutrifft: der Raum ist kein Abschluss
+ * (dafür gibt es `verschlussAchse`), das Mass ist um GENAU zwei
+ * Wanddicken kleiner als ein Rastervielfaches — nicht irgendwie kleiner
+ * —, es ist nicht schon selbst ein Vielfaches, und kein Connector sitzt
+ * auf der Fläche dieses kleineren Masses. Der letzte Punkt ist der
+ * wichtigste: Er unterscheidet „Hülle endet vor der eingebauten Wand"
+ * von „Raum ist wirklich nur 1,4 m breit". Ohne ihn wäre jede krumme
+ * Grundfläche, die zufällig 0,6 m unter einem Vielfachen liegt, plötzlich
+ * erlaubt.
+ */
+export function innenmassAchsen(
+  raum: RoomDef,
+  raster: number = DUNGEON_RASTER_M
+): readonly ('x' | 'z')[] {
+  if (raum.endCap) return [];
+  if (raster <= 2 * MODUL_WANDDICKE_M) return [];
+
+  return (['x', 'z'] as const).filter((achse) => {
+    const innen = raum.size[achse];
+    if (istVielfaches(innen, raster)) return false;
+    if (!istVielfaches(innen + 2 * MODUL_WANDDICKE_M, raster)) return false;
+    return !raum.connections.some((c) => nahe(Math.abs(c.localPos[achse]), innen / 2));
+  });
+}
+
+/**
  * Prüft ein Bauteil gegen das Raster. Leeres Ergebnis heißt: passt.
  *
  * `raster` ist überschreibbar, damit ein späteres Kit mit feinerem Raster
@@ -277,16 +331,27 @@ export function verschlussAchse(
 export function pruefeRaumRaster(raum: RoomDef, raster: number = DUNGEON_RASTER_M): RasterBefund[] {
   const befunde: RasterBefund[] = [];
   const duenn = verschlussAchse(raum, raster);
+  const innen = innenmassAchsen(raum, raster);
+
+  // Das Mass, gegen das geprüft wird: bei eingebauten Wänden das
+  // Rastermass, das der Raum belegt, sonst die Hülle selbst. Beide
+  // Prüfungen darunter — Grundfläche und Connector-Hüllfläche — müssen
+  // dieselbe Zahl benutzen, sonst widerspricht sich die Ausnahme selbst.
+  const huelle: Vector3 = {
+    x: innen.includes('x') ? raum.size.x + 2 * MODUL_WANDDICKE_M : raum.size.x,
+    y: raum.size.y,
+    z: innen.includes('z') ? raum.size.z + 2 * MODUL_WANDDICKE_M : raum.size.z,
+  };
 
   for (const achse of ['x', 'z'] as const) {
-    const wert = raum.size[achse];
+    const wert = huelle[achse];
     if (achse === duenn) continue;
     if (!istVielfaches(wert, raster)) {
       befunde.push({
         raum: raum.name,
         schwere: 'fehler',
         regel: 'grundflaeche-raster',
-        text: `Grundfläche ${achse} = ${wert} m ist kein Vielfaches von ${raster} m.`,
+        text: `Grundfläche ${achse} = ${raum.size[achse]} m ist kein Vielfaches von ${raster} m.`,
       });
     }
   }
@@ -332,7 +397,7 @@ export function pruefeRaumRaster(raum: RoomDef, raster: number = DUNGEON_RASTER_
   }
 
   raum.connections.forEach((c, i) => {
-    befunde.push(...pruefeConnector(raum.name, i, c, raum.size));
+    befunde.push(...pruefeConnector(raum.name, i, c, huelle));
   });
 
   return befunde;

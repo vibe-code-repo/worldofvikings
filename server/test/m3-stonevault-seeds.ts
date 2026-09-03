@@ -22,6 +22,17 @@
  *  5. Mindestens ein Arch-Torbogen (`StoneVaultArch`) ist ueber alle Seeds
  *     gesetzt.
  *
+ * Seit dem Ausbau um die vier Zellvarianten (Corridor/Corner/Junction/Hall,
+ * s. `eigeneDungeons.ts`, DG_StoneVault) zusaetzlich:
+ *  6. Alle vier Varianten kommen ueber die 40 Seeds mindestens einmal vor
+ *     (sonst waere eine davon in der Kit-Konfiguration praktisch tot).
+ *  7. Der Anteil von Corridor+Corner+Junction an allen Nicht-Wand-Raeumen
+ *     liegt im Schnitt bei mindestens 40 % — die Kette soll wie ein System
+ *     aus Gaengen aussehen, nicht wie ein Zellenraster mit vereinzelten
+ *     Gaengen darin.
+ *  8. Die Halle (`StoneVaultHall`) steht in mindestens 10 von 40 Seeds
+ *     (das seltenste Gewicht darf trotzdem nicht zum Ausreisser werden).
+ *
  * ── Fund beim ersten Lauf (2.9.2026) ────────────────────────────────────
  * Assertion 2 schlug zunaechst in 37 von 40 Seeds fehl — IMMER
  * `StoneVaultWall` gegen `StoneVaultEntry`, nie zwei gewoehnliche Zellen
@@ -190,10 +201,21 @@ function findOverlaps(layout: DungeonLayout): OverlapResult {
   return { all, unerwartet };
 }
 
+/** Die vier neuen Zellvarianten — Wall und Entry zaehlen bewusst nicht mit (s. Pruefung 6/7). */
+const ZELLVARIANTEN = ['StoneVaultCorridor', 'StoneVaultCorner', 'StoneVaultJunction', 'StoneVaultHall'] as const;
+/** Varianten, die den Eindruck eines Gangsystems tragen (s. Pruefung 7) — die Halle zaehlt hier nicht: sie ist ein Saal, kein Gang. */
+const GANGVARIANTEN = ['StoneVaultCorridor', 'StoneVaultCorner', 'StoneVaultJunction'] as const;
+
 const roomCounts: number[] = [];
 const doorCounts: number[] = [];
 let archGesetzt = false;
 let notfallUeberlappungen = 0;
+/** Je Seed die Haeufigkeit jedes Raumnamens — Grundlage fuer Pruefung 6/7/8 und die Statistikausgabe. */
+const namensverteilungJeSeed: Map<string, number>[] = [];
+/** In wie vielen Seeds `StoneVaultHall` mindestens einmal vorkommt (Pruefung 8). */
+let seedsMitHalle = 0;
+/** Anteil Gangvarianten an Nicht-Wand-Raeumen, je Seed (Pruefung 7). */
+const gangAnteilJeSeed: number[] = [];
 
 for (const seed of SEEDS) {
   const layout1 = generateDungeonLayout(def, seed);
@@ -221,7 +243,33 @@ for (const seed of SEEDS) {
   roomCounts.push(layout1.rooms.length);
   doorCounts.push(layout1.doors.length);
   if (layout1.doors.some((d) => d.prefabName === 'StoneVaultArch')) archGesetzt = true;
+
+  const namen = new Map<string, number>();
+  for (const p of layout1.rooms) namen.set(p.room, (namen.get(p.room) ?? 0) + 1);
+  namensverteilungJeSeed.push(namen);
+  if ((namen.get('StoneVaultHall') ?? 0) > 0) seedsMitHalle++;
+
+  // Nicht-Wand-Raeume: alles ausser dem Abschluss `StoneVaultWall` — Entry
+  // zaehlt mit (es ist geometrisch eine gewoehnliche Zelle, s. Kommentar am
+  // Raum selbst), macht bei 1 Raum je Seed aber ohnehin keinen Unterschied.
+  const nichtWand = layout1.rooms.length - (namen.get('StoneVaultWall') ?? 0);
+  const gangSumme = GANGVARIANTEN.reduce((sum, name) => sum + (namen.get(name) ?? 0), 0);
+  gangAnteilJeSeed.push(nichtWand > 0 ? gangSumme / nichtWand : 0);
 }
+
+for (const variante of ZELLVARIANTEN) {
+  const kommtVor = namensverteilungJeSeed.some((m) => (m.get(variante) ?? 0) > 0);
+  check(`Variante ${variante} kommt über die 40 Seeds mindestens einmal vor`, kommtVor);
+}
+
+const gangAnteilSchnitt = gangAnteilJeSeed.reduce((a, b) => a + b, 0) / gangAnteilJeSeed.length;
+check(
+  `Anteil Corridor+Corner+Junction an Nicht-Wand-Raeumen im Schnitt >= 40 %`,
+  gangAnteilSchnitt >= 0.4,
+  `Schnitt ${(gangAnteilSchnitt * 100).toFixed(1)} %`
+);
+
+check(`StoneVaultHall in mindestens 10 von 40 Seeds gesetzt`, seedsMitHalle >= 10, `${seedsMitHalle} Seeds`);
 
 const avgRooms = roomCounts.reduce((a, b) => a + b, 0) / roomCounts.length;
 check(`Raumzahl im Schnitt > 10`, avgRooms > 10, `Schnitt ${avgRooms.toFixed(2)}`);
@@ -243,8 +291,28 @@ console.log(`Türen:  min ${doorStats.min}, median ${doorStats.median}, max ${do
 console.log(
   `Notfall-Abschlüsse am Eingang (dokumentierte Ausnahme, s. Kopfkommentar): ${notfallUeberlappungen} über 40 Seeds`
 );
-console.log('Seed -> Räume/Türen:');
-SEEDS.forEach((seed, i) => console.log(`  seed ${seed}: ${roomCounts[i]} Räume, ${doorCounts[i]} Türen`));
+console.log(
+  `Gang-Anteil (Corridor+Corner+Junction an Nicht-Wand-Räumen) im Schnitt: ${(gangAnteilSchnitt * 100).toFixed(1)} %`
+);
+console.log(`Halle (StoneVaultHall) gesetzt in ${seedsMitHalle} von 40 Seeds`);
+console.log('Seed -> Räume/Türen (Verteilung nach Raumname, kompakt):');
+const KURZNAME: Record<string, string> = {
+  StoneVaultWall: 'Wall',
+  StoneVaultJunction: 'Junction',
+  StoneVaultCorner: 'Corner',
+  StoneVaultHall: 'Hall',
+  StoneVaultCorridor: 'Corridor',
+  StoneVaultCell: 'Cell',
+  StoneVaultEntry: 'Entry',
+};
+SEEDS.forEach((seed, i) => {
+  const namen = namensverteilungJeSeed[i];
+  const verteilung = [...namen.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, n]) => `${KURZNAME[name] ?? name} ${n}`)
+    .join(', ');
+  console.log(`  seed ${seed}: ${roomCounts[i]} Räume, ${doorCounts[i]} Türen — ${verteilung}`);
+});
 
 if (failures > 0) {
   console.error(`\n${failures} Prüfung(en) fehlgeschlagen.`);

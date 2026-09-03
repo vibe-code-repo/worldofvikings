@@ -101,7 +101,7 @@ const lichtGesetzt = await seite.evaluate(async ([wert]) => {
 console.log(`3. Grundbeleuchtung: ${JSON.stringify(lichtGesetzt)}`);
 
 // ── 4. Speichern ───────────────────────────────────────────────────────
-await seite.evaluate(() => { [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Speichern')?.click(); });
+await seite.evaluate(() => { [...document.querySelectorAll('button')].find((b) => /^Speichern( \*)?$/.test(b.textContent.trim()))?.click(); });
 await seite.waitForTimeout(6000);
 console.log(`4. Speichern — ${await fuss()}`);
 await bild('gespeichert');

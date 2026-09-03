@@ -57,6 +57,12 @@ import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import type { Material } from '@babylonjs/core/Materials/material';
+// Nebenwirkungs-Import (wie `ui/WorldMap.ts`): Erst dieses Modul hängt das
+// ECHTE `Scene.prototype.pick` ein. Ohne es bleibt Babylons Baumschnitt-
+// Attrappe aus `scene.js` stehen — die wirft nicht, sondern liefert ein
+// leeres `PickingInfo` (`hit === false`) und schreibt nur eine Warnung. Ein
+// Klick träfe also stumm nie etwas, und kein Test ohne Browser sähe es.
+import '@babylonjs/core/Culling/ray';
 
 import {
   DUNGEONS_BY_NAME,

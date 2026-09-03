@@ -192,6 +192,19 @@ const NIE_WERFEN =
   /^(clutter|impostor|valheimSky|sky|water|precipEmitter|col_|avatar_(hips|torso|head|leg|knee|arm|elbow))/i;
 
 /**
+ * Reine Kollisionsnetze aus der GLB (Konvention `_col`, s. AssetManager-
+ * Kopf). Der daraus gebaute Master heisst `col_…` und fiele schon über
+ * NIE_WERFEN heraus — dieser SUFFIX-Test fasst zusätzlich die
+ * Quellmeshes im geladenen Container: `getMasters()` benennt erst nach
+ * mehreren `await`s um, und `onNewMeshAddedObservable` feuert
+ * dazwischen (über Tools.SetImmediate, s. werferPendingSet). Ohne die
+ * Regel hier stünde die Rampe unter der Treppe je nach Ladelauf mal in
+ * der Schattenkarte und mal nicht — der Fehler, der sich nicht
+ * reproduzieren lässt.
+ */
+const NIE_WERFEN_SUFFIX = /_col$/i;
+
+/**
  * Meshes, die keinen Schatten EMPFANGEN — dieselbe Liste OHNE `clutter`.
  *
  * Gras im Waldschatten ist ein Kernstück der angestrebten Optik: Ein
@@ -542,7 +555,7 @@ export class Shadows {
     if (mesh.isDisposed()) return false;
     if (this.vegetationsInstanzKeulung && this.vegetationsQuellen.has(mesh)) return false;
     if (!this.vegetationsInstanzKeulung && this.vegetationsKlone.has(mesh)) return false;
-    if (NIE_WERFEN.test(mesh.name)) return false;
+    if (NIE_WERFEN.test(mesh.name) || NIE_WERFEN_SUFFIX.test(mesh.name)) return false;
     if (!this.fern && KLEINZEUG.test(mesh.name)) return false;
     // Abgeschaltete Meshes bleiben drin, ohne geprüft zu werden.
     //

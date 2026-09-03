@@ -1296,6 +1296,22 @@ export class EntityManager {
   private masterMeshes = new Map<string, import('@babylonjs/core/Meshes/mesh').Mesh[]>();
   private masterLocals = new Map<string, Matrix[]>();
   /**
+   * Die REINEN KOLLISIONSNETZE je masterKey (`_col`-Meshes der GLB, s.
+   * AssetManager-Kopf) — bewusst NEBEN `masterMeshes`, nicht darin.
+   *
+   * Sie stehen damit vollständig ausserhalb des Renderwegs: kein
+   * Thin-Instance-Puffer, kein Zellschnitt, kein Steinmaterial, kein
+   * Klon für Override-Buckets. Das ist kein Sparen, sondern die
+   * einzige Stelle, an der es überhaupt richtig sein kann — Babylon
+   * hängt die Instanzpuffer an die GEOMETRY (s. prepareMasters), zwei
+   * Buckets desselben Prefabs dürften sich also kein instanziertes Mesh
+   * teilen. Kollision braucht die Instanzen gar nicht:
+   * `buildMeshCollider()` liest nur Positionen, Indizes und `local`,
+   * und die Weltlagen kommen ohnehin aus den ZDO-Matrizen.
+   */
+  private kollisionsMasters = new Map<string, import('@babylonjs/core/Meshes/mesh').Mesh[]>();
+  private kollisionsLocals = new Map<string, Matrix[]>();
+  /**
    * KI-Steinmaterialien der 1.0-Kits, gecacht je Konfiguration (Master leben die
    * ganze Sitzung, also EIN Material je Kit). Ein gemeinsames Material für alle
    * Kit-Teile heißt: die Verwitterungs-Masken leben in EINEM Weltraum und laufen
@@ -1703,7 +1719,12 @@ export class EntityManager {
       }
     }
     const masters = this.masterMeshes.get(bucket.masterKey);
-    if (!masters || masters.length === 0) return;
+    // Ein eigenes Kollisionsnetz aus der GLB (`_col`) ERSETZT die
+    // Kollision des Prefabs vollständig — s. AssetManager-Kopf. Deshalb
+    // reicht es auch allein: ein Prefab, das NUR aus `_col` besteht, hat
+    // keine sichtbaren Master und trotzdem Kollision.
+    const kollMasters = this.kollisionsMasters.get(bucket.masterKey);
+    if ((!masters || masters.length === 0) && (!kollMasters || kollMasters.length === 0)) return;
 
     // Kollisionseintrag je BUCKET (masterKey), nicht je Prefabname: Zwei
     // Buckets desselben Prefabs teilten sich sonst Träger UND Signatur und
@@ -1735,21 +1756,39 @@ export class EntityManager {
       // Die Obergrenze schützt vor Ausreissern: Was auch immer künftig
       // unter den Namensfilter fällt, darf die Physik nicht sprengen —
       // dann bleibt es bei der Box.
+      const renderMasters = masters ?? [];
       const felsig = FELS_KOLLISION.test(bucket.prefabName);
       const dreiecke = felsig
-        ? masters.reduce((s, m) => s + (m.getTotalIndices() / 3 || 0), 0)
+        ? renderMasters.reduce((s, m) => s + (m.getTotalIndices() / 3 || 0), 0)
         : 0;
       const begehbar = BEGEHBAR.test(bucket.prefabName);
       const exakt = dungeonRoom || begehbar || (felsig && dreiecke <= FELS_MAX_DREIECKE);
       const locals = this.masterLocals.get(bucket.masterKey) ?? [];
+      // ── Eigenes Kollisionsnetz aus der GLB (`_col`) ─────────────────
+      // Es ERSETZT die Kollision vollständig: gebacken wird NUR aus ihm,
+      // die sichtbaren Master kollidieren dann nicht mehr. Genau das ist
+      // der Zweck — eine Treppe, deren Kollision aus den gerenderten
+      // Stufen kommt, ist für die 0,4-m-Kapsel unbegehbar (Herleitung im
+      // AssetManager-Kopf), das `_col`-Netz legt die glatte Rampe unter.
+      //
+      // Der Ersatz gilt AUCH, wenn `exakt` nicht greifen würde: Wer ein
+      // Kollisionsnetz mitliefert, hat sich etwas dabei gedacht, und die
+      // Hüllbox aus `deriveCollider` wäre für so ein Prefab bestenfalls
+      // Zufall.
+      const kollLocals = this.kollisionsLocals.get(bucket.masterKey) ?? [];
+      const eigenesNetz =
+        kollMasters && kollMasters.length > 0
+          ? buildMeshCollider(bucket.prefabName, kollMasters, kollLocals, this.scene)
+          : null;
       // `buildMeshCollider` gibt null zurück, wenn keine Geometrie
       // zusammenkommt. Für Felsen ist die Hüllform dann immer noch besser
       // als GAR KEINE Kollision — bei Dungeon-Räumen dagegen wäre eine Box
       // fatal (sie machte das begehbare Innere massiv), dort bleibt es
       // beim bisherigen Verhalten.
       const spec =
-        (exakt ? buildMeshCollider(bucket.prefabName, masters, locals, this.scene) : null) ??
-        (dungeonRoom || begehbar ? null : deriveCollider(masters, locals, treeLike));
+        eigenesNetz ??
+        (exakt ? buildMeshCollider(bucket.prefabName, renderMasters, locals, this.scene) : null) ??
+        (dungeonRoom || begehbar ? null : deriveCollider(renderMasters, locals, treeLike));
       if (!spec) {
         this.colliderless.add(bucket.prefabName);
         return;
@@ -1888,13 +1927,24 @@ export class EntityManager {
       // GEOMETRY, so sharing it (clone included) would make two buckets
       // overwrite each other. zellMeshAusPrototyp gives an own geometry while
       // sharing the CPU-side vertex data.
+      //
+      // Die reinen Kollisionsnetze (`_col`, s. AssetManager-Kopf) werden
+      // hier ABGETRENNT und NICHT geklont: Sie tragen nie Instanzen,
+      // also gibt es auch nichts, was sich zwei Buckets überschreiben
+      // könnten — und ein Klon kostete nur Speicher.
+      const sichtbar = masters.filter((m) => !m.nurKollision);
+      const kollision = masters.filter((m) => m.nurKollision);
       const meshes = bucket.steinKitOverride
-        ? masters.map((m, i) =>
+        ? sichtbar.map((m, i) =>
             zellMeshAusPrototyp(m.mesh, `${bucket.masterKey}_${i}`, this.scene)
           )
-        : masters.map((m) => m.mesh);
+        : sichtbar.map((m) => m.mesh);
       this.masterMeshes.set(bucket.masterKey, meshes);
-      this.masterLocals.set(bucket.masterKey, masters.map((m) => m.localMatrix));
+      this.masterLocals.set(bucket.masterKey, sichtbar.map((m) => m.localMatrix));
+      if (kollision.length > 0) {
+        this.kollisionsMasters.set(bucket.masterKey, kollision.map((m) => m.mesh));
+        this.kollisionsLocals.set(bucket.masterKey, kollision.map((m) => m.localMatrix));
+      }
       this.weiseSteinMaterialZu(bucket, meshes);
       bucket.mastersReady = true;
       bucket.dirty = true; // rebuild with instances now

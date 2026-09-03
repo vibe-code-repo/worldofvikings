@@ -16,6 +16,33 @@
  * Submeshes gleichen Materials werden dabei zu EINEM Master verschmolzen
  * — siehe verschmelzeNachMaterial(). Ohne das zerfällt ein Bauteil in
  * dutzende Master und damit in dutzende Zeichenaufrufe pro Bild.
+ *
+ * ── KOLLISIONSNETZ-KONVENTION `_col` (03.09.2026) ────────────────────
+ * Ein Mesh im GLB, dessen Name auf `_col` endet (z. B.
+ * `StoneVaultStairs_col`), ist NUR Kollision und NIE Bild:
+ *
+ *   • es wird nicht gezeichnet (`isVisible = false`),
+ *   • es wirft keinen Schatten (der Master heisst deshalb `col_…`, und
+ *     Shadows.NIE_WERFEN filtert genau dieses Präfix — die Werferliste
+ *     entscheidet allein über den NAMEN, s. dort),
+ *   • es ist nicht pickbar,
+ *   • es bekommt KEIN Steinmaterial (EntityManager.weiseSteinMaterialZu
+ *     sieht es nie — die Kollisionsmaster laufen an den Render-Mastern
+ *     vorbei),
+ *   • und wenn ein Prefab so ein Mesh hat, ERSETZT es die Kollision des
+ *     ganzen Prefabs: die sichtbaren Meshes kollidieren dann nicht mehr
+ *     (EntityManager.rebuildBucketColliders).
+ *
+ * Der Grund ist die Spielerkapsel: Der PhysicsCharacterController hat
+ * 0,4 m Radius, und an einer 0,25-m-Setzstufe steht die Kontaktnormale
+ * bei acos((0,4−0,25)/0,4) ≈ 68° — weit über der Steigungsgrenze von
+ * 40°. Eine aus dem GERENDERTEN Mesh gebackene Treppe ist damit
+ * unbegehbar, egal wie flach ihre Rampe im Mittel ist. Das
+ * Kollisionsnetz liefert stattdessen die glatte Rampe unter den Stufen.
+ *
+ * Wer neue Module baut: das Kollisionsnetz gehört in DIESELBE GLB, mit
+ * eigenem Material (Konvention: `Kollision`) und einfachen Quadern —
+ * Beispiel /home/mike/wov-ai/elements/make-stonevault.py, `treppe()`.
  */
 import { AssetContainer } from '@babylonjs/core/assetContainer';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader';
@@ -170,7 +197,20 @@ const NON_LOD0 = /^lod[1-9]\d*/i;
 export interface PrefabMaster {
   mesh: Mesh;
   localMatrix: Matrix;
+  /**
+   * Reines Kollisionsnetz aus einem `_col`-Mesh der GLB (s. Kopf). Es
+   * steht NICHT im Bild und trägt nie Instanzen — es liefert allein die
+   * Dreiecke für `buildMeshCollider()`.
+   */
+  nurKollision?: boolean;
 }
+
+/**
+ * Namensregel der Kollisionsnetze (s. Kopf). Das optionale
+ * `_primitiveN` deckt den Fall ab, dass der glTF-Lader ein Mesh mit
+ * mehreren Primitiven aufteilt und dabei den Namen erweitert.
+ */
+export const NUR_KOLLISION_NAME = /_col(_primitive\d+)?$/i;
 
 export class AssetManager {
   private readonly containers = new Map<string, Promise<AssetContainer | null>>();
@@ -401,7 +441,18 @@ export class AssetManager {
     // Quellmeshes), das Zurücksetzen auf die Identität passiert deshalb
     // erst danach in zuMaster().
     const kandidaten: Mesh[] = [];
+    // Reine Kollisionsnetze (`_col`, s. Kopf) laufen an ALLEM vorbei, was
+    // fürs Bild gemacht ist: kein Materialflicken (fixupMaterial würde
+    // ihnen im Zweifel noch eine Textur besorgen), keine LOD-Prüfung
+    // (ein Kollisionsnetz hat keine Stufen), und verschmolzen werden sie
+    // getrennt — sonst landeten ihre Dreiecke im selben Master wie das
+    // Sichtbare und wären nicht mehr auseinanderzuhalten.
+    const kollision: Mesh[] = [];
     for (const mesh of withGeometry) {
+      if (NUR_KOLLISION_NAME.test(mesh.name)) {
+        kollision.push(mesh);
+        continue;
+      }
       if (hasLods && !LOD0_NAME.test(mesh.name)) {
         mesh.setEnabled(false); // higher LOD shells never render
         continue;
@@ -428,6 +479,23 @@ export class AssetManager {
     }
 
     const result = verschmelzeNachMaterial(kandidaten).map(zuMaster);
+    // Die Kollisionsnetze hinten anhängen: `zuMaster()` bäckt auch ihre
+    // Hierarchie in `localMatrix` — genau das, was buildMeshCollider()
+    // beim Zusammentragen der Dreiecke erwartet.
+    for (const mesh of verschmelzeNachMaterial(kollision)) {
+      const master = zuMaster(mesh);
+      master.nurKollision = true;
+      // Der `col_`-Präfix ist die WIRKSAME Absicherung gegen die
+      // Schattenkarte: Shadows.werferNeuBestimmen() scannt scene.meshes
+      // und filtert allein über den Namen (NIE_WERFEN, dort `col_`) —
+      // isVisible hält ein Mesh aus dem Bild, aber NICHT aus der
+      // Werferliste. Der Name trägt den GLB-Namen weiter, damit man im
+      // Inspector noch sieht, woher das Netz stammt.
+      master.mesh.name = `col_${master.mesh.name}`;
+      master.mesh.isVisible = false;
+      master.mesh.isPickable = false;
+      result.push(master);
+    }
     this.masters.set(name, result);
     return result;
   }

@@ -161,6 +161,11 @@ export class DungeonDeko {
         continue;
       }
       for (const master of masters) {
+        // Reine Kollisionsnetze (`_col`, s. AssetManager-Kopf) haben hier
+        // nichts zu suchen: Deko ist ein reiner BILDweg — einen
+        // Kollisionskörper bekommt sie ohnehin nicht, das Netz belegte
+        // also nur Instanzpuffer.
+        if (master.nurKollision) continue;
         const daten = new Float32Array(gruppe.length * 16);
         for (let i = 0; i < gruppe.length; i++) {
           const welt = dekoWeltmatrix(gruppe[i]!);

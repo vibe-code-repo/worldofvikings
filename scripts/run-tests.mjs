@@ -199,6 +199,13 @@ const KERN = [
   // ueber Babylons NullEngine: ohne GPU, ohne Assets, synthetische
   // Geometrie und Instanzlagen.
   ['client', 'test/master-huelle.ts'],
+  // Die `_col`-Konvention (ein GLB-Mesh ist NUR Kollision): unsichtbar,
+  // kein Schattenwerfer, und es ERSETZT die Kollision des Prefabs. Beide
+  // Fehlerrichtungen sind im Spiel schwer zu sehen — ein grauer Klotz in
+  // der Treppe, oder eine Treppe, an deren erster Stufe die Figur haengen
+  // bleibt. Synthetischer Prototyp statt GLB (assets/ liegt ausserhalb des
+  // Repos), NullEngine, Sekunden.
+  ['client', 'test/kollisionsnetz.ts'],
   // Der Wasser-Refraktionspass darf gestreute Vegetation nicht anhand der
   // weltweiten Thin-Instance-Hülle als "eingetaucht" einstufen. Auf der
   // Referenzinsel bedeutete dieser Fehler 36 Mio. unsichtbare Dreiecke pro

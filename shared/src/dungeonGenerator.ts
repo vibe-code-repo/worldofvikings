@@ -1,21 +1,30 @@
 /**
- * LEGACY — wird nach Erfolg von Dungeon Generator 2.0 geloescht / will be
- * deleted once Dungeon Generator 2.0 succeeds.
+ * Diese Datei war als Abriss-Kandidat gefuehrt („wird nach Erfolg von
+ * Dungeon Generator 2.0 geloescht"). Das gilt so nicht mehr.
  *
- * Betrifft NICHT die ganze Datei: `generateCampLayout`/`CampGround`
- * (Oberwelt — Doerfer, Hoefe, Goblinlager) bleiben aktiv und wandern erst
- * beim Teilen dieser Datei (siehe design/ARCHITECTURE.md AP0) nach
- * `shared/src/campGenerator.ts`. Alles andere hier — die Connector-basierte
- * Dungeon-Erzeugung (`generateDungeonLayout`, `attachRoom`, `removeRoom`,
- * `computeOpenConnections`) — wird durch die zellbasierte Erzeugung unter
- * `shared/src/dungeon2/` ersetzt. Siehe `LEGACY.md`.
- * Does NOT apply to the whole file: `generateCampLayout`/`CampGround`
- * (overworld — villages, farms, goblin camps) stay active and only move to
- * `shared/src/campGenerator.ts` once this file is split (see
- * design/ARCHITECTURE.md AP0). Everything else here — the connector-based
- * dungeon generation (`generateDungeonLayout`, `attachRoom`, `removeRoom`,
- * `computeOpenConnections`) — is replaced by the cell-based generation
- * under `shared/src/dungeon2/`. See `LEGACY.md`.
+ * `generateCampLayout`/`CampGround` (Oberwelt — Doerfer, Hoefe,
+ * Goblinlager) bleiben aktiv wie bisher und wandern erst beim Teilen dieser
+ * Datei (siehe design/ARCHITECTURE.md AP0) nach
+ * `shared/src/campGenerator.ts`.
+ *
+ * Die Editor-Operationen `attachRoom`, `removeRoom` und
+ * `computeOpenConnections` sind: BLEIBT — Grundlage des
+ * Connector-Modul-Kits (`DG_StoneVault`), Entscheidung 03.09.2026,
+ * s. Vault-Notiz „Workflow — Connector-Modul-Kit" und `LEGACY.md`.
+ * `stempelSetzen`/`stempelEntfernen` aus `shared/src/dungeon2/` treten
+ * NEBEN sie, nicht an ihre Stelle: der zellbasierte Weg wuerfelt, der
+ * Connector-Weg wird von Hand gesetzt.
+ *
+ * `generateDungeonLayout` und seine Helfer stehen weiterhin unter
+ * Saat-Vertrag (s. `server/test/m3-stonevault-seeds.ts`) — hier wird
+ * nichts umgebaut, auch nicht „nur schnell".
+ * This file used to be listed for deletion; that no longer holds.
+ * `generateCampLayout`/`CampGround` (overworld) stay active as before.
+ * `attachRoom`, `removeRoom` and `computeOpenConnections` STAY — they are
+ * the foundation of the connector module kit (`DG_StoneVault`), decision
+ * 2026-09-03; see the vault note "Workflow — Connector-Modul-Kit" and
+ * `LEGACY.md`. `generateDungeonLayout` and its helpers remain under the
+ * seed contract.
  *
  * Dungeon generator (Phase G) — 1:1 port of the C++ server's
  * DungeonGenerator — port of the reference implementation's dungeon
@@ -889,12 +898,15 @@ function roomOverlapsLayout(
  * matching connector of the room, 180°-flipped like the generator; end
  * caps skip the overlap test (they seal openings by design). Returns the
  * placed room or an error reason. Mutates nothing — the caller appends.
+ *
+ * `connIndex` (optional) pins WHICH connector of the room is used.
  */
 export function attachRoom(
   layout: DungeonLayout,
   baseName: string,
   open: OpenConnection,
-  roomName: string
+  roomName: string,
+  connIndex?: number
 ): { ok: true; placed: PlacedRoom } | { ok: false; reason: string } {
   const def = DUNGEONS_BY_NAME.get(baseName);
   const room = def?.rooms.find((r) => r.name === roomName);
@@ -911,8 +923,38 @@ export function attachRoom(
     return { ok: false, reason: `Raum hat keinen Connector vom Typ '${open.type || 'Standard'}'` };
   }
 
+  // Wer von Hand baut, will die RICHTUNG bestimmen, in die ein Gang
+  // weiterläuft. Genau das ist `connIndex` — und bewusst NICHT ein zweiter,
+  // freier Geometriepfad.
+  //
+  // Der Grund steht eine Zeile tiefer: `attachRot` ist vollständig durch den
+  // OFFENEN Connector bestimmt (dessen Drehung, um 180° gekippt). Die einzige
+  // Größe, die danach noch variiert, ist `quatInverse(conn.localRot)` — die
+  // Kante des ANGEDOCKTEN Raums. Bei einer StoneVault-Zelle mit vier
+  // `cellEdge`-Kanten sind die vier Kandidaten faktisch vier Drehungen um
+  // 90°: die Drehung IST der Connector-Index. Ein eigenes Winkel- oder
+  // Drehfeld wäre eine zweite Quelle für dieselbe Zahl — und die erste
+  // Abweichung zwischen beiden fiele nicht hier auf, sondern erst im Spiel,
+  // wenn ein Gang neben statt an seiner Tür sitzt.
+  //
+  // Ohne den Parameter bleibt alles wie bisher: die Schleife nimmt den ersten
+  // kollisionsfreien Kandidaten. Der Generator-Pfad (`generateDungeonLayout`
+  // und seine Helfer) ruft `attachRoom` nicht auf und ist davon unberührt —
+  // der Saat-Vertrag bleibt Wort für Wort derselbe.
+  let kandidaten = matching;
+  if (connIndex !== undefined) {
+    const gewaehlt = room.connections[connIndex];
+    if (!gewaehlt || gewaehlt.type !== open.type) {
+      return {
+        ok: false,
+        reason: `Raum hat keinen Connector ${connIndex} vom Typ '${open.type || 'Standard'}'`,
+      };
+    }
+    kandidaten = [gewaehlt];
+  }
+
   const attachRot = quatMul(open.rot, FLIP_180);
-  for (const conn of matching) {
+  for (const conn of kandidaten) {
     const outRot = quatMul(attachRot, quatInverse(conn.localRot));
     const outPos = vSub(open.pos, quatMulVec3(outRot, conn.localPos));
     if (

@@ -1,10 +1,16 @@
 /**
- * LEGACY — wird nach Erfolg von Dungeon Generator 2.0 geloescht / will be
- * deleted once Dungeon Generator 2.0 succeeds. RoomDefs mit Connectors
- * (`DG_Steingrab`); `propTypes` wandert nach `shared/src/dungeon2/themen.ts`.
- * Siehe `LEGACY.md`.
- * RoomDefs with connectors (`DG_Steingrab`); `propTypes` moves to
- * `shared/src/dungeon2/themen.ts`. See `LEGACY.md`.
+ * BLEIBT — Grundlage des Connector-Modul-Kits (`DG_StoneVault`),
+ * Entscheidung 03.09.2026, s. Vault-Notiz „Workflow — Connector-Modul-Kit"
+ * und `LEGACY.md`. Diese Datei war bis dahin als Abriss-Kandidat gefuehrt
+ * („wird nach Erfolg von Dungeon Generator 2.0 geloescht"); sie ist es
+ * NICHT mehr. Der zellbasierte Weg (`shared/src/dungeon2/`) und der
+ * Connector-Weg laufen nebeneinander: jener wuerfelt, dieser wird von Hand
+ * gesetzt.
+ * STAYS — foundation of the connector module kit (`DG_StoneVault`),
+ * decision 2026-09-03, see the vault note "Workflow — Connector-Modul-Kit"
+ * and `LEGACY.md`. Previously listed for deletion; no longer. The
+ * cell-based path (`shared/src/dungeon2/`) and the connector path run side
+ * by side.
  *
  * Eigene Dungeon-Kits — der Gegenentwurf zu `dungeonsData.json`.
  *

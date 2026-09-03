@@ -100,6 +100,7 @@ export class DungeonEditor {
   private raumListe!: HTMLDivElement;
   private connWahl!: HTMLSelectElement;
   private raumWahl!: HTMLSelectElement;
+  private ausrichtungWahl!: HTMLSelectElement;
   private dekoWahl!: HTMLSelectElement;
   private dekoListe!: HTMLDivElement;
   private speicherTimer: ReturnType<typeof setTimeout> | null = null;
@@ -156,10 +157,24 @@ export class DungeonEditor {
     this.connWahl.style.cssText = this.selectStil() + ';flex:1 1 180px';
     this.raumWahl = document.createElement('select');
     this.raumWahl.style.cssText = this.selectStil() + ';flex:1 1 180px';
+    // Ausrichtung: WELCHE Kante des gewählten Raums an der offenen Kante
+    // hängt. Ohne dieses Feld nimmt `attachRoom` den ersten kollisionsfreien
+    // eigenen Connector — bei einer Zelle mit vier gleichwertigen Kanten
+    // entscheidet dann die Reihenfolge in `eigeneDungeons.ts`, in welche
+    // Richtung ein Gang weiterläuft, und der Mensch am Panel hat keine
+    // Handhabe. Die Liste hängt an BEIDEN anderen Feldern (der Typ des
+    // offenen Connectors filtert, der Raum liefert die Kanten) und wird
+    // deshalb bei jeder Änderung neu gefüllt.
+    this.ausrichtungWahl = document.createElement('select');
+    this.ausrichtungWahl.style.cssText = this.selectStil() + ';flex:1 1 150px';
+    this.ausrichtungWahl.title = 'Ausrichtung: welche Kante des neuen Raums andockt';
+    this.connWahl.addEventListener('change', () => this.ausrichtungenFuellen());
+    this.raumWahl.addEventListener('change', () => this.ausrichtungenFuellen());
     const anfBtn = this.knopf('Anfügen', () => this.anfuegen());
     const tuerBtn = this.knopf('Tür setzen', () => this.tuerSetzen());
     anfuegen.appendChild(this.connWahl);
     anfuegen.appendChild(this.raumWahl);
+    anfuegen.appendChild(this.ausrichtungWahl);
     anfuegen.appendChild(anfBtn);
     anfuegen.appendChild(tuerBtn);
     panel.appendChild(anfuegen);
@@ -281,7 +296,14 @@ export class DungeonEditor {
     const conn = this.offene[Number(this.connWahl.value)];
     const raum = this.raumWahl.value;
     if (!conn || !raum) return;
-    const result = attachRoom(this.doc.layout, this.doc.base, conn, raum);
+    // Leerer Wert = „automatisch": kein Index, also genau das alte
+    // Verhalten (erster kollisionsfreier Connector). Der Unterschied muss
+    // `undefined` sein und nicht etwa −1 — `attachRoom` unterscheidet
+    // „nicht gesetzt" von „gesetzt, aber unpassend" und meldet Letzteres
+    // als Fehler.
+    const wahl = this.ausrichtungWahl.value;
+    const connIndex = wahl === '' ? undefined : Number(wahl);
+    const result = attachRoom(this.doc.layout, this.doc.base, conn, raum, connIndex);
     if (!result.ok) {
       this.status.textContent = result.reason;
       return;
@@ -572,18 +594,100 @@ export class DungeonEditor {
       this.dekoListe.appendChild(zeile);
     });
 
-    // Raum-Palette der Basis (Endcaps ans Ende sortiert)
+    // Raum-Palette der Basis (Endcaps ans Ende sortiert), in zwei Gruppen:
+    // erst die begehbaren Zellen, dann die Abschlüsse. Die Sortierung tat
+    // das schon; die Zwischenüberschriften sagen nur laut, wo die Grenze
+    // liegt — bei einem Kit mit einem Dutzend Wandvarianten ist das der
+    // Unterschied zwischen Suchen und Sehen.
+    //
+    // Die getroffene Wahl wird über das Neufüllen gerettet: `aktualisieren`
+    // läuft nach JEDEM Anfügen, und wer eine Gangkette baut, will nicht
+    // nach jedem Klick denselben Raum neu heraussuchen.
     const def = DUNGEONS_BY_NAME.get(doc.base);
+    const gewaehlterRaum = this.raumWahl.value;
     this.raumWahl.textContent = '';
     if (def) {
       const rooms = [...def.rooms].sort((a, b) => Number(a.endCap) - Number(b.endCap));
+      let gruppe: HTMLOptGroupElement | null = null;
+      let gruppeIstEndCap: boolean | null = null;
       for (const r of rooms) {
+        if (gruppeIstEndCap !== !!r.endCap) {
+          gruppeIstEndCap = !!r.endCap;
+          gruppe = document.createElement('optgroup');
+          gruppe.label = gruppeIstEndCap ? 'Abschlüsse' : 'Zellen';
+          this.raumWahl.appendChild(gruppe);
+        }
         const opt = document.createElement('option');
         opt.value = r.name;
         opt.textContent = `${r.name}${r.endCap ? ' (Endcap)' : ''}${r.entrance ? ' (Eingang)' : ''}`;
-        this.raumWahl.appendChild(opt);
+        (gruppe ?? this.raumWahl).appendChild(opt);
       }
+      if (gewaehlterRaum) this.raumWahl.value = gewaehlterRaum;
     }
+
+    this.ausrichtungenFuellen();
+  }
+
+  /**
+   * Das Feld „Ausrichtung" neu füllen — die Kanten des gewählten Raums,
+   * gefiltert auf den Typ des gewählten offenen Connectors.
+   *
+   * Der Filter ist kein Komfort, sondern die Bedingung: `attachRoom` weist
+   * einen Index mit falschem Connector-Typ ab. Was hier steht, ist genau
+   * das, was dort auch durchgeht.
+   *
+   * „automatisch" bleibt der erste Eintrag und damit die Vorgabe — wer das
+   * Feld nicht anfasst, baut wie vor dieser Erweiterung.
+   */
+  private ausrichtungenFuellen(): void {
+    const vorher = this.ausrichtungWahl.value;
+    this.ausrichtungWahl.textContent = '';
+    const auto = document.createElement('option');
+    auto.value = '';
+    auto.textContent = 'automatisch';
+    this.ausrichtungWahl.appendChild(auto);
+
+    const doc = this.doc;
+    if (!doc) return;
+    const conn = this.offene[Number(this.connWahl.value)];
+    const raum = DUNGEONS_BY_NAME.get(doc.base)?.rooms.find((r) => r.name === this.raumWahl.value);
+    if (!conn || !raum) return;
+
+    raum.connections.forEach((c, i) => {
+      if (c.type !== conn.type) return;
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      // Der Index steht mit in der Beschriftung, weil eine Zelle zwei
+      // Kanten auf DERSELBEN Seite haben kann (z. B. die Doppelzelle mit
+      // je zwei Ost- und West-Kanten) — zwei Einträge „Ost" wären sonst
+      // nicht auseinanderzuhalten.
+      const name = this.kantenName(c.localPos, i);
+      opt.textContent = name.startsWith('Kante') ? name : `${name} #${i}`;
+      this.ausrichtungWahl.appendChild(opt);
+    });
+    // Die alte Wahl nur zurücksetzen, wenn sie noch angeboten wird; sonst
+    // bleibt „automatisch" stehen, statt still auf eine fremde Kante zu
+    // zeigen.
+    if (vorher) this.ausrichtungWahl.value = vorher;
+  }
+
+  /**
+   * Himmelsrichtung einer Kante aus ihrer lokalen Position — +z Nord,
+   * −z Süd, +x Ost, −x West (die Bezeichnungen, die auch in
+   * `eigeneDungeons.ts` an den Connectors stehen).
+   *
+   * Entschieden wird über die DOMINANTE Achse: eine Kante bei
+   * (x 2, z 1) liegt im Osten, auch wenn sie nach Norden versetzt sitzt.
+   * Ist keine Achse dominant (beide gleich gross, etwa bei einer Diagonale
+   * oder bei (0,0)), gibt es keine ehrliche Antwort — dann heisst die
+   * Kante schlicht nach ihrem Index.
+   */
+  private kantenName(localPos: { x: number; z: number }, index: number): string {
+    const ax = Math.abs(localPos.x);
+    const az = Math.abs(localPos.z);
+    if (ax > az) return localPos.x > 0 ? 'Ost' : 'West';
+    if (az > ax) return localPos.z > 0 ? 'Nord' : 'Süd';
+    return `Kante ${index}`;
   }
 
   // ── Stil-Helfer ────────────────────────────────────────────────────

@@ -1230,6 +1230,25 @@ export class EntityManager {
    */
   private steinMaterials = new Map<string, PBRMaterial>();
   /**
+   * Die Steinteile je prefabHash — die Master, die `weiseSteinMaterialZu`
+   * beim Dokumentwechsel ERNEUT bemalen muss.
+   *
+   * Eine eigene Karte, weil `masterMeshes` nach prefabName geht: Vom Namen
+   * zurück auf den Hash käme man nur über eine Suche, und `prepareMasters`
+   * läuft je Hash genau EINMAL pro Sitzung (nichts leert `pending`). Wer
+   * das zweite Grab betritt, bekommt also keinen zweiten Ladevorgang — die
+   * Master von eben sind alles, was es je geben wird.
+   * Stone masters per prefabHash: `prepareMasters` runs exactly ONCE per
+   * hash per session, so re-painting these is the only way a second
+   * document can look different.
+   */
+  private steinMasters = new Map<number, import('@babylonjs/core/Meshes/mesh').Mesh[]>();
+  /**
+   * Das Steinmaterial des BETRETENEN Dokuments (1.0), sonst null. Liegt
+   * über der Kit-Vorgabe und unter dem Raum-Override.
+   */
+  private dokumentSteinKit: Partial<SteinKitConfig> | null = null;
+  /**
    * Übergibt fertige Vegetations-Matrixpuffer an Shadows. Wert-Callback
    * statt Modulimport: EntityManager bleibt ohne Szene testbar und der
    * Schattenpfad kann die sichtbaren Puffer niemals selbst überschreiben.
@@ -1755,21 +1774,58 @@ export class EntityManager {
       }
       this.masterMeshes.set(prefabName, masters.map((m) => m.mesh));
       this.masterLocals.set(prefabName, masters.map((m) => m.localMatrix));
-      // 1.0-Steingrab-Kit: das gebackene GLB-Material durch das konfigurierte
-      // KI-Steinmaterial ersetzen. Nur Räume eines Kits mit `steinKit` — Bäume,
-      // Requisiten und andere Räume bleiben unberührt. Das Material wird beim
-      // PBRMaterial-Ctor automatisch vom Fackel-Pool erfasst.
-      const kitCfg = getKitByPrefabHash(prefabHash)?.steinKit;
-      if (kitCfg) {
-        // Raum-Override über die Kit-Vorgabe legen (Türen sind keine Räume →
-        // getRoomByHash undefined → nur Kit-Vorgabe).
-        const merged = mergeSteinKit(kitCfg, getRoomByHash(prefabHash)?.steinKit);
-        const mat = this.holeSteinMaterial(merged);
-        for (const m of masters) m.mesh.material = mat;
-      }
+      this.weiseSteinMaterialZu(prefabHash, masters.map((m) => m.mesh));
       bucket.mastersReady = true;
       bucket.dirty = true; // rebuild with instances now
     });
+  }
+
+  /**
+   * 1.0-Steingrab-Kit: das gebackene GLB-Material durch das konfigurierte
+   * KI-Steinmaterial ersetzen. Nur Teile eines Kits mit `steinKit` — Bäume,
+   * Requisiten und Räume anderer Kits bleiben unberührt. Das Material wird
+   * beim PBRMaterial-Ctor automatisch vom Fackel-Pool erfasst.
+   *
+   * MISCHREIHENFOLGE (unten gewinnt): Kit-Vorgabe → Dokument → Raum-Override.
+   * Das Dokument steht in der Mitte, weil es „dieses Grab sieht anders aus"
+   * sagt, der Raum aber „diese Kammer sieht anders aus als der Gang" — und
+   * das Feinere darf das Gröbere nicht verlieren.
+   * Merge order (last wins): kit default → document → per-room override.
+   */
+  private weiseSteinMaterialZu(
+    prefabHash: number,
+    masters: readonly import('@babylonjs/core/Meshes/mesh').Mesh[]
+  ): void {
+    const kitCfg = getKitByPrefabHash(prefabHash)?.steinKit;
+    if (!kitCfg) return;
+    // Für den Dokumentwechsel merken — `prepareMasters` kommt nie wieder.
+    this.steinMasters.set(prefabHash, [...masters]);
+    // Türen sind keine Räume → getRoomByHash undefined → kein Raum-Override.
+    const merged = mergeSteinKit(
+      mergeSteinKit(kitCfg, this.dokumentSteinKit ?? undefined),
+      getRoomByHash(prefabHash)?.steinKit
+    );
+    const mat = this.holeSteinMaterial(merged);
+    for (const m of masters) m.material = mat;
+  }
+
+  /**
+   * Das Steinmaterial des betretenen Dokuments setzen (null = zurück auf die
+   * Kit-Vorgabe) und ALLE schon geladenen Steinteile neu bemalen.
+   *
+   * Ohne dieses Nachziehen sähe das zweite Grab einer Sitzung aus wie das
+   * erste: Die Master werden je prefabHash nur EINMAL geladen und bemalt,
+   * und ein zweiter Ladevorgang kommt nie (`pending` wird nie geleert).
+   * Without this re-paint the second barrow of a session would look like the
+   * first — masters are loaded and painted exactly once per hash.
+   */
+  setzeDokumentSteinKit(cfg: Partial<SteinKitConfig> | null): void {
+    const neu = cfg && Object.keys(cfg).length > 0 ? cfg : null;
+    if (JSON.stringify(this.dokumentSteinKit) === JSON.stringify(neu)) return;
+    this.dokumentSteinKit = neu;
+    for (const [hash, masters] of this.steinMasters) {
+      this.weiseSteinMaterialZu(hash, masters);
+    }
   }
 
   /** Ein Steinmaterial je Konfiguration (Master sind sitzungs-gecacht). */

@@ -152,6 +152,47 @@ export interface SteinKitConfig {
   readonly deckeSchwelle?: number;
 }
 
+/**
+ * Erlaubnisliste der Steintexturen — die EINZIGEN Pfade, die aus einem
+ * Dokument in ein Material gelangen dürfen.
+ *
+ * WARUM EINE LISTE UND KEINE PRÜFUNG AUF „/assets/models/…": Das Dokument
+ * kommt vom Client (F4-Editor, Admin-Befehl, Datei auf der Platte). Ein
+ * freier Pfad wäre eine Zeichenkette, die der Client als URL lädt — ein
+ * Verzeichnis-Ausbruch, eine fremde Herkunft oder schlicht ein Tippfehler
+ * ergäbe eine schwarze Wand ohne Fehlermeldung. Eine Liste hat genau die
+ * Dateien, die es wirklich gibt.
+ * Allow-list of stone textures — the ONLY paths a document may put into a
+ * material. Documents come from the client, so a free path would be a
+ * client-loaded URL (directory escape, foreign origin, or just a typo).
+ */
+export const STEIN_TEXTUREN: readonly string[] = [
+  '/assets/models/stein_clean.png',
+  '/assets/models/stein_decke.png',
+  '/assets/models/stein_moos.png',
+  '/assets/models/stein_frost.png',
+  '/assets/models/stein_wet.png',
+];
+
+/** Obergrenze der Verwitterungszahlen — Bereich des Konsolenbefehls. */
+export const STEIN_VERWITTERUNG_MAX = 4;
+
+/**
+ * Einen Texturnamen ODER -pfad gegen {@link STEIN_TEXTUREN} auflösen.
+ * `stein_moos`, `stein_moos.png` und der volle Pfad ergeben dasselbe;
+ * alles andere ergibt `undefined`.
+ * Resolve a texture name or path against the allow-list; anything else
+ * yields `undefined`.
+ */
+export function steinTexturAufloesen(roh: unknown): string | undefined {
+  if (typeof roh !== 'string') return undefined;
+  const s = roh.trim();
+  if (s.length === 0) return undefined;
+  if (STEIN_TEXTUREN.includes(s)) return s;
+  const kurz = s.endsWith('.png') ? s : `${s}.png`;
+  return STEIN_TEXTUREN.find((t) => t.endsWith(`/${kurz}`));
+}
+
 export interface DungeonDef {
   /** DG_* prefab name. */
   readonly name: string;
@@ -392,13 +433,16 @@ export interface DungeonLayout {
 
 /**
  * 1 → 2: `layout.props` dazugekommen (von Hand gesetzte Deko).
+ * 2 → 3: `steinKit` dazugekommen (dokumenteigenes Steinmaterial). Ebenfalls
+ * ADDITIV: Ein Dokument ohne das Feld lädt unverändert weiter, der Sanitizer
+ * erfindet es nicht, und im Spiel gilt dann wie bisher die Kit-Vorgabe.
  *
  * Die Zahl steht im gespeicherten Dokument und ist rein informativ — der
  * Sanitizer schreibt sie beim Laden ohnehin auf den aktuellen Stand. Sie
  * dient dem Menschen, der sich eine Datei ansieht, und dem Fall, dass eine
  * künftige Änderung NICHT mehr additiv ist.
  */
-export const DUNGEON_DOCUMENT_VERSION = 2;
+export const DUNGEON_DOCUMENT_VERSION = 3;
 
 /** Hard cap on rooms in a (user-editable) dungeon document. */
 export const MAX_DUNGEON_ROOMS = 256;
@@ -431,6 +475,16 @@ export interface DungeonDocument {
   /** Growth bounds used at generation time (informational for the editor). */
   zoneSize: number;
   layout: DungeonLayout;
+  /**
+   * Dokumenteigenes Steinmaterial (Dokumentversion 3, additiv). Liegt ÜBER
+   * der Kit-Vorgabe (`DungeonDef.steinKit`) und UNTER dem Raum-Override
+   * (`RoomDef.steinKit`) — so sehen zwei Gräber derselben Basis in einer
+   * Sitzung verschieden aus, ohne dass das Kit angefasst wird. Fehlt es,
+   * bleibt alles wie bisher.
+   * Per-DOCUMENT stone material (document version 3, additive). Sits above
+   * the kit default and below the per-room override.
+   */
+  steinKit?: Partial<SteinKitConfig>;
 }
 
 /**
@@ -513,6 +567,59 @@ function sanitizeQuat(q: unknown): Quaternion {
   // would shift f32-precision generator output on every save/load cycle.
   if (Math.abs(m - 1) < 1e-3) return raw;
   return { x: raw.x / m, y: raw.y / m, z: raw.z / m, w: raw.w / m };
+}
+
+/**
+ * Ein unbeglaubigtes `steinKit` säubern — Texturen NUR aus
+ * {@link STEIN_TEXTUREN}, Zahlen geklemmt. `undefined`, wenn nichts
+ * Brauchbares übrig bleibt (dann trägt das Dokument das Feld gar nicht,
+ * und es gilt wie bisher die Kit-Vorgabe).
+ *
+ * Eigene Funktion, weil sie ZWEI Aufrufer hat: den Dokument-Sanitizer und
+ * den Konsolenbefehl `dungeon steinkit …`. Zwei Prüfungen derselben Sache
+ * driften auseinander, und das Loch entsteht dann im selten benutzten Weg.
+ * Sanitize an untrusted `steinKit`; shared by the document sanitizer and the
+ * `dungeon steinkit` console command so both can never drift apart.
+ */
+export function sanitizeSteinKit(roh: unknown): Partial<SteinKitConfig> | undefined {
+  if (!roh || typeof roh !== 'object') return undefined;
+  const o = roh as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+
+  for (const feld of ['wandTextur', 'deckeTextur', 'bodenTextur', 'moosTextur', 'frostTextur', 'nassTextur'] as const) {
+    if (o[feld] === undefined) continue;
+    // Ein Pfad AUSSERHALB der Liste wird verworfen, nicht ersetzt: Ein
+    // stiller Ersatzwert sähe im Spiel aus wie eine Angabe.
+    const pfad = steinTexturAufloesen(o[feld]);
+    if (pfad) out[feld] = pfad;
+  }
+
+  const klemme = (v: unknown, min: number, max: number): number | undefined =>
+    typeof v === 'number' && Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : undefined;
+
+  const vRoh = (o.verwitterung ?? undefined) as Record<string, unknown> | undefined;
+  if (vRoh && typeof vRoh === 'object') {
+    const v: Record<string, number> = {};
+    for (const k of ['moos', 'frost', 'nass'] as const) {
+      const z = klemme(vRoh[k], 0, STEIN_VERWITTERUNG_MAX);
+      if (z !== undefined) v[k] = z;
+    }
+    if (Object.keys(v).length > 0) out.verwitterung = v;
+  }
+
+  for (const [feld, min, max] of [
+    ['kachelM', 0.05, 64],
+    ['deckeKachelM', 0.05, 64],
+    ['moosSkala', 0.1, 256],
+    ['frostSkala', 0.1, 256],
+    ['nassSkala', 0.1, 256],
+    ['deckeSchwelle', 0, 1],
+  ] as const) {
+    const z = klemme(o[feld], min, max);
+    if (z !== undefined) out[feld] = z;
+  }
+
+  return Object.keys(out).length > 0 ? (out as Partial<SteinKitConfig>) : undefined;
 }
 
 /**
@@ -612,8 +719,13 @@ export function sanitizeDungeonDocument(input: unknown): DungeonDocument | null 
     });
   }
 
+  // Dokumenteigenes Steinmaterial (Version 3) — additiv wie `props`: Fehlt
+  // es, wird das Feld NICHT angelegt, und das Dokument sieht aus wie zuvor.
+  const steinKit = sanitizeSteinKit(o.steinKit);
+
   return {
     version: DUNGEON_DOCUMENT_VERSION,
+    ...(steinKit ? { steinKit } : {}),
     id,
     name:
       typeof o.name === 'string' && o.name.trim().length > 0

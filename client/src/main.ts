@@ -64,7 +64,7 @@ import {
   istAusruestungsSlot,
   WETTER_AUTOMATISCH,
 } from '@wov/shared';
-import type { NpcDef, NpcEinordnung, TerrainComp } from '@wov/shared';
+import type { NpcDef, NpcEinordnung, SteinKitConfig, TerrainComp } from '@wov/shared';
 import { createWorld, DEFAULT_OFFLINE_SEED, type ClientWorld, type ClientWorldSettings } from './world/World';
 import { TerrainManager } from './engine/Terrain';
 import { Lighting } from './engine/Lighting';
@@ -2123,6 +2123,12 @@ async function main() {
       // über das Pufferende zu lesen.
       // AP13 — the APPENDED fields of the 2.0 descriptor.
       let deskriptor: Dungeon2Deskriptor | null = null;
+      // Das dokumenteigene Steinmaterial (1.0-Gräber). Steht hier OBEN, weil
+      // es unten ausserhalb von `if (thema)` gebraucht wird: Ein
+      // 1.0-Dokument hat gar kein Thema, und genau es trägt dieses Feld.
+      // Declared here because it is used OUTSIDE `if (thema)` below — a 1.0
+      // document has no theme at all and is exactly what carries this field.
+      let steinKitJson = '';
       if (reader.remaining > 0) {
         const thema = reader.readString();
         const architektur = reader.readInt32();
@@ -2144,6 +2150,11 @@ async function main() {
         // Seed-Weg. `remaining` entscheidet, kein Versionsfeld.
         // The SHIPPED layout JSON — only present for hand-built graves.
         const layoutJson = reader.remaining > 0 ? reader.readString() : '';
+        // ANGEHÄNGT hinter `layoutJson`. Gelesen MUSS es hier drin werden —
+        // nur hier steht der Lesezeiger richtig; ausgewertet wird es unten.
+        // Must be READ in here (only here is the cursor right); evaluated
+        // below.
+        steinKitJson = reader.remaining > 0 ? reader.readString() : '';
         if (thema) {
           deskriptor = {
             thema,
@@ -2167,6 +2178,25 @@ async function main() {
       // "beim Weglaufen spawne ich immer wieder am Eingang").
       serverPos = null;
       imDungeon = drin;
+      // Das dokumenteigene Steinmaterial anlegen, BEVOR die Kit-Teile
+      // geladen werden — `prepareMasters` bemalt sie beim Laden, und beim
+      // zweiten Grab derselben Sitzung zieht `setzeDokumentSteinKit` die
+      // längst geladenen Master nach. Beim Verlassen zurück auf die
+      // Kit-Vorgabe, sonst sickerte ein Grab ins nächste.
+      // Applied BEFORE the kit parts load; reset on leaving so no barrow
+      // bleeds into the next.
+      if (entities) {
+        let kit: Record<string, unknown> | null = null;
+        if (drin && steinKitJson) {
+          try {
+            const roh: unknown = JSON.parse(steinKitJson);
+            if (roh && typeof roh === 'object') kit = roh as Record<string, unknown>;
+          } catch (e) {
+            console.warn('[steinKit] Dokument-Steinmaterial unlesbar — Kit-Vorgabe bleibt.', e);
+          }
+        }
+        entities.setzeDokumentSteinKit(kit as Partial<SteinKitConfig> | null);
+      }
       if (env) dungeonEnv = env;
       if (drin) {
         dungeonSpawn = { x: pos.x, y: pos.y, z: pos.z };

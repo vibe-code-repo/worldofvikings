@@ -89,7 +89,10 @@ const FACKEL = getStableHash('CryptWallTorch');
 console.log('\nSanitizer:');
 const doc = mgr.createGenerated('DG_Steingrab', 7)!;
 check('Dokument erzeugt', doc !== null, `${doc.layout.rooms.length} Räume`);
-check('Version 2', doc.version === 2, String(doc.version));
+// 2 → 3 mit M5a (dokumenteigenes `steinKit`, additiv wie `props` davor).
+// Bewusst die nackte Zahl statt `DUNGEON_DOCUMENT_VERSION`: Gegen die
+// Konstante geprüft wäre die Zeile immer wahr und bezeugte nichts.
+check('Version 3', doc.version === 3, String(doc.version));
 check('props ist leer, nicht undefined', Array.isArray(doc.layout.props));
 
 const kit = DUNGEONS_BY_NAME.get('DG_Steingrab')!;

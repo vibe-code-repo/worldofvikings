@@ -57,8 +57,11 @@ import {
   FOLIAGE,
   PIECES,
   PrefabFlag,
+  STEIN_TEXTUREN,
   WATER_LEVEL,
   findPrefabByHash,
+  sanitizeSteinKit,
+  steinTexturAufloesen,
   interiorEnvironment,
   isInDungeonBand,
   dungeon2,
@@ -2890,7 +2893,19 @@ export class WovServer {
      * The SHIPPED layout of a HAND-BUILT grave as JSON, else ''. The exception
      * to "never geometry": a built grave cannot be regenerated from seeds.
      */
-    layoutJson = ''
+    layoutJson = '',
+    /**
+     * Das dokumenteigene Steinmaterial (1.0-Dokumente) als JSON, sonst ''.
+     *
+     * Auch das sind reine Daten, keine Geometrie: ein paar Zahlen und drei
+     * Texturnamen aus einer Erlaubnisliste. Es steht HINTER `layoutJson`,
+     * weil die Reihenfolge der angehängten Felder für ältere Clients
+     * unverändert bleiben muss — die hören einfach früher auf zu lesen.
+     * The document's own stone material (1.0 documents) as JSON, else ''.
+     * Appended BEHIND `layoutJson` so the field order stays unchanged for
+     * older clients, which simply stop reading earlier.
+     */
+    steinKitJson = ''
   ): void {
     // Weltwechsel-Seam (Review 15): Die Signatur trägt die Zielwelt schon —
     // der eigentliche Kontext-Swap ist das Housing-Folgeprojekt.
@@ -2969,6 +2984,14 @@ export class WovServer {
       // nicht (er liest es nie).
       // APPENDED after `ambientLicht`: the hand-built grave's layout, else ''.
       w.writeString(layoutJson);
+      // ANGEHÄNGT hinter `layoutJson`: das dokumenteigene Steinmaterial eines
+      // 1.0-Grabs. Leer bei 2.0-Dokumenten und bei jedem Dokument ohne das
+      // Feld — dann gilt im Client wie bisher die Kit-Vorgabe. Die Stelle
+      // ist bewusst die LETZTE: Alle bisherigen Felder stehen unverändert
+      // davor, ein älterer Client liest dieses hier nie.
+      // APPENDED after `layoutJson`: a 1.0 grave's own stone material, else
+      // ''. Deliberately LAST — every previous field keeps its position.
+      w.writeString(steinKitJson);
     });
   }
 
@@ -2998,6 +3021,11 @@ export class WovServer {
     // from seeds on the client.
     const layoutJson =
       doc2?.modus === 'gebaut' && doc2.layout ? JSON.stringify(doc2.layout) : '';
+    // Das dokumenteigene Steinmaterial gehört zum 1.0-Format: 2.0 hat keine
+    // Kits mehr und baut sein Material aus dem Thema. Fehlt das Feld, bleibt
+    // der String leer — der Client hält dann an der Kit-Vorgabe fest.
+    // The per-document stone material belongs to the 1.0 format only.
+    const steinKitJson = !doc2 && doc?.steinKit ? JSON.stringify(doc.steinKit) : '';
     const umgebung = doc2
       ? dungeon2.themaFinden(doc2.thema)?.innenUmgebung ?? 'Crypt'
       : doc
@@ -3012,7 +3040,8 @@ export class WovServer {
       // ZDO-Sync, Bauen, Abbauen, Kaempfen, Gelaende — s. `welt(peer)`.
       instance.welt.id,
       deskriptor,
-      layoutJson
+      layoutJson,
+      steinKitJson
     );
     return { ok: true, message: `Dungeon betreten: ${doc2?.name ?? doc?.name ?? dungeonId}` };
   }
@@ -3266,6 +3295,13 @@ export class WovServer {
    *   dungeon leave                     back to the overworld
    *   dungeon assign <id>               assign nearest entrance (≤16 m) to id
    *   dungeon regen <id> [seed]         re-generate a 'generated' document
+   *   dungeon steinkit <id> wand=<name> decke=<name> boden=<name>
+   *                         moos=<0..4> frost=<0..4> nass=<0..4>
+   *                                     set the 1.0 document's own stone
+   *                                     material; texture NAMES (no paths)
+   *                                     out of `STEIN_TEXTUREN`.
+   *                                     `dungeon steinkit <id> reset` clears
+   *                                     it (back to the kit default).
    *   dungeon reset <id>                tear down the live instance
    *   dungeon delete <id>               delete document + assignments
    */
@@ -3540,6 +3576,103 @@ export class WovServer {
           };
         }
 
+        case 'steinkit': {
+          const doc = args[0] ? this.dungeons.getDocument(args[0]) : undefined;
+          if (!doc) {
+            return { ok: false, active: false, message: `Unbekannter 1.0-Dungeon: ${args[0] ?? '?'}` };
+          }
+          if (args[1] === 'reset') {
+            delete doc.steinKit;
+            this.dungeons.saveDocument(doc);
+            this.dungeons.destroyInstance(doc.id);
+            return {
+              ok: true,
+              active: false,
+              message: `${doc.id}: Steinmaterial gelöscht — es gilt wieder die Kit-Vorgabe`,
+            };
+          }
+          // key=value in ein rohes Objekt legen und EINMAL durch denselben
+          // Sanitizer schicken wie ein hochgeladenes Dokument. Der Befehl
+          // hat damit keine eigene Prüfung, die von jener abweichen könnte.
+          // Parsed into a raw object and run through the SAME sanitizer as an
+          // uploaded document — no second, divergent check.
+          const roh: Record<string, unknown> = { ...(doc.steinKit ?? {}) };
+          const verw: Record<string, unknown> = {
+            ...((doc.steinKit?.verwitterung ?? {}) as Record<string, unknown>),
+          };
+          const unbekannt: string[] = [];
+          for (const arg of args.slice(1)) {
+            const [k, v] = arg.split('=', 2);
+            if (!k || v === undefined) {
+              unbekannt.push(arg);
+              continue;
+            }
+            switch (k) {
+              case 'wand':
+              case 'decke':
+              case 'boden': {
+                const pfad = steinTexturAufloesen(v);
+                if (!pfad) {
+                  return {
+                    ok: false,
+                    active: false,
+                    message:
+                      `Unbekannte Textur "${v}" — erlaubt: ` +
+                      STEIN_TEXTUREN.map((t) => t.split('/').pop()!.replace('.png', '')).join(', '),
+                  };
+                }
+                roh[k === 'wand' ? 'wandTextur' : k === 'decke' ? 'deckeTextur' : 'bodenTextur'] =
+                  pfad;
+                break;
+              }
+              case 'moos':
+              case 'frost':
+              case 'nass':
+                verw[k] = Number(v);
+                break;
+              case 'kachel':
+                roh.kachelM = Number(v);
+                break;
+              case 'deckenkachel':
+                roh.deckeKachelM = Number(v);
+                break;
+              default:
+                unbekannt.push(arg);
+            }
+          }
+          if (unbekannt.length > 0) {
+            return {
+              ok: false,
+              active: false,
+              message:
+                `Unbekannte Angabe: ${unbekannt.join(' ')} — Aufruf: dungeon steinkit <id> ` +
+                'wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> | reset',
+            };
+          }
+          if (Object.keys(verw).length > 0) roh.verwitterung = verw;
+          const sauber = sanitizeSteinKit(roh);
+          if (!sauber) {
+            return {
+              ok: false,
+              active: false,
+              message: 'Nichts Gültiges angegeben — nichts geändert',
+            };
+          }
+          doc.steinKit = sauber;
+          this.dungeons.saveDocument(doc);
+          // Die Instanz verwerfen wie bei `regen`: Wer drin steht, betritt
+          // sie beim nächsten `dungeon enter` frisch — und erst dieses
+          // Teleport-Paket trägt das neue Material zum Client.
+          // Drop the instance as `regen` does; only the next teleport packet
+          // carries the new material to a client.
+          this.dungeons.destroyInstance(doc.id);
+          return {
+            ok: true,
+            active: false,
+            message: `${doc.id}: Steinmaterial gesetzt — ${JSON.stringify(sauber)}`,
+          };
+        }
+
         case 'reset': {
           const ok = args[0] ? this.dungeons.destroyInstance(args[0]) : false;
           return {
@@ -3563,7 +3696,7 @@ export class WovServer {
             ok: false,
             active: false,
             message:
-              'Aufruf: dungeon list|entrances|create|create2|enter|leave|assign|regen|reset|delete',
+              'Aufruf: dungeon list|entrances|create|create2|enter|leave|assign|regen|steinkit|reset|delete',
           };
       }
     });

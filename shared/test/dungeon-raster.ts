@@ -289,6 +289,58 @@ console.log('Rasterprüfung für Dungeon-Bauteile');
   );
 }
 
+// ── 9. Treppen dürfen nicht steiler sein, als die Figur steigen kann ──
+//
+// Ein Bauteil mit zwei Connectors auf VERSCHIEDENEN Höhen ist eine Rampe
+// oder eine Treppe: Der Höhenunterschied wird auf der Strecke zwischen
+// den beiden Connectors überwunden. Wird sie zu steil, rutscht die Figur
+// im Spiel wieder ab — der Raum sieht in jedem Rendering richtig aus, und
+// der Fehler zeigt sich erst, wenn jemand die Treppe hochlaufen will.
+//
+// Genau das ist am 3.9.2026 mit `StoneVaultStairs` passiert: 3,5 m auf
+// 4 m Lauf = 41,2°, und damit über der Grenze. Seither steigt sie über
+// drei Zellen (6 m Lauf, 30,3°).
+//
+// GRENZE: `STEIGUNGS_GRENZE_GRAD` aus `client/src/player/PlayerController.ts`
+// (dort `maxSlopeCosine` des `PhysicsCharacterController`). Der Wert wird
+// hier ABGESCHRIEBEN statt importiert — `shared` darf nicht auf `client`
+// zugreifen, sonst zöge die Datenschicht die Engine mit sich. Wer ihn dort
+// ändert, muss ihn hier nachziehen; der Verweis steht an beiden Stellen.
+const STEIGUNGS_GRENZE_GRAD = 40;
+{
+  const eigene = DUNGEONS.flatMap((d) => d.rooms).filter((r) => istEigenesModell(r.name));
+  let geprueft = 0;
+  for (const raum of eigene) {
+    // Das Paar mit dem grössten Höhenunterschied — mehr als zwei
+    // Connectors mit y != 0 hat derzeit kein eigenes Bauteil, und der
+    // steilste Übergang ist ohnehin der, der zuerst bricht.
+    for (let i = 0; i < raum.connections.length; i++) {
+      for (let j = i + 1; j < raum.connections.length; j++) {
+        const a = raum.connections[i]!;
+        const b = raum.connections[j]!;
+        const dy = Math.abs(a.localPos.y - b.localPos.y);
+        if (dy < 1e-6) continue;
+        // Lauf = waagerechter Abstand der beiden Connectors. Bei den
+        // Treppen dieses Bestands liegt er ganz auf z; die Diagonale ist
+        // trotzdem richtig gerechnet, falls je eine Wendung dazukommt.
+        const lauf = Math.hypot(a.localPos.x - b.localPos.x, a.localPos.z - b.localPos.z);
+        const grad = (Math.atan2(dy, lauf) * 180) / Math.PI;
+        geprueft++;
+        console.log(
+          `  ${raum.name}: ${dy} m auf ${lauf} m Lauf = ${grad.toFixed(1)}° ` +
+            `(Grenze ${STEIGUNGS_GRENZE_GRAD}°)`
+        );
+        pruefe(
+          grad < STEIGUNGS_GRENZE_GRAD,
+          `${raum.name} steigt mit ${grad.toFixed(1)}° — die Figur rutscht ab ` +
+            `(Grenze ${STEIGUNGS_GRENZE_GRAD}°, s. client/src/player/PlayerController.ts).`
+        );
+      }
+    }
+  }
+  console.log(`  Steigungen geprüft: ${geprueft}`);
+}
+
 console.log(
   fehler === 0
     ? `\nOK — Raster ${DUNGEON_RASTER_M} m, alle Regeln greifen`

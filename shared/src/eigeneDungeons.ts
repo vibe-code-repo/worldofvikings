@@ -1305,7 +1305,7 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
       {
         /*
           Die Treppe — das erste Modul dieses Kits, das zwei Ebenen
-          verbindet. Sie steigt über zwei Zellen Lauf (z = −2 … +2) um
+          verbindet. Sie steigt über drei Zellen Lauf (z = −3 … +3) um
           genau eine Zellhöhe: Süd-Ende auf y = 0, Nord-Ende auf y = 3,5.
 
           ── Warum 3,5 und nicht 8 wie beim Steingrab ──────────────────
@@ -1316,11 +1316,27 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
           Decke selbst, unten wie oben, und reicht von y = 0 bis y = 7.
           Eine Ebene ist im Modulformat schlicht eine Zellhöhe.
 
-          ── Die Stufen ───────────────────────────────────────────────
-          14 Stufen à 0,25 m Steigung auf 4 m Lauf, also rund 0,286 m
-          Auftritt — 41°. Steiler als eine Wohntreppe und mit Absicht:
-          Bei flacherer Neigung bräuchte der Lauf drei bis vier Zellen,
-          und der Sprung um EINE Zellhöhe wäre ein halber Gang.
+          ── Die Stufen, und warum der Lauf 6 m ist ───────────────────
+          14 Stufen à 0,25 m Steigung auf 6 m Lauf, also 6/14 = 0,4286 m
+          Auftritt — 30,3°.
+
+          Bis zum 3.9.2026 war der Lauf 4 m (0,286 m Auftritt, 41,2°),
+          und genau daran ist die Treppe im Spiel gescheitert: Der
+          Charaktercontroller der Figur lässt höchstens
+          `STEIGUNGS_GRENZE_GRAD` = 40° zu
+          (`client/src/player/PlayerController.ts`, dort `maxSlopeCosine`);
+          darüber trägt ihn die Fläche nicht mehr, die Figur rutscht ab.
+          41,2° liegt einen Grad daneben — die Treppe sah in jedem
+          Rendering richtig aus und war trotzdem unbegehbar.
+          Zum Vergleich: `SteingrabTreppe` hat 33,7° und funktioniert.
+
+          Der Lauf ist deshalb auf drei Zellen gestreckt. Weiter zu
+          strecken hat einen Preis: Je länger die Hülle, desto seltener
+          findet der Generator einen Platz dafür (s. Anteilsstatistik in
+          `server/test/m3-stonevault-seeds.ts`). Gegen ein Wiederholen
+          des Fehlers steht der Wächter in `shared/test/dungeon-raster.ts`
+          („Treppen dürfen nicht steiler sein…"): Er rechnet die Steigung
+          aus den Connectors JEDES eigenen Bauteils gegen dieselbe Grenze.
 
           ── Warum size.y 7 ist ───────────────────────────────────────
           Der obere Ausgang liegt auf 3,5 und braucht dort dieselbe
@@ -1339,7 +1355,7 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
           auf der schmalen Innenfläche, und `innenmassAchsen` erkennt den
           Fall deshalb weiter (`dungeonRaster.ts`, „Innenmass bei
           eingebauten Wänden"). In z ist nichts eingebaut: dort gilt mit
-          4 m das volle Rastermass zweier Zellen.
+          6 m das volle Rastermass dreier Zellen.
 
           KEIN Eingangsraum und KEIN Abschluss — aus demselben Grund wie
           bei `SteingrabTreppe`: Eine Treppe, die im Nichts beginnt, ist
@@ -1353,7 +1369,7 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
         faceCenter: false,
         minPlaceOrder: 0,
         perimeter: false,
-        size: { x: 1.4, y: 7, z: 4 },
+        size: { x: 1.4, y: 7, z: 6 },
         theme: THEMA_KRYPTA,
         // So selten wie die Halle: Eine Krypta, in der jede dritte Zelle
         // eine Treppe ist, liest sich als Treppenhaus. Gemessen an der
@@ -1368,7 +1384,7 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
             entrance: false,
             allowDoor: true,
             doorOnlyIfOtherAlsoAllowsDoor: false,
-            localPos: { x: 0, y: 0, z: -2 },
+            localPos: { x: 0, y: 0, z: -3 },
             localRot: HALBE_DREHUNG,
           },
           {
@@ -1380,7 +1396,7 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
             entrance: false,
             allowDoor: true,
             doorOnlyIfOtherAlsoAllowsDoor: false,
-            localPos: { x: 0, y: 3.5, z: 2 },
+            localPos: { x: 0, y: 3.5, z: 3 },
             localRot: KEINE_DREHUNG,
           },
         ],

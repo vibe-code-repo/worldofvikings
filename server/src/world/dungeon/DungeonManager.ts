@@ -45,6 +45,7 @@ import {
   isValidDungeonId,
   istEigenesModell,
   DUNGEON_DOCUMENT_VERSION,
+  STEIN_KIT_MEMBER,
   sanitizeDungeonDocument,
   dungeon2,
 } from '@wov/shared';
@@ -1022,6 +1023,24 @@ export class DungeonManager {
       const zdo = zdos.createZDO(item.prefabHash, pos, item.rot);
       zdoids.push(zdo.zdoid);
       if (item.kind === 'prop') propZdoids.push(zdo.zdoid);
+
+      // Steinmaterial DIESER Platzierung als String-Member ans Raum-ZDO
+      // (Dokumentversion 4). Der Member ist der Transportweg zum Client:
+      // `writeZDO` serialisiert Member generisch, also braucht es dafür kein
+      // eigenes Paketfeld, und die Zuordnung Raum→Material kommt ohne
+      // Positionsvergleich aus — sie hängt am ZDO selbst.
+      //
+      // Nur wo wirklich ein Override steht: Ein Member an jedem Raum wäre
+      // ein leeres `{}` in jedem Vollstand-Paket.
+      // The placed room's own stone material as a string member on the room
+      // ZDO (document version 4) — members are serialized generically, so no
+      // extra packet field is needed and no position matching either.
+      if (item.kind === 'room') {
+        const raumKit = layout.rooms[item.roomIndex]?.steinKit;
+        if (raumKit && Object.keys(raumKit).length > 0) {
+          zdo.setString(STEIN_KIT_MEMBER, JSON.stringify(raumKit));
+        }
+      }
 
       // Spawner erwachen: aus 'Spawner_Skeleton(_respawn_30)' wird beim
       // Materialisieren EINE Kreatur an Ort und Stelle (das Spawner-Piece

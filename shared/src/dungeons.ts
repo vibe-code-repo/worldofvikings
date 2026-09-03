@@ -178,6 +178,18 @@ export const STEIN_TEXTUREN: readonly string[] = [
 export const STEIN_VERWITTERUNG_MAX = 4;
 
 /**
+ * Name des ZDO-Members, der das Steinmaterial EINES platzierten Raums zum
+ * Client trägt (JSON eines `Partial<SteinKitConfig>`, s. `PlacedRoom.steinKit`).
+ *
+ * Hier und nicht je einmal auf Server- und Clientseite, weil beide Seiten
+ * denselben `getStableHash()` darüber bilden müssen — zwei Schreibweisen
+ * ergäben zwei Hashes und einen Member, den niemand je liest.
+ * Name of the ZDO member carrying ONE placed room's stone material to the
+ * client; shared so both sides hash the identical string.
+ */
+export const STEIN_KIT_MEMBER = 'steinKit';
+
+/**
  * Einen Texturnamen ODER -pfad gegen {@link STEIN_TEXTUREN} auflösen.
  * `stein_moos`, `stein_moos.png` und der volle Pfad ergeben dasselbe;
  * alles andere ergibt `undefined`.
@@ -364,6 +376,17 @@ export interface PlacedRoom {
   placeOrder: number;
   /** Position-derived seed for random decoration variants. */
   seed: number;
+  /**
+   * Steinmaterial DIESER Platzierung (Dokumentversion 4, additiv). Unterste
+   * Stufe der Mischkette Kit → Dokument → `RoomDef` → HIER: Es hängt an der
+   * einzelnen Kammer statt am Raumtyp, und darum können zwei Räume DESSELBEN
+   * Prefabs im selben Grab verschieden aussehen. Fehlt das Feld, ändert sich
+   * nichts — der Sanitizer erfindet es nicht.
+   * Per-PLACED-ROOM stone material (document version 4, additive) — the lowest
+   * step of kit → document → RoomDef → this, so two rooms of the SAME prefab
+   * in one dungeon can look different.
+   */
+  steinKit?: Partial<SteinKitConfig>;
 }
 
 /**
@@ -441,8 +464,13 @@ export interface DungeonLayout {
  * Sanitizer schreibt sie beim Laden ohnehin auf den aktuellen Stand. Sie
  * dient dem Menschen, der sich eine Datei ansieht, und dem Fall, dass eine
  * künftige Änderung NICHT mehr additiv ist.
+ *
+ * 3 → 4: `PlacedRoom.steinKit` dazugekommen (Steinmaterial je PLATZIERTEM
+ * Raum). Wieder ADDITIV wie `props` und das Dokument-`steinKit`: Räume ohne
+ * das Feld laden unverändert weiter, der Sanitizer legt es nicht an, und im
+ * Spiel gilt dann wie bisher Kit → Dokument → `RoomDef`.
  */
-export const DUNGEON_DOCUMENT_VERSION = 3;
+export const DUNGEON_DOCUMENT_VERSION = 4;
 
 /** Hard cap on rooms in a (user-editable) dungeon document. */
 export const MAX_DUNGEON_ROOMS = 256;
@@ -654,6 +682,12 @@ export function sanitizeDungeonDocument(input: unknown): DungeonDocument | null 
     const ro = (r ?? {}) as Record<string, unknown>;
     const name = typeof ro.room === 'string' ? ro.room : '';
     if (!roomsByName.has(name)) continue;
+    // Raum-Override (Version 4) durch DENSELBEN Sanitizer wie das Dokument —
+    // gleiche Erlaubnisliste, gleiche Klemmung. Bleibt nichts Gültiges übrig,
+    // trägt der Raum das Feld gar nicht erst (additiv wie `props`).
+    // Per-placed-room override (version 4) through the SAME sanitizer as the
+    // document; nothing valid left → the field is not created at all.
+    const raumSteinKit = sanitizeSteinKit(ro.steinKit);
     rooms.push({
       room: name,
       pos: sanitizeVec3(ro.pos),
@@ -663,6 +697,7 @@ export function sanitizeDungeonDocument(input: unknown): DungeonDocument | null 
           ? Math.max(0, Math.min(1024, Math.trunc(ro.placeOrder)))
           : 0,
       seed: typeof ro.seed === 'number' && Number.isFinite(ro.seed) ? ro.seed | 0 : 0,
+      ...(raumSteinKit ? { steinKit: raumSteinKit } : {}),
     });
   }
   if (rooms.length === 0) return null;

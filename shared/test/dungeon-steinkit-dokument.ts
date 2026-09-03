@@ -29,6 +29,28 @@
  *  4. Ein Altdokument OHNE `steinKit` laeuft byte-gleich weiter (props-
  *     Muster aus Dokumentfassung 1 -> 2): das Feld bleibt schlicht weg,
  *     nichts sonst am Dokument aendert sich.
+ *
+ * ── P5-Ergaenzung (rot) ────────────────────────────────────────────────
+ *
+ * Rot-Test fuer P5 — Steinmaterial je PLATZIERTEM RAUM.
+ * Red test for P5 — per-PLACED-ROOM stone material override.
+ *
+ * VOR DER UMSETZUNG ROT: `PlacedRoom.steinKit?: Partial<SteinKitConfig>`
+ * existiert noch nicht (Annahme dieses Tests), und `sanitizeDungeonDocument`
+ * liest `ro.steinKit` beim Einlesen eines Raums noch nicht — jeder
+ * eingereichte Raum-Override geht also derzeit beim Saeubern verloren.
+ *
+ * Geprueft wird zusaetzlich (5.-8.):
+ *  5. Ein platzierter Raum mit gueltigem `steinKit` behaelt es nach dem
+ *     Sanitizer (dieselbe Erlaubnisliste/Klemmung wie am Dokument, s. o.).
+ *  6. Ein Raum-`steinKit` mit einer Textur ausserhalb der Erlaubnisliste
+ *     verwirft genau dieses Feld — wie am Dokument.
+ *  7. Ein Raum-`steinKit` mit einer ausserhalb [0, 4] liegenden
+ *     Verwitterungszahl wird geklemmt — wie am Dokument.
+ *  8. Raeume OHNE `steinKit` bleiben ohne das Feld (wird nicht erfunden),
+ *     UND ein Altdokument (Raeume ganz ohne das Feld im rohen JSON) saeubert
+ *     sich byte-gleich zu vorher — dieselbe additive Garantie wie fuer
+ *     `props`/das Dokument-`steinKit` selbst.
  */
 
 import {
@@ -209,6 +231,140 @@ check(
 check(
   'Rest des Dokuments unveraendert (Tueren)',
   altSauber !== null && altSauber.layout.doors.length === layout.doors.length
+);
+
+// ── 5. Platzierter Raum mit gueltigem steinKit ────────────────────────────
+
+console.log('\nRaum-Override (PlacedRoom.steinKit) — gueltig:');
+const ROOM_INDEX = Math.min(3, layout.rooms.length - 1);
+const RAUM_KIT_GUELTIG = {
+  wandTextur: '/assets/models/stein_moos.png',
+  verwitterung: { moos: 3, frost: 0, nass: 0 },
+};
+const mitRaumKit = {
+  ...basisDoc,
+  layout: {
+    ...basisDoc.layout,
+    rooms: basisDoc.layout.rooms.map((r, i) =>
+      i === ROOM_INDEX ? { ...r, steinKit: RAUM_KIT_GUELTIG } : r
+    ),
+  },
+};
+const sauberRaumKit = sanitizeDungeonDocument(JSON.parse(JSON.stringify(mitRaumKit)));
+check('Dokument mit Raum-Override bleibt gueltig', sauberRaumKit !== null);
+const raumNachher = sauberRaumKit?.layout.rooms[ROOM_INDEX] as
+  | ({ steinKit?: unknown } & Record<string, unknown>)
+  | undefined;
+check(
+  'Raum-steinKit-Feld ist da',
+  raumNachher?.steinKit !== undefined,
+  JSON.stringify(raumNachher?.steinKit)
+);
+check(
+  'Raum-wandTextur bleibt erhalten',
+  (raumNachher?.steinKit as { wandTextur?: string } | undefined)?.wandTextur ===
+    '/assets/models/stein_moos.png',
+  (raumNachher?.steinKit as { wandTextur?: string } | undefined)?.wandTextur
+);
+check(
+  'Raum-Verwitterung moos=3 bleibt erhalten',
+  (raumNachher?.steinKit as { verwitterung?: { moos?: number } } | undefined)?.verwitterung
+    ?.moos === 3,
+  JSON.stringify((raumNachher?.steinKit as { verwitterung?: unknown } | undefined)?.verwitterung)
+);
+check(
+  'Andere Raeume bleiben OHNE steinKit',
+  sauberRaumKit !== null &&
+    sauberRaumKit.layout.rooms.every(
+      (r, i) => i === ROOM_INDEX || (r as { steinKit?: unknown }).steinKit === undefined
+    )
+);
+
+// ── 6. Raum-steinKit: boese Textur wird verworfen ─────────────────────────
+
+console.log('\nRaum-Override — Erlaubnisliste fuer Texturpfade:');
+for (const boese of BOESE_PFADE) {
+  const mitBoeserRaumTextur = {
+    ...basisDoc,
+    layout: {
+      ...basisDoc.layout,
+      rooms: basisDoc.layout.rooms.map((r, i) =>
+        i === ROOM_INDEX
+          ? {
+              ...r,
+              steinKit: {
+                wandTextur: boese,
+                deckeTextur: '/assets/models/stein_clean.png',
+                bodenTextur: '/assets/models/stein_clean.png',
+                verwitterung: { moos: 0, frost: 0, nass: 0 },
+              },
+            }
+          : r
+      ),
+    },
+  };
+  const s = sanitizeDungeonDocument(JSON.parse(JSON.stringify(mitBoeserRaumTextur)));
+  const wand = (s?.layout.rooms[ROOM_INDEX] as { steinKit?: { wandTextur?: string } } | undefined)
+    ?.steinKit?.wandTextur;
+  check(
+    `Raum: Boeser Pfad "${boese}" wird NIE durchgereicht`,
+    wand !== boese,
+    `wandTextur nach dem Sanitizer: ${JSON.stringify(wand)}`
+  );
+}
+
+// ── 7. Raum-steinKit: Zahlen werden geklemmt ──────────────────────────────
+
+console.log('\nRaum-Override — Zahlen klemmen:');
+const mitRaumZuHoch = {
+  ...basisDoc,
+  layout: {
+    ...basisDoc.layout,
+    rooms: basisDoc.layout.rooms.map((r, i) =>
+      i === ROOM_INDEX
+        ? {
+            ...r,
+            steinKit: {
+              wandTextur: '/assets/models/stein_clean.png',
+              deckeTextur: '/assets/models/stein_clean.png',
+              bodenTextur: '/assets/models/stein_clean.png',
+              verwitterung: { moos: 99, frost: -1, nass: 0 },
+            },
+          }
+        : r
+    ),
+  },
+};
+const sauberRaumZuHoch = sanitizeDungeonDocument(JSON.parse(JSON.stringify(mitRaumZuHoch)));
+const verwRaumZuHoch = (
+  sauberRaumZuHoch?.layout.rooms[ROOM_INDEX] as
+    | { steinKit?: { verwitterung?: { moos?: number; frost?: number } } }
+    | undefined
+)?.steinKit?.verwitterung;
+check(
+  'Raum: moos 99 wird auf die Obergrenze geklemmt',
+  verwRaumZuHoch?.moos === OBERGRENZE,
+  `ist ${verwRaumZuHoch?.moos}`
+);
+check(
+  'Raum: frost -1 wird auf 0 geklemmt',
+  verwRaumZuHoch?.frost === 0,
+  `ist ${verwRaumZuHoch?.frost}`
+);
+
+// ── 8. Raeume ohne steinKit bleiben ohne das Feld / Altdokument byte-gleich
+
+console.log('\nRaum-Override — Altdokument byte-gleich:');
+check(
+  'Altdokument: kein Raum traegt ein steinKit-Feld',
+  altSauber !== null &&
+    altSauber.layout.rooms.every((r) => (r as { steinKit?: unknown }).steinKit === undefined)
+);
+const vorherJson = JSON.stringify(altSauber);
+const nochmalSauber = sanitizeDungeonDocument(JSON.parse(JSON.stringify(basisDoc)));
+check(
+  'Altdokument saeubert sich byte-gleich (erneuter Lauf, keine Drift durch die neue Raum-Logik)',
+  JSON.stringify(nochmalSauber) === vorherJson
 );
 
 if (failures > 0) {

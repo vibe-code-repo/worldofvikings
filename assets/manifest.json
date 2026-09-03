@@ -1,7 +1,7 @@
 {
- "erzeugt": "2026-08-28T15:23:50.032Z",
+ "erzeugt": "2026-09-03T02:58:34.185Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 185,
+ "anzahl": 204,
  "modelle": {
   "Ampfer1": {
    "datei": "Ampfer1.glb",
@@ -3301,6 +3301,214 @@
    "meshlos": false,
    "skins": 0
   },
+  "StoneVaultArch": {
+   "datei": "StoneVaultArch.glb",
+   "foliage": false,
+   "bytes": 38420,
+   "huelle": {
+    "min": [
+     -1,
+     0,
+     -0.15
+    ],
+    "max": [
+     1,
+     3.5,
+     0.15
+    ]
+   },
+   "breite": 2,
+   "hoehe": 3.5,
+   "tiefe": 0.3,
+   "dreiecke": 742,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "StoneVaultCell": {
+   "datei": "StoneVaultCell.glb",
+   "foliage": false,
+   "bytes": 12668,
+   "huelle": {
+    "min": [
+     -1,
+     -0.25,
+     -1
+    ],
+    "max": [
+     1,
+     3.75,
+     1
+    ]
+   },
+   "breite": 2,
+   "hoehe": 4,
+   "tiefe": 2,
+   "dreiecke": 216,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "StoneVaultCorner": {
+   "datei": "StoneVaultCorner.glb",
+   "foliage": false,
+   "bytes": 57892,
+   "huelle": {
+    "min": [
+     -1,
+     -0.25,
+     -1
+    ],
+    "max": [
+     1,
+     3.75,
+     1
+    ]
+   },
+   "breite": 2,
+   "hoehe": 4,
+   "tiefe": 2,
+   "dreiecke": 1056,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "StoneVaultCorridor": {
+   "datei": "StoneVaultCorridor.glb",
+   "foliage": false,
+   "bytes": 60440,
+   "huelle": {
+    "min": [
+     -1,
+     -0.25,
+     -1
+    ],
+    "max": [
+     1,
+     3.75,
+     1
+    ]
+   },
+   "breite": 2,
+   "hoehe": 4,
+   "tiefe": 2,
+   "dreiecke": 1104,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "StoneVaultHall": {
+   "datei": "StoneVaultHall.glb",
+   "foliage": false,
+   "bytes": 43776,
+   "huelle": {
+    "min": [
+     -2,
+     -0.25,
+     -2
+    ],
+    "max": [
+     2,
+     3.75,
+     2
+    ]
+   },
+   "breite": 4,
+   "hoehe": 4,
+   "tiefe": 4,
+   "dreiecke": 792,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "StoneVaultJunction": {
+   "datei": "StoneVaultJunction.glb",
+   "foliage": false,
+   "bytes": 36560,
+   "huelle": {
+    "min": [
+     -1,
+     -0.25,
+     -1
+    ],
+    "max": [
+     1,
+     3.75,
+     1
+    ]
+   },
+   "breite": 2,
+   "hoehe": 4,
+   "tiefe": 2,
+   "dreiecke": 660,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "StoneVaultStairs": {
+   "datei": "StoneVaultStairs.glb",
+   "foliage": false,
+   "bytes": 162080,
+   "huelle": {
+    "min": [
+     -1,
+     -0.25,
+     -2
+    ],
+    "max": [
+     1,
+     7.25,
+     2
+    ]
+   },
+   "breite": 2,
+   "hoehe": 7.5,
+   "tiefe": 4,
+   "dreiecke": 2988,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "StoneVaultWall": {
+   "datei": "StoneVaultWall.glb",
+   "foliage": false,
+   "bytes": 25012,
+   "huelle": {
+    "min": [
+     -1,
+     0,
+     -0.15
+    ],
+    "max": [
+     1,
+     3.5,
+     0.15
+    ]
+   },
+   "breite": 2,
+   "hoehe": 3.5,
+   "tiefe": 0.3,
+   "dreiecke": 444,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
   "Surtr": {
    "datei": "Surtr.glb",
    "foliage": false,
@@ -4374,6 +4582,292 @@
    ],
    "meshlos": false,
    "skins": 1
+  },
+  "sicherung-vor-tripo-20260829/SteingrabAbschluss": {
+   "datei": "sicherung-vor-tripo-20260829/SteingrabAbschluss.glb",
+   "foliage": false,
+   "bytes": 72976,
+   "huelle": {
+    "min": [
+     -2,
+     -0.3,
+     -0.118
+    ],
+    "max": [
+     2,
+     4,
+     0.125
+    ]
+   },
+   "breite": 4,
+   "hoehe": 4.3,
+   "tiefe": 0.243,
+   "dreiecke": 1232,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "sicherung-vor-tripo-20260829/SteingrabEcke": {
+   "datei": "sicherung-vor-tripo-20260829/SteingrabEcke.glb",
+   "foliage": false,
+   "bytes": 195828,
+   "huelle": {
+    "min": [
+     -2,
+     -0.3,
+     -2
+    ],
+    "max": [
+     2,
+     4,
+     2
+    ]
+   },
+   "breite": 4,
+   "hoehe": 4.3,
+   "tiefe": 4,
+   "dreiecke": 3344,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "sicherung-vor-tripo-20260829/SteingrabEndkappe": {
+   "datei": "sicherung-vor-tripo-20260829/SteingrabEndkappe.glb",
+   "foliage": false,
+   "bytes": 265176,
+   "huelle": {
+    "min": [
+     -2,
+     -0.3,
+     -2
+    ],
+    "max": [
+     2,
+     4,
+     2
+    ]
+   },
+   "breite": 4,
+   "hoehe": 4.3,
+   "tiefe": 4,
+   "dreiecke": 4532,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "sicherung-vor-tripo-20260829/SteingrabGang": {
+   "datei": "sicherung-vor-tripo-20260829/SteingrabGang.glb",
+   "foliage": false,
+   "bytes": 383296,
+   "huelle": {
+    "min": [
+     -2,
+     -0.3,
+     -4
+    ],
+    "max": [
+     2,
+     4,
+     4
+    ]
+   },
+   "breite": 4,
+   "hoehe": 4.3,
+   "tiefe": 8,
+   "dreiecke": 6556,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "sicherung-vor-tripo-20260829/SteingrabKammer": {
+   "datei": "sicherung-vor-tripo-20260829/SteingrabKammer.glb",
+   "foliage": false,
+   "bytes": 1325776,
+   "huelle": {
+    "min": [
+     -4,
+     -0.3,
+     -6
+    ],
+    "max": [
+     4,
+     6.4,
+     6
+    ]
+   },
+   "breite": 8,
+   "hoehe": 6.7,
+   "tiefe": 12,
+   "dreiecke": 22704,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "sicherung-vor-tripo-20260829/SteingrabKreuzung": {
+   "datei": "sicherung-vor-tripo-20260829/SteingrabKreuzung.glb",
+   "foliage": false,
+   "bytes": 570768,
+   "huelle": {
+    "min": [
+     -4,
+     -0.3,
+     -4
+    ],
+    "max": [
+     4,
+     4,
+     4
+    ]
+   },
+   "breite": 8,
+   "hoehe": 4.3,
+   "tiefe": 8,
+   "dreiecke": 9768,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "sicherung-vor-tripo-20260829/SteingrabTuer": {
+   "datei": "sicherung-vor-tripo-20260829/SteingrabTuer.glb",
+   "foliage": false,
+   "bytes": 142128,
+   "huelle": {
+    "min": [
+     -1.75,
+     0,
+     -0.222
+    ],
+    "max": [
+     1.75,
+     3.6,
+     0.223
+    ]
+   },
+   "breite": 3.5,
+   "hoehe": 3.6,
+   "tiefe": 0.446,
+   "dreiecke": 2420,
+   "materialien": 1,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "tripo-experimente-20260830/VikingBarrel01": {
+   "datei": "tripo-experimente-20260830/VikingBarrel01.glb",
+   "foliage": false,
+   "bytes": 1688464,
+   "huelle": {
+    "min": [
+     -0.474,
+     0,
+     -0.476
+    ],
+    "max": [
+     0.474,
+     1,
+     0.476
+    ]
+   },
+   "breite": 0.948,
+   "hoehe": 1,
+   "tiefe": 0.952,
+   "dreiecke": 3780,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "tripo-experimente-20260830/VikingBones01": {
+   "datei": "tripo-experimente-20260830/VikingBones01.glb",
+   "foliage": false,
+   "bytes": 1975776,
+   "huelle": {
+    "min": [
+     -0.346,
+     0,
+     -0.5
+    ],
+    "max": [
+     0.346,
+     0.909,
+     0.5
+    ]
+   },
+   "breite": 0.692,
+   "hoehe": 0.909,
+   "tiefe": 1,
+   "dreiecke": 2736,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "tripo-experimente-20260830/VikingCrate01": {
+   "datei": "tripo-experimente-20260830/VikingCrate01.glb",
+   "foliage": false,
+   "bytes": 2056004,
+   "huelle": {
+    "min": [
+     -0.5,
+     0,
+     -0.492
+    ],
+    "max": [
+     0.5,
+     0.904,
+     0.492
+    ]
+   },
+   "breite": 1,
+   "hoehe": 0.904,
+   "tiefe": 0.984,
+   "dreiecke": 3487,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
+  "tripo-experimente-20260830/VikingRuneStone02": {
+   "datei": "tripo-experimente-20260830/VikingRuneStone02.glb",
+   "foliage": false,
+   "bytes": 3058276,
+   "huelle": {
+    "min": [
+     -0.208,
+     0,
+     -0.313
+    ],
+    "max": [
+     0.208,
+     1,
+     0.313
+    ]
+   },
+   "breite": 0.415,
+   "hoehe": 1,
+   "tiefe": 0.626,
+   "dreiecke": 7568,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
   },
   "wikingerin/H_01": {
    "datei": "wikingerin/H_01.glb",

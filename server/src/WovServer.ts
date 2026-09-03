@@ -66,6 +66,7 @@ import {
   isInDungeonBand,
   dungeon2,
 } from '@wov/shared';
+import type { SteinKitConfig } from '@wov/shared';
 // Serverseitige Weltdaten: NICHT ueber den Barrel, sondern ueber den
 // expliziten Pfad — sie tragen die Rohdaten der Weltvorlagen (Pieces bzw.
 // Raum-Einrichtung) und haetten im Barrel jedes Client-Bundle aufgeblaeht.
@@ -3659,14 +3660,51 @@ export class WovServer {
           if (!doc) {
             return { ok: false, active: false, message: `Unbekannter 1.0-Dungeon: ${args[0] ?? '?'}` };
           }
-          if (args[1] === 'reset') {
-            delete doc.steinKit;
+          // ── `room=<i>`: dasselbe Kommando, eine Stufe tiefer ───────────
+          //
+          // Ohne `room=` gilt wie bisher das DOKUMENT. Mit `room=<i>` gilt
+          // GENAU DIESE Platzierung (`PlacedRoom.steinKit`) — deshalb muss
+          // die Angabe VOR der allgemeinen key=value-Schleife heraus, die
+          // jedes unbekannte Token ablehnt.
+          // With `room=<i>` the very same command edits ONE placed room
+          // instead of the document; pulled out before the generic loop.
+          const rest: string[] = [];
+          let roomIndex: number | null = null;
+          for (const arg of args.slice(1)) {
+            if (!arg.startsWith('room=')) {
+              rest.push(arg);
+              continue;
+            }
+            const zahl = Number(arg.slice('room='.length));
+            if (!Number.isFinite(zahl) || !Number.isInteger(zahl)) {
+              return { ok: false, active: false, message: `Kein Raumindex: ${arg}` };
+            }
+            roomIndex = zahl;
+          }
+          if (roomIndex !== null && (roomIndex < 0 || roomIndex >= doc.layout.rooms.length)) {
+            return {
+              ok: false,
+              active: false,
+              message: `Raumindex ${roomIndex} liegt ausserhalb — ${doc.id} hat ${doc.layout.rooms.length} Räume (0..${doc.layout.rooms.length - 1})`,
+            };
+          }
+          // Das Ziel der Änderung: das Dokument selbst oder ein Raum darin.
+          // Ein Zeiger statt zweier Zweige — sonst driften Prüfung, Sanitizer
+          // und Speichern zwischen beiden Wegen auseinander.
+          const ziel: { steinKit?: Partial<SteinKitConfig> } =
+            roomIndex === null ? doc : doc.layout.rooms[roomIndex]!;
+          const wo = roomIndex === null ? doc.id : `${doc.id} Raum ${roomIndex}`;
+          if (rest.length === 1 && rest[0] === 'reset') {
+            delete ziel.steinKit;
             this.dungeons.saveDocument(doc);
             this.dungeons.destroyInstance(doc.id);
             return {
               ok: true,
               active: false,
-              message: `${doc.id}: Steinmaterial gelöscht — es gilt wieder die Kit-Vorgabe`,
+              message:
+                roomIndex === null
+                  ? `${wo}: Steinmaterial gelöscht — es gilt wieder die Kit-Vorgabe`
+                  : `${wo}: Steinmaterial gelöscht — es gilt wieder das des Dokuments`,
             };
           }
           // key=value in ein rohes Objekt legen und EINMAL durch denselben
@@ -3674,12 +3712,12 @@ export class WovServer {
           // hat damit keine eigene Prüfung, die von jener abweichen könnte.
           // Parsed into a raw object and run through the SAME sanitizer as an
           // uploaded document — no second, divergent check.
-          const roh: Record<string, unknown> = { ...(doc.steinKit ?? {}) };
+          const roh: Record<string, unknown> = { ...(ziel.steinKit ?? {}) };
           const verw: Record<string, unknown> = {
-            ...((doc.steinKit?.verwitterung ?? {}) as Record<string, unknown>),
+            ...((ziel.steinKit?.verwitterung ?? {}) as Record<string, unknown>),
           };
           const unbekannt: string[] = [];
-          for (const arg of args.slice(1)) {
+          for (const arg of rest) {
             const [k, v] = arg.split('=', 2);
             if (!k || v === undefined) {
               unbekannt.push(arg);
@@ -3724,7 +3762,8 @@ export class WovServer {
               active: false,
               message:
                 `Unbekannte Angabe: ${unbekannt.join(' ')} — Aufruf: dungeon steinkit <id> ` +
-                'wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> | reset',
+                '[room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> ' +
+                'nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset',
             };
           }
           if (Object.keys(verw).length > 0) roh.verwitterung = verw;
@@ -3736,7 +3775,7 @@ export class WovServer {
               message: 'Nichts Gültiges angegeben — nichts geändert',
             };
           }
-          doc.steinKit = sauber;
+          ziel.steinKit = sauber;
           this.dungeons.saveDocument(doc);
           // Die Instanz verwerfen wie bei `regen`: Wer drin steht, betritt
           // sie beim nächsten `dungeon enter` frisch — und erst dieses
@@ -3747,7 +3786,7 @@ export class WovServer {
           return {
             ok: true,
             active: false,
-            message: `${doc.id}: Steinmaterial gesetzt — ${JSON.stringify(sauber)}`,
+            message: `${wo}: Steinmaterial gesetzt — ${JSON.stringify(sauber)}`,
           };
         }
 

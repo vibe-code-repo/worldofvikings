@@ -17,7 +17,7 @@
  */
 import {
   ANIM_MEMBER, FIGUR_MEMBER, FRISUR_MEMBER, RUESTUNG_MEMBER, HAARFARBE_MEMBER,
-  HEALTH_MEMBER, LAYOUT_ID_MEMBER, getStableHash,
+  HEALTH_MEMBER, LAYOUT_ID_MEMBER, STEIN_KIT_MEMBER, getStableHash,
 } from '@wov/shared';
 import type { Vector3, Quaternion, NpcEinordnung } from '@wov/shared';
 import type { BinaryReader } from './GameSocket';
@@ -35,6 +35,13 @@ const FIGUR_HASH = getStableHash(FIGUR_MEMBER);
 const FRISUR_HASH = getStableHash(FRISUR_MEMBER);
 const RUESTUNG_HASH = getStableHash(RUESTUNG_MEMBER);
 const HAARFARBE_HASH = getStableHash(HAARFARBE_MEMBER);
+/**
+ * Steinmaterial EINES platzierten Dungeon-Raums (JSON, s.
+ * `PlacedRoom.steinKit`). Am Raum-ZDO gesetzt, weil nur dort feststeht,
+ * WELCHE Kammer gemeint ist — über den Prefabhash allein liessen sich zwei
+ * Räume desselben Typs nicht unterscheiden.
+ */
+const STEIN_KIT_HASH = getStableHash(STEIN_KIT_MEMBER);
 
 export interface ZDOEntityUpdate {
   /** `${userId}:${id}` */
@@ -99,6 +106,20 @@ export interface ZDOEntityUpdate {
    * weiterer Slot spaeter keinen dritten braucht.
    */
   ruestung?: string;
+  /**
+   * Steinmaterial DIESES platzierten Dungeon-Raums als JSON
+   * (`Partial<SteinKitConfig>`, ZDO-Member `steinKit`). Nur an Raum-ZDOs mit
+   * eigenem Override gesetzt; sonst fehlt es, und es gilt die Kette Kit →
+   * Dokument → RoomDef.
+   *
+   * Bewusst die rohe Zeichenkette und kein geparstes Objekt: Sie ist zugleich
+   * der Bucket-Schlüssel im EntityManager (gleiches JSON = gleicher Bucket =
+   * ein Material), und ein zweimal geparstes/serialisiertes Objekt könnte
+   * dieselbe Angabe unterschiedlich schreiben.
+   * The placed room's stone material as raw JSON; the string doubles as the
+   * EntityManager's bucket key, so it is kept verbatim.
+   */
+  steinKit?: string;
   isOwnPlayer: boolean;
 }
 
@@ -191,6 +212,7 @@ export function parseZDOSync(
     let frisur: string | undefined = basis?.frisur;
     let haarfarbe: string | undefined = basis?.haarfarbe;
     let ruestung: string | undefined = basis?.ruestung;
+    let steinKit: string | undefined = basis?.steinKit;
     const memberCount = reader.readInt32();
     for (let m = 0; m < memberCount; m++) {
       const memberHash = reader.readInt32();
@@ -213,6 +235,8 @@ export function parseZDOSync(
         haarfarbe = reader.readString();
       } else if (memberHash === RUESTUNG_HASH && memberType === 5) {
         ruestung = reader.readString();
+      } else if (memberHash === STEIN_KIT_HASH && memberType === 5) {
+        steinKit = reader.readString();
       } else if (prefabHash === LOCATION_PROXY_HASH && memberHash === LOCATION_MEMBER_HASH && memberType === 3) {
         locationFeatureHash = reader.readInt32();
       } else {
@@ -244,6 +268,7 @@ export function parseZDOSync(
       frisur,
       haarfarbe,
       ruestung,
+      steinKit,
       isOwnPlayer: hasOwner && ownerUserId === ownUserId,
     };
     spiegel.merke(update);

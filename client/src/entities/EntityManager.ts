@@ -458,10 +458,62 @@ interface IndexEintrag {
   platz: number;
 }
 
+/**
+ * Schlüssel eines statischen Buckets: der Prefabhash allein — und NUR wenn
+ * ein Raum-Steinmaterial daran hängt, der Hash plus dessen JSON.
+ *
+ * Warum das JSON und nicht der Raumindex: Zwei Kammern mit demselben
+ * Override sollen auch denselben Bucket (und damit ein Material und einen
+ * Zeichenaufruf) teilen — der Index würde sie trennen, obwohl sie gleich
+ * aussehen. Und ohne Override bleibt der Schlüssel wortgleich der alte,
+ * es entsteht also kein zweiter Bucket, wo es früher einen gab.
+ * Bucket key: prefab hash alone, or hash + the room override's JSON.
+ */
+function bucketSchluessel(prefabHash: number, ueberschreibung: string): string {
+  return ueberschreibung ? `${prefabHash}|${ueberschreibung}` : String(prefabHash);
+}
+
+/**
+ * Das JSON des Raum-Overrides einmal lesen. Unlesbares ergibt `undefined` —
+ * dann gilt die Kette bis zum `RoomDef`, und die Kammer sieht aus wie ihr Typ.
+ * Ein Wurf wäre hier falsch: Der Wert kommt über die Leitung, und ein einzelner
+ * kaputter Member darf nicht den Aufbau der ganzen Welt anhalten.
+ */
+function leseSteinKitOverride(json: string): Partial<SteinKitConfig> | undefined {
+  if (!json) return undefined;
+  try {
+    const roh: unknown = JSON.parse(json);
+    if (!roh || typeof roh !== 'object') return undefined;
+    return roh as Partial<SteinKitConfig>;
+  } catch {
+    console.warn('[EntityManager] unlesbares steinKit am Raum-ZDO — ignoriert');
+    return undefined;
+  }
+}
+
 interface StaticBucket {
   prefabName: string;
-  /** Same value as the map key — the collider derivation needs the def. */
+  /** Prefab des Buckets — der Collider-Pfad braucht die Prefab-Definition. */
   prefabHash: number;
+  /** Schlüssel in `buckets`, s. {@link bucketSchluessel}. */
+  schluessel: string;
+  /**
+   * Schlüssel für `masterMeshes`/`masterLocals`/`zellMaster`/`colliders` —
+   * `prefabName`, oder `prefabName#<Override-JSON>` beim Override-Bucket.
+   *
+   * Getrennt vom Prefabnamen, weil sich zwei Buckets desselben Prefabs sonst
+   * gegenseitig Master UND Kollisionsauswahl (samt deren Signatur)
+   * überschrieben. Ohne Override ist er gleich `prefabName` — alles bleibt
+   * wie zuvor.
+   */
+  masterKey: string;
+  /**
+   * Rohes JSON des Raum-Overrides (ZDO-Member `steinKit`), '' wenn keiner —
+   * wortgleich vom Server übernommen und Teil von `schluessel`.
+   */
+  steinKitOverride: string;
+  /** `steinKitOverride` EINMAL geparst; undefined, wenn keiner/unlesbar. */
+  steinKitCfg?: Partial<SteinKitConfig>;
   /** zdoKey → flat matrix index */
   indexOf: Map<string, number>;
   /** flat f32 matrix buffer (16 per instance), swap-remove on destroy */
@@ -693,7 +745,7 @@ export function zellMeshAusPrototyp(proto: Mesh, name: string, scene: Scene): Me
 }
 
 export class EntityManager {
-  private readonly buckets = new Map<number, StaticBucket>();
+  private readonly buckets = new Map<string, StaticBucket>();
   /**
    * Bewusster Qualitätstausch des gemessenen 100-FPS-Profils.
    *
@@ -707,7 +759,8 @@ export class EntityManager {
   private vegetationsMitteX = 0;
   private vegetationsMitteZ = 0;
   private vegetationsMitteBekannt = false;
-  private readonly bucketOf = new Map<string, number>();
+  /** zdoKey → Bucket-Schlüssel (s. {@link bucketSchluessel}). */
+  private readonly bucketOf = new Map<string, string>();
   private readonly dynamics = new Map<string, DynamicEntity>();
   /**
    * Einordnung der NPC-Instanzen (Namensschild), Schlüssel wie bei den
@@ -725,8 +778,13 @@ export class EntityManager {
    */
   private npcQuelle: ((layoutId: string) => NpcEinordnung | null) | null = null;
   private readonly appliedLocations = new Set<string>();
-  /** Prefab hashes whose render prep is already in flight. */
-  private readonly pending = new Set<number>();
+  /**
+   * Bucket-Schlüssel, deren Master gerade geladen werden bzw. schon geladen
+   * sind. Je BUCKET und nicht je Prefabhash: Ein Override-Bucket braucht
+   * eigene Master, auch wenn der Prefab längst geladen ist.
+   * Bucket keys whose render prep is already in flight.
+   */
+  private readonly pending = new Set<string>();
   /**
    * Räumlicher Index der statischen Instanzen: Zellenschlüssel → Einträge.
    *
@@ -1070,35 +1128,50 @@ export class EntityManager {
     }
   }
 
+  /**
+   * Eine statische Instanz aus ihrem Bucket nehmen (Swap-Remove auf dem
+   * Matrixpuffer).
+   *
+   * Eigene Methode, seit ein ZDO den Bucket WECHSELN kann: Mit dem
+   * Raum-Steinmaterial gehört ein Raum je nach Override in einen anderen
+   * Bucket, und ein Wechsel ohne dieses Ausräumen liesse dieselbe Instanz in
+   * beiden stehen — sichtbar als doppelte Wand, unsichtbar als doppelter
+   * Kollisionskörper.
+   * Extracted because a ZDO can now MOVE between buckets (per-room stone
+   * material); leaving it in the old one would draw it twice.
+   */
+  private ausBucketEntfernen(key: string): void {
+    const bucketKey = this.bucketOf.get(key);
+    if (bucketKey === undefined) return;
+    const bucket = this.buckets.get(bucketKey);
+    const idx = bucket?.indexOf.get(key);
+    if (bucket && idx !== undefined) {
+      // swap-remove the matrix
+      const last = bucket.matrices.length / 16 - 1;
+      if (idx !== last) {
+        bucket.matrices.copyWithin(idx * 16, last * 16, last * 16 + 16);
+        for (const [k, v] of bucket.indexOf) {
+          if (v === last) {
+            bucket.indexOf.set(k, idx);
+            break;
+          }
+        }
+      }
+      bucket.matrices.length = last * 16;
+      bucket.indexOf.delete(key);
+      bucket.dirty = true;
+      this.staticCount--;
+    }
+    this.bucketOf.delete(key);
+  }
+
   removeZDO(key: string): void {
     this.npcs.delete(key);
     // Vor dem Bucket-Abbau: Der Index steht unabhängig davon, ob der Bucket
     // die Instanz noch kennt — ein Eintrag, der ihn überlebt, wäre ein
     // Geisterobjekt unter dem Fadenkreuz.
     this.indexEntfernen(key);
-    const bucketHash = this.bucketOf.get(key);
-    if (bucketHash !== undefined) {
-      const bucket = this.buckets.get(bucketHash);
-      const idx = bucket?.indexOf.get(key);
-      if (bucket && idx !== undefined) {
-        // swap-remove the matrix
-        const last = bucket.matrices.length / 16 - 1;
-        if (idx !== last) {
-          bucket.matrices.copyWithin(idx * 16, last * 16, last * 16 + 16);
-          for (const [k, v] of bucket.indexOf) {
-            if (v === last) {
-              bucket.indexOf.set(k, idx);
-              break;
-            }
-          }
-        }
-        bucket.matrices.length = last * 16;
-        bucket.indexOf.delete(key);
-        bucket.dirty = true;
-        this.staticCount--;
-      }
-      this.bucketOf.delete(key);
-    }
+    this.ausBucketEntfernen(key);
     const dyn = this.dynamics.get(key);
     if (dyn) {
       this.assets.entsorgeAnimationen(dyn.root);
@@ -1242,7 +1315,10 @@ export class EntityManager {
    * hash per session, so re-painting these is the only way a second
    * document can look different.
    */
-  private steinMasters = new Map<number, import('@babylonjs/core/Meshes/mesh').Mesh[]>();
+  private steinMasters = new Map<
+    string,
+    { bucket: StaticBucket; masters: readonly import('@babylonjs/core/Meshes/mesh').Mesh[] }
+  >();
   /**
    * Das Steinmaterial des BETRETENEN Dokuments (1.0), sonst null. Liegt
    * über der Kit-Vorgabe und unter dem Raum-Override.
@@ -1492,6 +1568,8 @@ export class EntityManager {
       // COLLIDER_REBUILD_STEP.
       for (const bucket of this.buckets.values()) {
         if (bucket.dirty) continue;
+        // `zellMaster` ist und bleibt nach PREFABNAME geschlüsselt (s.
+        // rebuildBucketInstances: Override-Buckets nehmen den Zellschnitt nie).
         if (this.zellMaster.has(bucket.prefabName)) bucket.dirty = true;
       }
     }
@@ -1624,10 +1702,14 @@ export class EntityManager {
         return;
       }
     }
-    const masters = this.masterMeshes.get(bucket.prefabName);
+    const masters = this.masterMeshes.get(bucket.masterKey);
     if (!masters || masters.length === 0) return;
 
-    let entry = this.colliders.get(bucket.prefabName);
+    // Kollisionseintrag je BUCKET (masterKey), nicht je Prefabname: Zwei
+    // Buckets desselben Prefabs teilten sich sonst Träger UND Signatur und
+    // bauten sich gegenseitig die Nah-Auswahl ab. Die Form ist dieselbe —
+    // geteilt wird trotzdem nichts, weil `signature` je Auswahl gilt.
+    let entry = this.colliders.get(bucket.masterKey);
     if (!entry) {
       const def = findPrefabByHash(bucket.prefabHash);
       // Trees get a trunk capsule, everything else its bounding box — see
@@ -1659,7 +1741,7 @@ export class EntityManager {
         : 0;
       const begehbar = BEGEHBAR.test(bucket.prefabName);
       const exakt = dungeonRoom || begehbar || (felsig && dreiecke <= FELS_MAX_DREIECKE);
-      const locals = this.masterLocals.get(bucket.prefabName) ?? [];
+      const locals = this.masterLocals.get(bucket.masterKey) ?? [];
       // `buildMeshCollider` gibt null zurück, wenn keine Geometrie
       // zusammenkommt. Für Felsen ist die Hüllform dann immer noch besser
       // als GAR KEINE Kollision — bei Dungeon-Räumen dagegen wäre eine Box
@@ -1672,12 +1754,12 @@ export class EntityManager {
         this.colliderless.add(bucket.prefabName);
         return;
       }
-      const carrier = new Mesh(`col_${bucket.prefabName}`, this.scene);
+      const carrier = new Mesh(`col_${bucket.masterKey}`, this.scene);
       carrier.isVisible = false;
       carrier.isPickable = false;
       entry = { carrier, set: new StaticColliderSet(carrier, spec, this.scene), signature: '' };
-      this.colliders.set(bucket.prefabName, entry);
-      this.colliderSpecs.set(bucket.prefabName, spec);
+      this.colliders.set(bucket.masterKey, entry);
+      this.colliderSpecs.set(bucket.masterKey, spec);
     }
 
     // Keep only what is close enough to walk into. Translation lives at
@@ -1714,19 +1796,34 @@ export class EntityManager {
   }
 
   private applyStatic(u: ZDOEntityUpdate, prefabName: string, model: string | null): void {
-    let bucket = this.buckets.get(u.prefabHash);
+    // Raum-Steinmaterial (ZDO-Member `steinKit`) entscheidet über den Bucket:
+    // Nur so können zwei Kammern desselben Prefabs verschieden aussehen — ein
+    // Bucket hat genau einen Satz Master und damit genau ein Material.
+    const ueber = u.steinKit ?? '';
+    const schluessel = bucketSchluessel(u.prefabHash, ueber);
+    // Wechselt ein ZDO den Bucket (Override gekommen/gegangen), erst drüben
+    // ausräumen — sonst stünde die Instanz in beiden.
+    const alterBucket = this.bucketOf.get(u.key);
+    if (alterBucket !== undefined && alterBucket !== schluessel) {
+      this.ausBucketEntfernen(u.key);
+    }
+    let bucket = this.buckets.get(schluessel);
     if (!bucket) {
       bucket = {
         prefabName,
         prefabHash: u.prefabHash,
+        schluessel,
+        masterKey: ueber ? `${prefabName}#${ueber}` : prefabName,
+        steinKitOverride: ueber,
+        steinKitCfg: leseSteinKitOverride(ueber),
         indexOf: new Map(),
         matrices: [],
         dirty: false,
         colliderDirty: false,
         mastersReady: false,
       };
-      this.buckets.set(u.prefabHash, bucket);
-      this.prepareMasters(u.prefabHash, prefabName, model);
+      this.buckets.set(schluessel, bucket);
+      this.prepareMasters(bucket, model);
     }
 
     const world = composeZdoWorld(u, findPrefabByHash(u.prefabHash)?.localScale);
@@ -1749,32 +1846,56 @@ export class EntityManager {
       // Setzen auf dem neuen Bauwerk stehen (gemessen: der Bucket hielt
       // `edghost` UND `edplace-0`), und es sah aus, als würde doppelt
       // gesetzt. `applyDynamic` pflegt seinen Index längst — hier fehlte er.
-      this.bucketOf.set(u.key, u.prefabHash);
+      this.bucketOf.set(u.key, schluessel);
       world.toArray(bucket.matrices, bucket.matrices.length);
       this.staticCount++;
     }
     bucket.dirty = true;
   }
 
-  private prepareMasters(prefabHash: number, prefabName: string, model: string | null): void {
-    if (this.pending.has(prefabHash)) return;
-    this.pending.add(prefabHash);
+  private prepareMasters(bucketVorlage: StaticBucket, model: string | null): void {
+    const schluessel = bucketVorlage.schluessel;
+    if (this.pending.has(schluessel)) return;
+    this.pending.add(schluessel);
     if (!model) {
       // no GLB in the export — nothing to instance (sprites come in Phase 5)
       return;
     }
     void this.assets.getMasters(model).then((masters) => {
-      const bucket = this.buckets.get(prefabHash);
+      const bucket = this.buckets.get(schluessel);
       if (!bucket || masters.length === 0) return;
       // E23: FOLIAGE wird nur über Wasser gestreut. Die gemeinsame Hülle
       // seiner Thin Instances darf deshalb nicht entscheiden, ob der ganze
       // Bestand ein zweites Mal im Unterwasser-Pass gezeichnet wird.
-      if (FOLIAGE_HASHES.has(prefabHash)) {
+      if (FOLIAGE_HASHES.has(bucket.prefabHash)) {
         for (const master of masters) markiereAlsGestreuteLandschaft(master.mesh);
       }
-      this.masterMeshes.set(prefabName, masters.map((m) => m.mesh));
-      this.masterLocals.set(prefabName, masters.map((m) => m.localMatrix));
-      this.weiseSteinMaterialZu(prefabHash, masters.map((m) => m.mesh));
+      // ── Override-Bucket: EIGENE Master ───────────────────────────────
+      //
+      // `getMasters()` liefert je Modell dieselben Prototypen an alle
+      // Aufrufer. Ein zweiter Bucket darf sie nicht mitbenutzen: Babylon
+      // hängt die Instanzmatrizen an die GEOMETRY, nicht ans Mesh
+      // (thinInstanceMesh.js:88 → mesh.js:1396) — beide Buckets
+      // überschrieben sich also gegenseitig ihre Instanzen, samt Hülle.
+      // Aus demselben Grund ist es NICHT `mesh.clone()`: Ein Klon reicht die
+      // Geometry der Quelle einfach weiter (mesh.js:350).
+      //
+      // `zellMeshAusPrototyp()` ist der im Haus bereits bewiesene Weg (E19 c,
+      // client/test/master-huelle.ts): eigene Geometry samt eigener Hülle,
+      // die CPU-seitigen Typed Arrays werden geteilt — genau die
+      // „Geometrie teilen, Puffer nicht"-Grenze, die hier gebraucht wird.
+      // Own masters for an override bucket: thin-instance buffers live on the
+      // GEOMETRY, so sharing it (clone included) would make two buckets
+      // overwrite each other. zellMeshAusPrototyp gives an own geometry while
+      // sharing the CPU-side vertex data.
+      const meshes = bucket.steinKitOverride
+        ? masters.map((m, i) =>
+            zellMeshAusPrototyp(m.mesh, `${bucket.masterKey}_${i}`, this.scene)
+          )
+        : masters.map((m) => m.mesh);
+      this.masterMeshes.set(bucket.masterKey, meshes);
+      this.masterLocals.set(bucket.masterKey, masters.map((m) => m.localMatrix));
+      this.weiseSteinMaterialZu(bucket, meshes);
       bucket.mastersReady = true;
       bucket.dirty = true; // rebuild with instances now
     });
@@ -1786,24 +1907,28 @@ export class EntityManager {
    * Requisiten und Räume anderer Kits bleiben unberührt. Das Material wird
    * beim PBRMaterial-Ctor automatisch vom Fackel-Pool erfasst.
    *
-   * MISCHREIHENFOLGE (unten gewinnt): Kit-Vorgabe → Dokument → Raum-Override.
-   * Das Dokument steht in der Mitte, weil es „dieses Grab sieht anders aus"
-   * sagt, der Raum aber „diese Kammer sieht anders aus als der Gang" — und
-   * das Feinere darf das Gröbere nicht verlieren.
-   * Merge order (last wins): kit default → document → per-room override.
+   * MISCHREIHENFOLGE (unten gewinnt): Kit-Vorgabe → Dokument → RoomDef →
+   * PLATZIERTER Raum. Das Dokument steht in der Mitte, weil es „dieses Grab
+   * sieht anders aus" sagt, der Raumtyp aber „diese Kammer sieht anders aus
+   * als der Gang" — und das Feinere darf das Gröbere nicht verlieren. Zuunterst
+   * die einzelne Platzierung: Sie meint GENAU DIESE Kammer, nicht ihren Typ.
+   * Merge order (last wins): kit default → document → RoomDef → placed room.
    */
   private weiseSteinMaterialZu(
-    prefabHash: number,
+    bucket: StaticBucket,
     masters: readonly import('@babylonjs/core/Meshes/mesh').Mesh[]
   ): void {
-    const kitCfg = getKitByPrefabHash(prefabHash)?.steinKit;
+    const kitCfg = getKitByPrefabHash(bucket.prefabHash)?.steinKit;
     if (!kitCfg) return;
     // Für den Dokumentwechsel merken — `prepareMasters` kommt nie wieder.
-    this.steinMasters.set(prefabHash, [...masters]);
+    this.steinMasters.set(bucket.schluessel, { bucket, masters: [...masters] });
     // Türen sind keine Räume → getRoomByHash undefined → kein Raum-Override.
     const merged = mergeSteinKit(
-      mergeSteinKit(kitCfg, this.dokumentSteinKit ?? undefined),
-      getRoomByHash(prefabHash)?.steinKit
+      mergeSteinKit(
+        mergeSteinKit(kitCfg, this.dokumentSteinKit ?? undefined),
+        getRoomByHash(bucket.prefabHash)?.steinKit
+      ),
+      bucket.steinKitCfg
     );
     const mat = this.holeSteinMaterial(merged);
     for (const m of masters) m.material = mat;
@@ -1823,8 +1948,11 @@ export class EntityManager {
     const neu = cfg && Object.keys(cfg).length > 0 ? cfg : null;
     if (JSON.stringify(this.dokumentSteinKit) === JSON.stringify(neu)) return;
     this.dokumentSteinKit = neu;
-    for (const [hash, masters] of this.steinMasters) {
-      this.weiseSteinMaterialZu(hash, masters);
+    // ALLE Buckets, auch die mit Raum-Override und deren eigenen Klonen —
+    // sonst bliebe die zweite Kammer desselben Prefabs beim Dokumentwechsel
+    // auf ihrem alten Material stehen.
+    for (const { bucket, masters } of this.steinMasters.values()) {
+      this.weiseSteinMaterialZu(bucket, masters);
     }
   }
 
@@ -1945,8 +2073,8 @@ export class EntityManager {
   }
 
   private rebuildBucketInstances(bucket: StaticBucket): void {
-    const masters = this.masterMeshes.get(bucket.prefabName);
-    const locals = this.masterLocals.get(bucket.prefabName);
+    const masters = this.masterMeshes.get(bucket.masterKey);
+    const locals = this.masterLocals.get(bucket.masterKey);
     if (!masters || !locals) return;
 
     const zdoMats = this.buildZdoMats(bucket);
@@ -1961,7 +2089,15 @@ export class EntityManager {
       zdoMats,
       this.sichtbareVegetationsMatrizen(bucket, zdoMats)
     );
-    if (this.zellSchnittTaugt(masters, renderMats.length)) {
+    // Der Zellschnitt (samt Sprite-Fernfeld) ist nach PREFABNAME geschlüsselt
+    // — `zellMaster`, der Zell-Pool und der Impostor-Atlas. Ein Bucket mit
+    // Raum-Steinmaterial teilt sich diesen Namen mit dem Bucket ohne Override
+    // und würde ihm die Zellen wegräumen. Er nimmt deshalb immer den
+    // Vollmaster: Es sind Dungeon-Räume, ein paar Dutzend Instanzen — der
+    // Schnitt ist für gestreute Vegetation gebaut und griffe hier ohnehin nie.
+    // Override buckets always take the full master: the cell cut is keyed by
+    // prefab NAME and is meant for scattered vegetation, not dungeon rooms.
+    if (!bucket.steinKitOverride && this.zellSchnittTaugt(masters, renderMats.length)) {
       this.baueZellMaster(bucket, masters, locals, renderMats);
     } else {
       this.baueVollMaster(bucket, masters, locals, renderMats);
@@ -2448,7 +2584,7 @@ export class EntityManager {
    * Renderdaten sich gar nicht geändert haben. s. setPlayerPosition().
    */
   private rebuildBucketCollidersOnly(bucket: StaticBucket): void {
-    const masters = this.masterMeshes.get(bucket.prefabName);
+    const masters = this.masterMeshes.get(bucket.masterKey);
     if (!masters) return;
     this.rebuildBucketColliders(bucket, this.buildZdoMats(bucket));
   }

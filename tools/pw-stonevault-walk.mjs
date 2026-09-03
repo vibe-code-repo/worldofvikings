@@ -81,12 +81,15 @@ const lage = () => seite.evaluate(() => {
 const start = await lage();
 await seite.screenshot({ path: `${ORDNER}/${dungeonId}-0-spawn.png` });
 
-// Blickrichtung setzen (bleibt, s. pw-dungeon2-playdev.mjs), dann laufen.
+// Maus fangen und ERST DANN den Blick setzen: der Klick bewegt den Zeiger von (0,0) nach (800,450),
+// und unter Pointer-Lock addiert dieses Delta auf `_yaw` (PlayerController.ts ~669) — vorher gesetzt,
+// zeigte die Figur nach dem Fang in eine andere Richtung.
+await seite.mouse.click(800, 450);
+await seite.waitForTimeout(400);
 await seite.evaluate((y) => {
   const p = window.__dbg.player;
   p._yaw = y; p._figurYaw = y; p._pitch = -0.1;
 }, yaw);
-await seite.mouse.click(800, 450);
 await seite.keyboard.down('KeyW');
 let maxY = start.y;
 const spur = [];

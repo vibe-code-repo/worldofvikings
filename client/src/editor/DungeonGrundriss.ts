@@ -32,20 +32,45 @@
  * Rechtecken, was aussieht wie ein kaputtes Dokument.
  *
  * ── Ebenen ───────────────────────────────────────────────────────────
- * Heute liegt alles auf y = 0, das Kit hat keine Treppe. Der Filter ist
- * trotzdem schon da: Sobald es Ebenen gibt, überlagern sich zwei
- * Stockwerke im Bild zu einem unlesbaren Knäuel, und das ist der Moment,
- * in dem man ihn braucht — nicht danach.
+ * Mit `StoneVaultStairs` gibt es Ebenen wirklich: Die Treppe steht mit
+ * ihrem Fuss auf y = 0 und gibt oben auf y = 3,5 wieder ab. Zwei
+ * Stockwerke übereinander sind im Grundriss ein unlesbares Knäuel — der
+ * Filter `ebene` blendet deshalb auf ein Stockwerk zurück.
+ *
+ * Zwei Feinheiten, die beide gemessen falsch waren, bevor sie hier
+ * standen:
+ *
+ *  - Die Ebene wird NICHT gerundet. `Math.round(3.5)` ist 4, und im
+ *    Auswahlfeld stand „Ebene y = 4" für ein Stockwerk, das im Kit
+ *    überall 3,5 heisst. Gerastert wird stattdessen auf 0,1 m — genug
+ *    gegen Fliesskomma-Rauschen, fein genug für das Ebenenmass des
+ *    Modulformats.
+ *  - Ein offener Connector wird nach SEINER EIGENEN Höhe einsortiert,
+ *    nicht nach der seines Raums. Der obere Ausgang der Treppe gehört zu
+ *    einem Raum auf y = 0 und läge sonst auf der unteren Ebene — genau
+ *    dort, wo er nicht ist, und unsichtbar auf der Ebene, auf der man
+ *    weiterbaut.
+ *
+ * ── Hülle: Innenmass ist nicht Zellmass ──────────────────────────────
+ * `RoomDef.size` gibt bei den Modulzellen mit eingebauten Wänden das
+ * INNENMASS an (1,4 statt 2 — Begründung bei `innenmassAchsen` in
+ * `shared/src/dungeonRaster.ts`). Ungeprüft aufgetragen sieht ein
+ * Korridor damit schmaler aus als die Zelle, die er belegt, und die
+ * Zellen einer Kette berühren sich im Bild nicht. Gezeichnet wird
+ * deshalb die belegte ZELLE, nicht die Kollisionshülle.
  */
 import {
   DUNGEONS_BY_NAME,
+  MODUL_WANDDICKE_M,
   attachRoom,
   computeOpenConnections,
+  innenmassAchsen,
   removeRoom,
   type DungeonDocument,
   type OpenConnection,
   type PlacedRoom,
   type Quaternion,
+  type RoomDef,
   type Vector3,
 } from '@wov/shared';
 
@@ -72,6 +97,54 @@ const FARBE = {
 interface Punkt {
   x: number;
   z: number;
+}
+
+/**
+ * Kits, die im 2-m-Modulraster gebaut sind (`modulFormat.md`), statt im
+ * 4-m-Raster von `dungeonRaster.ts`.
+ *
+ * Eine Liste und kein Feld am `DungeonDef`, weil `DungeonDef` die
+ * dreizehn geparsten Vorlagen-Kits mitträgt: Ein neues Pflichtfeld dort
+ * hiesse dreizehn Einträge zu erfinden, die niemand nachgemessen hat.
+ * Wenn ein zweites Modulkit dazukommt, steht es hier — eine Zeile, und
+ * sie wird vom Test mitgeführt.
+ */
+const MODULKITS: ReadonlySet<string> = new Set(['DG_StoneVault']);
+
+/** Rastermass des Kits in Metern — 2 m im Modulformat, sonst 4 m. */
+export function rasterVonBasis(base: string): number {
+  return MODULKITS.has(base) ? 2 : 4;
+}
+
+/**
+ * Die Fläche, die ein Raum im Bild BELEGT — nicht seine Kollisionshülle.
+ *
+ * Bei einer Modulzelle mit eingebauten Wänden (`StoneVaultCorridor`,
+ * `-Corner`, `-Junction`, `-Stairs`) gibt `size` das Innenmass an: 1,4 m
+ * statt der 2 m, die die Zelle im Raster belegt. Die fehlenden 0,6 m sind
+ * genau zwei Wanddicken, und `innenmassAchsen` sagt, auf welchen Achsen
+ * das der Fall ist — dieselbe Auskunft, mit der `pruefeRaumRaster` die
+ * Ausnahme prüft. Ohne diese Korrektur wirken Gänge und Ecken schmaler
+ * als sie sind, und eine Zellkette berührt sich im Bild nicht.
+ */
+export function zeichenHuelle(raum: RoomDef, raster: number): Vector3 {
+  const innen = innenmassAchsen(raum, raster);
+  return {
+    x: innen.includes('x') ? raum.size.x + 2 * MODUL_WANDDICKE_M : raum.size.x,
+    y: raum.size.y,
+    z: innen.includes('z') ? raum.size.z + 2 * MODUL_WANDDICKE_M : raum.size.z,
+  };
+}
+
+/**
+ * Die Ebene, auf der ein y-Wert liegt — auf 0,1 m gerastert.
+ *
+ * Nicht `Math.round`: Das Ebenenmass des Modulformats ist 3,5, und
+ * gerundet stünde im Auswahlfeld „Ebene y = 4" für ein Stockwerk, das
+ * überall sonst 3,5 heisst.
+ */
+export function ebeneVon(y: number): number {
+  return Math.round(y * 10) / 10;
 }
 
 /**
@@ -188,10 +261,19 @@ export class DungeonGrundriss {
     return this.offene;
   }
 
-  /** Ebenen, auf denen wirklich Räume stehen — Futter für den Filter. */
+  /**
+   * Ebenen, auf denen wirklich etwas steht — Futter für den Filter.
+   *
+   * Die offenen Connectors zählen MIT, und das ist der Fall, für den der
+   * Filter überhaupt existiert: Solange nur die Treppe steht, liegt jeder
+   * Raum auf y = 0, und die obere Ebene gäbe es in dieser Liste nicht —
+   * das Feld erschiene erst, nachdem man dort schon gebaut hat. Genau
+   * dann braucht man es aber nicht mehr.
+   */
   get ebenen(): number[] {
     const s = new Set<number>();
-    for (const r of this.doc?.layout.rooms ?? []) s.add(Math.round(r.pos.y));
+    for (const r of this.doc?.layout.rooms ?? []) s.add(ebeneVon(r.pos.y));
+    for (const c of this.offene) s.add(ebeneVon(c.pos.y));
     return [...s].sort((a, b) => a - b);
   }
 
@@ -211,12 +293,25 @@ export class DungeonGrundriss {
     this.cb.auswahlGeaendert();
   }
 
-  /** Raum an eine offene Verbindung anfügen (dieselbe Funktion wie F4). */
-  fuegeAn(connIndex: number, raumName: string): boolean {
+  /**
+   * Raum an eine offene Verbindung anfügen (dieselbe Funktion wie F4).
+   *
+   * `kanteIndex` ist die Ausrichtung: WELCHE Kante des neuen Raums an der
+   * offenen Kante hängt (Index in `RoomDef.connections`). Ohne ihn nimmt
+   * `attachRoom` den ersten kollisionsfreien eigenen Connector — bei einer
+   * Zelle mit vier gleichwertigen Kanten entscheidet dann die Reihenfolge
+   * in `eigeneDungeons.ts`, in welche Richtung ein Gang weiterläuft.
+   *
+   * `undefined` ist dabei nicht dasselbe wie −1 oder 0: `attachRoom`
+   * unterscheidet „nicht gesetzt" (altes Verhalten) von „gesetzt, aber
+   * unpassend" (Fehlermeldung). Durchgereicht wird deshalb genau der Wert,
+   * den der Aufrufer gibt.
+   */
+  fuegeAn(connIndex: number, raumName: string, kanteIndex?: number): boolean {
     const doc = this.doc;
     const conn = this.offene[connIndex];
     if (!doc || !conn) return false;
-    const ergebnis = attachRoom(doc.layout, doc.base, conn, raumName);
+    const ergebnis = attachRoom(doc.layout, doc.base, conn, raumName, kanteIndex);
     if (!ergebnis.ok) {
       this.cb.meldung(ergebnis.reason ?? 'Raum passt hier nicht', true);
       return false;
@@ -265,16 +360,15 @@ export class DungeonGrundriss {
   passeEin(): void {
     const rooms = this.doc?.layout.rooms ?? [];
     if (rooms.length === 0) return;
-    const def = DUNGEONS_BY_NAME.get(this.doc!.base);
-    const byName = new Map(def?.rooms.map((r) => [r.name, r]) ?? []);
+    const masse = this.raumMasse();
     let minX = Infinity;
     let maxX = -Infinity;
     let minZ = Infinity;
     let maxZ = -Infinity;
     for (const r of rooms) {
-      const rd = byName.get(r.room);
+      const rd = masse.get(r.room);
       if (!rd) continue;
-      for (const p of ecken(r.pos, r.rot, rd.size)) {
+      for (const p of ecken(r.pos, r.rot, rd.huelle)) {
         minX = Math.min(minX, p.x);
         maxX = Math.max(maxX, p.x);
         minZ = Math.min(minZ, p.z);
@@ -312,23 +406,53 @@ export class DungeonGrundriss {
   }
 
   private sichtbarAufEbene(r: PlacedRoom): boolean {
-    return this.ebene === null || Math.round(r.pos.y) === this.ebene;
+    return this.ebene === null || ebeneVon(r.pos.y) === this.ebene;
+  }
+
+  /**
+   * Sichtbarkeit eines offenen Connectors — nach SEINER Höhe, nicht nach
+   * der seines Raums. Der obere Ausgang der Treppe gehört zu einem Raum
+   * auf y = 0; nach dem Raum sortiert läge er auf der unteren Ebene und
+   * fehlte auf der oberen, auf der man weiterbaut.
+   *
+   * Der Raum, an dem ein Connector hängt, hat dabei GAR KEIN Gewicht: Ein
+   * Connector auf der Ebene, die gerade gezeigt wird, ist ein
+   * Arbeitspunkt, egal wo sein Raum steht.
+   */
+  private connectorAufEbene(c: OpenConnection): boolean {
+    return this.ebene === null || ebeneVon(c.pos.y) === this.ebene;
+  }
+
+  /**
+   * Raumdefinition und Zeichenfläche je Raumnamen des Kits.
+   *
+   * An einer Stelle gerechnet, weil dieselbe Auskunft an drei Stellen
+   * gebraucht wird (Einpassen, Treffertest, Zeichnen) — und weil die
+   * Innenmass-Korrektur genau dann still auseinanderliefe, wenn eine der
+   * drei sie vergisst: Man klickte auf einen Raum und träfe daneben.
+   */
+  private raumMasse(): Map<string, { def: RoomDef; huelle: Vector3 }> {
+    const doc = this.doc;
+    const def = doc ? DUNGEONS_BY_NAME.get(doc.base) : undefined;
+    const raster = rasterVonBasis(doc?.base ?? '');
+    return new Map(
+      (def?.rooms ?? []).map((r) => [r.name, { def: r, huelle: zeichenHuelle(r, raster) }])
+    );
   }
 
   private waehleBei(px: number, py: number): void {
     const doc = this.doc;
     if (!doc) return;
     const welt = this.zuWelt(px, py);
-    const def = DUNGEONS_BY_NAME.get(doc.base);
-    const byName = new Map(def?.rooms.map((r) => [r.name, r]) ?? []);
+    const masse = this.raumMasse();
     // Von hinten nach vorn: Was zuletzt gezeichnet wurde, liegt oben und
     // soll zuerst getroffen werden.
     for (let i = doc.layout.rooms.length - 1; i >= 0; i--) {
       const r = doc.layout.rooms[i]!;
       if (!this.sichtbarAufEbene(r)) continue;
-      const rd = byName.get(r.room);
+      const rd = masse.get(r.room);
       if (!rd) continue;
-      if (imPolygon(welt, ecken(r.pos, r.rot, rd.size))) {
+      if (imPolygon(welt, ecken(r.pos, r.rot, rd.huelle))) {
         this.gewaehlt = this.gewaehlt === i ? -1 : i;
         this.zeichne();
         this.cb.auswahlGeaendert();
@@ -364,21 +488,20 @@ export class DungeonGrundriss {
       return;
     }
 
-    const def = DUNGEONS_BY_NAME.get(doc.base);
-    const byName = new Map(def?.rooms.map((r) => [r.name, r]) ?? []);
+    const masse = this.raumMasse();
 
     doc.layout.rooms.forEach((r, i) => {
       if (!this.sichtbarAufEbene(r)) return;
-      const rd = byName.get(r.room);
+      const rd = masse.get(r.room);
       if (!rd) return;
-      const ecks = ecken(r.pos, r.rot, rd.size).map((p) => this.zuBild(p));
+      const ecks = ecken(r.pos, r.rot, rd.huelle).map((p) => this.zuBild(p));
       ctx.beginPath();
       ctx.moveTo(ecks[0]!.x, ecks[0]!.y);
       for (const p of ecks.slice(1)) ctx.lineTo(p.x, p.y);
       ctx.closePath();
       ctx.fillStyle = i === this.gewaehlt ? FARBE.raumGewaehlt : FARBE.raum;
       ctx.fill();
-      ctx.strokeStyle = rd.entrance ? FARBE.eingang : FARBE.raumRand;
+      ctx.strokeStyle = rd.def.entrance ? FARBE.eingang : FARBE.raumRand;
       ctx.lineWidth = i === this.gewaehlt ? 2.5 : 1;
       ctx.stroke();
 
@@ -417,8 +540,7 @@ export class DungeonGrundriss {
     // Offene Connectors: Marke mit Blickrichtung nach draussen. Sie sind
     // der eigentliche Arbeitspunkt — hier wächst der Dungeon weiter.
     for (const c of this.offene) {
-      const raum = doc.layout.rooms[c.roomIndex];
-      if (raum && !this.sichtbarAufEbene(raum)) continue;
+      if (!this.connectorAufEbene(c)) continue;
       const b = this.zuBild({ x: c.pos.x, z: c.pos.z });
       const dir = dreheY(c.rot, { x: 0, y: 0, z: 1 });
       ctx.strokeStyle = FARBE.offen;
@@ -432,23 +554,26 @@ export class DungeonGrundriss {
   }
 
   private zeichneRaster(ctx: CanvasRenderingContext2D, breite: number, hoehe: number): void {
-    // Raster im 4-m-Takt des Kits — es sagt beim Hinsehen, ob ein Teil
-    // wirklich auf dem Raster sitzt.
-    const schritt = 4 * this.zoom;
+    // Raster im Takt DIESES Kits — es sagt beim Hinsehen, ob ein Teil
+    // wirklich auf dem Raster sitzt. Ein 4-m-Netz unter einem 2-m-Modulkit
+    // beantwortet genau diese Frage nicht mehr: Jede zweite Zellkante
+    // läge zwischen den Linien und sähe versetzt aus, obwohl sie sitzt.
+    const takt = rasterVonBasis(this.doc?.base ?? '');
+    const schritt = takt * this.zoom;
     if (schritt < 6) return;
     ctx.strokeStyle = FARBE.raster;
     ctx.lineWidth = 1;
     ctx.beginPath();
     const linksWelt = this.zuWelt(0, 0);
-    const startX = Math.ceil(linksWelt.x / 4) * 4;
-    const startZ = Math.ceil(linksWelt.z / 4) * 4;
-    for (let x = startX; ; x += 4) {
+    const startX = Math.ceil(linksWelt.x / takt) * takt;
+    const startZ = Math.ceil(linksWelt.z / takt) * takt;
+    for (let x = startX; ; x += takt) {
       const b = this.zuBild({ x, z: 0 });
       if (b.x > breite) break;
       ctx.moveTo(b.x, 0);
       ctx.lineTo(b.x, hoehe);
     }
-    for (let z = startZ; ; z += 4) {
+    for (let z = startZ; ; z += takt) {
       const b = this.zuBild({ x: 0, z });
       if (b.y > hoehe) break;
       ctx.moveTo(0, b.y);

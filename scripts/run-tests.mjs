@@ -449,6 +449,16 @@ const KERN = [
   // — response parsers, the save-button state machine, the check-dry-run
   // branch, id pattern and random seeds. DOM-free, seconds.
   ['client', 'test/dungeon2-katalog.ts'],
+  // Der 1.0-Editor-Weg des Modul-Kits `DG_StoneVault`: die Kantennamen und
+  // die Optionsliste des Feldes „Ausrichtung" (`@wov/shared`, von BEIDEN
+  // Editoren benutzt), die Durchreichung des fünften `attachRoom`-Parameters
+  // durch `DungeonGrundriss.fuegeAn` (Index 0 vs. 1 = verschiedene Drehung,
+  // wie server/test/m4-hand-bauen.ts), die Zeichenhülle gegen die
+  // Innenmass-Falle (1,4 statt 2) und das leere Dokument aus einer Basis.
+  // Über einen winzigen DOM-Stummel (Canvas ohne Kontext), Sekunden.
+  // The 1.0 editor path of the module kit: edge naming, the `connIndex`
+  // pass-through, the drawn cell hull, and the empty new document.
+  ['client', 'test/dungeon-editor-kanten.ts'],
   // AP15.6: Die REINE Steuerung der eingebetteten 3D-Live-Vorschau
   // (`vorschauSteuerung.ts`) — Entprellung (viele schnelle setzeLayout → EIN
   // Neubau nach Ruhe), die Zustandsmaschine sichtbar/unsichtbar ↔ Render-

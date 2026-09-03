@@ -31,6 +31,7 @@ import {
   DUNGEONS_BY_NAME,
   MAX_DUNGEON_PROPS,
   attachRoom,
+  ausrichtungsOptionen,
   computeOpenConnections,
   removeRoom,
   type DungeonDocument,
@@ -640,6 +641,11 @@ export class DungeonEditor {
    *
    * „automatisch" bleibt der erste Eintrag und damit die Vorgabe — wer das
    * Feld nicht anfasst, baut wie vor dieser Erweiterung.
+   *
+   * Die Liste selbst kommt aus `ausrichtungsOptionen` in `@wov/shared`:
+   * Die Dungeon-Seite des Karteneditors bietet dasselbe Feld an, und zwei
+   * Kopien derselben Benennung fielen erst dann auf, wenn eine Seite
+   * „Nord" sagt und die andere „Kante 2".
    */
   private ausrichtungenFuellen(): void {
     const vorher = this.ausrichtungWahl.value;
@@ -653,43 +659,16 @@ export class DungeonEditor {
     if (!doc) return;
     const conn = this.offene[Number(this.connWahl.value)];
     const raum = DUNGEONS_BY_NAME.get(doc.base)?.rooms.find((r) => r.name === this.raumWahl.value);
-    if (!conn || !raum) return;
-
-    raum.connections.forEach((c, i) => {
-      if (c.type !== conn.type) return;
+    for (const o of ausrichtungsOptionen(raum, conn?.type)) {
       const opt = document.createElement('option');
-      opt.value = String(i);
-      // Der Index steht mit in der Beschriftung, weil eine Zelle zwei
-      // Kanten auf DERSELBEN Seite haben kann (z. B. die Doppelzelle mit
-      // je zwei Ost- und West-Kanten) — zwei Einträge „Ost" wären sonst
-      // nicht auseinanderzuhalten.
-      const name = this.kantenName(c.localPos, i);
-      opt.textContent = name.startsWith('Kante') ? name : `${name} #${i}`;
+      opt.value = String(o.index);
+      opt.textContent = o.beschriftung;
       this.ausrichtungWahl.appendChild(opt);
-    });
+    }
     // Die alte Wahl nur zurücksetzen, wenn sie noch angeboten wird; sonst
     // bleibt „automatisch" stehen, statt still auf eine fremde Kante zu
     // zeigen.
     if (vorher) this.ausrichtungWahl.value = vorher;
-  }
-
-  /**
-   * Himmelsrichtung einer Kante aus ihrer lokalen Position — +z Nord,
-   * −z Süd, +x Ost, −x West (die Bezeichnungen, die auch in
-   * `eigeneDungeons.ts` an den Connectors stehen).
-   *
-   * Entschieden wird über die DOMINANTE Achse: eine Kante bei
-   * (x 2, z 1) liegt im Osten, auch wenn sie nach Norden versetzt sitzt.
-   * Ist keine Achse dominant (beide gleich gross, etwa bei einer Diagonale
-   * oder bei (0,0)), gibt es keine ehrliche Antwort — dann heisst die
-   * Kante schlicht nach ihrem Index.
-   */
-  private kantenName(localPos: { x: number; z: number }, index: number): string {
-    const ax = Math.abs(localPos.x);
-    const az = Math.abs(localPos.z);
-    if (ax > az) return localPos.x > 0 ? 'Ost' : 'West';
-    if (az > ax) return localPos.z > 0 ? 'Nord' : 'Süd';
-    return `Kante ${index}`;
   }
 
   // ── Stil-Helfer ────────────────────────────────────────────────────

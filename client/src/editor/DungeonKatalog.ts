@@ -31,11 +31,13 @@
  */
 import {
   DUNGEONS_BY_NAME,
+  ausrichtungsOptionen,
   sanitizeDungeonDocument,
   type DungeonDocument,
 } from '@wov/shared';
 import type { DungeonGrundriss } from './DungeonGrundriss';
 import { DungeonLadeFehler, holeDungeon, holeDungeonListe, type DungeonKopf } from './DungeonDokument';
+import { neuesDungeonDokument, waehlbareBasen } from './DungeonNeuesDokument';
 import { speichereDungeon } from './DungeonSpeichern';
 
 export interface DungeonSeiteRueckrufe {
@@ -73,6 +75,23 @@ function auswahl(): HTMLSelectElement {
     'width:100%',
   ].join(';');
   return s;
+}
+
+/** Ein Textfeld im selben Stil wie die Auswahl daneben. */
+function feld(platzhalter: string, breite: string): HTMLInputElement {
+  const i = document.createElement('input');
+  i.placeholder = platzhalter;
+  i.style.cssText = [
+    'padding:5px 8px',
+    'background:#241c14',
+    'border:1px solid #5a4626',
+    'border-radius:4px',
+    'color:#e8d9b8',
+    'font:inherit',
+    'font-size:12px',
+    `width:${breite}`,
+  ].join(';');
+  return i;
 }
 
 function zeile(...teile: (HTMLElement | string)[]): HTMLDivElement {
@@ -128,6 +147,18 @@ export class DungeonSeite {
    */
   private schmutzig = false;
   private speichertGerade = false;
+  /**
+   * Eingaben des Formulars „Neu anlegen".
+   *
+   * Sie stehen an der Klasse und nicht in den Feldern, weil `baue()` die
+   * ganze Seitenleiste neu aufbaut — nach jedem Anfügen, jedem Klick auf
+   * einen Raum, jedem Speichern. Ein Formular, das dabei jedes Mal leer
+   * wird, ist eines, das man nicht ausfüllen kann.
+   */
+  private neuId = '';
+  private neuBasis = '';
+  private neuSeed = '';
+  private legtAn = false;
 
   constructor(
     private readonly behaelter: HTMLElement,
@@ -186,12 +217,14 @@ export class DungeonSeite {
       )
     );
 
+    this.baueNeuAnlegen(b);
+
     if (!doc) {
       const hinweis = document.createElement('div');
       hinweis.style.cssText = 'font-size:12px;color:#8a7350;line-height:1.5';
       hinweis.textContent =
         'Gelesen wird über den Betriebsdienst — dafür muss kein Spielserver laufen. ' +
-        'Gespeichert wird in dieser Etappe noch nicht.';
+        'Geschrieben wird über den Spielserver, der dafür laufen muss.';
       b.appendChild(hinweis);
       return;
     }
@@ -313,14 +346,61 @@ export class DungeonSeite {
       rw.appendChild(o);
     }
 
+    // ── Ausrichtung ───────────────────────────────────────────────────
+    // WELCHE Kante des neuen Raums an der offenen Kante hängt. Ohne dieses
+    // Feld nimmt `attachRoom` den ersten kollisionsfreien eigenen
+    // Connector — bei einer StoneVault-Zelle mit vier gleichwertigen
+    // Kanten entscheidet dann die Reihenfolge in `eigeneDungeons.ts`, in
+    // welche Richtung ein Gang weiterläuft, und der Mensch hat keine
+    // Handhabe. Dasselbe Feld steht im F4-Editor
+    // (`client/src/ui/DungeonEditor.ts`); die Beschriftungen kommen aus
+    // `ausrichtungsOptionen` in `@wov/shared`, damit beide Seiten
+    // dieselben Namen sagen.
+    //
+    // Die Liste hängt an BEIDEN anderen Feldern (der Typ des offenen
+    // Connectors filtert, der Raum liefert die Kanten) und wird deshalb
+    // bei jeder Änderung neu gefüllt.
+    const aw = auswahl();
+    aw.title = 'Ausrichtung: welche Kante des neuen Raums andockt';
+    const ausrichtungenFuellen = (): void => {
+      const vorher = aw.value;
+      aw.textContent = '';
+      const auto = document.createElement('option');
+      auto.value = '';
+      auto.textContent = 'automatisch';
+      aw.appendChild(auto);
+      const conn = offene[Number(cw.value)];
+      const raum = def?.rooms.find((r) => r.name === rw.value);
+      for (const o of ausrichtungsOptionen(raum, conn?.type)) {
+        const opt = document.createElement('option');
+        opt.value = String(o.index);
+        opt.textContent = o.beschriftung;
+        aw.appendChild(opt);
+      }
+      // Die alte Wahl nur zurücksetzen, wenn sie noch angeboten wird; sonst
+      // bleibt „automatisch" stehen, statt still auf eine fremde Kante zu
+      // zeigen.
+      if (vorher) aw.value = vorher;
+    };
+    cw.onchange = ausrichtungenFuellen;
+    rw.onchange = ausrichtungenFuellen;
+    ausrichtungenFuellen();
+
     b.appendChild(zeile('Anfügen an'));
     b.appendChild(cw);
     b.appendChild(rw);
+    b.appendChild(zeile('Ausrichtung'));
+    b.appendChild(aw);
     b.appendChild(
       zeile(
         knopf('Anfügen', () => {
           if (offene.length === 0) return;
-          if (this.grundriss.fuegeAn(Number(cw.value), rw.value)) this.schmutzig = true;
+          // Leerer Wert = „automatisch": kein Index, also genau das
+          // Verhalten von vorher. Der Unterschied muss `undefined` sein und
+          // nicht etwa −1 — `attachRoom` unterscheidet „nicht gesetzt" von
+          // „gesetzt, aber unpassend" und meldet Letzteres als Fehler.
+          const kante = aw.value === '' ? undefined : Number(aw.value);
+          if (this.grundriss.fuegeAn(Number(cw.value), rw.value, kante)) this.schmutzig = true;
         })
       )
     );
@@ -332,6 +412,118 @@ export class DungeonSeite {
       'Gelesen wird über den Betriebsdienst, geschrieben über den Spielserver — der muss ' +
       'zum Speichern laufen, zum Ansehen nicht.';
     b.appendChild(fuss);
+  }
+
+  /**
+   * Das Formular „Neu anlegen".
+   *
+   * Es steht ÜBER dem geöffneten Dokument und nicht darunter, weil es zum
+   * oberen Block gehört: Liste, Öffnen, Neu. Was darunter kommt, arbeitet
+   * am geöffneten Dokument.
+   *
+   * Angelegt wird nur im Speicher — geschrieben wird über denselben
+   * „Speichern"-Weg wie bei jedem anderen Dokument (`DungeonSpeichern.ts`,
+   * `DungeonEditSave`). Der Server nimmt eine bisher unbekannte ID an:
+   * `upsertDocument` schlägt sie nur in `documents` nach, um zu entscheiden,
+   * ob die laufende Instanz stehen bleiben darf, und legt sie sonst neu an
+   * — genau das tut der „Speichern als"-Knopf des F4-Editors seit jeher.
+   */
+  private baueNeuAnlegen(b: HTMLElement): void {
+    const basen = waehlbareBasen();
+    if (this.neuBasis === '') this.neuBasis = basen[0]?.name ?? '';
+
+    const kopf = document.createElement('div');
+    kopf.style.cssText =
+      'font-size:12px;letter-spacing:.06em;color:#a8916a;margin-top:4px;text-transform:uppercase';
+    kopf.textContent = 'Neu anlegen';
+    b.appendChild(kopf);
+
+    const bw = auswahl();
+    for (const d of basen) {
+      const o = document.createElement('option');
+      o.value = d.name;
+      o.textContent = `${d.name} (${d.rooms.length} Teile)`;
+      if (d.name === this.neuBasis) o.selected = true;
+      bw.appendChild(o);
+    }
+    bw.onchange = () => {
+      this.neuBasis = bw.value;
+    };
+    b.appendChild(bw);
+
+    const idFeld = feld('id, z. B. steinvault-a', '150px');
+    idFeld.value = this.neuId;
+    idFeld.oninput = () => {
+      this.neuId = idFeld.value;
+    };
+    const seedFeld = feld('Seed (leer = zufällig)', '150px');
+    seedFeld.value = this.neuSeed;
+    seedFeld.oninput = () => {
+      this.neuSeed = seedFeld.value;
+    };
+    b.appendChild(zeile(idFeld, seedFeld));
+
+    const anlegen = knopf(this.legtAn ? 'Legt an …' : 'Anlegen & speichern', () => {
+      void this.legeAn();
+    });
+    if (this.legtAn) {
+      anlegen.disabled = true;
+      anlegen.style.opacity = '.5';
+    }
+    b.appendChild(zeile(anlegen));
+
+    const hinweis = document.createElement('div');
+    hinweis.style.cssText = 'font-size:11px;color:#8a7350;line-height:1.5';
+    hinweis.textContent =
+      'Angelegt wird nur der Eingangsraum — seine Kanten sind sofort offen, ' +
+      'es muss also kein Abschluss erst abgerissen werden. Gespeichert wird ' +
+      'über den Spielserver; der muss dafür laufen.';
+    b.appendChild(hinweis);
+  }
+
+  /**
+   * Neues Dokument bauen, im Grundriss öffnen und gleich speichern.
+   *
+   * Erst nach dem Speichern gilt es als angelegt: Ein Dokument, das nur im
+   * Browser steht, verschwindet beim Neuladen, und in der Liste daneben
+   * stünde es nie. Schlägt das Speichern fehl (kein Spielserver, keine
+   * Rechte), bleibt es trotzdem OFFEN und als ungespeichert markiert —
+   * dann fehlt nur der Server, nicht die Arbeit.
+   */
+  private async legeAn(): Promise<void> {
+    if (this.legtAn) return;
+    const seedText = this.neuSeed.trim();
+    if (seedText !== '' && !Number.isFinite(Number(seedText))) {
+      this.cb.meldung('Seed ist keine Zahl', true);
+      return;
+    }
+    const ergebnis = neuesDungeonDokument({
+      id: this.neuId,
+      base: this.neuBasis,
+      ...(seedText === '' ? {} : { seed: Number(seedText) }),
+    });
+    if (!ergebnis.ok) {
+      this.cb.meldung(ergebnis.grund, true);
+      return;
+    }
+    // Vorhandene ID: `upsertDocument` würde das alte Dokument ÜBERSCHREIBEN
+    // und die laufende Instanz abreissen. Das ist kein Fehler des Servers,
+    // sondern eine Frage, die vorher gestellt gehört — hier fällt sie noch
+    // auf, im Grundriss danach nicht mehr.
+    if (this.koepfe.some((k) => k.id === ergebnis.doc.id)) {
+      this.cb.meldung(`${ergebnis.doc.id} gibt es schon — bitte eine andere ID.`, true);
+      return;
+    }
+    this.legtAn = true;
+    this.grundriss.setzeDokument(ergebnis.doc);
+    this.schmutzig = true;
+    this.baue();
+    await this.speichere(ergebnis.doc);
+    this.legtAn = false;
+    // Nur die ID leeren: Basis und Seed sind meist für den nächsten
+    // Dungeon dieselben, die ID nie.
+    this.neuId = '';
+    this.baue();
   }
 
   /**

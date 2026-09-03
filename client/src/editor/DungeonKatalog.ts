@@ -1,9 +1,11 @@
 /**
- * LEGACY — wird nach Erfolg von Dungeon Generator 2.0 geloescht / will be
- * deleted once Dungeon Generator 2.0 succeeds. Raumbibliothek +
- * Connector-Grundriss; ersetzt durch `client/src/editor/dungeon2/`
+ * BLEIBT — Grundlage des Connector-Modul-Kits (DG_StoneVault),
+ * Entscheidung 03.09.2026, s. `LEGACY.md`. / STAYS — the basis of the
+ * connector module kit (DG_StoneVault), decision 2026-09-03, see
+ * `LEGACY.md`. Raumbibliothek +
+ * Connector-Grundriss; steht neben `client/src/editor/dungeon2/`
  * (design/ARCHITECTURE.md §1.1/§1.2, Dungeon2Katalog). Siehe `LEGACY.md`.
- * Room library + connector floorplan; replaced by
+ * Room library + connector floorplan; stands beside
  * `client/src/editor/dungeon2/` (design/ARCHITECTURE.md §1.1/§1.2,
  * Dungeon2Katalog). See `LEGACY.md`.
  *

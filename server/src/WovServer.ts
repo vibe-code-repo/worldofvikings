@@ -2997,6 +2997,13 @@ export class WovServer {
 
   /** Enter a dungeon instance (materializing it on first use). */
   enterDungeon(peer: Peer, dungeonId: string): { ok: boolean; message: string } {
+    // VOR dem Materialisieren: Würfelt dieser Eingang bei jedem Betreten neu?
+    // Die Reihenfolge ist der ganze Trick — `getOrCreateInstance` steigt bei
+    // einer bestehenden Instanz sofort aus, ein Neuwürfeln danach käme also
+    // nie beim Betretenden an.
+    // BEFORE materialising — `getOrCreateInstance` returns early on an
+    // existing instance, so a reroll after it would never reach the enterer.
+    const wurf = this.dungeons.vorBetreten(dungeonId);
     const instance = this.dungeons.getOrCreateInstance(dungeonId);
     if (!instance) {
       return { ok: false, message: `Unbekannter Dungeon: ${dungeonId}` };
@@ -3043,7 +3050,18 @@ export class WovServer {
       layoutJson,
       steinKitJson
     );
-    return { ok: true, message: `Dungeon betreten: ${doc2?.name ?? doc?.name ?? dungeonId}` };
+    // Kurze Rückmeldung, wenn wirklich neu gewürfelt wurde — sonst hielte der
+    // Spieler den anderen Grundriss für einen Fehler. Der Fall 'besetzt' wird
+    // ausdrücklich MITGESAGT: er erklärt, warum es diesmal derselbe Bau ist.
+    const wurfHinweis = wurf.neuErzeugt
+      ? ' — neu gewürfelt'
+      : wurf.grund === 'besetzt'
+        ? ' — unverändert, es ist noch jemand drin'
+        : '';
+    return {
+      ok: true,
+      message: `Dungeon betreten: ${doc2?.name ?? doc?.name ?? dungeonId}${wurfHinweis}`,
+    };
   }
 
   /** Leave the current dungeon back to the stored overworld position. */
@@ -3294,6 +3312,13 @@ export class WovServer {
    *   dungeon enter [id]                enter by id, or the nearest entrance
    *   dungeon leave                     back to the overworld
    *   dungeon assign <id>               assign nearest entrance (≤16 m) to id
+   *   dungeon entrance-mode <id> <fixed|regen>
+   *                                     'regen' makes the entrance pointing at
+   *                                     <id> reroll its layout on every enter
+   *                                     (skipped while someone is inside);
+   *                                     'fixed' restores the default. Needs a
+   *                                     DG_* recipe — for an entrance wired by
+   *                                     `assign` it is taken from the document.
    *   dungeon regen <id> [seed]         re-generate a 'generated' document
    *   dungeon steinkit <id> wand=<name> decke=<name> boden=<name>
    *                         moos=<0..4> frost=<0..4> nass=<0..4>
@@ -3490,9 +3515,49 @@ export class WovServer {
           }
           const lines = entries.map(
             (e) =>
-              `${e.feature}@(${e.pos.x.toFixed(0)},${e.pos.z.toFixed(0)}) → ${e.dungeonId}`
+              `${e.feature}@(${e.pos.x.toFixed(0)},${e.pos.z.toFixed(0)}) → ${e.dungeonId}` +
+              // Der Modus steht ausdrücklich in JEDER Zeile, auch das 'fest'.
+              // Ein Flag, das man nur an seiner Abwesenheit erkennt, liest
+              // sich in einer Liste wie ein Anzeigefehler.
+              ` [${e.regenerateOnEnter ? 'regen' : 'fest'}]`
           );
           return { ok: true, active: false, message: lines.join(' | ') };
+        }
+
+        case 'entrance-mode': {
+          const id = args[0];
+          const modus = args[1];
+          if (!id || (modus !== 'fixed' && modus !== 'regen')) {
+            return {
+              ok: false,
+              active: false,
+              message: 'Aufruf: dungeon entrance-mode <dungeonId> <fixed|regen>',
+            };
+          }
+          // Die beiden Fehlgründe werden hier getrennt, weil sie zwei ganz
+          // verschiedene Fehler des Aufrufers sind: falsche Kennung gegen
+          // „dieses Dokument kennt kein Kit-Rezept".
+          const eingang = this.dungeons.eingangZuDungeon(id);
+          if (!eingang) {
+            return { ok: false, active: false, message: `Kein Eingang zeigt auf: ${id}` };
+          }
+          if (!this.dungeons.setzeEingangsModus(id, modus)) {
+            return {
+              ok: false,
+              active: false,
+              message:
+                `Kein Rezept (base) für ${id} — nur erzeugte 1.0-Dungeons mit ` +
+                'DG_*-Basis können bei jedem Betreten neu würfeln',
+            };
+          }
+          return {
+            ok: true,
+            active: false,
+            message:
+              modus === 'regen'
+                ? `${eingang.feature}@${eingang.zoneKey} → ${id}: würfelt bei jedem Betreten neu`
+                : `${eingang.feature}@${eingang.zoneKey} → ${id}: fest`,
+          };
         }
 
         case 'create': {
@@ -3548,7 +3613,20 @@ export class WovServer {
           if (!entrance) {
             return { ok: false, active: false, message: 'Kein Dungeon-Eingang in der Nähe (≤16 m)' };
           }
-          this.dungeons.assignEntrance(entrance.zoneKey, id);
+          // Den Rückgabewert AUSWERTEN. Er war hier verworfen, und weil
+          // `assignEntrance` nur die 1.0-Karte befragt, meldete der Befehl bei
+          // jeder 2.0-Kennung Erfolg, während der Eingang unverändert blieb.
+          // Evaluate the return value — it was discarded, so a 2.0 id reported
+          // success while the entrance stayed untouched.
+          if (!this.dungeons.assignEntrance(entrance.zoneKey, id)) {
+            return {
+              ok: false,
+              active: false,
+              message:
+                `Zuweisung fehlgeschlagen: kein 1.0-Dokument unter '${id}' — ` +
+                '2.0-Dokumente lassen sich (noch) nicht zuweisen',
+            };
+          }
           return {
             ok: true,
             active: false,
@@ -3696,7 +3774,7 @@ export class WovServer {
             ok: false,
             active: false,
             message:
-              'Aufruf: dungeon list|entrances|create|create2|enter|leave|assign|regen|steinkit|reset|delete',
+              'Aufruf: dungeon list|entrances|entrance-mode|create|create2|enter|leave|assign|regen|steinkit|reset|delete',
           };
       }
     });

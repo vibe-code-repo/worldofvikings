@@ -37,8 +37,8 @@ mit dieser LEGACY-Markierung noch nicht erledigt.
 
 | Datei / Symbol | Status | Grund |
 |---|---|---|
-| `shared/src/dungeonGenerator.ts` (ohne Camps) | **LEGACY** | Connector-Kopplung ersetzt durch Zellen |
-| ↳ `generateDungeonLayout`, `DungeonGeneratorSettings`, `DEFAULT_GENERATOR_SETTINGS` | LEGACY | inkl. `endcaps*`, `roomsFlipped`, `roomsInsetSize`, `roomBodyFromFloor` — alle lösen Bauteilprobleme, die es nicht mehr gibt |
+| `shared/src/dungeonGenerator.ts` (ohne Camps) | **BLEIBT** — Grundlage des Connector-Modul-Kits (`DG_StoneVault`), Entscheidung 03.09.2026, s. Vault-Notiz „Workflow — Connector-Modul-Kit" | das Kit benutzt den Saat-Generator; der Saat-Vertrag bleibt (`server/test/m3-stonevault-seeds.ts` prüft 40 Seeds von `DG_StoneVault`) |
+| ↳ `generateDungeonLayout`, `DungeonGeneratorSettings`, `DEFAULT_GENERATOR_SETTINGS` | **BLEIBT** — Grundlage des Connector-Modul-Kits (`DG_StoneVault`), Entscheidung 03.09.2026 | der Saat-Vertrag des Kits: aus Basis + Seed fällt derselbe Grundriss. `endcaps*`, `roomsFlipped`, `roomsInsetSize`, `roomBodyFromFloor` bleiben als seine Stellschrauben mit |
 | ↳ `attachRoom`, `removeRoom`, `computeOpenConnections`, `OpenConnection` | **BLEIBT** — Grundlage des Connector-Modul-Kits (`DG_StoneVault`), Entscheidung 03.09.2026, s. Vault-Notiz „Workflow — Connector-Modul-Kit" | die Handbau-Operationen des Editors; `stempelSetzen`/`stempelEntfernen` ersetzen sie **nicht**, sie stehen daneben |
 | ↳ `generateCampLayout`, `CampGround` | **bleibt** → wandert nach `shared/src/campGenerator.ts` (Trennung noch offen) | Oberwelt |
 | `shared/src/dungeonFlatten.ts` | **LEGACY** | Layout → Raum-GLB-Instanzen; Architektur ist keine Prefabliste mehr |
@@ -75,13 +75,14 @@ ersetzen `attachRoom`/`removeRoom` nicht mehr, sie stehen daneben, und
 die beiden Betriebsarten trennt weiterhin `dungeon2.istDokument2()`
 (`version >= 10`).
 
-Noch **offen** und bewusst nicht mit umgestellt: die beiden Zeilen
+**Nachgezogen (M5b):** die beiden Zeilen
 `shared/src/dungeonGenerator.ts (ohne Camps)` und `generateDungeonLayout`
-/ `DungeonGeneratorSettings` / `DEFAULT_GENERATOR_SETTINGS`. Das Kit
-benutzt den Saat-Generator tatsächlich (`server/test/m3-stonevault-seeds.ts`
-prüft 40 Seeds von `DG_StoneVault`), womit auch diese Zeilen faktisch
-bleiben — die Umstellung braucht aber Mikes ausdrückliche Entscheidung,
-weil sie den Kern von AP0 berührt.
+/ `DungeonGeneratorSettings` / `DEFAULT_GENERATOR_SETTINGS` tragen jetzt
+ebenfalls **BLEIBT**. Das Kit benutzt den Saat-Generator tatsächlich
+(`server/test/m3-stonevault-seeds.ts` prüft 40 Seeds von `DG_StoneVault`),
+und der Eingangsmodus `regen` (`dungeon entrance-mode … regen`) würfelt bei
+jedem Betreten genau über diesen Weg neu — der Saat-Vertrag „Basis + Seed →
+derselbe Grundriss" ist damit keine Altlast, sondern eine Zusage im Betrieb.
 
 ## Namensabweichung zur ARCHITECTURE.md-Tabelle
 

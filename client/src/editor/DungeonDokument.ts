@@ -1,10 +1,12 @@
 /**
- * LEGACY — wird nach Erfolg von Dungeon Generator 2.0 geloescht / will be
- * deleted once Dungeon Generator 2.0 succeeds. Liest das Altformat
- * (`DungeonDocument`); ersetzt durch `client/src/editor/dungeon2/`
+ * BLEIBT — Grundlage des Connector-Modul-Kits (DG_StoneVault),
+ * Entscheidung 03.09.2026, s. `LEGACY.md`. / STAYS — the basis of the
+ * connector module kit (DG_StoneVault), decision 2026-09-03, see
+ * `LEGACY.md`. Liest das Altformat
+ * (`DungeonDocument`); steht neben `client/src/editor/dungeon2/`
  * (design/ARCHITECTURE.md §1.1/§1.2, Dungeon2Speichern). Siehe
  * `LEGACY.md`.
- * Reads the old format (`DungeonDocument`); replaced by
+ * Reads the old format (`DungeonDocument`); stands beside
  * `client/src/editor/dungeon2/` (design/ARCHITECTURE.md §1.1/§1.2,
  * Dungeon2Speichern). See `LEGACY.md`.
  *

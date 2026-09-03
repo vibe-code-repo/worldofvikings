@@ -146,6 +146,21 @@ export interface DungeonEntrance {
    */
   base?: string;
   seed?: number;
+  /**
+   * Würfelt dieser Eingang bei JEDEM Betreten neu aus? Fehlt das Feld (der
+   * gesamte Altbestand in entrances.json) oder steht es auf false, bleibt es
+   * beim bisherigen Verhalten: das Rezept wird EINMAL verbraucht, danach ist
+   * das Dokument fest.
+   *
+   * WARUM am Eingang und nicht am Dokument: Das Dokument ist das ERGEBNIS
+   * eines Wurfs — es wird bei jedem Wurf weggeworfen und neu geschrieben, ein
+   * Flag darin überlebte seinen eigenen Träger nicht. Der Eingang ist die
+   * POLITIK ("diese Krypta soll sich jedes Mal anders anfühlen"); er überlebt
+   * jeden Wurf und liegt genau dort, wo der Spieler die Entscheidung trifft.
+   * WHY on the entrance, not on the document: the document is the RESULT of a
+   * roll and is rewritten by every roll; the entrance is the POLICY.
+   */
+  regenerateOnEnter?: boolean;
 }
 
 interface EntranceFile {
@@ -234,6 +249,14 @@ export class DungeonManager {
         const raw = JSON.parse(readFileSync(entrancePath, 'utf-8')) as EntranceFile;
         for (const e of raw.entries ?? []) {
           if (typeof e?.zoneKey === 'string' && typeof e?.dungeonId === 'string') {
+            // Additiv gelesen (Dateifassung bleibt 1): Nur ein ausdrückliches
+            // `true` ist das Flag. Alles andere — fehlend, false, Müll aus
+            // einer fremden Feder — heißt „fester Eingang", das bisherige
+            // Verhalten. So kann ein Altbestand nie versehentlich anfangen zu
+            // würfeln.
+            // Read additively (file version stays 1): only an explicit `true`
+            // is the flag; anything else means "fixed entrance".
+            if (e.regenerateOnEnter !== true) delete e.regenerateOnEnter;
             this.entrances.set(e.zoneKey, e);
           }
         }
@@ -563,6 +586,117 @@ export class DungeonManager {
     this.saveEntrances();
     this.onEntrancesChanged?.();
     return true;
+  }
+
+  /**
+   * Der Eingang, der auf diese Dungeon-Kennung zeigt (oder undefined).
+   * Die Registrierung ist nach Zonenschlüssel geordnet, nicht nach
+   * Dungeon-Kennung — dieser Weg ist die lineare Gegenrichtung.
+   * The entrance pointing at this dungeon id (registry is keyed by zone).
+   */
+  eingangZuDungeon(dungeonId: string): DungeonEntrance | undefined {
+    for (const e of this.entrances.values()) {
+      if (e.dungeonId === dungeonId) return e;
+    }
+    return undefined;
+  }
+
+  /**
+   * Den Eingangsmodus setzen: 'regen' = bei jedem Betreten neu würfeln,
+   * 'fixed' = das bisherige Verhalten (Rezept wird einmal verbraucht).
+   *
+   * 'regen' braucht ein Rezept (`base`). Fehlt es — der Eingang wurde per
+   * `dungeon assign` fest auf ein vorhandenes Dokument verdrahtet, was
+   * `base`/`seed` löscht —, wird es aus dem Dokument zurückgeholt. Ohne
+   * diesen Rückweg wäre ein einmal zugewiesener Eingang für immer fest.
+   * Setting 'regen' needs a recipe (`base`); if `assign` deleted it, take it
+   * back from the document, else a once-assigned entrance stays fixed forever.
+   *
+   * @returns false, wenn es keinen Eingang zu dieser Kennung gibt oder für
+   *          'regen' kein Rezept aufzutreiben ist.
+   */
+  setzeEingangsModus(dungeonId: string, modus: 'fixed' | 'regen'): boolean {
+    const entrance = this.eingangZuDungeon(dungeonId);
+    if (!entrance) return false;
+
+    // Ein NEUES Objekt statt eines In-Place-Schreibens: `registerEntrance`
+    // gibt die Instanz aus der Registrierung heraus, ein Aufrufer hält also
+    // womöglich dieselbe Referenz. Änderte man sie an Ort und Stelle, änderte
+    // sich still auch sein Stand — und er könnte 'vorher' und 'nachher' nicht
+    // mehr auseinanderhalten.
+    // A NEW object rather than an in-place write: callers may still hold the
+    // very same reference handed out by `registerEntrance`.
+    const neu: DungeonEntrance = { ...entrance };
+    if (modus === 'fixed') {
+      delete neu.regenerateOnEnter;
+    } else {
+      if (!neu.base) {
+        // Nur 1.0-Dokumente tragen ein Kit-Rezept (`base`+`seed`); ein
+        // 2.0-Dokument ist über Thema und Seeds beschrieben und kennt
+        // diesen Weg (noch) nicht.
+        const doc = this.documents.get(dungeonId);
+        if (!doc?.base) return false;
+        neu.base = doc.base;
+        neu.seed = doc.seed ?? 0;
+      }
+      neu.regenerateOnEnter = true;
+    }
+    this.entrances.set(neu.zoneKey, neu);
+    this.saveEntrances();
+    this.onEntrancesChanged?.();
+    return true;
+  }
+
+  /**
+   * Der Schritt VOR dem Betreten: würfelt der Eingang bei jedem Betreten neu,
+   * wird hier ein frischer Seed gezogen, das Dokument neu erzeugt und die
+   * laufende Instanz abgeräumt — danach baut `getOrCreateInstance` sie neu.
+   *
+   * WARUM nur bei LEERER Instanz gewürfelt wird: Das Neuwürfeln geht über
+   * `destroyInstance`, und das zerstört jedes ZDO der Instanz. Wer noch
+   * drinsteht, dem verschwindet die Welt unter den Füßen — mitten im Kampf,
+   * ohne Vorwarnung, weil nebenan jemand die Tür aufmacht. Ein besetztes Grab
+   * bleibt deshalb stehen; der Zweite bekommt denselben Bau wie der Erste.
+   * WHY only an EMPTY instance is rerolled: rerolling goes through
+   * `destroyInstance`, which destroys every ZDO — anyone still inside would
+   * lose the world beneath them because someone else opened the door.
+   *
+   * @returns `neuErzeugt: true` nur, wenn wirklich neu gewürfelt wurde;
+   *          `grund` nennt sonst, warum nicht ('kein-eingang', 'fest',
+   *          'kein-rezept', 'besetzt', 'fehlgeschlagen').
+   */
+  vorBetreten(dungeonId: string): { neuErzeugt: boolean; grund?: string } {
+    const entrance = this.eingangZuDungeon(dungeonId);
+    if (!entrance) return { neuErzeugt: false, grund: 'kein-eingang' };
+    if (entrance.regenerateOnEnter !== true) return { neuErzeugt: false, grund: 'fest' };
+    if (!entrance.base) return { neuErzeugt: false, grund: 'kein-rezept' };
+
+    const instance = this.instances.get(dungeonId);
+    if (instance && instance.players.size > 0) return { neuErzeugt: false, grund: 'besetzt' };
+
+    // Wie `dungeon create`/`dungeon regen`: ein positiver 31-Bit-Seed. Die
+    // Schleife hält nur den entarteten Fall ab, dass zweimal derselbe Wurf
+    // fällt — ein „neu gewürfelt" mit unverändertem Bau wäre eine Lüge.
+    let seed = entrance.seed ?? 0;
+    const alt = seed;
+    for (let versuch = 0; versuch < 8 && seed === alt; versuch++) {
+      seed = (Math.random() * 0x7fffffff) | 0;
+    }
+
+    const frisch = this.createGenerated(entrance.base, seed, dungeonId);
+    if (!frisch) return { neuErzeugt: false, grund: 'fehlgeschlagen' };
+    // Denselben sprechenden Namen vergeben wie beim Lazy-Rezept in
+    // `getOrCreateInstance` — sonst hieße das Grab nach dem ersten Wurf
+    // anders als nach dem zweiten.
+    frisch.name = `${entrance.feature} (${entrance.zoneKey})`;
+    this.saveDocument(frisch);
+    this.destroyInstance(dungeonId);
+
+    // Wieder ein neues Objekt (s. `setzeEingangsModus`): der frische Seed muss
+    // im Register stehen, darf aber keine ausgehändigte Referenz umschreiben.
+    this.entrances.set(entrance.zoneKey, { ...entrance, seed });
+    this.saveEntrances();
+    return { neuErzeugt: true };
   }
 
   /** Nearest entrance within `radius` meters (horizontal). */

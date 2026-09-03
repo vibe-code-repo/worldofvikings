@@ -44,7 +44,11 @@ import {
 } from '@wov/shared';
 import type { DungeonGrundriss } from './DungeonGrundriss';
 import { DungeonLadeFehler, holeDungeon, holeDungeonListe, type DungeonKopf } from './DungeonDokument';
-import { neuesDungeonDokument, waehlbareBasen } from './DungeonNeuesDokument';
+import {
+  neuesDungeonDokument,
+  waehlbareBasen,
+  type NeuesDokumentErgebnis,
+} from './DungeonNeuesDokument';
 import { speichereDungeon } from './DungeonSpeichern';
 
 export interface DungeonSeiteRueckrufe {
@@ -221,13 +225,57 @@ export class DungeonSeite {
   private neuId = '';
   private neuBasis = '';
   private neuSeed = '';
+  /**
+   * VOLL würfeln statt nur den Eingangsraum. VORGABE AUS, und zwar bewusst
+   * andersherum als „beim Speichern schließen": Ein volles Grab lässt sich
+   * nicht mehr zum leeren machen, ohne alles abzureissen — das leere aber
+   * jederzeit zum vollen, indem man das Häkchen setzt und neu würfelt.
+   * Der teurere Weg gehört deshalb hinter die ausdrückliche Ansage.
+   */
+  private neuVoll = false;
+  /**
+   * Wachstumsversuche und Wachstumsraum, leer = Kit-Vorgabe. Als TEXT und
+   * nicht als Zahl, weil „leer" etwas anderes ist als 0 — und genau dieser
+   * Unterschied entscheidet, ob das Kit seine Vorgabe behält.
+   */
+  private neuRaeume = '';
+  private neuZone = '';
   private legtAn = false;
+  /**
+   * Vorgewählte Kante im Feld „Anfügen an" — Index in `grundriss.anbaubare`.
+   *
+   * Steht an der KLASSE aus demselben Grund wie `neuId` und die Häkchen
+   * darüber: `baue()` legt die ganze Leiste nach jeder Aktion neu an, eine
+   * Wahl im DOM wäre danach wieder auf dem ersten Eintrag. Gesetzt wird sie
+   * von `waehleKante()` — ein Klick auf eine Kantenmarke im Grundriss oder
+   * in der 3D-Ansicht.
+   */
+  private gewaehlteKante = 0;
 
   constructor(
     private readonly behaelter: HTMLElement,
     private readonly grundriss: DungeonGrundriss,
     private readonly cb: DungeonSeiteRueckrufe
   ) {}
+
+  /**
+   * Eine Kante im Feld „Anfügen an" vorwählen — der Rückweg eines Klicks
+   * auf eine Kantenmarke (Grundriss oder 3D-Ansicht).
+   *
+   * `idx` zählt in `grundriss.anbaubare`, also in DERSELBEN Liste wie das
+   * Auswahlfeld und wie der erste Parameter von `fuegeAn`. Angefügt wird
+   * NICHT — der Klick wählt nur; womit gebaut wird, steht im Raumfeld
+   * daneben, und ein Klick, der von selbst etwas hinstellt, wäre nicht
+   * rückgängig zu machen.
+   */
+  waehleKante(idx: number): void {
+    const doc = this.grundriss.dokument;
+    const kante = this.grundriss.anbaubare[idx];
+    if (!doc || !kante) return;
+    this.gewaehlteKante = idx;
+    this.baue();
+    this.cb.meldung(`Kante ${kantenBeschriftung(doc.layout, kante)} gewählt`);
+  }
 
   /** Liste vom Betriebsdienst holen. Einmal beim ersten Öffnen. */
   async laden(): Promise<void> {
@@ -422,6 +470,12 @@ export class DungeonSeite {
       cw.appendChild(o);
       cw.disabled = true;
     }
+    // Die von aussen gewählte Kante (Klick auf eine Marke, s. `waehleKante`)
+    // NACH dem Füllen setzen — vorher gibt es die Option noch nicht, und der
+    // Wert fiele still auf den ersten Eintrag zurück.
+    if (this.gewaehlteKante > 0 && this.gewaehlteKante < offene.length) {
+      cw.value = String(this.gewaehlteKante);
+    }
 
     // Raumbibliothek des Kits. Endkappen ans Ende: Sie schliessen ab, und
     // wer baut, sucht zuerst das, womit es weitergeht.
@@ -473,7 +527,12 @@ export class DungeonSeite {
       // zeigen.
       if (vorher) aw.value = vorher;
     };
-    cw.onchange = ausrichtungenFuellen;
+    // Die Wahl von Hand merken, sonst stünde nach dem nächsten `baue()`
+    // wieder die zuletzt ANGEKLICKTE Kante da statt der ausgewählten.
+    cw.onchange = (): void => {
+      this.gewaehlteKante = Number(cw.value);
+      ausrichtungenFuellen();
+    };
     rw.onchange = ausrichtungenFuellen;
     ausrichtungenFuellen();
 
@@ -550,13 +609,58 @@ export class DungeonSeite {
     idFeld.oninput = () => {
       this.neuId = idFeld.value;
     };
-    const seedFeld = feld('Seed (leer = zufällig)', '150px');
+    const seedFeld = feld('Seed (leer = zufällig)', '120px');
     seedFeld.value = this.neuSeed;
     seedFeld.oninput = () => {
       this.neuSeed = seedFeld.value;
     };
-    b.appendChild(zeile(idFeld, seedFeld));
+    // Der Würfel schreibt den Seed ins FELD und würfelt ihn nicht erst
+    // beim Anlegen: Sonst stünde die Zahl, mit der gebaut wurde, nirgends,
+    // und ein Grab, das man wiederhaben will, wäre nicht wiederholbar.
+    const wuerfel = knopf('🎲', () => {
+      this.neuSeed = String((Math.random() * 0x7fffffff) | 0);
+      this.baue();
+    });
+    wuerfel.title = 'Neuen Seed würfeln';
+    b.appendChild(zeile(idFeld, seedFeld, wuerfel));
 
+    b.appendChild(
+      zeile(
+        schalter('voll generieren', this.neuVoll, (an) => {
+          this.neuVoll = an;
+          this.baue();
+        })
+      )
+    );
+
+    // Die beiden Stellschrauben nur zeigen, wenn sie überhaupt wirken —
+    // ohne „voll generieren" stehen die Wachstumsversuche ohnehin auf 0,
+    // und ein Feld, dessen Eingabe folgenlos bleibt, ist eine Lüge.
+    if (this.neuVoll) {
+      const raeumeFeld = feld('Kit-Vorgabe', '80px');
+      raeumeFeld.value = this.neuRaeume;
+      raeumeFeld.oninput = () => {
+        this.neuRaeume = raeumeFeld.value;
+      };
+      const zoneFeld = feld('Kit-Vorgabe', '80px');
+      zoneFeld.value = this.neuZone;
+      zoneFeld.oninput = () => {
+        this.neuZone = zoneFeld.value;
+      };
+      b.appendChild(zeile('Räume (Versuche)', raeumeFeld, 'Zone', zoneFeld));
+    }
+
+    // „Vorschau" schreibt NICHTS. Ein voller Wurf ist eine Entscheidung,
+    // die man ansieht, bevor sie auf der Platte steht — und eine ID, die
+    // erst nach dem Speichern wieder frei wird, wäre nach drei Versuchen
+    // eine Liste aus Leichen.
+    const vorschau = knopf('Vorschau', () => {
+      this.zeigeVorschau();
+    });
+    const neuWuerfeln = knopf('Neu würfeln', () => {
+      this.neuSeed = String((Math.random() * 0x7fffffff) | 0);
+      this.zeigeVorschau();
+    });
     const anlegen = knopf(this.legtAn ? 'Legt an …' : 'Anlegen & speichern', () => {
       void this.legeAn();
     });
@@ -564,16 +668,20 @@ export class DungeonSeite {
       anlegen.disabled = true;
       anlegen.style.opacity = '.5';
     }
-    b.appendChild(zeile(anlegen));
+    b.appendChild(zeile(vorschau, neuWuerfeln, anlegen));
 
-    const hinweis = document.createElement('div');
-    hinweis.style.cssText = 'font-size:11px;color:#8a7350;line-height:1.5';
-    hinweis.textContent =
-      'Angelegt wird nur der Eingangsraum, und gespeichert wird er OFFEN — ' +
-      'auch bei gesetztem Häkchen. So lässt sich sofort in jede Richtung ' +
-      'anbauen. Zugemauert wird erst beim nächsten „Speichern". Geschrieben ' +
-      'wird über den Spielserver; der muss dafür laufen.';
-    b.appendChild(hinweis);
+    const fuss = document.createElement('div');
+    fuss.style.cssText = 'font-size:11px;color:#8a7350;line-height:1.5';
+    fuss.textContent = this.neuVoll
+      ? 'Voll generiert: Basis und Seed ergeben das ganze Grab, Abschlüsse ' +
+        'inbegriffen. „Vorschau" zeigt es nur im Grundriss und speichert nichts — ' +
+        'gesichert ist erst, was „Anlegen & speichern" geschrieben hat. Sobald ' +
+        'jemand daran baut, wird es zur Handarbeit und würfelt nicht mehr neu.'
+      : 'Angelegt wird nur der Eingangsraum, und gespeichert wird er OFFEN — ' +
+        'auch bei gesetztem Häkchen. So lässt sich sofort in jede Richtung ' +
+        'anbauen. Zugemauert wird erst beim nächsten „Speichern". Geschrieben ' +
+        'wird über den Spielserver; der muss dafür laufen.';
+    b.appendChild(fuss);
   }
 
   /**
@@ -752,6 +860,78 @@ export class DungeonSeite {
   }
 
   /**
+   * Das Formular „Neu anlegen" in ein Dokument übersetzen — oder sagen,
+   * warum nicht.
+   *
+   * EINE Stelle für „Vorschau", „Neu würfeln" und „Anlegen & speichern".
+   * Stünde die Übersetzung dreimal da, würfelte der eine Knopf mit anderen
+   * Zahlen als der andere — und ausgerechnet die Vorschau zeigte dann
+   * etwas, das beim Anlegen nicht herauskäme.
+   *
+   * Der Seed wird HIER festgeschrieben, wenn das Feld leer ist: `neuesDungeonDokument`
+   * würfelte sonst bei jedem Aufruf neu, und die Vorschau wäre nicht das,
+   * was danach gespeichert wird.
+   */
+  private bauAusFormular(): NeuesDokumentErgebnis {
+    const seedText = this.neuSeed.trim();
+    if (seedText !== '' && !Number.isFinite(Number(seedText))) {
+      return { ok: false, grund: 'Seed ist keine Zahl' };
+    }
+    if (seedText === '') this.neuSeed = String((Math.random() * 0x7fffffff) | 0);
+
+    // `null` heisst „steht da, ist aber keine Zahl", `undefined` heisst
+    // „leer gelassen" — und nur Letzteres ist die Kit-Vorgabe.
+    const zahl = (text: string): number | undefined | null => {
+      const t = text.trim();
+      if (t === '') return undefined;
+      if (!Number.isFinite(Number(t))) return null;
+      return Number(t);
+    };
+    const raeume = zahl(this.neuRaeume);
+    const zone = zahl(this.neuZone);
+    if (raeume === null) return { ok: false, grund: '„Räume" ist keine Zahl' };
+    if (zone === null) return { ok: false, grund: '„Zone" ist keine Zahl' };
+
+    return neuesDungeonDokument({
+      id: this.neuId,
+      base: this.neuBasis,
+      seed: Number(this.neuSeed),
+      ...(this.neuVoll ? { voll: true } : {}),
+      ...(this.neuVoll && raeume !== undefined ? { maxRooms: raeume } : {}),
+      ...(this.neuVoll && zone !== undefined ? { zoneSize: zone } : {}),
+    });
+  }
+
+  /**
+   * „Vorschau" — das Dokument bauen und NUR im Grundriss zeigen.
+   *
+   * Geschrieben wird nichts. Ein voller Wurf ist eine Entscheidung, und
+   * eine Entscheidung, die man erst nach dem Speichern sieht, ist keine:
+   * Die ID wäre vergeben, die Liste um eine Leiche länger, und wer drei
+   * Würfe vergleichen will, räumte hinterher auf.
+   *
+   * Als SCHMUTZIG markiert, obwohl noch nichts verändert wurde — genau das
+   * ist die Aussage: Was hier steht, steht nirgendwo sonst. Ohne die Marke
+   * verspräche der Editor einen Stand, den niemand gespeichert hat.
+   */
+  private zeigeVorschau(): void {
+    if (this.legtAn) return;
+    const ergebnis = this.bauAusFormular();
+    if (!ergebnis.ok) {
+      this.cb.meldung(ergebnis.grund, true);
+      this.baue();
+      return;
+    }
+    this.grundriss.setzeDokument(ergebnis.doc);
+    this.schmutzig = true;
+    this.cb.meldung(
+      `Vorschau ${ergebnis.doc.id}: ${ergebnis.doc.layout.rooms.length} Räume, ` +
+        `Seed ${ergebnis.doc.seed}, Zone ${ergebnis.doc.zoneSize} — NICHT gespeichert.`
+    );
+    this.baue();
+  }
+
+  /**
    * Neues Dokument bauen, im Grundriss öffnen und gleich speichern.
    *
    * Erst nach dem Speichern gilt es als angelegt: Ein Dokument, das nur im
@@ -762,18 +942,10 @@ export class DungeonSeite {
    */
   private async legeAn(): Promise<void> {
     if (this.legtAn) return;
-    const seedText = this.neuSeed.trim();
-    if (seedText !== '' && !Number.isFinite(Number(seedText))) {
-      this.cb.meldung('Seed ist keine Zahl', true);
-      return;
-    }
-    const ergebnis = neuesDungeonDokument({
-      id: this.neuId,
-      base: this.neuBasis,
-      ...(seedText === '' ? {} : { seed: Number(seedText) }),
-    });
+    const ergebnis = this.bauAusFormular();
     if (!ergebnis.ok) {
       this.cb.meldung(ergebnis.grund, true);
+      this.baue();
       return;
     }
     // Vorhandene ID: `upsertDocument` würde das alte Dokument ÜBERSCHREIBEN
@@ -788,11 +960,15 @@ export class DungeonSeite {
     this.grundriss.setzeDokument(ergebnis.doc);
     this.schmutzig = true;
     this.baue();
-    // OFFEN speichern, unabhängig vom Schalter: Zugemauert wäre der erste
-    // Arbeitsgang am neuen Grab, eine Wand wieder abzureissen. Der Schalter
-    // gilt weiter für „Speichern" — dort ist das Dokument gebaut, und dort
-    // zählt Dichtheit.
-    await this.speichere(ergebnis.doc, false);
+    // Beim LEEREN Dokument offen speichern, unabhängig vom Schalter:
+    // Zugemauert wäre der erste Arbeitsgang am neuen Grab, eine Wand wieder
+    // abzureissen. Der Schalter gilt weiter für „Speichern" — dort ist das
+    // Dokument gebaut, und dort zählt Dichtheit.
+    //
+    // Beim VOLLEN Wurf ist es umgekehrt: Der Generator hat seine Abschlüsse
+    // schon gesetzt, das Grab ist fertig, und offen gespeichert hätte es
+    // Löcher an genau den Kanten, an denen niemand mehr weiterbaut.
+    await this.speichere(ergebnis.doc, this.neuVoll);
     this.legtAn = false;
     // Nur die ID leeren: Basis und Seed sind meist für den nächsten
     // Dungeon dieselben, die ID nie.

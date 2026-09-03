@@ -25,8 +25,8 @@
  * in-game F4 panel and the map editor's dungeon page). Pure functions, no
  * DOM: the two editors are separate bundles, so this belongs in `shared/`.
  */
-import type { DungeonLayout, RoomDef } from './dungeons.js';
-import type { Vector3 } from './types.js';
+import type { DungeonLayout, RoomDef, SteinKitConfig } from './dungeons.js';
+import type { Quaternion, Vector3 } from './types.js';
 import { DUNGEONS_BY_NAME } from './dungeons.js';
 import { attachRoom, computeOpenConnections, removeRoom } from './dungeonGenerator.js';
 import type { OpenConnection } from './dungeonGenerator.js';
@@ -428,4 +428,97 @@ export function fuegeAnKante(
   removeRoom(layout, baseName, wandIndex);
   layout.rooms.push(ergebnis.placed);
   return { ok: true, wandErsetzt: true };
+}
+
+// ---------------------------------------------------------------------------
+// Abflachung für eine ANSICHT — dieselbe Auskunft wie `flattenLayout`,
+// ohne die 5 MB Einrichtungsdaten
+// ---------------------------------------------------------------------------
+
+/**
+ * Ein platzierter Raum, so wie ihn eine Ansicht braucht.
+ *
+ * `roomIndex` ist der Rückweg: Wer in der 3D-Vorschau einen Raum anklickt,
+ * kommt darüber an `DungeonGrundriss.waehle(index)` — beide Ansichten
+ * zählen in DERSELBEN Liste (`layout.rooms`), sonst zeigte ein Klick in 3D
+ * im Grundriss auf den Nachbarn.
+ */
+export interface FlacherRaum {
+  prefabName: string;
+  prefabHash: number;
+  pos: Vector3;
+  rot: Quaternion;
+  roomIndex: number;
+  /** Steinmaterial DIESER Platzierung (unterste Stufe der Mischkette). */
+  steinKit?: Partial<SteinKitConfig>;
+}
+
+/** Eine Tür oder ein Deko-Teil — schon in lokalen Dungeon-Koordinaten. */
+export interface FlachesTeil {
+  prefabName: string;
+  prefabHash: number;
+  pos: Vector3;
+  rot: Quaternion;
+}
+
+/** Was `flattenRooms` zurückgibt. */
+export interface FlachesLayout {
+  rooms: FlacherRaum[];
+  doors: FlachesTeil[];
+  props: FlachesTeil[];
+}
+
+/**
+ * Layout → Prefab-Instanzen für eine ANSICHT (kein Server-Materialisieren).
+ *
+ * ── Warum nicht `flattenLayout` aus `dungeonFlatten.ts` ──────────────
+ * Jene Funktion zieht `roomPieces.ts` mit — rund 5 MB Einrichtungsdaten
+ * aller 289 Räume. Genau deshalb steht sie ABSICHTLICH nicht im Barrel
+ * (s. Kopf von `shared/src/index.ts`): Ein Import von dort ins
+ * Client-Bündel machte den ausgelieferten Chunk um ein Vielfaches
+ * grösser. Die 3D-Vorschau des Karteneditors braucht davon nichts. Sie
+ * fragt: WO steht welches Raum-Prefab, welche Tür, welches Deko-Teil —
+ * und mehr steht hier auch nicht.
+ *
+ * Deshalb eine eigene, kleine Funktion NEBEN jener, nicht statt ihrer:
+ * Der Server materialisiert weiterhin über `flattenLayout` samt
+ * Einrichtung. Beide lesen dieselben Felder desselben Layouts; es gibt
+ * keine zweite Wahrheit, die auseinanderlaufen könnte.
+ *
+ * ── Was hier NICHT gerechnet wird ────────────────────────────────────
+ * Keine Drehung, keine Verschiebung: `pos`/`rot` eines Raums, einer Tür
+ * und eines Deko-Teils stehen bereits in lokalen Dungeon-Koordinaten. Die
+ * Quaternionen-Rechnung aus `flattenLayout` gilt allein den `netViews`
+ * eines Raums, die relativ zu IHM liegen — und die kommen hier nicht vor.
+ *
+ * Räume, die das Kit nicht kennt, bleiben MIT drin (`prefabHash` 0): Die
+ * Liste ist eine Ansicht auf `layout.rooms`, und ein Eintrag weniger hiesse,
+ * dass jeder `roomIndex` dahinter um eins verrutscht — der Klick in 3D
+ * träfe im Grundriss den falschen Raum.
+ */
+export function flattenRooms(layout: DungeonLayout, baseName: string): FlachesLayout {
+  const def = DUNGEONS_BY_NAME.get(baseName);
+  const nachName = new Map(def?.rooms.map((r) => [r.name, r]) ?? []);
+  return {
+    rooms: layout.rooms.map((r, roomIndex) => ({
+      prefabName: r.room,
+      prefabHash: nachName.get(r.room)?.hash ?? 0,
+      pos: { ...r.pos },
+      rot: { ...r.rot },
+      roomIndex,
+      ...(r.steinKit ? { steinKit: r.steinKit } : {}),
+    })),
+    doors: layout.doors.map((t) => ({
+      prefabName: t.prefabName,
+      prefabHash: t.prefabHash,
+      pos: { ...t.pos },
+      rot: { ...t.rot },
+    })),
+    props: (layout.props ?? []).map((p) => ({
+      prefabName: p.prefabName,
+      prefabHash: p.prefabHash,
+      pos: { ...p.pos },
+      rot: { ...p.rot },
+    })),
+  };
 }

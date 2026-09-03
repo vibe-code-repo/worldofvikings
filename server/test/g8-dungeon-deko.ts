@@ -91,10 +91,12 @@ const doc = mgr.createGenerated('DG_Steingrab', 7)!;
 check('Dokument erzeugt', doc !== null, `${doc.layout.rooms.length} Räume`);
 // 2 → 3 mit M5a (dokumenteigenes `steinKit`, additiv wie `props` davor),
 // 3 → 4 mit P5 (`PlacedRoom.steinKit` je platziertem Raum, ebenso additiv),
-// 4 → 5 mit der Grundbeleuchtung (`ambientLicht`, wieder additiv).
+// 4 → 5 mit der Grundbeleuchtung (`ambientLicht`, wieder additiv),
+// 5 → 6 mit den Generator-Einstellungen (`generatorEinstellungen`, ebenso).
 // Bewusst die nackte Zahl statt `DUNGEON_DOCUMENT_VERSION`: Gegen die
-// Konstante geprüft wäre die Zeile immer wahr und bezeugte nichts.
-check('Version 5', doc.version === 5, String(doc.version));
+// Konstante geprüft wäre die Zeile immer wahr und bezeugte nichts. Sie bei
+// jedem Sprung von Hand mitzuziehen IST die Arbeit, die sie leistet.
+check('Version 6', doc.version === 6, String(doc.version));
 check('props ist leer, nicht undefined', Array.isArray(doc.layout.props));
 
 const kit = DUNGEONS_BY_NAME.get('DG_Steingrab')!;

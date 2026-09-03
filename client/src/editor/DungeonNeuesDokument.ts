@@ -44,6 +44,7 @@ import {
   isInstanceableDungeon,
   isValidDungeonId,
   removeRoom,
+  sanitizeGeneratorEinstellungen,
   type DungeonDef,
   type DungeonDocument,
 } from '@wov/shared';
@@ -73,6 +74,24 @@ export interface NeuesDokumentWunsch {
   base: string;
   /** Fehlt er, wird einer gewürfelt — er steckt in den Deko-Varianten. */
   seed?: number;
+  /**
+   * VOLL generieren statt nur den Eingangsraum (Vorgabe: aus).
+   *
+   * Der Unterschied ist nicht nur die Raumzahl, sondern auch der `mode`:
+   * Ein voll gewürfeltes Grab ist aus Basis und Seed reproduzierbar und
+   * darf deshalb `generated` heissen — solange niemand von Hand daran
+   * baut. Das leere Ein-Raum-Dokument ist von der ersten Sekunde an
+   * Handarbeit und bleibt `custom`, sonst würfelte der Server es beim
+   * nächsten Materialisieren voll (dieselbe Begründung wie an `fuegeAn`).
+   */
+  voll?: boolean;
+  /**
+   * Wachstumsversuche statt der Kit-Vorgabe. Wirkt NUR bei `voll` — im
+   * leeren Fall stehen sie ohnehin auf 0.
+   */
+  maxRooms?: number;
+  /** Wachstumsraum statt der Kit-Vorgabe. Ebenfalls nur bei `voll`. */
+  zoneSize?: number;
 }
 
 export type NeuesDokumentErgebnis =
@@ -107,23 +126,51 @@ export function neuesDungeonDokument(wunsch: NeuesDokumentWunsch): NeuesDokument
   // anderes als das auf der Platte.
   const seed = (wunsch.seed ?? Math.floor(Math.random() * 0x7fffffff)) | 0;
 
+  // Durch DENSELBEN Sanitizer wie das gespeicherte Dokument. Ein Wert, den
+  // das Formular durchlässt, der Server aber klemmt, ergäbe sonst im
+  // Editor ein anderes Grab als auf der Platte — und zwar erst nach dem
+  // Speichern, wo es niemand mehr mit der Eingabe vergleicht.
+  const einstellungen = wunsch.voll
+    ? sanitizeGeneratorEinstellungen({ maxRooms: wunsch.maxRooms, zoneSize: wunsch.zoneSize })
+    : undefined;
+
+  // Der Wachstumsraum, in dem WIRKLICH gebaut wird: Override vor
+  // Kit-Vorgabe vor Generator-Vorgabe — dieselbe Reihenfolge, die
+  // `generateDungeonLayout` intern anwendet.
+  const zoneSize =
+    einstellungen?.zoneSize ??
+    def.generatorEinstellungen?.zoneSize ??
+    DEFAULT_GENERATOR_SETTINGS.zoneSize;
+
   let layout;
   try {
-    // `maxRooms: 0` heisst hier NULL Wachstumsversuche — der Eingangsraum
+    // `maxRooms` ist ein KIT-Wert und keine Generator-Einstellung — er
+    // reist deshalb über eine `def`-Kopie, `zoneSize` über `settingsIn`.
+    // Ohne `voll` steht er auf 0: NULL Wachstumsversuche, der Eingangsraum
     // steht trotzdem, er kommt nicht aus der Schleife.
-    layout = generateDungeonLayout({ ...def, maxRooms: 0, minRequiredRooms: 0 }, seed);
+    const bauDef = wunsch.voll
+      ? einstellungen?.maxRooms !== undefined
+        ? { ...def, maxRooms: einstellungen.maxRooms }
+        : def
+      : { ...def, maxRooms: 0, minRequiredRooms: 0 };
+    layout = generateDungeonLayout(bauDef, seed, { zoneSize });
   } catch (err) {
     return { ok: false, grund: `Generator: ${String(err)}` };
   }
 
-  // Von hinten nach vorn, damit die Indizes der noch nicht besuchten
-  // Räume beim Nachrücken stimmen. `removeRoom` räumt Türen und Deko des
-  // Raums gleich mit weg — hier gibt es beides noch nicht, aber ein
-  // eigener Löschweg wäre die zweite Bau-Logik, die dieses Vorhaben
-  // ausschliesst.
-  const istAbschluss = new Map(def.rooms.map((r) => [r.name, !!r.endCap]));
-  for (let i = layout.rooms.length - 1; i >= 0; i--) {
-    if (istAbschluss.get(layout.rooms[i]!.room)) removeRoom(layout, def.name, i);
+  // Die Abschlüsse fallen NUR im leeren Fall wieder weg (Begründung im
+  // Dateikopf). Ein voll gewürfeltes Grab ohne seine Wände hätte Löcher —
+  // dort sind die Abschlüsse das Ergebnis, nicht der Ballast.
+  if (!wunsch.voll) {
+    // Von hinten nach vorn, damit die Indizes der noch nicht besuchten
+    // Räume beim Nachrücken stimmen. `removeRoom` räumt Türen und Deko des
+    // Raums gleich mit weg — hier gibt es beides noch nicht, aber ein
+    // eigener Löschweg wäre die zweite Bau-Logik, die dieses Vorhaben
+    // ausschliesst.
+    const istAbschluss = new Map(def.rooms.map((r) => [r.name, !!r.endCap]));
+    for (let i = layout.rooms.length - 1; i >= 0; i--) {
+      if (istAbschluss.get(layout.rooms[i]!.room)) removeRoom(layout, def.name, i);
+    }
   }
 
   return {
@@ -133,12 +180,16 @@ export function neuesDungeonDokument(wunsch: NeuesDokumentWunsch): NeuesDokument
       id,
       name: wunsch.id.trim(),
       base: def.name,
-      mode: 'custom',
+      // `generated` nur beim vollen Wurf — und auch dort nur, solange das
+      // Dokument unberührt ist. Sobald jemand anbaut, setzt der Grundriss
+      // es auf `custom` (s. `fuegeAn`), sonst würfelte der Server die
+      // Handarbeit beim nächsten Materialisieren weg.
+      mode: wunsch.voll ? 'generated' : 'custom',
       seed,
       // Derselbe Wachstumsraum, in dem der Generator das Layout gebaut
       // hat — sonst stünde im Kopf eine Zahl, gegen die nie geprüft wurde.
-      zoneSize:
-        def.generatorEinstellungen?.zoneSize ?? DEFAULT_GENERATOR_SETTINGS.zoneSize,
+      zoneSize,
+      ...(einstellungen ? { generatorEinstellungen: einstellungen } : {}),
       layout,
     },
   };

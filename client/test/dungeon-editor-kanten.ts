@@ -498,8 +498,20 @@ pruefe(
 // `baue()` wegwirft).
 const schalterDoc = JSON.parse(JSON.stringify(frisch)) as typeof frisch;
 const mitSchalter = seiteMit(schalterDoc);
-const haekchen = (b: StummelKnoten): StummelKnoten | undefined =>
-  b.alle().find((k) => k.type === 'checkbox');
+// Über die BESCHRIFTUNG suchen, nicht über „das erste Häkchen in der
+// Leiste": Seit „Neu anlegen" ein eigenes Häkchen hat („voll generieren",
+// und das steht weiter oben), holte die erste Fassung dieser Zeile den
+// falschen Schalter — und prüfte dann seine Vorgabe statt der hier
+// gemeinten. Der Prüfgegenstand ist unverändert.
+const haekchen = (
+  b: StummelKnoten,
+  beschriftung = 'beim Speichern schließen'
+): StummelKnoten | undefined =>
+  b
+    .alle()
+    .find((k) => k.tag === 'label' && k.alle().some((c) => c.textContent === beschriftung))
+    ?.alle()
+    .find((k) => k.type === 'checkbox');
 pruefe(haekchen(mitSchalter.behaelter) !== undefined, 'es gibt ein Häkchen');
 pruefe(haekchen(mitSchalter.behaelter)?.checked === true, 'Vorgabe: beim Speichern schließen');
 
@@ -705,6 +717,98 @@ pruefe(
   anlegeGrundriss.anbaubare.length === 3,
   'es lässt sich sofort in drei Richtungen anbauen',
   `${anlegeGrundriss.anbaubare.length}`
+);
+
+// ── 9. Voll generieren (ROT — Ziel B, noch nicht umgesetzt) ─────────
+//
+// VOR DER UMSETZUNG ROT: `neuesDungeonDokument` kennt `wunsch.voll`,
+// `wunsch.maxRooms` und `wunsch.zoneSize` noch nicht (Annahme dieses
+// Abschnitts) — jeder Aufruf unten liefert heute dasselbe leere
+// Ein-Raum-Dokument wie Abschnitt 5, egal was übergeben wird. Erwartet
+// wird nach der Umsetzung:
+//  - `voll: true` lässt den Generator wirklich wachsen (mehrere Räume,
+//    mehr als eine offene Kante ist dabei nicht garantiert — Abschlüsse
+//    dürfen die letzten offenen Kanten zumauern).
+//  - Derselbe Seed liefert zweimal dasselbe JSON-Layout (Determinismus).
+//  - `voll: false`/fehlend bleibt wie Abschnitt 5: ein Raum.
+//  - `maxRooms: 6` bremst das Wachstum spürbar gegenüber ungebremst.
+//  - `zoneSize` landet sowohl in `doc.generatorEinstellungen.zoneSize`
+//    als auch (informativ) in `doc.zoneSize`.
+//  - `mode` ist bei `voll: true` `'generated'`, sonst `'custom'`.
+//
+// NACH DER UMSETZUNG GRÜN, ohne Änderung an diesem Abschnitt.
+console.log('\nVoll generieren (Ziel B):');
+
+type NeuWunschVoll = Parameters<typeof neuesDungeonDokument>[0] & {
+  voll?: boolean;
+  maxRooms?: number;
+  zoneSize?: number;
+};
+const bauen = (w: NeuWunschVoll) => neuesDungeonDokument(w as Parameters<typeof neuesDungeonDokument>[0]);
+
+const voll1 = bauen({ id: 'voll-probe-1', base: KIT, seed: 99, voll: true });
+if (!voll1.ok) {
+  console.log(`FAIL voll generieren: ${voll1.grund}`);
+  fehler++;
+} else {
+  pruefe(
+    voll1.doc.layout.rooms.length > 1,
+    'voll:true erzeugt mehr als den Eingangsraum',
+    `${voll1.doc.layout.rooms.length}`
+  );
+  pruefe(
+    computeOpenConnections(voll1.doc.layout, KIT).length >= 0,
+    'computeOpenConnections lässt sich auf das volle Layout anwenden'
+  );
+  pruefe(voll1.doc.mode === 'generated', 'voll:true ergibt mode generated', voll1.doc.mode);
+
+  // Determinismus: derselbe Seed -> JSON-identisches Layout.
+  const voll2 = bauen({ id: 'voll-probe-1', base: KIT, seed: 99, voll: true });
+  pruefe(
+    voll2.ok && JSON.stringify(voll2.doc.layout) === JSON.stringify(voll1.doc.layout),
+    'derselbe Seed liefert byte-identisches Layout',
+    voll2.ok ? '' : voll2.grund
+  );
+}
+
+const nichtVoll = bauen({ id: 'nicht-voll-probe', base: KIT, seed: 99 });
+pruefe(
+  nichtVoll.ok && nichtVoll.doc.layout.rooms.length === 1,
+  'voll:false/fehlend bleibt beim Ein-Raum-Dokument aus Abschnitt 5',
+  nichtVoll.ok ? `${nichtVoll.doc.layout.rooms.length}` : nichtVoll.grund
+);
+pruefe(
+  nichtVoll.ok && nichtVoll.doc.mode === 'custom',
+  'voll:false/fehlend bleibt mode custom',
+  nichtVoll.ok ? nichtVoll.doc.mode : nichtVoll.grund
+);
+
+// maxRooms-Override: deutlich weniger Wachstum als ungebremst.
+const ungebremst = bauen({ id: 'max-probe-frei', base: KIT, seed: 4242, voll: true });
+const gebremst = bauen({ id: 'max-probe-6', base: KIT, seed: 4242, voll: true, maxRooms: 6 });
+pruefe(
+  ungebremst.ok &&
+    gebremst.ok &&
+    gebremst.doc.layout.rooms.length < ungebremst.doc.layout.rooms.length,
+  'maxRooms:6 bremst das Wachstum gegenüber ungebremst',
+  ungebremst.ok && gebremst.ok
+    ? `${gebremst.doc.layout.rooms.length} < ${ungebremst.doc.layout.rooms.length}?`
+    : `${ungebremst.ok ? '' : ungebremst.grund} ${gebremst.ok ? '' : gebremst.grund}`
+);
+
+// zoneSize-Override landet im Dokument.
+const zoneProbe = bauen({ id: 'zone-probe', base: KIT, seed: 5, voll: true, zoneSize: 24 });
+pruefe(
+  zoneProbe.ok && (zoneProbe.doc as unknown as { generatorEinstellungen?: { zoneSize?: number } }).generatorEinstellungen?.zoneSize === 24,
+  'zoneSize-Override landet in doc.generatorEinstellungen.zoneSize',
+  zoneProbe.ok
+    ? JSON.stringify((zoneProbe.doc as unknown as { generatorEinstellungen?: unknown }).generatorEinstellungen)
+    : zoneProbe.grund
+);
+pruefe(
+  zoneProbe.ok && zoneProbe.doc.zoneSize === 24,
+  'zoneSize-Override landet auch informativ in doc.zoneSize',
+  zoneProbe.ok ? `${zoneProbe.doc.zoneSize}` : zoneProbe.grund
 );
 
 console.log(fehler === 0 ? '\nAlles grün.' : `\n${fehler} Prüfung(en) fehlgeschlagen.`);

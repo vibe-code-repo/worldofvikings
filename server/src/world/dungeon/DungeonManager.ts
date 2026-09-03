@@ -32,11 +32,14 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import {
+  DEFAULT_GENERATOR_SETTINGS,
   DUNGEON_REGEN_INTERVAL_MS,
+  DokumentGeneratorEinstellungen,
   DungeonDocument,
   DungeonLayout,
   ENTRANCE_HULL_MODELS,
   generateDungeonLayout,
+  sanitizeGeneratorEinstellungen,
   findPrefabByName,
   getDungeonByHash,
   getDungeonByName,
@@ -480,8 +483,27 @@ export class DungeonManager {
   /**
    * Create (and persist) a generated dungeon document.
    * The layout is stored materialized so the editor can modify it later.
+   *
+   * ── `einstellungen` und warum sie auch OHNE Argument gelten ─────────
+   * `dungeon regen` und das Neuwuerfeln beim Betreten (M5b) rufen hier mit
+   * `(base, seed, id)` an — sie haben kein Formular, aus dem sie Raumzahl
+   * und Zonengroesse nehmen koennten. Faellt der Aufruf ohne eigenes
+   * Argument, werden deshalb die im VORHANDENEN Dokument gespeicherten
+   * `generatorEinstellungen` weiterbenutzt. Sonst waere ein als 6-Raum-Grab
+   * angelegtes Grab nach dem ersten Neuwuerfeln ein Kit-Vorgabe-Grab — und
+   * zwar lautlos, denn beide Wege melden „neu generiert".
+   *
+   * `maxRooms` ist ein KIT-Wert und reist deshalb als `def`-Kopie,
+   * `zoneSize` ist eine echte Generator-Einstellung und reist als
+   * `settingsIn` (s. `generateDungeonLayout`, Reihenfolge Vorgabe → Kit →
+   * Aufrufer).
    */
-  createGenerated(baseName: string, seed: number, id?: string): DungeonDocument | null {
+  createGenerated(
+    baseName: string,
+    seed: number,
+    id?: string,
+    einstellungen?: DokumentGeneratorEinstellungen
+  ): DungeonDocument | null {
     const def = getDungeonByName(baseName);
     if (!def || !isInstanceableDungeon(def)) return null;
 
@@ -489,7 +511,21 @@ export class DungeonManager {
     const finalId = id ?? `${slug}-${(seed >>> 0).toString(16)}`;
     if (!isValidDungeonId(finalId)) return null;
 
-    const layout = generateDungeonLayout(def, seed);
+    // Durch denselben Sanitizer wie das gespeicherte Dokument — der Aufruf
+    // kann aus einem Konsolenbefehl kommen, und eine ungeklemmte Zahl von
+    // dort baute ein Grab, das der Sanitizer beim naechsten Laden anders
+    // beschriebe, als es gebaut wurde.
+    const gespeichert = this.documents.get(finalId)?.generatorEinstellungen;
+    const gen = sanitizeGeneratorEinstellungen(einstellungen ?? gespeichert);
+
+    // Der WIRKLICH benutzte Wachstumsraum, nicht mehr die harte 64: Kits
+    // mit eigener `zoneSize` schrieben bisher eine Zahl ins Dokument, gegen
+    // die nie gebaut wurde.
+    const zoneSize =
+      gen?.zoneSize ?? def.generatorEinstellungen?.zoneSize ?? DEFAULT_GENERATOR_SETTINGS.zoneSize;
+
+    const bauDef = gen?.maxRooms !== undefined ? { ...def, maxRooms: gen.maxRooms } : def;
+    const layout = generateDungeonLayout(bauDef, seed, { zoneSize });
     const doc: DungeonDocument = {
       // Die KONSTANTE, nicht die Zahl. Sie steht in `shared/src/dungeons.ts`
       // und stand hier als Literal daneben — beim Sprung auf 2 (Deko im
@@ -502,7 +538,8 @@ export class DungeonManager {
       base: baseName,
       mode: 'generated',
       seed,
-      zoneSize: 64,
+      zoneSize,
+      ...(gen ? { generatorEinstellungen: gen } : {}),
       layout,
     };
     this.saveDocument(doc);

@@ -55,6 +55,13 @@ const KERN = [
   // DG_Steingrab. Rein rechnerisch, Zehntelsekunden.
   // Sealing open cell edges with the kit's end caps — entrance stays open.
   ['shared', 'test/dungeon-kanten-schliessen.ts'],
+  // `flattenRooms`: Layout → Prefab-Instanzen für eine ANSICHT, mit dem
+  // statischen Wächter, dass `dungeonKanten.ts` dafür NICHTS aus
+  // `dungeonFlatten.ts`/`roomPieces.ts` (~5 MB) zieht — genau deshalb gibt
+  // es die kleine Funktion neben der grossen. Rein rechnerisch.
+  // `flattenRooms` for a VIEW, plus the static guard that no 5 MB furnishing
+  // bundle sneaks in through it.
+  ['shared', 'test/dungeon-flatten-rooms.ts'],
   ['shared', 'test/bauteile-kosten.ts'],
   ['server', 'test/h1-layout.ts'],
   ['server', 'test/h2-routen.ts'],
@@ -467,6 +474,18 @@ const KERN = [
   // The 1.0 editor path of the module kit: edge naming, the `connIndex`
   // pass-through, the drawn cell hull, and the empty new document.
   ['client', 'test/dungeon-editor-kanten.ts'],
+  // Kantenmarken sind ANKLICKBAR: der reine Treffertest `trifftKante`
+  // (0,6 m in Weltmass, nicht in Pixeln) und die Rangfolge in `waehleBei` —
+  // Kanten VOR Räumen, sonst ist eine Marke gezeichnet, aber nie zu
+  // treffen, und der Klick markiert den Raum darunter. DOM-Stummel.
+  // Edge markers are clickable: pure hit test plus edges-before-rooms order.
+  ['client', 'test/dungeon-grundriss-kanten.ts'],
+  // Die 3D-Ansicht des 1.0-Dokuments über NullEngine und synthetische
+  // Würfel-Master (AssetManager injiziert wie in kollisionsnetz.ts): eine
+  // Instanz je Raum an der Weltposition der Platzierung, eine Marke je
+  // anbaubarer Kante, Auswahlwechsel, dispose-Idempotenz.
+  // The 1.0 document's 3D view over NullEngine with synthetic cube masters.
+  ['client', 'test/dungeon-vorschau3d.ts'],
   // AP15.6: Die REINE Steuerung der eingebetteten 3D-Live-Vorschau
   // (`vorschauSteuerung.ts`) — Entprellung (viele schnelle setzeLayout → EIN
   // Neubau nach Ruhe), die Zustandsmaschine sichtbar/unsichtbar ↔ Render-

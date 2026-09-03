@@ -3607,20 +3607,40 @@ export class WovServer {
               ok: false,
               active: false,
               message:
-                'Aufruf: dungeon create <basis> [seed] — Basis z. B. forestcrypt, sunkencrypt, cave',
+                'Aufruf: dungeon create <basis> [seed] [räume] [zone] — Basis z. B. ' +
+                'forestcrypt, sunkencrypt, cave; räume/zone leer = Kit-Vorgabe',
             };
           }
           const seed = Number.isFinite(Number(args[1]))
             ? Number(args[1]) | 0
             : (Math.random() * 0x7fffffff) | 0;
-          const doc = this.dungeons.createGenerated(base, seed);
+          // Dieselben zwei Stellschrauben wie im Web-Editor. Geklemmt wird
+          // NICHT hier, sondern in `createGenerated` — eine zweite Prüfung
+          // derselben Grenzen driftet auseinander, und dieser Weg hier ist
+          // der selten benutzte von beiden.
+          const raeume = args[2] !== undefined && Number.isFinite(Number(args[2]))
+            ? Number(args[2])
+            : undefined;
+          const zone = args[3] !== undefined && Number.isFinite(Number(args[3]))
+            ? Number(args[3])
+            : undefined;
+          const einstellungen =
+            raeume === undefined && zone === undefined
+              ? undefined
+              : {
+                  ...(raeume !== undefined ? { maxRooms: raeume } : {}),
+                  ...(zone !== undefined ? { zoneSize: zone } : {}),
+                };
+          const doc = this.dungeons.createGenerated(base, seed, undefined, einstellungen);
           if (!doc) {
             return { ok: false, active: false, message: `Erzeugung fehlgeschlagen (${base})` };
           }
           return {
             ok: true,
             active: false,
-            message: `Dungeon erzeugt: ${doc.id} (${doc.layout.rooms.length} Räume, Seed ${seed})`,
+            message:
+              `Dungeon erzeugt: ${doc.id} (${doc.layout.rooms.length} Räume, Seed ${seed}, ` +
+              `Zone ${doc.zoneSize})`,
           };
         }
 
@@ -3679,9 +3699,29 @@ export class WovServer {
           if (!doc) {
             return { ok: false, active: false, message: `Unbekannter Dungeon: ${args[0] ?? '?'}` };
           }
+          // Handarbeit NICHT überwürfeln. `regen` erzeugt aus Basis und
+          // Seed neu — bei einem `custom`-Dokument ist das Ergebnis nicht
+          // das Grab, an dem jemand gebaut hat, sondern ein fremdes, und
+          // das alte Layout ist danach weg. Es gibt hier absichtlich KEIN
+          // `force`: Der Weg, ein gebautes Grab durch ein gewürfeltes zu
+          // ersetzen, führt über den Editor, wo man vorher sieht, was man
+          // wegwirft.
+          if (doc.mode === 'custom') {
+            return {
+              ok: false,
+              active: false,
+              message:
+                `${doc.id} ist von Hand gebaut (mode custom) — 'regen' würfelt aus Basis und ` +
+                'Seed neu und die Handarbeit wäre verloren. Neu generieren geht im Editor ' +
+                'über „Neu anlegen" mit „voll generieren".',
+            };
+          }
           const seed = Number.isFinite(Number(args[1]))
             ? Number(args[1]) | 0
             : (Math.random() * 0x7fffffff) | 0;
+          // OHNE eigenes `einstellungen`-Argument: `createGenerated` nimmt
+          // die im Dokument gespeicherten `generatorEinstellungen`, sonst
+          // fiele das Grab hier still auf die Kit-Vorgabe zurück.
           const fresh = this.dungeons.createGenerated(doc.base, seed, doc.id);
           if (!fresh) {
             return { ok: false, active: false, message: 'Neugenerierung fehlgeschlagen' };

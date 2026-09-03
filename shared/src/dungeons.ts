@@ -480,8 +480,20 @@ export interface DungeonLayout {
  * as before; modeled on `DungeonDokument2.ambientLicht`, but up to 3 — a 1.0
  * barrow has no placed light sources and may need to be BRIGHTER, not only
  * darker, than the environment.
+ *
+ * 5 → 6: `generatorEinstellungen` dazugekommen (Raumzahl und Zonengrösse,
+ * mit denen dieses Grab erzeugt wurde). Wieder ADDITIV: Fehlt das Feld,
+ * erfindet der Sanitizer es nicht, und erzeugt wird wie bisher mit der
+ * Kit-Vorgabe. Es steht IM DOKUMENT und nicht nur im Formular, weil
+ * `dungeon regen` und das Neuwürfeln beim Betreten (M5b) sonst still auf
+ * die Kit-Vorgabe zurückfielen — was als 6-Raum-Grab angelegt wurde, wäre
+ * nach dem ersten Neuwürfeln ein 50-Raum-Grab, und niemand sähe, warum.
+ * 5 → 6: `generatorEinstellungen` added (the room count and zone size this
+ * barrow was generated with). Additive as before; stored in the DOCUMENT so
+ * `dungeon regen` and regenerate-on-enter reuse them instead of silently
+ * falling back to the kit default.
  */
-export const DUNGEON_DOCUMENT_VERSION = 5;
+export const DUNGEON_DOCUMENT_VERSION = 6;
 
 /** Hard cap on rooms in a (user-editable) dungeon document. */
 export const MAX_DUNGEON_ROOMS = 256;
@@ -540,6 +552,75 @@ export interface DungeonDocument {
    * Absent means unchanged; 0 is a VALID value (pitch dark), not "absent".
    */
   ambientLicht?: number;
+  /**
+   * Womit dieses Grab erzeugt wurde (Dokumentversion 6, additiv).
+   *
+   * NUR die beiden Stellschrauben, die der Editor anbietet: `maxRooms` ist
+   * die Zahl der WACHSTUMSVERSUCHE (ein Kit-Wert, deshalb als Kopie des
+   * `def` übergeben, nicht als Generator-Einstellung), `zoneSize` der
+   * Wachstumsraum (eine echte Generator-Einstellung, deshalb als
+   * `settingsIn`). Fehlt das Feld, gilt wie bisher die Kit-Vorgabe.
+   *
+   * Es steht hier und nicht nur im Formular, weil das Dokument die einzige
+   * Stelle ist, die ein späteres `dungeon regen` noch lesen kann — das
+   * Formular ist dann längst zu. Ein Grab, das dabei stillschweigend auf
+   * die Kit-Vorgabe zurückfiele, wäre ein anderes Grab.
+   * How this barrow was generated (document version 6, additive): the two
+   * knobs the editor offers. `maxRooms` is a kit value (passed as a copy of
+   * the `def`), `zoneSize` a generator setting (passed as `settingsIn`).
+   * Absent means the kit default, as before.
+   */
+  generatorEinstellungen?: DokumentGeneratorEinstellungen;
+}
+
+/**
+ * Die im Dokument gespeicherten Generator-Stellschrauben.
+ *
+ * Absichtlich NICHT `Partial<DungeonGeneratorSettings>`: Von den vielen
+ * Einstellungen des Generators sind nur diese beiden im Editor bedienbar
+ * und geprüft. Ein offenes `Partial` hier hiesse, dass ein Dokument vom
+ * Client jeden Generator-Schalter umlegen dürfte — und für die meisten
+ * gibt es weder ein Feld noch eine Grenze.
+ */
+export interface DokumentGeneratorEinstellungen {
+  /** Wachstumsversuche (Kit-`maxRooms`), geklemmt auf [1, MAX_DUNGEON_ROOMS]. */
+  maxRooms?: number;
+  /** Wachstumsraum in Metern, geklemmt auf [MIN_DUNGEON_ZONE, MAX_DUNGEON_ZONE]. */
+  zoneSize?: number;
+}
+
+/** Grenzen des Wachstumsraums für `generatorEinstellungen.zoneSize`. */
+export const MIN_DUNGEON_ZONE = 8;
+export const MAX_DUNGEON_ZONE = 256;
+
+/**
+ * Unbeglaubigte `generatorEinstellungen` säubern — dasselbe Muster wie
+ * {@link sanitizeSteinKit}: Was sich nicht als endliche Zahl lesen lässt,
+ * FÄLLT WEG, statt das ganze Dokument abzulehnen. Bleibt nichts übrig,
+ * kommt `undefined` zurück und das Dokument trägt das Feld gar nicht.
+ *
+ * Eigene Funktion, weil sie zwei Aufrufer bekommt: den Dokument-Sanitizer
+ * und den Weg über `DungeonManager.createGenerated` — zwei Prüfungen
+ * derselben Sache driften auseinander.
+ * Sanitize untrusted `generatorEinstellungen`; unreadable fields drop out
+ * instead of rejecting the document.
+ */
+export function sanitizeGeneratorEinstellungen(
+  roh: unknown
+): DokumentGeneratorEinstellungen | undefined {
+  if (!roh || typeof roh !== 'object') return undefined;
+  const o = roh as Record<string, unknown>;
+  const ganzzahl = (v: unknown, min: number, max: number): number | undefined =>
+    typeof v === 'number' && Number.isFinite(v)
+      ? Math.max(min, Math.min(max, Math.trunc(v)))
+      : undefined;
+  const maxRooms = ganzzahl(o.maxRooms, 1, MAX_DUNGEON_ROOMS);
+  const zoneSize = ganzzahl(o.zoneSize, MIN_DUNGEON_ZONE, MAX_DUNGEON_ZONE);
+  if (maxRooms === undefined && zoneSize === undefined) return undefined;
+  return {
+    ...(maxRooms !== undefined ? { maxRooms } : {}),
+    ...(zoneSize !== undefined ? { zoneSize } : {}),
+  };
 }
 
 /**
@@ -815,9 +896,15 @@ export function sanitizeDungeonDocument(input: unknown): DungeonDocument | null 
       ? Math.max(0, Math.min(MAX_DUNGEON_AMBIENT, o.ambientLicht))
       : undefined;
 
+  // Generator-Stellschrauben (Version 6) — wieder additiv: Bleibt nach dem
+  // Klemmen nichts uebrig, traegt das Dokument das Feld gar nicht, und es
+  // gilt wie bisher die Kit-Vorgabe.
+  const generatorEinstellungen = sanitizeGeneratorEinstellungen(o.generatorEinstellungen);
+
   return {
     version: DUNGEON_DOCUMENT_VERSION,
     ...(steinKit ? { steinKit } : {}),
+    ...(generatorEinstellungen ? { generatorEinstellungen } : {}),
     // `!== undefined` und nicht `? :` — 0 ist ein gültiger Wert und fiele
     // sonst still weg (dann wäre stockdunkel nicht speicherbar).
     // `!== undefined`, not truthiness: 0 is a valid value.

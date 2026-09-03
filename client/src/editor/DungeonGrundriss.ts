@@ -97,6 +97,8 @@ const FARBE = {
   tuer: '#c8a24a',
   deko: '#ff8c3a',
   offen: '#e05a3a',
+  /** Zugemauerte Kante — anbaubar, aber kein Loch (s. `anbaubareKanten`). */
+  wandKante: '#e0a03a',
   schrift: '#e8d9b8',
 } as const;
 
@@ -190,11 +192,50 @@ function dreheY(q: Quaternion, v: Vector3): Vector3 {
   };
 }
 
+/**
+ * Radius der Kantenmarke in METERN — nicht in Pixeln.
+ *
+ * In Weltmass, weil der Treffertest sonst vom Maßstab abhinge: Beim
+ * Herauszoomen läge eine Kante hinter jedem zweiten Pixel, beim
+ * Hineinzoomen träfe man sie nie. 0,6 m ist knapp ein Drittel einer
+ * Modulzelle (2 m) — nah genug, dass zwei benachbarte Kanten sich nicht
+ * überlappen, weit genug, dass man ohne Zielen trifft.
+ */
+export const KANTEN_RADIUS_M = 0.6;
+
+/**
+ * Liegt ein Punkt auf der Marke einer anbaubaren Kante?
+ *
+ * Reine Funktion und exportiert, weil sie ohne Canvas prüfbar sein muss
+ * (`client/test/dungeon-grundriss-kanten.ts`) — und weil die 3D-Ansicht
+ * dieselbe Frage stellt, nur mit einem Strahl statt mit einem Pixel.
+ * Gerechnet wird in der Draufsicht (x/z); die Höhe filtert vorher der
+ * Ebenenfilter, genau wie beim Zeichnen der Marken.
+ */
+export function trifftKante(
+  welt: Punkt,
+  kante: { pos: Vector3 },
+  radius = KANTEN_RADIUS_M
+): boolean {
+  const dx = welt.x - kante.pos.x;
+  const dz = welt.z - kante.pos.z;
+  return dx * dx + dz * dz <= radius * radius;
+}
+
 export interface GrundrissRueckrufe {
   /** Kurzmeldung in der Shell. */
   meldung(text: string, fehler?: boolean): void;
   /** Auswahl hat sich geändert — die Seitenleiste zeichnet sich neu. */
   auswahlGeaendert(): void;
+  /**
+   * Eine Kantenmarke wurde angeklickt — `idx` zählt in `anbaubare`, also in
+   * DERSELBEN Liste wie der erste Parameter von `fuegeAn`.
+   *
+   * Optional, damit ältere Aufrufer nicht brechen: Wer ihn nicht setzt,
+   * bekommt das Verhalten von vorher — dort gab es an einer Marke nichts
+   * zu treffen, und der Klick fiel auf den Raum darunter durch.
+   */
+  connectorAngeklickt?(idx: number): void;
 }
 
 export class DungeonGrundriss {
@@ -509,10 +550,60 @@ export class DungeonGrundriss {
     );
   }
 
+  /**
+   * Einen Raum per Index auswählen — das Gegenstück zum Klick im Bild.
+   *
+   * Gebraucht von der 3D-Ansicht: Dort klickt man auf das Modul, und beide
+   * Ansichten müssen danach DENSELBEN Raum markiert zeigen. Ein Index
+   * ausserhalb der Liste (oder −1) hebt die Auswahl auf, statt zu werfen —
+   * ein Klick ins Leere ist kein Fehler.
+   */
+  waehle(index: number): void {
+    const anzahl = this.doc?.layout.rooms.length ?? 0;
+    const neu = index >= 0 && index < anzahl ? index : -1;
+    if (neu === this.gewaehlt) return;
+    this.gewaehlt = neu;
+    this.zeichne();
+    this.cb.auswahlGeaendert();
+  }
+
+  /**
+   * Treffertest — KANTEN ZUERST, dann Räume.
+   *
+   * Die Reihenfolge ist der ganze Punkt: Eine Kantenmarke liegt immer auf
+   * dem Rand eines Raums und damit im Zweifel auch in seinem Polygon. Erst
+   * die Räume zu prüfen hiesse, dass eine Marke nie getroffen wird — sie
+   * wäre gezeichnet, aber unerreichbar, und der Klick markierte
+   * stattdessen den Nachbarn.
+   *
+   * Genommen wird die NÄCHSTE Kante im Radius, nicht die erste: Zwei
+   * Marken können sich am Rand ihrer Radien überlappen, und dann ist die
+   * gemeinte die, die näher liegt. Bei Gleichstand gewinnt der kleinere
+   * Index — dieselbe Kante, die die Seitenleiste vorbelegt.
+   */
   private waehleBei(px: number, py: number): void {
     const doc = this.doc;
     if (!doc) return;
     const welt = this.zuWelt(px, py);
+
+    if (this.cb.connectorAngeklickt) {
+      let besterIdx = -1;
+      let besterAbstand = Infinity;
+      this.anbaubareListe.forEach((k, idx) => {
+        if (!this.connectorAufEbene(k)) return;
+        if (!trifftKante(welt, k)) return;
+        const d = (welt.x - k.pos.x) ** 2 + (welt.z - k.pos.z) ** 2;
+        if (d < besterAbstand) {
+          besterAbstand = d;
+          besterIdx = idx;
+        }
+      });
+      if (besterIdx >= 0) {
+        this.cb.connectorAngeklickt(besterIdx);
+        return;
+      }
+    }
+
     const masse = this.raumMasse();
     // Von hinten nach vorn: Was zuletzt gezeichnet wurde, liegt oben und
     // soll zuerst getroffen werden.
@@ -618,6 +709,21 @@ export class DungeonGrundriss {
       ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
       ctx.moveTo(b.x, b.y);
       ctx.lineTo(b.x + dir.x * 12, b.y + dir.z * 12);
+      ctx.stroke();
+    }
+
+    // Zugemauerte Kanten: dieselbe Marke in Bernstein statt Rot. Sie sind
+    // ANKLICKBAR (s. `waehleBei`) und stehen in der Anfügen-Liste — ohne
+    // Marke wäre das ein Treffer auf etwas Unsichtbares, und ein
+    // geschlossenes Grab sähe aus, als ginge es nirgends weiter.
+    for (const k of this.anbaubareListe) {
+      if (k.wandIndex === undefined) continue;
+      if (!this.connectorAufEbene(k)) continue;
+      const b = this.zuBild({ x: k.pos.x, z: k.pos.z });
+      ctx.strokeStyle = FARBE.wandKante;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
       ctx.stroke();
     }
   }

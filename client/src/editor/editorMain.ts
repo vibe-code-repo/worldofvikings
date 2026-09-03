@@ -62,6 +62,9 @@ import { CellTools, type WerkzeugHost } from './dungeon2/CellTools';
 import { RoomStampPalette } from './dungeon2/RoomStampPalette';
 import { Dungeon2Seite, type Dungeon2Zeichenflaeche } from './dungeon2/Dungeon2Katalog';
 import type { Dungeon2Vorschau } from './dungeon2/Dungeon2Vorschau';
+// Dieselbe Trennung fuer den 1.0-Reiter: nur der TYP steht hier, das Modul
+// selbst kommt beim ersten Umschalten auf „3D" ueber `import()` herein.
+import type { DungeonVorschau3d } from './DungeonVorschau3d';
 import { befundSchwere } from './befundSchwere';
 import {
   alter,
@@ -459,7 +462,19 @@ const dungeonGrundriss = new DungeonGrundriss(flaeche, {
   // Die Seite zeichnet sich neu, wenn der Grundriss die Auswahl aendert.
   // Der Umweg ueber die Funktion ist noetig, weil `dungeonSeite` erst eine
   // Zeile spaeter entsteht — sie braucht den Grundriss.
-  auswahlGeaendert: () => dungeonSeite.baue(),
+  //
+  // Derselbe Rueckruf zieht die 3D-Ansicht nach: Er feuert bei JEDER
+  // Aenderung am Dokument (`setzeDokument`, `fuegeAn`, `entferne`,
+  // `schliesseKanten`) und nicht nur bei der Auswahl — ein eigener
+  // „dokumentGeaendert"-Haken waere eine zweite Liste derselben Stellen,
+  // und die eine wuerde beim naechsten Bauwerkzeug vergessen.
+  auswahlGeaendert: () => {
+    dungeonSeite.baue();
+    zieheDungeon3dNach();
+  },
+  // Klick auf eine Kantenmarke (2D wie 3D): die Seitenleiste waehlt genau
+  // diese Kante im Feld „Anfuegen an" — angefuegt wird weiterhin dort.
+  connectorAngeklickt: (idx) => dungeonSeite.waehleKante(idx),
 });
 
 /** Seitenleiste dieser Betriebsart — s. `DungeonKatalog.ts`. */
@@ -467,6 +482,69 @@ const dungeonSeite = new DungeonSeite(dungeonSeiteBehaelter, dungeonGrundriss, {
   meldung: (text, fehler) => shell.meldung(text, fehler),
 });
 dungeonSeite.baue();
+
+// ── 2D/3D-Umschalter der Betriebsart „Dungeons" ───────────────────────
+//
+// Dieselbe Bauweise wie beim Dungeon-2.0-Reiter (`dungeon2AnsichtSektion`
+// weiter unten): eigene Sektion, Babylon erst beim ersten Umschalten
+// geladen, beide Ansichten leben im SELBEN Viewport und werden ueber
+// `display` getauscht. Die 3D-Ansicht ist dabei kein zweiter Editor,
+// sondern eine zweite Sicht auf denselben Grundriss-Zustand — sie meldet
+// Klicks als Indizes zurueck (s. `DungeonVorschau3d.ts`).
+const dungeonAnsichtSektion = shell.sektion('Ansicht');
+/** Der Block der Sektion — die 3-Wege-Sichtbarkeit blendet ihn mit. */
+const dungeonAnsichtBlock = dungeonAnsichtSektion.parentElement;
+let dungeonVorschau3d: DungeonVorschau3d | null = null;
+let dungeonAnsicht: '2d' | '3d' = '2d';
+
+/**
+ * Die 3D-Ansicht auf den Stand des Grundrisses bringen.
+ *
+ * Immer BEIDES: das Dokument (es kann sich strukturell geaendert haben)
+ * und die Auswahl. Der Neubau dahinter ist entprellt und verwirft nur
+ * Instanzen, keine Master — bei einem Dokument mit ein paar Dutzend
+ * Modulen ist das billiger als jede Buchfuehrung, die ein Diff braeuchte.
+ */
+function zieheDungeon3dNach(): void {
+  if (dungeonVorschau3d === null) return;
+  dungeonVorschau3d.setzeDokument(dungeonGrundriss.dokument);
+  dungeonVorschau3d.waehle(dungeonGrundriss.gewaehlterRaum);
+}
+
+const setzeDungeonAnsicht = async (a: '2d' | '3d'): Promise<void> => {
+  dungeonAnsicht = a;
+  if (a === '3d' && dungeonVorschau3d === null) {
+    shell.meldung('3D-Ansicht wird geladen …');
+    const mod = await import('./DungeonVorschau3d');
+    dungeonVorschau3d = new mod.DungeonVorschau3d(flaeche, {
+      meldung: (t, f) => shell.meldung(t, f),
+      // Ein Klick in 3D waehlt im GRUNDRISS — der ist die eine Wahrheit
+      // ueber die Auswahl, und sein `auswahlGeaendert` zieht Seitenleiste
+      // und 3D-Hervorhebung gemeinsam nach.
+      raumAngeklickt: (i) => dungeonGrundriss.waehle(i),
+      connectorAngeklickt: (idx) => dungeonSeite.waehleKante(idx),
+    });
+    zieheDungeon3dNach();
+  }
+  const imDungeon = betriebsart === 'dungeons';
+  dungeonGrundriss.zeige(imDungeon && a === '2d');
+  dungeonVorschau3d?.zeige(imDungeon && a === '3d');
+  baueDungeonAnsichtSchalter();
+};
+
+function baueDungeonAnsichtSchalter(): void {
+  const reihe = el('div', stil({ display: 'flex', gap: '8px' }));
+  reihe.append(
+    knopf('2D-Grundriss', () => void setzeDungeonAnsicht('2d'), {
+      art: dungeonAnsicht === '2d' ? 'bronze' : 'flaeche',
+    }),
+    knopf('3D-Ansicht', () => void setzeDungeonAnsicht('3d'), {
+      art: dungeonAnsicht === '3d' ? 'bronze' : 'flaeche',
+    })
+  );
+  dungeonAnsichtSektion.replaceChildren(reihe);
+}
+baueDungeonAnsichtSchalter();
 
 // ── Betriebsart „Dungeon 2.0" (AP15.7) ────────────────────────────────
 // Eigener Container in der Seitenmitte: Die 3-Wege-Sichtbarkeit
@@ -607,14 +685,16 @@ const zeigeFuerBetrieb = (m: SeitenBetriebsart): void => {
   const welt = m !== 'dungeons' && m !== 'dungeon2';
   vorschau.style.display = welt ? 'block' : 'none';
   overlay.style.display = welt ? 'block' : 'none';
-  dungeonGrundriss.zeige(m === 'dungeons');
+  const imDungeon = m === 'dungeons';
+  dungeonGrundriss.zeige(imDungeon && dungeonAnsicht === '2d');
+  dungeonVorschau3d?.zeige(imDungeon && dungeonAnsicht === '3d');
   const imDungeon2 = m === 'dungeon2';
   cellCanvas.zeige(imDungeon2 && dungeon2Ansicht === '2d');
   dungeon2Vorschau?.zeige(imDungeon2 && dungeon2Ansicht === '3d');
   const legacyBlock = dungeonSeiteBehaelter.parentElement;
   for (const kind of [...seitenmitteEl.children]) {
     let sichtbar: boolean;
-    if (kind === legacyBlock) sichtbar = m === 'dungeons';
+    if (kind === legacyBlock || kind === dungeonAnsichtBlock) sichtbar = imDungeon;
     else if (kind === dungeon2Behaelter) sichtbar = imDungeon2;
     else sichtbar = welt;
     (kind as HTMLElement).style.display = sichtbar ? '' : 'none';

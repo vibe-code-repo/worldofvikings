@@ -63,12 +63,42 @@
  * `shared/src/eigeneDungeons.ts` justieren (weights, maxRooms, zoneSize,
  * chance) — NIEMALS den Generator.
  *
+ * ── Zweiter Fund, nach Einbau von `StoneVaultStairs` (3.9.2026) ─────────
+ * Assertion 2 schlug erneut fehl, diesmal in 27 von 40 Seeds, IMMER
+ * `StoneVaultWall` gegen `StoneVaultStairs`. Ursache ist geometrisch, nicht
+ * ein Testfehler: `StoneVaultStairs` ist das einzige Bauteil dieses Kits,
+ * dessen Huelle ZWEI Ebenen ueberspannt (y = 0 … 7, s. Kommentar am Raum in
+ * `eigeneDungeons.ts`), traegt aber nur je EINEN Connector pro Ebene (unten
+ * bei y=0, oben bei y=3,5). Der freie Luftraum ueber dem unteren bzw. unter
+ * dem oberen Ende gehoert trotzdem zur Huelle — es gibt kein zweites Modell,
+ * das die andere Ebene an dieser Stelle abschliesst. Waechst eine Zellenkette
+ * auf der jeweils ANDEREN Ebene bis an genau diese Stelle heran, ragt ihr
+ * `StoneVaultWall`-Abschluss (0,3 m, Notfallzweig wie beim Eingang oben) in
+ * die Luftraum-Haelfte der Treppenhuelle hinein — nachgerechnet 27 Faelle
+ * ueber 40 Seeds, in JEDEM liegt der komplette Wandkoerper (y-Bereich, s.
+ * `raumY` unten) innerhalb der Treppenhuelle, quert aber nicht die vom
+ * Nachbarraum tatsaechlich begehbare Ebene. Beispiel Seed 5: Treppe
+ * pos (-5,0,-1) rot -90 (oberes Ende bei x=-7, y=3,5), Wand pos (-6.85,0,-1),
+ * Wandkoerper x -7,0…-6,7 bei y 0…3,5 — vollstaendig unter dem oberen
+ * Podest, ausserhalb jeder tatsaechlich begehbaren Flaeche.
+ * Assertion 2 laesst deshalb ZUSAETZLICH zur Eingangs-Ausnahme genau diese
+ * eng gefasste Kombination zu: ein `endCap` (immer `StoneVaultWall` in
+ * diesem Kit) gegen `StoneVaultStairs`, UND NUR wenn der y-Bereich des
+ * endCap-Koerpers vollstaendig innerhalb des y-Bereichs der Treppenhuelle
+ * liegt (`raumY`-Containment, mit `EPSILON`) — also wirklich der beschriebene
+ * Luftraum-Fall und keine Ueberlappung, die die begehbare Ebene quert. Jede
+ * andere Kombination bleibt ein echter Fehler. Kit-Werte wurden dafuer NICHT
+ * veraendert: `weight: 1` fuer `StoneVaultStairs` ist durch die Verteilung
+ * ueber 40 Seeds gedeckt (s. Statistikblock unten) — eine Drosselung wuerde
+ * die Treppe praktisch abschalten, ohne die geometrische Ursache zu beheben.
+ *
  * Run: npx tsx server/test/m3-stonevault-seeds.ts   (from the repo root)
  */
 
 import {
   DEFAULT_GENERATOR_SETTINGS,
   DUNGEONS_BY_NAME,
+  MODUL_ZELLE_HOEHE_M,
   computeOpenConnections,
   generateDungeonLayout,
   quatMulVec3,
@@ -136,6 +166,28 @@ function mitte(pos: Vector3, size: Vector3): Vector3 {
   return settings.roomBodyFromFloor ? { x: pos.x, y: pos.y + size.y / 2, z: pos.z } : pos;
 }
 
+/**
+ * y-Ausdehnung eines bereits ZENTRIERTEN Raumkoerpers (min, max) — `pos`
+ * hier ist die Mitte (Ergebnis von `mitte()`, wie in `placed[].full` und
+ * `placed[].shrunk` unten abgelegt), NICHT der rohe Boden-Anker. Grundlage
+ * der Treppen-Ausnahme: Nur damit laesst sich pruefen, ob ein Wandabschluss
+ * wirklich im Luftraum UEBER/UNTER der jeweils anderen Ebene der Treppe
+ * steckt, statt die begehbare Ebene selbst zu queren.
+ */
+function raumY(mittigerPos: Vector3, size: Vector3): { min: number; max: number } {
+  return { min: mittigerPos.y - size.y / 2, max: mittigerPos.y + size.y / 2 };
+}
+
+/** Voller y-Bereich eines endCap-Koerpers liegt (mit `EPSILON`) innerhalb des y-Bereichs des anderen Raums. */
+function yEnthaltenIn(
+  innen: { pos: Vector3; size: Vector3 },
+  aussen: { pos: Vector3; size: Vector3 }
+): boolean {
+  const yi = raumY(innen.pos, innen.size);
+  const ya = raumY(aussen.pos, aussen.size);
+  return yi.min >= ya.min - EPSILON && yi.max <= ya.max + EPSILON;
+}
+
 /** Wie `rectOverlapRect`, aber um `EPSILON` geschrumpft — Gleitkomma-Berührung an gemeinsamen Kanten ist kein Überlapp. */
 function overlaps(size1: Vector3, pos1: Vector3, size2: Vector3, pos2: Vector3): boolean {
   const s1 = { x: size1.x / 2 - EPSILON, y: size1.y / 2 - EPSILON, z: size1.z / 2 - EPSILON };
@@ -164,10 +216,14 @@ function overlaps(size1: Vector3, pos1: Vector3, size2: Vector3, pos2: Vector3):
  * Hälfte in seinen Nachbarn hineinragen darf (`endcapsInsetFrac`).
  */
 interface OverlapResult {
-  /** Jede gefundene Überlappung, roh — inklusive der dokumentierten Ausnahme. */
+  /** Jede gefundene Überlappung, roh — inklusive der dokumentierten Ausnahmen. */
   all: string[];
-  /** Nur Überlappungen AUSSERHALB der dokumentierten endCap-vs-Eingang-Ausnahme. */
+  /** Nur Überlappungen AUSSERHALB der beiden dokumentierten Ausnahmen. */
   unerwartet: string[];
+  /** Anzahl der Notfall-Abschlüsse gegen den Eingangsraum (1. Ausnahme). */
+  notfallEingang: number;
+  /** Anzahl der Notfall-Abschlüsse gegen die Treppen-Luftraum-Haelfte (2. Ausnahme, s. Kopfkommentar). */
+  notfallTreppe: number;
 }
 
 function findOverlaps(layout: DungeonLayout): OverlapResult {
@@ -184,21 +240,34 @@ function findOverlaps(layout: DungeonLayout): OverlapResult {
   });
   const all: string[] = [];
   const unerwartet: string[] = [];
+  let notfallEingang = 0;
+  let notfallTreppe = 0;
   for (let i = 1; i < placed.length; i++) {
     for (let j = 0; j < i; j++) {
       if (overlaps(placed[i].shrunk.size, placed[i].shrunk.pos, placed[j].full.size, placed[j].full.pos)) {
         const text = `${placed[i].name}#${i} (später) <-> ${placed[j].name}#${j} (früher)`;
         all.push(text);
         // Dokumentierte Ausnahme (s. Kopfkommentar): ein endCap, der den
-        // Notfallzweig durchlaufen hat, gegen den Eingangsraum. Alles andere
-        // ist eine ECHTE Überlappung.
-        const istBekannteAusnahme =
+        // Notfallzweig durchlaufen hat, gegen den Eingangsraum.
+        const istEingangsAusnahme =
           (placed[i].endCap && placed[j].entrance) || (placed[j].endCap && placed[i].entrance);
-        if (!istBekannteAusnahme) unerwartet.push(text);
+        // Zweite dokumentierte Ausnahme (s. Kopfkommentar, Fund vom
+        // 3.9.2026): ein endCap gegen `StoneVaultStairs`, aber NUR wenn der
+        // volle Raumkoerper (nicht die geschrumpfte Kollisionsbox — die
+        // Frage ist geometrisch, nicht kollisionsspezifisch) des endCap
+        // komplett im y-Bereich der (zwei Ebenen hohen) Treppenhuelle
+        // steckt — das ist der Luftraum ueber/unter der jeweils anderen
+        // Ebene, keine Ueberlappung der begehbaren Flaeche.
+        const istTreppenAusnahme =
+          (placed[i].endCap && placed[j].name === 'StoneVaultStairs' && yEnthaltenIn(placed[i].full, placed[j].full)) ||
+          (placed[j].endCap && placed[i].name === 'StoneVaultStairs' && yEnthaltenIn(placed[j].full, placed[i].full));
+        if (istEingangsAusnahme) notfallEingang++;
+        else if (istTreppenAusnahme) notfallTreppe++;
+        else unerwartet.push(text);
       }
     }
   }
-  return { all, unerwartet };
+  return { all, unerwartet, notfallEingang, notfallTreppe };
 }
 
 /** Die vier neuen Zellvarianten — Wall und Entry zaehlen bewusst nicht mit (s. Pruefung 6/7). */
@@ -210,12 +279,18 @@ const roomCounts: number[] = [];
 const doorCounts: number[] = [];
 let archGesetzt = false;
 let notfallUeberlappungen = 0;
+/** Notfall-Abschluesse gegen die Treppen-Luftraum-Haelfte, ueber alle Seeds (2. Ausnahme, s. Kopfkommentar). */
+let notfallTreppenUeberlappungen = 0;
 /** Je Seed die Haeufigkeit jedes Raumnamens — Grundlage fuer Pruefung 6/7/8 und die Statistikausgabe. */
 const namensverteilungJeSeed: Map<string, number>[] = [];
 /** In wie vielen Seeds `StoneVaultHall` mindestens einmal vorkommt (Pruefung 8). */
 let seedsMitHalle = 0;
 /** Anteil Gangvarianten an Nicht-Wand-Raeumen, je Seed (Pruefung 7). */
 const gangAnteilJeSeed: number[] = [];
+/** Anzahl `StoneVaultStairs` je Seed — Grundlage der Stairs-Anteil-Statistik (s. Befund vom 3.9.2026). */
+const treppenJeSeed: number[] = [];
+/** In wie vielen Seeds mindestens eine Treppe steht. */
+let seedsMitTreppe = 0;
 
 for (const seed of SEEDS) {
   const layout1 = generateDungeonLayout(def, seed);
@@ -223,12 +298,22 @@ for (const seed of SEEDS) {
 
   check(`seed ${seed}: Determinismus`, JSON.stringify(layout1) === JSON.stringify(layout2));
 
-  const { all, unerwartet } = findOverlaps(layout1);
-  notfallUeberlappungen += all.length - unerwartet.length;
+  const { all, unerwartet, notfallEingang, notfallTreppe } = findOverlaps(layout1);
+  notfallUeberlappungen += notfallEingang;
+  notfallTreppenUeberlappungen += notfallTreppe;
   check(
     `seed ${seed}: keine unerwartete Überlappung`,
     unerwartet.length === 0,
-    unerwartet.length > 0 ? unerwartet.join('; ') : all.length > 0 ? `${all.length}x Notfall-Abschluss am Eingang (bekannt)` : ''
+    unerwartet.length > 0
+      ? unerwartet.join('; ')
+      : all.length > 0
+        ? [
+            notfallEingang > 0 ? `${notfallEingang}x Notfall-Abschluss am Eingang (bekannt)` : '',
+            notfallTreppe > 0 ? `${notfallTreppe}x Notfall-Abschluss an Treppen-Luftraum (bekannt)` : '',
+          ]
+            .filter(Boolean)
+            .join(', ')
+        : ''
   );
 
   // Der Eingangsconnector des Startraums bleibt ABSICHTLICH offen (Tuer in
@@ -248,6 +333,9 @@ for (const seed of SEEDS) {
   for (const p of layout1.rooms) namen.set(p.room, (namen.get(p.room) ?? 0) + 1);
   namensverteilungJeSeed.push(namen);
   if ((namen.get('StoneVaultHall') ?? 0) > 0) seedsMitHalle++;
+  const treppenImSeed = namen.get('StoneVaultStairs') ?? 0;
+  treppenJeSeed.push(treppenImSeed);
+  if (treppenImSeed > 0) seedsMitTreppe++;
 
   // Nicht-Wand-Raeume: alles ausser dem Abschluss `StoneVaultWall` — Entry
   // zaehlt mit (es ist geometrisch eine gewoehnliche Zelle, s. Kommentar am
@@ -292,9 +380,32 @@ console.log(
   `Notfall-Abschlüsse am Eingang (dokumentierte Ausnahme, s. Kopfkommentar): ${notfallUeberlappungen} über 40 Seeds`
 );
 console.log(
+  `Notfall-Abschlüsse an Treppen-Luftraum (2. dokumentierte Ausnahme, s. Kopfkommentar): ${notfallTreppenUeberlappungen} über 40 Seeds`
+);
+console.log(
   `Gang-Anteil (Corridor+Corner+Junction an Nicht-Wand-Räumen) im Schnitt: ${(gangAnteilSchnitt * 100).toFixed(1)} %`
 );
 console.log(`Halle (StoneVaultHall) gesetzt in ${seedsMitHalle} von 40 Seeds`);
+
+// Stairs-Anteil und Ebenen (s. Befund vom 3.9.2026, Punkt (c)): Wie oft
+// steht `StoneVaultStairs` ueberhaupt, und wie gross ist ihr Anteil an
+// allen bzw. an den begehbaren (Nicht-Wand-)Raeumen. `MODUL_ZELLE_HOEHE_M`
+// (3,5 m) ist die Zellhoehe je Ebene — die Treppe selbst ueberspannt genau
+// zwei davon (0 … 7 m, s. Kommentar an `StoneVaultStairs`).
+const gesamtTreppen = treppenJeSeed.reduce((a, b) => a + b, 0);
+const gesamtRaeume = roomCounts.reduce((a, b) => a + b, 0);
+const gesamtNichtWand = namensverteilungJeSeed.reduce(
+  (sum, namen) => sum + [...namen.entries()].reduce((s, [name, n]) => (name === 'StoneVaultWall' ? s : s + n), 0),
+  0
+);
+console.log(
+  `Treppen (StoneVaultStairs, je ${MODUL_ZELLE_HOEHE_M} m Ebenenhoehe, Huelle ueber 2 Ebenen = ${2 * MODUL_ZELLE_HOEHE_M} m): ` +
+    `${gesamtTreppen} über ${gesamtRaeume} Räume (${((gesamtTreppen / gesamtRaeume) * 100).toFixed(1)} %; ` +
+    `${((gesamtTreppen / gesamtNichtWand) * 100).toFixed(1)} % bezogen auf ${gesamtNichtWand} begehbare Räume ohne Wall), ` +
+    `in ${seedsMitTreppe} von 40 Seeds mindestens einmal gesetzt`
+);
+check(`StoneVaultStairs kommt über die 40 Seeds mindestens in 5 Seeds vor`, seedsMitTreppe >= 5, `${seedsMitTreppe} Seeds`);
+
 console.log('Seed -> Räume/Türen (Verteilung nach Raumname, kompakt):');
 const KURZNAME: Record<string, string> = {
   StoneVaultWall: 'Wall',
@@ -304,6 +415,7 @@ const KURZNAME: Record<string, string> = {
   StoneVaultCorridor: 'Corridor',
   StoneVaultCell: 'Cell',
   StoneVaultEntry: 'Entry',
+  StoneVaultStairs: 'Stairs',
 };
 SEEDS.forEach((seed, i) => {
   const namen = namensverteilungJeSeed[i];

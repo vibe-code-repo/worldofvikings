@@ -27,6 +27,7 @@
 import {
   DUNGEONS,
   DungeonAlgorithm,
+  DEFAULT_GENERATOR_SETTINGS,
   generateDungeonLayout,
   sanitizeDungeonDocument,
   DUNGEON_DOCUMENT_VERSION,
@@ -116,7 +117,22 @@ for (const dungeon of INTERIOR) {
   check('entrance connector at origin', dist < 0.01, `dist=${dist.toFixed(4)}`);
 
   // Overlap sanity between non-endcap rooms (same inset as the generator).
+  //
+  // `pos` ist bei `roomBodyFromFloor: true` (u.a. DG_StoneVault, DG_Steingrab,
+  // s. eigeneDungeons.ts) der BODEN-Anker des Raumkoerpers, nicht seine Mitte
+  // (siehe dungeonGenerator.ts Zeile ~344, dieselbe Umrechnung wie hier).
+  // Diese Pruefung nahm `pos` bislang direkt als Mitte — bei Raeumen
+  // gleicher Hoehe hebt sich der Versatz zwischen zwei Raeumen weg
+  // (derselbe Offset auf beiden Seiten), fiel deshalb nie auf. Seit
+  // `StoneVaultStairs` (Huelle ueber zwei Ebenen, y 0..7 statt 0..3,5, s.
+  // Kommentar am Raum) ist der Versatz nicht mehr gleich, und die Pruefung
+  // meldete eine Scheinueberlappung (StoneVaultStairs vs. StoneVaultHall,
+  // Seed 42) obwohl sich beide Raumkoerper in Wahrheit nur an der
+  // Ebenengrenze beruehren. Boden->Mitte-Umrechnung nachgezogen (wie in
+  // `server/test/m3-stonevault-seeds.ts`, dort `mitte()`), keine Lockerung.
   let overlaps = 0;
+  const roomBodyFromFloor =
+    dungeon.generatorEinstellungen?.roomBodyFromFloor ?? DEFAULT_GENERATOR_SETTINGS.roomBodyFromFloor;
   const placed = a.rooms
     .map((r) => ({ def: roomsByName.get(r.room)!, pos: r.pos, rot: r.rot }))
     .filter((r) => !r.def.endCap && r.def.size.x !== 0 && r.def.size.z !== 0);
@@ -126,8 +142,8 @@ for (const dungeon of INTERIOR) {
       const s2 = quatMulVec3(placed[j].rot, placed[j].def.size);
       const h1 = { x: Math.abs(s1.x) / 2 - 0.1, y: s1.y / 2 - 0.1, z: Math.abs(s1.z) / 2 - 0.1 };
       const h2 = { x: Math.abs(s2.x) / 2 - 0.1, y: s2.y / 2 - 0.1, z: Math.abs(s2.z) / 2 - 0.1 };
-      const p1 = placed[i].pos;
-      const p2 = placed[j].pos;
+      const p1 = roomBodyFromFloor ? { ...placed[i].pos, y: placed[i].pos.y + s1.y / 2 } : placed[i].pos;
+      const p2 = roomBodyFromFloor ? { ...placed[j].pos, y: placed[j].pos.y + s2.y / 2 } : placed[j].pos;
       const overlap =
         p1.x - h1.x < p2.x + h2.x &&
         p1.x + h1.x > p2.x - h2.x &&

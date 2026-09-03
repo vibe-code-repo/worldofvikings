@@ -1182,6 +1182,11 @@ export const EIGENE_MODELLE: readonly string[] = [
   'StoneVaultJunction',
   // Saal: 4 x 4 Boden und Decke ohne Waende, acht Zellkanten-Connectors.
   'StoneVaultHall',
+  // Treppe: zwei Zellen Lauf, eine Zellhoehe Sprung. Ihr oberer
+  // Connector liegt auf y = 3,5 — die Hoehenausnahme in
+  // `dungeonRaster.ts` (`ebenenMasse`) rechnet bei einem 2-m-Kit mit der
+  // Zellhoehe statt mit den 8 m des 4-m-Rasters.
+  'StoneVaultStairs',
   // Das Wandmodul: Abschluss des Kits, 0,3 m dick (Modul-Format).
   'StoneVaultWall',
   // Kein Raum, sondern der Tuertyp des Kits — Eintrag in HINT_DEFS oben,

@@ -1304,6 +1304,89 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
       },
       {
         /*
+          Die Treppe — das erste Modul dieses Kits, das zwei Ebenen
+          verbindet. Sie steigt über zwei Zellen Lauf (z = −2 … +2) um
+          genau eine Zellhöhe: Süd-Ende auf y = 0, Nord-Ende auf y = 3,5.
+
+          ── Warum 3,5 und nicht 8 wie beim Steingrab ──────────────────
+          Der Ebenensprung des Steingrabs ist 8 m, weil dort zwei
+          getrennte Modelle an der Naht deckungsgleiche, nach oben
+          zeigende Flächen bekämen (Rechnung bei `DUNGEON_EBENE_M`). Hier
+          gibt es diese Naht nicht: Die Treppe trägt Boden UND schräge
+          Decke selbst, unten wie oben, und reicht von y = 0 bis y = 7.
+          Eine Ebene ist im Modulformat schlicht eine Zellhöhe.
+
+          ── Die Stufen ───────────────────────────────────────────────
+          14 Stufen à 0,25 m Steigung auf 4 m Lauf, also rund 0,286 m
+          Auftritt — 41°. Steiler als eine Wohntreppe und mit Absicht:
+          Bei flacherer Neigung bräuchte der Lauf drei bis vier Zellen,
+          und der Sprung um EINE Zellhöhe wäre ein halber Gang.
+
+          ── Warum size.y 7 ist ───────────────────────────────────────
+          Der obere Ausgang liegt auf 3,5 und braucht dort dieselbe
+          lichte Höhe wie jede andere Zelle: 3,5 + 3,5 = 7. Genau das
+          verlangt die Regel `ebenensprung-hoehe` in `dungeonRaster.ts`
+          — sie ist die Gegenprobe dazu, dass die Höhenausnahme
+          (`ebenenMasse`) kein Freibrief wird. `roomBodyFromFloor` ist
+          für dieses Kit gesetzt, die Hülle liegt also 0 … 7 über dem
+          Boden und umfasst beide Ebenen.
+
+          ── Warum die Hülle in x 1,4 misst ───────────────────────────
+          Wie beim Korridor: Die seitlichen Innenwände liegen im Streifen
+          0,7 … 1,0 und damit AUSSERHALB der Hülle, damit der Abschluss
+          einer offenen Nachbarzelle nicht dagegenstösst. Die Connectors
+          bleiben trotzdem auf der Rasterkante — sie sitzen auf ± z, nicht
+          auf der schmalen Innenfläche, und `innenmassAchsen` erkennt den
+          Fall deshalb weiter (`dungeonRaster.ts`, „Innenmass bei
+          eingebauten Wänden"). In z ist nichts eingebaut: dort gilt mit
+          4 m das volle Rastermass zweier Zellen.
+
+          KEIN Eingangsraum und KEIN Abschluss — aus demselben Grund wie
+          bei `SteingrabTreppe`: Eine Treppe, die im Nichts beginnt, ist
+          ein Loch im Boden.
+        */
+        name: 'StoneVaultStairs',
+        divider: false,
+        endCap: false,
+        endCapPrio: 0,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 1.4, y: 7, z: 4 },
+        theme: THEMA_KRYPTA,
+        // So selten wie die Halle: Eine Krypta, in der jede dritte Zelle
+        // eine Treppe ist, liest sich als Treppenhaus. Gemessen an der
+        // Verteilung über 40 Seeds — s. Befund zum 03.09.2026.
+        weight: 1,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            // Unten, Süd (−z). Zeigt nach draussen, wie jede Zellkante.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 0, z: -2 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            // Oben, Nord (+z), eine Zellhöhe höher. Der einzige
+            // Connector dieses Kits mit y != 0 — die Konvention ist von
+            // `SteingrabTreppe` übernommen (dort y = 8 = ein Stockwerk),
+            // nur mit dem Ebenenmass des Modulformats.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 0, y: 3.5, z: 2 },
+            localRot: KEINE_DREHUNG,
+          },
+        ],
+      },
+      {
+        /*
           Das Wandmodul — der Abschluss dieses Kits, und im Modulformat
           das Gegenstück zum Torbogen: Eine Zellkante ist entweder Wand
           oder Durchgang.

@@ -91,6 +91,14 @@ export const DUNGEON_MIN_HOEHE_M = 4;
 export const DUNGEON_EBENE_M = 8;
 
 /**
+ * Höhe einer Zelle im Modul-Format in Metern (Zelle 2 × 2 × 3,5,
+ * `/home/mike/wov-ai/elements/modulFormat.md`): y = 0 ist die
+ * Bodenoberkante, ab 3,5 beginnt die Decke. Im Modulkit ist sie zugleich
+ * der Ebenensprung — s. `ebenenMasse`.
+ */
+export const MODUL_ZELLE_HOEHE_M = 3.5;
+
+/**
  * Toleranz für Fließkommavergleiche in Metern.
  *
  * Ein Blender-Export trifft die 0 nicht exakt — 1e-7 ist normal, 1 mm
@@ -123,6 +131,47 @@ const istVielfaches = (wert: number, schritt: number): boolean => {
   const rest = Math.abs(wert) % schritt;
   return rest <= RASTER_TOLERANZ_M || Math.abs(rest - schritt) <= RASTER_TOLERANZ_M;
 };
+
+/**
+ * Ebenensprung und nötiger Kopfraum für ein Rastermass.
+ *
+ * ── Warum das vom Raster abhängt ─────────────────────────────────────
+ * `DUNGEON_EBENE_M` (8 m) ist keine freie Wahl, sondern das Ergebnis der
+ * Rechnung oben: Bei 4 m Stufenhöhe liefen im 4-m-Kit die Bodenplatte des
+ * oberen Gangs (3,64 … 4,00) und die Decke des unteren (3,60 … 4,00)
+ * ineinander, mit Z-Fighting auf einer begehbaren Fläche. Diese Rechnung
+ * setzt die Masse von `DG_Steingrab` voraus — Deckenstärke 0,40,
+ * Bodenplatte 0,36 — und gilt deshalb nur dort.
+ *
+ * Ein Modulkit auf 2 m rechnet anders. Die Ebenen liegen genau eine
+ * Zellhöhe auseinander (3,5 m), und die beiden Flächen an dieser Naht
+ * gehören DEMSELBEN Bauteil: Die Treppe trägt ihre schräge Decke selbst
+ * und reicht von y = 0 bis y = 3,5 + 3,5. Es treffen also nicht zwei
+ * Modelle mit deckungsgleichen Flächen aufeinander, sondern ein Modell
+ * auf sich selbst — das Z-Fighting-Argument greift hier nicht.
+ *
+ * Dieselbe Zahl ist zugleich der Kopfraum: Über dem oberen Ausgang muss
+ * eine ganze Zelle Platz sein, nicht die 4 m des gröberen Rasters.
+ * `DUNGEON_MIN_HOEHE_M` ist am 4-m-Kit gemessen; im Modulformat ist die
+ * lichte Höhe nun einmal 3,5 (deshalb meldet die Höhenregel für JEDE
+ * Zelle dieses Kits einen Hinweis — bewusst ein Hinweis, kein Fehler).
+ *
+ * ── Warum das keine allgemeine Lockerung ist ─────────────────────────
+ * Die Fallunterscheidung hängt am RASTER, nicht am Bauteil: Ein Teil im
+ * 4-m-Kit bekommt weiterhin nur Vielfache von 8 m durch, ein Teil im
+ * Modulkit nur Vielfache von 3,5 m. Ein vertipptes `y: 8` an einer
+ * Modulzelle fällt damit sofort auf — 8 / 3,5 ist kein ganzes Vielfaches
+ * —, anders als bei einem „y darf beliebig sein".
+ */
+export function ebenenMasse(raster: number): {
+  readonly ebene: number;
+  readonly kopfraum: number;
+} {
+  if (raster + RASTER_TOLERANZ_M < DUNGEON_RASTER_M) {
+    return { ebene: MODUL_ZELLE_HOEHE_M, kopfraum: MODUL_ZELLE_HOEHE_M };
+  }
+  return { ebene: DUNGEON_EBENE_M, kopfraum: DUNGEON_MIN_HOEHE_M };
+}
 
 /**
  * Ist die Drehung achsparallel, also ein Vielfaches von 90° um die
@@ -171,7 +220,11 @@ export function pruefeConnector(
   raumName: string,
   index: number,
   c: RoomConnectionDef,
-  size: Vector3
+  size: Vector3,
+  // Der Ebenensprung des KITS, nicht der des 4-m-Rasters. Vorbelegt mit
+  // dem 4-m-Wert, damit ein Aufrufer ohne Kit-Bezug (Test, Editor-
+  // Entwurf) sich nicht ändern muss.
+  ebene: number = DUNGEON_EBENE_M
 ): RasterBefund[] {
   const befunde: RasterBefund[] = [];
   const wo = `Connector ${index + 1}`;
@@ -186,11 +239,12 @@ export function pruefeConnector(
   // verschobener Connector ist unsichtbar, bis genug Teile da sind, dass
   // man die Ursache in der falschen Ecke sucht — davor steht dieses
   // Modul. Erlaubt sind deshalb nur ganze Vielfache von
-  // `DUNGEON_EBENE_M`, und die Zweitprüfung unten bindet den Sprung an
-  // etwas Nachprüfbares: Das Teil muss hoch genug sein, ihn zu
-  // enthalten. Ein `y: 8` an einem 4 m hohen Gang faellt damit weiter
-  // auf, obwohl 8 ein gueltiges Vielfaches ist.
-  const ebenen = c.localPos.y / DUNGEON_EBENE_M;
+  // `ebene` (dem Ebenensprung des Kits, s. `ebenenMasse`), und die
+  // Zweitprüfung unten bindet den Sprung an etwas Nachprüfbares: Das
+  // Teil muss hoch genug sein, ihn zu enthalten. Ein `y: 8` an einem 4 m
+  // hohen Gang faellt damit weiter auf, obwohl 8 ein gueltiges
+  // Vielfaches ist.
+  const ebenen = c.localPos.y / ebene;
   if (!nahe(ebenen, Math.round(ebenen))) {
     befunde.push({
       raum: raumName,
@@ -198,7 +252,7 @@ export function pruefeConnector(
       regel: 'connector-hoehe',
       text:
         `${wo} liegt auf y = ${c.localPos.y.toFixed(3)} — erlaubt sind 0 oder ganze ` +
-        `Stockwerke (Vielfache von ${DUNGEON_EBENE_M} m). Dazwischen treppen Räume gegeneinander.`,
+        `Stockwerke (Vielfache von ${ebene} m). Dazwischen treppen Räume gegeneinander.`,
     });
   }
 
@@ -332,6 +386,9 @@ export function pruefeRaumRaster(raum: RoomDef, raster: number = DUNGEON_RASTER_
   const befunde: RasterBefund[] = [];
   const duenn = verschlussAchse(raum, raster);
   const innen = innenmassAchsen(raum, raster);
+  // Ebenensprung und Kopfraum richten sich nach dem Rastermass des Kits
+  // — 8/4 m im Steingrab, eine Zellhöhe (3,5/3,5) im Modulformat.
+  const { ebene, kopfraum } = ebenenMasse(raster);
 
   // Das Mass, gegen das geprüft wird: bei eingebauten Wänden das
   // Rastermass, das der Raum belegt, sonst die Hülle selbst. Beide
@@ -382,7 +439,7 @@ export function pruefeRaumRaster(raum: RoomDef, raster: number = DUNGEON_RASTER_
   // Mindesthöhe: Wer 8 m überwindet, braucht oben noch Kopfraum.
   const hoechster = Math.max(0, ...raum.connections.map((c) => Math.abs(c.localPos.y)));
   if (hoechster > 0) {
-    const noetig = hoechster + DUNGEON_MIN_HOEHE_M;
+    const noetig = hoechster + kopfraum;
     if (raum.size.y + RASTER_TOLERANZ_M < noetig) {
       befunde.push({
         raum: raum.name,
@@ -390,14 +447,14 @@ export function pruefeRaumRaster(raum: RoomDef, raster: number = DUNGEON_RASTER_
         regel: 'ebenensprung-hoehe',
         text:
           `Ein Connector liegt ${hoechster} m hoch, das Teil ist aber nur ${raum.size.y} m. ` +
-          `Nötig sind ${noetig} m (Sprung plus ${DUNGEON_MIN_HOEHE_M} m Kopfraum oben) — ` +
+          `Nötig sind ${noetig} m (Sprung plus ${kopfraum} m Kopfraum oben) — ` +
           `so steht der Ausgang im Fels.`,
       });
     }
   }
 
   raum.connections.forEach((c, i) => {
-    befunde.push(...pruefeConnector(raum.name, i, c, huelle));
+    befunde.push(...pruefeConnector(raum.name, i, c, huelle, ebene));
   });
 
   return befunde;

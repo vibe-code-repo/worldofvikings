@@ -35,7 +35,9 @@ import {
   attachRoom,
   ausrichtungsOptionen,
   computeOpenConnections,
+  kantenSchlussMeldung,
   removeRoom,
+  schliesseOffeneKanten,
   type DungeonDocument,
   type OpenConnection,
 } from '@wov/shared';
@@ -111,6 +113,13 @@ export class DungeonEditor {
   private dekoWahl!: HTMLSelectElement;
   private dekoListe!: HTMLDivElement;
   private speicherTimer: ReturnType<typeof setTimeout> | null = null;
+  private schliessenBox!: HTMLInputElement;
+  /**
+   * Beim Speichern zuerst die offenen Kanten zumauern? Vorgabe AN — s. die
+   * Begründung am Schalter im Panel. Der Wert steht am Objekt und nicht
+   * nur im Häkchen, damit `speichern()` ihn ohne DOM-Zugriff lesen kann.
+   */
+  private beimSpeichernSchliessen = true;
   private idFeld!: HTMLInputElement;
   private seedFeld!: HTMLInputElement;
   private status!: HTMLDivElement;
@@ -179,11 +188,19 @@ export class DungeonEditor {
     this.raumWahl.addEventListener('change', () => this.ausrichtungenFuellen());
     const anfBtn = this.knopf('Anfügen', () => this.anfuegen());
     const tuerBtn = this.knopf('Tür setzen', () => this.tuerSetzen());
+    // „Kanten schließen" steht hier und nicht bei den Aktionen: Es gehört
+    // zum BAUEN. Im Modul-Kit ist eine Wand ein eigener Raum
+    // (`StoneVaultWall`, `endCap`), den der Generator beim Würfeln über
+    // jede offene Kante zieht — von Hand tat das bisher niemand, und was
+    // hier entstand, hatte im Spiel Löcher. Zurück geht es über die
+    // Raumliste darüber: Eine Wand entfernen gibt ihre Kante wieder frei.
+    const wandBtn = this.knopf('Kanten schließen', () => this.kantenSchliessen());
     anfuegen.appendChild(this.connWahl);
     anfuegen.appendChild(this.raumWahl);
     anfuegen.appendChild(this.ausrichtungWahl);
     anfuegen.appendChild(anfBtn);
     anfuegen.appendChild(tuerBtn);
+    anfuegen.appendChild(wandBtn);
     panel.appendChild(anfuegen);
 
     // ── Grundbeleuchtung ─────────────────────────────────────────────
@@ -273,6 +290,26 @@ export class DungeonEditor {
     aktionen.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center';
 
     aktionen.appendChild(this.knopf('Speichern', () => this.speichern(null)));
+
+    // Derselbe Schalter wie in der Dungeon-Seite des Karteneditors, mit
+    // derselben Vorgabe AN: Ein von Hand gebautes Grab ohne Abschlüsse hat
+    // im Spiel Löcher, und der Fehler zeigt sich erst, wenn man drinsteht.
+    // Wer einen Zwischenstand ablegen will, an dem morgen weitergebaut
+    // wird, nimmt das Häkchen heraus.
+    const schliessenLabel = document.createElement('label');
+    schliessenLabel.style.cssText =
+      'display:flex;gap:5px;align-items:center;font-size:13px;color:#a8916a;cursor:pointer';
+    this.schliessenBox = document.createElement('input');
+    this.schliessenBox.type = 'checkbox';
+    this.schliessenBox.checked = this.beimSpeichernSchliessen;
+    this.schliessenBox.addEventListener('change', () => {
+      this.beimSpeichernSchliessen = this.schliessenBox.checked;
+    });
+    const schliessenText = document.createElement('span');
+    schliessenText.textContent = 'beim Speichern schließen';
+    schliessenLabel.appendChild(this.schliessenBox);
+    schliessenLabel.appendChild(schliessenText);
+    aktionen.appendChild(schliessenLabel);
 
     this.idFeld = document.createElement('input');
     this.idFeld.placeholder = 'neue-id';
@@ -373,6 +410,29 @@ export class DungeonEditor {
     this.doc.mode = 'custom';
     this.aktualisieren();
     this.status.textContent = `${raum} angefügt (ungespeichert)`;
+  }
+
+  /**
+   * Jede offene Kante zumauern — ausser dem Eingang.
+   *
+   * Die Rechnung steht in `schliesseOffeneKanten` (`@wov/shared`), damit
+   * der Karteneditor dieselbe benutzt; hier daneben steht nur das, was
+   * DIESES Panel zusätzlich tun muss. `mode = 'custom'` wie beim Anfügen:
+   * Ein `generated`-Dokument würde beim nächsten Materialisieren aus Seed
+   * und Regeln neu gebaut, und die Wände wären spurlos weg.
+   *
+   * Gibt zurück, ob etwas gesetzt wurde — `speichern()` unterscheidet
+   * daran, ob es überhaupt eine Meldung wert ist.
+   */
+  private kantenSchliessen(): number {
+    if (!this.doc) return 0;
+    const ergebnis = schliesseOffeneKanten(this.doc.layout, this.doc.base);
+    if (ergebnis.gesetzt > 0) {
+      this.doc.mode = 'custom';
+      this.aktualisieren();
+    }
+    this.status.textContent = `${kantenSchlussMeldung(ergebnis)} (ungespeichert)`;
+    return ergebnis.gesetzt;
   }
 
   /** Tür/Gitter am gewählten offenen Connector platzieren. */
@@ -558,6 +618,10 @@ export class DungeonEditor {
 
   private speichern(alsId: string | null): void {
     if (!this.doc) return;
+    // VOR dem Serialisieren: Was danach gesetzt würde, stünde im Panel und
+    // nicht in der Datei. `kantenSchliessen` arbeitet auf `this.doc.layout`
+    // — dasselbe Layout-Objekt, das die Zeile darunter weiterreicht.
+    if (this.beimSpeichernSchliessen) this.kantenSchliessen();
     const doc = { ...this.doc, layout: this.doc.layout };
     if (alsId) {
       doc.id = alsId.toLowerCase();

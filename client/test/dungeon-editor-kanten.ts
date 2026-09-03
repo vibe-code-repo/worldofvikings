@@ -58,6 +58,8 @@ class StummelKnoten {
   min = '';
   max = '';
   step = '';
+  /** Für das Häkchen „beim Speichern schließen". */
+  checked = false;
   title = '';
   placeholder = '';
   selected = false;
@@ -433,6 +435,105 @@ pruefe(
     .map((z) => z.value)
     .join(',') === '0,3,0.5',
   'und die Verwitterung steht in den Zahlenfeldern'
+);
+
+// ── 9. Kanten schliessen: Knopf und Schalter ────────────────────────
+//
+// Die Rechnung selbst steht in `shared/test/dungeon-kanten-schliessen.ts`.
+// Hier wird die VERDRAHTUNG gemessen — dieselbe Sorte Draht wie bei
+// `fuegeAn` in Abschnitt 6: Ein Knopf ohne `onclick` sieht auf einem
+// Bildschirmfoto genauso aus wie einer mit, und die Wände fehlten
+// trotzdem. Und der Schalter beim Speichern ist die stillste Stelle von
+// allen: Wenn er nicht zieht, meldet der Editor „gespeichert" und das
+// Dokument hat im Spiel Löcher.
+console.log('\nKanten schließen:');
+
+let letzteMeldung = '';
+function seiteMit(dok: typeof frisch): {
+  seite: InstanceType<typeof DungeonSeite>;
+  behaelter: StummelKnoten;
+} {
+  const behaelter = new StummelKnoten('div');
+  const seite = new DungeonSeite(behaelter as unknown as HTMLElement, grundrissMit(dok), {
+    meldung: (t: string) => {
+      letzteMeldung = t;
+    },
+  });
+  seite.baue();
+  return { seite, behaelter };
+}
+const knopfNamens = (b: StummelKnoten, text: string): StummelKnoten | undefined =>
+  b.alle().find((k) => k.tag === 'button' && k.textContent === text);
+
+const kantenDoc = JSON.parse(JSON.stringify(frisch)) as typeof frisch;
+const kanten = seiteMit(kantenDoc);
+const schliessKnopf = knopfNamens(kanten.behaelter, 'Kanten schließen');
+pruefe(schliessKnopf !== undefined, 'die Aktionen-Zeile hat einen Knopf „Kanten schließen"');
+pruefe(kantenDoc.layout.rooms.length === 1, 'vor dem Klick steht nur der Eingang');
+schliessKnopf!.onclick!();
+pruefe(
+  kantenDoc.layout.rooms.length === 4,
+  'der Klick setzt drei Wände (Eingangskante bleibt offen)',
+  `${kantenDoc.layout.rooms.length}`
+);
+pruefe(letzteMeldung === '3 Wände gesetzt', 'und meldet, wie viele es waren', letzteMeldung);
+pruefe(
+  computeOpenConnections(kantenDoc.layout, KIT).length === 1,
+  'genau eine Kante bleibt offen — der Eingang',
+  `${computeOpenConnections(kantenDoc.layout, KIT).length}`
+);
+// Der Weg zum Weiterbauen: eine Wand entfernen gibt ihre Kante frei.
+// Ohne diese Gegenprobe wäre „Kanten schließen" eine Einbahnstrasse, und
+// genau das behauptet der Hinweistext in der Leiste NICHT.
+const nachEntfernen = grundrissMit(kantenDoc);
+pruefe(nachEntfernen.entferne(1), 'eine gesetzte Wand lässt sich wieder entfernen');
+pruefe(
+  computeOpenConnections(kantenDoc.layout, KIT).length === 2,
+  'danach ist ihre Kante wieder offen',
+  `${computeOpenConnections(kantenDoc.layout, KIT).length}`
+);
+
+// Der Schalter: Vorgabe AN, Zustand an der Klasse (nicht im Element, das
+// `baue()` wegwirft).
+const schalterDoc = JSON.parse(JSON.stringify(frisch)) as typeof frisch;
+const mitSchalter = seiteMit(schalterDoc);
+const haekchen = (b: StummelKnoten): StummelKnoten | undefined =>
+  b.alle().find((k) => k.type === 'checkbox');
+pruefe(haekchen(mitSchalter.behaelter) !== undefined, 'es gibt ein Häkchen');
+pruefe(haekchen(mitSchalter.behaelter)?.checked === true, 'Vorgabe: beim Speichern schließen');
+
+// Der Speicherweg bis zur Netzverbindung: `speichereDungeon` braucht
+// `location` und einen laufenden Spielserver, beides gibt es hier nicht —
+// der Aufruf endet in einem Fehler. Das MACHT NICHTS und ist der Punkt:
+// Zugemauert wird VOR dem Absenden, und genau diese Reihenfolge ist der
+// Prüfgegenstand. Wäre sie andersherum, stünden die Wände im Grundriss und
+// nicht in der Datei.
+const mitPrivat = mitSchalter.seite as unknown as { speichere(doc: unknown): Promise<void> };
+await mitPrivat.speichere(schalterDoc).catch(() => undefined);
+pruefe(
+  schalterDoc.layout.rooms.length === 4,
+  'Speichern mit gesetztem Häkchen mauert vorher zu',
+  `${schalterDoc.layout.rooms.length}`
+);
+
+const ohneDoc = JSON.parse(JSON.stringify(frisch)) as typeof frisch;
+const ohneSchalter = seiteMit(ohneDoc);
+const box = haekchen(ohneSchalter.behaelter)!;
+box.checked = false;
+box.onchange!();
+const ohnePrivat = ohneSchalter.seite as unknown as { speichere(doc: unknown): Promise<void> };
+await ohnePrivat.speichere(ohneDoc).catch(() => undefined);
+pruefe(
+  ohneDoc.layout.rooms.length === 1,
+  'ohne Häkchen bleibt das Dokument offen — der Zwischenstand',
+  `${ohneDoc.layout.rooms.length}`
+);
+// Und der abgeschaltete Zustand überlebt den nächsten Aufbau der Leiste:
+// Er steht an der Klasse, nicht im weggeworfenen Element.
+ohneSchalter.seite.baue();
+pruefe(
+  haekchen(ohneSchalter.behaelter)?.checked === false,
+  'das ausgeschaltete Häkchen kommt ausgeschaltet zurück'
 );
 
 console.log(fehler === 0 ? '\nAlles grün.' : `\n${fehler} Prüfung(en) fehlgeschlagen.`);

@@ -36,6 +36,7 @@ import {
   STEIN_VERWITTERUNG_MAX,
   ambientLichtVon,
   ausrichtungsOptionen,
+  kantenSchlussMeldung,
   sanitizeDungeonDocument,
   type DungeonDocument,
   type SteinKitConfig,
@@ -108,6 +109,30 @@ function abschnitt(text: string): HTMLDivElement {
   return d;
 }
 
+/**
+ * Ein Häkchen mit Beschriftung.
+ *
+ * Der Zustand wird NICHT aus dem Häkchen gelesen, sondern beim Umschalten
+ * nach draussen gemeldet: `baue()` wirft die ganze Leiste weg und legt sie
+ * neu an — ein Wert, der nur im Element steht, wäre nach dem nächsten
+ * Anfügen wieder auf der Vorgabe. Dieselbe Begründung wie bei den Feldern
+ * von „Neu anlegen".
+ */
+function schalter(text: string, an: boolean, bei: (an: boolean) => void): HTMLLabelElement {
+  const l = document.createElement('label');
+  l.style.cssText =
+    'display:flex;gap:5px;align-items:center;font-size:12px;color:#a8916a;cursor:pointer';
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.checked = an;
+  box.onchange = () => bei(box.checked);
+  const s = document.createElement('span');
+  s.textContent = text;
+  l.appendChild(box);
+  l.appendChild(s);
+  return l;
+}
+
 /** Kleingedruckter Hinweis unter einem Abschnitt. */
 function hinweis(text: string): HTMLDivElement {
   const d = document.createElement('div');
@@ -169,6 +194,21 @@ export class DungeonSeite {
    */
   private schmutzig = false;
   private speichertGerade = false;
+  /**
+   * Beim Speichern zuerst die offenen Kanten zumauern?
+   *
+   * VORGABE AN, und das ist die eigentliche Entscheidung: Im Modul-Kit ist
+   * eine Wand ein eigener Raum (`StoneVaultWall`), und was der Editor ohne
+   * sie speichert, hat im Spiel Löcher — lautlos, denn im Grundriss sieht
+   * eine offene Kante genauso aus wie eine, an der man weiterbauen will.
+   * Wer das nicht will (etwa um einen Zwischenstand abzulegen, an dem
+   * morgen weitergebaut wird), nimmt das Häkchen heraus.
+   *
+   * Der Zustand steht an der KLASSE und nicht im Element: `baue()` legt die
+   * ganze Leiste nach jeder Aktion neu an, ein Häkchen im DOM wäre danach
+   * wieder auf der Vorgabe.
+   */
+  private beimSpeichernSchliessen = true;
   /**
    * Eingaben des Formulars „Neu anlegen".
    *
@@ -297,8 +337,28 @@ export class DungeonSeite {
           this.grundriss.zeichne();
         }),
         knopf('Prüfen', () => this.pruefe(doc)),
+        // Der Knopf ist der Weg für „jetzt sehen, was das tut" — der
+        // Schalter darunter der für „nicht mehr daran denken müssen".
+        // Beide rufen dieselbe Rechnung; ohne den Knopf gäbe es keine
+        // Möglichkeit, das Ergebnis im Grundriss anzusehen, BEVOR es auf
+        // dem Server steht.
+        knopf('Kanten schließen', () => this.schliesseKanten()),
         speichernKnopf,
         knopf('Betreten', () => this.betrete(doc))
+      )
+    );
+    b.appendChild(
+      zeile(
+        schalter('beim Speichern schließen', this.beimSpeichernSchliessen, (an) => {
+          this.beimSpeichernSchliessen = an;
+        })
+      )
+    );
+    b.appendChild(
+      hinweis(
+        'Wände sind eigene Räume (endCap) und stehen im Grundriss als dünne Rechtecke. ' +
+          'Zum Weiterbauen an einer zugemauerten Kante die Wand anklicken und „Raum ' +
+          'entfernen" — damit ist die Kante wieder offen.'
       )
     );
     if (this.schmutzig) {
@@ -799,8 +859,29 @@ export class DungeonSeite {
    * geaendert hat, soll man im Grundriss sehen und nicht erst beim
    * naechsten Oeffnen.
    */
+  /**
+   * Offene Kanten zumauern und das Ergebnis melden.
+   *
+   * Eigene Methode, weil sie ZWEI Aufrufer hat — den Knopf und den Weg
+   * über „Speichern". Zwei Kopien gingen beim ersten Nachbessern
+   * auseinander, und die stille Hälfte wäre die im Speicherweg, die
+   * niemand anklickt.
+   */
+  private schliesseKanten(): number {
+    const ergebnis = this.grundriss.schliesseKanten();
+    if (ergebnis.gesetzt > 0) this.schmutzig = true;
+    this.cb.meldung(kantenSchlussMeldung(ergebnis), ergebnis.offenGeblieben > 0);
+    this.baue();
+    return ergebnis.gesetzt;
+  }
+
   private async speichere(doc: DungeonDocument): Promise<void> {
     if (this.speichertGerade) return;
+    // VOR dem Serialisieren, nicht danach: `speichereDungeon` schickt das
+    // Dokument, wie es hier steht. Eine Wand, die erst nach dem Absenden
+    // gesetzt wird, stünde im Grundriss und nicht in der Datei — und der
+    // Unterschied fiele erst im Spiel auf.
+    if (this.beimSpeichernSchliessen) this.schliesseKanten();
     this.speichertGerade = true;
     this.baue();
     this.cb.meldung(`${doc.id} wird gespeichert …`);

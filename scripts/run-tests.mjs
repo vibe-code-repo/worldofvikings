@@ -47,6 +47,14 @@ const KERN = [
   ['shared', 'test/heightmap-determinismus.ts'],
   ['shared', 'test/dungeon-generator.ts'],
   ['shared', 'test/dungeon-raster.ts'],
+  // `schliesseOffeneKanten`: Im Modul-Kit ist eine Wand ein EIGENER Raum
+  // (`endCap`), den der Generator über jede sonst offene Kante zieht — von
+  // Hand gebaute Gräber hatten deshalb Löcher. Gemessen wird die Zahl der
+  // gesetzten Wände und die der offen gebliebenen Kanten (der Eingang
+  // bleibt frei, alles andere wird dicht), für DG_StoneVault und
+  // DG_Steingrab. Rein rechnerisch, Zehntelsekunden.
+  // Sealing open cell edges with the kit's end caps — entrance stays open.
+  ['shared', 'test/dungeon-kanten-schliessen.ts'],
   ['shared', 'test/bauteile-kosten.ts'],
   ['server', 'test/h1-layout.ts'],
   ['server', 'test/h2-routen.ts'],

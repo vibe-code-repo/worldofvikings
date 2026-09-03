@@ -66,7 +66,9 @@ import {
   computeOpenConnections,
   innenmassAchsen,
   removeRoom,
+  schliesseOffeneKanten,
   type DungeonDocument,
+  type KantenSchlussErgebnis,
   type OpenConnection,
   type PlacedRoom,
   type Quaternion,
@@ -330,6 +332,35 @@ export class DungeonGrundriss {
     this.cb.auswahlGeaendert();
     this.cb.meldung(`${raumName} angefügt — ${doc.layout.rooms.length} Räume`);
     return true;
+  }
+
+  /**
+   * Alle offenen Kanten zumauern — ausser dem Eingang.
+   *
+   * Die Rechnung steht in `schliesseOffeneKanten` (`@wov/shared`), damit
+   * der F4-Editor im Spiel dieselbe benutzt. Hier daneben steht nur, was
+   * DIESER Editor zusätzlich tun muss: `mode` umstellen, die Liste der
+   * offenen Kanten neu ziehen und neu zeichnen.
+   *
+   * `mode = 'custom'` wie bei `fuegeAn`: Ein `generated`-Dokument wird beim
+   * nächsten Materialisieren aus Seed und Regeln neu gebaut, und die eben
+   * gesetzten Wände wären spurlos weg.
+   *
+   * Rückwärts geht es über „Raum entfernen": Eine Wand ist ein Raum wie
+   * jeder andere, und ihn zu entfernen gibt die Kante wieder frei. Das ist
+   * der Weg zum Weiterbauen an einem schon geschlossenen Grab.
+   */
+  schliesseKanten(): KantenSchlussErgebnis {
+    const doc = this.doc;
+    if (!doc) return { gesetzt: 0, offenGeblieben: 0 };
+    const ergebnis = schliesseOffeneKanten(doc.layout, doc.base);
+    if (ergebnis.gesetzt > 0) {
+      doc.mode = 'custom';
+      this.aktualisiereOffene();
+      this.zeichne();
+      this.cb.auswahlGeaendert();
+    }
+    return ergebnis;
   }
 
   entferne(index: number): boolean {

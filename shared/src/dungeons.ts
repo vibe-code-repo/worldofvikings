@@ -446,6 +446,11 @@ const INTERIOR_ENV: ReadonlyMap<string, string> = new Map([
   ['DG_Hildir_Cave', 'CavesHildir'],
   ['DG_DvergrBoss', 'Darklands_dark'],
   ['DG_DvergrTown', 'Darklands_dark'],
+  // Modul-Kit ohne eigene Lichtquellen (der 1.0-Generator setzt keine
+  // Props): `Crypt` hat lightIntensity 0 und ist ohne Fackeln stockdunkel
+  // (Spielprobe 03.09.2026). `Caves` bringt 0,1 Grundlicht mit — genug,
+  // um Geometrie zu sehen, dunkel genug, dass gesetzte Fackeln wirken.
+  ['DG_StoneVault', 'Caves'],
 ]);
 
 /** Lighting environment for a dungeon base ('Crypt' as always-dark fallback). */

@@ -809,6 +809,21 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
     campRadiusMax: 0,
     campRadiusMin: 0,
     /*
+      Setzbare Deko wie beim Steingrab: die Wandfackel. Der 1.0-Generator
+      setzt KEINE Props von sich aus — `propTypes` ist das Angebot an den
+      Editor. Ohne diesen Eintrag liesse sich im StoneVault keine Fackel
+      setzen, und ein Modulkit ohne eigene Lichtquelle bleibt in der
+      Innen-Umgebung so dunkel, wie der Spielprobe-Befund vom 03.09.2026
+      es zeigte (Crypt: Sonne 0, Fackeln 0/16 — stockdunkel).
+    */
+    propTypes: [
+      {
+        prefabName: 'CryptWallTorch',
+        prefabHash: getStableHash('CryptWallTorch'),
+        label: 'Wandfackel',
+      },
+    ],
+    /*
       Ohne Wirkung, solange der einzige Türtyp eine EIGENE Wahrscheinlichkeit
       mitbringt (s. `doorTypes` gleich darunter) — `placeDoors` fragt
       `doorChance` nur, wenn `doorDef.chance <= 0`. Der Wert steht

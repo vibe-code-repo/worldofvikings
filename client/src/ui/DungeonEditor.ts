@@ -14,16 +14,17 @@
  *
  * Bedienung: F4 in einer Dungeon-Instanz öffnet das Panel (Admin). Das
  * Dokument kommt per DungeonEditRequest vom Server; Änderungen laufen
- * LOKAL auf einer Kopie (Raum anfügen an offene Connectors, Raum
- * entfernen). Erst "Speichern" schickt das Dokument zurück — der Server
+ * LOKAL auf einer Kopie (Raum anfügen an eine anbaubare Kante — offen oder
+ * zugemauert —, Raum entfernen). Erst "Speichern" schickt das Dokument zurück — der Server
  * sanitisiert, persistiert, materialisiert die Instanz neu und teleportiert
  * den Spieler wieder hinein, sodass die Änderung sofort im Spiel steht.
  *
  * Bewusst kein eigener Ghost-Preview-Renderer: die Instanz selbst IST die
  * Vorschau (Speichern ⇒ Neuaufbau), was den Editor auf reine Dokument-
- * Operationen aus shared/dungeonGenerator.ts (attachRoom, removeRoom,
- * computeOpenConnections) reduziert — dieselben Funktionen, die auch
- * Server und Generator benutzen.
+ * Operationen aus shared/ reduziert (`removeRoom` aus dungeonGenerator.ts,
+ * `anbaubareKanten` und `fuegeAnKante` aus dungeonKanten.ts, die ihrerseits
+ * auf `attachRoom`/`computeOpenConnections` sitzen) — dieselben Funktionen,
+ * die auch Server und Generator benutzen.
  *
  * Gestaltung wie SettingsPanel (dunkles Leder, Bronzerand, Serifen).
  */
@@ -32,14 +33,15 @@ import {
   MAX_DUNGEON_AMBIENT,
   MAX_DUNGEON_PROPS,
   ambientLichtVon,
-  attachRoom,
+  anbaubareKanten,
   ausrichtungsOptionen,
-  computeOpenConnections,
+  fuegeAnKante,
+  kantenBeschriftung,
   kantenSchlussMeldung,
   removeRoom,
   schliesseOffeneKanten,
+  type AnbaubareKante,
   type DungeonDocument,
-  type OpenConnection,
 } from '@wov/shared';
 
 /**
@@ -100,7 +102,12 @@ export class DungeonEditor {
   private readonly root: HTMLDivElement;
   private visible = false;
   private doc: DungeonDocument | null = null;
-  private offene: OpenConnection[] = [];
+  /**
+   * Die Kanten der Anfügen-Liste — offene UND zugemauerte. Sie wird bei
+   * jedem `aktualisieren()` neu gezogen: `wandIndex` zeigt in ein Layout,
+   * dessen Indizes nach jedem Entfernen rutschen.
+   */
+  private offene: AnbaubareKante[] = [];
 
   // UI-Elemente, die bei jedem Dokumentstand neu gefüllt werden
   private kopf!: HTMLDivElement;
@@ -401,15 +408,20 @@ export class DungeonEditor {
     // als Fehler.
     const wahl = this.ausrichtungWahl.value;
     const connIndex = wahl === '' ? undefined : Number(wahl);
-    const result = attachRoom(this.doc.layout, this.doc.base, conn, raum, connIndex);
+    // Ist die Kante zugemauert, fällt die Wand — aber erst, wenn feststeht,
+    // dass der neue Raum passt. Die Reihenfolge steht in `fuegeAnKante`
+    // (`@wov/shared`); ein Fehlschlag lässt die Wand stehen, statt ein Loch
+    // zu hinterlassen, das niemand angekündigt hat.
+    const result = fuegeAnKante(this.doc.layout, this.doc.base, conn, raum, connIndex);
     if (!result.ok) {
       this.status.textContent = result.reason;
       return;
     }
-    this.doc.layout.rooms.push(result.placed);
     this.doc.mode = 'custom';
     this.aktualisieren();
-    this.status.textContent = `${raum} angefügt (ungespeichert)`;
+    this.status.textContent = result.wandErsetzt
+      ? `Wand ersetzt, ${raum} angefügt (ungespeichert)`
+      : `${raum} angefügt (ungespeichert)`;
   }
 
   /**
@@ -441,6 +453,13 @@ export class DungeonEditor {
     if (!doc) return;
     const conn = this.offene[Number(this.connWahl.value)];
     if (!conn) return;
+    // Die Liste enthält seit „flüssiges Bauen" auch zugemauerte Kanten.
+    // Eine Tür in einer Wand wäre eine Tür in einem Stein: Sie stünde im
+    // Dokument, und im Spiel sähe man sie nicht.
+    if (conn.wandIndex !== undefined) {
+      this.status.textContent = 'Dort steht eine Wand — erst durch einen Raum ersetzen';
+      return;
+    }
     const def = DUNGEONS_BY_NAME.get(doc.base);
     const passend = def?.doorTypes.filter((t) => t.connectionType === conn.type) ?? [];
     const tuer = passend[0] ?? def?.doorTypes[0];
@@ -663,14 +682,20 @@ export class DungeonEditor {
       this.raumListe.appendChild(zeile);
     });
 
-    // Offene Connectors
-    this.offene = computeOpenConnections(doc.layout, doc.base);
+    // Anbaubare Kanten: offene UND zugemauerte („(Wand)").
+    //
+    // Nur die offenen anzubieten hiesse, an einem einmal dicht gemachten
+    // Grab gar nicht mehr weiterbauen zu können — der Eingang wäre die
+    // einzige Wahl, und die bietet die Liste mit Absicht nicht an (dort
+    // geht es hinaus). Die Rechnung steht in `anbaubareKanten`
+    // (`@wov/shared`), damit die Dungeon-Seite des Karteneditors dieselbe
+    // Liste zeigt.
+    this.offene = anbaubareKanten(doc.layout, doc.base);
     this.connWahl.textContent = '';
     this.offene.forEach((c, i) => {
       const opt = document.createElement('option');
       opt.value = String(i);
-      const raumName = doc.layout.rooms[c.roomIndex]?.room ?? '?';
-      opt.textContent = `${raumName}#${c.roomIndex}/${c.connIndex}${c.type ? ` [${c.type}]` : ''}`;
+      opt.textContent = kantenBeschriftung(doc.layout, c);
       this.connWahl.appendChild(opt);
     });
 

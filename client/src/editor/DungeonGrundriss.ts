@@ -19,7 +19,10 @@
  * ── Was hier NICHT passiert ──────────────────────────────────────────
  * Gebaut wird ausschliesslich mit `attachRoom`, `removeRoom` und
  * `computeOpenConnections` aus `shared/src/dungeonGenerator.ts` — denselben
- * Funktionen, die Server, Generator und der F4-Editor benutzen. Eine
+ * Funktionen, die Server, Generator und der F4-Editor benutzen. Seit
+ * „flüssiges Bauen" laufen Anfügen und Kantenliste über `fuegeAnKante` und
+ * `anbaubareKanten` (`shared/src/dungeonKanten.ts`); die sitzen auf genau
+ * denselben drei und teilen sie sich mit dem F4-Editor. Eine
  * zweite Bau-Logik im Editor wäre die eine Sache, die dieses Vorhaben
  * ausdrücklich ausschliesst: Sie liefe beim ersten Sonderfall auseinander,
  * und der Unterschied zeigte sich erst im Spiel.
@@ -62,11 +65,13 @@
 import {
   DUNGEONS_BY_NAME,
   MODUL_WANDDICKE_M,
-  attachRoom,
+  anbaubareKanten,
   computeOpenConnections,
+  fuegeAnKante,
   innenmassAchsen,
   removeRoom,
   schliesseOffeneKanten,
+  type AnbaubareKante,
   type DungeonDocument,
   type KantenSchlussErgebnis,
   type OpenConnection,
@@ -196,6 +201,8 @@ export class DungeonGrundriss {
   private readonly canvas: HTMLCanvasElement;
   private doc: DungeonDocument | null = null;
   private offene: OpenConnection[] = [];
+  /** Offene UND verwandete Kanten — die Anfügen-Liste der Seitenleiste. */
+  private anbaubareListe: AnbaubareKante[] = [];
   /** Pixel je Meter. */
   private zoom = 8;
   /** Mitte des Bildes in Dungeon-Koordinaten. */
@@ -264,6 +271,19 @@ export class DungeonGrundriss {
   }
 
   /**
+   * Die Kanten, an denen sich anbauen lässt — offene UND zugemauerte.
+   *
+   * Bewusst NEBEN `offeneVerbindungen` und nicht statt dessen: Gezeichnet
+   * und gezählt werden die wirklich OFFENEN Kanten (ein Loch ist ein Loch,
+   * eine Wand nicht), angeboten wird die längere Liste. Ein einziger
+   * Getter für beides hiesse, im Kopf des Dokuments „7 offen" zu melden,
+   * wo sechs davon zugemauert sind.
+   */
+  get anbaubare(): readonly AnbaubareKante[] {
+    return this.anbaubareListe;
+  }
+
+  /**
    * Ebenen, auf denen wirklich etwas steht — Futter für den Filter.
    *
    * Die offenen Connectors zählen MIT, und das ist der Fall, für den der
@@ -296,7 +316,14 @@ export class DungeonGrundriss {
   }
 
   /**
-   * Raum an eine offene Verbindung anfügen (dieselbe Funktion wie F4).
+   * Raum an eine anbaubare Kante anfügen (dieselbe Funktion wie F4).
+   *
+   * `connIndex` zählt in `anbaubare`, nicht in `offeneVerbindungen`: Die
+   * offenen Kanten stehen dort vorn und behalten ihre Plätze, dahinter
+   * kommen die verwandeten. Ist die gewählte Kante eine Wand, fällt sie —
+   * aber erst, wenn feststeht, dass der neue Raum passt. Die Reihenfolge
+   * macht `fuegeAnKante` in `@wov/shared`; hier daneben steht nur, was
+   * DIESER Editor zusätzlich nachziehen muss.
    *
    * `kanteIndex` ist die Ausrichtung: WELCHE Kante des neuen Raums an der
    * offenen Kante hängt (Index in `RoomDef.connections`). Ohne ihn nimmt
@@ -311,18 +338,21 @@ export class DungeonGrundriss {
    */
   fuegeAn(connIndex: number, raumName: string, kanteIndex?: number): boolean {
     const doc = this.doc;
-    const conn = this.offene[connIndex];
+    const conn = this.anbaubareListe[connIndex];
     if (!doc || !conn) return false;
-    const ergebnis = attachRoom(doc.layout, doc.base, conn, raumName, kanteIndex);
+    const ergebnis = fuegeAnKante(doc.layout, doc.base, conn, raumName, kanteIndex);
     if (!ergebnis.ok) {
-      this.cb.meldung(ergebnis.reason ?? 'Raum passt hier nicht', true);
+      this.cb.meldung(ergebnis.reason, true);
       return false;
     }
-    // `attachRoom` RECHNET nur und veraendert nichts — anhaengen ist Sache
-    // des Aufrufers (so steht es dort auch im Kommentar). Ohne diese Zeile
-    // meldet der Editor „angefuegt" und nichts passiert: Der Raum wird
-    // geprueft, passend gedreht, und dann fallen gelassen.
-    doc.layout.rooms.push(ergebnis.placed);
+    // Fiel eine Wand, rutschen die Indizes hinter ihr — auch der der
+    // Auswahl. Ohne diese drei Zeilen zeigte der markierte Raum nach dem
+    // Anfügen auf seinen Nachbarn, und „Raum entfernen" träfe den
+    // Falschen.
+    if (conn.wandIndex !== undefined) {
+      if (this.gewaehlt === conn.wandIndex) this.gewaehlt = -1;
+      else if (this.gewaehlt > conn.wandIndex) this.gewaehlt--;
+    }
     // Von Hand gebaut heisst „custom": Ein `generated`-Dokument wird beim
     // naechsten Materialisieren aus Seed und Regeln neu erzeugt, und der
     // angefuegte Raum waere spurlos weg. Dieselbe Zeile steht im F4-Editor.
@@ -330,7 +360,11 @@ export class DungeonGrundriss {
     this.aktualisiereOffene();
     this.zeichne();
     this.cb.auswahlGeaendert();
-    this.cb.meldung(`${raumName} angefügt — ${doc.layout.rooms.length} Räume`);
+    this.cb.meldung(
+      ergebnis.wandErsetzt
+        ? `Wand ersetzt, ${raumName} angefügt — ${doc.layout.rooms.length} Räume`
+        : `${raumName} angefügt — ${doc.layout.rooms.length} Räume`
+    );
     return true;
   }
 
@@ -385,6 +419,10 @@ export class DungeonGrundriss {
 
   private aktualisiereOffene(): void {
     this.offene = this.doc ? computeOpenConnections(this.doc.layout, this.doc.base) : [];
+    // IMMER zusammen mit `offene` neu ziehen: `wandIndex` zeigt in ein
+    // Layout, dessen Indizes nach jedem `removeRoom` rutschen. Eine Liste,
+    // die einen Arbeitsgang überlebt, zeigt auf den falschen Raum.
+    this.anbaubareListe = this.doc ? anbaubareKanten(this.doc.layout, this.doc.base) : [];
   }
 
   /** Maßstab und Mitte so wählen, dass der ganze Grundriss ins Bild passt. */

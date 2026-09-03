@@ -65,10 +65,15 @@ const angefuegt = await seite.evaluate(async () => {
   const warte = (ms) => new Promise((r) => setTimeout(r, ms));
   const selects = [...document.querySelectorAll('select')];
   const conn = selects.find((s) => [...s.options].some((o) => /StoneVaultEntry#0\//.test(o.textContent)));
-  if (!conn) return { fehler: 'keine offenen Connectors' };
-  // Nord-Kante des Eingangs (Connector 0), wenn vorhanden.
-  const nord = [...conn.options].find((o) => /StoneVaultEntry#0\/0/.test(o.textContent)) ?? conn.options[0];
-  conn.value = nord.value; conn.dispatchEvent(new Event('change'));
+  if (!conn) return { fehler: 'keine anbaubaren Kanten' };
+  // Nicht die Eingangskante: Dort geht es hinaus, und der Editor bietet sie
+  // seit „flüssiges Bauen" gar nicht mehr an — die Filterung bleibt trotzdem
+  // stehen, damit das Skript auch an einem älteren Stand nicht die Tür
+  // zubaut. Eine verwandete Kante („(Wand)") ist ausdrücklich willkommen:
+  // Genau daran zeigt sich, dass die Wand beim Anfügen von selbst fällt.
+  const kandidaten = [...conn.options].filter((o) => !/Eingang/i.test(o.textContent));
+  const wahl = kandidaten.find((o) => /\(Wand\)/.test(o.textContent)) ?? kandidaten[0] ?? conn.options[0];
+  conn.value = wahl.value; conn.dispatchEvent(new Event('change'));
   await warte(200);
   const raum = selects.find((s) => [...s.options].some((o) => /StoneVaultCorridor/.test(o.textContent)));
   if (!raum) return { fehler: 'keine Raumwahl' };
@@ -81,9 +86,15 @@ const angefuegt = await seite.evaluate(async () => {
   const knopf = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Anfügen');
   knopf?.click();
   await warte(500);
-  return { connector: nord.textContent.trim(), ausrichtungen: optionen, gewaehlt: ausr?.options[ausr.selectedIndex]?.textContent.trim() ?? null };
+  return {
+    kante: wahl.textContent.trim(),
+    kanten: [...conn.options].map((o) => o.textContent.trim()),
+    ausrichtungen: optionen,
+    gewaehlt: ausr?.options[ausr.selectedIndex]?.textContent.trim() ?? null,
+  };
 });
-console.log(`2. Anfügen: ${JSON.stringify(angefuegt)} — ${await fuss()}`);
+console.log(`2. Anfügen an Kante „${angefuegt.kante ?? '?'}" (angeboten: ${(angefuegt.kanten ?? []).join(' | ') || '—'})`);
+console.log(`   ${JSON.stringify(angefuegt)} — ${await fuss()}`);
 await bild('angefuegt');
 
 // ── 3. Grundbeleuchtung setzen ─────────────────────────────────────────

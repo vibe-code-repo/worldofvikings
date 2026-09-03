@@ -26,9 +26,12 @@
  */
 import {
   DUNGEONS_BY_NAME,
+  anbaubareKanten,
   attachRoom,
   computeOpenConnections,
+  fuegeAnKante,
   generateDungeonLayout,
+  kantenBeschriftung,
   removeRoom,
   schliesseOffeneKanten,
   type DungeonDef,
@@ -174,6 +177,160 @@ const ohneBasis = leeresLayout(vault);
 const fremd = schliesseOffeneKanten(ohneBasis, 'DG_GibtEsNicht');
 pruefe(fremd.gesetzt === 0, 'unbekannte Basis setzt nichts', `${fremd.gesetzt}`);
 pruefe(ohneBasis.rooms.length === 1, 'und lässt das Layout in Ruhe', `${ohneBasis.rooms.length}`);
+
+// ── 5. anbaubareKanten: die Wand ist ein Angebot, kein Hindernis ────
+//
+// ── Warum das eine eigene Prüfung braucht ───────────────────────────
+// Seit „Kanten schließen" mauert der Editor beim Speichern zu. Danach hat
+// ein Grab GENAU EINE offene Kante — den Eingang, und der wird nicht
+// angeboten. Ohne `anbaubareKanten` stünde man vor einer leeren
+// Anfügen-Liste und müsste erst im Grundriss eine Wand suchen und
+// abreissen; im Grundriss sieht ein zugemauertes Grab aber aus wie ein
+// fertiges, und die Wand findet man nur, wenn man weiss, dass es sie gibt.
+//
+// Gemessen wird an der ZAHL und am `wandIndex`, nicht daran, dass die
+// Funktion etwas zurückgibt: Eine Liste ohne `wandIndex` sähe im Editor
+// genauso aus und risse beim Anfügen die falsche (oder gar keine) Wand weg.
+console.log('\nanbaubareKanten:');
+
+/**
+ * Die Zusagen, die jede Liste halten muss — sie werden nach JEDEM Schritt
+ * geprüft, weil genau hier die Indizes rutschen: `removeRoom` schiebt alles
+ * hinter dem entfernten Raum um eins nach vorn. Ein `wandIndex`, der auf
+ * einen Nicht-Abschluss zeigt, ist der Fehler, den man sonst erst bemerkt,
+ * wenn beim Anfügen ein Korridor verschwindet.
+ */
+function invarianten(layout: DungeonLayout, def: DungeonDef, wo: string): void {
+  const nachName = new Map(def.rooms.map((r) => [r.name, r]));
+  const istWand = (i: number): boolean => !!nachName.get(layout.rooms[i]?.room ?? '')?.endCap;
+  const kanten = anbaubareKanten(layout, def.name);
+  const nachbarOk = kanten.every((k) => layout.rooms[k.roomIndex] !== undefined && !istWand(k.roomIndex));
+  const wandOk = kanten.every((k) => k.wandIndex === undefined || istWand(k.wandIndex));
+  const eingangWeg = !kanten.some(
+    (k) => k.roomIndex === 0 && nachName.get(layout.rooms[0]!.room)?.connections[k.connIndex]?.entrance
+  );
+  pruefe(nachbarOk, `${wo}: jede Kante gehört einem echten Nicht-Abschluss`);
+  pruefe(wandOk, `${wo}: jeder wandIndex zeigt auf einen Abschlussraum`);
+  pruefe(eingangWeg, `${wo}: die Eingangskante wird nicht angeboten`);
+}
+
+// 5a. Offener Eingangsraum — drei Kanten, keine davon verwandet.
+const offenerEingang = leeresLayout(vault);
+const offeneKanten = anbaubareKanten(offenerEingang, vault.name);
+pruefe(offeneKanten.length === 3, 'offener Eingang: drei anbaubare Kanten', `${offeneKanten.length}`);
+pruefe(
+  offeneKanten.every((k) => k.wandIndex === undefined),
+  'und keine davon ist verwandet'
+);
+invarianten(offenerEingang, vault, 'offener Eingang');
+
+// 5b. Dichter Eingangsraum — dieselben drei Kanten, jetzt mit wandIndex.
+const dicht = leeresLayout(vault);
+schliesseOffeneKanten(dicht, vault.name);
+pruefe(computeOpenConnections(dicht, vault.name).length === 1, 'dicht: nur der Eingang ist offen');
+const dichteKanten = anbaubareKanten(dicht, vault.name);
+pruefe(dichteKanten.length === 3, 'dichter Eingang: trotzdem drei anbaubare Kanten',
+  `${dichteKanten.length}`);
+pruefe(
+  dichteKanten.every((k) => k.wandIndex !== undefined),
+  'und jede trägt den Index ihrer Wand',
+  dichteKanten.map((k) => String(k.wandIndex)).join(', ')
+);
+pruefe(
+  dichteKanten.every((k) => k.roomIndex === 0),
+  'die Kante gehört dem NACHBARN (Raum 0), nicht der Wand'
+);
+pruefe(
+  new Set(dichteKanten.map((k) => k.wandIndex)).size === 3,
+  'drei verschiedene Wände, nicht dreimal dieselbe'
+);
+pruefe(
+  kantenBeschriftung(dicht, dichteKanten[0]!).endsWith(' (Wand)'),
+  'die Beschriftung sagt „(Wand)"',
+  kantenBeschriftung(dicht, dichteKanten[0]!)
+);
+invarianten(dicht, vault, 'dichter Eingang');
+
+// 5c. Anfügen an eine verwandete Kante: die Wand fällt, der Raum kommt.
+const ersetzt = leeresLayout(vault);
+schliesseOffeneKanten(ersetzt, vault.name);
+const zielKante = anbaubareKanten(ersetzt, vault.name)[0]!;
+const wandVorher = ersetzt.rooms[zielKante.wandIndex!]!.room;
+const erg = fuegeAnKante(ersetzt, vault.name, zielKante, 'StoneVaultCorridor');
+pruefe(erg.ok && erg.wandErsetzt, 'Anfügen an eine Wandkante meldet „Wand ersetzt"');
+pruefe(ersetzt.rooms.length === 4, 'die Raumzahl bleibt bei vier (Wand raus, Gang rein)',
+  `${ersetzt.rooms.length}`);
+pruefe(anzahlAbschluesse(ersetzt, vault) === 2, 'genau eine Wand ist gefallen',
+  `${anzahlAbschluesse(ersetzt, vault)} von 3 (${wandVorher})`);
+pruefe(
+  ersetzt.rooms[ersetzt.rooms.length - 1]!.room === 'StoneVaultCorridor',
+  'und der Korridor steht am Ende der Liste'
+);
+pruefe(ersetzt.rooms[0]!.room === 'StoneVaultEntry', 'der Eingang bleibt Raum 0');
+pruefe(
+  !anbaubareKanten(ersetzt, vault.name).some(
+    (k) => k.roomIndex === 0 && k.connIndex === zielKante.connIndex
+  ),
+  'die ersetzte Kante wird nicht mehr angeboten — dort steht jetzt ein Raum'
+);
+invarianten(ersetzt, vault, 'nach dem Ersetzen');
+
+// Und weiter geht es: zumauern, wieder eine Wand ersetzen. Der zweite
+// Durchgang ist der eigentliche Prüfstein — jetzt stehen Wände VOR und
+// HINTER dem Nachbarraum in der Liste.
+schliesseOffeneKanten(ersetzt, vault.name);
+invarianten(ersetzt, vault, 'zweite Runde, dicht');
+const zweite = anbaubareKanten(ersetzt, vault.name).find(
+  (k) => k.roomIndex === ersetzt.rooms.findIndex((r) => r.room === 'StoneVaultCorridor')
+)!;
+pruefe(zweite !== undefined, 'auch der Korridor bietet verwandete Kanten an');
+const vorZahl = ersetzt.rooms.length;
+const erg2 = fuegeAnKante(ersetzt, vault.name, zweite, 'StoneVaultCorridor');
+pruefe(erg2.ok && erg2.wandErsetzt, 'zweiter Anbau an eine Wandkante geht durch');
+pruefe(ersetzt.rooms.length === vorZahl, 'wieder eine raus, eine rein', `${ersetzt.rooms.length}`);
+pruefe(
+  ersetzt.rooms.filter((r) => r.room === 'StoneVaultCorridor').length === 2,
+  'jetzt stehen zwei Korridore'
+);
+invarianten(ersetzt, vault, 'nach dem zweiten Ersetzen');
+
+// 5d. Ein Fehlschlag ist FOLGENLOS — die Wand bleibt stehen.
+//
+// Das ist der Grund, warum `fuegeAnKante` auf einer Kopie rechnet: Risse
+// es die Wand zuerst weg und scheiterte danach, hinterliesse jeder
+// Fehlversuch ein Loch, das niemand angekündigt hat. Der Fehlschlag hier
+// ist ein Ausrichtungs-Index, den es nicht gibt — `attachRoom` weist ihn
+// ab, und zwar erst NACH dem (gedachten) Entfernen.
+const folgenlos = leeresLayout(vault);
+schliesseOffeneKanten(folgenlos, vault.name);
+const raeumeVorher = JSON.stringify(folgenlos.rooms);
+const misslungen = fuegeAnKante(
+  folgenlos,
+  vault.name,
+  anbaubareKanten(folgenlos, vault.name)[0]!,
+  'StoneVaultCorridor',
+  99
+);
+pruefe(!misslungen.ok, 'ein Ausrichtungs-Index, den es nicht gibt, fügt nichts an');
+pruefe(
+  JSON.stringify(folgenlos.rooms) === raeumeVorher,
+  'und das Layout ist Byte für Byte unverändert — die Wand steht noch'
+);
+
+// 5e. Die offene Kante bleibt der einfache Fall.
+const einfach = leeresLayout(vault);
+const einfachKante = anbaubareKanten(einfach, vault.name)[0]!;
+const erg3 = fuegeAnKante(einfach, vault.name, einfachKante, 'StoneVaultCorridor');
+pruefe(erg3.ok && !erg3.wandErsetzt, 'an einer offenen Kante fällt keine Wand');
+pruefe(einfach.rooms.length === 2, 'und es steht ein Raum mehr da', `${einfach.rooms.length}`);
+pruefe(
+  kantenBeschriftung(einfach, einfachKante).includes('StoneVaultEntry#0/'),
+  'die Beschriftung nennt Raum, Index und Typ',
+  kantenBeschriftung(einfach, einfachKante)
+);
+
+// 5f. Unbekannte Basis: leere Liste statt Absturz.
+pruefe(anbaubareKanten(einfach, 'DG_GibtEsNicht').length === 0, 'unbekannte Basis bietet nichts an');
 
 console.log(fehler === 0 ? '\nAlles grün.' : `\n${fehler} Prüfung(en) fehlgeschlagen.`);
 process.exit(fehler > 0 ? 1 : 0);

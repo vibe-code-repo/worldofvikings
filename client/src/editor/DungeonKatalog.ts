@@ -36,6 +36,7 @@ import {
   STEIN_VERWITTERUNG_MAX,
   ambientLichtVon,
   ausrichtungsOptionen,
+  kantenBeschriftung,
   kantenSchlussMeldung,
   sanitizeDungeonDocument,
   type DungeonDocument,
@@ -357,8 +358,9 @@ export class DungeonSeite {
     b.appendChild(
       hinweis(
         'Wände sind eigene Räume (endCap) und stehen im Grundriss als dünne Rechtecke. ' +
-          'Zum Weiterbauen an einer zugemauerten Kante die Wand anklicken und „Raum ' +
-          'entfernen" — damit ist die Kante wieder offen.'
+          'Zum Weiterbauen an einer zugemauerten Kante genügt es, sie unten als ' +
+          '„(Wand)" anzufügen — die Wand fällt dabei von selbst. Von Hand geht es ' +
+          'weiterhin über Anklicken und „Raum entfernen".'
       )
     );
     if (this.schmutzig) {
@@ -398,18 +400,25 @@ export class DungeonSeite {
     }
 
     // ── Anfügen ───────────────────────────────────────────────────────
-    const offene = this.grundriss.offeneVerbindungen;
+    //
+    // Angeboten werden nicht nur die OFFENEN Kanten, sondern auch die
+    // zugemauerten (`(Wand)`): Ein Grab, das einmal dicht gemacht wurde —
+    // und das tut „Speichern" von selbst —, hätte sonst genau eine
+    // anwählbare Kante, den Eingang. Weiterbauen hiesse dann, erst im
+    // Grundriss eine Wand zu suchen und zu entfernen; das ist ein Umweg,
+    // den niemand von selbst findet. Die Eingangskante fehlt umgekehrt in
+    // der Liste — dort geht es hinaus, nicht weiter.
+    const offene = this.grundriss.anbaubare;
     const cw = auswahl();
     offene.forEach((c, idx) => {
       const o = document.createElement('option');
       o.value = String(idx);
-      const raum = doc.layout.rooms[c.roomIndex]?.room ?? '?';
-      o.textContent = `${raum}#${c.roomIndex}/${c.connIndex}${c.type ? ` [${c.type}]` : ''}`;
+      o.textContent = kantenBeschriftung(doc.layout, c);
       cw.appendChild(o);
     });
     if (offene.length === 0) {
       const o = document.createElement('option');
-      o.textContent = '— keine offenen Anschlüsse —';
+      o.textContent = '— keine anbaubaren Kanten —';
       cw.appendChild(o);
       cw.disabled = true;
     }
@@ -560,9 +569,10 @@ export class DungeonSeite {
     const hinweis = document.createElement('div');
     hinweis.style.cssText = 'font-size:11px;color:#8a7350;line-height:1.5';
     hinweis.textContent =
-      'Angelegt wird nur der Eingangsraum — seine Kanten sind sofort offen, ' +
-      'es muss also kein Abschluss erst abgerissen werden. Gespeichert wird ' +
-      'über den Spielserver; der muss dafür laufen.';
+      'Angelegt wird nur der Eingangsraum, und gespeichert wird er OFFEN — ' +
+      'auch bei gesetztem Häkchen. So lässt sich sofort in jede Richtung ' +
+      'anbauen. Zugemauert wird erst beim nächsten „Speichern". Geschrieben ' +
+      'wird über den Spielserver; der muss dafür laufen.';
     b.appendChild(hinweis);
   }
 
@@ -778,7 +788,11 @@ export class DungeonSeite {
     this.grundriss.setzeDokument(ergebnis.doc);
     this.schmutzig = true;
     this.baue();
-    await this.speichere(ergebnis.doc);
+    // OFFEN speichern, unabhängig vom Schalter: Zugemauert wäre der erste
+    // Arbeitsgang am neuen Grab, eine Wand wieder abzureissen. Der Schalter
+    // gilt weiter für „Speichern" — dort ist das Dokument gebaut, und dort
+    // zählt Dichtheit.
+    await this.speichere(ergebnis.doc, false);
     this.legtAn = false;
     // Nur die ID leeren: Basis und Seed sind meist für den nächsten
     // Dungeon dieselben, die ID nie.
@@ -875,13 +889,23 @@ export class DungeonSeite {
     return ergebnis.gesetzt;
   }
 
-  private async speichere(doc: DungeonDocument): Promise<void> {
+  /**
+   * `schliessen` sagt, ob VOR dem Absenden zugemauert wird. Vorgabe ist der
+   * Schalter — das ist der Knopf „Speichern". „Anlegen & speichern" gibt
+   * ausdrücklich `false`: Ein frisch angelegtes Grab soll OFFEN auf der
+   * Platte liegen, damit man sofort in jede Richtung weiterbauen kann.
+   * Betreten kann es zu diesem Zeitpunkt ohnehin niemand.
+   */
+  private async speichere(
+    doc: DungeonDocument,
+    schliessen: boolean = this.beimSpeichernSchliessen
+  ): Promise<void> {
     if (this.speichertGerade) return;
     // VOR dem Serialisieren, nicht danach: `speichereDungeon` schickt das
     // Dokument, wie es hier steht. Eine Wand, die erst nach dem Absenden
     // gesetzt wird, stünde im Grundriss und nicht in der Datei — und der
     // Unterschied fiele erst im Spiel auf.
-    if (this.beimSpeichernSchliessen) this.schliesseKanten();
+    if (schliessen) this.schliesseKanten();
     this.speichertGerade = true;
     this.baue();
     this.cb.meldung(`${doc.id} wird gespeichert …`);

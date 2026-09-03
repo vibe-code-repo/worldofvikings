@@ -26,8 +26,10 @@
  * DOM: the two editors are separate bundles, so this belongs in `shared/`.
  */
 import type { DungeonLayout, RoomDef } from './dungeons.js';
+import type { Vector3 } from './types.js';
 import { DUNGEONS_BY_NAME } from './dungeons.js';
-import { attachRoom, computeOpenConnections } from './dungeonGenerator.js';
+import { attachRoom, computeOpenConnections, removeRoom } from './dungeonGenerator.js';
+import type { OpenConnection } from './dungeonGenerator.js';
 
 /**
  * Himmelsrichtung einer Kante aus ihrer lokalen Position — +z Nord,
@@ -221,4 +223,209 @@ export function kantenSchlussMeldung(ergebnis: KantenSchlussErgebnis): string {
   return ergebnis.offenGeblieben === 0
     ? kern
     : `${kern} — ${ergebnis.offenGeblieben} Kante(n) blieben offen`;
+}
+
+// ---------------------------------------------------------------------------
+// Anbaubare Kanten — wo darf der nächste Raum hin?
+// ---------------------------------------------------------------------------
+
+/**
+ * Eine Kante, an die sich anbauen lässt.
+ *
+ * Sie ist eine `OpenConnection` und nichts anderes — genau das, was
+ * `attachRoom` erwartet. `wandIndex` ist die einzige Zutat: Steht er, ist
+ * die Kante nicht offen, sondern von einem Abschlussraum ZUGEMAUERT, und
+ * dieser Raum muss weg, bevor dort etwas anderes hinkommt.
+ */
+export interface AnbaubareKante extends OpenConnection {
+  /**
+   * Index des Abschlussraums (`endCap`) im Layout, der diese Kante belegt.
+   * Fehlt bei einer wirklich offenen Kante.
+   *
+   * ACHTUNG: Der Index gilt für das Layout, aus dem die Liste gezogen
+   * wurde. Nach jedem `removeRoom` rutschen die Indizes — wer eine solche
+   * Liste aufhebt, hebt eine Lüge auf. `fuegeAnKante` weiter unten nimmt
+   * einem das ab.
+   */
+  wandIndex?: number;
+}
+
+/** Quadratischer Abstand — die Koinzidenzprobe des Generators, 0,1 m. */
+function abstandQuadrat(a: Vector3, b: Vector3): number {
+  return (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
+}
+
+/**
+ * Alle Connector-Positionen der Abschlussräume, samt ihrem Raumindex.
+ *
+ * Gerechnet wird über `computeOpenConnections` auf einem Layout, das NUR
+ * diesen einen Raum enthält: Alleinstehend ist jeder seiner Connectors
+ * offen, und man bekommt sie in Weltkoordinaten heraus, ohne die
+ * Quaternionen-Rechnung aus `dungeonGenerator.ts` hier ein zweites Mal
+ * hinzuschreiben. Eine zweite Kopie dieser Rechnung wäre genau die Sorte
+ * Duplikat, die erst dann auffällt, wenn eine Drehung anders gerundet wird
+ * als dort.
+ */
+function wandConnectors(
+  layout: DungeonLayout,
+  baseName: string,
+  istWand: (index: number) => boolean
+): Array<{ wandIndex: number; pos: Vector3 }> {
+  const out: Array<{ wandIndex: number; pos: Vector3 }> = [];
+  layout.rooms.forEach((r, i) => {
+    if (!istWand(i)) return;
+    const einzeln: DungeonLayout = { ...layout, rooms: [r], doors: [], props: [] };
+    for (const c of computeOpenConnections(einzeln, baseName)) {
+      out.push({ wandIndex: i, pos: c.pos });
+    }
+  });
+  return out;
+}
+
+/**
+ * Die Kanten, an denen weitergebaut werden darf — offene UND zugemauerte.
+ *
+ * ── Warum die zugemauerten mitkommen ─────────────────────────────────
+ * Im Modul-Kit ist eine Wand ein eigener Raum (`StoneVaultWall`,
+ * `endCap`). Ein Grab, das einmal dicht gemacht wurde — und das tut der
+ * Editor beim Speichern von selbst —, hat danach genau EINE offene Kante:
+ * den Eingang. Wer weiterbauen wollte, musste erst im Grundriss eine Wand
+ * suchen, anklicken und entfernen; das ist ein Umweg, den niemand von
+ * selbst findet, und im Grundriss sieht ein zugemauertes Grab aus wie ein
+ * fertiges. Eine Wand ist aber kein Bauwerk, sondern ein Platzhalter für
+ * „hier ist noch nichts" — also gehört sie in dieselbe Liste wie eine
+ * offene Kante, nur erkennbar markiert.
+ *
+ * ── Wie eine verwandete Kante gefunden wird ──────────────────────────
+ * Die Kante gehört dem NACHBARN, nicht der Wand: Angefügt wird an die
+ * Verbindung der Zelle, vor der die Wand steht. Gerechnet wird sie
+ * deshalb auf einem Layout OHNE die Abschlussräume — was dort offen ist
+ * und im echten Layout nicht, ist genau eine verwandete Kante. Der
+ * `wandIndex` kommt danach über Connector-Koinzidenz (0,1 m, dieselbe
+ * Schwelle wie in `computeOpenConnections`).
+ *
+ * ── Was NICHT angeboten wird ─────────────────────────────────────────
+ * Die Eingangskante des Startraums (Raum 0 UND `connection.entrance`) —
+ * weder offen noch verwandet. Dort geht es hinaus; der Server setzt genau
+ * dort die Verbindung zur Oberwelt an. Ein Raum davor wäre ein Grab, das
+ * man nicht betreten kann.
+ *
+ * Reihenfolge: erst die offenen Kanten in der Reihenfolge von
+ * `computeOpenConnections`, dann die verwandeten. Die offenen behalten
+ * damit ihre Plätze, und ein Editor, der auf Index 0 vorbelegt, zeigt
+ * weiterhin dorthin, wo wirklich ein Loch ist.
+ */
+export function anbaubareKanten(layout: DungeonLayout, baseName: string): AnbaubareKante[] {
+  const def = DUNGEONS_BY_NAME.get(baseName);
+  if (!def) return [];
+  const nachName = new Map(def.rooms.map((r) => [r.name, r]));
+  const istWand = (index: number): boolean =>
+    !!nachName.get(layout.rooms[index]?.room ?? '')?.endCap;
+  const istEingangsKante = (roomIndex: number, connIndex: number): boolean =>
+    roomIndex === 0 &&
+    !!nachName.get(layout.rooms[0]?.room ?? '')?.connections[connIndex]?.entrance;
+
+  const kanten: AnbaubareKante[] = offeneOhneEingang(layout, baseName, nachName).map((c) => ({
+    ...c,
+  }));
+  const schonDa = new Set(kanten.map((k) => `${k.roomIndex}/${k.connIndex}`));
+
+  // Layout ohne die Wände — und die Rückabbildung auf die Indizes des
+  // Originals. Ohne sie zeigte jeder `roomIndex` nach dem ersten
+  // Abschlussraum auf den falschen Raum.
+  const zurueck: number[] = [];
+  const ohneWaende: DungeonLayout = { ...layout, rooms: [], doors: [], props: [] };
+  layout.rooms.forEach((r, i) => {
+    if (istWand(i)) return;
+    ohneWaende.rooms.push(r);
+    zurueck.push(i);
+  });
+
+  const waende = wandConnectors(layout, baseName, istWand);
+  for (const c of computeOpenConnections(ohneWaende, baseName)) {
+    const roomIndex = zurueck[c.roomIndex];
+    if (roomIndex === undefined) continue;
+    if (schonDa.has(`${roomIndex}/${c.connIndex}`)) continue;
+    if (istEingangsKante(roomIndex, c.connIndex)) continue;
+    const wand = waende.find((w) => abstandQuadrat(w.pos, c.pos) < 0.1 * 0.1);
+    // Keine Wand in Reichweite: Dann steht dort etwas anderes (eine Zelle,
+    // die im vollen Layout andockt) — das ist keine anbaubare Kante.
+    if (!wand) continue;
+    kanten.push({ ...c, roomIndex, wandIndex: wand.wandIndex });
+  }
+  return kanten;
+}
+
+/**
+ * Die Beschriftung einer anbaubaren Kante — für BEIDE Editoren dieselbe.
+ *
+ * Bis zum 03.09.2026 stand dieser Ausdruck zweimal da, einmal je Editor.
+ * Solange beide nur „Raum#i/j [typ]" sagten, fiel das nicht auf; mit dem
+ * Zusatz „(Wand)" wäre die zweite Kopie die gewesen, die ihn nicht
+ * bekommt — und dort klickte man dann ahnungslos eine Wand weg.
+ */
+export function kantenBeschriftung(layout: DungeonLayout, kante: AnbaubareKante): string {
+  const raum = layout.rooms[kante.roomIndex]?.room ?? '?';
+  return (
+    `${raum}#${kante.roomIndex}/${kante.connIndex}` +
+    `${kante.type ? ` [${kante.type}]` : ''}${kante.wandIndex === undefined ? '' : ' (Wand)'}`
+  );
+}
+
+/** Was `fuegeAnKante` getan hat. */
+export type AnfuegeErgebnis =
+  | { ok: true; wandErsetzt: boolean }
+  | { ok: false; reason: string };
+
+/**
+ * Einen Raum an eine anbaubare Kante setzen — notfalls über die Wand hinweg.
+ *
+ * Bei einer offenen Kante ist das schlicht `attachRoom` plus das Anhängen,
+ * das jener Funktion ausdrücklich nicht gehört.
+ *
+ * ── Warum eine Kopie und nicht „erst abreissen, dann bauen" ──────────
+ * An einer verwandeten Kante muss die Wand weg, BEVOR `attachRoom` etwas
+ * hinstellen kann: Sie stünde sonst als Kollisionskörper im Weg. Passt der
+ * neue Raum dann doch nicht, wäre die Wand trotzdem gefallen — und ein
+ * Fehlversuch hinterliesse ein Loch, das niemand angekündigt hat.
+ * Gerechnet wird deshalb auf einer KOPIE des Layouts; das echte wird erst
+ * angefasst, wenn feststeht, dass es klappt. Ein Fehlschlag ist damit
+ * folgenlos.
+ *
+ * ── Die Indizes rutschen ─────────────────────────────────────────────
+ * `removeRoom` schiebt jeden Raum hinter dem entfernten um eins nach vorn.
+ * Der `roomIndex` der Kante muss deshalb NACH dem Entfernen neu bestimmt
+ * werden. Position und Drehung der Kante bleiben, wo sie sind — der
+ * Nachbarraum wurde ja nicht bewegt.
+ */
+export function fuegeAnKante(
+  layout: DungeonLayout,
+  baseName: string,
+  kante: AnbaubareKante,
+  raumName: string,
+  kanteIndex?: number
+): AnfuegeErgebnis {
+  if (kante.wandIndex === undefined) {
+    const ergebnis = attachRoom(layout, baseName, kante, raumName, kanteIndex);
+    if (!ergebnis.ok) return { ok: false, reason: ergebnis.reason };
+    layout.rooms.push(ergebnis.placed);
+    return { ok: true, wandErsetzt: false };
+  }
+
+  const wandIndex = kante.wandIndex;
+  const probe = JSON.parse(JSON.stringify(layout)) as DungeonLayout;
+  const weg = removeRoom(probe, baseName, wandIndex);
+  if (!weg.ok) return { ok: false, reason: weg.reason ?? 'Wand lässt sich nicht entfernen' };
+  const verschoben: AnbaubareKante = {
+    ...kante,
+    roomIndex: kante.roomIndex > wandIndex ? kante.roomIndex - 1 : kante.roomIndex,
+  };
+  const ergebnis = attachRoom(probe, baseName, verschoben, raumName, kanteIndex);
+  if (!ergebnis.ok) return { ok: false, reason: ergebnis.reason };
+
+  // Erst jetzt ans echte Layout: dieselben zwei Schritte, dasselbe
+  // Ergebnis — die Kopie hat bewiesen, dass sie durchgehen.
+  removeRoom(layout, baseName, wandIndex);
+  layout.rooms.push(ergebnis.placed);
+  return { ok: true, wandErsetzt: true };
 }

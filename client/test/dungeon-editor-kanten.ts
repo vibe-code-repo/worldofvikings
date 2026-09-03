@@ -33,6 +33,7 @@
 import {
   DUNGEONS_BY_NAME,
   STEIN_TEXTUREN,
+  anbaubareKanten,
   ausrichtungsOptionen,
   computeOpenConnections,
   kantenName,
@@ -534,6 +535,176 @@ ohneSchalter.seite.baue();
 pruefe(
   haekchen(ohneSchalter.behaelter)?.checked === false,
   'das ausgeschaltete Häkchen kommt ausgeschaltet zurück'
+);
+
+// ── 10. Flüssiges Bauen: Wandkanten anbieten, Wand ersetzen ─────────
+//
+// Die Rechnung steht in `shared/test/dungeon-kanten-schliessen.ts`. Hier
+// wird wieder die VERDRAHTUNG gemessen — dieselbe Sorte Draht wie in
+// Abschnitt 6: Bietet die Anfügen-Liste die zugemauerten Kanten überhaupt
+// an, und reisst ein Klick auf „Anfügen" die richtige Wand weg? Ein
+// Auswahlfeld, das die Kanten zwar zeigt, aber `attachRoom` statt
+// `fuegeAnKante` ruft, sähe auf einem Bildschirmfoto genauso aus und
+// meldete „Kollision".
+console.log('\nFlüssiges Bauen:');
+
+/**
+ * Ein Grundriss, dessen Meldungen hier ankommen — `grundrissMit` schluckt
+ * sie. Ohne das prüfte der Satz „Wand ersetzt" weiter unten den Text der
+ * SEITENLEISTE, und der kommt beim Anfügen gar nicht vorbei.
+ */
+function grundrissMitMeldung(dok: typeof frisch): InstanceType<typeof DungeonGrundriss> {
+  const viewport = { appendChild: () => undefined, clientWidth: 800, clientHeight: 600 };
+  const gr = new DungeonGrundriss(viewport as unknown as HTMLElement, {
+    meldung: (t: string) => {
+      letzteMeldung = t;
+    },
+    auswahlGeaendert: () => undefined,
+  });
+  gr.setzeDokument(dok);
+  return gr;
+}
+
+/** Wie `seiteMit`, aber an einem schon gebauten Grundriss. */
+function seiteMit2(
+  gr: InstanceType<typeof DungeonGrundriss>
+): { seite: InstanceType<typeof DungeonSeite>; behaelter: StummelKnoten } {
+  const behaelter = new StummelKnoten('div');
+  const seite = new DungeonSeite(behaelter as unknown as HTMLElement, gr, {
+    meldung: (t: string) => {
+      letzteMeldung = t;
+    },
+  });
+  seite.baue();
+  return { seite, behaelter };
+}
+
+const wandDoc = JSON.parse(JSON.stringify(frisch)) as typeof frisch;
+const wandGrundriss = grundrissMitMeldung(wandDoc);
+wandGrundriss.schliesseKanten();
+pruefe(wandDoc.layout.rooms.length === 4, 'Ausgangslage: zugemauerter Eingangsraum',
+  `${wandDoc.layout.rooms.length}`);
+pruefe(
+  wandGrundriss.offeneVerbindungen.length === 1,
+  'offen ist nur noch die Eingangskante — sie wird NICHT angeboten',
+  `${wandGrundriss.offeneVerbindungen.length}`
+);
+pruefe(
+  wandGrundriss.anbaubare.length === 3,
+  'anbaubar sind trotzdem drei Kanten',
+  `${wandGrundriss.anbaubare.length}`
+);
+
+const wandSeite = seiteMit2(wandGrundriss);
+const wandWahl = wandSeite.behaelter
+  .alle()
+  .find((k) => k.tag === 'select' && k.kinder.some((o) => o.textContent.endsWith('(Wand)')));
+pruefe(wandWahl !== undefined, 'die Anfügen-Liste zeigt Kanten mit „(Wand)"');
+pruefe(
+  wandWahl?.kinder.every((o) => o.textContent.endsWith('(Wand)')) === true,
+  'am dichten Grab tragen alle drei den Zusatz',
+  wandWahl?.kinder.map((o) => o.textContent).join(' | ')
+);
+pruefe(
+  !wandWahl?.kinder.some((o) => /#0\/0 \[/.test(o.textContent) && !o.textContent.endsWith('(Wand)')),
+  'und die Eingangskante steht nicht als offener Eintrag darin'
+);
+
+// Der Klick: erste Kante wählen, Korridor anfügen. Danach muss GENAU EINE
+// Wand gefallen und ein Korridor dazugekommen sein.
+const zielIndex = 0;
+const wandIndexVorher = wandGrundriss.anbaubare[zielIndex]!.wandIndex;
+pruefe(wandIndexVorher !== undefined, 'die gewählte Kante trägt einen wandIndex',
+  String(wandIndexVorher));
+const wandRaumWahl = wandSeite.behaelter
+  .alle()
+  .find((k) => k.tag === 'select' && k.kinder.some((o) => /^StoneVaultCorridor /.test(o.textContent)))!;
+wandWahl!.value = String(zielIndex);
+wandRaumWahl.value = 'StoneVaultCorridor';
+knopfNamens(wandSeite.behaelter, 'Anfügen')!.onclick!();
+
+const istWand = (name: string): boolean => !!raum(name).endCap;
+pruefe(
+  wandDoc.layout.rooms.length === 4,
+  'die Raumzahl bleibt bei vier — eine Wand raus, ein Gang rein',
+  `${wandDoc.layout.rooms.length}`
+);
+pruefe(
+  wandDoc.layout.rooms.filter((r) => istWand(r.room)).length === 2,
+  'genau eine Wand ist gefallen',
+  `${wandDoc.layout.rooms.filter((r) => istWand(r.room)).length}`
+);
+pruefe(
+  wandDoc.layout.rooms.some((r) => r.room === 'StoneVaultCorridor'),
+  'und der Korridor steht im Layout'
+);
+pruefe(letzteMeldung.startsWith('Wand ersetzt, StoneVaultCorridor angefügt'),
+  'die Meldung sagt, dass eine Wand ersetzt wurde', letzteMeldung);
+pruefe(
+  anbaubareKanten(wandDoc.layout, KIT).every(
+    (k) => k.wandIndex === undefined || istWand(wandDoc.layout.rooms[k.wandIndex]!.room)
+  ),
+  'nach dem Ersetzen zeigt jeder wandIndex weiterhin auf eine Wand'
+);
+
+// Ein Fehlschlag lässt die Wand stehen: derselbe Klick mit einem Raum, der
+// dort nicht hinpasst. Ohne die Kopie in `fuegeAnKante` hinterliesse jeder
+// Fehlversuch ein Loch.
+const heilDoc = JSON.parse(JSON.stringify(frisch)) as typeof frisch;
+const heilGrundriss = grundrissMit(heilDoc);
+heilGrundriss.schliesseKanten();
+const raeumeVorher = JSON.stringify(heilDoc.layout.rooms);
+pruefe(
+  !heilGrundriss.fuegeAn(0, 'StoneVaultCorridor', 99),
+  'ein unmöglicher Anbau meldet einen Fehler'
+);
+pruefe(
+  JSON.stringify(heilDoc.layout.rooms) === raeumeVorher,
+  'und lässt das Layout unverändert — die Wand steht noch'
+);
+
+// ── 11. „Anlegen & speichern" legt OFFEN ab ─────────────────────────
+//
+// Der Schalter „beim Speichern schließen" steht auf AN (Vorgabe), und das
+// soll er auch: Ein gebautes Grab gehört dicht in die Datei. Beim ANLEGEN
+// wäre dieselbe Regel aber der Schuss ins Knie — das frische Dokument käme
+// zugemauert zurück, und der erste Arbeitsgang wäre, eine Wand
+// abzureissen. Betreten kann es zu diesem Zeitpunkt niemand.
+//
+// Gemessen wird am DOKUMENT nach dem Aufruf, nicht an der Meldung:
+// `speichereDungeon` braucht einen Spielserver, den es hier nicht gibt,
+// und scheitert. Das macht nichts — zugemauert würde VOR dem Absenden.
+console.log('\nAnlegen & speichern:');
+const anlegeGrundriss = grundrissMit(JSON.parse(JSON.stringify(frisch)) as typeof frisch);
+const anlegeSeite = new DungeonSeite(
+  new StummelKnoten('div') as unknown as HTMLElement,
+  anlegeGrundriss,
+  { meldung: () => undefined }
+);
+const anlegePrivat = anlegeSeite as unknown as {
+  neuId: string;
+  neuBasis: string;
+  beimSpeichernSchliessen: boolean;
+  legeAn(): Promise<void>;
+};
+anlegePrivat.neuId = 'offen-probe';
+anlegePrivat.neuBasis = KIT;
+pruefe(anlegePrivat.beimSpeichernSchliessen === true, 'der Schalter steht auf AN');
+await anlegePrivat.legeAn().catch(() => undefined);
+pruefe(
+  anlegeGrundriss.dokument?.id === 'offen-probe',
+  'das neue Dokument liegt im Grundriss',
+  anlegeGrundriss.dokument?.id
+);
+pruefe(
+  anlegeGrundriss.dokument?.layout.rooms.length === 1,
+  'und es ist OFFEN gespeichert worden — nur der Eingangsraum',
+  `${anlegeGrundriss.dokument?.layout.rooms.length}`
+);
+pruefe(
+  anlegeGrundriss.anbaubare.length === 3,
+  'es lässt sich sofort in drei Richtungen anbauen',
+  `${anlegeGrundriss.anbaubare.length}`
 );
 
 console.log(fehler === 0 ? '\nAlles grün.' : `\n${fehler} Prüfung(en) fehlgeschlagen.`);

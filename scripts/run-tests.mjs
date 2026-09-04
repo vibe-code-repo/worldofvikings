@@ -112,6 +112,18 @@ const KERN = [
   // eines Laufs begehbar sind statt zugemauert. Rein rechnerisch, Sekunden.
   // G7: the staircase, its two levels and the vertical graph edge.
   ['shared', 'test/dungeon-rastertreppe.ts'],
+  // G9 (Modul-Generierung 2.0): Der EDITOR auf derselben Regel. Prueft,
+  // dass `computeOpenConnections(…, { ohneEingang: true })` Loecher zaehlt
+  // statt Connectors (ein frisches StoneVault meldet 0 statt 86 ueber 40
+  // Saaten), dass `attachRoom` einen Anbau in BEIDE Richtungen abweist,
+  // der eine offen/wand-Kante erzeugte (Mikes Befund vom 04.09.2026),
+  // dass `schliesseOffeneKanten` ueber 40 Saaten GENAU die Plattenmenge
+  // des Generators setzt — und dass nach `removeRoom` plus erneutem
+  // Schliessen alle G4-Invarianten wieder halten. Block 5 haelt dagegen,
+  // dass ein Nicht-Rasterkit (DG_Steingrab) unveraendert zumauert.
+  // Rein rechnerisch, Sekunden.
+  // G9: the hand-built path filtered by the same edge table.
+  ['shared', 'test/dungeon-rastereditor.ts'],
   // G1/G8 (Modul-Generierung 2.0): Zwei Blöcke an derselben Messzelle.
   // Block A misst den 1.0-Pfad und hält die Ausgangslage fest — 952
   // Abschlussplatten im Körper des Nachbarmoduls (531 gegen eine volle

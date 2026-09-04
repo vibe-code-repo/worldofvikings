@@ -152,7 +152,6 @@ export function schliesseOffeneKanten(
   const def = DUNGEONS_BY_NAME.get(baseName);
   if (!def) return { gesetzt: 0, offenGeblieben: 0 };
 
-  const nachName = new Map(def.rooms.map((r) => [r.name, r]));
   // Niedrigste `endCapPrio` zuerst — s. Kopfkommentar. `[...]` vor dem
   // Sortieren, weil `def.rooms` die Kit-Definition ist und nicht umsortiert
   // werden darf.
@@ -160,12 +159,12 @@ export function schliesseOffeneKanten(
     .filter((r) => r.endCap)
     .sort((a, b) => a.endCapPrio - b.endCapPrio);
   if (abschluesse.length === 0) {
-    return { gesetzt: 0, offenGeblieben: offeneOhneEingang(layout, baseName, nachName).length };
+    return { gesetzt: 0, offenGeblieben: offeneOhneEingang(layout, baseName).length };
   }
 
   let gesetzt = 0;
   for (let runde = 0; runde < MAX_RUNDEN; runde++) {
-    const offen = offeneOhneEingang(layout, baseName, nachName);
+    const offen = offeneOhneEingang(layout, baseName);
     if (offen.length === 0) break;
     let inDieserRunde = 0;
     for (const kante of offen) {
@@ -186,27 +185,33 @@ export function schliesseOffeneKanten(
     if (inDieserRunde === 0) break;
   }
 
-  return { gesetzt, offenGeblieben: offeneOhneEingang(layout, baseName, nachName).length };
+  return { gesetzt, offenGeblieben: offeneOhneEingang(layout, baseName).length };
 }
 
 /**
- * Die offenen Kanten OHNE die Eingangskante des Startraums.
+ * Die LÖCHER eines Layouts — die Arbeitsliste des Zumauerns.
  *
  * Eigene Funktion, weil sie ZWEIMAL gebraucht wird — vor dem Zumauern als
  * Arbeitsliste und danach als Zählung. Zwei Kopien derselben Bedingung
  * wären genau die Sorte Duplikat, bei der die eine Seite den Eingang
  * mitzählt und die andere nicht.
+ *
+ * ── Warum sie seit G9 nichts mehr selbst entscheidet ──────────────────
+ * Sie hatte den Eingangsfilter getippt; `computeOpenConnections` kann ihn
+ * seither selbst, und zwar zusammen mit dem zweiten Filter, den es hier
+ * nie gab: Eine Öffnung vor der EINGEBAUTEN Wand des Nachbarmoduls ist
+ * dicht (Zeile 3 der Kantentafel) und braucht keine Platte. Wer sie
+ * trotzdem zumauerte, stellte eine zweite Wand IN die erste — genau die
+ * 531 deckungsgleichen Platten, gegen die der Rasterpfad gebaut wurde.
+ *
+ * Damit teilen Generator und Editor eine Regel statt zweier gleich
+ * lautender: Was der eine als Loch sieht, sieht auch der andere.
  */
 function offeneOhneEingang(
   layout: DungeonLayout,
-  baseName: string,
-  nachName: ReadonlyMap<string, RoomDef>
+  baseName: string
 ): ReturnType<typeof computeOpenConnections> {
-  return computeOpenConnections(layout, baseName).filter((c) => {
-    if (c.roomIndex !== 0) return true;
-    const start = nachName.get(layout.rooms[0]?.room ?? '');
-    return !start?.connections[c.connIndex]?.entrance;
-  });
+  return computeOpenConnections(layout, baseName, { ohneEingang: true });
 }
 
 /**
@@ -325,7 +330,7 @@ export function anbaubareKanten(layout: DungeonLayout, baseName: string): Anbaub
     roomIndex === 0 &&
     !!nachName.get(layout.rooms[0]?.room ?? '')?.connections[connIndex]?.entrance;
 
-  const kanten: AnbaubareKante[] = offeneOhneEingang(layout, baseName, nachName).map((c) => ({
+  const kanten: AnbaubareKante[] = offeneOhneEingang(layout, baseName).map((c) => ({
     ...c,
   }));
   const schonDa = new Set(kanten.map((k) => `${k.roomIndex}/${k.connIndex}`));

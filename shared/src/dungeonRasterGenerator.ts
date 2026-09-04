@@ -55,16 +55,40 @@ import type { DungeonGeneratorSettings } from './dungeonGenerator.js';
 import {
   DIRECTIONS,
   DIRECTION_VECTOR,
+  GRID_Z_OFFSET_M,
   MODULE_CELL_M,
   MODULE_LEVEL_M,
   OPPOSITE_DIRECTION,
+  cellKey,
+  cellToWorld,
+  compareCells,
   directionFromVector,
+  edgeCenterWorld,
   gridModuleFromRoomDef,
   isHorizontal,
+  neighbourCell,
+  worldToCell,
   type Direction,
   type EdgeState,
+  type GridCell,
   type GridModule,
 } from './dungeonRasterModul.js';
+/**
+ * Die Raster-Weltabbildung steht seit G9 in `dungeonRasterModul.ts` —
+ * `attachRoom` braucht sie, und `dungeonGenerator.ts` darf diese Datei
+ * nicht importieren (sie importiert jene). Weitergereicht wird sie hier
+ * unter denselben Namen, damit kein Aufrufer und kein Test etwas merkt.
+ */
+export {
+  GRID_Z_OFFSET_M,
+  cellKey,
+  cellToWorld,
+  compareCells,
+  edgeCenterWorld,
+  neighbourCell,
+  worldToCell,
+  type GridCell,
+};
 import { hashPos, mische } from './dungeon2/hashing.js';
 import { XorShiftRandom } from './worldgen/Random.js';
 import { quatMul, quatMulVec3 } from './worldgen/Math3d.js';
@@ -85,15 +109,6 @@ export const GRID_CELL_M = MODULE_CELL_M;
 export const GRID_LEVEL_M = MODULE_LEVEL_M;
 
 /**
- * Versatz der z-Achse in Metern: Zellmitten liegen auf `2j − 1`.
- *
- * Er ist keine Stilfrage, sondern folgt aus der Lage des Eingangs (s.
- * Dateikopf). Als benannte Konstante, damit die beiden Rechenrichtungen
- * ihn nicht getrennt tippen und auseinanderlaufen.
- */
-export const GRID_Z_OFFSET_M = -1;
-
-/**
  * Toleranz der Rückrechnung in Metern (Konzept S6).
  *
  * Die MODUL-lokale Seite bindet `gridModuleFromRoomDef` bereits auf
@@ -105,16 +120,6 @@ export const GRID_TOLERANCE_M = 1e-4;
 
 /** Fehler des Rasterpfads. Eigene Klasse, damit ein Aufrufer ihn von einem Kit-Fehler trennen kann. */
 export class DungeonRasterError extends Error {}
-
-/**
- * Eine Rasterzelle. `i` läuft mit +x (Ost), `j` mit +z (Nord), `level`
- * mit +y. Nur ganze Zahlen — alles andere ist ein Programmfehler.
- */
-export interface GridCell {
-  readonly i: number;
-  readonly j: number;
-  readonly level: number;
-}
 
 /**
  * Die Zelle des Eingangsraums. Sie liegt auf `pos (0,0,−1)`; ihr
@@ -167,62 +172,6 @@ export function rotateDirection(d: Direction, yaw: Yaw): Direction {
     throw new DungeonRasterError(`Gierung ${yaw}° dreht Richtung '${d}' auf keine Rasterachse.`);
   }
   return turned;
-}
-
-/** Ganzzahliger Schlüssel einer Zelle. Kanonisch (Ebene, j, i) — dieselbe Ordnung wie {@link compareCells}. */
-export function cellKey(cell: GridCell): string {
-  return `${cell.level}|${cell.j}|${cell.i}`;
-}
-
-/**
- * Kanonische Ordnung: Ebene, dann j, dann i.
- *
- * Sie ist Teil des Determinismusversprechens, nicht Geschmack. Jede Liste
- * von Zellen und Kanten wird so sortiert, damit die Ausgabe nicht an der
- * Einfügereihenfolge einer `Map` hängt.
- */
-export function compareCells(a: GridCell, b: GridCell): number {
-  return a.level - b.level || a.j - b.j || a.i - b.i;
-}
-
-/** Die Nachbarzelle über eine der sechs Kanten. */
-export function neighbourCell(cell: GridCell, d: Direction): GridCell {
-  const u = DIRECTION_VECTOR[d];
-  return { i: cell.i + u.x, j: cell.j + u.z, level: cell.level + u.y };
-}
-
-/** Zellmitte in Weltkoordinaten: `(2i, 3,5e, 2j − 1)`. y ist die Bodenoberkante der Ebene. */
-export function cellToWorld(cell: GridCell): Vector3 {
-  return {
-    x: cell.i * GRID_CELL_M,
-    y: cell.level * GRID_LEVEL_M,
-    z: cell.j * GRID_CELL_M + GRID_Z_OFFSET_M,
-  };
-}
-
-/**
- * Weltpunkt → Zelle. Der Rückweg, und der Grund, warum diese Datei
- * existiert: Er RUNDET. Ein Punkt bis zu einer knappen halben Zelle
- * neben der Mitte gehört noch zu ihr.
- */
-export function worldToCell(pos: Vector3): GridCell {
-  return {
-    i: Math.round(pos.x / GRID_CELL_M),
-    j: Math.round((pos.z - GRID_Z_OFFSET_M) / GRID_CELL_M),
-    level: Math.round(pos.y / GRID_LEVEL_M),
-  };
-}
-
-/**
- * Mitte einer Zellkante in Weltkoordinaten — der Mittelwert der beiden
- * Zellmitten. Genau dort sitzen alle `cellEdge`-Connectors, und genau
- * dort liegt eine Versiegelungsplatte.
- */
-export function edgeCenterWorld(cell: GridCell, d: Direction): Vector3 {
-  const c = cellToWorld(cell);
-  const u = DIRECTION_VECTOR[d];
-  const half = isHorizontal(d) ? GRID_CELL_M / 2 : GRID_LEVEL_M / 2;
-  return { x: c.x + u.x * half, y: c.y + u.y * half, z: c.z + u.z * half };
 }
 
 /** Eine Öffnung eines platzierten Moduls, zurückgerechnet auf Zelle und Kante. */

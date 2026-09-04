@@ -51,8 +51,8 @@
  */
 import { MODUL_ZELLE_HOEHE_M, verschlussAchse } from './dungeonRaster.js';
 import { quatMulVec3 } from './worldgen/Math3d.js';
-import type { RoomDef } from './dungeons.js';
-import type { Vector3 } from './types.js';
+import type { PlacedRoom, RoomDef } from './dungeons.js';
+import type { Quaternion, Vector3 } from './types.js';
 
 /** Kantenlänge einer Rasterzelle in Metern (Modul-Format v0). */
 export const MODULE_CELL_M = 2;
@@ -508,4 +508,331 @@ export function gridModuleFromRoomDef(room: RoomDef): GridModule {
     endCap: false,
     anchor: ports.find((p) => p.entrance) ?? null,
   };
+}
+
+
+// ---------------------------------------------------------------------------
+// Raster ↔ Welt — und die Kantentafel über ein ganzes Layout
+//
+// ── Warum das HIER steht und nicht im Rastergenerator ────────────────
+// Bis G8 lebten Zellschlüssel und Rückrechnung in
+// `dungeonRasterGenerator.ts`. Mit G9 braucht sie auch `attachRoom` in
+// `dungeonGenerator.ts` — und jene Datei darf den Rastergenerator nicht
+// importieren, weil der sie selbst importiert (`generateDungeonLayout`
+// für die Nicht-Rasterkits). Ein Ringschluss zwischen beiden wäre eine
+// Zeitbombe: Er läuft unter `tsx` und fällt erst im gebündelten Client
+// um, wenn eine der beiden Dateien zufällig zuerst ausgewertet wird.
+//
+// Die Aussage „welche Zelle ist das“ gehört ohnehin zur Modulerklärung
+// und nicht zum Generator: Sie ist rein, kennt keine Saat und keine
+// Einstellung. `dungeonRasterGenerator.ts` reicht die Namen unverändert
+// weiter, damit kein Aufrufer etwas merkt.
+// ---------------------------------------------------------------------------
+
+/**
+ * Versatz der z-Achse in Metern: Zellmitten liegen auf `2j − 1`.
+ *
+ * Er ist keine Stilfrage, sondern folgt aus der Lage des Eingangs (s.
+ * Dateikopf). Als benannte Konstante, damit die beiden Rechenrichtungen
+ * ihn nicht getrennt tippen und auseinanderlaufen.
+ */
+export const GRID_Z_OFFSET_M = -1;
+
+/**
+ * Eine Rasterzelle. `i` läuft mit +x (Ost), `j` mit +z (Nord), `level`
+ * mit +y. Nur ganze Zahlen — alles andere ist ein Programmfehler.
+ */
+export interface GridCell {
+  readonly i: number;
+  readonly j: number;
+  readonly level: number;
+}
+
+/** Ganzzahliger Schlüssel einer Zelle. Kanonisch (Ebene, j, i) — dieselbe Ordnung wie {@link compareCells}. */
+export function cellKey(cell: GridCell): string {
+  return `${cell.level}|${cell.j}|${cell.i}`;
+}
+
+/**
+ * Kanonische Ordnung: Ebene, dann j, dann i.
+ *
+ * Sie ist Teil des Determinismusversprechens, nicht Geschmack. Jede Liste
+ * von Zellen und Kanten wird so sortiert, damit die Ausgabe nicht an der
+ * Einfügereihenfolge einer `Map` hängt.
+ */
+export function compareCells(a: GridCell, b: GridCell): number {
+  return a.level - b.level || a.j - b.j || a.i - b.i;
+}
+
+/** Die Nachbarzelle über eine der sechs Kanten. */
+export function neighbourCell(cell: GridCell, d: Direction): GridCell {
+  const u = DIRECTION_VECTOR[d];
+  return { i: cell.i + u.x, j: cell.j + u.z, level: cell.level + u.y };
+}
+
+/** Zellmitte in Weltkoordinaten: `(2i, 3,5e, 2j − 1)`. y ist die Bodenoberkante der Ebene. */
+export function cellToWorld(cell: GridCell): Vector3 {
+  return {
+    x: cell.i * MODULE_CELL_M,
+    y: cell.level * MODULE_LEVEL_M,
+    z: cell.j * MODULE_CELL_M + GRID_Z_OFFSET_M,
+  };
+}
+
+/**
+ * Weltpunkt → Zelle. Der Rückweg, und der Grund, warum diese Datei
+ * existiert: Er RUNDET. Ein Punkt bis zu einer knappen halben Zelle
+ * neben der Mitte gehört noch zu ihr.
+ */
+export function worldToCell(pos: Vector3): GridCell {
+  return {
+    i: Math.round(pos.x / MODULE_CELL_M),
+    j: Math.round((pos.z - GRID_Z_OFFSET_M) / MODULE_CELL_M),
+    level: Math.round(pos.y / MODULE_LEVEL_M),
+  };
+}
+
+/**
+ * Mitte einer Zellkante in Weltkoordinaten — der Mittelwert der beiden
+ * Zellmitten. Genau dort sitzen alle `cellEdge`-Connectors, und genau
+ * dort liegt eine Versiegelungsplatte.
+ */
+export function edgeCenterWorld(cell: GridCell, d: Direction): Vector3 {
+  const c = cellToWorld(cell);
+  const u = DIRECTION_VECTOR[d];
+  const half = isHorizontal(d) ? MODULE_CELL_M / 2 : MODULE_LEVEL_M / 2;
+  return { x: c.x + u.x * half, y: c.y + u.y * half, z: c.z + u.z * half };
+}
+
+
+// ---------------------------------------------------------------------------
+// Die Kantentafel über ein Layout — die eine Regel für Generator UND Editor
+// ---------------------------------------------------------------------------
+
+/** Eine Zelle eines PLATZIERTEN Moduls, in Weltzellen und Weltrichtungen. */
+export interface PlacedGridCell {
+  readonly cell: GridCell;
+  readonly edges: Readonly<Record<Direction, EdgeState>>;
+}
+
+/** Eine Öffnung eines platzierten Moduls, zurückgerechnet auf Zelle und Kante. */
+export interface PlacedGridPort {
+  /** Index in `RoomDef.connections` — die Rückverbindung zur Kit-Definition. */
+  readonly connector: number;
+  readonly cell: GridCell;
+  readonly direction: Direction;
+  readonly entrance: boolean;
+  readonly allowDoor: boolean;
+}
+
+/** Ein Eintrag der Tafel: die Zelle, ihre Kanten und der Raum, dem sie gehört. */
+export interface GridTableCell extends PlacedGridCell {
+  /** Index in `layout.rooms`. */
+  readonly roomIndex: number;
+}
+
+/** Zellschlüssel → Zustand. Alles, was die Tafel über ein Layout weiss. */
+export type GridEdgeTable = ReadonlyMap<string, GridTableCell>;
+
+/**
+ * Eine Weltrichtung aus einer lokalen — über die PLATZIERUNGSDREHUNG.
+ *
+ * Bewusst über dieselbe Quaternionen-Rechnung wie die Connectors und
+ * nicht über eine Gierungstabelle: Ein platzierter Raum trägt sein
+ * `rot` als Quaternion, und der Editor kennt keine Gierung in Grad. Eine
+ * Drehung, die auf keine Rasterachse fällt (irgendein Winkel aus einem
+ * von Hand verbogenen Dokument), gibt `null` — die Aufrufer behandeln
+ * so einen Raum dann wie „nicht im Raster“ statt ihn falsch einzuordnen.
+ */
+function worldDirection(d: Direction, rot: Quaternion): Direction | null {
+  return directionFromVector(quatMulVec3(rot, DIRECTION_VECTOR[d]));
+}
+
+function toWorldPoint(local: Vector3, pos: Vector3, rot: Quaternion): Vector3 {
+  const r = quatMulVec3(rot, local);
+  return { x: pos.x + r.x, y: pos.y + r.y, z: pos.z + r.z };
+}
+
+/**
+ * Die Weltzellen eines platzierten Moduls samt ihren Kantenzuständen.
+ *
+ * Verschlussplatten (`endCap`) haben keine Zelle und liefern eine leere
+ * Liste — wer sie als Zelle führte, hielte jede versiegelte Kante für
+ * belegt und verböte danach jeden Anbau an eine zugemauerte Kante.
+ */
+export function placedGridCells(
+  module: GridModule,
+  pos: Vector3,
+  rot: Quaternion
+): PlacedGridCell[] {
+  const out: PlacedGridCell[] = [];
+  for (const c of module.cells) {
+    const edges = {} as Record<Direction, EdgeState>;
+    let vollstaendig = true;
+    for (const d of DIRECTIONS) {
+      const w = worldDirection(d, rot);
+      if (w === null) {
+        vollstaendig = false;
+        break;
+      }
+      edges[w] = c.edges[d];
+    }
+    if (!vollstaendig) continue;
+    out.push({ cell: worldToCell(toWorldPoint(c.localCenter, pos, rot)), edges });
+  }
+  return out;
+}
+
+/** Die Öffnungen eines platzierten Moduls, auf Weltzelle und Weltkante zurückgerechnet. */
+export function placedGridPorts(
+  module: GridModule,
+  pos: Vector3,
+  rot: Quaternion
+): PlacedGridPort[] {
+  const out: PlacedGridPort[] = [];
+  for (const p of module.ports) {
+    const d = worldDirection(p.direction, rot);
+    const cell = module.cells[p.cell];
+    if (d === null || !cell) continue;
+    out.push({
+      connector: p.connector,
+      cell: worldToCell(toWorldPoint(cell.localCenter, pos, rot)),
+      direction: d,
+      entrance: p.entrance,
+      allowDoor: p.allowDoor,
+    });
+  }
+  return out;
+}
+
+/**
+ * Die Modulerklärungen eines Kits, einmal je Name.
+ *
+ * `gridModuleFromRoomDef` ist rein, aber nicht gratis: Sie legt für jede
+ * Zelle sechs Kanten an und prüft jeden Connector. `attachRoom` läuft im
+ * Editor bei jedem Tastendruck — ohne diesen Zwischenschritt rechnete es
+ * die Erklärung aller acht Module bei jedem Aufruf neu.
+ */
+export function gridModulesOfKit(rooms: readonly RoomDef[]): Map<string, GridModule> {
+  const out = new Map<string, GridModule>();
+  for (const r of rooms) {
+    try {
+      out.set(r.name, gridModuleFromRoomDef(r));
+    } catch {
+      // Ein Kit ohne Rastererklärung ist kein Fehler — es geht dann
+      // schlicht nicht über den Rasterpfad. Werfen hiesse, dass der
+      // Editor an einem Fremdkit gar nicht mehr öffnete.
+      continue;
+    }
+  }
+  return out;
+}
+
+/**
+ * Die Kantentafel eines Layouts: Welche Zelle gehört wem, und was steht
+ * an ihren sechs Kanten.
+ *
+ * Doppelt belegte Zellen gewinnt der ZULETZT eingetragene Raum nicht —
+ * der erste bleibt stehen. Sonst verschwände eine Doppelbelegung aus der
+ * Tafel, und genau sie soll {@link gridPlacementConflict} finden.
+ */
+export function gridEdgeTable(
+  rooms: readonly Pick<PlacedRoom, 'room' | 'pos' | 'rot'>[],
+  modules: ReadonlyMap<string, GridModule>
+): GridEdgeTable {
+  const out = new Map<string, GridTableCell>();
+  rooms.forEach((r, roomIndex) => {
+    const module = modules.get(r.room);
+    if (!module || module.endCap) return;
+    for (const c of placedGridCells(module, r.pos, r.rot)) {
+      const k = cellKey(c.cell);
+      if (out.has(k)) continue;
+      out.set(k, { ...c, roomIndex });
+    }
+  });
+  return out;
+}
+
+/**
+ * Verstösst diese Platzierung gegen die Kantentafel? Klartext oder `null`.
+ *
+ * ── Die Regel, in beide Richtungen gelesen ───────────────────────────
+ * Die Tafel aus S7 der Konzeptnotiz sagt für ein Kantenpaar, was dort
+ * hingehört. Zwei Paarungen sind kein Bauzustand, sondern ein Fehler:
+ *
+ *   offen | wand   → eine Öffnung vor einer eingebauten Wand
+ *   wand  | offen  → eine eingebaute Wand vor einer Öffnung
+ *
+ * Das IST Mikes Befund vom 04.09.2026, einmal von jeder Seite. Der
+ * Rastergenerator kann beides gar nicht erzeugen (`chooseModule` lässt
+ * eine überzählige Öffnung nur auf Fels zeigen); der Handbau konnte es
+ * bis heute, weil `attachRoom` allein Hüllen prüfte — und die Hülle
+ * eines Moduls ist auf jeder Achse mit eingebauter Wand um 0,6 m zu
+ * klein.
+ *
+ * `wallPartial` steht ausdrücklich NICHT in der Liste: Gegen eine
+ * Treppenflanke setzt die Tafel eine Platte (Zeile 4), die Kante ist
+ * also versorgt.
+ *
+ * ── Und die Belegung ─────────────────────────────────────────────────
+ * Zwei Räume in derselben Zelle sind der zweite Fehler, den die Hülle
+ * durchlässt: Ein Stempel deckt vier Zellen, seine Hülle aber nur die
+ * geschrumpfte Mitte. Geprüft wird deshalb an der Zelle, nicht am Körper.
+ */
+export function gridPlacementConflict(
+  table: GridEdgeTable,
+  candidate: readonly PlacedGridCell[]
+): string | null {
+  const eigene = new Set(candidate.map((c) => cellKey(c.cell)));
+  for (const c of candidate) {
+    const hier = cellKey(c.cell);
+    const besetzt = table.get(hier);
+    if (besetzt) return `Zelle ${hier} ist schon von Raum ${besetzt.roomIndex} belegt`;
+    for (const d of DIRECTIONS) {
+      const nachbar = neighbourCell(c.cell, d);
+      // Kanten INNERHALB derselben Platzierung entscheidet das Modul
+      // selbst — dort kann von aussen nichts anstossen.
+      if (eigene.has(cellKey(nachbar))) continue;
+      const gegenueber = table.get(cellKey(nachbar));
+      if (!gegenueber) continue;
+      const dort = gegenueber.edges[OPPOSITE_DIRECTION[d]];
+      if (c.edges[d] === 'open' && dort === 'wall') {
+        return `Öffnung ${hier}#${d} stiesse auf die eingebaute Wand von Raum ${gegenueber.roomIndex}`;
+      }
+      if (c.edges[d] === 'wall' && dort === 'open') {
+        return `eingebaute Wand ${hier}#${d} stünde vor der Öffnung von Raum ${gegenueber.roomIndex}`;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Braucht diese Kante nach der Tafel eine Platte?
+ *
+ * Die Ja/Nein-Fassung der Zeilen 1 bis 6 für eine EINZELNE Kante — das,
+ * was der Editor beim Schliessen fragt. Der Generator stellt dieselbe
+ * Frage über seinen Plan, wo er zusätzlich weiss, welche Nachbarschaft
+ * eine Graphkante ist; im Editor gibt es keinen Graphen, dort IST ein
+ * Paar aus zwei Öffnungen der Durchgang.
+ *
+ * Senkrechte Kanten sind ausgenommen: Das Kit hat keine Bodenplatte, und
+ * die einzigen offenen Boden- und Deckenkanten des Kits liegen INNERHALB
+ * der Treppe (ihre beiden Ebenen). Eine Platte gäbe es dort weder zu
+ * setzen noch zu brauchen.
+ */
+export function gridEdgeNeedsSeal(
+  table: GridEdgeTable,
+  cell: GridCell,
+  direction: Direction
+): boolean {
+  if (!isHorizontal(direction)) return false;
+  const hier = table.get(cellKey(cell));
+  if (!hier || hier.edges[direction] !== 'open') return false; // Zeile 6
+  const gegenueber = table.get(cellKey(neighbourCell(cell, direction)));
+  if (!gegenueber) return true; // Zeile 5: Fels
+  const dort = gegenueber.edges[OPPOSITE_DIRECTION[direction]];
+  if (dort === 'open') return false; // Zeile 1: Durchgang
+  if (dort === 'wall') return false; // Zeile 3: die fremde Wand IST die Wand
+  return true; // Zeile 4: Teilwand — die Flanke deckt die Kante nicht ganz
 }

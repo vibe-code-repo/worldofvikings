@@ -51,6 +51,28 @@ import { DungeonAlgorithm, DUNGEONS_BY_NAME } from './dungeons.js';
 import type { Quaternion, Vector3 } from './types.js';
 import { XorShiftRandom } from './worldgen/Random.js';
 import { quatEuler, quatMul, quatMulVec3 } from './worldgen/Math3d.js';
+/**
+ * Die Kantentafel — DIESELBE Funktion, die der Rasterpfad benutzt.
+ *
+ * Der Import geht bewusst nur in diese Richtung: `dungeonRasterModul.ts`
+ * ist rein (keine Saat, keine Einstellung) und kennt weder diese Datei
+ * noch `dungeonRasterGenerator.ts`. Ein Import des Rastergenerators von
+ * hier aus waere ein Ringschluss — jener importiert `generateDungeonLayout`
+ * fuer die Nicht-Rasterkits. Ein Ring laeuft unter `tsx` und faellt erst im
+ * gebuendelten Client um.
+ */
+import {
+  gridEdgeNeedsSeal,
+  gridEdgeTable,
+  gridModulesOfKit,
+  gridPlacementConflict,
+  placedGridCells,
+  placedGridPorts,
+  type Direction,
+  type GridCell,
+  type GridEdgeTable,
+  type GridModule,
+} from './dungeonRasterModul.js';
 
 /**
  * LEGACY (s. Kopfkommentar dieser Datei) / LEGACY (see this file's header
@@ -844,16 +866,94 @@ function connectionInstances(
 }
 
 /**
+ * Steuerung von {@link computeOpenConnections}.
+ *
+ * Additiv und mit Vorgabe „aus": Ohne das Objekt rechnet die Funktion Wort
+ * fuer Wort wie vorher. Das ist kein Stil, sondern Pflicht — `anbaubareKanten`
+ * und `wandConnectors` in `dungeonKanten.ts` brauchen die ROHE Liste, und
+ * der Saat-Vertrag haengt an ihr.
+ */
+export interface OpenConnectionOptions {
+  /**
+   * Statt „Connector ohne Partner" zaehlen, was ein LOCH ist.
+   *
+   * ── Warum das zwei Filter sind und nicht einer ───────────────────────
+   * Ein Connector ohne Gegenstueck ist nicht dasselbe wie ein Loch. Zwei
+   * Faelle sind vollstaendig versorgt und trotzdem ungepaart:
+   *
+   *  1. Der EINGANG von Raum 0. Dort geht es hinaus; der Server haengt
+   *     genau da die Verbindung zur Oberwelt an. Erkannt hart an Raum 0
+   *     UND `connection.entrance`, nicht an der Lage (0,0,0) — ein zweiter
+   *     Connector, der dort zufaellig auch laege, bliebe sonst ein Loch.
+   *  2. Eine Oeffnung, vor der die EINGEBAUTE Wand des Nachbarmoduls
+   *     steht (Zeile 3 der Kantentafel). Der Rasterpfad setzt dort mit
+   *     Absicht keine Platte — zwei deckungsgleiche Koerper waeren
+   *     Z-Fighting, und die Kante ist bereits dicht. Der Connector bleibt
+   *     trotzdem ungepaart, weil die fremde Wand kein Connector ist.
+   *
+   * Fall 2 gilt nur fuer Kits mit `gridGeneration`; ohne Raster gibt es
+   * keine Tafel, und dann bleibt es beim Eingangsfilter.
+   *
+   * Der Name stammt aus der Konzeptnotiz (G9). Er nennt den ersten Filter;
+   * der zweite kam dazu, als die Messung zeigte, dass „1 offen" in Wahrheit
+   * „1 Eingang + n fremde Waende" war (46 solcher Kanten ueber 40 Saaten).
+   */
+  ohneEingang?: boolean;
+}
+
+/**
+ * Ein Connector, zurueckgerechnet auf seine Rasterzelle und -kante.
+ * `null`, wenn das Kit keine Rastererklaerung hat.
+ */
+function gridPortIndex(
+  layout: DungeonLayout,
+  def: DungeonDef
+): { table: GridEdgeTable; ports: Map<string, { cell: GridCell; direction: Direction }> } | null {
+  if (!def.gridGeneration) return null;
+  const modules = gridModulesOfKit(def.rooms);
+  const ports = new Map<string, { cell: GridCell; direction: Direction }>();
+  layout.rooms.forEach((placed, roomIndex) => {
+    const module = modules.get(placed.room);
+    if (!module || module.endCap) return;
+    for (const p of placedGridPorts(module, placed.pos, placed.rot)) {
+      ports.set(`${roomIndex}/${p.connector}`, { cell: p.cell, direction: p.direction });
+    }
+  });
+  return { table: gridEdgeTable(layout.rooms, modules), ports };
+}
+
+/**
  * All connectors without a counterpart within 0.1 m — the places where the
  * editor can attach another room.
+ *
+ * Mit `{ ohneEingang: true }` zaehlt sie stattdessen LOECHER; die Begruendung
+ * steht an {@link OpenConnectionOptions}.
  */
-export function computeOpenConnections(layout: DungeonLayout, baseName: string): OpenConnection[] {
+export function computeOpenConnections(
+  layout: DungeonLayout,
+  baseName: string,
+  options?: OpenConnectionOptions
+): OpenConnection[] {
   const def = DUNGEONS_BY_NAME.get(baseName);
   const roomsByName = new Map(def?.rooms.map((r) => [r.name, r]) ?? []);
   const all = connectionInstances(layout, roomsByName);
-  return all.filter((a, i) =>
+  const offen = all.filter((a, i) =>
     all.every((b, j) => i === j || sqDist(a.pos, b.pos) >= 0.1 * 0.1)
   );
+  if (!options?.ohneEingang || !def) return offen;
+
+  const start = roomsByName.get(layout.rooms[0]?.room ?? '');
+  const raster = gridPortIndex(layout, def);
+  return offen.filter((c) => {
+    if (c.roomIndex === 0 && start?.connections[c.connIndex]?.entrance) return false;
+    if (!raster) return true;
+    const port = raster.ports.get(`${c.roomIndex}/${c.connIndex}`);
+    // Kein Eintrag heisst: Dieser Connector ist nicht im Raster erklaert
+    // (Fremdmodul, verbogene Drehung). Im Zweifel ein Loch — Verschweigen
+    // waere der teurere Fehler.
+    if (!port) return true;
+    return gridEdgeNeedsSeal(raster.table, port.cell, port.direction);
+  });
 }
 
 function roomOverlapsLayout(
@@ -953,7 +1053,30 @@ export function attachRoom(
     kandidaten = [gewaehlt];
   }
 
+  // Die Kantentafel — dieselbe Funktion, die der Rasterpfad benutzt, nicht
+  // eine zweite Fassung derselben Regel.
+  //
+  // ── Warum die Huelle allein nicht reicht ─────────────────────────────
+  // `roomOverlapsLayout` prueft `RoomDef.size`, und die luegt mit Absicht:
+  // 1,4 statt 2,0 m Innenmass, damit der Abschluss der Nachbarzelle nicht
+  // dagegenstoesst (`eigeneDungeons.ts`, Begruendung an StoneVaultCorridor).
+  // Genau in diesen 0,6 m entsteht Mikes Befund vom 04.09.2026: zwei Module
+  // Wand an Wand, dazwischen eine Oeffnung vor einer eingebauten Wand. Die
+  // Huelle sieht das nie, weil sie an dieser Stelle gar nicht hinreicht.
+  //
+  // Einmal vor der Schleife gerechnet: Die Tafel haengt am LAYOUT, nicht am
+  // Kandidaten, und `gridModulesOfKit` erklaert alle acht Module.
+  const gridModules = def.gridGeneration ? gridModulesOfKit(def.rooms) : null;
+  const gridTable: GridEdgeTable | null = gridModules
+    ? gridEdgeTable(layout.rooms, gridModules)
+    : null;
+  const gridModule: GridModule | null = gridModules?.get(room.name) ?? null;
+
   const attachRot = quatMul(open.rot, FLIP_180);
+  // Der letzte Tafelverstoss, als Begruendung fuer den Aufrufer. Ohne ihn
+  // meldete der Editor „Kollision" fuer einen Fall, in dem sich nichts
+  // ueberschneidet — und niemand faende den Grund.
+  let tafelGrund: string | null = null;
   for (const conn of kandidaten) {
     const outRot = quatMul(attachRot, quatInverse(conn.localRot));
     const outPos = vSub(open.pos, quatMulVec3(outRot, conn.localPos));
@@ -962,6 +1085,20 @@ export function attachRoom(
       roomOverlapsLayout(layout, roomsByName, room, outPos, outRot, 0.1, fromFloor)
     ) {
       continue;
+    }
+    // Verschlussplatten sind ausgenommen: Sie belegen keine Zelle und
+    // legen sich in die Kantenebene — `placedGridCells` liefert fuer sie
+    // ohnehin nichts, aber die Ausnahme steht hier ausgeschrieben, damit
+    // ein Kit mit einer dickeren Platte nicht lautlos die Regel bricht.
+    if (gridTable && gridModule && !gridModule.endCap) {
+      const verstoss = gridPlacementConflict(
+        gridTable,
+        placedGridCells(gridModule, outPos, outRot)
+      );
+      if (verstoss) {
+        tafelGrund = verstoss;
+        continue;
+      }
     }
     return {
       ok: true,
@@ -974,7 +1111,10 @@ export function attachRoom(
       },
     };
   }
-  return { ok: false, reason: 'Kollision — kein Connector passt ohne Überschneidung' };
+  return {
+    ok: false,
+    reason: tafelGrund ?? 'Kollision — kein Connector passt ohne Überschneidung',
+  };
 }
 
 /**

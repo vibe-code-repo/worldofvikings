@@ -596,9 +596,14 @@ const wandGrundriss = grundrissMitMeldung(wandDoc);
 wandGrundriss.schliesseKanten();
 pruefe(wandDoc.layout.rooms.length === 4, 'Ausgangslage: zugemauerter Eingangsraum',
   `${wandDoc.layout.rooms.length}`);
+// Seit G9 zählt `offeneVerbindungen` LÖCHER und nicht mehr Connectors:
+// Die Eingangskante ist mit Absicht offen (dort geht es hinaus), also ist
+// sie kein Loch. Bis dahin stand hier eine 1 — und genau diese 1 las Mike
+// am dichten Grab als „da fehlt was". Angeboten wurde sie schon vorher
+// nicht; das prüft die Zeile darunter unverändert weiter.
 pruefe(
-  wandGrundriss.offeneVerbindungen.length === 1,
-  'offen ist nur noch die Eingangskante — sie wird NICHT angeboten',
+  wandGrundriss.offeneVerbindungen.length === 0,
+  'am dichten Grab meldet die Kopfzeile 0 offen — die Eingangskante zählt nicht mit',
   `${wandGrundriss.offeneVerbindungen.length}`
 );
 pruefe(

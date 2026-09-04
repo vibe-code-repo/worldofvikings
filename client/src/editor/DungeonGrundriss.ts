@@ -481,7 +481,20 @@ export class DungeonGrundriss {
   }
 
   private aktualisiereOffene(): void {
-    this.offene = this.doc ? computeOpenConnections(this.doc.layout, this.doc.base) : [];
+    // `{ ohneEingang: true }` zählt LÖCHER, nicht Connectors.
+    //
+    // Die Kopfzeile meldete bis G9 „1 offen" an einem lückenlosen Grab —
+    // gemeint war der Eingang. In einem Rasterkit kamen die Öffnungen dazu,
+    // vor denen die eingebaute Wand des Nachbarn steht (Zeile 3 der
+    // Kantentafel, 46 solcher Kanten über 40 Saaten). Beides ist dicht.
+    // Eine Zahl, die auch dann steht, wenn nichts fehlt, liest sich beim
+    // nächsten Mal als Rauschen — und dann fällt ein echtes Loch nicht auf.
+    //
+    // Dieselbe Liste trägt die anbaubaren Kanten: Wo die fremde Wand steht,
+    // lässt `attachRoom` seit G9 ohnehin nichts mehr zu.
+    this.offene = this.doc
+      ? computeOpenConnections(this.doc.layout, this.doc.base, { ohneEingang: true })
+      : [];
     // IMMER zusammen mit `offene` neu ziehen: `wandIndex` zeigt in ein
     // Layout, dessen Indizes nach jedem `removeRoom` rutschen. Eine Liste,
     // die einen Arbeitsgang überlebt, zeigt auf den falschen Raum.

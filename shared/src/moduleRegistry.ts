@@ -49,7 +49,8 @@
  * Sprache: neue Bezeichner englisch, die importierten deutschen Namen
  * bleiben, wo sie stehen.
  */
-import { GRID_M, HEIGHT_M } from './hallenGeometrie.js';
+import { GRID_M, HEIGHT_M, pillarPositions } from './hallenGeometrie.js';
+import { fnv1a32 } from './dungeon2/layout.js';
 import {
   HALBE_DREHUNG,
   KEINE_DREHUNG,
@@ -335,4 +336,407 @@ export function registerModule(kitName: string, room: RoomDef): void {
   // begründet ist — und die andere Hälfte schwiege dazu.
   (EIGENE_MODELLE as string[]).push(room.name);
   (EIGENE_MODELLE_SET as Set<string>).add(room.name);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// E6 — Die Registry als Datei, und die eine Zahl, die beide Seiten
+//      miteinander vergleichen.
+// ═══════════════════════════════════════════════════════════════════════
+//
+// ── Warum das hier steht und nicht im Server ─────────────────────────
+// Bis E5 lebten die Klemmen (Zellzahl, Raster, Gewicht, Namensform,
+// Dreiecksdeckel) und die Prüfsumme in `server/src/world/dungeon/
+// ModuleBuild.ts`, weil nur der Server baute. Ab E6 REGISTRIERT AUCH DER
+// BROWSER: `client/src/main.ts` und `editorMain.ts` holen die
+// Registry-Datei und tragen jeden Eintrag ein.
+//
+// Damit wird aus einer Bequemlichkeit eine Notwendigkeit. Verwürfe der
+// Server einen Eintrag, den der Client annimmt, dann stimmten die
+// Prüfsummen beider Seiten — und trotzdem böte der Editor einen Saal an,
+// den der Server beim Speichern still fallen liesse. Das ist genau der
+// Fehler, gegen den E6 antritt, nur eine Ebene tiefer. Deshalb gibt es
+// die Klemmen genau EINMAL, und beide Seiten rufen dieselbe Funktion.
+// `ModuleBuild.ts` reicht sie unverändert weiter, damit der Bauweg von
+// E5 an einem Ort bleibt.
+//
+// ── Was die Prüfsumme beantwortet ────────────────────────────────────
+// Genau eine Frage: „Kennen Client und Server dieselben Module?" Nicht
+// „ist die Datei unverfälscht" — dafür wäre sie das falsche Werkzeug
+// (dieselbe Überlegung wie bei den Dungeon-2.0-Dokumenten: ein Zeuge
+// gegen Drift, keine Abwehr gegen einen Angreifer).
+//
+// The clamps and the checksum live HERE because from E6 on the browser
+// registers modules too — a validation that differs between the two
+// sides would produce matching checksums over differing room sets.
+
+// ── Klemmen ─────────────────────────────────────────────────────────────
+/** Kleinster Saal: ein einzelliger „Saal" wäre ein Korridorstück. */
+export const CELLS_MIN = 2;
+/** Grösster Saal: 8 Zellen sind 16 m — darüber trägt der Dreiecksdeckel ohnehin nicht mehr. */
+export const CELLS_MAX = 8;
+/** Erlaubte Pfeilerraster in Metern. Vielfache von `GRID_M`, sonst wirft `pillarPositions`. */
+export const RASTER_ERLAUBT: readonly number[] = [2, 4, 6];
+export const GEWICHT_MIN = 0.1;
+export const GEWICHT_MAX = 2.0;
+/**
+ * Harter Deckel. Säle haben KEIN `_col`-Netz — das sichtbare Netz IST die
+ * Havok-Form, jedes Dreieck ist begehbare Kollisionsgeometrie.
+ * Nachgerechnet: 8×8 Zellen mit dem VORGABERASTER 2 ergeben
+ * 12·(2 + 1024 + 3·49) = 14 076 und fallen durch; dieselben 8×8 mit
+ * Raster 4 ergeben 12 636 und gehen durch.
+ */
+export const DREIECKS_DECKEL = 13_000;
+
+/** Das Kit, zu dem gebaute Säle gehören. Heute gibt es genau eines. */
+export const KIT_NAME = 'DG_StoneVault';
+/** Namenspräfix — zugleich die Auskunft an den `AssetManager`, wo die Datei liegt (E7). */
+export const NAME_PRAEFIX = 'Gen_StoneVaultHall';
+/**
+ * Die Form, die ein Modulname haben MUSS, bevor aus ihm ein Pfad wird.
+ * Buchstaben und Ziffern, 1…16 Zeichen hinter dem Präfix — dieselbe
+ * Bauart wie die Erlaubnisliste der Dungeon-ID im Betriebsdienst.
+ */
+export const NAME_MUSTER = /^Gen_StoneVaultHall[A-Za-z0-9]{1,16}$/;
+
+/** Dateiname der Registry, neben den GLBs in `assets/generiert/`. */
+export const REGISTRY_DATEI = 'modul-registry.json';
+export const REGISTRY_VERSION = 1;
+
+// ── Typen ───────────────────────────────────────────────────────────────
+/** Was der Client beim Bauen schickt: vier Zahlen, kein Name, kein Pfad. */
+export interface ModulBauWunsch {
+  readonly cellsX: number;
+  readonly cellsZ: number;
+  readonly raster: number;
+  readonly weight: number;
+}
+
+/** Ein Eintrag der Registry-Datei. Deutsche Schlüssel wie in der Konzeptnotiz. */
+export interface RegistryModul {
+  readonly kit: string;
+  readonly name: string;
+  readonly zellenX: number;
+  readonly zellenZ: number;
+  readonly pfeilerRaster: number;
+  readonly gewicht: number;
+  readonly tris: number;
+  readonly erzeugt: string;
+}
+
+/** Die Registry-Datei, so wie sie auf der Platte liegt. */
+export interface RegistryDatei {
+  readonly version: number;
+  readonly pruefsumme: string;
+  readonly module: RegistryModul[];
+}
+
+// ── Rechnung ────────────────────────────────────────────────────────────
+/**
+ * Die Dreieckszahl eines Saals OHNE ihn zu bauen — die geschlossene
+ * Formel aus der Konzeptnotiz: 12·(2 + 16·cx·cz + 3·P).
+ *
+ * Sie steht hier, weil der Deckel VOR dem Bau greifen muss: Ein Saal, den
+ * man erst baut und dann verwirft, hat schon 14 000 Quader im Speicher
+ * gehabt — und im Registry-Leser gibt es gar keine Geometrie, nur Zahlen
+ * aus einer Textdatei.
+ */
+export function dreiecke(cellsX: number, cellsZ: number, raster: number): number {
+  const pfeiler = pillarPositions(cellsX, cellsZ, raster).length;
+  return 12 * (2 + 16 * cellsX * cellsZ + 3 * pfeiler);
+}
+
+/**
+ * Das Raster, das im Namen steht — und das ist NICHT immer das gewünschte.
+ *
+ * Gemessen statt angenommen: Ein 2×2-Saal ist 4 m breit, liegt also unter
+ * der Pfeilerspanne und bekommt unter JEDEM Raster null Pfeiler; bei 2×4
+ * ergeben Raster 4 und 6 beide null. Hiesse der Name schlicht nach der
+ * eingetippten Zahl, stünden zwei (oder drei) Namen für eine einzige,
+ * byte-gleiche Geometrie: Der zweite Bau schriebe eine Kopie unter neuem
+ * Namen, statt auf das vorhandene Modul zu zeigen — und der Editor böte
+ * dieselbe Halle mehrfach an. Deshalb wird auf das KLEINSTE erlaubte
+ * Raster zurückgeführt, das dieselben Pfeilerstellen ergibt.
+ */
+export function kanonischesRaster(cellsX: number, cellsZ: number, raster: number): number {
+  const soll = JSON.stringify(pillarPositions(cellsX, cellsZ, raster));
+  for (const r of RASTER_ERLAUBT) {
+    if (JSON.stringify(pillarPositions(cellsX, cellsZ, r)) === soll) return r;
+  }
+  return raster;
+}
+
+/**
+ * Der massabgeleitete Modulname. Das Raster steht nur im Namen, wenn es
+ * von der Vorgabe abweicht — und nur, wenn diese Abweichung überhaupt
+ * eine andere Geometrie ergibt (siehe `kanonischesRaster`).
+ */
+export function modulName(cellsX: number, cellsZ: number, raster: number): string {
+  const kanon = kanonischesRaster(cellsX, cellsZ, raster);
+  const anhang = kanon === GRID_M ? '' : `r${kanon}`;
+  return `${NAME_PRAEFIX}${cellsX}x${cellsZ}${anhang}`;
+}
+
+// ── Prüfungen ───────────────────────────────────────────────────────────
+/**
+ * Die Masse. Gibt die Ablehnungsmeldung zurück oder `null`.
+ *
+ * Dieselbe Funktion läuft im Paketweg, im Registry-Leser des Servers UND
+ * im Browser: Eine von Hand nachgetragene Zeile in der Registry ist
+ * genauso eine Eingabe wie ein Paket aus dem Netz, nur eine, der man es
+ * weniger ansieht.
+ */
+export function pruefeMasse(wunsch: ModulBauWunsch): string | null {
+  const { cellsX, cellsZ, raster, weight } = wunsch;
+  for (const [achse, wert] of [
+    ['x', cellsX],
+    ['z', cellsZ],
+  ] as const) {
+    if (!Number.isInteger(wert) || wert < CELLS_MIN || wert > CELLS_MAX) {
+      return (
+        `Zellzahl ${achse} = ${wert} liegt ausserhalb von ${CELLS_MIN}…${CELLS_MAX} ` +
+        `(ganzzahlig).`
+      );
+    }
+  }
+  if (!RASTER_ERLAUBT.includes(raster)) {
+    return `Pfeilerraster ${raster} ist nicht erlaubt — zulässig sind ${RASTER_ERLAUBT.join(', ')} m.`;
+  }
+  // Float32-Toleranz: Der Client schickt das Gewicht als Float32, und
+  // 0,1 kommt dort als 0,10000000149 an. Ohne das Epsilon wäre die untere
+  // Klemme genau am Randwert unerreichbar — ein Fehler, der aussieht wie
+  // Willkür.
+  if (!Number.isFinite(weight) || weight < GEWICHT_MIN - 1e-6 || weight > GEWICHT_MAX + 1e-6) {
+    return `Gewicht ${weight} liegt ausserhalb von ${GEWICHT_MIN}…${GEWICHT_MAX}.`;
+  }
+  return null;
+}
+
+/** Der Dreiecksdeckel. Gibt die Ablehnungsmeldung zurück oder `null`. */
+export function pruefeDreiecke(tris: number): string | null {
+  if (tris > DREIECKS_DECKEL) {
+    return (
+      `${tris} Dreiecke überschreiten den Deckel von ${DREIECKS_DECKEL} — Säle haben kein ` +
+      `Kollisionsnetz, das sichtbare Netz ist die Havok-Form.`
+    );
+  }
+  return null;
+}
+
+/**
+ * Die Form des Namens — geprüft, BEVOR aus ihm irgendwo ein Dateiname wird.
+ *
+ * Drei getrennte Meldungen statt einer: Ein Name mit einem Schrägstrich
+ * ist ein anderer Vorfall als einer ohne Präfix. Wer nur „ungültiger
+ * Name" liest, sucht an der falschen Stelle.
+ *
+ * Die Funktion kennt keinen Pfad. Den zusammenzusetzen bleibt Sache des
+ * Servers (`ModuleBuild.glbPfad`) — im Browser gibt es keinen, und eine
+ * Prüfung, die man nur mit `node:path` aufrufen kann, liefe dort nie.
+ */
+export function pruefeName(name: string): string | null {
+  if (typeof name !== 'string' || /[^A-Za-z0-9_]/.test(name)) {
+    return (
+      `Modulname '${name}' enthält Zeichen, die kein Dateiname sein dürfen — erlaubt sind ` +
+      `Buchstaben, Ziffern und Unterstrich.`
+    );
+  }
+  if (!name.startsWith(NAME_PRAEFIX)) {
+    return `Modulname '${name}' trägt nicht das Präfix ${NAME_PRAEFIX}.`;
+  }
+  if (!NAME_MUSTER.test(name)) {
+    return `Modulname '${name}' hat nicht die Form ${NAME_PRAEFIX}<Kennung> mit 1…16 Zeichen.`;
+  }
+  return null;
+}
+
+/**
+ * Ein Registry-Eintrag, vollständig geprüft — Gestalt, Masse, Name,
+ * Deckel, und die Frage, ob die genannte Dreieckszahl zum Zuschnitt passt.
+ *
+ * Die letzte Prüfung ist die, die man weglassen möchte und nicht darf:
+ * `tris` steht in der Datei, wird aber nirgends nachgerechnet, wenn ihn
+ * niemand nachrechnet. Ein Eintrag, der 2 364 Dreiecke behauptet und
+ * 14 076 meint, käme am Deckel vorbei — er ist ja nur ein Text.
+ */
+export function pruefeRegistryEintrag(m: RegistryModul): string | null {
+  if (!m || typeof m !== 'object') return 'Registry-Eintrag ist kein Objekt.';
+  if (typeof m.kit !== 'string' || m.kit.length === 0) return 'Registry-Eintrag ohne Kit.';
+  const nameGrund = pruefeName(m.name);
+  if (nameGrund) return nameGrund;
+  const masse = pruefeMasse({
+    cellsX: m.zellenX,
+    cellsZ: m.zellenZ,
+    raster: m.pfeilerRaster,
+    weight: m.gewicht,
+  });
+  if (masse) return masse;
+  const soll = dreiecke(m.zellenX, m.zellenZ, m.pfeilerRaster);
+  const deckel = pruefeDreiecke(soll);
+  if (deckel) return deckel;
+  if (m.tris !== soll) {
+    return `Registry nennt ${m.tris} Dreiecke, der Zuschnitt ergibt ${soll}.`;
+  }
+  return null;
+}
+
+// ── Die Prüfsumme ───────────────────────────────────────────────────────
+/**
+ * Die Prüfsumme über einen Modulstand — dieselbe Bauart wie bei den
+ * Dungeon-2.0-Dokumenten (`fnv1a32`, acht Hexstellen).
+ *
+ * Sortiert, damit die REIHENFOLGE der Einträge nicht eingeht: Zwei
+ * Server, die dieselben Säle in anderer Folge geladen haben, sind sich
+ * einig, und eine Warnung, die das anders sähe, wäre falsch.
+ *
+ * Der ZEITSTEMPEL geht bewusst NICHT ein. Die Prüfsumme beantwortet genau
+ * eine Frage: „Kennen Client und Server dieselben Module?" Ginge die
+ * Bauzeit ein, meldete sie Drift zwischen zwei Seiten, die über jeden
+ * Raum einig sind — und eine Warnung, die falsch anschlägt, wird nach dem
+ * dritten Mal weggeklickt.
+ */
+export function registryPruefsumme(module: readonly RegistryModul[]): string {
+  const kanonisch = [...module]
+    .map(
+      (m) =>
+        `${m.kit}|${m.name}|${m.zellenX}|${m.zellenZ}|${m.pfeilerRaster}|${m.gewicht}|${m.tris}`
+    )
+    .sort()
+    .join('\n');
+  return (fnv1a32(`v${REGISTRY_VERSION}\n${kanonisch}`) >>> 0).toString(16).padStart(8, '0');
+}
+
+/** Der Stand „keine Module" — das, was eine fehlende Datei bedeutet. */
+export function leereRegistry(): RegistryDatei {
+  return { version: REGISTRY_VERSION, pruefsumme: registryPruefsumme([]), module: [] };
+}
+
+/**
+ * Die Registry-Datei aus ihrem TEXT lesen — für den Server (Datei) und
+ * den Browser (`fetch`) dieselbe Funktion.
+ *
+ * Zwei Entscheidungen stecken darin:
+ *
+ * (1) **Ein unlesbarer Text ist eine LEERE Registry, kein Absturz.** Die
+ *     Datei liegt in `assets/generiert/`, reist per tar und lässt sich von
+ *     Hand bearbeiten; sie fehlt auf jeder Maschine, die noch nie einen
+ *     Saal gebaut hat. Ein Client, der daran stürbe, käme wegen einer
+ *     Datei nicht ins Spiel, die es normalerweise gar nicht gibt.
+ *
+ * (2) **Das Feld `pruefsumme` IN der Datei wird nicht geglaubt, sondern
+ *     nachgerechnet.** Es ist eine Bequemlichkeit für den Menschen, der
+ *     hineinsieht. Übernähme man es, könnte eine von Hand geänderte Zeile
+ *     die Zahl unverändert lassen — und dann sagten beide Seiten „einig",
+ *     während sie es nicht sind. Die Prüfsumme muss aus dem STAND folgen,
+ *     nicht neben ihm stehen.
+ */
+export function leseRegistryAusText(text: string): RegistryDatei {
+  let roh: Partial<RegistryDatei> | null = null;
+  try {
+    roh = JSON.parse(text) as Partial<RegistryDatei>;
+  } catch {
+    return leereRegistry();
+  }
+  if (!roh || typeof roh !== 'object') return leereRegistry();
+  const module = Array.isArray(roh.module) ? (roh.module as RegistryModul[]) : [];
+  return {
+    version: typeof roh.version === 'number' ? roh.version : REGISTRY_VERSION,
+    pruefsumme: registryPruefsumme(module),
+    module,
+  };
+}
+
+// ── Was DIESE Seite kennt ───────────────────────────────────────────────
+/**
+ * Die Einträge, die in diesem Prozess wirklich registriert wurden.
+ *
+ * Nicht die Datei, sondern der ZUSTAND. Der Unterschied zählt genau dann,
+ * wenn die Datei einen Eintrag trägt, den keine Seite registrieren kann:
+ * Über die Datei gerechnet wären sich Client und Server dann „einig" über
+ * ein Modul, das keiner von beiden hat. Über den Zustand gerechnet sind
+ * sie es über das, was tatsächlich benutzbar ist — und das ist die Frage,
+ * die beim Speichern eines Dokuments gestellt wird.
+ *
+ * Das Feld wird beim Import angelegt und NUR von `registerRegistryEntry`
+ * gefüllt; keine Zeile ausserhalb einer Funktion fasst es an
+ * (`sideEffects: false`, Wächter in `shared/test/module-registry.ts`).
+ */
+const REGISTRIERT: RegistryModul[] = [];
+
+/** Die Module, die dieser Prozess kennt — Lesekopie, nicht die Liste selbst. */
+export function registeredModules(): readonly RegistryModul[] {
+  return REGISTRIERT.slice();
+}
+
+/**
+ * Die Zahl, die mit jedem `DungeonEditSave` mitreist.
+ *
+ * Client und Server rechnen sie mit derselben Funktion über denselben
+ * Zustand aus. Sind sie ungleich, ist die Seite im Browser älter oder
+ * jünger als der Server — und ein Dokument, das sie jetzt schickte,
+ * verlöre Räume, ohne dass jemand es merkte.
+ */
+export function registryChecksum(): string {
+  return registryPruefsumme(REGISTRIERT);
+}
+
+/** Der kanonische Text eines Eintrags — nur für den Vergleich „schon da?". */
+function eintragsSchluessel(m: RegistryModul): string {
+  return `${m.kit}|${m.name}|${m.zellenX}|${m.zellenZ}|${m.pfeilerRaster}|${m.gewicht}|${m.tris}`;
+}
+
+/**
+ * Einen Registry-Eintrag prüfen, eintragen und vermerken.
+ *
+ * Der Vermerk ist der Unterschied zu `registerModule`: Erst er macht den
+ * Saal für {@link registryChecksum} sichtbar. Beide Seiten gehen deshalb
+ * durch DIESE Tür — der Server beim Start und nach jedem Bau, der Browser
+ * nach dem `fetch`.
+ *
+ * **Zweimal derselbe Eintrag ist KEIN Fehler.** Ein Client kann die
+ * Registry ein zweites Mal holen (Editor und Spiel im selben Tab, ein
+ * erneuter Aufruf nach einem Bau), und ein zweiter Durchlauf über
+ * dieselbe Datei soll keine Meldung erzeugen. Ein Eintrag mit gleichem
+ * NAMEN, aber anderem Zuschnitt fällt dagegen weiter durch — den fängt
+ * `registerModule` mit seiner Namensprüfung ab, und das ist richtig so:
+ * Modulnamen sind unveränderlich.
+ *
+ * @throws wenn der Eintrag eine Klemme reisst oder der Name schon anders
+ *         belegt ist.
+ */
+export function registerRegistryEntry(m: RegistryModul): void {
+  const schluessel = eintragsSchluessel(m);
+  if (REGISTRIERT.some((v) => eintragsSchluessel(v) === schluessel)) return;
+  const grund = pruefeRegistryEintrag(m);
+  if (grund) throw new Error(grund);
+  registerModule(m.kit, roomDefForHall(m.name, m.zellenX, m.zellenZ, m.gewicht));
+  REGISTRIERT.push(m);
+}
+
+export interface RegistryLadeErgebnis {
+  /** Einträge, die registriert wurden. */
+  readonly geladen: number;
+  /** Einträge, die NICHT registriert wurden — mit Grund. */
+  readonly meldungen: string[];
+}
+
+/**
+ * Einen gelesenen Registry-Stand vollständig eintragen.
+ *
+ * Ein abgelehnter Eintrag hält die anderen NICHT auf: Eine kaputte Zeile
+ * soll nicht alle Säle mitnehmen. Gemeldet wird jeder einzeln, mit Namen —
+ * eine Sammelmeldung „Registry fehlerhaft" schickte den Leser in eine
+ * Datei mit womöglich dreissig Einträgen.
+ */
+export function applyModuleRegistry(datei: RegistryDatei): RegistryLadeErgebnis {
+  const meldungen: string[] = [];
+  let geladen = 0;
+  for (const m of datei.module ?? []) {
+    try {
+      registerRegistryEntry(m);
+      geladen++;
+    } catch (e) {
+      meldungen.push(`'${m?.name ?? '?'}': ${(e as Error).message}`);
+    }
+  }
+  return { geladen, meldungen };
 }

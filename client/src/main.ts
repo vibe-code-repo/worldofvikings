@@ -90,6 +90,7 @@ import { EntityManager } from './entities/EntityManager';
 import { BaumImpostor } from './engine/BaumImpostor';
 import { PlayerController } from './player/PlayerController';
 import { GameSocket } from './net/GameSocket';
+import { ladeModulRegistrierung } from './net/ModuleRegistryLoad';
 import { parseZDOSync, ZDOSpiegel } from './net/ZDOSync';
 import { Hud } from './ui/Hud';
 import { GrassClutter } from './engine/GrassClutter';
@@ -297,6 +298,20 @@ function aktivierePerformanceDiagnose(
 }
 
 async function main() {
+  // ── E6: die Modulregistry, BEVOR irgendetwas den Katalog kopiert ────
+  //
+  // Zur Laufzeit gebaute Säle (E5) stehen in `assets/generiert/
+  // modul-registry.json` und in keinem Bündel. Ohne diesen Aufruf kennt
+  // der Spielclient sie nicht: Ein Grab, das einen benutzt, zeigte an
+  // seiner Stelle nichts — und ein Speichern aus dem Spiel heraus verlöre
+  // ihn still. Hier ganz oben, weil `PrefabManager`-artige Leser die
+  // Registry KOPIEREN statt sie zu befragen; eine Registrierung danach
+  // ist eingetragen und trotzdem unsichtbar, ohne dass etwas fehlschlägt.
+  //
+  // Kein Ausgang, den der Aufrufer behandeln müsste: Eine fehlende Datei
+  // ist der Normalfall und bedeutet „keine gebauten Säle".
+  await ladeModulRegistrierung();
+
   const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
 
   // ── Uebergabe von der Charaktererstellung ──────────────────────────

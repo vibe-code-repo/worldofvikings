@@ -4,7 +4,7 @@
  * engine dependencies). Binary framing: [type: u8][payload].
  */
 
-import { PacketType, HANDSHAKE_LEERPASSWORT_SCHLUESSEL } from '@wov/shared';
+import { PacketType, HANDSHAKE_LEERPASSWORT_SCHLUESSEL, moduleRegistry } from '@wov/shared';
 import type { Vector3, Quaternion } from '@wov/shared';
 
 /**
@@ -446,10 +446,30 @@ export class GameSocket {
     this.sendPacket(PacketType.DungeonEditRequest, w.toUint8Array());
   }
 
-  /** Editor (Phase G): bearbeitetes Dungeon-Dokument speichern. */
-  sendDungeonEditSave(json: string): void {
+  /**
+   * Editor (Phase G): bearbeitetes Dungeon-Dokument speichern.
+   *
+   * ── E6: die Registry-Prüfsumme reist mit ─────────────────────────
+   * Zweites Feld hinter dem Dokument. Sie wird HIER geholt und nicht von
+   * den Aufrufern durchgereicht — es gibt drei davon (1.0-Editor,
+   * 2.0-Editor, Spielclient), und der eine, der sie vergässe, wäre
+   * derjenige, dessen Dokumente still Räume verlieren. Ein Feld, das man
+   * vergessen kann, ist ein Feld, das vergessen wird.
+   *
+   * Der Server vergleicht die Zahl VOR `sanitizeDungeonDocument` und
+   * lehnt bei Ungleichheit ab (`WovServer.handleDungeonEditSave`). Ohne
+   * das ist der Fehlerfall keine Meldung, sondern ein Grab mit einem
+   * Loch — `sanitizeDungeonDocument` verwirft unbekannte Räume wortlos.
+   *
+   * @param pruefsumme NUR für Tests: eine ANDERE Prüfsumme als die
+   *   dieser Seite. Damit lässt sich eine veraltete Editor-Seite
+   *   nachstellen, die es in einem einzigen Prozess sonst nicht geben
+   *   kann (Client und Server teilen sich dort die Nachschlagewerke).
+   */
+  sendDungeonEditSave(json: string, pruefsumme = moduleRegistry.registryChecksum()): void {
     const w = new BinaryWriter();
     w.writeString(json);
+    w.writeString(pruefsumme);
     this.sendPacket(PacketType.DungeonEditSave, w.toUint8Array());
   }
 

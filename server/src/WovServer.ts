@@ -75,7 +75,12 @@ import type { SteinKitConfig } from '@wov/shared';
 import { getFeaturePieces } from '@wov/shared/src/featurePieces.js';
 import { ZDOManager, worldToZone } from './zdo/ZDOManager.js';
 import { DungeonManager } from './world/dungeon/DungeonManager.js';
-import { GENERIERT_DIR, baueModul } from './world/dungeon/ModuleBuild.js';
+import {
+  GENERIERT_DIR,
+  baueModul,
+  registryChecksum,
+  registryPruefsumme,
+} from './world/dungeon/ModuleBuild.js';
 import { ZDO } from './zdo/ZDO.js';
 import { ZDOID } from './zdo/ZDOID.js';
 import { PrefabManager } from './prefab/PrefabManager.js';
@@ -1689,6 +1694,13 @@ export class WovServer {
    */
   private handleDungeonEditSave(peer: Peer, reader: Reader): void {
     const json = reader.readString();
+    // E6: Die Registry-Prüfsumme reist HINTER dem Dokument — ein Feld, das
+    // ein Client von vor E6 gar nicht schickt. `isValidOffset(1)` fragt
+    // deshalb erst, ob überhaupt noch Bytes da sind (dasselbe Muster wie
+    // beim nachträglich angehängten `seq` in PlayerState); ein blindes
+    // `readString()` liefe über das Ende des Puffers und beendete die
+    // Verbindung mit einer RangeError-Meldung, die nichts erklärt.
+    const gesendeteSumme = reader.isValidOffset(1) ? reader.readString() : '';
     const sendData = (ok: boolean, message: string, docJson = '') => {
       peer.sendPacketWith(PacketType.DungeonEditData, (w) => {
         w.writeBool(ok);
@@ -1698,6 +1710,34 @@ export class WovServer {
     };
     if (!peer.isAdmin) return sendData(false, 'Keine Berechtigung');
     if (json.length > 2_000_000) return sendData(false, 'Dokument zu groß (max 2 MB)');
+
+    // ── E6: Kennen beide Seiten dieselben Module? ──────────────────────
+    //
+    // Diese Frage MUSS vor `sanitizeDungeonDocument` stehen, denn dieser
+    // verwirft unbekannte Räume STILL (`shared/src/dungeons.ts`, Kopf:
+    // „Unknown rooms are dropped"). Für eine Datei von der Platte ist das
+    // richtig; für ein Dokument aus dem Editor ist es der teuerste aller
+    // Fehler — der Nutzer bekommt ein Häkchen und ein Grab mit einem
+    // Loch, und das Loch fällt erst beim Betreten auf.
+    //
+    // Ein FEHLENDES Feld ist kein Sonderfall, sondern die wörtliche
+    // Wahrheit über den Absender: Ein Bündel von vor E6 registriert keine
+    // generierten Module, seine Registry IST leer. Kennt der Server auch
+    // keine, sind sich beide einig und das Speichern geht durch; kennt er
+    // welche, ist die Seite im Browser älter als er — und genau dann darf
+    // sie nicht speichern.
+    const eigeneSumme = registryChecksum();
+    const clientSumme = gesendeteSumme || registryPruefsumme([]);
+    if (clientSumme !== eigeneSumme) {
+      console.warn(
+        `[Dungeon] '${peer.name}' hat eine veraltete Modulregistry ` +
+          `(Client ${clientSumme}, Server ${eigeneSumme}) — Speichern abgelehnt.`
+      );
+      return sendData(
+        false,
+        `Registry veraltet — Seite neu laden (Client ${clientSumme}, Server ${eigeneSumme})`
+      );
+    }
 
     let raw: unknown;
     try {

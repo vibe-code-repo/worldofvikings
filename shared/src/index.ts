@@ -75,6 +75,17 @@ export * from './worldlayout/index.js';
  */
 export * as dungeon2 from './dungeon2/index.js';
 
+/**
+ * Die Laufzeit-Modulregistry als NAMENSRAUM, aus demselben Grund wie
+ * `dungeon2` darüber: Sie führt Namen wie `dreiecke`, `pruefeMasse` und
+ * `modulName`, die in einem flachen `export *` mit dem Altbestand
+ * zusammenstiessen — und TypeScript liesse einen kollidierenden Namen
+ * STILL weg. Client und Editor holen sich darüber die Prüfsumme und die
+ * Registrierung (E6); der Server importiert die Datei direkt.
+ * The runtime module registry as a NAMESPACE, same reason as dungeon2.
+ */
+export * as moduleRegistry from './moduleRegistry.js';
+
 // Rein typseitige Bruecken zu den serverseitigen Datenmodulen — `export type`
 // verschwindet beim Kompilieren restlos und zieht kein JSON nach.
 export type { FeaturePiece, FeatureRandomSpawn } from './featurePieces.js';

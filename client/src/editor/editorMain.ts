@@ -124,6 +124,31 @@ import {
 // Eigene Spur (Roadmap B6/B7): Landflaechen-/Ueberlappungsanzeige.
 // Eigene Datei, siehe deren Kopfkommentar fuer die Begruendung.
 import { baueKartenMassAnzeige, aktualisiereKartenMassAnzeige } from './KartenMassAnzeige';
+// E6: die Laufzeit-Modulregistry. Bewusst NICHT über den AssetManager —
+// der zöge Babylon in den Erststart des Karteneditors (s. Kopf von
+// assetUrls.ts).
+import { ladeModulRegistrierung } from '../net/ModuleRegistryLoad';
+
+// ── E6: die Modulregistry, BEVOR der erste Katalog gebaut wird ────────
+//
+// `new DungeonSeite(...)` weiter unten baut seine Modulliste IM
+// KONSTRUKTOR, und `GegenstandsKatalog` leitet sein `MIT_MODELL` beim
+// Import ab. Beide KOPIEREN die Registry, statt sie zu befragen — eine
+// Registrierung danach trägt in alle sechs Karten ein und bleibt trotzdem
+// unsichtbar, ohne Meldung, weil nichts fehlschlägt.
+//
+// Warum ein `await` auf oberster Ebene und nicht in einer Startfunktion:
+// Der Aufbau dieses Moduls IST die Startfunktion — die Seite entsteht in
+// Anweisungen auf Modulebene. Ein `await` hier hält genau sie an, bis die
+// Registry steht (Bauziel `esnext`, s. client/vite.config.ts). Ein
+// `void ladeModulRegistrierung()` liefe daneben her, und ob der Katalog
+// den gebauten Saal sähe, entschiede die Netzlaufzeit — der übelste
+// aller Fehler: einer, der auf einer schnellen Verbindung nie auftritt.
+//
+// Ein `import` mit Nebenwirkung wäre KEINE Alternative: Ein Modul mit
+// oberster `await`-Ebene hält seine Geschwister nicht auf, die
+// Reihenfolge wäre also nur scheinbar gesichert.
+await ladeModulRegistrierung();
 
 const BIOME_NAMEN: BiomeName[] = [
   'grassland', 'blackforest', 'swamp', 'mountain', 'plains', 'mistlands', 'ashlands', 'deepnorth',

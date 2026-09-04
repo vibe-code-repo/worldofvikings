@@ -179,6 +179,31 @@ const KERN = [
     guard, throttle, and the build → file → registry → lookups round trip.
   */
   ['server', 'test/modulbau-grenzen.ts'],
+  /*
+    E6 — die Registry-Pruefsumme reist mit dem Dokument.
+
+    `sanitizeDungeonDocument` verwirft unbekannte Raeume STILL (Kopf
+    dort: "Unknown rooms are dropped"). Fuer eine Datei von der Platte
+    ist das richtig; fuer ein Dokument aus dem Editor ist es der
+    teuerste aller Fehler — ein Haekchen und ein Grab mit einem Loch.
+    Abschnitt 3 des Tests MISST diesen stillen Verlust (zwei Raeume
+    rein, einer raus), alles danach misst, dass er nicht mehr passieren
+    kann.
+
+    Gefahren wird der echte Draht: echter WovServer auf Port 2519,
+    echter GameSocket, echter Nonce/HMAC-Handshake, echtes
+    DungeonEditSave. Vier Absender — der Produktivweg
+    (sendDungeonEditSave ohne Argument), eine veraltete Seite, ein
+    Alt-Client ohne das Feld bei leerer Registry (angenommen) und
+    derselbe bei gefuellter Registry (abgelehnt).
+
+    Ohne Weiche: schreibt nur in os.tmpdir(), braucht kein `assets/`.
+    Wenige Sekunden (vier Anmeldungen).
+
+    E6: the module-registry checksum travels with every DungeonEditSave;
+    the server compares it BEFORE the sanitizer and rejects a stale page.
+  */
+  ['server', 'test/registry-pruefsumme.ts'],
   // G3 (Modul-Generierung 2.0): Die Abbildung Raster ↔ Welt. Zellmitten
   // liegen auf (2i, 3,5e, 2j−1) — der z-Schluessel ist `round((z+1)/2)`, und
   // diese halbe Zelle Unterschied faellt in keiner Zaehlung auf, weil alle

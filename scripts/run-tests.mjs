@@ -118,6 +118,26 @@ const KERN = [
     cross-check on its own when assets/ is absent.
   */
   ['shared', 'test/hallen-geometrie.ts'],
+  /*
+    E2 (Elemente aus dem Editor): der GLB-Schreiber, der den Blender-Export
+    ersetzt. Steht direkt hinter E1, weil er dessen Quaderliste verbraucht.
+
+    Er haelt drei Dinge fest, die man der Datei nicht ansieht: 24 Ecken und
+    36 Indizes je Quader (das IST "flach schattiert"), das NEGATIVE
+    signierte Volumen (die Vorspiegelung — alle Saele sind punktsymmetrisch,
+    ein Winding-Flip verschoebe also keinen Punkt) und dessen BETRAG (der
+    Dichtheitszeuge: eine vergessene Flaeche aendert ihn, nicht nur sein
+    Vorzeichen). Gelesen wird mit einem eigenen, kleinen glTF-Parser — ein
+    Test, der den Schreiber mit dem Schreiber pruefte, pruefte nichts.
+
+    Ohne Weiche: der Kern ist reine Rechnung. Liegen die fuenf
+    StoneVaultHall*.glb da, vergleicht der Test zusaetzlich gegen sie
+    (Eckenzahl, Dreieckszahl, Huellbox, signiertes Volumen) und meldet
+    sonst im Klartext, dass er diesen Teil ausgelassen hat. Zehntelsekunden.
+
+    E2: the GLB writer — 24/36 per box, negative signed volume, magnitude.
+  */
+  ['server', 'test/glb-schreiber.ts'],
   // G3 (Modul-Generierung 2.0): Die Abbildung Raster ↔ Welt. Zellmitten
   // liegen auf (2i, 3,5e, 2j−1) — der z-Schluessel ist `round((z+1)/2)`, und
   // diese halbe Zelle Unterschied faellt in keiner Zaehlung auf, weil alle
@@ -402,6 +422,22 @@ const KERN = [
   // bleibt. Synthetischer Prototyp statt GLB (assets/ liegt ausserhalb des
   // Repos), NullEngine, Sekunden.
   ['client', 'test/kollisionsnetz.ts'],
+  /*
+    E2, zweite Haelfte: der geschriebene Saal durch Babylons ECHTEN
+    glTF-Lader. `server/test/glb-schreiber.ts` liest mit einem eigenen,
+    nachsichtigen Parser; im Spiel liest der Lader, und der ist streng.
+    Was er beanstandet, meldet er ueber `Logger.Error`/`Logger.Warn` und
+    NICHT als Ausnahme — ein Test, der nur auf `throw` wartet, sieht eine
+    kaputte Datei als bestanden an. Deshalb haengt der Test einen
+    Lauschposten in den Logger und misst zusaetzlich, wohin der `__root__`
+    die drei Achsen dreht (die Rueckdrehung der Vorspiegelung). Ohne
+    Weiche, weil er die Datei selbst erzeugt; den Vergleich mit
+    StoneVaultHallLarge.glb laesst er ohne assets/ selbst aus. NullEngine,
+    Sekunden.
+
+    E2: the written hall through Babylon's real glTF loader.
+  */
+  ['client', 'test/glb-saal-laden.ts'],
   // Der Wasser-Refraktionspass darf gestreute Vegetation nicht anhand der
   // weltweiten Thin-Instance-Hülle als "eingetaucht" einstufen. Auf der
   // Referenzinsel bedeutete dieser Fehler 36 Mio. unsichtbare Dreiecke pro

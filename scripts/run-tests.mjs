@@ -103,6 +103,15 @@ const KERN = [
   // Rein rechnerisch, Sekunden.
   // G6: the hall as a 2x2 stamp, every port derived, never typed.
   ['shared', 'test/dungeon-rasterstempel.ts'],
+  // G7 (Modul-Generierung 2.0): Die Treppe — das einzige Modul, das eine
+  // EBENE wechselt. Prüft, dass sie drei Zellen auf e UND dieselben drei
+  // auf e+1 belegt (die Gegenebene ist gesperrt, nicht leer), dass ihr
+  // Ebenenwechsel als senkrechte Graphkante im Grundriss steht, dass die
+  // Erreichbarkeit JE EBENE geprüft wird (eine gut vernetzte Ebene 0
+  // verdeckt sonst eine abgehängte Treppenspitze) und dass beide Enden
+  // eines Laufs begehbar sind statt zugemauert. Rein rechnerisch, Sekunden.
+  // G7: the staircase, its two levels and the vertical graph edge.
+  ['shared', 'test/dungeon-rastertreppe.ts'],
   // G1 (Modul-Generierung 2.0): Der AUSGANGSSTAND von DG_StoneVault,
   // gemessen auf dem Zellgitter statt an den Connectors — 952
   // Abschlussplatten stehen im Körper des Nachbarmoduls (531 gegen eine

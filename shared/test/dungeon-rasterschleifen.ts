@@ -139,14 +139,48 @@ function stampCycles(plan: GridPlan): number {
   return inner / 2 - (plan.cells.length - plan.rooms.length);
 }
 
-/** Nachbarschaften zwischen zwei belegten Zellen, die KEIN Durchgang sind. */
+/**
+ * Kann diese Zelle auf dieser Kante überhaupt noch einen Durchgang
+ * bekommen?
+ *
+ * Für eine EINZELzelle immer: Ihr Modul wird erst nach dem Kantenausbau
+ * gewählt (S5) und fügt sich jedem Muster. Bei einem mehrzelligen Raum
+ * steht das Modul schon fest, bevor die Nachbarn wachsen — die Halle ist
+ * dann auf allen acht Aussenkanten offen, die Treppe (G7) nur an ihren
+ * zwei Enden.
+ */
+function mayOpen(
+  plan: GridPlan,
+  states: Map<string, Record<Direction, EdgeState>>,
+  cell: GridPlan['cells'][number],
+  d: Direction
+): boolean {
+  if (plan.rooms[cell.room]!.cells.length === 1) return true;
+  return states.get(cellKey(cell.cell))![d] === 'open';
+}
+
+/**
+ * Doppelwände: Nachbarschaften zwischen zwei belegten Zellen, die KEIN
+ * Durchgang sind — und beide Seiten hätten einer werden können.
+ *
+ * Die zweite Hälfte des Satzes kommt mit G7 dazu, und sie ist keine
+ * Bequemlichkeit: An einer Treppenflanke steht die Wand des NACHBARN
+ * allein (die Flanke selbst ist ein Keil, `wallPartial`), es sind also
+ * keine zwei Wände. Mitgezählt wäre sie eine Zwischenwand, die kein
+ * Schleifenregler je entfernen kann — der Anteil wüchse mit jeder Treppe
+ * scheinbar schlechter, obwohl sich nichts verschlechtert hat.
+ */
 function doubleWalls(plan: GridPlan): number {
-  const occupied = new Set(plan.cells.map((c) => cellKey(c.cell)));
+  const states = statesOf(plan);
+  const cellAt = new Map(plan.cells.map((c) => [cellKey(c.cell), c]));
   let n = 0;
   for (const c of plan.cells) {
     for (const d of HORIZONTAL) {
       if (c.edges.includes(d)) continue;
-      if (!occupied.has(cellKey(neighbourCell(c.cell, d)))) continue;
+      const other = cellAt.get(cellKey(neighbourCell(c.cell, d)));
+      if (!other) continue;
+      if (!mayOpen(plan, states, c, d)) continue;
+      if (!mayOpen(plan, states, other, OPPOSITE_DIRECTION[d])) continue;
       n++;
     }
   }

@@ -32,6 +32,7 @@ import {
   DIRECTIONS,
   DIRECTION_VECTOR,
   OPPOSITE_DIRECTION,
+  MODULE_LEVEL_M,
   gridModuleFromRoomDef,
   isHorizontal,
   type Direction,
@@ -225,29 +226,52 @@ console.log('\n3) Der Eingang hängt am Ursprung');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-console.log('\n4) Eine Ebene — Einzelzellen und Stempel, aber keine Treppe');
-// Bis G5 hiess diese Prüfung „kein Stempel“: Die Halle gab es noch nicht,
-// und ein mehrzelliger Fussabdruck wäre ein Fehler gewesen. Seit G6 ist
-// sie erlaubt und die Aussage schmaler geworden — was hier nicht stehen
-// darf, ist ein Modul mit ZWEI Ebenen (die Treppe, G7). Sie wäre in einer
-// Prüfung, die nur y = 0 kennt, unsichtbar.
+console.log('\n4) Jedes Modul steht auf einer Ebene — und nur die Treppe wechselt sie');
+// Bis G5 hiess diese Prüfung „kein Stempel“ und bis G6 „keine zweite
+// Ebene“: Beides gab es noch nicht, ein mehrzelliger Fussabdruck oder ein
+// y ≠ 0 wären Fehler gewesen. Mit G7 wandert die Aussage eine Stufe
+// weiter — die Ebene ist erlaubt, das Dazwischen nicht. Ein Modul auf
+// halber Ebenenhöhe wäre eine Stufe, die nirgends ankommt, und fiele in
+// keiner Zählung auf: Die Zellschlüssel RUNDEN, das Grab sähe im Plan
+// heil aus und stünde im Spiel im Boden.
 {
-  const erlaubt = new Set(
-    kit.rooms
-      .filter((r) => !r.endCap && gridModuleFromRoomDef(r).levels === 1)
-      .map((r) => r.name)
+  const mehrstoeckig = new Set(
+    kit.rooms.filter((r) => !r.endCap && gridModuleFromRoomDef(r).levels > 1).map((r) => r.name)
   );
+  const ebenen = new Set<number>();
   for (const seed of SEEDS.slice(0, 10)) {
     const layout = generateGridLayout(kit, seed);
     for (const p of layout.rooms) {
+      const e = p.pos.y / MODULE_LEVEL_M;
       check(
-        p.room === WALL || erlaubt.has(p.room),
-        `Saat ${seed}: mehrstöckiges Modul '${p.room}' vor G7`
+        Math.abs(e - Math.round(e)) < 1e-9,
+        `Saat ${seed}: '${p.room}' steht auf y = ${p.pos.y}, keiner Ebenenhöhe`
       );
-      check(Math.abs(p.pos.y) < 1e-9, `Saat ${seed}: '${p.room}' steht auf y = ${p.pos.y}`);
+      ebenen.add(Math.round(e));
+      // Und die Umkehrung: Wer auf einer anderen Ebene als 0 steht, ist
+      // entweder selbst der Ebenenwechsler oder von einem erreicht worden.
+      // Die zweite Hälfte prüft `dungeon-rastertreppe.ts` je Ebene; hier
+      // steht nur, dass ausser der Treppe kein Modul zwei Ebenen belegt.
+      const rd = roomByName.get(p.room);
+      if (rd && !rd.endCap) {
+        const module = gridModuleFromRoomDef(rd);
+        check(
+          module.levels === 1 || mehrstoeckig.has(p.room),
+          `Saat ${seed}: '${p.room}' belegt ${module.levels} Ebenen, gilt aber nicht als Ebenenwechsler`
+        );
+      }
     }
   }
-  console.log(`  erlaubte Module: ${[...erlaubt].sort().join(', ')}`);
+  const sortiert = [...ebenen].sort((a, b) => a - b);
+  check(ebenen.has(0), 'kein Raum auf der Eingangsebene');
+  check(
+    sortiert[sortiert.length - 1]! - sortiert[0]! === ebenen.size - 1,
+    `die belegten Ebenen ${sortiert.join(',')} haben eine Lücke — dorthin führt keine Treppe`
+  );
+  console.log(
+    `  10 Saaten: alle Räume auf ganzen Ebenen ${sortiert.join(',')}; ` +
+      `Ebenenwechsler: ${[...mehrstoeckig].sort().join(', ') || 'keiner'}`
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -275,10 +299,13 @@ console.log('\n5) Modulwahl folgt dem Öffnungsmuster');
       zaehlung.set(c.module, (zaehlung.get(c.module) ?? 0) + 1);
       // Jede Graphkante MUSS offen sein — sonst wäre eine Verbindung im
       // Graphen im Grab eine Wand. Das gilt für JEDE Zelle, auch für die
-      // eines Stempels.
-      const offen = new Set(openDirections(states, c.cell));
+      // eines Stempels, und seit G7 für alle SECHS Kanten: Die Treppe
+      // trägt ihren Ebenenwechsel als senkrechte Graphkante, und ein
+      // Vergleich gegen nur die vier waagerechten hielte genau sie für
+      // eine Wand.
+      const tafel = states.get(cellKey(c.cell))!;
       for (const d of c.edges) {
-        check(offen.has(d), `Saat ${seed}, Zelle ${cellKey(c.cell)}: Graphkante ${d} ist nicht offen`);
+        check(tafel[d] === 'open', `Saat ${seed}, Zelle ${cellKey(c.cell)}: Graphkante ${d} ist '${tafel[d]}'`);
       }
       if (cellKey(c.cell) === cellKey(ENTRANCE_CELL)) continue; // Eingang ist gesetzt, nicht gewählt
       // Ein Stempel wird VOR dem Kantenausbau reserviert (S3) — sein

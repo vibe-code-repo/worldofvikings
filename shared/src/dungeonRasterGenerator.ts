@@ -1,5 +1,5 @@
 /**
- * Rastergenerator des Modul-Kits — Meilensteine G3…G6 der Konzeptnotiz
+ * Rastergenerator des Modul-Kits — Meilensteine G3…G7 der Konzeptnotiz
  * „Modul-Generierung 2.0-Logik“.
  *
  * ── Wofür ────────────────────────────────────────────────────────────
@@ -9,7 +9,8 @@
  * einer Zellkante, und welche `PlacedRoom`-Pose gehört zu einer Zelle und
  * einer Gierung (G3). Darauf steht der Generator selbst: Zellmenge,
  * Spannbaum, Modulwahl und Versiegelung (G4), Schleifen und Torbögen
- * (G5), und der Stempel — EIN Modul über MEHRERE Zellen (G6).
+ * (G5), der Stempel — EIN Modul über MEHRERE Zellen (G6) — und die
+ * Treppe, EIN Modul über mehrere EBENEN (G7).
  *
  * ── Raum und Zelle sind seit G6 zweierlei ────────────────────────────
  * Bis G5 waren sie dasselbe: ein Modul, eine Zelle, eine Kantentafel.
@@ -408,13 +409,17 @@ export function assertConnectorsOnEdges(
 // hat. „Öffnung ins Leere“ ist damit kein Prüfergebnis mehr, sondern ein
 // Zustand, den die Datenstruktur nicht ausdrücken kann.
 //
-// ── Was hier noch NICHT steht ────────────────────────────────────────
-// Eine Ebene. Die Treppe (3 Zellen auf ZWEI Ebenen, mit gesperrter
-// Gegenebene und `wandTeilweise`-Flanken) ist G7 und bleibt liegen — sie
-// ist kein grösserer Stempel, sondern ein anderes Problem. Die Halle
-// (2 × 2, eine Ebene) trägt G6 als Stempel: Sie wird VOR dem
-// Kantenausbau reserviert (S3), statt aus einem Öffnungsmuster gewählt
-// zu werden.
+// ── Zwei Arten von Stempel ───────────────────────────────────────────
+// Die Halle (2 × 2, eine Ebene) und die Treppe (3 Zellen auf ZWEI Ebenen)
+// werden beide VOR dem Kantenausbau reserviert (S3), statt aus einem
+// Öffnungsmuster gewählt zu werden. Sie unterscheiden sich in dem, was
+// ihre Aussenhaut zulässt: Die Halle ist auf allen acht Aussenkanten
+// offen und lässt sich deshalb in irgendeinen freien 2 × 2-Block legen.
+// Die Treppe hat genau ZWEI Öffnungen, alles andere ist Keilflanke
+// (`wallPartial`) — ihre Lage ist damit nicht gesucht, sondern bestimmt,
+// und weil ihr fernes Ende sonst zugemauert würde, bringt sie ihre
+// Landezelle mit. Die drei Zellen ihrer Gegenebene sind gesperrt, weil sie
+// sie SELBST belegt: Der Luftraum über dem Lauf gehört zur Treppe.
 // ═════════════════════════════════════════════════════════════════════
 
 /**
@@ -436,8 +441,18 @@ const SALT_STAMP = 0x7374616d; // 'stam'
 const SALT_STAMP_PICK = 0x73747069; // 'stpi'
 const SALT_STAMP_YAW = 0x73747961; // 'stya'
 const SALT_STAMP_BLOCK = 0x7374626c; // 'stbl'
+const SALT_STAIR = 0x73746169; // 'stai'
+const SALT_STAIR_PICK = 0x7374706b; // 'stpk'
+const SALT_STAIR_SIDE = 0x73747364; // 'stsd'
 
-/** Die vier waagerechten Kanten — Boden und Decke wachsen in G4 nicht. */
+/**
+ * Die vier waagerechten Kanten.
+ *
+ * Gewachsen wird nur waagerecht — auch mit G7. Die Ebene wechselt man
+ * nicht, indem eine Zelle nach oben wächst, sondern indem eine TREPPE
+ * gesetzt wird, die beide Ebenen zugleich belegt. Ein senkrechter
+ * Wachstumsschritt hätte kein Modul, das ihn trüge.
+ */
 const HORIZONTAL_DIRECTIONS: readonly Direction[] = DIRECTIONS.filter(isHorizontal);
 
 /**
@@ -509,6 +524,23 @@ export interface GridTuning {
    * wie beim `weight: 1` der Halle im Kit.
    */
   readonly hallFraction: number;
+  /**
+   * Anteil der wachsenden Zellen, an denen eine TREPPE versucht wird
+   * (0…1) — G7, in der Konzeptnotiz `treppenAnteil`.
+   *
+   * Ein eigener Regler neben {@link hallFraction}, obwohl beides Stempel
+   * sind: Die Treppe kostet sechs Zellen plus die Landezelle, sperrt eine
+   * ganze Gegenebene und ist das einzige Modul, das den Grundriss in die
+   * Höhe zieht. Wer weniger Treppenhaus und mehr Saal will (oder
+   * umgekehrt), müsste sonst beides zugleich verstellen.
+   *
+   * Die Zahl ist ein VERSUCH, keine Zusage: Die Treppe braucht sechs
+   * freie Zellen auf zwei Ebenen, einen freien Kranz darum und eine
+   * freie Landezelle am oberen Ende (s. {@link growCells}). Deshalb liegt
+   * sie deutlich über dem Anteil der Treppen, der am Ende im Grundriss
+   * steht.
+   */
+  readonly stairFraction: number;
 }
 
 /**
@@ -519,11 +551,20 @@ export interface GridTuning {
  * 0,20 → 159 in 40. Die Abnahme des Meilensteins verlangt „Halle in ≥ 10
  * von 40"; 0,08 hält das mit Abstand und lässt den Gang-Anteil bei
  * 73,7 % — weit über der Dichtegrenze von 40 % aus den Risiken.
+ *
+ * `stairFraction` ebenso, über dieselben 40 Saaten (G7): 0,02 → 21
+ * Treppen in 17 Saaten, 0,04 → 41 in 25, 0,06 → 60 in 36, 0,10 → 84 in
+ * 40. Verlangt ist „Treppe in ≥ 5 von 40"; 0,04 hält das mit grossem
+ * Abstand und ergibt rund EINEN Lauf je Grundriss. Höher ist die Krypta
+ * ein Treppenhaus: Ein Lauf kostet sechs der sechzig Zellen, bei 0,10
+ * sind 21 % der Fläche Treppe und der Gang-Anteil fällt von 64,8 % auf
+ * 54,9 %.
  */
 export const DEFAULT_GRID_TUNING: GridTuning = {
   loopFraction: 0.35,
   archwayFraction: 0.25,
   hallFraction: 0.08,
+  stairFraction: 0.04,
 };
 
 /**
@@ -796,6 +837,19 @@ interface GrowthCell {
   readonly entrance: boolean;
   /** Index in {@link GrowthResult.stamps}, wenn diese Zelle zu einem Stempel gehört. */
   readonly stamp: number | null;
+  /**
+   * Die Weltrichtungen, in denen diese Zelle überhaupt noch eine
+   * Graphkante bekommen KANN — `null` heisst „jede waagerechte“.
+   *
+   * Bis G6 brauchte es das Feld nicht: Eine Einzelzelle wählt ihr Modul
+   * erst NACH dem Kantenausbau (S5) und kann sich jedem Muster fügen, und
+   * die Halle ist auf allen acht Aussenkanten offen. Die Treppe ist das
+   * erste Modul, dessen Aussenhaut fast ganz zu ist: Sie hat genau zwei
+   * Öffnungen, alles andere ist Keilflanke. Ohne diese Menge wüchse ein
+   * Gang an ihre Flanke und der Graph behauptete einen Durchgang, wo im
+   * GLB eine Wand steht — genau Mikes Befund, nur an einem neuen Modul.
+   */
+  readonly open: ReadonlySet<Direction> | null;
 }
 
 /** Ein reservierter Stempel: ein mehrzelliges Modul mit seinem Platz (S3). */
@@ -807,6 +861,19 @@ interface GrowthStamp {
   readonly yaw: Yaw;
   /** Die belegten Weltzellen, kanonisch sortiert. */
   readonly cells: readonly GridCell[];
+}
+
+/**
+ * Ein gefundener Platz für einen Stempel — und was er sonst noch belegt.
+ *
+ * `landing` ist der Unterschied zwischen Saal und Treppe: Der Saal steht
+ * für sich, die Treppe bringt die Zelle an ihrem fernen Ende mit. Ohne
+ * sie endete jeder zweite Lauf oben vor einer Abschlussplatte.
+ */
+interface StampSpot {
+  readonly stamp: GrowthStamp;
+  /** Die mitreservierte Zelle und die Richtung von ihr ZUM Stempel. */
+  readonly landing: { readonly cell: GridCell; readonly from: Direction } | null;
 }
 
 interface GrowthResult {
@@ -850,6 +917,83 @@ function stampModuleOptions(def: DungeonDef): StampOption[] {
     out.push({ def: room, module });
   }
   return out;
+}
+
+/**
+ * Die EBENENwechsler des Kits (S3/G7) — mehrzellig über mehr als eine
+ * Ebene, mit genau zwei Öffnungen auf zwei verschiedenen Ebenen.
+ *
+ * Auch hier gesucht statt beim Namen genannt. Die Bedingungen sind eng,
+ * und jede steht für eine Eigenschaft, auf die sich {@link growCells}
+ * verlässt:
+ *  • **mehr als eine Ebene** — sonst ist es ein Saal und gehört zu
+ *    {@link stampModuleOptions}.
+ *  • **genau zwei Ports** — die Treppe wird an EINEM Ende angehängt und
+ *    bringt ihr anderes Ende als Landezelle mit. Bei drei Öffnungen wäre
+ *    nicht mehr entschieden, welche davon das „andere Ende“ ist.
+ *  • **Ports auf verschiedenen Ebenen** — ein zweistöckiges Modul, das
+ *    unten hinein- und unten wieder hinausführt, wechselt keine Ebene;
+ *    seine obere Zellreihe wäre reiner Luftraum.
+ *  • **eine senkrechte Innenkante offen** — der Punkt, an dem der Lauf die
+ *    Ebenengrenze überschreitet. Ohne ihn hinge die Treppenspitze im
+ *    Graphen an nichts, und das fällt in keiner Zählung auf, sondern erst,
+ *    wenn eine Figur oben in der Sackgasse steht.
+ */
+function stairModuleOptions(def: DungeonDef): StampOption[] {
+  const out: StampOption[] = [];
+  for (const room of def.rooms) {
+    if (room.endCap || room.entrance) continue;
+    const module = gridModuleFromRoomDef(room);
+    if (module.cells.length <= 1 || module.levels < 2) continue;
+    if (module.ports.length !== 2) continue;
+    const levels = new Set(module.ports.map((p) => module.cells[p.cell]!.level));
+    if (levels.size !== 2) continue;
+    const climbs = module.cells.some((c) =>
+      DIRECTIONS.some((d) => !isHorizontal(d) && c.interior[d] && c.edges[d] === 'open')
+    );
+    if (!climbs) continue;
+    out.push({ def: room, module });
+  }
+  return out;
+}
+
+/**
+ * Die Kanten eines platzierten Stempels, getrennt nach innen und aussen.
+ *
+ * `inner` sind seine GRAPHkanten: Die Zellen eines Stempels hängen
+ * zusammen, und bei der Treppe gehört der Ebenenwechsel dazu. `outer`
+ * sind die Richtungen, in denen von aussen noch etwas andocken kann.
+ *
+ * Beides kommt aus {@link moduleWorldEdgeStates} und
+ * {@link moduleWorldCells}, nicht aus einer Fallunterscheidung „Halle
+ * waagerecht, Treppe auch senkrecht“: Eine getippte Regel stimmte für das
+ * eine Modul und schwiege beim nächsten.
+ */
+function stampEdges(
+  anchor: GridCell,
+  yaw: Yaw,
+  module: GridModule
+): { inner: Map<string, Set<Direction>>; outer: Map<string, Set<Direction>> } {
+  const cells = moduleWorldCells(anchor, yaw, module);
+  const footprint = new Set(cells.map(cellKey));
+  const states = moduleWorldEdgeStates(anchor, yaw, module);
+  const inner = new Map<string, Set<Direction>>();
+  const outer = new Map<string, Set<Direction>>();
+  for (const cell of cells) {
+    const key = cellKey(cell);
+    const rec = states.get(key);
+    if (!rec) throw new DungeonRasterError(`Modul '${module.name}' erklärt die Zelle ${key} nicht.`);
+    const inside = new Set<Direction>();
+    const outside = new Set<Direction>();
+    for (const d of DIRECTIONS) {
+      if (rec[d] !== 'open') continue;
+      if (footprint.has(cellKey(neighbourCell(cell, d)))) inside.add(d);
+      else outside.add(d);
+    }
+    inner.set(key, inside);
+    outer.set(key, outside);
+  }
+  return { inner, outer };
 }
 
 /**
@@ -924,10 +1068,13 @@ function stampAnchorFor(block: readonly GridCell[], yaw: Yaw, module: GridModule
  */
 function requiredFreeDirections(cell: GrowthCell): readonly Direction[] {
   if (cell.entrance) return HORIZONTAL_DIRECTIONS.filter((d) => !cell.edges.has(d));
-  // Ein Stempel fordert nichts frei: Seine Aussenkanten sind alle offen,
-  // und die Tafel versorgt jede davon — gegen Fels mit einer Platte,
-  // gegen die eingebaute Wand eines Nachbarn mit gar nichts (Zeile 3).
-  // Er hat kein „überzähliges" Loch, das auf Fels zeigen müsste.
+  // Ein Stempel fordert nichts frei. Beim Saal, weil die Tafel jede seiner
+  // acht offenen Kanten versorgt — gegen Fels mit einer Platte, gegen die
+  // eingebaute Wand eines Nachbarn mit gar nichts (Zeile 3). Bei der
+  // Treppe, weil ihre Aussenhaut bis auf die zwei Enden Keilflanke ist
+  // (Zeile 6: gar nichts) und beide Enden beim Setzen einen Durchgang
+  // bekommen — der eine zum Elter, der andere zur Landezelle. Keiner von
+  // beiden hat ein „überzähliges" Loch, das auf Fels zeigen müsste.
   if (cell.stamp !== null) return [];
   if (cell.edges.size !== 1) return [];
   const only = HORIZONTAL_DIRECTIONS.find((d) => cell.edges.has(d));
@@ -949,7 +1096,9 @@ function growCells(
   zoneHalf: number,
   bounded: boolean,
   stampOptions: readonly StampOption[],
-  hallFraction: number
+  hallFraction: number,
+  stairOptions: readonly StampOption[],
+  stairFraction: number
 ): GrowthResult {
   const rng = new XorShiftRandom(mische(seed, SALT_GROWTH));
   const cells = new Map<string, GrowthCell>();
@@ -961,6 +1110,7 @@ function growCells(
     edges: new Set<Direction>(),
     entrance: true,
     stamp: null,
+    open: null,
   };
   cells.set(entrance.key, entrance);
 
@@ -968,25 +1118,39 @@ function growCells(
   // es nach draussen. Ein Raum darin wäre ein Zimmer im Zugangsstollen.
   const blocked = cellKey(neighbourCell(ENTRANCE_CELL, ENTRANCE_PORT_DIRECTION));
 
+  /** Ist die Zelle noch zu haben — leer, nicht der Zugangsstollen, in der Zone? */
+  const isFree = (cell: GridCell): boolean => {
+    const key = cellKey(cell);
+    if (key === blocked || cells.has(key)) return false;
+    return !bounded || cellInsideZone(cell, zoneHalf);
+  };
+
+  /**
+   * Nähme eine neue Zelle auf `cell` einem stehenden Nachbarn seine
+   * Pflichtkante? `except` ist der Elter — er BEKOMMT die Kante.
+   */
+  const stealsRequired = (cell: GridCell, except: string | null): boolean => {
+    for (const nd of HORIZONTAL_DIRECTIONS) {
+      const other = cells.get(cellKey(neighbourCell(cell, nd)));
+      if (!other || other.key === except) continue;
+      if (requiredFreeDirections(other).includes(OPPOSITE_DIRECTION[nd])) return true;
+    }
+    return false;
+  };
+
   /** Darf an `parent` in Richtung `d` eine Zelle wachsen? */
   const mayGrow = (parent: GrowthCell, d: Direction): boolean => {
+    // Ein Stempel wächst nur aus seinen eigenen Öffnungen heraus. Die
+    // Treppe hat davon zwei, alles andere an ihr ist Keilflanke.
+    if (parent.open !== null && !parent.open.has(d)) return false;
     const candidate = neighbourCell(parent.cell, d);
-    const key = cellKey(candidate);
-    if (key === blocked || cells.has(key)) return false;
-    if (bounded && !cellInsideZone(candidate, zoneHalf)) return false;
+    if (!isFree(candidate)) return false;
     // Die neue Zelle ist ein Blatt: Ihre Fortsetzung geradeaus muss frei
     // bleiben, damit sie ihre überzählige Öffnung auf Fels legen kann.
     if (cells.has(cellKey(neighbourCell(candidate, d)))) return false;
     // Und kein bereits stehender Nachbar darf durch sie seine Pflichtkante
-    // verlieren. `nd` zeigt von der neuen Zelle zum Nachbarn, die
-    // Gegenrichtung vom Nachbarn auf die neue Zelle.
-    for (const nd of HORIZONTAL_DIRECTIONS) {
-      if (nd === OPPOSITE_DIRECTION[d]) continue; // der Elter, er bekommt die Kante
-      const other = cells.get(cellKey(neighbourCell(candidate, nd)));
-      if (!other) continue;
-      if (requiredFreeDirections(other).includes(OPPOSITE_DIRECTION[nd])) return false;
-    }
-    return true;
+    // verlieren.
+    return !stealsRequired(candidate, parent.key);
   };
 
   /**
@@ -1011,7 +1175,7 @@ function growCells(
    * Wachstums unverändert. Ein eigener Auswahlweg für Stempel wäre ein
    * zweiter Saatvertrag neben dem bestehenden.
    */
-  const tryStamp = (parent: GrowthCell, toChild: Direction): GrowthStamp | null => {
+  const tryStamp = (parent: GrowthCell, toChild: Direction): StampSpot | null => {
     if (stampOptions.length === 0 || !(hallFraction > 0)) return null;
     const child = neighbourCell(parent.cell, toChild);
     if (cellRoll(child, seed, SALT_STAMP) >= hallFraction) return null;
@@ -1057,7 +1221,119 @@ function growCells(
       if (!ok) continue;
       const anchor = stampAnchorFor(block, yaw, option.module);
       if (anchor === null) continue;
-      return { def: option.def, module: option.module, anchor, yaw, cells: block };
+      // Der Saal bringt nichts mit: Seine Aussenhaut ist ganz offen, jede
+      // seiner Kanten versorgt die Tafel (gegen Fels mit einer Platte,
+      // gegen eine eingebaute Nachbarwand mit gar nichts).
+      return { stamp: { def: option.def, module: option.module, anchor, yaw, cells: block }, landing: null };
+    }
+    return null;
+  };
+
+  /**
+   * S3/G7 — der Treppenversuch an der Zelle, die gerade wachsen würde.
+   *
+   * ── Was hier anders ist als beim Saal ──────────────────────────────
+   * Die Halle ist auf allen Aussenkanten offen; ihre Gierung ist für den
+   * PLATZ deshalb gleichgültig, und sie lässt sich in irgendeinen freien
+   * 2 × 2-Block legen. Die Treppe hat genau zwei Öffnungen. Ihre Lage ist
+   * damit nicht gesucht, sondern BESTIMMT: Einer ihrer beiden Ports muss
+   * auf der Zelle sitzen, die gerade wachsen würde, und zum Elter
+   * zurückschauen. Beide Ports kommen dafür in Frage — über den unteren
+   * betreten führt sie hinauf, über den oberen hinunter.
+   *
+   * ── Warum die Landezelle mitreserviert wird ────────────────────────
+   * Am fernen Ende steht sonst nach der Kantentafel eine Platte (Zeile 5,
+   * Fels). Im Graphen ist das tadellos — im Grab steigt man eine Treppe
+   * hinauf und steht vor einer Wand. Der Meilenstein verlangt „0 Treppen
+   * mit unversorgtem Anschluss“; versorgt heisst hier BEGEHBAR, nicht
+   * zugemauert. Die Landezelle ist deshalb Teil des Versuchs: Findet sich
+   * kein Platz für sie, wird die Treppe nicht gebaut.
+   *
+   * ── Warum der Kranz auch hier frei sein muss ───────────────────────
+   * Dieselbe Begründung wie beim Saal, s. {@link growCells}: Ein Nachbar,
+   * der beim Setzen schon dastand, hat nie geprüft, ob seine Kante zur
+   * Keilflanke passt. Wer SPÄTER daneben wächst, wählt sein Modul nach S5
+   * und kehrt der Flanke eine eingebaute Wand zu.
+   */
+  const tryStairs = (parent: GrowthCell, toChild: Direction): StampSpot | null => {
+    if (stairOptions.length === 0 || !(stairFraction > 0)) return null;
+    const child = neighbourCell(parent.cell, toChild);
+    if (cellRoll(child, seed, SALT_STAIR) >= stairFraction) return null;
+    const option =
+      stairOptions[
+        Math.min(
+          stairOptions.length - 1,
+          Math.floor(cellRoll(child, seed, SALT_STAIR_PICK) * stairOptions.length)
+        )
+      ]!;
+    // Sechs Zellen und die Landezelle: `maxRooms` heisst im Rasterpfad
+    // ZELLZAHL, und ein Lauf, der die Bilanz sprengt, wird nicht gebaut.
+    if (cells.size + option.module.cells.length + 1 > target) return null;
+
+    const back = OPPOSITE_DIRECTION[toChild];
+    // Alle Lagen, in denen ein Port auf `child` sitzt und zum Elter
+    // zurückschaut — über die Rückrechnung gesucht, nicht gerechnet: Die
+    // Ankerzelle ist die lokale Zelle (0,0,0) und wandert mit der
+    // Gierung. Die Verschiebung darf man abziehen, weil die Abbildung
+    // Anker → Weltzellen eine reine Verschiebung ist.
+    const probeAnchor: GridCell = { i: 0, j: 0, level: 0 };
+    const spots: { anchor: GridCell; yaw: Yaw; far: GridPort }[] = [];
+    for (const yaw of YAWS) {
+      const probe = moduleWorldPorts(probeAnchor, yaw, option.module);
+      for (const near of probe) {
+        if (near.direction !== back) continue;
+        const anchor: GridCell = {
+          i: child.i - near.cell.i,
+          j: child.j - near.cell.j,
+          level: child.level - near.cell.level,
+        };
+        const ports = moduleWorldPorts(anchor, yaw, option.module);
+        const here = ports.find((q) => q.connector === near.connector);
+        const far = ports.find((q) => q.connector !== near.connector);
+        if (!here || !far) continue;
+        if (cellKey(here.cell) !== cellKey(child) || here.direction !== back) continue;
+        spots.push({ anchor, yaw, far });
+      }
+    }
+    if (spots.length === 0) return null;
+    const start = Math.min(
+      spots.length - 1,
+      Math.floor(cellRoll(child, seed, SALT_STAIR_SIDE) * spots.length)
+    );
+    for (let n = 0; n < spots.length; n++) {
+      const spot = spots[(start + n) % spots.length]!;
+      const block = moduleWorldCells(spot.anchor, spot.yaw, option.module);
+      if (!block.every(isFree)) continue;
+      const inBlock = new Set(block.map(cellKey));
+      let ok = true;
+      for (const c of block) {
+        for (const d of HORIZONTAL_DIRECTIONS) {
+          const key = cellKey(neighbourCell(c, d));
+          if (inBlock.has(key)) continue;
+          const other = cells.get(key);
+          if (other !== undefined && other !== parent) ok = false;
+          if (!ok) break;
+        }
+        if (!ok) break;
+      }
+      if (!ok) continue;
+      const landing = neighbourCell(spot.far.cell, spot.far.direction);
+      if (inBlock.has(cellKey(landing)) || !isFree(landing)) continue;
+      // Die Landezelle ist ein Blatt wie jede frisch gewachsene: geradeaus
+      // muss frei bleiben, sonst hat ihre überzählige Öffnung kein Fels.
+      if (cells.has(cellKey(neighbourCell(landing, spot.far.direction)))) continue;
+      // Und sie darf den Lauf NUR am Port berühren — sonst stünde sie mit
+      // einer offenen Kante an einer Keilflanke, ohne dass eine Graphkante
+      // das erklärt.
+      const touches = HORIZONTAL_DIRECTIONS.filter((d) =>
+        inBlock.has(cellKey(neighbourCell(landing, d)))
+      ).length;
+      if (touches !== 1) continue;
+      if (stealsRequired(landing, null)) continue;
+      return {
+        stamp: { def: option.def, module: option.module, anchor: spot.anchor, yaw: spot.yaw, cells: block },
+        landing: { cell: landing, from: OPPOSITE_DIRECTION[spot.far.direction] },
+      };
     }
     return null;
   };
@@ -1098,36 +1374,55 @@ function growCells(
     const childKey = cellKey(child);
     current.edges.add(chosen);
 
-    // ── S3: erst der Stempel, dann die Einzelzelle ───────────────────
-    const stamp = tryStamp(current, chosen);
-    if (stamp !== null) {
+    // ── S3: erst der Saal, dann die Treppe, dann die Einzelzelle ─────
+    // Die Reihenfolge ist ein Saatvertrag, keine Rangordnung: Stünde die
+    // Treppe voran, verschöbe sich mit ihrem Regler auch jede Halle.
+    const spot = tryStamp(current, chosen) ?? tryStairs(current, chosen);
+    if (spot !== null) {
+      const { stamp } = spot;
       const index = stamps.length;
       stamps.push(stamp);
-      const inBlock = new Set(stamp.cells.map(cellKey));
+      // Innen- und Aussenkanten aus der Rückrechnung, nicht aus einer
+      // Fallunterscheidung je Modul: Die Innenkanten sind Graphkanten
+      // (die Zellen EINES Raums hängen zusammen, bei der Treppe über die
+      // Ebenengrenze hinweg), die Aussenkanten sind das, woran später noch
+      // etwas andocken darf.
+      const { inner, outer } = stampEdges(stamp.anchor, stamp.yaw, stamp.module);
       for (const c of stamp.cells) {
-        cells.set(cellKey(c), {
+        const key = cellKey(c);
+        cells.set(key, {
           cell: c,
-          key: cellKey(c),
+          key,
           // Ein Saal hat keine Laufrichtung — die Trägheit gilt für
           // Gänge, und aus vier Ecken gleichzeitig gibt es kein
           // „geradeaus".
           toParent: null,
-          edges: new Set<Direction>(),
+          edges: new Set<Direction>(inner.get(key)),
           entrance: false,
           stamp: index,
+          open: outer.get(key) ?? new Set<Direction>(),
         });
-      }
-      // Die Innenkanten sind Graphkanten: Die Zellen EINES Raums hängen
-      // zusammen, und jede Auswertung (Versiegelung, Erreichbarkeit)
-      // liest sie damit ohne Sonderfall richtig.
-      for (const c of stamp.cells) {
-        const here = cells.get(cellKey(c))!;
-        for (const d of HORIZONTAL_DIRECTIONS) {
-          if (inBlock.has(cellKey(neighbourCell(c, d)))) here.edges.add(d);
-        }
       }
       cells.get(childKey)!.edges.add(OPPOSITE_DIRECTION[chosen]);
       for (const c of stamp.cells) frontier.push(cellKey(c));
+      if (spot.landing !== null) {
+        const landingKey = cellKey(spot.landing.cell);
+        cells.set(landingKey, {
+          cell: spot.landing.cell,
+          key: landingKey,
+          toParent: spot.landing.from,
+          edges: new Set<Direction>([spot.landing.from]),
+          entrance: false,
+          stamp: null,
+          open: null,
+        });
+        // Und die Gegenseite: Das ferne Ende des Laufs ist damit ein
+        // Durchgang und keine Kante gegen Fels.
+        cells
+          .get(cellKey(neighbourCell(spot.landing.cell, spot.landing.from)))!
+          .edges.add(OPPOSITE_DIRECTION[spot.landing.from]);
+        frontier.push(landingKey);
+      }
       continue;
     }
 
@@ -1138,6 +1433,7 @@ function growCells(
       edges: new Set<Direction>([OPPOSITE_DIRECTION[chosen]]),
       entrance: false,
       stamp: null,
+      open: null,
     });
     frontier.push(childKey);
   }
@@ -1180,7 +1476,13 @@ function addLoopEdges(
   for (const c of ordered) {
     for (const d of HORIZONTAL_DIRECTIONS) {
       if (c.edges.has(d)) continue;
-      if (!cells.has(cellKey(neighbourCell(c.cell, d)))) continue;
+      if (c.open !== null && !c.open.has(d)) continue;
+      const other = cells.get(cellKey(neighbourCell(c.cell, d)));
+      if (!other) continue;
+      // Beide Seiten müssen die Kante tragen können. Eine Schleife auf
+      // eine Keilflanke wäre ein Durchgang durch eine Wand — dieselbe
+      // Falle wie beim Wachsen, nur eine Phase später.
+      if (other.open !== null && !other.open.has(OPPOSITE_DIRECTION[d])) continue;
       candidates.push(canonicalEdge(c.cell, d));
     }
   }
@@ -1493,6 +1795,7 @@ export function planGridDungeon(
   // für dieselbe Sache liefen sonst auseinander.
   const archwayFraction = settings.doorsEnabled ? clamp01(settings.archwayFraction) : 0;
   const hallFraction = clamp01(settings.hallFraction);
+  const stairFraction = clamp01(settings.stairFraction);
   // `maxRooms` heisst im Rasterpfad ZELLZAHL, nicht Wachstumsversuche —
   // die Bedeutung wechselt mit dem Pfad, s. Verträge der Konzeptnotiz.
   const target = Math.max(1, Math.min(MAX_DUNGEON_ROOMS, Math.trunc(def.maxRooms)));
@@ -1502,7 +1805,9 @@ export function planGridDungeon(
     settings.zoneSize * 0.5,
     settings.zoneBounded,
     stampModuleOptions(def),
-    hallFraction
+    hallFraction,
+    stairModuleOptions(def),
+    stairFraction
   );
 
   // ── S4: Schleifen VOR dem BFS ──────────────────────────────────────

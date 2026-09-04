@@ -603,6 +603,17 @@ const KERN = [
   // ShaderStore — alle vier Einspritzpunkte inklusive Reihenfolge und
   // `highp`. Fällt, sobald ein Babylon-Update die Ankerzeilen verschiebt.
   ['client', 'test/dungeon2-material.ts'],
+  // F1 (Fels-Relief 3a): der NORMAL-Kanal des 1.0-Steinmaterials. Prüft am
+  // installierten Babylon nach, dass `normalW` am Einspritzpunkt beschreibbar
+  // ist UND danach noch gelesen wird, fährt den erzeugten Shader durch alle
+  // Präprozessor-Varianten (ohne Karte, Wand, Wand+Boden, alle drei) und
+  // hält fest, dass eine fehlende Datei das heutige Verhalten ergibt statt
+  // einer schwarzen Wand. Liegt `glslangValidator` auf dem PATH, wird jede
+  // Variante zusätzlich wirklich übersetzt; sonst meldet sie sich als
+  // übersprungen. Kein `assets/`, keine GPU, ~2 s.
+  // F1: the stone material's normal channel — text-only, plus a real GLSL
+  // compile when glslangValidator happens to be installed.
+  ['client', 'test/stein-normal.ts'],
   // Sichtbare Deko als Thin Instances, gegen eine Attrappen-Modellquelle
   // statt echter GLBs (assets/ liegt ausserhalb des Repos).
   ['client', 'test/dungeon2-deko.ts'],

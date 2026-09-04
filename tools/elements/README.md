@@ -123,6 +123,12 @@ Repo selbst.
 |---|---|---|
 | `tools/stonevault-kantensonde.ts` | `tools/elements/pruefung/stonevault-kantensonde.ts` | Prüft: die Kantenerklärung der Module (`RoomDef.gridEdges`, `connections`) gegen die echte GLB-Geometrie. Der Pfad in `scripts/run-tests.mjs` ist mitgezogen. |
 
+### pruefung/ — hier entstanden
+
+| Datei | Zielpfad | Zweck |
+|---|---|---|
+| `relief-kontrast.mjs` | `tools/elements/pruefung/relief-kontrast.mjs` | Prüft: die Helligkeitsstreuung einer Wand im Streiflicht, mit und ohne Normal-Kanal (`?relief=1` gegen `?relief=0`) — die Messung zu F1. Läuft **lokal** gegen den Tunnel, nicht auf `wov-dev`. |
+
 ### pipeline/quellen/ — Quelltexturen, ohne Kopfzeile
 
 Fünf PNG aus `~/wov-ai/pipeline-1.0/`. Sie sind Eingabe, nicht Ergebnis, und
@@ -131,10 +137,22 @@ tragen deshalb keine Kopfzeile; der Wächter überspringt den Ordner.
 | Datei | Zweck |
 |---|---|
 | `stein_albedo.png` | Stein-Grundtextur, Eingang von `make-moss/frost/wet.py` und `make-normal.py`. |
-| `stein_normal.png` | Aus `stein_albedo.png` abgeleitete Normal-Map. **Nie angeschlossen** — im Repo kommt der Name `stein_normal` an keiner Stelle vor. Vorhaben 3a hängt genau hier an. |
+| `stein_normal.png` | Aus `stein_albedo.png` abgeleitete Normal-Map. War bis F1 **nie angeschlossen**; seither liest `DungeonSteinMaterial.ts` Normal-Karten nach der Konvention `<albedo>_normal.png`. Die Karte des Kits ist deshalb `assets/models/stein_clean_normal.png` (mit `make-normal.py` aus `stein_clean.png`), nicht diese hier — diese gehört zur Pipeline-Quelltextur. |
 | `stein_moos_albedo.png` | Moos-Variante, Erzeugnis von `make-moss.py`. |
 | `stein_frost_albedo.png` | Frost-Variante, Erzeugnis von `make-frost.py`. |
 | `stein_wet_albedo.png` | Nass-Variante, Erzeugnis von `make-wet.py`. |
+
+Die Normal-Karte des Kits liegt **nicht im Repo** (`assets/` ist draussen) und
+wird bei Bedarf neu abgeleitet:
+
+```bash
+python3 tools/elements/pipeline/make-normal.py \
+  assets/models/stein_clean.png assets/models/stein_clean_normal.png 2.0
+```
+
+`stein_decke.png` hat bewusst **keine** Karte bekommen: Damit läuft im Spiel
+dauerhaft ein Beispiel des Rückfalls „Datei fehlt → heutiges Verhalten" mit,
+statt dass er nur im Test vorkommt.
 
 > **Offener Punkt für Mike.** Die fünf PNG sind zusammen 11 MB, und vier
 > davon sind *ableitbar*: `make-normal.py`, `make-moss.py`, `make-frost.py`

@@ -1,4 +1,7 @@
 /**
+ * Prüft: die Kantenerklärung der Module (`RoomDef.gridEdges`, `connections`)
+ * gegen die echte GLB-Geometrie.
+ *
  * G10 — Sondierung der Kantenerklärung gegen den ECHTEN Rumpf.
  *
  * ── Warum es dieses Werkzeug gibt ────────────────────────────────────
@@ -37,24 +40,25 @@
  * die Figur durch?") sind beide dasselbe, und eine Sonde, die drei
  * Zustände raten muss, misst am Ende ihre eigene Schwelle.
  *
- * Aufruf: `npx tsx tools/stonevault-kantensonde.ts [kit=DG_StoneVault] [--roh]`
+ * Aufruf: `npx tsx tools/elements/pruefung/stonevault-kantensonde.ts [kit=DG_StoneVault] [--roh]`
  * (`--roh` misst OHNE die x-Spiegelung — der Vergleich zeigt, dass die
  * Abweichung genau die Spiegelung ist und kein Zufall.)
  */
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DIRECTIONS, gridModuleFromRoomDef, type Direction, type EdgeState } from '../shared/src/dungeonRasterModul.js';
-import type { RoomDef } from '../shared/src/dungeons.js';
-import { holeKit } from './messe-stonevault-logik.js';
+import { DIRECTIONS, gridModuleFromRoomDef, type Direction, type EdgeState } from '../../../shared/src/dungeonRasterModul.js';
+import type { RoomDef } from '../../../shared/src/dungeons.js';
+import { holeKit } from '../../messe-stonevault-logik.js';
 
 /*
   Am MODUL festgemacht, nicht am Arbeitsverzeichnis: `scripts/run-tests.mjs`
-  startet jeden Test mit cwd im Paketordner (hier `tools/`), ein relativer
-  Pfad fände die Modelle dort nicht — und die Sonde meldete „GLB fehlt"
-  statt zu messen.
+  startet jeden Test mit cwd im Paketordner (hier `tools/elements/pruefung/`),
+  ein relativer Pfad fände die Modelle dort nicht — und die Sonde meldete
+  „GLB fehlt" statt zu messen. Die drei `..` zählen den Weg zur Repo-Wurzel
+  ab: `pruefung/` → `elements/` → `tools/` → Wurzel.
 */
-const MODELL_ORDNER = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'assets/models');
+const MODELL_ORDNER = resolve(dirname(fileURLToPath(import.meta.url)), '../../..', 'assets/models');
 /** Der Streifen, in dem die eingebauten Innenwände stehen (`make-stonevault.py`). */
 const STREIFEN_VON = 0.7;
 const STREIFEN_BIS = 1.0;

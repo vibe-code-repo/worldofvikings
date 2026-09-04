@@ -62,7 +62,7 @@ const a = summiereRaster(alt);
   `StoneVaultJunction` in x gespiegelt, weil die Module im Spiel
   seitenverkehrt zu ihrer Erklärung stehen (Blender-Ost ist −x, und die
   doppelte x-Negation aus `make-stonevault.py` und Babylons `__root__`
-  hebt sich auf — gemessen von `tools/stonevault-kantensonde.ts`).
+  hebt sich auf — gemessen von `tools/elements/pruefung/stonevault-kantensonde.ts`).
 
   Der 1.0-Pfad liest DIESELBEN Connectors. Seine Ausgangslage konnte
   darum nicht bleiben, wo sie war: Jeder Anbau an eine Ecke oder einen

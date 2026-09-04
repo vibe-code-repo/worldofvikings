@@ -51,6 +51,21 @@ function brauchtModelle(...dateien) {
 }
 
 const KERN = [
+  /*
+    S1 (Elemente-Umzug): Kopfzeilen-Wächter über `tools/elements/`. Steht
+    ganz vorn, weil er der billigste Prüfer der Liste ist — er liest Text,
+    sonst nichts: kein `assets/`, kein Blender, keine GPU, keine
+    Netzverbindung. Damit läuft er auch im CI-Checkout, in dem die Modelle
+    fehlen, und braucht als einziger Eintrag hier keine Weiche.
+
+    Was er festhält: Jede Datei unter `tools/elements/` sagt in ihrer
+    ersten Kommentarzeile, ob sie etwas ERZEUGT, etwas PRÜFT oder
+    HILFSMITTEL ist. Diese Auskunft verfällt sonst still — eine fehlende
+    Kopfzeile bricht nichts und fällt niemandem auf.
+
+    Header convention guard for tools/elements/ — text only, ~0.1 s.
+  */
+  ['tools/elements', 'pruefe-koepfe.mjs'],
   // Naht zwischen Kopf- und Rumpfdateien der Weltdaten (Bundle-Schnitt):
   // laeuft in Sekunden und faengt genau den Fehler, den sonst niemand sieht.
   ['shared', 'test/weltdaten-schnitt.ts'],
@@ -199,7 +214,7 @@ const KERN = [
     G11: the kit's edge declaration measured against the real GLB geometry.
   */
   [
-    'tools',
+    'tools/elements/pruefung',
     'stonevault-kantensonde.ts',
     brauchtModelle('assets/models/StoneVaultCorner.glb', 'assets/models/StoneVaultJunction.glb'),
   ],

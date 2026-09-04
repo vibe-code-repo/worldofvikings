@@ -22,6 +22,28 @@ node tools/<skript>.mjs <argumente>                              # Node, oft mit
 
 ---
 
+## Elemente der Dungeon-Kits → `tools/elements/`
+
+Die Skripte, die **Dungeon-Bausteine** erzeugen und prüfen, liegen in einem
+eigenen Unterordner: [`tools/elements/`](elements/README.md). Sie kamen am
+04.09.2026 aus `~/wov-ai/elements/` und `~/wov-ai/pipeline-1.0/` herein — der
+Kit, an dem gerade gearbeitet wird (`DG_StoneVault`), war der einzige, dessen
+Bauskript ausserhalb des Repos lag.
+
+| Unterordner | Inhalt |
+|---|---|
+| `elements/blender/` | Bauskripte: `make-stonevault.py` (die 12 Module des Kits), `make-elements.py`, die `compose-*.py`-Nachweisbilder. |
+| `elements/pruefung/` | Sonden und Messungen: `check-*`, `measure-*`, `render-*`, `zaehle-naht.py`, `dach-sonde.py`, `strahl-sonde.py`, `stonevault-kantensonde.ts`. |
+| `elements/pipeline/` | Textur-Pipeline (`texture-kit.py`, `make-normal/moss/frost/wet.py`) und die Browser-Aufnahmen; Quelltexturen unter `quellen/`. |
+| `elements/ts/` | Noch leer — für die TypeScript-Werkzeuge aus Vorhaben 1. |
+
+Dort gilt zusätzlich eine **Kopfzeilen-Konvention**: Die erste Kommentarzeile
+jeder Datei beginnt mit `Erzeugt:`, `Prüft:` oder `Hilfsmittel:`.
+`tools/elements/pruefe-koepfe.mjs` hält das fest und hängt in
+`scripts/run-tests.mjs` als schneller, assetfreier Prüfer.
+
+---
+
 ## Modelle bauen
 
 | Werkzeug | Zweck |

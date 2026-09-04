@@ -1148,8 +1148,8 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
           Babylons `__root__` (scale.x = −1) wieder zurück. Beides hebt
           sich auf, die Geometrie steht in der Szene also so wie in
           Blender — und damit seitenverkehrt zur alten Erklärung. Die
-          Sonde `tools/stonevault-kantensonde.ts` misst das am echten
-          GLB: erklärt war Süd + West, gebaut ist Süd + Ost.
+          Sonde `tools/elements/pruefung/stonevault-kantensonde.ts` misst
+          das am echten GLB: erklärt war Süd + West, gebaut ist Süd + Ost.
           Gespiegelt wird die ERKLÄRUNG, nicht das Modell — die GLBs
           bleiben unverändert, damit gespeicherte Gräber weiter so
           aussehen wie bisher.
@@ -1206,7 +1206,7 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
           darüber (G11, 04.09.2026): Blender-Ost ist −x, und die
           doppelte x-Negation (Skript + Babylon `__root__`) hebt sich
           auf, also steht die Wand in der Szene auf der Ostseite. Am GLB
-          gemessen von `tools/stonevault-kantensonde.ts`.
+          gemessen von `tools/elements/pruefung/stonevault-kantensonde.ts`.
         */
         name: 'StoneVaultJunction',
         divider: false,

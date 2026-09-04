@@ -285,7 +285,7 @@ console.log('\n4) Eingebaute Wände: Korridor, Ecke, Abzweig');
     // Ost, nicht West: G11 hat die Erklärung beider Module in x
     // gespiegelt, weil Blender-Ost −x ist und sich die doppelte
     // x-Negation (Skript + Babylon `__root__`) aufhebt. Gemessen am GLB
-    // von `tools/stonevault-kantensonde.ts`.
+    // von `tools/elements/pruefung/stonevault-kantensonde.ts`.
     StoneVaultCorner: ['s', 'e'],
     StoneVaultJunction: ['e'],
   };

@@ -40,6 +40,7 @@ import {
 } from '../src/dungeonRasterModul.js';
 import {
   ENTRANCE_CELL,
+  ENTRANCE_PORT_DIRECTION,
   YAWS,
   cellKey,
   edgeCenterWorld,
@@ -349,7 +350,6 @@ console.log('\n6) Keine Öffnung gegen die Öffnung eines belegten Nachbarn');
       const kanten = new Set(c.edges);
       for (const d of openDirections(states, c.cell)) {
         if (kanten.has(d)) continue; // Durchgang
-        if (c.entrancePort === d) continue; // führt absichtlich nach draussen
         const nachbar = belegt.get(cellKey(neighbourCell(c.cell, d)));
         if (nachbar === undefined) continue; // Fels — der Regelfall
         const gegenueber = states.get(cellKey(nachbar.cell))![OPPOSITE_DIRECTION[d]];
@@ -378,15 +378,17 @@ console.log('\n7) Versiegelung nach Kantentafel');
     const belegt = new Set(plan.cells.map((c) => cellKey(c.cell)));
     const states = statesOf(plan);
     const cellAt = new Map(plan.cells.map((c) => [cellKey(c.cell), c]));
-    // Sollmenge: alle offenen Kanten ohne Graphkante und ohne Eingang —
-    // ABZÜGLICH derer, vor denen die eingebaute Wand eines Nachbarn
-    // steht. Genau diese Ausnahme ist Zeile 3 der Tafel und der Grund
-    // für den ganzen Umbau.
+    // Sollmenge: alle offenen Kanten ohne Graphkante — ABZÜGLICH derer,
+    // vor denen die eingebaute Wand eines Nachbarn steht. Genau diese
+    // Ausnahme ist Zeile 3 der Tafel und der Grund für den ganzen Umbau.
+    // Der Eingangsport ist seit dem 04.09.2026 KEINE Ausnahme mehr: Er
+    // zeigt auf Fels und bekommt nach Zeile 5 seine Platte wie jede
+    // andere Öffnung auch (s. Prüfung 11).
     const soll = new Set<string>();
     for (const c of plan.cells) {
       const kanten = new Set(c.edges);
       for (const d of openDirections(states, c.cell)) {
-        if (kanten.has(d) || c.entrancePort === d) continue;
+        if (kanten.has(d)) continue;
         const nb = cellAt.get(cellKey(neighbourCell(c.cell, d)));
         if (nb && states.get(cellKey(nb.cell))![OPPOSITE_DIRECTION[d]] === 'wall') continue;
         soll.add(`${cellKey(c.cell)}#${d}`);
@@ -554,6 +556,53 @@ console.log('\n10) Der Kern ohne Extras — Schleifen und Torbögen abgeschaltet
     check(plan.loops.length === 0, `Saat ${seed}: ${plan.loops.length} Schleifen bei loopFraction 0`);
   }
   console.log('  10 Saaten mit beiden Reglern auf 0: 0 Türen, 0 Deko, Kantenzahl = Zellzahl − 1 + Stempelringe');
+}
+
+// ─────────────────────────────────────────────────────────────────────
+console.log('\n11) Der Eingang ist versiegelt');
+// Mikes „Lichtfuge Wand/Decke" war gemessen KEINE Naht, sondern der
+// Eingangsschacht: Die Zelle nördlich des Eingangs bleibt für immer leer,
+// und solange S7 den Eingangsport von der Tafel ausnahm, war sie ein
+// 2 × 2 m grosser Schacht ohne Decke und ohne Boden — Tageslicht fiel
+// über die Oberkante der Schachtwände herein.
+//
+// Der Eingangsport ist deshalb keine Ausnahme mehr. Die Figur wird ins
+// Grab hineinteleportiert (`getSpawnPoint`), der Port dient nur noch dem
+// EDITOR als Eingangskante — ihn zuzumauern kostet keinen Weg.
+//
+// Geprüft wird am AUSGEGEBENEN Layout und nicht am Plan: Der Plan ist die
+// Buchhaltung des Generators, und eine Platte, die nur dort steht, sieht
+// im Grab niemand. Die Kantenrückrechnung ist dieselbe wie in Prüfung 7.
+{
+  const soll = edgeCenterWorld(ENTRANCE_CELL, ENTRANCE_PORT_DIRECTION);
+  for (const seed of SEEDS) {
+    const layout = generateGridLayout(kit, seed);
+    let amEingang = 0;
+    for (const p of layout.rooms) {
+      if (p.room !== WALL) continue;
+      const yaw = yawOf(p.rot);
+      if (yaw === null) continue;
+      const zurueck = OPPOSITE_DIRECTION[rotateDirection('n', yaw)];
+      if (zurueck !== ENTRANCE_PORT_DIRECTION) continue;
+      const u = DIRECTION_VECTOR[zurueck];
+      const kante = { x: p.pos.x - u.x * 0.15, y: p.pos.y, z: p.pos.z - u.z * 0.15 };
+      if (Math.hypot(kante.x - soll.x, kante.y - soll.y, kante.z - soll.z) < 1e-3) amEingang++;
+    }
+    check(
+      amEingang === 1,
+      `Saat ${seed}: ${amEingang} Platten auf der Eingangskante, erwartet genau 1`
+    );
+  }
+  // Der Rückfall (S10) darf die Ausnahme ebenso wenig führen — sonst
+  // stünde ausgerechnet das Notgrab offen.
+  const nurEingangKit: DungeonDef = {
+    ...kit,
+    rooms: kit.rooms.filter((r) => r.entrance || r.endCap),
+    maxRooms: 12,
+  };
+  const rueckfall = generateGridLayout(nurEingangKit, 1).rooms.filter((r) => r.room === WALL).length;
+  check(rueckfall === 4, `Rückfall hat ${rueckfall} Platten, erwartet 4 (alle vier Seiten)`);
+  console.log('  40 Saaten: je genau 1 Platte auf der Eingangskante; Rückfall rundum zu');
 }
 
 console.log(failures === 0 ? '\nOK — der Rasterkern hält seine Tafel' : `\n${failures} FEHLER`);

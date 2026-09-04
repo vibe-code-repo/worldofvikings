@@ -18,8 +18,10 @@
  *     an gemeinsamen Kanten) — seit G8 OHNE jede Ausnahme, s. unten.
  *  3. Keine Oeffnung ins Leere: Hinter jedem Connector ohne Gegenstueck
  *     steht der Koerper eines Nachbarmoduls (Zeile 3 der Kantentafel).
- *     Der Eingangsconnector der Startraum-Rolle ist abgezogen — er bleibt
- *     gewollt offen, das ist die Tuer in die Aussenwelt.
+ *     Der Eingangsconnector der Startraum-Rolle war bis zum 4.9.2026
+ *     abgezogen ("die Tuer in die Aussenwelt"); seit der Eingang
+ *     versiegelt wird, hat er ohnehin ein Gegenstueck — der Filter steht
+ *     nur noch als Zeuge da, dass genau EINE Platte davor sitzt (9.).
  *  4. Raumzahl im Schnitt > 10 (sonst ist das Kit zu restriktiv konfiguriert).
  *  5. Mindestens ein Arch-Torbogen (`StoneVaultArch`) ist ueber alle Seeds
  *     gesetzt.
@@ -34,6 +36,21 @@
  *     Gaengen darin.
  *  8. Die Halle (`StoneVaultHall`) steht in mindestens 10 von 40 Seeds
  *     (das seltenste Gewicht darf trotzdem nicht zum Ausreisser werden).
+ *  9. Genau EINE Platte je Layout steht auf der Eingangskante — s. den
+ *     naechsten Abschnitt.
+ *
+ * ── Der Eingang: aus einer Ausnahme wird eine Pflicht (4.9.2026) ───────
+ * Die dokumentierte Ausnahme (a) hiess "7 Notfall-Abschluesse gegen den
+ * Eingangsraum": `placeEndCaps` mauerte den Eingangsport in 7 von 40 Seeds
+ * ZUFAELLIG zu, ohne Kollisionspruefung, und dann eben mitten im Koerper
+ * des Eingangsmoduls. Sie ist mit G8 weggefallen — und mit der Messung der
+ * "Lichtfuge" kam heraus, dass der offen gelassene Port ein Schacht ohne
+ * Decke und ohne Boden war, durch den Tageslicht ins Grab fiel.
+ *
+ * Der Rasterpfad setzt dort jetzt PLANMAESSIG eine Platte: keine 7 von 40
+ * mehr, sondern 40 von 40, und jede auf der Kante statt im Stein. Pruefung
+ * 9 haelt genau diese Zahl fest — eine zweite waere ein Deckungskonflikt,
+ * keine waere der offene Schacht.
  *
  * ── Umbau mit G8 (4.9.2026): beide Ausnahmen sind ERSATZLOS weg ────────
  * Dieser Test hat bis zum 3.9.2026 ZWEI dokumentierte Ausnahmen von
@@ -297,6 +314,8 @@ const gangAnteilJeSeed: number[] = [];
 const treppenJeSeed: number[] = [];
 /** In wie vielen Seeds mindestens eine Treppe steht. */
 let seedsMitTreppe = 0;
+/** Platten auf der Eingangskante je Seed — Soll: genau 1 (Pruefung 9). */
+const eingangsplattenJeSeed: number[] = [];
 
 for (const seed of SEEDS) {
   // Der VERTEILER, nicht ein Pfad direkt: Dieser Test soll das messen,
@@ -343,6 +362,22 @@ for (const seed of SEEDS) {
   // Nicht-Wand-Raeume: alles ausser dem Abschluss `StoneVaultWall` — Entry
   // zaehlt mit (es ist geometrisch eine gewoehnliche Zelle, s. Kommentar am
   // Raum selbst), macht bei 1 Raum je Seed aber ohnehin keinen Unterschied.
+  // Pruefung 9: genau EINE Platte auf der Eingangskante. Die liegt im
+  // URSPRUNG — dort haengt das ganze Grab, und dort sitzt der
+  // Eingangsconnector des Startraums. Gefragt wird nach dem CONNECTOR der
+  // Platte und nicht nach ihrer Mitte: Ihr Koerper liegt 0,15 m dahinter,
+  // und eine Mittenabfrage haette eine Toleranz gebraucht, die auch die
+  // Nachbarkante mitnaehme.
+  const amEingang = layout1.rooms.filter((p) => {
+    const rd = roomsByName.get(p.room);
+    if (!rd?.endCap) return false;
+    const conn = rd.connections[0];
+    if (!conn) return false;
+    const lokal = quatMulVec3(p.rot, conn.localPos);
+    return Math.hypot(p.pos.x + lokal.x, p.pos.y + lokal.y, p.pos.z + lokal.z) < 0.1;
+  }).length;
+  eingangsplattenJeSeed.push(amEingang);
+
   const nichtWand = layout1.rooms.length - (namen.get('StoneVaultWall') ?? 0);
   const gangSumme = GANGVARIANTEN.reduce((sum, name) => sum + (namen.get(name) ?? 0), 0);
   gangAnteilJeSeed.push(nichtWand > 0 ? gangSumme / nichtWand : 0);
@@ -366,6 +401,14 @@ for (const [saal, grenze] of [['StoneVaultHallLarge', 5], ['StoneVaultHallLong',
   const n = seedsMitSaal.get(saal) ?? 0;
   check(`${saal} in mindestens ${grenze} von 40 Seeds gesetzt`, n >= grenze, `${n} Seeds`);
 }
+
+const eingangGesamt = eingangsplattenJeSeed.reduce((a, b) => a + b, 0);
+check(
+  `genau eine Eingangsplatte je Layout (40 von 40 Seeds)`,
+  eingangsplattenJeSeed.every((n) => n === 1),
+  `${eingangGesamt} Platten über ${eingangsplattenJeSeed.length} Seeds, ` +
+    `Ausreisser: ${eingangsplattenJeSeed.filter((n) => n !== 1).length}`
+);
 
 const avgRooms = roomCounts.reduce((a, b) => a + b, 0) / roomCounts.length;
 check(`Raumzahl im Schnitt > 10`, avgRooms > 10, `Schnitt ${avgRooms.toFixed(2)}`);

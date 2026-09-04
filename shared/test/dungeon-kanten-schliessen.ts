@@ -89,28 +89,34 @@ pruefe(
   `${computeOpenConnections(eingang, vault.name).length}`
 );
 
+// Seit dem 04.09.2026 gehört die Eingangskante dazu: Die Zelle davor
+// bleibt im Rasterpfad für immer leer, und ein offener Port machte daraus
+// einen Schacht ohne Decke und ohne Boden — Mikes „Lichtfuge". Betreten
+// wird ein Grab per Teleport, nicht durch den Port. Vier Kanten, vier
+// Wände. (Für Nicht-Rasterkits bleibt es beim alten Verhalten, s. u.)
 const e1 = schliesseOffeneKanten(eingang, vault.name);
-pruefe(e1.gesetzt === 3, 'drei Wände gesetzt (die Eingangskante bleibt frei)', `${e1.gesetzt}`);
+pruefe(e1.gesetzt === 4, 'vier Wände gesetzt (die Eingangskante gehört dazu)', `${e1.gesetzt}`);
 pruefe(e1.offenGeblieben === 0, 'nichts blieb ungewollt offen', `${e1.offenGeblieben}`);
 pruefe(
-  anzahlAbschluesse(eingang, vault) === 3,
-  'und im Layout stehen drei Abschlussräume',
+  anzahlAbschluesse(eingang, vault) === 4,
+  'und im Layout stehen vier Abschlussräume',
   `${anzahlAbschluesse(eingang, vault)}`
 );
 pruefe(offeneOhneEingang(eingang, vault) === 0, 'keine offene Kante ausser dem Eingang');
 const eingangsKante = computeOpenConnections(eingang, vault.name);
-pruefe(eingangsKante.length === 1, 'genau EINE Kante ist noch offen', `${eingangsKante.length}`);
+pruefe(eingangsKante.length === 0, 'auch die Eingangskante ist zu', `${eingangsKante.length}`);
+// Die Platte davor ist trotzdem keine Einladung zum Anbauen: Der Editor
+// zeigt die Eingangskante weiterhin nicht (`anbaubareKanten`, dort geprüft).
 pruefe(
-  eingangsKante[0]!.roomIndex === 0 &&
-    vaultRaum(eingang.rooms[0]!.room).connections[eingangsKante[0]!.connIndex]!.entrance === true,
-  'und das ist die Eingangskante des Startraums'
+  vaultRaum(eingang.rooms[0]!.room).connections.some((c) => c.entrance),
+  'der Startraum führt weiterhin einen Eingangsconnector'
 );
 
 // Ein zweiter Lauf darf NICHTS mehr tun — sonst stapelten sich Wände auf
 // Wänden, und jedes Speichern liesse das Dokument wachsen.
 const e2 = schliesseOffeneKanten(eingang, vault.name);
 pruefe(e2.gesetzt === 0, 'ein zweiter Lauf setzt nichts nach', `${e2.gesetzt}`);
-pruefe(eingang.rooms.length === 4, 'und das Layout bleibt bei vier Räumen', `${eingang.rooms.length}`);
+pruefe(eingang.rooms.length === 5, 'und das Layout bleibt bei fünf Räumen', `${eingang.rooms.length}`);
 
 // ── 2. Kette Eingang → Korridor → Halle ─────────────────────────────
 const kette = leeresLayout(vault);
@@ -131,13 +137,13 @@ const kette = leeresLayout(vault);
 pruefe(kette.rooms.length === 3, 'Kette steht: Eingang, Korridor, Halle', `${kette.rooms.length}`);
 const offenVorher = computeOpenConnections(kette, vault.name).length;
 const k = schliesseOffeneKanten(kette, vault.name);
-pruefe(k.gesetzt === offenVorher - 1, 'jede offene Kante bis auf den Eingang bekam eine Wand',
+pruefe(k.gesetzt === offenVorher, 'jede offene Kante bekam eine Wand — der Eingang mit',
   `${k.gesetzt} von ${offenVorher}`);
 pruefe(k.offenGeblieben === 0, 'die Kette ist dicht', `${k.offenGeblieben}`);
 pruefe(offeneOhneEingang(kette, vault) === 0, 'nachgezählt: kein Loch mehr');
 pruefe(
-  computeOpenConnections(kette, vault.name).length === 1,
-  'nur der Eingang steht noch offen',
+  computeOpenConnections(kette, vault.name).length === 0,
+  'nicht einmal der Eingang steht noch offen',
   `${computeOpenConnections(kette, vault.name).length}`
 );
 
@@ -227,7 +233,7 @@ invarianten(offenerEingang, vault, 'offener Eingang');
 // 5b. Dichter Eingangsraum — dieselben drei Kanten, jetzt mit wandIndex.
 const dicht = leeresLayout(vault);
 schliesseOffeneKanten(dicht, vault.name);
-pruefe(computeOpenConnections(dicht, vault.name).length === 1, 'dicht: nur der Eingang ist offen');
+pruefe(computeOpenConnections(dicht, vault.name).length === 0, 'dicht: keine offene Kante mehr');
 const dichteKanten = anbaubareKanten(dicht, vault.name);
 pruefe(dichteKanten.length === 3, 'dichter Eingang: trotzdem drei anbaubare Kanten',
   `${dichteKanten.length}`);
@@ -258,9 +264,9 @@ const zielKante = anbaubareKanten(ersetzt, vault.name)[0]!;
 const wandVorher = ersetzt.rooms[zielKante.wandIndex!]!.room;
 const erg = fuegeAnKante(ersetzt, vault.name, zielKante, 'StoneVaultCorridor');
 pruefe(erg.ok && erg.wandErsetzt, 'Anfügen an eine Wandkante meldet „Wand ersetzt"');
-pruefe(ersetzt.rooms.length === 4, 'die Raumzahl bleibt bei vier (Wand raus, Gang rein)',
+pruefe(ersetzt.rooms.length === 5, 'die Raumzahl bleibt bei fünf (Wand raus, Gang rein)',
   `${ersetzt.rooms.length}`);
-pruefe(anzahlAbschluesse(ersetzt, vault) === 2, 'genau eine Wand ist gefallen',
+pruefe(anzahlAbschluesse(ersetzt, vault) === 3, 'genau eine Wand ist gefallen',
   `${anzahlAbschluesse(ersetzt, vault)} von 3 (${wandVorher})`);
 pruefe(
   ersetzt.rooms[ersetzt.rooms.length - 1]!.room === 'StoneVaultCorridor',

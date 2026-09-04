@@ -51,6 +51,7 @@ import {
   type OpenConnection,
 } from '../src/index.js';
 import { erzeugeLayoutFuerKit } from '../src/dungeonRasterGenerator.js';
+import { anbaubareKanten, fuegeAnKante, kantenBeschriftung } from '../src/dungeonKanten.js';
 
 let fehler = 0;
 function pruefe(bedingung: boolean, was: string, zusatz = ''): void {
@@ -366,6 +367,65 @@ console.log('\n5. DG_Steingrab (kein Rasterkit):');
     computeOpenConnections(nackt, stein.name, { ohneEingang: true }).length === 0,
     'die Flagge lässt auch ein Nicht-Rasterkit 0 melden'
   );
+}
+
+// ── 6. Die Eingangsplatte verwirrt die Editor-Logik nicht ──────────
+console.log('\n6. Eingangskante mit Platte davor:');
+{
+  const eingangsRaum = vault.rooms.find((r) => r.entrance)!;
+  const eingangsConn = eingangsRaum.connections.findIndex((c) => c.entrance);
+  const abschluss = vault.rooms.find((r) => r.endCap)!.name;
+
+  // (a) Ein gewürfeltes Grab hat die Platte — und meldet trotzdem 0 Löcher.
+  const layout = erzeugeLayoutFuerKit(vault, 7);
+  pruefe(
+    computeOpenConnections(layout, vault.name, { ohneEingang: true }).length === 0,
+    'mit Eingangsplatte meldet die Flagge weiter 0 offen'
+  );
+
+  // (b) Die Eingangskante wird NICHT zum Anbauen angeboten — weder als
+  //     offene Kante (sie ist keine mehr) noch als „(Wand)". Genau das
+  //     wäre die Verwechslung, die die Platte hätte auslösen können:
+  //     `anbaubareKanten` rechnet die verwandeten Kanten auf einem Layout
+  //     OHNE die Abschlüsse, und dort ist der Eingang wieder offen.
+  const kanten = anbaubareKanten(layout, vault.name);
+  pruefe(
+    !kanten.some((k) => k.roomIndex === 0 && k.connIndex === eingangsConn),
+    'die Eingangskante steht nicht in anbaubareKanten',
+    `${kanten.length} Kanten angeboten`
+  );
+  // Und die Gegenprobe, dass die Liste überhaupt etwas hergibt — sonst
+  // wäre die Aussage oben nur eine leere Liste.
+  pruefe(kanten.length > 0, 'anbaubareKanten bietet andere Kanten an', `${kanten.length}`);
+  pruefe(
+    kanten.every((k) => kantenBeschriftung(layout, k).length > 0),
+    'jede angebotene Kante hat eine Beschriftung'
+  );
+
+  // (c) Die Eingangsplatte wird beim Anfügen nicht ersetzt: Kein
+  //     Anfügevorgang darf sie treffen, denn sie steht auf keiner
+  //     angebotenen Kante. Belegt am Bestand vor/nach einem Anbau.
+  const vorher = layout.rooms.length;
+  // Die erste Kante, an der die Kantentafel den Anbau überhaupt zulässt —
+  // welche das ist, ist für die Aussage gleichgültig.
+  let angebaut = false;
+  for (const k of kanten) {
+    const erg = fuegeAnKante(layout, vault.name, k, 'StoneVaultCell');
+    if (!erg.ok) continue;
+    angebaut = true;
+    break;
+  }
+  pruefe(angebaut, 'ein Anbau an einer der angebotenen Kanten geht durch');
+  const eingangsplatten = layout.rooms.filter(
+    (r) => r.room === abschluss && Math.hypot(r.pos.x, r.pos.z) < 0.35
+  ).length;
+  pruefe(eingangsplatten === 1, 'die Eingangsplatte steht nach dem Anbau noch', `${eingangsplatten}`);
+  pruefe(layout.rooms.length >= vorher, 'der Anbau hat nichts abgeräumt');
+
+  // (d) Zweimal schliessen setzt keine zweite Eingangsplatte.
+  const zweimal = erzeugeLayoutFuerKit(vault, 7);
+  const nochmal = schliesseOffeneKanten(zweimal, vault.name);
+  pruefe(nochmal.gesetzt === 0, 'ein dichtes Grab bekommt keine zweite Eingangsplatte', `${nochmal.gesetzt}`);
 }
 
 console.log(fehler === 0 ? '\nAlles grün.' : `\n${fehler} Prüfung(en) fehlgeschlagen.`);

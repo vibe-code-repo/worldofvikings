@@ -116,7 +116,7 @@ const MAX_RUNDEN = 32;
 
 /**
  * Jede offene Kante eines Layouts mit einem Abschlussraum des Kits
- * zumauern — ausser der Eingangskante des Startraums.
+ * zumauern — bei Rasterkits einschliesslich der Eingangskante.
  *
  * ── Warum es das überhaupt gibt ──────────────────────────────────────
  * Im Modul-Kit ist eine Wand kein Teil der Zelle, sondern ein eigener Raum
@@ -127,12 +127,30 @@ const MAX_RUNDEN = 32;
  * eine, an der man gleich weiterbauen will. Der Unterschied fällt erst
  * auf, wenn man drinsteht und ins Schwarze schaut.
  *
- * ── Warum der Eingang offen bleibt ───────────────────────────────────
- * Er ist die Tür. Dort setzt der Server die Verbindung zur Oberwelt an;
- * eine Wand davor wäre ein Grab, das man nicht betreten kann. Erkannt wird
- * er hart an zwei Merkmalen — Raum 0 UND `connection.entrance` — und nicht
- * etwa an der Position (0,0,0): Ein zweiter Connector, der dort zufällig
- * auch läge, bliebe sonst als Loch zurück.
+ * ── Der Eingang: seit dem 04.09.2026 zugemauert, aber nicht anbaubar ─
+ * Bis dahin blieb die Eingangskante offen („sie ist die Tür"). Gemessen
+ * war sie das Gegenteil: Die Zelle davor bleibt im Rasterpfad für immer
+ * leer, also stand dort ein 2 × 2 m grosser Schacht ohne Decke und ohne
+ * Boden — Mikes „Lichtfuge Wand/Decke am Grabrand" war dieser Schacht.
+ * Betreten wird ein Grab ohnehin per Teleport (`getSpawnPoint`), nicht
+ * durch den Port. Der Rastergenerator setzt dort deshalb seit S7 eine
+ * Platte, und diese Funktion holt sie für ein von Hand gebautes Grab
+ * nach — sonst hätte ein gewürfeltes Grab andere Wände als ein gebautes,
+ * genau der Unterschied, gegen den es diese Datei gibt.
+ *
+ * Was NICHT mitgeht: `computeOpenConnections({ ohneEingang: true })`
+ * zählt die Eingangskante weiterhin nicht als Loch (sonst meldete ein
+ * frisch begonnenes Dokument „1 offen"), und `anbaubareKanten` bietet sie
+ * weiterhin nicht an — dort geht es hinaus, ein Raum davor wäre der
+ * Zugangsstollen. Erkannt wird sie hart an zwei Merkmalen — Raum 0 UND
+ * `connection.entrance` — und nicht etwa an der Position (0,0,0): Ein
+ * zweiter Connector, der dort zufällig auch läge, bliebe sonst als Loch
+ * zurück.
+ *
+ * Und nur für RASTERKITS (`DungeonDef.gridGeneration`). Die dreizehn
+ * Fremdkits laufen weiter über den 1.0-Pfad, dessen `placeEndCaps` den
+ * Eingang offen lässt; eine Platte mehr wäre dort eine Änderung an
+ * Layouts, die dieser Meilenstein ausdrücklich byte-gleich hält.
  *
  * ── Welcher Abschluss ────────────────────────────────────────────────
  * Kits dürfen mehrere haben (das Steingrab hat zwei: `SteingrabAbschluss`
@@ -183,6 +201,25 @@ export function schliesseOffeneKanten(
     // Nichts ging mehr: Die restlichen Kanten passen zu keinem Abschluss
     // dieses Kits. Weiterdrehen brächte nur dasselbe Ergebnis noch einmal.
     if (inDieserRunde === 0) break;
+  }
+
+  // Zum Schluss der Eingang. Er steht bewusst NICHT in `offen`: Die
+  // Arbeitsliste ist die Lochliste, und als Loch soll er im Editor nicht
+  // gemeldet werden. Zugemauert wird er trotzdem — s. Kopfkommentar.
+  if (def.gridGeneration) {
+    const eingang = computeOpenConnections(layout, baseName).find(
+      (c) => c.roomIndex === 0 && !!def.rooms.find((r) => r.name === layout.rooms[0]?.room)
+        ?.connections[c.connIndex]?.entrance
+    );
+    if (eingang) {
+      for (const abschluss of abschluesse) {
+        const ergebnis = attachRoom(layout, baseName, eingang, abschluss.name);
+        if (!ergebnis.ok) continue;
+        layout.rooms.push(ergebnis.placed);
+        gesetzt++;
+        break;
+      }
+    }
   }
 
   return { gesetzt, offenGeblieben: offeneOhneEingang(layout, baseName).length };

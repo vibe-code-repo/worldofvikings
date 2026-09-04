@@ -1882,6 +1882,16 @@ export function planGridDungeon(
   // Platten ab, die heute im Körper von Korridor, Ecke und Abzweig
   // stehen. Zeile 4 hält die 414 gegen die Treppe — deren Flanke ist ein
   // Keil und deckt die Kante nicht über die volle Ebenenhöhe.
+  //
+  // Der EINGANGSPORT ist seit dem 04.09.2026 keine Ausnahme mehr. Bis
+  // dahin blieb er offen („führt nach draussen"), und weil die Zelle
+  // dahinter für immer leer bleibt, war das ein 2 × 2 m grosser Schacht
+  // ohne Decke und ohne Boden: Mikes „Lichtfuge Wand/Decke am Grabrand"
+  // war gemessen dieser Schacht und keine Naht. Die Figur wird ohnehin
+  // hineinteleportiert (`getSpawnPoint`); der Port ist danach nur noch
+  // die Kante, an der der EDITOR den Ausgang erkennt (`dungeonKanten.ts`
+  // bietet sie weiterhin nicht zum Anbauen an). Er zeigt auf Fels und
+  // bekommt damit nach Zeile 5 genau eine Platte.
   const seals: GridSeal[] = [];
   for (let i = 0; i < order.length; i++) {
     const c = order[i]!;
@@ -1889,7 +1899,6 @@ export function planGridDungeon(
     for (const d of DIRECTIONS) {
       if (mine[d] !== 'open') continue; // Zeile 6
       if (c.edges.has(d)) continue; // Zeile 1: Durchgang
-      if (planCells[i]!.entrancePort === d) continue; // führt nach draussen
       const other = cells.get(cellKey(neighbourCell(c.cell, d)));
       if (!other) {
         seals.push({ cell: c.cell, direction: d }); // Zeile 5: Fels
@@ -2145,7 +2154,7 @@ function selfCheck(def: DungeonDef, plan: GridPlan): void {
   for (const c of plan.cells) {
     const mine = states.get(cellKey(c.cell))!;
     for (const d of DIRECTIONS) {
-      if (mine[d] !== 'open' || c.edges.includes(d) || c.entrancePort === d) continue;
+      if (mine[d] !== 'open' || c.edges.includes(d)) continue;
       if (sealed.has(`${cellKey(c.cell)}#${d}`)) continue;
       const behind = cells.get(cellKey(neighbourCell(c.cell, d)));
       const facing = behind ? states.get(cellKey(behind.cell))![OPPOSITE_DIRECTION[d]] : null;
@@ -2191,8 +2200,9 @@ function selfCheck(def: DungeonDef, plan: GridPlan): void {
 /**
  * Der deterministische Rückfall (S10).
  *
- * Eingang plus Platten auf allen Kanten ausser dem Eingangsport — ein
- * winziges, aber vollständiges und begehbares Grab. Bewusst OHNE Saat:
+ * Eingang plus Platten auf ALLEN offenen Kanten — ein winziges, aber
+ * vollständiges und rundum geschlossenes Grab (der Eingangsport wird
+ * seit dem 04.09.2026 mitversiegelt, s. S7). Bewusst OHNE Saat:
  * Ein Neu-Würfeln nach einem Programmfehler wäre der Determinismusbruch,
  * den der ganze Pfad vermeiden soll (Vorbild `dungeon2/generator.ts`).
  */
@@ -2227,7 +2237,10 @@ export function fallbackGridLayout(def: DungeonDef): DungeonLayout {
         room: 0,
       },
     ],
-    seals: DIRECTIONS.filter((d) => states[d] === 'open' && d !== ENTRANCE_PORT_DIRECTION).map((d) => ({
+    // Auch der Eingangsport: Das Notgrab ist sonst das einzige, das
+    // offen steht — und der Rückfall soll ein vollständiges Grab sein,
+    // kein Sonderfall mit eigener Regel.
+    seals: DIRECTIONS.filter((d) => states[d] === 'open').map((d) => ({
       cell: ENTRANCE_CELL,
       direction: d,
     })),

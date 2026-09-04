@@ -97,6 +97,19 @@ const a = summiereRaster(alt);
   A second, deliberate move: the kit gained two hall sizes, so both
   paths draw from a larger room set. Block B's zero statements all stayed
   zero.
+
+  ── Und ein drittes Mal am 04.09.2026 (Eingang versiegelt) ───────────
+  Der Rasterpfad nimmt den Eingangsport nicht mehr von der Kantentafel
+  aus: Die Zelle davor bleibt für immer leer, ein offener Port war also
+  ein Schacht ohne Decke und ohne Boden — Mikes „Lichtfuge". Block B
+  bekommt dadurch GENAU EINE Platte je Saat dazu, 1067 → 1107. Mehr
+  nicht: Sie steht auf der Kante und nicht im Stein, also bleibt
+  „Platten in belegter Zelle" bei 0 und „… im Eingangsraum" ebenso.
+  Block A (1.0-Pfad) rührt der Umbau nicht an — dort steht die alte
+  Zahl 20 als Zeuge der abgeschafften Notfall-Ausnahme weiter.
+
+  A third move: the grid path now seals the entrance port too, adding
+  exactly one plate per seed (1067 → 1107). Every zero stayed zero.
 */
 console.log(`=== Block A — 1.0-Pfad, DG_StoneVault, ${SEED_ANZAHL_VORGABE} Seeds, Kit-Vorgaben ===`);
 pruefe('Wandplatten gesamt', a.plattenGesamt, 4653);
@@ -115,7 +128,7 @@ for (let seed = 1; seed <= SEED_ANZAHL_VORGABE; seed++) {
 const g = summiereRaster(einzel);
 
 console.log(`\n=== Block B — Verteiler (Rasterpfad seit G8), ${SEED_ANZAHL_VORGABE} Seeds ===`);
-pruefe('Wandplatten gesamt', g.plattenGesamt, 1067);
+pruefe('Wandplatten gesamt', g.plattenGesamt, 1107);
 pruefe('Platten in belegter Zelle', g.platteInBelegterZelle, 0);
 pruefe('… gegen volle Wand (überflüssig)', g.plattenUeberfluessig, 0);
 // 0 und nicht 414: Die Treppe kehrt ihre Keilflanke nur dort nach

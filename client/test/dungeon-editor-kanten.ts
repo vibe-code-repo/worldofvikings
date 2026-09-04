@@ -473,14 +473,14 @@ pruefe(schliessKnopf !== undefined, 'die Aktionen-Zeile hat einen Knopf „Kante
 pruefe(kantenDoc.layout.rooms.length === 1, 'vor dem Klick steht nur der Eingang');
 schliessKnopf!.onclick!();
 pruefe(
-  kantenDoc.layout.rooms.length === 4,
-  'der Klick setzt drei Wände (Eingangskante bleibt offen)',
+  kantenDoc.layout.rooms.length === 5,
+  'der Klick setzt vier Wände (die Eingangskante gehört seit dem 04.09.2026 dazu)',
   `${kantenDoc.layout.rooms.length}`
 );
-pruefe(letzteMeldung === '3 Wände gesetzt', 'und meldet, wie viele es waren', letzteMeldung);
+pruefe(letzteMeldung === '4 Wände gesetzt', 'und meldet, wie viele es waren', letzteMeldung);
 pruefe(
-  computeOpenConnections(kantenDoc.layout, KIT).length === 1,
-  'genau eine Kante bleibt offen — der Eingang',
+  computeOpenConnections(kantenDoc.layout, KIT).length === 0,
+  'keine Kante bleibt offen — auch der Eingang nicht',
   `${computeOpenConnections(kantenDoc.layout, KIT).length}`
 );
 // Der Weg zum Weiterbauen: eine Wand entfernen gibt ihre Kante frei.
@@ -489,7 +489,7 @@ pruefe(
 const nachEntfernen = grundrissMit(kantenDoc);
 pruefe(nachEntfernen.entferne(1), 'eine gesetzte Wand lässt sich wieder entfernen');
 pruefe(
-  computeOpenConnections(kantenDoc.layout, KIT).length === 2,
+  computeOpenConnections(kantenDoc.layout, KIT).length === 1,
   'danach ist ihre Kante wieder offen',
   `${computeOpenConnections(kantenDoc.layout, KIT).length}`
 );
@@ -524,7 +524,7 @@ pruefe(haekchen(mitSchalter.behaelter)?.checked === true, 'Vorgabe: beim Speiche
 const mitPrivat = mitSchalter.seite as unknown as { speichere(doc: unknown): Promise<void> };
 await mitPrivat.speichere(schalterDoc).catch(() => undefined);
 pruefe(
-  schalterDoc.layout.rooms.length === 4,
+  schalterDoc.layout.rooms.length === 5,
   'Speichern mit gesetztem Häkchen mauert vorher zu',
   `${schalterDoc.layout.rooms.length}`
 );
@@ -594,7 +594,7 @@ function seiteMit2(
 const wandDoc = JSON.parse(JSON.stringify(frisch)) as typeof frisch;
 const wandGrundriss = grundrissMitMeldung(wandDoc);
 wandGrundriss.schliesseKanten();
-pruefe(wandDoc.layout.rooms.length === 4, 'Ausgangslage: zugemauerter Eingangsraum',
+pruefe(wandDoc.layout.rooms.length === 5, 'Ausgangslage: zugemauerter Eingangsraum',
   `${wandDoc.layout.rooms.length}`);
 // Seit G9 zählt `offeneVerbindungen` LÖCHER und nicht mehr Connectors:
 // Die Eingangskante ist mit Absicht offen (dort geht es hinaus), also ist
@@ -642,12 +642,12 @@ knopfNamens(wandSeite.behaelter, 'Anfügen')!.onclick!();
 
 const istWand = (name: string): boolean => !!raum(name).endCap;
 pruefe(
-  wandDoc.layout.rooms.length === 4,
-  'die Raumzahl bleibt bei vier — eine Wand raus, ein Gang rein',
+  wandDoc.layout.rooms.length === 5,
+  'die Raumzahl bleibt bei fünf — eine Wand raus, ein Gang rein',
   `${wandDoc.layout.rooms.length}`
 );
 pruefe(
-  wandDoc.layout.rooms.filter((r) => istWand(r.room)).length === 2,
+  wandDoc.layout.rooms.filter((r) => istWand(r.room)).length === 3,
   'genau eine Wand ist gefallen',
   `${wandDoc.layout.rooms.filter((r) => istWand(r.room)).length}`
 );

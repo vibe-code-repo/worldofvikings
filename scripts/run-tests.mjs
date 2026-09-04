@@ -7,6 +7,18 @@
  *   npm test              schnelle Kernliste (~2–3 min)
  *   npm test -- --alle    zusätzlich die langen Läufe (Placement, E2E-Wire)
  *
+ * WEICHEN (S3): Einträge mit dritter Stelle laufen nur, wenn ihre
+ * Voraussetzung da ist — `assets/` (liegt ausserhalb des Repos) und/oder
+ * der Flatpak-Blender (`wov-dev` hat keinen). Fehlt sie, steht dort
+ * ÜBERSPRUNGEN mit dem Grund im Klartext statt eines roten Tests. Proben
+ * lässt sich beides ohne Umbau der Maschine:
+ *
+ *   WOV_OHNE_MODELLE=1 node scripts/run-tests.mjs   (CI-Checkout)
+ *   WOV_OHNE_BLENDER=1 node scripts/run-tests.mjs   (wov-dev)
+ *
+ * Dass eine Weiche nicht IMMER überspringt, hält scripts/pruefe-weichen.mjs
+ * fest — er steht selbst in der Liste.
+ *
  * NICHT enthalten sind die C++-Golden-Tests (geo-compare, heightmap-compare,
  * geo-map): sie brauchen Referenz-Dumps als Argument und gehören zum
  * eingefrorenen Übergangspfad der radialen Weltgenerierung. Ebenso math-golden.ts (dieselbe Art
@@ -24,31 +36,26 @@
  * Anleitung steht in seinem eigenen Kopfkommentar.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+import { resolve } from 'node:path';
 
 /*
-  Weiche fuer Tests, die echte Modell-Dateien brauchen.
+  Die WEICHEN (S3, Elemente-Umzug): `brauchtModelle` fuer Tests, die
+  `assets/` brauchen — es liegt ausserhalb des Repos —, `brauchtBlender`
+  fuer die, die zusaetzlich den Flatpak-Blender brauchen. Fehlt die
+  Voraussetzung, wird der Test als UEBERSPRUNGEN gemeldet statt rot; die
+  Sonde selbst darf das nie entscheiden (sie wird rot, wenn sie nichts zu
+  messen findet).
 
-  `assets/` liegt bewusst AUSSERHALB des Repos (Mike sichert die Modelle
-  selbst). Im CI-Checkout gibt es sie also nicht — ein Test, der sie
-  misst, waere dort dauerhaft rot und wuerde in kurzer Zeit ignoriert.
-  Deshalb: fehlt die Datei, wird der Test als UEBERSPRUNGEN gemeldet und
-  zaehlt nicht als Fehler. Die Sonde selbst darf das NICHT entscheiden —
-  sie wird rot, wenn sie nichts zu messen findet (siehe ihre letzte
-  Zeile), damit ein leerer Lauf nicht als Bestehen durchgeht.
+  Warum die beiden in einer eigenen Datei stehen: Eine Weiche, die IMMER
+  ueberspringt, ist von einer richtigen nicht zu unterscheiden — der Lauf
+  ist in beiden Faellen gruen. Pruefen laesst sie sich nur, wenn man sie
+  importieren kann, und wer DIESE Datei importiert, faehrt die ganze
+  Testliste. Der Zeuge dagegen ist `scripts/pruefe-weichen.mjs`; er steht
+  weiter unten selbst in der Liste.
 
-  Skips when the model files are absent (assets/ lives outside the repo).
+  Skip switches live in their own module so they can be tested.
 */
-function brauchtModelle(...dateien) {
-  return () =>
-    dateien.every((d) => existsSync(resolve(WURZEL, d)))
-      ? null
-      : `Modell-Dateien fehlen (${dateien[0]} …) — assets/ liegt ausserhalb des Repos`;
-}
+import { WURZEL, brauchtModelle, brauchtBlender } from './testweichen.mjs';
 
 const KERN = [
   /*
@@ -81,6 +88,45 @@ const KERN = [
     the repo. Text only, ~0.1 s.
   */
   ['tools/elements', 'pruefe-pfade.mjs'],
+  /*
+    S3 (Elemente-Umzug): der Zeuge gegen die Weichen selbst. Er steht VOR
+    dem einzigen Test, der eine Weiche wirklich braucht, weil er dessen
+    Voraussetzung prüft: dass `brauchtBlender` nur dann überspringt, wenn
+    hier tatsächlich kein Blender läuft. Dafür fragt er nicht dieselbe
+    Quelle noch einmal, sondern STARTET Blender (`flatpak run … --version`)
+    und hält das Ergebnis gegen die billige Auskunft der Weiche
+    (`flatpak info`). Dazu die Verdrahtung im Quelltext dieser Datei.
+
+    Ohne ihn ist „übersprungen" nicht von „kaputt" zu unterscheiden — und
+    ein Sammellauf, der nichts mehr misst, meldet trotzdem grün.
+
+    Läuft überall: ohne Blender prüft er, dass die Weiche NEIN sagt, mit
+    Blender, dass sie JA sagt. ~1 s (plus Blender-Start, wo einer da ist).
+
+    S3: the witness against the skip switches — they must never always skip.
+  */
+  ['scripts', 'pruefe-weichen.mjs'],
+  /*
+    S2 (Elemente-Umzug): der volle Kit-Neubau als Prüfer. Baut alle zwölf
+    `DG_StoneVault`-Module aus `tools/elements/blender/make-stonevault.py`
+    neu und vergleicht je Objekt sechs Felder mit der Auslieferung unter
+    `assets/models` — Dreiecke, Ecken, Materialslot, signiertes Volumen,
+    Ursprung, Hüllbox. Er ist der einzige Test, der die BAUSKRIPTE selbst
+    festhält; ohne ihn merkt niemand, dass eine verstellte Zahl im
+    Blender-Skript und die ausgelieferten GLBs auseinandergelaufen sind.
+
+    Der teuerste Eintrag dieses Blocks (~14 s, drei Blender-Starts) und der
+    einzige, der Blender braucht — daher `brauchtBlender`. Er steht
+    trotzdem hier vorn: Ein verstelltes Bauskript soll auffallen, bevor
+    drei Minuten Server-Tests vergangen sind.
+
+    S2: full kit rebuild measured against the shipped GLBs. Needs Blender.
+  */
+  [
+    'tools/elements/pruefung',
+    'kit-neubau.mjs',
+    brauchtBlender('assets/models/StoneVaultHallVast.glb', 'assets/models/StoneVaultStairs.glb'),
+  ],
   // Naht zwischen Kopf- und Rumpfdateien der Weltdaten (Bundle-Schnitt):
   // laeuft in Sekunden und faengt genau den Fehler, den sonst niemand sieht.
   ['shared', 'test/weltdaten-schnitt.ts'],
@@ -273,7 +319,20 @@ const KERN = [
   // (400 ms statt der 30-min-Konstante). Startet dafuer kurz einen Server
   // auf Port 2593, raeumt sein Datenverzeichnis in `finally` weg. ~4s.
   ['server', 'test/a14-server-yml.ts'],
-  ['server', 'test/f17-figurenwahl.ts'],
+  /*
+    S3: Der Test hält fest, dass zu jeder wählbaren Figur die GLBs WIRKLICH
+    auf der Platte liegen — er braucht also `assets/` und gehört hinter die
+    Weiche. Bis zum 04.09.2026 stand er ohne eine solche in der Liste und
+    war in jedem Arbeitsbaum rot, der von `assets/models` nur den
+    Dungeon-Ausschnitt sieht. Genau der Zustand, gegen den S3 gebaut ist:
+    Ein dauerhaft roter Eintrag wird nicht gelesen, sondern übergangen —
+    und dann fällt auch der echte Fehler nicht mehr auf.
+  */
+  [
+    'server',
+    'test/f17-figurenwahl.ts',
+    brauchtModelle('assets/models/wikingerin/WikingerinKoerper.glb'),
+  ],
   ['server', 'test/f18-haarfarbe.ts'],
   ['server', 'test/f19-wettervorgabe.ts'],
   // G12 (Roadmap): Betriebsmetriken -- reine Auswertung (Zaehler,
@@ -559,7 +618,18 @@ const KERN = [
   // veraltet es lautlos (neues Modell ohne Eintrag, geloeschtes mit Leiche im
   // Manifest). Liest nur Dateinamen gegeneinander, baut die glTF-Messung nicht
   // nach. Kein Server/Socket, Sekunden.
-  ['tools', 'test/manifest-vollstaendig.ts'],
+  //
+  // S3: Er vergleicht das getrackte Manifest mit dem UNGETRACKTEN
+  // Plattenbestand — sieht ein Arbeitsbaum nur einen Ausschnitt von
+  // `assets/models`, meldet er jeden fehlenden Eintrag als Fehler und ist
+  // dauerhaft rot. `PlayerAvatar.glb` steht hier stellvertretend für den
+  // vollen Bestand: Es ist keine Dungeon-Datei und liegt deshalb nur dort,
+  // wo wirklich alle Modelle liegen.
+  [
+    'tools',
+    'test/manifest-vollstaendig.ts',
+    brauchtModelle('assets/models/PlayerAvatar.glb'),
+  ],
 
   // ── Dungeon Generator 2.0 ──────────────────────────────────────────
   //

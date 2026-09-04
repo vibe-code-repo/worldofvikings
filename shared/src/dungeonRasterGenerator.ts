@@ -903,6 +903,17 @@ function stampModuleOptions(def: DungeonDef): StampOption[] {
   const out: StampOption[] = [];
   for (const room of def.rooms) {
     if (room.endCap || room.entrance) continue;
+    // `nurManuell` (E4): Ein zur Laufzeit registriertes Modul ist NIE
+    // Generator-Material. Nicht über `weight: 0` — daraus macht
+    // {@link stampWeight} eine 1 —, und der Grund wiegt schwerer als ein
+    // seltener Raum: {@link pickStampOption} wählt über die SUMME aller
+    // Gewichte, ein zusätzlicher Eintrag verschiebt also JEDEN Wurf und
+    // nicht nur den, bei dem er selbst gezogen würde. Ein im Editor
+    // gebauter Saal änderte damit die Grundrisse aller noch nicht
+    // betretenen Gräber und, bei `regenerateOnEnter`-Eingängen, auch die
+    // der betretenen — ohne Absturz und ohne Meldung.
+    // Kein Bestandsraum trägt das Feld; Golden und M3 bleiben byte-gleich.
+    if (room.nurManuell) continue;
     const module = gridModuleFromRoomDef(room);
     if (module.cells.length <= 1 || module.levels !== 1) continue;
     const openSkin = module.cells.every((c) =>
@@ -938,6 +949,12 @@ function stairModuleOptions(def: DungeonDef): StampOption[] {
   const out: StampOption[] = [];
   for (const room of def.rooms) {
     if (room.endCap || room.entrance) continue;
+    // `nurManuell` (E4) — dieselbe Zusage wie in {@link stampModuleOptions}.
+    // Heute erzeugt `roomDefForHall` nur einstöckige Säle, die hier ohnehin
+    // ausscheiden; die Zeile steht trotzdem, weil das Feld „nie würfeln"
+    // bedeutet und nicht „nie in dieser einen Auswahl". Ein späterer
+    // Ebenenwechsler aus dem Editor bekäme sonst still eine Rolle.
+    if (room.nurManuell) continue;
     const module = gridModuleFromRoomDef(room);
     if (module.cells.length <= 1 || module.levels < 2) continue;
     if (module.ports.length !== 2) continue;
@@ -1536,6 +1553,13 @@ function cellModuleOptions(def: DungeonDef): ModuleOption[] {
   const options: ModuleOption[] = [];
   for (const room of def.rooms) {
     if (room.endCap || room.entrance) continue;
+    // `nurManuell` (E4) — hier und nicht nur in {@link stampModuleOptions}:
+    // Ein registrierter Saal von 1×1 Zellen ist MEHRZELLIG nicht, er fällt
+    // also durch die Stempelauswahl hindurch und landete stattdessen in
+    // dieser. Die Konzeptnotiz nennt nur die eine Stelle; das Feld sagt
+    // „nie würfeln", und eine Auswahl, die es nicht liest, wäre genau das
+    // Schlupfloch, das keine Zahl anzeigt.
+    if (room.nurManuell) continue;
     const module = gridModuleFromRoomDef(room);
     if (module.cells.length !== 1 || module.levels !== 1) continue;
     const cell = module.cells[0]!;

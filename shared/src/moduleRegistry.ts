@@ -60,8 +60,23 @@ import {
 } from './eigeneDungeons.js';
 import { MODULE_CELL_M, MODULE_LEVEL_M } from './dungeonRasterModul.js';
 import { getStableHash } from './hash.js';
-import type { RoomConnectionDef, RoomDef } from './dungeons.js';
-import { RoomTheme } from './dungeons.js';
+import type { DungeonDef, RoomConnectionDef, RoomDef } from './dungeons.js';
+import {
+  DUNGEONS_BY_NAME,
+  KIT_BY_PREFAB_HASH,
+  KIT_BY_ROOM_HASH,
+  ROOMS_BY_HASH,
+  RoomTheme,
+} from './dungeons.js';
+import {
+  EIGENE_MODELLE,
+  EIGENE_MODELLE_SET,
+  PREFABS_BY_HASH,
+  PREFABS_BY_NAME,
+  PREFAB_DEFS,
+  roomPrefabDef,
+  type PrefabDef,
+} from './prefabs.js';
 
 /**
  * Die vier Seiten eines Saals in der Reihenfolge, in der die
@@ -177,4 +192,147 @@ export function roomDefForHall(
     // nichts zu erklären. Siehe Kopf dieser Datei.
     nurManuell: true,
   };
+}
+
+// ===========================================================================
+// E4 — Das Eintragen
+// ===========================================================================
+
+/**
+ * Trägt ein zur Laufzeit gebautes Modul in die Nachschlagewerke ein.
+ *
+ * ── Warum das eine GERUFENE Funktion ist und keine Import-Nebenwirkung ──
+ * `shared/package.json` verspricht `sideEffects: false`, und der Kommentar
+ * daneben nennt „keine Registry-Einträge“ ausdrücklich. Die Zusage ist
+ * kein Stilhinweis: Sie erlaubt Rollup, aus dem Barrel wegzuwerfen, was
+ * ein Einstieg nicht anfasst. Ein Modul, dessen ZWECK eine Mutation beim
+ * Import wäre, dürfte also weggeworfen werden — und dann fehlte die
+ * Registrierung ausgerechnet im ausgelieferten Bündel und in keinem Test.
+ * Gerufen wird diese Funktion deshalb aus den Einstiegen (Client, Editor,
+ * Server), sobald sie die Registry-Datei gelesen haben; der Wächter in
+ * `shared/test/module-registry.ts` hält fest, dass unter `shared/src`
+ * nichts beim Import mutiert.
+ *
+ * ── WANN gerufen werden muss: früh, und das ist keine Stilfrage ──────
+ * Nachgesehen (E4, für E5/E6 aufgeschrieben): Zwei Stellen KOPIEREN die
+ * Prefab-Registry, statt sie zu befragen. `PrefabManager` zieht beim Bauen
+ * einmal über `PREFAB_DEFS` (`server/src/prefab/PrefabManager.ts`), und
+ * `GegenstandsKatalog` leitet sein `MIT_MODELL` beim IMPORT daraus ab
+ * (`client/src/editor/GegenstandsKatalog.ts`). Ein `registerModule` NACH
+ * diesen beiden trägt in alle sechs Karten ein und bleibt trotzdem
+ * unsichtbar — ohne Meldung, weil nichts fehlschlägt. Die Registrierung
+ * gehört deshalb vor den Aufbau des Servers und vor den ersten Import des
+ * Editor-Katalogs.
+ *
+ * ── Warum sechs Karten und nicht eine ────────────────────────────────
+ * Ein Saal ist im Betrieb sechsmal eine andere Sache, und jede Stelle
+ * fragt ein anderes Verzeichnis: der Generator und der Editor `kit.rooms`,
+ * die Persistenz `ROOMS_BY_HASH`, das Steinmaterial `KIT_BY_ROOM_HASH`
+ * bzw. `KIT_BY_PREFAB_HASH`, der Modell-Lader die Prefab-Registry, der
+ * Spawn-Editor und die Welt-Whitelist `EIGENE_MODELLE`. Fehlt eine, ist
+ * der Saal nicht halb da, sondern widersprüchlich: im Editor wählbar und
+ * im Spiel unsichtbar, oder umgekehrt.
+ *
+ * ── Warum ALLE Prüfungen vor der ERSTEN Mutation stehen ──────────────
+ * Eine Ablehnung, die den Zustand halb verändert zurücklässt, ist teurer
+ * als gar keine: Ein Modul in `kit.rooms` ohne Prefab-Eintrag sähe der
+ * Generator, und der Client fände kein Modell — die Meldung dazu käme aus
+ * einer ganz anderen Ecke als der Fehler. Deshalb erst alle vier Prüfungen,
+ * dann der Block Mutationen, der nicht mehr scheitern kann.
+ *
+ * @param kitName  Kit, zu dem das Modul gehört (heute nur `DG_StoneVault`).
+ * @param room     Fertige RoomDef, z. B. aus {@link roomDefForHall}.
+ * @throws wenn das Kit unbekannt ist, der Name oder der Hash schon vergeben
+ *         ist, oder `nurManuell` fehlt.
+ */
+export function registerModule(kitName: string, room: RoomDef): void {
+  const kit = DUNGEONS_BY_NAME.get(kitName);
+  if (!kit) {
+    throw new Error(`registerModule: Kit '${kitName}' gibt es nicht.`);
+  }
+
+  // (1) Name. Die Prefab-Registry führt JEDEN Raum jedes Kits (Schleife in
+  // `buildRegistry`), sie ist deshalb die vollständige Namensliste — und
+  // sie enthält zusätzlich alles andere, was ein GLB unter diesem Namen
+  // lüde. Ein zweiter Saal gleichen Namens ist kein theoretischer Fall:
+  // zwei Editor-Fenster, zweimal derselbe Zuschnitt.
+  if (PREFABS_BY_NAME.has(room.name)) {
+    throw new Error(
+      `registerModule: Der Name '${room.name}' ist schon vergeben — ein Modulname ist ` +
+        `unveränderlich (live liegt /assets/ sieben Tage im Browsercache).`
+    );
+  }
+
+  // (2) Hash — und zwar VOR der Frage, ob er zum Namen passt. `getStableHash`
+  // ist 32-bittig; zwei verschiedene Namen KÖNNEN denselben Hash tragen, und
+  // dieser Saal überschriebe beim Laden still den fremden Raum, ohne dass
+  // irgendein Name doppelt wäre. Geprüft werden alle drei Hash-Karten, denn
+  // `KIT_BY_PREFAB_HASH` führt auch die TÜR-Prefabs — ein Zusammenstoss dort
+  // hinge das falsche Kit an einen Türrahmen.
+  const belegt =
+    ROOMS_BY_HASH.has(room.hash) || PREFABS_BY_HASH.has(room.hash) || KIT_BY_PREFAB_HASH.has(room.hash);
+  if (belegt) {
+    const anderer = ROOMS_BY_HASH.get(room.hash)?.name ?? PREFABS_BY_HASH.get(room.hash)?.name ?? '?';
+    throw new Error(
+      `registerModule: Hash ${room.hash} von '${room.name}' ist schon von '${anderer}' belegt.`
+    );
+  }
+
+  // (3) Der Hash MUSS der des Namens sein. Der Rest des Systems rechnet ihn
+  // an jeder Stelle neu aus dem Namen aus (`PREFABS_BY_HASH` tut es zwei
+  // Zeilen unter der Registry). Ein mitgebrachter Fantasiehash fiele
+  // deshalb nirgends auf — bis ein persistiertes Dokument seinen Raum nicht
+  // mehr findet.
+  if (room.hash !== getStableHash(room.name)) {
+    throw new Error(
+      `registerModule: '${room.name}' bringt Hash ${room.hash} mit, sein Name ergibt ` +
+        `${getStableHash(room.name)}.`
+    );
+  }
+
+  // (4) `nurManuell` ist Pflicht, und das ist die teuerste der vier
+  // Prüfungen — als einzige verhindert sie einen Fehler, der SONST NICHT
+  // AUFFIELE. Ohne das Feld käme der Saal in die Stempelauswahl,
+  // `pickStampOption` rechnete mit einer neuen Gewichtssumme, und jedes
+  // noch nicht betretene Grab der Welt bekäme einen anderen Grundriss:
+  // kein Absturz, keine Meldung, nur andere Gräber (Konzept 1i).
+  if (room.nurManuell !== true) {
+    throw new Error(
+      `registerModule: '${room.name}' trägt kein nurManuell — ein registriertes Modul ` +
+        `darf nie Generator-Material sein (Konzept 1i).`
+    );
+  }
+
+  // ── Ab hier wird eingetragen, und nichts davon kann mehr scheitern ──
+  //
+  // Die Karten sind `ReadonlyMap`/`readonly` deklariert, weil sie für JEDEN
+  // ANDEREN Leser unveränderlich sind — genau eine Stelle darf sie füllen,
+  // und das ist diese. Die Umtypisierungen stehen deshalb hier und
+  // nirgendwo sonst; sie sind die Kehrseite der Zusage, nicht ihr Bruch.
+  (kit.rooms as RoomDef[]).push(room);
+  (ROOMS_BY_HASH as Map<number, RoomDef>).set(room.hash, room);
+  (KIT_BY_ROOM_HASH as Map<number, DungeonDef>).set(room.hash, kit);
+  (KIT_BY_PREFAB_HASH as Map<number, DungeonDef>).set(room.hash, kit);
+
+  // Der Prefab-Eintrag kommt aus derselben Funktion wie der von
+  // `buildRegistry()` — nicht aus einer Kopie ihres Rumpfes.
+  const prefab = roomPrefabDef(room);
+  PREFAB_DEFS.push(prefab);
+  (PREFABS_BY_HASH as Map<number, PrefabDef>).set(room.hash, prefab);
+  (PREFABS_BY_NAME as Map<string, PrefabDef>).set(room.name, prefab);
+
+  // LISTE und MENGE, nicht nur die Menge.
+  //
+  // Nachgesehen statt übernommen: Die Konzeptnotiz nennt an dieser Stelle
+  // `EIGENE_MODELLE_SET.add` und begründet es damit, dass der Saal sonst
+  // „im Spawn-Editor unauffindbar“ wäre. Der Spawn-Editor liest aber die
+  // ARRAY-Fassung (`client/src/editor/SpawnPanel.ts`, `GegenstandsKatalog.ts`
+  // — beide `EIGENE_MODELLE.filter(...)`); die MENGE fragen
+  // `istEigenesModell` und `pruefeLayout`. Und die Menge entsteht EINMAL
+  // beim Import aus dem Array: Ein späteres `add` erreicht das Array nicht,
+  // ein späteres `push` nicht die Menge. Nur eines von beiden zu füllen
+  // erfüllte also genau die Hälfte des Satzes, mit dem der Eintrag
+  // begründet ist — und die andere Hälfte schwiege dazu.
+  (EIGENE_MODELLE as string[]).push(room.name);
+  (EIGENE_MODELLE_SET as Set<string>).add(room.name);
 }

@@ -24,10 +24,31 @@
  * Anleitung steht in seinem eigenen Kopfkommentar.
  */
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+/*
+  Weiche fuer Tests, die echte Modell-Dateien brauchen.
+
+  `assets/` liegt bewusst AUSSERHALB des Repos (Mike sichert die Modelle
+  selbst). Im CI-Checkout gibt es sie also nicht — ein Test, der sie
+  misst, waere dort dauerhaft rot und wuerde in kurzer Zeit ignoriert.
+  Deshalb: fehlt die Datei, wird der Test als UEBERSPRUNGEN gemeldet und
+  zaehlt nicht als Fehler. Die Sonde selbst darf das NICHT entscheiden —
+  sie wird rot, wenn sie nichts zu messen findet (siehe ihre letzte
+  Zeile), damit ein leerer Lauf nicht als Bestehen durchgeht.
+
+  Skips when the model files are absent (assets/ lives outside the repo).
+*/
+function brauchtModelle(...dateien) {
+  return () =>
+    dateien.every((d) => existsSync(resolve(WURZEL, d)))
+      ? null
+      : `Modell-Dateien fehlen (${dateien[0]} …) — assets/ liegt ausserhalb des Repos`;
+}
 
 const KERN = [
   // Naht zwischen Kopf- und Rumpfdateien der Weltdaten (Bundle-Schnitt):
@@ -165,6 +186,23 @@ const KERN = [
   // Weg. ~4 s.
   // G10: the walking tour for the in-game probe, checked arithmetically.
   ['tools', 'test/raster-begehung.ts'],
+  /*
+    G11 (Modul-Generierung 2.0): die KANTENSONDE als Waechter. Sie liest
+    die Modul-GLBs, rechnet ihre Eckpunkte in die Pose um, in der der
+    Client sie zeigt (x gespiegelt ueber Babylons `__root__`), und fragt
+    je Zellkante: Ist das Durchgangsfenster frei? Damit ist sie der
+    einzige Test, der die Kit-ERKLAERUNG (`RoomDef.gridEdges`,
+    `connections`) gegen die GEOMETRIE haelt statt gegen eine zweite
+    Erklaerung — genau die Luecke, durch die G10 vier gespiegelte Kanten
+    an Corner und Junction gefunden hat. Springt bei fehlenden Modellen.
+    ~1 s.
+    G11: the kit's edge declaration measured against the real GLB geometry.
+  */
+  [
+    'tools',
+    'stonevault-kantensonde.ts',
+    brauchtModelle('assets/models/StoneVaultCorner.glb', 'assets/models/StoneVaultJunction.glb'),
+  ],
   // `flattenRooms`: Layout → Prefab-Instanzen für eine ANSICHT, mit dem
   // statischen Wächter, dass `dungeonKanten.ts` dafür NICHTS aus
   // `dungeonFlatten.ts`/`roomPieces.ts` (~5 MB) zieht — genau deshalb gibt
@@ -630,6 +668,7 @@ const LANG = [
 
 const liste = process.argv.includes('--alle') ? [...KERN, ...LANG] : KERN;
 let fehler = 0;
+let uebersprungen = 0;
 const start = Date.now();
 
 /**
@@ -666,9 +705,15 @@ function ausgabeAufbereiten(stdout) {
   return teile.join('\n');
 }
 
-for (const [paket, datei] of liste) {
+for (const [paket, datei, weiche] of liste) {
   const t0 = Date.now();
   process.stdout.write(`▶ ${paket}/${datei} … `);
+  const grund = weiche?.();
+  if (grund) {
+    uebersprungen++;
+    console.log(`ÜBERSPRUNGEN — ${grund}`);
+    continue;
+  }
   const lauf = spawnSync(resolve(WURZEL, 'node_modules/.bin/tsx'), [datei], {
     cwd: resolve(WURZEL, paket),
     encoding: 'utf-8',
@@ -686,6 +731,8 @@ for (const [paket, datei] of liste) {
 }
 
 console.log(
-  `\n${liste.length - fehler}/${liste.length} Tests grün in ${((Date.now() - start) / 1000).toFixed(0)}s`
+  `\n${liste.length - fehler - uebersprungen}/${liste.length} Tests grün` +
+    (uebersprungen > 0 ? `, ${uebersprungen} übersprungen` : '') +
+    ` in ${((Date.now() - start) / 1000).toFixed(0)}s`
 );
 process.exit(fehler > 0 ? 1 : 0);

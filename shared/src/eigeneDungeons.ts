@@ -1129,14 +1129,30 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
       },
       {
         /*
-          Die Ecke — Wände nach Süd und West, offen nach Nord und Ost. Sie
-          ist das Teil, das eine Gangkette um 90° umlenkt, ohne dass an
-          der Innenseite der Kurve ein Abschluss eingesetzt werden muss.
+          Die Ecke — Wände nach Süd und OST, offen nach Nord und West.
+          Sie ist das Teil, das eine Gangkette um 90° umlenkt, ohne dass
+          an der Innenseite der Kurve ein Abschluss eingesetzt werden
+          muss.
 
-          Die beiden Wände treffen sich in der SW-Ecke stumpf: Die
-          Westwand läuft durch (z = −1 … 1), die Südwand setzt bündig bei
-          x = −0,7 an. Weder ein Loch noch zwei Körper im selben Raum —
+          Die beiden Wände treffen sich in der SO-Ecke stumpf: Die
+          Ostwand läuft durch (z = −1 … 1), die Südwand setzt bündig
+          daran an. Weder ein Loch noch zwei Körper im selben Raum —
           die Begründung steht beim Modell (`make-stonevault.py`, `ecke`).
+
+          ── Warum OST und nicht West (G11, 04.09.2026) ───────────────
+          `make-stonevault.py` baut in Blender-Achsen und legt im Kopf
+          fest: „Ost = blender −x, West = blender +x" — genau umgekehrt
+          zur Weltkonvention dieses Kits (`w` = −x). Dazu kommt eine
+          DOPPELTE Negation: Das Skript negiert am Ende jedes Moduls x
+          (negatives Signed Volume), und der Client dreht das über
+          Babylons `__root__` (scale.x = −1) wieder zurück. Beides hebt
+          sich auf, die Geometrie steht in der Szene also so wie in
+          Blender — und damit seitenverkehrt zur alten Erklärung. Die
+          Sonde `tools/stonevault-kantensonde.ts` misst das am echten
+          GLB: erklärt war Süd + West, gebaut ist Süd + Ost.
+          Gespiegelt wird die ERKLÄRUNG, nicht das Modell — die GLBs
+          bleiben unverändert, damit gespeicherte Gräber weiter so
+          aussehen wie bisher.
 
           Hülle 1,4 auf BEIDEN Achsen, aus demselben Grund wie beim
           Korridor darüber: Hier ist auf jeder Achse eine Wand eingebaut.
@@ -1154,8 +1170,8 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
         weight: 3,
         pos: NULL_PUNKT,
         rot: KEINE_DREHUNG,
-        // Süd- und Westwand, volle Ebenenhöhe — s. `StoneVaultCorridor`.
-        gridEdges: [{ edges: ['s', 'w'], state: 'wall' }],
+        // Süd- und Ostwand, volle Ebenenhöhe — s. `StoneVaultCorridor`.
+        gridEdges: [{ edges: ['s', 'e'], state: 'wall' }],
         connections: [
           {
             // Nord (+z).
@@ -1167,24 +1183,30 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
             localRot: KEINE_DREHUNG,
           },
           {
-            // Ost (+x).
+            // West (−x) — die freie Seite, s. Begründung oben.
             type: TYP_ZELLKANTE,
             entrance: false,
             allowDoor: true,
             doorOnlyIfOtherAlsoAllowsDoor: false,
-            localPos: { x: 1, y: 0, z: 0 },
-            localRot: VIERTEL_DREHUNG,
+            localPos: { x: -1, y: 0, z: 0 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
           },
         ],
       },
       {
         /*
-          Der Abzweig — nur die Westwand ist eingebaut, offen sind Nord,
-          Ost und Süd. Das T-Stück des Kits: Ein Gang läuft weiter und
+          Der Abzweig — nur die OSTwand ist eingebaut, offen sind Nord,
+          West und Süd. Das T-Stück des Kits: Ein Gang läuft weiter und
           gibt zur Seite hin einen Ausgang frei.
 
           Hülle 1,4 nur auf x (dort steht die Wand), 2 auf z — s.
           Korridor.
+
+          Ost statt West aus demselben Grund wie bei `StoneVaultCorner`
+          darüber (G11, 04.09.2026): Blender-Ost ist −x, und die
+          doppelte x-Negation (Skript + Babylon `__root__`) hebt sich
+          auf, also steht die Wand in der Szene auf der Ostseite. Am GLB
+          gemessen von `tools/stonevault-kantensonde.ts`.
         */
         name: 'StoneVaultJunction',
         divider: false,
@@ -1201,8 +1223,8 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
         weight: 2,
         pos: NULL_PUNKT,
         rot: KEINE_DREHUNG,
-        // Nur die Westwand, volle Ebenenhöhe — s. `StoneVaultCorridor`.
-        gridEdges: [{ edges: ['w'], state: 'wall' }],
+        // Nur die Ostwand, volle Ebenenhöhe — s. `StoneVaultCorridor`.
+        gridEdges: [{ edges: ['e'], state: 'wall' }],
         connections: [
           {
             // Nord (+z).
@@ -1214,13 +1236,13 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
             localRot: KEINE_DREHUNG,
           },
           {
-            // Ost (+x).
+            // West (−x) — die freie Seite, s. Begründung oben.
             type: TYP_ZELLKANTE,
             entrance: false,
             allowDoor: true,
             doorOnlyIfOtherAlsoAllowsDoor: false,
-            localPos: { x: 1, y: 0, z: 0 },
-            localRot: VIERTEL_DREHUNG,
+            localPos: { x: -1, y: 0, z: 0 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
           },
           {
             // Süd (−z).

@@ -232,10 +232,11 @@ const MODUL_ERKLAERUNG: Record<string, ModulErklaerung> = {
   StoneVaultCell: einzelzelle(['n', 'o', 's', 'w']),
   // Seitenwände nach Ost und West eingebaut.
   StoneVaultCorridor: einzelzelle(['n', 's']),
-  // West- und Südwand eingebaut, die Kurve öffnet nach Nord und Ost.
-  StoneVaultCorner: einzelzelle(['n', 'o']),
-  // Nur die Westwand eingebaut.
-  StoneVaultJunction: einzelzelle(['n', 'o', 's']),
+  // Ost- und Südwand eingebaut, die Kurve öffnet nach Nord und West
+  // (G11: Erklärung in x gespiegelt, s. `eigeneDungeons.ts`).
+  StoneVaultCorner: einzelzelle(['n', 'w']),
+  // Nur die Ostwand eingebaut (G11, s. oben).
+  StoneVaultJunction: einzelzelle(['n', 'w', 's']),
   // 2 × 2 Zellen, acht Ports: jede Aussenkante ist offen.
   StoneVaultHall: {
     zellenX: 2,

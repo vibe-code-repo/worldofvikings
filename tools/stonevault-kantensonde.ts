@@ -42,11 +42,19 @@
  * Abweichung genau die Spiegelung ist und kein Zufall.)
  */
 import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DIRECTIONS, gridModuleFromRoomDef, type Direction, type EdgeState } from '../shared/src/dungeonRasterModul.js';
 import type { RoomDef } from '../shared/src/dungeons.js';
 import { holeKit } from './messe-stonevault-logik.js';
 
-const MODELL_ORDNER = 'assets/models';
+/*
+  Am MODUL festgemacht, nicht am Arbeitsverzeichnis: `scripts/run-tests.mjs`
+  startet jeden Test mit cwd im Paketordner (hier `tools/`), ein relativer
+  Pfad fände die Modelle dort nicht — und die Sonde meldete „GLB fehlt"
+  statt zu messen.
+*/
+const MODELL_ORDNER = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'assets/models');
 /** Der Streifen, in dem die eingebauten Innenwände stehen (`make-stonevault.py`). */
 const STREIFEN_VON = 0.7;
 const STREIFEN_BIS = 1.0;
@@ -180,4 +188,11 @@ for (const raum of kit.rooms as readonly RoomDef[]) {
 }
 
 console.log(`\n${geprueft} Kanten geprüft, ${abweichungen} Abweichung(en).`);
-process.exitCode = abweichungen > 0 ? 1 : 0;
+// Ohne diese Zeile wäre die Sonde grün, sobald KEIN GLB da ist — sie
+// hätte dann nichts gemessen und meldete trotzdem „0 Abweichungen".
+// Wer sie überspringen will, muss das ausserhalb entscheiden
+// (`scripts/run-tests.mjs` prüft die Dateien vorher), nicht hier drin.
+if (geprueft === 0) {
+  console.log('KEINE Kante geprüft — fehlen die Modell-Dateien? Das ist kein Bestehen.');
+  process.exitCode = 1;
+} else process.exitCode = abweichungen > 0 ? 1 : 0;

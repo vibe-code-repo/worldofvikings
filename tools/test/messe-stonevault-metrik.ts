@@ -2,11 +2,13 @@
  * G1-Abnahmetest zur Messzelle `tools/messe-stonevault-logik.ts`.
  *
  * Warum ein Test AUF einem Messskript: Die Zahlen aus dem Befund
- * (952 Platten in belegten Zellen, davon 531 gegen eine volle Wand,
- * 414 gegen die Treppenflanke, 7 am Eingang; 1328 gestapelte Zellen;
- * 0 Doppelbelegungen) sind die Ausgangslage, gegen die die Meilensteine
- * G4…G7 gemessen werden. Eine Messzelle, die ihre eigene Ausgangslage
- * nicht reproduziert, ist als Fortschrittsanzeige wertlos — dann misst
+ * (Platten in belegten Zellen, aufgeteilt nach volle Wand / Treppen-
+ * flanke / Eingang, dazu gestapelte Zellen und Doppelbelegungen) sind
+ * die Ausgangslage, gegen die die Meilensteine G4…G7 gemessen werden.
+ * Die geltenden Werte stehen bei Block A unten — sie sind mit G11 einmal
+ * gewandert, aus dem dort genannten Grund.
+ *
+ * Eine Messzelle, die ihre eigene Ausgangslage nicht reproduziert, ist als Fortschrittsanzeige wertlos — dann misst
  * man ab G4 gegen eine Zahl, die sich unterwegs selbst verschoben hat.
  *
  * ── Zwei Blöcke seit G8 ──────────────────────────────────────────────
@@ -54,14 +56,38 @@ for (let seed = 1; seed <= SEED_ANZAHL_VORGABE; seed++) {
 }
 const a = summiereRaster(alt);
 
+/*
+  ── Warum die Zahlen am 04.09.2026 (G11) EINMAL gewandert sind ───────
+  G11 hat die Kanten- und Connector-ERKLÄRUNG von `StoneVaultCorner` und
+  `StoneVaultJunction` in x gespiegelt, weil die Module im Spiel
+  seitenverkehrt zu ihrer Erklärung stehen (Blender-Ost ist −x, und die
+  doppelte x-Negation aus `make-stonevault.py` und Babylons `__root__`
+  hebt sich auf — gemessen von `tools/stonevault-kantensonde.ts`).
+
+  Der 1.0-Pfad liest DIESELBEN Connectors. Seine Ausgangslage konnte
+  darum nicht bleiben, wo sie war: Jeder Anbau an eine Ecke oder einen
+  Abzweig fällt jetzt auf die andere Seite, also entstehen andere
+  Layouts und andere Plattenzahlen. Die alten Werte waren 2856 / 952
+  (531 + 414 + 7) / 1328.
+
+  Was NICHT gewandert ist, ist die Rolle dieses Blocks: Er hält
+  weiterhin eine Ausgangslage mit dreistelligen Fehlerzahlen fest, und
+  `--streng` sieht sie weiterhin als verletzt. Genau das ist der Zeuge —
+  eine Messzelle, die nur noch Nullen kennt, wäre von einer kaputten
+  nicht zu unterscheiden.
+
+  G11 mirrored the kit's edge declaration; the 1.0 path reads the same
+  connectors, so its frozen baseline moved once. Its role — a witness
+  that the measuring cell still SEES the error class — is unchanged.
+*/
 console.log(`=== Block A — 1.0-Pfad, DG_StoneVault, ${SEED_ANZAHL_VORGABE} Seeds, Kit-Vorgaben ===`);
-pruefe('Wandplatten gesamt', a.plattenGesamt, 2856);
-pruefe('Platten in belegter Zelle', a.platteInBelegterZelle, 952);
-pruefe('… gegen volle Wand (überflüssig)', a.plattenUeberfluessig, 531);
-pruefe('… gegen Teilwand (Treppe, nötig)', a.plattenNoetig, 414);
-pruefe('… im Eingangsraum (Altausnahme)', a.plattenEingang, 7);
+pruefe('Wandplatten gesamt', a.plattenGesamt, 2912);
+pruefe('Platten in belegter Zelle', a.platteInBelegterZelle, 916);
+pruefe('… gegen volle Wand (überflüssig)', a.plattenUeberfluessig, 527);
+pruefe('… gegen Teilwand (Treppe, nötig)', a.plattenNoetig, 372);
+pruefe('… im Eingangsraum (Altausnahme)', a.plattenEingang, 17);
 pruefe('Doppelbelegungen', a.doppelbelegungen, 0);
-pruefe('gestapelte Zellen', a.gestapelteZellen, 1328);
+pruefe('gestapelte Zellen', a.gestapelteZellen, 1331);
 
 // ── Block B: der Verteiler — das, was heute wirklich gebaut wird ─────
 const einzel = [];

@@ -268,8 +268,12 @@ console.log('\n4) Eingebaute Wände: Korridor, Ecke, Abzweig');
   // 531 überflüssigen Platten des Befunds.
   const fullWalls: Record<string, readonly Direction[]> = {
     StoneVaultCorridor: ['e', 'w'],
-    StoneVaultCorner: ['s', 'w'],
-    StoneVaultJunction: ['w'],
+    // Ost, nicht West: G11 hat die Erklärung beider Module in x
+    // gespiegelt, weil Blender-Ost −x ist und sich die doppelte
+    // x-Negation (Skript + Babylon `__root__`) aufhebt. Gemessen am GLB
+    // von `tools/stonevault-kantensonde.ts`.
+    StoneVaultCorner: ['s', 'e'],
+    StoneVaultJunction: ['e'],
   };
   for (const [name, walled] of Object.entries(fullWalls)) {
     const m = moduleOf(name);
@@ -282,7 +286,7 @@ console.log('\n4) Eingebaute Wände: Korridor, Ecke, Abzweig');
       );
     }
   }
-  console.log('  Korridor e/w, Ecke s/w, Abzweig w tragen volle Wände');
+  console.log('  Korridor e/w, Ecke s/e, Abzweig e tragen volle Wände');
 
   // Die offenen Füller haben KEINE eingebaute Wand — vier freie Kanten.
   for (const name of ['StoneVaultEntry', 'StoneVaultCell']) {

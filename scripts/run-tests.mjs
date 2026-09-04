@@ -793,6 +793,15 @@ const KERN = [
   // The 1.0 editor path of the module kit: edge naming, the `connIndex`
   // pass-through, the drawn cell hull, and the empty new document.
   ['client', 'test/dungeon-editor-kanten.ts'],
+  // Das Formular „Neuer Saal" (E8): die sieben ServerConfig-Flagbits an
+  // EINER Stelle samt Wächter gegen die zwei alten Kopien, die
+  // Sichtbarkeit am Servertor, „Modulzellen" statt „Zellen" (zwei Felder
+  // in einer Leiste meinten sonst Verschiedenes mit demselben Wort), die
+  // Vorschau aus der GETEILTEN Formel und der Dreiecksdeckel VOR dem
+  // Paket. Derselbe DOM-Stummel wie darüber, Sekunden, kein Netz.
+  // The E8 hall form: flag bits in one place, gated visibility, distinct
+  // labels, shared preview formula, triangle cap before the packet.
+  ['client', 'test/dungeon-neuer-saal.ts'],
   // Kantenmarken sind ANKLICKBAR: der reine Treffertest `trifftKante`
   // (0,6 m in Weltmass, nicht in Pixeln) und die Rangfolge in `waehleBei` —
   // Kanten VOR Räumen, sonst ist eine Marke gezeichnet, aber nie zu

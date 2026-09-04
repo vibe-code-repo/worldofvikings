@@ -146,6 +146,7 @@ statt Vermutungen.
 | `pw-inventory-check.mjs` | Hotbar, Ausrüsten, Inventar-Overlay samt Drag & Drop. |
 | `pw-creature-probe.mjs`, `pw-deer-*.mjs`, `pw-texture-check.mjs` | Kreaturen: Spawn, Modellzustand, Materialien, Nahaufnahmen. |
 | `pw-grass-*.mjs` | Gras: Instanzpositionen, Rendering, Wasserkante. |
+| `pw-editor-saal-bauen.mjs` | Das Fenster zu E8: einen Saal aus dem Editor-Formular „Neuer Saal" bauen (4x3), Seite neu laden, Modul im Katalog, Dokument anlegen, Saal setzen, speichern, 3D-Bild, im Spiel betreten, Diagonale laufen, Lichtfugen zaehlen. Braucht `dungeons.modulbau: true` in `server/data/server.yml` UND einen Serverneustart -- Flags erreichen einen Client nur beim Anmelden; fehlt der Schalter, bricht der Lauf mit genau diesem Satz ab. Laeuft LOKAL, nicht auf wov-dev. |
 | `pw-babylon-*.mjs` | Babylon-Grundlagen: Container, Instanzen, Bucket-Zustand, Basisbild. |
 | `pw-firefox-app.mjs`, `pw-firefox-drag.mjs`, `pw-firefox-rmb.mjs` | Firefox-Eigenheiten: WebGL nur mit Xvfb, `movementX/Y` ohne Pointer-Lock, Maustastenverhalten. |
 | `pw-cam-override.mjs`, `pw-scene-probe.mjs`, `pw-statue-look.mjs`, `pw-glb-probe.mjs`, `pw-retry-probe.mjs`, `pw-placeholder-preview.mjs`, `pw-clock-check.mjs`, `pw-caps.mjs` | Punktuelle Sonden für einzelne Fehlerbilder. |

@@ -52,6 +52,7 @@ import { setzeKartenMasse, type MapWorkerMessage } from '../ui/worldmap/mapTypes
 import { EditorShell } from './Shell';
 import { DungeonGrundriss } from './DungeonGrundriss';
 import { DungeonSeite } from './DungeonKatalog';
+import { fetchModuleBuildPermission } from './DungeonNeuerSaal';
 // Dungeon Generator 2.0 (AP15.7): der leichte 2D-Teil wird statisch geladen,
 // die Babylon-schwere 3D-Vorschau erst beim ersten Umschalten auf „3D"
 // (dynamischer import, wie bei GegenstandsKatalog).
@@ -511,6 +512,25 @@ const dungeonSeite = new DungeonSeite(dungeonSeiteBehaelter, dungeonGrundriss, {
   meldung: (text, fehler) => shell.meldung(text, fehler),
 });
 dungeonSeite.baue();
+
+// ── E8: Darf hier ein Saal gebaut werden? ─────────────────────────────
+//
+// `dungeons.modulbau` steht in der `server.yml` und erreicht einen Client
+// genau einmal — beim Anmelden, im Flagbyte der `ServerConfig`. Gefragt
+// wird über eine kurze Verbindung, die sich sofort wieder trennt (s.
+// `DungeonNeuerSaal.ts`).
+//
+// Bewusst OHNE `await`, anders als bei der Modulregistry ein paar hundert
+// Zeilen weiter oben: Jene muss vor dem ersten Katalogaufbau stehen, weil
+// zwei Stellen die Registry KOPIEREN statt sie zu befragen — eine späte
+// Registrierung bliebe unsichtbar. Diese Antwort dagegen fügt nur einen
+// Abschnitt hinzu, und `baue()` legt die Leiste ohnehin ständig neu an.
+// Ein `await` hier hielte den ganzen Editor bis zu zehn Sekunden an, wenn
+// kein Spielserver läuft — und der Editor soll ohne einen benutzbar sein.
+void fetchModuleBuildPermission().then((erlaubt) => {
+  dungeonSeite.setModuleBuild(erlaubt);
+  if (erlaubt) dungeonSeite.baue();
+});
 
 // ── 2D/3D-Umschalter der Betriebsart „Dungeons" ───────────────────────
 //

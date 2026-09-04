@@ -474,6 +474,24 @@ export class GameSocket {
   }
 
   /**
+   * Editor (E8): einen Saal bauen lassen — VIER ZAHLEN, sonst nichts.
+   *
+   * Kein Name und kein Pfad: Den Namen bildet der Server aus dem Mass
+   * (`ModuleBuild.modulName`). Ein vom Client geschickter Name wäre die
+   * erste Stelle, an der Zeichen aus dem Netz zu einem Dateinamen
+   * würden — und die Erlaubnisliste dagegen stünde dann an einer Klemme,
+   * die man auch weglassen könnte.
+   */
+  sendDungeonModulBau(cellsX: number, cellsZ: number, raster: number, weight: number): void {
+    const w = new BinaryWriter();
+    w.writeInt32(cellsX);
+    w.writeInt32(cellsZ);
+    w.writeInt32(raster);
+    w.writeFloat32(weight);
+    this.sendPacket(PacketType.DungeonModulBau, w.toUint8Array());
+  }
+
+  /**
    * Tageszeit für die ganze Welt setzen (Auswahl im Verbinden-Fenster).
    *
    * @param seconds Sekunden INNERHALB des Tages, also [0, WORLD_TIME_LENGTH).

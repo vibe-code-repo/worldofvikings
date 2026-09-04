@@ -52,95 +52,19 @@ import {
   type NeuesDokumentErgebnis,
 } from './DungeonNeuesDokument';
 import { speichereDungeon } from './DungeonSpeichern';
+// Die Bedienelemente stehen seit E8 nebenan, damit das Formular „Neuer
+// Saal" dieselben benutzen kann, ohne dass sich beide Dateien im Kreis
+// importieren (Begründung im Kopf von `dungeonWidgets.ts`).
+import { abschnitt, auswahl, feld, hinweis, knopf, schalter, zeile } from './dungeonWidgets';
+// Das Formular „Neuer Saal" (E8) — eigene Datei, weil es mit dem
+// geöffneten Dokument nichts zu tun hat und diese hier schon 1 200
+// Zeilen misst.
+import { NewHallForm, type HallBuilder } from './DungeonNeuerSaal';
 
 export interface DungeonSeiteRueckrufe {
   meldung(text: string, fehler?: boolean): void;
 }
 
-/** Ein Knopf im Stil der Editor-Seitenleiste. */
-function knopf(text: string, bei: () => void): HTMLButtonElement {
-  const b = document.createElement('button');
-  b.textContent = text;
-  b.style.cssText = [
-    'padding:6px 10px',
-    'background:rgba(190,160,110,.10)',
-    'border:1px solid #5a4626',
-    'border-radius:4px',
-    'color:#e8d9b8',
-    'font:inherit',
-    'font-size:12px',
-    'cursor:pointer',
-  ].join(';');
-  b.onclick = bei;
-  return b;
-}
-
-function auswahl(): HTMLSelectElement {
-  const s = document.createElement('select');
-  s.style.cssText = [
-    'padding:5px 8px',
-    'background:#241c14',
-    'border:1px solid #5a4626',
-    'border-radius:4px',
-    'color:#e8d9b8',
-    'font:inherit',
-    'font-size:12px',
-    'width:100%',
-  ].join(';');
-  return s;
-}
-
-/** Ein Textfeld im selben Stil wie die Auswahl daneben. */
-function feld(platzhalter: string, breite: string): HTMLInputElement {
-  const i = document.createElement('input');
-  i.placeholder = platzhalter;
-  i.style.cssText = [
-    'padding:5px 8px',
-    'background:#241c14',
-    'border:1px solid #5a4626',
-    'border-radius:4px',
-    'color:#e8d9b8',
-    'font:inherit',
-    'font-size:12px',
-    `width:${breite}`,
-  ].join(';');
-  return i;
-}
-
-/** Zwischenüberschrift im Stil von „Neu anlegen". */
-function abschnitt(text: string): HTMLDivElement {
-  const d = document.createElement('div');
-  d.textContent = text;
-  d.style.cssText =
-    'font-size:12px;letter-spacing:.06em;color:#a8916a;margin-top:4px;text-transform:uppercase';
-  return d;
-}
-
-/**
- * Ein Häkchen mit Beschriftung.
- *
- * Der Zustand wird NICHT aus dem Häkchen gelesen, sondern beim Umschalten
- * nach draussen gemeldet: `baue()` wirft die ganze Leiste weg und legt sie
- * neu an — ein Wert, der nur im Element steht, wäre nach dem nächsten
- * Anfügen wieder auf der Vorgabe. Dieselbe Begründung wie bei den Feldern
- * von „Neu anlegen".
- */
-function schalter(text: string, an: boolean, bei: (an: boolean) => void): HTMLLabelElement {
-  const l = document.createElement('label');
-  l.style.cssText =
-    'display:flex;gap:5px;align-items:center;font-size:12px;color:#a8916a;cursor:pointer';
-  const box = document.createElement('input');
-  box.type = 'checkbox';
-  box.checked = an;
-  box.onchange = () => bei(box.checked);
-  const s = document.createElement('span');
-  s.textContent = text;
-  l.appendChild(box);
-  l.appendChild(s);
-  return l;
-}
-
-/** Kleingedruckter Hinweis unter einem Abschnitt. */
 /**
  * Die Kantenlänge des grössten Raums eines Kits in Metern (0, wenn das Kit
  * unbekannt ist).
@@ -154,27 +78,6 @@ function groessterSaalM(base: string): number {
   let groesste = 0;
   for (const r of def.rooms) groesste = Math.max(groesste, r.size.x, r.size.z);
   return groesste;
-}
-
-function hinweis(text: string): HTMLDivElement {
-  const d = document.createElement('div');
-  d.textContent = text;
-  d.style.cssText = 'font-size:11px;color:#8a7350;line-height:1.5';
-  return d;
-}
-
-function zeile(...teile: (HTMLElement | string)[]): HTMLDivElement {
-  const d = document.createElement('div');
-  d.style.cssText = 'display:flex;gap:6px;align-items:center;flex-wrap:wrap';
-  for (const t of teile) {
-    if (typeof t === 'string') {
-      const s = document.createElement('span');
-      s.textContent = t;
-      s.style.cssText = 'font-size:12px;color:#a8916a';
-      d.appendChild(s);
-    } else d.appendChild(t);
-  }
-  return d;
 }
 
 /**
@@ -277,11 +180,40 @@ export class DungeonSeite {
    */
   private gewaehlteKante = 0;
 
+  /**
+   * Das Formular „Neuer Saal" (E8).
+   *
+   * Es lebt an der Seite und nicht in `baue()`, aus demselben Grund wie
+   * `neuId` und die Häkchen darüber: `baue()` legt die ganze Leiste nach
+   * jeder Aktion neu an, und ein halb ausgefülltes Formular wäre danach
+   * wieder leer.
+   */
+  private readonly saalFormular: NewHallForm;
+
   constructor(
     private readonly behaelter: HTMLElement,
     private readonly grundriss: DungeonGrundriss,
-    private readonly cb: DungeonSeiteRueckrufe
-  ) {}
+    private readonly cb: DungeonSeiteRueckrufe,
+    /**
+     * Der Bauweg. Nur der DOM-Test speist hier etwas ein; im Browser ist
+     * es die kurze Verbindung zum Spielserver.
+     */
+    bauer?: HallBuilder
+  ) {
+    this.saalFormular = new NewHallForm(() => this.baue(), bauer);
+  }
+
+  /**
+   * Meldet der Server `dungeons.modulbau` (und ist dieser Peer Admin)?
+   *
+   * Getrennt vom Konstruktor, weil die Antwort über eine kurze Verbindung
+   * kommt und der Editor lange vorher dasteht — s. `DungeonNeuerSaal.ts`.
+   * Bis sie da ist, bleibt das Formular weg; das ist der richtige
+   * Vorgabewert, denn ohne Antwort gibt es auch keinen Bauweg.
+   */
+  setModuleBuild(erlaubt: boolean): void {
+    this.saalFormular.setzeErlaubt(erlaubt);
+  }
 
   /**
    * Eine Kante im Feld „Anfügen an" vorwählen — der Rückweg eines Klicks
@@ -354,6 +286,11 @@ export class DungeonSeite {
     );
 
     this.baueNeuAnlegen(b);
+    // VOR dem Ausstieg ohne Dokument: Einen Saal zu bauen ist ein eigener
+    // Arbeitsgang und hat mit einem geöffneten Grab nichts zu tun. Stünde
+    // das Formular erst unter dem Dokumentkopf, müsste man zum Bauen erst
+    // ein fremdes Grab öffnen — und niemand käme darauf, dass das der Weg ist.
+    this.saalFormular.render(b);
 
     if (!doc) {
       const hinweis = document.createElement('div');

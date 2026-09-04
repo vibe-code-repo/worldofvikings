@@ -446,6 +446,19 @@ export function dreiecke(cellsX: number, cellsZ: number, raster: number): number
 }
 
 /**
+ * Die Kantenlänge eines Saals in METERN — Zellen mal `GRID_M`.
+ *
+ * Sie steht hier und nicht im Formular, weil dort sonst eine zweite
+ * Zahl entstünde: Der Server meldet nach dem Bau `geometrie.sizeX`, das
+ * Formular zeigte vorher seine eigene Rechnung, und beide wären nur so
+ * lange gleich, bis jemand `GRID_M` anfasst. Eine Zelle ist 2 m — aber
+ * das ist eine Aussage von `hallenGeometrie.ts`, keine des Editors.
+ */
+export function hallSizeM(cells: number): number {
+  return cells * GRID_M;
+}
+
+/**
  * Das Raster, das im Namen steht — und das ist NICHT immer das gewünschte.
  *
  * Gemessen statt angenommen: Ein 2×2-Saal ist 4 m breit, liegt also unter

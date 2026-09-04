@@ -67,6 +67,7 @@ import {
   interiorEnvironment,
   isInDungeonBand,
   dungeon2,
+  serverConfigFlags,
 } from '@wov/shared';
 import type { SteinKitConfig } from '@wov/shared';
 // Serverseitige Weltdaten: NICHT ueber den Barrel, sondern ueber den
@@ -235,15 +236,6 @@ const DEFAULT_CONFIG: ServerConfig = {
   // bare createWovServer() (tests, tools) still has a sane default.
   worldsDir: resolve(process.cwd(), 'data', 'worlds'),
 };
-
-// ServerConfig packet flag bits (D6) — same order client-side
-const FLAG_BLEND_SMOOTHSTEP = 1 << 0;
-const FLAG_BILINEAR_HEIGHT = 1 << 1;
-const FLAG_ASHLANDS_MODERN = 1 << 2;
-const FLAG_RIVER_AFFECTS_OCEAN = 1 << 3;
-const FLAG_DISABLE_DISTANT_RIVERS = 1 << 4;
-/** Kündigt an, dass direkt nach ServerConfig ein WorldLayoutData folgt. */
-const FLAG_LAYOUT_MODE = 1 << 5;
 
 export class WovServer {
   readonly config: ServerConfig;
@@ -1336,6 +1328,40 @@ export class WovServer {
   // ── Peer lifecycle ─────────────────────────────────────────────
 
   private onPeerAuthenticated(peer: Peer): void {
+    // D6: world info first — the client builds its GeoManager from this
+    // and swaps the placeholder terrain for the real world (D3).
+    //
+    // ── Warum das VOR dem Editor-Zweig steht (E8) ──────────────────
+    // Bis E8 stand es dahinter, und damit bekam eine Editor-Verbindung
+    // NIE eine ServerConfig. Das war folgenlos, solange das Paket bloss
+    // Weltdaten trug — der Editor baut keine Welt. Mit dem siebten
+    // Flagbit trägt es aber die einzige Auskunft, die der Editor beim
+    // Anmelden über die `server.yml` bekommen kann, und ohne sie wüsste
+    // das Formular „Neuer Saal" nie, ob es dastehen darf. Nach unten
+    // gewandert ist deshalb nur der Zweig; alles Weltbezogene
+    // (Wettervorgabe, Weltdokument, Charakter-ZDO) bleibt darunter und
+    // erreicht einen Editor-Peer weiterhin nicht.
+    peer.sendPacketWith(PacketType.ServerConfig, (w) => {
+      w.writeString(this.config.worldName);
+      w.writeString(this.config.worldSeed);
+      w.writeInt32(this.config.worldGenVersion);
+      w.writeUInt8(
+        serverConfigFlags({
+          blendSmoothStep: this.config.worldBlendSmoothStep,
+          bilinearHeight: this.config.worldBilinearHeight,
+          ashlandsModernNoise: this.config.worldAshlandsModernNoise,
+          riverAffectsOcean: this.config.worldRiverAffectsOcean,
+          disableDistantRivers: this.config.worldDisableDistantRivers,
+          layoutMode: this.config.worldMode === 'layout',
+          // BEIDE Tore, nicht nur der Schalter: Ein Nicht-Admin bekäme
+          // sonst ein Formular, das bei jedem Klick absagt. Geprüft wird
+          // trotzdem noch einmal in `baueModul` — dieses Bit ist eine
+          // Auskunft, kein Recht.
+          moduleBuild: this.config.dungeonsModulbau && peer.isAdmin,
+        })
+      );
+    });
+
     // Editor-Verbindungen betreten die Welt NICHT.
     //
     // Gemessen am 28.08.2026, bevor es diesen Zweig gab: Jeder Klick auf
@@ -1353,22 +1379,6 @@ export class WovServer {
       console.log(`[WoV] Editor-Verbindung "${peer.name}" (betritt die Welt nicht)`);
       return;
     }
-
-    // D6: world info first — the client builds its GeoManager from this
-    // and swaps the placeholder terrain for the real world (D3).
-    peer.sendPacketWith(PacketType.ServerConfig, (w) => {
-      w.writeString(this.config.worldName);
-      w.writeString(this.config.worldSeed);
-      w.writeInt32(this.config.worldGenVersion);
-      let flags = 0;
-      if (this.config.worldBlendSmoothStep) flags |= FLAG_BLEND_SMOOTHSTEP;
-      if (this.config.worldBilinearHeight) flags |= FLAG_BILINEAR_HEIGHT;
-      if (this.config.worldAshlandsModernNoise) flags |= FLAG_ASHLANDS_MODERN;
-      if (this.config.worldRiverAffectsOcean) flags |= FLAG_RIVER_AFFECTS_OCEAN;
-      if (this.config.worldDisableDistantRivers) flags |= FLAG_DISABLE_DISTANT_RIVERS;
-      if (this.config.worldMode === 'layout') flags |= FLAG_LAYOUT_MODE;
-      w.writeUInt8(flags);
-    });
     // Wettervorgabe direkt hinterher, VOR dem Weltdokument: Der Client
     // baut daraus seine Beleuchtung, bevor die erste Zone steht — sonst
     // sähe man beim Anmelden kurz das gewürfelte Wetter und erst danach

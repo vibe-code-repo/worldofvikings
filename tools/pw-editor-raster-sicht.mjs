@@ -61,11 +61,20 @@ const bild = async (tag) => {
   console.log(`  Bild ${p.split('/').pop()}`);
   return p;
 };
-// Die Kopfzeile ist die Aussage, um die es geht: „… Räume, … Türen, …
-// Deko, N offen". N muss 0 sein.
+/**
+ * Die Kopfzeile des GEÖFFNETEN Dokuments: „N Räume, N Türen, N Deko, N offen".
+ *
+ * Gesucht wird über „offen", nicht über „Räume, Türen": Das Auswahlfeld
+ * der Instanz listet jedes Dokument als „id — N Räume, N Türen" auf, und
+ * `innerText` nimmt Optionen mit. Ohne das „offen" liest man die erste
+ * Option der Liste und hält sie für den Kopf — das kostet eine Runde.
+ */
 const kopf = () =>
   seite.evaluate(
-    () => document.body.innerText.split('\n').find((z) => /Räume, \d+ Türen/.test(z)) ?? ''
+    () =>
+      document.body.innerText
+        .split('\n')
+        .find((z) => /\d+ Räume, \d+ Türen, \d+ Deko, \d+ offen/.test(z)) ?? ''
   );
 const knopf = (text) =>
   seite.evaluate((t) => {
@@ -143,34 +152,64 @@ console.log(`1. Formular: Basis ${basisOk}, „voll generieren" ${haekchen}, ${J
 
 await knopf('Vorschau');
 await seite.waitForTimeout(2500);
-const nachVorschau = await kopf();
-console.log(`   Vorschau: ${nachVorschau}`);
 await bild('vorschau-2d');
 
 await knopf('Anlegen & speichern');
-await seite.waitForTimeout(8000);
-const gespeichert = await kopf();
-console.log(`   gespeichert: ${gespeichert}`);
+await seite.waitForTimeout(9000);
 await bild('gespeichert-2d');
+
+// ── 2. Das Dokument ÖFFNEN ─────────────────────────────────────────────
+// Erst dann steht die Kopfzeile mit „… Deko, N offen" auf der Seite; die
+// Vorschau zeichnet nur den Grundriss und zählt nichts.
+const geoeffnet = await seite.evaluate((id) => {
+  const s = [...document.querySelectorAll('select')].find((s) =>
+    [...s.options].some((o) => o.textContent.trim().startsWith(id + ' —'))
+  );
+  if (!s) return false;
+  s.value = [...s.options].find((o) => o.textContent.trim().startsWith(id + ' —')).value;
+  s.dispatchEvent(new Event('change'));
+  return true;
+}, docId);
+await seite.waitForTimeout(800);
+await knopf('Öffnen');
+await seite.waitForTimeout(6000);
+const gespeichert = await kopf();
+console.log(`2. geöffnet (Auswahl ${geoeffnet}): ${gespeichert}`);
 
 // Der Grundriss noch einmal formatfüllend: „Doppelwand im Raum" ist auf
 // dem eingepassten Bild sonst zwei Pixel breit.
 await knopf('Einpassen');
-await seite.waitForTimeout(1200);
+await seite.waitForTimeout(1500);
 await bild('grundriss-eingepasst');
 
-// ── 2. 3D-Ansicht ──────────────────────────────────────────────────────
+// ── 3. 3D-Ansicht ──────────────────────────────────────────────────────
 const dreiD = await knopf('3D-Ansicht');
 await seite.waitForTimeout(20_000);
-console.log(`2. 3D-Ansicht: Knopf ${dreiD}`);
-await bild('3d');
-await seite.mouse.wheel(0, -400);
-await seite.waitForTimeout(2500);
-await bild('3d-nah');
+console.log(`3. 3D-Ansicht: Knopf ${dreiD}`);
+await bild('3d-von-oben');
+// Die ArcRotate-Kamera flacher stellen und näher heranholen.
+//
+// Von oben sieht man Decken und Böden, aber keine WÄNDE — und genau um
+// die geht es: Eine Doppelwand mitten im Raum ist von schräg unten eine
+// zweite Fläche im Bild, von oben eine Linie. Gezogen wird über die
+// Leinwand, weil die Kamera an ihr hängt (`attachControl`); ein Rad-
+// Ereignis ohne Zeiger auf der Leinwand geht ins Leere.
+const mitte = { x: 1000, y: 460 };
+await seite.mouse.move(mitte.x, mitte.y);
+await seite.mouse.down();
+await seite.mouse.move(mitte.x, mitte.y + 150, { steps: 20 });
+await seite.mouse.up();
+await seite.waitForTimeout(1200);
+for (let i = 0; i < 2; i++) {
+  await seite.mouse.wheel(0, -240);
+  await seite.waitForTimeout(250);
+}
+await seite.waitForTimeout(2000);
+await bild('3d-flach');
 
-// ── 3. Die Zahl, um die es geht ────────────────────────────────────────
+// ── 4. Die Zahl, um die es geht ────────────────────────────────────────
 const offen = /(\d+)\s+offen/.exec(gespeichert)?.[1] ?? '?';
-console.log(`3. Kopfzeile meldet ${offen} offen (verlangt: 0)`);
+console.log(`4. Kopfzeile meldet ${offen} offen (verlangt: 0)`);
 if (fehler.length) console.log(`   Fehler: ${fehler.slice(0, 5).join(' || ')}`);
 await browser.close();
 process.exit(offen === '0' ? 0 : 1);

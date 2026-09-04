@@ -96,6 +96,8 @@ const CELL_MODULES = [
   'StoneVaultCorner',
   'StoneVaultJunction',
   'StoneVaultHall',
+  'StoneVaultHallLarge',
+  'StoneVaultHallLong',
   'StoneVaultStairs',
 ] as const;
 
@@ -449,6 +451,26 @@ console.log('\n6) Belegte Zellen');
   );
   const hall = moduleWorldCells(ENTRANCE_CELL, 0, moduleOf('StoneVaultHall'));
   check(hall.length === 4, `Halle belegt ${hall.length} Zellen, erwartet 4`);
+  /*
+    Der lange Saal (2 × 4) ist der erste Stempel mit ungleichen Achsen —
+    unter 90° muss aus 2 breit / 4 tief genau 4 breit / 2 tief werden.
+    Ohne diese Probe könnte eine Gierung den Fussabdruck still quer zum
+    eigenen Grundriss legen, und auffallen würde es erst im Spiel, wo
+    zwei Räume ineinander stehen.
+  */
+  const lang0 = moduleWorldCells(ENTRANCE_CELL, 0, moduleOf('StoneVaultHallLong'));
+  const lang90 = moduleWorldCells(ENTRANCE_CELL, 90, moduleOf('StoneVaultHallLong'));
+  const spanne = (cs: readonly { i: number; j: number }[]) => ({
+    x: new Set(cs.map((c) => c.i)).size,
+    z: new Set(cs.map((c) => c.j)).size,
+  });
+  const s0 = spanne(lang0);
+  const s90 = spanne(lang90);
+  check(lang0.length === 8, `Langer Saal belegt ${lang0.length} Zellen, erwartet 8`);
+  check(s0.x === 2 && s0.z === 4, `Langer Saal 0°: ${s0.x}×${s0.z}, erwartet 2×4`);
+  check(s90.x === 4 && s90.z === 2, `Langer Saal 90°: ${s90.x}×${s90.z}, erwartet 4×2`);
+  const gross = moduleWorldCells(ENTRANCE_CELL, 0, moduleOf('StoneVaultHallLarge'));
+  check(gross.length === 9, `Grosser Saal belegt ${gross.length} Zellen, erwartet 9`);
   console.log('  Fussabdrücke: keine Doppelbelegung, kanonisch sortiert, Ebenenzahl gehalten');
 }
 

@@ -79,15 +79,33 @@ const a = summiereRaster(alt);
   G11 mirrored the kit's edge declaration; the 1.0 path reads the same
   connectors, so its frozen baseline moved once. Its role — a witness
   that the measuring cell still SEES the error class — is unchanged.
+
+  ── Und ein zweites Mal am 04.09.2026 (grosse Säle) ──────────────────
+  Das Kit hat zwei Räume dazubekommen (`StoneVaultHallLarge` 3×3,
+  `StoneVaultHallLong` 2×4). Damit ändert sich die AUSWAHLMENGE beider
+  Pfade: `candidateRooms` zieht aus zehn statt aus acht Räumen, also
+  fallen andere Würfe, entstehen andere Layouts und andere Plattenzahlen.
+  Werte davor: A 2912 / 916 (527 + 372 + 17) / 1331, B 1067 / 133.
+
+  Für Block B ist nur EINE Zahl gewandert — die gestapelten Zellen
+  (133 → 128); die Plattenzahl 1067 steht unverändert, weil der
+  Rasterpfad Säle als Stempel reserviert und ihre Aussenkanten nach
+  derselben Tafel versiegelt wie jede andere Zelle. Alle Null-Aussagen
+  von Block B sind Null geblieben: keine Platte in einer belegten Zelle,
+  keine Doppelbelegung, keine unerklärte Nachbarschaft.
+
+  A second, deliberate move: the kit gained two hall sizes, so both
+  paths draw from a larger room set. Block B's zero statements all stayed
+  zero.
 */
 console.log(`=== Block A — 1.0-Pfad, DG_StoneVault, ${SEED_ANZAHL_VORGABE} Seeds, Kit-Vorgaben ===`);
-pruefe('Wandplatten gesamt', a.plattenGesamt, 2912);
-pruefe('Platten in belegter Zelle', a.platteInBelegterZelle, 916);
-pruefe('… gegen volle Wand (überflüssig)', a.plattenUeberfluessig, 527);
-pruefe('… gegen Teilwand (Treppe, nötig)', a.plattenNoetig, 372);
-pruefe('… im Eingangsraum (Altausnahme)', a.plattenEingang, 17);
+pruefe('Wandplatten gesamt', a.plattenGesamt, 4653);
+pruefe('Platten in belegter Zelle', a.platteInBelegterZelle, 1155);
+pruefe('… gegen volle Wand (überflüssig)', a.plattenUeberfluessig, 718);
+pruefe('… gegen Teilwand (Treppe, nötig)', a.plattenNoetig, 417);
+pruefe('… im Eingangsraum (Altausnahme)', a.plattenEingang, 20);
 pruefe('Doppelbelegungen', a.doppelbelegungen, 0);
-pruefe('gestapelte Zellen', a.gestapelteZellen, 1331);
+pruefe('gestapelte Zellen', a.gestapelteZellen, 1028);
 
 // ── Block B: der Verteiler — das, was heute wirklich gebaut wird ─────
 const einzel = [];
@@ -107,7 +125,7 @@ pruefe('… gegen volle Wand (überflüssig)', g.plattenUeberfluessig, 0);
 pruefe('… gegen Teilwand (Treppe, nötig)', g.plattenNoetig, 0);
 pruefe('… im Eingangsraum (Altausnahme)', g.plattenEingang, 0);
 pruefe('Doppelbelegungen', g.doppelbelegungen, 0);
-pruefe('gestapelte Zellen', g.gestapelteZellen, 133);
+pruefe('gestapelte Zellen', g.gestapelteZellen, 128);
 
 const driftOk = g.maxZellDrift < 1e-4 && a.maxZellDrift < 1e-4;
 if (!driftOk) fehler++;

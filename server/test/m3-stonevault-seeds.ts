@@ -254,8 +254,15 @@ function stehtNachbarDahinter(layout: DungeonLayout, roomIndex: number, connInde
   });
 }
 
-/** Die vier neuen Zellvarianten — Wall und Entry zaehlen bewusst nicht mit (s. Pruefung 6/7). */
-const ZELLVARIANTEN = ['StoneVaultCorridor', 'StoneVaultCorner', 'StoneVaultJunction', 'StoneVaultHall'] as const;
+/**
+ * Die Zellvarianten — Wall und Entry zaehlen bewusst nicht mit (s. Pruefung 6/7).
+ * Seit dem 04.09.2026 stehen die beiden groesseren Saele mit in der Liste: Ein
+ * Modul, das der Generator nie setzt, faellt sonst in keiner Zahl auf.
+ */
+const ZELLVARIANTEN = [
+  'StoneVaultCorridor', 'StoneVaultCorner', 'StoneVaultJunction',
+  'StoneVaultHall', 'StoneVaultHallLarge', 'StoneVaultHallLong',
+] as const;
 /** Varianten, die den Eindruck eines Gangsystems tragen (s. Pruefung 7) — die Halle zaehlt hier nicht: sie ist ein Saal, kein Gang. */
 const GANGVARIANTEN = ['StoneVaultCorridor', 'StoneVaultCorner', 'StoneVaultJunction'] as const;
 
@@ -275,6 +282,15 @@ let offeneGegenWand = 0;
 const namensverteilungJeSeed: Map<string, number>[] = [];
 /** In wie vielen Seeds `StoneVaultHall` mindestens einmal vorkommt (Pruefung 8). */
 let seedsMitHalle = 0;
+/**
+ * Dasselbe je Saalgroesse (Pruefung 8b, 04.09.2026). Die Grenzen sind
+ * verschieden, und zwar aus einem messbaren Grund: Je groesser der
+ * Fussabdruck, desto seltener findet die Wachstumsfront am Stueck Platz
+ * dafuer. Gemessen ueber diese 40 Seeds: 2x2 in 16, 2x4 in 15, 3x3 in 9
+ * Seeds. Eine gemeinsame Grenze von 10 waere fuer den grossen Saal ein
+ * Fehlalarm und fuer die kleine Halle keine Aussage.
+ */
+const seedsMitSaal = new Map<string, number>();
 /** Anteil Gangvarianten an Nicht-Wand-Raeumen, je Seed (Pruefung 7). */
 const gangAnteilJeSeed: number[] = [];
 /** Anzahl `StoneVaultStairs` je Seed — Grundlage der Stairs-Anteil-Statistik (s. Befund vom 3.9.2026). */
@@ -317,6 +333,9 @@ for (const seed of SEEDS) {
   for (const p of layout1.rooms) namen.set(p.room, (namen.get(p.room) ?? 0) + 1);
   namensverteilungJeSeed.push(namen);
   if ((namen.get('StoneVaultHall') ?? 0) > 0) seedsMitHalle++;
+  for (const saal of ['StoneVaultHall', 'StoneVaultHallLarge', 'StoneVaultHallLong']) {
+    if ((namen.get(saal) ?? 0) > 0) seedsMitSaal.set(saal, (seedsMitSaal.get(saal) ?? 0) + 1);
+  }
   const treppenImSeed = namen.get('StoneVaultStairs') ?? 0;
   treppenJeSeed.push(treppenImSeed);
   if (treppenImSeed > 0) seedsMitTreppe++;
@@ -342,6 +361,11 @@ check(
 );
 
 check(`StoneVaultHall in mindestens 10 von 40 Seeds gesetzt`, seedsMitHalle >= 10, `${seedsMitHalle} Seeds`);
+
+for (const [saal, grenze] of [['StoneVaultHallLarge', 5], ['StoneVaultHallLong', 8]] as const) {
+  const n = seedsMitSaal.get(saal) ?? 0;
+  check(`${saal} in mindestens ${grenze} von 40 Seeds gesetzt`, n >= grenze, `${n} Seeds`);
+}
 
 const avgRooms = roomCounts.reduce((a, b) => a + b, 0) / roomCounts.length;
 check(`Raumzahl im Schnitt > 10`, avgRooms > 10, `Schnitt ${avgRooms.toFixed(2)}`);
@@ -394,6 +418,8 @@ const KURZNAME: Record<string, string> = {
   StoneVaultJunction: 'Junction',
   StoneVaultCorner: 'Corner',
   StoneVaultHall: 'Hall',
+  StoneVaultHallLarge: 'Hall3x3',
+  StoneVaultHallLong: 'Hall2x4',
   StoneVaultCorridor: 'Corridor',
   StoneVaultCell: 'Cell',
   StoneVaultEntry: 'Entry',

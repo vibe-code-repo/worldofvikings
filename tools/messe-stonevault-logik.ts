@@ -226,6 +226,24 @@ function einzelzelle(offen: readonly Richtung[]): ModulErklaerung {
   };
 }
 
+/**
+ * Ein Saal: `zellenX × zellenZ` Zellen, keine eingebaute Wand — jede
+ * Aussenkante offen, Boden und Decke Stein.
+ *
+ * Als FUNKTION und nicht dreimal von Hand getippt: Die Säle des Kits
+ * kommen aus einer Blender-Vorlage (`hall_module`, 04.09.2026), und drei
+ * ausgeschriebene Tabellenzeilen hätten diese eine Aussage in drei
+ * Fassungen gebracht, von denen beim nächsten Zuschnitt eine fehlt.
+ */
+function saal(zellenX: number, zellenZ: number): ModulErklaerung {
+  return {
+    zellenX,
+    zellenZ,
+    ebenen: 1,
+    kante: (_a, _b, _e, r) => (r === 'oben' || r === 'unten' ? 'wand' : 'offen'),
+  };
+}
+
 const MODUL_ERKLAERUNG: Record<string, ModulErklaerung> = {
   // Vier freie Kanten, keine eingebaute Wand.
   StoneVaultEntry: einzelzelle(['n', 'o', 's', 'w']),
@@ -237,13 +255,13 @@ const MODUL_ERKLAERUNG: Record<string, ModulErklaerung> = {
   StoneVaultCorner: einzelzelle(['n', 'w']),
   // Nur die Ostwand eingebaut (G11, s. oben).
   StoneVaultJunction: einzelzelle(['n', 'w', 's']),
-  // 2 × 2 Zellen, acht Ports: jede Aussenkante ist offen.
-  StoneVaultHall: {
-    zellenX: 2,
-    zellenZ: 2,
-    ebenen: 1,
-    kante: (_a, _b, _e, r) => (r === 'oben' || r === 'unten' ? 'wand' : 'offen'),
-  },
+  // Die drei Säle aus derselben Vorlage: 2×2 (acht Ports), 3×3 (zwölf)
+  // und 2×4 (zwölf). Fehlte einer, läse `kantenzustand` dort mangels
+  // Erklärung überall „Wand" und zählte jede Saalkante als unerklärte
+  // Nachbarschaft.
+  StoneVaultHall: saal(2, 2),
+  StoneVaultHallLarge: saal(3, 3),
+  StoneVaultHallLong: saal(2, 4),
   /*
     Die Treppe: 1 × 3 Zellen auf ZWEI Ebenen, genau zwei Ports (unten Süd
     auf Ebene 0, oben Nord auf Ebene 1). Alles andere ist `wandTeilweise`
@@ -685,7 +703,11 @@ function pointInRoomHull(p: Vector3, placed: PlacedRoom, room: RoomDef): boolean
   );
 }
 
-const ZELLARTIG = new Set(['StoneVaultEntry', 'StoneVaultCell', 'StoneVaultCorridor', 'StoneVaultCorner', 'StoneVaultJunction', 'StoneVaultHall', 'StoneVaultStairs']);
+const ZELLARTIG = new Set([
+  'StoneVaultEntry', 'StoneVaultCell', 'StoneVaultCorridor', 'StoneVaultCorner',
+  'StoneVaultJunction', 'StoneVaultHall', 'StoneVaultHallLarge', 'StoneVaultHallLong',
+  'StoneVaultStairs',
+]);
 
 interface Befund {
   seed: number;

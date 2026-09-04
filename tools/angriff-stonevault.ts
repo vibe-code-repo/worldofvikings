@@ -32,7 +32,8 @@ const def = DUNGEONS_BY_NAME.get('DG_StoneVault')!;
 const byName = new Map<string, RoomDef>(def.rooms.map((r) => [r.name, r]));
 const ZELL = new Set([
   'StoneVaultEntry', 'StoneVaultCell', 'StoneVaultCorridor', 'StoneVaultCorner',
-  'StoneVaultJunction', 'StoneVaultHall', 'StoneVaultStairs',
+  'StoneVaultJunction', 'StoneVaultHall', 'StoneVaultHallLarge',
+  'StoneVaultHallLong', 'StoneVaultStairs',
 ]);
 
 /** Rasterschlüssel: Zellmitten liegen auf (2i, 3,5e, 2j−1) — Entry bei (0,0,−1). */

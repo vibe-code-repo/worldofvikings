@@ -95,6 +95,12 @@ console.log('\n1) Fussabdruck, Ebenen, Anker');
     StoneVaultCorner: [1, 1, 1],
     StoneVaultJunction: [1, 1, 1],
     StoneVaultHall: [2, 2, 1],
+    // Die beiden groesseren Zuschnitte derselben Blender-Vorlage
+    // (`hall_module`, 04.09.2026). Der lange Saal ist der erste Stempel
+    // des Kits, dessen Fussabdruck NICHT quadratisch ist — unter 90°
+    // tauschen seine beiden Masse die Achse.
+    StoneVaultHallLarge: [3, 3, 1],
+    StoneVaultHallLong: [2, 4, 1],
     // Drei Zellen Lauf auf ZWEI Ebenen: die obere Ebene ist Luftraum,
     // gehört aber zum Modul (Konzept S3) — sonst wächst ein zweiter Ast
     // in die Treppenspitze hinein.
@@ -129,7 +135,8 @@ console.log('\n1) Fussabdruck, Ebenen, Anker');
     entry.anchor?.direction === 's',
     `StoneVaultEntry: Anker zeigt nach ${entry.anchor?.direction}, erwartet s`
   );
-  for (const name of ['StoneVaultCell', 'StoneVaultCorridor', 'StoneVaultHall', 'StoneVaultStairs']) {
+  for (const name of ['StoneVaultCell', 'StoneVaultCorridor', 'StoneVaultHall',
+    'StoneVaultHallLarge', 'StoneVaultHallLong', 'StoneVaultStairs']) {
     check(moduleOf(name).anchor === null, `${name}: darf keinen Anker haben`);
   }
 }
@@ -296,21 +303,35 @@ console.log('\n4) Eingebaute Wände: Korridor, Ecke, Abzweig');
       check(edgeAt(m, 0, 0, 0, d) === 'open', `${name}: Kante ${d} ist nicht offen`);
     }
   }
-  // Die Halle ebenso, auf allen acht Aussenkanten.
-  const hall = moduleOf('StoneVaultHall');
-  let hallEdges = 0;
-  for (const cell of hall.cells) {
-    for (const d of DIRECTIONS) {
-      if (!isHorizontal(d) || cell.interior[d]) continue;
-      hallEdges++;
-      check(
-        cell.edges[d] === 'open',
-        `StoneVaultHall: Aussenkante ${d} an (${cell.ix},${cell.iz}) ist '${cell.edges[d]}'`
-      );
+  /*
+    Die Säle ebenso — und zwar ALLE drei Zuschnitte, mit der erwarteten
+    Zahl Aussenkanten aus dem Fussabdruck gerechnet statt getippt:
+    2·(N+M). Wer die Acht der 2×2-Halle stehen liesse, prüfte beim
+    nächsten Zuschnitt eine Zahl, die nichts mehr mit ihm zu tun hat.
+  */
+  for (const name of ['StoneVaultHall', 'StoneVaultHallLarge', 'StoneVaultHallLong']) {
+    const hall = moduleOf(name);
+    let hallEdges = 0;
+    for (const cell of hall.cells) {
+      for (const d of DIRECTIONS) {
+        if (!isHorizontal(d) || cell.interior[d]) continue;
+        hallEdges++;
+        check(
+          cell.edges[d] === 'open',
+          `${name}: Aussenkante ${d} an (${cell.ix},${cell.iz}) ist '${cell.edges[d]}'`
+        );
+      }
     }
+    const soll = 2 * (hall.cellsX + hall.cellsZ);
+    check(hallEdges === soll, `${name}: ${hallEdges} Aussenkanten, erwartet ${soll}`);
+    // Jede Aussenkante trägt auch einen Port — sonst wäre der Saal an
+    // dieser Seite zwar offen erklärt, aber nicht anschliessbar.
+    check(
+      hall.ports.length === soll,
+      `${name}: ${hall.ports.length} Ports, erwartet ${soll}`
+    );
   }
-  check(hallEdges === 8, `StoneVaultHall: ${hallEdges} Aussenkanten, erwartet 8`);
-  console.log('  Zelle, Eingang und Halle ohne eingebaute Wand');
+  console.log('  Zelle, Eingang und alle drei Säle ohne eingebaute Wand');
 }
 
 // ─────────────────────────────────────────────────────────────────────

@@ -1182,6 +1182,15 @@ export const EIGENE_MODELLE: readonly string[] = [
   'StoneVaultJunction',
   // Saal: 4 x 4 Boden und Decke ohne Waende, acht Zellkanten-Connectors.
   'StoneVaultHall',
+  /*
+    Dieselbe Vorlage in zwei groesseren Zuschnitten (`hall_module` in
+    `make-stonevault.py`, 04.09.2026): 3 x 3 Zellen (6 x 6 m) und 2 x 4
+    (4 x 8 m). Ab einer Spannweite ueber 4 m tragen sie Stuetzpfeiler auf
+    den inneren Zellecken — im selben Netz wie Boden und Decke, also ohne
+    eigene `_col`-Konvention auch in der Kollision.
+  */
+  'StoneVaultHallLarge',
+  'StoneVaultHallLong',
   // Treppe: zwei Zellen Lauf, eine Zellhoehe Sprung. Ihr oberer
   // Connector liegt auf y = 3,5 — die Hoehenausnahme in
   // `dungeonRaster.ts` (`ebenenMasse`) rechnet bei einem 2-m-Kit mit der

@@ -259,7 +259,26 @@ for (const seed of SAATEN) {
   summeOhneFlagge += computeOpenConnections(layout, vault.name).length;
   summeMitFlagge += computeOpenConnections(layout, vault.name, { ohneEingang: true }).length;
 }
-pruefe(summeOhneFlagge >= 40, 'ohne Flagge bleibt das alte Verhalten', `${summeOhneFlagge} Connectors`);
+/*
+  Ohne Flagge muss das alte Verhalten SICHTBAR bleiben — und zwar
+  relativ, nicht gegen eine getippte Zahl. Bis zum 04.09.2026 stand hier
+  `>= 40` mit der Begründung „mindestens einer je Saat". Diese Begründung
+  ist seit dem versiegelten Eingang (`0ed3e88`) hinfällig: Was ohne Flagge
+  gezählt wird, sind Saalports vor der eingebauten Wand eines Nachbarn
+  (Zeile 3 der Kantentafel, keine Platte) — je Saat null bis vier, je nach
+  Mischung. Mit zwei weiteren Sälen fiel die Summe auf 39 und der Test
+  rot, ohne dass sich an der Aussage etwas geändert hätte.
+
+  Gefragt wird deshalb, was gemeint war: Der ungefilterte Zähler meldet
+  mehr als der gefilterte, und er meldet überhaupt etwas. Eine Fassung,
+  in der beide Zähler gleich sind, hätte die Flagge wirkungslos gemacht —
+  genau das soll hier auffallen.
+*/
+pruefe(
+  summeOhneFlagge > summeMitFlagge && summeOhneFlagge > 0,
+  'ohne Flagge bleibt das alte Verhalten (mehr Meldungen als mit)',
+  `${summeOhneFlagge} ohne / ${summeMitFlagge} mit`
+);
 pruefe(summeMitFlagge === 0, 'mit Flagge meldet jedes frische StoneVault 0 offen', `${summeMitFlagge}`);
 
 // ── 2. attachRoom weist offen/wand ab ───────────────────────────────

@@ -74,6 +74,15 @@ const KERN = [
   // Rein rechnerisch, Zehntelsekunden.
   // Grid ↔ world mapping: round-trip keys, entrance pose, connectors on edges.
   ['shared', 'test/dungeon-rasterwelt.ts'],
+  // G4 (Modul-Generierung 2.0): der Kern des Rastergenerators — Zellmenge,
+  // Spannbaum, Modulwahl, Versiegelung. Geprueft wird gegen das AUSGEGEBENE
+  // Layout, nicht gegen die Zwischenstaende: Zellzahl trifft `maxRooms`,
+  // jede ueberzaehlige Oeffnung zeigt auf Fels (sonst stossen zwei Raeume
+  // aneinander, ohne dass man durchkommt — Mikes Befund), jede Platte liegt
+  // genau auf einer offenen Fels-Kante, 100 % erreichbar, zwei Laeufe
+  // byte-gleich. Rein rechnerisch, Sekunden.
+  // The grid core: cells, spanning tree, module choice, sealing table.
+  ['shared', 'test/dungeon-rasterkern.ts'],
   // G1 (Modul-Generierung 2.0): Der AUSGANGSSTAND von DG_StoneVault,
   // gemessen auf dem Zellgitter statt an den Connectors — 952
   // Abschlussplatten stehen im Körper des Nachbarmoduls (531 gegen eine
@@ -84,6 +93,15 @@ const KERN = [
   // am Messskript und heute absichtlich rot. ~1 s.
   // Freezes today's baseline so later milestones measure against a fixed number.
   ['tools', 'test/messe-stonevault-metrik.ts'],
+  // G4-Abnahme: dieselben G1-Metriken, gemessen am NEUEN Pfad. Die
+  // Messzelle traegt ihre eigene Kantenerklaerung des Kits und ist damit
+  // ein unabhaengiger Zeuge — der Generator kann sich nicht selbst
+  // freisprechen. Abnahme ueber 40 Saaten und Mikes Kombination: 0 Platten
+  // in belegten Zellen (heute 952), 0 unerklaerte Nachbarschaften (531),
+  // 0 offene Kanten ohne Eingang, 0 Doppelbelegungen, 100 % Erreichbarkeit.
+  // ~2 s.
+  // The same G1 metrics measured against the new grid path.
+  ['tools', 'test/raster-generator-g4.ts'],
   // `flattenRooms`: Layout → Prefab-Instanzen für eine ANSICHT, mit dem
   // statischen Wächter, dass `dungeonKanten.ts` dafür NICHTS aus
   // `dungeonFlatten.ts`/`roomPieces.ts` (~5 MB) zieht — genau deshalb gibt

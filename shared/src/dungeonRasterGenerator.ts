@@ -40,17 +40,26 @@
  * Neuer Code trägt englische Namen (Kit-Regel seit 27.08.); die deutschen
  * Namen der Nachbardateien bleiben, wo sie stehen.
  */
+import { DEFAULT_GENERATOR_SETTINGS } from './dungeonGenerator.js';
+import type { DungeonGeneratorSettings } from './dungeonGenerator.js';
 import {
+  DIRECTIONS,
   DIRECTION_VECTOR,
   MODULE_CELL_M,
   MODULE_LEVEL_M,
+  OPPOSITE_DIRECTION,
   directionFromVector,
+  gridModuleFromRoomDef,
   isHorizontal,
   type Direction,
+  type EdgeState,
   type GridModule,
 } from './dungeonRasterModul.js';
-import { quatMulVec3 } from './worldgen/Math3d.js';
-import type { PlacedRoom, RoomDef } from './dungeons.js';
+import { mische } from './dungeon2/hashing.js';
+import { XorShiftRandom } from './worldgen/Random.js';
+import { quatMul, quatMulVec3 } from './worldgen/Math3d.js';
+import { MAX_DUNGEON_ROOMS } from './dungeons.js';
+import type { DungeonDef, DungeonLayout, PlacedRoom, RoomDef } from './dungeons.js';
 import type { Quaternion, Vector3 } from './types.js';
 
 /** Kantenlänge einer Rasterzelle in Metern. Dieselbe Zahl wie im Modulformat. */
@@ -367,5 +376,765 @@ export function assertConnectorsOnEdges(
           `(${port.edgeCenter.x}, ${port.edgeCenter.y}, ${port.edgeCenter.z}) — Drift ${drift.toExponential(3)} m.`
       );
     }
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// G4 — der Kern: Zellmenge, Spannbaum, Modulwahl, Versiegelung
+//
+// Ab hier wird ERZEUGT. Alles darüber ist Abbildung und Rückrechnung und
+// bleibt frei von Zufall; alles darunter zieht aus einem Saatstrom.
+//
+// ── Die Reihenfolge ist der ganze Unterschied ────────────────────────
+// Der 1.0-Generator wählt erst ein Modul und erfährt danach, was daneben
+// liegt (`getRandomRoom` vor `testCollision`). Hier steht zuerst der
+// GRAPH — welche Zellen es gibt und welche davon verbunden sind — und
+// erst danach wird das Modul gesucht, das genau dieses Öffnungsmuster
+// hat. „Öffnung ins Leere“ ist damit kein Prüfergebnis mehr, sondern ein
+// Zustand, den die Datenstruktur nicht ausdrücken kann.
+//
+// ── Was G4 noch NICHT kann ───────────────────────────────────────────
+// Nur Einzelzellen, eine Ebene, keine Schleifen, keine Türen. Halle
+// (2 × 2) und Treppe (3 Zellen auf zwei Ebenen) bleiben liegen, bis das
+// Kantenmodell sie in G6/G7 mit Stempeln trägt; Schleifen und Torbögen
+// sind G5. Die Module sind trotzdem alle erklärt (G2) — G4 wählt aus den
+// EINZELLIGEN, statt so zu tun, als gäbe es die anderen nicht.
+// ═════════════════════════════════════════════════════════════════════
+
+/**
+ * Salz je Saatstrom (S1).
+ *
+ * Ein Strom je Phase, gemischt über `mische(seed, SALZ)` — nicht ein
+ * gemeinsamer Strom für alles. Der Grund ist Pflege, nicht Reinheit: Ein
+ * zusätzlicher Zug beim Wachsen verschöbe sonst jede spätere Modulwahl,
+ * und ein Grundriss, der sich bei jeder Änderung komplett neu würfelt,
+ * lässt sich nicht mit dem vorigen vergleichen. Vorbild ist
+ * `dungeon2/hashing.ts` (W7).
+ */
+const SALT_GROWTH = 0x67726f77; // 'grow'
+const SALT_MODULE = 0x6d6f6475; // 'modu'
+
+/** Die vier waagerechten Kanten — Boden und Decke wachsen in G4 nicht. */
+const HORIZONTAL_DIRECTIONS: readonly Direction[] = DIRECTIONS.filter(isHorizontal);
+
+/**
+ * Gewicht der Richtung „geradeaus“ gegenüber jeder anderen (S2).
+ *
+ * Ohne Trägheit klumpt der Grundriss: Eine gleichverteilte Wahl aus vier
+ * Richtungen erzeugt kompakte Flecken, keine Gänge. Der Wert ist bewusst
+ * klein — er soll den Gang begünstigen, nicht erzwingen.
+ */
+const GROWTH_INERTIA = 3;
+
+/**
+ * Die Weltrichtung, in der der Eingangsport des Grabs zeigt.
+ *
+ * Sie ist keine Wahl: Der Eingangsconnector muss auf dem URSPRUNG landen
+ * (dort hängt das ganze Grab), und der Ursprung ist die Nordkante der
+ * Eingangszelle `(0,0,0)` — s. Dateikopf. Daraus folgt die Gierung des
+ * Eingangsmoduls, und daraus, dass die Zelle nördlich des Eingangs für
+ * immer leer bleibt: Dort geht es nach draussen.
+ */
+export const ENTRANCE_PORT_DIRECTION: Direction = 'n';
+
+/** Steuerung des Rasterpfads. */
+export interface GridGeneratorOptions {
+  /**
+   * Verletzte Selbstprüfung als Ausnahme statt als Rückfall.
+   *
+   * Vorgabe `false` = Serverbetrieb: Ein Programmfehler darf kein Grab
+   * verhindern, er fällt deterministisch auf Eingang + Platten zurück
+   * (Vorbild `dungeon2/generator.ts:1383-1399`). Tests setzen `true` und
+   * bekommen die Meldung statt eines stillen Ein-Zellen-Grabs.
+   */
+  readonly strict?: boolean;
+}
+
+/** Eine Zelle des fertigen Plans. */
+export interface GridPlanCell {
+  readonly cell: GridCell;
+  /** Name des gewählten Moduls (`RoomDef.name`). */
+  readonly module: string;
+  readonly yaw: Yaw;
+  /** BFS-Tiefe ab dem Eingang; `placeOrder` ist das plus 1. */
+  readonly depth: number;
+  /** Graphkanten dieser Zelle in Weltrichtung, kanonisch sortiert. */
+  readonly edges: readonly Direction[];
+  /** Beim Eingangsraum die Richtung nach draussen, sonst null. */
+  readonly entrancePort: Direction | null;
+}
+
+/** Eine Versiegelung: die offene Kante, vor die eine Platte gesetzt wird. */
+export interface GridSeal {
+  /** Die Zelle, deren Kante versiegelt wird — die Platte liegt im Nachbarn. */
+  readonly cell: GridCell;
+  readonly direction: Direction;
+}
+
+/**
+ * Der fertige Plan: was wo steht, bevor daraus Weltkoordinaten werden.
+ *
+ * Er ist die prüfbare Zwischenstufe. Ein Layout allein sagt nicht mehr,
+ * welche Nachbarschaft ABSICHT (Graphkante) und welche nur Berührung war
+ * — genau die Auskunft, die dem 1.0-Pfad fehlt.
+ */
+export interface GridPlan {
+  /** BFS-Reihenfolge ab dem Eingang; `cells[0]` ist der Eingang. */
+  readonly cells: readonly GridPlanCell[];
+  /** Kanonisch: in Zellreihenfolge, je Zelle in {@link DIRECTIONS}-Reihenfolge. */
+  readonly seals: readonly GridSeal[];
+}
+
+/** Quaternion-Inverse (Einheitsquaternion) — wie im 1.0-Pfad. */
+function quatInverse(q: Quaternion): Quaternion {
+  return { x: -q.x, y: -q.y, z: -q.z, w: q.w };
+}
+
+/** Die Gierung, unter der die lokale +z-Achse eines Moduls nach `d` zeigt. */
+function yawForOutward(d: Direction): Yaw {
+  for (const yaw of YAWS) if (rotateDirection('n', yaw) === d) return yaw;
+  throw new DungeonRasterError(`Keine Gierung bildet die Vorderseite auf '${d}' ab.`);
+}
+
+/**
+ * Liegt die ganze Zelle im Wachstumsraum? (S2, eigene Zonenregel.)
+ *
+ * Ausdrücklich NICHT `isInsideZone` des 1.0-Pfads: Der prüft die
+ * GESCHRUMPFTE Hülle (1,4 statt 2) und rechnet in y um `pos.y` statt ab
+ * der Bodenfläche. Beides ist dort begründet und hier falsch — eine
+ * Rasterzelle ist 2 m breit und 3,5 m hoch, egal was ihre Hülle behauptet.
+ */
+function cellInsideZone(cell: GridCell, zoneHalf: number): boolean {
+  const c = cellToWorld(cell);
+  const half = GRID_CELL_M / 2;
+  return (
+    c.x - half >= -zoneHalf &&
+    c.x + half <= zoneHalf &&
+    c.z - half >= -zoneHalf &&
+    c.z + half <= zoneHalf &&
+    c.y >= -zoneHalf &&
+    c.y + GRID_LEVEL_M <= zoneHalf
+  );
+}
+
+/** Eine Zelle während des Wachstums. */
+interface GrowthCell {
+  readonly cell: GridCell;
+  readonly key: string;
+  /** Richtung ZUM Elter — null beim Eingang. Grundlage der Trägheit. */
+  readonly toParent: Direction | null;
+  /** Graphkanten (in G4 ausschliesslich Spannbaumkanten). */
+  readonly edges: Set<Direction>;
+  readonly entrance: boolean;
+}
+
+/**
+ * Die Kanten, die für diese Zelle FREI bleiben müssen.
+ *
+ * ── Warum es diese Forderung überhaupt gibt ──────────────────────────
+ * Das Kit hat kein Modul mit genau einer Öffnung. Eine Zelle vom Grad 1
+ * bekommt deshalb zwangsläufig eine Öffnung mehr, als der Graph verlangt
+ * — und die muss auf FELS zeigen, damit die Tafel dort eine Platte setzt.
+ * Zeigte sie auf einen belegten Nachbarn, stünden zwei Räume aneinander,
+ * ohne dass man durchkommt: genau Mikes Befund vom 04.09.2026.
+ *
+ * Beim Eingang gilt dasselbe für alle vier Kanten: Sein Modul ist gesetzt
+ * (es ist der einzige Raum mit `entrance`) und hat vier Öffnungen. Was
+ * dort nicht Graphkante ist, muss Fels sein.
+ *
+ * Die Forderung wird beim WACHSEN eingehalten, nicht beim Modulwählen —
+ * dort wäre sie nicht mehr erfüllbar, sondern nur noch feststellbar.
+ */
+function requiredFreeDirections(cell: GrowthCell): readonly Direction[] {
+  if (cell.entrance) return HORIZONTAL_DIRECTIONS.filter((d) => !cell.edges.has(d));
+  if (cell.edges.size !== 1) return [];
+  const only = HORIZONTAL_DIRECTIONS.find((d) => cell.edges.has(d));
+  return only === undefined ? [] : [OPPOSITE_DIRECTION[only]];
+}
+
+/**
+ * S2 — Zellmenge und Spannbaum in einem Durchgang.
+ *
+ * Jede angenommene Zelle bringt ihre Anhängekante mit; die Kantenmenge
+ * IST damit der Spannbaum, und Erreichbarkeit ist Bauergebnis statt
+ * Nachkontrolle. Abgelehnt wird eine Zelle nur aus drei Gründen: belegt,
+ * ausserhalb der Zone, oder sie nähme einem Nachbarn (oder sich selbst)
+ * die Pflichtkante aus {@link requiredFreeDirections}.
+ */
+function growCells(
+  seed: number,
+  target: number,
+  zoneHalf: number,
+  bounded: boolean
+): Map<string, GrowthCell> {
+  const rng = new XorShiftRandom(mische(seed, SALT_GROWTH));
+  const cells = new Map<string, GrowthCell>();
+  const entrance: GrowthCell = {
+    cell: ENTRANCE_CELL,
+    key: cellKey(ENTRANCE_CELL),
+    toParent: null,
+    edges: new Set<Direction>(),
+    entrance: true,
+  };
+  cells.set(entrance.key, entrance);
+
+  // Die Zelle hinter dem Eingangsport ist für immer gesperrt: Dort geht
+  // es nach draussen. Ein Raum darin wäre ein Zimmer im Zugangsstollen.
+  const blocked = cellKey(neighbourCell(ENTRANCE_CELL, ENTRANCE_PORT_DIRECTION));
+
+  /** Darf an `parent` in Richtung `d` eine Zelle wachsen? */
+  const mayGrow = (parent: GrowthCell, d: Direction): boolean => {
+    const candidate = neighbourCell(parent.cell, d);
+    const key = cellKey(candidate);
+    if (key === blocked || cells.has(key)) return false;
+    if (bounded && !cellInsideZone(candidate, zoneHalf)) return false;
+    // Die neue Zelle ist ein Blatt: Ihre Fortsetzung geradeaus muss frei
+    // bleiben, damit sie ihre überzählige Öffnung auf Fels legen kann.
+    if (cells.has(cellKey(neighbourCell(candidate, d)))) return false;
+    // Und kein bereits stehender Nachbar darf durch sie seine Pflichtkante
+    // verlieren. `nd` zeigt von der neuen Zelle zum Nachbarn, die
+    // Gegenrichtung vom Nachbarn auf die neue Zelle.
+    for (const nd of HORIZONTAL_DIRECTIONS) {
+      if (nd === OPPOSITE_DIRECTION[d]) continue; // der Elter, er bekommt die Kante
+      const other = cells.get(cellKey(neighbourCell(candidate, nd)));
+      if (!other) continue;
+      if (requiredFreeDirections(other).includes(OPPOSITE_DIRECTION[nd])) return false;
+    }
+    return true;
+  };
+
+  // Die Wachstumsfront: Zellen, die noch eine freie Richtung haben
+  // könnten. Ein Array und kein `Set` — die Ziehreihenfolge ist Teil des
+  // Saatvertrags, und `Set`-Iteration ist die erste Determinismus-Falle
+  // der Konzeptnotiz.
+  const frontier: string[] = [entrance.key];
+  while (cells.size < target && frontier.length > 0) {
+    const pick = rng.rangeInt(0, frontier.length);
+    const current = cells.get(frontier[pick]!)!;
+    const options = HORIZONTAL_DIRECTIONS.filter((d) => mayGrow(current, d));
+    if (options.length === 0) {
+      // Von hier aus geht nichts mehr. Theoretisch könnte sich das noch
+      // drehen — verliert ein Nachbar mit dem zweiten Grad seine
+      // Pflichtkante, wäre wieder Platz. Die Front holt ihn nicht zurück:
+      // Eine Front, die nur schrumpft, ist die einfachere Aussage, und die
+      // verpasste Gelegenheit kostet keine Zelle (die Zellzahl trifft
+      // `maxRooms` über 40 Saaten exakt).
+      frontier.splice(pick, 1);
+      continue;
+    }
+    // Richtungsträgheit: geradeaus (die Gegenrichtung zum Elter) wiegt
+    // schwerer als die Abzweigungen.
+    const straight = current.toParent === null ? null : OPPOSITE_DIRECTION[current.toParent];
+    const weight = (d: Direction): number => (d === straight ? GROWTH_INERTIA : 1);
+    let roll = rng.rangeInt(0, options.reduce((n, d) => n + weight(d), 0));
+    let chosen = options[options.length - 1]!;
+    for (const d of options) {
+      roll -= weight(d);
+      if (roll < 0) {
+        chosen = d;
+        break;
+      }
+    }
+    const child = neighbourCell(current.cell, chosen);
+    const childKey = cellKey(child);
+    current.edges.add(chosen);
+    cells.set(childKey, {
+      cell: child,
+      key: childKey,
+      toParent: OPPOSITE_DIRECTION[chosen],
+      edges: new Set<Direction>([OPPOSITE_DIRECTION[chosen]]),
+      entrance: false,
+    });
+    frontier.push(childKey);
+  }
+  return cells;
+}
+
+/** Bitmaske einer Kantenmenge — n/o/s/w in der Reihenfolge von {@link DIRECTIONS}. */
+function directionMask(dirs: Iterable<Direction>): number {
+  let mask = 0;
+  for (const d of dirs) {
+    const bit = HORIZONTAL_DIRECTIONS.indexOf(d);
+    if (bit >= 0) mask |= 1 << bit;
+  }
+  return mask;
+}
+
+/** Alle vier waagerechten Kanten offen. */
+const ALL_HORIZONTAL_MASK = (1 << HORIZONTAL_DIRECTIONS.length) - 1;
+
+function popcount(mask: number): number {
+  let n = 0;
+  for (let m = mask; m !== 0; m >>= 1) n += m & 1;
+  return n;
+}
+
+function maskDirections(mask: number): Direction[] {
+  return HORIZONTAL_DIRECTIONS.filter((_, i) => (mask & (1 << i)) !== 0);
+}
+
+/** Ein Modul in einer Gierung, mit dem Öffnungsmuster, das es damit anbietet. */
+interface ModuleOption {
+  readonly def: RoomDef;
+  readonly module: GridModule;
+  readonly yaw: Yaw;
+  /** Offene Kanten in WELTrichtung, als Bitmaske. */
+  readonly open: number;
+  readonly weight: number;
+}
+
+/**
+ * Alle einzelligen Module des Kits in allen vier Gierungen.
+ *
+ * Einzellig und einstöckig, weil G4 keine Stempel kennt (Halle, Treppe →
+ * G6/G7). Ohne Eingangsraum, wie im 1.0-Pfad: `entrance` ist eine ROLLE,
+ * und ein Kit, das seinen Eingang auch als Füller setzte, hätte nach dem
+ * Start genau einen Raum weniger zur Auswahl.
+ *
+ * Vier Gierungen, keine Spiegelung: Die Ecke deckt über 90°/180°/270°
+ * alle vier angrenzenden Paare ab, der Abzweig alle vier Wandseiten, der
+ * Korridor beide Achsen. Es bleibt kein Muster übrig, für das eine
+ * Spiegelung nötig wäre.
+ */
+function cellModuleOptions(def: DungeonDef): ModuleOption[] {
+  const options: ModuleOption[] = [];
+  for (const room of def.rooms) {
+    if (room.endCap || room.entrance) continue;
+    const module = gridModuleFromRoomDef(room);
+    if (module.cells.length !== 1 || module.levels !== 1) continue;
+    const cell = module.cells[0]!;
+    for (const yaw of YAWS) {
+      const open = directionMask(
+        HORIZONTAL_DIRECTIONS.filter((d) => cell.edges[d] === 'open').map((d) => rotateDirection(d, yaw))
+      );
+      options.push({ def: room, module, yaw, open, weight: Math.max(1, Math.round(room.weight)) });
+    }
+  }
+  return options;
+}
+
+/**
+ * S5 — die Öffnungsmuster, die für ein verlangtes Muster zugelassen sind.
+ *
+ * Ab Grad 2 ist es genau das Muster selbst: Das Kit hat für jedes davon
+ * ein Modul (4 → Zelle, 3 → Abzweig, 2 gegenüber → Korridor, 2 angrenzend
+ * → Ecke), und eine Öffnung mehr wäre eine, die niemand verlangt hat.
+ *
+ * Grad 1 hat im Kit keine Entsprechung — es gibt kein Modul mit genau
+ * einer Öffnung. Zugelassen sind deshalb die beiden Muster, die die
+ * Konzeptnotiz nennt (S5): die durchgehende Achse (Korridor) und die
+ * vollständig offene Zelle. Die ECKE liesse sich ebenso einsetzen und ist
+ * absichtlich nicht dabei — ein Knick, hinter dem eine Platte steht,
+ * liest sich als Bauunfall, ein Gangstumpf und eine Kammer nicht.
+ *
+ * Grad 0 gibt es nur für ein Grab aus einer einzigen Zelle.
+ */
+function allowedOpenMasks(mask: number): number[] {
+  const grad = popcount(mask);
+  if (grad >= 2) return [mask];
+  if (grad === 1) {
+    const only = maskDirections(mask)[0]!;
+    return [mask | directionMask([OPPOSITE_DIRECTION[only]]), ALL_HORIZONTAL_MASK];
+  }
+  return [ALL_HORIZONTAL_MASK];
+}
+
+/**
+ * Wählt Modul und Gierung für ein Öffnungsmuster.
+ *
+ * Zwei Bedingungen, und die zweite ist die wichtige:
+ *  1. Jede Graphkante muss offen sein — sonst wäre eine Verbindung im
+ *     Graphen im Grab eine Wand.
+ *  2. Jede ÜBERZÄHLIGE Öffnung muss auf Fels zeigen. Dort setzt die Tafel
+ *     eine Platte; auf einen belegten Nachbarn gerichtet wäre sie eine
+ *     Öffnung, durch die man nicht kommt.
+ *
+ * Findet sich kein zugelassenes Muster, wird die Bedingung gelockert
+ * (irgendein Modul mit möglichst wenig Überzähligem) — nicht aus Kulanz,
+ * sondern damit ein Kit mit anderer Modulliste nicht am ersten Grad-3-Fall
+ * scheitert. Bleibt auch das leer, ist es ein Programmfehler und die
+ * Selbstprüfung übernimmt.
+ */
+function chooseModule(
+  options: readonly ModuleOption[],
+  mask: number,
+  freeMask: number,
+  rng: XorShiftRandom
+): ModuleOption {
+  const fits = (o: ModuleOption): boolean =>
+    (o.open & mask) === mask && (o.open & ~mask & ~freeMask) === 0;
+  const allowed = allowedOpenMasks(mask);
+  let candidates = options.filter((o) => allowed.includes(o.open) && fits(o));
+  if (candidates.length === 0) {
+    const rest = options.filter(fits);
+    if (rest.length > 0) {
+      const best = Math.min(...rest.map((o) => popcount(o.open & ~mask)));
+      candidates = rest.filter((o) => popcount(o.open & ~mask) === best);
+    }
+  }
+  if (candidates.length === 0) {
+    throw new DungeonRasterError(
+      `Kein Modul für das Öffnungsmuster [${maskDirections(mask).join(',')}] ` +
+        `mit freien Kanten [${maskDirections(freeMask).join(',')}].`
+    );
+  }
+  let roll = rng.rangeInt(0, candidates.reduce((n, o) => n + o.weight, 0));
+  for (const o of candidates) {
+    roll -= o.weight;
+    if (roll < 0) return o;
+  }
+  return candidates[candidates.length - 1]!;
+}
+
+/** Kantenzustände eines platzierten Moduls, in WELTrichtungen. */
+function worldEdgeStates(module: GridModule, yaw: Yaw): Record<Direction, EdgeState> {
+  const cell = module.cells[0];
+  if (!cell) throw new DungeonRasterError(`Modul '${module.name}' hat keine Zelle.`);
+  const out = {} as Record<Direction, EdgeState>;
+  for (const d of DIRECTIONS) out[rotateDirection(d, yaw)] = cell.edges[d];
+  return out;
+}
+
+/**
+ * S2…S7 — der ganze Plan: Zellmenge, Spannbaum, BFS-Ordnung, Modulwahl,
+ * Versiegelung. Rein: gleiche Eingabe, gleicher Plan.
+ */
+export function planGridDungeon(
+  def: DungeonDef,
+  seed: number,
+  settingsIn?: Partial<DungeonGeneratorSettings>
+): GridPlan {
+  const settings = { ...DEFAULT_GENERATOR_SETTINGS, ...def.generatorEinstellungen, ...settingsIn };
+  // `maxRooms` heisst im Rasterpfad ZELLZAHL, nicht Wachstumsversuche —
+  // die Bedeutung wechselt mit dem Pfad, s. Verträge der Konzeptnotiz.
+  const target = Math.max(1, Math.min(MAX_DUNGEON_ROOMS, Math.trunc(def.maxRooms)));
+  const cells = growCells(seed, target, settings.zoneSize * 0.5, settings.zoneBounded);
+
+  // ── BFS ab dem Eingang (S9) ────────────────────────────────────────
+  // Die Ausgabereihenfolge ist Teil des Formats: `placeOrder` ist die
+  // BFS-Tiefe + 1, wie im 1.0-Pfad der Startraum auf 1 landet.
+  const depth = new Map<string, number>([[cellKey(ENTRANCE_CELL), 0]]);
+  const order: GrowthCell[] = [];
+  const queue: GrowthCell[] = [];
+  const start = cells.get(cellKey(ENTRANCE_CELL));
+  if (!start) throw new DungeonRasterError('Die Eingangszelle fehlt in der Zellmenge.');
+  queue.push(start);
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    order.push(current);
+    for (const d of DIRECTIONS) {
+      if (!current.edges.has(d)) continue;
+      const nb = cells.get(cellKey(neighbourCell(current.cell, d)));
+      if (!nb || depth.has(nb.key)) continue;
+      depth.set(nb.key, (depth.get(current.key) ?? 0) + 1);
+      queue.push(nb);
+    }
+  }
+  if (order.length !== cells.size) {
+    throw new DungeonRasterError(
+      `${cells.size - order.length} von ${cells.size} Zellen hängen nicht am Spannbaum.`
+    );
+  }
+
+  // ── S5: Modulwahl ──────────────────────────────────────────────────
+  const rng = new XorShiftRandom(mische(seed, SALT_MODULE));
+  const options = cellModuleOptions(def);
+  const entranceDef = def.rooms.find((r) => r.entrance);
+  if (!entranceDef) throw new DungeonRasterError(`Kit '${def.name}' hat keinen Eingangsraum.`);
+  const entranceModule = gridModuleFromRoomDef(entranceDef);
+  const anchor = entranceModule.anchor;
+  if (!anchor) throw new DungeonRasterError(`'${entranceDef.name}' hat keinen Eingangsconnector.`);
+  // Die Gierung folgt aus der Forderung, dass der Eingangsconnector auf
+  // dem Ursprung landet — sie wird abgeleitet, nicht getippt.
+  const entranceYaw = YAWS.find(
+    (yaw) => rotateDirection(anchor.direction, yaw) === ENTRANCE_PORT_DIRECTION
+  );
+  if (entranceYaw === undefined) {
+    throw new DungeonRasterError(
+      `Keine Gierung dreht den Eingangsport von '${entranceDef.name}' nach ${ENTRANCE_PORT_DIRECTION}.`
+    );
+  }
+
+  const planCells: GridPlanCell[] = [];
+  const states = new Map<string, Record<Direction, EdgeState>>();
+  for (const c of order) {
+    const mask = directionMask(c.edges);
+    const freeMask = directionMask(
+      HORIZONTAL_DIRECTIONS.filter((d) => !cells.has(cellKey(neighbourCell(c.cell, d))))
+    );
+    const chosen = c.entrance
+      ? { def: entranceDef, module: entranceModule, yaw: entranceYaw }
+      : chooseModule(options, mask, freeMask, rng);
+    states.set(c.key, worldEdgeStates(chosen.module, chosen.yaw));
+    planCells.push({
+      cell: c.cell,
+      module: chosen.def.name,
+      yaw: chosen.yaw,
+      depth: depth.get(c.key) ?? 0,
+      edges: DIRECTIONS.filter((d) => c.edges.has(d)),
+      entrancePort: c.entrance ? ENTRANCE_PORT_DIRECTION : null,
+    });
+  }
+
+  // ── S7: Versiegelung nach Kantentafel ──────────────────────────────
+  //
+  //   offen | offen, Graphkante   → Durchgang
+  //   offen | offen, keine Kante  → je eine Platte pro Seite
+  //   offen | wand                → KEINE Platte (die Wand des Nachbarn IST die Wand)
+  //   offen | wandTeilweise       → Platte auf der offenen Seite
+  //   offen | fels                → eine Platte
+  //   wand / wandTeilweise        → nichts
+  //
+  // Zeile 3 ist der Grund für den ganzen Umbau: Sie schafft die 531
+  // Platten ab, die heute im Körper von Korridor, Ecke und Abzweig
+  // stehen. Zeile 4 hält die 414 gegen die Treppe — deren Flanke ist ein
+  // Keil und deckt die Kante nicht über die volle Ebenenhöhe.
+  const seals: GridSeal[] = [];
+  for (let i = 0; i < order.length; i++) {
+    const c = order[i]!;
+    const mine = states.get(c.key)!;
+    for (const d of DIRECTIONS) {
+      if (mine[d] !== 'open') continue; // Zeile 6
+      if (c.edges.has(d)) continue; // Zeile 1: Durchgang
+      if (planCells[i]!.entrancePort === d) continue; // führt nach draussen
+      const other = cells.get(cellKey(neighbourCell(c.cell, d)));
+      if (!other) {
+        seals.push({ cell: c.cell, direction: d }); // Zeile 5: Fels
+        continue;
+      }
+      const facing = states.get(other.key)![OPPOSITE_DIRECTION[d]];
+      // Zeile 3: nichts. Zeile 2 und 4: Platte auf DIESER Seite; die
+      // Gegenseite entscheidet für sich, und in Zeile 2 stehen beide
+      // Rücken an Rücken um die Kantenebene.
+      if (facing !== 'wall') seals.push({ cell: c.cell, direction: d });
+    }
+  }
+
+  return { cells: planCells, seals };
+}
+
+/**
+ * Die Pose einer Abschlussplatte auf einer Zellkante.
+ *
+ * Dieselbe Rechnung wie `calculateRoomPosRot` im 1.0-Pfad, nur ohne
+ * Suchlauf: Der Connector der Platte landet auf der Kantenmitte, und ihre
+ * Vorderseite (lokal +z, die Reliefseite) schaut IN die Zelle, die sie
+ * abschliesst. Ihr 0,3-m-Körper liegt damit hinter der Kante — in der
+ * Nachbarzelle, die nach der Tafel frei ist.
+ */
+function sealPose(
+  cell: GridCell,
+  direction: Direction,
+  plate: RoomDef
+): { pos: Vector3; rot: Quaternion } {
+  const conn = plate.connections[0];
+  if (!conn) throw new DungeonRasterError(`Abschluss '${plate.name}' hat keinen Connector.`);
+  const rot = quatMul(
+    yawQuaternion(yawForOutward(OPPOSITE_DIRECTION[direction])),
+    quatInverse(conn.localRot)
+  );
+  const centre = edgeCenterWorld(cell, direction);
+  const arm = quatMulVec3(rot, conn.localPos);
+  return { pos: { x: centre.x - arm.x, y: centre.y - arm.y, z: centre.z - arm.z }, rot };
+}
+
+/**
+ * S9 — Plan zu `DungeonLayout`.
+ *
+ * Reihenfolge: Eingang, dann BFS ab dem Eingang, Platten zuletzt. Sie ist
+ * kein Geschmack, sondern Teil des Formats — `layout.props[].roomIndex`
+ * zeigt auf diese Liste, und `placeOrder` ist die BFS-Tiefe + 1 (der
+ * 1.0-Pfad setzt den Startraum ebenso auf 1).
+ */
+export function layoutFromPlan(def: DungeonDef, plan: GridPlan): DungeonLayout {
+  const byName = new Map<string, RoomDef>(def.rooms.map((r) => [r.name, r]));
+  const rooms: PlacedRoom[] = plan.cells.map((c) => {
+    const rd = byName.get(c.module);
+    if (!rd) throw new DungeonRasterError(`Modul '${c.module}' steht nicht im Kit '${def.name}'.`);
+    return placeModule(c.cell, c.yaw, gridModuleFromRoomDef(rd), c.depth + 1);
+  });
+  const plate = def.rooms.find((r) => r.endCap);
+  if (!plate && plan.seals.length > 0) {
+    throw new DungeonRasterError(`Kit '${def.name}' hat keinen Abschluss für ${plan.seals.length} Kanten.`);
+  }
+  const depthOf = new Map<string, number>(plan.cells.map((c) => [cellKey(c.cell), c.depth]));
+  for (const seal of plan.seals) {
+    const { pos, rot } = sealPose(seal.cell, seal.direction, plate!);
+    rooms.push({
+      room: plate!.name,
+      pos,
+      rot,
+      // Wie im 1.0-Pfad: Ein Abschluss erbt den Platz seiner Kante plus 1.
+      placeOrder: (depthOf.get(cellKey(seal.cell)) ?? 0) + 2,
+      seed: roomSeed(pos),
+    });
+  }
+  // `doors` und `props` bleiben leer: Türen sind G5, Deko setzt der
+  // Generator grundsätzlich nicht (das ist Sache des Editors).
+  return { rooms, doors: [], props: [] };
+}
+
+/**
+ * S10 — die Selbstprüfung.
+ *
+ * Sie prüft, was die Tafel verspricht, und zwar am fertigen Plan statt an
+ * den Zwischenständen: keine doppelt belegte Zelle, jede Graphkante
+ * beidseitig offen, 100 % Erreichbarkeit ab dem Eingang, jede Platte in
+ * einer freien Zelle (oder gegen eine Teilwand, oder Rücken an Rücken mit
+ * der Platte der Gegenseite — Zeile 2 der Tafel), und jeder Connector auf
+ * seiner Kantenmitte.
+ *
+ * Eine Verletzung ist ein PROGRAMMFEHLER, kein Datenfall: Sie wirft. Was
+ * der Aufrufer daraus macht, entscheidet {@link generateGridLayout}.
+ */
+function selfCheck(def: DungeonDef, plan: GridPlan): void {
+  const byName = new Map<string, RoomDef>(def.rooms.map((r) => [r.name, r]));
+  const cells = new Map<string, GridPlanCell>();
+  for (const c of plan.cells) {
+    const key = cellKey(c.cell);
+    if (cells.has(key)) throw new DungeonRasterError(`Zelle ${key} ist doppelt belegt.`);
+    cells.set(key, c);
+  }
+
+  const states = new Map<string, Record<Direction, EdgeState>>();
+  for (const c of plan.cells) {
+    const rd = byName.get(c.module);
+    if (!rd) throw new DungeonRasterError(`Modul '${c.module}' steht nicht im Kit '${def.name}'.`);
+    const module = gridModuleFromRoomDef(rd);
+    // Der Zeuge aus S6: Die Kit-Geometrie darf sich unter der Erklärung
+    // nicht wegbewegen.
+    assertConnectorsOnEdges(rd, c.cell, c.yaw, module);
+    states.set(cellKey(c.cell), worldEdgeStates(module, c.yaw));
+  }
+
+  for (const c of plan.cells) {
+    const mine = states.get(cellKey(c.cell))!;
+    for (const d of c.edges) {
+      if (mine[d] !== 'open') {
+        throw new DungeonRasterError(
+          `Zelle ${cellKey(c.cell)}: Graphkante ${d} ist im Modul '${c.module}' '${mine[d]}'.`
+        );
+      }
+      const other = cells.get(cellKey(neighbourCell(c.cell, d)));
+      if (!other || !other.edges.includes(OPPOSITE_DIRECTION[d])) {
+        throw new DungeonRasterError(`Zelle ${cellKey(c.cell)}: Graphkante ${d} ist einseitig.`);
+      }
+    }
+  }
+
+  // Erreichbarkeit — der Punkt, an dem „Spannbaum“ von einer Absicht zu
+  // einer geprüften Aussage wird.
+  const seen = new Set<string>([cellKey(ENTRANCE_CELL)]);
+  const queue: GridCell[] = [ENTRANCE_CELL];
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    for (const d of cells.get(cellKey(cur))?.edges ?? []) {
+      const nb = neighbourCell(cur, d);
+      if (seen.has(cellKey(nb))) continue;
+      seen.add(cellKey(nb));
+      queue.push(nb);
+    }
+  }
+  if (seen.size !== plan.cells.length) {
+    throw new DungeonRasterError(
+      `${plan.cells.length - seen.size} von ${plan.cells.length} Zellen sind vom Eingang aus unerreichbar.`
+    );
+  }
+
+  const sealed = new Set<string>();
+  for (const seal of plan.seals) {
+    const key = `${cellKey(seal.cell)}#${seal.direction}`;
+    if (sealed.has(key)) throw new DungeonRasterError(`Zwei Platten auf derselben Kante ${key}.`);
+    sealed.add(key);
+    const host = cells.get(cellKey(seal.cell));
+    if (!host) throw new DungeonRasterError(`Platte auf ${key} steht an keiner Zelle.`);
+    if (states.get(cellKey(seal.cell))![seal.direction] !== 'open') {
+      throw new DungeonRasterError(`Platte auf ${key} steht vor einer Wand statt vor einer Öffnung.`);
+    }
+    if (host.edges.includes(seal.direction)) {
+      throw new DungeonRasterError(`Platte auf ${key} steht vor einem Durchgang.`);
+    }
+    const behind = cells.get(cellKey(neighbourCell(seal.cell, seal.direction)));
+    if (!behind) continue; // Zeile 5: Fels — der Regelfall
+    const facing = states.get(cellKey(behind.cell))![OPPOSITE_DIRECTION[seal.direction]];
+    // Zeile 4 (Teilwand) und Zeile 2 (Rücken an Rücken) sind die beiden
+    // Fälle, in denen ein Plattenkörper in einer belegten Zelle liegen
+    // DARF. Alles andere ist der Befund von G1.
+    if (facing !== 'wallPartial' && facing !== 'open') {
+      throw new DungeonRasterError(
+        `Platte auf ${key} liegt im Körper von '${behind.module}' (Kante '${facing}').`
+      );
+    }
+  }
+
+  // Und die Gegenrichtung: keine offene Kante ohne Durchgang und ohne Platte.
+  for (const c of plan.cells) {
+    const mine = states.get(cellKey(c.cell))!;
+    for (const d of DIRECTIONS) {
+      if (mine[d] !== 'open' || c.edges.includes(d) || c.entrancePort === d) continue;
+      if (!sealed.has(`${cellKey(c.cell)}#${d}`)) {
+        throw new DungeonRasterError(`Zelle ${cellKey(c.cell)}: Kante ${d} ist offen und unversiegelt.`);
+      }
+    }
+  }
+}
+
+/**
+ * Der deterministische Rückfall (S10).
+ *
+ * Eingang plus Platten auf allen Kanten ausser dem Eingangsport — ein
+ * winziges, aber vollständiges und begehbares Grab. Bewusst OHNE Saat:
+ * Ein Neu-Würfeln nach einem Programmfehler wäre der Determinismusbruch,
+ * den der ganze Pfad vermeiden soll (Vorbild `dungeon2/generator.ts`).
+ */
+export function fallbackGridLayout(def: DungeonDef): DungeonLayout {
+  const entranceDef = def.rooms.find((r) => r.entrance);
+  if (!entranceDef) throw new DungeonRasterError(`Kit '${def.name}' hat keinen Eingangsraum.`);
+  const module = gridModuleFromRoomDef(entranceDef);
+  const anchor = module.anchor;
+  if (!anchor) throw new DungeonRasterError(`'${entranceDef.name}' hat keinen Eingangsconnector.`);
+  const yaw = YAWS.find((y) => rotateDirection(anchor.direction, y) === ENTRANCE_PORT_DIRECTION);
+  if (yaw === undefined) throw new DungeonRasterError(`Eingangsport von '${entranceDef.name}' passt auf keine Gierung.`);
+  const states = worldEdgeStates(module, yaw);
+  const plan: GridPlan = {
+    cells: [
+      {
+        cell: ENTRANCE_CELL,
+        module: entranceDef.name,
+        yaw,
+        depth: 0,
+        edges: [],
+        entrancePort: ENTRANCE_PORT_DIRECTION,
+      },
+    ],
+    seals: DIRECTIONS.filter((d) => states[d] === 'open' && d !== ENTRANCE_PORT_DIRECTION).map((d) => ({
+      cell: ENTRANCE_CELL,
+      direction: d,
+    })),
+  };
+  return layoutFromPlan(def, plan);
+}
+
+/**
+ * Der Rasterpfad: aus Kit und Saat ein `DungeonLayout` — Format
+ * unverändert, Weg neu.
+ *
+ * `generateDungeonLayout` bleibt unangetastet; welcher Weg für ein Kit
+ * gilt, entscheidet ab G8 ein Verteiler. Bis dahin ruft nur an, wer den
+ * neuen Weg ausdrücklich will (Messskript, Tests).
+ */
+export function generateGridLayout(
+  def: DungeonDef,
+  seed: number,
+  settingsIn?: Partial<DungeonGeneratorSettings>,
+  options?: GridGeneratorOptions
+): DungeonLayout {
+  try {
+    const plan = planGridDungeon(def, seed, settingsIn);
+    selfCheck(def, plan);
+    return layoutFromPlan(def, plan);
+  } catch (error) {
+    if (options?.strict) throw error;
+    return fallbackGridLayout(def);
   }
 }

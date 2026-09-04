@@ -10,7 +10,12 @@ Repos ist ein Skript, das beim nächsten Checkout fehlt.
 
 Es gilt die Regel aus `tools/README.md`: **Alles hier ist Rezept, nicht
 Ergebnis.** Die Ausgabeordner `out/` und `preview/` der Quellorte sind
-deshalb bewusst *nicht* mitgezogen worden.
+deshalb bewusst *nicht* mitgezogen worden — sie stehen weiterhin dort, wo
+sie entstanden sind.
+
+Seit S2 (04.09.2026) sind die Quellordner **geleert**: `~/wov-ai/elements/`
+und `~/wov-ai/pipeline-1.0/` enthalten nur noch ihre `VERSCHOBEN.md` und
+ihre Ergebnisordner. Was hier liegt, ist damit die einzige Fassung.
 
 ## Kopfzeilen-Konvention
 
@@ -41,18 +46,39 @@ node tools/elements/pipeline/<skript>.mjs <argumente>     # oft mit Playwright
 ```
 
 Die Bauskripte nehmen ihr Ziel als Argument (`make-stonevault.py`:
-`OUT = ARGS[0]`), die Sonden bekommen den GLB-Ordner übergeben. Hart
-verdrahtet ist nur die `ALIAS`-Tabelle in `dach-sonde.py`/`strahl-sonde.py`;
-sie ist unverändert mitgewandert.
+`OUT = ARGS[0]`), die Sonden bekommen den GLB-Ordner übergeben.
+
+## Orte: kein Skript kennt einen Pfad ausserhalb des Repos
+
+Das ist die Zusage von S2, und sie ist der eigentliche Inhalt des Umzugs:
+Ein Skript, das `~/wov-ai/…` fest verdrahtet hat, ist **auf Mikes Rechner**
+umgezogen und sonst nirgends — es findet seine Datei ja weiterhin am alten
+Ort. Rot wird das erst beim nächsten Checkout, und dann erklärt es niemand
+mehr. Deshalb gilt:
+
+| Was | Woher | Vorgabe |
+|---|---|---|
+| Eingabe-GLBs | `$WOV_MODELLE` | `assets/models` dieses Repos |
+| Ergebnisse (GLB, PNG) | `$WOV_ELEMENTE_AUS` | `~/wov-elemente` — **ausserhalb** des Repos, denn Ergebnis ist kein Rezept |
+| Quelltexturen | `pipeline/quellen/` | liegen seit S1 im Repo |
+
+`tools/elements/pruefe-pfade.mjs` hält das fest und hängt neben dem
+Kopfzeilen-Wächter in `scripts/run-tests.mjs`. **Kommentare sind
+ausgenommen:** Woher eine Datei kam, gehört in ihren Kopf — verboten ist der
+fremde Ort dort, wo ihn ein Lauf benutzt.
+
+Die `ALIAS`-Tabelle in `dach-sonde.py`/`strahl-sonde.py`/`render-szene.py`
+ist keine Pfadtabelle, sondern eine Namenstabelle (`StoneVaultEntry` teilt
+sich die GLB mit `StoneVaultCell`, wie `MODELL_ALIAS` im Client). Sie ist
+unverändert mitgewandert.
 
 ## Inventur
 
 Aufgenommen **vor** dem Bewegen, gegen die Quellordner in dem Zustand vom
 04.09.2026. 43 Dateien plus fünf Quelltexturen sind aus `~/wov-ai/` kopiert
-(nicht verschoben — die alten Orte tragen jetzt eine `VERSCHOBEN.md` und
-werden erst geleert, wenn ein voller Kit-Neubau aus dem neuen Ort dieselben
-Kennzahlen liefert, s. Meilenstein S2). Eine Datei kam per `git mv` aus dem
-Repo selbst.
+(zunächst kopiert, nicht verschoben; seit dem Kit-Neubau von S2 sind die
+alten Orte geleert und tragen nur noch ihre `VERSCHOBEN.md`). Eine Datei kam
+per `git mv` aus dem Repo selbst, drei sind hier entstanden.
 
 ### Wurzel — aus `~/wov-ai/elements/`
 
@@ -109,7 +135,7 @@ Repo selbst.
 | `make-frost.py` | `tools/elements/pipeline/make-frost.py` | Erzeugt: die Frost-Variante einer Stein-Albedo — dieselbe Maske, aber bläulich-weiß und aufhellend. |
 | `make-wet.py` | `tools/elements/pipeline/make-wet.py` | Erzeugt: die Nass-Variante einer Stein-Albedo — dunkler und gesättigter; der Glanz kommt aus der Rauheit in texture-kit.py. |
 | `assemble-corridor.py` | `tools/elements/pipeline/assemble-corridor.py` | Erzeugt: das Innenbild mehrerer aneinandergesetzter Gang-Segmente aus Spielersicht. |
-| `run-kit.sh` | `tools/elements/pipeline/run-kit.sh` | Hilfsmittel: fährt die Textur-Pipeline über alle Kit-Elemente und legt spieltaugliche GLBs nach out/. |
+| `run-kit.sh` | `tools/elements/pipeline/run-kit.sh` | Hilfsmittel: fährt die Textur-Pipeline über alle Kit-Elemente und legt spieltaugliche GLBs nach `$WOV_ELEMENTE_AUS/out`. |
 | `variants.sh` | `tools/elements/pipeline/variants.sh` | Hilfsmittel: baut Moos-, Frost- und Nass-Variante des Steingrab-Gangs in einem Zug. |
 | `shot.mjs` | `tools/elements/pipeline/shot.mjs` | Hilfsmittel: nimmt eine Seite des Vorschau-Servers im Browser auf (Playwright, Vulkan-Flags) und meldet Konsolenfehler. |
 | `sections-shot.mjs` | `tools/elements/pipeline/sections-shot.mjs` | Hilfsmittel: nimmt die Abschnitts-Ansicht auf und meldet Seitenfehler und 404er. |
@@ -144,6 +170,19 @@ tragen deshalb keine Kopfzeile; der Wächter überspringt den Ordner.
 > liegen alle fünf hier. Wer nur `stein_albedo.png` behalten will, muss das
 > **vor dem ersten Push** entscheiden: danach kostet es eine
 > History-Umschrift.
+
+### Hier entstanden — nicht aus `~/wov-ai/`
+
+| Datei | Zweck |
+|---|---|
+| `pruefe-koepfe.mjs` | Prüft: dass jede Datei unter `tools/elements/` eine Kopfzeile `Erzeugt:`/`Prüft:`/`Hilfsmittel:` trägt (S1). |
+| `pruefe-pfade.mjs` | Prüft: dass kein Skript hier einen Ort ausserhalb des Repos fest verdrahtet hat (S2). |
+| `pruefung/kit-neubau.mjs` | Prüft: einen vollen Neubau aller zwölf DG_StoneVault-Module gegen die ausgelieferten GLBs — sechs Felder je Objekt (S2). |
+| `pipeline/aufnahmen.mjs` | Hilfsmittel: sagt den fünf Browser-Aufnahmen, wohin ihre PNG gehören — ein Ort, einmal festgelegt (S2). |
+
+`kit-neubau.mjs` hängt **noch nicht** in `scripts/run-tests.mjs`: Er braucht
+Blender *und* `assets/`, und die Weiche `brauchtBlender()` dafür ist
+Meilenstein S3. Bis dahin wird er von Hand gefahren.
 
 ### ts/ — noch leer
 

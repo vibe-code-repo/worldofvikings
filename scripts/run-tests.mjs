@@ -66,6 +66,21 @@ const KERN = [
     Header convention guard for tools/elements/ — text only, ~0.1 s.
   */
   ['tools/elements', 'pruefe-koepfe.mjs'],
+  /*
+    S2 (Elemente-Umzug): der Pfad-Wächter, direkt neben dem Kopfzeilen-
+    Wächter und aus demselben Grund hier vorn — er liest Text, sonst nichts.
+
+    Er hält die Zusage des Umzugs fest: Kein Skript unter `tools/elements/`
+    nennt einen Ort ausserhalb des Repos. Ohne ihn ist der Umzug nur auf
+    Mikes Rechner fertig, denn dort gibt es `~/wov-ai` weiterhin — ein
+    Skript, das seine Datei am alten Ort findet, sieht wie ein umgezogenes
+    aus. Rot wird das erst beim nächsten Checkout, und dann erklärt es
+    niemand mehr.
+
+    Guards the move: no script under tools/elements/ names a path outside
+    the repo. Text only, ~0.1 s.
+  */
+  ['tools/elements', 'pruefe-pfade.mjs'],
   // Naht zwischen Kopf- und Rumpfdateien der Weltdaten (Bundle-Schnitt):
   // laeuft in Sekunden und faengt genau den Fehler, den sonst niemand sieht.
   ['shared', 'test/weltdaten-schnitt.ts'],

@@ -1,6 +1,7 @@
 // Hilfsmittel: nimmt die Streu-Probe auf und meldet Seitenfehler und 404er.
 
 import { chromium } from 'playwright';
+import { aufnahme } from './aufnahmen.mjs';
 const PORT = process.env.PORT || 5901;
 const b = await chromium.launch({ headless: true, args: ['--use-angle=vulkan','--enable-features=Vulkan','--ignore-gpu-blocklist'] });
 const p = await b.newPage({ viewport: { width: 760, height: 500 } });
@@ -16,7 +17,7 @@ const zs=[6,22,38,54];
 for (let i=0;i<zs.length;i++){
   await p.evaluate(({x,y,z})=>{ const k=window.__steingrab.kamera; const V=k.position.constructor; k.position.set(x,y,z); k.setTarget(new V(x,y-0.3,z+40)); }, {x:base.x,y:base.y,z:zs[i]});
   await p.waitForTimeout(450);
-  await p.screenshot({ path:`${process.env.HOME}/wov-ai/pipeline-1.0/preview/streu-${i}.png` });
+  await p.screenshot({ path:aufnahme(`streu-${i}.png`) });
 }
 await b.close();
 console.log('SHOTS OK'); if(errs.length) console.log('ERR', errs.slice(0,6).join(' | ')); if(f404.length) console.log('404', [...new Set(f404)].join(' | '));

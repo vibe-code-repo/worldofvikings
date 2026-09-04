@@ -37,10 +37,18 @@ Bauskript ausserhalb des Repos lag.
 | `elements/pipeline/` | Textur-Pipeline (`texture-kit.py`, `make-normal/moss/frost/wet.py`) und die Browser-Aufnahmen; Quelltexturen unter `quellen/`. |
 | `elements/ts/` | Noch leer — für die TypeScript-Werkzeuge aus Vorhaben 1. |
 
-Dort gilt zusätzlich eine **Kopfzeilen-Konvention**: Die erste Kommentarzeile
-jeder Datei beginnt mit `Erzeugt:`, `Prüft:` oder `Hilfsmittel:`.
-`tools/elements/pruefe-koepfe.mjs` hält das fest und hängt in
-`scripts/run-tests.mjs` als schneller, assetfreier Prüfer.
+Dort gelten zusätzlich zwei Konventionen, beide mit einem Wächter in
+`scripts/run-tests.mjs` (schnell und assetfrei — sie lesen nur Text):
+
+- **Kopfzeile.** Die erste Kommentarzeile jeder Datei beginnt mit `Erzeugt:`,
+  `Prüft:` oder `Hilfsmittel:` — `tools/elements/pruefe-koepfe.mjs`.
+- **Orte.** Kein Skript verdrahtet einen Pfad ausserhalb des Repos; Eingaben
+  kommen aus `$WOV_MODELLE` (Vorgabe `assets/models`), Ergebnisse gehen nach
+  `$WOV_ELEMENTE_AUS` (Vorgabe `~/wov-elemente`) — `tools/elements/pruefe-pfade.mjs`.
+
+Seit dem 04.09.2026 sind die alten Orte `~/wov-ai/elements/` und
+`~/wov-ai/pipeline-1.0/` geleert; sie tragen nur noch eine `VERSCHOBEN.md`
+und ihre Ergebnisordner.
 
 ---
 

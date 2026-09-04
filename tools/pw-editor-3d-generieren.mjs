@@ -6,7 +6,12 @@
  * (3) als Testcharakter betreten und fotografieren.
  * Browser check of the editor's 3D view and in-browser generation.
  *
- *   node tools/pw-editor-3d-generieren.mjs [docId=gen-probe] [raeume=12] [zone=32]
+ *   node tools/pw-editor-3d-generieren.mjs [docId=gen-probe] [raeume=12] [zone=32] [seed]
+ *
+ * Ohne `seed` wuerfelt der Lauf wie bisher ("Neu wuerfeln"). MIT `seed`
+ * wird die Zahl ins Feld geschrieben und NICHT mehr gewuerfelt — sonst
+ * laesst sich kein bestimmtes Grab vorfuehren: Ein Saal, den nur jede
+ * fuenfte Saat setzt, waere sonst Gluecksache statt Probe.
  *
  * Basic-Auth über httpCredentials. Bilder: ~/.cache/wov-stonevault-sicht/editor3d-*.png
  */
@@ -18,7 +23,7 @@ const HOST_SPIEL = 'https://play.dev.world-of-vikings.com';
 const ORDNER = `${process.env.HOME}/.cache/wov-stonevault-sicht`;
 const CREDS = { username: process.env.WOV_DEV_USER ?? 'Admin', password: process.env.WOV_DEV_PASS ?? '!T3mp12345' };
 const GPU_FLAGS = ['--use-angle=vulkan', '--enable-features=Vulkan', '--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
-const [docId = 'gen-probe', raeumeRoh = '12', zoneRoh = '32'] = process.argv.slice(2);
+const [docId = 'gen-probe', raeumeRoh = '12', zoneRoh = '32', seedRoh = ''] = process.argv.slice(2);
 mkdirSync(ORDNER, { recursive: true });
 
 const browser = await chromium.launch({ headless: true, args: GPU_FLAGS });
@@ -47,16 +52,24 @@ await seite.waitForTimeout(500);
 const felder = await seite.evaluate(([r, z]) => {
   const s = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
   const setze = (el, v) => { if (!el) return false; s.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); return true; };
+  // Die beiden Zahlenfelder heissen BEIDE „Kit-Vorgabe" und stehen in
+  // EINER Zeile — die Beschriftung davor ist Text, kein Label. Sie ueber
+  // den Zeilentext zu suchen ging schief, seit die Beschriftung am
+  // Rasterkit „Zellen" statt „Räume (Versuche)" lautet: Der Zeilentext
+  // enthaelt dann beide Woerter, und das erste Feld bekam die ZONE.
+  // Deshalb ueber die DOM-Reihenfolge: erst Zellen/Räume, dann Zone.
   const inputs = [...document.querySelectorAll('input')];
-  const raeume = inputs.find((i) => /R.ume/.test(i.placeholder) || /R.ume/.test(i.previousElementSibling?.textContent ?? '') || /R.ume/.test(i.parentElement?.textContent ?? ''));
-  const zone = inputs.find((i) => /^Zone/.test(i.placeholder) || /Zone/.test(i.parentElement?.textContent ?? '') && i !== raeume);
+  const [raeume, zone] = inputs.filter((i) => i.placeholder === 'Kit-Vorgabe');
   return { raeume: setze(raeume, r), zone: setze(zone, z), platzhalter: inputs.map((i) => i.placeholder).filter(Boolean) };
 }, [raeumeRoh, zoneRoh]);
 console.log(`1. Formular: basis ${basisOk}, voll ${haekchen}, Felder ${JSON.stringify(felder)}`);
+if (seedRoh) await setzeFeld('input[placeholder^="Seed"]', seedRoh);
 await knopf('Vorschau'); await seite.waitForTimeout(1500);
 const nachVorschau = await kopf();
 await bild('vorschau');
-await knopf('Neu würfeln'); await seite.waitForTimeout(1500);
+// „Neu würfeln" nur ohne vorgegebenen Seed — es überschreibt das Feld.
+if (!seedRoh) await knopf('Neu würfeln');
+await seite.waitForTimeout(1500);
 const nachWurf = await kopf();
 console.log(`   Vorschau: ${nachVorschau} | Neu würfeln: ${nachWurf}`);
 await knopf('Anlegen & speichern'); await seite.waitForTimeout(7000);

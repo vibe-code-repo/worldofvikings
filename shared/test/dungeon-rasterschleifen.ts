@@ -37,6 +37,7 @@ import {
   gridModuleFromRoomDef,
   isHorizontal,
   type Direction,
+  type EdgeState,
 } from '../src/dungeonRasterModul.js';
 import {
   DEFAULT_GRID_TUNING,
@@ -45,12 +46,11 @@ import {
   compareEdges,
   edgeCenterWorld,
   generateGridLayout,
+  moduleWorldEdgeStates,
   neighbourCell,
   planArchways,
   planGridDungeon,
-  rotateDirection,
   selectEdges,
-  type Yaw,
   type GridEdge,
   type GridPlan,
 } from '../src/dungeonRasterGenerator.js';
@@ -95,13 +95,48 @@ function isCorridorModule(room: string): boolean {
   return gridModuleFromRoomDef(rd).cells.some((c) => HORIZONTAL.some((d) => c.edges[d] === 'wall'));
 }
 
-/** Die offenen Weltkanten einer Planzelle, aus der Modulerklärung (G2). */
-function openDirections(room: string, yaw: Yaw): Direction[] {
-  const rd = roomByName.get(room);
-  if (!rd) throw new Error(`Raum '${room}' nicht im Kit`);
-  const cell = gridModuleFromRoomDef(rd).cells[0];
-  if (!cell) throw new Error(`Modul '${room}' hat keine Zelle`);
-  return HORIZONTAL.filter((d) => cell.edges[d] === 'open').map((d) => rotateDirection(d, yaw));
+/**
+ * Die Kantenzustände JEDER belegten Weltzelle, aus der Modulerklärung
+ * (G2) über die Räume des Plans.
+ *
+ * Bis G5 stand hier `cells[0]` — für ein einzelliges Modul ist das die
+ * ganze Wahrheit. Mit dem Stempel aus G6 nicht mehr: Die vier Zellen
+ * einer Halle haben verschiedene Aussenkanten, und `cells[0]` erklärte
+ * drei davon falsch (jede Innenkante sähe wie eine Aussenkante aus).
+ * Gefragt wird deshalb je RAUM und über dieselbe Rückrechnung, mit der
+ * der Generator die Module in die Welt legt.
+ */
+function statesOf(plan: GridPlan): Map<string, Record<Direction, EdgeState>> {
+  const out = new Map<string, Record<Direction, EdgeState>>();
+  for (const room of plan.rooms) {
+    const rd = roomByName.get(room.module);
+    if (!rd) throw new Error(`Raum '${room.module}' nicht im Kit`);
+    for (const [key, rec] of moduleWorldEdgeStates(room.cell, room.yaw, gridModuleFromRoomDef(rd))) {
+      out.set(key, rec);
+    }
+  }
+  return out;
+}
+
+/**
+ * Zyklen, die ein mehrzelliger Raum schon in sich trägt (G6).
+ *
+ * Eine 2 × 2-Halle hat vier Innenkanten zwischen vier Zellen — als Graph
+ * gelesen ist das ein Ring, also ein Zyklus, den keine Schleife gezogen
+ * hat. Ohne diesen Term behauptete die Prüfung „Baum plus Schleifen" einen
+ * Fehler, wo nur ein Raum steht.
+ */
+function stampCycles(plan: GridPlan): number {
+  const roomOf = new Map(plan.cells.map((c) => [cellKey(c.cell), c.room]));
+  let inner = 0;
+  for (const c of plan.cells) {
+    for (const d of c.edges) {
+      if (roomOf.get(cellKey(neighbourCell(c.cell, d))) === c.room) inner++;
+    }
+  }
+  // Σ je Raum (Innenkanten − (Zellen − 1)); über alle Räume summiert ist
+  // der Abzug genau `Zellen − Räume`.
+  return inner / 2 - (plan.cells.length - plan.rooms.length);
 }
 
 /** Nachbarschaften zwischen zwei belegten Zellen, die KEIN Durchgang sind. */
@@ -168,10 +203,12 @@ console.log('\n2) Schleifenanteil im Zielband');
   let loops = 0;
   let walls = 0;
   let cycles = 0;
+  let stamps = 0;
   for (const seed of SEEDS) {
     const plan = planGridDungeon(kit, seed);
     loops += plan.loops.length;
     walls += doubleWalls(plan);
+    stamps += stampCycles(plan);
     const edges = plan.cells.reduce((n, c) => n + c.edges.length, 0) / 2;
     cycles += edges - (plan.cells.length - 1);
   }
@@ -181,10 +218,13 @@ console.log('\n2) Schleifenanteil im Zielband');
     share >= 0.3 && share <= 0.4,
     `Schleifenanteil ${(share * 100).toFixed(1)} %, erwartet 30…40 % (Vorgabe ${DEFAULT_GRID_TUNING.loopFraction})`
   );
-  check(cycles === loops, `${cycles} Zyklen, aber ${loops} Schleifenkanten — der Graph ist kein Baum + Schleifen`);
+  check(
+    cycles === loops + stamps,
+    `${cycles} Zyklen, aber ${loops} Schleifenkanten + ${stamps} Stempelringe — kein Baum + Schleifen + Stempel`
+  );
   console.log(
     `  40 Saaten: ${loops} Schleifen, ${walls} verbleibende Doppelwände, ` +
-      `Anteil ${(share * 100).toFixed(1)} %, ${cycles} Zyklen`
+      `Anteil ${(share * 100).toFixed(1)} %, ${cycles} Zyklen (davon ${stamps} aus Stempeln)`
   );
 }
 
@@ -197,22 +237,31 @@ console.log('\n3) Schleifen brechen die G4-Invarianten nicht');
   for (const seed of SEEDS) {
     const plan = planGridDungeon(kit, seed);
     const occupied = new Map(plan.cells.map((c) => [cellKey(c.cell), c]));
+    const states = statesOf(plan);
     for (const c of plan.cells) {
-      const open = new Set(openDirections(c.module, c.yaw));
+      const mine = states.get(cellKey(c.cell))!;
+      const open = HORIZONTAL.filter((d) => mine[d] === 'open');
       for (const d of c.edges) {
-        check(open.has(d), `Saat ${seed}: Zelle ${cellKey(c.cell)} — Graphkante ${d} ist im Modul keine Öffnung`);
+        check(mine[d] === 'open', `Saat ${seed}: Zelle ${cellKey(c.cell)} — Graphkante ${d} ist im Modul keine Öffnung`);
         const nb = occupied.get(cellKey(neighbourCell(c.cell, d)));
         check(
           nb !== undefined && nb.edges.includes(OPPOSITE_DIRECTION[d]),
           `Saat ${seed}: Kante ${cellKey(c.cell)}→${d} ist einseitig`
         );
       }
-      // Und die Gegenrichtung: jede überzählige Öffnung zeigt auf Fels.
+      // Und die Gegenrichtung: jede überzählige Öffnung zeigt auf Fels
+      // ODER auf die eingebaute Wand des Nachbarn (Zeile 3 der Tafel).
+      // Der zweite Fall entsteht erst mit dem Stempel aus G6 — die Halle
+      // hat acht Öffnungen und keine Wahl, wo sie sie hinlegt. Was sie
+      // NICHT geben darf, ist zwei offene Kanten ohne Durchgang: Dort
+      // stünden zwei Platten Rücken an Rücken in fremden Zellen.
       for (const d of open) {
         if (c.edges.includes(d) || c.entrancePort === d) continue;
+        const nb = occupied.get(cellKey(neighbourCell(c.cell, d)));
+        if (!nb) continue;
         check(
-          !occupied.has(cellKey(neighbourCell(c.cell, d))),
-          `Saat ${seed}: Zelle ${cellKey(c.cell)} ist nach ${d} offen, dort steht ein Nachbar ohne Kante`
+          states.get(cellKey(nb.cell))![OPPOSITE_DIRECTION[d]] === 'wall',
+          `Saat ${seed}: Zelle ${cellKey(c.cell)} ist nach ${d} offen, dort steht '${nb.module}' ohne Kante und ohne Wand`
         );
       }
     }
@@ -314,8 +363,14 @@ console.log('\n5) Der Türsatz hängt nicht an der Iterationsreihenfolge');
 {
   for (const seed of SEEDS.slice(0, 10)) {
     const plan = planGridDungeon(kit, seed);
-    const vorwaerts = planArchways(kit, plan.cells, seed, DEFAULT_GRID_TUNING.archwayFraction);
-    const rueckwaerts = planArchways(kit, [...plan.cells].reverse(), seed, DEFAULT_GRID_TUNING.archwayFraction);
+    const vorwaerts = planArchways(kit, plan.rooms, plan.cells, seed, DEFAULT_GRID_TUNING.archwayFraction);
+    const rueckwaerts = planArchways(
+      kit,
+      [...plan.rooms].reverse(),
+      [...plan.cells].reverse(),
+      seed,
+      DEFAULT_GRID_TUNING.archwayFraction
+    );
     check(
       JSON.stringify(vorwaerts) === JSON.stringify(rueckwaerts),
       `Saat ${seed}: vertauschte Zellreihenfolge liefert einen anderen Türsatz`
@@ -379,7 +434,10 @@ console.log('\n7) Die Regler-Enden und der Determinismus');
     const plan = planGridDungeon(kit, seed, withTuning(0, 0));
     const edges = plan.cells.reduce((n, c) => n + c.edges.length, 0) / 2;
     check(plan.loops.length === 0, `Saat ${seed}: loopFraction 0 erzeugt ${plan.loops.length} Schleifen`);
-    check(edges === plan.cells.length - 1, `Saat ${seed}: loopFraction 0 ist kein Baum (${edges} Kanten)`);
+    check(
+      edges === plan.cells.length - 1 + stampCycles(plan),
+      `Saat ${seed}: loopFraction 0 ist kein Baum + Stempelringe (${edges} Kanten, ${stampCycles(plan)} Ringe)`
+    );
     check(plan.archways.length === 0, `Saat ${seed}: archwayFraction 0 erzeugt ${plan.archways.length} Torbögen`);
     // loopFraction 1 = jede Nachbarschaft ist ein Durchgang.
     const voll = planGridDungeon(kit, seed, withTuning(1, 0));

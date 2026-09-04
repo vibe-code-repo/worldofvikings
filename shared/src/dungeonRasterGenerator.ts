@@ -1,14 +1,23 @@
 /**
- * Rastergenerator des Modul-Kits — Meilenstein G3 der Konzeptnotiz
- * „Modul-Generierung 2.0-Logik“: die Abbildung Raster ↔ Welt.
+ * Rastergenerator des Modul-Kits — Meilensteine G3…G6 der Konzeptnotiz
+ * „Modul-Generierung 2.0-Logik“.
  *
  * ── Wofür ────────────────────────────────────────────────────────────
  * G2 hat jedes Modul dazu gebracht, sich selbst zu beschreiben — in
  * MODUL-lokalen Zellen. Hier bekommt diese Beschreibung einen Ort in der
  * Welt: Welche Weltzelle belegt ein platziertes Modul, wo liegt die Mitte
  * einer Zellkante, und welche `PlacedRoom`-Pose gehört zu einer Zelle und
- * einer Gierung. Der eigentliche Generator (Zellmenge, Spannbaum,
- * Modulwahl, Versiegelung) entsteht darauf ab G4.
+ * einer Gierung (G3). Darauf steht der Generator selbst: Zellmenge,
+ * Spannbaum, Modulwahl und Versiegelung (G4), Schleifen und Torbögen
+ * (G5), und der Stempel — EIN Modul über MEHRERE Zellen (G6).
+ *
+ * ── Raum und Zelle sind seit G6 zweierlei ────────────────────────────
+ * Bis G5 waren sie dasselbe: ein Modul, eine Zelle, eine Kantentafel.
+ * Der Stempel trennt sie. Der GRAPH läuft weiter auf Zellen (auch die
+ * vier Zellen einer Halle sind untereinander verbunden — man kann
+ * zwischen ihnen gehen), die PLATZIERUNG läuft auf Räumen. Wer die
+ * beiden verwechselt, baut die Halle viermal übereinander oder legt sie
+ * eine Zelle neben ihre eigenen Türen; beides wirft keine Ausnahme.
  *
  * ── Die eine Regel dieser Datei ──────────────────────────────────────
  * **Ganzzahlige Zellschlüssel sind die einzige Wahrheit; Weltkoordinaten
@@ -399,12 +408,13 @@ export function assertConnectorsOnEdges(
 // hat. „Öffnung ins Leere“ ist damit kein Prüfergebnis mehr, sondern ein
 // Zustand, den die Datenstruktur nicht ausdrücken kann.
 //
-// ── Was G4 noch NICHT kann ───────────────────────────────────────────
-// Nur Einzelzellen, eine Ebene, keine Schleifen, keine Türen. Halle
-// (2 × 2) und Treppe (3 Zellen auf zwei Ebenen) bleiben liegen, bis das
-// Kantenmodell sie in G6/G7 mit Stempeln trägt; Schleifen und Torbögen
-// sind G5. Die Module sind trotzdem alle erklärt (G2) — G4 wählt aus den
-// EINZELLIGEN, statt so zu tun, als gäbe es die anderen nicht.
+// ── Was hier noch NICHT steht ────────────────────────────────────────
+// Eine Ebene. Die Treppe (3 Zellen auf ZWEI Ebenen, mit gesperrter
+// Gegenebene und `wandTeilweise`-Flanken) ist G7 und bleibt liegen — sie
+// ist kein grösserer Stempel, sondern ein anderes Problem. Die Halle
+// (2 × 2, eine Ebene) trägt G6 als Stempel: Sie wird VOR dem
+// Kantenausbau reserviert (S3), statt aus einem Öffnungsmuster gewählt
+// zu werden.
 // ═════════════════════════════════════════════════════════════════════
 
 /**
@@ -422,6 +432,10 @@ const SALT_MODULE = 0x6d6f6475; // 'modu'
 const SALT_LOOP = 0x6c6f6f70; // 'loop'
 const SALT_ARCHWAY = 0x61726368; // 'arch'
 const SALT_ARCHWAY_TYPE = 0x61727479; // 'arty'
+const SALT_STAMP = 0x7374616d; // 'stam'
+const SALT_STAMP_PICK = 0x73747069; // 'stpi'
+const SALT_STAMP_YAW = 0x73747961; // 'stya'
+const SALT_STAMP_BLOCK = 0x7374626c; // 'stbl'
 
 /** Die vier waagerechten Kanten — Boden und Decke wachsen in G4 nicht. */
 const HORIZONTAL_DIRECTIONS: readonly Direction[] = DIRECTIONS.filter(isHorizontal);
@@ -480,12 +494,36 @@ export interface GridTuning {
    * Rahmen mitten darin ist genau die „viele Bögen“-Beobachtung.
    */
   readonly archwayFraction: number;
+  /**
+   * Anteil der wachsenden Zellen, an denen statt einer Einzelzelle ein
+   * STEMPEL versucht wird (0…1) — G6, in der Konzeptnotiz `hallAnteil`.
+   *
+   * Ein Versuch, keine Zusage: Der Stempel braucht vier freie Zellen im
+   * Block und einen freien Kranz darum (s. {@link growCells}). Die Zahl
+   * ist deshalb bewusst höher als der Anteil der Hallen, der am Ende im
+   * Grundriss steht.
+   *
+   * Warum überhaupt selten: Die Halle belegt die vierfache Fläche einer
+   * Zelle. Ein hoher Wert macht aus der Krypta eine Halle mit Gängen
+   * daran statt aus Gängen eine Krypta mit Sälen — dieselbe Begründung
+   * wie beim `weight: 1` der Halle im Kit.
+   */
+  readonly hallFraction: number;
 }
 
-/** Vorgaben der beiden Regler (Konzeptnotiz, Mikes Ergänzung 04.09.2026). */
+/**
+ * Vorgaben der Regler (Konzeptnotiz, Mikes Ergänzung 04.09.2026).
+ *
+ * `hallFraction` ist gemessen und nicht geschätzt: Über die 40 Saaten der
+ * Stichprobe ergeben 0,02 → 14 Hallen in 14 Saaten, 0,08 → 69 in 36,
+ * 0,20 → 159 in 40. Die Abnahme des Meilensteins verlangt „Halle in ≥ 10
+ * von 40"; 0,08 hält das mit Abstand und lässt den Gang-Anteil bei
+ * 73,7 % — weit über der Dichtegrenze von 40 % aus den Risiken.
+ */
 export const DEFAULT_GRID_TUNING: GridTuning = {
   loopFraction: 0.35,
   archwayFraction: 0.25,
+  hallFraction: 0.08,
 };
 
 /**
@@ -515,18 +553,57 @@ export interface GridGeneratorOptions {
   readonly strict?: boolean;
 }
 
-/** Eine Zelle des fertigen Plans. */
-export interface GridPlanCell {
+/**
+ * Ein platziertes Modul: ein RAUM, nicht eine Zelle.
+ *
+ * Die Unterscheidung entsteht mit G6. Bis dahin waren beide dasselbe —
+ * jedes Modul belegte genau eine Zelle, und `GridPlanCell` konnte für
+ * sich stehen. Ein Stempel (die Halle, 2 × 2) trägt vier Zellen und
+ * genau EINE `PlacedRoom`-Zeile; wer weiter je Zelle ein Modul setzte,
+ * baute die Halle viermal übereinander.
+ */
+export interface GridPlanRoom {
+  /**
+   * Die ANKERZELLE — dort liegt die lokale Zelle (0,0,0) des Moduls.
+   * Bei gerader Zellzahl wandert sie mit der Gierung durch die Ecken des
+   * Fussabdrucks; wer eine Zellmenge braucht, liest {@link cells}.
+   */
   readonly cell: GridCell;
   /** Name des gewählten Moduls (`RoomDef.name`). */
   readonly module: string;
   readonly yaw: Yaw;
+  /** Kleinste BFS-Tiefe seiner Zellen; `placeOrder` ist das plus 1. */
+  readonly depth: number;
+  /**
+   * Alle belegten Weltzellen, kanonisch sortiert — aus
+   * {@link moduleWorldCells} zurückgerechnet, nie getippt. Genau das ist
+   * die Forderung des Meilensteins: Eine Tafel „Port 3 liegt auf Zelle 2“
+   * stimmt unter einer Gierung und schweigt unter den anderen drei.
+   */
+  readonly cells: readonly GridCell[];
+}
+
+/** Eine Zelle des fertigen Plans. */
+export interface GridPlanCell {
+  readonly cell: GridCell;
+  /** Name des Moduls, das diese Zelle trägt (`RoomDef.name`). */
+  readonly module: string;
+  readonly yaw: Yaw;
   /** BFS-Tiefe ab dem Eingang; `placeOrder` ist das plus 1. */
   readonly depth: number;
-  /** Graphkanten dieser Zelle in Weltrichtung, kanonisch sortiert. */
+  /**
+   * Graphkanten dieser Zelle in Weltrichtung, kanonisch sortiert.
+   *
+   * Die Innenkanten eines Stempels stehen mit drin: Die vier Zellen einer
+   * Halle sind untereinander begehbar, und wer sie hier wegliesse, müsste
+   * jede Auswertung (Versiegelung, Erreichbarkeit, Doppelwandzählung) um
+   * einen Sonderfall erweitern, den es geometrisch nicht gibt.
+   */
   readonly edges: readonly Direction[];
   /** Beim Eingangsraum die Richtung nach draussen, sonst null. */
   readonly entrancePort: Direction | null;
+  /** Index des Raums in {@link GridPlan.rooms}, der diese Zelle trägt. */
+  readonly room: number;
 }
 
 /** Eine Versiegelung: die offene Kante, vor die eine Platte gesetzt wird. */
@@ -565,6 +642,12 @@ export interface GridArchway extends GridEdge {
  * — genau die Auskunft, die dem 1.0-Pfad fehlt.
  */
 export interface GridPlan {
+  /**
+   * Die platzierten Module in BFS-Reihenfolge ab dem Eingang;
+   * `rooms[0]` ist der Eingang. Ein Stempel steht hier EINMAL, seine
+   * Zellen stehen viermal in {@link cells}.
+   */
+  readonly rooms: readonly GridPlanRoom[];
   /** BFS-Reihenfolge ab dem Eingang; `cells[0]` ist der Eingang. */
   readonly cells: readonly GridPlanCell[];
   /** Kanonisch: in Zellreihenfolge, je Zelle in {@link DIRECTIONS}-Reihenfolge. */
@@ -626,6 +709,20 @@ function edgeRoll(edge: GridEdge, seed: number, salt: number): number {
   const index = DIRECTIONS.indexOf(edge.direction);
   const mixed = edge.cell.level * DIRECTIONS.length + index;
   return hashPos(edge.cell.i, edge.cell.j, mixed, mische(seed, salt)) / 0x1_0000_0000;
+}
+
+/**
+ * Derselbe Wurf für eine ZELLE statt einer Kante (S1/S3).
+ *
+ * Der Grund ist derselbe wie bei {@link edgeRoll} und in diesem
+ * Meilenstein noch handfester: Ob an einer Stelle eine Halle steht, darf
+ * nicht davon abhängen, als wievielte Zelle sie gewachsen ist. Käme der
+ * Wurf aus dem Wachstumsstrom, verschöbe ein einziger zusätzlicher
+ * Versuch jede spätere Halle — und ein Regler auf 0 lieferte einen
+ * anderen Grundriss als der G5-Stand, obwohl er nichts stempelt.
+ */
+function cellRoll(cell: GridCell, seed: number, salt: number): number {
+  return hashPos(cell.i, cell.j, cell.level, mische(seed, salt)) / 0x1_0000_0000;
 }
 
 /**
@@ -692,11 +789,120 @@ function cellInsideZone(cell: GridCell, zoneHalf: number): boolean {
 interface GrowthCell {
   readonly cell: GridCell;
   readonly key: string;
-  /** Richtung ZUM Elter — null beim Eingang. Grundlage der Trägheit. */
+  /** Richtung ZUM Elter — null beim Eingang und in einem Stempel. Grundlage der Trägheit. */
   readonly toParent: Direction | null;
-  /** Graphkanten (in G4 ausschliesslich Spannbaumkanten). */
+  /** Graphkanten (Spannbaum, Stempel-Innenkanten, ab S4 auch Schleifen). */
   readonly edges: Set<Direction>;
   readonly entrance: boolean;
+  /** Index in {@link GrowthResult.stamps}, wenn diese Zelle zu einem Stempel gehört. */
+  readonly stamp: number | null;
+}
+
+/** Ein reservierter Stempel: ein mehrzelliges Modul mit seinem Platz (S3). */
+interface GrowthStamp {
+  readonly def: RoomDef;
+  readonly module: GridModule;
+  /** Zelle, auf der die lokale Zelle (0,0,0) liegt — aus der Rückrechnung gesucht. */
+  readonly anchor: GridCell;
+  readonly yaw: Yaw;
+  /** Die belegten Weltzellen, kanonisch sortiert. */
+  readonly cells: readonly GridCell[];
+}
+
+interface GrowthResult {
+  readonly cells: Map<string, GrowthCell>;
+  readonly stamps: readonly GrowthStamp[];
+}
+
+/** Ein mehrzelliges Modul, das als Stempel in Frage kommt. */
+interface StampOption {
+  readonly def: RoomDef;
+  readonly module: GridModule;
+}
+
+/**
+ * Die Stempel des Kits (S3) — mehrzellig, EINE Ebene, Aussenhaut ganz
+ * offen.
+ *
+ * Gesucht, nicht beim Namen genannt: Ein Kit mit einem zweiten Saal
+ * bekäme ihn sonst nie zu sehen. Die drei Bedingungen sind allerdings
+ * eng, und jede hat einen Grund:
+ *  • **mehrzellig** — einzellige Module wählt S5 über das Öffnungsmuster;
+ *    ein Stempel wird VOR dem Kantenausbau reserviert.
+ *  • **eine Ebene** — die Treppe belegt drei Zellen auf zwei Ebenen und
+ *    sperrt die Gegenebene. Das ist G7 und nicht dasselbe Problem.
+ *  • **Aussenhaut ganz offen** — nur dann ist die Gierung für den PLATZ
+ *    gleichgültig, und der Stempel lässt sich reservieren, bevor
+ *    feststeht, wo seine Nachbarn liegen. Ein Saal mit eingebauter Wand
+ *    müsste seine Gierung schon beim Wachsen aus der Nachbarschaft
+ *    ableiten — ein eigener Meilenstein, kein Zusatz hier.
+ */
+function stampModuleOptions(def: DungeonDef): StampOption[] {
+  const out: StampOption[] = [];
+  for (const room of def.rooms) {
+    if (room.endCap || room.entrance) continue;
+    const module = gridModuleFromRoomDef(room);
+    if (module.cells.length <= 1 || module.levels !== 1) continue;
+    const openSkin = module.cells.every((c) =>
+      HORIZONTAL_DIRECTIONS.every((d) => c.interior[d] || c.edges[d] === 'open')
+    );
+    if (!openSkin) continue;
+    out.push({ def: room, module });
+  }
+  return out;
+}
+
+/**
+ * Die Ausdehnung eines Stempels in Weltzellen unter einer Gierung —
+ * gemessen an der Rückrechnung, nicht aus `cellsX`/`cellsZ` getippt.
+ *
+ * Der Unterschied fällt erst bei einem nicht quadratischen Stempel auf:
+ * Unter 90° tauschen x und z die Rollen, und eine getippte Zeile stünde
+ * dann quer zum eigenen Fussabdruck.
+ */
+function stampExtent(module: GridModule, yaw: Yaw): { sx: number; sz: number } {
+  const probe = moduleWorldCells({ i: 0, j: 0, level: 0 }, yaw, module);
+  const is = probe.map((c) => c.i);
+  const js = probe.map((c) => c.j);
+  return {
+    sx: Math.max(...is) - Math.min(...is) + 1,
+    sz: Math.max(...js) - Math.min(...js) + 1,
+  };
+}
+
+/** Alle achsparallelen Blöcke `sx × sz`, die `cell` enthalten — kanonisch geordnet. */
+function blocksContaining(cell: GridCell, sx: number, sz: number): GridCell[][] {
+  const out: GridCell[][] = [];
+  for (let oz = 0; oz < sz; oz++) {
+    for (let ox = 0; ox < sx; ox++) {
+      const block: GridCell[] = [];
+      for (let dz = 0; dz < sz; dz++) {
+        for (let dx = 0; dx < sx; dx++) {
+          block.push({ i: cell.i - ox + dx, j: cell.j - oz + dz, level: cell.level });
+        }
+      }
+      out.push(block.sort(compareCells));
+    }
+  }
+  return out;
+}
+
+/**
+ * Die Ankerzelle, mit der ein Modul unter `yaw` GENAU diesen Block
+ * belegt — oder null.
+ *
+ * Gesucht statt gerechnet, und das ist der Kern des Meilensteins: Der
+ * Anker ist die lokale Zelle (0,0,0), und die wandert bei gerader
+ * Zellzahl mit der Gierung durch die vier Ecken. Eine Formel dafür wäre
+ * eine zweite Wahrheit neben {@link moduleWorldCells}; hier wird
+ * dieselbe Rückrechnung befragt, die später den Fussabdruck liefert.
+ */
+function stampAnchorFor(block: readonly GridCell[], yaw: Yaw, module: GridModule): GridCell | null {
+  const want = block.map(cellKey).join(',');
+  for (const candidate of block) {
+    if (moduleWorldCells(candidate, yaw, module).map(cellKey).join(',') === want) return candidate;
+  }
+  return null;
 }
 
 /**
@@ -718,6 +924,11 @@ interface GrowthCell {
  */
 function requiredFreeDirections(cell: GrowthCell): readonly Direction[] {
   if (cell.entrance) return HORIZONTAL_DIRECTIONS.filter((d) => !cell.edges.has(d));
+  // Ein Stempel fordert nichts frei: Seine Aussenkanten sind alle offen,
+  // und die Tafel versorgt jede davon — gegen Fels mit einer Platte,
+  // gegen die eingebaute Wand eines Nachbarn mit gar nichts (Zeile 3).
+  // Er hat kein „überzähliges" Loch, das auf Fels zeigen müsste.
+  if (cell.stamp !== null) return [];
   if (cell.edges.size !== 1) return [];
   const only = HORIZONTAL_DIRECTIONS.find((d) => cell.edges.has(d));
   return only === undefined ? [] : [OPPOSITE_DIRECTION[only]];
@@ -736,16 +947,20 @@ function growCells(
   seed: number,
   target: number,
   zoneHalf: number,
-  bounded: boolean
-): Map<string, GrowthCell> {
+  bounded: boolean,
+  stampOptions: readonly StampOption[],
+  hallFraction: number
+): GrowthResult {
   const rng = new XorShiftRandom(mische(seed, SALT_GROWTH));
   const cells = new Map<string, GrowthCell>();
+  const stamps: GrowthStamp[] = [];
   const entrance: GrowthCell = {
     cell: ENTRANCE_CELL,
     key: cellKey(ENTRANCE_CELL),
     toParent: null,
     edges: new Set<Direction>(),
     entrance: true,
+    stamp: null,
   };
   cells.set(entrance.key, entrance);
 
@@ -772,6 +987,79 @@ function growCells(
       if (requiredFreeDirections(other).includes(OPPOSITE_DIRECTION[nd])) return false;
     }
     return true;
+  };
+
+  /**
+   * S3 — der Stempelversuch an der Zelle, die gerade wachsen würde.
+   *
+   * ── Warum ein Kranz frei sein muss ─────────────────────────────────
+   * Jede Aussenkante des Stempels ist offen. Stünde beim Setzen schon ein
+   * Nachbar daran, hätte niemand geprüft, ob dessen Kante dazu passt —
+   * genau die Reihenfolge („erst das Modul, dann die Nachbarschaft"), die
+   * der ganze Umbau abschafft. Umgekehrt ist eine Zelle, die SPÄTER
+   * daneben wächst, unbedenklich: Sie wählt ihr Modul nach S5, und dort
+   * darf eine überzählige Öffnung nur auf Fels zeigen — gegen den Stempel
+   * steht danach immer eine eingebaute Wand (Zeile 3 der Tafel).
+   *
+   * Der einzige erlaubte Nachbar im Kranz ist der Elter: Er bekommt die
+   * Anhängekante und ist damit ein Durchgang, keine stumme Berührung.
+   *
+   * Die Vorbedingung von `mayGrow` gilt weiter — der Versuch läuft an
+   * einer Richtung, die dort schon durchgekommen ist. Für einen Stempel
+   * ist das strenger als nötig (er braucht kein freies „geradeaus"),
+   * kostet aber nur Gelegenheiten und lässt die Ziehreihenfolge des
+   * Wachstums unverändert. Ein eigener Auswahlweg für Stempel wäre ein
+   * zweiter Saatvertrag neben dem bestehenden.
+   */
+  const tryStamp = (parent: GrowthCell, toChild: Direction): GrowthStamp | null => {
+    if (stampOptions.length === 0 || !(hallFraction > 0)) return null;
+    const child = neighbourCell(parent.cell, toChild);
+    if (cellRoll(child, seed, SALT_STAMP) >= hallFraction) return null;
+    const option =
+      stampOptions[
+        Math.min(
+          stampOptions.length - 1,
+          Math.floor(cellRoll(child, seed, SALT_STAMP_PICK) * stampOptions.length)
+        )
+      ]!;
+    // Über das Ziel hinaus wird nicht gestempelt: `maxRooms` bedeutet im
+    // Rasterpfad ZELLZAHL, und vier auf einmal reissen die Bilanz sonst
+    // um bis zu drei Zellen auf.
+    if (cells.size + option.module.cells.length > target) return null;
+    const yaw = YAWS[Math.min(YAWS.length - 1, Math.floor(cellRoll(child, seed, SALT_STAMP_YAW) * YAWS.length))]!;
+    const { sx, sz } = stampExtent(option.module, yaw);
+    const blocks = blocksContaining(child, sx, sz);
+    const start = Math.min(
+      blocks.length - 1,
+      Math.floor(cellRoll(child, seed, SALT_STAMP_BLOCK) * blocks.length)
+    );
+    for (let n = 0; n < blocks.length; n++) {
+      const block = blocks[(start + n) % blocks.length]!;
+      const inBlock = new Set(block.map(cellKey));
+      let ok = true;
+      for (const c of block) {
+        const key = cellKey(c);
+        if (key === blocked || cells.has(key)) ok = false;
+        else if (bounded && !cellInsideZone(c, zoneHalf)) ok = false;
+        if (!ok) break;
+      }
+      if (!ok) continue;
+      for (const c of block) {
+        for (const d of HORIZONTAL_DIRECTIONS) {
+          const key = cellKey(neighbourCell(c, d));
+          if (inBlock.has(key)) continue;
+          const other = cells.get(key);
+          if (other !== undefined && other !== parent) ok = false;
+          if (!ok) break;
+        }
+        if (!ok) break;
+      }
+      if (!ok) continue;
+      const anchor = stampAnchorFor(block, yaw, option.module);
+      if (anchor === null) continue;
+      return { def: option.def, module: option.module, anchor, yaw, cells: block };
+    }
+    return null;
   };
 
   // Die Wachstumsfront: Zellen, die noch eine freie Richtung haben
@@ -809,16 +1097,51 @@ function growCells(
     const child = neighbourCell(current.cell, chosen);
     const childKey = cellKey(child);
     current.edges.add(chosen);
+
+    // ── S3: erst der Stempel, dann die Einzelzelle ───────────────────
+    const stamp = tryStamp(current, chosen);
+    if (stamp !== null) {
+      const index = stamps.length;
+      stamps.push(stamp);
+      const inBlock = new Set(stamp.cells.map(cellKey));
+      for (const c of stamp.cells) {
+        cells.set(cellKey(c), {
+          cell: c,
+          key: cellKey(c),
+          // Ein Saal hat keine Laufrichtung — die Trägheit gilt für
+          // Gänge, und aus vier Ecken gleichzeitig gibt es kein
+          // „geradeaus".
+          toParent: null,
+          edges: new Set<Direction>(),
+          entrance: false,
+          stamp: index,
+        });
+      }
+      // Die Innenkanten sind Graphkanten: Die Zellen EINES Raums hängen
+      // zusammen, und jede Auswertung (Versiegelung, Erreichbarkeit)
+      // liest sie damit ohne Sonderfall richtig.
+      for (const c of stamp.cells) {
+        const here = cells.get(cellKey(c))!;
+        for (const d of HORIZONTAL_DIRECTIONS) {
+          if (inBlock.has(cellKey(neighbourCell(c, d)))) here.edges.add(d);
+        }
+      }
+      cells.get(childKey)!.edges.add(OPPOSITE_DIRECTION[chosen]);
+      for (const c of stamp.cells) frontier.push(cellKey(c));
+      continue;
+    }
+
     cells.set(childKey, {
       cell: child,
       key: childKey,
       toParent: OPPOSITE_DIRECTION[chosen],
       edges: new Set<Direction>([OPPOSITE_DIRECTION[chosen]]),
       entrance: false,
+      stamp: null,
     });
     frontier.push(childKey);
   }
-  return cells;
+  return { cells, stamps };
 }
 
 /**
@@ -1008,12 +1331,30 @@ function chooseModule(
   return candidates[candidates.length - 1]!;
 }
 
-/** Kantenzustände eines platzierten Moduls, in WELTrichtungen. */
-function worldEdgeStates(module: GridModule, yaw: Yaw): Record<Direction, EdgeState> {
-  const cell = module.cells[0];
-  if (!cell) throw new DungeonRasterError(`Modul '${module.name}' hat keine Zelle.`);
-  const out = {} as Record<Direction, EdgeState>;
-  for (const d of DIRECTIONS) out[rotateDirection(d, yaw)] = cell.edges[d];
+/**
+ * Die Kantenzustände eines platzierten Moduls, je Weltzelle und in
+ * WELTrichtungen.
+ *
+ * Bis G5 war das eine Zeile: ein Modul, eine Zelle, `cells[0]`. Mit dem
+ * Stempel ist genau diese Zeile die Falle — die vier Zellen einer Halle
+ * haben VERSCHIEDENE Aussenkanten, und `cells[0]` beschreibt nur eine
+ * davon. Deshalb liefert die Funktion eine Tafel über alle Zellen, und
+ * die Zuordnung Zelle → Weltzelle kommt aus derselben Rückrechnung wie
+ * der Fussabdruck ({@link moduleWorldCells}), nicht aus einer zweiten
+ * Rechnung, die daneben liegen könnte.
+ */
+export function moduleWorldEdgeStates(
+  cell: GridCell,
+  yaw: Yaw,
+  module: GridModule
+): Map<string, Record<Direction, EdgeState>> {
+  const { pos, rot } = modulePose(cell, yaw, module);
+  const out = new Map<string, Record<Direction, EdgeState>>();
+  for (const c of module.cells) {
+    const rec = {} as Record<Direction, EdgeState>;
+    for (const d of DIRECTIONS) rec[rotateDirection(d, yaw)] = c.edges[d];
+    out.set(cellKey(worldToCell(toWorld(c.localCenter, pos, rot))), rec);
+  }
   return out;
 }
 
@@ -1055,9 +1396,19 @@ function isCorridorModule(module: GridModule): boolean {
  * nur die eine Seite (plus `doorOnlyIfOtherAlsoAllowsDoor`); hier wäre
  * das schlechter, weil „die eine Seite“ die kanonisch kleinere Zelle ist
  * — eine Tür, deren Existenz an der Zellnummerierung hängt.
+ *
+ * ── Warum Räume UND Zellen hereinkommen (G6) ─────────────────────────
+ * Die Öffnungen gehören dem RAUM (ein Stempel hat acht, verteilt auf
+ * vier Zellen), die Durchgänge der ZELLE. Beides aus derselben Liste zu
+ * lesen hiesse, die Halle viermal zu befragen — und dreimal mit der
+ * falschen Ankerzelle. Ihre Innenkanten fallen dabei von selbst heraus:
+ * Dort sitzt kein Connector, also findet {@link planArchways} keine
+ * Öffnung und setzt keinen Rahmen. Ein Bogen mitten in einem Saal wäre
+ * genau die Zwischenwand aus Mikes Befund.
  */
 export function planArchways(
   def: DungeonDef,
+  rooms: readonly GridPlanRoom[],
   cells: readonly GridPlanCell[],
   seed: number,
   fraction: number
@@ -1065,14 +1416,14 @@ export function planArchways(
   if (!(fraction > 0) || def.doorTypes.length === 0) return [];
   const byName = new Map<string, RoomDef>(def.rooms.map((r) => [r.name, r]));
 
-  /** Öffnungen aller Zellen, nachschlagbar über (Zelle, Weltrichtung). */
+  /** Öffnungen aller Räume, nachschlagbar über (Zelle, Weltrichtung). */
   const portAt = new Map<string, { port: GridPort; room: RoomDef; corridor: boolean }>();
-  for (const c of cells) {
-    const room = byName.get(c.module);
-    if (!room) throw new DungeonRasterError(`Modul '${c.module}' steht nicht im Kit '${def.name}'.`);
+  for (const r of rooms) {
+    const room = byName.get(r.module);
+    if (!room) throw new DungeonRasterError(`Modul '${r.module}' steht nicht im Kit '${def.name}'.`);
     const module = gridModuleFromRoomDef(room);
     const corridor = isCorridorModule(module);
-    for (const port of moduleWorldPorts(c.cell, c.yaw, module)) {
+    for (const port of moduleWorldPorts(r.cell, r.yaw, module)) {
       portAt.set(edgeKey({ cell: port.cell, direction: port.direction }), { port, room, corridor });
     }
   }
@@ -1141,10 +1492,18 @@ export function planGridDungeon(
   // `doorsEnabled` bleibt der Hauptschalter des 1.0-Pfads — zwei Schalter
   // für dieselbe Sache liefen sonst auseinander.
   const archwayFraction = settings.doorsEnabled ? clamp01(settings.archwayFraction) : 0;
+  const hallFraction = clamp01(settings.hallFraction);
   // `maxRooms` heisst im Rasterpfad ZELLZAHL, nicht Wachstumsversuche —
   // die Bedeutung wechselt mit dem Pfad, s. Verträge der Konzeptnotiz.
   const target = Math.max(1, Math.min(MAX_DUNGEON_ROOMS, Math.trunc(def.maxRooms)));
-  const cells = growCells(seed, target, settings.zoneSize * 0.5, settings.zoneBounded);
+  const { cells, stamps } = growCells(
+    seed,
+    target,
+    settings.zoneSize * 0.5,
+    settings.zoneBounded,
+    stampModuleOptions(def),
+    hallFraction
+  );
 
   // ── S4: Schleifen VOR dem BFS ──────────────────────────────────────
   // Sie sind Graphkanten wie alle anderen: Sie kürzen Wege ab und ändern
@@ -1199,23 +1558,60 @@ export function planGridDungeon(
   }
 
   const planCells: GridPlanCell[] = [];
+  const planRooms: GridPlanRoom[] = [];
+  /** Stempelindex → Raumindex. Ein Stempel wird EINMAL zum Raum, nicht je Zelle. */
+  const roomOfStamp = new Map<number, number>();
   const states = new Map<string, Record<Direction, EdgeState>>();
+
+  /** Trägt den Raum ein und legt die Kantentafel aller seiner Zellen ab. */
+  const addRoom = (cell: GridCell, yaw: Yaw, module: GridModule, name: string, atDepth: number): number => {
+    const index = planRooms.length;
+    planRooms.push({
+      cell,
+      module: name,
+      yaw,
+      depth: atDepth,
+      // Aus der Rückrechnung, nicht aus dem Stempelvermerk: So steht im
+      // Plan dieselbe Zellmenge, die `placeModule` gleich in die Welt legt.
+      cells: moduleWorldCells(cell, yaw, module),
+    });
+    for (const [key, rec] of moduleWorldEdgeStates(cell, yaw, module)) states.set(key, rec);
+    return index;
+  };
+
   for (const c of order) {
-    const mask = directionMask(c.edges);
-    const freeMask = directionMask(
-      HORIZONTAL_DIRECTIONS.filter((d) => !cells.has(cellKey(neighbourCell(c.cell, d))))
-    );
-    const chosen = c.entrance
-      ? { def: entranceDef, module: entranceModule, yaw: entranceYaw }
-      : chooseModule(options, mask, freeMask, rng);
-    states.set(c.key, worldEdgeStates(chosen.module, chosen.yaw));
+    let roomIndex: number;
+    if (c.stamp !== null) {
+      const known = roomOfStamp.get(c.stamp);
+      if (known === undefined) {
+        const st = stamps[c.stamp]!;
+        // BFS-Reihenfolge: Die erste erreichte Zelle des Stempels gibt
+        // seine Tiefe — sie ist die flachste, alles andere wäre eine
+        // Tiefe, die im Grab niemand zurücklegen muss.
+        roomIndex = addRoom(st.anchor, st.yaw, st.module, st.def.name, depth.get(c.key) ?? 0);
+        roomOfStamp.set(c.stamp, roomIndex);
+      } else {
+        roomIndex = known;
+      }
+    } else {
+      const mask = directionMask(c.edges);
+      const freeMask = directionMask(
+        HORIZONTAL_DIRECTIONS.filter((d) => !cells.has(cellKey(neighbourCell(c.cell, d))))
+      );
+      const chosen = c.entrance
+        ? { def: entranceDef, module: entranceModule, yaw: entranceYaw }
+        : chooseModule(options, mask, freeMask, rng);
+      roomIndex = addRoom(c.cell, chosen.yaw, chosen.module, chosen.def.name, depth.get(c.key) ?? 0);
+    }
+    const room = planRooms[roomIndex]!;
     planCells.push({
       cell: c.cell,
-      module: chosen.def.name,
-      yaw: chosen.yaw,
+      module: room.module,
+      yaw: room.yaw,
       depth: depth.get(c.key) ?? 0,
       edges: DIRECTIONS.filter((d) => c.edges.has(d)),
       entrancePort: c.entrance ? ENTRANCE_PORT_DIRECTION : null,
+      room: roomIndex,
     });
   }
 
@@ -1235,7 +1631,7 @@ export function planGridDungeon(
   const seals: GridSeal[] = [];
   for (let i = 0; i < order.length; i++) {
     const c = order[i]!;
-    const mine = states.get(c.key)!;
+    const mine = states.get(cellKey(c.cell))!;
     for (const d of DIRECTIONS) {
       if (mine[d] !== 'open') continue; // Zeile 6
       if (c.edges.has(d)) continue; // Zeile 1: Durchgang
@@ -1245,7 +1641,7 @@ export function planGridDungeon(
         seals.push({ cell: c.cell, direction: d }); // Zeile 5: Fels
         continue;
       }
-      const facing = states.get(other.key)![OPPOSITE_DIRECTION[d]];
+      const facing = states.get(cellKey(other.cell))![OPPOSITE_DIRECTION[d]];
       // Zeile 3: nichts. Zeile 2 und 4: Platte auf DIESER Seite; die
       // Gegenseite entscheidet für sich, und in Zeile 2 stehen beide
       // Rücken an Rücken um die Kantenebene.
@@ -1256,9 +1652,9 @@ export function planGridDungeon(
   // ── S8: Torbögen ───────────────────────────────────────────────────
   // Zuletzt, weil die Regel die MODULE der beiden Seiten braucht (Gang
   // oder Raum) — die stehen erst nach S5 fest.
-  const archways = planArchways(def, planCells, seed, archwayFraction);
+  const archways = planArchways(def, planRooms, planCells, seed, archwayFraction);
 
-  return { cells: planCells, seals, loops, archways };
+  return { rooms: planRooms, cells: planCells, seals, loops, archways };
 }
 
 /**
@@ -1296,10 +1692,12 @@ function sealPose(
  */
 export function layoutFromPlan(def: DungeonDef, plan: GridPlan): DungeonLayout {
   const byName = new Map<string, RoomDef>(def.rooms.map((r) => [r.name, r]));
-  const rooms: PlacedRoom[] = plan.cells.map((c) => {
-    const rd = byName.get(c.module);
-    if (!rd) throw new DungeonRasterError(`Modul '${c.module}' steht nicht im Kit '${def.name}'.`);
-    return placeModule(c.cell, c.yaw, gridModuleFromRoomDef(rd), c.depth + 1);
+  // Je RAUM eine Zeile, nicht je Zelle: Ein Stempel steht einmal in der
+  // Welt, auch wenn er vier Zellen belegt.
+  const rooms: PlacedRoom[] = plan.rooms.map((r) => {
+    const rd = byName.get(r.module);
+    if (!rd) throw new DungeonRasterError(`Modul '${r.module}' steht nicht im Kit '${def.name}'.`);
+    return placeModule(r.cell, r.yaw, gridModuleFromRoomDef(rd), r.depth + 1);
   });
   const plate = def.rooms.find((r) => r.endCap);
   if (!plate && plan.seals.length > 0) {
@@ -1324,8 +1722,13 @@ export function layoutFromPlan(def: DungeonDef, plan: GridPlan): DungeonLayout {
   // an die `placeDoors` im 1.0-Pfad setzt.
   const cellAt = new Map<string, GridPlanCell>(plan.cells.map((c) => [cellKey(c.cell), c]));
   const doors: PlacedDoor[] = plan.archways.map((arch) => {
-    const host = cellAt.get(cellKey(arch.cell));
-    if (!host) throw new DungeonRasterError(`Torbogen auf ${edgeKey(arch)} steht an keiner Zelle.`);
+    const at = cellAt.get(cellKey(arch.cell));
+    if (!at) throw new DungeonRasterError(`Torbogen auf ${edgeKey(arch)} steht an keiner Zelle.`);
+    // Die Öffnung gehört dem RAUM: Bei einem Stempel liegt sie auf einer
+    // anderen Zelle als seiner Ankerzelle, und `moduleWorldPorts` will
+    // den Anker.
+    const host = plan.rooms[at.room];
+    if (!host) throw new DungeonRasterError(`Torbogen auf ${edgeKey(arch)} zeigt auf Raum ${at.room}, den es nicht gibt.`);
     const rd = byName.get(host.module);
     if (!rd) throw new DungeonRasterError(`Modul '${host.module}' steht nicht im Kit '${def.name}'.`);
     const port = moduleWorldPorts(host.cell, host.yaw, gridModuleFromRoomDef(rd)).find(
@@ -1381,14 +1784,38 @@ function selfCheck(def: DungeonDef, plan: GridPlan): void {
   }
 
   const states = new Map<string, Record<Direction, EdgeState>>();
-  for (const c of plan.cells) {
-    const rd = byName.get(c.module);
-    if (!rd) throw new DungeonRasterError(`Modul '${c.module}' steht nicht im Kit '${def.name}'.`);
+  plan.rooms.forEach((r, index) => {
+    const rd = byName.get(r.module);
+    if (!rd) throw new DungeonRasterError(`Modul '${r.module}' steht nicht im Kit '${def.name}'.`);
     const module = gridModuleFromRoomDef(rd);
     // Der Zeuge aus S6: Die Kit-Geometrie darf sich unter der Erklärung
     // nicht wegbewegen.
-    assertConnectorsOnEdges(rd, c.cell, c.yaw, module);
-    states.set(cellKey(c.cell), worldEdgeStates(module, c.yaw));
+    assertConnectorsOnEdges(rd, r.cell, r.yaw, module);
+    // Und der Zeuge, den G6 dazustellt: Der Fussabdruck des Raums MUSS
+    // die Zellmenge sein, die im Plan steht. Ein Stempel, der um eine
+    // Zelle danebenliegt, erzeugt weder eine Ausnahme noch eine
+    // Doppelbelegung — er baut nur den Saal neben seine eigenen Türen.
+    const footprint = moduleWorldCells(r.cell, r.yaw, module);
+    if (footprint.map(cellKey).join(',') !== r.cells.map(cellKey).join(',')) {
+      throw new DungeonRasterError(
+        `Raum ${index} ('${r.module}'): Fussabdruck [${r.cells.map(cellKey).join(' ')}] ` +
+          `passt nicht zur Rückrechnung [${footprint.map(cellKey).join(' ')}].`
+      );
+    }
+    for (const c of footprint) {
+      const at = cells.get(cellKey(c));
+      if (!at || at.room !== index) {
+        throw new DungeonRasterError(
+          `Raum ${index} ('${r.module}') belegt Zelle ${cellKey(c)}, die im Plan zu Raum ${at?.room ?? 'keinem'} gehört.`
+        );
+      }
+    }
+    for (const [key, rec] of moduleWorldEdgeStates(r.cell, r.yaw, module)) states.set(key, rec);
+  });
+  for (const c of plan.cells) {
+    if (!states.has(cellKey(c.cell))) {
+      throw new DungeonRasterError(`Zelle ${cellKey(c.cell)} trägt keinen Raum.`);
+    }
   }
 
   for (const c of plan.cells) {
@@ -1451,14 +1878,27 @@ function selfCheck(def: DungeonDef, plan: GridPlan): void {
     }
   }
 
-  // Und die Gegenrichtung: keine offene Kante ohne Durchgang und ohne Platte.
+  // Und die Gegenrichtung: keine offene Kante ohne Durchgang und ohne
+  // Platte — ES SEI DENN, gegenüber steht eine eingebaute Wand.
+  //
+  // Diese Ausnahme IST Zeile 3 der Kantentafel, und sie wird erst mit G6
+  // erreichbar: Bis dahin durfte eine überzählige Öffnung nur auf Fels
+  // zeigen (S5 lässt für eine Einzelzelle nichts anderes zu), und dort
+  // steht immer eine Platte. Der Stempel hat acht Öffnungen und keine
+  // Wahl — wächst später eine Gangzelle daneben, kehrt sie ihre
+  // eingebaute Wand hierher. Eine Platte davor wäre genau eine der 531
+  // aus dem G1-Befund.
   for (const c of plan.cells) {
     const mine = states.get(cellKey(c.cell))!;
     for (const d of DIRECTIONS) {
       if (mine[d] !== 'open' || c.edges.includes(d) || c.entrancePort === d) continue;
-      if (!sealed.has(`${cellKey(c.cell)}#${d}`)) {
-        throw new DungeonRasterError(`Zelle ${cellKey(c.cell)}: Kante ${d} ist offen und unversiegelt.`);
-      }
+      if (sealed.has(`${cellKey(c.cell)}#${d}`)) continue;
+      const behind = cells.get(cellKey(neighbourCell(c.cell, d)));
+      const facing = behind ? states.get(cellKey(behind.cell))![OPPOSITE_DIRECTION[d]] : null;
+      if (facing === 'wall') continue;
+      throw new DungeonRasterError(
+        `Zelle ${cellKey(c.cell)}: Kante ${d} ist offen und unversiegelt (gegenüber '${facing ?? 'fels'}').`
+      );
     }
   }
 
@@ -1510,8 +1950,18 @@ export function fallbackGridLayout(def: DungeonDef): DungeonLayout {
   if (!anchor) throw new DungeonRasterError(`'${entranceDef.name}' hat keinen Eingangsconnector.`);
   const yaw = YAWS.find((y) => rotateDirection(anchor.direction, y) === ENTRANCE_PORT_DIRECTION);
   if (yaw === undefined) throw new DungeonRasterError(`Eingangsport von '${entranceDef.name}' passt auf keine Gierung.`);
-  const states = worldEdgeStates(module, yaw);
+  const states = moduleWorldEdgeStates(ENTRANCE_CELL, yaw, module).get(cellKey(ENTRANCE_CELL));
+  if (!states) throw new DungeonRasterError(`'${entranceDef.name}' belegt die Eingangszelle nicht.`);
   const plan: GridPlan = {
+    rooms: [
+      {
+        cell: ENTRANCE_CELL,
+        module: entranceDef.name,
+        yaw,
+        depth: 0,
+        cells: moduleWorldCells(ENTRANCE_CELL, yaw, module),
+      },
+    ],
     cells: [
       {
         cell: ENTRANCE_CELL,
@@ -1520,6 +1970,7 @@ export function fallbackGridLayout(def: DungeonDef): DungeonLayout {
         depth: 0,
         edges: [],
         entrancePort: ENTRANCE_PORT_DIRECTION,
+        room: 0,
       },
     ],
     seals: DIRECTIONS.filter((d) => states[d] === 'open' && d !== ENTRANCE_PORT_DIRECTION).map((d) => ({

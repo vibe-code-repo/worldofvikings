@@ -511,6 +511,75 @@ export function messeRasterLayout(layout: DungeonLayout, def: DungeonDef): Raste
   return m;
 }
 
+/**
+ * Offene Kanten — die Zahl, die im Editor als „n offen“ steht, und was
+ * die Kantentafel davon übrig lässt.
+ *
+ * ── Warum die rohe Zahl nicht mehr genügt (G6) ───────────────────────
+ * `computeOpenConnections` paart Connectors. Ein Connector, vor dem die
+ * eingebaute Wand des Nachbarn steht (Zeile 3 der Kantentafel), hat
+ * keinen Partner — und ist trotzdem zu: Die Wand des Nachbarn IST die
+ * Wand, eine Platte davor wäre eine der 531 aus dem G1-Befund. Bis G5
+ * konnte der Fall nicht auftreten, weil eine Einzelzelle ihre
+ * überzählige Öffnung immer auf Fels legen kann. Der Stempel aus G6
+ * (Halle, acht Ports) hat diese Wahl nicht.
+ *
+ * Das ist dieselbe Blindheit wie in Teil 1 dieses Skripts, nur mit
+ * umgekehrtem Vorzeichen: Dort zählte ein gepaarter Connector als heil,
+ * obwohl eine Platte im Nachbarn steckte; hier zählt ein ungepaarter als
+ * Loch, obwohl Stein davor steht. Beide Male ist die ZELLE die Wahrheit,
+ * nicht der Connector.
+ *
+ * Die Anzeige im Editor selbst ist damit NICHT repariert — das ist
+ * Meilenstein G9 (`computeOpenConnections` bekommt dort die Kantentafel
+ * als Filter). Hier steht nur die ehrliche Messung daneben.
+ */
+export interface OffeneKanten {
+  /** Connectors ohne Partner, ohne den Eingangsport von Raum 0. */
+  roh: number;
+  /** Davon: vor der Öffnung steht die eingebaute Wand des Nachbarn. */
+  durchWandGedeckt: number;
+  /** Was übrig bleibt — die Zahl, die 0 sein muss. */
+  offen: number;
+}
+
+export function messeOffeneKanten(layout: DungeonLayout, def: DungeonDef): OffeneKanten {
+  const raumDefs = new Map<string, RoomDef>(def.rooms.map((r) => [r.name, r]));
+  const belegt = new Map<string, BelegteZelle>();
+  layout.rooms.forEach((p, idx) => {
+    const rd = raumDefs.get(p.room);
+    if (!rd || rd.endCap) return;
+    for (const z of zellenEinesRaums(p, idx, rd).zellen) if (!belegt.has(z.key)) belegt.set(z.key, z);
+  });
+
+  let roh = 0;
+  let gedeckt = 0;
+  for (const c of computeOpenConnections(layout, def.name)) {
+    const p = layout.rooms[c.roomIndex];
+    const rd = p ? raumDefs.get(p.room) : undefined;
+    const conn = rd?.connections[c.connIndex];
+    if (!p || !rd || !conn) continue;
+    // Der Eingangsport von Raum 0 führt absichtlich nach draussen.
+    if (c.roomIndex === 0 && conn.entrance) continue;
+    roh++;
+    const g = localToGlobal(conn.localPos, conn.localRot, p.pos, p.rot);
+    const r = richtungAusVektor(quatMulVec3(g.rot, { x: 0, y: 0, z: 1 }));
+    if (!r) continue;
+    const u = RICHTUNG_VEKTOR[r];
+    // Der Connector sitzt auf der KANTE. Die eigene Zelle liegt eine
+    // halbe Zelle dahinter — auf der Kante selbst wäre das Runden eine
+    // Münze zwischen zwei Zellen.
+    const eigene = weltZuZelle(
+      g.pos.x - (u.x * ZELL_M) / 2,
+      g.pos.y - (u.y * EBENE_M) / 2,
+      g.pos.z - (u.z * ZELL_M) / 2
+    );
+    const nachbar = belegt.get(nachbarZelle(eigene, r));
+    if (nachbar && kantenzustand(nachbar, GEGENRICHTUNG[r]) === 'wand') gedeckt++;
+  }
+  return { roh, durchWandGedeckt: gedeckt, offen: roh - gedeckt };
+}
+
 /** Summiert Einzelmessungen zu einer Gesamtmetrik (Drift: Maximum). */
 export function summiereRaster(einzel: readonly RasterMetrik[]): RasterMetrik {
   const g = leereMetrik(-1);

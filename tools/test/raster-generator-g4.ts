@@ -30,7 +30,6 @@
  *
  * Aufruf: `npx tsx tools/test/raster-generator-g4.ts`
  */
-import { computeOpenConnections } from '../../shared/src/dungeonGenerator.js';
 import { generateGridLayout } from '../../shared/src/dungeonRasterGenerator.js';
 import type { DungeonDef, DungeonLayout, RoomDef } from '../../shared/src/dungeons.js';
 import { quatMulVec3 } from '../../shared/src/worldgen/Math3d.js';
@@ -39,6 +38,7 @@ import {
   SEED_ANZAHL_VORGABE,
   hatRastererklaerung,
   holeKit,
+  messeOffeneKanten,
   messeRasterLayout,
   summiereRaster,
   verletzteInvarianten,
@@ -60,17 +60,16 @@ const MIKE = { seed: 2123721695, maxRooms: 12, zoneSize: 32 };
 /**
  * Die offenen Kanten OHNE die Eingangskante des Startraums.
  *
- * Nachgebaut statt importiert: `offeneOhneEingang` in `dungeonKanten.ts`
- * ist nicht ausgeführt, und der Meilenstein fasst diese Datei nicht an.
- * Die Bedingung ist dieselbe — Raum 0, Connector mit `entrance`.
+ * Seit G6 kommt die Zahl aus `messeOffeneKanten` im Messskript statt aus
+ * einem eigenen Filter über `computeOpenConnections`. Der Grund steht
+ * dort ausführlich: Ein Connector ohne Partner, vor dem die eingebaute
+ * Wand des Nachbarn steht (Zeile 3 der Kantentafel), ist KEINE offene
+ * Kante — der Stempel aus G6 erzeugt diesen Fall, eine Einzelzelle
+ * konnte es nicht. Die rohe Zahl wird trotzdem ausgegeben: Sie ist es,
+ * die der Editor heute anzeigt, und ihr Reparieren ist G9.
  */
 function offenOhneEingang(layout: DungeonLayout, def: DungeonDef): number {
-  const nachName = new Map<string, RoomDef>(def.rooms.map((r) => [r.name, r]));
-  return computeOpenConnections(layout, def.name).filter((c) => {
-    if (c.roomIndex !== 0) return true;
-    const start = nachName.get(layout.rooms[0]?.room ?? '');
-    return !start?.connections[c.connIndex]?.entrance;
-  }).length;
+  return messeOffeneKanten(layout, def).offen;
 }
 
 /**
@@ -138,7 +137,7 @@ pruefe(hatRastererklaerung(kit), 'DG_StoneVault hat keine Rastererklärung — d
 // ─────────────────────────────────────────────────────────────────────
 console.log(`1) ${SEEDS.length} Saaten, Kit-Vorgaben (maxRooms ${kit.maxRooms})`);
 {
-  const { layouts, gesamt } = messe(kit, SEEDS);
+  const { layouts, einzel, gesamt } = messe(kit, SEEDS);
   console.log(
     `  Räume ${gesamt.raeume}, Zellen ${gesamt.zellen}, Platten ${gesamt.plattenGesamt}, ` +
       `in belegter Zelle ${gesamt.platteInBelegterZelle}, unerklärt ${gesamt.unerklaerteNachbarschaften}, ` +
@@ -161,25 +160,34 @@ console.log(`1) ${SEEDS.length} Saaten, Kit-Vorgaben (maxRooms ${kit.maxRooms})`
   }
 
   let offenSumme = 0;
-  for (const { seed, layout } of layouts) {
-    const offen = offenOhneEingang(layout, kit);
-    offenSumme += offen;
-    pruefe(offen === 0, `Saat ${seed}: ${offen} offene Kante(n) ohne Eingang (soll 0)`);
+  let gedecktSumme = 0;
+  layouts.forEach(({ seed, layout }, index) => {
+    const kanten = messeOffeneKanten(layout, kit);
+    offenSumme += kanten.offen;
+    gedecktSumme += kanten.durchWandGedeckt;
+    pruefe(kanten.offen === 0, `Saat ${seed}: ${kanten.offen} offene Kante(n) ohne Eingang (soll 0)`);
     const r = erreichbarkeit(layout, kit);
     pruefe(r.erreicht === r.gesamt, `Saat ${seed}: ${r.gesamt - r.erreicht} von ${r.gesamt} Zellen unerreichbar`);
-    const zellen = layout.rooms.filter((p) => p.room !== 'StoneVaultWall').length;
+    // ZELLEN, nicht `PlacedRoom`-Zeilen: Seit G6 belegt ein Stempel vier
+    // Zellen mit einer Zeile. Die Zahl kommt aus der Messzelle, die den
+    // Fussabdruck jedes Moduls selbst kennt (`MODUL_ERKLAERUNG`) — der
+    // Generator wird dazu nicht befragt.
+    const zellen = einzel[index]!.zellen;
     pruefe(Math.abs(zellen - kit.maxRooms) <= 1, `Saat ${seed}: ${zellen} Zellen, erwartet ${kit.maxRooms} ± 1`);
-  }
-  console.log(`  offene Kanten ohne Eingang: ${offenSumme}; Erreichbarkeit 100 %; Zellzahl = maxRooms ± 1`);
+  });
+  console.log(
+    `  offene Kanten ohne Eingang: ${offenSumme} (${gedecktSumme} Connectors ohne Partner, ` +
+      `aber von einer eingebauten Nachbarwand gedeckt); Erreichbarkeit 100 %; Zellzahl = maxRooms ± 1`
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────
 console.log(`\n2) Mikes Kombination (Saat ${MIKE.seed}, maxRooms ${MIKE.maxRooms}, zoneSize ${MIKE.zoneSize})`);
 {
   const def: DungeonDef = { ...kit, maxRooms: MIKE.maxRooms };
-  const { layouts, gesamt } = messe(def, [MIKE.seed], MIKE.zoneSize);
+  const { layouts, einzel, gesamt } = messe(def, [MIKE.seed], MIKE.zoneSize);
   const layout = layouts[0]!.layout;
-  const zellen = layout.rooms.filter((p) => p.room !== 'StoneVaultWall').length;
+  const zellen = einzel[0]!.zellen;
   console.log(
     `  ${layout.rooms.length} Räume, ${zellen} Zellen, ${gesamt.plattenGesamt} Platten, ` +
       `in belegter Zelle ${gesamt.platteInBelegterZelle}, unerklärt ${gesamt.unerklaerteNachbarschaften}, ` +

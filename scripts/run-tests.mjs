@@ -93,6 +93,16 @@ const KERN = [
   // gegenueber `loopFraction` 0 messbar sinken. Rein rechnerisch, Sekunden.
   // The two G5 knobs: loops and archways, both drawn from the edge hash.
   ['shared', 'test/dungeon-rasterschleifen.ts'],
+  // G6 (Modul-Generierung 2.0): Der STEMPEL — die Halle als 2 x 2 Zellen.
+  // Prueft, dass alle acht Ports aus der RUECKRECHNUNG kommen und nicht
+  // aus einer getippten Tafel (in allen vier Gierungen, sonst stimmt sie
+  // unter einer und schweigt unter dreien), dass keine Zelle doppelt
+  // belegt ist, dass die Halle in mindestens 10 von 40 Saaten steht — und
+  // die Kernforderung: Eine unverbundene Hallenkante vor der eingebauten
+  // Wand eines Nachbarn bekommt KEINE Platte (Zeile 3 der Kantentafel).
+  // Rein rechnerisch, Sekunden.
+  // G6: the hall as a 2x2 stamp, every port derived, never typed.
+  ['shared', 'test/dungeon-rasterstempel.ts'],
   // G1 (Modul-Generierung 2.0): Der AUSGANGSSTAND von DG_StoneVault,
   // gemessen auf dem Zellgitter statt an den Connectors — 952
   // Abschlussplatten stehen im Körper des Nachbarmoduls (531 gegen eine

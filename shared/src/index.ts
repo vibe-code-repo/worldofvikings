@@ -26,6 +26,28 @@ export * from './dungeonRaster.js';
 export * from './dungeonRasterModul.js';
 export * from './dungeonKanten.js';
 export * from './dungeonGenerator.js';
+/**
+ * Der Rasterpfad NAMENTLICH statt flach.
+ *
+ * `dungeonRasterGenerator.ts` führt ein eigenes `yawQuaternion` (Gierung
+ * in Grad, vier erlaubte Werte), `worldlayout/routenlauf.ts` ein
+ * gleichnamiges für beliebige Winkel. Ein `export *` machte daraus einen
+ * mehrdeutigen Namen, und TypeScript liesse beide still verschwinden.
+ * Nach draussen geht deshalb genau das, was Server und Editor brauchen —
+ * wer mehr braucht (Tests, Messzellen), importiert die Datei direkt.
+ */
+export {
+  DEFAULT_GRID_TUNING,
+  DungeonRasterError,
+  GRID_CELL_M,
+  GRID_LEVEL_M,
+  erzeugeLayoutFuerKit,
+  fallbackGridLayout,
+  generateGridLayout,
+  type GridGeneratorOptions,
+  type GridSettings,
+  type GridTuning,
+} from './dungeonRasterGenerator.js';
 export * from './locationConfig.js';
 export * from './spawnData.js';
 export * from './environment.js';

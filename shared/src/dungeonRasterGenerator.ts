@@ -50,7 +50,7 @@
  * Neuer Code trägt englische Namen (Kit-Regel seit 27.08.); die deutschen
  * Namen der Nachbardateien bleiben, wo sie stehen.
  */
-import { DEFAULT_GENERATOR_SETTINGS } from './dungeonGenerator.js';
+import { DEFAULT_GENERATOR_SETTINGS, generateDungeonLayout } from './dungeonGenerator.js';
 import type { DungeonGeneratorSettings } from './dungeonGenerator.js';
 import {
   DIRECTIONS,
@@ -2295,8 +2295,9 @@ export function fallbackGridLayout(def: DungeonDef): DungeonLayout {
  * unverändert, Weg neu.
  *
  * `generateDungeonLayout` bleibt unangetastet; welcher Weg für ein Kit
- * gilt, entscheidet ab G8 ein Verteiler. Bis dahin ruft nur an, wer den
- * neuen Weg ausdrücklich will (Messskript, Tests).
+ * gilt, entscheidet seit G8 {@link erzeugeLayoutFuerKit}. Diese Funktion
+ * hier ruft nur an, wer den neuen Weg AUSDRÜCKLICH will (Tests,
+ * Messzellen) — im Betrieb geht alles über den Verteiler.
  */
 export function generateGridLayout(
   def: DungeonDef,
@@ -2312,4 +2313,57 @@ export function generateGridLayout(
     if (options?.strict) throw error;
     return fallbackGridLayout(def);
   }
+}
+
+/**
+ * Der Verteiler (S-Vertrag der Konzeptnotiz, G8): aus Kit und Saat ein
+ * Layout — über den Rasterpfad oder über den 1.0-Pfad.
+ *
+ * ── Warum es genau EINE solche Stelle geben muss ─────────────────────
+ * Zwei Erzeugungswege nebeneinander sind dauerhafte Pflege, und die
+ * Konzeptnotiz nennt unter „Risiken" den Präzedenzfall dafür, was
+ * passiert, wenn die Entscheidung an mehreren Stellen fällt:
+ * `roomOverlapsLayout` gegen `testCollision` — zwei Fassungen derselben
+ * Regel, die auseinandergelaufen sind, weil der Editor seine eigene
+ * hatte. Deshalb entscheidet hier eine Zeile, und Server
+ * (`DungeonManager.createGenerated`), Editor (`neuesDungeonDokument`) und
+ * Messzelle (`tools/messe-stonevault-logik.ts`) rufen sie an, statt selbst
+ * zu wählen.
+ *
+ * ── Warum der Schalter am KIT hängt und nicht am Aufrufer ────────────
+ * Dieselbe Begründung wie bei `DungeonDef.generatorEinstellungen`: Welcher
+ * Weg für ein Kit gilt, ist eine Eigenschaft seiner Module (2-m-Zellen,
+ * Kantenerklärung), keine Laune des Aufrufers. Am Aufrufer wäre sie genau
+ * dort vergessen worden, wo niemand hinsieht.
+ *
+ * ── Was `settings` bedeutet ──────────────────────────────────────────
+ * `Partial<GridSettings>` ist die Vereinigung beider Welten
+ * (`DungeonGeneratorSettings` + {@link GridTuning}). Der 1.0-Pfad liest
+ * die vier Rasterregler nie — sie fallen dort als unbekannte Felder durch
+ * die Zusammenführung und ändern nichts. Umgekehrt liest der Rasterpfad
+ * `zoneSize` und `doorsEnabled` sehr wohl. Ein eigener Parametersatz je
+ * Pfad zwänge jeden Aufrufer, den Schalter selbst zu kennen — und das ist
+ * genau das, was dieser Verteiler abschafft.
+ *
+ * `maxRooms` reist wie im 1.0-Pfad über eine `def`-Kopie und WECHSELT
+ * dabei die Bedeutung: Wachstumsversuche dort, Zellzahl hier.
+ *
+ * Der Name ist DEUTSCH und bricht damit bewusst die Regel „Neues
+ * englisch": Er steht so in der Konzeptnotiz (Verträge, „ein Verteiler
+ * `erzeugeLayoutFuerKit(def, seed, settings)`") und wurde von der
+ * Messzelle schon vor dem Bau unter diesem Namen angekündigt. Ihn beim
+ * Einbau umzubenennen hiesse, die eine Stelle umzutaufen, auf die alle
+ * Notizen zeigen.
+ * The distributor: kit + seed to layout, over the grid path or the 1.0
+ * path. The kit's `gridGeneration` field decides; this is the only place
+ * where that decision is made.
+ */
+export function erzeugeLayoutFuerKit(
+  def: DungeonDef,
+  seed: number,
+  settings?: Partial<GridSettings>,
+  options?: GridGeneratorOptions
+): DungeonLayout {
+  if (def.gridGeneration) return generateGridLayout(def, seed, settings, options);
+  return generateDungeonLayout(def, seed, settings);
 }

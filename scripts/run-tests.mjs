@@ -112,16 +112,26 @@ const KERN = [
   // eines Laufs begehbar sind statt zugemauert. Rein rechnerisch, Sekunden.
   // G7: the staircase, its two levels and the vertical graph edge.
   ['shared', 'test/dungeon-rastertreppe.ts'],
-  // G1 (Modul-Generierung 2.0): Der AUSGANGSSTAND von DG_StoneVault,
-  // gemessen auf dem Zellgitter statt an den Connectors — 952
-  // Abschlussplatten stehen im Körper des Nachbarmoduls (531 gegen eine
-  // volle Wand, 414 gegen die Treppenflanke, 7 am Eingang). Der Test hält
-  // diese Zahlen fest, damit die Meilensteine G4…G7 gegen eine Zahl
-  // gemessen werden, die sich unterwegs nicht selbst verschiebt. Er ist
-  // grün, solange die MESSUNG stimmt; der Invariantenpfad ist `--streng`
-  // am Messskript und heute absichtlich rot. ~1 s.
-  // Freezes today's baseline so later milestones measure against a fixed number.
+  // G1/G8 (Modul-Generierung 2.0): Zwei Blöcke an derselben Messzelle.
+  // Block A misst den 1.0-Pfad und hält die Ausgangslage fest — 952
+  // Abschlussplatten im Körper des Nachbarmoduls (531 gegen eine volle
+  // Wand, 414 gegen die Treppenflanke, 7 am Eingang), 1328 gestapelte
+  // Zellen. Block B misst über den VERTEILER, also das, was Server und
+  // Editor heute bauen: 0/0/0/0. `--streng` muss auf A rot und auf B grün
+  // sein — ohne A wäre eine Messzelle, die nur noch Nullen kennt, von
+  // einer kaputten nicht zu unterscheiden. ~2 s.
+  // Freezes both the old baseline and the new grid result at one measuring cell.
   ['tools', 'test/messe-stonevault-metrik.ts'],
+  // G8: Der Verteiler. 14 Bestandskits × 40 Saaten byte-gleich zu dem, was
+  // vor dem Umbau in `tools/golden/` abgelegt wurde (SHA-256 über
+  // `JSON.stringify(layout)`, plus ein vollständiges Layout als lesbarer
+  // Zeuge), `DG_StoneVault` nachweislich über den Rasterpfad und
+  // nachweislich NICHT mehr über den 1.0-Pfad, dazu die Laufzeitgrenze von
+  // 10 ms je Layout bei 200 Zellen. Ohne diesen Test ist „die Fremdkits
+  // bewegen sich nicht" eine Behauptung. ~20 s (das grösste Kit allein
+  // ergibt 81 MiB JSON).
+  // G8: the distributor — 14 legacy kits byte-identical, StoneVault on the grid path.
+  ['server', 'test/golden-kits.ts'],
   // G4-Abnahme: dieselben G1-Metriken, gemessen am NEUEN Pfad. Die
   // Messzelle traegt ihre eigene Kantenerklaerung des Kits und ist damit
   // ein unabhaengiger Zeuge — der Generator kann sich nicht selbst

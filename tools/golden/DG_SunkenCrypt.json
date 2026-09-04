@@ -1,0 +1,286 @@
+{
+ "kit": "DG_SunkenCrypt",
+ "hinweis": "Stand des 1.0-Pfads vor dem Verteiler (G8). sha256 über JSON.stringify(layout) — gleiche Prüfsumme heisst gleiche Bytes. Geschrieben von tools/golden-kits-schreiben.ts.",
+ "layouts": [
+  {
+   "seed": 1,
+   "rooms": 37,
+   "doors": 0,
+   "props": 0,
+   "sha256": "f0de5debb3c1622bfe22dc5027e25bff28cc75a75e37ab93f34162211c35d54e"
+  },
+  {
+   "seed": 2,
+   "rooms": 26,
+   "doors": 0,
+   "props": 0,
+   "sha256": "6a6986c5b688a671e35232003560dfd56d070242c73db88060da9dfa86359514"
+  },
+  {
+   "seed": 3,
+   "rooms": 19,
+   "doors": 0,
+   "props": 0,
+   "sha256": "269b830ddf7a449606949fd99f51fa0db9126b30b52385a15a8dd5eec20db886"
+  },
+  {
+   "seed": 4,
+   "rooms": 31,
+   "doors": 0,
+   "props": 0,
+   "sha256": "992fcaeec190ef34f28a5d648366be7b782464d1b533e3da59280dff18e64e59"
+  },
+  {
+   "seed": 5,
+   "rooms": 39,
+   "doors": 2,
+   "props": 0,
+   "sha256": "7d283d826df63b983cabd918b1f5a50a20db8c7f3b4d91cd9e7343841481d5d6"
+  },
+  {
+   "seed": 6,
+   "rooms": 28,
+   "doors": 1,
+   "props": 0,
+   "sha256": "c212f3604d638dfa47c2966619ac832020a4e1bb00e13b9daa4d425f22f5ade9"
+  },
+  {
+   "seed": 7,
+   "rooms": 41,
+   "doors": 1,
+   "props": 0,
+   "sha256": "a5c59938ad9988e2e7c071f8546791a70a5561c0047cdcf4d9606bfd251f3a82"
+  },
+  {
+   "seed": 8,
+   "rooms": 32,
+   "doors": 1,
+   "props": 0,
+   "sha256": "bd724f9f99ab1d5586e47d7f2216dad4ddeac0675e54327ae0e0e5795659f234"
+  },
+  {
+   "seed": 9,
+   "rooms": 41,
+   "doors": 0,
+   "props": 0,
+   "sha256": "2328ebf59c62bf332b1588ad50a229fd2653ee9b881624ad4bcea2b18018be13"
+  },
+  {
+   "seed": 10,
+   "rooms": 28,
+   "doors": 0,
+   "props": 0,
+   "sha256": "98871f17beabcfadf5f21f807eeee90dd13dc538b752c546db16fa0c5338a387"
+  },
+  {
+   "seed": 11,
+   "rooms": 28,
+   "doors": 0,
+   "props": 0,
+   "sha256": "4df9526f439cf466ab1dc3d0f3b16e31202cf0342196c57e6a63ed1580a9d0ee"
+  },
+  {
+   "seed": 12,
+   "rooms": 26,
+   "doors": 0,
+   "props": 0,
+   "sha256": "b296fc4fc23cfb4b5c258568ef49b1cbc5e1f27f6b129ed1db8228c0fc8ee889"
+  },
+  {
+   "seed": 13,
+   "rooms": 22,
+   "doors": 0,
+   "props": 0,
+   "sha256": "95c52a752490c808b525c012d9b372eb304162291ed19de59a4c7abeee387a68"
+  },
+  {
+   "seed": 14,
+   "rooms": 34,
+   "doors": 0,
+   "props": 0,
+   "sha256": "4638cee5ffcfd9bf12ed4b3041ed9a8c51e3cda35b4fdeb7c92b1f4a599c6c36"
+  },
+  {
+   "seed": 15,
+   "rooms": 33,
+   "doors": 0,
+   "props": 0,
+   "sha256": "0e18f7568387bb3d081db0bbb7bddc13c0c4fc8c6e8e2f1a0c8b665f91654fdf"
+  },
+  {
+   "seed": 16,
+   "rooms": 28,
+   "doors": 0,
+   "props": 0,
+   "sha256": "df20c07109a4494d0b7d8096609d5ed0d7da5e40ae83d5ff90e15d08aaf66a57"
+  },
+  {
+   "seed": 17,
+   "rooms": 32,
+   "doors": 0,
+   "props": 0,
+   "sha256": "e37357174ccc1f99fa52fe9df34871b00c615ed0a3367c3dbde61b20610ca8fd"
+  },
+  {
+   "seed": 18,
+   "rooms": 31,
+   "doors": 0,
+   "props": 0,
+   "sha256": "0c8df6304a4aaa4573379abd5ebd614c4b345cfcfd2a58df899ed23c31d6113d"
+  },
+  {
+   "seed": 19,
+   "rooms": 38,
+   "doors": 0,
+   "props": 0,
+   "sha256": "fa8b98aa9ab0b225bb602b1d5afcbb6a2281432de5b9aee26914cfba4316dec1"
+  },
+  {
+   "seed": 20,
+   "rooms": 28,
+   "doors": 0,
+   "props": 0,
+   "sha256": "85e49176eeac9f2e23878460a4280abf5c5af20ccb885618fc05e020f376abe4"
+  },
+  {
+   "seed": 21,
+   "rooms": 26,
+   "doors": 0,
+   "props": 0,
+   "sha256": "d1401c2a2ba6d783f9faac331469099459f4a73fb6ace8321f84f7982d290d67"
+  },
+  {
+   "seed": 22,
+   "rooms": 14,
+   "doors": 0,
+   "props": 0,
+   "sha256": "d3b96659f1d6fd84a6992d7b5fc8496bd3be2319220815b777f817ef9dc625ad"
+  },
+  {
+   "seed": 23,
+   "rooms": 29,
+   "doors": 0,
+   "props": 0,
+   "sha256": "2c29a70be91580b39bd80af2ab9f2195d73f264d2c027879c81e3405249510e4"
+  },
+  {
+   "seed": 24,
+   "rooms": 32,
+   "doors": 0,
+   "props": 0,
+   "sha256": "285cf6102ed7981878711749354e7a7858dc909111dc770fbfc2ff3d23fec518"
+  },
+  {
+   "seed": 25,
+   "rooms": 34,
+   "doors": 0,
+   "props": 0,
+   "sha256": "a8d429caef0af251731b8add48a7b970626127bce2650ee5795f3db8be7ccbf3"
+  },
+  {
+   "seed": 26,
+   "rooms": 13,
+   "doors": 0,
+   "props": 0,
+   "sha256": "7ab1fbc07109a1be8f71baa9f225fd79cadc7bfd0bdab6f2c2b7bac6a104a71e"
+  },
+  {
+   "seed": 27,
+   "rooms": 19,
+   "doors": 0,
+   "props": 0,
+   "sha256": "684f49b59b79a2343d13d51f6db6f182cd40136815f82b3c87daa12bb4809660"
+  },
+  {
+   "seed": 28,
+   "rooms": 32,
+   "doors": 0,
+   "props": 0,
+   "sha256": "0c95506d2b8df2e939799349d99e56a94f2b419e39d91fa6a3ac0c2c6e29d04b"
+  },
+  {
+   "seed": 29,
+   "rooms": 37,
+   "doors": 0,
+   "props": 0,
+   "sha256": "0e9dbb56cca1e211c1b1e4cad5e50d8f00cc9dce373daeb05415cb9cc13b60c2"
+  },
+  {
+   "seed": 30,
+   "rooms": 23,
+   "doors": 0,
+   "props": 0,
+   "sha256": "6e1d97e384a0ee58cbe6f8581ceb170e33b6ae672a1ed14fec6e5d9b6c38bbf5"
+  },
+  {
+   "seed": 31,
+   "rooms": 16,
+   "doors": 0,
+   "props": 0,
+   "sha256": "fe0299f39ca772d58e1506811a294e11e5770bf106936523b385d2074278e3fd"
+  },
+  {
+   "seed": 32,
+   "rooms": 28,
+   "doors": 0,
+   "props": 0,
+   "sha256": "6a4eac912f6e4970f2d70b22e30711f9f964fe24cbc9fdbffa81fbfa6bafcf1f"
+  },
+  {
+   "seed": 33,
+   "rooms": 30,
+   "doors": 0,
+   "props": 0,
+   "sha256": "65d92dc0d3f415812a3dea546f9fc3c17c0db367f33b0a1f2cca99bc1eaa6315"
+  },
+  {
+   "seed": 34,
+   "rooms": 18,
+   "doors": 0,
+   "props": 0,
+   "sha256": "9ca83b6c5d7a629fdf287c9f79ed546fdcb34578657fd07195e9a91d929eee6a"
+  },
+  {
+   "seed": 35,
+   "rooms": 30,
+   "doors": 0,
+   "props": 0,
+   "sha256": "34e9162cab68031bb4872139775e14bd6b6935f9fe0a999f73c0789e8edc5d2e"
+  },
+  {
+   "seed": 36,
+   "rooms": 34,
+   "doors": 0,
+   "props": 0,
+   "sha256": "888afd218ef25f179148a6fceffb62f9ceb7fe98f926aed33a34783f18d6716e"
+  },
+  {
+   "seed": 37,
+   "rooms": 40,
+   "doors": 0,
+   "props": 0,
+   "sha256": "ae3bb274c497b9538cee43d8d29a426c1ae60fb5f5e03568f758ece8246e6557"
+  },
+  {
+   "seed": 38,
+   "rooms": 22,
+   "doors": 0,
+   "props": 0,
+   "sha256": "c585ce2083fedff63cc5920fa705d4a25857e7174b0486678bf3b9ca51a572b7"
+  },
+  {
+   "seed": 39,
+   "rooms": 47,
+   "doors": 0,
+   "props": 0,
+   "sha256": "6a4fe0185c7048ed590432b7a9851ca495ee984366afa31bef58cb926fcca9b8"
+  },
+  {
+   "seed": 40,
+   "rooms": 19,
+   "doors": 0,
+   "props": 0,
+   "sha256": "cfb39e136dca1e546224fde1baaf717476ab1bf1d31885710766200a48588cfe"
+  }
+ ]
+}

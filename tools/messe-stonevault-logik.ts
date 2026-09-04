@@ -28,9 +28,29 @@
  *   - Abweichung der Zellmitten vom Sollraster.
  *
  * `--streng` macht daraus einen Wächter: Exit-Code 1, sobald eine
- * Invariante verletzt ist. Heute ist der Lauf ROT (952 Platten in
- * belegten Zellen) — das ist der Sinn der Sache. Grün wird er erst mit
- * dem Rastergenerator (Meilensteine G4…G7).
+ * Invariante verletzt ist. Bis G7 war der Lauf ROT (952 Platten in
+ * belegten Zellen) — das war der Sinn der Sache. Seit G8 baut
+ * `DG_StoneVault` über den Rasterpfad, und der Lauf ist grün; die alte
+ * Ausgangslage hält `tools/test/messe-stonevault-metrik.ts` als Block A
+ * weiter fest.
+ *
+ * ── Zwei Zahlen aus Teil 1, die auf dem Rasterpfad TÄUSCHEN ──────────
+ * Teil 1 ist die Messung von vor dem Umbau, und zwei ihrer Grössen
+ * bedeuten dort etwas anderes, als ihr Name sagt:
+ *
+ *  • „Blindtüren (Wand davor)" zählt offene Connectors, hinter denen ein
+ *    Raumkörper steht. Auf dem Rasterpfad ist das ZEILE 3 der Kantentafel
+ *    — die eingebaute Wand des Nachbarn IST die Wand, eine Platte davor
+ *    wäre eine der 531 überflüssigen aus dem G1-Befund. Gemessen: 46 über
+ *    40 Saaten, und sie sind das Ergebnis, nicht der Fehler.
+ *  • „stumme Nachbarschaften" zählt aneinanderstossende Zellen ohne
+ *    Connector auf beiden Seiten. Genau diese Kategorie sollte laut
+ *    Konzeptnotiz verschwinden — und sie ist verschwunden, aber in Teil 2
+ *    („unerklärte Nachbarschaften", 0). Teil 1 kennt die Kantentafel
+ *    nicht und zählt weiter jede Wand-gegen-Wand-Berührung mit.
+ *
+ * Gewacht wird deshalb ausschliesslich über Teil 2. Teil 1 bleibt
+ * stehen, weil er der Zeuge für die Kits OHNE Rastererklärung ist.
  *
  * Aufruf:
  *   npx tsx tools/messe-stonevault-logik.ts
@@ -38,10 +58,13 @@
  *   npx tsx tools/messe-stonevault-logik.ts --kit=DG_Steingrab --seeds=10
  *   npx tsx tools/messe-stonevault-logik.ts --maxRooms=12 --zoneSize=32 --seeds=2123721695
  */
-import { generateDungeonLayout, computeOpenConnections } from '../shared/src/dungeonGenerator.js';
+import { computeOpenConnections } from '../shared/src/dungeonGenerator.js';
+import {
+  erzeugeLayoutFuerKit as verteileLayout,
+  type GridSettings,
+} from '../shared/src/dungeonRasterGenerator.js';
 import { DUNGEONS_BY_NAME } from '../shared/src/dungeons.js';
 import { quatMul, quatMulVec3 } from '../shared/src/worldgen/Math3d.js';
-import type { DungeonGeneratorSettings } from '../shared/src/dungeonGenerator.js';
 import type { DungeonDef, DungeonLayout, RoomDef, PlacedRoom } from '../shared/src/dungeons.js';
 import type { Quaternion, Vector3 } from '../shared/src/types.js';
 
@@ -60,22 +83,23 @@ const EBENE_M = 3.5;
 /**
  * Der EINE Punkt, an dem dieses Skript ein Layout erzeugt.
  *
- * Warum eine eigene Funktion für einen Einzeiler: Ab G8 entscheidet
- * `erzeugeLayoutFuerKit` in `shared/src/dungeonRasterGenerator.ts`, ob
- * ein Kit über den Rasterpfad oder über den 1.0-Pfad läuft. Steht der
- * Aufruf schon heute an genau einer Stelle mit genau dieser Signatur,
- * wechselt dieses Skript später durch das Umhängen EINES Imports die
- * Seite — und misst dann nachweislich dieselben Grössen am neuen
- * Generator. Ein `await import(...)` mit Rückfall wäre eleganter, geht
- * hier aber nicht: tsx übersetzt `tools/**` mangels `type: module` nach
- * CJS, und dort ist Top-Level-await verboten.
+ * Seit G8 ist das nur noch eine Weiterleitung an den Verteiler in
+ * `shared/src/dungeonRasterGenerator.ts`: DORT entscheidet
+ * `def.gridGeneration`, ob ein Kit über den Rasterpfad oder über den
+ * 1.0-Pfad läuft. Die Messzelle misst damit nachweislich dasselbe, was
+ * Server und Editor bauen — hätte sie ihre eigene Weiche, könnte sie
+ * einen Pfad grün messen, den niemand benutzt.
+ *
+ * Die Funktion bleibt trotzdem stehen, statt den Verteiler direkt
+ * aufzurufen: Sie ist die eine Stelle, an der `main()` ein Layout
+ * bekommt, und der Re-Export macht sie für `tools/test/*` greifbar.
  */
 export function erzeugeLayoutFuerKit(
   def: DungeonDef,
   seed: number,
-  einstellungen?: Partial<DungeonGeneratorSettings>
+  einstellungen?: Partial<GridSettings>
 ): DungeonLayout {
-  return generateDungeonLayout(def, seed, einstellungen);
+  return verteileLayout(def, seed, einstellungen);
 }
 
 /** Kit nachschlagen — mit lauter Fehlermeldung statt `undefined`. */

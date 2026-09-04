@@ -30,6 +30,7 @@
  * Spielclient dafür abmeldet.
  */
 import {
+  DEFAULT_GRID_TUNING,
   DUNGEONS_BY_NAME,
   MAX_DUNGEON_AMBIENT,
   STEIN_TEXTUREN,
@@ -45,6 +46,7 @@ import {
 import type { DungeonGrundriss } from './DungeonGrundriss';
 import { DungeonLadeFehler, holeDungeon, holeDungeonListe, type DungeonKopf } from './DungeonDokument';
 import {
+  istRasterkit,
   neuesDungeonDokument,
   waehlbareBasen,
   type NeuesDokumentErgebnis,
@@ -240,6 +242,14 @@ export class DungeonSeite {
    */
   private neuRaeume = '';
   private neuZone = '';
+  /**
+   * Die beiden Rasterregler („Schleifen", „Torbögen"), leer = Vorgabe des
+   * Generators. Als TEXT und aus demselben Grund wie die beiden darüber:
+   * „leer" ist etwas anderes als 0, und bei einem ANTEIL ist 0 ein
+   * gültiger Wert (gar keine Schleife, gar kein Bogen).
+   */
+  private neuSchleifen = '';
+  private neuTorboegen = '';
   private legtAn = false;
   /**
    * Vorgewählte Kante im Feld „Anfügen an" — Index in `grundriss.anbaubare`.
@@ -601,6 +611,12 @@ export class DungeonSeite {
     }
     bw.onchange = () => {
       this.neuBasis = bw.value;
+      // Neu aufbauen, nicht nur merken: Seit G8 hängt die BESCHRIFTUNG an
+      // der Basis („Zellen" statt „Räume (Versuche)"), und die beiden
+      // Rasterregler stehen nur am Rasterkit. Ohne diesen Aufruf zeigte
+      // das Formular nach einem Basiswechsel die Beschriftung des vorigen
+      // Kits — gemessen im Editor am 04.09.2026.
+      this.baue();
     };
     b.appendChild(bw);
 
@@ -637,6 +653,12 @@ export class DungeonSeite {
     // ohne „voll generieren" stehen die Wachstumsversuche ohnehin auf 0,
     // und ein Feld, dessen Eingabe folgenlos bleibt, ist eine Lüge.
     if (this.neuVoll) {
+      // `maxRooms` heisst auf dem Rasterpfad ZELLZAHL und nicht mehr
+      // Wachstumsversuche (G8). Die Konzeptnotiz führt das unter
+      // „Risiken": Ohne geänderte Beschriftung liest Mike künftig ein
+      // Zwölftel Grab als Fehler. Gefragt wird dasselbe Feld, das auch
+      // der Verteiler fragt — eine zweite Kit-Liste liefe auseinander.
+      const raster = istRasterkit(this.neuBasis);
       const raeumeFeld = feld('Kit-Vorgabe', '80px');
       raeumeFeld.value = this.neuRaeume;
       raeumeFeld.oninput = () => {
@@ -647,7 +669,34 @@ export class DungeonSeite {
       zoneFeld.oninput = () => {
         this.neuZone = zoneFeld.value;
       };
-      b.appendChild(zeile('Räume (Versuche)', raeumeFeld, 'Zone', zoneFeld));
+      b.appendChild(zeile(raster ? 'Zellen' : 'Räume (Versuche)', raeumeFeld, 'Zone', zoneFeld));
+
+      // Die beiden Rasterregler NUR am Rasterkit: Auf dem 1.0-Pfad liest
+      // sie niemand, und ein Regler, dessen Eingabe folgenlos bleibt, ist
+      // dieselbe Lüge wie ein Zahlenfeld ohne „voll generieren".
+      if (raster) {
+        const schleifenFeld = feld('Vorgabe', '80px');
+        schleifenFeld.value = this.neuSchleifen;
+        schleifenFeld.oninput = () => {
+          this.neuSchleifen = schleifenFeld.value;
+        };
+        const torbogenFeld = feld('Vorgabe', '80px');
+        torbogenFeld.value = this.neuTorboegen;
+        torbogenFeld.oninput = () => {
+          this.neuTorboegen = torbogenFeld.value;
+        };
+        b.appendChild(zeile('Schleifen', schleifenFeld, 'Torbögen', torbogenFeld));
+        b.appendChild(
+          hinweis(
+            'Anteile 0…1. „Schleifen" ist der Regler gegen verwinkelte Räume: Jede ' +
+              'Nachbarschaft, die zum Durchgang wird, ist eine Zwischenwand weniger ' +
+              `(Vorgabe ${DEFAULT_GRID_TUNING.loopFraction}). „Torbögen" ist der Anteil der ` +
+              `Übergänge mit Rahmen (Vorgabe ${DEFAULT_GRID_TUNING.archwayFraction}); zwischen ` +
+              'zwei Gangzellen entsteht nie einer. „Zellen" ist bei diesem Kit die Zahl der ' +
+              'Rasterzellen, nicht der Wachstumsversuche.'
+          )
+        );
+      }
     }
 
     // „Vorschau" schreibt NICHTS. Ein voller Wurf ist eine Entscheidung,
@@ -889,8 +938,17 @@ export class DungeonSeite {
     };
     const raeume = zahl(this.neuRaeume);
     const zone = zahl(this.neuZone);
-    if (raeume === null) return { ok: false, grund: '„Räume" ist keine Zahl' };
+    const schleifen = zahl(this.neuSchleifen);
+    const torboegen = zahl(this.neuTorboegen);
+    const raster = istRasterkit(this.neuBasis);
+    if (raeume === null) return { ok: false, grund: `„${raster ? 'Zellen' : 'Räume'}" ist keine Zahl` };
     if (zone === null) return { ok: false, grund: '„Zone" ist keine Zahl' };
+    // Nur beklagen, was auch zu sehen ist: Die beiden Felder stehen nur am
+    // Rasterkit. Ein stehengebliebener Text aus einer vorherigen Auswahl
+    // ergäbe sonst eine Fehlermeldung über ein Feld, das gerade gar nicht
+    // im Formular steht.
+    if (raster && schleifen === null) return { ok: false, grund: '„Schleifen" ist keine Zahl' };
+    if (raster && torboegen === null) return { ok: false, grund: '„Torbögen" ist keine Zahl' };
 
     return neuesDungeonDokument({
       id: this.neuId,
@@ -899,6 +957,10 @@ export class DungeonSeite {
       ...(this.neuVoll ? { voll: true } : {}),
       ...(this.neuVoll && raeume !== undefined ? { maxRooms: raeume } : {}),
       ...(this.neuVoll && zone !== undefined ? { zoneSize: zone } : {}),
+      // Nur am Rasterkit weitergereicht: Am 1.0-Kit stünde sonst eine
+      // Zahl im Dokument, gegen die nie gebaut wurde.
+      ...(this.neuVoll && raster && typeof schleifen === 'number' ? { loopFraction: schleifen } : {}),
+      ...(this.neuVoll && raster && typeof torboegen === 'number' ? { archwayFraction: torboegen } : {}),
     });
   }
 

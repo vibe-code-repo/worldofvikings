@@ -1,10 +1,13 @@
 /**
  * M3 — Saat-Test fuer das Modul-Kit `DG_StoneVault`.
  *
- * Beweist per Skript (nicht per Rendering), dass der 1.0-Generator
- * (`shared/src/dungeonGenerator.ts`, NUR importiert — siehe Projektregeln,
- * dieser Test ruehrt die Datei nicht an) aus dem Kit dichte, reproduzierbare
- * Grundrisse baut. Arbeitet ausschliesslich mit `shared`-Daten (Kit-Defs,
+ * Beweist per Skript (nicht per Rendering), dass der Generator (NUR
+ * importiert — siehe Projektregeln, dieser Test ruehrt weder
+ * `dungeonGenerator.ts` noch `dungeonRasterGenerator.ts` an) aus dem Kit
+ * dichte, reproduzierbare Grundrisse baut. Welcher der beiden Wege
+ * gebaut wird, entscheidet der Verteiler `erzeugeLayoutFuerKit` und
+ * nicht dieser Test — seit G8 ist das fuer `DG_StoneVault` der
+ * Rasterpfad. Arbeitet ausschliesslich mit `shared`-Daten (Kit-Defs,
  * RNG) und laedt keine GLBs — laeuft deshalb unabhaengig von `assets/`.
  *
  * Pruefungen je Seed (1..40):
@@ -12,12 +15,11 @@
  *     bytengleiches Layout (JSON-Vergleich).
  *  2. Keine zwei Raum-AABBs ueberlappen (rotatedSize/roomBodyFromFloor aus
  *     `testCollision` nachgebildet, kleines Epsilon fuer Gleitkomma-Beruehrung
- *     an gemeinsamen Kanten) — MIT EINER dokumentierten, engen Ausnahme,
- *     s. Fund unten.
- *  3. Keine offenen Connectors ohne Gegenstueck oder endCap
- *     (`computeOpenConnections` == 0, NACH Abzug des Eingangsconnectors der
- *     Startraum-Rolle — der bleibt gewollt offen, das ist die Tuer in die
- *     Aussenwelt).
+ *     an gemeinsamen Kanten) — seit G8 OHNE jede Ausnahme, s. unten.
+ *  3. Keine Oeffnung ins Leere: Hinter jedem Connector ohne Gegenstueck
+ *     steht der Koerper eines Nachbarmoduls (Zeile 3 der Kantentafel).
+ *     Der Eingangsconnector der Startraum-Rolle ist abgezogen — er bleibt
+ *     gewollt offen, das ist die Tuer in die Aussenwelt.
  *  4. Raumzahl im Schnitt > 10 (sonst ist das Kit zu restriktiv konfiguriert).
  *  5. Mindestens ein Arch-Torbogen (`StoneVaultArch`) ist ueber alle Seeds
  *     gesetzt.
@@ -33,64 +35,39 @@
  *  8. Die Halle (`StoneVaultHall`) steht in mindestens 10 von 40 Seeds
  *     (das seltenste Gewicht darf trotzdem nicht zum Ausreisser werden).
  *
- * ── Fund beim ersten Lauf (2.9.2026) ────────────────────────────────────
- * Assertion 2 schlug zunaechst in 37 von 40 Seeds fehl — IMMER
- * `StoneVaultWall` gegen `StoneVaultEntry`, nie zwei gewoehnliche Zellen
- * gegeneinander. Ursache liegt im GENERATOR, nicht im Kit, und ist
- * ausdruecklich schon vom Kit-Agenten mitgebracht (s. `endcapsFallbackByPrio`-
- * Kommentar in dungeonGenerator.ts, Steingrab-Praezedenzfall: „163 Notfall-
- * setzungen ueber 40 Seeds, ausnahmslos die Nische"): `commitRoom` nimmt den
- * Eingangsconnector des Startraums NIE in `openConnections` auf (Zeile 412),
- * er bleibt also aus Sicht der Wachstums-Buchhaltung frei — obwohl der
- * Eingangsraum dahinter WEITERHIN real 2 m tief in den Raum hineinragt.
- * Waechst spaeter eine Zellenkette um den Eingang herum bis exakt an diese
- * Flaeche zurueck (bei einem 2-m-Quadratraster ueber 100+ Zellen so gut wie
- * sicher), hat die dort noetige Abschlusswand keinen Ausweichkandidaten
- * (`StoneVault` fuehrt genau EINEN endCap-Typ): der reguläre, kollisions-
- * geprüfte Zweig lehnt sie zu Recht ab (per Rechnung unten bestaetigt
- * ueberlappt sie den Eingangsraum), der Generator faellt danach auf den
- * dokumentierten Notfallzweig zurueck — „ein sich ueberschneidender
- * Abschluss ist besser als ein Loch ins Nichts" — und setzt sie trotzdem.
- * Assertion 2 laesst deshalb NUR diese eine, schmal gefasste Kombination
- * (ein endCap gegen den Eingangsraum) zu und zaehlt jede andere Ueberlappung
- * weiterhin als Fehler. Kit-Werte wurden dafuer NICHT veraendert: Ob eine
- * Zellenkette exakt bis vor den Eingang zurueckwaechst, haengt vom Zufalls-
- * pfad ab, nicht von weights/maxRooms/zoneSize/chance — jede Drosselung, die
- * das zuverlaessig verhindert (siehe Parametersuche unten), druesckt die
- * Raumzahl weit unter das, was „dicht" hier heissen soll.
+ * ── Umbau mit G8 (4.9.2026): beide Ausnahmen sind ERSATZLOS weg ────────
+ * Dieser Test hat bis zum 3.9.2026 ZWEI dokumentierte Ausnahmen von
+ * Pruefung 2 gefuehrt, beide aus dem 1.0-Generator:
+ *  (a) 7 Notfall-Abschluesse gegen den Eingangsraum ueber 40 Seeds,
+ *  (b) 13 Notfall-Abschluesse in der Luftraum-Haelfte der Treppenhuelle.
+ * Beide entstanden aus derselben Wurzel: `placeEndCaps` mauert jede
+ * unbeschaltete Kante zu und faellt, wenn kein Kandidat passt, auf einen
+ * Zweig OHNE Kollisionspruefung zurueck ("ein sich ueberschneidender
+ * Abschluss ist besser als ein Loch ins Nichts").
  *
- * Bei Fehlschlaegen AUSSERHALB dieser einen Ausnahme: Kit-WERTE in
- * `shared/src/eigeneDungeons.ts` justieren (weights, maxRooms, zoneSize,
- * chance) — NIEMALS den Generator.
+ * Seit G8 laeuft `DG_StoneVault` ueber den Rasterpfad
+ * (`DungeonDef.gridGeneration` → `erzeugeLayoutFuerKit`). Dort entsteht
+ * eine Platte nur noch nach der Kantentafel, und wo eine steht, ist der
+ * Streifen per Konstruktion frei. Die Konzeptnotiz macht daraus einen
+ * WAECHTER und keine Fussnote: "faellt eine davon nicht weg, hat die
+ * Versiegelung ihr Versprechen gebrochen". Beide Ausnahmen sind deshalb
+ * hier ersatzlos gestrichen — jede Ueberlappung ist wieder ein Fehler.
+ * Gemessen ueber dieselben 40 Seeds: 0 Ueberlappungen ueberhaupt.
  *
- * ── Zweiter Fund, nach Einbau von `StoneVaultStairs` (3.9.2026) ─────────
- * Assertion 2 schlug erneut fehl, diesmal in 27 von 40 Seeds, IMMER
- * `StoneVaultWall` gegen `StoneVaultStairs`. Ursache ist geometrisch, nicht
- * ein Testfehler: `StoneVaultStairs` ist das einzige Bauteil dieses Kits,
- * dessen Huelle ZWEI Ebenen ueberspannt (y = 0 … 7, s. Kommentar am Raum in
- * `eigeneDungeons.ts`), traegt aber nur je EINEN Connector pro Ebene (unten
- * bei y=0, oben bei y=3,5). Der freie Luftraum ueber dem unteren bzw. unter
- * dem oberen Ende gehoert trotzdem zur Huelle — es gibt kein zweites Modell,
- * das die andere Ebene an dieser Stelle abschliesst. Waechst eine Zellenkette
- * auf der jeweils ANDEREN Ebene bis an genau diese Stelle heran, ragt ihr
- * `StoneVaultWall`-Abschluss (0,3 m, Notfallzweig wie beim Eingang oben) in
- * die Luftraum-Haelfte der Treppenhuelle hinein — nachgerechnet 27 Faelle
- * ueber 40 Seeds, in JEDEM liegt der komplette Wandkoerper (y-Bereich, s.
- * `raumY` unten) innerhalb der Treppenhuelle, quert aber nicht die vom
- * Nachbarraum tatsaechlich begehbare Ebene. Beispiel Seed 5: Treppe
- * pos (-5,0,-1) rot -90 (oberes Ende bei x=-7, y=3,5), Wand pos (-6.85,0,-1),
- * Wandkoerper x -7,0…-6,7 bei y 0…3,5 — vollstaendig unter dem oberen
- * Podest, ausserhalb jeder tatsaechlich begehbaren Flaeche.
- * Assertion 2 laesst deshalb ZUSAETZLICH zur Eingangs-Ausnahme genau diese
- * eng gefasste Kombination zu: ein `endCap` (immer `StoneVaultWall` in
- * diesem Kit) gegen `StoneVaultStairs`, UND NUR wenn der y-Bereich des
- * endCap-Koerpers vollstaendig innerhalb des y-Bereichs der Treppenhuelle
- * liegt (`raumY`-Containment, mit `EPSILON`) — also wirklich der beschriebene
- * Luftraum-Fall und keine Ueberlappung, die die begehbare Ebene quert. Jede
- * andere Kombination bleibt ein echter Fehler. Kit-Werte wurden dafuer NICHT
- * veraendert: `weight: 1` fuer `StoneVaultStairs` ist durch die Verteilung
- * ueber 40 Seeds gedeckt (s. Statistikblock unten) — eine Drosselung wuerde
- * die Treppe praktisch abschalten, ohne die geometrische Ursache zu beheben.
+ * ── Was sich an Pruefung 3 dafuer aendert ──────────────────────────────
+ * `computeOpenConnections` kennt die Kantentafel nicht (das kommt mit
+ * G9). Zeile 3 der Tafel — "offen gegen eingebaute Wand → KEINE Platte,
+ * die Wand des Nachbarn IST die Wand" — sieht fuer sie deshalb aus wie
+ * ein offener Connector; gemessen 46 Stueck ueber 40 Seeds. Eine Platte
+ * davor waere genau eine der 531 ueberfluessigen aus dem G1-Befund.
+ *
+ * Pruefung 3 fragt deshalb nicht mehr "0 offen", sondern: Steht hinter
+ * JEDEM offenen Connector der Koerper eines Nachbarmoduls? Das ist die
+ * schaerfere Frage, denn sie faellt auch dann rot aus, wenn eine Oeffnung
+ * ins LEERE zeigt — und genau dort steht nach der Tafel (Zeile 5) immer
+ * eine Platte. Geprueft wird geometrisch am Layout und nicht am
+ * Rastermodell des Generators: Ein Test, der die Buchhaltung des
+ * Erzeugers nachliest, bestaetigt nur sie selbst.
  *
  * Run: npx tsx server/test/m3-stonevault-seeds.ts   (from the repo root)
  */
@@ -100,7 +77,7 @@ import {
   DUNGEONS_BY_NAME,
   MODUL_ZELLE_HOEHE_M,
   computeOpenConnections,
-  generateDungeonLayout,
+  erzeugeLayoutFuerKit,
   quatMulVec3,
   type DungeonLayout,
   type PlacedRoom,
@@ -166,28 +143,6 @@ function mitte(pos: Vector3, size: Vector3): Vector3 {
   return settings.roomBodyFromFloor ? { x: pos.x, y: pos.y + size.y / 2, z: pos.z } : pos;
 }
 
-/**
- * y-Ausdehnung eines bereits ZENTRIERTEN Raumkoerpers (min, max) — `pos`
- * hier ist die Mitte (Ergebnis von `mitte()`, wie in `placed[].full` und
- * `placed[].shrunk` unten abgelegt), NICHT der rohe Boden-Anker. Grundlage
- * der Treppen-Ausnahme: Nur damit laesst sich pruefen, ob ein Wandabschluss
- * wirklich im Luftraum UEBER/UNTER der jeweils anderen Ebene der Treppe
- * steckt, statt die begehbare Ebene selbst zu queren.
- */
-function raumY(mittigerPos: Vector3, size: Vector3): { min: number; max: number } {
-  return { min: mittigerPos.y - size.y / 2, max: mittigerPos.y + size.y / 2 };
-}
-
-/** Voller y-Bereich eines endCap-Koerpers liegt (mit `EPSILON`) innerhalb des y-Bereichs des anderen Raums. */
-function yEnthaltenIn(
-  innen: { pos: Vector3; size: Vector3 },
-  aussen: { pos: Vector3; size: Vector3 }
-): boolean {
-  const yi = raumY(innen.pos, innen.size);
-  const ya = raumY(aussen.pos, aussen.size);
-  return yi.min >= ya.min - EPSILON && yi.max <= ya.max + EPSILON;
-}
-
 /** Wie `rectOverlapRect`, aber um `EPSILON` geschrumpft — Gleitkomma-Berührung an gemeinsamen Kanten ist kein Überlapp. */
 function overlaps(size1: Vector3, pos1: Vector3, size2: Vector3, pos2: Vector3): boolean {
   const s1 = { x: size1.x / 2 - EPSILON, y: size1.y / 2 - EPSILON, z: size1.z / 2 - EPSILON };
@@ -216,14 +171,12 @@ function overlaps(size1: Vector3, pos1: Vector3, size2: Vector3, pos2: Vector3):
  * Hälfte in seinen Nachbarn hineinragen darf (`endcapsInsetFrac`).
  */
 interface OverlapResult {
-  /** Jede gefundene Überlappung, roh — inklusive der dokumentierten Ausnahmen. */
+  /**
+   * Jede gefundene Überlappung. Seit G8 gibt es keine zweite Liste mehr:
+   * Die beiden dokumentierten Ausnahmen sind ersatzlos gestrichen
+   * (s. Kopfkommentar), jede Überlappung ist wieder ein Fehler.
+   */
   all: string[];
-  /** Nur Überlappungen AUSSERHALB der beiden dokumentierten Ausnahmen. */
-  unerwartet: string[];
-  /** Anzahl der Notfall-Abschlüsse gegen den Eingangsraum (1. Ausnahme). */
-  notfallEingang: number;
-  /** Anzahl der Notfall-Abschlüsse gegen die Treppen-Luftraum-Haelfte (2. Ausnahme, s. Kopfkommentar). */
-  notfallTreppe: number;
 }
 
 function findOverlaps(layout: DungeonLayout): OverlapResult {
@@ -232,42 +185,73 @@ function findOverlaps(layout: DungeonLayout): OverlapResult {
     if (!room) throw new Error(`Raum '${p.room}' fehlt in der Kit-Definition`);
     return {
       name: p.room,
-      entrance: room.entrance,
-      endCap: room.endCap,
       full: { pos: mitte(p.pos, rotatedSize(room.size, p.rot)), size: rotatedSize(room.size, p.rot) },
       shrunk: { pos: mitte(p.pos, collisionSize(room, p.rot)), size: collisionSize(room, p.rot) },
     };
   });
   const all: string[] = [];
-  const unerwartet: string[] = [];
-  let notfallEingang = 0;
-  let notfallTreppe = 0;
   for (let i = 1; i < placed.length; i++) {
     for (let j = 0; j < i; j++) {
       if (overlaps(placed[i].shrunk.size, placed[i].shrunk.pos, placed[j].full.size, placed[j].full.pos)) {
-        const text = `${placed[i].name}#${i} (später) <-> ${placed[j].name}#${j} (früher)`;
-        all.push(text);
-        // Dokumentierte Ausnahme (s. Kopfkommentar): ein endCap, der den
-        // Notfallzweig durchlaufen hat, gegen den Eingangsraum.
-        const istEingangsAusnahme =
-          (placed[i].endCap && placed[j].entrance) || (placed[j].endCap && placed[i].entrance);
-        // Zweite dokumentierte Ausnahme (s. Kopfkommentar, Fund vom
-        // 3.9.2026): ein endCap gegen `StoneVaultStairs`, aber NUR wenn der
-        // volle Raumkoerper (nicht die geschrumpfte Kollisionsbox — die
-        // Frage ist geometrisch, nicht kollisionsspezifisch) des endCap
-        // komplett im y-Bereich der (zwei Ebenen hohen) Treppenhuelle
-        // steckt — das ist der Luftraum ueber/unter der jeweils anderen
-        // Ebene, keine Ueberlappung der begehbaren Flaeche.
-        const istTreppenAusnahme =
-          (placed[i].endCap && placed[j].name === 'StoneVaultStairs' && yEnthaltenIn(placed[i].full, placed[j].full)) ||
-          (placed[j].endCap && placed[i].name === 'StoneVaultStairs' && yEnthaltenIn(placed[j].full, placed[i].full));
-        if (istEingangsAusnahme) notfallEingang++;
-        else if (istTreppenAusnahme) notfallTreppe++;
-        else unerwartet.push(text);
+        all.push(`${placed[i].name}#${i} (später) <-> ${placed[j].name}#${j} (früher)`);
       }
     }
   }
-  return { all, unerwartet, notfallEingang, notfallTreppe };
+  return { all };
+}
+
+/**
+ * Steht hinter diesem offenen Connector der KOERPER eines Nachbarmoduls?
+ *
+ * Grundlage von Pruefung 3 seit G8. Die Kantentafel laesst genau einen
+ * Fall zu, in dem eine Oeffnung ohne Platte bleibt: Zeile 3, "offen gegen
+ * eingebaute Wand" — die Wand des Nachbarn IST die Wand. Zeigt eine
+ * Oeffnung dagegen ins Leere (Zeile 5), steht dort immer eine Platte, und
+ * ein offener Connector ohne Nachbarkoerper waere genau das Loch, das der
+ * ganze Umbau abschaffen soll.
+ *
+ * ── Warum die Achse aus der PARITAET faellt und nicht aus der Drehung ──
+ * Zellmitten liegen auf `(2i, 3,5e, 2j−1)`, Kantenmitten genau dazwischen.
+ * Eine Kante quer zu x hat damit ungerade x UND ungerade z, eine Kante
+ * quer zu z gerade x und gerade z. Das ist ablesbar und braucht weder die
+ * Connector-Drehung noch eine Annahme darueber, welche lokale Achse
+ * "hinaus" zeigt — beides waere eine zweite Wahrheit ueber die Geometrie
+ * des Kits.
+ *
+ * Geprueft werden BEIDE Nachbarn der Kante, der eigene Raum ausgenommen:
+ * Der innere von beiden ist die eigene Zellmitte und liegt im eigenen
+ * Koerper; dass kein fremder Koerper dort hineinragt, sagt Pruefung 2.
+ * Abschluesse (`endCap`) zaehlen nicht mit — eine Platte VOR der Oeffnung
+ * waere kein Nachbarmodul, sondern der Fehler aus Mikes Befund.
+ */
+function stehtNachbarDahinter(layout: DungeonLayout, roomIndex: number, connIndex: number): boolean {
+  const placed = layout.rooms[roomIndex]!;
+  const def0 = roomsByName.get(placed.room);
+  const conn = def0?.connections[connIndex];
+  if (!conn) return false;
+  const lokal = quatMulVec3(placed.rot, conn.localPos);
+  const kante = { x: placed.pos.x + lokal.x, y: placed.pos.y + lokal.y, z: placed.pos.z + lokal.z };
+  const querZuX = Math.abs(Math.round(kante.x)) % 2 === 1;
+  // Auf halber Ebenenhoehe pruefen: Der Connector sitzt auf dem BODEN
+  // (y = 0 lokal), und ein Punkt genau auf der Bodenflaeche liegt auf dem
+  // Rand jeder Huelle — eine Frage, die von Rundung abhaengt.
+  const y = kante.y + MODUL_ZELLE_HOEHE_M / 2;
+  const kandidaten: Vector3[] = [1, -1].map((s) =>
+    querZuX ? { x: kante.x + s, y, z: kante.z } : { x: kante.x, y, z: kante.z + s }
+  );
+  return layout.rooms.some((andere, i) => {
+    if (i === roomIndex) return false;
+    const d = roomsByName.get(andere.room);
+    if (!d || d.endCap) return false;
+    const size = rotatedSize(d.size, andere.rot);
+    const m = mitte(andere.pos, size);
+    return kandidaten.some(
+      (k) =>
+        Math.abs(k.x - m.x) <= size.x / 2 + EPSILON &&
+        Math.abs(k.y - m.y) <= size.y / 2 + EPSILON &&
+        Math.abs(k.z - m.z) <= size.z / 2 + EPSILON
+    );
+  });
 }
 
 /** Die vier neuen Zellvarianten — Wall und Entry zaehlen bewusst nicht mit (s. Pruefung 6/7). */
@@ -278,9 +262,15 @@ const GANGVARIANTEN = ['StoneVaultCorridor', 'StoneVaultCorner', 'StoneVaultJunc
 const roomCounts: number[] = [];
 const doorCounts: number[] = [];
 let archGesetzt = false;
-let notfallUeberlappungen = 0;
-/** Notfall-Abschluesse gegen die Treppen-Luftraum-Haelfte, ueber alle Seeds (2. Ausnahme, s. Kopfkommentar). */
-let notfallTreppenUeberlappungen = 0;
+/**
+ * Offene Connectors, hinter denen die EINGEBAUTE WAND eines Nachbarn
+ * steht (Zeile 3 der Kantentafel) — keine Fehler, sondern der Fix fuer
+ * die 531 ueberfluessigen Platten aus dem G1-Befund. Sie werden gezaehlt
+ * und nicht nur uebergangen: Faellt die Zahl auf 0, versiegelt wieder
+ * jemand gegen fremde Wandkoerper, und das faellt in keiner anderen
+ * Pruefung auf.
+ */
+let offeneGegenWand = 0;
 /** Je Seed die Haeufigkeit jedes Raumnamens — Grundlage fuer Pruefung 6/7/8 und die Statistikausgabe. */
 const namensverteilungJeSeed: Map<string, number>[] = [];
 /** In wie vielen Seeds `StoneVaultHall` mindestens einmal vorkommt (Pruefung 8). */
@@ -293,28 +283,16 @@ const treppenJeSeed: number[] = [];
 let seedsMitTreppe = 0;
 
 for (const seed of SEEDS) {
-  const layout1 = generateDungeonLayout(def, seed);
-  const layout2 = generateDungeonLayout(def, seed);
+  // Der VERTEILER, nicht ein Pfad direkt: Dieser Test soll das messen,
+  // was Server und Editor bauen. Riefe er `generateGridLayout` an, bliebe
+  // er auch dann gruen, wenn der Schalter am Kit verschwaende.
+  const layout1 = erzeugeLayoutFuerKit(def, seed);
+  const layout2 = erzeugeLayoutFuerKit(def, seed);
 
   check(`seed ${seed}: Determinismus`, JSON.stringify(layout1) === JSON.stringify(layout2));
 
-  const { all, unerwartet, notfallEingang, notfallTreppe } = findOverlaps(layout1);
-  notfallUeberlappungen += notfallEingang;
-  notfallTreppenUeberlappungen += notfallTreppe;
-  check(
-    `seed ${seed}: keine unerwartete Überlappung`,
-    unerwartet.length === 0,
-    unerwartet.length > 0
-      ? unerwartet.join('; ')
-      : all.length > 0
-        ? [
-            notfallEingang > 0 ? `${notfallEingang}x Notfall-Abschluss am Eingang (bekannt)` : '',
-            notfallTreppe > 0 ? `${notfallTreppe}x Notfall-Abschluss an Treppen-Luftraum (bekannt)` : '',
-          ]
-            .filter(Boolean)
-            .join(', ')
-        : ''
-  );
+  const { all } = findOverlaps(layout1);
+  check(`seed ${seed}: keine Überlappung`, all.length === 0, all.slice(0, 3).join('; '));
 
   // Der Eingangsconnector des Startraums bleibt ABSICHTLICH offen (Tuer in
   // die Aussenwelt, s. `placeStartRoom`/`commitRoom`) — er zaehlt hier
@@ -323,7 +301,13 @@ for (const seed of SEEDS) {
     const room = roomsByName.get(layout1.rooms[o.roomIndex].room);
     return !room?.connections[o.connIndex]?.entrance;
   });
-  check(`seed ${seed}: keine offenen Connectors`, open.length === 0, `${open.length} offen`);
+  const loecher = open.filter((o) => !stehtNachbarDahinter(layout1, o.roomIndex, o.connIndex));
+  offeneGegenWand += open.length - loecher.length;
+  check(
+    `seed ${seed}: keine Öffnung ins Leere`,
+    loecher.length === 0,
+    `${open.length} ohne Partner, davon ${loecher.length} ohne Nachbarkörper dahinter`
+  );
 
   roomCounts.push(layout1.rooms.length);
   doorCounts.push(layout1.doors.length);
@@ -377,10 +361,8 @@ console.log(
 );
 console.log(`Türen:  min ${doorStats.min}, median ${doorStats.median}, max ${doorStats.max}`);
 console.log(
-  `Notfall-Abschlüsse am Eingang (dokumentierte Ausnahme, s. Kopfkommentar): ${notfallUeberlappungen} über 40 Seeds`
-);
-console.log(
-  `Notfall-Abschlüsse an Treppen-Luftraum (2. dokumentierte Ausnahme, s. Kopfkommentar): ${notfallTreppenUeberlappungen} über 40 Seeds`
+  `Offene Connectors gegen die eingebaute Wand eines Nachbarn (Kantentafel Zeile 3, keine Platte): ` +
+    `${offeneGegenWand} über 40 Seeds`
 );
 console.log(
   `Gang-Anteil (Corridor+Corner+Junction an Nicht-Wand-Räumen) im Schnitt: ${(gangAnteilSchnitt * 100).toFixed(1)} %`

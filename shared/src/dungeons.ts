@@ -284,6 +284,45 @@ export interface DungeonDef {
    * Leitung geschickt.
    */
   readonly steinKit?: SteinKitConfig;
+  /**
+   * Der Schalter auf den Rasterpfad (Modul-Generierung 2.0, additiv).
+   *
+   * SEINE ANWESENHEIT ist die Entscheidung, nicht sein Inhalt: Trägt ein
+   * Kit dieses Feld, baut {@link erzeugeLayoutFuerKit} es über
+   * `dungeonRasterGenerator.ts`, sonst über `generateDungeonLayout`. Ein
+   * blosser Wahrheitswert hätte dasselbe getan und die beiden Masse
+   * verschwiegen, an denen der ganze Pfad hängt — sie stehen hier, damit
+   * ein zweites Modulkit mit anderem Raster nicht stillschweigend gegen
+   * die 2 m / 3,5 m des StoneVault gebaut wird.
+   *
+   * Genau EIN Kit trägt es (`DG_StoneVault`). Für alle anderen — das
+   * Steingrab und die dreizehn geparsten — bleibt der 1.0-Pfad Zeile für
+   * Zeile derselbe; belegt ist das in `server/test/golden-kits.ts`.
+   *
+   * `maxRooms` WECHSELT mit diesem Feld die Bedeutung: Wachstumsversuche
+   * im 1.0-Pfad, ZELLZAHL im Rasterpfad (s. Verträge der Konzeptnotiz).
+   * Deshalb liest auch der Editor dieses Feld — die Beschriftung des
+   * Formularfelds hängt daran.
+   * The switch onto the grid path (module generation 2.0, additive): its
+   * PRESENCE decides; its content carries the cell/level metrics.
+   */
+  readonly gridGeneration?: GridGenerationDef;
+}
+
+/**
+ * Die Masse des Rasters, auf dem ein Modulkit gebaut ist.
+ *
+ * Bewusst OHNE Vorgabewerte: Ein Kit, das den Rasterpfad benutzt, muss
+ * sein Raster nennen. Ein stillschweigend angenommenes 2-m-Raster wäre
+ * genau die zweite Wahrheit über dieselbe Geometrie, die die
+ * Konzeptnotiz unter „Risiken" als Fehlerquelle nennt.
+ * The metrics of the grid a module kit is built on.
+ */
+export interface GridGenerationDef {
+  /** Kantenlänge einer Zelle in Metern (StoneVault: 2). */
+  readonly cellM: number;
+  /** Höhe einer Ebene in Metern (StoneVault: 3,5). */
+  readonly levelM: number;
 }
 
 interface DungeonJson extends Omit<DungeonDef, 'hash' | 'rooms' | 'algorithm'> {

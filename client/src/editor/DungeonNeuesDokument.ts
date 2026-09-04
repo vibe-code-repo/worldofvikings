@@ -13,8 +13,12 @@
  * `dungeonGenerator.ts`, nicht exportiert), und die Startposition des
  * Eingangsraums ist die des Generators. Von Hand nachgebaut wäre beides
  * eine zweite Wahrheit, die beim nächsten `dungeon regen` auffiele.
- * `generateDungeonLayout` mit `maxRooms: 0` liefert stattdessen genau den
- * Startzustand, den der Server auch bauen würde.
+ * Der Verteiler (`erzeugeLayoutFuerKit`) mit `maxRooms: 0` liefert
+ * stattdessen genau den Startzustand, den der Server auch bauen würde —
+ * und zwar auf beiden Pfaden: Der Rasterpfad klemmt 0 auf eine Zelle und
+ * baut die Eingangszelle mit ihren Platten, der 1.0-Pfad den Eingangsraum
+ * mit seinen Abschlüssen. Beide Male fallen die Abschlüsse gleich darauf
+ * wieder weg (nächster Absatz).
  *
  * ── Warum die Abschlüsse wieder abgerissen werden ────────────────────
  * Gemessen am 03.09.2026 (`DG_StoneVault`, Seed 7): `maxRooms: 0` ergibt
@@ -40,7 +44,7 @@ import {
   DUNGEONS_BY_NAME,
   DUNGEON_DOCUMENT_VERSION,
   DEFAULT_GENERATOR_SETTINGS,
-  generateDungeonLayout,
+  erzeugeLayoutFuerKit,
   isInstanceableDungeon,
   isValidDungeonId,
   removeRoom,
@@ -88,10 +92,39 @@ export interface NeuesDokumentWunsch {
   /**
    * Wachstumsversuche statt der Kit-Vorgabe. Wirkt NUR bei `voll` — im
    * leeren Fall stehen sie ohnehin auf 0.
+   *
+   * Bei einem RASTERKIT (`def.gridGeneration`, heute nur `DG_StoneVault`)
+   * ist dieselbe Zahl die ZELLZAHL — s. {@link istRasterkit} und die
+   * Beschriftung im Formular.
    */
   maxRooms?: number;
   /** Wachstumsraum statt der Kit-Vorgabe. Ebenfalls nur bei `voll`. */
   zoneSize?: number;
+  /**
+   * „Schleifen": Anteil der Rasternachbarschaften, die zum Durchgang
+   * werden (0…1). Wirkt NUR auf einem Rasterkit — der 1.0-Pfad liest ihn
+   * nie. Fehlt er, gilt die Vorgabe des Generators.
+   */
+  loopFraction?: number;
+  /** „Torbögen": Anteil der Verbindungen mit Rahmen (0…1). Ebenfalls nur Rasterkit. */
+  archwayFraction?: number;
+}
+
+/**
+ * Baut dieses Kit über den Rasterpfad?
+ *
+ * Die EINE Stelle, an der der Editor das fragt — und er fragt dasselbe
+ * Feld, das auch der Verteiler fragt (`erzeugeLayoutFuerKit`). Eine
+ * zweite Liste („welche Kits sind Rasterkits") wäre genau die zweite
+ * Wahrheit, an der `roomOverlapsLayout` gegen `testCollision` schon
+ * einmal auseinandergelaufen ist.
+ *
+ * Sie steht hier und nicht in `DungeonKatalog.ts`, weil das Formular sie
+ * für die BESCHRIFTUNG braucht („Zellen" statt „Räume (Versuche)") und
+ * die Bau-Funktion für die Regler — zwei Aufrufer, eine Antwort.
+ */
+export function istRasterkit(base: string): boolean {
+  return DUNGEONS_BY_NAME.get(base)?.gridGeneration !== undefined;
 }
 
 export type NeuesDokumentErgebnis =
@@ -101,7 +134,7 @@ export type NeuesDokumentErgebnis =
 /**
  * Ein neues Dokument bauen — oder sagen, warum nicht.
  *
- * Wirft nicht: `generateDungeonLayout` wirft bei einem Kit mit falschem
+ * Wirft nicht: Der 1.0-Pfad wirft bei einem Kit mit falschem
  * Algorithmus, und ein Formular soll dafür eine Meldung zeigen und keinen
  * Absturz. Die Prüfungen davor sind dieselben, an denen der Sanitizer des
  * Servers das Dokument sonst ablehnen würde — nur eben hier, wo man es
@@ -131,12 +164,21 @@ export function neuesDungeonDokument(wunsch: NeuesDokumentWunsch): NeuesDokument
   // Editor ein anderes Grab als auf der Platte — und zwar erst nach dem
   // Speichern, wo es niemand mehr mit der Eingabe vergleicht.
   const einstellungen = wunsch.voll
-    ? sanitizeGeneratorEinstellungen({ maxRooms: wunsch.maxRooms, zoneSize: wunsch.zoneSize })
+    ? sanitizeGeneratorEinstellungen({
+        maxRooms: wunsch.maxRooms,
+        zoneSize: wunsch.zoneSize,
+        // Die beiden Rasterregler gehen durch DENSELBEN Sanitizer wie
+        // alles andere. Ein Anteil über 1 oder unter 0 käme sonst erst
+        // beim Speichern geklemmt zurück — und das Grab im Editor wäre
+        // ein anderes als das auf der Platte.
+        loopFraction: wunsch.loopFraction,
+        archwayFraction: wunsch.archwayFraction,
+      })
     : undefined;
 
   // Der Wachstumsraum, in dem WIRKLICH gebaut wird: Override vor
   // Kit-Vorgabe vor Generator-Vorgabe — dieselbe Reihenfolge, die
-  // `generateDungeonLayout` intern anwendet.
+  // beide Pfade intern anwenden.
   const zoneSize =
     einstellungen?.zoneSize ??
     def.generatorEinstellungen?.zoneSize ??
@@ -153,7 +195,13 @@ export function neuesDungeonDokument(wunsch: NeuesDokumentWunsch): NeuesDokument
         ? { ...def, maxRooms: einstellungen.maxRooms }
         : def
       : { ...def, maxRooms: 0, minRequiredRooms: 0 };
-    layout = generateDungeonLayout(bauDef, seed, { zoneSize });
+    layout = erzeugeLayoutFuerKit(bauDef, seed, {
+      zoneSize,
+      ...(einstellungen?.loopFraction !== undefined ? { loopFraction: einstellungen.loopFraction } : {}),
+      ...(einstellungen?.archwayFraction !== undefined
+        ? { archwayFraction: einstellungen.archwayFraction }
+        : {}),
+    });
   } catch (err) {
     return { ok: false, grund: `Generator: ${String(err)}` };
   }

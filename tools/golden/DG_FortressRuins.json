@@ -1,0 +1,166 @@
+{
+ "kit": "DG_FortressRuins",
+ "hinweis": "Stand des 1.0-Pfads vor dem Verteiler (G8). sha256 über JSON.stringify(layout) — gleiche Prüfsumme heisst gleiche Bytes. Geschrieben von tools/golden-kits-schreiben.ts.",
+ "layouts": [
+  {
+   "seed": 1,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 2,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 3,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 4,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 5,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 6,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 7,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 8,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 9,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 10,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 11,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 12,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 13,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 14,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 15,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 16,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 17,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 18,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 19,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 20,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 21,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 22,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 23,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 24,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 25,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 26,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 27,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 28,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 29,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 30,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 31,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 32,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 33,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 34,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 35,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 36,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 37,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 38,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 39,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  },
+  {
+   "seed": 40,
+   "fehler": "Error: Dungeon 'DG_FortressRuins' uses camp algorithm 2 — only interior dungeons are instanced"
+  }
+ ]
+}

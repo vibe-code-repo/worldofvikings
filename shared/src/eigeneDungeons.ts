@@ -55,8 +55,8 @@
  */
 import type { DungeonGeneratorSettings } from './dungeonGenerator.js';
 import { getStableHash } from './hash.js';
-import type { DungeonPropDef, SteinKitConfig } from './dungeons.js';
-import type { GridEdgeDef } from './dungeonRasterModul.js';
+import type { DungeonPropDef, GridGenerationDef, SteinKitConfig } from './dungeons.js';
+import { MODULE_CELL_M, MODULE_LEVEL_M, type GridEdgeDef } from './dungeonRasterModul.js';
 import type { Quaternion, Vector3 } from './types.js';
 
 /*
@@ -109,6 +109,8 @@ export interface EigenesKitJson {
   readonly propTypes?: readonly DungeonPropDef[];
   /** KI-Steinmaterial (Wand/Decke/Boden + Verwitterung) — s. `SteinKitConfig`. */
   readonly steinKit?: SteinKitConfig;
+  /** Schalter auf den Rasterpfad — s. `DungeonDef.gridGeneration`. */
+  readonly gridGeneration?: GridGenerationDef;
   readonly interiorPosition: Vector3 | null;
   readonly originalPosition: Vector3 | null;
   readonly algorithm: number;
@@ -777,6 +779,21 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
    */
   {
     name: 'DG_StoneVault',
+    /*
+      DER SCHALTER auf den Rasterpfad (G8). Seine Anwesenheit entscheidet,
+      nicht sein Inhalt — `erzeugeLayoutFuerKit` fragt nur, ob das Feld da
+      ist. Es steht an genau EINEM Kit; das Steingrab und die dreizehn
+      geparsten bleiben auf dem 1.0-Pfad, und dass sie sich dabei nicht um
+      ein Byte bewegen, belegt `server/test/golden-kits.ts`.
+
+      Achtung, hier wechselt `maxRooms` die BEDEUTUNG: 60 heisst ab jetzt
+      60 ZELLEN und nicht mehr 60 Wachstumsversuche. Der Wert bleibt
+      trotzdem stehen — 60 Zellen ergeben eine Krypta in derselben
+      Grössenordnung wie die 60 Versuche davor, und eine Zahl zu ändern,
+      während sich ihre Bedeutung ändert, machte jeden Vorher/Nachher-
+      Vergleich unlesbar.
+    */
+    gridGeneration: { cellM: MODULE_CELL_M, levelM: MODULE_LEVEL_M },
     /*
       Wie beim Steingrab und aus demselben Grund: Der Abschluss dieses Kits
       ist zwar eine dünne Wand (0,3 m) und damit der harmlose Fall, aber

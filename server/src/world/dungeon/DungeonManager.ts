@@ -38,7 +38,7 @@ import {
   DungeonDocument,
   DungeonLayout,
   ENTRANCE_HULL_MODELS,
-  generateDungeonLayout,
+  erzeugeLayoutFuerKit,
   sanitizeGeneratorEinstellungen,
   findPrefabByName,
   getDungeonByHash,
@@ -495,8 +495,15 @@ export class DungeonManager {
    *
    * `maxRooms` ist ein KIT-Wert und reist deshalb als `def`-Kopie,
    * `zoneSize` ist eine echte Generator-Einstellung und reist als
-   * `settingsIn` (s. `generateDungeonLayout`, Reihenfolge Vorgabe → Kit →
+   * `settingsIn` (s. `erzeugeLayoutFuerKit`, Reihenfolge Vorgabe → Kit →
    * Aufrufer).
+   *
+   * Seit G8 laeuft der Bau ueber den VERTEILER. Fuer Rasterkits
+   * (`def.gridGeneration`, heute nur `DG_StoneVault`) heisst `maxRooms`
+   * dort ZELLZAHL statt Wachstumsversuche — dieselbe Zahl im Dokument,
+   * eine andere Bedeutung. Gespeicherte Dokumente bleiben davon
+   * unberuehrt: `createGenerated` materialisiert das Layout INS Dokument,
+   * neu gebaut wird nur bei `dungeon regen` und beim Neuwuerfeln.
    */
   createGenerated(
     baseName: string,
@@ -525,7 +532,16 @@ export class DungeonManager {
       gen?.zoneSize ?? def.generatorEinstellungen?.zoneSize ?? DEFAULT_GENERATOR_SETTINGS.zoneSize;
 
     const bauDef = gen?.maxRooms !== undefined ? { ...def, maxRooms: gen.maxRooms } : def;
-    const layout = generateDungeonLayout(bauDef, seed, { zoneSize });
+    // Der VERTEILER, nicht mehr `generateDungeonLayout` direkt: Welcher
+    // Weg fuer ein Kit gilt, entscheidet `def.gridGeneration` und sonst
+    // nichts (G8). Die beiden Rasterregler reisen als Einstellung mit —
+    // der 1.0-Pfad liest sie nie, und ein zweiter Aufrufpfad nur fuer
+    // sie waere genau die Verzweigung, die der Verteiler abschafft.
+    const layout = erzeugeLayoutFuerKit(bauDef, seed, {
+      zoneSize,
+      ...(gen?.loopFraction !== undefined ? { loopFraction: gen.loopFraction } : {}),
+      ...(gen?.archwayFraction !== undefined ? { archwayFraction: gen.archwayFraction } : {}),
+    });
     const doc: DungeonDocument = {
       // Die KONSTANTE, nicht die Zahl. Sie steht in `shared/src/dungeons.ts`
       // und stand hier als Literal daneben — beim Sprung auf 2 (Deko im

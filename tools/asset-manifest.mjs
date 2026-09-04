@@ -22,19 +22,38 @@
  * einzigen Dreiecksindex — unrenderbar, aber ohne Fehlermeldung) und ob
  * der Name in EIGENE_FLORA (Streutabelle) vorkommt.
  *
- *   node_modules/.bin/tsx tools/asset-manifest.mjs             manifest schreiben
+ *   node_modules/.bin/tsx tools/asset-manifest.mjs             Manifest ERGÄNZEN
+ *   node_modules/.bin/tsx tools/asset-manifest.mjs --neu       Manifest NEU schreiben
  *   node_modules/.bin/tsx tools/asset-manifest.mjs --abgleich  zusätzlich gegen
  *                                                               prefabs.ts vergleichen (nur Bericht)
+ *
+ * Warum ERGÄNZEN die Vorgabe ist (F5): `assets/` liegt ausserhalb des
+ * Repos und reist als eigenes tar (tools/wov-update.sh) — jede Arbeits-
+ * kopie hält deshalb einen anderen AUSSCHNITT der Modelle. Die drei
+ * Dungeon-Arbeitsbäume teilen sich per Symlink 36 GLB, Mikes Maschine
+ * hat über 200. Ein Lauf, der stur überschreibt, löscht in einem solchen
+ * Baum in einem Zug 168 Einträge aus einer GETRACKTEN Datei — und zwar
+ * lautlos und mit grünem Testlauf, weil dann ja wieder alles zusammen-
+ * passt. Genau die Sorte Schaden, gegen die das Manifest angetreten ist,
+ * nur andersherum.
+ *
+ * Also: gemessen wird, was da ist; jeder Eintrag zu einer Datei, die
+ * hier fehlt, wird UNVERÄNDERT übernommen und oben unter `uebernommen`
+ * namentlich aufgeführt. Nur dort ist Vollständigkeit behauptet, wo
+ * `uebernommen` leer ist — `--neu` schreibt das Manifest daher bewusst
+ * ohne Rücksicht auf den Vorgänger und ist der Lauf auf der Maschine mit
+ * dem VOLLEN Bestand (nur so verschwindet auch eine Leiche wieder).
  *
  * Braucht tsx statt `node`, weil der Foliage-Abgleich `@wov/shared`
  * (TypeScript-Quelle) importiert — MITLESEN statt die 102 EIGENE_FLORA-
  * Namen ein zweites Mal aufzuschreiben (die Begründung dafür steht in
  * tools/modell-abgleich.ts).
  */
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { EIGENE_FLORA, PREFAB_DEFS } from '@wov/shared';
+import { moduleStems, readModelAlias } from './manifest-zuordnung.js';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = join(HIER, '..');
@@ -233,14 +252,57 @@ for (const datei of dateien) {
   modelle[stamm] = { datei, foliage: floraNamen.has(stamm), ...m };
 }
 
+/*
+  Ergänzen statt ersetzen — die Begründung steht im Kopf dieser Datei.
+
+  `--neu` ist die Ausnahme und nicht die Vorgabe, weil die beiden Fehler
+  ungleich schwer wiegen: Ein zu lange stehengebliebener Eintrag fällt
+  beim nächsten vollen Lauf und dem Vollständigkeitstest auf; ein
+  gelöschter Eintrag ist einfach weg, samt Hüllbox und Dreieckszahl der
+  Datei, die auf DIESER Maschine gar nicht lag.
+*/
+const NEUBAU = process.argv.includes('--neu');
+const bisher =
+  !NEUBAU && existsSync(ZIEL) ? (JSON.parse(readFileSync(ZIEL, 'utf8')).modelle ?? {}) : {};
+const uebernommen = Object.keys(bisher)
+  .filter((stamm) => !(stamm in modelle))
+  .sort();
+for (const stamm of uebernommen) modelle[stamm] = bisher[stamm];
+
+/*
+  Nach `datei` sortiert und nicht nach Einfügereihenfolge: Ein übernommener
+  Eintrag landete sonst hinten, und der Diff einer getrackten Datei zeigte
+  eine Umsortierung statt der einen echten Änderung. `datei` und nicht der
+  Stamm, weil die bisherige Reihenfolge genau diese war (`dateien.sort()`).
+*/
+const sortiert = {};
+for (const [stamm] of Object.entries(modelle).sort((a, b) => (a[1].datei < b[1].datei ? -1 : 1))) {
+  sortiert[stamm] = modelle[stamm];
+}
+
 const manifest = {
   erzeugt: new Date().toISOString(),
   quelle: 'tools/asset-manifest.mjs',
-  anzahl: dateien.length,
-  modelle,
+  anzahl: Object.keys(sortiert).length,
+  gemessen: dateien.length,
+  // Einträge, deren Datei auf DIESER Maschine fehlt. Leer = der Lauf hat
+  // den vollen Bestand gesehen, und erst dann ist eine Leiche im Manifest
+  // eine Leiche (s. tools/test/manifest-vollstaendig.ts).
+  uebernommen,
+  modelle: sortiert,
 };
 writeFileSync(ZIEL, JSON.stringify(manifest, null, 1) + '\n');
-console.log(`assets/manifest.json geschrieben: ${dateien.length} Modelle`);
+console.log(
+  `assets/manifest.json geschrieben: ${manifest.anzahl} Einträge ` +
+    `(${dateien.length} hier gemessen, ${uebernommen.length} übernommen)`
+);
+if (uebernommen.length > 0) {
+  console.log(
+    `  übernommen, weil die Datei hier fehlt: ${uebernommen.slice(0, 6).join(', ')}` +
+      `${uebernommen.length > 6 ? ` … (+${uebernommen.length - 6})` : ''}`
+  );
+  console.log('  Ein voller Neubau (auch zum Entfernen von Leichen) braucht --neu auf der Maschine mit allen Modellen.');
+}
 
 const meshlose = Object.entries(modelle).filter(([, m]) => m.meshlos);
 if (meshlose.length > 0) {
@@ -272,18 +334,50 @@ console.log(`  als Foliage erkannt (EIGENE_FLORA): ${Object.values(modelle).filt
 // Platzhalter sah wie eine riesige Abweichung aus, war aber nur der
 // fehlende Skalierungsfaktor).
 if (process.argv.includes('--abgleich')) {
-  const nachModell = new Map();
+  /*
+    Zwei Zuordnungen, beide aus tools/manifest-zuordnung.ts und keine davon
+    hier nachgebaut (der Test tools/test/manifest-zuordnung.ts bewacht sie):
+
+    (1) MODELL_ALIAS — Prefab → Datei. Vier Prefabs zeigen mit einem
+        Modellnamen auf eine GLB, die anders heisst (GrabhuegelGras,
+        SteingrabGangDurch, StoneVaultEntry, RockVaultEntry). Ohne die
+        Auflösung fanden sie hier NICHTS und fielen still aus dem Bericht:
+        ihr renderScale wurde nie gegen eine Hüllbox gehalten.
+
+    (2) Modul → Stammmodul. Das ist der eigentliche Anlass von F5. Bis
+        hierher listete der Bericht jede Abweichung der zwölf Stammmodule
+        ein zweites Mal unter ihrem Fels-Namen — mit identischer Zahl, weil
+        rockVariant() `size` unverändert übernimmt und renderScale daraus
+        entsteht. Zwölf Zeilen, die nichts Neues sagen, in einer nach
+        Grösse sortierten Bestenliste: die Fels-Zeilen verdrängten genau
+        das, wofür die Liste da ist (beim Lauf vor dieser Änderung standen
+        unter den ersten zwanzig Zeilen elf solcher Paare).
+
+    Die Ableitung wird deshalb nicht verschwiegen, sondern GETRENNT
+    berichtet — und dort mit der Frage, die nur sie beantworten kann:
+    Misst die Fels-GLB dieselbe Hüllbox wie ihr Stamm? Genau das ist die
+    Abnahme von F3 („Hüllbox und Ursprung unverändert"), und ab hier steht
+    sie in einem Bericht statt in einem einmaligen Blender-Lauf.
+  */
+  const alias = readModelAlias(WURZEL);
+  const stems = moduleStems();
+
+  // Schlüssel ist die DATEI, die das Prefab wirklich lädt — nicht sein
+  // Modellname. Ohne den Alias fielen die vier Teiler-Prefabs heraus.
+  const nachDatei = new Map();
   for (const def of PREFAB_DEFS) {
     if (!def.model) continue;
-    if (!nachModell.has(def.model)) nachModell.set(def.model, []);
-    nachModell.get(def.model).push(def);
+    const datei = alias[def.model] ?? def.model;
+    if (!nachDatei.has(datei)) nachDatei.set(datei, []);
+    nachDatei.get(datei).push(def);
   }
 
   const abweichungen = [];
+  const abgeleitet = [];
   let ohnePrefab = 0;
   for (const [stamm, m] of Object.entries(modelle)) {
     if (m.meshlos) continue; // keine sinnvolle Breite/Höhe zum Vergleichen
-    const defs = nachModell.get(stamm);
+    const defs = nachDatei.get(stamm);
     if (!defs || defs.length === 0) {
       ohnePrefab++;
       continue;
@@ -293,20 +387,27 @@ if (process.argv.includes('--abgleich')) {
       const hoeheSkaliert = m.hoehe * def.localScale.y;
       const dw = Math.abs(def.renderScale.w - breiteSkaliert);
       const dh = Math.abs(def.renderScale.h - hoeheSkaliert);
-      abweichungen.push({
+      const zeile = {
         modell: stamm,
         prefab: def.name,
         renderScale: [def.renderScale.w, def.renderScale.h],
         gemessen: [+breiteSkaliert.toFixed(2), +hoeheSkaliert.toFixed(2)],
         delta: +(dw + dh).toFixed(3),
         skin: m.skins > 0,
-      });
+      };
+      // Ein abgeleitetes Modul erbt sein `size` und damit sein renderScale;
+      // seine Abweichung IST die des Stamms. Sie gehört in den zweiten
+      // Abschnitt, nicht ein zweites Mal in die Bestenliste.
+      (stems.has(def.model) ? abgeleitet : abweichungen).push(zeile);
     }
   }
   abweichungen.sort((a, b) => b.delta - a.delta);
 
   console.log(`\n=== Abgleich renderScale (prefabs.ts) gegen gemessene Hüllbox × localScale ===`);
-  console.log(`${abweichungen.length} Prefab-Modell-Paare verglichen, ${ohnePrefab} eigene GLBs ohne Treffer in PREFAB_DEFS.model`);
+  console.log(
+    `${abweichungen.length} Prefab-Modell-Paare verglichen, ${ohnePrefab} eigene GLBs ohne Treffer in PREFAB_DEFS.model, ` +
+      `${abgeleitet.length} auf ihr Stammmodul zurückgeführt (s. unten), ${Object.keys(alias).length} Alias-Zuordnung(en) aufgelöst`
+  );
   console.log(`Größte Abweichungen (Breite+Höhe in m, absteigend; ⚠ = Rig mit Skin, Bindepose unzuverlässig):`);
   for (const a of abweichungen.slice(0, 20)) {
     console.log(
@@ -314,4 +415,51 @@ if (process.argv.includes('--abgleich')) {
         `gemessen ${a.gemessen.map((v) => v.toFixed(2)).join('×').padEnd(11)} Δ=${a.delta}`
     );
   }
+
+  /*
+    Zweiter Abschnitt: die Ableitung gegen ihren Stamm.
+
+    Verglichen werden nicht renderScale und Hüllbox (das tut der Abschnitt
+    darüber am Stamm, und für die Ableitung wäre es dieselbe Zahl), sondern
+    die beiden GLB-MESSUNGEN gegeneinander. Gleich müssen sein: Hüllbox und
+    Ursprung — die Fels-Frontschicht tauscht Blöcke aus, sie verschiebt kein
+    Modul. Verschieden DÜRFEN sein: Dreiecke und Dateigrösse, denn genau
+    dafür ist die Ableitung da.
+  */
+  const paare = [];
+  for (const s of stems.values()) {
+    const a = modelle[s.derived];
+    const b = modelle[s.stem];
+    if (!a && !b) continue; // Modul ohne eigene GLB (Rolle per MODELL_ALIAS)
+    paare.push({ ...s, mA: a, mB: b });
+  }
+  console.log(`\n=== Ableitung gegen Stammmodul (KIT_DERIVATIONS) ===`);
+  const messbar = paare.filter((p) => p.mA && p.mB);
+  console.log(
+    `${stems.size} abgeleitete Module, ${paare.length} mit eigener GLB, ${messbar.length} zusammen mit ihrem Stamm gemessen`
+  );
+  const ungleich = [];
+  for (const p of messbar) {
+    const gleich =
+      JSON.stringify(p.mA.huelle) === JSON.stringify(p.mB.huelle) &&
+      p.mA.breite === p.mB.breite &&
+      p.mA.hoehe === p.mB.hoehe &&
+      p.mA.tiefe === p.mB.tiefe;
+    if (!gleich) ungleich.push(p);
+    const d = p.mA.dreiecke - p.mB.dreiecke;
+    console.log(
+      `  ${gleich ? '  ' : '≠ '}${p.derived.padEnd(20)} ← ${p.stem.padEnd(20)} ` +
+        `Hüllbox ${gleich ? 'gleich' : `${p.mA.breite}×${p.mA.hoehe}×${p.mA.tiefe} statt ${p.mB.breite}×${p.mB.hoehe}×${p.mB.tiefe}`}` +
+        `  Dreiecke ${p.mB.dreiecke} → ${p.mA.dreiecke} (${d >= 0 ? '+' : ''}${d})`
+    );
+  }
+  const nurEines = paare.filter((p) => !p.mA || !p.mB);
+  for (const p of nurEines) {
+    console.log(`  ? ${p.derived.padEnd(20)} ← ${p.stem.padEnd(20)} nur ${p.mA ? 'die Ableitung' : 'der Stamm'} liegt hier`);
+  }
+  console.log(
+    ungleich.length === 0
+      ? `Hüllbox und Ursprung: ${messbar.length} von ${messbar.length} gleich dem Stamm (F3-Abnahme).`
+      : `ACHTUNG: ${ungleich.length} Modul(e) messen anders als ihr Stamm — die Kits sitzen dann nicht mehr auf demselben Raster.`
+  );
 }

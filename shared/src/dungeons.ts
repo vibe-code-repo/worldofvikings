@@ -20,6 +20,13 @@
 
 import dungeonsData from './dungeonsData.json';
 import { EIGENE_KITS } from './eigeneDungeons.js';
+/*
+  Die Ableitungstabelle reicht nur DURCH: `eigeneDungeons.ts` steht nicht in
+  `index.ts` (dort steht diese Datei), Werkzeuge lesen `@wov/shared`. Ohne
+  diese Zeile muesste ein Werkzeug den Paketrand umgehen oder die Namen der
+  beiden Kits ein zweites Mal aufschreiben.
+*/
+export { KIT_DERIVATIONS, type KitDerivation } from './eigeneDungeons.js';
 // Nur der Typ — zur Laufzeit entsteht daraus kein Import und damit
 // auch kein Ringschluss mit `dungeonGenerator.ts`, das hier einliest.
 import type { DungeonGeneratorSettings } from './dungeonGenerator.js';

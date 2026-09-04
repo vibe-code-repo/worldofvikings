@@ -572,6 +572,13 @@ const KERN = [
   // Manifest). Liest nur Dateinamen gegeneinander, baut die glTF-Messung nicht
   // nach. Kein Server/Socket, Sekunden.
   ['tools', 'test/manifest-vollstaendig.ts'],
+  // F5: die zwei Zuordnungen, mit denen `--abgleich` von einer Prefab-
+  // Definition auf die GLB kommt, die sie wirklich laedt — MODELL_ALIAS
+  // (aus dem Client-Quelltext gelesen) und Fels-Modul -> Stammmodul (aus
+  // der Kit-Ableitung). Beide scheitern lautlos, indem sie etwas aus dem
+  // Bericht FALLEN lassen. Braucht keine Modelldateien, laeuft also auch
+  // im CI-Checkout. Sekundenbruchteile.
+  ['tools', 'test/manifest-zuordnung.ts'],
 
   // ── Dungeon Generator 2.0 ──────────────────────────────────────────
   //

@@ -2431,7 +2431,35 @@ function kitNamens(kits: readonly EigenesKitJson[], name: string): EigenesKitJso
  * Punkt — s. `rockVariant`. Wer es hier durch einen ausgeschriebenen
  * Eintrag ersetzt, macht `shared/test/kit-ableitung.ts` rot.
  */
-export const EIGENE_KITS: readonly EigenesKitJson[] = [
-  ...HANDGESCHRIEBENE_KITS,
-  rockVariant(kitNamens(HANDGESCHRIEBENE_KITS, 'DG_StoneVault')),
+const FELS_STAMM_KIT = kitNamens(HANDGESCHRIEBENE_KITS, 'DG_StoneVault');
+const FELS_KIT = rockVariant(FELS_STAMM_KIT);
+
+export const EIGENE_KITS: readonly EigenesKitJson[] = [...HANDGESCHRIEBENE_KITS, FELS_KIT];
+
+/** Ein Kit und das Kit, aus dem es entstanden ist. */
+export interface KitDerivation {
+  readonly stem: string;
+  readonly derived: string;
+}
+
+/**
+ * Welches Kit aus welchem entsteht — als Tabelle, damit Werkzeuge die
+ * Ableitung nicht raten muessen.
+ *
+ * Der Anlass ist F5: `tools/asset-manifest.mjs --abgleich` listete jede
+ * Abweichung der zwoelf Stammmodule ein zweites Mal unter ihrem
+ * Fels-Namen. Zwoelf Zeilen, die nichts Neues sagen — `rockVariant()`
+ * uebernimmt `size` unveraendert, also IST die Abweichung des
+ * Fels-Moduls die des Stammmoduls. In einer nach Groesse sortierten
+ * Bestenliste verdraengen sie genau das, wofuer die Liste da ist.
+ *
+ * Beide Namen kommen aus den Kit-Objekten selbst und nicht aus zwei
+ * neuen Zeichenketten: Wer `rockVariant()` umbenennt, benennt diese
+ * Tabelle mit um. Die Zuordnung der einzelnen MODULE bleibt bewusst
+ * draussen — sie ergibt sich aus der Reihenfolge in `rooms`/`doorTypes`,
+ * die `rockVariant()` per `map` erhaelt, und wird dort abgelesen, wo sie
+ * gebraucht wird (`tools/manifest-zuordnung.ts`).
+ */
+export const KIT_DERIVATIONS: readonly KitDerivation[] = [
+  { stem: FELS_STAMM_KIT.name, derived: FELS_KIT.name },
 ];

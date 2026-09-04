@@ -6,9 +6,13 @@
 import bpy, sys, math
 from mathutils import Vector
 
+# Weitere Aufrufteile nach <out.png> sind MODULNAMEN. Vorgabe bleibt der
+# alte Dreisatz; seit dem Fels-Stil (04.09.2026) dient dieselbe Kamera dem
+# Kontaktbogen alt/neu — ein Bild, in dem StoneVault* und RockVault*
+# nebeneinander stehen, ist der einzige ehrliche Vergleich.
 a = sys.argv[sys.argv.index("--") + 1:]
 ELEM, TEX, OUT = a[0], a[1], a[2]
-MODULE = ["StoneVaultCell", "StoneVaultWall", "StoneVaultArch"]
+MODULE = a[3:] if len(a) > 3 else ["StoneVaultCell", "StoneVaultWall", "StoneVaultArch"]
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 
@@ -70,7 +74,7 @@ for eng in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE", "CYCLES"):
         break
     except Exception:
         continue
-sc.render.resolution_x = 1400
+sc.render.resolution_x = max(1400, 470 * len(MODULE))
 sc.render.resolution_y = 620
 sc.render.filepath = OUT
 bpy.ops.render.render(write_still=True)

@@ -24,14 +24,79 @@
 # Babylons __root__ (scale.x = -1) wieder gerade. Deshalb wird hier am Ende jedes
 # Moduls x negiert, ohne die Flaechenwicklung anzufassen.
 #
-# flatpak run org.blender.Blender --factory-startup -b --python make-stonevault.py -- <out-ordner> [modul ...]
+# ── STIL (04.09.2026): dasselbe Kit, zwei Frontschichten ───────────────────
+# `--stil ziegel` (Vorgabe) baut den bisherigen Backsteinverband und schreibt
+# StoneVault*.glb. `--stil fels` tauscht AUSSCHLIESSLICH die Frontschicht von
+# `innenwand()`, `wand()`, `bogen()` und der Treppe gegen unregelmaessige
+# Bloecke (tools/elements/blender/felsblock.py) und schreibt RockVault*.glb.
+#
+# Was dabei NICHT wandert — und warum:
+#   * Rueckplatte, Sockel, Haube und die Endstreifen: sie sind der
+#     Nahtschluss vom 03.09.2026. Wer sie anfasst, oeffnet die Fugen wieder,
+#     gegen die sie gebaut sind.
+#   * Boden und Decke (`boden_decke`): der Boden ist die Kollisionsflaeche und
+#     traegt 16 Quader je Zelle. Ein Fels-Boden waere eine Vervielfachung der
+#     Havok-Last ohne Bildgewinn.
+#   * Pfeiler und Saele: sie tragen ueberhaupt keine Frontschicht. Die fuenf
+#     Saele sind im Fels-Stil deshalb Zeichen fuer Zeichen dieselbe Geometrie
+#     — sie werden trotzdem mitgebaut, weil ein abgeleitetes Kit alle zwoelf
+#     Module braucht.
+#
+# Die Hüllbox bleibt in beiden Stilen gleich: `DG_RockVault` wird von
+# `DG_StoneVault` ABGELEITET (gleiche size, gleiche Connectors), also darf
+# kein Fels-Block weiter vorstehen als das Ziegelrelief. Die Streuung geht
+# nur nach hinten; die Begruendung steht in felsblock.py.
+#
+# flatpak run org.blender.Blender --factory-startup -b --python make-stonevault.py -- <out-ordner> [--stil fels] [--seed N] [modul ...]
 # Ohne Modulnamen werden ALLE gebaut; mit Namen nur die genannten (die bereits
-# ausgelieferten Module lassen sich so unangetastet lassen).
-import bpy, bmesh, sys, math
+# ausgelieferten Module lassen sich so unangetastet lassen). Modulnamen duerfen
+# mit StoneVault... ODER RockVault... genannt werden.
+import bpy, bmesh, sys, math, os
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from felsblock import fels_bloecke, SEED as FELS_SEED   # noqa: E402
 
 ARGS = sys.argv[sys.argv.index("--") + 1:]
+
+# Flags aus der Argumentliste schaelen, damit der Rest bleibt, was er war:
+# Ausgabeordner plus Modulnamen.
+STIL = "ziegel"
+SEED = FELS_SEED
+_rest = []
+_i = 0
+while _i < len(ARGS):
+    if ARGS[_i] == "--stil":
+        STIL = ARGS[_i + 1]
+        _i += 2
+    elif ARGS[_i] == "--seed":
+        SEED = int(ARGS[_i + 1])
+        _i += 2
+    else:
+        _rest.append(ARGS[_i])
+        _i += 1
+if STIL not in ("ziegel", "fels"):
+    raise SystemExit(f"Unbekannter Stil: {STIL} (erlaubt: ziegel, fels)")
+ARGS = _rest
 OUT = ARGS[0]
-NUR = set(ARGS[1:])
+
+PRAEFIX = "RockVault" if STIL == "fels" else "StoneVault"
+
+
+def ausgabename(name):
+    """Der Dateiname des Moduls im gewaehlten Stil.
+
+    Die Bauteilnamen im Skript bleiben StoneVault* — sie benennen die
+    GEOMETRIE, und die Hallen sind in beiden Stilen dieselbe. Erst beim
+    Ablegen entscheidet der Stil ueber den Namen, weil daran der
+    Prefab-Hash haengt (shared/src/dungeons.ts: `getStableHash(name)`).
+    """
+    return PRAEFIX + name[len("StoneVault"):]
+
+
+# Modulnamen duerfen in beiden Schreibweisen genannt werden — wer im
+# Fels-Lauf "RockVaultWall" tippt, meint dasselbe Bauteil.
+NUR = {("StoneVault" + n[len("RockVault"):]) if n.startswith("RockVault") else n
+       for n in ARGS[1:]}
 
 GRID   = 2.0     # Rastermass / Zellbreite
 HOEHE  = 3.5     # Raumhoehe: Bodenoberkante bis Deckenunterkante
@@ -174,6 +239,7 @@ def fertig(name, bm, koll=None):
     ueber der Steigungsgrenze von 40. Aus den gerenderten Stufen gebacken
     ist die Treppe unbegehbar; das `_col`-Netz legt die glatte Rampe unter.
     """
+    name = ausgabename(name)
     o = aufbereiten(name, bm, "StoneVaultStone")
     ausgabe = [o]
     if koll is not None:
@@ -230,6 +296,49 @@ def zelle():
     fertig("StoneVaultCell", bm)
 
 
+# ── Fels-Frontschicht (--stil fels) ─────────────────────────────────────────
+# Setzt die Bloecke aus felsblock.py als Sechsflaechner ins bmesh. Jeder Block
+# hat lotrechte Vorder- und Rueckseite, aber vier verschiedene Ecken in der
+# Wandebene — deshalb `box()` hier NICHT taugt und die Ecken einzeln kommen.
+# Die Reihenfolge (Seite, Tiefe, Ebene) ist dieselbe wie in `box()` und
+# `keil()` (x, y, z), damit dieselbe QUADS-Liste die sechs Flaechen schliesst.
+def fels_schicht(bm, lauf, mitte, sgn, lo, hi, lage=0, z0=0.0, z1=HOEHE,
+                 reihen=None, rand_luft=None, niveau_fn=None):
+    """`mitte` ist die Mitte der HEUTIGEN Reliefschicht auf der Festachse,
+    `sgn` zeigt nach vorn (zur Raumseite). Daraus folgt die Rueckebene der
+    Schicht — vor ihr steht jeder Block um seine eigene Tiefe.
+
+    `niveau_fn` hebt die Bloecke auf eine Steigung (Treppe): sie wird je
+    ECKE ausgewertet, der Block folgt der Treppenlinie also wie ein Keil,
+    statt als waagerechter Kasten aus ihr herauszuragen.
+    """
+    hinten = mitte - sgn * PROT / 2
+    kw = {"seed": SEED, "lage": lage, "z0": z0, "z1": z1}
+    if reihen is not None:
+        kw["reihen"] = reihen
+    if rand_luft is not None:
+        kw["rand_luft"] = rand_luft
+    for b in fels_bloecke(lo, hi, **kw):
+        tiefen = (hinten, hinten + sgn * b["tiefe"])
+        x_paar = (b["xu"], b["xo"])          # Ebene 0 = unten, 1 = oben
+        z_paar = (b["zu"], b["zo"])
+        verts = []
+        for seite in (0, 1):
+            for d in (0, 1):
+                for ebene in (0, 1):
+                    entlang = x_paar[ebene][seite]
+                    hoch = z_paar[ebene][seite]
+                    if niveau_fn is not None:
+                        hoch += niveau_fn(entlang)
+                    if lauf == "x":
+                        verts.append(bm.verts.new((entlang, tiefen[d], hoch)))
+                    else:
+                        verts.append(bm.verts.new((tiefen[d], entlang, hoch)))
+        bm.verts.ensure_lookup_table()
+        for a, b2, c, d2 in QUADS:
+            bm.faces.new((verts[a], verts[b2], verts[c], verts[d2]))
+
+
 # ── Innenwand einer Zellvariante ────────────────────────────────────────────
 # Gleiche Ziegel-Parametrik wie das freistehende Wandpaneel (0,5-Ziegel, halber
 # Versatz, 8 Reihen): die Kachelung wird IMMER ab -GRID/2 aufgebaut und danach
@@ -257,6 +366,12 @@ def innenwand(bm, lauf, back, relief, lo=-GRID / 2, hi=GRID / 2):
     voll_mitte, voll_tiefe = (aussen + innen) / 2, abs(aussen - innen)
     platte((lo + hi) / 2, hi - lo, voll_mitte, voll_tiefe, I_SOCKEL_CZ, I_SOCKEL_H)
     platte((lo + hi) / 2, hi - lo, voll_mitte, voll_tiefe, I_HAUBE_CZ, I_HAUBE_H)
+
+    if STIL == "fels":
+        # Die Reliefschicht liegt hier zur Zellmitte hin: `relief` ist ihre
+        # Mitte, `sgn` zeigt von der Rueckplatte weg.
+        fels_schicht(bm, lauf, relief, -1.0 if back > 0 else 1.0, lo, hi)
+        return
 
     bw, fuge = 0.5, 0.02
     reihen = 8
@@ -458,10 +573,14 @@ def wand():
     box(bm, 0, 0, SOCKEL_CZ, B, TIEFE, SOCKEL_H)
     box(bm, 0, 0, HAUBE_CZ,  B, TIEFE, DICKE)
     endstreifen(bm, B)
+    ycz = -TIEFE / 2 + PROT / 2              # Reliefmitte auf der Reliefseite
+    if STIL == "fels":
+        fels_schicht(bm, "x", ycz, -1.0, -B / 2, B / 2)
+        fertig("StoneVaultWall", bm)
+        return
     bw, fuge = 0.5, 0.02
     reihen = 8
     rh = HOEHE / reihen                      # 0,4375
-    ycz = -TIEFE / 2 + PROT / 2              # Ziegelmitte auf der Reliefseite
     for r in range(reihen):
         cz = (r + 0.5) * rh
         versatz = (bw / 2) if (r % 2) else 0.0
@@ -518,7 +637,23 @@ def bogen():
     # Zweimal — einmal je Flanke (glTF z = +0,12 und -0,12).
     reihen, fuge = 8, 0.02
     rh = HOEHE / reihen
-    for yr in (-T / 2 + PROT / 2, T / 2 - PROT / 2):
+    for yr, sgn in ((-T / 2 + PROT / 2, -1.0), (T / 2 - PROT / 2, 1.0)):
+        if STIL == "fels":
+            # Die Pfostenflanken schneiden aus DEMSELBEN Gitter wie die
+            # Wandpaneele — der Bogen sitzt in der Kopplungsebene zwischen
+            # zwei Zellen, seine Bloecke muessen mit den anschliessenden
+            # Waenden fluchten. Die Laibung bei +-0,6 ist ein innerer
+            # Anschlag: dort zieht felsblock.py den letzten Block bis an
+            # die Kante, damit neben der Tuer keine Fuge steht.
+            fels_schicht(bm, "x", yr, sgn, -B / 2, -B / 2 + pf)
+            fels_schicht(bm, "x", yr, sgn, B / 2 - pf, B / 2)
+            # Sturzband: eine eigene Lage (`lage=1`), sonst saessen seine
+            # Stossfugen genau auf denen der Pfosten.
+            fels_schicht(bm, "x", yr, sgn,
+                         -(oeff_b + 0.30) / 2, (oeff_b + 0.30) / 2,
+                         lage=1, reihen=1, rand_luft=0.0,
+                         z0=kaempfer + r + 0.01, z1=kaempfer + r + 0.19)
+            continue
         for s in (-1, 1):
             for i in range(reihen):
                 cz = (i + 0.5) * rh
@@ -618,6 +753,25 @@ def treppe():
     # schraege Wand mit einem waagerechten Verband zu zerschneiden.
     reihen, fuge = 8, 0.02
     rh = HOEHE / reihen                           # 0,4375
+    if STIL == "fels":
+        # Dieselbe Frontschicht wie in den Waenden, nur auf die Steigung
+        # gehoben: `niveau` wird je ECKE ausgewertet, die Bloecke folgen der
+        # Treppenlinie also als Keile.
+        #
+        # Warum die Treppe ueberhaupt mitkommt, obwohl das Konzept nur
+        # innenwand/wand/bogen nennt: Ihre Seitenwaende tragen dieselbe
+        # Ziegelschicht wie der Korridor. Bliebe sie im Fels-Kit stehen,
+        # waere `DG_RockVault` ein Fels-Grab mit einer gemauerten Treppe —
+        # und das faellt im Spiel als erstes auf. Stufen, Decke, Rueckplatte
+        # und das `_col`-Netz bleiben unangetastet.
+        #
+        # Der Lauf ist 6 m = drei Perioden des Gitters: die Bloecke fluchten
+        # mit denen der anschliessenden Zellwaende.
+        for s in (-1, 1):
+            fels_schicht(bm, "y", s * W_RELIEF, -float(s), -H, H,
+                         niveau_fn=niveau)
+        fertig("StoneVaultStairs", bm, treppe_kollision())
+        return
     for s in (-1, 1):
         for r in range(reihen):
             versatz = (STUFE_T / 2) if (r % 2) else 0.0

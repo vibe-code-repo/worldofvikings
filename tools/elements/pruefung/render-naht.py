@@ -13,12 +13,19 @@
 # Gerendert wird mit CYCLES: EEVEE laesst Umgebungslicht auch in geschlossene
 # Raeume, dort waere jede Naht unsichtbar bzw. jede Wand hell.
 #
-# flatpak run org.blender.Blender --factory-startup -b --python render-naht.py -- <glb-ordner> <out.png>
+# Der dritte Aufrufteil ist der MODULPRAEFIX (Vorgabe `StoneVault`). Seit
+# dem Fels-Stil (04.09.2026) gibt es dasselbe Kit zweimal, und die Frage
+# „dichtet der unregelmaessige Blockrand genauso?" beantwortet nur der
+# Vergleich BEIDER Zaehlungen — nicht ein zweites, halb abgeschriebenes
+# Skript, das nebenbei die Kamera verstellt.
+#
+# flatpak run org.blender.Blender --factory-startup -b --python render-naht.py -- <glb-ordner> <out.png> [praefix]
 import bpy, sys, math
 from mathutils import Vector, Euler
 
 a = sys.argv[sys.argv.index("--") + 1:]
 ELEM, OUT = a[0], a[1]
+PRAEFIX = a[2] if len(a) > 2 else "StoneVault"
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 
@@ -78,17 +85,17 @@ RICHT = {"N": (0.0, HALB + TIEFE / 2, 180.0),     # Kante game z=+1
 
 def wand(cx, cz, seite):
     dx, dz, grad = RICHT[seite]
-    setze("StoneVaultWall", cx + dx, cz + dz, grad)
+    setze(f"{PRAEFIX}Wall", cx + dx, cz + dz, grad)
 
 
 # ── Aufbau: Zelle A (0,0) und Zelle B (0,-2), Torbogen in der Kopplungsebene ──
-setze("StoneVaultCell", 0.0, 0.0)
-setze("StoneVaultCell", 0.0, -2.0)
+setze(f"{PRAEFIX}Cell", 0.0, 0.0)
+setze(f"{PRAEFIX}Cell", 0.0, -2.0)
 for s in ("N", "O", "W"):
     wand(0.0, 0.0, s)
 for s in ("S", "O", "W"):
     wand(0.0, -2.0, s)
-setze("StoneVaultArch", 0.0, -1.0, 0.0)     # sitzt IN der Kopplungsebene
+setze(f"{PRAEFIX}Arch", 0.0, -1.0, 0.0)     # sitzt IN der Kopplungsebene
 
 # ── Kamera: in Zelle A, Blick in die Nordost-Innenecke ──────────────────────
 cam_d = bpy.data.cameras.new("cam")

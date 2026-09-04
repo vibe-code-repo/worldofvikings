@@ -123,10 +123,17 @@ Repo selbst.
 |---|---|---|
 | `tools/stonevault-kantensonde.ts` | `tools/elements/pruefung/stonevault-kantensonde.ts` | Prüft: die Kantenerklärung der Module (`RoomDef.gridEdges`, `connections`) gegen die echte GLB-Geometrie. Der Pfad in `scripts/run-tests.mjs` ist mitgezogen. |
 
+### blender/ — hier entstanden
+
+| Datei | Zielpfad | Zweck |
+|---|---|---|
+| `felsblock.py` | `tools/elements/blender/felsblock.py` | Erzeugt: die Blocklage der Fels-Frontschicht für `make-stonevault.py --stil fels` — die Messung zu F3. Kennt **weder `bpy` noch `bmesh`**: die Lage lässt sich mit blossem `python3 felsblock.py --dump <lo> <hi>` befragen, und genau deshalb prüft sie `pruefung/fels-frontschicht.mjs`, ohne Blender zu starten. |
+
 ### pruefung/ — hier entstanden
 
 | Datei | Zielpfad | Zweck |
 |---|---|---|
+| `fels-frontschicht.mjs` | `tools/elements/pruefung/fels-frontschicht.mjs` | Prüft: die Blocklage der Fels-Frontschicht (`--stil fels`) — Naht, Streuung, Budget. Hält die drei Zusagen von F3 fest: das Reststück an jeder Modulkante trifft sein Gegenstück in Höhe UND Tiefe, kein Block steht weiter vor als das Ziegelrelief (die Hüllbox muss gleich bleiben, weil `DG_RockVault` abgeleitet wird), und ein Wandpaneel bleibt unter 1500 Dreiecken. Text und Arithmetik, kein `assets/`, kein Blender — hängt in `scripts/run-tests.mjs` hinter einer `python3`-Weiche. |
 | `relief-kontrast.mjs` | `tools/elements/pruefung/relief-kontrast.mjs` | Prüft: die Helligkeitsstreuung einer Wand im Streiflicht, mit und ohne Normal-Kanal (`?relief=1` gegen `?relief=0`) — die Messung zu F1. Läuft **lokal** gegen den Tunnel, nicht auf `wov-dev`. |
 | `fels-textur.mjs` | `tools/elements/pruefung/fels-textur.mjs` | Prüft: dass das Fels-Texturpaar kachelt, das Format der Bestandstexturen trägt und Relief statt Mauerwerk zeigt — die Messung zu F2. Liest das PNG selbst (`node:zlib`), braucht also weder PIL noch Blender. Hängt in `scripts/run-tests.mjs` hinter der `assets/`-Weiche. |
 
@@ -165,6 +172,46 @@ ableiten liesse, und braucht auch keine:
 python3 tools/elements/pipeline/make-fels.py assets/models/stein_fels.png
 node tools/elements/pruefung/fels-textur.mjs
 ```
+
+## Das Kit in zwei Stilen bauen (F3)
+
+`make-stonevault.py` baut seit dem 04.09.2026 **dasselbe Kit zweimal**. Die
+Vorgabe bleibt der Ziegelverband und schreibt `StoneVault*.glb`; `--stil fels`
+tauscht ausschliesslich die Frontschicht von `innenwand()`, `wand()`,
+`bogen()` und den Treppenwangen gegen unregelmässige Blöcke und schreibt
+`RockVault*.glb`:
+
+```bash
+flatpak run org.blender.Blender --factory-startup -b \
+  --python tools/elements/blender/make-stonevault.py -- assets/models
+flatpak run org.blender.Blender --factory-startup -b \
+  --python tools/elements/blender/make-stonevault.py -- assets/models --stil fels
+node tools/elements/pruefung/fels-frontschicht.mjs
+```
+
+Nachweis, dass der Fels-Stil nichts kostet, was der Nahtschluss gewonnen hat
+(die Zählung muss gleich oder besser sein):
+
+```bash
+flatpak run … --python tools/elements/pruefung/render-naht.py -- \
+  assets/models tools/elements/out/naht-alt.png  StoneVault
+flatpak run … --python tools/elements/pruefung/render-naht.py -- \
+  assets/models tools/elements/out/naht-fels.png RockVault
+python3 tools/elements/pruefung/zaehle-naht.py \
+  tools/elements/out/naht-alt.png tools/elements/out/naht-fels.png
+```
+
+Kontaktbogen alt/neu — `render-stonevault.py` nimmt die Modulnamen jetzt als
+Argumente, damit beide Stile in EINEM Bild und unter EINER Kamera stehen:
+
+```bash
+flatpak run … --python tools/elements/pruefung/render-stonevault.py -- \
+  assets/models assets/models tools/elements/out/kontakt.png \
+  StoneVaultWall RockVaultWall
+```
+
+`--stil ziegel` ist dabei nachweislich unverändert: die zwölf so gebauten
+GLB sind Byte für Byte dieselben wie die ausgelieferten.
 
 `stein_decke.png` hat bewusst **keine** Karte bekommen: Damit läuft im Spiel
 dauerhaft ein Beispiel des Rückfalls „Datei fehlt → heutiges Verhalten" mit,

@@ -100,6 +100,24 @@ const KERN = [
   // Rein rechnerisch, Zehntelsekunden.
   // Every module explains itself; connectors are the witness against drift.
   ['shared', 'test/dungeon-rastermodul.ts'],
+  /*
+    E1 (Elemente aus dem Editor): Die geschlossene Arithmetik eines Saals.
+    Ein Saal besteht nur aus achsenparallelen Quadern, also gilt exakt
+    B = 2 + 16·cx·cz + 3·P, 12·B Dreiecke, 24·B Ecken. Daran haengt die
+    Entscheidung, Saele in TypeScript statt in Blender zu bauen — auf
+    `wov-dev` gibt es kein Blender. Der Test nennt die fuenf gemessenen
+    Zahlen, prueft die Pfeilerstellen (ein Pfeiler auf einer Kantenmitte
+    stuende im Durchgang) und die Vorspiegelung ueber das signierte
+    Volumen: Die Saele sind punktsymmetrisch, ein vergessenes x-Negieren
+    verschoebe also KEINEN Punkt und haette ohne diesen Zeugen kein
+    Symptom. Liegen die GLBs da, misst er zusaetzlich gegen sie; sonst
+    meldet er das und bleibt gruen. Reine Rechnung, Zehntelsekunden —
+    deshalb ohne Weiche.
+
+    Closed-form hall arithmetic plus the mirror witness; skips the GLB
+    cross-check on its own when assets/ is absent.
+  */
+  ['shared', 'test/hallen-geometrie.ts'],
   // G3 (Modul-Generierung 2.0): Die Abbildung Raster ↔ Welt. Zellmitten
   // liegen auf (2i, 3,5e, 2j−1) — der z-Schluessel ist `round((z+1)/2)`, und
   // diese halbe Zelle Unterschied faellt in keiner Zaehlung auf, weil alle

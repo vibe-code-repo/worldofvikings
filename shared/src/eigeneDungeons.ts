@@ -56,7 +56,7 @@
 import type { DungeonGeneratorSettings } from './dungeonGenerator.js';
 import { getStableHash } from './hash.js';
 import type { DungeonPropDef, SteinKitConfig } from './dungeons.js';
-import type { RasterKanteDef } from './dungeonRasterModul.js';
+import type { GridEdgeDef } from './dungeonRasterModul.js';
 import type { Quaternion, Vector3 } from './types.js';
 
 /*
@@ -158,8 +158,8 @@ export interface EigenesKitJson {
     }[];
     /** Raum-Override des Steinmaterials — s. `RoomDef.steinKit`. */
     readonly steinKit?: Partial<SteinKitConfig>;
-    /** Kantenerklärung des Rastergenerators — s. `RoomDef.rasterKanten`. */
-    readonly rasterKanten?: readonly RasterKanteDef[];
+    /** Kantenerklärung des Rastergenerators — s. `RoomDef.gridEdges`. */
+    readonly gridEdges?: readonly GridEdgeDef[];
   }[];
 }
 
@@ -1078,8 +1078,8 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
         /*
           Die beiden eingebauten Seitenwände, als Aussage für den
           Rastergenerator. Sie laufen über die VOLLE Ebenenhöhe
-          (−0,25 … 3,75, `make-stonevault.py:56-59`) — deshalb `wand` und
-          nicht `wandTeilweise`, und deshalb setzt die Versiegelungstafel
+          (−0,25 … 3,75, `make-stonevault.py:56-59`) — deshalb `wall` und
+          nicht `wallPartial`, und deshalb setzt die Versiegelungstafel
           gegen diese Kante keine Platte. Das sind, zusammen mit Ecke und
           Abzweig, die 531 Platten, die heute im Stein des Nachbarn
           stehen.
@@ -1088,7 +1088,7 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
           damit ableitbar offen. Was hier steht, ist genau das, was in der
           GLB steckt und an keiner Datenstruktur hängt.
         */
-        rasterKanten: [{ kanten: ['o', 'w'], zustand: 'wand' }],
+        gridEdges: [{ edges: ['e', 'w'], state: 'wall' }],
         connections: [
           {
             // Nord (+z).
@@ -1138,7 +1138,7 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
         pos: NULL_PUNKT,
         rot: KEINE_DREHUNG,
         // Süd- und Westwand, volle Ebenenhöhe — s. `StoneVaultCorridor`.
-        rasterKanten: [{ kanten: ['s', 'w'], zustand: 'wand' }],
+        gridEdges: [{ edges: ['s', 'w'], state: 'wall' }],
         connections: [
           {
             // Nord (+z).
@@ -1185,7 +1185,7 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
         pos: NULL_PUNKT,
         rot: KEINE_DREHUNG,
         // Nur die Westwand, volle Ebenenhöhe — s. `StoneVaultCorridor`.
-        rasterKanten: [{ kanten: ['w'], zustand: 'wand' }],
+        gridEdges: [{ edges: ['w'], state: 'wall' }],
         connections: [
           {
             // Nord (+z).
@@ -1400,9 +1400,9 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
         rot: KEINE_DREHUNG,
         /*
           Die Treppe erklärt als einziges Modul zwei Ebenen — und als
-          einziges etwas anderes als `wand` oder `offen`.
+          einziges etwas anderes als `wall` oder `open`.
 
-          ── Warum die Flanken `wandTeilweise` sind ────────────────────
+          ── Warum die Flanken `wallPartial` sind ──────────────────────
           Sie sind Keile, die mit dem Lauf steigen
           (`make-stonevault.py:483-491`). Über eine Ebenenhöhe gerechnet
           deckt so ein Keil die Zellkante nur zum Teil: Am Fuss der
@@ -1413,7 +1413,7 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
           zu den 531 gegen volle Wände.
 
           Bewusst grob: Auch die drei Zellen der oberen Ebene über dem
-          flachen Teil des Laufs tragen `wandTeilweise`, obwohl dort
+          flachen Teil des Laufs tragen `wallPartial`, obwohl dort
           streckenweise gar nichts steht. Die Tafel setzt damit eine
           Platte zu viel statt eine zu wenig — ein Loch in der Wand ist
           der teurere Fehler. Eine feine Erklärung je Ebene wäre erst
@@ -1423,7 +1423,7 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
           ── Die beiden Enden ─────────────────────────────────────────
           Süd auf Ebene 1 und Nord auf Ebene 0 sind Lauf- bzw. Luftraum
           hinter dem Modulrand, keine gebaute Wand — auch sie deshalb
-          `wandTeilweise`. Die beiden ECHTEN Ausgänge (Süd unten, Nord
+          `wallPartial`. Die beiden ECHTEN Ausgänge (Süd unten, Nord
           oben) tragen Connectors und stehen hier nicht.
 
           ── Die senkrechte Kante ─────────────────────────────────────
@@ -1435,10 +1435,10 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
           Zählung auf, sondern erst, wenn eine Figur oben in der
           Sackgasse steht.
         */
-        rasterKanten: [
-          { kanten: ['n', 'o', 's', 'w'], zustand: 'wandTeilweise' },
-          { zelle: { a: 0, b: 2, e: 0 }, kanten: ['oben'], zustand: 'offen' },
-          { zelle: { a: 0, b: 2, e: 1 }, kanten: ['unten'], zustand: 'offen' },
+        gridEdges: [
+          { edges: ['n', 'e', 's', 'w'], state: 'wallPartial' },
+          { cell: { ix: 0, iz: 2, level: 0 }, edges: ['up'], state: 'open' },
+          { cell: { ix: 0, iz: 2, level: 1 }, edges: ['down'], state: 'open' },
         ],
         connections: [
           {

@@ -57,7 +57,7 @@ const KERN = [
   ['shared', 'test/dungeon-kanten-schliessen.ts'],
   // G2 (Modul-Generierung 2.0): Jedes StoneVault-Modul beschreibt sich
   // selbst — Fussabdruck, Ebenen, sechs Kantenzustände je Zelle. Der Test
-  // haelt die Erklärung (`RoomDef.rasterKanten`) gegen die einzige Groesse,
+  // haelt die Erklärung (`RoomDef.gridEdges`) gegen die einzige Groesse,
   // die auch das Modell kennt: die Connectors. Jeder Connector liegt auf
   // einer offenen Aussenkante und umgekehrt; wer `make-stonevault.py`
   // aendert und das Kit vergisst, wird hier rot statt erst im Grab.

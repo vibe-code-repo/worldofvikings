@@ -174,9 +174,9 @@ function nachbarZelle(k: string, r: Richtung): string {
  * Gierung) und lokalen Zellindizes.
  *
  * Warum sie hier steht und nicht im Kit: G1 misst, G2 erklärt. Die
- * Tabelle wandert mit `modulAusRoomDef()` und `RoomDef.rasterKanten?` in
- * `shared/src` — dann liest dieses Skript sie von dort, statt sie zu
- * kennen. Bis dahin ist sie eine Erklärung ÜBER das GLB (Risiko: sie kann
+ * Tabelle wandert mit `gridModuleFromRoomDef()` und `RoomDef.gridEdges?`
+ * in `shared/src` — dann liest dieses Skript sie von dort, statt sie zu
+ * kennen (G2 hat beide angelegt, der Umzug steht noch aus). Bis dahin ist sie eine Erklärung ÜBER das GLB (Risiko: sie kann
  * mit `make-stonevault.py` auseinanderlaufen), abgeleitet aus den
  * Kommentaren an den Moduldefinitionen in `eigeneDungeons.ts`.
  *

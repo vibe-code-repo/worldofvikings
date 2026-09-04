@@ -13,18 +13,18 @@
  * selbst beschreiben: Wie viele Zellen belegt es, auf wie vielen Ebenen,
  * und was ist an jeder seiner sechs Zellkanten — Durchgang, Wand, oder
  * eine Wand, die die Kante nur zum Teil deckt. Genau das leistet
- * {@link modulAusRoomDef}. Sie ist rein und liest nur die
+ * {@link gridModuleFromRoomDef}. Sie ist rein und liest nur die
  * Kit-Definition; sie erzeugt nichts und ändert nichts.
  *
  * ── Warum sechs Kanten und nicht vier ────────────────────────────────
  * Ein Kantenmodell mit n/o/s/w erklärt median 32 senkrechte Nachbar-
  * schaften je Grundriss zu Nichts (gemessen: 1328 gestapelte Zellpaare
  * über 40 Saaten, bis zu 6 Ebenen). Boden und Decke sind deshalb
- * gleichberechtigte Kanten. Ihre Vorgabe ist `wand`: Ein Ebenenwechsel
+ * gleichberechtigte Kanten. Ihre Vorgabe ist `wall`: Ein Ebenenwechsel
  * muss ERKLÄRT werden, sonst wächst ein Grundriss durch den Boden.
  *
  * ── Warum drei Zustände und nicht zwei ───────────────────────────────
- * `wandTeilweise` ist kein Feinschliff, sondern der Unterschied zwischen
+ * `wallPartial` ist kein Feinschliff, sondern der Unterschied zwischen
  * 531 überflüssigen und 414 nötigen Platten. Die Wände von Korridor,
  * Ecke und Abzweig laufen über die volle Ebenenhöhe (−0,25 … 3,75,
  * `make-stonevault.py:56-59`) — dagegen darf nie eine Platte gesetzt
@@ -33,14 +33,21 @@
  * eine Platte gesetzt werden.
  *
  * ── Warum die Funktion wirft statt zu raten ──────────────────────────
- * `rasterKanten` ist eine ERKLÄRUNG über das GLB, keine Messung an ihm.
- * Ein stiller Vorgabewert `wand` für jede nicht genannte Aussenkante
+ * `gridEdges` ist eine ERKLÄRUNG über das GLB, keine Messung an ihm.
+ * Ein stiller Vorgabewert `wall` für jede nicht genannte Aussenkante
  * sähe genauso aus wie eine bewusste Wand — und ein vergessener Eintrag
  * fiele erst im fertigen Grab auf. Deshalb verlangt diese Funktion für
  * JEDE waagerechte Aussenkante eine Aussage (Connector oder
- * `rasterKanten`) und meldet jeden Widerspruch als Fehler. Der Preis ist,
+ * `gridEdges`) und meldet jeden Widerspruch als Fehler. Der Preis ist,
  * dass ein neues Modul ohne Erklärung nicht durchrutscht — das ist der
  * Zweck.
+ *
+ * ── Sprache der Bezeichner ───────────────────────────────────────────
+ * Neu angelegter Code trägt englische Namen; die deutschen Namen der
+ * Nachbardateien (`verschlussAchse`, `MODUL_ZELLE_HOEHE_M`) bleiben, wo
+ * sie stehen. Die Vokabeln der Konzeptnotiz übersetzen sich eins zu eins:
+ * offen → `open`, wand → `wall`, wandTeilweise → `wallPartial`,
+ * oben/unten → `up`/`down`, Ost → `e`.
  */
 import { MODUL_ZELLE_HOEHE_M, verschlussAchse } from './dungeonRaster.js';
 import { quatMulVec3 } from './worldgen/Math3d.js';
@@ -48,33 +55,33 @@ import type { RoomDef } from './dungeons.js';
 import type { Vector3 } from './types.js';
 
 /** Kantenlänge einer Rasterzelle in Metern (Modul-Format v0). */
-export const MODUL_ZELLE_M = 2;
+export const MODULE_CELL_M = 2;
 
 /**
  * Höhe einer Ebene in Metern. Dieselbe Zahl wie die lichte Zellhöhe: Im
  * Modulformat IST eine Ebene eine Zellhöhe (s. `MODUL_ZELLE_HOEHE_M`),
  * anders als im 4-m-Kit, wo der Ebenensprung 8 m misst.
  */
-export const MODUL_EBENE_M = MODUL_ZELLE_HOEHE_M;
+export const MODULE_LEVEL_M = MODUL_ZELLE_HOEHE_M;
 
 /**
  * Toleranz für Lagevergleiche in Metern. Die gemessene Drift der
  * Zellmitten geht bis 2,6 · 10⁻⁵ m; Modul-LOKALE Masse sind getippt und
  * daher exakt, hier reicht Rundungsrauschen.
  */
-const TOLERANZ_M = 1e-4;
+const TOLERANCE_M = 1e-4;
 
 /**
  * Dreiwertiger Zustand einer Zellkante.
  *
- * `offen` — dort sitzt ein Connector, die Kante kann ein Durchgang werden.
- * `wand` — eine Wand über die volle Ebenenhöhe ist ins GLB gebaut.
- * `wandTeilweise` — eine Wand ist da, deckt die Kante aber nicht ganz.
+ * `open` — dort sitzt ein Connector, die Kante kann ein Durchgang werden.
+ * `wall` — eine Wand über die volle Ebenenhöhe ist ins GLB gebaut.
+ * `wallPartial` — eine Wand ist da, deckt die Kante aber nicht ganz.
  */
-export type Kantenzustand = 'offen' | 'wand' | 'wandTeilweise';
+export type EdgeState = 'open' | 'wall' | 'wallPartial';
 
 /** Die sechs Kanten einer Zelle — vier waagerecht, plus Boden und Decke. */
-export type Richtung = 'n' | 'o' | 's' | 'w' | 'oben' | 'unten';
+export type Direction = 'n' | 'e' | 's' | 'w' | 'up' | 'down';
 
 /**
  * Feste Reihenfolge der Richtungen. Kantenlisten werden überall in dieser
@@ -82,31 +89,31 @@ export type Richtung = 'n' | 'o' | 's' | 'w' | 'oben' | 'unten';
  * eine `Set`-Iteration geht, bekommt irgendwann einen anderen Grundriss
  * aus derselben Saat.
  */
-export const RICHTUNGEN: readonly Richtung[] = ['n', 'o', 's', 'w', 'oben', 'unten'];
+export const DIRECTIONS: readonly Direction[] = ['n', 'e', 's', 'w', 'up', 'down'];
 
 /** Richtung → achsparalleler Einheitsvektor in MODUL-lokalen Koordinaten. */
-export const RICHTUNG_VEKTOR: Readonly<Record<Richtung, Vector3>> = {
+export const DIRECTION_VECTOR: Readonly<Record<Direction, Vector3>> = {
   n: { x: 0, y: 0, z: 1 },
-  o: { x: 1, y: 0, z: 0 },
+  e: { x: 1, y: 0, z: 0 },
   s: { x: 0, y: 0, z: -1 },
   w: { x: -1, y: 0, z: 0 },
-  oben: { x: 0, y: 1, z: 0 },
-  unten: { x: 0, y: -1, z: 0 },
+  up: { x: 0, y: 1, z: 0 },
+  down: { x: 0, y: -1, z: 0 },
 };
 
 /** Gegenrichtung — die andere Seite derselben Kante. */
-export const GEGENRICHTUNG: Readonly<Record<Richtung, Richtung>> = {
+export const OPPOSITE_DIRECTION: Readonly<Record<Direction, Direction>> = {
   n: 's',
   s: 'n',
-  o: 'w',
-  w: 'o',
-  oben: 'unten',
-  unten: 'oben',
+  e: 'w',
+  w: 'e',
+  up: 'down',
+  down: 'up',
 };
 
 /** Waagerecht sind die vier Himmelsrichtungen; oben/unten sind es nicht. */
-export function istWaagerecht(r: Richtung): boolean {
-  return r !== 'oben' && r !== 'unten';
+export function isHorizontal(d: Direction): boolean {
+  return d !== 'up' && d !== 'down';
 }
 
 /**
@@ -116,13 +123,13 @@ export function istWaagerecht(r: Richtung): boolean {
  * 1 nicht exakt, und ein Gleichheitsvergleich auf Kantenrichtungen ist
  * genau die Falle, gegen die das ganze Modul gebaut ist.
  */
-export function richtungAusVektor(v: Vector3): Richtung | null {
+export function directionFromVector(v: Vector3): Direction | null {
   const x = Math.round(v.x);
   const y = Math.round(v.y);
   const z = Math.round(v.z);
-  for (const r of RICHTUNGEN) {
-    const d = RICHTUNG_VEKTOR[r];
-    if (d.x === x && d.y === y && d.z === z) return r;
+  for (const d of DIRECTIONS) {
+    const u = DIRECTION_VECTOR[d];
+    if (u.x === x && u.y === y && u.z === z) return d;
   }
   return null;
 }
@@ -132,12 +139,12 @@ export function richtungAusVektor(v: Vector3): Richtung | null {
  *
  * Zwei Formen, und der Unterschied ist Absicht:
  *
- *  • **Ohne `zelle`** — die Aussage über die AUSSENHAUT des Moduls: „jede
+ *  • **Ohne `cell`** — die Aussage über die AUSSENHAUT des Moduls: „jede
  *    Kante dieser Richtung, an der weder ein Ausgang noch eine eigene
  *    Zeile steht“. Sie überschreibt weder einen Connector noch eine
  *    Innenkante. Ohne diese Form wären die Treppenflanken zwölf
  *    gleichlautende Zeilen, in denen ein Tippfehler nicht auffiele.
- *  • **Mit `zelle`** — die Aussage über GENAU DIESE Kante. Sie gilt auch
+ *  • **Mit `cell`** — die Aussage über GENAU DIESE Kante. Sie gilt auch
  *    für eine Innenkante (so erklärt die Treppe ihren Ebenenwechsel) und
  *    ist ein Fehler, wenn dort ein Connector sitzt.
  *
@@ -145,21 +152,21 @@ export function richtungAusVektor(v: Vector3): Richtung | null {
  * die Formen hinweg gewinnt immer die Einzelzeile, egal wo sie steht — sonst
  * hinge die Bedeutung einer Ausnahme an ihrer Zeilennummer.
  */
-export interface RasterKanteDef {
+export interface GridEdgeDef {
   /** Lokale Zellindizes (x-Reihe, z-Reihe, Ebene). Fehlt sie: alle Zellen. */
-  readonly zelle?: { readonly a: number; readonly b: number; readonly e: number };
+  readonly cell?: { readonly ix: number; readonly iz: number; readonly level: number };
   /** Kanten, für die der Zustand gilt. */
-  readonly kanten: readonly Richtung[];
-  readonly zustand: Kantenzustand;
+  readonly edges: readonly Direction[];
+  readonly state: EdgeState;
 }
 
 /** Eine Öffnung des Moduls: der Connector, seine Zelle und seine Kante. */
-export interface ModulPort {
+export interface ModulePort {
   /** Index in `RoomDef.connections` — die Rückverbindung zur Kit-Definition. */
   readonly connector: number;
-  /** Index in {@link Modul.zellen}. */
-  readonly zelle: number;
-  readonly richtung: Richtung;
+  /** Index in {@link GridModule.cells}. */
+  readonly cell: number;
+  readonly direction: Direction;
   readonly entrance: boolean;
   readonly allowDoor: boolean;
   /**
@@ -167,93 +174,93 @@ export interface ModulPort {
    * Connectors und damit der Zeuge gegen eine Kit-Geometrie, die sich
    * unter der Erklärung wegbewegt (Konzept S6).
    */
-  readonly lokaleKantenmitte: Vector3;
+  readonly localEdgeCenter: Vector3;
 }
 
 /** Eine Zelle des Moduls mit ihren sechs Kanten. */
-export interface ModulZelle {
-  /** Lokaler Zellindex in x-Richtung, 0 … zellenX−1. */
-  readonly a: number;
-  /** Lokaler Zellindex in z-Richtung, 0 … zellenZ−1. */
-  readonly b: number;
-  /** Lokale Ebene, 0 … ebenen−1. */
-  readonly e: number;
+export interface ModuleCell {
+  /** Lokaler Zellindex in x-Richtung, 0 … cellsX−1. */
+  readonly ix: number;
+  /** Lokaler Zellindex in z-Richtung, 0 … cellsZ−1. */
+  readonly iz: number;
+  /** Lokale Ebene, 0 … levels−1. */
+  readonly level: number;
   /**
    * Zellmitte in MODUL-lokalen Koordinaten (Pivot = Bodenmitte des
    * Moduls). y ist die BODENoberkante der Ebene, nicht die halbe Höhe —
    * `roomBodyFromFloor` gilt für dieses Kit.
    */
-  readonly lokaleMitte: Vector3;
-  readonly kanten: Readonly<Record<Richtung, Kantenzustand>>;
+  readonly localCenter: Vector3;
+  readonly edges: Readonly<Record<Direction, EdgeState>>;
   /**
    * Führt die Kante zu einer anderen Zelle DESSELBEN Moduls? Dort kann
    * von aussen nichts anstossen — die Versiegelung überspringt solche
    * Kanten, und die Prüfung „offene Kante braucht einen Connector“ gilt
    * dort nicht.
    */
-  readonly innen: Readonly<Record<Richtung, boolean>>;
+  readonly interior: Readonly<Record<Direction, boolean>>;
 }
 
 /** Die vollständige Selbstbeschreibung eines Rastermoduls. */
-export interface Modul {
+export interface GridModule {
   readonly name: string;
   /** Zellen in lokaler x-Richtung. */
-  readonly zellenX: number;
+  readonly cellsX: number;
   /** Zellen in lokaler z-Richtung. */
-  readonly zellenZ: number;
-  readonly ebenen: number;
-  /** Kanonisch sortiert nach (e, b, a) — s. Determinismus-Falle im Konzept. */
-  readonly zellen: readonly ModulZelle[];
-  readonly ports: readonly ModulPort[];
+  readonly cellsZ: number;
+  readonly levels: number;
+  /** Kanonisch sortiert nach (level, iz, ix) — s. Determinismus-Falle im Konzept. */
+  readonly cells: readonly ModuleCell[];
+  readonly ports: readonly ModulePort[];
   /**
    * Verschlussmodul (`endCap`, dünner als eine Zelle): Es belegt KEINE
    * Zelle, es legt sich in die Kantenebene. Wer es als Zelle führte,
    * hielte jede versiegelte Kante für belegt.
    */
-  readonly verschluss: boolean;
+  readonly endCap: boolean;
   /**
    * Der Ankerport — der Eingangsconnector, an dem der Grundriss aufhängt.
    * Nur der Eingangsraum hat einen; bei allen anderen null.
    */
-  readonly anker: ModulPort | null;
+  readonly anchor: ModulePort | null;
 }
 
-function fehler(name: string, text: string): never {
+function fail(name: string, text: string): never {
   throw new Error(`Rastermodul '${name}': ${text}`);
 }
 
 /** Ganzes Vielfaches, oder null. Rundet und prüft die Rundung nach. */
-function vielfaches(wert: number, schritt: number): number | null {
-  const n = Math.round(wert / schritt);
-  return Math.abs(wert - n * schritt) < TOLERANZ_M ? n : null;
+function multipleOf(value: number, step: number): number | null {
+  const n = Math.round(value / step);
+  return Math.abs(value - n * step) < TOLERANCE_M ? n : null;
 }
 
 /**
  * Leitet aus einer Kit-Raumdefinition die Rasterbeschreibung ab.
  *
- * Abgeleitet (nicht getippt) werden Fussabdruck, Ebenen und alle `offen`-
- * Kanten; getippt (`RoomDef.rasterKanten`) werden nur die Zustände, die
- * im GLB stecken und an keiner Datenstruktur hängen: `wand` und
- * `wandTeilweise`. Wirft bei jeder Lücke und jedem Widerspruch — die
+ * Abgeleitet (nicht getippt) werden Fussabdruck, Ebenen und alle `open`-
+ * Kanten; getippt (`RoomDef.gridEdges`) werden nur die Zustände, die
+ * im GLB stecken und an keiner Datenstruktur hängen: `wall` und
+ * `wallPartial`. Wirft bei jeder Lücke und jedem Widerspruch — die
  * Begründung steht im Kopf dieser Datei.
  */
-export function modulAusRoomDef(raum: RoomDef): Modul {
+export function gridModuleFromRoomDef(room: RoomDef): GridModule {
   // ── Verschluss zuerst: er hat keinen Fussabdruck ────────────────────
   //
   // `verschlussAchse` ist die bestehende, eng gefasste Regel aus
   // `dungeonRaster.ts` (endCap + genau ein Connector + genau eine dünne
   // Achse, Connector quer darauf). Sie hier wiederzuverwenden statt „0,3
   // ist dünn“ zu tippen hält die beiden Aussagen zusammen.
-  if (verschlussAchse(raum, MODUL_ZELLE_M) !== null) {
+  if (verschlussAchse(room, MODULE_CELL_M) !== null) {
     return {
-      name: raum.name,
-      zellenX: 0,
-      zellenZ: 0,
-      ebenen: 0,
-      zellen: [],
+      name: room.name,
+      cellsX: 0,
+      cellsZ: 0,
+      levels: 0,
+      cells: [],
       ports: [],
-      verschluss: true,
-      anker: null,
+      endCap: true,
+      anchor: null,
     };
   }
 
@@ -264,84 +271,84 @@ export function modulAusRoomDef(raum: RoomDef): Modul {
   // (Begründung an `StoneVaultCorridor`). Für den Fussabdruck zählt
   // deshalb das RASTERmass, nicht die Hülle — `max(size, 2)` macht aus
   // dem Innenmass wieder die ganze Zelle.
-  const zellenX = vielfaches(Math.max(raum.size.x, MODUL_ZELLE_M), MODUL_ZELLE_M);
-  const zellenZ = vielfaches(Math.max(raum.size.z, MODUL_ZELLE_M), MODUL_ZELLE_M);
-  const ebenen = vielfaches(raum.size.y, MODUL_EBENE_M);
-  if (zellenX === null || zellenZ === null || ebenen === null || ebenen < 1) {
-    fehler(
-      raum.name,
-      `Hülle ${raum.size.x}×${raum.size.y}×${raum.size.z} liegt nicht auf dem Raster ` +
-        `(${MODUL_ZELLE_M} m in x/z, ${MODUL_EBENE_M} m in y).`
+  const cellsX = multipleOf(Math.max(room.size.x, MODULE_CELL_M), MODULE_CELL_M);
+  const cellsZ = multipleOf(Math.max(room.size.z, MODULE_CELL_M), MODULE_CELL_M);
+  const levels = multipleOf(room.size.y, MODULE_LEVEL_M);
+  if (cellsX === null || cellsZ === null || levels === null || levels < 1) {
+    fail(
+      room.name,
+      `Hülle ${room.size.x}×${room.size.y}×${room.size.z} liegt nicht auf dem Raster ` +
+        `(${MODULE_CELL_M} m in x/z, ${MODULE_LEVEL_M} m in y).`
     );
   }
 
   // ── Zellen anlegen, Innenkanten markieren ──────────────────────────
-  interface Bau {
-    a: number;
-    b: number;
-    e: number;
-    lokaleMitte: Vector3;
-    kanten: Record<Richtung, Kantenzustand>;
-    innen: Record<Richtung, boolean>;
-    /** Kanten, über die `rasterKanten` eine Aussage getroffen hat. */
-    erklaert: Set<Richtung>;
+  interface Draft {
+    ix: number;
+    iz: number;
+    level: number;
+    localCenter: Vector3;
+    edges: Record<Direction, EdgeState>;
+    interior: Record<Direction, boolean>;
+    /** Kanten, über die `gridEdges` eine Aussage getroffen hat. */
+    declared: Set<Direction>;
     /** Kanten, auf denen ein Connector sitzt (Index in `ports`). */
-    port: Map<Richtung, number>;
+    port: Map<Direction, number>;
   }
 
-  const bau: Bau[] = [];
-  const index = new Map<string, number>();
-  const schluessel = (a: number, b: number, e: number): string => `${a}|${b}|${e}`;
-  for (let e = 0; e < ebenen; e++) {
-    for (let b = 0; b < zellenZ; b++) {
-      for (let a = 0; a < zellenX; a++) {
-        index.set(schluessel(a, b, e), bau.length);
-        bau.push({
-          a,
-          b,
-          e,
+  const draft: Draft[] = [];
+  const byKey = new Map<string, number>();
+  const key = (ix: number, iz: number, level: number): string => `${ix}|${iz}|${level}`;
+  for (let level = 0; level < levels; level++) {
+    for (let iz = 0; iz < cellsZ; iz++) {
+      for (let ix = 0; ix < cellsX; ix++) {
+        byKey.set(key(ix, iz, level), draft.length);
+        draft.push({
+          ix,
+          iz,
+          level,
           // Der Pivot liegt in der Bodenmitte des Moduls, die Zellen
           // liegen also symmetrisch darum. Bei gerader Zellzahl (Halle)
           // sitzt der Pivot ZWISCHEN den Zellen — genau deshalb steht
           // hier (n−1)/2 und keine Ganzzahlrechnung.
-          lokaleMitte: {
-            x: (a - (zellenX - 1) / 2) * MODUL_ZELLE_M,
-            y: e * MODUL_EBENE_M,
-            z: (b - (zellenZ - 1) / 2) * MODUL_ZELLE_M,
+          localCenter: {
+            x: (ix - (cellsX - 1) / 2) * MODULE_CELL_M,
+            y: level * MODULE_LEVEL_M,
+            z: (iz - (cellsZ - 1) / 2) * MODULE_CELL_M,
           },
-          kanten: { n: 'wand', o: 'wand', s: 'wand', w: 'wand', oben: 'wand', unten: 'wand' },
-          innen: { n: false, o: false, s: false, w: false, oben: false, unten: false },
-          erklaert: new Set<Richtung>(),
-          port: new Map<Richtung, number>(),
+          edges: { n: 'wall', e: 'wall', s: 'wall', w: 'wall', up: 'wall', down: 'wall' },
+          interior: { n: false, e: false, s: false, w: false, up: false, down: false },
+          declared: new Set<Direction>(),
+          port: new Map<Direction, number>(),
         });
       }
     }
   }
 
-  for (const z of bau) {
-    for (const r of RICHTUNGEN) {
-      const d = RICHTUNG_VEKTOR[r];
-      const nachbar = index.get(schluessel(z.a + d.x, z.b + d.z, z.e + d.y));
-      if (nachbar === undefined) continue;
-      z.innen[r] = true;
+  for (const cell of draft) {
+    for (const d of DIRECTIONS) {
+      const u = DIRECTION_VECTOR[d];
+      const neighbour = byKey.get(key(cell.ix + u.x, cell.iz + u.z, cell.level + u.y));
+      if (neighbour === undefined) continue;
+      cell.interior[d] = true;
       // Waagerechte Innenkanten sind Durchgang: Ein mehrzelliges Modul
       // ist EIN Raum, seine Zellen hängen zusammen. Senkrechte NICHT —
       // gestapelte Zellen eines Moduls sind der Luftraum über einer
       // Treppe, und der ist nur dort begehbar, wo der Lauf ihn kreuzt.
-      if (istWaagerecht(r)) z.kanten[r] = 'offen';
+      if (isHorizontal(d)) cell.edges[d] = 'open';
     }
   }
 
   // ── Ports aus den Connectors ableiten ──────────────────────────────
-  const ports: ModulPort[] = [];
-  for (let i = 0; i < raum.connections.length; i++) {
-    const c = raum.connections[i]!;
+  const ports: ModulePort[] = [];
+  for (let i = 0; i < room.connections.length; i++) {
+    const c = room.connections[i]!;
     // Die Connectordrehung zeigt aus dem Modul HINAUS (Kit-Konvention),
     // die lokale +z-Achse ist die Blickrichtung.
-    const r = richtungAusVektor(quatMulVec3(c.localRot, { x: 0, y: 0, z: 1 }));
-    if (r === null || !istWaagerecht(r)) {
-      fehler(
-        raum.name,
+    const d = directionFromVector(quatMulVec3(c.localRot, { x: 0, y: 0, z: 1 }));
+    if (d === null || !isHorizontal(d)) {
+      fail(
+        room.name,
         `Connector ${i} zeigt nicht in eine der vier Himmelsrichtungen — ` +
           `senkrechte Durchgänge kennt das Modulformat nicht.`
       );
@@ -349,48 +356,48 @@ export function modulAusRoomDef(raum: RoomDef): Modul {
     // Die Zelle hinter dem Connector: eine halbe Zelle entgegen seiner
     // Blickrichtung. Der Connector sitzt auf der KANTE, nicht auf der
     // Hüllfläche (die liegt bei eingebauten Wänden 0,3 m weiter innen).
-    const d = RICHTUNG_VEKTOR[r];
-    const mx = c.localPos.x - (d.x * MODUL_ZELLE_M) / 2;
-    const mz = c.localPos.z - (d.z * MODUL_ZELLE_M) / 2;
-    const a = vielfaches(mx + ((zellenX - 1) / 2) * MODUL_ZELLE_M, MODUL_ZELLE_M);
-    const b = vielfaches(mz + ((zellenZ - 1) / 2) * MODUL_ZELLE_M, MODUL_ZELLE_M);
-    const e = vielfaches(c.localPos.y, MODUL_EBENE_M);
-    const treffer =
-      a === null || b === null || e === null ? undefined : index.get(schluessel(a, b, e));
-    if (treffer === undefined) {
-      fehler(
-        raum.name,
+    const u = DIRECTION_VECTOR[d];
+    const mx = c.localPos.x - (u.x * MODULE_CELL_M) / 2;
+    const mz = c.localPos.z - (u.z * MODULE_CELL_M) / 2;
+    const ix = multipleOf(mx + ((cellsX - 1) / 2) * MODULE_CELL_M, MODULE_CELL_M);
+    const iz = multipleOf(mz + ((cellsZ - 1) / 2) * MODULE_CELL_M, MODULE_CELL_M);
+    const level = multipleOf(c.localPos.y, MODULE_LEVEL_M);
+    const hit =
+      ix === null || iz === null || level === null ? undefined : byKey.get(key(ix, iz, level));
+    if (hit === undefined) {
+      fail(
+        room.name,
         `Connector ${i} auf (${c.localPos.x}, ${c.localPos.y}, ${c.localPos.z}) liegt auf keiner ` +
-          `Zellkante des ${zellenX}×${zellenZ}×${ebenen}-Fussabdrucks.`
+          `Zellkante des ${cellsX}×${cellsZ}×${levels}-Fussabdrucks.`
       );
     }
-    const z = bau[treffer]!;
-    if (z.innen[r]) {
-      fehler(
-        raum.name,
-        `Connector ${i} sitzt auf der INNENkante ${r} der Zelle (${z.a},${z.b},${z.e}) — ` +
-          `dort kann nie ein Nachbar andocken.`
+    const cell = draft[hit]!;
+    if (cell.interior[d]) {
+      fail(
+        room.name,
+        `Connector ${i} sitzt auf der INNENkante ${d} der Zelle ` +
+          `(${cell.ix},${cell.iz},${cell.level}) — dort kann nie ein Nachbar andocken.`
       );
     }
-    if (z.port.has(r)) {
-      fehler(
-        raum.name,
-        `Zelle (${z.a},${z.b},${z.e}) trägt zwei Connectors auf Kante ${r} ` +
-          `(${z.port.get(r)} und ${i}).`
+    if (cell.port.has(d)) {
+      fail(
+        room.name,
+        `Zelle (${cell.ix},${cell.iz},${cell.level}) trägt zwei Connectors auf Kante ${d} ` +
+          `(${cell.port.get(d)} und ${i}).`
       );
     }
-    z.kanten[r] = 'offen';
-    z.port.set(r, ports.length);
+    cell.edges[d] = 'open';
+    cell.port.set(d, ports.length);
     ports.push({
       connector: i,
-      zelle: treffer,
-      richtung: r,
+      cell: hit,
+      direction: d,
       entrance: c.entrance,
       allowDoor: c.allowDoor,
-      lokaleKantenmitte: {
-        x: z.lokaleMitte.x + (d.x * MODUL_ZELLE_M) / 2,
-        y: z.lokaleMitte.y,
-        z: z.lokaleMitte.z + (d.z * MODUL_ZELLE_M) / 2,
+      localEdgeCenter: {
+        x: cell.localCenter.x + (u.x * MODULE_CELL_M) / 2,
+        y: cell.localCenter.y,
+        z: cell.localCenter.z + (u.z * MODULE_CELL_M) / 2,
       },
     });
   }
@@ -401,64 +408,64 @@ export function modulAusRoomDef(raum: RoomDef): Modul {
   // Aussenhaut-Regel lässt einen Ausgang stehen, die Einzelzeile
   // widerspricht ihm. Zuerst die Einzelzeilen — sie sind die genauere
   // Aussage und dürfen von der Fläche nicht zugedeckt werden.
-  const einzeln = new Set<string>();
-  for (const eintrag of raum.rasterKanten ?? []) {
-    if (eintrag.zelle === undefined) continue;
-    const treffer = index.get(schluessel(eintrag.zelle.a, eintrag.zelle.b, eintrag.zelle.e));
-    if (treffer === undefined) {
-      fehler(
-        raum.name,
-        `rasterKanten nennt Zelle (${eintrag.zelle.a},${eintrag.zelle.b},${eintrag.zelle.e}), ` +
-          `die es bei ${zellenX}×${zellenZ}×${ebenen} nicht gibt.`
+  const perCell = new Set<string>();
+  for (const entry of room.gridEdges ?? []) {
+    if (entry.cell === undefined) continue;
+    const hit = byKey.get(key(entry.cell.ix, entry.cell.iz, entry.cell.level));
+    if (hit === undefined) {
+      fail(
+        room.name,
+        `gridEdges nennt Zelle (${entry.cell.ix},${entry.cell.iz},${entry.cell.level}), ` +
+          `die es bei ${cellsX}×${cellsZ}×${levels} nicht gibt.`
       );
     }
-    const z = bau[treffer]!;
-    for (const r of eintrag.kanten) {
-      if (z.port.has(r) && eintrag.zustand !== 'offen') {
-        fehler(
-          raum.name,
-          `Widerspruch an Zelle (${z.a},${z.b},${z.e}), Kante ${r}: rasterKanten sagt ` +
-            `'${eintrag.zustand}', dort sitzt aber Connector ${z.port.get(r)}.`
+    const cell = draft[hit]!;
+    for (const d of entry.edges) {
+      if (cell.port.has(d) && entry.state !== 'open') {
+        fail(
+          room.name,
+          `Widerspruch an Zelle (${cell.ix},${cell.iz},${cell.level}), Kante ${d}: gridEdges sagt ` +
+            `'${entry.state}', dort sitzt aber Connector ${cell.port.get(d)}.`
         );
       }
-      z.kanten[r] = eintrag.zustand;
-      z.erklaert.add(r);
-      einzeln.add(`${z.a}|${z.b}|${z.e}|${r}`);
+      cell.edges[d] = entry.state;
+      cell.declared.add(d);
+      perCell.add(`${cell.ix}|${cell.iz}|${cell.level}|${d}`);
     }
   }
-  for (const eintrag of raum.rasterKanten ?? []) {
-    if (eintrag.zelle !== undefined) continue;
-    for (const z of bau) {
-      for (const r of eintrag.kanten) {
+  for (const entry of room.gridEdges ?? []) {
+    if (entry.cell !== undefined) continue;
+    for (const cell of draft) {
+      for (const d of entry.edges) {
         // Innenkanten und Ausgänge bleiben stehen: Die Fläche beschreibt,
         // was AUSSEN und ZU ist, nicht was das Modul zusammenhält.
-        if (z.innen[r] || z.port.has(r)) continue;
-        if (einzeln.has(`${z.a}|${z.b}|${z.e}|${r}`)) continue;
-        z.kanten[r] = eintrag.zustand;
-        z.erklaert.add(r);
+        if (cell.interior[d] || cell.port.has(d)) continue;
+        if (perCell.has(`${cell.ix}|${cell.iz}|${cell.level}|${d}`)) continue;
+        cell.edges[d] = entry.state;
+        cell.declared.add(d);
       }
     }
   }
 
   // ── Vollständigkeit und Widerspruchsfreiheit ───────────────────────
-  for (const z of bau) {
-    for (const r of RICHTUNGEN) {
-      if (istWaagerecht(r) && !z.innen[r]) {
+  for (const cell of draft) {
+    for (const d of DIRECTIONS) {
+      if (isHorizontal(d) && !cell.interior[d]) {
         // Jede waagerechte Aussenkante entscheidet über eine Platte.
         // Schweigen ist deshalb keine Aussage, sondern eine Lücke.
-        if (!z.erklaert.has(r) && !z.port.has(r)) {
-          fehler(
-            raum.name,
-            `Zelle (${z.a},${z.b},${z.e}) sagt nichts über ihre Aussenkante ${r} — ` +
-              `entweder ein Connector oder ein rasterKanten-Eintrag.`
+        if (!cell.declared.has(d) && !cell.port.has(d)) {
+          fail(
+            room.name,
+            `Zelle (${cell.ix},${cell.iz},${cell.level}) sagt nichts über ihre Aussenkante ${d} — ` +
+              `entweder ein Connector oder ein gridEdges-Eintrag.`
           );
         }
         // Eine offene Aussenkante ohne Connector wäre eine Öffnung, an
         // der nie ein Nachbar andocken kann: die „Öffnung ins Leere“.
-        if (z.kanten[r] === 'offen' && !z.port.has(r)) {
-          fehler(
-            raum.name,
-            `Zelle (${z.a},${z.b},${z.e}) erklärt die Aussenkante ${r} als offen, ` +
+        if (cell.edges[d] === 'open' && !cell.port.has(d)) {
+          fail(
+            room.name,
+            `Zelle (${cell.ix},${cell.iz},${cell.level}) erklärt die Aussenkante ${d} als offen, ` +
               `trägt dort aber keinen Connector.`
           );
         }
@@ -466,38 +473,39 @@ export function modulAusRoomDef(raum: RoomDef): Modul {
       // Innenkanten haben zwei Seiten in DERSELBEN Erklärung — sie müssen
       // übereinstimmen. Ein einseitig geöffneter Ebenenwechsel wäre eine
       // Einbahnstrasse durch Stein, und niemand zählt ihn.
-      if (z.innen[r]) {
-        const d = RICHTUNG_VEKTOR[r];
-        const gegen = bau[index.get(schluessel(z.a + d.x, z.b + d.z, z.e + d.y))!]!;
-        if (gegen.kanten[GEGENRICHTUNG[r]] !== z.kanten[r]) {
-          fehler(
-            raum.name,
-            `Innenkante zwischen (${z.a},${z.b},${z.e}) und (${gegen.a},${gegen.b},${gegen.e}) ` +
-              `ist einseitig erklärt: ${r} = '${z.kanten[r]}', ` +
-              `${GEGENRICHTUNG[r]} = '${gegen.kanten[GEGENRICHTUNG[r]]}'.`
+      if (cell.interior[d]) {
+        const u = DIRECTION_VECTOR[d];
+        const other = draft[byKey.get(key(cell.ix + u.x, cell.iz + u.z, cell.level + u.y))!]!;
+        if (other.edges[OPPOSITE_DIRECTION[d]] !== cell.edges[d]) {
+          fail(
+            room.name,
+            `Innenkante zwischen (${cell.ix},${cell.iz},${cell.level}) und ` +
+              `(${other.ix},${other.iz},${other.level}) ist einseitig erklärt: ` +
+              `${d} = '${cell.edges[d]}', ` +
+              `${OPPOSITE_DIRECTION[d]} = '${other.edges[OPPOSITE_DIRECTION[d]]}'.`
           );
         }
       }
     }
   }
 
-  const zellen: ModulZelle[] = bau.map((z) => ({
-    a: z.a,
-    b: z.b,
-    e: z.e,
-    lokaleMitte: z.lokaleMitte,
-    kanten: { ...z.kanten },
-    innen: { ...z.innen },
+  const cells: ModuleCell[] = draft.map((cell) => ({
+    ix: cell.ix,
+    iz: cell.iz,
+    level: cell.level,
+    localCenter: cell.localCenter,
+    edges: { ...cell.edges },
+    interior: { ...cell.interior },
   }));
 
   return {
-    name: raum.name,
-    zellenX,
-    zellenZ,
-    ebenen,
-    zellen,
+    name: room.name,
+    cellsX,
+    cellsZ,
+    levels,
+    cells,
     ports,
-    verschluss: false,
-    anker: ports.find((p) => p.entrance) ?? null,
+    endCap: false,
+    anchor: ports.find((p) => p.entrance) ?? null,
   };
 }

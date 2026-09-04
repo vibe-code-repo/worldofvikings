@@ -25,7 +25,7 @@ import { EIGENE_KITS } from './eigeneDungeons.js';
 import type { DungeonGeneratorSettings } from './dungeonGenerator.js';
 // Ebenfalls nur der Typ: `dungeonRasterModul.ts` liest `RoomDef` von hier,
 // ein Laufzeitimport machte daraus einen Ringschluss.
-import type { RasterKanteDef } from './dungeonRasterModul.js';
+import type { GridEdgeDef } from './dungeonRasterModul.js';
 import { getStableHash } from './hash.js';
 import type { Quaternion, Vector3 } from './types.js';
 
@@ -119,8 +119,8 @@ export interface RoomDef {
    * 2.0-Logik“, S0) — nur für Module eines Rasterkits gesetzt.
    *
    * ── Warum additiv und nicht abgeleitet ─────────────────────────────
-   * Ableitbar ist nur `offen`: Dort sitzt ein Connector, und der steht in
-   * dieser Datei. `wand` und `wandTeilweise` stecken dagegen im GLB — an
+   * Ableitbar ist nur `open`: Dort sitzt ein Connector, und der steht in
+   * dieser Datei. `wall` und `wallPartial` stecken dagegen im GLB — an
    * einer eingebauten Korridorwand gibt es nichts, woran eine Datenstruktur
    * sie bemerken könnte. Genau diese Blindheit ist die Ursache dafür, dass
    * heute jede dritte Abschlussplatte im Körper des Nachbarmoduls steht.
@@ -131,9 +131,9 @@ export interface RoomDef {
    * `shared/test/dungeon-rastermodul.ts`.
    *
    * Fehlt das Feld, muss jede waagerechte Aussenkante einen Connector
-   * tragen — `modulAusRoomDef` meldet jede Lücke.
+   * tragen — `gridModuleFromRoomDef` meldet jede Lücke.
    */
-  readonly rasterKanten?: readonly RasterKanteDef[];
+  readonly gridEdges?: readonly GridEdgeDef[];
 }
 
 /** C++ Dungeon::DoorDef. */

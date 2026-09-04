@@ -614,6 +614,24 @@ const KERN = [
   // F1: the stone material's normal channel — text-only, plus a real GLSL
   // compile when glslangValidator happens to be installed.
   ['client', 'test/stein-normal.ts'],
+  // F2 (Fels-Relief 3a): das Steinmaterial JE DOKUMENT — Erlaubnisliste,
+  // Sanitizer und Raum-Override, dazu der Fels-Eintrag `stein_fels` und
+  // die Zusage, dass KEINE Normal-Karte in der Liste steht (sie wäre im
+  // Editor-Dropdown ein wählbares Albedo). Der Test lag bisher als
+  // einziger der Steinkit-Reihe nicht im Sammellauf. Reine Logik, ~2 s.
+  // F2: the per-document stone material allow-list and sanitizer.
+  ['shared', 'test/dungeon-steinkit-dokument.ts'],
+  // F2: Misst das Fels-TEXTURPAAR selbst — Format, Kachelnaht gegen das
+  // Bildinnere, Anisotropie (waagerechte Fugen verrieten Mauerwerk) und
+  // die Reliefstärke der Normal-Karte. Liest das PNG mit `node:zlib`,
+  // braucht also weder PIL noch Blender — aber die Dateien, und die
+  // liegen in `assets/`.
+  // F2: measures the rock texture pair itself (tiling, format, relief).
+  [
+    'tools/elements',
+    'pruefung/fels-textur.mjs',
+    brauchtModelle('assets/models/stein_fels.png', 'assets/models/stein_fels_normal.png'),
+  ],
   // Sichtbare Deko als Thin Instances, gegen eine Attrappen-Modellquelle
   // statt echter GLBs (assets/ liegt ausserhalb des Repos).
   ['client', 'test/dungeon2-deko.ts'],

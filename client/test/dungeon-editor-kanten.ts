@@ -360,6 +360,33 @@ pruefe(
   wahlen[0]!.kinder[1]!.textContent
 );
 
+// ── F2: die Fels-Textur steht dokumentweit zur Wahl ─────────────────
+// Der Abschnitt heisst „Steinmaterial (Dokument)" und gilt für das GANZE
+// Grab, nicht je Raum — deshalb wird hier geprüft, dass alle DREI
+// Flächen den Fels anbieten und dass die Auswahl im Dokument landet.
+for (let i = 0; i < 3; i++) {
+  const namen = wahlen[i]!.kinder.map((k) => k.textContent);
+  pruefe(namen.includes('stein_fels'), `Fläche ${i}: „stein_fels" steht im Dropdown`, namen.join('|'));
+  // Die Normal-Karte darf NIE als Albedo wählbar sein (Konvention aus F1:
+  // der Pfad wird abgeleitet, nicht gewählt). Eine blaue Wand im Grab
+  // wäre ein Fehler, den niemand erklären kann.
+  pruefe(
+    namen.every((n) => !String(n).endsWith('_normal')),
+    `Fläche ${i}: keine Normal-Karte im Dropdown`,
+    namen.filter((n) => String(n).endsWith('_normal')).join('|') || 'keine'
+  );
+}
+
+wahlen[1]!.value = '/assets/models/stein_fels.png';
+wahlen[1]!.onchange!();
+pruefe(
+  seiteDoc.steinKit?.deckeTextur === '/assets/models/stein_fels.png',
+  'die Fels-Wahl an der Decke landet im Dokument',
+  JSON.stringify(seiteDoc.steinKit)
+);
+delete (seiteDoc as { steinKit?: unknown }).steinKit;
+seite.baue();
+
 wahlen[0]!.value = '/assets/models/stein_moos.png';
 wahlen[0]!.onchange!();
 pruefe(

@@ -63,6 +63,7 @@ import {
   // ASSUMPTION of this test — does not exist yet before implementation, so
   // the import itself is already part of the red finding.
   STEIN_TEXTUREN,
+  steinTexturAufloesen,
 } from '../src/index.js';
 
 let failures = 0;
@@ -365,6 +366,83 @@ const nochmalSauber = sanitizeDungeonDocument(JSON.parse(JSON.stringify(basisDoc
 check(
   'Altdokument saeubert sich byte-gleich (erneuter Lauf, keine Drift durch die neue Raum-Logik)',
   JSON.stringify(nochmalSauber) === vorherJson
+);
+
+
+// ── 9. F2: Fels-Textur in der Erlaubnisliste ──────────────────────────────
+//
+// Rot vor F2: `stein_fels` steht noch nicht in `STEIN_TEXTUREN`, also kennt
+// weder der Editor-Dropdown die Wahl (`DungeonKatalog.ts` listet genau diese
+// Liste) noch laesst der Sanitizer sie durch.
+//
+// Die zweite Haelfte dieses Abschnitts haelt die Konvention aus F1 fest:
+// Die Normal-Karte gehoert NICHT in die Liste. Stuende sie darin, waere sie
+// im Dropdown ein waehlbares ALBEDO — eine blaue Wand, die niemand erklaeren
+// kann. Der Pfad wird abgeleitet (`normalPfadZu`), nie gewaehlt.
+//
+// Red before F2: the rock texture is not in the allow-list yet, and the
+// normal map must never enter it (it would be a selectable albedo).
+
+console.log('\nF2 — Fels-Textur:');
+const FELS = '/assets/models/stein_fels.png';
+const FELS_NORMAL = '/assets/models/stein_fels_normal.png';
+
+check('STEIN_TEXTUREN kennt stein_fels', STEIN_TEXTUREN.includes(FELS));
+check(
+  'STEIN_TEXTUREN enthaelt KEINE Normal-Karte (keine Endung _normal.png)',
+  STEIN_TEXTUREN.every((t) => !t.endsWith('_normal.png')),
+  STEIN_TEXTUREN.filter((t) => t.endsWith('_normal.png')).join(', ') || 'keine'
+);
+check('STEIN_TEXTUREN enthaelt stein_fels_normal nicht', !STEIN_TEXTUREN.includes(FELS_NORMAL));
+
+// Auflösung: der blosse Name, der Name mit Endung und der volle Pfad ergeben
+// denselben Eintrag — so, wie es der Konsolenbefehl und der Editor liefern.
+for (const eingabe of ['stein_fels', 'stein_fels.png', FELS]) {
+  check(`steinTexturAufloesen("${eingabe}") ergibt den Fels-Pfad`, steinTexturAufloesen(eingabe) === FELS, String(steinTexturAufloesen(eingabe)));
+}
+// Und die Normal-Karte laesst sich ueber KEINE Schreibweise als Albedo
+// hereinreichen — auch nicht ueber die Namensform ohne Endung.
+for (const eingabe of ['stein_fels_normal', 'stein_fels_normal.png', FELS_NORMAL]) {
+  check(
+    `steinTexturAufloesen("${eingabe}") ergibt undefined`,
+    steinTexturAufloesen(eingabe) === undefined,
+    String(steinTexturAufloesen(eingabe))
+  );
+}
+
+// Der ganze Weg: Dokument mit Fels auf allen drei Flaechen, plus ein
+// Raum-Override mit Fels — beides muss der Server durchsanitisieren.
+const mitFels = {
+  ...basisDoc,
+  steinKit: { wandTextur: FELS, deckeTextur: FELS, bodenTextur: FELS, verwitterung: { moos: 0, frost: 0, nass: 0 }, kachelM: 2 },
+  layout: {
+    ...layout,
+    rooms: layout.rooms.map((r, i) => (i === 0 ? { ...r, steinKit: { wandTextur: FELS } } : r)),
+  },
+};
+const sauberFels = sanitizeDungeonDocument(JSON.parse(JSON.stringify(mitFels)));
+check('Dokument mit Fels bleibt gueltig', sauberFels !== null);
+check('Dokument: wandTextur ist Fels', sauberFels?.steinKit?.wandTextur === FELS, sauberFels?.steinKit?.wandTextur);
+check('Dokument: deckeTextur ist Fels', sauberFels?.steinKit?.deckeTextur === FELS, sauberFels?.steinKit?.deckeTextur);
+check('Dokument: bodenTextur ist Fels', sauberFels?.steinKit?.bodenTextur === FELS, sauberFels?.steinKit?.bodenTextur);
+check(
+  'Raum-Override mit Fels ueberlebt den Sanitizer',
+  (sauberFels?.layout.rooms[0] as { steinKit?: { wandTextur?: string } } | undefined)?.steinKit?.wandTextur === FELS,
+  JSON.stringify((sauberFels?.layout.rooms[0] as { steinKit?: unknown } | undefined)?.steinKit)
+);
+
+// Ein Dokument, das die Normal-Karte als Albedo einreicht, darf sie NIE
+// zurueckbekommen — sonst waere die Konvention aus F1 durch die Hintertuer
+// wieder eine Wahl.
+const mitNormalAlsAlbedo = {
+  ...basisDoc,
+  steinKit: { wandTextur: FELS_NORMAL, deckeTextur: FELS, bodenTextur: FELS, verwitterung: { moos: 0, frost: 0, nass: 0 }, kachelM: 2 },
+};
+const sauberNormal = sanitizeDungeonDocument(JSON.parse(JSON.stringify(mitNormalAlsAlbedo)));
+check(
+  'Normal-Karte als Albedo wird NICHT durchgereicht',
+  sauberNormal?.steinKit?.wandTextur !== FELS_NORMAL,
+  String(sauberNormal?.steinKit?.wandTextur)
 );
 
 if (failures > 0) {

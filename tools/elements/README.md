@@ -128,6 +128,13 @@ Repo selbst.
 | Datei | Zielpfad | Zweck |
 |---|---|---|
 | `relief-kontrast.mjs` | `tools/elements/pruefung/relief-kontrast.mjs` | Prüft: die Helligkeitsstreuung einer Wand im Streiflicht, mit und ohne Normal-Kanal (`?relief=1` gegen `?relief=0`) — die Messung zu F1. Läuft **lokal** gegen den Tunnel, nicht auf `wov-dev`. |
+| `fels-textur.mjs` | `tools/elements/pruefung/fels-textur.mjs` | Prüft: dass das Fels-Texturpaar kachelt, das Format der Bestandstexturen trägt und Relief statt Mauerwerk zeigt — die Messung zu F2. Liest das PNG selbst (`node:zlib`), braucht also weder PIL noch Blender. Hängt in `scripts/run-tests.mjs` hinter der `assets/`-Weiche. |
+
+### pipeline/ — hier entstanden
+
+| Datei | Zielpfad | Zweck |
+|---|---|---|
+| `make-fels.py` | `tools/elements/pipeline/make-fels.py` | Erzeugt: das kachelbare Fels-Texturpaar `stein_fels.png` + `stein_fels_normal.png` (1024², prozedural auf dem Torus). Ersetzt für diesen Fall `texture-kit.py` + `make-normal.py`: Die Kachelung ist Konstruktion statt Nachbearbeitung, und die Normal-Karte entsteht aus dem HÖHENFELD statt aus der Helligkeit — mit umlaufender Ableitung und einer Stärke in Metern. |
 
 ### pipeline/quellen/ — Quelltexturen, ohne Kopfzeile
 
@@ -148,6 +155,15 @@ wird bei Bedarf neu abgeleitet:
 ```bash
 python3 tools/elements/pipeline/make-normal.py \
   assets/models/stein_clean.png assets/models/stein_clean_normal.png 2.0
+```
+
+Das Fels-Paar entsteht dagegen **nicht** aus einer Quelltextur, sondern
+prozedural — es hat keine Albedo-Vorlage, aus der sich eine Normal-Karte
+ableiten liesse, und braucht auch keine:
+
+```bash
+python3 tools/elements/pipeline/make-fels.py assets/models/stein_fels.png
+node tools/elements/pruefung/fels-textur.mjs
 ```
 
 `stein_decke.png` hat bewusst **keine** Karte bekommen: Damit läuft im Spiel

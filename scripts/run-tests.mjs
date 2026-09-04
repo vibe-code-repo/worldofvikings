@@ -138,6 +138,25 @@ const KERN = [
     E2: the GLB writer — 24/36 per box, negative signed volume, magnitude.
   */
   ['server', 'test/glb-schreiber.ts'],
+  /*
+    E3 (Elemente aus dem Editor): die RoomDef eines Saals — das, was der
+    GENERATOR von einem Modul sieht. Ein Modell allein reicht nicht: Wer
+    einen Saal zur Laufzeit anlegt und die Connectors nur ungefaehr trifft,
+    bekommt keinen Fehler, sondern einen Grundriss, in dem der Nachbar um
+    einen Meter versetzt steht.
+
+    Der Kern ist deshalb kein Nachrechnen, sondern ein Vergleich: Die fuenf
+    ausgelieferten Saele sind von Hand getippt, gegen Blender gemessen und
+    im Spiel gelaufen — `roomDefForHall` muss sie FELD FUER FELD
+    reproduzieren, bis auf `nurManuell`. Dazu die Rot-Zuerst-Probe 4x3
+    (rechteckig, damit eine vertauschte x/z-Achse nicht durchrutscht) durch
+    `gridModuleFromRoomDef`: 14 Randkanten offen, levels 1.
+
+    Ohne Weiche: reine Rechnung, kein `assets/`, Zehntelsekunden.
+
+    E3: the generated hall RoomDef, field for field against the shipped five.
+  */
+  ['shared', 'test/module-registry.ts'],
   // G3 (Modul-Generierung 2.0): Die Abbildung Raster ↔ Welt. Zellmitten
   // liegen auf (2i, 3,5e, 2j−1) — der z-Schluessel ist `round((z+1)/2)`, und
   // diese halbe Zelle Unterschied faellt in keiner Zaehlung auf, weil alle

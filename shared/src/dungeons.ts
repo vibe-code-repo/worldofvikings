@@ -134,6 +134,28 @@ export interface RoomDef {
    * tragen — `gridModuleFromRoomDef` meldet jede Lücke.
    */
   readonly gridEdges?: readonly GridEdgeDef[];
+  /**
+   * „Nur von Hand setzbar“ — der Rastergenerator darf diesen Raum nie
+   * würfeln (Konzept „Elemente aus dem Editor“, 1i).
+   *
+   * ── Warum ein eigenes Feld und nicht `weight: 0` ─────────────────────
+   * Weil `weight: 0` das Gegenteil bewirkt: `stampWeight` macht daraus eine
+   * 1 (`dungeonRasterGenerator.ts`). Und weil `pickStampOption` über die
+   * SUMME aller Gewichte wählt — ein zusätzlicher Stempel verschiebt
+   * deshalb JEDEN Wurf, nicht nur den, bei dem er selbst gezogen würde.
+   * Ein zur Laufzeit registrierter Saal änderte damit die Grundrisse aller
+   * noch nicht betretenen Gräber, und bei `regenerateOnEnter`-Eingängen
+   * auch die der betretenen — ein Nebeneffekt eines Editor-Formulars, den
+   * niemand bestellt hat.
+   *
+   * Kein Bestandsraum trägt das Feld; `golden-kits.ts` und die
+   * M3-Saatprüfungen bleiben deshalb byte-gleich. Gelesen wird es in
+   * `stampModuleOptions` (E4) — bis dahin trägt es nur `roomDefForHall`,
+   * und registriert ist noch nichts.
+   * Manual-only room: never generator material. Not `weight: 0`, because
+   * that becomes 1, and an extra stamp shifts EVERY roll via the weight sum.
+   */
+  readonly nurManuell?: boolean;
 }
 
 /** C++ Dungeon::DoorDef. */

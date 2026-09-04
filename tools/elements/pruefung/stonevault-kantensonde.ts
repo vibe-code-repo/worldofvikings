@@ -40,7 +40,18 @@
  * die Figur durch?") sind beide dasselbe, und eine Sonde, die drei
  * Zustände raten muss, misst am Ende ihre eigene Schwelle.
  *
- * Aufruf: `npx tsx tools/elements/pruefung/stonevault-kantensonde.ts [kit=DG_StoneVault] [--roh]`
+ * ── Warum ohne Argument BEIDE Kits gemessen werden (F4) ──────────────
+ * Seit F4 gibt es dasselbe Kit zweimal: `DG_StoneVault` in Ziegeln und
+ * `DG_RockVault` in Fels. Die Kit-ERKLÄRUNG ist für beide dieselbe (sie
+ * wird abgeleitet, s. `rockVariant()`), die GEOMETRIE ist es nicht — die
+ * Fels-Frontschicht setzt unregelmässige Blöcke mit gebrochenen Kanten
+ * in dieselben Wände. Genau dort kann ein Block ins Durchgangsfenster
+ * ragen, ohne dass eine einzige Zeile der Erklärung sich ändert. Eine
+ * Sonde, die nur das Ziegelkit misst, bliebe dabei grün.
+ *
+ * Ein Kitname als Argument misst weiterhin nur dieses eine.
+ *
+ * Aufruf: `npx tsx tools/elements/pruefung/stonevault-kantensonde.ts [kit …] [--roh]`
  * (`--roh` misst OHNE die x-Spiegelung — der Vergleich zeigt, dass die
  * Abweichung genau die Spiegelung ist und kein Zufall.)
  */
@@ -139,59 +150,70 @@ function gemessen(
   return { frei: n < PUNKTE_GRENZE, punkte: n };
 }
 
+/** Die Kits, die ohne Argument gemessen werden — s. Kopf, „beide Kits". */
+const KITS_VORGABE = ['DG_StoneVault', 'DG_RockVault'];
+
 const argv = process.argv.slice(2);
 const roh = argv.includes('--roh');
-const kitName = argv.find((a) => !a.startsWith('--')) ?? 'DG_StoneVault';
-const kit = holeKit(kitName);
-
-console.log(
-  `Kantensonde ${kitName} — Geometrie ${roh ? 'ROH aus dem GLB' : 'wie in der SZENE (x gespiegelt)'}\n`
-);
+const gewaehlt = argv.filter((a) => !a.startsWith('--'));
+const kitNamen = gewaehlt.length > 0 ? gewaehlt : KITS_VORGABE;
 
 let abweichungen = 0;
 let geprueft = 0;
-for (const raum of kit.rooms as readonly RoomDef[]) {
-  const pfad = `${MODELL_ORDNER}/${raum.name}.glb`;
-  let punkte: Punkt[];
-  try {
-    punkte = glbPunkte(pfad);
-  } catch {
-    console.log(`${raum.name}: GLB fehlt (${pfad}) — übersprungen`);
-    continue;
-  }
-  // Der Client kehrt die x-Achse um (`__root__`, scale.x = −1). Ohne
-  // diese Zeile misst die Sonde die gespiegelte Seite.
-  const szene = roh ? punkte : punkte.map((p) => ({ x: -p.x, y: p.y, z: p.z }));
-  const modul = gridModuleFromRoomDef(raum);
-  if (modul.endCap) continue;
 
-  const zeilen: string[] = [];
-  for (const zelle of modul.cells) {
-    for (const d of DIRECTIONS) {
-      if (!ACHSE[d]) continue;
-      if (zelle.interior[d]) continue;
-      geprueft++;
-      const soll: EdgeState = zelle.edges[d];
-      const ist = gemessen(szene, zelle.localCenter, d);
-      // `wallPartial` ist die eine Erklärung, die BEIDES sein darf: Die
-      // Treppenflanke deckt die Kante nur teilweise, und ob ihr Keil
-      // gerade das Durchgangsfenster erreicht, hängt an der Ebene.
-      if (soll === 'wallPartial') continue;
-      const passt = soll === 'open' ? ist.frei : !ist.frei;
-      if (!passt) {
-        abweichungen++;
-        zeilen.push(
-          `    Zelle (${zelle.ix},${zelle.iz},${zelle.level}) Kante ${d}: erklärt '${soll}', ` +
-            `gemessen ${ist.frei ? 'DURCHGANG' : 'VERSPERRT'} (${ist.punkte} Punkte im Fenster)`
-        );
+function sondiere(kitName: string): void {
+  const kit = holeKit(kitName);
+  console.log(
+    `Kantensonde ${kitName} — Geometrie ${roh ? 'ROH aus dem GLB' : 'wie in der SZENE (x gespiegelt)'}\n`
+  );
+  for (const raum of kit.rooms as readonly RoomDef[]) {
+    const pfad = `${MODELL_ORDNER}/${raum.name}.glb`;
+    let punkte: Punkt[];
+    try {
+      punkte = glbPunkte(pfad);
+    } catch {
+      console.log(`${raum.name}: GLB fehlt (${pfad}) — übersprungen`);
+      continue;
+    }
+    // Der Client kehrt die x-Achse um (`__root__`, scale.x = −1). Ohne
+    // diese Zeile misst die Sonde die gespiegelte Seite.
+    const szene = roh ? punkte : punkte.map((p) => ({ x: -p.x, y: p.y, z: p.z }));
+    const modul = gridModuleFromRoomDef(raum);
+    if (modul.endCap) continue;
+
+    const zeilen: string[] = [];
+    for (const zelle of modul.cells) {
+      for (const d of DIRECTIONS) {
+        if (!ACHSE[d]) continue;
+        if (zelle.interior[d]) continue;
+        geprueft++;
+        const soll: EdgeState = zelle.edges[d];
+        const ist = gemessen(szene, zelle.localCenter, d);
+        // `wallPartial` ist die eine Erklärung, die BEIDES sein darf: Die
+        // Treppenflanke deckt die Kante nur teilweise, und ob ihr Keil
+        // gerade das Durchgangsfenster erreicht, hängt an der Ebene.
+        if (soll === 'wallPartial') continue;
+        const passt = soll === 'open' ? ist.frei : !ist.frei;
+        if (!passt) {
+          abweichungen++;
+          zeilen.push(
+            `    Zelle (${zelle.ix},${zelle.iz},${zelle.level}) Kante ${d}: erklärt '${soll}', ` +
+              `gemessen ${ist.frei ? 'DURCHGANG' : 'VERSPERRT'} (${ist.punkte} Punkte im Fenster)`
+          );
+        }
       }
     }
+    console.log(`${raum.name}: ${zeilen.length === 0 ? 'Erklärung deckt sich mit der Geometrie' : `${zeilen.length} ABWEICHUNG(EN)`}`);
+    for (const z of zeilen) console.log(z);
   }
-  console.log(`${raum.name}: ${zeilen.length === 0 ? 'Erklärung deckt sich mit der Geometrie' : `${zeilen.length} ABWEICHUNG(EN)`}`);
-  for (const z of zeilen) console.log(z);
 }
 
-console.log(`\n${geprueft} Kanten geprüft, ${abweichungen} Abweichung(en).`);
+for (const [i, kitName] of kitNamen.entries()) {
+  if (i > 0) console.log('');
+  sondiere(kitName);
+}
+
+console.log(`\n${kitNamen.length} Kit(s), ${geprueft} Kanten geprüft, ${abweichungen} Abweichung(en).`);
 // Ohne diese Zeile wäre die Sonde grün, sobald KEIN GLB da ist — sie
 // hätte dann nichts gemessen und meldete trotzdem „0 Abweichungen".
 // Wer sie überspringen will, muss das ausserhalb entscheiden

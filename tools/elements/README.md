@@ -121,7 +121,7 @@ Repo selbst.
 
 | Datei | Zielpfad | Zweck |
 |---|---|---|
-| `tools/stonevault-kantensonde.ts` | `tools/elements/pruefung/stonevault-kantensonde.ts` | Prüft: die Kantenerklärung der Module (`RoomDef.gridEdges`, `connections`) gegen die echte GLB-Geometrie. Der Pfad in `scripts/run-tests.mjs` ist mitgezogen. |
+| `tools/stonevault-kantensonde.ts` | `tools/elements/pruefung/stonevault-kantensonde.ts` | Prüft: die Kantenerklärung der Module (`RoomDef.gridEdges`, `connections`) gegen die echte GLB-Geometrie. Der Pfad in `scripts/run-tests.mjs` ist mitgezogen. Seit F4 misst sie ohne Argument BEIDE Kits — Ziegel und Fels (s. „Das abgeleitete Kit"). |
 
 ### blender/ — hier entstanden
 
@@ -135,6 +135,7 @@ Repo selbst.
 |---|---|---|
 | `fels-frontschicht.mjs` | `tools/elements/pruefung/fels-frontschicht.mjs` | Prüft: die Blocklage der Fels-Frontschicht (`--stil fels`) — Naht, Streuung, Budget. Hält die drei Zusagen von F3 fest: das Reststück an jeder Modulkante trifft sein Gegenstück in Höhe UND Tiefe, kein Block steht weiter vor als das Ziegelrelief (die Hüllbox muss gleich bleiben, weil `DG_RockVault` abgeleitet wird), und ein Wandpaneel bleibt unter 1500 Dreiecken. Text und Arithmetik, kein `assets/`, kein Blender — hängt in `scripts/run-tests.mjs` hinter einer `python3`-Weiche. |
 | `relief-kontrast.mjs` | `tools/elements/pruefung/relief-kontrast.mjs` | Prüft: die Helligkeitsstreuung einer Wand im Streiflicht, mit und ohne Normal-Kanal (`?relief=1` gegen `?relief=0`) — die Messung zu F1. Läuft **lokal** gegen den Tunnel, nicht auf `wov-dev`. |
+| `layout-szene.ts` | `tools/elements/pruefung/layout-szene.ts` | Hilfsmittel: schreibt ein ERZEUGTES Grab (Kit + Saat) als Posenliste für `render-szene.py`. Damit lässt sich ein ganzes Layout rendern statt einzelner Module — die Frage von F4 („fügt sich die Ableitung zu einem Grab zusammen?") beantwortet kein Einzelmodul. Der Kopf von `render-szene.py` nannte dafür bisher ein `tools/_scratch/szene-json.ts`, das es im Repo nicht gibt. |
 | `fels-textur.mjs` | `tools/elements/pruefung/fels-textur.mjs` | Prüft: dass das Fels-Texturpaar kachelt, das Format der Bestandstexturen trägt und Relief statt Mauerwerk zeigt — die Messung zu F2. Liest das PNG selbst (`node:zlib`), braucht also weder PIL noch Blender. Hängt in `scripts/run-tests.mjs` hinter der `assets/`-Weiche. |
 
 ### pipeline/ — hier entstanden
@@ -225,6 +226,38 @@ statt dass er nur im Test vorkommt.
 > liegen alle fünf hier. Wer nur `stein_albedo.png` behalten will, muss das
 > **vor dem ersten Push** entscheiden: danach kostet es eine
 > History-Umschrift.
+
+## Das abgeleitete Kit (F4)
+
+Die GLB aus `--stil fels` gehören zu einem eigenen Kit `DG_RockVault`. Es
+steht **nicht** als zweite Kit-Definition im Quelltext, sondern entsteht aus
+`DG_StoneVault`: `rockVariant()` in `shared/src/eigeneDungeons.ts` erzeugt die
+zwölf RoomDefs mit umgestelltem Namen und lässt `size`, `connections` und
+`gridEdges` unangetastet. Jede künftige Nahtschluss-Änderung am Stammkit wirkt
+damit auf beide.
+
+Zwei Prüfer halten das fest — an verschiedenen Enden:
+
+```bash
+# Die ERKLÄRUNG: Ist das Kit noch abgeleitet, oder hat jemand nachgetippt?
+npx tsx shared/test/kit-ableitung.ts
+# Die GEOMETRIE: Halten BEIDE Kits ihre Erklärung an der echten GLB ein?
+npx tsx tools/elements/pruefung/stonevault-kantensonde.ts
+```
+
+Die Kantensonde misst ohne Argument seit F4 beide Kits, und das ist kein
+Beiwerk: Die Erklärung ist für beide dieselbe (sie wird ja abgeleitet), die
+Geometrie ist es nicht. Ein Fels-Block, der ins Durchgangsfenster ragt,
+ändert keine Zeile der Erklärung — und fiele einer Sonde, die nur den
+Ziegelstil misst, nie auf. Ein Kitname als Argument misst weiterhin nur
+dieses eine.
+
+Dasselbe gilt für die Messzelle und den Saat-Test:
+
+```bash
+npx tsx tools/messe-stonevault-logik.ts --streng --kit=DG_RockVault
+npx tsx server/test/m3-stonevault-seeds.ts   # laeuft fuer beide Kits
+```
 
 ### ts/ — noch leer
 

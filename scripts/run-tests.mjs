@@ -230,10 +230,20 @@ const KERN = [
     ~1 s.
     G11: the kit's edge declaration measured against the real GLB geometry.
   */
+  // Seit F4 misst sie ohne Argument BEIDE Rasterkits — Ziegel und Fels.
+  // Die Kit-Erklaerung ist fuer beide dieselbe (sie wird abgeleitet), die
+  // GEOMETRIE ist es nicht: Ein Fels-Block, der ins Durchgangsfenster
+  // ragt, aendert keine Zeile der Erklaerung. Deshalb stehen hier auch
+  // die Fels-Dateien in der Weiche.
   [
     'tools/elements/pruefung',
     'stonevault-kantensonde.ts',
-    brauchtModelle('assets/models/StoneVaultCorner.glb', 'assets/models/StoneVaultJunction.glb'),
+    brauchtModelle(
+      'assets/models/StoneVaultCorner.glb',
+      'assets/models/StoneVaultJunction.glb',
+      'assets/models/RockVaultCorner.glb',
+      'assets/models/RockVaultJunction.glb'
+    ),
   ],
   // `flattenRooms`: Layout → Prefab-Instanzen für eine ANSICHT, mit dem
   // statischen Wächter, dass `dungeonKanten.ts` dafür NICHTS aus
@@ -657,6 +667,18 @@ const KERN = [
   // `python3 --dump`; kein Blender, kein `assets/`, ~1 s.
   // F3: the rock front layer's block lattice — seam, bounding box, budget.
   ['tools/elements', 'pruefung/fels-frontschicht.mjs', brauchtPython()],
+  /*
+    F4 (Fels-Relief 3b): der WAECHTER ueber die Ableitung `DG_RockVault`.
+    Vergleicht das Kit Feld fuer Feld gegen die frische Ausgabe von
+    `rockVariant()` — ein von Hand nachgetragener RoomDef ist damit rot,
+    und zwar sofort und nicht erst bei der naechsten Nahtschluss-
+    Aenderung. Dazu die Einzelaussagen: 12 Module umbenannt, Torbogen mit
+    eigenem Hash, Fels-Albedo an der Wand, jeder neue Name in
+    `EIGENE_MODELLE`, und ueber fuenf Saaten derselbe Grundriss wie das
+    Stammkit. Reine Daten, kein `assets/`, Sekundenbruchteile.
+    F4: the guard that DG_RockVault stays DERIVED from DG_StoneVault.
+  */
+  ['shared', 'test/kit-ableitung.ts'],
   // Sichtbare Deko als Thin Instances, gegen eine Attrappen-Modellquelle
   // statt echter GLBs (assets/ liegt ausserhalb des Repos).
   ['client', 'test/dungeon2-deko.ts'],

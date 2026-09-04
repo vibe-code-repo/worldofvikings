@@ -132,6 +132,18 @@ export const MODELL_ALIAS: Readonly<Record<string, string>> = {
     hier Voraussetzung und kein Preis — s. `GrabhuegelGras`.
   */
   StoneVaultEntry: 'StoneVaultCell',
+  /*
+    Dieselbe Rollentrennung im Fels-Kit `DG_RockVault` (F4). Sie entsteht
+    nicht neu, sondern wird mitabgeleitet: `rockVariant()` erzeugt aus
+    JEDEM Raum des Stammkits einen Fels-Raum, also auch aus der
+    Eingangszelle — und `make-stonevault.py --stil fels` baut fuer sie
+    ebenso wenig eine eigene GLB wie fuer `StoneVaultEntry`.
+
+    Ohne diese Zeile suchte der Client `RockVaultEntry.glb`, faende sie
+    nicht, und der Startraum jedes Fels-Grabs bliebe unsichtbar — als
+    einziger Raum, und ohne Fehlermeldung ausser einer Ladewarnung.
+  */
+  RockVaultEntry: 'RockVaultCell',
 };
 
 /**

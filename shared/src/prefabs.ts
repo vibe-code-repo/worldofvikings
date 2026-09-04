@@ -575,6 +575,13 @@ export const HINT_DEFS: PrefabDef[] = [
   */
   { ...def('StoneVaultArch', F.PERSISTENT, null, 2, 3.5, 'StoneVaultArch') },
   /*
+    Derselbe Torbogen in Fels (`DG_RockVault`, F4). Er braucht denselben
+    Eintrag von Hand und aus demselben Grund: Die Registry-Schleife sieht
+    `doorTypes` nicht. Gleiches Mass — die Ableitung aendert an der
+    Huellbox nichts, sie tauscht nur die Frontschicht der Laibung.
+  */
+  { ...def('RockVaultArch', F.PERSISTENT, null, 2, 3.5, 'RockVaultArch') },
+  /*
     Die Wandfackel — setzbare Deko des Kits `DG_Steingrab`.
 
     ENGLISCHER Name, waehrend das Kit um sie herum deutsch heisst. Seit dem
@@ -1210,6 +1217,36 @@ export const EIGENE_MODELLE: readonly string[] = [
   // Kein Raum, sondern der Tuertyp des Kits — Eintrag in HINT_DEFS oben,
   // aus demselben Grund wie bei `SteingrabTuer`.
   'StoneVaultArch',
+  /*
+    Dieselben zwoelf Module in FELS (`DG_RockVault`, F4). Sie entstehen
+    nicht von Hand, sondern aus `rockVariant()` in `eigeneDungeons.ts`;
+    die GLBs baut `make-stonevault.py --stil fels`. Geometrisch ist es
+    dasselbe Kit — gleiche Huellbox, gleiche Oeffnungen, gleiche
+    Kantenerklaerung —, nur die Frontschicht der Waende ist gebrochener
+    Fels statt Ziegelverband (F3).
+
+    Warum die Namen hier trotzdem ABGESCHRIEBEN stehen und nicht aus dem
+    Kit gezogen werden: `eigeneDungeons.ts` liest `dungeons.ts`, und
+    `dungeons.ts` liest diese Datei. Ein Import des Kits von hier waere
+    ein Ringschluss — dieselbe Ueberlegung wie bei `THEMA_KRYPTA` dort.
+    Dass keiner fehlt, prueft `shared/test/kit-ableitung.ts` gegen die
+    Ableitung; ein vergessener Name ist damit ein roter Test und keine
+    Luecke im Spawn-Editor, die erst jemand suchen muss.
+  */
+  'RockVaultEntry',
+  'RockVaultCell',
+  'RockVaultCorridor',
+  'RockVaultCorner',
+  'RockVaultJunction',
+  'RockVaultHall',
+  'RockVaultHallLarge',
+  'RockVaultHallLong',
+  'RockVaultHallGrand',
+  'RockVaultHallVast',
+  'RockVaultStairs',
+  'RockVaultWall',
+  // Der Torbogen des Fels-Kits — kein Raum, sondern sein Tuertyp.
+  'RockVaultArch',
 ];
 
 /**

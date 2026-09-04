@@ -11,6 +11,15 @@
  * bleibt: die Platte liegt im Streifen 0,7 … 1,0 der Nachbarzelle, also
  * exakt in deren eingebauter Wand (make-stonevault.py, `innenwand`).
  *
+ * STAND 04.09.2026 (Meilenstein G1): Diese Messgrössen sind nach
+ * `tools/messe-stonevault-logik.ts` (Teil 2) übernommen und dort um die
+ * Kantentafel erweitert. Diese Datei bleibt als UNABHÄNGIGER Zeuge
+ * stehen — sie rechnet dieselben Zahlen auf einem anderen Weg (Modultyp
+ * statt Kantenzustand) und deckt damit auf, wenn sich die Erklärung im
+ * grossen Skript von der Geometrie wegbewegt. Weichen beide Läufe
+ * voneinander ab, ist eine der beiden falsch; wer sie ändert, prüft die
+ * andere mit.
+ *
  * Aufruf: npx tsx tools/angriff-stonevault.ts
  */
 import { generateDungeonLayout } from '../shared/src/dungeonGenerator.js';

@@ -55,6 +55,16 @@ const KERN = [
   // DG_Steingrab. Rein rechnerisch, Zehntelsekunden.
   // Sealing open cell edges with the kit's end caps — entrance stays open.
   ['shared', 'test/dungeon-kanten-schliessen.ts'],
+  // G1 (Modul-Generierung 2.0): Der AUSGANGSSTAND von DG_StoneVault,
+  // gemessen auf dem Zellgitter statt an den Connectors — 952
+  // Abschlussplatten stehen im Körper des Nachbarmoduls (531 gegen eine
+  // volle Wand, 414 gegen die Treppenflanke, 7 am Eingang). Der Test hält
+  // diese Zahlen fest, damit die Meilensteine G4…G7 gegen eine Zahl
+  // gemessen werden, die sich unterwegs nicht selbst verschiebt. Er ist
+  // grün, solange die MESSUNG stimmt; der Invariantenpfad ist `--streng`
+  // am Messskript und heute absichtlich rot. ~1 s.
+  // Freezes today's baseline so later milestones measure against a fixed number.
+  ['tools', 'test/messe-stonevault-metrik.ts'],
   // `flattenRooms`: Layout → Prefab-Instanzen für eine ANSICHT, mit dem
   // statischen Wächter, dass `dungeonKanten.ts` dafür NICHTS aus
   // `dungeonFlatten.ts`/`roomPieces.ts` (~5 MB) zieht — genau deshalb gibt

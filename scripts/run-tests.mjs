@@ -64,6 +64,16 @@ const KERN = [
   // Rein rechnerisch, Zehntelsekunden.
   // Every module explains itself; connectors are the witness against drift.
   ['shared', 'test/dungeon-rastermodul.ts'],
+  // G3 (Modul-Generierung 2.0): Die Abbildung Raster ↔ Welt. Zellmitten
+  // liegen auf (2i, 3,5e, 2j−1) — der z-Schluessel ist `round((z+1)/2)`, und
+  // diese halbe Zelle Unterschied faellt in keiner Zaehlung auf, weil alle
+  // Raeume gleich falsch laegen. Geprueft werden die Rundreise ueber 10 086
+  // Zellen auf 6 Ebenen (plus 10 000 verrauschte), die Eingangszelle auf
+  // pos (0,0,−1) mit 180°, und der Zeuge aus S6: jeder Connector jedes
+  // Moduls landet unter jeder Gierung auf seiner Kantenmitte (1e-4).
+  // Rein rechnerisch, Zehntelsekunden.
+  // Grid ↔ world mapping: round-trip keys, entrance pose, connectors on edges.
+  ['shared', 'test/dungeon-rasterwelt.ts'],
   // G1 (Modul-Generierung 2.0): Der AUSGANGSSTAND von DG_StoneVault,
   // gemessen auf dem Zellgitter statt an den Connectors — 952
   // Abschlussplatten stehen im Körper des Nachbarmoduls (531 gegen eine

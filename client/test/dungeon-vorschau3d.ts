@@ -5,10 +5,9 @@
  * `client/test/kollisionsnetz.ts` für den NullEngine-Weg über echte
  * Produktivklassen statt eines nachgebauten Modells).
  *
- * `DungeonVorschau3d.ts` EXISTIERT NOCH NICHT — diese Datei hält die
- * Signatur fest, die der Auftragskopf vorgibt, und ist bis zur Umsetzung
- * ROT (Import schlägt fehl). Sie ist trotzdem lauffähig geschrieben, damit
- * sie beim Anlegen der Klasse ohne weitere Änderung von ROT nach GRÜN geht.
+ * Die Klasse gibt es inzwischen; der Import-Zweig unten bleibt trotzdem
+ * stehen — er ist die Fehlermeldung für den Fall, dass jemand die Datei
+ * verschiebt.
  *
  * ── Angenommene Signatur (ANNAHME — hier entschieden, nicht in der Klasse) ──
  *
@@ -57,6 +56,10 @@
  *     Räumen entstehen 3 Instanzen an den richtigen Weltpositionen.
  *  3. Marker an ALLEN anbaubaren Kanten — Anzahl = `anbaubareKanten(...).length`.
  *  4. Auswahl-Hervorhebung wechselt bei `waehle(index)`.
+ *  5. Komfortstufen (04.09.2026): Ebenenfilter (Treppe gehört BEIDEN
+ *     Ebenen), Decken-Schnittebene und Fokus. Gemessen wird an dem, was
+ *     man sonst erst im Bild sähe — `isEnabled()` je Instanz,
+ *     `scene.clipPlane.d` und Ziel/Radius der Kamera.
  *
  * Lauf: npx tsx client/test/dungeon-vorschau3d.ts   (aus dem Repo-Wurzelverzeichnis)
  */
@@ -167,6 +170,15 @@ async function main(): Promise<void> {
       zeige(an: boolean): void;
       sichtbar: boolean;
       dispose(): void;
+      // ── Komfortstufen (Auftrag 04.09.2026) ────────────────────────────
+      /** Nur Räume dieser Ebene zeigen; `null` = alle. */
+      setzeEbene(y: number | null): void;
+      aktiveEbene: number | null;
+      /** Decke der Module zeigen (`false` = Blick von oben hinein). */
+      setzeDecke(an: boolean): void;
+      deckeAn: boolean;
+      /** Kamera auf den gewählten Raum — ohne Auswahl auf das Ganze. */
+      fokussiere(): void;
     };
   };
 
@@ -176,6 +188,22 @@ async function main(): Promise<void> {
   const neu = neuesDungeonDokument({ id: 'test-3d-vault', base: KIT, seed: 7 });
   if (!neu.ok) throw new Error(`Vorbedingung fehlgeschlagen: ${neu.grund}`);
   const doc = neu.doc;
+
+  // ── Zwei Ebenen von Hand stellen ───────────────────────────────────────
+  // Ein frisches Dokument hat genau den Eingangsraum, also EINE Ebene — und
+  // an einer Ebene ist ein Ebenenfilter nicht zu widerlegen. Die beiden
+  // Räume werden deshalb direkt ins Layout gesetzt (kein Generator, keine
+  // Rasterprüfung: geprüft wird hier das Ausblenden, nicht das Bauen).
+  // Die Treppe ist der interessante Fall — sie ist 7 m hoch und gehört
+  // damit BEIDEN Ebenen, während der Raum darüber nur auf 3,5 steht.
+  const KEINE_DREHUNG = { x: 0, y: 0, z: 0, w: 1 };
+  doc.layout.rooms.push(
+    { room: 'StoneVaultStairs', pos: { x: 20, y: 0, z: 0 }, rot: { ...KEINE_DREHUNG }, placeOrder: 1, seed: 1 },
+    { room: 'StoneVaultCell', pos: { x: 20, y: 3.5, z: 8 }, rot: { ...KEINE_DREHUNG }, placeOrder: 2, seed: 2 }
+  );
+  const IDX_EINGANG = 0;
+  const IDX_TREPPE = doc.layout.rooms.length - 2;
+  const IDX_OBEN = doc.layout.rooms.length - 1;
   pruefe(doc.layout.rooms.length >= 1, `Vorbedingung: Dokument hat Räume (${doc.layout.rooms.length})`);
   const kanten = anbaubareKanten(doc.layout, doc.base);
 
@@ -233,6 +261,91 @@ async function main(): Promise<void> {
   pruefe(vorschau.gewaehlterRaum === 0, `waehle(0) setzt gewaehlterRaum (ist: ${vorschau.gewaehlterRaum})`);
   vorschau.waehle(-1);
   pruefe(vorschau.gewaehlterRaum === -1, 'waehle(-1) hebt die Auswahl auf');
+
+  // ── Komfortstufe 2: Ebenenfilter ───────────────────────────────────────
+  // Gemessen wird an `isEnabled()`, nicht an der Existenz: Der Filter darf
+  // nichts wegwerfen, sonst kostet jeder Ebenenwechsel einen Neubau.
+  const anAufEbene = (idx: number): number =>
+    raumInstanzen.filter(
+      (m) => (m.metadata as { roomIndex?: number }).roomIndex === idx && m.isEnabled()
+    ).length;
+  const markenAuf = (y: number): number =>
+    marken.filter((m) => Math.abs(m.position.y - y) < 0.05 && m.isEnabled()).length;
+
+  vorschau.setzeEbene(null);
+  pruefe(
+    anAufEbene(IDX_EINGANG) > 0 && anAufEbene(IDX_OBEN) > 0,
+    'ohne Filter sind Räume beider Ebenen sichtbar'
+  );
+
+  vorschau.setzeEbene(0);
+  pruefe(vorschau.aktiveEbene === 0, `setzeEbene(0) merkt sich die Ebene (ist: ${vorschau.aktiveEbene})`);
+  pruefe(anAufEbene(IDX_EINGANG) > 0, 'Ebene 0: der Eingangsraum bleibt sichtbar');
+  pruefe(anAufEbene(IDX_OBEN) === 0, 'Ebene 0: der Raum auf y = 3,5 ist ausgeblendet');
+  pruefe(anAufEbene(IDX_TREPPE) > 0, 'Ebene 0: die Treppe (7 m hoch) bleibt sichtbar');
+  pruefe(markenAuf(3.5) === 0, 'Ebene 0: Marken auf y = 3,5 sind ausgeblendet');
+
+  vorschau.setzeEbene(3.5);
+  pruefe(anAufEbene(IDX_OBEN) > 0, 'Ebene 3,5: der obere Raum ist sichtbar');
+  pruefe(anAufEbene(IDX_EINGANG) === 0, 'Ebene 3,5: der Eingangsraum ist ausgeblendet');
+  pruefe(
+    anAufEbene(IDX_TREPPE) > 0,
+    'Ebene 3,5: die Treppe gehört BEIDEN angrenzenden Ebenen und bleibt sichtbar'
+  );
+  pruefe(markenAuf(3.5) > 0, 'Ebene 3,5: die Marke des oberen Treppenausgangs steht');
+
+  vorschau.setzeEbene(null);
+  pruefe(anAufEbene(IDX_EINGANG) > 0 && anAufEbene(IDX_OBEN) > 0, 'Filter zurück auf „alle Ebenen"');
+
+  // ── Komfortstufe 1: Decke ausblenden ───────────────────────────────────
+  // Die Module sind EIN verschmolzenes Netz je Prefab (Boden, Wände und
+  // Decke in einem) — es gibt kein Decken-Mesh zum Abschalten. Geschnitten
+  // wird deshalb mit `scene.clipPlane` knapp unter der Deckenunterkante.
+  pruefe(scene.clipPlane !== null, 'Vorgabe: Decke AUS, also steht eine Schnittebene');
+  vorschau.setzeDecke(true);
+  pruefe(vorschau.deckeAn && scene.clipPlane === null, 'setzeDecke(true) nimmt die Schnittebene weg');
+  vorschau.setzeDecke(false);
+  pruefe(!vorschau.deckeAn && scene.clipPlane !== null, 'setzeDecke(false) setzt sie wieder');
+  // Die Schnitthöhe folgt der Ebene: unten knapp unter deren Decke (3,4),
+  // oben eine Ebene höher (6,9).
+  const schnitt = (): number => -(scene.clipPlane?.d ?? 0);
+  vorschau.setzeEbene(0);
+  const hoeheAuf0 = schnitt();
+  vorschau.setzeEbene(3.5);
+  const hoeheAuf35 = schnitt();
+  pruefe(
+    Math.abs(hoeheAuf0 - 3.4) < 0.001 && Math.abs(hoeheAuf35 - 6.9) < 0.001,
+    `die Schnitthöhe folgt der gewählten Ebene (Ebene 0 → ${hoeheAuf0}, Ebene 3,5 → ${hoeheAuf35})`
+  );
+  // Ohne Filter zählt die AUSWAHL, ohne Auswahl der Eingang: Eine waagerechte
+  // Fläche öffnet nur EIN Stockwerk, und ein Schnitt über der obersten Decke
+  // liesse von aussen einen geschlossenen Klotz stehen.
+  vorschau.setzeEbene(null);
+  vorschau.waehle(-1);
+  pruefe(Math.abs(schnitt() - 3.4) < 0.001, `ohne Filter und Auswahl zählt der Eingang (${schnitt()})`);
+  vorschau.waehle(IDX_OBEN);
+  pruefe(Math.abs(schnitt() - 6.9) < 0.001, `ohne Filter folgt der Schnitt dem gewählten Raum (${schnitt()})`);
+  vorschau.waehle(-1);
+
+  // ── Komfortstufe 3: Fokus ──────────────────────────────────────────────
+  const kamera = scene.getCameraByName('vorschau3dKamera');
+  pruefe(kamera !== null, 'die Vorschau hält eine ArcRotate-Kamera in der Szene');
+  const arc = kamera as unknown as { target: { x: number; y: number; z: number }; radius: number };
+  vorschau.waehle(IDX_OBEN);
+  vorschau.fokussiere();
+  const obenPos = doc.layout.rooms[IDX_OBEN]!.pos;
+  pruefe(
+    Math.abs(arc.target.x - obenPos.x) < 0.01 && Math.abs(arc.target.z - obenPos.z) < 0.01,
+    `Fokus richtet das Ziel auf die Raummitte (${arc.target.x}/${arc.target.z} statt ${obenPos.x}/${obenPos.z})`
+  );
+  const radiusRaum = arc.radius;
+  pruefe(radiusRaum > 0 && radiusRaum < 40, `Fokus zieht die Kamera nah heran (radius ${radiusRaum})`);
+  vorschau.waehle(-1);
+  vorschau.fokussiere();
+  pruefe(
+    arc.radius > radiusRaum,
+    `ohne Auswahl passt Fokus das ganze Dungeon ein (radius ${arc.radius} > ${radiusRaum})`
+  );
 
   vorschau.zeige(false);
   pruefe(!vorschau.sichtbar, 'zeige(false) macht die Vorschau unsichtbar');

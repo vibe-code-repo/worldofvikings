@@ -51,6 +51,7 @@ import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
+import { Plane } from '@babylonjs/core/Maths/math.plane';
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
@@ -68,6 +69,7 @@ import {
   DUNGEONS_BY_NAME,
   ambientLichtVon,
   anbaubareKanten,
+  ebenenMasse,
   flattenRooms,
   getKitByPrefabHash,
   getRoomByHash,
@@ -78,7 +80,7 @@ import {
 import { AssetManager, type PrefabMaster } from '../engine/AssetManager';
 import { erzeugeSteinKitMaterial, mergeSteinKit } from '../engine/DungeonSteinMaterial';
 import { installiereFackelLicht } from '../engine/FackelLicht';
-import { rasterVonBasis, zeichenHuelle } from './DungeonGrundriss';
+import { ebeneVon, rasterVonBasis, zeichenHuelle } from './DungeonGrundriss';
 import { VorschauSteuerung, type VorschauTreiber, type Zeitgeber } from './dungeon2/vorschauSteuerung';
 
 /** Grundhelligkeit des Hemisphärenlichts (wie in `Dungeon2Vorschau.ts`). */
@@ -86,6 +88,27 @@ const GRUNDHELLIGKEIT = 0.55;
 
 /** Radius der Kantenmarken in Metern — dieselbe Grössenordnung wie in 2D. */
 const MARKE_RADIUS_M = 0.35;
+
+/**
+ * Wie weit UNTER der Deckenunterkante geschnitten wird, wenn die Decke aus
+ * ist.
+ *
+ * Nicht exakt auf die Unterkante: Boden- und Deckenplatte sind 0,25 m dick
+ * und die Wände stecken absichtlich in ihnen (`make-stonevault.py`, −0,25 …
+ * 3,75). Ein Schnitt genau auf 3,5 liesse die Wandköpfe als Zahnkranz
+ * stehen und träfe ausserdem die deckungsgleiche Fläche selbst — 10 cm
+ * darunter schneidet sauber durch die Wand.
+ */
+const DECKEN_LUFT_M = 0.1;
+
+/**
+ * Toleranz beim Vergleich einer Ebene mit einer Höhe.
+ *
+ * Dieselbe Grössenordnung wie `ebeneVon` (0,1 m Raster) rundet: Positionen
+ * kommen aus Quaternion-Rechnungen, und ein `===` auf 3,5 wäre eine Wette
+ * auf das letzte Bit.
+ */
+const EBENEN_TOLERANZ_M = 0.05;
 
 export interface DungeonVorschau3dRueckrufe {
   /** Statuszeile der Shell. */
@@ -107,6 +130,23 @@ export interface DungeonVorschau3dRueckrufe {
 interface MasterGruppe {
   meshes: Mesh[];
   locals: Matrix[];
+}
+
+/**
+ * Ein gebautes Netz mit der HÖHENSPANNE, die es einnimmt — das Futter des
+ * Ebenenfilters.
+ *
+ * `hoehe = 0` heisst „punktuell": Marken, Türen und Deko gehören genau der
+ * Ebene, auf der sie stehen. Ein Raum dagegen spannt von `von` bis
+ * `von + hoehe`, und genau daran hängt der einzige interessante Fall —
+ * `StoneVaultStairs` ist 7 m hoch und gehört damit BEIDEN angrenzenden
+ * Ebenen. Ein Filter nach `ebeneVon(pos.y)` allein liesse die Treppe von
+ * der oberen Ebene verschwinden, also von der, auf der man weiterbaut.
+ */
+interface EbenenTeil {
+  mesh: AbstractMesh;
+  von: number;
+  hoehe: number;
 }
 
 export class DungeonVorschau3d {
@@ -143,6 +183,12 @@ export class DungeonVorschau3d {
   private readonly steinMaterialien = new Map<string, Material>();
   /** Alles, was der letzte Bau in die Szene gestellt hat. */
   private gebaut: AbstractMesh[] = [];
+  /** Dasselbe, nur mit Höhenspanne — s. `EbenenTeil`. */
+  private ebenenBuch: EbenenTeil[] = [];
+  /** Nur Räume dieser Ebene zeigen; `null` = alle. Quelle: der Grundriss. */
+  private ebene: number | null = null;
+  /** Decke zeigen? Vorgabe AUS — im Editor blickt man von oben hinein. */
+  private decke = false;
   /** Zählt Bauten, damit ein spät zurückkehrender Ladevorgang nichts nachträgt. */
   private bauGeneration = 0;
 
@@ -154,6 +200,7 @@ export class DungeonVorschau3d {
   private readonly aufResize: () => void;
   private readonly frame: () => void;
   private readonly aufKlick: (e: MouseEvent) => void;
+  private readonly aufDoppelklick: (e: MouseEvent) => void;
 
   constructor(
     viewport: HTMLElement,
@@ -179,6 +226,14 @@ export class DungeonVorschau3d {
 
     this.aufKlick = (e: MouseEvent): void => this.klickBei(e.offsetX, e.offsetY);
     c.addEventListener('click', this.aufKlick);
+    // Doppelklick = auswählen UND hinfahren. Die Auswahl macht schon der
+    // einfache Klick davor (jeder Doppelklick sendet erst zwei `click`) —
+    // hier bleibt nur die Kamera.
+    this.aufDoppelklick = (e: MouseEvent): void => {
+      this.klickBei(e.offsetX, e.offsetY);
+      if (this.gewaehlt >= 0) this.fokussiere();
+    };
+    c.addEventListener('dblclick', this.aufDoppelklick);
 
     // Der Treiber verdrahtet die pure Steuerung (`dungeon2/vorschauSteuerung.ts`,
     // dort ohne WebGL geprüft) mit dieser Babylon-Hälfte. Sie ist auf
@@ -218,10 +273,45 @@ export class DungeonVorschau3d {
     const anzahl = this.doc?.layout.rooms.length ?? 0;
     this.gewaehlt = index >= 0 && index < anzahl ? index : -1;
     this.zeichneAuswahl();
+    // Der Schnitt folgt der Auswahl, solange kein Ebenenfilter steht
+    // (s. `schnittEbene`): Wer ein Modul im Obergeschoss anklickt, will
+    // dort hineinsehen und nicht in den Eingangsraum.
+    this.setzeSchnittebene();
   }
 
   get gewaehlterRaum(): number {
     return this.gewaehlt;
+  }
+
+  /**
+   * Ebenenfilter — dieselbe Zahl, die `DungeonGrundriss.setzeEbene` bekommt.
+   *
+   * Die Vorschau HÄLT diesen Zustand nicht, sie bekommt ihn gereicht: Die
+   * eine Quelle ist das Auswahlfeld der Seitenleiste, das auf den Grundriss
+   * zeigt. Zwei Filter, die man einzeln stellen kann, wären genau die Sorte
+   * Doppelzustand, bei der man in 2D die obere Ebene sieht und in 3D die
+   * untere und beides für richtig hält.
+   *
+   * Ausgeblendet, NICHT abgebaut: Ein Ebenenwechsel darf keinen Neubau
+   * kosten, sonst blinkt bei jedem Klick der ganze Dungeon.
+   */
+  setzeEbene(y: number | null): void {
+    this.ebene = y;
+    this.wendeEbeneAn();
+  }
+
+  get aktiveEbene(): number | null {
+    return this.ebene;
+  }
+
+  /** Decke der Module zeigen (`false` = Blick von oben hinein). */
+  setzeDecke(an: boolean): void {
+    this.decke = an;
+    this.setzeSchnittebene();
+  }
+
+  get deckeAn(): boolean {
+    return this.decke;
   }
 
   zeige(an: boolean): void {
@@ -238,6 +328,7 @@ export class DungeonVorschau3d {
     this.steuerung.dispose();
     window.removeEventListener('resize', this.aufResize);
     this.canvas.removeEventListener('click', this.aufKlick);
+    this.canvas.removeEventListener('dblclick', this.aufDoppelklick);
   }
 
   // ── Babylon-Hälfte, von der Steuerung getrieben ────────────────────────
@@ -309,6 +400,11 @@ export class DungeonVorschau3d {
     // Fackellicht VOR dem ersten Bau installieren: Das Plugin hängt sich an
     // jedes künftige Material — später gäbe es eine sichtbare Neuübersetzung.
     if (this.eigeneSzene) installiereFackelLicht(scene);
+
+    // Der Deckenschalter kann VOR der ersten Sichtbarkeit gestellt worden
+    // sein (der Aufrufer zieht seinen Zustand beim Anlegen nach) — dann gäbe
+    // es die Szene noch nicht, an die die Schnittebene gehört.
+    this.setzeSchnittebene();
   }
 
   /**
@@ -343,7 +439,9 @@ export class DungeonVorschau3d {
 
     for (const m of this.gebaut) m.dispose();
     this.gebaut = [];
+    this.ebenenBuch = [];
     this.kanten = doc ? anbaubareKanten(doc.layout, doc.base) : [];
+    this.setzeSchnittebene();
 
     if (doc === null) {
       this.cb.meldung?.('Kein Dungeon geladen — links einen auswählen.');
@@ -364,18 +462,28 @@ export class DungeonVorschau3d {
         this.stelleAuf(raum.prefabName, raum.pos, raum.rot, generation, {
           steinKit: this.steinKitFuer(doc, raum.prefabHash, raum.steinKit),
           metadata: { roomIndex: raum.roomIndex },
+          // Die Höhe der Raumdefinition, nicht die der Zeichenhülle: Der
+          // Ebenenfilter fragt, über welche Stockwerke ein Modul REICHT.
+          spanne: { von: raum.pos.y, hoehe: getRoomByHash(raum.prefabHash)?.size.y ?? 0 },
         })
       );
     }
     // Türen und Deko: dieselbe Kette, nur ohne Rückweg zur Auswahl — man
     // baut sie nicht an, man bekommt sie mit dem Raum.
     for (const teil of [...flach.doors, ...flach.props]) {
-      auftraege.push(this.stelleAuf(teil.prefabName, teil.pos, teil.rot, generation, {}));
+      auftraege.push(
+        this.stelleAuf(teil.prefabName, teil.pos, teil.rot, generation, {
+          spanne: { von: teil.pos.y, hoehe: 0 },
+        })
+      );
     }
 
     void Promise.all(auftraege).then(() => {
       if (generation !== this.bauGeneration) return; // veraltet
       this.rahmeEin();
+      // Erst jetzt: Vorher gibt es nichts zum Ausblenden — die Instanzen
+      // trudeln mit ihren Mastern ein.
+      this.wendeEbeneAn();
       this.cb.meldung?.(
         `${flach.rooms.length} Module · ${flach.doors.length} Türen · ` +
           `${this.kanten.length} anbaubare Kanten`
@@ -423,7 +531,11 @@ export class DungeonVorschau3d {
     pos: { x: number; y: number; z: number },
     rot: { x: number; y: number; z: number; w: number },
     generation: number,
-    opt: { steinKit?: SteinKitConfig | null; metadata?: Record<string, unknown> }
+    opt: {
+      steinKit?: SteinKitConfig | null;
+      metadata?: Record<string, unknown>;
+      spanne?: { von: number; hoehe: number };
+    }
   ): Promise<void> {
     const gruppe = await this.holeGruppe(prefabName, opt.steinKit ?? null);
     if (generation !== this.bauGeneration || this.scene === null) return;
@@ -449,6 +561,12 @@ export class DungeonVorschau3d {
       instanz.isPickable = opt.metadata !== undefined;
       if (opt.metadata) instanz.metadata = opt.metadata;
       this.gebaut.push(instanz);
+      if (opt.spanne) {
+        this.ebenenBuch.push({ mesh: instanz, von: opt.spanne.von, hoehe: opt.spanne.hoehe });
+        // Sofort auf den geltenden Filter setzen: Eine Instanz, die spät
+        // eintrudelt, stünde sonst bis zum nächsten Filterwechsel im Bild.
+        instanz.setEnabled(this.passtAufEbene(opt.spanne.von, opt.spanne.hoehe));
+      }
     });
   }
 
@@ -538,7 +656,111 @@ export class DungeonVorschau3d {
       kugel.metadata = { kanteIndex: idx };
       kugel.isPickable = true;
       this.gebaut.push(kugel);
+      // Nach IHRER Höhe, nicht nach der ihres Raums — dieselbe Begründung
+      // wie bei `DungeonGrundriss.connectorAufEbene`: Der obere Ausgang der
+      // Treppe ist ein Arbeitspunkt auf der oberen Ebene, obwohl sein Raum
+      // unten steht.
+      this.ebenenBuch.push({ mesh: kugel, von: k.pos.y, hoehe: 0 });
+      kugel.setEnabled(this.passtAufEbene(k.pos.y, 0));
     });
+  }
+
+  /**
+   * Gehört ein Ding mit dieser Höhenspanne auf die gewählte Ebene?
+   *
+   * `hoehe = 0` ist der punktuelle Fall (Marke, Tür, Deko), sonst gilt das
+   * halboffene Intervall [von, von+hoehe): Eine 3,5 m hohe Zelle auf y = 0
+   * gehört zu Ebene 0 und nicht zu 3,5, die 7 m hohe Treppe zu beiden.
+   */
+  private passtAufEbene(von: number, hoehe: number): boolean {
+    const e = this.ebene;
+    if (e === null) return true;
+    if (hoehe <= 0) return Math.abs(e - ebeneVon(von)) < EBENEN_TOLERANZ_M;
+    return e > von - EBENEN_TOLERANZ_M && e < von + hoehe - EBENEN_TOLERANZ_M;
+  }
+
+  /** Den Ebenenfilter auf alles Gebaute anwenden. */
+  private wendeEbeneAn(): void {
+    for (const t of this.ebenenBuch) t.mesh.setEnabled(this.passtAufEbene(t.von, t.hoehe));
+    // Die Schnitthöhe hängt an der Ebene mit: Auf 3,5 muss die Decke von
+    // 3,5 fallen, nicht die von 0.
+    this.setzeSchnittebene();
+  }
+
+  /**
+   * Die Decke wegschneiden — per `scene.clipPlane`, nicht per Mesh.
+   *
+   * ── Warum kein Decken-Mesh abgeschaltet wird ─────────────────────────
+   * Es gibt keins. Die Kit-GLBs sind EIN verschmolzenes Netz je Modul
+   * (Boden + Wände + Decke aus einem `bmesh`, s. `make-stonevault.py`), und
+   * `DungeonSteinMaterial.ts` trennt Wand/Decke/Boden erst im Shader über
+   * die Weltnormale — genau weil es keine getrennten Submeshes gibt. Ein
+   * Kamera-Clip (`camera.maxZ`) wiederum schneidet nach ABSTAND, nicht nach
+   * Höhe: Aus der Schrägsicht risse er die hinteren Module mit auf.
+   *
+   * Geschnitten wird deshalb waagerecht knapp unter der Deckenunterkante
+   * der gerade GEZEIGTEN Ebene — s. `schnittEbene`. EINE Ebene, weil eine
+   * Ebene ist, was eine Ebene ist: Ein Dungeon mit drei Stockwerken lässt
+   * sich mit einer waagerechten Fläche nicht überall gleichzeitig öffnen,
+   * und der Versuch (Schnitt über der obersten Decke) endet in genau dem
+   * Bild, das man vermeiden wollte — von aussen ein geschlossener Klotz.
+   */
+  private setzeSchnittebene(): void {
+    const scene = this.scene;
+    if (scene === null) return;
+    if (this.decke || this.doc === null) {
+      scene.clipPlane = null;
+      return;
+    }
+    const sprung = ebenenMasse(rasterVonBasis(this.doc.base)).ebene;
+    const hoehe = this.schnittEbene() + sprung - DECKEN_LUFT_M;
+    // Babylon verwirft, wo `n·p + d > 0` ist — mit n = (0,1,0) und
+    // d = −hoehe fällt also alles ÜBER `hoehe`.
+    scene.clipPlane = new Plane(0, 1, 0, -hoehe);
+  }
+
+  /**
+   * Die Ebene, deren Decke fällt.
+   *
+   * Der Ebenenfilter gewinnt — er ist die ausdrückliche Ansage. Ohne ihn
+   * zählt der GEWÄHLTE Raum: Man arbeitet an einem Modul und will in dessen
+   * Stockwerk sehen, nicht in irgendeines. Ohne Auswahl bleibt der erste
+   * Raum, und das ist der Eingang — der Boden, auf dem jedes Grab anfängt.
+   */
+  private schnittEbene(): number {
+    if (this.ebene !== null) return this.ebene;
+    const rooms = this.doc?.layout.rooms ?? [];
+    const raum = (this.gewaehlt >= 0 ? rooms[this.gewaehlt] : undefined) ?? rooms[0];
+    return raum ? ebeneVon(raum.pos.y) : 0;
+  }
+
+  /**
+   * Kamera auf den gewählten Raum — ohne Auswahl auf das ganze Dungeon.
+   *
+   * Direkt statt animiert: Ein Fokus, der eine Sekunde fliegt, ist im
+   * Editor ein Warteschritt, kein Komfort — und ein halb gelandeter Flug
+   * wäre der einzige Zustand, in dem `radius` etwas anderes sagt als das
+   * Bild zeigt.
+   */
+  fokussiere(): void {
+    const kamera = this.kamera;
+    const doc = this.doc;
+    if (kamera === null) return;
+    const platziert = doc && this.gewaehlt >= 0 ? doc.layout.rooms[this.gewaehlt] : undefined;
+    if (!platziert || !doc) {
+      this.rahmeEin(true);
+      return;
+    }
+    const def = DUNGEONS_BY_NAME.get(doc.base)?.rooms.find((r) => r.name === platziert.room);
+    // Dieselbe Hülle wie beim Auswahlkasten — der Fokus zielt genau auf
+    // das, was der Kasten umschliesst.
+    const huelle = def
+      ? zeichenHuelle(def, rasterVonBasis(doc.base))
+      : { x: 2, y: 2, z: 2 };
+    kamera.setTarget(
+      new Vector3(platziert.pos.x, platziert.pos.y + huelle.y / 2, platziert.pos.z)
+    );
+    kamera.radius = Math.max(6, Math.max(huelle.x, huelle.z) * 2.4);
   }
 
   /**
@@ -557,6 +779,7 @@ export class DungeonVorschau3d {
     const alt = this.gebaut.find((m) => m.name === 'vorschau3dAuswahl');
     if (alt) {
       this.gebaut = this.gebaut.filter((m) => m !== alt);
+      this.ebenenBuch = this.ebenenBuch.filter((t) => t.mesh !== alt);
       alt.dispose();
     }
     if (scene === null || doc === null || this.gewaehlt < 0) return;
@@ -587,6 +810,10 @@ export class DungeonVorschau3d {
     kasten.material = this.auswahlMaterial;
     kasten.isPickable = false;
     this.gebaut.push(kasten);
+    // Der Kasten folgt dem Ebenenfilter wie sein Raum: Eine Markierung um
+    // ein ausgeblendetes Modul zeigt auf nichts.
+    this.ebenenBuch.push({ mesh: kasten, von: platziert.pos.y, hoehe: huelle.y });
+    kasten.setEnabled(this.passtAufEbene(platziert.pos.y, huelle.y));
   }
 
   /**
@@ -624,10 +851,12 @@ export class DungeonVorschau3d {
    * Anfügen wäre unbrauchbar: Man baut in kleinen Schritten und will dabei
    * hinsehen, wo man gerade ist.
    */
-  private rahmeEin(): void {
+  private rahmeEin(erzwingen = false): void {
     const doc = this.doc;
     if (this.kamera === null || doc === null) return;
-    if (this.eingerahmtFuer === doc.id) return;
+    // `erzwingen` ist der Weg des Fokus-Knopfes ohne Auswahl: Dort will man
+    // ausdrücklich zurück auf das Ganze, auch beim selben Dokument.
+    if (!erzwingen && this.eingerahmtFuer === doc.id) return;
     this.eingerahmtFuer = doc.id;
     let minX = Infinity;
     let maxX = -Infinity;
@@ -652,6 +881,9 @@ export class DungeonVorschau3d {
 
   /** Alles endgültig abräumen — kein Leak, keine laufende Schleife danach. */
   private abbauenIntern(): void {
+    // Die Schnittebene ist ein Zustand der SZENE — bei einer fremden Szene
+    // (Testhaken) bliebe sie sonst stehen und schnitte dem Aufrufer ins Bild.
+    if (this.scene !== null) this.scene.clipPlane = null;
     if (this.eigeneSzene) {
       this.engine?.stopRenderLoop(this.frame);
       this.assets = null;
@@ -665,6 +897,7 @@ export class DungeonVorschau3d {
       this.licht?.dispose();
     }
     this.gebaut = [];
+    this.ebenenBuch = [];
     this.gruppen.clear();
     this.steinMaterialien.clear();
     this.scene = null;

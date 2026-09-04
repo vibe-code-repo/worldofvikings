@@ -236,6 +236,14 @@ export interface GrundrissRueckrufe {
    * zu treffen, und der Klick fiel auf den Raum darunter durch.
    */
   connectorAngeklickt?(idx: number): void;
+  /**
+   * Der Ebenenfilter wurde gestellt — die 3D-Ansicht zieht nach.
+   *
+   * Bewusst NICHT über `auswahlGeaendert`: Der baut die ganze Seitenleiste
+   * neu, und damit stünde das Auswahlfeld, das den Filter gerade gestellt
+   * hat, wieder auf „alle Ebenen" — der Zustand stimmte, die Anzeige nicht.
+   */
+  ansichtGeaendert?(): void;
 }
 
 export class DungeonGrundriss {
@@ -340,9 +348,23 @@ export class DungeonGrundriss {
     return [...s].sort((a, b) => a - b);
   }
 
+  /**
+   * Der Ebenenfilter — die EINE Quelle für beide Ansichten.
+   *
+   * Der Grundriss hält ihn, weil sein Auswahlfeld ihn stellt; die
+   * 3D-Ansicht bekommt ihn über `ansichtGeaendert` gereicht. Ein zweiter
+   * Filter dort wäre der Fall, in dem man in 2D das Obergeschoss sieht und
+   * in 3D das Erdgeschoss — und beides für richtig hält.
+   */
   setzeEbene(y: number | null): void {
     this.ebene = y;
     this.zeichne();
+    this.cb.ansichtGeaendert?.();
+  }
+
+  /** Die gewählte Ebene; `null` = alle. */
+  get aktiveEbene(): number | null {
+    return this.ebene;
   }
 
   /** Ein Dokument übernehmen und einpassen. */

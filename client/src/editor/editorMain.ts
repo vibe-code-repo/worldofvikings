@@ -475,6 +475,10 @@ const dungeonGrundriss = new DungeonGrundriss(flaeche, {
   // Klick auf eine Kantenmarke (2D wie 3D): die Seitenleiste waehlt genau
   // diese Kante im Feld „Anfuegen an" — angefuegt wird weiterhin dort.
   connectorAngeklickt: (idx) => dungeonSeite.waehleKante(idx),
+  // Der Ebenenfilter der Seitenleiste gilt fuer BEIDE Ansichten. Eigener
+  // Rueckruf und nicht `auswahlGeaendert`: Der baut die Leiste neu und
+  // stellte damit das Auswahlfeld selbst auf „alle Ebenen" zurueck.
+  ansichtGeaendert: () => zieheDungeon3dNach(),
 });
 
 /** Seitenleiste dieser Betriebsart — s. `DungeonKatalog.ts`. */
@@ -496,6 +500,15 @@ const dungeonAnsichtSektion = shell.sektion('Ansicht');
 const dungeonAnsichtBlock = dungeonAnsichtSektion.parentElement;
 let dungeonVorschau3d: DungeonVorschau3d | null = null;
 let dungeonAnsicht: '2d' | '3d' = '2d';
+/**
+ * Decke der Module zeigen? Vorgabe AUS.
+ *
+ * Der Zustand steht HIER und nicht im Haekchen: `baueDungeonAnsichtSchalter`
+ * wirft die Reihe bei jedem Umschalten weg — ein Wert, der nur im Element
+ * steht, waere danach wieder auf der Vorgabe (dieselbe Lehre wie bei den
+ * Schaltern in `DungeonKatalog.ts`).
+ */
+let dungeonDecke = false;
 
 /**
  * Die 3D-Ansicht auf den Stand des Grundrisses bringen.
@@ -509,6 +522,10 @@ function zieheDungeon3dNach(): void {
   if (dungeonVorschau3d === null) return;
   dungeonVorschau3d.setzeDokument(dungeonGrundriss.dokument);
   dungeonVorschau3d.waehle(dungeonGrundriss.gewaehlterRaum);
+  // Ebene aus dem GRUNDRISS, Decke von hier: Der Ebenenfilter gehoert
+  // beiden Ansichten (ein Auswahlfeld), die Decke gibt es nur in 3D.
+  dungeonVorschau3d.setzeEbene(dungeonGrundriss.aktiveEbene);
+  dungeonVorschau3d.setzeDecke(dungeonDecke);
 }
 
 const setzeDungeonAnsicht = async (a: '2d' | '3d'): Promise<void> => {
@@ -543,6 +560,28 @@ function baueDungeonAnsichtSchalter(): void {
     })
   );
   dungeonAnsichtSektion.replaceChildren(reihe);
+  // Decke und Fokus betreffen NUR die 3D-Ansicht — im Grundriss waeren es
+  // zwei Bedienelemente ohne Wirkung.
+  if (dungeonAnsicht !== '3d') return;
+
+  const deckeFeld = el('label', stil({ display: 'flex', gap: '6px', 'align-items': 'center', 'font-size': '12px', color: F.gedimmt2, cursor: 'pointer' }));
+  const kasten = document.createElement('input');
+  kasten.type = 'checkbox';
+  kasten.checked = dungeonDecke;
+  kasten.onchange = () => {
+    dungeonDecke = kasten.checked;
+    dungeonVorschau3d?.setzeDecke(dungeonDecke);
+  };
+  deckeFeld.append(kasten, el('span', '', 'Decke zeigen'));
+
+  const zweite = el('div', stil({ display: 'flex', gap: '8px', 'align-items': 'center', 'margin-top': '6px' }));
+  zweite.append(
+    deckeFeld,
+    // Ohne Auswahl passt „Fokus" das ganze Dungeon ein — derselbe Knopf,
+    // damit man nicht raten muss, welcher gerade gilt.
+    knopf('Fokus', () => dungeonVorschau3d?.fokussiere(), { art: 'flaeche' })
+  );
+  dungeonAnsichtSektion.append(zweite);
 }
 baueDungeonAnsichtSchalter();
 

@@ -153,6 +153,18 @@ const KERN = [
   // ~2 s.
   // The same G1 metrics measured against the new grid path.
   ['tools', 'test/raster-generator-g4.ts'],
+  // G10 (Modul-Generierung 2.0): der BEGEHUNGSPLAN fuer die Spielprobe.
+  // Prueft rein rechnerisch, dass die Route aus `tools/raster-begehungsplan.ts`
+  // wirklich eine Begehung ist: jeder Schritt eine echte Zellkante, jede
+  // Zelle versorgt, JEDE Graphkante in beide Richtungen gequert (sonst
+  // blieben die Schleifenkanten aus G5 ungeprueft), kein Wegpunkt im
+  // Luftraum einer Treppe, jede Treppe hoch UND herunter, und dieselbe
+  // Saat dieselbe Route. Der Lauf im Spiel selbst laeuft NICHT hier mit
+  // (er braucht play.dev und Minuten) — dieser Test ist seine
+  // Voraussetzung: Ein roter Lauf soll das Grab beschuldigen, nicht den
+  // Weg. ~4 s.
+  // G10: the walking tour for the in-game probe, checked arithmetically.
+  ['tools', 'test/raster-begehung.ts'],
   // `flattenRooms`: Layout → Prefab-Instanzen für eine ANSICHT, mit dem
   // statischen Wächter, dass `dungeonKanten.ts` dafür NICHTS aus
   // `dungeonFlatten.ts`/`roomPieces.ts` (~5 MB) zieht — genau deshalb gibt

@@ -141,6 +141,21 @@ function schalter(text: string, an: boolean, bei: (an: boolean) => void): HTMLLa
 }
 
 /** Kleingedruckter Hinweis unter einem Abschnitt. */
+/**
+ * Die Kantenlänge des grössten Raums eines Kits in Metern (0, wenn das Kit
+ * unbekannt ist).
+ *
+ * Gefragt wird das Kit selbst und nicht eine getippte Zahl: Der Hinweis am
+ * Zonenfeld soll mit dem nächsten Saal mitwachsen, statt still zu veralten.
+ */
+function groessterSaalM(base: string): number {
+  const def = DUNGEONS_BY_NAME.get(base);
+  if (!def) return 0;
+  let groesste = 0;
+  for (const r of def.rooms) groesste = Math.max(groesste, r.size.x, r.size.z);
+  return groesste;
+}
+
 function hinweis(text: string): HTMLDivElement {
   const d = document.createElement('div');
   d.textContent = text;
@@ -693,7 +708,20 @@ export class DungeonSeite {
               `(Vorgabe ${DEFAULT_GRID_TUNING.loopFraction}). „Torbögen" ist der Anteil der ` +
               `Übergänge mit Rahmen (Vorgabe ${DEFAULT_GRID_TUNING.archwayFraction}); zwischen ` +
               'zwei Gangzellen entsteht nie einer. „Zellen" ist bei diesem Kit die Zahl der ' +
-              'Rasterzellen, nicht der Wachstumsversuche.'
+              'Rasterzellen, nicht der Wachstumsversuche.' +
+              // Die Zonengrenze ist am Rasterkit eine Zellregel: Ein Saal
+              // muss mit seiner VOLLEN Fläche in den Würfel passen. Seit
+              // die grossen Säle da sind (12 x 12 m), ist das keine
+              // Formalie mehr — bei einer von Hand klein gestellten Zone
+              // verschwinden sie stillschweigend, und niemand käme darauf,
+              // dass die Zahl im Nachbarfeld daran schuld ist. Das grösste
+              // Modul wird am Kit ABGEFRAGT statt getippt: Ein neuer Saal
+              // soll den Hinweis mitziehen, nicht überholen.
+              (groessterSaalM(this.neuBasis) > 0
+                ? ` „Zone" ist die Kantenlänge des Würfels, in den das ganze Grab passen ` +
+                  `muss — und ein Saal nur ganz: Der grösste des Kits misst ` +
+                  `${groessterSaalM(this.neuBasis)} m. Unter dieser Zahl kommt er nie vor.`
+                : '')
           )
         );
       }

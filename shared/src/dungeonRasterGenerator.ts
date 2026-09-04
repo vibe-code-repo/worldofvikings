@@ -834,6 +834,48 @@ interface GrowthResult {
 interface StampOption {
   readonly def: RoomDef;
   readonly module: GridModule;
+  /**
+   * `RoomDef.weight`, UNGERUNDET.
+   *
+   * S5 rundet das Gewicht auf ganze Zahlen ({@link cellModuleOptions}),
+   * weil es dort über `rangeInt` zieht. Für Stempel geht das nicht: Der
+   * einzige Regler, mit dem ein neuer Saal seltener sein kann als ein
+   * bestehender, wäre damit unbenutzbar — 0,5 und 1 wären dieselbe Zahl.
+   * Hier wird deshalb über einen Gleitkomma-Wurf gezogen, wie es der
+   * 1.0-Pfad seit jeher tut (`getWeightedRoom`).
+   *
+   * Nichtpositive Gewichte fallen auf 1 zurück statt zu verschwinden: Ein
+   * Kit, das versehentlich `weight: 0` schreibt, soll seinen Saal noch
+   * sehen und nicht rätseln, warum er nie erscheint.
+   */
+  readonly weight: number;
+}
+
+/**
+ * Wählt einen Stempel GEWICHTET aus dem Kit.
+ *
+ * Bis zum 04.09.2026 war das eine Zeile: gleichverteilt über die Liste.
+ * Mit zwei weiteren Sälen wäre daraus ein Fehler geworden, den keine
+ * Prüfung meldet — die drei bestehenden Hallen wären allein durch das
+ * DAZUKOMMEN der beiden großen von je einem Drittel auf je ein Fünftel
+ * gefallen. Eine Kit-Erweiterung darf bestehende Räume nicht verdrängen;
+ * ob ein Saal selten ist, gehört ins Kit (`weight`), nicht in die Länge
+ * einer Liste.
+ *
+ * Der Wurf kommt wie bisher aus {@link cellRoll} — also aus der ZELLE und
+ * nicht aus einem Strom. Damit verschiebt eine spätere Phase die Wahl
+ * nicht, und die Reihenfolge der Liste entscheidet nur bei exakt
+ * gleichem Gewicht (dann deterministisch der erste passende Eintrag).
+ */
+function pickStampOption(options: readonly StampOption[], roll: number): StampOption {
+  let total = 0;
+  for (const o of options) total += o.weight;
+  let target = roll * total;
+  for (const o of options) {
+    target -= o.weight;
+    if (target < 0) return o;
+  }
+  return options[options.length - 1]!;
 }
 
 /**
@@ -853,6 +895,10 @@ interface StampOption {
  *    müsste seine Gierung schon beim Wachsen aus der Nachbarschaft
  *    ableiten — ein eigener Meilenstein, kein Zusatz hier.
  */
+function stampWeight(room: RoomDef): number {
+  return room.weight > 0 ? room.weight : 1;
+}
+
 function stampModuleOptions(def: DungeonDef): StampOption[] {
   const out: StampOption[] = [];
   for (const room of def.rooms) {
@@ -863,7 +909,7 @@ function stampModuleOptions(def: DungeonDef): StampOption[] {
       HORIZONTAL_DIRECTIONS.every((d) => c.interior[d] || c.edges[d] === 'open')
     );
     if (!openSkin) continue;
-    out.push({ def: room, module });
+    out.push({ def: room, module, weight: stampWeight(room) });
   }
   return out;
 }
@@ -901,7 +947,7 @@ function stairModuleOptions(def: DungeonDef): StampOption[] {
       DIRECTIONS.some((d) => !isHorizontal(d) && c.interior[d] && c.edges[d] === 'open')
     );
     if (!climbs) continue;
-    out.push({ def: room, module });
+    out.push({ def: room, module, weight: stampWeight(room) });
   }
   return out;
 }
@@ -1128,13 +1174,7 @@ function growCells(
     if (stampOptions.length === 0 || !(hallFraction > 0)) return null;
     const child = neighbourCell(parent.cell, toChild);
     if (cellRoll(child, seed, SALT_STAMP) >= hallFraction) return null;
-    const option =
-      stampOptions[
-        Math.min(
-          stampOptions.length - 1,
-          Math.floor(cellRoll(child, seed, SALT_STAMP_PICK) * stampOptions.length)
-        )
-      ]!;
+    const option = pickStampOption(stampOptions, cellRoll(child, seed, SALT_STAMP_PICK));
     // Über das Ziel hinaus wird nicht gestempelt: `maxRooms` bedeutet im
     // Rasterpfad ZELLZAHL, und vier auf einmal reissen die Bilanz sonst
     // um bis zu drei Zellen auf.

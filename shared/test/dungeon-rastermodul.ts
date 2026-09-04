@@ -101,6 +101,12 @@ console.log('\n1) Fussabdruck, Ebenen, Anker');
     // tauschen seine beiden Masse die Achse.
     StoneVaultHallLarge: [3, 3, 1],
     StoneVaultHallLong: [2, 4, 1],
+    // Und die beiden grossen Saele (04.09.2026), aus derselben Vorlage:
+    // 8 x 8 m und 12 x 12 m. Der Vast ist mit 36 Zellen der groesste
+    // Fussabdruck des Kits — er passt nur in eine Zone, die ihn ganz
+    // aufnimmt (`cellInsideZone`).
+    StoneVaultHallGrand: [4, 4, 1],
+    StoneVaultHallVast: [6, 6, 1],
     // Drei Zellen Lauf auf ZWEI Ebenen: die obere Ebene ist Luftraum,
     // gehört aber zum Modul (Konzept S3) — sonst wächst ein zweiter Ast
     // in die Treppenspitze hinein.
@@ -136,7 +142,8 @@ console.log('\n1) Fussabdruck, Ebenen, Anker');
     `StoneVaultEntry: Anker zeigt nach ${entry.anchor?.direction}, erwartet s`
   );
   for (const name of ['StoneVaultCell', 'StoneVaultCorridor', 'StoneVaultHall',
-    'StoneVaultHallLarge', 'StoneVaultHallLong', 'StoneVaultStairs']) {
+    'StoneVaultHallLarge', 'StoneVaultHallLong', 'StoneVaultHallGrand',
+    'StoneVaultHallVast', 'StoneVaultStairs']) {
     check(moduleOf(name).anchor === null, `${name}: darf keinen Anker haben`);
   }
 }
@@ -304,12 +311,13 @@ console.log('\n4) Eingebaute Wände: Korridor, Ecke, Abzweig');
     }
   }
   /*
-    Die Säle ebenso — und zwar ALLE drei Zuschnitte, mit der erwarteten
+    Die Säle ebenso — und zwar ALLE Zuschnitte, mit der erwarteten
     Zahl Aussenkanten aus dem Fussabdruck gerechnet statt getippt:
     2·(N+M). Wer die Acht der 2×2-Halle stehen liesse, prüfte beim
     nächsten Zuschnitt eine Zahl, die nichts mehr mit ihm zu tun hat.
   */
-  for (const name of ['StoneVaultHall', 'StoneVaultHallLarge', 'StoneVaultHallLong']) {
+  for (const name of ['StoneVaultHall', 'StoneVaultHallLarge', 'StoneVaultHallLong',
+    'StoneVaultHallGrand', 'StoneVaultHallVast']) {
     const hall = moduleOf(name);
     let hallEdges = 0;
     for (const cell of hall.cells) {

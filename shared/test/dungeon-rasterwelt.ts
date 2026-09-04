@@ -98,6 +98,8 @@ const CELL_MODULES = [
   'StoneVaultHall',
   'StoneVaultHallLarge',
   'StoneVaultHallLong',
+  'StoneVaultHallGrand',
+  'StoneVaultHallVast',
   'StoneVaultStairs',
 ] as const;
 

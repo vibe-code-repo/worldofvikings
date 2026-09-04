@@ -1660,6 +1660,472 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
       },
       {
         /*
+          Der Prunksaal — 4 × 4 Zellen, 8 × 8 m. Dieselbe Vorlage
+          (`hall_module(4, 4, …, raster=4)`), und damit der erste Saal des
+          Kits, dessen Spannweite die Pfeilerregel NICHT mehr einfach
+          fortschreibt.
+
+          ── Warum genau EIN Pfeiler ──────────────────────────────────
+          Bis 6 m stand auf jeder inneren Zellecke einer, also alle 2 m.
+          Bei 8 m wären das neun Pfeiler auf 64 m² — ein Wald, und der
+          Saal ist gerade dafür da, dass es einmal weit ist. Das Modell
+          rastert die Pfeilerreihen deshalb ab hier alle 4 m statt alle
+          2 m (`pillar_positions(…, raster)`): freie Spannweite höchstens
+          4 m, dasselbe Maß, ab dem überhaupt ein Pfeiler nötig wird.
+          8 m ergeben damit eine einzige Reihe je Achse — einen Pfeiler
+          in der Mitte auf (0, 0). Er steht auf einer Zellecke, die
+          Durchgänge liegen auf den Zellkanten-MITTEN (x, z = ±1, ±3),
+          also in keinem Weg.
+
+          ── Sechzehn Connectors ──────────────────────────────────────
+          Je vier auf jeder Seite, auf den Zellmitten der Randzellen
+          (±1, ±3). Der Grund, warum keiner in der Seitenmitte liegt,
+          steht bei `StoneVaultHall`.
+
+          ── Warum `weight` 0,5 ist ───────────────────────────────────
+          Der Rastergenerator zieht Säle seit dem 04.09.2026 GEWICHTET
+          (`stampModuleOptions`/`pickStampOption`). Ohne das hätten fünf
+          Säle je ein Fünftel Anteil, und die drei kleinen wären allein
+          durch das Dazukommen der beiden großen um ein Drittel seltener
+          geworden — eine Kit-Erweiterung, die bestehende Räume
+          verdrängt. 0,5 heißt: halb so oft wie eine der drei kleinen
+          Hallen. Der 1.0-Pfad rechnet mit Gleitkomma
+          (`getWeightedRoom`), Brüche sind dort also erlaubt; S5 sieht
+          Säle nie (`cellModuleOptions` nimmt nur einzellige Module).
+
+          Netz: 2088 Ecken / 1566 Flächen. Kein `_col`-Netz — das
+          sichtbare Netz IST die Havok-Form, der Pfeiler kollidiert im
+          selben bmesh von selbst.
+        */
+        name: 'StoneVaultHallGrand',
+        divider: false,
+        endCap: false,
+        endCapPrio: 0,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 8, y: 3.5, z: 8 },
+        theme: THEMA_KRYPTA,
+        weight: 0.5,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            // Nord (+z), Zellmitte x = -3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -3, y: 0, z: 4 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Nord (+z), Zellmitte x = -1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -1, y: 0, z: 4 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Nord (+z), Zellmitte x = 1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 1, y: 0, z: 4 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Nord (+z), Zellmitte x = 3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 3, y: 0, z: 4 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Süd (−z), Zellmitte x = -3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -3, y: 0, z: -4 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            // Süd (−z), Zellmitte x = -1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -1, y: 0, z: -4 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            // Süd (−z), Zellmitte x = 1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 1, y: 0, z: -4 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            // Süd (−z), Zellmitte x = 3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 3, y: 0, z: -4 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            // Ost (+x), Zellmitte z = -3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 4, y: 0, z: -3 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            // Ost (+x), Zellmitte z = -1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 4, y: 0, z: -1 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            // Ost (+x), Zellmitte z = 1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 4, y: 0, z: 1 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            // Ost (+x), Zellmitte z = 3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 4, y: 0, z: 3 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            // West (−x), Zellmitte z = -3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -4, y: 0, z: -3 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
+          },
+          {
+            // West (−x), Zellmitte z = -1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -4, y: 0, z: -1 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
+          },
+          {
+            // West (−x), Zellmitte z = 1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -4, y: 0, z: 1 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
+          },
+          {
+            // West (−x), Zellmitte z = 3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -4, y: 0, z: 3 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
+          },
+        ],
+      },
+      {
+        /*
+          Der größte Saal des Kits — 6 × 6 Zellen, 12 × 12 m, vier
+          Pfeiler auf (±2, ±2). Auch er ist eine Zeile an der Vorlage
+          (`hall_module(6, 6, …, raster=4)`): 12 m ergeben mit dem 4-m-
+          Raster zwei Pfeilerreihen je Achse und damit drei freie
+          Spannweiten von je 4 m.
+
+          ── Was an 12 × 12 m neu ist ─────────────────────────────────
+          Die Zone. Ein Saal muss mit seiner VOLLEN Fläche in den
+          Zonenwürfel passen (`cellInsideZone`, eigene Regel auf Zellen —
+          nicht `isInsideZone`). Bei der Standard-Zonengröße 48 ist der
+          Würfel 48 m breit, 12 m passen also mühelos; bei einer von Hand
+          auf 16 gestellten Zone passt er nur noch, wenn er den Würfel
+          fast ausfüllt, und bei 12 gar nicht mehr. Das ist kein Fehler,
+          sondern die Zonenregel — der Editor weist im Formular „Zone“
+          darauf hin.
+
+          ── Warum `weight` 0,25 ist ──────────────────────────────────
+          Er belegt 36 Zellen. Bei `maxRooms` = 60 ist das mehr als die
+          Hälfte des ganzen Grabes, und der Stempelversuch bricht ohnehin
+          ab, sobald `cells.size + 36 > target` — er kann also nur ganz
+          früh im Wachstum überhaupt zustande kommen. 0,25 (ein Viertel
+          einer kleinen Halle) hält ihn zusätzlich selten: Er soll der
+          Fund eines Grabes sein, nicht sein Grundriss.
+
+          Vierundzwanzig Connectors, je sechs auf jeder Seite, auf den
+          Zellmitten der Randzellen (±1, ±3, ±5).
+
+          Netz: 4720 Ecken / 3540 Flächen — das größte Einzelnetz des
+          Kits, und zugleich seine Havok-Form (kein `_col`-Netz). Die
+          Zahl steckt fast ganz im Bodenmuster (24 × 24 Steinplatten à
+          6 Flächen); Boden, Decke und die vier Pfeiler machen zusammen
+          84 davon aus.
+        */
+        name: 'StoneVaultHallVast',
+        divider: false,
+        endCap: false,
+        endCapPrio: 0,
+        entrance: false,
+        faceCenter: false,
+        minPlaceOrder: 0,
+        perimeter: false,
+        size: { x: 12, y: 3.5, z: 12 },
+        theme: THEMA_KRYPTA,
+        weight: 0.25,
+        pos: NULL_PUNKT,
+        rot: KEINE_DREHUNG,
+        connections: [
+          {
+            // Nord (+z), Zellmitte x = -5.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -5, y: 0, z: 6 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Nord (+z), Zellmitte x = -3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -3, y: 0, z: 6 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Nord (+z), Zellmitte x = -1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -1, y: 0, z: 6 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Nord (+z), Zellmitte x = 1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 1, y: 0, z: 6 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Nord (+z), Zellmitte x = 3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 3, y: 0, z: 6 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Nord (+z), Zellmitte x = 5.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 5, y: 0, z: 6 },
+            localRot: KEINE_DREHUNG,
+          },
+          {
+            // Süd (−z), Zellmitte x = -5.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -5, y: 0, z: -6 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            // Süd (−z), Zellmitte x = -3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -3, y: 0, z: -6 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            // Süd (−z), Zellmitte x = -1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -1, y: 0, z: -6 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            // Süd (−z), Zellmitte x = 1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 1, y: 0, z: -6 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            // Süd (−z), Zellmitte x = 3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 3, y: 0, z: -6 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            // Süd (−z), Zellmitte x = 5.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 5, y: 0, z: -6 },
+            localRot: HALBE_DREHUNG,
+          },
+          {
+            // Ost (+x), Zellmitte z = -5.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 6, y: 0, z: -5 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            // Ost (+x), Zellmitte z = -3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 6, y: 0, z: -3 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            // Ost (+x), Zellmitte z = -1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 6, y: 0, z: -1 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            // Ost (+x), Zellmitte z = 1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 6, y: 0, z: 1 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            // Ost (+x), Zellmitte z = 3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 6, y: 0, z: 3 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            // Ost (+x), Zellmitte z = 5.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: 6, y: 0, z: 5 },
+            localRot: VIERTEL_DREHUNG,
+          },
+          {
+            // West (−x), Zellmitte z = -5.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -6, y: 0, z: -5 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
+          },
+          {
+            // West (−x), Zellmitte z = -3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -6, y: 0, z: -3 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
+          },
+          {
+            // West (−x), Zellmitte z = -1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -6, y: 0, z: -1 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
+          },
+          {
+            // West (−x), Zellmitte z = 1.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -6, y: 0, z: 1 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
+          },
+          {
+            // West (−x), Zellmitte z = 3.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -6, y: 0, z: 3 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
+          },
+          {
+            // West (−x), Zellmitte z = 5.
+            type: TYP_ZELLKANTE,
+            entrance: false,
+            allowDoor: true,
+            doorOnlyIfOtherAlsoAllowsDoor: false,
+            localPos: { x: -6, y: 0, z: 5 },
+            localRot: VIERTEL_DREHUNG_ZURUECK,
+          },
+        ],
+      },
+      {
+        /*
           Die Treppe — das erste Modul dieses Kits, das zwei Ebenen
           verbindet. Sie steigt über drei Zellen Lauf (z = −3 … +3) um
           genau eine Zellhöhe: Süd-Ende auf y = 0, Nord-Ende auf y = 3,5.

@@ -110,15 +110,35 @@ const a = summiereRaster(alt);
 
   A third move: the grid path now seals the entrance port too, adding
   exactly one plate per seed (1067 → 1107). Every zero stayed zero.
+
+  ── Und ein viertes Mal am 04.09.2026 (noch grössere Säle) ───────────
+  Zwei weitere Räume (`StoneVaultHallGrand` 4×4, `StoneVaultHallVast`
+  6×6) und, im Rasterpfad, ein GEWICHTETER Stempelwurf statt eines
+  gleichverteilten (`pickStampOption`). Beides bewegt dieselbe Zahl aus
+  demselben Grund wie beim zweiten Mal: Block A zieht aus zwölf statt
+  aus zehn Räumen (4653 → 5453 Platten), Block B wählt seine Säle nach
+  Kit-Gewicht statt nach Listenlänge. Werte davor: A 4653 / 1155
+  (718 + 417 + 20) / 1028, B 1107 / 128.
+
+  Bemerkenswert ist, wie WENIG sich in Block B bewegt: EINE Platte
+  (1107 → 1108) und die gestapelten Zellen (128 → 116, weniger Treppen,
+  weil ein Saal öfter den Platz bekommt). Jede Null-Aussage ist Null
+  geblieben — keine Platte in einer belegten Zelle, keine
+  Doppelbelegung, keine unerklärte Nachbarschaft, und das bei zwei
+  Sälen, von denen der grössere 36 Zellen auf einmal belegt.
+
+  A fourth move: two more hall sizes and a weighted stamp draw. Block A
+  now draws from twelve rooms; Block B moved by a single plate. Every
+  zero stayed zero.
 */
 console.log(`=== Block A — 1.0-Pfad, DG_StoneVault, ${SEED_ANZAHL_VORGABE} Seeds, Kit-Vorgaben ===`);
-pruefe('Wandplatten gesamt', a.plattenGesamt, 4653);
-pruefe('Platten in belegter Zelle', a.platteInBelegterZelle, 1155);
-pruefe('… gegen volle Wand (überflüssig)', a.plattenUeberfluessig, 718);
-pruefe('… gegen Teilwand (Treppe, nötig)', a.plattenNoetig, 417);
-pruefe('… im Eingangsraum (Altausnahme)', a.plattenEingang, 20);
+pruefe('Wandplatten gesamt', a.plattenGesamt, 5453);
+pruefe('Platten in belegter Zelle', a.platteInBelegterZelle, 1147);
+pruefe('… gegen volle Wand (überflüssig)', a.plattenUeberfluessig, 688);
+pruefe('… gegen Teilwand (Treppe, nötig)', a.plattenNoetig, 441);
+pruefe('… im Eingangsraum (Altausnahme)', a.plattenEingang, 18);
 pruefe('Doppelbelegungen', a.doppelbelegungen, 0);
-pruefe('gestapelte Zellen', a.gestapelteZellen, 1028);
+pruefe('gestapelte Zellen', a.gestapelteZellen, 1084);
 
 // ── Block B: der Verteiler — das, was heute wirklich gebaut wird ─────
 const einzel = [];
@@ -128,7 +148,7 @@ for (let seed = 1; seed <= SEED_ANZAHL_VORGABE; seed++) {
 const g = summiereRaster(einzel);
 
 console.log(`\n=== Block B — Verteiler (Rasterpfad seit G8), ${SEED_ANZAHL_VORGABE} Seeds ===`);
-pruefe('Wandplatten gesamt', g.plattenGesamt, 1107);
+pruefe('Wandplatten gesamt', g.plattenGesamt, 1108);
 pruefe('Platten in belegter Zelle', g.platteInBelegterZelle, 0);
 pruefe('… gegen volle Wand (überflüssig)', g.plattenUeberfluessig, 0);
 // 0 und nicht 414: Die Treppe kehrt ihre Keilflanke nur dort nach
@@ -138,7 +158,7 @@ pruefe('… gegen volle Wand (überflüssig)', g.plattenUeberfluessig, 0);
 pruefe('… gegen Teilwand (Treppe, nötig)', g.plattenNoetig, 0);
 pruefe('… im Eingangsraum (Altausnahme)', g.plattenEingang, 0);
 pruefe('Doppelbelegungen', g.doppelbelegungen, 0);
-pruefe('gestapelte Zellen', g.gestapelteZellen, 128);
+pruefe('gestapelte Zellen', g.gestapelteZellen, 116);
 
 const driftOk = g.maxZellDrift < 1e-4 && a.maxZellDrift < 1e-4;
 if (!driftOk) fehler++;

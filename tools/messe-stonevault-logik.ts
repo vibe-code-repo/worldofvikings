@@ -255,13 +255,15 @@ const MODUL_ERKLAERUNG: Record<string, ModulErklaerung> = {
   StoneVaultCorner: einzelzelle(['n', 'w']),
   // Nur die Ostwand eingebaut (G11, s. oben).
   StoneVaultJunction: einzelzelle(['n', 'w', 's']),
-  // Die drei Säle aus derselben Vorlage: 2×2 (acht Ports), 3×3 (zwölf)
-  // und 2×4 (zwölf). Fehlte einer, läse `kantenzustand` dort mangels
-  // Erklärung überall „Wand" und zählte jede Saalkante als unerklärte
-  // Nachbarschaft.
+  // Die fünf Säle aus derselben Vorlage: 2×2 (acht Ports), 3×3 (zwölf),
+  // 2×4 (zwölf), 4×4 (sechzehn) und 6×6 (vierundzwanzig). Fehlte einer,
+  // läse `kantenzustand` dort mangels Erklärung überall „Wand" und
+  // zählte jede Saalkante als unerklärte Nachbarschaft.
   StoneVaultHall: saal(2, 2),
   StoneVaultHallLarge: saal(3, 3),
   StoneVaultHallLong: saal(2, 4),
+  StoneVaultHallGrand: saal(4, 4),
+  StoneVaultHallVast: saal(6, 6),
   /*
     Die Treppe: 1 × 3 Zellen auf ZWEI Ebenen, genau zwei Ports (unten Süd
     auf Ebene 0, oben Nord auf Ebene 1). Alles andere ist `wandTeilweise`
@@ -706,7 +708,7 @@ function pointInRoomHull(p: Vector3, placed: PlacedRoom, room: RoomDef): boolean
 const ZELLARTIG = new Set([
   'StoneVaultEntry', 'StoneVaultCell', 'StoneVaultCorridor', 'StoneVaultCorner',
   'StoneVaultJunction', 'StoneVaultHall', 'StoneVaultHallLarge', 'StoneVaultHallLong',
-  'StoneVaultStairs',
+  'StoneVaultHallGrand', 'StoneVaultHallVast', 'StoneVaultStairs',
 ]);
 
 interface Befund {

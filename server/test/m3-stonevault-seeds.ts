@@ -34,8 +34,9 @@
  *     liegt im Schnitt bei mindestens 40 % — die Kette soll wie ein System
  *     aus Gaengen aussehen, nicht wie ein Zellenraster mit vereinzelten
  *     Gaengen darin.
- *  8. Die Halle (`StoneVaultHall`) steht in mindestens 10 von 40 Seeds
- *     (das seltenste Gewicht darf trotzdem nicht zum Ausreisser werden).
+ *  8. JEDER der fuenf Saele steht in mindestens so vielen Seeds, wie
+ *     `SAAL_GRENZEN` je Zuschnitt nennt (das seltenste Gewicht darf
+ *     trotzdem nicht zum Ausreisser werden).
  *  9. Genau EINE Platte je Layout steht auf der Eingangskante — s. den
  *     naechsten Abschnitt.
  *
@@ -279,6 +280,7 @@ function stehtNachbarDahinter(layout: DungeonLayout, roomIndex: number, connInde
 const ZELLVARIANTEN = [
   'StoneVaultCorridor', 'StoneVaultCorner', 'StoneVaultJunction',
   'StoneVaultHall', 'StoneVaultHallLarge', 'StoneVaultHallLong',
+  'StoneVaultHallGrand', 'StoneVaultHallVast',
 ] as const;
 /** Varianten, die den Eindruck eines Gangsystems tragen (s. Pruefung 7) — die Halle zaehlt hier nicht: sie ist ein Saal, kein Gang. */
 const GANGVARIANTEN = ['StoneVaultCorridor', 'StoneVaultCorner', 'StoneVaultJunction'] as const;
@@ -303,11 +305,30 @@ let seedsMitHalle = 0;
  * Dasselbe je Saalgroesse (Pruefung 8b, 04.09.2026). Die Grenzen sind
  * verschieden, und zwar aus einem messbaren Grund: Je groesser der
  * Fussabdruck, desto seltener findet die Wachstumsfront am Stueck Platz
- * dafuer. Gemessen ueber diese 40 Seeds: 2x2 in 16, 2x4 in 15, 3x3 in 9
- * Seeds. Eine gemeinsame Grenze von 10 waere fuer den grossen Saal ein
- * Fehlalarm und fuer die kleine Halle keine Aussage.
+ * dafuer.
+ *
+ * Seit dem 04.09.2026 stehen fuenf Saele in der Liste, und die beiden
+ * groessten haben zusaetzlich ein KLEINERES Kit-Gewicht (0,5 bzw. 0,25 —
+ * s. `pickStampOption` im Rastergenerator). Ihre Grenzen sind deshalb
+ * niedriger, und zwar mit Ansage: Der Vast belegt 36 der 60 Zellen, der
+ * Stempelversuch bricht ohnehin ab, sobald `cells.size + 36 > target` —
+ * er kann nur ganz frueh im Wachstum zustande kommen.
+ *
+ * Gemessen ueber diese 40 Seeds bei der Kit-Vorgabe (60 Zellen, Zone 48):
+ * 2x2 in 11, 3x3 in 13, 2x4 in 8, 4x4 in 6, 6x6 in 3 Seeds. Die Grenzen
+ * liegen darunter, aber nicht bei 0: Eine Grenze 0 waere keine Aussage,
+ * und genau ein Fund je Saal soll ein Ausfall sein, den dieser Test
+ * meldet.
  */
 const seedsMitSaal = new Map<string, number>();
+/** Saal -> Mindestzahl Seeds, in denen er vorkommen muss (Pruefung 8b). */
+const SAAL_GRENZEN = [
+  ['StoneVaultHall', 8],
+  ['StoneVaultHallLarge', 8],
+  ['StoneVaultHallLong', 5],
+  ['StoneVaultHallGrand', 4],
+  ['StoneVaultHallVast', 2],
+] as const;
 /** Anteil Gangvarianten an Nicht-Wand-Raeumen, je Seed (Pruefung 7). */
 const gangAnteilJeSeed: number[] = [];
 /** Anzahl `StoneVaultStairs` je Seed — Grundlage der Stairs-Anteil-Statistik (s. Befund vom 3.9.2026). */
@@ -352,7 +373,7 @@ for (const seed of SEEDS) {
   for (const p of layout1.rooms) namen.set(p.room, (namen.get(p.room) ?? 0) + 1);
   namensverteilungJeSeed.push(namen);
   if ((namen.get('StoneVaultHall') ?? 0) > 0) seedsMitHalle++;
-  for (const saal of ['StoneVaultHall', 'StoneVaultHallLarge', 'StoneVaultHallLong']) {
+  for (const saal of SAAL_GRENZEN.map(([name]) => name)) {
     if ((namen.get(saal) ?? 0) > 0) seedsMitSaal.set(saal, (seedsMitSaal.get(saal) ?? 0) + 1);
   }
   const treppenImSeed = namen.get('StoneVaultStairs') ?? 0;
@@ -395,9 +416,7 @@ check(
   `Schnitt ${(gangAnteilSchnitt * 100).toFixed(1)} %`
 );
 
-check(`StoneVaultHall in mindestens 10 von 40 Seeds gesetzt`, seedsMitHalle >= 10, `${seedsMitHalle} Seeds`);
-
-for (const [saal, grenze] of [['StoneVaultHallLarge', 5], ['StoneVaultHallLong', 8]] as const) {
+for (const [saal, grenze] of SAAL_GRENZEN) {
   const n = seedsMitSaal.get(saal) ?? 0;
   check(`${saal} in mindestens ${grenze} von 40 Seeds gesetzt`, n >= grenze, `${n} Seeds`);
 }
@@ -463,6 +482,8 @@ const KURZNAME: Record<string, string> = {
   StoneVaultHall: 'Hall',
   StoneVaultHallLarge: 'Hall3x3',
   StoneVaultHallLong: 'Hall2x4',
+  StoneVaultHallGrand: 'Hall4x4',
+  StoneVaultHallVast: 'Hall6x6',
   StoneVaultCorridor: 'Corridor',
   StoneVaultCell: 'Cell',
   StoneVaultEntry: 'Entry',

@@ -1191,6 +1191,15 @@ export const EIGENE_MODELLE: readonly string[] = [
   */
   'StoneVaultHallLarge',
   'StoneVaultHallLong',
+  /*
+    Und zwei noch groessere aus derselben Vorlage (04.09.2026):
+    4 x 4 Zellen (8 x 8 m) und 6 x 6 (12 x 12 m). Ab 8 m Spannweite steht
+    nicht mehr auf jeder inneren Zellecke ein Pfeiler, sondern alle 4 m
+    einer — sonst waere der grosse Saal ein Pfeilerwald. Auch sie tragen
+    kein `_col`-Netz.
+  */
+  'StoneVaultHallGrand',
+  'StoneVaultHallVast',
   // Treppe: zwei Zellen Lauf, eine Zellhoehe Sprung. Ihr oberer
   // Connector liegt auf y = 3,5 — die Hoehenausnahme in
   // `dungeonRaster.ts` (`ebenenMasse`) rechnet bei einem 2-m-Kit mit der

@@ -89,6 +89,25 @@ const KERN = [
   */
   ['tools/elements', 'pruefe-pfade.mjs'],
   /*
+    S4 (Elemente-Umzug): der README-Wächter, der dritte und letzte im Bunde
+    — und aus demselben Grund hier vorn: Er liest Text, sonst nichts.
+
+    Er hält das Verzeichnis der Werkbank in beide Richtungen fest: Jeder
+    Pfad, den `tools/README.md` oder `tools/elements/README.md` nennt,
+    existiert, UND jede Datei unter `tools/elements/` steht in einer der
+    beiden. Beide Richtungen sind nötig — ein README ohne tote Pfade kann
+    trotzdem den halben Ordner verschweigen, und ein vollständiges kann
+    trotzdem ins Leere zeigen.
+
+    Warum das ein Prüfer sein muss und keine Bitte: Ein README wird nie
+    ausgeführt. Ein verschobenes Skript hinterlässt einen toten Pfad, ein
+    neues eine Lücke — beides bricht nichts, beides fällt niemandem auf.
+    Sein erster Lauf fand neun tote Pfade und sechs unerwähnte Dateien.
+
+    S4: guards both README files — no dead path, no unlisted file.
+  */
+  ['tools/elements', 'pruefe-readme.mjs'],
+  /*
     S3 (Elemente-Umzug): der Zeuge gegen die Weichen selbst. Er steht VOR
     dem einzigen Test, der eine Weiche wirklich braucht, weil er dessen
     Voraussetzung prüft: dass `brauchtBlender` nur dann überspringt, wenn

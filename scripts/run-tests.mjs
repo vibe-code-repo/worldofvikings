@@ -83,6 +83,16 @@ const KERN = [
   // byte-gleich. Rein rechnerisch, Sekunden.
   // The grid core: cells, spanning tree, module choice, sealing table.
   ['shared', 'test/dungeon-rasterkern.ts'],
+  // G5 (Modul-Generierung 2.0): die beiden Regler aus Mikes Ergaenzung —
+  // `loopFraction` (Schleifen, Vorgabe 0,35) und `archwayFraction`
+  // (Torboegen, 0,25). Geprueft wird, dass der Schleifenanteil im Zielband
+  // liegt, dass jede Schleifenkante im Grab wirklich ein Durchgang ist,
+  // dass Torboegen nur auf Graphkanten und nie zwischen zwei Gangzellen
+  // stehen, dass der Tuersatz aus `hashPos` kommt und deshalb eine
+  // VERTAUSCHTE Zellreihenfolge nichts aendert — und dass die Doppelwaende
+  // gegenueber `loopFraction` 0 messbar sinken. Rein rechnerisch, Sekunden.
+  // The two G5 knobs: loops and archways, both drawn from the edge hash.
+  ['shared', 'test/dungeon-rasterschleifen.ts'],
   // G1 (Modul-Generierung 2.0): Der AUSGANGSSTAND von DG_StoneVault,
   // gemessen auf dem Zellgitter statt an den Connectors — 952
   // Abschlussplatten stehen im Körper des Nachbarmoduls (531 gegen eine

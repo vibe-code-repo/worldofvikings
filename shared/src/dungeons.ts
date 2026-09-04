@@ -600,8 +600,8 @@ export interface DungeonDocument {
  * Die im Dokument gespeicherten Generator-Stellschrauben.
  *
  * Absichtlich NICHT `Partial<DungeonGeneratorSettings>`: Von den vielen
- * Einstellungen des Generators sind nur diese beiden im Editor bedienbar
- * und geprüft. Ein offenes `Partial` hier hiesse, dass ein Dokument vom
+ * Einstellungen des Generators sind nur diese im Editor bedienbar und
+ * geprüft. Ein offenes `Partial` hier hiesse, dass ein Dokument vom
  * Client jeden Generator-Schalter umlegen dürfte — und für die meisten
  * gibt es weder ein Feld noch eine Grenze.
  */
@@ -610,6 +610,28 @@ export interface DokumentGeneratorEinstellungen {
   maxRooms?: number;
   /** Wachstumsraum in Metern, geklemmt auf [MIN_DUNGEON_ZONE, MAX_DUNGEON_ZONE]. */
   zoneSize?: number;
+  /**
+   * Anteil der Rasternachbarschaften ohne Baumkante, die zum Durchgang
+   * werden (Rasterpfad, additiv, 0…1). In der Konzeptnotiz heisst der
+   * Regler `schleifenAnteil`, im Formular „Schleifen"; der Bezeichner ist
+   * englisch wie alles Neue seit dem 27.08. — dieselbe Übersetzung, die
+   * `rasterKanten` zu `RoomDef.gridEdges` gemacht hat.
+   *
+   * Er ist Mikes Regler gegen „zu verwinkelt": Jede Nachbarschaft, die
+   * zur Kante wird, ist ein Durchgang STATT einer Doppelwand.
+   * Fraction of grid adjacencies without a tree edge that become passages.
+   */
+  loopFraction?: number;
+  /**
+   * Anteil der Verbindungen, die einen Torbogen bekommen (Rasterpfad,
+   * additiv, 0…1). Konzeptnotiz: `torbogenAnteil`, Formular „Torbögen".
+   *
+   * Zwischen zwei GANGzellen entsteht nie ein Bogen, an Raumübergängen
+   * bevorzugt — die Zahl ist die Wahrscheinlichkeit am Übergang, nicht
+   * über alle Kanten gemittelt.
+   * Fraction of graph edges that get an archway.
+   */
+  archwayFraction?: number;
 }
 
 /** Grenzen des Wachstumsraums für `generatorEinstellungen.zoneSize`. */
@@ -637,12 +659,28 @@ export function sanitizeGeneratorEinstellungen(
     typeof v === 'number' && Number.isFinite(v)
       ? Math.max(min, Math.min(max, Math.trunc(v)))
       : undefined;
+  // Die beiden Regler des Rasterpfads sind ANTEILE, keine Zählungen: Sie
+  // dürfen NICHT durch `Math.trunc` — das machte aus jedem Wert unter 1
+  // eine 0, und der Regler wäre lautlos ein Schalter.
+  const anteil = (v: unknown): number | undefined =>
+    typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : undefined;
   const maxRooms = ganzzahl(o.maxRooms, 1, MAX_DUNGEON_ROOMS);
   const zoneSize = ganzzahl(o.zoneSize, MIN_DUNGEON_ZONE, MAX_DUNGEON_ZONE);
-  if (maxRooms === undefined && zoneSize === undefined) return undefined;
+  const loopFraction = anteil(o.loopFraction);
+  const archwayFraction = anteil(o.archwayFraction);
+  if (
+    maxRooms === undefined &&
+    zoneSize === undefined &&
+    loopFraction === undefined &&
+    archwayFraction === undefined
+  ) {
+    return undefined;
+  }
   return {
     ...(maxRooms !== undefined ? { maxRooms } : {}),
     ...(zoneSize !== undefined ? { zoneSize } : {}),
+    ...(loopFraction !== undefined ? { loopFraction } : {}),
+    ...(archwayFraction !== undefined ? { archwayFraction } : {}),
   };
 }
 

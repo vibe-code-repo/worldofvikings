@@ -55,11 +55,17 @@ import {
   type EdgeState,
   type GridModule,
 } from './dungeonRasterModul.js';
-import { mische } from './dungeon2/hashing.js';
+import { hashPos, mische } from './dungeon2/hashing.js';
 import { XorShiftRandom } from './worldgen/Random.js';
 import { quatMul, quatMulVec3 } from './worldgen/Math3d.js';
 import { MAX_DUNGEON_ROOMS } from './dungeons.js';
-import type { DungeonDef, DungeonLayout, PlacedRoom, RoomDef } from './dungeons.js';
+import type {
+  DungeonDef,
+  DungeonLayout,
+  PlacedDoor,
+  PlacedRoom,
+  RoomDef,
+} from './dungeons.js';
 import type { Quaternion, Vector3 } from './types.js';
 
 /** Kantenlänge einer Rasterzelle in Metern. Dieselbe Zahl wie im Modulformat. */
@@ -413,6 +419,9 @@ export function assertConnectorsOnEdges(
  */
 const SALT_GROWTH = 0x67726f77; // 'grow'
 const SALT_MODULE = 0x6d6f6475; // 'modu'
+const SALT_LOOP = 0x6c6f6f70; // 'loop'
+const SALT_ARCHWAY = 0x61726368; // 'arch'
+const SALT_ARCHWAY_TYPE = 0x61727479; // 'arty'
 
 /** Die vier waagerechten Kanten — Boden und Decke wachsen in G4 nicht. */
 const HORIZONTAL_DIRECTIONS: readonly Direction[] = DIRECTIONS.filter(isHorizontal);
@@ -436,6 +445,62 @@ const GROWTH_INERTIA = 3;
  * immer leer bleibt: Dort geht es nach draussen.
  */
 export const ENTRANCE_PORT_DIRECTION: Direction = 'n';
+
+/**
+ * Die beiden Regler aus Mikes Ergänzung vom 04.09.2026 (G5).
+ *
+ * Sie stehen NICHT in `DungeonGeneratorSettings`: Dort wohnen die
+ * Schalter des 1.0-Pfads, und der liest diese beiden nie. Ein Feld, das
+ * nur ein Pfad kennt, gehört zu diesem Pfad — sonst steht im Formular
+ * bald ein Regler, der für 13 von 14 Kits nichts tut.
+ *
+ * Im Dokument heissen sie genauso (`DokumentGeneratorEinstellungen`), in
+ * der Konzeptnotiz `schleifenAnteil` und `torbogenAnteil`. Der Bezeichner
+ * ist englisch wie alles Neue seit dem 27.08. — dieselbe Übersetzung, die
+ * aus `rasterKanten` `RoomDef.gridEdges` gemacht hat.
+ * The two knobs from Mike's addendum: loops and archways.
+ */
+export interface GridTuning {
+  /**
+   * Anteil der Rasternachbarschaften ohne Baumkante, die zur Kante
+   * werden (0…1).
+   *
+   * Vorgabe 0,35 statt der 0,12 der ursprünglichen Konzeptnotiz. Der
+   * Grund steht in Mikes Ergänzung: Jede Nachbarschaft, die zur Kante
+   * wird, ist ein DURCHGANG statt einer Doppelwand — der Regler ist
+   * damit unmittelbar die Antwort auf „zu verwinkelt“.
+   */
+  readonly loopFraction: number;
+  /**
+   * Anteil der Verbindungen, die einen Torbogen bekommen (0…1).
+   *
+   * Die Zahl gilt am RAUMÜBERGANG (Gang → Zelle, Halleneingang); zwischen
+   * zwei Gangzellen entsteht nie ein Bogen, zwischen zwei Raumzellen nur
+   * halb so oft — zwei offene Zellen nebeneinander sind ein Raum, und ein
+   * Rahmen mitten darin ist genau die „viele Bögen“-Beobachtung.
+   */
+  readonly archwayFraction: number;
+}
+
+/** Vorgaben der beiden Regler (Konzeptnotiz, Mikes Ergänzung 04.09.2026). */
+export const DEFAULT_GRID_TUNING: GridTuning = {
+  loopFraction: 0.35,
+  archwayFraction: 0.25,
+};
+
+/**
+ * Wie oft ein Bogen zwischen zwei RAUMzellen entsteht, gemessen an
+ * {@link GridTuning.archwayFraction}.
+ *
+ * Nicht 1: Zwei offene Zellen nebeneinander lesen sich als ein Raum, und
+ * ein Rahmen mitten darin ist keine Schwelle, sondern die Zwischenwand,
+ * über die Mike sich beklagt hat. Nicht 0: Ein Bogen dort ist nicht
+ * falsch, nur seltener richtig.
+ */
+const ARCHWAY_ROOM_TO_ROOM = 0.5;
+
+/** Alles, was der Rasterpfad an Einstellungen liest. */
+export type GridSettings = DungeonGeneratorSettings & GridTuning;
 
 /** Steuerung des Rasterpfads. */
 export interface GridGeneratorOptions {
@@ -472,6 +537,27 @@ export interface GridSeal {
 }
 
 /**
+ * Eine Kante zwischen zwei Zellen, in KANONISCHER Form: die Zelle mit dem
+ * kleineren Schlüssel plus die Richtung zur anderen.
+ *
+ * Der ganze Grund für den Typ: `(A, n)` und `(B, s)` sind dieselbe Kante.
+ * Wer beide Schreibweisen nebeneinander stehen lässt, zieht dieselbe
+ * Kante zweimal und bekommt zwei verschiedene Antworten — die
+ * Determinismus-Falle der Konzeptnotiz, nur eine Ebene tiefer als die
+ * `Set`-Iteration.
+ */
+export interface GridEdge {
+  readonly cell: GridCell;
+  readonly direction: Direction;
+}
+
+/** Eine Graphkante mit Torbogen: dieselbe Kante plus das gewählte Türprefab. */
+export interface GridArchway extends GridEdge {
+  /** Prefabname aus `def.doorTypes`. */
+  readonly door: string;
+}
+
+/**
  * Der fertige Plan: was wo steht, bevor daraus Weltkoordinaten werden.
  *
  * Er ist die prüfbare Zwischenstufe. Ein Layout allein sagt nicht mehr,
@@ -483,6 +569,91 @@ export interface GridPlan {
   readonly cells: readonly GridPlanCell[];
   /** Kanonisch: in Zellreihenfolge, je Zelle in {@link DIRECTIONS}-Reihenfolge. */
   readonly seals: readonly GridSeal[];
+  /**
+   * S4 — die Kanten, die NICHT aus dem Spannbaum stammen.
+   *
+   * Sie stehen getrennt, obwohl sie in `cells[].edges` längst enthalten
+   * sind: „Wie viele Schleifen hat dieser Grundriss?“ ist die Abnahmezahl
+   * des Meilensteins, und sie aus Kantenzahl minus Zellzahl plus 1
+   * zurückzurechnen ginge nur, solange der Graph zusammenhängend ist.
+   */
+  readonly loops: readonly GridEdge[];
+  /** S8 — die Graphkanten mit Torbogen, kanonisch sortiert. */
+  readonly archways: readonly GridArchway[];
+}
+
+/**
+ * Kanonische Form einer Kante: die kleinere Zelle zuerst.
+ *
+ * Sie ist der Schlüssel, aus dem später gewürfelt wird — deshalb muss sie
+ * von der Seite unabhängig sein, von der aus man auf die Kante schaut.
+ */
+export function canonicalEdge(cell: GridCell, direction: Direction): GridEdge {
+  const other = neighbourCell(cell, direction);
+  return compareCells(cell, other) <= 0
+    ? { cell, direction }
+    : { cell: other, direction: OPPOSITE_DIRECTION[direction] };
+}
+
+/** Kanonische Ordnung von Kanten: erst die Zelle, dann {@link DIRECTIONS}. */
+export function compareEdges(a: GridEdge, b: GridEdge): number {
+  return (
+    compareCells(a.cell, b.cell) ||
+    DIRECTIONS.indexOf(a.direction) - DIRECTIONS.indexOf(b.direction)
+  );
+}
+
+/** Zeichenkette einer kanonischen Kante — für Mengen und Meldungen. */
+export function edgeKey(edge: GridEdge): string {
+  return `${cellKey(edge.cell)}#${edge.direction}`;
+}
+
+/**
+ * Der Wurf für eine Kante: eine Zahl in [0,1), abgeleitet aus dem
+ * kanonischen Kantenschlüssel — OHNE Zug aus einem Saatstrom (Konzept
+ * S1/S8, Vorbild `dungeon2/hashing.ts` W8).
+ *
+ * Das ist der Unterschied, um den es in diesem Meilenstein geht: Ein Zug
+ * aus dem Strom hinge an der Reihenfolge, in der die Kanten besucht
+ * werden. Eine zusätzliche Zelle, eine andere `Map`-Einfügung, und alle
+ * Türen dahinter verschieben sich. `hashPos` hängt nur an der Kante.
+ *
+ * Die Richtung reist in der Ebenenstelle mit (`level * 6 + Index`) —
+ * das ist eine Bijektion auf die ganzen Zahlen und braucht deshalb keine
+ * vierte Koordinate, die `hashPos` nicht hat.
+ */
+function edgeRoll(edge: GridEdge, seed: number, salt: number): number {
+  const index = DIRECTIONS.indexOf(edge.direction);
+  const mixed = edge.cell.level * DIRECTIONS.length + index;
+  return hashPos(edge.cell.i, edge.cell.j, mixed, mische(seed, salt)) / 0x1_0000_0000;
+}
+
+/**
+ * Wählt aus einer Kantenliste deterministisch aus — je Kante mit ihrer
+ * eigenen Wahrscheinlichkeit, unabhängig von der Reihenfolge der Eingabe.
+ *
+ * Die Ausgabe ist kanonisch sortiert und doppelte Schreibweisen derselben
+ * Kante sind zusammengefasst. Beides ist keine Kosmetik: Eine Liste, die
+ * in der Eingabereihenfolge zurückkäme, machte den ganzen Aufwand mit
+ * {@link edgeRoll} wieder zunichte, sobald jemand sie ausgibt.
+ */
+export function selectEdges(
+  edges: Iterable<GridEdge>,
+  seed: number,
+  salt: number,
+  chance: (edge: GridEdge) => number
+): GridEdge[] {
+  const seen = new Set<string>();
+  const chosen: GridEdge[] = [];
+  for (const raw of edges) {
+    const edge = canonicalEdge(raw.cell, raw.direction);
+    const key = edgeKey(edge);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const p = chance(edge);
+    if (p > 0 && edgeRoll(edge, seed, salt) < p) chosen.push(edge);
+  }
+  return chosen.sort(compareEdges);
 }
 
 /** Quaternion-Inverse (Einheitsquaternion) — wie im 1.0-Pfad. */
@@ -650,6 +821,57 @@ function growCells(
   return cells;
 }
 
+/**
+ * S4 — Schleifen: aus den übrigen Rasternachbarschaften wird ein Anteil
+ * zur Kante ergänzt.
+ *
+ * ── Warum das gefahrlos ist ──────────────────────────────────────────
+ * Eine zusätzliche Kante kann eine Zelle nur in einen HÖHEREN Öffnungsgrad
+ * heben, und für jeden Grad ab 2 hat das Kit genau ein Modul. Nur der
+ * Grad 1 braucht eine überzählige Öffnung (das Kit hat kein Modul mit
+ * einer), und die Pflichtkante dafür hat das Wachstum bereits freigehalten
+ * — eine Schleife nimmt sie nicht weg, sie macht sie überflüssig.
+ *
+ * ── Warum die Nachbarn des Eingangs nie in Frage kommen ──────────────
+ * Neben dem Eingang steht nichts, was nicht sein Kind ist: `mayGrow`
+ * lässt dort keine Zelle zu, weil `requiredFreeDirections` für den
+ * Eingang ALLE kantenlosen Seiten freihält (sein Modul hat vier
+ * Öffnungen). Der Fall braucht deshalb keinen Sonderzweig.
+ *
+ * Der Rückgabewert sind die ergänzten Kanten — die Abnahmezahl des
+ * Meilensteins, und der einzige Weg, sie später noch von den
+ * Spannbaumkanten zu unterscheiden.
+ */
+function addLoopEdges(
+  cells: Map<string, GrowthCell>,
+  seed: number,
+  fraction: number
+): GridEdge[] {
+  if (!(fraction > 0)) return [];
+  // Kanonisch sortiert statt in `Map`-Einfügereihenfolge. Für das
+  // ERGEBNIS ist das gleichgültig (jede Kante würfelt für sich), für die
+  // Beweisbarkeit nicht: Eine Kandidatenliste, deren Reihenfolge an der
+  // Einfügung hängt, wäre bei der nächsten Änderung wieder eine Falle.
+  const ordered = [...cells.values()].sort((a, b) => compareCells(a.cell, b.cell));
+  const candidates: GridEdge[] = [];
+  for (const c of ordered) {
+    for (const d of HORIZONTAL_DIRECTIONS) {
+      if (c.edges.has(d)) continue;
+      if (!cells.has(cellKey(neighbourCell(c.cell, d)))) continue;
+      candidates.push(canonicalEdge(c.cell, d));
+    }
+  }
+  const chosen = selectEdges(candidates, seed, SALT_LOOP, () => fraction);
+  for (const edge of chosen) {
+    const a = cells.get(cellKey(edge.cell));
+    const b = cells.get(cellKey(neighbourCell(edge.cell, edge.direction)));
+    if (!a || !b) throw new DungeonRasterError(`Schleifenkante ${edgeKey(edge)} hat keine zwei Zellen.`);
+    a.edges.add(edge.direction);
+    b.edges.add(OPPOSITE_DIRECTION[edge.direction]);
+  }
+  return chosen;
+}
+
 /** Bitmaske einer Kantenmenge — n/o/s/w in der Reihenfolge von {@link DIRECTIONS}. */
 function directionMask(dirs: Iterable<Direction>): number {
   let mask = 0;
@@ -796,19 +1018,140 @@ function worldEdgeStates(module: GridModule, yaw: Yaw): Record<Direction, EdgeSt
 }
 
 /**
- * S2…S7 — der ganze Plan: Zellmenge, Spannbaum, BFS-Ordnung, Modulwahl,
- * Versiegelung. Rein: gleiche Eingabe, gleicher Plan.
+ * Ist diese Zelle ein GANG?
+ *
+ * Antwort aus der Modulerklärung, nicht aus einer Namensliste: Ein Gang
+ * ist ein Modul mit mindestens einer eingebauten vollen Wand (Korridor,
+ * Ecke, Abzweig). Zelle, Halle und Eingang haben keine — sie sind Räume.
+ *
+ * Boden und Decke zählen ausdrücklich nicht mit: Sie sind bei JEDEM Modul
+ * `wall` (Vorgabe aus S0), und wer sie mitzählte, erklärte das ganze Kit
+ * zum Gangsystem.
+ */
+function isCorridorModule(module: GridModule): boolean {
+  return module.cells.some((c) => HORIZONTAL_DIRECTIONS.some((d) => c.edges[d] === 'wall'));
+}
+
+/**
+ * S8 — welche Graphkanten einen Torbogen bekommen.
+ *
+ * ── Eine reine Funktion, und zwar mit Absicht ────────────────────────
+ * Sie bekommt die fertigen Planzellen und würfelt aus dem kanonischen
+ * Kantenschlüssel ({@link edgeRoll}), nicht aus dem Saatstrom. Damit ist
+ * die Antwort unabhängig davon, in welcher Reihenfolge die Zellen
+ * hereinkommen — und genau das lässt sich prüfen, indem man die Liste
+ * vertauscht. Ein Strom-Zug an dieser Stelle wäre nicht falsch, aber
+ * unbeweisbar.
+ *
+ * ── Die Regel aus Mikes Ergänzung ────────────────────────────────────
+ *  • Gang ↔ Gang: nie. Ein Rahmen mitten im Gang ist die „Zwischenwand“,
+ *    über die er sich beklagt hat.
+ *  • Gang ↔ Raum (und Halleneingang): volle `fraction` — das ist der
+ *    Übergang, an dem ein Rahmen etwas erzählt.
+ *  • Raum ↔ Raum: halb so oft. Zwei offene Zellen nebeneinander sind ein
+ *    Raum; ein Bogen darin trennt, was zusammengehört.
+ *
+ * `allowDoor: false` fällt auf BEIDEN Seiten heraus. Der 1.0-Pfad fragt
+ * nur die eine Seite (plus `doorOnlyIfOtherAlsoAllowsDoor`); hier wäre
+ * das schlechter, weil „die eine Seite“ die kanonisch kleinere Zelle ist
+ * — eine Tür, deren Existenz an der Zellnummerierung hängt.
+ */
+export function planArchways(
+  def: DungeonDef,
+  cells: readonly GridPlanCell[],
+  seed: number,
+  fraction: number
+): GridArchway[] {
+  if (!(fraction > 0) || def.doorTypes.length === 0) return [];
+  const byName = new Map<string, RoomDef>(def.rooms.map((r) => [r.name, r]));
+
+  /** Öffnungen aller Zellen, nachschlagbar über (Zelle, Weltrichtung). */
+  const portAt = new Map<string, { port: GridPort; room: RoomDef; corridor: boolean }>();
+  for (const c of cells) {
+    const room = byName.get(c.module);
+    if (!room) throw new DungeonRasterError(`Modul '${c.module}' steht nicht im Kit '${def.name}'.`);
+    const module = gridModuleFromRoomDef(room);
+    const corridor = isCorridorModule(module);
+    for (const port of moduleWorldPorts(c.cell, c.yaw, module)) {
+      portAt.set(edgeKey({ cell: port.cell, direction: port.direction }), { port, room, corridor });
+    }
+  }
+
+  /** Die Türtypen, die zu einem Kopplungstyp passen — wie `placeDoors` im 1.0-Pfad. */
+  const doorTypesFor = (type: string) => def.doorTypes.filter((dt) => dt.connectionType === type);
+
+  const sides = (edge: GridEdge) => {
+    const a = portAt.get(edgeKey(edge));
+    const other = neighbourCell(edge.cell, edge.direction);
+    const b = portAt.get(edgeKey({ cell: other, direction: OPPOSITE_DIRECTION[edge.direction] }));
+    return a && b ? { a, b } : null;
+  };
+
+  const chance = (edge: GridEdge): number => {
+    const both = sides(edge);
+    if (!both) return 0; // keine Öffnung auf einer Seite — dort kommt kein Rahmen hin
+    const { a, b } = both;
+    if (!a.port.allowDoor || !b.port.allowDoor) return 0;
+    const type = a.room.connections[a.port.connector]?.type;
+    if (type === undefined || doorTypesFor(type).length === 0) return 0;
+    if (a.corridor && b.corridor) return 0;
+    return a.corridor === b.corridor ? fraction * ARCHWAY_ROOM_TO_ROOM : fraction;
+  };
+
+  const graphEdges: GridEdge[] = [];
+  for (const c of cells) {
+    for (const d of c.edges) graphEdges.push(canonicalEdge(c.cell, d));
+  }
+
+  return selectEdges(graphEdges, seed, SALT_ARCHWAY, chance).map((edge) => {
+    const both = sides(edge)!;
+    const type = both.a.room.connections[both.a.port.connector]!.type;
+    const options = doorTypesFor(type);
+    // Eigener Salzwert für die AUSWAHL: Käme sie aus demselben Wurf wie
+    // die Entscheidung, hinge der Typ an der Schwelle — bei einem
+    // kleineren `torbogenAnteil` stünde plötzlich überall derselbe Bogen.
+    const pick = options.length === 1
+      ? options[0]!
+      : options[Math.min(options.length - 1, Math.floor(edgeRoll(edge, seed, SALT_ARCHWAY_TYPE) * options.length))]!;
+    return { cell: edge.cell, direction: edge.direction, door: pick.prefabName };
+  });
+}
+
+/**
+ * S2…S8 — der ganze Plan: Zellmenge, Spannbaum, Schleifen, BFS-Ordnung,
+ * Modulwahl, Versiegelung, Torbögen. Rein: gleiche Eingabe, gleicher Plan.
  */
 export function planGridDungeon(
   def: DungeonDef,
   seed: number,
-  settingsIn?: Partial<DungeonGeneratorSettings>
+  settingsIn?: Partial<GridSettings>
 ): GridPlan {
-  const settings = { ...DEFAULT_GENERATOR_SETTINGS, ...def.generatorEinstellungen, ...settingsIn };
+  const settings = {
+    ...DEFAULT_GENERATOR_SETTINGS,
+    ...DEFAULT_GRID_TUNING,
+    ...def.generatorEinstellungen,
+    ...settingsIn,
+  };
+  // Geklemmt, obwohl der Dokument-Sanitizer das schon tut: Ein Aufruf aus
+  // einem Konsolenbefehl oder einem Test geht nicht durch ihn hindurch,
+  // und ein Anteil über 1 machte aus `selectEdges` stillschweigend ein
+  // „alles“.
+  const clamp01 = (v: number): number => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0);
+  const loopFraction = clamp01(settings.loopFraction);
+  // `doorsEnabled` bleibt der Hauptschalter des 1.0-Pfads — zwei Schalter
+  // für dieselbe Sache liefen sonst auseinander.
+  const archwayFraction = settings.doorsEnabled ? clamp01(settings.archwayFraction) : 0;
   // `maxRooms` heisst im Rasterpfad ZELLZAHL, nicht Wachstumsversuche —
   // die Bedeutung wechselt mit dem Pfad, s. Verträge der Konzeptnotiz.
   const target = Math.max(1, Math.min(MAX_DUNGEON_ROOMS, Math.trunc(def.maxRooms)));
   const cells = growCells(seed, target, settings.zoneSize * 0.5, settings.zoneBounded);
+
+  // ── S4: Schleifen VOR dem BFS ──────────────────────────────────────
+  // Sie sind Graphkanten wie alle anderen: Sie kürzen Wege ab und ändern
+  // damit die BFS-Tiefe und die Ausgabereihenfolge. Nachträglich ergänzt
+  // wären sie Kanten zweiter Klasse — und `placeOrder` behauptete eine
+  // Tiefe, die im Grab niemand zurücklegen muss.
+  const loops = addLoopEdges(cells, seed, loopFraction);
 
   // ── BFS ab dem Eingang (S9) ────────────────────────────────────────
   // Die Ausgabereihenfolge ist Teil des Formats: `placeOrder` ist die
@@ -910,7 +1253,12 @@ export function planGridDungeon(
     }
   }
 
-  return { cells: planCells, seals };
+  // ── S8: Torbögen ───────────────────────────────────────────────────
+  // Zuletzt, weil die Regel die MODULE der beiden Seiten braucht (Gang
+  // oder Raum) — die stehen erst nach S5 fest.
+  const archways = planArchways(def, planCells, seed, archwayFraction);
+
+  return { cells: planCells, seals, loops, archways };
 }
 
 /**
@@ -969,9 +1317,45 @@ export function layoutFromPlan(def: DungeonDef, plan: GridPlan): DungeonLayout {
       seed: roomSeed(pos),
     });
   }
-  // `doors` und `props` bleiben leer: Türen sind G5, Deko setzt der
-  // Generator grundsätzlich nicht (das ist Sache des Editors).
-  return { rooms, doors: [], props: [] };
+
+  // ── Torbögen (S8) ──────────────────────────────────────────────────
+  // Ein Torbogen ist KEIN Raum: Er liegt in der Kopplungsebene zwischen
+  // zwei Zellen, dort, wo sonst ein Wandmodul stünde — dieselbe Stelle,
+  // an die `placeDoors` im 1.0-Pfad setzt.
+  const cellAt = new Map<string, GridPlanCell>(plan.cells.map((c) => [cellKey(c.cell), c]));
+  const doors: PlacedDoor[] = plan.archways.map((arch) => {
+    const host = cellAt.get(cellKey(arch.cell));
+    if (!host) throw new DungeonRasterError(`Torbogen auf ${edgeKey(arch)} steht an keiner Zelle.`);
+    const rd = byName.get(host.module);
+    if (!rd) throw new DungeonRasterError(`Modul '${host.module}' steht nicht im Kit '${def.name}'.`);
+    const port = moduleWorldPorts(host.cell, host.yaw, gridModuleFromRoomDef(rd)).find(
+      (p) => cellKey(p.cell) === cellKey(arch.cell) && p.direction === arch.direction
+    );
+    if (!port) throw new DungeonRasterError(`'${host.module}' hat keine Öffnung auf ${edgeKey(arch)}.`);
+    const conn = rd.connections[port.connector];
+    if (!conn) throw new DungeonRasterError(`'${host.module}' hat keinen Connector ${port.connector}.`);
+    const doorDef = def.doorTypes.find((dt) => dt.prefabName === arch.door);
+    if (!doorDef) throw new DungeonRasterError(`Kit '${def.name}' kennt den Torbogen '${arch.door}' nicht.`);
+    return {
+      prefabName: doorDef.prefabName,
+      prefabHash: doorDef.prefabHash,
+      // Die KANTENMITTE, nicht die zurückgerechnete Connector-Position:
+      // Sie ist ganzzahlig verankert (die eine Regel dieser Datei), und
+      // dass der Connector dort liegt, ist mit 1e-4 verbürgt
+      // (`assertConnectorsOnEdges`). Zwei Rechenwege für denselben Punkt
+      // wären zwei Punkte, sobald einer von beiden driftet.
+      pos: edgeCenterWorld(arch.cell, arch.direction),
+      // Wie `localToGlobal` im 1.0-Pfad. Alle Drehungen hier sind reine
+      // Gierungen um dieselbe Achse und vertauschbar; die Reihenfolge
+      // steht trotzdem so da, damit ein Kit mit gekippten Connectors
+      // nicht stillschweigend anders herum gerechnet wird.
+      rot: quatMul(conn.localRot, yawQuaternion(host.yaw)),
+    };
+  });
+
+  // `props` bleibt leer: Deko setzt der Generator grundsätzlich nicht,
+  // das ist Sache des Editors.
+  return { rooms, doors, props: [] };
 }
 
 /**
@@ -1077,6 +1461,37 @@ function selfCheck(def: DungeonDef, plan: GridPlan): void {
       }
     }
   }
+
+  // ── S8: Torbögen und Schleifen ─────────────────────────────────────
+  // Ein Rahmen auf einer Kante ohne Durchgang wäre ein Torbogen vor einer
+  // Wand — im Grab dasselbe Bild wie Mikes Befund, nur andersherum.
+  const framed = new Set<string>();
+  for (const arch of plan.archways) {
+    const key = edgeKey(arch);
+    if (framed.has(key)) throw new DungeonRasterError(`Zwei Torbögen auf derselben Kante ${key}.`);
+    framed.add(key);
+    const host = cells.get(cellKey(arch.cell));
+    if (!host || !host.edges.includes(arch.direction)) {
+      throw new DungeonRasterError(`Torbogen auf ${key} steht auf keiner Graphkante.`);
+    }
+    // Beide Schreibweisen prüfen: `sealed` ist EINSEITIG (die Zelle, vor
+    // deren Öffnung die Platte steht), `key` kanonisch. Nur die eine
+    // Seite zu fragen hiesse, die Hälfte der Fälle zu übersehen.
+    const back = `${cellKey(neighbourCell(arch.cell, arch.direction))}#${OPPOSITE_DIRECTION[arch.direction]}`;
+    if (sealed.has(key) || sealed.has(back)) {
+      throw new DungeonRasterError(`Torbogen und Platte auf derselben Kante ${key}.`);
+    }
+  }
+  // Und die Schleifen: Sie MÜSSEN in den Kanten der beiden Zellen stehen
+  // — eine Schleife, die nur in der Liste steht, wäre eine Zahl ohne
+  // Grundriss dahinter.
+  for (const loop of plan.loops) {
+    const a = cells.get(cellKey(loop.cell));
+    const b = cells.get(cellKey(neighbourCell(loop.cell, loop.direction)));
+    if (!a?.edges.includes(loop.direction) || !b?.edges.includes(OPPOSITE_DIRECTION[loop.direction])) {
+      throw new DungeonRasterError(`Schleifenkante ${edgeKey(loop)} ist im Grundriss kein Durchgang.`);
+    }
+  }
 }
 
 /**
@@ -1111,6 +1526,10 @@ export function fallbackGridLayout(def: DungeonDef): DungeonLayout {
       cell: ENTRANCE_CELL,
       direction: d,
     })),
+    // Eine einzelne Zelle hat keine Nachbarn — also weder eine Schleife
+    // noch eine Kante, auf die ein Torbogen gehörte.
+    loops: [],
+    archways: [],
   };
   return layoutFromPlan(def, plan);
 }
@@ -1126,7 +1545,7 @@ export function fallbackGridLayout(def: DungeonDef): DungeonLayout {
 export function generateGridLayout(
   def: DungeonDef,
   seed: number,
-  settingsIn?: Partial<DungeonGeneratorSettings>,
+  settingsIn?: Partial<GridSettings>,
   options?: GridGeneratorOptions
 ): DungeonLayout {
   try {

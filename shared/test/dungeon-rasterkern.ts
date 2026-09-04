@@ -433,22 +433,32 @@ console.log('\n9) Selbstprüfung S10: Rückfall statt falschem Grab');
 }
 
 // ─────────────────────────────────────────────────────────────────────
-console.log('\n10) Keine Türen, keine Deko, keine Schleifen');
-// G4 ist der Kern OHNE Extras — Türen sind G5. Und „keine Schleifen“ ist
-// nachrechenbar: ein Baum hat genau Zellen − 1 Kanten.
+console.log('\n10) Der Kern ohne Extras — Schleifen und Torbögen abgeschaltet');
+// Bis G5 hiess diese Prüfung „keine Türen, keine Schleifen“, weil es
+// beides noch nicht gab. Seit G5 sind es zwei REGLER, und der Kern ist
+// das, was bei 0 herauskommt: ein Baum (Zellen − 1 Kanten) ohne einen
+// einzigen Rahmen. Damit prüft der Test weiter dieselbe Sache — und
+// zusätzlich, dass ein Regler auf 0 wirklich nichts mehr tut.
+// Deko bleibt unbedingt leer: Die setzt der Generator nie.
 {
   for (const seed of SEEDS.slice(0, 10)) {
-    const layout = generateGridLayout(kit, seed);
-    check(layout.doors.length === 0, `Saat ${seed}: ${layout.doors.length} Türen im G4-Kern`);
+    const aus = { loopFraction: 0, archwayFraction: 0 };
+    const layout = generateGridLayout(kit, seed, aus);
+    check(layout.doors.length === 0, `Saat ${seed}: ${layout.doors.length} Türen bei archwayFraction 0`);
     check(layout.props.length === 0, `Saat ${seed}: ${layout.props.length} Deko im G4-Kern`);
-    const plan: GridPlan = planGridDungeon(kit, seed);
+    check(
+      generateGridLayout(kit, seed).props.length === 0,
+      `Saat ${seed}: Deko mit den Vorgabe-Reglern`
+    );
+    const plan: GridPlan = planGridDungeon(kit, seed, aus);
     const kanten = plan.cells.reduce((n, c) => n + c.edges.length, 0) / 2;
     check(
       kanten === plan.cells.length - 1,
       `Saat ${seed}: ${kanten} Kanten bei ${plan.cells.length} Zellen — kein Baum`
     );
+    check(plan.loops.length === 0, `Saat ${seed}: ${plan.loops.length} Schleifen bei loopFraction 0`);
   }
-  console.log('  10 Saaten: 0 Türen, 0 Deko, Kantenzahl = Zellzahl − 1');
+  console.log('  10 Saaten mit beiden Reglern auf 0: 0 Türen, 0 Deko, Kantenzahl = Zellzahl − 1');
 }
 
 console.log(failures === 0 ? '\nOK — der Rasterkern hält seine Tafel' : `\n${failures} FEHLER`);

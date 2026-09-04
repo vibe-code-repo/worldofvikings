@@ -56,6 +56,7 @@
 import type { DungeonGeneratorSettings } from './dungeonGenerator.js';
 import { getStableHash } from './hash.js';
 import type { DungeonPropDef, SteinKitConfig } from './dungeons.js';
+import type { RasterKanteDef } from './dungeonRasterModul.js';
 import type { Quaternion, Vector3 } from './types.js';
 
 /*
@@ -157,6 +158,8 @@ export interface EigenesKitJson {
     }[];
     /** Raum-Override des Steinmaterials — s. `RoomDef.steinKit`. */
     readonly steinKit?: Partial<SteinKitConfig>;
+    /** Kantenerklärung des Rastergenerators — s. `RoomDef.rasterKanten`. */
+    readonly rasterKanten?: readonly RasterKanteDef[];
   }[];
 }
 
@@ -1072,6 +1075,20 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
         weight: 5,
         pos: NULL_PUNKT,
         rot: KEINE_DREHUNG,
+        /*
+          Die beiden eingebauten Seitenwände, als Aussage für den
+          Rastergenerator. Sie laufen über die VOLLE Ebenenhöhe
+          (−0,25 … 3,75, `make-stonevault.py:56-59`) — deshalb `wand` und
+          nicht `wandTeilweise`, und deshalb setzt die Versiegelungstafel
+          gegen diese Kante keine Platte. Das sind, zusammen mit Ecke und
+          Abzweig, die 531 Platten, die heute im Stein des Nachbarn
+          stehen.
+
+          Nord und Süd stehen hier NICHT: Sie tragen Connectors und sind
+          damit ableitbar offen. Was hier steht, ist genau das, was in der
+          GLB steckt und an keiner Datenstruktur hängt.
+        */
+        rasterKanten: [{ kanten: ['o', 'w'], zustand: 'wand' }],
         connections: [
           {
             // Nord (+z).
@@ -1120,6 +1137,8 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
         weight: 3,
         pos: NULL_PUNKT,
         rot: KEINE_DREHUNG,
+        // Süd- und Westwand, volle Ebenenhöhe — s. `StoneVaultCorridor`.
+        rasterKanten: [{ kanten: ['s', 'w'], zustand: 'wand' }],
         connections: [
           {
             // Nord (+z).
@@ -1165,6 +1184,8 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
         weight: 2,
         pos: NULL_PUNKT,
         rot: KEINE_DREHUNG,
+        // Nur die Westwand, volle Ebenenhöhe — s. `StoneVaultCorridor`.
+        rasterKanten: [{ kanten: ['w'], zustand: 'wand' }],
         connections: [
           {
             // Nord (+z).
@@ -1377,6 +1398,48 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
         weight: 1,
         pos: NULL_PUNKT,
         rot: KEINE_DREHUNG,
+        /*
+          Die Treppe erklärt als einziges Modul zwei Ebenen — und als
+          einziges etwas anderes als `wand` oder `offen`.
+
+          ── Warum die Flanken `wandTeilweise` sind ────────────────────
+          Sie sind Keile, die mit dem Lauf steigen
+          (`make-stonevault.py:483-491`). Über eine Ebenenhöhe gerechnet
+          deckt so ein Keil die Zellkante nur zum Teil: Am Fuss der
+          Treppe steht er knietief, an ihrem Kopf reicht er hinauf. Eine
+          offene Nachbarzelle braucht dort also weiter ihre eigene
+          Platte — das sind die 414 Platten gegen die Treppe, die im
+          Befund vom 04.09.2026 als NÖTIG geführt werden, im Unterschied
+          zu den 531 gegen volle Wände.
+
+          Bewusst grob: Auch die drei Zellen der oberen Ebene über dem
+          flachen Teil des Laufs tragen `wandTeilweise`, obwohl dort
+          streckenweise gar nichts steht. Die Tafel setzt damit eine
+          Platte zu viel statt eine zu wenig — ein Loch in der Wand ist
+          der teurere Fehler. Eine feine Erklärung je Ebene wäre erst
+          etwas wert, wenn es ein eigenes Abschlussmodul für die
+          Treppenflanke gibt (s. Risiken der Konzeptnotiz).
+
+          ── Die beiden Enden ─────────────────────────────────────────
+          Süd auf Ebene 1 und Nord auf Ebene 0 sind Lauf- bzw. Luftraum
+          hinter dem Modulrand, keine gebaute Wand — auch sie deshalb
+          `wandTeilweise`. Die beiden ECHTEN Ausgänge (Süd unten, Nord
+          oben) tragen Connectors und stehen hier nicht.
+
+          ── Die senkrechte Kante ─────────────────────────────────────
+          Der Lauf überschreitet y = 3,5 genau an seinem Nordende: Wer
+          hinaufgeht, wechselt in der Nordzelle die Ebene. Genau dort —
+          und nur dort — ist die Decke der unteren Zelle offen und der
+          Boden der oberen ebenso. Ohne diese beiden Zeilen hinge die
+          Treppenspitze im Graphen an nichts, und das fiele in keiner
+          Zählung auf, sondern erst, wenn eine Figur oben in der
+          Sackgasse steht.
+        */
+        rasterKanten: [
+          { kanten: ['n', 'o', 's', 'w'], zustand: 'wandTeilweise' },
+          { zelle: { a: 0, b: 2, e: 0 }, kanten: ['oben'], zustand: 'offen' },
+          { zelle: { a: 0, b: 2, e: 1 }, kanten: ['unten'], zustand: 'offen' },
+        ],
         connections: [
           {
             // Unten, Süd (−z). Zeigt nach draussen, wie jede Zellkante.

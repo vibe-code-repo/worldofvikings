@@ -23,6 +23,7 @@ export * from './flora.js';
 export * from './features.js';
 export * from './dungeons.js';
 export * from './dungeonRaster.js';
+export * from './dungeonRasterModul.js';
 export * from './dungeonKanten.js';
 export * from './dungeonGenerator.js';
 export * from './locationConfig.js';

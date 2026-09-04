@@ -23,6 +23,9 @@ import { EIGENE_KITS } from './eigeneDungeons.js';
 // Nur der Typ — zur Laufzeit entsteht daraus kein Import und damit
 // auch kein Ringschluss mit `dungeonGenerator.ts`, das hier einliest.
 import type { DungeonGeneratorSettings } from './dungeonGenerator.js';
+// Ebenfalls nur der Typ: `dungeonRasterModul.ts` liest `RoomDef` von hier,
+// ein Laufzeitimport machte daraus einen Ringschluss.
+import type { RasterKanteDef } from './dungeonRasterModul.js';
 import { getStableHash } from './hash.js';
 import type { Quaternion, Vector3 } from './types.js';
 
@@ -111,6 +114,26 @@ export interface RoomDef {
    * kit default. Lets a chamber look different from a corridor.
    */
   readonly steinKit?: Partial<SteinKitConfig>;
+  /**
+   * Kantenerklärung für den Rastergenerator (Konzept „Modul-Generierung
+   * 2.0-Logik“, S0) — nur für Module eines Rasterkits gesetzt.
+   *
+   * ── Warum additiv und nicht abgeleitet ─────────────────────────────
+   * Ableitbar ist nur `offen`: Dort sitzt ein Connector, und der steht in
+   * dieser Datei. `wand` und `wandTeilweise` stecken dagegen im GLB — an
+   * einer eingebauten Korridorwand gibt es nichts, woran eine Datenstruktur
+   * sie bemerken könnte. Genau diese Blindheit ist die Ursache dafür, dass
+   * heute jede dritte Abschlussplatte im Körper des Nachbarmoduls steht.
+   *
+   * Der Preis ist eine zweite Wahrheit über dieselbe Wand: Wer
+   * `make-stonevault.py` ändert und diese Zeilen vergisst, hat ab da eine
+   * Erklärung, die nicht mehr stimmt. Dagegen steht
+   * `shared/test/dungeon-rastermodul.ts`.
+   *
+   * Fehlt das Feld, muss jede waagerechte Aussenkante einen Connector
+   * tragen — `modulAusRoomDef` meldet jede Lücke.
+   */
+  readonly rasterKanten?: readonly RasterKanteDef[];
 }
 
 /** C++ Dungeon::DoorDef. */

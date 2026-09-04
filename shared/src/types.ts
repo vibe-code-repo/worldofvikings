@@ -340,6 +340,29 @@ export enum PacketType {
    * — dieselbe Ueberlegung wie bei SetFigur und WeltWetter.
    */
   SetAussehen = 73,
+  /**
+   * Client → Server: Bauauftrag für einen Saal aus dem Dungeon-Editor
+   * (E5). Payload: Int32 zellenX, Int32 zellenZ, Int32 pfeilerRaster,
+   * Float32 gewicht — VIER ZAHLEN, kein Name und kein Pfad. Den Namen
+   * bildet der Server aus dem Mass (`ModuleBuild.modulName`); ein vom
+   * Client geschickter Name wäre die erste Stelle, an der Zeichen aus
+   * dem Netz zu einem Dateinamen würden.
+   *
+   * Doppelt gegated (peer.isAdmin UND server.yml `dungeons.modulbau`)
+   * und knapp gedrosselt: ein Bau je 10 s. Additiv angehängt, kein
+   * Versionssprung — Begründung s. SetFigur.
+   */
+  DungeonModulBau = 74,
+  /**
+   * Server → Client: Ergebnis eines Modulbaus. Payload: Bool ok,
+   * String message, String json (Name, Dreiecke, Masse, Prüfsumme).
+   *
+   * EIGENES PAKET statt einer Antwort über DungeonEditData: Jenes
+   * trägt ein DUNGEON-DOKUMENT, und der Editor speist die Antwort
+   * darauf in seinen Dokumentzustand. Ein Bauergebnis in demselben
+   * Kanal sähe für ihn aus wie ein Dokument ohne Räume.
+   */
+  DungeonModulBauErgebnis = 75,
 }
 
 // === Vector3 (Vector.h) ===

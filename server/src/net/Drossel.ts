@@ -131,6 +131,17 @@ export const STANDARD_DROSSEL: ReadonlyMap<PacketType, DrosselKonfiguration> = n
   // ausschließlich ein Angriff auf die Festplatte, kein Spielverhalten.
   [PacketType.DungeonEditSave, { eimergroesse: 2, fuellrateProSekunde: 1 / 2 }],
 
+  // DungeonModulBau (E5) ist der teuerste Einzelvorgang des Servers, den
+  // ein Client auslösen kann: Er baut bis zu 1 053 Quader, schreibt eine
+  // GLB-Datei UND die Registry auf die Platte und verändert die
+  // Nachschlagewerke des laufenden Prozesses. Anders als beim
+  // Editor-Speichern gibt es hier kein "gleich noch eine Korrektur
+  // nachschieben": Modulnamen sind unveränderlich, ein zweiter Bau ist
+  // immer ein ANDERER Saal. Eimer 1 (kein Stoss) und ein Token je 10 s
+  // sind deshalb keine Härte gegen den Bediener — ein Mensch braucht
+  // länger, um Breite, Tiefe, Raster und Gewicht neu einzustellen.
+  [PacketType.DungeonModulBau, { eimergroesse: 1, fuellrateProSekunde: 1 / 10 }],
+
   // PlayerInput ist der bewusste SONDERFALL: der Client sendet FEST mit
   // 20 Hz (client/src/main.ts, INPUT_SEND_RATE_MS) — das ist keine
   // mögliche Spitzenlast, sondern der Normalbetrieb jedes einzelnen

@@ -75,6 +75,7 @@ import type { SteinKitConfig } from '@wov/shared';
 import { getFeaturePieces } from '@wov/shared/src/featurePieces.js';
 import { ZDOManager, worldToZone } from './zdo/ZDOManager.js';
 import { DungeonManager } from './world/dungeon/DungeonManager.js';
+import { GENERIERT_DIR, baueModul } from './world/dungeon/ModuleBuild.js';
 import { ZDO } from './zdo/ZDO.js';
 import { ZDOID } from './zdo/ZDOID.js';
 import { PrefabManager } from './prefab/PrefabManager.js';
@@ -143,6 +144,25 @@ export interface ServerConfig {
   worldVegetation: boolean;
   worldLocationOverrides: boolean;
   dungeonsEnabled: boolean;
+  /**
+   * E5: Saal-Bau aus dem Dungeon-Editor (server.yml `dungeons.modulbau`).
+   * Vorgabe FALSE. Zweites Tor neben `peer.isAdmin` — und heute das
+   * einzige, das wirklich schliesst, weil `everyone-admin: true` jeden
+   * verbundenen Client zum Admin macht.
+   */
+  dungeonsModulbau: boolean;
+  /**
+   * Zielordner der gebauten Module (`assets/generiert/`). Als Feld und
+   * nicht als Konstante im Bauweg, damit ein Test nicht in den Ordner
+   * des laufenden Servers schreibt — dieselbe Überlegung wie bei
+   * `worldsDir` und `metrikenDatei`.
+   *
+   * Anders als dort ist die Vorgabe hier trotzdem der ECHTE Ordner: Ohne
+   * `dungeonsModulbau` schreibt dieser Weg nie, und ein Test, der bauen
+   * will, muss den Schalter ohnehin selbst setzen — dann sieht er auch
+   * dieses Feld.
+   */
+  generiertDir: string;
   /** G2: server-side creature spawning/wander (C++ world.creatures flag). */
   worldCreatures: boolean;
   /** G1: directory holding <worldName>.db.zst saves (C++ ./worlds). */
@@ -201,6 +221,8 @@ const DEFAULT_CONFIG: ServerConfig = {
   // C++ experimental-location-overrides (server.yml world section)
   worldLocationOverrides: false,
   dungeonsEnabled: true,
+  dungeonsModulbau: false,
+  generiertDir: GENERIERT_DIR,
   worldCreatures: true,
   worldMode: 'valheim',
   worldLayoutPath: 'data/welten/dev.json',
@@ -1630,6 +1652,9 @@ export class WovServer {
       case PacketType.DungeonEditSave:
         this.handleDungeonEditSave(peer, reader);
         break;
+      case PacketType.DungeonModulBau:
+        this.handleDungeonModulBau(peer, reader);
+        break;
     }
   }
 
@@ -1721,6 +1746,53 @@ export class WovServer {
       `[Dungeon] '${peer.name}' saved document '${doc.id}' ` +
         `(${doc.layout.rooms.length} rooms, ${doc.layout.props.length} props` +
         `${instanzErhalten ? ', instance kept' : ''})`
+    );
+  }
+
+  /**
+   * Editor: einen Saal bauen (E5). Der Client schickt VIER ZAHLEN —
+   * Breite, Tiefe, Pfeilerraster, Gewicht —, sonst nichts. Namen,
+   * Pfade und jede Klemme liegen in `ModuleBuild.baueModul`; dieser
+   * Handler übersetzt nur zwischen Paket und Funktion.
+   *
+   * Warum hier KEINE zweite Prüfung steht: Zwei Klemmenlisten für
+   * dieselbe Sache laufen auseinander, sobald eine von beiden angefasst
+   * wird — und die im Socket-Handler wäre die, die kein Test fährt.
+   */
+  private handleDungeonModulBau(peer: Peer, reader: Reader): void {
+    const cellsX = reader.readInt32();
+    const cellsZ = reader.readInt32();
+    const raster = reader.readInt32();
+    const weight = reader.readFloat32();
+
+    const antwort = baueModul(
+      {
+        istAdmin: peer.isAdmin,
+        modulbauErlaubt: this.config.dungeonsModulbau,
+        verzeichnis: this.config.generiertDir,
+      },
+      { cellsX, cellsZ, raster, weight }
+    );
+
+    peer.sendPacketWith(PacketType.DungeonModulBauErgebnis, (w) => {
+      w.writeBool(antwort.ok);
+      w.writeString(
+        antwort.ok
+          ? `Gebaut: ${antwort.ergebnis.name} — ${antwort.ergebnis.tris} Dreiecke, ` +
+              `${antwort.ergebnis.sizeX} x ${antwort.ergebnis.sizeZ} m`
+          : antwort.meldung
+      );
+      // Die Zahlen als JSON und nicht als Einzelfelder: Das Formular
+      // zeigt sie an, und ein zusaetzliches Feld spaeter verschoebe
+      // sonst den Aufbau eines Pakets, das ein offener Tab noch kennt.
+      w.writeString(antwort.ok ? JSON.stringify(antwort.ergebnis) : '');
+    });
+
+    console.log(
+      antwort.ok
+        ? `[Dungeon] '${peer.name}' built module '${antwort.ergebnis.name}' ` +
+            `(${antwort.ergebnis.tris} tris, registry ${antwort.ergebnis.pruefsumme})`
+        : `[Dungeon] '${peer.name}' — Modulbau abgelehnt: ${antwort.meldung}`
     );
   }
 

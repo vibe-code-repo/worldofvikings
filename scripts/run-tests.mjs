@@ -157,6 +157,28 @@ const KERN = [
     E3: the generated hall RoomDef, field for field against the shipped five.
   */
   ['shared', 'test/module-registry.ts'],
+  /*
+    E5 (Elemente aus dem Editor): der Bauweg selbst — der erste
+    Schreibweg dieses Projekts, dessen Eingabe eine Zahl aus dem Netz
+    und dessen Ausgabe ein Pfad auf der Platte ist.
+
+    Gemessen werden die beiden Tore (`peer.isAdmin` schuetzt heute
+    nichts, `everyone-admin: true` — der Schalter `dungeons.modulbau`
+    ist das einzige, das wirklich zu ist), die Klemmen, der
+    Dreiecksdeckel (8x8 mit dem VORGABERASTER 2 ergibt 14 076 Dreiecke
+    und faellt; mit Raster 4 sind es 12 636 und er geht durch — der
+    Deckel liegt also mitten im erlaubten Bereich), der Namenswaechter
+    an genau der Stelle, an der aus einem Namen ein Dateiname wird, und
+    der volle Rundgang Bau -> GLB-Datei -> Registry -> registriertes
+    Modul. Gebaut wird in ein Temp-Verzeichnis, nie in assets/.
+
+    Ohne Weiche: rechnet und schreibt nur in os.tmpdir(), braucht kein
+    `assets/`. Zehntelsekunden.
+
+    E5: the module build path — both gates, clamps, triangle cap, name
+    guard, throttle, and the build → file → registry → lookups round trip.
+  */
+  ['server', 'test/modulbau-grenzen.ts'],
   // G3 (Modul-Generierung 2.0): Die Abbildung Raster ↔ Welt. Zellmitten
   // liegen auf (2i, 3,5e, 2j−1) — der z-Schluessel ist `round((z+1)/2)`, und
   // diese halbe Zelle Unterschied faellt in keiner Zaehlung auf, weil alle

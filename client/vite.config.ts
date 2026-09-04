@@ -1,9 +1,9 @@
 import { defineConfig, type Plugin } from 'vite';
 import { WebSocketServer, WebSocket } from 'ws';
-import type { IncomingMessage } from 'http';
+import type { IncomingMessage, ServerResponse } from 'http';
 import type { Duplex } from 'stream';
 import { createReadStream, existsSync, readFileSync, statSync } from 'fs';
-import { resolve, normalize, extname, dirname } from 'path';
+import { resolve, normalize, extname, dirname, sep } from 'path';
 import { fileURLToPath } from 'url';
 
 const CONFIG_DIR = dirname(fileURLToPath(import.meta.url));
@@ -56,10 +56,26 @@ function adminToken(): string {
 const ADMIN_TOKEN = adminToken();
 
 /**
- * Serves the project's own asset folder at /assets.
- * Fully swappable: just replace files in the folder — no rebuild needed.
+ * Die Ausliefer-Regel für /assets/ — als eigene Funktion, damit ein Test
+ * sie fahren kann, ohne einen Vite-Server hochzuziehen.
+ *
+ * Warum herausgezogen (E7): Der Dev-Server muss ausser `assets/models/`
+ * jetzt auch `assets/generiert/` ausliefern — den Ordner, in den der
+ * Spielserver die zur Laufzeit gebauten Säle schreibt (`Gen_`-Präfix,
+ * s. `client/src/engine/AssetManager.ts`). Er tut das ohne eine einzige
+ * neue Zeile, weil die Wurzel hier der GANZE `assets`-Ordner ist und
+ * nicht `assets/models`. Genau das ist aber eine Zusage, die man
+ * versehentlich zurücknehmen kann (ein Präfix enger fassen, eine
+ * Endungsliste einführen) — und sie bräche dann nichts, was ein
+ * bestehender Test misst: die alten Modelle lägen weiter richtig. Der
+ * Zeuge dafür steht in `client/test/gen-basis-laden.ts` und fährt DIESE
+ * Funktion, nicht eine Nachbildung davon.
+ *
+ * Serves the project's own asset folder at /assets — including
+ * assets/generiert/, the runtime-built modules. Extracted so a test can
+ * drive the real rule instead of a copy of it.
  */
-function assetFolder(dir: string, urlPrefix = '/assets/'): Plugin {
+export function assetHandler(dir: string, urlPrefix = '/assets/') {
   const MIME: Record<string, string> = {
     '.png': 'image/png',
     '.jpg': 'image/jpeg',
@@ -71,23 +87,45 @@ function assetFolder(dir: string, urlPrefix = '/assets/'): Plugin {
     '.wav': 'audio/wav',
   };
   const root = resolve(dir);
+  return (req: IncomingMessage, res: ServerResponse, next: () => void): void => {
+    if (!req.url || !req.url.startsWith(urlPrefix)) return next();
+    const rel = decodeURIComponent(req.url.slice(urlPrefix.length).split('?')[0]);
+    const file = normalize(resolve(root, rel));
+    /*
+      Ausbruch aus dem Asset-Ordner verhindern.
+
+      Der Trennstrich gehört dazu, und zwar seit E7 nicht mehr nur der
+      Ordnung halber: `startsWith(root)` liess `/assets/../assets-neben/x`
+      durch, weil `…/assets-neben/x` als Zeichenkette mit `…/assets`
+      beginnt. Solange unter `assets/` nur von Hand gepflegte Modelle
+      lagen, war das eine Theorie. Ab jetzt schreibt der SERVER Dateien
+      dorthin, und deren Namen kommen aus einer Netzanfrage — der Pfad
+      ist damit die Stelle, an der eine Erlaubnisliste hängt, und keine
+      Stelle, an der ein Zeichenkettenvergleich reicht.
+
+      Path traversal guard: the separator matters — "…/assets-x" also
+      startsWith "…/assets".
+    */
+    if (!file.startsWith(root + sep) || !existsSync(file) || !statSync(file).isFile()) {
+      res.statusCode = 404;
+      res.end('Not found');
+      return;
+    }
+    res.setHeader('Content-Type', MIME[extname(file).toLowerCase()] ?? 'application/octet-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    createReadStream(file).pipe(res);
+  };
+}
+
+/**
+ * Serves the project's own asset folder at /assets.
+ * Fully swappable: just replace files in the folder — no rebuild needed.
+ */
+function assetFolder(dir: string, urlPrefix = '/assets/'): Plugin {
   return {
     name: 'asset-folder',
     configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        if (!req.url || !req.url.startsWith(urlPrefix)) return next();
-        const rel = decodeURIComponent(req.url.slice(urlPrefix.length).split('?')[0]);
-        const file = normalize(resolve(root, rel));
-        // Prevent path traversal outside the asset root
-        if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
-          res.statusCode = 404;
-          res.end('Not found');
-          return;
-        }
-        res.setHeader('Content-Type', MIME[extname(file).toLowerCase()] ?? 'application/octet-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        createReadStream(file).pipe(res);
-      });
+      server.middlewares.use(assetHandler(dir, urlPrefix));
     },
   };
 }

@@ -457,6 +457,23 @@ const KERN = [
     E2: the written hall through Babylon's real glTF loader.
   */
   ['client', 'test/glb-saal-laden.ts'],
+  /*
+    E7: Ein Modul mit `Gen_`-Praefix kommt aus `assets/generiert/`, alles
+    andere aus `assets/models/` — und der Dev-Server liefert beides aus.
+    Faellt eine der beiden Haelften weg, wird kein bestehender Test rot:
+    die von Hand gepflegten Modelle laegen weiter richtig, und der Fehler
+    zeigte sich erst im Browser als Platzhalter statt Saal. Gemessen wird
+    deshalb an einem echten node:http-Server, der die ECHTE Ausliefer-Regel
+    aus client/vite.config.ts faehrt und jeden angefragten Pfad
+    mitschreibt; der AssetManager erfaehrt weder Port noch Ordner. Dieselbe
+    Probe deckt den Ausbruch `/assets/..%2f…` mit ab. Ohne Weiche — der
+    Test schreibt seine GLBs in einen Wegwerf-Ordner unter /tmp.
+    NullEngine, Sekunden.
+
+    E7: Gen_-prefixed modules load from the second base URL; the witness is
+    an HTTP server running the real dev-server rule.
+  */
+  ['client', 'test/gen-basis-laden.ts'],
   // Der Wasser-Refraktionspass darf gestreute Vegetation nicht anhand der
   // weltweiten Thin-Instance-Hülle als "eingetaucht" einstufen. Auf der
   // Referenzinsel bedeutete dieser Fehler 36 Mio. unsichtbare Dreiecke pro
@@ -618,6 +635,25 @@ const KERN = [
   // Manifest). Liest nur Dateinamen gegeneinander, baut die glTF-Messung nicht
   // nach. Kein Server/Socket, Sekunden.
   ['tools', 'test/manifest-vollstaendig.ts'],
+  /*
+    E7: `assets/generiert/` ist ein SCHWESTERORDNER von `assets/models/`,
+    kein Unterordner — und muss es bleiben. Unter `assets/` ist genau eine
+    Datei getrackt (`assets/manifest.json`); schriebe der Spielserver seine
+    gebauten Saele nach `assets/models/`, machte jeder Klick im Editor den
+    Testlauf rot UND hinterliesse eine ungetrackte Aenderung an einer
+    getrackten Datei, die das naechste `git pull` in tools/wov-update.sh
+    blockiert. Heute stimmt die Trennung, aber nur als Zufall der Pfade —
+    ein Zufall hat keine Bruchstelle, an der etwas anschlaegt. Der Test
+    legt deshalb eine echte GLB an den kuenftigen Zielort und laesst BEIDE
+    Manifest-Werkzeuge im Original laufen: Ausgabe und erzeugtes Manifest
+    muessen Zeichen fuer Zeichen dieselben bleiben. Springt ueber, wenn
+    assets/models/ fehlt; raeumt die Attrappe selbst weg. Ein paar
+    Sekunden (vier tsx-Starts).
+
+    E7: the generated-assets folder must stay invisible to both manifest
+    tools — same output, same bytes, clean `git status assets/`.
+  */
+  ['tools', 'test/generiert-getrennt.ts'],
 
   // ── Dungeon Generator 2.0 ──────────────────────────────────────────
   //

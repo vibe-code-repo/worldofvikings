@@ -119,8 +119,28 @@ SEED = 20260905       # Vorgabe-Seed; `--seed` setzt ihn um
 # Zahlen: Die Stützstelle x = +1 des einen Paneels IST die Stützstelle
 # x = -1 des Nachbarn. Ein Raster, das die 2 m nicht teilt, verschöbe die
 # Punkte gegeneinander, und die Naht bekäme eine Treppe.
-RASTER = 0.125        # Konzept F3: 0,10 .. 0,15 m
-ZEILEN = 24           # Zeilen über die Wandhöhe -> rund 0,145 m
+# ── Warum 6,25 cm und nicht mehr 12,5 (Mass C, 05.09.2026) ─────────────
+# Die Klüfte dieses Gesteins sind 5 bis 10 cm breit (gemessen an der
+# Höhenkarte). Ein Raster von 12,5 cm kann eine 5-cm-Kluft gar nicht
+# darstellen: Zwischen zwei Stützstellen liegt sie ganz, und was die
+# Abtastung davon übriglässt, ist eine Delle. Deshalb stand vor dieser
+# Zeile ein Mittelungskreuz, das die Kluft zum Minimum zog, und eine
+# Unschärfemaske, die die verlorene Kante zurückrechnete — beides
+# Notbehelfe gegen ein zu grobes Gitter.
+#
+# 6,25 cm teilen die 2 m weiterhin (32 Schritte, die Nahtbedingung
+# bleibt), kosten je Wandpaneel rund 4170 statt 1066 Dreiecke — und
+# darauf kommt es seit Mass A nicht mehr an, weil das Paneel ein
+# `_col`-Netz hat und diese Dreiecke NICHT mehr Havok sind, sondern nur
+# noch Bild. Instanzen teilen die Geometrie ohnehin: Ein Grab mit
+# hundert Paneelen trägt sie einmal.
+#
+# Die Zeilen wandern mit: 56 statt 24 ergeben 6,2 cm über die Wandhöhe,
+# also dasselbe Mass in beiden Richtungen. Sie MÜSSEN in allen Modulen
+# gleich sein — die senkrechte Modulgrenze ist die Kante, an der zwei
+# Paneele sich treffen, und dort liegen die Stützstellen auf den Zeilen.
+RASTER = 0.0625       # 2,0 / 0,0625 = 32 Schritte je Modul
+ZEILEN = 56           # Zeilen über die Wandhöhe -> rund 0,062 m
 
 # ── Warum die Stützstellen VERZOGEN werden ──────────────────────────────
 # Ein Höhenfeld auf einem achsenparallelen Gitter hat achsenparallele
@@ -374,10 +394,10 @@ _KREUZ = ((0.0, 0.0, 0.36), (-0.5, 0.0, 0.16), (0.5, 0.0, 0.16),
 # gekostet hat, und NICHT mehr: sie ist an GEMESSENEN Grenzen
 # festgemacht, nicht an einem Geschmacksfaktor.
 #
-# Die Zahlen sind am 05.09.2026 an der GEKACHELTEN Karte (Mass B) über
-# acht Feldschlüssel und 3072 Stützstellen bestimmt worden: 1. Perzentil
-# 0,085, 99. Perzentil 0,866, Mittelwert 0,589. `LO`/`HI` liegen dicht
-# an diesen Perzentilen. Was ausserhalb liegt, wird GEKLEMMT, und das ist
+# Die Zahlen sind am 05.09.2026 an der GEKACHELTEN Karte (Mass B) auf
+# dem 6,25-cm-Raster (Mass C) über acht Feldschlüssel bestimmt worden:
+# 1. Perzentil 0,287, 99. Perzentil 0,913. `LO`/`HI` sind genau diese
+# beiden Perzentile. Was ausserhalb liegt, wird GEKLEMMT, und das ist
 # Absicht: Oben entstehen dadurch ebene Flächen auf der Wandflucht (die
 # Zusage aus Zwang 2 — irgendwo muss Material ganz vorn stehen), unten
 # ebene Kluftgründe. Beides sind Flächen, wie sie ein gebrochener Fels
@@ -386,7 +406,7 @@ _KREUZ = ((0.0, 0.0, 0.36), (-0.5, 0.0, 0.16), (0.5, 0.0, 0.16),
 # Die vorige Fassung (0,175 .. 0,987) gehörte zur GESTRECKTEN Karte, die
 # ihre Werte anders verteilt hat. Wer die Karte neu backt, misst diese
 # beiden Zahlen mit nach — sie sind eine Eigenschaft der Datei.
-KARTE_LO, KARTE_HI = 0.080, 0.820
+KARTE_LO, KARTE_HI = 0.287, 0.913
 
 # ── Warum das Kreuz nicht nur MITTELT ──────────────────────────────────
 # Der erste Kontaktbogen mit der Karte (05.09.2026,
@@ -407,7 +427,18 @@ KARTE_LO, KARTE_HI = 0.080, 0.820
 # das das Kreuz ursprünglich steht, kommt dadurch NICHT zurück: Das
 # Minimum über eine feste Umgebung ändert sich bei einer kleinen
 # Verschiebung des Abtastpunktes stetig, ein Einzelwert springt.
-KREUZ_MIN = 0.6
+#
+# ── 05.09.2026, Mass C: von 0,6 auf 0,25 ───────────────────────────────
+# Der Zug zum Minimum war ein Notbehelf gegen ein zu grobes Gitter: Die
+# Klüfte sind 5 bis 10 cm breit, die Stützstellen standen 12,5 cm
+# auseinander. Seit sie 6,25 cm auseinanderstehen, TRIFFT das Gitter die
+# Kluft selbst — und ein starker Zug zum Minimum vertieft dann nicht mehr
+# die Kluft, sondern JEDE Stützstelle, weil in einem 3-cm-Kreuz immer
+# irgendwo ein tieferer Bildpunkt liegt. Aus Fels würde Schwamm.
+# Gemessen über acht Feldschlüssel: 0,6/1,0 ergibt 17,5 Grad mittlere
+# Neigung, 0,25/0,35 ergibt 16,3 — der Unterschied ist klein, die
+# Überzeichnung nicht.
+KREUZ_MIN = 0.25
 
 # ── Und warum zusätzlich GESCHÄRFT wird ────────────────────────────────
 # Auch mit dem Minimum blieb die Wand im zweiten Kontaktbogen weich. Der
@@ -428,13 +459,18 @@ KREUZ_MIN = 0.6
 # und die Kluft wird tiefer statt breiter. Das ist dieselbe Rechnung, mit
 # der ein Bildbearbeiter Kanten zurückholt, die eine Verkleinerung
 # gekostet hat.
-SCHAERFE = 1.0
+#
+# Mass C hat sie von 1,0 auf 0,35 zurückgenommen, aus demselben Grund wie
+# `KREUZ_MIN`: Was das Gitter selbst auflöst, muss man ihm nicht
+# nachrechnen. Ganz auf 0 geht sie nicht — auch 6,25 cm sind noch gröber
+# als die 0,4 cm der Karte.
+SCHAERFE = 0.35
 _KREUZ_FERN = ((0.0, 0.0, 0.20),
                (-1.75, 0.0, 0.20), (1.75, 0.0, 0.20),
                (0.0, -1.75, 0.20), (0.0, 1.75, 0.20))
 
 
-def _karte_wert(x, z, lage):
+def _karte_wert(x, z, lage, raster=None):
     """Der Kartenwert (1 = ganz vorn) an der Wandstelle (x, z).
 
     `lage` wählt den AUSSCHNITT: zyklischer Versatz in x (bleibt damit
@@ -442,6 +478,8 @@ def _karte_wert(x, z, lage):
     Wandvarianten und die beiden Korridorseiten tragen so verschiedenen
     Fels aus derselben Karte.
     """
+    if raster is None:
+        raster = RASTER
     versatz_u = _zufall(SEED, lage, 211) 
     versatz_v = (_zufall(SEED, lage, 223) - 0.5) * 0.5
     spiegel = -1.0 if (lage % 2) else 1.0
@@ -449,8 +487,8 @@ def _karte_wert(x, z, lage):
         summe = 0.0
         tiefster = 1.0
         for du, dv, g in kreuzliste:
-            xx = x + du * RASTER
-            zz = z + dv * RASTER
+            xx = x + du * raster
+            zz = z + dv * raster
             u = spiegel * (xx - ANKER) / PERIODE + versatz_u
             v = (zz + versatz_v * HOEHE) / HOEHE
             w = _karte_punkt(u, v)
@@ -643,7 +681,7 @@ def _rand_niveau(seed, x, z, an_x_rand):
     return RAND_NIVEAU + RAND_STREUUNG * n
 
 
-def rueckzug(x, z, seed=SEED, lage=0, hub=None):
+def rueckzug(x, z, seed=SEED, lage=0, hub=None, raster=None):
     """Der Rückzug (0 .. hub) an der Stelle (x, z) — OHNE Randstreifen.
 
     `hub` überschreibt die Vorgabe `HUB`. Gebraucht wird das vom Torbogen:
@@ -656,7 +694,7 @@ def rueckzug(x, z, seed=SEED, lage=0, hub=None):
         # 1 = ganz vorn (Rückzug 0), 0 = ganz hinten (Rückzug HUB). Die
         # Klemme auf HUB ist damit die Skala selbst, und die Relieftiefe
         # bleibt ohne weiteres Zutun zwischen 1,5 und 9 cm.
-        return hub * (1.0 - _karte_wert(x, z, lage))
+        return hub * (1.0 - _karte_wert(x, z, lage, raster))
     ebene, kluft = _bruch(seed, lage, x, z)
     roh = ebene + _schichtung(seed, lage, x, z)
     if kluft < KLUFT_BREITE:
@@ -677,18 +715,20 @@ def rueckzug(x, z, seed=SEED, lage=0, hub=None):
     return min(hub, max(0.0, roh))
 
 
-def _stuetzstellen(lo, hi):
+def _stuetzstellen(lo, hi, raster=None):
     """Die x-Stützstellen: das GLOBALE Raster, auf [lo, hi] beschnitten.
 
-    Global heisst: die Punkte liegen auf ANKER + k·RASTER, unabhängig
+    Global heisst: die Punkte liegen auf ANKER + k·raster, unabhängig
     davon, wo das Paneel anfängt. Nur so trifft die Kante des einen
     Moduls die des anderen.
     """
-    k0 = int(math.ceil((lo - ANKER) / RASTER - 1e-6))
-    k1 = int(math.floor((hi - ANKER) / RASTER + 1e-6))
+    if raster is None:
+        raster = RASTER
+    k0 = int(math.ceil((lo - ANKER) / raster - 1e-6))
+    k1 = int(math.floor((hi - ANKER) / raster + 1e-6))
     xs = [lo]
     for k in range(k0, k1 + 1):
-        x = ANKER + k * RASTER
+        x = ANKER + k * raster
         if x > lo + 1e-6 and x < hi - 1e-6:
             xs.append(x)
     xs.append(hi)
@@ -711,7 +751,8 @@ def an_periodengrenze(x):
 
 
 def fels_gitter(lo, hi, seed=SEED, lage=0, z0=0.0, z1=HOEHE,
-                rand_luft=RAND_LUFT, zeilen=None, prot=None, hub=None):
+                rand_luft=RAND_LUFT, zeilen=None, prot=None, hub=None,
+                raster=None):
     """Das Höhenfeld der Frontschicht zwischen lo und hi.
 
     Rückgabe:
@@ -733,11 +774,17 @@ def fels_gitter(lo, hi, seed=SEED, lage=0, z0=0.0, z1=HOEHE,
         prot = PROT
     if hub is None:
         hub = HUB
+    # `raster` gröber zu wählen ist erlaubt, solange es die 2 m weiter
+    # teilt: An der Modulgrenze liegt dann immer noch eine Stützstelle.
+    # Die TREPPE ruft damit — ihr Lauf ist 6 m lang, sie bekäme sonst
+    # allein 21 000 Dreiecke (make-stonevault.py, `treppe()`).
+    if raster is None:
+        raster = RASTER
     zu = z0 + rand_luft
     zo = z1 - rand_luft
     if zeilen is None:
         zeilen = max(2, int(round((zo - zu) / (HOEHE / ZEILEN))))
-    xs = _stuetzstellen(lo, hi)
+    xs = _stuetzstellen(lo, hi, raster)
     zs = [zu + (zo - zu) * k / zeilen for k in range(zeilen + 1)]
     zs[-1] = zo
     rand_lo = an_periodengrenze(lo)
@@ -755,10 +802,16 @@ def fels_gitter(lo, hi, seed=SEED, lage=0, z0=0.0, z1=HOEHE,
             # ix — sonst verzöge dasselbe Feld sich je nach Ausschnitt anders.
             x, z = x0_, z0_
             if 0 < ix < nx - 1 and 0 < iz < nz - 1:
-                k = int(round((x0_ - ANKER) / RASTER))
-                x += VERZUG * RASTER * (_zufall(seed, lage, 151, k % (2 * NX2), iz) * 2.0 - 1.0)
+                # Der Schlüssel läuft über die volle Periode (2 m /
+                # `raster` Schritte). Früher stand hier `k % (2*NX2)` = 8
+                # Schritte; das war bei 12,5 cm genau ein Meter und bei
+                # 6,25 cm plötzlich ein halber — der Verzug hätte sich
+                # zweimal je Paneel wiederholt.
+                nper = int(round(PERIODE / raster))
+                k = int(round((x0_ - ANKER) / raster))
+                x += VERZUG * raster * (_zufall(seed, lage, 151, k % nper, iz) * 2.0 - 1.0)
                 z += VERZUG * (zs[1] - zs[0]) * (
-                    _zufall(seed, lage, 157, k % (2 * NX2), iz) * 2.0 - 1.0)
+                    _zufall(seed, lage, 157, k % nper, iz) * 2.0 - 1.0)
             # Abstand zu den Rändern: oben und unten wird IMMER überblendet
             # (dort steht die Boden- bzw. Deckenplatte, kein Nachbarpaneel).
             tz = min(1.0, max(0.0, min(z - zu, zo - z) / RAND))
@@ -769,7 +822,7 @@ def fels_gitter(lo, hi, seed=SEED, lage=0, z0=0.0, z1=HOEHE,
                 dx.append(hi - x)
             tx = min(1.0, max(0.0, min(dx) / RAND)) if dx else 1.0
             t = min(tx, tz)
-            r = rueckzug(x, z, seed=seed, lage=lage, hub=hub)
+            r = rueckzug(x, z, seed=seed, lage=lage, hub=hub, raster=raster)
             if t < 1.0:
                 niveau = _rand_niveau(seed, x, z, tx <= tz)
                 r = niveau + (r - niveau) * _glatt(t)
@@ -790,7 +843,7 @@ def _dump(argv):
     lo, hi = float(argv[0]), float(argv[1])
     opt = {"--seed": SEED, "--lage": 0, "--z0": 0.0, "--z1": HOEHE,
            "--randluft": RAND_LUFT, "--zeilen": -1,
-           "--prot": PROT, "--hub": HUB}
+           "--prot": PROT, "--hub": HUB, "--raster": RASTER}
     i = 2
     while i < len(argv):
         if argv[i] == "--relief-quelle":
@@ -802,10 +855,11 @@ def _dump(argv):
     g = fels_gitter(lo, hi, seed=int(opt["--seed"]), lage=int(opt["--lage"]),
                     z0=opt["--z0"], z1=opt["--z1"], rand_luft=opt["--randluft"],
                     zeilen=None if zeilen < 0 else zeilen,
-                    prot=opt["--prot"], hub=opt["--hub"])
+                    prot=opt["--prot"], hub=opt["--hub"],
+                    raster=opt["--raster"])
     g.update({"seed": int(opt["--seed"]), "lage": int(opt["--lage"]),
               "lo": lo, "hi": hi, "prot": opt["--prot"], "hub": opt["--hub"],
-              "raster": RASTER, "rand": RAND, "quelle": QUELLE})
+              "raster": opt["--raster"], "rand": RAND, "quelle": QUELLE})
     print(json.dumps(g))
 
 

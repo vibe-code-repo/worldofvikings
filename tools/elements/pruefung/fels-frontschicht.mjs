@@ -32,7 +32,8 @@
 //       10 cm, Spielerkapsel); seit Mass (A) vom 05.09.2026 haben die
 //       Fels-Wandmodule ein `_col`-Netz, und die Kapsel sieht das Relief
 //       gar nicht mehr.
-//   (4) BUDGET — höchstens 1500 Dreiecke je Wandpaneel.
+//   (4) BUDGET — höchstens 4500 Dreiecke je Wandpaneel (bis Mass C 1500;
+//       s. `BUDGET_DREIECKE`, warum die Zahl steigen durfte).
 //   (5) ES IST KEIN VERBAND — keine durchgehende waagerechte Fuge, kein
 //       achsenparalleles Gitter, Gefälle in beide Richtungen.
 //
@@ -70,7 +71,22 @@ const GRID = 2.0;
   in die Rueckplatte.
 */
 const WANDSTAERKE = 0.015;
-const BUDGET_DREIECKE = 1500;
+/*
+  Mass C (05.09.2026): 4500 statt 1500.
+
+  Die 1500 stammen aus der Zeit, in der das sichtbare Netz zugleich die
+  Kollisionsform war — jedes Dreieck war Havok, und Havok fasst sie in
+  jedem Bild an. Seit Mass A hat jedes Fels-Wandmodul ein `_col`-Netz
+  (72..466 Dreiecke), und die Dreiecke der Frontschicht sind nur noch
+  BILD. Ein Bilddreieck kostet einmal Speicher und dann nichts mehr:
+  Alle Paneele eines Grabes sind Instanzen EINER Geometrie
+  (EntityManager, thin instances), hundert Paneele tragen sie einmal.
+
+  4500 ist kein rundes Wunschmass, sondern das, was 32 x 56 Felder plus
+  Schürze, Deckel und die fünf festen Quader ergeben (4170) — mit Luft
+  für eine Zeile mehr, aber nicht für eine Verdopplung.
+*/
+const BUDGET_DREIECKE = 4500;
 const FESTE_QUADER = 5; // Rückplatte, Sockel, Haube, zwei Endstreifen
 const EPS = 1e-9;
 
@@ -133,8 +149,14 @@ pruefe(
     Array.isArray(A.zs) &&
     Array.isArray(A.punkte)
 );
-pruefe('das Raster liegt im Konzeptfenster 0,10 .. 0,15 m',
-  A.raster >= 0.10 - EPS && A.raster <= 0.15 + EPS, `${A.raster}`);
+/*
+  Das Konzeptfenster war 0,10 .. 0,15 m und ist mit Mass C nach unten
+  geöffnet: Die Klüfte dieses Gesteins sind 5 bis 10 cm breit, ein Raster
+  von 12,5 cm kann sie gar nicht darstellen. Nach OBEN bleibt die Grenze
+  stehen — ein gröberes Raster wäre der Befund von gestern.
+*/
+pruefe('das Raster ist fein genug für eine 5-cm-Kluft (≤ 0,07 m)',
+  A.raster <= 0.07 + EPS, `${A.raster}`);
 pruefe('das Raster teilt das 2-m-Modulmass (sonst trifft die Naht nicht)',
   Math.abs(GRID / A.raster - Math.round(GRID / A.raster)) < 1e-9,
   `${GRID} / ${A.raster} = ${GRID / A.raster}`);

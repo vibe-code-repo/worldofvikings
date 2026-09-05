@@ -517,7 +517,8 @@ RUECK_EINSTICH = 0.002
 
 def fels_schicht(bm, lauf, mitte, sgn, lo, hi, lage=0, z0=0.0, z1=HOEHE,
                  rand_luft=None, zeilen=None, niveau_fn=None,
-                 tiefen_fn=None, bezug=0.0, prot=None, hub=None):
+                 tiefen_fn=None, bezug=0.0, prot=None, hub=None,
+                 raster=None):
     """`mitte` ist die Mitte der HEUTIGEN Reliefschicht auf der Festachse,
     `sgn` zeigt nach vorn (zur Raumseite). Daraus folgt die Rueckebene der
     Schicht — vor ihr steht jeder Punkt um seine eigene Tiefe.
@@ -574,7 +575,7 @@ def fels_schicht(bm, lauf, mitte, sgn, lo, hi, lage=0, z0=0.0, z1=HOEHE,
         return
     hinten = mitte - sgn * prot / 2
     kw = {"seed": SEED, "lage": lage, "z0": z0, "z1": z1,
-          "prot": prot, "hub": hub}
+          "prot": prot, "hub": hub, "raster": raster}
     if rand_luft is not None:
         kw["rand_luft"] = rand_luft
     if zeilen is not None:
@@ -1106,6 +1107,19 @@ def bogen():
 # Wer hier weiterdreht: Der Winkel ist atan(HOEHE / LAUF) in Grad, und die
 # Kit-Werte in shared/src/eigeneDungeons.ts (size.z, Connector-z) muessen
 # mitwandern. shared/test/dungeon-raster.ts rechnet beides gegen die Grenze.
+# ── Warum die Treppe ein GRÖBERES Raster bekommt (Mass C, 05.09.2026) ──────
+# Ihr Lauf ist 6 m lang und ihre Wände sind 3,5 m hoch — auf dem
+# 6,25-cm-Raster der Wandpaneele wären das 96 x 56 Felder JE Wand, also rund
+# 21 500 Dreiecke für ein einziges Modul. Die Treppe ist dabei das Bauteil,
+# an dem man am wenigsten stehenbleibt: Man geht sie hinauf.
+#
+# 12,5 cm teilen die 2 m weiterhin (Nahtbedingung), und die ZEILEN bleiben
+# dieselben 56 wie überall. Das ist die Bedingung, auf die es ankommt: Wo
+# eine Treppenwand an eine Zellwand stösst, treffen sich zwei senkrechte
+# Kanten, und deren Stützstellen liegen auf den Zeilen — nicht auf dem
+# Laufraster.
+TREPPE_RASTER = 0.125
+
 ZELLEN_LAUF = 3                     # Zellen, die die Treppe in z belegt
 STUFEN = 14
 STUFE_H = HOEHE / STUFEN            # 0,25 Steigung
@@ -1186,7 +1200,7 @@ def treppe():
         for s in (-1, 1):
             fels_schicht(bm, "y", s * W_RELIEF, -float(s), -H, H,
                          lage=FELD_LAGE["TreppeOst" if s < 0 else "TreppeWest"],
-                         niveau_fn=niveau)
+                         niveau_fn=niveau, raster=TREPPE_RASTER)
         fertig("StoneVaultStairs", bm, treppe_kollision())
         return
     for s in (-1, 1):

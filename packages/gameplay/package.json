@@ -1,0 +1,26 @@
+{
+  "name": "@wov/gameplay",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Gameplay state and systems, independent of the renderer.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@wov/shared": "workspace:*"
+  }
+}

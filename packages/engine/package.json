@@ -1,0 +1,26 @@
+{
+  "name": "@wov/engine",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Rendering/engine layer shared by game and editor (Babylon.js lands in Phase 1).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@wov/shared": "workspace:*"
+  }
+}

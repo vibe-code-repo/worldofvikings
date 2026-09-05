@@ -1,5 +1,5 @@
 {
- "erzeugt": "2026-09-05T09:38:41.029Z",
+ "erzeugt": "2026-09-05T11:33:47.993Z",
  "quelle": "tools/asset-manifest.mjs",
  "anzahl": 225,
  "gemessen": 222,
@@ -2816,7 +2816,7 @@
   "RockVaultArch": {
    "datei": "RockVaultArch.glb",
    "foliage": false,
-   "bytes": 68692,
+   "bytes": 257072,
    "huelle": {
     "min": [
      -1,
@@ -2832,8 +2832,8 @@
    "breite": 2,
    "hoehe": 3.98,
    "tiefe": 0.3,
-   "dreiecke": 2086,
-   "materialien": 1,
+   "dreiecke": 6000,
+   "materialien": 2,
    "bilder": 0,
    "animationen": [],
    "meshlos": false,
@@ -2868,7 +2868,7 @@
   "RockVaultCorner": {
    "datei": "RockVaultCorner.glb",
    "foliage": false,
-   "bytes": 61324,
+   "bytes": 424268,
    "huelle": {
     "min": [
      -1,
@@ -2884,8 +2884,8 @@
    "breite": 2,
    "hoehe": 4,
    "tiefe": 2,
-   "dreiecke": 2192,
-   "materialien": 1,
+   "dreiecke": 8348,
+   "materialien": 2,
    "bilder": 0,
    "animationen": [],
    "meshlos": false,
@@ -2894,7 +2894,7 @@
   "RockVaultCorridor": {
    "datei": "RockVaultCorridor.glb",
    "foliage": false,
-   "bytes": 62720,
+   "bytes": 428956,
    "huelle": {
     "min": [
      -1,
@@ -2910,8 +2910,8 @@
    "breite": 2,
    "hoehe": 4,
    "tiefe": 2,
-   "dreiecke": 2300,
-   "materialien": 1,
+   "dreiecke": 8820,
+   "materialien": 2,
    "bilder": 0,
    "animationen": [],
    "meshlos": false,
@@ -3050,7 +3050,7 @@
   "RockVaultJunction": {
    "datei": "RockVaultJunction.glb",
    "foliage": false,
-   "bytes": 38276,
+   "bytes": 235640,
    "huelle": {
     "min": [
      -1,
@@ -3066,8 +3066,8 @@
    "breite": 2,
    "hoehe": 4,
    "tiefe": 2,
-   "dreiecke": 1258,
-   "materialien": 1,
+   "dreiecke": 4626,
+   "materialien": 2,
    "bilder": 0,
    "animationen": [],
    "meshlos": false,
@@ -3076,7 +3076,7 @@
   "RockVaultStairs": {
    "datei": "RockVaultStairs.glb",
    "foliage": false,
-   "bytes": 142240,
+   "bytes": 584760,
    "huelle": {
     "min": [
      -1,
@@ -3092,7 +3092,7 @@
    "breite": 2,
    "hoehe": 7.55,
    "tiefe": 6,
-   "dreiecke": 5720,
+   "dreiecke": 12248,
    "materialien": 2,
    "bilder": 0,
    "animationen": [],
@@ -3102,7 +3102,7 @@
   "RockVaultWall": {
    "datei": "RockVaultWall.glb",
    "foliage": false,
-   "bytes": 27456,
+   "bytes": 215520,
    "huelle": {
     "min": [
      -1.06,
@@ -3118,8 +3118,8 @@
    "breite": 2.12,
    "hoehe": 4,
    "tiefe": 0.3,
-   "dreiecke": 1066,
-   "materialien": 1,
+   "dreiecke": 4242,
+   "materialien": 2,
    "bilder": 0,
    "animationen": [],
    "meshlos": false,
@@ -3128,7 +3128,7 @@
   "RockVaultWallB": {
    "datei": "RockVaultWallB.glb",
    "foliage": false,
-   "bytes": 28016,
+   "bytes": 202916,
    "huelle": {
     "min": [
      -1.06,
@@ -3144,8 +3144,8 @@
    "breite": 2.12,
    "hoehe": 4,
    "tiefe": 0.3,
-   "dreiecke": 1066,
-   "materialien": 1,
+   "dreiecke": 4242,
+   "materialien": 2,
    "bilder": 0,
    "animationen": [],
    "meshlos": false,
@@ -3154,7 +3154,7 @@
   "RockVaultWallC": {
    "datei": "RockVaultWallC.glb",
    "foliage": false,
-   "bytes": 27632,
+   "bytes": 213572,
    "huelle": {
     "min": [
      -1.06,
@@ -3170,8 +3170,8 @@
    "breite": 2.12,
    "hoehe": 4,
    "tiefe": 0.3,
-   "dreiecke": 1066,
-   "materialien": 1,
+   "dreiecke": 4242,
+   "materialien": 2,
    "bilder": 0,
    "animationen": [],
    "meshlos": false,

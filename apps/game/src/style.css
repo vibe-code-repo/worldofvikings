@@ -1,0 +1,40 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family:
+    'Segoe UI',
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+#render-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+  touch-action: none;
+}
+
+.marker,
+.status {
+  position: fixed;
+  left: 1rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.marker {
+  top: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.status {
+  bottom: 1rem;
+  font-size: 0.8rem;
+  opacity: 0.75;
+}

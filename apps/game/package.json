@@ -1,0 +1,22 @@
+{
+  "name": "@wov/game",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Browser game client (live.world-of-vikings.com).",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^8.31.1",
+    "@wov/engine": "workspace:*",
+    "@wov/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^7.1.5"
+  }
+}

@@ -1,6 +1,7 @@
 // Hilfsmittel: nimmt die Steinmaterial-Probe auf und meldet Seiten- und Konsolenfehler.
 
 import { chromium } from 'playwright';
+import { aufnahme } from './aufnahmen.mjs';
 const PORT = process.env.PORT || 5901;
 const b = await chromium.launch({ headless: true, args: ['--use-angle=vulkan','--enable-features=Vulkan','--ignore-gpu-blocklist'] });
 const p = await b.newPage({ viewport: { width: 1000, height: 620 } });
@@ -16,7 +17,7 @@ const info = await p.evaluate(() => {
   const meshes = s.meshes.filter(m=>m.material && m.material.name==='probe');
   return { ok:true, meshMit: meshes.length, matName: window.__steinmat?.mat?.getClassName?.() };
 });
-await p.screenshot({ path: `${process.env.HOME}/wov-ai/pipeline-1.0/preview/steinmat.png` });
+await p.screenshot({ path: aufnahme('steinmat.png') });
 await b.close();
 console.log('INFO', JSON.stringify(info));
 console.log(errs.length ? 'FEHLER:\n'+[...new Set(errs)].slice(0,12).join('\n') : 'KEINE SHADER-/KONSOLENFEHLER');

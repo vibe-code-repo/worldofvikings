@@ -34,13 +34,45 @@ Bauskript ausserhalb des Repos lag.
 |---|---|
 | `elements/blender/` | Bauskripte: `make-stonevault.py` (die 12 Module des Kits), `make-elements.py`, die `compose-*.py`-Nachweisbilder. |
 | `elements/pruefung/` | Sonden und Messungen: `check-*`, `measure-*`, `render-*`, `zaehle-naht.py`, `dach-sonde.py`, `strahl-sonde.py`, `stonevault-kantensonde.ts`. |
-| `elements/pipeline/` | Textur-Pipeline (`texture-kit.py`, `make-normal/moss/frost/wet.py`) und die Browser-Aufnahmen; Quelltexturen unter `quellen/`. |
-| `elements/ts/` | Noch leer — für die TypeScript-Werkzeuge aus Vorhaben 1. |
+| `elements/pipeline/` | Textur-Pipeline (`texture-kit.py`, `make-normal.py`, `make-moss.py`, `make-frost.py`, `make-wet.py`) und die Browser-Aufnahmen; Quelltexturen unter `elements/pipeline/quellen/`. |
+| `elements/ts/` | Noch ohne Werkzeug — für die TypeScript-Skripte aus Vorhaben 1; `elements/ts/README.md` sagt an Ort und Stelle, was hierher gehört. |
 
-Dort gilt zusätzlich eine **Kopfzeilen-Konvention**: Die erste Kommentarzeile
-jeder Datei beginnt mit `Erzeugt:`, `Prüft:` oder `Hilfsmittel:`.
-`tools/elements/pruefe-koepfe.mjs` hält das fest und hängt in
-`scripts/run-tests.mjs` als schneller, assetfreier Prüfer.
+Dort gelten zusätzlich drei Konventionen, jede mit einem Wächter in
+`scripts/run-tests.mjs` (schnell und assetfrei — sie lesen nur Text):
+
+- **Kopfzeile.** Die erste Kommentarzeile jeder Datei beginnt mit `Erzeugt:`,
+  `Prüft:` oder `Hilfsmittel:` — `tools/elements/pruefe-koepfe.mjs`.
+- **Orte.** Kein Skript verdrahtet einen Pfad ausserhalb des Repos; Eingaben
+  kommen aus `$WOV_MODELLE` (Vorgabe `assets/models`), Ergebnisse gehen nach
+  `$WOV_ELEMENTE_AUS` (Vorgabe `~/wov-elemente`) — `tools/elements/pruefe-pfade.mjs`.
+- **Verzeichnis.** Jeder Pfad, den diese Datei oder
+  `tools/elements/README.md` nennt, existiert; und jede Datei unter
+  `tools/elements/` steht in einer der beiden — `tools/elements/pruefe-readme.mjs`.
+
+Seit dem 04.09.2026 sind die alten Orte `~/wov-ai/elements/` und
+`~/wov-ai/pipeline-1.0/` geleert; sie tragen nur noch je eine
+`~/wov-ai/…/VERSCHOBEN.md` und ihre Ergebnisordner.
+
+### Was ein Pfad in Backticks hier bedeutet
+
+Seit S4 ist eine Code-Spanne, die wie ein Pfad aussieht, eine **Zusage**:
+Diese Datei gibt es. Der Wächter oben liest beide README und schlägt jeden
+Pfad nach. Zwei Ausnahmen macht er, und beide folgen der Regel ganz oben —
+Rezept, nicht Ergebnis:
+
+- **Erzeugnisse** (`assets/…`, `out/…`, ein blosser Bild- oder Modellname)
+  werden nicht nachgeschlagen. Sie sind gitignored und fehlen im
+  CI-Checkout; ihre Existenz zu verlangen hiesse, den Testlauf an
+  `assets/` zu binden, das S3 gerade gelöst hat.
+- **Kein Pfad ist,** was Platzhalter (`<skript>`), Umgebungsvariablen
+  (`$WOV_MODELLE`), Heimat- (`~/…`) oder Wurzelpfade (`/ws`) enthält.
+
+Wer etwas nennt, das es (noch) nicht gibt — ein geplantes Skript, eine
+gelöschte Datei, eine Datei ausserhalb des Repos —, schreibt es **ohne**
+Backticks oder mit seinem vollen Ort ausserhalb. Sonst behauptet der Text
+etwas, das der nächste Leser vergeblich sucht. Beim ersten Lauf des
+Wächters waren das neun Stellen in beiden Dateien zusammen, und sechs
+Dateien standen in keiner von beiden.
 
 ---
 
@@ -162,7 +194,7 @@ statt Vermutungen.
 
 | Werkzeug | Zweck |
 |---|---|
-| `wov-update.sh` | Holt den aktuellen Stand aus Git und stellt den Container darauf um. Bricht ab, wenn der Arbeitsbaum schmutzig ist — der Commit soll die Wahrheit sagen. Typecheck und Tests laufen **ohne Pipe**, ein Fehlschlag startet nichts. Auf `live` baut es den Client nach `dist.neu` und tauscht erst danach. Gesundheitsprüfung fragt den Server, statt `systemctl is-active` zu glauben. `server/data/` wird nie angefasst. Ersetzt `deploy.sh` (16.08.2026) — der schob ein Tar von der Entwicklungsmaschine und verschluckte jeden Exit-Code. |
+| `wov-update.sh` | Holt den aktuellen Stand aus Git und stellt den Container darauf um. Bricht ab, wenn der Arbeitsbaum schmutzig ist — der Commit soll die Wahrheit sagen. Typecheck und Tests laufen **ohne Pipe**, ein Fehlschlag startet nichts. Auf `live` baut es den Client nach `dist.neu` und tauscht erst danach. Gesundheitsprüfung fragt den Server, statt `systemctl is-active` zu glauben. `server/data/` wird nie angefasst. Ersetzt deploy.sh (16.08.2026 gelöscht) — der schob ein Tar von der Entwicklungsmaschine und verschluckte jeden Exit-Code. |
 | `worldlayout-mcp/` | MCP-Server für das Weltlayout (lesen, setzen, ausrollen). Benutzt `sanitizeWorldLayout` aus `shared`. |
 | `ws-check.mjs` | Prüft, ob `/ws` steht — lokal und über den Reverse-Proxy. |
 | `dump-spawn-zdos.ts` | Listet ZDOs nahe dem Weltursprung aus einem Save. |

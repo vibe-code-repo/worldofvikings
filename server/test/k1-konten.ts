@@ -43,7 +43,10 @@ try {
 
   const doppelt = db.kontoAnlegen('Mike', 'zweit@example.org', eintrag);
   assert.equal(doppelt.ok, false);
-  assert.equal(doppelt.ok === false && doppelt.fehler, 'benutzername-vergeben');
+  // Der Fehlercode heisst seit ddaea13 englisch (`KontoFehler`); die Webseite
+  // las bis dahin ein anders benanntes Feld und zeigte jeden Fehler als
+  // allgemeinen. Der Quelltext ist hier die Wahrheit, nicht dieser Text.
+  assert.equal(doppelt.ok === false && doppelt.fehler, 'username-taken');
 
   // Gross-/Kleinschreibung darf kein zweites Konto ergeben.
   const anders = db.kontoAnlegen('mIkE', 'dritt@example.org', eintrag);
@@ -57,7 +60,15 @@ try {
   // ── Characters ────────────────────────────────────────────────────
   assert.deepEqual(db.charaktereVonKonto(kontoId), [], 'frisches Konto hat keine Charaktere');
 
-  const aussehen = { figur: 'wikingerin', frisur: 'H_03', ober: 'leder_bh', beine: '' };
+  // `haarfarbe` kam mit bd31fec dazu und ist eine Pflichtspalte — ohne sie
+  // wirft SQLite an Parameter 7, nicht an einer lesbaren Zusicherung.
+  const aussehen = {
+    figur: 'wikingerin',
+    frisur: 'H_03',
+    haarfarbe: 'fuchsrot',
+    ober: 'leder_bh',
+    beine: '',
+  };
   const c1 = db.charakterAnlegen(kontoId, 'Bjorn', aussehen);
   const c2 = db.charakterAnlegen(kontoId, 'Astrid', aussehen);
   assert.equal(c1.ok && c2.ok, true, 'mehrere Charaktere je Konto');
@@ -76,7 +87,7 @@ try {
   // Verbinden mit "Name already in use" ab, und zwar erst DANN.
   const belegt = db.charakterAnlegen(kontoId, 'bjorn', aussehen);
   assert.equal(belegt.ok, false);
-  assert.equal(belegt.ok === false && belegt.fehler, 'name-vergeben');
+  assert.equal(belegt.ok === false && belegt.fehler, 'name-taken');
 
   // Ein fremdes Konto darf den Charakter weder sehen noch loeschen.
   const b = db.kontoAnlegen('Fremder', 'f@example.org', eintrag);

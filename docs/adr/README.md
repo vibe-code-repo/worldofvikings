@@ -7,12 +7,13 @@ one; the old file stays.
 Copy `template.md` to `NNNN-short-title.md` and open a PR together with the
 change it describes.
 
-| ADR                                                        | Title                                                       | Status   |
-| ---------------------------------------------------------- | ----------------------------------------------------------- | -------- |
-| [0001](0001-monorepo-with-pnpm-workspaces.md)              | Monorepo with pnpm workspaces                               | accepted |
-| [0002](0002-babylonjs-as-engine.md)                        | Babylon.js as rendering engine                              | accepted |
-| [0003](0003-separate-game-and-editor-apps.md)              | Game and editor are separate applications                   | accepted |
-| [0004](0004-world-data-outside-code-validated-with-zod.md) | World data lives outside the code and is validated with Zod | accepted |
-| [0005](0005-fastify-for-the-api.md)                        | Fastify for the API service                                 | accepted |
-| [0006](0006-engine-package-owns-babylon-bootstrap.md)      | The engine package owns the Babylon.js bootstrap            | accepted |
-| [0007](0007-engine-package-provides-the-base-scene.md)     | The engine package provides the base scene, as an opt-in    | accepted |
+| ADR                                                             | Title                                                       | Status   |
+| --------------------------------------------------------------- | ----------------------------------------------------------- | -------- |
+| [0001](0001-monorepo-with-pnpm-workspaces.md)                   | Monorepo with pnpm workspaces                               | accepted |
+| [0002](0002-babylonjs-as-engine.md)                             | Babylon.js as rendering engine                              | accepted |
+| [0003](0003-separate-game-and-editor-apps.md)                   | Game and editor are separate applications                   | accepted |
+| [0004](0004-world-data-outside-code-validated-with-zod.md)      | World data lives outside the code and is validated with Zod | accepted |
+| [0005](0005-fastify-for-the-api.md)                             | Fastify for the API service                                 | accepted |
+| [0006](0006-engine-package-owns-babylon-bootstrap.md)           | The engine package owns the Babylon.js bootstrap            | accepted |
+| [0007](0007-engine-package-provides-the-base-scene.md)          | The engine package provides the base scene, as an opt-in    | accepted |
+| [0008](0008-third-person-camera-lives-in-the-engine-package.md) | The third-person camera lives in the engine package         | accepted |

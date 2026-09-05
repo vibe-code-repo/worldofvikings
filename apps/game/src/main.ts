@@ -41,12 +41,12 @@ function setStatus(text: string): void {
  */
 async function start(canvas: HTMLCanvasElement): Promise<void> {
   try {
-    const { renderer } = await createGameScene(canvas, { render: { resolutionScale: 1 } });
+    const { renderer, camera } = await createGameScene(canvas, { render: { resolutionScale: 1 } });
     setStatus(`renderer ready — ${renderer.backend}`);
     if (import.meta.env.DEV) {
       // Vite replaces the condition with `false` when building for production,
       // so Rollup drops this call and `./dev-debug.js` with it.
-      installDevDebugBridge(renderer, marker);
+      installDevDebugBridge(renderer, marker, { camera });
     }
   } catch (error) {
     // A failing renderer must not hide the page: report it instead.

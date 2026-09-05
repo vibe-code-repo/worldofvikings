@@ -1,24 +1,35 @@
-import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector';
-import { createBaseScene, createRenderer } from '@wov/engine';
-import type { BaseSceneHandle, BaseSceneOptions, RenderConfig, RendererHandle } from '@wov/engine';
+import { createBaseScene, createRenderer, createThirdPersonCamera } from '@wov/engine';
+import type {
+  BaseSceneHandle,
+  BaseSceneOptions,
+  RenderConfig,
+  RendererHandle,
+  ThirdPersonCameraHandle,
+  ThirdPersonCameraSettings,
+} from '@wov/engine';
+import { createPlaceholderTarget } from './placeholder-target.js';
+import type { PlaceholderTarget } from './placeholder-target.js';
 
 /**
- * The game's Phase 1 view: the shared base stage from `@wov/engine` plus the
- * camera looking at it.
+ * The game's Phase 1 view: the shared base stage from `@wov/engine`, the
+ * placeholder the camera follows, and the third-person camera itself.
  *
  * Engine, scene, render loop and resize handling come from `createRenderer`;
- * ground, lights, sky and fog from `createBaseScene` (ADR-0006, ADR-0007).
- * What stays here is the part the editor would do differently — the camera,
- * which becomes the third-person follow camera of spec §26.
+ * ground, lights, sky and fog from `createBaseScene`; the camera from
+ * `createThirdPersonCamera` (ADR-0006, ADR-0007, ADR-0008). What is left here
+ * is the wiring: which point the camera follows, and which element its mouse
+ * input comes from.
  *
- * Nothing here is world data. The authored world arrives from `content/` in
- * Phase 4; the base ground is a placeholder, not a generator (agent rule 16).
+ * Nothing here is world data or gameplay. The authored world arrives from
+ * `content/` in Phase 4 and the player replaces the capsule in Phase 2 — the
+ * only line that has to change then is the `target` getter below.
  */
 export interface GameScene {
   readonly renderer: RendererHandle;
   readonly base: BaseSceneHandle;
-  readonly camera: ArcRotateCamera;
+  readonly camera: ThirdPersonCameraHandle;
+  /** The capsule standing in for the player until Phase 2. */
+  readonly player: PlaceholderTarget;
 }
 
 export interface GameSceneOptions {
@@ -26,6 +37,8 @@ export interface GameSceneOptions {
   readonly render?: Partial<RenderConfig>;
   /** Passed to `createBaseScene` (ground size, sky and fog colours). */
   readonly base?: BaseSceneOptions;
+  /** Passed to `createThirdPersonCamera` (distance, pitch limits, smoothing). */
+  readonly camera?: ThirdPersonCameraSettings;
 }
 
 export async function createGameScene(
@@ -34,20 +47,17 @@ export async function createGameScene(
 ): Promise<GameScene> {
   const renderer = await createRenderer(canvas, options.render);
   const base = createBaseScene(renderer.scene, options.base);
+  const player = createPlaceholderTarget(renderer.scene);
 
-  // Framed for the 100 m ground: far enough out to show the fogged horizon,
-  // aimed slightly above the surface so a player-sized figure would sit in the
-  // middle. Not attached to any input yet — camera control is its own step.
-  const camera = new ArcRotateCamera(
-    'game-camera',
-    -Math.PI / 2,
-    Math.PI / 3,
-    34,
-    new Vector3(0, 1, 0),
-    renderer.scene,
-  );
-  camera.lowerRadiusLimit = 6;
-  camera.upperRadiusLimit = base.options.groundSize * 1.4;
+  const camera = createThirdPersonCamera(renderer.scene, {
+    ...options.camera,
+    // A getter, not the mesh: the camera sees a position and nothing else, so
+    // it never becomes a route from the renderer into gameplay (spec §25).
+    target: player.position,
+  });
+  // Pointer lock, drag-look and the wheel are read from the canvas the game is
+  // drawn on, so the input follows the picture rather than the whole document.
+  camera.attachControl(canvas);
 
-  return { renderer, base, camera };
+  return { renderer, base, camera, player };
 }

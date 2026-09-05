@@ -16,7 +16,13 @@ export {
   type MovementTuning,
   type Transform,
 } from './components.js';
-export { NEUTRAL_INPUT, createInputState, inputEquals, type InputState } from './input.js';
+export {
+  NEUTRAL_INPUT,
+  QUICK_SLOT_COUNT,
+  createInputState,
+  inputEquals,
+  type InputState,
+} from './input.js';
 export { NO_GROUND, flatGround, groundUnder, type GroundQuery } from './ground.js';
 export {
   addEntity,

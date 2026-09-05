@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NEUTRAL_INPUT, createInputState, inputEquals } from './input.js';
+import { NEUTRAL_INPUT, QUICK_SLOT_COUNT, createInputState, inputEquals } from './input.js';
 
 describe('createInputState', () => {
   it('defaults to no movement and no action', () => {
@@ -44,7 +44,37 @@ describe('createInputState', () => {
       'interact',
       'moveX',
       'moveZ',
+      'slot',
       'sprint',
     ]);
+  });
+});
+
+describe('quick slots', () => {
+  it('is 0 by default — 0 means "no slot", not "slot zero"', () => {
+    expect(NEUTRAL_INPUT.slot).toBe(0);
+    expect(createInputState().slot).toBe(0);
+  });
+
+  it('accepts every slot spec §27 binds to the number row', () => {
+    expect(QUICK_SLOT_COUNT).toBe(5);
+    for (let slot = 1; slot <= QUICK_SLOT_COUNT; slot += 1) {
+      expect(createInputState({ slot }).slot).toBe(slot);
+    }
+  });
+
+  it('rejects a slot outside the bound range instead of clamping it', () => {
+    // Clamping would silently fire slot 5 when a rebinding table names slot 9.
+    // A skill firing is not a thing to guess at, so this throws.
+    expect(() => createInputState({ slot: 6 })).toThrow(RangeError);
+    expect(() => createInputState({ slot: -1 })).toThrow(RangeError);
+    expect(() => createInputState({ slot: 1.5 })).toThrow(RangeError);
+    expect(() => createInputState({ slot: Number.NaN })).toThrow(RangeError);
+  });
+
+  it('takes part in the value comparison', () => {
+    expect(inputEquals(createInputState({ slot: 3 }), createInputState({ slot: 3 }))).toBe(true);
+    expect(inputEquals(createInputState({ slot: 3 }), createInputState({ slot: 4 }))).toBe(false);
+    expect(inputEquals(createInputState({ slot: 1 }), NEUTRAL_INPUT)).toBe(false);
   });
 });

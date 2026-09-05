@@ -15,3 +15,4 @@ change it describes.
 | [0004](0004-world-data-outside-code-validated-with-zod.md)              | World data lives outside the code and is validated with Zod | accepted |
 | [0005](0005-fastify-for-the-api.md)                                     | Fastify for the API service                                 | accepted |
 | [0007](0007-gameplay-state-is-plain-data-systems-are-pure-functions.md) | Gameplay state is plain data, systems are pure functions    | accepted |
+| [0008](0008-the-device-edge-and-the-frame-loop-live-in-apps-game.md)    | The device edge and the frame loop live in apps/game        | accepted |

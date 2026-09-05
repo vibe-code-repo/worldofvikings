@@ -24,6 +24,7 @@ describe('the public surface', () => {
       'MovementSystem',
       'NEUTRAL_INPUT',
       'NO_GROUND',
+      'QUICK_SLOT_COUNT',
       'ZERO_VEC3',
       'addEntity',
       'advance',

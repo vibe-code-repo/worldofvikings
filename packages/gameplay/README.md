@@ -34,8 +34,19 @@ Phase 1 answers it from a flat plane, physics answers it from Havok later
 `createMovement`, `DEFAULT_MOVEMENT_TUNING`.
 
 **Input** — `InputState` (`moveX`, `moveZ`, `sprint`, `dodge`, `interact`,
-`attack`, `block`, derived from the desktop bindings of spec §27),
-`createInputState(overrides)`, `NEUTRAL_INPUT`, `inputEquals`.
+`attack`, `block`, `slot`, derived from the desktop bindings of spec §27),
+`createInputState(overrides)`, `NEUTRAL_INPUT`, `inputEquals`,
+`QUICK_SLOT_COUNT`.
+
+`slot` is the quick slot triggered this tick — `1`–`QUICK_SLOT_COUNT`, or `0`
+for none. One number rather than five booleans, because a slot activation is
+exclusive. The axes are clamped into `[-1, 1]`; an out-of-range `slot` throws
+instead, because firing the wrong skill is worse than refusing to fire one.
+
+Who produces an `InputState` is not this package's business. `apps/game` maps
+keyboard and mouse onto it through a rebindable table
+([ADR-0008](../../docs/adr/0008-the-device-edge-and-the-frame-loop-live-in-apps-game.md)),
+and a gamepad or a replay file can produce the same record later.
 
 **Ground** — `GroundQuery`, `flatGround(height)`, `NO_GROUND`,
 `groundUnder(ground, position)`.

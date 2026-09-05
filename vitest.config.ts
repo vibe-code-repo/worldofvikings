@@ -27,6 +27,9 @@ export default defineConfig({
       'apps/*/src/**/*.test.ts',
       'packages/*/src/**/*.test.ts',
       'services/*/src/**/*.test.ts',
+      // The asset server's routing lives in tooling and is the one decision
+      // there that fails silently rather than loudly (ADR-0015).
+      'tooling/**/*.test.ts',
     ],
     reporters: ['default'],
   },

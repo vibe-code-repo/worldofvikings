@@ -43,7 +43,7 @@ import {
   type Transform,
   type WorldState,
 } from '@wov/gameplay';
-import { summarizePlacement } from '@wov/asset-system';
+import { summarizeAssetSources, summarizePlacement } from '@wov/asset-system';
 import type { AssetEnv } from '@wov/asset-system';
 import type { PhysicsWorld } from '@wov/physics';
 import { tokens } from '@wov/ui';
@@ -70,10 +70,11 @@ const marker = document.querySelector<HTMLElement>('[data-testid="game-marker"]'
 const status = document.querySelector<HTMLElement>('[data-testid="game-status"]');
 const controls = document.querySelector<HTMLElement>('[data-testid="game-controls"]');
 const assetStatus = document.querySelector<HTMLElement>('[data-testid="game-assets"]');
+const assetSources = document.querySelector<HTMLElement>('[data-testid="game-asset-sources"]');
 
 document.body.style.background = tokens.colorBackground;
 document.body.style.color = tokens.colorText;
-for (const element of [marker, status, controls, assetStatus]) {
+for (const element of [marker, status, controls, assetStatus, assetSources]) {
   if (element) {
     element.style.background = tokens.colorSurface;
     element.style.borderRadius = tokens.radius;
@@ -96,6 +97,17 @@ function setStatus(text: string): void {
 function setAssetStatus(text: string): void {
   if (assetStatus) {
     assetStatus.textContent = text;
+  }
+}
+
+/**
+ * Says how many assets came out of the private store and how many fell back to
+ * a committed placeholder (ADR-0015). Printed even when both are zero: a line
+ * that goes quiet when the store is missing hides the one thing it is for.
+ */
+function setAssetSources(text: string): void {
+  if (assetSources) {
+    assetSources.textContent = text;
   }
 }
 
@@ -227,13 +239,15 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
   // the barrel appearing, not the scene showing up (spec §38).
   void loadEnvironment(renderer.scene, assetEnv).then(
     (result) => {
-      setAssetStatus(summarizePlacement(result));
-      for (const failure of result.failures) {
+      setAssetStatus(summarizePlacement(result.placement));
+      setAssetSources(summarizeAssetSources(result.sources));
+      for (const failure of result.placement.failures) {
         console.error(`asset "${failure.placement.asset}" could not be placed`, failure.error);
       }
     },
     (error: unknown) => {
       setAssetStatus(`assets: loader unavailable — ${describe(error)}`);
+      setAssetSources('assets: source unknown');
     },
   );
 }
@@ -242,6 +256,7 @@ const canvas = document.querySelector<HTMLCanvasElement>('#render-canvas');
 if (!canvas) {
   setStatus('no render canvas found');
   setAssetStatus('assets: no scene to load into');
+  setAssetSources('assets: no scene to load into');
 } else {
   void start(canvas).catch((error: unknown) => {
     // A failing bootstrap must not hide the page: report it instead.

@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { ASSET_KINDS, ASSET_VISIBILITIES, isGeometryKind } from './asset-facts.js';
+import type { AssetVisibility } from './asset-facts.js';
 
 /**
  * The asset manifest: every file the game may download, and where it came from.
@@ -61,28 +63,12 @@ export const AssetHashSchema = z
   .regex(/^sha256-[0-9a-f]{64}$/, 'hash must look like "sha256-<64 lowercase hex characters>"');
 
 /**
- * What an asset *is*, which decides how it is checked.
- *
- * The three geometry kinds are separated because they are normalised
- * differently by the import pipeline and read differently by a human: a `mesh`
- * is one exported model, a `prefab` is an authored hierarchy of several, and a
- * `terrain` is a height field whose origin sits at its own corner.
+ * The Zod views of the two vocabularies. The lists themselves live in
+ * `asset-facts.ts`, which has no Zod in it, so the client can compare against
+ * `'private'` without being able to reach this module (ADR-0012).
  */
-export const ASSET_KINDS = ['mesh', 'prefab', 'terrain', 'texture'] as const;
 export const AssetKindSchema = z.enum(ASSET_KINDS);
-
-/** Kinds that occupy space in the world and therefore have {@link AssetBounds}. */
-const GEOMETRY_KINDS = new Set<AssetKind>(['mesh', 'prefab', 'terrain']);
-
-/**
- * Whether the bytes are in this repository (`public`) or in the private asset
- * store (`private`).
- *
- * This is a *distribution* statement, not a security one: the store is where
- * files sit whose redistribution rights are not settled yet. Clearing an asset
- * for release is a change of this one field plus a copy into `assets/`.
- */
-export const AssetVisibilitySchema = z.enum(['private', 'public']);
+export const AssetVisibilitySchema = z.enum(ASSET_VISIBILITIES);
 
 /**
  * A stable, machine-readable name: lower-case, `-` inside a segment, `/` for
@@ -174,7 +160,7 @@ export const AssetEntrySchema = z
         message: 'a public asset is served as itself and must not carry a placeholder',
       });
     }
-    if (GEOMETRY_KINDS.has(entry.kind)) {
+    if (isGeometryKind(entry.kind)) {
       if (entry.visibility === 'private' && entry.bounds === undefined) {
         context.addIssue({
           code: 'custom',
@@ -206,9 +192,10 @@ export const AssetManifestSchema = z
     message: 'duplicate asset id',
   });
 
-export type AssetKind = z.infer<typeof AssetKindSchema>;
-export type AssetVisibility = z.infer<typeof AssetVisibilitySchema>;
 export type AssetBounds = z.infer<typeof AssetBoundsSchema>;
+// Re-exported so a consumer of the manifest needs one import, not two.
+export { ASSET_KINDS, ASSET_VISIBILITIES } from './asset-facts.js';
+export type { AssetKind, AssetVisibility } from './asset-facts.js';
 export type AssetEntry = z.infer<typeof AssetEntrySchema>;
 export type AssetManifest = z.infer<typeof AssetManifestSchema>;
 

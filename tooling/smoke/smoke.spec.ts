@@ -257,6 +257,13 @@ test('game loads its environment asset over the asset server', async ({ page }) 
   // and the app cannot drift apart. A failed load reads
   // "assets: 0 loaded, 1 failed (…)" and fails here.
   await expect(page.getByTestId('game-assets')).toHaveText('assets: 1 loaded');
+  // Where the bytes came from, not only how many arrived (ADR-0015). The
+  // wording comes from `summarizeAssetSources`, so this and the app cannot
+  // drift apart either. A store that is not mounted reads
+  // "assets: N private, N placeholder" — visible rather than silent.
+  await expect(page.getByTestId('game-asset-sources')).toHaveText(
+    /^assets: \d+ private, \d+ placeholder$/,
+  );
   // The GLB references its texture by a relative path, so a wrongly vendored
   // layout is a second failure mode. Babylon happens to reject the whole load
   // when that file is missing, but a model with an optional side-car would only

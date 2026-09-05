@@ -1,5 +1,5 @@
 {
- "erzeugt": "2026-09-05T02:58:17.863Z",
+ "erzeugt": "2026-09-05T07:59:20.163Z",
  "quelle": "tools/asset-manifest.mjs",
  "anzahl": 225,
  "gemessen": 222,
@@ -2816,7 +2816,7 @@
   "RockVaultArch": {
    "datei": "RockVaultArch.glb",
    "foliage": false,
-   "bytes": 69220,
+   "bytes": 66580,
    "huelle": {
     "min": [
      -1,
@@ -2868,7 +2868,7 @@
   "RockVaultCorner": {
    "datei": "RockVaultCorner.glb",
    "foliage": false,
-   "bytes": 62812,
+   "bytes": 61324,
    "huelle": {
     "min": [
      -1,
@@ -2894,7 +2894,7 @@
   "RockVaultCorridor": {
    "datei": "RockVaultCorridor.glb",
    "foliage": false,
-   "bytes": 66704,
+   "bytes": 62720,
    "huelle": {
     "min": [
      -1,
@@ -3050,7 +3050,7 @@
   "RockVaultJunction": {
    "datei": "RockVaultJunction.glb",
    "foliage": false,
-   "bytes": 39572,
+   "bytes": 38276,
    "huelle": {
     "min": [
      -1,
@@ -3076,7 +3076,7 @@
   "RockVaultStairs": {
    "datei": "RockVaultStairs.glb",
    "foliage": false,
-   "bytes": 154096,
+   "bytes": 142240,
    "huelle": {
     "min": [
      -1,
@@ -3102,7 +3102,7 @@
   "RockVaultWall": {
    "datei": "RockVaultWall.glb",
    "foliage": false,
-   "bytes": 29668,
+   "bytes": 27456,
    "huelle": {
     "min": [
      -1.06,
@@ -3128,7 +3128,7 @@
   "RockVaultWallB": {
    "datei": "RockVaultWallB.glb",
    "foliage": false,
-   "bytes": 28976,
+   "bytes": 28016,
    "huelle": {
     "min": [
      -1.06,
@@ -3154,7 +3154,7 @@
   "RockVaultWallC": {
    "datei": "RockVaultWallC.glb",
    "foliage": false,
-   "bytes": 28472,
+   "bytes": 27632,
    "huelle": {
     "min": [
      -1.06,

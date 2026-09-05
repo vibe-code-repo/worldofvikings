@@ -189,12 +189,19 @@ console.log('\nSichtbarkeit:');
 
 interface Gebaut {
   seite: InstanceType<typeof DungeonSeite>;
+  grundriss: InstanceType<typeof DungeonGrundriss>;
   behaelter: StummelKnoten;
   auftraege: moduleRegistry.ModulBauWunsch[];
+  /** Die Namen, deren Löschung angefordert wurde (E9). */
+  loeschAuftraege: string[];
 }
 let antwortStub: { ok: boolean; message: string; info?: unknown } = {
   ok: true,
   message: 'Gebaut',
+};
+let loeschStub: { ok: boolean; message: string; info?: unknown } = {
+  ok: true,
+  message: 'Entfernt',
 };
 function seiteMit(erlaubt: boolean): Gebaut {
   const behaelter = new StummelKnoten('div');
@@ -204,6 +211,7 @@ function seiteMit(erlaubt: boolean): Gebaut {
     auswahlGeaendert: () => undefined,
   });
   const auftraege: moduleRegistry.ModulBauWunsch[] = [];
+  const loeschAuftraege: string[] = [];
   const seite = new DungeonSeite(
     behaelter as unknown as HTMLElement,
     gr,
@@ -211,11 +219,15 @@ function seiteMit(erlaubt: boolean): Gebaut {
     async (wunsch) => {
       auftraege.push(wunsch);
       return antwortStub as never;
+    },
+    async (name) => {
+      loeschAuftraege.push(name);
+      return loeschStub as never;
     }
   );
   seite.setModuleBuild(erlaubt);
   seite.baue();
-  return { seite, behaelter, auftraege };
+  return { seite, grundriss: gr, behaelter, auftraege, loeschAuftraege };
 }
 const knopfNamens = (b: StummelKnoten, text: string): StummelKnoten | undefined =>
   b.alle().find((k) => k.tag === 'button' && k.textContent === text);
@@ -369,6 +381,138 @@ pruefe(
   !absage.behaelter.text().includes('Seite neu laden'),
   'und die Hinweise zum Nachladen stehen NICHT da — es liegt nichts zum Laden bereit'
 );
+
+
+// ── 10. Die Saal-Liste und der Knopf „Saal löschen" (E9) ─────────────
+//
+// Warum das hier gemessen wird und nicht nur auf dem Server: Der Server
+// entscheidet, OB gelöscht werden darf (zwei Tore, Durchgang über alle
+// Dokumente auf der Platte) — geprüft in `server/test/modulbau-loeschen.ts`.
+// Was er nicht entscheiden kann, ist die letzte Handbreit:
+//
+//  1. Steht überhaupt ein Knopf da, und nur mit Erlaubnis?
+//  2. Schickt er den RICHTIGEN Namen? Ein Knopf, der den falschen Saal
+//     nennt, löscht den falschen Saal — die Antwort sähe gelungen aus.
+//  3. Sagt die Seite hinterher, dass sie neu geladen werden muss? Der
+//     Katalog dieser Seite kennt den Saal noch, und bis zum Neuladen
+//     lehnt der Server jedes Speichern mit „Registry veraltet" ab (E6).
+//  4. Und die einzige Nutzung, die der Server NICHT sehen kann: ein
+//     geöffnetes, noch nicht gespeichertes Dokument, das den Saal
+//     benutzt. Es liegt nicht auf der Platte.
+console.log('\nSaal-Liste (E9):');
+
+const E9_NAME = moduleRegistry.modulName(4, 3, 4);
+moduleRegistry.registerRegistryEntry({
+  kit: moduleRegistry.KIT_NAME,
+  name: E9_NAME,
+  zellenX: 4,
+  zellenZ: 3,
+  pfeilerRaster: 4,
+  gewicht: 0.5,
+  tris: moduleRegistry.dreiecke(4, 3, 4),
+  erzeugt: '2026-09-05T00:00:00.000Z',
+});
+
+const ohneListe = seiteMit(false);
+pruefe(
+  knopfNamens(ohneListe.behaelter, 'Saal löschen') === undefined,
+  'ohne dungeons.modulbau gibt es keinen Knopf „Saal löschen"'
+);
+
+const liste = seiteMit(true);
+pruefe(knopfNamens(liste.behaelter, 'Saal löschen') !== undefined, 'mit Erlaubnis steht er da');
+// Gemessen an EINEM Element und nicht am ganzen Text: Name, Masse und
+// Dreiecke stehen auch in der Vorschauzeile des Formulars darüber — eine
+// Prüfung über den Gesamttext wäre schon ohne Liste grün.
+const zeileMit = liste.behaelter.alle().find((k) => k.textContent.startsWith(E9_NAME));
+pruefe(zeileMit !== undefined, `die Liste hat eine Zeile für ${E9_NAME}`);
+pruefe(
+  zeileMit?.textContent.includes(String(moduleRegistry.dreiecke(4, 3, 4))) === true,
+  'sie nennt seine Dreieckszahl',
+  zeileMit?.textContent
+);
+pruefe(zeileMit?.textContent.includes('8 × 6 m') === true, 'und die Masse in Metern');
+
+loeschStub = { ok: true, message: `Entfernt: ${E9_NAME} — 0 Modul(e) verbleiben` };
+knopfNamens(liste.behaelter, 'Saal löschen')!.onclick?.();
+await new Promise((r) => setTimeout(r, 0));
+await new Promise((r) => setTimeout(r, 0));
+pruefe(
+  liste.loeschAuftraege.length === 1 && liste.loeschAuftraege[0] === E9_NAME,
+  'ein Klick schickt genau einen Auftrag — mit dem Namen dieser Zeile',
+  JSON.stringify(liste.loeschAuftraege)
+);
+pruefe(liste.behaelter.text().includes('0 Modul(e) verbleiben'), 'die Antwort steht wörtlich da');
+pruefe(liste.behaelter.text().includes('gelöscht'), 'die Zeile ist als gelöscht gekennzeichnet');
+pruefe(
+  knopfNamens(liste.behaelter, 'Saal löschen') === undefined,
+  'und trägt keinen zweiten Löschknopf mehr'
+);
+pruefe(
+  liste.behaelter.text().includes('Seite neu laden'),
+  'die Seite sagt, dass sie neu geladen werden muss'
+);
+pruefe(
+  liste.behaelter.text().includes('Registry veraltet'),
+  'und WARUM — bis dahin lehnt der Server jedes Speichern ab'
+);
+
+// Eine Absage wird gezeigt, nicht verschluckt — und die Zeile bleibt.
+loeschStub = {
+  ok: false,
+  message: `'${E9_NAME}' wird noch benutzt — 1 Dokument(e): steingrab-7.`,
+};
+const absageL = seiteMit(true);
+knopfNamens(absageL.behaelter, 'Saal löschen')!.onclick?.();
+await new Promise((r) => setTimeout(r, 0));
+await new Promise((r) => setTimeout(r, 0));
+pruefe(
+  absageL.behaelter.text().includes('steingrab-7'),
+  'die Ablehnung des Servers steht mit der Dokument-ID in der Leiste'
+);
+pruefe(
+  knopfNamens(absageL.behaelter, 'Saal löschen') !== undefined,
+  'und der Saal ist noch da — der Knopf auch'
+);
+
+// Der Fall, den der Server nicht sehen kann: Das Dokument im Editor ist
+// noch nicht gespeichert, benutzt den Saal aber. Auf der Platte steht
+// nichts davon; ohne diese Sperre wäre der Saal weg und das Dokument
+// verlöre seinen Raum beim nächsten Speichern — wortlos.
+const offen = seiteMit(true);
+offen.grundriss.setzeDokument({
+  version: 5,
+  id: 'e9-offen',
+  name: 'Offenes Grab',
+  base: moduleRegistry.KIT_NAME,
+  mode: 'custom',
+  seed: 1,
+  zoneSize: 64,
+  layout: {
+    rooms: [
+      {
+        room: E9_NAME,
+        pos: { x: 0, y: 0, z: 0 },
+        rot: { x: 0, y: 0, z: 0, w: 1 },
+        placeOrder: 0,
+        seed: 1,
+      },
+    ],
+    doors: [],
+    props: [],
+  },
+} as never);
+offen.seite.baue();
+const gesperrt = knopfNamens(offen.behaelter, 'Saal löschen');
+pruefe(gesperrt?.disabled === true, 'ein Saal im GEÖFFNETEN Dokument hat einen gesperrten Knopf');
+pruefe(
+  offen.behaelter.text().includes('geöffneten Dokument'),
+  'und der Grund steht daneben — ein gesperrter Knopf ohne Grund ist der schlechteste Zustand'
+);
+gesperrt?.onclick?.();
+await new Promise((r) => setTimeout(r, 0));
+await new Promise((r) => setTimeout(r, 0));
+pruefe(offen.loeschAuftraege.length === 0, 'ein Klick darauf schickt NICHTS');
 
 console.log(fehler === 0 ? '\nAlle Prüfungen bestanden.' : `\n${fehler} Prüfung(en) fehlgeschlagen.`);
 process.exit(fehler === 0 ? 0 : 1);

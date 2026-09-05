@@ -59,7 +59,7 @@ import { abschnitt, auswahl, feld, hinweis, knopf, schalter, zeile } from './dun
 // Das Formular „Neuer Saal" (E8) — eigene Datei, weil es mit dem
 // geöffneten Dokument nichts zu tun hat und diese hier schon 1 200
 // Zeilen misst.
-import { NewHallForm, type HallBuilder } from './DungeonNeuerSaal';
+import { NewHallForm, type HallBuilder, type HallDeleter } from './DungeonNeuerSaal';
 
 export interface DungeonSeiteRueckrufe {
   meldung(text: string, fehler?: boolean): void;
@@ -198,9 +198,11 @@ export class DungeonSeite {
      * Der Bauweg. Nur der DOM-Test speist hier etwas ein; im Browser ist
      * es die kurze Verbindung zum Spielserver.
      */
-    bauer?: HallBuilder
+    bauer?: HallBuilder,
+    /** Der Löschweg (E9). Ebenfalls nur vom DOM-Test eingespeist. */
+    loescher?: HallDeleter
   ) {
-    this.saalFormular = new NewHallForm(() => this.baue(), bauer);
+    this.saalFormular = new NewHallForm(() => this.baue(), bauer, loescher);
   }
 
   /**
@@ -286,6 +288,10 @@ export class DungeonSeite {
     );
 
     this.baueNeuAnlegen(b);
+    // Was das OFFENE Dokument benutzt, weiss nur diese Seite: Der Server
+    // durchsucht beim Löschen die Dokumente auf der Platte, und ein noch
+    // nicht gespeichertes Grab liegt dort nicht.
+    this.saalFormular.setzeOffeneRaeume(doc ? doc.layout.rooms.map((r) => r.room) : []);
     // VOR dem Ausstieg ohne Dokument: Einen Saal zu bauen ist ein eigener
     // Arbeitsgang und hat mit einem geöffneten Grab nichts zu tun. Stünde
     // das Formular erst unter dem Dokumentkopf, müsste man zum Bauen erst

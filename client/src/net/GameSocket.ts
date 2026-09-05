@@ -492,6 +492,22 @@ export class GameSocket {
   }
 
   /**
+   * Editor (E9): einen gebauten Saal wieder entfernen lassen.
+   *
+   * Hier reist — anders als beim Bauen — ein NAME. Das ist kein
+   * Rückschritt hinter die Begründung dort, sondern der Unterschied
+   * zwischen „welchen Saal soll ich bauen?" (das sagen vier Zahlen) und
+   * „welchen soll ich entfernen?" (das kann nur ein Name sagen). Die
+   * Erlaubnisliste dagegen steht auf der Serverseite und läuft, bevor aus
+   * dem Namen ein Pfad oder ein Tabellenschlüssel wird.
+   */
+  sendDungeonModulLoeschen(name: string): void {
+    const w = new BinaryWriter();
+    w.writeString(name);
+    this.sendPacket(PacketType.DungeonModulLoeschen, w.toUint8Array());
+  }
+
+  /**
    * Tageszeit für die ganze Welt setzen (Auswahl im Verbinden-Fenster).
    *
    * @param seconds Sekunden INNERHALB des Tages, also [0, WORLD_TIME_LENGTH).

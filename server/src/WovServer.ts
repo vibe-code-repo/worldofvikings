@@ -79,6 +79,7 @@ import { DungeonManager } from './world/dungeon/DungeonManager.js';
 import {
   GENERIERT_DIR,
   baueModul,
+  deleteModule,
   registryChecksum,
   registryPruefsumme,
 } from './world/dungeon/ModuleBuild.js';
@@ -458,7 +459,7 @@ export class WovServer {
     // gelandet als der Server, der sie mit derselben Config startet.
     this.dungeons = new DungeonManager(
       this.zdos,
-      resolve(this.config.worldsDir, '..', 'dungeons', this.config.worldName),
+      resolve(this.dungeonsWurzel(), this.config.worldName),
       (weltId) => this.instanzWeltAnlegen(weltId),
       (weltId) => this.instanzWeltEntfernen(weltId)
     );
@@ -1670,6 +1671,9 @@ export class WovServer {
       case PacketType.DungeonModulBau:
         this.handleDungeonModulBau(peer, reader);
         break;
+      case PacketType.DungeonModulLoeschen:
+        this.handleDungeonModulLoeschen(peer, reader);
+        break;
     }
   }
 
@@ -1843,6 +1847,66 @@ export class WovServer {
         ? `[Dungeon] '${peer.name}' built module '${antwort.ergebnis.name}' ` +
             `(${antwort.ergebnis.tris} tris, registry ${antwort.ergebnis.pruefsumme})`
         : `[Dungeon] '${peer.name}' — Modulbau abgelehnt: ${antwort.meldung}`
+    );
+  }
+
+
+  /**
+   * Wo die Dungeon-Dokumente ALLER Welten dieser Maschine liegen
+   * (`server/data/dungeons`) — nicht die einer einzelnen.
+   *
+   * Der Unterschied ist der ganze Grund für diese Methode. Der
+   * DungeonManager bekommt den Unterordner SEINER Welt; der Löschweg (E9)
+   * muss eine Ebene höher fragen, weil GLB-Datei und Registry sich alle
+   * Welten teilen. Ein Server auf `dev`, der nur `dev` durchsähe, löschte
+   * ein Modell weg, das `world` benutzt — und erführe davon nie.
+   */
+  private dungeonsWurzel(): string {
+    return resolve(this.config.worldsDir, '..', 'dungeons');
+  }
+
+  /**
+   * Editor: einen gebauten Saal wieder entfernen (E9).
+   *
+   * Wie beim Bauen steht hier KEINE eigene Prüfung: Tore, Namensform,
+   * Bestandsfrage und Reihenfolge des Entfernens liegen vollständig in
+   * `ModuleBuild.deleteModule`. Der Handler übersetzt zwischen Paket und
+   * Funktion und reicht die Dokumentwurzel herein — das Einzige, was der
+   * Bauweg nicht schon kennt.
+   */
+  private handleDungeonModulLoeschen(peer: Peer, reader: Reader): void {
+    const name = reader.readString();
+
+    const antwort = deleteModule(
+      {
+        istAdmin: peer.isAdmin,
+        modulbauErlaubt: this.config.dungeonsModulbau,
+        verzeichnis: this.config.generiertDir,
+        dungeonsWurzel: this.dungeonsWurzel(),
+      },
+      name
+    );
+
+    peer.sendPacketWith(PacketType.DungeonModulLoeschErgebnis, (w) => {
+      w.writeBool(antwort.ok);
+      w.writeString(
+        antwort.ok
+          ? `Entfernt: ${antwort.ergebnis.name}` +
+              `${antwort.ergebnis.dateiEntfernt ? '' : ' (die GLB-Datei fehlte bereits)'} — ` +
+              `${antwort.ergebnis.verbleibend} Modul(e) verbleiben`
+          : antwort.meldung
+      );
+      // Die Zahlen als JSON, aus demselben Grund wie beim Bauergebnis: ein
+      // spaeteres Feld verschoebe sonst den Aufbau eines Pakets, das ein
+      // offener Tab noch kennt.
+      w.writeString(antwort.ok ? JSON.stringify(antwort.ergebnis) : '');
+    });
+
+    console.log(
+      antwort.ok
+        ? `[Dungeon] '${peer.name}' deleted module '${antwort.ergebnis.name}' ` +
+            `(registry ${antwort.ergebnis.pruefsumme}, ${antwort.ergebnis.verbleibend} left)`
+        : `[Dungeon] '${peer.name}' — Modul löschen abgelehnt: ${antwort.meldung}`
     );
   }
 

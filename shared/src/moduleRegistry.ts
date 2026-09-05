@@ -338,6 +338,72 @@ export function registerModule(kitName: string, room: RoomDef): void {
   (EIGENE_MODELLE_SET as Set<string>).add(room.name);
 }
 
+/**
+ * Die Rückseite von {@link registerModule} — ein registriertes Modul aus
+ * allen sechs Nachschlagewerken nehmen (E9).
+ *
+ * ── Warum es diese Funktion überhaupt geben MUSS ─────────────────────
+ * Der Löschpfad könnte sich auf Datei und Registry beschränken und den
+ * laufenden Prozess in Ruhe lassen — „nach dem nächsten Neustart ist er
+ * weg". Das wäre der teuerste Ausgang von allen: Der Server rechnete
+ * seine {@link registryChecksum} weiter ÜBER den gelöschten Saal, jede
+ * frisch geladene Editor-Seite holte die verkürzte Datei und rechnete
+ * eine andere Zahl — und ab da schlüge JEDES Speichern mit „Registry
+ * veraltet — Seite neu laden" fehl, auch das direkt nach dem Neuladen.
+ * Ein Fehler, dessen einziger Ausweg ein Serverneustart ist und der wie
+ * ein Fehler des Editors aussieht.
+ *
+ * ── Warum sie NUR `nurManuell`-Räume anfasst ─────────────────────────
+ * Der Name, der hier ankommt, kommt beim Löschen aus dem NETZ. Die
+ * Namensprüfung des Servers (`Gen_`-Präfix) hält von Hand getippte Räume
+ * schon draussen; diese Klemme hier ist die zweite Tür an derselben
+ * Sache, und sie ist die, die auch bei einem künftigen zweiten Aufrufer
+ * noch zu ist. Was sie verhindert, hätte kein Symptom ausser fehlenden
+ * Räumen in JEDEM Grab des Kits.
+ *
+ * @throws wenn das Kit unbekannt ist, der Raum nicht darin steht oder er
+ *         kein `nurManuell` trägt.
+ */
+export function unregisterModule(kitName: string, roomName: string): void {
+  const kit = DUNGEONS_BY_NAME.get(kitName);
+  if (!kit) {
+    throw new Error(`unregisterModule: Kit '${kitName}' gibt es nicht.`);
+  }
+  const raum = kit.rooms.find((r) => r.name === roomName);
+  if (!raum) {
+    throw new Error(`unregisterModule: '${roomName}' steht nicht im Kit '${kitName}'.`);
+  }
+  if (raum.nurManuell !== true) {
+    throw new Error(
+      `unregisterModule: '${roomName}' trägt kein nurManuell — von Hand getippte Räume ` +
+        `des Kits werden auf diesem Weg nie entfernt.`
+    );
+  }
+
+  // ── Ab hier wird ausgetragen, und nichts davon kann mehr scheitern ──
+  //
+  // Dieselben sechs Stellen wie in `registerModule`, in derselben
+  // Reihenfolge — und dieselbe Begründung für die Umtypisierungen: Genau
+  // eine Stelle darf diese Karten füllen, und genau eine darf sie leeren.
+  const iRaum = (kit.rooms as RoomDef[]).indexOf(raum);
+  (kit.rooms as RoomDef[]).splice(iRaum, 1);
+  (ROOMS_BY_HASH as Map<number, RoomDef>).delete(raum.hash);
+  (KIT_BY_ROOM_HASH as Map<number, DungeonDef>).delete(raum.hash);
+  (KIT_BY_PREFAB_HASH as Map<number, DungeonDef>).delete(raum.hash);
+
+  const iPrefab = PREFAB_DEFS.findIndex((p) => p.name === roomName);
+  if (iPrefab >= 0) PREFAB_DEFS.splice(iPrefab, 1);
+  (PREFABS_BY_HASH as Map<number, PrefabDef>).delete(raum.hash);
+  (PREFABS_BY_NAME as Map<string, PrefabDef>).delete(roomName);
+
+  // LISTE und MENGE — aus demselben Grund wie beim Eintragen: Die Menge
+  // entsteht einmal beim Import aus dem Array, ein späteres `delete`
+  // erreicht das Array nicht und ein späteres `splice` nicht die Menge.
+  const iEigen = (EIGENE_MODELLE as string[]).indexOf(roomName);
+  if (iEigen >= 0) (EIGENE_MODELLE as string[]).splice(iEigen, 1);
+  (EIGENE_MODELLE_SET as Set<string>).delete(roomName);
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // E6 — Die Registry als Datei, und die eine Zahl, die beide Seiten
 //      miteinander vergleichen.
@@ -723,6 +789,27 @@ export function registerRegistryEntry(m: RegistryModul): void {
   if (grund) throw new Error(grund);
   registerModule(m.kit, roomDefForHall(m.name, m.zellenX, m.zellenZ, m.gewicht));
   REGISTRIERT.push(m);
+}
+
+/**
+ * Einen Registry-Eintrag wieder austragen — die Rückseite von
+ * {@link registerRegistryEntry} (E9).
+ *
+ * Der Vermerk in `REGISTRIERT` ist zugleich die ERLAUBNISLISTE: Entfernt
+ * wird nur, was auf diesem Weg hereingekommen ist. Ein Name, den dieser
+ * Prozess nie registriert hat, führt zu `false` und nicht zu einem
+ * Zugriff auf die Nachschlagewerke — dort stünde sonst ein von Hand
+ * getippter Raum des Kits, und der geht diesen Weg nie.
+ *
+ * @returns ob etwas ausgetragen wurde.
+ */
+export function removeRegistryEntry(name: string): boolean {
+  const i = REGISTRIERT.findIndex((m) => m.name === name);
+  if (i < 0) return false;
+  const eintrag = REGISTRIERT[i]!;
+  unregisterModule(eintrag.kit, eintrag.name);
+  REGISTRIERT.splice(i, 1);
+  return true;
 }
 
 export interface RegistryLadeErgebnis {

@@ -61,10 +61,19 @@
  * a size-derived immutable name, GLB + registry on disk, and the
  * registration into the runtime lookups.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { getStableHash } from '@wov/shared/src/hash.js';
 import { HEIGHT_M, buildHall } from '@wov/shared/src/hallenGeometrie.js';
 import {
   CELLS_MAX,
@@ -89,6 +98,7 @@ import {
   pruefeName,
   pruefeRegistryEintrag,
   registerRegistryEntry,
+  removeRegistryEntry,
   registryChecksum,
   registryPruefsumme,
   type ModulBauWunsch,
@@ -351,6 +361,260 @@ export function baueModul(kontext: ModulBauKontext, wunsch: ModulBauWunsch): Mod
       sizeZ: geometrie.sizeZ,
       datei: `${name}.glb`,
       pruefsumme,
+    },
+  };
+}
+
+// ── Löschen (E9) ────────────────────────────────────────────────────────
+/*
+  Löschen ist der gefährlichere der beiden Wege, und zwar aus drei
+  Gründen, die alle NICHT am Löschen selbst hängen:
+
+  (1) Der Name kommt aus dem NETZ. Beim Bauen bildet ihn der Server aus
+      vier Zahlen; hier schickt ihn der Client. Er wird zu einem
+      Dateipfad UND zu einem Schlüssel in die Raumtabellen des laufenden
+      Prozesses — die erste Zeichenkette dieses Projekts, die beides ist.
+
+  (2) Ein fehlender Raum hat kein Symptom. `sanitizeDungeonDocument`
+      verwirft unbekannte Räume WORTLOS. Ein Saal, der verschwindet,
+      während ein Grab ihn benutzt, wird nicht zu einer Meldung, sondern
+      zu einem Loch im Boden — beim nächsten Speichern dieses Dokuments,
+      Tage später, durch jemand anderen.
+
+  (3) Die Frage „benutzt ihn jemand?" ist auf der PLATTE zu stellen, nicht
+      im Prozess. Ein Server kennt genau eine Welt (`dungeonsDir` ist
+      `data/dungeons/<welt>`); die GLB-Datei und die Registry teilen sich
+      ALLE Welten dieser Maschine. Wer nur die eigene Welt fragt, löscht
+      auf `dev` ein Modell weg, das `world` benutzt.
+*/
+
+/** Wie tief unter der Dokumentwurzel gesucht wird. */
+const SCAN_TIEFE = 3;
+
+/**
+ * Beim Löschen zusätzlich zu den beiden Toren: wo die Dokumente ALLER
+ * Welten liegen (`server/data/dungeons`), nicht die einer einzelnen.
+ */
+export interface ModuleDeleteContext extends ModulBauKontext {
+  readonly dungeonsWurzel: string;
+}
+
+export interface ModuleDeleteResult {
+  readonly name: string;
+  readonly datei: string;
+  /** Lag die GLB-Datei überhaupt noch da? (Ein zweiter Anlauf räumt nur noch den Eintrag.) */
+  readonly dateiEntfernt: boolean;
+  readonly pruefsumme: string;
+  readonly verbleibend: number;
+}
+
+export type ModuleDeleteAnswer =
+  | { readonly ok: true; readonly ergebnis: ModuleDeleteResult }
+  | { readonly ok: false; readonly meldung: string };
+
+/** Alle `*.json` unter der Wurzel, begrenzt tief. */
+function jsonDateien(wurzel: string, tiefe = SCAN_TIEFE): string[] {
+  if (tiefe < 0 || !existsSync(wurzel)) return [];
+  const raus: string[] = [];
+  for (const eintrag of readdirSync(wurzel, { withFileTypes: true })) {
+    const pfad = join(wurzel, eintrag.name);
+    // `isDirectory()` ist bei einem Symlink FALSE — der Baum wird also
+    // nicht über eine Verknüpfung verlassen, und eine Schleife gibt es
+    // schon deshalb nicht.
+    if (eintrag.isDirectory()) raus.push(...jsonDateien(pfad, tiefe - 1));
+    else if (eintrag.isFile() && eintrag.name.endsWith('.json')) raus.push(pfad);
+  }
+  return raus;
+}
+
+/**
+ * Schlüssel, unter denen eine ZAHL ein Raum- oder Prefab-Hash sein kann.
+ *
+ * Die Einschränkung auf Namen ist keine Sparsamkeit, sondern eine
+ * Vermeidung falscher Treffer: `seed` ist im Dokument eine zufällige
+ * 32-Bit-Zahl und träfe irgendwann jeden Hash. Ein falscher Treffer wäre
+ * hier zwar die harmlose Richtung (es wird NICHT gelöscht), aber eine
+ * Ablehnung, die niemand nachvollziehen kann, ist auch keine.
+ */
+const HASH_SCHLUESSEL = new Set(['room', 'raum', 'hash', 'prefabHash', 'prefabhash', 'roomHash']);
+
+/**
+ * Steht dieser Saal irgendwo in diesem Dokument — beim Namen oder beim Hash?
+ *
+ * Bewusst OHNE Formatkenntnis: Unter `data/dungeons` liegen zwei Formate
+ * nebeneinander (1.x und 2.0, unterschieden erst am Feld `version`), und
+ * ein Sucher, der nur eines von beiden kennt, übersähe das andere STILL.
+ * Ein struktureller Durchgang kann das nicht — er irrt höchstens in die
+ * sichere Richtung.
+ */
+function nenntRaum(wert: unknown, name: string, hash: number): boolean {
+  if (typeof wert === 'string') return wert === name;
+  if (Array.isArray(wert)) return wert.some((v) => nenntRaum(v, name, hash));
+  if (wert && typeof wert === 'object') {
+    for (const [schluessel, v] of Object.entries(wert as Record<string, unknown>)) {
+      if (typeof v === 'number' && v === hash && HASH_SCHLUESSEL.has(schluessel)) return true;
+      if (nenntRaum(v, name, hash)) return true;
+    }
+  }
+  return false;
+}
+
+export interface RaumNutzung {
+  /** IDs der Dokumente, die den Saal führen. */
+  readonly dokumente: string[];
+  /** Dateien, über die sich NICHTS sagen lässt — sie zählen wie eine Nutzung. */
+  readonly unlesbar: string[];
+}
+
+/**
+ * Welche Dokumente unter der Wurzel führen diesen Saal?
+ *
+ * Ein unlesbares Dokument ist KEIN Freibrief: „Ich konnte nicht
+ * nachsehen" heisst nicht „es benutzt ihn nicht". Es wandert deshalb in
+ * `unlesbar` und blockt genauso — mit Nennung der Datei, damit die
+ * Ablehnung eine Handlung nahelegt statt eines Rätsels.
+ */
+export function documentsUsingRoom(wurzel: string, name: string): RaumNutzung {
+  const hash = getStableHash(name);
+  const dokumente: string[] = [];
+  const unlesbar: string[] = [];
+  for (const pfad of jsonDateien(wurzel)) {
+    const datei = pfad.slice(wurzel.length + 1);
+    if (pfad.endsWith('entrances.json')) continue;
+    let roh: unknown;
+    try {
+      roh = JSON.parse(readFileSync(pfad, 'utf8'));
+    } catch {
+      unlesbar.push(datei);
+      continue;
+    }
+    if (!nenntRaum(roh, name, hash)) continue;
+    const id = (roh as { id?: unknown })?.id;
+    dokumente.push(typeof id === 'string' && id.length > 0 ? id : datei);
+  }
+  return { dokumente, unlesbar };
+}
+
+/**
+ * Gebuchte Eingänge dieses Kits, deren Dokument es noch NICHT gibt.
+ *
+ * Ein Eingang trägt ein Rezept (Kit + Seed); das Dokument entsteht erst
+ * beim ersten Betreten (`DungeonManager.getOrCreateInstance`). Solange es
+ * nicht auf der Platte liegt, kann {@link documentsUsingRoom} nichts über
+ * es aussagen — sie sieht nur, was geschrieben ist. Deshalb blockt ein
+ * solcher Eingang, und zwar konservativ für das ganze KIT: Was in einem
+ * künftigen Wurf steht, weiss heute niemand.
+ *
+ * Eingänge OHNE `base` bleiben aussen vor, und das ist nachgesehen statt
+ * angenommen: `assignEntrance` löscht das Rezept genau dann, wenn es auf
+ * ein VORHANDENES Dokument zeigt, und `deleteDocument` nimmt die Eingänge
+ * eines gelöschten Dokuments mit. Ein Eingang ohne Rezept hat sein
+ * Dokument also auf der Platte — und damit im Durchgang oben.
+ */
+export function pendingEntrances(wurzel: string, kit: string): string[] {
+  const offen: string[] = [];
+  for (const pfad of jsonDateien(wurzel)) {
+    if (!pfad.endsWith('entrances.json')) continue;
+    const ordner = dirname(pfad);
+    let roh: { entries?: unknown } | null = null;
+    try {
+      roh = JSON.parse(readFileSync(pfad, 'utf8')) as { entries?: unknown };
+    } catch {
+      // Eine unlesbare Eingangsliste ist KEIN Grund, das Löschen zu
+      // verhindern: Sie sagt nichts über Räume, nur über Zonen — und der
+      // Server selbst behandelt sie beim Start genauso (Warnung, weiter).
+      continue;
+    }
+    for (const e of Array.isArray(roh?.entries) ? (roh.entries as Record<string, unknown>[]) : []) {
+      if (e?.base !== kit || typeof e?.dungeonId !== 'string') continue;
+      if (existsSync(join(ordner, `${e.dungeonId}.json`))) continue;
+      offen.push(`${e.dungeonId} (${ordner.slice(wurzel.length + 1) || '.'})`);
+    }
+  }
+  return offen;
+}
+
+/**
+ * Einen gebauten Saal wieder entfernen — Datei, Registry, Prozess.
+ *
+ * Reihenfolge der Prüfungen wie beim Bauen: erst die beiden Tore, dann
+ * der Name, dann die Registry, dann der Bestand. Erst danach wird
+ * angefasst.
+ *
+ * Reihenfolge des ENTFERNENS ist die umgekehrte Frage, und sie ist
+ * gewählt, nicht geraten: Datei → Registry → Prozess. Bricht der Server
+ * dazwischen ab, bleibt ein Registry-Eintrag ohne GLB stehen — und den
+ * meldet `ladeModulRegistrierung` beim nächsten Start bereits als
+ * Warnung, mit Namen. Ein zweiter Löschgang räumt ihn zu Ende. Andersherum
+ * bliebe eine GLB-Datei ohne Eintrag liegen: still, von keiner Meldung
+ * erwähnt — und sie sperrte den Namen für immer, weil `baueModul` eine
+ * vorhandene Datei als „schon gebaut" ablehnt.
+ */
+export function deleteModule(kontext: ModuleDeleteContext, name: string): ModuleDeleteAnswer {
+  const nein = (meldung: string): ModuleDeleteAnswer => ({ ok: false, meldung });
+
+  if (!kontext.istAdmin) return nein('Keine Berechtigung');
+  if (!kontext.modulbauErlaubt) {
+    return nein('Modulbau ist ausgeschaltet (server.yml: dungeons.modulbau).');
+  }
+
+  // Der Name, BEVOR aus ihm ein Pfad oder ein Tabellenschlüssel wird.
+  // Dieselbe Erlaubnisliste wie beim Bauen — und hier ist sie keine
+  // Formsache: Sie ist es, die `StoneVaultHall` draussen hält.
+  const grund = pruefeName(name);
+  if (grund) return nein(grund);
+
+  const stand = leseRegistry(kontext.verzeichnis);
+  const eintrag = stand.module.find((m) => m.name === name);
+  if (!eintrag) {
+    return nein(`Die Registry kennt '${name}' nicht — es gibt nichts zu löschen.`);
+  }
+
+  const nutzung = documentsUsingRoom(kontext.dungeonsWurzel, name);
+  if (nutzung.dokumente.length > 0) {
+    return nein(
+      `'${name}' wird noch benutzt — ${nutzung.dokumente.length} Dokument(e): ` +
+        `${nutzung.dokumente.join(', ')}. Erst dort den Raum entfernen, dann löschen.`
+    );
+  }
+  if (nutzung.unlesbar.length > 0) {
+    return nein(
+      `Nicht gelöscht: ${nutzung.unlesbar.join(', ')} lässt sich nicht lesen. Solange ` +
+        `unklar ist, ob dort '${name}' steht, bliebe ein Loch im Grab statt einer Meldung.`
+    );
+  }
+
+  const offen = pendingEntrances(kontext.dungeonsWurzel, eintrag.kit);
+  if (offen.length > 0) {
+    return nein(
+      `Nicht gelöscht: ${offen.length} gebuchte(r), nie betretene(r) Eingang(e) des Kits ` +
+        `${eintrag.kit} — ${offen.join(', ')}. Ihre Dokumente entstehen erst beim Betreten; ` +
+        `bis dahin lässt sich nicht sagen, ob sie '${name}' benutzen.`
+    );
+  }
+
+  // ── Ab hier wird entfernt ──────────────────────────────────────────
+  const pfad = join(kontext.verzeichnis, `${name}.glb`);
+  const dateiEntfernt = existsSync(pfad);
+  // `force`, weil eine fehlende Datei kein Fehlschlag ist: Genau so sieht
+  // der zweite Anlauf nach einem Abbruch aus, und der soll durchgehen.
+  rmSync(pfad, { force: true });
+
+  const verbleibend = stand.module.filter((m) => m.name !== name);
+  const pruefsumme = schreibeRegistry(kontext.verzeichnis, verbleibend);
+  // Der Prozess zuletzt — und ein `false` ist hier kein Fehler, sondern
+  // der Normalfall eines Servers, der diesen Eintrag beim Start abgelehnt
+  // hatte (kaputte Zeile) und ihn deshalb nie registriert hat.
+  removeRegistryEntry(name);
+
+  return {
+    ok: true,
+    ergebnis: {
+      name,
+      datei: `${name}.glb`,
+      dateiEntfernt,
+      pruefsumme,
+      verbleibend: verbleibend.length,
     },
   };
 }

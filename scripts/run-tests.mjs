@@ -204,6 +204,30 @@ const KERN = [
     the server compares it BEFORE the sanitizer and rejects a stale page.
   */
   ['server', 'test/registry-pruefsumme.ts'],
+  /*
+    E9 — der Loeschpfad. Das Gegenstueck zu E5, und der gefaehrlichere
+    der beiden Wege: Der Name kommt hier AUS DEM NETZ und wird zu einem
+    Dateipfad UND zu einem Schluessel in die Raumtabellen des laufenden
+    Prozesses. Und ein fehlender Raum hat kein Symptom —
+    `sanitizeDungeonDocument` verwirft unbekannte Raeume wortlos, aus
+    einem geloeschten Saal wird also kein Fehler, sondern ein Loch im
+    Grab, Tage spaeter.
+
+    Gemessen werden die beiden Tore, der Namenswaechter (er ist es, der
+    den von Hand getippten `StoneVaultHall` aus dem Kit heraushaelt),
+    der Durchgang ueber ALLE Weltordner unter `data/dungeons` (der
+    laufende Server kennt nur seine eigene Welt, die Registry teilen
+    sich alle), Treffer ueber Namen UND Hash in beiden Dokumentformaten,
+    das unlesbare Dokument als Blocker, der nie betretene Eingang, und
+    zuletzt die Einigkeit von Prozess und Platte nach dem Loeschen.
+
+    Ohne Weiche: schreibt nur in os.tmpdir(), braucht kein `assets/`.
+    Zehntelsekunden.
+
+    E9: the delete path — gates, the name guard, the disk-wide document
+    scan, pending entrances, and process/file agreement afterwards.
+  */
+  ['server', 'test/modulbau-loeschen.ts'],
   // G3 (Modul-Generierung 2.0): Die Abbildung Raster ↔ Welt. Zellmitten
   // liegen auf (2i, 3,5e, 2j−1) — der z-Schluessel ist `round((z+1)/2)`, und
   // diese halbe Zelle Unterschied faellt in keiner Zaehlung auf, weil alle

@@ -41,9 +41,24 @@
  * der richtige Ausgang: Ein Formular, das ohne Server dasteht, verspricht
  * einen Weg, den es nicht gibt.
  *
+ * ── Und die Rückseite: die Saal-Liste (E9) ──────────────────────────
+ * Unter dem Formular steht, was schon gebaut ist — mit einem Knopf „Saal
+ * löschen" je Zeile. Sie steht HIER und nicht im Katalog daneben, weil
+ * sie dieselbe Erlaubnis, dieselbe Registry und denselben kurzen
+ * Verbindungsweg braucht wie das Bauen; im Katalog wäre sie ein zweiter
+ * Ort, der dasselbe Tor noch einmal abfragte.
+ *
+ * Zwei Dinge entscheidet der Server, nicht diese Datei: ob gelöscht
+ * werden darf (zwei Tore) und ob der Saal noch benutzt wird (Durchgang
+ * über alle Dokumente auf der Platte). Eine Frage kann der Server
+ * dagegen NICHT beantworten — ob das GERADE GEÖFFNETE, noch nicht
+ * gespeicherte Dokument den Saal benutzt. Es liegt nicht auf der Platte.
+ * Deshalb sperrt die Liste diese Zeile selbst.
+ *
  * The "new hall" form: four numbers, one button, the game server builds
  * the GLB. Shares its clamps with the server and asks for permission via
- * the ServerConfig flag byte.
+ * the ServerConfig flag byte. E9 adds the list of built halls below it,
+ * with a delete button per row.
  */
 import { PacketType, moduleBuildAllowed, moduleRegistry } from '@wov/shared';
 import { GameSocket, type BinaryReader } from '../net/GameSocket';
@@ -173,6 +188,45 @@ export async function buildHallViaGameServer(
   );
 }
 
+/** Was der Server über den Löschgang meldet. */
+export interface HallDeleteInfo {
+  readonly name: string;
+  readonly verbleibend: number;
+}
+
+export interface HallDeleteAnswer {
+  readonly ok: boolean;
+  readonly message: string;
+  readonly info?: HallDeleteInfo;
+}
+
+/** Der Löschweg. Einspeisbar, damit ihn der DOM-Test ohne Netz fahren kann. */
+export type HallDeleter = (name: string) => Promise<HallDeleteAnswer>;
+
+/**
+ * Einen gebauten Saal entfernen lassen. Wirft nicht; jeder Ausgang ist
+ * eine Antwort — auch „kein Server".
+ */
+export async function deleteHallViaGameServer(name: string): Promise<HallDeleteAnswer> {
+  return eineAntwort<HallDeleteAnswer>(
+    PacketType.DungeonModulLoeschErgebnis,
+    (reader) => {
+      const ok = reader.readBool();
+      const message = reader.readString();
+      const json = reader.readString();
+      let info: HallDeleteInfo | undefined;
+      try {
+        info = json ? (JSON.parse(json) as HallDeleteInfo) : undefined;
+      } catch {
+        info = undefined;
+      }
+      return { ok, message, info };
+    },
+    (grund) => ({ ok: false, message: grund }),
+    (socket) => socket.sendDungeonModulLoeschen(name)
+  );
+}
+
 /**
  * Der Abschnitt „Neuer Saal" in der Dungeon-Seitenleiste.
  *
@@ -194,13 +248,38 @@ export class NewHallForm {
   /** Die letzte Antwort des Servers — sie überlebt den Neuaufbau. */
   private antwort: HallBuildAnswer | null = null;
 
+  /**
+   * Die Räume des GERADE GEÖFFNETEN Dokuments (E9).
+   *
+   * Der Server durchsucht beim Löschen die Dokumente auf der PLATTE. Ein
+   * Grab, das im Editor offen und noch nicht gespeichert ist, steht dort
+   * nicht — es ist die einzige Nutzung, die er nicht sehen kann. Deshalb
+   * sperrt die Liste diese eine Zeile selbst.
+   */
+  private offeneRaeume: readonly string[] = [];
+  /** Was in dieser Sitzung schon gelöscht wurde — die Zeile bleibt stehen. */
+  private readonly geloescht = new Set<string>();
+  /** Der Saal, dessen Löschgang gerade läuft. */
+  private loescht: string | null = null;
+  /** Die letzte Löschantwort des Servers, wörtlich. */
+  private loeschAntwort: HallDeleteAnswer | null = null;
+
   constructor(
     private readonly neuAufbauen: () => void,
-    private readonly bauer: HallBuilder = buildHallViaGameServer
+    private readonly bauer: HallBuilder = buildHallViaGameServer,
+    private readonly loescher: HallDeleter = deleteHallViaGameServer
   ) {}
 
   setzeErlaubt(an: boolean): void {
     this.erlaubt = an;
+  }
+
+  /**
+   * Welche Räume das offene Dokument benutzt — aus `DungeonSeite.baue()`.
+   * Ohne Dokument eine leere Liste; dann sperrt nichts.
+   */
+  setzeOffeneRaeume(namen: readonly string[]): void {
+    this.offeneRaeume = namen;
   }
 
   /**
@@ -370,6 +449,107 @@ export class NewHallForm {
         );
       }
     }
+
+    this.renderListe(b);
+  }
+
+  /**
+   * Die Liste der gebauten Säle mit einem Knopf „Saal löschen" je Zeile.
+   *
+   * Gelesen wird `registeredModules()` — der Stand DIESER Seite, also
+   * genau das, was der Katalog daneben anbietet. Nicht die Datei: Ein
+   * Eintrag, den diese Seite nicht registrieren konnte, steht auch in
+   * keinem Katalog, und ein Löschknopf für etwas Unsichtbares wäre ein
+   * Versprechen ohne Deckung.
+   */
+  private renderListe(b: HTMLElement): void {
+    const module = moduleRegistry.registeredModules();
+    if (module.length === 0) {
+      b.appendChild(hinweis('Gebaute Säle: noch keiner.'));
+      return;
+    }
+
+    b.appendChild(abschnitt('Gebaute Säle'));
+    for (const m of module) {
+      const weg = this.geloescht.has(m.name);
+      const imDokument = this.offeneRaeume.includes(m.name);
+      const zeigt = document.createElement('span');
+      zeigt.style.cssText = `font-size:12px;color:${weg ? '#8a7350' : '#e8d9b8'}`;
+      zeigt.textContent =
+        `${m.name} · ${moduleRegistry.hallSizeM(m.zellenX)} × ` +
+        `${moduleRegistry.hallSizeM(m.zellenZ)} m · ${m.tris} Dreiecke` +
+        `${weg ? ' — gelöscht' : ''}`;
+
+      if (weg) {
+        b.appendChild(zeile(zeigt));
+        continue;
+      }
+      const k = knopf('Saal löschen', () => {
+        void this.loesche(m.name);
+      });
+      // Gesperrt, solange dieser Saal im OFFENEN Dokument steht: Der
+      // Server sieht nur die Platte, und ein ungespeichertes Grab liegt
+      // nicht dort. Ohne diese Sperre wäre der Saal weg und das Dokument
+      // verlöre seinen Raum beim nächsten Speichern — wortlos.
+      const gesperrt = imDokument || this.loescht !== null;
+      k.disabled = gesperrt;
+      k.style.opacity = gesperrt ? '.5' : '1';
+      if (this.loescht === m.name) k.textContent = 'Löscht …';
+      b.appendChild(zeile(zeigt, k));
+      if (imDokument) {
+        b.appendChild(
+          hinweis(
+            `${m.name} steht im geöffneten Dokument — erst dort entfernen. Der Server ` +
+              `durchsucht nur gespeicherte Dokumente.`
+          )
+        );
+      }
+    }
+
+    if (this.loeschAntwort) {
+      const a = document.createElement('div');
+      a.style.cssText = `font-size:12px;line-height:1.6;white-space:pre-line;color:${
+        this.loeschAntwort.ok ? '#9ec888' : '#d08a6a'
+      }`;
+      a.textContent = this.loeschAntwort.message;
+      b.appendChild(a);
+      if (this.loeschAntwort.ok) {
+        b.appendChild(
+          hinweis(
+            'Seite neu laden — der Katalog dieser Seite kennt den Saal noch, und bis dahin ' +
+              'lehnt der Server jedes Speichern mit „Registry veraltet" ab. Auf live ist die ' +
+              'GLB-Datei erst nach `tools/wov-update.sh --assets` fort.'
+          )
+        );
+      }
+    }
+  }
+
+  /**
+   * Einen Saal löschen lassen und die Antwort behalten.
+   *
+   * Der Saal wird hier NICHT aus den Nachschlagewerken dieser Seite
+   * genommen, obwohl die Funktion dafür in `shared` steht. Der Grund ist
+   * das offene Dokument: Es kann den Raum benutzen (der Server sieht nur
+   * die Platte), und ein Grundriss, dem mitten in der Arbeit ein Raumtyp
+   * unter den Füssen weggezogen wird, verlöre ihn beim nächsten
+   * Zeichnen — wortlos. Der richtige Schnitt ist das Neuladen, und die
+   * Prüfsumme aus E6 erzwingt es: Bis dahin lehnt der Server jedes
+   * Speichern ab, statt ein Dokument mit gelöschtem Raum abzulegen.
+   */
+  private async loesche(name: string): Promise<void> {
+    if (this.loescht !== null) return;
+    // Derselbe Gurt wie beim Bauen: `disabled` ist eine Eigenschaft des
+    // Elements, kein Riegel — ein Klick aus einem Skript käme durch.
+    if (this.geloescht.has(name) || this.offeneRaeume.includes(name)) return;
+    this.loescht = name;
+    this.loeschAntwort = null;
+    this.neuAufbauen();
+    const antwort = await this.loescher(name);
+    this.loescht = null;
+    this.loeschAntwort = antwort;
+    if (antwort.ok) this.geloescht.add(name);
+    this.neuAufbauen();
   }
 
   /** Den Auftrag hinausschicken und die Antwort behalten. */

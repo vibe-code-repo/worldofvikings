@@ -142,6 +142,16 @@ export const STANDARD_DROSSEL: ReadonlyMap<PacketType, DrosselKonfiguration> = n
   // länger, um Breite, Tiefe, Raster und Gewicht neu einzustellen.
   [PacketType.DungeonModulBau, { eimergroesse: 1, fuellrateProSekunde: 1 / 10 }],
 
+  // DungeonModulLoeschen (E9) schreibt weniger als ein Bau — eine Datei
+  // weg, die Registry neu —, ist dafür aber der einzige Weg dieses
+  // Projekts, der etwas WEGNIMMT, das Dokumente benutzen könnten. Anders
+  // als beim Bauen ist ein STOSS hier erwünscht: Wer drei Probesäle
+  // gebaut hat, räumt sie in einem Zug wieder weg, und jeder Klick zehn
+  // Sekunden warten zu lassen erzöge niemanden zur Vorsicht, sondern nur
+  // zum Wegklicken. Eimer 3, ein Token je 3 s: Aufräumen von Hand geht
+  // durch, ein Skript, das die Registry leerräumt, nicht.
+  [PacketType.DungeonModulLoeschen, { eimergroesse: 3, fuellrateProSekunde: 1 / 3 }],
+
   // PlayerInput ist der bewusste SONDERFALL: der Client sendet FEST mit
   // 20 Hz (client/src/main.ts, INPUT_SEND_RATE_MS) — das ist keine
   // mögliche Spitzenlast, sondern der Normalbetrieb jedes einzelnen

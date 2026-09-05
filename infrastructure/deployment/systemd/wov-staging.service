@@ -1,0 +1,16 @@
+[Unit]
+Description=World of Vikings 2026 staging dev servers (website/game/editor/api/assets)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/worldofvikings
+Environment=HOME=/root
+EnvironmentFile=/etc/wov-staging.env
+ExecStart=/opt/worldofvikings/infrastructure/deployment/staging-dev.sh
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target

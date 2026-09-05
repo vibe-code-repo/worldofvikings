@@ -274,7 +274,15 @@ export class DungeonSeite {
     for (const k of this.koepfe) {
       const opt = document.createElement('option');
       opt.value = k.id;
-      opt.textContent = `${k.id} — ${k.raeume} Räume, ${k.tueren} Türen${k.deko ? `, ${k.deko} Deko` : ''}`;
+      // E8: Ein Dokument mit unbekannten Räumen lässt sich gar nicht
+      // öffnen (der Betriebsdienst antwortet 422). Das gehört in DIESE
+      // Zeile und nicht erst in die Fehlermeldung danach — sonst sieht
+      // die Auswahl aus, als wäre alles in Ordnung, und die Raumzahl
+      // davor ist kleiner als das, was im Dokument steht.
+      const loch = k.unbekannteRaeume ?? 0;
+      opt.textContent =
+        `${k.id} — ${k.raeume} Räume, ${k.tueren} Türen${k.deko ? `, ${k.deko} Deko` : ''}` +
+        (loch > 0 ? `  ⚠ ${loch} unbekannt` : '');
       if (doc && doc.id === k.id) opt.selected = true;
       wahl.appendChild(opt);
     }

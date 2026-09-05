@@ -77,6 +77,18 @@ import {
 // stillschweigend wegfallen, und dann zeichnete der Grundriss etwas, das
 // es im Spiel nicht gibt.
 import { sanitizeDungeonDocument } from '@wov/shared/src/dungeons.js';
+// E8: die zur Laufzeit gebauten Module (Saele des Kits DG_StoneVault).
+// Direktimport am Barrel vorbei wie eine Zeile hoeher; moduleRegistry.ts
+// zieht nichts aus node herein, der Direktimport ist hier Konsistenz.
+// E8: the runtime-built modules; direct import past the barrel as above.
+import {
+  REGISTRY_DATEI,
+  applyModuleRegistry,
+  leseRegistryAusText,
+  leereRegistry,
+  registeredModules,
+  removeRegistryEntry,
+} from '@wov/shared/src/moduleRegistry.js';
 // AP15.0: derselbe Lese-Grundsatz fuer das 2.0-Format. Direktimport an
 // shared/src/dungeon2/index.ts vorbei, aus demselben Grund wie bei
 // dungeons.js eine Zeile hoeher — nur dass hier NICHTS mitgezogen wird
@@ -122,6 +134,14 @@ const NGINX_SITE = '/etc/nginx/sites-available/wov';
 // G12: derselbe Pfad, den WovServer.schreibeMetriken() befuellt
 // (server/src/main.ts setzt ServerConfig.metrikenDatei genauso).
 const METRIKEN_DATEI = resolve(WURZEL, 'server/data/metriken.json');
+// E8: derselbe Ordner, den der Spielserver als GENERIERT_DIR kennt
+// (server/src/world/dungeon/ModuleBuild.ts: vier Ebenen ueber
+// server/src/world/dungeon, also die Projektwurzel). Wie bei
+// METRIKEN_DATEI ist der Weg dorthin hier ein anderer — dort ein
+// relativer Pfad ab der Moduldatei, hier WOV_WURZEL —, das Ziel muss
+// dasselbe sein. Beide Dienste laufen auf demselben Container im
+// selben Checkout.
+const GENERIERT_ORDNER = resolve(WURZEL, 'assets/generiert');
 
 /** Dienste, die dieser Prozess anfassen darf. Positivliste, keine Freitexte. */
 const ERLAUBTE_DIENSTE = ['wov-server', 'nginx'] as const;
@@ -520,6 +540,100 @@ function metrikenAusgeben(res: ServerResponse): void {
   res.end(puffer);
 }
 
+// ── Modul-Registry (E8) ─────────────────────────────────────────────────
+//
+// ── Der Vorfall ──────────────────────────────────────────────────────
+// `sanitizeDungeonDocument` verwirft unbekannte Raeume WORTLOS
+// (shared/src/dungeons.ts, Kopf: „Unknown rooms are dropped"). Der
+// Spielserver darf das, weil er die zur Laufzeit gebauten Saele beim
+// Start registriert (server/src/main.ts, ladeModulRegistrierung) — fuer
+// ihn ist `Gen_StoneVaultHall4x3` kein unbekannter Raum. Dieser Dienst
+// tat es NICHT: Ein Grab mit 18 Raeumen kam bei ihm mit 17 heraus, der
+// Editor zeichnete ein Loch mit vierzehn offenen Kanten, und das
+// naechste Speichern haette den Saal festgeschrieben.
+//
+// ── Warum je ANFRAGE und nicht beim Start ────────────────────────────
+// Der Spielserver liest die Registry einmal, weil er nach jedem eigenen
+// Bau selbst nachtraegt. Dieser Dienst baut nichts und erfaehrt vom Bau
+// nichts: Ein Saal entsteht im Spielserver-Prozess und schreibt nur die
+// Datei. Ein Lesen beim Start wuerde also genau bis zum ersten neuen
+// Modul stimmen — und danach still wieder falsch liegen. Neu gestartet
+// wird der Betriebsdienst dabei nie; er startet den Spielserver.
+//
+// Billig ist das, weil nur der Zeitstempel der Datei angesehen wird.
+// Erst wenn der sich geaendert hat, wird gelesen und abgeglichen.
+//
+// ── Warum ABGLEICH und nicht nur Nachtragen ──────────────────────────
+// Module verschwinden auch (`deleteModule`, E9). Ein Dienst, der nur
+// nachtraegt, hielte einen geloeschten Saal ewig fuer vorhanden und
+// lieferte ein Dokument als heil aus, das der Spielserver nach seinem
+// naechsten Start nicht mehr bauen kann. `removeRegistryEntry` ist die
+// Rueckseite, die es dafuer braucht.
+//
+// Per-request re-sync of the runtime module registry: the admin service
+// builds nothing and is never restarted, so reading once at start would
+// be right only until the next module is built.
+let registryStempel = '';
+
+function moduleAbgleichen(): void {
+  const pfad = resolve(GENERIERT_ORDNER, REGISTRY_DATEI);
+  let stempel = 'fehlt';
+  if (existsSync(pfad)) {
+    const s = statSync(pfad);
+    stempel = `${s.mtimeMs}:${s.size}`;
+  }
+  if (stempel === registryStempel) return;
+  registryStempel = stempel;
+
+  // Eine unlesbare Datei ist hier eine LEERE Registry und kein Absturz:
+  // Sie ist auf jeder Maschine abwesend, die nie einen Saal gebaut hat.
+  // Was ihr Fehlen NICHT bedeutet, ist „alles in Ordnung" — die
+  // Raumzaehlung weiter unten macht daraus eine Meldung statt eines
+  // stillen Verlusts.
+  const datei = existsSync(pfad) ? leseRegistryAusText(readFileSync(pfad, 'utf8')) : leereRegistry();
+
+  // Erst AUSTRAGEN, dann eintragen. Andersherum liefe ein Saal, dessen
+  // Zuschnitt sich geaendert hat (gleicher Name, andere Zellzahl), in die
+  // Namenssperre von `registerModule` und bliebe auf dem alten Stand.
+  const sollen = new Set(datei.module.map((m) => m.name));
+  for (const m of registeredModules()) {
+    if (!sollen.has(m.name)) removeRegistryEntry(m.name);
+  }
+  const erg = applyModuleRegistry(datei);
+  // Ablehnungen werden LAUT — dieselbe Begruendung wie im Spielserver:
+  // Die Registry ist eine Textdatei neben den GLBs, die ein Mensch
+  // bearbeiten kann, und ein still uebergangener Eintrag ist ein Raum,
+  // den ein Dokument beim naechsten Speichern verliert.
+  for (const zeile of erg.meldungen) console.error(`[Admin/Modulbau] abgelehnt: ${zeile}`);
+  console.log(`[Admin/Modulbau] Registry gelesen: ${erg.geladen} Modul(e) bekannt`);
+}
+
+/**
+ * Wie viele Raeume der Sanitizer verworfen hat — und welche.
+ *
+ * Der ganze Sinn dieses Dienstes ist, dem Editor zu zeigen, was auch der
+ * Spielserver sieht. Bleibt nach dem Abgleich oben trotzdem ein Raum
+ * unbekannt (auf einer Maschine, deren GLB-Bestand hinterherhinkt, oder
+ * nach einem von Hand geloeschten Modul), dann ist die einzige richtige
+ * Antwort eine MELDUNG. Ein Dokument mit einem Loch auszuliefern hiesse,
+ * dem Editor ein Grab zu zeigen, das es nicht gibt — und die E6-Pruefsumme
+ * faengt das beim Speichern NICHT: Sie deckt unbekannte Module ab, nicht
+ * einen Raum, den der Editor nie zu Gesicht bekommen hat.
+ */
+function unbekannteRaeume(roh: unknown, doc: { layout: { rooms: { room: string }[] } }): { anzahl: number; namen: string[] } {
+  const layout = ((roh as Record<string, unknown>)?.layout ?? {}) as Record<string, unknown>;
+  const rohRaeume = Array.isArray(layout.rooms) ? (layout.rooms as Record<string, unknown>[]) : [];
+  const bekannt = new Set(doc.layout.rooms.map((r) => r.room));
+  const namen = [
+    ...new Set(
+      rohRaeume
+        .map((r) => (typeof r?.room === 'string' ? r.room : '?'))
+        .filter((n) => !bekannt.has(n))
+    ),
+  ];
+  return { anzahl: Math.max(0, rohRaeume.length - doc.layout.rooms.length), namen };
+}
+
 // ── Routen ────────────────────────────────────────────────────────────
 
 type Antwort = { code: number; daten: unknown };
@@ -619,6 +733,15 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
       },
     };
   }
+  // E8: Bevor unten ein Dokument durch den Sanitizer geht, muss dieser
+  // Prozess dieselben Module kennen wie der Spielserver — sonst faellt
+  // ein zur Laufzeit gebauter Saal WORTLOS heraus. Die Begruendung, warum
+  // das je Anfrage geschieht und nicht beim Start, steht bei
+  // `moduleAbgleichen`. Der Aufruf steht VOR allen vier Dungeon-Routen
+  // (1.0 und 2.0), damit keine von ihnen ihn vergessen kann.
+  // E8: sync the runtime module registry before any document is sanitized.
+  moduleAbgleichen();
+
   // ── Dungeon-Dokumente (nur lesen) ──
   //
   // Der Karteneditor zeichnet Grundrisse daraus. GESCHRIEBEN wird hier
@@ -639,6 +762,8 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
     }
     const liste: unknown[] = [];
     const kaputt: string[] = [];
+    /** E8: Dokumente, deren Raeume dieser Dienst nicht vollstaendig kennt. */
+    const mitLoch: string[] = [];
     for (const datei of readdirSync(DUNGEON_ORDNER)) {
       if (!datei.endsWith('.json') || datei === 'entrances.json') continue;
       try {
@@ -657,6 +782,14 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
         // Nur der Kopf, nicht das Layout: Ein Dokument mit 50 Raeumen ist
         // schnell 20 kB, und die Liste dient dem Auswaehlen. Das Layout
         // holt der Editor beim Oeffnen einzeln.
+        //
+        // E8: `raeume` bleibt die Zahl der Raeume, die WIRKLICH gebaut
+        // wuerden; `unbekannteRaeume` steht daneben. Die Uebersicht
+        // stillschweigend auf die Rohzahl zu heben waere die zweite Luege
+        // ueber dasselbe Dokument — hier soll sichtbar sein, dass etwas
+        // fehlt, nicht dass alles da ist.
+        const verlust = unbekannteRaeume(roh, doc);
+        if (verlust.anzahl > 0) mitLoch.push(doc.id);
         liste.push({
           id: doc.id,
           name: doc.name,
@@ -666,6 +799,7 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
           raeume: doc.layout.rooms.length,
           tueren: doc.layout.doors.length,
           deko: doc.layout.props.length,
+          unbekannteRaeume: verlust.anzahl,
         });
       } catch {
         kaputt.push(datei);
@@ -678,7 +812,8 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
         ok: true,
         message:
           `${liste.length} Dungeon(s) in Instanz ${INSTANZ}` +
-          (kaputt.length ? `, ${kaputt.length} unlesbar (${kaputt.join(', ')})` : ''),
+          (kaputt.length ? `, ${kaputt.length} unlesbar (${kaputt.join(', ')})` : '') +
+          (mitLoch.length ? `, ${mitLoch.length} mit unbekannten Raeumen (${mitLoch.join(', ')})` : ''),
         instanz: INSTANZ,
         dungeons: liste,
       },
@@ -718,6 +853,32 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
       const kaputt = `${id}.json ist unbrauchbar (Basis, ID oder Raeume ungueltig)`;
       return { code: 422, daten: { ok: false, fehler: kaputt, message: kaputt } };
     }
+    // ── E8: lieber gar nicht oeffnen als mit einem Loch ────────────────
+    //
+    // Nach `moduleAbgleichen` kennt dieser Dienst dieselben Module wie
+    // der Spielserver. Fehlt danach IMMER NOCH ein Raum, dann fehlt er
+    // wirklich — das GLB ist nie angekommen, oder jemand hat den Eintrag
+    // von Hand entfernt. Das Dokument trotzdem auszuliefern, waere der
+    // teuerste aller Ausgaenge: Der Editor zeichnete ein Grab mit einem
+    // Loch, der Benutzer schoebe die Kanten zurecht, und sein Speichern
+    // machte den Verlust dauerhaft. Die E6-Pruefsumme faengt das NICHT —
+    // sie vergleicht die Modulstaende beider Seiten, und die sind sich
+    // hier ja einig: Beide kennen den Saal nicht.
+    //
+    // 422 und nicht 200 mit Warnfeld, weil der Editor sonst entscheiden
+    // muesste, ob er trotzdem oeffnet — und ein Warnfeld, das man
+    // wegklicken kann, wird weggeklickt.
+    //
+    // E8: refuse rather than hand out a document with a hole in it.
+    const verlust = unbekannteRaeume(roh, doc);
+    if (verlust.anzahl > 0) {
+      const loch =
+        `${id}.json nennt ${verlust.anzahl} Raum/Raeume, die dieser Dienst nicht kennt ` +
+        `(${verlust.namen.join(', ')}) — nicht geoeffnet. Sonst zeigte der Editor ein Grab ` +
+        `mit einem Loch und schriebe es beim naechsten Speichern fest. ` +
+        `Fehlt ein gebautes Modul, gehoert es in ${REGISTRY_DATEI}.`;
+      return { code: 422, daten: { ok: false, fehler: loch, message: loch, unbekannteRaeume: verlust.anzahl, namen: verlust.namen } };
+    }
     return {
       code: 200,
       daten: {
@@ -725,6 +886,7 @@ async function behandeln(pfad: string, methode: string, leib: unknown): Promise<
         message: `${doc.id}: ${doc.layout.rooms.length} Raum/Raeume, ${doc.layout.doors.length} Tuer(en), ${doc.layout.props.length} Deko`,
         instanz: INSTANZ,
         dungeon: doc,
+        unbekannteRaeume: 0,
       },
     };
   }

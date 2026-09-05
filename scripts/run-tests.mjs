@@ -708,6 +708,14 @@ const KERN = [
   // statt 400 (Sammel-catch in admin/src/main.ts stuft nur
   // LayoutUngueltig/SyntaxError als Eingabefehler ein). ~1s.
   ['admin', 'test/testwelt-einstellungen.ts'],
+  // E8: der Betriebsdienst und die Modul-Registry. Steht neben den beiden
+  // obigen und nicht in ihnen, weil er eine andere Frage stellt: nicht
+  // „darf diese Anfrage", sondern „sieht dieser Dienst dasselbe wie der
+  // Spielserver". Er haelt den STILLEN Raumverlust fest (18 Raeume rein,
+  // 17 raus) und dazu, dass ein zur Laufzeit gebautes Modul OHNE Neustart
+  // des Dienstes ankommt — und beim Loeschen wieder verschwindet. Braucht
+  // weder Assets noch GPU, ~2 s.
+  ['admin', 'test/modulregistry.ts'],
   // G1-Durchsicht (verwaiste Tests, 20.08.2026): init() ohne start() —
   // kein Port, kein Socket. Haelt getGroundHeight(0,0) gegen den
   // D1-verifizierten Wert UND die Fallphysik-Konvergenz fest, damit ein

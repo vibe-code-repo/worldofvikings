@@ -41,6 +41,18 @@ export interface DungeonKopf {
   raeume: number;
   tueren: number;
   deko: number;
+  /**
+   * E8: Räume, die der Betriebsdienst NICHT kennt — meist ein zur
+   * Laufzeit gebauter Saal, dessen Modul auf dieser Maschine fehlt.
+   *
+   * Steht NEBEN `raeume` und nicht darin: `raeume` bleibt die Zahl, die
+   * wirklich gebaut würde. Ein Dokument mit einer Zahl > 0 lässt sich
+   * gar nicht erst öffnen (der Dienst antwortet 422); die Zahl hier ist
+   * der Grund dafür, bevor jemand darauf klickt.
+   *
+   * Optional, weil ein Betriebsdienst von vor E8 sie nicht schickt.
+   */
+  unbekannteRaeume?: number;
 }
 
 interface ListenAntwort {

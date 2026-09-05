@@ -1,6 +1,7 @@
 # Assets
 
-> Status: **Phase 0** — folders and the local asset server exist; no assets yet.
+> Status: **Phase 1** — folders, the local asset server, the loading/caching
+> asset manager and the manifest check exist; no assets contributed yet.
 
 ## Where assets live
 
@@ -10,6 +11,26 @@ served from `assets.world-of-vikings.com` (spec §37).
 
 Code never hardcodes a host: it resolves references through
 `@wov/asset-system` with `VITE_ASSET_URL`.
+
+## Loading them
+
+`@wov/asset-system` owns loading too. `AssetManager.loadGlb(path)` loads a GLB
+into a Babylon `AssetContainer` and caches it per resolved URL, so placing the
+same model a hundred times costs one request; `instantiate(path)` makes the
+copies. Babylon.js registers no file loader by itself, so the glTF plugin is
+registered explicitly and the registration is covered by a test. See ADR-0006
+and the package README.
+
+## The manifest
+
+`assets/manifest.json` records every file in `assets/` with its size and a
+SHA-256 hash. `pnpm validate:assets` (part of `pnpm validate` and `pnpm check`)
+fails when the folder and the manifest disagree, so a deleted or replaced asset
+is caught in CI rather than in a player's browser. Regenerate it with
+`pnpm validate:assets --write` after changing anything under `assets/`.
+
+The hash is also what immutable, cache-forever production file names will be
+built from (`immutableAssetPath`, §37). Nothing serves those names yet.
 
 ## Formats
 

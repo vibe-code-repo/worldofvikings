@@ -74,7 +74,7 @@ introduced the wrong way round.
 | ------------------- | ------------------------------------------------ |
 | `@wov/shared`       | Framework-free helpers. Dependency-free.         |
 | `@wov/world-schema` | Zod schemas + versioning for all world data.     |
-| `@wov/asset-system` | Asset URL resolution; loading/caching later.     |
+| `@wov/asset-system` | Asset URLs, GLB loading and caching, manifest.   |
 | `@wov/engine`       | Shared renderer layer (Babylon.js from Phase 1). |
 | `@wov/gameplay`     | Gameplay state and systems (from Phase 6).       |
 | `@wov/editor-core`  | Editor-only logic. Forbidden in the game.        |

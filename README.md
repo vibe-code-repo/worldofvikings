@@ -48,7 +48,7 @@ pnpm typecheck   # strict TypeScript everywhere
 pnpm lint        # ESLint + architecture boundary rules
 pnpm format      # Prettier
 pnpm test        # Vitest unit tests
-pnpm validate    # validate content/ against the world schema
+pnpm validate    # validate content/ against the world schema and assets/ against the manifest
 pnpm check       # typecheck + lint + format:check + test + validate
 pnpm smoke       # Playwright: start every app, assert a visible marker
 ```
@@ -71,7 +71,7 @@ world-of-vikings/
 ├── packages/
 │   ├── shared/           # framework-free helpers
 │   ├── world-schema/     # Zod schemas + versioning for world data
-│   ├── asset-system/     # asset URL resolution (loading later)
+│   ├── asset-system/     # asset URLs, GLB loading/caching, manifest
 │   ├── engine/           # shared renderer layer (Babylon.js from Phase 1)
 │   ├── gameplay/         # gameplay state and systems (from Phase 6)
 │   ├── editor-core/      # editor-only logic — forbidden in apps/game

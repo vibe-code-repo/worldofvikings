@@ -22,7 +22,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "validate": "tsx tooling/validators/validate-content.ts",
+    "validate": "pnpm run validate:content && pnpm run validate:assets",
+    "validate:content": "tsx tooling/validators/validate-content.ts",
+    "validate:assets": "tsx tooling/validators/validate-assets.ts",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test && pnpm run validate",
     "smoke": "playwright test --config tooling/smoke/playwright.config.ts"
   },
@@ -30,6 +32,7 @@
     "@eslint/js": "^9.37.0",
     "@playwright/test": "^1.56.0",
     "@types/node": "^22.18.8",
+    "@wov/asset-system": "workspace:*",
     "@wov/world-schema": "workspace:*",
     "concurrently": "^9.2.1",
     "dependency-cruiser": "^17.0.1",

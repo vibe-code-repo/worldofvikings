@@ -1,5 +1,5 @@
 {
- "erzeugt": "2026-09-05T07:59:20.163Z",
+ "erzeugt": "2026-09-05T09:38:41.029Z",
  "quelle": "tools/asset-manifest.mjs",
  "anzahl": 225,
  "gemessen": 222,
@@ -2816,7 +2816,7 @@
   "RockVaultArch": {
    "datei": "RockVaultArch.glb",
    "foliage": false,
-   "bytes": 66580,
+   "bytes": 68692,
    "huelle": {
     "min": [
      -1,
@@ -2832,7 +2832,7 @@
    "breite": 2,
    "hoehe": 3.98,
    "tiefe": 0.3,
-   "dreiecke": 2062,
+   "dreiecke": 2086,
    "materialien": 1,
    "bilder": 0,
    "animationen": [],

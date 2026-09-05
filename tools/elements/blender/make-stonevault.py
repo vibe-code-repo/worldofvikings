@@ -760,11 +760,16 @@ def fels_schicht(bm, lauf, mitte, sgn, lo, hi, lage=0, z0=0.0, z1=HOEHE,
 # Versatz, 8 Reihen): die Kachelung wird IMMER ab -GRID/2 aufgebaut und danach
 # auf [lo, hi] beschnitten. So bleibt die Phase erhalten und das Muster laeuft
 # an der Zellgrenze in die Nachbarzelle weiter.
-def innenwand(bm, lauf, back, relief, lo=-GRID / 2, hi=GRID / 2, lage=0):
+def innenwand(bm, lauf, back, relief, lo=-GRID / 2, hi=GRID / 2, lage=0,
+              ohne_front=False):
     """lauf: 'x' oder 'y' — Achse, entlang der die Wand laeuft (Blender).
     back/relief: Mitte der Rueckplatte bzw. der Reliefschicht auf der Festachse.
     lage: Feldschluessel der Fels-Frontschicht — er unterscheidet MODUL UND
-    WANDSEITE (s. FELD_LAGE). Im Ziegel-Stil bleibt er ohne Wirkung."""
+    WANDSEITE (s. FELD_LAGE). Im Ziegel-Stil bleibt er ohne Wirkung.
+
+    `ohne_front` baut nur den RAHMEN (Rueckplatte, Sockel, Haube). Das
+    Eckmodul braucht das: Dort werden die beiden Frontschichten nicht
+    nebeneinander gelegt, sondern zu EINER Haut vereinigt (s. `ecke()`)."""
     def platte(mitte_lauf, laenge, fest, tiefe, cz, hoehe):
         if lauf == "x":
             box(bm, mitte_lauf, fest, cz, laenge, tiefe, hoehe)
@@ -788,7 +793,9 @@ def innenwand(bm, lauf, back, relief, lo=-GRID / 2, hi=GRID / 2, lage=0):
     if STIL == "fels":
         # Die Reliefschicht liegt hier zur Zellmitte hin: `relief` ist ihre
         # Mitte, `sgn` zeigt von der Rueckplatte weg.
-        fels_schicht(bm, lauf, relief, -1.0 if back > 0 else 1.0, lo, hi, lage=lage)
+        if not ohne_front:
+            fels_schicht(bm, lauf, relief, -1.0 if back > 0 else 1.0,
+                         lo, hi, lage=lage)
         return
 
     bw, fuge = 0.5, 0.02
@@ -843,13 +850,182 @@ def korridor():
     fertig("StoneVaultCorridor", bm)
 
 
+# ── Die Innenecke: EINE Haut statt zweier (05.09.2026) ─────────────────────
+# BEFUND (Mike, Spielbild aus `rock-probe`): „Wo zwei Waende aufeinander-
+# stossen, verlaeuft auch das Relief ineinander — das sieht merkwuerdig aus."
+#
+# Gemessen ist es NICHT eine Durchdringung (0 von 1440 Strahlproben finden
+# Material der anstossenden Wand jenseits der Flucht der durchlaufenden; das
+# ganze Layout `rock-probe` hat ueber alle 55 Modulpaare kein einziges
+# Schnittvolumen ausser 0,74 l am Torbogen). Es ist das GEGENTEIL — ein
+# SCHLITZ:
+#
+#   Die Suedwand endete bei x = 0,70. Das ist die Ebene der GROESSTEN
+#   Vorstands der Westwand. Deren Flaeche liegt im Mittel aber 7,3 cm
+#   dahinter (Median 7,9, p90 12,0, Maximum 15,4 cm — gemessen an der
+#   ausgelieferten `RockVaultCorner.glb`). Also endete der Fels der Suedwand
+#   in einer rasierglatten senkrechten Ebene, und dahinter zog sich die
+#   Westwand ueber die volle Raumhoehe zurueck: eine 3,5 m hohe Kerbe, die
+#   kein Gestein je macht. Das Auge liest sie als „die beiden Reliefs
+#   ueberlagern sich", weil an ihr zwei Felsfelder ohne Uebergang
+#   aneinanderstossen.
+#
+# Was hier dagegen steht: Die Suedwand laeuft mit ihrer Frontschicht bis in
+# die Rueckplatte der Westwand hinein (ECK_FRONT_HI), und beide Haeute
+# werden zu EINEM Koerper VEREINIGT. Danach ist die sichtbare Flaeche die
+# aeussere Huelle beider — der Fels biegt um die Ecke, nichts steht vor
+# etwas anderem, und es gibt keine Ebene mehr, an der er abreisst.
+#
+# Warum eine Vereinigung und keine Gehrung: Eine 45-Grad-Ebene wuerde die
+# beiden Felder auf einer Linie zusammenfuehren, auf der sie verschieden
+# tief stehen — aus dem Schlitz wuerde eine Stufe von derselben
+# Groessenordnung. Nur die Huelle beider kennt an jeder Stelle beide
+# Tiefen.
+#
+# Warum das der GENERATOR nicht merkt: Das Eckmodul traegt seine Ecke in
+# sich. Huellbox, Ursprung, Connectoren und `gridEdges` bleiben, wie sie
+# waren; `DG_RockVault` bleibt ein abgeleitetes Kit, und `DG_StoneVault`
+# wird von keiner Zeile hier beruehrt (der ganze Zweig haengt an
+# STIL == "fels").
+#
+# Warum nur das Eckmodul: Von den drei Innenecken des Kits ist es die
+# einzige mit dem Fehler. Zwei Versiegelungspaneele treffen sich mit beiden
+# Raendern auf dem Randniveau und ergeben eine saubere Kante; ein Paneel
+# gegen die Innenwand eines Korridors ebenso (beides gerendert und
+# nachgesehen, `~/wov-ai/innenecke/vorher/I-paneelecke.png` und
+# `H-korridor-ecke.png`). Nur im Eckmodul stossen zwei FREIE Felsfelder
+# aufeinander, weil dort kein Modulrand zwischen ihnen liegt.
+VEREINIGUNG_GRAD = 1.5         # Winkelgrenze des begrenzten Aufloesers
+                               # nach der Vereinigung (s. `vereinige_front`)
+ECK_FRONT_HI = W_BACK          # 0,94: mitten in der Rueckplatte der Westwand
+                               # — kein Deckel liegt dort koplanar auf einer
+                               # sichtbaren Flaeche, und `an_periodengrenze`
+                               # ist dort falsch, die Randregel greift also
+                               # nicht (kein Randstreifen mitten im Fels).
+
+
+def vereinige_front(bm, a, b):
+    """Zwei Frontschichten (bmesh) zu EINEM Koerper vereinigen und in `bm`
+    ablegen. Boolescher UNION, exakter Loeser.
+
+    Beide Eingaben sind geschlossene Koerper — `felsnetz.frontschicht`
+    bricht sonst ab —, und nur an geschlossenen Koerpern ist eine
+    Vereinigung definiert.
+
+    Die Verschattung (`CAVITY_SCHICHT`) reist als Eckenattribut mit; der
+    exakte Loeser interpoliert sie an den neuen Ecken der Schnittlinie.
+    `fels-cavity.mjs` misst am Ende, ob sie noch streut — wer diese Zeile
+    kaputtmacht, sieht es dort und nicht erst im Spiel.
+    """
+    def objekt(name, quelle):
+        me = bpy.data.meshes.new(name)
+        quelle.to_mesh(me)
+        quelle.free()
+        o = bpy.data.objects.new(name, me)
+        bpy.context.scene.collection.objects.link(o)
+        return o
+
+    oa, ob = objekt("frontA", a), objekt("frontB", b)
+    bpy.ops.object.select_all(action="DESELECT")
+    oa.select_set(True)
+    bpy.context.view_layer.objects.active = oa
+    m = oa.modifiers.new("vereinigen", "BOOLEAN")
+    m.operation = "UNION"
+    m.solver = "EXACT"
+    m.object = ob
+    bpy.ops.object.modifier_apply(modifier=m.name)
+
+    tmp = bmesh.new()
+    tmp.from_mesh(oa.data)
+    # ── Aufraeumen nach dem Loeser ────────────────────────────────────────
+    # Die Schnittlinie zweier rauher Flaechen ist lang, und der exakte
+    # Loeser legt an ihr einen Faecher aus sehr duennen Dreiecken an.
+    # Gemessen ohne diesen Block: 11 736 Dreiecke aus 4124 + 3710, und die
+    # Splitterzahl des Moduls stieg von 327 auf 1140. Der begrenzte
+    # Aufloeser nimmt genau die Kanten weg, die zwischen fast
+    # gleichgerichteten Flaechen liegen — die Form bleibt, der Faecher
+    # geht.
+    bmesh.ops.dissolve_degenerate(tmp, dist=1e-5, edges=tmp.edges[:])
+    bmesh.ops.dissolve_limit(tmp, angle_limit=math.radians(VEREINIGUNG_GRAD),
+                             verts=tmp.verts[:], edges=tmp.edges[:],
+                             delimit={"NORMAL"})
+    bmesh.ops.triangulate(tmp, faces=[f for f in tmp.faces if len(f.verts) > 4])
+    quelle_farbe = tmp.verts.layers.float_color.get(CAVITY_SCHICHT)
+    ziel_farbe = (bm.verts.layers.float_color.get(CAVITY_SCHICHT)
+                  or bm.verts.layers.float_color.new(CAVITY_SCHICHT))
+    tmp.verts.ensure_lookup_table()
+    for i, v in enumerate(tmp.verts):
+        v.index = i
+    neue = []
+    for v in tmp.verts:
+        w = bm.verts.new((v.co.x, v.co.y, v.co.z))
+        if quelle_farbe is not None:
+            c = v[quelle_farbe]
+            # ── Die Alphaspalte wieder auf 1 ──────────────────────────────
+            # An den Ecken der Schnittlinie mischt der Loeser die
+            # Eckenfarbe mit dem Vorgabewert (0,0,0,0) des zweiten
+            # Koerpers. Gemessen am ersten Bau: Alpha bis herunter auf
+            # 0,8066 — und `fels-cavity.mjs` schlaegt darauf rot, zu
+            # Recht: Babylons glTF-Lader schliesst aus einer Alphaspalte
+            # unter 1, dass das Netz Eckentransparenz traegt, und schoebe
+            # das GANZE Fels-Kit in den Alpha-Blend-Pfad.
+            # Weil die Mischung linear ist, steckt in RGB derselbe Faktor;
+            # das Teilen durch Alpha holt die gebackene Verschattung
+            # zurueck, statt sie bloss abzuschneiden.
+            a = c[3]
+            if a > 0.05:
+                w[ziel_farbe] = (min(1.0, c[0] / a), min(1.0, c[1] / a),
+                                 min(1.0, c[2] / a), 1.0)
+            else:
+                w[ziel_farbe] = (1.0, 1.0, 1.0, 1.0)
+        neue.append(w)
+    bm.verts.ensure_lookup_table()
+    offen = 0
+    for f in tmp.faces:
+        try:
+            g = bm.faces.new([neue[v.index] for v in f.verts])
+        except ValueError:
+            # Wie beim einfachen Fall: zwei deckungsgleiche Flaechen, die
+            # der Loeser dort stehen laesst, wo sich zwei Brocken genau
+            # beruehren. Die zweite bringt kein Bild.
+            offen += 1
+            continue
+        g.smooth = f.smooth
+    tris = sum(len(f.verts) - 2 for f in tmp.faces)
+    tmp.free()
+    for o in (oa, ob):
+        bpy.data.objects.remove(o, do_unlink=True)
+    print(f"INNENECKE vereinigt: {tris} Dreiecke, {offen} deckungsgleiche "
+          f"Flaechen weggelassen")
+
+
 def ecke():
     """Waende Sued und West, offen nach Nord (+z) und Ost (+x).
-    Die Westwand laeuft durch, die Suedwand stoesst stumpf an deren Reliefseite
-    -> in der SW-Ecke weder Loch noch doppelte Geometrie."""
+    Die Westwand laeuft durch, die Suedwand stoesst an deren Reliefseite.
+
+    Im Ziegel-Stil stoesst sie stumpf bei x = 0,70 an (unveraendert seit
+    dem 03.09.2026: in der SW-Ecke weder Loch noch doppelte Geometrie).
+    Im Fels-Stil laeuft ihre Frontschicht bis in die Rueckplatte hinein und
+    wird mit der der Westwand VEREINIGT — s. den Block ueber ECK_FRONT_HI.
+    """
     neu()
     bm = bmesh.new()
     boden_decke(bm)
+    if STIL == "fels" and not KOLL_MODUS:
+        # Rahmen beider Waende wie gehabt — Rueckplatte, Sockel und Haube
+        # der Suedwand enden weiter bei x = 0,70, nur die HAUT laeuft durch.
+        innenwand(bm, "y", W_BACK, W_RELIEF, lage=FELD_LAGE["EckeWest"],
+                  ohne_front=True)
+        innenwand(bm, "x", W_BACK, W_RELIEF, hi=W_RELIEF - PROT / 2,
+                  lage=FELD_LAGE["EckeSued"], ohne_front=True)
+        west, sued = bmesh.new(), bmesh.new()
+        fels_schicht(west, "y", W_RELIEF, -1.0, -GRID / 2, GRID / 2,
+                     lage=FELD_LAGE["EckeWest"])
+        fels_schicht(sued, "x", W_RELIEF, -1.0, -GRID / 2, ECK_FRONT_HI,
+                     lage=FELD_LAGE["EckeSued"])
+        vereinige_front(bm, west, sued)
+        fertig("StoneVaultCorner", bm)
+        return
     innenwand(bm, "y", W_BACK, W_RELIEF, lage=FELD_LAGE["EckeWest"])   # West, volle Laenge
     innenwand(bm, "x", W_BACK, W_RELIEF, hi=W_RELIEF - PROT / 2,
               lage=FELD_LAGE["EckeSued"])                          # Sued, bis x=0,70

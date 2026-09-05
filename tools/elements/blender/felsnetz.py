@@ -172,6 +172,37 @@ QUELLE_MIN, QUELLE_MAX = 900, 4000
 # Klüfte.
 GLAETTUNG = 1
 
+# ── Fahnen NACH dem Dezimieren (05.09.2026, Mikes „dunkle Flecken") ────
+# `_glaette` läuft VOR dem Kollaps und nimmt die Messerkanten des
+# Verschmelzens. Der Kollaps macht danach neue: Er zieht eine Ecke auf
+# ihre Nachbarin, und wo drei Flächen fast in einer Ebene lagen, bleibt
+# ein DÜNNES DREIECK stehen, das fast senkrecht auf der Wandfläche steht.
+# Gemessen an der ausgelieferten `RockVaultWall.glb`: 202 Flächen unter
+# 1e-8 m², 210 Nadeln unter 0,1 mm Höhe, 1069 sich selbst schneidende
+# Dreieckspaare — und im Bild rund 80 dunkle Splitter, die im streifenden
+# Licht schwarz werden. Das ist Mikes Befund „scherbenförmige Flecken";
+# es ist kein Loch und keine verkehrte Normale (beides einzeln
+# nachgemessen: 0 Randkanten, 99,86 % der Fläche zeigt in den Raum),
+# sondern Geometrie.
+#
+# Gegenmittel: dieselbe Glättung noch einmal, aber NUR auf den Ecken der
+# verdächtigen Flächen. Eine Fahne erkennt man an zweierlei ZUGLEICH —
+# sie steht fast parallel zur Wandfläche (Normale fast senkrecht zur
+# Tiefenachse) UND sie ist winzig. Eine echte Bruchflanke ist steil, aber
+# nicht winzig; eine echte Kluftwand ist winzig, aber nicht steil. Nur
+# beides zusammen ist ein Splitter des Kollapses.
+# Erkannt wird die Fahne NICHT an ihrer Neigung — eine steile Fläche ist in
+# einem 16,5 cm tiefen Relief das Normalste der Welt (gemessen: 5,3 von
+# 14,9 m² stehen steiler als 80°, das ist die Wand selbst und keine
+# Krankheit). Erkannt wird sie an der SPITZE: einer Ecke, die weit aus der
+# Fläche ihrer eigenen Nachbarn herausragt. Das ist genau, was ein
+# Kantenkollaps hinterlässt, und es ist genau, was ein gewachsener Fels
+# nicht tut.
+FAHNE_SPITZE = 0.035      # 3,5 cm Abstand zur Mitte der Nachbarn; die
+                          # Maschenweite bei 615 Dreiecken je m² liegt bei
+                          # rund 6 cm, eine echte Kante bleibt darunter
+ENTGRATEN = 3             # Durchgänge; jeder zieht die Spitze auf die Mitte
+
 RUECK_EINSTICH = 0.002    # wie in make-stonevault.py: Deckel 2 mm in der Platte
 EPSILON = 1e-9
 
@@ -350,6 +381,61 @@ def _glaette(o, e0, e1, h0, h1, rand_lo, rand_hi, seed):
                               use_axis_x=True, use_axis_y=True, use_axis_z=True)
     bm.to_mesh(o.data)
     bm.free()
+
+
+def _entgrate(o, e0, e1, h0, h1, rand_lo, rand_hi, seed):
+    """Die Splitter des KOLLAPSES wegnehmen (s. FAHNE_GRAD).
+
+    Warum das nicht `_glaette` mit zwei Durchgängen erledigt: Diese
+    Glättung trifft NUR die Ecken der verdächtigen Flächen. Ein zweiter
+    voller Durchgang über alle Ecken kostet die Klüfte — gemessen im
+    Kontaktbogen, dort wurde aus dem Fels eine Düne. Die Splitter sind
+    0,15 % der Fläche; sie brauchen keine Behandlung der übrigen 99,85 %.
+
+    Der Randstreifen bleibt unangetastet — dieselbe Zusage wie in
+    `_glaette`: Wer dort eine Ecke bewegt, reisst die Naht auf.
+
+    Gibt die Zahl der bewegten Ecken zurück, damit der Bau sie meldet.
+    """
+    if ENTGRATEN <= 0:
+        return 0
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    # Nulldreiecke und Nadeln zuerst auflösen: sie sind selbst unsichtbar,
+    # aber sie verfälschen die Mitte der Nachbarn und halten die Spitze,
+    # die daran hängt, an ihrem Platz.
+    bmesh.ops.dissolve_degenerate(bm, dist=1e-5, edges=bm.edges[:])
+    bewegt = 0
+    for _ in range(ENTGRATEN):
+        spitzen = []
+        for v in bm.verts:
+            nach = [e.other_vert(v) for e in v.link_edges]
+            if len(nach) < 3:
+                continue
+            mx = sum(w.co.x for w in nach) / len(nach)
+            my = sum(w.co.y for w in nach) / len(nach)
+            mz = sum(w.co.z for w in nach) / len(nach)
+            d = math.dist((v.co.x, v.co.y, v.co.z), (mx, my, mz))
+            if d <= FAHNE_SPITZE:
+                continue
+            if _randfaktor(v.co.x, v.co.y, e0, e1, h0, h1,
+                           rand_lo, rand_hi, seed) < 1.0:
+                continue      # Randstreifen bleibt, wo er ist (s. `_glaette`)
+            spitzen.append((v, mx, my, mz, d))
+        if not spitzen:
+            break
+        for v, mx, my, mz, d in spitzen:
+            # Nicht auf die Mitte SETZEN, sondern auf den erlaubten Abstand
+            # zurückziehen: eine echte Kante, die knapp darüber liegt,
+            # verliert damit nichts als ihre Überhöhung.
+            t = FAHNE_SPITZE / d
+            v.co.x = mx + (v.co.x - mx) * t
+            v.co.y = my + (v.co.y - my) * t
+            v.co.z = mz + (v.co.z - mz) * t
+        bewegt += len(spitzen)
+    bm.to_mesh(o.data)
+    bm.free()
+    return bewegt
 
 
 def _randklemme(o, e0, e1, h0, h1, prot, hub, rand_lo, rand_hi, seed):
@@ -869,6 +955,13 @@ def frontschicht(lo, hi, z0, z1, prot, hub, seed, lage,
     # Zusammenbau.
     _verdichte(o)
     _flicke(o)
+    # Und JETZT gegen die Fahnen (s. FAHNE_GRAD). Erst hier, ganz am Ende:
+    # Splitter macht nicht nur der Kollaps, sondern auch jeder der sechs
+    # Ebenenschnitte und das Verdichten danach. Gemessen an
+    # `RockVaultWall`: nach dem Dezimieren allein waren es 21 Ecken, am
+    # Ende sind es ein Vielfaches — wer hier zu frueh entgratet, entgratet
+    # etwas anderes als das, was ausgeliefert wird.
+    entgratet = _entgrate(o, e0, e1, h0, h1, rand_lo, rand_hi, seed)
     tris = sum(len(p.vertices) - 2 for p in o.data.polygons)
 
     bm = bmesh.new()
@@ -910,7 +1003,7 @@ def frontschicht(lo, hi, z0, z1, prot, hub, seed, lage,
     print(f"FRONTSCHICHT lage {lage} {e1 - e0:.2f} x {h1 - h0:.2f} m: "
           f"{tris} Dreiecke (Budget {budget}), {len(verts)} Ecken, "
           f"offene Kanten {vor} vor / {nach} nach dem Dezimieren / "
-          f"{offen} am Ende")
+          f"{offen} am Ende, {entgratet} Ecken entgratet")
     if offen:
         raise SystemExit(f"felsnetz: Frontschicht lage {lage} ist offen "
                          f"({offen} Kanten) — der Schnitt hat ein Loch "

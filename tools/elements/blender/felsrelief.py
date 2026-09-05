@@ -369,16 +369,24 @@ _KREUZ = ((0.0, 0.0, 0.36), (-0.5, 0.0, 0.16), (0.5, 0.0, 0.16),
           (0.0, -0.5, 0.16), (0.0, 0.5, 0.16))
 
 # ── Spreizung: warum die Karte NICHT roh in den Hub geht ────────────────
-# Der Mittelungskreuz kostet Kontrast — das ist sein Zweck, aber es hat
-# einen Preis. Über ein volles Paneel gemessen (200 x 120 Punkte,
-# 05.09.2026) liegen die gemittelten Werte zwischen 0,331 und 0,953,
-# während die rohe Karte 0,129 .. 0,994 ausschöpft. Roh übernommen
-# stünde die tiefste Stelle der Wand bei 4,7 cm Rückzug statt bei 7,5 —
-# von 9 cm Reliefdicke wären zwei Drittel ungenutzt, und die steilste
-# Flanke bliebe unter 21 Grad. Die Spreizung holt den Bereich zurück,
-# den die Abtastung gekostet hat, und NICHT mehr: sie ist an gemessenen
-# Grenzen festgemacht, nicht an einem Geschmacksfaktor.
-KARTE_LO, KARTE_HI = 0.175, 0.987
+# Das Mittelungskreuz kostet Kontrast — das ist sein Zweck, aber es hat
+# einen Preis. Die Spreizung holt den Bereich zurück, den die Abtastung
+# gekostet hat, und NICHT mehr: sie ist an GEMESSENEN Grenzen
+# festgemacht, nicht an einem Geschmacksfaktor.
+#
+# Die Zahlen sind am 05.09.2026 an der GEKACHELTEN Karte (Mass B) über
+# acht Feldschlüssel und 3072 Stützstellen bestimmt worden: 1. Perzentil
+# 0,085, 99. Perzentil 0,866, Mittelwert 0,589. `LO`/`HI` liegen dicht
+# an diesen Perzentilen. Was ausserhalb liegt, wird GEKLEMMT, und das ist
+# Absicht: Oben entstehen dadurch ebene Flächen auf der Wandflucht (die
+# Zusage aus Zwang 2 — irgendwo muss Material ganz vorn stehen), unten
+# ebene Kluftgründe. Beides sind Flächen, wie sie ein gebrochener Fels
+# hat; eine Kurve ohne Klemme ergäbe statt dessen überall Wölbung.
+#
+# Die vorige Fassung (0,175 .. 0,987) gehörte zur GESTRECKTEN Karte, die
+# ihre Werte anders verteilt hat. Wer die Karte neu backt, misst diese
+# beiden Zahlen mit nach — sie sind eine Eigenschaft der Datei.
+KARTE_LO, KARTE_HI = 0.080, 0.820
 
 # ── Warum das Kreuz nicht nur MITTELT ──────────────────────────────────
 # Der erste Kontaktbogen mit der Karte (05.09.2026,

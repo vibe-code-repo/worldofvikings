@@ -37,14 +37,43 @@
 #     `…_normal.jpg` (Non-Color), `…_rm.png` (Non-Color, glTF-Kanäle:
 #     G = Roughness, B = Metallic). Eine UV-Lage `UVMap`.
 #
+# ── KACHELN STATT STRECKEN (Mass B, 05.09.2026) ────────────────────────
+# Bis heute wurde der Scan über die GANZE Vorderseite des Modells gelegt
+# und auf 2 × 3,5 m GESTRECKT. Das Modell ist rund 1 × 1 m gross; jeder
+# Brocken wurde damit doppelt so breit und dreieinhalbmal so hoch, seine
+# TIEFE aber nicht — eine 5 cm breite Kluft wurde 10 cm breit und blieb
+# 5 cm tief. Genau das ist Mikes Befund „im Spiel sieht es viel weniger
+# grob aus als im Tripo-Viewer": Die Handschrift war da, nur um den
+# Faktor 2 bis 3,5 verwaschen.
+#
+# Deshalb wird jetzt in ORIGINALGRÖSSE gescannt (eine Kachel von 1 × 1 m)
+# und die Paneelkarte daraus GEKACHELT: 2 Kacheln nebeneinander, 3,5
+# übereinander. Zwei Dinge halten die Wiederholung in Grenzen:
+#
+#   * Jede Kachel bekommt eine eigene ORIENTIERUNG aus der Diedergruppe
+#     des Quadrats (8 Möglichkeiten: spiegeln in x, spiegeln in z,
+#     Vierteldrehung). Zwei benachbarte Kacheln tragen nie dieselbe.
+#   * Die Kacheln überlappen sich um `KACHEL_NAHT` und werden in der
+#     Überlappung ineinander geblendet. Ohne das stünde an jeder
+#     Kachelgrenze eine harte Kante im 1-m-Raster — und ein Gitter aus
+#     1-m-Kanten wäre schlimmer als der verwaschene Fels.
+#
+# Ehrlich dazu: Es bleibt EIN Quadratmeter Gestein, zwölfmal gedreht. Was
+# die Kachelung liefert, ist der MASSSTAB, nicht mehr Material. Mehr
+# Material hiesse ein zweiter Scan.
+#
 # ── Warum welche Auflösung ─────────────────────────────────────────────
-# HÖHENKARTE 512 × 896, 16 Bit. Die Karte hat genau EINEN Verbraucher:
-# `felsrelief.py` tastet sie auf dem 0,125-m-Raster ab — 17 × 25
-# Stützstellen je Wandpaneel. 512 × 896 sind bereits 32 Bildpunkte je
-# Rasterschritt; bei 1024 × 1792 wären es 64, und kein einziges Dreieck
-# mehr. Was 16 Bit dagegen SEHR wohl trägt: 8 Bit auf 9 cm Hub sind
-# 0,35 mm Stufen, und die stehen als Terrassen in der schrägen
-# Bruchfläche. Die Auflösung ist billig, die Bittiefe nicht.
+# HÖHENKARTE 512 × 896, 16 Bit — das bleibt, es ist die Paneelfläche bei
+# 256 Bildpunkten je Meter. `felsrelief.py` tastet sie auf seinem Raster
+# ab (heute 0,0625 m, also 16 Bildpunkte je Rasterschritt). Was 16 Bit
+# trägt: 8 Bit auf 18 cm Hub wären 0,7 mm Stufen, und die stehen als
+# Terrassen in der schrägen Bruchfläche. Die Auflösung ist billig, die
+# Bittiefe nicht.
+#
+# Der SCAN dagegen ist jetzt quadratisch (512 × 512 Strahlen über die
+# Vorderseite des Modells) und damit BILLIGER als die 458 752 von gestern.
+# Die Höhenkachel wird daraus auf 256 × 256 heruntergemittelt (das ist
+# 1 m bei 256 px/m), die Texturen wie bisher auf 1024² gebracht.
 #
 # TEXTUREN 1024², 8 Bit. Sie gehen einen völlig anderen Weg: nicht ins
 # Netz, sondern triplanar ins Steinmaterial
@@ -102,7 +131,14 @@ AUTO = "--auto" in ARGS
 PANEEL_B, PANEEL_H = 2.0, 3.5   # Wandpaneel des Kits
 KARTE_B, KARTE_H = 512, 896     # 512/2,0 = 256 px/m, 896/3,5 = 256 px/m
 TEX = 1024
-TIEFE_MAX = 0.09                # Relieftiefe: PROT im Fels-Stil
+SCAN = 512                      # Strahlen je Achse über die Vorderseite
+KACHEL_M = 1.0                  # Kantenlänge einer Kachel in Metern
+KACHEL = 256                    # ... in Bildpunkten (= 256 px/m)
+KACHEL_NAHT = 20                # Überlappung zweier Kacheln, in Bildpunkten
+                                # (rund 8 cm — schmal genug, dass die
+                                # Überblendung als Kluft liest, breit genug,
+                                # dass keine Kante stehen bleibt)
+TIEFE_MAX = 0.18                # Relieftiefe: PROT im Fels-Stil
 RAND_M = 0.03                   # Randstreifen auf Nullniveau (Nahtregel)
 UEBERBLEND_M = 0.09             # Breite der Überblendung hinter dem Rand
 
@@ -225,6 +261,84 @@ def ueberblende_kachelrand(feld, breite):
     return feld
 
 
+# ── Die acht Lagen einer quadratischen Kachel ──────────────────────────
+# Die Diedergruppe des Quadrats: Spiegeln in x, Spiegeln in z, Drehen um
+# 90 Grad — acht Möglichkeiten, dieselbe Kachel hinzulegen. Sie sind der
+# einzige Vorrat an Verschiedenheit, den EIN Scan hergibt.
+#
+# Warum kein zyklischer VERSATZ dazu: Die Kachel ist nicht in sich
+# kachelbar (sie ist ein Ausschnitt aus einem Fels, keine Textur). Ein
+# Versatz legte deshalb mitten in die Kachel eine Kante — und zwar eine,
+# die keine Überblendung auffängt, weil sie nicht an der Kachelgrenze
+# liegt. Drehen und Spiegeln lassen die Kachel dagegen unversehrt.
+def _lage(kachel, k):
+    a = kachel
+    if k & 1:
+        a = a[:, ::-1]
+    if k & 2:
+        a = a[::-1, :]
+    if k & 4:
+        a = a.T
+    return np.ascontiguousarray(a)
+
+
+def _rampe(n, u):
+    """Fensterfunktion einer Kachelspur: über `u` Punkte auf, über `u` ab.
+
+    Zwei benachbarte Kacheln überlappen sich um genau `u`; dort ist die
+    eine Rampe `t` und die andere `1-t`, die Summe also 1. An den beiden
+    Enden der Spur fehlt der Partner — deshalb wird am Ende durch die
+    aufsummierten Gewichte GETEILT statt sich auf die Summe zu verlassen.
+    """
+    w = np.ones(n, dtype=np.float32)
+    t = np.linspace(0.0, 1.0, u + 2, dtype=np.float32)[1:-1]
+    t = t * t * (3.0 - 2.0 * t)
+    w[:u] = t
+    w[n - u:] = t[::-1]
+    return w
+
+
+def kachel_zu_paneel(scan):
+    """Aus dem quadratischen Scan die Paneelkarte 512 × 896 kacheln.
+
+    Der Scan hat SCAN × SCAN Punkte und deckt EINEN Quadratmeter Fels
+    (Mass B, s. Kopf). Er wird zuerst auf KACHEL × KACHEL gemittelt — das
+    ist dieselbe Bildpunktdichte wie die Paneelkarte (256 px/m), und
+    gemittelt statt gepickt, weil ein herausgegriffener Bildpunkt aus
+    einer 3-cm-Kluft eine Zufallszahl macht.
+
+    Dann werden die Kacheln mit Überlappung `KACHEL_NAHT` und je eigener
+    Lage nebeneinandergelegt; in der Überlappung blenden sie ineinander.
+    """
+    f = SCAN // KACHEL
+    kachel = scan[: KACHEL * f, : KACHEL * f].reshape(KACHEL, f, KACHEL, f).mean(axis=(1, 3))
+    kachel = kachel.astype(np.float32)
+
+    u = KACHEL_NAHT
+    schritt = KACHEL - u
+    nx = max(1, -(-(KARTE_B - u) // schritt))
+    nz = max(1, -(-(KARTE_H - u) // schritt))
+    breit = (nx - 1) * schritt + KACHEL
+    hoch = (nz - 1) * schritt + KACHEL
+    summe = np.zeros((hoch, breit), dtype=np.float32)
+    gewicht = np.zeros((hoch, breit), dtype=np.float32)
+    fenster = _rampe(KACHEL, u)[:, None] * _rampe(KACHEL, u)[None, :]
+    for jz in range(nz):
+        for jx in range(nx):
+            # Die Lage haengt nur an (jx, jz) — kein Zufallsgenerator, damit
+            # ein zweiter Backlauf dieselbe Karte legt. Der Sprung um 3 in x
+            # und 5 in z sorgt dafuer, dass weder waagerechte noch senkrechte
+            # Nachbarn und auch nicht die uebernaechsten dieselbe Lage tragen.
+            k = (3 * jx + 5 * jz) % 8
+            z0, x0 = jz * schritt, jx * schritt
+            summe[z0:z0 + KACHEL, x0:x0 + KACHEL] += _lage(kachel, k) * fenster
+            gewicht[z0:z0 + KACHEL, x0:x0 + KACHEL] += fenster
+    paneel = summe / np.maximum(gewicht, 1e-6)
+    print(f"KACHELN {nx} x {nz} a {KACHEL_M:.1f} m, Naht {u} Punkte "
+          f"({u / KACHEL * KACHEL_M * 100:.0f} cm), Rohflaeche {breit}x{hoch}")
+    return paneel[:KARTE_H, :KARTE_B]
+
+
 def main():
     netz = lade()
     netz.data.calc_loop_triangles()
@@ -257,7 +371,7 @@ def main():
     # Ein Punkt je Bildpunkt der HÖHENKARTE; die Texturen entstehen aus
     # demselben Scan (quadratisch nachgerechnet, s. u.), damit Farbe und
     # Form garantiert derselben Stelle des Gesteins entstammen.
-    nb, nh = KARTE_B, KARTE_H
+    nb = nh = SCAN
     start_y = mn.y - 1.0 if FRONT < 0 else mx.y + 1.0
     richtung = Vector((0.0, 1.0 if FRONT < 0 else -1.0, 0.0))
     weite = (mx.y - mn.y) + 2.0
@@ -298,7 +412,7 @@ def main():
             # Wand heraus. Die Vorderseite ist -y, also zeigt +Z der Karte
             # auf -y der Welt: FRONT * fn.y.
             nrm[iz, ix] = (fn.x, fn.z, FRONT * fn.y)
-        if iz % 128 == 0:
+        if iz % 64 == 0:
             print(f"  Zeile {iz}/{nh}")
     print(f"STRAHLEN fehl={fehl} von {nb*nh}")
 
@@ -307,10 +421,15 @@ def main():
     d0, d1 = float(tiefe[gueltig].min()), float(tiefe[gueltig].max())
     hoehe = np.where(gueltig, 1.0 - (tiefe - d0) / max(1e-6, d1 - d0), 0.0)
     print(f"TIEFE roh {d0:.3f} .. {d1:.3f} Einheiten "
-          f"(Spanne {(d1-d0):.3f} = {(d1-d0)/(mx.x-mn.x)*PANEEL_B*100:.1f} cm "
-          f"auf 2 m Paneelbreite ohne Klemme)")
+          f"(Spanne {(d1-d0):.3f} = {(d1-d0)/(mx.x-mn.x)*KACHEL_M*100:.1f} cm "
+          f"auf {KACHEL_M:.0f} m Kachelbreite, also in Originalgroesse)")
 
-    # ── Schritt 4: Randstreifen und Überblendung ───────────────────────
+    # ── Schritt 4a: aus der Kachel die Paneelkarte legen ───────────────
+    hoehe_kachel = hoehe
+    hoehe = kachel_zu_paneel(hoehe)
+    nb, nh = KARTE_B, KARTE_H
+
+    # ── Schritt 4b: Randstreifen und Überblendung ──────────────────────
     # Die Karte ist die Vorlage EINES Paneels von 2 × 3,5 m. `felsrelief.py`
     # setzt den eigentlichen Nahtschluss (Randniveau, 0,125-m-Raster); was
     # die Karte beisteuert, ist ein Rand, der schon in der Vorlage auf
@@ -366,19 +485,21 @@ def main():
     # z 1,75-mal feiner beprobt als in x (896 auf 3,5 m gegen 512 auf 2 m
     # — beide 256 px/m), das Verhältnis der Quelle ist dagegen quadratisch.
     def quadrat(feld):
-        zi = (np.arange(TEX) * (nh / TEX)).astype(int)
-        xi = (np.arange(TEX) * (nb / TEX)).astype(int)
+        zi = (np.arange(TEX) * (SCAN / TEX)).astype(int)
+        xi = (np.arange(TEX) * (SCAN / TEX)).astype(int)
         return feld[zi][:, xi]
 
     alb_q = ueberblende_kachelrand(quadrat(alb).copy(), TEX // 12)
     rau_q = ueberblende_kachelrand(quadrat(rau).copy(), TEX // 12)
     nrm_q = quadrat(nrm).copy()
 
-    # Detail-Normale: Gradient des (auf Texturmass gebrachten) Höhenfeldes
-    # abziehen — den trägt das Netz schon.
-    h_q = quadrat(hoehe).astype(np.float32)
-    gx = np.gradient(h_q, axis=1) * (TEX / PANEEL_B) * TIEFE_MAX
-    gz = np.gradient(h_q, axis=0) * (TEX / PANEEL_H) * TIEFE_MAX
+    # Detail-Normale: Gradient des Höhenfeldes abziehen — den trägt das
+    # Netz schon. Gerechnet wird auf der KACHEL, nicht auf der
+    # Paneelkarte: Die Textur ist quadratisch und deckt einen
+    # Quadratmeter, das Höhenfeld hier also ebenfalls.
+    h_q = quadrat(hoehe_kachel).astype(np.float32)
+    gx = np.gradient(h_q, axis=1) * (TEX / KACHEL_M) * TIEFE_MAX
+    gz = np.gradient(h_q, axis=0) * (TEX / KACHEL_M) * TIEFE_MAX
     # Die Normale steht der Steigung ENTGEGEN: bei nach rechts steigender
     # Hoehe kippt sie nach links. Deshalb minus.
     nrm_q[:, :, 0] -= gx

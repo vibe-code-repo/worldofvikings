@@ -85,7 +85,14 @@ check('KIT_DERIVATIONS ist nicht leer', KIT_DERIVATIONS.length > 0, `${KIT_DERIV
 for (const { stem: stammKit, derived: kit } of KIT_DERIVATIONS) {
   const a = DUNGEONS_BY_NAME.get(stammKit);
   const b = DUNGEONS_BY_NAME.get(kit);
-  const erwartet = (a?.rooms.length ?? 0) + (a?.doorTypes.length ?? 0);
+  /*
+    Erwartet wird die Zahl der Module in der ABLEITUNG, nicht im Stamm:
+    Seit dem 05.09.2026 hat `DG_RockVault` zwei Räume mehr als sein Stamm
+    (die Wandvarianten `RockVaultWallB`/`...C`, s. `FELS_WAND_VARIANTEN`).
+    Die Frage dieser Prüfung ist unverändert „hat JEDES Modul der Ableitung
+    einen Stamm?" — und die beantwortet nur die Zahl der Ableitung.
+  */
+  const erwartet = (b?.rooms.length ?? 0) + (b?.doorTypes.length ?? 0);
   const gefunden = [...stems.values()].filter((s) => s.kit === kit).length;
   check(
     `${kit}: jedes Modul und jeder Türtyp hat ein Stammmodul in ${stammKit}`,

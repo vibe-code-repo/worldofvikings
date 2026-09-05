@@ -60,7 +60,7 @@ import { WURZEL, brauchtModelle, brauchtBlender } from './testweichen.mjs';
 /*
   Weiche fuer Pruefer, die eine `python3`-Datei befragen.
 
-  Die Fels-Blocklage (F3) liegt bewusst als reines Python-Modul neben dem
+  Das Fels-Höhenfeld (F3) liegt bewusst als reines Python-Modul neben dem
   Blender-Bauskript — nur so laesst sie sich ohne Blender messen. Der
   Pruefer ruft `python3` also wirklich auf; fehlt es, misst er nichts und
   wuerde still gruen bleiben. Deshalb hier die Weiche und nicht dort.
@@ -71,7 +71,7 @@ function brauchtPython() {
   return () =>
     spawnSync('python3', ['-c', 'pass'], { encoding: 'utf-8' }).status === 0
       ? null
-      : 'python3 fehlt — die Fels-Blocklage wird per python3 befragt';
+      : 'python3 fehlt — das Fels-Höhenfeld wird per python3 befragt';
 }
 
 const KERN = [
@@ -962,7 +962,7 @@ const KERN = [
   // der Modulgrenze (jedes abgeschnittene Reststück trifft sein Gegenstück
   // in Höhe und Tiefe), die Hüllbox (kein Block steht weiter vor als das
   // Ziegelrelief, sonst wäre `DG_RockVault` kein abgeleitetes Kit mehr) und
-  // das Dreiecksbudget von 1500 je Wandpaneel. Befragt `felsblock.py` per
+  // das Dreiecksbudget von 1500 je Wandpaneel. Befragt `felsrelief.py` per
   // `python3 --dump`; kein Blender, kein `assets/`, ~1 s.
   // F3: the rock front layer's block lattice — seam, bounding box, budget.
   ['tools/elements', 'pruefung/fels-frontschicht.mjs', brauchtPython()],

@@ -112,9 +112,23 @@ if (!stamm || !fels) {
   );
 }
 
-// ── 2. Zwölf Module, alle umbenannt ───────────────────────────────────
-check(`${ABLEITUNG} hat ${stamm.rooms.length} Räume wie ${STAMM}`, fels.rooms.length === stamm.rooms.length, `${fels.rooms.length}`);
-check(`${ABLEITUNG} hat genau 12 Räume`, fels.rooms.length === 12, `${fels.rooms.length}`);
+// ── 2. Zwölf Module, alle umbenannt — plus die Wandvarianten ──────────
+/*
+  Seit dem 05.09.2026 hat die Ableitung ZWEI Räume mehr als ihr Stamm:
+  `RockVaultWallB` und `...C`. Sie sind keine neuen Bauteile, sondern
+  dasselbe Wandpaneel mit einem anderen Fels-Feld (Begründung bei
+  `FELS_WAND_VARIANTEN` in `eigeneDungeons.ts`) — und genau das prüft
+  Abschnitt 2b Feld für Feld nach. Die Zahl steht hier trotzdem als
+  Erwartung: Ein dritter, vierter, versehentlicher Zusatzraum wäre sonst
+  stillschweigend erlaubt.
+*/
+const WAND_VARIANTEN = ['RockVaultWallB', 'RockVaultWallC'];
+check(
+  `${ABLEITUNG} hat ${stamm.rooms.length} + ${WAND_VARIANTEN.length} Räume`,
+  fels.rooms.length === stamm.rooms.length + WAND_VARIANTEN.length,
+  `${fels.rooms.length}`
+);
+check(`${ABLEITUNG} hat genau 14 Räume`, fels.rooms.length === 14, `${fels.rooms.length}`);
 check(
   `kein Raumname trägt noch '${PRAEFIX_STAMM}'`,
   fels.rooms.every((r) => !r.name.includes(PRAEFIX_STAMM)),
@@ -131,6 +145,31 @@ check(
     .map((r) => r.name)
     .join(', ')
 );
+
+// ── 2b. Die Wandvarianten sind dasselbe Paneel ────────────────────────
+/*
+  Die Zusage lautet: gleiche `size`, gleiche `connections`, gleiche
+  `gridEdges`, gleiche Hüllbox — sonst dürfte der Rastergenerator sie
+  nicht gegeneinander tauschen, und der Grundriss hinge daran, welche
+  Kante welches Paneel bekommt. Erlaubt abweichen dürfen genau zwei
+  Felder: der NAME (er ist der Dateiname der GLB) und `endCapPrio` (er
+  hält die Pfade, die den niedrigsten nehmen, beim Grundpaneel).
+*/
+{
+  const grund = fels.rooms.find((r) => r.name === 'RockVaultWall');
+  check(`RockVaultWall ist da`, grund !== undefined);
+  for (const [i, name] of WAND_VARIANTEN.entries()) {
+    const v = fels.rooms.find((r) => r.name === name);
+    if (!v || !grund) {
+      check(`${name} vorhanden`, false);
+      continue;
+    }
+    check(`${name} ist ein Abschluss (endCap)`, v.endCap === true);
+    check(`${name} hat eigene endCapPrio`, v.endCapPrio === grund.endCapPrio + i + 1, `${v.endCapPrio}`);
+    const t = abweichung({ ...v, name: grund.name, endCapPrio: grund.endCapPrio }, grund);
+    check(`${name}: sonst Feld für Feld wie RockVaultWall`, t === null, t ?? '');
+  }
+}
 
 // ── 3. Feld für Feld gegen den Stammraum ──────────────────────────────
 {
@@ -233,7 +272,19 @@ check(
       for (let i = 0; i < stamm.doorTypes.length; i++) {
         a = a.split(`"prefabHash":${stamm.doorTypes[i]!.prefabHash}`).join(`"prefabHash":${fels.doorTypes[i]!.prefabHash}`);
       }
-      const b = JSON.stringify(generateGridLayout(felsDef, seed));
+      /*
+        Die DRITTE benannte Ersetzung (05.09.2026): Der Rasterpfad wählt je
+        Kante unter den drei gleichwertigen Wandpaneelen (S7). Welches es
+        wird, ist genau das, was sich unterscheiden SOLL — der Ort der
+        Platte, ihre Drehung und ihr `placeOrder` dürfen es nicht. Deshalb
+        werden hier nur die Suffixe abgeschnitten und alles andere
+        unverändert verglichen.
+      */
+      const b = JSON.stringify(generateGridLayout(felsDef, seed))
+        .split('"RockVaultWallB"')
+        .join('"RockVaultWall"')
+        .split('"RockVaultWallC"')
+        .join('"RockVaultWall"');
       if (a !== b) {
         abweichende.push(seed);
         if (!erstesBeispiel) {

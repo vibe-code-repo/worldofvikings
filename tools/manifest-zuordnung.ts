@@ -92,14 +92,40 @@ export function moduleStems(): Map<string, ModuleStem> {
     const a = DUNGEONS_BY_NAME.get(stemKit);
     const b = DUNGEONS_BY_NAME.get(kit);
     if (!a || !b) throw new Error(`Kit '${a ? kit : stemKit}' fehlt in DUNGEONS_BY_NAME — Ableitung nicht nachvollziehbar.`);
-    if (a.rooms.length !== b.rooms.length) {
-      throw new Error(`'${kit}' hat ${b.rooms.length} Raeume, '${stemKit}' ${a.rooms.length} — die Ableitung bildet 1:1 ab.`);
+    /*
+      Die Ableitung darf MEHR Raeume haben als ihr Stamm, aber nie weniger:
+      Seit dem 05.09.2026 haengt `rockVariant()` an die 1:1-Abbildung noch
+      die Wandvarianten `RockVaultWallB`/`...C` an (Begruendung dort bei
+      `FELS_WAND_VARIANTEN`). Sie stehen HINTER den abgebildeten Raeumen,
+      die Positionszuordnung der ersten `a.rooms.length` bleibt also
+      unberuehrt — und genau das prueft die Bedingung.
+
+      Weniger Raeume sind weiter ein Abbruch und keine Warnung: Bei
+      verschobenen Positionen zeigte jede folgende Zeile auf das falsche
+      Stammmodul — ein Bericht, der ueberzeugend aussieht und nicht stimmt.
+    */
+    if (a.rooms.length > b.rooms.length) {
+      throw new Error(`'${kit}' hat ${b.rooms.length} Raeume, '${stemKit}' ${a.rooms.length} — die Ableitung bildet mindestens 1:1 ab.`);
     }
     if (a.doorTypes.length !== b.doorTypes.length) {
       throw new Error(`'${kit}' hat ${b.doorTypes.length} Tuertypen, '${stemKit}' ${a.doorTypes.length} — die Ableitung bildet 1:1 ab.`);
     }
     for (let i = 0; i < a.rooms.length; i++) {
       aus.set(b.rooms[i]!.name, { derived: b.rooms[i]!.name, stem: a.rooms[i]!.name, kit, stemKit });
+    }
+    /*
+      Die Zusatzraeume der Ableitung. Ihr Stammmodul ist der Abschluss des
+      Stammkits — sie ENTSTEHEN aus dem abgeleiteten Abschluss, und der
+      wiederum aus jenem. Ohne diese Zeilen faenden `asset-manifest --abgleich`
+      und der Groessenbericht sie als Module ohne Stamm und listeten jede
+      Abweichung des Wandpaneels dreimal statt einmal — genau die Doppelung,
+      gegen die diese Tabelle gebaut ist.
+    */
+    const stammAbschluss = a.rooms.find((r) => r.endCap);
+    for (let i = a.rooms.length; i < b.rooms.length; i++) {
+      const d = b.rooms[i]!.name;
+      if (!stammAbschluss) throw new Error(`'${kit}' hat Zusatzraeume, '${stemKit}' aber keinen Abschluss — Stamm von '${d}' unbekannt.`);
+      aus.set(d, { derived: d, stem: stammAbschluss.name, kit, stemKit });
     }
     for (let i = 0; i < a.doorTypes.length; i++) {
       const d = b.doorTypes[i]!.prefabName;

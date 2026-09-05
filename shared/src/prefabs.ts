@@ -1245,7 +1245,13 @@ export const EIGENE_MODELLE: readonly string[] = [
   'RockVaultHallGrand',
   'RockVaultHallVast',
   'RockVaultStairs',
+  // Drei Wandpaneele statt einem: gleiche Huellbox, gleiche Connectors,
+  // anderes Fels-Feld. Sie brechen die 2-m-Wiederholung eines geraden
+  // Wandlaufs — die Kantenwahl steht in `layoutFromPlan` (S7), die
+  // Begruendung bei `FELS_WAND_VARIANTEN` in `eigeneDungeons.ts`.
   'RockVaultWall',
+  'RockVaultWallB',
+  'RockVaultWallC',
   // Der Torbogen des Fels-Kits — kein Raum, sondern sein Tuertyp.
   'RockVaultArch',
 ];

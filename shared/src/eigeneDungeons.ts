@@ -2361,6 +2361,42 @@ const MODUL_STAMM_FELS = 'RockVault';
  */
 const FELS_WAND_TEXTUR = '/assets/models/stein_fels.png';
 
+/**
+ * Die zusätzlichen Wandpaneele des Fels-Kits — `RockVaultWallB`, `...C`.
+ *
+ * ── Warum es sie gibt ────────────────────────────────────────────────
+ * Ein Modul weiss nicht, wo es steht. Seine Frontschicht MUSS deshalb im
+ * 2-m-Raster periodisch sein, sonst reisst die Naht zum Nachbarn
+ * (`tools/elements/blender/felsrelief.py`, Zwang 1). Genau daraus folgt
+ * aber der Befund vom 05.09.2026: In einem geraden Wandlauf wiederholt
+ * sich derselbe Fels alle 2 m.
+ *
+ * Gegen eine Periode hilft keine bessere Arithmetik, sondern nur eine
+ * ZWEITE Wand. Die drei Paneele sind geometrisch dasselbe Bauteil —
+ * gleiche `size`, gleiche `connections`, gleiche `gridEdges`, gleiche
+ * Hüllbox —, und unterscheiden sich allein im Feldschlüssel der
+ * Frontschicht (`FELD_LAGE` in `make-stonevault.py`). An der Modulgrenze
+ * blenden alle drei auf dasselbe Randniveau, sie lassen sich also in
+ * beliebiger Reihenfolge nebeneinandersetzen.
+ *
+ * Welche Kante welches bekommt, entscheidet `layoutFromPlan` (S7) mit
+ * `hashPos` über den Kantenschlüssel — ohne Zug aus einem Saatstrom, aus
+ * demselben Grund wie bei den Torbögen.
+ *
+ * ── Warum sie ABGELEITET und nicht getippt sind ──────────────────────
+ * Aus demselben Grund wie das ganze Kit: Ein von Hand nachgetragener
+ * RoomDef bricht nichts — er läuft, bis der nächste Nahtschluss eine
+ * Kante verschiebt und niemand die Kopie nachzieht. Die Varianten
+ * entstehen deshalb aus dem abgeleiteten Wandpaneel selbst; geändert
+ * wird nur der NAME (er ist der Dateiname der GLB) und `endCapPrio`.
+ *
+ * `endCapPrio` steigt mit dem Buchstaben, damit die Pfade, die den
+ * niedrigsten nehmen (`schliesseOffeneKanten` in `dungeonKanten.ts`,
+ * `endcapsFallbackByPrio` im 1.0-Generator), weiter beim gewohnten
+ * `RockVaultWall` landen. Nur die Rasterwahl streut wirklich.
+ */
+const FELS_WAND_VARIANTEN = ['B', 'C'] as const;
+
 /** Aus `StoneVaultWall` wird `RockVaultWall`. */
 function felsModulName(name: string): string {
   /*
@@ -2419,10 +2455,34 @@ export function rockVariant(basis: EigenesKitJson): EigenesKitJson {
       const prefabName = felsModulName(tuer.prefabName);
       return { ...tuer, prefabName, prefabHash: getStableHash(prefabName) };
     }),
-    rooms: basis.rooms.map((raum) => ({ ...raum, name: felsModulName(raum.name) })),
+    rooms: felsRaeume(basis.rooms),
   };
   if (basis.steinKit === undefined) return abgeleitet;
   return { ...abgeleitet, steinKit: { ...basis.steinKit, wandTextur: FELS_WAND_TEXTUR } };
+}
+
+/**
+ * Die Räume der Ableitung: jeder Stammraum umbenannt, plus die
+ * Wandvarianten (s. {@link FELS_WAND_VARIANTEN}).
+ *
+ * Laut, wenn kein Abschluss da ist: Ein Kit ohne `endCap` kann keine Kante
+ * versiegeln, und eine stille leere Variantenliste verschöbe den Befund in
+ * den Rastergenerator, wo er als „Kit hat keinen Abschluss" auftaucht.
+ */
+function felsRaeume(stamm: EigenesKitJson['rooms']): EigenesKitJson['rooms'] {
+  const umbenannt = stamm.map((raum) => ({ ...raum, name: felsModulName(raum.name) }));
+  const wand = umbenannt.find((raum) => raum.endCap);
+  if (!wand) {
+    throw new Error('Die Fels-Ableitung braucht ein Wandpaneel (endCap) — im Stammkit steht keins.');
+  }
+  return [
+    ...umbenannt,
+    ...FELS_WAND_VARIANTEN.map((zusatz, i) => ({
+      ...wand,
+      name: wand.name + zusatz,
+      endCapPrio: wand.endCapPrio + i + 1,
+    })),
+  ];
 }
 
 /** Kit nachschlagen — laut, damit ein Umbenennen nicht in einer leeren Ableitung endet. */

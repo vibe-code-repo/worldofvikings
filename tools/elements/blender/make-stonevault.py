@@ -27,8 +27,24 @@
 # ── STIL (04.09.2026): dasselbe Kit, zwei Frontschichten ───────────────────
 # `--stil ziegel` (Vorgabe) baut den bisherigen Backsteinverband und schreibt
 # StoneVault*.glb. `--stil fels` tauscht AUSSCHLIESSLICH die Frontschicht von
-# `innenwand()`, `wand()`, `bogen()` und der Treppe gegen unregelmaessige
-# Bloecke (tools/elements/blender/felsblock.py) und schreibt RockVault*.glb.
+# `innenwand()`, `wand()`, `bogen()` und der Treppe gegen ein verdraengtes
+# HOEHENFELD (tools/elements/blender/felsrelief.py) und schreibt
+# RockVault*.glb.
+#
+# ── 05.09.2026: aus Bloecken wird eine Flaeche ─────────────────────────────
+# Die erste Fels-Fassung setzte unregelmaessige QUADER. Der Kontaktbogen hat
+# sie widerlegt — sie las sich weiter als Mauerwerk. Seither steht dort eine
+# unterteilte Flaeche (Raster 0,125 m) mit Voronoi-Bruchflaechen, Klueften,
+# schraeger Schichtung und feinem Rauschen; die Begruendung im Einzelnen
+# steht im Kopf von felsrelief.py.
+#
+# Zwei Folgen davon stehen HIER:
+#   * Der Randstreifen des Feldes muss VOR den 3 cm des `endstreifen()`
+#     bleiben, sonst klafft in der Innenecke ein Schlitz (s. dort).
+#   * `--stil fels` baut ZWEI zusaetzliche Wandpaneele (RockVaultWallB/C)
+#     mit derselben Huellbox und denselben Connectors, aber anderem Feld.
+#     Der Rasterpfad waehlt unter ihnen je Kante (dungeonRasterGenerator S7),
+#     und damit endet die 2-m-Wiederholung des einen Paneels.
 #
 # Was dabei NICHT wandert — und warum:
 #   * Rueckplatte, Sockel, Haube und die Endstreifen: sie sind der
@@ -44,8 +60,8 @@
 #
 # Die Hüllbox bleibt in beiden Stilen gleich: `DG_RockVault` wird von
 # `DG_StoneVault` ABGELEITET (gleiche size, gleiche Connectors), also darf
-# kein Fels-Block weiter vorstehen als das Ziegelrelief. Die Streuung geht
-# nur nach hinten; die Begruendung steht in felsblock.py.
+# kein Punkt der Fels-Flaeche weiter vorstehen als das Ziegelrelief. Der
+# Rueckzug geht nur nach hinten; die Begruendung steht in felsrelief.py.
 #
 # flatpak run org.blender.Blender --factory-startup -b --python make-stonevault.py -- <out-ordner> [--stil fels] [--seed N] [modul ...]
 # Ohne Modulnamen werden ALLE gebaut; mit Namen nur die genannten (die bereits
@@ -54,7 +70,7 @@
 import bpy, bmesh, sys, math, os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from felsblock import fels_bloecke, SEED as FELS_SEED   # noqa: E402
+from felsrelief import fels_gitter, SEED as FELS_SEED   # noqa: E402
 
 ARGS = sys.argv[sys.argv.index("--") + 1:]
 
@@ -102,8 +118,23 @@ GRID   = 2.0     # Rastermass / Zellbreite
 HOEHE  = 3.5     # Raumhoehe: Bodenoberkante bis Deckenunterkante
 DICKE  = 0.25    # Plattendicke — wie SteingrabGang (Boden reicht bis z = -0,2493)
 TIEFE  = 0.30    # Wand-/Bogentiefe, mittig um den Ursprung: -0,15 .. +0,15
-PROT   = 0.06    # Relief-Vorsprung der Ziegel
-RUECK  = TIEFE - PROT   # Rueckplattendicke 0,24
+# ── Reliefdicke: 6 cm in Ziegeln, 9 cm im Fels ──────────────────────────────
+# Der Ziegelverband braucht 6 cm — mehr sieht man einem Backstein nicht an.
+# Die Fels-Frontschicht braucht MEHR, und zwar aus einem messbaren Grund: Sie
+# ist eine unterteilte Flaeche im 0,125-m-Raster. Bei 6 cm Hub betraegt die
+# steilste moegliche Flanke atan(0,06/0,125) = 26 Grad — es gibt in so einer
+# Wand also gar keine scharfe Bruchkante, egal wie das Feld gerechnet wird.
+# Bei 9 cm sind es 36 Grad, und damit stehen Kanten im Streiflicht.
+#
+# Was dabei NICHT wandert: Die Hüllbox (TIEFE bleibt 0,30) und die
+# VORDERKANTE des Reliefs. Dicker wird allein die Reliefschicht, duenner die
+# Rueckplatte (0,24 -> 0,21). Die Wandfront liegt in beiden Stilen auf
+# +-0,15 bzw. (bei den Innenwaenden) auf +-0,70 — was `stonevault-kantensonde`
+# als Durchgangsfenster misst, aendert sich um keinen Millimeter.
+#
+# Die Grenze nach oben ist die Spielerkapsel: Das Konzept laesst 10 cm zu.
+PROT   = 0.09 if STIL == "fels" else 0.06
+RUECK  = TIEFE - PROT   # Rueckplattendicke 0,24 bzw. 0,21
 
 # ── NAHTSCHLUSS (03.09.2026) ────────────────────────────────────────────────
 # Befund im Spiel: an den Kanten Wand<->Boden, Wand<->Decke und in den
@@ -156,6 +187,20 @@ I_HAUBE_CZ = (HOEHE + I_OBEN) / 2            #  3,62
 # Flackern); in der Innenecke schliesst er die Saeule bis auf eine 3-cm-Nut,
 # die wie eine Moertelfuge aussieht und nach aussen dicht ist.
 ECK_TIEFE  = 0.03              # Rueckversatz der Streifen-Vorderseite
+# Dieselben 3 cm gelten im Fels-Stil, und sie sind dort die STRENGERE
+# Zahl: Sie legen fest, wie weit die Frontschicht am Modulrand
+# zurueckweichen darf. Reicht sie tiefer, klafft in der Innenecke ein
+# Schlitz zwischen Streifen und Fels (gemessen: 2353 helle Pixel im
+# Naht-Rendering). Deshalb steht in felsrelief.py `RAND_NIVEAU` +
+# `RAND_STREUUNG` <= 3 cm, und deshalb steht die Begruendung an BEIDEN
+# Stellen — die Zahl ist eine Absprache zwischen zwei Dateien.
+#
+# Die BREITE des Streifens bleibt in beiden Stilen 6 cm. Sie stand frueher
+# als `PROT` in `endstreifen()` — mit der stilabhaengigen Reliefdicke waere
+# daraus im Fels 9 cm geworden, und die Huellbox des Paneels waere von
+# +-1,06 auf +-1,09 gewachsen. `DG_RockVault` ist ein ABGELEITETES Kit; es
+# darf keine andere `size` haben als sein Stamm.
+ECK_BREITE = 0.06
 
 # Innenwaende der Zellvarianten liegen INNERHALB der 2x2-Zelle, buendig an der
 # Zellkante: Aussenflaeche auf +-1,0, Reliefseite zur Zellmitte hin.
@@ -207,8 +252,34 @@ def aufbereiten(name, bm, materialname):
     bpy.ops.mesh.select_all(action="SELECT")
     bpy.ops.mesh.remove_doubles(threshold=1e-4)
     bpy.ops.mesh.normals_make_consistent(inside=False)
+    if STIL == "fels":
+        # ── Warum die Fels-Frontschicht WEICH schattiert wird ──────────
+        # Sie ist eine unterteilte Flaeche im 0,125-m-Raster. Flach
+        # schattiert bekommt jedes Viereck seine eigene Normale, und im
+        # Streiflicht liest sich die Wand dann als SCHACHBRETT aus
+        # Grautoenen — der zweite Kontaktbogen vom 05.09.2026 zeigt das
+        # deutlicher als jede Beschreibung. Fels hat aber nicht alle 12 cm
+        # eine Kante, sondern grosse Bruchflaechen mit scharfen Raendern.
+        #
+        # Genau das stellt diese Stelle her: Die Flaechenvierecke der
+        # Frontschicht sind bei ihrer Erzeugung als `smooth` gesetzt
+        # (fels_schicht), Schuerze, Deckel und alle Quader nicht (das ist
+        # der bmesh-Vorgabewert). Zusaetzlich wird jede Kante ab 14 Grad
+        # als SCHARF markiert — die Klueste und die Facettenraender
+        # bleiben also Kanten, das Innere einer Bruchflaeche wird glatt.
+        # `shade_flat()` unterbliebe sonst; es wuerde die Marken gerade
+        # wieder loeschen. Im Ziegel-Stil aendert sich NICHTS.
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.mesh.mark_sharp(clear=True)
+        bpy.ops.mesh.select_all(action="DESELECT")
+        bpy.ops.mesh.select_mode(type="EDGE")
+        bpy.ops.mesh.edges_select_sharp(sharpness=math.radians(14.0))
+        bpy.ops.mesh.mark_sharp()
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.mesh.select_mode(type="FACE")
     bpy.ops.object.mode_set(mode="OBJECT")
-    bpy.ops.object.shade_flat()
+    if STIL != "fels":
+        bpy.ops.object.shade_flat()
 
     # Ein Materialslot. Der Name ist beliebig: im Spiel ersetzt ihn
     # DungeonSteinMaterial anhand der Weltnormale.
@@ -297,46 +368,89 @@ def zelle():
 
 
 # ── Fels-Frontschicht (--stil fels) ─────────────────────────────────────────
-# Setzt die Bloecke aus felsblock.py als Sechsflaechner ins bmesh. Jeder Block
-# hat lotrechte Vorder- und Rueckseite, aber vier verschiedene Ecken in der
-# Wandebene — deshalb `box()` hier NICHT taugt und die Ecken einzeln kommen.
-# Die Reihenfolge (Seite, Tiefe, Ebene) ist dieselbe wie in `box()` und
-# `keil()` (x, y, z), damit dieselbe QUADS-Liste die sechs Flaechen schliesst.
+# Setzt das Hoehenfeld aus felsrelief.py als verdraengte Flaeche ins bmesh.
+#
+# Der Koerper ist eine geschlossene Schale: vorn das Feld auf dem globalen
+# Raster (0,125 m), ringsum ein Schuerzenstreifen nach hinten und hinten ein
+# Deckel. Warum geschlossen und nicht als offene Haut auf der Rueckplatte:
+#   * `normals_make_consistent(inside=False)` richtet die Wicklung an einer
+#     offenen Haut nach einer Heuristik. Ein geschlossener Koerper hat ein
+#     Innen — die Richtung ist dann keine Vermutung mehr.
+#   * Der Deckel liegt RUECK_EINSTICH tief IN der Rueckplatte statt auf ihr.
+#     Koplanare Flaechen flimmern; 2 mm darin sieht niemand.
+# Der Ring traegt beides, Schuerze und Deckel, also entstehen die hinteren
+# Ecken nur einmal — `remove_doubles` haette sie sonst zu verschmelzen.
+RUECK_EINSTICH = 0.002
+
+
 def fels_schicht(bm, lauf, mitte, sgn, lo, hi, lage=0, z0=0.0, z1=HOEHE,
-                 reihen=None, rand_luft=None, niveau_fn=None):
+                 rand_luft=None, zeilen=None, niveau_fn=None):
     """`mitte` ist die Mitte der HEUTIGEN Reliefschicht auf der Festachse,
     `sgn` zeigt nach vorn (zur Raumseite). Daraus folgt die Rueckebene der
-    Schicht — vor ihr steht jeder Block um seine eigene Tiefe.
+    Schicht — vor ihr steht jeder Punkt um seine eigene Tiefe.
 
-    `niveau_fn` hebt die Bloecke auf eine Steigung (Treppe): sie wird je
-    ECKE ausgewertet, der Block folgt der Treppenlinie also wie ein Keil,
-    statt als waagerechter Kasten aus ihr herauszuragen.
+    `lage` ist der Zweitschluessel des Feldes: er unterscheidet MODUL und
+    WANDSEITE. Zwei Waende desselben Moduls tragen damit verschiedenen Fels,
+    und ein Korridor sieht nach links nicht aus wie nach rechts. Die
+    MODULGRENZE bleibt davon unberuehrt — dort blendet felsrelief.py auf ein
+    variantenfreies Randniveau (s. dort, Zwang 1).
+
+    `niveau_fn` hebt die Flaeche auf eine Steigung (Treppe): sie wird je
+    STUETZSTELLE ausgewertet, die Flaeche folgt der Treppenlinie also, statt
+    als waagerechte Platte aus ihr herauszuragen.
     """
     hinten = mitte - sgn * PROT / 2
     kw = {"seed": SEED, "lage": lage, "z0": z0, "z1": z1}
-    if reihen is not None:
-        kw["reihen"] = reihen
     if rand_luft is not None:
         kw["rand_luft"] = rand_luft
-    for b in fels_bloecke(lo, hi, **kw):
-        tiefen = (hinten, hinten + sgn * b["tiefe"])
-        x_paar = (b["xu"], b["xo"])          # Ebene 0 = unten, 1 = oben
-        z_paar = (b["zu"], b["zo"])
-        verts = []
-        for seite in (0, 1):
-            for d in (0, 1):
-                for ebene in (0, 1):
-                    entlang = x_paar[ebene][seite]
-                    hoch = z_paar[ebene][seite]
-                    if niveau_fn is not None:
-                        hoch += niveau_fn(entlang)
-                    if lauf == "x":
-                        verts.append(bm.verts.new((entlang, tiefen[d], hoch)))
-                    else:
-                        verts.append(bm.verts.new((tiefen[d], entlang, hoch)))
-        bm.verts.ensure_lookup_table()
-        for a, b2, c, d2 in QUADS:
-            bm.faces.new((verts[a], verts[b2], verts[c], verts[d2]))
+    if zeilen is not None:
+        kw["zeilen"] = zeilen
+    gitter = fels_gitter(lo, hi, **kw)
+    punkte = gitter["punkte"]
+    nz = len(punkte)
+    nx = len(punkte[0])
+
+    def ecke(entlang, hoch, tiefe):
+        if niveau_fn is not None:
+            hoch = hoch + niveau_fn(entlang)
+        fest = hinten + sgn * tiefe
+        return (entlang, fest, hoch) if lauf == "x" else (fest, entlang, hoch)
+
+    vorn = [[bm.verts.new(ecke(*punkte[iz][ix])) for ix in range(nx)]
+            for iz in range(nz)]
+
+    # Der Ring: nur die Randstuetzstellen bekommen einen hinteren Zwilling.
+    ring = {}
+
+    def hinter(ix, iz):
+        if (ix, iz) not in ring:
+            x, z, _ = punkte[iz][ix]
+            ring[(ix, iz)] = bm.verts.new(ecke(x, z, -RUECK_EINSTICH))
+        return ring[(ix, iz)]
+
+    bm.verts.ensure_lookup_table()
+
+    # Vorderflaeche. WEICH schattiert (s. `aufbereiten`): das Innere einer
+    # Bruchflaeche soll eine Flaeche sein, keine Treppe aus Rasterzellen.
+    for iz in range(nz - 1):
+        for ix in range(nx - 1):
+            f = bm.faces.new((vorn[iz][ix], vorn[iz][ix + 1],
+                              vorn[iz + 1][ix + 1], vorn[iz + 1][ix]))
+            f.smooth = True
+
+    # Schuerze: je Randkante ein Viereck nach hinten. Die vier Laeufe geben
+    # zugleich den Ring in Umlaufrichtung, aus dem der Deckel entsteht.
+    umlauf = ([(ix, 0) for ix in range(nx)]
+              + [(nx - 1, iz) for iz in range(1, nz)]
+              + [(ix, nz - 1) for ix in range(nx - 2, -1, -1)]
+              + [(0, iz) for iz in range(nz - 2, 0, -1)])
+    for k in range(len(umlauf)):
+        a = umlauf[k]
+        b = umlauf[(k + 1) % len(umlauf)]
+        bm.faces.new((vorn[a[1]][a[0]], hinter(a[0], a[1]),
+                      hinter(b[0], b[1]), vorn[b[1]][b[0]]))
+    bm.verts.ensure_lookup_table()
+    bm.faces.new([hinter(ix, iz) for (ix, iz) in umlauf])
 
 
 # ── Innenwand einer Zellvariante ────────────────────────────────────────────
@@ -344,9 +458,11 @@ def fels_schicht(bm, lauf, mitte, sgn, lo, hi, lage=0, z0=0.0, z1=HOEHE,
 # Versatz, 8 Reihen): die Kachelung wird IMMER ab -GRID/2 aufgebaut und danach
 # auf [lo, hi] beschnitten. So bleibt die Phase erhalten und das Muster laeuft
 # an der Zellgrenze in die Nachbarzelle weiter.
-def innenwand(bm, lauf, back, relief, lo=-GRID / 2, hi=GRID / 2):
+def innenwand(bm, lauf, back, relief, lo=-GRID / 2, hi=GRID / 2, lage=0):
     """lauf: 'x' oder 'y' — Achse, entlang der die Wand laeuft (Blender).
-    back/relief: Mitte der Rueckplatte bzw. der Reliefschicht auf der Festachse."""
+    back/relief: Mitte der Rueckplatte bzw. der Reliefschicht auf der Festachse.
+    lage: Feldschluessel der Fels-Frontschicht — er unterscheidet MODUL UND
+    WANDSEITE (s. FELD_LAGE). Im Ziegel-Stil bleibt er ohne Wirkung."""
     def platte(mitte_lauf, laenge, fest, tiefe, cz, hoehe):
         if lauf == "x":
             box(bm, mitte_lauf, fest, cz, laenge, tiefe, hoehe)
@@ -370,7 +486,7 @@ def innenwand(bm, lauf, back, relief, lo=-GRID / 2, hi=GRID / 2):
     if STIL == "fels":
         # Die Reliefschicht liegt hier zur Zellmitte hin: `relief` ist ihre
         # Mitte, `sgn` zeigt von der Rueckplatte weg.
-        fels_schicht(bm, lauf, relief, -1.0 if back > 0 else 1.0, lo, hi)
+        fels_schicht(bm, lauf, relief, -1.0 if back > 0 else 1.0, lo, hi, lage=lage)
         return
 
     bw, fuge = 0.5, 0.02
@@ -389,6 +505,30 @@ def innenwand(bm, lauf, back, relief, lo=-GRID / 2, hi=GRID / 2):
             x += bw
 
 
+# ── Feldschluessel der Fels-Frontschicht ────────────────────────────────────
+# Der Befund vom 05.09.2026 lautete: „die Blockanordnung wiederholt sich alle
+# 2 m". Ein Modul weiss nicht, wo es steht — sein Feld MUSS in x 2 m periodisch
+# sein, sonst reisst die Naht. Gegen die Wiederholung hilft deshalb nur
+# VERSCHIEDENHEIT: Jede Wandflaeche des Kits bekommt hier ihren eigenen
+# Schluessel. Zwei Waende desselben Korridors tragen damit anderen Fels, und
+# die drei Paneelvarianten (A/B/C) sind drei verschiedene Felsen in derselben
+# Huellbox.
+#
+# Die Zahlen selbst sind beliebig, nur verschieden muessen sie sein. Sie
+# stehen als TAFEL und nicht verstreut an den Aufrufen, damit ein zweiter
+# Blick sofort sieht, dass keine zweimal vergeben ist — eine doppelte Zahl
+# hiesse: dieselbe Wand zweimal, und genau davon soll es weniger geben.
+FELD_LAGE = {
+    "WandA": 10, "WandB": 11, "WandC": 12,
+    "KorridorOst": 20, "KorridorWest": 21,
+    "EckeWest": 22, "EckeSued": 23,
+    "KreuzungWest": 24,
+    "TreppeOst": 30, "TreppeWest": 31,
+    "BogenPfostenNah": 40, "BogenPfostenFern": 41,
+    "BogenSturzNah": 42, "BogenSturzFern": 43,
+}
+
+
 # ── Zellvarianten mit Innenwaenden ──────────────────────────────────────────
 # Ost = blender -x, West = blender +x, Sued = blender +y, Nord = blender -y.
 def korridor():
@@ -396,8 +536,8 @@ def korridor():
     neu()
     bm = bmesh.new()
     boden_decke(bm)
-    innenwand(bm, "y", -W_BACK, -W_RELIEF)   # Ost  (glTF x +0,7 .. +1,0)
-    innenwand(bm, "y",  W_BACK,  W_RELIEF)   # West (glTF x -1,0 .. -0,7)
+    innenwand(bm, "y", -W_BACK, -W_RELIEF, lage=FELD_LAGE["KorridorOst"])
+    innenwand(bm, "y",  W_BACK,  W_RELIEF, lage=FELD_LAGE["KorridorWest"])
     fertig("StoneVaultCorridor", bm)
 
 
@@ -408,8 +548,9 @@ def ecke():
     neu()
     bm = bmesh.new()
     boden_decke(bm)
-    innenwand(bm, "y", W_BACK, W_RELIEF)                       # West, volle Laenge
-    innenwand(bm, "x", W_BACK, W_RELIEF, hi=W_RELIEF - PROT / 2)  # Sued, bis x=0,70
+    innenwand(bm, "y", W_BACK, W_RELIEF, lage=FELD_LAGE["EckeWest"])   # West, volle Laenge
+    innenwand(bm, "x", W_BACK, W_RELIEF, hi=W_RELIEF - PROT / 2,
+              lage=FELD_LAGE["EckeSued"])                          # Sued, bis x=0,70
     fertig("StoneVaultCorner", bm)
 
 
@@ -418,7 +559,7 @@ def kreuzung():
     neu()
     bm = bmesh.new()
     boden_decke(bm)
-    innenwand(bm, "y", W_BACK, W_RELIEF)
+    innenwand(bm, "y", W_BACK, W_RELIEF, lage=FELD_LAGE["KreuzungWest"])
     fertig("StoneVaultJunction", bm)
 
 
@@ -552,14 +693,27 @@ def endstreifen(bm, B):
     geraden Wandlauf koplanar auf der Ziegelfront des Nachbarpaneels ->
     Z-Fighting. 3 cm dahinter liegt er im Fugenschatten.
     """
-    ty = -TIEFE / 2 + ECK_TIEFE          # -0,12 (glTF z +0,12)
+    ty = -TIEFE / 2 + ECK_TIEFE           # -0,12 (glTF z +0,12)
     tiefe = TIEFE / 2 - ty               # 0,27
     for s in (-1, 1):
-        box(bm, s * (B / 2 + PROT / 2), (ty + TIEFE / 2) / 2, WAND_CZ,
-            PROT, tiefe, WAND_H)
+        box(bm, s * (B / 2 + ECK_BREITE / 2), (ty + TIEFE / 2) / 2, WAND_CZ,
+            ECK_BREITE, tiefe, WAND_H)
 
 
-def wand():
+def wand(variante=""):
+    """Das freistehende Wandpaneel (endCap).
+
+    `variante` ist "" (das Paneel des Kits), "B" oder "C". Die drei sind
+    Zeichen fuer Zeichen dieselbe Geometrie BIS AUF den Feldschluessel der
+    Frontschicht: gleiche Huellbox, gleicher Ursprung, gleicher Connector —
+    nur anderer Fels. Genau deshalb darf der Rasterpfad je Kante unter ihnen
+    waehlen, ohne dass sich am Grundriss etwas aendert
+    (shared/src/dungeonRasterGenerator.ts, S7).
+
+    Im Ziegel-Stil gibt es nur "": `DG_StoneVault` behaelt sein eines
+    Paneel, und damit bleiben seine GLBs und die Golden-Staende Byte fuer
+    Byte, was sie waren.
+    """
     neu()
     bm = bmesh.new()
     B = GRID
@@ -575,8 +729,9 @@ def wand():
     endstreifen(bm, B)
     ycz = -TIEFE / 2 + PROT / 2              # Reliefmitte auf der Reliefseite
     if STIL == "fels":
-        fels_schicht(bm, "x", ycz, -1.0, -B / 2, B / 2)
-        fertig("StoneVaultWall", bm)
+        fels_schicht(bm, "x", ycz, -1.0, -B / 2, B / 2,
+                     lage=FELD_LAGE["Wand" + (variante or "A")])
+        fertig("StoneVaultWall" + variante, bm)
         return
     bw, fuge = 0.5, 0.02
     reihen = 8
@@ -637,21 +792,25 @@ def bogen():
     # Zweimal — einmal je Flanke (glTF z = +0,12 und -0,12).
     reihen, fuge = 8, 0.02
     rh = HOEHE / reihen
-    for yr, sgn in ((-T / 2 + PROT / 2, -1.0), (T / 2 - PROT / 2, 1.0)):
+    for flanke, (yr, sgn) in enumerate(((-T / 2 + PROT / 2, -1.0),
+                                        (T / 2 - PROT / 2, 1.0))):
+        pfosten_lage = FELD_LAGE["BogenPfostenNah" if flanke == 0 else "BogenPfostenFern"]
+        sturz_lage = FELD_LAGE["BogenSturzNah" if flanke == 0 else "BogenSturzFern"]
         if STIL == "fels":
             # Die Pfostenflanken schneiden aus DEMSELBEN Gitter wie die
             # Wandpaneele — der Bogen sitzt in der Kopplungsebene zwischen
             # zwei Zellen, seine Bloecke muessen mit den anschliessenden
             # Waenden fluchten. Die Laibung bei +-0,6 ist ein innerer
-            # Anschlag: dort zieht felsblock.py den letzten Block bis an
-            # die Kante, damit neben der Tuer keine Fuge steht.
-            fels_schicht(bm, "x", yr, sgn, -B / 2, -B / 2 + pf)
-            fels_schicht(bm, "x", yr, sgn, B / 2 - pf, B / 2)
-            # Sturzband: eine eigene Lage (`lage=1`), sonst saessen seine
-            # Stossfugen genau auf denen der Pfosten.
+            # Anschlag: dort blendet felsrelief.py NICHT auf das
+            # Randniveau, damit neben der Tuer keine Nut steht.
+            fels_schicht(bm, "x", yr, sgn, -B / 2, -B / 2 + pf, lage=pfosten_lage)
+            fels_schicht(bm, "x", yr, sgn, B / 2 - pf, B / 2, lage=pfosten_lage)
+            # Sturzband: eigener Feldschluessel, sonst saesse ueber der Tuer
+            # dasselbe Feld wie auf den Pfosten. Zwei Zeilen genuegen — das
+            # Band ist 18 cm hoch, ein 12,5-cm-Raster waere darin sinnlos.
             fels_schicht(bm, "x", yr, sgn,
                          -(oeff_b + 0.30) / 2, (oeff_b + 0.30) / 2,
-                         lage=1, reihen=1, rand_luft=0.0,
+                         lage=sturz_lage, zeilen=2, rand_luft=0.0,
                          z0=kaempfer + r + 0.01, z1=kaempfer + r + 0.19)
             continue
         for s in (-1, 1):
@@ -769,6 +928,7 @@ def treppe():
         # mit denen der anschliessenden Zellwaende.
         for s in (-1, 1):
             fels_schicht(bm, "y", s * W_RELIEF, -float(s), -H, H,
+                         lage=FELD_LAGE["TreppeOst" if s < 0 else "TreppeWest"],
                          niveau_fn=niveau)
         fertig("StoneVaultStairs", bm, treppe_kollision())
         return
@@ -832,6 +992,14 @@ BAUER = {
     "StoneVaultHallVast": halle_vast,
     "StoneVaultStairs": treppe,
 }
+# Die zwei Zusatzpaneele gibt es NUR im Fels-Stil (s. `wand()`): im
+# Ziegel-Stil wuerde jede zusaetzliche Datei den Neubau-Pruefer und die
+# Golden-Staende von `DG_StoneVault` bewegen, und beide sollen sich nicht
+# ruehren.
+if STIL == "fels":
+    BAUER["StoneVaultWallB"] = lambda: wand("B")
+    BAUER["StoneVaultWallC"] = lambda: wand("C")
+
 unbekannt = NUR - set(BAUER)
 if unbekannt:
     raise SystemExit(f"Unbekannte Module: {sorted(unbekannt)}")

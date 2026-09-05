@@ -393,6 +393,16 @@ const SALT_STAMP_BLOCK = 0x7374626c; // 'stbl'
 const SALT_STAIR = 0x73746169; // 'stai'
 const SALT_STAIR_PICK = 0x7374706b; // 'stpk'
 const SALT_STAIR_SIDE = 0x73747364; // 'stsd'
+const SALT_SEAL_PICK = 0x7365706b; // 'sepk'
+/**
+ * Die feste Saat der Plattenwahl (S7).
+ *
+ * `layoutFromPlan` bekommt keine Saat — es macht aus einem FERTIGEN Plan
+ * ein Layout. Und es braucht auch keine: Welche der gleichwertigen
+ * Versiegelungsplatten an einer Kante steht, soll allein von der Kante
+ * abhängen, damit zwei Nachbarn nie dasselbe Feld nebeneinandersetzen.
+ */
+const SEAL_SEED = 0x53454131; // 'SEA1'
 
 /**
  * Die vier waagerechten Kanten.
@@ -2026,15 +2036,45 @@ export function layoutFromPlan(def: DungeonDef, plan: GridPlan): DungeonLayout {
     if (!rd) throw new DungeonRasterError(`Modul '${r.module}' steht nicht im Kit '${def.name}'.`);
     return placeModule(r.cell, r.yaw, gridModuleFromRoomDef(rd), r.depth + 1);
   });
-  const plate = def.rooms.find((r) => r.endCap);
-  if (!plate && plan.seals.length > 0) {
+  /*
+    ── Mehrere Versiegelungsplatten (05.09.2026) ──────────────────────
+    Hat ein Kit MEHR als einen `endCap`, wird je Kante gewählt. Der Anlass
+    ist `DG_RockVault`: Seine Frontschicht ist 2 m periodisch (ein Modul
+    weiss nicht, wo es steht), also wiederholte sich in einem geraden
+    Wandlauf derselbe Fels alle 2 m. Drei geometrisch gleiche Paneele
+    (`RockVaultWall`, `...B`, `...C`) brechen das — s.
+    `FELS_WAND_VARIANTEN` in `eigeneDungeons.ts`.
+
+    Gewürfelt wird mit `edgeRoll`, also aus dem KANTENSCHLÜSSEL und nicht
+    aus einem Saatstrom — dieselbe Überlegung wie bei den Torbögen (S8):
+    Eine zusätzliche Zelle, eine andere Besuchsreihenfolge, und alle
+    Platten dahinter tauschten sonst ihr Aussehen. Die Saat ist bewusst
+    fest: `layoutFromPlan` bekommt keine, und die Platte soll ohnehin nur
+    von der Kante abhängen.
+
+    Ein Kit mit GENAU EINEM Abschluss nimmt weiter genau ihn — die Zeile
+    unten ist dann dieselbe Rechnung wie vorher, und `DG_StoneVault`
+    liefert Byte für Byte dasselbe Layout wie bisher (Golden-Stände,
+    `server/test/golden-kits.ts`).
+  */
+  const plates = def.rooms.filter((r) => r.endCap);
+  if (plates.length === 0 && plan.seals.length > 0) {
     throw new DungeonRasterError(`Kit '${def.name}' hat keinen Abschluss für ${plan.seals.length} Kanten.`);
   }
   const depthOf = new Map<string, number>(plan.cells.map((c) => [cellKey(c.cell), c.depth]));
   for (const seal of plan.seals) {
-    const { pos, rot } = sealPose(seal.cell, seal.direction, plate!);
+    const plate =
+      plates.length === 1
+        ? plates[0]!
+        : plates[
+            Math.min(
+              plates.length - 1,
+              Math.floor(edgeRoll(seal, SEAL_SEED, SALT_SEAL_PICK) * plates.length)
+            )
+          ]!;
+    const { pos, rot } = sealPose(seal.cell, seal.direction, plate);
     rooms.push({
-      room: plate!.name,
+      room: plate.name,
       pos,
       rot,
       // Wie im 1.0-Pfad: Ein Abschluss erbt den Platz seiner Kante plus 1.

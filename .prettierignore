@@ -4,3 +4,9 @@ coverage
 playwright-report
 test-results
 pnpm-lock.yaml
+
+# Written by tooling, in a shape the tooling keeps stable and reproducible:
+# `tooling/asset-pipeline/import-world-assets.ts` and `pnpm validate:assets --write`
+# both emit it, and its bounds arrays must stay on one line so a 900-entry
+# manifest reads as one row per asset. Same reason pnpm-lock.yaml is here.
+assets/manifest.json

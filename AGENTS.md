@@ -12,7 +12,14 @@ World of Vikings is an open-source, browser-based third-person action RPG with a
 TypeScript, Vite; React only in the editor. The world is never procedurally
 generated.
 
-Current state: **Phase 0 (repository bootstrap)**. No gameplay exists yet.
+Current state: **Phase 1 (player, camera, movement)**. The game client walks a
+placeholder capsule across a lit base scene with a third-person camera, loads a
+licensed model over the asset server and runs a physics world that answers where
+the ground is. There is no character model, no combat and no authored world yet.
+
+The client has exactly one loop, one device edge and one ground query — read
+[ADR-0014](docs/adr/0014-one-loop-one-device-edge-one-ground.md) before adding a
+second of any of them.
 
 ## 2. Folder responsibilities
 

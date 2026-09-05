@@ -1,8 +1,31 @@
 # Gameplay
 
-> Status: **Phase 0** — **no gameplay is implemented**. This document records the
-> architecture gameplay must follow, so the first system does not set a bad
-> precedent.
+> Status: **Phase 1** — the first system exists: a player capsule that walks.
+> Everything below the "What exists today" section is still the target, not the
+> state.
+
+## What exists today
+
+`@wov/gameplay` holds the state and the systems, as plain data and pure
+functions (ADR-0009):
+
+| Piece                                             | What it is                                                                  |
+| ------------------------------------------------- | --------------------------------------------------------------------------- |
+| `WorldState`                                      | An entity list plus one map per component — transform, movement, input      |
+| `MovementSystem.update(state, input, dt, ground)` | Pure. Same arguments, same numbers, on every machine                        |
+| `advance(accumulator, frameDelta)`                | Splits real time into whole 60 Hz steps, with a cap on catch-up             |
+| `GroundQuery`                                     | `heightAt(x, z)`. Answered by physics in the client, by a table in a test   |
+| `InputState`                                      | One frame of intent: two axes, sprint, dodge, interact, attack, block, slot |
+
+The client wires them in `apps/game`: the DOM adapter produces `InputState`, the
+loop runs the step, and the renderer draws the result (ADR-0010, ADR-0014). None
+of that is in this package — `@wov/gameplay` imports no renderer and no DOM, and
+`pnpm lint:boundaries` fails the build if that changes.
+
+Not yet implemented: gravity and jumping (`velocity.y` stays 0), collision
+against walls, entity facing (`Transform.yaw` is written by no system), and
+anything that consumes `dodge`, `interact`, `attack`, `block` or the quick slots
+— they reach the state and wait there for the combat system of spec §28.
 
 ## Principles
 
@@ -17,7 +40,7 @@
 
 ## Planned order (spec §51)
 
-Phase 1 player/camera/movement → Phase 2 character and animation → Phase 6
+Phase 1 player/camera/movement (**done**) → Phase 2 character and animation → Phase 6
 combat → Phase 7 enemy AI → Phase 8 items and inventory → Phase 9 NPCs and
 quests → Phase 10 dungeon.
 

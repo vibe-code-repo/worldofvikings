@@ -6,10 +6,18 @@ TypeScript and Vite.
 
 The world is **hand-crafted in the editor**, never procedurally generated.
 
-> **Status: Phase 0 — repository bootstrap.** Everything starts and builds, and
-> the architecture boundaries are enforced. There is no gameplay yet: the game
-> renders an empty scene, the editor renders a viewport placeholder, the API
-> serves `/health`. See [`docs/architecture.md`](docs/architecture.md).
+> **Status: Phase 1 — player, camera, movement.** The game walks a placeholder
+> capsule across a lit ground with a third-person camera behind it: WASD and the
+> mouse steer, a Havok physics world says where the ground is, and the first
+> licensed model is loaded over the asset server. The editor still renders a
+> viewport placeholder and the API still serves `/health`. There is no character
+> model, no combat and no authored world yet.
+> See [`docs/architecture.md`](docs/architecture.md).
+
+Controls: **WASD** move · **Shift** sprint · **Space** dodge · **E** interact ·
+**LMB** attack · **RMB** block · **1–5** quick slots · click the scene to capture
+the mouse, **Escape** to release it. The action keys reach the gameplay state and
+wait there — nothing consumes them until the combat system.
 
 ## Getting started
 
@@ -79,7 +87,7 @@ world-of-vikings/
 ├── content/              # authored JSON game data (worlds, items, quests, …)
 ├── assets/               # binary assets, served on :9000 in development
 ├── tooling/              # asset dev server, validators, Playwright smoke
-├── infrastructure/       # docker / nginx / deployment (empty in Phase 0)
+├── infrastructure/       # docker / nginx / deployment (empty in Phase 1)
 ├── docs/                 # architecture, world format, editor, assets, ADRs
 └── .github/              # CI workflow, issue and PR templates
 ```

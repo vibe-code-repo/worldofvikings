@@ -1,6 +1,6 @@
 # Development
 
-> Status: **Phase 0**.
+> Status: **Phase 1**.
 
 ## Requirements
 
@@ -72,6 +72,29 @@ pnpm smoke
 `pnpm smoke` starts the real dev servers, opens each app in headless Chromium and
 asserts one visible marker per app plus `/health` of the API and asset server.
 This is how you prove something runs instead of claiming it does.
+
+## Bundle sizes
+
+Checked after `pnpm build` on 2026-09-06. Sizes are the emitted file and its
+gzip; the browser downloads the gzip.
+
+| Chunk                | Raw      | Gzip   | When it loads                       |
+| -------------------- | -------- | ------ | ----------------------------------- |
+| `apps/game` entry    | 959 kB   | 232 kB | Always                              |
+| `webgpuEngine`       | 223 kB   | 54 kB  | Only on a WebGPU browser (ADR-0006) |
+| `glTFLoader`         | 132 kB   | 32 kB  | On the first asset load (ADR-0011)  |
+| `havok` binding      | 102 kB   | 26 kB  | On physics start-up (ADR-0013)      |
+| `HavokPhysics.wasm`  | 2 095 kB | 658 kB | With it                             |
+| `apps/editor` entry  | 1 284 kB | 324 kB | Always                              |
+| `apps/website` entry | 1.1 kB   | 0.6 kB | Always                              |
+
+Totals on disk: game 5.2 MB, editor 2.0 MB, website 2.4 kB.
+
+The game entry chunk is over Vite's 500 kB warning and Rollup says so on every
+build. It is almost entirely Babylon.js core; splitting it is open work under
+ADR-0006, and the number is written down here so a regression is visible rather
+than gradual. Everything that _can_ be deferred already is — the four rows
+above the editor are separate chunks, not part of the entry.
 
 ## Environment
 

@@ -22,3 +22,4 @@ change it describes.
 | [0011](0011-asset-loading-caching-and-manifest.md)                      | GLB loading, per-URL caching and an asset manifest          | accepted |
 | [0012](0012-vendoring-third-party-assets.md)                            | Vendoring third-party assets, and two asset-system entries  | accepted |
 | [0013](0013-physics-behind-an-interface-with-havok.md)                  | Physics behind an interface, implemented with Havok         | accepted |
+| [0014](0014-one-loop-one-device-edge-one-ground.md)                     | One loop, one device edge, one ground                       | accepted |

@@ -1,8 +1,8 @@
 # Architecture
 
-> Status: **Phase 0 (repository bootstrap)**. This document describes what exists
-> today and the boundaries the project commits to. Anything marked "later" is not
-> implemented yet.
+> Status: **Phase 1 (player, camera, movement)**. This document describes what
+> exists today and the boundaries the project commits to. Anything marked
+> "later" is not implemented yet.
 
 ## Overview
 
@@ -72,8 +72,40 @@ Game State  →  Gameplay Systems  →  Entities  →  Babylon rendering represe
 ```
 
 Rendering never owns game state. Nothing gameplay-related is stored on a Babylon
-`Mesh`. In Phase 0 there is no gameplay state yet; the rule exists so it is never
-introduced the wrong way round.
+`Mesh`: the player's position lives in a `WorldState` in `@wov/gameplay`, and the
+capsule's `position` is written from it every frame and never read back
+(ADR-0009). The camera follows a `() => Vector3`, not a mesh, so it cannot
+become a route back into gameplay either.
+
+## The Phase 1 client
+
+```text
+                        apps/game/src/loop.ts
+                     (one loop, ADR-0010, ADR-0014)
+                                  │
+        ┌─────────────────────────┴─────────────────────────┐
+        │ fixed step (60 Hz)                                │ once per frame
+        v                                                   v
+  input.sample(camera yaw)                        interpolate(previous, current)
+        │                                                   │
+        v                                                   v
+  MovementSystem.update(state, input, dt, ground)   capsule.position
+        │                    ▲                              │
+        │                    │ heightAt(x, z)               v
+        v                    │                     renderer.renderFrame()
+  physics.step(dt) ─────────▶ physics-ground.ts             │
+                              (raycastGround)               v
+                                                third-person camera follows
+```
+
+Reading it in one sentence: keys and mouse buttons become intent, intent becomes
+a position, physics says what height that position sits at, and the renderer
+draws the result with the camera behind it. Every arrow points away from the
+state and towards the picture.
+
+Four seams here have no unit test that can see them, so `pnpm smoke` covers each
+in a real browser: the frame counter climbs, a held key walks the capsule, the
+camera follows it, and the Havok backend comes up over the network.
 
 ## Packages
 
@@ -88,7 +120,9 @@ introduced the wrong way round.
 | `@wov/editor-core`  | Editor-only logic. Forbidden in the game.                                               |
 | `@wov/ui`           | Framework-free UI tokens/helpers.                                                       |
 
-See each package's README for its public API and ownership.
+See each package's README for its public API and ownership. `@wov/gameplay` and
+`@wov/physics` never import each other: the app joins them, in
+`apps/game/src/physics-ground.ts` (ADR-0014).
 
 ## Build model
 
@@ -115,7 +149,7 @@ explicit: the game loop calls `step(deltaSeconds)`, the render loop never
 advances the simulation on its own. Capsule size, mass and the substep limits are
 data in `packages/physics/src/defaults.ts`. See ADR-0013.
 
-## Known limitations (Phase 0/1)
+## Known limitations (Phase 1)
 
 - The game's entry chunk is large — see the numbers in `docs/development.md`.
   Splitting Babylon.js out of it is still open (ADR-0006).
@@ -124,4 +158,10 @@ data in `packages/physics/src/defaults.ts`. See ADR-0013.
   Collision against walls and gravity arrive with Phase 2.
 - `toStaticMeshData` still lives in `apps/game/src/physics-backend.ts`; it
   belongs in `@wov/engine` next to the rest of the Babylon bridge.
-- No world loading. The API only serves `/health`.
+- The camera's obstacle query is `noCameraObstacles`: it will happily sit inside
+  a wall. `PhysicsWorld` only casts downward rays today, so pushing the camera
+  out needs a general raycast on the contract first (ADR-0014).
+- `RenderConfig.debugOverlay` is declared and read by nobody — a placeholder for
+  the overlay a later phase adds, not a feature.
+- No character model, no combat, no world loading. The API only serves
+  `/health`.

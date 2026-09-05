@@ -261,6 +261,25 @@ export function steinAufrufGlsl(): string {
     //
     // stMenge.w ist die Staerke aus ?cavity=; 0 ergibt exakt das Bild
     // von gestern.
+    //
+    // OFFENER BEFUND (05.09.2026, gemessen im Grab hell-probe, nicht
+    // behoben): Diese Zeile bleibt im Spiel WIRKUNGSLOS, weil vColor im
+    // Fragment als exakt 1,0 ankommt. Faktor sigma/mu (an / aus) 1,000,
+    // mittlere Helligkeit 18,47 gegen 18,47; auch ?cavity=2 aendert
+    // nichts. Was nachweislich NICHT die Ursache ist: die GLB tragen
+    // COLOR_0 (0,55..1,0), die aktiv gezeichneten Master ebenso, der
+    // color-Puffer ist richtig beschrieben (UNSIGNED_SHORT, normalized,
+    // Groesse 4, Schritt 8), useVertexColors ist an, VERTEXCOLOR steht
+    // im uebersetzten Shader, color steht in der Attributliste, der
+    // Vertex-Shader enthaelt vColor.rgb *= colorUpdated.rgb, stMenge.w
+    // kommt an (mit surfaceAlbedo *= vec3(stMenge.w, ...) wird der
+    // Rotkanal bei ?cavity=0 schwarz), und ohne Thin Instances
+    // gezeichnet ist das Bild dasselbe. Zwei Diagnosen zeigen den
+    // Ausfall direkt: pow(vColor.r, 6.0) aendert das Bild um kein
+    // einziges Bit, und surfaceAlbedo = vec3(vColor.r) malt die Wand
+    // flach grau. Zwischen Vertexpuffer und Fragment geht die Spalte
+    // verloren; wo, ist offen. Naechster Schritt ist deshalb diese
+    // Frage - nicht mehr Geometrie.
     surfaceAlbedo *= mix(vec3(1.0), vColor.rgb, stMenge.w);
   #endif
   #ifdef STEIN_NORMAL

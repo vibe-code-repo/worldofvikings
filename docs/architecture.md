@@ -47,6 +47,13 @@ These are checked by `pnpm lint:boundaries` (dependency-cruiser,
    state is independent of the renderer (spec §25).
 4. `packages/*` must not import `apps/*` or `services/*`.
 5. No circular dependencies anywhere.
+6. Only `packages/physics/src/havok.ts` and `apps/game/src/physics-backend.ts`
+   may name a physics backend (`@babylonjs/havok`, `@wov/physics/havok`).
+   Everything else uses the `PhysicsWorld` contract (ADR-0013).
+7. The `@wov/physics` entry point must not import Babylon.js or its own backend —
+   importing the contract has to stay free.
+8. `apps/editor` and `packages/editor-core` must not reach a physics backend: the
+   editor does not simulate and must not ship the WASM module (spec §38).
 
 ## Data flow
 
@@ -76,6 +83,7 @@ introduced the wrong way round.
 | `@wov/world-schema` | Zod schemas + versioning for all world data.                                            |
 | `@wov/asset-system` | Asset URLs, GLB loading and caching, scene placement, manifest (ADR-0011).              |
 | `@wov/engine`       | Babylon.js bootstrap (ADR-0006), base scene (ADR-0007), third-person camera (ADR-0008). |
+| `@wov/physics`      | `PhysicsWorld` contract; Havok backend behind it (ADR-0013).                            |
 | `@wov/gameplay`     | Gameplay state and systems (ADR-0009). Never imports a renderer.                        |
 | `@wov/editor-core`  | Editor-only logic. Forbidden in the game.                                               |
 | `@wov/ui`           | Framework-free UI tokens/helpers.                                                       |
@@ -89,9 +97,31 @@ and consumed through their `exports` entry. The root `prepare` script builds the
 after `pnpm install`, so a clean clone can run `pnpm dev` immediately.
 `pnpm dev:packages` keeps them in watch mode while you work.
 
-## Known limitations (Phase 0)
+## Physics
 
-- The game's main chunk is 999 kB raw / 241 kB gzip — above Vite's 500 kB
-  warning. Splitting Babylon.js out of the entry chunk is still open (ADR-0006).
-- No physics, no player, no assets, no world loading.
-- The API only serves `/health`.
+```text
+gameplay / apps  →  @wov/physics (contract, no Babylon)
+                         ▲
+                         │ implements
+                    @wov/physics/havok  →  @babylonjs/havok (WASM)
+```
+
+The contract (`PhysicsWorld`, `CharacterController`, `raycastGround`,
+`addStaticMesh`) contains no Babylon.js and no Havok, so gameplay never sees the
+backend and importing it costs nothing. `apps/game` loads the backend with a
+dynamic `import()` from `apps/game/src/physics-backend.ts`, which keeps the ~2 MB
+`HavokPhysics.wasm` in its own chunk and out of the editor entirely. Stepping is
+explicit: the game loop calls `step(deltaSeconds)`, the render loop never
+advances the simulation on its own. Capsule size, mass and the substep limits are
+data in `packages/physics/src/defaults.ts`. See ADR-0013.
+
+## Known limitations (Phase 0/1)
+
+- The game's entry chunk is large — see the numbers in `docs/development.md`.
+  Splitting Babylon.js out of it is still open (ADR-0006).
+- There is no player _controller_ on top of physics yet: the capsule is moved
+  kinematically by `MovementSystem`, and physics answers the ground under it.
+  Collision against walls and gravity arrive with Phase 2.
+- `toStaticMeshData` still lives in `apps/game/src/physics-backend.ts`; it
+  belongs in `@wov/engine` next to the rest of the Babylon bridge.
+- No world loading. The API only serves `/health`.

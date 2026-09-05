@@ -25,8 +25,9 @@
  * second, engine-driven render loop would render frames the simulation never
  * saw.
  *
- * The environment probe is started next to the loop and never awaited by it: a
- * slow model delays the barrel appearing, not the player walking (spec §38).
+ * The environment probe and the physics backend are started next to the loop and
+ * never awaited by it: a slow model or a 2 MB WASM download delays the barrel
+ * and the collision, not the player walking (spec §38).
  */
 import {
   MovementSystem,
@@ -44,9 +45,11 @@ import {
 } from '@wov/gameplay';
 import { summarizePlacement } from '@wov/asset-system';
 import type { AssetEnv } from '@wov/asset-system';
+import type { PhysicsWorld } from '@wov/physics';
 import { tokens } from '@wov/ui';
 import { installDevDebugBridge } from './dev-debug.js';
 import { loadEnvironment } from './environment.js';
+import { createGamePhysicsWorld, toStaticMeshData } from './physics-backend.js';
 import { attachKeyboardMouse } from './input/keyboard-mouse.js';
 import { createGameLoop } from './loop.js';
 import { interpolatePosition } from './render/interpolate.js';
@@ -102,7 +105,7 @@ function setAssetStatus(text: string): void {
  * it can hand back a scene (ADR-0006).
  */
 async function start(canvas: HTMLCanvasElement): Promise<void> {
-  const { renderer, camera, player } = await createGameScene(canvas, {
+  const { renderer, base, camera, player } = await createGameScene(canvas, {
     // The game loop below drives the frames; see the module comment.
     render: { resolutionScale: 1, autoStart: false },
   });
@@ -134,6 +137,11 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
   /** The ground the movement system adheres to. */
   const ground: GroundQuery = flatGround(0);
 
+  /** Set once the backend is up; `null` while it loads, and after a failure. */
+  let physics: PhysicsWorld | null = null;
+  /** What the status line says about the renderer and the simulation. */
+  let baseStatus = '';
+
   // The state the previous step ended in, kept so a frame between two steps can
   // be interpolated instead of snapped.
   let previous: Transform = getTransform(world, PLAYER) ?? createTransform();
@@ -153,6 +161,9 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       // The camera's own yaw is the frame the axes are rotated into, so "W"
       // means "away from the camera" whichever way the player turned it.
       world = MovementSystem.update(world, input.sample(camera.state.yaw), fixedDelta, ground);
+      // Physics advances on the same fixed step as gameplay, not on the frame:
+      // the simulation must not run faster on a 144 Hz display (ADR-0013).
+      physics?.step(fixedDelta);
     },
 
     render(alpha) {
@@ -170,13 +181,37 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
   });
 
   loop.start();
-  setStatus(`renderer ready — ${renderer.backend} · simulation 60 Hz`);
+  baseStatus = `renderer ready — ${renderer.backend} · simulation 60 Hz`;
+  setStatus(baseStatus);
 
   if (import.meta.env.DEV) {
     // Vite replaces the condition with `false` when building for production,
     // so Rollup drops this call and `./dev-debug.js` with it.
     installDevDebugBridge(renderer, marker, { camera, player });
   }
+
+  /**
+   * Brings the physics world up and hands it the ground.
+   *
+   * Nothing here names Havok: the backend is loaded lazily behind
+   * `createGamePhysicsWorld` (ADR-0013), and everything below talks to the
+   * `PhysicsWorld` contract. Once it is up, the movement system stops asking a
+   * hard-coded plane where the ground is and asks the collision geometry.
+   */
+  async function startPhysics(): Promise<void> {
+    try {
+      const created = await createGamePhysicsWorld(renderer.scene);
+      created.addStaticMesh(toStaticMeshData(base.ground));
+      physics = created;
+      setStatus(`${baseStatus} · physics ready — ground is collision geometry`);
+    } catch (error) {
+      // A missing backend must not stop the game: the flat plane keeps the
+      // player walking, and the status line says what was lost.
+      setStatus(`${baseStatus} · physics unavailable: ${describe(error)}`);
+    }
+  }
+
+  void startPhysics();
 
   // Started after the loop and deliberately not awaited: a slow model delays
   // the barrel appearing, not the scene showing up (spec §38).

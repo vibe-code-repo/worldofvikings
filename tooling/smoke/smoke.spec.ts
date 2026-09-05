@@ -227,6 +227,17 @@ test('game loads its environment asset over the asset server', async ({ page }) 
   expect(badResponses).toEqual([]);
 });
 
+test('game loads the physics backend and collides the ground', async ({ page }) => {
+  await page.goto('http://localhost:5173');
+  // Proves the whole chain in a real browser: the dynamic Havok import
+  // resolved, the WASM module loaded from the URL Vite emitted, and the base
+  // ground became static collision geometry (ADR-0013). Unit tests can prove
+  // none of that — the backend does not exist until a browser fetches it.
+  await expect(page.getByTestId('game-status')).toContainText('physics ready', {
+    timeout: 30_000,
+  });
+});
+
 test('editor shows its shell and viewport placeholder', async ({ page }) => {
   await page.goto('http://localhost:5174');
   await expect(page.getByTestId('editor-marker')).toContainText('world editor dev build');

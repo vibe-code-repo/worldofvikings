@@ -26,13 +26,14 @@ Current state: **Phase 0 (repository bootstrap)**. No gameplay exists yet.
 | `packages/world-schema` | Zod schemas + versioning for world data   | Babylon.js, React             |
 | `packages/asset-system` | Asset URLs, GLB loading/caching, manifest | Gameplay                      |
 | `packages/engine`       | Shared renderer layer                     | Gameplay state                |
+| `packages/physics`      | Physics contract + Havok backend          | Gameplay rules                |
 | `packages/gameplay`     | Gameplay state and systems                | Any renderer import           |
 | `packages/editor-core`  | Editor-only logic                         | Anything the game needs       |
 | `packages/ui`           | Framework-free UI tokens/helpers          | React components              |
 | `content/`              | Authored JSON game data                   | TypeScript                    |
 | `assets/`               | Binary assets                             | Code                          |
 | `tooling/`              | Scripts, validators, smoke tests          | Shipped code                  |
-| `infrastructure/`       | Deployment scaffolding (empty in Phase 0) | Anything needed for local dev |
+| `infrastructure/`       | Deployment scaffolding (empty in Phase 1) | Anything needed for local dev |
 | `docs/`                 | Architecture, formats, ADRs               | Generated output              |
 
 ## 3. Commands
@@ -121,6 +122,10 @@ A change is done when **all** of these hold:
   `apps/editor` or `@wov/editor-core`.
 - **No Babylon.js or React in `packages/world-schema`**, no renderer in
   `packages/gameplay`.
+- **No physics backend outside its two owners.** Only
+  `packages/physics/src/havok.ts` and `apps/game/src/physics-backend.ts` may name
+  `@babylonjs/havok` or `@wov/physics/havok`; everything else uses the
+  `PhysicsWorld` contract (ADR-0008).
 - **No world data in TypeScript.** It belongs in `content/` with a
   `schemaVersion`.
 - **No silent format changes.** Bump `CURRENT_WORLD_SCHEMA_VERSION` and write a

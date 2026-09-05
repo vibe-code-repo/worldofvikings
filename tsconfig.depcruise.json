@@ -6,6 +6,7 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
+      "@wov/physics/havok": ["packages/physics/src/havok.ts"],
       "@wov/*": ["packages/*/src/index.ts"]
     }
   },

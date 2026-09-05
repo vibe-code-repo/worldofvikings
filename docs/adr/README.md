@@ -21,3 +21,4 @@ change it describes.
 | [0010](0010-the-device-edge-and-the-frame-loop-live-in-apps-game.md)    | The device edge and the frame loop live in apps/game        | accepted |
 | [0011](0011-asset-loading-caching-and-manifest.md)                      | GLB loading, per-URL caching and an asset manifest          | accepted |
 | [0012](0012-vendoring-third-party-assets.md)                            | Vendoring third-party assets, and two asset-system entries  | accepted |
+| [0013](0013-physics-behind-an-interface-with-havok.md)                  | Physics behind an interface, implemented with Havok         | accepted |

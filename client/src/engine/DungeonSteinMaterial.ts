@@ -263,6 +263,11 @@ class SteinKitPlugin extends MaterialPluginBase {
   /** Reliefstärke aus `?relief=`; 0 lädt die Normal-Karten gar nicht erst. */
   private staerke: number;
   private normalTex: Partial<Record<SteinFlaeche, Texture>> = {};
+  /**
+   * Die Szene — nur, um die Sperre kurz aufzuheben (s. `meldeNormal`).
+   * Sie kommt aus `ladeNormalen`; vorher gibt es nichts nachzuübersetzen.
+   */
+  private szene: Scene | null = null;
   private normalZustand: Record<SteinFlaeche, NormalZustand> = {
     wand: 'laedt',
     boden: 'laedt',
@@ -317,6 +322,7 @@ class SteinKitPlugin extends MaterialPluginBase {
    */
   ladeNormalen(scene: Scene): void {
     if (this.staerke <= 0) return;
+    this.szene = scene;
     const quelle: Record<SteinFlaeche, string> = {
       wand: this.cfg.wandTextur,
       boden: this.cfg.bodenTextur,
@@ -336,12 +342,48 @@ class SteinKitPlugin extends MaterialPluginBase {
    * Rückmeldung des Texturladers: Karte da oder nicht. Wechselt der Zustand,
    * müssen die Defines neu — sonst zeigt der übersetzte Shader den Stand von
    * vor der Antwort, und niemand sieht, woran es liegt.
+   *
+   * ── Warum die Sperre hier kurz fällt ─────────────────────────────────
+   * `main.ts` setzt einmalig `scene.blockMaterialDirtyMechanism = true`
+   * (szenenweite Sparmassnahme). Genau daran ist F1 im Spiel wirkungslos
+   * geblieben: `Material._markAllSubMeshesAsDirty` steigt bei gesetzter
+   * Sperre SOFORT aus, `markAllDefinesAsDirty()` ist dann ein Aufruf ins
+   * Leere. Die Karte lag geladen im Speicher, `STEIN_NORMAL_WAND` stand in
+   * den MaterialDefines auf `true` — und der übersetzte Shader trug
+   * trotzdem nur `#define STEIN_KIT`. Gemessen am 05.09.2026 auf wov-dev:
+   * `defines.toString()` nannte den Kanal, `subMesh.effect.defines` nicht.
+   *
+   * Das Aufheben ist deshalb kein Trick, sondern die einzige Stelle, an der
+   * dieses Material ÜBERHAUPT neu übersetzt werden muss: einmal je Fläche,
+   * wenn die Antwort auf den Ladeversuch eintrifft. Dasselbe Muster steht
+   * in `Terrain.ts` (`setzeDeckkraft`) — vorherigen Stand merken, aufheben,
+   * zurücksetzen, damit ein späteres Umschalten der Sperre nicht verloren
+   * geht.
+   * `main.ts` blocks the dirty mechanism scene-wide, which silently made
+   * F1's recompile a no-op; lifted here for the one call that needs it.
    */
   meldeNormal(flaeche: SteinFlaeche, da: boolean): void {
     const neu: NormalZustand = da ? 'da' : 'fehlt';
     if (this.normalZustand[flaeche] === neu) return;
     this.normalZustand[flaeche] = neu;
+    this.definesNeu();
+  }
+
+  /**
+   * Defines erneuern, auch bei gesetzter Szenensperre — s. `meldeNormal`.
+   * Kennt das Plugin die Szene nicht (kein Ladeversuch gelaufen), bleibt
+   * es beim blossen Aufruf: dann gibt es auch nichts zu erneuern.
+   */
+  private definesNeu(): void {
+    const szene = this.szene;
+    if (!szene) {
+      this.markAllDefinesAsDirty();
+      return;
+    }
+    const gesperrt = szene.blockMaterialDirtyMechanism;
+    szene.blockMaterialDirtyMechanism = false;
     this.markAllDefinesAsDirty();
+    szene.blockMaterialDirtyMechanism = gesperrt;
   }
 
   override getClassName(): string {
@@ -352,10 +394,15 @@ class SteinKitPlugin extends MaterialPluginBase {
     return shaderLanguage === ShaderLanguage.GLSL;
   }
 
+  /**
+   * Die Notbremse geht denselben Weg wie `meldeNormal` — aus demselben
+   * Grund: Bei gesetzter Szenensperre bliebe „grau, aber begehbar" ein
+   * Vorsatz ohne Wirkung, weil der Shader nie neu übersetzt würde.
+   */
   setzeAn(an: boolean): void {
     if (this.an === an) return;
     this.an = an;
-    this.markAllDefinesAsDirty();
+    this.definesNeu();
   }
 
   override prepareDefinesBeforeAttributes(defines: MaterialDefines): void {

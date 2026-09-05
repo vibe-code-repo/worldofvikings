@@ -49,6 +49,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { Scene } from '@babylonjs/core/scene';
 import { ShaderStore } from '@babylonjs/core/Engines/shaderStore';
 import '@babylonjs/core/Shaders/pbr.fragment';
@@ -463,6 +464,72 @@ pruefe('beide Bloecke landen im fertigen Fragment-Quelltext', () => {
   // GLSL kennt keine Vorwaertsdeklaration.
   assert.ok(def < aufruf, 'steinNormale wird vor seiner Definition gerufen');
   assert.ok(fertig.length > pbrFrag.length, 'nichts eingespritzt');
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Die Szenensperre / the scene-wide dirty block
+//
+// Alles bisher Gemessene ruft `prepareDefinesBeforeAttributes` SELBST. Genau
+// deshalb blieb bis zum 05.09.2026 unbemerkt, dass Babylon es im Spiel nie
+// wieder ruft: `main.ts` setzt `scene.blockMaterialDirtyMechanism = true`,
+// und `Material._markAllSubMeshesAsDirty` steigt bei gesetzter Sperre sofort
+// aus. Auf wov-dev gemessen: Die Karte war geladen, `STEIN_NORMAL_WAND`
+// stand in den MaterialDefines auf `true` — und `subMesh.effect.defines`
+// trug nur `#define STEIN_KIT`.
+//
+// Der Zeuge ist deshalb nicht das Define, sondern der WEG dorthin: Kommt der
+// Aufruf bei der Dirty-Mechanik an, und steht die Sperre in dem Moment
+// offen? Gepruefte Stelle ist `Material._markAllSubMeshesAsDirty`, weil das
+// die Methode ist, die die Sperre liest.
+// ─────────────────────────────────────────────────────────────────────────
+console.log('Unter gesetzter Szenensperre:');
+
+interface DirtySpion {
+  _markAllSubMeshesAsDirty(func: unknown): void;
+}
+const gesperrteSzene = new Scene(engine);
+gesperrteSzene.blockMaterialDirtyMechanism = true;
+
+/** Bei jedem Aufruf: Stand der Sperre in genau diesem Moment. */
+const rufe: boolean[] = [];
+const echt = (PBRMaterial.prototype as unknown as DirtySpion)._markAllSubMeshesAsDirty;
+(PBRMaterial.prototype as unknown as DirtySpion)._markAllSubMeshesAsDirty = function (
+  this: { getScene(): Scene },
+  func: unknown
+): void {
+  if (this.getScene() === gesperrteSzene) rufe.push(this.getScene().blockMaterialDirtyMechanism);
+  echt.call(this as unknown as DirtySpion, func);
+};
+
+const gesperrtesMaterial = erzeugeSteinKitMaterial(gesperrteSzene, 'stein-normal-sperre', KIT);
+const gesperrtesPlugin = (
+  gesperrtesMaterial.pluginManager as unknown as { getPlugin(n: string): unknown }
+).getPlugin('SteinKit') as unknown as SteinSeam;
+// Derselbe Makrotask-Umweg wie oben: die NullEngine meldet die Texturen erst
+// danach als geladen, und genau diese Meldung soll hier ankommen.
+await new Promise((r) => setTimeout(r, 0));
+(PBRMaterial.prototype as unknown as DirtySpion)._markAllSubMeshesAsDirty = echt;
+
+pruefe('der Ladeschluss erreicht die Dirty-Mechanik trotz Sperre', () => {
+  assert.ok(rufe.length > 0, 'markAllDefinesAsDirty hat die Mechanik nie erreicht');
+  assert.ok(
+    rufe.some((gesperrt) => gesperrt === false),
+    'die Sperre stand bei JEDEM Aufruf — der Shader wuerde nie neu uebersetzt'
+  );
+});
+
+pruefe('die Sperre steht danach wieder', () => {
+  assert.equal(
+    gesperrteSzene.blockMaterialDirtyMechanism,
+    true,
+    'die szenenweite Sparmassnahme ist aufgehoben geblieben'
+  );
+});
+
+pruefe('und die Defines stehen wirklich an', () => {
+  const d: Record<string, boolean> = {};
+  gesperrtesPlugin.prepareDefinesBeforeAttributes(d);
+  assert.equal(d.STEIN_NORMAL_WAND, true);
 });
 
 console.log(rot === 0 ? 'alles gruen' : `${rot} rot`);

@@ -80,7 +80,12 @@ export interface RendererHandle {
   readonly disposed: boolean;
   /** Registers a per-frame listener and returns its unsubscribe function. */
   onFrame(listener: FrameListener): Unsubscribe;
-  /** Renders one frame and notifies the listeners. The loop calls this. */
+  /**
+   * Renders one frame and notifies the listeners. The loop calls this.
+   *
+   * With `autoStart: false` the *caller* is the loop, so this also opens and
+   * closes the engine frame — see the implementation for why that matters.
+   */
   renderFrame(): void;
   /** Tells the engine the canvas size changed. */
   resize(): void;
@@ -165,6 +170,8 @@ export async function createRenderer(
   let elapsedSeconds = 0;
 
   const host = resizeHost === undefined ? defaultResizeHost() : resizeHost;
+  // Who owns the frame: the engine's loop below, or whoever calls renderFrame.
+  const drivesOwnFrame = !autoStart;
 
   const resize = (): void => {
     if (!disposed) {
@@ -193,7 +200,20 @@ export async function createRenderer(
       // skip the render but still tick the listeners.
       const hasCamera = Boolean(scene.activeCamera) || scene.cameras.length > 0;
       if (hasCamera) {
-        scene.render();
+        if (drivesOwnFrame) {
+          // Babylon's own render loop brackets every frame with
+          // `beginFrame()`/`endFrame()`, and `beginFrame` is what measures the
+          // frame time. Drive `renderFrame` from an external loop without that
+          // bracket and `engine.getDeltaTime()` answers 0 for ever: the picture
+          // still moves, but everything that eases over time — the camera's
+          // follow lag and its zoom above all — freezes on the spot, silently.
+          engine.beginFrame();
+          scene.render();
+          engine.endFrame();
+        } else {
+          // The engine's loop already opened this frame and will close it.
+          scene.render();
+        }
       }
       const deltaSeconds = index === 0 ? 0 : engine.getDeltaTime() / 1000;
       elapsedSeconds += deltaSeconds;

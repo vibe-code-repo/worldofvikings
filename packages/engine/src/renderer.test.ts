@@ -1,4 +1,6 @@
+import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera.js';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { describe, expect, it, vi } from 'vitest';
 import { createRenderer, selectBackend } from './renderer.js';
 import type { FrameInfo, ResizeHost } from './renderer.js';
@@ -125,6 +127,51 @@ describe('createRenderer', () => {
     });
 
     expect(firstFrame.index).toBeGreaterThanOrEqual(0);
+
+    renderer.dispose();
+  });
+
+  it('opens and closes the engine frame when an external loop drives it', async () => {
+    // The bug this pins: without `beginFrame`, Babylon never measures a frame
+    // time, `engine.getDeltaTime()` answers 0 for ever, and every effect that
+    // eases over time — the third-person camera's follow lag and its zoom above
+    // all — freezes while the picture keeps rendering. Nothing throws, nothing
+    // logs; the camera simply stops following the player.
+    const engine = headlessEngine();
+    const begin = vi.spyOn(engine, 'beginFrame');
+    const end = vi.spyOn(engine, 'endFrame');
+    const renderer = await createRenderer(null, {
+      createEngine: () => engine,
+      autoStart: false,
+      resizeHost: null,
+    });
+    // A camera, because renderFrame skips the render without one.
+    new FreeCamera('probe', Vector3.Zero(), renderer.scene);
+
+    renderer.renderFrame();
+    renderer.renderFrame();
+
+    expect(begin).toHaveBeenCalledTimes(2);
+    expect(end).toHaveBeenCalledTimes(2);
+
+    renderer.dispose();
+  });
+
+  it('leaves the frame bracket to the engine loop when it owns the frames', async () => {
+    // The mirror image: Babylon's own render loop already brackets each frame,
+    // so doing it again here would measure two frames per frame and present
+    // twice.
+    const engine = headlessEngine();
+    const renderer = await createRenderer(null, {
+      createEngine: () => engine,
+      resizeHost: null,
+    });
+    new FreeCamera('probe', Vector3.Zero(), renderer.scene);
+    const begin = vi.spyOn(engine, 'beginFrame');
+
+    renderer.renderFrame();
+
+    expect(begin).not.toHaveBeenCalled();
 
     renderer.dispose();
   });

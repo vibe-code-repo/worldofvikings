@@ -139,23 +139,46 @@ GRID   = 2.0     # Rastermass / Zellbreite
 HOEHE  = 3.5     # Raumhoehe: Bodenoberkante bis Deckenunterkante
 DICKE  = 0.25    # Plattendicke — wie SteingrabGang (Boden reicht bis z = -0,2493)
 TIEFE  = 0.30    # Wand-/Bogentiefe, mittig um den Ursprung: -0,15 .. +0,15
-# ── Reliefdicke: 6 cm in Ziegeln, 9 cm im Fels ──────────────────────────────
+# ── Reliefdicke: 6 cm in Ziegeln, 18 cm im Fels ─────────────────────────────
 # Der Ziegelverband braucht 6 cm — mehr sieht man einem Backstein nicht an.
 # Die Fels-Frontschicht braucht MEHR, und zwar aus einem messbaren Grund: Sie
-# ist eine unterteilte Flaeche im 0,125-m-Raster. Bei 6 cm Hub betraegt die
-# steilste moegliche Flanke atan(0,06/0,125) = 26 Grad — es gibt in so einer
-# Wand also gar keine scharfe Bruchkante, egal wie das Feld gerechnet wird.
-# Bei 9 cm sind es 36 Grad, und damit stehen Kanten im Streiflicht.
+# ist eine unterteilte Flaeche. Bei 6 cm Hub betraegt die steilste moegliche
+# Flanke auf dem 0,125-m-Raster atan(0,06/0,125) = 26 Grad — es gibt in so
+# einer Wand also gar keine scharfe Bruchkante, egal wie das Feld gerechnet
+# wird.
+#
+# Bis zum 05.09.2026 standen hier 9 cm, und die Zahl kam nicht aus dem
+# Gestein, sondern aus der SPIELERKAPSEL: Das sichtbare Netz war zugleich
+# die Kollisionsform, jede tiefere Kluft also eine Falle. Mikes Befund vom
+# selben Tag lautete, die Wand im Spiel sei viel weniger grob als das
+# Tripo-Modell (dort rund 16 cm Spanne auf 1 m Wand) — und die 9-cm-Klemme
+# war der groesste Einzelposten daran.
+#
+# Deshalb bekommt jedes Fels-Wandmodul seit heute ein `_col`-Netz (s.
+# `kollisionsnetz()` und `fertig()`): eine GLATTE Flaeche auf der
+# Wandflucht. Die Kapsel gleitet daran entlang und sieht das Relief nicht
+# mehr; wie tief die Kluefte dahinter stehen, ist ihr gleichgueltig. Damit
+# ist die Reliefdicke nur noch durch die Wand selbst begrenzt:
+#
+#   Wandtiefe 30 cm = 18 cm Relief + 12 cm Rueckplatte.
 #
 # Was dabei NICHT wandert: Die Hüllbox (TIEFE bleibt 0,30) und die
 # VORDERKANTE des Reliefs. Dicker wird allein die Reliefschicht, duenner die
-# Rueckplatte (0,24 -> 0,21). Die Wandfront liegt in beiden Stilen auf
+# Rueckplatte (0,24 -> 0,12). Die Wandfront liegt in beiden Stilen auf
 # +-0,15 bzw. (bei den Innenwaenden) auf +-0,70 — was `stonevault-kantensonde`
 # als Durchgangsfenster misst, aendert sich um keinen Millimeter.
-#
-# Die Grenze nach oben ist die Spielerkapsel: Das Konzept laesst 10 cm zu.
-PROT   = 0.09 if STIL == "fels" else 0.06
-RUECK  = TIEFE - PROT   # Rueckplattendicke 0,24 bzw. 0,21
+PROT   = 0.18 if STIL == "fels" else 0.06
+RUECK  = TIEFE - PROT   # Rueckplattendicke 0,24 bzw. 0,12
+
+# ── Der Torbogen kann nicht 18 cm nehmen ────────────────────────────────────
+# Er traegt sein Relief auf BEIDEN Flanken (er sitzt in der Kopplungsebene
+# zwischen zwei Zellen, s. `bogen()`). Zweimal 18 cm sind 36 und damit mehr
+# als seine ganze Tiefe. 13 cm je Flanke lassen 4 cm Mittelplatte stehen —
+# duenn, aber es ist eine Platte MITTEN im Koerper, die niemand sieht und
+# die nichts traegt ausser sich selbst. Das Feld nimmt die Zahl ueber
+# `prot=`/`hub=` entgegen (felsrelief.py), sie steht also nur hier.
+BOGEN_PROT = 0.13 if STIL == "fels" else PROT
+BOGEN_HUB  = BOGEN_PROT - 0.015   # dieselbe Wandstaerke-Reserve wie HUB
 
 # ── NAHTSCHLUSS (03.09.2026) ────────────────────────────────────────────────
 # Befund im Spiel: an den Kanten Wand<->Boden, Wand<->Decke und in den
@@ -342,6 +365,53 @@ def aufbereiten(name, bm, materialname):
     return o
 
 
+# ── Kollisionslauf: dasselbe Modul noch einmal, nur glatt ───────────────────
+# Mass (A) vom 05.09.2026. Ein `_col`-Netz ERSETZT die Kollision des ganzen
+# Prefabs (s. `fertig()`) — es muss also ALLES abdecken, woran die Figur
+# heute anstoesst: Boden, Decke, Rueckplatten, Pfosten, Sturz. Genau
+# deshalb wird es nicht von Hand modelliert, sondern das Modul wird ein
+# ZWEITES MAL gebaut, mit einem einzigen Unterschied: `fels_schicht()`
+# legt einen glatten Quader statt des Hoehenfeldes (s. dort).
+#
+# Warum nicht ein paar Quader von Hand: Die Kollision, die heute steht, IST
+# das sichtbare Netz. Wer sie durch eine Handskizze ersetzt, ersetzt sie
+# durch etwas, das an einer Stelle anders ist, die niemand aufgeschrieben
+# hat — die Bodenfugen, der Einstich in die Deckenplatte, der Sockel unter
+# dem Paneel. Der zweite Bau kann diesen Fehler gar nicht machen: Er
+# durchlaeuft dieselben Zeilen.
+#
+# Der Preis sind ein paar hundert Dreiecke je Modul (Boden und Decke als
+# 4x4-Platten). Sie sind billiger als die 2300, die Havok bis heute
+# angefasst hat.
+KOLL_MODUS = False        # baut gerade den Kollisionslauf?
+_KOLL_BM = None           # sein bmesh, vom Kollisionslauf abgelegt
+_KOLL_BEREIT = None       # dasselbe bmesh, vom Bildlauf abgeholt
+
+
+def baue(modul, f):
+    """Ein Modul bauen — im Fels-Stil zweimal, wenn es Fels-Frontschicht traegt.
+
+    Erst der Kollisionslauf (er legt sein bmesh in `_KOLL_BEREIT` ab und
+    exportiert nichts), dann der Bildlauf, dessen `fertig()` das abgelegte
+    Netz als `<Name>_col` mitnimmt.
+
+    Die Treppe steht NICHT in `KOLL_MODULE`: sie bringt ihr eigenes,
+    handgeschriebenes Kollisionsnetz mit (`treppe_kollision()`), und das
+    ist mehr als eine glatte Wand — es legt die Rampe unter die Stufen.
+    """
+    global KOLL_MODUS, _KOLL_BEREIT
+    _KOLL_BEREIT = None
+    if STIL == "fels" and modul in KOLL_MODULE:
+        KOLL_MODUS = True
+        try:
+            f()
+        finally:
+            KOLL_MODUS = False
+        _KOLL_BEREIT = _KOLL_BM
+    f()
+    _KOLL_BEREIT = None
+
+
 def fertig(name, bm, koll=None):
     """Modul ablegen. `koll` ist ein optionales zweites bmesh: das reine
     KOLLISIONSNETZ, das als Mesh `<name>_col` mit dem Material `Kollision`
@@ -357,7 +427,21 @@ def fertig(name, bm, koll=None):
     einer 0,25-m-Setzstufe liegt die Kontaktnormale bei rund 68 Grad — weit
     ueber der Steigungsgrenze von 40. Aus den gerenderten Stufen gebacken
     ist die Treppe unbegehbar; das `_col`-Netz legt die glatte Rampe unter.
+
+    Seit dem 05.09.2026 haben auch die Fels-WANDMODULE eins — dort aus
+    demselben Grund in umgekehrter Richtung: nicht weil das sichtbare Netz
+    zu steil ist, sondern weil es zu TIEF sein soll. Es kommt aus dem
+    Kollisionslauf (s. `baue()`) und wird hier abgeholt.
     """
+    global _KOLL_BM
+    if KOLL_MODUS:
+        # Kollisionslauf: nichts anlegen, nichts ausgeben — nur das Netz
+        # merken. `neu()` des Bildlaufs raeumt gleich die ganze Szene ab,
+        # ein bmesh haengt aber an keiner Szene und ueberlebt das.
+        _KOLL_BM = bm
+        return
+    if koll is None and _KOLL_BEREIT is not None:
+        koll = _KOLL_BEREIT
     name = ausgabename(name)
     o = aufbereiten(name, bm, "StoneVaultStone")
     ausgabe = [o]
@@ -433,7 +517,7 @@ RUECK_EINSTICH = 0.002
 
 def fels_schicht(bm, lauf, mitte, sgn, lo, hi, lage=0, z0=0.0, z1=HOEHE,
                  rand_luft=None, zeilen=None, niveau_fn=None,
-                 tiefen_fn=None, bezug=0.0):
+                 tiefen_fn=None, bezug=0.0, prot=None, hub=None):
     """`mitte` ist die Mitte der HEUTIGEN Reliefschicht auf der Festachse,
     `sgn` zeigt nach vorn (zur Raumseite). Daraus folgt die Rueckebene der
     Schicht — vor ihr steht jeder Punkt um seine eigene Tiefe.
@@ -457,11 +541,40 @@ def fels_schicht(bm, lauf, mitte, sgn, lo, hi, lage=0, z0=0.0, z1=HOEHE,
     Vorsprung `tiefe`: Bei einer Rueckplatte wuerde ein Faktor auf `tiefe`
     die Schicht nur flach druecken — sie legte sich auf die Rueckebene, und
     die stuende immer noch da, wo sie stand. Am Torbogen ist genau das der
-    Fall (Rueckebene 6 cm vor der Koerpermitte, s. `bogen()`); zurueck muss
+    Fall (Rueckebene 2 cm vor der Koerpermitte, s. `bogen()`); zurueck muss
     die ganze Flanke, nicht nur ihr Relief.
+
+    `prot`/`hub` setzen Reliefdicke und Hub um (Vorgabe: die Zahlen dieses
+    Moduls). Nur der Torbogen ruft damit — er traegt Relief auf BEIDEN
+    Flanken und hat deshalb je Flanke weniger Tiefe (s. `BOGEN_PROT`).
+
+    Im KOLLISIONSLAUF (`KOLL_MODUS`, s. `baue()`) entsteht hier statt des
+    Hoehenfeldes EIN QUADER, dessen Vorderseite genau auf der Wandflucht
+    liegt. Das ist Mass (A) vom 05.09.2026 in einer Anweisung: Die Kapsel
+    gleitet an einer glatten Ebene entlang, das Relief steht rein optisch
+    dahinter — und darf deshalb 18 statt 9 cm tief sein.
     """
-    hinten = mitte - sgn * PROT / 2
-    kw = {"seed": SEED, "lage": lage, "z0": z0, "z1": z1}
+    if prot is None:
+        prot = PROT
+    if KOLL_MODUS:
+        # Glatte Kollisionsflaeche: von der Rueckebene bis zur Vorderkante,
+        # ueber die VOLLE Hoehe (z0..z1 ohne `rand_luft` — die 1 cm Luft
+        # des Bildes braucht die Kollision nicht, und eine Fuge darin waere
+        # eine Stelle, an der die Kapsel haengen bleibt).
+        mitte_lauf = (lo + hi) / 2
+        laenge = hi - lo
+        cz = (z0 + z1) / 2
+        hoch = z1 - z0
+        if niveau_fn is not None:
+            cz += niveau_fn(mitte_lauf)
+        if lauf == "x":
+            box(bm, mitte_lauf, mitte, cz, laenge, prot, hoch)
+        else:
+            box(bm, mitte, mitte_lauf, cz, prot, laenge, hoch)
+        return
+    hinten = mitte - sgn * prot / 2
+    kw = {"seed": SEED, "lage": lage, "z0": z0, "z1": z1,
+          "prot": prot, "hub": hub}
     if rand_luft is not None:
         kw["rand_luft"] = rand_luft
     if zeilen is not None:
@@ -823,7 +936,7 @@ def wand(variante=""):
 # traegt auf beiden Flanken eine Reliefschicht von 0,06.
 # Die Gesamttiefe bleibt exakt 0,3 (0,06 + 0,18 + 0,06) und damit auch die
 # Bounding-Box — der Dateiname bleibt gleich, also auch der Prefab-Hash.
-RUECK_MITTIG = TIEFE - 2 * PROT               # 0,18
+RUECK_MITTIG = TIEFE - 2 * BOGEN_PROT         # 0,18 (Ziegel) bzw. 0,04 (Fels)
 
 # ── 05.09.2026: das Aussenende der Pfosten laeuft an die Wandflucht heran ───
 # BEFUND (gemessen im Layout `rock-probe`, Halle(9,-2) Suedflucht z=-4 und
@@ -926,8 +1039,9 @@ def bogen():
     # Zweimal — einmal je Flanke (glTF z = +0,12 und -0,12).
     reihen, fuge = 8, 0.02
     rh = HOEHE / reihen
-    for flanke, (yr, sgn) in enumerate(((-T / 2 + PROT / 2, -1.0),
-                                        (T / 2 - PROT / 2, 1.0))):
+    BP = BOGEN_PROT
+    for flanke, (yr, sgn) in enumerate(((-T / 2 + BP / 2, -1.0),
+                                        (T / 2 - BP / 2, 1.0))):
         pfosten_lage = FELD_LAGE["BogenPfostenNah" if flanke == 0 else "BogenPfostenFern"]
         sturz_lage = FELD_LAGE["BogenSturzNah" if flanke == 0 else "BogenSturzFern"]
         if STIL == "fels":
@@ -942,16 +1056,19 @@ def bogen():
             # `bogen()`). Ohne diese beiden Argumente ist es der Aufruf von
             # gestern — der Ziegelzweig unten sieht sie nie.
             fels_schicht(bm, "x", yr, sgn, -B / 2, -B / 2 + pf, lage=pfosten_lage,
-                         tiefen_fn=taper_faktor, bezug=ycb)
+                         tiefen_fn=taper_faktor, bezug=ycb,
+                         prot=BP, hub=BOGEN_HUB)
             fels_schicht(bm, "x", yr, sgn, B / 2 - pf, B / 2, lage=pfosten_lage,
-                         tiefen_fn=taper_faktor, bezug=ycb)
+                         tiefen_fn=taper_faktor, bezug=ycb,
+                         prot=BP, hub=BOGEN_HUB)
             # Sturzband: eigener Feldschluessel, sonst saesse ueber der Tuer
             # dasselbe Feld wie auf den Pfosten. Zwei Zeilen genuegen — das
             # Band ist 18 cm hoch, ein 12,5-cm-Raster waere darin sinnlos.
             fels_schicht(bm, "x", yr, sgn,
                          -(oeff_b + 0.30) / 2, (oeff_b + 0.30) / 2,
                          lage=sturz_lage, zeilen=2, rand_luft=0.0,
-                         z0=kaempfer + r + 0.01, z1=kaempfer + r + 0.19)
+                         z0=kaempfer + r + 0.01, z1=kaempfer + r + 0.19,
+                         prot=BP, hub=BOGEN_HUB)
             continue
         for s in (-1, 1):
             for i in range(reihen):
@@ -959,7 +1076,7 @@ def bogen():
                 breite = pf - fuge - (0.10 if i % 2 else 0.0)
                 cx = s * (B / 2 - pf / 2) + s * (0.05 if i % 2 else 0.0)
                 box(bm, cx, yr, cz, breite, PROT, rh - fuge)
-        box(bm, 0, yr, kaempfer + r + 0.10, oeff_b + 0.30, PROT, 0.18)  # Sturzband
+        box(bm, 0, yr, kaempfer + r + 0.10, oeff_b + 0.30, BP, 0.18)  # Sturzband
     fertig("StoneVaultArch", bm)
 
 
@@ -1140,10 +1257,21 @@ if STIL == "fels":
     BAUER["StoneVaultWallB"] = lambda: wand("B")
     BAUER["StoneVaultWallC"] = lambda: wand("C")
 
+# Die Module mit Fels-Frontschicht — genau sie bekommen ein `_col`-Netz aus
+# dem Kollisionslauf (s. `baue()`). Zelle und Saele tragen keine Wand, die
+# Treppe bringt ihr eigenes Netz mit.
+KOLL_MODULE = {
+    "StoneVaultWall", "StoneVaultWallB", "StoneVaultWallC",
+    "StoneVaultCorridor", "StoneVaultCorner", "StoneVaultJunction",
+    "StoneVaultArch",
+}
+if STIL == "fels" and not KOLL_MODULE <= set(BAUER):
+    raise SystemExit(f"KOLL_MODULE nennt Unbekanntes: {sorted(KOLL_MODULE - set(BAUER))}")
+
 unbekannt = NUR - set(BAUER)
 if unbekannt:
     raise SystemExit(f"Unbekannte Module: {sorted(unbekannt)}")
 for modul, f in BAUER.items():
     if not NUR or modul in NUR:
-        f()
+        baue(modul, f)
 print("ALLE STONEVAULT-MODULE FERTIG")

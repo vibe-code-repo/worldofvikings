@@ -64,10 +64,14 @@
 #     Decke liegen vier Zeilen — in jeder Spalte steht daher Material
 #     ganz vorn.
 #
-# (3) TIEFE. Der Rückzug ist auf `HUB` = 4,5 cm gedeckelt. Das Konzept
-#     erlaubt der Spielerkapsel 10 cm; die engere Grenze ist die
-#     Reliefdicke selbst (6 cm bis zur Rückplatte), von der 1,5 cm als
-#     Wandstärke stehen bleiben.
+# (3) TIEFE. Der Rückzug ist auf `HUB` = 16,5 cm gedeckelt — die
+#     Reliefdicke (18 cm) minus 1,5 cm Wandstärke. Die frühere, engere
+#     Grenze („höchstens 10 cm, sonst hängt die Spielerkapsel") ist am
+#     05.09.2026 weggefallen: Fels-Wandmodule tragen seither ein
+#     `_col`-Netz, und die Kapsel gleitet an dessen glatter Fläche
+#     entlang statt am Relief. Wer die Zahl wieder senkt, senkt nur das
+#     Bild; wer das `_col`-Netz wegnimmt, macht aus jeder Kluft ein Loch.
+#     Beide Enden hält `tools/elements/pruefung/fels-kollision.mjs` fest.
 #
 # (4) ENDSTREIFEN. Der Nahtschluss vom 03.09.2026 legt an jedes Ende des
 #     freistehenden Paneels einen Streifen. Seine Vorderseite muss HINTER
@@ -79,6 +83,7 @@
 # Aufruf als Werkzeug:
 #   python3 felsrelief.py --dump <lo> <hi> [--seed N] [--lage L]
 #                                [--z0 A] [--z1 B] [--randluft R]
+#                                [--prot P] [--hub H]
 #                                [--relief-quelle <hoehenkarte.png>]
 #
 # The rock front layer's height field — pure arithmetic, no Blender.
@@ -89,8 +94,23 @@ import sys
 # ── Masse, die mit make-stonevault.py übereinstimmen MÜSSEN ─────────────
 GRID = 2.0
 HOEHE = 3.5
-PROT = 0.09           # Reliefdicke: Rückplattenfront .. Vorderkante
-                      # (im Fels-Stil; make-stonevault.py setzt dieselben 0,09)
+# ── Reliefdicke: 18 cm, seit die Kollision getrennt ist (05.09.2026) ────
+# Bis heute standen hier 9 cm, und die Zahl kam NICHT aus dem Gestein,
+# sondern aus der Spielerkapsel: Das sichtbare Netz WAR die Kollision, ein
+# tieferes Loch also eine Falle. Seit `make-stonevault.py` jedem
+# Fels-Wandmodul ein `_col`-Netz mitgibt (glatte Fläche auf der
+# Wandflucht), sieht die Kapsel das Relief nicht mehr — sie gleitet an
+# der Flucht entlang, und wie tief die Klüfte dahinter stehen, ist ihr
+# gleichgültig.
+#
+# Warum ausgerechnet 18: Die Wandtiefe ist 30 cm und unverrückbar
+# (`DG_RockVault` ist von `DG_StoneVault` abgeleitet). 18 cm Relief lassen
+# 12 cm Rückplatte — genug Körper, damit die Wand ein Körper bleibt. Der
+# Torbogen trägt sein Relief auf BEIDEN Flanken und kann deshalb nur
+# 13 cm nehmen (`make-stonevault.py`, `BOGEN_PROT`); dafür nimmt ihn das
+# Feld über `prot=` entgegen statt aus dieser Zahl.
+PROT = 0.18           # Reliefdicke: Rückplattenfront .. Vorderkante
+                      # (im Fels-Stil; make-stonevault.py setzt dieselben 0,18)
 
 SEED = 20260905       # Vorgabe-Seed; `--seed` setzt ihn um
 
@@ -119,7 +139,12 @@ PERIODE = GRID
 ANKER = -GRID / 2
 
 # ── Tiefen ──────────────────────────────────────────────────────────────
-HUB = 0.075           # maximaler Rückzug (s. Zwang 3)
+# HUB ist der maximale Rückzug. Er lässt 1,5 cm der Reliefschicht als
+# Wandstärke stehen — dieselbe Reserve wie bei 9 cm Reliefdicke, nur vor
+# einem sechsmal tieferen Hub. Die alte Deckelung „10 cm, sonst hängt die
+# Kapsel" ist mit dem `_col`-Netz weggefallen (s. PROT).
+HUB = 0.165           # maximaler Rückzug (s. Zwang 3)
+VORONOI_BEZUGS_HUB = 0.075   # Hub, auf den die Voronoi-Zahlen eingestellt sind
 VORDERGRUND = -0.060  # Grundmass der erzwungenen Vorderflächen (s. Zwang 2)
 VORDER_TAKT = 3       # jede dritte Flächenzeile je Spalte steht ganz vorn
 GRUND_MIN, GRUND_MAX = -0.004, 0.036
@@ -610,20 +635,38 @@ def _rand_niveau(seed, x, z, an_x_rand):
     return RAND_NIVEAU + RAND_STREUUNG * n
 
 
-def rueckzug(x, z, seed=SEED, lage=0):
-    """Der Rückzug (0 .. HUB) an der Stelle (x, z) — OHNE Randstreifen."""
+def rueckzug(x, z, seed=SEED, lage=0, hub=None):
+    """Der Rückzug (0 .. hub) an der Stelle (x, z) — OHNE Randstreifen.
+
+    `hub` überschreibt die Vorgabe `HUB`. Gebraucht wird das vom Torbogen:
+    seine Flanken tragen nur 13 statt 18 cm Reliefdicke, weil er das
+    Relief auf BEIDEN Seiten trägt (make-stonevault.py, `BOGEN_PROT`).
+    """
+    if hub is None:
+        hub = HUB
     if QUELLE == "heightmap":
         # 1 = ganz vorn (Rückzug 0), 0 = ganz hinten (Rückzug HUB). Die
         # Klemme auf HUB ist damit die Skala selbst, und die Relieftiefe
         # bleibt ohne weiteres Zutun zwischen 1,5 und 9 cm.
-        return HUB * (1.0 - _karte_wert(x, z, lage))
+        return hub * (1.0 - _karte_wert(x, z, lage))
     ebene, kluft = _bruch(seed, lage, x, z)
     roh = ebene + _schichtung(seed, lage, x, z)
     if kluft < KLUFT_BREITE:
         roh += KLUFT_TIEFE * (1.0 - kluft / KLUFT_BREITE) ** 1.5
     roh += RAUSCH * (0.55 * _welle(seed, lage, 139, x, RAUSCH_X)
                      + 0.45 * _welle_z(seed, lage, 149, z, RAUSCH_Z))
-    return min(HUB, max(0.0, roh))
+    # ── Warum hier ein Faktor steht und nicht in jeder Zahl ────────────
+    # Sämtliche Tiefenzahlen der Voronoi-Quelle (GRUND, KLUFT_TIEFE,
+    # LAGE_STREUUNG, RAUSCH …) sind am 05.09.2026 für einen Hub von
+    # 7,5 cm eingestellt und im Kontaktbogen gegeneinander abgewogen
+    # worden. Mit dem `_col`-Netz ist der Hub auf 16,5 cm gewachsen
+    # (s. HUB). Jede einzelne Zahl neu zu setzen hiesse, dieses
+    # Abwägen noch einmal zu machen — und zwar OHNE Bogen, denn das Kit
+    # baut heute aus der Höhenkarte. Der Faktor hält die VERHÄLTNISSE
+    # fest und ändert nur die Tiefe; ein Rückfall auf `hub=0.075` ergibt
+    # wieder exakt das Feld von gestern.
+    roh *= hub / VORONOI_BEZUGS_HUB
+    return min(hub, max(0.0, roh))
 
 
 def _stuetzstellen(lo, hi):
@@ -660,7 +703,7 @@ def an_periodengrenze(x):
 
 
 def fels_gitter(lo, hi, seed=SEED, lage=0, z0=0.0, z1=HOEHE,
-                rand_luft=RAND_LUFT, zeilen=None):
+                rand_luft=RAND_LUFT, zeilen=None, prot=None, hub=None):
     """Das Höhenfeld der Frontschicht zwischen lo und hi.
 
     Rückgabe:
@@ -672,7 +715,16 @@ def fels_gitter(lo, hi, seed=SEED, lage=0, z0=0.0, z1=HOEHE,
                 vor der Rückplatte, 0 < tiefe <= PROT.
       tiefe   — dieselben Vorsprünge als eigenes Feld, für die Prüfung.
       randx   — (bool, bool): wird an lo bzw. hi überblendet?
+
+    `prot`/`hub` überschreiben Reliefdicke und Hub (Vorgabe: die Zahlen
+    dieses Moduls). Sie gehören zusammen — `prot` legt fest, wo die
+    Vorderkante liegt, `hub`, wie weit die Fläche dahinter zurückweichen
+    darf. Der Torbogen ruft mit 0,13/0,115 (s. `rueckzug`).
     """
+    if prot is None:
+        prot = PROT
+    if hub is None:
+        hub = HUB
     zu = z0 + rand_luft
     zo = z1 - rand_luft
     if zeilen is None:
@@ -709,12 +761,12 @@ def fels_gitter(lo, hi, seed=SEED, lage=0, z0=0.0, z1=HOEHE,
                 dx.append(hi - x)
             tx = min(1.0, max(0.0, min(dx) / RAND)) if dx else 1.0
             t = min(tx, tz)
-            r = rueckzug(x, z, seed=seed, lage=lage)
+            r = rueckzug(x, z, seed=seed, lage=lage, hub=hub)
             if t < 1.0:
                 niveau = _rand_niveau(seed, x, z, tx <= tz)
                 r = niveau + (r - niveau) * _glatt(t)
-            zeile.append([round(x, 9), round(z, 9), round(PROT - r, 9)])
-            tiefen.append(round(PROT - r, 9))
+            zeile.append([round(x, 9), round(z, 9), round(prot - r, 9)])
+            tiefen.append(round(prot - r, 9))
         punkte.append(zeile)
         tiefe.append(tiefen)
     return {
@@ -729,7 +781,8 @@ def fels_gitter(lo, hi, seed=SEED, lage=0, z0=0.0, z1=HOEHE,
 def _dump(argv):
     lo, hi = float(argv[0]), float(argv[1])
     opt = {"--seed": SEED, "--lage": 0, "--z0": 0.0, "--z1": HOEHE,
-           "--randluft": RAND_LUFT, "--zeilen": -1}
+           "--randluft": RAND_LUFT, "--zeilen": -1,
+           "--prot": PROT, "--hub": HUB}
     i = 2
     while i < len(argv):
         if argv[i] == "--relief-quelle":
@@ -740,9 +793,10 @@ def _dump(argv):
     zeilen = int(opt["--zeilen"])
     g = fels_gitter(lo, hi, seed=int(opt["--seed"]), lage=int(opt["--lage"]),
                     z0=opt["--z0"], z1=opt["--z1"], rand_luft=opt["--randluft"],
-                    zeilen=None if zeilen < 0 else zeilen)
+                    zeilen=None if zeilen < 0 else zeilen,
+                    prot=opt["--prot"], hub=opt["--hub"])
     g.update({"seed": int(opt["--seed"]), "lage": int(opt["--lage"]),
-              "lo": lo, "hi": hi, "prot": PROT, "hub": HUB,
+              "lo": lo, "hi": hi, "prot": opt["--prot"], "hub": opt["--hub"],
               "raster": RASTER, "rand": RAND, "quelle": QUELLE})
     print(json.dumps(g))
 
@@ -752,4 +806,5 @@ if __name__ == "__main__":
         _dump(sys.argv[2:])
     else:
         raise SystemExit("Aufruf: python3 felsrelief.py --dump <lo> <hi> "
-                         "[--seed N] [--relief-quelle <png>] …")
+                         "[--seed N] [--prot P] [--hub H] "
+                         "[--relief-quelle <png>] …")

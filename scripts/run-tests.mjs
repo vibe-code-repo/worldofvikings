@@ -974,6 +974,23 @@ const KERN = [
   // F3: the rock front layer's block lattice — seam, bounding box, budget.
   ['tools/elements', 'pruefung/fels-frontschicht.mjs', brauchtPython()],
   /*
+    Mass A (05.09.2026): der WAECHTER ueber die Kollisionstrennung. Die
+    Fels-Frontschicht darf seit heute 18 statt 9 cm tief sein — aber nur,
+    weil jedes Fels-Wandmodul ein glattes `_col`-Netz mitbringt, an dem
+    die Spielerkapsel entlanggleitet. Faellt das Netz aus einer GLB heraus,
+    sieht man NICHTS; die Figur bleibt nur irgendwann in einer Kluft
+    haengen. Dieser Pruefer misst die ausgelieferten GLB (Blender headless)
+    und haelt fest, dass jedes Modul mit Frontschicht sein `_col` hat, dass
+    es dieselbe Huellbox und mehr Volumen hat (also die Kluefte fuellt),
+    und dass Zelle, Saele und das Ziegelkit KEINS bekommen haben.
+    Guard for the rock kit's separated collision meshes.
+  */
+  [
+    'tools/elements',
+    'pruefung/fels-kollision.mjs',
+    brauchtBlender('assets/models/RockVaultWall.glb', 'assets/models/StoneVaultStairs.glb'),
+  ],
+  /*
     F4 (Fels-Relief 3b): der WAECHTER ueber die Ableitung `DG_RockVault`.
     Vergleicht das Kit Feld fuer Feld gegen die frische Ausgabe von
     `rockVariant()` — ein von Hand nachgetragener RoomDef ist damit rot,

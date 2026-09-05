@@ -27,9 +27,12 @@
 //       in JEDEM Ausschnitt, den das Kit baut, steht einer ganz vorn.
 //       Sonst wächst oder schrumpft die Bounding-Box, und `DG_RockVault`
 //       wäre kein abgeleitetes Kit mehr.
-//   (3) HUB — der Rückzug bleibt unter 10 cm (Spielerkapsel, Konzept).
-//   (4) BUDGET — höchstens 1500 Dreiecke je Wandpaneel. Wand, Korridor,
-//       Ecke und Abzweig haben kein `_col`: jedes Dreieck ist Havok.
+//   (3) HUB — der Rückzug trägt mindestens 12 cm und lässt 1,5 cm
+//       Wandstärke stehen. Die alte Fassung prüfte das Gegenteil (höchstens
+//       10 cm, Spielerkapsel); seit Mass (A) vom 05.09.2026 haben die
+//       Fels-Wandmodule ein `_col`-Netz, und die Kapsel sieht das Relief
+//       gar nicht mehr.
+//   (4) BUDGET — höchstens 1500 Dreiecke je Wandpaneel.
 //   (5) ES IST KEIN VERBAND — keine durchgehende waagerechte Fuge, kein
 //       achsenparalleles Gitter, Gefälle in beide Richtungen.
 //
@@ -48,9 +51,25 @@ const MODUL = resolve(HIER, '..', 'blender', 'felsrelief.py');
 // Masse aus make-stonevault.py — hier bewusst NOCH EINMAL genannt statt
 // importiert: der Prüfer soll rot werden, wenn das Bauskript sie ändert.
 const HOEHE = 3.5;
-const PROT = 0.09; // Reliefdicke im Fels-Stil = die Hüllbox-Grenze
+const PROT = 0.18; // Reliefdicke im Fels-Stil = die Hüllbox-Grenze
 const GRID = 2.0;
-const KAPSEL = 0.10; // Konzept: so weit darf ein Vorsprung höchstens tragen
+/*
+  WANDSTAERKE statt Kapselgrenze (05.09.2026, Mass A).
+
+  Bis heute stand hier `KAPSEL = 0,10` — „so weit darf ein Vorsprung
+  hoechstens tragen, sonst haengt die Spielerkapsel". Diese Grenze gibt es
+  nicht mehr: Jedes Fels-Wandmodul traegt seit heute ein `_col`-Netz mit
+  einer GLATTEN Flaeche auf der Wandflucht (`make-stonevault.py`,
+  `baue()`), und die Kapsel gleitet daran entlang statt am Relief. Der
+  Nachweis, dass das Netz auch wirklich in jeder GLB steht, gehoert nicht
+  hierher (dieser Pruefer kennt kein Blender) — er steht in
+  `fels-kollision.mjs`, und OHNE ihn waere die Zahl unten unbelegt.
+
+  Was uebrig bleibt, ist die Wand selbst: Von der Reliefdicke muessen
+  1,5 cm als Material stehen bleiben, sonst ist die tiefste Kluft ein Loch
+  in die Rueckplatte.
+*/
+const WANDSTAERKE = 0.015;
 const BUDGET_DREIECKE = 1500;
 const FESTE_QUADER = 5; // Rückplatte, Sockel, Haube, zwei Endstreifen
 const EPS = 1e-9;
@@ -146,10 +165,16 @@ const tMin = Math.min(...tA);
 pruefe('kein Punkt steht weiter vor als die Reliefdicke (Hüllbox wächst nicht)',
   tMax <= PROT + EPS, `max ${tMax}`);
 pruefe('kein Punkt sitzt hinter der Rückplattenfront', tMin > 0.0, `min ${tMin}`);
-pruefe('der Hub bleibt unter der Kapselgrenze von 10 cm',
-  tMax - tMin <= KAPSEL + EPS, `Hub ${(tMax - tMin).toFixed(4)}`);
-pruefe('es wird überhaupt gestreut (nicht alles gleich tief)',
-  tMax - tMin >= 0.04, `Hub ${(tMax - tMin).toFixed(4)}`);
+pruefe('die tiefste Stelle lässt 1,5 cm Wandstärke stehen',
+  tMin >= WANDSTAERKE - EPS, `min ${tMin}`);
+/*
+  Untergrenze statt Obergrenze: Mikes Befund vom 05.09.2026 war, dass die
+  Wand im Spiel viel FLACHER aussieht als das Tripo-Modell (dort rund
+  16 cm Spanne auf 1 m). Ein Hub, der wieder unter 12 cm fällt, ist
+  deshalb kein „sicherer Rückfall", sondern derselbe Befund noch einmal.
+*/
+pruefe('der Hub trägt mindestens 12 cm (sonst ist es wieder eine glatte Wand)',
+  tMax - tMin >= 0.12, `Hub ${(tMax - tMin).toFixed(4)}`);
 
 /*
   Die Hüllbox darf auch nicht SCHRUMPFEN — sonst hätte `DG_RockVault` eine

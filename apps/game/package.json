@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@babylonjs/core": "^8.31.1",
+    "@wov/asset-system": "workspace:*",
     "@wov/engine": "workspace:*",
     "@wov/gameplay": "workspace:*",
     "@wov/ui": "workspace:*"

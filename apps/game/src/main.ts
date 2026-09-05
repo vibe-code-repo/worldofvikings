@@ -24,6 +24,9 @@
  * per frame. The renderer is therefore created with `autoStart: false` — a
  * second, engine-driven render loop would render frames the simulation never
  * saw.
+ *
+ * The environment probe is started next to the loop and never awaited by it: a
+ * slow model delays the barrel appearing, not the player walking (spec §38).
  */
 import {
   MovementSystem,
@@ -39,8 +42,11 @@ import {
   type Transform,
   type WorldState,
 } from '@wov/gameplay';
+import { summarizePlacement } from '@wov/asset-system';
+import type { AssetEnv } from '@wov/asset-system';
 import { tokens } from '@wov/ui';
 import { installDevDebugBridge } from './dev-debug.js';
+import { loadEnvironment } from './environment.js';
 import { attachKeyboardMouse } from './input/keyboard-mouse.js';
 import { createGameLoop } from './loop.js';
 import { interpolatePosition } from './render/interpolate.js';
@@ -49,13 +55,21 @@ import { createGameScene } from './scene.js';
 /** The one entity the keys steer in Phase 1. */
 const PLAYER = toEntityId('player');
 
+/**
+ * The one environment variable the asset system reads, picked out explicitly.
+ * `import.meta.env` carries Vite's own keys too, and handing the whole object
+ * over would let a typo in `AssetEnv` pass unnoticed.
+ */
+const assetEnv: AssetEnv = { VITE_ASSET_URL: import.meta.env.VITE_ASSET_URL };
+
 const marker = document.querySelector<HTMLElement>('[data-testid="game-marker"]');
 const status = document.querySelector<HTMLElement>('[data-testid="game-status"]');
 const controls = document.querySelector<HTMLElement>('[data-testid="game-controls"]');
+const assetStatus = document.querySelector<HTMLElement>('[data-testid="game-assets"]');
 
 document.body.style.background = tokens.colorBackground;
 document.body.style.color = tokens.colorText;
-for (const element of [marker, status, controls]) {
+for (const element of [marker, status, controls, assetStatus]) {
   if (element) {
     element.style.background = tokens.colorSurface;
     element.style.borderRadius = tokens.radius;
@@ -72,6 +86,12 @@ function describe(error: unknown): string {
 function setStatus(text: string): void {
   if (status) {
     status.textContent = text;
+  }
+}
+
+function setAssetStatus(text: string): void {
+  if (assetStatus) {
+    assetStatus.textContent = text;
   }
 }
 
@@ -157,11 +177,26 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
     // so Rollup drops this call and `./dev-debug.js` with it.
     installDevDebugBridge(renderer, marker, { camera, player });
   }
+
+  // Started after the loop and deliberately not awaited: a slow model delays
+  // the barrel appearing, not the scene showing up (spec §38).
+  void loadEnvironment(renderer.scene, assetEnv).then(
+    (result) => {
+      setAssetStatus(summarizePlacement(result));
+      for (const failure of result.failures) {
+        console.error(`asset "${failure.placement.asset}" could not be placed`, failure.error);
+      }
+    },
+    (error: unknown) => {
+      setAssetStatus(`assets: loader unavailable — ${describe(error)}`);
+    },
+  );
 }
 
 const canvas = document.querySelector<HTMLCanvasElement>('#render-canvas');
 if (!canvas) {
   setStatus('no render canvas found');
+  setAssetStatus('assets: no scene to load into');
 } else {
   void start(canvas).catch((error: unknown) => {
     // A failing bootstrap must not hide the page: report it instead.

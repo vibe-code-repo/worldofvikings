@@ -2,9 +2,18 @@
 
 Browser game client (production: `live.world-of-vikings.com`). Phase 1 walks a
 placeholder capsule across the base scene — a 100 m ground, fill and key light,
-sky colour and matching fog — with the third-person camera following it:
-keyboard and mouse produce intent, `@wov/gameplay` turns intent into a position,
-and the renderer draws that position.
+sky colour and matching fog — with the third-person camera following it and the
+first licensed asset standing on the ground beside it: keyboard and mouse
+produce intent, `@wov/gameplay` turns intent into a position, and the renderer
+draws that position.
+
+One DOM marker per concern: `game-marker` (the app is served), `game-status`
+(the renderer and the simulation), `game-assets` (the asset pipeline —
+`assets: 1 loaded`), `game-controls` (the key list). `pnpm smoke` asserts them.
+
+`src/environment.ts` holds the list of what is placed. It is a Phase 1 fixture,
+not world data: the world is authored in the editor and loaded from `content/`
+from Phase 4 on (agent rule 9).
 
 - Dev: `pnpm --filter @wov/game dev` → http://localhost:5173
 - Environment: `VITE_API_URL`, `VITE_ASSET_URL` (see `.env.example`)
@@ -106,5 +115,6 @@ The mouse is read once as well. Keys and mouse buttons come through
 Dependencies: `@babylonjs/core` (renderer, ADR-0002), `vite`, `vitest` (the
 input adapter and the frame loop are testable logic and are tested here rather
 than in a package, ADR-0010), and the shared packages `@wov/gameplay` (state and
-systems), `@wov/engine` (renderer bootstrap, base scene, camera) and `@wov/ui`
-(design tokens).
+systems), `@wov/engine` (renderer bootstrap, base scene, camera),
+`@wov/asset-system` (asset URLs, loading, placement — ADR-0011, ADR-0012) and
+`@wov/ui` (design tokens).

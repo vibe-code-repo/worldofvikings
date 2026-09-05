@@ -74,9 +74,9 @@ introduced the wrong way round.
 | ------------------- | --------------------------------------------------------------------------------------- |
 | `@wov/shared`       | Framework-free helpers. Dependency-free.                                                |
 | `@wov/world-schema` | Zod schemas + versioning for all world data.                                            |
-| `@wov/asset-system` | Asset URL resolution; loading/caching later.                                            |
+| `@wov/asset-system` | Asset URLs, GLB loading and caching, scene placement, manifest (ADR-0011).              |
 | `@wov/engine`       | Babylon.js bootstrap (ADR-0006), base scene (ADR-0007), third-person camera (ADR-0008). |
-| `@wov/gameplay`     | Gameplay state and systems (from Phase 6).                                              |
+| `@wov/gameplay`     | Gameplay state and systems (ADR-0009). Never imports a renderer.                        |
 | `@wov/editor-core`  | Editor-only logic. Forbidden in the game.                                               |
 | `@wov/ui`           | Framework-free UI tokens/helpers.                                                       |
 

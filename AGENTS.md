@@ -16,24 +16,24 @@ Current state: **Phase 0 (repository bootstrap)**. No gameplay exists yet.
 
 ## 2. Folder responsibilities
 
-| Path                    | Owns                                        | Never contains                |
-| ----------------------- | ------------------------------------------- | ----------------------------- |
-| `apps/website`          | Public site, Play link                      | Game or editor logic          |
-| `apps/game`             | Game client bootstrap and HUD               | Editor code, world data       |
-| `apps/editor`           | React editor shell, panels, viewport        | Game-only logic               |
-| `services/api`          | HTTP service                                | Gameplay rules                |
-| `packages/shared`       | Framework-free helpers                      | Any dependency                |
-| `packages/world-schema` | Zod schemas + versioning for world data     | Babylon.js, React             |
-| `packages/asset-system` | Asset URL resolution, later loading/caching | Gameplay                      |
-| `packages/engine`       | Shared renderer layer                       | Gameplay state                |
-| `packages/gameplay`     | Gameplay state and systems                  | Any renderer import           |
-| `packages/editor-core`  | Editor-only logic                           | Anything the game needs       |
-| `packages/ui`           | Framework-free UI tokens/helpers            | React components              |
-| `content/`              | Authored JSON game data                     | TypeScript                    |
-| `assets/`               | Binary assets                               | Code                          |
-| `tooling/`              | Scripts, validators, smoke tests            | Shipped code                  |
-| `infrastructure/`       | Deployment scaffolding (empty in Phase 0)   | Anything needed for local dev |
-| `docs/`                 | Architecture, formats, ADRs                 | Generated output              |
+| Path                    | Owns                                      | Never contains                |
+| ----------------------- | ----------------------------------------- | ----------------------------- |
+| `apps/website`          | Public site, Play link                    | Game or editor logic          |
+| `apps/game`             | Game client bootstrap and HUD             | Editor code, world data       |
+| `apps/editor`           | React editor shell, panels, viewport      | Game-only logic               |
+| `services/api`          | HTTP service                              | Gameplay rules                |
+| `packages/shared`       | Framework-free helpers                    | Any dependency                |
+| `packages/world-schema` | Zod schemas + versioning for world data   | Babylon.js, React             |
+| `packages/asset-system` | Asset URLs, GLB loading/caching, manifest | Gameplay                      |
+| `packages/engine`       | Shared renderer layer                     | Gameplay state                |
+| `packages/gameplay`     | Gameplay state and systems                | Any renderer import           |
+| `packages/editor-core`  | Editor-only logic                         | Anything the game needs       |
+| `packages/ui`           | Framework-free UI tokens/helpers          | React components              |
+| `content/`              | Authored JSON game data                   | TypeScript                    |
+| `assets/`               | Binary assets                             | Code                          |
+| `tooling/`              | Scripts, validators, smoke tests          | Shipped code                  |
+| `infrastructure/`       | Deployment scaffolding (empty in Phase 0) | Anything needed for local dev |
+| `docs/`                 | Architecture, formats, ADRs               | Generated output              |
 
 ## 3. Commands
 
@@ -49,7 +49,10 @@ pnpm lint:boundaries
 pnpm format      # Prettier write
 pnpm format:check
 pnpm test        # Vitest
-pnpm validate    # content/ against @wov/world-schema
+pnpm validate    # validate:content + validate:assets
+pnpm validate:content         # content/ against @wov/world-schema
+pnpm validate:assets          # assets/ against assets/manifest.json
+pnpm validate:assets --write  # regenerate the asset manifest
 pnpm check       # typecheck + lint + format:check + test + validate
 pnpm smoke       # Playwright: every app started, marker asserted
 ```

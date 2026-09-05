@@ -4,7 +4,25 @@ Binary game assets: models, textures, animations, audio, UI art. Served locally
 by the development asset server on http://localhost:9000 (`pnpm dev:assets`) and
 in production from `assets.world-of-vikings.com` (spec §37).
 
-The folders are empty in Phase 0.
+Third-party assets are vendored **unmodified**, in a folder named after the kit
+they come from, with a `README.md` next to them carrying the full provenance
+record — see `environment/kenney-retro-fantasy-kit/` and ADR-0012. A GLB that
+references its texture by a relative path keeps the source layout, folder casing
+included, so the committed bytes still match the download.
+
+## manifest.json
+
+`manifest.json` lists every file in this folder with its size and SHA-256 hash.
+It is what `pnpm validate:assets` checks, so an asset added, replaced or deleted
+without updating it fails CI instead of turning into a 404 in a player's browser
+(ADR-0011). Regenerate it whenever you touch this folder:
+
+```bash
+pnpm validate:assets --write
+```
+
+The manifest itself, Markdown files and dot files (`.gitkeep`, `.DS_Store`) are
+not listed — they are not downloaded by the game.
 
 **Every contributed asset must document** source, author, license, usage rights
 and whether it was modified — see `docs/asset-licenses.md` and spec §46. Assets

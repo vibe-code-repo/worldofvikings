@@ -44,19 +44,21 @@ app to a different port.
 
 ## Commands
 
-| Command                | What it does                                                         |
-| ---------------------- | -------------------------------------------------------------------- |
-| `pnpm dev`             | Starts packages (watch), website, game, editor, API and asset server |
-| `pnpm build`           | Builds packages, then all apps and services                          |
-| `pnpm typecheck`       | Strict TypeScript across packages, apps, services and tests          |
-| `pnpm lint`            | ESLint + architecture boundaries                                     |
-| `pnpm lint:boundaries` | dependency-cruiser only                                              |
-| `pnpm format`          | Prettier write                                                       |
-| `pnpm format:check`    | Prettier check (used by CI)                                          |
-| `pnpm test`            | Vitest unit tests                                                    |
-| `pnpm validate`        | Validates `content/` against `@wov/world-schema`                     |
-| `pnpm check`           | typecheck + lint + format:check + test + validate                    |
-| `pnpm smoke`           | Playwright: starts every app and asserts a visible marker            |
+| Command                 | What it does                                                               |
+| ----------------------- | -------------------------------------------------------------------------- |
+| `pnpm dev`              | Starts packages (watch), website, game, editor, API and asset server       |
+| `pnpm build`            | Builds packages, then all apps and services                                |
+| `pnpm typecheck`        | Strict TypeScript across packages, apps, services and tests                |
+| `pnpm lint`             | ESLint + architecture boundaries                                           |
+| `pnpm lint:boundaries`  | dependency-cruiser only                                                    |
+| `pnpm format`           | Prettier write                                                             |
+| `pnpm format:check`     | Prettier check (used by CI)                                                |
+| `pnpm test`             | Vitest unit tests                                                          |
+| `pnpm validate`         | Runs `validate:content` and `validate:assets`                              |
+| `pnpm validate:content` | Validates `content/` against `@wov/world-schema`                           |
+| `pnpm validate:assets`  | Validates `assets/` against `assets/manifest.json` (`--write` regenerates) |
+| `pnpm check`            | typecheck + lint + format:check + test + validate                          |
+| `pnpm smoke`            | Playwright: starts every app and asserts a visible marker                  |
 
 Run a single workspace with a filter, e.g. `pnpm --filter @wov/game dev`.
 

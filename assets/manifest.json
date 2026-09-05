@@ -1,0 +1,16 @@
+{
+  "manifestVersion": 1,
+  "generatedAt": "2026-09-05T21:48:58.059Z",
+  "assets": [
+    {
+      "path": "environment/kenney-retro-fantasy-kit/Textures/barrel.png",
+      "bytes": 4537,
+      "hash": "sha256-b5d19e6e9f911f654c932a9f34e255962a73d8391615445358a1294047e0f248"
+    },
+    {
+      "path": "environment/kenney-retro-fantasy-kit/detail-barrel.glb",
+      "bytes": 9968,
+      "hash": "sha256-4262d0d3c8ac39bc10c0bb96e9b687d3bd1cc4a79df12b86fef37ebfd24fbb1b"
+    }
+  ]
+}

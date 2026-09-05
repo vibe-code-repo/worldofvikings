@@ -19,6 +19,19 @@ module.exports = {
       to: { path: EDITOR_ONLY },
     },
     {
+      name: 'game-must-not-pull-in-the-manifest-schema',
+      comment:
+        'The asset manifest says what `assets/` should contain; `pnpm validate:assets` reads it, ' +
+        'the game never does. Reaching it from the game drags Zod (84 kB) into the first chunk ' +
+        'for nothing (spec §38). Import it as `@wov/asset-system/manifest` from tooling instead ' +
+        'of re-exporting it from the package entry point.',
+      severity: 'error',
+      from: { path: '^apps/game/' },
+      // `reachable`, not a direct match: the way this regresses is a re-export
+      // from the package entry point, which is never a direct import.
+      to: { path: '^packages/asset-system/src/manifest\\.ts$', reachable: true },
+    },
+    {
       name: 'world-schema-must-stay-renderer-free',
       comment:
         'packages/world-schema describes data, not rendering. It must not depend on Babylon.js, ' +

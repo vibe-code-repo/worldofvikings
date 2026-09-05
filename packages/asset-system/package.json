@@ -2,7 +2,7 @@
   "name": "@wov/asset-system",
   "version": "0.0.0",
   "private": true,
-  "description": "Asset URL resolution and (later) loading/caching of GLB assets.",
+  "description": "Asset URLs, GLB loading and caching, scene placement, and the asset manifest schema.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,6 +11,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./manifest": {
+      "types": "./dist/manifest.d.ts",
+      "default": "./dist/manifest.js"
     }
   },
   "files": [
@@ -19,5 +23,10 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^8.56.2",
+    "@babylonjs/loaders": "^8.56.2",
+    "zod": "^4.5.4"
   }
 }

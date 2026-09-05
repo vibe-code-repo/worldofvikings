@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "example",
+  "name": "Example World",
+  "zones": [
+    {
+      "id": "village",
+      "name": "Village",
+      "entities": [
+        {
+          "id": "tree_001",
+          "prefab": "pine_tree_01",
+          "position": [24.3, 1.2, -56.4],
+          "rotation": [0, 2.1, 0],
+          "scale": [1.1, 1.1, 1.1]
+        }
+      ]
+    }
+  ]
+}

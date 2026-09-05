@@ -1,49 +1,63 @@
-import { Engine } from '@babylonjs/core/Engines/engine';
-import { Scene } from '@babylonjs/core/scene';
-import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
-import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector';
-import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
-import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder';
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
-import type { RenderConfig } from '@wov/engine';
-
-export interface GameScene {
-  readonly engine: Engine;
-  readonly scene: Scene;
-}
+import { createBaseScene, createRenderer, createThirdPersonCamera } from '@wov/engine';
+import type {
+  BaseSceneHandle,
+  BaseSceneOptions,
+  RenderConfig,
+  RendererHandle,
+  ThirdPersonCameraHandle,
+  ThirdPersonCameraSettings,
+} from '@wov/engine';
+import { createPlaceholderTarget } from './placeholder-target.js';
+import type { PlaceholderTarget } from './placeholder-target.js';
 
 /**
- * Creates the Phase 0 placeholder scene: a camera looking at a flat ground
- * under a hemispheric light. Nothing here is world data — the real world is
- * loaded from `content/worlds/` from Phase 4 on.
+ * The game's Phase 1 view: the shared base stage from `@wov/engine`, the
+ * placeholder the camera follows, and the third-person camera itself.
+ *
+ * Engine, scene, render loop and resize handling come from `createRenderer`;
+ * ground, lights, sky and fog from `createBaseScene`; the camera from
+ * `createThirdPersonCamera` (ADR-0006, ADR-0007, ADR-0008). What is left here
+ * is the wiring: which point the camera follows, and which element its mouse
+ * input comes from.
+ *
+ * Nothing here is world data or gameplay. The authored world arrives from
+ * `content/` in Phase 4 and the player replaces the capsule in Phase 2 — the
+ * only line that has to change then is the `target` getter below.
  */
-export function createScene(canvas: HTMLCanvasElement, config: RenderConfig): GameScene {
-  const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
-  engine.setHardwareScalingLevel(1 / config.resolutionScale);
+export interface GameScene {
+  readonly renderer: RendererHandle;
+  readonly base: BaseSceneHandle;
+  readonly camera: ThirdPersonCameraHandle;
+  /** The capsule standing in for the player until Phase 2. */
+  readonly player: PlaceholderTarget;
+}
 
-  const scene = new Scene(engine);
-  scene.clearColor = new Color4(0.055, 0.067, 0.086, 1);
+export interface GameSceneOptions {
+  /** Passed to `createRenderer` (resolution scale, WebGPU preference). */
+  readonly render?: Partial<RenderConfig>;
+  /** Passed to `createBaseScene` (ground size, sky and fog colours). */
+  readonly base?: BaseSceneOptions;
+  /** Passed to `createThirdPersonCamera` (distance, pitch limits, smoothing). */
+  readonly camera?: ThirdPersonCameraSettings;
+}
 
-  const camera = new ArcRotateCamera(
-    'camera',
-    -Math.PI / 2,
-    Math.PI / 3,
-    18,
-    Vector3.Zero(),
-    scene,
-  );
-  camera.lowerRadiusLimit = 4;
-  camera.upperRadiusLimit = 60;
+export async function createGameScene(
+  canvas: HTMLCanvasElement,
+  options: GameSceneOptions = {},
+): Promise<GameScene> {
+  const renderer = await createRenderer(canvas, options.render);
+  const base = createBaseScene(renderer.scene, options.base);
+  const player = createPlaceholderTarget(renderer.scene);
 
-  const light = new HemisphericLight('light', new Vector3(0.4, 1, 0.2), scene);
-  light.intensity = 0.9;
+  const camera = createThirdPersonCamera(renderer.scene, {
+    ...options.camera,
+    // A getter, not the mesh: the camera sees a position and nothing else, so
+    // it never becomes a route from the renderer into gameplay (spec §25).
+    target: player.position,
+  });
+  // Pointer lock, drag-look and the wheel are read from the canvas the game is
+  // drawn on, so the input follows the picture rather than the whole document.
+  camera.attachControl(canvas);
 
-  const ground = CreateGround('ground', { width: 40, height: 40, subdivisions: 4 }, scene);
-  const groundMaterial = new StandardMaterial('ground-material', scene);
-  groundMaterial.diffuseColor = new Color3(0.24, 0.3, 0.22);
-  groundMaterial.specularColor = Color3.Black();
-  ground.material = groundMaterial;
-
-  return { engine, scene };
+  return { renderer, base, camera, player };
 }

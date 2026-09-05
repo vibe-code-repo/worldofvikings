@@ -1,12 +1,129 @@
 # @wov/engine
 
-**Purpose.** The rendering layer shared by the game and the editor. Phase 0
-contains no Babylon.js code on purpose: `apps/game` owns its own bootstrap until
-Phase 1 extracts the reusable parts here. What already exists is the render
-configuration contract both apps agree on.
+**Purpose.** The rendering layer shared by `apps/game` and `apps/editor`. Three
+things, kept apart on purpose:
 
-**Public API.** `RenderConfig`, `defaultRenderConfig`, `resolveRenderConfig(overrides?)`.
+1. **The bootstrap** (ADR-0006) — engine selection (WebGPU with a WebGL2
+   fallback), the `Scene`, the render loop, resize handling and the Babylon.js
+   side-effect imports both apps depend on. `createRenderer` creates no camera,
+   light or mesh.
+2. **The base scene** (ADR-0007) — the opt-in empty stage both apps open on:
+   ground, fill and key light, sky colour and matching fog. A caller who wants
+   it calls `createBaseScene`; the bootstrap never imposes it, and it creates no
+   camera, because the game and the editor need different ones.
+3. **The third-person camera** (ADR-0008, spec §26) — mouse rotation with
+   pointer lock, wheel zoom, a frame-rate independent follow lag and collision
+   avoidance as an interface. Its arithmetic is a separate Babylon-free module,
+   and so is the decision of whether a mouse movement counts.
 
-**Dependencies.** `@wov/shared`. Babylon.js will be added in Phase 1 — see ADR-0002.
+The package owns **no gameplay state**: no entity, no player, nothing a system
+reads back. Rendering never owns the game state (spec §25), which is why
+`@wov/gameplay` is forbidden from importing this package
+(`pnpm lint:boundaries`).
+
+## Public API
+
+| Export                                                                                      | What it does                                                                                                              |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `createRenderer(canvas, options)`                                                           | `Promise<RendererHandle>`. Builds engine, scene and render loop for a canvas.                                             |
+| `RendererHandle`                                                                            | `engine`, `scene`, `backend`, `config`, `disposed`, `onFrame`, `renderFrame`, `resize`, `dispose`.                        |
+| `selectBackend(config, caps)`                                                               | Pure choice between `'webgpu'` and `'webgl2'`. Separated out so it is testable.                                           |
+| `detectRenderCapabilities()`                                                                | What the current browser offers (`navigator.gpu`).                                                                        |
+| `resolveRenderConfig(overrides?)`                                                           | Normalises a partial `RenderConfig`; clamps `resolutionScale` to `0.25…2`.                                                |
+| `defaultRenderConfig`                                                                       | The defaults `resolveRenderConfig` merges into.                                                                           |
+| `createBaseScene(scene, opts?)`                                                             | `BaseSceneHandle`. Adds ground, two lights, sky colour and fog to an existing scene.                                      |
+| `BaseSceneHandle`                                                                           | `ground`, `groundMaterial`, `ambientLight`, `sun`, `options`, `dispose` (restores the old sky/fog).                       |
+| `resolveBaseSceneOptions(over?)`                                                            | Validates a partial base-scene description and derives the fog distances from the ground size.                            |
+| `defaultBaseSceneOptions`                                                                   | The resolved defaults: 100 m ground, no shadows, linear fog in the sky colour.                                            |
+| `createThirdPersonCamera(scene, options)`                                                   | `ThirdPersonCameraHandle`. The camera of spec §26, following a `() => Vector3`.                                           |
+| `ThirdPersonCameraHandle`                                                                   | `camera`, `settings`, `state`, `look`, `zoom`, `update`, `setObstacleQuery`, `attachControl`, `detachControl`, `dispose`. |
+| `stepThirdPersonCamera(state, input, settings)`                                             | One camera frame as pure arithmetic: new state, position and focus. No Babylon.                                           |
+| `resolveThirdPersonCameraSettings(over?)`                                                   | Validates a partial camera description; rejects a pitch range that reaches the pole.                                      |
+| `defaultThirdPersonCameraSettings`                                                          | The resolved defaults: 6 m out (2…12), −17°…66° pitch, 0.12 s follow lag.                                                 |
+| `CameraObstacleQuery`                                                                       | `(probe) => number \| null` — the seam physics plugs into. Default `noCameraObstacles`.                                   |
+| `createCameraLookInput(sink, o?)`                                                           | The pointer-lock / drag / wheel state machine, without DOM types.                                                         |
+| `wrapAngle`, `smoothingFactor`, `applyLook`, `applyZoom`, `wheelTicks`, `orbitDirection`, … | The individual camera functions, each testable on its own.                                                                |
+
+```ts
+const renderer = await createRenderer(canvas, { resolutionScale: 1 });
+const base = createBaseScene(renderer.scene, { groundSize: 100, skyColor: '#4d5b68' });
+const camera = createThirdPersonCamera(renderer.scene, { target: () => player.position });
+camera.attachControl(canvas); // pointer lock, drag-look and the wheel
+const stop = renderer.onFrame(({ deltaSeconds }) => update(deltaSeconds));
+// later
+stop();
+renderer.dispose(); // disposes the scene, and with it the base scene and camera
+```
+
+Base-scene options are plain data — numbers and `#rrggbb` strings, never Babylon
+types — so the same description can come out of world JSON later. They are
+validated rather than trusted: `Color3.FromHexString` answers black for anything
+it cannot parse, so a typo would otherwise render as a lighting bug instead of
+an error naming the field.
+
+The key light is created with `shadowEnabled = false`. Shadows are selective and
+cost a pass per caster (spec §38); they arrive with the content that needs them,
+and until then the flag says so in code.
+
+`createRenderer` is asynchronous because WebGPU can only be initialised
+asynchronously; the WebGL2 path resolves on the next microtask. The WebGPU
+engine is behind a dynamic `import()`, so it stays out of the main chunk when
+the browser gets WebGL2.
+
+`options` extends `Partial<RenderConfig>` with `autoStart` (default `true`),
+`resizeHost` (defaults to `window`, `null` disables it) and `createEngine` —
+which is how the tests run the real bootstrap on a headless `NullEngine`.
+
+## Third-person camera
+
+`createThirdPersonCamera` follows a `() => Vector3` and updates itself on
+`scene.onBeforeRenderObservable` (pass `autoUpdate: false` and call `update(dt)`
+to drive it yourself). It goes down with the scene it was created in, because
+`attachControl` leaves listeners on the document that the scene knows nothing
+about.
+
+Three seams are worth knowing about (ADR-0008):
+
+- **Collision avoidance is a query, not an implementation.**
+  `setObstacleQuery((probe) => free | null)` answers how much of the line from
+  the pivot to the camera is clear; the default answers `null` for everything,
+  so the camera behaves as it does outdoors until the physics chain supplies a
+  Havok shape cast. On a hit the camera cuts in immediately and eases back out —
+  a smoothed approach would let geometry cross the near plane and the player
+  would see through the world.
+- **The arithmetic is Babylon-free.** `third-person-camera-math.ts` has the
+  yaw/pitch clamps, the exponential (frame-rate independent) follow lag, the
+  zoom and the obstacle limit as pure functions, so the properties that make a
+  camera feel right are pinned by plain Vitest rather than by looking at it.
+- **Input is decoded separately.** `camera-input.ts` decides whether a movement
+  counts — pointer lock, the held-button fallback for when pointer lock is
+  refused, and cancelling a drag on `blur`. Only the twenty lines of
+  `attachControl` touch the DOM, and those are covered by `pnpm smoke`, which
+  drives a real wheel and a real drag over the game canvas.
+
+## Side-effect imports
+
+`src/side-effects.ts` is the one place that lists the Babylon.js modules whose
+import is load-bearing. This matters more than it looks: with the ES6 packages a
+missing side-effect import produces **no compiler error and no runtime warning**.
+`scene.pickWithRay` is declared in Babylon's own `scene.d.ts` and is a function
+at runtime even when `Culling/ray.js` was never imported — it throws when called.
+
+Two rules, both enforced by `src/side-effects.test.ts`:
+
+1. An import belongs there only if it **measurably changes behaviour**. A module
+   that merely defines exports is imported by whoever uses those exports —
+   `@babylonjs/core/Meshes/meshBuilder.js` is the cautionary case: it registers
+   nothing and costs 113 kB raw / 33 kB gzip in the game bundle (ADR-0006).
+2. Every entry has a test that **calls** the feature. A `typeof` check is not a
+   witness, because the unregistered stubs are functions too.
+
+Import the single builder you need
+(`@babylonjs/core/Meshes/Builders/groundBuilder.js`), not the full set.
+
+## Dependencies
+
+- `@babylonjs/core` — the renderer this package exists to bootstrap (ADR-0002).
+- `@wov/shared` — `clamp` for the render config.
 
 **Ownership.** Core maintainers.

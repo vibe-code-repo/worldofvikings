@@ -1,31 +1,79 @@
 /**
  * @wov/engine — the rendering layer shared by the game and the editor.
  *
- * Phase 0 deliberately contains no Babylon.js code: the game app owns its own
- * bootstrap until Phase 1 extracts the reusable parts here. What already lives
- * here is the configuration contract both apps agree on, so the split does not
- * have to be invented later.
+ * It owns the Babylon.js bootstrap (engine selection, scene, render loop,
+ * resize handling and the required side-effect imports), the opt-in base stage
+ * every view starts from (ground, lights, sky and fog) and the third-person
+ * camera the game views the world through. Gameplay state, entities and world
+ * data stay in the apps and in `@wov/gameplay` (spec §25, ADR-0006, ADR-0007,
+ * ADR-0008).
  */
-import { clamp } from '@wov/shared';
+export { createCameraLookInput } from './camera-input.js';
+export type {
+  CameraButtonEvent,
+  CameraInputSink,
+  CameraLookInput,
+  CameraLookInputOptions,
+  CameraMoveEvent,
+  CameraWheelEvent,
+} from './camera-input.js';
 
-/** Options both the game and the editor pass when creating a render surface. */
-export interface RenderConfig {
-  /** Hardware scaling level; 1 = native resolution. Clamped to a sane range. */
-  readonly resolutionScale: number;
-  /** Whether to prefer WebGPU when the browser supports it (spec §2.1). */
-  readonly preferWebGPU: boolean;
-  /** Show the Babylon.js inspector-style debug overlay. */
-  readonly debugOverlay: boolean;
-}
+export { createThirdPersonCamera } from './third-person-camera.js';
+export type { ThirdPersonCameraHandle, ThirdPersonCameraOptions } from './third-person-camera.js';
 
-export const defaultRenderConfig: RenderConfig = {
-  resolutionScale: 1,
-  preferWebGPU: false,
-  debugOverlay: false,
-};
+export {
+  applyLook,
+  applyZoom,
+  createThirdPersonCameraState,
+  defaultThirdPersonCameraSettings,
+  noCameraObstacles,
+  orbitDirection,
+  pointOnRay,
+  resolveObstacleLimit,
+  resolveThirdPersonCameraSettings,
+  settleDistance,
+  smoothingFactor,
+  smoothPoint,
+  smoothScalar,
+  stepThirdPersonCamera,
+  wheelTicks,
+  wrapAngle,
+} from './third-person-camera-math.js';
+export type {
+  CameraFrameInput,
+  CameraLookMovement,
+  CameraObstacleProbe,
+  CameraObstacleQuery,
+  CameraOrientation,
+  ResolvedThirdPersonCameraSettings,
+  ThirdPersonCameraSettings,
+  ThirdPersonCameraState,
+  ThirdPersonCameraStep,
+  Vec3,
+} from './third-person-camera-math.js';
+export { createBaseScene, defaultBaseSceneOptions, resolveBaseSceneOptions } from './base-scene.js';
+export type {
+  BaseSceneHandle,
+  BaseSceneOptions,
+  ColorHex,
+  ResolvedBaseSceneOptions,
+  Vector3Tuple,
+} from './base-scene.js';
 
-/** Normalises a partial config into a complete, in-range {@link RenderConfig}. */
-export function resolveRenderConfig(overrides: Partial<RenderConfig> = {}): RenderConfig {
-  const merged = { ...defaultRenderConfig, ...overrides };
-  return { ...merged, resolutionScale: clamp(merged.resolutionScale, 0.25, 2) };
-}
+export { defaultRenderConfig, resolveRenderConfig } from './render-config.js';
+export type { RenderConfig } from './render-config.js';
+
+export { createRenderer, detectRenderCapabilities, selectBackend } from './renderer.js';
+export type {
+  EngineFactory,
+  EngineKind,
+  FrameInfo,
+  FrameListener,
+  RenderCanvas,
+  RenderCapabilities,
+  RendererBackend,
+  RendererHandle,
+  RendererOptions,
+  ResizeHost,
+  Unsubscribe,
+} from './renderer.js';

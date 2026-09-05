@@ -7,6 +7,10 @@ placeholder; selection, gizmos, hierarchy and asset browser follow in Phase 3.
 - Dev: `pnpm --filter @wov/editor dev` → http://localhost:5174
 - Environment: `VITE_API_URL`, `VITE_ASSET_URL` (see `.env.example`)
 
+Engine, scene, render loop and resize handling come from `@wov/engine`
+(ADR-0006), the same bootstrap the game uses; `src/viewport-scene.ts` only fills
+the scene.
+
 The editor produces an independent bundle (spec §10). Shared logic belongs in
 `@wov/engine`, `@wov/world-schema`, `@wov/asset-system`; editor-only logic in
 `@wov/editor-core`.

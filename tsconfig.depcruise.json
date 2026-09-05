@@ -1,0 +1,13 @@
+{
+  // Used only by dependency-cruiser (`pnpm lint:boundaries`): it maps `@wov/*`
+  // to the package *sources*, so boundary violations are detected in source
+  // instead of in a built `dist/` file that the cruise config excludes.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@wov/*": ["packages/*/src/index.ts"]
+    }
+  },
+  "include": ["apps", "packages", "services", "tooling"]
+}

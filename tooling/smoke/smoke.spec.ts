@@ -206,6 +206,43 @@ test('game walks the player capsule when a key is held', async ({ page }) => {
   expect(Math.hypot(still.x - settled.x, still.z - settled.z)).toBeLessThan(0.01);
 });
 
+/**
+ * The camera follows the *player*, not the origin.
+ *
+ * Two chains built these separately: the camera takes a `() => Vector3` and the
+ * simulation writes a `Transform`. Both pass their own tests while pointed at
+ * nothing, and the failure — walking out of frame — is invisible to every unit
+ * test. So: walk, then check the camera came along and still holds its
+ * distance.
+ */
+test('game camera follows the player that walks away', async ({ page }) => {
+  await page.goto('http://localhost:5173');
+  const startPlayer = await livePlayer(page);
+  const startCamera = await liveCamera(page);
+
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(700);
+  await page.keyboard.up('KeyW');
+  // The camera eases towards the target, so give the follow lag time to land.
+  await page.waitForTimeout(500);
+
+  const walkedPlayer = await livePlayer(page);
+  const walkedCamera = await liveCamera(page);
+
+  const walked = Math.hypot(walkedPlayer.x - startPlayer.x, walkedPlayer.z - startPlayer.z);
+  expect(walked).toBeGreaterThan(0.5);
+
+  const cameraMoved = Math.hypot(walkedCamera.x - startCamera.x, walkedCamera.z - startCamera.z);
+  // Not "the camera moved at all": a camera drifting on its own would pass
+  // that. It has to have covered most of the distance the player did.
+  expect(cameraMoved).toBeGreaterThan(walked * 0.8);
+
+  // And it is still behind the player at its own distance, not stuck to a point
+  // the player left behind.
+  const gap = Math.hypot(walkedCamera.x - walkedPlayer.x, walkedCamera.z - walkedPlayer.z);
+  expect(gap).toBeLessThan(walkedCamera.distance + 0.5);
+});
+
 test('game loads its environment asset over the asset server', async ({ page }) => {
   const badResponses: string[] = [];
   page.on('response', (response) => {

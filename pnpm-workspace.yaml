@@ -1,0 +1,9 @@
+packages:
+  - 'apps/*'
+  - 'services/*'
+  - 'packages/*'
+
+# Dependencies allowed to run install scripts. Everything else is blocked by
+# pnpm so a transitive package cannot execute code on a contributor's machine.
+allowBuilds:
+  esbuild: true

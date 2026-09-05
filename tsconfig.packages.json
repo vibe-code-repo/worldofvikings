@@ -1,0 +1,13 @@
+{
+  // Solution file for the shared packages. `tsc -b` builds them in dependency order.
+  "files": [],
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/world-schema" },
+    { "path": "packages/asset-system" },
+    { "path": "packages/engine" },
+    { "path": "packages/gameplay" },
+    { "path": "packages/editor-core" },
+    { "path": "packages/ui" }
+  ]
+}

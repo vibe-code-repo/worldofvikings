@@ -1,0 +1,44 @@
+{
+  "name": "world-of-vikings",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Open-source browser RPG and world editor (monorepo root).",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@12.3.4",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "prepare": "pnpm run build:packages",
+    "build:packages": "tsc -b tsconfig.packages.json",
+    "dev:packages": "tsc -b tsconfig.packages.json --watch --preserveWatchOutput",
+    "dev": "concurrently -k -n packages,website,game,editor,api,assets -c gray,magenta,cyan,yellow,green,blue \"pnpm run dev:packages\" \"pnpm --filter @wov/website dev\" \"pnpm --filter @wov/game dev\" \"pnpm --filter @wov/editor dev\" \"pnpm --filter @wov/api dev\" \"pnpm run dev:assets\"",
+    "dev:assets": "tsx tooling/scripts/asset-server.ts",
+    "build": "pnpm run build:packages && pnpm --filter \"./apps/*\" --filter \"./services/*\" build",
+    "typecheck": "pnpm run build:packages && pnpm --filter \"./apps/*\" --filter \"./services/*\" --parallel typecheck && tsc -p tsconfig.test.json",
+    "lint": "eslint . && pnpm run lint:boundaries",
+    "lint:boundaries": "depcruise apps packages services tooling --config .dependency-cruiser.cjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "validate": "tsx tooling/validators/validate-content.ts",
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test && pnpm run validate",
+    "smoke": "playwright test --config tooling/smoke/playwright.config.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.37.0",
+    "@playwright/test": "^1.56.0",
+    "@types/node": "^22.18.8",
+    "@wov/world-schema": "workspace:*",
+    "concurrently": "^9.2.1",
+    "dependency-cruiser": "^17.0.1",
+    "eslint": "^9.37.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^3.2.4"
+  }
+}

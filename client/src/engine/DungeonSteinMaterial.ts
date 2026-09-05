@@ -237,6 +237,32 @@ export function steinAufrufGlsl(): string {
 #ifdef STEIN_KIT
   vec3 stNormale = normalize(normalW);
   surfaceAlbedo = toLinearSpace(steinAlbedo(vPositionW, stNormale));
+  #ifdef VERTEXCOLOR
+    // -- CAVITY (Mass D, 05.09.2026) ------------------------------
+    // Die Fels-Wandmodule tragen seit heute eine Verschattung als
+    // COLOR_0 im Netz (tools/elements/blender/felsrelief.py, _cavity):
+    // tief in einer Kluft dunkel, auf einer Kante hell. Sie steht hier
+    // und nicht im PBR-Albedoblock, weil surfaceAlbedo eine Zeile weiter
+    // oben ERSETZT wird - Babylons eigenes surfaceAlbedo *= vColor.rgb
+    // waere damit weggeworfen.
+    //
+    // Warum das ueberhaupt gebraucht wird: In der Krypta steht die Sonne
+    // auf 0, uebrig bleibt ein HemisphericLight, und dessen Beitrag
+    // haengt auf einer senkrechten Wand nur von n.y ab - er ist dort
+    // ueberall gleich. Gemessen (relief-kontrast.mjs im Grab hell-probe)
+    // war der Relieffaktor mit gegen ohne Normal-Kanal 1,001: Das Relief
+    // war da, nur zeigte es sich nicht. Eine Farbe im Netz braucht kein
+    // Licht.
+    //
+    // VERTEXCOLOR ist genau die Bedingung "das Netz hat COLOR_0"
+    // (materialHelper.functions.js). Die Ziegelmodule haben keins und
+    // bekommen deshalb auch nichts - ohne eine einzige
+    // Fallunterscheidung im Client.
+    //
+    // stMenge.w ist die Staerke aus ?cavity=; 0 ergibt exakt das Bild
+    // von gestern.
+    surfaceAlbedo *= mix(vec3(1.0), vColor.rgb, stMenge.w);
+  #endif
   #ifdef STEIN_NORMAL
     // normalW ist hier ein gewoehnliches lokales vec3 aus
     // pbrBlockNormalGeometric und wird von der ganzen Lichtrechnung danach
@@ -262,6 +288,8 @@ class SteinKitPlugin extends MaterialPluginBase {
   private tex: SteinTexturen;
   /** Reliefstärke aus `?relief=`; 0 lädt die Normal-Karten gar nicht erst. */
   private staerke: number;
+  /** Cavity-Stärke aus `?cavity=`; 0 schaltet die Vertexfarbe ab. */
+  private cavity: number;
   private normalTex: Partial<Record<SteinFlaeche, Texture>> = {};
   /**
    * Die Szene — nur, um die Sperre kurz aufzuheben (s. `meldeNormal`).
@@ -299,6 +327,7 @@ class SteinKitPlugin extends MaterialPluginBase {
     this.cfg = cfg;
     this.tex = tex;
     this.staerke = staerke;
+    this.cavity = cavityStaerke();
     if (staerke <= 0) {
       // `?relief=0` ist die A/B-Stellung der Messung: kein Ladeversuch, keine
       // Defines, exakt der Shader von vor F1.
@@ -468,7 +497,7 @@ class SteinKitPlugin extends MaterialPluginBase {
         { name: 'stKachel', size: 4, type: 'vec4' },
         // x = moosSkala, y = frostSkala, z = nassSkala, w = frei
         { name: 'stSkala', size: 4, type: 'vec4' },
-        // x = moos, y = frost, z = nass, w = frei
+        // x = moos, y = frost, z = nass, w = Cavity-Stärke
         { name: 'stMenge', size: 4, type: 'vec4' },
       ],
     };
@@ -501,7 +530,7 @@ class SteinKitPlugin extends MaterialPluginBase {
       c.verwitterung.moos,
       c.verwitterung.frost,
       c.verwitterung.nass,
-      0
+      this.cavity
     );
     const t = this.tex;
     uniformBuffer.setTexture('steinWand', t.wand);
@@ -615,6 +644,26 @@ function reliefStaerke(): number {
     return Number.isFinite(z) ? Math.min(Math.max(z, 0), RELIEF_MAX) : RELIEF_VORGABE;
   } catch {
     return RELIEF_VORGABE;
+  }
+}
+
+/**
+ * `?cavity=<zahl>` regelt die Stärke der gebackenen Verschattung, 0
+ * schaltet sie ab. Derselbe Gedanke wie `?relief=`: Eine Messung, die zwei
+ * ADRESSEN vergleicht, vergleicht ein Programm; eine, die zwei Baustände
+ * vergleicht, vergleicht zwei. `relief-kontrast.mjs --kanal=cavity` baut
+ * genau darauf.
+ */
+const CAVITY_VORGABE = 1;
+const CAVITY_MAX = 2;
+export function cavityStaerke(): number {
+  try {
+    const s = new URLSearchParams(location.search).get('cavity');
+    if (s === null) return CAVITY_VORGABE;
+    const z = Number(s);
+    return Number.isFinite(z) ? Math.min(Math.max(z, 0), CAVITY_MAX) : CAVITY_VORGABE;
+  } catch {
+    return CAVITY_VORGABE;
   }
 }
 

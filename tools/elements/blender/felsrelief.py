@@ -763,6 +763,9 @@ def fels_gitter(lo, hi, seed=SEED, lage=0, z0=0.0, z1=HOEHE,
                 Stützstelle (innen verzogen, s. VERZUG) und ihr Vorsprung
                 vor der Rückplatte, 0 < tiefe <= PROT.
       tiefe   — dieselben Vorsprünge als eigenes Feld, für die Prüfung.
+      cavity  — cavity[iz][ix]: der Verschattungsfaktor der Stützstelle,
+                CAVITY_MIN .. 1,0 (s. `_cavity`). 1 = frei, klein = tief in
+                einer Kluft.
       randx   — (bool, bool): wird an lo bzw. hi überblendet?
 
     `prot`/`hub` überschreiben Reliefdicke und Hub (Vorgabe: die Zahlen
@@ -793,9 +796,11 @@ def fels_gitter(lo, hi, seed=SEED, lage=0, z0=0.0, z1=HOEHE,
     nx, nz = len(xs), len(zs)
     punkte = []
     tiefe = []
+    randfaktor = []
     for iz, z0_ in enumerate(zs):
         zeile = []
         tiefen = []
+        raender = []
         for ix, x0_ in enumerate(xs):
             # Verzug nur im Inneren; der Rand bleibt auf dem Raster liegen
             # (s. VERZUG). Der Schlüssel ist die GLOBALE Rasterspalte, nicht
@@ -828,15 +833,123 @@ def fels_gitter(lo, hi, seed=SEED, lage=0, z0=0.0, z1=HOEHE,
                 r = niveau + (r - niveau) * _glatt(t)
             zeile.append([round(x, 9), round(z, 9), round(prot - r, 9)])
             tiefen.append(round(prot - r, 9))
+            raender.append(t)
         punkte.append(zeile)
         tiefe.append(tiefen)
+        randfaktor.append(raender)
     return {
         "xs": [round(v, 9) for v in xs],
         "zs": [round(v, 9) for v in zs],
         "punkte": punkte,
         "tiefe": tiefe,
+        "cavity": _cavity(tiefe, randfaktor, raster),
         "randx": [rand_lo, rand_hi],
     }
+
+
+# ── CAVITY: die Verschattung, die ohne Licht auskommt (Mass D) ─────────
+# Der Befund vom 05.09.2026: In der Krypta steht die Sonne auf 0, übrig
+# bleibt EIN HemisphericLight, und das mischt nach `dot(n, Achse)`. Auf
+# einer senkrechten Wand hängt sein Beitrag nur von `n.y` ab — er ist dort
+# überall gleich. Gemessen: Der Relieffaktor σ/µ mit gegen ohne
+# Normal-Kanal war 1,001. Die Karten waren geladen, die Defines standen im
+# Shader; sie hatten nichts, worauf sie wirken konnten.
+#
+# Zwei Abhilfen sind gebaut, gemessen und verworfen worden (Halbkugel
+# kippen: Faktor 1,002; schwaches gerichtetes Höhlenlicht: σ/µ
+# unverändert). Was übrig bleibt, ist die Verschattung IN DIE GEOMETRIE zu
+# backen: Ein Punkt tief in einer Kluft sieht weniger Himmel als einer auf
+# einer Kante. Das ist keine Beleuchtung, sondern eine Eigenschaft der
+# Form — sie wirkt deshalb auch dann, wenn nirgends Licht steht.
+#
+# ── Warum aus dem Höhenfeld und nicht aus dem Netz ─────────────────────
+# Eine richtige Umgebungsverdeckung schiesst Strahlen. Das braucht Blender,
+# eine Szene und Minuten. Hier steht statt dessen die Krümmung des
+# Höhenfeldes: Liegen die Nachbarn WEITER VORN als der Punkt, steht er in
+# einer Mulde. Auf einem Höhenfeld ohne Überhänge — und ein Höhenfeld hat
+# per Bauart keine — ist das dieselbe Auskunft, nur arithmetisch. Und sie
+# bleibt in diesem Modul, das ohne bpy auskommt und deshalb prüfbar ist.
+#
+# ── Zwei Radien, weil Fels zwei Massstäbe hat ─────────────────────────
+# Radius 1 (6,25 cm) fängt die Kante zwischen zwei Bruchflächen, Radius 4
+# (25 cm) die grosse Mulde, in der eine ganze Facettengruppe liegt. Nur
+# der kleine Radius ergäbe ein Kantenbild ohne Tiefe, nur der grosse einen
+# weichen Schatten ohne Zeichnung.
+CAVITY_MIN = 0.55      # Faktor tief in einer Kluft
+CAVITY_MAX = 1.00      # Faktor auf einer freistehenden Kante
+# ── Warum eine Kante HELLER wird und nicht nur eine Mulde dunkler ──────
+# Die erste Fassung hat allein verdunkelt (Kante = 1,0, Mulde bis 0,55).
+# Gemessen über ein Paneel war der Median danach 1,000 und der Mittelwert
+# 0,960: Mehr als die Hälfte aller Stützstellen trug gar keine Zeichnung,
+# weil „nicht konkav" bei einer Halbwellengleichrichtung derselbe Wert ist
+# wie „flach". Genau die Zeichnung ist aber der Zweck — in der Krypta gibt
+# es kein Licht, das sie sonst herstellt.
+# Deshalb liegt das NEUTRALE Mass in der Mitte: eine flache Fläche
+# bekommt CAVITY_NEUTRAL, eine Kante geht bis 1,0 hinauf, eine Kluft bis
+# 0,55 hinunter. Der Preis ist, dass die ganze Felswand um rund 15 %
+# dunkler wird — in einer Krypta ist das kein Verlust, und der
+# Fackelschein rechnet ohnehin obendrauf.
+CAVITY_NEUTRAL = 0.85
+CAVITY_R1 = 1          # naher Ring, in Rasterschritten
+CAVITY_R2 = 4          # ferner Ring
+CAVITY_G1 = 0.55       # Gewicht des nahen Rings
+# Bezugstiefen: Um wie viel muss der Nachbar weiter vorn stehen, damit die
+# Stelle ganz dunkel wird? Am nahen Ring ist das eine Rasterhöhe (die
+# steilste Flanke, die das Gitter überhaupt darstellen kann); am fernen
+# Ring das Vierfache, aber gedeckelt auf den halben Hub — tiefer als eine
+# halbe Wand wird keine Mulde.
+CAVITY_BEZUG1 = 1.0    # in Vielfachen des Rasterschritts
+CAVITY_BEZUG2 = 2.2
+
+
+def _cavity(tiefe, randfaktor, raster):
+    """Verschattungsfaktoren zum Tiefenfeld `tiefe` (Vorsprung je Punkt).
+
+    `randfaktor` ist derselbe 0..1-Wert, mit dem das Feld an der
+    Modulgrenze auf das Randniveau überblendet: Die Verschattung blendet
+    dort MIT auf 1,0. Sonst stünde an jeder Modulgrenze ein dunkler
+    Streifen, und zwar in beiden angrenzenden Paneelen — die Naht wäre
+    zwar geometrisch dicht, aber als Schatten sichtbar.
+    """
+    nz = len(tiefe)
+    nx = len(tiefe[0])
+
+    def hole(iz, ix):
+        return tiefe[min(max(iz, 0), nz - 1)][min(max(ix, 0), nx - 1)]
+
+    def ringmittel(iz, ix, r):
+        summe = 0.0
+        anzahl = 0
+        for dz in (-r, 0, r):
+            for dx in (-r, 0, r):
+                if dz == 0 and dx == 0:
+                    continue
+                summe += hole(iz + dz, ix + dx)
+                anzahl += 1
+        return summe / anzahl
+
+    b1 = CAVITY_BEZUG1 * raster
+    b2 = CAVITY_BEZUG2 * raster
+    aus = []
+    for iz in range(nz):
+        zeile = []
+        for ix in range(nx):
+            t = tiefe[iz][ix]
+            # Positiv = die Nachbarn stehen weiter VORN = der Punkt liegt
+            # in einer Mulde. Negativ = er steht auf einer Kante.
+            k1 = (ringmittel(iz, ix, CAVITY_R1) - t) / b1
+            k2 = (ringmittel(iz, ix, CAVITY_R2) - t) / b2
+            k = CAVITY_G1 * k1 + (1.0 - CAVITY_G1) * k2
+            k = min(1.0, max(-1.0, k))
+            if k >= 0.0:
+                f = CAVITY_NEUTRAL - (CAVITY_NEUTRAL - CAVITY_MIN) * _glatt(k)
+            else:
+                f = CAVITY_NEUTRAL + (CAVITY_MAX - CAVITY_NEUTRAL) * _glatt(-k)
+            # An der Modulgrenze auf 1,0 ausblenden (s. Docstring).
+            g = randfaktor[iz][ix]
+            zeile.append(round(1.0 + (f - 1.0) * _glatt(g), 6))
+        aus.append(zeile)
+    return aus
 
 
 def _dump(argv):

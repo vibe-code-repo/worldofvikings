@@ -991,6 +991,30 @@ const KERN = [
     brauchtBlender('assets/models/RockVaultWall.glb', 'assets/models/StoneVaultStairs.glb'),
   ],
   /*
+    Mass D (05.09.2026): die gebackene VERSCHATTUNG im Netz. In der Krypta
+    steht kein gerichtetes Licht — gemessen war der Relieffaktor mit gegen
+    ohne Normal-Kanal 1,001. Die Fels-Wandmodule tragen deshalb ein
+    COLOR_0 aus der Kruemmung des Hoehenfeldes, das im Steinmaterial aufs
+    Albedo multipliziert wird. Der haeufigste stille Ausfall ist NICHT die
+    fehlende Spalte, sondern eine aus lauter Einsen; deshalb misst dieser
+    Pruefer die Streuung mit. Liest die GLB mit `node` allein, ~0,1 s.
+    Guard for the baked cavity term in the rock modules' COLOR_0.
+  */
+  [
+    'tools/elements',
+    'pruefung/fels-cavity.mjs',
+    brauchtModelle('assets/models/RockVaultWall.glb', 'assets/models/StoneVaultWall.glb'),
+  ],
+  /*
+    Mass D, die Client-Seite: der Einspritzpunkt im Shader, Babylons
+    `vColor`-Deklaration am installierten Stand und das Alphaflag, das der
+    glTF-Lader setzt, ohne in die Spalte zu sehen. Alle drei koennen still
+    ausfallen und sehen dann genauso aus wie „die Verschattung wirkt
+    nicht". NullEngine, keine GPU, <2 s.
+    Mass D, client side: injection point, vColor declaration, alpha flag.
+  */
+  ['client', 'test/stein-cavity.ts'],
+  /*
     F4 (Fels-Relief 3b): der WAECHTER ueber die Ableitung `DG_RockVault`.
     Vergleicht das Kit Feld fuer Feld gegen die frische Ausgabe von
     `rockVariant()` — ein von Hand nachgetragener RoomDef ist damit rot,

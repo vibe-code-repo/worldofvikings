@@ -307,9 +307,24 @@ def tapered_post(bm, x0, x1, t0, t1, cy, cz, sz):
         bm.faces.new((verts[a], verts[b], verts[c], verts[d]))
 
 
+# Name der Farbschicht, unter dem die Verschattung ins GLB geht. Er steht
+# hier UND in `pruefung/fels-cavity.mjs`; im Spiel zaehlt nur, dass es
+# COLOR_0 ist (Babylon liest den Namen nicht).
+CAVITY_SCHICHT = "Cavity"
+
+
 def aufbereiten(name, bm, materialname):
     """Ein bmesh zum fertigen Objekt machen: aufraeumen, EIN Material,
     in x vorspiegeln. Gibt das Objekt zurueck, exportiert aber nicht."""
+    # Verschattung: alles, was `fels_schicht` NICHT gesetzt hat, auf Weiss.
+    # Die Alphastelle traegt die Auskunft — sie ist 0, solange niemand
+    # geschrieben hat, und 1, wo eine Verschattung steht. Ohne diesen
+    # Durchgang stuenden Rueckplatte, Sockel und Deckel auf Schwarz.
+    farbe = bm.verts.layers.float_color.get(CAVITY_SCHICHT)
+    if farbe is not None:
+        for v in bm.verts:
+            if v[farbe][3] < 0.5:
+                v[farbe] = (1.0, 1.0, 1.0, 1.0)
     me = bpy.data.meshes.new(name)
     bm.to_mesh(me)
     bm.free()
@@ -357,6 +372,13 @@ def aufbereiten(name, bm, materialname):
     mat = bpy.data.materials.new(materialname)
     mat.use_nodes = True
     me.materials.append(mat)
+
+    # Die Farbschicht muss AKTIV sein, sonst nimmt der glTF-Ausgang sie
+    # nicht mit (`export_vertex_color='ACTIVE'`, s. `fertig()`).
+    if me.color_attributes and CAVITY_SCHICHT in me.color_attributes:
+        me.color_attributes.active_color = me.color_attributes[CAVITY_SCHICHT]
+        me.color_attributes.render_color_index = \
+            me.color_attributes.find(CAVITY_SCHICHT)
 
     # Vorspiegeln: x negieren, Wicklung bleibt -> Mesh wird "innen aussen",
     # genau wie bei allen Steingrab-Modulen. Babylons __root__ dreht es zurueck.
@@ -454,8 +476,18 @@ def fertig(name, bm, koll=None):
         x.select_set(True)
     bpy.context.view_layer.objects.active = ausgabe[0]
 
+    # `export_vertex_color`: Die Vorgabe ist 'MATERIAL' — die Schicht kaeme
+    # dann nur mit, wenn das Material sie liest, und unsere Materialien
+    # sind blosse Platzhalter (das Steinmaterial setzt der Client). Im
+    # Ziegel-Stil bleibt die Vorgabe stehen, damit die zwoelf
+    # ausgelieferten GLB byte-gleich bleiben — dort gibt es auch keine
+    # Schicht.
+    zusatz = {}
+    if STIL == "fels":
+        zusatz = {"export_vertex_color": "ACTIVE", "export_all_vertex_colors": False}
     bpy.ops.export_scene.gltf(filepath=f"{OUT}/{name}.glb",
-                              export_format="GLB", use_selection=True)
+                              export_format="GLB", use_selection=True,
+                              **zusatz)
     for x in ausgabe:
         print(f"MODUL OK -> {name}.glb  mesh {x.name} "
               f"verts {len(x.data.vertices)} faces {len(x.data.polygons)}")
@@ -582,8 +614,23 @@ def fels_schicht(bm, lauf, mitte, sgn, lo, hi, lage=0, z0=0.0, z1=HOEHE,
         kw["zeilen"] = zeilen
     gitter = fels_gitter(lo, hi, **kw)
     punkte = gitter["punkte"]
+    cavity = gitter["cavity"]
     nz = len(punkte)
     nx = len(punkte[0])
+    # ── Die Verschattung als Farbschicht (Mass D, 05.09.2026) ──────────
+    # Sie wandert als COLOR_0 in die GLB und wird im Spiel multiplikativ
+    # aufs Albedo gelegt (client/src/engine/DungeonSteinMaterial.ts). Der
+    # Grund steht in `felsrelief.py`, `_cavity`: In der Krypta gibt es kein
+    # gerichtetes Licht, an dem sich das Relief zeigen koennte — die
+    # Verschattung muss deshalb in der Form stecken, nicht im Licht.
+    #
+    # Die Schicht wird HIER angelegt, nicht in `aufbereiten`: Nur diese
+    # Funktion weiss, welche Ecken zur Frontschicht gehoeren. Alle anderen
+    # (Rueckplatte, Sockel, Deckel, Ziegel) bleiben auf dem Vorgabewert
+    # und werden in `aufbereiten` auf Weiss gezogen — die Alphastelle ist
+    # dabei das Erkennungszeichen: 0 heisst "nie gesetzt".
+    farbe = (bm.verts.layers.float_color.get(CAVITY_SCHICHT)
+             or bm.verts.layers.float_color.new(CAVITY_SCHICHT))
 
     def ecke(entlang, hoch, tiefe):
         if niveau_fn is not None:
@@ -593,8 +640,15 @@ def fels_schicht(bm, lauf, mitte, sgn, lo, hi, lage=0, z0=0.0, z1=HOEHE,
             fest = bezug + (fest - bezug) * tiefen_fn(entlang)
         return (entlang, fest, hoch) if lauf == "x" else (fest, entlang, hoch)
 
-    vorn = [[bm.verts.new(ecke(*punkte[iz][ix])) for ix in range(nx)]
-            for iz in range(nz)]
+    vorn = []
+    for iz in range(nz):
+        zeile = []
+        for ix in range(nx):
+            v = bm.verts.new(ecke(*punkte[iz][ix]))
+            c = cavity[iz][ix]
+            v[farbe] = (c, c, c, 1.0)
+            zeile.append(v)
+        vorn.append(zeile)
 
     # Der Ring: nur die Randstuetzstellen bekommen einen hinteren Zwilling.
     ring = {}

@@ -54,6 +54,7 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { Material } from '@babylonjs/core/Materials/material';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import type { Scene } from '@babylonjs/core/scene';
@@ -500,6 +501,7 @@ export class AssetManager {
     }
 
     const result = verschmelzeNachMaterial(kandidaten).map(zuMaster);
+    for (const master of result) entschaerfeVertexAlpha(master.mesh);
     // Die Kollisionsnetze hinten anhängen: `zuMaster()` bäckt auch ihre
     // Hierarchie in `localMatrix` — genau das, was buildMeshCollider()
     // beim Zusammentragen der Dreiecke erwartet.
@@ -995,6 +997,33 @@ function verschmelzeNachMaterial(kandidaten: Mesh[]): Mesh[] {
     out.push(verschmolzen);
   }
   return out;
+}
+
+/**
+ * `hasVertexAlpha` zurücknehmen, wenn die Alphaspalte durchweg 1 ist.
+ *
+ * Der glTF-Lader setzt `babylonMesh.hasVertexAlpha = true`, sobald ein
+ * `COLOR_0` VEC4 ist — ohne hineinzusehen (glTFLoader.js: `if
+ * (accessor.type === "VEC4")`). Blender schreibt Farbattribute IMMER als
+ * VEC4. Die Fels-Wandmodule tragen seit dem 05.09.2026 eine gebackene
+ * Verschattung als COLOR_0 (Mass D); ihre Alphaspalte ist überall 1, aber
+ * das Flag allein schaltet `VERTEXALPHA` im Shader und schiebt das ganze
+ * Fels-Kit in den Alpha-Blend-Pfad — mit Sortierung, ohne Tiefenschreiben,
+ * an einer Wand, durch die man nicht sieht.
+ *
+ * Deshalb wird HINEINGESEHEN und nicht geraten: Steht irgendwo ein Alpha
+ * unter 1, bleibt das Flag stehen (ein Modell, das wirklich mit
+ * Vertexalpha arbeitet, verliert nichts). Ist die Spalte durchweg 1, ist
+ * das Flag eine Fehlauskunft und fällt.
+ */
+export function entschaerfeVertexAlpha(mesh: Mesh): void {
+  if (!mesh.hasVertexAlpha) return;
+  const farben = mesh.getVerticesData(VertexBuffer.ColorKind);
+  if (!farben) return;
+  for (let i = 3; i < farben.length; i += 4) {
+    if (farben[i] < 0.999) return;
+  }
+  mesh.hasVertexAlpha = false;
 }
 
 /**

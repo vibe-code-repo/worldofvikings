@@ -57,7 +57,8 @@
  * ERLAUFEN — `tools/pw-stonevault-walk.mjs --tour`.
  *
  * Umgebung:
- *   WOV_RELIEF_FAKTOR   geforderter Faktor σ/µ(an) ÷ σ/µ(aus), Vorgabe 1.25
+ *   WOV_RELIEF_FAKTOR   geforderter Faktor σ/µ(an) ÷ σ/µ(aus), Vorgabe je Kanal
+ *                       (relief 1.25, cavity 1.15)
  *   WOV_RELIEF_MIN      geforderte relative Streuung mit Kanal, Vorgabe 0.06
  *   WOV_RELIEF_FELD     Messrechteck x0,y0,x1,y1 im Bild, Vorgabe 400,250,1200,650
  *   WOV_HELL            Belichtung, Vorgabe 6
@@ -106,8 +107,14 @@ if (KANAL !== 'relief' && KANAL !== 'cavity') {
 const KANAELE = {
   // `param` ist der Adressparameter, `zeuge` das Define, das im ÜBERSETZTEN
   // Shader stehen muss, wenn der Kanal an ist.
-  relief: { param: 'relief', zeuge: '#define STEIN_NORMAL_WAND', vorwurf: 'fehlt <albedo>_normal.png?' },
-  cavity: { param: 'cavity', zeuge: '#define VERTEXCOLOR', vorwurf: 'trägt das Netz kein COLOR_0? (fels-cavity.mjs)' },
+  // `faktor` ist die Schwelle des KANALS und keine allgemeine Zahl: Die
+  // Normal-Karte arbeitet gegen ein gerichtetes Licht und schlägt dort
+  // kräftig aus; die Verschattung arbeitet gegen das Sprenkeln der
+  // Albedo-Kachel, das allein schon σ/µ 0,22 trägt. Gemessen am
+  // 05.09.2026 in hell-probe: 1,243. Die Schwelle steht mit Abstand
+  // darunter, damit sie einen Ausfall meldet und nicht das Wetter.
+  relief: { param: 'relief', zeuge: '#define STEIN_NORMAL_WAND', vorwurf: 'fehlt <albedo>_normal.png?', faktor: 1.25 },
+  cavity: { param: 'cavity', zeuge: '#define VERTEXCOLOR', vorwurf: 'trägt das Netz kein COLOR_0? (fels-cavity.mjs)', faktor: 1.15 },
 }[KANAL];
 
 const [dungeonId, xArg, zArg, yawArg = '0'] = ARGV.filter((a) => !a.startsWith('--'));
@@ -117,7 +124,7 @@ if (!dungeonId) {
 }
 const ZIEL = xArg !== undefined ? { x: Number(xArg), z: Number(zArg) } : null;
 const YAW = (Number(yawArg) * Math.PI) / 180;
-const FAKTOR = Number(process.env.WOV_RELIEF_FAKTOR ?? '1.25');
+const FAKTOR = Number(process.env.WOV_RELIEF_FAKTOR ?? String(KANAELE.faktor));
 // Messwand für `--kanal=cavity` (s. den langen Kommentar in `messung`).
 const WAND = process.env.WOV_CAVITY_WAND ?? 'RockVaultWall';
 const WAND_INSTANZ = Number(process.env.WOV_CAVITY_INSTANZ ?? '2');

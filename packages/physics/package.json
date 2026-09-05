@@ -1,0 +1,31 @@
+{
+  "name": "@wov/physics",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Physics contract (framework-free) plus the Havok-backed implementation (spec §29).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./havok": {
+      "types": "./dist/havok.d.ts",
+      "default": "./dist/havok.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^8.31.1",
+    "@babylonjs/havok": "^1.3.10"
+  }
+}

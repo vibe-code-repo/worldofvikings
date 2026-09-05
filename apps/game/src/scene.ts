@@ -6,11 +6,14 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
 import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { RenderConfig } from '@wov/engine';
 
 export interface GameScene {
   readonly engine: Engine;
   readonly scene: Scene;
+  /** The placeholder floor. Handed to physics as static collision geometry. */
+  readonly ground: Mesh;
 }
 
 /**
@@ -45,5 +48,5 @@ export function createScene(canvas: HTMLCanvasElement, config: RenderConfig): Ga
   groundMaterial.specularColor = Color3.Black();
   ground.material = groundMaterial;
 
-  return { engine, scene };
+  return { engine, scene, ground };
 }

@@ -47,6 +47,13 @@ These are checked by `pnpm lint:boundaries` (dependency-cruiser,
    state is independent of the renderer (spec §25).
 4. `packages/*` must not import `apps/*` or `services/*`.
 5. No circular dependencies anywhere.
+6. Only `packages/physics/src/havok.ts` and `apps/game/src/physics-backend.ts`
+   may name a physics backend (`@babylonjs/havok`, `@wov/physics/havok`).
+   Everything else uses the `PhysicsWorld` contract (ADR-0008).
+7. The `@wov/physics` entry point must not import Babylon.js or its own backend —
+   importing the contract has to stay free.
+8. `apps/editor` and `packages/editor-core` must not reach a physics backend: the
+   editor does not simulate and must not ship the WASM module (spec §38).
 
 ## Data flow
 
@@ -70,15 +77,16 @@ introduced the wrong way round.
 
 ## Packages
 
-| Package             | Purpose                                          |
-| ------------------- | ------------------------------------------------ |
-| `@wov/shared`       | Framework-free helpers. Dependency-free.         |
-| `@wov/world-schema` | Zod schemas + versioning for all world data.     |
-| `@wov/asset-system` | Asset URL resolution; loading/caching later.     |
-| `@wov/engine`       | Shared renderer layer (Babylon.js from Phase 1). |
-| `@wov/gameplay`     | Gameplay state and systems (from Phase 6).       |
-| `@wov/editor-core`  | Editor-only logic. Forbidden in the game.        |
-| `@wov/ui`           | Framework-free UI tokens/helpers.                |
+| Package             | Purpose                                           |
+| ------------------- | ------------------------------------------------- |
+| `@wov/shared`       | Framework-free helpers. Dependency-free.          |
+| `@wov/world-schema` | Zod schemas + versioning for all world data.      |
+| `@wov/asset-system` | Asset URL resolution; loading/caching later.      |
+| `@wov/engine`       | Shared renderer layer (Babylon.js from Phase 1).  |
+| `@wov/physics`      | `PhysicsWorld` contract; Havok backend behind it. |
+| `@wov/gameplay`     | Gameplay state and systems (from Phase 6).        |
+| `@wov/editor-core`  | Editor-only logic. Forbidden in the game.         |
+| `@wov/ui`           | Framework-free UI tokens/helpers.                 |
 
 See each package's README for its public API and ownership.
 
@@ -89,9 +97,29 @@ and consumed through their `exports` entry. The root `prepare` script builds the
 after `pnpm install`, so a clean clone can run `pnpm dev` immediately.
 `pnpm dev:packages` keeps them in watch mode while you work.
 
-## Known limitations (Phase 0)
+## Physics
+
+```text
+gameplay / apps  →  @wov/physics (contract, no Babylon)
+                         ▲
+                         │ implements
+                    @wov/physics/havok  →  @babylonjs/havok (WASM)
+```
+
+The contract (`PhysicsWorld`, `CharacterController`, `raycastGround`,
+`addStaticMesh`) contains no Babylon.js and no Havok, so gameplay never sees the
+backend and importing it costs nothing. `apps/game` loads the backend with a
+dynamic `import()` from `apps/game/src/physics-backend.ts`, which keeps the ~2 MB
+`HavokPhysics.wasm` in its own chunk and out of the editor entirely. Stepping is
+explicit: the game loop calls `step(deltaSeconds)`, the render loop never
+advances the simulation on its own. Capsule size, mass and the substep limits are
+data in `packages/physics/src/defaults.ts`. See ADR-0008.
+
+## Known limitations (Phase 0/1)
 
 - `@wov/engine` contains no Babylon.js code yet; game and editor each bootstrap
-  their own scene. Extracting the shared bootstrap is a Phase 1 task.
-- No physics, no player, no assets, no world loading.
-- The API only serves `/health`.
+  their own scene. Extracting the shared bootstrap is a Phase 1 task, and
+  `toStaticMeshData` in `apps/game/src/physics-backend.ts` moves there with it.
+- Physics exists, but there is no player controller on top of it yet: the game
+  drops one capsule to prove the world simulates.
+- No assets, no world loading. The API only serves `/health`.

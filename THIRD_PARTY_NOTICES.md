@@ -10,6 +10,7 @@ transitive tree.
 | Package              | License    | Used by                    | Why                                  |
 | -------------------- | ---------- | -------------------------- | ------------------------------------ |
 | `@babylonjs/core`    | Apache-2.0 | `apps/game`, `apps/editor` | Rendering engine (ADR-0002)          |
+| `@babylonjs/havok`   | MIT        | `packages/physics`         | Physics engine (ADR-0008)            |
 | `react`, `react-dom` | MIT        | `apps/editor`              | Editor UI (spec §2.1)                |
 | `zod`                | MIT        | `packages/world-schema`    | World data validation (ADR-0004)     |
 | `fastify`            | MIT        | `services/api`             | HTTP service (ADR-0005)              |

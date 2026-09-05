@@ -6,6 +6,16 @@
  */
 const EDITOR_ONLY = '(^|/)(apps/editor|packages/editor-core)(/|$)|@wov/editor-core';
 
+/** Anything that pulls the Havok engine in: the package, or our backend module. */
+const PHYSICS_BACKEND = '@babylonjs/havok|@wov/physics/havok|^packages/physics/src/havok\\.ts$';
+
+/**
+ * The only two modules allowed to name a physics backend (ADR-0008): the
+ * implementation itself, and the single loader in the game that lazy-imports it.
+ */
+const PHYSICS_BACKEND_OWNERS =
+  '^(packages/physics/src/havok\\.ts|apps/game/src/physics-backend\\.ts)$';
+
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [
@@ -40,6 +50,35 @@ module.exports = {
       severity: 'error',
       from: { path: '^packages/' },
       to: { path: '^(apps|services)/' },
+    },
+    {
+      name: 'physics-backend-stays-in-one-place',
+      comment:
+        'Only packages/physics/src/havok.ts and apps/game/src/physics-backend.ts may name a ' +
+        'physics backend (ADR-0008). Everything else uses the PhysicsWorld contract from ' +
+        '@wov/physics, so the engine can be replaced without touching gameplay.',
+      severity: 'error',
+      from: { pathNot: PHYSICS_BACKEND_OWNERS },
+      to: { path: PHYSICS_BACKEND },
+    },
+    {
+      name: 'physics-contract-must-stay-framework-free',
+      comment:
+        'The @wov/physics entry point is what gameplay imports. It must not reach Babylon.js, ' +
+        'Havok or its own backend module, or importing the contract would drag the engine into ' +
+        'every bundle (ADR-0008).',
+      severity: 'error',
+      from: { path: '^packages/physics/src/(index|contract|defaults)\\.ts$' },
+      to: { path: 'babylonjs|^packages/physics/src/havok\\.ts$' },
+    },
+    {
+      name: 'editor-must-not-load-physics',
+      comment:
+        'The editor does not simulate. Keeping the ~2 MB Havok WASM module out of its bundle is ' +
+        'the reason the backend sits behind a separate entry point (ADR-0008, spec §38).',
+      severity: 'error',
+      from: { path: '^(apps/editor|packages/editor-core)/' },
+      to: { path: PHYSICS_BACKEND },
     },
     {
       name: 'no-circular',

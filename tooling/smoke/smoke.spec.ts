@@ -15,6 +15,16 @@ test('game shows its dev build marker', async ({ page }) => {
   await expect(page.getByTestId('game-status')).not.toHaveText('starting…');
 });
 
+test('game loads the physics backend and the capsule comes to rest', async ({ page }) => {
+  await page.goto('http://localhost:5173');
+  // Proves the whole chain in a real browser: the dynamic Havok import
+  // resolved, the WASM module loaded from the URL Vite emitted, the ground
+  // became a collider and the capsule fell onto it (ADR-0008).
+  await expect(page.getByTestId('game-status')).toContainText('physics ready — capsule resting', {
+    timeout: 30_000,
+  });
+});
+
 test('editor shows its shell and viewport placeholder', async ({ page }) => {
   await page.goto('http://localhost:5174');
   await expect(page.getByTestId('editor-marker')).toContainText('world editor dev build');

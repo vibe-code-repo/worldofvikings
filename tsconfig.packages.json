@@ -6,6 +6,7 @@
     { "path": "packages/world-schema" },
     { "path": "packages/asset-system" },
     { "path": "packages/engine" },
+    { "path": "packages/physics" },
     { "path": "packages/gameplay" },
     { "path": "packages/editor-core" },
     { "path": "packages/ui" }

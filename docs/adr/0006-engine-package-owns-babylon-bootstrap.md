@@ -1,6 +1,8 @@
 # ADR-0006: The engine package owns the Babylon.js bootstrap
 
-- **Status:** accepted
+- **Status:** accepted, narrowed by
+  [ADR-0007](0007-engine-package-provides-the-base-scene.md) — the bootstrap
+  still creates no content, but the package now also offers an opt-in base scene
 - **Date:** 2026-09-05
 - **Deciders:** Core maintainers
 

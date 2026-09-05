@@ -70,15 +70,15 @@ introduced the wrong way round.
 
 ## Packages
 
-| Package             | Purpose                                      |
-| ------------------- | -------------------------------------------- |
-| `@wov/shared`       | Framework-free helpers. Dependency-free.     |
-| `@wov/world-schema` | Zod schemas + versioning for all world data. |
-| `@wov/asset-system` | Asset URL resolution; loading/caching later. |
-| `@wov/engine`       | Shared Babylon.js bootstrap (ADR-0006).      |
-| `@wov/gameplay`     | Gameplay state and systems (from Phase 6).   |
-| `@wov/editor-core`  | Editor-only logic. Forbidden in the game.    |
-| `@wov/ui`           | Framework-free UI tokens/helpers.            |
+| Package             | Purpose                                                  |
+| ------------------- | -------------------------------------------------------- |
+| `@wov/shared`       | Framework-free helpers. Dependency-free.                 |
+| `@wov/world-schema` | Zod schemas + versioning for all world data.             |
+| `@wov/asset-system` | Asset URL resolution; loading/caching later.             |
+| `@wov/engine`       | Babylon.js bootstrap (ADR-0006) + base scene (ADR-0007). |
+| `@wov/gameplay`     | Gameplay state and systems (from Phase 6).               |
+| `@wov/editor-core`  | Editor-only logic. Forbidden in the game.                |
+| `@wov/ui`           | Framework-free UI tokens/helpers.                        |
 
 See each package's README for its public API and ownership.
 
@@ -91,7 +91,7 @@ after `pnpm install`, so a clean clone can run `pnpm dev` immediately.
 
 ## Known limitations (Phase 0)
 
-- The game's main chunk is 989 kB raw / 238 kB gzip — above Vite's 500 kB
+- The game's main chunk is 999 kB raw / 241 kB gzip — above Vite's 500 kB
   warning. Splitting Babylon.js out of the entry chunk is still open (ADR-0006).
 - No physics, no player, no assets, no world loading.
 - The API only serves `/health`.

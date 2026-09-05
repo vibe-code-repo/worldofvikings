@@ -15,3 +15,4 @@ change it describes.
 | [0004](0004-world-data-outside-code-validated-with-zod.md) | World data lives outside the code and is validated with Zod | accepted |
 | [0005](0005-fastify-for-the-api.md)                        | Fastify for the API service                                 | accepted |
 | [0006](0006-engine-package-owns-babylon-bootstrap.md)      | The engine package owns the Babylon.js bootstrap            | accepted |
+| [0007](0007-engine-package-provides-the-base-scene.md)     | The engine package provides the base scene, as an opt-in    | accepted |

@@ -1,35 +1,57 @@
 # @wov/engine
 
-**Purpose.** The Babylon.js bootstrap shared by `apps/game` and `apps/editor`
-(ADR-0006). It owns exactly four things — engine selection (WebGPU with a WebGL2
-fallback), the `Scene`, the render loop and resize handling — plus the
-Babylon.js side-effect imports both apps depend on.
+**Purpose.** The rendering layer shared by `apps/game` and `apps/editor`. Two
+things, kept apart on purpose:
 
-It owns **no gameplay state and no scene content**: no camera, light, mesh or
-material. Those belong to the app and, from Phase 6 on, to `@wov/gameplay`.
-Rendering never owns the game state (spec §25), which is why `@wov/gameplay` is
-forbidden from importing this package (`pnpm lint:boundaries`).
+1. **The bootstrap** (ADR-0006) — engine selection (WebGPU with a WebGL2
+   fallback), the `Scene`, the render loop, resize handling and the Babylon.js
+   side-effect imports both apps depend on. `createRenderer` creates no camera,
+   light or mesh.
+2. **The base scene** (ADR-0007) — the opt-in empty stage both apps open on:
+   ground, fill and key light, sky colour and matching fog. A caller who wants
+   it calls `createBaseScene`; the bootstrap never imposes it, and it creates no
+   camera, because the game and the editor need different ones.
+
+The package owns **no gameplay state**: no entity, no player, nothing a system
+reads back. Rendering never owns the game state (spec §25), which is why
+`@wov/gameplay` is forbidden from importing this package
+(`pnpm lint:boundaries`).
 
 ## Public API
 
-| Export                            | What it does                                                                                       |
-| --------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `createRenderer(canvas, options)` | `Promise<RendererHandle>`. Builds engine, scene and render loop for a canvas.                      |
-| `RendererHandle`                  | `engine`, `scene`, `backend`, `config`, `disposed`, `onFrame`, `renderFrame`, `resize`, `dispose`. |
-| `selectBackend(config, caps)`     | Pure choice between `'webgpu'` and `'webgl2'`. Separated out so it is testable.                    |
-| `detectRenderCapabilities()`      | What the current browser offers (`navigator.gpu`).                                                 |
-| `resolveRenderConfig(overrides?)` | Normalises a partial `RenderConfig`; clamps `resolutionScale` to `0.25…2`.                         |
-| `defaultRenderConfig`             | The defaults `resolveRenderConfig` merges into.                                                    |
+| Export                            | What it does                                                                                        |
+| --------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `createRenderer(canvas, options)` | `Promise<RendererHandle>`. Builds engine, scene and render loop for a canvas.                       |
+| `RendererHandle`                  | `engine`, `scene`, `backend`, `config`, `disposed`, `onFrame`, `renderFrame`, `resize`, `dispose`.  |
+| `selectBackend(config, caps)`     | Pure choice between `'webgpu'` and `'webgl2'`. Separated out so it is testable.                     |
+| `detectRenderCapabilities()`      | What the current browser offers (`navigator.gpu`).                                                  |
+| `resolveRenderConfig(overrides?)` | Normalises a partial `RenderConfig`; clamps `resolutionScale` to `0.25…2`.                          |
+| `defaultRenderConfig`             | The defaults `resolveRenderConfig` merges into.                                                     |
+| `createBaseScene(scene, opts?)`   | `BaseSceneHandle`. Adds ground, two lights, sky colour and fog to an existing scene.                |
+| `BaseSceneHandle`                 | `ground`, `groundMaterial`, `ambientLight`, `sun`, `options`, `dispose` (restores the old sky/fog). |
+| `resolveBaseSceneOptions(over?)`  | Validates a partial base-scene description and derives the fog distances from the ground size.      |
+| `defaultBaseSceneOptions`         | The resolved defaults: 100 m ground, no shadows, linear fog in the sky colour.                      |
 
 ```ts
 const renderer = await createRenderer(canvas, { resolutionScale: 1 });
-// the app owns the content:
-new ArcRotateCamera('camera', -Math.PI / 2, Math.PI / 3, 18, Vector3.Zero(), renderer.scene);
+const base = createBaseScene(renderer.scene, { groundSize: 100, skyColor: '#4d5b68' });
+// the app still owns the camera:
+new ArcRotateCamera('camera', -Math.PI / 2, Math.PI / 3, 34, Vector3.Zero(), renderer.scene);
 const stop = renderer.onFrame(({ deltaSeconds }) => update(deltaSeconds));
 // later
 stop();
-renderer.dispose();
+renderer.dispose(); // disposes the scene, and with it the base scene
 ```
+
+Base-scene options are plain data — numbers and `#rrggbb` strings, never Babylon
+types — so the same description can come out of world JSON later. They are
+validated rather than trusted: `Color3.FromHexString` answers black for anything
+it cannot parse, so a typo would otherwise render as a lighting bug instead of
+an error naming the field.
+
+The key light is created with `shadowEnabled = false`. Shadows are selective and
+cost a pass per caster (spec §38); they arrive with the content that needs them,
+and until then the flag says so in code.
 
 `createRenderer` is asynchronous because WebGPU can only be initialised
 asynchronously; the WebGL2 path resolves on the next microtask. The WebGPU

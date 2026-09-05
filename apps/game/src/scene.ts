@@ -1,49 +1,53 @@
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
-import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
-import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
-// One specific builder rather than the whole `MeshBuilder` set — see ADR-0006.
-import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder';
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
-import { createRenderer } from '@wov/engine';
-import type { RenderConfig, RendererHandle } from '@wov/engine';
+import { createBaseScene, createRenderer } from '@wov/engine';
+import type { BaseSceneHandle, BaseSceneOptions, RenderConfig, RendererHandle } from '@wov/engine';
 
 /**
- * Creates the Phase 0 placeholder scene: a camera looking at a flat ground
- * under a hemispheric light.
+ * The game's Phase 1 view: the shared base stage from `@wov/engine` plus the
+ * camera looking at it.
  *
- * Engine, scene, render loop and resize handling come from `@wov/engine`
- * (ADR-0006); this module only fills the scene. Nothing here is world data —
- * the real world is loaded from `content/worlds/` from Phase 4 on.
+ * Engine, scene, render loop and resize handling come from `createRenderer`;
+ * ground, lights, sky and fog from `createBaseScene` (ADR-0006, ADR-0007).
+ * What stays here is the part the editor would do differently — the camera,
+ * which becomes the third-person follow camera of spec §26.
+ *
+ * Nothing here is world data. The authored world arrives from `content/` in
+ * Phase 4; the base ground is a placeholder, not a generator (agent rule 16).
  */
-export async function createGameRenderer(
+export interface GameScene {
+  readonly renderer: RendererHandle;
+  readonly base: BaseSceneHandle;
+  readonly camera: ArcRotateCamera;
+}
+
+export interface GameSceneOptions {
+  /** Passed to `createRenderer` (resolution scale, WebGPU preference). */
+  readonly render?: Partial<RenderConfig>;
+  /** Passed to `createBaseScene` (ground size, sky and fog colours). */
+  readonly base?: BaseSceneOptions;
+}
+
+export async function createGameScene(
   canvas: HTMLCanvasElement,
-  overrides: Partial<RenderConfig> = {},
-): Promise<RendererHandle> {
-  const renderer = await createRenderer(canvas, overrides);
-  const { scene } = renderer;
+  options: GameSceneOptions = {},
+): Promise<GameScene> {
+  const renderer = await createRenderer(canvas, options.render);
+  const base = createBaseScene(renderer.scene, options.base);
 
-  scene.clearColor = new Color4(0.055, 0.067, 0.086, 1);
-
+  // Framed for the 100 m ground: far enough out to show the fogged horizon,
+  // aimed slightly above the surface so a player-sized figure would sit in the
+  // middle. Not attached to any input yet — camera control is its own step.
   const camera = new ArcRotateCamera(
-    'camera',
+    'game-camera',
     -Math.PI / 2,
     Math.PI / 3,
-    18,
-    Vector3.Zero(),
-    scene,
+    34,
+    new Vector3(0, 1, 0),
+    renderer.scene,
   );
-  camera.lowerRadiusLimit = 4;
-  camera.upperRadiusLimit = 60;
+  camera.lowerRadiusLimit = 6;
+  camera.upperRadiusLimit = base.options.groundSize * 1.4;
 
-  const light = new HemisphericLight('light', new Vector3(0.4, 1, 0.2), scene);
-  light.intensity = 0.9;
-
-  const ground = CreateGround('ground', { width: 40, height: 40, subdivisions: 4 }, scene);
-  const groundMaterial = new StandardMaterial('ground-material', scene);
-  groundMaterial.diffuseColor = new Color3(0.24, 0.3, 0.22);
-  groundMaterial.specularColor = Color3.Black();
-  ground.material = groundMaterial;
-
-  return renderer;
+  return { renderer, base, camera };
 }

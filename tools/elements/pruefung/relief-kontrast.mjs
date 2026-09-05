@@ -37,6 +37,16 @@
  * `--kanal=cavity` misst die gebackene Verschattung im Netz — die wirkt
  * OHNE Licht und wird deshalb im Grab `hell-probe` ohne Fackel gemessen.
  *
+ * ── Die Verschattung braucht eine WAND, keine Stelle (05.09.2026) ──────
+ * `--kanal=cavity` misst nicht mehr dort, wo die Figur gerade steht: Am
+ * Eingang von `hell-probe` füllt die glatte RÜCKSEITE eines versiegelnden
+ * Paneels das Bild, und deren COLOR_0 ist überall 1,0. Ein Vergleich
+ * `cavity=0` gegen `cavity=1` konnte dort gar nichts finden (Faktor 1,000)
+ * — und aus dieser Null wurde einen Tag lang ein Shaderfehler gelesen, den
+ * es nie gab. Die Sonde stellt sich jetzt selbst vor die Reliefseite eines
+ * Wandpaneels (`WOV_CAVITY_WAND/INSTANZ/ABSTAND`) und meldet als Zeugen,
+ * wie stark das COLOR_0 dieser Wand überhaupt streut.
+ *
  * Aufruf:
  *   node tools/elements/pruefung/relief-kontrast.mjs [--kanal=relief|cavity] <dungeonId> [x] [z] [yawGrad]
  *
@@ -51,6 +61,9 @@
  *   WOV_RELIEF_MIN      geforderte relative Streuung mit Kanal, Vorgabe 0.06
  *   WOV_RELIEF_FELD     Messrechteck x0,y0,x1,y1 im Bild, Vorgabe 400,250,1200,650
  *   WOV_HELL            Belichtung, Vorgabe 6
+ *   WOV_CAVITY_WAND     Wandmodul für --kanal=cavity, Vorgabe RockVaultWall
+ *   WOV_CAVITY_INSTANZ  welche Thin Instance davon, Vorgabe 2
+ *   WOV_CAVITY_ABSTAND  Kameraabstand vor der Wand in m, Vorgabe 1.8
  *   WOV_DEV_USER/PASS   Basic-Auth des Dev-Hosts
  *
  * Bilder: ~/.cache/wov-relief-kontrast/<dungeonId>-relief-{aus,an}.png
@@ -105,6 +118,10 @@ if (!dungeonId) {
 const ZIEL = xArg !== undefined ? { x: Number(xArg), z: Number(zArg) } : null;
 const YAW = (Number(yawArg) * Math.PI) / 180;
 const FAKTOR = Number(process.env.WOV_RELIEF_FAKTOR ?? '1.25');
+// Messwand für `--kanal=cavity` (s. den langen Kommentar in `messung`).
+const WAND = process.env.WOV_CAVITY_WAND ?? 'RockVaultWall';
+const WAND_INSTANZ = Number(process.env.WOV_CAVITY_INSTANZ ?? '2');
+const WAND_ABSTAND = Number(process.env.WOV_CAVITY_ABSTAND ?? '1.8');
 const MIN = Number(process.env.WOV_RELIEF_MIN ?? '0.06');
 const FELD = (process.env.WOV_RELIEF_FELD ?? '400,250,1200,650').split(',').map(Number);
 const BELICHTUNG = Number(process.env.WOV_HELL ?? '6');
@@ -162,9 +179,14 @@ async function messung(stellung, marke) {
   });
   await seite.addInitScript((t) => localStorage.setItem('wov-session-token', t), testToken());
   const name = `Relief${Date.now().toString(36).slice(-5)}`;
-  await seite.goto(`${HOST}/?name=${name}&dungeon=${dungeonId}&${KANAELE.param}=${stellung}`, {
-    waitUntil: 'domcontentloaded', timeout: 120_000,
-  });
+  // `null` heisst: den Parameter WEGLASSEN und damit die ausgelieferte
+  // Vorgabe messen. Fuer die Verschattung ist das die richtige „an"-Seite —
+  // `?cavity=1` waere seit dem 05.09.2026 eine andere Staerke als die, die
+  // im Spiel steht (CAVITY_VORGABE), und die Sonde pruefte etwas, das
+  // niemand zu sehen bekommt.
+  const adresse = `${HOST}/?name=${name}&dungeon=${dungeonId}` +
+    (stellung === null ? '' : `&${KANAELE.param}=${stellung}`);
+  await seite.goto(adresse, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await seite.waitForFunction(() => window.__dbg?.imDungeon === true, undefined, { timeout: 240_000 });
   await seite.waitForTimeout(10_000);
   await seite.evaluate((e) => { window.__dbg.scene.imageProcessingConfiguration.exposure = e; }, BELICHTUNG);
@@ -209,6 +231,76 @@ async function messung(stellung, marke) {
   }, YAW);
   await seite.waitForTimeout(1500);
 
+  // ── Die Verschattung wird VOR EINEM PANEEL gemessen, nicht am Eingang ──
+  //
+  // Am 05.09.2026 hat genau das einen Tag gekostet: Die Sonde stand am
+  // Eingangspunkt von `hell-probe`, und dort füllt die GLATTE RÜCKSEITE
+  // eines versiegelnden Paneels das ganze Bild. Deren COLOR_0 ist überall
+  // 1,0 — die Verschattung sitzt auf der Reliefseite. Gemessen wurde
+  // deshalb ein Bild, das sich mit `?cavity=0` und `?cavity=1` nicht
+  // unterscheiden KANN (Faktor 1,000), und daraus wurde der falsche
+  // Schluss gezogen, `vColor` komme im Fragment als 1,0 an. Nachgemessen
+  // an derselben Wand von der Raumseite: µ 84,97 → 75,20 bei `cavity=1`.
+  //
+  // Die Stelle wird deshalb nicht mehr dem Zufall überlassen, sondern aus
+  // dem Kit selbst abgeleitet: ein Wandpaneel, seine Thin-Instance-Matrix,
+  // und die Seite, auf der die Verschattung überhaupt liegt (die Ecken mit
+  // COLOR_0 < 1 zeigen sie an). Die Kamera wird je Bild gesetzt, nicht die
+  // Figur — im Grab schreibt der Havok-Körper `player.position` zurück
+  // (Gedächtnis „Serverposition kennt keine Wände").
+  //
+  // Bewusste Grenze: Das ist eine MATERIALMESSUNG an einer bestimmten
+  // Wand, keine Aussage darüber, was ein Spieler beim Laufen sieht.
+  let blick = null;
+  if (KANAL === 'cavity') {
+    blick = await seite.evaluate(([wandName, idx, abstand]) => {
+      const scene = window.__dbg.scene;
+      const cam = scene.activeCamera;
+      const V3 = Object.getPrototypeOf(cam.position).constructor;
+      const netz = scene.meshes.find(
+        (m) => m.name === wandName && m.thinInstanceCount > 0 && m.getVertexBuffer?.('color')
+      );
+      if (!netz) return { fehler: `kein Wandmodul ${wandName} mit COLOR_0 und Thin Instances` };
+      const pos = netz.getVerticesData('position');
+      const col = netz.getVerticesData('color');
+      // Auf welcher Seite des Paneels liegt die Verschattung? Die Ecken mit
+      // COLOR_0 < 1 sind die Kluftgründe, und die gibt es nur vorn.
+      let zSum = 0, zAnz = 0, cSum = 0, cQuad = 0;
+      for (let v = 0; v * 4 < col.length; v++) {
+        const c = col[v * 4];
+        cSum += c; cQuad += c * c;
+        if (c < 0.99) { zSum += pos[v * 3 + 2]; zAnz++; }
+      }
+      const anz = col.length / 4;
+      const mittel = cSum / anz;
+      const streuung = Math.sqrt(Math.max(0, cQuad / anz - mittel * mittel));
+      if (zAnz === 0) return { fehler: `${wandName} trägt kein COLOR_0 unter 1,0` };
+      const seiteVorn = zSum / zAnz >= 0 ? 1 : -1;
+      const mm = netz.thinInstanceGetWorldMatrices()[idx];
+      if (!mm) return { fehler: `${wandName} hat keine Instanz ${idx}` };
+      const mitte = V3.TransformCoordinates(new V3(0, 1.6, 0), mm);
+      const n = V3.TransformNormal(new V3(0, 0, 1), mm).normalize();
+      const p = mitte.add(n.scale(abstand * seiteVorn));
+      // Die SPIELERKAMERA fahren und keine eigene bauen: an ihr hängt die
+      // Nachbearbeitung (Belichtung, Tonwert). Eine frische Kamera misst
+      // ein anderes Bild — dieselbe Wand kam damit auf µ 6 statt µ 87.
+      scene.onBeforeRenderObservable.add(() => { cam.position.copyFrom(p); cam.setTarget(mitte); });
+      return {
+        wand: `${wandName}#${idx}${seiteVorn > 0 ? '+' : '-'}`,
+        kamera: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)],
+        color0Mittel: +mittel.toFixed(4),
+        color0Streuung: +streuung.toFixed(4),
+      };
+    }, [WAND, WAND_INSTANZ, WAND_ABSTAND]);
+    if (blick.fehler) {
+      await kontext.close();
+      await browser.close();
+      console.error(`Kein Messblick auf eine Felswand: ${blick.fehler}`);
+      process.exit(2);
+    }
+    await seite.waitForTimeout(2500);
+  }
+
   // Zeuge 2: Was steht wirklich im übersetzten Shader?
   const defines = await seite.evaluate(() => {
     const gefunden = new Set();
@@ -234,19 +326,25 @@ async function messung(stellung, marke) {
     return { x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2) };
   });
   await kontext.close();
-  return { pfad, defines, normalAntworten, fehler, lage, ...streuung(pfad) };
+  return { pfad, defines, normalAntworten, fehler, lage, blick, ...streuung(pfad) };
 }
 
 const aus = await messung(0, 'aus');
-const an = await messung(1, 'an');
+const an = await messung(KANAL === 'cavity' ? null : 1, 'an');
 await browser.close();
 
 for (const [marke, m] of [['aus', aus], ['an', an]]) {
-  console.log(`${KANAELE.param}=${marke}  Bild ${m.pfad}`);
+  console.log(`${KANAELE.param} ${marke}  Bild ${m.pfad}`);
   console.log(`  Stelle ${JSON.stringify(m.lage)}  Feld ${FELD.join(',')}  Punkte ${m.n}  dunkel ${(m.dunkelAnteil * 100).toFixed(1)}%`);
   console.log(`  Helligkeit ø${m.mittel.toFixed(2)}  Streuung σ${m.sigma.toFixed(2)}  relativ ${m.relativ.toFixed(4)}`);
   console.log(`  Normal-Karten: ${m.normalAntworten.length ? m.normalAntworten.join(', ') : 'keine Anfrage'}`);
   console.log(`  Defines: ${m.defines.length ? m.defines.join(' ') : 'keine gefunden'}`);
+  if (m.blick) {
+    console.log(
+      `  Messwand ${m.blick.wand} von ${JSON.stringify(m.blick.kamera)}  ` +
+        `COLOR_0 µ ${m.blick.color0Mittel} σ ${m.blick.color0Streuung}`
+    );
+  }
   if (m.fehler.length) console.log(`  Seitenfehler ${m.fehler.length}: ${m.fehler[0].slice(0, 200)}`);
 }
 
@@ -270,6 +368,11 @@ if (KANAL === 'relief' && aus.defines.includes('#define STEIN_NORMAL')) {
 }
 // Ein Fels-Kit im Alpha-Blend-Pfad wäre kein Messfehler, sondern ein
 // Schaden (Sortierung, kein Tiefenschreiben) — s. entschaerfeVertexAlpha.
+// Ein Paneel ohne Streuung im COLOR_0 kann keinen Unterschied machen —
+// dann misst die Sonde wieder die glatte Rueckseite (Befund 05.09.).
+if (KANAL === 'cavity' && (an.blick?.color0Streuung ?? 0) < 0.02) {
+  gruende.push(`COLOR_0 der Messwand ist mit σ ${an.blick?.color0Streuung} praktisch konstant — falsche Wand oder Verschattung fehlt`);
+}
 if (an.defines.includes('#define VERTEXALPHA')) {
   gruende.push('VERTEXALPHA im Shader — entschaerfeVertexAlpha hat nicht gegriffen');
 }

@@ -79,9 +79,13 @@ console.log('Steinmaterial — gebackene Verschattung (Cavity)\n');
   // zwei verschiedene Bilder und der Faktor wäre eine Zufallszahl.
   pruefe('bei Stärke 0 ist der Faktor exakt 1 (mix gegen vec3(1.0))',
     /mix\(vec3\(1\.0\),\s*vColor\.rgb,\s*stMenge\.w\)/.test(glsl));
-  // Und ohne Adressparameter steht sie auf 1 — die Verschattung ist die
-  // Vorgabe, nicht ein Schalter, den jemand setzen muss.
-  pruefe('ohne ?cavity= ist die Stärke 1', cavityStaerke() === 1);
+  // Und ohne Adressparameter steht sie auf der VORGABE — die Verschattung
+  // ist die Vorgabe, nicht ein Schalter, den jemand setzen muss. Sie steht
+  // seit dem 05.09.2026 auf 2: bei der gebackenen Stärke 1 senkt sie die
+  // Wand um 11,5 % und hebt σ/µ von 0,225 auf 0,244, was unter dem
+  // Sprenkeln der Albedo-Kachel nicht zu lesen ist (Zahlen im Kommentar
+  // an CAVITY_VORGABE).
+  pruefe('ohne ?cavity= ist die Stärke 2', cavityStaerke() === 2);
 }
 
 // ── 2. Babylon deklariert vColor unter genau diesem Schlüssel ──────────

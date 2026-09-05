@@ -260,26 +260,25 @@ export function steinAufrufGlsl(): string {
     // Fallunterscheidung im Client.
     //
     // stMenge.w ist die Staerke aus ?cavity=; 0 ergibt exakt das Bild
-    // von gestern.
+    // ohne Verschattung, 1 genau die gebackenen Werte, 2 den doppelten
+    // Ausschlag (mix extrapoliert: 2*c-1, bei c=0,55 also 0,10).
     //
-    // OFFENER BEFUND (05.09.2026, gemessen im Grab hell-probe, nicht
-    // behoben): Diese Zeile bleibt im Spiel WIRKUNGSLOS, weil vColor im
-    // Fragment als exakt 1,0 ankommt. Faktor sigma/mu (an / aus) 1,000,
-    // mittlere Helligkeit 18,47 gegen 18,47; auch ?cavity=2 aendert
-    // nichts. Was nachweislich NICHT die Ursache ist: die GLB tragen
-    // COLOR_0 (0,55..1,0), die aktiv gezeichneten Master ebenso, der
-    // color-Puffer ist richtig beschrieben (UNSIGNED_SHORT, normalized,
-    // Groesse 4, Schritt 8), useVertexColors ist an, VERTEXCOLOR steht
-    // im uebersetzten Shader, color steht in der Attributliste, der
-    // Vertex-Shader enthaelt vColor.rgb *= colorUpdated.rgb, stMenge.w
-    // kommt an (mit surfaceAlbedo *= vec3(stMenge.w, ...) wird der
-    // Rotkanal bei ?cavity=0 schwarz), und ohne Thin Instances
-    // gezeichnet ist das Bild dasselbe. Zwei Diagnosen zeigen den
-    // Ausfall direkt: pow(vColor.r, 6.0) aendert das Bild um kein
-    // einziges Bit, und surfaceAlbedo = vec3(vColor.r) malt die Wand
-    // flach grau. Zwischen Vertexpuffer und Fragment geht die Spalte
-    // verloren; wo, ist offen. Naechster Schritt ist deshalb diese
-    // Frage - nicht mehr Geometrie.
+    // KORREKTUR ZUM 05.09.2026: Hier stand, die Zeile sei wirkungslos,
+    // weil vColor im Fragment als 1,0 ankomme. Das war falsch, und der
+    // Fehler lag in der MESSUNG, nicht im Shader. relief-kontrast.mjs
+    // mass am Eingangspunkt von hell-probe, und dort fuellt die glatte
+    // RUECKSEITE eines versiegelnden Paneels das ganze Bild; ihr COLOR_0
+    // ist ueberall 1,0, weil die Verschattung auf der Reliefseite liegt.
+    // Jede der damaligen Diagnosen ist mit genau diesem Blick vertraeglich.
+    //
+    // Nachgemessen an derselben Wand von der RAUMSEITE, eine Sitzung, nur
+    // stMenge.w umgestellt (RockVaultWall Instanz 2 in hell-probe, ohne
+    // Fackel): mittlere Helligkeit 84,97 -> 75,20 (Staerke 1) -> 63,73
+    // (Staerke 2), relative Streuung 0,2250 -> 0,2442 -> 0,2885. Der
+    // GPU-Puffer ist dabei zurueckgelesen worden (getBufferSubData):
+    // 36044..65535, also genau die gebackenen 0,55..1,0 als
+    // normalisiertes UNSIGNED_SHORT. Die Sonde stellt sich seither selbst
+    // vor ein Wandpaneel.
     surfaceAlbedo *= mix(vec3(1.0), vColor.rgb, stMenge.w);
   #endif
   #ifdef STEIN_NORMAL
@@ -673,7 +672,14 @@ function reliefStaerke(): number {
  * vergleicht, vergleicht zwei. `relief-kontrast.mjs --kanal=cavity` baut
  * genau darauf.
  */
-const CAVITY_VORGABE = 1;
+// Vorgabe 2 und nicht 1: Bei der gebackenen Staerke (Spanne 0,55..1,0,
+// µ 0,86) senkt die Verschattung die Wand um 11,5 % und hebt die relative
+// Streuung von 0,225 auf 0,244 — messbar, aber unter dem Sprenkeln der
+// Albedo-Kachel (allein 0,225) nicht zu lesen. Bei 2 sind es 25 % und
+// 0,289, und im Bild stehen Mulden und Kanten. Mehr als 2 laesst `mix`
+// nicht zu, ohne dass das Albedo negativ wuerde (2*0,55-1 = 0,10 ist die
+// dunkelste Stelle).
+const CAVITY_VORGABE = 2;
 const CAVITY_MAX = 2;
 export function cavityStaerke(): number {
   try {

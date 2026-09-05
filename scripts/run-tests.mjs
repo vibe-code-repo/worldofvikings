@@ -180,6 +180,134 @@ const KERN = [
   // Rein rechnerisch, Zehntelsekunden.
   // Every module explains itself; connectors are the witness against drift.
   ['shared', 'test/dungeon-rastermodul.ts'],
+  /*
+    E1 (Elemente aus dem Editor): Die geschlossene Arithmetik eines Saals.
+    Ein Saal besteht nur aus achsenparallelen Quadern, also gilt exakt
+    B = 2 + 16·cx·cz + 3·P, 12·B Dreiecke, 24·B Ecken. Daran haengt die
+    Entscheidung, Saele in TypeScript statt in Blender zu bauen — auf
+    `wov-dev` gibt es kein Blender. Der Test nennt die fuenf gemessenen
+    Zahlen, prueft die Pfeilerstellen (ein Pfeiler auf einer Kantenmitte
+    stuende im Durchgang) und die Vorspiegelung ueber das signierte
+    Volumen: Die Saele sind punktsymmetrisch, ein vergessenes x-Negieren
+    verschoebe also KEINEN Punkt und haette ohne diesen Zeugen kein
+    Symptom. Liegen die GLBs da, misst er zusaetzlich gegen sie; sonst
+    meldet er das und bleibt gruen. Reine Rechnung, Zehntelsekunden —
+    deshalb ohne Weiche.
+
+    Closed-form hall arithmetic plus the mirror witness; skips the GLB
+    cross-check on its own when assets/ is absent.
+  */
+  ['shared', 'test/hallen-geometrie.ts'],
+  /*
+    E2 (Elemente aus dem Editor): der GLB-Schreiber, der den Blender-Export
+    ersetzt. Steht direkt hinter E1, weil er dessen Quaderliste verbraucht.
+
+    Er haelt drei Dinge fest, die man der Datei nicht ansieht: 24 Ecken und
+    36 Indizes je Quader (das IST "flach schattiert"), das NEGATIVE
+    signierte Volumen (die Vorspiegelung — alle Saele sind punktsymmetrisch,
+    ein Winding-Flip verschoebe also keinen Punkt) und dessen BETRAG (der
+    Dichtheitszeuge: eine vergessene Flaeche aendert ihn, nicht nur sein
+    Vorzeichen). Gelesen wird mit einem eigenen, kleinen glTF-Parser — ein
+    Test, der den Schreiber mit dem Schreiber pruefte, pruefte nichts.
+
+    Ohne Weiche: der Kern ist reine Rechnung. Liegen die fuenf
+    StoneVaultHall*.glb da, vergleicht der Test zusaetzlich gegen sie
+    (Eckenzahl, Dreieckszahl, Huellbox, signiertes Volumen) und meldet
+    sonst im Klartext, dass er diesen Teil ausgelassen hat. Zehntelsekunden.
+
+    E2: the GLB writer — 24/36 per box, negative signed volume, magnitude.
+  */
+  ['server', 'test/glb-schreiber.ts'],
+  /*
+    E3 (Elemente aus dem Editor): die RoomDef eines Saals — das, was der
+    GENERATOR von einem Modul sieht. Ein Modell allein reicht nicht: Wer
+    einen Saal zur Laufzeit anlegt und die Connectors nur ungefaehr trifft,
+    bekommt keinen Fehler, sondern einen Grundriss, in dem der Nachbar um
+    einen Meter versetzt steht.
+
+    Der Kern ist deshalb kein Nachrechnen, sondern ein Vergleich: Die fuenf
+    ausgelieferten Saele sind von Hand getippt, gegen Blender gemessen und
+    im Spiel gelaufen — `roomDefForHall` muss sie FELD FUER FELD
+    reproduzieren, bis auf `nurManuell`. Dazu die Rot-Zuerst-Probe 4x3
+    (rechteckig, damit eine vertauschte x/z-Achse nicht durchrutscht) durch
+    `gridModuleFromRoomDef`: 14 Randkanten offen, levels 1.
+
+    Ohne Weiche: reine Rechnung, kein `assets/`, Zehntelsekunden.
+
+    E3: the generated hall RoomDef, field for field against the shipped five.
+  */
+  ['shared', 'test/module-registry.ts'],
+  /*
+    E5 (Elemente aus dem Editor): der Bauweg selbst — der erste
+    Schreibweg dieses Projekts, dessen Eingabe eine Zahl aus dem Netz
+    und dessen Ausgabe ein Pfad auf der Platte ist.
+
+    Gemessen werden die beiden Tore (`peer.isAdmin` schuetzt heute
+    nichts, `everyone-admin: true` — der Schalter `dungeons.modulbau`
+    ist das einzige, das wirklich zu ist), die Klemmen, der
+    Dreiecksdeckel (8x8 mit dem VORGABERASTER 2 ergibt 14 076 Dreiecke
+    und faellt; mit Raster 4 sind es 12 636 und er geht durch — der
+    Deckel liegt also mitten im erlaubten Bereich), der Namenswaechter
+    an genau der Stelle, an der aus einem Namen ein Dateiname wird, und
+    der volle Rundgang Bau -> GLB-Datei -> Registry -> registriertes
+    Modul. Gebaut wird in ein Temp-Verzeichnis, nie in assets/.
+
+    Ohne Weiche: rechnet und schreibt nur in os.tmpdir(), braucht kein
+    `assets/`. Zehntelsekunden.
+
+    E5: the module build path — both gates, clamps, triangle cap, name
+    guard, throttle, and the build → file → registry → lookups round trip.
+  */
+  ['server', 'test/modulbau-grenzen.ts'],
+  /*
+    E6 — die Registry-Pruefsumme reist mit dem Dokument.
+
+    `sanitizeDungeonDocument` verwirft unbekannte Raeume STILL (Kopf
+    dort: "Unknown rooms are dropped"). Fuer eine Datei von der Platte
+    ist das richtig; fuer ein Dokument aus dem Editor ist es der
+    teuerste aller Fehler — ein Haekchen und ein Grab mit einem Loch.
+    Abschnitt 3 des Tests MISST diesen stillen Verlust (zwei Raeume
+    rein, einer raus), alles danach misst, dass er nicht mehr passieren
+    kann.
+
+    Gefahren wird der echte Draht: echter WovServer auf Port 2519,
+    echter GameSocket, echter Nonce/HMAC-Handshake, echtes
+    DungeonEditSave. Vier Absender — der Produktivweg
+    (sendDungeonEditSave ohne Argument), eine veraltete Seite, ein
+    Alt-Client ohne das Feld bei leerer Registry (angenommen) und
+    derselbe bei gefuellter Registry (abgelehnt).
+
+    Ohne Weiche: schreibt nur in os.tmpdir(), braucht kein `assets/`.
+    Wenige Sekunden (vier Anmeldungen).
+
+    E6: the module-registry checksum travels with every DungeonEditSave;
+    the server compares it BEFORE the sanitizer and rejects a stale page.
+  */
+  ['server', 'test/registry-pruefsumme.ts'],
+  /*
+    E9 — der Loeschpfad. Das Gegenstueck zu E5, und der gefaehrlichere
+    der beiden Wege: Der Name kommt hier AUS DEM NETZ und wird zu einem
+    Dateipfad UND zu einem Schluessel in die Raumtabellen des laufenden
+    Prozesses. Und ein fehlender Raum hat kein Symptom —
+    `sanitizeDungeonDocument` verwirft unbekannte Raeume wortlos, aus
+    einem geloeschten Saal wird also kein Fehler, sondern ein Loch im
+    Grab, Tage spaeter.
+
+    Gemessen werden die beiden Tore, der Namenswaechter (er ist es, der
+    den von Hand getippten `StoneVaultHall` aus dem Kit heraushaelt),
+    der Durchgang ueber ALLE Weltordner unter `data/dungeons` (der
+    laufende Server kennt nur seine eigene Welt, die Registry teilen
+    sich alle), Treffer ueber Namen UND Hash in beiden Dokumentformaten,
+    das unlesbare Dokument als Blocker, der nie betretene Eingang, und
+    zuletzt die Einigkeit von Prozess und Platte nach dem Loeschen.
+
+    Ohne Weiche: schreibt nur in os.tmpdir(), braucht kein `assets/`.
+    Zehntelsekunden.
+
+    E9: the delete path — gates, the name guard, the disk-wide document
+    scan, pending entrances, and process/file agreement afterwards.
+  */
+  ['server', 'test/modulbau-loeschen.ts'],
   // G3 (Modul-Generierung 2.0): Die Abbildung Raster ↔ Welt. Zellmitten
   // liegen auf (2i, 3,5e, 2j−1) — der z-Schluessel ist `round((z+1)/2)`, und
   // diese halbe Zelle Unterschied faellt in keiner Zaehlung auf, weil alle
@@ -477,6 +605,39 @@ const KERN = [
   // bleibt. Synthetischer Prototyp statt GLB (assets/ liegt ausserhalb des
   // Repos), NullEngine, Sekunden.
   ['client', 'test/kollisionsnetz.ts'],
+  /*
+    E2, zweite Haelfte: der geschriebene Saal durch Babylons ECHTEN
+    glTF-Lader. `server/test/glb-schreiber.ts` liest mit einem eigenen,
+    nachsichtigen Parser; im Spiel liest der Lader, und der ist streng.
+    Was er beanstandet, meldet er ueber `Logger.Error`/`Logger.Warn` und
+    NICHT als Ausnahme — ein Test, der nur auf `throw` wartet, sieht eine
+    kaputte Datei als bestanden an. Deshalb haengt der Test einen
+    Lauschposten in den Logger und misst zusaetzlich, wohin der `__root__`
+    die drei Achsen dreht (die Rueckdrehung der Vorspiegelung). Ohne
+    Weiche, weil er die Datei selbst erzeugt; den Vergleich mit
+    StoneVaultHallLarge.glb laesst er ohne assets/ selbst aus. NullEngine,
+    Sekunden.
+
+    E2: the written hall through Babylon's real glTF loader.
+  */
+  ['client', 'test/glb-saal-laden.ts'],
+  /*
+    E7: Ein Modul mit `Gen_`-Praefix kommt aus `assets/generiert/`, alles
+    andere aus `assets/models/` — und der Dev-Server liefert beides aus.
+    Faellt eine der beiden Haelften weg, wird kein bestehender Test rot:
+    die von Hand gepflegten Modelle laegen weiter richtig, und der Fehler
+    zeigte sich erst im Browser als Platzhalter statt Saal. Gemessen wird
+    deshalb an einem echten node:http-Server, der die ECHTE Ausliefer-Regel
+    aus client/vite.config.ts faehrt und jeden angefragten Pfad
+    mitschreibt; der AssetManager erfaehrt weder Port noch Ordner. Dieselbe
+    Probe deckt den Ausbruch `/assets/..%2f…` mit ab. Ohne Weiche — der
+    Test schreibt seine GLBs in einen Wegwerf-Ordner unter /tmp.
+    NullEngine, Sekunden.
+
+    E7: Gen_-prefixed modules load from the second base URL; the witness is
+    an HTTP server running the real dev-server rule.
+  */
+  ['client', 'test/gen-basis-laden.ts'],
   // Der Wasser-Refraktionspass darf gestreute Vegetation nicht anhand der
   // weltweiten Thin-Instance-Hülle als "eingetaucht" einstufen. Auf der
   // Referenzinsel bedeutete dieser Fehler 36 Mio. unsichtbare Dreiecke pro
@@ -649,6 +810,25 @@ const KERN = [
     'test/manifest-vollstaendig.ts',
     brauchtModelle('assets/models/PlayerAvatar.glb'),
   ],
+  /*
+    E7: `assets/generiert/` ist ein SCHWESTERORDNER von `assets/models/`,
+    kein Unterordner — und muss es bleiben. Unter `assets/` ist genau eine
+    Datei getrackt (`assets/manifest.json`); schriebe der Spielserver seine
+    gebauten Saele nach `assets/models/`, machte jeder Klick im Editor den
+    Testlauf rot UND hinterliesse eine ungetrackte Aenderung an einer
+    getrackten Datei, die das naechste `git pull` in tools/wov-update.sh
+    blockiert. Heute stimmt die Trennung, aber nur als Zufall der Pfade —
+    ein Zufall hat keine Bruchstelle, an der etwas anschlaegt. Der Test
+    legt deshalb eine echte GLB an den kuenftigen Zielort und laesst BEIDE
+    Manifest-Werkzeuge im Original laufen: Ausgabe und erzeugtes Manifest
+    muessen Zeichen fuer Zeichen dieselben bleiben. Springt ueber, wenn
+    assets/models/ fehlt; raeumt die Attrappe selbst weg. Ein paar
+    Sekunden (vier tsx-Starts).
+
+    E7: the generated-assets folder must stay invisible to both manifest
+    tools — same output, same bytes, clean `git status assets/`.
+  */
+  ['tools', 'test/generiert-getrennt.ts'],
 
   // ── Dungeon Generator 2.0 ──────────────────────────────────────────
   //
@@ -741,6 +921,15 @@ const KERN = [
   // The 1.0 editor path of the module kit: edge naming, the `connIndex`
   // pass-through, the drawn cell hull, and the empty new document.
   ['client', 'test/dungeon-editor-kanten.ts'],
+  // Das Formular „Neuer Saal" (E8): die sieben ServerConfig-Flagbits an
+  // EINER Stelle samt Wächter gegen die zwei alten Kopien, die
+  // Sichtbarkeit am Servertor, „Modulzellen" statt „Zellen" (zwei Felder
+  // in einer Leiste meinten sonst Verschiedenes mit demselben Wort), die
+  // Vorschau aus der GETEILTEN Formel und der Dreiecksdeckel VOR dem
+  // Paket. Derselbe DOM-Stummel wie darüber, Sekunden, kein Netz.
+  // The E8 hall form: flag bits in one place, gated visibility, distinct
+  // labels, shared preview formula, triangle cap before the packet.
+  ['client', 'test/dungeon-neuer-saal.ts'],
   // Kantenmarken sind ANKLICKBAR: der reine Treffertest `trifftKante`
   // (0,6 m in Weltmass, nicht in Pixeln) und die Rangfolge in `waehleBei` —
   // Kanten VOR Räumen, sonst ist eine Marke gezeichnet, aber nie zu

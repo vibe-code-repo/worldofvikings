@@ -2,7 +2,9 @@
  * AssetManager (Phase 2) — GLB loading with AssetContainer cache.
  *
  * Models live at /assets/models/<name>.glb (served from the project's own
- * assets/ folder by the Vite plugin). Loads happen lazily on first sight of
+ * assets/ folder by the Vite plugin) — EXCEPT those whose name starts with
+ * `Gen_`: those are built at runtime and live at /assets/generiert/, see
+ * modelBaseUrl() below. Loads happen lazily on first sight of
  * a prefab; the container is cached and either instantiated per entity
  * (dynamic) or used as thin-instance masters (static vegetation/pieces).
  *
@@ -61,8 +63,14 @@ import { WindPlugin } from './WindPlugin';
 import { FlammenAtlas } from './FlammenAtlas';
 import { GlutPuls } from './GlutPuls';
 
-const MODEL_BASE_URL = '/assets/models/';
+import { GENERATED_PREFIX, modelBaseUrl } from './assetUrls';
+
 const TEXTUR_BASE_URL = '/assets/textures/';
+
+// E6: `MODEL_BASE_URL`, `GENERATED_BASE_URL`, `GENERATED_PREFIX` und
+// `modelBaseUrl` wohnen in `assetUrls.ts` — Begründung im Kopf dort.
+// Weitergereicht, weil der Präfix hier immer schon zu haben war.
+export { GENERATED_PREFIX, modelBaseUrl };
 
 /**
  * Prefabs, deren GLB ein Material OHNE Albedo-Textur mitbringt, samt der
@@ -237,7 +245,8 @@ export class AssetManager {
       // Varianten laden die Datei ihres Alias-Ziels, behalten aber ihren
       // eigenen Container (Cache-Schlüssel bleibt `name` — s. MODELL_ALIAS).
       const datei = MODELL_ALIAS[name] ?? name;
-      p = SceneLoader.LoadAssetContainerAsync(MODEL_BASE_URL, `${datei}.glb`, this.scene)
+      // Die Basis folgt der DATEI, nicht dem Prefabnamen — s. modelBaseUrl().
+      p = SceneLoader.LoadAssetContainerAsync(modelBaseUrl(datei), `${datei}.glb`, this.scene)
         .catch((err: unknown) => {
           this.failed.set(name, String(err));
           console.warn(`[assets] load failed: ${name}`, err);

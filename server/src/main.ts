@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { createWovServer } from './WovServer.js';
 import { leseServerKonfig } from './ServerKonfig.js';
 import { instanzName } from '@wov/shared/src/instanz.js';
+import { ladeModulRegistrierung } from './world/dungeon/ModuleBuild.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = resolve(__dirname, '../data');
@@ -45,6 +46,31 @@ console.log('╚═════════════════════�
 console.log();
 
 const config = leseServerKonfig(DATA_DIR, INSTANZ);
+
+/*
+  E5: Zur Laufzeit gebaute Saele aus assets/generiert/modul-registry.json
+  in die Nachschlagewerke eintragen — VOR createWovServer, und das ist
+  keine Stilfrage.
+
+  Zwei Stellen KOPIEREN die Prefab-Registry, statt sie zu befragen:
+  `PrefabManager` zieht beim Bauen einmal ueber `PREFAB_DEFS`, und der
+  Editor-Katalog leitet sein `MIT_MODELL` beim Import daraus ab. Ein
+  `registerModule` NACH dem Serveraufbau traegt in alle sechs Karten ein
+  und bleibt trotzdem unsichtbar — ohne Meldung, weil nichts
+  fehlschlaegt.
+
+  Ablehnungen werden LAUT: Die Registry ist eine Textdatei neben den
+  GLBs, die ein Mensch bearbeiten kann. Ein still uebergangener Eintrag
+  waere ein Raum, den ein gespeichertes Dokument beim naechsten Speichern
+  verliert (sanitizeDungeonDocument verwirft Unbekanntes wortlos).
+*/
+const modulStand = ladeModulRegistrierung(config.generiertDir);
+if (modulStand.geladen > 0) {
+  console.log(`[Modulbau] ${modulStand.geladen} gebaute Module registriert`);
+}
+for (const zeile of modulStand.warnungen) console.warn(`[Modulbau] ${zeile}`);
+for (const zeile of modulStand.meldungen) console.error(`[Modulbau] abgelehnt: ${zeile}`);
+
 const server = createWovServer(config);
 
 // Graceful shutdown

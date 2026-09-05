@@ -2,8 +2,22 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "noEmit": true,
-    "rootDir": "."
+    "noEmit": true
+    /*
+      Kein `rootDir` mehr (04.09.2026, E2). Es steuert die AUSGABE-Struktur,
+      und hier wird nichts ausgegeben (`noEmit`, gebaut wird mit Vite). Seine
+      einzige Wirkung war ein Nebeneffekt: `client/test/glb-saal-laden.ts`
+      faehrt den GLB-Schreiber aus `server/src/world/dungeon/GlbWriter.ts`
+      durch Babylons echten glTF-Lader — der Lader wohnt im Client, der
+      Schreiber im Server, und genau diese Naht soll der Test pruefen.
+
+      Was damit wegfaellt: tsc meldet nicht mehr, wenn CLIENT-QUELLTEXT nach
+      `server/` greift. Das ist eine bewusste Lockerung und gehoert in die
+      Merge-Durchsicht.
+
+      No rootDir: it only shapes emit output (there is none), and its side
+      effect blocked the one test that must cross the package boundary.
+    */
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts", "test/**/*.ts", "vite.config.ts"],
   "exclude": ["node_modules", "dist"]

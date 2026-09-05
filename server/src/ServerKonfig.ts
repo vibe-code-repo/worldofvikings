@@ -93,7 +93,7 @@ export const BEKANNTE_SCHLUESSEL: Record<string, readonly string[]> = Object.ass
       'experimental-river-affects-ocean',
       'experimental-disable-distant-rivers',
     ],
-    dungeons: ['enabled'],
+    dungeons: ['enabled', 'modulbau'],
     wetter: ['umgebung', 'nebeldichte'],
   }
 );
@@ -242,6 +242,19 @@ export function leseServerKonfig(
       worldVegetation: (world.vegetation as boolean) ?? true,
       worldLocationOverrides: (world['experimental-location-overrides'] as boolean) ?? false,
       dungeonsEnabled: (dungeons.enabled as boolean) ?? true,
+      /*
+        E5: Saal-Bau aus dem Editor. Vorgabe FALSE, und das ist die
+        einzige Vorgabe, die hier abschaltet statt einzuschalten:
+        `peer.isAdmin` schützt heute nichts (players.everyone-admin ist
+        true), dieser Schalter ist also das einzige Schloss, das wirklich
+        zu ist. Wer ihn setzt, erlaubt jedem verbundenen Client, Dateien
+        unter assets/generiert/ anzulegen.
+
+        `=== true` und nicht `?? false`: Ein Tippfehler im WERT ("ja",
+        "on", 1) soll ausschalten, nicht einschalten — YAML liest "ja"
+        als Zeichenkette, und eine nicht-leere Zeichenkette wäre wahr.
+      */
+      dungeonsModulbau: dungeons.modulbau === true,
       // G2: creature spawning (C++ world.creatures default true)
       worldCreatures: (world.creatures as boolean) ?? true,
       // A14: vorher stand world.save-interval in server.yml, ohne dass hier

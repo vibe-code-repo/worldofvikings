@@ -28,6 +28,7 @@ import { getStableHash } from './hash.js';
 import type { Hash, Vector3 } from './types.js';
 import prefabData from './prefabData.json';
 import { DUNGEONS, ENTRANCE_HULL_MODELS } from './dungeons.js';
+import type { RoomDef } from './dungeons.js';
 
 export interface PrefabDef {
   name: string;
@@ -1245,6 +1246,37 @@ export function istEigenesModell(name: string): boolean {
   return EIGENE_MODELLE_SET.has(name);
 }
 
+/**
+ * Der Registry-Eintrag EINES Dungeon-Raums.
+ *
+ * Herausgezogen aus {@link buildRegistry}, weil es seit E4 einen zweiten
+ * Aufrufer gibt: `registerModule` (`moduleRegistry.ts`) trägt zur Laufzeit
+ * gebaute Säle in dieselben Karten ein. Die Konzeptnotiz verlangt dafür
+ * einen Eintrag „wortgleich zu buildRegistry" — und wortgleich bleibt auf
+ * Dauer nur, was WÖRTLICH dieselbe Funktion ist. Eine Kopie daneben wäre
+ * am ersten Tag identisch und beim nächsten Feld auseinandergelaufen,
+ * ohne dass irgendetwas rot würde: Ein Raum-Prefab ohne `PERSISTENT`
+ * überlebt den Welt-Save nicht, eines mit `sprite` sucht im Editor ein
+ * Bild, das es nicht gibt — beides fällt nicht beim Eintragen auf,
+ * sondern viel später und woanders.
+ *
+ * `localScale: ONE` wird bewusst als dieselbe Instanz geteilt, wie schon
+ * vor der Auslagerung: Der Wert ist nirgends veränderlich gemeint.
+ * The registry entry for ONE dungeon room — shared by buildRegistry() and
+ * the runtime registration, so both stay literally identical.
+ */
+export function roomPrefabDef(room: RoomDef): PrefabDef {
+  return {
+    name: room.name,
+    // PERSISTENT: siehe die Begründung an der Schleife in buildRegistry().
+    flags: PrefabFlag.PERSISTENT,
+    localScale: ONE,
+    sprite: null,
+    renderScale: { w: Math.max(1, room.size.x), h: Math.max(1, room.size.y) },
+    model: room.name,
+  };
+}
+
 function buildRegistry(): PrefabDef[] {
   const defs: PrefabDef[] = [];
   const seen = new Set<string>();
@@ -1297,14 +1329,7 @@ function buildRegistry(): PrefabDef[] {
     for (const room of d.rooms) {
       if (seen.has(room.name)) continue;
       seen.add(room.name);
-      defs.push({
-        name: room.name,
-        flags: PrefabFlag.PERSISTENT,
-        localScale: ONE,
-        sprite: null,
-        renderScale: { w: Math.max(1, room.size.x), h: Math.max(1, room.size.y) },
-        model: room.name,
-      });
+      defs.push(roomPrefabDef(room));
     }
   }
 

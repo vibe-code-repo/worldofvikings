@@ -52,6 +52,7 @@ import { setzeKartenMasse, type MapWorkerMessage } from '../ui/worldmap/mapTypes
 import { EditorShell } from './Shell';
 import { DungeonGrundriss } from './DungeonGrundriss';
 import { DungeonSeite } from './DungeonKatalog';
+import { fetchModuleBuildPermission } from './DungeonNeuerSaal';
 // Dungeon Generator 2.0 (AP15.7): der leichte 2D-Teil wird statisch geladen,
 // die Babylon-schwere 3D-Vorschau erst beim ersten Umschalten auf „3D"
 // (dynamischer import, wie bei GegenstandsKatalog).
@@ -124,6 +125,31 @@ import {
 // Eigene Spur (Roadmap B6/B7): Landflaechen-/Ueberlappungsanzeige.
 // Eigene Datei, siehe deren Kopfkommentar fuer die Begruendung.
 import { baueKartenMassAnzeige, aktualisiereKartenMassAnzeige } from './KartenMassAnzeige';
+// E6: die Laufzeit-Modulregistry. Bewusst NICHT über den AssetManager —
+// der zöge Babylon in den Erststart des Karteneditors (s. Kopf von
+// assetUrls.ts).
+import { ladeModulRegistrierung } from '../net/ModuleRegistryLoad';
+
+// ── E6: die Modulregistry, BEVOR der erste Katalog gebaut wird ────────
+//
+// `new DungeonSeite(...)` weiter unten baut seine Modulliste IM
+// KONSTRUKTOR, und `GegenstandsKatalog` leitet sein `MIT_MODELL` beim
+// Import ab. Beide KOPIEREN die Registry, statt sie zu befragen — eine
+// Registrierung danach trägt in alle sechs Karten ein und bleibt trotzdem
+// unsichtbar, ohne Meldung, weil nichts fehlschlägt.
+//
+// Warum ein `await` auf oberster Ebene und nicht in einer Startfunktion:
+// Der Aufbau dieses Moduls IST die Startfunktion — die Seite entsteht in
+// Anweisungen auf Modulebene. Ein `await` hier hält genau sie an, bis die
+// Registry steht (Bauziel `esnext`, s. client/vite.config.ts). Ein
+// `void ladeModulRegistrierung()` liefe daneben her, und ob der Katalog
+// den gebauten Saal sähe, entschiede die Netzlaufzeit — der übelste
+// aller Fehler: einer, der auf einer schnellen Verbindung nie auftritt.
+//
+// Ein `import` mit Nebenwirkung wäre KEINE Alternative: Ein Modul mit
+// oberster `await`-Ebene hält seine Geschwister nicht auf, die
+// Reihenfolge wäre also nur scheinbar gesichert.
+await ladeModulRegistrierung();
 
 const BIOME_NAMEN: BiomeName[] = [
   'grassland', 'blackforest', 'swamp', 'mountain', 'plains', 'mistlands', 'ashlands', 'deepnorth',
@@ -486,6 +512,25 @@ const dungeonSeite = new DungeonSeite(dungeonSeiteBehaelter, dungeonGrundriss, {
   meldung: (text, fehler) => shell.meldung(text, fehler),
 });
 dungeonSeite.baue();
+
+// ── E8: Darf hier ein Saal gebaut werden? ─────────────────────────────
+//
+// `dungeons.modulbau` steht in der `server.yml` und erreicht einen Client
+// genau einmal — beim Anmelden, im Flagbyte der `ServerConfig`. Gefragt
+// wird über eine kurze Verbindung, die sich sofort wieder trennt (s.
+// `DungeonNeuerSaal.ts`).
+//
+// Bewusst OHNE `await`, anders als bei der Modulregistry ein paar hundert
+// Zeilen weiter oben: Jene muss vor dem ersten Katalogaufbau stehen, weil
+// zwei Stellen die Registry KOPIEREN statt sie zu befragen — eine späte
+// Registrierung bliebe unsichtbar. Diese Antwort dagegen fügt nur einen
+// Abschnitt hinzu, und `baue()` legt die Leiste ohnehin ständig neu an.
+// Ein `await` hier hielte den ganzen Editor bis zu zehn Sekunden an, wenn
+// kein Spielserver läuft — und der Editor soll ohne einen benutzbar sein.
+void fetchModuleBuildPermission().then((erlaubt) => {
+  dungeonSeite.setModuleBuild(erlaubt);
+  if (erlaubt) dungeonSeite.baue();
+});
 
 // ── 2D/3D-Umschalter der Betriebsart „Dungeons" ───────────────────────
 //

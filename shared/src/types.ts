@@ -340,6 +340,55 @@ export enum PacketType {
    * — dieselbe Ueberlegung wie bei SetFigur und WeltWetter.
    */
   SetAussehen = 73,
+  /**
+   * Client → Server: Bauauftrag für einen Saal aus dem Dungeon-Editor
+   * (E5). Payload: Int32 zellenX, Int32 zellenZ, Int32 pfeilerRaster,
+   * Float32 gewicht — VIER ZAHLEN, kein Name und kein Pfad. Den Namen
+   * bildet der Server aus dem Mass (`ModuleBuild.modulName`); ein vom
+   * Client geschickter Name wäre die erste Stelle, an der Zeichen aus
+   * dem Netz zu einem Dateinamen würden.
+   *
+   * Doppelt gegated (peer.isAdmin UND server.yml `dungeons.modulbau`)
+   * und knapp gedrosselt: ein Bau je 10 s. Additiv angehängt, kein
+   * Versionssprung — Begründung s. SetFigur.
+   */
+  DungeonModulBau = 74,
+  /**
+   * Server → Client: Ergebnis eines Modulbaus. Payload: Bool ok,
+   * String message, String json (Name, Dreiecke, Masse, Prüfsumme).
+   *
+   * EIGENES PAKET statt einer Antwort über DungeonEditData: Jenes
+   * trägt ein DUNGEON-DOKUMENT, und der Editor speist die Antwort
+   * darauf in seinen Dokumentzustand. Ein Bauergebnis in demselben
+   * Kanal sähe für ihn aus wie ein Dokument ohne Räume.
+   */
+  DungeonModulBauErgebnis = 75,
+  /**
+   * Client → Server: einen gebauten Saal wieder entfernen (E9). Payload:
+   * String name — und das ist der Unterschied zum Bauen, nicht bloss ein
+   * anderes Feld: Dort bildet der Server den Namen aus vier Zahlen, hier
+   * kommt eine ZEICHENKETTE aus dem Netz, aus der ein Dateiname UND ein
+   * Schlüssel in die Raumtabellen wird. Die Erlaubnisliste
+   * (`moduleRegistry.pruefeName`) läuft deshalb VOR jedem Zugriff, und
+   * der Löschweg fasst nur an, was in der Registry steht — ein von Hand
+   * getippter Raum des Kits geht diesen Weg nie.
+   *
+   * Dieselben zwei Tore wie DungeonModulBau (peer.isAdmin UND server.yml
+   * `dungeons.modulbau`). Additiv angehängt, kein Versionssprung.
+   */
+  DungeonModulLoeschen = 76,
+  /**
+   * Server → Client: Ergebnis eines Löschgangs. Payload: Bool ok,
+   * String message, String json (Name, Datei, neue Prüfsumme, Restzahl).
+   *
+   * EIGENES Paket statt der Bau-Antwort: Die beiden Meldungen bedeuten
+   * Verschiedenes — „gebaut, Seite neu laden, damit er im Katalog steht"
+   * gegen „entfernt, Seite neu laden, damit er verschwindet". Ein
+   * gemeinsamer Kanal lüde dazu ein, das eine im Antwortblock des anderen
+   * anzuzeigen; die Ablehnung eines Löschgangs stünde dann unter dem
+   * Bauformular.
+   */
+  DungeonModulLoeschErgebnis = 77,
 }
 
 // === Vector3 (Vector.h) ===

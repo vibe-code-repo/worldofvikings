@@ -25,6 +25,8 @@
  *   node_modules/.bin/tsx tools/asset-manifest.mjs             manifest schreiben
  *   node_modules/.bin/tsx tools/asset-manifest.mjs --abgleich  zusätzlich gegen
  *                                                               prefabs.ts vergleichen (nur Bericht)
+ *   node_modules/.bin/tsx tools/asset-manifest.mjs --ziel /tmp/m.json
+ *                                                             woandershin schreiben
  *
  * Braucht tsx statt `node`, weil der Foliage-Abgleich `@wov/shared`
  * (TypeScript-Quelle) importiert — MITLESEN statt die 102 EIGENE_FLORA-
@@ -38,8 +40,35 @@ import { EIGENE_FLORA, PREFAB_DEFS } from '@wov/shared';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = join(HIER, '..');
+/**
+ * Gemessen wird NUR `assets/models/` — der von Hand gepflegte Bestand.
+ *
+ * Der Schwesterordner `assets/generiert/` bleibt bewusst draussen (E7):
+ * dort liegen die Säle, die der Spielserver zur Laufzeit baut. Sie
+ * gehören in kein Manifest, denn `assets/manifest.json` ist getrackt —
+ * ein Eintrag je gebautem Saal machte aus jedem Klick im Editor eine
+ * ungetrackte Änderung an einer getrackten Datei, und die blockiert das
+ * nächste `git pull` in `tools/wov-update.sh`. Die Auskunft über ein
+ * generiertes Modul steht statt dessen in
+ * `assets/generiert/modul-registry.json`.
+ *
+ * Only assets/models/ is measured; assets/generiert/ (runtime-built
+ * halls) stays out — the manifest is tracked, those files are not.
+ */
 const MODELLE_DIR = join(WURZEL, 'assets/models');
-const ZIEL = join(WURZEL, 'assets/manifest.json');
+/**
+ * Ziel des Manifests. `--ziel <pfad>` schreibt woandershin — der einzige
+ * Weg, dieses Werkzeug zu PRÜFEN, ohne dabei die getrackte Datei
+ * anzufassen (`tools/test/generiert-getrennt.ts` lässt es zweimal laufen
+ * und vergleicht). Ohne den Schalter müsste ein Test die Originaldatei
+ * sichern und zurückspielen — und ein Abbruch mittendrin liesse sie
+ * beschädigt zurück.
+ */
+const zielArg = process.argv.indexOf('--ziel');
+const ZIEL =
+  zielArg >= 0 && process.argv[zielArg + 1]
+    ? process.argv[zielArg + 1]
+    : join(WURZEL, 'assets/manifest.json');
 
 // ── GLB lesen ──────────────────────────────────────────────────────────
 // Alle eigenen GLBs (baeume-bauen.sh, blumen-bauen.sh, ... sowie die
@@ -240,7 +269,7 @@ const manifest = {
   modelle,
 };
 writeFileSync(ZIEL, JSON.stringify(manifest, null, 1) + '\n');
-console.log(`assets/manifest.json geschrieben: ${dateien.length} Modelle`);
+console.log(`${ZIEL} geschrieben: ${dateien.length} Modelle`);
 
 const meshlose = Object.entries(modelle).filter(([, m]) => m.meshlos);
 if (meshlose.length > 0) {

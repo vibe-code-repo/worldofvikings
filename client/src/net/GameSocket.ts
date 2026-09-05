@@ -4,7 +4,7 @@
  * engine dependencies). Binary framing: [type: u8][payload].
  */
 
-import { PacketType, HANDSHAKE_LEERPASSWORT_SCHLUESSEL } from '@wov/shared';
+import { PacketType, HANDSHAKE_LEERPASSWORT_SCHLUESSEL, moduleRegistry } from '@wov/shared';
 import type { Vector3, Quaternion } from '@wov/shared';
 
 /**
@@ -446,11 +446,65 @@ export class GameSocket {
     this.sendPacket(PacketType.DungeonEditRequest, w.toUint8Array());
   }
 
-  /** Editor (Phase G): bearbeitetes Dungeon-Dokument speichern. */
-  sendDungeonEditSave(json: string): void {
+  /**
+   * Editor (Phase G): bearbeitetes Dungeon-Dokument speichern.
+   *
+   * ── E6: die Registry-Prüfsumme reist mit ─────────────────────────
+   * Zweites Feld hinter dem Dokument. Sie wird HIER geholt und nicht von
+   * den Aufrufern durchgereicht — es gibt drei davon (1.0-Editor,
+   * 2.0-Editor, Spielclient), und der eine, der sie vergässe, wäre
+   * derjenige, dessen Dokumente still Räume verlieren. Ein Feld, das man
+   * vergessen kann, ist ein Feld, das vergessen wird.
+   *
+   * Der Server vergleicht die Zahl VOR `sanitizeDungeonDocument` und
+   * lehnt bei Ungleichheit ab (`WovServer.handleDungeonEditSave`). Ohne
+   * das ist der Fehlerfall keine Meldung, sondern ein Grab mit einem
+   * Loch — `sanitizeDungeonDocument` verwirft unbekannte Räume wortlos.
+   *
+   * @param pruefsumme NUR für Tests: eine ANDERE Prüfsumme als die
+   *   dieser Seite. Damit lässt sich eine veraltete Editor-Seite
+   *   nachstellen, die es in einem einzigen Prozess sonst nicht geben
+   *   kann (Client und Server teilen sich dort die Nachschlagewerke).
+   */
+  sendDungeonEditSave(json: string, pruefsumme = moduleRegistry.registryChecksum()): void {
     const w = new BinaryWriter();
     w.writeString(json);
+    w.writeString(pruefsumme);
     this.sendPacket(PacketType.DungeonEditSave, w.toUint8Array());
+  }
+
+  /**
+   * Editor (E8): einen Saal bauen lassen — VIER ZAHLEN, sonst nichts.
+   *
+   * Kein Name und kein Pfad: Den Namen bildet der Server aus dem Mass
+   * (`ModuleBuild.modulName`). Ein vom Client geschickter Name wäre die
+   * erste Stelle, an der Zeichen aus dem Netz zu einem Dateinamen
+   * würden — und die Erlaubnisliste dagegen stünde dann an einer Klemme,
+   * die man auch weglassen könnte.
+   */
+  sendDungeonModulBau(cellsX: number, cellsZ: number, raster: number, weight: number): void {
+    const w = new BinaryWriter();
+    w.writeInt32(cellsX);
+    w.writeInt32(cellsZ);
+    w.writeInt32(raster);
+    w.writeFloat32(weight);
+    this.sendPacket(PacketType.DungeonModulBau, w.toUint8Array());
+  }
+
+  /**
+   * Editor (E9): einen gebauten Saal wieder entfernen lassen.
+   *
+   * Hier reist — anders als beim Bauen — ein NAME. Das ist kein
+   * Rückschritt hinter die Begründung dort, sondern der Unterschied
+   * zwischen „welchen Saal soll ich bauen?" (das sagen vier Zahlen) und
+   * „welchen soll ich entfernen?" (das kann nur ein Name sagen). Die
+   * Erlaubnisliste dagegen steht auf der Serverseite und läuft, bevor aus
+   * dem Namen ein Pfad oder ein Tabellenschlüssel wird.
+   */
+  sendDungeonModulLoeschen(name: string): void {
+    const w = new BinaryWriter();
+    w.writeString(name);
+    this.sendPacket(PacketType.DungeonModulLoeschen, w.toUint8Array());
   }
 
   /**

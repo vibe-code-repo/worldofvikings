@@ -71,14 +71,22 @@ const THEMA_KRYPTA = 1;
 /** `DungeonAlgorithm.Dungeon` — Räume über Connectors, keine Camp-Streuung. */
 const ALGORITHMUS_DUNGEON = 0;
 
-const NULL_PUNKT: Vector3 = { x: 0, y: 0, z: 0 };
-const KEINE_DREHUNG: Quaternion = { x: 0, y: 0, z: 0, w: 1 };
+/*
+  Ab E3 (Konzept „Elemente aus dem Editor“) exportiert: `moduleRegistry.ts`
+  legt zur Laufzeit Saal-RoomDefs an, die von den hier getippten nicht zu
+  unterscheiden sein müssen. Ein zweiter Satz Drehungen daneben wäre eine
+  zweite Wahrheit über dieselbe Vierteldrehung — und ein Vorzeichenfehler
+  darin verschiebt einen ganzen Zweig des Grundrisses, ohne dass irgendwo
+  eine Zahl auffällig wäre. Die deutschen Namen bleiben, sie sind Bestand.
+*/
+export const NULL_PUNKT: Vector3 = { x: 0, y: 0, z: 0 };
+export const KEINE_DREHUNG: Quaternion = { x: 0, y: 0, z: 0, w: 1 };
 /** 180° um die Hochachse — der Connector zeigt nach −z statt nach +z. */
-const HALBE_DREHUNG: Quaternion = { x: 0, y: 1, z: 0, w: 0 };
+export const HALBE_DREHUNG: Quaternion = { x: 0, y: 1, z: 0, w: 0 };
 /** 90° um die Hochachse — aus „nach +z“ wird „nach +x“. */
-const VIERTEL_DREHUNG: Quaternion = { x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 };
+export const VIERTEL_DREHUNG: Quaternion = { x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 };
 /** −90° um die Hochachse — aus „nach +z“ wird „nach −x“. */
-const VIERTEL_DREHUNG_ZURUECK: Quaternion = {
+export const VIERTEL_DREHUNG_ZURUECK: Quaternion = {
   x: 0,
   y: -Math.SQRT1_2,
   z: 0,
@@ -94,7 +102,7 @@ const VIERTEL_DREHUNG_ZURUECK: Quaternion = {
  * ein eigener String hier hält das 2-m-Raster für sich, statt sich an
  * einen 4-m-Gang zu hängen, sobald jemand Kits mischt.
  */
-const TYP_ZELLKANTE = 'cellEdge';
+export const TYP_ZELLKANTE = 'cellEdge';
 
 /**
  * Dieselbe Form wie ein Eintrag in `dungeonsData.json`: ohne `hash`, den

@@ -63,6 +63,12 @@ import {
   AUSSEHEN_ORDNER,
   istAusruestungsSlot,
   WETTER_AUTOMATISCH,
+  FLAG_ASHLANDS_MODERN,
+  FLAG_BILINEAR_HEIGHT,
+  FLAG_BLEND_SMOOTHSTEP,
+  FLAG_DISABLE_DISTANT_RIVERS,
+  FLAG_LAYOUT_MODE,
+  FLAG_RIVER_AFFECTS_OCEAN,
 } from '@wov/shared';
 import type { NpcDef, NpcEinordnung, SteinKitConfig, TerrainComp } from '@wov/shared';
 import { createWorld, DEFAULT_OFFLINE_SEED, type ClientWorld, type ClientWorldSettings } from './world/World';
@@ -90,6 +96,7 @@ import { EntityManager } from './entities/EntityManager';
 import { BaumImpostor } from './engine/BaumImpostor';
 import { PlayerController } from './player/PlayerController';
 import { GameSocket } from './net/GameSocket';
+import { ladeModulRegistrierung } from './net/ModuleRegistryLoad';
 import { parseZDOSync, ZDOSpiegel } from './net/ZDOSync';
 import { Hud } from './ui/Hud';
 import { GrassClutter } from './engine/GrassClutter';
@@ -177,15 +184,6 @@ const DUNGEON_WUNSCH_SCHLUESSEL = 'wov-dungeon-wunsch';
  * unvermittelt in einen Dungeon, den man einmal im Editor angeklickt hat.
  */
 const DUNGEON_WUNSCH_FRIST_MS = 10 * 60 * 1000;
-
-// ServerConfig packet flag bits (D6) — same order server-side (WovServer.ts)
-const FLAG_BLEND_SMOOTHSTEP = 1 << 0;
-const FLAG_BILINEAR_HEIGHT = 1 << 1;
-const FLAG_ASHLANDS_MODERN = 1 << 2;
-const FLAG_RIVER_AFFECTS_OCEAN = 1 << 3;
-const FLAG_DISABLE_DISTANT_RIVERS = 1 << 4;
-/** Kündigt an, dass direkt nach ServerConfig ein WorldLayoutData folgt. */
-const FLAG_LAYOUT_MODE = 1 << 5;
 
 /** Compass point for a bearing in degrees (0 = north) — HUD readability. */
 function compass(deg: number): string {
@@ -297,6 +295,20 @@ function aktivierePerformanceDiagnose(
 }
 
 async function main() {
+  // ── E6: die Modulregistry, BEVOR irgendetwas den Katalog kopiert ────
+  //
+  // Zur Laufzeit gebaute Säle (E5) stehen in `assets/generiert/
+  // modul-registry.json` und in keinem Bündel. Ohne diesen Aufruf kennt
+  // der Spielclient sie nicht: Ein Grab, das einen benutzt, zeigte an
+  // seiner Stelle nichts — und ein Speichern aus dem Spiel heraus verlöre
+  // ihn still. Hier ganz oben, weil `PrefabManager`-artige Leser die
+  // Registry KOPIEREN statt sie zu befragen; eine Registrierung danach
+  // ist eingetragen und trotzdem unsichtbar, ohne dass etwas fehlschlägt.
+  //
+  // Kein Ausgang, den der Aufrufer behandeln müsste: Eine fehlende Datei
+  // ist der Normalfall und bedeutet „keine gebauten Säle".
+  await ladeModulRegistrierung();
+
   const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
 
   // ── Uebergabe von der Charaktererstellung ──────────────────────────
@@ -1856,7 +1868,7 @@ async function main() {
       const worldGenVersion = reader.readInt32();
       const flags = reader.readUInt8();
       console.log(
-        `[Client] ServerConfig: world "${worldName}", seed "${worldSeed}", gen v${worldGenVersion}, flags 0b${flags.toString(2).padStart(6, '0')}`
+        `[Client] ServerConfig: world "${worldName}", seed "${worldSeed}", gen v${worldGenVersion}, flags 0b${flags.toString(2).padStart(7, '0')}`
       );
       const settings = {
         worldGenVersion,

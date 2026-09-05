@@ -136,7 +136,7 @@ Dateien standen in keiner von beiden.
 | `vorschaubilder.py` | Rendert Icon-Vorschaubilder für VIELE GLBs in EINEM Blender-Lauf (Kamera je Modell an dessen Hüllbox ausgerichtet, transparenter Hintergrund, 160²) — Bildquelle für die Namensliste in client/src/editor/SpawnPanel.ts. Modelle ohne Geometrie liefern bewusst kein Bild, nur eine Meldung im Log. `--liste` erwartet `Name<TAB>Pfad` je Zeile, Ablage unter `assets/vorschau/<Name>.png`. |
 | `glb-bbox.js` | Bounding-Box im Szenenraum (Knotenbaum durchlaufen, Transformationen anwenden). |
 | `glb-size-check.mjs` | Weltraum-Bounding-Box plus größte Knotenskalierung, ohne three/Babylon. |
-| `asset-manifest.mjs` | Baut `assets/manifest.json`: Hüllbox (min/max je Achse, daraus Breite/Höhe/Tiefe), Dreieckszahl, Dateigröße, Materialien, eingebettete Bilder, Animationen (Name + Dauer), mesh-lose Rigs (kein einziger Dreiecksindex) und Foliage-Kennzeichen (EIGENE_FLORA) -- je GLB unter `assets/models/`. Braucht `tsx` statt `node` (liest `@wov/shared` mit). `--abgleich` vergleicht zusätzlich gegen `renderScale` in `shared/src/prefabs.ts` (nur Bericht, ändert nichts). |
+| `asset-manifest.mjs` | Baut `assets/manifest.json`: Hüllbox (min/max je Achse, daraus Breite/Höhe/Tiefe), Dreieckszahl, Dateigröße, Materialien, eingebettete Bilder, Animationen (Name + Dauer), mesh-lose Rigs (kein einziger Dreiecksindex) und Foliage-Kennzeichen (EIGENE_FLORA) -- je GLB unter `assets/models/`. Braucht `tsx` statt `node` (liest `@wov/shared` mit). `--abgleich` vergleicht zusätzlich gegen `renderScale` in `shared/src/prefabs.ts` (nur Bericht, ändert nichts). `--ziel <pfad>` schreibt woandershin, statt die getrackte Datei anzufassen -- so prüft `tools/test/generiert-getrennt.ts` das Werkzeug, ohne es zu beschädigen. `assets/generiert/` (zur Laufzeit gebaute Säle) bleibt bewusst draussen. |
 | `glb-dump.js` | Knotenbaum, Mesh-/Skin-/Material-Übersicht, Puffergrößen. |
 | `glb-inspect.js` | Wurzelskalierungen und Materialinfos. |
 | `glb-mesh-info.js` | Meshnamen, Primitiv-Attribute, Materialverweise. |
@@ -178,6 +178,7 @@ statt Vermutungen.
 | `pw-inventory-check.mjs` | Hotbar, Ausrüsten, Inventar-Overlay samt Drag & Drop. |
 | `pw-creature-probe.mjs`, `pw-deer-*.mjs`, `pw-texture-check.mjs` | Kreaturen: Spawn, Modellzustand, Materialien, Nahaufnahmen. |
 | `pw-grass-*.mjs` | Gras: Instanzpositionen, Rendering, Wasserkante. |
+| `pw-editor-saal-bauen.mjs` | Das Fenster zu E8: einen Saal aus dem Editor-Formular „Neuer Saal" bauen (4x3), Seite neu laden, Modul im Katalog, Dokument anlegen, Saal setzen, speichern, 3D-Bild, im Spiel betreten, Diagonale laufen, Lichtfugen zaehlen. Braucht `dungeons.modulbau: true` in `server/data/server.yml` UND einen Serverneustart -- Flags erreichen einen Client nur beim Anmelden; fehlt der Schalter, bricht der Lauf mit genau diesem Satz ab. Laeuft LOKAL, nicht auf wov-dev. |
 | `pw-babylon-*.mjs` | Babylon-Grundlagen: Container, Instanzen, Bucket-Zustand, Basisbild. |
 | `pw-firefox-app.mjs`, `pw-firefox-drag.mjs`, `pw-firefox-rmb.mjs` | Firefox-Eigenheiten: WebGL nur mit Xvfb, `movementX/Y` ohne Pointer-Lock, Maustastenverhalten. |
 | `pw-cam-override.mjs`, `pw-scene-probe.mjs`, `pw-statue-look.mjs`, `pw-glb-probe.mjs`, `pw-retry-probe.mjs`, `pw-placeholder-preview.mjs`, `pw-clock-check.mjs`, `pw-caps.mjs` | Punktuelle Sonden für einzelne Fehlerbilder. |

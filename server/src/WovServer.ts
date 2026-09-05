@@ -67,6 +67,7 @@ import {
   interiorEnvironment,
   isInDungeonBand,
   dungeon2,
+  serverConfigFlags,
 } from '@wov/shared';
 import type { SteinKitConfig } from '@wov/shared';
 // Serverseitige Weltdaten: NICHT ueber den Barrel, sondern ueber den
@@ -75,6 +76,13 @@ import type { SteinKitConfig } from '@wov/shared';
 import { getFeaturePieces } from '@wov/shared/src/featurePieces.js';
 import { ZDOManager, worldToZone } from './zdo/ZDOManager.js';
 import { DungeonManager } from './world/dungeon/DungeonManager.js';
+import {
+  GENERIERT_DIR,
+  baueModul,
+  deleteModule,
+  registryChecksum,
+  registryPruefsumme,
+} from './world/dungeon/ModuleBuild.js';
 import { ZDO } from './zdo/ZDO.js';
 import { ZDOID } from './zdo/ZDOID.js';
 import { PrefabManager } from './prefab/PrefabManager.js';
@@ -143,6 +151,25 @@ export interface ServerConfig {
   worldVegetation: boolean;
   worldLocationOverrides: boolean;
   dungeonsEnabled: boolean;
+  /**
+   * E5: Saal-Bau aus dem Dungeon-Editor (server.yml `dungeons.modulbau`).
+   * Vorgabe FALSE. Zweites Tor neben `peer.isAdmin` — und heute das
+   * einzige, das wirklich schliesst, weil `everyone-admin: true` jeden
+   * verbundenen Client zum Admin macht.
+   */
+  dungeonsModulbau: boolean;
+  /**
+   * Zielordner der gebauten Module (`assets/generiert/`). Als Feld und
+   * nicht als Konstante im Bauweg, damit ein Test nicht in den Ordner
+   * des laufenden Servers schreibt — dieselbe Überlegung wie bei
+   * `worldsDir` und `metrikenDatei`.
+   *
+   * Anders als dort ist die Vorgabe hier trotzdem der ECHTE Ordner: Ohne
+   * `dungeonsModulbau` schreibt dieser Weg nie, und ein Test, der bauen
+   * will, muss den Schalter ohnehin selbst setzen — dann sieht er auch
+   * dieses Feld.
+   */
+  generiertDir: string;
   /** G2: server-side creature spawning/wander (C++ world.creatures flag). */
   worldCreatures: boolean;
   /** G1: directory holding <worldName>.db.zst saves (C++ ./worlds). */
@@ -201,6 +228,8 @@ const DEFAULT_CONFIG: ServerConfig = {
   // C++ experimental-location-overrides (server.yml world section)
   worldLocationOverrides: false,
   dungeonsEnabled: true,
+  dungeonsModulbau: false,
+  generiertDir: GENERIERT_DIR,
   worldCreatures: true,
   worldMode: 'valheim',
   worldLayoutPath: 'data/welten/dev.json',
@@ -208,15 +237,6 @@ const DEFAULT_CONFIG: ServerConfig = {
   // bare createWovServer() (tests, tools) still has a sane default.
   worldsDir: resolve(process.cwd(), 'data', 'worlds'),
 };
-
-// ServerConfig packet flag bits (D6) — same order client-side
-const FLAG_BLEND_SMOOTHSTEP = 1 << 0;
-const FLAG_BILINEAR_HEIGHT = 1 << 1;
-const FLAG_ASHLANDS_MODERN = 1 << 2;
-const FLAG_RIVER_AFFECTS_OCEAN = 1 << 3;
-const FLAG_DISABLE_DISTANT_RIVERS = 1 << 4;
-/** Kündigt an, dass direkt nach ServerConfig ein WorldLayoutData folgt. */
-const FLAG_LAYOUT_MODE = 1 << 5;
 
 export class WovServer {
   readonly config: ServerConfig;
@@ -439,7 +459,7 @@ export class WovServer {
     // gelandet als der Server, der sie mit derselben Config startet.
     this.dungeons = new DungeonManager(
       this.zdos,
-      resolve(this.config.worldsDir, '..', 'dungeons', this.config.worldName),
+      resolve(this.dungeonsWurzel(), this.config.worldName),
       (weltId) => this.instanzWeltAnlegen(weltId),
       (weltId) => this.instanzWeltEntfernen(weltId)
     );
@@ -1309,6 +1329,40 @@ export class WovServer {
   // ── Peer lifecycle ─────────────────────────────────────────────
 
   private onPeerAuthenticated(peer: Peer): void {
+    // D6: world info first — the client builds its GeoManager from this
+    // and swaps the placeholder terrain for the real world (D3).
+    //
+    // ── Warum das VOR dem Editor-Zweig steht (E8) ──────────────────
+    // Bis E8 stand es dahinter, und damit bekam eine Editor-Verbindung
+    // NIE eine ServerConfig. Das war folgenlos, solange das Paket bloss
+    // Weltdaten trug — der Editor baut keine Welt. Mit dem siebten
+    // Flagbit trägt es aber die einzige Auskunft, die der Editor beim
+    // Anmelden über die `server.yml` bekommen kann, und ohne sie wüsste
+    // das Formular „Neuer Saal" nie, ob es dastehen darf. Nach unten
+    // gewandert ist deshalb nur der Zweig; alles Weltbezogene
+    // (Wettervorgabe, Weltdokument, Charakter-ZDO) bleibt darunter und
+    // erreicht einen Editor-Peer weiterhin nicht.
+    peer.sendPacketWith(PacketType.ServerConfig, (w) => {
+      w.writeString(this.config.worldName);
+      w.writeString(this.config.worldSeed);
+      w.writeInt32(this.config.worldGenVersion);
+      w.writeUInt8(
+        serverConfigFlags({
+          blendSmoothStep: this.config.worldBlendSmoothStep,
+          bilinearHeight: this.config.worldBilinearHeight,
+          ashlandsModernNoise: this.config.worldAshlandsModernNoise,
+          riverAffectsOcean: this.config.worldRiverAffectsOcean,
+          disableDistantRivers: this.config.worldDisableDistantRivers,
+          layoutMode: this.config.worldMode === 'layout',
+          // BEIDE Tore, nicht nur der Schalter: Ein Nicht-Admin bekäme
+          // sonst ein Formular, das bei jedem Klick absagt. Geprüft wird
+          // trotzdem noch einmal in `baueModul` — dieses Bit ist eine
+          // Auskunft, kein Recht.
+          moduleBuild: this.config.dungeonsModulbau && peer.isAdmin,
+        })
+      );
+    });
+
     // Editor-Verbindungen betreten die Welt NICHT.
     //
     // Gemessen am 28.08.2026, bevor es diesen Zweig gab: Jeder Klick auf
@@ -1326,22 +1380,6 @@ export class WovServer {
       console.log(`[WoV] Editor-Verbindung "${peer.name}" (betritt die Welt nicht)`);
       return;
     }
-
-    // D6: world info first — the client builds its GeoManager from this
-    // and swaps the placeholder terrain for the real world (D3).
-    peer.sendPacketWith(PacketType.ServerConfig, (w) => {
-      w.writeString(this.config.worldName);
-      w.writeString(this.config.worldSeed);
-      w.writeInt32(this.config.worldGenVersion);
-      let flags = 0;
-      if (this.config.worldBlendSmoothStep) flags |= FLAG_BLEND_SMOOTHSTEP;
-      if (this.config.worldBilinearHeight) flags |= FLAG_BILINEAR_HEIGHT;
-      if (this.config.worldAshlandsModernNoise) flags |= FLAG_ASHLANDS_MODERN;
-      if (this.config.worldRiverAffectsOcean) flags |= FLAG_RIVER_AFFECTS_OCEAN;
-      if (this.config.worldDisableDistantRivers) flags |= FLAG_DISABLE_DISTANT_RIVERS;
-      if (this.config.worldMode === 'layout') flags |= FLAG_LAYOUT_MODE;
-      w.writeUInt8(flags);
-    });
     // Wettervorgabe direkt hinterher, VOR dem Weltdokument: Der Client
     // baut daraus seine Beleuchtung, bevor die erste Zone steht — sonst
     // sähe man beim Anmelden kurz das gewürfelte Wetter und erst danach
@@ -1630,6 +1668,12 @@ export class WovServer {
       case PacketType.DungeonEditSave:
         this.handleDungeonEditSave(peer, reader);
         break;
+      case PacketType.DungeonModulBau:
+        this.handleDungeonModulBau(peer, reader);
+        break;
+      case PacketType.DungeonModulLoeschen:
+        this.handleDungeonModulLoeschen(peer, reader);
+        break;
     }
   }
 
@@ -1664,6 +1708,13 @@ export class WovServer {
    */
   private handleDungeonEditSave(peer: Peer, reader: Reader): void {
     const json = reader.readString();
+    // E6: Die Registry-Prüfsumme reist HINTER dem Dokument — ein Feld, das
+    // ein Client von vor E6 gar nicht schickt. `isValidOffset(1)` fragt
+    // deshalb erst, ob überhaupt noch Bytes da sind (dasselbe Muster wie
+    // beim nachträglich angehängten `seq` in PlayerState); ein blindes
+    // `readString()` liefe über das Ende des Puffers und beendete die
+    // Verbindung mit einer RangeError-Meldung, die nichts erklärt.
+    const gesendeteSumme = reader.isValidOffset(1) ? reader.readString() : '';
     const sendData = (ok: boolean, message: string, docJson = '') => {
       peer.sendPacketWith(PacketType.DungeonEditData, (w) => {
         w.writeBool(ok);
@@ -1673,6 +1724,34 @@ export class WovServer {
     };
     if (!peer.isAdmin) return sendData(false, 'Keine Berechtigung');
     if (json.length > 2_000_000) return sendData(false, 'Dokument zu groß (max 2 MB)');
+
+    // ── E6: Kennen beide Seiten dieselben Module? ──────────────────────
+    //
+    // Diese Frage MUSS vor `sanitizeDungeonDocument` stehen, denn dieser
+    // verwirft unbekannte Räume STILL (`shared/src/dungeons.ts`, Kopf:
+    // „Unknown rooms are dropped"). Für eine Datei von der Platte ist das
+    // richtig; für ein Dokument aus dem Editor ist es der teuerste aller
+    // Fehler — der Nutzer bekommt ein Häkchen und ein Grab mit einem
+    // Loch, und das Loch fällt erst beim Betreten auf.
+    //
+    // Ein FEHLENDES Feld ist kein Sonderfall, sondern die wörtliche
+    // Wahrheit über den Absender: Ein Bündel von vor E6 registriert keine
+    // generierten Module, seine Registry IST leer. Kennt der Server auch
+    // keine, sind sich beide einig und das Speichern geht durch; kennt er
+    // welche, ist die Seite im Browser älter als er — und genau dann darf
+    // sie nicht speichern.
+    const eigeneSumme = registryChecksum();
+    const clientSumme = gesendeteSumme || registryPruefsumme([]);
+    if (clientSumme !== eigeneSumme) {
+      console.warn(
+        `[Dungeon] '${peer.name}' hat eine veraltete Modulregistry ` +
+          `(Client ${clientSumme}, Server ${eigeneSumme}) — Speichern abgelehnt.`
+      );
+      return sendData(
+        false,
+        `Registry veraltet — Seite neu laden (Client ${clientSumme}, Server ${eigeneSumme})`
+      );
+    }
 
     let raw: unknown;
     try {
@@ -1721,6 +1800,113 @@ export class WovServer {
       `[Dungeon] '${peer.name}' saved document '${doc.id}' ` +
         `(${doc.layout.rooms.length} rooms, ${doc.layout.props.length} props` +
         `${instanzErhalten ? ', instance kept' : ''})`
+    );
+  }
+
+  /**
+   * Editor: einen Saal bauen (E5). Der Client schickt VIER ZAHLEN —
+   * Breite, Tiefe, Pfeilerraster, Gewicht —, sonst nichts. Namen,
+   * Pfade und jede Klemme liegen in `ModuleBuild.baueModul`; dieser
+   * Handler übersetzt nur zwischen Paket und Funktion.
+   *
+   * Warum hier KEINE zweite Prüfung steht: Zwei Klemmenlisten für
+   * dieselbe Sache laufen auseinander, sobald eine von beiden angefasst
+   * wird — und die im Socket-Handler wäre die, die kein Test fährt.
+   */
+  private handleDungeonModulBau(peer: Peer, reader: Reader): void {
+    const cellsX = reader.readInt32();
+    const cellsZ = reader.readInt32();
+    const raster = reader.readInt32();
+    const weight = reader.readFloat32();
+
+    const antwort = baueModul(
+      {
+        istAdmin: peer.isAdmin,
+        modulbauErlaubt: this.config.dungeonsModulbau,
+        verzeichnis: this.config.generiertDir,
+      },
+      { cellsX, cellsZ, raster, weight }
+    );
+
+    peer.sendPacketWith(PacketType.DungeonModulBauErgebnis, (w) => {
+      w.writeBool(antwort.ok);
+      w.writeString(
+        antwort.ok
+          ? `Gebaut: ${antwort.ergebnis.name} — ${antwort.ergebnis.tris} Dreiecke, ` +
+              `${antwort.ergebnis.sizeX} x ${antwort.ergebnis.sizeZ} m`
+          : antwort.meldung
+      );
+      // Die Zahlen als JSON und nicht als Einzelfelder: Das Formular
+      // zeigt sie an, und ein zusaetzliches Feld spaeter verschoebe
+      // sonst den Aufbau eines Pakets, das ein offener Tab noch kennt.
+      w.writeString(antwort.ok ? JSON.stringify(antwort.ergebnis) : '');
+    });
+
+    console.log(
+      antwort.ok
+        ? `[Dungeon] '${peer.name}' built module '${antwort.ergebnis.name}' ` +
+            `(${antwort.ergebnis.tris} tris, registry ${antwort.ergebnis.pruefsumme})`
+        : `[Dungeon] '${peer.name}' — Modulbau abgelehnt: ${antwort.meldung}`
+    );
+  }
+
+
+  /**
+   * Wo die Dungeon-Dokumente ALLER Welten dieser Maschine liegen
+   * (`server/data/dungeons`) — nicht die einer einzelnen.
+   *
+   * Der Unterschied ist der ganze Grund für diese Methode. Der
+   * DungeonManager bekommt den Unterordner SEINER Welt; der Löschweg (E9)
+   * muss eine Ebene höher fragen, weil GLB-Datei und Registry sich alle
+   * Welten teilen. Ein Server auf `dev`, der nur `dev` durchsähe, löschte
+   * ein Modell weg, das `world` benutzt — und erführe davon nie.
+   */
+  private dungeonsWurzel(): string {
+    return resolve(this.config.worldsDir, '..', 'dungeons');
+  }
+
+  /**
+   * Editor: einen gebauten Saal wieder entfernen (E9).
+   *
+   * Wie beim Bauen steht hier KEINE eigene Prüfung: Tore, Namensform,
+   * Bestandsfrage und Reihenfolge des Entfernens liegen vollständig in
+   * `ModuleBuild.deleteModule`. Der Handler übersetzt zwischen Paket und
+   * Funktion und reicht die Dokumentwurzel herein — das Einzige, was der
+   * Bauweg nicht schon kennt.
+   */
+  private handleDungeonModulLoeschen(peer: Peer, reader: Reader): void {
+    const name = reader.readString();
+
+    const antwort = deleteModule(
+      {
+        istAdmin: peer.isAdmin,
+        modulbauErlaubt: this.config.dungeonsModulbau,
+        verzeichnis: this.config.generiertDir,
+        dungeonsWurzel: this.dungeonsWurzel(),
+      },
+      name
+    );
+
+    peer.sendPacketWith(PacketType.DungeonModulLoeschErgebnis, (w) => {
+      w.writeBool(antwort.ok);
+      w.writeString(
+        antwort.ok
+          ? `Entfernt: ${antwort.ergebnis.name}` +
+              `${antwort.ergebnis.dateiEntfernt ? '' : ' (die GLB-Datei fehlte bereits)'} — ` +
+              `${antwort.ergebnis.verbleibend} Modul(e) verbleiben`
+          : antwort.meldung
+      );
+      // Die Zahlen als JSON, aus demselben Grund wie beim Bauergebnis: ein
+      // spaeteres Feld verschoebe sonst den Aufbau eines Pakets, das ein
+      // offener Tab noch kennt.
+      w.writeString(antwort.ok ? JSON.stringify(antwort.ergebnis) : '');
+    });
+
+    console.log(
+      antwort.ok
+        ? `[Dungeon] '${peer.name}' deleted module '${antwort.ergebnis.name}' ` +
+            `(registry ${antwort.ergebnis.pruefsumme}, ${antwort.ergebnis.verbleibend} left)`
+        : `[Dungeon] '${peer.name}' — Modul löschen abgelehnt: ${antwort.meldung}`
     );
   }
 

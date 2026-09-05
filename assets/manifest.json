@@ -1,16 +1,36 @@
 {
-  "manifestVersion": 1,
-  "generatedAt": "2026-09-05T21:48:58.059Z",
+  "manifestVersion": 2,
+  "generatedAt": "2026-09-06T00:00:00.000Z",
   "assets": [
     {
+      "id": "environment/kenney-retro-fantasy-kit/textures/barrel",
       "path": "environment/kenney-retro-fantasy-kit/Textures/barrel.png",
+      "kind": "texture",
       "bytes": 4537,
-      "hash": "sha256-b5d19e6e9f911f654c932a9f34e255962a73d8391615445358a1294047e0f248"
+      "hash": "sha256-b5d19e6e9f911f654c932a9f34e255962a73d8391615445358a1294047e0f248",
+      "origin": "Downloaded from kenney.nl/assets/retro-fantasy-kit, vendored byte-identically in the source layout (ADR-0012).",
+      "source": "Retro Fantasy Kit 2.0",
+      "author": "Kenney",
+      "license": "CC0-1.0",
+      "redistributable": true,
+      "visibility": "public"
     },
     {
+      "id": "environment/kenney-retro-fantasy-kit/detail-barrel",
       "path": "environment/kenney-retro-fantasy-kit/detail-barrel.glb",
+      "kind": "mesh",
       "bytes": 9968,
-      "hash": "sha256-4262d0d3c8ac39bc10c0bb96e9b687d3bd1cc4a79df12b86fef37ebfd24fbb1b"
+      "hash": "sha256-4262d0d3c8ac39bc10c0bb96e9b687d3bd1cc4a79df12b86fef37ebfd24fbb1b",
+      "bounds": {
+        "min": [-0.123, 0, -0.123],
+        "max": [0.123, 0.3, 0.123]
+      },
+      "origin": "Downloaded from kenney.nl/assets/retro-fantasy-kit, vendored byte-identically in the source layout (ADR-0012).",
+      "source": "Retro Fantasy Kit 2.0",
+      "author": "Kenney",
+      "license": "CC0-1.0",
+      "redistributable": true,
+      "visibility": "public"
     }
   ]
 }

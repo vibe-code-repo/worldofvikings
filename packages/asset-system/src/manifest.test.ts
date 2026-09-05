@@ -10,10 +10,23 @@ import {
   parseAssetManifest,
 } from './manifest.js';
 
+/**
+ * A minimal but complete version 2 entry. Provenance and visibility have their
+ * own tests in `manifest-provenance.test.ts`; here the fields are just the price
+ * of a valid entry, so this file can stay about paths, hashes and drift.
+ */
 const entry = {
+  id: 'environment/pine-tree-01',
   path: 'environment/pine_tree_01.glb',
+  kind: 'mesh' as const,
   bytes: 2048,
   hash: `sha256-${'a1b2c3d4'.repeat(8)}`,
+  origin: 'Authored for this project.',
+  source: 'World of Vikings',
+  author: 'World of Vikings contributors',
+  license: 'CC0-1.0',
+  redistributable: true,
+  visibility: 'public' as const,
 };
 
 function manifest(overrides: Record<string, unknown> = {}): unknown {

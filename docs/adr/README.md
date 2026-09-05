@@ -23,3 +23,4 @@ change it describes.
 | [0012](0012-vendoring-third-party-assets.md)                            | Vendoring third-party assets, and two asset-system entries  | accepted |
 | [0013](0013-physics-behind-an-interface-with-havok.md)                  | Physics behind an interface, implemented with Havok         | accepted |
 | [0014](0014-one-loop-one-device-edge-one-ground.md)                     | One loop, one device edge, one ground                       | accepted |
+| [0015](0015-private-asset-store-with-repository-placeholders.md)        | A private asset store, with placeholders in the repository  | accepted |

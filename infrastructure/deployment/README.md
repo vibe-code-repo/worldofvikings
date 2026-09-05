@@ -6,13 +6,13 @@ The staging hosts (`*.staging.world-of-vikings.com`) are served by the
 **development servers** running under systemd, behind Nginx Proxy Manager
 (CT 100, TLS termination, Basic-Auth on website/game/editor).
 
-| Host                                   | Upstream on wov-dev | Process                   |
-| -------------------------------------- | ------------------- | ------------------------- |
-| `www.staging.world-of-vikings.com`     | `:5172`             | `apps/website` (Vite)     |
-| `live.staging.world-of-vikings.com`    | `:5173`             | `apps/game` (Vite)        |
-| `editor.staging.world-of-vikings.com`  | `:5174`             | `apps/editor` (Vite)      |
-| `api.staging.world-of-vikings.com`     | `:3000`             | `services/api` (tsx watch) |
-| `assets.staging.world-of-vikings.com`  | `:9000`             | `tooling/scripts/asset-server.ts` |
+| Host                                  | Upstream on wov-dev | Process                           |
+| ------------------------------------- | ------------------- | --------------------------------- |
+| `www.staging.world-of-vikings.com`    | `:5172`             | `apps/website` (Vite)             |
+| `live.staging.world-of-vikings.com`   | `:5173`             | `apps/game` (Vite)                |
+| `editor.staging.world-of-vikings.com` | `:5174`             | `apps/editor` (Vite)              |
+| `api.staging.world-of-vikings.com`    | `:3000`             | `services/api` (tsx watch)        |
+| `assets.staging.world-of-vikings.com` | `:9000`             | `tooling/scripts/asset-server.ts` |
 
 Files:
 

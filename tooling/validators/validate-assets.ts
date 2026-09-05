@@ -1,15 +1,25 @@
 /**
- * Asset manifest validation (spec §37, §44).
+ * Asset manifest validation (spec §37, §44, §46; ADR-0015).
  *
- * Compares `assets/manifest.json` against the files actually present in
- * `assets/` and exits non-zero on any drift, so a model added, replaced or
- * deleted without updating the manifest fails CI instead of silently shipping a
- * 404 to players.
+ * Four questions, in the order a contributor can act on them:
+ *
+ * 1. Is `assets/manifest.json` a valid manifest at all?
+ * 2. Do the **public** entries match the files actually present in `assets/`?
+ * 3. Does every **private** entry have its placeholder committed, so a clone
+ *    without store access still runs?
+ * 4. Do the private entries still match the store — checked only when the store
+ *    is reachable, skipped with a message when it is not. A contributor without
+ *    `WOV_ASSET_STORE` must not fail CI for something they cannot see.
  *
  * ```bash
  * pnpm validate:assets            # check, exits 1 on drift
- * pnpm validate:assets --write    # regenerate the manifest from assets/
+ * pnpm validate:assets --write    # refresh sizes and hashes from disk
  * ```
+ *
+ * `--write` never invents provenance. It re-measures `bytes` and `hash` for
+ * files it already knows and refuses a file nobody has declared, because "every
+ * asset carries source, author and licence" (spec §46) is not something a script
+ * gets to fill in with a plausible guess.
  *
  * All the decisions live in `@wov/asset-system/manifest` — which files count as
  * assets, how the manifest is validated, how drift reads. This script only does
@@ -26,10 +36,12 @@ import {
   ASSET_MANIFEST_FILE_NAME,
   CURRENT_ASSET_MANIFEST_VERSION,
   compareManifestWithFiles,
+  findMissingPlaceholders,
   formatManifestReport,
   isIndexedAssetFile,
   isManifestInSync,
   parseAssetManifest,
+  selectByVisibility,
 } from '@wov/asset-system/manifest';
 import type { AssetEntry } from '@wov/asset-system/manifest';
 
@@ -39,17 +51,25 @@ const manifestFile = join(assetsDir, ASSET_MANIFEST_FILE_NAME);
 const write = process.argv.includes('--write');
 
 /**
- * Lists every file under `assets/` as a `/`-separated path relative to it.
+ * The private asset store, if this machine has one.
+ *
+ * Same variable the asset server reads, so "the check passed" and "the server
+ * would serve it" are statements about the same directory.
+ */
+const storeRoot = process.env['WOV_ASSET_STORE']?.trim();
+
+/**
+ * Lists every file under a directory as a `/`-separated relative path.
  * Joins with `/` explicitly so a Windows checkout produces the same manifest as
  * a Linux one (agent rule 11: the format must not depend on the machine).
  */
-async function listAssetFiles(directory: string, prefix = ''): Promise<string[]> {
+async function listFiles(directory: string, prefix = ''): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
     const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
     if (entry.isDirectory()) {
-      files.push(...(await listAssetFiles(join(directory, entry.name), relative)));
+      files.push(...(await listFiles(join(directory, entry.name), relative)));
     } else if (entry.isFile()) {
       files.push(relative);
     }
@@ -57,10 +77,14 @@ async function listAssetFiles(directory: string, prefix = ''): Promise<string[]>
   return files.sort();
 }
 
-async function describeFile(assetPath: string): Promise<AssetEntry> {
-  const bytes = await readFile(join(assetsDir, assetPath));
+interface Measurement {
+  readonly bytes: number;
+  readonly hash: string;
+}
+
+async function measure(file: string): Promise<Measurement> {
+  const bytes = await readFile(file);
   return {
-    path: assetPath,
     bytes: bytes.byteLength,
     hash: `${ASSET_HASH_PREFIX}${createHash('sha256').update(bytes).digest('hex')}`,
   };
@@ -71,17 +95,17 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-const found: AssetEntry[] = [];
-for (const assetPath of await listAssetFiles(assetsDir)) {
-  if (isIndexedAssetFile(assetPath)) {
-    found.push(await describeFile(assetPath));
-  }
-}
+// ------------------------------------------------------------- the manifest
 
+let manifestVersionOnDisk: unknown;
 let listed: readonly AssetEntry[] = [];
-let manifestExists = true;
 try {
-  const parsed = parseAssetManifest(JSON.parse(await readFile(manifestFile, 'utf8')));
+  const raw: unknown = JSON.parse(await readFile(manifestFile, 'utf8'));
+  manifestVersionOnDisk =
+    typeof raw === 'object' && raw !== null && 'manifestVersion' in raw
+      ? (raw as { manifestVersion: unknown }).manifestVersion
+      : undefined;
+  const parsed = parseAssetManifest(raw);
   if (!parsed.ok) {
     process.stderr.write(`FAIL assets/${ASSET_MANIFEST_FILE_NAME}\n`);
     for (const message of parsed.errors) {
@@ -94,40 +118,122 @@ try {
   if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
     fail(`FAIL assets/${ASSET_MANIFEST_FILE_NAME}: ${String(error)}`);
   }
-  manifestExists = false;
+  fail(
+    `FAIL assets/${ASSET_MANIFEST_FILE_NAME} is missing — it cannot be generated from nothing: ` +
+      `every asset needs source, author and licence recorded by a person (spec §46)`,
+  );
 }
 
-const comparison = compareManifestWithFiles(listed, found);
+// ------------------------------------------------------- the repository half
+
+const repositoryPaths = (await listFiles(assetsDir)).filter((path) => isIndexedAssetFile(path));
+const found: AssetEntry[] = [];
+const listedByPath = new Map(listed.map((entry) => [entry.path, entry]));
+const undeclared: string[] = [];
+
+for (const assetPath of repositoryPaths) {
+  const declared = listedByPath.get(assetPath);
+  if (declared === undefined || declared.visibility !== 'public') {
+    undeclared.push(assetPath);
+    continue;
+  }
+  found.push({ ...declared, ...(await measure(join(assetsDir, assetPath))) });
+}
+
+const comparison = compareManifestWithFiles(selectByVisibility(listed, 'public'), found);
 
 if (write) {
-  // Only rewrite when the asset list really changed: a fresh `generatedAt` on
-  // every run would put a meaningless diff into every pull request.
-  if (manifestExists && isManifestInSync(comparison)) {
+  if (undeclared.length > 0) {
+    process.stderr.write(
+      `FAIL assets/${ASSET_MANIFEST_FILE_NAME} cannot be regenerated: ` +
+        `${String(undeclared.length)} file(s) are not declared\n`,
+    );
+    for (const path of undeclared) {
+      process.stderr.write(`       undeclared ${path}\n`);
+    }
+    process.stderr.write(
+      `\n       Add an entry with id, kind, origin, source, author, license,\n` +
+        `       redistributable and visibility first — this script measures files,\n` +
+        `       it does not decide who made them (spec §46).\n`,
+    );
+    process.exit(1);
+  }
+  // Only rewrite when something really changed: a fresh `generatedAt` on every
+  // run would put a meaningless diff into every pull request.
+  if (manifestVersionOnDisk === CURRENT_ASSET_MANIFEST_VERSION && isManifestInSync(comparison)) {
     process.stdout.write(`OK   assets/${ASSET_MANIFEST_FILE_NAME} already up to date\n`);
     process.exit(0);
   }
+  const measured = new Map(found.map((entry) => [entry.path, entry]));
   const manifest = {
     manifestVersion: CURRENT_ASSET_MANIFEST_VERSION,
     generatedAt: new Date().toISOString(),
-    assets: found,
+    assets: [...listed]
+      .map((entry) => measured.get(entry.path) ?? entry)
+      .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
   };
   await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   process.stdout.write(
-    `WROTE assets/${ASSET_MANIFEST_FILE_NAME} (${found.length} asset file(s))\n`,
+    `WROTE assets/${ASSET_MANIFEST_FILE_NAME} (${String(manifest.assets.length)} entries)\n`,
   );
   process.exit(0);
 }
 
-if (!manifestExists) {
-  fail(
-    `FAIL assets/${ASSET_MANIFEST_FILE_NAME} is missing — run \`pnpm validate:assets --write\` to create it`,
+const problems: string[] = [];
+
+for (const path of undeclared) {
+  problems.push(`undeclared ${path} — found in assets/, not listed as a public asset`);
+}
+problems.push(...formatManifestReport(comparison));
+
+// ---------------------------------------------------------- the private half
+
+const privateEntries = selectByVisibility(listed, 'private');
+
+for (const placeholder of findMissingPlaceholders(listed, repositoryPaths)) {
+  problems.push(
+    `placeholder ${placeholder} — referenced by a private asset, missing from assets/. ` +
+      `Without it a clone with no store access has nothing to draw.`,
   );
 }
 
-const report = formatManifestReport(comparison);
-if (report.length > 0) {
-  process.stderr.write(`FAIL assets/${ASSET_MANIFEST_FILE_NAME} does not describe assets/\n`);
-  for (const line of report) {
+let storeReport: string;
+if (privateEntries.length === 0) {
+  storeReport = 'no private assets';
+} else if (storeRoot === undefined || storeRoot.length === 0) {
+  storeReport = `${String(privateEntries.length)} private, store check skipped (WOV_ASSET_STORE is not set)`;
+} else {
+  const storeFound: AssetEntry[] = [];
+  const unreadable: string[] = [];
+  for (const entry of privateEntries) {
+    try {
+      storeFound.push({ ...entry, ...(await measure(join(storeRoot, entry.path))) });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        continue; // the comparison below reports it as `missing`
+      }
+      unreadable.push(`${entry.path}: ${String(error)}`);
+    }
+  }
+  if (unreadable.length > 0) {
+    storeReport = `${String(privateEntries.length)} private, store check skipped (${storeRoot} is not readable)`;
+    for (const line of unreadable.slice(0, 3)) {
+      process.stdout.write(`     ! ${line}\n`);
+    }
+  } else {
+    // `unlisted` is dropped on purpose: the store may hold files this manifest
+    // does not describe yet, and that is not drift the repository can fix.
+    const storeDrift = compareManifestWithFiles(privateEntries, storeFound);
+    problems.push(
+      ...formatManifestReport({ ...storeDrift, unlisted: [] }).map((line) => `store ${line}`),
+    );
+    storeReport = `${String(privateEntries.length)} private, checked against ${storeRoot}`;
+  }
+}
+
+if (problems.length > 0) {
+  process.stderr.write(`FAIL assets/${ASSET_MANIFEST_FILE_NAME} does not describe reality\n`);
+  for (const line of problems) {
     process.stderr.write(`       ${line}\n`);
   }
   process.stderr.write(
@@ -137,5 +243,6 @@ if (report.length > 0) {
 }
 
 process.stdout.write(
-  `OK   assets/${ASSET_MANIFEST_FILE_NAME} (${found.length} asset file(s), 0 failure(s))\n`,
+  `OK   assets/${ASSET_MANIFEST_FILE_NAME} (${String(listed.length)} entries: ` +
+    `${String(found.length)} in assets/, ${storeReport})\n`,
 );

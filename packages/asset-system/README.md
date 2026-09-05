@@ -80,10 +80,19 @@ the build if the game can reach `manifest.ts` again, transitively included.
 
 **Manifest** (from `@wov/asset-system/manifest`)
 
-- `parseAssetManifest(data)` — validates unknown data; an unsupported
-  `manifestVersion` gets its own message instead of a wall of field errors.
+- `parseAssetManifest(data)` — validates unknown data. A version 1 document is
+  migrated rather than rejected; any other unsupported `manifestVersion` gets its
+  own message instead of a wall of field errors.
 - `compareManifestWithFiles(listed, found)` → `{ missing, unlisted, changed }`,
-  `isManifestInSync(comparison)`, `formatManifestReport(comparison)`.
+  `isManifestInSync(comparison)`, `formatManifestReport(comparison)`. It compares
+  two lists and knows nothing about visibility — pass it one half at a time.
+- `selectByVisibility(entries, 'public' | 'private')` — the repository half and
+  the store half, which are checked against different things.
+- `findMissingPlaceholders(entries, repositoryPaths)` — private assets whose
+  stand-in is not committed. This is the check that keeps a clone runnable with
+  no access to the store (ADR-0015).
+- `assetIdFromPath(path)` — the deterministic id for a path:
+  `environment/SM_Env_Rock_03.glb` → `environment/sm-env-rock-03`.
 - `isIndexedAssetFile(path)` — which files under `assets/` belong in the
   manifest (not the manifest itself, not Markdown, not dot files).
 - `immutableAssetPath(entry)` — `environment/tree.glb` + `sha256-a1b2c3d4…` →
@@ -91,10 +100,13 @@ the build if the game can reach `manifest.ts` again, transitively included.
   Nothing serves these yet; the hash is recorded so enabling them later is a
   deployment change, not a format change.
 - `AssetManifestSchema`, `AssetEntrySchema`, `AssetPathSchema`,
-  `AssetHashSchema`, `CURRENT_ASSET_MANIFEST_VERSION`,
+  `AssetHashSchema`, `AssetIdSchema`, `AssetKindSchema`,
+  `AssetVisibilitySchema`, `AssetBoundsSchema`, `ASSET_KINDS`,
+  `UNDETERMINED_LICENSE`, `CURRENT_ASSET_MANIFEST_VERSION`,
   `ASSET_MANIFEST_FILE_NAME`, `ASSET_HASH_PREFIX`.
-- Types: `AssetManifest`, `AssetEntry`, `AssetManifestParseResult`,
-  `ManifestComparison`, `AssetMismatch`.
+- Types: `AssetManifest`, `AssetEntry`, `AssetKind`, `AssetVisibility`,
+  `AssetBounds`, `AssetManifestParseResult`, `ManifestComparison`,
+  `AssetMismatch`.
 
 ## Usage
 
@@ -119,16 +131,38 @@ const result = await placeAssets(
 
 ## The manifest
 
-`assets/manifest.json` lists every file the game may download, with its size and
-a SHA-256 hash:
+`assets/manifest.json` lists every file the game may download — with its size, a
+SHA-256 hash, where it came from, and whether the bytes are in this repository at
+all (version 2, ADR-0015):
 
 ```json
 {
-  "manifestVersion": 1,
-  "generatedAt": "2026-09-05T21:26:49.403Z",
-  "assets": [{ "path": "environment/pine_tree_01.glb", "bytes": 20480, "hash": "sha256-…" }]
+  "manifestVersion": 2,
+  "generatedAt": "2026-09-06T00:00:00.000Z",
+  "assets": [
+    {
+      "id": "vegetation/pine-1b1",
+      "path": "vegetation/pine-1b1.glb",
+      "kind": "prefab",
+      "bytes": 1245184,
+      "hash": "sha256-…",
+      "bounds": { "min": [-2.1, 0, -2.1], "max": [2.1, 11.4, 2.1] },
+      "origin": "the export tool export of the source project, PrefabHierarchyObject/Pine_1B1.glb",
+      "source": "the source project — unidentified realistic vegetation pack",
+      "author": "unknown",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/vegetation/pine-1b1.glb"
+    }
+  ]
 }
 ```
+
+A `public` asset is served from `assets/` in this repository. A `private` one is
+served from the asset store (`WOV_ASSET_STORE`, `/store/…` on the asset server);
+the repository holds only its `placeholder`, a box with the same hull, so a clone
+without store access still runs and says so.
 
 After adding, replacing or deleting an asset:
 

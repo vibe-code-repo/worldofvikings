@@ -1,15 +1,24 @@
 import { z } from 'zod';
 
 /**
- * The asset manifest: what `assets/` is supposed to contain.
+ * The asset manifest: every file the game may download, and where it came from.
  *
- * It exists for three reasons (spec §37, §38):
+ * It exists for four reasons (spec §37, §38, §46; ADR-0015):
  *
  * 1. `pnpm validate:assets` can tell a contributor that a file was added,
  *    removed or changed without the manifest being updated.
  * 2. `bytes` makes download budgets checkable instead of a matter of opinion.
  * 3. `hash` is what immutable, cache-forever production file names are built
  *    from later — see {@link immutableAssetPath}.
+ * 4. Provenance — `origin`, `source`, `author`, `license`, `redistributable` —
+ *    is recorded per file and machine-checkable, instead of living only in a
+ *    Markdown table that nothing verifies.
+ *
+ * Since version 2 the manifest also describes assets that are **not** in the
+ * repository. `visibility: 'private'` means the bytes are served from the
+ * private asset store and the repository holds only a
+ * {@link AssetEntry.placeholder} — a box with the same hull — so a clean clone
+ * still runs (ADR-0015).
  *
  * The manifest is *not* world data: it never decides what exists in the game,
  * only which files back it. World data lives in `content/` and is validated by
@@ -20,9 +29,10 @@ import { z } from 'zod';
  * Version of the manifest format understood by this build.
  *
  * Same rule as world data (agent rule 11): never silently accept or rewrite a
- * different version. Bump this together with a documented migration.
+ * different version. Bump this together with a documented migration —
+ * {@link parseAssetManifest} carries the one for version 1.
  */
-export const CURRENT_ASSET_MANIFEST_VERSION = 1;
+export const CURRENT_ASSET_MANIFEST_VERSION = 2;
 
 /** The manifest's file name, relative to `assets/`. */
 export const ASSET_MANIFEST_FILE_NAME = 'manifest.json';
@@ -50,14 +60,136 @@ export const AssetHashSchema = z
   .string()
   .regex(/^sha256-[0-9a-f]{64}$/, 'hash must look like "sha256-<64 lowercase hex characters>"');
 
-/** One file in `assets/`. */
-export const AssetEntrySchema = z.strictObject({
-  path: AssetPathSchema,
-  /** File size in bytes; the budget half of the manifest. */
-  bytes: z.int().nonnegative(),
-  /** Content hash; the identity half of the manifest. */
-  hash: AssetHashSchema,
-});
+/**
+ * What an asset *is*, which decides how it is checked.
+ *
+ * The three geometry kinds are separated because they are normalised
+ * differently by the import pipeline and read differently by a human: a `mesh`
+ * is one exported model, a `prefab` is an authored hierarchy of several, and a
+ * `terrain` is a height field whose origin sits at its own corner.
+ */
+export const ASSET_KINDS = ['mesh', 'prefab', 'terrain', 'texture'] as const;
+export const AssetKindSchema = z.enum(ASSET_KINDS);
+
+/** Kinds that occupy space in the world and therefore have {@link AssetBounds}. */
+const GEOMETRY_KINDS = new Set<AssetKind>(['mesh', 'prefab', 'terrain']);
+
+/**
+ * Whether the bytes are in this repository (`public`) or in the private asset
+ * store (`private`).
+ *
+ * This is a *distribution* statement, not a security one: the store is where
+ * files sit whose redistribution rights are not settled yet. Clearing an asset
+ * for release is a change of this one field plus a copy into `assets/`.
+ */
+export const AssetVisibilitySchema = z.enum(['private', 'public']);
+
+/**
+ * A stable, machine-readable name: lower-case, `-` inside a segment, `/` for
+ * the group. Unlike `path` it survives a file being renamed or re-normalised,
+ * which is what lets world data and the licence table point at an asset.
+ */
+export const AssetIdSchema = z
+  .string()
+  .regex(
+    /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*$/,
+    'id must be lower-case kebab-case segments joined by "/", e.g. "vegetation/pine-1b1"',
+  );
+
+/**
+ * Free text that must actually say something.
+ *
+ * `z.string().min(1)` would accept `"   "`, and a blank licence field is
+ * exactly the failure this project cannot afford (spec §46).
+ */
+const DescriptiveText = z
+  .string()
+  .refine((value) => value.trim().length > 0, { message: 'must not be blank' });
+
+const Vector3Schema = z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]);
+
+/**
+ * The model's axis-aligned hull in metres, in its own space after
+ * normalisation.
+ *
+ * Recorded rather than assumed: height, origin and units differ per source file
+ * and per exporting tool, and the placeholder box is built from exactly these
+ * numbers — so a wrong hull is a visibly wrong stand-in, not a silent one.
+ */
+export const AssetBoundsSchema = z
+  .strictObject({
+    min: Vector3Schema,
+    max: Vector3Schema,
+  })
+  .refine((bounds) => bounds.max.every((value, axis) => value >= (bounds.min[axis] ?? 0)), {
+    message: 'bounds.max must not be smaller than bounds.min on any axis',
+  });
+
+/** One file the game may download — from `assets/` or from the store. */
+export const AssetEntrySchema = z
+  .strictObject({
+    /** Stable name; see {@link AssetIdSchema}. */
+    id: AssetIdSchema,
+    /**
+     * Path the file is requested under, relative to whichever root serves it:
+     * `assets/` for a public asset, the store root for a private one.
+     */
+    path: AssetPathSchema,
+    kind: AssetKindSchema,
+    /** File size in bytes; the budget half of the manifest. */
+    bytes: z.int().nonnegative(),
+    /** Content hash; the identity half of the manifest. */
+    hash: AssetHashSchema,
+    /** Hull in metres. Geometry only — see {@link AssetBoundsSchema}. */
+    bounds: AssetBoundsSchema.optional(),
+    /** Where this file came from, concretely enough to find it again. */
+    origin: DescriptiveText,
+    /** The pack, kit or project it belongs to. */
+    source: DescriptiveText,
+    /** Who made it. `unknown` is an answer; empty is not. */
+    author: DescriptiveText,
+    /** SPDX identifier where one applies, otherwise free text. */
+    license: DescriptiveText,
+    /** Whether this project may hand the file to third parties. */
+    redistributable: z.boolean(),
+    visibility: AssetVisibilitySchema,
+    /**
+     * Repository-relative path of the stand-in used when the real file is not
+     * reachable. Required for private assets, forbidden for public ones.
+     */
+    placeholder: AssetPathSchema.optional(),
+  })
+  .superRefine((entry, context) => {
+    if (entry.visibility === 'private' && entry.placeholder === undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['placeholder'],
+        message: 'a private asset needs a placeholder — a clean clone has nothing else to load',
+      });
+    }
+    if (entry.visibility === 'public' && entry.placeholder !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['placeholder'],
+        message: 'a public asset is served as itself and must not carry a placeholder',
+      });
+    }
+    if (GEOMETRY_KINDS.has(entry.kind)) {
+      if (entry.visibility === 'private' && entry.bounds === undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: ['bounds'],
+          message: 'private geometry needs bounds — the placeholder box is built from them',
+        });
+      }
+    } else if (entry.bounds !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['bounds'],
+        message: `bounds describe an extent in metres and do not apply to a ${entry.kind}`,
+      });
+    }
+  });
 
 /** The root object of `assets/manifest.json`. */
 export const AssetManifestSchema = z
@@ -69,8 +201,14 @@ export const AssetManifestSchema = z
   })
   .refine((manifest) => findDuplicates(manifest.assets.map((asset) => asset.path)).length === 0, {
     message: 'duplicate asset path',
+  })
+  .refine((manifest) => findDuplicates(manifest.assets.map((asset) => asset.id)).length === 0, {
+    message: 'duplicate asset id',
   });
 
+export type AssetKind = z.infer<typeof AssetKindSchema>;
+export type AssetVisibility = z.infer<typeof AssetVisibilitySchema>;
+export type AssetBounds = z.infer<typeof AssetBoundsSchema>;
 export type AssetEntry = z.infer<typeof AssetEntrySchema>;
 export type AssetManifest = z.infer<typeof AssetManifestSchema>;
 
@@ -92,14 +230,99 @@ function findDuplicates(values: readonly string[]): string[] {
 }
 
 /**
+ * Derives an {@link AssetIdSchema} id from a file path.
+ *
+ * Drops the extension and kebab-cases each remaining segment, so
+ * `environment/SM_Env_Rock_03.glb` becomes `environment/sm-env-rock-03`. Pure
+ * and machine-independent: the import pipeline and a migrated version 1
+ * manifest must produce the same id for the same path, on every checkout.
+ */
+export function assetIdFromPath(assetPath: string): string {
+  const withoutExtension = assetPath.replace(/\.[^./]+$/, '');
+  return withoutExtension
+    .split('/')
+    .map((segment) =>
+      segment
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, ''),
+    )
+    .filter((segment) => segment.length > 0)
+    .join('/');
+}
+
+/** What a version 1 entry could say: a path, a size and a hash. */
+const LegacyAssetEntrySchema = z.strictObject({
+  path: AssetPathSchema,
+  bytes: z.int().nonnegative(),
+  hash: AssetHashSchema,
+});
+
+const LegacyAssetManifestSchema = z.strictObject({
+  manifestVersion: z.literal(1),
+  generatedAt: z.iso.datetime(),
+  assets: z.array(LegacyAssetEntrySchema),
+});
+
+/**
+ * SPDX's own token for "no licence determination was made".
+ *
+ * Used where a field is genuinely unknown, because inventing `MIT` for a
+ * migrated row would be worse than admitting the gap — and because
+ * {@link DescriptiveText} will not accept an empty string (spec §46).
+ */
+export const UNDETERMINED_LICENSE = 'NOASSERTION';
+
+/** Extensions that identify a texture; everything else is treated as a mesh. */
+const TEXTURE_EXTENSIONS = /\.(png|jpe?g|webp|ktx2|basis)$/i;
+
+/**
+ * Version 1 → 2.
+ *
+ * Version 1 knew only where a file was and what it hashed to, so everything the
+ * new fields ask for is filled in as "unknown" rather than guessed: the licence
+ * becomes `NOASSERTION`, redistribution is assumed *not* granted, and no bounds
+ * are invented. Every asset is `public`, because version 1 could only describe
+ * files that were in `assets/` to begin with.
+ */
+function migrateFromVersion1(legacy: z.infer<typeof LegacyAssetManifestSchema>): unknown {
+  return {
+    manifestVersion: CURRENT_ASSET_MANIFEST_VERSION,
+    generatedAt: legacy.generatedAt,
+    assets: legacy.assets.map((entry) => ({
+      id: assetIdFromPath(entry.path),
+      path: entry.path,
+      kind: TEXTURE_EXTENSIONS.test(entry.path) ? 'texture' : 'mesh',
+      bytes: entry.bytes,
+      hash: entry.hash,
+      origin: 'unknown — migrated from asset manifest version 1',
+      source: 'unknown',
+      author: 'unknown',
+      license: UNDETERMINED_LICENSE,
+      redistributable: false,
+      visibility: 'public',
+    })),
+  };
+}
+
+/**
  * Validates unknown data as an {@link AssetManifest}.
  *
- * An unsupported `manifestVersion` gets a dedicated message, so a contributor
+ * A version 1 document is migrated (see {@link migrateFromVersion1}) rather than
+ * rejected, so an older checkout or an unregenerated branch still reads. Any
+ * other unsupported `manifestVersion` gets a dedicated message, so a contributor
  * sees the version problem instead of a wall of field errors.
  */
 export function parseAssetManifest(data: unknown): AssetManifestParseResult {
   if (typeof data === 'object' && data !== null && 'manifestVersion' in data) {
     const version = (data as { manifestVersion: unknown }).manifestVersion;
+    if (version === 1) {
+      const legacy = LegacyAssetManifestSchema.safeParse(data);
+      if (legacy.success) {
+        return parseAssetManifest(migrateFromVersion1(legacy.data));
+      }
+      return { ok: false, errors: describeIssues(legacy.error) };
+    }
     if (version !== CURRENT_ASSET_MANIFEST_VERSION) {
       return {
         ok: false,
@@ -114,13 +337,50 @@ export function parseAssetManifest(data: unknown): AssetManifestParseResult {
   if (result.success) {
     return { ok: true, manifest: result.data };
   }
-  return {
-    ok: false,
-    errors: result.error.issues.map((issue) => {
-      const path = issue.path.length > 0 ? issue.path.join('.') : '<root>';
-      return `${path}: ${issue.message}`;
-    }),
-  };
+  return { ok: false, errors: describeIssues(result.error) };
+}
+
+function describeIssues(error: z.ZodError): string[] {
+  return error.issues.map((issue) => {
+    const path = issue.path.length > 0 ? issue.path.join('.') : '<root>';
+    return `${path}: ${issue.message}`;
+  });
+}
+
+/**
+ * The entries served from one place: `assets/` in the repository, or the store.
+ *
+ * The two are checked against different things — the repository half against
+ * files on disk, the private half against the store when it is reachable — so
+ * the split is made explicit here instead of being repeated at each call site.
+ */
+export function selectByVisibility(
+  entries: readonly AssetEntry[],
+  visibility: AssetVisibility,
+): readonly AssetEntry[] {
+  return entries.filter((entry) => entry.visibility === visibility);
+}
+
+/**
+ * Placeholder files a private asset points at but the repository does not have.
+ *
+ * This is the check that keeps agent rule 20 true: without its placeholder, a
+ * clone with no access to the store has nothing to draw and no way to say so.
+ *
+ * @param repositoryPaths every path found under `assets/`, `/`-separated.
+ */
+export function findMissingPlaceholders(
+  entries: readonly AssetEntry[],
+  repositoryPaths: readonly string[],
+): readonly string[] {
+  const present = new Set(repositoryPaths);
+  const missing = new Set<string>();
+  for (const entry of selectByVisibility(entries, 'private')) {
+    if (entry.placeholder !== undefined && !present.has(entry.placeholder)) {
+      missing.add(entry.placeholder);
+    }
+  }
+  return [...missing].sort();
 }
 
 /**

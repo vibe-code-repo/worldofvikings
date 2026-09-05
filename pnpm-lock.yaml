@@ -191,6 +191,9 @@ importers:
       '@wov/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@wov/gameplay':
+        specifier: workspace:*
+        version: link:../../packages/gameplay
       '@wov/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -198,6 +201,9 @@ importers:
       vite:
         specifier: ^7.1.5
         version: 7.3.6(@types/node@22.20.1)(tsx@4.23.13)
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@22.20.1)(supports-color@8.1.1)(tsx@4.23.13)
 
   apps/website:
     dependencies:

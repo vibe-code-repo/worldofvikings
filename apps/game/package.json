@@ -14,9 +14,11 @@
   "dependencies": {
     "@babylonjs/core": "^8.31.1",
     "@wov/engine": "workspace:*",
+    "@wov/gameplay": "workspace:*",
     "@wov/ui": "workspace:*"
   },
   "devDependencies": {
-    "vite": "^7.1.5"
+    "vite": "^7.1.5",
+    "vitest": "^3.2.4"
   }
 }

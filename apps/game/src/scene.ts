@@ -2,8 +2,8 @@ import { createBaseScene, createRenderer, createThirdPersonCamera } from '@wov/e
 import type {
   BaseSceneHandle,
   BaseSceneOptions,
-  RenderConfig,
   RendererHandle,
+  RendererOptions,
   ThirdPersonCameraHandle,
   ThirdPersonCameraSettings,
 } from '@wov/engine';
@@ -33,8 +33,12 @@ export interface GameScene {
 }
 
 export interface GameSceneOptions {
-  /** Passed to `createRenderer` (resolution scale, WebGPU preference). */
-  readonly render?: Partial<RenderConfig>;
+  /**
+   * Passed to `createRenderer` (resolution scale, WebGPU preference — and
+   * `autoStart`, which the game turns off because its own loop drives the
+   * frames, see `./main.ts` and ADR-0010).
+   */
+  readonly render?: RendererOptions;
   /** Passed to `createBaseScene` (ground size, sky and fog colours). */
   readonly base?: BaseSceneOptions;
   /** Passed to `createThirdPersonCamera` (distance, pitch limits, smoothing). */

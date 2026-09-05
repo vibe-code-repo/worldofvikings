@@ -19,7 +19,8 @@ body {
 }
 
 .marker,
-.status {
+.status,
+.controls {
   position: fixed;
   left: 1rem;
   padding: 0.4rem 0.75rem;
@@ -35,6 +36,12 @@ body {
 
 .status {
   bottom: 1rem;
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+
+.controls {
+  bottom: 3.2rem;
   font-size: 0.8rem;
   opacity: 0.75;
 }

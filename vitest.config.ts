@@ -6,6 +6,11 @@ import { defineConfig } from 'vitest/config';
  *
  * `@wov/*` is aliased to the package sources so tests always exercise the
  * current source instead of a possibly stale `dist/`.
+ *
+ * `apps/*` is included because the device edge lives in the app, not in a
+ * package: the keyboard/mouse adapter and the frame loop of `apps/game` are
+ * testable logic (ADR-0008) and would otherwise be the only untested code in
+ * the project.
  */
 export default defineConfig({
   resolve: {
@@ -18,7 +23,11 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['packages/*/src/**/*.test.ts', 'services/*/src/**/*.test.ts'],
+    include: [
+      'apps/*/src/**/*.test.ts',
+      'packages/*/src/**/*.test.ts',
+      'services/*/src/**/*.test.ts',
+    ],
     reporters: ['default'],
   },
 });

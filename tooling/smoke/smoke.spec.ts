@@ -12,14 +12,25 @@ interface CameraDebug {
   readonly z: number;
 }
 
+/** Where the rendered player capsule stands, as the dev bridge reports it. */
+interface PlayerDebug {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
+
 /**
- * The game's dev build publishes its frame counter and its camera on
+ * The game's dev build publishes its frame counter, its camera and its player on
  * `window.__wov`. Typed here rather than with `declare global` so this file
  * stays the only place that knows about the bridge and nothing widens `Window`
  * workspace-wide.
  */
 type WovDebugWindow = Window & {
-  __wov?: { readonly frameId: number; readonly camera: CameraDebug | null };
+  __wov?: {
+    readonly frameId: number;
+    readonly camera: CameraDebug | null;
+    readonly player: PlayerDebug | null;
+  };
 };
 
 /** The current frame counter, or `null` while the bridge is not installed. */
@@ -52,6 +63,21 @@ function cameraYaw(page: Page): Promise<number | null> {
   return page.evaluate(() => (window as WovDebugWindow).__wov?.camera?.yaw ?? null);
 }
 
+/** Where the rendered capsule stands, or `null` while the bridge is absent. */
+function playerDebug(page: Page): Promise<PlayerDebug | null> {
+  return page.evaluate(() => (window as WovDebugWindow).__wov?.player ?? null);
+}
+
+/** Waits for the bridge and answers where the capsule currently stands. */
+async function livePlayer(page: Page): Promise<PlayerDebug> {
+  await expect.poll(() => playerDebug(page), { timeout: 10_000 }).not.toBeNull();
+  const player = await playerDebug(page);
+  if (!player) {
+    throw new Error('the game dev build published no player');
+  }
+  return player;
+}
+
 test('website shows its marker and links to the game', async ({ page }) => {
   await page.goto('http://localhost:5172');
   await expect(page.getByTestId('site-marker')).toHaveText('World of Vikings');
@@ -67,11 +93,20 @@ test('website shows its marker and links to the game', async ({ page }) => {
  */
 const RENDERER_STATUS = /^(renderer|viewport) (ready — (webgl2|webgpu)|unavailable: .+)$/;
 
+/**
+ * The game's line says more than the editor's: the simulation and the physics
+ * backend report into it too, so the shape is pinned only up to the renderer.
+ */
+const GAME_STATUS = /^renderer (ready — (webgl2|webgpu)|unavailable: .+)/;
+
 test('game shows its dev build marker', async ({ page }) => {
   await page.goto('http://localhost:5173');
   await expect(page.getByTestId('game-marker')).toContainText('World of Vikings');
   await expect(page.getByTestId('game-marker')).toContainText('game dev build');
-  await expect(page.getByTestId('game-status')).toHaveText(RENDERER_STATUS);
+  await expect(page.getByTestId('game-status')).toHaveText(GAME_STATUS);
+  // The desktop controls of spec §27 are named on screen (ADR-0010).
+  await expect(page.getByTestId('game-controls')).toContainText('WASD');
+  await expect(page.getByTestId('game-controls')).toContainText('capture the mouse');
 });
 
 /**
@@ -136,6 +171,39 @@ test('game camera frames the placeholder and answers mouse and wheel', async ({ 
   await page.mouse.move(centreX + 240, centreY, { steps: 8 });
   await page.mouse.up();
   await expect.poll(() => cameraYaw(page), { timeout: 5_000 }).toBeGreaterThan(opening.yaw + 0.1);
+});
+
+/**
+ * The one assertion the unit tests cannot make: that the DOM adapter, the
+ * fixed-step loop, the movement system and the renderer are wired to each
+ * other at all. Every part passes its own tests just as happily while
+ * connected to nothing.
+ *
+ * The position is read off the rendered capsule, not out of the gameplay
+ * state, so a simulation that runs without reaching the picture still fails.
+ */
+test('game walks the player capsule when a key is held', async ({ page }) => {
+  await page.goto('http://localhost:5173');
+  await expect(page.getByTestId('game-status')).toContainText('renderer ready');
+
+  const start = await livePlayer(page);
+
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(500);
+  await page.keyboard.up('KeyW');
+
+  const walked = await livePlayer(page);
+
+  // Half a second at the Phase 1 walking speed covers metres, not millimetres.
+  expect(Math.hypot(walked.x - start.x, walked.z - start.z)).toBeGreaterThan(0.5);
+
+  // And it stops when the key comes up, rather than drifting on for ever.
+  await page.waitForTimeout(400);
+  const settled = await livePlayer(page);
+  await page.waitForTimeout(300);
+  const still = await livePlayer(page);
+
+  expect(Math.hypot(still.x - settled.x, still.z - settled.z)).toBeLessThan(0.01);
 });
 
 test('editor shows its shell and viewport placeholder', async ({ page }) => {

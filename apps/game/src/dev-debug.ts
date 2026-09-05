@@ -16,6 +16,7 @@
  * that must find nothing.
  */
 import type { RendererBackend, RendererHandle, ThirdPersonCameraHandle } from '@wov/engine';
+import type { PlaceholderTarget } from './placeholder-target.js';
 
 /** Where the camera stands, as plain numbers a test can read out of the page. */
 export interface WovCameraDebug {
@@ -30,6 +31,13 @@ export interface WovCameraDebug {
   z: number;
 }
 
+/** Where the player stands, as plain numbers a test can read out of the page. */
+export interface WovPlayerDebug {
+  x: number;
+  y: number;
+  z: number;
+}
+
 /** The read-only view other dev tooling (and the smoke test) may rely on. */
 export interface WovDebugBridge {
   /** Which engine implementation the renderer ended up on. */
@@ -38,6 +46,14 @@ export interface WovDebugBridge {
   readonly frameId: number;
   /** The live camera, or `null` when none was handed to the bridge. */
   readonly camera: WovCameraDebug | null;
+  /**
+   * Where the rendered player stands, or `null` when none was handed over.
+   *
+   * It is read off the *mesh*, deliberately: the smoke test has to prove that
+   * the simulation reaches the picture, and a number copied straight out of the
+   * gameplay state would pass even with the renderer disconnected.
+   */
+  readonly player: WovPlayerDebug | null;
 }
 
 declare global {
@@ -50,6 +66,7 @@ declare global {
 /** What the bridge may report besides the renderer itself. */
 export interface DevDebugSubjects {
   readonly camera?: ThirdPersonCameraHandle;
+  readonly player?: PlaceholderTarget;
 }
 
 /** Shown until the first frame lands, so `frame <digits>` never lies. */
@@ -68,15 +85,23 @@ export function installDevDebugBridge(
   subjects: DevDebugSubjects = {},
 ): void {
   const camera = subjects.camera;
+  const player = subjects.player;
   // One object, mutated per frame rather than rebuilt: the bridge is dev-only
   // but it still runs inside the frame budget (spec §38).
   const cameraDebug: WovCameraDebug | null = camera
     ? { yaw: 0, pitch: 0, distance: 0, desiredDistance: 0, x: 0, y: 0, z: 0 }
     : null;
-  const bridge: { backend: RendererBackend; frameId: number; camera: WovCameraDebug | null } = {
+  const playerDebug: WovPlayerDebug | null = player ? { x: 0, y: 0, z: 0 } : null;
+  const bridge: {
+    backend: RendererBackend;
+    frameId: number;
+    camera: WovCameraDebug | null;
+    player: WovPlayerDebug | null;
+  } = {
     backend: renderer.backend,
     frameId: -1,
     camera: cameraDebug,
+    player: playerDebug,
   };
   window.__wov = bridge;
 
@@ -98,6 +123,12 @@ export function installDevDebugBridge(
       cameraDebug.x = camera.camera.position.x;
       cameraDebug.y = camera.camera.position.y;
       cameraDebug.z = camera.camera.position.z;
+    }
+    if (player && playerDebug) {
+      const at = player.root.position;
+      playerDebug.x = at.x;
+      playerDebug.y = at.y;
+      playerDebug.z = at.z;
     }
     // One small text write per frame, and only in the dev build: the string
     // changes every frame, so caching it would never hit (spec §38).

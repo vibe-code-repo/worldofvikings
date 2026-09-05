@@ -60,8 +60,13 @@ import {
  * dreizehn geparsten Vorlagen-Kits sind Beiwerk und stünden sonst
  * alphabetisch davor. Der Rest behält seine Reihenfolge aus `DUNGEONS`,
  * damit die Liste zwischen zwei Sitzungen nicht springt.
+ *
+ * Die beiden MODULKITS stehen dabei beieinander (F4): `DG_RockVault` ist
+ * dasselbe Kit in Fels (`rockVariant()`), und wer im Formular zwischen
+ * Ziegel und Fels wählt, wählt zwischen zwei Häuten einer Sache — nicht
+ * zwischen zwei Bauweisen. Das Steingrab dahinter ist die andere Bauweise.
  */
-export const EIGENE_KITS_ZUERST = ['DG_StoneVault', 'DG_Steingrab'] as const;
+export const EIGENE_KITS_ZUERST = ['DG_StoneVault', 'DG_RockVault', 'DG_Steingrab'] as const;
 
 /** Alle instanzierbaren Basen, eigene Kits zuerst. */
 export function waehlbareBasen(): DungeonDef[] {

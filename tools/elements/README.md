@@ -148,7 +148,28 @@ Eine Datei kam per `git mv` aus dem Repo selbst, fünf sind hier entstanden.
 
 | Datei | Zielpfad | Zweck |
 |---|---|---|
-| `stonevault-kantensonde.ts` (lag bis S1 unmittelbar in `tools/`) | `tools/elements/pruefung/stonevault-kantensonde.ts` | Prüft: die Kantenerklärung der Module (`RoomDef.gridEdges`, `connections`) gegen die echte GLB-Geometrie. Der Pfad in `scripts/run-tests.mjs` ist mitgezogen. |
+| `stonevault-kantensonde.ts` (lag bis S1 unmittelbar in `tools/`) | `tools/elements/pruefung/stonevault-kantensonde.ts` | Prüft: die Kantenerklärung der Module (`RoomDef.gridEdges`, `connections`) gegen die echte GLB-Geometrie. Der Pfad in `scripts/run-tests.mjs` ist mitgezogen. Seit F4 misst sie ohne Argument BEIDE Kits — Ziegel und Fels (s. „Das abgeleitete Kit"). |
+
+### blender/ — hier entstanden
+
+| Datei | Zielpfad | Zweck |
+|---|---|---|
+| `felsblock.py` | `tools/elements/blender/felsblock.py` | Erzeugt: die Blocklage der Fels-Frontschicht für `make-stonevault.py --stil fels` — die Messung zu F3. Kennt **weder `bpy` noch `bmesh`**: die Lage lässt sich mit blossem `python3 felsblock.py --dump <lo> <hi>` befragen, und genau deshalb prüft sie `pruefung/fels-frontschicht.mjs`, ohne Blender zu starten. |
+
+### pruefung/ — hier entstanden
+
+| Datei | Zielpfad | Zweck |
+|---|---|---|
+| `fels-frontschicht.mjs` | `tools/elements/pruefung/fels-frontschicht.mjs` | Prüft: die Blocklage der Fels-Frontschicht (`--stil fels`) — Naht, Streuung, Budget. Hält die drei Zusagen von F3 fest: das Reststück an jeder Modulkante trifft sein Gegenstück in Höhe UND Tiefe, kein Block steht weiter vor als das Ziegelrelief (die Hüllbox muss gleich bleiben, weil `DG_RockVault` abgeleitet wird), und ein Wandpaneel bleibt unter 1500 Dreiecken. Text und Arithmetik, kein `assets/`, kein Blender — hängt in `scripts/run-tests.mjs` hinter einer `python3`-Weiche. |
+| `relief-kontrast.mjs` | `tools/elements/pruefung/relief-kontrast.mjs` | Prüft: die Helligkeitsstreuung einer Wand im Streiflicht, mit und ohne Normal-Kanal (`?relief=1` gegen `?relief=0`) — die Messung zu F1. Läuft **lokal** gegen den Tunnel, nicht auf `wov-dev`. |
+| `layout-szene.ts` | `tools/elements/pruefung/layout-szene.ts` | Hilfsmittel: schreibt ein ERZEUGTES Grab (Kit + Saat) als Posenliste für `render-szene.py`. Damit lässt sich ein ganzes Layout rendern statt einzelner Module — die Frage von F4 („fügt sich die Ableitung zu einem Grab zusammen?") beantwortet kein Einzelmodul. Der Kopf von `render-szene.py` nannte dafür bisher ein szene-json.ts unter tools/_scratch/ — hier bewusst ohne Backticks, weil es das im Repo nie gab (S4: was in Backticks steht, muss existieren). |
+| `fels-textur.mjs` | `tools/elements/pruefung/fels-textur.mjs` | Prüft: dass das Fels-Texturpaar kachelt, das Format der Bestandstexturen trägt und Relief statt Mauerwerk zeigt — die Messung zu F2. Liest das PNG selbst (`node:zlib`), braucht also weder PIL noch Blender. Hängt in `scripts/run-tests.mjs` hinter der `assets/`-Weiche. |
+
+### pipeline/ — hier entstanden
+
+| Datei | Zielpfad | Zweck |
+|---|---|---|
+| `make-fels.py` | `tools/elements/pipeline/make-fels.py` | Erzeugt: das kachelbare Fels-Texturpaar `stein_fels.png` + `stein_fels_normal.png` (1024², prozedural auf dem Torus). Ersetzt für diesen Fall `texture-kit.py` + `make-normal.py`: Die Kachelung ist Konstruktion statt Nachbearbeitung, und die Normal-Karte entsteht aus dem HÖHENFELD statt aus der Helligkeit — mit umlaufender Ableitung und einer Stärke in Metern. |
 
 ### pipeline/quellen/ — Quelltexturen, ohne Kopfzeile
 
@@ -158,19 +179,27 @@ tragen deshalb keine Kopfzeile; der Wächter überspringt den Ordner.
 | Datei | Zweck |
 |---|---|
 | `pipeline/quellen/stein_albedo.png` | Stein-Grundtextur, Eingang von `make-moss.py`, `make-frost.py`, `make-wet.py` und `make-normal.py`. |
-| `pipeline/quellen/stein_normal.png` | Aus `stein_albedo.png` abgeleitete Normal-Map. **Nie angeschlossen** — im Repo kommt der Name `stein_normal` an keiner Stelle vor. Vorhaben 3a hängt genau hier an. |
+| `pipeline/quellen/stein_normal.png` | Aus `stein_albedo.png` abgeleitete Normal-Map. War bis F1 **nie angeschlossen**; seither liest `DungeonSteinMaterial.ts` Normal-Karten nach der Konvention `<albedo>_normal.png`. Die Karte des Kits ist deshalb `stein_clean_normal.png` (mit `make-normal.py` aus `stein_clean.png`), nicht diese hier — diese gehört zur Pipeline-Quelltextur. |
 | `pipeline/quellen/stein_moos_albedo.png` | Moos-Variante, Erzeugnis von `make-moss.py`. |
 | `pipeline/quellen/stein_frost_albedo.png` | Frost-Variante, Erzeugnis von `make-frost.py`. |
 | `pipeline/quellen/stein_wet_albedo.png` | Nass-Variante, Erzeugnis von `make-wet.py`. |
 
-> **Offener Punkt für Mike.** Die fünf PNG sind zusammen 11 MB, und vier
-> davon sind *ableitbar*: `make-normal.py`, `make-moss.py`, `make-frost.py`
-> und `make-wet.py` rechnen sie aus `stein_albedo.png` aus — sie sind damit
-> Ergebnis, und die Regel dieses Ordners lautet „Rezept, nicht Ergebnis".
-> Die Konzeptnotiz nennt trotzdem ausdrücklich fünf Quelltexturen, deshalb
-> liegen alle fünf hier. Wer nur `stein_albedo.png` behalten will, muss das
-> **vor dem ersten Push** entscheiden: danach kostet es eine
-> History-Umschrift.
+Die Normal-Karte des Kits liegt **nicht im Repo** (`assets/` ist draussen) und
+wird bei Bedarf neu abgeleitet:
+
+```bash
+python3 tools/elements/pipeline/make-normal.py \
+  assets/models/stein_clean.png assets/models/stein_clean_normal.png 2.0
+```
+
+Das Fels-Paar entsteht dagegen **nicht** aus einer Quelltextur, sondern
+prozedural — es hat keine Albedo-Vorlage, aus der sich eine Normal-Karte
+ableiten liesse, und braucht auch keine:
+
+```bash
+python3 tools/elements/pipeline/make-fels.py assets/models/stein_fels.png
+node tools/elements/pruefung/fels-textur.mjs
+```
 
 ### Hier entstanden — nicht aus `~/wov-ai/`
 
@@ -197,6 +226,91 @@ glb-schreiber-probe.ts, hier bewusst ohne Backticks, weil es sie noch nicht
 gibt (siehe „Was ein Pfad in Backticks bedeutet" in `tools/README.md`). Der
 Ordner steht schon da, damit sie beim Entstehen nicht wieder irgendwo
 landen; `ts/README.md` sagt es noch einmal an Ort und Stelle.
+
+## Das Kit in zwei Stilen bauen (F3)
+
+`make-stonevault.py` baut seit dem 04.09.2026 **dasselbe Kit zweimal**. Die
+Vorgabe bleibt der Ziegelverband und schreibt `StoneVault*.glb`; `--stil fels`
+tauscht ausschliesslich die Frontschicht von `innenwand()`, `wand()`,
+`bogen()` und den Treppenwangen gegen unregelmässige Blöcke und schreibt
+`RockVault*.glb`:
+
+```bash
+flatpak run org.blender.Blender --factory-startup -b \
+  --python tools/elements/blender/make-stonevault.py -- assets/models
+flatpak run org.blender.Blender --factory-startup -b \
+  --python tools/elements/blender/make-stonevault.py -- assets/models --stil fels
+node tools/elements/pruefung/fels-frontschicht.mjs
+```
+
+Nachweis, dass der Fels-Stil nichts kostet, was der Nahtschluss gewonnen hat
+(die Zählung muss gleich oder besser sein):
+
+```bash
+flatpak run … --python tools/elements/pruefung/render-naht.py -- \
+  assets/models tools/elements/out/naht-alt.png  StoneVault
+flatpak run … --python tools/elements/pruefung/render-naht.py -- \
+  assets/models tools/elements/out/naht-fels.png RockVault
+python3 tools/elements/pruefung/zaehle-naht.py \
+  tools/elements/out/naht-alt.png tools/elements/out/naht-fels.png
+```
+
+Kontaktbogen alt/neu — `render-stonevault.py` nimmt die Modulnamen jetzt als
+Argumente, damit beide Stile in EINEM Bild und unter EINER Kamera stehen:
+
+```bash
+flatpak run … --python tools/elements/pruefung/render-stonevault.py -- \
+  assets/models assets/models tools/elements/out/kontakt.png \
+  StoneVaultWall RockVaultWall
+```
+
+`--stil ziegel` ist dabei nachweislich unverändert: die zwölf so gebauten
+GLB sind Byte für Byte dieselben wie die ausgelieferten.
+
+`stein_decke.png` hat bewusst **keine** Karte bekommen: Damit läuft im Spiel
+dauerhaft ein Beispiel des Rückfalls „Datei fehlt → heutiges Verhalten" mit,
+statt dass er nur im Test vorkommt.
+
+> **Offener Punkt für Mike.** Die fünf PNG sind zusammen 11 MB, und vier
+> davon sind *ableitbar*: `make-normal.py`, `make-moss.py`, `make-frost.py`
+> und `make-wet.py` rechnen sie aus `stein_albedo.png` aus — sie sind damit
+> Ergebnis, und die Regel dieses Ordners lautet „Rezept, nicht Ergebnis".
+> Die Konzeptnotiz nennt trotzdem ausdrücklich fünf Quelltexturen, deshalb
+> liegen alle fünf hier. Wer nur `stein_albedo.png` behalten will, muss das
+> **vor dem ersten Push** entscheiden: danach kostet es eine
+> History-Umschrift.
+
+## Das abgeleitete Kit (F4)
+
+Die GLB aus `--stil fels` gehören zu einem eigenen Kit `DG_RockVault`. Es
+steht **nicht** als zweite Kit-Definition im Quelltext, sondern entsteht aus
+`DG_StoneVault`: `rockVariant()` in `shared/src/eigeneDungeons.ts` erzeugt die
+zwölf RoomDefs mit umgestelltem Namen und lässt `size`, `connections` und
+`gridEdges` unangetastet. Jede künftige Nahtschluss-Änderung am Stammkit wirkt
+damit auf beide.
+
+Zwei Prüfer halten das fest — an verschiedenen Enden:
+
+```bash
+# Die ERKLÄRUNG: Ist das Kit noch abgeleitet, oder hat jemand nachgetippt?
+npx tsx shared/test/kit-ableitung.ts
+# Die GEOMETRIE: Halten BEIDE Kits ihre Erklärung an der echten GLB ein?
+npx tsx tools/elements/pruefung/stonevault-kantensonde.ts
+```
+
+Die Kantensonde misst ohne Argument seit F4 beide Kits, und das ist kein
+Beiwerk: Die Erklärung ist für beide dieselbe (sie wird ja abgeleitet), die
+Geometrie ist es nicht. Ein Fels-Block, der ins Durchgangsfenster ragt,
+ändert keine Zeile der Erklärung — und fiele einer Sonde, die nur den
+Ziegelstil misst, nie auf. Ein Kitname als Argument misst weiterhin nur
+dieses eine.
+
+Dasselbe gilt für die Messzelle und den Saat-Test:
+
+```bash
+npx tsx tools/messe-stonevault-logik.ts --streng --kit=DG_RockVault
+npx tsx server/test/m3-stonevault-seeds.ts   # laeuft fuer beide Kits
+```
 
 ## Abweichungen von der Konzeptnotiz
 

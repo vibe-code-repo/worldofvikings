@@ -28,7 +28,11 @@
  *   - Abweichung der Zellmitten vom Sollraster.
  *
  * `--streng` macht daraus einen Wächter: Exit-Code 1, sobald eine
- * Invariante verletzt ist. Bis G7 war der Lauf ROT (952 Platten in
+ * Invariante verletzt ist — und ebenso, wenn gar keine geprüft werden
+ * konnte (Kit ohne Rastererklärung). Ein Wächter, der schweigt, weil er
+ * nichts gemessen hat, ist kein Wächter.
+ *
+ * Bis G7 war der Lauf ROT (952 Platten in
  * belegten Zellen) — das war der Sinn der Sache. Seit G8 baut
  * `DG_StoneVault` über den Rasterpfad, und der Lauf ist grün; die alte
  * Ausgangslage hält `tools/test/messe-stonevault-metrik.ts` als Block A
@@ -55,6 +59,7 @@
  * Aufruf:
  *   npx tsx tools/messe-stonevault-logik.ts
  *   npx tsx tools/messe-stonevault-logik.ts --streng
+ *   npx tsx tools/messe-stonevault-logik.ts --streng --kit=DG_RockVault
  *   npx tsx tools/messe-stonevault-logik.ts --kit=DG_Steingrab --seeds=10
  *   npx tsx tools/messe-stonevault-logik.ts --maxRooms=12 --zoneSize=32 --seeds=2123721695
  */
@@ -286,6 +291,39 @@ const MODUL_ERKLAERUNG: Record<string, ModulErklaerung> = {
   },
 };
 
+/** Namensstamm der Ziegel-Module bzw. der Fels-Module — s. `make-stonevault.py`. */
+const ZIEGEL_STAMM = 'StoneVault';
+const FELS_STAMM = 'RockVault';
+
+/**
+ * Der Modulname des STAMMKITS zu einem Modulnamen (F4).
+ *
+ * `DG_RockVault` ist eine ABLEITUNG von `DG_StoneVault` (`rockVariant()`
+ * in `shared/src/eigeneDungeons.ts`): gleiche Zellzahl, gleiche
+ * eingebauten Wände, gleiche Ports — nur die Frontschicht der Wände ist
+ * gebrochener Fels statt Ziegelverband, und die Modulnamen sind andere.
+ *
+ * Jede Tabelle dieser Messzelle ist nach Modulnamen geschlüsselt, und
+ * genau das ist die Falle: Ein unbekannter Name fällt aus der Tabelle,
+ * die Messung misst dann NICHTS und meldet trotzdem eine Null. Gemessen
+ * am Fels-Kit vor dieser Zeile: „stumme Nachbarschaften 0 in 0/40
+ * Saaten" — nicht weil keine da wären, sondern weil `ZELLARTIG` keinen
+ * einzigen Raum wiedererkannte. Eine Null, die nichts bedeutet, ist
+ * schlimmer als eine rote Zahl.
+ *
+ * Die zwölf Tabellenzeilen ein zweites Mal auszuschreiben wäre die andere
+ * Falle — zwei Wahrheiten über dieselbe Wand. Der unabhängige Zeuge
+ * bleibt, was er war: Die Erklärung ist von Hand geschrieben und stammt
+ * NICHT aus dem Generator; sie gilt jetzt nur für beide Häute desselben
+ * Kits. Dass die gebaute Geometrie sie je Kit wirklich einhält, misst
+ * `tools/elements/pruefung/stonevault-kantensonde.ts` gegen die echten
+ * GLBs — die eine Prüfung, die sich nicht auf eine zweite Erklärung
+ * verlässt.
+ */
+export function stammModul(name: string): string {
+  return name.startsWith(FELS_STAMM) ? `${ZIEGEL_STAMM}${name.slice(FELS_STAMM.length)}` : name;
+}
+
 /**
  * Trägt jedes Modul dieses Kits eine Rastererklärung?
  *
@@ -297,7 +335,7 @@ const MODUL_ERKLAERUNG: Record<string, ModulErklaerung> = {
  * des Feldes der Schalter, nicht die Vollständigkeit einer Tabelle hier.
  */
 export function hatRastererklaerung(def: DungeonDef): boolean {
-  return def.rooms.every((r) => r.endCap || MODUL_ERKLAERUNG[r.name] !== undefined);
+  return def.rooms.every((r) => r.endCap || MODUL_ERKLAERUNG[stammModul(r.name)] !== undefined);
 }
 
 /** Eine belegte Zelle mit ihrem Modul und ihren lokalen Indizes. */
@@ -322,7 +360,7 @@ function zellenEinesRaums(
   raumIndex: number,
   raumDef: RoomDef
 ): { zellen: BelegteZelle[]; drift: number } {
-  const erkl = MODUL_ERKLAERUNG[p.room];
+  const erkl = MODUL_ERKLAERUNG[stammModul(p.room)];
   const zellenX = erkl?.zellenX ?? Math.round(Math.max(raumDef.size.x, ZELL_M) / ZELL_M);
   const zellenZ = erkl?.zellenZ ?? Math.round(Math.max(raumDef.size.z, ZELL_M) / ZELL_M);
   const ebenen = erkl?.ebenen ?? Math.max(1, Math.round(raumDef.size.y / EBENE_M));
@@ -353,7 +391,7 @@ function zellenEinesRaums(
 
 /** Zustand der Kante einer belegten Zelle in WELTrichtung `r`. */
 function kantenzustand(z: BelegteZelle, r: Richtung): Kantenzustand {
-  const erkl = MODUL_ERKLAERUNG[z.raum];
+  const erkl = MODUL_ERKLAERUNG[stammModul(z.raum)];
   if (!erkl) return 'wand'; // Fremdkit ohne Erklärung: nichts behaupten, alles als Stein lesen.
   // Weltrichtung zurück in die lokale drehen: inverse Gierung anwenden.
   const lokal = richtungAusVektor(quatMulVec3(quatInverse(z.rot), RICHTUNG_VEKTOR[r]));
@@ -705,6 +743,11 @@ function pointInRoomHull(p: Vector3, placed: PlacedRoom, room: RoomDef): boolean
   );
 }
 
+/*
+  Nach den ZIEGEL-Namen geschlüsselt; die Fels-Ableitung wird über
+  `stammModul()` darauf zurückgeführt. Sie hier ein zweites Mal
+  aufzuzählen hiesse, dieselbe Liste zweimal zu pflegen.
+*/
 const ZELLARTIG = new Set([
   'StoneVaultEntry', 'StoneVaultCell', 'StoneVaultCorridor', 'StoneVaultCorner',
   'StoneVaultJunction', 'StoneVaultHall', 'StoneVaultHallLarge', 'StoneVaultHallLong',
@@ -774,7 +817,7 @@ function messeLayout(layout: DungeonLayout, seed: number, def: DungeonDef): Befu
   // beider Räume dort zusammentrifft (auch nicht über eine Wand).
   const cellRooms = layout.rooms
     .map((p, i) => ({ p, i, room: roomsByName.get(p.room) }))
-    .filter((x) => x.room && ZELLARTIG.has(x.p.room));
+    .filter((x) => x.room && ZELLARTIG.has(stammModul(x.p.room)));
 
   function nominalHalf(room: RoomDef, rot: Quaternion): { hx: number; hy: number; hz: number } {
     const nx = Math.max(room.size.x, 2);
@@ -865,7 +908,7 @@ function messeLayout(layout: DungeonLayout, seed: number, def: DungeonDef): Befu
   // (e) Treppen mit unversorgtem Anschluss (offen ODER Blindtür).
   let treppenProblem = 0;
   for (const c of conns) {
-    if (layout.rooms[c.roomIndex]!.room !== 'StoneVaultStairs') continue;
+    if (stammModul(layout.rooms[c.roomIndex]!.room) !== 'StoneVaultStairs') continue;
     if (openKey.has(`${c.roomIndex}:${c.connIndex}`)) {
       treppenProblem++;
       beispiele.push(
@@ -1056,6 +1099,21 @@ function main(): void {
     // Kein Rasterkit heisst: keine Aussage. Ein „alles gehalten" wäre hier
     // eine grüne Lampe an einem Gerät, das gar nicht angeschlossen ist.
     console.log('Invarianten: nicht geprüft (Kit ohne Rastererklärung).');
+    /*
+      Und unter `--streng` ist auch der Exit-Code 0 eine solche Lampe (F4).
+
+      Der Fall ist nicht ausgedacht: Vor F4 kannte die Erklärungstabelle nur
+      die Ziegel-Namen. `--streng --kit=DG_RockVault` lief damit durch alle
+      40 Saaten, meldete „nicht geprüft" in EINER Zeile und beendete sich
+      mit 0 — wer den Exit-Code auswertet (und dazu ist `--streng` da),
+      hätte ein ungeprüftes Kit für geprüft gehalten. Wer die Invarianten
+      als Wächter anfordert, bekommt jetzt entweder eine Messung oder
+      einen Fehler; ein Kit ohne Rastererklärung misst man ohne `--streng`.
+    */
+    if (a.streng) {
+      console.log('\n--streng: nichts zu prüfen ist kein Bestehen — Exit-Code 1.');
+      process.exit(1);
+    }
     return;
   }
   const verletzt = verletzteInvarianten(g);

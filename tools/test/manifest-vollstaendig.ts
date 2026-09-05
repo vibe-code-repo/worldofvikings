@@ -12,6 +12,26 @@
  * nicht — dafür müsste er dieselbe glTF-Mathematik ein zweites Mal
  * schreiben, und genau das soll ein Test nie tun.
  *
+ * ── Was seit F5 anders ist ───────────────────────────────────────────
+ * Ein Eintrag ohne Datei war bis dahin immer ein Fehlschlag. Das setzt
+ * voraus, dass die laufende Maschine ALLE Modelle hat — und genau das
+ * gilt hier nicht mehr: Die drei Dungeon-Arbeitsbäume teilen sich per
+ * Symlink 36 GLB, das Manifest beschreibt über 200. Der Test war deshalb
+ * rot, ohne dass etwas kaputt war, und ein roter Dauertest wird in kurzer
+ * Zeit ignoriert (dieselbe Erfahrung wie am 23.08.2026 mit dem fehlenden
+ * `assets/`-Ordner, s. unten).
+ *
+ * Die Unterscheidung kann der Test nicht selbst treffen — auf der Platte
+ * sieht ein Teilbestand aus wie ein gelöschtes Modell. Also sagt sie das
+ * Manifest: `tools/asset-manifest.mjs` führt jeden Eintrag, den es in
+ * diesem Lauf NICHT messen konnte, unter `uebernommen` auf. Ist die Liste
+ * leer, hat der Lauf den vollen Bestand gesehen, und ein Eintrag ohne
+ * Datei ist wieder das, was er immer war: eine Leiche.
+ *
+ * Dafür prüft der Test die Liste in der Gegenrichtung mit: Ein Name, der
+ * unter `uebernommen` steht, obwohl die Datei hier LIEGT, heisst, dass
+ * das Manifest seit dem letzten Lauf veraltet ist.
+ *
  *   npx tsx tools/test/manifest-vollstaendig.ts
  */
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
@@ -88,10 +108,40 @@ const dateiListe = alleGlb().sort();
 const dateiStaemme = new Set(dateiListe.map((f) => f.slice(0, -4)));
 const manifestStaemme = new Set(Object.keys(manifest.modelle));
 
+/**
+ * Einträge, die der letzte Lauf nicht messen konnte, weil die Datei auf
+ * jener Maschine fehlte. Fehlt das Feld ganz, stammt das Manifest von vor
+ * F5 — dann galt „alles gemessen", und `[]` ist die richtige Lesart.
+ */
+const uebernommen: string[] = manifest.uebernommen ?? [];
+const uebernommenSet = new Set(uebernommen);
+
 check(
-  'manifest.anzahl stimmt mit der Dateizahl unter assets/models/ überein',
-  manifest.anzahl === dateiListe.length,
-  `manifest=${manifest.anzahl} Platte=${dateiListe.length}`
+  'manifest.anzahl stimmt mit der Zahl der Einträge überein',
+  manifest.anzahl === manifestStaemme.size,
+  `anzahl=${manifest.anzahl} Einträge=${manifestStaemme.size}`
+);
+
+check(
+  'gemessene Einträge (anzahl − uebernommen) decken den Plattenbestand genau',
+  manifest.anzahl - uebernommen.length === dateiListe.length,
+  `manifest=${manifest.anzahl}−${uebernommen.length} Platte=${dateiListe.length}`
+);
+
+const uebernommenOhneEintrag = uebernommen.filter((stamm) => !manifestStaemme.has(stamm));
+check(
+  'jeder übernommene Name hat auch einen Eintrag',
+  uebernommenOhneEintrag.length === 0,
+  uebernommenOhneEintrag.join(', ')
+);
+
+// Gegenrichtung: liegt die Datei hier, hätte der letzte Lauf sie messen
+// müssen. Steht sie trotzdem unter `uebernommen`, ist das Manifest alt.
+const uebernommenObwohlDa = uebernommen.filter((stamm) => dateiStaemme.has(stamm));
+check(
+  'kein übernommener Eintrag zu einer Datei, die hier liegt (Manifest veraltet)',
+  uebernommenObwohlDa.length === 0,
+  uebernommenObwohlDa.join(', ')
 );
 
 const fehlendImManifest = dateiListe
@@ -105,11 +155,18 @@ check(
 
 const dangelnd: string[] = [];
 for (const [stamm, eintrag] of Object.entries(manifest.modelle) as [string, { datei: string }][]) {
+  // Ein übernommener Eintrag SOLL auf eine hier fehlende Datei zeigen —
+  // das ist seine Aussage, nicht sein Fehler.
+  if (uebernommenSet.has(stamm)) continue;
   if (!dateiStaemme.has(stamm) || !existsSync(join(MODELLE_DIR, eintrag.datei))) {
     dangelnd.push(`${stamm} -> ${eintrag.datei}`);
   }
 }
-check('kein Manifest-Eintrag zeigt auf eine fehlende Datei', dangelnd.length === 0, dangelnd.join(', '));
+check(
+  `kein gemessener Manifest-Eintrag zeigt auf eine fehlende Datei (${uebernommen.length} übernommene ausgenommen)`,
+  dangelnd.length === 0,
+  dangelnd.join(', ')
+);
 
 // Stichprobe der Pflichtfelder (Roadmap F2: "je Modell mindestens …") — nicht
 // die Werte selbst, nur dass sie überhaupt geschrieben wurden.

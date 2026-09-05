@@ -185,8 +185,13 @@ export interface EigenesKitJson {
  * Versatz innerhalb eines Location-Prefabs; im Projekt liest es niemand
  * (geprüft), und die Instanz bekommt ihren Ursprung ohnehin vom
  * `DungeonManager` zugewiesen.
+ *
+ * Die Liste hiess bis F4 `EIGENE_KITS`. Sie trägt nicht mehr alle eigenen
+ * Kits: `DG_RockVault` wird am Ende dieser Datei aus `DG_StoneVault`
+ * ABGELEITET. Der Name trennt beides sichtbar — wer hier einträgt, tippt;
+ * wer dort einträgt, rechnet.
  */
-export const EIGENE_KITS: readonly EigenesKitJson[] = [
+const HANDGESCHRIEBENE_KITS: readonly EigenesKitJson[] = [
   {
     name: 'DG_Steingrab',
     /*
@@ -2332,4 +2337,137 @@ export const EIGENE_KITS: readonly EigenesKitJson[] = [
       },
     ],
   },
+];
+
+/**
+ * Namensstamm der Ziegel-Module und der Fels-Module.
+ *
+ * Dieselbe Umstellung macht `make-stonevault.py --stil fels` an den
+ * DATEINAMEN (`PRAEFIX` dort). Wer einen der beiden Stämme ändert, muss
+ * ihn an beiden Stellen ändern — `RoomDef.name` IST der Dateiname
+ * (`assets/models/<name>.glb`, s. Bauteil-Vertrag im Kopf dieser Datei).
+ */
+const MODUL_STAMM = 'StoneVault';
+const MODUL_STAMM_FELS = 'RockVault';
+
+/**
+ * Das Fels-Albedo für die Wand der Ableitung.
+ *
+ * Als LITERAL und nicht als Import aus `dungeons.ts`: Diese Datei wird
+ * von `dungeons.ts` gelesen, ein Import zurück wäre ein Ringschluss (s.
+ * die Begründung bei `THEMA_KRYPTA` weiter oben). Dass die Zeichenkette
+ * wirklich in `STEIN_TEXTUREN` steht — sonst wirft der Sanitizer sie
+ * still weg —, prüft `shared/test/kit-ableitung.ts`.
+ */
+const FELS_WAND_TEXTUR = '/assets/models/stein_fels.png';
+
+/** Aus `StoneVaultWall` wird `RockVaultWall`. */
+function felsModulName(name: string): string {
+  /*
+    Laut statt still: Ein Modul, dessen Name nicht auf dem Stamm sitzt,
+    behielte beim blossen Ersetzen seinen Namen — und beide Kits zeigten
+    auf DIESELBE GLB. Im Grab sähe man dann ein einzelnes Ziegelteil
+    zwischen lauter Fels und suchte den Fehler in Blender.
+  */
+  if (!name.startsWith(MODUL_STAMM)) {
+    throw new Error(`Modul '${name}' beginnt nicht mit '${MODUL_STAMM}' — die Fels-Ableitung kann es nicht umbenennen.`);
+  }
+  return MODUL_STAMM_FELS + name.slice(MODUL_STAMM.length);
+}
+
+/**
+ * Die Fels-Variante eines Modul-Kits — `DG_StoneVault` → `DG_RockVault`.
+ *
+ * ── Warum abgeleitet und nicht abgeschrieben ─────────────────────────
+ * Die beiden Kits sind DASSELBE Kit in zwei Häuten. `make-stonevault.py`
+ * baut mit `--stil fels` dieselben Module aus derselben Arithmetik und
+ * tauscht allein die Frontschicht der Wände (F3): gleiche Hüllbox,
+ * gleicher Ursprung, gleiche Öffnungen. Also müssen auch `size`,
+ * `connections` und `gridEdges` dieselben sein — und zwar nicht „bis auf
+ * Weiteres gleich gepflegt", sondern buchstäblich dieselben Werte.
+ *
+ * Eine Kopie hielte das genau so lange durch, bis jemand am Nahtschluss
+ * eine Kante nachzieht. Deshalb entsteht hier jeder RoomDef aus dem des
+ * Stammkits, und geändert wird ausschliesslich, was sich ändern MUSS:
+ *
+ *   • der Kitname,
+ *   • jeder Modulname (er ist der Dateiname der GLB),
+ *   • der Hash des Türtyps (er ist der Schlüssel, unter dem der Client
+ *     das Modell sucht — ein übernommener Stammhash zöge den Ziegel-
+ *     Torbogen in ein Fels-Grab),
+ *   • die WANDTEXTUR.
+ *
+ * ── Warum NUR die Wandtextur und nicht auch Decke und Boden ──────────
+ * Fels ist in F3 an genau den Flächen entstanden, die die Frontschicht
+ * tragen: Innenwände, Wandpaneel, Torbogen, Treppenwangen. Boden und
+ * Decke sind unverändert geblieben — der Boden ausdrücklich, weil er die
+ * Kollisionsfläche ist und 16 Quader je Zelle trägt. Ein Fels-Albedo auf
+ * einer Fläche, deren Geometrie flach geblieben ist, wirbt für den
+ * Unterschied, statt ihn zu verdecken: Die Normal-Karte allein (F1) ändert
+ * keine Silhouette, und der Boden ist die Fläche, auf die der Spieler aus
+ * 1,7 m Höhe am steilsten schaut. Also bekommt Fels, was Fels IST.
+ *
+ * Reine Funktion ohne Nebenwirkung — `shared/package.json` trägt
+ * `sideEffects: false`, ein Aufruf beim Laden des Moduls darf deshalb
+ * nichts tun, ausser einen Wert auszurechnen.
+ */
+export function rockVariant(basis: EigenesKitJson): EigenesKitJson {
+  const abgeleitet: EigenesKitJson = {
+    ...basis,
+    name: 'DG_RockVault',
+    doorTypes: basis.doorTypes.map((tuer) => {
+      const prefabName = felsModulName(tuer.prefabName);
+      return { ...tuer, prefabName, prefabHash: getStableHash(prefabName) };
+    }),
+    rooms: basis.rooms.map((raum) => ({ ...raum, name: felsModulName(raum.name) })),
+  };
+  if (basis.steinKit === undefined) return abgeleitet;
+  return { ...abgeleitet, steinKit: { ...basis.steinKit, wandTextur: FELS_WAND_TEXTUR } };
+}
+
+/** Kit nachschlagen — laut, damit ein Umbenennen nicht in einer leeren Ableitung endet. */
+function kitNamens(kits: readonly EigenesKitJson[], name: string): EigenesKitJson {
+  const kit = kits.find((k) => k.name === name);
+  if (!kit) throw new Error(`Kit '${name}' fehlt in HANDGESCHRIEBENE_KITS — die Fels-Ableitung hat keine Vorlage.`);
+  return kit;
+}
+
+/**
+ * Die eigenen Kits: die beiden handgeschriebenen plus die Fels-Ableitung.
+ *
+ * `DG_RockVault` steht NICHT als Literal darüber, und das ist der ganze
+ * Punkt — s. `rockVariant`. Wer es hier durch einen ausgeschriebenen
+ * Eintrag ersetzt, macht `shared/test/kit-ableitung.ts` rot.
+ */
+const FELS_STAMM_KIT = kitNamens(HANDGESCHRIEBENE_KITS, 'DG_StoneVault');
+const FELS_KIT = rockVariant(FELS_STAMM_KIT);
+
+export const EIGENE_KITS: readonly EigenesKitJson[] = [...HANDGESCHRIEBENE_KITS, FELS_KIT];
+
+/** Ein Kit und das Kit, aus dem es entstanden ist. */
+export interface KitDerivation {
+  readonly stem: string;
+  readonly derived: string;
+}
+
+/**
+ * Welches Kit aus welchem entsteht — als Tabelle, damit Werkzeuge die
+ * Ableitung nicht raten muessen.
+ *
+ * Der Anlass ist F5: `tools/asset-manifest.mjs --abgleich` listete jede
+ * Abweichung der zwoelf Stammmodule ein zweites Mal unter ihrem
+ * Fels-Namen. Zwoelf Zeilen, die nichts Neues sagen — `rockVariant()`
+ * uebernimmt `size` unveraendert, also IST die Abweichung des
+ * Fels-Moduls die des Stammmoduls. In einer nach Groesse sortierten
+ * Bestenliste verdraengen sie genau das, wofuer die Liste da ist.
+ *
+ * Beide Namen kommen aus den Kit-Objekten selbst und nicht aus zwei
+ * neuen Zeichenketten: Wer `rockVariant()` umbenennt, benennt diese
+ * Tabelle mit um. Die Zuordnung der einzelnen MODULE bleibt bewusst
+ * draussen — sie ergibt sich aus der Reihenfolge in `rooms`/`doorTypes`,
+ * die `rockVariant()` per `map` erhaelt, und wird dort abgelesen, wo sie
+ * gebraucht wird (`tools/manifest-zuordnung.ts`).
+ */
+export const KIT_DERIVATIONS: readonly KitDerivation[] = [
+  { stem: FELS_STAMM_KIT.name, derived: FELS_KIT.name },
 ];

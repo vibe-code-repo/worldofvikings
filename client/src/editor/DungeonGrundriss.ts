@@ -117,8 +117,13 @@ interface Punkt {
  * hiesse dreizehn Einträge zu erfinden, die niemand nachgemessen hat.
  * Wenn ein zweites Modulkit dazukommt, steht es hier — eine Zeile, und
  * sie wird vom Test mitgeführt.
+ *
+ * Seit F4 ist das der Fall: `DG_RockVault` ist die Fels-Ableitung
+ * desselben Kits (`rockVariant()` in `shared/src/eigeneDungeons.ts`) und
+ * steht auf demselben 2-m-Raster. Ohne den Eintrag zeichnete der Editor
+ * es auf 4 m — die Zellen lägen auseinander, und jede Kante sässe falsch.
  */
-const MODULKITS: ReadonlySet<string> = new Set(['DG_StoneVault']);
+const MODULKITS: ReadonlySet<string> = new Set(['DG_StoneVault', 'DG_RockVault']);
 
 /** Rastermass des Kits in Metern — 2 m im Modulformat, sonst 4 m. */
 export function rasterVonBasis(base: string): number {

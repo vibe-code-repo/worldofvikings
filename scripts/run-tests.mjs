@@ -57,6 +57,23 @@ import { resolve } from 'node:path';
 */
 import { WURZEL, brauchtModelle, brauchtBlender } from './testweichen.mjs';
 
+/*
+  Weiche fuer Pruefer, die eine `python3`-Datei befragen.
+
+  Die Fels-Blocklage (F3) liegt bewusst als reines Python-Modul neben dem
+  Blender-Bauskript — nur so laesst sie sich ohne Blender messen. Der
+  Pruefer ruft `python3` also wirklich auf; fehlt es, misst er nichts und
+  wuerde still gruen bleiben. Deshalb hier die Weiche und nicht dort.
+
+  Skips when python3 is missing (the checker shells out to it).
+*/
+function brauchtPython() {
+  return () =>
+    spawnSync('python3', ['-c', 'pass'], { encoding: 'utf-8' }).status === 0
+      ? null
+      : 'python3 fehlt — die Fels-Blocklage wird per python3 befragt';
+}
+
 const KERN = [
   /*
     S1 (Elemente-Umzug): Kopfzeilen-Wächter über `tools/elements/`. Steht
@@ -421,10 +438,20 @@ const KERN = [
     ~1 s.
     G11: the kit's edge declaration measured against the real GLB geometry.
   */
+  // Seit F4 misst sie ohne Argument BEIDE Rasterkits — Ziegel und Fels.
+  // Die Kit-Erklaerung ist fuer beide dieselbe (sie wird abgeleitet), die
+  // GEOMETRIE ist es nicht: Ein Fels-Block, der ins Durchgangsfenster
+  // ragt, aendert keine Zeile der Erklaerung. Deshalb stehen hier auch
+  // die Fels-Dateien in der Weiche.
   [
     'tools/elements/pruefung',
     'stonevault-kantensonde.ts',
-    brauchtModelle('assets/models/StoneVaultCorner.glb', 'assets/models/StoneVaultJunction.glb'),
+    brauchtModelle(
+      'assets/models/StoneVaultCorner.glb',
+      'assets/models/StoneVaultJunction.glb',
+      'assets/models/RockVaultCorner.glb',
+      'assets/models/RockVaultJunction.glb'
+    ),
   ],
   // `flattenRooms`: Layout → Prefab-Instanzen für eine ANSICHT, mit dem
   // statischen Wächter, dass `dungeonKanten.ts` dafür NICHTS aus
@@ -829,6 +856,13 @@ const KERN = [
     tools — same output, same bytes, clean `git status assets/`.
   */
   ['tools', 'test/generiert-getrennt.ts'],
+  // F5: die zwei Zuordnungen, mit denen `--abgleich` von einer Prefab-
+  // Definition auf die GLB kommt, die sie wirklich laedt — MODELL_ALIAS
+  // (aus dem Client-Quelltext gelesen) und Fels-Modul -> Stammmodul (aus
+  // der Kit-Ableitung). Beide scheitern lautlos, indem sie etwas aus dem
+  // Bericht FALLEN lassen. Braucht keine Modelldateien, laeuft also auch
+  // im CI-Checkout. Sekundenbruchteile.
+  ['tools', 'test/manifest-zuordnung.ts'],
 
   // ── Dungeon Generator 2.0 ──────────────────────────────────────────
   //
@@ -887,6 +921,55 @@ const KERN = [
   // ShaderStore — alle vier Einspritzpunkte inklusive Reihenfolge und
   // `highp`. Fällt, sobald ein Babylon-Update die Ankerzeilen verschiebt.
   ['client', 'test/dungeon2-material.ts'],
+  // F1 (Fels-Relief 3a): der NORMAL-Kanal des 1.0-Steinmaterials. Prüft am
+  // installierten Babylon nach, dass `normalW` am Einspritzpunkt beschreibbar
+  // ist UND danach noch gelesen wird, fährt den erzeugten Shader durch alle
+  // Präprozessor-Varianten (ohne Karte, Wand, Wand+Boden, alle drei) und
+  // hält fest, dass eine fehlende Datei das heutige Verhalten ergibt statt
+  // einer schwarzen Wand. Liegt `glslangValidator` auf dem PATH, wird jede
+  // Variante zusätzlich wirklich übersetzt; sonst meldet sie sich als
+  // übersprungen. Kein `assets/`, keine GPU, ~2 s.
+  // F1: the stone material's normal channel — text-only, plus a real GLSL
+  // compile when glslangValidator happens to be installed.
+  ['client', 'test/stein-normal.ts'],
+  // F2 (Fels-Relief 3a): das Steinmaterial JE DOKUMENT — Erlaubnisliste,
+  // Sanitizer und Raum-Override, dazu der Fels-Eintrag `stein_fels` und
+  // die Zusage, dass KEINE Normal-Karte in der Liste steht (sie wäre im
+  // Editor-Dropdown ein wählbares Albedo). Der Test lag bisher als
+  // einziger der Steinkit-Reihe nicht im Sammellauf. Reine Logik, ~2 s.
+  // F2: the per-document stone material allow-list and sanitizer.
+  ['shared', 'test/dungeon-steinkit-dokument.ts'],
+  // F2: Misst das Fels-TEXTURPAAR selbst — Format, Kachelnaht gegen das
+  // Bildinnere, Anisotropie (waagerechte Fugen verrieten Mauerwerk) und
+  // die Reliefstärke der Normal-Karte. Liest das PNG mit `node:zlib`,
+  // braucht also weder PIL noch Blender — aber die Dateien, und die
+  // liegen in `assets/`.
+  // F2: measures the rock texture pair itself (tiling, format, relief).
+  [
+    'tools/elements',
+    'pruefung/fels-textur.mjs',
+    brauchtModelle('assets/models/stein_fels.png', 'assets/models/stein_fels_normal.png'),
+  ],
+  // F3 (Fels-Relief 3b): die BLOCKLAGE der Fels-Frontschicht — die Naht an
+  // der Modulgrenze (jedes abgeschnittene Reststück trifft sein Gegenstück
+  // in Höhe und Tiefe), die Hüllbox (kein Block steht weiter vor als das
+  // Ziegelrelief, sonst wäre `DG_RockVault` kein abgeleitetes Kit mehr) und
+  // das Dreiecksbudget von 1500 je Wandpaneel. Befragt `felsblock.py` per
+  // `python3 --dump`; kein Blender, kein `assets/`, ~1 s.
+  // F3: the rock front layer's block lattice — seam, bounding box, budget.
+  ['tools/elements', 'pruefung/fels-frontschicht.mjs', brauchtPython()],
+  /*
+    F4 (Fels-Relief 3b): der WAECHTER ueber die Ableitung `DG_RockVault`.
+    Vergleicht das Kit Feld fuer Feld gegen die frische Ausgabe von
+    `rockVariant()` — ein von Hand nachgetragener RoomDef ist damit rot,
+    und zwar sofort und nicht erst bei der naechsten Nahtschluss-
+    Aenderung. Dazu die Einzelaussagen: 12 Module umbenannt, Torbogen mit
+    eigenem Hash, Fels-Albedo an der Wand, jeder neue Name in
+    `EIGENE_MODELLE`, und ueber fuenf Saaten derselbe Grundriss wie das
+    Stammkit. Reine Daten, kein `assets/`, Sekundenbruchteile.
+    F4: the guard that DG_RockVault stays DERIVED from DG_StoneVault.
+  */
+  ['shared', 'test/kit-ableitung.ts'],
   // Sichtbare Deko als Thin Instances, gegen eine Attrappen-Modellquelle
   // statt echter GLBs (assets/ liegt ausserhalb des Repos).
   ['client', 'test/dungeon2-deko.ts'],

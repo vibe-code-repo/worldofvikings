@@ -117,6 +117,10 @@ const KIT = 'DG_StoneVault';
 const def = DUNGEONS_BY_NAME.get(KIT)!;
 const raum = (name: string) => def.rooms.find((r) => r.name === name)!;
 const TYP = raum('StoneVaultCorridor').connections[0]!.type;
+/** Die Fels-Ableitung desselben Kits (F4) — s. `rockVariant()`. */
+const KIT_FELS = 'DG_RockVault';
+const defFels = DUNGEONS_BY_NAME.get(KIT_FELS)!;
+const raumFels = (name: string) => defFels.rooms.find((r) => r.name === name)!;
 
 // ── 1. Kantennamen ──────────────────────────────────────────────────
 pruefe(kantenName({ x: 0, z: 1 }, 0) === 'Nord', 'kantenName +z heisst Nord');
@@ -155,6 +159,20 @@ pruefe(
 const RASTER = rasterVonBasis(KIT);
 pruefe(RASTER === 2, 'StoneVault wird im 2-m-Raster gezeichnet', String(RASTER));
 pruefe(rasterVonBasis('DG_Steingrab') === 4, 'Steingrab bleibt im 4-m-Raster');
+/*
+  F4: Die Fels-Ableitung `DG_RockVault` ist DASSELBE Modulkit in einer
+  anderen Haut (`rockVariant()`, shared/src/eigeneDungeons.ts). Sie steht
+  deshalb ebenso in `MODULKITS` — fehlte sie dort, zeichnete der Editor
+  ein 2-m-Kit auf ein 4-m-Raster, und der Grundriss saehe aus, als
+  beruehrten die Zellen einander nicht.
+*/
+pruefe(rasterVonBasis(KIT_FELS) === 2, 'RockVault wird ebenfalls im 2-m-Raster gezeichnet', String(rasterVonBasis(KIT_FELS)));
+const gangHuelleFels = zeichenHuelle(raumFels('RockVaultCorridor'), rasterVonBasis(KIT_FELS));
+pruefe(
+  Math.abs(gangHuelleFels.x - 2) < 1e-9 && Math.abs(gangHuelleFels.z - 2) < 1e-9,
+  'Fels-Korridor wird als volle 2-m-Zelle gezeichnet',
+  `${gangHuelleFels.x} × ${gangHuelleFels.z}`
+);
 const gangHuelle = zeichenHuelle(raum('StoneVaultCorridor'), RASTER);
 pruefe(
   Math.abs(gangHuelle.x - 2) < 1e-9 && Math.abs(gangHuelle.z - 2) < 1e-9,
@@ -186,7 +204,9 @@ pruefe(ebeneVon(-0.0000001) === 0, 'Fliesskomma-Rauschen landet auf Ebene 0');
 // ── 5. Neues Dokument ───────────────────────────────────────────────
 const basen = waehlbareBasen();
 pruefe(basen[0]?.name === 'DG_StoneVault', 'eigenes Modulkit steht vorn', basen[0]?.name);
-pruefe(basen[1]?.name === 'DG_Steingrab', 'Steingrab steht auf Platz zwei', basen[1]?.name);
+// F4: Die beiden Modulkits stehen beieinander, das Steingrab dahinter.
+pruefe(basen[1]?.name === 'DG_RockVault', 'die Fels-Ableitung steht daneben', basen[1]?.name);
+pruefe(basen[2]?.name === 'DG_Steingrab', 'Steingrab steht auf Platz drei', basen[2]?.name);
 pruefe(
   !basen.some((d) => d.name === 'DG_Hildir_PlainsFortress'),
   'die nicht instanzierbare Plains-Festung fehlt'
@@ -359,6 +379,33 @@ pruefe(
   'angezeigt wird der blosse Dateiname',
   wahlen[0]!.kinder[1]!.textContent
 );
+
+// ── F2: die Fels-Textur steht dokumentweit zur Wahl ─────────────────
+// Der Abschnitt heisst „Steinmaterial (Dokument)" und gilt für das GANZE
+// Grab, nicht je Raum — deshalb wird hier geprüft, dass alle DREI
+// Flächen den Fels anbieten und dass die Auswahl im Dokument landet.
+for (let i = 0; i < 3; i++) {
+  const namen = wahlen[i]!.kinder.map((k) => k.textContent);
+  pruefe(namen.includes('stein_fels'), `Fläche ${i}: „stein_fels" steht im Dropdown`, namen.join('|'));
+  // Die Normal-Karte darf NIE als Albedo wählbar sein (Konvention aus F1:
+  // der Pfad wird abgeleitet, nicht gewählt). Eine blaue Wand im Grab
+  // wäre ein Fehler, den niemand erklären kann.
+  pruefe(
+    namen.every((n) => !String(n).endsWith('_normal')),
+    `Fläche ${i}: keine Normal-Karte im Dropdown`,
+    namen.filter((n) => String(n).endsWith('_normal')).join('|') || 'keine'
+  );
+}
+
+wahlen[1]!.value = '/assets/models/stein_fels.png';
+wahlen[1]!.onchange!();
+pruefe(
+  seiteDoc.steinKit?.deckeTextur === '/assets/models/stein_fels.png',
+  'die Fels-Wahl an der Decke landet im Dokument',
+  JSON.stringify(seiteDoc.steinKit)
+);
+delete (seiteDoc as { steinKit?: unknown }).steinKit;
+seite.baue();
 
 wahlen[0]!.value = '/assets/models/stein_moos.png';
 wahlen[0]!.onchange!();

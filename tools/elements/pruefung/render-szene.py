@@ -51,8 +51,12 @@ for arg in a:
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 
-# Der Eingangsraum teilt sich die GLB mit der Zelle (MODELL_ALIAS im Client).
-ALIAS = {"StoneVaultEntry": "StoneVaultCell"}
+# Der Eingangsraum teilt sich die GLB mit der Zelle (MODELL_ALIAS im Client) —
+# in BEIDEN Kits: Die Fels-Ableitung DG_RockVault (F4) erbt die Rollentrennung,
+# aber `make-stonevault.py --stil fels` baut fuer den Eingang so wenig eine
+# eigene Datei wie der Ziegelstil. Ohne die zweite Zeile bricht der Import
+# genau an dem einen Modul ab, das im Ursprung steht.
+ALIAS = {"StoneVaultEntry": "StoneVaultCell", "RockVaultEntry": "RockVaultCell"}
 
 
 def b(gx, gy, gz):

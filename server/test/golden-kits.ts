@@ -16,7 +16,7 @@
  *  2. Der Verteiler liefert für ein Bestandskit exakt das, was
  *     `generateDungeonLayout` liefert — er ist eine Weiche, keine zweite
  *     Fassung derselben Rechnung.
- *  3. `DG_StoneVault` läuft über den RASTERPFAD: dasselbe Layout wie
+ *  3. Die RASTERKITS laufen über den Rasterpfad: dasselbe Layout wie
  *     `generateGridLayout`, und ausdrücklich ein ANDERES als der
  *     1.0-Pfad. Ohne die zweite Hälfte wäre die erste auch dann grün,
  *     wenn der Schalter gar nichts täte.
@@ -49,8 +49,22 @@ import { erzeugeLayoutFuerKit, generateGridLayout } from '@wov/shared';
 
 /** Dieselbe Stichprobe wie in der Konzeptnotiz und in `messe-stonevault-logik.ts`. */
 const SEEDS = Array.from({ length: 40 }, (_, i) => i + 1);
-/** Das eine Kit, das mit G8 die Seite wechselt — es hat kein Golden. */
-const RASTER_KIT = 'DG_StoneVault';
+/**
+ * Die Kits auf dem RASTERPFAD — sie haben kein Golden.
+ *
+ * Mit G8 war das genau eines (`DG_StoneVault`, das die Seite wechselte),
+ * und die Konstante hiess entsprechend `RASTER_KIT`. Mit F4 kommt die
+ * Fels-Ableitung `DG_RockVault` dazu (`rockVariant()` in
+ * `shared/src/eigeneDungeons.ts`) — geometrisch dasselbe Kit, deshalb
+ * ebenfalls mit `gridGeneration` und ebenfalls ohne Golden.
+ *
+ * Diese eine Zeile ist die ganze Anpassung, aber sie muss BEWUSST
+ * gesetzt werden: Prüfung 1 verlangt für jedes Kit ohne Eintrag hier
+ * eine Golden-Datei, Prüfung 3 verlangt umgekehrt, dass sonst KEIN Kit
+ * den Schalter trägt. Wer ein Rasterkit hinzufügt, ohne es hier zu
+ * nennen, bekommt zwei rote Prüfungen und keine Erklärung dazu.
+ */
+const RASTER_KITS: ReadonlySet<string> = new Set(['DG_StoneVault', 'DG_RockVault']);
 /** Die namentlich genannte Kombination aus der Konzeptnotiz (Vertragsteil „Steingrab"). */
 const VOLL_KIT = 'DG_Steingrab';
 const VOLL_SEED = 7;
@@ -122,7 +136,7 @@ function gleich(a: GoldenEintrag, b: GoldenEintrag): boolean {
 
 // ── 1. Bestandskits: byte-gleich zum abgelegten Stand ─────────────────
 console.log('=== Bestandskits gegen tools/golden/ ===\n');
-const bestandskits = DUNGEONS.filter((d) => d.name !== RASTER_KIT);
+const bestandskits = DUNGEONS.filter((d) => !RASTER_KITS.has(d.name));
 let verglichen = 0;
 for (const def of bestandskits) {
   const pfad = join(GOLDEN_DIR, `${def.name}.json`);
@@ -183,17 +197,16 @@ for (const def of bestandskits.slice(0, 6)) {
   check(`${def.name}: Verteiler == generateDungeonLayout`, identisch);
 }
 
-// ── 3. DG_StoneVault läuft über den Rasterpfad ────────────────────────
-const stoneVault = DUNGEONS_BY_NAME.get(RASTER_KIT);
-if (!stoneVault) {
-  console.error(`Kit '${RASTER_KIT}' fehlt.`);
-  process.exit(1);
+// ── 3. Die Rasterkits laufen über den Rasterpfad ──────────────────────
+const rasterkits: DungeonDef[] = [];
+for (const name of RASTER_KITS) {
+  const def = DUNGEONS_BY_NAME.get(name);
+  if (!def) {
+    console.error(`Kit '${name}' fehlt.`);
+    process.exit(1);
+  }
+  rasterkits.push(def);
 }
-check(
-  `${RASTER_KIT} trägt den Schalter gridGeneration`,
-  stoneVault.gridGeneration !== undefined,
-  stoneVault.gridGeneration ? JSON.stringify(stoneVault.gridGeneration) : 'fehlt'
-);
 check(
   `kein anderes Kit trägt gridGeneration`,
   bestandskits.every((d) => d.gridGeneration === undefined),
@@ -202,24 +215,39 @@ check(
     .map((d) => d.name)
     .join(', ')
 );
-{
+for (const def of rasterkits) {
+  check(
+    `${def.name} trägt den Schalter gridGeneration`,
+    def.gridGeneration !== undefined,
+    def.gridGeneration ? JSON.stringify(def.gridGeneration) : 'fehlt'
+  );
   let ueberRaster = true;
   let unterschiedlich = true;
   for (const seed of SEEDS) {
-    const verteiler = JSON.stringify(erzeugeLayoutFuerKit(stoneVault, seed));
-    if (verteiler !== JSON.stringify(generateGridLayout(stoneVault, seed))) ueberRaster = false;
+    const verteiler = JSON.stringify(erzeugeLayoutFuerKit(def, seed));
+    if (verteiler !== JSON.stringify(generateGridLayout(def, seed))) ueberRaster = false;
     // Der Gegenbeweis: Wäre der Schalter wirkungslos, käme hier dasselbe
     // heraus — und Prüfung 1 bliebe trotzdem grün.
-    if (verteiler === JSON.stringify(generateDungeonLayout(stoneVault, seed))) unterschiedlich = false;
+    if (verteiler === JSON.stringify(generateDungeonLayout(def, seed))) unterschiedlich = false;
   }
-  check(`${RASTER_KIT}: Verteiler == generateGridLayout (40 Saaten)`, ueberRaster);
-  check(`${RASTER_KIT}: Verteiler != generateDungeonLayout (40 Saaten)`, unterschiedlich);
+  check(`${def.name}: Verteiler == generateGridLayout (40 Saaten)`, ueberRaster);
+  check(`${def.name}: Verteiler != generateDungeonLayout (40 Saaten)`, unterschiedlich);
 }
 
 // ── 4. Laufzeit bei 200 Zellen ────────────────────────────────────────
 console.log('\n=== Laufzeit (Rasterpfad, 200 Zellen) ===\n');
 {
-  const gross: DungeonDef = { ...stoneVault, maxRooms: 200 };
+  /*
+    Gemessen wird EIN Rasterkit, nicht jedes.
+
+    Die Ableitung `DG_RockVault` trägt dieselben `size`, `connections` und
+    `gridEdges` und ergibt bei gleicher Saat denselben Grundriss — belegt
+    Zeichen für Zeichen in `shared/test/kit-ableitung.ts`. Ein zweiter
+    Durchgang mässe deshalb dieselbe Arithmetik ein zweites Mal und
+    verdoppelte nur die zwanzig Sekunden dieses Tests. Kommt einmal ein
+    Rasterkit dazu, das NICHT abgeleitet ist, gehört es hier hinein.
+  */
+  const gross: DungeonDef = { ...rasterkits[0]!, maxRooms: 200 };
   // Aufwärmen: Die ersten Läufe messen den JIT, nicht den Generator.
   for (let s = 1; s <= 20; s++) erzeugeLayoutFuerKit(gross, s);
   const zeiten: number[] = [];

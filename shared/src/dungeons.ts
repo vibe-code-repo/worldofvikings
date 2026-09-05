@@ -20,6 +20,13 @@
 
 import dungeonsData from './dungeonsData.json';
 import { EIGENE_KITS } from './eigeneDungeons.js';
+/*
+  Die Ableitungstabelle reicht nur DURCH: `eigeneDungeons.ts` steht nicht in
+  `index.ts` (dort steht diese Datei), Werkzeuge lesen `@wov/shared`. Ohne
+  diese Zeile muesste ein Werkzeug den Paketrand umgehen oder die Namen der
+  beiden Kits ein zweites Mal aufschreiben.
+*/
+export { KIT_DERIVATIONS, type KitDerivation } from './eigeneDungeons.js';
 // Nur der Typ — zur Laufzeit entsteht daraus kein Import und damit
 // auch kein Ringschluss mit `dungeonGenerator.ts`, das hier einliest.
 import type { DungeonGeneratorSettings } from './dungeonGenerator.js';
@@ -207,6 +214,13 @@ export interface SteinKitConfig {
  * Verzeichnis-Ausbruch, eine fremde Herkunft oder schlicht ein Tippfehler
  * ergäbe eine schwarze Wand ohne Fehlermeldung. Eine Liste hat genau die
  * Dateien, die es wirklich gibt.
+ *
+ * WAS HIER NICHT HINEINGEHÖRT: Normal-Karten. Zu jedem Albedo gehört
+ * eine Datei `<name>_normal.png`, aber der Shader LEITET diesen Pfad ab
+ * (`normalPfadZu()` in `client/src/engine/DungeonSteinMaterial.ts`).
+ * Stünde sie hier, wäre sie im Editor-Dropdown ein wählbares Albedo —
+ * eine blaue Wand, die niemand erklären kann. Der Dropdown zeigt genau
+ * diese Liste (`client/src/editor/DungeonKatalog.ts`).
  * Allow-list of stone textures — the ONLY paths a document may put into a
  * material. Documents come from the client, so a free path would be a
  * client-loaded URL (directory escape, foreign origin, or just a typo).
@@ -214,6 +228,7 @@ export interface SteinKitConfig {
 export const STEIN_TEXTUREN: readonly string[] = [
   '/assets/models/stein_clean.png',
   '/assets/models/stein_decke.png',
+  '/assets/models/stein_fels.png',
   '/assets/models/stein_moos.png',
   '/assets/models/stein_frost.png',
   '/assets/models/stein_wet.png',

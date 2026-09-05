@@ -133,6 +133,18 @@ function messe(def: DungeonDef, seeds: readonly number[], zoneSize?: number) {
 console.log('=== G4-Abnahme: die G1-Metriken gegen den Rasterpfad ===\n');
 
 pruefe(hatRastererklaerung(kit), 'DG_StoneVault hat keine Rastererklärung — die Messung wäre blind');
+/*
+  Und dasselbe für die Fels-Ableitung (F4).
+
+  Die Tabellen der Messzelle sind nach Modulnamen geschlüsselt. Fällt ein
+  Kit aus ihnen heraus, misst sie nichts und meldet trotzdem lauter
+  Nullen — gemessen, bevor `stammModul()` sie zurückführte: „stumme
+  Nachbarschaften 0 in 0/40 Saaten" beim Fels-Kit, wo das Ziegelkit 6 bis
+  23 zählt. Diese Zeile ist der Wächter dagegen, und sie steht hier statt
+  bei der Messzelle selbst: Eine Messung, die ihre eigene Blindheit
+  feststellt, prüft sich selbst.
+*/
+pruefe(hatRastererklaerung(holeKit('DG_RockVault')), 'DG_RockVault hat keine Rastererklärung — die Messung wäre blind');
 
 // ─────────────────────────────────────────────────────────────────────
 console.log(`1) ${SEEDS.length} Saaten, Kit-Vorgaben (maxRooms ${kit.maxRooms})`);

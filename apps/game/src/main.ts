@@ -50,6 +50,7 @@ import { tokens } from '@wov/ui';
 import { installDevDebugBridge } from './dev-debug.js';
 import { loadEnvironment } from './environment.js';
 import { createGamePhysicsWorld, toStaticMeshData } from './physics-backend.js';
+import { physicsGround } from './physics-ground.js';
 import { attachKeyboardMouse } from './input/keyboard-mouse.js';
 import { createGameLoop } from './loop.js';
 import { interpolatePosition } from './render/interpolate.js';
@@ -134,8 +135,14 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
     },
   ]);
 
-  /** The ground the movement system adheres to. */
-  const ground: GroundQuery = flatGround(0);
+  /**
+   * The ground the movement system adheres to.
+   *
+   * A flat plane until physics is up, and the collision geometry afterwards —
+   * see `startPhysics` below. Starting flat rather than waiting is what keeps
+   * the player walking during the backend's ~2 MB download.
+   */
+  let ground: GroundQuery = flatGround(0);
 
   /** Set once the backend is up; `null` while it loads, and after a failure. */
   let physics: PhysicsWorld | null = null;
@@ -202,6 +209,9 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
     try {
       const created = await createGamePhysicsWorld(renderer.scene);
       created.addStaticMesh(toStaticMeshData(base.ground));
+      // From here the movement system stops adhering to a hard-coded plane and
+      // starts asking the collision geometry where the ground is.
+      ground = physicsGround(created, () => getTransform(world, PLAYER)?.position.y ?? 0);
       physics = created;
       setStatus(`${baseStatus} · physics ready — ground is collision geometry`);
     } catch (error) {

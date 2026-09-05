@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "website",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@wov/website", "dev"],
+      "port": 5172
+    },
+    {
+      "name": "game",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@wov/game", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "editor",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@wov/editor", "dev"],
+      "port": 5174
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@wov/api", "dev"],
+      "port": 3000
+    }
+  ]
+}

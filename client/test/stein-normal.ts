@@ -408,6 +408,31 @@ pruefe('das Plugin haengt am erzeugten Material', () => {
   assert.ok(plugin, 'SteinKit nicht angehaengt');
 });
 
+pruefe('das Material beleuchtet beide Seiten, nicht nur eine', () => {
+  // Die Module werden in Blender in x VORGESPIEGELT (`aufbereiten()` in
+  // make-stonevault.py), damit Babylons `__root__` sie zurueckdreht — von
+  // innen sieht man danach die RUECKSEITEN. `backFaceCulling = false` sagt
+  // nur, dass sie gezeichnet werden; ohne `twoSidedLighting` dreht Babylon
+  // `normalW` fuer sie nicht um (`pbrBlockNormalFinal`), und die ganze
+  // Lichtrechnung laeuft auf einer Normalen, die vom Betrachter WEGZEIGT.
+  //
+  // Gemessen am 05.09.2026 im Grab `licht-probe`
+  // (`tools/elements/pruefung/normalen-probe.mjs`): Die raumseitige Flaeche
+  // der Korridorwand bei x = +0,74 trug die mittlere Normale
+  // (+0,666, 0,002, 0,006) — sie zeigt IN die Wand. Daran hingen drei
+  // Befunde auf einmal: glatte Waende, unsinnig verteiltes Fackellicht und
+  // eine Fackel, die durch ihre eigene Wand nach hinten leuchtete.
+  //
+  // Der Test steht hier und nicht im Bild, weil ein wieder ausgeschalteter
+  // Schalter im Bild nur wie „etwas dunkler" aussaehe.
+  assert.equal(material.backFaceCulling, false, 'die Rueckseite wird gar nicht gezeichnet');
+  assert.equal(
+    material.twoSidedLighting,
+    true,
+    'die Rueckseite wird gezeichnet, aber mit der Normalen der Vorderseite beleuchtet'
+  );
+});
+
 pruefe('die drei Normal-Sampler stehen in der Sampler-Liste', () => {
   // Sie MUESSEN unbedingt drinstehen: Babylon sammelt die Liste einmal beim
   // Bau des UBO — lange bevor feststeht, welche Datei es wirklich gibt. Ein

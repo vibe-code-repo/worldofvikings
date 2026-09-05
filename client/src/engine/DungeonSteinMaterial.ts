@@ -653,6 +653,49 @@ export function erzeugeSteinKitMaterial(
   mat.environmentIntensity = 0.35;
   // Der Kit hat invertierte Normalen (Decke +y) — beide Seiten zeichnen.
   mat.backFaceCulling = false;
+  /*
+    ── Und beide Seiten auch BELEUCHTEN (05.09.2026) ────────────────────
+    `backFaceCulling = false` sagt Babylon nur, dass es die Rückseite
+    ZEICHNEN soll. Wie sie beleuchtet wird, entscheidet ein zweiter
+    Schalter — und der stand aus. Die Folge ist keine Kleinigkeit,
+    sondern die Ursache von drei Befunden auf einmal.
+
+    GEMESSEN am 05.09.2026 im Grab `licht-probe` auf wov-dev
+    (`tools/elements/pruefung/normalen-probe.mjs`): Die raumseitige
+    Fläche der Wand des Moduls `RockVaultCorridor` bei
+    x = +0,74 trägt die mittlere Normale (+0,666, 0,002, 0,006) — sie
+    zeigt IN die Wand, nicht in den Raum. Das ist kein Fehler im Modell:
+    Die Module werden in Blender vorgespiegelt (`aufbereiten()` in
+    `make-stonevault.py`), damit Babylons `__root__` sie zurückdreht;
+    danach sieht man von innen die RÜCKSEITEN. Der übersetzte Shader
+    trug denn auch kein `#define TWOSIDEDLIGHTING`, und Babylon dreht
+    `normalW` ohne dieses Define nicht um
+    (`pbrBlockNormalFinal`: `normalW = gl_FrontFacing ? normalW : -normalW`).
+
+    Was daraus folgte — und was Mike gesehen hat:
+
+      · „Die Wände sehen ohne Licht glatt aus, die Geometrie ist nicht
+        erkennbar." Jede Schattierung rechnet mit einer Normalen, die
+        vom Betrachter WEGZEIGT. Das geometrische Relief und die
+        Normal-Karte (F1) stören dann eine Größe, die gar nicht ins Bild
+        eingeht.
+      · „Das Licht der Fackeln verteilt sich im Raum nicht realistisch."
+        `FackelLicht.ts` rechnet `ndl = max(dot(normalW, richtung), 0)`.
+        Für eine Fackel IM Raum ist das auf der Wand davor null — die
+        Wand vor der Fackel blieb dunkel.
+      · „Die Fackel leuchtet durch eine Wand auf der Rückseite durch."
+        Dieselbe Zeile, andersherum: Die ABGEWANDTE Seite derselben Wand
+        hat eine Normale, die zur Fackel zeigt — sie wurde beleuchtet.
+
+    Ein Bild dazu: ~/.cache/wov-zweiseitig/{aus,an}-*.png, gleiche
+    Kamera, gleiche Fackel, nur dieser Schalter.
+
+    `backFaceCulling = false` alone only tells Babylon to DRAW the back
+    face; lighting it needs this second switch. Measured: the room-facing
+    wall surface carries a normal pointing INTO the wall, so every shading
+    term ran on a normal facing away from the viewer.
+  */
+  mat.twoSidedLighting = true;
 
   if (steinAbgeschaltet()) {
     console.warn('[steinKit] ?stein=off — Grab bleibt grau (A/B-Messung).');

@@ -77,8 +77,10 @@
 import bpy, bmesh, sys, math, os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from felsrelief import (fels_gitter, setze_relief_quelle,   # noqa: E402
-                        SEED as FELS_SEED)
+import felsnetz                                            # noqa: E402
+from felsrelief import (an_periodengrenze, fels_gitter,    # noqa: E402
+                        setze_relief_quelle, RAND_LUFT as FELS_RANDLUFT,
+                        RASTER as FELS_RASTER, SEED as FELS_SEED)
 
 ARGS = sys.argv[sys.argv.index("--") + 1:]
 
@@ -108,11 +110,28 @@ while _i < len(ARGS):
         _i += 1
 if STIL not in ("ziegel", "fels"):
     raise SystemExit(f"Unbekannter Stil: {STIL} (erlaubt: ziegel, fels)")
+# ── Drei Quellen fuer EINEN Schalter (05.09.2026, Weg 2) ───────────────────
+# `--relief-quelle` nimmt jetzt zweierlei, und die DATEIENDUNG entscheidet:
+#   *.png  -> Quelle `heightmap`: die aus dem Scan gebackene Hoehenkarte
+#             wird auf das 6,25-cm-Raster gelegt (felsrelief.py).
+#   *.glb  -> Quelle `mesh`: das gescannte NETZ SELBST wird die sichtbare
+#             Flaeche (felsnetz.py). Der Kontaktbogen
+#             `kontaktbogen-tripo-vs-wand.png` hat gezeigt, warum es die
+#             dritte Quelle braucht — ein Gitter kann keine Rundung
+#             darstellen, die feiner ist als seine Masche.
+# Ohne den Schalter bleibt es bei `voronoi`, dem Feld ohne Datei; nur damit
+# laufen `fels-frontschicht.mjs` und der Kit-Neubau ohne Bilddaten.
+NETZ_QUELLE = False
 if RELIEF_QUELLE:
     if STIL != "fels":
         raise SystemExit("--relief-quelle gibt es nur zu --stil fels")
-    setze_relief_quelle(RELIEF_QUELLE)
-    print(f"RELIEFQUELLE {RELIEF_QUELLE}")
+    if felsnetz.ist_netzquelle(RELIEF_QUELLE):
+        NETZ_QUELLE = True
+        felsnetz.setze_netz_quelle(RELIEF_QUELLE)
+        print(f"NETZQUELLE {RELIEF_QUELLE}")
+    else:
+        setze_relief_quelle(RELIEF_QUELLE)
+        print(f"RELIEFQUELLE {RELIEF_QUELLE}")
 ARGS = _rest
 OUT = ARGS[0]
 
@@ -311,6 +330,7 @@ def tapered_post(bm, x0, x1, t0, t1, cy, cz, sz):
 # hier UND in `pruefung/fels-cavity.mjs`; im Spiel zaehlt nur, dass es
 # COLOR_0 ist (Babylon liest den Namen nicht).
 CAVITY_SCHICHT = "Cavity"
+SCHARF_WINKEL = 40.0 if NETZ_QUELLE else 14.0
 
 
 def aufbereiten(name, bm, materialname):
@@ -350,16 +370,27 @@ def aufbereiten(name, bm, materialname):
         # Genau das stellt diese Stelle her: Die Flaechenvierecke der
         # Frontschicht sind bei ihrer Erzeugung als `smooth` gesetzt
         # (fels_schicht), Schuerze, Deckel und alle Quader nicht (das ist
-        # der bmesh-Vorgabewert). Zusaetzlich wird jede Kante ab 14 Grad
-        # als SCHARF markiert — die Klueste und die Facettenraender
-        # bleiben also Kanten, das Innere einer Bruchflaeche wird glatt.
-        # `shade_flat()` unterbliebe sonst; es wuerde die Marken gerade
-        # wieder loeschen. Im Ziegel-Stil aendert sich NICHTS.
+        # der bmesh-Vorgabewert). Zusaetzlich wird jede Kante ab
+        # SCHARF_WINKEL als scharf markiert — die Kluefte und die
+        # Facettenraender bleiben also Kanten, das Innere einer
+        # Bruchflaeche wird glatt. `shade_flat()` unterbliebe sonst; es
+        # wuerde die Marken gerade wieder loeschen. Im Ziegel-Stil
+        # aendert sich NICHTS.
+        #
+        # ── 14 Grad beim Hoehenfeld, 40 beim Netz (05.09.2026, Weg 2) ──
+        # Beim Gitter mussten die 14 Grad sein: Ein Hoehenfeld auf einem
+        # 6,25-cm-Raster hat KEINE Kanten ausser denen zwischen zwei
+        # Rasterzellen, und ohne Marke waere die ganze Wand eine weiche
+        # Delle. Der Preis stand im Kontaktbogen — jede Rasterzelle
+        # bekam ihre eigene Glanzseite, und die Wand las sich als
+        # zersplittertes Glas.
+        # Das gescannte Netz bringt seine Kanten selbst mit; dort trennt
+        # 40 Grad die echte Bruchkante vom Facettenrand der Dezimierung.
         bpy.ops.mesh.select_all(action="SELECT")
         bpy.ops.mesh.mark_sharp(clear=True)
         bpy.ops.mesh.select_all(action="DESELECT")
         bpy.ops.mesh.select_mode(type="EDGE")
-        bpy.ops.mesh.edges_select_sharp(sharpness=math.radians(14.0))
+        bpy.ops.mesh.edges_select_sharp(sharpness=math.radians(SCHARF_WINKEL))
         bpy.ops.mesh.mark_sharp()
         bpy.ops.mesh.select_all(action="SELECT")
         bpy.ops.mesh.select_mode(type="FACE")
@@ -606,6 +637,54 @@ def fels_schicht(bm, lauf, mitte, sgn, lo, hi, lage=0, z0=0.0, z1=HOEHE,
             box(bm, mitte, mitte_lauf, cz, prot, laenge, hoch)
         return
     hinten = mitte - sgn * prot / 2
+
+    def ecke(entlang, hoch, tiefe):
+        if niveau_fn is not None:
+            hoch = hoch + niveau_fn(entlang)
+        fest = hinten + sgn * tiefe
+        if tiefen_fn is not None:
+            fest = bezug + (fest - bezug) * tiefen_fn(entlang)
+        return (entlang, fest, hoch) if lauf == "x" else (fest, entlang, hoch)
+
+    if NETZ_QUELLE:
+        # ── Quelle `mesh`: das gescannte Netz IST die Flaeche ──────────
+        # Alles Uebrige dieser Funktion bleibt, wie es war — dieselbe
+        # Abbildung `ecke()` (samt Treppensteigung und Torbogen-Ruecknahme),
+        # dieselbe Farbschicht, dieselbe weiche Schattierung. Was sich
+        # aendert, ist allein, WOHER die Ecken kommen: nicht aus einem
+        # Gitter, sondern aus dem Scan (felsnetz.py).
+        #
+        # `dichte` folgt dem Raster, mit dem das Hoehenfeld an derselben
+        # Stelle rechnen wuerde: Die Treppe ruft mit dem doppelt so groben
+        # TREPPE_RASTER, also mit einem Viertel der Dreiecke je
+        # Quadratmeter. So steht die Zahl nicht zweimal da.
+        _r = FELS_RASTER if raster is None else raster
+        _luft = FELS_RANDLUFT if rand_luft is None else rand_luft
+        _hub = (prot - 0.015) if hub is None else hub
+        verts, faces, cav = felsnetz.frontschicht(
+            lo, hi, z0 + _luft, z1 - _luft, prot, _hub, SEED, lage,
+            an_periodengrenze(lo), an_periodengrenze(hi),
+            dichte=felsnetz.DICHTE * (FELS_RASTER / _r) ** 2)
+        farbe = (bm.verts.layers.float_color.get(CAVITY_SCHICHT)
+                 or bm.verts.layers.float_color.new(CAVITY_SCHICHT))
+        neu_v = []
+        for i, (e, h, t) in enumerate(verts):
+            v = bm.verts.new(ecke(e, h, t))
+            c = cav[i]
+            v[farbe] = (c, c, c, 1.0)
+            neu_v.append(v)
+        bm.verts.ensure_lookup_table()
+        for f in faces:
+            try:
+                flaeche = bm.faces.new([neu_v[i] for i in f])
+            except ValueError:
+                # Zwei deckungsgleiche Flaechen — der Boolesche Loeser
+                # laesst sie dort zurueck, wo zwei Felsbrocken sich genau
+                # beruehren. Die zweite bringt kein Bild und faellt weg.
+                continue
+            flaeche.smooth = True
+        return
+
     kw = {"seed": SEED, "lage": lage, "z0": z0, "z1": z1,
           "prot": prot, "hub": hub, "raster": raster}
     if rand_luft is not None:
@@ -631,14 +710,6 @@ def fels_schicht(bm, lauf, mitte, sgn, lo, hi, lage=0, z0=0.0, z1=HOEHE,
     # dabei das Erkennungszeichen: 0 heisst "nie gesetzt".
     farbe = (bm.verts.layers.float_color.get(CAVITY_SCHICHT)
              or bm.verts.layers.float_color.new(CAVITY_SCHICHT))
-
-    def ecke(entlang, hoch, tiefe):
-        if niveau_fn is not None:
-            hoch = hoch + niveau_fn(entlang)
-        fest = hinten + sgn * tiefe
-        if tiefen_fn is not None:
-            fest = bezug + (fest - bezug) * tiefen_fn(entlang)
-        return (entlang, fest, hoch) if lauf == "x" else (fest, entlang, hoch)
 
     vorn = []
     for iz in range(nz):

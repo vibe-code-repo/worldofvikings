@@ -42,12 +42,13 @@
 // is not a brick bond any more.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const MODUL = resolve(HIER, '..', 'blender', 'felsrelief.py');
+const MODELLE = resolve(HIER, '..', '..', '..', 'assets', 'models');
 
 // Masse aus make-stonevault.py — hier bewusst NOCH EINMAL genannt statt
 // importiert: der Prüfer soll rot werden, wenn das Bauskript sie ändert.
@@ -401,6 +402,145 @@ console.log('\nSturzband des Torbogens (zwei Zeilen, eigener Schlüssel):');
   pruefe('das Band trägt ein anderes Feld als die Wandfläche',
     JSON.stringify(lb.map((z) => z.map((p) => p[2]))) !==
       JSON.stringify(A.punkte.slice(0, 3).map((z) => z.map((p) => p[2]))));
+}
+
+
+// ── (9) Die AUSGELIEFERTE Frontschicht — Quelle `mesh` ──────────────────
+/*
+  Alles bis hierher misst das HÖHENFELD, also die Quelle `voronoi`/
+  `heightmap`: reine Arithmetik, ohne `assets/`, ohne Blender. Seit dem
+  05.09.2026 gibt es eine dritte Quelle, und die hat kein Feld — bei
+  `mesh` IST das gescannte Netz die Fläche (`felsnetz.py`). Ihre Zusagen
+  lassen sich deshalb nur AM ERGEBNIS messen, an den ausgelieferten GLB.
+
+  Drei Dinge, und jedes einzeln begründet:
+
+  (a) DICHT. Ein Höhenfeld ist von Bauart geschlossen — `fels_schicht`
+      legt Fläche, Schürze und Deckel selbst. Ein beschnittenes,
+      verschmolzenes und dezimiertes Netz ist es nicht von selbst: Der
+      Kantenkollaps hat in der Erprobung 2 bis 6 offene Kanten je Paneel
+      hinterlassen, und eine offene Kante ist im Spiel ein Blick ins
+      Nichts. Gezählt werden Kanten mit genau EINER Fläche. Kanten mit
+      DREI sind erlaubt und gewollt — dort berühren sich zwei
+      Felsbrocken.
+
+  (b) RAND AUF NIVEAU. Die Nahtregel des Rezepts (Zwang 1) sagt: An der
+      Modulgrenze steht jedes Paneel auf demselben, variantenfreien
+      Rückzug. Beim Feld sichert das die gemeinsame Stützstelle; beim
+      Netz sichert es die Randregel (`felsnetz._randregel`), und ob sie
+      gegriffen hat, sieht man an genau einer Zahl: An der Paneelkante
+      darf KEIN Punkt vor dem Randniveau stehen — und mindestens einer
+      muss darauf stehen. Steht einer davor, ragt er in den Nachbarn.
+
+  (c) BUDGET. Dieselbe Grenze wie oben, nur an der Datei gemessen statt
+      am Feld.
+*/
+function glb(pfad) {
+  const buf = readFileSync(pfad);
+  if (buf.readUInt32LE(0) !== 0x46546c67) throw new Error(`Keine GLB: ${pfad}`);
+  const jsonLaenge = buf.readUInt32LE(12);
+  const kopf = JSON.parse(buf.subarray(20, 20 + jsonLaenge).toString('utf8'));
+  return { kopf, buf, bin: 20 + jsonLaenge + 8 };
+}
+
+/** Ecken (Vec3) und Dreiecke eines Meshes. */
+function netz({ kopf, buf, bin }, meshName) {
+  const mesh = kopf.meshes?.find((m) => m.name === meshName);
+  if (!mesh) return null;
+  const prim = mesh.primitives[0];
+  const holen = (index, breite) => {
+    const acc = kopf.accessors[index];
+    const bv = kopf.bufferViews[acc.bufferView];
+    const start = bin + (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0);
+    const lies = {
+      5121: [1, (o) => buf.readUInt8(o)],
+      5123: [2, (o) => buf.readUInt16LE(o)],
+      5125: [4, (o) => buf.readUInt32LE(o)],
+      5126: [4, (o) => buf.readFloatLE(o)],
+    }[acc.componentType];
+    const schritt = bv.byteStride ?? lies[0] * breite;
+    const aus = [];
+    for (let i = 0; i < acc.count; i++) {
+      const e = [];
+      for (let k = 0; k < breite; k++) e.push(lies[1](start + i * schritt + k * lies[0]));
+      aus.push(breite === 1 ? e[0] : e);
+    }
+    return aus;
+  };
+  return {
+    ecken: holen(prim.attributes.POSITION, 3),
+    index: holen(prim.indices, 1),
+  };
+}
+
+console.log('\nDie ausgelieferte Frontschicht (Quelle `mesh`):');
+{
+  // Die Wandpaneele: dort ist die Randregel prüfbar, weil ihre beiden
+  // e-Kanten auf der Modulgrenze liegen (Zwang 1). Innenwände laufen an
+  // einer Zellkante entlang und werden über die Naht schon gemessen.
+  const PANEELE = ['RockVaultWall', 'RockVaultWallB', 'RockVaultWallC'];
+  const VORN = 0.15;              // glTF z der Wandflucht
+  const NIVEAU = VORN - 0.018;    // felsrelief.RAND_NIVEAU
+  // 1,5 mm Spiel, und die Zahl ist nicht gegriffen: `felsnetz._randregel`
+  // setzt die Randecke EXAKT auf das Niveau, danach verschmilzt der
+  // Zusammenbau mit 0,1 mm und der glTF-Export rundet. Gemessen an den
+  // drei Paneelen: höchstens 0,13 mm Abweichung.
+  const TOL = 1.5e-3;
+
+  const da = PANEELE.every((n) => existsSync(join(MODELLE, `${n}.glb`)));
+  if (!da) {
+    console.log('  ..   übersprungen — assets/models liegt nicht vor');
+  } else {
+    for (const name of PANEELE) {
+      const g = netz(glb(join(MODELLE, `${name}.glb`)), name);
+      const tris = g.index.length / 3;
+
+      // (a) dicht: jede Kante trägt zwei oder mehr Flächen, keine genau eine.
+      // Gezählt wird nach ORT und nicht nach Eckenindex: glTF trennt eine
+      // Ecke an jeder scharfen Kante in mehrere (eigene Normale je Seite),
+      // und nach Index gezählt wäre danach fast jede Kante „offen" — am
+      // Wandpaneel gemessen 3325 von 7898, an einem Körper, den Blender
+      // als geschlossen ausweist.
+      const ort = (i) => g.ecken[i].map((v) => Math.round(v * 1e5)).join(',');
+      const kanten = new Map();
+      for (let i = 0; i < g.index.length; i += 3) {
+        const t = [ort(g.index[i]), ort(g.index[i + 1]), ort(g.index[i + 2])];
+        for (let k = 0; k < 3; k++) {
+          const a = t[k];
+          const b = t[(k + 1) % 3];
+          const s = a < b ? `${a}|${b}` : `${b}|${a}`;
+          kanten.set(s, (kanten.get(s) ?? 0) + 1);
+        }
+      }
+      let offen = 0;
+      for (const n of kanten.values()) if (n === 1) offen++;
+      pruefe(`${name}: kein Loch (${kanten.size} Kanten, ${offen} offen)`,
+        offen === 0, `${offen} Kanten mit nur einer Fläche`);
+
+      // (b) Rand auf Niveau: an |x| = 1,0 steht nichts vor dem Randniveau,
+      //     und etwas steht darauf.
+      // Nur die Frontschicht: Sockel und Haube laufen über die VOLLE
+      // Wandtiefe (sie decken die Bodenfugen ab) und stehen deshalb mit
+      // Recht auf der Wandflucht — sie liegen aber unter dem Boden bzw.
+      // über der Decke. Die Frontschicht steht dazwischen.
+      let davor = 0;
+      let darauf = 0;
+      for (const [x, y, z] of g.ecken) {
+        if (y < 0.02 || y > 3.48) continue;
+        if (Math.abs(Math.abs(x) - 1.0) > 1e-4) continue;
+        if (z > NIVEAU + TOL) davor++;
+        else if (z > NIVEAU - TOL) darauf++;
+      }
+      pruefe(`${name}: an der Modulgrenze steht nichts vor dem Randniveau`,
+        davor === 0, `${davor} Ecken vor ${NIVEAU.toFixed(3)} m`);
+      pruefe(`${name}: die Modulgrenze erreicht das Randniveau (${darauf} Ecken)`,
+        darauf > 0);
+
+      // (c) Budget.
+      pruefe(`${name}: ${tris} Dreiecke ≤ ${BUDGET_DREIECKE}`,
+        tris <= BUDGET_DREIECKE, `${tris}`);
+    }
+  }
 }
 
 console.log(`\n${gruen} Prüfungen grün, ${fehler.length} rot.`);

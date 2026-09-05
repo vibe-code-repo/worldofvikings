@@ -51,16 +51,41 @@ bsdf.inputs["Roughness"].default_value = 0.95
 # Naht ist dort der eigentliche Messgegenstand.
 SCHRITT = 2.6 if ART == "--vergleich" else 2.0
 
-for i, (ordner, modul) in enumerate(STUECKE):
-    bpy.ops.import_scene.gltf(filepath=f"{ordner}/{modul}.glb")
-    for o in [x for x in bpy.context.selected_objects if x.type == "MESH"]:
-        if o.name.endswith("_col"):
-            bpy.data.objects.remove(o, do_unlink=True)
-            continue
-        o.scale.x = -1.0                       # wie Babylons __root__
+# ── Die ROHE Quelle als drittes Stueck (05.09.2026) ────────────────────
+# `roh:<pfad.glb>` stellt den Tripo-Scan SELBST neben die Wandpaneele —
+# auf 1 m Breite skaliert, Vorderseite (−y) zur Kamera, ohne Vorspiegeln
+# (er ist keine Steingrab-GLB). Ohne dieses Stueck vergleicht der Bogen
+# zwei Waende miteinander, und die Frage lautet: sieht die Wand aus wie
+# das Modell?
+def stelle(objekte, i):
+    for o in objekte:
         o.location = Vector(((i - (len(STUECKE) - 1) / 2) * SCHRITT, 0, 0))
         o.data.materials.clear()
         o.data.materials.append(mat)
+
+
+for i, (ordner, modul) in enumerate(STUECKE):
+    if ordner == "roh":
+        bpy.ops.import_scene.gltf(filepath=modul)
+        netze = [x for x in bpy.context.selected_objects if x.type == "MESH"]
+        for o in netze:
+            xs = [v.co.x for v in o.data.vertices]
+            s = 1.0 / (max(xs) - min(xs))
+            o.scale = (s, s, s)
+        bpy.context.view_layer.update()
+        stelle(netze, i)
+        continue
+    bpy.ops.import_scene.gltf(filepath=f"{ordner}/{modul}.glb")
+    for o in [x for x in bpy.context.selected_objects if x.type == "MESH"]:
+        if o.name.endswith("_col"):
+            # Das Kollisionsnetz ist eine GLATTE Platte auf der Wandflucht.
+            # Bleibt es stehen, verdeckt es genau das Relief, das der Bogen
+            # zeigen soll — die Falle, in die der Vorgang am 05.09.2026
+            # schon einmal gelaufen ist.
+            bpy.data.objects.remove(o, do_unlink=True)
+            continue
+        o.scale.x = -1.0                       # wie Babylons __root__
+        stelle([o], i)
 
 breite = SCHRITT * len(STUECKE)
 

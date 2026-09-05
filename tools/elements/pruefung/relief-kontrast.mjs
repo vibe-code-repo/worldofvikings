@@ -35,6 +35,12 @@
  * Aufruf:
  *   node tools/elements/pruefung/relief-kontrast.mjs <dungeonId> [x] [z] [yawGrad]
  *
+ * `x`/`z` sind KEIN Teleport. Die Sonde setzt die Stelle und sieht nach, ob
+ * sie gehalten hat; im Grab tut sie das nicht (der Havok-Koerper schreibt
+ * `player.position` im naechsten Bild zurueck), und dann bricht der Lauf mit
+ * einer Meldung ab, statt still am Eingang zu messen. Eine andere Stelle wird
+ * ERLAUFEN — `tools/pw-stonevault-walk.mjs --tour`.
+ *
  * Umgebung:
  *   WOV_RELIEF_FAKTOR   geforderter Faktor σ/µ(an) ÷ σ/µ(aus), Vorgabe 1.25
  *   WOV_RELIEF_MIN      geforderte relative Streuung mit Kanal, Vorgabe 0.06
@@ -136,11 +142,34 @@ async function messung(relief, marke) {
   await seite.mouse.click(800, 450);
   await seite.waitForTimeout(400);
   if (ZIEL) {
-    await seite.evaluate((z) => {
+    // Setzen — und NACHSEHEN, ob es gehalten hat.
+    //
+    // `player.position` ist im Grab keine Anschrift, sondern eine Kopie:
+    // Der Zeichenschritt schreibt sie aus dem Havok-Koerper zurueck. Am
+    // 05.09.2026 gemessen (200-ms-Abtastung ueber sechs Sekunden): Der
+    // Sprung nach (−10, 5) war im NAECHSTEN Bild wieder auf dem
+    // Eingangspunkt. Ohne diese Pruefung meldet die Sonde brav eine
+    // Stelle, an der sie nie war — und misst am Eingang, waehrend im
+    // Bericht der Saal steht.
+    const gehalten = await seite.evaluate(async (z) => {
       const p = window.__dbg.player;
       p.position.x = z.x; p.position.z = z.z;
+      await new Promise((r) => setTimeout(r, 600));
+      return { x: +p.position.x.toFixed(2), z: +p.position.z.toFixed(2) };
     }, ZIEL);
-    await seite.waitForTimeout(1200);
+    const weg = Math.hypot(gehalten.x - ZIEL.x, gehalten.z - ZIEL.z);
+    if (weg > 0.5) {
+      await kontext.close();
+      await browser.close();
+      console.error(
+        `Die Figur bleibt nicht bei (${ZIEL.x}, ${ZIEL.z}) — sie steht nach 600 ms bei ` +
+          `(${gehalten.x}, ${gehalten.z}), ${weg.toFixed(1)} m daneben.\n` +
+          'Eine Stelle im Grab wird ERLAUFEN, nicht gesetzt: ' +
+          'tools/pw-stonevault-walk.mjs --tour. Ohne Argument misst diese Sonde am Eingang.'
+      );
+      process.exit(2);
+    }
+    await seite.waitForTimeout(600);
   }
   await seite.evaluate((y) => {
     const p = window.__dbg.player;

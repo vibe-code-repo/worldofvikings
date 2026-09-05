@@ -36,12 +36,19 @@ export interface ProbeProp extends AssetPlacement {
 }
 
 /**
- * What the probe places.
+ * What the probe places: one public asset and two private ones.
  *
- * The Kenney kit is authored at roughly a third of a metre per unit — the model
- * is 0.30 units tall — so it is scaled up to read as a barrel on the 100 m base
- * ground instead of a speck at the camera's default distance. See
- * `docs/asset-licenses.md` for source, author, license and modification status.
+ * The public barrel proves the vendored path from `assets/`. The two private
+ * assets prove the other one — a store request, and a fall back to the
+ * committed hull box when there is no store (ADR-0015). Both are needed,
+ * because they are different code paths and only one of them runs on a clean
+ * clone.
+ *
+ * None of them is scaled: the imported assets are in metres with the origin
+ * their author gave them, so `position` is where they stand. The Kenney barrel
+ * is the exception — that kit is authored at roughly a third of a metre per
+ * unit, so it is scaled up to read as a barrel rather than a speck. See
+ * `docs/asset-licenses.md` for source, author, licence and modification status.
  */
 export const PROBE_PROPS: readonly ProbeProp[] = [
   {
@@ -52,6 +59,31 @@ export const PROBE_PROPS: readonly ProbeProp[] = [
     catalog: {
       path: 'environment/kenney-retro-fantasy-kit/detail-barrel.glb',
       visibility: 'public',
+    },
+  },
+  {
+    // A building: 8.5 x 8.8 x 6.8 m, standing beside the base ground.
+    asset: 'environment/sm-bld-preset-shelter-02-optimized.glb',
+    name: 'probe-shelter',
+    position: [-10, 0, 6],
+    catalog: {
+      path: 'environment/sm-bld-preset-shelter-02-optimized.glb',
+      visibility: 'private',
+      placeholder: 'placeholders/environment/sm-bld-preset-shelter-02-optimized.glb',
+    },
+  },
+  {
+    // A terrain patch: 20 x 20 m of height field rising to 10 m, standing in
+    // front of the player's start so it is visible without walking, and lifted
+    // a few centimetres so its flat edge does not fight the base ground for
+    // pixels.
+    asset: 'terrain/terrain-customization.glb',
+    name: 'probe-terrain',
+    position: [0, 0.05, 24],
+    catalog: {
+      path: 'terrain/terrain-customization.glb',
+      visibility: 'private',
+      placeholder: 'placeholders/terrain/terrain-customization.glb',
     },
   },
 ];

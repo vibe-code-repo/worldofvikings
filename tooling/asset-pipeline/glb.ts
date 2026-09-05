@@ -414,6 +414,167 @@ export function describeImage(json: Gltf, imageIndex: number): string | undefine
   return undefined;
 }
 
+/** Reads one scalar array out of the binary chunk, whatever its integer width. */
+function readScalars(glb: Glb, accessorIndex: number): Uint32Array {
+  const accessor = glb.json.accessors?.[accessorIndex];
+  if (accessor?.bufferView === undefined) {
+    throw new Error(`accessor ${String(accessorIndex)} has no bufferView`);
+  }
+  const view = glb.json.bufferViews?.[accessor.bufferView];
+  const start = (view?.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
+  const out = new Uint32Array(accessor.count);
+  for (let i = 0; i < accessor.count; i += 1) {
+    switch (accessor.componentType) {
+      case 5121: // UNSIGNED_BYTE
+        out[i] = glb.bin.readUInt8(start + i);
+        break;
+      case 5123: // UNSIGNED_SHORT
+        out[i] = glb.bin.readUInt16LE(start + i * 2);
+        break;
+      case 5125: // UNSIGNED_INT
+        out[i] = glb.bin.readUInt32LE(start + i * 4);
+        break;
+      default:
+        throw new Error(`index componentType ${String(accessor.componentType)} is not handled`);
+    }
+  }
+  return out;
+}
+
+/** Reads a float VEC3 accessor out of the binary chunk. */
+function readVec3(glb: Glb, accessorIndex: number): Float32Array {
+  const accessor = glb.json.accessors?.[accessorIndex];
+  if (accessor?.bufferView === undefined || accessor.componentType !== 5126) {
+    throw new Error(`accessor ${String(accessorIndex)} is not a float VEC3 in the buffer`);
+  }
+  const view = glb.json.bufferViews?.[accessor.bufferView];
+  const start = (view?.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
+  const stride = view?.byteStride ?? 12;
+  const out = new Float32Array(accessor.count * 3);
+  for (let i = 0; i < accessor.count; i += 1) {
+    for (let axis = 0; axis < 3; axis += 1) {
+      out[i * 3 + axis] = glb.bin.readFloatLE(start + i * stride + axis * 4);
+    }
+  }
+  return out;
+}
+
+/**
+ * Gives every primitive a `NORMAL` attribute, computing one where it is missing.
+ *
+ * Twelve files in the _the source project_ export need this and no others: the
+ * terrains, which the source engine exported with `POSITION` and `TEXCOORD_0` alone. Loaded
+ * as they are, a height field has no shading to speak of and — because Babylon
+ * mirrors the glTF root on x to change handedness — draws mostly as backfaces:
+ * on screen it is a scatter of pale slivers rather than a hill.
+ *
+ * This is the one place the pipeline writes vertex data. It is additive, never
+ * a re-mesh: positions and indices are untouched, and the normals are the
+ * ordinary area-weighted average of the adjacent triangle normals, which is
+ * exactly what the exporter would have written had it been asked to.
+ */
+export function ensureNormals(glb: Glb, label: string): Glb {
+  const additions: Buffer[] = [];
+  let bin = glb.bin;
+  let added = 0;
+
+  for (const mesh of glb.json.meshes ?? []) {
+    for (const primitive of mesh.primitives) {
+      if (primitive.attributes['NORMAL'] !== undefined) {
+        continue;
+      }
+      if ((primitive.mode ?? 4) !== 4) {
+        throw new Error(
+          `${label}: cannot compute normals for primitive mode ${String(primitive.mode)}`,
+        );
+      }
+      const positionIndex = primitive.attributes['POSITION'];
+      if (positionIndex === undefined) {
+        throw new Error(`${label}: a primitive has neither NORMAL nor POSITION`);
+      }
+      const positions = readVec3(glb, positionIndex);
+      const vertexCount = positions.length / 3;
+      const indices =
+        primitive.indices === undefined
+          ? Uint32Array.from({ length: vertexCount }, (_, i) => i)
+          : readScalars(glb, primitive.indices);
+
+      const normals = new Float32Array(vertexCount * 3);
+      for (let i = 0; i + 2 < indices.length; i += 3) {
+        const [a, b, c] = [indices[i] ?? 0, indices[i + 1] ?? 0, indices[i + 2] ?? 0];
+        const ax = positions[a * 3] ?? 0;
+        const ay = positions[a * 3 + 1] ?? 0;
+        const az = positions[a * 3 + 2] ?? 0;
+        const ux = (positions[b * 3] ?? 0) - ax;
+        const uy = (positions[b * 3 + 1] ?? 0) - ay;
+        const uz = (positions[b * 3 + 2] ?? 0) - az;
+        const vx = (positions[c * 3] ?? 0) - ax;
+        const vy = (positions[c * 3 + 1] ?? 0) - ay;
+        const vz = (positions[c * 3 + 2] ?? 0) - az;
+        // Not normalised: the cross product's length is twice the triangle's
+        // area, which is the weighting a vertex normal wants.
+        const nx = uy * vz - uz * vy;
+        const ny = uz * vx - ux * vz;
+        const nz = ux * vy - uy * vx;
+        for (const vertex of [a, b, c]) {
+          normals[vertex * 3] = (normals[vertex * 3] ?? 0) + nx;
+          normals[vertex * 3 + 1] = (normals[vertex * 3 + 1] ?? 0) + ny;
+          normals[vertex * 3 + 2] = (normals[vertex * 3 + 2] ?? 0) + nz;
+        }
+      }
+
+      const bytes = Buffer.alloc(vertexCount * 12);
+      for (let v = 0; v < vertexCount; v += 1) {
+        const x = normals[v * 3] ?? 0;
+        const y = normals[v * 3 + 1] ?? 0;
+        const z = normals[v * 3 + 2] ?? 0;
+        const length = Math.hypot(x, y, z);
+        // A vertex touched by no triangle gets +y rather than NaN.
+        const scale = length > 0 ? 1 / length : 0;
+        bytes.writeFloatLE(length > 0 ? x * scale : 0, v * 12);
+        bytes.writeFloatLE(length > 0 ? y * scale : 1, v * 12 + 4);
+        bytes.writeFloatLE(length > 0 ? z * scale : 0, v * 12 + 8);
+      }
+
+      const byteOffset = bin.length + additions.reduce((sum, part) => sum + part.length, 0);
+      additions.push(bytes);
+      const bufferViews = glb.json.bufferViews ?? [];
+      bufferViews.push({ buffer: 0, byteOffset, byteLength: bytes.length, target: 34962 });
+      glb.json.bufferViews = bufferViews;
+
+      const accessors = glb.json.accessors ?? [];
+      accessors.push({
+        bufferView: bufferViews.length - 1,
+        componentType: 5126,
+        count: vertexCount,
+        type: 'VEC3',
+      });
+      glb.json.accessors = accessors;
+      primitive.attributes['NORMAL'] = accessors.length - 1;
+      added += 1;
+    }
+  }
+
+  if (added === 0) {
+    return glb;
+  }
+  bin = Buffer.concat([bin, ...additions]);
+  return { json: glb.json, bin };
+}
+
+/** How many primitives lack a `NORMAL` attribute. */
+export function countMissingNormals(json: Gltf): number {
+  let missing = 0;
+  for (const mesh of json.meshes ?? []) {
+    for (const primitive of mesh.primitives) {
+      if (primitive.attributes['NORMAL'] === undefined) {
+        missing += 1;
+      }
+    }
+  }
+  return missing;
+}
+
 /** The bytes of one image that used to live in the binary chunk. */
 export interface ExtractedImage {
   readonly index: number;

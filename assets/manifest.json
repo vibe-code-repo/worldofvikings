@@ -1,6 +1,6 @@
 {
   "manifestVersion": 2,
-  "generatedAt": "2026-09-05T23:39:15.136Z",
+  "generatedAt": "2026-09-05T23:47:57.395Z",
   "assets": [
     {
       "id": "environment/kenney-retro-fantasy-kit/textures/barrel",
@@ -14708,8 +14708,8 @@
       "id": "terrain/terrain-customization",
       "path": "terrain/terrain-customization.glb",
       "kind": "terrain",
-      "bytes": 530448,
-      "hash": "sha256-851177ced86894f1a1a5dc4b0f3c27e642749f9e1838470aef03d44767fc8614",
+      "bytes": 730284,
+      "hash": "sha256-ce84ba7286fb42abe13cdee9d70b59542e26329e1dcde47967250b5daa6b07ba",
       "bounds": {
         "min": [
           -10,
@@ -14734,8 +14734,8 @@
       "id": "terrain/terrain-mainmenu",
       "path": "terrain/terrain-mainmenu.glb",
       "kind": "terrain",
-      "bytes": 11555856,
-      "hash": "sha256-cb82dff1dfe34d15f8279bb77da3a813dbf4db16423fcf972c6cd818f5c9560a",
+      "bytes": 14714032,
+      "hash": "sha256-0e37b273074a6dbe02e2a5d0cc3cafb5d89ee978a2b4c9ebaa432ba3a1a7c5fb",
       "bounds": {
         "min": [
           -60,
@@ -14760,8 +14760,8 @@
       "id": "terrain/terrain-village1",
       "path": "terrain/terrain-village1.glb",
       "kind": "terrain",
-      "bytes": 11555856,
-      "hash": "sha256-511f4d59f3e4d050ff73354564d7fc3ba1696c780cd0d11d60ee1ee9deeaec5c",
+      "bytes": 14714036,
+      "hash": "sha256-bce18940a16e4c6bf8ebfdf2b9e016a44a7f0392d68044e07b6152280086f54f",
       "bounds": {
         "min": [
           -150,
@@ -14786,8 +14786,8 @@
       "id": "terrain/terrainl1",
       "path": "terrain/terrainl1.glb",
       "kind": "terrain",
-      "bytes": 11555828,
-      "hash": "sha256-eb3c5ddd455aa97062d93bc6982e6330d24ac9fa74e0e3cb4fbf5f8fa9ace53e",
+      "bytes": 14714008,
+      "hash": "sha256-2e086b5a3e8f7b42b016c9cd2615db555085522233ffb893e8786d7a941ce293",
       "bounds": {
         "min": [
           -100,
@@ -14812,8 +14812,8 @@
       "id": "terrain/terrainl2",
       "path": "terrain/terrainl2.glb",
       "kind": "terrain",
-      "bytes": 11555844,
-      "hash": "sha256-9d2607cb3c3cbb6ed6ea38557e79965d3715b6c8ba10adea4d7924c69e9acb04",
+      "bytes": 14714020,
+      "hash": "sha256-a4a37a2eb8857311bfd1b2e113b58b5c33942c0b6220beb0bc0cb23796ff0a75",
       "bounds": {
         "min": [
           -100,
@@ -14838,8 +14838,8 @@
       "id": "terrain/terrainl3",
       "path": "terrain/terrainl3.glb",
       "kind": "terrain",
-      "bytes": 11555844,
-      "hash": "sha256-6b0d2777d6cf0773fd57bc946c730f7dd57ffc9ad00a34825b909e0e0e75aa5b",
+      "bytes": 14714020,
+      "hash": "sha256-50fc8dbb01b2f10a89080b6eb39e07399a3249eff987acedf94ccfa23c471636",
       "bounds": {
         "min": [
           -100,
@@ -14864,8 +14864,8 @@
       "id": "terrain/terrainl4",
       "path": "terrain/terrainl4.glb",
       "kind": "terrain",
-      "bytes": 11555848,
-      "hash": "sha256-ee0bc14008eb7bd3f2c51e0ee1faeaa36252e79b522592f2b7ccc069c6d27296",
+      "bytes": 14714024,
+      "hash": "sha256-53c5707be0852bb468cbdbd8991e46afb853a2a5151f217f50eb5ada3cda7e29",
       "bounds": {
         "min": [
           -150,
@@ -14890,8 +14890,8 @@
       "id": "terrain/terrainl5",
       "path": "terrain/terrainl5.glb",
       "kind": "terrain",
-      "bytes": 11555828,
-      "hash": "sha256-70add13455f55bf8b6dde013bc2166caad82c7e53294d4edf429c248da02fdf4",
+      "bytes": 14714004,
+      "hash": "sha256-144f7902455abde7df36aae5f9cc0852046bf72bf9b15a1d8588fafedf5341e8",
       "bounds": {
         "min": [
           -150,
@@ -14916,8 +14916,8 @@
       "id": "terrain/terrainl6",
       "path": "terrain/terrainl6.glb",
       "kind": "terrain",
-      "bytes": 11555844,
-      "hash": "sha256-e97297571c8195bde77f21497c45a425d197a7b80c3ade3b89c80df3177f4f04",
+      "bytes": 14714020,
+      "hash": "sha256-e6942a526615133d0ba42a6fc1bc95a038d42dcef54528b1270b2b89c1b36252",
       "bounds": {
         "min": [
           -150,
@@ -14942,8 +14942,8 @@
       "id": "terrain/terrainl7",
       "path": "terrain/terrainl7.glb",
       "kind": "terrain",
-      "bytes": 11555844,
-      "hash": "sha256-ab84c44b9ee794e2f509d0d4110c6b2a7157d248ab3dd7a4fa9c138b75a15a60",
+      "bytes": 14714020,
+      "hash": "sha256-c79dfcb9811aec71f8ec322fa9ed72cd04457ed8e3b649f806fe264e2961d046",
       "bounds": {
         "min": [
           -150,
@@ -14968,8 +14968,8 @@
       "id": "terrain/terrainl8",
       "path": "terrain/terrainl8.glb",
       "kind": "terrain",
-      "bytes": 11555828,
-      "hash": "sha256-0002f59fdb40b5269b751e3b85a0bcc510aa7b21d974864ba26b246328250948",
+      "bytes": 14714008,
+      "hash": "sha256-d5fbcd79f1b31a79edd9da21b69c563c875f5214b2a29a9fd76cce8c4785a57e",
       "bounds": {
         "min": [
           -150,
@@ -14994,8 +14994,8 @@
       "id": "terrain/terrainl9",
       "path": "terrain/terrainl9.glb",
       "kind": "terrain",
-      "bytes": 11555828,
-      "hash": "sha256-5f07c7f72cbb9304083657de04299ad2bf6f45b487baaebe6fd48d65a2d905a7",
+      "bytes": 14714004,
+      "hash": "sha256-1f96c17fdfa82d73a12202fa37565f7b08de84eaf1435b0be7111eb3fc00d1e6",
       "bounds": {
         "min": [
           -150,

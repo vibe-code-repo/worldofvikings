@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertSupported,
+  countMissingNormals,
   countTriangles,
   describeImage,
+  ensureNormals,
   multiply,
   nodeMatrix,
   readGlb,
@@ -232,6 +234,88 @@ describe('takeEmbeddedImages and repackBuffer', () => {
     glb.json.images = [];
     const packed = repackBuffer(glb);
     expect(packed.json.bufferViews?.[1]?.byteOffset).toBe(4);
+  });
+});
+
+describe('ensureNormals', () => {
+  /** One flat triangle in the xz plane, wound counter-clockwise seen from +y. */
+  function flatTriangle(): { json: Gltf; bin: Buffer } {
+    const positions = Buffer.alloc(36);
+    const corners = [
+      [0, 0, 0],
+      [1, 0, 0],
+      [0, 0, 1],
+    ];
+    corners.forEach((corner, i) =>
+      corner.forEach((value, axis) => positions.writeFloatLE(value, (i * 3 + axis) * 4)),
+    );
+    const indices = Buffer.alloc(6);
+    [0, 2, 1].forEach((value, i) => indices.writeUInt16LE(value, i * 2));
+
+    return {
+      json: {
+        asset: { version: '2.0' },
+        scene: 0,
+        scenes: [{ nodes: [0] }],
+        nodes: [{ mesh: 0 }],
+        meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }],
+        accessors: [
+          {
+            bufferView: 0,
+            componentType: 5126,
+            count: 3,
+            type: 'VEC3',
+            min: [0, 0, 0],
+            max: [1, 0, 1],
+          },
+          { bufferView: 1, componentType: 5123, count: 3, type: 'SCALAR' },
+        ],
+        bufferViews: [
+          { buffer: 0, byteOffset: 0, byteLength: 36 },
+          { buffer: 0, byteOffset: 36, byteLength: 6 },
+        ],
+        buffers: [{ byteLength: 42 }],
+      },
+      bin: Buffer.concat([positions, indices]),
+    };
+  }
+
+  it('gives a primitive that has none a unit normal per vertex', () => {
+    // Twelve terrains in the source export ship with POSITION and TEXCOORD_0
+    // only. Without this they draw as backfaces and barely shade at all.
+    const glb = ensureNormals(flatTriangle(), 'flat.glb');
+    const primitive = glb.json.meshes?.[0]?.primitives[0];
+    const accessorIndex = primitive?.attributes['NORMAL'];
+    expect(accessorIndex).toBeDefined();
+
+    const accessor = glb.json.accessors?.[accessorIndex ?? -1];
+    expect(accessor?.count).toBe(3);
+
+    const view = glb.json.bufferViews?.[accessor?.bufferView ?? -1];
+    const at = view?.byteOffset ?? 0;
+    for (let vertex = 0; vertex < 3; vertex += 1) {
+      const x = glb.bin.readFloatLE(at + vertex * 12);
+      const y = glb.bin.readFloatLE(at + vertex * 12 + 4);
+      const z = glb.bin.readFloatLE(at + vertex * 12 + 8);
+      expect(Math.hypot(x, y, z)).toBeCloseTo(1, 5);
+      // The triangle is wound so its face points up; a flipped cross product
+      // would give -1 here and light the terrain from underneath.
+      expect(y).toBeCloseTo(1, 5);
+    }
+  });
+
+  it('leaves a primitive that already has normals completely alone', () => {
+    const glb = flatTriangle();
+    const primitive = glb.json.meshes?.[0]?.primitives[0];
+    if (primitive) {
+      primitive.attributes['NORMAL'] = 0;
+    }
+    expect(ensureNormals(glb, 'has-normals.glb')).toBe(glb);
+  });
+
+  it('counts what is missing, so the import can report it', () => {
+    expect(countMissingNormals(flatTriangle().json)).toBe(1);
+    expect(countMissingNormals(ensureNormals(flatTriangle(), 'x').json)).toBe(0);
   });
 });
 

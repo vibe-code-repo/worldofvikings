@@ -243,10 +243,15 @@ test('game camera follows the player that walks away', async ({ page }) => {
   expect(gap).toBeLessThan(walkedCamera.distance + 0.5);
 });
 
-test('game loads its environment asset over the asset server', async ({ page }) => {
+test('game loads its environment assets over the asset server', async ({ page }) => {
   const badResponses: string[] = [];
   page.on('response', (response) => {
-    if (response.url().includes(':9000/') && !response.ok()) {
+    // A 404 under `/store/` is not a failure: the store lives outside the
+    // repository and a clean clone has none, so the private assets fall back to
+    // their committed placeholders (ADR-0015). Every *other* non-ok response
+    // from the asset server is a real missing file.
+    const isStoreMiss = response.url().includes(':9000/store/') && response.status() === 404;
+    if (response.url().includes(':9000/') && !response.ok() && !isStoreMiss) {
       badResponses.push(`${String(response.status())} ${response.url()}`);
     }
   });
@@ -256,13 +261,17 @@ test('game loads its environment asset over the asset server', async ({ page }) 
   // The wording comes from `summarizePlacement` in @wov/asset-system, so this
   // and the app cannot drift apart. A failed load reads
   // "assets: 0 loaded, 1 failed (…)" and fails here.
-  await expect(page.getByTestId('game-assets')).toHaveText('assets: 1 loaded');
+  // One vendored asset plus two from the private store. A private asset that
+  // fell back to its placeholder still counts as loaded — that is the point of
+  // the fallback — so this number does not depend on the store being mounted.
+  await expect(page.getByTestId('game-assets')).toHaveText('assets: 3 loaded');
   // Where the bytes came from, not only how many arrived (ADR-0015). The
   // wording comes from `summarizeAssetSources`, so this and the app cannot
-  // drift apart either. A store that is not mounted reads
-  // "assets: N private, N placeholder" — visible rather than silent.
+  // drift apart either. "2 private" is pinned because that is what the probe
+  // asks for; the placeholder count is 0 with a store mounted and 2 without,
+  // and both are correct — the point is that it is stated rather than silent.
   await expect(page.getByTestId('game-asset-sources')).toHaveText(
-    /^assets: \d+ private, \d+ placeholder$/,
+    /^assets: 2 private, [02] placeholder$/,
   );
   // The GLB references its texture by a relative path, so a wrongly vendored
   // layout is a second failure mode. Babylon happens to reject the whole load

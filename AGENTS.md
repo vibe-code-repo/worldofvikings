@@ -38,7 +38,7 @@ second of any of them.
 | `packages/editor-core`  | Editor-only logic                         | Anything the game needs       |
 | `packages/ui`           | Framework-free UI tokens/helpers          | React components              |
 | `content/`              | Authored JSON game data                   | TypeScript                    |
-| `assets/`               | Binary assets                             | Code                          |
+| `assets/`               | Public binary assets + placeholders       | Anything unlicensed           |
 | `tooling/`              | Scripts, validators, smoke tests          | Shipped code                  |
 | `infrastructure/`       | Deployment scaffolding (empty in Phase 1) | Anything needed for local dev |
 | `docs/`                 | Architecture, formats, ADRs               | Generated output              |
@@ -59,8 +59,9 @@ pnpm format:check
 pnpm test        # Vitest
 pnpm validate    # validate:content + validate:assets
 pnpm validate:content         # content/ against @wov/world-schema
-pnpm validate:assets          # assets/ against assets/manifest.json
-pnpm validate:assets --write  # regenerate the asset manifest
+pnpm validate:assets          # manifest against assets/, placeholders and the store
+pnpm validate:assets --write  # re-measure sizes and hashes (never invents provenance)
+pnpm import:world-assets --source <export> --store <store>   # see ADR-0015
 pnpm check       # typecheck + lint + format:check + test + validate
 pnpm smoke       # Playwright: every app started, marker asserted
 ```
@@ -94,7 +95,8 @@ A change is done when **all** of these hold:
 5. New or changed architecture is recorded in an ADR under `docs/adr/`.
 6. New dependencies are justified in the package README or an ADR.
 7. Nothing generated is committed (`dist/`, `node_modules/`, `playwright-report/`,
-   `test-results/`, `coverage/`).
+   `test-results/`, `coverage/`). The one exception is `assets/placeholders/`,
+   which exists so a clone that cannot run the generator still runs (ADR-0015).
 8. A clean clone still works: `corepack enable && pnpm install && pnpm dev`.
 9. Package READMEs still describe reality (purpose, public API, dependencies,
    ownership).
@@ -141,7 +143,11 @@ A change is done when **all** of these hold:
 - **No `any`, no unexplained `@ts-ignore`.**
 - **No generated files committed.**
 - **No new dependency without a stated reason.**
-- **No assets without a license row** in `docs/asset-licenses.md`.
+- **No assets without provenance.** `source`, `author`, `license`,
+  `redistributable` and `origin` are manifest fields and the schema rejects a
+  blank one; `docs/asset-licenses.md` carries the per-pack summary. Anything
+  whose redistribution rights are unsettled goes into the private asset store as
+  `visibility: private`, never into `assets/` (ADR-0015).
 - **Do not weaken a check to make it pass** — not the lint config, not a boundary
   rule, not a test. Fix the cause or explain why the rule is wrong.
 - **Do not touch `main` directly.** Work on a branch, open a PR.

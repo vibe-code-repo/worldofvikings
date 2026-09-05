@@ -23,6 +23,9 @@
  * 4. **Extract textures** — embedded images become files under `textures/`,
  *    referenced by a relative URI, deduplicated by content hash, and halved
  *    until they fit the 2048 px budget.
+ * 4b. **Compute the normals the exporter left out** — twelve terrains ship with
+ *    `POSITION` and `TEXCOORD_0` only, which draws as a scatter of backfaces.
+ *    This is the only vertex data the pipeline writes, and it is additive.
  * 5. **Write** — the normalised GLB into the store, a hull box into
  *    `assets/placeholders/`, and one manifest entry with the provenance.
  *
@@ -52,7 +55,9 @@ import {
 import type { AssetEntry } from '@wov/asset-system/manifest';
 import {
   assertSupported,
+  countMissingNormals,
   countTriangles,
+  ensureNormals,
   readGlb,
   repackBuffer,
   takeEmbeddedImages,
@@ -188,12 +193,13 @@ function unavailableTexture(): Buffer {
 
 interface Report {
   imported: number;
+  normalsComputed: number;
   readonly skipped: Map<string, number>;
   readonly excluded: string[];
 }
 
 const entries: AssetEntry[] = [];
-const report: Report = { imported: 0, skipped: new Map(), excluded: [] };
+const report: Report = { imported: 0, normalsComputed: 0, skipped: new Map(), excluded: [] };
 /** Which source file claimed each id, so a collision can name the winner. */
 const byId = new Map<string, string>();
 
@@ -254,9 +260,17 @@ async function importOne(selection: Selection, sourceFile: string): Promise<Asse
     });
   }
 
+  // The twelve terrains are exported with POSITION and TEXCOORD_0 alone, and a
+  // height field with no normals barely shades and draws mostly as backfaces.
+  // Counted before, so the report says how many files needed it.
+  const lackedNormals = countMissingNormals(glb.json);
+  if (lackedNormals > 0) {
+    report.normalsComputed += 1;
+  }
+
   const shifted = originShiftFor(selection.group, measured);
   wrapInRoot(glb.json, selection.id.split('/').pop() ?? selection.id, shifted);
-  const normalised = writeGlb(repackBuffer(glb));
+  const normalised = writeGlb(repackBuffer(ensureNormals(glb, selection.path)));
   const bounds = shift(measured, shifted);
 
   await write(join(storeRoot, selection.path), normalised);
@@ -428,6 +442,9 @@ process.stdout.write(
   `  ${'placeholders'.padEnd(12)} ${String(placeholderEntries.length).padStart(5)} file(s) in assets/\n`,
 );
 process.stdout.write(`  ${'manifest'.padEnd(12)} ${String(assets.length).padStart(5)} entries\n`);
+process.stdout.write(
+  `  ${'normals'.padEnd(12)} ${String(report.normalsComputed).padStart(5)} file(s) had none and were given them\n`,
+);
 
 if (report.excluded.length > 0) {
   process.stdout.write(`\n  excluded after measuring (${String(report.excluded.length)}):\n`);

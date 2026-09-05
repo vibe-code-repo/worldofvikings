@@ -58,10 +58,20 @@ export function resolveAssetPath(root: string, requestPath: string): string | un
   return candidate;
 }
 
+/**
+ * Headers every response carries, success or not.
+ *
+ * The failures need it as much as the successes: without the CORS header on a
+ * 404, a browser reports "blocked by CORS policy" instead of "not found", and
+ * the expected state of a clean clone — no store mounted, private assets 404,
+ * placeholders load — reads in the console as a security problem.
+ */
+const COMMON_HEADERS = { 'access-control-allow-origin': '*' } as const;
+
 const server = createServer((request, response) => {
   void (async () => {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
-      response.writeHead(405, { allow: 'GET, HEAD' }).end();
+      response.writeHead(405, { ...COMMON_HEADERS, allow: 'GET, HEAD' }).end();
       return;
     }
 
@@ -81,25 +91,25 @@ const server = createServer((request, response) => {
     const route = routeRequest(request.url ?? '/', { assets: assetRoot, store: storeRoot });
     if (route === undefined) {
       // A store request with no store: the expected state of a clean clone.
-      response.writeHead(404).end('no asset store configured');
+      response.writeHead(404, COMMON_HEADERS).end('no asset store configured');
       return;
     }
     const filePath = resolveAssetPath(route.root, route.path);
     if (filePath === undefined) {
-      response.writeHead(403).end('forbidden');
+      response.writeHead(403, COMMON_HEADERS).end('forbidden');
       return;
     }
 
     try {
       const stats = await stat(filePath);
       if (!stats.isFile()) {
-        response.writeHead(404).end('not found');
+        response.writeHead(404, COMMON_HEADERS).end('not found');
         return;
       }
       response.writeHead(200, {
+        ...COMMON_HEADERS,
         'content-type': contentTypes.get(extname(filePath)) ?? 'application/octet-stream',
         'content-length': stats.size,
-        'access-control-allow-origin': '*',
         'cache-control': 'no-cache',
       });
       if (request.method === 'HEAD') {
@@ -108,7 +118,7 @@ const server = createServer((request, response) => {
       }
       createReadStream(filePath).pipe(response);
     } catch {
-      response.writeHead(404).end('not found');
+      response.writeHead(404, COMMON_HEADERS).end('not found');
     }
   })();
 });

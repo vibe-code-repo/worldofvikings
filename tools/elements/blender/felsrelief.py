@@ -79,6 +79,7 @@
 # Aufruf als Werkzeug:
 #   python3 felsrelief.py --dump <lo> <hi> [--seed N] [--lage L]
 #                                [--z0 A] [--z1 B] [--randluft R]
+#                                [--relief-quelle <hoehenkarte.png>]
 #
 # The rock front layer's height field — pure arithmetic, no Blender.
 import json
@@ -192,6 +193,245 @@ RAND_STREUUNG = 0.012
 RAND_LUFT = 0.010     # Abstand der Schicht zu Boden- und Deckenplatte
 
 EPSILON = 1e-9
+
+# ── ZWEITE QUELLE: eine gebackene Höhenkarte (05.09.2026) ──────────────
+# Alles über dieser Zeile beschreibt die Quelle `voronoi` — ein Feld, das
+# sich der Rechner ausdenkt. Darunter steht die Quelle `heightmap`: ein
+# Feld, das GEMESSEN wurde, an einem Fels.
+#
+# Warum beide bleiben: `voronoi` braucht keine Datei und ist damit die
+# Quelle, mit der `fels-frontschicht.mjs` und der Kit-Neubau ohne
+# Bilddaten laufen. `heightmap` trägt die Handschrift eines wirklichen
+# Gesteins — was kein Rauschgenerator liefert, sind die LANGEN,
+# durchlaufenden Klüfte und die Tatsache, dass Bruchflächen sich um
+# gemeinsame Kanten gruppieren statt gleichverteilt zu streuen.
+#
+# Was die Karte NICHT mitbringt und deshalb hier bleibt:
+#   * Die Naht. Die Karte ist genau eine Periode (2 m) breit und endet
+#     links wie rechts auf ihrem neutralen Niveau (s. `backe-hoehenkarte.py`,
+#     Abschnitt „Wohin der Rand blendet"). Der eigentliche Nahtschluss
+#     bleibt aber das variantenfreie `_rand_niveau` dieses Moduls — sonst
+#     hinge die Dichtheit der Innenecke an einer Bilddatei.
+#   * Das 0,125-m-Raster. Die Karte hat 256 Bildpunkte je Meter, das
+#     Netz 8 Stützstellen. Abgetastet wird BILINEAR und zusätzlich über
+#     ein Kreuz von 5 Punkten gemittelt (`_karte_wert`): ein einzelner
+#     Bildpunkt je Stützstelle würde aus einer 4-cm-Kluft eine
+#     Zufallszahl machen (Aliasing — derselbe Fehler, an dem die erste
+#     Voronoi-Fassung gescheitert ist).
+#   * Die Varianten. Die Karte ist EINE Wand. `lage` verschiebt sie
+#     zyklisch in x, versetzt sie in z und spiegelt sie bei ungeradem
+#     Schlüssel — dadurch tragen Korridor Ost/West und die drei
+#     Wandvarianten verschiedene Ausschnitte desselben Gesteins.
+#
+# A second source: a baked height map instead of procedural noise.
+QUELLE = "voronoi"
+_KARTE = None          # (breite, hoehe, werte[0..1]) — einmal geladen
+
+
+def _png_grau(pfad):
+    """Ein Graustufen-PNG (8 oder 16 Bit) als (w, h, Liste in [0,1]).
+
+    Von Hand, mit `zlib` und sonst nichts. Der Grund ist derselbe wie im
+    Kopf: Dieses Modul wird von `python3` OHNE Umgebung aufgerufen (der
+    Prüfer `fels-frontschicht.mjs`) UND von Blender. Eine Abhängigkeit
+    auf Pillow oder numpy hiesse, dass eines der beiden Enden das Feld
+    nicht mehr nachrechnen kann — und ein Höhenfeld, das nur eine Seite
+    kennt, ist genau das, was `kit-neubau.mjs` verhindern soll.
+    """
+    import struct
+    import zlib as _zlib
+    with open(pfad, "rb") as f:
+        roh = f.read()
+    if roh[:8] != b"\x89PNG\r\n\x1a\n":
+        raise SystemExit(f"Keine PNG-Datei: {pfad}")
+    pos = 8
+    breite = hoehe = tiefe = farbtyp = None
+    daten = bytearray()
+    while pos + 8 <= len(roh):
+        laenge = struct.unpack(">I", roh[pos:pos + 4])[0]
+        typ = roh[pos + 4:pos + 8]
+        inhalt = roh[pos + 8:pos + 8 + laenge]
+        pos += 12 + laenge
+        if typ == b"IHDR":
+            breite, hoehe, tiefe, farbtyp = struct.unpack(">IIBB", inhalt[:10])
+            if inhalt[10:13] != b"\x00\x00\x00":
+                raise SystemExit("PNG: nur Filter 0 und ohne Interlace")
+        elif typ == b"IDAT":
+            daten += inhalt
+        elif typ == b"IEND":
+            break
+    if farbtyp != 0 or tiefe not in (8, 16):
+        raise SystemExit(f"PNG: erwartet Graustufe 8/16 Bit, ist Typ {farbtyp}/{tiefe}")
+    puffer = _zlib.decompress(bytes(daten))
+    bpp = tiefe // 8
+    schritt = breite * bpp
+    werte = []
+    vor = bytearray(schritt)
+    o = 0
+    for _ in range(hoehe):
+        filt = puffer[o]
+        o += 1
+        zeile = bytearray(puffer[o:o + schritt])
+        o += schritt
+        # Die fünf PNG-Filter — `backe-hoehenkarte.py` schreibt nur 0,
+        # aber eine Karte aus einem Malprogramm bringt die anderen mit.
+        if filt == 1:
+            for i in range(bpp, schritt):
+                zeile[i] = (zeile[i] + zeile[i - bpp]) & 0xFF
+        elif filt == 2:
+            for i in range(schritt):
+                zeile[i] = (zeile[i] + vor[i]) & 0xFF
+        elif filt == 3:
+            for i in range(schritt):
+                a = zeile[i - bpp] if i >= bpp else 0
+                zeile[i] = (zeile[i] + ((a + vor[i]) >> 1)) & 0xFF
+        elif filt == 4:
+            for i in range(schritt):
+                a = zeile[i - bpp] if i >= bpp else 0
+                b = vor[i]
+                c = vor[i - bpp] if i >= bpp else 0
+                pp = a + b - c
+                pa, pb, pc = abs(pp - a), abs(pp - b), abs(pp - c)
+                pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
+                zeile[i] = (zeile[i] + pr) & 0xFF
+        elif filt != 0:
+            raise SystemExit(f"PNG: unbekannter Filter {filt}")
+        vor = zeile
+        if bpp == 1:
+            werte.extend(v / 255.0 for v in zeile)
+        else:
+            werte.extend(((zeile[i] << 8) | zeile[i + 1]) / 65535.0
+                         for i in range(0, schritt, 2))
+    return breite, hoehe, werte
+
+
+def setze_relief_quelle(pfad):
+    """Schaltet auf die Quelle `heightmap` um; `None` schaltet zurück."""
+    global QUELLE, _KARTE
+    if not pfad:
+        QUELLE, _KARTE = "voronoi", None
+        return
+    _KARTE = _png_grau(pfad)
+    QUELLE = "heightmap"
+
+
+def _karte_punkt(u, v):
+    """Bilinear, u zyklisch (2-m-Periode), v geklemmt."""
+    w, h, werte = _KARTE
+    fx = (u % 1.0) * w - 0.5
+    fy = min(max(v, 0.0), 1.0) * (h - 1)
+    x0 = int(math.floor(fx))
+    y0 = int(math.floor(fy))
+    tx, ty = fx - x0, fy - y0
+    y0 = min(max(y0, 0), h - 2)
+    ty = min(max(fy - y0, 0.0), 1.0)
+
+    def px(x, y):
+        # Die Karte liegt von UNTEN nach oben (Blender-Bildordnung), die
+        # Wand ebenfalls: z = 0 ist ihre Unterkante.
+        return werte[y * w + (x % w)]
+
+    a = px(x0, y0) * (1 - tx) + px(x0 + 1, y0) * tx
+    b = px(x0, y0 + 1) * (1 - tx) + px(x0 + 1, y0 + 1) * tx
+    return a * (1 - ty) + b * ty
+
+
+# Mittelungskreuz: ein halber Rasterschritt (6,25 cm) nach jeder Seite.
+# Ohne ihn trifft eine Stützstelle eine 4-cm-Kluft entweder ganz oder gar
+# nicht, und aus derselben Wand würde bei minimal anderem Ausschnitt ein
+# anderes Relief.
+_KREUZ = ((0.0, 0.0, 0.36), (-0.5, 0.0, 0.16), (0.5, 0.0, 0.16),
+          (0.0, -0.5, 0.16), (0.0, 0.5, 0.16))
+
+# ── Spreizung: warum die Karte NICHT roh in den Hub geht ────────────────
+# Der Mittelungskreuz kostet Kontrast — das ist sein Zweck, aber es hat
+# einen Preis. Über ein volles Paneel gemessen (200 x 120 Punkte,
+# 05.09.2026) liegen die gemittelten Werte zwischen 0,331 und 0,953,
+# während die rohe Karte 0,129 .. 0,994 ausschöpft. Roh übernommen
+# stünde die tiefste Stelle der Wand bei 4,7 cm Rückzug statt bei 7,5 —
+# von 9 cm Reliefdicke wären zwei Drittel ungenutzt, und die steilste
+# Flanke bliebe unter 21 Grad. Die Spreizung holt den Bereich zurück,
+# den die Abtastung gekostet hat, und NICHT mehr: sie ist an gemessenen
+# Grenzen festgemacht, nicht an einem Geschmacksfaktor.
+KARTE_LO, KARTE_HI = 0.175, 0.987
+
+# ── Warum das Kreuz nicht nur MITTELT ──────────────────────────────────
+# Der erste Kontaktbogen mit der Karte (05.09.2026,
+# `kontaktbogen-tripo.png`) hat den reinen Mittelwert widerlegt: Die Wand
+# las sich als verwitterte Düne, nicht als Fels — weiche Wellen ohne eine
+# einzige harte Kante, neben dem Voronoi-Paneel deutlich flauer.
+#
+# Der Grund ist arithmetisch, nicht ästhetisch: Eine Kluft der Karte ist
+# 3 bis 6 cm breit, die Stützstellen stehen 12,5 cm auseinander. Ein
+# Mittelwert über ein 12,5-cm-Kreuz verteilt eine 4-cm-Kluft auf die
+# ganze Zelle — aus 6 cm Tiefe werden 2, und die Kante wird zur Rampe.
+# Genau das ist der Unterschied zwischen „gefiltert" und „verloren".
+#
+# Deshalb wird der Mittelwert zum TIEFSTEN Wert des Kreuzes hin gezogen.
+# Eine Kluft, die IRGENDWO in der Zelle liegt, zieht die Stützstelle mit
+# nach hinten, statt sich wegzumitteln; eine ebene Fläche bleibt eben,
+# weil dort Mittelwert und Minimum zusammenfallen. Das Aliasing, gegen
+# das das Kreuz ursprünglich steht, kommt dadurch NICHT zurück: Das
+# Minimum über eine feste Umgebung ändert sich bei einer kleinen
+# Verschiebung des Abtastpunktes stetig, ein Einzelwert springt.
+KREUZ_MIN = 0.6
+
+# ── Und warum zusätzlich GESCHÄRFT wird ────────────────────────────────
+# Auch mit dem Minimum blieb die Wand im zweiten Kontaktbogen weich. Der
+# Grund liegt nicht an der Karte, sondern am Abstand der Stützstellen:
+# Die Karte trägt 256 Bildpunkte je Meter, das Netz acht. Was zwischen
+# zwei Stützstellen liegt, ist für die Geometrie nicht vorhanden — und
+# die Vorderfläche ist WEICH schattiert (`make-stonevault.py`,
+# `fels_schicht`), sodass benachbarte Zellen ohne Knick ineinander
+# übergehen. Beim Voronoi-Feld entstanden die harten Kanten aus
+# SPRÜNGEN zwischen Nachbarzellen; ein tiefpassgefiltertes Bild hat
+# solche Sprünge nicht mehr.
+#
+# Die Schärfung holt sie zurück, und zwar genau dort, wo im Bild eine
+# Kante steht: Vom nahen Wert (Kreuz über ±0,5 Rasterschritte) wird der
+# ferne (Kreuz über ±1,75) abgezogen und die Differenz aufgeschlagen —
+# eine Unschärfemaske. Auf einer ebenen Partie sind beide gleich und es
+# passiert nichts; an einer Kluft ist der nahe Wert tiefer als der ferne,
+# und die Kluft wird tiefer statt breiter. Das ist dieselbe Rechnung, mit
+# der ein Bildbearbeiter Kanten zurückholt, die eine Verkleinerung
+# gekostet hat.
+SCHAERFE = 1.0
+_KREUZ_FERN = ((0.0, 0.0, 0.20),
+               (-1.75, 0.0, 0.20), (1.75, 0.0, 0.20),
+               (0.0, -1.75, 0.20), (0.0, 1.75, 0.20))
+
+
+def _karte_wert(x, z, lage):
+    """Der Kartenwert (1 = ganz vorn) an der Wandstelle (x, z).
+
+    `lage` wählt den AUSSCHNITT: zyklischer Versatz in x (bleibt damit
+    2-m-periodisch, s. Zwang 1), Versatz in z und Spiegelung. Die drei
+    Wandvarianten und die beiden Korridorseiten tragen so verschiedenen
+    Fels aus derselben Karte.
+    """
+    versatz_u = _zufall(SEED, lage, 211) 
+    versatz_v = (_zufall(SEED, lage, 223) - 0.5) * 0.5
+    spiegel = -1.0 if (lage % 2) else 1.0
+    def kreuz(kreuzliste):
+        summe = 0.0
+        tiefster = 1.0
+        for du, dv, g in kreuzliste:
+            xx = x + du * RASTER
+            zz = z + dv * RASTER
+            u = spiegel * (xx - ANKER) / PERIODE + versatz_u
+            v = (zz + versatz_v * HOEHE) / HOEHE
+            w = _karte_punkt(u, v)
+            summe += g * w
+            tiefster = min(tiefster, w)
+        return summe, tiefster
+
+    nah, tiefster = kreuz(_KREUZ)
+    nah += KREUZ_MIN * (tiefster - nah)
+    fern, _ = kreuz(_KREUZ_FERN)
+    roh = nah + SCHAERFE * (nah - fern)
+    t = (roh - KARTE_LO) / (KARTE_HI - KARTE_LO)
+    return min(1.0, max(0.0, t))
+
 
 
 def _zufall(*teile):
@@ -372,6 +612,11 @@ def _rand_niveau(seed, x, z, an_x_rand):
 
 def rueckzug(x, z, seed=SEED, lage=0):
     """Der Rückzug (0 .. HUB) an der Stelle (x, z) — OHNE Randstreifen."""
+    if QUELLE == "heightmap":
+        # 1 = ganz vorn (Rückzug 0), 0 = ganz hinten (Rückzug HUB). Die
+        # Klemme auf HUB ist damit die Skala selbst, und die Relieftiefe
+        # bleibt ohne weiteres Zutun zwischen 1,5 und 9 cm.
+        return HUB * (1.0 - _karte_wert(x, z, lage))
     ebene, kluft = _bruch(seed, lage, x, z)
     roh = ebene + _schichtung(seed, lage, x, z)
     if kluft < KLUFT_BREITE:
@@ -487,7 +732,10 @@ def _dump(argv):
            "--randluft": RAND_LUFT, "--zeilen": -1}
     i = 2
     while i < len(argv):
-        opt[argv[i]] = float(argv[i + 1])
+        if argv[i] == "--relief-quelle":
+            setze_relief_quelle(argv[i + 1])
+        else:
+            opt[argv[i]] = float(argv[i + 1])
         i += 2
     zeilen = int(opt["--zeilen"])
     g = fels_gitter(lo, hi, seed=int(opt["--seed"]), lage=int(opt["--lage"]),
@@ -495,7 +743,7 @@ def _dump(argv):
                     zeilen=None if zeilen < 0 else zeilen)
     g.update({"seed": int(opt["--seed"]), "lage": int(opt["--lage"]),
               "lo": lo, "hi": hi, "prot": PROT, "hub": HUB,
-              "raster": RASTER, "rand": RAND})
+              "raster": RASTER, "rand": RAND, "quelle": QUELLE})
     print(json.dumps(g))
 
 
@@ -503,4 +751,5 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--dump":
         _dump(sys.argv[2:])
     else:
-        raise SystemExit("Aufruf: python3 felsrelief.py --dump <lo> <hi> [--seed N] …")
+        raise SystemExit("Aufruf: python3 felsrelief.py --dump <lo> <hi> "
+                         "[--seed N] [--relief-quelle <png>] …")

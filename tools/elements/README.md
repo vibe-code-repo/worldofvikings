@@ -172,6 +172,8 @@ Eine Datei kam per `git mv` aus dem Repo selbst, fünf sind hier entstanden.
 |---|---|---|
 | `make-fels.py` | `tools/elements/pipeline/make-fels.py` | Erzeugt: das kachelbare Fels-Texturpaar `stein_fels.png` + `stein_fels_normal.png` (1024², prozedural auf dem Torus). Ersetzt für diesen Fall `texture-kit.py` + `make-normal.py`: Die Kachelung ist Konstruktion statt Nachbearbeitung, und die Normal-Karte entsteht aus dem HÖHENFELD statt aus der Helligkeit — mit umlaufender Ableitung und einer Stärke in Metern. |
 
+| `backe-hoehenkarte.py` | `tools/elements/pipeline/backe-hoehenkarte.py` | Erzeugt: Höhenkarte, Detail-Normale, Albedo und Rauheit aus einem gescannten Felsmodell (Tripo) — die Vorlage für `felsrelief.py --relief-quelle`. Strahlsonde über die vermessene Vorderseite; Auflösung 512 × 896 (16 Bit) für die Form, 1024² für die Texturen, und der Kopf begründet beides. |
+
 ### pipeline/quellen/ — Quelltexturen, ohne Kopfzeile
 
 Fünf PNG aus `~/wov-ai/pipeline-1.0/`. Sie sind Eingabe, nicht Ergebnis, und
@@ -184,6 +186,20 @@ tragen deshalb keine Kopfzeile; der Wächter überspringt den Ordner.
 | `pipeline/quellen/stein_moos_albedo.png` | Moos-Variante, Erzeugnis von `make-moss.py`. |
 | `pipeline/quellen/stein_frost_albedo.png` | Frost-Variante, Erzeugnis von `make-frost.py`. |
 | `pipeline/quellen/stein_wet_albedo.png` | Nass-Variante, Erzeugnis von `make-wet.py`. |
+
+### pipeline/quellen/tripo/ — gebackene Karten aus Scans, ohne Kopfzeile
+
+Das QUELLMODELL liegt nie hier (gross, binär, Eingabe statt Rezept — siehe
+`HERKUNFT.md` im jeweiligen Ordner). Was hierher gehört, ist das Ergebnis des
+Backens: Karten, die `felsrelief.py` und das Steinmaterial lesen.
+
+| Datei | Zweck |
+|---|---|
+| `pipeline/quellen/tripo/rock-wall-01/HERKUNFT.md` | Herkunft, Vermessung und Neubau-Aufruf der Tripo-Felswand vom 05.09.2026. |
+| `pipeline/quellen/tripo/rock-wall-01/rock-wall-01-hoehe.png` | Höhenfeld eines Wandpaneels, 512 × 896, 16 Bit — Eingang von `felsrelief.py --relief-quelle`. |
+| `pipeline/quellen/tripo/rock-wall-01/rock-wall-01-roughness.png` | Rauheit aus dem Tripo-`_rm`. Heute unbenutzt (das Steinmaterial hat keinen Rauheitskanal), liegt hier für den Tag, an dem es einen bekommt. |
+| `pipeline/quellen/tripo/rock-wall-01/stein_tripo_rock.png` | Albedo des Tripo-Felsens, 1024², in `STEIN_TEXTUREN` wählbar. |
+| `pipeline/quellen/tripo/rock-wall-01/stein_tripo_rock_normal.png` | Detail-Normale dazu; der Gradient des Höhenfeldes ist abgezogen, weil ihn das Netz schon als Dreiecke trägt. |
 
 Die Normal-Karte des Kits liegt **nicht im Repo** (`assets/` ist draussen) und
 wird bei Bedarf neu abgeleitet:

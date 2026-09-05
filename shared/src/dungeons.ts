@@ -231,6 +231,7 @@ export const STEIN_TEXTUREN: readonly string[] = [
   '/assets/models/stein_fels.png',
   '/assets/models/stein_moos.png',
   '/assets/models/stein_frost.png',
+  '/assets/models/stein_tripo_rock.png',
   '/assets/models/stein_wet.png',
 ];
 

@@ -63,14 +63,15 @@
 # kein Punkt der Fels-Flaeche weiter vorstehen als das Ziegelrelief. Der
 # Rueckzug geht nur nach hinten; die Begruendung steht in felsrelief.py.
 #
-# flatpak run org.blender.Blender --factory-startup -b --python make-stonevault.py -- <out-ordner> [--stil fels] [--seed N] [modul ...]
+# flatpak run org.blender.Blender --factory-startup -b --python make-stonevault.py -- <out-ordner> [--stil fels] [--seed N] [--relief-quelle <hoehenkarte.png>] [modul ...]
 # Ohne Modulnamen werden ALLE gebaut; mit Namen nur die genannten (die bereits
 # ausgelieferten Module lassen sich so unangetastet lassen). Modulnamen duerfen
 # mit StoneVault... ODER RockVault... genannt werden.
 import bpy, bmesh, sys, math, os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from felsrelief import fels_gitter, SEED as FELS_SEED   # noqa: E402
+from felsrelief import (fels_gitter, setze_relief_quelle,   # noqa: E402
+                        SEED as FELS_SEED)
 
 ARGS = sys.argv[sys.argv.index("--") + 1:]
 
@@ -78,6 +79,7 @@ ARGS = sys.argv[sys.argv.index("--") + 1:]
 # Ausgabeordner plus Modulnamen.
 STIL = "ziegel"
 SEED = FELS_SEED
+RELIEF_QUELLE = None
 _rest = []
 _i = 0
 while _i < len(ARGS):
@@ -87,11 +89,23 @@ while _i < len(ARGS):
     elif ARGS[_i] == "--seed":
         SEED = int(ARGS[_i + 1])
         _i += 2
+    elif ARGS[_i] == "--relief-quelle":
+        # Die gebackene Hoehenkarte statt des Voronoi-Feldes. Der Schalter
+        # wirkt AUSSCHLIESSLICH auf die Frontschicht (felsrelief.py); die
+        # Rueckplatte, der Nahtschluss und jeder Quader bleiben, was sie
+        # sind — deshalb kann `--stil ziegel` ihn gar nicht brauchen.
+        RELIEF_QUELLE = ARGS[_i + 1]
+        _i += 2
     else:
         _rest.append(ARGS[_i])
         _i += 1
 if STIL not in ("ziegel", "fels"):
     raise SystemExit(f"Unbekannter Stil: {STIL} (erlaubt: ziegel, fels)")
+if RELIEF_QUELLE:
+    if STIL != "fels":
+        raise SystemExit("--relief-quelle gibt es nur zu --stil fels")
+    setze_relief_quelle(RELIEF_QUELLE)
+    print(f"RELIEFQUELLE {RELIEF_QUELLE}")
 ARGS = _rest
 OUT = ARGS[0]
 

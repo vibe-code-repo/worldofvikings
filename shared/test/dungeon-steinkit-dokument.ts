@@ -445,6 +445,65 @@ check(
   String(sauberNormal?.steinKit?.wandTextur)
 );
 
+// ── 10. Tripo-Fels-Textur (05.09.2026) ────────────────────────────────────
+//
+// `stein_tripo_rock` ist die aus dem Tripo-Scan gebackene Steinoberflaeche
+// (`tools/elements/pipeline/backe-hoehenkarte.py`). Sie ist eine WAHL im
+// Dropdown, keine Vorgabe — die Vorgabe des Fels-Kits bleibt unangetastet,
+// bis Mike den Kontaktbogen gesehen hat.
+//
+// Der Abschnitt wiederholt die Zusagen von F2 fuer den neuen Namen, und das
+// ist Absicht: Beim Fels war die Fallgrube die Namensform ohne Endung
+// (`steinTexturAufloesen('stein_fels_normal')` haette die Normal-Karte fast
+// als Albedo hereingelassen). Der neue Name traegt einen UNTERSTRICH MEHR
+// (`stein_tripo_rock_normal`), und die Ableitung in `normalPfadZu` schneidet
+// an der Endung, nicht am Unterstrich — genau deshalb steht die Probe hier
+// noch einmal, statt sich auf die Symmetrie zu verlassen.
+//
+// The Tripo-baked rock surface: same F2 promises, checked for the new name.
+
+console.log('\nTripo-Fels-Textur:');
+const TRIPO = '/assets/models/stein_tripo_rock.png';
+const TRIPO_NORMAL = '/assets/models/stein_tripo_rock_normal.png';
+
+check('STEIN_TEXTUREN kennt stein_tripo_rock', STEIN_TEXTUREN.includes(TRIPO));
+check(
+  'STEIN_TEXTUREN enthaelt stein_tripo_rock_normal nicht',
+  !STEIN_TEXTUREN.includes(TRIPO_NORMAL)
+);
+for (const eingabe of ['stein_tripo_rock', 'stein_tripo_rock.png', TRIPO]) {
+  check(
+    `steinTexturAufloesen("${eingabe}") ergibt den Tripo-Pfad`,
+    steinTexturAufloesen(eingabe) === TRIPO,
+    String(steinTexturAufloesen(eingabe))
+  );
+}
+for (const eingabe of ['stein_tripo_rock_normal', 'stein_tripo_rock_normal.png', TRIPO_NORMAL]) {
+  check(
+    `steinTexturAufloesen("${eingabe}") ergibt undefined`,
+    steinTexturAufloesen(eingabe) === undefined,
+    String(steinTexturAufloesen(eingabe))
+  );
+}
+
+const mitTripo = {
+  ...basisDoc,
+  steinKit: {
+    wandTextur: TRIPO,
+    deckeTextur: TRIPO,
+    bodenTextur: TRIPO,
+    verwitterung: { moos: 0, frost: 0, nass: 0 },
+    kachelM: 2,
+  },
+};
+const sauberTripo = sanitizeDungeonDocument(JSON.parse(JSON.stringify(mitTripo)));
+check('Dokument mit Tripo-Fels bleibt gueltig', sauberTripo !== null);
+check(
+  'Dokument: wandTextur ist der Tripo-Fels',
+  sauberTripo?.steinKit?.wandTextur === TRIPO,
+  sauberTripo?.steinKit?.wandTextur
+);
+
 if (failures > 0) {
   console.error(`\n${failures} FAILURES`);
   process.exit(1);

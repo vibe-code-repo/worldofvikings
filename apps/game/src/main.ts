@@ -9,8 +9,7 @@
  * smoke test can tell "app served" apart from "renderer failed".
  */
 import { tokens } from '@wov/ui';
-import { resolveRenderConfig } from '@wov/engine';
-import { createScene } from './scene.js';
+import { createGameRenderer } from './scene.js';
 
 const marker = document.querySelector<HTMLElement>('[data-testid="game-marker"]');
 const status = document.querySelector<HTMLElement>('[data-testid="game-status"]');
@@ -33,18 +32,23 @@ function setStatus(text: string): void {
   }
 }
 
-const canvas = document.querySelector<HTMLCanvasElement>('#render-canvas');
-if (!canvas) {
-  setStatus('no render canvas found');
-} else {
+/**
+ * Asynchronous because `createRenderer` may have to initialise WebGPU before
+ * it can hand back a scene (ADR-0006).
+ */
+async function start(canvas: HTMLCanvasElement): Promise<void> {
   try {
-    const config = resolveRenderConfig({ resolutionScale: 1 });
-    const { engine, scene } = createScene(canvas, config);
-    engine.runRenderLoop(() => scene.render());
-    window.addEventListener('resize', () => engine.resize());
-    setStatus(`renderer ready — ${engine.description ?? 'WebGL'}`);
+    const renderer = await createGameRenderer(canvas, { resolutionScale: 1 });
+    setStatus(`renderer ready — ${renderer.backend}`);
   } catch (error) {
     // A failing renderer must not hide the page: report it instead.
     setStatus(`renderer unavailable: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+const canvas = document.querySelector<HTMLCanvasElement>('#render-canvas');
+if (!canvas) {
+  setStatus('no render canvas found');
+} else {
+  void start(canvas);
 }

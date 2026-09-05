@@ -14,3 +14,4 @@ change it describes.
 | [0003](0003-separate-game-and-editor-apps.md)              | Game and editor are separate applications                   | accepted |
 | [0004](0004-world-data-outside-code-validated-with-zod.md) | World data lives outside the code and is validated with Zod | accepted |
 | [0005](0005-fastify-for-the-api.md)                        | Fastify for the API service                                 | accepted |
+| [0006](0006-engine-package-owns-babylon-bootstrap.md)      | The engine package owns the Babylon.js bootstrap            | accepted |

@@ -1,6 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    // The renderer package is the one place that talks to browser APIs
+    // (canvas, window, navigator.gpu), so it needs the DOM lib.
+    "lib": ["ES2022", "DOM"],
     "composite": true,
     "declaration": true,
     "declarationMap": true,

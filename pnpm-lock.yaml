@@ -219,6 +219,9 @@ importers:
 
   packages/engine:
     dependencies:
+      '@babylonjs/core':
+        specifier: ^8.31.1
+        version: 8.56.2
       '@wov/shared':
         specifier: workspace:*
         version: link:../shared

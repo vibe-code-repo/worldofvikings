@@ -2,7 +2,7 @@
   "name": "@wov/engine",
   "version": "0.0.0",
   "private": true,
-  "description": "Rendering/engine layer shared by game and editor (Babylon.js lands in Phase 1).",
+  "description": "Shared Babylon.js bootstrap (engine, scene, render loop) for game and editor.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,6 +21,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@babylonjs/core": "^8.31.1",
     "@wov/shared": "workspace:*"
   }
 }

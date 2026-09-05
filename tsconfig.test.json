@@ -2,6 +2,9 @@
   // Type-checks the test files, which the emitting package configs exclude.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    // `@wov/engine` is a browser renderer: its tests pull in canvas, window
+    // and navigator types, so the DOM lib has to be available here too.
+    "lib": ["ES2022", "DOM"],
     "noEmit": true,
     "types": ["node", "vitest/globals"]
   },

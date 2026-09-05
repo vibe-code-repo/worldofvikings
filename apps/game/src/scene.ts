@@ -1,28 +1,28 @@
-import { Engine } from '@babylonjs/core/Engines/engine';
-import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
+// One specific builder rather than the whole `MeshBuilder` set — see ADR-0006.
 import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
-import type { RenderConfig } from '@wov/engine';
-
-export interface GameScene {
-  readonly engine: Engine;
-  readonly scene: Scene;
-}
+import { createRenderer } from '@wov/engine';
+import type { RenderConfig, RendererHandle } from '@wov/engine';
 
 /**
  * Creates the Phase 0 placeholder scene: a camera looking at a flat ground
- * under a hemispheric light. Nothing here is world data — the real world is
- * loaded from `content/worlds/` from Phase 4 on.
+ * under a hemispheric light.
+ *
+ * Engine, scene, render loop and resize handling come from `@wov/engine`
+ * (ADR-0006); this module only fills the scene. Nothing here is world data —
+ * the real world is loaded from `content/worlds/` from Phase 4 on.
  */
-export function createScene(canvas: HTMLCanvasElement, config: RenderConfig): GameScene {
-  const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
-  engine.setHardwareScalingLevel(1 / config.resolutionScale);
+export async function createGameRenderer(
+  canvas: HTMLCanvasElement,
+  overrides: Partial<RenderConfig> = {},
+): Promise<RendererHandle> {
+  const renderer = await createRenderer(canvas, overrides);
+  const { scene } = renderer;
 
-  const scene = new Scene(engine);
   scene.clearColor = new Color4(0.055, 0.067, 0.086, 1);
 
   const camera = new ArcRotateCamera(
@@ -45,5 +45,5 @@ export function createScene(canvas: HTMLCanvasElement, config: RenderConfig): Ga
   groundMaterial.specularColor = Color3.Black();
   ground.material = groundMaterial;
 
-  return { engine, scene };
+  return renderer;
 }

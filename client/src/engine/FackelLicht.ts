@@ -104,6 +104,18 @@ import type { UniformBuffer } from '@babylonjs/core/Materials/uniformBuffer';
 export const FACKEL_OBERGRENZE = 16;
 
 /**
+ * Halbmesser der leuchtenden Flamme in Metern.
+ *
+ * Keine Abstimmung, sondern eine Messung am Modell: Die Flamme der
+ * `CryptWallTorch` ist rund 25 cm hoch. Sie als PUNKT zu rechnen ist genau
+ * dort falsch, wo man am nächsten dran ist — an der Wand, an der die Fackel
+ * hängt. Wozu die Zahl im Shader dient, steht bei `bausteinGlsl()`.
+ * Radius of the emitting flame in metres — the torch's flame is ~25 cm tall,
+ * so treating it as a point is wrong exactly where one stands closest to it.
+ */
+export const FACKEL_RADIUS_M = 0.25;
+
+/**
  * Wie viele vec4 der übrige Material-Block schon belegt, grob geschätzt.
  *
  * Nur für den Rückfallpfad OHNE Uniform-Blöcke interessant: dort werden
@@ -320,8 +332,28 @@ export function bausteinGlsl(istPbr: boolean, n: number): string {
   // Der Abfall ist der einzige Unterschied im Schleifenrumpf: PBR rechnet
   // 1/d² (computeDistanceLightFalloff_Physical), StandardMaterial linear
   // (computeLighting). Beide bekommen zusätzlich das Reichweitenfenster.
+  //
+  // ── Warum im Nenner ein Summand steht (05.09.2026) ──────────────────
+  // `1/d²` ist das Gesetz für einen PUNKT. Eine Flamme ist keiner: Die
+  // Flamme der `CryptWallTorch` ist rund 25 cm hoch, und die Wand, an der
+  // die Fackel hängt, steht 15 cm davor. Genau dort ist der Unterschied
+  // gewaltig — 1/0,15² = 44, und alles darüber ist gleich weiss.
+  //
+  // Die Lösung ist kein Deckel, sondern das Gesetz für eine KUGEL vom
+  // Radius r: ausserhalb geht es in 1/d² über, innerhalb bleibt es
+  // endlich. `1/(d² + r²)` ist die übliche Näherung dafür. Was sie
+  // kostet, ist ausrechenbar und klein: bei 1 m −6 %, bei 2 m −1,5 %,
+  // bei 4 m −0,4 %. Was sie einbringt, steht am anderen Ende: bei 15 cm
+  // fällt der Faktor von 44 auf 11,8, die Wand neben der Flamme hat
+  // wieder eine Zeichnung statt einer weissen Fläche.
+  //
+  // `FACKEL_RADIUS_M` steht als TS-Konstante daneben, damit
+  // `client/test/fackel-licht.ts` dieselbe Zahl prüfen kann, die im
+  // Shader landet — eine zweite Schreibweise im GLSL-Text wäre die
+  // zweite Wahrheit.
+  const r2 = (FACKEL_RADIUS_M * FACKEL_RADIUS_M).toFixed(6);
   const abfall = istPbr
-    ? '      float abfall = fenster / max(d2, 1e-4);'
+    ? `      float abfall = fenster / (d2 + ${r2});`
     : '      float abfall = fenster * max(0.0, 1.0 - sqrt(d2) / max(fackelPos[i].w, 1e-4));';
 
   // Und die Übergabe an das fertige Bild: `finalColor` heisst die Variable

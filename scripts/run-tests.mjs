@@ -940,6 +940,13 @@ const KERN = [
   // F1: the stone material's normal channel — text-only, plus a real GLSL
   // compile when glslangValidator happens to be installed.
   ['client', 'test/stein-normal.ts'],
+  // 05.09.2026: der ABFALL des Fackellichts. `1/d²` ist das Gesetz fuer
+  // einen Punkt; eine 25 cm hohe Flamme ist keiner, und an der Wand 15 cm
+  // dahinter liefert die Punktformel den Faktor 44. Der Test haelt fest,
+  // dass der PBR-Zweig mit `1/(d²+r²)` rechnet, der StandardMaterial-Zweig
+  // linear bleibt, und rechnet die Daempfung an vier Abstaenden nach.
+  // Reiner Text, keine GPU, <1 s.
+  ['client', 'test/fackel-licht.ts'],
   // F2 (Fels-Relief 3a): das Steinmaterial JE DOKUMENT — Erlaubnisliste,
   // Sanitizer und Raum-Override, dazu der Fels-Eintrag `stein_fels` und
   // die Zusage, dass KEINE Normal-Karte in der Liste steht (sie wäre im

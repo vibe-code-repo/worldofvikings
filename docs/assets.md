@@ -1,7 +1,9 @@
 # Assets
 
 > Status: **Phase 1** — folders, the local asset server, the loading/caching
-> asset manager and the manifest check exist; no assets contributed yet.
+> asset manager, scene placement and the manifest check exist. The first
+> licensed asset (a CC0 barrel from Kenney's Retro Fantasy Kit) is loaded by the
+> game and asserted by `pnpm smoke`.
 
 ## Where assets live
 
@@ -17,9 +19,13 @@ Code never hardcodes a host: it resolves references through
 `@wov/asset-system` owns loading too. `AssetManager.loadGlb(path)` loads a GLB
 into a Babylon `AssetContainer` and caches it per resolved URL, so placing the
 same model a hundred times costs one request; `instantiate(path)` makes the
-copies. Babylon.js registers no file loader by itself, so the glTF plugin is
-registered explicitly and the registration is covered by a test. See ADR-0006
-and the package README.
+copies and `placeAssets(manager, placements)` moves them where they belong.
+Babylon.js registers no file loader by itself, so the glTF plugin is registered
+explicitly and the registration is covered by a test. See ADR-0006, ADR-0007 and
+the package README.
+
+The manifest schema sits behind its own entry point, `@wov/asset-system/manifest`
+— it is the only part that needs Zod, and the game does not read the manifest.
 
 ## The manifest
 
@@ -59,3 +65,8 @@ Every asset must document **source, author, license, usage rights and
 modification status** in `docs/asset-licenses.md`. Never commit ripped game
 assets, unknown-license files or anything without redistribution rights.
 AI-generated assets need their provenance documented too.
+
+Third-party files are vendored byte-identically, keeping the source layout, in a
+folder named after the kit; a `README.md` next to them holds the full provenance
+record and `THIRD_PARTY_NOTICES.md` the per-kit credit (ADR-0007). "Modified: no"
+should stay a claim that `sha256sum` can settle.

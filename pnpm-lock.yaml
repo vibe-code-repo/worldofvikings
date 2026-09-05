@@ -191,6 +191,9 @@ importers:
       '@babylonjs/core':
         specifier: ^8.31.1
         version: 8.56.2
+      '@wov/asset-system':
+        specifier: workspace:*
+        version: link:../../packages/asset-system
       '@wov/engine':
         specifier: workspace:*
         version: link:../../packages/engine

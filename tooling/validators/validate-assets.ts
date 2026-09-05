@@ -11,9 +11,11 @@
  * pnpm validate:assets --write    # regenerate the manifest from assets/
  * ```
  *
- * All the decisions live in `@wov/asset-system` — which files count as assets,
- * how the manifest is validated, how drift reads. This script only does the
- * things a browser package must not do: touch the file system and hash bytes.
+ * All the decisions live in `@wov/asset-system/manifest` — which files count as
+ * assets, how the manifest is validated, how drift reads. This script only does
+ * the things a browser package must not do: touch the file system and hash
+ * bytes. The manifest schema sits behind its own entry point so that importing
+ * it here does not put Zod into the game's bundle (spec §38).
  */
 import { createHash } from 'node:crypto';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
@@ -28,8 +30,8 @@ import {
   isIndexedAssetFile,
   isManifestInSync,
   parseAssetManifest,
-} from '@wov/asset-system';
-import type { AssetEntry } from '@wov/asset-system';
+} from '@wov/asset-system/manifest';
+import type { AssetEntry } from '@wov/asset-system/manifest';
 
 const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const assetsDir = join(repoRoot, 'assets');

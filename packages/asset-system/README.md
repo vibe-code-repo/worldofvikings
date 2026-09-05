@@ -4,20 +4,34 @@
 Keeps asset addressing out of the game and editor code so the same reference
 works against `localhost:9000` and the production CDN (spec §37, ADR-0006).
 
-Three separable concerns, so the parts that do not need a renderer can be used
+Separable concerns, so the parts that do not need a renderer can be used
 without one:
 
 | Module                  | Does                                                  | Needs Babylon.js |
 | ----------------------- | ----------------------------------------------------- | ---------------- |
 | `url.ts`                | Resolves an asset path to a URL                       | no               |
-| `manifest.ts`           | Zod schema and drift check for `assets/manifest.json` | no               |
 | `asset-manager.ts`      | Loads, caches and instantiates GLB containers         | types only       |
 | `glb-loader.ts`         | The `GlbLoader` port the manager is written against   | types only       |
 | `babylon-glb-loader.ts` | Registers Babylon's glTF plugin, implements the port  | at load time     |
+| `scene-placement.ts`    | Moves instantiated copies into position               | no               |
+| `manifest.ts`           | Zod schema and drift check for `assets/manifest.json` | no               |
 
 Importing this package does **not** import Babylon.js. The Babylon binding is
 loaded on the first actual asset load, which keeps the renderer out of Node
 tooling and out of the initial browser chunk.
+
+## Two entry points
+
+| Import                       | Contains                                | Used by                |
+| ---------------------------- | --------------------------------------- | ---------------------- |
+| `@wov/asset-system`          | URLs, loading, caching, placement       | the game, the editor   |
+| `@wov/asset-system/manifest` | The manifest schema and its drift check | `pnpm validate:assets` |
+
+The manifest half is separate because it is the only part that needs Zod, and
+re-exporting it from the root entry point put 84 kB of Zod into the game's first
+chunk for code the game never calls (ADR-0007). The boundary is enforced:
+`game-must-not-pull-in-the-manifest-schema` in `.dependency-cruiser.cjs` fails
+the build if the game can reach `manifest.ts` again, transitively included.
 
 ## Public API
 
@@ -46,7 +60,25 @@ tooling and out of the initial browser chunk.
   `loadContainer` is what lets the cache be tested without a renderer.
 - Types: `GlbLoader`, `AssetManagerOptions`, `InstantiateOptions`.
 
-**Manifest**
+**Placement**
+
+- `placeAssets(instantiator, placements)` — instantiates each
+  `{ asset, name, position, scale? }` and moves the resulting roots. Placements
+  run concurrently, share the cache, and one failure does not cancel the others;
+  the result is `{ placed, failures }`, both in input order.
+  - `scale` **multiplies** the model's own scaling instead of replacing it,
+    because Babylon's glTF loader mirrors the imported root on x to convert
+    handedness — assigning would turn the model inside out.
+  - Root nodes are narrowed before being moved: Babylon types `rootNodes` as
+    `Node[]`, and a `Node` (a light, a camera) has no transform. A placement
+    whose roots all lack one fails instead of silently sitting at the origin.
+- `summarizePlacement(result)` — the one status line, e.g. `assets: 1 loaded` or
+  `assets: 1 loaded, 1 failed (environment/missing.glb)`. It lives here so the
+  game and the smoke test cannot spell it differently.
+- Types: `AssetPlacement`, `PlacementResult`, `PlacementFailure`,
+  `AssetInstantiator`, `InstantiatedNode`, `InstantiatedNodes`, `PlaceableNode`.
+
+**Manifest** (from `@wov/asset-system/manifest`)
 
 - `parseAssetManifest(data)` — validates unknown data; an unsupported
   `manifestVersion` gets its own message instead of a wall of field errors.
@@ -67,18 +99,22 @@ tooling and out of the initial browser chunk.
 ## Usage
 
 ```ts
-import { AssetManager, resolveAssetSourceConfig } from '@wov/asset-system';
+import { AssetManager, placeAssets, resolveAssetSourceConfig } from '@wov/asset-system';
 
 const assets = new AssetManager({
-  source: resolveAssetSourceConfig(import.meta.env),
+  source: resolveAssetSourceConfig({ VITE_ASSET_URL: import.meta.env.VITE_ASSET_URL }),
   scene,
 });
 
 // One request, however many trees.
-for (const placement of zone.trees) {
-  const { rootNodes } = await assets.instantiate('environment/pine_tree_01.glb');
-  rootNodes[0]?.position.copyFrom(placement);
-}
+const result = await placeAssets(
+  assets,
+  zone.trees.map((tree, index) => ({
+    asset: 'environment/pine_tree_01.glb',
+    name: `pine-${index}`,
+    position: tree.position,
+  })),
+);
 ```
 
 ## The manifest
@@ -106,11 +142,11 @@ fresh `generatedAt` into every pull request.
 
 ## Dependencies
 
-| Package              | Why                                                                                                                                                                       |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@babylonjs/core`    | `AssetContainer`, `Scene` and the scene loader registry. Already the project's engine (ADR-0002). Types are imported as types; the runtime import is dynamic.             |
-| `@babylonjs/loaders` | Babylon registers no file loader by itself — a `.glb` URL fails at runtime with "no plugin found" until the glTF 2.0 plugin from this package is registered (ADR-0006).   |
-| `zod`                | The manifest is external data and must be validated (agent rule 10). Same choice and reasoning as `@wov/world-schema` (ADR-0004): one declaration yields schema and type. |
+| Package              | Why                                                                                                                                                                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@babylonjs/core`    | `AssetContainer`, `Scene` and the scene loader registry. Already the project's engine (ADR-0002). Types are imported as types; the runtime import is dynamic.                                                                  |
+| `@babylonjs/loaders` | Babylon registers no file loader by itself — a `.glb` URL fails at runtime with "no plugin found" until the glTF 2.0 plugin from this package is registered (ADR-0006).                                                        |
+| `zod`                | The manifest is external data and must be validated (agent rule 10). Same choice and reasoning as `@wov/world-schema` (ADR-0004): one declaration yields schema and type. Reachable only through `@wov/asset-system/manifest`. |
 
 ## Ownership
 

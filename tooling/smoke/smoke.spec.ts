@@ -15,6 +15,27 @@ test('game shows its dev build marker', async ({ page }) => {
   await expect(page.getByTestId('game-status')).not.toHaveText('starting…');
 });
 
+test('game loads its environment asset over the asset server', async ({ page }) => {
+  const badResponses: string[] = [];
+  page.on('response', (response) => {
+    if (response.url().includes(':9000/') && !response.ok()) {
+      badResponses.push(`${String(response.status())} ${response.url()}`);
+    }
+  });
+
+  await page.goto('http://localhost:5173');
+
+  // The wording comes from `summarizePlacement` in @wov/asset-system, so this
+  // and the app cannot drift apart. A failed load reads
+  // "assets: 0 loaded, 1 failed (…)" and fails here.
+  await expect(page.getByTestId('game-assets')).toHaveText('assets: 1 loaded');
+  // The GLB references its texture by a relative path, so a wrongly vendored
+  // layout is a second failure mode. Babylon happens to reject the whole load
+  // when that file is missing, but a model with an optional side-car would only
+  // show up on the wire — so watch the wire too, not just the marker.
+  expect(badResponses).toEqual([]);
+});
+
 test('editor shows its shell and viewport placeholder', async ({ page }) => {
   await page.goto('http://localhost:5174');
   await expect(page.getByTestId('editor-marker')).toContainText('world editor dev build');

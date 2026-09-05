@@ -32,6 +32,17 @@ transitive tree.
 
 ## Assets
 
-No third-party assets are bundled in Phase 0. Every asset added later must be
-listed in `docs/asset-licenses.md` with source, author, license, usage rights and
-modification status (spec §46).
+| Asset set                                                           | License | Author | Used by     | Why                                        |
+| ------------------------------------------------------------------- | ------- | ------ | ----------- | ------------------------------------------ |
+| [Retro Fantasy Kit 2.0](https://kenney.nl/assets/retro-fantasy-kit) | CC0 1.0 | Kenney | `apps/game` | First licensed environment asset (Phase 1) |
+
+Kenney's kits are released under [CC0
+1.0](https://creativecommons.org/publicdomain/zero/1.0/) and require no
+attribution; the credit above is given because Kenney asks for it. The files are
+vendored unmodified under
+`assets/environment/kenney-retro-fantasy-kit/`, which holds the full provenance
+record.
+
+Every asset is additionally listed file by file in `docs/asset-licenses.md` with
+source, author, license, usage rights and modification status (spec §46). No
+asset is merged without that row.

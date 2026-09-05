@@ -15,3 +15,4 @@ change it describes.
 | [0004](0004-world-data-outside-code-validated-with-zod.md) | World data lives outside the code and is validated with Zod | accepted |
 | [0005](0005-fastify-for-the-api.md)                        | Fastify for the API service                                 | accepted |
 | [0006](0006-asset-loading-caching-and-manifest.md)         | GLB loading, per-URL caching and an asset manifest          | accepted |
+| [0007](0007-vendoring-third-party-assets.md)               | Vendoring third-party assets, and two asset-system entries  | accepted |

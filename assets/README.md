@@ -4,7 +4,11 @@ Binary game assets: models, textures, animations, audio, UI art. Served locally
 by the development asset server on http://localhost:9000 (`pnpm dev:assets`) and
 in production from `assets.world-of-vikings.com` (spec §37).
 
-The folders are still empty — no assets have been contributed yet.
+Third-party assets are vendored **unmodified**, in a folder named after the kit
+they come from, with a `README.md` next to them carrying the full provenance
+record — see `environment/kenney-retro-fantasy-kit/` and ADR-0007. A GLB that
+references its texture by a relative path keeps the source layout, folder casing
+included, so the committed bytes still match the download.
 
 ## manifest.json
 

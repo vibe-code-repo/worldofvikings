@@ -70,15 +70,15 @@ introduced the wrong way round.
 
 ## Packages
 
-| Package             | Purpose                                          |
-| ------------------- | ------------------------------------------------ |
-| `@wov/shared`       | Framework-free helpers. Dependency-free.         |
-| `@wov/world-schema` | Zod schemas + versioning for all world data.     |
-| `@wov/asset-system` | Asset URLs, GLB loading and caching, manifest.   |
-| `@wov/engine`       | Shared renderer layer (Babylon.js from Phase 1). |
-| `@wov/gameplay`     | Gameplay state and systems (from Phase 6).       |
-| `@wov/editor-core`  | Editor-only logic. Forbidden in the game.        |
-| `@wov/ui`           | Framework-free UI tokens/helpers.                |
+| Package             | Purpose                                                         |
+| ------------------- | --------------------------------------------------------------- |
+| `@wov/shared`       | Framework-free helpers. Dependency-free.                        |
+| `@wov/world-schema` | Zod schemas + versioning for all world data.                    |
+| `@wov/asset-system` | Asset URLs, GLB loading and caching, scene placement, manifest. |
+| `@wov/engine`       | Shared renderer layer (Babylon.js from Phase 1).                |
+| `@wov/gameplay`     | Gameplay state and systems (from Phase 6).                      |
+| `@wov/editor-core`  | Editor-only logic. Forbidden in the game.                       |
+| `@wov/ui`           | Framework-free UI tokens/helpers.                               |
 
 See each package's README for its public API and ownership.
 

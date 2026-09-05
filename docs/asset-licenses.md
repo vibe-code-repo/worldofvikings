@@ -2,9 +2,19 @@
 
 Every asset in `assets/` must be listed here before it is merged (spec §46).
 
-| Asset path                             | Source | Author | License | Usage rights | Modified |
-| -------------------------------------- | ------ | ------ | ------- | ------------ | -------- |
-| _(none yet — Phase 0 ships no assets)_ |        |        |         |              |          |
+Paths are relative to `assets/`, exactly as they appear in `assets/manifest.json`.
+
+| Asset path                                                 | Source                                                              | Author | License | Usage rights                                                     | Modified |
+| ---------------------------------------------------------- | ------------------------------------------------------------------- | ------ | ------- | ---------------------------------------------------------------- | -------- |
+| `environment/kenney-retro-fantasy-kit/detail-barrel.glb`   | [Retro Fantasy Kit 2.0](https://kenney.nl/assets/retro-fantasy-kit) | Kenney | CC0 1.0 | Personal, educational and commercial use; redistribution allowed | No       |
+| `environment/kenney-retro-fantasy-kit/Textures/barrel.png` | [Retro Fantasy Kit 2.0](https://kenney.nl/assets/retro-fantasy-kit) | Kenney | CC0 1.0 | Personal, educational and commercial use; redistribution allowed | No       |
+
+CC0 1.0 is the [Creative Commons public domain
+dedication](https://creativecommons.org/publicdomain/zero/1.0/): no attribution
+required. Kenney asks for credit anyway, and this project gives it — here, in
+`THIRD_PARTY_NOTICES.md`, and next to the files themselves, where the full
+per-kit provenance record lives
+(`assets/environment/kenney-retro-fantasy-kit/README.md`).
 
 ## Rules
 

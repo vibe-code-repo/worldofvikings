@@ -38,3 +38,8 @@ body {
   font-size: 0.8rem;
   opacity: 0.75;
 }
+
+/* The asset line sits above the renderer line; both are fixed to the bottom. */
+.status.assets {
+  bottom: 3rem;
+}

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Zeigt die Normale eines Kit-Moduls IM SPIEL zur Seite, in die sie zeigen
- * soll? — und was der übersetzte Shader daraus macht.
+ * Prüft: ob die Normale eines Kit-Moduls IM SPIEL zur Raumseite zeigt — und
+ * was der übersetzte Shader daraus macht.
+ *
  * Does a kit module's normal point where it should — and what does the
  * compiled shader make of it?
  *

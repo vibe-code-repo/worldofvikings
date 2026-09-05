@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Was leuchtet hier eigentlich? — der Lichtzustand eines Grabs als ZAHLEN,
- * dazu Bilder aus den vier Himmelsrichtungen.
+ * Prüft: welche Lichter ein Grab überhaupt beleuchten — Stärke, Farbe,
+ * Abfall, Fackelplätze — dazu Bilder aus den vier Blickrichtungen.
+ *
  * What is actually lighting this place? The light state of a barrow as
  * numbers, plus screenshots in the four cardinal directions.
  *

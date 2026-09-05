@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
- * Wie sich Fackellicht im Grab verteilt — als PROFIL, nicht als Eindruck.
+ * Prüft: wie sich Fackellicht im Grab verteilt — Helligkeitsprofil einer Wand,
+ * dazu die Wache gegen „die Fackel leuchtet durch die Wand".
+ *
  * How torchlight spreads through the barrow — as a profile, not an impression.
  *
  * Die Sonde stellt sich an den Einstiegspunkt (die Figur laesst sich im Grab

@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 /**
- * Baut das Messgrab `licht-probe` — eine Kopie eines vorhandenen Grabs mit
- * zwei von Hand gesetzten Fackeln an genau den Stellen, an denen sich
- * „leuchtet durch die Wand" ueberhaupt zeigen KANN.
+ * Erzeugt: das Messgrab `licht-probe` — eine Kopie eines vorhandenen Grabs mit
+ * zwei Fackeln an festen Stellen.
+ *
+ * Die zwei Fackeln stehen an genau den Stellen, an denen sich „leuchtet
+ * durch die Wand" ueberhaupt zeigen KANN.
  * Builds the measuring barrow `licht-probe`.
  *
  * ── Warum es dieses Skript gibt ────────────────────────────────────────

@@ -46,6 +46,13 @@
 #     Der Rasterpfad waehlt unter ihnen je Kante (dungeonRasterGenerator S7),
 #     und damit endet die 2-m-Wiederholung des einen Paneels.
 #
+# ── 05.09.2026: der Torbogen laeuft an die Wandflucht heran ────────────────
+# Seither ist `--stil fels` nicht mehr NUR eine andere Frontschicht: Am
+# Torbogen wandert auch der KERN. Sein Pfostenende nahm 15,4 cm Vorstand vor
+# der Nachbarwand ein und zeigte sie als glatte Platte — die Begruendung, die
+# Messung und die Zahlen stehen ueber `bogen()` bei `TAPER_LAENGE`. Der
+# Ziegelzweig bleibt Zeichen fuer Zeichen, was er war.
+#
 # Was dabei NICHT wandert — und warum:
 #   * Rueckplatte, Sockel, Haube und die Endstreifen: sie sind der
 #     Nahtschluss vom 03.09.2026. Wer sie anfasst, oeffnet die Fugen wieder,
@@ -250,6 +257,33 @@ def box(bm, cx, cy, cz, sx, sy, sz):
         bm.faces.new((verts[a], verts[b], verts[c], verts[d]))
 
 
+def tapered_post(bm, x0, x1, t0, t1, cy, cz, sz):
+    """Prisma ueber [x0, x1], dessen TIEFE (y) von t0 auf t1 laeuft.
+
+    Das Gegenstueck zu `box()` fuer die einzige Stelle, an der ein Bauteil
+    nicht quaderfoermig sein darf: das Aussenende des Torbogenpfostens
+    (s. `bogen()`, nur `--stil fels`). Eckenreihenfolge wie in `box()`
+    (x aussen, y mitte, z innen), damit dieselbe `QUADS`-Liste passt.
+    """
+    # Aufsteigend in x, egal wie herum der Aufrufer die Enden nennt: Die
+    # Wicklung von `QUADS` haengt an der Reihenfolge, ein vertauschtes Paar
+    # baut das Prisma also spiegelverkehrt. `normals_make_consistent` in
+    # `aufbereiten()` richtet das an einem GESCHLOSSENEN Koerper wieder
+    # (nachgemessen: dasselbe signierte Volumen mit und ohne Tausch) — die
+    # Zeile kostet nichts und nimmt der naechsten Aenderung die Falle ab.
+    if x0 > x1:
+        x0, x1, t0, t1 = x1, x0, t1, t0
+    verts = []
+    for x, t in ((x0, t0), (x1, t1)):
+        for dy in (-1, 1):
+            for dz in (-1, 1):
+                verts.append(bm.verts.new((x, cy + dy * t / 2,
+                                           cz + dz * sz / 2)))
+    bm.verts.ensure_lookup_table()
+    for a, b, c, d in QUADS:
+        bm.faces.new((verts[a], verts[b], verts[c], verts[d]))
+
+
 def aufbereiten(name, bm, materialname):
     """Ein bmesh zum fertigen Objekt machen: aufraeumen, EIN Material,
     in x vorspiegeln. Gibt das Objekt zurueck, exportiert aber nicht."""
@@ -398,7 +432,8 @@ RUECK_EINSTICH = 0.002
 
 
 def fels_schicht(bm, lauf, mitte, sgn, lo, hi, lage=0, z0=0.0, z1=HOEHE,
-                 rand_luft=None, zeilen=None, niveau_fn=None):
+                 rand_luft=None, zeilen=None, niveau_fn=None,
+                 tiefen_fn=None, bezug=0.0):
     """`mitte` ist die Mitte der HEUTIGEN Reliefschicht auf der Festachse,
     `sgn` zeigt nach vorn (zur Raumseite). Daraus folgt die Rueckebene der
     Schicht — vor ihr steht jeder Punkt um seine eigene Tiefe.
@@ -412,6 +447,18 @@ def fels_schicht(bm, lauf, mitte, sgn, lo, hi, lage=0, z0=0.0, z1=HOEHE,
     `niveau_fn` hebt die Flaeche auf eine Steigung (Treppe): sie wird je
     STUETZSTELLE ausgewertet, die Flaeche folgt der Treppenlinie also, statt
     als waagerechte Platte aus ihr herauszuragen.
+
+    `tiefen_fn` ist das Gegenstueck fuer die TIEFE: ein Faktor 0..1 je
+    STUETZSTELLE, mit dem der Abstand der Schicht zur Ebene `bezug` auf der
+    Festachse skaliert wird. 1 laesst alles, wie es ist — ohne den Parameter
+    aendert sich an keinem Modul ein Punkt.
+
+    Warum der Faktor auf den ABSTAND ZU `bezug` geht und nicht bloss auf den
+    Vorsprung `tiefe`: Bei einer Rueckplatte wuerde ein Faktor auf `tiefe`
+    die Schicht nur flach druecken — sie legte sich auf die Rueckebene, und
+    die stuende immer noch da, wo sie stand. Am Torbogen ist genau das der
+    Fall (Rueckebene 6 cm vor der Koerpermitte, s. `bogen()`); zurueck muss
+    die ganze Flanke, nicht nur ihr Relief.
     """
     hinten = mitte - sgn * PROT / 2
     kw = {"seed": SEED, "lage": lage, "z0": z0, "z1": z1}
@@ -428,6 +475,8 @@ def fels_schicht(bm, lauf, mitte, sgn, lo, hi, lage=0, z0=0.0, z1=HOEHE,
         if niveau_fn is not None:
             hoch = hoch + niveau_fn(entlang)
         fest = hinten + sgn * tiefe
+        if tiefen_fn is not None:
+            fest = bezug + (fest - bezug) * tiefen_fn(entlang)
         return (entlang, fest, hoch) if lauf == "x" else (fest, entlang, hoch)
 
     vorn = [[bm.verts.new(ecke(*punkte[iz][ix])) for ix in range(nx)]
@@ -776,6 +825,66 @@ def wand(variante=""):
 # Bounding-Box — der Dateiname bleibt gleich, also auch der Prefab-Hash.
 RUECK_MITTIG = TIEFE - 2 * PROT               # 0,18
 
+# ── 05.09.2026: das Aussenende der Pfosten laeuft an die Wandflucht heran ───
+# BEFUND (gemessen im Layout `rock-probe`, Halle(9,-2) Suedflucht z=-4 und
+# Westflucht x=7): In einer Wandflucht aus Versiegelungspaneelen steht der
+# Torbogen 15,4 cm VOR dem Fels der Nachbarwand, und was man sieht, ist seine
+# STIRNFLAECHE an der Modulgrenze — eine glatte Platte 0,30 m tief, 3,5 m
+# hoch, in einer Wand, die sonst ueberall gebrochener Fels ist.
+#
+# Die Ursache ist eine Ebenen-Verwechslung, und sie steckt nicht im Bogen:
+# `sealPose` (shared/src/dungeonRasterGenerator.ts) setzt das PANEEL so, dass
+# seine Front GENAU auf der Zellkante liegt und sein Koerper ausserhalb steht.
+# Der Torbogen dagegen sitzt MITTIG auf der Kopplungsebene (er wird von beiden
+# Zellen gesehen, `ycb = 0`), seine Flanken also 15 cm im Raum. Beide haben
+# fuer sich recht; nebeneinander ergeben sie eine Stufe.
+#
+# Was hier dagegen steht: Die aeusseren `TAPER_LAENGE` des Pfostens laufen auf
+# `TAPER_REST` ihrer Tiefe zurueck. Aus der Stufe wird eine Schraege von rund
+# 26 Grad, aus 15,4 cm Vorstand werden rund 4 cm — die Groessenordnung, die
+# der Nahtschluss ohnehin zulaesst (`ECK_TIEFE` = 3 cm).
+#
+# Warum das die Laibung nicht beruehrt: Der Rueckzug beginnt erst bei
+# |x| = 0,75, also AUSSERHALB des Sturzbandes (+-0,75) und weit ausserhalb
+# der Oeffnung (+-0,60). Das Durchgangsfenster, das
+# `stonevault-kantensonde` misst, aendert sich um keinen Millimeter.
+#
+# Warum es auf der anderen Seite nichts verdirbt: Grenzt an den Bogen statt
+# eines Paneels die INNENWAND eines Moduls (Korridor, Ecke, Abzweig), dann
+# liegt deren Koerper auf |x| = 0,70..1,00 — genau ueber dem zurueckgenommenen
+# Stueck. Dort steckt der Pfostenrand IM Nachbarn und war noch nie zu sehen.
+#
+# Warum NUR im Fels-Stil: `DG_StoneVault` ist ausgeliefert, seine zwoelf GLB
+# sind Golden-Staende (`server/test/golden-kits.ts`, `kit-neubau.mjs`). Die
+# Stufe gibt es dort auch (dann exakt 15,0 cm, weil beide Fronten Ebenen
+# sind) — sie ist dort aber eine Kante zwischen zwei glatten Ziegelwaenden
+# und kein Fremdkoerper in einer Felswand. Wer sie im Ziegelkit auch
+# beheben will, baut damit ein neues Kit, nicht dieses.
+TAPER_LAENGE = 0.25     # Laenge des Rueckzugs, vom Modulrand nach innen
+TAPER_REST = 0.20       # Resttiefe am Modulrand, als Anteil der vollen Flanke
+# Warum sich Quader und Keil UEBERLAPPEN, statt Kante an Kante zu stossen:
+# Bei genau anstossenden Enden verschmilzt `remove_doubles` die vier Ecken,
+# und mitten im Material bleiben ZWEI deckungsgleiche Vierecke stehen. Sie
+# sind zwar nie zu sehen, aber `normals_make_consistent` muss an ihnen raten,
+# und das signierte Volumen (die Zahl, an der `check-mirror.py` haengt) zaehlt
+# sie doppelt: gemessen -1,2508 statt der zu erwartenden -1,03. Zwei
+# Zentimeter Ueberlappung sind dieselbe Bauweise wie ueberall sonst in dieser
+# Datei — Koerper durchdringen einander, sie beruehren sich nicht.
+TAPER_STOSS = 0.02      # Ueberlappung Quader/Keil
+
+
+def taper_faktor(x):
+    """Der Tiefenfaktor des Pfostens an der Stelle x (Bauraum Blender).
+
+    1 bis |x| = GRID/2 - TAPER_LAENGE, dann weich auf TAPER_REST am
+    Modulrand. WEICH (smoothstep) und nicht linear, weil eine geknickte
+    Flanke im Streiflicht genau die helle Linie zeichnet, gegen die der
+    Rueckzug gebaut ist.
+    """
+    d = (abs(x) - (GRID / 2 - TAPER_LAENGE)) / TAPER_LAENGE
+    d = min(1.0, max(0.0, d))
+    return 1.0 - (1.0 - TAPER_REST) * d * d * (3.0 - 2.0 * d)
+
 
 def bogen():
     neu()
@@ -787,8 +896,19 @@ def bogen():
     ycb = 0.0                                 # Koerpermitte: mittig statt buendig
     RM = RUECK_MITTIG
     # Pfosten links/rechts, volle Hoehe (Nahtschluss: -0,25 .. 3,75)
-    box(bm, -B / 2 + pf / 2, ycb, I_CZ, pf, RM, I_H)
-    box(bm,  B / 2 - pf / 2, ycb, I_CZ, pf, RM, I_H)
+    if STIL == "fels":
+        # Im Fels-Stil in zwei Stuecken: das innere bleibt der Quader von
+        # frueher, das aeussere laeuft auf die Wandflucht zurueck (s.
+        # TAPER_LAENGE). Der Kern folgt DEMSELBEN Faktor wie die
+        # Frontschicht, sonst stuende er hinterher vor ihr.
+        innen = pf - TAPER_LAENGE + TAPER_STOSS         # 0,17
+        for s in (-1, 1):
+            box(bm, s * (B / 2 - pf + innen / 2), ycb, I_CZ, innen, RM, I_H)
+            tapered_post(bm, s * (B / 2 - TAPER_LAENGE), s * B / 2,
+                         RM, RM * TAPER_REST, ycb, I_CZ, I_H)
+    else:
+        box(bm, -B / 2 + pf / 2, ycb, I_CZ, pf, RM, I_H)
+        box(bm,  B / 2 - pf / 2, ycb, I_CZ, pf, RM, I_H)
     # Sockel NUR unter den Pfosten (die Oeffnung muss offen bleiben) und
     # Haube ueber die volle Breite — ueber y=3,5 ist der Bogen ohnehin
     # durchgehend Mauerwerk. Beide ueber die volle Tiefe 0,30.
@@ -817,8 +937,14 @@ def bogen():
             # Waenden fluchten. Die Laibung bei +-0,6 ist ein innerer
             # Anschlag: dort blendet felsrelief.py NICHT auf das
             # Randniveau, damit neben der Tuer keine Nut steht.
-            fels_schicht(bm, "x", yr, sgn, -B / 2, -B / 2 + pf, lage=pfosten_lage)
-            fels_schicht(bm, "x", yr, sgn, B / 2 - pf, B / 2, lage=pfosten_lage)
+            # `tiefen_fn`/`bezug`: die Flanke wird zum Modulrand hin auf die
+            # Koerpermitte zu zurueckgenommen (s. TAPER_LAENGE ueber
+            # `bogen()`). Ohne diese beiden Argumente ist es der Aufruf von
+            # gestern — der Ziegelzweig unten sieht sie nie.
+            fels_schicht(bm, "x", yr, sgn, -B / 2, -B / 2 + pf, lage=pfosten_lage,
+                         tiefen_fn=taper_faktor, bezug=ycb)
+            fels_schicht(bm, "x", yr, sgn, B / 2 - pf, B / 2, lage=pfosten_lage,
+                         tiefen_fn=taper_faktor, bezug=ycb)
             # Sturzband: eigener Feldschluessel, sonst saesse ueber der Tuer
             # dasselbe Feld wie auf den Pfosten. Zwei Zeilen genuegen — das
             # Band ist 18 cm hoch, ein 12,5-cm-Raster waere darin sinnlos.

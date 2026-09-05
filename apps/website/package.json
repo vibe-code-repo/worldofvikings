@@ -1,0 +1,20 @@
+{
+  "name": "@wov/website",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Public project website (world-of-vikings.com).",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@wov/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^7.1.5"
+  }
+}

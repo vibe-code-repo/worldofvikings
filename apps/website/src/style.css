@@ -1,0 +1,41 @@
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  font-family:
+    'Segoe UI',
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+.page {
+  max-width: 42rem;
+  padding: 2rem;
+  text-align: center;
+}
+
+.tagline {
+  opacity: 0.85;
+  line-height: 1.6;
+}
+
+.play {
+  display: inline-block;
+  margin-top: 1rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.note {
+  margin-top: 3rem;
+  font-size: 0.85rem;
+  opacity: 0.6;
+}

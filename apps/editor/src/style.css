@@ -450,3 +450,102 @@ select {
   cursor: pointer;
   padding: 0;
 }
+
+/* --- scatter panel -------------------------------------------------------- */
+
+/*
+ * The asset browser and the scatter panel share the drawer under the viewport:
+ * the browser is where a prefab is chosen, and the scatter panel is what plants
+ * it in bulk, so keeping them side by side means one gesture, not two trips.
+ */
+.drawers {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  min-height: 0;
+}
+
+.scatter {
+  border-top: 1px solid var(--wov-line);
+  border-left: 1px solid var(--wov-line);
+  padding: 0.5rem 0.75rem;
+  height: 14rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 0;
+  overflow: auto;
+  font-size: 0.8rem;
+}
+
+.scatter h2 {
+  margin: 0;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--wov-muted);
+}
+
+.scatter-region,
+.scatter-numbers {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.2rem 0.35rem;
+  align-items: center;
+}
+
+.scatter-region > .menu-hint {
+  grid-column: 1 / -1;
+}
+
+.scatter-region > .tab {
+  grid-column: span 2;
+}
+
+.scatter label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  color: var(--wov-muted);
+  font-size: 0.7rem;
+}
+
+.scatter input[type='number'] {
+  width: 100%;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid var(--wov-line-strong);
+  border-radius: 4px;
+  background: #10151c;
+  color: inherit;
+  font: inherit;
+}
+
+.scatter-prefabs ul {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.scatter-prefabs li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3.5rem auto;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.scatter-prefabs li input[type='number'] {
+  width: 3.5rem;
+}
+
+.scatter-run {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: auto;
+}
+
+.scatter-run button {
+  margin-left: auto;
+}

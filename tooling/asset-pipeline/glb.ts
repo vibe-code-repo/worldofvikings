@@ -382,11 +382,12 @@ export function wrapInRoot(json: Gltf, name: string, translation: readonly numbe
 /**
  * A readable name for one image: the material that uses it, and in which slot.
  *
- * The exporter leaves `images[].name` empty, so without this every extracted
- * texture would be called `image-0` and the store would be seventeen files
- * nobody can tell apart. The material name is what a person recognises —
- * `birch-bark-a`, `oak-bark-a` — and it is also what lets the licence review
- * group the files it is about to look at.
+ * The exporter leaves `images[].name` empty, so without this the images inside
+ * a rewritten GLB would all be called `image-0` and nothing in the file would
+ * say which slot is which.
+ *
+ * This names images *inside* the GLB only. What a texture is called in the
+ * store is decided by the import command, from the model that owns it.
  */
 export function describeImage(json: Gltf, imageIndex: number): string | undefined {
   const textureIndex = (json.textures ?? []).findIndex((texture) => texture.source === imageIndex);

@@ -1,6 +1,6 @@
 {
   "manifestVersion": 2,
-  "generatedAt": "2026-09-06T07:42:34.441Z",
+  "generatedAt": "2026-09-06T08:05:42.883Z",
   "assets": [
     {
       "id": "environment/kenney-retro-fantasy-kit/textures/barrel",
@@ -798,8 +798,8 @@
       "id": "environment/sm-env-grass-short-clump-01-1",
       "path": "environment/sm-env-grass-short-clump-01-1.glb",
       "kind": "prefab",
-      "bytes": 4220,
-      "hash": "sha256-6746f6d11dc3c7d0b8dcaf234f436dd7ff9144fb32c889cf587c58cbe9759520",
+      "bytes": 4232,
+      "hash": "sha256-29334b0f07afea3d32b11203bc05f4c7dc78e001e939767a6cab32e2c720223c",
       "bounds": {
         "min": [
           -0.5,
@@ -1708,8 +1708,8 @@
       "id": "environment/sm-env-railing-pillar-01",
       "path": "environment/sm-env-railing-pillar-01.glb",
       "kind": "prefab",
-      "bytes": 10368,
-      "hash": "sha256-2985c0bf60b93e99f2def0e6f84be7fd76f2587c3068b20c4b96a03eba75258f",
+      "bytes": 10376,
+      "hash": "sha256-6b8dddd336f8c6d98e160f9164252b122ead1908ded6af8232b9255dada68c05",
       "bounds": {
         "min": [
           -0.3157,
@@ -1786,8 +1786,8 @@
       "id": "environment/sm-env-rock-03-1",
       "path": "environment/sm-env-rock-03-1.glb",
       "kind": "prefab",
-      "bytes": 7864,
-      "hash": "sha256-e096d3429be6ecc2f10d7c503695084ce819bedb3b1fb895924083493263cb9c",
+      "bytes": 7848,
+      "hash": "sha256-efad858f382aeff26c7cb4e9615861d708068581a5aff247b08b89ad17178fd0",
       "bounds": {
         "min": [
           -0.239,
@@ -1812,8 +1812,8 @@
       "id": "environment/sm-env-rock-03-2",
       "path": "environment/sm-env-rock-03-2.glb",
       "kind": "prefab",
-      "bytes": 7864,
-      "hash": "sha256-2849f7ced9a1f89578245b6a8ee27d8c90dc96e2a0916c176a558fb118d989de",
+      "bytes": 7848,
+      "hash": "sha256-c33b0c09689f592f4b67fc44a830347113ad7725b1fa4204ecb3915634b62e22",
       "bounds": {
         "min": [
           -0.239,
@@ -1864,8 +1864,8 @@
       "id": "environment/sm-env-rock-04-2",
       "path": "environment/sm-env-rock-04-2.glb",
       "kind": "prefab",
-      "bytes": 9616,
-      "hash": "sha256-82d707a699dd46464e60cc4e5e52a7d1d3b83e418ca6755bb4629c9879f6cbfc",
+      "bytes": 9600,
+      "hash": "sha256-05076390f606b22c7cadb2a7bcd4932b7d5d02252c426ffeada5a28561c5f2d8",
       "bounds": {
         "min": [
           -0.3012,
@@ -1916,8 +1916,8 @@
       "id": "environment/sm-env-rock-chunk-01-1",
       "path": "environment/sm-env-rock-chunk-01-1.glb",
       "kind": "prefab",
-      "bytes": 10872,
-      "hash": "sha256-1273737e81cf27eaab88ec7b67da70d6ad2b36cb43bf81267b52c01e7a9ed36c",
+      "bytes": 10856,
+      "hash": "sha256-7a93bfa93b073bb5fc439b7afdd9db77054ca635be27a5d21f1d2f1451cb03de",
       "bounds": {
         "min": [
           -0.8343,
@@ -1994,8 +1994,8 @@
       "id": "environment/sm-env-rock-chunk-03-1",
       "path": "environment/sm-env-rock-chunk-03-1.glb",
       "kind": "prefab",
-      "bytes": 26536,
-      "hash": "sha256-2996cb6b02fc20e0fceeb8ab52f5f7fb070639b9ace8ac16bd3de69601847061",
+      "bytes": 26524,
+      "hash": "sha256-7922c3f863475b6a78f6371bbec712bfb3e20e6a04f7ec7acd9260d3f3f13f48",
       "bounds": {
         "min": [
           -1.8547,
@@ -2072,8 +2072,8 @@
       "id": "environment/sm-env-rock-cliff-02-1",
       "path": "environment/sm-env-rock-cliff-02-1.glb",
       "kind": "prefab",
-      "bytes": 125840,
-      "hash": "sha256-9c6931d9cf03af70d8631afddfb7dfc38d479dac3c326f862f54f035bf5710e7",
+      "bytes": 125824,
+      "hash": "sha256-4a5a9c3cdea94919f5ed4f93de1f766dab1276555aabfd768e16d850438cba1a",
       "bounds": {
         "min": [
           -5.772,
@@ -2124,8 +2124,8 @@
       "id": "environment/sm-env-rock-cliff-03-1",
       "path": "environment/sm-env-rock-cliff-03-1.glb",
       "kind": "prefab",
-      "bytes": 123372,
-      "hash": "sha256-7ad178e06bde5eaee42cd3237d530e24fefecb23709d8627b8c7b9a62d50be89",
+      "bytes": 123356,
+      "hash": "sha256-f8727e2c8fc8a19f799cc5c62858f2123339c7d058ebfa719d1fd5b68702c27f",
       "bounds": {
         "min": [
           -4.5504,
@@ -2176,8 +2176,8 @@
       "id": "environment/sm-env-rock-cliff-05-1",
       "path": "environment/sm-env-rock-cliff-05-1.glb",
       "kind": "prefab",
-      "bytes": 26244,
-      "hash": "sha256-5f8a4932bd0194563c2bf3e4fe13cf7eed31a4feab74866e7e3d4afbd63cbb6b",
+      "bytes": 26228,
+      "hash": "sha256-45db34e02a490d348484b3b8cfde7b085a5c673db8fc76622baa8df320dfde2e",
       "bounds": {
         "min": [
           -2.184,
@@ -2228,8 +2228,8 @@
       "id": "environment/sm-env-rock-pebble-02-1",
       "path": "environment/sm-env-rock-pebble-02-1.glb",
       "kind": "prefab",
-      "bytes": 6060,
-      "hash": "sha256-c4bb14ef5374024f8727368ffd6d346e0dfa022a2f838ee52f115df159485a96",
+      "bytes": 6044,
+      "hash": "sha256-dfa9afd287940545766705b58165ed19e1e797955be94561e4200e807425fd70",
       "bounds": {
         "min": [
           -0.1531,
@@ -2280,8 +2280,8 @@
       "id": "environment/sm-env-rock-round-01-2",
       "path": "environment/sm-env-rock-round-01-2.glb",
       "kind": "prefab",
-      "bytes": 9536,
-      "hash": "sha256-5e490b0de74ab83c9ece3cb4cfb1a70f138d3195871eb48ddc2087f06144c5ed",
+      "bytes": 9524,
+      "hash": "sha256-63ce89cd0f832107a76083f395b482879674cf792c7e460b7c7a74b438e2c121",
       "bounds": {
         "min": [
           -0.3537,
@@ -2332,8 +2332,8 @@
       "id": "environment/sm-env-rubble-pebbles-01",
       "path": "environment/sm-env-rubble-pebbles-01.glb",
       "kind": "prefab",
-      "bytes": 30360,
-      "hash": "sha256-bf8fb0ebf0225e2081968967a3aac5356300cb9e0583d2eaf4f3c2403ff6c856",
+      "bytes": 30364,
+      "hash": "sha256-397035953ce9267e72219e09adf08b2a8f7632a655eca46eff498f8b78d129c1",
       "bounds": {
         "min": [
           -0.5199,
@@ -2384,8 +2384,8 @@
       "id": "environment/sm-env-rubble-pebbles-20",
       "path": "environment/sm-env-rubble-pebbles-20.glb",
       "kind": "prefab",
-      "bytes": 35192,
-      "hash": "sha256-010f094f8e203f5b3ecaad3afb8e35f19313b412f870140c26a65c4120a8143d",
+      "bytes": 35200,
+      "hash": "sha256-0fd8d270bdb939b0ceb5176791e6b45dad43244d51024b6ca2bc18e21c640d9c",
       "bounds": {
         "min": [
           -1.131,
@@ -2722,8 +2722,8 @@
       "id": "environment/sm-env-stone-01",
       "path": "environment/sm-env-stone-01.glb",
       "kind": "prefab",
-      "bytes": 4632,
-      "hash": "sha256-39693edcace2f39dfc713649a29b271d6ee15026908e1cfb41f5f7a9ab8d02f6",
+      "bytes": 4628,
+      "hash": "sha256-1f38ac8578da305f490b5d66bcc5c5f2418ae9738f49d313fd50dd2c8c962b1c",
       "bounds": {
         "min": [
           -0.2791,
@@ -2748,8 +2748,8 @@
       "id": "environment/sm-env-stone-02-snow",
       "path": "environment/sm-env-stone-02-snow.glb",
       "kind": "prefab",
-      "bytes": 15708,
-      "hash": "sha256-e68d1e799a36414c2213a4f885ed4c0112a20e814b9c9ea097f719e814830fb2",
+      "bytes": 15700,
+      "hash": "sha256-e405a4e676eaa373d49ac34bb97b450b507fbabe4c6063675b147acd82195f50",
       "bounds": {
         "min": [
           -0.6306,
@@ -2774,8 +2774,8 @@
       "id": "environment/sm-env-stone-02",
       "path": "environment/sm-env-stone-02.glb",
       "kind": "prefab",
-      "bytes": 10612,
-      "hash": "sha256-29b4f5cd229bf35aec0b92c21f8be1dbe86b583e5955d1c67738b260a11d4039",
+      "bytes": 10604,
+      "hash": "sha256-a4c7d9b5678e75a140c0f580c4413e76b0e5ca088c77f10f66d7a116bdf1675e",
       "bounds": {
         "min": [
           -0.6306,
@@ -15017,124 +15017,12 @@
       "placeholder": "placeholders/terrain/terrainl9.glb"
     },
     {
-      "id": "textures/birch-bark-a-c6f2bd38",
-      "path": "textures/birch-bark-a-c6f2bd38.png",
-      "kind": "texture",
-      "bytes": 1403986,
-      "hash": "sha256-c6f2bd385d65402db006433aa449819bb78b315ad9f54439dbd2881c94b3ecdf",
-      "origin": "Embedded texture \"Birch_Bark_A\" of vegetation/tree-1a3.glb, extracted to its own file.",
-      "source": "private asset collection — vegetation set",
-      "author": "unconfirmed — third-party commercial pack, licence review open",
-      "license": "NOASSERTION",
-      "redistributable": false,
-      "visibility": "private",
-      "placeholder": "placeholders/textures/unavailable.png"
-    },
-    {
-      "id": "textures/atlas-e-01-a56b4dd4",
-      "path": "textures/atlas-e-01-a56b4dd4.png",
-      "kind": "texture",
-      "bytes": 142114,
-      "hash": "sha256-a56b4dd4b545d3564f00f074c9ca8d76d8a1475f70c91580e5d8c2c0253ea294",
-      "origin": "Embedded texture \"atlas-e_01\" of environment/sm-env-railing-pillar-01.glb, extracted to its own file.",
-      "source": "private asset collection — environment set",
-      "author": "unconfirmed — third-party commercial pack, licence review open",
-      "license": "NOASSERTION",
-      "redistributable": false,
-      "visibility": "private",
-      "placeholder": "placeholders/textures/unavailable.png"
-    },
-    {
-      "id": "textures/atlas-e-02-9326333f",
-      "path": "textures/atlas-e-02-9326333f.png",
-      "kind": "texture",
-      "bytes": 142321,
-      "hash": "sha256-9326333fedbe3f3d0f37fa28b5a7b1ac0fdfa913ca3b6b5ccc72db7f06b92247",
-      "origin": "Embedded texture \"atlas-e_02\" of environment/sm-env-rubble-pebbles-20.glb, extracted to its own file.",
-      "source": "private asset collection — environment set",
-      "author": "unconfirmed — third-party commercial pack, licence review open",
-      "license": "NOASSERTION",
-      "redistributable": false,
-      "visibility": "private",
-      "placeholder": "placeholders/textures/unavailable.png"
-    },
-    {
-      "id": "textures/grass-short-mat-01-1-a4ae346c",
-      "path": "textures/grass-short-mat-01-1-a4ae346c.png",
-      "kind": "texture",
-      "bytes": 542,
-      "hash": "sha256-a4ae346c5fb8548062c1d34cb5e82cd2fcb38949e49531c63c133c5f6d871408",
-      "origin": "Embedded texture \"Grass_Short_Mat_01 1\" of environment/sm-env-grass-short-clump-01-1.glb, extracted to its own file.",
-      "source": "private asset collection — environment set",
-      "author": "unconfirmed — third-party commercial pack, licence review open",
-      "license": "NOASSERTION",
-      "redistributable": false,
-      "visibility": "private",
-      "placeholder": "placeholders/textures/unavailable.png"
-    },
-    {
-      "id": "textures/grass-short-plant-leaves-1a1-2-95be72fa",
-      "path": "textures/grass-short-plant-leaves-1a1-2-95be72fa.png",
-      "kind": "texture",
-      "bytes": 180595,
-      "hash": "sha256-95be72fa8e2aadb16a73838ac18f79a36e82424d21f994b37eeeaca923ca7a34",
-      "origin": "Embedded texture \"Grass_Short_Plant_Leaves_1A1 2\" of vegetation/grass-short-clump-1.glb, extracted to its own file.",
-      "source": "private asset collection — vegetation set",
-      "author": "unconfirmed — third-party commercial pack, licence review open",
-      "license": "NOASSERTION",
-      "redistributable": false,
-      "visibility": "private",
-      "placeholder": "placeholders/textures/unavailable.png"
-    },
-    {
-      "id": "textures/grass-short-plant-leaves-1a1-redblue-2927a804",
-      "path": "textures/grass-short-plant-leaves-1a1-redblue-2927a804.png",
-      "kind": "texture",
-      "bytes": 9150,
-      "hash": "sha256-2927a8045556fac5c92d1ed7e1f2a261ece7186036773cadcb61f9a579a9b6b0",
-      "origin": "Embedded texture \"Grass_Short_Plant_Leaves_1A1_RedBlue\" of vegetation/grass-short-clump-redblue.glb, extracted to its own file.",
-      "source": "private asset collection — vegetation set",
-      "author": "unconfirmed — third-party commercial pack, licence review open",
-      "license": "NOASSERTION",
-      "redistributable": false,
-      "visibility": "private",
-      "placeholder": "placeholders/textures/unavailable.png"
-    },
-    {
-      "id": "textures/grass-short-plant-leaves-1a1-snow-ea100638",
-      "path": "textures/grass-short-plant-leaves-1a1-snow-ea100638.png",
-      "kind": "texture",
-      "bytes": 11410,
-      "hash": "sha256-ea100638ae30c7f27b3f7115d6de108010d1edeca728213ea21cfcd5fb1cfd9e",
-      "origin": "Embedded texture \"Grass_Short_Plant_Leaves_1A1_Snow\" of vegetation/grass-short-clump-snow.glb, extracted to its own file.",
-      "source": "private asset collection — vegetation set",
-      "author": "unconfirmed — third-party commercial pack, licence review open",
-      "license": "NOASSERTION",
-      "redistributable": false,
-      "visibility": "private",
-      "placeholder": "placeholders/textures/unavailable.png"
-    },
-    {
-      "id": "textures/grass-short-plant-leaves-1a1-yellow-77e877a5",
-      "path": "textures/grass-short-plant-leaves-1a1-yellow-77e877a5.png",
-      "kind": "texture",
-      "bytes": 11053,
-      "hash": "sha256-77e877a52511da3a4cf0b173619456d395943afc422a1a081cdfd582589e531a",
-      "origin": "Embedded texture \"Grass_Short_Plant_Leaves_1A1_Yellow\" of vegetation/grass-short-clump-yellow.glb, extracted to its own file.",
-      "source": "private asset collection — vegetation set",
-      "author": "unconfirmed — third-party commercial pack, licence review open",
-      "license": "NOASSERTION",
-      "redistributable": false,
-      "visibility": "private",
-      "placeholder": "placeholders/textures/unavailable.png"
-    },
-    {
-      "id": "textures/leaves-birch-3-dark-46087926",
-      "path": "textures/leaves-birch-3-dark-46087926.png",
+      "id": "textures/bush-1a2-small-1-dark-0-46087926",
+      "path": "textures/bush-1a2-small-1-dark-0-46087926.png",
       "kind": "texture",
       "bytes": 340294,
       "hash": "sha256-46087926ac907a26643a4030cf2a433be39c78bbcc0c0b11cf8926ac807e4397",
-      "origin": "Embedded texture \"Leaves Birch 3 Dark\" of vegetation/bush-1a2-small-1-dark.glb, extracted to its own file.",
+      "origin": "Texture slot 0 of vegetation/bush-1a2-small-1-dark.glb, extracted into its own file.",
       "source": "private asset collection — vegetation set",
       "author": "unconfirmed — third-party commercial pack, licence review open",
       "license": "NOASSERTION",
@@ -15143,12 +15031,12 @@
       "placeholder": "placeholders/textures/unavailable.png"
     },
     {
-      "id": "textures/maple-leaves-1-ac727b2e",
-      "path": "textures/maple-leaves-1-ac727b2e.png",
+      "id": "textures/grass-short-clump-1-0-95be72fa",
+      "path": "textures/grass-short-clump-1-0-95be72fa.png",
       "kind": "texture",
-      "bytes": 795842,
-      "hash": "sha256-ac727b2e81912932d2b6d3c062b13e0f380c572d3e3e67569d568d39157fb537",
-      "origin": "Embedded texture \"Maple Leaves 1\" of vegetation/tree-1e1.glb, extracted to its own file.",
+      "bytes": 180595,
+      "hash": "sha256-95be72fa8e2aadb16a73838ac18f79a36e82424d21f994b37eeeaca923ca7a34",
+      "origin": "Texture slot 0 of vegetation/grass-short-clump-1.glb, extracted into its own file.",
       "source": "private asset collection — vegetation set",
       "author": "unconfirmed — third-party commercial pack, licence review open",
       "license": "NOASSERTION",
@@ -15157,12 +15045,54 @@
       "placeholder": "placeholders/textures/unavailable.png"
     },
     {
-      "id": "textures/oak-bark-a-2-dark-755765f4",
-      "path": "textures/oak-bark-a-2-dark-755765f4.png",
+      "id": "textures/grass-short-clump-redblue-0-2927a804",
+      "path": "textures/grass-short-clump-redblue-0-2927a804.png",
+      "kind": "texture",
+      "bytes": 9150,
+      "hash": "sha256-2927a8045556fac5c92d1ed7e1f2a261ece7186036773cadcb61f9a579a9b6b0",
+      "origin": "Texture slot 0 of vegetation/grass-short-clump-redblue.glb, extracted into its own file.",
+      "source": "private asset collection — vegetation set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/textures/unavailable.png"
+    },
+    {
+      "id": "textures/grass-short-clump-snow-0-ea100638",
+      "path": "textures/grass-short-clump-snow-0-ea100638.png",
+      "kind": "texture",
+      "bytes": 11410,
+      "hash": "sha256-ea100638ae30c7f27b3f7115d6de108010d1edeca728213ea21cfcd5fb1cfd9e",
+      "origin": "Texture slot 0 of vegetation/grass-short-clump-snow.glb, extracted into its own file.",
+      "source": "private asset collection — vegetation set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/textures/unavailable.png"
+    },
+    {
+      "id": "textures/grass-short-clump-yellow-0-77e877a5",
+      "path": "textures/grass-short-clump-yellow-0-77e877a5.png",
+      "kind": "texture",
+      "bytes": 11053,
+      "hash": "sha256-77e877a52511da3a4cf0b173619456d395943afc422a1a081cdfd582589e531a",
+      "origin": "Texture slot 0 of vegetation/grass-short-clump-yellow.glb, extracted into its own file.",
+      "source": "private asset collection — vegetation set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/textures/unavailable.png"
+    },
+    {
+      "id": "textures/massive-tree-1a1-1-dark-0-755765f4",
+      "path": "textures/massive-tree-1a1-1-dark-0-755765f4.png",
       "kind": "texture",
       "bytes": 1056682,
       "hash": "sha256-755765f4f640413fe0d739aa422c4ec5ab6f70ede97f2a4646f7a6d1444586d7",
-      "origin": "Embedded texture \"Oak_Bark_A 2 Dark\" of vegetation/massive-tree-1a1-1-dark.glb, extracted to its own file.",
+      "origin": "Texture slot 0 of vegetation/massive-tree-1a1-1-dark.glb, extracted into its own file.",
       "source": "private asset collection — vegetation set",
       "author": "unconfirmed — third-party commercial pack, licence review open",
       "license": "NOASSERTION",
@@ -15171,12 +15101,12 @@
       "placeholder": "placeholders/textures/unavailable.png"
     },
     {
-      "id": "textures/pine-1-45d12350",
-      "path": "textures/pine-1-45d12350.png",
+      "id": "textures/pine-1b1-0-1-45d12350",
+      "path": "textures/pine-1b1-0-1-45d12350.png",
       "kind": "texture",
       "bytes": 1188304,
       "hash": "sha256-45d123503070e334696ad3a48ffc311243799a892dbbfd64e95c3275c736ce22",
-      "origin": "Embedded texture \"Pine 1\" of vegetation/pine-1b1-0.glb, extracted to its own file.",
+      "origin": "Texture slot 1 of vegetation/pine-1b1-0.glb, extracted into its own file.",
       "source": "private asset collection — vegetation set",
       "author": "unconfirmed — third-party commercial pack, licence review open",
       "license": "NOASSERTION",
@@ -15185,68 +15115,138 @@
       "placeholder": "placeholders/textures/unavailable.png"
     },
     {
-      "id": "textures/pine-2-b7d6f292",
-      "path": "textures/pine-2-b7d6f292.png",
-      "kind": "texture",
-      "bytes": 1223779,
-      "hash": "sha256-b7d6f2927f697cd2f9786e5ca5902e6643a2cee12f6ba6b3de624b72e2729f23",
-      "origin": "Embedded texture \"Pine 2\" of vegetation/pine-1b1.glb, extracted to its own file.",
-      "source": "private asset collection — vegetation set",
-      "author": "unconfirmed — third-party commercial pack, licence review open",
-      "license": "NOASSERTION",
-      "redistributable": false,
-      "visibility": "private",
-      "placeholder": "placeholders/textures/unavailable.png"
-    },
-    {
-      "id": "textures/atlas-a-mat-01-a-2-2a217835",
-      "path": "textures/atlas-a-mat-01-a-2-2a217835.png",
-      "kind": "texture",
-      "bytes": 757666,
-      "hash": "sha256-2a2178357c45fb98fa705af1231d6434ab37850f10409e35b88e88a24e40b736",
-      "origin": "Embedded texture \"atlas-a_Mat_01_A 2\" of environment/sm-env-rock-03-1.glb, extracted to its own file.",
-      "source": "private asset collection — environment set",
-      "author": "unconfirmed — third-party commercial pack, licence review open",
-      "license": "NOASSERTION",
-      "redistributable": false,
-      "visibility": "private",
-      "placeholder": "placeholders/textures/unavailable.png"
-    },
-    {
-      "id": "textures/atlas-c-01-1142e5d2",
-      "path": "textures/atlas-c-01-1142e5d2.png",
-      "kind": "texture",
-      "bytes": 7540,
-      "hash": "sha256-1142e5d235444c4d1ae33c35d69c253e233c6d6dbbfe26520e6f482e77603416",
-      "origin": "Embedded texture \"atlas-c_01\" of vegetation/sm-plant-mushrooms-02.glb, extracted to its own file.",
-      "source": "private asset collection — environment set",
-      "author": "unconfirmed — third-party commercial pack, licence review open",
-      "license": "NOASSERTION",
-      "redistributable": false,
-      "visibility": "private",
-      "placeholder": "placeholders/textures/unavailable.png"
-    },
-    {
-      "id": "textures/atlas-b-material-01-af7dc6c6",
-      "path": "textures/atlas-b-material-01-af7dc6c6.png",
-      "kind": "texture",
-      "bytes": 19222,
-      "hash": "sha256-af7dc6c657b958bb79ee2a46f24bcf85d70de4b685bb714ab88f90f6faecf673",
-      "origin": "Embedded texture \"atlas-b_Material_01\" of environment/sm-env-stone-01.glb, extracted to its own file.",
-      "source": "private asset collection — environment set",
-      "author": "unconfirmed — third-party commercial pack, licence review open",
-      "license": "NOASSERTION",
-      "redistributable": false,
-      "visibility": "private",
-      "placeholder": "placeholders/textures/unavailable.png"
-    },
-    {
-      "id": "textures/trunks-8c80d300",
-      "path": "textures/trunks-8c80d300.png",
+      "id": "textures/pine-1b1-0-8c80d300",
+      "path": "textures/pine-1b1-0-8c80d300.png",
       "kind": "texture",
       "bytes": 1287785,
       "hash": "sha256-8c80d3008991a7c46ad1c1f42e26e5a5932c7e3a3d262d399e1d5c9d403393f6",
-      "origin": "Embedded texture \"Trunks\" of vegetation/pine-1b1.glb, extracted to its own file.",
+      "origin": "Texture slot 0 of vegetation/pine-1b1.glb, extracted into its own file.",
+      "source": "private asset collection — vegetation set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/textures/unavailable.png"
+    },
+    {
+      "id": "textures/pine-1b1-1-b7d6f292",
+      "path": "textures/pine-1b1-1-b7d6f292.png",
+      "kind": "texture",
+      "bytes": 1223779,
+      "hash": "sha256-b7d6f2927f697cd2f9786e5ca5902e6643a2cee12f6ba6b3de624b72e2729f23",
+      "origin": "Texture slot 1 of vegetation/pine-1b1.glb, extracted into its own file.",
+      "source": "private asset collection — vegetation set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/textures/unavailable.png"
+    },
+    {
+      "id": "textures/sm-env-grass-short-clump-01-1-0-a4ae346c",
+      "path": "textures/sm-env-grass-short-clump-01-1-0-a4ae346c.png",
+      "kind": "texture",
+      "bytes": 542,
+      "hash": "sha256-a4ae346c5fb8548062c1d34cb5e82cd2fcb38949e49531c63c133c5f6d871408",
+      "origin": "Texture slot 0 of environment/sm-env-grass-short-clump-01-1.glb, extracted into its own file.",
+      "source": "private asset collection — environment set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/textures/unavailable.png"
+    },
+    {
+      "id": "textures/sm-env-railing-pillar-01-0-a56b4dd4",
+      "path": "textures/sm-env-railing-pillar-01-0-a56b4dd4.png",
+      "kind": "texture",
+      "bytes": 142114,
+      "hash": "sha256-a56b4dd4b545d3564f00f074c9ca8d76d8a1475f70c91580e5d8c2c0253ea294",
+      "origin": "Texture slot 0 of environment/sm-env-railing-pillar-01.glb, extracted into its own file.",
+      "source": "private asset collection — environment set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/textures/unavailable.png"
+    },
+    {
+      "id": "textures/sm-env-rock-03-1-0-2a217835",
+      "path": "textures/sm-env-rock-03-1-0-2a217835.png",
+      "kind": "texture",
+      "bytes": 757666,
+      "hash": "sha256-2a2178357c45fb98fa705af1231d6434ab37850f10409e35b88e88a24e40b736",
+      "origin": "Texture slot 0 of environment/sm-env-rock-03-1.glb, extracted into its own file.",
+      "source": "private asset collection — environment set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/textures/unavailable.png"
+    },
+    {
+      "id": "textures/sm-env-rubble-pebbles-20-0-9326333f",
+      "path": "textures/sm-env-rubble-pebbles-20-0-9326333f.png",
+      "kind": "texture",
+      "bytes": 142321,
+      "hash": "sha256-9326333fedbe3f3d0f37fa28b5a7b1ac0fdfa913ca3b6b5ccc72db7f06b92247",
+      "origin": "Texture slot 0 of environment/sm-env-rubble-pebbles-20.glb, extracted into its own file.",
+      "source": "private asset collection — environment set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/textures/unavailable.png"
+    },
+    {
+      "id": "textures/sm-env-stone-01-0-af7dc6c6",
+      "path": "textures/sm-env-stone-01-0-af7dc6c6.png",
+      "kind": "texture",
+      "bytes": 19222,
+      "hash": "sha256-af7dc6c657b958bb79ee2a46f24bcf85d70de4b685bb714ab88f90f6faecf673",
+      "origin": "Texture slot 0 of environment/sm-env-stone-01.glb, extracted into its own file.",
+      "source": "private asset collection — environment set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/textures/unavailable.png"
+    },
+    {
+      "id": "textures/sm-plant-mushrooms-02-0-1142e5d2",
+      "path": "textures/sm-plant-mushrooms-02-0-1142e5d2.png",
+      "kind": "texture",
+      "bytes": 7540,
+      "hash": "sha256-1142e5d235444c4d1ae33c35d69c253e233c6d6dbbfe26520e6f482e77603416",
+      "origin": "Texture slot 0 of vegetation/sm-plant-mushrooms-02.glb, extracted into its own file.",
+      "source": "private asset collection — environment set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/textures/unavailable.png"
+    },
+    {
+      "id": "textures/tree-1a3-0-c6f2bd38",
+      "path": "textures/tree-1a3-0-c6f2bd38.png",
+      "kind": "texture",
+      "bytes": 1403986,
+      "hash": "sha256-c6f2bd385d65402db006433aa449819bb78b315ad9f54439dbd2881c94b3ecdf",
+      "origin": "Texture slot 0 of vegetation/tree-1a3.glb, extracted into its own file.",
+      "source": "private asset collection — vegetation set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/textures/unavailable.png"
+    },
+    {
+      "id": "textures/tree-1e1-1-ac727b2e",
+      "path": "textures/tree-1e1-1-ac727b2e.png",
+      "kind": "texture",
+      "bytes": 795842,
+      "hash": "sha256-ac727b2e81912932d2b6d3c062b13e0f380c572d3e3e67569d568d39157fb537",
+      "origin": "Texture slot 1 of vegetation/tree-1e1.glb, extracted into its own file.",
       "source": "private asset collection — vegetation set",
       "author": "unconfirmed — third-party commercial pack, licence review open",
       "license": "NOASSERTION",
@@ -15336,8 +15336,8 @@
       "id": "vegetation/bush-1a2-small-1-dark",
       "path": "vegetation/bush-1a2-small-1-dark.glb",
       "kind": "prefab",
-      "bytes": 65320,
-      "hash": "sha256-a7c98d257d7f1198c716595fbb455966c75a2ec2ce033d1b583049578511a3bb",
+      "bytes": 65324,
+      "hash": "sha256-f25deb2788b6230ddb48ed8c29a556109fcb2b8a19191ea27fda4c8457e17f7c",
       "bounds": {
         "min": [
           -1.5637,
@@ -15362,8 +15362,8 @@
       "id": "vegetation/bush-1a2-small-1-snow",
       "path": "vegetation/bush-1a2-small-1-snow.glb",
       "kind": "prefab",
-      "bytes": 65324,
-      "hash": "sha256-6be27d3453d418891b6f0fd78b4b1810d75bb7e7f80231862fae976db13e54c5",
+      "bytes": 65328,
+      "hash": "sha256-254a6e51243cbb46ba23a7e910d6303401c3c7a651aba3e6a0baa1ec4d2e602f",
       "bounds": {
         "min": [
           -1.5637,
@@ -15388,8 +15388,8 @@
       "id": "vegetation/bush-1a2-small",
       "path": "vegetation/bush-1a2-small.glb",
       "kind": "prefab",
-      "bytes": 65300,
-      "hash": "sha256-b3cc68809585ffc204d934e4614adfe810f7c2e3cc78217d890ede584dbc60df",
+      "bytes": 65304,
+      "hash": "sha256-2aa2a34ee08cad99328106ecb909db87ae982f3caf9ca8351e6ef14011733fe4",
       "bounds": {
         "min": [
           -1.5637,
@@ -15466,8 +15466,8 @@
       "id": "vegetation/grass-short-clump-1",
       "path": "vegetation/grass-short-clump-1.glb",
       "kind": "prefab",
-      "bytes": 4220,
-      "hash": "sha256-982c5c8f5d9fcd64c53e32ee23e2e88d2e625ca959ffed57065b18104a7426fc",
+      "bytes": 4212,
+      "hash": "sha256-7a72e26c833efb0f856e3ba02af16809039839313572c237027b3a255641bfb9",
       "bounds": {
         "min": [
           -0.5,
@@ -15492,8 +15492,8 @@
       "id": "vegetation/grass-short-clump-redblue",
       "path": "vegetation/grass-short-clump-redblue.glb",
       "kind": "prefab",
-      "bytes": 4244,
-      "hash": "sha256-d702803409daa29e417d396e2bcf14d7738d6780c6bd28b6b9908c4605b14e0f",
+      "bytes": 4236,
+      "hash": "sha256-ef06ead6660781dac07bc8076f779ddcc4963d3313fcc556d6b3526fa443183f",
       "bounds": {
         "min": [
           -0.5,
@@ -15518,8 +15518,8 @@
       "id": "vegetation/grass-short-clump-snow",
       "path": "vegetation/grass-short-clump-snow.glb",
       "kind": "prefab",
-      "bytes": 4232,
-      "hash": "sha256-34d86275386d4f32b8422d7e3ba2509b168636370b0b916ca107baaa5c8b9dcf",
+      "bytes": 4224,
+      "hash": "sha256-63a343c1e3738e1676a80831e2e1594d605fce49ab4ebcf4c705a674b55e0a60",
       "bounds": {
         "min": [
           -0.5,
@@ -15544,8 +15544,8 @@
       "id": "vegetation/grass-short-clump-yellow",
       "path": "vegetation/grass-short-clump-yellow.glb",
       "kind": "prefab",
-      "bytes": 4240,
-      "hash": "sha256-2d660565da1785f91696c844986341f47248aa8c7eaaf6f1db2abc0eecaea883",
+      "bytes": 4232,
+      "hash": "sha256-d9c8fa10f75cac727df458c0f599d57b3529fb21184288ee7107886b8b84f13d",
       "bounds": {
         "min": [
           -0.5,
@@ -15570,8 +15570,8 @@
       "id": "vegetation/massive-tree-1a1-1-dark",
       "path": "vegetation/massive-tree-1a1-1-dark.glb",
       "kind": "prefab",
-      "bytes": 1740508,
-      "hash": "sha256-cccc25ec17da3c47960fb1614b337c12de575ef97ee2d7616580f3d703dfe3a7",
+      "bytes": 1740516,
+      "hash": "sha256-d45573a7ae38b810bfaf9ace4de2c4f9804936cb0dda7eb18e293f0ce1968bc1",
       "bounds": {
         "min": [
           -5.9865,
@@ -15648,8 +15648,8 @@
       "id": "vegetation/massive-tree-1a2-1-dark",
       "path": "vegetation/massive-tree-1a2-1-dark.glb",
       "kind": "prefab",
-      "bytes": 1740532,
-      "hash": "sha256-95459f77953baf59553575c0c4e343c866afe99d5e02357d48ddda628e3b6854",
+      "bytes": 1740540,
+      "hash": "sha256-df1df4b53a31592882a93c8a39ba72e43383555a21972d68d62dba22c6d5df80",
       "bounds": {
         "min": [
           -6.8968,
@@ -15726,8 +15726,8 @@
       "id": "vegetation/massive-tree-1a3-1-dark",
       "path": "vegetation/massive-tree-1a3-1-dark.glb",
       "kind": "prefab",
-      "bytes": 1740472,
-      "hash": "sha256-6d000dd1c281dfc46b0a437c4c56df6de973189517bbd992a9d9e78126216505",
+      "bytes": 1740480,
+      "hash": "sha256-27aa11ac05853c943b4a40f5c5b4a4f9060a61c84cb1663b200ea559a457775b",
       "bounds": {
         "min": [
           -11.4829,
@@ -15804,8 +15804,8 @@
       "id": "vegetation/pine-1b1-0",
       "path": "vegetation/pine-1b1-0.glb",
       "kind": "prefab",
-      "bytes": 440568,
-      "hash": "sha256-2659b8fe1a7b0692eb5aa8d9591a6b982b3b89ef351e8072f18a84ddc7149c07",
+      "bytes": 440580,
+      "hash": "sha256-b3e2184f30345469ee551e40909116beb1f3e1ba5099880e1dbbe07e7bc1309a",
       "bounds": {
         "min": [
           -3.1334,
@@ -15856,8 +15856,8 @@
       "id": "vegetation/pine-1b1",
       "path": "vegetation/pine-1b1.glb",
       "kind": "prefab",
-      "bytes": 440568,
-      "hash": "sha256-efdcaac5f94cf3586d99632335045c3ca6a35b831b3797af2f99d1877649e6b3",
+      "bytes": 440576,
+      "hash": "sha256-26180166e0d230b020d7361160e7289210f8d095260ae234c7c8677e62cce53b",
       "bounds": {
         "min": [
           -3.1334,
@@ -15908,8 +15908,8 @@
       "id": "vegetation/pine-1b2",
       "path": "vegetation/pine-1b2.glb",
       "kind": "prefab",
-      "bytes": 435964,
-      "hash": "sha256-4285f95851afd6319f585567ac78818601d5fbabc408ba7362a2def25c04d7a1",
+      "bytes": 435976,
+      "hash": "sha256-2b5ce02de42cae5bbd89fa4104b41447fee2f9ed54c630a6319cbd5219bc67b8",
       "bounds": {
         "min": [
           -5.2853,
@@ -15960,8 +15960,8 @@
       "id": "vegetation/pine-1b3",
       "path": "vegetation/pine-1b3.glb",
       "kind": "prefab",
-      "bytes": 448008,
-      "hash": "sha256-9cf272961271f24cfc9e8f4c1f16ae63cc49dcb43a4d05a801c3c90e95bdcf78",
+      "bytes": 448020,
+      "hash": "sha256-62baddc75ca8501eee6f85eea6ed053edbf12cc453fd34f74af56ef6da0df3a5",
       "bounds": {
         "min": [
           -5.9004,
@@ -15986,8 +15986,8 @@
       "id": "vegetation/pine-1b4-0",
       "path": "vegetation/pine-1b4-0.glb",
       "kind": "prefab",
-      "bytes": 452876,
-      "hash": "sha256-0a434a1beed002aa82d3051af88a0f529cdd2c05aebf0c69708f7880ee6dedc5",
+      "bytes": 452884,
+      "hash": "sha256-d20c0a43fa106efe3f297c4eb94f39b204dfac53de7853de4d17bcfad09e930a",
       "bounds": {
         "min": [
           -5.8538,
@@ -16038,8 +16038,8 @@
       "id": "vegetation/pine-1b4",
       "path": "vegetation/pine-1b4.glb",
       "kind": "prefab",
-      "bytes": 452872,
-      "hash": "sha256-d8799ca4fba6bbce5650bfed9a3623066e854e0dbeaf617405362e1dfe191379",
+      "bytes": 452880,
+      "hash": "sha256-41a549bb97549ecf5abe31dd7035a95131604208b31a7a7ac0034e4d71fd99ca",
       "bounds": {
         "min": [
           -5.8538,
@@ -16064,8 +16064,8 @@
       "id": "vegetation/pine-1b5-0",
       "path": "vegetation/pine-1b5-0.glb",
       "kind": "prefab",
-      "bytes": 452416,
-      "hash": "sha256-4e39836873e016e4a87020f8c3ed82ec5787a6b404a608cc769075841ce55436",
+      "bytes": 452428,
+      "hash": "sha256-26363d90b7711e981c2094453e918765b10a8c47fb9baaddde11ff17b2f3f368",
       "bounds": {
         "min": [
           -7.6445,
@@ -16116,8 +16116,8 @@
       "id": "vegetation/pine-1b5",
       "path": "vegetation/pine-1b5.glb",
       "kind": "prefab",
-      "bytes": 452416,
-      "hash": "sha256-68b292707636cdbac142c0943fa1019a71fef905706a1e29f3d3dd075005a340",
+      "bytes": 452424,
+      "hash": "sha256-7d2e0b2e88cdd7817954f45c63f54bb7931fc434991d8d385966deb58e1d4695",
       "bounds": {
         "min": [
           -7.6445,
@@ -16142,8 +16142,8 @@
       "id": "vegetation/sm-plant-mushrooms-02",
       "path": "vegetation/sm-plant-mushrooms-02.glb",
       "kind": "prefab",
-      "bytes": 64424,
-      "hash": "sha256-2e16ed60ad973abd13e60f7305085d6cfa446cfcd7a27ba24dadbf7c88b35182",
+      "bytes": 64432,
+      "hash": "sha256-c5a31fb3f006f6ac77d536918fa49e5ae639e3aac27368b9cfad3ac7bfc8e6e7",
       "bounds": {
         "min": [
           -0.2759,
@@ -16168,8 +16168,8 @@
       "id": "vegetation/split-tree-1a1-1-dark",
       "path": "vegetation/split-tree-1a1-1-dark.glb",
       "kind": "prefab",
-      "bytes": 1025340,
-      "hash": "sha256-b199d588886d04a190fcb011c46176f59cd27d14f76a148e4eb8dbc1ce366dd4",
+      "bytes": 1025348,
+      "hash": "sha256-60c01072a4a6e1059c22499085b727265d0cdcf4c935aadf8d0a95c176144874",
       "bounds": {
         "min": [
           -3.891,
@@ -16246,8 +16246,8 @@
       "id": "vegetation/split-tree-1a2-1-dark",
       "path": "vegetation/split-tree-1a2-1-dark.glb",
       "kind": "prefab",
-      "bytes": 1025012,
-      "hash": "sha256-1572052067cba0cca8fc173e91eadc785571383b034a199ad8da40d918c76f71",
+      "bytes": 1025020,
+      "hash": "sha256-1922d038d9cbb86656af2d7ec213a56953f644072c820133a9c2c293d3362953",
       "bounds": {
         "min": [
           -4.749,
@@ -16324,8 +16324,8 @@
       "id": "vegetation/split-tree-1a3-1-dark",
       "path": "vegetation/split-tree-1a3-1-dark.glb",
       "kind": "prefab",
-      "bytes": 1026192,
-      "hash": "sha256-8ee9df8462e21ad028ca8cc3f0ac09ffdd3524593614a44fbfe950010c0ead11",
+      "bytes": 1026200,
+      "hash": "sha256-d5059e02d44157a2a84256b20345558e2ffbc2ba46f611c2570f58350e3fb086",
       "bounds": {
         "min": [
           -8.3865,
@@ -16455,7 +16455,7 @@
       "path": "vegetation/tree-1a3.glb",
       "kind": "prefab",
       "bytes": 2773084,
-      "hash": "sha256-fefed735caf89d4ba1505f27aff5620666bcf8bc5d999c9ad1f3568acf31f822",
+      "hash": "sha256-6c1a64f5b629a4a2f87398cfd6fc2361fe07af6d60e052e8b50601f9f52ff9a0",
       "bounds": {
         "min": [
           -8.2993,
@@ -16688,8 +16688,8 @@
       "id": "vegetation/tree-1b1",
       "path": "vegetation/tree-1b1.glb",
       "kind": "prefab",
-      "bytes": 1367108,
-      "hash": "sha256-64b2f3f7068a06076e85ad95acbbd85c266a504ba79c1a0a4d7ae924aa34c786",
+      "bytes": 1367124,
+      "hash": "sha256-33c2b7ebdd918fddd8b367d2e1789540fbfa25d1d52c7a1ee8d9b2d3894fb956",
       "bounds": {
         "min": [
           -3.3137,
@@ -16766,8 +16766,8 @@
       "id": "vegetation/tree-1b2",
       "path": "vegetation/tree-1b2.glb",
       "kind": "prefab",
-      "bytes": 1848504,
-      "hash": "sha256-62e1ebd9a028a37710d3d87ce81cda199e14e41df22d484bdd45d3eb67ac8247",
+      "bytes": 1848520,
+      "hash": "sha256-3f8107268e4276884a9da1b90f6ba07036d3db650fb8388b3165f92b967fb012",
       "bounds": {
         "min": [
           -5.689,
@@ -16844,8 +16844,8 @@
       "id": "vegetation/tree-1b3",
       "path": "vegetation/tree-1b3.glb",
       "kind": "prefab",
-      "bytes": 1869536,
-      "hash": "sha256-7b87a6330cef337e93ef39ec2d1fcffef232f9e32f437b5ef696390df36281f5",
+      "bytes": 1869552,
+      "hash": "sha256-4c179c669dcfbe617867883b22f8690c01a3c9c2b556095d01151373eae54399",
       "bounds": {
         "min": [
           -8.0118,
@@ -16922,8 +16922,8 @@
       "id": "vegetation/tree-1c1",
       "path": "vegetation/tree-1c1.glb",
       "kind": "prefab",
-      "bytes": 541544,
-      "hash": "sha256-7a3191bcac7145d36630d71a4a62203efa31335517b2bb91931fe4e5151347ef",
+      "bytes": 541560,
+      "hash": "sha256-9dc5fc36fb371a52877f7f988d14b1fd9114c3b6bd15bc7582337431be8b93ca",
       "bounds": {
         "min": [
           -3.6366,
@@ -17000,8 +17000,8 @@
       "id": "vegetation/tree-1c2",
       "path": "vegetation/tree-1c2.glb",
       "kind": "prefab",
-      "bytes": 557348,
-      "hash": "sha256-378037f203bdf5fb2f9158057dc4153a758e1a5ca685626e5c9fb79ec1ce41fb",
+      "bytes": 557364,
+      "hash": "sha256-a510353f52ca26bd5724ce24d2d2d0ca683419eda0209837c26b450fb5e4909e",
       "bounds": {
         "min": [
           -3.1665,
@@ -17078,8 +17078,8 @@
       "id": "vegetation/tree-1d1",
       "path": "vegetation/tree-1d1.glb",
       "kind": "prefab",
-      "bytes": 1104732,
-      "hash": "sha256-41ab95fceca0556dfb043052d104779aa379bacff6d5af9a130eb2da2d385c51",
+      "bytes": 1104748,
+      "hash": "sha256-e49dbbb0dc63b2579bf73c9e55594ffaac99b1a7674dc8290855888a2567b27a",
       "bounds": {
         "min": [
           -4.5732,
@@ -17156,8 +17156,8 @@
       "id": "vegetation/tree-1d2",
       "path": "vegetation/tree-1d2.glb",
       "kind": "prefab",
-      "bytes": 803908,
-      "hash": "sha256-b04a12e33cde3db924045d3295cb9dfc3ad9b31eff37a429ca2c7d87d36d2d60",
+      "bytes": 803924,
+      "hash": "sha256-903fa32a8700d9b6e6c3a95cb192e98e8590ebdf07390fef61610f65822d1980",
       "bounds": {
         "min": [
           -4.5078,
@@ -17234,8 +17234,8 @@
       "id": "vegetation/tree-1e1",
       "path": "vegetation/tree-1e1.glb",
       "kind": "prefab",
-      "bytes": 1933192,
-      "hash": "sha256-fca8164531a74e612bc28e29179039d2833eb4e546960a07fb5749c466b4ba0b",
+      "bytes": 1933200,
+      "hash": "sha256-a078254fbaf4c78bfcf95273306b883d166b0b1b333a27d8d0dc5074219f2965",
       "bounds": {
         "min": [
           -6.7007,
@@ -17312,8 +17312,8 @@
       "id": "vegetation/tree-1e2",
       "path": "vegetation/tree-1e2.glb",
       "kind": "prefab",
-      "bytes": 1266556,
-      "hash": "sha256-0e01e668540748f4d63b092c747a70ce358203176e7041ce667f3ef1ffd13955",
+      "bytes": 1266564,
+      "hash": "sha256-54f0010b51b7fb817957d3913edd267bcbbf5c03035eec3a8ffc0c875b53fedd",
       "bounds": {
         "min": [
           -7.047,

@@ -150,9 +150,16 @@ const textures = new Map<string, TextureFile>();
  * Turns one embedded image into a file under `textures/`, reusing an identical
  * one that a previous model already produced.
  *
- * The file name carries the content hash, which is what makes deduplication and
- * determinism the same mechanism: identical bytes get identical names, and a
- * changed texture gets a new name instead of a stale cache entry.
+ * The name is the model that first used the texture plus its slot, not the
+ * material inside the file: a material name is an authoring detail of the
+ * source, while "which model does this belong to" is what someone looking at
+ * the store actually wants to know. Ten rock prefabs sharing one texture name
+ * it after the first of them, which is stable because the walk is sorted.
+ *
+ * The file name also carries the content hash, which is what makes
+ * deduplication and determinism the same mechanism: identical bytes get
+ * identical names, and a changed texture gets a new name instead of a stale
+ * cache entry.
  */
 function takeTexture(name: string, raw: Buffer, label: string): TextureFile {
   let bytes = raw;
@@ -230,7 +237,8 @@ async function importOne(selection: Selection, sourceFile: string): Promise<Asse
   const produced: AssetEntry[] = [];
 
   for (const image of takeEmbeddedImages(glb)) {
-    const texture = takeTexture(image.name, image.bytes, selection.path);
+    const owner = selection.path.replace(/^.*\//, '').replace(/\.glb$/i, '');
+    const texture = takeTexture(`${owner}-${String(image.index)}`, image.bytes, selection.path);
     const target = glb.json.images?.[image.index];
     if (target !== undefined) {
       // Relative to the GLB's own URL: `vegetation/x.glb` next to
@@ -247,7 +255,7 @@ async function importOne(selection: Selection, sourceFile: string): Promise<Asse
       kind: 'texture',
       bytes: texture.bytes.byteLength,
       hash: sha256(texture.bytes),
-      origin: `Embedded texture "${image.name}" of ${selection.path}, extracted to its own file.`,
+      origin: `Texture slot ${String(image.index)} of ${selection.path}, extracted into its own file.`,
       source: selection.provenance.source,
       author: selection.provenance.author,
       license: IMPORT_LICENSE,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { encodePng } from './png.js';
+import { decodePng, encodePng, type RawImage } from './png.js';
 import { writeGlb } from './glb.js';
 import { buildHeightFieldGlb, type HeightGrid } from './height-field.js';
 import {
@@ -99,18 +99,45 @@ describe('fitTerrainTexture', () => {
       data: Buffer.alloc(size * size * 4, 200),
     });
 
-  it('passes a texture inside the budget through byte for byte', () => {
+  it('passes a layer texture inside the budget through byte for byte', () => {
     const bytes = png(64);
     expect(fitTerrainTexture(bytes, 'x.png')).toBe(bytes);
   });
 
-  it('halves a texture over the budget', () => {
+  it('halves a layer texture over the budget', () => {
     const shrunk = fitTerrainTexture(png(4096), 'x.png');
     expect(shrunk.readUInt32BE(16)).toBe(2048);
   });
 
+  it('turns a splat map onto the ground’s axes and keeps its size', () => {
+    const source: RawImage = {
+      width: 2,
+      height: 2,
+      channels: 4,
+      // One marked texel, top-left, so the mapping is visible in one pixel.
+      data: Buffer.from([255, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255]),
+    };
+    const turned = decodePng(fitTerrainTexture(encodePng(source), 'splat.png', true));
+    expect([turned.width, turned.height]).toEqual([2, 2]);
+    // out[row][col] = in[h-1-col][w-1-row]: the marked texel lands bottom-right.
+    expect([...turned.data.subarray(12, 16)]).toEqual([255, 0, 0, 255]);
+    expect([...turned.data.subarray(0, 4)]).toEqual([0, 0, 0, 255]);
+  });
+
+  it('refuses to resize a splat map rather than bleeding its weights', () => {
+    expect(() => fitTerrainTexture(png(4096), 'splat.png', true)).toThrow(/must not be resized/);
+  });
+
   it('refuses something that is not a PNG', () => {
     expect(() => fitTerrainTexture(Buffer.from('not a png'), 'x.png')).toThrow(/must be PNG/);
+  });
+
+  it('records the turn in the origin line, so nobody has to rediscover it', () => {
+    const splat = TERRAIN_TEXTURES.find((texture) => texture.isSplatMap === true);
+    const layer = TERRAIN_TEXTURES.find((texture) => texture.isSplatMap !== true);
+    expect(splat).toBeDefined();
+    expect(terrainTextureOrigin(splat as never)).toContain('anti-diagonal');
+    expect(terrainTextureOrigin(layer as never)).not.toContain('anti-diagonal');
   });
 });
 

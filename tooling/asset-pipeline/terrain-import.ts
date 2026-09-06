@@ -23,7 +23,15 @@
  */
 import { readGlb, worldBounds, writeGlb, type Bounds } from './glb.js';
 import { buildHeightFieldGlb, gridSize, readHeightGrid, thinGrid } from './height-field.js';
-import { MAX_TEXTURE_SIZE, decodePng, encodePng, fitWithin, isPng, readPngSize } from './png.js';
+import {
+  MAX_TEXTURE_SIZE,
+  decodePng,
+  encodePng,
+  fitWithin,
+  isPng,
+  mirrorOnAntiDiagonal,
+  readPngSize,
+} from './png.js';
 import { TERRAIN_SET, type PackProvenance } from './selection.js';
 
 /**
@@ -40,6 +48,24 @@ export const TERRAIN_SURFACE_SET: PackProvenance = {
   author: 'unconfirmed — third-party commercial pack, licence review open',
 };
 
+/**
+ * Which way round a control map's axes are, relative to the ground it paints.
+ *
+ * The export's control maps do not share the height field's axis order, and the
+ * mismatch is invisible in the file: both are square, both are 512², and a
+ * wrongly turned map paints a perfectly plausible-looking landscape whose paths
+ * simply do not follow the valleys.
+ *
+ * It was measured, not guessed. For each of the eight ways to turn or mirror a
+ * square map, the terrain's own slope was averaged over the texels where the
+ * rarest channel — 0.1 % coverage, the one that can only be a cliff face —
+ * carries weight. Seven of the eight give 0.49–1.56, against a tile mean of
+ * 0.57. One gives **3.39**, next to the tile's 99th percentile of 3.30: the
+ * mirror on the anti-diagonal. Two screenshots then confirmed it, at a spot the
+ * map says is a gravel path and at a spot it says is a rock face (ADR-0020).
+ */
+export const SPLAT_ORIENTATION = 'mirror on the anti-diagonal';
+
 /** One texture taken out of the export under a chosen, stable name. */
 export interface TerrainTexture {
   /** File name inside the export's texture folder. */
@@ -49,6 +75,11 @@ export interface TerrainTexture {
   /** What it is, in the words the manifest entry uses. */
   readonly note: string;
   readonly provenance: PackProvenance;
+  /**
+   * True for a control map: it is turned onto the ground's axes on import (see
+   * {@link SPLAT_ORIENTATION}) and never resized.
+   */
+  readonly isSplatMap?: boolean;
 }
 
 /** Where textures sit in the export. */
@@ -69,12 +100,14 @@ export const VILLAGE_SPLAT_MAPS: readonly TerrainTexture[] = [
     name: 'village-splat-a.png',
     note: 'splat weights for terrain layers 1-4 (RGBA) of the village tile',
     provenance: TERRAIN_SET,
+    isSplatMap: true,
   },
   {
     file: 'SplatAlpha 1_6.png',
     name: 'village-splat-b.png',
     note: 'splat weights for terrain layers 5-6 (RG) of the village tile',
     provenance: TERRAIN_SET,
+    isSplatMap: true,
   },
 ];
 
@@ -198,19 +231,33 @@ export function decimateHeightField(
 }
 
 /**
- * Brings one texture down to the size budget if it is over it, and refuses
- * anything that is not a PNG.
+ * Prepares one terrain texture for the store.
  *
- * A file already inside the budget is passed through byte for byte — which is
- * what keeps a splat map's paint exact and the import deterministic.
+ * A layer texture over the size budget is halved until it fits; one inside it is
+ * passed through byte for byte, which keeps the import deterministic.
+ *
+ * A **control map is never resized** — each of its texels is a weight, and
+ * halving one bleeds every path edge by a metre — but it *is* turned onto the
+ * ground's axes ({@link SPLAT_ORIENTATION}), because that is a property of the
+ * export and fixing it here means a world file needs no axis field and every
+ * renderer can sample it the obvious way.
  */
-export function fitTerrainTexture(bytes: Buffer, label: string): Buffer {
+export function fitTerrainTexture(bytes: Buffer, label: string, isSplatMap = false): Buffer {
   if (!isPng(bytes)) {
     throw new Error(`${label}: terrain textures must be PNG`);
   }
   const size = readPngSize(bytes);
   if (size === undefined) {
     throw new Error(`${label}: PNG has no readable header`);
+  }
+  if (isSplatMap) {
+    if (size.width > MAX_TEXTURE_SIZE || size.height > MAX_TEXTURE_SIZE) {
+      throw new Error(
+        `${label}: a splat map must not be resized, and this one is ` +
+          `${String(size.width)}x${String(size.height)}`,
+      );
+    }
+    return encodePng(mirrorOnAntiDiagonal(decodePng(bytes)));
   }
   if (size.width <= MAX_TEXTURE_SIZE && size.height <= MAX_TEXTURE_SIZE) {
     return bytes;
@@ -231,7 +278,9 @@ export function heightFieldOrigin(decimated: DecimatedHeightField): string {
 /** The manifest `origin` line for a terrain texture. */
 export function terrainTextureOrigin(texture: TerrainTexture): string {
   const note = `${texture.note.charAt(0).toUpperCase()}${texture.note.slice(1)}`;
-  return `${note}, taken from the modelling export under a chosen name.`;
+  const turned =
+    texture.isSplatMap === true ? ` Turned onto the ground's axes by a ${SPLAT_ORIENTATION}.` : '';
+  return `${note}, taken from the modelling export under a chosen name.${turned}`;
 }
 
 /** Store path of a terrain texture. */

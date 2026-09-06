@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { decodePng, encodePng, fitWithin, halve, isPng, readPngSize } from './png.js';
+import {
+  decodePng,
+  encodePng,
+  fitWithin,
+  halve,
+  isPng,
+  mirrorOnAntiDiagonal,
+  readPngSize,
+} from './png.js';
 import type { RawImage } from './png.js';
 
 /** A gradient, so a wrong row stride or a wrong filter shows up as garbage. */
@@ -109,5 +117,32 @@ describe('the unsupported cases', () => {
     const bytes = encodePng(gradient(4, 4));
     bytes[25] = 3; // IHDR colour type: indexed
     expect(() => decodePng(bytes)).toThrow(/colour type 3/);
+  });
+});
+
+describe('mirrorOnAntiDiagonal', () => {
+  it('maps out[row][col] to in[h-1-col][w-1-row]', () => {
+    const image: RawImage = {
+      width: 3,
+      height: 3,
+      channels: 1,
+      data: Buffer.from([1, 2, 3, 4, 5, 6, 7, 8, 9]),
+    };
+    expect([...mirrorOnAntiDiagonal(image).data]).toEqual([9, 6, 3, 8, 5, 2, 7, 4, 1]);
+  });
+
+  it('is its own inverse, so the turn can be checked by applying it twice', () => {
+    const image: RawImage = {
+      width: 4,
+      height: 4,
+      channels: 2,
+      data: Buffer.from(Array.from({ length: 32 }, (_, index) => index)),
+    };
+    expect([...mirrorOnAntiDiagonal(mirrorOnAntiDiagonal(image)).data]).toEqual([...image.data]);
+  });
+
+  it('refuses a non-square image instead of scrambling it', () => {
+    const image: RawImage = { width: 2, height: 3, channels: 1, data: Buffer.alloc(6) };
+    expect(() => mirrorOnAntiDiagonal(image)).toThrow(/square/);
   });
 });

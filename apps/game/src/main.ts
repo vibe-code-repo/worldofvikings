@@ -27,7 +27,10 @@
  *
  * The environment probe and the physics backend are started next to the loop and
  * never awaited by it: a slow model or a 2 MB WASM download delays the barrel
- * and the collision, not the player walking (spec §38).
+ * and the collision, not the player walking (spec §38). The terrain probe joins
+ * the same sequence: once the ground is loaded it replaces the placeholder plane
+ * as both the picture and the collision geometry, and the player is put down on
+ * it (ADR-0020).
  */
 import {
   MovementSystem,
@@ -48,7 +51,9 @@ import type { AssetEnv } from '@wov/asset-system';
 import type { PhysicsWorld } from '@wov/physics';
 import { tokens } from '@wov/ui';
 import { installDevDebugBridge } from './dev-debug.js';
+import type { WovTerrainBounds } from './dev-debug.js';
 import { loadEnvironment } from './environment.js';
+import { VILLAGE_TERRAIN, loadTerrainProbe, spawnFromQuery } from './terrain-probe.js';
 import { createGamePhysicsWorld, toStaticMeshData } from './physics-backend.js';
 import { physicsGround } from './physics-ground.js';
 import { attachKeyboardMouse } from './input/keyboard-mouse.js';
@@ -58,6 +63,33 @@ import { createGameScene } from './scene.js';
 
 /** The one entity the keys steer in Phase 1. */
 const PLAYER = toEntityId('player');
+
+/**
+ * How far above the tallest ground a spawn probe starts, in metres.
+ *
+ * The village height field reaches 73 m, so a ray that starts at head height
+ * would begin under the ground it is looking for. This is the *placement* probe,
+ * not the per-step ground query — that one stays at head height on purpose
+ * (`physics-ground.ts`), so a roof is never mistaken for a floor.
+ */
+const SPAWN_PROBE_HEIGHT = 200;
+
+/** The player's components, so a respawn states them once instead of twice. */
+function playerSpec(position: { x: number; y: number; z: number }): {
+  id: string;
+  transform: Transform;
+  movement: ReturnType<typeof createMovement>;
+  input: typeof NEUTRAL_INPUT;
+} {
+  return {
+    id: PLAYER,
+    transform: createTransform(vec3(position.x, position.y, position.z)),
+    movement: createMovement(),
+    // Present, not absent: the Input component is what tells the movement
+    // system this entity follows the keys instead of coasting to a stop.
+    input: NEUTRAL_INPUT,
+  };
+}
 
 /**
  * The one environment variable the asset system reads, picked out explicitly.
@@ -134,18 +166,8 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
     ownsLook: false,
   });
 
-  // One entity, standing on the Phase 1 plane. Carrying an Input component is
-  // what marks it as the entity the keys steer.
-  let world: WorldState = createWorldState([
-    {
-      id: PLAYER,
-      transform: createTransform(vec3(0, 0, 0)),
-      movement: createMovement(),
-      // Present, not absent: the Input component is what tells the movement
-      // system this entity follows the keys instead of coasting to a stop.
-      input: NEUTRAL_INPUT,
-    },
-  ]);
+  // One entity, standing on the Phase 1 plane until the terrain arrives.
+  let world: WorldState = createWorldState([playerSpec({ x: 0, y: 0, z: 0 })]);
 
   /**
    * The ground the movement system adheres to.
@@ -203,10 +225,34 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
   baseStatus = `renderer ready — ${renderer.backend} · simulation 60 Hz`;
   setStatus(baseStatus);
 
+  /** Set in the dev build only; see the note on `installDevDebugBridge`. */
+  let debugBridge: { reportTerrainBounds(bounds: WovTerrainBounds): void } | null = null;
   if (import.meta.env.DEV) {
     // Vite replaces the condition with `false` when building for production,
     // so Rollup drops this call and `./dev-debug.js` with it.
-    installDevDebugBridge(renderer, marker, { camera, player });
+    debugBridge = installDevDebugBridge(renderer, marker, {
+      camera,
+      player,
+      // Reads the live world through a closure rather than a captured value:
+      // the physics world does not exist yet when the bridge is installed.
+      groundAt: (x, z) => probeGround(x, z),
+    });
+  }
+
+  /**
+   * The collision height at a point, probed from above the tallest ground.
+   *
+   * Used to put the player down on the terrain and, in the dev build, to check
+   * the collision mesh against the height field it came from. It is the same
+   * `raycastGround` the movement system's query uses (ADR-0014: one ground
+   * query), only from a placement height rather than from the capsule's head.
+   */
+  function probeGround(x: number, z: number): number | null {
+    const hit = physics?.raycastGround(
+      { x, y: SPAWN_PROBE_HEIGHT, z },
+      { maxDistance: SPAWN_PROBE_HEIGHT * 2 },
+    );
+    return hit ? hit.point.y : null;
   }
 
   /**
@@ -217,7 +263,7 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
    * `PhysicsWorld` contract. Once it is up, the movement system stops asking a
    * hard-coded plane where the ground is and asks the collision geometry.
    */
-  async function startPhysics(): Promise<void> {
+  async function startPhysics(): Promise<PhysicsWorld | null> {
     try {
       const created = await createGamePhysicsWorld(renderer.scene);
       created.addStaticMesh(toStaticMeshData(base.ground));
@@ -226,14 +272,104 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       ground = physicsGround(created, () => getTransform(world, PLAYER)?.position.y ?? 0);
       physics = created;
       setStatus(`${baseStatus} · physics ready — ground is collision geometry`);
+      return created;
     } catch (error) {
       // A missing backend must not stop the game: the flat plane keeps the
       // player walking, and the status line says what was lost.
       setStatus(`${baseStatus} · physics unavailable: ${describe(error)}`);
+      return null;
     }
   }
 
-  void startPhysics();
+  /**
+   * Loads the terrain probe and lets the authored ground take over.
+   *
+   * Order matters and is the whole point: the tile becomes collision geometry
+   * *before* the placeholder plane is switched off, so there is never a frame in
+   * which the player has nothing to stand on. Only then is the capsule put down
+   * on the terrain — teleporting first would drop it through a floor that does
+   * not exist yet.
+   *
+   * The physics world is awaited rather than raced: a tile that is drawn but not
+   * collidable is exactly the failure that looks fine in a screenshot.
+   */
+  async function startTerrain(): Promise<void> {
+    const world3d = await startPhysics();
+    const query = new URLSearchParams(window.location.search);
+    let loaded;
+    try {
+      loaded = await loadTerrainProbe(
+        renderer.scene,
+        assetEnv,
+        VILLAGE_TERRAIN,
+        query.get('terrain-layers'),
+      );
+    } catch (error) {
+      setStatus(`${baseStatus} · terrain unavailable: ${describe(error)}`);
+      return;
+    }
+
+    if (debugBridge !== null) {
+      const hull = loaded.terrain.meshes.reduce<{
+        min: [number, number, number];
+        max: [number, number, number];
+      } | null>((box, mesh) => {
+        const info = mesh.getBoundingInfo().boundingBox;
+        if (box === null) {
+          return {
+            min: [info.minimumWorld.x, info.minimumWorld.y, info.minimumWorld.z],
+            max: [info.maximumWorld.x, info.maximumWorld.y, info.maximumWorld.z],
+          };
+        }
+        return {
+          min: [
+            Math.min(box.min[0], info.minimumWorld.x),
+            Math.min(box.min[1], info.minimumWorld.y),
+            Math.min(box.min[2], info.minimumWorld.z),
+          ],
+          max: [
+            Math.max(box.max[0], info.maximumWorld.x),
+            Math.max(box.max[1], info.maximumWorld.y),
+            Math.max(box.max[2], info.maximumWorld.z),
+          ],
+        };
+      }, null);
+      if (hull !== null) {
+        debugBridge.reportTerrainBounds(hull);
+      }
+    }
+
+    const triangles = loaded.terrain.meshes.reduce(
+      (total, mesh) => total + (mesh.getIndices()?.length ?? 0) / 3,
+      0,
+    );
+
+    if (world3d === null) {
+      setStatus(`${baseStatus} · terrain drawn, but nothing to collide with`);
+      return;
+    }
+
+    for (const mesh of loaded.terrain.meshes) {
+      world3d.addStaticMesh(toStaticMeshData(mesh));
+    }
+    // The authored ground has taken over; the Phase 1 plane would now fight it
+    // for pixels and answer ground queries a hundred metres below it.
+    base.ground.setEnabled(false);
+
+    const [spawnX, spawnZ] = spawnFromQuery(query.get('terrain-spawn'), VILLAGE_TERRAIN.size);
+    const spawnY = probeGround(spawnX, spawnZ);
+    if (spawnY !== null) {
+      world = createWorldState([playerSpec({ x: spawnX, y: spawnY, z: spawnZ })]);
+      previous = getTransform(world, PLAYER) ?? previous;
+    }
+
+    setStatus(
+      `${baseStatus} · terrain ready — ${String(Math.round(triangles))} collision triangles` +
+        (loaded.fromPlaceholder ? ' (placeholder tile: no asset store)' : ''),
+    );
+  }
+
+  void startTerrain();
 
   // Started after the loop and deliberately not awaited: a slow model delays
   // the barrel appearing, not the scene showing up (spec §38).

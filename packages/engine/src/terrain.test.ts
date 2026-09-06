@@ -1,6 +1,6 @@
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Scene } from '@babylonjs/core/scene.js';
@@ -9,7 +9,7 @@ import {
   DEFAULT_TERRAIN_COLOR,
   createTerrain,
   createTerrainMaterial,
-  neutralizeHandednessFlip,
+  clearLoaderTransform,
 } from './terrain.js';
 
 const scenes: Scene[] = [];
@@ -29,13 +29,16 @@ function scene(): Scene {
 
 /**
  * A stand-in for what the glTF loader hands back: a `__root__` carrying the
- * handedness flip, with the ground mesh under it.
+ * loader's handedness conversion — a half turn about y and a -1 scale on z —
+ * with the tile under it, sitting at its own corner-anchored middle.
  */
-function loadedHeightField(target: Scene, flippedAxis: 'x' | 'z' = 'x'): TransformNode {
+function loadedHeightField(target: Scene): TransformNode {
   const root = new TransformNode('__root__', target);
-  root.scaling = new Vector3(flippedAxis === 'x' ? -1 : 1, 1, flippedAxis === 'z' ? -1 : 1);
+  root.rotationQuaternion = Quaternion.FromEulerAngles(0, Math.PI, 0);
+  root.scaling = new Vector3(1, 1, -1);
   const ground = CreateGround('tile', { width: 300, height: 300, subdivisions: 2 }, target);
   ground.parent = root;
+  ground.position.set(150, 0, 150);
   return root;
 }
 
@@ -47,20 +50,29 @@ afterEach(() => {
   }
 });
 
-describe('neutralizeHandednessFlip', () => {
-  it('takes the -1 off whichever axis the loader put it on', () => {
+describe('clearLoaderTransform', () => {
+  it('clears the half turn as well as the mirror, not just the mirror', () => {
     const target = scene();
-    for (const axis of ['x', 'z'] as const) {
-      const root = loadedHeightField(target, axis);
-      neutralizeHandednessFlip(root);
-      expect([root.scaling.x, root.scaling.y, root.scaling.z]).toEqual([1, 1, 1]);
-    }
+    const root = loadedHeightField(target);
+    const mesh = root.getChildMeshes(false)[0];
+    expect(mesh).toBeDefined();
+    // Before: the half turn alone has already moved the tile's middle from
+    // (150, 150) to (-150, 150) — undoing only the mirror would leave that.
+    mesh?.computeWorldMatrix(true);
+    expect(mesh?.getAbsolutePosition().x).toBeCloseTo(-150, 4);
+    expect(mesh?.getAbsolutePosition().z).toBeCloseTo(150, 4);
+
+    clearLoaderTransform(root);
+    mesh?.computeWorldMatrix(true);
+    expect(mesh?.getAbsolutePosition().x).toBeCloseTo(150, 4);
+    expect(mesh?.getAbsolutePosition().z).toBeCloseTo(150, 4);
   });
 
   it('leaves an already-neutral node alone', () => {
     const root = new TransformNode('plain', scene());
-    neutralizeHandednessFlip(root);
+    clearLoaderTransform(root);
     expect([root.scaling.x, root.scaling.y, root.scaling.z]).toEqual([1, 1, 1]);
+    expect(root.rotationQuaternion).toBeNull();
   });
 });
 

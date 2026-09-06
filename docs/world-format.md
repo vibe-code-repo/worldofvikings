@@ -85,12 +85,35 @@ because a corner-anchored tile reads straight off the height field export
 (`0…300 m` in both axes stays `0…300 m` in the file). So `position` is the
 tile's minimum corner, and `[0, 0, 0]` covers `0…size`.
 
-**Handedness.** Babylon's glTF loader converts right-handed glTF to a
-left-handed scene by scaling the loaded root by `-1` on x. A tile whose file
-spans `0…300` therefore covers `-300…0` in Babylon world x. The terrain
-renderer undoes that on the tile it creates, so `position` and `size` mean the
-same thing in the world file as they do in the scene — measured, not assumed:
-see `packages/engine/src/terrain.ts` and ADR-0020.
+**Handedness.** Babylon's glTF loader converts right-handed glTF into a
+left-handed scene with a transform on the root it creates: a half turn about y
+_and_ a `-1` scale on z. Undoing only the scale leaves a `0…300` tile at
+`-300…0` — measured in the browser, not assumed — so the terrain renderer clears
+the whole transform (`clearLoaderTransform`). `position` and `size` therefore
+mean the same thing in the world file as they do in the scene, and the same
+thing they mean for an entity, whose `position` the loader never touches.
+
+**Splat channels.** Which channel drives which layer is a property of the map,
+not of the format: layer _n_ is weighted by channel _n_ (r, g, b, a of the first
+map, then of the second). For the village tile that order was measured — each
+channel's weight correlated against the height field's own slope, then three
+candidate orders rendered and compared — and is recorded in ADR-0020 and in
+`apps/game/src/terrain-probe.ts`:
+
+| Channel | Coverage | Mean slope | Layer                |
+| ------- | -------- | ---------- | -------------------- |
+| A.r     | 3.5 %    | 0.60       | `terrain-grass-b`    |
+| A.g     | 16.8 %   | 1.01 ↑     | `terrain-rock-a`     |
+| A.b     | 57.4 %   | 0.47 ↓     | `terrain-grass-a`    |
+| A.a     | 15.3 %   | 0.38 ↓     | `terrain-gravel`     |
+| B.r     | 0.1 %    | 3.35 ↑↑    | `terrain-rock-rough` |
+| B.g     | 6.8 %    | 0.73       | `terrain-moss`       |
+
+The tile's own mean slope is 0.57 and its 99th percentile 3.30.
+
+A splat map is also stored **turned onto the ground's axes** by the import
+(`tooling/asset-pipeline/terrain-import.ts`), so a world file needs no axis
+field and a renderer samples it as `uv = (x, z) / size`.
 
 ## Prefab catalogs
 

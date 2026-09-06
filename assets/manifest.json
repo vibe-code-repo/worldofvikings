@@ -1,6 +1,6 @@
 {
   "manifestVersion": 2,
-  "generatedAt": "2026-09-06T08:44:09.078Z",
+  "generatedAt": "2026-09-06T08:45:13.493Z",
   "assets": [
     {
       "id": "environment/kenney-retro-fantasy-kit/textures/barrel",
@@ -15381,9 +15381,9 @@
       "id": "textures/village-splat-a",
       "path": "textures/village-splat-a.png",
       "kind": "texture",
-      "bytes": 547196,
-      "hash": "sha256-f3c755265220b6fe051352d860a7b178d3e9581540054259db91c71f5205432c",
-      "origin": "Splat weights for terrain layers 1-4 (RGBA) of the village tile, taken from the modelling export under a chosen name.",
+      "bytes": 535803,
+      "hash": "sha256-5e2c0b997c8f368d664090c3fa39f9585d1e5f00f22c8cb9331193952531af8b",
+      "origin": "Splat weights for terrain layers 1-4 (RGBA) of the village tile, taken from the modelling export under a chosen name. Turned onto the ground's axes by a mirror on the anti-diagonal.",
       "source": "private asset collection — terrain set",
       "author": "World of Vikings project",
       "license": "NOASSERTION",
@@ -15395,9 +15395,9 @@
       "id": "textures/village-splat-b",
       "path": "textures/village-splat-b.png",
       "kind": "texture",
-      "bytes": 122466,
-      "hash": "sha256-ad3277f5af0110069290afa1cc2c8a9cc241c056e4a15c4b02738f211ecaf0e7",
-      "origin": "Splat weights for terrain layers 5-6 (RG) of the village tile, taken from the modelling export under a chosen name.",
+      "bytes": 82445,
+      "hash": "sha256-1f10f7ec5f1ba6e47ae3af4a93a8c04a13d660ac7cfbe60b644e0575153be2e8",
+      "origin": "Splat weights for terrain layers 5-6 (RG) of the village tile, taken from the modelling export under a chosen name. Turned onto the ground's axes by a mirror on the anti-diagonal.",
       "source": "private asset collection — terrain set",
       "author": "World of Vikings project",
       "license": "NOASSERTION",

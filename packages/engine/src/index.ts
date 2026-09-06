@@ -64,7 +64,7 @@ export {
   DEFAULT_TERRAIN_COLOR,
   createTerrain,
   createTerrainMaterial,
-  neutralizeHandednessFlip,
+  clearLoaderTransform,
 } from './terrain.js';
 export type {
   TerrainHandle,

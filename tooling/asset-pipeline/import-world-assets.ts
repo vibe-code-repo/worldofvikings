@@ -437,7 +437,7 @@ for (const texture of TERRAIN_TEXTURES) {
     continue;
   }
 
-  const bytes = fitTerrainTexture(raw, texture.file);
+  const bytes = fitTerrainTexture(raw, texture.file, texture.isSplatMap ?? false);
   const path = terrainTexturePath(texture);
   await write(join(storeRoot, path), bytes);
   entries.push({

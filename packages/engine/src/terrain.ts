@@ -133,22 +133,29 @@ function registerProgram(layerCount: number, splatCount: number): string {
 }
 
 /**
- * Undoes the handedness flip Babylon's glTF loader puts on a loaded root.
+ * Clears the handedness conversion Babylon's glTF loader puts on a loaded root.
  *
- * The loader turns right-handed glTF into a left-handed scene by scaling the
- * root it creates by `-1` on one axis. For a model that is invisible — the model
- * is mirrored inside its own bounding box and nobody can tell. For terrain it is
- * not: the tile's hills would sit on the opposite side of the world from the
- * entities placed on them, because an entity's `position` is written straight
- * onto a node and is never mirrored.
+ * The loader turns right-handed glTF into a left-handed scene with a transform
+ * on the `__root__` node it creates: a half turn about y **and** a `-1` scale on
+ * z. Measured, not assumed — the tile came out at `x, z ∈ [-300, 0]` when only
+ * the scale was undone, which is what the half turn does on its own.
  *
- * Which axis carries the `-1` is *read off the node* rather than assumed — it is
- * a loader convention, not a law — and every negative component is flipped back,
- * so the tile occupies exactly the metres the world file names.
+ * For an ordinary model none of this shows: it is mirrored inside its own
+ * bounding box and placed by a position that the loader never touches. For
+ * terrain it shows immediately — a tile whose file says `0…300 m` would sit at
+ * `-300…0 m`, on the opposite side of the world from every entity placed on it.
+ *
+ * So the whole local transform is cleared rather than one component of it, and
+ * the height field's vertices become world metres exactly as the file states
+ * them. That the tile is then mirrored with respect to a right-handed reading of
+ * the file is the same mirror every model in the scene already carries; what
+ * matters is that ground and entities agree.
  */
-export function neutralizeHandednessFlip(root: TransformNode): void {
-  const scaling = root.scaling;
-  scaling.set(Math.abs(scaling.x), Math.abs(scaling.y), Math.abs(scaling.z));
+export function clearLoaderTransform(root: TransformNode): void {
+  root.position.setAll(0);
+  root.rotation.setAll(0);
+  root.rotationQuaternion = null;
+  root.scaling.setAll(1);
 }
 
 /** Every mesh under a node, including the node itself when it is one. */
@@ -163,11 +170,6 @@ function meshesUnder(root: Node): AbstractMesh[] {
  * Exported separately from {@link createTerrain} because the editor draws the
  * same ground without a physics world behind it, and because a material with no
  * mesh is the smallest thing a test can look at.
- *
- * Textures are created with `NEAREST` sampling for the splat maps and the
- * default trilinear for the layers: a splat map is *paint*, one texel per
- * roughly 60 cm, and filtering it smears every path edge; a layer texture is a
- * picture and wants its mipmaps.
  */
 export function createTerrainMaterial(
   scene: Scene,
@@ -190,10 +192,12 @@ export function createTerrainMaterial(
 
   const textures: Texture[] = [];
   splat.forEach((source, index) => {
-    // NEAREST, and clamped: a splat map is paint at roughly one texel per 60 cm,
-    // and filtering it smears every path edge; wrapping it would fold the far
-    // edge of the tile back onto the near one.
-    const texture = loadTexture(scene, source, Texture.NEAREST_SAMPLINGMODE);
+    // Filtered, and clamped. Filtered because the map is one texel per ~60 cm
+    // and nearest sampling turns every path edge into a staircase of half-metre
+    // squares — measured on the village tile, it is the first thing you see.
+    // Clamped because wrapping would fold the far edge of the tile onto the near
+    // one, which paints the wrong ground along two edges instead of none.
+    const texture = loadTexture(scene, source, Texture.BILINEAR_SAMPLINGMODE);
     texture.wrapU = Texture.CLAMP_ADDRESSMODE;
     texture.wrapV = Texture.CLAMP_ADDRESSMODE;
     textures.push(texture);
@@ -272,7 +276,7 @@ export function createTerrain(
   const name = options.name ?? 'terrain';
   const root = new TransformNode(name, scene);
 
-  neutralizeHandednessFlip(heightField);
+  clearLoaderTransform(heightField);
   heightField.parent = root;
   root.position.set(options.position[0], options.position[1], options.position[2]);
 

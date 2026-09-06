@@ -267,6 +267,13 @@ describe('the sky the ground reflects', () => {
     );
   });
 
+  it('pays for the reflection through the environment BRDF, not at full strength', () => {
+    // Without this a meadow at metallic 0.5 comes out the colour of the zenith.
+    const source = terrainFragmentSource(1, 0);
+    expect(source).toContain('vec2 wovEnvBrdf(float nDotV, float roughness)');
+    expect(source).toContain('(reflectance * brdf.x + vec3(brdf.y)) * sky * uSkyParams.y');
+  });
+
   it('splits the surface into a diffuse half and a reflected half', () => {
     const source = terrainFragmentSource(1, 0);
     expect(source).toContain('vec3 diffuse = albedo * (1.0 - metallic);');

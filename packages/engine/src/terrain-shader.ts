@@ -308,17 +308,35 @@ vec3 wovLayerBump(vec3 texel, float strength) {
 ${blendFunction(layerCount, splatCount, shape)}
 ${normalFunction(shape)}
 ${shadowFunction(shadows)}
+/**
+ * How much of a reflection survives the surface, by roughness and view angle.
+ *
+ * Lazarov's analytic fit to the split-sum environment BRDF — two multiply-adds
+ * instead of the 2D lookup table a full physically based renderer stores. It is
+ * here because without it a rough layer mirrors the sky at full strength: a
+ * meadow at metallic 0.5 came out the colour of the zenith, measured on the
+ * village tile before this line existed. At roughness 1 it keeps about 45 % of
+ * the reflectance and none of the grazing blow-out.
+ */
+vec2 wovEnvBrdf(float nDotV, float roughness) {
+  vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+  vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+  vec4 r = roughness * c0 + c1;
+  float a004 = min(r.x * r.x, exp2(-9.28 * nDotV)) * r.x + r.y;
+  return vec2(-1.04, 1.04) * a004 + r.zw;
+}
+
 vec3 environmentLight(vec3 n, vec3 reflectance, float smoothness) {
   vec3 view = normalize(cameraPosition - vPositionW);
+  float nDotV = clamp(dot(n, view), 0.0, 1.0);
   float roughness = 1.0 - clamp(smoothness, 0.0, 1.0);
   vec3 direction = normalize(mix(reflect(-view, n), n, roughness * roughness));
   // A mirror-sharp sun disc has no business in gravel: the glow fades out with
   // the square of smoothness, so only a near-mirror layer ever shows one.
   vec3 glow = uSkyGlow * smoothness * smoothness;
   vec3 sky = wovSkyColor(direction, uSkyZenith, uSkyHorizon, glow, uSunDirection, uSkyParams.x);
-  float grazing = pow(1.0 - clamp(dot(n, view), 0.0, 1.0), 5.0);
-  vec3 fresnel = reflectance + (vec3(1.0) - reflectance) * grazing;
-  return fresnel * sky * uSkyParams.y;
+  vec2 brdf = wovEnvBrdf(nDotV, roughness);
+  return (reflectance * brdf.x + vec3(brdf.y)) * sky * uSkyParams.y;
 }
 
 void main(void) {

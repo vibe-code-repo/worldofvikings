@@ -6,12 +6,12 @@
     "sun": {
       "direction": [0.58, -0.45, 0.68],
       "color": "#ffd2a1",
-      "intensity": 2.3
+      "intensity": 3.3
     },
     "ambient": {
       "skyColor": "#8fb3d8",
       "groundColor": "#4a4032",
-      "intensity": 0.62
+      "intensity": 0.85
     },
     "sky": {
       "enabled": true,

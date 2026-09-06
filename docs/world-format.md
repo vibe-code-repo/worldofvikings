@@ -141,8 +141,8 @@ thing they mean for an entity, whose `position` the loader never touches.
 not of the format: layer _n_ is weighted by channel _n_ (r, g, b, a of the first
 map, then of the second). For the village tile that order was measured — each
 channel's weight correlated against the height field's own slope, then three
-candidate orders rendered and compared — and is recorded in ADR-0020 and in
-`apps/game/src/terrain-probe.ts`:
+candidate orders rendered and compared — and is recorded in ADR-0020 and in the
+`layers` of `content/worlds/village1.json`, in this order:
 
 | Channel | Coverage | Mean slope | Layer                |
 | ------- | -------- | ---------- | -------------------- |
@@ -158,6 +158,17 @@ The tile's own mean slope is 0.57 and its 99th percentile 3.30.
 A splat map is also stored **turned onto the ground's axes** by the import
 (`tooling/asset-pipeline/terrain-import.ts`), so a world file needs no axis
 field and a renderer samples it as `uv = (x, z) / size`.
+
+**Who draws it.** The game draws the ground of the zone it opens and hands its
+triangles to physics, so the surface the player sees is the surface the player
+stands on (ADR-0022). The editor draws it as scenery: visible, and what surface
+snapping drops a prop onto, but not selectable and not movable — terrain
+editing is a later phase.
+
+**Ground survives a re-import.** `pnpm import:scene` rewrites a world file from
+its bundle, and a `terrain` block is not in any bundle: it is carried over from
+the file being replaced, per zone id, and named in the run report. Re-running
+the importer therefore does not take the ground out from under the placements.
 
 ## Prefab catalogs
 

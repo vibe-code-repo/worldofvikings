@@ -26,12 +26,19 @@
  * 5. Reports what it did *not* recognise, by name and weight. A bundle always
  *    contains models that never existed as their own file; those are for
  *    `pnpm import:scene-models`, and they must be visible, not lost.
+ *
+ * **Ground is carried over, not regenerated.** A zone's `terrain` block is
+ * authored by hand — a height field, its splat maps and the order of its
+ * layers, all of them measurements no bundle contains (ADR-0020). If the world
+ * file being written already has one for a zone, it is copied into the new file
+ * unchanged and named in the report. Without that, re-running this command
+ * would silently take the ground out from under 1580 placements.
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { format, resolveConfig } from 'prettier';
 import { CURRENT_WORLD_SCHEMA_VERSION, parseWorldDefinition } from '@wov/world-schema';
-import type { WorldDefinition } from '@wov/world-schema';
+import type { TerrainDefinition, WorldDefinition } from '@wov/world-schema';
 import { readGlb } from '../asset-pipeline/glb.js';
 import { repoRoot } from './prefab-catalog.js';
 import { loadPrefabStems } from './prefab-stems.js';
@@ -86,6 +93,35 @@ if (ambiguousStems.length > 0) {
 const bundle = readGlb(await readFile(sceneFile));
 const scan = scanScene(bundle.json, { zones, prefabsByStem });
 
+const worldFile = join(repoRoot, 'content', 'worlds', `${worldId}.json`);
+
+/**
+ * The ground each zone already has, read back out of the file being replaced.
+ *
+ * A missing or unreadable file is not an error: the first import of a bundle
+ * writes a world that has no ground yet. A file that exists but does not parse
+ * *is* an error, because carrying nothing over from it would look like success.
+ */
+const terrainByZone = new Map<string, TerrainDefinition>();
+let previous: string | undefined;
+try {
+  previous = await readFile(worldFile, 'utf8');
+} catch {
+  previous = undefined;
+}
+if (previous !== undefined) {
+  const parsed = parseWorldDefinition(JSON.parse(previous));
+  if (!parsed.ok) {
+    process.stderr.write(`FAIL content/worlds/${worldId}.json: ${parsed.errors.join('; ')}\n`);
+    process.exit(1);
+  }
+  for (const zone of parsed.world.zones) {
+    if (zone.terrain !== undefined) {
+      terrainByZone.set(zone.id, zone.terrain);
+    }
+  }
+}
+
 const counters = new Map<string, number>();
 const world: WorldDefinition = {
   schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
@@ -98,6 +134,7 @@ const world: WorldDefinition = {
       scan.instances.filter((instance) => instance.zone === zone.id),
       counters,
     ),
+    ...(terrainByZone.has(zone.id) ? { terrain: terrainByZone.get(zone.id) } : {}),
   })),
 };
 
@@ -112,7 +149,6 @@ if (!validation.ok) {
   process.exit(1);
 }
 
-const worldFile = join(repoRoot, 'content', 'worlds', `${worldId}.json`);
 if (!dryRun) {
   const prettierOptions = await resolveConfig(worldFile);
   await writeFile(
@@ -147,6 +183,11 @@ process.stdout.write(
     `(${(((matchedTriangles || 1) / (matchedTriangles + missedTriangles || 1)) * 100).toFixed(1)} %)\n`,
 );
 process.stdout.write(`  collision boxes and triggers left out: ${String(scan.helpers)}\n`);
+if (terrainByZone.size > 0) {
+  process.stdout.write(
+    `  ground carried over from the previous file: ${[...terrainByZone.keys()].sort().join(', ')}\n`,
+  );
+}
 if (scan.ignoredRoots.length > 0) {
   process.stdout.write('\n  bundle roots no zone claims (not world data):\n');
   for (const root of [...scan.ignoredRoots].sort((a, b) => b.meshNodes - a.meshNodes)) {

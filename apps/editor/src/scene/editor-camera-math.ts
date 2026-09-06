@@ -244,6 +244,14 @@ export interface Bounds {
 export const FOCUS_MARGIN = 1.4;
 
 /**
+ * The smallest thing `F` frames as if it were this big, in metres.
+ *
+ * Roughly a doorway: small enough that a hut still fills the view, large enough
+ * that a barrel is shown standing somewhere rather than filling the screen.
+ */
+export const MINIMUM_FRAMED_SIZE = 2;
+
+/**
  * Where `F` puts the camera: looking at the centre of `bounds` from far enough
  * away that the whole box fits, and never closer than the minimum radius.
  *
@@ -266,7 +274,9 @@ export function focusOn(
     bounds.max[1] - bounds.min[1],
     bounds.max[2] - bounds.min[2],
   );
-  // A point (size 0) still needs a distance to be looked at from.
-  const radius = (Math.max(size, 0.5) / 2 / Math.tan(fov / 2)) * FOCUS_MARGIN;
+  // Never frame tighter than {@link MINIMUM_FRAMED_SIZE}: a barrel is 25 cm
+  // across, and putting the camera 40 cm from it fills the screen with wood and
+  // shows nothing of where it stands. A point (size 0) needs the same floor.
+  const radius = (Math.max(size, MINIMUM_FRAMED_SIZE) / 2 / Math.tan(fov / 2)) * FOCUS_MARGIN;
   return clampOrbit({ ...state, target: centre, radius }, limits);
 }

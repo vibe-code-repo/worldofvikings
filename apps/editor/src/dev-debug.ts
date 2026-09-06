@@ -36,6 +36,14 @@ export interface WovEditorDebug {
   readonly entityCount: number;
   /** Root meshes the viewport built for them, as the *scene* counts them. */
   readonly meshCount: number;
+  /**
+   * How many of those show their real model instead of the stand-in cube.
+   *
+   * Anything that measures the picture — framing an entity, aiming at a gizmo —
+   * has to wait for this, because a 1 m cube and a 25 cm barrel are not framed
+   * from the same distance.
+   */
+  readonly loadedCount: number;
   /** Selected entity ids, in the order they were picked. */
   readonly selection: readonly string[];
   /** Whether the world differs from the last saved file. */
@@ -59,6 +67,7 @@ const initial: WovEditorDebug = {
   zoneId: null,
   entityCount: 0,
   meshCount: 0,
+  loadedCount: 0,
   selection: [],
   dirty: false,
   undoDepth: 0,

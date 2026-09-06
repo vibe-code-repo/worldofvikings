@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DragEvent, JSX } from 'react';
 import { AssetManager, summarizeAssetSources } from '@wov/asset-system';
 import type { AssetSourceConfig } from '@wov/asset-system';
-import { snapPosition, snapRotation } from '@wov/editor-core';
+import { snapPosition } from '@wov/editor-core';
 import type { EditorDocument, TransformChange } from '@wov/editor-core';
 import type { Vector3 } from '@wov/world-schema';
 import { publishEditorDebug } from './dev-debug.js';
+import { changesFromDrag } from './scene/gizmo-commit.js';
 import {
   createGizmos,
   type EditorTool,
@@ -169,8 +170,14 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
     });
     const report = (): void => {
       handlersRef.current.onAssetSources(summarizeAssetSources(assets.sources()));
-      publishEditorDebug({ meshCount: sync.meshCount() });
+      publishEditorDebug({ meshCount: sync.meshCount(), loadedCount: sync.loadedCount() });
+      // The outline is first drawn around the stand-in cube, because that is
+      // all that exists until the GLB lands. Redrawing it here is what makes it
+      // end up around the model rather than around a 1 m box.
+      outline.show(sync.boundsOf(documentRef.current.selection));
     };
+    const outline = createSelectionOutline(viewport.scene);
+    outlineRef.current = outline;
     const sync = createSceneSync({
       scene: viewport.scene,
       assets,
@@ -178,8 +185,6 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
       onSceneChanged: report,
     });
     syncRef.current = sync;
-    const outline = createSelectionOutline(viewport.scene);
-    outlineRef.current = outline;
     sync.apply(documentRef.current);
     report();
 
@@ -223,37 +228,13 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
       },
       onDragEnd(finished) {
         const selection = documentRef.current.selection;
-        const primary = selection.at(-1);
-        const start = primary === undefined ? undefined : dragStartRef.current.get(primary);
-        if (primary === undefined || start === undefined) {
-          return;
-        }
-        const settings = snappingRef.current;
-        const delta = {
-          position: subtract(finished.position, start.position),
-          rotation: subtract(finished.rotation, start.rotation),
-          scale: divide(finished.scale, start.scale),
-        };
-        const changes: TransformChange[] = [];
-        for (const id of selection) {
-          const from = dragStartRef.current.get(id);
-          if (from === undefined) {
-            continue;
-          }
-          const moved = add(from.position, delta.position);
-          const turned = add(from.rotation, delta.rotation);
-          const scaled = multiply(from.scale, delta.scale);
-          changes.push({
-            entityId: id,
-            patch: {
-              position: settings.enabled ? snapPosition(moved, settings.step) : moved,
-              rotation: settings.enabled
-                ? snapRotation(turned, settings.rotationStepDegrees)
-                : turned,
-              scale: scaled,
-            },
-          });
-        }
+        const changes = changesFromDrag(
+          selection,
+          dragStartRef.current,
+          selection.at(-1),
+          finished,
+          snappingRef.current,
+        );
         if (changes.length > 0) {
           handlersRef.current.onTransform(changes);
         }
@@ -362,6 +343,7 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
       zoneId: editorDocument.activeZoneId,
       entityCount: zone?.entities.length ?? 0,
       meshCount: sync?.meshCount() ?? 0,
+      loadedCount: sync?.loadedCount() ?? 0,
       selection: [...editorDocument.selection],
       dirty: editorDocument.dirty,
     });
@@ -429,25 +411,4 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
       </div>
     </>
   );
-}
-
-function add(left: Vector3, right: Vector3): Vector3 {
-  return [left[0] + right[0], left[1] + right[1], left[2] + right[2]];
-}
-
-function subtract(left: Vector3, right: Vector3): Vector3 {
-  return [left[0] - right[0], left[1] - right[1], left[2] - right[2]];
-}
-
-function multiply(left: Vector3, right: Vector3): Vector3 {
-  return [left[0] * right[0], left[1] * right[1], left[2] * right[2]];
-}
-
-/** Scale is relative, so its delta is a ratio; a zero start would divide by it. */
-function divide(left: Vector3, right: Vector3): Vector3 {
-  return [
-    right[0] === 0 ? 1 : left[0] / right[0],
-    right[1] === 0 ? 1 : left[1] / right[1],
-    right[2] === 0 ? 1 : left[2] / right[2],
-  ];
 }

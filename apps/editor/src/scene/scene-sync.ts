@@ -59,6 +59,14 @@ export interface SceneSync {
   apply(document: EditorDocument): void;
   /** Entity roots currently in the scene, counted from the scene itself. */
   meshCount(): number;
+  /**
+   * How many of them show their real model rather than a stand-in cube.
+   *
+   * Counted from the reconciler's own bookkeeping, because that is what the
+   * number is *about*: not whether the document reached the scene (that is
+   * {@link SceneSync.meshCount}), but whether the GLB has arrived yet.
+   */
+  loadedCount(): number;
   /** The node for an entity, for gizmos and framing. */
   nodeFor(entityId: string): TransformNode | undefined;
   /** The entity a picked mesh belongs to, or `undefined` for scenery. */
@@ -260,6 +268,16 @@ export function createSceneSync(options: SceneSyncOptions): SceneSync {
       // Counted off the scene, not off the map above: the point of this number
       // is to be an independent witness that the document reached the picture.
       return scene.transformNodes.filter((node) => entityIdOf(node) !== undefined).length;
+    },
+
+    loadedCount() {
+      let loaded = 0;
+      for (const instance of instances.values()) {
+        if (instance.pending === null) {
+          loaded += 1;
+        }
+      }
+      return loaded;
     },
 
     nodeFor: (entityId) => instances.get(entityId)?.root,

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CAMERA_FOV,
   FLY_SPEED,
+  MINIMUM_FRAMED_SIZE,
   clampOrbit,
   defaultCameraLimits,
   defaultOrbitState,
@@ -149,6 +150,18 @@ describe('focusOn', () => {
 
     expect(focused.target).toEqual([1, 2, 3]);
     expect(focused.radius).toBeGreaterThanOrEqual(defaultCameraLimits.minRadius);
+  });
+
+  it('does not press its nose against something small', () => {
+    // A 25 cm barrel framed at 25 cm would fill the screen with wood.
+    const barrel = focusOn(defaultOrbitState, { min: [0, 0, 0], max: [0.25, 0.3, 0.25] });
+    const doorway = focusOn(defaultOrbitState, {
+      min: [0, 0, 0],
+      max: [MINIMUM_FRAMED_SIZE, MINIMUM_FRAMED_SIZE, MINIMUM_FRAMED_SIZE],
+    });
+
+    expect(barrel.radius).toBe(doorway.radius);
+    expect(barrel.radius).toBeGreaterThan(2);
   });
 });
 

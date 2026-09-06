@@ -46,6 +46,7 @@ type WovEditorDebugWindow = Window & {
     readonly zoneId: string | null;
     readonly entityCount: number;
     readonly meshCount: number;
+    readonly loadedCount: number;
     readonly selection: readonly string[];
     readonly dirty: boolean;
     readonly undoDepth: number;
@@ -509,6 +510,80 @@ test('editor switches tools with Q/W/E/R and deletes with the Delete key', async
   await page.keyboard.press('Control+z');
   await expect.poll(() => editorEntityCount(page)).toBe(before);
   await expect(page.getByTestId('hierarchy-entity-barrel_001')).toBeVisible();
+});
+
+/**
+ * The gizmo, driven by a real mouse.
+ *
+ * `changesFromDrag` is unit-tested and the inspector exercises the same command
+ * path, but neither proves that Babylon's handles are attached to the right
+ * node, that a drag ends where this app is listening, or that the gesture
+ * arrives as *one* history entry instead of one per frame. Only a real drag on
+ * a real arrow does.
+ *
+ * `F` frames the barrel first, which puts the entity origin — and with it the
+ * gizmo — at a known place on screen. The grab offsets are a short search along
+ * the red +x arrow rather than one magic pixel: the arrow is drawn at a
+ * constant screen size, so a handful of offsets covers it without pinning the
+ * test to Babylon's exact arrow geometry.
+ */
+test('editor moves an entity by dragging the move gizmo', async ({ page }) => {
+  // Pinned, because this is the one test that aims at a pixel: the gizmo is
+  // drawn at a constant screen size, but where the framed entity's origin lands
+  // depends on how tall the canvas is.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await expect(page.getByTestId('editor-viewport-status')).toHaveText(
+    /^viewport ready — (webgl2|webgpu)$/,
+  );
+  await page.getByTestId('menu-file').click();
+  await page.getByTestId('menu-open-example').click();
+
+  // Wait for the model itself, not just the entity: `F` frames what is on
+  // screen, and a 1 m stand-in cube is framed from a different distance than a
+  // 25 cm barrel — which would put the gizmo somewhere else entirely.
+  await expect.poll(async () => (await editorDebug(page))?.loadedCount).toBeGreaterThan(0);
+  await page.getByTestId('hierarchy-entity-barrel_001').click();
+  await page.keyboard.press('KeyF');
+  await page.keyboard.press('KeyW');
+  await expect(page.getByTestId('tool-move')).toHaveAttribute('aria-pressed', 'true');
+
+  const positionX = page.getByTestId('inspector-position-x');
+  const before = await positionX.inputValue();
+  const box = await page.getByTestId('editor-canvas').boundingBox();
+  if (!box) {
+    throw new Error('the editor has no viewport canvas');
+  }
+  // The camera looks along +z at the default heading, so world +x is screen
+  // right; the entity origin sits below the framed centre, at its base.
+  const originX = box.x + box.width / 2;
+  const originY = box.y + box.height / 2 + 30;
+
+  let moved = false;
+  search: for (const down of [30, 22, 38]) {
+    for (const grab of [45, 60, 75]) {
+      await page.mouse.move(originX + grab, originY + down - 30);
+      await page.mouse.down();
+      await page.mouse.move(originX + grab + 140, originY + down - 30, { steps: 12 });
+      await page.mouse.up();
+      if ((await positionX.inputValue()) !== before) {
+        moved = true;
+        break search;
+      }
+    }
+  }
+  expect(moved, 'dragging the move gizmo changed nothing').toBe(true);
+
+  // Snapping is on by default, so the result is a whole grid step, and the
+  // whole gesture is exactly one entry in the history.
+  const after = Number((await positionX.inputValue()).replace(',', '.'));
+  expect(after).toBeGreaterThan(Number(before.replace(',', '.')));
+  expect((after * 2) % 1).toBe(0);
+  await expect.poll(async () => (await editorDebug(page))?.undoDepth).toBe(1);
+  await expect(page.getByTestId('editor-dirty')).toHaveText('unsaved changes');
+
+  await page.keyboard.press('Control+z');
+  await expect(positionX).toHaveValue(before);
 });
 
 test('api reports healthy', async ({ request }) => {

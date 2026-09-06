@@ -19,11 +19,11 @@ WebGPU where supported, Havok for physics (from Phase 1 on) and glTF/GLB assets.
 
 ## Alternatives considered
 
-| Alternative              | Why not                                                                                                                                                                                                                   |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| three.js                 | Excellent renderer, but scene tooling, gizmos, animation blending, physics integration and inspector would each be an extra dependency or hand-written. For an editor-plus-game project that is more surface to maintain. |
-| PlayCanvas               | Strong engine, but its editor-centric workflow pulls towards a hosted tool; we need an editor that is part of this open-source repository.                                                                                |
-| the source engine/Godot WebGL export | Contradicts "browser-first, clone and run" (spec §3) and requires a proprietary or heavy toolchain (agent rule 18).                                                                                                       |
+| Alternative        | Why not                                                                                                                                                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| three.js           | Excellent renderer, but scene tooling, gizmos, animation blending, physics integration and inspector would each be an extra dependency or hand-written. For an editor-plus-game project that is more surface to maintain. |
+| PlayCanvas         | Strong engine, but its editor-centric workflow pulls towards a hosted tool; we need an editor that is part of this open-source repository.                                                                                |
+| Godot WebGL export | Contradicts "browser-first, clone and run" (spec §3) and requires a heavy toolchain (agent rule 18).                                                                                                                      |
 
 ## Consequences
 

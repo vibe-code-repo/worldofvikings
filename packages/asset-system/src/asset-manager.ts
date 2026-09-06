@@ -30,6 +30,20 @@ export interface InstantiateOptions {
   readonly rename?: (sourceName: string) => string;
   /** Clone materials instead of sharing them. Sharing is cheaper; default off. */
   readonly cloneMaterials?: boolean;
+  /**
+   * Draw repeated copies as GPU instances instead of cloning the meshes.
+   *
+   * Off by default, because an instance is not a free copy of a mesh: it
+   * shares the source's geometry *and* its material, so a caller that wants to
+   * recolour or reshape one copy must not ask for one. A world file that
+   * places the same fence eighty times wants exactly this — eighty instances
+   * of one mesh are one draw call, eighty clones are eighty.
+   *
+   * Babylon falls back to a clone per node it cannot instance (transform
+   * nodes, skinned meshes, meshes without vertices), so asking for instances
+   * is always safe; it is a request, not an assertion.
+   */
+  readonly instanced?: boolean;
 }
 
 /**
@@ -148,11 +162,9 @@ export class AssetManager {
     options: InstantiateOptions = {},
   ): Promise<InstantiatedEntries> {
     const container = await this.loadGlb(assetPath);
-    return container.instantiateModelsToScene(
-      options.rename,
-      options.cloneMaterials ?? false,
-      undefined,
-    );
+    return container.instantiateModelsToScene(options.rename, options.cloneMaterials ?? false, {
+      doNotInstantiate: options.instanced !== true,
+    });
   }
 
   /** Whether this asset is already loaded or currently loading. */

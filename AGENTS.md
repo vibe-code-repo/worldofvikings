@@ -22,12 +22,18 @@ terrain with a third-person camera and a physics world (ADR-0022). `?world=`
 picks the world, `?spawn=x,z` where to stand, `?look=yaw[,pitch]` where to aim,
 and `?flat=1` and `?shadows=off` take the light apart for a measurement.
 
-The village zone is 5248 entities from 140 models, 4032 of them scattered
-vegetation drawn as thin instances (ADR-0025). It is lit the way its world file
-says (ADR-0024): a low evening sun with one following 2048² shadow map, a
-gradient sky, fog and a graded frame. Grass takes that shadow without casting
-one (ADR-0027). Every entity collides against the shape its prefab declares
-(ADR-0026) — 1145 bodies from 210 shared shapes, with 4103 tufts and bushes
+The village zone is 5273 entities from 145 models, 4032 of them scattered
+vegetation drawn as thin instances (ADR-0025). Its ground is one adaptive tile
+whose six layers carry a normal map, a metallic value and a smoothness, and it
+reflects the same sky the dome draws (ADR-0032). Behind it stand two painted
+mountain shells and 23 clouds, which are a prefab category of their own: never
+scattered onto, never picked, never in the shadow map (ADR-0031). It is lit the
+way its world file says (ADR-0024): a low evening sun with one following 2048²
+shadow map, a gradient sky, a cool haze that reaches 1700 m — far enough that
+the painted range hazes with distance instead of standing dark behind it
+(ADR-0034) — and a graded frame. Grass takes that shadow without casting one
+(ADR-0027). Every entity collides against the shape its prefab declares
+(ADR-0026) — 1145 bodies from 210 shared shapes, with 4128 tufts and bushes
 deliberately walk-through. There is no character model, no combat and no zone
 streaming.
 
@@ -39,9 +45,16 @@ something that can be selected or moved. Its one rule is ADR-0018: **the
 document is the truth and the scene follows it** — every gesture becomes a
 command, and the viewport reconciles. It scatters prefabs over a region as one
 undoable command whose output is ordinary entities (ADR-0025), also available as
-`pnpm scatter`. Its ground panel turns a terrain layer's metallic, smoothness
-and bump strength through the same command `pnpm terrain-surface` uses
-(ADR-0032). There is no component system and no terrain sculpting yet.
+`pnpm scatter`. Its right-hand column is four inspectors behind four tabs, drawn
+from the schemas rather than from a list of field names, so a field added to
+`@wov/world-schema` appears with its own range and its own asset picker and
+nothing in `apps/editor` changes (ADR-0033). The Zone tab holds the ground: the
+`Surface` half turns a layer's metallic, smoothness and bump strength through
+the same command `pnpm terrain-surface` uses, and the half below it edits the
+rest of the terrain block; which field belongs to which half is the schema's
+answer, so no number is offered twice (ADR-0032, ADR-0033). The scene import and
+the prefab catalogue run from the **World** menu as well as from the command
+line. There is no component system and no terrain sculpting yet.
 
 **Editor parity (ADR-0033).** Anything a script writes, the editor can write, by
 calling the same code. Four right-hand inspectors edit the lighting profile of a

@@ -210,10 +210,13 @@ pnpm import:scene-models --scene … --store … --dry-run
 
 It **only adds**: a store path that already exists is left alone and named in
 the report, and textures are matched against the store by content hash, so a
-shared atlas stays one file. Anything larger than the size limit is excluded and
-named rather than rescaled — 80 m for a world object, 4 km for a backdrop, which
-is the one place that limit is lifted and it is lifted by name and category
-rather than for everyone (ADR-0031). Afterwards, run `pnpm generate:prefabs` so
+shared atlas stays one file. Anything larger than the 80 m size limit is
+excluded and named rather than rescaled. A **backdrop is skipped before it is
+measured at all**, by name list or by catalogue category: it comes from the
+export in the pass below, and cutting one out of the bundle would produce one
+shell where the world needs two, under a store name folded from the source
+spelling. The limit used to be _raised_ for a backdrop instead, which let one
+through the gate that was keeping it out (ADR-0031). Afterwards, run `pnpm generate:prefabs` so
 the new models reach the catalogue, then `pnpm import:scene` to write the world
 file (`docs/world-format.md`).
 
@@ -230,10 +233,14 @@ pnpm import:backdrop --source <export> --store <store>
 pnpm import:backdrop --source … --store … --dry-run
 ```
 
-Three models, listed in `tooling/asset-pipeline/backdrop.ts`, each written as
+Three models, listed in `packages/content-build/src/backdrop.ts`, each written as
 one store GLB with one material and one texture beside it. The mountain panorama
 is the store's one exception to the 2048 px ceiling and keeps its full
-4096×2048; the number is argued next to itself in that file.
+4096×2048; the number is argued next to itself in `tooling/asset-pipeline/backdrop.ts`,
+which is the half of the backdrop code that builds a model. The half that says
+_which_ files are backdrop and what they are called here lives in
+`@wov/content-build`, because the scene import needs the same answers and the
+editor runs that import too (ADR-0033).
 
 ## Regenerating everything, in order
 

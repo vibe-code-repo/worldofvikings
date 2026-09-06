@@ -54,7 +54,7 @@ patching in four readers:
 
 - The catalogue gives a backdrop `collision: { kind: 'none' }`; the scatter tool
   will not plant it and will not plant onto it; the editor viewport does not
-  snap to it; the game leaves it out of the fog and out of the shadow map in
+  snap to it; the game leaves it out of the shadow map in
   both directions, and makes it unpickable.
 - `pnpm import:backdrop` writes the three models into the private store from the
   modelling export rather than from the scene bundle, because the bundle points
@@ -81,7 +81,8 @@ patching in four readers:
   the sky above the peaks is a hole in the texture rather than a colour in it.
   Drawn `OPAQUE` the shell is a wall around the world with no sky above it.
 
-**No rendering group, and no depth or fog exception beyond `applyFog = false`.**
+**No rendering group, and no depth exception.** (The fog exception this section
+describes became a condition rather than a flat no — see ADR-0034.)
 Depth already does the work: the shells really are the furthest geometry in the
 scene. A rendering group _sounds_ like the answer to "draw it behind everything"
 and would have been a second, silent rule about draw order to keep in step with

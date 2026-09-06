@@ -15,7 +15,7 @@ The authoritative definition is `packages/world-schema`.
   "name": "Example World",
   "lighting": {
     "sun": { "direction": [0.58, -0.45, 0.68], "color": "#ffd2a1", "intensity": 2.3 },
-    "fog": { "enabled": true, "start": 80, "end": 420 }
+    "fog": { "enabled": true, "start": 80, "end": 1700, "color": "#b4c0cc" }
   },
   "zones": [
     {
@@ -114,8 +114,10 @@ an interior can be dark under a world that is not, keeping the same sun.
 | ---------------- | ------------------------------------------------------------------------------------- |
 | `sun`            | `direction` (the direction light _travels_), `color`, `intensity`                     |
 | `ambient`        | `skyColor`, `groundColor`, `intensity` — the hemispheric fill                         |
-| `sky`            | `enabled`, `zenithColor`, `horizonColor`, `sunColor`, `sunSpread`                     |
+| `sky`            | `enabled`, `zenithColor`, `horizonColor`, `sunColor`, `sunSpread`, `groundReflection` |
 | `fog`            | `enabled`, `start`, `end` in metres, `color` (defaults to the sky's horizon)          |
+|                  | `end` also decides whether the painted distance hazes: a backdrop takes the fog only  |
+|                  | when the fog reaches past it, so a short `end` cannot flatten the horizon (ADR-0034)  |
 | `shadows`        | `enabled`, `mapSize`, `distance`, `bias`, `normalBias`, `darkness`, `filter`          |
 | `postProcessing` | `enabled`, `fxaa`, `toneMapping`, `exposure`, `contrast`, `bloom`, `vignette`, `ssao` |
 

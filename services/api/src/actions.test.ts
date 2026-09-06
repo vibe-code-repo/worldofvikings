@@ -57,14 +57,18 @@ describe('POST /actions/import-scene', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const report = response.json<{ report: { entities: number; zones: { id: string }[] } }>()
-      .report;
+    const report = response.json<{
+      report: { entities: number; missedInstances: number; zones: { id: string }[] };
+    }>().report;
     expect(report.entities).toBe(2);
     expect(report.zones.map((zone) => zone.id)).toEqual(['village', 'interiors', 'surroundings']);
 
     const written = JSON.parse(await readFile(join(contentDir, 'worlds', 'fixture.json'), 'utf8'));
+    // Only `base.json` is in this content directory, so the bundle's other two
+    // nodes are misses — see `tooling/fixtures/make-scene-bundle.ts`.
     expect(written.zones[0].entities).toHaveLength(2);
     expect(written.zones[0].entities[0].prefab).toBe('barrel-01');
+    expect(report.missedInstances).toBe(2);
 
     // And the file it wrote is one the API itself will serve.
     const reread = await app.inject({ method: 'GET', url: '/worlds/fixture' });

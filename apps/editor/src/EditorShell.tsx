@@ -13,12 +13,21 @@ import {
   duplicateEntities,
   nextEntityId,
   nextEntityIds,
+  catalogForEdit,
+  editedPrefab,
+  emptyOverrideCatalog,
   removeEntities,
   renameEntity,
   renameZone,
   scatterCommand,
   serializeDocument,
+  setLighting,
+  setTerrain,
   updateTransform,
+  withPrefab,
+  type FieldPatch,
+  type LightingScope,
+  type PrefabEdit,
   type Rect,
   type ScatterOptions,
   type TransformChange,
@@ -26,14 +35,21 @@ import {
 } from '@wov/editor-core';
 import { tokens } from '@wov/ui';
 import type { EntityDefinition, Vector3, WorldDefinition } from '@wov/world-schema';
-import { createEditorApi, type WorldSummary } from './api/client.js';
+import {
+  createEditorApi,
+  type ActionReport,
+  type CatalogedPrefab,
+  type SceneImportRequest,
+  type WorldSummary,
+} from './api/client.js';
 import { resolveEditorConfig } from './config.js';
 import { publishEditorDebug } from './dev-debug.js';
 import { EditorViewport, type ViewportController } from './EditorViewport.js';
 import { AssetBrowser } from './panels/AssetBrowser.js';
+import { ContentActions, type ContentAction } from './panels/ContentActions.js';
 import { Hierarchy } from './panels/Hierarchy.js';
-import { Inspector } from './panels/Inspector.js';
 import { MenuBar } from './panels/MenuBar.js';
+import { RightPanel, type RightPanelTab } from './panels/RightPanel.js';
 import { ScatterPanel, type CornerPick } from './panels/ScatterPanel.js';
 import { TOOL_KEYS, type EditorTool } from './scene/gizmos.js';
 import { createPrefabIndex, type PrefabIndex } from './scene/prefab-index.js';
@@ -109,6 +125,13 @@ export function EditorShell(): JSX.Element {
   const controllerRef = useRef<ViewportController | null>(null);
   const [scatterRegion, setScatterRegion] = useState<Rect>(DEFAULT_SCATTER_REGION);
   const [cornerPick, setCornerPick] = useState<CornerPick>(null);
+  const [rightTab, setRightTab] = useState<RightPanelTab>('entity');
+  const [lightingScope, setLightingScope] = useState<'world' | 'zone'>('world');
+  const [prefabSaving, setPrefabSaving] = useState(false);
+  const [contentAction, setContentAction] = useState<ContentAction>(null);
+  const [actionRunning, setActionRunning] = useState(false);
+  const [actionReport, setActionReport] = useState<ActionReport | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const { document } = session.state;
   const zone = activeZone(document);
@@ -240,6 +263,88 @@ export function EditorShell(): JSX.Element {
     dispatch({ type: 'activateZone', zoneId: id });
   }, [zones]);
 
+  // --- the blocks that used to be script-only (ADR-0033) ---------------------
+  const lighting = useCallback((scope: LightingScope, patches: readonly FieldPatch[]) => {
+    dispatch({ type: 'run', command: setLighting(scope, patches), selectCreated: false });
+  }, []);
+
+  /**
+   * A slider being dragged: the same command, folded into one undo step.
+   *
+   * The viewport relights from the document, so a live preview *is* a command
+   * per step — there is no second path that could paint without editing. What
+   * there can be is one history entry for the whole gesture.
+   */
+  const lightingDrag = useCallback((scope: LightingScope, patch: FieldPatch, gesture: string) => {
+    dispatch({
+      type: 'run',
+      command: setLighting(scope, [patch]),
+      selectCreated: false,
+      coalesceKey: `lighting:${scope.kind === 'world' ? 'world' : scope.zoneId}:${gesture}`,
+    });
+  }, []);
+
+  const terrain = useCallback((targetZoneId: string, patches: readonly FieldPatch[]) => {
+    dispatch({ type: 'run', command: setTerrain(targetZoneId, patches), selectCreated: false });
+  }, []);
+
+  const terrainDrag = useCallback((targetZoneId: string, patch: FieldPatch, gesture: string) => {
+    dispatch({
+      type: 'run',
+      command: setTerrain(targetZoneId, [patch]),
+      selectCreated: false,
+      coalesceKey: `terrain:${targetZoneId}:${gesture}`,
+    });
+  }, []);
+
+  // --- prefab catalogues ------------------------------------------------------
+  const selectedPrefab: CatalogedPrefab | null =
+    placingPrefabId === null ? null : (prefabs?.get(placingPrefabId) ?? null);
+
+  /**
+   * Saves a prefab correction into the catalogue it belongs in.
+   *
+   * The generated catalogue is never written: `catalogForEdit` sends a
+   * correction to a generated prefab into `overrides.json`, which the API
+   * applies last and `generate:prefabs` does not touch (ADR-0033). A prefab
+   * from a hand-written catalogue is written back into its own file.
+   */
+  const savePrefab = useCallback(
+    (prefab: CatalogedPrefab, edit: PrefabEdit) => {
+      const catalogId = catalogForEdit(prefab.catalog);
+      setPrefabSaving(true);
+      const { catalog: _catalog, ...definition } = prefab;
+      void api
+        .loadCatalog(catalogId)
+        .then((existing) =>
+          api.saveCatalog(
+            withPrefab(existing ?? emptyOverrideCatalog(), editedPrefab(definition, edit)),
+          ),
+        )
+        .then(
+          (result) => {
+            setPrefabSaving(false);
+            dispatch({
+              type: 'saved',
+              notice: `saved "${prefab.id}" into ${result.id}.json`,
+            });
+            return api.listPrefabs();
+          },
+          (error: unknown) => {
+            setPrefabSaving(false);
+            dispatch({ type: 'fail', error: describe(error) });
+            return null;
+          },
+        )
+        .then((listing) => {
+          if (listing !== null) {
+            setPrefabs(createPrefabIndex(listing.prefabs));
+          }
+        });
+    },
+    [api],
+  );
+
   // --- files ----------------------------------------------------------------
   const open = useCallback(
     (worldId: string) => {
@@ -274,6 +379,56 @@ export function EditorShell(): JSX.Element {
       },
     );
   }, [api, document, refreshWorlds]);
+
+  // --- the content actions (ADR-0033) ----------------------------------------
+  /**
+   * Runs one of the two build steps on the API and shows its own report.
+   *
+   * The world list is refreshed afterwards because an import may have created
+   * one; the prefab index because a regeneration certainly changed it.
+   */
+  const runAction = useCallback(
+    (run: () => Promise<ActionReport>, after: 'worlds' | 'prefabs') => {
+      setActionRunning(true);
+      setActionError(null);
+      setActionReport(null);
+      run().then(
+        (report) => {
+          setActionRunning(false);
+          setActionReport(report);
+          if (after === 'worlds') {
+            refreshWorlds();
+          } else {
+            api.listPrefabs().then(
+              (listing) => setPrefabs(createPrefabIndex(listing.prefabs)),
+              (error: unknown) => setActionError(describe(error)),
+            );
+          }
+        },
+        (error: unknown) => {
+          setActionRunning(false);
+          setActionError(describe(error));
+        },
+      );
+    },
+    [api, refreshWorlds],
+  );
+
+  const importScene = useCallback(
+    (request: SceneImportRequest) => runAction(() => api.importScene(request), 'worlds'),
+    [api, runAction],
+  );
+
+  const generatePrefabs = useCallback(
+    () => runAction(() => api.generatePrefabs(), 'prefabs'),
+    [api, runAction],
+  );
+
+  const openAction = useCallback((action: ContentAction) => {
+    setContentAction(action);
+    setActionReport(null);
+    setActionError(null);
+  }, []);
 
   // --- keyboard (spec §14) ---------------------------------------------------
   useEffect(() => {
@@ -436,6 +591,8 @@ export function EditorShell(): JSX.Element {
         onToggleGrid={() => setGridVisible((visible) => !visible)}
         onToggleSnapping={() => setSnapEnabled((enabled) => !enabled)}
         onSnapStep={setSnapStep}
+        onImportScene={() => openAction('import-scene')}
+        onGeneratePrefabs={() => openAction('generate-prefabs')}
       />
 
       <div className="body">
@@ -476,14 +633,27 @@ export function EditorShell(): JSX.Element {
           />
         </section>
 
-        <Inspector
+        <RightPanel
+          tab={rightTab}
+          onTab={setRightTab}
           document={document}
+          prefabs={prefabs}
+          selectedPrefab={selectedPrefab}
+          prefabSaving={prefabSaving}
+          lightingScope={lightingScope}
+          onLightingScope={setLightingScope}
           onRename={(entityId, nextId) => {
             if (zoneId !== null) {
               dispatch({ type: 'run', command: renameEntity(zoneId, entityId, nextId) });
             }
           }}
           onTransform={transformOne}
+          onRenameZone={(id, name) => dispatch({ type: 'run', command: renameZone(id, name) })}
+          onTerrain={terrain}
+          onTerrainDrag={terrainDrag}
+          onLighting={lighting}
+          onLightingDrag={lightingDrag}
+          onSavePrefab={savePrefab}
         />
       </div>
 
@@ -505,6 +675,16 @@ export function EditorShell(): JSX.Element {
           onScatter={scatter}
         />
       </div>
+
+      <ContentActions
+        action={contentAction}
+        running={actionRunning}
+        report={actionReport}
+        error={actionError}
+        onClose={() => setContentAction(null)}
+        onImportScene={importScene}
+        onGeneratePrefabs={generatePrefabs}
+      />
 
       <footer className="statusbar" style={{ background: tokens.colorSurface }}>
         <span data-testid="editor-asset-sources">{assetSources}</span>

@@ -34,10 +34,22 @@ const padding = Buffer.alloc((4 - (indexBytes.byteLength % 4)) % 4);
 const bin = Buffer.concat([positionBytes, indexBytes, padding]);
 
 /**
- * `detail-barrel` is the store file name of the one prefab in
- * `content/prefabs/base.json`, which every checkout has. The scene import folds
- * a node name onto a store file name (`scene-import.ts`), so this node is the
- * barrel and the import has something to place.
+ * Two names, and both are needed.
+ *
+ * The import folds a node name onto a *store file name* (`scene-import.ts`),
+ * and a stem two catalogues both claim is dropped rather than guessed:
+ *
+ * - `detail-barrel` is the file behind `base.json`'s one prefab, which every
+ *   checkout has and which `services/api/src/actions.test.ts` runs against on
+ *   its own. With the generated catalogue present as well it is *ambiguous* —
+ *   `imported.json` names the same file — and the importer correctly refuses
+ *   to pick one of the two.
+ * - `sm-item-bag-large` is a file only the generated catalogue names, so it is
+ *   unambiguous wherever that catalogue exists, which is the whole repository
+ *   and the smoke run.
+ *
+ * So the bundle places two instances either way, and the two tests differ only
+ * in which prefab they get — which is exactly the behaviour worth pinning down.
  */
 const json: Gltf = {
   asset: { version: '2.0', generator: 'world-of-vikings scene fixture' },
@@ -45,9 +57,11 @@ const json: Gltf = {
   scenes: [{ nodes: [0] }],
   nodes: [
     { name: 'Village', children: [1] },
-    { name: 'Village1', children: [2, 3] },
+    { name: 'Village1', children: [2, 3, 4, 5] },
     { name: 'detail-barrel', mesh: 0, translation: [4, 0, -6] },
     { name: 'detail-barrel (1)', mesh: 0, translation: [-2, 0, 3] },
+    { name: 'SM_Item_Bag_Large', mesh: 0, translation: [7, 0, 1] },
+    { name: 'SM_Item_Bag_Large (1)', mesh: 0, translation: [-5, 0, -4] },
   ],
   meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }],
   accessors: [

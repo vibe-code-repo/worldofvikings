@@ -39,7 +39,16 @@ export interface EditorSession {
 
 export type EditorAction =
   | { readonly type: 'open'; readonly world: WorldDefinition }
-  | { readonly type: 'run'; readonly command: EditorCommand; readonly selectCreated?: boolean }
+  | {
+      readonly type: 'run';
+      readonly command: EditorCommand;
+      readonly selectCreated?: boolean;
+      /**
+       * Names the gesture this command is a step of, so a slider drag is one
+       * undo step instead of fifty (see `EditorHistory.coalesceKey`).
+       */
+      readonly coalesceKey?: string;
+    }
   | { readonly type: 'undo' }
   | { readonly type: 'redo' }
   | { readonly type: 'select'; readonly entityIds: readonly string[] }
@@ -68,7 +77,9 @@ export function editorReducer(session: EditorSession, action: EditorAction): Edi
       return { ...createSession(action.world), clipboard: session.clipboard };
 
     case 'run': {
-      const result = execute(session.state, action.command);
+      const result = execute(session.state, action.command, {
+        ...(action.coalesceKey === undefined ? {} : { coalesceKey: action.coalesceKey }),
+      });
       if (!result.ok) {
         return { ...session, error: result.error };
       }

@@ -102,13 +102,11 @@ export const actionsRoutes: FastifyPluginAsync<{ config: ApiConfig }> = async (a
     }
 
     if (!result.ok) {
-      return reply
-        .code(422)
-        .send({
-          error: 'import_failed',
-          message: 'the scene import did not finish',
-          errors: result.errors,
-        });
+      return reply.code(422).send({
+        error: 'import_failed',
+        message: 'the scene import did not finish',
+        errors: result.errors,
+      });
     }
     app.log.info(
       { world: worldId, entities: result.report.entities, dryRun: result.report.dryRun },

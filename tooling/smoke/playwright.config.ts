@@ -145,6 +145,12 @@ export default defineConfig({
         CONTENT_DIR: contentDir,
         // Both browser clients call it now (ADR-0022).
         API_CORS_ORIGINS: `${editorUrl},${gameUrl}`,
+        // The one directory the editor's *World → Import scene bundle…* may
+        // read from (ADR-0033). Without it the action answers 501, which is
+        // the correct answer for a deployment that has no bundles — and would
+        // make the parity test's import step untestable, so the suite points
+        // it at the committed fixture bundle.
+        WOV_IMPORT_DIR: join(repoRoot, 'tooling', 'fixtures', 'scenes'),
       },
       reuseExistingServer: false,
       timeout: 120_000,

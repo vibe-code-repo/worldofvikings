@@ -26,6 +26,10 @@ export interface MenuBarProps {
   readonly onToggleGrid: () => void;
   readonly onToggleSnapping: () => void;
   readonly onSnapStep: (step: number) => void;
+  /** Opens the *Import scene bundle…* dialog (ADR-0033). */
+  readonly onImportScene: () => void;
+  /** Opens the *Regenerate prefab catalogue* dialog (ADR-0033). */
+  readonly onGeneratePrefabs: () => void;
 }
 
 /** The grid steps the View menu offers, in metres. */
@@ -161,6 +165,26 @@ export function MenuBar(props: MenuBarProps): JSX.Element {
               ))}
             </select>
           </label>
+        </div>
+      </details>
+
+      <details className="menu">
+        <summary data-testid="menu-world">World</summary>
+        <div className="menu-items">
+          {/*
+            The two content build steps, run through the API against the same
+            functions `pnpm import:scene` and `pnpm generate:prefabs` call
+            (ADR-0033). They are under *World* and not under *File* because
+            neither of them is about the document that is open: one replaces a
+            world file on the service, the other rewrites the prefab catalogue
+            every world reads.
+          */}
+          {item('menu-world-import-scene', 'Import scene bundle…', props.onImportScene)}
+          {item(
+            'menu-world-generate-prefabs',
+            'Regenerate prefab catalogue…',
+            props.onGeneratePrefabs,
+          )}
         </div>
       </details>
 

@@ -187,7 +187,7 @@ select {
 
 .body {
   display: grid;
-  grid-template-columns: 15rem minmax(0, 1fr) 17rem;
+  grid-template-columns: 15rem minmax(0, 1fr) 21rem;
   min-height: 0;
 }
 
@@ -548,4 +548,317 @@ select {
 
 .scatter-run button {
   margin-left: auto;
+}
+
+/* --- the right-hand column ------------------------------------------------ */
+
+/*
+ * Four inspectors behind four tabs (see `RightPanel.tsx`). The column is a grid
+ * of "tabs, then the panel", so the tab strip stays put and only the panel
+ * scrolls — a lighting profile is 40 fields and scrolling the tabs away would
+ * make the other three inspectors unreachable from the bottom of it.
+ */
+.right-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  border-left: 1px solid var(--wov-line);
+}
+
+.right-panel > .tabs {
+  padding: 0.4rem 0.5rem 0;
+  flex-wrap: wrap;
+}
+
+.right-panel > .panel {
+  border-right: 0;
+  border-left: 0;
+}
+
+.body > .right-panel > .panel:last-child {
+  border-left: 0;
+}
+
+.panel-subhead {
+  margin: 0.8rem 0 0.4rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--wov-muted);
+}
+
+/* --- schema-driven fields ------------------------------------------------- */
+
+.schema-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.schema-field {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.15rem;
+}
+
+.schema-field > .field-label {
+  width: auto;
+}
+
+.schema-field input[type='number'],
+.schema-field input[type='text'],
+.schema-field select {
+  min-width: 0;
+  width: 100%;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid var(--wov-line-strong);
+  border-radius: 4px;
+  background: #10151c;
+}
+
+.schema-field input[type='range'] {
+  min-width: 0;
+  width: 100%;
+}
+
+/* A bounded number gets a slider *and* a box: the slider is for finding a
+   value, the box is for repeating one somebody measured. */
+.schema-field:has(input[type='range']) {
+  grid-template-columns: 4.5rem minmax(0, 1fr) 4.5rem;
+}
+
+.schema-field input[type='color'] {
+  width: 2.5rem;
+  height: 1.4rem;
+  padding: 0;
+  border: 1px solid var(--wov-line-strong);
+  border-radius: 4px;
+  background: transparent;
+}
+
+.schema-vector {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 0.2rem;
+}
+
+.schema-group {
+  border: 1px solid var(--wov-line);
+  border-radius: 4px;
+  margin-bottom: 0.3rem;
+}
+
+.schema-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.4rem;
+  cursor: pointer;
+  text-transform: capitalize;
+  color: var(--wov-accent);
+}
+
+.schema-clear {
+  margin-left: auto;
+  padding: 0 0.35rem;
+  border: 1px solid var(--wov-line-strong);
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.68rem;
+  color: var(--wov-muted);
+}
+
+.schema-clear:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.schema-group-body {
+  padding: 0.3rem 0.4rem 0.4rem;
+}
+
+.schema-list {
+  border: 1px solid var(--wov-line);
+  border-radius: 4px;
+  padding: 0.3rem 0.4rem;
+  margin-bottom: 0.3rem;
+}
+
+.schema-list-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.schema-list-head button,
+.schema-list-controls button,
+.zone-terrain-head button,
+.prefab-save button,
+.prefab-collision-head button {
+  padding: 0 0.4rem;
+  border: 1px solid var(--wov-line-strong);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+
+.schema-list-head button:disabled,
+.schema-list-controls button:disabled,
+.prefab-save button:disabled,
+.prefab-collision-head button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.schema-list-items {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.schema-list-items > li {
+  border-top: 1px solid var(--wov-line);
+  padding-top: 0.25rem;
+}
+
+.schema-list-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-bottom: 0.15rem;
+}
+
+.schema-list-controls > .menu-hint {
+  margin-left: 0;
+  padding-left: 0;
+}
+
+.schema-list-items input[type='text'] {
+  width: 100%;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid var(--wov-line-strong);
+  border-radius: 4px;
+  background: #10151c;
+}
+
+/* --- lighting, zone and prefab inspectors --------------------------------- */
+
+.lighting-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0.4rem 0 0.6rem;
+}
+
+.zone-terrain-head,
+.prefab-collision-head,
+.prefab-save {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.3rem 0;
+}
+
+.zone-terrain-head > .menu-hint {
+  margin-left: 0;
+  padding-left: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prefab-save {
+  margin-top: 0.6rem;
+}
+
+.prefab-save button {
+  margin-left: auto;
+}
+
+/* --- the content-action dialog -------------------------------------------- */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 55%);
+}
+
+.dialog {
+  width: min(34rem, 90vw);
+  max-height: 85vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--wov-line-strong);
+  border-radius: 8px;
+  background: #171c24;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 55%);
+  font-size: 0.82rem;
+}
+
+.dialog header,
+.dialog footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dialog h2 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.dialog header button,
+.dialog footer button {
+  margin-left: auto;
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--wov-line-strong);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.dialog footer button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.dialog-body input[type='text'],
+.dialog-body input:not([type]) {
+  flex: 1;
+  min-width: 0;
+  padding: 0.2rem 0.3rem;
+  border: 1px solid var(--wov-line-strong);
+  border-radius: 4px;
+  background: #10151c;
+}
+
+.dialog-report {
+  max-height: 18rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.5rem;
+  border: 1px solid var(--wov-line);
+  border-radius: 4px;
+  background: #10151c;
+  font-size: 0.72rem;
+  white-space: pre-wrap;
 }

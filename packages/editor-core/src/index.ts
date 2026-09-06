@@ -86,6 +86,8 @@ export type {
   FormVector,
 } from './schema-form.js';
 
+export { LIGHTING_FIELDS, PREFAB_COLLISION_FIELDS, TERRAIN_FIELDS } from './world-forms.js';
+
 export { LIGHTING_PRESETS, lightingPreset } from './lighting-presets.js';
 export type { LightingPreset } from './lighting-presets.js';
 

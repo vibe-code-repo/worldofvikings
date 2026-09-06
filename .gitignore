@@ -16,6 +16,7 @@ test-results/
 .env
 .env.local
 .env.*.local
+CLAUDE.local.md
 
 # editors / OS
 .DS_Store

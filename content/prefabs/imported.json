@@ -3,12 +3,66 @@
   "id": "imported",
   "prefabs": [
     {
+      "id": "environment-barrel-destructible",
+      "name": "Barrel Destructible",
+      "asset": "environment/barrel-destructible.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/barrel-destructible.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.3838, 0, -0.3838], "max": [0.3838, 1.0312, 0.3839] }
+    },
+    {
+      "id": "environment-chestbottom",
+      "name": "Chestbottom",
+      "asset": "environment/chestbottom.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/chestbottom.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.617, 0, -0.3657], "max": [0.617, 0.4711, 0.3657] }
+    },
+    {
+      "id": "environment-chesttop",
+      "name": "Chesttop",
+      "asset": "environment/chesttop.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/chesttop.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.605, -0.0059, 0], "max": [0.605, 0.1223, 0.6681] }
+    },
+    {
+      "id": "environment-crate-wood-destructible",
+      "name": "Crate Wood Destructible",
+      "asset": "environment/crate-wood-destructible.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/crate-wood-destructible.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.5517, 0, -0.5517], "max": [0.5517, 1.0971, 0.5517] }
+    },
+    {
+      "id": "environment-floor",
+      "name": "Floor",
+      "asset": "environment/floor.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/floor.glb",
+      "category": "environment",
+      "bounds": { "min": [-1.5818, -0.2035, -1.6175], "max": [1.5935, 0.0738, 1.6175] }
+    },
+    {
       "id": "environment-kenney-retro-fantasy-kit-detail-barrel",
       "name": "Detail Barrel",
       "asset": "environment/kenney-retro-fantasy-kit/detail-barrel.glb",
       "visibility": "public",
       "category": "environment",
       "bounds": { "min": [-0.123, 0, -0.123], "max": [0.123, 0.3, 0.123] }
+    },
+    {
+      "id": "environment-roof-sm-bld-preset-shelter-02",
+      "name": "Roof Sm Bld Preset Shelter 02",
+      "asset": "environment/roof-sm-bld-preset-shelter-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/roof-sm-bld-preset-shelter-02.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.4927, 3.0173, -5.8897], "max": [7.9927, 7.556, 0.8897] }
     },
     {
       "id": "environment-sm-bld-boathouse-01-collision",
@@ -20,6 +74,60 @@
       "bounds": { "min": [-3.7586, -1.9004, -5.3999], "max": [3.775, 6.8727, 5.3999] }
     },
     {
+      "id": "environment-sm-bld-house-chimney-stone-01",
+      "name": "House Chimney Stone 01",
+      "asset": "environment/sm-bld-house-chimney-stone-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-bld-house-chimney-stone-01.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.4103, -0.0367, -0.4102], "max": [0.4103, 2.2205, 0.4103] }
+    },
+    {
+      "id": "environment-sm-bld-house-floor-wood-04",
+      "name": "House Floor Wood 04",
+      "asset": "environment/sm-bld-house-floor-wood-04.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-bld-house-floor-wood-04.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.0027, -0.0743, 0], "max": [1.2621, 0.0743, 1.2594] }
+    },
+    {
+      "id": "environment-sm-bld-house-floor-wood-beam-01",
+      "name": "House Floor Wood Beam 01",
+      "asset": "environment/sm-bld-house-floor-wood-beam-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-bld-house-floor-wood-beam-01.glb",
+      "category": "environment",
+      "bounds": { "min": [0, -0.0601, 0], "max": [0.1585, 0.0601, 2.5] }
+    },
+    {
+      "id": "environment-sm-bld-house-railing-01",
+      "name": "House Railing 01",
+      "asset": "environment/sm-bld-house-railing-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-bld-house-railing-01.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.0679, 0, -2.5], "max": [0.0679, 1.0271, 0] }
+    },
+    {
+      "id": "environment-sm-bld-house-railing-beam-01",
+      "name": "House Railing Beam 01",
+      "asset": "environment/sm-bld-house-railing-beam-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-bld-house-railing-beam-01.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.1112, 0, -0.1112], "max": [0.1112, 2.3182, 0.1112] }
+    },
+    {
+      "id": "environment-sm-bld-house-railing-beam-02",
+      "name": "House Railing Beam 02",
+      "asset": "environment/sm-bld-house-railing-beam-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-bld-house-railing-beam-02.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.1112, 0, -1.4862], "max": [0.1112, 2.3182, 0.1112] }
+    },
+    {
       "id": "environment-sm-bld-house-roof-thatch-angled-01",
       "name": "House Roof Thatch Angled 01",
       "asset": "environment/sm-bld-house-roof-thatch-angled-01.glb",
@@ -27,6 +135,15 @@
       "placeholder": "placeholders/environment/sm-bld-house-roof-thatch-angled-01.glb",
       "category": "environment",
       "bounds": { "min": [-0.1376, -2.6584, -2.5], "max": [1.389, 0.0218, 0] }
+    },
+    {
+      "id": "environment-sm-bld-house-roof-thatch-peak-cap-beams-01",
+      "name": "House Roof Thatch Peak Cap Beams 01",
+      "asset": "environment/sm-bld-house-roof-thatch-peak-cap-beams-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-bld-house-roof-thatch-peak-cap-beams-01.glb",
+      "category": "environment",
+      "bounds": { "min": [-1.563, -1.387, -0.17], "max": [1.5523, 1.2448, 0.232] }
     },
     {
       "id": "environment-sm-bld-house-stairs-02-collision",
@@ -47,6 +164,15 @@
       "bounds": { "min": [-0.0792, -0.1851, -3.7769], "max": [2.5229, 1.4751, 0.1531] }
     },
     {
+      "id": "environment-sm-bld-house-stairs-03",
+      "name": "House Stairs 03",
+      "asset": "environment/sm-bld-house-stairs-03.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-bld-house-stairs-03.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.0792, 0, -3.7741], "max": [2.5214, 1.4722, 0.1531] }
+    },
+    {
       "id": "environment-sm-bld-house-stairs-04-collision",
       "name": "House Stairs 04 Collision",
       "asset": "environment/sm-bld-house-stairs-04-collision.glb",
@@ -54,6 +180,15 @@
       "placeholder": "placeholders/environment/sm-bld-house-stairs-04-collision.glb",
       "category": "environment",
       "bounds": { "min": [0.0268, -0.1851, -2.6604], "max": [2.4796, 2.5624, 0.1531] }
+    },
+    {
+      "id": "environment-sm-bld-house-tower-flooring-01",
+      "name": "House Tower Flooring 01",
+      "asset": "environment/sm-bld-house-tower-flooring-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-bld-house-tower-flooring-01.glb",
+      "category": "environment",
+      "bounds": { "min": [0.0647, 0.0152, 0.0194], "max": [2.4298, 0.1345, 1.1765] }
     },
     {
       "id": "environment-sm-bld-house-wall-peak-04",
@@ -803,6 +938,69 @@
       "bounds": { "min": [-0.3537, -0.4443, -0.4368], "max": [0.4501, 0.4458, 0.4133] }
     },
     {
+      "id": "environment-sm-env-rock-round-03",
+      "name": "Rock Round 03",
+      "asset": "environment/sm-env-rock-round-03.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-env-rock-round-03.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.412, -0.44, -0.3693], "max": [0.4129, 0.4457, 0.4293] }
+    },
+    {
+      "id": "environment-sm-env-rock-round-04",
+      "name": "Rock Round 04",
+      "asset": "environment/sm-env-rock-round-04.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-env-rock-round-04.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.412, -0.4408, -0.456], "max": [0.4266, 0.4459, 0.4605] }
+    },
+    {
+      "id": "environment-sm-env-rock-spike-01",
+      "name": "Rock Spike 01",
+      "asset": "environment/sm-env-rock-spike-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-env-rock-spike-01.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.3598, -0.9062, -0.314], "max": [0.3597, 0.9062, 0.314] }
+    },
+    {
+      "id": "environment-sm-env-rock-spike-02",
+      "name": "Rock Spike 02",
+      "asset": "environment/sm-env-rock-spike-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-env-rock-spike-02.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.3612, -0.9893, -0.3144], "max": [0.3614, 0.7451, 0.3142] }
+    },
+    {
+      "id": "environment-sm-env-rock-spike-03",
+      "name": "Rock Spike 03",
+      "asset": "environment/sm-env-rock-spike-03.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-env-rock-spike-03.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.4953, -0.7792, -0.5483], "max": [0.5129, 1.4184, 0.5537] }
+    },
+    {
+      "id": "environment-sm-env-rock-spike-04",
+      "name": "Rock Spike 04",
+      "asset": "environment/sm-env-rock-spike-04.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-env-rock-spike-04.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.379, -0.6888, -0.4448], "max": [0.379, 0.6888, 0.4448] }
+    },
+    {
+      "id": "environment-sm-env-rock-spike-05",
+      "name": "Rock Spike 05",
+      "asset": "environment/sm-env-rock-spike-05.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-env-rock-spike-05.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.3841, -0.1514, -0.41], "max": [0.4045, 0.7934, 0.4268] }
+    },
+    {
       "id": "environment-sm-env-rubble-pebbles-01",
       "name": "Rubble Pebbles 01",
       "asset": "environment/sm-env-rubble-pebbles-01.glb",
@@ -1154,6 +1352,15 @@
       "bounds": { "min": [-2.1882, -0.3835, -0.2739], "max": [2.1882, 0.3835, 0.2739] }
     },
     {
+      "id": "environment-sm-generic-treedead-01",
+      "name": "Generic Treedead 01",
+      "asset": "environment/sm-generic-treedead-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-generic-treedead-01.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.5601, -0.0875, -1.2854], "max": [1.4676, 5.1497, 1.7168] }
+    },
+    {
       "id": "environment-sm-item-bag-large",
       "name": "Bag Large",
       "asset": "environment/sm-item-bag-large.glb",
@@ -1217,6 +1424,24 @@
       "bounds": { "min": [-0.1703, 0, -0.1397], "max": [0.1703, 0.0754, 0.1397] }
     },
     {
+      "id": "environment-sm-item-book-05",
+      "name": "Book 05",
+      "asset": "environment/sm-item-book-05.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-item-book-05.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.2549, 0, -0.1442], "max": [0.2549, 0.0626, 0.1442] }
+    },
+    {
+      "id": "environment-sm-item-bottle-09",
+      "name": "Bottle 09",
+      "asset": "environment/sm-item-bottle-09.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-item-bottle-09.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.1102, 0, -0.0954], "max": [0.1102, 0.4436, 0.0954] }
+    },
+    {
       "id": "environment-sm-item-bowl-01",
       "name": "Bowl 01",
       "asset": "environment/sm-item-bowl-01.glb",
@@ -1251,6 +1476,15 @@
       "placeholder": "placeholders/environment/sm-item-bracelet-04.glb",
       "category": "prop",
       "bounds": { "min": [-0.0516, -0.054, -0.0086], "max": [0.0516, 0.0516, 0.0086] }
+    },
+    {
+      "id": "environment-sm-item-bread-02",
+      "name": "Bread 02",
+      "asset": "environment/sm-item-bread-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-item-bread-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.115, -0.002, -0.2149], "max": [0.115, 0.23, 0.4154] }
     },
     {
       "id": "environment-sm-item-bread-03",
@@ -1379,6 +1613,15 @@
       "bounds": { "min": [-0.18, 0.0053, -0.1394], "max": [0.1699, 0.7921, 0.1524] }
     },
     {
+      "id": "environment-sm-item-crystal-05",
+      "name": "Crystal 05",
+      "asset": "environment/sm-item-crystal-05.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-item-crystal-05.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.0929, 0, -0.1009], "max": [0.0929, 0.4978, 0.1009] }
+    },
+    {
       "id": "environment-sm-item-cup-01",
       "name": "Cup 01",
       "asset": "environment/sm-item-cup-01.glb",
@@ -1460,6 +1703,15 @@
       "bounds": { "min": [-0.0444, -0.1145, -0.1314], "max": [0.0456, 0.413, 0.1314] }
     },
     {
+      "id": "environment-sm-item-hammer-06",
+      "name": "Hammer 06",
+      "asset": "environment/sm-item-hammer-06.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-item-hammer-06.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.0444, -0.1134, -0.101], "max": [0.0444, 0.4077, 0.1068] }
+    },
+    {
       "id": "environment-sm-item-horn-01",
       "name": "Horn 01",
       "asset": "environment/sm-item-horn-01.glb",
@@ -1476,6 +1728,15 @@
       "placeholder": "placeholders/environment/sm-item-horn.glb",
       "category": "prop",
       "bounds": { "min": [-5.079, -15.1977, -8.8266], "max": [9.4226, 4.5322, 6.3206] }
+    },
+    {
+      "id": "environment-sm-item-horseshoe-01",
+      "name": "Horseshoe 01",
+      "asset": "environment/sm-item-horseshoe-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-item-horseshoe-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.1013, 0, -0.1033], "max": [0.1013, 0.0181, 0.1012] }
     },
     {
       "id": "environment-sm-item-ingot-iron-01",
@@ -1712,6 +1973,78 @@
       "bounds": { "min": [-0.0135, -0.0297, -0.2274], "max": [0.1446, 0.0297, 0.8741] }
     },
     {
+      "id": "environment-sm-prop-alchemy-stand-01",
+      "name": "Alchemy Stand 01",
+      "asset": "environment/sm-prop-alchemy-stand-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-alchemy-stand-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.1559, -0.0008, -0.1704], "max": [0.1559, 0.8121, 0.0996] }
+    },
+    {
+      "id": "environment-sm-prop-animal-head-antler-01",
+      "name": "Animal Head Antler 01",
+      "asset": "environment/sm-prop-animal-head-antler-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-animal-head-antler-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.4265, -0.1163, 0], "max": [0.4347, 0.5681, 0.6739] }
+    },
+    {
+      "id": "environment-sm-prop-animal-head-backing-05",
+      "name": "Animal Head Backing 05",
+      "asset": "environment/sm-prop-animal-head-backing-05.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-animal-head-backing-05.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.3622, -0.4708, -0.0795], "max": [0.3622, 0.4708, 0] }
+    },
+    {
+      "id": "environment-sm-prop-animal-head-boar-01",
+      "name": "Animal Head Boar 01",
+      "asset": "environment/sm-prop-animal-head-boar-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-animal-head-boar-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.2906, -0.3438, -0.0049], "max": [0.2905, 0.3076, 0.7071] }
+    },
+    {
+      "id": "environment-sm-prop-animal-head-deer-01",
+      "name": "Animal Head Deer 01",
+      "asset": "environment/sm-prop-animal-head-deer-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-animal-head-deer-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.4281, -0.3205, -0.0002], "max": [0.433, 0.9302, 0.78] }
+    },
+    {
+      "id": "environment-sm-prop-animal-head-deer-02",
+      "name": "Animal Head Deer 02",
+      "asset": "environment/sm-prop-animal-head-deer-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-animal-head-deer-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.2883, -0.3205, -0.0002], "max": [0.2883, 0.4641, 0.7191] }
+    },
+    {
+      "id": "environment-sm-prop-animal-pelt-01",
+      "name": "Animal Pelt 01",
+      "asset": "environment/sm-prop-animal-pelt-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-animal-pelt-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.1495, 0, -0.2221], "max": [0.161, 0.023, 0.2382] }
+    },
+    {
+      "id": "environment-sm-prop-animal-pelt-02",
+      "name": "Animal Pelt 02",
+      "asset": "environment/sm-prop-animal-pelt-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-animal-pelt-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.2993, -0.458, -0.065], "max": [0.2542, 0.0392, 0.0654] }
+    },
+    {
       "id": "environment-sm-prop-animal-pelt-03",
       "name": "Animal Pelt 03",
       "asset": "environment/sm-prop-animal-pelt-03.glb",
@@ -1721,6 +2054,15 @@
       "bounds": { "min": [-0.4358, 0, -0.5033], "max": [0.4327, 0.01, 0.4385] }
     },
     {
+      "id": "environment-sm-prop-anvil-01",
+      "name": "Anvil 01",
+      "asset": "environment/sm-prop-anvil-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-anvil-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.1318, 0, -0.4563], "max": [0.1319, 0.4465, 0.3502] }
+    },
+    {
       "id": "environment-sm-prop-anvil-02",
       "name": "Anvil 02",
       "asset": "environment/sm-prop-anvil-02.glb",
@@ -1728,6 +2070,15 @@
       "placeholder": "placeholders/environment/sm-prop-anvil-02.glb",
       "category": "prop",
       "bounds": { "min": [-0.3424, 0, -0.4547], "max": [0.3458, 0.8561, 0.3517] }
+    },
+    {
+      "id": "environment-sm-prop-archway-01",
+      "name": "Archway 01",
+      "asset": "environment/sm-prop-archway-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-archway-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-1.704, 0, -0.1487], "max": [1.704, 2.891, 0.1487] }
     },
     {
       "id": "environment-sm-prop-arrow-01",
@@ -1865,6 +2216,51 @@
       "bounds": { "min": [-0.6761, 0, -0.7298], "max": [0.6761, 1.8196, 0.7298] }
     },
     {
+      "id": "environment-sm-prop-basket-01",
+      "name": "Basket 01",
+      "asset": "environment/sm-prop-basket-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-basket-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.1873, -0.0015, -0.1879], "max": [0.1879, 0.3494, 0.1873] }
+    },
+    {
+      "id": "environment-sm-prop-basket-02",
+      "name": "Basket 02",
+      "asset": "environment/sm-prop-basket-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-basket-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.2187, 0, -0.1638], "max": [0.2187, 0.3494, 0.1638] }
+    },
+    {
+      "id": "environment-sm-prop-bathtub-01",
+      "name": "Bathtub 01",
+      "asset": "environment/sm-prop-bathtub-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-bathtub-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.6941, 0, -0.4626], "max": [0.6941, 0.5584, 0.4677] }
+    },
+    {
+      "id": "environment-sm-prop-bed-03",
+      "name": "Bed 03",
+      "asset": "environment/sm-prop-bed-03.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-bed-03.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.9859, 0, -1.1242], "max": [0.9858, 1.3014, 1.0416] }
+    },
+    {
+      "id": "environment-sm-prop-bed-04",
+      "name": "Bed 04",
+      "asset": "environment/sm-prop-bed-04.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-bed-04.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.5195, 0, -1.1242], "max": [0.5452, 0.9639, 1.1019] }
+    },
+    {
       "id": "environment-sm-prop-bed-05",
       "name": "Bed 05",
       "asset": "environment/sm-prop-bed-05.glb",
@@ -1874,6 +2270,15 @@
       "bounds": { "min": [-0.5195, 0, -1.1242], "max": [0.5452, 0.9639, 1.1018] }
     },
     {
+      "id": "environment-sm-prop-bed-06",
+      "name": "Bed 06",
+      "asset": "environment/sm-prop-bed-06.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-bed-06.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.5195, 0, -1.1242], "max": [0.5452, 0.9639, 1.1019] }
+    },
+    {
       "id": "environment-sm-prop-bell-01",
       "name": "Bell 01",
       "asset": "environment/sm-prop-bell-01.glb",
@@ -1881,6 +2286,15 @@
       "placeholder": "placeholders/environment/sm-prop-bell-01.glb",
       "category": "prop",
       "bounds": { "min": [-0.6454, -1.059, -0.6138], "max": [0.6454, 0.2925, 0.6138] }
+    },
+    {
+      "id": "environment-sm-prop-bellows-02",
+      "name": "Bellows 02",
+      "asset": "environment/sm-prop-bellows-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-bellows-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.1617, -0.1432, 0], "max": [0.1609, 0.1436, 0.9004] }
     },
     {
       "id": "environment-sm-prop-bench-seat-02",
@@ -1917,6 +2331,51 @@
       "placeholder": "placeholders/environment/sm-prop-bookcase-02.glb",
       "category": "prop",
       "bounds": { "min": [-0.597, 0, -0.4533], "max": [0.597, 1.4891, 0.4533] }
+    },
+    {
+      "id": "environment-sm-prop-books-02",
+      "name": "Books 02",
+      "asset": "environment/sm-prop-books-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-books-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.2766, 0, -0.1182], "max": [0.2763, 0.2965, 0.1182] }
+    },
+    {
+      "id": "environment-sm-prop-books-04",
+      "name": "Books 04",
+      "asset": "environment/sm-prop-books-04.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-books-04.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.1711, 0, -0.1183], "max": [0.1483, 0.2884, 0.1183] }
+    },
+    {
+      "id": "environment-sm-prop-books-05",
+      "name": "Books 05",
+      "asset": "environment/sm-prop-books-05.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-books-05.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.1826, 0, -0.1718], "max": [0.1826, 0.1658, 0.1718] }
+    },
+    {
+      "id": "environment-sm-prop-books-06",
+      "name": "Books 06",
+      "asset": "environment/sm-prop-books-06.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-books-06.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.1847, 0, -0.2038], "max": [0.1769, 0.283, 0.2052] }
+    },
+    {
+      "id": "environment-sm-prop-bracket-pot-03-preset-01",
+      "name": "Bracket Pot 03 Preset 01",
+      "asset": "environment/sm-prop-bracket-pot-03-preset-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-bracket-pot-03-preset-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.253, -1.0794, -0.0951], "max": [0.253, 0.1039, 0.8847] }
     },
     {
       "id": "environment-sm-prop-brazier-01",
@@ -1991,6 +2450,24 @@
       "bounds": { "min": [-0.3635, -0.0022, -0.3066], "max": [0.3056, 0.588, 0.3726] }
     },
     {
+      "id": "environment-sm-prop-cabinet-02",
+      "name": "Cabinet 02",
+      "asset": "environment/sm-prop-cabinet-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-cabinet-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.8031, 0, -0.4], "max": [0.8032, 2.1933, 0.4256] }
+    },
+    {
+      "id": "environment-sm-prop-camp-brazier-01",
+      "name": "Camp Brazier 01",
+      "asset": "environment/sm-prop-camp-brazier-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-camp-brazier-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.2771, 0, -0.277], "max": [0.2771, 0.5934, 0.277] }
+    },
+    {
       "id": "environment-sm-prop-candle-chandelier-02-particle",
       "name": "Candle Chandelier 02 Particle",
       "asset": "environment/sm-prop-candle-chandelier-02-particle.glb",
@@ -2027,6 +2504,15 @@
       "bounds": { "min": [-0.0642, 0, -0.0549], "max": [0.0642, 0.0708, 0.0549] }
     },
     {
+      "id": "environment-sm-prop-candle-melted-04",
+      "name": "Candle Melted 04",
+      "asset": "environment/sm-prop-candle-melted-04.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-candle-melted-04.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.066, -0.0249, -0.0601], "max": [0.0641, 0.0725, 0.0601] }
+    },
+    {
       "id": "environment-sm-prop-candle-melted-group-01",
       "name": "Candle Melted Group 01",
       "asset": "environment/sm-prop-candle-melted-group-01.glb",
@@ -2061,6 +2547,24 @@
       "placeholder": "placeholders/environment/sm-prop-chair-wood-02.glb",
       "category": "prop",
       "bounds": { "min": [-0.4053, 0.0051, -0.4692], "max": [0.3997, 1.1303, 0.5167] }
+    },
+    {
+      "id": "environment-sm-prop-chair-wood-04",
+      "name": "Chair Wood 04",
+      "asset": "environment/sm-prop-chair-wood-04.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-chair-wood-04.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.2788, 0, -0.2791], "max": [0.2788, 1.1068, 0.2791] }
+    },
+    {
+      "id": "environment-sm-prop-chandelier-04-preset",
+      "name": "Chandelier 04 Preset",
+      "asset": "environment/sm-prop-chandelier-04-preset.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-chandelier-04-preset.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.639, -1.044, -0.5969], "max": [0.5555, 0, 0.6354] }
     },
     {
       "id": "environment-sm-prop-chandelier-04",
@@ -2135,6 +2639,15 @@
       "bounds": { "min": [-0.605, -0.0059, 0], "max": [0.605, 0.1223, 0.6681] }
     },
     {
+      "id": "environment-sm-prop-chopping-board-01",
+      "name": "Chopping Board 01",
+      "asset": "environment/sm-prop-chopping-board-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-chopping-board-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.3128, 0, -0.4444], "max": [0.3128, 0.0829, 0.4444] }
+    },
+    {
       "id": "environment-sm-prop-clay-pot-01",
       "name": "Clay Pot 01",
       "asset": "environment/sm-prop-clay-pot-01.glb",
@@ -2189,6 +2702,24 @@
       "bounds": { "min": [-0.5749, -0.2156, -0.4299], "max": [0.5748, 0.2025, 0.3982] }
     },
     {
+      "id": "environment-sm-prop-crate-stack-01",
+      "name": "Crate Stack 01",
+      "asset": "environment/sm-prop-crate-stack-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-crate-stack-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-1.6448, 0, -0.6708], "max": [1.6049, 2.142, 0.5486] }
+    },
+    {
+      "id": "environment-sm-prop-crate-stack-02",
+      "name": "Crate Stack 02",
+      "asset": "environment/sm-prop-crate-stack-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-crate-stack-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-1.6448, 0, -0.6708], "max": [1.6049, 2.1652, 1.2607] }
+    },
+    {
       "id": "environment-sm-prop-crate-stack-03",
       "name": "Crate Stack 03",
       "asset": "environment/sm-prop-crate-stack-03.glb",
@@ -2205,6 +2736,15 @@
       "placeholder": "placeholders/environment/sm-prop-crate-stack-04.glb",
       "category": "prop",
       "bounds": { "min": [-1.4162, 0, -0.894], "max": [1.2654, 1.1537, 0.8846] }
+    },
+    {
+      "id": "environment-sm-prop-crate-wood-01",
+      "name": "Crate Wood 01",
+      "asset": "environment/sm-prop-crate-wood-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-crate-wood-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.5355, 0, -0.5355], "max": [0.5355, 1.071, 0.5355] }
     },
     {
       "id": "environment-sm-prop-crate-wood-03-dest-01",
@@ -2369,6 +2909,15 @@
       "bounds": { "min": [-0.291, -2.2545, -0.2884], "max": [0.2909, 2.1744, 0.2881] }
     },
     {
+      "id": "environment-sm-prop-dresser-02",
+      "name": "Dresser 02",
+      "asset": "environment/sm-prop-dresser-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-dresser-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.8003, 0, -0.4], "max": [0.8032, 0.8004, 0.4614] }
+    },
+    {
       "id": "environment-sm-prop-dummy-archery-01",
       "name": "Dummy Archery 01",
       "asset": "environment/sm-prop-dummy-archery-01.glb",
@@ -2396,6 +2945,33 @@
       "bounds": { "min": [-0.246, -0.0021, -0.2977], "max": [0.2387, 0.1591, 0.2686] }
     },
     {
+      "id": "environment-sm-prop-fence-01",
+      "name": "Fence 01",
+      "asset": "environment/sm-prop-fence-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-fence-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-1.2353, -0.5216, -0.0784], "max": [1.2354, 1.1171, 0.0784] }
+    },
+    {
+      "id": "environment-sm-prop-fence-02",
+      "name": "Fence 02",
+      "asset": "environment/sm-prop-fence-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-fence-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-1.2364, -0.5239, -0.0784], "max": [1.2363, 1.1177, 0.0784] }
+    },
+    {
+      "id": "environment-sm-prop-fence-03",
+      "name": "Fence 03",
+      "asset": "environment/sm-prop-fence-03.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-fence-03.glb",
+      "category": "prop",
+      "bounds": { "min": [-1.2363, -0.5216, -0.0784], "max": [1.2363, 1.1171, 0.0784] }
+    },
+    {
       "id": "environment-sm-prop-fence-wood-large-02",
       "name": "Fence Wood Large 02",
       "asset": "environment/sm-prop-fence-wood-large-02.glb",
@@ -2412,6 +2988,15 @@
       "placeholder": "placeholders/environment/sm-prop-fence-wood-pole-03.glb",
       "category": "prop",
       "bounds": { "min": [-0.2366, -1.7252, -0.2759], "max": [0.2366, 1.7252, 0.2759] }
+    },
+    {
+      "id": "environment-sm-prop-fireworks-12",
+      "name": "Fireworks 12",
+      "asset": "environment/sm-prop-fireworks-12.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-fireworks-12.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.0526, -0.0044, -0.0875], "max": [0.0526, 0.0686, 0.0887] }
     },
     {
       "id": "environment-sm-prop-fireworks-13",
@@ -2439,6 +3024,24 @@
       "placeholder": "placeholders/environment/sm-prop-forge-horseshoe-01.glb",
       "category": "prop",
       "bounds": { "min": [-0.1013, 0, -0.1033], "max": [0.1013, 0.0181, 0.1013] }
+    },
+    {
+      "id": "environment-sm-prop-forge-ingot-01",
+      "name": "Forge Ingot 01",
+      "asset": "environment/sm-prop-forge-ingot-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-forge-ingot-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.0548, -0.05, -0.1359], "max": [0.0511, 0.05, 0.1075] }
+    },
+    {
+      "id": "environment-sm-prop-gallows-platform-02",
+      "name": "Gallows Platform 02",
+      "asset": "environment/sm-prop-gallows-platform-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-gallows-platform-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-3.2019, -0.3062, -3.2003], "max": [3.2052, 1.2167, 3.2018] }
     },
     {
       "id": "environment-sm-prop-garlic-rope-01",
@@ -2567,6 +3170,33 @@
       "bounds": { "min": [-0.2579, -0.2561, -0.1462], "max": [0.2579, 0.2561, 0.3897] }
     },
     {
+      "id": "environment-sm-prop-grinding-wheel-01",
+      "name": "Grinding Wheel 01",
+      "asset": "environment/sm-prop-grinding-wheel-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-grinding-wheel-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.3903, -0.0017, -0.1882], "max": [0.3877, 0.74, 0.3897] }
+    },
+    {
+      "id": "environment-sm-prop-ground-planks-01",
+      "name": "Ground Planks 01",
+      "asset": "environment/sm-prop-ground-planks-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-ground-planks-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.9309, -0.0624, -2.1138], "max": [0.9308, 0.0624, 2.1138] }
+    },
+    {
+      "id": "environment-sm-prop-ground-planks-02",
+      "name": "Ground Planks 02",
+      "asset": "environment/sm-prop-ground-planks-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-ground-planks-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.896, -0.0624, -1.0276], "max": [0.8961, 0.0624, 1.0276] }
+    },
+    {
       "id": "environment-sm-prop-hay-bale-01",
       "name": "Hay Bale 01",
       "asset": "environment/sm-prop-hay-bale-01.glb",
@@ -2574,6 +3204,24 @@
       "placeholder": "placeholders/environment/sm-prop-hay-bale-01.glb",
       "category": "prop",
       "bounds": { "min": [-0.6906, -0.542, -0.542], "max": [0.6906, 0.542, 0.542] }
+    },
+    {
+      "id": "environment-sm-prop-hay-cart-01",
+      "name": "Hay Cart 01",
+      "asset": "environment/sm-prop-hay-cart-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-hay-cart-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.8255, 0, -1.322], "max": [0.8255, 1.2279, 1.3219] }
+    },
+    {
+      "id": "environment-sm-prop-hay-pile-01",
+      "name": "Hay Pile 01",
+      "asset": "environment/sm-prop-hay-pile-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-hay-pile-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-1.5116, 0, -1.5633], "max": [1.3979, 2.5109, 1.5454] }
     },
     {
       "id": "environment-sm-prop-hay-pile-02",
@@ -2585,6 +3233,15 @@
       "bounds": { "min": [-1.3269, 0, -1.3864], "max": [1.3269, 0.3414, 1.3864] }
     },
     {
+      "id": "environment-sm-prop-hay-pile-03",
+      "name": "Hay Pile 03",
+      "asset": "environment/sm-prop-hay-pile-03.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-hay-pile-03.glb",
+      "category": "prop",
+      "bounds": { "min": [-1.9572, 0, -1.6666], "max": [1.9573, 1.5326, 1.6666] }
+    },
+    {
       "id": "environment-sm-prop-hook-01",
       "name": "Hook 01",
       "asset": "environment/sm-prop-hook-01.glb",
@@ -2592,6 +3249,24 @@
       "placeholder": "placeholders/environment/sm-prop-hook-01.glb",
       "category": "prop",
       "bounds": { "min": [-0.0659, -0.2525, -0.0174], "max": [0.0651, 0.0583, 0.0174] }
+    },
+    {
+      "id": "environment-sm-prop-horse-hitching-post-01",
+      "name": "Horse Hitching Post 01",
+      "asset": "environment/sm-prop-horse-hitching-post-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-horse-hitching-post-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.1407, -0.4138, -1.4389], "max": [0.1405, 1.2448, 1.4389] }
+    },
+    {
+      "id": "environment-sm-prop-ink-well-01",
+      "name": "Ink Well 01",
+      "asset": "environment/sm-prop-ink-well-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-ink-well-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.0541, 0, -0.4701], "max": [0.1144, 0.4572, 0.0541] }
     },
     {
       "id": "environment-sm-prop-jar-03-lid",
@@ -2621,6 +3296,24 @@
       "bounds": { "min": [-0.4124, -1.3915, -0.2021], "max": [0.4124, 1.3915, 0.2021] }
     },
     {
+      "id": "environment-sm-prop-ladder-stackable-01-half",
+      "name": "Ladder Stackable 01 Half",
+      "asset": "environment/sm-prop-ladder-stackable-01-half.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-ladder-stackable-01-half.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.3508, 0, -0.0804], "max": [0.3508, 2.5, 0.0804] }
+    },
+    {
+      "id": "environment-sm-prop-ladder-stackable-01",
+      "name": "Ladder Stackable 01",
+      "asset": "environment/sm-prop-ladder-stackable-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-ladder-stackable-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.3508, 0, -0.0804], "max": [0.3508, 5, 0.0804] }
+    },
+    {
       "id": "environment-sm-prop-leather-pile-01",
       "name": "Leather Pile 01",
       "asset": "environment/sm-prop-leather-pile-01.glb",
@@ -2628,6 +3321,24 @@
       "placeholder": "placeholders/environment/sm-prop-leather-pile-01.glb",
       "category": "prop",
       "bounds": { "min": [-0.1549, -0.0001, -0.1972], "max": [0.1504, 0.042, 0.2343] }
+    },
+    {
+      "id": "environment-sm-prop-log-01",
+      "name": "Log 01",
+      "asset": "environment/sm-prop-log-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-log-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.285, -0.3751, -2.3004], "max": [0.3403, 0.3914, 2.8178] }
+    },
+    {
+      "id": "environment-sm-prop-log-02",
+      "name": "Log 02",
+      "asset": "environment/sm-prop-log-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-log-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.3227, -0.3197, -3.0796], "max": [0.3228, 0.3197, 3.0796] }
     },
     {
       "id": "environment-sm-prop-log-spike-01",
@@ -2702,6 +3413,42 @@
       "bounds": { "min": [-0.0994, -0.0054, -0.1583], "max": [0.1656, 1.0977, 0.1306] }
     },
     {
+      "id": "environment-sm-prop-ore-gem-01",
+      "name": "Ore Gem 01",
+      "asset": "environment/sm-prop-ore-gem-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-ore-gem-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.0965, -0.0079, -0.0993], "max": [0.0965, 0.0847, 0.1037] }
+    },
+    {
+      "id": "environment-sm-prop-ore-gold-01",
+      "name": "Ore Gold 01",
+      "asset": "environment/sm-prop-ore-gold-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-ore-gold-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.0965, -0.008, -0.0984], "max": [0.0965, 0.0847, 0.1029] }
+    },
+    {
+      "id": "environment-sm-prop-path-brick-group-01",
+      "name": "Path Brick Group 01",
+      "asset": "environment/sm-prop-path-brick-group-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-path-brick-group-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.6012, -0.1151, -1.1813], "max": [0.6012, 0.1151, 1.1813] }
+    },
+    {
+      "id": "environment-sm-prop-path-brick-group-02",
+      "name": "Path Brick Group 02",
+      "asset": "environment/sm-prop-path-brick-group-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-path-brick-group-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.6683, -0.1151, -0.8023], "max": [0.6682, 0.1151, 0.8023] }
+    },
+    {
       "id": "environment-sm-prop-path-brick-group-03",
       "name": "Path Brick Group 03",
       "asset": "environment/sm-prop-path-brick-group-03.glb",
@@ -2711,6 +3458,15 @@
       "bounds": { "min": [-0.7001, -0.1151, -1.0337], "max": [0.7001, 0.1151, 1.0337] }
     },
     {
+      "id": "environment-sm-prop-path-brick-group-04",
+      "name": "Path Brick Group 04",
+      "asset": "environment/sm-prop-path-brick-group-04.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-path-brick-group-04.glb",
+      "category": "prop",
+      "bounds": { "min": [-1.0687, -0.1151, -1.2525], "max": [1.0688, 0.1151, 1.2525] }
+    },
+    {
       "id": "environment-sm-prop-path-brick-group-05",
       "name": "Path Brick Group 05",
       "asset": "environment/sm-prop-path-brick-group-05.glb",
@@ -2718,6 +3474,78 @@
       "placeholder": "placeholders/environment/sm-prop-path-brick-group-05.glb",
       "category": "prop",
       "bounds": { "min": [-1.2513, -0.1151, -1.0722], "max": [1.2513, 0.1151, 1.0721] }
+    },
+    {
+      "id": "environment-sm-prop-path-brick-group-06",
+      "name": "Path Brick Group 06",
+      "asset": "environment/sm-prop-path-brick-group-06.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-path-brick-group-06.glb",
+      "category": "prop",
+      "bounds": { "min": [-1.2949, -0.1151, -1.2014], "max": [1.2949, 0.1151, 1.2014] }
+    },
+    {
+      "id": "environment-sm-prop-path-brick-group-07",
+      "name": "Path Brick Group 07",
+      "asset": "environment/sm-prop-path-brick-group-07.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-path-brick-group-07.glb",
+      "category": "prop",
+      "bounds": { "min": [-1.5316, -0.1151, -1.3105], "max": [1.5316, 0.1151, 1.3105] }
+    },
+    {
+      "id": "environment-sm-prop-path-rock-01",
+      "name": "Path Rock 01",
+      "asset": "environment/sm-prop-path-rock-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-path-rock-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.2788, -0.078, -0.2616], "max": [0.2788, 0.0884, 0.2616] }
+    },
+    {
+      "id": "environment-sm-prop-path-rock-group-01",
+      "name": "Path Rock Group 01",
+      "asset": "environment/sm-prop-path-rock-group-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-path-rock-group-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.4675, -0.078, -0.405], "max": [0.4675, 0.0782, 0.4049] }
+    },
+    {
+      "id": "environment-sm-prop-path-rock-group-02",
+      "name": "Path Rock Group 02",
+      "asset": "environment/sm-prop-path-rock-group-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-path-rock-group-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.4006, -0.078, -0.6455], "max": [0.4006, 0.0877, 0.6455] }
+    },
+    {
+      "id": "environment-sm-prop-path-rock-group-03",
+      "name": "Path Rock Group 03",
+      "asset": "environment/sm-prop-path-rock-group-03.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-path-rock-group-03.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.2401, -0.078, -0.2671], "max": [0.2401, 0.0725, 0.2671] }
+    },
+    {
+      "id": "environment-sm-prop-path-rock-group-04",
+      "name": "Path Rock Group 04",
+      "asset": "environment/sm-prop-path-rock-group-04.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-path-rock-group-04.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.3455, -0.078, -0.3794], "max": [0.3455, 0.0612, 0.3794] }
+    },
+    {
+      "id": "environment-sm-prop-path-rock-group-05",
+      "name": "Path Rock Group 05",
+      "asset": "environment/sm-prop-path-rock-group-05.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-path-rock-group-05.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.3345, -0.078, -0.5869], "max": [0.3344, 0.0624, 0.5869] }
     },
     {
       "id": "environment-sm-prop-path-step-03",
@@ -2745,6 +3573,51 @@
       "placeholder": "placeholders/environment/sm-prop-plank-03.glb",
       "category": "prop",
       "bounds": { "min": [-0.1843, -0.0439, 0], "max": [0.1842, 0.0439, 4.9999] }
+    },
+    {
+      "id": "environment-sm-prop-plank-wall-01",
+      "name": "Plank Wall 01",
+      "asset": "environment/sm-prop-plank-wall-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-plank-wall-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-1.1433, -0.5373, 0], "max": [1.1433, 0.5373, 0.0748] }
+    },
+    {
+      "id": "environment-sm-prop-planterbox-01",
+      "name": "Planterbox 01",
+      "asset": "environment/sm-prop-planterbox-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-planterbox-01.glb",
+      "category": "prop",
+      "bounds": { "min": [0.2014, 0, 0], "max": [2.2986, 0.7263, 0.8326] }
+    },
+    {
+      "id": "environment-sm-prop-planterbox-preset-03",
+      "name": "Planterbox Preset 03",
+      "asset": "environment/sm-prop-planterbox-preset-03.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-planterbox-preset-03.glb",
+      "category": "prop",
+      "bounds": { "min": [0.2014, 0, 0], "max": [2.2986, 1.1573, 0.866] }
+    },
+    {
+      "id": "environment-sm-prop-planterbox-preset-04",
+      "name": "Planterbox Preset 04",
+      "asset": "environment/sm-prop-planterbox-preset-04.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-planterbox-preset-04.glb",
+      "category": "prop",
+      "bounds": { "min": [0.2014, 0, 0], "max": [2.2986, 1.0132, 0.8326] }
+    },
+    {
+      "id": "environment-sm-prop-pole-03",
+      "name": "Pole 03",
+      "asset": "environment/sm-prop-pole-03.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-pole-03.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.194, 0, -0.194], "max": [0.194, 1.6459, 0.194] }
     },
     {
       "id": "environment-sm-prop-poster-01",
@@ -2792,6 +3665,33 @@
       "bounds": { "min": [-0.1656, 0, -0.1642], "max": [0.1654, 0.5571, 0.1644] }
     },
     {
+      "id": "environment-sm-prop-pot-spice-01",
+      "name": "Pot Spice 01",
+      "asset": "environment/sm-prop-pot-spice-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-pot-spice-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.2106, 0, -0.2137], "max": [0.2112, 0.3218, 0.2094] }
+    },
+    {
+      "id": "environment-sm-prop-pot-spice-03",
+      "name": "Pot Spice 03",
+      "asset": "environment/sm-prop-pot-spice-03.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-pot-spice-03.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.2093, 0, -0.2093], "max": [0.2093, 0.4323, 0.2093] }
+    },
+    {
+      "id": "environment-sm-prop-pumpkin-02",
+      "name": "Pumpkin 02",
+      "asset": "environment/sm-prop-pumpkin-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-pumpkin-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.2794, -0.0252, -0.8033], "max": [0.262, 0.509, 0] }
+    },
+    {
       "id": "environment-sm-prop-quest-board-01",
       "name": "Quest Board 01",
       "asset": "environment/sm-prop-quest-board-01.glb",
@@ -2837,6 +3737,60 @@
       "bounds": { "min": [-2.9315, 0, -1.3646], "max": [2.9315, 0.2042, 1.3646] }
     },
     {
+      "id": "environment-sm-prop-rug-06",
+      "name": "Rug 06",
+      "asset": "environment/sm-prop-rug-06.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-rug-06.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.5073, 0, -1.097], "max": [0.5073, 0.0434, 1.097] }
+    },
+    {
+      "id": "environment-sm-prop-sack-01",
+      "name": "Sack 01",
+      "asset": "environment/sm-prop-sack-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-sack-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.3106, 0, -0.2032], "max": [0.3106, 0.2315, 0.2032] }
+    },
+    {
+      "id": "environment-sm-prop-sack-02",
+      "name": "Sack 02",
+      "asset": "environment/sm-prop-sack-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-sack-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.3106, -0.004, -0.2032], "max": [0.3106, 0.2315, 0.2032] }
+    },
+    {
+      "id": "environment-sm-prop-sack-03",
+      "name": "Sack 03",
+      "asset": "environment/sm-prop-sack-03.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-sack-03.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.1649, -0.0006, -0.2402], "max": [0.162, 0.5614, 0.243] }
+    },
+    {
+      "id": "environment-sm-prop-sack-05",
+      "name": "Sack 05",
+      "asset": "environment/sm-prop-sack-05.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-sack-05.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.1649, -0.0006, -0.2402], "max": [0.1621, 0.5271, 0.2429] }
+    },
+    {
+      "id": "environment-sm-prop-sack-06",
+      "name": "Sack 06",
+      "asset": "environment/sm-prop-sack-06.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-sack-06.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.3106, -0.0052, -0.2095], "max": [0.4325, 0.2315, 0.2032] }
+    },
+    {
       "id": "environment-sm-prop-sack-stack-01",
       "name": "Sack Stack 01",
       "asset": "environment/sm-prop-sack-stack-01.glb",
@@ -2844,6 +3798,15 @@
       "placeholder": "placeholders/environment/sm-prop-sack-stack-01.glb",
       "category": "prop",
       "bounds": { "min": [-0.5012, 0, -0.4994], "max": [0.5012, 0.9622, 0.4994] }
+    },
+    {
+      "id": "environment-sm-prop-sack-stack-02",
+      "name": "Sack Stack 02",
+      "asset": "environment/sm-prop-sack-stack-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-sack-stack-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.3585, 0, -0.662], "max": [0.3946, 0.8009, 0.6286] }
     },
     {
       "id": "environment-sm-prop-shelf-04",
@@ -2927,6 +3890,24 @@
       "bounds": { "min": [-0.2535, -0.292, -0.0161], "max": [0.2535, 0.292, 0.0161] }
     },
     {
+      "id": "environment-sm-prop-spike-wall-01",
+      "name": "Spike Wall 01",
+      "asset": "environment/sm-prop-spike-wall-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-spike-wall-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-2.502, -0.0263, -0.219], "max": [0.0033, 2.9151, 0.2104] }
+    },
+    {
+      "id": "environment-sm-prop-spike-wall-03",
+      "name": "Spike Wall 03",
+      "asset": "environment/sm-prop-spike-wall-03.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-spike-wall-03.glb",
+      "category": "prop",
+      "bounds": { "min": [-10.0054, -0.0295, -0.2624], "max": [-0.0014, 2.9151, 0.2624] }
+    },
+    {
       "id": "environment-sm-prop-stool-01",
       "name": "Stool 01",
       "asset": "environment/sm-prop-stool-01.glb",
@@ -2934,6 +3915,15 @@
       "placeholder": "placeholders/environment/sm-prop-stool-01.glb",
       "category": "prop",
       "bounds": { "min": [-0.2349, -0.0035, -0.2265], "max": [0.2349, 0.489, 0.2265] }
+    },
+    {
+      "id": "environment-sm-prop-table-barrel-01",
+      "name": "Table Barrel 01",
+      "asset": "environment/sm-prop-table-barrel-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-table-barrel-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.4587, 0, -0.4543], "max": [0.4587, 0.4793, 0.4543] }
     },
     {
       "id": "environment-sm-prop-table-round-broken-01",
@@ -2954,6 +3944,15 @@
       "bounds": { "min": [-0.5694, 0, -0.5694], "max": [0.5911, 0.8088, 0.5699] }
     },
     {
+      "id": "environment-sm-prop-table-wood-01",
+      "name": "Table Wood 01",
+      "asset": "environment/sm-prop-table-wood-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-table-wood-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.7996, 0, -1.4749], "max": [0.7755, 0.9453, 1.475] }
+    },
+    {
       "id": "environment-sm-prop-table-wood-03",
       "name": "Table Wood 03",
       "asset": "environment/sm-prop-table-wood-03.glb",
@@ -2961,6 +3960,15 @@
       "placeholder": "placeholders/environment/sm-prop-table-wood-03.glb",
       "category": "prop",
       "bounds": { "min": [-0.5539, 0, -1.1935], "max": [0.5758, 0.9196, 1.1935] }
+    },
+    {
+      "id": "environment-sm-prop-table-wood-06",
+      "name": "Table Wood 06",
+      "asset": "environment/sm-prop-table-wood-06.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-table-wood-06.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.76, 0, -0.7625], "max": [0.752, 0.9499, 0.7352] }
     },
     {
       "id": "environment-sm-prop-table-wood-09",
@@ -3089,6 +4097,24 @@
       "bounds": { "min": [-0.5624, 0, -0.4779], "max": [0.5624, 2.5328, 0.4779] }
     },
     {
+      "id": "environment-sm-prop-well-01",
+      "name": "Well 01",
+      "asset": "environment/sm-prop-well-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-well-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.9033, -0.757, -0.8936], "max": [0.8793, 2.1664, 0.8949] }
+    },
+    {
+      "id": "environment-sm-prop-well-plinth-01",
+      "name": "Well Plinth 01",
+      "asset": "environment/sm-prop-well-plinth-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-well-plinth-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-1.343, -0.0393, -1.3541], "max": [1.343, 0.2952, 1.3541] }
+    },
+    {
       "id": "environment-sm-prop-wheat-bunch-01",
       "name": "Wheat Bunch 01",
       "asset": "environment/sm-prop-wheat-bunch-01.glb",
@@ -3096,6 +4122,33 @@
       "placeholder": "placeholders/environment/sm-prop-wheat-bunch-01.glb",
       "category": "prop",
       "bounds": { "min": [-0.1287, -0.321, -0.1364], "max": [0.1287, 0.8078, 0.1364] }
+    },
+    {
+      "id": "environment-sm-prop-wood-pile-01",
+      "name": "Wood Pile 01",
+      "asset": "environment/sm-prop-wood-pile-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-wood-pile-01.glb",
+      "category": "prop",
+      "bounds": { "min": [-1.0556, -0.0015, -0.3391], "max": [1.0366, 0.6882, 0.3543] }
+    },
+    {
+      "id": "environment-sm-prop-wood-pile-02",
+      "name": "Wood Pile 02",
+      "asset": "environment/sm-prop-wood-pile-02.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-wood-pile-02.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.7803, -0.0015, -0.3391], "max": [0.6914, 0.5708, 0.3391] }
+    },
+    {
+      "id": "environment-sm-prop-wood-pile-03",
+      "name": "Wood Pile 03",
+      "asset": "environment/sm-prop-wood-pile-03.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-wood-pile-03.glb",
+      "category": "prop",
+      "bounds": { "min": [-0.5448, -0.009, -0.3391], "max": [0.4785, 0.4614, 0.3391] }
     },
     {
       "id": "environment-sm-prop-wood-stack-02",
@@ -3114,6 +4167,69 @@
       "placeholder": "placeholders/environment/sm-prop-workbench-alchemy-01-preset.glb",
       "category": "prop",
       "bounds": { "min": [-1.2635, 0, -0.6074], "max": [1.2635, 1.3417, 0.6074] }
+    },
+    {
+      "id": "environment-sm-prop-workbench-forge-01-preset",
+      "name": "Workbench Forge 01 Preset",
+      "asset": "environment/sm-prop-workbench-forge-01-preset.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-prop-workbench-forge-01-preset.glb",
+      "category": "prop",
+      "bounds": { "min": [-1.1116, -0.011, -0.7801], "max": [1.1976, 4.3928, 0.7801] }
+    },
+    {
+      "id": "environment-sm-veh-boat-dinghy-01",
+      "name": "Veh Boat Dinghy 01",
+      "asset": "environment/sm-veh-boat-dinghy-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-veh-boat-dinghy-01.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.9424, 0.0436, -1.4185], "max": [0.9424, 1.1543, 2.5932] }
+    },
+    {
+      "id": "environment-sm-veh-cart-01",
+      "name": "Veh Cart 01",
+      "asset": "environment/sm-veh-cart-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-veh-cart-01.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.9398, 0, -2.1294], "max": [0.9398, 1.3199, 2.2889] }
+    },
+    {
+      "id": "environment-sm-veh-cart-03",
+      "name": "Veh Cart 03",
+      "asset": "environment/sm-veh-cart-03.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-veh-cart-03.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.9398, 0, -0.9256], "max": [0.9398, 1.3199, 2.2889] }
+    },
+    {
+      "id": "environment-sm-veh-cart-damaged-01",
+      "name": "Veh Cart Damaged 01",
+      "asset": "environment/sm-veh-cart-damaged-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-veh-cart-damaged-01.glb",
+      "category": "environment",
+      "bounds": { "min": [-1.142, -0.0529, -1.7888], "max": [1.142, 1.1253, 1.7888] }
+    },
+    {
+      "id": "environment-sm-veh-wheelbarrow-01",
+      "name": "Veh Wheelbarrow 01",
+      "asset": "environment/sm-veh-wheelbarrow-01.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/sm-veh-wheelbarrow-01.glb",
+      "category": "environment",
+      "bounds": { "min": [-0.353, -0.2946, -1.7953], "max": [0.3528, 0.6084, 0.2946] }
+    },
+    {
+      "id": "environment-start-position",
+      "name": "Start Position",
+      "asset": "environment/start-position.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/start-position.glb",
+      "category": "environment",
+      "bounds": { "min": [-2.7756, -2.2073, -2.5473], "max": [2.6752, 2.1163, 2.1128] }
     },
     {
       "id": "terrain-terrain-customization",
@@ -3233,6 +4349,42 @@
       "bounds": { "min": [-150, 0, -150], "max": [150, 42.0057, 150] }
     },
     {
+      "id": "vegetation-branch-1a1",
+      "name": "Branch 1a1",
+      "asset": "vegetation/branch-1a1.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/vegetation/branch-1a1.glb",
+      "category": "vegetation",
+      "bounds": { "min": [-1.3901, 0.0117, -1.6941], "max": [3.1954, 4.0645, 2.8459] }
+    },
+    {
+      "id": "vegetation-branch-1a5",
+      "name": "Branch 1a5",
+      "asset": "vegetation/branch-1a5.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/vegetation/branch-1a5.glb",
+      "category": "vegetation",
+      "bounds": { "min": [-3.9094, -0.0506, -0.3707], "max": [0.0663, 2.7615, 2.707] }
+    },
+    {
+      "id": "vegetation-branch-1a7",
+      "name": "Branch 1a7",
+      "asset": "vegetation/branch-1a7.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/vegetation/branch-1a7.glb",
+      "category": "vegetation",
+      "bounds": { "min": [-2.2099, -0.0248, -2.3823], "max": [2.2319, 4.2884, 2.3482] }
+    },
+    {
+      "id": "vegetation-branch-1a9",
+      "name": "Branch 1a9",
+      "asset": "vegetation/branch-1a9.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/vegetation/branch-1a9.glb",
+      "category": "vegetation",
+      "bounds": { "min": [-1.4135, -0.0248, -2.7326], "max": [1.7128, 4.0681, 2.9764] }
+    },
+    {
       "id": "vegetation-branched-tree-2a1",
       "name": "Branched Tree 2a1",
       "asset": "vegetation/branched-tree-2a1.glb",
@@ -3249,6 +4401,15 @@
       "placeholder": "placeholders/vegetation/branched-tree-2a3.glb",
       "category": "vegetation",
       "bounds": { "min": [-5.4818, -0.4779, -5.3589], "max": [6.0298, 16.5985, 5.7892] }
+    },
+    {
+      "id": "vegetation-bush-1a1-small",
+      "name": "Bush 1a1 Small",
+      "asset": "vegetation/bush-1a1-small.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/vegetation/bush-1a1-small.glb",
+      "category": "vegetation",
+      "bounds": { "min": [-1.1038, -0.5559, -1.1163], "max": [1.147, 1.3202, 1.0079] }
     },
     {
       "id": "vegetation-bush-1a1",
@@ -3339,6 +4500,51 @@
       "placeholder": "placeholders/vegetation/grass-short-clump-yellow.glb",
       "category": "vegetation",
       "bounds": { "min": [-0.5, -0.0269, -0.4262], "max": [0.5, 0.2231, 0.5738] }
+    },
+    {
+      "id": "vegetation-large-bush-1a1",
+      "name": "Large Bush 1a1",
+      "asset": "vegetation/large-bush-1a1.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/vegetation/large-bush-1a1.glb",
+      "category": "vegetation",
+      "bounds": { "min": [-1.3721, -0.1648, -1.4849], "max": [1.4733, 3.5941, 1.4298] }
+    },
+    {
+      "id": "vegetation-large-bush-1a2",
+      "name": "Large Bush 1a2",
+      "asset": "vegetation/large-bush-1a2.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/vegetation/large-bush-1a2.glb",
+      "category": "vegetation",
+      "bounds": { "min": [-1.0796, -0.2906, -1.1765], "max": [1.1111, 3.5699, 0.9756] }
+    },
+    {
+      "id": "vegetation-large-bush-1a3",
+      "name": "Large Bush 1a3",
+      "asset": "vegetation/large-bush-1a3.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/vegetation/large-bush-1a3.glb",
+      "category": "vegetation",
+      "bounds": { "min": [-0.9027, -0.1371, -1.1467], "max": [1.3903, 2.5494, 1.2125] }
+    },
+    {
+      "id": "vegetation-large-bush-1a4",
+      "name": "Large Bush 1a4",
+      "asset": "vegetation/large-bush-1a4.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/vegetation/large-bush-1a4.glb",
+      "category": "vegetation",
+      "bounds": { "min": [-1.4217, -0.3571, -1.3586], "max": [1.6848, 4.4168, 1.5073] }
+    },
+    {
+      "id": "vegetation-large-bush-1a5",
+      "name": "Large Bush 1a5",
+      "asset": "vegetation/large-bush-1a5.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/vegetation/large-bush-1a5.glb",
+      "category": "vegetation",
+      "bounds": { "min": [-1.5809, -0.1947, -1.8207], "max": [1.6083, 4.4481, 1.7166] }
     },
     {
       "id": "vegetation-massive-tree-1a1-1-dark",
@@ -3546,6 +4752,33 @@
       "placeholder": "placeholders/vegetation/sm-plant-mushrooms-02.glb",
       "category": "vegetation",
       "bounds": { "min": [-0.2759, -0.1456, -0.3451], "max": [0.2759, 0.3314, 0.3451] }
+    },
+    {
+      "id": "vegetation-small-thin-tree-1a2",
+      "name": "Small Thin Tree 1a2",
+      "asset": "vegetation/small-thin-tree-1a2.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/vegetation/small-thin-tree-1a2.glb",
+      "category": "vegetation",
+      "bounds": { "min": [-2.3021, -0.2611, -2.5134], "max": [2.5944, 8.1028, 2.0753] }
+    },
+    {
+      "id": "vegetation-small-thin-tree-1a3",
+      "name": "Small Thin Tree 1a3",
+      "asset": "vegetation/small-thin-tree-1a3.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/vegetation/small-thin-tree-1a3.glb",
+      "category": "vegetation",
+      "bounds": { "min": [-4.0332, -0.2611, -4.0768], "max": [3.2807, 11.1969, 3.6496] }
+    },
+    {
+      "id": "vegetation-small-thin-tree-1a5",
+      "name": "Small Thin Tree 1a5",
+      "asset": "vegetation/small-thin-tree-1a5.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/vegetation/small-thin-tree-1a5.glb",
+      "category": "vegetation",
+      "bounds": { "min": [-3.5867, -0.2613, -3.9909], "max": [3.205, 10.3542, 3.6844] }
     },
     {
       "id": "vegetation-split-tree-1a1-1-dark",
@@ -3843,6 +5076,15 @@
       "placeholder": "placeholders/vegetation/tree-1c2.glb",
       "category": "vegetation",
       "bounds": { "min": [-3.1665, -0.6425, -4.5791], "max": [4.7557, 9.3599, 4.6408] }
+    },
+    {
+      "id": "vegetation-tree-1c3",
+      "name": "Tree 1c3",
+      "asset": "vegetation/tree-1c3.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/vegetation/tree-1c3.glb",
+      "category": "vegetation",
+      "bounds": { "min": [-5.9519, -0.9624, -5.5449], "max": [4.9334, 11.3802, 6.1742] }
     },
     {
       "id": "vegetation-tree-1d1-1",

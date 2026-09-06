@@ -125,8 +125,7 @@ Two rules make the result loadable rather than merely correct:
   contain `..`: Babylon.js rejects such a reference before it requests anything,
   and the model then draws grey while every other signal reports success. File
   names are `<model>-<slot>-<hash8>.png` after the model that first uses a
-  texture, identical bytes are written once
-  per group, and anything over 2048 px is halved until it fits.
+  texture, identical bytes are written once per group, and anything over 2048 px is halved until it fits.
 - **Metallic 0, roughness 1, always.** The glTF default is metallic 1, so a
   material that says nothing renders as rough metal.
 
@@ -147,6 +146,26 @@ scene bundle at all, so they stay untextured and are named in the run report.
 `tooling/smoke/textures.spec.ts` opens the editor on three private models and
 asserts the texture requests, the files the scene actually finished loading, and
 the pixels.
+
+## Importing models that only exist inside a scene bundle
+
+An export also ships whole authored levels as single large GLBs. Roughly half of
+what stands in one was never exported as a file of its own — house floors, wood
+piles, braziers, path rock groups — so a second pass cuts those out
+(ADR-0021):
+
+```bash
+pnpm import:scene-models --scene ~/assets-export/Assets/SceneHierarchyObject/Village1.glb \
+                         --store ~/assets-export/store
+pnpm import:scene-models --scene … --store … --dry-run
+```
+
+It **only adds**: a store path that already exists is left alone and named in
+the report, and textures are matched against the store by content hash, so a
+shared atlas stays one file. Anything larger than the size limit — a backdrop, a
+sky dome — is excluded and named rather than rescaled. Afterwards, run
+`pnpm generate:prefabs` so the new models reach the catalogue, then
+`pnpm import:scene` to write the world file (`docs/world-format.md`).
 
 ## Formats
 

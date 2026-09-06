@@ -22,14 +22,20 @@ who never imports an asset never runs it.
 | `placeholder.ts`         | The hull box a clone loads when the store is not reachable           |
 | `scene-names.ts`         | Which store model a node in a scene bundle stands for                |
 | `scene-bindings.ts`      | Reads the scene bundles: which material each model wears             |
-| `materials.ts`           | The checked table of what each material name means for the surface   |
+| `materials.ts`           | The checked table of what each material means for the surface        |
 | `material-binding.ts`    | Writes that material into the model's own glTF                       |
+| `scene-models.ts`        | Cuts one standalone model out of a scene bundle's node hierarchy     |
 | `import-world-assets.ts` | The command: walks the export, writes the three outputs              |
 
 Everything except the command itself is pure and unit-tested — `scene-bindings.ts`
 apart, whose file reading is exercised against GLBs the test writes. The command
 is the only part that touches the real export, and the only part without a test,
 which is why the judgements it makes live in the other modules.
+
+`scene-models.ts` serves a second command, `pnpm import:scene-models`
+(`tooling/scripts/`), which fills the gap the first one leaves: an export also
+ships whole authored levels as one large GLB each, and about half of what stands
+in one was never exported as a file of its own. See ADR-0021.
 
 ## The decisions, and what they rest on
 

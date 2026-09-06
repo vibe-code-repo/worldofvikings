@@ -559,6 +559,47 @@ test('editor opens a world, places a prefab, saves it and undoes', async ({ page
  * while the right mouse button is held. Nothing in a unit test can prove which
  * of the two a real keystroke reaches.
  */
+/**
+ * The imported village, in the viewport (ADR-0021).
+ *
+ * The importer's own report is a count of what it *wrote*; this is the only
+ * check that the file it wrote opens. It is worth a test of its own because
+ * scale is where this file differs from every other one in `content/`: 1 580
+ * entities across three zones, against the example world's one barrel. A
+ * reconciler that is quadratic in the entity count, a hierarchy that renders
+ * every row eagerly or a catalogue lookup that is a linear scan all pass the
+ * example world and fall over here.
+ *
+ * Both witnesses again, and both must clear a thousand: the document's entity
+ * count for the active zone and the scene's own count of entity roots.
+ */
+test('editor opens the imported village with more than a thousand entities', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('editor-viewport-status')).toHaveText(
+    /^viewport ready — (webgl2|webgpu)$/,
+  );
+
+  await page.getByTestId('menu-file').click();
+  await expect(page.getByTestId('menu-file-worlds')).toContainText('Village One');
+  await page.getByTestId('menu-open-village1').click();
+
+  await expect(page.getByTestId('editor-world-name')).toHaveText('Village One');
+  // The three zones the bundle is split into.
+  await expect(page.getByTestId('hierarchy-zone-village')).toContainText('Village');
+  await expect(page.getByTestId('hierarchy-zone-interiors')).toContainText('Village Interiors');
+  await expect(page.getByTestId('hierarchy-zone-surroundings')).toContainText('Surroundings');
+
+  await expect.poll(() => editorEntityCount(page), { timeout: 60_000 }).toBeGreaterThan(1000);
+  await expect.poll(() => editorMeshCount(page), { timeout: 60_000 }).toBeGreaterThan(1000);
+
+  // Still rendering afterwards: a viewport that built the zone and then died is
+  // not a viewport that opened it.
+  const before = await editorFrameId(page);
+  await expect
+    .poll(() => editorFrameId(page), { timeout: 15_000, intervals: [200, 200, 400, 800] })
+    .toBeGreaterThan(before ?? 0);
+});
+
 test('editor switches tools with Q/W/E/R and deletes with the Delete key', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('editor-viewport-status')).toHaveText(

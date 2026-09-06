@@ -186,6 +186,15 @@ export const SOURCE_FOLDERS: readonly SourceFolder[] = [
 ];
 
 /**
+ * The folder of the export that holds the assembled scenes.
+ *
+ * Not a source of models — nothing is imported *from* it. It is where the
+ * material assignment lives that the per-model files dropped, which is why the
+ * pipeline reads it at all (`scene-bindings.ts`).
+ */
+export const SCENE_BUNDLE_FOLDER = 'SceneHierarchyObject';
+
+/**
  * Decides whether one exported file is a world-building asset, and what to call
  * it here.
  *

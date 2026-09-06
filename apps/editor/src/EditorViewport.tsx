@@ -170,7 +170,11 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
     });
     const report = (): void => {
       handlersRef.current.onAssetSources(summarizeAssetSources(assets.sources()));
-      publishEditorDebug({ meshCount: sync.meshCount(), loadedCount: sync.loadedCount() });
+      publishEditorDebug({
+        meshCount: sync.meshCount(),
+        loadedCount: sync.loadedCount(),
+        loadedTextures: sync.loadedTextures(),
+      });
       // The outline is first drawn around the stand-in cube, because that is
       // all that exists until the GLB lands. Redrawing it here is what makes it
       // end up around the model rather than around a 1 m box.
@@ -344,6 +348,7 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
       entityCount: zone?.entities.length ?? 0,
       meshCount: sync?.meshCount() ?? 0,
       loadedCount: sync?.loadedCount() ?? 0,
+      loadedTextures: sync?.loadedTextures() ?? [],
       selection: [...editorDocument.selection],
       dirty: editorDocument.dirty,
     });

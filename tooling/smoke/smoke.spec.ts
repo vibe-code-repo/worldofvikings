@@ -625,7 +625,7 @@ test('api serves the merged prefab catalogue', async ({ request }) => {
 });
 
 test('asset server reports healthy', async ({ request }) => {
-  const response = await request.get('http://localhost:9000/health');
+  const response = await request.get(`${String(test.info().config.metadata['assetUrl'])}/health`);
   expect(response.status()).toBe(200);
   expect(await response.json()).toMatchObject({ service: 'world-of-vikings-assets' });
 });

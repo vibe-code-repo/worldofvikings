@@ -30,8 +30,19 @@ for (const folder of ['worlds', 'prefabs']) {
  */
 const API_PORT = 3100;
 const EDITOR_PORT = 5184;
+
+/**
+ * The asset server the smoke run points the apps at.
+ *
+ * Overridable because two people — or two agents — running the suite at once
+ * would otherwise share one asset server, and they may have different stores
+ * mounted: `WOV_ASSET_STORE` belongs to whoever started the process, and
+ * `reuseExistingServer` cannot see that. `SMOKE_ASSET_PORT` gives a run its own.
+ */
+const ASSET_PORT = Number(process.env['SMOKE_ASSET_PORT'] ?? 9000);
 const apiUrl = `http://localhost:${String(API_PORT)}`;
 const editorUrl = `http://localhost:${String(EDITOR_PORT)}`;
+const assetUrl = `http://localhost:${String(ASSET_PORT)}`;
 
 /**
  * Smoke tests (agent principle: prove "it runs", do not claim it).
@@ -55,7 +66,7 @@ export default defineConfig({
     // The tests read these instead of hard-coding a port twice.
     baseURL: editorUrl,
   },
-  metadata: { apiUrl, editorUrl, contentDir },
+  metadata: { apiUrl, editorUrl, assetUrl, contentDir },
   projects: [{ name: 'chromium' }],
   webServer: [
     {
@@ -69,6 +80,7 @@ export default defineConfig({
       command: 'pnpm --filter @wov/game dev',
       url: 'http://localhost:5173',
       cwd: repoRoot,
+      env: { VITE_ASSET_URL: assetUrl },
       reuseExistingServer: !process.env['CI'],
       timeout: 120_000,
     },
@@ -76,7 +88,7 @@ export default defineConfig({
       command: `pnpm --filter @wov/editor dev --port ${String(EDITOR_PORT)}`,
       url: editorUrl,
       cwd: repoRoot,
-      env: { VITE_API_URL: apiUrl },
+      env: { VITE_API_URL: apiUrl, VITE_ASSET_URL: assetUrl },
       // Never reuse: a server started by `pnpm dev` points at the API in
       // `content/`, and the save test would edit the repository through it.
       reuseExistingServer: false,
@@ -96,9 +108,12 @@ export default defineConfig({
     },
     {
       command: 'pnpm run dev:assets',
-      url: 'http://localhost:9000/health',
+      url: `${assetUrl}/health`,
       cwd: repoRoot,
-      reuseExistingServer: !process.env['CI'],
+      env: { ASSET_PORT: String(ASSET_PORT) },
+      // Reused on the default port, where it is the same server `pnpm dev`
+      // starts; never on a port a run asked for itself.
+      reuseExistingServer: ASSET_PORT === 9000 && !process.env['CI'],
       timeout: 120_000,
     },
   ],

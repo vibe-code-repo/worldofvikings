@@ -20,6 +20,7 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
+import type { BaseTexture } from '@babylonjs/core/Materials/Textures/baseTexture';
 import type { Node } from '@babylonjs/core/node';
 import type { Scene } from '@babylonjs/core/scene';
 import type { AssetManager, AssetSourceCounts } from '@wov/asset-system';
@@ -75,7 +76,53 @@ export interface SceneSync {
   boundsOf(entityIds: readonly string[]): Bounds | null;
   /** Where the loaded assets came from (ADR-0015). */
   sources(): AssetSourceCounts;
+  /**
+   * The texture files the scene has finished loading, by file name.
+   *
+   * The counterpart to {@link SceneSync.loadedCount}, and the reason it is not
+   * enough: a model can arrive, parse and draw with its base colour missing —
+   * an image URI the loader rejects does exactly that — and every other number
+   * in this bridge still calls that a success. This one answers "did the
+   * pixels arrive", not "did the file" (ADR-0019).
+   */
+  loadedTextures(): readonly string[];
   dispose(): void;
+}
+
+/**
+ * What a `Texture` adds to `BaseTexture` and this module needs: the URL it was
+ * loaded from. Declared rather than imported because `getActiveTextures` hands
+ * back the base type, and only some of those have a file behind them.
+ */
+interface UrlBearing {
+  readonly url?: string | null;
+}
+
+/** The load notification a `Texture` has and a `BaseTexture` does not. */
+interface LoadNotifying {
+  readonly onLoadObservable?: { addOnce(callback: () => void): unknown };
+}
+
+const DATA_PREFIX = 'data:';
+
+/**
+ * The file name a loaded texture came from, or `undefined` for one that has no
+ * file — the renderer's own generated textures, and data URIs.
+ *
+ * Separated out because it is the only part of {@link SceneSync.loadedTextures}
+ * with a decision in it, and the rest needs a live scene to exercise.
+ */
+export function textureFileName(source: string): string | undefined {
+  // Babylon prefixes the URL of a texture it loaded out of a glTF with
+  // `data:`, whatever the texture actually came from:
+  // `data:http://host/store/environment/textures/atlas.png`. Stripping that is
+  // the difference between reporting the file and reporting nothing.
+  const url = source.startsWith(DATA_PREFIX) ? source.slice(DATA_PREFIX.length) : source;
+  if (url.includes(';base64,')) {
+    return undefined;
+  }
+  const file = url.split('?')[0]?.split('/').pop();
+  return file === undefined || !file.includes('.') ? undefined : file;
 }
 
 /** Reads the entity id off a node, walking up to the entity root. */
@@ -131,6 +178,18 @@ export function createSceneSync(options: SceneSyncOptions): SceneSync {
   const pendingMaterial = new StandardMaterial('editor-pending', scene);
   pendingMaterial.diffuseColor = new Color3(0.42, 0.46, 0.54);
   pendingMaterial.emissiveColor = new Color3(0.08, 0.09, 0.12);
+
+  // A texture arriving changes the picture as much as a model arriving does, and
+  // nothing else notices it: the models are instantiated from asset containers,
+  // so the reconciler is long finished by the time the atlas decodes. Without
+  // this, `loadedTextures` reports whatever was true at the last document edit.
+  const textureWatch = scene.onNewTextureAddedObservable.add((texture) => {
+    (texture as BaseTexture & LoadNotifying).onLoadObservable?.addOnce(() => {
+      if (!disposed) {
+        onSceneChanged?.();
+      }
+    });
+  });
 
   const writeTransform = (instance: EntityInstance, entity: EntityDefinition): void => {
     instance.entity = entity;
@@ -312,8 +371,33 @@ export function createSceneSync(options: SceneSyncOptions): SceneSync {
 
     sources: () => assets.sources(),
 
+    loadedTextures() {
+      // Walked from the entity roots rather than from `scene.textures`: models
+      // are loaded into asset containers and instantiated from them, so their
+      // textures never enter the scene's own list — that one holds the
+      // renderer's internal ones and would report success for an empty world.
+      const names = new Set<string>();
+      for (const instance of instances.values()) {
+        for (const mesh of instance.root.getChildMeshes()) {
+          for (const texture of mesh.material?.getActiveTextures() ?? []) {
+            if (!texture.isReady()) {
+              continue;
+            }
+            // The URL when the texture has one — a glTF texture is named after
+            // its material slot, which does not say which file arrived.
+            const file = textureFileName((texture as BaseTexture & UrlBearing).url ?? texture.name);
+            if (file !== undefined) {
+              names.add(file);
+            }
+          }
+        }
+      }
+      return [...names].sort();
+    },
+
     dispose() {
       disposed = true;
+      scene.onNewTextureAddedObservable.remove(textureWatch);
       clearAll();
       pendingMaterial.dispose();
     },

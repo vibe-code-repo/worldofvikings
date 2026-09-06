@@ -1,0 +1,205 @@
+/**
+ * What each source material means for the surface, as a checked table.
+ *
+ * **Why a table and not a rule in the loader.** The modelling export carries no
+ * material settings at all: every one of the 60 materials in it arrives as
+ * `alphaMode: "OPAQUE"`, `doubleSided: false`, with no factors — the exporter
+ * dropped them. So the settings have to be restored from somewhere, and the
+ * only honest somewhere is a list a person has read. A regular expression over
+ * material names ("contains `leaves`") would be a guess that silently spreads
+ * to every future name; a table is a decision that fails loudly by omission —
+ * an unlisted material is reported by the importer and rendered opaque, which
+ * is wrong in a visible, fixable way rather than in a plausible one.
+ *
+ * **Why the table is keyed by a digest and not by the name.** The material
+ * names in the source export carry vendor and product wording that this
+ * repository does not repeat (see `docs/assets.md`). {@link materialKey} hashes
+ * a name to a short, stable key, so the table can be complete and reviewable
+ * without any of those names being written down: what each entry *is* stands
+ * next to it in plain words. To add one, print its key with
+ * `pnpm tsx tooling/asset-pipeline/material-key.ts "<name>"` and paste the key
+ * plus a description.
+ *
+ * **The three surfaces.**
+ *
+ * | Surface    | Applies to                                    | glTF                                             |
+ * | ---------- | --------------------------------------------- | ------------------------------------------------ |
+ * | `opaque`   | bark, atlases, everything not named below     | `OPAQUE`, single-sided                           |
+ * | `cutout`   | leaves, grass, glass, clouds, double-sided    | `MASK` + `alphaCutoff` 0.5, `doubleSided: true`  |
+ * | `emissive` | the self-lit atlas variant and the crystal    | opaque plus `emissiveFactor` and an emissive map |
+ *
+ * Foliage is `MASK` rather than `BLEND` on purpose: these atlases are hard
+ * cutouts, and `BLEND` would cost sorting per frame and still draw leaves
+ * through each other. `doubleSided` comes with it because a leaf card has no
+ * back face of its own — without it half of every tree disappears.
+ *
+ * **Metalness.** Every bound material is written with `metallicFactor: 0` and
+ * `roughnessFactor: 1`. The glTF default is metallic 1 / rough 1, so a material
+ * that says nothing renders as rough metal in a physically-based renderer:
+ * the textures go black except where the environment reflects. That default is
+ * the single most visible thing this table exists to override.
+ */
+import { createHash } from 'node:crypto';
+
+/** How one material behaves. */
+export interface MaterialSurface {
+  readonly alphaMode: 'OPAQUE' | 'MASK';
+  readonly doubleSided: boolean;
+  readonly emissive: boolean;
+}
+
+/** Alpha-tested foliage, grass and glass: cut out, lit from both sides. */
+export const CUTOUT: MaterialSurface = { alphaMode: 'MASK', doubleSided: true, emissive: false };
+
+/** The ordinary case: a solid, single-sided surface. */
+export const OPAQUE: MaterialSurface = { alphaMode: 'OPAQUE', doubleSided: false, emissive: false };
+
+/** Opaque, and lit by its own base colour as well as by the scene. */
+export const EMISSIVE: MaterialSurface = {
+  alphaMode: 'OPAQUE',
+  doubleSided: false,
+  emissive: true,
+};
+
+/** The cutoff written with every `MASK` material. */
+export const ALPHA_CUTOFF = 0.5;
+
+/** See the note on metalness above. */
+export const METALLIC_FACTOR = 0;
+export const ROUGHNESS_FACTOR = 1;
+
+/** How strongly an emissive material lights itself, per channel. */
+export const EMISSIVE_FACTOR: readonly [number, number, number] = [1, 1, 1];
+
+/**
+ * What kind of thing a material covers. The kind decides the surface, so the
+ * table below states the kind and never repeats the same three flags 60 times.
+ */
+export type MaterialKind =
+  'leaf' | 'grass' | 'glass' | 'double-sided' | 'cloud' | 'self-lit' | 'bark' | 'atlas' | 'other';
+
+/** The surface each kind gets. */
+export const SURFACE_BY_KIND: Readonly<Record<MaterialKind, MaterialSurface>> = {
+  leaf: CUTOUT,
+  grass: CUTOUT,
+  glass: CUTOUT,
+  'double-sided': CUTOUT,
+  cloud: CUTOUT,
+  'self-lit': EMISSIVE,
+  bark: OPAQUE,
+  atlas: OPAQUE,
+  other: OPAQUE,
+};
+
+/** One row of the table: what the material is, in words a reviewer can check. */
+export interface MaterialRow {
+  readonly kind: MaterialKind;
+  /** Plain description of the surface, standing in for the source name. */
+  readonly note: string;
+}
+
+/**
+ * The stable key for one source material name.
+ *
+ * Twelve hex characters of SHA-256 — long enough that the 60 keys below cannot
+ * collide by accident, short enough to read in a diff.
+ */
+export function materialKey(name: string): string {
+  return createHash('sha256').update(name, 'utf8').digest('hex').slice(0, 12);
+}
+
+/**
+ * Every material the export uses, and what it is.
+ *
+ * The list is the union of the materials found in the scene bundles and those
+ * already carried by the models in the store — 58 of them — plus two spellings
+ * without their instance number, which a re-export can produce at any time.
+ * Instances of one authored material are listed separately rather than folded
+ * together by a pattern, so that an instance with different settings has
+ * somewhere to go.
+ */
+export const MATERIAL_ROWS: Readonly<Record<string, MaterialRow>> = {
+  // --- leaf --------------------------------------------------------------
+  b2c02ca97471: { kind: 'leaf', note: 'birch leaf card, variant 1' },
+  fe57438c34bf: { kind: 'leaf', note: 'birch leaf card, variant 2' },
+  cd2d33391502: { kind: 'leaf', note: 'birch leaf card, variant 3, dark' },
+  ea2af043eb8c: { kind: 'leaf', note: 'birch leaf card, variant 3, dark, snow' },
+  '15b59a7c5177': { kind: 'leaf', note: 'broadleaf leaf card, variant 1' },
+  e69bfc033a92: { kind: 'leaf', note: 'broadleaf leaf card, variant 2' },
+  '6c95d763e3e7': { kind: 'leaf', note: 'broadleaf leaf card, variant 3' },
+  f60b61868de0: { kind: 'leaf', note: 'maple leaf card' },
+  '60baf15804ad': { kind: 'leaf', note: 'maple leaf card, instance 1' },
+  '3204c1689cce': { kind: 'leaf', note: 'pine needle card, variant 1' },
+  f0a25899c39a: { kind: 'leaf', note: 'pine needle card, variant 2' },
+  // --- grass -------------------------------------------------------------
+  a1b5b4a25daa: { kind: 'grass', note: 'short grass card, 1 instance' },
+  '6fa61097c48b': { kind: 'grass', note: 'short grass card, low wild instance' },
+  d8efa434992f: { kind: 'grass', note: 'short plant leaf card' },
+  '28d03e41d8dd': { kind: 'grass', note: 'short plant leaf card, 2 variant' },
+  '87d7cbb528de': { kind: 'grass', note: 'short plant leaf card, redblue variant' },
+  dc91ba7b27d8: { kind: 'grass', note: 'short plant leaf card, snow variant' },
+  ebe5743ecc05: { kind: 'grass', note: 'short plant leaf card, yellow variant' },
+  // --- glass -------------------------------------------------------------
+  ed4beb4a0f8f: { kind: 'glass', note: 'window glass' },
+  // --- double-sided ------------------------------------------------------
+  '696cbc98612c': { kind: 'double-sided', note: 'settlement atlas, authored double-sided' },
+  // --- cloud -------------------------------------------------------------
+  '70fcb7af3ba0': { kind: 'cloud', note: 'cloud card' },
+  // --- self-lit ----------------------------------------------------------
+  '614bf44e147d': { kind: 'self-lit', note: 'building atlas, self-lit variant' },
+  '95f74a3961dd': { kind: 'self-lit', note: 'crystal item' },
+  // --- bark --------------------------------------------------------------
+  cae3a817bb06: { kind: 'bark', note: 'birch bark' },
+  '43587e2626b3': { kind: 'bark', note: 'mixed trunk bark' },
+  c41ecbe37729: { kind: 'bark', note: 'oak bark' },
+  '1dae02e59b3c': { kind: 'bark', note: 'oak bark, dark instance' },
+  // --- atlas -------------------------------------------------------------
+  '9bbaded93ab1': { kind: 'atlas', note: 'building atlas' },
+  ae2aff3ee0b7: { kind: 'atlas', note: 'building atlas, darkened instance' },
+  b950e869e1fe: { kind: 'atlas', note: 'building atlas, instance 2' },
+  '56d1c819966f': { kind: 'atlas', note: 'building atlas, instance 2 1' },
+  '40e5ccfa665e': { kind: 'atlas', note: 'building atlas, instance 3' },
+  '9b0540017f8b': { kind: 'atlas', note: 'building atlas, instance 3 1' },
+  '3d5cfdf87c1b': { kind: 'atlas', note: 'building atlas, metal instance 2' },
+  aa28d60f9197: { kind: 'atlas', note: 'building atlas, metal instance 5' },
+  c6a59465fb27: { kind: 'atlas', note: 'castle wall atlas' },
+  a5d51f017740: { kind: 'atlas', note: 'farm atlas' },
+  a23f0d988ea1: { kind: 'atlas', note: 'nature atlas' },
+  '7431a18b7845': { kind: 'atlas', note: 'settlement atlas' },
+  '1bcc8efd1107': { kind: 'atlas', note: 'settlement atlas, dark' },
+  c3f7ea8117d8: { kind: 'atlas', note: 'settlement atlas, dark instance 1' },
+  e193742147d6: { kind: 'atlas', note: 'settlement atlas, darkened instance 1' },
+  e64becce006f: { kind: 'atlas', note: 'settlement atlas, darkened instance 2' },
+  dfc7125b7688: { kind: 'atlas', note: 'underground atlas 01' },
+  c608cbe1c4ab: { kind: 'atlas', note: 'underground atlas 02' },
+  a58af24a45c1: { kind: 'atlas', note: 'underground character atlas' },
+  c352383d9bba: { kind: 'atlas', note: 'underground wall texture' },
+  // --- other -------------------------------------------------------------
+  '7e0df8755082': { kind: 'other', note: 'editor default material' },
+  c17454510b43: { kind: 'other', note: 'engraved rune set A' },
+  df815f8c3781: { kind: 'other', note: 'engraved rune set D' },
+  '586c7fe760c0': { kind: 'other', note: 'engraved rune set P' },
+  '2219565ffa60': { kind: 'other', note: 'exporter default material' },
+  '2a1a6355ed7e': { kind: 'other', note: 'ice' },
+  b2c15737ca31: { kind: 'other', note: 'log spike prop' },
+  '032aaf736d0a': { kind: 'other', note: 'mesh effect surface' },
+  '6a6ac8386005': { kind: 'other', note: 'one-off creature surface' },
+  '9e70a6314092': { kind: 'other', note: 'plain wood block' },
+  '922ad94ff9c6': { kind: 'other', note: 'potion item' },
+  ba494e629860: { kind: 'other', note: 'ruined house surface' },
+  d587e23e3064: { kind: 'other', note: 'unnamed lit surface' },
+};
+
+/** What an unlisted material gets, and what the importer reports it as. */
+export const UNLISTED_SURFACE = OPAQUE;
+
+/** Whether this material name is one the table has an answer for. */
+export function isListedMaterial(name: string): boolean {
+  return Object.hasOwn(MATERIAL_ROWS, materialKey(name));
+}
+
+/** The surface for one material name; {@link UNLISTED_SURFACE} when unlisted. */
+export function surfaceFor(name: string): MaterialSurface {
+  const row = MATERIAL_ROWS[materialKey(name)];
+  return row === undefined ? UNLISTED_SURFACE : SURFACE_BY_KIND[row.kind];
+}

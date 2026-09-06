@@ -21,9 +21,17 @@
  *    with. Its translation is zero for meshes and prefabs, whose origins are
  *    authored anchors, and recentres terrain, whose origin is a container
  *    corner. `originShiftFor` carries the measurements behind that.
- * 4. **Extract textures** — embedded images become files under `textures/`,
- *    referenced by a relative URI, deduplicated by content hash, and halved
- *    until they fit the 2048 px budget.
+ * 4. **Extract textures** — embedded images become files in the model group's
+ *    own `textures/` folder, referenced by a sibling-relative URI, deduplicated
+ *    by content hash, and halved until they fit the 2048 px budget.
+ * 4a. **Bind the materials the per-model export dropped** — 388 of the 437
+ *    models arrive with one untextured `DefaultMaterial`, because the material
+ *    assignment lives in the scene bundles rather than in the model files. The
+ *    bundles are read once, up front, and every model that appears in one gets
+ *    its material back, with a base colour pointing at a shared texture file.
+ *    `scene-bindings.ts` explains how a model is recognised and why the
+ *    material is paired by vertex count; `materials.ts` is the checked table
+ *    that decides which of them are cut out, double-sided or self-lit.
  * 4b. **Compute the normals the exporter left out** — twelve terrains ship with
  *    `POSITION` and `TEXCOORD_0` only, which draws as a scatter of backfaces.
  *    This is the only vertex data the pipeline writes, and it is additive.
@@ -69,7 +77,16 @@ import {
 import type { Bounds } from './glb.js';
 import { MAX_TEXTURE_SIZE, decodePng, encodePng, fitWithin, isPng, readPngSize } from './png.js';
 import { buildPlaceholderGlb, placeholderPathFor } from './placeholder.js';
-import { SOURCE_FOLDERS, isSelection, originShiftFor, select } from './selection.js';
+import { bindMaterials } from './material-binding.js';
+import { NO_SCENE_BINDINGS, readSceneBindings } from './scene-bindings.js';
+import type { SceneBindings } from './scene-bindings.js';
+import {
+  SCENE_BUNDLE_FOLDER,
+  SOURCE_FOLDERS,
+  isSelection,
+  originShiftFor,
+  select,
+} from './selection.js';
 import type { Selection } from './selection.js';
 
 const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
@@ -141,14 +158,19 @@ interface TextureFile {
    * times under one path and fail its own duplicate check.
    */
   readonly isNew: boolean;
+  /** Set when the source image was over the budget, as `4096→2048`. */
+  readonly resizedFrom?: string;
 }
 
-/** Textures already written this run, keyed by the hash of their final bytes. */
+/**
+ * Textures already written this run, keyed by group and by the hash of their
+ * final bytes — see {@link takeTexture} for why the group is part of the key.
+ */
 const textures = new Map<string, TextureFile>();
 
 /**
- * Turns one embedded image into a file under `textures/`, reusing an identical
- * one that a previous model already produced.
+ * Turns one image into a file in the model's own `textures/` folder, reusing an
+ * identical one that a previous model of the same group already produced.
  *
  * The name is the model that first used the texture plus its slot, not the
  * material inside the file: a material name is an authoring detail of the
@@ -160,19 +182,33 @@ const textures = new Map<string, TextureFile>();
  * deduplication and determinism the same mechanism: identical bytes get
  * identical names, and a changed texture gets a new name instead of a stale
  * cache entry.
+ *
+ * **Why one `textures/` folder per group instead of one for the store.** The
+ * reference in the GLB has to be a relative URI that Babylon.js will accept,
+ * and Babylon refuses any URI containing `..` outright
+ * (`GLTFLoader._ValidateUri`) — so `environment/rock.glb` cannot point at
+ * `../textures/atlas.png`, however correct that is by the glTF specification.
+ * It can point at `textures/atlas.png`, which resolves next to the model. The
+ * price is a second copy of any atlas that two groups share; measured against
+ * this export that price is zero, because no texture is used by more than one
+ * group — the flat-shaded atlases are environment, the leaf atlases vegetation.
  */
-function takeTexture(name: string, raw: Buffer, label: string): TextureFile {
+function takeTexture(group: string, name: string, raw: Buffer, label: string): TextureFile {
   let bytes = raw;
+  let resizedFrom: string | undefined;
   const size = readPngSize(raw);
   if (!isPng(raw)) {
     throw new Error(`${label}: embedded image "${name}" is not a PNG`);
   }
   if (size !== undefined && (size.width > MAX_TEXTURE_SIZE || size.height > MAX_TEXTURE_SIZE)) {
-    bytes = encodePng(fitWithin(decodePng(raw), MAX_TEXTURE_SIZE));
+    const fitted = fitWithin(decodePng(raw), MAX_TEXTURE_SIZE);
+    bytes = encodePng(fitted);
+    resizedFrom = `${String(size.width)}×${String(size.height)}→${String(fitted.width)}×${String(fitted.height)}`;
   }
 
   const hash = sha256(bytes);
-  const existing = textures.get(hash);
+  const key = `${group}:${hash}`;
+  const existing = textures.get(key);
   if (existing !== undefined) {
     return { ...existing, isNew: false };
   }
@@ -181,12 +217,24 @@ function takeTexture(name: string, raw: Buffer, label: string): TextureFile {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   const file: TextureFile = {
-    path: `textures/${stem === '' ? 'texture' : stem}-${hash.slice(ASSET_HASH_PREFIX.length, ASSET_HASH_PREFIX.length + 8)}.png`,
+    path: `${group}/textures/${stem === '' ? 'texture' : stem}-${hash.slice(ASSET_HASH_PREFIX.length, ASSET_HASH_PREFIX.length + 8)}.png`,
     bytes,
     isNew: true,
+    ...(resizedFrom === undefined ? {} : { resizedFrom }),
   };
-  textures.set(hash, file);
+  textures.set(key, file);
   return file;
+}
+
+/**
+ * How a model refers to one of its textures: a sibling folder, never `..`.
+ *
+ * `environment/rock.glb` says `textures/atlas.png`, which every glTF loader
+ * resolves against the model's own URL — `…/store/environment/textures/…` over
+ * the asset server, `environment/textures/…` on disk.
+ */
+function textureUri(texture: TextureFile): string {
+  return texture.path.slice(texture.path.indexOf('/') + 1);
 }
 
 /** A 4×4 grey PNG, the stand-in a private texture points at. */
@@ -202,12 +250,32 @@ function unavailableTexture(): Buffer {
 interface Report {
   imported: number;
   normalsComputed: number;
+  /** Models that carried their own textured material out of the export. */
+  authoredTextures: number;
+  /** Models a scene bundle gave a material to. */
+  boundFromScenes: number;
+  /** Models that ended the run with no base colour anywhere. */
+  readonly untextured: string[];
+  /** Textures that were over the size budget, as `path 4096×4096→2048×2048`. */
+  readonly resized: string[];
+  /** Material names met that `materials.ts` does not list. */
+  readonly unlistedMaterials: Set<string>;
   readonly skipped: Map<string, number>;
   readonly excluded: string[];
 }
 
 const entries: AssetEntry[] = [];
-const report: Report = { imported: 0, normalsComputed: 0, skipped: new Map(), excluded: [] };
+const report: Report = {
+  imported: 0,
+  normalsComputed: 0,
+  authoredTextures: 0,
+  boundFromScenes: 0,
+  untextured: [],
+  resized: [],
+  unlistedMaterials: new Set(),
+  skipped: new Map(),
+  excluded: [],
+};
 /** Which source file claimed each id, so a collision can name the winner. */
 const byId = new Map<string, string>();
 
@@ -236,26 +304,18 @@ async function importOne(selection: Selection, sourceFile: string): Promise<Asse
 
   const produced: AssetEntry[] = [];
 
-  for (const image of takeEmbeddedImages(glb)) {
-    const owner = selection.path.replace(/^.*\//, '').replace(/\.glb$/i, '');
-    const texture = takeTexture(`${owner}-${String(image.index)}`, image.bytes, selection.path);
-    const target = glb.json.images?.[image.index];
-    if (target !== undefined) {
-      // Relative to the GLB's own URL: `vegetation/x.glb` next to
-      // `textures/y.png` resolves to `../textures/y.png` in any loader.
-      target.uri = `../${texture.path}`;
+  /** The manifest entry for a texture file this model was the first to need. */
+  const textureEntry = (texture: TextureFile, origin: string): AssetEntry => {
+    if (texture.resizedFrom !== undefined) {
+      report.resized.push(`${texture.path} ${texture.resizedFrom}`);
     }
-    if (!texture.isNew) {
-      continue;
-    }
-    await write(join(storeRoot, texture.path), texture.bytes);
-    produced.push({
-      id: `textures/${texture.path.slice('textures/'.length).replace(/\.png$/, '')}`,
+    return {
+      id: texture.path.replace(/\.png$/, ''),
       path: texture.path,
       kind: 'texture',
       bytes: texture.bytes.byteLength,
       hash: sha256(texture.bytes),
-      origin: `Texture slot ${String(image.index)} of ${selection.path}, extracted into its own file.`,
+      origin,
       source: selection.provenance.source,
       author: selection.provenance.author,
       license: IMPORT_LICENSE,
@@ -266,7 +326,91 @@ async function importOne(selection: Selection, sourceFile: string): Promise<Asse
       // shared 4x4 grey covers that; a per-texture stand-in would be 76 files
       // that differ in nothing.
       placeholder: TEXTURE_PLACEHOLDER,
-    });
+    };
+  };
+
+  // The model that owns a texture names it: `owner-slot-hash.png`. Slots are
+  // counted across both sources below, so the same model never claims one
+  // number twice.
+  const owner = selection.id.split('/').pop() ?? selection.id;
+  const embedded = takeEmbeddedImages(glb);
+
+  for (const image of embedded) {
+    const texture = takeTexture(
+      selection.group,
+      `${owner}-${String(image.index)}`,
+      image.bytes,
+      selection.path,
+    );
+    const target = glb.json.images?.[image.index];
+    if (target !== undefined) {
+      target.uri = textureUri(texture);
+    }
+    if (!texture.isNew) {
+      continue;
+    }
+    await write(join(storeRoot, texture.path), texture.bytes);
+    produced.push(
+      textureEntry(
+        texture,
+        `Texture slot ${String(image.index)} of ${selection.path}, extracted into its own file.`,
+      ),
+    );
+  }
+
+  // --- material bindings from the scene bundles ---------------------------
+  //
+  // The per-model export dropped the material assignment; the scene bundles
+  // kept it. `bindMaterials` writes it back, and every texture it asks for
+  // becomes a file in the model's own `textures/` folder exactly like an
+  // embedded one.
+  const byVertexCount = sceneBindings.byModel.get(owner);
+  const pending: TextureFile[] = [];
+  let slot = embedded.length;
+  const outcome = bindMaterials(
+    glb.json,
+    (vertices) => byVertexCount?.get(vertices)?.material,
+    (material) => {
+      const image = sceneBindings.images.get(material);
+      if (image === undefined) {
+        return undefined;
+      }
+      const taken = slot;
+      slot += 1;
+      const texture = takeTexture(
+        selection.group,
+        `${owner}-${String(taken)}`,
+        image,
+        selection.path,
+      );
+      if (texture.isNew) {
+        pending.push(texture);
+        produced.push(
+          textureEntry(
+            texture,
+            `Texture slot ${String(taken)} of ${selection.path}, taken from the scene bundle ` +
+              `that assigns this model its material.`,
+          ),
+        );
+      }
+      return textureUri(texture);
+    },
+  );
+  for (const texture of pending) {
+    await write(join(storeRoot, texture.path), texture.bytes);
+  }
+  for (const material of outcome.unlisted) {
+    report.unlistedMaterials.add(material);
+  }
+  if (outcome.bound > 0) {
+    report.boundFromScenes += 1;
+  }
+  if (outcome.kept > 0) {
+    report.authoredTextures += 1;
+  }
+  if (outcome.bound === 0 && outcome.kept === 0) {
+    const reasons = [...new Set(outcome.unbound.map((primitive) => primitive.reason))].sort();
+    report.untextured.push(`${selection.path} — ${reasons.join(', ') || 'no geometry'}`);
   }
 
   // The twelve terrains are exported with POSITION and TEXCOORD_0 alone, and a
@@ -317,6 +461,56 @@ process.stdout.write(`importing from ${sourceRoot}\n`);
 process.stdout.write(
   `store:         ${storeRoot}${dryRun ? '  (dry run, nothing written)' : ''}\n`,
 );
+
+/**
+ * Which ids the store will hold, decided before a single file is opened.
+ *
+ * The scene bundles have to be read first — a model needs its material before
+ * it is written — and matching a scene node to a model needs the whole list of
+ * names. `select` is pure, so the list costs three directory reads.
+ */
+async function plannedStoreIds(): Promise<Set<string>> {
+  const ids = new Set<string>();
+  for (const { folder } of SOURCE_FOLDERS) {
+    let files: string[];
+    try {
+      files = await readdir(join(sourceRoot, folder));
+    } catch {
+      continue;
+    }
+    for (const fileName of files) {
+      const selection = select(folder, fileName);
+      if (isSelection(selection)) {
+        ids.add(selection.id.split('/').pop() ?? selection.id);
+      }
+    }
+  }
+  return ids;
+}
+
+const sceneBindings: SceneBindings = await (async (): Promise<SceneBindings> => {
+  const directory = join(sourceRoot, SCENE_BUNDLE_FOLDER);
+  let files: string[];
+  try {
+    files = (await readdir(directory)).filter((file) => /\.glb$/i.test(file));
+  } catch {
+    process.stdout.write(`  ${SCENE_BUNDLE_FOLDER}: not in this export, no material bindings\n`);
+    return NO_SCENE_BINDINGS;
+  }
+  const ids = await plannedStoreIds();
+  process.stdout.write(
+    `  ${SCENE_BUNDLE_FOLDER}: reading ${String(files.length)} scene bundle(s) for material bindings\n`,
+  );
+  const bindings = await readSceneBindings(directory, files, ids, (file, hits) => {
+    process.stdout.write(
+      `    ${file.padEnd(20)} ${String(hits).padStart(6)} node(s) named a model\n`,
+    );
+  });
+  process.stdout.write(
+    `    ${String(bindings.byModel.size)} model(s) bound, ${String(bindings.images.size)} material(s) with a base colour\n`,
+  );
+  return bindings;
+})();
 
 for (const { folder } of SOURCE_FOLDERS) {
   let files: string[];
@@ -458,6 +652,39 @@ process.stdout.write(`  ${'manifest'.padEnd(12)} ${String(assets.length).padStar
 process.stdout.write(
   `  ${'normals'.padEnd(12)} ${String(report.normalsComputed).padStart(5)} file(s) had none and were given them\n`,
 );
+
+const textured = report.imported - report.untextured.length;
+process.stdout.write(
+  `  ${'textured'.padEnd(12)} ${String(textured).padStart(5)} of ${String(report.imported)} model(s) ` +
+    `(${String(report.authoredTextures)} kept their own material, ` +
+    `${String(report.boundFromScenes)} bound from a scene bundle)\n`,
+);
+if (report.resized.length > 0) {
+  process.stdout.write(
+    `\n  over the ${String(MAX_TEXTURE_SIZE)} px budget, scaled down (${String(report.resized.length)}):\n`,
+  );
+  for (const line of report.resized) {
+    process.stdout.write(`    ${line}\n`);
+  }
+}
+if (report.unlistedMaterials.size > 0) {
+  // Not a failure: an unlisted material renders opaque, which is a visible
+  // wrong rather than a silent one. It is printed so the table can be extended.
+  process.stdout.write(
+    `\n  materials not in the surface table (${String(report.unlistedMaterials.size)}), rendered opaque:\n`,
+  );
+  for (const name of [...report.unlistedMaterials].sort()) {
+    process.stdout.write(`    ${name}\n`);
+  }
+}
+if (report.untextured.length > 0) {
+  process.stdout.write(
+    `\n  imported without a base colour (${String(report.untextured.length)}):\n`,
+  );
+  for (const line of report.untextured) {
+    process.stdout.write(`    ${line}\n`);
+  }
+}
 
 if (report.excluded.length > 0) {
   process.stdout.write(`\n  excluded after measuring (${String(report.excluded.length)}):\n`);

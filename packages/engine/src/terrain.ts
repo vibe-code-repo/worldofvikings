@@ -38,14 +38,17 @@ import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import type { Node } from '@babylonjs/core/node.js';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
+import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
+import { Constants } from '@babylonjs/core/Engines/constants.js';
 import { Scene } from '@babylonjs/core/scene.js';
 import {
   TERRAIN_ATTRIBUTES,
-  TERRAIN_VERTEX_SOURCE,
   layerRepeats,
   terrainFragmentSource,
   terrainSamplerNames,
   terrainUniformNames,
+  terrainVertexSource,
+  type TerrainShadowShader,
 } from './terrain-shader.js';
 
 /**
@@ -83,6 +86,19 @@ export interface TerrainOptions {
   readonly splat?: readonly TerrainTextureSource[];
   /** Colour used when there is no layer at all; `#rrggbb`. */
   readonly color?: string;
+  /**
+   * Whether the ground takes the sun's shadow map into account (ADR-0024).
+   *
+   * A flag rather than `mesh.receiveShadows`, because that property means
+   * nothing to a hand-written material: the lookup is compiled into the
+   * generated program, so it has to be known when the material is built. If it
+   * is on and the scene has no shadow-casting sun, the tile is simply lit — the
+   * program still compiles and the uniform that switches the lookup off stays
+   * at zero.
+   */
+  readonly receiveShadows?: boolean;
+  /** Samples per pixel for the ground's shadow lookup: 1, 4 or 9. */
+  readonly shadowTaps?: 1 | 4 | 9;
 }
 
 /** What {@link createTerrain} put into the scene, and how to take it out. */
@@ -124,12 +140,76 @@ function loadTexture(scene: Scene, source: TerrainTextureSource, samplingMode: n
   return texture;
 }
 
-/** A ShaderStore key that is unique per shape of program. */
-function registerProgram(layerCount: number, splatCount: number): string {
-  const key = `wovTerrain${String(layerCount)}x${String(splatCount)}`;
-  ShaderStore.ShadersStore[`${key}VertexShader`] = TERRAIN_VERTEX_SOURCE;
-  ShaderStore.ShadersStore[`${key}FragmentShader`] = terrainFragmentSource(layerCount, splatCount);
+/**
+ * A ShaderStore key that is unique per shape of program.
+ *
+ * The shadow shape is part of the shape: two tiles that differ only in whether
+ * they sample a shadow map are two different programs, and sharing one key
+ * between them would hand the second tile the first one's compiled shader.
+ */
+function registerProgram(
+  layerCount: number,
+  splatCount: number,
+  shadows: TerrainShadowShader | undefined,
+): string {
+  const suffix =
+    shadows === undefined
+      ? ''
+      : `s${String(shadows.taps)}${shadows.float ? 'f' : 'p'}${String(shadows.mapSize)}`;
+  const key = `wovTerrain${String(layerCount)}x${String(splatCount)}${suffix}`;
+  ShaderStore.ShadersStore[`${key}VertexShader`] = terrainVertexSource(shadows !== undefined);
+  ShaderStore.ShadersStore[`${key}FragmentShader`] = terrainFragmentSource(
+    layerCount,
+    splatCount,
+    shadows,
+  );
   return key;
+}
+
+/**
+ * The sun's shadow generator, if the scene has one that can be sampled.
+ *
+ * Read off the scene rather than passed in, exactly like the lights in
+ * {@link bindSceneLighting}: `applyLighting` owns the rig, and a second handle
+ * to the same generator would be a second thing to keep in step.
+ */
+function sceneShadowGenerator(scene: Scene): ShadowGenerator | null {
+  for (const light of scene.lights) {
+    if (!(light instanceof DirectionalLight)) {
+      continue;
+    }
+    const generator = light.getShadowGenerator();
+    if (generator instanceof ShadowGenerator && generator.getShadowMap() !== null) {
+      return generator;
+    }
+  }
+  return null;
+}
+
+/**
+ * The shadow shape a tile compiles for, measured off the generator that exists.
+ *
+ * `float` comes from the shadow map's own `textureType`, because
+ * `ShadowGenerator` falls back from float to half-float to a packed RGBA byte
+ * target depending on what the hardware renders, and the three are not read the
+ * same way. Guessing produces a ground that is entirely lit or entirely dark,
+ * with nothing in any log to say why (agent principle: measure, do not assume).
+ */
+function shadowShaderShape(
+  generator: ShadowGenerator | null,
+  taps: 1 | 4 | 9,
+): TerrainShadowShader | undefined {
+  const map = generator?.getShadowMap();
+  if (!generator || !map) {
+    return undefined;
+  }
+  return {
+    mapSize: map.getSize().width,
+    float:
+      map.textureType === Constants.TEXTURETYPE_FLOAT ||
+      map.textureType === Constants.TEXTURETYPE_HALF_FLOAT,
+    taps,
+  };
 }
 
 /**
@@ -178,12 +258,16 @@ export function createTerrainMaterial(
 ): { material: ShaderMaterial; textures: Texture[] } {
   const layers = options.layers ?? [];
   const splat = options.splat ?? [];
-  const key = registerProgram(layers.length, splat.length);
+  const shadows =
+    options.receiveShadows === true
+      ? shadowShaderShape(sceneShadowGenerator(scene), options.shadowTaps ?? 4)
+      : undefined;
+  const key = registerProgram(layers.length, splat.length, shadows);
 
   const material = new ShaderMaterial(`${name}-material`, scene, key, {
     attributes: [...TERRAIN_ATTRIBUTES],
-    uniforms: terrainUniformNames(layers.length),
-    samplers: terrainSamplerNames(layers.length, splat.length),
+    uniforms: terrainUniformNames(layers.length, shadows !== undefined),
+    samplers: terrainSamplerNames(layers.length, splat.length, shadows !== undefined),
     needAlphaBlending: false,
     needAlphaTesting: false,
   });
@@ -216,11 +300,18 @@ export function createTerrainMaterial(
 
   material.setColor3('uBaseColor', Color3.FromHexString(options.color ?? DEFAULT_TERRAIN_COLOR));
   bindSceneLighting(material, scene);
+  if (shadows !== undefined) {
+    bindShadows(material, scene, shadows);
+  }
   // The lights and the fog can change after the tile is built (the base scene
   // hands both out for the caller to replace), so they are refreshed on bind
-  // rather than captured once.
+  // rather than captured once. The shadow matrix has to be: it is rebuilt every
+  // frame as the map follows the player.
   material.onBindObservable.add(() => {
     bindSceneLighting(material, scene);
+    if (shadows !== undefined) {
+      bindShadows(material, scene, shadows);
+    }
   });
 
   return { material, textures };
@@ -262,6 +353,44 @@ function bindSceneLighting(material: ShaderMaterial, scene: Scene): void {
 }
 
 /**
+ * Copies the sun's shadow map and its transform into the material's uniforms.
+ *
+ * The matrix changes every frame — the map follows the player (ADR-0024) — so
+ * this runs on every bind rather than once at build time. `uShadowInfo.z` is
+ * the switch: a scene whose shadows were turned off after the tile was built
+ * keeps its compiled program and stops sampling, instead of needing a rebuild.
+ */
+function bindShadows(material: ShaderMaterial, scene: Scene, shadows: TerrainShadowShader): void {
+  // Looked up per bind rather than captured, because the rig can be replaced
+  // while the tile stays: the editor relights when a different world is opened
+  // and the game does it when the world file arrives (ADR-0024). A captured
+  // generator would leave the ground reading a disposed shadow map — which
+  // shows as ground that is simply never in shade, and says nothing anywhere.
+  const generator = sceneShadowGenerator(scene);
+  const map = generator?.getShadowMap() ?? null;
+  const light = generator?.getLight();
+  if (!generator || !map || !light || !scene.shadowsEnabled || !light.shadowEnabled) {
+    material.setVector3('uShadowInfo', new Vector3(1, 1 / shadows.mapSize, 0));
+    return;
+  }
+
+  const camera = scene.activeCamera;
+  material.setMatrix('uShadowMatrix', generator.getTransformMatrix());
+  material.setVector2(
+    'uShadowDepthValues',
+    new Vector2(
+      light.getDepthMinZ(camera),
+      light.getDepthMinZ(camera) + light.getDepthMaxZ(camera),
+    ),
+  );
+  material.setVector3(
+    'uShadowInfo',
+    new Vector3(generator.getDarkness(), 1 / map.getSize().width, 1),
+  );
+  material.setTexture('uShadowMap', map);
+}
+
+/**
  * Puts a loaded height field into the scene as the ground of a zone.
  *
  * @param heightField the root node an asset loader produced for the height
@@ -284,6 +413,10 @@ export function createTerrain(
   const meshes = meshesUnder(root);
   for (const mesh of meshes) {
     mesh.material = material;
+    // Not `receiveShadows`: the flag drives Babylon's own generated materials
+    // and this one is hand-written, so the lookup lives in the shader instead
+    // (`TerrainOptions.receiveShadows`, ADR-0024). Left false so nothing reads
+    // it as a promise the material does not keep.
     mesh.receiveShadows = false;
     // The ground never moves once it is placed; skip its per-frame world matrix
     // computation the same way the base ground does (spec §38).

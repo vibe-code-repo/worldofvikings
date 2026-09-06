@@ -19,8 +19,18 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData.js';
 import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { PhysicsRaycastResult } from '@babylonjs/core/Physics/physicsRaycastResult.js';
-import { PhysicsShapeType } from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
+import {
+  PhysicsMotionType,
+  PhysicsShapeType,
+} from '@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js';
 import { PhysicsAggregate } from '@babylonjs/core/Physics/v2/physicsAggregate.js';
+import { PhysicsBody } from '@babylonjs/core/Physics/v2/physicsBody.js';
+import {
+  type PhysicsShape,
+  PhysicsShapeBox,
+  PhysicsShapeConvexHull,
+  PhysicsShapeMesh,
+} from '@babylonjs/core/Physics/v2/physicsShape.js';
 import { PhysicsEngine as PhysicsEngineV2 } from '@babylonjs/core/Physics/v2/physicsEngine.js';
 import { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin.js';
 // Side effect only: adds `enablePhysics`/`getPhysicsEngine` to Scene.prototype.
@@ -32,12 +42,15 @@ import type {
   CharacterControllerOptions,
   GroundHit,
   PhysicsWorld,
+  Quat,
   RaycastGroundOptions,
   StaticBody,
+  StaticGroup,
   StaticMeshData,
+  StaticShapeDescription,
   Vec3,
 } from './contract.js';
-import { physicsLayers } from './contract.js';
+import { IDENTITY_ROTATION, physicsLayers } from './contract.js';
 import { characterPhysics, defaultGravity, simulationStep } from './defaults.js';
 
 /** The initialised Havok WASM module. */
@@ -89,6 +102,27 @@ function toVector3(value: Vec3): Vector3 {
 
 function toVec3(value: Vector3): Vec3 {
   return { x: value.x, y: value.y, z: value.z };
+}
+
+/**
+ * A degenerate triangle list covering every point exactly once.
+ *
+ * `PhysicsShapeConvexHull` reads its points off a mesh's vertex buffer, and a
+ * mesh without indices has no vertex buffer to read. The triangles are never
+ * collided against — the hull is — so they only have to name every point.
+ */
+function trianglesOverPoints(count: number): Uint32Array {
+  const indices = new Uint32Array(count * 3);
+  for (let index = 0; index < count; index += 1) {
+    indices[index * 3] = index;
+    indices[index * 3 + 1] = index;
+    indices[index * 3 + 2] = index;
+  }
+  return indices;
+}
+
+function toQuaternion(value: Quat): Quaternion {
+  return new Quaternion(value.x, value.y, value.z, value.w);
 }
 
 /** Builds an invisible Babylon mesh from raw triangles for the mesh collider. */
@@ -234,15 +268,19 @@ class HavokPhysicsWorld implements PhysicsWorld {
   }
 
   raycastGround(origin: Vec3, options: RaycastGroundOptions = {}): GroundHit | null {
+    const maxDistance = options.maxDistance ?? characterPhysics.groundRayLength;
+    return this.raycast(origin, { x: origin.x, y: origin.y - maxDistance, z: origin.z });
+  }
+
+  raycast(from: Vec3, to: Vec3): GroundHit | null {
     // A query against a torn-down world has no answer, and the Havok plugin
     // would dereference its freed state. Report "nothing there" instead.
     if (this.#disposed) {
       return null;
     }
-    const maxDistance = options.maxDistance ?? characterPhysics.groundRayLength;
-    const from = toVector3(origin);
-    const to = new Vector3(origin.x, origin.y - maxDistance, origin.z);
-    this.#engine.raycastToRef(from, to, this.#rayResult, { collideWith: physicsLayers.world });
+    this.#engine.raycastToRef(toVector3(from), toVector3(to), this.#rayResult, {
+      collideWith: physicsLayers.world,
+    });
     if (!this.#rayResult.hasHit) {
       return null;
     }
@@ -279,6 +317,102 @@ class HavokPhysicsWorld implements PhysicsWorld {
     };
     this.#statics.add(body);
     return body;
+  }
+
+  /**
+   * One shape, one body per placement (ADR-0026).
+   *
+   * The shape is built once and handed to every body: that is the difference
+   * between 220 convex hulls and 1216 of them for the same village. Each body
+   * gets its own transform node carrying **position and rotation only** — a
+   * node with a scale on it would ask Havok to represent something a rigid
+   * transform cannot, so the scale is already in the shape's coordinates by the
+   * time it arrives here.
+   */
+  addStaticGroup(group: StaticGroup): StaticBody {
+    this.#assertAlive('add static geometry');
+    const built = this.#buildShape(group.name, group.shape);
+    built.shape.filterMembershipMask = physicsLayers.world;
+
+    const bodies: PhysicsBody[] = [];
+    const nodes: TransformNode[] = [];
+    for (const [index, placement] of group.placements.entries()) {
+      const node = new TransformNode(`physics:${group.name}:${String(index)}`, this.#scene);
+      node.position = toVector3(placement.position);
+      node.rotationQuaternion = toQuaternion(placement.rotation ?? IDENTITY_ROTATION);
+      node.computeWorldMatrix(true);
+
+      const physicsBody = new PhysicsBody(node, PhysicsMotionType.STATIC, false, this.#scene);
+      physicsBody.shape = built.shape;
+      bodies.push(physicsBody);
+      nodes.push(node);
+    }
+
+    let disposed = false;
+    const body: StaticBody = {
+      name: group.name,
+      dispose: () => {
+        if (disposed) {
+          return;
+        }
+        disposed = true;
+        for (const physicsBody of bodies) {
+          physicsBody.dispose();
+        }
+        built.shape.dispose();
+        built.mesh?.dispose();
+        for (const node of nodes) {
+          node.dispose();
+        }
+        this.#statics.delete(body);
+      },
+    };
+    this.#statics.add(body);
+    return body;
+  }
+
+  /**
+   * Turns a shape description into a Havok shape.
+   *
+   * The hull and the mesh kinds go through a throwaway Babylon mesh, because
+   * that is the only thing `PhysicsShapeConvexHull` and `PhysicsShapeMesh`
+   * accept. It is returned alongside the shape so it can be disposed with it —
+   * Havok keeps its own copy of the triangles, but the Babylon mesh would sit
+   * in the scene forever otherwise.
+   */
+  #buildShape(
+    name: string,
+    description: StaticShapeDescription,
+  ): { shape: PhysicsShape; mesh?: Mesh } {
+    if (description.kind === 'box') {
+      const shape = new PhysicsShapeBox(
+        toVector3(description.center),
+        Quaternion.Identity(),
+        new Vector3(
+          Math.abs(description.halfExtents.x) * 2,
+          Math.abs(description.halfExtents.y) * 2,
+          Math.abs(description.halfExtents.z) * 2,
+        ),
+        this.#scene,
+      );
+      return { shape };
+    }
+
+    const indices =
+      description.kind === 'mesh'
+        ? description.indices
+        : // A convex hull only needs the points, but Babylon reads the topology
+          // off a mesh, so the points are handed over as a strip of triangles.
+          trianglesOverPoints(description.positions.length / 3);
+    const mesh = buildColliderMesh(
+      { name, positions: description.positions, indices },
+      this.#scene,
+    );
+    const shape =
+      description.kind === 'mesh'
+        ? new PhysicsShapeMesh(mesh, this.#scene)
+        : new PhysicsShapeConvexHull(mesh, this.#scene);
+    return { shape, mesh };
   }
 
   /**

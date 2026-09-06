@@ -147,10 +147,48 @@ does not repeat; `pnpm tsx tooling/asset-pipeline/material-key.ts "<name>"`
 prints the key for a new one. An unlisted material is reported by the importer
 and drawn opaque.
 
-Two things the export simply does not contain, and which no import can recover:
-the leaf and grass atlases are luminance masks whose colour lived in a material
-tint the exporter dropped, so foliage renders grey; and 109 models appear in no
-scene bundle at all, so they stay untextured and are named in the run report.
+#### The colour the export dropped
+
+The leaf and needle atlases are brightness masks, not colour. Measured over
+their opaque pixels, the broadleaf card averages R 115.4 G 115.1 B 115.4 and the
+two needle cards R = G = B at 118.4 and 148.4 — grey to within a digit. The green
+lived in a material colour that the exporter dropped along with every other
+factor, so foliage imported without one is a grey tree.
+
+`materials.ts` puts it back as a `tint`, written into the store GLB as
+`pbrMetallicRoughness.baseColorFactor`. It is keyed **per leaf card, not per
+model**: eleven tree, bush and hedge models share one broadleaf atlas and differ
+only in that factor, which is what a multiplier is for. Bark and trunk atlases
+are already coloured (R 113 G 98 B 80) and are deliberately left alone. glTF caps
+a factor at 1, so a tint can only take colour away — green is therefore kept at
+or near 1 and red and blue are pulled down; pushing all three down to "reach" a
+saturated green would only produce a darker grey-green.
+
+Measured in the game on four specimens under identical light, before and after
+(mean RGB over the foliage pixels of the same crop):
+
+| Specimen        | before             | after              | green share     |
+| --------------- | ------------------ | ------------------ | --------------- |
+| bush, broadleaf | 67.5 / 73.2 / 63.3 | 57.5 / 73.2 / 43.9 | 35.9 % → 41.9 % |
+| birch crown     | 70.0 / 70.6 / 68.1 | 57.5 / 70.6 / 43.8 | 33.8 % → 41.1 % |
+| pine crown      | 74.3 / 75.0 / 73.5 | 42.6 / 59.5 / 40.8 | 33.7 % → 41.7 % |
+| grass clump     | 40.8 / 65.2 / 57.7 | 40.2 / 65.2 / 50.0 | 39.8 % → 42.0 % |
+
+The grass card is the odd one out: that atlas _was_ exported with its colour
+(R 87 G 107 B 55), so its tint only deepens what is already there.
+
+**The surface table reaches the whole store, not only what a run imports.**
+Models cut out of a scene bundle (below) are cut exactly once, so their
+materials would otherwise freeze at whatever the table said that day — a tint
+added later would reach every tree from the export and none of the bushes from
+the bundle. `import:world-assets` therefore re-applies the table to every
+private mesh in the store that it does not import itself, rewrites only the
+files whose bytes change, and says how many in its report
+(`surfaces: N stored model(s) another importer owns re-surfaced`). A second run
+re-surfaces nothing.
+
+One thing no import can recover: 109 models appear in no scene bundle at all, so
+they stay untextured and are named in the run report.
 
 `pnpm smoke` proves the rest on screen: with `WOV_ASSET_STORE` set,
 `tooling/smoke/textures.spec.ts` opens the editor on three private models and
@@ -176,6 +214,70 @@ shared atlas stays one file. Anything larger than the size limit — a backdrop,
 sky dome — is excluded and named rather than rescaled. Afterwards, run
 `pnpm generate:prefabs` so the new models reach the catalogue, then
 `pnpm import:scene` to write the world file (`docs/world-format.md`).
+
+## Regenerating everything, in order
+
+The whole chain, from a modelling export to a world file that matches the
+catalogue it references. Each step reads what the one before it wrote, so the
+order is not a suggestion:
+
+```bash
+export WOV_ASSET_STORE=~/assets/store
+pnpm import:world-assets --source <export> --store "$WOV_ASSET_STORE"
+pnpm generate:prefabs    --store "$WOV_ASSET_STORE"
+pnpm import:scene-models --scene <export>/SceneHierarchyObject/Village1.glb \
+                         --store "$WOV_ASSET_STORE"
+pnpm generate:prefabs    --store "$WOV_ASSET_STORE"   # again: new models, new prefabs
+pnpm import:scene --scene <export>/SceneHierarchyObject/Village1.glb \
+                  --world village1 --name "Village One"
+# then the scatter runs, verbatim from docs/world-editor.md
+pnpm validate
+```
+
+`generate:prefabs` runs twice on purpose: the first pass is what
+`import:scene-models` needs to know which models the store already has, the
+second brings the models it cut into the catalogue.
+
+`import:scene` **rewrites** the world file from the bundle. What the bundle does
+not describe is carried over from the file being replaced — the zone's `terrain`
+block and the world's `lighting` block (ADR-0028) — and the run says so. What is
+_not_ carried over is the entities a scatter planted, because entities are
+exactly what the import replaces (ADR-0025); the three runs that dressed
+`village1` are written out in `docs/world-editor.md` and have to be repeated.
+
+The chain is deterministic. Run against an unchanged export and store it
+reproduces `assets/manifest.json`, `content/prefabs/imported.json` and
+`content/worlds/village1.json` byte for byte.
+
+## The collision shape of a prefab
+
+`pnpm generate:prefabs` also decides what each prefab is _shaped_ like for
+collision (ADR-0026), from rules over the manifest:
+
+| Asset                                      | Shape                                        |
+| ------------------------------------------ | -------------------------------------------- |
+| ships an `<name>-collision.glb`            | `mesh`, against that file                    |
+| `terrain/`                                 | `mesh`                                       |
+| `vegetation/`, name contains `tree`/`pine` | `box` around the **measured trunk**          |
+| `vegetation/`, anything else               | `none` — grass and bushes are walked through |
+| named as an opening (`archway`, `gateway`) | `mesh`, or a box would fill the opening      |
+| everything else                            | `box`, from the manifest's hull              |
+
+A collider file is never a prefab of its own.
+
+The trunk is the reason this command reads the store:
+
+```bash
+pnpm generate:prefabs --store <store>   # or set WOV_ASSET_STORE
+```
+
+A pine's hull is 6.8 m across because its crown is; its trunk is 0.6 m, and that
+number is written down nowhere but the model. The command opens each tree, takes
+the width of the lowest band of vertices per axis, ignores the outermost tenth
+so a root flare does not set the width, and writes the result as
+`collision.box`. Without a readable store it **fails on the first tree** rather
+than filing a crown as a trunk. The result is committed, so a clone never needs
+to run it.
 
 ## Formats
 

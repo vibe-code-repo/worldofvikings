@@ -31,8 +31,37 @@ describe('migrateWorldData', () => {
     expect(v1.schemaVersion).toBe(1);
   });
 
+  it('upgrades version 2 additively: only the version number changes', () => {
+    const v2 = { schemaVersion: 2, id: 'main', name: 'Main', zones: [] };
+    const result = migrateWorldData(v2, 3);
+    expect(result).toEqual({
+      ok: true,
+      data: { schemaVersion: 3, id: 'main', name: 'Main', zones: [] },
+      from: 2,
+      to: 3,
+    });
+  });
+
+  it('walks every recorded step in one go, 1 to the current version', () => {
+    const result = migrateWorldData(
+      { schemaVersion: 1, id: 'main', name: 'Main', zones: [] },
+      CURRENT_WORLD_SCHEMA_VERSION,
+    );
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
+        id: 'main',
+        name: 'Main',
+        zones: [],
+      },
+      from: 1,
+      to: CURRENT_WORLD_SCHEMA_VERSION,
+    });
+  });
+
   it('refuses a version newer than this build', () => {
-    const result = migrateWorldData({ schemaVersion: 3 }, 2);
+    const result = migrateWorldData({ schemaVersion: CURRENT_WORLD_SCHEMA_VERSION + 1 }, 2);
     expect(result.ok).toBe(false);
   });
 

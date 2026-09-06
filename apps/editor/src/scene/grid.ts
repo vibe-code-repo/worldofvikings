@@ -6,11 +6,11 @@
  * (ADR-0006). Lines need no material, no lighting and no new dependency — the
  * spec's "visible grid" costs three draw calls.
  */
-import { Color3 } from '@babylonjs/core/Maths/math.color';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector';
-import { CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder';
-import type { LinesMesh } from '@babylonjs/core/Meshes/linesMesh';
-import type { Scene } from '@babylonjs/core/scene';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder.js';
+import type { LinesMesh } from '@babylonjs/core/Meshes/linesMesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import { gridGeometry, type GridLine, type GridOptions } from './grid-lines.js';
 
 /** The three meshes the grid consists of, so each can be coloured on its own. */

@@ -32,3 +32,10 @@ change it describes.
 | [0021](0021-authored-worlds-are-imported-from-scene-bundles.md)               | Authored worlds are imported from scene bundles                   | accepted |
 | [0022](0022-the-game-loads-its-world-from-the-api.md)                         | The game loads its world from the API, and instances its entities | accepted |
 | [0023](0023-the-store-is-a-second-source-of-truth-for-the-manifest.md)        | The private store is a second source of truth for the manifest    | accepted |
+| [0024](0024-lighting-as-world-data-with-one-shadow-map.md)                    | Lighting is world data, drawn with one following shadow map       | accepted |
+| [0025](0025-scatter-is-an-editor-command-whose-result-is-persisted.md)        | Scatter is an editor command whose result is persisted            | accepted |
+| [0026](0026-entities-carry-a-collision-shape.md)                              | Entities carry a collision shape, decided at import time          | accepted |
+| [0027](0027-small-vegetation-receives-shadow-but-does-not-cast.md)            | Small vegetation receives shadow but does not cast it             | accepted |
+| [0028](0028-the-scene-import-carries-authored-blocks-forward.md)              | The scene import carries authored blocks forward                  | accepted |
+| [0029](0029-one-babylon-module-one-specifier.md)                              | One Babylon.js module, one import specifier                       | accepted |
+| [0030](0030-staging-serves-built-bundles.md)                                  | Staging serves built bundles, not a development server            | accepted |

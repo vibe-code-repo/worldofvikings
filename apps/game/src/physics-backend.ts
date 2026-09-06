@@ -10,10 +10,10 @@
  * `pnpm lint:boundaries` allows `@babylonjs/havok` and `@wov/physics/havok` here
  * and nowhere else in the game.
  */
-import type { Scene } from '@babylonjs/core/scene';
-import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
-import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import type { Scene } from '@babylonjs/core/scene.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { PhysicsWorld, StaticMeshData } from '@wov/physics';
 // The URL of the emitted asset, not the asset itself: this is a string in the
 // bundle. Havok's own loader would otherwise guess a path that does not survive

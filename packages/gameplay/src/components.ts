@@ -25,6 +25,14 @@ export interface MovementTuning {
   readonly maxSpeed: number;
   /** Factor applied to {@link maxSpeed} while sprint is held. */
   readonly sprintMultiplier: number;
+  /**
+   * How wide the entity is, in metres, for the obstacle query (ADR-0026).
+   *
+   * Per entity for the same reason the speeds are: a wolf squeezes through a
+   * gap a housecarl does not. It is a radius, not a diameter, and it matches
+   * the physics capsule the character will eventually get.
+   */
+  readonly radius: number;
 }
 
 /**
@@ -40,6 +48,7 @@ export const DEFAULT_MOVEMENT_TUNING: MovementTuning = Object.freeze({
   deceleration: 45,
   maxSpeed: 4.5,
   sprintMultiplier: 1.6,
+  radius: 0.4,
 });
 
 /** Velocity and ground contact of a moving entity. */

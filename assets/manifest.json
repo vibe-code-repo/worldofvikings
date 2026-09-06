@@ -1,13 +1,13 @@
 {
   "manifestVersion": 2,
-  "generatedAt": "2026-09-06T09:16:30.829Z",
+  "generatedAt": "2026-09-06T13:03:04.015Z",
   "assets": [
     {
       "id": "environment/barrel-destructible",
       "path": "environment/barrel-destructible.glb",
       "kind": "mesh",
-      "bytes": 140476,
-      "hash": "sha256-542c12bd373b03e339b576f14d397162634ca498ece228803d5139b108523424",
+      "bytes": 140536,
+      "hash": "sha256-49a3b9b4a1fe5799997900f0c626aba14209d024a88e0c313bc05ae05334d99d",
       "bounds": {
         "min": [
           -0.3838,
@@ -32,8 +32,8 @@
       "id": "environment/chestbottom",
       "path": "environment/chestbottom.glb",
       "kind": "mesh",
-      "bytes": 30176,
-      "hash": "sha256-927bc240bf9efdd84ba14425bf772d78f57c344d9d7301bcebf2756d06a9c836",
+      "bytes": 30236,
+      "hash": "sha256-40e07635397cb1e1b444f903541191e37b84a9c2621113ba3963081f4d9f381d",
       "bounds": {
         "min": [
           -0.617,
@@ -58,8 +58,8 @@
       "id": "environment/chesttop",
       "path": "environment/chesttop.glb",
       "kind": "mesh",
-      "bytes": 27700,
-      "hash": "sha256-e08f195e03af5f6a93995301122c07dfdc730d7f3936ba33624994567cd49951",
+      "bytes": 27756,
+      "hash": "sha256-40bb568993773a0eb7e5af2b2c4f97eae7804a18c790961f865b92a22fedeb01",
       "bounds": {
         "min": [
           -0.605,
@@ -84,8 +84,8 @@
       "id": "environment/crate-wood-destructible",
       "path": "environment/crate-wood-destructible.glb",
       "kind": "mesh",
-      "bytes": 78856,
-      "hash": "sha256-0f35e0f33f1738fd61d926ad699516234aef4fdf53be825849db8139b7472e60",
+      "bytes": 78916,
+      "hash": "sha256-412f65c34ed8638d7866ab4111ee469669fdedd09d313f1af201d4d24bcf6756",
       "bounds": {
         "min": [
           -0.5517,
@@ -110,8 +110,8 @@
       "id": "environment/floor",
       "path": "environment/floor.glb",
       "kind": "mesh",
-      "bytes": 47972,
-      "hash": "sha256-ce204ea23c3a41bff30081b4643239827ee95772f48eb64ac9da2f265d3e2a37",
+      "bytes": 48028,
+      "hash": "sha256-3a477b367a0d6bd8f1581ba516de157fbddecb6378eec32a9eae185e59aad83f",
       "bounds": {
         "min": [
           -1.5818,
@@ -174,8 +174,8 @@
       "id": "environment/roof-sm-bld-preset-shelter-02",
       "path": "environment/roof-sm-bld-preset-shelter-02.glb",
       "kind": "mesh",
-      "bytes": 510236,
-      "hash": "sha256-14cfd20c54dd9333064a052016d2fbf38d910144e704065f4fa008d81a929b4b",
+      "bytes": 510412,
+      "hash": "sha256-0dab20c93b749ecbdfe3a86d9a434ca6679706a7c12fba24a0471fb68eacfac9",
       "bounds": {
         "min": [
           -0.4927,
@@ -226,8 +226,8 @@
       "id": "environment/sm-bld-house-chimney-stone-01",
       "path": "environment/sm-bld-house-chimney-stone-01.glb",
       "kind": "mesh",
-      "bytes": 15968,
-      "hash": "sha256-35b85491119daa8d76703a3705ab6e956a5dffac74fbf2aeb14f036c7ac61150",
+      "bytes": 16024,
+      "hash": "sha256-21e7c76cf59754af2141b3ccbc15b453b9f5d4652bd46f163f7a30afcaa9cb91",
       "bounds": {
         "min": [
           -0.4103,
@@ -252,8 +252,8 @@
       "id": "environment/sm-bld-house-floor-wood-04",
       "path": "environment/sm-bld-house-floor-wood-04.glb",
       "kind": "mesh",
-      "bytes": 13788,
-      "hash": "sha256-e746549030df169cd35377437123edd56f4481f2e9642e2e11c8c0483822dc26",
+      "bytes": 13844,
+      "hash": "sha256-e70074bf5cb596866bd0e6f289644a0cb1fa5bcd7148297abf91d201e82cb15e",
       "bounds": {
         "min": [
           -0.0027,
@@ -278,8 +278,8 @@
       "id": "environment/sm-bld-house-floor-wood-beam-01",
       "path": "environment/sm-bld-house-floor-wood-beam-01.glb",
       "kind": "mesh",
-      "bytes": 4164,
-      "hash": "sha256-68a0f89b692dd15473324b667de036bf2f551d7a4cea74652d3a97b9f85d9fd9",
+      "bytes": 4220,
+      "hash": "sha256-5e9fad1bb6aa34c6b34098543267709b381c4a3654fd8939d8d527c129a5f5a8",
       "bounds": {
         "min": [
           0,
@@ -304,8 +304,8 @@
       "id": "environment/sm-bld-house-railing-01",
       "path": "environment/sm-bld-house-railing-01.glb",
       "kind": "mesh",
-      "bytes": 12832,
-      "hash": "sha256-ac52ad992e12c65c96391c0c1b87aa71b0af25f7002b09f3a7f6ad8c80f5cf7e",
+      "bytes": 12892,
+      "hash": "sha256-02bed56b846f1079b28c42a0647de9ee95d4e760d0f217101daeac60926e7cc7",
       "bounds": {
         "min": [
           -0.0679,
@@ -330,8 +330,8 @@
       "id": "environment/sm-bld-house-railing-beam-01",
       "path": "environment/sm-bld-house-railing-beam-01.glb",
       "kind": "mesh",
-      "bytes": 4456,
-      "hash": "sha256-c63a419287b69d96fffac7bab86355c64e52644abe8cbb43265c2f488f16a04b",
+      "bytes": 4516,
+      "hash": "sha256-59174c0a2dc162967fe4a412ee4e81e09ea1ce6a70670ae74fb9e035c6d7fd77",
       "bounds": {
         "min": [
           -0.1112,
@@ -356,8 +356,8 @@
       "id": "environment/sm-bld-house-railing-beam-02",
       "path": "environment/sm-bld-house-railing-beam-02.glb",
       "kind": "mesh",
-      "bytes": 7604,
-      "hash": "sha256-4bc1e2b2a42580f7da3373b7cd91a385537025b903f171f8703ab2f451634e71",
+      "bytes": 7664,
+      "hash": "sha256-eef458bf7e0228dcaa74f973fc6a34200cf0d375278dc87e31620c154f2962dc",
       "bounds": {
         "min": [
           -0.1112,
@@ -408,8 +408,8 @@
       "id": "environment/sm-bld-house-roof-thatch-peak-cap-beams-01",
       "path": "environment/sm-bld-house-roof-thatch-peak-cap-beams-01.glb",
       "kind": "mesh",
-      "bytes": 9632,
-      "hash": "sha256-dc0d6539252c068608aeef0b1cb4c5d285ecafa9364f2bcf9e1b1c5aa9d0cd97",
+      "bytes": 9692,
+      "hash": "sha256-9b097037e890944decc300d55050d61f3c54de44e86f74136223cf33cf815f41",
       "bounds": {
         "min": [
           -1.563,
@@ -486,8 +486,8 @@
       "id": "environment/sm-bld-house-stairs-03",
       "path": "environment/sm-bld-house-stairs-03.glb",
       "kind": "mesh",
-      "bytes": 48116,
-      "hash": "sha256-a78d49ef142c8f5ebbb934a6da588cf411b79043edb5d63b25841df9cc443d42",
+      "bytes": 48176,
+      "hash": "sha256-ac03bfa68a1575defb0e90f48eeab600fcb74d849073d310a82eec4acc4b241a",
       "bounds": {
         "min": [
           -0.0792,
@@ -538,8 +538,8 @@
       "id": "environment/sm-bld-house-tower-flooring-01",
       "path": "environment/sm-bld-house-tower-flooring-01.glb",
       "kind": "mesh",
-      "bytes": 16972,
-      "hash": "sha256-98393cf78c6c8e0baa1aab9178f22aace23c22884aa7c11aa49ec125879a0cff",
+      "bytes": 17032,
+      "hash": "sha256-b75f02cddb33dfe029b21c5690299ca63df14239f9bcc1f77ff1fb14520d35c4",
       "bounds": {
         "min": [
           0.0647,
@@ -1188,8 +1188,8 @@
       "id": "environment/sm-env-grass-short-clump-01-1",
       "path": "environment/sm-env-grass-short-clump-01-1.glb",
       "kind": "prefab",
-      "bytes": 4324,
-      "hash": "sha256-97cbd4eb6682c51aeb5d008baf85a614c4adea244bcb156ea7da5aeaf408d7e7",
+      "bytes": 4356,
+      "hash": "sha256-7121150c8f4a85131803d6a603a1fea89712d0cb1749772965d2fe58a4a771b1",
       "bounds": {
         "min": [
           -0.5,
@@ -1240,8 +1240,8 @@
       "id": "environment/sm-env-grass-short-clump-01-lod0",
       "path": "environment/sm-env-grass-short-clump-01-lod0.glb",
       "kind": "mesh",
-      "bytes": 2688,
-      "hash": "sha256-5c2656f666e924a82178e7b57b083eb0f590803a464d543e40d9116dd1d0941b",
+      "bytes": 2720,
+      "hash": "sha256-c1adcbfbfba4a8c3ea4c170fc23ab6b54d9ac19421e0f6867b6328a251a476ab",
       "bounds": {
         "min": [
           -0.5,
@@ -1292,8 +1292,8 @@
       "id": "environment/sm-env-grass-short-clump-01-lod1",
       "path": "environment/sm-env-grass-short-clump-01-lod1.glb",
       "kind": "mesh",
-      "bytes": 2452,
-      "hash": "sha256-6fad4bcfd0e9ecdc4936d776db11936d1777cd30777fc05c3fa136742bd6ad8a",
+      "bytes": 2484,
+      "hash": "sha256-6dbe27670f26213fe9f4d94b754e09c48cd95c80fe1d1b6370cb9a94d6e4b7b7",
       "bounds": {
         "min": [
           -0.5,
@@ -2722,8 +2722,8 @@
       "id": "environment/sm-env-rock-round-03",
       "path": "environment/sm-env-rock-round-03.glb",
       "kind": "mesh",
-      "bytes": 11568,
-      "hash": "sha256-b6678b352bde82efd6a70835cf015eafdccaa2e6e587541a06d028aa2c939e6e",
+      "bytes": 11628,
+      "hash": "sha256-828089dbaf015833c563753b6abc7c8a1d759e04577a925345832edd950bdbc3",
       "bounds": {
         "min": [
           -0.412,
@@ -2748,8 +2748,8 @@
       "id": "environment/sm-env-rock-round-04",
       "path": "environment/sm-env-rock-round-04.glb",
       "kind": "mesh",
-      "bytes": 8908,
-      "hash": "sha256-19bb6d538cc0b757c7eec585da2ee1c665f88535e101c7a186d935b2a18e7ed2",
+      "bytes": 8968,
+      "hash": "sha256-db2dce26fc0b81c68cca87fef5bd4b62b321582529517a0ba4d25960d1c7dd3b",
       "bounds": {
         "min": [
           -0.412,
@@ -2774,8 +2774,8 @@
       "id": "environment/sm-env-rock-spike-01",
       "path": "environment/sm-env-rock-spike-01.glb",
       "kind": "mesh",
-      "bytes": 10536,
-      "hash": "sha256-07677d96321e9205a05929c501bed321480c9053cb9b4f4585d772f6a1e03e8b",
+      "bytes": 10592,
+      "hash": "sha256-101e447736c5a88e6b3127a0a6881782c3594d5f452485870cbfc05d5f4cdc4d",
       "bounds": {
         "min": [
           -0.3598,
@@ -2800,8 +2800,8 @@
       "id": "environment/sm-env-rock-spike-02",
       "path": "environment/sm-env-rock-spike-02.glb",
       "kind": "mesh",
-      "bytes": 9424,
-      "hash": "sha256-41b2389821d1884256af38b68f0d1abefc3f833103ad01e1a0f636ebe1841cac",
+      "bytes": 9484,
+      "hash": "sha256-e26992fcbf5a63e7e46ca23a49db2cf71a652867d8a9ccb1bd4332eb1539b579",
       "bounds": {
         "min": [
           -0.3612,
@@ -2826,8 +2826,8 @@
       "id": "environment/sm-env-rock-spike-03",
       "path": "environment/sm-env-rock-spike-03.glb",
       "kind": "mesh",
-      "bytes": 9684,
-      "hash": "sha256-4077cb037773398ede60e0a638306a2fdbc6b4738523d57985d0425bd4cbaeb0",
+      "bytes": 9744,
+      "hash": "sha256-7e014b7ba07ca685ed6f0dec0a808c0444b852ff18bba6810d13597232e1239f",
       "bounds": {
         "min": [
           -0.4953,
@@ -2852,8 +2852,8 @@
       "id": "environment/sm-env-rock-spike-04",
       "path": "environment/sm-env-rock-spike-04.glb",
       "kind": "mesh",
-      "bytes": 12152,
-      "hash": "sha256-6507e5564c5021008bf223f0af5b005b82c38d5672bdecb4efe3bdcb22066b49",
+      "bytes": 12208,
+      "hash": "sha256-00e4858bfb482efd713af2e452b74ddff382482d8259c1f41e86fce40b7387c5",
       "bounds": {
         "min": [
           -0.379,
@@ -2878,8 +2878,8 @@
       "id": "environment/sm-env-rock-spike-05",
       "path": "environment/sm-env-rock-spike-05.glb",
       "kind": "mesh",
-      "bytes": 13112,
-      "hash": "sha256-fb31f7e2147259303877f7b73eb9238b051dbbb5688067dbe18bdace6b9b4b69",
+      "bytes": 13172,
+      "hash": "sha256-9da81d19ebd230809c22fdcdf7d2d01fee3dab77736ef0ff13bf7430f44d2147",
       "bounds": {
         "min": [
           -0.3841,
@@ -3918,8 +3918,8 @@
       "id": "environment/sm-generic-treedead-01",
       "path": "environment/sm-generic-treedead-01.glb",
       "kind": "mesh",
-      "bytes": 37352,
-      "hash": "sha256-ec92550c88be12a1c08f87d6f86c7aff3e37631625d759d5708ebe4c60a4bc13",
+      "bytes": 37412,
+      "hash": "sha256-8609114eecd1360b76d78f036984e333e089473d6110982bbb451abdab6df2d6",
       "bounds": {
         "min": [
           -0.5601,
@@ -4126,8 +4126,8 @@
       "id": "environment/sm-item-book-05",
       "path": "environment/sm-item-book-05.glb",
       "kind": "mesh",
-      "bytes": 7996,
-      "hash": "sha256-5d7f8605b60c1ec738acaa12d34fef0951eb125b0d70e7975e4f421dbea595b6",
+      "bytes": 8056,
+      "hash": "sha256-fa5aa336165fe5f9d4e6d06e36631aab716e9d20b42cd4d11f29d12a52a4c561",
       "bounds": {
         "min": [
           -0.2549,
@@ -4152,8 +4152,8 @@
       "id": "environment/sm-item-bottle-09",
       "path": "environment/sm-item-bottle-09.glb",
       "kind": "mesh",
-      "bytes": 12928,
-      "hash": "sha256-03e530ade7a8abac8c0024a0858109eda542cabed67c207a9a794525c2d0bd8e",
+      "bytes": 12988,
+      "hash": "sha256-8f1677a8de6b5fe60d708da963d6b072ecef2f1aa742e631e01f9cbf416a671e",
       "bounds": {
         "min": [
           -0.1102,
@@ -4282,8 +4282,8 @@
       "id": "environment/sm-item-bread-02",
       "path": "environment/sm-item-bread-02.glb",
       "kind": "mesh",
-      "bytes": 27968,
-      "hash": "sha256-bdcfb1619b2c9262d6bebb4414a862832bb29ccdc3ec2839ea904829903a9117",
+      "bytes": 28028,
+      "hash": "sha256-91d8b0443dfef0944bee812c53848ec7fa880ce2ba7c26c8e6aa8b71af50804c",
       "bounds": {
         "min": [
           -0.115,
@@ -4672,8 +4672,8 @@
       "id": "environment/sm-item-crystal-05",
       "path": "environment/sm-item-crystal-05.glb",
       "kind": "mesh",
-      "bytes": 8720,
-      "hash": "sha256-540adbdc2ad54078a8b95e26704f3ed882b0209757d5a98ea1d9401835749f37",
+      "bytes": 8780,
+      "hash": "sha256-ce7467da05389659c47c9da81d0290787d58595ac3755279c4b6597754500247",
       "bounds": {
         "min": [
           -0.0929,
@@ -4932,8 +4932,8 @@
       "id": "environment/sm-item-hammer-06",
       "path": "environment/sm-item-hammer-06.glb",
       "kind": "mesh",
-      "bytes": 7784,
-      "hash": "sha256-cdd6f4b9b3f461b5c82e83a5d44e0707a943041f3b341e99e913cfd71af12911",
+      "bytes": 7840,
+      "hash": "sha256-89b11af8afaade960594cb4957a632dcad86cccc5824a214bf7ee17c8642de27",
       "bounds": {
         "min": [
           -0.0444,
@@ -5010,8 +5010,8 @@
       "id": "environment/sm-item-horseshoe-01",
       "path": "environment/sm-item-horseshoe-01.glb",
       "kind": "mesh",
-      "bytes": 12428,
-      "hash": "sha256-653ebb64d45bc8a8d446cbf6b58d7fb7d5073ab511bcdc404f0e2b69efe62078",
+      "bytes": 12484,
+      "hash": "sha256-5a67c725113f53094c019e5ad91f351c7451d13ba7f4201f8e0091fce4416343",
       "bounds": {
         "min": [
           -0.1013,
@@ -5712,8 +5712,8 @@
       "id": "environment/sm-prop-alchemy-stand-01",
       "path": "environment/sm-prop-alchemy-stand-01.glb",
       "kind": "mesh",
-      "bytes": 37096,
-      "hash": "sha256-36592a39a2ff713e0aa025e8ea2c807881a07da45a4048d29a2147a1551525ca",
+      "bytes": 37156,
+      "hash": "sha256-b19fb459d36a26ee343957e40d5b43b4b867aa2da816df649dd51aa828ada1ae",
       "bounds": {
         "min": [
           -0.1559,
@@ -5738,8 +5738,8 @@
       "id": "environment/sm-prop-animal-head-antler-01",
       "path": "environment/sm-prop-animal-head-antler-01.glb",
       "kind": "mesh",
-      "bytes": 100652,
-      "hash": "sha256-7c52e545b32d19ee6794810b276295905174169a352dbddae1d0de3be644db85",
+      "bytes": 100712,
+      "hash": "sha256-e66b5b74559ef3561eac21a82745b3aee2b7aa8de838576fb835a98ba6420689",
       "bounds": {
         "min": [
           -0.4265,
@@ -5764,8 +5764,8 @@
       "id": "environment/sm-prop-animal-head-backing-05",
       "path": "environment/sm-prop-animal-head-backing-05.glb",
       "kind": "mesh",
-      "bytes": 8008,
-      "hash": "sha256-107aedeaabf3aa01f4b12b5831a4450f46da741fc22b8f299ceb4ee964c17065",
+      "bytes": 8068,
+      "hash": "sha256-00a9df0c66a8915522401bce88cb85b8205abf7533262c1936882031484c8c6b",
       "bounds": {
         "min": [
           -0.3622,
@@ -5790,8 +5790,8 @@
       "id": "environment/sm-prop-animal-head-boar-01",
       "path": "environment/sm-prop-animal-head-boar-01.glb",
       "kind": "mesh",
-      "bytes": 124268,
-      "hash": "sha256-ebc3aaccccb6debe2befe0fff8ea7db2af4a642b26426a24d8e6d739cb5dcd38",
+      "bytes": 124328,
+      "hash": "sha256-88fe560b29d85f0247b1ba3f31b993f4e00131c2addc34195d569c873755dd79",
       "bounds": {
         "min": [
           -0.2906,
@@ -5816,8 +5816,8 @@
       "id": "environment/sm-prop-animal-head-deer-01",
       "path": "environment/sm-prop-animal-head-deer-01.glb",
       "kind": "mesh",
-      "bytes": 166864,
-      "hash": "sha256-46fd134fa2f7adbb5d4ebcb97d0a2e9a95f06f537877157704fd2334f0f6951f",
+      "bytes": 166924,
+      "hash": "sha256-9ac4cb816d549659e144706d20679788839008fe47e1487f6668771ecd416a55",
       "bounds": {
         "min": [
           -0.4281,
@@ -5842,8 +5842,8 @@
       "id": "environment/sm-prop-animal-head-deer-02",
       "path": "environment/sm-prop-animal-head-deer-02.glb",
       "kind": "mesh",
-      "bytes": 83840,
-      "hash": "sha256-26932e2ff7edb99663f8ad5247f48bebbfa174539ac866d5ee3fc4bd3ae0519b",
+      "bytes": 83900,
+      "hash": "sha256-6e9708592837d1a710e8e1d352379fbda10796ab899997968c40a02dc0bd4c30",
       "bounds": {
         "min": [
           -0.2883,
@@ -5868,8 +5868,8 @@
       "id": "environment/sm-prop-animal-pelt-01",
       "path": "environment/sm-prop-animal-pelt-01.glb",
       "kind": "mesh",
-      "bytes": 12672,
-      "hash": "sha256-edb54f69cb3679a34516e8a30356adf9c7074cf79516b6636af80da4669c9c9b",
+      "bytes": 12728,
+      "hash": "sha256-ac06c7eaacb148c021d0c0dc7917d01adca61832bc0d9e7e2499c27e23c5e6ad",
       "bounds": {
         "min": [
           -0.1495,
@@ -5894,8 +5894,8 @@
       "id": "environment/sm-prop-animal-pelt-02",
       "path": "environment/sm-prop-animal-pelt-02.glb",
       "kind": "mesh",
-      "bytes": 20020,
-      "hash": "sha256-c2a5a019a7e076a9fa84b14808d508db2e44c2d8e33cc3072930f7619d4fc785",
+      "bytes": 20080,
+      "hash": "sha256-51497e5205cc7ba30268ead4f059aea02a4d53b0af25ccdd86e2304b1ecc809c",
       "bounds": {
         "min": [
           -0.2993,
@@ -5946,8 +5946,8 @@
       "id": "environment/sm-prop-anvil-01",
       "path": "environment/sm-prop-anvil-01.glb",
       "kind": "mesh",
-      "bytes": 25580,
-      "hash": "sha256-9171d79036158a4809805d1485ad1f79191fcc05f5ec1b00bd2926faf36b6413",
+      "bytes": 25640,
+      "hash": "sha256-737f2e4e56ffccb4e20e51069787f0d8821404bf41364c4d95e190956acebfbe",
       "bounds": {
         "min": [
           -0.1318,
@@ -5998,8 +5998,8 @@
       "id": "environment/sm-prop-archway-01",
       "path": "environment/sm-prop-archway-01.glb",
       "kind": "mesh",
-      "bytes": 48824,
-      "hash": "sha256-45f51e02bd4edb175121cc2893b30b08a5b02c4bdccdd9ebded03e2c42d619c0",
+      "bytes": 48940,
+      "hash": "sha256-73d528ec53f350e5efda9143c4add88de5f60bef81319890052b7b0a3bc9426c",
       "bounds": {
         "min": [
           -1.704,
@@ -6414,8 +6414,8 @@
       "id": "environment/sm-prop-basket-01",
       "path": "environment/sm-prop-basket-01.glb",
       "kind": "mesh",
-      "bytes": 37400,
-      "hash": "sha256-0bd4818da645e5bee3ef2d35e0dec1ff7bdd217cadb0cd684d16f3b864b5beef",
+      "bytes": 37460,
+      "hash": "sha256-8f05df35939ea7d24f6a845b31a424be7da590079892fd202540277da770c61d",
       "bounds": {
         "min": [
           -0.1873,
@@ -6440,8 +6440,8 @@
       "id": "environment/sm-prop-basket-02",
       "path": "environment/sm-prop-basket-02.glb",
       "kind": "mesh",
-      "bytes": 31352,
-      "hash": "sha256-c0762861e68e64c60545f8bb9dd305e2e9a20d1577b19d9206a7098dfb52ead6",
+      "bytes": 31412,
+      "hash": "sha256-77c91916fcbffc4007c21551180b1386e8085fbbd870dc333223bbb8cb0fd32e",
       "bounds": {
         "min": [
           -0.2187,
@@ -6466,8 +6466,8 @@
       "id": "environment/sm-prop-bathtub-01",
       "path": "environment/sm-prop-bathtub-01.glb",
       "kind": "mesh",
-      "bytes": 52984,
-      "hash": "sha256-a9e89738435da2c82088e85ac4e16ea5681baca42236b816ae2516bf60b8aa55",
+      "bytes": 53040,
+      "hash": "sha256-846d6c1cf6db83952f1f9485a9e5aea1e72c7e4b0139f728b81773c04d91b8f8",
       "bounds": {
         "min": [
           -0.6941,
@@ -6492,8 +6492,8 @@
       "id": "environment/sm-prop-bed-03",
       "path": "environment/sm-prop-bed-03.glb",
       "kind": "mesh",
-      "bytes": 161596,
-      "hash": "sha256-7df8076c41a1a71d1cda7e0c00b23185906d601fc4a7c0c7268b9686d7481e17",
+      "bytes": 161656,
+      "hash": "sha256-a50ff4af56b61699375ebb65c4254fdd55df49274b84d7de976b72021d1033c2",
       "bounds": {
         "min": [
           -0.9859,
@@ -6518,8 +6518,8 @@
       "id": "environment/sm-prop-bed-04",
       "path": "environment/sm-prop-bed-04.glb",
       "kind": "mesh",
-      "bytes": 60360,
-      "hash": "sha256-3954f416b277915593ad84a6b3058dc1fe1412771a50f17539b2afa100cf0057",
+      "bytes": 60420,
+      "hash": "sha256-a07e5fda38c702adf858af118cbecf4a9553ccf475c401a90a9308bf1bdd47a3",
       "bounds": {
         "min": [
           -0.5195,
@@ -6570,8 +6570,8 @@
       "id": "environment/sm-prop-bed-06",
       "path": "environment/sm-prop-bed-06.glb",
       "kind": "mesh",
-      "bytes": 32440,
-      "hash": "sha256-3732986dfb743c1a0421285fd46e03cd5c643defcddc594867b5771a4dd0b0e2",
+      "bytes": 32500,
+      "hash": "sha256-844a0203cdb22773671b736d5c43b75ab3df1b77bfacac74db767c71be0919bc",
       "bounds": {
         "min": [
           -0.5195,
@@ -6622,8 +6622,8 @@
       "id": "environment/sm-prop-bellows-02",
       "path": "environment/sm-prop-bellows-02.glb",
       "kind": "mesh",
-      "bytes": 45888,
-      "hash": "sha256-75f60b4fd65d3fcaa48c61255d1a34730c07f77ef87e0ffa1fb10079ca41ee3e",
+      "bytes": 45948,
+      "hash": "sha256-1ee81f41349da1cc7cb5cf38294ced69017329207f0d73f695a7c2736067c431",
       "bounds": {
         "min": [
           -0.1617,
@@ -6752,8 +6752,8 @@
       "id": "environment/sm-prop-books-02",
       "path": "environment/sm-prop-books-02.glb",
       "kind": "mesh",
-      "bytes": 30164,
-      "hash": "sha256-0c772e87c6694cb20eaf5daf39feed3867b359d364ad69c43bc813163bb7bc62",
+      "bytes": 30224,
+      "hash": "sha256-411022e9d2a6849cb37266d5e74830e34fd9a850a240f9f232be8e76964cfae4",
       "bounds": {
         "min": [
           -0.2766,
@@ -6778,8 +6778,8 @@
       "id": "environment/sm-prop-books-04",
       "path": "environment/sm-prop-books-04.glb",
       "kind": "mesh",
-      "bytes": 20180,
-      "hash": "sha256-1ae6a7b4ff67057dbe80111b39a94818b774b1f27b1ef1eef36083ad684b5465",
+      "bytes": 20240,
+      "hash": "sha256-cbc1bf7d9b3e0e5eec193b981f50402be65b25fe03ba4bcd722a52ed7a7ae1a6",
       "bounds": {
         "min": [
           -0.1711,
@@ -6804,8 +6804,8 @@
       "id": "environment/sm-prop-books-05",
       "path": "environment/sm-prop-books-05.glb",
       "kind": "mesh",
-      "bytes": 17764,
-      "hash": "sha256-1e8cd2d6e6fb9ac89fa0e27acee8a5e53484c4369b4ffbb134c4f746967b3546",
+      "bytes": 17824,
+      "hash": "sha256-7b78c049e3d308f2e0ad9b98fce71ad77b7c3b2dcf663b4ecabd2a8f4f5979d2",
       "bounds": {
         "min": [
           -0.1826,
@@ -6830,8 +6830,8 @@
       "id": "environment/sm-prop-books-06",
       "path": "environment/sm-prop-books-06.glb",
       "kind": "mesh",
-      "bytes": 24504,
-      "hash": "sha256-d672d4a3deeee1d9054e9a57ad68a7b60b075cbfa6d44cd7dc4b983dcbd064f0",
+      "bytes": 24564,
+      "hash": "sha256-e6dbfe76bd6371531d3c4c358e668a2c07ec0110975ca02caa109b015dac45cd",
       "bounds": {
         "min": [
           -0.1847,
@@ -6856,8 +6856,8 @@
       "id": "environment/sm-prop-bracket-pot-03-preset-01",
       "path": "environment/sm-prop-bracket-pot-03-preset-01.glb",
       "kind": "mesh",
-      "bytes": 70460,
-      "hash": "sha256-249fa027a2cd7bdedd3ee44a7428f38ea286567057a56ac5efbf618bdc814e83",
+      "bytes": 70516,
+      "hash": "sha256-4040296952466621df61c47da90ac1441dc10ee677f41ad63679dba8331f7d9f",
       "bounds": {
         "min": [
           -0.253,
@@ -7090,8 +7090,8 @@
       "id": "environment/sm-prop-cabinet-02",
       "path": "environment/sm-prop-cabinet-02.glb",
       "kind": "mesh",
-      "bytes": 47496,
-      "hash": "sha256-a5b1c7c562c25ed43abe2eeadd2ab76bf4a803a011d77b881efa640666e08d46",
+      "bytes": 47616,
+      "hash": "sha256-3c4c764301d1b3a339595034617f41e715543ed986ccb188115d3895846b328d",
       "bounds": {
         "min": [
           -0.8031,
@@ -7116,8 +7116,8 @@
       "id": "environment/sm-prop-camp-brazier-01",
       "path": "environment/sm-prop-camp-brazier-01.glb",
       "kind": "mesh",
-      "bytes": 51344,
-      "hash": "sha256-7199addc517e025445949b8e52e97fd9a2578786b9a6311fb1da962f38ea640e",
+      "bytes": 51404,
+      "hash": "sha256-fc9e62f8db28885abea4939bef16bdbe254679fb899dbe1fc6eca43f06beaba6",
       "bounds": {
         "min": [
           -0.2771,
@@ -7246,8 +7246,8 @@
       "id": "environment/sm-prop-candle-melted-04",
       "path": "environment/sm-prop-candle-melted-04.glb",
       "kind": "mesh",
-      "bytes": 22668,
-      "hash": "sha256-82ea243391810e31c5efa7db4cb243d6ec8a1485f674d26b0eb5a27354cb377c",
+      "bytes": 22728,
+      "hash": "sha256-6dd3d8373af41e1e49eb2172ba09fc0c9f95474c83b6c7d6951141503e761b0d",
       "bounds": {
         "min": [
           -0.066,
@@ -7376,8 +7376,8 @@
       "id": "environment/sm-prop-chair-wood-04",
       "path": "environment/sm-prop-chair-wood-04.glb",
       "kind": "mesh",
-      "bytes": 18904,
-      "hash": "sha256-9b3f44da04fa15a6de9b468c5c03f6f14bbd38eecf727d924a6f1ada8ecbed60",
+      "bytes": 18964,
+      "hash": "sha256-314b16319855feb6b94793f1077cada9add7be253cd008c59c88ade3c05953f0",
       "bounds": {
         "min": [
           -0.2788,
@@ -7402,8 +7402,8 @@
       "id": "environment/sm-prop-chandelier-04-preset",
       "path": "environment/sm-prop-chandelier-04-preset.glb",
       "kind": "mesh",
-      "bytes": 196212,
-      "hash": "sha256-9e20d1e5de4cec4984b431260bbef4dc87d49e0b8c83656ae49b4997f20c46bf",
+      "bytes": 196328,
+      "hash": "sha256-3dad476ccac1c9e58a7ff427b3962b4518a70d9a675dd4db77686d2d5747d0cb",
       "bounds": {
         "min": [
           -0.639,
@@ -7636,8 +7636,8 @@
       "id": "environment/sm-prop-chopping-board-01",
       "path": "environment/sm-prop-chopping-board-01.glb",
       "kind": "mesh",
-      "bytes": 11988,
-      "hash": "sha256-f2f9eebb930eee5c479f1d39beb04d2ea1cbc517251fac3f348f416cd5e0b634",
+      "bytes": 12048,
+      "hash": "sha256-ab64b0378ee0123834bb7f4c596ee3a15dc88c46831f36eadba296391a400a7c",
       "bounds": {
         "min": [
           -0.3128,
@@ -7818,8 +7818,8 @@
       "id": "environment/sm-prop-crate-stack-01",
       "path": "environment/sm-prop-crate-stack-01.glb",
       "kind": "mesh",
-      "bytes": 223480,
-      "hash": "sha256-9355551f382b9d3fe202e458a9fc28a7275d430d527a5d82bc4413e4fecd801f",
+      "bytes": 223540,
+      "hash": "sha256-b0a05caea54e4efca36ab00eb477c153f6a6154c1671275e4dda8ae0eb10bb6c",
       "bounds": {
         "min": [
           -1.6448,
@@ -7844,8 +7844,8 @@
       "id": "environment/sm-prop-crate-stack-02",
       "path": "environment/sm-prop-crate-stack-02.glb",
       "kind": "mesh",
-      "bytes": 428224,
-      "hash": "sha256-9385c331e07fd0359d8271da00b582b1c6498cab661cc58c8bb2c2cef105c423",
+      "bytes": 428284,
+      "hash": "sha256-15fdda82e7903a212ba06d27b61f96e8326a83dba720e0707bbda39d67b266dc",
       "bounds": {
         "min": [
           -1.6448,
@@ -7922,8 +7922,8 @@
       "id": "environment/sm-prop-crate-wood-01",
       "path": "environment/sm-prop-crate-wood-01.glb",
       "kind": "mesh",
-      "bytes": 57136,
-      "hash": "sha256-4fff3398bf65ef9f0a8144e8765b6a24e7a9a51bc7e7008cb62195e7a86eaf40",
+      "bytes": 57196,
+      "hash": "sha256-f4f0e97ba47821bd5c38ab3d7a7a83ff7364331f2441536e7d71e3179e64e9a0",
       "bounds": {
         "min": [
           -0.5355,
@@ -8416,8 +8416,8 @@
       "id": "environment/sm-prop-dresser-02",
       "path": "environment/sm-prop-dresser-02.glb",
       "kind": "mesh",
-      "bytes": 56416,
-      "hash": "sha256-104caddae6afc05b16935bdfa036721ce6b01970f852a27a83e87e5e14b8f385",
+      "bytes": 56472,
+      "hash": "sha256-8fe4f800527a40d812af38f50b201a16b9606d62768f15511f273832d80426fd",
       "bounds": {
         "min": [
           -0.8003,
@@ -8520,8 +8520,8 @@
       "id": "environment/sm-prop-fence-01",
       "path": "environment/sm-prop-fence-01.glb",
       "kind": "mesh",
-      "bytes": 25880,
-      "hash": "sha256-2965dadc7634c8a6a9ce5d7c9ed5943775c66b656df9f63891dad228fab5af76",
+      "bytes": 25940,
+      "hash": "sha256-3ef3b13909ea0793cc986cc65f1f0ffbc4ef7c93122cc91c15b7456c29dbb307",
       "bounds": {
         "min": [
           -1.2353,
@@ -8546,8 +8546,8 @@
       "id": "environment/sm-prop-fence-02",
       "path": "environment/sm-prop-fence-02.glb",
       "kind": "mesh",
-      "bytes": 26356,
-      "hash": "sha256-e477a841e09553655b015be6e559b37556b925e9634678647efc66e36aab73ae",
+      "bytes": 26416,
+      "hash": "sha256-2e629091787626f9a70715218ac3877cd7fa08b43f7abf53e6899220192f1b26",
       "bounds": {
         "min": [
           -1.2364,
@@ -8572,8 +8572,8 @@
       "id": "environment/sm-prop-fence-03",
       "path": "environment/sm-prop-fence-03.glb",
       "kind": "mesh",
-      "bytes": 18032,
-      "hash": "sha256-e4ac8721b4ac4582b8d97b1439b6279986e52401b0ced41e1a6ff9b63d9b66e6",
+      "bytes": 18092,
+      "hash": "sha256-463c1a5dbad40c7e6354a2dd530064983142f1951ee2d48a06a8aba84dafb1cc",
       "bounds": {
         "min": [
           -1.2363,
@@ -8650,8 +8650,8 @@
       "id": "environment/sm-prop-fireworks-12",
       "path": "environment/sm-prop-fireworks-12.glb",
       "kind": "mesh",
-      "bytes": 32772,
-      "hash": "sha256-518e371067174f5533a46a0c9d960dceb374a4367ade782342fb50e8d71c9cec",
+      "bytes": 32832,
+      "hash": "sha256-ad3b9583f3b41ccb37fcd0815000c8aac1c14ce56dd1bdf89bc37cc8e7a2ef04",
       "bounds": {
         "min": [
           -0.0526,
@@ -8754,8 +8754,8 @@
       "id": "environment/sm-prop-forge-ingot-01",
       "path": "environment/sm-prop-forge-ingot-01.glb",
       "kind": "mesh",
-      "bytes": 4412,
-      "hash": "sha256-d56721615f27bdc7ee0fea982e406eb76136a6bf50a1631437c86da999fc4e91",
+      "bytes": 4468,
+      "hash": "sha256-a718365eca9b918cf86c6b67824c4c15bee58cfb05257285f059a53db99b29bf",
       "bounds": {
         "min": [
           -0.0548,
@@ -8780,8 +8780,8 @@
       "id": "environment/sm-prop-gallows-platform-02",
       "path": "environment/sm-prop-gallows-platform-02.glb",
       "kind": "mesh",
-      "bytes": 468288,
-      "hash": "sha256-5d5ab7644db821f4cb08610eefa86e66198ca37b2fbe6d9660d03d928090fd8b",
+      "bytes": 468348,
+      "hash": "sha256-33034d15cead3a6187ed88f7f92e6368d17bf531bbdaec091ba76becbf02a0b4",
       "bounds": {
         "min": [
           -3.2019,
@@ -9170,8 +9170,8 @@
       "id": "environment/sm-prop-grinding-wheel-01",
       "path": "environment/sm-prop-grinding-wheel-01.glb",
       "kind": "mesh",
-      "bytes": 120132,
-      "hash": "sha256-b228c07860c45ddcda00a1bb2e5f532826695d96b838c11b9e2d9244de80a6b2",
+      "bytes": 120192,
+      "hash": "sha256-45fc8021c4550313249ab855ab4f809e52e599a80e587847d0364413c9c767be",
       "bounds": {
         "min": [
           -0.3903,
@@ -9196,8 +9196,8 @@
       "id": "environment/sm-prop-ground-planks-01",
       "path": "environment/sm-prop-ground-planks-01.glb",
       "kind": "mesh",
-      "bytes": 25812,
-      "hash": "sha256-6d5407f732a7a58f6e8eea0445812064c62149f30c34f20383ffbf6609679901",
+      "bytes": 25872,
+      "hash": "sha256-6b900522be6b97f4dab37e777890d139f5cd3a27b327471cd4c1ca90aee52a4d",
       "bounds": {
         "min": [
           -0.9309,
@@ -9222,8 +9222,8 @@
       "id": "environment/sm-prop-ground-planks-02",
       "path": "environment/sm-prop-ground-planks-02.glb",
       "kind": "mesh",
-      "bytes": 14876,
-      "hash": "sha256-1350d9599b239e401028c7ea611e394abbebbef8a694adc0211d853cea890170",
+      "bytes": 14936,
+      "hash": "sha256-d6aa44165c0977d76b4dc98f23efa83c28675062c0899111575ef83b86d96500",
       "bounds": {
         "min": [
           -0.896,
@@ -9274,8 +9274,8 @@
       "id": "environment/sm-prop-hay-cart-01",
       "path": "environment/sm-prop-hay-cart-01.glb",
       "kind": "mesh",
-      "bytes": 87216,
-      "hash": "sha256-29f22db3a66c0b89f3268dc8d21bee9ed92c6edf2c380847bb8c5675840ee6fb",
+      "bytes": 87276,
+      "hash": "sha256-7e595f11bb4f66ef1ecf176fbe1f1605bb85826791330276217394b66d49856f",
       "bounds": {
         "min": [
           -0.8255,
@@ -9300,8 +9300,8 @@
       "id": "environment/sm-prop-hay-pile-01",
       "path": "environment/sm-prop-hay-pile-01.glb",
       "kind": "mesh",
-      "bytes": 53980,
-      "hash": "sha256-94b7cd4b67840f9348877709d9fdf47bc4aa2696596e3911cbe6670bc8777eea",
+      "bytes": 54036,
+      "hash": "sha256-d1dc060d1e29e25ab3689f3acfc8a16007be6d9d1fdf261441cc95e59347c5b2",
       "bounds": {
         "min": [
           -1.5116,
@@ -9352,8 +9352,8 @@
       "id": "environment/sm-prop-hay-pile-03",
       "path": "environment/sm-prop-hay-pile-03.glb",
       "kind": "mesh",
-      "bytes": 86864,
-      "hash": "sha256-4ce26f7d9577cd42a6c452eecd41da0536c7533d46b0c77f8962854e4d32a8fc",
+      "bytes": 86924,
+      "hash": "sha256-0112aa2b70c73b6faaf3be427a7370d9150aec38a2b101aac570ba66e5ec97b5",
       "bounds": {
         "min": [
           -1.9572,
@@ -9404,8 +9404,8 @@
       "id": "environment/sm-prop-horse-hitching-post-01",
       "path": "environment/sm-prop-horse-hitching-post-01.glb",
       "kind": "mesh",
-      "bytes": 44952,
-      "hash": "sha256-e19dae4494c3f49a3f25273a3dc36372cf5e9e15a43706c6bba1aa1ba11d6f0c",
+      "bytes": 45012,
+      "hash": "sha256-04f442bd59af2d8caaeffa7a5c203faeb74f6342f088a2c19bde412208e3fee5",
       "bounds": {
         "min": [
           -0.1407,
@@ -9430,8 +9430,8 @@
       "id": "environment/sm-prop-ink-well-01",
       "path": "environment/sm-prop-ink-well-01.glb",
       "kind": "mesh",
-      "bytes": 39356,
-      "hash": "sha256-9ff7de6b90ca77ba34c94871426f52869eb4004fac8b64d421300dc5f1426557",
+      "bytes": 39416,
+      "hash": "sha256-d90c928660bf9ca1edde98a4efa1a4dcf5d64cc37361e235919483270ad564b3",
       "bounds": {
         "min": [
           -0.0541,
@@ -9534,8 +9534,8 @@
       "id": "environment/sm-prop-ladder-stackable-01-half",
       "path": "environment/sm-prop-ladder-stackable-01-half.glb",
       "kind": "mesh",
-      "bytes": 11416,
-      "hash": "sha256-104935c110274525359644638e1476038742c801cd1d34fe97316a141fd446f7",
+      "bytes": 11476,
+      "hash": "sha256-5bcf69de7aad6b06d09cea9b5e23de3173d021768584bb8172a26ed2126ddc6a",
       "bounds": {
         "min": [
           -0.3508,
@@ -9560,8 +9560,8 @@
       "id": "environment/sm-prop-ladder-stackable-01",
       "path": "environment/sm-prop-ladder-stackable-01.glb",
       "kind": "mesh",
-      "bytes": 18636,
-      "hash": "sha256-d36cf308a9128c25dc79746bcc06f21937279ec626b11532c63a8048a4593210",
+      "bytes": 18696,
+      "hash": "sha256-4a949ba9b826ef910bc5994d40dd836d98847480b486ab73c6c881d25383ad68",
       "bounds": {
         "min": [
           -0.3508,
@@ -9612,8 +9612,8 @@
       "id": "environment/sm-prop-log-01",
       "path": "environment/sm-prop-log-01.glb",
       "kind": "mesh",
-      "bytes": 11588,
-      "hash": "sha256-c29c7edf53c39df9ea8ba0bec54bc3374ea36bb3ee96408c89a5e9a1e75ffb5b",
+      "bytes": 11648,
+      "hash": "sha256-abee0754342795fec124f4bd0d07af42cabfb3b06b317ac0d2840a17a5b7ecfc",
       "bounds": {
         "min": [
           -0.285,
@@ -9638,8 +9638,8 @@
       "id": "environment/sm-prop-log-02",
       "path": "environment/sm-prop-log-02.glb",
       "kind": "mesh",
-      "bytes": 22420,
-      "hash": "sha256-47c858074ed8306f6574ebeb0556d4fc7bf1589aa71b628768fdeaac9543018f",
+      "bytes": 22480,
+      "hash": "sha256-79947853cc2396c24ed9efa739aa1295380d302d1fd4e965e0b34038be5252f7",
       "bounds": {
         "min": [
           -0.3227,
@@ -9872,8 +9872,8 @@
       "id": "environment/sm-prop-ore-gem-01",
       "path": "environment/sm-prop-ore-gem-01.glb",
       "kind": "mesh",
-      "bytes": 46664,
-      "hash": "sha256-9ec0b39c659836cad124ca6e60e6247079ae348e3658b7cb041b813fd7c40ee3",
+      "bytes": 46724,
+      "hash": "sha256-0d592e2aa4ecaaa1e82463c5f68d2a2a8566d6ef9f1dbfeaad1f70f7ce83f9d6",
       "bounds": {
         "min": [
           -0.0965,
@@ -9898,8 +9898,8 @@
       "id": "environment/sm-prop-ore-gold-01",
       "path": "environment/sm-prop-ore-gold-01.glb",
       "kind": "mesh",
-      "bytes": 46856,
-      "hash": "sha256-140ac8a6a028557881a3f3d9bc29a85c609a2e7aaf16a5bd2e1365183a486ad2",
+      "bytes": 46912,
+      "hash": "sha256-4836237463fc11f467df951cf65b013385ee7d2ea7022d7e821cc504215b4c86",
       "bounds": {
         "min": [
           -0.0965,
@@ -9924,8 +9924,8 @@
       "id": "environment/sm-prop-path-brick-group-01",
       "path": "environment/sm-prop-path-brick-group-01.glb",
       "kind": "mesh",
-      "bytes": 17900,
-      "hash": "sha256-2f3b47f42cb604e5b7a6da6a25e11d7a11b13c430a3eed5d83a9dc920b0f863f",
+      "bytes": 17960,
+      "hash": "sha256-3a533be61f34dc73210fb9e002ddc67646e90cb7a24906eb4421e305dc876898",
       "bounds": {
         "min": [
           -0.6012,
@@ -9950,8 +9950,8 @@
       "id": "environment/sm-prop-path-brick-group-02",
       "path": "environment/sm-prop-path-brick-group-02.glb",
       "kind": "mesh",
-      "bytes": 12808,
-      "hash": "sha256-40c6bdc0c4758af4fc56a489f4c6d12e735711332901014d50bec6d8a451fe42",
+      "bytes": 12868,
+      "hash": "sha256-edeff6b7bf9ebacfdfa919d7599be4ebeea193b62f817f54428fc51c374d44eb",
       "bounds": {
         "min": [
           -0.6683,
@@ -10002,8 +10002,8 @@
       "id": "environment/sm-prop-path-brick-group-04",
       "path": "environment/sm-prop-path-brick-group-04.glb",
       "kind": "mesh",
-      "bytes": 25848,
-      "hash": "sha256-b474d743d6fcd359f48061da9e1ce32619e7653e895d73f311256cfbeae4c3ed",
+      "bytes": 25908,
+      "hash": "sha256-36e5d77c52132768e057386d463e58bac94759089ba18fbf3306999a776c856c",
       "bounds": {
         "min": [
           -1.0687,
@@ -10054,8 +10054,8 @@
       "id": "environment/sm-prop-path-brick-group-06",
       "path": "environment/sm-prop-path-brick-group-06.glb",
       "kind": "mesh",
-      "bytes": 30836,
-      "hash": "sha256-51c03fb495140a75ca7faaef2dbfd9fa61aa722481483fb1979da4c6ee9f3db8",
+      "bytes": 30896,
+      "hash": "sha256-4e4193a5f5bb223810cbcf7c67950a47ac86507dcb9dd1a0792bc66940f166ac",
       "bounds": {
         "min": [
           -1.2949,
@@ -10080,8 +10080,8 @@
       "id": "environment/sm-prop-path-brick-group-07",
       "path": "environment/sm-prop-path-brick-group-07.glb",
       "kind": "mesh",
-      "bytes": 36228,
-      "hash": "sha256-8d4e83e5597f5c97038adbec5a5c04596ac794d724557cbae3d5e6eddf9e1a24",
+      "bytes": 36288,
+      "hash": "sha256-cd472df55ed54a8743055b1747a0aa3b114b3cafafecfb47cc43b02ab5e301ed",
       "bounds": {
         "min": [
           -1.5316,
@@ -10106,8 +10106,8 @@
       "id": "environment/sm-prop-path-rock-01",
       "path": "environment/sm-prop-path-rock-01.glb",
       "kind": "mesh",
-      "bytes": 5132,
-      "hash": "sha256-230604234e34b8c61b870aebf56cf477f700de688f37301b0f805d030c9aefcf",
+      "bytes": 5192,
+      "hash": "sha256-023ef5b03eae9f7df0ebf2221fc1b82232c4c78564a31e2ce17448781e115dc2",
       "bounds": {
         "min": [
           -0.2788,
@@ -10132,8 +10132,8 @@
       "id": "environment/sm-prop-path-rock-group-01",
       "path": "environment/sm-prop-path-rock-group-01.glb",
       "kind": "mesh",
-      "bytes": 9132,
-      "hash": "sha256-007a4c970b1790d18257f316e3b2b6fe29b5bf373fc1e0bf960ea0cae518a30f",
+      "bytes": 9192,
+      "hash": "sha256-1e9089bdbd4b332f22ef850a3e2066154904f9e44ff1f1fcf82f12a627ffd143",
       "bounds": {
         "min": [
           -0.4675,
@@ -10158,8 +10158,8 @@
       "id": "environment/sm-prop-path-rock-group-02",
       "path": "environment/sm-prop-path-rock-group-02.glb",
       "kind": "mesh",
-      "bytes": 13048,
-      "hash": "sha256-04098773adad5068e37f9c26245ed10d7176211b7ad9c1c209fb2b00522905e9",
+      "bytes": 13108,
+      "hash": "sha256-99e4dda208b848cef8d3b8f6fb2ba2dc10e0cce8828b42262e3bb170f695a919",
       "bounds": {
         "min": [
           -0.4006,
@@ -10184,8 +10184,8 @@
       "id": "environment/sm-prop-path-rock-group-03",
       "path": "environment/sm-prop-path-rock-group-03.glb",
       "kind": "mesh",
-      "bytes": 6260,
-      "hash": "sha256-63da792b7abbfcbeee88e6102a11d9952260db32de05b061152881a3441aeb8f",
+      "bytes": 6320,
+      "hash": "sha256-8748c00c81c1be7f677f8fde56f7d8b8bc7ddbe1580820c151cc8917f3d25ae4",
       "bounds": {
         "min": [
           -0.2401,
@@ -10210,8 +10210,8 @@
       "id": "environment/sm-prop-path-rock-group-04",
       "path": "environment/sm-prop-path-rock-group-04.glb",
       "kind": "mesh",
-      "bytes": 8576,
-      "hash": "sha256-376b9e5372f2ad632e3380dcdbfa03f493a4a6d484809dc95fc8a3b31f68183e",
+      "bytes": 8636,
+      "hash": "sha256-7e70436d9dfd074563e06d7063971effca0f544266b029c346983f4d4c12b369",
       "bounds": {
         "min": [
           -0.3455,
@@ -10236,8 +10236,8 @@
       "id": "environment/sm-prop-path-rock-group-05",
       "path": "environment/sm-prop-path-rock-group-05.glb",
       "kind": "mesh",
-      "bytes": 8728,
-      "hash": "sha256-bd83387036a0dc8aa2d78640d6bf2650aad509147a6b6bf78640c402f6985e4e",
+      "bytes": 8788,
+      "hash": "sha256-e12a1ef4dd9f9e0029dcab2862292d74a1166f2ed6243843df8c30698690f16d",
       "bounds": {
         "min": [
           -0.3345,
@@ -10340,8 +10340,8 @@
       "id": "environment/sm-prop-plank-wall-01",
       "path": "environment/sm-prop-plank-wall-01.glb",
       "kind": "mesh",
-      "bytes": 15524,
-      "hash": "sha256-d29b9976b1b5f78fe139d6a73956e48bcd95d76d863dfd293593849f40011ac9",
+      "bytes": 15580,
+      "hash": "sha256-c49cee491afdf8b6998600aa3a0ae52c3a0863022ff9f15666294d4c5ce9499d",
       "bounds": {
         "min": [
           -1.1433,
@@ -10366,8 +10366,8 @@
       "id": "environment/sm-prop-planterbox-01",
       "path": "environment/sm-prop-planterbox-01.glb",
       "kind": "mesh",
-      "bytes": 53176,
-      "hash": "sha256-0947520dfec650262bf45a6efcfa1c9d708571ac077496d34d6f8742f977fe9b",
+      "bytes": 53236,
+      "hash": "sha256-4c10e3f0fc0e60e601b32c64748ec63e483019e26afeeb4b10a5561bb6fb39d6",
       "bounds": {
         "min": [
           0.2014,
@@ -10392,8 +10392,8 @@
       "id": "environment/sm-prop-planterbox-preset-03",
       "path": "environment/sm-prop-planterbox-preset-03.glb",
       "kind": "mesh",
-      "bytes": 157080,
-      "hash": "sha256-bcd92d17cf9ceb41fb712406507f5652d492c3ccde56301515ea49f8aa958f96",
+      "bytes": 157140,
+      "hash": "sha256-2c293ac15ca3dd7f58350e9ba2f6dc536f5680dfc47bc31d97d879bc4a57da94",
       "bounds": {
         "min": [
           0.2014,
@@ -10418,8 +10418,8 @@
       "id": "environment/sm-prop-planterbox-preset-04",
       "path": "environment/sm-prop-planterbox-preset-04.glb",
       "kind": "mesh",
-      "bytes": 185216,
-      "hash": "sha256-386bf116d452457cc194cde9548d9a3230dd58bda32880353d9f1c37d09b07d8",
+      "bytes": 185272,
+      "hash": "sha256-9f2051d7b913b4a979463eff36694bf04ee29d04322d9cda47e012664d180d82",
       "bounds": {
         "min": [
           0.2014,
@@ -10444,8 +10444,8 @@
       "id": "environment/sm-prop-pole-03",
       "path": "environment/sm-prop-pole-03.glb",
       "kind": "mesh",
-      "bytes": 40752,
-      "hash": "sha256-a343ea778adacc179320c57eab909d342c470ba1dd3be009e27a9f4f7e34a34e",
+      "bytes": 40812,
+      "hash": "sha256-a289990372b6c2086d5f6ddc64bd317d079af5b3e9ad9ae23f2661d92de0f96b",
       "bounds": {
         "min": [
           -0.194,
@@ -10600,8 +10600,8 @@
       "id": "environment/sm-prop-pot-spice-01",
       "path": "environment/sm-prop-pot-spice-01.glb",
       "kind": "mesh",
-      "bytes": 23428,
-      "hash": "sha256-e2877bf4170074fa71fe41e503ab45323c5ae20b123bbc592ee65058396194fe",
+      "bytes": 23488,
+      "hash": "sha256-b9cad8a6c26d9cfb82de6ff5ff919d28848b4d522237f60ee3c1db841eb026f3",
       "bounds": {
         "min": [
           -0.2106,
@@ -10626,8 +10626,8 @@
       "id": "environment/sm-prop-pot-spice-03",
       "path": "environment/sm-prop-pot-spice-03.glb",
       "kind": "mesh",
-      "bytes": 25432,
-      "hash": "sha256-81ce2f7022cc297bc00b6da1d4cef5f55657e0902c91aaaa9b785cf9c1cadb2b",
+      "bytes": 25488,
+      "hash": "sha256-9684744f27d08674cb665b1c00b80ebd347e84eef086ae5d7963da085322d799",
       "bounds": {
         "min": [
           -0.2093,
@@ -10652,8 +10652,8 @@
       "id": "environment/sm-prop-pumpkin-02",
       "path": "environment/sm-prop-pumpkin-02.glb",
       "kind": "mesh",
-      "bytes": 38332,
-      "hash": "sha256-d18a1faaf7d925c47bfd640a3252e28068460ada3234f99d285f843496c702a0",
+      "bytes": 38392,
+      "hash": "sha256-dab506edd59d6be67bfdd92ab1f718427042ebd2b6decdfae997e7b436e72152",
       "bounds": {
         "min": [
           -0.2794,
@@ -10808,8 +10808,8 @@
       "id": "environment/sm-prop-rug-06",
       "path": "environment/sm-prop-rug-06.glb",
       "kind": "mesh",
-      "bytes": 17196,
-      "hash": "sha256-caefd6618616b5ff641212dc72c284e5b0ab18c24424e7d76be2580295d287c2",
+      "bytes": 17256,
+      "hash": "sha256-e823d47b2e9fe4a5359bfcad382a86ca24f0b05469c8330f06d0909a306d0114",
       "bounds": {
         "min": [
           -0.5073,
@@ -10834,8 +10834,8 @@
       "id": "environment/sm-prop-sack-01",
       "path": "environment/sm-prop-sack-01.glb",
       "kind": "mesh",
-      "bytes": 14384,
-      "hash": "sha256-b8a389e4efa708358a8cb6272a089deb3f34a99668a81a650cc8728b4c0575b3",
+      "bytes": 14444,
+      "hash": "sha256-db7f48646a18ba471a6a4b0523edde0a3cab1356d8fb715dafb08a24985745bc",
       "bounds": {
         "min": [
           -0.3106,
@@ -10860,8 +10860,8 @@
       "id": "environment/sm-prop-sack-02",
       "path": "environment/sm-prop-sack-02.glb",
       "kind": "mesh",
-      "bytes": 25980,
-      "hash": "sha256-055c77038beec139957a8cfe4a974ced43ce337b2deb216c8638b306038f4925",
+      "bytes": 26036,
+      "hash": "sha256-3a909d525b11f185c5cc50bf72de9af3072aa7a6a46101e20f323bb842c86fe5",
       "bounds": {
         "min": [
           -0.3106,
@@ -10886,8 +10886,8 @@
       "id": "environment/sm-prop-sack-03",
       "path": "environment/sm-prop-sack-03.glb",
       "kind": "mesh",
-      "bytes": 25464,
-      "hash": "sha256-30a9f50c51158cc8fbe4773931cb9d11819fbd5dc7bab6d4cff0af9552e7214d",
+      "bytes": 25524,
+      "hash": "sha256-07d92a580a73136b8c2f5997bc27ff1e914e3f00cdf5235c6546fd94354784b5",
       "bounds": {
         "min": [
           -0.1649,
@@ -10912,8 +10912,8 @@
       "id": "environment/sm-prop-sack-05",
       "path": "environment/sm-prop-sack-05.glb",
       "kind": "mesh",
-      "bytes": 42860,
-      "hash": "sha256-a21327c19f73439bc4f264490e98a9d3eaae3456f1758853342f198fd87aca56",
+      "bytes": 42920,
+      "hash": "sha256-559262d7904b46870806c423c3b2d93b4d4422b80a48137027278ed19d4c9f78",
       "bounds": {
         "min": [
           -0.1649,
@@ -10938,8 +10938,8 @@
       "id": "environment/sm-prop-sack-06",
       "path": "environment/sm-prop-sack-06.glb",
       "kind": "mesh",
-      "bytes": 67044,
-      "hash": "sha256-d6bb09236ebabb958b154674978d7f94cdd4e58e853f878987a6f8ecb0b72990",
+      "bytes": 67104,
+      "hash": "sha256-f35aa585a2a7478deed2ba9a48d6c9371261470804efc2c462f7d656c1c54865",
       "bounds": {
         "min": [
           -0.3106,
@@ -10990,8 +10990,8 @@
       "id": "environment/sm-prop-sack-stack-02",
       "path": "environment/sm-prop-sack-stack-02.glb",
       "kind": "mesh",
-      "bytes": 139884,
-      "hash": "sha256-2d84784a7e04c10ab70889e1a6e89ba398b315b12cea9fd62c48a7bc39f9aee9",
+      "bytes": 139940,
+      "hash": "sha256-304bbe35cf33e3f8b10c35208ed7ffe038f2e974572ba99e49cd811e41b3b916",
       "bounds": {
         "min": [
           -0.3585,
@@ -11250,8 +11250,8 @@
       "id": "environment/sm-prop-spike-wall-01",
       "path": "environment/sm-prop-spike-wall-01.glb",
       "kind": "mesh",
-      "bytes": 51604,
-      "hash": "sha256-344fd7858c49a63bb9f3fe547318b38747c6e6c3cc7cad2078d114719de01bbe",
+      "bytes": 51664,
+      "hash": "sha256-95188ff794bfc2e5ab451c0ed6368948018c000f6e4ab93a420bab93c00456bf",
       "bounds": {
         "min": [
           -2.502,
@@ -11276,8 +11276,8 @@
       "id": "environment/sm-prop-spike-wall-03",
       "path": "environment/sm-prop-spike-wall-03.glb",
       "kind": "mesh",
-      "bytes": 213872,
-      "hash": "sha256-5797c57953980d790bbf1b3ee12fb02a269bc3cc161c6fbbdcc550e51292a3a3",
+      "bytes": 213932,
+      "hash": "sha256-f9c87c588e4804bdbcca09b8eee8402432f48b40d6685c477f89083980cab103",
       "bounds": {
         "min": [
           -10.0054,
@@ -11328,8 +11328,8 @@
       "id": "environment/sm-prop-table-barrel-01",
       "path": "environment/sm-prop-table-barrel-01.glb",
       "kind": "mesh",
-      "bytes": 73704,
-      "hash": "sha256-6f9100883f01e996557f1e0c8da8e7006f51b608a81d240bbf78778ee9f47e21",
+      "bytes": 73760,
+      "hash": "sha256-2909d7083bdf49ae9f742a43db7b9d9499f6e6266f6a28f409446cf20577f311",
       "bounds": {
         "min": [
           -0.4587,
@@ -11406,8 +11406,8 @@
       "id": "environment/sm-prop-table-wood-01",
       "path": "environment/sm-prop-table-wood-01.glb",
       "kind": "mesh",
-      "bytes": 75144,
-      "hash": "sha256-37130dd74f6aad7a037e0fcc59b3a0cc2ca46d9fb98802d4adc9665f0465d048",
+      "bytes": 75204,
+      "hash": "sha256-fa48bf5354a6f76baa2d24759e85f4b98376d10e612993b2d50d4df798d6ac04",
       "bounds": {
         "min": [
           -0.7996,
@@ -11458,8 +11458,8 @@
       "id": "environment/sm-prop-table-wood-06",
       "path": "environment/sm-prop-table-wood-06.glb",
       "kind": "mesh",
-      "bytes": 53572,
-      "hash": "sha256-9692466fab0a7645d8117300100a1c8324680ce338c0b092a808240f4bd7b988",
+      "bytes": 53628,
+      "hash": "sha256-e3d80290ba4d8fad0d866f3eff9b2edb92818d0cc5aabd89f2bb530c553c58a7",
       "bounds": {
         "min": [
           -0.76,
@@ -11848,8 +11848,8 @@
       "id": "environment/sm-prop-well-01",
       "path": "environment/sm-prop-well-01.glb",
       "kind": "mesh",
-      "bytes": 150112,
-      "hash": "sha256-8dccdda1d52b5665cd889bff1a383872f9308abb462eab0d542c1fa78cdb44d9",
+      "bytes": 150172,
+      "hash": "sha256-b3d2c5891c7c460e963169ffd1c06fced97a8330ab34758cb6cd996cea1151e8",
       "bounds": {
         "min": [
           -0.9033,
@@ -11874,8 +11874,8 @@
       "id": "environment/sm-prop-well-plinth-01",
       "path": "environment/sm-prop-well-plinth-01.glb",
       "kind": "mesh",
-      "bytes": 19280,
-      "hash": "sha256-47dbdab226a20d65a5449263a9fb902bba660df67f06ce0374e07ef964b518a9",
+      "bytes": 19340,
+      "hash": "sha256-6f23923202d6e5db939f4b4e469b0fec649c4799a7aebe4ebc85dc3f65477d63",
       "bounds": {
         "min": [
           -1.343,
@@ -11926,8 +11926,8 @@
       "id": "environment/sm-prop-wood-pile-01",
       "path": "environment/sm-prop-wood-pile-01.glb",
       "kind": "mesh",
-      "bytes": 111356,
-      "hash": "sha256-6b6a13109ca6a626193cc75b0e301362a7eb66aae95f66b67baed6c5f08a16fb",
+      "bytes": 111416,
+      "hash": "sha256-ae2a049ce507186d22df8b64bd66328870e94eac34dae4ec278edfff34352897",
       "bounds": {
         "min": [
           -1.0556,
@@ -11952,8 +11952,8 @@
       "id": "environment/sm-prop-wood-pile-02",
       "path": "environment/sm-prop-wood-pile-02.glb",
       "kind": "mesh",
-      "bytes": 55104,
-      "hash": "sha256-9852178b667132eb77bfcbc57130cca0aaf6bad31578b24e650c17e56e2e61b4",
+      "bytes": 55164,
+      "hash": "sha256-4b5e16a7907fd5cced2cf17a03c2b93848307c271ec63f4581c77272e96165ac",
       "bounds": {
         "min": [
           -0.7803,
@@ -11978,8 +11978,8 @@
       "id": "environment/sm-prop-wood-pile-03",
       "path": "environment/sm-prop-wood-pile-03.glb",
       "kind": "mesh",
-      "bytes": 34968,
-      "hash": "sha256-5d0ffb0a9e104a715d4714ba5b53dabe595c1420c992a8937c86ef31c2994c89",
+      "bytes": 35028,
+      "hash": "sha256-d22ef587793247b358ff6b5a80dab60a9d5d52faef86dc923e1802998e292224",
       "bounds": {
         "min": [
           -0.5448,
@@ -12056,8 +12056,8 @@
       "id": "environment/sm-prop-workbench-forge-01-preset",
       "path": "environment/sm-prop-workbench-forge-01-preset.glb",
       "kind": "mesh",
-      "bytes": 341780,
-      "hash": "sha256-5e657faa62696c75173c47d313130bf20923e4f30557ecb44e5f3e19c2496c9b",
+      "bytes": 341840,
+      "hash": "sha256-59ffd8c82f840cfa95a409eddadec06ad7a7cd0b28ff0c8bf10dd2139ab356e6",
       "bounds": {
         "min": [
           -1.1116,
@@ -12082,8 +12082,8 @@
       "id": "environment/sm-veh-boat-dinghy-01",
       "path": "environment/sm-veh-boat-dinghy-01.glb",
       "kind": "mesh",
-      "bytes": 95664,
-      "hash": "sha256-0340715dd5b1dd4fe90d30f835da298333485202e6e753edd5b59328ec76d42d",
+      "bytes": 95724,
+      "hash": "sha256-8d88289052ddaef34a158539ebe6dcca7d59884bd1189660e9bf44e4acc3f9a6",
       "bounds": {
         "min": [
           -0.9424,
@@ -12108,8 +12108,8 @@
       "id": "environment/sm-veh-cart-01",
       "path": "environment/sm-veh-cart-01.glb",
       "kind": "mesh",
-      "bytes": 337324,
-      "hash": "sha256-49a3003786e8042cab04cc63cca35cb5325f0d32674d65b154300978f12e0a02",
+      "bytes": 337384,
+      "hash": "sha256-c88620be23a271acc22ff2184ea17a3dd55941131dd1a08e249e7278ae0a2a17",
       "bounds": {
         "min": [
           -0.9398,
@@ -12134,8 +12134,8 @@
       "id": "environment/sm-veh-cart-03",
       "path": "environment/sm-veh-cart-03.glb",
       "kind": "mesh",
-      "bytes": 208420,
-      "hash": "sha256-f032fea373a7f4661ebcfd60afab2b693ce36d61f0d8a29a6770f6477f72b875",
+      "bytes": 208480,
+      "hash": "sha256-bfb5ae8730806bedec792bec0e89944d5e2e3bb0d8191affb8b7df05425eeed6",
       "bounds": {
         "min": [
           -0.9398,
@@ -12160,8 +12160,8 @@
       "id": "environment/sm-veh-cart-damaged-01",
       "path": "environment/sm-veh-cart-damaged-01.glb",
       "kind": "mesh",
-      "bytes": 256240,
-      "hash": "sha256-ee3e42c79711b91a9468534c46a659e7557f8072bd94deaae8822fc6798e8091",
+      "bytes": 256296,
+      "hash": "sha256-84d5b2b7c22ef0bd3a86478b8a67799a9c31154e61bd0e7193608acdd94d5ccc",
       "bounds": {
         "min": [
           -1.142,
@@ -12186,8 +12186,8 @@
       "id": "environment/sm-veh-wheelbarrow-01",
       "path": "environment/sm-veh-wheelbarrow-01.glb",
       "kind": "mesh",
-      "bytes": 95096,
-      "hash": "sha256-d5f1372e96d29a153286242c8a0084d93827b80ef1a6afb869dd095105bb30f3",
+      "bytes": 95156,
+      "hash": "sha256-18a6f84052a9cc02b07d8aaba48fa74231f0f62722f232cffb1091f31c40f41a",
       "bounds": {
         "min": [
           -0.353,
@@ -12212,8 +12212,8 @@
       "id": "environment/start-position",
       "path": "environment/start-position.glb",
       "kind": "mesh",
-      "bytes": 586360,
-      "hash": "sha256-5f2fd158e23e4f664604357902b2e5a8d05f59eaa3442cdd37ca543c5a05112a",
+      "bytes": 586656,
+      "hash": "sha256-0d7c4e91f92b6e00adcc601514b615c1a2647d4af6082b08d7bcac22c58f98fa",
       "bounds": {
         "min": [
           -2.7756,
@@ -20427,8 +20427,8 @@
       "id": "vegetation/branch-1a1",
       "path": "vegetation/branch-1a1.glb",
       "kind": "mesh",
-      "bytes": 107028,
-      "hash": "sha256-f0f4d05a1af5fbc5b386560c1bf454db4855d6483eeb8be758c68773bf68ad88",
+      "bytes": 107220,
+      "hash": "sha256-4a79040c117918255682a25f17db7f707511e6880ff9ba329e76e82203770d21",
       "bounds": {
         "min": [
           -1.3901,
@@ -20453,8 +20453,8 @@
       "id": "vegetation/branch-1a5",
       "path": "vegetation/branch-1a5.glb",
       "kind": "mesh",
-      "bytes": 62712,
-      "hash": "sha256-00d0f87a30f47052652acfd9fcee277c2d414eec2d99d6eb084ed192e4617766",
+      "bytes": 62900,
+      "hash": "sha256-9cb56884a1045d74c1094202c74b8e8dd685962ea4e01a2671fc5be6bd7cf6ea",
       "bounds": {
         "min": [
           -3.9094,
@@ -20479,8 +20479,8 @@
       "id": "vegetation/branch-1a7",
       "path": "vegetation/branch-1a7.glb",
       "kind": "mesh",
-      "bytes": 96008,
-      "hash": "sha256-c866862cbf83985218e3926b4ff9e994c4c5bccab9a7b2a05b92e8636e57c76a",
+      "bytes": 96200,
+      "hash": "sha256-1192b6ae0572d902eea3c83c12ef9cf2041e28bd7e09b4b9fa0a9ee5d99f1d67",
       "bounds": {
         "min": [
           -2.2099,
@@ -20505,8 +20505,8 @@
       "id": "vegetation/branch-1a9",
       "path": "vegetation/branch-1a9.glb",
       "kind": "mesh",
-      "bytes": 99696,
-      "hash": "sha256-0e9b501e5450994017b45e5fa296f9173dac149da9f683002c85a2c04c3790e0",
+      "bytes": 99884,
+      "hash": "sha256-9eb184d991bcce3f960ee4a6f5ef365989f65799b55b948bc948fa66d105b652",
       "bounds": {
         "min": [
           -1.4135,
@@ -20583,8 +20583,8 @@
       "id": "vegetation/bush-1a1-small",
       "path": "vegetation/bush-1a1-small.glb",
       "kind": "mesh",
-      "bytes": 84336,
-      "hash": "sha256-9d69836b29335712bc5a355efad35f4969931c4f1060c8c168708ba11d3c5176",
+      "bytes": 84468,
+      "hash": "sha256-1d60807338d32e0d0d1f2154bdc41f45e7055d30a71d04ce1d30a5fbef099d32",
       "bounds": {
         "min": [
           -1.1038,
@@ -20609,8 +20609,8 @@
       "id": "vegetation/bush-1a1",
       "path": "vegetation/bush-1a1.glb",
       "kind": "mesh",
-      "bytes": 84400,
-      "hash": "sha256-c25e470c9354da2bdef09eb5aa1476b94333f1c25898d0fd6688e4a2f9275e15",
+      "bytes": 84436,
+      "hash": "sha256-ecebdb0328607f37301e074e979c090fbbef276a363b9ff345c30f540b46c013",
       "bounds": {
         "min": [
           -1.1038,
@@ -20635,8 +20635,8 @@
       "id": "vegetation/bush-1a2-small-1-dark",
       "path": "vegetation/bush-1a2-small-1-dark.glb",
       "kind": "prefab",
-      "bytes": 65416,
-      "hash": "sha256-bca6c88bb62092b004deaf7077ced017d1e69e8db49ac3359ebf03c7de461629",
+      "bytes": 65452,
+      "hash": "sha256-63cbba9d78462580169eb50297e409cec286db8d664944827fefc21b278df467",
       "bounds": {
         "min": [
           -1.5637,
@@ -20687,8 +20687,8 @@
       "id": "vegetation/bush-1a2-small",
       "path": "vegetation/bush-1a2-small.glb",
       "kind": "prefab",
-      "bytes": 65396,
-      "hash": "sha256-4344112bc0430874865f161d94f3f749f478aa9876b42b3719f2572b96f4eaad",
+      "bytes": 65428,
+      "hash": "sha256-546686a37c79e7f8b3dcc468a629b8890272a72b9cbd512f1972ff64eaff42d9",
       "bounds": {
         "min": [
           -1.5637,
@@ -20713,8 +20713,8 @@
       "id": "vegetation/bush-1a2",
       "path": "vegetation/bush-1a2.glb",
       "kind": "mesh",
-      "bytes": 65440,
-      "hash": "sha256-c47cedb84ad3ce072ca02566b2fecd39f67906cce49693b200780bea47d8cd06",
+      "bytes": 65476,
+      "hash": "sha256-deb4bec776d92e03d9ecc21ee9cd6da2e6e9dfe2e02f235b362eadb2a94466f2",
       "bounds": {
         "min": [
           -1.5637,
@@ -20739,8 +20739,8 @@
       "id": "vegetation/bush-1a3",
       "path": "vegetation/bush-1a3.glb",
       "kind": "mesh",
-      "bytes": 84400,
-      "hash": "sha256-7dab385d854c597778b813767aedd2078ee8fbdb1049731a8e7d4dbc8612bdff",
+      "bytes": 84436,
+      "hash": "sha256-53b9c2ad9095d52bb69095e8648431464eab38a2a6036e6314b8ee7081f00baf",
       "bounds": {
         "min": [
           -1.7953,
@@ -20765,8 +20765,8 @@
       "id": "vegetation/grass-short-clump-1",
       "path": "vegetation/grass-short-clump-1.glb",
       "kind": "prefab",
-      "bytes": 4304,
-      "hash": "sha256-f2ecebd90d0840fd61ae2327583348b68887062e439738e82cbbc977e1bf9c29",
+      "bytes": 4336,
+      "hash": "sha256-6e750d4ce3b031f641d708748f665f97c927df1b16756e2ec99c3489d125fc04",
       "bounds": {
         "min": [
           -0.5,
@@ -20869,8 +20869,8 @@
       "id": "vegetation/large-bush-1a1",
       "path": "vegetation/large-bush-1a1.glb",
       "kind": "mesh",
-      "bytes": 1012552,
-      "hash": "sha256-fb7cb632cac47810f69decff306e9cc95f18eec59ce9eaea9cd9668f9ad53477",
+      "bytes": 1012740,
+      "hash": "sha256-7e74fc1fb447a5cf8f90840a624da2588254d82c2933690f63eaafb390e346f0",
       "bounds": {
         "min": [
           -1.3721,
@@ -20895,8 +20895,8 @@
       "id": "vegetation/large-bush-1a2",
       "path": "vegetation/large-bush-1a2.glb",
       "kind": "mesh",
-      "bytes": 1135252,
-      "hash": "sha256-fb7f70e62260ad299610b5370be99fe0e794572608da6d9fee95357c90600cfc",
+      "bytes": 1135444,
+      "hash": "sha256-31dde78dcb1a0dd6866c6d9921cb53df146e9f55f397eaec7db2dad9dd935656",
       "bounds": {
         "min": [
           -1.0796,
@@ -20921,8 +20921,8 @@
       "id": "vegetation/large-bush-1a3",
       "path": "vegetation/large-bush-1a3.glb",
       "kind": "mesh",
-      "bytes": 687644,
-      "hash": "sha256-dabf4024290ca1fc7025c661dab1e396e48b9d25f285a7b7b66b09a7c5b29fd4",
+      "bytes": 687832,
+      "hash": "sha256-a99c392ac4adb3bf723511b4a51189cbeda76e77b3bfe5505560c234f1521269",
       "bounds": {
         "min": [
           -0.9027,
@@ -20947,8 +20947,8 @@
       "id": "vegetation/large-bush-1a4",
       "path": "vegetation/large-bush-1a4.glb",
       "kind": "mesh",
-      "bytes": 1135352,
-      "hash": "sha256-cf82b33d739c000f16665332ecead97f907c5a7d0ec5c455672a599afa8f735d",
+      "bytes": 1135540,
+      "hash": "sha256-a44d074babeb5907a75e3baef64518b4afce7afab3374c42028b99f9e17d44ca",
       "bounds": {
         "min": [
           -1.4217,
@@ -20973,8 +20973,8 @@
       "id": "vegetation/large-bush-1a5",
       "path": "vegetation/large-bush-1a5.glb",
       "kind": "mesh",
-      "bytes": 1012772,
-      "hash": "sha256-9a9fb26bb7b801328779ab60c5908ca2026147856c7121032e14f617d5de2946",
+      "bytes": 1012960,
+      "hash": "sha256-4810da0a77a6dbbd2dc770accc31301faf545ffdebfc8d17aa8cc160c69056f5",
       "bounds": {
         "min": [
           -1.5809,
@@ -21233,8 +21233,8 @@
       "id": "vegetation/pine-1b1-0",
       "path": "vegetation/pine-1b1-0.glb",
       "kind": "prefab",
-      "bytes": 440728,
-      "hash": "sha256-b8411b895d3c6da0a07859b20be8dc39168e57365aa8e46a115f9664d32b5321",
+      "bytes": 440764,
+      "hash": "sha256-3cf9bd24cadea2fc05dab085de223d151551f4573f0e783590672cb478a44077",
       "bounds": {
         "min": [
           -3.1334,
@@ -21285,8 +21285,8 @@
       "id": "vegetation/pine-1b1",
       "path": "vegetation/pine-1b1.glb",
       "kind": "prefab",
-      "bytes": 440724,
-      "hash": "sha256-240aca40e58e7b276d7fc71bb7746c25df196258c3d6101d30f21b47d75df20d",
+      "bytes": 440760,
+      "hash": "sha256-6fb1bd9f33f1ca9c7de1ae4e5db7d86f0d3e71c0e818da4bc94e51a437476e94",
       "bounds": {
         "min": [
           -3.1334,
@@ -21337,8 +21337,8 @@
       "id": "vegetation/pine-1b2",
       "path": "vegetation/pine-1b2.glb",
       "kind": "prefab",
-      "bytes": 436124,
-      "hash": "sha256-bdb99787f6f6c7819ae0836c1c3433f851e022713b2517760877cb98d35cedcc",
+      "bytes": 436160,
+      "hash": "sha256-f003a213408eb8adf4b01adb8d6f3b96f68d8e68a09891822570a98bb4c0c8f5",
       "bounds": {
         "min": [
           -5.2853,
@@ -21389,8 +21389,8 @@
       "id": "vegetation/pine-1b3",
       "path": "vegetation/pine-1b3.glb",
       "kind": "prefab",
-      "bytes": 448168,
-      "hash": "sha256-fce2dfee92a8a0c420b88d6d0d18a09e20a0c462fd12c11457729c2125b722c6",
+      "bytes": 448204,
+      "hash": "sha256-5651b160a0bed4bfaf90522a9723e0c6444f5933ba15203e6b5bb5315f52089c",
       "bounds": {
         "min": [
           -5.9004,
@@ -21415,8 +21415,8 @@
       "id": "vegetation/pine-1b4-0",
       "path": "vegetation/pine-1b4-0.glb",
       "kind": "prefab",
-      "bytes": 453032,
-      "hash": "sha256-f50cbde99791b4ed2ee604006554a436a16bc69368808becfae9ebb98b9b2da2",
+      "bytes": 453072,
+      "hash": "sha256-0a1fa504d2bd28a9051f7bd8ff42da9e0679aceca15ada1532ae6327757bd50f",
       "bounds": {
         "min": [
           -5.8538,
@@ -21467,8 +21467,8 @@
       "id": "vegetation/pine-1b4",
       "path": "vegetation/pine-1b4.glb",
       "kind": "prefab",
-      "bytes": 453028,
-      "hash": "sha256-d8463fbe7f338ff937adfb0558bc51ac6a84fb6772b1b55ec4f891f04e831196",
+      "bytes": 453068,
+      "hash": "sha256-c23fe5f0a2c5bde310c404fe3a0216bfc8163af9865402a0819a9189d3cd8e59",
       "bounds": {
         "min": [
           -5.8538,
@@ -21493,8 +21493,8 @@
       "id": "vegetation/pine-1b5-0",
       "path": "vegetation/pine-1b5-0.glb",
       "kind": "prefab",
-      "bytes": 452576,
-      "hash": "sha256-d4ba87bfe6d216c2a520589871fca6a531fbf0d525cd83758804d7983b3a3062",
+      "bytes": 452612,
+      "hash": "sha256-2dc09788bd343971762ceb090426961cc1078cc01e5c5e81a21ceae7e36e8a64",
       "bounds": {
         "min": [
           -7.6445,
@@ -21545,8 +21545,8 @@
       "id": "vegetation/pine-1b5",
       "path": "vegetation/pine-1b5.glb",
       "kind": "prefab",
-      "bytes": 452572,
-      "hash": "sha256-22896f45d5fcb7cfc57d2fd1212cedb47ffb70aa14c234b17fccee46ddc461eb",
+      "bytes": 452608,
+      "hash": "sha256-3345f6931dd451f441a024d7c55977b7d87cc02341256216c81bf7a2946e83ba",
       "bounds": {
         "min": [
           -7.6445,
@@ -21597,8 +21597,8 @@
       "id": "vegetation/small-thin-tree-1a2",
       "path": "vegetation/small-thin-tree-1a2.glb",
       "kind": "mesh",
-      "bytes": 1064288,
-      "hash": "sha256-3e5989209491c319cc760011087c1397a55fc4467a490b06961d490f5e70134c",
+      "bytes": 1064536,
+      "hash": "sha256-7fc23f53520838510f8f7348253273633d48617bfacd5809afb8e1af5436bcba",
       "bounds": {
         "min": [
           -2.3021,
@@ -21623,8 +21623,8 @@
       "id": "vegetation/small-thin-tree-1a3",
       "path": "vegetation/small-thin-tree-1a3.glb",
       "kind": "mesh",
-      "bytes": 1389676,
-      "hash": "sha256-6409ef9b5559ad6e78668aaa5ead76536b26c2da2eb7e0e2bd9c25cd9bbca0ba",
+      "bytes": 1389928,
+      "hash": "sha256-39a04a86f84c4562f784bb2472b09057f5f9ae01f7b09f62c170f3e791aea903",
       "bounds": {
         "min": [
           -4.0332,
@@ -21649,8 +21649,8 @@
       "id": "vegetation/small-thin-tree-1a5",
       "path": "vegetation/small-thin-tree-1a5.glb",
       "kind": "mesh",
-      "bytes": 1522028,
-      "hash": "sha256-f0483171f46e715199aeea141f525b94ebb020a8a7204d00c3b67204ea2c9907",
+      "bytes": 1522404,
+      "hash": "sha256-cbc920e0581a0a44f7f23ac31e8fd7c3aced9082f73719ac67b3f6847259298a",
       "bounds": {
         "min": [
           -3.5867,
@@ -22129,8 +22129,8 @@
       "id": "vegetation/tree-1a3",
       "path": "vegetation/tree-1a3.glb",
       "kind": "prefab",
-      "bytes": 2773232,
-      "hash": "sha256-3f3b12d8446dc6960f49aebace685cf55db5ea46951a5038267b35b25856bff0",
+      "bytes": 2773268,
+      "hash": "sha256-ad9cb8ce2d3885595eaf5deffcba9119525ab5471d916da019a5793171090b8b",
       "bounds": {
         "min": [
           -8.2993,
@@ -22363,8 +22363,8 @@
       "id": "vegetation/tree-1b1",
       "path": "vegetation/tree-1b1.glb",
       "kind": "prefab",
-      "bytes": 1367328,
-      "hash": "sha256-e0ec9c47b8d624f4fe58c8936ea789c9f9ed8fe29b4b78317dfacf332949f616",
+      "bytes": 1367364,
+      "hash": "sha256-a575567de2ef70e334bb8804e0394b02ea1e50d1ea9333b6e76ad40598e66938",
       "bounds": {
         "min": [
           -3.3137,
@@ -22441,8 +22441,8 @@
       "id": "vegetation/tree-1b2",
       "path": "vegetation/tree-1b2.glb",
       "kind": "prefab",
-      "bytes": 1848724,
-      "hash": "sha256-14987fab4ed2514631975f71b285555b138a3aae9b6f19ce1a3347d19d618024",
+      "bytes": 1848760,
+      "hash": "sha256-4dacc11015bb41ea26bc0d3ae8f08c354ea9e3abcbfa789e2dd70f83f4b1664a",
       "bounds": {
         "min": [
           -5.689,
@@ -22519,8 +22519,8 @@
       "id": "vegetation/tree-1b3",
       "path": "vegetation/tree-1b3.glb",
       "kind": "prefab",
-      "bytes": 1869756,
-      "hash": "sha256-2adec09133c60d56f6902ab57b35ae1863ca24484cc77dc423ab398cf388aef8",
+      "bytes": 1869792,
+      "hash": "sha256-1a701606ad25f4eb38a64ca271e86771b4b2e0aaf299174b74f48379d8dc322e",
       "bounds": {
         "min": [
           -8.0118,
@@ -22597,8 +22597,8 @@
       "id": "vegetation/tree-1c1",
       "path": "vegetation/tree-1c1.glb",
       "kind": "prefab",
-      "bytes": 541764,
-      "hash": "sha256-d133c070caac7fee4a43965cef610c0722293333dfc01a63b01fa115169a6c93",
+      "bytes": 541800,
+      "hash": "sha256-e987653c0b4a473e209524365386bb91a29641b658cc87514b747c1f19e01e4a",
       "bounds": {
         "min": [
           -3.6366,
@@ -22675,8 +22675,8 @@
       "id": "vegetation/tree-1c2",
       "path": "vegetation/tree-1c2.glb",
       "kind": "prefab",
-      "bytes": 557568,
-      "hash": "sha256-d16214741d7a9c1643bc2c41448bca439628203086cdcbb1ebb55b890c1d79f8",
+      "bytes": 557604,
+      "hash": "sha256-68cd48087f93f3e4e8e46878f1409e395796af33844d1305c2c089fde0f9852a",
       "bounds": {
         "min": [
           -3.1665,
@@ -22701,8 +22701,8 @@
       "id": "vegetation/tree-1c3",
       "path": "vegetation/tree-1c3.glb",
       "kind": "mesh",
-      "bytes": 625412,
-      "hash": "sha256-6f17d2ad0deeba38b38e75cde445a1dc7749f03f8780325db903b83cb3e19a27",
+      "bytes": 625660,
+      "hash": "sha256-98b6d55ea08f45af2e35157ecd8924f6d49fe75a074317f420b0f1f4e4bda7c1",
       "bounds": {
         "min": [
           -5.9519,
@@ -22779,8 +22779,8 @@
       "id": "vegetation/tree-1d1",
       "path": "vegetation/tree-1d1.glb",
       "kind": "prefab",
-      "bytes": 1104952,
-      "hash": "sha256-5af01d0c9ff5c8baf573b08535542ecada375a6f655478cf3f17f5391fe9129a",
+      "bytes": 1104988,
+      "hash": "sha256-d6eba74ebf4925600655554a901e46212262833405ab17307ffc4bcb5878b105",
       "bounds": {
         "min": [
           -4.5732,
@@ -22857,8 +22857,8 @@
       "id": "vegetation/tree-1d2",
       "path": "vegetation/tree-1d2.glb",
       "kind": "prefab",
-      "bytes": 804128,
-      "hash": "sha256-e3576c3cf2a6d575ca63e1188acf6fd6ae958a95ecbc4697177de4de626c7eb9",
+      "bytes": 804164,
+      "hash": "sha256-68de6b9057ef2c2361e39b9a78a42a0704c329197f21cd8d46367243c305a8bb",
       "bounds": {
         "min": [
           -4.5078,
@@ -22935,8 +22935,8 @@
       "id": "vegetation/tree-1e1",
       "path": "vegetation/tree-1e1.glb",
       "kind": "prefab",
-      "bytes": 1933404,
-      "hash": "sha256-b7a065527f653f5d7f94545d9e0043a3c1387cf5e813da7ecfeb749e86c751e5",
+      "bytes": 1933440,
+      "hash": "sha256-228e2d076cf35e478b659ce7abb48f2320bdc2ae07d1d41967212c0ccfff661b",
       "bounds": {
         "min": [
           -6.7007,
@@ -23013,8 +23013,8 @@
       "id": "vegetation/tree-1e2",
       "path": "vegetation/tree-1e2.glb",
       "kind": "prefab",
-      "bytes": 1266768,
-      "hash": "sha256-4be04ab6b7ad3c430e6217067e7a9f6bac7c302ebb489f547c00747348a67202",
+      "bytes": 1266800,
+      "hash": "sha256-06813a12cb7747cb6336e0d0a3fabb99a7deb3a46e27a59d81f6ab7f30507eab",
       "bounds": {
         "min": [
           -7.047,

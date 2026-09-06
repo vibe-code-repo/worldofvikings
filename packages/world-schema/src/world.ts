@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { IdentifierSchema, Vector3Schema, findDuplicates, formatIssues } from './common.js';
+import { LightingProfileSchema } from './lighting.js';
 import { migrateWorldData } from './migrations.js';
 import { TerrainDefinitionSchema } from './terrain.js';
 
@@ -8,9 +9,10 @@ import { TerrainDefinitionSchema } from './terrain.js';
  *
  * Rule (spec §16, agent rule 11): never silently accept or rewrite a different
  * version. Bump this constant together with a documented migration in
- * `migrations.ts` — version 2 added the optional `terrain` on a zone (ADR-0020).
+ * `migrations.ts` — version 2 added the optional `terrain` on a zone (ADR-0020),
+ * version 3 the optional `lighting` on a world and on a zone (ADR-0024).
  */
-export const CURRENT_WORLD_SCHEMA_VERSION = 2;
+export const CURRENT_WORLD_SCHEMA_VERSION = 3;
 
 /** A single placed entity. It references a prefab instead of inlining geometry. */
 export const EntityDefinitionSchema = z.strictObject({
@@ -35,6 +37,16 @@ export const ZoneDefinitionSchema = z.strictObject({
    * makes version 1 a version 2 file with the field absent.
    */
   terrain: TerrainDefinitionSchema.optional(),
+  /**
+   * How this zone is lit, overriding the world's profile group by group
+   * (ADR-0024).
+   *
+   * Optional, and optional all the way down: a zone that says nothing is lit
+   * like its world, and a zone that says only `{"fog": {"end": 60}}` is its
+   * world's evening in a shorter view. That is what an interior needs — the
+   * same sun, none of its reach.
+   */
+  lighting: LightingProfileSchema.optional(),
 });
 
 /** The root object of every file in `content/worlds/`. */
@@ -43,6 +55,22 @@ export const WorldDefinitionSchema = z
     schemaVersion: z.literal(CURRENT_WORLD_SCHEMA_VERSION),
     id: IdentifierSchema,
     name: z.string().min(1),
+    /**
+     * How this world is lit, unless a zone says otherwise (ADR-0024).
+     *
+     * Absent means the renderer's defaults, which are a lit outdoor scene and
+     * not a black void — a world file is never *required* to describe light.
+     *
+     * Declared *before* `zones`, and that is not cosmetic. Zod hands a parsed
+     * object back with its keys in the order this schema declares them, so the
+     * declaration order is the order every tool that round-trips a world file
+     * writes — `pnpm scatter` among them. `services/api` writes the light
+     * before the zones, because a village's `zones` array is 39 000 lines and a
+     * block behind it is a block nobody reads. The two must agree, or the same
+     * world saved by the editor and written by a script differ as files while
+     * saying the same thing.
+     */
+    lighting: LightingProfileSchema.optional(),
     zones: z.array(ZoneDefinitionSchema),
   })
   .refine((world) => findDuplicates(world.zones.map((zone) => zone.id)).length === 0, {

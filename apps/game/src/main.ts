@@ -36,6 +36,7 @@
 import {
   MovementSystem,
   NEUTRAL_INPUT,
+  NO_OBSTACLES,
   createMovement,
   createTransform,
   createWorldState,
@@ -44,19 +45,22 @@ import {
   toEntityId,
   vec3,
   type GroundQuery,
+  type ObstacleQuery,
   type Transform,
   type WorldState,
 } from '@wov/gameplay';
 import { summarizeAssetSources } from '@wov/asset-system';
 import type { PhysicsWorld } from '@wov/physics';
 import { tokens } from '@wov/ui';
+import { isDebugRequested } from '@wov/shared';
 import { installDevDebugBridge } from './dev-debug.js';
-import type { WovTerrainBounds } from './dev-debug.js';
-import { resolveGameConfig, worldIdFromQuery } from './config.js';
+import type { WovCollisionDebug, WovTerrainBounds } from './dev-debug.js';
+import { lightingProfiles, resolveGameConfig, worldIdFromQuery } from './config.js';
 import { createWorldApi } from './world-api.js';
 import {
   NO_SOURCES,
   addSources,
+  buildZoneCollision,
   loadZoneTerrain,
   placeEntities,
   playableZone,
@@ -64,6 +68,7 @@ import {
 } from './world-scene.js';
 import { createGamePhysicsWorld, toStaticMeshData } from './physics-backend.js';
 import { physicsGround } from './physics-ground.js';
+import { physicsObstacles } from './physics-obstacles.js';
 import { attachKeyboardMouse } from './input/keyboard-mouse.js';
 import { createGameLoop } from './loop.js';
 import { interpolatePosition } from './render/interpolate.js';
@@ -129,10 +134,19 @@ const controls = document.querySelector<HTMLElement>('[data-testid="game-control
 const assetStatus = document.querySelector<HTMLElement>('[data-testid="game-assets"]');
 const assetSources = document.querySelector<HTMLElement>('[data-testid="game-asset-sources"]');
 const worldStatus = document.querySelector<HTMLElement>('[data-testid="game-world"]');
+const collisionStatus = document.querySelector<HTMLElement>('[data-testid="game-collision"]');
 
 document.body.style.background = tokens.colorBackground;
 document.body.style.color = tokens.colorText;
-for (const element of [marker, status, controls, assetStatus, assetSources, worldStatus]) {
+for (const element of [
+  marker,
+  status,
+  controls,
+  assetStatus,
+  assetSources,
+  worldStatus,
+  collisionStatus,
+]) {
   if (element) {
     element.style.background = tokens.colorSurface;
     element.style.borderRadius = tokens.radius;
@@ -171,6 +185,19 @@ function setWorldStatus(text: string): void {
 }
 
 /**
+ * Says what the player can bump into (ADR-0026).
+ *
+ * Its own line for the same reason the world has one: "the village is on
+ * screen" and "the village is solid" are different claims, and the second one
+ * arrives seconds after the first.
+ */
+function setCollisionStatus(text: string): void {
+  if (collisionStatus) {
+    collisionStatus.textContent = text;
+  }
+}
+
+/**
  * Says how many assets came out of the private store and how many fell back to
  * a committed placeholder (ADR-0015). Printed even when both are zero: a line
  * that goes quiet when the store is missing hides the one thing it is for.
@@ -188,10 +215,21 @@ function setAssetSources(text: string): void {
  * it can hand back a scene (ADR-0006).
  */
 async function start(canvas: HTMLCanvasElement): Promise<void> {
-  const { renderer, base, camera, player } = await createGameScene(canvas, {
+  const scene3d = await createGameScene(canvas, {
     // The game loop below drives the frames; see the module comment.
     render: { resolutionScale: 1, autoStart: false },
+    // The diagnostic switches apply from the first frame, not from the one the
+    // world file arrives in: `?flat=1` exists so a screenshot can be taken with
+    // no rig at all, and a rig built for two seconds and thrown away is still a
+    // rig that was paid for.
+    lighting: lightingProfiles(window.location.search, []),
   });
+  const { renderer, base, camera, player } = scene3d;
+  /**
+   * The light rig. Replaced once the world file says how it wants to be lit
+   * (ADR-0024), so this is read through a variable rather than destructured.
+   */
+  let lighting = scene3d.lighting();
 
   // The device edge (ADR-0010) owns keys and mouse buttons. Look and zoom stay
   // with the camera's own input (ADR-0008), which also carries the drag-look
@@ -215,6 +253,15 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
    * the player walking during the backend's ~2 MB download.
    */
   let ground: GroundQuery = flatGround(0);
+
+  /**
+   * What is beside the player.
+   *
+   * "Nothing" until the zone's entities have collision bodies — which is what
+   * the game did before ADR-0026, and what it still does for the seconds the
+   * models take to arrive. The status line says when that changes.
+   */
+  let obstacles: ObstacleQuery = NO_OBSTACLES;
 
   /** Set once the backend is up; `null` while it loads, and after a failure. */
   let physics: PhysicsWorld | null = null;
@@ -241,7 +288,13 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       // click fires in the first step of a frame and not again in the next.
       // The camera's own yaw is the frame the axes are rotated into, so "W"
       // means "away from the camera" whichever way the player turned it.
-      world = MovementSystem.update(world, input.sample(camera.state.yaw), fixedDelta, ground);
+      world = MovementSystem.update(
+        world,
+        input.sample(camera.state.yaw),
+        fixedDelta,
+        ground,
+        obstacles,
+      );
       // Physics advances on the same fixed step as gameplay, not on the frame:
       // the simulation must not run faster on a 144 Hz display (ADR-0013).
       physics?.step(fixedDelta);
@@ -254,6 +307,11 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
         // The placeholder's root sits at the feet, exactly like the gameplay
         // transform, so the position is copied across without an offset.
         player.root.position.set(position.x, position.y, position.z);
+        // The shadow map covers a box around the player, not the whole tile
+        // (ADR-0024), so it has to be told where the player got to. Done here
+        // rather than on a scene hook because this is the one place that knows
+        // the interpolated position the frame is actually drawn at.
+        lighting.focusShadows(position.x, position.y, position.z);
       }
       // The camera updates on the scene's before-render hook, so it reads the
       // position written just above — this frame's, not the previous one's.
@@ -266,16 +324,25 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
   setStatus(baseStatus);
 
   /** Set in the dev build only; see the note on `installDevDebugBridge`. */
-  let debugBridge: { reportTerrainBounds(bounds: WovTerrainBounds): void } | null = null;
-  if (import.meta.env.DEV) {
-    // Vite replaces the condition with `false` when building for production,
-    // so Rollup drops this call and `./dev-debug.js` with it.
+  let debugBridge: {
+    reportTerrainBounds(bounds: WovTerrainBounds): void;
+    reportCollision(report: WovCollisionDebug): void;
+  } | null = null;
+  // `import.meta.env.DEV` and `__WOV_DEBUG_BRIDGE__` are both build-time
+  // literals, so a default `pnpm build` folds this to `false` and Rollup drops
+  // the call together with `./dev-debug.js` (ADR-0030).
+  if (import.meta.env.DEV || (__WOV_DEBUG_BRIDGE__ && isDebugRequested(window.location.search))) {
     debugBridge = installDevDebugBridge(renderer, marker, {
       camera,
       player,
       // Reads the live world through a closure rather than a captured value:
       // the physics world does not exist yet when the bridge is installed.
       groundAt: (x, z) => probeGround(x, z),
+      // Same reason: the rig is replaced when the world file arrives.
+      lighting: () => lighting,
+      rayHit: (from, to) =>
+        physics?.raycast({ x: from[0], y: from[1], z: from[2] }, { x: to[0], y: to[1], z: to[2] })
+          ?.point ?? null,
     });
   }
 
@@ -310,6 +377,7 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       // From here the movement system stops adhering to a hard-coded plane and
       // starts asking the collision geometry where the ground is.
       ground = physicsGround(created, () => getTransform(world, PLAYER)?.position.y ?? 0);
+      obstacles = physicsObstacles(created);
       physics = created;
       setStatus(`${baseStatus} · physics ready — ground is collision geometry`);
       return created;
@@ -354,6 +422,7 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       setWorldStatus(`world "${worldId}" unavailable: ${describe(error)}`);
       setAssetStatus('assets: no world to load');
       setAssetSources('assets: no world to load');
+      setCollisionStatus('collision: no world to build it from');
       void startPhysics();
       return;
     }
@@ -368,6 +437,17 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       `world ${world.id} · zone ${zone.id} — ${String(zone.entities.length)} entities, loading…`,
     );
 
+    // Before the ground and before the entities, in that order and for two
+    // reasons: the terrain compiles its shadow lookup against the map that
+    // exists when it is built, and every mesh placed afterwards is handed to
+    // the rig that is going to light it (ADR-0024).
+    lighting = scene3d.relight(
+      lightingProfiles(window.location.search, [world.lighting, zone.lighting]),
+    );
+    // The Phase 1 plane is still on screen at this point and it is 100 m wide:
+    // left in the map it would put the whole village in its own shadow.
+    lighting.excludeFromShadows([base.ground]);
+
     const world3d = await startPhysics();
 
     if (zone.terrain !== undefined) {
@@ -377,8 +457,13 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
           config.assets,
           zone.terrain,
           `${world.id}:${zone.id}`,
+          lighting.shadows !== null,
         );
         terrainSources = ground3d.sources;
+        // The ground receives through its own shader (ADR-0020) and must not
+        // cast: a height field in its own shadow map self-shadows every slope
+        // it has, and no bias makes a 300 m tile at 7 cm per texel clean.
+        lighting.excludeFromShadows(ground3d.terrain.meshes);
         reportTerrainBounds(ground3d.terrain.meshes);
 
         const triangles = ground3d.terrain.meshes.reduce(
@@ -412,6 +497,13 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       zone,
       prefabs,
     });
+
+    // Said once, on the meshes the scatter left behind, and not per entity: a
+    // tuft of grass takes the shadow of the house beside it and throws none of
+    // its own (ADR-0024, ADR-0025). Placed here rather than inside the placer
+    // because the light belongs to the app, not to the scene builder.
+    lighting.excludeFromCasting(placed.nonCasters);
+
     for (const problem of placed.failed) {
       console.error(`[game] a prefab of zone "${zone.id}" did not load — ${problem}`);
     }
@@ -422,8 +514,15 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       );
     }
     setWorldStatus(
-      `world ${world.id} · zone ${zone.id} — ${String(placed.roots.length)} entities from ` +
+      `world ${world.id} · zone ${zone.id} — ` +
+        `${String(placed.roots.length + placed.thinInstances)} entities from ` +
         `${String(placed.models)} models` +
+        (placed.thinInstances > 0
+          ? `, ${String(placed.thinInstances)} of them thin-instanced vegetation`
+          : '') +
+        (placed.nonCasters.length > 0
+          ? `, ${String(placed.nonCasters.length)} mesh(es) taking shadow without casting`
+          : '') +
         (placed.failed.length > 0 ? `, ${String(placed.failed.length)} failed` : ''),
     );
     setAssetStatus(
@@ -431,6 +530,37 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
         (placed.failed.length > 0 ? `, ${String(placed.failed.length)} failed` : ''),
     );
     setAssetSources(summarizeAssetSources(addSources(terrainSources, placed.sources)));
+
+    // Last, and after the lines above have been written: the shapes are
+    // measured on the models `placeEntities` loaded, so they cannot exist
+    // before those models do — but "the village is on screen" is true the
+    // moment it is, and must not wait for "the village is solid" to be
+    // reported (ADR-0026).
+    if (world3d === null) {
+      setCollisionStatus('collision: no physics world to build it in');
+      return;
+    }
+    try {
+      const collision = await buildZoneCollision({
+        physics: world3d,
+        manager: placed.manager,
+        zone,
+        prefabs,
+      });
+      for (const problem of collision.report.failed) {
+        console.error(`[game] a prefab of zone "${zone.id}" has no collision shape — ${problem}`);
+      }
+      debugBridge?.reportCollision(collision.report);
+      setCollisionStatus(
+        `collision: ${String(collision.report.bodies)} bodies from ` +
+          `${String(collision.report.shapes)} shapes · ` +
+          `${String(collision.report.triangles)} triangles · ` +
+          `${String(collision.report.passable)} walk-through · ` +
+          `built in ${String(collision.report.milliseconds)} ms`,
+      );
+    } catch (error) {
+      setCollisionStatus(`collision unavailable: ${describe(error)}`);
+    }
   }
 
   /** Publishes the tile's measured hull to the dev bridge, if there is one. */

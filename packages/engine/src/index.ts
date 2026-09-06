@@ -78,10 +78,38 @@ export {
   TERRAIN_ATTRIBUTES,
   TERRAIN_VERTEX_SOURCE,
   layerRepeats,
+  shadowTapOffsets,
   terrainFragmentSource,
   terrainSamplerNames,
   terrainUniformNames,
+  terrainVertexSource,
 } from './terrain-shader.js';
+export type { TerrainShadowShader } from './terrain-shader.js';
+
+export { applyLighting } from './lighting.js';
+export type { LightingHandle, LightingOptions } from './lighting.js';
+export { defaultLightingProfile, resolveLightingProfile } from './lighting-profile.js';
+export type {
+  AmbientOptions,
+  BloomOptions,
+  FogOptions,
+  LightingProfileOptions,
+  PostProcessingOptions,
+  ResolvedLightingProfile,
+  ShadowFilterMode,
+  ShadowOptions,
+  SkyOptions,
+  SsaoOptions,
+  SunOptions,
+  ToneMappingMode,
+  VignetteOptions,
+} from './lighting-profile.js';
+export {
+  SKY_ATTRIBUTES,
+  SKY_FRAGMENT_SOURCE,
+  SKY_UNIFORMS,
+  SKY_VERTEX_SOURCE,
+} from './sky-shader.js';
 
 export { defaultRenderConfig, resolveRenderConfig } from './render-config.js';
 export type { RenderConfig } from './render-config.js';

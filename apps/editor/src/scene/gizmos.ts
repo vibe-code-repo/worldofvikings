@@ -13,12 +13,12 @@
  * undo stack — and not never, which is what a viewport that edits the scene
  * instead of the document would produce.
  */
-import { PositionGizmo } from '@babylonjs/core/Gizmos/positionGizmo';
-import { RotationGizmo } from '@babylonjs/core/Gizmos/rotationGizmo';
-import { ScaleGizmo } from '@babylonjs/core/Gizmos/scaleGizmo';
-import { UtilityLayerRenderer } from '@babylonjs/core/Rendering/utilityLayerRenderer';
-import type { TransformNode } from '@babylonjs/core/Meshes/transformNode';
-import type { Scene } from '@babylonjs/core/scene';
+import { PositionGizmo } from '@babylonjs/core/Gizmos/positionGizmo.js';
+import { RotationGizmo } from '@babylonjs/core/Gizmos/rotationGizmo.js';
+import { ScaleGizmo } from '@babylonjs/core/Gizmos/scaleGizmo.js';
+import { UtilityLayerRenderer } from '@babylonjs/core/Rendering/utilityLayerRenderer.js';
+import type { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { Vector3 } from '@wov/world-schema';
 
 /** Which handles are on screen. `select` shows none. */

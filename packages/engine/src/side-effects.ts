@@ -44,6 +44,22 @@ import '@babylonjs/core/Materials/standardMaterial.js';
 import '@babylonjs/core/Culling/ray.js';
 
 /**
+ * Shadow maps: the pass that renders every caster from the light's point of
+ * view, once per frame, before the camera's pass.
+ *
+ * Symptom without it: `new ShadowGenerator(...)` throws
+ * "ShadowGeneratorSceneComponent needs to be imported before as it contains a
+ * side-effect required by your code" — which is at least loud. What is not
+ * loud is the shape of the failure it prevents: the component is what walks
+ * `scene.lightsEnabled` before each frame and renders the shadow maps. A
+ * generator without it would be an object holding a texture nobody ever draws
+ * into, and every receiver would be lit exactly as if there were no shadows.
+ * Needed by `applyLighting` (ADR-0024), which is why that module imports this
+ * one rather than the component directly.
+ */
+import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent.js';
+
+/**
  * Deliberately NOT imported here: `@babylonjs/core/Meshes/meshBuilder.js`.
  *
  * It registers nothing. It only assembles the `MeshBuilder` object out of every

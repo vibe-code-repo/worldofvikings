@@ -16,9 +16,11 @@ import {
   CURRENT_PREFAB_SCHEMA_VERSION,
   type PrefabCatalog,
   type PrefabCategory,
+  type PrefabCollision,
   type PrefabDefinition,
 } from '@wov/world-schema';
 import type { AssetEntry } from '@wov/asset-system/manifest';
+import type { Bounds } from '../asset-pipeline/glb.js';
 
 /** Repository root, resolved from this file so the script is location-safe. */
 export const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
@@ -44,9 +46,136 @@ const PROP_MARKERS = ['sm-prop-', 'sm-item-'];
 /** Tokens that say which export a file came from, not what the thing is. */
 const NAME_NOISE = new Set(['sm', 'env', 'prop', 'item', 'bld', 'plant']);
 
+/**
+ * The suffix a hand-made, low-triangle collider file carries.
+ *
+ * Twelve models in the export come with one — the buildings you can walk into,
+ * whose real geometry is far too heavy to collide against and whose hull would
+ * seal the door shut. The file is a collider, never a placeable thing, so it is
+ * attached to the model it belongs to and is not a prefab of its own.
+ */
+const COLLIDER_SUFFIX = '-collision';
+
+/**
+ * Vegetation whose *trunk* is what stops the player.
+ *
+ * Everything else in `vegetation/` — bushes, grass, ferns, mushrooms, loose
+ * branches — is walked through, which is both what a player expects and what
+ * keeps a meadow from costing a thousand collision shapes.
+ */
+const TRUNK_MARKERS = ['tree', 'pine'];
+
+/**
+ * Names that mark a hole the player walks through.
+ *
+ * These are the only models that get `mesh` without bringing their own collider
+ * file: a box or a convex hull would brick up the opening, which is the one
+ * mistake a screenshot does not show. The list is short because the export
+ * contains one such model; it grows with the assets, not with a guess.
+ */
+const OPENING_MARKERS = ['archway', 'arch', 'gateway', 'portal'];
+
 /** Whether this manifest entry becomes a prefab. */
 export function isPlaceableAsset(entry: AssetEntry): boolean {
-  return PLACEABLE_KINDS.has(entry.kind) && !entry.path.startsWith(PLACEHOLDER_PREFIX);
+  return (
+    PLACEABLE_KINDS.has(entry.kind) &&
+    !entry.path.startsWith(PLACEHOLDER_PREFIX) &&
+    !isColliderAsset(entry.path)
+  );
+}
+
+/** Whether this path is a collider file rather than something to place. */
+export function isColliderAsset(assetPath: string): boolean {
+  return stemOf(assetPath).endsWith(COLLIDER_SUFFIX);
+}
+
+/** `environment/x.glb` → `environment/x-collision.glb`. */
+export function colliderPathFor(assetPath: string): string {
+  const dot = assetPath.lastIndexOf('.');
+  return dot < 0
+    ? `${assetPath}${COLLIDER_SUFFIX}`
+    : `${assetPath.slice(0, dot)}${COLLIDER_SUFFIX}${assetPath.slice(dot)}`;
+}
+
+/** The lower-case file name of a path, without its folder or its extension. */
+function stemOf(assetPath: string): string {
+  const fileName = assetPath.split('/').at(-1) ?? assetPath;
+  return fileName.replace(/\.[^./]+$/, '').toLowerCase();
+}
+
+/** The `-` separated words of a file name, for the marker lists above. */
+function tokensOf(assetPath: string): ReadonlySet<string> {
+  return new Set(
+    stemOf(assetPath)
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean),
+  );
+}
+
+/** Whether this model's collision shape is its trunk rather than its hull. */
+export function hasTrunk(assetPath: string): boolean {
+  const tokens = tokensOf(assetPath);
+  return TRUNK_MARKERS.some((marker) => tokens.has(marker));
+}
+
+/**
+ * The collision shape this asset gets by default (ADR-0026).
+ *
+ * Every branch is a rule about a *category*, never about one file, so the
+ * catalogue can be regenerated after an import without anyone re-deciding
+ * anything:
+ *
+ * - a model with its own collider file collides against that file's triangles;
+ * - `terrain` is the ground and needs every triangle of it;
+ * - a `vegetation` model with a trunk gets a narrow box around the **trunk**,
+ *   measured on the model — its hull is its crown, and a wood of crowns is a
+ *   wall;
+ * - the rest of `vegetation` is walked through;
+ * - a model named as an opening gets `mesh`, because a box fills the opening;
+ * - everything else is its hull as one box, which is one plane test per face
+ *   and the right answer for a crate, a wall segment or a sack.
+ *
+ * @param trunkBox the measured trunk, for a model that needs one. Absent for a
+ * model that does not; absent *for one that does* is an error the caller
+ * reports, because falling back to the crown is the exact bug this rule exists
+ * to prevent.
+ */
+export function prefabCollisionFor(
+  entry: AssetEntry,
+  category: PrefabCategory,
+  collider: AssetEntry | undefined,
+  trunkBox: Bounds | undefined,
+): PrefabCollision {
+  if (collider !== undefined) {
+    return {
+      kind: 'mesh',
+      asset: {
+        path: collider.path,
+        visibility: collider.visibility,
+        ...(collider.placeholder === undefined ? {} : { placeholder: collider.placeholder }),
+      },
+    };
+  }
+  if (category === 'terrain') {
+    return { kind: 'mesh' };
+  }
+  if (category === 'vegetation') {
+    if (!hasTrunk(entry.path)) {
+      return { kind: 'none' };
+    }
+    if (trunkBox === undefined) {
+      throw new Error(
+        `no trunk measured for "${entry.path}" — run generate:prefabs with --store so the ` +
+          'trunk can be measured on the model instead of guessed from its crown',
+      );
+    }
+    return { kind: 'box', box: trunkBox };
+  }
+  const tokens = tokensOf(entry.path);
+  if (OPENING_MARKERS.some((marker) => tokens.has(marker))) {
+    return { kind: 'mesh' };
+  }
+  return { kind: 'box' };
 }
 
 /**
@@ -104,8 +233,25 @@ export function prefabCategoryFromAssetPath(assetPath: string): PrefabCategory |
   }
 }
 
+/** What `buildImportedCatalog` needs besides the manifest. */
+export interface CatalogInputs {
+  /**
+   * Trunk boxes by asset path, measured on the model by the caller.
+   *
+   * Passed in rather than measured here so this module stays a pure function of
+   * its arguments: the same manifest and the same measurements produce the same
+   * file on every machine, and the measuring — which reads the private store —
+   * is the command's business, not the catalogue's.
+   */
+  readonly trunkBoxes?: ReadonlyMap<string, Bounds>;
+}
+
 /** Builds one prefab from one manifest entry. */
-export function prefabFromAsset(entry: AssetEntry): PrefabDefinition {
+export function prefabFromAsset(
+  entry: AssetEntry,
+  collider?: AssetEntry,
+  trunkBox?: Bounds,
+): PrefabDefinition {
   const category = prefabCategoryFromAssetPath(entry.path);
   if (category === null) {
     throw new Error(
@@ -123,6 +269,7 @@ export function prefabFromAsset(entry: AssetEntry): PrefabDefinition {
     ...(entry.placeholder === undefined ? {} : { placeholder: entry.placeholder }),
     category,
     ...(entry.bounds === undefined ? {} : { bounds: entry.bounds }),
+    collision: prefabCollisionFor(entry, category, collider, trunkBox),
   };
 }
 
@@ -130,14 +277,28 @@ export function prefabFromAsset(entry: AssetEntry): PrefabDefinition {
  * The whole generated catalog, sorted by asset path so the file order does not
  * depend on the manifest's order.
  */
-export function buildImportedCatalog(assets: readonly AssetEntry[]): PrefabCatalog {
+export function buildImportedCatalog(
+  assets: readonly AssetEntry[],
+  inputs: CatalogInputs = {},
+): PrefabCatalog {
+  const colliders = new Map<string, AssetEntry>();
+  for (const entry of assets) {
+    if (isColliderAsset(entry.path) && !entry.path.startsWith(PLACEHOLDER_PREFIX)) {
+      colliders.set(entry.path, entry);
+    }
+  }
+
   const placeable = assets.filter(isPlaceableAsset);
   const sorted = [...placeable].sort((left, right) => left.path.localeCompare(right.path, 'en'));
 
   const prefabs: PrefabDefinition[] = [];
   const seen = new Map<string, string>();
   for (const entry of sorted) {
-    const prefab = prefabFromAsset(entry);
+    const prefab = prefabFromAsset(
+      entry,
+      colliders.get(colliderPathFor(entry.path)),
+      inputs.trunkBoxes?.get(entry.path),
+    );
     const previous = seen.get(prefab.id);
     if (previous !== undefined) {
       throw new Error(

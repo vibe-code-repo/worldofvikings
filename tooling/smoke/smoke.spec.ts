@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { CURRENT_WORLD_SCHEMA_VERSION } from '@wov/world-schema';
@@ -40,7 +42,20 @@ type WovDebugWindow = Window & {
       readonly activeMeshes: number;
       readonly triangles: number;
     };
+    readonly collision: {
+      readonly shapes: number;
+      readonly bodies: number;
+      readonly triangles: number;
+      readonly passable: number;
+      readonly undeclared: number;
+      readonly failed: readonly string[];
+      readonly milliseconds: number;
+    } | null;
     groundAt(x: number, z: number): number | null;
+    rayHit(
+      from: readonly [number, number, number],
+      to: readonly [number, number, number],
+    ): { x: number; y: number; z: number } | null;
   };
 };
 
@@ -79,6 +94,27 @@ function apiUrl(path: string): string {
 /** Where the app under test is, as `playwright.config.ts` decided. */
 function appUrl(app: 'websiteUrl' | 'gameUrl' | 'assetUrl'): string {
   return String(test.info().config.metadata[app]);
+}
+
+/**
+ * Opens the game under the light its world file asks for (ADR-0024).
+ *
+ * It used to open every one of these with `?flat=1`, and the reason was real:
+ * headless Chromium rasterises in software by default, and with a 2048² shadow
+ * map and an HDR grading chain in front of it a frame took more than a second,
+ * so half a second of a held key advanced the simulation by three fixed steps
+ * and "it walks" failed for a reason that had nothing to do with walking.
+ *
+ * That reason is gone. `playwright.config.ts` now asks Chromium for ANGLE on
+ * the machine's own driver, and under the shipped profile the whole suite is
+ * 4.3 minutes against 3.9 — so the wiring is measured under the light the
+ * player will actually see, which is the stronger test of the two.
+ *
+ * One test still asks for `?flat=1` and says why: counting draw calls means
+ * something different when the frame has two passes.
+ */
+async function openGame(page: Page, query = ''): Promise<void> {
+  await page.goto(`${appUrl('gameUrl')}?${query.replace(/^&/, '')}`);
 }
 
 /** The editor's whole debug bridge, or `null` while it is not installed. */
@@ -175,7 +211,7 @@ const RENDERER_STATUS = /^(renderer|viewport) (ready — (webgl2|webgpu)|unavail
 const GAME_STATUS = /^renderer (ready — (webgl2|webgpu)|unavailable: .+)/;
 
 test('game shows its dev build marker', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
   await expect(page.getByTestId('game-marker')).toContainText('World of Vikings');
   await expect(page.getByTestId('game-marker')).toContainText('game dev build');
   await expect(page.getByTestId('game-status')).toHaveText(GAME_STATUS);
@@ -194,7 +230,7 @@ test('game shows its dev build marker', async ({ page }) => {
  * proves the counter reaches the DOM. Both exist only in the dev build.
  */
 test('game keeps rendering frames', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
 
   await expect.poll(() => frameId(page), { timeout: 10_000 }).not.toBeNull();
   const before = await frameId(page);
@@ -219,16 +255,28 @@ test('game keeps rendering frames', async ({ page }) => {
  * has to turn under both, which is exactly why the fallback exists.
  */
 /**
- * Waits until the ground has stopped changing under the player.
+ * Waits until the ground has stopped changing under the player *and* the client
+ * has finished building the zone.
  *
- * The terrain arrives after the first frames and puts the capsule down on it
- * (ADR-0020), so a test that samples a position before and after that lands sees
- * a teleport rather than what it was measuring. Either outcome settles the
- * question — the tile loaded, or it did not — so both are waited for.
+ * Two separate reasons to wait. The terrain arrives after the first frames and
+ * puts the capsule down on it (ADR-0020), so a test that samples a position
+ * across that lands sees a teleport rather than what it was measuring. And the
+ * zone is built after the terrain is ready: measured on the village, the
+ * terrain line appears at about 3.9 s and the world line about 5.9 s later,
+ * with the main thread loading models and placing entities in between. A test
+ * that presses a key inside that window is measuring a busy tab, not the
+ * movement system — which is what it did, moving the capsule 0.18 m in the half
+ * second it expected metres from.
+ *
+ * Either outcome settles each question — the tile loaded or it did not, the
+ * zone built or its models failed — so both spellings are waited for.
  */
 async function groundSettled(page: Page): Promise<void> {
   await expect(page.getByTestId('game-status')).toContainText(/terrain (ready|unavailable|drawn)/, {
     timeout: 30_000,
+  });
+  await expect(page.getByTestId('game-world')).toContainText(/entities from|unavailable|world "/, {
+    timeout: 45_000,
   });
   // The capsule is put down on the tile and the camera eases after it, so the
   // frame in which the status changes is the frame the camera is furthest from
@@ -237,7 +285,7 @@ async function groundSettled(page: Page): Promise<void> {
 }
 
 test('game camera frames the placeholder and answers mouse and wheel', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
   await groundSettled(page);
   const opening = await liveCamera(page);
   const standing = await livePlayer(page);
@@ -280,7 +328,7 @@ test('game camera frames the placeholder and answers mouse and wheel', async ({ 
  * state, so a simulation that runs without reaching the picture still fails.
  */
 test('game walks the player capsule when a key is held', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
   await expect(page.getByTestId('game-status')).toContainText('renderer ready');
   await groundSettled(page);
 
@@ -314,7 +362,7 @@ test('game walks the player capsule when a key is held', async ({ page }) => {
  * distance.
  */
 test('game camera follows the player that walks away', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
   await groundSettled(page);
   const startPlayer = await livePlayer(page);
   const startCamera = await liveCamera(page);
@@ -357,7 +405,7 @@ test('game loads its world assets over the asset server', async ({ page }) => {
     }
   });
 
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
 
   // Every distinct model of the zone, loaded once and instanced per entity
   // (ADR-0022). A model that fell back to its committed placeholder still
@@ -384,7 +432,7 @@ test('game loads its world assets over the asset server', async ({ page }) => {
 });
 
 test('game loads the physics backend and collides the ground', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
   // Proves the whole chain in a real browser: the dynamic Havok import
   // resolved, the WASM module loaded from the URL Vite emitted, and the base
   // ground became static collision geometry (ADR-0013). Unit tests can prove
@@ -408,7 +456,7 @@ test('game loads the physics backend and collides the ground', async ({ page }) 
  * assertions hold either way and the status line says which one ran.
  */
 test('game stands the player on the terrain it draws', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
   await expect(page.getByTestId('game-status')).toContainText('terrain ready', {
     timeout: 30_000,
   });
@@ -447,20 +495,29 @@ test('game stands the player on the terrain it draws', async ({ page }) => {
  * than under it or a hundred metres above it.
  *
  * The entity count is read off the status line rather than pinned, because it
- * is world data: a re-import may legitimately change it. What is asserted is
- * the shape — more than a thousand of them, from more than one model.
+ * is world data: a re-import or a scatter run may legitimately change it. What
+ * is asserted is the shape — more than a thousand of them, from more than one
+ * model, with the scattered vegetation among them drawn as thin instances
+ * (ADR-0025).
  */
 test('game opens the authored village over the API', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  // The one test in this file that wants flat light, and not to go faster: it
+  // ends by counting draw calls against meshes, and the shipped profile draws
+  // every caster a second time into the shadow map (ADR-0024). Under it the
+  // ratio is 543 against 968 — which says nothing about whether the village is
+  // instanced, and that is the only thing this count is here to say.
+  await openGame(page, '&flat=1');
 
   await expect(page.getByTestId('game-world')).toHaveText(
-    /^world village1 · zone village — \d+ entities from \d+ models$/,
+    /^world village1 · zone village — \d+ entities from \d+ models(, .+)?$/,
     { timeout: 120_000 },
   );
   const line = (await page.getByTestId('game-world').textContent()) ?? '';
   const [, entities, models] = /— (\d+) entities from (\d+) models/.exec(line) ?? [];
   expect(Number(entities)).toBeGreaterThan(1000);
   expect(Number(models)).toBeGreaterThan(1);
+  const [, thin] = /(\d+) of them thin-instanced/.exec(line) ?? [];
+  expect(Number(thin)).toBeGreaterThan(1000);
 
   // The ground of that zone, not the Phase 1 plane.
   await expect(page.getByTestId('game-status')).toContainText(/terrain ready — \d+ collision/);
@@ -676,6 +733,63 @@ test('editor opens the imported village with more than a thousand entities', asy
     .toBeGreaterThan(before ?? 0);
 });
 
+/**
+ * The scatter panel (ADR-0025), end to end.
+ *
+ * Everything about a scatter is easy to get right in a unit test and easy to
+ * get wrong in the shell: the panel can preview a count it never passes on, the
+ * command can reach the document without reaching the scene, and undo can take
+ * back one instance out of three hundred. So all three are read here — the
+ * preview, the document's entity count and the scene's own mesh count — and the
+ * scatter is undone again with a single Ctrl+Z.
+ */
+test('editor scatters a field of prefabs as one undoable command', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('editor-viewport-status')).toHaveText(
+    /^viewport ready — (webgl2|webgpu)$/,
+  );
+  await page.getByTestId('menu-file').click();
+  await page.getByTestId('menu-open-example').click();
+  await expect(page.getByTestId('hierarchy-entity-barrel_001')).toBeVisible();
+
+  // The world this opens is whatever the save test left behind, so the delta is
+  // what is asserted, never the total.
+  const before = await editorEntityCount(page);
+  expect(before).not.toBeNull();
+
+  await page.getByTestId('assets-search').fill('Barrel');
+  await page.getByTestId('asset-barrel-01').click();
+  await page.getByTestId('scatter-add-prefab').click();
+  await expect(page.getByTestId('scatter-prefab-list')).toContainText('barrel-01');
+
+  // A 20 m x 20 m patch at 5 per 100 m² is twenty barrels, and the panel has to
+  // say so before the button is pressed.
+  for (const [field, value] of [
+    ['scatter-x0', '0'],
+    ['scatter-z0', '0'],
+    ['scatter-x1', '20'],
+    ['scatter-z1', '20'],
+  ] as const) {
+    await page.getByTestId(field).fill(value);
+  }
+  await page.getByTestId('scatter-density').fill('5');
+  await page.getByTestId('scatter-seed').fill('3');
+  await expect(page.getByTestId('scatter-preview')).toHaveText('400 m² usable · 20 instances');
+
+  await page.getByTestId('scatter-run').click();
+  await expect.poll(() => editorEntityCount(page)).toBe((before ?? 0) + 20);
+  await expect.poll(() => editorMeshCount(page)).toBe((before ?? 0) + 20);
+  await expect(page.getByTestId('editor-dirty')).toHaveText('unsaved changes');
+  // The ids say which run each instance came from (`<prefab>_s<seed>_<n>`).
+  await expect(page.getByTestId('hierarchy-entity-barrel-01_s3_0001')).toBeVisible();
+
+  // One command, so one undo takes the whole field back.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => editorEntityCount(page)).toBe(before);
+  await expect.poll(() => editorMeshCount(page)).toBe(before);
+});
+
 test('editor switches tools with Q/W/E/R and deletes with the Delete key', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('editor-viewport-status')).toHaveText(
@@ -833,4 +947,320 @@ test('asset server reports healthy', async ({ request }) => {
   const response = await request.get(`${appUrl('assetUrl')}/health`);
   expect(response.status()).toBe(200);
   expect(await response.json()).toMatchObject({ service: 'world-of-vikings-assets' });
+});
+
+/**
+ * The village is solid (ADR-0026).
+ *
+ * These are the tests unit tests cannot stand in for. `MovementSystem` slides
+ * along a wall in a test with a wall made of arithmetic; the physics package
+ * builds a shape from triangles a test wrote out by hand. What neither can say
+ * is that the *authored* village — 1216 entities, most of them scaled unevenly
+ * and 133 of them mirrored — turns into shapes that stand where the models are
+ * drawn. Only walking into one says that.
+ *
+ * Every spawn point below is a place in `content/worlds/village1.json`. `?spawn=`
+ * puts the capsule there and the camera opens behind it looking along +z, so
+ * holding `W` walks in +z — which is why each site is approached from its −z
+ * side and the assertions are about `z`.
+ */
+
+/** Where the collision builder's report is, once it has one. */
+function collisionReport(
+  page: Page,
+): Promise<NonNullable<WovDebugWindow['__wov']>['collision'] | null> {
+  return page.evaluate(() => (window as WovDebugWindow).__wov?.collision ?? null);
+}
+
+/** Opens the village at a spawn point and waits until the world is solid. */
+async function standAt(page: Page, spawn: string): Promise<PlayerDebug> {
+  await page.goto(`${appUrl('gameUrl')}?spawn=${spawn}`);
+  await expect(page.getByTestId('game-collision')).toContainText(/\d+ bodies from \d+ shapes/, {
+    timeout: 180_000,
+  });
+  // The capsule is put down before the bodies are built; give the frame after
+  // that a moment so the first sample is where the player actually stands.
+  await page.waitForTimeout(600);
+  return livePlayer(page);
+}
+
+/**
+ * Holds `W` until the capsule stops moving, and answers where it stopped.
+ *
+ * Not "hold for N milliseconds": this browser has no GPU, the village is 1216
+ * entities, and the frame rate — and with it how much simulated time a second
+ * of wall clock buys — is not something a test may assume. Walking until the
+ * position stops changing measures the same thing and does not care.
+ */
+async function walkUntilStill(page: Page, budgetMs = 30_000): Promise<PlayerDebug> {
+  await page.keyboard.down('KeyW');
+  try {
+    const deadline = Date.now() + budgetMs;
+    let previous = await livePlayer(page);
+    let stillFor = 0;
+    while (Date.now() < deadline) {
+      await page.waitForTimeout(500);
+      const now = await livePlayer(page);
+      stillFor = Math.hypot(now.x - previous.x, now.z - previous.z) < 0.02 ? stillFor + 1 : 0;
+      previous = now;
+      if (stillFor >= 2) {
+        break;
+      }
+    }
+    return previous;
+  } finally {
+    await page.keyboard.up('KeyW');
+  }
+}
+
+/** Holds `W` until the capsule is past `z`, or until the budget runs out. */
+async function walkPast(page: Page, z: number, budgetMs = 30_000): Promise<PlayerDebug> {
+  await page.keyboard.down('KeyW');
+  try {
+    const deadline = Date.now() + budgetMs;
+    let at = await livePlayer(page);
+    while (at.z < z && Date.now() < deadline) {
+      await page.waitForTimeout(500);
+      at = await livePlayer(page);
+    }
+    return at;
+  } finally {
+    await page.keyboard.up('KeyW');
+  }
+}
+
+/** Casts a ray through the collision geometry the game built. */
+function rayHit(
+  page: Page,
+  from: readonly [number, number, number],
+  to: readonly [number, number, number],
+): Promise<{ x: number; y: number; z: number } | null> {
+  return page.evaluate(
+    ([a, b]) =>
+      (window as WovDebugWindow).__wov?.rayHit(
+        a as [number, number, number],
+        b as [number, number, number],
+      ) ?? null,
+    [from, to],
+  );
+}
+
+test('game builds one collision shape for many entities', async ({ page }) => {
+  await page.goto(appUrl('gameUrl'));
+  await expect(page.getByTestId('game-collision')).toContainText(/\d+ bodies from \d+ shapes/, {
+    timeout: 180_000,
+  });
+
+  const report = await collisionReport(page);
+  if (report === null) {
+    throw new Error('the game dev build published no collision report');
+  }
+
+  // Sharing, as a number rather than as a claim: a body per shape would make
+  // these two equal. The village is 1216 entities from 139 models.
+  expect(report.bodies).toBeGreaterThan(1000);
+  expect(report.shapes).toBeLessThan(report.bodies / 3);
+  // Every entity is accounted for: it has a shape, or it says it wants none.
+  expect(report.undeclared).toBe(0);
+  expect(report.passable).toBeGreaterThan(0);
+  expect(report.failed).toEqual([]);
+  // Triangles are for the few shapes that need them, not for the whole village.
+  expect(report.triangles).toBeLessThan(20_000);
+});
+
+/**
+ * A wall stops the player.
+ *
+ * Three claims, because the first one alone would pass with a player that
+ * cannot move at all: the capsule covered ground, it stopped short of the wall,
+ * and it stayed stopped while the key was still held.
+ */
+test('game stops the player at a stone wall', async ({ page }) => {
+  test.setTimeout(180_000);
+  // A stone wall runs across the path at z ≈ 164; the capsule starts 2.5 m
+  // short of it on open, level ground.
+  const start = await standAt(page, '171.95,161.5');
+
+  const walked = await walkUntilStill(page);
+  expect(walked.z - start.z).toBeGreaterThan(1);
+  expect(walked.z).toBeLessThan(163.9);
+
+  // Still holding the key changes nothing: it is stopped, not merely slow.
+  const pressed = await walkUntilStill(page, 6_000);
+  expect(Math.abs(pressed.z - walked.z)).toBeLessThan(0.1);
+
+  // And what stopped it is geometry in front of it, not the edge of the world.
+  const knee = pressed.y + 0.5;
+  expect(
+    await rayHit(page, [pressed.x, knee, pressed.z], [pressed.x, knee, pressed.z + 2]),
+  ).not.toBeNull();
+});
+
+/**
+ * A tree stops the player at its trunk and not at its crown.
+ *
+ * The one rule a screenshot cannot check and a collision test that only asks
+ * "does it collide" would pass either way: this tree's crown is 8.6 m across
+ * and its measured trunk is 0.4 m, so the same walk one metre to the side has
+ * to go straight through where the crown is.
+ */
+test('game stops the player at a tree trunk', async ({ page }) => {
+  test.setTimeout(180_000);
+  const start = await standAt(page, '151.68,134.5');
+  const stopped = await walkUntilStill(page);
+
+  expect(stopped.z - start.z).toBeGreaterThan(1);
+  // The trunk's near face is at z ≈ 137.1; a 0.4 m body stops in front of it.
+  expect(stopped.z).toBeLessThan(136.8);
+});
+
+test('game walks the player through the same tree’s crown', async ({ page }) => {
+  test.setTimeout(180_000);
+  // One metre to the side of that trunk — still deep inside a crown 4.3 m wide,
+  // which is what a hull or a bounds box would have collided against.
+  await standAt(page, '150.68,135.0');
+  const past = await walkPast(page, 139);
+  expect(past.z).toBeGreaterThan(139);
+});
+
+/**
+ * An archway is a hole, not a slab.
+ *
+ * `collision: mesh` is the only kind with a hole in it, and this is the test
+ * that says so: the capsule walks through the opening, and a ray through a post
+ * finds geometry where a ray through the opening finds none. A box or a convex
+ * hull would fail both halves.
+ */
+test('game walks the player through an archway', async ({ page }) => {
+  test.setTimeout(180_000);
+  // The archway stands at z ≈ 114.6, across the path.
+  const start = await standAt(page, '172.78,112.3');
+  expect(start.z).toBeLessThan(114);
+
+  const walked = await walkPast(page, 116);
+  expect(walked.z).toBeGreaterThan(116);
+
+  const height = 10.31 + 1;
+  const through = (x: number): Promise<{ x: number; y: number; z: number } | null> =>
+    rayHit(page, [x, height, 112.5], [x, height, 116.5]);
+  expect(await through(172.78)).toBeNull();
+  expect(await through(172.78 - 2.2)).not.toBeNull();
+  expect(await through(172.78 + 2.2)).not.toBeNull();
+});
+
+/**
+ * Every gate in the village is a gate, not a wall with a gate drawn on it.
+ *
+ * `game walks the player through an archway` above proves one of the nine, by
+ * walking through it — which is the strongest evidence there is, and also the
+ * reason it only covers one: the camera opens looking along +z, so a held key
+ * only walks through a gate that happens to face that way.
+ *
+ * The other eight are checked the way the player's own obstacle probe checks
+ * them. It samples two heights — one step above the feet and one at the chest
+ * (`apps/game/src/physics-obstacles.ts`) — and the body it moves is 0.8 m
+ * across. So a gate is passable exactly when both of those heights have a clear
+ * run wider than that, and that is what this measures, across the opening of
+ * every archway the world file places.
+ *
+ * The failure it stands in front of is not the archway's own shape — that has
+ * had `collision: mesh` since ADR-0026 — but a **neighbour**: the palisade and
+ * stone-wall runs the gate is set into are collided against as boxes, and a run
+ * whose box reaches across the opening bricks the gate up with nothing on
+ * screen changing. Measured on this world: the narrowest of the nine leaves
+ * 2.5 m clear at both heights, and the posts on either side stay solid.
+ */
+/**
+ * The two heights the player's obstacle probe samples, and how wide the body it
+ * moves is — restated from `apps/game/src/physics-obstacles.ts` and
+ * `packages/physics/src/defaults.ts`, because `tooling/` may not import the
+ * game (`lint:boundaries`). If either moves, this test measures the wrong
+ * heights and says a gate is open that the player cannot walk through, so both
+ * are asserted against the client's own behaviour by the walk-through test
+ * above rather than trusted on their own.
+ */
+const PROBE_HEIGHTS_METRES = [0.5, 1.4] as const;
+/** Capsule radius 0.4 m, so the body is 0.8 m across. */
+const PLAYER_BODY = 0.8;
+
+const VILLAGE = JSON.parse(
+  readFileSync(join(import.meta.dirname, '..', '..', 'content', 'worlds', 'village1.json'), 'utf8'),
+) as {
+  zones: readonly {
+    readonly entities: readonly {
+      readonly id: string;
+      readonly prefab: string;
+      readonly position: readonly number[];
+      readonly rotation?: readonly number[];
+    }[];
+  }[];
+};
+
+const GATES = (VILLAGE.zones[0]?.entities ?? []).filter((entity) =>
+  entity.prefab.includes('archway'),
+);
+
+test('game leaves every gate in the village open', async ({ page }) => {
+  test.setTimeout(300_000);
+  await standAt(page, '166,150');
+
+  expect(GATES.length, 'the village lost its archways').toBe(9);
+
+  const narrowest: { id: string; metres: number }[] = [];
+  for (const gate of GATES) {
+    const [x = 0, y = 0, z = 0] = gate.position;
+    const yaw = gate.rotation?.[1] ?? 0;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    /*
+     * The gate's own frame: `across` runs along the opening, `through` is the
+     * way the player goes. Rays are kept inside the arch's own depth so that a
+     * building a few metres beyond it cannot be mistaken for a closed gate.
+     */
+    const at = (across: number, height: number, through: number): [number, number, number] => [
+      x + across * cos + through * sin,
+      y + height,
+      z - across * sin + through * cos,
+    ];
+
+    let widest = 0;
+    for (const height of PROBE_HEIGHTS_METRES) {
+      let run = 0;
+      let best = 0;
+      for (let across = -2; across <= 2.001; across += 0.25) {
+        const blocked =
+          (await rayHit(page, at(across, height, -0.9), at(across, height, 0.9))) !== null;
+        run = blocked ? 0 : run + 0.25;
+        best = Math.max(best, run);
+      }
+      widest = height === PROBE_HEIGHTS_METRES[0] ? best : Math.min(widest, best);
+    }
+    narrowest.push({ id: gate.id, metres: widest });
+
+    // Wider than the body, with room to spare: a corridor exactly 0.8 m across
+    // is one that a body of exactly 0.8 m gets wedged in.
+    expect(widest, `gate ${gate.id} is bricked up`).toBeGreaterThan(PLAYER_BODY + 0.4);
+
+    /*
+     * And it is still a gate in something: both edges of the sampled span find
+     * geometry at chest height. Without this half a village with no walls left
+     * in it would pass every assertion above. Two metres out from the middle,
+     * because that is where the archway's own posts stand — its half-width is
+     * 2.77 m and the opening between the posts is about 4 m.
+     */
+    const chest = PROBE_HEIGHTS_METRES[1] ?? 1.4;
+    for (const side of [-2, 2]) {
+      expect(
+        await rayHit(page, at(side, chest, -0.9), at(side, chest, 0.9)),
+        `gate ${gate.id} has no post at ${String(side)} m`,
+      ).not.toBeNull();
+    }
+  }
+
+  test.info().annotations.push({
+    type: 'gates',
+    description: narrowest
+      .map((gate) => `${gate.id}: ${gate.metres.toFixed(2)} m clear`)
+      .join(', '),
+  });
 });

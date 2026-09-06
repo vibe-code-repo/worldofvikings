@@ -15,9 +15,9 @@
  * - wheel: dolly
  * - `F`: frame the selection — driven from the shell, see {@link EditorCamera.focus}
  */
-import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector';
-import type { Scene } from '@babylonjs/core/scene';
+import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import {
   CAMERA_FOV,
   defaultOrbitState,

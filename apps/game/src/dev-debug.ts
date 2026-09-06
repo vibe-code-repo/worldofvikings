@@ -16,7 +16,12 @@
  * that must find nothing.
  */
 import { SceneInstrumentation } from '@babylonjs/core/Instrumentation/sceneInstrumentation.js';
-import type { RendererBackend, RendererHandle, ThirdPersonCameraHandle } from '@wov/engine';
+import type {
+  LightingHandle,
+  RendererBackend,
+  RendererHandle,
+  ThirdPersonCameraHandle,
+} from '@wov/engine';
 import type { PlaceholderTarget } from './placeholder-target.js';
 
 /** Where the camera stands, as plain numbers a test can read out of the page. */
@@ -65,6 +70,19 @@ export interface WovDebugBridge {
    */
   groundAt(x: number, z: number): number | null;
   /**
+   * Where a straight line first meets collision geometry, or `null` for a clear
+   * line.
+   *
+   * The one way a test can ask about a *hole*: an archway's collision mesh is
+   * only right if a line through its opening is clear and a line through its
+   * post is not, and no screenshot and no walk can tell those two apart as
+   * plainly (ADR-0026).
+   */
+  rayHit(
+    from: readonly [number, number, number],
+    to: readonly [number, number, number],
+  ): { x: number; y: number; z: number } | null;
+  /**
    * The world-space hull of the terrain tile, or `null` before it is loaded.
    *
    * Measured off the scene rather than restated from the world file: "the tile
@@ -85,6 +103,30 @@ export interface WovDebugBridge {
    * off Babylon's own counters, not from our bookkeeping.
    */
   readonly render: WovRenderDebug;
+  /** What the light rig is doing (ADR-0024), or `null` before it is reported. */
+  readonly lighting: WovLightingDebug | null;
+
+  /**
+   * What the zone's entity collision cost and produced, or `null` before it is
+   * built (ADR-0026).
+   *
+   * Reported rather than recomputed: "the player is stopped by a wall" is
+   * something a Playwright run proves by walking into one, but "220 shapes
+   * carry 1216 bodies" is a number only the builder knows, and a claim about
+   * cost that nobody can read is a claim nobody can check.
+   */
+  readonly collision: WovCollisionDebug | null;
+}
+
+/** What building the zone's collision cost, as plain numbers a test can read. */
+export interface WovCollisionDebug {
+  readonly shapes: number;
+  readonly bodies: number;
+  readonly triangles: number;
+  readonly passable: number;
+  readonly undeclared: number;
+  readonly failed: readonly string[];
+  readonly milliseconds: number;
 }
 
 /** Per-frame render counters, as plain numbers a test can read out of the page. */
@@ -95,6 +137,42 @@ export interface WovRenderDebug {
   activeMeshes: number;
   /** Triangles submitted for the last frame. */
   triangles: number;
+  /**
+   * Average wall-clock milliseconds a scene render took, over every frame since
+   * the page opened.
+   *
+   * The average, not the last frame: a single frame in a headless browser says
+   * nothing — a shader compile, a texture upload or the operating system can
+   * own any one of them. It is the number a shadow map or a post-processing
+   * chain is paid for in, so it is measured on the same bridge as the draw
+   * calls rather than timed from the outside (ADR-0024).
+   *
+   * Wall clock, not GPU time. `EngineInstrumentation.captureGPUFrameTime`
+   * needs the timer-query extension, which this build's engine does not even
+   * expose a method for; a number that is not there is better left out than
+   * reported as a zero somebody would quote.
+   */
+  frameTimeMs: number;
+  /** Frames the average was taken over. */
+  frames: number;
+}
+
+/**
+ * What the light rig is doing, as plain values a test can read.
+ *
+ * "The screenshot looks warmer" is not a measurement. These are: whether a
+ * shadow map exists and how big it is, whether the grading chain is attached,
+ * and how many meshes the shadow pass drew — which is the count that tells a
+ * scene that casts shadows from one that merely has a light claiming to.
+ */
+export interface WovLightingDebug {
+  shadows: boolean;
+  shadowMapSize: number;
+  /** Meshes rendered into the shadow map on the last pass. */
+  shadowCasters: number;
+  postProcessing: boolean;
+  fog: boolean;
+  sky: boolean;
 }
 
 declare global {
@@ -110,6 +188,19 @@ export interface DevDebugSubjects {
   readonly player?: PlaceholderTarget;
   /** Answers `groundAt`; the app owns it because the app owns the physics world. */
   readonly groundAt?: (x: number, z: number) => number | null;
+  /**
+   * The light rig in use, read fresh each frame.
+   *
+   * A getter rather than the handle: the rig is replaced when the world file
+   * arrives (ADR-0024), and a captured handle would keep reporting the numbers
+   * of the one that was thrown away.
+   */
+  readonly lighting?: () => LightingHandle | null;
+  /** Answers `rayHit`, for the same reason. */
+  readonly rayHit?: (
+    from: readonly [number, number, number],
+    to: readonly [number, number, number],
+  ) => { x: number; y: number; z: number } | null;
 }
 
 /** The hull the bridge reports for the terrain tile. */
@@ -132,7 +223,10 @@ export function installDevDebugBridge(
   renderer: RendererHandle,
   marker: HTMLElement | null,
   subjects: DevDebugSubjects = {},
-): { reportTerrainBounds(bounds: WovTerrainBounds): void } {
+): {
+  reportTerrainBounds(bounds: WovTerrainBounds): void;
+  reportCollision(report: WovCollisionDebug): void;
+} {
   const camera = subjects.camera;
   const player = subjects.player;
   // One object, mutated per frame rather than rebuilt: the bridge is dev-only
@@ -141,23 +235,50 @@ export function installDevDebugBridge(
     ? { yaw: 0, pitch: 0, distance: 0, desiredDistance: 0, x: 0, y: 0, z: 0 }
     : null;
   const playerDebug: WovPlayerDebug | null = player ? { x: 0, y: 0, z: 0 } : null;
+  const readLighting = subjects.lighting;
+  const lightingDebug: WovLightingDebug | null = readLighting
+    ? {
+        shadows: false,
+        shadowMapSize: 0,
+        shadowCasters: 0,
+        postProcessing: false,
+        fog: false,
+        sky: false,
+      }
+    : null;
   const groundAt = subjects.groundAt ?? ((): null => null);
+  const rayHit = subjects.rayHit ?? ((): null => null);
   const bridge: {
     backend: RendererBackend;
     frameId: number;
     camera: WovCameraDebug | null;
     player: WovPlayerDebug | null;
     groundAt: (x: number, z: number) => number | null;
+    rayHit: (
+      from: readonly [number, number, number],
+      to: readonly [number, number, number],
+    ) => { x: number; y: number; z: number } | null;
     terrainBounds: WovTerrainBounds | null;
     render: WovRenderDebug;
+    lighting: WovLightingDebug | null;
+    collision: WovCollisionDebug | null;
   } = {
     backend: renderer.backend,
     frameId: -1,
     camera: cameraDebug,
     player: playerDebug,
     groundAt,
+    rayHit,
     terrainBounds: null,
-    render: { drawCalls: 0, activeMeshes: 0, triangles: 0 },
+    render: {
+      drawCalls: 0,
+      activeMeshes: 0,
+      triangles: 0,
+      frameTimeMs: 0,
+      frames: 0,
+    },
+    lighting: lightingDebug,
+    collision: null,
   };
   window.__wov = bridge;
 
@@ -171,9 +292,12 @@ export function installDevDebugBridge(
   // Babylon resets the draw-call counter per frame only while something asks
   // it to; that is all this instrumentation is here for.
   const instrumentation = new SceneInstrumentation(renderer.scene);
+  instrumentation.captureFrameTime = true;
 
   renderer.onFrame((frame) => {
     bridge.frameId = frame.index;
+    bridge.render.frameTimeMs = instrumentation.frameTimeCounter.average;
+    bridge.render.frames = instrumentation.frameTimeCounter.count;
     bridge.render.drawCalls = instrumentation.drawCallsCounter.current;
     bridge.render.activeMeshes = renderer.scene.getActiveMeshes().length;
     bridge.render.triangles = Math.round(renderer.scene.getActiveIndices() / 3);
@@ -186,6 +310,19 @@ export function installDevDebugBridge(
       cameraDebug.x = camera.camera.position.x;
       cameraDebug.y = camera.camera.position.y;
       cameraDebug.z = camera.camera.position.z;
+    }
+    if (readLighting && lightingDebug) {
+      const rig = readLighting();
+      const map = rig?.shadows?.getShadowMap() ?? null;
+      lightingDebug.shadows = map !== null;
+      lightingDebug.shadowMapSize = map?.getSize().width ?? 0;
+      // The list the shadow pass just drew from, not the list somebody meant to
+      // fill: it is rebuilt from the scene every pass (ADR-0024), so a zero
+      // here is a scene whose casters really are absent.
+      lightingDebug.shadowCasters = map?.renderList?.length ?? 0;
+      lightingDebug.postProcessing = rig?.pipeline != null;
+      lightingDebug.fog = renderer.scene.fogEnabled && renderer.scene.fogMode !== 0;
+      lightingDebug.sky = rig?.sky != null;
     }
     if (player && playerDebug) {
       const at = player.root.position;
@@ -201,6 +338,9 @@ export function installDevDebugBridge(
   return {
     reportTerrainBounds(bounds) {
       bridge.terrainBounds = bounds;
+    },
+    reportCollision(report) {
+      bridge.collision = report;
     },
   };
 }

@@ -16,8 +16,11 @@ import {
   removeEntities,
   renameEntity,
   renameZone,
+  scatterCommand,
   serializeDocument,
   updateTransform,
+  type Rect,
+  type ScatterOptions,
   type TransformChange,
   type TransformPatch,
 } from '@wov/editor-core';
@@ -31,6 +34,7 @@ import { AssetBrowser } from './panels/AssetBrowser.js';
 import { Hierarchy } from './panels/Hierarchy.js';
 import { Inspector } from './panels/Inspector.js';
 import { MenuBar } from './panels/MenuBar.js';
+import { ScatterPanel, type CornerPick } from './panels/ScatterPanel.js';
 import { TOOL_KEYS, type EditorTool } from './scene/gizmos.js';
 import { createPrefabIndex, type PrefabIndex } from './scene/prefab-index.js';
 import { createSession, editorReducer } from './state/store.js';
@@ -47,6 +51,9 @@ function draftWorld(): WorldDefinition {
     zones: [{ id: 'zone_01', name: 'Zone 1', entities: [] }],
   };
 }
+
+/** Where the scatter panel's region starts: a 20 m square around the origin. */
+const DEFAULT_SCATTER_REGION: Rect = [-10, -10, 10, 10];
 
 /** How far a duplicate or a paste lands from its source, so it is not inside it. */
 const COPY_OFFSET: Vector3 = [DEFAULT_GRID_STEP * 4, 0, DEFAULT_GRID_STEP * 4];
@@ -100,6 +107,8 @@ export function EditorShell(): JSX.Element {
   const [assetSources, setAssetSources] = useState('assets: 0 private, 0 placeholder');
   const [saving, setSaving] = useState(false);
   const controllerRef = useRef<ViewportController | null>(null);
+  const [scatterRegion, setScatterRegion] = useState<Rect>(DEFAULT_SCATTER_REGION);
+  const [cornerPick, setCornerPick] = useState<CornerPick>(null);
 
   const { document } = session.state;
   const zone = activeZone(document);
@@ -358,6 +367,50 @@ export function EditorShell(): JSX.Element {
     controllerRef.current = controller;
   }, []);
 
+  /** A viewport click while a corner is armed moves that corner of the region. */
+  const onGroundPick = useCallback(
+    (position: Vector3) => {
+      setScatterRegion((region) =>
+        cornerPick === 0
+          ? [position[0], position[2], region[2], region[3]]
+          : [region[0], region[1], position[0], position[2]],
+      );
+      setCornerPick(null);
+    },
+    [cornerPick],
+  );
+
+  /**
+   * One scatter run, as one command.
+   *
+   * The ground comes from the viewport's own surface query, so a scattered tuft
+   * of grass lands exactly where a dragged prop would. Nothing is selected
+   * afterwards: selecting three thousand tufts would put three thousand
+   * outlines on screen and hand the next gizmo drag all of them.
+   */
+  const scatter = useCallback(
+    (options: Omit<ScatterOptions, 'heightAt'>) => {
+      if (zoneId === null) {
+        dispatch({ type: 'fail', error: 'add a zone before scattering into it' });
+        return;
+      }
+      const built = scatterCommand(zoneId, {
+        ...options,
+        heightAt: (x, z) => controllerRef.current?.surfaceAt(x, z) ?? 0,
+      });
+      if (!built.ok) {
+        dispatch({ type: 'fail', error: built.error });
+        return;
+      }
+      if (built.value.plan.entities.length === 0) {
+        dispatch({ type: 'fail', error: 'that region and density produce nothing to place' });
+        return;
+      }
+      dispatch({ type: 'run', command: built.value.command, selectCreated: false });
+    },
+    [zoneId],
+  );
+
   return (
     <div className="shell" style={{ background: tokens.colorBackground, color: tokens.colorText }}>
       <MenuBar
@@ -413,8 +466,10 @@ export function EditorShell(): JSX.Element {
               rotationStepDegrees: DEFAULT_ROTATION_STEP_DEGREES,
             }}
             placingPrefabId={placingPrefabId}
+            groundPicking={cornerPick !== null}
             onPick={onPick}
             onPlace={place}
+            onGroundPick={onGroundPick}
             onTransform={transform}
             onAssetSources={setAssetSources}
             onController={onController}
@@ -432,12 +487,24 @@ export function EditorShell(): JSX.Element {
         />
       </div>
 
-      <AssetBrowser
-        prefabs={prefabs}
-        error={prefabError}
-        selectedPrefabId={placingPrefabId}
-        onSelectPrefab={setPlacingPrefabId}
-      />
+      <div className="drawers">
+        <AssetBrowser
+          prefabs={prefabs}
+          error={prefabError}
+          selectedPrefabId={placingPrefabId}
+          onSelectPrefab={setPlacingPrefabId}
+        />
+
+        <ScatterPanel
+          zoneId={zoneId}
+          selectedPrefabId={placingPrefabId}
+          region={scatterRegion}
+          onRegion={setScatterRegion}
+          cornerPick={cornerPick}
+          onCornerPick={setCornerPick}
+          onScatter={scatter}
+        />
+      </div>
 
       <footer className="statusbar" style={{ background: tokens.colorSurface }}>
         <span data-testid="editor-asset-sources">{assetSources}</span>

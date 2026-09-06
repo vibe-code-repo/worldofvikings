@@ -208,6 +208,40 @@ export function readHeightGrid(glb: Glb, label: string): HeightGrid {
 }
 
 /**
+ * The ground height at `[x, z]`, interpolated across the cell it falls in.
+ *
+ * Bilinear rather than nearest: at 1.17 m between vertices, a nearest-vertex
+ * answer would put a scattered tuft of grass up to 40 cm above or below the
+ * triangle it stands on, which on the village slopes is a tuft floating in the
+ * air. A point outside the grid is clamped to its edge rather than refused —
+ * the caller is scattering over a region it already believes is on the tile,
+ * and a rejection there would be a crash instead of a placement.
+ *
+ * This is not the renderer's ground query (ADR-0014): the renderer raycasts
+ * against the tile it drew. This reads the same numbers off the same file
+ * before either exists, which is what an offline authoring tool has.
+ */
+export function heightAt(grid: HeightGrid, x: number, z: number): number {
+  const column = clamp((x - grid.originX) / grid.stepX, grid.columns - 1);
+  const row = clamp((z - grid.originZ) / grid.stepZ, grid.rows - 1);
+  const column0 = Math.min(Math.floor(column), Math.max(0, grid.columns - 2));
+  const row0 = Math.min(Math.floor(row), Math.max(0, grid.rows - 2));
+  const column1 = Math.min(column0 + 1, grid.columns - 1);
+  const row1 = Math.min(row0 + 1, grid.rows - 1);
+  const alongX = column - column0;
+  const alongZ = row - row0;
+
+  const at = (c: number, r: number): number => grid.heights[r * grid.columns + c] ?? 0;
+  const front = at(column0, row0) + (at(column1, row0) - at(column0, row0)) * alongX;
+  const back = at(column0, row1) + (at(column1, row1) - at(column0, row1)) * alongX;
+  return front + (back - front) * alongZ;
+}
+
+function clamp(value: number, high: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.min(value, high)) : 0;
+}
+
+/**
  * Keeps every `factor`-th row and column, so `513² → 257²` at factor 2.
  *
  * Sampling, not averaging: the kept vertices are the source's own heights, so

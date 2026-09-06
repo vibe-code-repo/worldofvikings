@@ -85,6 +85,91 @@ export const PrefabBoundsSchema = z
   });
 
 /**
+ * The shapes a prefab can be collided against (spec §29, ADR-0026).
+ *
+ * Four values, each one a different bargain between cost and truth:
+ * - `none` is for anything the player walks through — grass, a bush, a rug.
+ * - `box` is the prefab's hull as one oriented box: one plane test per face,
+ *   and the right answer for a crate, a wall segment or a sack.
+ * - `hull` is the convex hull of the model, for a rock or a haystack whose
+ *   silhouette a box would overstate but which has no hole in it.
+ * - `mesh` is every triangle. It is the only shape with a hole in it, which is
+ *   why an archway, a doorway and the terrain need it and nothing else does.
+ *
+ * There is deliberately no `capsule`: a tree trunk is a narrow `box` whose
+ * width was measured at the trunk (see `collision.box`), and a second round
+ * shape would be a second thing to keep in step for a difference the player
+ * cannot feel at a 0.4 m trunk.
+ */
+export const PREFAB_COLLISION_KINDS = ['none', 'box', 'hull', 'mesh'] as const;
+export type PrefabCollisionKind = (typeof PREFAB_COLLISION_KINDS)[number];
+export const PrefabCollisionKindSchema = z.enum(PREFAB_COLLISION_KINDS);
+
+/**
+ * A separate, low-triangle model that carries the collision geometry.
+ *
+ * Named in full rather than derived from the prefab's own asset: where the
+ * bytes live and what stands in for them is exactly the thing ADR-0015 refuses
+ * to guess, and a collider quietly loaded from the wrong place is a wall the
+ * player walks through.
+ */
+export const PrefabColliderAssetSchema = z
+  .strictObject({
+    path: PrefabAssetPathSchema,
+    visibility: PrefabVisibilitySchema,
+    placeholder: PrefabAssetPathSchema.optional(),
+  })
+  .superRefine((asset, ctx) => {
+    if (asset.visibility === 'private' && asset.placeholder === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['placeholder'],
+        message: 'a private collider asset needs a placeholder',
+      });
+    }
+    if (asset.visibility === 'public' && asset.placeholder !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['placeholder'],
+        message: 'a public collider asset must not carry a placeholder',
+      });
+    }
+  });
+
+/** What the world builder collides this prefab's entities against. */
+export const PrefabCollisionSchema = z
+  .strictObject({
+    kind: PrefabCollisionKindSchema,
+    /** Where the triangles come from, when they are not in the prefab's model. */
+    asset: PrefabColliderAssetSchema.optional(),
+    /**
+     * An explicit box, in the same space as {@link PrefabDefinition.bounds} —
+     * the model file's own space, before any renderer flips a handedness.
+     *
+     * Present when the hull is the wrong box: a tree's hull is its crown, and
+     * colliding against that turns a wood into a wall. The importer measures
+     * the trunk instead and writes it here.
+     */
+    box: PrefabBoundsSchema.optional(),
+  })
+  .superRefine((collision, ctx) => {
+    if (collision.asset !== undefined && collision.kind !== 'mesh') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['asset'],
+        message: `a collider asset is only used by kind "mesh", not "${collision.kind}"`,
+      });
+    }
+    if (collision.box !== undefined && collision.kind !== 'box') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['box'],
+        message: `a collision box is only used by kind "box", not "${collision.kind}"`,
+      });
+    }
+  });
+
+/**
  * One reusable placeable thing (spec §19). Entities in a world reference it by
  * `id`; geometry is never inlined into a world file.
  */
@@ -104,6 +189,15 @@ export const PrefabDefinitionSchema = z
     bounds: PrefabBoundsSchema.optional(),
     /** Author-chosen default scale; absent means `[1, 1, 1]`. */
     defaultScale: Vector3Schema.optional(),
+    /**
+     * What the player bumps into (ADR-0026).
+     *
+     * Optional so that adding it was an additive format change and every
+     * hand-written catalogue kept parsing. Absent means *undecided*, and a
+     * reader must treat it as `none` — which is what the game did before this
+     * field existed — instead of inventing a shape for it.
+     */
+    collision: PrefabCollisionSchema.optional(),
   })
   .superRefine((prefab, ctx) => {
     // A private prefab without a stand-in is a hole in every clone that has no
@@ -147,6 +241,8 @@ export const PrefabCatalogSchema = z
 export type PrefabDefinition = z.infer<typeof PrefabDefinitionSchema>;
 export type PrefabCatalog = z.infer<typeof PrefabCatalogSchema>;
 export type PrefabBounds = z.infer<typeof PrefabBoundsSchema>;
+export type PrefabCollision = z.infer<typeof PrefabCollisionSchema>;
+export type PrefabColliderAsset = z.infer<typeof PrefabColliderAssetSchema>;
 
 /** Result of {@link parsePrefabCatalog}: a catalog or human-readable errors. */
 export type PrefabCatalogParseResult =

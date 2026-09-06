@@ -13,17 +13,23 @@
  */
 import type { GroundQuery } from '@wov/gameplay';
 import type { PhysicsWorld } from '@wov/physics';
+import { STEP_HEIGHT } from './physics-obstacles.js';
 
 /**
  * How far above the entity the downward ray starts, in metres.
  *
  * Not zero: a ray that starts exactly on the surface can miss it, and a step up
- * would be invisible to a ray starting below its edge. Not "very high" either —
- * the ray must not start above a ceiling, or standing in a house would report
- * the roof as the floor. Head height plus a little is the honest compromise
- * while the character is a capsule.
+ * would be invisible to a ray starting below its edge. Not head height either,
+ * which is where it used to be: since the world's entities became collision
+ * geometry (ADR-0026) a ray that starts above a low roof reports that roof as
+ * the floor and teleports the player onto it.
+ *
+ * So it starts exactly one step above the feet. Everything the player can walk
+ * up is inside that reach and everything higher is unreachable by definition —
+ * which is the same rule `physics-obstacles.ts` enforces from the side, and the
+ * reason the two share the number.
  */
-export const GROUND_PROBE_HEIGHT = 2.5;
+export const GROUND_PROBE_HEIGHT = STEP_HEIGHT;
 
 /**
  * A {@link GroundQuery} answered by casting down through collision geometry.

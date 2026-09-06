@@ -18,11 +18,18 @@ Current state: **Phase 4 (the authored world is on screen)** for the game,
 The game client opens a world through `services/api`, draws that zone's ground
 from its height field and splat layers (ADR-0020), places its entities from the
 prefab catalogue as GPU instances, and stands a placeholder capsule on the
-terrain with a third-person camera and a physics world that collides against the
-same tile (ADR-0022). `?world=` picks the world, `?spawn=x,z` where to stand.
-The village zone is 1216 entities from 139 models. There is no character model,
-no combat, no zone streaming, and entity meshes are drawn but not collided
-against — the player walks through walls.
+terrain with a third-person camera and a physics world (ADR-0022). `?world=`
+picks the world, `?spawn=x,z` where to stand, `?flat=1` and `?shadows=off` take
+the light apart for a measurement.
+
+The village zone is 5248 entities from 140 models, 4032 of them scattered
+vegetation drawn as thin instances (ADR-0025). It is lit the way its world file
+says (ADR-0024): a low evening sun with one following 2048² shadow map, a
+gradient sky, fog and a graded frame. Grass takes that shadow without casting
+one (ADR-0027). Every entity collides against the shape its prefab declares
+(ADR-0026) — 1145 bodies from 210 shared shapes, with 4103 tufts and bushes
+deliberately walk-through. There is no character model, no combat and no zone
+streaming.
 
 The editor opens and saves worlds through `services/api` (ADR-0017), places
 prefabs from the generated catalogue (ADR-0016), and edits them with selection,
@@ -30,8 +37,9 @@ move/rotate/scale gizmos, grid and surface snapping and an undo history. It
 draws the active zone's ground as scenery a prop can be dropped onto, but not as
 something that can be selected or moved. Its one rule is ADR-0018: **the
 document is the truth and the scene follows it** — every gesture becomes a
-command, and the viewport reconciles. There is no component system, no terrain
-sculpting and no scatter tool yet.
+command, and the viewport reconciles. It scatters prefabs over a region as one
+undoable command whose output is ordinary entities (ADR-0025), also available as
+`pnpm scatter`. There is no component system and no terrain sculpting yet.
 
 The client has exactly one loop, one device edge and one ground query — read
 [ADR-0014](docs/adr/0014-one-loop-one-device-edge-one-ground.md) before adding a
@@ -79,7 +87,9 @@ pnpm validate:assets          # manifest against assets/, placeholders and the s
 pnpm validate:assets --write  # re-measure sizes and hashes (never invents provenance)
 pnpm import:world-assets --source <export> --store <store>   # see ADR-0015
 pnpm import:scene-models --scene <bundle> --store <store>    # see ADR-0021
-pnpm import:scene --scene <bundle> --world <id> --name <n>   # see ADR-0021
+pnpm import:scene --scene <bundle> --world <id> --name <n>   # see ADR-0021, ADR-0028
+pnpm scatter --world <id> --zone <id> --region … --prefab … --density … --seed …
+                 # one scatter run into a world file (ADR-0025)
 pnpm check       # typecheck + lint + format:check + test + validate
 pnpm smoke       # Playwright: every app started, marker asserted
 ```
@@ -100,6 +110,14 @@ in the DOM plus `/health` for the API and the asset server. It also drives the
 editor end to end — open a world, place a prefab, drag the gizmo, save, undo —
 against an API on its own port with a throwaway `CONTENT_DIR`, so it writes real
 files without touching the repository and can run while `pnpm dev` is up.
+
+It asks Chromium for ANGLE on the machine's own driver: headless Chromium
+rasterises in software otherwise, and a village of 3.9 M triangles a frame runs
+at about 0.2 fps there, which fails tests for reasons that have nothing to do
+with what they assert. The flags are a request — where no GPU answers, Chromium
+falls back to software as before. Set `SMOKE_WEBSITE_PORT`, `SMOKE_GAME_PORT`,
+`SMOKE_ASSET_PORT`, `SMOKE_API_PORT` and `SMOKE_EDITOR_PORT` when another
+checkout is already running the suite.
 
 If you changed something visible and did not run the smoke test, say so
 explicitly instead of implying it passed.

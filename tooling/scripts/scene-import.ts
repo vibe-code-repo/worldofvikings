@@ -14,6 +14,7 @@
  * The command that uses it is `tooling/scripts/import-scene.ts`; everything
  * here is a pure function so the rules can be tested without a 150 MB file.
  */
+import type { WorldDefinition } from '@wov/world-schema';
 import type { Gltf, GltfNode, Matrix4 } from '../asset-pipeline/glb.js';
 import { IDENTITY, multiply, nodeMatrix } from '../asset-pipeline/glb.js';
 
@@ -558,4 +559,52 @@ export function toEntities(
         ],
       };
     });
+}
+
+// ------------------------------------------------------- authored, not imported
+
+/**
+ * Puts back the parts of a world file the bundle does not describe.
+ *
+ * A scene bundle carries placements and nothing else. The ground under them
+ * (ADR-0020) and the light over them (ADR-0024) are authored *into the world
+ * file*, by the terrain import and by hand — so rewriting the file from the
+ * bundle, which is what `pnpm import:scene` does, would throw both away.
+ *
+ * That is not a hypothetical: the documented way to regenerate this repository's
+ * content is store import → prefabs → scene import, and running it on a village
+ * that had an evening gave back a village lit like a showroom, with nothing
+ * failing and nothing said. The scatter runs are the deliberate exception —
+ * they are re-run afterwards, because a scatter is a *command over entities*
+ * and the entities are exactly what the import replaces (ADR-0025).
+ *
+ * Keyed by zone id and never by position: a bundle that gained or lost a zone
+ * must not hand one zone's ground to another. A zone the bundle no longer has
+ * is dropped with its authored blocks, because the fresh world is the list of
+ * zones that exist.
+ */
+export function carryOverAuthoredBlocks(
+  fresh: WorldDefinition,
+  previous: WorldDefinition | undefined,
+): WorldDefinition {
+  if (previous === undefined) {
+    return fresh;
+  }
+  const before = new Map(previous.zones.map((zone) => [zone.id, zone]));
+  // Key order is spelled out rather than spread, because the output is a file a
+  // person reads: a village's `zones` array is 39 000 lines, and a `lighting`
+  // block appended after it is a block nobody will ever scroll to.
+  const { zones: _zones, ...head } = fresh;
+  return {
+    ...head,
+    ...(previous.lighting !== undefined ? { lighting: previous.lighting } : {}),
+    zones: fresh.zones.map((zone) => {
+      const was = before.get(zone.id);
+      return {
+        ...zone,
+        ...(was?.terrain !== undefined ? { terrain: was.terrain } : {}),
+        ...(was?.lighting !== undefined ? { lighting: was.lighting } : {}),
+      };
+    }),
+  };
 }

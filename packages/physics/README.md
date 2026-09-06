@@ -17,10 +17,22 @@ backend, or if anything except the backend file imports `@babylonjs/havok`.
 **Public API.**
 
 - `PhysicsWorld` — `createCharacterController(options)`, `raycastGround(origin, options?)`,
-  `addStaticMesh(mesh)`, `step(deltaSeconds)`, `dispose()`, `gravity`.
+  `raycast(from, to)`, `addStaticMesh(mesh)`, `addStaticGroup(group)`,
+  `step(deltaSeconds)`, `dispose()`, `gravity`.
 - `CharacterController` — `getPosition()`, `setPosition()`, `getLinearVelocity()`,
   `setLinearVelocity()`, `isGrounded()`, `dispose()`, `capsule`.
-- `StaticBody`, `StaticMeshData`, `GroundHit`, `CapsuleShape`, `Vec3`, `physicsLayers`.
+- `StaticBody`, `StaticMeshData`, `StaticGroup`, `StaticPlacement`,
+  `StaticShapeDescription`, `GroundHit`, `CapsuleShape`, `Quat`, `Vec3`,
+  `IDENTITY_ROTATION`, `physicsLayers`.
+
+**One shape, many placements.** `addStaticGroup` is how a world's entities are
+collided against (ADR-0026): a shape — `box`, `hull` or `mesh` — is built once
+and every placement gets a body pointing at it. A placement carries a position
+and a rotation and nothing else, because that is what a rigid-body solver can
+represent exactly; **scale is baked into the shape's coordinates by the caller**,
+so two entities that differ only in scale are two shapes and a mirrored entity
+is a mirrored shape.
+
 - Tuning data: `characterPhysics` (capsule radius 0.4 m, height 1.8 m, mass,
   friction, restitution, ground probe), `defaultGravity`, `simulationStep`.
 - From `@wov/physics/havok`: `createHavokPhysicsWorld(scene, options?)` and

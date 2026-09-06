@@ -1,8 +1,8 @@
 # World editor
 
 > Status: **Phase 3 MVP** — free camera, grid, selection, gizmos, hierarchy,
-> inspector, asset browser, open and save through the API. No components, no
-> terrain sculpting, no scatter tools yet.
+> inspector, asset browser, a scatter panel, open and save through the API. No
+> components, no terrain sculpting yet.
 
 The editor is a **separate application** (`apps/editor`, production
 `editor.world-of-vikings.com`) that produces its own bundle. Editor code must
@@ -29,7 +29,8 @@ Both default to their local ports, so a clean clone needs no `.env`; see
 │  zones       │       3D VIEWPORT           │  id, prefab     │
 │  entities    │                             │  transform      │
 ├──────────────┴─────────────────────────────┴─────────────────┤
-│ Asset Browser — tabs by category, search, drag into viewport │
+│ Asset Browser — tabs, search, drag  │ Scatter — region, mix, │
+│                                     │ density, seed, preview │
 ├──────────────────────────────────────────────────────────────┤
 │ assets: N private, M placeholder │ zone │ selection │ status  │
 └──────────────────────────────────────────────────────────────┘
@@ -72,6 +73,88 @@ onto the canvas. Where it lands:
    hill, not at zero.
 
 Gizmo drags snap the same way, and a whole drag becomes one undo step.
+
+## Scattering things
+
+The scatter panel plants many copies of a prefab over a region in one gesture
+(ADR-0025). What it produces is **ordinary entities**: they land in the document,
+they are in the world file after a save, and they can be selected, moved and
+deleted one at a time afterwards. The seed is how the same field is produced
+twice, not how it is stored — the world is never generated at play time (agent
+rules 16 and 17).
+
+1. Set the region: type `x0, z0, x1, z1`, or press **pick corner 1** / **pick
+   corner 2** and click the ground in the viewport.
+2. Choose a prefab in the asset browser and press **add** — once per prefab.
+   The weight next to each one decides how often it is drawn relative to the
+   others.
+3. Set the density (instances per 100 m² of _usable_ ground), the seed, the
+   minimum distance and the scale and yaw ranges.
+4. The line above the button says how much ground is usable and how many
+   instances that comes to. Press **Scatter**.
+
+The whole field is a single history entry: one Ctrl+Z takes it all back. Running
+the same seed into the same zone twice is refused rather than doubling the
+field, because the ids carry the seed (`<prefab>_s<seed>_<n>`).
+
+### The same tool from the command line
+
+`pnpm scatter` calls the same function without the editor, which is how a run in
+a pull request can be reproduced:
+
+```bash
+pnpm scatter --world village1 --zone village --region x0,z0,x1,z1 \
+  --prefab <id>[:weight][,<id>[:weight]…] --density <per 100 m²> --seed <n> \
+  [--scale low,high] [--yaw low,high] [--min-distance m] [--maximum n] \
+  [--polygon x,z x,z x,z] [--exclude x0,z0,x1,z1]… \
+  [--keep-out <prefab substring>,…] [--keep-out-margin m] [--dry-run]
+```
+
+`--keep-out` derives keep-out rectangles from the hull boxes of the entities
+already in the zone, so grass keeps out of the houses and off the paving without
+anyone typing their coordinates. Heights come from the zone's own height field
+in the asset store; set `WOV_ASSET_STORE` or `--store` when it is not at the
+default path.
+
+### The runs that dressed `village1`
+
+Three runs, in this order. They append to `content/worlds/village1.json`; re-run
+them after any `pnpm import:scene`, which rewrites that file from the bundle and
+therefore drops them. The ground and the lighting block survive that rewrite
+(ADR-0028); the scattered entities are the one thing that does not, because
+entities are what the import replaces.
+
+```bash
+# 3 473 tufts of grass over the village, off the buildings and the paving
+pnpm scatter --world village1 --zone village --region 118,100,215,212 \
+  --prefab grass-short-clump-1 --density 40 --seed 7 --min-distance 0.55 \
+  --scale 1.0,2.0 --keep-out-margin 0.3 \
+  --keep-out sm-bld,-floor,path-wood,path-brick,path-rock,ground-planks,wood-platform,-tiles-,roof-sm,-dock-
+
+# 466 bushes in the scatter area around the village, the village itself excluded
+pnpm scatter --world village1 --zone village --region 50,50,250,250 \
+  --exclude 118,100,215,212 --density 1.6 --seed 11 --min-distance 2.5 \
+  --scale 0.8,1.4 \
+  --prefab bush-1a1:4,bush-1a2:3,bush-1a3:2,large-bush-1a1:1,large-bush-1a5:1
+
+# 93 small bushes in the gaps between the houses
+pnpm scatter --world village1 --zone village --region 118,100,215,212 \
+  --prefab bush-1a1-small:3,bush-1a2-small:2,bush-1a3:1 --density 1.6 --seed 13 \
+  --min-distance 3.5 --scale 0.7,1.15 --keep-out-margin 0.6 \
+  --keep-out sm-bld,-floor,path-wood,path-brick,path-rock,ground-planks,wood-platform,-tiles-,roof-sm,-dock-,sm-prop-,sm-env-stonewall,sm-veh
+```
+
+The regions come from the mapping of the source scene: the first covers the
+village itself, the second the scatter area the level carries around it (the
+four tree stamps and the detail area overlap inside it), the third the small
+decorative patches between the houses.
+
+**In the game, vegetation is drawn as thin instances** — one mesh with a matrix
+buffer, no scene node, not pickable. In the editor it stays one node per entity,
+because there every tuft has to be selectable. Grass takes the sun's shadow but
+is not drawn into the shadow map (ADR-0027), and vegetation collides against
+nothing (ADR-0026), so a scattered field costs no physics bodies: 4 103 of
+`village1`'s 5 248 entities are walk-through.
 
 ## Where the world data comes from
 

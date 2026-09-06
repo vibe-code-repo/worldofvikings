@@ -10,9 +10,13 @@ The authoritative definition is `packages/world-schema`.
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "example",
   "name": "Example World",
+  "lighting": {
+    "sun": { "direction": [0.58, -0.45, 0.68], "color": "#ffd2a1", "intensity": 2.3 },
+    "fog": { "enabled": true, "start": 80, "end": 420 }
+  },
   "zones": [
     {
       "id": "village",
@@ -48,6 +52,7 @@ The authoritative definition is `packages/world-schema`.
 - `position` / `rotation` / `scale` — `[x, y, z]`, in the units below.
 - Objects are strict: unknown fields are an error, not silently dropped.
 - Zone ids are unique per world; entity ids are unique per zone.
+- `lighting` is optional on the world and on a zone (schemaVersion 3, ADR-0024).
 
 ## The transform, exactly
 
@@ -93,6 +98,47 @@ That is a measurement, not a convention. Against the village height field
 Twelve props sampled evenly across the village sit on average 1.03 m above the
 terrain below them, which is what an authored ground-contact origin on sloped
 ground looks like.
+
+## Lighting (schemaVersion 3, ADR-0024)
+
+`lighting` says how a world — or one zone of it — is lit. It is optional, and
+optional all the way down: every group and every field inside it may be left
+out, and what is left out comes from `defaultLightingProfile` in `@wov/engine`.
+A world file that says nothing about light still opens, lit; a file that says
+`{"fog": {"end": 180}}` changes one distance and nothing else.
+
+A zone's profile overrides the world's **group by group and field by field**, so
+an interior can be dark under a world that is not, keeping the same sun.
+
+| Group            | Fields                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------- |
+| `sun`            | `direction` (the direction light _travels_), `color`, `intensity`                     |
+| `ambient`        | `skyColor`, `groundColor`, `intensity` — the hemispheric fill                         |
+| `sky`            | `enabled`, `zenithColor`, `horizonColor`, `sunColor`, `sunSpread`                     |
+| `fog`            | `enabled`, `start`, `end` in metres, `color` (defaults to the sky's horizon)          |
+| `shadows`        | `enabled`, `mapSize`, `distance`, `bias`, `normalBias`, `darkness`, `filter`          |
+| `postProcessing` | `enabled`, `fxaa`, `toneMapping`, `exposure`, `contrast`, `bloom`, `vignette`, `ssao` |
+
+Colours are `#rrggbb`. `mapSize` is a power of two from 256 to 4096.
+`toneMapping` is one of `none`, `standard`, `aces`, `neutral`; `shadows.filter`
+one of `none`, `poisson`, `pcf`. `shadows.darkness` is 0 for black shade and 1
+for no shadow at all — Babylon's convention, and the ground's shader uses the
+same one.
+
+Two fields are worth a sentence because they are the ones that decide how a
+scene reads:
+
+- `shadows.distance` is the edge length in metres of the square the shadow map
+  covers, centred on the player. `mapSize / distance` is the ground each shadow
+  texel covers, and that — not the resolution alone — is what decides whether a
+  fence post has a shadow or a smudge. The village uses 2048 over 120 m.
+- `ambient.intensity` against `sun.intensity` is the difference between evening
+  and noon. A bright fill puts light back into the shade as fast as the sun digs
+  it out, which is what makes a scene look flat however warm the sun is.
+
+`?flat=1` on the game's URL replaces the world's profile with a flat-noon one
+(no shadows, no sky, no fog, no grading), so a screenshot can be compared
+against the same frame with no rig at all.
 
 ## Terrain (schemaVersion 2, ADR-0020)
 
@@ -187,7 +233,8 @@ across **all** catalogs, because an entity names the id alone.
       "asset": "environment/kenney-retro-fantasy-kit/detail-barrel.glb",
       "visibility": "public",
       "category": "prop",
-      "bounds": { "min": [-0.123, 0, -0.123], "max": [0.123, 0.3, 0.123] }
+      "bounds": { "min": [-0.123, 0, -0.123], "max": [0.123, 0.3, 0.123] },
+      "collision": { "kind": "box" }
     }
   ]
 }
@@ -201,6 +248,18 @@ across **all** catalogs, because an entity names the id alone.
 - `category` — `environment`, `vegetation`, `terrain`, `prop` or `dungeon`; the
   grouping the editor's asset browser uses (spec §13).
 - `bounds`, `defaultScale` — optional; `bounds` is copied from the manifest.
+- `collision` — optional; what the player bumps into (ADR-0026).
+  - `kind` — `none`, `box`, `hull` or `mesh`. `mesh` is the only one with a hole
+    in it, which is why an archway and the ground use it and nothing else does.
+  - `asset` — a separate low-triangle collider model (`path`, `visibility`,
+    `placeholder`), only with `kind: "mesh"`. Named in full rather than derived
+    from the prefab's own asset, because where the bytes live is not a thing to
+    guess (ADR-0015).
+  - `box` — an explicit box in the **model file's** space, the same space as
+    `bounds`, only with `kind: "box"`. A tree's `bounds` are its crown, so the
+    importer measures the trunk and writes it here instead.
+  - Absent means _undecided_, and a reader treats it as `none` — the behaviour
+    before the field existed. It is never read as "work a shape out yourself".
 
 `content/prefabs/base.json` is hand-written. `content/prefabs/imported.json` is
 generated from the asset manifest by `pnpm generate:prefabs` and committed — it

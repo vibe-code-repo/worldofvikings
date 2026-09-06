@@ -5,8 +5,10 @@ import {
   METALLIC_FACTOR,
   ROUGHNESS_FACTOR,
   SURFACE_BY_KIND,
+  TINTS,
   materialKey,
   surfaceFor,
+  tintFor,
 } from './materials.js';
 
 /**
@@ -143,5 +145,71 @@ describe('MATERIAL_ROWS', () => {
     expect(METALLIC_FACTOR).toBe(0);
     expect(ROUGHNESS_FACTOR).toBe(1);
     expect(ALPHA_CUTOFF).toBe(0.5);
+  });
+});
+
+/**
+ * The colour half of the table. The atlases behind these keys are brightness
+ * masks — `Leaves Birch 1` averages R 115.4 G 115.1 B 115.4 over its opaque
+ * pixels — so what a leaf ends up being is the tint and nothing else, and a
+ * missing tint is a grey tree rather than a slightly-off one.
+ */
+describe('TINTS', () => {
+  it('tints every leaf and grass card that is a brightness mask', () => {
+    const untinted = Object.entries(MATERIAL_ROWS)
+      .filter(([, row]) => (row.kind === 'leaf' || row.kind === 'grass') && row.tint === undefined)
+      .map(([, row]) => row.note)
+      .sort();
+    // The four that stay untinted are recoloured variants of the same cards —
+    // snow, yellow and red-blue — which were exported with their own colour.
+    expect(untinted).toEqual([
+      'birch leaf card, variant 3, dark, snow',
+      'short plant leaf card, redblue variant',
+      'short plant leaf card, snow variant',
+      'short plant leaf card, yellow variant',
+    ]);
+  });
+
+  it('leaves bark, trunks and every atlas the colour they were painted', () => {
+    const tinted = Object.values(MATERIAL_ROWS).filter(
+      (row) => row.kind !== 'leaf' && row.kind !== 'grass' && row.tint !== undefined,
+    );
+    expect(tinted).toEqual([]);
+  });
+
+  it('stays inside the range glTF allows a base colour factor', () => {
+    for (const [name, tint] of Object.entries(TINTS)) {
+      expect({ name, inRange: tint.every((channel) => channel >= 0 && channel <= 1) }).toEqual({
+        name,
+        inRange: true,
+      });
+      expect({ name, alpha: tint[3] }).toEqual({ name, alpha: 1 });
+    }
+  });
+
+  it('keeps green the strongest channel of every foliage tint', () => {
+    for (const [name, tint] of Object.entries(TINTS)) {
+      expect({ name, green: tint[1] > tint[0] && tint[1] > tint[2] }).toEqual({
+        name,
+        green: true,
+      });
+    }
+  });
+
+  it('keeps the needle card darker than the broadleaf card', () => {
+    const luma = (tint: readonly number[]): number =>
+      0.2126 * (tint[0] ?? 0) + 0.7152 * (tint[1] ?? 0) + 0.0722 * (tint[2] ?? 0);
+    expect(luma(TINTS['pine-needle'])).toBeLessThan(luma(TINTS.broadleaf));
+  });
+
+  it('gives the birch and the broadleaf card different greens', () => {
+    expect(tintFor('Leaves Birch 1')).not.toEqual(tintFor('Leaves 2'));
+    expect(tintFor('Leaves 1')).toEqual(tintFor('Leaves 2'));
+  });
+
+  it('has no tint for bark, for an unlisted material or for the grass snow variant', () => {
+    expect(tintFor('Birch_Bark_A')).toBeUndefined();
+    expect(tintFor('Trunks')).toBeUndefined();
+    expect(tintFor('Leaves Of Some Future Tree')).toBeUndefined();
   });
 });

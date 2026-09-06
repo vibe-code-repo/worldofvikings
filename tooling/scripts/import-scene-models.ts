@@ -56,6 +56,7 @@ import {
   isPng,
   readPngSize,
 } from '../asset-pipeline/png.js';
+import { applySurfaces } from '../asset-pipeline/material-binding.js';
 import { buildPlaceholderGlb, placeholderPathFor } from '../asset-pipeline/placeholder.js';
 import {
   cutModel,
@@ -382,6 +383,12 @@ for (const group of plan) {
       target.uri = texturePath.slice(texturePath.indexOf('/') + 1);
     }
   }
+
+  // The cut keeps the bundle's material, and the bundle wrote no factors: a
+  // leaf card arrives opaque, single-sided, metallic and grey. The surface
+  // table decides all four, the same one the other importer consults, so a
+  // bush cut out of the bundle and a bush imported as a file look alike.
+  applySurfaces(cut.glb.json);
 
   const bytes = writeGlb(cut.glb);
   await write(join(storeRoot, path), bytes);

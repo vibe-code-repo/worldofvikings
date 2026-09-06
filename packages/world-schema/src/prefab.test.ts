@@ -110,3 +110,88 @@ describe('parsePrefabCatalog', () => {
     }
   });
 });
+
+describe('prefab collision', () => {
+  it('accepts a prefab without a collision shape', () => {
+    expect(withPrefab(publicPrefab).ok).toBe(true);
+  });
+
+  it('accepts every collision kind', () => {
+    for (const kind of ['none', 'box', 'hull', 'mesh']) {
+      const result = withPrefab({ ...publicPrefab, collision: { kind } });
+      expect(result.ok, kind).toBe(true);
+    }
+  });
+
+  it('rejects a collision kind it does not know', () => {
+    const result = withPrefab({ ...publicPrefab, collision: { kind: 'capsule' } });
+    expect(result.ok).toBe(false);
+  });
+
+  it('accepts a mesh collision that names its own collider asset', () => {
+    const result = withPrefab({
+      ...privatePrefab,
+      collision: {
+        kind: 'mesh',
+        asset: {
+          path: 'vegetation/pine-1b1-collision.glb',
+          visibility: 'private',
+          placeholder: 'placeholders/vegetation/pine-1b1-collision.glb',
+        },
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects a collider asset on a shape that is not a mesh', () => {
+    const result = withPrefab({
+      ...publicPrefab,
+      collision: {
+        kind: 'box',
+        asset: { path: 'environment/x-collision.glb', visibility: 'public' },
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.join(' ')).toContain('collider asset');
+    }
+  });
+
+  it('rejects a private collider asset without a placeholder', () => {
+    const result = withPrefab({
+      ...privatePrefab,
+      collision: {
+        kind: 'mesh',
+        asset: { path: 'vegetation/pine-1b1-collision.glb', visibility: 'private' },
+      },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('accepts an explicit collision box, in the same space as bounds', () => {
+    const result = withPrefab({
+      ...privatePrefab,
+      collision: { kind: 'box', box: { min: [-0.52, -0.56, -0.52], max: [0.52, 15.58, 0.52] } },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects an explicit box on a shape that is not a box', () => {
+    const result = withPrefab({
+      ...publicPrefab,
+      collision: { kind: 'hull', box: { min: [0, 0, 0], max: [1, 1, 1] } },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.join(' ')).toContain('collision box');
+    }
+  });
+
+  it('rejects an inverted collision box', () => {
+    const result = withPrefab({
+      ...publicPrefab,
+      collision: { kind: 'box', box: { min: [1, 0, 0], max: [0, 1, 1] } },
+    });
+    expect(result.ok).toBe(false);
+  });
+});

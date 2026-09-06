@@ -63,6 +63,27 @@ Ids — `ids.ts`: `entityIdBase(prefabId)`, `nextEntityId(usedIds, prefabId)`,
 `nextEntityIds(usedIds, prefabIds)`. Deterministic: `<prefab>_001`, first free
 number, never `Math.random` (agent rule 17).
 
+Scatter — `scatter.ts` (ADR-0025). Planting many copies of a prefab over a
+region, as one command whose output is ordinary entities:
+
+- `planScatter(options): CommandResult<ScatterPlan>` — pure, seeded, no
+  document; `{ entities, usableArea, requested, crowdedOut }`
+- `scatterCommand(zoneId, options): CommandResult<{ command, plan }>` — one
+  `addEntities`, so one undo takes the whole field back
+- `usableArea(region)`, `insideRegion(region, x, z)` — the rectangle minus the
+  polygon minus the keep-outs, measured on an `AREA_PROBES` lattice
+- `scatterId(prefab, seed, n)` — `<prefab>_s<seed>_<n>`, zero-padded
+- `SCATTER_DENSITY_AREA` (100 m²), `SCATTER_ATTEMPTS`, `SCATTER_MAXIMUM`
+
+Footprints — `footprint.ts`: `footprintOf(entity, prefab, { margin })` and
+`footprintsOf(entities, prefabs, patterns, { margin })` — the ground rectangle a
+placed entity covers, from the catalogue's hull box and the entity's transform.
+It is how a scatter keeps out of the houses and off the paving.
+
+Random — `random.ts`: `createRandom(seed): Random` with `next`, `between` and
+`weighted`. Deterministic mulberry32; `Math.random` is used nowhere in this
+package (agent rule 17).
+
 Snapping — `snapping.ts`: `gridSnap(value, step)`, `snapPosition`,
 `snapRotationAngle(radians, stepDegrees)`, `snapRotation`, plus
 `DEFAULT_GRID_STEP` (0.5 m) and `DEFAULT_ROTATION_STEP_DEGREES` (15°). Positions

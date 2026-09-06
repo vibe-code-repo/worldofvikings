@@ -1,5 +1,5 @@
 /**
- * The editor viewport: renderer, camera, lights and grid.
+ * The editor viewport: renderer, camera, light rig and grid.
  *
  * Engine, scene, render loop and resize handling come from `@wov/engine`
  * (ADR-0006) — the same bootstrap the game uses. What this module adds is the
@@ -11,22 +11,28 @@
  *
  * 1. The Phase 0 viewport drew an unlit-looking white ground that filled the
  *    frame. There was nothing wrong with the renderer — the ground *was* the
- *    picture. A grid and a sky-coloured background make "the camera is
- *    somewhere" visible instead of leaving a white rectangle to interpret.
+ *    picture. A grid and a sky make "the camera is somewhere" visible instead
+ *    of leaving a white rectangle to interpret.
  * 2. Babylon sizes its drawing buffer from the canvas when the engine is
  *    created. In a React shell the canvas is laid out after that, so the first
  *    frames were rendered at the wrong size until the window happened to
  *    resize. A `ResizeObserver` on the canvas fixes the cause; `window`'s
  *    resize event never sees a panel change width.
  * 3. Two engines on one canvas: see `Viewport.tsx`.
+ *
+ * The light itself is not this module's taste. It is `applyLighting` from
+ * `@wov/engine`, fed with the profile of the open world — the same function and
+ * the same numbers the game uses (ADR-0024).
  */
-import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector';
-import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
-import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
-import type { Scene } from '@babylonjs/core/scene';
-import { createRenderer, type RenderConfig, type RendererHandle } from '@wov/engine';
-import { tokens } from '@wov/ui';
+import type { Scene } from '@babylonjs/core/scene.js';
+import {
+  applyLighting,
+  createRenderer,
+  type LightingHandle,
+  type LightingProfileOptions,
+  type RenderConfig,
+  type RendererHandle,
+} from '@wov/engine';
 import { createEditorCamera, type EditorCamera } from './editor-camera.js';
 import { createGrid, type GridHandle } from './grid.js';
 
@@ -41,29 +47,18 @@ export interface ViewportHandle {
   frameId(): number;
   /** Registers a per-frame callback; returns its unsubscribe function. */
   onFrame(listener: (frameId: number) => void): () => void;
+  /** The light rig currently in the scene (ADR-0024). */
+  lighting(): LightingHandle;
+  /**
+   * Relights the viewport from the profile of the open world and zone.
+   *
+   * The same `applyLighting` the game calls, with the same numbers out of the
+   * same file — which is the whole point. An author who places a torch under an
+   * evening sun and then finds a flat noon in the game has been shown the wrong
+   * picture, and no amount of editor-side taste settings fixes that.
+   */
+  relight(profiles: readonly (LightingProfileOptions | undefined)[]): LightingHandle;
   dispose(): void;
-}
-
-/** Babylon wants a `Color4`; the design tokens are `#rrggbb` strings. */
-function backgroundColor(): Color4 {
-  const rgb = Color3.FromHexString(tokens.colorBackground);
-  return new Color4(rgb.r, rgb.g, rgb.b, 1);
-}
-
-/**
- * Lights the scene the way an editor wants it: a bright hemisphere so nothing
- * is ever a black silhouette, plus one directional light so shapes read as
- * shapes. No shadows — an author needs to see what is there, not what a sun
- * would hide (spec §13).
- */
-function createLights(scene: Scene): void {
-  const ambient = new HemisphericLight('editor-ambient', new Vector3(0, 1, 0), scene);
-  ambient.intensity = 0.75;
-  ambient.groundColor = new Color3(0.28, 0.3, 0.34);
-
-  const sun = new DirectionalLight('editor-sun', new Vector3(-0.45, -1, -0.6), scene);
-  sun.intensity = 1.1;
-  sun.position = new Vector3(60, 120, 80);
 }
 
 export async function createViewport(
@@ -73,17 +68,29 @@ export async function createViewport(
   const renderer = await createRenderer(canvas, overrides);
   const { scene } = renderer;
 
-  scene.clearColor = backgroundColor();
-  createLights(scene);
   const grid = createGrid(scene);
   const camera = createEditorCamera(scene, canvas);
   scene.activeCamera = camera.camera;
+
+  /** The grid is a measuring aid, not scenery: it must not throw a shadow. */
+  const gridMeshes = [grid.minor, grid.major, grid.axes];
+  const light = (profiles: readonly (LightingProfileOptions | undefined)[]): LightingHandle => {
+    const handle = applyLighting(scene, { profiles, cameras: [camera.camera] });
+    handle.excludeFromShadows(gridMeshes);
+    return handle;
+  };
+  let lighting = light([]);
 
   let frameId = 0;
   const listeners = new Set<(frameId: number) => void>();
   const unsubscribeFrames = renderer.onFrame((frame) => {
     frameId = frame.index;
     camera.update(frame.deltaSeconds);
+    // The shadow map covers a box, not the world (ADR-0024). In the editor the
+    // box follows what the camera is looking at, which is the orbit target —
+    // the same point `F` frames and the same point the author is working on.
+    const target = camera.camera.target;
+    lighting.focusShadows(target.x, target.y, target.z);
     for (const listener of [...listeners]) {
       listener(frameId);
     }
@@ -107,10 +114,17 @@ export async function createViewport(
       listeners.add(listener);
       return () => void listeners.delete(listener);
     },
+    lighting: () => lighting,
+    relight(profiles) {
+      lighting.dispose();
+      lighting = light(profiles);
+      return lighting;
+    },
     dispose() {
       observer?.disconnect();
       unsubscribeFrames();
       listeners.clear();
+      lighting.dispose();
       camera.dispose();
       grid.dispose();
       renderer.dispose();

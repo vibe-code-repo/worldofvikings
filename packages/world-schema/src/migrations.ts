@@ -29,8 +29,23 @@ const v1ToV2: WorldMigration = {
   migrate: (data) => ({ ...data, schemaVersion: 2 }),
 };
 
+/**
+ * v2 → v3: worlds and zones gained an optional `lighting` (ADR-0024).
+ *
+ * Additive in the same way v1 → v2 was, and for the same reason it still gets a
+ * version of its own: a v2 file has no lighting profile, so it is a v3 file
+ * whose light comes from the renderer's defaults. Nothing is invented here —
+ * writing the evening profile into every old world would be this migration
+ * *deciding* how those worlds look, which is an author's decision, not a
+ * format's (agent rule 11).
+ */
+const v2ToV3: WorldMigration = {
+  from: 2,
+  migrate: (data) => ({ ...data, schemaVersion: 3 }),
+};
+
 /** Every known step, in ascending order. */
-export const WORLD_MIGRATIONS: readonly WorldMigration[] = [v1ToV2];
+export const WORLD_MIGRATIONS: readonly WorldMigration[] = [v1ToV2, v2ToV3];
 
 /** What {@link migrateWorldData} did. */
 export type WorldMigrationResult =

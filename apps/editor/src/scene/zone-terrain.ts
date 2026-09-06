@@ -19,8 +19,8 @@
  * game (`apps/game/src/world-scene.ts`) and the editor each own their own
  * loader, and the drawing itself has exactly one implementation.
  */
-import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
-import type { Scene } from '@babylonjs/core/scene';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import { AssetManager, assetStoreUrl, assetUrl, createAssetCatalog } from '@wov/asset-system';
 import type { AssetSourceConfig } from '@wov/asset-system';
 import { createTerrain } from '@wov/engine';
@@ -51,8 +51,13 @@ export interface ZoneTerrain {
 export interface ZoneTerrainOptions {
   readonly scene: Scene;
   readonly source: AssetSourceConfig;
-  /** Called when a tile has arrived and the picture changed. */
-  readonly onChanged?: () => void;
+  /**
+   * Called when a tile has arrived and the picture changed, with the tile that
+   * is now on screen — or nothing, when the new zone has no ground. The caller
+   * needs the meshes: the ground must be kept out of the shadow map it
+   * receives from, or a 300 m tile shadows every slope it has (ADR-0024).
+   */
+  readonly onChanged?: (terrain: TerrainHandle | null) => void;
   /** Called when a tile could not be loaded, with a readable reason. */
   readonly onFailed?: (reason: string) => void;
 }
@@ -114,8 +119,12 @@ export function createZoneTerrain(options: ZoneTerrainOptions): ZoneTerrain {
         tileSize: layer.tileSize,
       })),
       splat: (terrain.splat ?? []).map((path) => textureSource(source, path)),
+      // The ground receives the sun's shadow map through its own shader
+      // (ADR-0024). It has to be requested here rather than set afterwards:
+      // the lookup is compiled into the tile's generated program.
+      receiveShadows: true,
     });
-    onChanged?.();
+    onChanged?.(handle);
   };
 
   return {
@@ -132,7 +141,7 @@ export function createZoneTerrain(options: ZoneTerrainOptions): ZoneTerrain {
       handle?.dispose();
       handle = null;
       if (terrain === undefined) {
-        onChanged?.();
+        onChanged?.(null);
         return;
       }
       const mine = generation;

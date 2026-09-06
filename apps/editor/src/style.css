@@ -562,6 +562,13 @@ select {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
+  /*
+   * Clipped, not merely scrolled. In a short window the work area row shrinks
+   * to nothing, and an unclipped column paints its 40 lighting fields straight
+   * over the asset browser below it — visible, clickable, and belonging to a
+   * panel that is not there any more.
+   */
+  overflow: hidden;
   border-left: 1px solid var(--wov-line);
 }
 

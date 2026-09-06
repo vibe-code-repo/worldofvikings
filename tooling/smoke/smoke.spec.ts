@@ -81,6 +81,26 @@ function appUrl(app: 'websiteUrl' | 'gameUrl' | 'assetUrl'): string {
   return String(test.info().config.metadata[app]);
 }
 
+/**
+ * Opens the game with its light rig switched off (`?flat=1`, ADR-0024).
+ *
+ * Every test below is about wiring: that the loop runs, that a key reaches the
+ * capsule, that the camera follows it, that the world arrives from the API and
+ * is instanced. None of them is about the picture's grade — and the grade is
+ * what this suite cannot afford. Playwright's headless Chromium rasterises in
+ * software, and the shipped profile puts a 2048² shadow map and an HDR grading
+ * chain in front of it: measured on the village, a frame goes from about a
+ * tenth of a second to more than a second, which is slow enough that half a
+ * second of a held key advances the simulation by three fixed steps and the
+ * "it walks" assertion fails for a reason that has nothing to do with walking.
+ *
+ * So the wiring is measured without the rig, and the rig has its own test that
+ * measures nothing else: `tooling/smoke/lighting.spec.ts`.
+ */
+async function openGame(page: Page, query = ''): Promise<void> {
+  await page.goto(`${appUrl('gameUrl')}?flat=1${query}`);
+}
+
 /** The editor's whole debug bridge, or `null` while it is not installed. */
 function editorDebug(page: Page): Promise<WovEditorDebugWindow['__wovEditor'] | null> {
   return page.evaluate(() => {
@@ -175,7 +195,7 @@ const RENDERER_STATUS = /^(renderer|viewport) (ready — (webgl2|webgpu)|unavail
 const GAME_STATUS = /^renderer (ready — (webgl2|webgpu)|unavailable: .+)/;
 
 test('game shows its dev build marker', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
   await expect(page.getByTestId('game-marker')).toContainText('World of Vikings');
   await expect(page.getByTestId('game-marker')).toContainText('game dev build');
   await expect(page.getByTestId('game-status')).toHaveText(GAME_STATUS);
@@ -194,7 +214,7 @@ test('game shows its dev build marker', async ({ page }) => {
  * proves the counter reaches the DOM. Both exist only in the dev build.
  */
 test('game keeps rendering frames', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
 
   await expect.poll(() => frameId(page), { timeout: 10_000 }).not.toBeNull();
   const before = await frameId(page);
@@ -237,7 +257,7 @@ async function groundSettled(page: Page): Promise<void> {
 }
 
 test('game camera frames the placeholder and answers mouse and wheel', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
   await groundSettled(page);
   const opening = await liveCamera(page);
   const standing = await livePlayer(page);
@@ -280,7 +300,7 @@ test('game camera frames the placeholder and answers mouse and wheel', async ({ 
  * state, so a simulation that runs without reaching the picture still fails.
  */
 test('game walks the player capsule when a key is held', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
   await expect(page.getByTestId('game-status')).toContainText('renderer ready');
   await groundSettled(page);
 
@@ -314,7 +334,7 @@ test('game walks the player capsule when a key is held', async ({ page }) => {
  * distance.
  */
 test('game camera follows the player that walks away', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
   await groundSettled(page);
   const startPlayer = await livePlayer(page);
   const startCamera = await liveCamera(page);
@@ -357,7 +377,7 @@ test('game loads its world assets over the asset server', async ({ page }) => {
     }
   });
 
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
 
   // Every distinct model of the zone, loaded once and instanced per entity
   // (ADR-0022). A model that fell back to its committed placeholder still
@@ -384,7 +404,7 @@ test('game loads its world assets over the asset server', async ({ page }) => {
 });
 
 test('game loads the physics backend and collides the ground', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
   // Proves the whole chain in a real browser: the dynamic Havok import
   // resolved, the WASM module loaded from the URL Vite emitted, and the base
   // ground became static collision geometry (ADR-0013). Unit tests can prove
@@ -408,7 +428,7 @@ test('game loads the physics backend and collides the ground', async ({ page }) 
  * assertions hold either way and the status line says which one ran.
  */
 test('game stands the player on the terrain it draws', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
   await expect(page.getByTestId('game-status')).toContainText('terrain ready', {
     timeout: 30_000,
   });
@@ -451,7 +471,7 @@ test('game stands the player on the terrain it draws', async ({ page }) => {
  * the shape — more than a thousand of them, from more than one model.
  */
 test('game opens the authored village over the API', async ({ page }) => {
-  await page.goto(appUrl('gameUrl'));
+  await openGame(page);
 
   await expect(page.getByTestId('game-world')).toHaveText(
     /^world village1 · zone village — \d+ entities from \d+ models$/,

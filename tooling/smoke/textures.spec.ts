@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { CURRENT_WORLD_SCHEMA_VERSION } from '@wov/world-schema';
 import { decodePng } from '../asset-pipeline/png.js';
 
 /**
@@ -69,7 +70,26 @@ const SUBJECTS = [
 ] as const;
 
 const WORLD = {
-  schemaVersion: 1,
+  schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
+  /**
+   * This world states that it wants flat light (ADR-0024).
+   *
+   * The measurement below is "is this model wearing its texture or is it grey",
+   * and it is a measurement of colour. Under the evening grade the editor now
+   * applies by default — a warm low sun, ACES tone mapping, a vignette — the
+   * shelter's coloured share falls from 46 % to 20 %, which says something
+   * about the grade and nothing about the binding. So the fixture asks for the
+   * light it wants to be measured under, which is exactly what a per-world
+   * profile is for.
+   */
+  lighting: {
+    sun: { direction: [-0.45, -1, -0.6], color: '#ffffff', intensity: 1.1 },
+    ambient: { skyColor: '#ffffff', groundColor: '#1f2519', intensity: 0.55 },
+    sky: { enabled: false },
+    fog: { enabled: false },
+    shadows: { enabled: false },
+    postProcessing: { enabled: false },
+  },
   id: 'textureproof',
   name: 'Texture Proof',
   zones: [

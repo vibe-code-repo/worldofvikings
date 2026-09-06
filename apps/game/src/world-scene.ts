@@ -142,12 +142,17 @@ export interface ZoneSceneOptions {
  * @throws {Error} when the height field loads but carries no mesh — a tile with
  * nothing to stand on is worse than a missing one, because the player falls
  * through it silently.
+ *
+ * @param receiveShadows whether the ground samples the sun's shadow map
+ * (ADR-0024). It has to be decided here rather than afterwards: the lookup is
+ * compiled into the tile's generated program.
  */
 export async function loadZoneTerrain(
   scene: Scene,
   source: AssetSourceConfig,
   terrain: TerrainDefinition,
   name: string,
+  receiveShadows = false,
 ): Promise<{ readonly terrain: TerrainHandle; readonly sources: AssetSourceCounts }> {
   const placeholder = `placeholders/${terrain.heightField}`;
   const manager = new AssetManager({
@@ -175,6 +180,11 @@ export async function loadZoneTerrain(
       tileSize: layer.tileSize,
     })),
     splat: (terrain.splat ?? []).map((path) => textureSource(source, path)),
+    // Compiled into the ground's own program, not a mesh flag — the terrain
+    // material is hand-written GLSL and `receiveShadows` means nothing to it
+    // (ADR-0020, ADR-0024). The sun's shadow map must therefore already exist
+    // when this runs, which is why the world's lighting is applied first.
+    receiveShadows,
   });
 
   if (handle.meshes.length === 0) {

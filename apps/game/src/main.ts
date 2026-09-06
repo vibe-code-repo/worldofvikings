@@ -52,7 +52,7 @@ import type { PhysicsWorld } from '@wov/physics';
 import { tokens } from '@wov/ui';
 import { installDevDebugBridge } from './dev-debug.js';
 import type { WovTerrainBounds } from './dev-debug.js';
-import { resolveGameConfig, worldIdFromQuery } from './config.js';
+import { lightingProfiles, resolveGameConfig, worldIdFromQuery } from './config.js';
 import { createWorldApi } from './world-api.js';
 import {
   NO_SOURCES,
@@ -188,10 +188,21 @@ function setAssetSources(text: string): void {
  * it can hand back a scene (ADR-0006).
  */
 async function start(canvas: HTMLCanvasElement): Promise<void> {
-  const { renderer, base, camera, player } = await createGameScene(canvas, {
+  const scene3d = await createGameScene(canvas, {
     // The game loop below drives the frames; see the module comment.
     render: { resolutionScale: 1, autoStart: false },
+    // The diagnostic switches apply from the first frame, not from the one the
+    // world file arrives in: `?flat=1` exists so a screenshot can be taken with
+    // no rig at all, and a rig built for two seconds and thrown away is still a
+    // rig that was paid for.
+    lighting: lightingProfiles(window.location.search, []),
   });
+  const { renderer, base, camera, player } = scene3d;
+  /**
+   * The light rig. Replaced once the world file says how it wants to be lit
+   * (ADR-0024), so this is read through a variable rather than destructured.
+   */
+  let lighting = scene3d.lighting();
 
   // The device edge (ADR-0010) owns keys and mouse buttons. Look and zoom stay
   // with the camera's own input (ADR-0008), which also carries the drag-look
@@ -254,6 +265,11 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
         // The placeholder's root sits at the feet, exactly like the gameplay
         // transform, so the position is copied across without an offset.
         player.root.position.set(position.x, position.y, position.z);
+        // The shadow map covers a box around the player, not the whole tile
+        // (ADR-0024), so it has to be told where the player got to. Done here
+        // rather than on a scene hook because this is the one place that knows
+        // the interpolated position the frame is actually drawn at.
+        lighting.focusShadows(position.x, position.y, position.z);
       }
       // The camera updates on the scene's before-render hook, so it reads the
       // position written just above — this frame's, not the previous one's.
@@ -276,6 +292,8 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       // Reads the live world through a closure rather than a captured value:
       // the physics world does not exist yet when the bridge is installed.
       groundAt: (x, z) => probeGround(x, z),
+      // Same reason: the rig is replaced when the world file arrives.
+      lighting: () => lighting,
     });
   }
 
@@ -368,6 +386,17 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       `world ${world.id} · zone ${zone.id} — ${String(zone.entities.length)} entities, loading…`,
     );
 
+    // Before the ground and before the entities, in that order and for two
+    // reasons: the terrain compiles its shadow lookup against the map that
+    // exists when it is built, and every mesh placed afterwards is handed to
+    // the rig that is going to light it (ADR-0024).
+    lighting = scene3d.relight(
+      lightingProfiles(window.location.search, [world.lighting, zone.lighting]),
+    );
+    // The Phase 1 plane is still on screen at this point and it is 100 m wide:
+    // left in the map it would put the whole village in its own shadow.
+    lighting.excludeFromShadows([base.ground]);
+
     const world3d = await startPhysics();
 
     if (zone.terrain !== undefined) {
@@ -377,8 +406,13 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
           config.assets,
           zone.terrain,
           `${world.id}:${zone.id}`,
+          lighting.shadows !== null,
         );
         terrainSources = ground3d.sources;
+        // The ground receives through its own shader (ADR-0020) and must not
+        // cast: a height field in its own shadow map self-shadows every slope
+        // it has, and no bias makes a 300 m tile at 7 cm per texel clean.
+        lighting.excludeFromShadows(ground3d.terrain.meshes);
         reportTerrainBounds(ground3d.terrain.meshes);
 
         const triangles = ground3d.terrain.meshes.reduce(

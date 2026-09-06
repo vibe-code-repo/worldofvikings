@@ -16,7 +16,12 @@
  * that must find nothing.
  */
 import { SceneInstrumentation } from '@babylonjs/core/Instrumentation/sceneInstrumentation.js';
-import type { RendererBackend, RendererHandle, ThirdPersonCameraHandle } from '@wov/engine';
+import type {
+  LightingHandle,
+  RendererBackend,
+  RendererHandle,
+  ThirdPersonCameraHandle,
+} from '@wov/engine';
 import type { PlaceholderTarget } from './placeholder-target.js';
 
 /** Where the camera stands, as plain numbers a test can read out of the page. */
@@ -85,6 +90,8 @@ export interface WovDebugBridge {
    * off Babylon's own counters, not from our bookkeeping.
    */
   readonly render: WovRenderDebug;
+  /** What the light rig is doing (ADR-0024), or `null` before it is reported. */
+  readonly lighting: WovLightingDebug | null;
 }
 
 /** Per-frame render counters, as plain numbers a test can read out of the page. */
@@ -95,6 +102,42 @@ export interface WovRenderDebug {
   activeMeshes: number;
   /** Triangles submitted for the last frame. */
   triangles: number;
+  /**
+   * Average wall-clock milliseconds a scene render took, over every frame since
+   * the page opened.
+   *
+   * The average, not the last frame: a single frame in a headless browser says
+   * nothing — a shader compile, a texture upload or the operating system can
+   * own any one of them. It is the number a shadow map or a post-processing
+   * chain is paid for in, so it is measured on the same bridge as the draw
+   * calls rather than timed from the outside (ADR-0024).
+   *
+   * Wall clock, not GPU time. `EngineInstrumentation.captureGPUFrameTime`
+   * needs the timer-query extension, which this build's engine does not even
+   * expose a method for; a number that is not there is better left out than
+   * reported as a zero somebody would quote.
+   */
+  frameTimeMs: number;
+  /** Frames the average was taken over. */
+  frames: number;
+}
+
+/**
+ * What the light rig is doing, as plain values a test can read.
+ *
+ * "The screenshot looks warmer" is not a measurement. These are: whether a
+ * shadow map exists and how big it is, whether the grading chain is attached,
+ * and how many meshes the shadow pass drew — which is the count that tells a
+ * scene that casts shadows from one that merely has a light claiming to.
+ */
+export interface WovLightingDebug {
+  shadows: boolean;
+  shadowMapSize: number;
+  /** Meshes rendered into the shadow map on the last pass. */
+  shadowCasters: number;
+  postProcessing: boolean;
+  fog: boolean;
+  sky: boolean;
 }
 
 declare global {
@@ -110,6 +153,14 @@ export interface DevDebugSubjects {
   readonly player?: PlaceholderTarget;
   /** Answers `groundAt`; the app owns it because the app owns the physics world. */
   readonly groundAt?: (x: number, z: number) => number | null;
+  /**
+   * The light rig in use, read fresh each frame.
+   *
+   * A getter rather than the handle: the rig is replaced when the world file
+   * arrives (ADR-0024), and a captured handle would keep reporting the numbers
+   * of the one that was thrown away.
+   */
+  readonly lighting?: () => LightingHandle | null;
 }
 
 /** The hull the bridge reports for the terrain tile. */
@@ -141,6 +192,17 @@ export function installDevDebugBridge(
     ? { yaw: 0, pitch: 0, distance: 0, desiredDistance: 0, x: 0, y: 0, z: 0 }
     : null;
   const playerDebug: WovPlayerDebug | null = player ? { x: 0, y: 0, z: 0 } : null;
+  const readLighting = subjects.lighting;
+  const lightingDebug: WovLightingDebug | null = readLighting
+    ? {
+        shadows: false,
+        shadowMapSize: 0,
+        shadowCasters: 0,
+        postProcessing: false,
+        fog: false,
+        sky: false,
+      }
+    : null;
   const groundAt = subjects.groundAt ?? ((): null => null);
   const bridge: {
     backend: RendererBackend;
@@ -150,6 +212,7 @@ export function installDevDebugBridge(
     groundAt: (x: number, z: number) => number | null;
     terrainBounds: WovTerrainBounds | null;
     render: WovRenderDebug;
+    lighting: WovLightingDebug | null;
   } = {
     backend: renderer.backend,
     frameId: -1,
@@ -157,7 +220,14 @@ export function installDevDebugBridge(
     player: playerDebug,
     groundAt,
     terrainBounds: null,
-    render: { drawCalls: 0, activeMeshes: 0, triangles: 0 },
+    render: {
+      drawCalls: 0,
+      activeMeshes: 0,
+      triangles: 0,
+      frameTimeMs: 0,
+      frames: 0,
+    },
+    lighting: lightingDebug,
   };
   window.__wov = bridge;
 
@@ -171,9 +241,12 @@ export function installDevDebugBridge(
   // Babylon resets the draw-call counter per frame only while something asks
   // it to; that is all this instrumentation is here for.
   const instrumentation = new SceneInstrumentation(renderer.scene);
+  instrumentation.captureFrameTime = true;
 
   renderer.onFrame((frame) => {
     bridge.frameId = frame.index;
+    bridge.render.frameTimeMs = instrumentation.frameTimeCounter.average;
+    bridge.render.frames = instrumentation.frameTimeCounter.count;
     bridge.render.drawCalls = instrumentation.drawCallsCounter.current;
     bridge.render.activeMeshes = renderer.scene.getActiveMeshes().length;
     bridge.render.triangles = Math.round(renderer.scene.getActiveIndices() / 3);
@@ -186,6 +259,19 @@ export function installDevDebugBridge(
       cameraDebug.x = camera.camera.position.x;
       cameraDebug.y = camera.camera.position.y;
       cameraDebug.z = camera.camera.position.z;
+    }
+    if (readLighting && lightingDebug) {
+      const rig = readLighting();
+      const map = rig?.shadows?.getShadowMap() ?? null;
+      lightingDebug.shadows = map !== null;
+      lightingDebug.shadowMapSize = map?.getSize().width ?? 0;
+      // The list the shadow pass just drew from, not the list somebody meant to
+      // fill: it is rebuilt from the scene every pass (ADR-0024), so a zero
+      // here is a scene whose casters really are absent.
+      lightingDebug.shadowCasters = map?.renderList?.length ?? 0;
+      lightingDebug.postProcessing = rig?.pipeline != null;
+      lightingDebug.fog = renderer.scene.fogEnabled && renderer.scene.fogMode !== 0;
+      lightingDebug.sky = rig?.sky != null;
     }
     if (player && playerDebug) {
       const at = player.root.position;

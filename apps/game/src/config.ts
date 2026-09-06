@@ -8,6 +8,7 @@
  */
 import { resolveServiceUrl } from '@wov/shared';
 import { resolveAssetSourceConfig, type AssetEnv, type AssetSourceConfig } from '@wov/asset-system';
+import type { LightingProfileOptions } from '@wov/engine';
 
 /** The API base URL, without a trailing slash. */
 export const DEFAULT_API_URL = 'http://localhost:3000';
@@ -46,4 +47,54 @@ export function resolveGameConfig(env: GameEnv = {}): GameConfig {
 export function worldIdFromQuery(search: string): string {
   const asked = new URLSearchParams(search).get('world')?.trim() ?? '';
   return /^[a-z0-9][a-z0-9_-]*$/.test(asked) ? asked : DEFAULT_WORLD_ID;
+}
+
+/**
+ * The profile `?flat=1` applies instead of the world's own (ADR-0024).
+ *
+ * Not "no lighting" — a scene has to be lit by something — but the flat noon
+ * the client had before there was a profile at all: one sun straight down, a
+ * bright fill, no shadow map, no sky, no fog, no grading.
+ *
+ * It exists because "the picture is better now" is not a measurement. The only
+ * way to say how much of a frame is shadow is to compare it with the same frame
+ * without any, from the same camera, with the same models loaded — which is
+ * what `tooling/smoke/lighting.spec.ts` does with this switch.
+ */
+export const FLAT_LIGHTING: LightingProfileOptions = {
+  sun: { direction: [-0.45, -1, -0.6], color: '#ffffff', intensity: 1.1 },
+  ambient: { skyColor: '#ffffff', groundColor: '#1f2519', intensity: 0.55 },
+  sky: { enabled: false, horizonColor: '#4d5b68' },
+  fog: { enabled: false },
+  shadows: { enabled: false },
+  postProcessing: { enabled: false },
+};
+
+/** The world's own profile, with the shadow map switched off. */
+const NO_SHADOWS: LightingProfileOptions = { shadows: { enabled: false } };
+
+/**
+ * The profiles to light with, given what the query string asks for.
+ *
+ * - `?flat=1` replaces the world's profile with {@link FLAT_LIGHTING};
+ * - `?shadows=off` keeps it and turns only the shadow map off, which is the
+ *   control a shadow measurement needs: same sun, same grade, same camera, no
+ *   shadows, so the difference between two frames is the shadows and nothing
+ *   else.
+ *
+ * Any other value is neither: these are diagnostic switches, and a typo in one
+ * must not quietly change what a screenshot is showing.
+ */
+export function lightingProfiles(
+  search: string,
+  authored: readonly (LightingProfileOptions | undefined)[],
+): readonly (LightingProfileOptions | undefined)[] {
+  const params = new URLSearchParams(search);
+  if (params.get('flat') === '1') {
+    return [FLAT_LIGHTING];
+  }
+  if (params.get('shadows') === 'off') {
+    return [...authored, NO_SHADOWS];
+  }
+  return authored;
 }

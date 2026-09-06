@@ -33,3 +33,4 @@ change it describes.
 | [0022](0022-the-game-loads-its-world-from-the-api.md)                         | The game loads its world from the API, and instances its entities | accepted |
 | [0023](0023-the-store-is-a-second-source-of-truth-for-the-manifest.md)        | The private store is a second source of truth for the manifest    | accepted |
 | [0024](0024-lighting-as-world-data-with-one-shadow-map.md)                    | Lighting is world data, drawn with one following shadow map       | accepted |
+| [0025](0025-scatter-is-an-editor-command-whose-result-is-persisted.md)        | Scatter is an editor command whose result is persisted            | accepted |

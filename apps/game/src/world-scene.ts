@@ -16,6 +16,14 @@
  * Anything Babylon cannot instance (a transform node, a skinned mesh) it
  * clones, so the request never costs correctness.
  *
+ * **Why vegetation is different.** The scatter tool (ADR-0025) plants thousands
+ * of tufts of grass, and a scene node each is what makes that expensive: a
+ * transform to recompute and a node for the culler to weigh, per frame, per
+ * plant. Those prefabs are drawn as **thin instances** instead — one mesh with a
+ * matrix buffer, no node, not pickable — which is what `render/thin-instances.ts`
+ * does. Nothing in the game asks a tuft of grass a question; the editor, which
+ * does, keeps the nodes.
+ *
  * **Why one prefab at a time.** Each distinct asset is loaded once and
  * instantiated as many times as the zone places it. That is also why the loads
  * are sequential per prefab and parallel across them: 139 GLB requests at once
@@ -23,8 +31,10 @@
  * 139 half-parsed containers is real.
  */
 import type { Scene } from '@babylonjs/core/scene';
+import { Matrix } from '@babylonjs/core/Maths/math.vector';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
+import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { createTerrain } from '@wov/engine';
 import type { TerrainHandle, TerrainTextureSource } from '@wov/engine';
 import {
@@ -42,6 +52,7 @@ import type {
   TerrainDefinition,
   ZoneDefinition,
 } from '@wov/world-schema';
+import { applyThinInstances, thinInstanceMatrices } from './render/thin-instances.js';
 
 /** The stand-in a private texture falls back to when there is no store. */
 const TEXTURE_PLACEHOLDER = 'placeholders/textures/unavailable.png';
@@ -76,6 +87,18 @@ export function indexPrefabs(prefabs: readonly PrefabDefinition[]): {
     }
   }
   return { byId, assets: [...byAsset.values()] };
+}
+
+/**
+ * Whether the game draws this prefab's copies as thin instances.
+ *
+ * Category, not a list of ids: vegetation is exactly the set of things the
+ * scatter tool plants in bulk and nothing in the game interacts with, and a
+ * hand-kept list of prefab ids would be out of date the next time the asset
+ * import runs.
+ */
+export function drawsAsThinInstances(prefab: PrefabDefinition): boolean {
+  return prefab.category === 'vegetation';
 }
 
 /** Entities grouped by the prefab they place, in first-appearance order. */
@@ -120,6 +143,8 @@ export interface ZoneScene {
   readonly failed: readonly string[];
   /** How many distinct prefab models were loaded. */
   readonly models: number;
+  /** Entities drawn as thin instances rather than as scene nodes. */
+  readonly thinInstances: number;
   /** Where the bytes came from (ADR-0015). */
   readonly sources: AssetSourceCounts;
 }
@@ -212,6 +237,7 @@ export async function placeEntities(options: ZoneSceneOptions): Promise<{
   readonly unknownPrefabs: readonly string[];
   readonly failed: readonly string[];
   readonly models: number;
+  readonly thinInstances: number;
   readonly sources: AssetSourceCounts;
 }> {
   const { scene, source, zone, prefabs } = options;
@@ -233,12 +259,29 @@ export async function placeEntities(options: ZoneSceneOptions): Promise<{
     return false;
   });
 
+  let thinInstances = 0;
+
   await Promise.all(
     known.map(async ([prefabId, entities]) => {
       const prefab = byId.get(prefabId);
       if (prefab === undefined) {
         return;
       }
+
+      if (drawsAsThinInstances(prefab)) {
+        try {
+          // Read the counter *after* the await, not before: `total += await f()`
+          // captures the old value first, and with these loads running
+          // concurrently every prefab would then overwrite the previous one's
+          // count instead of adding to it.
+          const placedHere = await placeAsThinInstances(manager, prefab, entities);
+          thinInstances += placedHere;
+        } catch (error) {
+          failed.push(`${prefabId}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
       for (const entity of entities) {
         const root = new TransformNode(`entity:${entity.id}`, scene);
         root.position.set(entity.position[0], entity.position[1], entity.position[2]);
@@ -270,8 +313,53 @@ export async function placeEntities(options: ZoneSceneOptions): Promise<{
     unknownPrefabs,
     failed,
     models: known.length - failed.length,
+    thinInstances,
     sources: manager.sources(),
   };
+}
+
+/**
+ * Draws every copy of one prefab as thin instances of a single loaded model.
+ *
+ * The model is instantiated once — as clones, not GPU instances, because what
+ * is wanted is one real mesh to hang the matrix buffer on. Each of its meshes
+ * is then detached from the container and reset to the identity, so the matrix
+ * it was standing at becomes part of every instance matrix instead of being
+ * applied twice. The container's now-empty transform nodes go with it.
+ *
+ * @returns how many instances were placed, counting one per entity, not per
+ *   mesh: a tree with a trunk and a leaf card is one plant.
+ */
+async function placeAsThinInstances(
+  manager: AssetManager,
+  prefab: PrefabDefinition,
+  entities: readonly EntityDefinition[],
+): Promise<number> {
+  const instantiated = await manager.instantiate(prefab.asset, {
+    rename: (nodeName) => `${prefab.id}:${nodeName}`,
+  });
+  const meshes = instantiated.rootNodes
+    .flatMap((node) => node.getChildMeshes(false))
+    .filter((mesh): mesh is Mesh => mesh instanceof Mesh && mesh.getTotalVertices() > 0);
+
+  for (const mesh of meshes) {
+    const inContainer = mesh.computeWorldMatrix(true).clone();
+    mesh.parent = null;
+    mesh.rotationQuaternion = null;
+    mesh.position.setAll(0);
+    mesh.rotation.setAll(0);
+    mesh.scaling.setAll(1);
+    mesh.freezeWorldMatrix(Matrix.Identity());
+    applyThinInstances(mesh, thinInstanceMatrices(inContainer, entities));
+  }
+
+  // The container's roots held nothing but the meshes that have just left them.
+  for (const node of instantiated.rootNodes) {
+    if (node.getChildMeshes(false).length === 0) {
+      node.dispose(true, false);
+    }
+  }
+  return meshes.length === 0 ? 0 : entities.length;
 }
 
 /** Every mesh under these entity roots, for collision and for counting. */

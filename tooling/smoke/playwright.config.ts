@@ -72,7 +72,15 @@ const assetUrl = `http://localhost:${String(ASSET_PORT)}`;
  */
 export default defineConfig({
   testDir: import.meta.dirname,
-  timeout: 60_000,
+  /*
+   * Ninety seconds, because the village is what most of these tests open and
+   * the client needs about ten of them before a measurement means anything:
+   * terrain ready at roughly four seconds, the zone's 5248 entities placed six
+   * seconds after that (ADR-0025). A test that starts measuring earlier is
+   * measuring a tab that is still loading — `groundSettled` waits for both, and
+   * this budget is what leaves the test room to do its own work afterwards.
+   */
+  timeout: 90_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,
@@ -80,6 +88,19 @@ export default defineConfig({
   use: {
     ...devices['Desktop Chrome'],
     headless: true,
+    /*
+     * Headless Chromium picks SwiftShader — a software rasteriser — unless it is
+     * told otherwise, and these tests are about a 3D client. Measured on the
+     * village after the scatter runs (1.76 M triangles): with the default flags
+     * the render loop drops to roughly 0.2 frames per second, so a test that
+     * holds a key for half a second sees the capsule move 18 cm and a camera
+     * gesture never lands. With ANGLE on the machine's own driver it runs at
+     * 50-60. The flags are a request, not an assertion: where no GPU answers,
+     * Chromium falls back to SwiftShader exactly as before.
+     */
+    launchOptions: {
+      args: ['--use-gl=angle', '--use-angle=vulkan', '--ignore-gpu-blocklist'],
+    },
     // The tests read these instead of hard-coding a port twice.
     baseURL: editorUrl,
   },

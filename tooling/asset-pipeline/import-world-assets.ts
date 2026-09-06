@@ -90,7 +90,7 @@ import type { Bounds } from './glb.js';
 import { MAX_TEXTURE_SIZE, decodePng, encodePng, fitWithin, isPng, readPngSize } from './png.js';
 import { mergeOwnedEntries } from './manifest-merge.js';
 import { buildPlaceholderGlb, placeholderPathFor } from './placeholder.js';
-import { bindMaterials } from './material-binding.js';
+import { applySurfaces, bindMaterials } from './material-binding.js';
 import { NO_SCENE_BINDINGS, readSceneBindings } from './scene-bindings.js';
 import type { SceneBindings } from './scene-bindings.js';
 import {
@@ -710,11 +710,50 @@ for (const path of [...placeholders].sort()) {
 }
 
 /**
+ * Models in the store that this run does not import, brought back in line with
+ * the surface table.
+ *
+ * `import:scene-models` cuts models out of a scene bundle that the per-model
+ * export does not contain — a house floor, a hedge, a wood pile — and it cuts
+ * each of them exactly once. Their materials therefore froze at whatever
+ * `materials.ts` said on the day they were cut, and an edit to the table (a
+ * leaf card gaining its colour, a material turning out to be double-sided)
+ * would reach every tree that came from the export and none of the bushes that
+ * came from the bundle. The table is one decision about a surface, not two, so
+ * the run that owns it re-applies it across the whole store. Nothing else about
+ * those files is touched, and one that the table has no new opinion about keeps
+ * its bytes and its manifest row.
+ */
+const importedPaths = new Set([...placeholderEntries, ...entries].map((entry) => entry.path));
+const resurfaced: AssetEntry[] = [];
+for (const entry of existing.manifest.assets) {
+  if (entry.kind !== 'mesh' || entry.visibility !== 'private' || importedPaths.has(entry.path)) {
+    continue;
+  }
+  const file = join(storeRoot, entry.path);
+  if (!(await exists(file))) {
+    continue;
+  }
+  const before = await readFile(file);
+  const stored = readGlb(before);
+  applySurfaces(stored.json);
+  const after = writeGlb(stored);
+  if (before.equals(after)) {
+    continue;
+  }
+  await write(file, after);
+  resurfaced.push({ ...entry, bytes: after.byteLength, hash: sha256(after) });
+}
+process.stdout.write(
+  `  surfaces: ${String(resurfaced.length)} stored model(s) another importer owns re-surfaced\n`,
+);
+
+/**
  * Everything this run produced. Re-running must replace these entries rather
  * than add a second copy of each — which is what makes the import idempotent
  * instead of merely repeatable.
  */
-const produced = [...placeholderEntries, ...entries];
+const produced = [...placeholderEntries, ...entries, ...resurfaced];
 
 /**
  * Which of the manifest's private paths the store still holds. Stat'ed up front

@@ -74,6 +74,32 @@ export { clearSelection, setActiveZone, setSelection, toggleSelection } from './
 
 export { entityIdBase, nextEntityId, nextEntityIds } from './ids.js';
 
+export { footprintOf, footprintsOf } from './footprint.js';
+export type { FootprintOptions } from './footprint.js';
+
+export { createRandom } from './random.js';
+export type { Random } from './random.js';
+
+export {
+  AREA_PROBES,
+  SCATTER_ATTEMPTS,
+  SCATTER_DENSITY_AREA,
+  SCATTER_MAXIMUM,
+  insideRegion,
+  planScatter,
+  scatterCommand,
+  scatterId,
+  usableArea,
+} from './scatter.js';
+export type {
+  Point2,
+  Rect,
+  ScatterOptions,
+  ScatterPlan,
+  ScatterRegion,
+  WeightedPrefab,
+} from './scatter.js';
+
 export {
   DEFAULT_GRID_STEP,
   DEFAULT_ROTATION_STEP_DEGREES,

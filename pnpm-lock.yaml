@@ -121,6 +121,9 @@ importers:
       '@wov/asset-system':
         specifier: workspace:*
         version: link:packages/asset-system
+      '@wov/editor-core':
+        specifier: workspace:*
+        version: link:packages/editor-core
       '@wov/world-schema':
         specifier: workspace:*
         version: link:packages/world-schema

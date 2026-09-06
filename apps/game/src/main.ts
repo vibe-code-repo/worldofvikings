@@ -456,8 +456,12 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       );
     }
     setWorldStatus(
-      `world ${world.id} · zone ${zone.id} — ${String(placed.roots.length)} entities from ` +
+      `world ${world.id} · zone ${zone.id} — ` +
+        `${String(placed.roots.length + placed.thinInstances)} entities from ` +
         `${String(placed.models)} models` +
+        (placed.thinInstances > 0
+          ? `, ${String(placed.thinInstances)} of them thin-instanced vegetation`
+          : '') +
         (placed.failed.length > 0 ? `, ${String(placed.failed.length)} failed` : ''),
     );
     setAssetStatus(

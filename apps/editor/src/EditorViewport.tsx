@@ -38,6 +38,12 @@ export interface SnapSettings {
 export interface ViewportController {
   /** Frames these entities, or the whole zone when the list is empty (`F`). */
   focus(entityIds: readonly string[]): void;
+  /**
+   * Height of the drawn surface at `[x, z]`, the same query a dropped prop
+   * lands on. The scatter panel stands its instances on it, so a scattered
+   * tuft of grass and a dragged prop agree about where the ground is.
+   */
+  surfaceAt(x: number, z: number): number;
 }
 
 export interface EditorViewportProps {
@@ -50,8 +56,15 @@ export interface EditorViewportProps {
   readonly snapping: SnapSettings;
   /** The prefab the next viewport click places, or `null` for plain selection. */
   readonly placingPrefabId: string | null;
+  /**
+   * When set, the next click reports a point on the ground instead of picking
+   * or placing — how the scatter panel takes a region corner off the viewport
+   * rather than having it typed in.
+   */
+  readonly groundPicking: boolean;
   readonly onPick: (entityId: string | null, additive: boolean) => void;
   readonly onPlace: (prefabId: string, position: Vector3) => void;
+  readonly onGroundPick: (position: Vector3) => void;
   readonly onTransform: (changes: readonly TransformChange[]) => void;
   /** Reports the asset origins line, e.g. `assets: 2 private, 0 placeholder`. */
   readonly onAssetSources: (line: string) => void;
@@ -103,6 +116,8 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
   snappingRef.current = snapping;
   const placingRef = useRef(placingPrefabId);
   placingRef.current = placingPrefabId;
+  const groundPickingRef = useRef(props.groundPicking);
+  groundPickingRef.current = props.groundPicking;
   const prefabsRef = useRef(prefabs);
   prefabsRef.current = prefabs;
   const handlersRef = useRef(props);
@@ -313,6 +328,20 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
         return;
       }
 
+      if (groundPickingRef.current) {
+        // Unsnapped on purpose: a region corner is a place on the map, not a
+        // prop that has to line up with the grid.
+        const point = pickWorldPoint(viewport.scene, x, y);
+        if (point !== null) {
+          handlersRef.current.onGroundPick([
+            point[0],
+            dropToSurface(viewport.scene, point[0], point[2]),
+            point[2],
+          ]);
+        }
+        return;
+      }
+
       const placing = placingRef.current;
       if (placing !== null) {
         const position = placementAt(x, y);
@@ -331,6 +360,9 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
     canvas.addEventListener('pointerup', onPointerUp);
 
     const controller: ViewportController = {
+      surfaceAt(x, z) {
+        return dropToSurface(viewport.scene, x, z);
+      },
       focus(entityIds) {
         const sync = syncRef.current;
         const bounds =

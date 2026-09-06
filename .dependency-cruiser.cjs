@@ -51,6 +51,17 @@ module.exports = {
       to: { path: 'babylonjs|(^|/)react(/|$)|^apps/' },
     },
     {
+      name: 'world-schema-must-not-depend-on-the-asset-pipeline',
+      comment:
+        'Validating a world or prefab file must work without an asset pipeline: ' +
+        '`pnpm validate:content` is the check a contributor runs on a clone with no asset ' +
+        'store. That is why the asset path rule is spelled out a second time in ' +
+        'packages/world-schema/src/prefab.ts instead of imported (ADR-0016).',
+      severity: 'error',
+      from: { path: '^packages/world-schema/' },
+      to: { path: '^packages/asset-system/|@wov/asset-system' },
+    },
+    {
       name: 'gameplay-must-not-render',
       comment: 'Gameplay state must stay independent of the renderer (spec §25).',
       severity: 'error',

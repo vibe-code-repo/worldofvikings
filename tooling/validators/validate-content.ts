@@ -1,19 +1,37 @@
 /**
  * Content validation (spec §44).
  *
- * Validates every file in `content/worlds/` against `@wov/world-schema`.
- * Exits non-zero on the first invalid file so CI and agents get a clear signal.
+ * Validates `content/prefabs/` and `content/worlds/` against `@wov/world-schema`
+ * and checks what no single file can know: prefab ids are unique across all
+ * catalogs, and every entity references a prefab that exists (ADR-0016).
  *
- * Phase 0 covers world files only; prefab, item and asset-reference checks are
- * added together with those formats.
+ * Exits non-zero on any invalid file so CI and agents get a clear signal.
+ *
+ * Item, enemy and quest checks are added together with those formats.
  */
 import { readdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseWorldDefinition } from '@wov/world-schema';
+import { parsePrefabCatalog, parseWorldDefinition } from '@wov/world-schema';
+import {
+  collectPrefabIds,
+  findUnknownPrefabReferences,
+  type LoadedCatalog,
+} from './content-references.js';
 
 const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
+const prefabsDir = join(repoRoot, 'content', 'prefabs');
 const worldsDir = join(repoRoot, 'content', 'worlds');
+
+let failures = 0;
+
+function fail(relative: string, messages: readonly string[]): void {
+  failures += 1;
+  process.stderr.write(`FAIL ${relative}\n`);
+  for (const message of messages) {
+    process.stderr.write(`       ${message}\n`);
+  }
+}
 
 async function listJsonFiles(directory: string): Promise<string[]> {
   try {
@@ -30,34 +48,72 @@ async function listJsonFiles(directory: string): Promise<string[]> {
   }
 }
 
-const files = await listJsonFiles(worldsDir);
-let failures = 0;
-
-for (const file of files) {
-  const relative = file.slice(repoRoot.length + 1);
-  let data: unknown;
+/** Reads a JSON file; a parse error is a failure of that file, not of the run. */
+async function readJson(file: string, relative: string): Promise<unknown> {
   try {
-    data = JSON.parse(await readFile(file, 'utf8'));
+    return JSON.parse(await readFile(file, 'utf8')) as unknown;
   } catch (error) {
-    failures += 1;
-    process.stderr.write(`FAIL ${relative}: invalid JSON — ${String(error)}\n`);
+    fail(relative, [`invalid JSON — ${String(error)}`]);
+    return undefined;
+  }
+}
+
+const relativeTo = (file: string): string => file.slice(repoRoot.length + 1);
+
+const catalogFiles = await listJsonFiles(prefabsDir);
+const catalogs: LoadedCatalog[] = [];
+
+for (const file of catalogFiles) {
+  const relative = relativeTo(file);
+  const data = await readJson(file, relative);
+  if (data === undefined) {
+    continue;
+  }
+
+  const result = parsePrefabCatalog(data);
+  if (!result.ok) {
+    fail(relative, result.errors);
+    continue;
+  }
+
+  catalogs.push({ file: relative, catalog: result.catalog });
+  process.stdout.write(`OK   ${relative} (${result.catalog.prefabs.length} prefabs)\n`);
+}
+
+const prefabIndex = collectPrefabIds(catalogs);
+if (prefabIndex.duplicates.length > 0) {
+  fail('content/prefabs/', prefabIndex.duplicates);
+}
+
+const worldFiles = await listJsonFiles(worldsDir);
+
+for (const file of worldFiles) {
+  const relative = relativeTo(file);
+  const data = await readJson(file, relative);
+  if (data === undefined) {
     continue;
   }
 
   const result = parseWorldDefinition(data);
-  if (result.ok) {
-    const entities = result.world.zones.reduce((sum, zone) => sum + zone.entities.length, 0);
-    process.stdout.write(
-      `OK   ${relative} (${result.world.zones.length} zones, ${entities} entities)\n`,
-    );
-  } else {
-    failures += 1;
-    process.stderr.write(`FAIL ${relative}\n`);
-    for (const message of result.errors) {
-      process.stderr.write(`       ${message}\n`);
-    }
+  if (!result.ok) {
+    fail(relative, result.errors);
+    continue;
   }
+
+  const unknownPrefabs = findUnknownPrefabReferences(result.world, prefabIndex.ids);
+  if (unknownPrefabs.length > 0) {
+    fail(relative, unknownPrefabs);
+    continue;
+  }
+
+  const entities = result.world.zones.reduce((sum, zone) => sum + zone.entities.length, 0);
+  process.stdout.write(
+    `OK   ${relative} (${result.world.zones.length} zones, ${entities} entities)\n`,
+  );
 }
 
-process.stdout.write(`\nvalidate: ${files.length} world file(s), ${failures} failure(s)\n`);
+process.stdout.write(
+  `\nvalidate: ${catalogFiles.length} prefab catalog(s), ${worldFiles.length} world file(s), ` +
+    `${failures} failure(s)\n`,
+);
 process.exit(failures === 0 ? 0 : 1);

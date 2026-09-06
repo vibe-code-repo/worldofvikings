@@ -1,6 +1,8 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import type { ApiConfig } from './config.js';
+import { prefabsRoutes } from './prefabs-routes.js';
+import { worldsRoutes } from './worlds-routes.js';
 
 /** Shape of the `/health` response. Kept stable — CI and the smoke test read it. */
 export interface HealthResponse {
@@ -17,7 +19,16 @@ export async function buildServer(config: ApiConfig): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel } });
 
   // The website, game and editor run on their own ports in development.
-  await app.register(cors, { origin: [...config.corsOrigins] });
+  //
+  // `methods` has to be spelled out. `@fastify/cors` defaults to the CORS-safe
+  // list — GET, HEAD, POST — so a browser's preflight for `PUT /worlds/:id`
+  // came back without it and the editor could not save at all. The route tests
+  // never saw it: `app.inject()` does not run a preflight, and neither does
+  // `curl`. Only a real browser does.
+  await app.register(cors, {
+    origin: [...config.corsOrigins],
+    methods: ['GET', 'HEAD', 'PUT', 'OPTIONS'],
+  });
 
   app.get('/health', (): HealthResponse => {
     return {
@@ -26,6 +37,10 @@ export async function buildServer(config: ApiConfig): Promise<FastifyInstance> {
       uptimeSeconds: Math.round(process.uptime()),
     };
   });
+
+  // World and prefab data from `config.contentDir` (ADR-0017).
+  await app.register(worldsRoutes, { config });
+  await app.register(prefabsRoutes, { config });
 
   return app;
 }

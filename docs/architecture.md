@@ -58,12 +58,28 @@ These are checked by `pnpm lint:boundaries` (dependency-cruiser,
 ## Data flow
 
 ```text
-World Editor  ──save──▶  WorldDefinition (content/worlds/*.json)  ──load──▶  Game
+World Editor ──PUT /worlds/:id──▶ services/api ──▶ content/worlds/*.json ──load──▶ Game
+                                       │
+                                 validates with
+                                 @wov/world-schema
 ```
 
 The editor never writes runtime game code, and the game never contains authored
 world data in TypeScript (ADR-0004). Every read goes through
 `@wov/world-schema`, so a broken or outdated file fails loudly.
+
+A browser cannot write files, so authored data goes through `services/api`
+(`GET /worlds`, `GET /worlds/:id`, `PUT /worlds/:id`, `GET /prefabs` over
+`CONTENT_DIR`): it validates in both directions, writes atomically in Prettier's
+formatting so saved worlds stay reviewable, and refuses every write when
+`WORLDS_READ_ONLY` is set (ADR-0017). The game does not use those routes — it
+reads world files as data and still renders without a backend (spec §35).
+
+Inside the editor the same arrow points one way only: **the document is the
+truth and the scene follows it** (ADR-0018). Every gesture becomes an
+`EditorCommand` against the document, and the Babylon viewport reconciles itself
+against the result — it never edits the world. That is what makes a gizmo drag,
+a Delete keystroke and a number typed into the inspector undo identically.
 
 ## Rendering vs. state
 

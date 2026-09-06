@@ -5,10 +5,11 @@
  * Everything that reads a world file must validate it through this package so
  * that a broken or outdated file fails loudly instead of silently.
  */
+export { IdentifierSchema, Vector3Schema } from './common.js';
+export type { Identifier } from './common.js';
 export {
   CURRENT_WORLD_SCHEMA_VERSION,
   EntityDefinitionSchema,
-  Vector3Schema,
   WorldDefinitionSchema,
   ZoneDefinitionSchema,
   parseWorldDefinition,
@@ -20,3 +21,23 @@ export type {
   WorldParseResult,
   ZoneDefinition,
 } from './world.js';
+export {
+  CURRENT_PREFAB_SCHEMA_VERSION,
+  PREFAB_CATEGORIES,
+  PREFAB_VISIBILITIES,
+  PrefabAssetPathSchema,
+  PrefabBoundsSchema,
+  PrefabCatalogSchema,
+  PrefabCategorySchema,
+  PrefabDefinitionSchema,
+  PrefabVisibilitySchema,
+  parsePrefabCatalog,
+} from './prefab.js';
+export type {
+  PrefabBounds,
+  PrefabCatalog,
+  PrefabCatalogParseResult,
+  PrefabCategory,
+  PrefabDefinition,
+  PrefabVisibility,
+} from './prefab.js';

@@ -11,6 +11,8 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts"],
+  // `test-support.ts` is fixtures for the tests in this package, not shipped
+  // code, so it stays out of the build the same way the tests do.
+  "exclude": ["src/**/*.test.ts", "src/test-support.ts"],
   "references": [{ "path": "../world-schema" }]
 }

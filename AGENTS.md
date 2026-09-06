@@ -12,10 +12,20 @@ World of Vikings is an open-source, browser-based third-person action RPG with a
 TypeScript, Vite; React only in the editor. The world is never procedurally
 generated.
 
-Current state: **Phase 1 (player, camera, movement)**. The game client walks a
-placeholder capsule across a lit base scene with a third-person camera, loads a
-licensed model over the asset server and runs a physics world that answers where
-the ground is. There is no character model, no combat and no authored world yet.
+Current state: **Phase 1 (player, camera, movement)** for the game, **Phase 3
+MVP** for the editor.
+
+The game client walks a placeholder capsule across a lit base scene with a
+third-person camera, loads a licensed model over the asset server and runs a
+physics world that answers where the ground is. There is no character model, no
+combat and no authored world yet.
+
+The editor opens and saves worlds through `services/api` (ADR-0017), places
+prefabs from the generated catalogue (ADR-0016), and edits them with selection,
+move/rotate/scale gizmos, grid and surface snapping and an undo history. Its one
+rule is ADR-0018: **the document is the truth and the scene follows it** — every
+gesture becomes a command, and the viewport reconciles. There is no component
+system, no terrain sculpting and no scatter tool yet.
 
 The client has exactly one loop, one device edge and one ground query — read
 [ADR-0014](docs/adr/0014-one-loop-one-device-edge-one-ground.md) before adding a
@@ -27,7 +37,7 @@ second of any of them.
 | ----------------------- | ----------------------------------------- | ----------------------------- |
 | `apps/website`          | Public site, Play link                    | Game or editor logic          |
 | `apps/game`             | Game client bootstrap and HUD             | Editor code, world data       |
-| `apps/editor`           | React editor shell, panels, viewport      | Game-only logic               |
+| `apps/editor`           | React editor shell, panels, viewport      | Game-only logic, world rules  |
 | `services/api`          | HTTP service                              | Gameplay rules                |
 | `packages/shared`       | Framework-free helpers                    | Any dependency                |
 | `packages/world-schema` | Zod schemas + versioning for world data   | Babylon.js, React             |
@@ -78,9 +88,13 @@ pnpm smoke
 ```
 
 `pnpm smoke` starts the real dev servers and asserts, per app, a visible marker
-in the DOM plus `/health` for the API and the asset server. If you changed
-something visible and did not run the smoke test, say so explicitly instead of
-implying it passed.
+in the DOM plus `/health` for the API and the asset server. It also drives the
+editor end to end — open a world, place a prefab, drag the gizmo, save, undo —
+against an API on its own port with a throwaway `CONTENT_DIR`, so it writes real
+files without touching the repository and can run while `pnpm dev` is up.
+
+If you changed something visible and did not run the smoke test, say so
+explicitly instead of implying it passed.
 
 Add a marker (`data-testid`) and a smoke assertion for every new visible surface.
 

@@ -49,6 +49,11 @@ export const ASSET_HASH_PREFIX = 'sha256-';
 /**
  * A repository-relative asset path, exactly as it is appended to the asset base
  * URL. Forward slashes only, so the manifest reads the same on every platform.
+ *
+ * `PrefabAssetPathSchema` in `@wov/world-schema` states the same rule a second
+ * time, because world data must stay validatable without the asset pipeline
+ * (ADR-0016). The two are changed together, in one commit — nowhere else is
+ * this path rule spelled out.
  */
 export const AssetPathSchema = z
   .string()

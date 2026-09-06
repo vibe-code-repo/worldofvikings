@@ -1,3 +1,20 @@
+/*
+ * The editor shell's layout (spec §13).
+ *
+ * Colours come from `@wov/ui` tokens, applied inline by the components that own
+ * a surface, so the game and the editor cannot drift apart. This file owns
+ * structure — the four regions and the way each one scrolls — and the borders
+ * and sizes that would be noise as inline styles.
+ */
+
+:root {
+  --wov-line: #232a34;
+  --wov-line-strong: #313a47;
+  --wov-accent: #c8a45c;
+  --wov-muted: #8b95a4;
+  --wov-danger: #e08a7a;
+}
+
 html,
 body,
 #root {
@@ -10,46 +27,426 @@ body,
     sans-serif;
 }
 
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* Four rows: menu bar, work area, asset browser, status bar. */
 .shell {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   height: 100%;
 }
 
+/* --- menu bar ------------------------------------------------------------ */
+
 .menubar {
-  padding: 0.5rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--wov-line);
+  font-size: 0.85rem;
+}
+
+.menubar > span:first-child {
   font-weight: 600;
   letter-spacing: 0.02em;
 }
 
+.spacer {
+  flex: 1;
+}
+
+.menu {
+  position: relative;
+}
+
+.menu > summary {
+  cursor: pointer;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  list-style: none;
+}
+
+.menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.menu[open] > summary,
+.menu > summary:hover {
+  background: #232a34;
+}
+
+.menu-items {
+  position: absolute;
+  z-index: 10;
+  top: 100%;
+  left: 0;
+  min-width: 14rem;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 0.35rem;
+  border: 1px solid var(--wov-line-strong);
+  border-radius: 6px;
+  background: #171c24;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.menu-items button,
+.menu-items label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.3rem 0.45rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.menu-items button:hover:not(:disabled),
+.menu-items label:hover {
+  background: #232a34;
+}
+
+.menu-items button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.menu-items hr {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--wov-line);
+  margin: 0.2rem 0;
+}
+
+.menu-items ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.menu-label,
+.menu-empty {
+  padding: 0.25rem 0.45rem;
+  color: var(--wov-muted);
+  font-size: 0.78rem;
+}
+
+.menu-hint {
+  margin-left: auto;
+  padding-left: 0.75rem;
+  color: var(--wov-muted);
+  font-size: 0.75rem;
+}
+
+.toolbar {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.tool {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tool:hover {
+  background: #232a34;
+}
+
+.tool.active {
+  border-color: var(--wov-accent);
+  color: var(--wov-accent);
+}
+
+.dirty {
+  color: var(--wov-accent);
+}
+
+.clean {
+  color: var(--wov-muted);
+}
+
+/* --- work area ----------------------------------------------------------- */
+
 .body {
   display: grid;
-  grid-template-columns: 14rem 1fr 16rem;
+  grid-template-columns: 15rem minmax(0, 1fr) 17rem;
   min-height: 0;
 }
 
 .panel {
-  padding: 1rem;
-  font-size: 0.85rem;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.82rem;
   overflow: auto;
+  border-right: 1px solid var(--wov-line);
 }
 
+.body > .panel:last-child {
+  border-right: 0;
+  border-left: 1px solid var(--wov-line);
+}
+
+.panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--wov-muted);
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.panel-head button {
+  border: 1px solid var(--wov-line-strong);
+  border-radius: 4px;
+  background: transparent;
+  padding: 0.1rem 0.4rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.tree,
+.entities,
+.asset-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.entities {
+  margin-left: 0.75rem;
+  border-left: 1px solid var(--wov-line);
+}
+
+.tree button,
+.asset-list button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.2rem 0.4rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tree button:hover,
+.asset-list button:hover {
+  background: #202733;
+}
+
+.zone.active {
+  color: var(--wov-accent);
+  font-weight: 600;
+}
+
+.entity.selected,
+.asset.selected {
+  background: #2b3444;
+  outline: 1px solid var(--wov-accent);
+}
+
+.empty,
+.hint {
+  color: var(--wov-muted);
+  font-size: 0.78rem;
+}
+
+/* --- inspector ----------------------------------------------------------- */
+
+.field,
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.field-label {
+  width: 4.5rem;
+  flex: none;
+  color: var(--wov-muted);
+  font-size: 0.75rem;
+}
+
+.field input,
+.field-row input {
+  min-width: 0;
+  flex: 1;
+  padding: 0.2rem 0.3rem;
+  border: 1px solid var(--wov-line-strong);
+  border-radius: 4px;
+  background: #10151c;
+}
+
+.field-value {
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+}
+
+/* --- viewport ------------------------------------------------------------ */
+
+/*
+ * The canvas is taken out of the flow on purpose.
+ *
+ * In the flow, `height: 100%` on a canvas inside an auto-height grid item
+ * resolves to `auto`, so the canvas falls back to its *attribute* height — the
+ * one Babylon writes on every `engine.resize()`. That is a feedback loop: each
+ * resize measured the box the previous resize had inflated, and the viewport
+ * grew until it covered the asset browser. Absolute positioning gives the
+ * percentage a definite box to resolve against and breaks the loop.
+ */
 .viewport {
   position: relative;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .viewport canvas {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   outline: none;
 }
 
-.viewport .hint {
+.viewport-status {
   position: absolute;
-  left: 1rem;
-  bottom: 1rem;
-  font-size: 0.8rem;
+  left: 0.75rem;
+  bottom: 0.6rem;
+  display: flex;
+  gap: 1rem;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
   opacity: 0.7;
+  pointer-events: none;
+}
+
+/* --- asset browser ------------------------------------------------------- */
+
+.assets {
+  border-top: 1px solid var(--wov-line);
+  padding: 0.5rem 0.75rem;
+  height: 14rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.assets-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+
+.assets h2 {
+  margin: 0;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--wov-muted);
+}
+
+.tabs {
+  display: flex;
+  gap: 0.2rem;
+}
+
+.tab {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.78rem;
+  text-transform: capitalize;
+}
+
+.tab.active {
+  border-color: var(--wov-accent);
+  color: var(--wov-accent);
+}
+
+.assets input[type='search'] {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--wov-line-strong);
+  border-radius: 4px;
+  background: #10151c;
+}
+
+.asset-list {
+  /* A flex child does not shrink below its content without this, and then the
+     list overflows the panel instead of scrolling inside it. */
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.1rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.asset-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  margin-left: 0.5rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: #232a34;
+  color: var(--wov-muted);
+  font-size: 0.68rem;
+}
+
+.badge.private {
+  background: #3a3122;
+  color: var(--wov-accent);
+}
+
+/* --- status bar ---------------------------------------------------------- */
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.3rem 0.75rem;
+  border-top: 1px solid var(--wov-line);
+  font-size: 0.78rem;
+  color: var(--wov-muted);
+}
+
+.error {
+  color: var(--wov-danger);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
 }

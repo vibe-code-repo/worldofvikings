@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "base",
+  "prefabs": [
+    {
+      "id": "barrel-01",
+      "name": "Barrel",
+      "asset": "environment/kenney-retro-fantasy-kit/detail-barrel.glb",
+      "visibility": "public",
+      "category": "prop",
+      "bounds": { "min": [-0.123, 0, -0.123], "max": [0.123, 0.3, 0.123] }
+    }
+  ]
+}

@@ -33,6 +33,61 @@ type WovDebugWindow = Window & {
   };
 };
 
+/**
+ * The editor's dev build publishes its own bridge on `window.__wovEditor`: the
+ * frame counter, the backend, and both counts of what is on screen — how many
+ * entities the document holds and how many meshes the viewport built for them.
+ */
+type WovEditorDebugWindow = Window & {
+  __wovEditor?: {
+    readonly backend: string;
+    readonly frameId: number;
+    readonly worldId: string;
+    readonly zoneId: string | null;
+    readonly entityCount: number;
+    readonly meshCount: number;
+    readonly loadedCount: number;
+    readonly selection: readonly string[];
+    readonly dirty: boolean;
+    readonly undoDepth: number;
+    readonly redoDepth: number;
+  };
+};
+
+/**
+ * Where the API under test is.
+ *
+ * `pnpm smoke` runs the API on a port of its own against a throwaway copy of
+ * `content/` (see `playwright.config.ts`), so the editor's save test cannot
+ * write into the repository and cannot be routed to a developer's own server.
+ */
+function apiUrl(path: string): string {
+  return `${String(test.info().config.metadata['apiUrl'])}${path}`;
+}
+
+/** The editor's whole debug bridge, or `null` while it is not installed. */
+function editorDebug(page: Page): Promise<WovEditorDebugWindow['__wovEditor'] | null> {
+  return page.evaluate(() => {
+    const bridge = (window as WovEditorDebugWindow).__wovEditor;
+    return bridge === undefined ? null : { ...bridge };
+  });
+}
+
+/** How many entities the *document* holds in the active zone. */
+function editorEntityCount(page: Page): Promise<number | null> {
+  return page.evaluate(() => (window as WovEditorDebugWindow).__wovEditor?.entityCount ?? null);
+}
+
+/** How many entity roots the *scene* holds — the independent witness. */
+function editorMeshCount(page: Page): Promise<number | null> {
+  return page.evaluate(() => (window as WovEditorDebugWindow).__wovEditor?.meshCount ?? null);
+}
+
+/** The editor's frame counter, or `null` while its bridge is not installed. */
+function editorFrameId(page: Page): Promise<number | null> {
+  return page.evaluate(() => (window as WovEditorDebugWindow).__wovEditor?.frameId ?? null);
+}
+
 /** The current frame counter, or `null` while the bridge is not installed. */
 function frameId(page: Page): Promise<number | null> {
   return page.evaluate(() => (window as WovDebugWindow).__wov?.frameId ?? null);
@@ -291,19 +346,282 @@ test('game loads the physics backend and collides the ground', async ({ page }) 
   });
 });
 
-test('editor shows its shell and viewport placeholder', async ({ page }) => {
-  await page.goto('http://localhost:5174');
+test('editor shows its shell and a live viewport', async ({ page }) => {
+  await page.goto('/');
   await expect(page.getByTestId('editor-marker')).toContainText('world editor dev build');
   await expect(page.getByTestId('editor-viewport-status')).toHaveText(RENDERER_STATUS);
 });
 
+/**
+ * Same reason as the game's frame test: a mounted canvas is not a running
+ * render loop. It is worth its own test in the editor because the loop died
+ * here in a specific, invisible way — React StrictMode mounted the viewport
+ * twice, two Babylon engines bound themselves to one canvas, and the first
+ * one's teardown took the second one's WebGL context with it.
+ *
+ * Two witnesses again: the counter on the bridge, and the same number in the
+ * DOM. Backend and counter are both published so a stalled loop names itself.
+ */
+test('editor keeps rendering frames', async ({ page }) => {
+  await page.goto('/');
+
+  await expect.poll(() => editorFrameId(page), { timeout: 10_000 }).not.toBeNull();
+  const before = await editorFrameId(page);
+  expect(before).not.toBeNull();
+
+  await expect
+    .poll(() => editorFrameId(page), { timeout: 5_000, intervals: [100, 100, 200, 200, 400] })
+    .toBeGreaterThan(before ?? 0);
+
+  await expect(page.getByTestId('editor-frame')).toHaveText(/^frame \d+$/);
+  await expect(page.getByTestId('editor-viewport-status')).toHaveText(
+    /^viewport ready — (webgl2|webgpu)$/,
+  );
+});
+
+/**
+ * The one claim the unit tests cannot make: that the document, the API, the
+ * asset catalogue and the Babylon scene are wired to each other at all.
+ *
+ * Every part passes its own tests while connected to nothing — the reducer
+ * applies commands to a document nobody renders, the reconciler diffs entity
+ * lists nobody produced, the client parses answers nobody asked for. So this
+ * walks the whole path an author walks, and checks *both* sides of every step:
+ * the row in the hierarchy and the mesh in the scene, the document's entity
+ * count and the scene's own count of entity roots.
+ *
+ * It runs against a throwaway `CONTENT_DIR`, so saving is a real `PUT` to a
+ * real file and the repository stays clean.
+ */
+test('editor opens a world, places a prefab, saves it and undoes', async ({ page, request }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('editor-viewport-status')).toHaveText(
+    /^viewport ready — (webgl2|webgpu)$/,
+  );
+
+  // (b) the world list comes from the API, and opening one loads it.
+  await page.getByTestId('menu-file').click();
+  await expect(page.getByTestId('menu-file-worlds')).toContainText('Example World');
+  await page.getByTestId('menu-open-example').click();
+
+  await expect(page.getByTestId('hierarchy-zone-village')).toContainText('Village');
+  await expect(page.getByTestId('hierarchy-entity-barrel_001')).toBeVisible();
+  await expect.poll(() => editorEntityCount(page)).toBe(1);
+  // The mesh is the independent witness: a hierarchy row proves the document
+  // changed, not that anything reached the scene.
+  await expect.poll(() => editorMeshCount(page)).toBe(1);
+
+  // The world's one barrel stands 60 m from the origin, so `F` is what brings
+  // it into view — and the click below has to land on the ground, not on it.
+  await page.getByTestId('editor-canvas').click({ position: { x: 10, y: 10 } });
+  await page.keyboard.press('KeyF');
+
+  // (c) pick a prefab in the browser and click it into the viewport.
+  await page.getByTestId('assets-search').fill('Barrel');
+  await page.getByTestId('asset-barrel-01').click();
+  await expect(page.getByTestId('editor-placing')).toHaveText('click to place barrel-01');
+
+  const canvas = page.getByTestId('editor-canvas');
+  const box = await canvas.boundingBox();
+  if (!box) {
+    throw new Error('the editor has no viewport canvas');
+  }
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.7);
+
+  await expect.poll(() => editorEntityCount(page)).toBe(2);
+  await expect.poll(() => editorMeshCount(page)).toBe(2);
+
+  const placed = await editorDebug(page);
+  const newId = placed?.selection.at(-1);
+  expect(newId).toBeDefined();
+  expect(newId).toMatch(/^barrel-01_\d+$/);
+  // The same entity in the other two places it has to exist: the hierarchy and
+  // the inspector.
+  await expect(page.getByTestId(`hierarchy-entity-${String(newId)}`)).toBeVisible();
+  await expect(page.getByTestId('inspector-prefab')).toHaveText('barrel-01');
+  await expect(page.getByTestId('editor-dirty')).toHaveText('unsaved changes');
+
+  // (d) save, and read the file back through the API rather than believing the
+  // button.
+  await page.getByTestId('menu-file').click();
+  await page.getByTestId('menu-file-save').click();
+  await expect(page.getByTestId('editor-notice')).toContainText('"example"');
+  await expect(page.getByTestId('editor-dirty')).toHaveText('saved');
+
+  const saved = await request.get(apiUrl('/worlds/example'));
+  expect(saved.status()).toBe(200);
+  const world = await saved.json();
+  expect(world.zones[0].entities).toHaveLength(2);
+  expect(world.zones[0].entities.map((each: { id: string }) => each.id)).toContain(newId);
+
+  // (e) undo takes the entity out of the document *and* out of the scene.
+  // Escape first: the prefab is still armed, and a click in the viewport to
+  // move focus would place a second barrel instead of doing nothing.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('editor-placing')).toHaveText('click to select');
+  await page.keyboard.press('Control+z');
+
+  await expect.poll(() => editorEntityCount(page)).toBe(1);
+  await expect.poll(() => editorMeshCount(page)).toBe(1);
+  await expect(page.getByTestId(`hierarchy-entity-${String(newId)}`)).toHaveCount(0);
+  await expect(page.getByTestId('editor-dirty')).toHaveText('unsaved changes');
+});
+
+/**
+ * The keyboard of spec §14, and the one collision in it.
+ *
+ * `W`, `E` and `R` are tool shortcuts *and* camera flying keys; they fly only
+ * while the right mouse button is held. Nothing in a unit test can prove which
+ * of the two a real keystroke reaches.
+ */
+test('editor switches tools with Q/W/E/R and deletes with the Delete key', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('editor-viewport-status')).toHaveText(
+    /^viewport ready — (webgl2|webgpu)$/,
+  );
+  await page.getByTestId('menu-file').click();
+  await page.getByTestId('menu-open-example').click();
+  await expect(page.getByTestId('hierarchy-entity-barrel_001')).toBeVisible();
+
+  // Counted rather than assumed: the save test above writes into the same
+  // throwaway content directory, so the world it opens is the one that test
+  // left behind. What this test is about is the delta, not the total.
+  const before = await editorEntityCount(page);
+  expect(before).not.toBeNull();
+
+  for (const [key, tool] of [
+    ['KeyW', 'move'],
+    ['KeyE', 'rotate'],
+    ['KeyR', 'scale'],
+    ['KeyQ', 'select'],
+  ] as const) {
+    await page.keyboard.press(key);
+    await expect(page.getByTestId(`tool-${tool}`)).toHaveAttribute('aria-pressed', 'true');
+  }
+
+  await page.getByTestId('hierarchy-entity-barrel_001').click();
+  await expect(page.getByTestId('editor-selection')).toHaveText('1 selected');
+
+  await page.keyboard.press('Delete');
+  await expect(page.getByTestId('hierarchy-entity-barrel_001')).toHaveCount(0);
+  await expect.poll(() => editorEntityCount(page)).toBe((before ?? 0) - 1);
+  await expect.poll(() => editorMeshCount(page)).toBe((before ?? 0) - 1);
+
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => editorEntityCount(page)).toBe(before);
+  await expect(page.getByTestId('hierarchy-entity-barrel_001')).toBeVisible();
+});
+
+/**
+ * The gizmo, driven by a real mouse.
+ *
+ * `changesFromDrag` is unit-tested and the inspector exercises the same command
+ * path, but neither proves that Babylon's handles are attached to the right
+ * node, that a drag ends where this app is listening, or that the gesture
+ * arrives as *one* history entry instead of one per frame. Only a real drag on
+ * a real arrow does.
+ *
+ * `F` frames the barrel first, which puts the entity origin — and with it the
+ * gizmo — at a known place on screen. The grab offsets are a short search along
+ * the red +x arrow rather than one magic pixel: the arrow is drawn at a
+ * constant screen size, so a handful of offsets covers it without pinning the
+ * test to Babylon's exact arrow geometry.
+ */
+test('editor moves an entity by dragging the move gizmo', async ({ page }) => {
+  // Pinned, because this is the one test that aims at a pixel: the gizmo is
+  // drawn at a constant screen size, but where the framed entity's origin lands
+  // depends on how tall the canvas is.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await expect(page.getByTestId('editor-viewport-status')).toHaveText(
+    /^viewport ready — (webgl2|webgpu)$/,
+  );
+  await page.getByTestId('menu-file').click();
+  await page.getByTestId('menu-open-example').click();
+
+  // Wait for the model itself, not just the entity: `F` frames what is on
+  // screen, and a 1 m stand-in cube is framed from a different distance than a
+  // 25 cm barrel — which would put the gizmo somewhere else entirely.
+  await expect.poll(async () => (await editorDebug(page))?.loadedCount).toBeGreaterThan(0);
+  await page.getByTestId('hierarchy-entity-barrel_001').click();
+  await page.keyboard.press('KeyF');
+  await page.keyboard.press('KeyW');
+  await expect(page.getByTestId('tool-move')).toHaveAttribute('aria-pressed', 'true');
+
+  const positionX = page.getByTestId('inspector-position-x');
+  const before = await positionX.inputValue();
+  const box = await page.getByTestId('editor-canvas').boundingBox();
+  if (!box) {
+    throw new Error('the editor has no viewport canvas');
+  }
+  // The camera looks along +z at the default heading, so world +x is screen
+  // right; the entity origin sits below the framed centre, at its base.
+  const originX = box.x + box.width / 2;
+  const originY = box.y + box.height / 2 + 30;
+
+  let moved = false;
+  search: for (const down of [30, 22, 38]) {
+    for (const grab of [45, 60, 75]) {
+      await page.mouse.move(originX + grab, originY + down - 30);
+      await page.mouse.down();
+      await page.mouse.move(originX + grab + 140, originY + down - 30, { steps: 12 });
+      await page.mouse.up();
+      if ((await positionX.inputValue()) !== before) {
+        moved = true;
+        break search;
+      }
+    }
+  }
+  expect(moved, 'dragging the move gizmo changed nothing').toBe(true);
+
+  // Snapping is on by default, so the result is a whole grid step, and the
+  // whole gesture is exactly one entry in the history.
+  const after = Number((await positionX.inputValue()).replace(',', '.'));
+  expect(after).toBeGreaterThan(Number(before.replace(',', '.')));
+  expect((after * 2) % 1).toBe(0);
+  await expect.poll(async () => (await editorDebug(page))?.undoDepth).toBe(1);
+  await expect(page.getByTestId('editor-dirty')).toHaveText('unsaved changes');
+
+  await page.keyboard.press('Control+z');
+  await expect(positionX).toHaveValue(before);
+});
+
 test('api reports healthy', async ({ request }) => {
-  const response = await request.get('http://localhost:3000/health');
+  const response = await request.get(apiUrl('/health'));
   expect(response.status()).toBe(200);
   expect(await response.json()).toMatchObject({
     status: 'ok',
     service: 'world-of-vikings-api',
   });
+});
+
+test('api serves the worlds in content/', async ({ request }) => {
+  const response = await request.get(apiUrl('/worlds'));
+  expect(response.status()).toBe(200);
+  const listing = await response.json();
+  expect(listing.invalid).toEqual([]);
+  expect(listing.worlds).toContainEqual(
+    expect.objectContaining({ id: 'example', name: 'Example World', zones: 1 }),
+  );
+
+  const world = await request.get(apiUrl('/worlds/example'));
+  expect(world.status()).toBe(200);
+  expect(await world.json()).toMatchObject({ schemaVersion: 1, id: 'example' });
+
+  const missing = await request.get(apiUrl('/worlds/there-is-no-such-world'));
+  expect(missing.status()).toBe(404);
+});
+
+test('api serves the merged prefab catalogue', async ({ request }) => {
+  const response = await request.get(apiUrl('/prefabs'));
+  expect(response.status()).toBe(200);
+  const listing = await response.json();
+  expect(listing.invalid).toEqual([]);
+  // The hand-written catalogue, which is the one the editor's placement test
+  // uses: it is public, so it loads on a clone with no private asset store.
+  expect(listing.prefabs).toContainEqual(
+    expect.objectContaining({ id: 'barrel-01', catalog: 'base', visibility: 'public' }),
+  );
 });
 
 test('asset server reports healthy', async ({ request }) => {

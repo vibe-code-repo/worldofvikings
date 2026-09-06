@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Gltf } from './glb.js';
+import type { Gltf } from '@wov/content-build';
 import { applySurfaces, bindMaterials, pruneUnusedMaterials } from './material-binding.js';
 
 /** A store model as the per-model export leaves it: one untextured material. */

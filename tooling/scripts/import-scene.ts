@@ -13,44 +13,21 @@
  * scatter, no noise, no rule that puts a tree somewhere (agent rule 16,
  * ADR-0021). Run twice over the same bundle it writes the same bytes.
  *
- * **What it does per run:**
+ * **Where the work happens.** In `@wov/content-build`, not here. This file is
+ * the command line around `importSceneBundle` — arguments in, a report out —
+ * and the editor's *World → Import scene bundle…* calls the same function
+ * through the API (ADR-0033). A rule added here instead of in the package would
+ * be a rule the editor does not have.
  *
- * 1. Reads the prefab catalogues and indexes them by store file stem, which is
- *    the spelling a bundle node name folds onto.
- * 2. Walks the bundle top-down inside the zone roots, taking the highest node
- *    whose name is a known model as one instance (`scene-import.ts`).
- * 3. Mirrors x — the bundle's exporter negated it and the height field's did
- *    not — and splits each world matrix into position, YXZ Euler and scale.
- * 4. Writes the world file in exactly the formatting Prettier produces, so the
- *    editor can save over it without a whitespace diff (ADR-0017).
- * 5. Reports what it did *not* recognise, by name and weight. A bundle always
- *    contains models that never existed as their own file; those are for
- *    `pnpm import:scene-models`, and they must be visible, not lost.
- *
- * **Ground and light are carried over, not regenerated.** A zone's `terrain`
- * block is authored by hand — a height field, its splat maps and the order of
- * its layers, all of them measurements no bundle contains (ADR-0020) — and so
- * is the `lighting` block over it (ADR-0024). If the world file being written
- * already has either, it is copied into the new file unchanged and named in the
- * report. Without that, re-running this command would silently take the ground
- * out from under 1580 placements, or the evening off the village.
+ * **Ground and light are carried over, not regenerated** (ADR-0028). If the
+ * world file being written already has a `terrain` or a `lighting` block, it is
+ * copied into the new file unchanged and named in the report.
  */
-import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { format, resolveConfig } from 'prettier';
-import { CURRENT_WORLD_SCHEMA_VERSION, parseWorldDefinition } from '@wov/world-schema';
+import { importSceneBundle } from '@wov/content-build';
 import type { WorldDefinition } from '@wov/world-schema';
-import { readGlb } from '../asset-pipeline/glb.js';
-import { repoRoot } from './prefab-catalog.js';
-import { loadPrefabStems } from './prefab-stems.js';
-import type { SceneMiss, ZoneRule } from './scene-import.js';
-import {
-  DEFAULT_ZONES,
-  carryOverAuthoredBlocks,
-  scanScene,
-  toEntities,
-  toKebab,
-} from './scene-import.js';
+import { repoRoot } from './repo-root.js';
 
 function argument(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
@@ -72,176 +49,94 @@ function required(name: string): string {
 const sceneFile = required('scene');
 const worldId = required('world');
 const worldName = required('name');
-const zoneRoot = argument('zone-root');
-const dryRun = process.argv.includes('--dry-run');
-
-// ------------------------------------------------------- the prefab catalogue
-
-const { byStem: prefabsByStem, ambiguous: ambiguousStems } = await loadPrefabStems(
-  join(repoRoot, 'content', 'prefabs'),
-);
-
-// -------------------------------------------------------------------- the run
-
-const zones: readonly ZoneRule[] =
-  zoneRoot === undefined
-    ? DEFAULT_ZONES
-    : [{ id: toKebab(zoneRoot.split('/').at(-1) ?? zoneRoot), name: zoneRoot, roots: [zoneRoot] }];
+const contentDir = join(repoRoot, 'content');
+const worldFile = join(contentDir, 'worlds', `${worldId}.json`);
 
 process.stdout.write(`bundle:   ${sceneFile}\n`);
-process.stdout.write(`prefabs:  ${String(prefabsByStem.size)} store names from content/prefabs/\n`);
-if (ambiguousStems.length > 0) {
-  process.stdout.write(
-    `          ${String(ambiguousStems.length)} name(s) claimed by two catalogues, left unmatched: ` +
-      `${ambiguousStems.join(', ')}\n`,
-  );
-}
 
-const bundle = readGlb(await readFile(sceneFile));
-const scan = scanScene(bundle.json, { zones, prefabsByStem });
+const result = await importSceneBundle({
+  sceneFile,
+  worldId,
+  worldName,
+  contentDir,
+  zoneRoot: argument('zone-root'),
+  dryRun: process.argv.includes('--dry-run'),
+  // Exactly the formatting Prettier produces, so the editor can save over the
+  // file without a whitespace diff (ADR-0017).
+  serialize: async (world: WorldDefinition) =>
+    format(JSON.stringify(world), {
+      ...(await resolveConfig(worldFile)),
+      filepath: worldFile,
+      parser: 'json',
+    }),
+});
 
-const worldFile = join(repoRoot, 'content', 'worlds', `${worldId}.json`);
-
-/**
- * The world file being replaced, for the blocks the bundle does not describe.
- *
- * A missing or unreadable file is not an error: the first import of a bundle
- * writes a world that has no ground and no light yet. A file that exists but
- * does not parse *is* an error, because carrying nothing over from it would
- * look like success.
- */
-let authored: WorldDefinition | undefined;
-let previous: string | undefined;
-try {
-  previous = await readFile(worldFile, 'utf8');
-} catch {
-  previous = undefined;
-}
-if (previous !== undefined) {
-  const parsed = parseWorldDefinition(JSON.parse(previous));
-  if (!parsed.ok) {
-    process.stderr.write(`FAIL content/worlds/${worldId}.json: ${parsed.errors.join('; ')}\n`);
-    process.exit(1);
-  }
-  authored = parsed.world;
-}
-
-const counters = new Map<string, number>();
-const world: WorldDefinition = carryOverAuthoredBlocks(
-  {
-    schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
-    id: worldId,
-    name: worldName,
-    zones: zones.map((zone) => ({
-      id: zone.id,
-      name: zone.name,
-      entities: toEntities(
-        scan.instances.filter((instance) => instance.zone === zone.id),
-        counters,
-      ),
-    })),
-  },
-  authored,
-);
-
-// The importer writes content that `pnpm validate:content` will check, so it
-// checks it here first: a broken importer must fail now, not in a pull request.
-const validation = parseWorldDefinition(world);
-if (!validation.ok) {
-  process.stderr.write('FAIL the imported world does not satisfy the world schema\n');
-  for (const message of validation.errors) {
+if (!result.ok) {
+  process.stderr.write('FAIL the scene import did not finish\n');
+  for (const message of result.errors) {
     process.stderr.write(`       ${message}\n`);
   }
   process.exit(1);
 }
 
-if (!dryRun) {
-  const prettierOptions = await resolveConfig(worldFile);
-  await writeFile(
-    worldFile,
-    await format(JSON.stringify(world), {
-      ...prettierOptions,
-      filepath: worldFile,
-      parser: 'json',
-    }),
-    'utf8',
+const { report } = result;
+
+process.stdout.write(`prefabs:  ${String(report.knownStems)} store names from content/prefabs/\n`);
+if (report.ambiguousStems.length > 0) {
+  process.stdout.write(
+    `          ${String(report.ambiguousStems.length)} name(s) claimed by two catalogues, ` +
+      `left unmatched: ${report.ambiguousStems.join(', ')}\n`,
   );
 }
-
-// ----------------------------------------------------------------- the report
 
 process.stdout.write('\n  zone           entities  prefabs\n');
-for (const zone of world.zones) {
-  const used = new Set(zone.entities.map((entity) => entity.prefab));
+for (const zone of report.zones) {
   process.stdout.write(
-    `  ${zone.id.padEnd(14)} ${String(zone.entities.length).padStart(8)} ${String(used.size).padStart(8)}\n`,
+    `  ${zone.id.padEnd(14)} ${String(zone.entities).padStart(8)} ` +
+      `${String(zone.prefabs).padStart(8)}\n`,
   );
 }
-const allPrefabs = new Set(scan.instances.map((instance) => instance.prefab));
-process.stdout.write(
-  `  ${'total'.padEnd(14)} ${String(scan.instances.length).padStart(8)} ${String(allPrefabs.size).padStart(8)}\n`,
-);
+process.stdout.write(`  ${'total'.padEnd(14)} ${String(report.entities).padStart(8)}\n`);
 
-const matchedTriangles = scan.instances.reduce((sum, instance) => sum + instance.triangles, 0);
-const missedTriangles = scan.misses.reduce((sum, miss) => sum + miss.triangles, 0);
+const allTriangles = report.placedTriangles + report.missedTriangles;
 process.stdout.write(
-  `\n  triangles placed: ${String(matchedTriangles)} of ${String(matchedTriangles + missedTriangles)} ` +
-    `(${(((matchedTriangles || 1) / (matchedTriangles + missedTriangles || 1)) * 100).toFixed(1)} %)\n`,
+  `\n  triangles placed: ${String(report.placedTriangles)} of ${String(allTriangles)} ` +
+    `(${(((report.placedTriangles || 1) / (allTriangles || 1)) * 100).toFixed(1)} %)\n`,
 );
-process.stdout.write(`  collision boxes and triggers left out: ${String(scan.helpers)}\n`);
-const groundCarried = world.zones.filter((zone) => zone.terrain !== undefined).map((z) => z.id);
-if (groundCarried.length > 0) {
+process.stdout.write(`  collision boxes and triggers left out: ${String(report.helpers)}\n`);
+if (report.groundCarried.length > 0) {
   process.stdout.write(
-    `  ground carried over from the previous file: ${groundCarried.sort().join(', ')}\n`,
+    `  ground carried over from the previous file: ${report.groundCarried.join(', ')}\n`,
   );
 }
-const lightCarried = world.zones.filter((zone) => zone.lighting !== undefined).map((z) => z.id);
-if (world.lighting !== undefined || lightCarried.length > 0) {
+if (report.lightingCarried.length > 0) {
   process.stdout.write(
-    `  lighting carried over from the previous file: ${[
-      ...(world.lighting !== undefined ? ['the world'] : []),
-      ...lightCarried.sort(),
-    ].join(', ')}\n`,
+    `  lighting carried over from the previous file: ${report.lightingCarried.join(', ')}\n`,
   );
 }
-if (scan.ignoredRoots.length > 0) {
+if (report.ignoredRoots.length > 0) {
   process.stdout.write('\n  bundle roots no zone claims (not world data):\n');
-  for (const root of [...scan.ignoredRoots].sort((a, b) => b.meshNodes - a.meshNodes)) {
+  for (const root of report.ignoredRoots) {
     process.stdout.write(`    ${String(root.meshNodes).padStart(5)} mesh node(s)  ${root.name}\n`);
   }
 }
 
-/**
- * Misses grouped by the name they would have as a store file, because that is
- * the unit `pnpm import:scene-models` works in: one new model per group, not
- * one per instance.
- */
-const missGroups = new Map<string, { count: number; triangles: number; example: SceneMiss }>();
-for (const miss of scan.misses) {
-  const key = toKebab(miss.name.replace(/\s*\(\d+\)$/, '').replace(/\s+\d+$/, ''));
-  const group = missGroups.get(key);
-  if (group === undefined) {
-    missGroups.set(key, { count: 1, triangles: miss.triangles, example: miss });
-  } else {
-    group.count += 1;
-  }
-}
-
 process.stdout.write(
-  `\n  unmatched: ${String(scan.misses.length)} instance(s) under ${String(missGroups.size)} name(s), ` +
-    `${String(missedTriangles)} triangles\n`,
+  `\n  unmatched: ${String(report.missedInstances)} instance(s) under ` +
+    `${String(report.misses.length)} name(s), ${String(report.missedTriangles)} triangles\n`,
 );
-for (const [name, group] of [...missGroups].sort((a, b) => b[1].count - a[1].count).slice(0, 30)) {
+for (const group of report.misses.slice(0, 30)) {
   process.stdout.write(
-    `    ${String(group.count).padStart(4)}x ${name.padEnd(38)} ${String(group.triangles).padStart(7)} tri  ${group.example.zone}\n`,
+    `    ${String(group.count).padStart(4)}x ${group.name.padEnd(38)} ` +
+      `${String(group.triangles).padStart(7)} tri  ${group.zone}\n`,
   );
 }
-if (missGroups.size > 30) {
-  process.stdout.write(`    … and ${String(missGroups.size - 30)} more name(s)\n`);
+if (report.misses.length > 30) {
+  process.stdout.write(`    … and ${String(report.misses.length - 30)} more name(s)\n`);
 }
 
 process.stdout.write(
-  dryRun
+  report.dryRun
     ? '\ndry run: nothing was written\n'
-    : `\nwrote content/worlds/${worldId}.json (${String(world.zones.reduce((sum, zone) => sum + zone.entities.length, 0))} entities)\n`,
+    : `\nwrote content/worlds/${worldId}.json (${String(report.entities)} entities)\n`,
 );

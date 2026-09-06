@@ -21,7 +21,7 @@
  *    be readable and stable across a re-import: `terrain-grass-a.png`, not
  *    `grass-ani-4f2c19ab.png`.
  */
-import { readGlb, worldBounds, writeGlb, type Bounds } from './glb.js';
+import { readGlb, worldBounds, writeGlb, type Bounds } from '@wov/content-build';
 import { buildHeightFieldGlb, gridSize, readHeightGrid, thinGrid } from './height-field.js';
 import {
   MAX_TEXTURE_SIZE,

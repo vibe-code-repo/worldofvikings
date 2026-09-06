@@ -5,6 +5,7 @@
     { "path": "packages/shared" },
     { "path": "packages/world-schema" },
     { "path": "packages/asset-system" },
+    { "path": "packages/content-build" },
     { "path": "packages/engine" },
     { "path": "packages/physics" },
     { "path": "packages/gameplay" },

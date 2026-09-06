@@ -56,6 +56,7 @@ second of any of them.
 | `packages/shared`       | Framework-free helpers                    | Any dependency                   |
 | `packages/world-schema` | Zod schemas + versioning for world data   | Babylon.js, React                |
 | `packages/asset-system` | Asset URLs, GLB loading/caching, manifest | Gameplay                         |
+| `packages/content-build` | Scene import and prefab catalogue, as functions | Babylon.js, React, a CLI |
 | `packages/engine`       | Shared renderer layer                     | Gameplay state                   |
 | `packages/physics`      | Physics contract + Havok backend          | Gameplay rules                   |
 | `packages/gameplay`     | Gameplay state and systems                | Any renderer import              |

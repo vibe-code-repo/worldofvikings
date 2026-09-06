@@ -49,9 +49,9 @@ import {
 } from '@wov/editor-core';
 import { parsePrefabCatalog, parseWorldDefinition } from '@wov/world-schema';
 import type { PrefabDefinition } from '@wov/world-schema';
-import { readGlb } from '../asset-pipeline/glb.js';
+import { readGlb } from '@wov/content-build';
 import { heightAt, readHeightGrid } from '../asset-pipeline/height-field.js';
-import { repoRoot } from './prefab-catalog.js';
+import { repoRoot } from './repo-root.js';
 import { resolveContentDir, resolveStoreRoot } from './scatter-paths.js';
 
 const USAGE = `usage: tsx tooling/scripts/scatter.ts --world <id> --zone <id>

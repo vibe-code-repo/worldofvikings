@@ -16,7 +16,7 @@
  * | `TerrainData/`           | height fields                             | `terrain` |
  */
 import type { AssetKind } from '@wov/asset-system/manifest';
-import type { Bounds } from './glb.js';
+import type { Bounds } from '@wov/content-build';
 
 /** The three groups the store is organised into. */
 export const ASSET_GROUPS = ['environment', 'vegetation', 'terrain'] as const;

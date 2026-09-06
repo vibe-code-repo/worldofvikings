@@ -30,7 +30,7 @@ import type {
   GltfMesh,
   GltfNode,
   GltfPrimitive,
-} from './glb.js';
+} from '@wov/content-build';
 
 /** Components per element, by glTF accessor type. */
 const ELEMENT_COMPONENTS: Readonly<Record<string, number>> = {

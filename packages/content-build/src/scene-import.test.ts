@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Gltf, Matrix4 } from '../asset-pipeline/glb.js';
-import { multiply, nodeMatrix } from '../asset-pipeline/glb.js';
+import type { Gltf, Matrix4 } from './glb.js';
+import { multiply, nodeMatrix } from './glb.js';
 import type { WorldDefinition } from '@wov/world-schema';
 import { CURRENT_WORLD_SCHEMA_VERSION } from '@wov/world-schema';
 import {

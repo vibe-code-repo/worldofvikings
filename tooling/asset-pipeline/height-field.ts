@@ -17,7 +17,7 @@
  *
  * Everything here is a pure function over plain arrays: same input, same bytes.
  */
-import { walkNodes, type Glb, type Gltf } from './glb.js';
+import { walkNodes, type Glb, type Gltf } from '@wov/content-build';
 
 /**
  * A regular grid of heights, row-major: `heights[row * columns + column]`.

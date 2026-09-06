@@ -10,8 +10,6 @@
  * same manifest produce byte-identical output and a diff means the assets
  * changed.
  */
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   CURRENT_PREFAB_SCHEMA_VERSION,
   type PrefabCatalog,
@@ -20,10 +18,7 @@ import {
   type PrefabDefinition,
 } from '@wov/world-schema';
 import type { AssetEntry } from '@wov/asset-system/manifest';
-import type { Bounds } from '../asset-pipeline/glb.js';
-
-/** Repository root, resolved from this file so the script is location-safe. */
-export const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
+import type { Bounds } from './glb.js';
 
 /** Catalog id and file name (`content/prefabs/imported.json`). */
 export const IMPORTED_CATALOG_ID = 'imported';

@@ -10,7 +10,7 @@ import {
   sizeLimitFor,
   toKebab,
 } from './selection.js';
-import type { Bounds } from './glb.js';
+import type { Bounds } from '@wov/content-build';
 
 function taken(folder: string, file: string) {
   const result = select(folder, file);

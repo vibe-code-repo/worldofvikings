@@ -75,6 +75,7 @@ export {
   PrefabCollisionSchema,
   PrefabDefinitionSchema,
   PrefabVisibilitySchema,
+  isBackdrop,
   parsePrefabCatalog,
 } from './prefab.js';
 export type {

@@ -4,6 +4,7 @@ import { createDocument } from './document.js';
 import { createEditorState, execute, undo } from './history.js';
 import {
   SCATTER_MAXIMUM,
+  canScatter,
   insideRegion,
   planScatter,
   scatterCommand,
@@ -297,5 +298,19 @@ describe('scatterCommand', () => {
     }
     const twice = applyCommand(once.value.document, result.value.command);
     expect(twice.ok).toBe(false);
+  });
+});
+
+describe('canScatter', () => {
+  it('refuses a backdrop', () => {
+    // A scatter is persisted (ADR-0025): planting a painted horizon fifty times
+    // is fifty entities in the world file to find and delete by hand.
+    expect(canScatter({ category: 'backdrop' })).toBe(false);
+  });
+
+  it('allows everything else, so this only ever takes one group away', () => {
+    for (const category of ['vegetation', 'environment', 'prop', 'terrain', 'dungeon'] as const) {
+      expect(canScatter({ category })).toBe(true);
+    }
   });
 });

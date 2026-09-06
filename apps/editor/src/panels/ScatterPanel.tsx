@@ -17,6 +17,14 @@ export interface ScatterPanelProps {
   readonly zoneId: string | null;
   /** The prefab highlighted in the asset browser, offered as "add to the mix". */
   readonly selectedPrefabId: string | null;
+  /**
+   * Whether that prefab may be planted at all (`canScatter` in `@wov/editor-core`).
+   *
+   * A separate flag rather than blanking {@link selectedPrefabId}, so the button
+   * can say *why* it will not add this one. A prefab silently refusing to be
+   * added reads as a broken button.
+   */
+  readonly selectedPrefabScatterable?: boolean;
   /** Set by two clicks in the viewport, or typed in. */
   readonly region: Rect;
   readonly onRegion: (region: Rect) => void;
@@ -63,6 +71,10 @@ export function ScatterPanel(props: ScatterPanelProps): JSX.Element {
   const [scaleHigh, setScaleHigh] = useState(DEFAULTS.scaleHigh);
   const [yawLow, setYawLow] = useState(DEFAULTS.yawLow);
   const [yawHigh, setYawHigh] = useState(DEFAULTS.yawHigh);
+
+  // Undefined means "nothing said", which is scatterable: the flag only ever
+  // takes a prefab away, never adds one.
+  const scatterable = props.selectedPrefabScatterable ?? true;
 
   const region: ScatterRegion = useMemo(() => ({ rect: props.region }), [props.region]);
   const area = useMemo(() => usableArea(region), [region]);
@@ -118,10 +130,14 @@ export function ScatterPanel(props: ScatterPanelProps): JSX.Element {
         <button
           type="button"
           data-testid="scatter-add-prefab"
-          disabled={props.selectedPrefabId === null}
+          disabled={props.selectedPrefabId === null || scatterable === false}
           onClick={() => {
             const prefabId = props.selectedPrefabId;
-            if (prefabId === null || prefabs.some((entry) => entry.prefab === prefabId)) {
+            if (
+              prefabId === null ||
+              scatterable === false ||
+              prefabs.some((entry) => entry.prefab === prefabId)
+            ) {
               return;
             }
             setPrefabs([...prefabs, { prefab: prefabId, weight: 1 }]);
@@ -129,7 +145,9 @@ export function ScatterPanel(props: ScatterPanelProps): JSX.Element {
         >
           {props.selectedPrefabId === null
             ? 'select a prefab in the browser'
-            : `add ${props.selectedPrefabId}`}
+            : scatterable === false
+              ? `${props.selectedPrefabId} is painted distance and cannot be scattered`
+              : `add ${props.selectedPrefabId}`}
         </button>
         <ul data-testid="scatter-prefab-list">
           {prefabs.map((entry) => (

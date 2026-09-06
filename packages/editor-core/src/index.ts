@@ -85,6 +85,7 @@ export {
   SCATTER_ATTEMPTS,
   SCATTER_DENSITY_AREA,
   SCATTER_MAXIMUM,
+  canScatter,
   insideRegion,
   planScatter,
   scatterCommand,

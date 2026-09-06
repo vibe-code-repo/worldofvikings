@@ -54,7 +54,7 @@ import type { PhysicsWorld } from '@wov/physics';
 import { tokens } from '@wov/ui';
 import { isDebugRequested } from '@wov/shared';
 import { installDevDebugBridge } from './dev-debug.js';
-import type { WovCollisionDebug, WovTerrainBounds } from './dev-debug.js';
+import type { BackdropReadout, WovCollisionDebug, WovTerrainBounds } from './dev-debug.js';
 import { lightingProfiles, resolveGameConfig, worldIdFromQuery } from './config.js';
 import { createWorldApi } from './world-api.js';
 import {
@@ -335,6 +335,7 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
   let debugBridge: {
     reportTerrainBounds(bounds: WovTerrainBounds): void;
     reportCollision(report: WovCollisionDebug): void;
+    reportBackdrop(meshes: readonly BackdropReadout[]): void;
   } | null = null;
   // `import.meta.env.DEV` and `__WOV_DEBUG_BRIDGE__` are both build-time
   // literals, so a default `pnpm build` folds this to `false` and Rollup drops
@@ -511,6 +512,16 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
     // its own (ADR-0024, ADR-0025). Placed here rather than inside the placer
     // because the light belongs to the app, not to the scene builder.
     lighting.excludeFromCasting(placed.nonCasters);
+    // The painted distance is out of the light in both directions: the sun's
+    // map covers 120 m around the player and the nearest shell is 290 m away,
+    // so a backdrop in it is a 1 188 m caster that stretches the map over the
+    // whole world and receives a shadow map it is nowhere near (ADR-0031).
+    lighting.excludeFromShadows(placed.backdrop);
+    // After the rig, not before: `excludeFromShadows` is what clears
+    // `receiveShadows`, and a readout taken first would report the intention
+    // rather than the result.
+    debugBridge?.reportBackdrop(placed.backdrop);
+    (window as unknown as { __wovBackdrop?: unknown }).__wovBackdrop = placed.backdrop;
 
     for (const problem of placed.failed) {
       console.error(`[game] a prefab of zone "${zone.id}" did not load — ${problem}`);

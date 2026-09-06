@@ -46,6 +46,7 @@ import { loadPrefabStems } from './prefab-stems.js';
 import type { SceneMiss, ZoneRule } from './scene-import.js';
 import {
   DEFAULT_ZONES,
+  withBackdropAliases,
   carryOverAuthoredBlocks,
   scanScene,
   toEntities,
@@ -98,7 +99,13 @@ if (ambiguousStems.length > 0) {
 }
 
 const bundle = readGlb(await readFile(sceneFile));
-const scan = scanScene(bundle.json, { zones, prefabsByStem });
+// The backdrop models are the one group not cut out of the bundle, so the two
+// mountain shells are matched by name list rather than by store stem
+// (`withBackdropAliases`, `asset-pipeline/backdrop.ts`).
+const scan = scanScene(bundle.json, {
+  zones,
+  prefabsByStem: withBackdropAliases(prefabsByStem),
+});
 
 const worldFile = join(repoRoot, 'content', 'worlds', `${worldId}.json`);
 

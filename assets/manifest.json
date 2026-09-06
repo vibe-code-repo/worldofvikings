@@ -1,7 +1,85 @@
 {
   "manifestVersion": 2,
-  "generatedAt": "2026-09-06T13:03:04.015Z",
+  "generatedAt": "2026-09-06T18:12:12.306Z",
   "assets": [
+    {
+      "id": "environment/backdrop-mountains-clear",
+      "path": "environment/backdrop-mountains-clear.glb",
+      "kind": "mesh",
+      "bytes": 20560,
+      "hash": "sha256-924daeddfba6fbc212b551fa5f1fa52c514fbdf619f94c233aaa3748fda22364",
+      "bounds": {
+        "min": [
+          -297.0295,
+          -297.0296,
+          -297.0295
+        ],
+        "max": [
+          297.0296,
+          0,
+          297.0296
+        ]
+      },
+      "origin": "modelling export, single model file, the same range without snow — the inner, nearer shell (552 triangles, vertices untouched, one material written from the surface table)",
+      "source": "private asset collection — environment set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/environment/backdrop-mountains-clear.glb"
+    },
+    {
+      "id": "environment/backdrop-mountains-snow",
+      "path": "environment/backdrop-mountains-snow.glb",
+      "kind": "mesh",
+      "bytes": 20556,
+      "hash": "sha256-b77bf521ad7403f33faf5a87a697f2bbcfc5e5cadfcf2f6aea2f691a4c67c0bf",
+      "bounds": {
+        "min": [
+          -297.0295,
+          -297.0296,
+          -297.0295
+        ],
+        "max": [
+          297.0296,
+          0,
+          297.0296
+        ]
+      },
+      "origin": "modelling export, single model file, painted mountain range, snow on the peaks — the outer of the two shells (552 triangles, vertices untouched, one material written from the surface table)",
+      "source": "private asset collection — environment set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/environment/backdrop-mountains-snow.glb"
+    },
+    {
+      "id": "environment/backdrop-sky-dome",
+      "path": "environment/backdrop-sky-dome.glb",
+      "kind": "mesh",
+      "bytes": 8500,
+      "hash": "sha256-f04f5bf69c7d60c78bc66beb585881f9f2bb88dbd3f836cf9382e166d3d205c8",
+      "bounds": {
+        "min": [
+          -65.8803,
+          -52.257,
+          -65.8803
+        ],
+        "max": [
+          65.8803,
+          52.257,
+          65.8803
+        ]
+      },
+      "origin": "modelling export, single model file, sky dome shell; the export carries no material for it (320 triangles, vertices untouched, one material written from the surface table)",
+      "source": "private asset collection — environment set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/environment/backdrop-sky-dome.glb"
+    },
     {
       "id": "environment/barrel-destructible",
       "path": "environment/barrel-destructible.glb",
@@ -12235,6 +12313,34 @@
       "placeholder": "placeholders/environment/start-position.glb"
     },
     {
+      "id": "environment/textures/backdrop-mountains-clear",
+      "path": "environment/textures/backdrop-mountains-clear.png",
+      "kind": "texture",
+      "bytes": 3762654,
+      "hash": "sha256-8faa46c77401a09de50c50698c6c9d7ad4083f4cd4af21d48aa230d00383d1f0",
+      "origin": "modelling export, loose texture file, stored at full panorama resolution (see PANORAMA_MAX_WIDTH in tooling/asset-pipeline/backdrop.ts)",
+      "source": "private asset collection — environment set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/textures/unavailable.png"
+    },
+    {
+      "id": "environment/textures/backdrop-mountains-snow",
+      "path": "environment/textures/backdrop-mountains-snow.png",
+      "kind": "texture",
+      "bytes": 3816600,
+      "hash": "sha256-4880297a0787d78c67cf5ebed64b7f3f7e3aa8d60e31bc98e3c09737e7172e92",
+      "origin": "modelling export, loose texture file, stored at full panorama resolution (see PANORAMA_MAX_WIDTH in tooling/asset-pipeline/backdrop.ts)",
+      "source": "private asset collection — environment set",
+      "author": "unconfirmed — third-party commercial pack, licence review open",
+      "license": "NOASSERTION",
+      "redistributable": false,
+      "visibility": "private",
+      "placeholder": "placeholders/textures/unavailable.png"
+    },
+    {
       "id": "environment/textures/crate-wood-destructible-c27dfcf6",
       "path": "environment/textures/crate-wood-destructible-c27dfcf6.png",
       "kind": "texture",
@@ -12471,6 +12577,45 @@
       "redistributable": false,
       "visibility": "private",
       "placeholder": "placeholders/textures/unavailable.png"
+    },
+    {
+      "id": "placeholders/environment/backdrop-mountains-clear",
+      "path": "placeholders/environment/backdrop-mountains-clear.glb",
+      "kind": "mesh",
+      "bytes": 1084,
+      "hash": "sha256-e7ea0838ea86238f9b8d0dd27917c54f1a15077ed64fd8c4cb19aa1f7bf87d80",
+      "origin": "Generated by tooling/scripts/import-backdrop.ts from the hull of the private asset it stands in for (ADR-0015).",
+      "source": "World of Vikings asset pipeline",
+      "author": "World of Vikings contributors",
+      "license": "CC0-1.0",
+      "redistributable": true,
+      "visibility": "public"
+    },
+    {
+      "id": "placeholders/environment/backdrop-mountains-snow",
+      "path": "placeholders/environment/backdrop-mountains-snow.glb",
+      "kind": "mesh",
+      "bytes": 1080,
+      "hash": "sha256-1dab8bf196c20485efa40b4d88d5ef4e60c8611bd75026eef3278a513fb4d4f3",
+      "origin": "Generated by tooling/scripts/import-backdrop.ts from the hull of the private asset it stands in for (ADR-0015).",
+      "source": "World of Vikings asset pipeline",
+      "author": "World of Vikings contributors",
+      "license": "CC0-1.0",
+      "redistributable": true,
+      "visibility": "public"
+    },
+    {
+      "id": "placeholders/environment/backdrop-sky-dome",
+      "path": "placeholders/environment/backdrop-sky-dome.glb",
+      "kind": "mesh",
+      "bytes": 1060,
+      "hash": "sha256-98a94bf12729e76ecc2f8bb983d7ce75a61f0626e732b1d58e5724efdd8df2a9",
+      "origin": "Generated by tooling/scripts/import-backdrop.ts from the hull of the private asset it stands in for (ADR-0015).",
+      "source": "World of Vikings asset pipeline",
+      "author": "World of Vikings contributors",
+      "license": "CC0-1.0",
+      "redistributable": true,
+      "visibility": "public"
     },
     {
       "id": "placeholders/environment/barrel-destructible",

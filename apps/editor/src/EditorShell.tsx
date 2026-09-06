@@ -8,6 +8,7 @@ import {
   addEntity,
   addZone,
   canRedo,
+  canScatter,
   canUndo,
   createEmptyWorld,
   duplicateEntities,
@@ -168,6 +169,17 @@ export function EditorShell(): JSX.Element {
     },
     [zoneId, prefabs, usedEntityIds],
   );
+
+  /**
+   * Whether the prefab the asset browser has highlighted may be planted.
+   *
+   * `true` when nothing is highlighted, so the panel keeps saying "select a
+   * prefab" rather than "this one cannot be scattered" about nothing.
+   */
+  const scatterableSelection = useMemo(() => {
+    const prefab = placingPrefabId === null ? undefined : prefabs?.get(placingPrefabId);
+    return prefab === undefined || canScatter(prefab);
+  }, [placingPrefabId, prefabs]);
 
   const transform = useCallback(
     (changes: readonly TransformChange[]) => {
@@ -498,6 +510,7 @@ export function EditorShell(): JSX.Element {
         <ScatterPanel
           zoneId={zoneId}
           selectedPrefabId={placingPrefabId}
+          selectedPrefabScatterable={scatterableSelection}
           region={scatterRegion}
           onRegion={setScatterRegion}
           cornerPick={cornerPick}

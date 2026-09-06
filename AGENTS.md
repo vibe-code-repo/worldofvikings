@@ -87,6 +87,7 @@ pnpm validate:assets          # manifest against assets/, placeholders and the s
 pnpm validate:assets --write  # re-measure sizes and hashes (never invents provenance)
 pnpm import:world-assets --source <export> --store <store>   # see ADR-0015
 pnpm import:scene-models --scene <bundle> --store <store>    # see ADR-0021
+pnpm import:backdrop --source <export> --store <store>       # see ADR-0031
 pnpm import:scene --scene <bundle> --world <id> --name <n>   # see ADR-0021, ADR-0028
 pnpm scatter --world <id> --zone <id> --region … --prefab … --density … --seed …
                  # one scatter run into a world file (ADR-0025)

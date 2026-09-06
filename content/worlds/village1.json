@@ -8551,6 +8551,181 @@
           "scale": [1.6251, 1.6251, 1.6251]
         },
         {
+          "id": "environment-backdrop-mountains-snow_0001",
+          "prefab": "environment-backdrop-mountains-snow",
+          "position": [159.999, 308.5, 160.001],
+          "rotation": [0, 0, 0],
+          "scale": [2, 3, 2]
+        },
+        {
+          "id": "environment-backdrop-mountains-clear_0001",
+          "prefab": "environment-backdrop-mountains-clear",
+          "position": [159.999, 115.39, 160],
+          "rotation": [0, 3.14159, 0],
+          "scale": [1, 1, 1]
+        },
+        {
+          "id": "environment-sm-prop-cloud-01_0001",
+          "prefab": "environment-sm-prop-cloud-01",
+          "position": [254.3, 61.4, -13.2],
+          "rotation": [0, -0.58405, 0],
+          "scale": [7.8184, 5.9409, 7.8184]
+        },
+        {
+          "id": "environment-sm-prop-cloud-02_0001",
+          "prefab": "environment-sm-prop-cloud-02",
+          "position": [104.5, 67, -29.9],
+          "rotation": [0, 0.47834, 0],
+          "scale": [8.842, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-03_0001",
+          "prefab": "environment-sm-prop-cloud-03",
+          "position": [191.1, 71.1, -43.4],
+          "rotation": [0, 0, 0],
+          "scale": [8.842, 10.0433, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-03_0002",
+          "prefab": "environment-sm-prop-cloud-03",
+          "position": [263, 107.9, 339.1],
+          "rotation": [0, -2.51353, 0],
+          "scale": [3.5719, 4.655, 4.7001]
+        },
+        {
+          "id": "environment-sm-prop-cloud-03_0003",
+          "prefab": "environment-sm-prop-cloud-03",
+          "position": [360.7, 79.1, 55.5],
+          "rotation": [0, -0.95232, 0],
+          "scale": [3.5719, 4.655, 4.7001]
+        },
+        {
+          "id": "environment-sm-prop-cloud-01_0002",
+          "prefab": "environment-sm-prop-cloud-01",
+          "position": [37, 51.7, 318.5],
+          "rotation": [0, 2.46232, 0],
+          "scale": [-8.842, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-02_0002",
+          "prefab": "environment-sm-prop-cloud-02",
+          "position": [143.4, 107.5, 380.4],
+          "rotation": [0, 3.04446, 0],
+          "scale": [-8.842, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-03_0004",
+          "prefab": "environment-sm-prop-cloud-03",
+          "position": [199.7, 108.5, 369.4],
+          "rotation": [0, -2.7965, 0],
+          "scale": [-8.842, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-01_0003",
+          "prefab": "environment-sm-prop-cloud-01",
+          "position": [117.6, 117.6, -43.1],
+          "rotation": [0, 0.11125, 0],
+          "scale": [8.842, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-02_0003",
+          "prefab": "environment-sm-prop-cloud-02",
+          "position": [20, 118.1, 16.2],
+          "rotation": [0, 0.97012, 0],
+          "scale": [8.842, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-03_0005",
+          "prefab": "environment-sm-prop-cloud-03",
+          "position": [63.5, 118.8, -24],
+          "rotation": [0, 0.59654, 0],
+          "scale": [8.842, 8.0641, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-03_0006",
+          "prefab": "environment-sm-prop-cloud-03",
+          "position": [-21, 80.6, 90.1],
+          "rotation": [0, 1.21764, 0],
+          "scale": [-8.842, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-02_0004",
+          "prefab": "environment-sm-prop-cloud-02",
+          "position": [-32.4, 76.5, 184.6],
+          "rotation": [0, 1.61699, 0],
+          "scale": [-7.4473, 5.6589, 7.4474]
+        },
+        {
+          "id": "environment-sm-prop-cloud-01_0004",
+          "prefab": "environment-sm-prop-cloud-01",
+          "position": [62.2, 66.1, -3.9],
+          "rotation": [0, 0.75481, 0],
+          "scale": [-8.842, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-01_0005",
+          "prefab": "environment-sm-prop-cloud-01",
+          "position": [0.3, 82.8, 272.6],
+          "rotation": [0, 1.97087, 0],
+          "scale": [7.22, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-02_0005",
+          "prefab": "environment-sm-prop-cloud-02",
+          "position": [119.9, 65.3, 354],
+          "rotation": [0, 3.03326, 0],
+          "scale": [8.842, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-03_0007",
+          "prefab": "environment-sm-prop-cloud-03",
+          "position": [40.1, 83.4, 317.4],
+          "rotation": [0, 2.55492, 0],
+          "scale": [8.842, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-03_0008",
+          "prefab": "environment-sm-prop-cloud-03",
+          "position": [284.4, 69.9, 311.6],
+          "rotation": [0, -2.57695, 0],
+          "scale": [8.842, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-02_0006",
+          "prefab": "environment-sm-prop-cloud-02",
+          "position": [325.7, 68.3, 270.4],
+          "rotation": [0, -2.09861, 0],
+          "scale": [8.842, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-01_0006",
+          "prefab": "environment-sm-prop-cloud-01",
+          "position": [190.4, 56.2, 336.5],
+          "rotation": [0, 3.1222, 0],
+          "scale": [8.842, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-01_0007",
+          "prefab": "environment-sm-prop-cloud-01",
+          "position": [338.6, 79.1, 201.4],
+          "rotation": [0, -1.89815, 0],
+          "scale": [8.842, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-02_0007",
+          "prefab": "environment-sm-prop-cloud-02",
+          "position": [323.4, 96.8, 75.8],
+          "rotation": [0, -0.83577, 0],
+          "scale": [8.842, 6.7187, 8.842]
+        },
+        {
+          "id": "environment-sm-prop-cloud-03_0009",
+          "prefab": "environment-sm-prop-cloud-03",
+          "position": [351.7, 97.6, 132.8],
+          "rotation": [0, -1.3141, 0],
+          "scale": [8.842, 6.7187, 8.842]
+        },
+        {
           "id": "vegetation-grass-short-clump-1_s7_0001",
           "prefab": "vegetation-grass-short-clump-1",
           "position": [119.135, 10.537, 106.939],
@@ -38696,167 +38871,6 @@
           "position": [71.9, 6.38, 147.81],
           "rotation": [0, 0, 0],
           "scale": [0.7525, 0.7525, 0.7525]
-        },
-        {
-          "id": "environment-sm-prop-cloud-01_0001",
-          "prefab": "environment-sm-prop-cloud-01",
-          "position": [254.3, 61.4, -13.2],
-          "rotation": [0, -0.58405, 0],
-          "scale": [7.8184, 5.9409, 7.8184]
-        },
-        {
-          "id": "environment-sm-prop-cloud-02_0001",
-          "prefab": "environment-sm-prop-cloud-02",
-          "position": [104.5, 67, -29.9],
-          "rotation": [0, 0.47834, 0],
-          "scale": [8.842, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-03_0001",
-          "prefab": "environment-sm-prop-cloud-03",
-          "position": [191.1, 71.1, -43.4],
-          "rotation": [0, 0, 0],
-          "scale": [8.842, 10.0433, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-03_0002",
-          "prefab": "environment-sm-prop-cloud-03",
-          "position": [263, 107.9, 339.1],
-          "rotation": [0, -2.51353, 0],
-          "scale": [3.5719, 4.655, 4.7001]
-        },
-        {
-          "id": "environment-sm-prop-cloud-03_0003",
-          "prefab": "environment-sm-prop-cloud-03",
-          "position": [360.7, 79.1, 55.5],
-          "rotation": [0, -0.95232, 0],
-          "scale": [3.5719, 4.655, 4.7001]
-        },
-        {
-          "id": "environment-sm-prop-cloud-01_0002",
-          "prefab": "environment-sm-prop-cloud-01",
-          "position": [37, 51.7, 318.5],
-          "rotation": [0, 2.46232, 0],
-          "scale": [-8.842, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-02_0002",
-          "prefab": "environment-sm-prop-cloud-02",
-          "position": [143.4, 107.5, 380.4],
-          "rotation": [0, 3.04446, 0],
-          "scale": [-8.842, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-03_0004",
-          "prefab": "environment-sm-prop-cloud-03",
-          "position": [199.7, 108.5, 369.4],
-          "rotation": [0, -2.7965, 0],
-          "scale": [-8.842, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-01_0003",
-          "prefab": "environment-sm-prop-cloud-01",
-          "position": [117.6, 117.6, -43.1],
-          "rotation": [0, 0.11125, 0],
-          "scale": [8.842, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-02_0003",
-          "prefab": "environment-sm-prop-cloud-02",
-          "position": [20, 118.1, 16.2],
-          "rotation": [0, 0.97012, 0],
-          "scale": [8.842, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-03_0005",
-          "prefab": "environment-sm-prop-cloud-03",
-          "position": [63.5, 118.8, -24],
-          "rotation": [0, 0.59654, 0],
-          "scale": [8.842, 8.0641, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-03_0006",
-          "prefab": "environment-sm-prop-cloud-03",
-          "position": [-21, 80.6, 90.1],
-          "rotation": [0, 1.21764, 0],
-          "scale": [-8.842, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-02_0004",
-          "prefab": "environment-sm-prop-cloud-02",
-          "position": [-32.4, 76.5, 184.6],
-          "rotation": [0, 1.61699, 0],
-          "scale": [-7.4473, 5.6589, 7.4474]
-        },
-        {
-          "id": "environment-sm-prop-cloud-01_0004",
-          "prefab": "environment-sm-prop-cloud-01",
-          "position": [62.2, 66.1, -3.9],
-          "rotation": [0, 0.75481, 0],
-          "scale": [-8.842, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-01_0005",
-          "prefab": "environment-sm-prop-cloud-01",
-          "position": [0.3, 82.8, 272.6],
-          "rotation": [0, 1.97087, 0],
-          "scale": [7.22, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-02_0005",
-          "prefab": "environment-sm-prop-cloud-02",
-          "position": [119.9, 65.3, 354],
-          "rotation": [0, 3.03326, 0],
-          "scale": [8.842, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-03_0007",
-          "prefab": "environment-sm-prop-cloud-03",
-          "position": [40.1, 83.4, 317.4],
-          "rotation": [0, 2.55492, 0],
-          "scale": [8.842, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-03_0008",
-          "prefab": "environment-sm-prop-cloud-03",
-          "position": [284.4, 69.9, 311.6],
-          "rotation": [0, -2.57695, 0],
-          "scale": [8.842, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-02_0006",
-          "prefab": "environment-sm-prop-cloud-02",
-          "position": [325.7, 68.3, 270.4],
-          "rotation": [0, -2.09861, 0],
-          "scale": [8.842, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-01_0006",
-          "prefab": "environment-sm-prop-cloud-01",
-          "position": [190.4, 56.2, 336.5],
-          "rotation": [0, 3.1222, 0],
-          "scale": [8.842, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-01_0007",
-          "prefab": "environment-sm-prop-cloud-01",
-          "position": [338.6, 79.1, 201.4],
-          "rotation": [0, -1.89815, 0],
-          "scale": [8.842, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-02_0007",
-          "prefab": "environment-sm-prop-cloud-02",
-          "position": [323.4, 96.8, 75.8],
-          "rotation": [0, -0.83577, 0],
-          "scale": [8.842, 6.7187, 8.842]
-        },
-        {
-          "id": "environment-sm-prop-cloud-03_0009",
-          "prefab": "environment-sm-prop-cloud-03",
-          "position": [351.7, 97.6, 132.8],
-          "rotation": [0, -1.3141, 0],
-          "scale": [8.842, 6.7187, 8.842]
         },
         {
           "id": "environment-start-position_0001",

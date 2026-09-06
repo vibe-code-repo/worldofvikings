@@ -24,9 +24,28 @@
  * exists at all is that a reviewer must be able to reproduce a run without
  * opening a browser.
  */
-import type { EntityDefinition, Vector3 } from '@wov/world-schema';
+import { isBackdrop } from '@wov/world-schema';
+import type { EntityDefinition, PrefabCategory, Vector3 } from '@wov/world-schema';
 import { addEntities, type AddEntitiesCommand, type CommandResult } from './commands.js';
 import { createRandom } from './random.js';
+
+/**
+ * Whether a scatter run may plant this prefab.
+ *
+ * One refusal, and it is not a matter of taste: a backdrop is a painted shell
+ * of the horizon 290 m past the last metre of ground. Scattering it means
+ * planting a mountain range fifty times inside the village, and the result of a
+ * scatter is *persisted* (ADR-0025) — so the mistake is not one bad frame, it is
+ * fifty entities in `content/worlds/village1.json` that someone has to find and
+ * delete one by one.
+ *
+ * Asked here rather than in the panel that offers the button and the script that
+ * takes a command line, because those two must not be able to answer it
+ * differently.
+ */
+export function canScatter(prefab: { readonly category: PrefabCategory }): boolean {
+  return !isBackdrop(prefab);
+}
 
 /** A point on the ground: `[x, z]` in metres. */
 export type Point2 = readonly [number, number];

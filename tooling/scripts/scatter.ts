@@ -38,6 +38,7 @@ import { join } from 'node:path';
 import { format, resolveConfig } from 'prettier';
 import {
   applyCommand,
+  canScatter,
   createDocument,
   planScatter,
   scatterCommand,
@@ -168,15 +169,23 @@ for (const fileName of ['base.json', 'imported.json']) {
  * folder the catalogue already knows.
  */
 function resolvePrefab(name: string): string {
-  if (catalogue.has(name)) {
-    return name;
+  const found =
+    (catalogue.has(name) ? name : undefined) ??
+    ['vegetation-', 'environment-']
+      .map((prefix) => `${prefix}${name}`)
+      .find((candidate) => catalogue.has(candidate));
+  if (found === undefined) {
+    return fail(`no prefab "${name}" in content/prefabs/`);
   }
-  for (const prefix of ['vegetation-', 'environment-']) {
-    if (catalogue.has(`${prefix}${name}`)) {
-      return `${prefix}${name}`;
-    }
+  // The same refusal the editor's panel makes, from the same function: a
+  // scatter writes its result into the world file, so planting a painted
+  // horizon fifty times is fifty entities to delete by hand afterwards
+  // (`canScatter` in `@wov/editor-core`, ADR-0031).
+  const prefab = catalogue.get(found);
+  if (prefab !== undefined && !canScatter(prefab)) {
+    return fail(`prefab "${found}" is painted distance (category backdrop) and is not scattered`);
   }
-  return fail(`no prefab "${name}" in content/prefabs/`);
+  return found;
 }
 
 const prefabs: WeightedPrefab[] = required('prefab')

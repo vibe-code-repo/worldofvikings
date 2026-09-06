@@ -9,6 +9,8 @@ import {
   buildImportedCatalog,
   colliderPathFor,
   isColliderAsset,
+  prefabCategoryFromAssetPath,
+  prefabCollisionFor,
   prefabIdFromAssetPath,
   prefabNameFromAssetPath,
   repoRoot,
@@ -270,5 +272,45 @@ describe('content/prefabs/imported.json', () => {
       const crownWidth = tree.hull.max[0] - tree.hull.min[0];
       expect(trunkWidth, tree.id).toBeLessThan(crownWidth / 3);
     }
+  });
+});
+
+describe('the backdrop category', () => {
+  it("files this project's own backdrop models under it", () => {
+    expect(prefabCategoryFromAssetPath('environment/backdrop-mountains-snow.glb')).toBe('backdrop');
+    expect(prefabCategoryFromAssetPath('environment/backdrop-sky-dome.glb')).toBe('backdrop');
+  });
+
+  it('files a cloud under it too, prop marker and all', () => {
+    // A cloud is named `sm-prop-` and is not a prop: nobody picks one up and it
+    // hangs a hundred metres up. Renaming the file would change its prefab id,
+    // which 23 entities in the village point at, so the rule reads the name.
+    expect(prefabCategoryFromAssetPath('environment/sm-prop-cloud-01.glb')).toBe('backdrop');
+  });
+
+  it('leaves every other environment file where it was', () => {
+    expect(prefabCategoryFromAssetPath('environment/sm-prop-barrel-01.glb')).toBe('prop');
+    expect(prefabCategoryFromAssetPath('environment/sm-env-stonewall-01.glb')).toBe('environment');
+    expect(prefabCategoryFromAssetPath('vegetation/pine-1b1.glb')).toBe('vegetation');
+  });
+
+  it('gives a backdrop no collision shape', () => {
+    const entry = {
+      id: 'environment/backdrop-mountains-snow',
+      path: 'environment/backdrop-mountains-snow.glb',
+      kind: 'mesh',
+      bytes: 20_000,
+      hash: 'sha256-x',
+      origin: 'test',
+      source: 'test',
+      author: 'test',
+      license: 'NOASSERTION',
+      redistributable: false,
+      visibility: 'private',
+      placeholder: 'placeholders/environment/backdrop-mountains-snow.glb',
+    } as const;
+    // Nothing can reach a 1 188 m shell, and a hull box around one contains the
+    // whole world.
+    expect(prefabCollisionFor(entry, 'backdrop', undefined, undefined)).toEqual({ kind: 'none' });
   });
 });

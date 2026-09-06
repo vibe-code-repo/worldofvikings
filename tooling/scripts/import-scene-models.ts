@@ -67,9 +67,10 @@ import {
   storeTexturePaths,
   textureNodeStem,
 } from '../asset-pipeline/scene-models.js';
-import { repoRoot } from './prefab-catalog.js';
+import { cutSizeLimit, WORLD_OBJECT_SIZE_LIMIT } from '../asset-pipeline/backdrop.js';
+import { prefabCategoryFromAssetPath, repoRoot } from './prefab-catalog.js';
 import { loadPrefabStems } from './prefab-stems.js';
-import { DEFAULT_ZONES, scanScene } from './scene-import.js';
+import { DEFAULT_ZONES, scanScene, withBackdropAliases } from './scene-import.js';
 
 function argument(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
@@ -93,15 +94,6 @@ const storeRoot = required('store');
 const dryRun = process.argv.includes('--dry-run');
 const assetsDir = join(repoRoot, 'assets');
 const manifestFile = join(assetsDir, ASSET_MANIFEST_FILE_NAME);
-
-/**
- * The largest a cut model may plausibly be, in metres.
- *
- * Same reasoning as the export importer's limit: it *excludes and names*, it
- * never rescales. A bundle also contains a sky dome and distance backdrops,
- * which are hundreds of metres across and are not props.
- */
-const SIZE_LIMIT = 80;
 
 /** The one licence statement this import may make: none has been made. */
 const IMPORT_LICENSE = UNDETERMINED_LICENSE;
@@ -195,7 +187,10 @@ process.stdout.write(`store:    ${storeRoot}${dryRun ? '  (dry run, nothing writ
 
 const bundle = readGlb(await readFile(sceneFile));
 assertSupported(bundle.json, bundleName);
-const scan = scanScene(bundle.json, { zones: DEFAULT_ZONES, prefabsByStem });
+const scan = scanScene(bundle.json, {
+  zones: DEFAULT_ZONES,
+  prefabsByStem: withBackdropAliases(prefabsByStem),
+});
 const plan = planModels(bundle.json, scan.misses);
 
 process.stdout.write(
@@ -311,11 +306,19 @@ for (const group of plan) {
     excluded.push(`${path} — no geometry`);
     continue;
   }
+  // The limit *excludes and names*, it never rescales — a "barrel" 300 m across
+  // is a name that does not mean what it says. Which limit applies is the
+  // backdrop rule: a name this pipeline knows as a backdrop, or a prefab the
+  // catalogue files under `backdrop`, is measured against 4 km; everything else
+  // keeps the 80 m it always had (`asset-pipeline/backdrop.ts`).
+  const limit = cutSizeLimit(group.stem, prefabCategoryFromAssetPath(path) ?? undefined);
   const extent = largestExtent(measured);
-  if (extent > SIZE_LIMIT) {
+  if (extent > limit) {
     excluded.push(
-      `${path} — ${extent.toFixed(1)} m across, over the ${String(SIZE_LIMIT)} m limit; ` +
-        'a backdrop or a sky dome rather than a world object',
+      `${path} — ${extent.toFixed(1)} m across, over the ${String(limit)} m limit; ` +
+        (limit === WORLD_OBJECT_SIZE_LIMIT
+          ? 'a backdrop or a sky dome rather than a world object'
+          : 'too large even for a backdrop — check the units of the source file'),
     );
     continue;
   }

@@ -116,6 +116,54 @@ export interface WovDebugBridge {
    * cost that nobody can read is a claim nobody can check.
    */
   readonly collision: WovCollisionDebug | null;
+
+  /**
+   * What the painted distance is doing, or `null` before the zone is placed
+   * (ADR-0031).
+   *
+   * Every way a backdrop fails is invisible: `applyFog` written on an
+   * `InstancedMesh` instead of on its source is accepted and does nothing, and
+   * a shell drawn under this world's fog is a flat band of fog colour that
+   * reads as a sky. So the three flags are counted on the meshes themselves,
+   * after the fact, rather than assumed from the code that set them.
+   */
+  readonly backdrop: WovBackdropDebug | null;
+}
+
+/**
+ * The three flags this reads off one backdrop mesh.
+ *
+ * Structural, like every other subject of this bridge: a Babylon `AbstractMesh`
+ * satisfies it, and so does the object a test writes by hand.
+ */
+export interface BackdropReadout {
+  readonly applyFog: boolean;
+  readonly isPickable: boolean;
+  readonly receiveShadows: boolean;
+  readonly name: string;
+  readonly isEnabled: () => boolean;
+  readonly isVisible: boolean;
+}
+
+/** What the backdrop meshes report about themselves, counted on the meshes. */
+export interface WovBackdropDebug {
+  /** Meshes of every entity whose prefab is `backdrop`. */
+  meshes: number;
+  /** How many of them still have fog applied. Must be zero. */
+  fogged: number;
+  /** How many of them are still pickable. Must be zero. */
+  pickable: number;
+  /** How many of them still receive shadow. Must be zero. */
+  receivingShadow: number;
+  /**
+   * How many of them the camera actually drew last frame.
+   *
+   * The number that separates "the models loaded" from "the horizon is on
+   * screen". A shell can be in the scene, unfogged and unlit, and still be
+   * culled, disabled or facing away — and every one of those looks exactly like
+   * an empty sky.
+   */
+  drawn: number;
 }
 
 /** What building the zone's collision cost, as plain numbers a test can read. */
@@ -226,6 +274,7 @@ export function installDevDebugBridge(
 ): {
   reportTerrainBounds(bounds: WovTerrainBounds): void;
   reportCollision(report: WovCollisionDebug): void;
+  reportBackdrop(meshes: readonly BackdropReadout[]): void;
 } {
   const camera = subjects.camera;
   const player = subjects.player;
@@ -262,6 +311,7 @@ export function installDevDebugBridge(
     render: WovRenderDebug;
     lighting: WovLightingDebug | null;
     collision: WovCollisionDebug | null;
+    backdrop: WovBackdropDebug | null;
   } = {
     backend: renderer.backend,
     frameId: -1,
@@ -279,6 +329,7 @@ export function installDevDebugBridge(
     },
     lighting: lightingDebug,
     collision: null,
+    backdrop: null,
   };
   window.__wov = bridge;
 
@@ -291,11 +342,17 @@ export function installDevDebugBridge(
 
   // Babylon resets the draw-call counter per frame only while something asks
   // it to; that is all this instrumentation is here for.
+  let backdropMeshes: readonly BackdropReadout[] = [];
+
   const instrumentation = new SceneInstrumentation(renderer.scene);
   instrumentation.captureFrameTime = true;
 
   renderer.onFrame((frame) => {
     bridge.frameId = frame.index;
+    if (bridge.backdrop !== null) {
+      const active = new Set(renderer.scene.getActiveMeshes().data.map((mesh) => mesh?.name));
+      bridge.backdrop.drawn = backdropMeshes.filter((mesh) => active.has(mesh.name)).length;
+    }
     bridge.render.frameTimeMs = instrumentation.frameTimeCounter.average;
     bridge.render.frames = instrumentation.frameTimeCounter.count;
     bridge.render.drawCalls = instrumentation.drawCallsCounter.current;
@@ -341,6 +398,19 @@ export function installDevDebugBridge(
     },
     reportCollision(report) {
       bridge.collision = report;
+    },
+    reportBackdrop(meshes) {
+      backdropMeshes = meshes;
+      // Read off the meshes rather than off the intention: this is the one
+      // number that distinguishes "we set applyFog" from "the material's
+      // defines were rebuilt without fog".
+      bridge.backdrop = {
+        meshes: meshes.length,
+        fogged: meshes.filter((mesh) => mesh.applyFog).length,
+        pickable: meshes.filter((mesh) => mesh.isPickable).length,
+        receivingShadow: meshes.filter((mesh) => mesh.receiveShadows).length,
+        drawn: 0,
+      };
     },
   };
 }

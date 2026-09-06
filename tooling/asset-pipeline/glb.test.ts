@@ -313,6 +313,29 @@ describe('ensureNormals', () => {
     expect(ensureNormals(glb, 'has-normals.glb')).toBe(glb);
   });
 
+  it('never smooths facet normals — a flat-shaded rock keeps its hard edges', () => {
+    // The reason this is worth its own test: the cliff models are 82–91 % flat
+    // shaded (every vertex normal within 2.6° of its triangle's face normal),
+    // and those hard facets *are* the look. An importer that recomputed normals
+    // would average them into a smooth blob, and nothing in the pipeline would
+    // report it. Measured on the four cliff models, export file against store
+    // file: 82.0 / 86.3 / 87.4 / 90.5 % — the same on both sides to the digit,
+    // because this function only ever *adds* a missing NORMAL (ADR-0031).
+    const glb = flatTriangle();
+    const primitive = glb.json.meshes?.[0]?.primitives[0];
+    if (primitive) {
+      primitive.attributes['NORMAL'] = 0;
+    }
+    const accessors = JSON.stringify(glb.json.accessors);
+    const bin = Buffer.from(glb.bin);
+
+    const result = ensureNormals(glb, 'flat-shaded.glb');
+
+    expect(result.json.meshes?.[0]?.primitives[0]?.attributes['NORMAL']).toBe(0);
+    expect(JSON.stringify(result.json.accessors)).toBe(accessors);
+    expect(result.bin.equals(bin)).toBe(true);
+  });
+
   it('counts what is missing, so the import can report it', () => {
     expect(countMissingNormals(flatTriangle().json)).toBe(1);
     expect(countMissingNormals(ensureNormals(flatTriangle(), 'x').json)).toBe(0);

@@ -34,6 +34,9 @@ const CATEGORY_ORDER: readonly PrefabCategory[] = [
   'terrain',
   'prop',
   'dungeon',
+  // Last, because it is the group an author reaches for least often: a world
+  // has two mountain shells and never gains a third.
+  'backdrop',
 ];
 
 export function createPrefabIndex(prefabs: readonly CatalogedPrefab[]): PrefabIndex {

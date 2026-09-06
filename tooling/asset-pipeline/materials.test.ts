@@ -87,17 +87,45 @@ describe('MATERIAL_ROWS', () => {
     expect(missing).toEqual([]);
   });
 
-  it('lists nothing beyond the export and the two spellings kept on purpose', () => {
+  it("lists nothing beyond the export, the two kept spellings and this project's own", () => {
     // Two spellings are listed that the current export does not reach — a maple
     // leaf card and a short plant leaf card without their instance number —
-    // because a re-export can drop the number at any time.
+    // because a re-export can drop the number at any time. The three backdrop
+    // rows are not source materials at all: `pnpm import:backdrop` writes those
+    // names itself (ADR-0031), which is why they can be spelled out in the
+    // table while every source name is a digest.
     const extra = Object.keys(MATERIAL_ROWS).filter(
       (key) => !(KEYS_IN_THE_EXPORT as readonly string[]).includes(key),
     );
     expect(extra.map((key) => MATERIAL_ROWS[key]?.note).sort()).toEqual([
       'maple leaf card',
+      'painted mountain panorama, snow variant',
+      'painted mountain panorama, snowless variant',
       'short plant leaf card',
+      'sky dome shell',
     ]);
+  });
+
+  it('names the backdrop rows after the material this project writes, not after a source', () => {
+    for (const [name, note] of [
+      ['backdrop-mountains-snow', 'painted mountain panorama, snow variant'],
+      ['backdrop-mountains-clear', 'painted mountain panorama, snowless variant'],
+      ['backdrop-sky-dome', 'sky dome shell'],
+    ] as const) {
+      expect(MATERIAL_ROWS[materialKey(name)]).toEqual({ kind: 'backdrop', note });
+    }
+  });
+
+  it('cuts a backdrop out and lights it like everything else', () => {
+    // MASK because 13 % of the panorama is alpha 0 — the sky above the peaks is
+    // a hole in the texture. Double-sided because the shells are seen from the
+    // inside. Not emissive, because a self-lit horizon is drawn at emissive plus
+    // lit and comes out about twice as bright as the ground in front of it.
+    expect(SURFACE_BY_KIND.backdrop).toEqual({
+      alphaMode: 'MASK',
+      doubleSided: true,
+      emissive: false,
+    });
   });
 
   it('cuts out and double-sides every leaf, grass, glass, cloud and double-sided material', () => {

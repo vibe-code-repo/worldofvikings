@@ -37,6 +37,12 @@
  *    This is the only vertex data the pipeline writes, and it is additive.
  * 5. **Write** — the normalised GLB into the store, a hull box into
  *    `assets/placeholders/`, and one manifest entry with the provenance.
+ * 6. **Terrain** — after the folders, `terrain-import.ts` adds the playable half
+ *    of the ground: a thinned copy of the village height field with rebuilt
+ *    normals and UVs, and the eight ground textures a world file's `terrain`
+ *    names by hand (ADR-0020). It is a step of this run rather than its own
+ *    command, because the manifest rewrite below drops every private entry this
+ *    script does not produce.
  *
  * **Why textures are separated rather than left embedded.** Ten rock prefabs in
  * this export embed the *same* 4096×4096 texture: 18 MB of duplicate bytes that
@@ -83,11 +89,23 @@ import type { SceneBindings } from './scene-bindings.js';
 import {
   SCENE_BUNDLE_FOLDER,
   SOURCE_FOLDERS,
+  TERRAIN_SET,
   isSelection,
   originShiftFor,
   select,
 } from './selection.js';
 import type { Selection } from './selection.js';
+import {
+  HEIGHT_FIELDS,
+  HEIGHT_FIELD_FOLDER,
+  TERRAIN_TEXTURES,
+  TEXTURE_FOLDER,
+  decimateHeightField,
+  fitTerrainTexture,
+  heightFieldOrigin,
+  terrainTextureOrigin,
+  terrainTexturePath,
+} from './terrain-import.js';
 
 const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const assetsDir = join(repoRoot, 'assets');
@@ -547,6 +565,93 @@ for (const { folder } of SOURCE_FOLDERS) {
   }
   process.stdout.write(`  ${folder}: ${String(taken)} selected of ${String(files.length)} files\n`);
 }
+
+// ------------------------------------------------------------------ terrain
+
+/**
+ * The ground: one thinned tile per entry in `HEIGHT_FIELDS`, plus the ground
+ * textures a world file names by hand (ADR-0020).
+ *
+ * Runs after the folder loop and reports separately, because both halves are
+ * chosen by name rather than by the size and family rules above.
+ */
+let terrainFiles = 0;
+for (const heightField of HEIGHT_FIELDS) {
+  const sourceFile = join(sourceRoot, HEIGHT_FIELD_FOLDER, heightField.file);
+  let source: Buffer;
+  try {
+    source = await readFile(sourceFile);
+  } catch {
+    process.stdout.write(`  terrain: ${heightField.file} is not in this export, skipped\n`);
+    continue;
+  }
+
+  const decimated = decimateHeightField(source, heightField.file, heightField.factor);
+  await write(join(storeRoot, heightField.path), decimated.bytes);
+
+  const placeholderPath = placeholderPathFor(heightField.path);
+  const name =
+    heightField.path
+      .split('/')
+      .pop()
+      ?.replace(/\.glb$/, '') ?? heightField.path;
+  await write(join(assetsDir, placeholderPath), buildPlaceholderGlb(name, decimated.bounds));
+
+  entries.push({
+    id: heightField.path.replace(/\.glb$/, ''),
+    path: heightField.path,
+    kind: 'terrain',
+    bytes: decimated.bytes.byteLength,
+    hash: sha256(decimated.bytes),
+    bounds: decimated.bounds,
+    origin: heightFieldOrigin(decimated),
+    source: TERRAIN_SET.source,
+    author: TERRAIN_SET.author,
+    license: IMPORT_LICENSE,
+    redistributable: false,
+    visibility: 'private',
+    placeholder: placeholderPath,
+  });
+  terrainFiles += 1;
+  process.stdout.write(
+    `  terrain: ${heightField.path} — ${String(decimated.columns)}x${String(decimated.rows)} ` +
+      `vertices, ${String(decimated.triangles)} triangles, ` +
+      `${decimated.size[0].toFixed(1)} x ${decimated.size[1].toFixed(1)} m, ` +
+      `y ${decimated.bounds.min[1].toFixed(2)}…${decimated.bounds.max[1].toFixed(2)}, ` +
+      `${(decimated.bytes.byteLength / 1024 / 1024).toFixed(1)} MB\n`,
+  );
+}
+
+for (const texture of TERRAIN_TEXTURES) {
+  const sourceFile = join(sourceRoot, TEXTURE_FOLDER, texture.file);
+  let raw: Buffer;
+  try {
+    raw = await readFile(sourceFile);
+  } catch {
+    process.stdout.write(`  terrain: ${texture.file} is not in this export, skipped\n`);
+    continue;
+  }
+
+  const bytes = fitTerrainTexture(raw, texture.file, texture.isSplatMap ?? false);
+  const path = terrainTexturePath(texture);
+  await write(join(storeRoot, path), bytes);
+  entries.push({
+    id: path.replace(/\.png$/, ''),
+    path,
+    kind: 'texture',
+    bytes: bytes.byteLength,
+    hash: sha256(bytes),
+    origin: terrainTextureOrigin(texture),
+    source: texture.provenance.source,
+    author: texture.provenance.author,
+    license: IMPORT_LICENSE,
+    redistributable: false,
+    visibility: 'private',
+    placeholder: TEXTURE_PLACEHOLDER,
+  });
+  terrainFiles += 1;
+}
+process.stdout.write(`  terrain: ${String(terrainFiles)} file(s) for the ground\n`);
 
 // The shared texture stand-in, written once whether or not a texture needed it,
 // so `validate:assets` never reports a placeholder that is merely not reached.

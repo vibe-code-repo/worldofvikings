@@ -10,8 +10,10 @@ World files (`content/worlds/*.json`):
 
 - `CURRENT_WORLD_SCHEMA_VERSION` — the format version this build understands.
 - `WorldDefinitionSchema`, `ZoneDefinitionSchema`, `EntityDefinitionSchema` — Zod schemas.
-- `parseWorldDefinition(data): WorldParseResult` — validates unknown data and returns either the world or human-readable errors.
-- Types: `WorldDefinition`, `ZoneDefinition`, `EntityDefinition`, `WorldParseResult`.
+- `parseWorldDefinition(data): WorldParseResult` — validates unknown data, migrating a known older version forward first; returns either the world (with `migratedFrom` when a migration ran) or human-readable errors.
+- `TerrainDefinitionSchema`, `TerrainLayerSchema`, `terrainAssetPaths(terrain)`, `MAX_TERRAIN_LAYERS`, `LAYERS_PER_SPLAT_MAP` — a zone's ground (ADR-0020).
+- `migrateWorldData(data, target)`, `WORLD_MIGRATIONS` — the recorded upgrade steps between versions.
+- Types: `WorldDefinition`, `ZoneDefinition`, `EntityDefinition`, `WorldParseResult`, `TerrainDefinition`, `TerrainLayer`, `WorldMigration`, `WorldMigrationResult`.
 
 Prefab catalogs (`content/prefabs/*.json`, ADR-0016):
 
@@ -20,7 +22,7 @@ Prefab catalogs (`content/prefabs/*.json`, ADR-0016):
 - `parsePrefabCatalog(data): PrefabCatalogParseResult`.
 - Types: `PrefabCatalog`, `PrefabDefinition`, `PrefabCategory`, `PrefabVisibility`, `PrefabBounds`, `PrefabCatalogParseResult`.
 
-Shared: `IdentifierSchema`, `Vector3Schema`, types `Identifier`, `Vector3`.
+Shared: `IdentifierSchema`, `Vector3Schema`, `AssetPathSchema`, types `Identifier`, `Vector3`.
 
 **Dependencies.** `zod` only — chosen because schema and TypeScript type come
 from one declaration (ADR-0004). This package must never depend on Babylon.js,

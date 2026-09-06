@@ -20,12 +20,73 @@ describe('parseWorldDefinition', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('rejects an unsupported schema version with a dedicated message', () => {
+  it('rejects a newer schema version with a dedicated message', () => {
     const result = parseWorldDefinition({ ...validWorld, schemaVersion: 99 });
     expect(result).toEqual({
       ok: false,
-      errors: ['unsupported schemaVersion 99, expected 1'],
+      errors: [
+        'world file is schemaVersion 99, but this build understands 2 — ' +
+          'update the project instead of downgrading the file',
+      ],
     });
+  });
+
+  it('rejects an older version that has no recorded migration', () => {
+    const result = parseWorldDefinition({ ...validWorld, schemaVersion: 0 });
+    expect(result).toEqual({ ok: false, errors: ['unsupported schemaVersion 0, expected 2'] });
+  });
+
+  it('reads a version 1 file and says which version it came from', () => {
+    const result = parseWorldDefinition({ ...validWorld, schemaVersion: 1 });
+    expect(result.ok && result.migratedFrom).toBe(1);
+    expect(result.ok && result.world.schemaVersion).toBe(CURRENT_WORLD_SCHEMA_VERSION);
+  });
+
+  it('does not report a migration for a file that is already current', () => {
+    const result = parseWorldDefinition(validWorld);
+    expect(result.ok && result.migratedFrom).toBeUndefined();
+  });
+
+  it('accepts a zone with terrain, and one without', () => {
+    const withTerrain = parseWorldDefinition({
+      ...validWorld,
+      zones: [
+        {
+          ...validWorld.zones[0],
+          terrain: {
+            heightField: 'terrain/village-257.glb',
+            position: [0, 0, 0],
+            size: [300, 300],
+            layers: [{ texture: 'textures/terrain-grass-a.png', tileSize: 2 }],
+            splat: ['textures/village-splat-a.png'],
+          },
+        },
+      ],
+    });
+    expect(withTerrain.ok).toBe(true);
+    expect(parseWorldDefinition(validWorld).ok).toBe(true);
+  });
+
+  it('rejects a terrain whose layers outnumber its splat channels', () => {
+    const result = parseWorldDefinition({
+      ...validWorld,
+      zones: [
+        {
+          ...validWorld.zones[0],
+          terrain: {
+            heightField: 'terrain/village-257.glb',
+            position: [0, 0, 0],
+            size: [300, 300],
+            layers: Array.from({ length: 5 }, () => ({
+              texture: 'textures/terrain-grass-a.png',
+              tileSize: 2,
+            })),
+            splat: ['textures/village-splat-a.png'],
+          },
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
   });
 
   it('rejects unknown fields instead of dropping them', () => {

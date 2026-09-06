@@ -54,6 +54,26 @@ export interface WovDebugBridge {
    * gameplay state would pass even with the renderer disconnected.
    */
   readonly player: WovPlayerDebug | null;
+  /**
+   * Height of the collision ground at a point, or `null` where there is none.
+   *
+   * The same `raycastGround` the movement system's ground query uses, only from
+   * high above instead of from the capsule's head — which is what lets a test
+   * check the ground somewhere the player is not standing. It answers `null`
+   * until the physics world is up.
+   */
+  groundAt(x: number, z: number): number | null;
+  /**
+   * The world-space hull of the terrain tile, or `null` before it is loaded.
+   *
+   * Measured off the scene rather than restated from the world file: "the tile
+   * covers the metres it says" is the one claim a handedness flip breaks, and a
+   * number copied out of the description would agree with itself forever.
+   */
+  readonly terrainBounds: {
+    min: [number, number, number];
+    max: [number, number, number];
+  } | null;
 }
 
 declare global {
@@ -67,6 +87,14 @@ declare global {
 export interface DevDebugSubjects {
   readonly camera?: ThirdPersonCameraHandle;
   readonly player?: PlaceholderTarget;
+  /** Answers `groundAt`; the app owns it because the app owns the physics world. */
+  readonly groundAt?: (x: number, z: number) => number | null;
+}
+
+/** The hull the bridge reports for the terrain tile. */
+export interface WovTerrainBounds {
+  min: [number, number, number];
+  max: [number, number, number];
 }
 
 /** Shown until the first frame lands, so `frame <digits>` never lies. */
@@ -83,7 +111,7 @@ export function installDevDebugBridge(
   renderer: RendererHandle,
   marker: HTMLElement | null,
   subjects: DevDebugSubjects = {},
-): void {
+): { reportTerrainBounds(bounds: WovTerrainBounds): void } {
   const camera = subjects.camera;
   const player = subjects.player;
   // One object, mutated per frame rather than rebuilt: the bridge is dev-only
@@ -92,16 +120,21 @@ export function installDevDebugBridge(
     ? { yaw: 0, pitch: 0, distance: 0, desiredDistance: 0, x: 0, y: 0, z: 0 }
     : null;
   const playerDebug: WovPlayerDebug | null = player ? { x: 0, y: 0, z: 0 } : null;
+  const groundAt = subjects.groundAt ?? ((): null => null);
   const bridge: {
     backend: RendererBackend;
     frameId: number;
     camera: WovCameraDebug | null;
     player: WovPlayerDebug | null;
+    groundAt: (x: number, z: number) => number | null;
+    terrainBounds: WovTerrainBounds | null;
   } = {
     backend: renderer.backend,
     frameId: -1,
     camera: cameraDebug,
     player: playerDebug,
+    groundAt,
+    terrainBounds: null,
   };
   window.__wov = bridge;
 
@@ -134,4 +167,10 @@ export function installDevDebugBridge(
     // changes every frame, so caching it would never hit (spec §38).
     frameElement.textContent = `frame ${frame.index}`;
   });
+
+  return {
+    reportTerrainBounds(bounds) {
+      bridge.terrainBounds = bounds;
+    },
+  };
 }

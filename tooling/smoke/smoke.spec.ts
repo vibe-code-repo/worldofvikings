@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { CURRENT_WORLD_SCHEMA_VERSION } from '@wov/world-schema';
 
 /** Where the camera stands, as the game's dev bridge reports it. */
 interface CameraDebug {
@@ -30,6 +31,11 @@ type WovDebugWindow = Window & {
     readonly frameId: number;
     readonly camera: CameraDebug | null;
     readonly player: PlayerDebug | null;
+    readonly terrainBounds: {
+      readonly min: readonly [number, number, number];
+      readonly max: readonly [number, number, number];
+    } | null;
+    groundAt(x: number, z: number): number | null;
   };
 };
 
@@ -63,6 +69,11 @@ type WovEditorDebugWindow = Window & {
  */
 function apiUrl(path: string): string {
   return `${String(test.info().config.metadata['apiUrl'])}${path}`;
+}
+
+/** Where the app under test is, as `playwright.config.ts` decided. */
+function appUrl(app: 'websiteUrl' | 'gameUrl' | 'assetUrl'): string {
+  return String(test.info().config.metadata[app]);
 }
 
 /** The editor's whole debug bridge, or `null` while it is not installed. */
@@ -134,9 +145,13 @@ async function livePlayer(page: Page): Promise<PlayerDebug> {
 }
 
 test('website shows its marker and links to the game', async ({ page }) => {
-  await page.goto('http://localhost:5172');
+  await page.goto(appUrl('websiteUrl'));
   await expect(page.getByTestId('site-marker')).toHaveText('World of Vikings');
-  await expect(page.getByTestId('play-link')).toHaveAttribute('href', /5173|live\./);
+  // Either the game this run started, or the published client on a deployment.
+  await expect(page.getByTestId('play-link')).toHaveAttribute(
+    'href',
+    new RegExp(`${appUrl('gameUrl').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|live\\.`),
+  );
 });
 
 /**
@@ -155,7 +170,7 @@ const RENDERER_STATUS = /^(renderer|viewport) (ready — (webgl2|webgpu)|unavail
 const GAME_STATUS = /^renderer (ready — (webgl2|webgpu)|unavailable: .+)/;
 
 test('game shows its dev build marker', async ({ page }) => {
-  await page.goto('http://localhost:5173');
+  await page.goto(appUrl('gameUrl'));
   await expect(page.getByTestId('game-marker')).toContainText('World of Vikings');
   await expect(page.getByTestId('game-marker')).toContainText('game dev build');
   await expect(page.getByTestId('game-status')).toHaveText(GAME_STATUS);
@@ -174,7 +189,7 @@ test('game shows its dev build marker', async ({ page }) => {
  * proves the counter reaches the DOM. Both exist only in the dev build.
  */
 test('game keeps rendering frames', async ({ page }) => {
-  await page.goto('http://localhost:5173');
+  await page.goto(appUrl('gameUrl'));
 
   await expect.poll(() => frameId(page), { timeout: 10_000 }).not.toBeNull();
   const before = await frameId(page);
@@ -198,14 +213,36 @@ test('game keeps rendering frames', async ({ page }) => {
  * grants it, or through the held-button fallback if it does not — the camera
  * has to turn under both, which is exactly why the fallback exists.
  */
+/**
+ * Waits until the ground has stopped changing under the player.
+ *
+ * The terrain arrives after the first frames and puts the capsule down on it
+ * (ADR-0020), so a test that samples a position before and after that lands sees
+ * a teleport rather than what it was measuring. Either outcome settles the
+ * question — the tile loaded, or it did not — so both are waited for.
+ */
+async function groundSettled(page: Page): Promise<void> {
+  await expect(page.getByTestId('game-status')).toContainText(/terrain (ready|unavailable|drawn)/, {
+    timeout: 30_000,
+  });
+  // The capsule is put down on the tile and the camera eases after it, so the
+  // frame in which the status changes is the frame the camera is furthest from
+  // where it belongs. Same follow lag the camera-follow test waits out.
+  await page.waitForTimeout(600);
+}
+
 test('game camera frames the placeholder and answers mouse and wheel', async ({ page }) => {
-  await page.goto('http://localhost:5173');
+  await page.goto(appUrl('gameUrl'));
+  await groundSettled(page);
   const opening = await liveCamera(page);
+  const standing = await livePlayer(page);
 
   // Behind the capsule (−z, since it faces +z) and above its feet, at the
-  // configured distance rather than at the origin.
-  expect(opening.z).toBeLessThan(0);
-  expect(opening.y).toBeGreaterThan(1);
+  // configured distance. Relative to the *player*, not to the origin: the
+  // player is put down on the terrain once it loads (ADR-0020), and a camera
+  // pinned to world coordinates would only be testing where the tile is.
+  expect(opening.z).toBeLessThan(standing.z);
+  expect(opening.y).toBeGreaterThan(standing.y + 1);
   expect(opening.distance).toBeGreaterThan(1);
 
   const canvas = page.locator('#render-canvas');
@@ -238,8 +275,9 @@ test('game camera frames the placeholder and answers mouse and wheel', async ({ 
  * state, so a simulation that runs without reaching the picture still fails.
  */
 test('game walks the player capsule when a key is held', async ({ page }) => {
-  await page.goto('http://localhost:5173');
+  await page.goto(appUrl('gameUrl'));
   await expect(page.getByTestId('game-status')).toContainText('renderer ready');
+  await groundSettled(page);
 
   const start = await livePlayer(page);
 
@@ -271,7 +309,8 @@ test('game walks the player capsule when a key is held', async ({ page }) => {
  * distance.
  */
 test('game camera follows the player that walks away', async ({ page }) => {
-  await page.goto('http://localhost:5173');
+  await page.goto(appUrl('gameUrl'));
+  await groundSettled(page);
   const startPlayer = await livePlayer(page);
   const startCamera = await liveCamera(page);
 
@@ -305,13 +344,15 @@ test('game loads its environment assets over the asset server', async ({ page })
     // repository and a clean clone has none, so the private assets fall back to
     // their committed placeholders (ADR-0015). Every *other* non-ok response
     // from the asset server is a real missing file.
-    const isStoreMiss = response.url().includes(':9000/store/') && response.status() === 404;
-    if (response.url().includes(':9000/') && !response.ok() && !isStoreMiss) {
+    const assetHost = `${appUrl('assetUrl')}/`;
+    const isStoreMiss =
+      response.url().startsWith(`${assetHost}store/`) && response.status() === 404;
+    if (response.url().startsWith(assetHost) && !response.ok() && !isStoreMiss) {
       badResponses.push(`${String(response.status())} ${response.url()}`);
     }
   });
 
-  await page.goto('http://localhost:5173');
+  await page.goto(appUrl('gameUrl'));
 
   // The wording comes from `summarizePlacement` in @wov/asset-system, so this
   // and the app cannot drift apart. A failed load reads
@@ -336,7 +377,7 @@ test('game loads its environment assets over the asset server', async ({ page })
 });
 
 test('game loads the physics backend and collides the ground', async ({ page }) => {
-  await page.goto('http://localhost:5173');
+  await page.goto(appUrl('gameUrl'));
   // Proves the whole chain in a real browser: the dynamic Havok import
   // resolved, the WASM module loaded from the URL Vite emitted, and the base
   // ground became static collision geometry (ADR-0013). Unit tests can prove
@@ -344,6 +385,50 @@ test('game loads the physics backend and collides the ground', async ({ page }) 
   await expect(page.getByTestId('game-status')).toContainText('physics ready', {
     timeout: 30_000,
   });
+});
+
+/**
+ * The ground the player stands on is the authored terrain, and the same tile is
+ * what physics collides against (ADR-0020).
+ *
+ * Three separate claims, because each can be true while the others are not: the
+ * tile covers the metres the world file names (a handedness flip breaks exactly
+ * this and nothing else), its triangles became collision geometry, and the
+ * capsule ended up standing on it rather than falling through.
+ *
+ * On a clone with no asset store the height field falls back to its committed
+ * hull box, which is still a tile of the right size in the right place — so the
+ * assertions hold either way and the status line says which one ran.
+ */
+test('game stands the player on the terrain it draws', async ({ page }) => {
+  await page.goto(appUrl('gameUrl'));
+  await expect(page.getByTestId('game-status')).toContainText('terrain ready', {
+    timeout: 30_000,
+  });
+
+  const bounds = await page.evaluate(() => (window as WovDebugWindow).__wov?.terrainBounds ?? null);
+  if (bounds === null) {
+    throw new Error('the game dev build published no terrain bounds');
+  }
+  // 0…300 m in x and z: what `terrain.position` and `terrain.size` say.
+  expect(bounds.min[0]).toBeCloseTo(0, 3);
+  expect(bounds.min[2]).toBeCloseTo(0, 3);
+  expect(bounds.max[0]).toBeCloseTo(300, 3);
+  expect(bounds.max[2]).toBeCloseTo(300, 3);
+
+  await expect(page.getByTestId('game-status')).toContainText(/\d+ collision triangles/);
+
+  // The capsule is on the ground the collision query reports, not under it.
+  const standing = await livePlayer(page);
+  const ground = await page.evaluate(
+    ([x, z]) => (window as WovDebugWindow).__wov?.groundAt(x as number, z as number) ?? null,
+    [standing.x, standing.z],
+  );
+  if (ground === null) {
+    throw new Error('the collision ground answered nothing under the player');
+  }
+  expect(Math.abs(standing.y - ground)).toBeLessThan(0.5);
+  expect(standing.y).toBeGreaterThan(bounds.min[1] - 0.5);
 });
 
 test('editor shows its shell and a live viewport', async ({ page }) => {
@@ -606,7 +691,10 @@ test('api serves the worlds in content/', async ({ request }) => {
 
   const world = await request.get(apiUrl('/worlds/example'));
   expect(world.status()).toBe(200);
-  expect(await world.json()).toMatchObject({ schemaVersion: 1, id: 'example' });
+  expect(await world.json()).toMatchObject({
+    schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
+    id: 'example',
+  });
 
   const missing = await request.get(apiUrl('/worlds/there-is-no-such-world'));
   expect(missing.status()).toBe(404);
@@ -625,7 +713,7 @@ test('api serves the merged prefab catalogue', async ({ request }) => {
 });
 
 test('asset server reports healthy', async ({ request }) => {
-  const response = await request.get(`${String(test.info().config.metadata['assetUrl'])}/health`);
+  const response = await request.get(`${appUrl('assetUrl')}/health`);
   expect(response.status()).toBe(200);
   expect(await response.json()).toMatchObject({ service: 'world-of-vikings-assets' });
 });

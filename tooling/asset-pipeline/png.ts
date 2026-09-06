@@ -213,6 +213,33 @@ const COLOR_TYPE_BY_CHANNELS = new Map<number, number>([
 ]);
 
 /**
+ * Mirrors an image on its anti-diagonal: `out[row][col] = in[h-1-col][w-1-row]`.
+ *
+ * A control map's axes are not the axes the ground is sampled on, and *which*
+ * turn or mirror closes that gap was measured rather than assumed — see
+ * `terrain-import.ts` for the measurement and ADR-0020 for the result. Pure and
+ * exact: pixels are moved, never resampled, so a splat weight is never blurred
+ * into its neighbour and the import stays byte-for-byte reproducible.
+ *
+ * @throws on a non-square image, where this mapping is not defined in place.
+ */
+export function mirrorOnAntiDiagonal(image: RawImage): RawImage {
+  const { width, height, channels, data } = image;
+  if (width !== height) {
+    throw new Error(`mirrorOnAntiDiagonal needs a square image, got ${width}x${height}`);
+  }
+  const out = Buffer.alloc(data.length);
+  for (let row = 0; row < height; row += 1) {
+    for (let column = 0; column < width; column += 1) {
+      const from = ((height - 1 - column) * width + (width - 1 - row)) * channels;
+      const to = (row * width + column) * channels;
+      data.copy(out, to, from, from + channels);
+    }
+  }
+  return { width, height, channels, data: out };
+}
+
+/**
  * Encodes a PNG with filter type 0 on every row.
  *
  * No filter search: the result has to be byte-identical on every machine, and

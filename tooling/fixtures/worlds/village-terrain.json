@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 2,
+  "id": "village-terrain-fixture",
+  "name": "Village Terrain Fixture",
+  "zones": [
+    {
+      "id": "village",
+      "name": "Village",
+      "entities": [],
+      "terrain": {
+        "heightField": "terrain/terrain-village1-257.glb",
+        "position": [0, 0, 0],
+        "size": [300, 300],
+        "layers": [
+          { "texture": "textures/terrain-grass-b.png", "tileSize": 2 },
+          { "texture": "textures/terrain-rock-a.png", "tileSize": 2 },
+          { "texture": "textures/terrain-grass-a.png", "tileSize": 2 },
+          { "texture": "textures/terrain-gravel.png", "tileSize": 2 },
+          { "texture": "textures/terrain-rock-rough.png", "tileSize": 3 },
+          { "texture": "textures/terrain-moss.png", "tileSize": 2 }
+        ],
+        "splat": ["textures/village-splat-a.png", "textures/village-splat-b.png"]
+      }
+    }
+  ]
+}

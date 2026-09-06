@@ -60,6 +60,29 @@ export type {
   Vector3Tuple,
 } from './base-scene.js';
 
+export {
+  DEFAULT_TERRAIN_COLOR,
+  createTerrain,
+  createTerrainMaterial,
+  clearLoaderTransform,
+} from './terrain.js';
+export type {
+  TerrainHandle,
+  TerrainLayerSource,
+  TerrainOptions,
+  TerrainTextureSource,
+} from './terrain.js';
+export {
+  CHANNELS_PER_SPLAT_MAP,
+  MAX_TERRAIN_LAYERS,
+  TERRAIN_ATTRIBUTES,
+  TERRAIN_VERTEX_SOURCE,
+  layerRepeats,
+  terrainFragmentSource,
+  terrainSamplerNames,
+  terrainUniformNames,
+} from './terrain-shader.js';
+
 export { defaultRenderConfig, resolveRenderConfig } from './render-config.js';
 export type { RenderConfig } from './render-config.js';
 

@@ -3134,6 +3134,15 @@
       "bounds": { "min": [-60, 7.416, -35], "max": [60, 19.3548, 35] }
     },
     {
+      "id": "terrain-terrain-village1-257",
+      "name": "Terrain Village1 257",
+      "asset": "terrain/terrain-village1-257.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/terrain/terrain-village1-257.glb",
+      "category": "terrain",
+      "bounds": { "min": [0, 6.628620147705078, 0], "max": [300, 73.00637817382812, 300] }
+    },
+    {
       "id": "terrain-terrain-village1",
       "name": "Terrain Village1",
       "asset": "terrain/terrain-village1.glb",

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  AssetPathSchema,
   IdentifierSchema,
   Vector3Schema,
   checkSchemaVersion,
@@ -59,20 +60,13 @@ export const PrefabVisibilitySchema = z.enum(PREFAB_VISIBILITIES);
 
 /**
  * A path relative to whichever root serves the file — `assets/` or the private
- * store — exactly as it is appended to the asset base URL.
+ * store (see {@link PREFAB_VISIBILITIES}).
  *
- * The rule is duplicated from `AssetPathSchema` in `@wov/asset-system` on
- * purpose (see {@link PREFAB_VISIBILITIES}): forward slashes only, never
- * absolute, no `..`, no empty segments. If one of the two changes, the other
- * changes with it in the same commit — this is the only place the duplication
- * lives, and both carry this note.
+ * The rule itself lives in `common.ts`, because a terrain names asset paths too
+ * and a third copy would be a third thing to keep in step. The name is kept as
+ * the package's public spelling for a prefab's asset path.
  */
-export const PrefabAssetPathSchema = z
-  .string()
-  .min(1)
-  .regex(/^[^/\\][^\\]*$/, 'must be a relative path using "/" as separator')
-  .refine((path) => !path.split('/').includes('..'), { message: 'must not contain ".."' })
-  .refine((path) => !path.split('/').includes(''), { message: 'must not contain empty segments' });
+export const PrefabAssetPathSchema = AssetPathSchema;
 
 /**
  * The prefab's axis-aligned hull in metres, copied from the asset manifest.

@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { addEntity, addZone, removeEntities } from '@wov/editor-core';
+import { CURRENT_WORLD_SCHEMA_VERSION } from '@wov/world-schema';
 import type { WorldDefinition } from '@wov/world-schema';
 import { createSession, editorReducer, type EditorSession } from './store.js';
 
 const world: WorldDefinition = {
-  schemaVersion: 1,
+  schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
   id: 'harbour',
   name: 'Harbour',
   zones: [

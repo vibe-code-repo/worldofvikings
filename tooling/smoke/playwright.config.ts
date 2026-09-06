@@ -28,20 +28,37 @@ for (const folder of ['worlds', 'prefabs']) {
  * the repository through it (`reuseExistingServer` cannot tell two differently
  * configured servers apart, it only probes the URL).
  */
-const API_PORT = 3100;
-const EDITOR_PORT = 5184;
-
 /**
- * The asset server the smoke run points the apps at.
+ * Every port is overridable, so two checkouts can run the suite at the same
+ * time.
  *
- * Overridable because two people — or two agents — running the suite at once
- * would otherwise share one asset server, and they may have different stores
- * mounted: `WOV_ASSET_STORE` belongs to whoever started the process, and
- * `reuseExistingServer` cannot see that. `SMOKE_ASSET_PORT` gives a run its own.
+ * The defaults are the ones a single developer expects. Parallel work — two
+ * agents on two worktrees — collides on all five otherwise, and the collision is
+ * not a clean failure: `reuseExistingServer` cannot tell two differently
+ * configured servers apart, so one run's test can be answered by the other run's
+ * API against the other checkout's content.
  */
-const ASSET_PORT = Number(process.env['SMOKE_ASSET_PORT'] ?? 9000);
+function port(name: string, fallback: number): number {
+  const configured = process.env[name]?.trim() ?? '';
+  if (configured === '') {
+    return fallback;
+  }
+  const parsed = Number.parseInt(configured, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 65535) {
+    throw new Error(`${name} must be a TCP port, got: ${configured}`);
+  }
+  return parsed;
+}
+
+const WEBSITE_PORT = port('SMOKE_WEBSITE_PORT', 5172);
+const GAME_PORT = port('SMOKE_GAME_PORT', 5173);
+const ASSET_PORT = port('SMOKE_ASSET_PORT', 9000);
+const API_PORT = port('SMOKE_API_PORT', 3100);
+const EDITOR_PORT = port('SMOKE_EDITOR_PORT', 5184);
 const apiUrl = `http://localhost:${String(API_PORT)}`;
 const editorUrl = `http://localhost:${String(EDITOR_PORT)}`;
+const websiteUrl = `http://localhost:${String(WEBSITE_PORT)}`;
+const gameUrl = `http://localhost:${String(GAME_PORT)}`;
 const assetUrl = `http://localhost:${String(ASSET_PORT)}`;
 
 /**
@@ -66,19 +83,20 @@ export default defineConfig({
     // The tests read these instead of hard-coding a port twice.
     baseURL: editorUrl,
   },
-  metadata: { apiUrl, editorUrl, assetUrl, contentDir },
+  metadata: { apiUrl, editorUrl, websiteUrl, gameUrl, assetUrl, contentDir },
   projects: [{ name: 'chromium' }],
   webServer: [
     {
-      command: 'pnpm --filter @wov/website dev',
-      url: 'http://localhost:5172',
+      command: `pnpm --filter @wov/website dev --port ${String(WEBSITE_PORT)} --strictPort`,
+      url: websiteUrl,
       cwd: repoRoot,
+      env: { VITE_GAME_URL: gameUrl },
       reuseExistingServer: !process.env['CI'],
       timeout: 120_000,
     },
     {
-      command: 'pnpm --filter @wov/game dev',
-      url: 'http://localhost:5173',
+      command: `pnpm --filter @wov/game dev --port ${String(GAME_PORT)} --strictPort`,
+      url: gameUrl,
       cwd: repoRoot,
       env: { VITE_ASSET_URL: assetUrl },
       reuseExistingServer: !process.env['CI'],
@@ -112,7 +130,8 @@ export default defineConfig({
       cwd: repoRoot,
       env: { ASSET_PORT: String(ASSET_PORT) },
       // Reused on the default port, where it is the same server `pnpm dev`
-      // starts; never on a port a run asked for itself.
+      // starts; never on a port a run asked for itself, because the store a
+      // running asset server has mounted is invisible from the outside.
       reuseExistingServer: ASSET_PORT === 9000 && !process.env['CI'],
       timeout: 120_000,
     },

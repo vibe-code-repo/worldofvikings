@@ -39,12 +39,18 @@ F Focus selected   Delete Delete   Ctrl+D Duplicate   Ctrl+Z Undo   Ctrl+Y Redo
 
 ## Where code belongs
 
-| Concern                         | Location            |
-| ------------------------------- | ------------------- |
-| React shell, panels, viewport   | `apps/editor`       |
-| Selection, commands, undo/redo  | `@wov/editor-core`  |
-| World document schema           | `@wov/world-schema` |
-| Renderer setup shared with game | `@wov/engine`       |
+| Concern                          | Location            |
+| -------------------------------- | ------------------- |
+| React shell, panels, viewport    | `apps/editor`       |
+| Selection, commands, undo/redo   | `@wov/editor-core`  |
+| World and prefab document schema | `@wov/world-schema` |
+| Renderer setup shared with game  | `@wov/engine`       |
+
+`@wov/editor-core` holds an `EditorState` — the document
+(`{ world, selection, activeZoneId, dirty }`) plus a command history. Every edit
+is a command value with an inverse, so undo and redo are pure functions and the
+whole model is tested without a browser (ADR-0016). The shell owns the canvas
+and the keystrokes; it owns no world rules. See the package README for the API.
 
 ## Publishing
 

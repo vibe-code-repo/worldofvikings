@@ -210,10 +210,30 @@ pnpm import:scene-models --scene … --store … --dry-run
 
 It **only adds**: a store path that already exists is left alone and named in
 the report, and textures are matched against the store by content hash, so a
-shared atlas stays one file. Anything larger than the size limit — a backdrop, a
-sky dome — is excluded and named rather than rescaled. Afterwards, run
-`pnpm generate:prefabs` so the new models reach the catalogue, then
-`pnpm import:scene` to write the world file (`docs/world-format.md`).
+shared atlas stays one file. Anything larger than the size limit is excluded and
+named rather than rescaled — 80 m for a world object, 4 km for a backdrop, which
+is the one place that limit is lifted and it is lifted by name and category
+rather than for everyone (ADR-0031). Afterwards, run `pnpm generate:prefabs` so
+the new models reach the catalogue, then `pnpm import:scene` to write the world
+file (`docs/world-format.md`).
+
+### The painted distance
+
+The mountain shells, the sky dome and the clouds are not cut out of the bundle,
+because the bundle points both shells at one embedded image — the exporter kept
+the mesh reference and dropped the material that told them apart. The export
+still has both panoramas as separate files, so a third pass reads them from
+there (ADR-0031):
+
+```bash
+pnpm import:backdrop --source <export> --store <store>
+pnpm import:backdrop --source … --store … --dry-run
+```
+
+Three models, listed in `tooling/asset-pipeline/backdrop.ts`, each written as
+one store GLB with one material and one texture beside it. The mountain panorama
+is the store's one exception to the 2048 px ceiling and keeps its full
+4096×2048; the number is argued next to itself in that file.
 
 ## Regenerating everything, in order
 
@@ -227,6 +247,7 @@ pnpm import:world-assets --source <export> --store "$WOV_ASSET_STORE"
 pnpm generate:prefabs    --store "$WOV_ASSET_STORE"
 pnpm import:scene-models --scene <export>/SceneHierarchyObject/Village1.glb \
                          --store "$WOV_ASSET_STORE"
+pnpm import:backdrop     --source <export> --store "$WOV_ASSET_STORE"
 pnpm generate:prefabs    --store "$WOV_ASSET_STORE"   # again: new models, new prefabs
 pnpm import:scene --scene <export>/SceneHierarchyObject/Village1.glb \
                   --world village1 --name "Village One"

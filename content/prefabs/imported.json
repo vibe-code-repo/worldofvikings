@@ -3,6 +3,36 @@
   "id": "imported",
   "prefabs": [
     {
+      "id": "environment-backdrop-mountains-clear",
+      "name": "Backdrop Mountains Clear",
+      "asset": "environment/backdrop-mountains-clear.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/backdrop-mountains-clear.glb",
+      "category": "backdrop",
+      "bounds": { "min": [-297.0295, -297.0296, -297.0295], "max": [297.0296, 0, 297.0296] },
+      "collision": { "kind": "none" }
+    },
+    {
+      "id": "environment-backdrop-mountains-snow",
+      "name": "Backdrop Mountains Snow",
+      "asset": "environment/backdrop-mountains-snow.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/backdrop-mountains-snow.glb",
+      "category": "backdrop",
+      "bounds": { "min": [-297.0295, -297.0296, -297.0295], "max": [297.0296, 0, 297.0296] },
+      "collision": { "kind": "none" }
+    },
+    {
+      "id": "environment-backdrop-sky-dome",
+      "name": "Backdrop Sky Dome",
+      "asset": "environment/backdrop-sky-dome.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/backdrop-sky-dome.glb",
+      "category": "backdrop",
+      "bounds": { "min": [-65.8803, -52.257, -65.8803], "max": [65.8803, 52.257, 65.8803] },
+      "collision": { "kind": "none" }
+    },
+    {
       "id": "environment-barrel-destructible",
       "name": "Barrel Destructible",
       "asset": "environment/barrel-destructible.glb",
@@ -2891,9 +2921,9 @@
       "asset": "environment/sm-prop-cloud-01.glb",
       "visibility": "private",
       "placeholder": "placeholders/environment/sm-prop-cloud-01.glb",
-      "category": "prop",
+      "category": "backdrop",
       "bounds": { "min": [-3.7024, 0, -0.5083], "max": [3.7377, 1.2432, 1.3781] },
-      "collision": { "kind": "box" }
+      "collision": { "kind": "none" }
     },
     {
       "id": "environment-sm-prop-cloud-02",
@@ -2901,9 +2931,9 @@
       "asset": "environment/sm-prop-cloud-02.glb",
       "visibility": "private",
       "placeholder": "placeholders/environment/sm-prop-cloud-02.glb",
-      "category": "prop",
+      "category": "backdrop",
       "bounds": { "min": [-4.1751, 0, -0.959], "max": [4.1397, 1.2838, 1.6185] },
-      "collision": { "kind": "box" }
+      "collision": { "kind": "none" }
     },
     {
       "id": "environment-sm-prop-cloud-03",
@@ -2911,9 +2941,9 @@
       "asset": "environment/sm-prop-cloud-03.glb",
       "visibility": "private",
       "placeholder": "placeholders/environment/sm-prop-cloud-03.glb",
-      "category": "prop",
+      "category": "backdrop",
       "bounds": { "min": [-3.8767, 0, -1.4633], "max": [4.0199, 1.494, 1.6294] },
-      "collision": { "kind": "box" }
+      "collision": { "kind": "none" }
     },
     {
       "id": "environment-sm-prop-cow-skull-01",

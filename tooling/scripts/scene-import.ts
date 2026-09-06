@@ -15,6 +15,7 @@
  * here is a pure function so the rules can be tested without a 150 MB file.
  */
 import type { WorldDefinition } from '@wov/world-schema';
+import { BACKDROP_MODELS } from '../asset-pipeline/backdrop.js';
 import type { Gltf, GltfNode, Matrix4 } from '../asset-pipeline/glb.js';
 import { IDENTITY, multiply, nodeMatrix } from '../asset-pipeline/glb.js';
 
@@ -230,9 +231,39 @@ export interface ZoneRule {
  * interface, the characters, dialogue, cut scenes, cameras, lights and audio
  * emitters, and none of those is world data. Naming what is *taken* means a
  * node type nobody thought about ends up in the report rather than in the file.
+ *
+ * **The order matters, and the more specific rule comes first.** A node claimed
+ * by an earlier zone stops the later zone's walk, so `Environments/Background`
+ * belongs to the village even though `Environments` as a whole belongs to the
+ * surroundings.
+ *
+ * **Why the backdrop is village and not surroundings.** The game draws exactly
+ * one zone — `playableZone` picks the one with ground under it (`world-scene.ts`)
+ * — so an entity in `surroundings` is an entity nothing renders. A horizon in
+ * the zone next door is a horizon nobody sees, and the whole point of a backdrop
+ * is to be seen from the zone it is the backdrop *of*. Zone streaming will
+ * change what "one zone" means; it will not change which zone this belongs to.
+ *
+ * **Why `Environments/Rocks` is *not* also moved, though it looks like it
+ * should be.** Its 100 cliffs stand at x 55–118, z 119–151 on a tile that runs
+ * 0–300 — inside the village — and in `surroundings`, which has no ground and
+ * is therefore never the zone `playableZone` picks, they have never once been
+ * drawn. Moving them was tried and measured, and it is not ready: against this
+ * zone's height field 22 of the 97 float more than 3 m, one of them by 29 m,
+ * because the cliffs were authored against a 513² surface and this repository
+ * ships the 257² reduction of it (ADR-0020), which is exactly where a steep
+ * border rim goes missing. The placements are not wrong — they are byte-identical
+ * to the bundle — and snapping them to the ground would be inventing placement,
+ * which this importer does not do (agent rule 16). It needs the finer height
+ * field first, so the cliffs stay where they are and the reason is written down
+ * rather than rediscovered (ADR-0031).
  */
 export const DEFAULT_ZONES: readonly ZoneRule[] = [
-  { id: 'village', name: 'Village', roots: ['Village/Village1'] },
+  {
+    id: 'village',
+    name: 'Village',
+    roots: ['Village/Village1', 'Environments/Background'],
+  },
   { id: 'interiors', name: 'Village Interiors', roots: ['Village/Village Interiors'] },
   {
     id: 'surroundings',
@@ -240,6 +271,37 @@ export const DEFAULT_ZONES: readonly ZoneRule[] = [
     roots: ['Environments', 'Effects', 'Chest*'],
   },
 ];
+
+/**
+ * Bundle node names that mean a backdrop prefab, resolved against the catalogue.
+ *
+ * The **name list** half of the backdrop rule (`asset-pipeline/backdrop.ts`).
+ * The scene import recognises a node by matching its name against store file
+ * stems, and the backdrop models are the one group that is *not* cut out of the
+ * bundle: they come from the export, where the two mountain panoramas are still
+ * two files. So without an alias the shells are two nodes nothing knows, and the
+ * world file would say the village has no horizon.
+ *
+ * Resolved against `byStem` rather than spelling prefab ids out here: the id is
+ * the catalogue's to decide, and a backdrop that has not been imported yet
+ * simply aliases nothing and is reported as an unmatched node — which is the
+ * truth, and is what the report is for.
+ */
+export function withBackdropAliases(
+  byStem: ReadonlyMap<string, string>,
+): ReadonlyMap<string, string> {
+  const merged = new Map(byStem);
+  for (const model of BACKDROP_MODELS) {
+    const prefab = byStem.get(model.stem);
+    if (prefab === undefined) {
+      continue;
+    }
+    for (const node of model.nodes) {
+      merged.set(toKebab(node), prefab);
+    }
+  }
+  return merged;
+}
 
 /**
  * Materials a box carries when it is a collision volume or a trigger rather
@@ -438,7 +500,15 @@ export function scanScene(json: Gltf, options: SceneScanOptions): SceneScan {
   }
 
   const claimed = new Set<number>();
-  const collect = (index: number, zone: ZoneRule): void => {
+  const collect = (index: number, zone: ZoneRule, from: number): void => {
+    // A subtree an earlier zone already claimed is that zone's, and the walk
+    // stops here. This is what lets one zone rule sit inside another's: without
+    // it `Environments` would collect `Environments/Background` a second time,
+    // and the village's horizon would also stand in the surroundings — every
+    // shell, dome and cloud placed twice.
+    if (index !== from && claimed.has(index)) {
+      return;
+    }
     if (!graph.hasMesh(index)) {
       return;
     }
@@ -473,7 +543,7 @@ export function scanScene(json: Gltf, options: SceneScanOptions): SceneScan {
       return;
     }
     for (const child of graph.children(index)) {
-      collect(child, zone);
+      collect(child, zone, from);
     }
   };
 
@@ -483,7 +553,7 @@ export function scanScene(json: Gltf, options: SceneScanOptions): SceneScan {
         continue;
       }
       claimed.add(index);
-      collect(index, zone);
+      collect(index, zone, index);
     }
   }
 

@@ -17,6 +17,7 @@ import {
   scanScene,
   toEntities,
   toKebab,
+  withBackdropAliases,
 } from './scene-import.js';
 
 describe('toKebab', () => {
@@ -376,5 +377,106 @@ describe('carryOverAuthoredBlocks', () => {
       zones: [...fresh.zones, { id: 'caves', name: 'Caves', entities: [], lighting: {} }],
     };
     expect(carryOverAuthoredBlocks(fresh, previous).zones).toHaveLength(2);
+  });
+});
+
+// --------------------------------------------------------------- the backdrop
+
+/**
+ * The shape the real bundle has around the horizon: `Environments` holds the
+ * ordinary surroundings *and* two containers the village claims — `Background`
+ * with the two shells in it and `Rocks` with the cliffs — so the zone rules
+ * genuinely overlap. `Environments Outside Village` is the third child and is
+ * what must be left behind: the proof that the village takes two *named*
+ * containers rather than all of `Environments`.
+ */
+function bundleWithBackdrop(): Gltf {
+  const box = { attributes: { POSITION: 0 }, indices: 1 };
+  return {
+    asset: { version: '2.0' },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [
+      { name: 'Environments', children: [1, 3, 6] }, // 0
+      { name: 'Rocks', children: [2] }, // 1
+      { name: 'SM_Env_Rock_Cliff_02 1', mesh: 0 }, // 2
+      { name: 'Background', translation: [-160, 0, 160], children: [4, 5] }, // 3
+      { name: 'MountainSkybox', translation: [0, 308.5, 0], mesh: 0 }, // 4
+      { name: 'MountainSkybox (1)', translation: [0, 115.39, 0], mesh: 0 }, // 5
+      { name: 'Environments Outside Village', children: [7] }, // 6
+      { name: 'SM_Env_Rock_Cliff_03 1', mesh: 0 }, // 7
+    ],
+    meshes: [{ primitives: [{ ...box, material: 0 }] }],
+    materials: [{ name: 'M', pbrMetallicRoughness: { baseColorTexture: { index: 0 } } }],
+    accessors: [
+      { componentType: 5126, count: 24, type: 'VEC3' },
+      { componentType: 5123, count: 36, type: 'SCALAR' },
+    ],
+  };
+}
+
+const backdropStems = new Map([
+  ['sm-env-rock-cliff-02-1', 'environment-sm-env-rock-cliff-02-1'],
+  ['sm-env-rock-cliff-03-1', 'environment-sm-env-rock-cliff-03-1'],
+  ['backdrop-mountains-snow', 'environment-backdrop-mountains-snow'],
+  ['backdrop-mountains-clear', 'environment-backdrop-mountains-clear'],
+]);
+
+describe('withBackdropAliases', () => {
+  it('adds the bundle node names, resolved to the ids the catalogue gave', () => {
+    const aliased = withBackdropAliases(backdropStems);
+    expect(matchName('MountainSkybox', aliased)).toBe('environment-backdrop-mountains-snow');
+    expect(matchName('MountainSkybox (1)', aliased)).toBe('environment-backdrop-mountains-clear');
+  });
+
+  it('takes nothing away', () => {
+    const aliased = withBackdropAliases(backdropStems);
+    for (const [stem, id] of backdropStems) {
+      expect(aliased.get(stem)).toBe(id);
+    }
+  });
+
+  it('aliases nothing when the backdrop has not been imported yet', () => {
+    const aliased = withBackdropAliases(new Map([['sm-env-rock-cliff-02-1', 'x']]));
+    // Reported as an unmatched node by the scan, which is the truth: no prefab
+    // for it exists.
+    expect(matchName('MountainSkybox', aliased)).toBeNull();
+  });
+});
+
+describe('the backdrop zone rule', () => {
+  const scan = scanScene(bundleWithBackdrop(), {
+    zones: DEFAULT_ZONES,
+    prefabsByStem: withBackdropAliases(backdropStems),
+  });
+
+  it('puts the shells in the village, which is the zone the game draws', () => {
+    const shells = scan.instances.filter((instance) => instance.prefab.includes('backdrop'));
+    expect(shells).toHaveLength(2);
+    expect(shells.every((instance) => instance.zone === 'village')).toBe(true);
+  });
+
+  it('leaves the rest of Environments in the surroundings', () => {
+    // The half that makes this a rule and not a blanket move: the village
+    // claims `Background` by name, and everything else under `Environments`
+    // stays where it was — the rocks (node 2) included, which is a decision
+    // with a measurement behind it in `DEFAULT_ZONES` and in ADR-0031.
+    expect(scan.instances.find((instance) => instance.node === 2)?.zone).toBe('surroundings');
+    expect(scan.instances.find((instance) => instance.node === 7)?.zone).toBe('surroundings');
+  });
+
+  it('places each shell exactly once, not once per overlapping zone rule', () => {
+    // The regression this guards: `Environments` contains `Environments/Background`,
+    // so without the claim check the surroundings would collect the horizon a
+    // second time and the world file would carry two of every shell.
+    expect(scan.instances.filter((instance) => instance.node === 4)).toHaveLength(1);
+    expect(scan.instances.filter((instance) => instance.node === 5)).toHaveLength(1);
+  });
+
+  it(`carries the container transform into the shell world matrix`, () => {
+    const outer = scan.instances.find((instance) => instance.node === 4);
+    expect(outer?.matrix[12]).toBe(-160);
+    expect(outer?.matrix[13]).toBe(308.5);
+    expect(outer?.matrix[14]).toBe(160);
   });
 });

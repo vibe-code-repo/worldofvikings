@@ -120,7 +120,9 @@ default path.
 
 Three runs, in this order. They append to `content/worlds/village1.json`; re-run
 them after any `pnpm import:scene`, which rewrites that file from the bundle and
-therefore drops them.
+therefore drops them. The ground and the lighting block survive that rewrite
+(ADR-0028); the scattered entities are the one thing that does not, because
+entities are what the import replaces.
 
 ```bash
 # 3 473 tufts of grass over the village, off the buildings and the paving
@@ -149,7 +151,10 @@ decorative patches between the houses.
 
 **In the game, vegetation is drawn as thin instances** — one mesh with a matrix
 buffer, no scene node, not pickable. In the editor it stays one node per entity,
-because there every tuft has to be selectable.
+because there every tuft has to be selectable. Grass takes the sun's shadow but
+is not drawn into the shadow map (ADR-0027), and vegetation collides against
+nothing (ADR-0026), so a scattered field costs no physics bodies: 4 103 of
+`village1`'s 5 248 entities are walk-through.
 
 ## Where the world data comes from
 

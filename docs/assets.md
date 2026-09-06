@@ -215,6 +215,40 @@ sky dome — is excluded and named rather than rescaled. Afterwards, run
 `pnpm generate:prefabs` so the new models reach the catalogue, then
 `pnpm import:scene` to write the world file (`docs/world-format.md`).
 
+## Regenerating everything, in order
+
+The whole chain, from a modelling export to a world file that matches the
+catalogue it references. Each step reads what the one before it wrote, so the
+order is not a suggestion:
+
+```bash
+export WOV_ASSET_STORE=~/assets/store
+pnpm import:world-assets --source <export> --store "$WOV_ASSET_STORE"
+pnpm generate:prefabs    --store "$WOV_ASSET_STORE"
+pnpm import:scene-models --scene <export>/SceneHierarchyObject/Village1.glb \
+                         --store "$WOV_ASSET_STORE"
+pnpm generate:prefabs    --store "$WOV_ASSET_STORE"   # again: new models, new prefabs
+pnpm import:scene --scene <export>/SceneHierarchyObject/Village1.glb \
+                  --world village1 --name "Village One"
+# then the scatter runs, verbatim from docs/world-editor.md
+pnpm validate
+```
+
+`generate:prefabs` runs twice on purpose: the first pass is what
+`import:scene-models` needs to know which models the store already has, the
+second brings the models it cut into the catalogue.
+
+`import:scene` **rewrites** the world file from the bundle. What the bundle does
+not describe is carried over from the file being replaced — the zone's `terrain`
+block and the world's `lighting` block (ADR-0028) — and the run says so. What is
+_not_ carried over is the entities a scatter planted, because entities are
+exactly what the import replaces (ADR-0025); the three runs that dressed
+`village1` are written out in `docs/world-editor.md` and have to be repeated.
+
+The chain is deterministic. Run against an unchanged export and store it
+reproduces `assets/manifest.json`, `content/prefabs/imported.json` and
+`content/worlds/village1.json` byte for byte.
+
 ## The collision shape of a prefab
 
 `pnpm generate:prefabs` also decides what each prefab is _shaped_ like for

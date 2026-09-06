@@ -35,3 +35,5 @@ change it describes.
 | [0024](0024-lighting-as-world-data-with-one-shadow-map.md)                    | Lighting is world data, drawn with one following shadow map       | accepted |
 | [0025](0025-scatter-is-an-editor-command-whose-result-is-persisted.md)        | Scatter is an editor command whose result is persisted            | accepted |
 | [0026](0026-entities-carry-a-collision-shape.md)                              | Entities carry a collision shape, decided at import time          | accepted |
+| [0027](0027-small-vegetation-receives-shadow-but-does-not-cast.md)            | Small vegetation receives shadow but does not cast it             | accepted |
+| [0028](0028-the-scene-import-carries-authored-blocks-forward.md)              | The scene import carries authored blocks forward                  | accepted |

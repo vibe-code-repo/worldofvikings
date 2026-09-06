@@ -22,7 +22,10 @@ model's bytes are (ADR-0015, ADR-0016).
 
 - Dev: `pnpm --filter @wov/game dev` → http://localhost:5173
 - Environment: `VITE_API_URL`, `VITE_ASSET_URL` (see `.env.example`)
-- Query string: `?world=<id>` (default `village1`), `?spawn=<x>,<z>`
+- Query string: `?world=<id>` (default `village1`), `?spawn=<x>,<z>`,
+  `?flat=1` (the flat noon rig instead of the world's own, ADR-0024),
+  `?shadows=off` (the world's light without its shadow map) — the last two are
+  there so a measurement can hold everything else constant
 
 ## Controls
 
@@ -52,23 +55,23 @@ The arrow only points one way: state flows into the renderer and never back
 [ADR-0009](../../docs/adr/0009-gameplay-state-is-plain-data-systems-are-pure-functions.md)).
 `src/main.ts` is wiring and contains no gameplay decision.
 
-| File                           | Responsibility                                               |
-| ------------------------------ | ------------------------------------------------------------ |
-| `src/input/bindings.ts`        | The binding table as data, plus its validation               |
-| `src/input/binder.ts`          | Presses → `InputState`. No DOM, so it is fully unit-tested   |
-| `src/input/keyboard-mouse.ts`  | DOM events and pointer lock, through narrow ports            |
-| `src/loop.ts`                  | Fixed simulation step on a variable frame rate               |
-| `src/render/interpolate.ts`    | Blends two steps for the frame in between                    |
-| `src/render/thin-instances.ts` | Vegetation as one mesh plus a matrix buffer (ADR-0025)       |
-| `src/placeholder-target.ts`    | The capsule the camera follows until there is a player       |
-| `src/scene.ts`                 | Renderer, base scene, camera and capsule, from `@wov/engine` |
-| `src/config.ts`                | Where the API and the assets are, and which world to open    |
-| `src/world-api.ts`             | `GET /worlds/:id` and `GET /prefabs`, validated              |
-| `src/world-scene.ts`           | One zone → ground, entities, plants, collision bodies        |
-| `src/entity-collision.ts`      | Prefab shape + entity transform → one shared static shape    |
-| `src/physics-ground.ts`        | The ground query, answered by a downward ray                 |
-| `src/physics-obstacles.ts`     | The obstacle query, answered by rays across the path         |
-| `src/main.ts`                  | Wiring only                                                  |
+| File                           | Responsibility                                                                              |
+| ------------------------------ | ------------------------------------------------------------------------------------------- |
+| `src/input/bindings.ts`        | The binding table as data, plus its validation                                              |
+| `src/input/binder.ts`          | Presses → `InputState`. No DOM, so it is fully unit-tested                                  |
+| `src/input/keyboard-mouse.ts`  | DOM events and pointer lock, through narrow ports                                           |
+| `src/loop.ts`                  | Fixed simulation step on a variable frame rate                                              |
+| `src/render/interpolate.ts`    | Blends two steps for the frame in between                                                   |
+| `src/render/thin-instances.ts` | Vegetation as one mesh plus a matrix buffer (ADR-0025)                                      |
+| `src/placeholder-target.ts`    | The capsule the camera follows until there is a player                                      |
+| `src/scene.ts`                 | Renderer, base scene, camera and capsule, from `@wov/engine`                                |
+| `src/config.ts`                | Where the API and the assets are, and which world to open                                   |
+| `src/world-api.ts`             | `GET /worlds/:id` and `GET /prefabs`, validated                                             |
+| `src/world-scene.ts`           | One zone → ground, entities, plants, collision bodies, and which meshes may cast (ADR-0027) |
+| `src/entity-collision.ts`      | Prefab shape + entity transform → one shared static shape                                   |
+| `src/physics-ground.ts`        | The ground query, answered by a downward ray                                                |
+| `src/physics-obstacles.ts`     | The obstacle query, answered by rays across the path                                        |
+| `src/main.ts`                  | Wiring only                                                                                 |
 
 Why the device edge lives in the app rather than in a package, why the bindings
 are a table, and why the adapter test uses a hand-written DOM stub instead of

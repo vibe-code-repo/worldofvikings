@@ -150,6 +150,26 @@ instances: one mesh per plant _model_, whatever the number of copies. The
 triangle count is the price that does not go away — the tufts are on screen —
 and it is what a future LOD or distance fade has to work on.
 
+With the world's own lighting on top of that (ADR-0024), measured on the village
+square at `?world=village1&spawn=166,150`, 1280×720, Chromium on ANGLE over
+Vulkan. The frame time is the average over the last five seconds, not over the
+whole session, and the machine was running other work — read the ratios, not the
+absolute milliseconds:
+
+| The same view, lit                    | Draw calls | Triangles | Frame time |
+| ------------------------------------- | ---------- | --------- | ---------- |
+| `?flat=1` — one sun, no map, no grade | 195        | 1 890 157 | 13.3 ms    |
+| `&shadows=off` — the evening, no map  | 202        | 1 890 169 | 13.5 ms    |
+| what ships                            | 539        | 3 937 512 | 28.7 ms    |
+
+The shadow map is the whole difference, and it is bought in geometry rather than
+in resolution: the map draws 2 398 casters with no frustum culling, which is
+2.05 M triangles against the camera pass's 1.89 M. Grass is not among them
+(ADR-0027) — leaving 3 473 tufts out took 34 730 triangles and 0.4 ms off, which
+is 0.9 % and the honest size of that saving. What is left to work on is
+cascades, or a shorter shadow distance; narrowing the caster list was measured
+and rejected in ADR-0024.
+
 The game entry chunk is over Vite's 500 kB warning and Rollup says so on every
 build. It is almost entirely Babylon.js core; splitting it is open work under
 ADR-0006, and the number is written down here so a regression is visible rather

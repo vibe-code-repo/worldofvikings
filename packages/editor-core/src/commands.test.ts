@@ -10,6 +10,7 @@ import {
   removeEntities,
   removeZone,
   renameEntity,
+  renameZone,
   updateTransform,
   type EditorCommand,
 } from './commands.js';
@@ -269,6 +270,33 @@ describe('removeZone', () => {
 
   it('undoes by putting the zone back at its old index, entities and all', () => {
     expectRoundtrip(twoZones, removeZone('village'));
+  });
+});
+
+describe('renameZone', () => {
+  it('changes the label and nothing else', () => {
+    const renamed = apply(document, renameZone('village', 'Old Village'));
+    const zone = renamed.world.zones.find((each) => each.id === 'village');
+
+    expect(zone?.name).toBe('Old Village');
+    expect(zone?.id).toBe('village');
+    expect(entityIds(renamed.world, 'village')).toEqual(entityIds(document.world, 'village'));
+    expect(renamed.dirty).toBe(true);
+  });
+
+  it('refuses a blank name rather than writing an unnameable zone', () => {
+    expect(applyCommand(document, renameZone('village', ''))).toMatchObject({ ok: false });
+  });
+
+  it('reports an unknown zone', () => {
+    expect(applyCommand(document, renameZone('nowhere', 'Somewhere'))).toEqual({
+      ok: false,
+      error: 'unknown zone "nowhere"',
+    });
+  });
+
+  it('undoes back to the previous name', () => {
+    expectRoundtrip(document, renameZone('village', 'Old Village'));
   });
 });
 

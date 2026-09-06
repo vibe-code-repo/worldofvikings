@@ -31,6 +31,7 @@ export {
   removeEntities,
   removeZone,
   renameEntity,
+  renameZone,
   updateTransform,
 } from './commands.js';
 export type {
@@ -45,6 +46,7 @@ export type {
   RemoveEntitiesCommand,
   RemoveZoneCommand,
   RenameEntityCommand,
+  RenameZoneCommand,
   TransformChange,
   TransformPatch,
   UpdateTransformCommand,

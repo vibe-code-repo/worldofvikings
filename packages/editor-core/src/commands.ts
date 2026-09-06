@@ -97,6 +97,20 @@ export interface RemoveZoneCommand {
   readonly zoneId: string;
 }
 
+/**
+ * Changes a zone's display name.
+ *
+ * Its `id` is deliberately not renameable here: the id is what
+ * {@link EditorDocument.activeZoneId} and a future cross-zone reference point
+ * at, so changing it is a migration, not an edit. The name is a label, and
+ * labelling a zone properly is something an author does constantly.
+ */
+export interface RenameZoneCommand {
+  readonly kind: 'renameZone';
+  readonly zoneId: string;
+  readonly name: string;
+}
+
 export type EditorCommand =
   | AddEntitiesCommand
   | RemoveEntitiesCommand
@@ -104,7 +118,8 @@ export type EditorCommand =
   | DuplicateEntitiesCommand
   | RenameEntityCommand
   | AddZoneCommand
-  | RemoveZoneCommand;
+  | RemoveZoneCommand
+  | RenameZoneCommand;
 
 export type EditorCommandKind = EditorCommand['kind'];
 
@@ -181,6 +196,10 @@ export function removeZone(zoneId: string): RemoveZoneCommand {
   return { kind: 'removeZone', zoneId };
 }
 
+export function renameZone(zoneId: string, name: string): RenameZoneCommand {
+  return { kind: 'renameZone', zoneId, name };
+}
+
 // --- applying ---------------------------------------------------------------
 
 /**
@@ -209,6 +228,8 @@ export function applyCommand(
       return applyAddZone(document, command);
     case 'removeZone':
       return applyRemoveZone(document, command);
+    case 'renameZone':
+      return applyRenameZone(document, command);
   }
 }
 
@@ -464,6 +485,33 @@ function applyRemoveZone(
       dirty: true,
     },
     inverse: addZone(zone, { index }),
+    createdEntityIds: [],
+  });
+}
+
+function applyRenameZone(
+  document: EditorDocument,
+  command: RenameZoneCommand,
+): CommandResult<AppliedCommand> {
+  const zone = findZone(document, command.zoneId);
+  if (zone === undefined) {
+    return unknownZone(command.zoneId);
+  }
+
+  // The same rule the file format applies, read from the schema rather than
+  // restated here (agent rule 11).
+  const parsed = ZoneDefinitionSchema.shape.name.safeParse(command.name);
+  if (!parsed.success) {
+    return fail(`zone name is not valid: ${firstIssue(parsed.error.issues)}`);
+  }
+
+  const zones = document.world.zones.map((candidate) =>
+    candidate.id === command.zoneId ? { ...candidate, name: command.name } : candidate,
+  );
+
+  return ok({
+    document: { ...document, world: { ...document.world, zones }, dirty: true },
+    inverse: renameZone(command.zoneId, zone.name),
     createdEntityIds: [],
   });
 }

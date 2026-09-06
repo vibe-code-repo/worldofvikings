@@ -32,6 +32,10 @@ export {
   removeZone,
   renameEntity,
   renameZone,
+  setLighting,
+  setLightingField,
+  setTerrain,
+  setTerrainField,
   updateTransform,
 } from './commands.js';
 export type {
@@ -47,10 +51,53 @@ export type {
   RemoveZoneCommand,
   RenameEntityCommand,
   RenameZoneCommand,
+  SetLightingCommand,
+  SetTerrainCommand,
   TransformChange,
   TransformPatch,
   UpdateTransformCommand,
 } from './commands.js';
+
+export {
+  lightingAt,
+  parseLightingBlock,
+  parseTerrainBlock,
+  withLighting,
+  withTerrain,
+  worldLighting,
+  zoneLighting,
+} from './blocks.js';
+export type { BlockResult, LightingScope } from './blocks.js';
+
+export { applyFieldPatch, applyFieldPatches, restorePatch, valueAtPath } from './patch.js';
+export type { FieldPatch } from './patch.js';
+
+export { describeFields, fieldPaths, humanizeKey } from './schema-form.js';
+export type {
+  FormBoolean,
+  FormChoice,
+  FormColor,
+  FormField,
+  FormGroup,
+  FormList,
+  FormNumber,
+  FormText,
+  FormUnknown,
+  FormVector,
+} from './schema-form.js';
+
+export { LIGHTING_PRESETS, lightingPreset } from './lighting-presets.js';
+export type { LightingPreset } from './lighting-presets.js';
+
+export {
+  IMPORTED_CATALOG_ID,
+  OVERRIDE_CATALOG_ID,
+  catalogForEdit,
+  editedPrefab,
+  emptyOverrideCatalog,
+  withPrefab,
+} from './prefab-overrides.js';
+export type { PrefabEdit } from './prefab-overrides.js';
 
 export {
   DEFAULT_HISTORY_LIMIT,

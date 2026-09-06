@@ -47,26 +47,26 @@ second of any of them.
 
 ## 2. Folder responsibilities
 
-| Path                    | Owns                                      | Never contains                   |
-| ----------------------- | ----------------------------------------- | -------------------------------- |
-| `apps/website`          | Public site, Play link                    | Game or editor logic             |
-| `apps/game`             | Game client bootstrap, world loading, HUD | Editor code, authored world data |
-| `apps/editor`           | React editor shell, panels, viewport      | Game-only logic, world rules     |
-| `services/api`          | HTTP service                              | Gameplay rules                   |
-| `packages/shared`       | Framework-free helpers                    | Any dependency                   |
-| `packages/world-schema` | Zod schemas + versioning for world data   | Babylon.js, React                |
-| `packages/asset-system` | Asset URLs, GLB loading/caching, manifest | Gameplay                         |
-| `packages/content-build` | Scene import and prefab catalogue, as functions | Babylon.js, React, a CLI |
-| `packages/engine`       | Shared renderer layer                     | Gameplay state                   |
-| `packages/physics`      | Physics contract + Havok backend          | Gameplay rules                   |
-| `packages/gameplay`     | Gameplay state and systems                | Any renderer import              |
-| `packages/editor-core`  | Editor-only logic                         | Anything the game needs          |
-| `packages/ui`           | Framework-free UI tokens/helpers          | React components                 |
-| `content/`              | Authored JSON game data                   | TypeScript                       |
-| `assets/`               | Public binary assets + placeholders       | Anything unlicensed              |
-| `tooling/`              | Scripts, validators, smoke tests          | Shipped code                     |
-| `infrastructure/`       | Deployment scaffolding (empty in Phase 1) | Anything needed for local dev    |
-| `docs/`                 | Architecture, formats, ADRs               | Generated output                 |
+| Path                     | Owns                                            | Never contains                   |
+| ------------------------ | ----------------------------------------------- | -------------------------------- |
+| `apps/website`           | Public site, Play link                          | Game or editor logic             |
+| `apps/game`              | Game client bootstrap, world loading, HUD       | Editor code, authored world data |
+| `apps/editor`            | React editor shell, panels, viewport            | Game-only logic, world rules     |
+| `services/api`           | HTTP service                                    | Gameplay rules                   |
+| `packages/shared`        | Framework-free helpers                          | Any dependency                   |
+| `packages/world-schema`  | Zod schemas + versioning for world data         | Babylon.js, React                |
+| `packages/asset-system`  | Asset URLs, GLB loading/caching, manifest       | Gameplay                         |
+| `packages/content-build` | Scene import and prefab catalogue, as functions | Babylon.js, React, a CLI         |
+| `packages/engine`        | Shared renderer layer                           | Gameplay state                   |
+| `packages/physics`       | Physics contract + Havok backend                | Gameplay rules                   |
+| `packages/gameplay`      | Gameplay state and systems                      | Any renderer import              |
+| `packages/editor-core`   | Editor-only logic                               | Anything the game needs          |
+| `packages/ui`            | Framework-free UI tokens/helpers                | React components                 |
+| `content/`               | Authored JSON game data                         | TypeScript                       |
+| `assets/`                | Public binary assets + placeholders             | Anything unlicensed              |
+| `tooling/`               | Scripts, validators, smoke tests                | Shipped code                     |
+| `infrastructure/`        | Deployment scaffolding (empty in Phase 1)       | Anything needed for local dev    |
+| `docs/`                  | Architecture, formats, ADRs                     | Generated output                 |
 
 ## 3. Commands
 

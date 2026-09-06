@@ -24,8 +24,17 @@ import {
   type WorldDefinition,
   type ZoneDefinition,
 } from '@wov/world-schema';
+import {
+  lightingAt,
+  parseLightingBlock,
+  parseTerrainBlock,
+  withLighting,
+  withTerrain,
+  type LightingScope,
+} from './blocks.js';
 import { findZone, type EditorDocument } from './document.js';
 import { nextEntityIds } from './ids.js';
+import { applyFieldPatches, restorePatch, type FieldPatch } from './patch.js';
 
 /** An entity together with the position it takes in the zone's entity list. */
 export interface EntityPlacement {
@@ -111,6 +120,34 @@ export interface RenameZoneCommand {
   readonly name: string;
 }
 
+/**
+ * Changes how a world or a zone is lit (ADR-0024, ADR-0033).
+ *
+ * The patches address fields of the profile — `['sun', 'intensity']`,
+ * `['fog']`, or `[]` for the whole block — so one slider is one command and a
+ * preset is one command with six of them. Undo restores the block wholesale
+ * (see `restorePatch`), because a patch that *created* a group cannot be undone
+ * by deleting one leaf out of it.
+ */
+export interface SetLightingCommand {
+  readonly kind: 'setLighting';
+  readonly scope: LightingScope;
+  readonly patches: readonly FieldPatch[];
+}
+
+/**
+ * Changes the ground of a zone (ADR-0020, ADR-0033).
+ *
+ * Same shape as {@link SetLightingCommand}, and for the same reason: the
+ * inspector edits `['layers', '2', 'tileSize']` and the layer list edits
+ * `['layers']` wholesale, and both are one undo step.
+ */
+export interface SetTerrainCommand {
+  readonly kind: 'setTerrain';
+  readonly zoneId: string;
+  readonly patches: readonly FieldPatch[];
+}
+
 export type EditorCommand =
   | AddEntitiesCommand
   | RemoveEntitiesCommand
@@ -119,7 +156,9 @@ export type EditorCommand =
   | RenameEntityCommand
   | AddZoneCommand
   | RemoveZoneCommand
-  | RenameZoneCommand;
+  | RenameZoneCommand
+  | SetLightingCommand
+  | SetTerrainCommand;
 
 export type EditorCommandKind = EditorCommand['kind'];
 
@@ -200,6 +239,35 @@ export function renameZone(zoneId: string, name: string): RenameZoneCommand {
   return { kind: 'renameZone', zoneId, name };
 }
 
+export function setLighting(
+  scope: LightingScope,
+  patches: readonly FieldPatch[],
+): SetLightingCommand {
+  return { kind: 'setLighting', scope, patches };
+}
+
+/** One field of a lighting profile, the shape a slider or a colour well produces. */
+export function setLightingField(
+  scope: LightingScope,
+  path: readonly string[],
+  value: unknown,
+): SetLightingCommand {
+  return setLighting(scope, [{ path, value }]);
+}
+
+export function setTerrain(zoneId: string, patches: readonly FieldPatch[]): SetTerrainCommand {
+  return { kind: 'setTerrain', zoneId, patches };
+}
+
+/** One field of a zone's terrain block. */
+export function setTerrainField(
+  zoneId: string,
+  path: readonly string[],
+  value: unknown,
+): SetTerrainCommand {
+  return setTerrain(zoneId, [{ path, value }]);
+}
+
 // --- applying ---------------------------------------------------------------
 
 /**
@@ -230,6 +298,10 @@ export function applyCommand(
       return applyRemoveZone(document, command);
     case 'renameZone':
       return applyRenameZone(document, command);
+    case 'setLighting':
+      return applySetLighting(document, command);
+    case 'setTerrain':
+      return applySetTerrain(document, command);
   }
 }
 
@@ -512,6 +584,57 @@ function applyRenameZone(
   return ok({
     document: { ...document, world: { ...document.world, zones }, dirty: true },
     inverse: renameZone(command.zoneId, zone.name),
+    createdEntityIds: [],
+  });
+}
+
+function applySetLighting(
+  document: EditorDocument,
+  command: SetLightingCommand,
+): CommandResult<AppliedCommand> {
+  if (command.scope.kind === 'zone' && findZone(document, command.scope.zoneId) === undefined) {
+    return unknownZone(command.scope.zoneId);
+  }
+
+  const previous = lightingAt(document.world, command.scope);
+  const parsed = parseLightingBlock(applyFieldPatches(previous, command.patches));
+  if (!parsed.ok) {
+    return fail(`that lighting value is not valid: ${parsed.errors.join('; ')}`);
+  }
+
+  return ok({
+    document: {
+      ...document,
+      world: withLighting(document.world, command.scope, parsed.value),
+      dirty: true,
+    },
+    inverse: setLighting(command.scope, [restorePatch(previous)]),
+    createdEntityIds: [],
+  });
+}
+
+function applySetTerrain(
+  document: EditorDocument,
+  command: SetTerrainCommand,
+): CommandResult<AppliedCommand> {
+  const zone = findZone(document, command.zoneId);
+  if (zone === undefined) {
+    return unknownZone(command.zoneId);
+  }
+
+  const previous = zone.terrain;
+  const parsed = parseTerrainBlock(applyFieldPatches(previous, command.patches));
+  if (!parsed.ok) {
+    return fail(`that terrain value is not valid: ${parsed.errors.join('; ')}`);
+  }
+
+  const zones = document.world.zones.map((candidate) =>
+    candidate.id === command.zoneId ? withTerrain(candidate, parsed.value) : candidate,
+  );
+
+  return ok({
+    document: { ...document, world: { ...document.world, zones }, dirty: true },
+    inverse: setTerrain(command.zoneId, [restorePatch(previous)]),
     createdEntityIds: [],
   });
 }

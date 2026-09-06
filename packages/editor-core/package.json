@@ -21,6 +21,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@wov/world-schema": "workspace:*"
+    "@wov/world-schema": "workspace:*",
+    "zod": "^4.5.4"
   }
 }

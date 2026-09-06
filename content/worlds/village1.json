@@ -1,7 +1,38 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "village1",
   "name": "Village One",
+  "lighting": {
+    "sun": { "direction": [0.58, -0.45, 0.68], "color": "#ffd2a1", "intensity": 2.3 },
+    "ambient": { "skyColor": "#8fb3d8", "groundColor": "#4a4032", "intensity": 0.62 },
+    "sky": {
+      "enabled": true,
+      "zenithColor": "#17478f",
+      "horizonColor": "#dfa974",
+      "sunColor": "#ffd9a8",
+      "sunSpread": 0.2
+    },
+    "fog": { "enabled": true, "start": 80, "end": 420 },
+    "shadows": {
+      "enabled": true,
+      "mapSize": 2048,
+      "distance": 120,
+      "bias": 0.006,
+      "normalBias": 0.012,
+      "darkness": 0.25,
+      "filter": "poisson"
+    },
+    "postProcessing": {
+      "enabled": true,
+      "fxaa": true,
+      "toneMapping": "aces",
+      "exposure": 1.15,
+      "contrast": 1.1,
+      "bloom": { "enabled": true, "threshold": 0.85, "weight": 0.22, "scale": 0.5, "kernel": 32 },
+      "vignette": { "enabled": true, "weight": 1.2, "color": "#0d0a08" },
+      "ssao": { "enabled": false }
+    }
+  },
   "zones": [
     {
       "id": "village",

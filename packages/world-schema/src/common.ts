@@ -16,6 +16,18 @@ export const IdentifierSchema = z
 export const Vector3Schema = z.tuple([z.number(), z.number(), z.number()]);
 
 /**
+ * A colour as `#rrggbb`, the one spelling world data writes colours in.
+ *
+ * Six digits and a hash, nothing else. Babylon's `Color3.FromHexString` answers
+ * black for anything it cannot parse, and a black sun looks like a lighting bug
+ * a long way from the typo that caused it — so the file is refused here instead
+ * (agent rule 10). `@wov/engine` repeats the same rule at its own edge, for the
+ * same reason `AssetPathSchema` is repeated: neither package may depend on the
+ * other, and both are handed values from outside.
+ */
+export const HexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'must be a #rrggbb colour');
+
+/**
  * A path relative to whichever root serves the file — `assets/` or the private
  * store — exactly as it is appended to the asset base URL.
  *

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CURRENT_WORLD_SCHEMA_VERSION } from '@wov/world-schema';
 import type { PrefabCatalog, WorldDefinition } from '@wov/world-schema';
 import {
   collectPrefabIds,
@@ -19,7 +20,7 @@ const catalog = (id: string, prefabIds: readonly string[]): PrefabCatalog => ({
 });
 
 const world = (prefabs: readonly string[]): WorldDefinition => ({
-  schemaVersion: 2,
+  schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
   id: 'example',
   name: 'Example',
   zones: [
@@ -70,7 +71,7 @@ describe('findUnknownPrefabReferences', () => {
 
 describe('findMissingTerrainAssets', () => {
   const withTerrain = (terrain: WorldDefinition['zones'][number]['terrain']): WorldDefinition => ({
-    schemaVersion: 2,
+    schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
     id: 'example',
     name: 'Example',
     zones: [{ id: 'village', name: 'Village', entities: [], terrain }],

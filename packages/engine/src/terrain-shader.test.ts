@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_TERRAIN_LAYERS,
   layerRepeats,
+  shadowTapOffsets,
   TERRAIN_VERTEX_SOURCE,
   terrainFragmentSource,
   terrainSamplerNames,
   terrainUniformNames,
+  terrainVertexSource,
 } from './terrain-shader.js';
 
 describe('terrainFragmentSource', () => {
@@ -79,6 +81,78 @@ describe('TERRAIN_VERTEX_SOURCE', () => {
     expect(TERRAIN_VERTEX_SOURCE).toContain('varying vec2 vUv;');
     expect(TERRAIN_VERTEX_SOURCE).toContain('varying vec3 vNormalW;');
     expect(TERRAIN_VERTEX_SOURCE).toContain('varying vec3 vPositionW;');
+  });
+});
+
+describe('the ground receiving shadows', () => {
+  const shadows = { mapSize: 2048, float: true, taps: 4 } as const;
+
+  it('samples no shadow map when the tile receives none', () => {
+    const source = terrainFragmentSource(2, 1);
+    expect(source).not.toContain('uShadowMap');
+    // The lighting line is the same string either way; the difference is what
+    // `shadowFactor()` answers, so it cannot drift between the two programs.
+    expect(source).toContain('uSunColor * key * shadowFactor()');
+    expect(source).toContain('float shadowFactor(void) {\n  return 1.0;\n}');
+  });
+
+  it('declares the sampler, the varyings and the uniforms it binds', () => {
+    const source = terrainFragmentSource(2, 1, shadows);
+    expect(source).toContain('uniform sampler2D uShadowMap;');
+    expect(source).toContain('uniform vec3 uShadowInfo;');
+    expect(source).toContain('varying vec4 vPositionFromLight;');
+    expect(source).toContain('varying float vShadowDepth;');
+    expect(terrainSamplerNames(2, 1, true)).toContain('uShadowMap');
+    expect(terrainUniformNames(2, true)).toEqual(
+      expect.arrayContaining(['uShadowMatrix', 'uShadowDepthValues', 'uShadowInfo']),
+    );
+  });
+
+  it('names none of them when the tile has no shadow lookup', () => {
+    expect(terrainSamplerNames(2, 1, false)).not.toContain('uShadowMap');
+    expect(terrainUniformNames(2, false)).not.toContain('uShadowMatrix');
+  });
+
+  it('computes the same depth the shadow pass stored', () => {
+    // Babylon's caster writes `(z + depthValues.x) / depthValues.y`. A receiver
+    // that computes anything else compares two different numbers, which is a
+    // ground striped in shadow for no visible reason.
+    expect(terrainVertexSource(true)).toContain(
+      '(vPositionFromLight.z + uShadowDepthValues.x) / uShadowDepthValues.y',
+    );
+    expect(terrainVertexSource(false)).not.toContain('uShadowDepthValues');
+  });
+
+  it('unpacks the depth when the shadow map is not a float target', () => {
+    const asFloat = terrainFragmentSource(2, 1, { ...shadows, float: true });
+    const packed = terrainFragmentSource(2, 1, { ...shadows, float: false });
+    expect(asFloat).toContain('texture2D(uShadowMap, uv).x');
+    expect(packed).toContain('bitShift');
+    expect(packed).not.toContain('texture2D(uShadowMap, uv).x');
+  });
+
+  it('emits one texture fetch per tap and averages them', () => {
+    for (const taps of [1, 4, 9] as const) {
+      const source = terrainFragmentSource(2, 1, { ...shadows, taps });
+      expect([...source.matchAll(/lit \+= step\(/g)]).toHaveLength(taps);
+      expect(source).toContain(`lit /= ${taps.toFixed(1)};`);
+      expect(shadowTapOffsets(taps)).toHaveLength(taps);
+    }
+  });
+
+  it('answers "lit" outside the map rather than "in shadow"', () => {
+    // Beyond the shadow distance the sun is simply unoccluded. Answering
+    // darkness there would draw the edge of the shadow map as a dark square.
+    const source = terrainFragmentSource(2, 1, shadows);
+    expect(source).toMatch(
+      /uv\.x > 1\.0 \|\| uv\.y < 0\.0 \|\| uv\.y > 1\.0\) \{\n\s+return 1\.0;/,
+    );
+  });
+
+  it('refuses a tap count it has no offsets for', () => {
+    expect(() => terrainFragmentSource(2, 1, { ...shadows, taps: 3 as unknown as 1 })).toThrow(
+      /taps must be 1, 4 or 9/,
+    );
   });
 });
 

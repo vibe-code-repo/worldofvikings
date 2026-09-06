@@ -5,8 +5,38 @@
  * Everything that reads a world file must validate it through this package so
  * that a broken or outdated file fails loudly instead of silently.
  */
-export { AssetPathSchema, IdentifierSchema, Vector3Schema } from './common.js';
+export { AssetPathSchema, HexColorSchema, IdentifierSchema, Vector3Schema } from './common.js';
 export type { Identifier } from './common.js';
+export {
+  AmbientLightSchema,
+  BloomSchema,
+  FogSchema,
+  LightingProfileSchema,
+  PostProcessingSchema,
+  SHADOW_FILTERS,
+  ShadowFilterSchema,
+  ShadowsSchema,
+  SkySchema,
+  SsaoSchema,
+  SunLightSchema,
+  TONE_MAPPINGS,
+  ToneMappingSchema,
+  VignetteSchema,
+} from './lighting.js';
+export type {
+  AmbientLight,
+  Bloom,
+  Fog,
+  LightingProfile,
+  PostProcessing,
+  ShadowFilter,
+  Shadows,
+  Sky,
+  Ssao,
+  SunLight,
+  ToneMapping,
+  Vignette,
+} from './lighting.js';
 export {
   CURRENT_WORLD_SCHEMA_VERSION,
   EntityDefinitionSchema,

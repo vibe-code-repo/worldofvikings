@@ -27,6 +27,34 @@ const CHANNELS = ['r', 'g', 'b', 'a'] as const;
 export const TERRAIN_ATTRIBUTES = ['position', 'normal', 'uv'] as const;
 
 /**
+ * How a generated terrain program samples the sun's shadow map, or that it does
+ * not (ADR-0024).
+ *
+ * The ground has to receive shadows through hand-written GLSL because it *is*
+ * hand-written GLSL: `mesh.receiveShadows = true` only means something to a
+ * material Babylon generated, and the multi-layer splat blend is the reason
+ * this material is not one (ADR-0020). So the lookup is spelled out here, in
+ * the same terms Babylon's own shadow includes use, and the two agree on one
+ * number — `(z + depthValues.x) / depthValues.y`, the depth the caster pass
+ * stored.
+ *
+ * `float` is not a preference. `ShadowGenerator` renders depth into a float or
+ * half-float target where the hardware supports one and into a packed RGBA
+ * byte target where it does not, and the two are read differently. It is
+ * measured off the shadow map's own `textureType` at material creation, never
+ * assumed — a wrong guess here is a ground that is entirely in shadow or
+ * entirely out of it, with no error anywhere.
+ */
+export interface TerrainShadowShader {
+  /** Texels across the shadow map; the PCF offsets are one texel wide. */
+  readonly mapSize: number;
+  /** True when the shadow map holds depth as a float in its red channel. */
+  readonly float: boolean;
+  /** Samples per pixel: 1 (hard), 4 (rotated square) or 9 (3×3 PCF). */
+  readonly taps: 1 | 4 | 9;
+}
+
+/**
  * The uniforms Babylon fills in by name, plus the ones the material binds.
  *
  * `world`, `worldViewProjection` and `cameraPosition` are Babylon's own
@@ -34,7 +62,7 @@ export const TERRAIN_ATTRIBUTES = ['position', 'normal', 'uv'] as const;
  * fog when the material binds, so the tile is lit by the same sun as everything
  * else instead of by a second, hard-coded one.
  */
-export function terrainUniformNames(layerCount: number): string[] {
+export function terrainUniformNames(layerCount: number, shadows = false): string[] {
   const uniforms = [
     'world',
     'worldViewProjection',
@@ -47,6 +75,9 @@ export function terrainUniformNames(layerCount: number): string[] {
     'uFogColor',
     'uFogRange',
   ];
+  if (shadows) {
+    uniforms.push('uShadowMatrix', 'uShadowDepthValues', 'uShadowInfo');
+  }
   for (let layer = 0; layer < layerCount; layer += 1) {
     uniforms.push(`uLayerScale${String(layer)}`);
   }
@@ -73,7 +104,11 @@ export function layerRepeats(size: readonly [number, number], tileSize: number):
 }
 
 /** The sampler names a generated program declares, in binding order. */
-export function terrainSamplerNames(layerCount: number, splatCount: number): string[] {
+export function terrainSamplerNames(
+  layerCount: number,
+  splatCount: number,
+  shadows = false,
+): string[] {
   const samplers: string[] = [];
   for (let map = 0; map < splatCount; map += 1) {
     samplers.push(`uSplat${String(map)}`);
@@ -81,11 +116,24 @@ export function terrainSamplerNames(layerCount: number, splatCount: number): str
   for (let layer = 0; layer < layerCount; layer += 1) {
     samplers.push(`uLayer${String(layer)}`);
   }
+  if (shadows) {
+    samplers.push('uShadowMap');
+  }
   return samplers;
 }
 
-/** The vertex program: world position, world normal and the tile's own UV. */
-export const TERRAIN_VERTEX_SOURCE = `precision highp float;
+/**
+ * The vertex program: world position, world normal and the tile's own UV — and,
+ * when the tile receives shadows, its position in the sun's clip space.
+ *
+ * `vShadowDepth` is computed here rather than in the fragment program because
+ * it is the *exact* expression the shadow-map pass stored
+ * (`shadowMapVertexMetric`): `(z + depthValues.x) / depthValues.y`. Restating
+ * it per pixel would be the same arithmetic; restating it differently would be
+ * a ground that shadows itself in stripes.
+ */
+export function terrainVertexSource(shadows = false): string {
+  return `precision highp float;
 
 attribute vec3 position;
 attribute vec3 normal;
@@ -93,11 +141,11 @@ attribute vec2 uv;
 
 uniform mat4 world;
 uniform mat4 worldViewProjection;
-
+${shadows ? 'uniform mat4 uShadowMatrix;\nuniform vec2 uShadowDepthValues;\n' : ''}
 varying vec2 vUv;
 varying vec3 vNormalW;
 varying vec3 vPositionW;
-
+${shadows ? 'varying vec4 vPositionFromLight;\nvarying float vShadowDepth;\n' : ''}
 void main(void) {
   vec4 worldPosition = world * vec4(position, 1.0);
   vPositionW = worldPosition.xyz;
@@ -106,9 +154,18 @@ void main(void) {
   // would only differ by a length this normalises away anyway.
   vNormalW = normalize(mat3(world) * normal);
   vUv = uv;
-  gl_Position = worldViewProjection * vec4(position, 1.0);
+${
+  shadows
+    ? '  vPositionFromLight = uShadowMatrix * worldPosition;\n' +
+      '  vShadowDepth = (vPositionFromLight.z + uShadowDepthValues.x) / uShadowDepthValues.y;\n'
+    : ''
+}  gl_Position = worldViewProjection * vec4(position, 1.0);
 }
 `;
+}
+
+/** The vertex program of a tile that receives no shadows. */
+export const TERRAIN_VERTEX_SOURCE = terrainVertexSource(false);
 
 /**
  * Builds the fragment program for a tile with `layerCount` layers weighted by
@@ -125,7 +182,11 @@ void main(void) {
  * exactly what `createBaseScene` puts into the scene, bound from the scene's own
  * lights rather than restated here.
  */
-export function terrainFragmentSource(layerCount: number, splatCount: number): string {
+export function terrainFragmentSource(
+  layerCount: number,
+  splatCount: number,
+  shadows?: TerrainShadowShader | undefined,
+): string {
   if (!Number.isInteger(layerCount) || layerCount < 0 || layerCount > MAX_TERRAIN_LAYERS) {
     throw new Error(`terrain: layerCount must be 0..${String(MAX_TERRAIN_LAYERS)}`);
   }
@@ -136,6 +197,13 @@ export function terrainFragmentSource(layerCount: number, splatCount: number): s
     throw new Error(
       `terrain: ${String(layerCount)} layers need more than ${String(splatCount)} splat map(s)`,
     );
+  }
+
+  if (shadows !== undefined && ![1, 4, 9].includes(shadows.taps)) {
+    throw new Error(`terrain: shadow taps must be 1, 4 or 9, got ${String(shadows.taps)}`);
+  }
+  if (shadows !== undefined && (!Number.isFinite(shadows.mapSize) || shadows.mapSize <= 0)) {
+    throw new Error(`terrain: shadow mapSize must be positive, got ${String(shadows.mapSize)}`);
   }
 
   const declarations: string[] = [];
@@ -163,11 +231,11 @@ uniform vec3 uFogColor;
 /** x: start, y: end, z: 1 when fog is on. */
 uniform vec3 uFogRange;
 ${declarations.join('\n')}
-
+${shadowDeclarations(shadows)}
 vec3 albedo(void) {
 ${albedoBody(layerCount, splatCount)}
 }
-
+${shadowFunction(shadows)}
 void main(void) {
   vec3 surface = albedo();
   vec3 n = normalize(vNormalW);
@@ -175,7 +243,7 @@ void main(void) {
   // One hemispheric fill and one key light: the same two createBaseScene adds.
   vec3 ambient = mix(uAmbientGround, uAmbientSky, n.y * 0.5 + 0.5);
   float key = max(dot(n, -uSunDirection), 0.0);
-  vec3 lit = surface * (ambient + uSunColor * key);
+  vec3 lit = surface * (ambient + uSunColor * key * shadowFactor());
 
   float distanceToCamera = length(cameraPosition - vPositionW);
   float fog = clamp((uFogRange.y - distanceToCamera) / (uFogRange.y - uFogRange.x), 0.0, 1.0);
@@ -219,4 +287,104 @@ function albedoBody(layerCount: number, splatCount: number): string {
   lines.push('  }');
   lines.push('  return blended / total;');
   return lines.join('\n');
+}
+
+/** The extra varyings, uniforms and sampler a shadow-receiving tile declares. */
+function shadowDeclarations(shadows: TerrainShadowShader | undefined): string {
+  if (shadows === undefined) {
+    return '';
+  }
+  return `varying vec4 vPositionFromLight;
+varying float vShadowDepth;
+uniform sampler2D uShadowMap;
+/** x: darkness in full shade, y: one texel in UV, z: 1 when shadows are on. */
+uniform vec3 uShadowInfo;
+`;
+}
+
+/**
+ * `shadowFactor()`: 1 in full sun, `uShadowInfo.x` in full shade.
+ *
+ * A tile that receives no shadows still calls it — the function is then a
+ * `return 1.0` the compiler folds away — so the one lighting line in `main` is
+ * the same string in both programs and cannot drift between them.
+ *
+ * Outside the map the answer is 1, not darkness: beyond `shadows.distance` the
+ * sun is simply unoccluded, which is the honest answer for ground the map never
+ * covered and the reason the edge of the shadow distance is invisible rather
+ * than a dark square.
+ */
+function shadowFunction(shadows: TerrainShadowShader | undefined): string {
+  if (shadows === undefined) {
+    return 'float shadowFactor(void) {\n  return 1.0;\n}\n';
+  }
+
+  // The caster pass writes depth into the red channel of a float target where
+  // the hardware has one, and packs it across RGBA where it does not.
+  const sample = shadows.float
+    ? '  return texture2D(uShadowMap, uv).x;'
+    : `  const vec4 bitShift = vec4(1.0 / (255.0 * 255.0 * 255.0), 1.0 / (255.0 * 255.0), 1.0 / 255.0, 1.0);
+  return dot(texture2D(uShadowMap, uv), bitShift);`;
+
+  const offsets = shadowTapOffsets(shadows.taps);
+  const taps = offsets
+    .map(
+      ([x, y]) =>
+        `  lit += step(depth, shadowDepthAt(uv + vec2(${x.toFixed(1)}, ${y.toFixed(1)}) * texel));`,
+    )
+    .join('\n');
+
+  return `float shadowDepthAt(vec2 uv) {
+${sample}
+}
+
+float shadowFactor(void) {
+  if (uShadowInfo.z < 0.5) {
+    return 1.0;
+  }
+  vec3 clip = vPositionFromLight.xyz / vPositionFromLight.w;
+  vec2 uv = 0.5 * clip.xy + vec2(0.5);
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+    return 1.0;
+  }
+  float depth = clamp(vShadowDepth, 0.0, 1.0);
+  float texel = uShadowInfo.y;
+  float lit = 0.0;
+${taps}
+  lit /= ${offsets.length.toFixed(1)};
+  return mix(uShadowInfo.x, 1.0, lit);
+}
+`;
+}
+
+/**
+ * Where the PCF taps sit, in texels.
+ *
+ * Four is a rotated square rather than an axis-aligned one: the shadow of a
+ * fence runs along an axis more often than not, and four taps in a diamond
+ * soften it in the direction it actually needs.
+ */
+export function shadowTapOffsets(taps: 1 | 4 | 9): readonly (readonly [number, number])[] {
+  if (taps === 1) {
+    return [[0, 0]];
+  }
+  if (taps === 4) {
+    return [
+      [-0.5, -0.5],
+      [0.5, -0.5],
+      [-0.5, 0.5],
+      [0.5, 0.5],
+    ];
+  }
+  return [
+    [-1, -1],
+    [0, -1],
+    [1, -1],
+    [-1, 0],
+    [0, 0],
+    [1, 0],
+    [-1, 1],
+    [0, 1],
+    [1, 1],
+  ];
 }

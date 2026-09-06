@@ -92,6 +92,8 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
   const gizmosRef = useRef<GizmoSet | null>(null);
   const outlineRef = useRef<SelectionOutline | null>(null);
   const terrainRef = useRef<ZoneTerrain | null>(null);
+  /** The profile the viewport was last lit with, so a gizmo drag does not relight. */
+  const lightingKeyRef = useRef<string>('');
   const dragStartRef = useRef<Map<string, GizmoTransform>>(new Map());
 
   // Live copies of everything the event handlers need to read.
@@ -189,8 +191,14 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
     const terrain = createZoneTerrain({
       scene: viewport.scene,
       source: assetSource,
-      onChanged: () => {
+      onChanged: (tile) => {
         handlersRef.current.onAssetSources(summarizeAssetSources(assets.sources()));
+        // The ground receives shadows through its own shader and must not cast
+        // (ADR-0024): a height field in its own shadow map self-shadows every
+        // slope it has.
+        if (tile) {
+          viewport.lighting().excludeFromShadows(tile.meshes);
+        }
       },
       onFailed: (reason) => {
         console.warn(`[editor] the ground of this zone did not load: ${reason}`);
@@ -359,6 +367,21 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
     outlineRef.current?.show(sync?.boundsOf(editorDocument.selection) ?? null);
 
     const zone = editorDocument.world.zones.find((each) => each.id === editorDocument.activeZoneId);
+
+    // Relight before the ground is (re)drawn, and only when the profile really
+    // changed: the tile compiles its shadow lookup against the map that exists
+    // when it is built, and the document is replaced on every gizmo drag —
+    // rebuilding the shadow map and the post-processing chain on each of those
+    // would cost more than the edit.
+    const lightingKey = JSON.stringify([
+      editorDocument.world.lighting ?? null,
+      zone?.lighting ?? null,
+    ]);
+    if (viewport && lightingKey !== lightingKeyRef.current) {
+      lightingKeyRef.current = lightingKey;
+      viewport.relight([editorDocument.world.lighting, zone?.lighting]);
+    }
+
     terrainRef.current?.show(zone?.terrain, `${editorDocument.world.id}:${zone?.id ?? 'no-zone'}`);
     publishEditorDebug({
       worldId: editorDocument.world.id,

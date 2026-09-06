@@ -35,7 +35,7 @@ const PLACEABLE_KINDS: ReadonlySet<string> = new Set(['mesh', 'prefab', 'terrain
 const PLACEHOLDER_PREFIX = 'placeholders/';
 
 /**
- * Export markers the the source project assets carry in their file names.
+ * Markers the imported model files carry in their names.
  * `sm-prop-` and `sm-item-` mark the small, movable things; everything else in
  * `environment/` is scenery.
  */

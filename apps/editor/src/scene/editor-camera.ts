@@ -7,7 +7,7 @@
  *
  * The button layout resolves the one real conflict in spec §14: `W`, `E` and
  * `R` are gizmo shortcuts *and* flying keys. They fly only while the right
- * mouse button is held — the same rule the source engine uses — so a keystroke is never
+ * mouse button is held — a common editor convention — so a keystroke is never
  * ambiguous, and the tool shortcuts keep working with the mouse at rest.
  *
  * - right button drag: orbit; `WASD` flies, `Q`/`E` drop and lift, `Shift` runs

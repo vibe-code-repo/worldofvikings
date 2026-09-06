@@ -19,8 +19,8 @@ The authoritative definition is `packages/world-schema`.
       "name": "Village",
       "entities": [
         {
-          "id": "tree_001",
-          "prefab": "pine_tree_01",
+          "id": "barrel_001",
+          "prefab": "barrel-01",
           "position": [24.3, 1.2, -56.4],
           "rotation": [0, 2.1, 0],
           "scale": [1.1, 1.1, 1.1]

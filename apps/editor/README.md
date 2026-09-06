@@ -41,6 +41,16 @@ testable without a GPU:
 | `picking.ts` — ray to the ground plane         | `picking.ts` (the scene picks)    |
 | `prefab-index.ts` — catalogue by id, category  | —                                 |
 | `selection-outline.ts` — the twelve box edges  | `selection-outline.ts`            |
+| —                                              | `zone-terrain.ts` — the ground    |
+
+The active zone's `terrain` block is drawn as scenery (ADR-0020, ADR-0022): it
+is what surface snapping drops a prop onto, and it carries no entity id, so
+clicking it selects nothing and no gizmo can move it. Terrain editing is a later
+phase.
+
+`SceneSync.meshCount()` counts entity **roots** — exactly one per entity, so it
+is comparable to the document's `entityCount` without arithmetic. A loaded GLB
+brings its own intermediate nodes under that root, and those are not entities.
 
 ## Where code belongs
 

@@ -18,6 +18,7 @@ import type { PrefabIndex } from './scene/prefab-index.js';
 import { createSceneSync, type SceneSync } from './scene/scene-sync.js';
 import { createSelectionOutline, type SelectionOutline } from './scene/selection-outline.js';
 import { createViewport, type ViewportHandle } from './scene/viewport.js';
+import { createZoneTerrain, type ZoneTerrain } from './scene/zone-terrain.js';
 
 /** How far the pointer may travel between press and release and still be a click. */
 const CLICK_SLOP_PX = 4;
@@ -90,6 +91,7 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
   const syncRef = useRef<SceneSync | null>(null);
   const gizmosRef = useRef<GizmoSet | null>(null);
   const outlineRef = useRef<SelectionOutline | null>(null);
+  const terrainRef = useRef<ZoneTerrain | null>(null);
   const dragStartRef = useRef<Map<string, GizmoTransform>>(new Map());
 
   // Live copies of everything the event handlers need to read.
@@ -182,6 +184,19 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
     };
     const outline = createSelectionOutline(viewport.scene);
     outlineRef.current = outline;
+    // Scenery, not a document object: it is drawn and it is what a prop snaps
+    // onto, and nothing in the editor can select or move it yet (ADR-0022).
+    const terrain = createZoneTerrain({
+      scene: viewport.scene,
+      source: assetSource,
+      onChanged: () => {
+        handlersRef.current.onAssetSources(summarizeAssetSources(assets.sources()));
+      },
+      onFailed: (reason) => {
+        console.warn(`[editor] the ground of this zone did not load: ${reason}`);
+      },
+    });
+    terrainRef.current = terrain;
     const sync = createSceneSync({
       scene: viewport.scene,
       assets,
@@ -195,6 +210,8 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
     return () => {
       syncRef.current = null;
       outlineRef.current = null;
+      terrainRef.current = null;
+      terrain.dispose();
       outline.dispose();
       sync.dispose();
       void assets.dispose();
@@ -342,6 +359,7 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
     outlineRef.current?.show(sync?.boundsOf(editorDocument.selection) ?? null);
 
     const zone = editorDocument.world.zones.find((each) => each.id === editorDocument.activeZoneId);
+    terrainRef.current?.show(zone?.terrain, `${editorDocument.world.id}:${zone?.id ?? 'no-zone'}`);
     publishEditorDebug({
       worldId: editorDocument.world.id,
       zoneId: editorDocument.activeZoneId,

@@ -358,6 +358,57 @@ export function countTriangles(json: Gltf): number {
 }
 
 /**
+ * Every vertex of the file, in the file's own space, with node transforms
+ * applied.
+ *
+ * `worldBounds` reads accessor `min`/`max` because a hull is all it needs;
+ * this reads the vertices themselves, because measuring a tree's *trunk* means
+ * looking at the points near its foot and a bounding box has none.
+ *
+ * The result is a flat `x, y, z` list, which is what every consumer of it wants
+ * and what keeps 20 000 vertices out of 20 000 little arrays.
+ */
+export function worldPositions(glb: Glb): Float32Array {
+  const chunks: Float32Array[] = [];
+  let total = 0;
+
+  walkNodes(glb.json, (node, matrix) => {
+    if (node.mesh === undefined) {
+      return;
+    }
+    for (const primitive of glb.json.meshes?.[node.mesh]?.primitives ?? []) {
+      const accessorIndex = primitive.attributes['POSITION'];
+      if (accessorIndex === undefined) {
+        continue;
+      }
+      const local = readVec3(glb, accessorIndex);
+      const world = new Float32Array(local.length);
+      for (let index = 0; index < local.length; index += 3) {
+        const point = transformPoint(
+          matrix,
+          local[index] ?? 0,
+          local[index + 1] ?? 0,
+          local[index + 2] ?? 0,
+        );
+        world[index] = point[0];
+        world[index + 1] = point[1];
+        world[index + 2] = point[2];
+      }
+      chunks.push(world);
+      total += world.length;
+    }
+  });
+
+  const all = new Float32Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    all.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return all;
+}
+
+/**
  * Inserts a single root node above the scene's current roots.
  *
  * This is how the origin is normalised: nothing in the geometry moves, one

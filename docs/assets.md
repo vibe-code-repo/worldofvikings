@@ -177,6 +177,36 @@ sky dome — is excluded and named rather than rescaled. Afterwards, run
 `pnpm generate:prefabs` so the new models reach the catalogue, then
 `pnpm import:scene` to write the world file (`docs/world-format.md`).
 
+## The collision shape of a prefab
+
+`pnpm generate:prefabs` also decides what each prefab is _shaped_ like for
+collision (ADR-0026), from rules over the manifest:
+
+| Asset                                      | Shape                                        |
+| ------------------------------------------ | -------------------------------------------- |
+| ships an `<name>-collision.glb`            | `mesh`, against that file                    |
+| `terrain/`                                 | `mesh`                                       |
+| `vegetation/`, name contains `tree`/`pine` | `box` around the **measured trunk**          |
+| `vegetation/`, anything else               | `none` — grass and bushes are walked through |
+| named as an opening (`archway`, `gateway`) | `mesh`, or a box would fill the opening      |
+| everything else                            | `box`, from the manifest's hull              |
+
+A collider file is never a prefab of its own.
+
+The trunk is the reason this command reads the store:
+
+```bash
+pnpm generate:prefabs --store <store>   # or set WOV_ASSET_STORE
+```
+
+A pine's hull is 6.8 m across because its crown is; its trunk is 0.6 m, and that
+number is written down nowhere but the model. The command opens each tree, takes
+the width of the lowest band of vertices per axis, ignores the outermost tenth
+so a root flare does not set the width, and writes the result as
+`collision.box`. Without a readable store it **fails on the first tree** rather
+than filing a crown as a trunk. The result is committed, so a clone never needs
+to run it.
+
 ## Formats
 
 | Kind     | Format          | Notes                                   |

@@ -105,23 +105,27 @@ become a route back into gameplay either.
   input.sample(camera yaw)                        interpolate(previous, current)
         │                                                   │
         v                                                   v
-  MovementSystem.update(state, input, dt, ground)   capsule.position
-        │                    ▲                              │
-        │                    │ heightAt(x, z)               v
-        v                    │                     renderer.renderFrame()
-  physics.step(dt) ─────────▶ physics-ground.ts             │
-                              (raycastGround)               v
-                                                third-person camera follows
+  MovementSystem.update(state, input, dt,           capsule.position
+                        ground, obstacles)                  │
+        │                    ▲                              v
+        │                    │ heightAt(x, z)      renderer.renderFrame()
+        │                    │ isFree(from, to, r)          │
+        v                    │                              v
+  physics.step(dt) ─────────▶ physics-ground.ts   third-person camera follows
+                              physics-obstacles.ts
+                              (raycastGround, raycast)
 ```
 
 Reading it in one sentence: keys and mouse buttons become intent, intent becomes
-a position, physics says what height that position sits at, and the renderer
-draws the result with the camera behind it. Every arrow points away from the
-state and towards the picture.
+a position, physics says what height that position sits at and whether anything
+is in the way of it, and the renderer draws the result with the camera behind
+it. Every arrow points away from the state and towards the picture.
 
-Four seams here have no unit test that can see them, so `pnpm smoke` covers each
+Five seams here have no unit test that can see them, so `pnpm smoke` covers each
 in a real browser: the frame counter climbs, a held key walks the capsule, the
-camera follows it, and the Havok backend comes up over the network.
+camera follows it, the Havok backend comes up over the network, and the capsule
+is stopped by a wall of the _authored_ village rather than by one a test drew
+(ADR-0026).
 
 ## Packages
 
@@ -138,7 +142,8 @@ camera follows it, and the Havok backend comes up over the network.
 
 See each package's README for its public API and ownership. `@wov/gameplay` and
 `@wov/physics` never import each other: the app joins them, in
-`apps/game/src/physics-ground.ts` (ADR-0014).
+`apps/game/src/physics-ground.ts` (ADR-0014) and `physics-obstacles.ts`
+(ADR-0026).
 
 ## Build model
 
@@ -156,8 +161,8 @@ gameplay / apps  →  @wov/physics (contract, no Babylon)
                     @wov/physics/havok  →  @babylonjs/havok (WASM)
 ```
 
-The contract (`PhysicsWorld`, `CharacterController`, `raycastGround`,
-`addStaticMesh`) contains no Babylon.js and no Havok, so gameplay never sees the
+The contract (`PhysicsWorld`, `CharacterController`, `raycastGround`, `raycast`,
+`addStaticMesh`, `addStaticGroup`) contains no Babylon.js and no Havok, so gameplay never sees the
 backend and importing it costs nothing. `apps/game` loads the backend with a
 dynamic `import()` from `apps/game/src/physics-backend.ts`, which keeps the ~2 MB
 `HavokPhysics.wasm` in its own chunk and out of the editor entirely. Stepping is
@@ -165,18 +170,24 @@ explicit: the game loop calls `step(deltaSeconds)`, the render loop never
 advances the simulation on its own. Capsule size, mass and the substep limits are
 data in `packages/physics/src/defaults.ts`. See ADR-0013.
 
+A zone's entities are collided against through `addStaticGroup`: one shape, every
+placement of it, with the entity's scale baked into the shape's coordinates and
+only a position and a rotation on the body. The village's 1216 entities are 220
+distinct _(prefab, scale)_ pairs, so 220 shapes carry all of them (ADR-0026).
+
 ## Known limitations (Phase 1)
 
 - The game's entry chunk is large — see the numbers in `docs/development.md`.
   Splitting Babylon.js out of it is still open (ADR-0006).
 - There is no player _controller_ on top of physics yet: the capsule is moved
-  kinematically by `MovementSystem`, and physics answers the ground under it.
-  Collision against walls and gravity arrive with Phase 2.
+  kinematically by `MovementSystem`, and physics answers the ground under it and
+  whether anything is beside it (ADR-0026). Gravity, jumping and being pushed
+  arrive with Phase 2.
 - `toStaticMeshData` still lives in `apps/game/src/physics-backend.ts`; it
   belongs in `@wov/engine` next to the rest of the Babylon bridge.
 - The camera's obstacle query is `noCameraObstacles`: it will happily sit inside
-  a wall. `PhysicsWorld` only casts downward rays today, so pushing the camera
-  out needs a general raycast on the contract first (ADR-0014).
+  a wall. The contract now has the general `raycast` this needs (ADR-0026); the
+  camera has not been wired to it.
 - `RenderConfig.debugOverlay` is declared and read by nobody — a placeholder for
   the overlay a later phase adds, not a feature.
 - No character model, no combat, no world loading. The API only serves

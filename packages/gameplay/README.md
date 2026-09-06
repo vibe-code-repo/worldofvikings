@@ -14,13 +14,14 @@ Phase 1 covers movement only. Stats, combat, inventory and AI arrive later
 ```text
 WorldState  (entity ids + one map per component)
     |
-MovementSystem.update(state, input, dt, ground)  → a new WorldState
+MovementSystem.update(state, input, dt, ground, obstacles)  → a new WorldState
     |
 apps/game copies the numbers into Babylon
 ```
 
 Everything the world outside can answer arrives as an interface: ground height
-comes from a `GroundQuery`, never from a raycast the system performs itself.
+comes from a `GroundQuery` and what is in the way from an `ObstacleQuery`, never
+from a raycast the system performs itself.
 Phase 1 answers it from a flat plane, physics answers it from Havok later
 (spec §29), a test answers it from a table.
 
@@ -51,10 +52,15 @@ and a gamepad or a replay file can produce the same record later.
 **Ground** — `GroundQuery`, `flatGround(height)`, `NO_GROUND`,
 `groundUnder(ground, position)`.
 
+**Obstacles** — `ObstacleQuery` (`isFree(from, to, radius)`), `NO_OBSTACLES`
+(ADR-0026). When a move is refused, `MovementSystem` retries it on one axis and
+then the other, so an entity slides along a wall instead of sticking to it, and
+the axis it gave up loses its velocity.
+
 **Fixed timestep** — `createStepAccumulator(options)`, `advance(acc, frameDelta)`,
 `DEFAULT_FIXED_DELTA` (1/60 s), `DEFAULT_MAX_STEPS_PER_FRAME`.
 
-**Systems** — `MovementSystem.update(state, input, dt, ground)`.
+**Systems** — `MovementSystem.update(state, input, dt, ground, obstacles)`.
 
 **Vectors** — `Vec3`, `vec3(x, y, z)`, `ZERO_VEC3`, `horizontalLength(x, z)`.
 
@@ -67,7 +73,7 @@ press covers a different distance on every machine:
 const tick = advance(accumulator, frameDeltaSeconds);
 accumulator = tick.accumulator;
 for (let i = 0; i < tick.steps; i += 1) {
-  state = MovementSystem.update(state, input, accumulator.fixedDelta, ground);
+  state = MovementSystem.update(state, input, accumulator.fixedDelta, ground, obstacles);
 }
 // tick.alpha interpolates the render pose between the last two steps.
 ```

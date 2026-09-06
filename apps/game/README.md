@@ -9,7 +9,8 @@ third-person camera following it: keyboard and mouse produce intent,
 position (ADR-0022).
 
 One DOM marker per concern: `game-marker` (the app is served), `game-status`
-(the renderer, the simulation, physics and the ground), `game-world` (which
+(the renderer, the simulation, physics and the ground), `game-collision` (what
+the player can bump into), `game-world` (which
 world is on screen, or why none is), `game-assets` and `game-asset-sources`
 (the asset pipeline and where the bytes came from), `game-controls` (the key
 list). `pnpm smoke` asserts them.
@@ -62,7 +63,10 @@ The arrow only points one way: state flows into the renderer and never back
 | `src/scene.ts`                | Renderer, base scene, camera and capsule, from `@wov/engine` |
 | `src/config.ts`               | Where the API and the assets are, and which world to open    |
 | `src/world-api.ts`            | `GET /worlds/:id` and `GET /prefabs`, validated              |
-| `src/world-scene.ts`          | One zone → ground plus instanced entities                    |
+| `src/world-scene.ts`          | One zone → ground, instanced entities, collision bodies      |
+| `src/entity-collision.ts`     | Prefab shape + entity transform → one shared static shape    |
+| `src/physics-ground.ts`       | The ground query, answered by a downward ray                 |
+| `src/physics-obstacles.ts`    | The obstacle query, answered by rays across the path         |
 | `src/main.ts`                 | Wiring only                                                  |
 
 Why the device edge lives in the app rather than in a package, why the bindings
@@ -93,10 +97,14 @@ changing that one getter.
 ## Dev build only
 
 `src/dev-debug.ts` publishes
-`window.__wov = { backend, frameId, camera, player, groundAt, terrainBounds, render }`
+`window.__wov = { backend, frameId, camera, player, groundAt, rayHit, terrainBounds, render, collision }`
 and writes `frame <n>` into the marker every frame. `render` carries Babylon's
 own per-frame draw-call, active-mesh and triangle counters, which is what the
-instancing of ADR-0022 is measured with — see `docs/development.md`. A loaded page proves nothing
+instancing of ADR-0022 is measured with — see `docs/development.md`. `collision`
+carries what the zone's collision cost and produced, and `rayHit` casts through
+that geometry, which is the only way a test can ask about a **hole**: an
+archway's shape is only right if a line through its opening is clear and a line
+through its post is not (ADR-0026). A loaded page proves nothing
 about a running renderer: the marker is there whether the loop ticks, stalls or
 throws after the first frame, so `pnpm smoke` watches the counter climb instead.
 The camera readout is there for the same reason — unit tests pin the camera

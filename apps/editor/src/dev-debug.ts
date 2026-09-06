@@ -44,6 +44,13 @@ export interface WovEditorDebug {
    * from the same distance.
    */
   readonly loadedCount: number;
+  /**
+   * File names of the textures the scene has finished loading.
+   *
+   * A model draws with or without its base colour, so `loadedCount` alone
+   * cannot tell a textured viewport from a grey one (ADR-0019).
+   */
+  readonly loadedTextures: readonly string[];
   /** Selected entity ids, in the order they were picked. */
   readonly selection: readonly string[];
   /** Whether the world differs from the last saved file. */
@@ -68,6 +75,7 @@ const initial: WovEditorDebug = {
   entityCount: 0,
   meshCount: 0,
   loadedCount: 0,
+  loadedTextures: [],
   selection: [],
   dirty: false,
   undoDepth: 0,

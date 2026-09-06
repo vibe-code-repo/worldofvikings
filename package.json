@@ -26,6 +26,7 @@
     "validate:content": "tsx tooling/validators/validate-content.ts",
     "validate:assets": "tsx tooling/validators/validate-assets.ts",
     "import:world-assets": "tsx tooling/asset-pipeline/import-world-assets.ts",
+    "import:scene": "tsx tooling/scripts/import-scene.ts",
     "generate:prefabs": "tsx tooling/scripts/generate-prefabs.ts",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test && pnpm run validate",
     "smoke": "playwright test --config tooling/smoke/playwright.config.ts"

@@ -108,6 +108,42 @@ and a byte-identical manifest. What it selects, how it treats an origin and what
 provenance it asserts are documented — with the measurements behind each — in
 `tooling/asset-pipeline/README.md`.
 
+### Materials and shared texture files
+
+The per-model part of that export carries no material assignment: 388 of the 437
+models arrive with one untextured `DefaultMaterial`. The assignment lives in the
+assembled scene bundles instead, so the import reads those once, up front, and
+writes each model's material back into its own GLB (ADR-0019). 328 of the 437
+end up with a base colour — 49 that kept the material they were exported with,
+279 bound from a scene bundle.
+
+Two rules make the result loadable rather than merely correct:
+
+- **Textures are files, and they sit below the model group.** A model at
+  `environment/rock.glb` refers to `textures/atlas-2a217835.png`, which resolves
+  to `environment/textures/atlas-2a217835.png` on disk and to
+  `…/store/environment/textures/…` over the asset server. The URI must not
+  contain `..`: Babylon.js rejects such a reference before it requests anything,
+  and the model then draws grey while every other signal reports success. File
+  names stay `<material-kebab>-<hash8>.png`, identical bytes are written once
+  per group, and anything over 2048 px is halved until it fits.
+- **Metallic 0, roughness 1, always.** The glTF default is metallic 1, so a
+  material that says nothing renders as rough metal.
+
+What each material name means for the surface — cut out, double-sided, self-lit —
+is a checked table in `tooling/asset-pipeline/materials.ts`, not a rule over
+names. An unlisted material is reported by the importer and drawn opaque.
+
+Two things the export simply does not contain, and which no import can recover:
+the leaf and grass atlases are luminance masks whose colour lived in a material
+tint the exporter dropped, so foliage renders grey; and 109 models appear in no
+scene bundle at all, so they stay untextured and are named in the run report.
+
+`pnpm smoke` proves the rest on screen: with `WOV_ASSET_STORE` set,
+`tooling/smoke/textures.spec.ts` opens the editor on three private models and
+asserts the texture requests, the files the scene actually finished loading, and
+the pixels.
+
 ## Formats
 
 | Kind     | Format          | Notes                                   |

@@ -8,10 +8,18 @@
  * many meshes the *scene* holds — so a viewport that quietly stopped deriving
  * itself from the document fails a test instead of looking fine.
  *
- * Dev-only: it is published behind `import.meta.env.DEV`, which Vite replaces
- * with `false` in a production build, so Rollup drops the caller and this
- * module with it. Verify with
- * `pnpm --filter @wov/editor build && grep -r __wovEditor apps/editor/dist/`.
+ * Only the *publishing* is dev-only. `installEditorDebugBridge` is called
+ * behind `import.meta.env.DEV`, which Vite replaces with `false` in a
+ * production build, so a shipped editor never puts a handle to its own state on
+ * `window`. `publishEditorDebug` is called from the render loop and from React
+ * on every document change and is deliberately *not* guarded at each call site:
+ * it returns immediately when no bridge was installed, and thirty guards around
+ * one branch would be thirty places to forget one.
+ *
+ * The game does drop its whole bridge module (`apps/game/src/dev-debug.ts`),
+ * because there the DEV branch wraps the only call. The difference is
+ * intentional: this module survives into the production bundle as a few hundred
+ * bytes of no-op, and the frame budget is untouched either way.
  */
 
 /** The read-only view `pnpm smoke` and other dev tooling may rely on. */

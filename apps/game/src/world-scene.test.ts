@@ -11,6 +11,7 @@ import {
   castsShadows,
   drawsAsThinInstances,
   groupByPrefab,
+  backdropTakesFog,
   markAsBackdrop,
   indexPrefabs,
   playableZone,
@@ -318,11 +319,19 @@ describe('the backdrop', () => {
     expect(drawsAsThinInstances(shell())).toBe(false);
   });
 
-  it('takes a mesh out of the fog and out of the picking', () => {
+  it('takes a mesh out of the picking, and out of a fog that would erase it', () => {
     const mesh = { applyFog: true, isPickable: true, getTotalVertices: () => 324 };
-    const marked = markAsBackdrop([{ getChildMeshes: () => [mesh] }]);
+    const marked = markAsBackdrop([{ getChildMeshes: () => [mesh] }], () => false);
     expect(marked).toEqual([mesh]);
     expect(mesh.applyFog).toBe(false);
+    expect(mesh.isPickable).toBe(false);
+  });
+
+  it('leaves a mesh in a fog that reaches past it, so the range hazes with distance', () => {
+    const mesh = { applyFog: false, isPickable: true, getTotalVertices: () => 324 };
+    markAsBackdrop([{ getChildMeshes: () => [mesh] }], () => true);
+    expect(mesh.applyFog).toBe(true);
+    // Never pickable, whatever the fog does.
     expect(mesh.isPickable).toBe(false);
   });
 
@@ -338,7 +347,7 @@ describe('the backdrop', () => {
       sourceMesh: source,
       getTotalVertices: () => 324,
     };
-    markAsBackdrop([{ getChildMeshes: () => [instance] }]);
+    markAsBackdrop([{ getChildMeshes: () => [instance] }], () => false);
     expect(source.applyFog).toBe(false);
     expect(source.isPickable).toBe(false);
   });
@@ -348,7 +357,45 @@ describe('the backdrop', () => {
     const real = { applyFog: true, isPickable: true, getTotalVertices: () => 12 };
     // What comes back is handed to `excludeFromShadows`, so a transform node in
     // the list would be a node the shadow rig is asked to un-light.
-    expect(markAsBackdrop([{ getChildMeshes: () => [empty, real] }])).toEqual([real]);
+    expect(markAsBackdrop([{ getChildMeshes: () => [empty, real] }], () => false)).toEqual([real]);
     expect(empty.applyFog).toBe(true);
+  });
+});
+
+/**
+ * Whether the painted distance takes the world's fog.
+ *
+ * The rule is self-guarding, which is the whole point of it: the backdrop is
+ * only fogged by a fog that reaches *past* it, so a world can never haze its
+ * horizon into a flat band by shortening `fog.end`. It simply stops being
+ * fogged, which is where this started (ADR-0031).
+ */
+describe('backdropTakesFog', () => {
+  const fog = (enabled: boolean, end: number): { enabled: boolean; end: number } => ({
+    enabled,
+    end,
+  });
+
+  it('says no when there is no fog', () => {
+    expect(backdropTakesFog(fog(false, 4000), 806)).toBe(false);
+  });
+
+  it('says no when the fog ends before the shell, which would erase it', () => {
+    // The village's own numbers before this rule existed: fog to 420 m and an
+    // outer shell reaching 806 m is a horizon painted flat in fog colour.
+    expect(backdropTakesFog(fog(true, 420), 806)).toBe(false);
+  });
+
+  it('says yes when the fog reaches past the shell', () => {
+    expect(backdropTakesFog(fog(true, 1100), 806)).toBe(true);
+  });
+
+  it('is decided per mesh, so near clouds haze while a far shell does not', () => {
+    expect(backdropTakesFog(fog(true, 900), 250)).toBe(true);
+    expect(backdropTakesFog(fog(true, 900), 1200)).toBe(false);
+  });
+
+  it('refuses the exact boundary rather than fogging a shell to its own end', () => {
+    expect(backdropTakesFog(fog(true, 806), 806)).toBe(false);
   });
 });

@@ -141,7 +141,15 @@ test.describe('the village horizon', () => {
     // Two shells: one snowy, one not. The 23 clouds are backdrop too, but they
     // are drawn from three models and their count is not the point here.
     expect(placed?.backdrop?.meshes ?? 0).toBeGreaterThanOrEqual(2);
-    expect(placed?.backdrop?.fogged, 'a backdrop mesh still has fog applied').toBe(0);
+    // Every one of them takes the fog, because this world's fog reaches past
+    // even the outer shell — 1 700 m against a reach of 1 601 m (ADR-0034).
+    // Paired with the flat-band measurement further down, this is the whole
+    // claim: the range is hazed *and* still a range. Asserting only that it is
+    // hazed would pass on a horizon fogged into one grey band, which is the
+    // failure ADR-0031 was written against.
+    expect(placed?.backdrop?.fogged, 'a backdrop mesh was left out of the fog').toBe(
+      placed?.backdrop?.meshes,
+    );
     expect(placed?.backdrop?.pickable, 'a backdrop mesh is still pickable').toBe(0);
     expect(placed?.backdrop?.receivingShadow, 'a backdrop mesh still takes shadow').toBe(0);
 

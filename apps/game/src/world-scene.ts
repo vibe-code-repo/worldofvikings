@@ -30,7 +30,7 @@
  * would queue behind each other in the browser anyway, and the memory peak of
  * 139 half-parsed containers is real.
  */
-import type { Scene } from '@babylonjs/core/scene.js';
+import { Scene } from '@babylonjs/core/scene.js';
 import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
@@ -194,11 +194,22 @@ export interface BackdropRoot<M extends BackdropMesh> {
  * Takes one backdrop model out of the fog and out of the picking, and says
  * which meshes it was.
  *
- * **Why no fog.** The village's fog is linear from 80 m to 420 m
- * (`content/worlds/village1.json`) and the mountain shells stand 290–594 m out.
- * Fogged, the outer one is *entirely* fog colour: the horizon becomes a flat
- * grey band where a mountain range was. It would also be counted twice — the
- * haze of distance is painted into the panorama already.
+ * **Why the fog is a question and not a flat no.** A backdrop used to be taken
+ * out of the fog outright, because the village's fog ran from 80 m to 420 m
+ * while the mountain shells stand 290–806 m out: fogged by *that* fog, the
+ * outer shell is entirely fog colour and the horizon is a flat band where a
+ * mountain range was. The reasoning added that the haze of distance is painted
+ * into the panorama already — but it is not. Measured, the panorama is a green
+ * painting (B−R −18, saturation 0.26), and unfogged it read *darker* than the
+ * hazed ground in front of it, so the furthest thing in the world was also the
+ * heaviest. Depth ran backwards.
+ *
+ * So the question is asked per mesh instead ({@link backdropTakesFog}): a
+ * backdrop takes the fog when the fog reaches past it, and stays out of it when
+ * it does not. That keeps the original guarantee — no fog can flatten the
+ * horizon, because a fog ending before the shell simply does not apply to it —
+ * and lets a world that hazes to 1 100 m put the range behind its own air
+ * (ADR-0034).
  *
  * **Why not pickable.** The editor rays against whatever is pickable to find
  * the surface under the cursor and to drop a prop onto it, and a prop dropped
@@ -221,8 +232,33 @@ export interface BackdropRoot<M extends BackdropMesh> {
  *
  * @param roots the nodes one `instantiate` call returned — the loader's
  *   `__root__` included, which is why the meshes are gathered by walking it.
+ * @param takesFog asked once per mesh; see {@link backdropTakesFog}, which is
+ *   the rule, kept apart from the walk so it can be read without a renderer.
  */
-export function markAsBackdrop<M extends BackdropMesh>(roots: readonly BackdropRoot<M>[]): M[] {
+/**
+ * Whether a backdrop mesh takes the scene's fog.
+ *
+ * `reach` is how far away the farthest point of that mesh can be — its world
+ * bounding sphere's centre distance plus its radius. The fog has to end beyond
+ * that, not merely somewhere inside it: a shell whose far side sits past
+ * `fog.end` is drawn with a band of pure fog colour across it, which is the
+ * flat horizon this rule exists to prevent.
+ *
+ * Strictly greater, so a fog ending exactly at the shell does not fog it: at
+ * `end === reach` the far side is at fog factor 1, which is that same flat
+ * band on the last row of pixels.
+ */
+export function backdropTakesFog(
+  fog: { readonly enabled: boolean; readonly end: number },
+  reach: number,
+): boolean {
+  return fog.enabled && fog.end > reach;
+}
+
+export function markAsBackdrop<M extends BackdropMesh>(
+  roots: readonly BackdropRoot<M>[],
+  takesFog: (mesh: M) => boolean,
+): M[] {
   const meshes: M[] = [];
   for (const root of roots) {
     for (const mesh of root.getChildMeshes(false)) {
@@ -232,12 +268,13 @@ export function markAsBackdrop<M extends BackdropMesh>(roots: readonly BackdropR
       if (mesh.getTotalVertices() === 0) {
         continue;
       }
+      const fogged = takesFog(mesh);
       const shared = mesh.isAnInstance === true ? mesh.sourceMesh : undefined;
       if (shared !== undefined) {
-        shared.applyFog = false;
+        shared.applyFog = fogged;
         shared.isPickable = false;
       }
-      mesh.applyFog = false;
+      mesh.applyFog = fogged;
       mesh.isPickable = false;
       meshes.push(mesh);
     }
@@ -474,7 +511,24 @@ export async function placeEntities(options: ZoneSceneOptions): Promise<{
             node.parent = root;
           }
           if (isBackdrop(prefab)) {
-            backdrop.push(...markAsBackdrop(instantiated.rootNodes));
+            // The rig has already run (`main.ts` relights before it places), so
+            // the scene's fog here is the world file's fog and not Babylon's
+            // default. Reach is measured off the mesh rather than assumed: the
+            // shells are 594 m shells standing on a 300 m tile, the clouds are
+            // small and near, and they do not want the same answer.
+            backdrop.push(
+              ...markAsBackdrop(instantiated.rootNodes, (mesh) => {
+                mesh.computeWorldMatrix(true);
+                const sphere = mesh.getBoundingInfo().boundingSphere;
+                return backdropTakesFog(
+                  {
+                    enabled: scene.fogEnabled && scene.fogMode === Scene.FOGMODE_LINEAR,
+                    end: scene.fogEnd,
+                  },
+                  sphere.centerWorld.length() + sphere.radiusWorld,
+                );
+              }),
+            );
           }
         } catch (error) {
           failed.push(`${prefabId}: ${error instanceof Error ? error.message : String(error)}`);

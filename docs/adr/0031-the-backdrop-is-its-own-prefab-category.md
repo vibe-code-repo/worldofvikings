@@ -1,6 +1,10 @@
 # ADR-0031: The backdrop is its own prefab category
 
-- **Status:** accepted
+- **Status:** accepted, amended by [ADR-0034](0034-the-backdrop-takes-a-fog-that-reaches-past-it.md)
+  on the fog: a backdrop is no longer excluded from it outright, it takes a fog
+  that reaches past it. The claim below that the haze of distance is painted into
+  the panorama already did not survive measurement — the panorama is a green
+  painting, B−R −18 at saturation 0.26.
 - **Date:** 2026-09-06
 - **Deciders:** asset-pipeline, world-schema and game-client owners
 

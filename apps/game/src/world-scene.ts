@@ -35,7 +35,7 @@ import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
-import { createTerrain } from '@wov/engine';
+import { createTerrain, terrainLayerSources } from '@wov/engine';
 import type { TerrainHandle, TerrainTextureSource } from '@wov/engine';
 import {
   AssetManager,
@@ -258,11 +258,9 @@ export async function loadZoneTerrain(
     name,
     position: [terrain.position[0], terrain.position[1], terrain.position[2]],
     size: [terrain.size[0], terrain.size[1]],
-    layers: (terrain.layers ?? []).map((layer) => ({
-      ...textureSource(source, layer.texture),
-      tileSize: layer.tileSize,
-    })),
+    layers: terrainLayerSources(terrain.layers ?? [], (path) => textureSource(source, path)),
     splat: (terrain.splat ?? []).map((path) => textureSource(source, path)),
+    flatNormals: terrain.flatNormals === true,
     // Compiled into the ground's own program, not a mesh flag — the terrain
     // material is hand-written GLSL and `receiveShadows` means nothing to it
     // (ADR-0020, ADR-0024). The sun's shadow map must therefore already exist

@@ -13,6 +13,51 @@
  * uniforms cannot silently drift from what the material binds.
  */
 
+/**
+ * The sky as a function of direction, as GLSL both programs paste in.
+ *
+ * A function rather than a copied dozen lines, because the ground reflects this
+ * sky (ADR-0032) and a reflection of a *different* gradient is worse than no
+ * reflection at all: the horizon would sit at one height in the dome and at
+ * another in the puddle below it, and nothing in either file would say why.
+ *
+ * The gradient is biased with `pow(up, 0.45)` so that most of the transition
+ * happens in the lower third of the sky — which is where an evening sky
+ * actually changes colour, and where a linear ramp looks like a poster. Below
+ * the horizon the dome darkens quickly: nothing should ever be looking there,
+ * but a terrain tile is 300 m square and its edge is 150 m from the middle, so
+ * something always is.
+ *
+ * `sunSpread` maps to the exponent of the glow: 0 gives a hard little disc, 1
+ * washes the whole hemisphere.
+ */
+export const SKY_GRADIENT_FUNCTION = `vec3 wovSkyColor(
+  vec3 direction,
+  vec3 zenithColor,
+  vec3 horizonColor,
+  vec3 sunColor,
+  vec3 sunDirection,
+  float sunSpread
+) {
+  // Above the horizon the sky climbs to the zenith colour.
+  float up = clamp(direction.y, 0.0, 1.0);
+  vec3 sky = mix(horizonColor, zenithColor, pow(up, 0.45));
+
+  // Below it, it drops away fast and dark. That half of the dome is what shows
+  // past the edge of a terrain tile, and a warm horizon colour continued
+  // downwards reads as a beach stretching to the frame edge.
+  float down = clamp(-direction.y * 8.0, 0.0, 1.0);
+  sky = mix(sky, horizonColor * 0.16, down);
+
+  // The sun sits opposite the direction its light travels.
+  float toSun = max(dot(direction, -sunDirection), 0.0);
+  float sharpness = mix(220.0, 3.0, clamp(sunSpread, 0.0, 1.0));
+  sky += sunColor * pow(toSun, sharpness);
+
+  return sky;
+}
+`;
+
 /** Attributes the sky program reads. Position only — the box is its own dome. */
 export const SKY_ATTRIBUTES = ['position'] as const;
 
@@ -76,26 +121,16 @@ uniform vec3 uSunColor;
 uniform vec3 uSunDirection;
 uniform float uSunSpread;
 
+${SKY_GRADIENT_FUNCTION}
 void main(void) {
-  vec3 direction = normalize(vDirection);
-
-  // Above the horizon the sky climbs to the zenith colour.
-  float up = clamp(direction.y, 0.0, 1.0);
-  vec3 sky = mix(uHorizonColor, uZenithColor, pow(up, 0.45));
-
-  // Below it, it drops away fast and dark. That half of the dome is what shows
-  // past the edge of a terrain tile, and a warm horizon colour continued
-  // downwards reads as a beach stretching to the frame edge — measured on the
-  // village tile, whose ground stops 150 m from the middle.
-  float down = clamp(-direction.y * 8.0, 0.0, 1.0);
-  sky = mix(sky, uHorizonColor * 0.16, down);
-
-  // The sun sits opposite the direction its light travels.
-  float toSun = max(dot(direction, -uSunDirection), 0.0);
-  float sharpness = mix(220.0, 3.0, clamp(uSunSpread, 0.0, 1.0));
-  float glow = pow(toSun, sharpness);
-  sky += uSunColor * glow;
-
+  vec3 sky = wovSkyColor(
+    normalize(vDirection),
+    uZenithColor,
+    uHorizonColor,
+    uSunColor,
+    uSunDirection,
+    uSunSpread
+  );
   gl_FragColor = vec4(sky, 1.0);
 }
 `;

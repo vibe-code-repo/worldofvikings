@@ -49,7 +49,9 @@ import {
   terrainUniformNames,
   terrainVertexSource,
   type TerrainShadowShader,
+  type TerrainSurfaceShader,
 } from './terrain-shader.js';
+import { sceneSkyGradient } from './sky-gradient.js';
 
 /**
  * One image the terrain material samples, and where to get it.
@@ -66,10 +68,67 @@ export interface TerrainTextureSource {
   readonly fallbackUrl?: string | undefined;
 }
 
-/** One ground texture and how many metres one repeat of it covers. */
+/** One ground texture, how far it repeats, and how its surface behaves. */
 export interface TerrainLayerSource extends TerrainTextureSource {
   /** Edge length of one repeat, in metres. */
   readonly tileSize: number;
+  /**
+   * Tangent-space normal map, tiled exactly like the colour texture.
+   *
+   * Absent means flat, and flat is not a placeholder for this: a layer with no
+   * map contributes `(0, 0, 1)` to the blend, so the layers that do have one
+   * still bump the ground where they are painted.
+   */
+  readonly normalMap?: TerrainTextureSource | undefined;
+  /** How strongly {@link normalMap} tilts the surface; 1 is as painted. */
+  readonly normalScale?: number | undefined;
+  /** 0…1: how much of this layer is reflected sky rather than its own colour. */
+  readonly metallic?: number | undefined;
+  /** 0…1: how sharp that reflection is. */
+  readonly smoothness?: number | undefined;
+}
+
+/**
+ * One layer exactly as a world file states it: asset **paths**, not URLs.
+ *
+ * Structurally the same as `TerrainLayer` in `@wov/world-schema`, and named
+ * separately rather than imported so that `@wov/engine` keeps its two
+ * dependencies. The renderer does not validate world data; it draws what it is
+ * handed, and the schema is what decides whether it was allowed to be handed
+ * over.
+ */
+export interface TerrainLayerData {
+  readonly texture: string;
+  readonly tileSize: number;
+  readonly normalMap?: string | undefined;
+  readonly normalScale?: number | undefined;
+  readonly metallic?: number | undefined;
+  readonly smoothness?: number | undefined;
+}
+
+/**
+ * Turns a world file's layers into loadable ones, through the caller's own
+ * resolver.
+ *
+ * The game and the editor each own where bytes come from (see the note at the
+ * top of `apps/editor/src/scene/zone-terrain.ts`), but the *shape* of the
+ * mapping — which fields carry over, which are optional, which get a fallback
+ * texture — is one thing, and this is it. It existed as two copies before the
+ * layers grew a surface, and the second copy was the one that would have been
+ * forgotten.
+ */
+export function terrainLayerSources(
+  layers: readonly TerrainLayerData[],
+  resolve: (path: string) => TerrainTextureSource,
+): TerrainLayerSource[] {
+  return layers.map((layer) => ({
+    ...resolve(layer.texture),
+    tileSize: layer.tileSize,
+    normalMap: layer.normalMap === undefined ? undefined : resolve(layer.normalMap),
+    normalScale: layer.normalScale,
+    metallic: layer.metallic,
+    smoothness: layer.smoothness,
+  }));
 }
 
 /** Everything the renderer needs to draw one tile. */
@@ -99,6 +158,13 @@ export interface TerrainOptions {
   readonly receiveShadows?: boolean;
   /** Samples per pixel for the ground's shadow lookup: 1, 4 or 9. */
   readonly shadowTaps?: 1 | 4 | 9;
+  /**
+   * Draw the ground facetted rather than smooth (ADR-0032).
+   *
+   * Like {@link receiveShadows} this is compiled into the program rather than
+   * set on the mesh, because the normal it changes is computed in the shader.
+   */
+  readonly flatNormals?: boolean;
 }
 
 /** What {@link createTerrain} put into the scene, and how to take it out. */
@@ -151,17 +217,25 @@ function registerProgram(
   layerCount: number,
   splatCount: number,
   shadows: TerrainShadowShader | undefined,
+  surface: TerrainSurfaceShader,
 ): string {
   const suffix =
     shadows === undefined
       ? ''
       : `s${String(shadows.taps)}${shadows.float ? 'f' : 'p'}${String(shadows.mapSize)}`;
-  const key = `wovTerrain${String(layerCount)}x${String(splatCount)}${suffix}`;
+  // The normal-map mask and the flat-normal switch are part of the shape for
+  // the same reason the shadow shape is: two tiles that differ in either are
+  // two different programs, and sharing a key would hand the second one the
+  // first one's compiled shader — a ground bumped by textures it never bound.
+  const bumps = surface.normalMaps.map((has) => (has ? '1' : '0')).join('');
+  const facets = surface.flatNormals ? 'f' : '';
+  const key = `wovTerrain${String(layerCount)}x${String(splatCount)}${suffix}n${bumps}${facets}`;
   ShaderStore.ShadersStore[`${key}VertexShader`] = terrainVertexSource(shadows !== undefined);
   ShaderStore.ShadersStore[`${key}FragmentShader`] = terrainFragmentSource(
     layerCount,
     splatCount,
     shadows,
+    surface,
   );
   return key;
 }
@@ -262,12 +336,16 @@ export function createTerrainMaterial(
     options.receiveShadows === true
       ? shadowShaderShape(sceneShadowGenerator(scene), options.shadowTaps ?? 4)
       : undefined;
-  const key = registerProgram(layers.length, splat.length, shadows);
+  const surface: TerrainSurfaceShader = {
+    normalMaps: layers.map((layer) => layer.normalMap !== undefined),
+    flatNormals: options.flatNormals === true,
+  };
+  const key = registerProgram(layers.length, splat.length, shadows, surface);
 
   const material = new ShaderMaterial(`${name}-material`, scene, key, {
     attributes: [...TERRAIN_ATTRIBUTES],
     uniforms: terrainUniformNames(layers.length, shadows !== undefined),
-    samplers: terrainSamplerNames(layers.length, splat.length, shadows !== undefined),
+    samplers: terrainSamplerNames(layers.length, splat.length, shadows !== undefined, surface),
     needAlphaBlending: false,
     needAlphaTesting: false,
   });
@@ -296,6 +374,17 @@ export function createTerrainMaterial(
     material.setTexture(`uLayer${String(index)}`, texture);
     const [uScale, vScale] = layerRepeats([options.size[0], options.size[1]], layer.tileSize);
     material.setVector2(`uLayerScale${String(index)}`, new Vector2(uScale, vScale));
+    if (layer.normalMap !== undefined) {
+      const normal = loadTexture(scene, layer.normalMap, Texture.TRILINEAR_SAMPLINGMODE);
+      normal.wrapU = Texture.WRAP_ADDRESSMODE;
+      normal.wrapV = Texture.WRAP_ADDRESSMODE;
+      textures.push(normal);
+      material.setTexture(`uLayerNormal${String(index)}`, normal);
+    }
+    material.setVector3(
+      `uLayerSurface${String(index)}`,
+      new Vector3(layer.normalScale ?? 1, layer.metallic ?? 0, layer.smoothness ?? 0),
+    );
   });
 
   material.setColor3('uBaseColor', Color3.FromHexString(options.color ?? DEFAULT_TERRAIN_COLOR));
@@ -350,6 +439,15 @@ function bindSceneLighting(material: ShaderMaterial, scene: Scene): void {
   const fogOn = scene.fogEnabled && scene.fogMode === Scene.FOGMODE_LINEAR;
   material.setColor3('uFogColor', scene.fogColor);
   material.setVector3('uFogRange', new Vector3(scene.fogStart, scene.fogEnd, fogOn ? 1 : 0));
+
+  // The sky the ground reflects, from the same profile the dome is drawn with
+  // (`sky-gradient.ts`). Read here rather than passed in for the same reason
+  // the lights are: `applyLighting` owns it, and a second copy is a second sky.
+  const sky = sceneSkyGradient(scene);
+  material.setColor3('uSkyZenith', Color3.FromHexString(sky.zenithColor));
+  material.setColor3('uSkyHorizon', Color3.FromHexString(sky.horizonColor));
+  material.setColor3('uSkyGlow', Color3.FromHexString(sky.sunColor));
+  material.setVector2('uSkyParams', new Vector2(sky.sunSpread, sky.intensity));
 }
 
 /**

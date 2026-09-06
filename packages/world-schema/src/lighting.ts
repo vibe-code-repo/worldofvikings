@@ -80,6 +80,17 @@ export const SkySchema = z
     sunColor: HexColorSchema,
     /** How far the glow spreads, 0 = a point, 1 = the whole sky. */
     sunSpread: Fraction,
+    /**
+     * How much of this sky the ground reflects, 0…1 (ADR-0032).
+     *
+     * The terrain shader reflects the same gradient the dome draws, which is
+     * what makes a metallic ground layer read as cool sky rather than as a
+     * colour someone picked. This is the one dial over that: 0 turns the
+     * reflection off and leaves the ground purely diffuse, 1 is the full sky.
+     * It lives with the sky and not with the terrain because it is a property
+     * of the light in the zone, not of the ground in it.
+     */
+    groundReflection: Fraction,
   })
   .partial();
 

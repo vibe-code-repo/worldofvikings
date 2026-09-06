@@ -5,8 +5,14 @@
  * Everything that reads a world file must validate it through this package so
  * that a broken or outdated file fails loudly instead of silently.
  */
-export { AssetPathSchema, HexColorSchema, IdentifierSchema, Vector3Schema } from './common.js';
-export type { Identifier } from './common.js';
+export {
+  AssetPathSchema,
+  assetPathOf,
+  HexColorSchema,
+  IdentifierSchema,
+  Vector3Schema,
+} from './common.js';
+export type { AssetKindHint, Identifier } from './common.js';
 export {
   AmbientLightSchema,
   BloomSchema,

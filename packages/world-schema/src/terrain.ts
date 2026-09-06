@@ -8,7 +8,7 @@
  * function and no seed ever enters a world file.
  */
 import { z } from 'zod';
-import { AssetPathSchema, Vector3Schema } from './common.js';
+import { assetPathOf, Vector3Schema } from './common.js';
 
 /**
  * How many texture layers a splat map carries: one weight per colour channel.
@@ -34,7 +34,7 @@ const PositiveMetres = z.number().positive().finite();
 /** One ground texture and how large one tile of it is on the ground. */
 export const TerrainLayerSchema = z.strictObject({
   /** The image, relative to the asset root or the private store. */
-  texture: AssetPathSchema,
+  texture: assetPathOf('texture'),
   /**
    * Edge length in metres of one repeat of {@link texture}.
    *
@@ -63,7 +63,7 @@ export const TerrainLayerSchema = z.strictObject({
 export const TerrainDefinitionSchema = z
   .strictObject({
     /** The height field model, e.g. `terrain/village-257.glb`. */
-    heightField: AssetPathSchema,
+    heightField: assetPathOf('terrain'),
     /** Where the height field's own origin sits, `[x, y, z]` in metres. */
     position: Vector3Schema,
     /** `[width, depth]` of the tile in metres, along x and z. */
@@ -74,7 +74,7 @@ export const TerrainDefinitionSchema = z
      * One or two splat maps. The first weights layers 1–4 through its RGBA
      * channels, the second layers 5–8.
      */
-    splat: z.array(AssetPathSchema).min(1).max(2).optional(),
+    splat: z.array(assetPathOf('texture')).min(1).max(2).optional(),
   })
   .superRefine((terrain, ctx) => {
     const layers = terrain.layers ?? [];

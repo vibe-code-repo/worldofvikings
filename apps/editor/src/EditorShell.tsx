@@ -42,6 +42,7 @@ import {
   type SceneImportRequest,
   type WorldSummary,
 } from './api/client.js';
+import { emptyAssetIndex, loadAssetIndex, type AssetIndex } from './api/assets.js';
 import { resolveEditorConfig } from './config.js';
 import { publishEditorDebug } from './dev-debug.js';
 import { EditorViewport, type ViewportController } from './EditorViewport.js';
@@ -126,6 +127,8 @@ export function EditorShell(): JSX.Element {
   const [scatterRegion, setScatterRegion] = useState<Rect>(DEFAULT_SCATTER_REGION);
   const [cornerPick, setCornerPick] = useState<CornerPick>(null);
   const [rightTab, setRightTab] = useState<RightPanelTab>('entity');
+  const [assets, setAssets] = useState<AssetIndex | null>(null);
+  const assetsAsked = useRef(false);
   const [lightingScope, setLightingScope] = useState<'world' | 'zone'>('world');
   const [prefabSaving, setPrefabSaving] = useState(false);
   const [contentAction, setContentAction] = useState<ContentAction>(null);
@@ -166,6 +169,27 @@ export function EditorShell(): JSX.Element {
       },
     );
   }, [api, refreshWorlds]);
+
+  /*
+   * The asset manifest, read the first time somebody opens the zone inspector.
+   *
+   * Not on start-up: it is 874 kB describing 1192 assets, and the only panel
+   * that needs it is the one offering height fields and ground textures to
+   * choose from. A session that never opens that tab never pays for it, and a
+   * session whose asset server is not running gets an empty picker and a text
+   * box that still works — which is why the failure sets an index rather than
+   * leaving `null` forever.
+   */
+  useEffect(() => {
+    if (rightTab !== 'zone' || assetsAsked.current) {
+      return;
+    }
+    assetsAsked.current = true;
+    loadAssetIndex(config.assets).then(setAssets, (error: unknown) => {
+      setAssets(emptyAssetIndex());
+      dispatch({ type: 'fail', error: `asset manifest: ${describe(error)}` });
+    });
+  }, [rightTab, config.assets]);
 
   // --- editing --------------------------------------------------------------
   const entities = zone?.entities;
@@ -637,7 +661,7 @@ export function EditorShell(): JSX.Element {
           tab={rightTab}
           onTab={setRightTab}
           document={document}
-          prefabs={prefabs}
+          assets={assets}
           selectedPrefab={selectedPrefab}
           prefabSaving={prefabSaving}
           lightingScope={lightingScope}

@@ -19,8 +19,8 @@ import type {
   PrefabEdit,
   TransformPatch,
 } from '@wov/editor-core';
+import type { AssetIndex } from '../api/assets.js';
 import type { CatalogedPrefab } from '../api/client.js';
-import type { PrefabIndex } from '../scene/prefab-index.js';
 import { Inspector } from './Inspector.js';
 import { LightingPanel } from './LightingPanel.js';
 import { PrefabInspector } from './PrefabInspector.js';
@@ -33,7 +33,8 @@ export interface RightPanelProps {
   readonly tab: RightPanelTab;
   readonly onTab: (tab: RightPanelTab) => void;
   readonly document: EditorDocument;
-  readonly prefabs: PrefabIndex | null;
+  /** The asset manifest, once it has been read; the zone pickers need it. */
+  readonly assets: AssetIndex | null;
   readonly selectedPrefab: CatalogedPrefab | null;
   readonly prefabSaving: boolean;
   readonly lightingScope: 'world' | 'zone';
@@ -84,7 +85,7 @@ export function RightPanel(props: RightPanelProps): JSX.Element {
       {props.tab === 'zone' && (
         <ZoneInspector
           document={props.document}
-          prefabs={props.prefabs}
+          assets={props.assets}
           onTerrain={props.onTerrain}
           onTerrainDrag={props.onTerrainDrag}
           onRenameZone={props.onRenameZone}

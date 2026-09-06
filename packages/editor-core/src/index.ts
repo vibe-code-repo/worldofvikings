@@ -74,6 +74,7 @@ export type { FieldPatch } from './patch.js';
 
 export { describeFields, fieldPaths, humanizeKey } from './schema-form.js';
 export type {
+  FormAsset,
   FormBoolean,
   FormChoice,
   FormColor,

@@ -187,9 +187,21 @@ stands, how large the world says it is, the ground textures and their tile
 sizes, and the splat maps (ADR-0020). The **order of the layers matters** — the
 splat map's colour channels weight them in exactly this order, so moving a layer
 up changes which channel paints it. Use ↑ and ↓; one move is one undo step.
-Height fields and textures can be typed or picked from the catalogue; a world may
-name an asset no catalogue lists, and the text field is what keeps that world
-editable.
+
+Every path field in that block — the height field, each layer's texture, each
+splat map — carries the asset store's own list: terrain models for a height
+field, images for a texture. The list comes from `assets/manifest.json`, which
+the editor reads the first time the Zone tab is opened, and the field stays a
+text field on purpose. A world may name an asset no manifest lists, and a
+control that could only offer known paths would make that world uneditable. The
+line under the block says how many of each the store held, so an empty picker
+can be told from an asset server that never answered.
+
+Which fields get a list is decided by the schema, not by this panel:
+`assetPathOf('texture')` in `@wov/world-schema` marks a path field with the kind
+of file it names, `describeFields` carries that through as a control of kind
+`asset`, and a new path field therefore arrives with its picker already
+attached (ADR-0033).
 
 **Collision.** The Prefab tab edits what the highlighted prefab collides as
 (ADR-0026) and which category it is filed under. It has its own **Save** and is

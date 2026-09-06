@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
+  assetPathOf,
   LightingProfileSchema,
   TerrainDefinitionSchema,
   TerrainLayerSchema,
@@ -117,9 +118,34 @@ describe('describeFields on the terrain block', () => {
       'layers',
       'splat',
     ]);
-    expect(find(fields, 'heightField')).toMatchObject({ kind: 'text', required: true });
+    expect(find(fields, 'heightField')).toMatchObject({
+      kind: 'asset',
+      asset: 'terrain',
+      required: true,
+    });
     expect(find(fields, 'position')).toMatchObject({ kind: 'vector', length: 3 });
     expect(find(fields, 'size')).toMatchObject({ kind: 'vector', length: 2, minimum: 0 });
+  });
+
+  /**
+   * The annotation is what lets the panel offer the asset store's own images
+   * for a ground texture instead of a bare text box — and it comes from the
+   * schema, so `apps/editor` holds no list of which fields are paths.
+   */
+  it('says which kind of asset a path field names', () => {
+    const layers = find(fields, 'layers');
+    if (layers.kind !== 'list' || layers.item.kind !== 'group') {
+      throw new Error('layers should be a list of groups');
+    }
+    expect(find(layers.item.fields, 'texture')).toMatchObject({
+      kind: 'asset',
+      asset: 'texture',
+    });
+    const splat = find(fields, 'splat');
+    if (splat.kind !== 'list') {
+      throw new Error('splat should be a list');
+    }
+    expect(splat.item).toMatchObject({ kind: 'asset', asset: 'texture' });
   });
 
   it('describes the layer list, including how many layers may exist', () => {
@@ -151,7 +177,7 @@ describe('a field added to a schema', () => {
       normalScale: z.number().min(0).max(5),
       metallic: z.number().min(0).max(1),
       smoothness: z.number().min(0).max(1),
-      normalMap: z.string().min(1).optional(),
+      normalMap: assetPathOf('texture').optional(),
     });
     const fields = describeFields(grown);
     expect(fields.map((field) => field.key)).toEqual([
@@ -170,6 +196,11 @@ describe('a field added to a schema', () => {
       required: true,
     });
     expect(find(fields, 'metallic')).toMatchObject({ kind: 'number', step: 0.01 });
-    expect(find(fields, 'normalMap')).toMatchObject({ kind: 'text', required: false });
+    // And a new *path* field arrives with the picker, not a bare text box.
+    expect(find(fields, 'normalMap')).toMatchObject({
+      kind: 'asset',
+      asset: 'texture',
+      required: false,
+    });
   });
 });

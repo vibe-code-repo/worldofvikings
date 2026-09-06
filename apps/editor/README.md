@@ -18,16 +18,17 @@ gizmo drag undoes with the same Ctrl+Z as a Delete key.
 
 ## Layout of `src/`
 
-| Path                 | Owns                                                               |
-| -------------------- | ------------------------------------------------------------------ |
-| `EditorShell.tsx`    | The session, the keyboard, and what the panels are wired to        |
-| `EditorViewport.tsx` | The canvas: scene reconciliation, picking, gizmo commits, drops    |
-| `state/store.ts`     | The reducer around `@wov/editor-core`, plus clipboard and errors   |
-| `api/client.ts`      | Worlds, prefab catalogues, and the two content actions             |
-| `config.ts`          | `VITE_API_URL` and `VITE_ASSET_URL`, with local defaults           |
-| `panels/`            | Menu bar, hierarchy, the four right-hand inspectors, asset browser |
-| `scene/`             | Everything Babylon (see below)                                     |
-| `dev-debug.ts`       | `window.__wovEditor`, the dev-only bridge `pnpm smoke` reads       |
+| Path                 | Owns                                                                |
+| -------------------- | ------------------------------------------------------------------- |
+| `EditorShell.tsx`    | The session, the keyboard, and what the panels are wired to         |
+| `EditorViewport.tsx` | The canvas: scene reconciliation, picking, gizmo commits, drops     |
+| `state/store.ts`     | The reducer around `@wov/editor-core`, plus clipboard and errors    |
+| `api/client.ts`      | Worlds, prefab catalogues, and the two content actions              |
+| `api/assets.ts`      | The asset manifest, indexed by kind for the zone inspector's picker |
+| `config.ts`          | `VITE_API_URL` and `VITE_ASSET_URL`, with local defaults            |
+| `panels/`            | Menu bar, hierarchy, the four right-hand inspectors, asset browser  |
+| `scene/`             | Everything Babylon (see below)                                      |
+| `dev-debug.ts`       | `window.__wovEditor`, the dev-only bridge `pnpm smoke` reads        |
 
 `scene/` keeps the arithmetic separate from the bindings, so the rules are
 testable without a GPU:
@@ -56,7 +57,10 @@ The Lighting, Zone and Prefab inspectors contain no list of field names.
 descriptors and `panels/SchemaFields.tsx` is the only place that knows what a
 control looks like, so a field added to `@wov/world-schema` appears here on the
 next reload with its own type and range and nothing in this app changes
-(ADR-0033).
+(ADR-0033). That covers the pickers too: a path field annotated with
+`assetPathOf` in the schema is drawn as a text field with the asset store's
+entries of that kind attached, which is why the height field, every layer
+texture and every splat map can be chosen rather than typed.
 
 Two consequences worth knowing:
 

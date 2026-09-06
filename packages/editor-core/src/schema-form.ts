@@ -31,6 +31,7 @@ export type FormField =
   | FormColor
   | FormChoice
   | FormText
+  | FormAsset
   | FormVector
   | FormList
   | FormUnknown;
@@ -53,6 +54,16 @@ export interface FormNumber extends FormFieldBase {
   readonly kind: 'number';
   readonly minimum?: number;
   readonly maximum?: number;
+  /**
+   * Whether {@link minimum} is itself refused — `z.number().positive()` is a
+   * minimum of zero that zero does not satisfy.
+   *
+   * A slider does not care. Whoever has to invent a *starting value* does: a
+   * new terrain layer built with `tileSize: 0` is rejected by the very schema
+   * this description came from, and the author sees a validation error instead
+   * of a layer.
+   */
+  readonly exclusiveMinimum?: boolean;
   readonly integer: boolean;
   /** A step that makes the control usable, derived from the range. */
   readonly step: number;
@@ -74,6 +85,22 @@ export interface FormChoice extends FormFieldBase {
 
 export interface FormText extends FormFieldBase {
   readonly kind: 'text';
+}
+
+/**
+ * A path into the asset store, and which kind of file belongs there.
+ *
+ * Still a text field — a world may legitimately name a file no manifest lists,
+ * and a control that hid that value would make the world uneditable. What the
+ * kind adds is a list to *choose* from: the panel offers the manifest's terrain
+ * models for a height field and its images for a ground texture. The annotation
+ * comes from the schema (`assetPathOf` in `@wov/world-schema`), so a new path
+ * field arrives with its picker and nothing here or in `apps/editor` changes.
+ */
+export interface FormAsset extends FormFieldBase {
+  readonly kind: 'asset';
+  /** `terrain`, `texture`, `mesh`, `prefab` — the manifest's own vocabulary. */
+  readonly asset: string;
 }
 
 /** A fixed-length tuple of numbers: a position, a direction, a `[w, d]` size. */
@@ -155,7 +182,9 @@ function fieldFrom(key: string, schema: JsonSchema, required: boolean): FormFiel
   }
 
   if (type === 'number' || type === 'integer') {
-    const minimum = numberOf(schema['minimum']) ?? numberOf(schema['exclusiveMinimum']);
+    const inclusive = numberOf(schema['minimum']);
+    const exclusive = numberOf(schema['exclusiveMinimum']);
+    const minimum = inclusive ?? exclusive;
     const maximum = numberOf(schema['maximum']) ?? numberOf(schema['exclusiveMaximum']);
     const integer = type === 'integer';
     return {
@@ -163,15 +192,23 @@ function fieldFrom(key: string, schema: JsonSchema, required: boolean): FormFiel
       kind: 'number',
       ...(minimum === undefined ? {} : { minimum }),
       ...(maximum === undefined ? {} : { maximum }),
+      ...(inclusive === undefined && exclusive !== undefined ? { exclusiveMinimum: true } : {}),
       integer,
       step: stepFor(minimum, maximum, integer),
     };
   }
 
   if (type === 'string') {
-    return schema['pattern'] === HEX_COLOR_PATTERN
-      ? { ...base, kind: 'color' }
-      : { ...base, kind: 'text' };
+    if (schema['pattern'] === HEX_COLOR_PATTERN) {
+      return { ...base, kind: 'color' };
+    }
+    // `assetPathOf` in `@wov/world-schema` puts this there through `.meta()`,
+    // which `z.toJSONSchema` copies into the field verbatim.
+    const asset = schema['asset'];
+    if (typeof asset === 'string' && asset !== '') {
+      return { ...base, kind: 'asset', asset };
+    }
+    return { ...base, kind: 'text' };
   }
 
   if (type === 'array') {

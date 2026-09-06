@@ -177,6 +177,72 @@ test('editor reorders the terrain layers of a zone, and one undo puts them back'
 });
 
 /**
+ * (2b) A ground texture picked from the store, not typed.
+ *
+ * The panel does not decide which fields are asset paths — the schema says so
+ * (`assetPathOf` in `@wov/world-schema`), `describeFields` carries it, and this
+ * is where that ends up: the layer's texture and the splat maps are text fields
+ * with the manifest's own images attached, and the height field with its
+ * terrain models. The test asserts the *list*, because a picker with nothing in
+ * it looks exactly like a text box.
+ */
+test('editor offers the asset store for a terrain path, and takes the choice', async ({
+  page,
+  request,
+}) => {
+  const fixture = JSON.parse(
+    readFileSync(join(import.meta.dirname, '../fixtures/worlds/village-terrain.json'), 'utf8'),
+  ) as { id: string };
+  const worldId = `${fixture.id}-picker`;
+  const seeded = await request.put(apiUrl(`/worlds/${worldId}`), {
+    data: { ...fixture, id: worldId, name: 'Terrain Picker Fixture' },
+  });
+  expect(seeded.status()).toBeLessThan(300);
+
+  await openEditor(page);
+  await openWorld(page, worldId);
+  await page.getByTestId('right-tab-zone').click();
+
+  // The manifest is read the first time this tab is opened, not on start-up.
+  await expect(page.getByTestId('zone-terrain-catalog-hint')).toContainText(
+    /\d+ height field\(s\) and \d+ texture\(s\)/,
+  );
+
+  // Every path field in the block is a picker, and each one offers its own
+  // kind: terrain models for the height field, images for a texture.
+  const values = (testId: string): Promise<string[]> =>
+    page
+      .getByTestId(testId)
+      .locator('option')
+      .evaluateAll((options) => options.map((option) => option.getAttribute('value') ?? ''));
+
+  const heightFields = await values('terrain-heightField-options');
+  expect(heightFields).toContain('terrain/terrain-village1-257.glb');
+  expect(heightFields.every((path) => path.endsWith('.glb'))).toBe(true);
+
+  const textures = await values('terrain-layers-0-texture-options');
+  expect(textures).toContain('textures/terrain-moss.png');
+  expect(textures.every((path) => /\.(png|jpg|jpeg)$/.test(path))).toBe(true);
+  // The splat maps are paths too, and they used to be the field this panel
+  // forgot: a scalar list entry was drawn as a bare text box.
+  expect(await values('terrain-splat-0-options')).toEqual(textures);
+
+  // And choosing one is an ordinary edit: the document takes it and the panel
+  // shows it. A texture the fixture does not already use, so the assertion
+  // cannot pass by accident.
+  const order = page.getByTestId('zone-terrain-layer-order');
+  const before = (await order.textContent()) ?? '';
+  const chosen = textures.find((path) => !before.includes(path));
+  expect(chosen).toBeDefined();
+  await page.getByTestId('terrain-layers-0-texture-input').fill(String(chosen));
+  await expect(order).toHaveText([String(chosen), ...before.split(' | ').slice(1)].join(' | '));
+
+  await save(page);
+  const saved = await (await request.get(apiUrl(`/worlds/${worldId}`))).json();
+  expect(saved.zones[0].terrain.layers[0].texture).toBe(chosen);
+});
+
+/**
  * (3) A prefab's collision shape, corrected in the editor and written to a
  * catalogue file.
  *

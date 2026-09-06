@@ -37,29 +37,55 @@ export interface SchemaFieldsProps {
    * the whole drag becomes one undo step (see `EditorHistory.coalesceKey`).
    */
   readonly onDrag?: (path: readonly string[], value: unknown, gesture: string) => void;
+  /**
+   * What to offer for an asset path of this kind — the manifest's terrain
+   * models for a height field, its images for a ground texture.
+   *
+   * Optional, and an empty answer is fine: an asset field stays a text field
+   * with a list attached, so a panel whose manifest has not arrived (or whose
+   * asset server is not running) still edits the world.
+   */
+  readonly assetOptions?: (kind: string) => readonly string[];
   readonly disabled?: boolean;
 }
 
-/** A value for a field that has none yet, so "add" produces something valid. */
-export function defaultValueFor(field: FormField): unknown {
+/**
+ * A value for a field that has none yet, so "add" produces something the
+ * schema accepts.
+ *
+ * "Valid" is the whole job, and it is easy to get wrong in two ways this has
+ * been caught doing: a `tileSize` of zero fails `positive()`, and a ground
+ * texture of `''` fails a path rule — both of which turn *add a layer* into a
+ * validation error instead of a layer. So an exclusive minimum is stepped past,
+ * and an asset path starts as the first thing in the store when the panel knows
+ * of one.
+ */
+export function defaultValueFor(
+  field: FormField,
+  assetOptions?: (kind: string) => readonly string[],
+): unknown {
   switch (field.kind) {
     case 'group': {
       const value: Record<string, unknown> = {};
       for (const child of field.fields) {
         if (child.required) {
-          value[child.key] = defaultValueFor(child);
+          value[child.key] = defaultValueFor(child, assetOptions);
         }
       }
       return value;
     }
-    case 'number':
-      return field.minimum ?? 0;
+    case 'number': {
+      const minimum = field.minimum ?? 0;
+      return field.exclusiveMinimum === true ? minimum + field.step : minimum;
+    }
     case 'boolean':
       return true;
     case 'color':
       return '#ffffff';
     case 'choice':
       return field.options[0] ?? '';
+    case 'asset':
+      return assetOptions?.(field.asset)[0] ?? '';
     case 'vector':
       return Array.from({ length: field.length }, () => field.minimum ?? 0);
     case 'list':
@@ -261,6 +287,42 @@ function Field(props: FieldProps): JSX.Element | null {
         </label>
       );
 
+    case 'asset': {
+      /*
+       * A text box with the store attached, not a dropdown.
+       *
+       * A world may name a file no manifest lists — an asset that has not been
+       * imported yet, or one served from somewhere else — and a control that
+       * could only offer known paths would make that world uneditable. A
+       * `datalist` keeps the field a field and adds the catalogue to it.
+       */
+      const options = props.assetOptions?.(field.asset) ?? [];
+      const listId = options.length === 0 ? undefined : `${id}-options`;
+      return (
+        <label className="schema-field" data-testid={id}>
+          <span className="field-label">{field.label}</span>
+          <input
+            type="text"
+            disabled={disabled}
+            data-testid={`${id}-input`}
+            {...(listId === undefined ? {} : { list: listId })}
+            placeholder={`${field.asset} path`}
+            value={typeof current === 'string' ? current : ''}
+            onChange={(event) =>
+              set(event.target.value === '' && !field.required ? null : event.target.value)
+            }
+          />
+          {listId !== undefined && (
+            <datalist id={listId} data-testid={`${id}-options`}>
+              {options.map((option) => (
+                <option key={option} value={option} />
+              ))}
+            </datalist>
+          )}
+        </label>
+      );
+    }
+
     default:
       // A shape this renderer has no control for. Shown as JSON rather than
       // hidden: a field nobody can see is a field nobody knows is wrong.
@@ -308,6 +370,7 @@ function Group(props: GroupProps): JSX.Element {
           testId={props.testId}
           onChange={props.onChange}
           {...(props.onDrag === undefined ? {} : { onDrag: props.onDrag })}
+          {...(props.assetOptions === undefined ? {} : { assetOptions: props.assetOptions })}
           {...(disabled === undefined ? {} : { disabled })}
         />
       </div>
@@ -357,7 +420,7 @@ function List(props: ListProps): JSX.Element {
           type="button"
           disabled={disabled || full}
           data-testid={`${id}-add`}
-          onClick={() => replace([...entries, defaultValueFor(field.item)])}
+          onClick={() => replace([...entries, defaultValueFor(field.item, props.assetOptions)])}
         >
           add
         </button>
@@ -416,18 +479,22 @@ function List(props: ListProps): JSX.Element {
                           gesture,
                         ),
                     })}
+                {...(props.assetOptions === undefined ? {} : { assetOptions: props.assetOptions })}
                 {...(disabled === undefined ? {} : { disabled })}
               />
             ) : (
-              <input
-                type="text"
-                disabled={disabled}
-                aria-label={`${field.label} ${String(index)}`}
-                data-testid={`${id}-${String(index)}-input`}
-                value={typeof entry === 'string' ? entry : ''}
-                onChange={(event) =>
-                  props.onChange([...props.path, String(index)], event.target.value)
-                }
+              /*
+               * A scalar entry goes through the same `Field` as everything
+               * else, addressed by its index. Drawing an `<input>` here
+               * instead would have been a second renderer — and it was: the
+               * splat maps are asset paths, and this branch showed them as
+               * plain text while the layer above them had the store attached.
+               */
+              <Field
+                {...props}
+                field={field.item}
+                path={[...props.path, String(index)]}
+                value={props.value}
               />
             )}
           </li>

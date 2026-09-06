@@ -51,6 +51,19 @@ Four parts:
    that knows what a control looks like. There is no list of field names in the
    editor. A field added to `@wov/world-schema` appears in the panel on the next
    reload, with its own type and range.
+
+   That includes which fields are **asset paths**. `assetPathOf('texture')` in
+   `@wov/world-schema` annotates a path field with the kind of file it names,
+   through Zod's `.meta()`, which `z.toJSONSchema` copies out verbatim;
+   `describeFields` turns it into a control of kind `asset`, and the panel
+   attaches the manifest's entries of that kind. The alternative was a list in
+   `apps/editor` saying "`heightField`, `texture` and `splat` are paths", which
+   is exactly the drift this decision exists to prevent — and the terrain work
+   in flight adds a `normalMap`. The control stays a text field with a list
+   attached rather than becoming a dropdown: a world may name an asset no
+   manifest lists, and a control that hid that value would make the world
+   uneditable.
+
 3. **A prefab correction goes into an overlay catalogue.** The editor writes
    `content/prefabs/overrides.json` through the new `PUT /prefabs/:catalog`, and
    `services/api` applies that one file _last_, replacing rather than clashing.
@@ -104,6 +117,9 @@ under `WORLDS_READ_ONLY`, like every other write (ADR-0017).
 | Shell out to `pnpm import:scene` from the API                      | Runs a package manager from an HTTP handler, hands it a path as a command line, and answers with parsed stdout. Every part of that is worse than calling the function.                                                                  |
 | Keep the core in `tooling/` and import it from `services/api`      | `tooling/` is scripts, validators and smoke tests and never shipped code (AGENTS.md §2). Importing it into a service would erase that line.                                                                                             |
 | Put the lighting presets in `content/`                             | A preset is not the light of any world; it is the value a button writes into one, like `DEFAULT_GRID_STEP` is the grid a session starts on. The moment it is pressed the result is ordinary, persisted world data (agent rule 17).      |
+| Name the path fields in `apps/editor` instead of annotating them   | Three field names today, four when the terrain work lands, and nothing fails when one is forgotten: the field is still editable, it just silently loses its list. The annotation lives where the field is declared and moves with it.   |
+| Load the asset manifest when the editor starts                     | 874 kB describing 1192 assets, for one panel. It is read the first time the Zone tab is opened, and the panel works without it — a path field with no list is still a path field.                                                       |
+| A dropdown instead of a text field with a `datalist`               | A world may name an asset no manifest lists — not yet imported, or served from elsewhere. A dropdown would drop that value on the first edit, which is data loss in a control that looks like a convenience.                            |
 
 ## Consequences
 
@@ -120,6 +136,9 @@ under `WORLDS_READ_ONLY`, like every other write (ADR-0017).
 - A prefab correction survives `generate:prefabs`.
 - The scene import is testable without the private export: a 752-byte fixture
   bundle in `tooling/fixtures/scenes/`.
+- A ground texture is chosen from the store rather than typed, and so is a
+  height field and a splat map — one annotation per field in the schema, no
+  control written for any of them.
 
 **Negative**
 
@@ -139,6 +158,10 @@ under `WORLDS_READ_ONLY`, like every other write (ADR-0017).
   path that paints without editing the document. The history folds the steps of
   one drag into one entry (`HistoryEntry.coalesceKey`); the alternative was a
   preview that the file could disagree with.
+- `@wov/world-schema` now says one thing about a _panel_: which kind of asset a
+  path field names. It changes no validation and it is the narrowest place the
+  fact can live, but the line between data and presentation is one field thinner
+  than it was.
 
 **Follow-ups**
 

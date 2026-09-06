@@ -6,25 +6,28 @@
  * an author most wants to try, *swap the layer that paints the hillside*, was a
  * text editor and a reload.
  *
- * Everything below the two pickers is `SchemaFields` over
- * `TerrainDefinitionSchema`, so the fields the terrain work is adding —
- * `normalMap`, `normalScale`, `metallic`, `smoothness` — appear here with their
- * own ranges the moment the schema accepts them, and this file does not change.
+ * Everything below the head is `SchemaFields` over `TerrainDefinitionSchema`,
+ * so the fields the terrain work is adding — `normalMap`, `normalScale`,
+ * `metallic`, `smoothness` — appear here with their own ranges the moment the
+ * schema accepts them, and this file does not change. That includes their
+ * pickers: a path field annotated with `assetPathOf('texture')` arrives with
+ * the store's images attached to it, because the *schema* says what kind of
+ * file the field names and this panel only forwards the manifest.
  *
- * The two pickers are the exception, and they earn it: a height field and a
- * ground texture are *asset paths*, and the honest control for one is the list
- * of assets that exist, not a text box you can typo into. They fill the same
- * field the text control would.
+ * The one thing this panel decides by itself is what to do with a zone that has
+ * **no** ground at all, because then there is no block for `SchemaFields` to
+ * draw: it offers the height fields the store holds, and the first one chosen
+ * builds the smallest terrain the schema accepts.
  */
 import type { JSX } from 'react';
 import { TERRAIN_FIELDS, activeZone, type EditorDocument, type FieldPatch } from '@wov/editor-core';
-import type { PrefabIndex } from '../scene/prefab-index.js';
-import { SchemaFields, defaultValueFor } from './SchemaFields.js';
+import type { AssetIndex } from '../api/assets.js';
+import { SchemaFields } from './SchemaFields.js';
 
 export interface ZoneInspectorProps {
   readonly document: EditorDocument;
-  /** `null` until `GET /prefabs` answers; the pickers are then empty. */
-  readonly prefabs: PrefabIndex | null;
+  /** `null` until the asset manifest has been read; the pickers are empty then. */
+  readonly assets: AssetIndex | null;
   readonly onTerrain: (zoneId: string, patches: readonly FieldPatch[]) => void;
   readonly onTerrainDrag: (zoneId: string, patch: FieldPatch, gesture: string) => void;
   readonly onRenameZone: (zoneId: string, name: string) => void;
@@ -50,7 +53,8 @@ export function ZoneInspector(props: ZoneInspectorProps): JSX.Element {
   }
 
   const terrain = zone.terrain;
-  const heightFields = (props.prefabs?.inCategory('terrain') ?? []).map((prefab) => prefab.asset);
+  const assetOptions = (kind: string): readonly string[] => props.assets?.ofKind(kind) ?? [];
+  const heightFields = assetOptions('terrain');
   const layers = terrain?.layers ?? [];
 
   return (
@@ -126,6 +130,7 @@ export function ZoneInspector(props: ZoneInspectorProps): JSX.Element {
               fields={TERRAIN_FIELDS}
               value={terrain}
               testId="terrain"
+              assetOptions={assetOptions}
               onChange={(path, value) => props.onTerrain(zone.id, [{ path, value }])}
               onDrag={(path, value, gesture) =>
                 props.onTerrainDrag(zone.id, { path, value }, gesture)
@@ -134,66 +139,16 @@ export function ZoneInspector(props: ZoneInspectorProps): JSX.Element {
           </div>
 
           {/*
-            The asset pickers, filling the same fields the text controls above
-            do. Kept below them rather than replacing them: a world may name a
-            height field or a texture no catalogue lists, and a picker that
-            hides the value would make that world uneditable.
+            Says out loud whether the pickers have anything in them. A field
+            whose dropdown is empty because no asset server answered looks
+            exactly like a field whose dropdown is empty because the store is.
           */}
-          <h3 className="panel-subhead">From the catalogue</h3>
-          <label className="field">
-            <span className="field-label">height field</span>
-            <select
-              data-testid="zone-terrain-heightfield"
-              value={heightFields.includes(terrain.heightField) ? terrain.heightField : ''}
-              onChange={(event) => {
-                if (event.target.value !== '') {
-                  props.onTerrain(zone.id, [{ path: ['heightField'], value: event.target.value }]);
-                }
-              }}
-            >
-              <option value="">{terrain.heightField}</option>
-              {heightFields.map((asset) => (
-                <option key={asset} value={asset}>
-                  {asset}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {layers.map((layer, index) => (
-            <label className="field" key={`${String(index)}:${layer.texture}`}>
-              <span className="field-label">layer {index}</span>
-              <input
-                type="text"
-                data-testid={`zone-terrain-layer-${String(index)}-texture`}
-                defaultValue={layer.texture}
-                onBlur={(event) => {
-                  if (event.target.value !== layer.texture && event.target.value !== '') {
-                    props.onTerrain(zone.id, [
-                      { path: ['layers', String(index), 'texture'], value: event.target.value },
-                    ]);
-                  }
-                }}
-              />
-            </label>
-          ))}
-
-          <button
-            type="button"
-            className="tab"
-            data-testid="zone-terrain-add-layer"
-            onClick={() => {
-              const item = TERRAIN_FIELDS.find((field) => field.key === 'layers');
-              if (item?.kind !== 'list') {
-                return;
-              }
-              props.onTerrain(zone.id, [
-                { path: ['layers'], value: [...layers, defaultValueFor(item.item)] },
-              ]);
-            }}
-          >
-            add a layer
-          </button>
+          <p className="hint" data-testid="zone-terrain-catalog-hint">
+            {props.assets === null
+              ? 'reading the asset manifest…'
+              : `${String(heightFields.length)} height field(s) and ` +
+                `${String(assetOptions('texture').length)} texture(s) to choose from`}
+          </p>
         </>
       )}
     </aside>

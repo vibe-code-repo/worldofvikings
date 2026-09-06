@@ -75,7 +75,10 @@ Schema-driven forms — `schema-form.ts`, `world-forms.ts` (ADR-0033).
 through `z.toJSONSchema`, so `apps/editor` contains no list of field names and a
 field added to `@wov/world-schema` reaches the panel by itself.
 `LIGHTING_FIELDS`, `TERRAIN_FIELDS` and `PREFAB_COLLISION_FIELDS` are the three
-blocks the editor draws.
+blocks the editor draws. A field is described down to its control: a `#rrggbb`
+rule becomes a colour well, an `assetPathOf` annotation becomes an `asset` field
+carrying which kind of file it names, and an exclusive minimum is recorded so
+whoever invents a starting value does not invent an invalid one.
 
 Lighting presets — `lighting-presets.ts`: `LIGHTING_PRESETS`,
 `lightingPreset(id)`. Not world data — the value a button writes _into_ a world,

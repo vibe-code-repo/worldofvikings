@@ -46,16 +46,6 @@ import type { PrefabCategory } from '@wov/world-schema';
 export const WORLD_OBJECT_SIZE_LIMIT = 80;
 
 /**
- * The same limit for a backdrop, in metres.
- *
- * Four kilometres, which is the sky dome (r ≈ 3 204 m as the village places it)
- * with room to spare and still small enough to catch a unit mistake — a shell
- * exported in centimetres would measure 118 km and be reported rather than
- * shipped.
- */
-export const BACKDROP_SIZE_LIMIT = 4000;
-
-/**
  * Store file stems this pipeline gives its own backdrops.
  *
  * Everything written by `pnpm import:backdrop` starts with this, which is also
@@ -149,16 +139,28 @@ export function isBackdropName(name: string): boolean {
 }
 
 /**
- * The largest a model cut out of a scene bundle may plausibly be, in metres.
+ * Whether a bundle node must **not** be cut into a store model.
  *
- * The limit is lifted as **name list plus category** rather than as a global number: a cut whose name this pipeline
- * knows as a backdrop, or whose prefab the catalogue files under `backdrop`,
- * is measured against {@link BACKDROP_SIZE_LIMIT}; everything else keeps the
- * 80 m limit it had. Raising the number for everyone would have let a
- * mis-exported 100× character prop back in, which is what the limit is for.
+ * A backdrop must not. It comes from the modelling export, where each shell is
+ * its own file beside its own panorama; inside the scene bundle both shells are
+ * one mesh pointing at one embedded image, because the exporter dropped the
+ * material that told them apart (ADR-0031). So cutting one out of the bundle
+ * yields one backdrop where the world needs two, painted with whichever of the
+ * two panoramas happened to be embedded — and it lands in the store under a
+ * name folded from the source spelling, which rule 1 of `docs/assets.md` does
+ * not allow.
+ *
+ * This replaced a raised size limit. Lifting the 80 m plausibility ceiling for
+ * a backdrop let one *through* the gate that was keeping it out, so running the
+ * documented import chain end to end wrote a 594 m shell into the store and a
+ * source-spelled id into the manifest and the prefab catalogue. The limit was
+ * never what placed the shells either — the scene import finds them by node
+ * alias (`withBackdropAliases`), and it applies no size limit at all.
+ *
+ * Name list plus category, the two halves independent: a node this pipeline
+ * knows as a backdrop, or one whose prefab the catalogue already files under
+ * `backdrop`, is left to `pnpm import:backdrop`.
  */
-export function cutSizeLimit(stem: string, category?: PrefabCategory): number {
-  return category === 'backdrop' || isBackdropName(stem)
-    ? BACKDROP_SIZE_LIMIT
-    : WORLD_OBJECT_SIZE_LIMIT;
+export function skipsBundleCut(stem: string, category?: PrefabCategory): boolean {
+  return category === 'backdrop' || isBackdropName(stem);
 }

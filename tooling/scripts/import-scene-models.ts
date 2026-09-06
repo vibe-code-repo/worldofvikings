@@ -71,7 +71,7 @@ import { repoRoot } from './repo-root.js';
 import {
   DEFAULT_ZONES,
   WORLD_OBJECT_SIZE_LIMIT,
-  cutSizeLimit,
+  skipsBundleCut,
   loadPrefabStems,
   prefabCategoryFromAssetPath,
   scanScene,
@@ -306,6 +306,15 @@ for (const group of plan) {
     continue;
   }
 
+  // A backdrop is never cut out of a bundle: both mountain shells are one mesh
+  // with one embedded image in there, and they are two files with two panoramas
+  // in the export, which is where `pnpm import:backdrop` reads them
+  // (`skipsBundleCut`, ADR-0031).
+  if (skipsBundleCut(group.stem, prefabCategoryFromAssetPath(path) ?? undefined)) {
+    excluded.push(`${path} — painted distance; imported from the export by pnpm import:backdrop`);
+    continue;
+  }
+
   const cut = cutModel(bundle, group.node, group.stem);
   const measured = worldBounds(cut.glb.json, path);
   if (measured === undefined) {
@@ -313,18 +322,13 @@ for (const group of plan) {
     continue;
   }
   // The limit *excludes and names*, it never rescales — a "barrel" 300 m across
-  // is a name that does not mean what it says. Which limit applies is the
-  // backdrop rule: a name this pipeline knows as a backdrop, or a prefab the
-  // catalogue files under `backdrop`, is measured against 4 km; everything else
-  // keeps the 80 m it always had (`asset-pipeline/backdrop.ts`).
-  const limit = cutSizeLimit(group.stem, prefabCategoryFromAssetPath(path) ?? undefined);
+  // is a name that does not mean what it says.
   const extent = largestExtent(measured);
-  if (extent > limit) {
+  if (extent > WORLD_OBJECT_SIZE_LIMIT) {
     excluded.push(
-      `${path} — ${extent.toFixed(1)} m across, over the ${String(limit)} m limit; ` +
-        (limit === WORLD_OBJECT_SIZE_LIMIT
-          ? 'a backdrop or a sky dome rather than a world object'
-          : 'too large even for a backdrop — check the units of the source file'),
+      `${path} — ${extent.toFixed(1)} m across, over the ` +
+        `${String(WORLD_OBJECT_SIZE_LIMIT)} m limit; ` +
+        'a backdrop or a sky dome rather than a world object',
     );
     continue;
   }

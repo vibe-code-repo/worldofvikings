@@ -7,12 +7,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   BACKDROP_MODELS,
-  BACKDROP_SIZE_LIMIT,
-  WORLD_OBJECT_SIZE_LIMIT,
   backdropModelPath,
   backdropTexturePath,
-  cutSizeLimit,
   isBackdropName,
+  skipsBundleCut,
 } from './backdrop.js';
 
 describe('the backdrop list', () => {
@@ -59,23 +57,34 @@ describe('isBackdropName', () => {
   });
 });
 
-describe('cutSizeLimit', () => {
-  it('keeps the 80 m limit for everything that is not a backdrop', () => {
-    expect(cutSizeLimit('sm-prop-barrel-01')).toBe(WORLD_OBJECT_SIZE_LIMIT);
-    expect(cutSizeLimit('sm-item-sword', 'prop')).toBe(WORLD_OBJECT_SIZE_LIMIT);
+describe('skipsBundleCut', () => {
+  it('lets an ordinary world object be cut', () => {
+    expect(skipsBundleCut('sm-prop-barrel-01')).toBe(false);
+    expect(skipsBundleCut('sm-item-sword', 'prop')).toBe(false);
   });
 
-  it('lifts it by name list', () => {
-    expect(cutSizeLimit('MountainSkybox')).toBe(BACKDROP_SIZE_LIMIT);
+  /**
+   * The reason this rule exists rather than a raised size limit.
+   *
+   * A backdrop comes from the modelling export, where the two mountain shells
+   * are two files with two panoramas. In the scene bundle they are one mesh
+   * pointing at one embedded image, because the exporter dropped the material
+   * that told them apart (ADR-0031). Cutting one out of the bundle therefore
+   * produces the wrong asset — one shell where there are two — under a store
+   * name taken from the source spelling, which `docs/assets.md` forbids.
+   */
+  it('refuses to cut a backdrop out of a bundle, by name list', () => {
+    expect(skipsBundleCut('MountainSkybox')).toBe(true);
+    expect(skipsBundleCut('mountainskybox')).toBe(true);
   });
 
-  it('lifts it by category', () => {
-    // A name the list has never heard of, filed under `backdrop` by the
-    // catalogue: the two halves of the rule are independent on purpose.
-    expect(cutSizeLimit('something-nobody-listed', 'backdrop')).toBe(BACKDROP_SIZE_LIMIT);
+  it('refuses one by category too, for a name the list has never heard of', () => {
+    expect(skipsBundleCut('something-nobody-listed', 'backdrop')).toBe(true);
   });
 
-  it('is still a limit — a shell exported in centimetres is over even the backdrop one', () => {
-    expect(118_800).toBeGreaterThan(BACKDROP_SIZE_LIMIT);
+  it('refuses this project’s own backdrop stems, so a re-run never doubles them', () => {
+    for (const model of BACKDROP_MODELS) {
+      expect(skipsBundleCut(model.stem)).toBe(true);
+    }
   });
 });

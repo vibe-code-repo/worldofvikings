@@ -45,13 +45,12 @@ export type {
 
 export {
   BACKDROP_MODELS,
-  BACKDROP_SIZE_LIMIT,
   BACKDROP_STEM_PREFIX,
   WORLD_OBJECT_SIZE_LIMIT,
   backdropModelPath,
   backdropTexturePath,
-  cutSizeLimit,
   isBackdropName,
+  skipsBundleCut,
 } from './backdrop.js';
 export type { BackdropModel } from './backdrop.js';
 

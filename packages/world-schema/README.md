@@ -23,7 +23,15 @@ Prefab catalogs (`content/prefabs/*.json`, ADR-0016):
 - `parsePrefabCatalog(data): PrefabCatalogParseResult`.
 - Types: `PrefabCatalog`, `PrefabDefinition`, `PrefabCategory`, `PrefabVisibility`, `PrefabBounds`, `PrefabCatalogParseResult`.
 
-Shared: `IdentifierSchema`, `Vector3Schema`, `HexColorSchema`, `AssetPathSchema`, types `Identifier`, `Vector3`.
+Shared: `IdentifierSchema`, `Vector3Schema`, `HexColorSchema`, `AssetPathSchema`,
+`assetPathOf(kind)`, types `Identifier`, `Vector3`, `AssetKindHint`.
+
+`assetPathOf('texture')` is `AssetPathSchema` with the _kind_ of file the field
+names attached through Zod's `.meta()`. It changes no validation. It exists so a
+panel can offer the asset store's own images for a ground texture without
+`apps/editor` holding a list of which fields are paths (ADR-0033); the
+vocabulary is the asset manifest's `kind`, repeated by name because this package
+may not depend on `@wov/asset-system`.
 
 **Dependencies.** `zod` only — chosen because schema and TypeScript type come
 from one declaration (ADR-0004). This package must never depend on Babylon.js,

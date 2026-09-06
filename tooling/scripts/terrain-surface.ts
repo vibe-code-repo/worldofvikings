@@ -36,7 +36,7 @@ import {
   type TerrainSurfacePatch,
 } from '@wov/editor-core';
 import { parseWorldDefinition } from '@wov/world-schema';
-import { repoRoot } from './prefab-catalog.js';
+import { repoRoot } from './repo-root.js';
 import { resolveContentDir } from './scatter-paths.js';
 
 const USAGE = `usage: tsx tooling/scripts/terrain-surface.ts --world <id> --zone <id>

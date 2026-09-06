@@ -1,0 +1,27 @@
+{
+  "name": "@wov/content-build",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The content build steps — scene import and prefab catalogue generation — as functions the scripts and the API both call.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@wov/asset-system": "workspace:*",
+    "@wov/world-schema": "workspace:*"
+  }
+}

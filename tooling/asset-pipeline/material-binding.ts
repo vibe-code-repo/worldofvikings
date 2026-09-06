@@ -23,7 +23,7 @@
  * renderer. Three collision meshes in the store are in that state; they are
  * reported rather than given a texture that cannot be read.
  */
-import type { Gltf, GltfPrimitive } from './glb.js';
+import type { Gltf, GltfPrimitive } from '@wov/content-build';
 import {
   ALPHA_CUTOFF,
   EMISSIVE_FACTOR,

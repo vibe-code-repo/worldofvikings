@@ -85,8 +85,8 @@ import {
   worldBounds,
   wrapInRoot,
   writeGlb,
-} from './glb.js';
-import type { Bounds } from './glb.js';
+} from '@wov/content-build';
+import type { Bounds } from '@wov/content-build';
 import { MAX_TEXTURE_SIZE, decodePng, encodePng, fitWithin, isPng, readPngSize } from './png.js';
 import { mergeOwnedEntries } from './manifest-merge.js';
 import { buildPlaceholderGlb, placeholderPathFor } from './placeholder.js';

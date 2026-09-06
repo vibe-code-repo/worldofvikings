@@ -46,8 +46,8 @@ import {
   parseAssetManifest,
 } from '@wov/asset-system/manifest';
 import type { AssetEntry } from '@wov/asset-system/manifest';
-import { assertSupported, readGlb, worldBounds, writeGlb } from '../asset-pipeline/glb.js';
-import type { Bounds } from '../asset-pipeline/glb.js';
+import { assertSupported, readGlb, worldBounds, writeGlb } from '@wov/content-build';
+import type { Bounds } from '@wov/content-build';
 import {
   MAX_TEXTURE_SIZE,
   decodePng,
@@ -67,10 +67,16 @@ import {
   storeTexturePaths,
   textureNodeStem,
 } from '../asset-pipeline/scene-models.js';
-import { cutSizeLimit, WORLD_OBJECT_SIZE_LIMIT } from '../asset-pipeline/backdrop.js';
-import { prefabCategoryFromAssetPath, repoRoot } from './prefab-catalog.js';
-import { loadPrefabStems } from './prefab-stems.js';
-import { DEFAULT_ZONES, scanScene, withBackdropAliases } from './scene-import.js';
+import { repoRoot } from './repo-root.js';
+import {
+  DEFAULT_ZONES,
+  WORLD_OBJECT_SIZE_LIMIT,
+  cutSizeLimit,
+  loadPrefabStems,
+  prefabCategoryFromAssetPath,
+  scanScene,
+  withBackdropAliases,
+} from '@wov/content-build';
 
 function argument(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);

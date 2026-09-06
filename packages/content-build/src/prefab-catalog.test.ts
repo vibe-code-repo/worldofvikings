@@ -1,9 +1,10 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parsePrefabCatalog } from '@wov/world-schema';
 import type { AssetEntry } from '@wov/asset-system/manifest';
-import type { Bounds } from '../asset-pipeline/glb.js';
+import type { Bounds } from './glb.js';
 import {
   IMPORTED_CATALOG_ID,
   buildImportedCatalog,
@@ -13,8 +14,16 @@ import {
   prefabCollisionFor,
   prefabIdFromAssetPath,
   prefabNameFromAssetPath,
-  repoRoot,
 } from './prefab-catalog.js';
+
+/**
+ * The checkout these fixtures read from.
+ *
+ * Spelled out here rather than exported from the package: "the repository" is
+ * something a command knows about, and the package is also run by a service
+ * that has a `CONTENT_DIR` and no checkout (ADR-0033).
+ */
+const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 
 /** A measured trunk, so the fixtures do not need the private store. */
 const PINE_TRUNK: Bounds = { min: [-0.4, 0, -0.4], max: [0.4, 2, 0.4] };

@@ -12,8 +12,8 @@
  * right size reads as a statement — and the on-screen counter names how many
  * of them there are.
  */
-import { writeGlb } from './glb.js';
-import type { Bounds, Gltf } from './glb.js';
+import { writeGlb } from '@wov/content-build';
+import type { Bounds, Gltf } from '@wov/content-build';
 
 /** A cube's eight corners, in the order the index list below expects. */
 const CORNERS: readonly (readonly [number, number, number])[] = [

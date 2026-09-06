@@ -1,7 +1,9 @@
+import { TerrainDefinitionSchema, TerrainLayerSchema } from '@wov/world-schema';
 import type {
   EntityDefinition,
   LightingProfile,
   TerrainDefinition,
+  TerrainLayer,
   WorldDefinition,
   ZoneDefinition,
 } from '@wov/world-schema';
@@ -125,21 +127,28 @@ function canonicalZone(zone: ZoneDefinition): Record<string, unknown> {
   };
 }
 
+/** The declaration order of the terrain schema, which is also the file order. */
+const TERRAIN_KEYS = Object.keys(TerrainDefinitionSchema.shape) as (keyof TerrainDefinition)[];
+const TERRAIN_LAYER_KEYS = Object.keys(TerrainLayerSchema.shape) as (keyof TerrainLayer)[];
+
+/**
+ * The terrain block in schema order, read *from the schema* rather than listed.
+ *
+ * The lighting profile above is spelled out because its groups nest; this one
+ * is not, and the difference is worth stating. A terrain layer is the block
+ * this project is actively growing — `normalMap`, `normalScale`, `metallic`
+ * and `smoothness` are being added as the terrain work lands. A hand-written
+ * list of keys here would silently *drop* every new one on the first save, and
+ * nothing would fail: the file would come back without the field, and the
+ * ground would go flat some time later. Asking the schema means a field the
+ * format accepts survives a round trip through the editor (ADR-0033).
+ */
 function canonicalTerrain(terrain: TerrainDefinition): Record<string, unknown> {
-  return {
-    heightField: terrain.heightField,
-    position: terrain.position,
-    size: terrain.size,
-    ...(terrain.layers === undefined
-      ? {}
-      : {
-          layers: terrain.layers.map((layer) => ({
-            texture: layer.texture,
-            tileSize: layer.tileSize,
-          })),
-        }),
-    ...(terrain.splat === undefined ? {} : { splat: terrain.splat }),
-  };
+  const ordered = inOrder(terrain, TERRAIN_KEYS);
+  if (terrain.layers !== undefined) {
+    ordered['layers'] = terrain.layers.map((layer) => inOrder(layer, TERRAIN_LAYER_KEYS));
+  }
+  return ordered;
 }
 
 function canonicalEntity(entity: EntityDefinition): Record<string, unknown> {

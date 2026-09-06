@@ -47,7 +47,7 @@ export const worldsRoutes: FastifyPluginAsync<{ config: ApiConfig }> = async (ap
 
   app.put<{ Params: WorldParams }>('/worlds/:id', async (request, reply) => {
     const { id } = request.params;
-    if (config.worldsReadOnly) {
+    if (config.contentReadOnly) {
       // Editor clients never write production data directly (spec §49).
       return reply.code(403).send({
         error: 'read_only',

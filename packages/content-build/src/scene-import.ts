@@ -15,9 +15,9 @@
  * here is a pure function so the rules can be tested without a 150 MB file.
  */
 import type { WorldDefinition } from '@wov/world-schema';
-import { BACKDROP_MODELS } from '../asset-pipeline/backdrop.js';
-import type { Gltf, GltfNode, Matrix4 } from '../asset-pipeline/glb.js';
-import { IDENTITY, multiply, nodeMatrix } from '../asset-pipeline/glb.js';
+import { BACKDROP_MODELS } from './backdrop.js';
+import type { Gltf, GltfNode, Matrix4 } from './glb.js';
+import { IDENTITY, multiply, nodeMatrix } from './glb.js';
 
 // --------------------------------------------------------------- name mapping
 

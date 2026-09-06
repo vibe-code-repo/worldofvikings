@@ -46,6 +46,60 @@ export const AssetPathSchema = z
   .refine((path) => !path.split('/').includes('..'), { message: 'must not contain ".."' })
   .refine((path) => !path.split('/').includes(''), { message: 'must not contain empty segments' });
 
+/**
+ * What kind of file an asset path names — metadata, never a rule.
+ *
+ * The vocabulary is the asset manifest's own `kind` field
+ * (`@wov/asset-system`), repeated here by name rather than imported, for the
+ * same reason {@link AssetPathSchema} is repeated: this package must stay free
+ * of every dependency but Zod (agent rule 9). It changes with that list in the
+ * same commit.
+ */
+export type AssetKindHint = 'mesh' | 'prefab' | 'terrain' | 'texture';
+
+/**
+ * An asset path that also says *what kind* of file it names.
+ *
+ * Validation is untouched — every asset path is checked by exactly the rules in
+ * {@link AssetPathSchema}, and a field annotated with the wrong kind is still
+ * accepted. The kind is for whoever has to build a control for the field:
+ * `describeFields` in `@wov/editor-core` reads it out of the JSON Schema and
+ * the editor offers the matching entries of the asset manifest instead of a
+ * bare text box (ADR-0033). A path field without an annotation still works; it
+ * just gets nothing to choose from.
+ *
+ * This is the one way a *data* schema is allowed to say something about a
+ * *panel*, and it earns it: the alternative is a list of field names in
+ * `apps/editor` saying "these three are textures", which is exactly the drift
+ * ADR-0033 exists to prevent.
+ */
+export function assetPathOf(kind: AssetKindHint): typeof AssetPathSchema {
+  return AssetPathSchema.meta({ asset: kind });
+}
+
+/**
+ * Which editor command writes a field — metadata, never a rule.
+ *
+ * A block is normally edited field by field, and one patch is one command. A
+ * few fields are not: how a ground layer *behaves* — its metalness, its
+ * smoothness, how hard its normal map tilts the surface, and whether the whole
+ * tile is drawn facetted — is written by `updateTerrainSurface`, because that
+ * is the command `pnpm terrain-surface` calls, and a value typed into a panel
+ * and a value passed on a command line have to travel one path or they will
+ * eventually be refused in two different places (ADR-0032).
+ *
+ * Marking it here rather than in `apps/editor` is the same bargain
+ * {@link assetPathOf} makes, for the same reason: the alternative is a list of
+ * four field names in a panel, which drifts the first time a fifth arrives
+ * (ADR-0033). Validation is untouched.
+ */
+export type FieldCommandHint = 'terrainSurface';
+
+/** Annotates a field with the command that writes it. See {@link FieldCommandHint}. */
+export function turnedBy<T extends z.ZodType>(command: FieldCommandHint, schema: T): T {
+  return schema.meta({ command }) as T;
+}
+
 export type Identifier = z.infer<typeof IdentifierSchema>;
 
 /** Turns Zod issues into `path: message` lines a contributor can act on. */

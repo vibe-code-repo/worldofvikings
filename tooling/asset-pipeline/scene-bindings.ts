@@ -34,7 +34,7 @@ import { open } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import type { Gltf } from './glb.js';
+import type { Gltf } from '@wov/content-build';
 import { matchStoreId } from './scene-names.js';
 
 const MAGIC = 0x46546c67; // "glTF"

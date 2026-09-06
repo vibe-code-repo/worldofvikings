@@ -46,19 +46,19 @@ import {
 } from '@wov/asset-system/manifest';
 import type { AssetEntry } from '@wov/asset-system/manifest';
 import {
+  BACKDROP_MODELS,
   assertSupported,
+  backdropModelPath,
+  backdropTexturePath,
   countTriangles,
   readGlb,
   worldBounds,
   writeGlb,
-} from '../asset-pipeline/glb.js';
-import type { Bounds } from '../asset-pipeline/glb.js';
+} from '@wov/content-build';
+import type { Bounds } from '@wov/content-build';
 import {
-  BACKDROP_MODELS,
   PANORAMA_MAX_HEIGHT,
   PANORAMA_MAX_WIDTH,
-  backdropModelPath,
-  backdropTexturePath,
   buildBackdropModel,
   fitsPanorama,
 } from '../asset-pipeline/backdrop.js';
@@ -66,7 +66,7 @@ import { mergeOwnedEntries } from '../asset-pipeline/manifest-merge.js';
 import { decodePng, encodePng, fitWithin, isPng, readPngSize } from '../asset-pipeline/png.js';
 import { buildPlaceholderGlb, placeholderPathFor } from '../asset-pipeline/placeholder.js';
 import { ENVIRONMENT_SET, SOURCE_FOLDERS } from '../asset-pipeline/selection.js';
-import { repoRoot } from './prefab-catalog.js';
+import { repoRoot } from './repo-root.js';
 
 function argument(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);

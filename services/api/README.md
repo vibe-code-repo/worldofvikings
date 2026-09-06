@@ -7,17 +7,22 @@ viewport start without a backend (spec §35).
 
 - Dev: `pnpm --filter @wov/api dev` → http://localhost:3000/health
 - Environment: `API_HOST`, `API_PORT`, `API_CORS_ORIGINS`, `LOG_LEVEL`,
-  `CONTENT_DIR`, `WORLDS_READ_ONLY` (see `.env.example`)
+  `CONTENT_DIR`, `WORLDS_READ_ONLY`, `WOV_IMPORT_DIR`, `WOV_ASSET_STORE`,
+  `ASSETS_DIR` (see `.env.example`)
 
 ## Routes
 
-| Route             | Answer                                                                    |
-| ----------------- | ------------------------------------------------------------------------- |
-| `GET /health`     | `{ status, service, uptimeSeconds }`                                      |
-| `GET /worlds`     | `{ worlds: [{ id, name, zones, updatedAt }], invalid: [{ id, errors }] }` |
-| `GET /worlds/:id` | The `WorldDefinition` — 404 unknown, 422 stored file invalid              |
-| `PUT /worlds/:id` | Validates and writes — 201 created, 200 replaced, 400 invalid, 403 locked |
-| `GET /prefabs`    | `{ prefabs: [{ id, name, …, catalog }], catalogs, invalid }`              |
+| Route                            | Answer                                                                      |
+| -------------------------------- | --------------------------------------------------------------------------- |
+| `GET /health`                    | `{ status, service, uptimeSeconds }`                                        |
+| `GET /worlds`                    | `{ worlds: [{ id, name, zones, updatedAt }], invalid: [{ id, errors }] }`   |
+| `GET /worlds/:id`                | The `WorldDefinition` — 404 unknown, 422 stored file invalid                |
+| `PUT /worlds/:id`                | Validates and writes — 201 created, 200 replaced, 400 invalid, 403 locked   |
+| `GET /prefabs`                   | `{ prefabs: [{ id, name, …, catalog }], catalogs, invalid }`                |
+| `GET /prefabs/:catalog`          | One `PrefabCatalog` — 404 unknown, 422 stored file invalid                  |
+| `PUT /prefabs/:catalog`          | Validates and writes one catalogue — same codes as a world                  |
+| `POST /actions/import-scene`     | Runs the scene import; `{ report }` — 400 bad path, 501 no `WOV_IMPORT_DIR` |
+| `POST /actions/generate-prefabs` | Rebuilds `prefabs/imported.json`; `{ report }`                              |
 
 ```bash
 curl http://localhost:3000/worlds
@@ -46,6 +51,28 @@ Rules the routes keep (reasoning in ADR-0017):
 clashes and broken catalogues are reported in `invalid`. The catalogue itself
 is validated by `parsePrefabCatalog` from `@wov/world-schema` — content formats
 are defined there (ADR-0004), never in a service.
+
+**`overrides.json` is the one catalogue that may redefine a prefab** and is
+applied last (ADR-0033). `content/prefabs/imported.json` is rewritten whole by
+`pnpm generate:prefabs`, so a collision shape corrected in the editor cannot be
+saved there — the next regeneration would revert it with no error and no diff.
+The editor writes the overlay instead; everything else keeps the first-wins rule.
+
+## The content actions
+
+`POST /actions/import-scene` and `POST /actions/generate-prefabs` run
+`importSceneBundle` and `generatePrefabCatalog` from `@wov/content-build` — the
+same functions `pnpm import:scene` and `pnpm generate:prefabs` run, so the
+editor's **World** menu and the command line cannot drift apart (ADR-0033). Both
+answer the command's own report, and both answer 403 under `WORLDS_READ_ONLY`.
+
+The import takes a _file path from a browser_, so the guard is an allow-list and
+not a filter (`src/import-paths.ts`): without `WOV_IMPORT_DIR` the action
+answers 501 and reads nothing; the bundle is named **relative** to that
+directory; an absolute path is refused rather than joined; the resolved path
+must still be inside the directory; and it must end in `.glb`. A symlink out of
+the tree is not caught — `WOV_IMPORT_DIR` is a directory you control, not a
+shared drop box. The catalogue action takes no path at all.
 
 **Why Fastify** (and not Hono/Express): the API will later own accounts, save
 synchronisation and published world versions. Fastify gives schema-based

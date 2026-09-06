@@ -1,8 +1,9 @@
 # World editor
 
 > Status: **Phase 3 MVP** — free camera, grid, selection, gizmos, hierarchy,
-> inspector, asset browser, a scatter panel, a ground panel, open and save
-> through the API. No components, no terrain sculpting yet.
+> four inspectors, asset browser, a scatter panel, open and save through the
+> API, and the two content build steps from the **World** menu. No components,
+> no terrain sculpting yet.
 
 The editor is a **separate application** (`apps/editor`, production
 `editor.world-of-vikings.com`) that produces its own bundle. Editor code must
@@ -22,19 +23,29 @@ Both default to their local ports, so a clean clone needs no `.env`; see
 ## Layout (spec §13)
 
 ```text
-┌──────────────────────────────────────────────────────────────┐
-│ File | Edit | View │ Select Move Rotate Scale │  world  dirty │
-├──────────────┬─────────────────────────────┬─────────────────┤
-│ Hierarchy    │                             │ Inspector       │
-│  zones       │       3D VIEWPORT           │  id, prefab     │
-│  entities    │                             │  transform      │
-├──────────────┴─────────────────────────────┴─────────────────┤
-│ Asset Browser — tabs, search, drag  │ Scatter — region, mix, │
-│                                     │ density, seed, preview │
-├──────────────────────────────────────────────────────────────┤
-│ assets: N private, M placeholder │ zone │ selection │ status  │
-└──────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│ File | Edit | View | World │ Select Move Rotate Scale │  dirty  │
+├──────────────┬─────────────────────────────┬───────────────────┤
+│ Hierarchy    │                             │ Entity Zone       │
+│  zones       │       3D VIEWPORT           │ Prefab Lighting   │
+│  entities    │                             │ …the one you need │
+├──────────────┴─────────────────────────────┴───────────────────┤
+│ Asset Browser — tabs, search, drag  │ Scatter — region, mix,   │
+│                                     │ density, seed, preview   │
+├────────────────────────────────────────────────────────────────┤
+│ assets: N private, M placeholder │ zone │ selection │ status    │
+└────────────────────────────────────────────────────────────────┘
 ```
+
+The right-hand column is four inspectors behind four tabs, because they answer
+four different questions and only one of them is ever the question:
+
+| Tab          | Edits                                                                              |
+| ------------ | ---------------------------------------------------------------------------------- |
+| **Entity**   | the selected entity: id, prefab, position, rotation, scale                         |
+| **Zone**     | the active zone's name and its `terrain` block — height field, size, layers, splat |
+| **Prefab**   | the highlighted prefab's category and collision shape (ADR-0026)                   |
+| **Lighting** | the world's or the zone's lighting profile, with presets (ADR-0024)                |
 
 ## Mouse
 
@@ -158,28 +169,71 @@ is not drawn into the shadow map (ADR-0027), and vegetation collides against
 nothing (ADR-0026), so a scattered field costs no physics bodies: 4 103 of
 `village1`'s 5 248 entities are walk-through.
 
-## The ground panel
+## Light, ground and collision (ADR-0033)
 
-How a zone's terrain layers _behave_ — not what they are made of — is turned in
-the ground panel (ADR-0032). Per layer: `metal` (how much of it is reflected sky
-rather than its own colour), `smooth` (how sharp that reflection is) and `bump`
-(how hard its normal map tilts the surface, disabled for a layer that has none).
-Above them, one checkbox draws the whole tile facetted.
+Three things used to be world data the editor drew and could not change. They
+are ordinary edits now.
 
-Every input dispatches one `updateTerrainSurface` command, so a change is an
-ordinary edit: Ctrl+Z takes it back and saving writes it into the world file.
+**Lighting.** The Lighting tab edits the profile of the world, or of the active
+zone as an override — the two levels the format has (ADR-0024). Every field is
+a control with the schema's own range, and every change is a command: the
+viewport relights from the document, so the picture follows the slider, and one
+Ctrl+Z takes the whole drag back. The preset buttons (`Evening`, `Noon`, `Flat`)
+write a whole profile in one command and are then over; `Evening` is the
+village's own light, so pressing it on `village1` changes nothing. **Clear**
+removes the block — on a zone that means "lit like its world", which is not the
+same as an empty block, and the panel can produce both.
 
-```bash
-# The same command without the editor, one layer at a time.
-pnpm terrain-surface --world village1 --zone village --show
-pnpm terrain-surface --world village1 --zone village \
-  --layer 1 --metallic 0.85 --smoothness 0.1 --normal-scale 1.5
-pnpm terrain-surface --world village1 --zone village --layer 0 --metallic none
-pnpm terrain-surface --world village1 --zone village --flat-normals on
-```
+**Terrain.** The Zone tab edits the `terrain` block: the height field, where it
+stands, how large the world says it is, the ground textures and their tile
+sizes, and the splat maps (ADR-0020). The **order of the layers matters** — the
+splat map's colour channels weight them in exactly this order, so moving a layer
+up changes which channel paints it. Use ↑ and ↓; one move is one undo step.
 
-Neither the panel nor the command can add a layer, change a texture or move the
-tile: each of those has an asset and an import behind it (ADR-0020, ADR-0021).
+Every path field in that block — the height field, each layer's texture, each
+splat map — carries the asset store's own list: terrain models for a height
+field, images for a texture. The list comes from `assets/manifest.json`, which
+the editor reads the first time the Zone tab is opened, and the field stays a
+text field on purpose. A world may name an asset no manifest lists, and a
+control that could only offer known paths would make that world uneditable. The
+line under the block says how many of each the store held, so an empty picker
+can be told from an asset server that never answered.
+
+Which fields get a list is decided by the schema, not by this panel:
+`assetPathOf('texture')` in `@wov/world-schema` marks a path field with the kind
+of file it names, `describeFields` carries that through as a control of kind
+`asset`, and a new path field therefore arrives with its picker already
+attached (ADR-0033).
+
+**Collision.** The Prefab tab edits what the highlighted prefab collides as
+(ADR-0026) and which category it is filed under. It has its own **Save** and is
+not part of the world's undo history, because a prefab catalogue is a different
+file that other worlds read. A correction to a prefab from the _generated_
+catalogue is written into `content/prefabs/overrides.json`, which the API applies
+last and `pnpm generate:prefabs` never touches; a hand-written catalogue is
+edited in place. The panel says which file it will write before you press Save.
+
+None of these panels contains a list of field names: they are drawn from the Zod
+schemas in `@wov/world-schema`, so a field added to the format appears here on
+the next reload with its own type and range.
+
+## World ▸ the two content build steps
+
+`pnpm import:scene` and `pnpm generate:prefabs` are also **World ▸ Import scene
+bundle…** and **World ▸ Regenerate prefab catalogue…**. They are not
+re-implementations: the menu calls `POST /actions/*` on the API, which calls the
+same `@wov/content-build` functions the commands call, and shows the command's
+own report — how many instances were placed, what was not recognised and by
+what weight, what ground and light were carried over (ADR-0033).
+
+The bundle is named **relative to the service's `WOV_IMPORT_DIR`**, which is the
+only directory the API may read a bundle from. A service started without it
+answers 501, which is the right answer for a deployment nobody configured for
+imports.
+
+Regenerating the catalogue needs the private asset store on the service
+(`WOV_ASSET_STORE`): a tree's collision box is measured on the model, and a run
+without the store fails on the first tree rather than filing a crown as a trunk.
 
 ## Where the world data comes from
 
@@ -190,6 +244,7 @@ authored content of `CONTENT_DIR` (ADR-0017):
 curl http://localhost:3000/worlds        # { worlds: [{ id, name, zones, updatedAt }], invalid: [] }
 curl http://localhost:3000/worlds/example
 curl http://localhost:3000/prefabs       # merged catalogues from content/prefabs/
+curl http://localhost:3000/prefabs/base  # one catalogue file
 ```
 
 Saving is `PUT /worlds/:id` with the world as the body: it is validated against

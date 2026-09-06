@@ -8,7 +8,7 @@
  * function and no seed ever enters a world file.
  */
 import { z } from 'zod';
-import { AssetPathSchema, Vector3Schema } from './common.js';
+import { assetPathOf, turnedBy, Vector3Schema } from './common.js';
 
 /**
  * How many texture layers a splat map carries: one weight per colour channel.
@@ -44,7 +44,7 @@ const UnitInterval = z.number().min(0).max(1);
 export const TerrainLayerSchema = z
   .strictObject({
     /** The image, relative to the asset root or the private store. */
-    texture: AssetPathSchema,
+    texture: assetPathOf('texture'),
     /**
      * Edge length in metres of one repeat of {@link texture}.
      *
@@ -62,7 +62,7 @@ export const TerrainLayerSchema = z
      * same weights, and a single map for the whole tile could only describe the
      * ground it happens to sit on.
      */
-    normalMap: AssetPathSchema.optional(),
+    normalMap: assetPathOf('texture').optional(),
     /**
      * How strongly {@link normalMap} tilts the surface. 1 is the map as it was
      * painted; 0 is a flat surface; above 1 exaggerates it.
@@ -71,7 +71,7 @@ export const TerrainLayerSchema = z
      * this is not a boolean: the rough rock reads as rock only at 5, and the
      * moss at 5 would read as gravel.
      */
-    normalScale: z.number().min(0).max(8).finite().optional(),
+    normalScale: turnedBy('terrainSurface', z.number().min(0).max(8).finite()).optional(),
     /**
      * How metallic this layer is, 0…1.
      *
@@ -81,7 +81,7 @@ export const TerrainLayerSchema = z
      * almost entirely cool reflected sky, moss at 0 is its own green
      * (ADR-0032).
      */
-    metallic: UnitInterval.optional(),
+    metallic: turnedBy('terrainSurface', UnitInterval).optional(),
     /**
      * How smooth this layer is, 0…1 — the opposite end of roughness.
      *
@@ -89,7 +89,7 @@ export const TerrainLayerSchema = z
      * ground layers were authored with, and inverting it here once is better
      * than inverting it in a person's head every time they read a world file.
      */
-    smoothness: UnitInterval.optional(),
+    smoothness: turnedBy('terrainSurface', UnitInterval).optional(),
   })
   .superRefine((layer, ctx) => {
     // A strength for a map that is not there is a number that does nothing,
@@ -121,7 +121,7 @@ export const TerrainLayerSchema = z
 export const TerrainDefinitionSchema = z
   .strictObject({
     /** The height field model, e.g. `terrain/village-257.glb`. */
-    heightField: AssetPathSchema,
+    heightField: assetPathOf('terrain'),
     /**
      * A regular-grid copy of the same ground, for tools that sample heights
      * without a renderer — `pnpm scatter`, above all.
@@ -133,7 +133,7 @@ export const TerrainDefinitionSchema = z
      * guess which file to sample, the world says it. Absent means the height
      * field is itself a grid, which is what it was through version 3.
      */
-    heightSamples: AssetPathSchema.optional(),
+    heightSamples: assetPathOf('terrain').optional(),
     /** Where the height field's own origin sits, `[x, y, z]` in metres. */
     position: Vector3Schema,
     /** `[width, depth]` of the tile in metres, along x and z. */
@@ -144,7 +144,7 @@ export const TerrainDefinitionSchema = z
      * One or two splat maps. The first weights layers 1–4 through its RGBA
      * channels, the second layers 5–8.
      */
-    splat: z.array(AssetPathSchema).min(1).max(2).optional(),
+    splat: z.array(assetPathOf('texture')).min(1).max(2).optional(),
     /**
      * Draw the ground facetted: one normal per triangle instead of the smooth
      * normals the height field carries.
@@ -156,7 +156,7 @@ export const TerrainDefinitionSchema = z
      * facetted is a different ground, not a better-lit one, so nothing turns it
      * on for a world unless an author does (ADR-0032).
      */
-    flatNormals: z.boolean().optional(),
+    flatNormals: turnedBy('terrainSurface', z.boolean()).optional(),
   })
   .superRefine((terrain, ctx) => {
     const layers = terrain.layers ?? [];

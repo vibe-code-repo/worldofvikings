@@ -298,6 +298,16 @@ across **all** catalogs, because an entity names the id alone.
 generated from the asset manifest by `pnpm generate:prefabs` and committed — it
 is authored data derived once, not a runtime generator (ADR-0016).
 
+`content/prefabs/overrides.json` is the **overlay**: the one catalogue that may
+redefine a prefab another catalogue already declares, and the one the API
+applies last (ADR-0033). It exists because `imported.json` is rewritten _whole_
+on every regeneration, so a collision shape corrected in the editor cannot be
+saved there — it would be reverted with no error and no diff anybody reads, and
+what would be lost is a wall the player then walks through. Everywhere else the
+old rule holds: the first definition of an id wins and a second one is reported
+as a clash. An override entry is a **complete** prefab, not a diff: the format
+has no partial form, so a diff could not be validated as it is written.
+
 ## Rules
 
 1. Entities reference a **prefab**; geometry is never inlined (spec §19).
@@ -352,11 +362,13 @@ default zones, and `--dry-run` reports without writing.
 The editor runs in a browser and cannot touch the file system, so world files
 are read and written through `services/api` (ADR-0017):
 
-| Route             | Answer                                                                    |
-| ----------------- | ------------------------------------------------------------------------- |
-| `GET /worlds`     | `{ worlds: [{ id, name, zones, updatedAt }], invalid: [{ id, errors }] }` |
-| `GET /worlds/:id` | The world — 404 unknown, 422 when the stored file fails validation        |
-| `PUT /worlds/:id` | Writes it — 201 created, 200 replaced, 400 invalid body, 403 read-only    |
+| Route                   | Answer                                                                    |
+| ----------------------- | ------------------------------------------------------------------------- |
+| `GET /worlds`           | `{ worlds: [{ id, name, zones, updatedAt }], invalid: [{ id, errors }] }` |
+| `GET /worlds/:id`       | The world — 404 unknown, 422 when the stored file fails validation        |
+| `PUT /worlds/:id`       | Writes it — 201 created, 200 replaced, 400 invalid body, 403 read-only    |
+| `GET /prefabs/:catalog` | One catalogue file — 404 unknown, 422 when the stored file is invalid     |
+| `PUT /prefabs/:catalog` | Writes one catalogue, with the same codes and the same guards             |
 
 A world id is also the file name, so it must match the identifier rule above;
 anything else is refused before a file is touched. `PUT` validates the body with

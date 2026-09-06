@@ -23,10 +23,11 @@ gizmo drag undoes with the same Ctrl+Z as a Delete key.
 | `EditorShell.tsx`    | The session, the keyboard, and what the panels are wired to         |
 | `EditorViewport.tsx` | The canvas: scene reconciliation, picking, gizmo commits, drops     |
 | `state/store.ts`     | The reducer around `@wov/editor-core`, plus clipboard and errors    |
-| `api/client.ts`      | `GET /worlds`, `GET /worlds/:id`, `PUT /worlds/:id`, `GET /prefabs` |
+| `api/client.ts`      | Worlds, prefab catalogues, and the two content actions              |
+| `api/assets.ts`      | The asset manifest, indexed by kind for the zone inspector's picker |
 | `config.ts`          | `VITE_API_URL` and `VITE_ASSET_URL`, with local defaults            |
 | `keyboard.ts`        | Whether the focused element keeps a keystroke or the shell gets it  |
-| `panels/`            | Menu bar, hierarchy, inspector, asset browser                       |
+| `panels/`            | Menu bar, hierarchy, the four right-hand inspectors, asset browser  |
 | `scene/`             | Everything Babylon (see below)                                      |
 | `dev-debug.ts`       | `window.__wovEditor`, the dev-only bridge `pnpm smoke` reads        |
 
@@ -51,8 +52,31 @@ switched on. Every input dispatches `updateTerrainSurface`, the same command
 
 The active zone's `terrain` block is drawn as scenery (ADR-0020, ADR-0022): it
 is what surface snapping drops a prop onto, and it carries no entity id, so
-clicking it selects nothing and no gizmo can move it. Terrain editing is a later
-phase.
+clicking it selects nothing and no gizmo can move it. Terrain **sculpting** is
+still a later phase — the height field is referenced, not edited — but the block
+itself is editable in the Zone inspector (ADR-0033).
+
+## The panels are drawn from the schemas
+
+The Lighting, Zone and Prefab inspectors contain no list of field names.
+`describeFields` in `@wov/editor-core` turns a Zod schema into control
+descriptors and `panels/SchemaFields.tsx` is the only place that knows what a
+control looks like, so a field added to `@wov/world-schema` appears here on the
+next reload with its own type and range and nothing in this app changes
+(ADR-0033). That covers the pickers too: a path field annotated with
+`assetPathOf` in the schema is drawn as a text field with the asset store's
+entries of that kind attached, which is why the height field, every layer
+texture and every splat map can be chosen rather than typed.
+
+Two consequences worth knowing:
+
+- A slider is **one command per step**, because the viewport relights and
+  redraws from the document and there is no path that paints without editing it.
+  The history folds the steps of one drag into one undo entry
+  (`HistoryEntry.coalesceKey`).
+- A **prefab** correction is not in the undo history. The history belongs to the
+  open world document; a prefab catalogue is a different file other worlds read,
+  so the Prefab inspector has an explicit Save and says which file it writes.
 
 `SceneSync.meshCount()` counts entity **roots** — exactly one per entity, so it
 is comparable to the document's `entityCount` without arithmetic. A loaded GLB

@@ -121,6 +121,9 @@ importers:
       '@wov/asset-system':
         specifier: workspace:*
         version: link:packages/asset-system
+      '@wov/content-build':
+        specifier: workspace:*
+        version: link:packages/content-build
       '@wov/editor-core':
         specifier: workspace:*
         version: link:packages/editor-core
@@ -257,11 +260,23 @@ importers:
         specifier: ^4.5.4
         version: 4.5.4
 
+  packages/content-build:
+    dependencies:
+      '@wov/asset-system':
+        specifier: workspace:*
+        version: link:../asset-system
+      '@wov/world-schema':
+        specifier: workspace:*
+        version: link:../world-schema
+
   packages/editor-core:
     dependencies:
       '@wov/world-schema':
         specifier: workspace:*
         version: link:../world-schema
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
 
   packages/engine:
     dependencies:
@@ -302,6 +317,9 @@ importers:
       '@fastify/cors':
         specifier: ^11.1.0
         version: 11.3.0
+      '@wov/content-build':
+        specifier: workspace:*
+        version: link:../../packages/content-build
       '@wov/world-schema':
         specifier: workspace:*
         version: link:../../packages/world-schema

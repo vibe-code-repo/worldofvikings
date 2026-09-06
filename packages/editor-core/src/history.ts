@@ -24,6 +24,22 @@ export interface HistoryEntry {
   readonly inverse: EditorCommand;
   readonly before: DocumentView;
   readonly after: DocumentView;
+  /**
+   * What this step is *of*, when several of them are one gesture.
+   *
+   * A slider dragged across a lighting value produces one command per step,
+   * because the viewport relights from the document and there is no other way
+   * to show the change while it is being made. Fifty of those in the undo stack
+   * would mean fifty Ctrl+Z to get back to where the drag started, which is not
+   * an undo anybody wants. Two consecutive steps with the same key are folded
+   * into one: the first one's inverse is kept — it is what the drag started
+   * from — and the last one's command is what is redone.
+   *
+   * Only *consecutive* steps fold. Anything else in between (a placement, a
+   * gizmo drag, a different slider) ends the gesture, so the fold can never
+   * swallow an unrelated edit.
+   */
+  readonly coalesceKey?: string;
 }
 
 export interface EditorHistory {
@@ -82,18 +98,30 @@ export function canRedo(state: EditorState): boolean {
  * A failing command changes nothing — not the document, not the history — so a
  * rejected keystroke cannot leave a hole in the undo stack.
  */
-export function execute(state: EditorState, command: EditorCommand): ExecuteResult {
+export function execute(
+  state: EditorState,
+  command: EditorCommand,
+  options: { readonly coalesceKey?: string } = {},
+): ExecuteResult {
   const applied = applyCommand(state.document, command);
   if (!applied.ok) {
     return { ok: false, error: applied.error };
   }
 
+  const previous = state.history.past.at(-1);
+  const folds = options.coalesceKey !== undefined && previous?.coalesceKey === options.coalesceKey;
+
   const entry: HistoryEntry = {
     command,
-    inverse: applied.value.inverse,
-    before: viewOf(state.document),
+    // Folding keeps the *first* inverse of the gesture: that is the state the
+    // drag started from, and it is what one Ctrl+Z has to return to.
+    inverse: folds && previous !== undefined ? previous.inverse : applied.value.inverse,
+    before: folds && previous !== undefined ? previous.before : viewOf(state.document),
     after: viewOf(applied.value.document),
+    ...(options.coalesceKey === undefined ? {} : { coalesceKey: options.coalesceKey }),
   };
+
+  const past = folds ? state.history.past.slice(0, -1) : state.history.past;
 
   return {
     ok: true,
@@ -101,7 +129,7 @@ export function execute(state: EditorState, command: EditorCommand): ExecuteResu
       document: applied.value.document,
       history: {
         ...state.history,
-        past: trim([...state.history.past, entry], state.history.limit),
+        past: trim([...past, entry], state.history.limit),
         // Redoing after a new edit would replay a change that no longer follows
         // from this world, so the branch is dropped.
         future: [],

@@ -43,31 +43,42 @@ undoable command whose output is ordinary entities (ADR-0025), also available as
 and bump strength through the same command `pnpm terrain-surface` uses
 (ADR-0032). There is no component system and no terrain sculpting yet.
 
+**Editor parity (ADR-0033).** Anything a script writes, the editor can write, by
+calling the same code. Four right-hand inspectors edit the lighting profile of a
+world or a zone, the terrain block and its layer order, and a prefab's collision
+shape; the **World** menu runs the scene import and the prefab-catalogue
+generator through the API. The panels contain no list of field names — they are
+drawn from the Zod schemas, so a field added to `@wov/world-schema` appears in
+the editor by itself. A prefab correction goes into `content/prefabs/overrides.json`,
+never into the generated `imported.json`. When you add something a script can do
+and the editor cannot, that is a gap to close in the same change, not later.
+
 The client has exactly one loop, one device edge and one ground query — read
 [ADR-0014](docs/adr/0014-one-loop-one-device-edge-one-ground.md) before adding a
 second of any of them.
 
 ## 2. Folder responsibilities
 
-| Path                    | Owns                                      | Never contains                   |
-| ----------------------- | ----------------------------------------- | -------------------------------- |
-| `apps/website`          | Public site, Play link                    | Game or editor logic             |
-| `apps/game`             | Game client bootstrap, world loading, HUD | Editor code, authored world data |
-| `apps/editor`           | React editor shell, panels, viewport      | Game-only logic, world rules     |
-| `services/api`          | HTTP service                              | Gameplay rules                   |
-| `packages/shared`       | Framework-free helpers                    | Any dependency                   |
-| `packages/world-schema` | Zod schemas + versioning for world data   | Babylon.js, React                |
-| `packages/asset-system` | Asset URLs, GLB loading/caching, manifest | Gameplay                         |
-| `packages/engine`       | Shared renderer layer                     | Gameplay state                   |
-| `packages/physics`      | Physics contract + Havok backend          | Gameplay rules                   |
-| `packages/gameplay`     | Gameplay state and systems                | Any renderer import              |
-| `packages/editor-core`  | Editor-only logic                         | Anything the game needs          |
-| `packages/ui`           | Framework-free UI tokens/helpers          | React components                 |
-| `content/`              | Authored JSON game data                   | TypeScript                       |
-| `assets/`               | Public binary assets + placeholders       | Anything unlicensed              |
-| `tooling/`              | Scripts, validators, smoke tests          | Shipped code                     |
-| `infrastructure/`       | Deployment scaffolding (empty in Phase 1) | Anything needed for local dev    |
-| `docs/`                 | Architecture, formats, ADRs               | Generated output                 |
+| Path                     | Owns                                            | Never contains                   |
+| ------------------------ | ----------------------------------------------- | -------------------------------- |
+| `apps/website`           | Public site, Play link                          | Game or editor logic             |
+| `apps/game`              | Game client bootstrap, world loading, HUD       | Editor code, authored world data |
+| `apps/editor`            | React editor shell, panels, viewport            | Game-only logic, world rules     |
+| `services/api`           | HTTP service                                    | Gameplay rules                   |
+| `packages/shared`        | Framework-free helpers                          | Any dependency                   |
+| `packages/world-schema`  | Zod schemas + versioning for world data         | Babylon.js, React                |
+| `packages/asset-system`  | Asset URLs, GLB loading/caching, manifest       | Gameplay                         |
+| `packages/content-build` | Scene import and prefab catalogue, as functions | Babylon.js, React, a CLI         |
+| `packages/engine`        | Shared renderer layer                           | Gameplay state                   |
+| `packages/physics`       | Physics contract + Havok backend                | Gameplay rules                   |
+| `packages/gameplay`      | Gameplay state and systems                      | Any renderer import              |
+| `packages/editor-core`   | Editor-only logic                               | Anything the game needs          |
+| `packages/ui`            | Framework-free UI tokens/helpers                | React components                 |
+| `content/`               | Authored JSON game data                         | TypeScript                       |
+| `assets/`                | Public binary assets + placeholders             | Anything unlicensed              |
+| `tooling/`               | Scripts, validators, smoke tests                | Shipped code                     |
+| `infrastructure/`        | Deployment scaffolding (empty in Phase 1)       | Anything needed for local dev    |
+| `docs/`                  | Architecture, formats, ADRs                     | Generated output                 |
 
 ## 3. Commands
 

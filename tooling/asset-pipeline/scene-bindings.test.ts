@@ -2,8 +2,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Gltf } from './glb.js';
-import { writeGlb } from './glb.js';
+import type { Gltf } from '@wov/content-build';
+import { writeGlb } from '@wov/content-build';
 import {
   indexSceneBundle,
   openSceneBundle,

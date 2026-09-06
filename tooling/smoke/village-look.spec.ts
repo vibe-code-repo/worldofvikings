@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { CURRENT_WORLD_SCHEMA_VERSION } from '@wov/world-schema';
-import { readGlb } from '../asset-pipeline/glb.js';
+import { readGlb } from '@wov/content-build';
 import { heightAt, readHeightGrid } from '../asset-pipeline/height-field.js';
 
 /**

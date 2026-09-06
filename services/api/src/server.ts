@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import type { ApiConfig } from './config.js';
+import { actionsRoutes } from './actions-routes.js';
 import { prefabsRoutes } from './prefabs-routes.js';
 import { worldsRoutes } from './worlds-routes.js';
 
@@ -27,7 +28,10 @@ export async function buildServer(config: ApiConfig): Promise<FastifyInstance> {
   // `curl`. Only a real browser does.
   await app.register(cors, {
     origin: [...config.corsOrigins],
-    methods: ['GET', 'HEAD', 'PUT', 'OPTIONS'],
+    // `POST` is here for the content actions (ADR-0033), which the editor's
+    // World menu calls from a browser and which therefore need a preflight
+    // exactly as `PUT` did.
+    methods: ['GET', 'HEAD', 'PUT', 'POST', 'OPTIONS'],
   });
 
   app.get('/health', (): HealthResponse => {
@@ -41,6 +45,8 @@ export async function buildServer(config: ApiConfig): Promise<FastifyInstance> {
   // World and prefab data from `config.contentDir` (ADR-0017).
   await app.register(worldsRoutes, { config });
   await app.register(prefabsRoutes, { config });
+  // The scene import and the prefab catalogue, run for the editor (ADR-0033).
+  await app.register(actionsRoutes, { config });
 
   return app;
 }

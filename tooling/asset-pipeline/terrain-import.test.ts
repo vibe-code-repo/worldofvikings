@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { decodePng, encodePng, type RawImage } from './png.js';
-import { writeGlb } from './glb.js';
+import { writeGlb } from '@wov/content-build';
 import { buildHeightFieldGlb, type HeightGrid } from './height-field.js';
 import {
   HEIGHT_FIELDS,

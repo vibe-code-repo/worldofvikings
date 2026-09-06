@@ -41,3 +41,4 @@ change it describes.
 | [0030](0030-staging-serves-built-bundles.md)                                  | Staging serves built bundles, not a development server            | accepted |
 | [0031](0031-the-backdrop-is-its-own-prefab-category.md)                       | The backdrop is its own prefab category                           | accepted |
 | [0032](0032-terrain-layers-carry-a-surface.md)                                | Terrain layers carry a surface, and the ground reflects the sky   | accepted |
+| [0033](0033-the-editor-can-do-everything-a-script-can.md)                     | The editor can do everything a script can                         | accepted |

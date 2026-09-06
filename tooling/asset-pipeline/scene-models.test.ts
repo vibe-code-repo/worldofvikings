@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Glb, Gltf } from './glb.js';
-import { readGlb, worldBounds, writeGlb } from './glb.js';
+import type { Glb, Gltf } from '@wov/content-build';
+import { readGlb, worldBounds, writeGlb } from '@wov/content-build';
 import {
   cutModel,
   elementSize,

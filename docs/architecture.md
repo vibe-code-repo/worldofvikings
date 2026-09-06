@@ -69,11 +69,19 @@ world data in TypeScript (ADR-0004). Every read goes through
 `@wov/world-schema`, so a broken or outdated file fails loudly.
 
 A browser cannot write files, so authored data goes through `services/api`
-(`GET /worlds`, `GET /worlds/:id`, `PUT /worlds/:id`, `GET /prefabs` over
-`CONTENT_DIR`): it validates in both directions, writes atomically in Prettier's
-formatting so saved worlds stay reviewable, and refuses every write when
-`WORLDS_READ_ONLY` is set (ADR-0017). The game does not use those routes — it
-reads world files as data and still renders without a backend (spec §35).
+(`GET /worlds`, `GET /worlds/:id`, `PUT /worlds/:id`, `GET /prefabs`,
+`GET`/`PUT /prefabs/:catalog` over `CONTENT_DIR`): it validates in both
+directions, writes atomically in Prettier's formatting so saved worlds stay
+reviewable, and refuses every write when `WORLDS_READ_ONLY` is set (ADR-0017).
+The game does not use those routes — it reads world files as data and still
+renders without a backend (spec §35).
+
+The same service also runs the two **content build steps** for the editor:
+`POST /actions/import-scene` and `POST /actions/generate-prefabs` call the very
+functions `pnpm import:scene` and `pnpm generate:prefabs` call, out of
+`@wov/content-build` (ADR-0033). The command line and the editor are two doors
+onto one implementation; the import reads only from `WOV_IMPORT_DIR`, and
+without that variable it answers 501.
 
 Inside the editor the same arrow points one way only: **the document is the
 truth and the scene follows it** (ADR-0018). Every gesture becomes an
@@ -129,16 +137,17 @@ is stopped by a wall of the _authored_ village rather than by one a test drew
 
 ## Packages
 
-| Package             | Purpose                                                                                 |
-| ------------------- | --------------------------------------------------------------------------------------- |
-| `@wov/shared`       | Framework-free helpers. Dependency-free.                                                |
-| `@wov/world-schema` | Zod schemas + versioning for all world data.                                            |
-| `@wov/asset-system` | Asset URLs, GLB loading and caching, scene placement, manifest (ADR-0011).              |
-| `@wov/engine`       | Babylon.js bootstrap (ADR-0006), base scene (ADR-0007), third-person camera (ADR-0008). |
-| `@wov/physics`      | `PhysicsWorld` contract; Havok backend behind it (ADR-0013).                            |
-| `@wov/gameplay`     | Gameplay state and systems (ADR-0009). Never imports a renderer.                        |
-| `@wov/editor-core`  | Editor-only logic. Forbidden in the game.                                               |
-| `@wov/ui`           | Framework-free UI tokens/helpers.                                                       |
+| Package              | Purpose                                                                                               |
+| -------------------- | ----------------------------------------------------------------------------------------------------- |
+| `@wov/shared`        | Framework-free helpers. Dependency-free.                                                              |
+| `@wov/world-schema`  | Zod schemas + versioning for all world data.                                                          |
+| `@wov/asset-system`  | Asset URLs, GLB loading and caching, scene placement, manifest (ADR-0011).                            |
+| `@wov/content-build` | Scene import and prefab catalogue generation, as functions the scripts _and_ the API call (ADR-0033). |
+| `@wov/engine`        | Babylon.js bootstrap (ADR-0006), base scene (ADR-0007), third-person camera (ADR-0008).               |
+| `@wov/physics`       | `PhysicsWorld` contract; Havok backend behind it (ADR-0013).                                          |
+| `@wov/gameplay`      | Gameplay state and systems (ADR-0009). Never imports a renderer.                                      |
+| `@wov/editor-core`   | Editor-only logic. Forbidden in the game.                                                             |
+| `@wov/ui`            | Framework-free UI tokens/helpers.                                                                     |
 
 See each package's README for its public API and ownership. `@wov/gameplay` and
 `@wov/physics` never import each other: the app joins them, in

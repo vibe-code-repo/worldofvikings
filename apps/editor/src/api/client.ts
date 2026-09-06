@@ -10,7 +10,7 @@
  * whole surface; a dependency for that would be a dependency for nothing.
  */
 import { parsePrefabCatalog, parseWorldDefinition } from '@wov/world-schema';
-import type { PrefabDefinition, WorldDefinition } from '@wov/world-schema';
+import type { PrefabCatalog, PrefabDefinition, WorldDefinition } from '@wov/world-schema';
 
 /** One row of `GET /worlds`. */
 export interface WorldSummary {
@@ -66,11 +66,46 @@ export class ApiError extends Error {
   }
 }
 
+/** What `PUT /prefabs/:catalog` answers with. */
+export interface SaveCatalogResult {
+  readonly id: string;
+  readonly prefabs: number;
+  readonly updatedAt: string;
+  readonly created: boolean;
+}
+
+/** What the editor sends to `POST /actions/import-scene` (ADR-0033). */
+export interface SceneImportRequest {
+  /** The bundle, named relative to the service's `WOV_IMPORT_DIR`. */
+  readonly scene: string;
+  readonly world: string;
+  readonly name: string;
+  readonly zoneRoot?: string;
+  readonly dryRun?: boolean;
+}
+
+/**
+ * The report an action answers with.
+ *
+ * Deliberately `unknown` field by field: the report is the command's own
+ * output, it grows with the importer, and a second copy of its shape here would
+ * be one more thing to keep in step for a panel that only prints numbers. What
+ * the editor *needs* is typed; the rest is shown as it arrives.
+ */
+export interface ActionReport {
+  readonly [key: string]: unknown;
+}
+
 export interface EditorApi {
   listWorlds(): Promise<WorldListing>;
   loadWorld(id: string): Promise<WorldDefinition>;
   saveWorld(world: WorldDefinition): Promise<SaveResult>;
   listPrefabs(): Promise<PrefabListing>;
+  /** One catalogue file, for the prefab inspector to edit. */
+  loadCatalog(id: string): Promise<PrefabCatalog | null>;
+  saveCatalog(catalog: PrefabCatalog): Promise<SaveCatalogResult>;
+  importScene(request: SceneImportRequest): Promise<ActionReport>;
+  generatePrefabs(): Promise<ActionReport>;
 }
 
 /** Reads the API's own `{ error, message }` body, falling back to the status. */
@@ -154,6 +189,63 @@ export function createEditorApi(baseUrl: string, doFetch: typeof fetch = fetch):
         `${baseUrl}${path}`,
       );
       return body as unknown as SaveResult;
+    },
+
+    async loadCatalog(id) {
+      const path = `/prefabs/${encodeURIComponent(id)}`;
+      let body: unknown;
+      try {
+        body = await call(path);
+      } catch (error) {
+        // A catalogue that does not exist yet is the normal case for the
+        // overlay: the first correction anybody makes creates it.
+        if (error instanceof ApiError && error.status === 404) {
+          return null;
+        }
+        throw error;
+      }
+      const parsed = parsePrefabCatalog(body);
+      if (!parsed.ok) {
+        throw new ApiError(
+          200,
+          `${baseUrl}${path}`,
+          `the catalogue "${id}" does not match the schema: ${parsed.errors.join('; ')}`,
+        );
+      }
+      return parsed.catalog;
+    },
+
+    async saveCatalog(catalog) {
+      const path = `/prefabs/${encodeURIComponent(catalog.id)}`;
+      const body = asRecord(
+        await call(path, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(catalog),
+        }),
+        `${baseUrl}${path}`,
+      );
+      return body as unknown as SaveCatalogResult;
+    },
+
+    async importScene(request) {
+      const body = asRecord(
+        await call('/actions/import-scene', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(request),
+        }),
+        `${baseUrl}/actions/import-scene`,
+      );
+      return asRecord(body['report'], `${baseUrl}/actions/import-scene`);
+    },
+
+    async generatePrefabs() {
+      const body = asRecord(
+        await call('/actions/generate-prefabs', { method: 'POST' }),
+        `${baseUrl}/actions/generate-prefabs`,
+      );
+      return asRecord(body['report'], `${baseUrl}/actions/generate-prefabs`);
     },
 
     async listPrefabs() {

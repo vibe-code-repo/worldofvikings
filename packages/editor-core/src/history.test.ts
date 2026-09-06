@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { addEntity, removeEntities, updateTransform } from './commands.js';
+import { addEntity, removeEntities, setLightingField, updateTransform } from './commands.js';
+import { worldLighting } from './blocks.js';
 import { setSelection } from './selection.js';
 import {
   canRedo,
@@ -125,5 +126,70 @@ describe('undo and redo', () => {
   it('does nothing at the ends of the stack', () => {
     expect(undo(start)).toBe(start);
     expect(redo(start)).toBe(start);
+  });
+});
+
+/**
+ * A slider dragged across a value produces one command per step, because the
+ * viewport relights from the document. Fifty of those in the undo stack would
+ * mean fifty Ctrl+Z to get back to where the drag started.
+ */
+describe('coalescing a gesture', () => {
+  const scope = worldLighting();
+
+  function drag(state: EditorState, values: readonly number[]): EditorState {
+    let current = state;
+    for (const value of values) {
+      const result = execute(current, setLightingField(scope, ['sun', 'intensity'], value), {
+        coalesceKey: 'lighting:world:sun.intensity',
+      });
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      current = result.state;
+    }
+    return current;
+  }
+
+  it('records one step for a whole drag', () => {
+    const state = drag(createEditorState(villageWorld()), [1, 2, 3, 4]);
+    expect(state.history.past).toHaveLength(1);
+    expect(state.document.world.lighting?.sun?.intensity).toBe(4);
+  });
+
+  it('undoes the whole drag at once, back to where it started', () => {
+    const start = createEditorState(villageWorld());
+    const back = undo(drag(start, [1, 2, 3, 4]));
+    expect(back.document.world.lighting).toBeUndefined();
+  });
+
+  it('redoes it to the value the drag ended on', () => {
+    const dragged = drag(createEditorState(villageWorld()), [1, 2, 3]);
+    expect(redo(undo(dragged)).document.world.lighting?.sun?.intensity).toBe(3);
+  });
+
+  it('does not fold across another edit, or across a different field', () => {
+    const start = createEditorState(villageWorld());
+    const first = drag(start, [1, 2]);
+    const other = execute(first, setLightingField(scope, ['fog', 'end'], 100), {
+      coalesceKey: 'lighting:world:fog.end',
+    });
+    if (!other.ok) {
+      throw new Error(other.error);
+    }
+    const again = drag(other.state, [3]);
+    expect(again.history.past).toHaveLength(3);
+  });
+
+  it('keeps every step apart when no key is given', () => {
+    let state: EditorState = createEditorState(villageWorld());
+    for (const value of [1, 2, 3]) {
+      const result = execute(state, setLightingField(scope, ['sun', 'intensity'], value));
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      state = result.state;
+    }
+    expect(state.history.past).toHaveLength(3);
   });
 });

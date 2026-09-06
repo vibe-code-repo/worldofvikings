@@ -16,8 +16,30 @@ export interface ApiConfig {
   readonly logLevel: string;
   /** Absolute path of the authored game data the content routes read and write. */
   readonly contentDir: string;
-  /** When true, `PUT /worlds/:id` answers 403 instead of writing (ADR-0017). */
-  readonly worldsReadOnly: boolean;
+  /**
+   * When true, every write answers 403 instead of touching a file (ADR-0017):
+   * `PUT /worlds/:id`, `PUT /prefabs/:catalog` and the content actions.
+   *
+   * The environment variable is still `WORLDS_READ_ONLY` — it is what
+   * deployments already set, and the flag never meant "worlds only", it meant
+   * "this API serves content, it does not author it" (spec §49).
+   */
+  readonly contentReadOnly: boolean;
+  /**
+   * The one directory a scene bundle may be imported from, or `undefined`.
+   *
+   * A scene import reads a file path that reaches the service from a browser,
+   * which is exactly the shape of a directory-traversal hole. The rule is an
+   * allow-list rather than a filter: without `WOV_IMPORT_DIR` the action is
+   * refused outright, and with it, the resolved path must still be inside the
+   * directory (ADR-0033). No default — a service nobody configured for imports
+   * must not be able to read the disk.
+   */
+  readonly importDir: string | undefined;
+  /** Root of the private asset store, for regenerating the prefab catalogue. */
+  readonly assetStoreDir: string | undefined;
+  /** `assets/` of this checkout: the manifest and the public models. */
+  readonly assetsDir: string;
 }
 
 const DEFAULT_CORS_ORIGINS = [
@@ -31,6 +53,15 @@ const DEFAULT_CORS_ORIGINS = [
  * `dist/` after a build — both sit three levels below the repository root.
  */
 const REPOSITORY_CONTENT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../../content');
+
+/** `assets/` of the same checkout, reached the same way. */
+const REPOSITORY_ASSETS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../../assets');
+
+/** An environment path, resolved, or `undefined` when it is not set. */
+function readDirectory(raw: string | undefined): string | undefined {
+  const value = raw?.trim() ?? '';
+  return value === '' ? undefined : resolve(value);
+}
 
 const TRUE_FLAGS = new Set(['1', 'true', 'yes', 'on']);
 const FALSE_FLAGS = new Set(['', '0', 'false', 'no', 'off']);
@@ -77,6 +108,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       rawContentDir === undefined || rawContentDir.length === 0
         ? REPOSITORY_CONTENT_DIR
         : resolve(rawContentDir),
-    worldsReadOnly: readFlag('WORLDS_READ_ONLY', env['WORLDS_READ_ONLY']),
+    contentReadOnly: readFlag('WORLDS_READ_ONLY', env['WORLDS_READ_ONLY']),
+    importDir: readDirectory(env['WOV_IMPORT_DIR']),
+    assetStoreDir: readDirectory(env['WOV_ASSET_STORE']),
+    assetsDir: readDirectory(env['ASSETS_DIR']) ?? REPOSITORY_ASSETS_DIR,
   };
 }

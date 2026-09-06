@@ -40,6 +40,7 @@
     "@playwright/test": "^1.56.0",
     "@types/node": "^22.18.8",
     "@wov/asset-system": "workspace:*",
+    "@wov/content-build": "workspace:*",
     "@wov/editor-core": "workspace:*",
     "@wov/world-schema": "workspace:*",
     "concurrently": "^9.2.1",

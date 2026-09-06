@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readGlb, worldBounds } from './glb.js';
+import { readGlb, worldBounds } from '@wov/content-build';
 import { buildPlaceholderGlb, placeholderPathFor } from './placeholder.js';
 
 const hull = {

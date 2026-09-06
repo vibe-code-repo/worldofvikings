@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
+import { CURRENT_WORLD_SCHEMA_VERSION } from '@wov/world-schema';
 import type { WorldDefinition } from '@wov/world-schema';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig } from './config.js';
@@ -9,7 +10,7 @@ import { serializeWorld } from './world-file.js';
 import { buildServer } from './server.js';
 
 const VILLAGE_WORLD: WorldDefinition = {
-  schemaVersion: 1,
+  schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
   id: 'village',
   name: 'Village',
   zones: [
@@ -68,7 +69,10 @@ describe('GET /worlds', () => {
 
   it('reports broken files instead of hiding them', async () => {
     await writeWorldFile('village.json', VILLAGE_WORLD);
-    await writeWorldFile('broken.json', { schemaVersion: 1, id: 'broken' });
+    await writeWorldFile('broken.json', {
+      schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
+      id: 'broken',
+    });
     app = await startServer();
 
     const body = (await app.inject({ method: 'GET', url: '/worlds' })).json();
@@ -111,7 +115,11 @@ describe('GET /worlds/:id', () => {
   });
 
   it('answers 422 with the validation errors for a broken file', async () => {
-    await writeWorldFile('broken.json', { schemaVersion: 1, id: 'broken', name: 'Broken' });
+    await writeWorldFile('broken.json', {
+      schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
+      id: 'broken',
+      name: 'Broken',
+    });
     app = await startServer();
 
     const response = await app.inject({ method: 'GET', url: '/worlds/broken' });
@@ -190,7 +198,7 @@ describe('PUT /worlds/:id', () => {
     const response = await app.inject({
       method: 'PUT',
       url: '/worlds/village',
-      payload: { schemaVersion: 1, id: 'village', name: 'Village' },
+      payload: { schemaVersion: CURRENT_WORLD_SCHEMA_VERSION, id: 'village', name: 'Village' },
     });
 
     expect(response.statusCode).toBe(400);

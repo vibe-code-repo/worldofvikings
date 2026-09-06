@@ -15,6 +15,25 @@ export const IdentifierSchema = z
 /** `[x, y, z]` in world units (metres), Babylon.js left-handed convention. */
 export const Vector3Schema = z.tuple([z.number(), z.number(), z.number()]);
 
+/**
+ * A path relative to whichever root serves the file — `assets/` or the private
+ * store — exactly as it is appended to the asset base URL.
+ *
+ * The rule is duplicated from `AssetPathSchema` in `@wov/asset-system` on
+ * purpose: this package describes *data files* and must stay dependency-free
+ * apart from Zod, so that world data can be validated without an asset pipeline
+ * (agent rule 9, ADR-0004, ADR-0016). Forward slashes only, never absolute, no
+ * `..`, no empty segments. If one of the two changes, the other changes with it
+ * in the same commit — this is the only place the duplication lives inside this
+ * package, and both sides carry this note.
+ */
+export const AssetPathSchema = z
+  .string()
+  .min(1)
+  .regex(/^[^/\\][^\\]*$/, 'must be a relative path using "/" as separator')
+  .refine((path) => !path.split('/').includes('..'), { message: 'must not contain ".."' })
+  .refine((path) => !path.split('/').includes(''), { message: 'must not contain empty segments' });
+
 export type Identifier = z.infer<typeof IdentifierSchema>;
 
 /** Turns Zod issues into `path: message` lines a contributor can act on. */

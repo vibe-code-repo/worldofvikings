@@ -3,7 +3,11 @@
  *
  * Validates `content/prefabs/` and `content/worlds/` against `@wov/world-schema`
  * and checks what no single file can know: prefab ids are unique across all
- * catalogs, and every entity references a prefab that exists (ADR-0016).
+ * catalogs, every entity references a prefab that exists (ADR-0016), and every
+ * asset a zone's terrain names is declared in `assets/manifest.json` (ADR-0020).
+ *
+ * Reading the manifest here is a read of a committed file, not a use of the
+ * asset pipeline: a clone with no asset store still validates its content.
  *
  * Exits non-zero on any invalid file so CI and agents get a clear signal.
  *
@@ -13,8 +17,10 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parsePrefabCatalog, parseWorldDefinition } from '@wov/world-schema';
+import { ASSET_MANIFEST_FILE_NAME, parseAssetManifest } from '@wov/asset-system/manifest';
 import {
   collectPrefabIds,
+  findMissingTerrainAssets,
   findUnknownPrefabReferences,
   type LoadedCatalog,
 } from './content-references.js';
@@ -22,6 +28,7 @@ import {
 const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const prefabsDir = join(repoRoot, 'content', 'prefabs');
 const worldsDir = join(repoRoot, 'content', 'worlds');
+const manifestFile = join(repoRoot, 'assets', ASSET_MANIFEST_FILE_NAME);
 
 let failures = 0;
 
@@ -85,6 +92,25 @@ if (prefabIndex.duplicates.length > 0) {
   fail('content/prefabs/', prefabIndex.duplicates);
 }
 
+/**
+ * Every asset path the manifest declares — what a terrain reference is checked
+ * against. An unreadable manifest is one failure, not one per world file.
+ */
+const manifestPaths = new Set<string>();
+{
+  const data = await readJson(manifestFile, `assets/${ASSET_MANIFEST_FILE_NAME}`);
+  if (data !== undefined) {
+    const parsed = parseAssetManifest(data);
+    if (parsed.ok) {
+      for (const asset of parsed.manifest.assets) {
+        manifestPaths.add(asset.path);
+      }
+    } else {
+      fail(`assets/${ASSET_MANIFEST_FILE_NAME}`, parsed.errors);
+    }
+  }
+}
+
 const worldFiles = await listJsonFiles(worldsDir);
 
 for (const file of worldFiles) {
@@ -100,10 +126,22 @@ for (const file of worldFiles) {
     continue;
   }
 
-  const unknownPrefabs = findUnknownPrefabReferences(result.world, prefabIndex.ids);
-  if (unknownPrefabs.length > 0) {
-    fail(relative, unknownPrefabs);
+  const problems = [
+    ...findUnknownPrefabReferences(result.world, prefabIndex.ids),
+    ...findMissingTerrainAssets(result.world, manifestPaths),
+  ];
+  if (problems.length > 0) {
+    fail(relative, problems);
     continue;
+  }
+
+  if (result.migratedFrom !== undefined) {
+    // Loud, not silent: the file on disk is still the old version, and it stays
+    // that way until someone saves it through the editor (agent rule 11).
+    process.stdout.write(
+      `NOTE ${relative} is schemaVersion ${String(result.migratedFrom)} and was read through a ` +
+        'migration; save it to write the current version\n',
+    );
   }
 
   const entities = result.world.zones.reduce((sum, zone) => sum + zone.entities.length, 0);

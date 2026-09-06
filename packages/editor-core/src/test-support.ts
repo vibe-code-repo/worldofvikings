@@ -1,3 +1,4 @@
+import { CURRENT_WORLD_SCHEMA_VERSION } from '@wov/world-schema';
 import type { EntityDefinition, WorldDefinition, ZoneDefinition } from '@wov/world-schema';
 
 /**
@@ -13,7 +14,12 @@ export function zone(id: string, entities: readonly EntityDefinition[]): ZoneDef
 }
 
 export function world(zones: readonly ZoneDefinition[]): WorldDefinition {
-  return { schemaVersion: 1, id: 'example', name: 'Example', zones: [...zones] };
+  return {
+    schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
+    id: 'example',
+    name: 'Example',
+    zones: [...zones],
+  };
 }
 
 /** The village world used by most tests: three barrels in one zone. */

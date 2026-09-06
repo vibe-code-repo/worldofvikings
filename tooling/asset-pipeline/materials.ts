@@ -71,6 +71,33 @@ export const CUTOUT: MaterialSurface = { alphaMode: 'MASK', doubleSided: true, e
 /** The ordinary case: a solid, single-sided surface. */
 export const OPAQUE: MaterialSurface = { alphaMode: 'OPAQUE', doubleSided: false, emissive: false };
 
+/**
+ * The painted distance: cut out, lit from both sides, and self-lit.
+ *
+ * The same three flags as {@link CUTOUT} plus `emissive`, and each one is a
+ * measurement rather than a preference:
+ *
+ * - `MASK`, because 13 % of the mountain panorama is `alpha = 0` — the sky
+ *   above the peaks is a hole in the texture, not a colour in it. Drawn
+ *   `OPAQUE` the shell is an opaque wall around the world and the sky is gone;
+ *   drawn `BLEND` it would sort against itself for a picture with no soft edge
+ *   anywhere in it.
+ * - `doubleSided`, because these shells are seen from the inside. Which way
+ *   their faces point is a property of a source file nobody in this repository
+ *   can re-export, so the safe answer is to draw both.
+ *
+ * It is deliberately **not** emissive. A painted range that lights itself is
+ * drawn at `emissive + lit`, which with this world's sun and ambient is about
+ * twice the brightness of the ground in front of it — a white cut-out at the
+ * horizon. Lit like everything else it takes the same sun, which is the answer
+ * that keeps an evening evening all the way to the skyline.
+ */
+export const BACKDROP: MaterialSurface = {
+  alphaMode: 'MASK',
+  doubleSided: true,
+  emissive: false,
+};
+
 /** Opaque, and lit by its own base colour as well as by the scene. */
 export const EMISSIVE: MaterialSurface = {
   alphaMode: 'OPAQUE',
@@ -131,7 +158,16 @@ export const TINTS: Readonly<Record<TintName, Tint>> = {
  * table below states the kind and never repeats the same three flags 60 times.
  */
 export type MaterialKind =
-  'leaf' | 'grass' | 'glass' | 'double-sided' | 'cloud' | 'self-lit' | 'bark' | 'atlas' | 'other';
+  | 'leaf'
+  | 'grass'
+  | 'glass'
+  | 'double-sided'
+  | 'cloud'
+  | 'backdrop'
+  | 'self-lit'
+  | 'bark'
+  | 'atlas'
+  | 'other';
 
 /** The surface each kind gets. */
 export const SURFACE_BY_KIND: Readonly<Record<MaterialKind, MaterialSurface>> = {
@@ -140,6 +176,7 @@ export const SURFACE_BY_KIND: Readonly<Record<MaterialKind, MaterialSurface>> = 
   glass: CUTOUT,
   'double-sided': CUTOUT,
   cloud: CUTOUT,
+  backdrop: BACKDROP,
   'self-lit': EMISSIVE,
   bark: OPAQUE,
   atlas: OPAQUE,
@@ -206,6 +243,13 @@ export const MATERIAL_ROWS: Readonly<Record<string, MaterialRow>> = {
   '696cbc98612c': { kind: 'double-sided', note: 'settlement atlas, authored double-sided' },
   // --- cloud -------------------------------------------------------------
   '70fcb7af3ba0': { kind: 'cloud', note: 'cloud card' },
+  // --- backdrop ----------------------------------------------------------
+  // Written by `pnpm import:backdrop`, so these three names are this
+  // repository's own and are spelled out where they are made
+  // (`tooling/asset-pipeline/backdrop.ts`) rather than being source names.
+  '9b8dc47423d4': { kind: 'backdrop', note: 'painted mountain panorama, snow variant' },
+  '8a9237d0efa8': { kind: 'backdrop', note: 'painted mountain panorama, snowless variant' },
+  '6712663aedbc': { kind: 'backdrop', note: 'sky dome shell' },
   // --- self-lit ----------------------------------------------------------
   '614bf44e147d': { kind: 'self-lit', note: 'building atlas, self-lit variant' },
   '95f74a3961dd': { kind: 'self-lit', note: 'crystal item' },

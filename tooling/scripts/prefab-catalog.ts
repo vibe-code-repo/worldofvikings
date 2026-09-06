@@ -20,6 +20,7 @@ import {
   type PrefabDefinition,
 } from '@wov/world-schema';
 import type { AssetEntry } from '@wov/asset-system/manifest';
+import { BACKDROP_STEM_PREFIX } from '../asset-pipeline/backdrop.js';
 import type { Bounds } from '../asset-pipeline/glb.js';
 
 /** Repository root, resolved from this file so the script is location-safe. */
@@ -156,6 +157,13 @@ export function prefabCollisionFor(
       },
     };
   }
+  // Nothing can reach a backdrop: the mountain shells stand 430 m beyond the
+  // last metre of ground. A shape for one is therefore a shape nothing will
+  // ever touch — and a hull box around a 1 188 m shell is a box that contains
+  // the entire world, which is the one wrong answer with consequences.
+  if (category === 'backdrop') {
+    return { kind: 'none' };
+  }
   if (category === 'terrain') {
     return { kind: 'mesh' };
   }
@@ -212,22 +220,35 @@ export function prefabNameFromAssetPath(assetPath: string): string {
  * Which group the editor's asset browser shows this prefab in.
  *
  * The folder decides, except inside `environment/`, where the file name says
- * whether it is a small movable thing (`prop`) or scenery (`environment`).
- * Returns `null` for a folder the importer has no rule for, so a new asset
- * folder fails loudly instead of being filed under a guess.
+ * whether it is painted distance (`backdrop`), a small movable thing (`prop`)
+ * or scenery (`environment`). Returns `null` for a folder the importer has no
+ * rule for, so a new asset folder fails loudly instead of being filed under a
+ * guess.
+ *
+ * Backdrop is asked first and it is asked in two ways, because two kinds of
+ * file arrive under that name. The models `pnpm import:backdrop` writes carry
+ * {@link BACKDROP_STEM_PREFIX}, which is this repository's own naming and is
+ * therefore reliable. The clouds do not: they were cut out of the scene bundle
+ * long before this category existed and are named as props. A cloud is not a
+ * prop — nobody picks one up, nobody walks into one, and it hangs a hundred
+ * metres above the village — so it is recognised by the one word in its name
+ * that says what it is. Renaming those files instead would change their prefab
+ * ids, and a prefab id is what 23 entities in `content/worlds/village1.json`
+ * point at.
  */
 export function prefabCategoryFromAssetPath(assetPath: string): PrefabCategory | null {
   const [folder = '', ...rest] = assetPath.split('/');
-  const fileName = rest.at(-1) ?? '';
+  const fileName = (rest.at(-1) ?? '').toLowerCase();
   switch (folder) {
     case 'vegetation':
       return 'vegetation';
     case 'terrain':
       return 'terrain';
     case 'environment':
-      return PROP_MARKERS.some((marker) => fileName.toLowerCase().startsWith(marker))
-        ? 'prop'
-        : 'environment';
+      if (fileName.startsWith(BACKDROP_STEM_PREFIX) || tokensOf(fileName).has('cloud')) {
+        return 'backdrop';
+      }
+      return PROP_MARKERS.some((marker) => fileName.startsWith(marker)) ? 'prop' : 'environment';
     default:
       return null;
   }

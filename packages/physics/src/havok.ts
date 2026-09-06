@@ -26,7 +26,7 @@ import {
 import { PhysicsAggregate } from '@babylonjs/core/Physics/v2/physicsAggregate.js';
 import { PhysicsBody } from '@babylonjs/core/Physics/v2/physicsBody.js';
 import {
-  PhysicsShape,
+  type PhysicsShape,
   PhysicsShapeBox,
   PhysicsShapeConvexHull,
   PhysicsShapeMesh,

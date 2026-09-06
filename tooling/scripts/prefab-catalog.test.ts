@@ -247,7 +247,7 @@ describe('content/prefabs/imported.json', () => {
   it('never measures a trunk wider than the model it came from', async () => {
     for (const tree of await committedTrees()) {
       const { id, box, hull } = tree;
-      for (const axis of [0, 2]) {
+      for (const axis of [0, 2] as const) {
         expect(box.min[axis], `${id} axis ${String(axis)}`).toBeGreaterThanOrEqual(
           hull.min[axis] - 1e-6,
         );

@@ -65,6 +65,19 @@ export interface WovDebugBridge {
    */
   groundAt(x: number, z: number): number | null;
   /**
+   * Where a straight line first meets collision geometry, or `null` for a clear
+   * line.
+   *
+   * The one way a test can ask about a *hole*: an archway's collision mesh is
+   * only right if a line through its opening is clear and a line through its
+   * post is not, and no screenshot and no walk can tell those two apart as
+   * plainly (ADR-0026).
+   */
+  rayHit(
+    from: readonly [number, number, number],
+    to: readonly [number, number, number],
+  ): { x: number; y: number; z: number } | null;
+  /**
    * The world-space hull of the terrain tile, or `null` before it is loaded.
    *
    * Measured off the scene rather than restated from the world file: "the tile
@@ -85,6 +98,27 @@ export interface WovDebugBridge {
    * off Babylon's own counters, not from our bookkeeping.
    */
   readonly render: WovRenderDebug;
+  /**
+   * What the zone's entity collision cost and produced, or `null` before it is
+   * built (ADR-0026).
+   *
+   * Reported rather than recomputed: "the player is stopped by a wall" is
+   * something a Playwright run proves by walking into one, but "220 shapes
+   * carry 1216 bodies" is a number only the builder knows, and a claim about
+   * cost that nobody can read is a claim nobody can check.
+   */
+  readonly collision: WovCollisionDebug | null;
+}
+
+/** What building the zone's collision cost, as plain numbers a test can read. */
+export interface WovCollisionDebug {
+  readonly shapes: number;
+  readonly bodies: number;
+  readonly triangles: number;
+  readonly passable: number;
+  readonly undeclared: number;
+  readonly failed: readonly string[];
+  readonly milliseconds: number;
 }
 
 /** Per-frame render counters, as plain numbers a test can read out of the page. */
@@ -110,6 +144,11 @@ export interface DevDebugSubjects {
   readonly player?: PlaceholderTarget;
   /** Answers `groundAt`; the app owns it because the app owns the physics world. */
   readonly groundAt?: (x: number, z: number) => number | null;
+  /** Answers `rayHit`, for the same reason. */
+  readonly rayHit?: (
+    from: readonly [number, number, number],
+    to: readonly [number, number, number],
+  ) => { x: number; y: number; z: number } | null;
 }
 
 /** The hull the bridge reports for the terrain tile. */
@@ -132,7 +171,10 @@ export function installDevDebugBridge(
   renderer: RendererHandle,
   marker: HTMLElement | null,
   subjects: DevDebugSubjects = {},
-): { reportTerrainBounds(bounds: WovTerrainBounds): void } {
+): {
+  reportTerrainBounds(bounds: WovTerrainBounds): void;
+  reportCollision(report: WovCollisionDebug): void;
+} {
   const camera = subjects.camera;
   const player = subjects.player;
   // One object, mutated per frame rather than rebuilt: the bridge is dev-only
@@ -142,22 +184,30 @@ export function installDevDebugBridge(
     : null;
   const playerDebug: WovPlayerDebug | null = player ? { x: 0, y: 0, z: 0 } : null;
   const groundAt = subjects.groundAt ?? ((): null => null);
+  const rayHit = subjects.rayHit ?? ((): null => null);
   const bridge: {
     backend: RendererBackend;
     frameId: number;
     camera: WovCameraDebug | null;
     player: WovPlayerDebug | null;
     groundAt: (x: number, z: number) => number | null;
+    rayHit: (
+      from: readonly [number, number, number],
+      to: readonly [number, number, number],
+    ) => { x: number; y: number; z: number } | null;
     terrainBounds: WovTerrainBounds | null;
     render: WovRenderDebug;
+    collision: WovCollisionDebug | null;
   } = {
     backend: renderer.backend,
     frameId: -1,
     camera: cameraDebug,
     player: playerDebug,
     groundAt,
+    rayHit,
     terrainBounds: null,
     render: { drawCalls: 0, activeMeshes: 0, triangles: 0 },
+    collision: null,
   };
   window.__wov = bridge;
 
@@ -201,6 +251,9 @@ export function installDevDebugBridge(
   return {
     reportTerrainBounds(bounds) {
       bridge.terrainBounds = bounds;
+    },
+    reportCollision(report) {
+      bridge.collision = report;
     },
   };
 }

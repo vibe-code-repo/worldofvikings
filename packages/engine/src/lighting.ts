@@ -120,6 +120,22 @@ export interface LightingHandle {
    */
   excludeFromShadows(meshes: readonly AbstractMesh[]): void;
   /**
+   * Takes meshes out of the shadow map as **casters only**; they still receive.
+   *
+   * The separate method exists because the two halves have separate costs and
+   * separate reasons. Receiving is a define on a material and costs a texture
+   * lookup on pixels that are drawn anyway. Casting is a second draw of the
+   * geometry, every frame, into the map — which for a field of scattered grass
+   * (ADR-0025) is thousands of thin instances rendered twice to darken a few
+   * texels each, and which measurably makes the ground *look worse*, because
+   * every tuft also shadows the tufts around it into a dark mat.
+   *
+   * So: a tuft of grass takes the shadow of the house beside it and throws
+   * none of its own. What is "small enough" for that is not decided here — the
+   * caller knows what its meshes are (`apps/game/src/world-scene.ts`).
+   */
+  excludeFromCasting(meshes: readonly AbstractMesh[]): void;
+  /**
    * Centres the shadow map on a point — the player, in the game.
    *
    * The map covers `shadows.distance` metres, not the whole world, which is
@@ -360,6 +376,8 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
 
   /** Meshes that neither cast nor receive; see `excludeFromShadows`. */
   const excluded = new Set<AbstractMesh>();
+  /** Meshes that receive but do not cast; see `excludeFromCasting`. */
+  const nonCasters = new Set<AbstractMesh>();
   if (sky !== null) {
     excluded.add(sky);
   }
@@ -377,7 +395,7 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
     // stand inside 140 m of each other, and reading a bounding sphere off every
     // mesh every pass cost 40 ms a frame in world-matrix updates. See ADR-0024.
     shadowMap.renderListPredicate = (mesh) =>
-      !excluded.has(mesh) && mesh.isVisible && mesh.isEnabled();
+      !excluded.has(mesh) && !nonCasters.has(mesh) && mesh.isVisible && mesh.isEnabled();
   }
 
   const receive = (mesh: AbstractMesh): void => {
@@ -419,6 +437,14 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
         target(mesh).receiveShadows = false;
       }
     },
+    excludeFromCasting(meshes) {
+      for (const mesh of meshes) {
+        nonCasters.add(mesh);
+        // Said again rather than assumed: these meshes may arrive after the
+        // rig did, and `receive` is what makes a late mesh a receiver at all.
+        receive(mesh);
+      }
+    },
     focusShadows(x, y, z) {
       focus.set(x, y, z);
       place();
@@ -430,6 +456,7 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
       disposed = true;
       scene.onNewMeshAddedObservable.remove(meshAdded);
       excluded.clear();
+      nonCasters.clear();
       ssao?.dispose();
       pipeline?.dispose();
       sky?.material?.dispose();

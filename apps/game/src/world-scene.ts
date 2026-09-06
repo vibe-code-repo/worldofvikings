@@ -122,6 +122,41 @@ export function drawsAsThinInstances(prefab: PrefabDefinition): boolean {
   return prefab.category === 'vegetation';
 }
 
+/**
+ * Shortest a model may be and still be drawn into the sun's shadow map.
+ *
+ * Half a metre, from the two ends of the measurement. A tuft of the scattered
+ * grass is 0.25 m tall (`content/prefabs/imported.json`) and the shadow map
+ * covers 120 m in 2048 texels — 5.9 cm of ground each — so its whole shadow is
+ * about four texels. The next thing up is a bush at 1.88 m, which is 32 texels
+ * and a shape a player can see. Nothing in the village stands between the two.
+ */
+export const SHADOW_CASTER_MINIMUM_HEIGHT = 0.5;
+
+/**
+ * Whether this prefab's copies are drawn into the sun's shadow map.
+ *
+ * Everything does, except vegetation too short for its shadow to be a shape.
+ * That is not only a saving, though it is a large one — the village scatters
+ * 3 473 tufts of grass, each of them a thin instance the shadow pass would draw
+ * a second time every frame. It is also what the picture wants: tufts that cast
+ * shadows cast them on *each other*, and a dense field of grass then reads as a
+ * dark mat rather than as grass. They still **receive**: a tuft in the shade of
+ * a house is in the shade (`excludeFromCasting` in `@wov/engine`).
+ *
+ * Measured on the model rather than assumed from the category, because the
+ * category says what a thing is and the bounds say how big it is — and a prefab
+ * that was never measured casts, because "we do not know" must not read as
+ * "it is small".
+ */
+export function castsShadows(prefab: PrefabDefinition): boolean {
+  const bounds = prefab.bounds;
+  if (bounds === undefined || prefab.category !== 'vegetation') {
+    return true;
+  }
+  return bounds.max[1] - bounds.min[1] >= SHADOW_CASTER_MINIMUM_HEIGHT;
+}
+
 /** Entities grouped by the prefab they place, in first-appearance order. */
 export function groupByPrefab(
   entities: readonly EntityDefinition[],
@@ -166,6 +201,8 @@ export interface ZoneScene {
   readonly models: number;
   /** Entities drawn as thin instances rather than as scene nodes. */
   readonly thinInstances: number;
+  /** Meshes that must receive shadow without casting it; see {@link castsShadows}. */
+  readonly nonCasters: readonly AbstractMesh[];
   /** Where the bytes came from (ADR-0015). */
   readonly sources: AssetSourceCounts;
 }
@@ -259,6 +296,15 @@ export async function placeEntities(options: ZoneSceneOptions): Promise<{
   readonly failed: readonly string[];
   readonly models: number;
   readonly thinInstances: number;
+  /**
+   * The meshes the shadow map must not draw, handed back rather than acted on.
+   *
+   * This module does not know the light — the rig is the app's (ADR-0024), and
+   * a renderer package reaching into it from here would be the second answer to
+   * "who lights the scene". So it says which meshes, and `main.ts` says so to
+   * the rig.
+   */
+  readonly nonCasters: readonly AbstractMesh[];
   readonly sources: AssetSourceCounts;
   /**
    * The loader that did the work, with every model of the zone still cached.
@@ -289,6 +335,7 @@ export async function placeEntities(options: ZoneSceneOptions): Promise<{
   });
 
   let thinInstances = 0;
+  const nonCasters: AbstractMesh[] = [];
 
   await Promise.all(
     known.map(async ([prefabId, entities]) => {
@@ -303,8 +350,11 @@ export async function placeEntities(options: ZoneSceneOptions): Promise<{
           // captures the old value first, and with these loads running
           // concurrently every prefab would then overwrite the previous one's
           // count instead of adding to it.
-          const placedHere = await placeAsThinInstances(manager, prefab, entities);
-          thinInstances += placedHere;
+          const placed = await placeAsThinInstances(manager, prefab, entities);
+          thinInstances += placed.entities;
+          if (!castsShadows(prefab)) {
+            nonCasters.push(...placed.meshes);
+          }
         } catch (error) {
           failed.push(`${prefabId}: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -343,6 +393,7 @@ export async function placeEntities(options: ZoneSceneOptions): Promise<{
     failed,
     models: known.length - failed.length,
     thinInstances,
+    nonCasters,
     sources: manager.sources(),
     manager,
   };
@@ -506,14 +557,15 @@ export async function buildZoneCollision(
  * it was standing at becomes part of every instance matrix instead of being
  * applied twice. The container's now-empty transform nodes go with it.
  *
- * @returns how many instances were placed, counting one per entity, not per
- *   mesh: a tree with a trunk and a leaf card is one plant.
+ * @returns the meshes that now carry the matrix buffers, and how many
+ *   instances were placed — one per entity, not per mesh: a tree with a trunk
+ *   and a leaf card is one plant.
  */
 async function placeAsThinInstances(
   manager: AssetManager,
   prefab: PrefabDefinition,
   entities: readonly EntityDefinition[],
-): Promise<number> {
+): Promise<{ readonly meshes: readonly Mesh[]; readonly entities: number }> {
   const instantiated = await manager.instantiate(prefab.asset, {
     rename: (nodeName) => `${prefab.id}:${nodeName}`,
   });
@@ -538,7 +590,7 @@ async function placeAsThinInstances(
       node.dispose(true, false);
     }
   }
-  return meshes.length === 0 ? 0 : entities.length;
+  return { meshes, entities: meshes.length === 0 ? 0 : entities.length };
 }
 
 /** Every mesh under these entity roots, for collision and for counting. */

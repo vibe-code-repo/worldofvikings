@@ -496,6 +496,12 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       prefabs,
     });
 
+    // Said once, on the meshes the scatter left behind, and not per entity: a
+    // tuft of grass takes the shadow of the house beside it and throws none of
+    // its own (ADR-0024, ADR-0025). Placed here rather than inside the placer
+    // because the light belongs to the app, not to the scene builder.
+    lighting.excludeFromCasting(placed.nonCasters);
+
     for (const problem of placed.failed) {
       console.error(`[game] a prefab of zone "${zone.id}" did not load — ${problem}`);
     }
@@ -511,6 +517,9 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
         `${String(placed.models)} models` +
         (placed.thinInstances > 0
           ? `, ${String(placed.thinInstances)} of them thin-instanced vegetation`
+          : '') +
+        (placed.nonCasters.length > 0
+          ? `, ${String(placed.nonCasters.length)} mesh(es) taking shadow without casting`
           : '') +
         (placed.failed.length > 0 ? `, ${String(placed.failed.length)} failed` : ''),
     );

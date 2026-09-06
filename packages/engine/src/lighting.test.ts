@@ -144,6 +144,24 @@ describe('applyLighting', () => {
     expect(handle.sky === null ? true : predicate?.(handle.sky)).toBe(false);
   });
 
+  it('lets a mesh take shadow without casting one', () => {
+    const target = scene();
+    const ground = CreateGround('tile', { width: 4, height: 4 }, target);
+    const grass = CreateGround('grass', { width: 1, height: 1 }, target);
+    const house = CreateGround('house', { width: 1, height: 1 }, target);
+    const handle = applyLighting(target);
+
+    handle.excludeFromCasting([grass]);
+
+    const predicate = handle.shadows?.getShadowMap()?.renderListPredicate;
+    expect(predicate?.(grass)).toBe(false);
+    expect(predicate?.(house)).toBe(true);
+    // The whole point: it is out of the map as a caster and still in the
+    // picture as a receiver. Excluding it outright would take both.
+    expect(grass.receiveShadows).toBe(true);
+    expect(ground.receiveShadows).toBe(true);
+  });
+
   it('leaves the sky out when the profile turns it off', () => {
     const target = scene();
     const handle = applyLighting(target, { profiles: [{ sky: { enabled: false } }] });

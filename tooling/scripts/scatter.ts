@@ -23,9 +23,15 @@
  *
  * **Where the ground comes from.** The zone's own height field, read out of the
  * asset store and sampled between its vertices, so a tuft stands on the slope
- * rather than at y = 0. Set `WOV_ASSET_STORE` when the store is not at the
- * default path; without a store the run refuses rather than laying a field of
- * grass on an invented flat plane.
+ * rather than at y = 0. Set `WOV_ASSET_STORE` (or `--store`) to say where that
+ * store is; the default is `<repo>/../asset-store`, a sibling of the checkout
+ * that names nobody's machine. Without a store the run refuses rather than
+ * laying a field of grass on an invented flat plane.
+ *
+ * **Which world file it writes.** `CONTENT_DIR`, exactly as the API reads it
+ * (`services/api/src/config.ts`), and the checkout's own `content/` when it is
+ * unset. The two used to disagree: a shell pointed at a throwaway copy for the
+ * API would still have had a scatter run edit the committed village.
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -46,6 +52,7 @@ import type { PrefabDefinition } from '@wov/world-schema';
 import { readGlb } from '../asset-pipeline/glb.js';
 import { heightAt, readHeightGrid } from '../asset-pipeline/height-field.js';
 import { repoRoot } from './prefab-catalog.js';
+import { resolveContentDir, resolveStoreRoot } from './scatter-paths.js';
 
 const USAGE = `usage: tsx tooling/scripts/scatter.ts --world <id> --zone <id>
        --region x0,z0,x1,z1 --prefab <id>[:weight][,<id>[:weight]…]
@@ -124,17 +131,28 @@ const minimumDistance = value('min-distance') === undefined ? 0 : Number(value('
 const maximum = value('maximum') === undefined ? undefined : Number(value('maximum'));
 const keepOutMargin = value('keep-out-margin') === undefined ? 0 : Number(value('keep-out-margin'));
 const keepOut = (value('keep-out') ?? '').split(/[\s,]+/).filter((pattern) => pattern !== '');
-const storeRoot =
-  value('store') ?? process.env['WOV_ASSET_STORE'] ?? join(repoRoot, '..', 'wov-assets', 'store');
+const storeRoot = resolveStoreRoot(
+  value('store'),
+  process.env['WOV_ASSET_STORE'],
+  join(repoRoot, '..', 'asset-store'),
+);
+/*
+ * The same `CONTENT_DIR` the API honours (`services/api/src/config.ts`).
+ *
+ * `pnpm smoke` points the API at a throwaway copy of `content/` so the tests
+ * can save real world files without touching the repository; a scatter run in
+ * the same shell used to ignore that and edit the committed village instead.
+ */
+const contentDir = resolveContentDir(process.env['CONTENT_DIR'], join(repoRoot, 'content'));
 
 // --------------------------------------------------------------- the prefabs
 
 const catalogue = new Map<string, PrefabDefinition>();
 for (const fileName of ['base.json', 'imported.json']) {
-  const file = join(repoRoot, 'content', 'prefabs', fileName);
+  const file = join(contentDir, 'prefabs', fileName);
   const parsed = parsePrefabCatalog(JSON.parse(await readFile(file, 'utf8')));
   if (!parsed.ok) {
-    fail(`content/prefabs/${fileName}: ${parsed.errors.join('; ')}`);
+    fail(`${file}: ${parsed.errors.join('; ')}`);
   }
   for (const prefab of parsed.catalog.prefabs) {
     catalogue.set(prefab.id, prefab);
@@ -175,10 +193,10 @@ const prefabs: WeightedPrefab[] = required('prefab')
 
 // ----------------------------------------------------------------- the world
 
-const worldFile = join(repoRoot, 'content', 'worlds', `${worldId}.json`);
+const worldFile = join(contentDir, 'worlds', `${worldId}.json`);
 const parsedWorld = parseWorldDefinition(JSON.parse(await readFile(worldFile, 'utf8')));
 if (!parsedWorld.ok) {
-  fail(`content/worlds/${worldId}.json: ${parsedWorld.errors.join('; ')}`);
+  fail(`${worldFile}: ${parsedWorld.errors.join('; ')}`);
 }
 const world = parsedWorld.world;
 const zone = world.zones.find((candidate) => candidate.id === zoneId);
@@ -261,7 +279,7 @@ if (!planned.ok) {
   fail(planned.error);
 }
 
-process.stdout.write(`world:    content/worlds/${worldId}.json, zone "${zoneId}"\n`);
+process.stdout.write(`world:    ${worldFile}, zone "${zoneId}"\n`);
 process.stdout.write(`store:    ${storeRoot}\n`);
 process.stdout.write(
   `region:   ${rect.map((side) => side.toFixed(1)).join(', ')} — ` +
@@ -316,5 +334,5 @@ const total = serialized.world.zones.reduce((sum, candidate) => sum + candidate.
 process.stdout.write(
   dryRun
     ? '\ndry run: nothing was written\n'
-    : `\nwrote content/worlds/${worldId}.json (${String(total)} entities in the world)\n`,
+    : `\nwrote ${worldFile} (${String(total)} entities in the world)\n`,
 );

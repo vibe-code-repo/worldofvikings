@@ -95,23 +95,24 @@ function appUrl(app: 'websiteUrl' | 'gameUrl' | 'assetUrl'): string {
 }
 
 /**
- * Opens the game with its light rig switched off (`?flat=1`, ADR-0024).
+ * Opens the game under the light its world file asks for (ADR-0024).
  *
- * Every test below is about wiring: that the loop runs, that a key reaches the
- * capsule, that the camera follows it, that the world arrives from the API and
- * is instanced. None of them is about the picture's grade — and the grade is
- * what this suite cannot afford. Playwright's headless Chromium rasterises in
- * software, and the shipped profile puts a 2048² shadow map and an HDR grading
- * chain in front of it: measured on the village, a frame goes from about a
- * tenth of a second to more than a second, which is slow enough that half a
- * second of a held key advances the simulation by three fixed steps and the
- * "it walks" assertion fails for a reason that has nothing to do with walking.
+ * It used to open every one of these with `?flat=1`, and the reason was real:
+ * headless Chromium rasterises in software by default, and with a 2048² shadow
+ * map and an HDR grading chain in front of it a frame took more than a second,
+ * so half a second of a held key advanced the simulation by three fixed steps
+ * and "it walks" failed for a reason that had nothing to do with walking.
  *
- * So the wiring is measured without the rig, and the rig has its own test that
- * measures nothing else: `tooling/smoke/lighting.spec.ts`.
+ * That reason is gone. `playwright.config.ts` now asks Chromium for ANGLE on
+ * the machine's own driver, and under the shipped profile the whole suite is
+ * 4.3 minutes against 3.9 — so the wiring is measured under the light the
+ * player will actually see, which is the stronger test of the two.
+ *
+ * One test still asks for `?flat=1` and says why: counting draw calls means
+ * something different when the frame has two passes.
  */
 async function openGame(page: Page, query = ''): Promise<void> {
-  await page.goto(`${appUrl('gameUrl')}?flat=1${query}`);
+  await page.goto(`${appUrl('gameUrl')}?${query.replace(/^&/, '')}`);
 }
 
 /** The editor's whole debug bridge, or `null` while it is not installed. */
@@ -498,7 +499,12 @@ test('game stands the player on the terrain it draws', async ({ page }) => {
  * (ADR-0025).
  */
 test('game opens the authored village over the API', async ({ page }) => {
-  await openGame(page);
+  // The one test in this file that wants flat light, and not to go faster: it
+  // ends by counting draw calls against meshes, and the shipped profile draws
+  // every caster a second time into the shadow map (ADR-0024). Under it the
+  // ratio is 543 against 968 — which says nothing about whether the village is
+  // instanced, and that is the only thing this count is here to say.
+  await openGame(page, '&flat=1');
 
   await expect(page.getByTestId('game-world')).toHaveText(
     /^world village1 · zone village — \d+ entities from \d+ models(, .+)?$/,

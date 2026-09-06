@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { listJsonFiles, readJsonFile } from './content-files.js';
-import { parsePrefabCatalog, type PrefabDefinition } from './prefab-catalog.js';
+import { parsePrefabCatalog, type PrefabDefinition } from '@wov/world-schema';
 
 /** The folder inside `CONTENT_DIR` that holds prefab catalogues. */
 export const PREFABS_FOLDER = 'prefabs';

@@ -18,6 +18,22 @@ async function writeCatalog(name: string, contents: unknown): Promise<void> {
   await writeFile(join(contentDir, 'prefabs', name), text, 'utf8');
 }
 
+/** A minimal valid `PrefabDefinition` — exactly the fields `@wov/world-schema` requires. */
+function prefab(
+  id: string,
+  name: string,
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    id,
+    name,
+    asset: `models/${id}.glb`,
+    visibility: 'public',
+    category: 'prop',
+    ...overrides,
+  };
+}
+
 beforeEach(async () => {
   contentDir = await mkdtemp(join(tmpdir(), 'wov-api-prefabs-'));
   await mkdir(join(contentDir, 'prefabs'), { recursive: true });
@@ -34,14 +50,14 @@ describe('GET /prefabs', () => {
       schemaVersion: 1,
       id: 'vegetation',
       prefabs: [
-        { id: 'pine_tree_01', name: 'Pine Tree 01', asset: 'models/pine_tree_01.glb' },
-        { id: 'birch_tree_01', name: 'Birch Tree 01' },
+        prefab('pine_tree_01', 'Pine Tree 01', { category: 'vegetation' }),
+        prefab('birch_tree_01', 'Birch Tree 01', { category: 'vegetation' }),
       ],
     });
     await writeCatalog('buildings.json', {
       schemaVersion: 1,
       id: 'buildings',
-      prefabs: [{ id: 'viking_house_01', name: 'Viking House 01' }],
+      prefabs: [prefab('viking_house_01', 'Viking House 01', { category: 'environment' })],
     });
     app = await startServer();
 
@@ -50,14 +66,18 @@ describe('GET /prefabs', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.prefabs).toEqual([
-      { id: 'birch_tree_01', name: 'Birch Tree 01', catalog: 'vegetation' },
       {
-        id: 'pine_tree_01',
-        name: 'Pine Tree 01',
-        asset: 'models/pine_tree_01.glb',
+        ...prefab('birch_tree_01', 'Birch Tree 01', { category: 'vegetation' }),
         catalog: 'vegetation',
       },
-      { id: 'viking_house_01', name: 'Viking House 01', catalog: 'buildings' },
+      {
+        ...prefab('pine_tree_01', 'Pine Tree 01', { category: 'vegetation' }),
+        catalog: 'vegetation',
+      },
+      {
+        ...prefab('viking_house_01', 'Viking House 01', { category: 'environment' }),
+        catalog: 'buildings',
+      },
     ]);
     expect(body.catalogs).toEqual([
       { id: 'buildings', file: 'buildings.json', prefabs: 1 },
@@ -70,7 +90,7 @@ describe('GET /prefabs', () => {
     await writeCatalog('good.json', {
       schemaVersion: 1,
       id: 'good',
-      prefabs: [{ id: 'pine_tree_01', name: 'Pine Tree 01' }],
+      prefabs: [prefab('pine_tree_01', 'Pine Tree 01')],
     });
     await writeCatalog('bad.json', { schemaVersion: 2, id: 'bad', prefabs: [] });
     await writeCatalog('worse.json', 'not json');
@@ -78,7 +98,7 @@ describe('GET /prefabs', () => {
 
     const body = (await app.inject({ method: 'GET', url: '/prefabs' })).json();
 
-    expect(body.prefabs.map((prefab: { id: string }) => prefab.id)).toEqual(['pine_tree_01']);
+    expect(body.prefabs.map((entry: { id: string }) => entry.id)).toEqual(['pine_tree_01']);
     expect(body.invalid.map((entry: { file: string }) => entry.file)).toEqual([
       'bad.json',
       'worse.json',
@@ -90,18 +110,18 @@ describe('GET /prefabs', () => {
     await writeCatalog('a-first.json', {
       schemaVersion: 1,
       id: 'a_first',
-      prefabs: [{ id: 'pine_tree_01', name: 'From A' }],
+      prefabs: [prefab('pine_tree_01', 'From A')],
     });
     await writeCatalog('b-second.json', {
       schemaVersion: 1,
       id: 'b_second',
-      prefabs: [{ id: 'pine_tree_01', name: 'From B' }],
+      prefabs: [prefab('pine_tree_01', 'From B')],
     });
     app = await startServer();
 
     const body = (await app.inject({ method: 'GET', url: '/prefabs' })).json();
 
-    expect(body.prefabs).toEqual([{ id: 'pine_tree_01', name: 'From A', catalog: 'a_first' }]);
+    expect(body.prefabs).toEqual([{ ...prefab('pine_tree_01', 'From A'), catalog: 'a_first' }]);
     expect(body.invalid).toHaveLength(1);
     expect(body.invalid[0].file).toBe('b-second.json');
     expect(body.invalid[0].errors.join(' ')).toContain('pine_tree_01');
@@ -117,11 +137,13 @@ describe('GET /prefabs', () => {
     expect(response.json()).toEqual({ prefabs: [], catalogs: [], invalid: [] });
   });
 
-  it('rejects a prefab entry without an id or name', async () => {
+  it('rejects a prefab entry without a name', async () => {
     await writeCatalog('vegetation.json', {
       schemaVersion: 1,
       id: 'vegetation',
-      prefabs: [{ id: 'pine_tree_01' }],
+      prefabs: [
+        { id: 'pine_tree_01', asset: 'models/pine.glb', visibility: 'public', category: 'prop' },
+      ],
     });
     app = await startServer();
 
@@ -129,5 +151,19 @@ describe('GET /prefabs', () => {
 
     expect(body.prefabs).toEqual([]);
     expect(body.invalid[0].errors.join(' ')).toContain('name');
+  });
+
+  it('rejects a private prefab that has no placeholder', async () => {
+    await writeCatalog('private.json', {
+      schemaVersion: 1,
+      id: 'private_kit',
+      prefabs: [prefab('longhouse_01', 'Longhouse 01', { visibility: 'private' })],
+    });
+    app = await startServer();
+
+    const body = (await app.inject({ method: 'GET', url: '/prefabs' })).json();
+
+    expect(body.prefabs).toEqual([]);
+    expect(body.invalid[0].errors.join(' ')).toContain('placeholder');
   });
 });

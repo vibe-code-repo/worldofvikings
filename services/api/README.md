@@ -43,10 +43,9 @@ Rules the routes keep (reasoning in ADR-0017):
 
 `GET /prefabs` merges every catalogue in `CONTENT_DIR/prefabs`
 (`{ schemaVersion, id, prefabs[] }`); the first definition of an id wins, and
-clashes and broken catalogues are reported in `invalid`. That catalogue schema
-lives in `src/prefab-catalog.ts` **temporarily**, with a `TODO` pointing at
-`parsePrefabCatalog` in `@wov/world-schema` — content formats belong there
-(ADR-0004), not in a service.
+clashes and broken catalogues are reported in `invalid`. The catalogue itself
+is validated by `parsePrefabCatalog` from `@wov/world-schema` — content formats
+are defined there (ADR-0004), never in a service.
 
 **Why Fastify** (and not Hono/Express): the API will later own accounts, save
 synchronisation and published world versions. Fastify gives schema-based
@@ -56,8 +55,7 @@ Hono is smaller but is optimised for edge runtimes we do not target; Express
 would need extra packages for logging, validation and typing. See ADR-0005.
 
 Dependencies: `fastify`, `@fastify/cors` (the three dev apps run on their own
-origins), `@wov/world-schema` (the world format is defined once, ADR-0004),
-`zod` (the temporary prefab catalogue check, the version the schema package
-already uses), `tsx` (TypeScript dev runner), `typescript`. Dev-only
+origins), `@wov/world-schema` (the world and prefab formats are defined once, ADR-0004),
+`tsx` (TypeScript dev runner), `typescript`. Dev-only
 `prettier`: the JSON printer's test asserts against the real formatter instead
 of against a hand-written expectation.

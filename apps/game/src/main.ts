@@ -462,34 +462,6 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       prefabs,
     });
 
-    // Only now, with every model of the zone loaded and cached, is there
-    // something to measure a shape from — so the collision bodies are built
-    // here rather than raced against the models they are made of (ADR-0026).
-    if (world3d !== null) {
-      try {
-        const collision = await buildZoneCollision({
-          physics: world3d,
-          manager: placed.manager,
-          zone,
-          prefabs,
-        });
-        for (const problem of collision.report.failed) {
-          console.error(`[game] a prefab of zone "${zone.id}" has no collision shape — ${problem}`);
-        }
-        debugBridge?.reportCollision(collision.report);
-        setCollisionStatus(
-          `collision: ${String(collision.report.bodies)} bodies from ` +
-            `${String(collision.report.shapes)} shapes · ` +
-            `${String(collision.report.triangles)} triangles · ` +
-            `${String(collision.report.passable)} walk-through · ` +
-            `built in ${String(collision.report.milliseconds)} ms`,
-        );
-      } catch (error) {
-        setCollisionStatus(`collision unavailable: ${describe(error)}`);
-      }
-    } else {
-      setCollisionStatus('collision: no physics world to build it in');
-    }
     for (const problem of placed.failed) {
       console.error(`[game] a prefab of zone "${zone.id}" did not load — ${problem}`);
     }
@@ -509,6 +481,37 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
         (placed.failed.length > 0 ? `, ${String(placed.failed.length)} failed` : ''),
     );
     setAssetSources(summarizeAssetSources(addSources(terrainSources, placed.sources)));
+
+    // Last, and after the lines above have been written: the shapes are
+    // measured on the models `placeEntities` loaded, so they cannot exist
+    // before those models do — but "the village is on screen" is true the
+    // moment it is, and must not wait for "the village is solid" to be
+    // reported (ADR-0026).
+    if (world3d === null) {
+      setCollisionStatus('collision: no physics world to build it in');
+      return;
+    }
+    try {
+      const collision = await buildZoneCollision({
+        physics: world3d,
+        manager: placed.manager,
+        zone,
+        prefabs,
+      });
+      for (const problem of collision.report.failed) {
+        console.error(`[game] a prefab of zone "${zone.id}" has no collision shape — ${problem}`);
+      }
+      debugBridge?.reportCollision(collision.report);
+      setCollisionStatus(
+        `collision: ${String(collision.report.bodies)} bodies from ` +
+          `${String(collision.report.shapes)} shapes · ` +
+          `${String(collision.report.triangles)} triangles · ` +
+          `${String(collision.report.passable)} walk-through · ` +
+          `built in ${String(collision.report.milliseconds)} ms`,
+      );
+    } catch (error) {
+      setCollisionStatus(`collision unavailable: ${describe(error)}`);
+    }
   }
 
   /** Publishes the tile's measured hull to the dev bridge, if there is one. */

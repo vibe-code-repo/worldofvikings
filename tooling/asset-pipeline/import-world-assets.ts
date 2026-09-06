@@ -41,8 +41,7 @@
  *    of the ground: a thinned copy of the village height field with rebuilt
  *    normals and UVs, and the eight ground textures a world file's `terrain`
  *    names by hand (ADR-0020). It is a step of this run rather than its own
- *    command, because the manifest rewrite below drops every private entry this
- *    script does not produce.
+ *    command, so that one run owns every manifest row it is responsible for.
  *
  * **Why textures are separated rather than left embedded.** Ten rock prefabs in
  * this export embed the *same* 4096×4096 texture: 18 MB of duplicate bytes that
@@ -55,9 +54,16 @@
  * texture file names are content hashes, the JSON is written with stable key
  * order, and `generatedAt` is only touched when the asset list actually changed.
  * Re-running over an unchanged source rewrites nothing of substance.
+ *
+ * **And idempotent next to the other importers.** This command does not own the
+ * whole manifest. `import:scene-models` writes private rows for models it cuts
+ * out of a scene bundle into the same store, and those rows are carried over
+ * here for as long as the store still holds their files — see
+ * `manifest-merge.ts` for why the store is a second source of truth, and
+ * ADR-0023 for the incident that made it one.
  */
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -82,6 +88,7 @@ import {
 } from './glb.js';
 import type { Bounds } from './glb.js';
 import { MAX_TEXTURE_SIZE, decodePng, encodePng, fitWithin, isPng, readPngSize } from './png.js';
+import { mergeOwnedEntries } from './manifest-merge.js';
 import { buildPlaceholderGlb, placeholderPathFor } from './placeholder.js';
 import { bindMaterials } from './material-binding.js';
 import { NO_SCENE_BINDINGS, readSceneBindings } from './scene-bindings.js';
@@ -148,6 +155,15 @@ async function write(file: string, bytes: Buffer): Promise<void> {
   }
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, bytes);
+}
+
+async function exists(file: string): Promise<boolean> {
+  try {
+    await access(file);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Largest side of a hull, in metres — the number the size rule is about. */
@@ -694,27 +710,41 @@ for (const path of [...placeholders].sort()) {
 }
 
 /**
- * Everything this run produced, by path. Re-running must replace these entries
- * rather than add a second copy of each — which is what makes the import
- * idempotent instead of merely repeatable.
+ * Everything this run produced. Re-running must replace these entries rather
+ * than add a second copy of each — which is what makes the import idempotent
+ * instead of merely repeatable.
  */
-const produced = new Map<string, AssetEntry>();
-for (const entry of [...placeholderEntries, ...entries]) {
-  produced.set(entry.path, entry);
+const produced = [...placeholderEntries, ...entries];
+
+/**
+ * Which of the manifest's private paths the store still holds. Stat'ed up front
+ * because `mergeOwnedEntries` decides synchronously, and only for the paths that
+ * can reach the question at all — everything this run produced is owned and is
+ * never asked about, so a dry run stats nothing it just declined to write.
+ */
+const ownedPaths = new Set(produced.map((entry) => entry.path));
+const storeFiles = new Set<string>();
+for (const entry of existing.manifest.assets) {
+  if (entry.visibility === 'private' && !ownedPaths.has(entry.path)) {
+    if (await exists(join(storeRoot, entry.path))) {
+      storeFiles.add(entry.path);
+    }
+  }
 }
 
 /**
- * Everything the manifest already had that this run does not own: the vendored
- * public assets. Private entries from a previous run are dropped, so an asset
- * that has since disappeared from the source disappears here too.
+ * Merged with what the manifest already had, by the rule in `manifest-merge.ts`:
+ * public entries stay, and a private entry this run does not own stays for as
+ * long as the store still holds its file. Those rows belong to
+ * `import:scene-models`, which cuts models out of a scene bundle into the same
+ * store; deleting them here used to take 138 prefabs out of the catalogue behind
+ * that command's back, and the next world import then wrote a village with a
+ * quarter of its entities missing.
  */
-const keep = existing.manifest.assets.filter(
-  (entry) => entry.visibility === 'public' && !produced.has(entry.path),
+const merged = mergeOwnedEntries(existing.manifest.assets, produced, (path) =>
+  storeFiles.has(path),
 );
-
-const assets = [...keep, ...produced.values()].sort((a, b) =>
-  a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
-);
+const assets = merged.assets;
 
 const unchanged =
   JSON.stringify(assets) ===
@@ -755,6 +785,10 @@ process.stdout.write(
 );
 process.stdout.write(`  ${'manifest'.padEnd(12)} ${String(assets.length).padStart(5)} entries\n`);
 process.stdout.write(
+  `  ${'carried over'.padEnd(12)} ${String(merged.carriedOver.length).padStart(5)} private entry(s) ` +
+    `another importer owns, still in the store\n`,
+);
+process.stdout.write(
   `  ${'normals'.padEnd(12)} ${String(report.normalsComputed).padStart(5)} file(s) had none and were given them\n`,
 );
 
@@ -788,6 +822,15 @@ if (report.untextured.length > 0) {
   );
   for (const line of report.untextured) {
     process.stdout.write(`    ${line}\n`);
+  }
+}
+
+if (merged.dropped.length > 0) {
+  // Named rather than silent: these rows described a private asset that is no
+  // longer in the store, so the manifest stops claiming it exists.
+  process.stdout.write(`\n  dropped, no longer in the store (${String(merged.dropped.length)}):\n`);
+  for (const path of merged.dropped) {
+    process.stdout.write(`    ${path}\n`);
   }
 }
 

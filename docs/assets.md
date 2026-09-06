@@ -107,6 +107,16 @@ and a byte-identical manifest. What it selects, how it treats an origin and what
 provenance it asserts are documented — with the measurements behind each — in
 `tooling/asset-pipeline/README.md`.
 
+Idempotent **next to the other importers**, too, which is a separate property and
+was once broken. No command owns the whole manifest: `import:scene-models` writes
+rows for models it cuts out of a scene bundle into the same store. So a run keeps
+a private row it did not produce for as long as the store still holds that file,
+and a store file with no row is adopted rather than skipped. The store is a
+second source of truth next to the manifest, because it is persistent and shared
+— see ADR-0023 for the incident that established that and the measurements
+behind it. In practice: **pruning the store is how an asset leaves the manifest**,
+and a dropped row is named in the import report.
+
 ### Materials and shared texture files
 
 The per-model part of that export carries no material assignment: 388 of the 437

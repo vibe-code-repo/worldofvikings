@@ -21,7 +21,7 @@ describe('serializeWorld', () => {
 
     expect(text).toBe(
       `{
-  "schemaVersion": 2,
+  "schemaVersion": ${String(CURRENT_WORLD_SCHEMA_VERSION)},
   "id": "example",
   "name": "Example World",
   "zones": [
@@ -95,5 +95,42 @@ describe('serializeWorld', () => {
         ],
         "splat": ["textures/village-splat-a.png"]
       }`);
+  });
+
+  it('writes the lighting profile a world carries, in schema order', () => {
+    const text = serializeWorld({
+      schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
+      id: 'example',
+      name: 'Example World',
+      // Deliberately in the wrong order and with holes: the file must come back
+      // canonical, and a profile the editor never touched must survive a save
+      // instead of being silently dropped (ADR-0024).
+      lighting: {
+        postProcessing: { bloom: { weight: 0.4 }, enabled: true },
+        sun: { intensity: 3.1, direction: [0.62, -0.36, 0.7] },
+      },
+      zones: [
+        {
+          id: 'village',
+          name: 'Village',
+          entities: [],
+          lighting: { fog: { end: 60, enabled: true } },
+        },
+      ],
+    });
+
+    const written = JSON.parse(text) as {
+      lighting: Record<string, unknown>;
+      zones: { lighting: Record<string, unknown> }[];
+    };
+    // The profile survived the save at all — the failure this test was written
+    // for was it being dropped, which loses a whole evening's look on one click.
+    expect(Object.keys(written.lighting)).toEqual(['sun', 'postProcessing']);
+    expect(Object.keys(written.lighting['sun'] as object)).toEqual(['direction', 'intensity']);
+    expect(Object.keys(written.lighting['postProcessing'] as object)).toEqual(['enabled', 'bloom']);
+    expect(written.zones[0]?.lighting).toEqual({ fog: { enabled: true, end: 60 } });
+    // Nothing invented: a profile that says two things says two things.
+    expect(text).not.toContain('"toneMapping"');
+    expect(text).not.toContain('"shadows"');
   });
 });

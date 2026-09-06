@@ -20,7 +20,7 @@ export const CURRENT_PREFAB_SCHEMA_VERSION = 1;
  * What a prefab is *for*, which is what the editor's asset browser groups by
  * (spec §13: "Models | Prefabs | … | Vegetation").
  *
- * Five values, each earning its place by being handled differently somewhere:
+ * Six values, each earning its place by being handled differently somewhere:
  * - `terrain` is placed once per zone and is the ground the player walks on.
  * - `vegetation` is scattered in bulk, needs wind/LOD treatment and is the one
  *   group a scatter tool writes into a world file (spec §12).
@@ -30,10 +30,22 @@ export const CURRENT_PREFAB_SCHEMA_VERSION = 1;
  *   group gameplay later attaches interaction to (spec §32).
  * - `dungeon` is the modular dungeon kit (spec §20), which is authored against
  *   a grid instead of freely placed.
+ * - `backdrop` is painted distance: the mountain shell, the sky dome and the
+ *   clouds. It is scenery nobody ever reaches, and it earns its own value
+ *   because every reader treats it differently for that one reason — it
+ *   collides with nothing, the scatter tool will not plant it and will not
+ *   plant onto it, the viewport does not snap to it, it neither casts nor
+ *   receives shadow, and it is exempt from fog, because fog is what distance
+ *   already did to it in the painting.
  *
  * No asset carries `dungeon` yet; the value exists because the kit is a named
  * part of the spec and a hand-written catalog will use it before the importer
- * does. A sixth value must earn its place the same way.
+ * does. A seventh value must earn its place the same way.
+ *
+ * Adding `backdrop` was an **additive** change and needed no version bump: no
+ * catalogue written before it used a value this list did not have, so every one
+ * of them still parses. Removing a value would not be additive, and would need
+ * a bump and a migration like any other format change (agent rule 11).
  */
 export const PREFAB_CATEGORIES = [
   'environment',
@@ -41,9 +53,26 @@ export const PREFAB_CATEGORIES = [
   'terrain',
   'prop',
   'dungeon',
+  'backdrop',
 ] as const;
 export type PrefabCategory = (typeof PREFAB_CATEGORIES)[number];
 export const PrefabCategorySchema = z.enum(PREFAB_CATEGORIES);
+
+/**
+ * Whether this prefab is painted distance rather than a thing in the world.
+ *
+ * A comparison, and it lives here rather than in the four readers that need it
+ * because they must not be able to drift: the game leaves a backdrop out of the
+ * fog and the shadow map, the editor leaves it out of the scatter tool and out
+ * of the picking, and the catalogue gives it no collision shape. Those are four
+ * behaviours of one decision, and one decision is one function.
+ *
+ * Takes only the field it reads, so a caller with a catalogue row, a manifest
+ * row or a literal can all ask.
+ */
+export function isBackdrop(prefab: { readonly category: PrefabCategory }): boolean {
+  return prefab.category === 'backdrop';
+}
 
 /**
  * Where the asset bytes are: in this repository, or in the private asset store

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CURRENT_PREFAB_SCHEMA_VERSION, parsePrefabCatalog } from './prefab.js';
+import {
+  CURRENT_PREFAB_SCHEMA_VERSION,
+  PREFAB_CATEGORIES,
+  isBackdrop,
+  parsePrefabCatalog,
+} from './prefab.js';
 
 const publicPrefab = {
   id: 'barrel-01',
@@ -193,5 +198,31 @@ describe('prefab collision', () => {
       collision: { kind: 'box', box: { min: [1, 0, 0], max: [0, 1, 1] } },
     });
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('the backdrop category', () => {
+  it('is one of the categories a catalogue may name', () => {
+    expect(PREFAB_CATEGORIES).toContain('backdrop');
+  });
+
+  it('was additive: a catalogue written before it still parses', () => {
+    // Every value the previous list had is still in this one, in the same
+    // order, so no file that validated before this change stopped validating.
+    expect(PREFAB_CATEGORIES.slice(0, 5)).toEqual([
+      'environment',
+      'vegetation',
+      'terrain',
+      'prop',
+      'dungeon',
+    ]);
+    expect(CURRENT_PREFAB_SCHEMA_VERSION).toBe(1);
+  });
+
+  it('answers isBackdrop for it and for nothing else', () => {
+    expect(isBackdrop({ category: 'backdrop' })).toBe(true);
+    for (const category of PREFAB_CATEGORIES.filter((each) => each !== 'backdrop')) {
+      expect(isBackdrop({ category })).toBe(false);
+    }
   });
 });

@@ -219,16 +219,28 @@ test('game keeps rendering frames', async ({ page }) => {
  * has to turn under both, which is exactly why the fallback exists.
  */
 /**
- * Waits until the ground has stopped changing under the player.
+ * Waits until the ground has stopped changing under the player *and* the client
+ * has finished building the zone.
  *
- * The terrain arrives after the first frames and puts the capsule down on it
- * (ADR-0020), so a test that samples a position before and after that lands sees
- * a teleport rather than what it was measuring. Either outcome settles the
- * question — the tile loaded, or it did not — so both are waited for.
+ * Two separate reasons to wait. The terrain arrives after the first frames and
+ * puts the capsule down on it (ADR-0020), so a test that samples a position
+ * across that lands sees a teleport rather than what it was measuring. And the
+ * zone is built after the terrain is ready: measured on the village, the
+ * terrain line appears at about 3.9 s and the world line about 5.9 s later,
+ * with the main thread loading models and placing entities in between. A test
+ * that presses a key inside that window is measuring a busy tab, not the
+ * movement system — which is what it did, moving the capsule 0.18 m in the half
+ * second it expected metres from.
+ *
+ * Either outcome settles each question — the tile loaded or it did not, the
+ * zone built or its models failed — so both spellings are waited for.
  */
 async function groundSettled(page: Page): Promise<void> {
   await expect(page.getByTestId('game-status')).toContainText(/terrain (ready|unavailable|drawn)/, {
     timeout: 30_000,
+  });
+  await expect(page.getByTestId('game-world')).toContainText(/entities from|unavailable|world "/, {
+    timeout: 45_000,
   });
   // The capsule is put down on the tile and the camera eases after it, so the
   // frame in which the status changes is the frame the camera is furthest from
@@ -447,20 +459,24 @@ test('game stands the player on the terrain it draws', async ({ page }) => {
  * than under it or a hundred metres above it.
  *
  * The entity count is read off the status line rather than pinned, because it
- * is world data: a re-import may legitimately change it. What is asserted is
- * the shape — more than a thousand of them, from more than one model.
+ * is world data: a re-import or a scatter run may legitimately change it. What
+ * is asserted is the shape — more than a thousand of them, from more than one
+ * model, with the scattered vegetation among them drawn as thin instances
+ * (ADR-0025).
  */
 test('game opens the authored village over the API', async ({ page }) => {
   await page.goto(appUrl('gameUrl'));
 
   await expect(page.getByTestId('game-world')).toHaveText(
-    /^world village1 · zone village — \d+ entities from \d+ models$/,
+    /^world village1 · zone village — \d+ entities from \d+ models(, .+)?$/,
     { timeout: 120_000 },
   );
   const line = (await page.getByTestId('game-world').textContent()) ?? '';
   const [, entities, models] = /— (\d+) entities from (\d+) models/.exec(line) ?? [];
   expect(Number(entities)).toBeGreaterThan(1000);
   expect(Number(models)).toBeGreaterThan(1);
+  const [, thin] = /(\d+) of them thin-instanced/.exec(line) ?? [];
+  expect(Number(thin)).toBeGreaterThan(1000);
 
   // The ground of that zone, not the Phase 1 plane.
   await expect(page.getByTestId('game-status')).toContainText(/terrain ready — \d+ collision/);
@@ -674,6 +690,63 @@ test('editor opens the imported village with more than a thousand entities', asy
   await expect
     .poll(() => editorFrameId(page), { timeout: 15_000, intervals: [200, 200, 400, 800] })
     .toBeGreaterThan(before ?? 0);
+});
+
+/**
+ * The scatter panel (ADR-0025), end to end.
+ *
+ * Everything about a scatter is easy to get right in a unit test and easy to
+ * get wrong in the shell: the panel can preview a count it never passes on, the
+ * command can reach the document without reaching the scene, and undo can take
+ * back one instance out of three hundred. So all three are read here — the
+ * preview, the document's entity count and the scene's own mesh count — and the
+ * scatter is undone again with a single Ctrl+Z.
+ */
+test('editor scatters a field of prefabs as one undoable command', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('editor-viewport-status')).toHaveText(
+    /^viewport ready — (webgl2|webgpu)$/,
+  );
+  await page.getByTestId('menu-file').click();
+  await page.getByTestId('menu-open-example').click();
+  await expect(page.getByTestId('hierarchy-entity-barrel_001')).toBeVisible();
+
+  // The world this opens is whatever the save test left behind, so the delta is
+  // what is asserted, never the total.
+  const before = await editorEntityCount(page);
+  expect(before).not.toBeNull();
+
+  await page.getByTestId('assets-search').fill('Barrel');
+  await page.getByTestId('asset-barrel-01').click();
+  await page.getByTestId('scatter-add-prefab').click();
+  await expect(page.getByTestId('scatter-prefab-list')).toContainText('barrel-01');
+
+  // A 20 m x 20 m patch at 5 per 100 m² is twenty barrels, and the panel has to
+  // say so before the button is pressed.
+  for (const [field, value] of [
+    ['scatter-x0', '0'],
+    ['scatter-z0', '0'],
+    ['scatter-x1', '20'],
+    ['scatter-z1', '20'],
+  ] as const) {
+    await page.getByTestId(field).fill(value);
+  }
+  await page.getByTestId('scatter-density').fill('5');
+  await page.getByTestId('scatter-seed').fill('3');
+  await expect(page.getByTestId('scatter-preview')).toHaveText('400 m² usable · 20 instances');
+
+  await page.getByTestId('scatter-run').click();
+  await expect.poll(() => editorEntityCount(page)).toBe((before ?? 0) + 20);
+  await expect.poll(() => editorMeshCount(page)).toBe((before ?? 0) + 20);
+  await expect(page.getByTestId('editor-dirty')).toHaveText('unsaved changes');
+  // The ids say which run each instance came from (`<prefab>_s<seed>_<n>`).
+  await expect(page.getByTestId('hierarchy-entity-barrel-01_s3_0001')).toBeVisible();
+
+  // One command, so one undo takes the whole field back.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => editorEntityCount(page)).toBe(before);
+  await expect.poll(() => editorMeshCount(page)).toBe(before);
 });
 
 test('editor switches tools with Q/W/E/R and deletes with the Delete key', async ({ page }) => {

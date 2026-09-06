@@ -122,6 +122,18 @@ export const TerrainDefinitionSchema = z
   .strictObject({
     /** The height field model, e.g. `terrain/village-257.glb`. */
     heightField: AssetPathSchema,
+    /**
+     * A regular-grid copy of the same ground, for tools that sample heights
+     * without a renderer — `pnpm scatter`, above all.
+     *
+     * It exists because {@link heightField} stopped being a grid: the drawn
+     * tile is adaptive, coarse where the ground is gentle and fine where it
+     * stands up (ADR-0032), and a mesh whose vertices are not `rows × columns`
+     * cannot be read as a height grid at all. Rather than have an offline tool
+     * guess which file to sample, the world says it. Absent means the height
+     * field is itself a grid, which is what it was through version 3.
+     */
+    heightSamples: AssetPathSchema.optional(),
     /** Where the height field's own origin sits, `[x, y, z]` in metres. */
     position: Vector3Schema,
     /** `[width, depth]` of the tile in metres, along x and z. */
@@ -192,6 +204,7 @@ export function terrainAssetPaths(terrain: TerrainDefinition): string[] {
   const layers = terrain.layers ?? [];
   return [
     terrain.heightField,
+    ...(terrain.heightSamples === undefined ? [] : [terrain.heightSamples]),
     ...(terrain.splat ?? []),
     ...layers.map((layer) => layer.texture),
     ...layers.flatMap((layer) => (layer.normalMap === undefined ? [] : [layer.normalMap])),

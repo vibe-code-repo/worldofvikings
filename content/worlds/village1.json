@@ -3,8 +3,16 @@
   "id": "village1",
   "name": "Village One",
   "lighting": {
-    "sun": { "direction": [0.58, -0.45, 0.68], "color": "#ffd2a1", "intensity": 2.3 },
-    "ambient": { "skyColor": "#8fb3d8", "groundColor": "#4a4032", "intensity": 0.62 },
+    "sun": {
+      "direction": [0.58, -0.45, 0.68],
+      "color": "#ffd2a1",
+      "intensity": 2.3
+    },
+    "ambient": {
+      "skyColor": "#8fb3d8",
+      "groundColor": "#4a4032",
+      "intensity": 0.62
+    },
     "sky": {
       "enabled": true,
       "zenithColor": "#17478f",
@@ -12,7 +20,11 @@
       "sunColor": "#ffd9a8",
       "sunSpread": 0.2
     },
-    "fog": { "enabled": true, "start": 80, "end": 420 },
+    "fog": {
+      "enabled": true,
+      "start": 80,
+      "end": 420
+    },
     "shadows": {
       "enabled": true,
       "mapSize": 2048,
@@ -28,9 +40,21 @@
       "toneMapping": "aces",
       "exposure": 1.15,
       "contrast": 1.1,
-      "bloom": { "enabled": true, "threshold": 0.85, "weight": 0.22, "scale": 0.5, "kernel": 32 },
-      "vignette": { "enabled": true, "weight": 1.2, "color": "#0d0a08" },
-      "ssao": { "enabled": false }
+      "bloom": {
+        "enabled": true,
+        "threshold": 0.85,
+        "weight": 0.22,
+        "scale": 0.5,
+        "kernel": 32
+      },
+      "vignette": {
+        "enabled": true,
+        "weight": 1.2,
+        "color": "#0d0a08"
+      },
+      "ssao": {
+        "enabled": false
+      }
     }
   },
   "zones": [
@@ -4844,7 +4868,7 @@
           "id": "environment-sm-veh-cart-03_0001",
           "prefab": "environment-sm-veh-cart-03",
           "position": [181.795, 11.09, 169.984],
-          "rotation": [0.2405, 0.00011, 0.00008],
+          "rotation": [0.2405, 0.00011, 8e-5],
           "scale": [1, 1, 1]
         },
         {
@@ -8190,7 +8214,7 @@
           "id": "environment-sm-env-stonewall-03_0128",
           "prefab": "environment-sm-env-stonewall-03",
           "position": [164.006, 11.524, 198.339],
-          "rotation": [-0.0123, 1.63249, -0.00007],
+          "rotation": [-0.0123, 1.63249, -7e-5],
           "scale": [1, 1, 1]
         },
         {
@@ -36776,16 +36800,59 @@
         }
       ],
       "terrain": {
-        "heightField": "terrain/terrain-village1-257.glb",
+        "heightField": "terrain/terrain-village1-adaptive.glb",
+        "heightSamples": "terrain/terrain-village1.glb",
         "position": [0, 0, 0],
         "size": [300, 300],
         "layers": [
-          { "texture": "textures/terrain-grass-b.png", "tileSize": 2 },
-          { "texture": "textures/terrain-rock-a.png", "tileSize": 2 },
-          { "texture": "textures/terrain-grass-a.png", "tileSize": 2 },
-          { "texture": "textures/terrain-gravel.png", "tileSize": 2 },
-          { "texture": "textures/terrain-rock-rough.png", "tileSize": 3 },
-          { "texture": "textures/terrain-moss.png", "tileSize": 2 }
+          {
+            "texture": "textures/terrain-gravel-path.png",
+            "tileSize": 2,
+            "normalMap": "textures/terrain-gravel-normal.png",
+            "normalScale": 3,
+            "metallic": 0.75,
+            "smoothness": 0.1
+          },
+          {
+            "texture": "textures/terrain-rock-a.png",
+            "tileSize": 2,
+            "normalMap": "textures/terrain-rock-a-normal.png",
+            "normalScale": 1.5,
+            "metallic": 0.85,
+            "smoothness": 0.1
+          },
+          {
+            "texture": "textures/terrain-grass-a.png",
+            "tileSize": 2,
+            "normalMap": "textures/terrain-grass-normal.png",
+            "normalScale": 2,
+            "metallic": 0.5,
+            "smoothness": 0
+          },
+          {
+            "texture": "textures/terrain-gravel.png",
+            "tileSize": 2,
+            "normalMap": "textures/terrain-gravel-normal.png",
+            "normalScale": 3,
+            "metallic": 0.75,
+            "smoothness": 0.1
+          },
+          {
+            "texture": "textures/terrain-rock-rough.png",
+            "tileSize": 3,
+            "normalMap": "textures/terrain-rock-rough-normal.png",
+            "normalScale": 5,
+            "metallic": 0,
+            "smoothness": 0
+          },
+          {
+            "texture": "textures/terrain-moss.png",
+            "tileSize": 2,
+            "normalMap": "textures/terrain-moss-normal.png",
+            "normalScale": 1.2,
+            "metallic": 0,
+            "smoothness": 0
+          }
         ],
         "splat": ["textures/village-splat-a.png", "textures/village-splat-b.png"]
       }

@@ -602,7 +602,12 @@ for (const heightField of HEIGHT_FIELDS) {
     continue;
   }
 
-  const decimated = decimateHeightField(source, heightField.file, heightField.factor);
+  const decimated = decimateHeightField(
+    source,
+    heightField.file,
+    heightField.factor,
+    heightField.steepSlope,
+  );
   await write(join(storeRoot, heightField.path), decimated.bytes);
 
   const placeholderPath = placeholderPathFor(heightField.path);
@@ -629,12 +634,19 @@ for (const heightField of HEIGHT_FIELDS) {
     placeholder: placeholderPath,
   });
   terrainFiles += 1;
+  const share = (value: number): string => `${(value * 100).toFixed(1)} %`;
   process.stdout.write(
     `  terrain: ${heightField.path} — ${String(decimated.columns)}x${String(decimated.rows)} ` +
       `vertices, ${String(decimated.triangles)} triangles, ` +
       `${decimated.size[0].toFixed(1)} x ${decimated.size[1].toFixed(1)} m, ` +
       `y ${decimated.bounds.min[1].toFixed(2)}…${decimated.bounds.max[1].toFixed(2)}, ` +
-      `${(decimated.bytes.byteLength / 1024 / 1024).toFixed(1)} MB\n`,
+      `${(decimated.bytes.byteLength / 1024 / 1024).toFixed(1)} MB\n` +
+      `           faces past 60°: ${share(decimated.sourceSteepShare)} in the source, ` +
+      `${share(decimated.resultSteepShare)} in this tile` +
+      (decimated.steepCells === undefined
+        ? '\n'
+        : ` (${String(decimated.steepCells)} of ${String(decimated.coarseCells ?? 0)} cells ` +
+          `kept at the source resolution past ${String(decimated.steepSlope ?? 0)}°)\n`),
   );
 }
 

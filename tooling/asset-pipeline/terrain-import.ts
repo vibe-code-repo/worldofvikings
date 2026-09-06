@@ -22,7 +22,15 @@
  *    `grass-ani-4f2c19ab.png`.
  */
 import { readGlb, worldBounds, writeGlb, type Bounds } from './glb.js';
-import { buildHeightFieldGlb, gridSize, readHeightGrid, thinGrid } from './height-field.js';
+import {
+  adaptiveMesh,
+  buildHeightFieldGlb,
+  buildTerrainGlb,
+  gridSize,
+  readHeightGrid,
+  steepShare,
+  thinGrid,
+} from './height-field.js';
 import {
   MAX_TEXTURE_SIZE,
   decodePng,
@@ -112,12 +120,22 @@ export const VILLAGE_SPLAT_MAPS: readonly TerrainTexture[] = [
 ];
 
 /**
- * The six ground textures the village tile blends.
+ * The ground textures the village tile blends, and the normal maps that go with
+ * them.
  *
- * Ordered as the layer list in a world file is written, and named after what
- * they *are* rather than after where they came from. Which splat channel drives
- * which of them is a separate question, answered by looking at the rendered
- * tile — see ADR-0020 and `docs/world-format.md`.
+ * Named after what they *are* rather than after where they came from. Which
+ * splat channel drives which of them is a separate question, answered by
+ * measurement — see ADR-0032 and `docs/world-format.md`.
+ *
+ * There are two pebbles-and-sand images and they are two different layers: the
+ * broad, low one that covers the shore, and the narrow one the village paths
+ * are painted with. The channel that carries the second one holds 3.4 times as
+ * much weight under the stone-and-brick path props as under the bushes, which
+ * is what says it is a path and not a second meadow (ADR-0032).
+ *
+ * A normal map is a *direction*, not a picture, so it never gets a placeholder
+ * of its own: a clone without the store draws the ground flat, which is what it
+ * did before these existed.
  */
 export const TERRAIN_SURFACE_TEXTURES: readonly TerrainTexture[] = [
   {
@@ -156,12 +174,61 @@ export const TERRAIN_SURFACE_TEXTURES: readonly TerrainTexture[] = [
     note: 'ground layer texture: dark moss',
     provenance: TERRAIN_SURFACE_SET,
   },
+  {
+    file: 'Ani Pebbles_Sand.png',
+    name: 'terrain-gravel-path.png',
+    note: 'ground layer texture: pale gravel, the layer the village paths are painted with',
+    provenance: TERRAIN_SURFACE_SET,
+  },
+];
+
+/**
+ * The five normal maps, one per surface texture that has one.
+ *
+ * Both grasses share a map in the export, so five maps cover seven textures.
+ * Their strengths are not stored here — they are per layer in a world file
+ * (`normalScale`), because the same map is right at 2 under grass and at 5
+ * under rough rock, and that is an authoring decision, not a property of the
+ * file.
+ */
+export const TERRAIN_NORMAL_MAPS: readonly TerrainTexture[] = [
+  {
+    file: 'Grass Ani N.png',
+    name: 'terrain-grass-normal.png',
+    note: 'ground layer normal map: grass, shared by both grass textures',
+    provenance: TERRAIN_SURFACE_SET,
+  },
+  {
+    file: 'Ani Rockwall_Normal.png',
+    name: 'terrain-rock-a-normal.png',
+    note: 'ground layer normal map: dark rock wall',
+    provenance: TERRAIN_SURFACE_SET,
+  },
+  {
+    file: 'Rock_Rough_Normals_01.png',
+    name: 'terrain-rock-rough-normal.png',
+    note: 'ground layer normal map: rough rock',
+    provenance: TERRAIN_SURFACE_SET,
+  },
+  {
+    file: 'Ani Pebbles_Sand_normals.png',
+    name: 'terrain-gravel-normal.png',
+    note: 'ground layer normal map: gravel and sand, shared by both gravel textures',
+    provenance: TERRAIN_SURFACE_SET,
+  },
+  {
+    file: 'Moss_Normals_01.png',
+    name: 'terrain-moss-normal.png',
+    note: 'ground layer normal map: dark moss',
+    provenance: TERRAIN_SURFACE_SET,
+  },
 ];
 
 /** Every terrain texture the import takes, splat maps first. */
 export const TERRAIN_TEXTURES: readonly TerrainTexture[] = [
   ...VILLAGE_SPLAT_MAPS,
   ...TERRAIN_SURFACE_TEXTURES,
+  ...TERRAIN_NORMAL_MAPS,
 ];
 
 /** One height field the import thins into a second, cheaper tile. */
@@ -172,6 +239,14 @@ export interface HeightFieldImport {
   readonly path: string;
   /** Keep every `factor`-th row and column: 2 turns 513² into 257². */
   readonly factor: number;
+  /**
+   * Degrees past which a cell keeps the source resolution (ADR-0032).
+   *
+   * Absent means "thin the whole tile", which is what the plain 257² copy is.
+   * Present means an adaptive tile: coarse where the ground is gentle, full
+   * resolution where it stands up, one watertight mesh.
+   */
+  readonly steepSlope?: number;
 }
 
 /**
@@ -183,6 +258,16 @@ export interface HeightFieldImport {
  */
 export const HEIGHT_FIELDS: readonly HeightFieldImport[] = [
   { file: 'Terrain_Village1.glb', path: 'terrain/terrain-village1-257.glb', factor: 2 },
+  {
+    file: 'Terrain_Village1.glb',
+    path: 'terrain/terrain-village1-adaptive.glb',
+    factor: 2,
+    // 35°, because that is where the source's own paint changes: the rock
+    // channel of the village splat map takes over at about 35° and the rough
+    // rock channel at about 65° (ADR-0032). Below it the ground is meadow and
+    // a 1.17 m grid is more than it needs.
+    steepSlope: 35,
+  },
 ];
 
 /** What {@link decimateHeightField} produced, including the measurements. */
@@ -196,7 +281,18 @@ export interface DecimatedHeightField {
   readonly sourceColumns: number;
   readonly sourceRows: number;
   readonly triangles: number;
+  /** The angle past which cells kept the source resolution, or `undefined`. */
+  readonly steepSlope?: number;
+  /** Coarse cells kept at the source resolution. */
+  readonly steepCells?: number;
+  readonly coarseCells?: number;
+  /** Share of cells past 60° in the source grid, and in what was written. */
+  readonly sourceSteepShare: number;
+  readonly resultSteepShare: number;
 }
+
+/** The angle the import reports the loss at — cliff faces, not slopes. */
+export const CLIFF_DEGREES = 60;
 
 /**
  * Reads a height field, keeps every `factor`-th vertex and writes a clean tile.
@@ -208,16 +304,39 @@ export function decimateHeightField(
   bytes: Buffer,
   label: string,
   factor: number,
+  steepSlope?: number,
 ): DecimatedHeightField {
   const source = readHeightGrid(readGlb(bytes), label);
   const thinned = thinGrid(source, factor);
   const name = label.replace(/\.glb$/i, '');
-  const glb = buildHeightFieldGlb(name, thinned);
-  const bounds = worldBounds(glb.json, label);
-  if (bounds === undefined) {
-    throw new Error(`${label}: the thinned tile has no geometry`);
+  const sourceSteepShare = steepShare(source, CLIFF_DEGREES);
+
+  if (steepSlope === undefined) {
+    const glb = buildHeightFieldGlb(name, thinned);
+    const bounds = worldBounds(glb.json, label);
+    if (bounds === undefined) {
+      throw new Error(`${label}: the thinned tile has no geometry`);
+    }
+    return {
+      bytes: writeGlb(glb),
+      bounds,
+      size: gridSize(thinned),
+      columns: thinned.columns,
+      rows: thinned.rows,
+      sourceColumns: source.columns,
+      sourceRows: source.rows,
+      triangles: (thinned.columns - 1) * (thinned.rows - 1) * 2,
+      sourceSteepShare,
+      resultSteepShare: steepShare(thinned, CLIFF_DEGREES),
+    };
   }
 
+  const mesh = adaptiveMesh(source, factor, steepSlope);
+  const glb = buildTerrainGlb(name, mesh);
+  const bounds = worldBounds(glb.json, label);
+  if (bounds === undefined) {
+    throw new Error(`${label}: the adaptive tile has no geometry`);
+  }
   return {
     bytes: writeGlb(glb),
     bounds,
@@ -226,8 +345,49 @@ export function decimateHeightField(
     rows: thinned.rows,
     sourceColumns: source.columns,
     sourceRows: source.rows,
-    triangles: (thinned.columns - 1) * (thinned.rows - 1) * 2,
+    triangles: mesh.triangles,
+    steepSlope,
+    steepCells: mesh.steepCells,
+    coarseCells: mesh.coarseCells,
+    sourceSteepShare,
+    // Measured on the mesh that was written, not on the grid it came from: the
+    // point of the adaptive tile is that this number stays near the source's.
+    resultSteepShare: meshSteepShare(mesh.positions, mesh.indices, CLIFF_DEGREES),
   };
+}
+
+/** Share of a mesh's triangle **area** standing steeper than `degrees`. */
+export function meshSteepShare(
+  positions: Float32Array,
+  indices: Uint32Array,
+  degrees: number,
+): number {
+  let steep = 0;
+  let total = 0;
+  const limit = Math.cos((degrees * Math.PI) / 180);
+  for (let index = 0; index < indices.length; index += 3) {
+    const a = (indices[index] ?? 0) * 3;
+    const b = (indices[index + 1] ?? 0) * 3;
+    const c = (indices[index + 2] ?? 0) * 3;
+    const abx = (positions[b] ?? 0) - (positions[a] ?? 0);
+    const aby = (positions[b + 1] ?? 0) - (positions[a + 1] ?? 0);
+    const abz = (positions[b + 2] ?? 0) - (positions[a + 2] ?? 0);
+    const acx = (positions[c] ?? 0) - (positions[a] ?? 0);
+    const acy = (positions[c + 1] ?? 0) - (positions[a + 1] ?? 0);
+    const acz = (positions[c + 2] ?? 0) - (positions[a + 2] ?? 0);
+    const nx = aby * acz - abz * acy;
+    const ny = abz * acx - abx * acz;
+    const nz = abx * acy - aby * acx;
+    const area = Math.hypot(nx, ny, nz);
+    if (area === 0) {
+      continue;
+    }
+    total += area;
+    if (Math.abs(ny) / area < limit) {
+      steep += area;
+    }
+  }
+  return total === 0 ? 0 : steep / total;
 }
 
 /**
@@ -267,11 +427,20 @@ export function fitTerrainTexture(bytes: Buffer, label: string, isSplatMap = fal
 
 /** The manifest `origin` line for a thinned tile, with what was measured. */
 export function heightFieldOrigin(decimated: DecimatedHeightField): string {
+  const from = `${String(decimated.sourceColumns)}x${String(decimated.sourceRows)}`;
+  const to = `${String(decimated.columns)}x${String(decimated.rows)}`;
+  if (decimated.steepSlope === undefined) {
+    return (
+      `Height field thinned from ${from} to ${to} vertices, normals and UVs rebuilt, ` +
+      `origin kept at the tile corner, ${String(decimated.triangles)} triangles.`
+    );
+  }
   return (
-    'Height field thinned from ' +
-    `${String(decimated.sourceColumns)}x${String(decimated.sourceRows)} to ` +
-    `${String(decimated.columns)}x${String(decimated.rows)} vertices, normals and UVs rebuilt, ` +
-    `origin kept at the tile corner, ${String(decimated.triangles)} triangles.`
+    `Height field thinned from ${from} to ${to} vertices except past ` +
+    `${String(decimated.steepSlope)} degrees, where the source resolution is kept ` +
+    `(${String(decimated.steepCells ?? 0)} of ${String(decimated.coarseCells ?? 0)} cells); ` +
+    'normals and UVs rebuilt, origin kept at the tile corner, ' +
+    `${String(decimated.triangles)} triangles.`
   );
 }
 

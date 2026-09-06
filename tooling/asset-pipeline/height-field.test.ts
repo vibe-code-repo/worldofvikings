@@ -11,6 +11,8 @@ import {
   heightAt,
   readHeightGrid,
   thinGrid,
+  adaptiveMesh,
+  steepShare,
   type HeightGrid,
 } from './height-field.js';
 
@@ -225,5 +227,94 @@ describe('heightAt', () => {
 
   it('answers the origin height for a value that is not a number', () => {
     expect(heightAt(ramp, Number.NaN, 100)).toBeCloseTo(10, 6);
+  });
+});
+
+describe('adaptiveMesh', () => {
+  /** A 9×9 tile that is dead flat except for a cliff in one corner cell. */
+  function cliffGrid(): HeightGrid {
+    return grid(9, 9, (column, row) => (column < 2 && row < 2 ? column * 20 : 0));
+  }
+
+  it('is the thinned tile when nothing is steep', () => {
+    const flat = grid(9, 9, () => 0);
+    const mesh = adaptiveMesh(flat, 2, 35);
+    expect(mesh.steepCells).toBe(0);
+    expect(mesh.coarseCells).toBe(16);
+    // Same triangle count as thinning to 5² would give: 4 × 4 cells, 2 each.
+    expect(mesh.triangles).toBe(32);
+    expect(mesh.vertices).toBe(25);
+  });
+
+  it('is the full tile when everything is steep', () => {
+    const mesh = adaptiveMesh(grid(9, 9, (column) => column * 20), 2, 35);
+    expect(mesh.steepCells).toBe(16);
+    expect(mesh.triangles).toBe(128);
+    expect(mesh.vertices).toBe(81);
+  });
+
+  it('keeps the source resolution only where the ground stands up', () => {
+    const mesh = adaptiveMesh(cliffGrid(), 2, 35);
+    expect(mesh.steepCells).toBeGreaterThan(0);
+    expect(mesh.steepCells).toBeLessThan(mesh.coarseCells);
+    // Every steep cell costs 6 triangles more than the coarse cell it replaces.
+    expect(mesh.triangles).toBe(32 + mesh.steepCells * 6);
+  });
+
+  it('puts every seam vertex on the coarse edge, so no hairline opens', () => {
+    // A T-junction is a moving crack of background through the ground, and it
+    // is invisible in a triangle count. This is the assertion that catches it:
+    // a fine vertex on the boundary of a coarse cell must be exactly halfway
+    // between the two coarse corners of the edge it lies on.
+    const mesh = adaptiveMesh(cliffGrid(), 2, 35);
+    const heightAtXz = new Map<string, number>();
+    for (let index = 0; index < mesh.positions.length; index += 3) {
+      const key = `${String(mesh.positions[index])},${String(mesh.positions[index + 2])}`;
+      heightAtXz.set(key, mesh.positions[index + 1] as number);
+    }
+    // The one steep cell spans x 0…2, z 0…2 and its own height at x 1 is 20 m.
+    // Its right and lower edges face coarse cells, so the fine vertices there
+    // must sit on the straight coarse edge instead — at 0, not at 20.
+    const seams = [
+      { at: '2,1', between: ['2,0', '2,2'] },
+      { at: '1,2', between: ['0,2', '2,2'] },
+    ];
+    for (const seam of seams) {
+      const low = heightAtXz.get(seam.between[0] as string);
+      const high = heightAtXz.get(seam.between[1] as string);
+      expect(low).toBeDefined();
+      expect(high).toBeDefined();
+      expect(heightAtXz.get(seam.at)).toBeCloseTo(((low ?? 0) + (high ?? 0)) / 2, 5);
+    }
+  });
+
+  it('never places two vertices at the same spot', () => {
+    const mesh = adaptiveMesh(cliffGrid(), 2, 35);
+    const seen = new Set<string>();
+    for (let index = 0; index < mesh.positions.length; index += 3) {
+      seen.add(`${String(mesh.positions[index])},${String(mesh.positions[index + 2])}`);
+    }
+    expect(seen.size).toBe(mesh.vertices);
+  });
+
+  it('winds its triangles so the normals point up, like the grid writer', () => {
+    const mesh = adaptiveMesh(cliffGrid(), 2, 35);
+    for (let index = 1; index < mesh.normals.length; index += 3) {
+      expect(mesh.normals[index]).toBeGreaterThan(0);
+    }
+  });
+
+  it('refuses a threshold that is not an angle', () => {
+    expect(() => adaptiveMesh(grid(5, 5, () => 0), 2, 90)).toThrow(/0…90/);
+  });
+});
+
+describe('steepShare', () => {
+  it('counts the share of cells past the angle', () => {
+    // Columns 0 → 1 rise by 10 m over one metre; everything past column 1 is
+    // level. One of the four cell columns therefore stands past 45°.
+    const half = grid(5, 5, (column) => (column < 2 ? column * 10 : 10));
+    expect(steepShare(half, 45)).toBeCloseTo(0.25, 5);
+    expect(steepShare(half, 89)).toBe(0);
   });
 });

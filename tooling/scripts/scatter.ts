@@ -213,10 +213,15 @@ if (terrain === undefined) {
       'scatter into a zone with a height field',
   );
 }
-const heightFieldFile = join(storeRoot, terrain.heightField);
+// `heightSamples` when the world names one: the drawn tile may be adaptive and
+// therefore not a grid at all (ADR-0032), and a scatter run needs a grid to
+// interpolate between. Falling back to the height field keeps every world that
+// predates the field working unchanged.
+const samplesPath = terrain.heightSamples ?? terrain.heightField;
+const heightFieldFile = join(storeRoot, samplesPath);
 let grid;
 try {
-  grid = readHeightGrid(readGlb(await readFile(heightFieldFile)), terrain.heightField);
+  grid = readHeightGrid(readGlb(await readFile(heightFieldFile)), samplesPath);
 } catch (error) {
   fail(
     `${heightFieldFile}: ${error instanceof Error ? error.message : String(error)}` +

@@ -20,11 +20,16 @@ who never imports an asset never runs it.
 | `glb.ts`                 | Read, measure and rewrite binary glTF                                |
 | `png.ts`                 | Decode, halve and encode PNG, to hold textures to 2048 px            |
 | `placeholder.ts`         | The hull box a clone loads when the store is not reachable           |
+| `scene-names.ts`         | Which store model a node in a scene bundle stands for                |
+| `scene-bindings.ts`      | Reads the scene bundles: which material each model wears             |
+| `materials.ts`           | The checked table of what each material name means for the surface   |
+| `material-binding.ts`    | Writes that material into the model's own glTF                       |
 | `import-world-assets.ts` | The command: walks the export, writes the three outputs              |
 
-Everything except the command itself is pure and unit-tested. The command is the
-only part that touches a file system, and the only part without a test — which
-is why the judgements it makes live in the other four files.
+Everything except the command itself is pure and unit-tested — `scene-bindings.ts`
+apart, whose file reading is exercised against GLBs the test writes. The command
+is the only part that touches the real export, and the only part without a test,
+which is why the judgements it makes live in the other modules.
 
 ## The decisions, and what they rest on
 
@@ -54,8 +59,20 @@ priority order for that reason.
 **Textures become files instead of staying embedded.** Ten rock prefabs embed
 the _same_ 4096×4096 texture — 18 MB of duplicates a browser would download and
 decode ten times. Extracted and deduplicated by content hash, the whole import
-needs seventeen texture files. They are also individually checkable against the
+needs 27 texture files. They are also individually checkable against the
 2048 px budget, which a blob inside an 11 MB GLB is not.
+
+**Materials come from the scene bundles, and are paired by vertex count.** The
+per-model export drops the material assignment; the assembled scenes keep it.
+Pairing scene primitives with store primitives by index binds 280 models and
+puts leaf atlases on tree trunks; pairing them by vertex count binds 309 with
+nothing partially bound, and reproduces 18 of the 20 store models that still
+carry real material names exactly. See ADR-0019 and `scene-bindings.ts`.
+
+**A texture URI never contains `..`.** Babylon.js rejects such an image
+reference before it requests anything, and the model then draws grey with no
+error anywhere. Textures therefore live in each group's own `textures/` folder
+and are referred to as `textures/<file>.png` (ADR-0019).
 
 **Provenance is recorded, never invented.** The export carries no licence, no
 credits and no README, so everything imported is `license: NOASSERTION`,

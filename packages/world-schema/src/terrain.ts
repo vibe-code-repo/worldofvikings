@@ -31,19 +31,77 @@ export const MAX_TERRAIN_LAYERS = 2 * LAYERS_PER_SPLAT_MAP;
 /** A metre count that is a real, positive distance. */
 const PositiveMetres = z.number().positive().finite();
 
-/** One ground texture and how large one tile of it is on the ground. */
-export const TerrainLayerSchema = z.strictObject({
-  /** The image, relative to the asset root or the private store. */
-  texture: AssetPathSchema,
-  /**
-   * Edge length in metres of one repeat of {@link texture}.
-   *
-   * Metres rather than a repeat count, because it is the number that stays
-   * right when a tile is resized: a 2 m gravel texture is 2 m of gravel on a
-   * 300 m tile and on a 50 m one. The renderer divides `size` by it.
-   */
-  tileSize: PositiveMetres,
-});
+/** A weight between 0 and 1, inclusive. */
+const UnitInterval = z.number().min(0).max(1);
+
+/**
+ * One ground texture, how large one tile of it is, and how its surface behaves.
+ *
+ * The four surface fields are optional and default to "plain diffuse", which is
+ * exactly what the layers were before they existed: no normal map, no
+ * reflection. A world file that says nothing renders as it did (ADR-0032).
+ */
+export const TerrainLayerSchema = z
+  .strictObject({
+    /** The image, relative to the asset root or the private store. */
+    texture: AssetPathSchema,
+    /**
+     * Edge length in metres of one repeat of {@link texture}.
+     *
+     * Metres rather than a repeat count, because it is the number that stays
+     * right when a tile is resized: a 2 m gravel texture is 2 m of gravel on a
+     * 300 m tile and on a 50 m one. The renderer divides `size` by it.
+     */
+    tileSize: PositiveMetres,
+    /**
+     * Tangent-space normal map for this layer, tiled exactly like
+     * {@link texture}.
+     *
+     * One map per layer rather than one per tile: the layers are blended per
+     * pixel, so their bumps have to be blended in the same place and by the
+     * same weights, and a single map for the whole tile could only describe the
+     * ground it happens to sit on.
+     */
+    normalMap: AssetPathSchema.optional(),
+    /**
+     * How strongly {@link normalMap} tilts the surface. 1 is the map as it was
+     * painted; 0 is a flat surface; above 1 exaggerates it.
+     *
+     * The source ground layers were authored between 1.2 and 5, which is why
+     * this is not a boolean: the rough rock reads as rock only at 5, and the
+     * moss at 5 would read as gravel.
+     */
+    normalScale: z.number().min(0).max(8).finite().optional(),
+    /**
+     * How metallic this layer is, 0…1.
+     *
+     * A ground layer is not literally metal. It is the dial that decides how
+     * much of what the surface shows is *reflected sky* rather than its own
+     * colour, and the authored village layers use it that way: rock at 0.85 is
+     * almost entirely cool reflected sky, moss at 0 is its own green
+     * (ADR-0032).
+     */
+    metallic: UnitInterval.optional(),
+    /**
+     * How smooth this layer is, 0…1 — the opposite end of roughness.
+     *
+     * Stated as smoothness rather than roughness because that is the number the
+     * ground layers were authored with, and inverting it here once is better
+     * than inverting it in a person's head every time they read a world file.
+     */
+    smoothness: UnitInterval.optional(),
+  })
+  .superRefine((layer, ctx) => {
+    // A strength for a map that is not there is a number that does nothing,
+    // and a number that does nothing is a number someone will trust.
+    if (layer.normalScale !== undefined && layer.normalMap === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['normalScale'],
+        message: 'normalScale needs a normalMap to scale',
+      });
+    }
+  });
 
 /**
  * The ground of one zone.
@@ -75,6 +133,18 @@ export const TerrainDefinitionSchema = z
      * channels, the second layers 5–8.
      */
     splat: z.array(AssetPathSchema).min(1).max(2).optional(),
+    /**
+     * Draw the ground facetted: one normal per triangle instead of the smooth
+     * normals the height field carries.
+     *
+     * Off by default, and deliberately so. It is here because the source world
+     * gets its hard, angular look from flat-shaded rock meshes standing on a
+     * smooth height field, and it is worth being able to ask what the ground
+     * itself looks like under the same rule — but a smooth height field drawn
+     * facetted is a different ground, not a better-lit one, so nothing turns it
+     * on for a world unless an author does (ADR-0032).
+     */
+    flatNormals: z.boolean().optional(),
   })
   .superRefine((terrain, ctx) => {
     const layers = terrain.layers ?? [];
@@ -119,9 +189,11 @@ export type TerrainDefinition = z.infer<typeof TerrainDefinitionSchema>;
  * first time a field is added.
  */
 export function terrainAssetPaths(terrain: TerrainDefinition): string[] {
+  const layers = terrain.layers ?? [];
   return [
     terrain.heightField,
     ...(terrain.splat ?? []),
-    ...(terrain.layers ?? []).map((layer) => layer.texture),
+    ...layers.map((layer) => layer.texture),
+    ...layers.flatMap((layer) => (layer.normalMap === undefined ? [] : [layer.normalMap])),
   ];
 }

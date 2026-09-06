@@ -10,9 +10,11 @@ import { TerrainDefinitionSchema } from './terrain.js';
  * Rule (spec §16, agent rule 11): never silently accept or rewrite a different
  * version. Bump this constant together with a documented migration in
  * `migrations.ts` — version 2 added the optional `terrain` on a zone (ADR-0020),
- * version 3 the optional `lighting` on a world and on a zone (ADR-0024).
+ * version 3 the optional `lighting` on a world and on a zone (ADR-0024), and
+ * version 4 the per-layer surface fields plus `flatNormals` on a terrain
+ * (ADR-0032).
  */
-export const CURRENT_WORLD_SCHEMA_VERSION = 3;
+export const CURRENT_WORLD_SCHEMA_VERSION = 4;
 
 /** A single placed entity. It references a prefab instead of inlining geometry. */
 export const EntityDefinitionSchema = z.strictObject({

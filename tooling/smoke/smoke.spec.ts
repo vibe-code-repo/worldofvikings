@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { CURRENT_WORLD_SCHEMA_VERSION } from '@wov/world-schema';
@@ -1144,4 +1146,121 @@ test('game walks the player through an archway', async ({ page }) => {
   expect(await through(172.78)).toBeNull();
   expect(await through(172.78 - 2.2)).not.toBeNull();
   expect(await through(172.78 + 2.2)).not.toBeNull();
+});
+
+/**
+ * Every gate in the village is a gate, not a wall with a gate drawn on it.
+ *
+ * `game walks the player through an archway` above proves one of the nine, by
+ * walking through it — which is the strongest evidence there is, and also the
+ * reason it only covers one: the camera opens looking along +z, so a held key
+ * only walks through a gate that happens to face that way.
+ *
+ * The other eight are checked the way the player's own obstacle probe checks
+ * them. It samples two heights — one step above the feet and one at the chest
+ * (`apps/game/src/physics-obstacles.ts`) — and the body it moves is 0.8 m
+ * across. So a gate is passable exactly when both of those heights have a clear
+ * run wider than that, and that is what this measures, across the opening of
+ * every archway the world file places.
+ *
+ * The failure it stands in front of is not the archway's own shape — that has
+ * had `collision: mesh` since ADR-0026 — but a **neighbour**: the palisade and
+ * stone-wall runs the gate is set into are collided against as boxes, and a run
+ * whose box reaches across the opening bricks the gate up with nothing on
+ * screen changing. Measured on this world: the narrowest of the nine leaves
+ * 2.5 m clear at both heights, and the posts on either side stay solid.
+ */
+/**
+ * The two heights the player's obstacle probe samples, and how wide the body it
+ * moves is — restated from `apps/game/src/physics-obstacles.ts` and
+ * `packages/physics/src/defaults.ts`, because `tooling/` may not import the
+ * game (`lint:boundaries`). If either moves, this test measures the wrong
+ * heights and says a gate is open that the player cannot walk through, so both
+ * are asserted against the client's own behaviour by the walk-through test
+ * above rather than trusted on their own.
+ */
+const PROBE_HEIGHTS_METRES = [0.5, 1.4] as const;
+/** Capsule radius 0.4 m, so the body is 0.8 m across. */
+const PLAYER_BODY = 0.8;
+
+const VILLAGE = JSON.parse(
+  readFileSync(join(import.meta.dirname, '..', '..', 'content', 'worlds', 'village1.json'), 'utf8'),
+) as {
+  zones: readonly {
+    readonly entities: readonly {
+      readonly id: string;
+      readonly prefab: string;
+      readonly position: readonly number[];
+      readonly rotation?: readonly number[];
+    }[];
+  }[];
+};
+
+const GATES = (VILLAGE.zones[0]?.entities ?? []).filter((entity) =>
+  entity.prefab.includes('archway'),
+);
+
+test('game leaves every gate in the village open', async ({ page }) => {
+  test.setTimeout(300_000);
+  await standAt(page, '166,150');
+
+  expect(GATES.length, 'the village lost its archways').toBe(9);
+
+  const narrowest: { id: string; metres: number }[] = [];
+  for (const gate of GATES) {
+    const [x = 0, y = 0, z = 0] = gate.position;
+    const yaw = gate.rotation?.[1] ?? 0;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    /*
+     * The gate's own frame: `across` runs along the opening, `through` is the
+     * way the player goes. Rays are kept inside the arch's own depth so that a
+     * building a few metres beyond it cannot be mistaken for a closed gate.
+     */
+    const at = (across: number, height: number, through: number): [number, number, number] => [
+      x + across * cos + through * sin,
+      y + height,
+      z - across * sin + through * cos,
+    ];
+
+    let widest = 0;
+    for (const height of PROBE_HEIGHTS_METRES) {
+      let run = 0;
+      let best = 0;
+      for (let across = -2; across <= 2.001; across += 0.25) {
+        const blocked =
+          (await rayHit(page, at(across, height, -0.9), at(across, height, 0.9))) !== null;
+        run = blocked ? 0 : run + 0.25;
+        best = Math.max(best, run);
+      }
+      widest = height === PROBE_HEIGHTS_METRES[0] ? best : Math.min(widest, best);
+    }
+    narrowest.push({ id: gate.id, metres: widest });
+
+    // Wider than the body, with room to spare: a corridor exactly 0.8 m across
+    // is one that a body of exactly 0.8 m gets wedged in.
+    expect(widest, `gate ${gate.id} is bricked up`).toBeGreaterThan(PLAYER_BODY + 0.4);
+
+    /*
+     * And it is still a gate in something: both edges of the sampled span find
+     * geometry at chest height. Without this half a village with no walls left
+     * in it would pass every assertion above. Two metres out from the middle,
+     * because that is where the archway's own posts stand — its half-width is
+     * 2.77 m and the opening between the posts is about 4 m.
+     */
+    const chest = PROBE_HEIGHTS_METRES[1] ?? 1.4;
+    for (const side of [-2, 2]) {
+      expect(
+        await rayHit(page, at(side, chest, -0.9), at(side, chest, 0.9)),
+        `gate ${gate.id} has no post at ${String(side)} m`,
+      ).not.toBeNull();
+    }
+  }
+
+  test.info().annotations.push({
+    type: 'gates',
+    description: narrowest
+      .map((gate) => `${gate.id}: ${gate.metres.toFixed(2)} m clear`)
+      .join(', '),
+  });
 });

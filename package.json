@@ -28,6 +28,7 @@
     "import:world-assets": "tsx tooling/asset-pipeline/import-world-assets.ts",
     "import:scene": "tsx tooling/scripts/import-scene.ts",
     "import:scene-models": "tsx tooling/scripts/import-scene-models.ts",
+    "scatter": "tsx tooling/scripts/scatter.ts",
     "generate:prefabs": "tsx tooling/scripts/generate-prefabs.ts",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test && pnpm run validate",
     "smoke": "playwright test --config tooling/smoke/playwright.config.ts"
@@ -37,6 +38,7 @@
     "@playwright/test": "^1.56.0",
     "@types/node": "^22.18.8",
     "@wov/asset-system": "workspace:*",
+    "@wov/editor-core": "workspace:*",
     "@wov/world-schema": "workspace:*",
     "concurrently": "^9.2.1",
     "dependency-cruiser": "^17.0.1",

@@ -15,6 +15,33 @@ describe('GET /health', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ status: 'ok', service: 'world-of-vikings-api' });
   });
+
+  /**
+   * A browser will not send `PUT /worlds/:id` unless the preflight names PUT,
+   * and `@fastify/cors` defaults to the CORS-safe list without it. Every route
+   * test passed while the editor could not save a single world, because
+   * `app.inject()` never issues a preflight.
+   */
+  it('lets a browser preflight a world save', async () => {
+    const app = await buildServer(loadConfig({ LOG_LEVEL: 'silent' }));
+    try {
+      const response = await app.inject({
+        method: 'OPTIONS',
+        url: '/worlds/example',
+        headers: {
+          origin: 'http://localhost:5174',
+          'access-control-request-method': 'PUT',
+          'access-control-request-headers': 'content-type',
+        },
+      });
+
+      expect(response.statusCode).toBe(204);
+      expect(response.headers['access-control-allow-origin']).toBe('http://localhost:5174');
+      expect(String(response.headers['access-control-allow-methods'])).toContain('PUT');
+    } finally {
+      await app.close();
+    }
+  });
 });
 
 describe('loadConfig', () => {

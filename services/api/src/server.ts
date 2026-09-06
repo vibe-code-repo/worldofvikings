@@ -19,7 +19,16 @@ export async function buildServer(config: ApiConfig): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel } });
 
   // The website, game and editor run on their own ports in development.
-  await app.register(cors, { origin: [...config.corsOrigins] });
+  //
+  // `methods` has to be spelled out. `@fastify/cors` defaults to the CORS-safe
+  // list — GET, HEAD, POST — so a browser's preflight for `PUT /worlds/:id`
+  // came back without it and the editor could not save at all. The route tests
+  // never saw it: `app.inject()` does not run a preflight, and neither does
+  // `curl`. Only a real browser does.
+  await app.register(cors, {
+    origin: [...config.corsOrigins],
+    methods: ['GET', 'HEAD', 'PUT', 'OPTIONS'],
+  });
 
   app.get('/health', (): HealthResponse => {
     return {

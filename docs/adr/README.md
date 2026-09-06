@@ -39,3 +39,4 @@ change it describes.
 | [0028](0028-the-scene-import-carries-authored-blocks-forward.md)              | The scene import carries authored blocks forward                  | accepted |
 | [0029](0029-one-babylon-module-one-specifier.md)                              | One Babylon.js module, one import specifier                       | accepted |
 | [0030](0030-staging-serves-built-bundles.md)                                  | Staging serves built bundles, not a development server            | accepted |
+| [0033](0033-the-editor-can-do-everything-a-script-can.md)                     | The editor can do everything a script can                         | accepted |

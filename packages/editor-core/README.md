@@ -42,7 +42,11 @@ Commands — `commands.ts`. The constructors return plain data:
   field, `null` removes it, an absent key leaves it alone
 - `duplicateEntities(zoneId, entityIds, { offset? })`
 - `renameEntity(zoneId, entityId, nextId)`
-- `addZone(zone, { index? })`, `removeZone(zoneId)`
+- `addZone(zone, { index? })`, `removeZone(zoneId)`, `renameZone(zoneId, name)`
+- `setLighting(scope, patches)`, `setLightingField(scope, path, value)` — how a
+  world or a zone is lit (ADR-0024, ADR-0033)
+- `setTerrain(zoneId, patches)`, `setTerrainField(zoneId, path, value)` — the
+  ground of a zone (ADR-0020, ADR-0033)
 - `applyCommand(document, command): CommandResult<AppliedCommand>` —
   `{ document, inverse, createdEntityIds }`
 - `invertCommand(document, command): CommandResult<EditorCommand>`
@@ -50,11 +54,51 @@ Commands — `commands.ts`. The constructors return plain data:
 A command that cannot be honoured returns `{ ok: false, error }` and changes
 nothing; it never throws and never leaves a half-applied document.
 
+Blocks — `blocks.ts`, `patch.ts` (ADR-0033). The lighting profile and the
+terrain block are trees of small optional objects, and a panel edits one leaf at
+a time, so a `FieldPatch` addresses a field by path: `['sun', 'intensity']`,
+`['layers', '2', 'tileSize']`, or `[]` for the whole block. A `null` value
+removes a key — a world file distinguishes "no fog block" from "a fog block that
+says nothing", and a panel has to be able to produce both.
+
+- `worldLighting()`, `zoneLighting(zoneId)`, `lightingAt(world, scope)`
+- `withLighting(world, scope, profile)`, `withTerrain(zone, terrain)`
+- `parseLightingBlock(value)`, `parseTerrainBlock(value)`
+- `valueAtPath`, `applyFieldPatch`, `applyFieldPatches`, `restorePatch`
+
+Both commands invert by restoring the **whole** block. A patch that created
+`sun.intensity` on a world with no lighting cannot be undone by removing that
+one key: that would leave `{ "sun": {} }`, which is a different file.
+
+Schema-driven forms — `schema-form.ts`, `world-forms.ts` (ADR-0033).
+`describeFields(schema)` turns a Zod object schema into control descriptors
+through `z.toJSONSchema`, so `apps/editor` contains no list of field names and a
+field added to `@wov/world-schema` reaches the panel by itself.
+`LIGHTING_FIELDS`, `TERRAIN_FIELDS` and `PREFAB_COLLISION_FIELDS` are the three
+blocks the editor draws.
+
+Lighting presets — `lighting-presets.ts`: `LIGHTING_PRESETS`,
+`lightingPreset(id)`. Not world data — the value a button writes _into_ a world,
+the way `DEFAULT_GRID_STEP` is the grid a session starts on. `evening` is the
+village's own profile, so pressing it on the village is a no-op.
+
+Prefab overrides — `prefab-overrides.ts` (ADR-0033): `catalogForEdit(catalog)`,
+`editedPrefab(prefab, edit)`, `withPrefab(catalog, prefab)`,
+`emptyOverrideCatalog()`. A correction to a _generated_ prefab goes into
+`overrides.json`, which the API applies last and `generate:prefabs` never
+touches; a hand-written catalogue is edited in place.
+
 History — `history.ts`
 
 - `createEditorState(world, { historyLimit? }): EditorState`
-- `execute(state, command): ExecuteResult`
+- `execute(state, command, { coalesceKey? }): ExecuteResult`
 - `undo(state)`, `redo(state)`, `canUndo(state)`, `canRedo(state)`
+
+`coalesceKey` folds consecutive steps of one gesture into one entry. A slider
+dragged across a lighting value produces one command per step — the viewport
+relights from the document, so there is no other way to show the change while it
+is being made — and fifty of those in the undo stack is not an undo anybody
+wants. Only consecutive steps fold; anything in between ends the gesture.
 
 Selection — `selection.ts`: `setSelection`, `toggleSelection`, `clearSelection`,
 `setActiveZone`.
@@ -93,7 +137,9 @@ radian spelling.
 
 ## Dependencies
 
-`@wov/world-schema` only. Commands validate through its schemas, so the editor
-cannot produce a world the game would reject.
+`@wov/world-schema`, and `zod` directly — `describeFields` calls
+`z.toJSONSchema` on the schemas that package exports (ADR-0033). Commands
+validate through those schemas, so the editor cannot produce a world the game
+would reject.
 
 **Ownership.** Editor maintainers.

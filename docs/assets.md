@@ -251,6 +251,14 @@ reproduces `assets/manifest.json`, `content/prefabs/imported.json` and
 
 ## The collision shape of a prefab
 
+Both of these commands are also in the editor's **World** menu, and the menu
+runs the same functions rather than an imitation of them (ADR-0033): they live
+in `@wov/content-build`, `tooling/scripts/` is the command line around them, and
+`services/api` is the HTTP door. A correction made in the editor's prefab
+inspector is written into `content/prefabs/overrides.json`, which
+`generate:prefabs` does not touch — so re-running the chain above does not undo
+it.
+
 `pnpm generate:prefabs` also decides what each prefab is _shaped_ like for
 collision (ADR-0026), from rules over the manifest:
 

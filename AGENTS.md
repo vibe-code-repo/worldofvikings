@@ -41,6 +41,16 @@ command, and the viewport reconciles. It scatters prefabs over a region as one
 undoable command whose output is ordinary entities (ADR-0025), also available as
 `pnpm scatter`. There is no component system and no terrain sculpting yet.
 
+**Editor parity (ADR-0033).** Anything a script writes, the editor can write, by
+calling the same code. Four right-hand inspectors edit the lighting profile of a
+world or a zone, the terrain block and its layer order, and a prefab's collision
+shape; the **World** menu runs the scene import and the prefab-catalogue
+generator through the API. The panels contain no list of field names — they are
+drawn from the Zod schemas, so a field added to `@wov/world-schema` appears in
+the editor by itself. A prefab correction goes into `content/prefabs/overrides.json`,
+never into the generated `imported.json`. When you add something a script can do
+and the editor cannot, that is a gap to close in the same change, not later.
+
 The client has exactly one loop, one device edge and one ground query — read
 [ADR-0014](docs/adr/0014-one-loop-one-device-edge-one-ground.md) before adding a
 second of any of them.

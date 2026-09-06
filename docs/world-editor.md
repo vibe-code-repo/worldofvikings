@@ -37,6 +37,23 @@ Q Select   W Move   E Rotate   R Scale
 F Focus selected   Delete Delete   Ctrl+D Duplicate   Ctrl+Z Undo   Ctrl+Y Redo
 ```
 
+## Where the world data comes from
+
+The editor never reads or writes files itself. `services/api` serves the
+authored content of `CONTENT_DIR` (ADR-0017):
+
+```bash
+curl http://localhost:3000/worlds        # { worlds: [{ id, name, zones, updatedAt }], invalid: [] }
+curl http://localhost:3000/worlds/example
+curl http://localhost:3000/prefabs       # merged catalogues from content/prefabs/
+```
+
+Saving is `PUT /worlds/:id` with the world as the body: it is validated against
+`@wov/world-schema`, the body's `id` has to match the url, and the file is
+written atomically in Prettier's formatting so the result stays a reviewable
+diff. A service started with `WORLDS_READ_ONLY=1` answers 403 instead — that is
+the switch that keeps editor clients out of official production data (spec §49).
+
 ## Where code belongs
 
 | Concern                          | Location            |

@@ -306,6 +306,30 @@ test('api reports healthy', async ({ request }) => {
   });
 });
 
+test('api serves the worlds in content/', async ({ request }) => {
+  const response = await request.get('http://localhost:3000/worlds');
+  expect(response.status()).toBe(200);
+  const listing = await response.json();
+  expect(listing.invalid).toEqual([]);
+  expect(listing.worlds).toContainEqual(
+    expect.objectContaining({ id: 'example', name: 'Example World', zones: 1 }),
+  );
+
+  const world = await request.get('http://localhost:3000/worlds/example');
+  expect(world.status()).toBe(200);
+  expect(await world.json()).toMatchObject({ schemaVersion: 1, id: 'example' });
+
+  const missing = await request.get('http://localhost:3000/worlds/there-is-no-such-world');
+  expect(missing.status()).toBe(404);
+});
+
+test('api serves the merged prefab catalogue', async ({ request }) => {
+  const response = await request.get('http://localhost:3000/prefabs');
+  expect(response.status()).toBe(200);
+  // `content/prefabs/` is still empty in Phase 1; the route must answer anyway.
+  expect(await response.json()).toMatchObject({ invalid: [] });
+});
+
 test('asset server reports healthy', async ({ request }) => {
   const response = await request.get('http://localhost:9000/health');
   expect(response.status()).toBe(200);

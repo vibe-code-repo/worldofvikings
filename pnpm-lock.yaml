@@ -284,10 +284,19 @@ importers:
       '@fastify/cors':
         specifier: ^11.1.0
         version: 11.3.0
+      '@wov/world-schema':
+        specifier: workspace:*
+        version: link:../../packages/world-schema
       fastify:
         specifier: ^5.6.1
         version: 5.12.3
+      zod:
+        specifier: ^4.1.12
+        version: 4.5.4
     devDependencies:
+      prettier:
+        specifier: ^3.6.2
+        version: 3.9.6
       tsx:
         specifier: ^4.20.6
         version: 4.23.13

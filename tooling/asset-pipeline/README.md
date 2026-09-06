@@ -1,11 +1,11 @@
 # tooling/asset-pipeline
 
-Turns an external asset export into three things: files in the **private asset
-store**, hull-box **placeholders** committed in `assets/`, and **manifest
-entries** that record where every one of them came from (ADR-0015).
+Turns a modelling export — one GLB per model, PNG textures — into three things:
+files in the **private asset store**, hull-box **placeholders** committed in
+`assets/`, and **manifest entries** that record each of them (ADR-0015).
 
 ```bash
-pnpm import:world-assets --source ~/assets-export/Assets --store ~/assets-export/store
+pnpm import:world-assets --source ~/assets/export --store ~/assets/store
 pnpm import:world-assets --source … --store … --dry-run    # report, write nothing
 ```
 
@@ -34,10 +34,10 @@ the source was counted: 79 of 96 vegetation models and 180 of 359 environment
 models place geometry _below_ `y=0` deliberately, because the origin is the
 ground-contact point and roots, rock bases and post footings belong in the soil.
 Snapping would have lifted every tree a metre into the air. Only terrain is
-moved, and only on x/z, where all twelve files carry the source engine's container-corner
-origin rather than an authored anchor. See `originShiftFor`.
+moved, and only on x/z, where all twelve height fields are authored with the
+origin at a corner rather than at an authored anchor. See `originShiftFor`.
 
-**Nothing is ever rescaled to fit.** the source engine's unit is a metre and this export
+**Nothing is ever rescaled to fit.** The source
 measures in metres, so a model far outside its group's plausible size is not a
 unit problem — it is something that is not what its name says. Nine
 `SM_Item_*` files measure 15–156 m because they were exported inside a 100×
@@ -57,14 +57,12 @@ decode ten times. Extracted and deduplicated by content hash, the whole import
 needs seventeen texture files. They are also individually checkable against the
 2048 px budget, which a blob inside an 11 MB GLB is not.
 
-**Provenance is recorded, never invented.** The export carries no licence, no
-credits and no README, so everything imported is `license: NOASSERTION`,
-`redistributable: false`, `visibility: private`. The attribution that _is_
-recorded comes from inside the files — third-party shader names, and material names
-that name four POLYGON packs (`atlas-a`, `atlas-b`,
-`atlas-c`, `atlas-e`) — and is marked unconfirmed. The
-photo-textured trees carry no vendor marking at all and are filed as an
-unidentified second pack rather than under a name that would be a guess.
+**Provenance is recorded, never invented.** The source collection carries no
+licence, no credits and no README, so everything imported is
+`license: NOASSERTION`, `redistributable: false`, `visibility: private`, with
+the author recorded as unconfirmed and the licence review open. Nothing is filed
+under a name that would be a guess. What the manifest _does_ state per file is
+geometric: where the origin sits, and how many triangles the model has.
 
 ## Dependencies
 

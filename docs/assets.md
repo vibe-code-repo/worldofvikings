@@ -19,9 +19,8 @@ Both are served locally by the asset server on http://localhost:9000
 (`pnpm dev:assets`); the store only when `WOV_ASSET_STORE` points at it. In
 production the same paths come from `assets.world-of-vikings.com` (spec §37).
 
-The store exists because 454 world-building assets taken over from an earlier
-project have no settled redistribution rights, and this repository is public and
-MIT (spec §46). It is a holding area, not a secret: clearing an asset for release
+The store exists because the redistribution rights of the 454-file private asset
+collection are not settled, and this repository is public and MIT (spec §46). It is a holding area, not a secret: clearing an asset for release
 means copying it into `assets/` and flipping one manifest field.
 
 Code never hardcodes a host: it resolves references through `@wov/asset-system`
@@ -71,7 +70,7 @@ metres, and where it came from: `origin`, `source`, `author`, `license`,
 `license` is validated as non-blank text, so an asset without a licence
 statement cannot be listed at all (spec §46). Provenance is therefore checked
 rather than merely written down; `docs/asset-licenses.md` is the summary a
-person reads, grouped by pack.
+person reads, grouped by set.
 
 `pnpm validate:assets` (part of `pnpm validate` and `pnpm check`) checks four
 things:
@@ -92,15 +91,15 @@ could not say spelled out as `NOASSERTION` / `unknown` rather than guessed.
 The hash is also what immutable, cache-forever production file names will be
 built from (`immutableAssetPath`, §37). Nothing serves those names yet.
 
-## Importing assets from an external export
+## Importing assets from a modelling export
 
-`tooling/asset-pipeline/` turns an external export into store files,
-placeholders and manifest entries:
+`tooling/asset-pipeline/` turns a modelling export — one GLB per model, PNG
+textures — into store files, placeholders and manifest entries:
 
 ```bash
-pnpm import:world-assets --source ~/assets-export/Assets --store ~/assets-export/store
+pnpm import:world-assets --source ~/assets/export --store ~/assets/store
 pnpm import:world-assets --source … --store … --dry-run
-rsync -a --delete ~/assets-export/store/ wov-bau:/srv/assets-export/store/
+rsync -a --delete ~/assets/store/ wov-bau:/srv/assets/store/
 ```
 
 It is deterministic and idempotent: the same input produces byte-identical files
@@ -132,8 +131,8 @@ loading, zone streaming, limited dynamic lights, selective shadows. Target:
 ## Contribution rules (spec §46)
 
 Every asset must document **source, author, license, usage rights and
-modification status** in `docs/asset-licenses.md`. Never commit ripped game
-assets, unknown-license files or anything without redistribution rights.
+modification status** in `docs/asset-licenses.md`. Never commit unknown-license
+files or anything without redistribution rights.
 AI-generated assets need their provenance documented too.
 
 Third-party files are vendored byte-identically, keeping the source layout, in a

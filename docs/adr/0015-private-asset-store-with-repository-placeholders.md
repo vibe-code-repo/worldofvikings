@@ -6,22 +6,20 @@
 
 ## Context
 
-The project is taking over the world-building assets of an earlier, private
-the source engine project (_the source project_): environment meshes, vegetation, rocks,
-terrains and their textures, recovered from an the export tool export. There are
-roughly 470 candidate files and about 200 MB of them.
+The project is taking a private asset collection into use for world building:
+environment meshes, vegetation, rocks, terrains and their textures, held as a
+modelling export of roughly 470 candidate files and about 200 MB.
 
 Three facts collide.
 
-**The licences are not settled.** The export carries no `LICENSE`, no `README`
-and no credits file. Shader names (`Vendor_VegitationShader`,
-`Vendor_WaterShader`, `Shader Graphs_POLYGON_CustomCharacters_URP`) place
-the low-poly `SM_*` family in a third-party vendor' POLYGON range, but the high-poly
-photo-textured trees (14k–28k triangles, 1024 px photographic leaves) do not
-match third-party's flat-shaded look at all and come from a second, unidentified pack.
-Per-file redistribution rights therefore cannot be asserted today for any of it.
-Spec §46 and AGENTS.md §7 are unambiguous: nothing without redistribution rights
-goes into this repository.
+**The redistribution rights of the collection are not settled.** It carries no
+`LICENSE`, no `README` and no credits file, and it holds two distinct
+third-party model sets — a flat-shaded low-poly family, and high-poly
+photo-textured trees at 14k–28k triangles with 1024 px leaves — for neither of
+which an attribution can be asserted from the files alone. Per-file
+redistribution rights therefore cannot be asserted today for any of it. Spec §46
+and AGENTS.md §7 are unambiguous: nothing without redistribution rights goes
+into this repository.
 
 **The repository must stay a repository.** It is public and MIT-licensed, and
 agent rule 20 says a clean clone must remain easy to start. Two hundred
@@ -39,7 +37,7 @@ text in `docs/asset-licenses.md` joined to it by nothing but a path string, and
 ## Decision
 
 **Assets whose redistribution rights are unsettled live in a private store
-outside the repository.** Physically `wov-dev:/srv/assets-export/store/`, served by
+outside the repository.** Physically `wov-dev:/srv/assets/store/`, served by
 the same asset server under `/store/…` when `WOV_ASSET_STORE` points at it.
 Nothing about it is a secret — it is a holding area for files this project may
 not yet hand to third parties.
@@ -97,7 +95,7 @@ because their whole purpose is to exist in a clone that cannot run the
 generator. The private store is not backed up by this repository: `store/` is
 Mike's to keep.
 
-**Follow-ups** — the licence review per pack is open (see
+**Follow-ups** — the licence review per set is open (see
 `docs/asset-licenses.md`); until it lands, everything imported is
 `license: NOASSERTION`, `redistributable: false`. Serving the store to anyone
 but the developer needs access control the asset server does not have — today

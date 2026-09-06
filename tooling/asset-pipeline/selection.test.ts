@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { assetIdFromPath } from '@wov/asset-system/manifest';
 import {
-  REALISTIC_VEGETATION,
-  ENVIRONMENT_FAMILY,
+  ENVIRONMENT_SET,
+  TERRAIN_SET,
+  VEGETATION_SET,
   isSelection,
   originShiftFor,
   select,
@@ -89,25 +90,31 @@ describe('what is left out, and why it says so', () => {
 });
 
 describe('provenance', () => {
-  it('files the flat-shaded SM_ family under the third-party attribution', () => {
-    expect(taken('Mesh', 'SM_Env_Rock_03.glb').provenance).toBe(ENVIRONMENT_FAMILY);
-    expect(taken('Mesh', 'SM_Plant_Mushrooms_02.glb').provenance).toBe(ENVIRONMENT_FAMILY);
+  it('files the flat-shaded SM_ family under the environment set, wherever it is planted', () => {
+    expect(taken('Mesh', 'SM_Env_Rock_03.glb').provenance).toBe(ENVIRONMENT_SET);
+    expect(taken('Mesh', 'SM_Plant_Mushrooms_02.glb').provenance).toBe(ENVIRONMENT_SET);
   });
 
-  it('does not file the photo-textured trees under a name they do not match', () => {
-    expect(taken('PrefabHierarchyObject', 'Tree_1A3.glb').provenance).toBe(REALISTIC_VEGETATION);
-    expect(REALISTIC_VEGETATION.author).toBe('unknown');
+  it('keeps the photo-textured trees in a set of their own', () => {
+    expect(taken('PrefabHierarchyObject', 'Tree_1A3.glb').provenance).toBe(VEGETATION_SET);
   });
 
-  it('marks both attributions as unconfirmed, because they are', () => {
-    expect(ENVIRONMENT_FAMILY.source).toMatch(/unconfirmed/);
-    expect(ENVIRONMENT_FAMILY.author).toMatch(/unconfirmed/);
+  it('marks both third-party sets unconfirmed with the review still open', () => {
+    for (const set of [ENVIRONMENT_SET, VEGETATION_SET]) {
+      expect(set.author).toMatch(/unconfirmed/);
+      expect(set.author).toMatch(/licence review open/);
+    }
   });
 
-  it('names the exact source file, so a question can be answered later', () => {
-    expect(taken('PrefabHierarchyObject', 'Tree_1A3.glb').origin).toBe(
-      'the export tool export of the source project, PrefabHierarchyObject/Tree_1A3.glb',
-    );
+  it('attributes the terrain set to this project, which authored it', () => {
+    expect(taken('TerrainData', 'TerrainL1.glb').provenance).toBe(TERRAIN_SET);
+    expect(TERRAIN_SET.author).toBe('World of Vikings project');
+  });
+
+  it('says where an asset is held, naming no vendor and no tool', () => {
+    for (const set of [ENVIRONMENT_SET, VEGETATION_SET, TERRAIN_SET]) {
+      expect(set.source).toMatch(/^private asset collection — \w+ set$/);
+    }
   });
 });
 
@@ -151,12 +158,12 @@ describe('sizeLimitFor', () => {
 describe('originShiftFor', () => {
   // A tree whose roots dip a metre below its authored ground-contact origin.
   const rootedTree: Bounds = { min: [-8, -1, -8], max: [8, 26, 8] };
-  // A the source engine terrain: corner origin, surface spanning 0..200 on x and z.
+  // A terrain tile: corner origin, surface spanning 0..200 on x and z.
   const terrain: Bounds = { min: [0, 0, 0], max: [200, 29, 200] };
 
   it('leaves a mesh or prefab exactly where its author put it', () => {
     // Snapping this to the hull base would lift the tree a metre out of the
-    // ground. 79 of 96 vegetation models in this export have roots below zero.
+    // ground. 79 of 96 vegetation models in the source have roots below zero.
     expect(originShiftFor('vegetation', rootedTree)).toEqual([0, 0, 0]);
     expect(originShiftFor('environment', rootedTree)).toEqual([0, 0, 0]);
   });

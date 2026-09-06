@@ -7,18 +7,18 @@ Since manifest version 2 this file is no longer the only record. `source`,
 `author`, `license`, `redistributable` and `origin` are **fields on every entry
 in `assets/manifest.json`**, validated by `pnpm validate:assets`: an asset
 without a licence statement cannot be listed at all. This page is the summary a
-person reads, grouped by pack; the manifest is the per-file record a machine
+person reads, grouped by set; the manifest is the per-file record a machine
 checks.
 
-## By pack
+## By set
 
-| Pack                                 | Files | Where           | Author                        | License     | Redistributable | Status                  |
+| Set                                  | Files | Where           | Author                        | License     | Redistributable | Status                  |
 | ------------------------------------ | ----: | --------------- | ----------------------------- | ----------- | --------------- | ----------------------- |
 | Retro Fantasy Kit 2.0                |     2 | `assets/`       | Kenney                        | CC0-1.0     | yes             | cleared, public         |
 | World of Vikings asset pipeline      |   438 | `assets/`       | World of Vikings contributors | CC0-1.0     | yes             | generated, public       |
-| the source project — third-party POLYGON   |   352 | store (private) | a third-party vendor (unconfirmed)   | NOASSERTION | **no**          | **licence review open** |
-| the source project — vegetation pack |    90 | store (private) | unknown                       | NOASSERTION | **no**          | **licence review open** |
-| the source project — project terrain |    12 | store (private) | the source project project    | NOASSERTION | **no**          | **licence review open** |
+| Private collection — environment set |   352 | store (private) | unconfirmed, third-party pack | NOASSERTION | **no**          | **licence review open** |
+| Private collection — vegetation set  |    90 | store (private) | unconfirmed, third-party pack | NOASSERTION | **no**          | **licence review open** |
+| Private collection — terrain set     |    12 | store (private) | World of Vikings project      | NOASSERTION | **no**          | **licence review open** |
 
 ### Retro Fantasy Kit 2.0 — Kenney, CC0 1.0
 
@@ -43,51 +43,41 @@ CC0 with everything else this project authors.
 They are the one deliberate exception to "nothing generated is committed"
 (AGENTS.md §5.7): their whole purpose is to exist where the generator cannot run.
 
-### the source project — licence review open
+### Private asset collection — licence review open
 
-454 files imported from an the export tool export of an earlier, private the source engine
-project, held in the asset store outside this repository. **All of them are
+454 files held in the asset store outside this repository. **All of them are
 `license: NOASSERTION` and `redistributable: false` until a person establishes
 otherwise.** Nothing here may be published, redistributed, or moved into
 `assets/` before that review.
 
-The export carries no `LICENSE`, no `README` and no credits file, so what is
-recorded was read off the assets themselves.
+The collection carries no `LICENSE`, no `README` and no credits file, so no
+attribution can be asserted from the files themselves.
 
-- **a third-party vendor POLYGON packs (352 files, unconfirmed).** Two independent
-  traces. Shader names in the export: `Vendor_VegitationShader`,
-  `Vendor_WaterShader`, `Vendor_PolygonSkyboxUnlit`,
-  `Shader Graphs_POLYGON_CustomCharacters_URP`. And, more specifically, material
-  names inside the prefabs, which name four separate packs:
-  `atlas-a_Mat_01_A`, `atlas-b_Material_01`,
-  `atlas-c_01`, `atlas-e_01`/`_02`. **To settle:** which POLYGON
-  packs were bought, by whom, and under which third-party licence tier — a standard
-  third-party licence permits use in a game but not redistribution of the source
-  assets, which is exactly the question that decides whether these can ever
-  become `public`.
-- **Unidentified realistic vegetation pack (90 files, author unknown).** The
-  trees and bushes carry no vendor marking in any material or texture name
-  (`Oak_Bark_A`, `Leaves Birch 1`, `Pine 1`, `Trunks`), and they contradict the
-  third-party look entirely: 14k–28k triangles against third-party's usual few hundred, and
-  1024 px photographic leaf textures against a flat palette. **To settle:** which
-  pack these came from at all. Until then they are attributed to nobody rather
-  than to a plausible guess.
-- **Project terrain data (12 files).** Height fields authored in the the source engine
-  project itself, so most likely its own work. **To settle:** whether the terrain
-  layer textures they were painted with are third-party — the `TerrainLayer`
-  records reference their textures by the source engine PathID only, which this export cannot
-  resolve to a file name.
+- **Environment set (352 files).** Third-party commercial pack, unconfirmed.
+  Flat-shaded models of a few hundred triangles with palette textures.
+  **To settle:** which pack this is, who acquired it and under which licence
+  tier. A commercial pack licence commonly permits use in a game but not
+  redistribution of the source assets, which is exactly the question that
+  decides whether these can ever become `public`.
+- **Vegetation set (90 files).** Third-party commercial pack, unconfirmed.
+  Trees and bushes of 14k–28k triangles with 1024 px photographic leaf
+  textures — a different set from the environment models, and a separate
+  question. **To settle:** which pack this is.
+- **Terrain set (12 files).** Height fields authored by this project, so its own
+  work. **To settle:** whether the layer textures they were painted with are
+  third-party; the source records reference those textures by an internal id
+  that cannot be resolved to a file name.
 
-Per-file provenance, including the exact source path each file came from, is in
-`assets/manifest.json`: `origin` names the original file, so any question above
-can be traced back to a specific asset.
+Per-file records are in `assets/manifest.json`. `origin` there states the
+geometric facts about each file — where its origin sits and how many triangles
+it has — and `source` says which set it belongs to.
 
 ## Rules
 
 - No asset is listed in the manifest without `source`, `author`, `license`,
   `redistributable` and `origin`. The schema rejects a blank one.
-- Never merge ripped game assets, unknown-license files, or anything that may not
-  be redistributed **into `assets/`**. The store exists precisely so that "not
+- Never merge unknown-license files, or anything that may not be redistributed,
+  **into `assets/`**. The store exists precisely so that "not
   settled yet" does not have to mean "in the repository".
 - Clearing an asset for release: establish the licence, record it, copy the file
   into `assets/`, set `visibility: public` and drop its `placeholder`.

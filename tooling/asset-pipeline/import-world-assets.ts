@@ -1,9 +1,10 @@
 /**
- * Imports the world-building subset of the _the source project_ export into the
- * private asset store, and the placeholders that stand in for it (ADR-0015).
+ * Imports a modelling export (GLB per model, PNG textures) into the private
+ * asset store, and the placeholders that stand in for it (ADR-0015). Only the
+ * world-building subset is taken; `selection.ts` decides what that is.
  *
  * ```bash
- * pnpm import:world-assets --source ~/assets-export/Assets --store ~/assets-export/store
+ * pnpm import:world-assets --source ~/assets/export --store ~/assets/store
  * pnpm import:world-assets --source … --store … --dry-run   # report, write nothing
  * ```
  *
@@ -246,7 +247,7 @@ async function importOne(selection: Selection, sourceFile: string): Promise<Asse
       kind: 'texture',
       bytes: texture.bytes.byteLength,
       hash: sha256(texture.bytes),
-      origin: `${selection.origin} (embedded texture "${image.name}", extracted)`,
+      origin: `Embedded texture "${image.name}" of ${selection.path}, extracted to its own file.`,
       source: selection.provenance.source,
       author: selection.provenance.author,
       license: IMPORT_LICENSE,
@@ -286,10 +287,11 @@ async function importOne(selection: Selection, sourceFile: string): Promise<Asse
     bytes: normalised.byteLength,
     hash: sha256(normalised),
     bounds,
-    // The wording must match what `originShiftFor` actually does: only terrain
-    // tiles are moved (centred on x/z); everything else keeps its authored
-    // origin, which is the ground-contact point and may sit above geometry.
-    origin: `${selection.origin} (${selection.group === 'terrain' ? 'origin centred on x/z of the hull, y kept' : 'origin kept as authored: ground-contact point, geometry may extend below y=0'}, ${String(countTriangles(glb.json))} triangles)`,
+    // Geometric facts only, and the wording must match what `originShiftFor`
+    // actually does: only terrain tiles are moved (centred on x/z); everything
+    // else keeps its authored origin, which is the ground-contact point and may
+    // sit above geometry.
+    origin: `${selection.group === 'terrain' ? 'Origin centred on x/z of the hull, y kept as authored' : 'Origin kept as authored: ground-contact point, geometry may extend below y=0'}, ${String(countTriangles(glb.json))} triangles.`,
     source: selection.provenance.source,
     author: selection.provenance.author,
     license: IMPORT_LICENSE,

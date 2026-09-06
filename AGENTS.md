@@ -145,7 +145,7 @@ A change is done when **all** of these hold:
 - **No new dependency without a stated reason.**
 - **No assets without provenance.** `source`, `author`, `license`,
   `redistributable` and `origin` are manifest fields and the schema rejects a
-  blank one; `docs/asset-licenses.md` carries the per-pack summary. Anything
+  blank one; `docs/asset-licenses.md` carries the per-set summary. Anything
   whose redistribution rights are unsettled goes into the private asset store as
   `visibility: private`, never into `assets/` (ADR-0015).
 - **Do not weaken a check to make it pass** — not the lint config, not a boundary

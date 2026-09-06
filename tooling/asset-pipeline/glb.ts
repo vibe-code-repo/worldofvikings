@@ -385,8 +385,8 @@ export function wrapInRoot(json: Gltf, name: string, translation: readonly numbe
  * The exporter leaves `images[].name` empty, so without this every extracted
  * texture would be called `image-0` and the store would be seventeen files
  * nobody can tell apart. The material name is what a person recognises —
- * `birch-bark-a`, `atlas-b-material-01` — and it is also the trace the
- * licence review follows back to a pack.
+ * `birch-bark-a`, `oak-bark-a` — and it is also what lets the licence review
+ * group the files it is about to look at.
  */
 export function describeImage(json: Gltf, imageIndex: number): string | undefined {
   const textureIndex = (json.textures ?? []).findIndex((texture) => texture.source === imageIndex);
@@ -462,8 +462,8 @@ function readVec3(glb: Glb, accessorIndex: number): Float32Array {
 /**
  * Gives every primitive a `NORMAL` attribute, computing one where it is missing.
  *
- * Twelve files in the _the source project_ export need this and no others: the
- * terrains, which the source engine exported with `POSITION` and `TEXCOORD_0` alone. Loaded
+ * Twelve files in the source export need this and no others: the terrains,
+ * which arrive with `POSITION` and `TEXCOORD_0` alone. Loaded
  * as they are, a height field has no shading to speak of and — because Babylon
  * mirrors the glTF root on x to change handedness — draws mostly as backfaces:
  * on screen it is a scatter of pale slivers rather than a hill.

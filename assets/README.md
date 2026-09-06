@@ -45,8 +45,8 @@ not listed — they are not downloaded by the game.
 
 **Every contributed asset must document** source, author, license, usage rights
 and whether it was modified — the manifest carries those as fields and rejects a
-blank one; `docs/asset-licenses.md` is the per-pack summary (spec §46). Assets
-without redistribution rights, ripped game assets and unknown-license files are
+blank one; `docs/asset-licenses.md` is the per-set summary (spec §46). Assets
+without redistribution rights and unknown-license files are
 never merged **into this folder** — that is what the private store is for.
 
 Formats: GLB for models, KTX2/PNG/WebP for textures, OGG for audio. Keep texture

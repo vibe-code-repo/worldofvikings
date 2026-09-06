@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { routeRequest } from './asset-routes.js';
 
-const roots = { assets: '/repo/assets', store: '/srv/assets-export/store' };
+const roots = { assets: '/repo/assets', store: '/srv/assets/store' };
 
 describe('routeRequest', () => {
   it('serves an ordinary path from the repository assets', () => {
@@ -13,7 +13,7 @@ describe('routeRequest', () => {
 
   it('serves a /store path from the store, with the prefix removed', () => {
     expect(routeRequest('/store/vegetation/pine-1b1.glb', roots)).toEqual({
-      root: '/srv/assets-export/store',
+      root: '/srv/assets/store',
       path: '/vegetation/pine-1b1.glb',
     });
   });
@@ -35,7 +35,7 @@ describe('routeRequest', () => {
 
   it('keeps the query string with the path it belongs to', () => {
     expect(routeRequest('/store/a.glb?v=2', roots)).toEqual({
-      root: '/srv/assets-export/store',
+      root: '/srv/assets/store',
       path: '/a.glb?v=2',
     });
   });
@@ -44,6 +44,6 @@ describe('routeRequest', () => {
     // Routing only picks the root. `resolveAssetPath` is what refuses to leave
     // it — and it is asserted below that the route still points into the store,
     // so the traversal check cannot be bypassed by prefixing `/store`.
-    expect(routeRequest('/store/../../etc/passwd', roots)?.root).toBe('/srv/assets-export/store');
+    expect(routeRequest('/store/../../etc/passwd', roots)?.root).toBe('/srv/assets/store');
   });
 });

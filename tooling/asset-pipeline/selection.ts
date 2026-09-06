@@ -6,12 +6,12 @@
  * judgement in this pipeline most likely to be wrong, and it should be arguable
  * against a test rather than against a 3 GB directory.
  *
- * The source is an the export tool export of the earlier _the source project_
- * project. Three of its folders matter (see ADR-0015):
+ * The source is a modelling export: one GLB per model, PNG textures, laid out
+ * in three folders that matter here (see ADR-0015):
  *
  * | Folder                   | Holds                                    | Kind      |
  * | ------------------------ | ---------------------------------------- | --------- |
- * | `Mesh/`                  | single exported models, `SM_*` and trees  | `mesh`    |
+ * | `Mesh/`                  | single models, `SM_*` and trees           | `mesh`    |
  * | `PrefabHierarchyObject/` | authored hierarchies, mostly vegetation   | `prefab`  |
  * | `TerrainData/`           | height fields                             | `terrain` |
  */
@@ -29,43 +29,35 @@ export interface PackProvenance {
 }
 
 /**
- * Two packs, told apart by name and corroborated by what is inside the files.
+ * The three sets the private collection is made of.
  *
- * The export carries no licence, no credits and no README, so provenance had to
- * be read off the assets themselves. Two independent traces point at third-party
- * Studios for the flat-shaded `SM_*` family: shader names
- * (`Vendor_VegitationShader`, `Vendor_WaterShader`,
- * `Shader Graphs_POLYGON_CustomCharacters_URP`) and, more specifically, the
- * material names inside the prefabs — `atlas-a_Mat_01_A`,
- * `atlas-b_Material_01`, `atlas-c_01`, `atlas-e_01` — which
- * name four separate POLYGON packs.
+ * Two of them are third-party commercial packs whose paperwork is not in hand.
+ * The collection carries no licence file, no credits and no README, so no
+ * attribution can be asserted from the files alone: they are recorded as
+ * unconfirmed rather than filed under a name that would be a guess, and
+ * everything imported stays `NOASSERTION` and not redistributable until a
+ * person establishes otherwise.
  *
- * The tree and leaf materials carry no such marking (`Oak_Bark_A`,
- * `Leaves Birch 1`, `Pine 1`, `Trunks`) and the geometry contradicts the look
- * entirely: 14k–28k triangles against third-party's usual few hundred, 1024 px
- * photographic leaves against a flat palette. They are recorded as a second,
- * unidentified pack rather than filed under a name that would be a guess.
+ * The two model sets are told apart by what is measurably in the files. The
+ * `SM_*` family is flat-shaded, a few hundred triangles, palette-textured; the
+ * tree and bush families are 14k–28k triangles with 1024 px photographic
+ * leaves. Different sets, so their licence questions are answered separately.
  *
- * Both attributions are marked unconfirmed, and everything imported is
- * `NOASSERTION` and not redistributable until a person checks.
+ * The terrain set is this project's own work and is attributed as such.
  */
-export const ENVIRONMENT_FAMILY: PackProvenance = {
-  source:
-    'the source project — a third-party vendor POLYGON packs (material names atlas-a, ' +
-    'atlas-b, atlas-c, atlas-e; unconfirmed)',
-  author: 'a third-party vendor (unconfirmed)',
+export const ENVIRONMENT_SET: PackProvenance = {
+  source: 'private asset collection — environment set',
+  author: 'unconfirmed — third-party commercial pack, licence review open',
 };
 
-export const REALISTIC_VEGETATION: PackProvenance = {
-  source:
-    'the source project — unidentified realistic vegetation pack (no vendor marking in any ' +
-    'material or texture name)',
-  author: 'unknown',
+export const VEGETATION_SET: PackProvenance = {
+  source: 'private asset collection — vegetation set',
+  author: 'unconfirmed — third-party commercial pack, licence review open',
 };
 
-export const PROJECT_TERRAIN: PackProvenance = {
-  source: 'the source project — project terrain data',
-  author: 'the source project project',
+export const TERRAIN_SET: PackProvenance = {
+  source: 'private asset collection — terrain set',
+  author: 'World of Vikings project',
 };
 
 /** Vegetation by name, in both source folders. */
@@ -88,8 +80,6 @@ export interface Selection {
   /** Path inside the store, e.g. `vegetation/pine-1b1.glb`. */
   readonly path: string;
   readonly provenance: PackProvenance;
-  /** Where this came from, concretely enough to find it again. */
-  readonly origin: string;
   /** Largest plausible extent in metres for this group; see {@link sizeLimitFor}. */
   readonly sizeLimit: number;
 }
@@ -119,7 +109,7 @@ export function toKebab(name: string): string {
 /**
  * The largest extent, in metres, that is still plausible for this group.
  *
- * Used to *exclude*, never to rescale. the source engine's unit is a metre and this export
+ * Used to *exclude*, never to rescale. The source
  * is measurably in metres, so a model far outside its group's range is not a
  * unit problem to be divided away — it is something that is not what its name
  * says. The clearest case is the `SM_Item_` group: hand props measure 0.02–1.1 m,
@@ -147,7 +137,7 @@ export function sizeLimitFor(group: AssetGroup, fileName: string): number {
  *
  * **Meshes and prefabs are not moved at all.** That is the opposite of what
  * "normalise the origin" usually means, and it is what the source measures to.
- * These are authored the source engine prefabs, not raw scans, and their origins carry
+ * These are authored models, not raw scans, and their origins carry
  * intent: 79 of 96 vegetation models and 180 of 359 environment models place
  * geometry *below* `y=0` on purpose, because the origin is the ground-contact
  * point and roots, rock bases and post footings are meant to sit in the soil.
@@ -156,8 +146,8 @@ export function sizeLimitFor(group: AssetGroup, fileName: string): number {
  * or stair module anchored at its corner rotates correctly about that corner,
  * and re-centring it would break kit-bashing.
  *
- * **Terrain is moved on x and z.** All twelve height fields carry the source engine's
- * terrain-container origin — a corner, with the surface spanning `0..200` — and
+ * **Terrain is moved on x and z.** All twelve height fields are authored
+ * with the origin at a corner, the surface spanning `0..200`, and
  * none of them is centred. That is a container artefact rather than an authored
  * anchor, so a terrain tile is centred and can be placed by its middle. Their
  * `y` is already zero-based in all twelve and is left alone.
@@ -173,7 +163,7 @@ export function originShiftFor(group: AssetGroup, bounds: Bounds): [number, numb
   return [-(bounds.min[0] + bounds.max[0]) / 2, 0, -(bounds.min[2] + bounds.max[2]) / 2];
 }
 
-/** One source folder of the export, and what it means. */
+/** One folder of the source export, and what it means. */
 export interface SourceFolder {
   readonly folder: string;
   readonly kind: AssetKind;
@@ -219,17 +209,18 @@ export function select(folder: string, fileName: string): Selection | Rejection 
 
   if (kind === 'terrain') {
     group = 'terrain';
-    provenance = PROJECT_TERRAIN;
+    provenance = TERRAIN_SET;
   } else if (NOT_WORLD_BUILDING.test(stem)) {
     return { file, reason: 'character, weapon, vehicle or sky geometry, not world building' };
   } else if (VEGETATION.test(stem)) {
     group = 'vegetation';
-    // `SM_Plant_*` is flat-shaded and belongs to the low-poly family; the named
-    // tree and bush families do not, whatever folder they sit in.
-    provenance = /^sm_plant_/i.test(stem) ? ENVIRONMENT_FAMILY : REALISTIC_VEGETATION;
+    // Set membership follows the model, not the folder: `SM_Plant_*` is
+    // flat-shaded and belongs to the environment set even though it is planted
+    // as vegetation, while the named tree and bush families do not.
+    provenance = /^sm_plant_/i.test(stem) ? ENVIRONMENT_SET : VEGETATION_SET;
   } else if (ENVIRONMENT.test(stem)) {
     group = 'environment';
-    provenance = ENVIRONMENT_FAMILY;
+    provenance = ENVIRONMENT_SET;
   } else {
     return { file, reason: 'name matches no world-building family' };
   }
@@ -241,7 +232,6 @@ export function select(folder: string, fileName: string): Selection | Rejection 
     kind,
     path: `${group}/${name}.glb`,
     provenance,
-    origin: `the export tool export of the source project, ${file}`,
     sizeLimit: sizeLimitFor(group, stem),
   };
 }

@@ -55,14 +55,23 @@ export const WorldDefinitionSchema = z
     schemaVersion: z.literal(CURRENT_WORLD_SCHEMA_VERSION),
     id: IdentifierSchema,
     name: z.string().min(1),
-    zones: z.array(ZoneDefinitionSchema),
     /**
      * How this world is lit, unless a zone says otherwise (ADR-0024).
      *
      * Absent means the renderer's defaults, which are a lit outdoor scene and
      * not a black void — a world file is never *required* to describe light.
+     *
+     * Declared *before* `zones`, and that is not cosmetic. Zod hands a parsed
+     * object back with its keys in the order this schema declares them, so the
+     * declaration order is the order every tool that round-trips a world file
+     * writes — `pnpm scatter` among them. `services/api` writes the light
+     * before the zones, because a village's `zones` array is 39 000 lines and a
+     * block behind it is a block nobody reads. The two must agree, or the same
+     * world saved by the editor and written by a script differ as files while
+     * saying the same thing.
      */
     lighting: LightingProfileSchema.optional(),
+    zones: z.array(ZoneDefinitionSchema),
   })
   .refine((world) => findDuplicates(world.zones.map((zone) => zone.id)).length === 0, {
     message: 'duplicate zone id',

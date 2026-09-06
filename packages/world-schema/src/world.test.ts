@@ -122,3 +122,27 @@ describe('parseWorldDefinition', () => {
     expect(result.ok).toBe(false);
   });
 });
+
+describe('the order a parsed world comes back in', () => {
+  it('matches the order services/api writes a file in', () => {
+    const parsed = parseWorldDefinition({
+      schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
+      id: 'village1',
+      name: 'Village One',
+      zones: [{ id: 'village', name: 'Village', entities: [] }],
+      lighting: { sun: { intensity: 2 } },
+    });
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      // Zod rebuilds the object in schema order, so this *is* the order every
+      // writer that round-trips through the schema produces.
+      expect(Object.keys(parsed.world)).toEqual([
+        'schemaVersion',
+        'id',
+        'name',
+        'lighting',
+        'zones',
+      ]);
+    }
+  });
+});

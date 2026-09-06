@@ -27,23 +27,30 @@
  *    contains models that never existed as their own file; those are for
  *    `pnpm import:scene-models`, and they must be visible, not lost.
  *
- * **Ground is carried over, not regenerated.** A zone's `terrain` block is
- * authored by hand — a height field, its splat maps and the order of its
- * layers, all of them measurements no bundle contains (ADR-0020). If the world
- * file being written already has one for a zone, it is copied into the new file
- * unchanged and named in the report. Without that, re-running this command
- * would silently take the ground out from under 1580 placements.
+ * **Ground and light are carried over, not regenerated.** A zone's `terrain`
+ * block is authored by hand — a height field, its splat maps and the order of
+ * its layers, all of them measurements no bundle contains (ADR-0020) — and so
+ * is the `lighting` block over it (ADR-0024). If the world file being written
+ * already has either, it is copied into the new file unchanged and named in the
+ * report. Without that, re-running this command would silently take the ground
+ * out from under 1580 placements, or the evening off the village.
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { format, resolveConfig } from 'prettier';
 import { CURRENT_WORLD_SCHEMA_VERSION, parseWorldDefinition } from '@wov/world-schema';
-import type { TerrainDefinition, WorldDefinition } from '@wov/world-schema';
+import type { WorldDefinition } from '@wov/world-schema';
 import { readGlb } from '../asset-pipeline/glb.js';
 import { repoRoot } from './prefab-catalog.js';
 import { loadPrefabStems } from './prefab-stems.js';
 import type { SceneMiss, ZoneRule } from './scene-import.js';
-import { DEFAULT_ZONES, scanScene, toEntities, toKebab } from './scene-import.js';
+import {
+  DEFAULT_ZONES,
+  carryOverAuthoredBlocks,
+  scanScene,
+  toEntities,
+  toKebab,
+} from './scene-import.js';
 
 function argument(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
@@ -96,13 +103,14 @@ const scan = scanScene(bundle.json, { zones, prefabsByStem });
 const worldFile = join(repoRoot, 'content', 'worlds', `${worldId}.json`);
 
 /**
- * The ground each zone already has, read back out of the file being replaced.
+ * The world file being replaced, for the blocks the bundle does not describe.
  *
  * A missing or unreadable file is not an error: the first import of a bundle
- * writes a world that has no ground yet. A file that exists but does not parse
- * *is* an error, because carrying nothing over from it would look like success.
+ * writes a world that has no ground and no light yet. A file that exists but
+ * does not parse *is* an error, because carrying nothing over from it would
+ * look like success.
  */
-const terrainByZone = new Map<string, TerrainDefinition>();
+let authored: WorldDefinition | undefined;
 let previous: string | undefined;
 try {
   previous = await readFile(worldFile, 'utf8');
@@ -115,28 +123,26 @@ if (previous !== undefined) {
     process.stderr.write(`FAIL content/worlds/${worldId}.json: ${parsed.errors.join('; ')}\n`);
     process.exit(1);
   }
-  for (const zone of parsed.world.zones) {
-    if (zone.terrain !== undefined) {
-      terrainByZone.set(zone.id, zone.terrain);
-    }
-  }
+  authored = parsed.world;
 }
 
 const counters = new Map<string, number>();
-const world: WorldDefinition = {
-  schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
-  id: worldId,
-  name: worldName,
-  zones: zones.map((zone) => ({
-    id: zone.id,
-    name: zone.name,
-    entities: toEntities(
-      scan.instances.filter((instance) => instance.zone === zone.id),
-      counters,
-    ),
-    ...(terrainByZone.has(zone.id) ? { terrain: terrainByZone.get(zone.id) } : {}),
-  })),
-};
+const world: WorldDefinition = carryOverAuthoredBlocks(
+  {
+    schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
+    id: worldId,
+    name: worldName,
+    zones: zones.map((zone) => ({
+      id: zone.id,
+      name: zone.name,
+      entities: toEntities(
+        scan.instances.filter((instance) => instance.zone === zone.id),
+        counters,
+      ),
+    })),
+  },
+  authored,
+);
 
 // The importer writes content that `pnpm validate:content` will check, so it
 // checks it here first: a broken importer must fail now, not in a pull request.
@@ -183,9 +189,19 @@ process.stdout.write(
     `(${(((matchedTriangles || 1) / (matchedTriangles + missedTriangles || 1)) * 100).toFixed(1)} %)\n`,
 );
 process.stdout.write(`  collision boxes and triggers left out: ${String(scan.helpers)}\n`);
-if (terrainByZone.size > 0) {
+const groundCarried = world.zones.filter((zone) => zone.terrain !== undefined).map((z) => z.id);
+if (groundCarried.length > 0) {
   process.stdout.write(
-    `  ground carried over from the previous file: ${[...terrainByZone.keys()].sort().join(', ')}\n`,
+    `  ground carried over from the previous file: ${groundCarried.sort().join(', ')}\n`,
+  );
+}
+const lightCarried = world.zones.filter((zone) => zone.lighting !== undefined).map((z) => z.id);
+if (world.lighting !== undefined || lightCarried.length > 0) {
+  process.stdout.write(
+    `  lighting carried over from the previous file: ${[
+      ...(world.lighting !== undefined ? ['the world'] : []),
+      ...lightCarried.sort(),
+    ].join(', ')}\n`,
   );
 }
 if (scan.ignoredRoots.length > 0) {

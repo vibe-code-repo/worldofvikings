@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Gltf, Matrix4 } from '../asset-pipeline/glb.js';
 import { multiply, nodeMatrix } from '../asset-pipeline/glb.js';
+import type { WorldDefinition } from '@wov/world-schema';
+import { CURRENT_WORLD_SCHEMA_VERSION } from '@wov/world-schema';
 import {
   DEFAULT_ZONES,
+  carryOverAuthoredBlocks,
   MIRROR_X,
   compose,
   decompose,
@@ -303,5 +306,75 @@ describe('toEntities', () => {
     const second = toEntities([make(2, 'b')], counters);
     expect(first[0]?.id).toBe('p_0001');
     expect(second[0]?.id).toBe('p_0002');
+  });
+});
+
+describe('carryOverAuthoredBlocks', () => {
+  const fresh: WorldDefinition = {
+    schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
+    id: 'village1',
+    name: 'Village One',
+    zones: [
+      { id: 'village', name: 'Village', entities: [] },
+      { id: 'interiors', name: 'Interiors', entities: [] },
+    ],
+  };
+
+  it('keeps the world lighting the import knows nothing about', () => {
+    const previous: WorldDefinition = {
+      ...fresh,
+      lighting: { sun: { intensity: 2.3 } },
+      zones: fresh.zones,
+    };
+    const carried = carryOverAuthoredBlocks(fresh, previous);
+    expect(carried.lighting).toEqual({ sun: { intensity: 2.3 } });
+  });
+
+  it('keeps a zone its ground and its own light', () => {
+    const previous: WorldDefinition = {
+      ...fresh,
+      zones: [
+        {
+          id: 'village',
+          name: 'Village',
+          entities: [],
+          terrain: {
+            heightField: 'terrain/village.glb',
+            position: [0, 0, 0],
+            size: [300, 300],
+          },
+          lighting: { fog: { end: 60 } },
+        },
+        { id: 'interiors', name: 'Interiors', entities: [] },
+      ],
+    };
+    const carried = carryOverAuthoredBlocks(fresh, previous);
+    const village = carried.zones[0];
+    expect(village?.terrain?.heightField).toBe('terrain/village.glb');
+    expect(village?.lighting).toEqual({ fog: { end: 60 } });
+    expect(carried.zones[1]?.lighting).toBeUndefined();
+  });
+
+  it('puts the light before the zones, where a reader will find it', () => {
+    const previous: WorldDefinition = { ...fresh, lighting: { sun: { intensity: 2.3 } } };
+    expect(Object.keys(carryOverAuthoredBlocks(fresh, previous))).toEqual([
+      'schemaVersion',
+      'id',
+      'name',
+      'lighting',
+      'zones',
+    ]);
+  });
+
+  it('leaves a first import alone', () => {
+    expect(carryOverAuthoredBlocks(fresh, undefined)).toEqual(fresh);
+  });
+
+  it('does not resurrect a zone the bundle no longer has', () => {
+    const previous: WorldDefinition = {
+      ...fresh,
+      zones: [...fresh.zones, { id: 'caves', name: 'Caves', entities: [], lighting: {} }],
+    };
+    expect(carryOverAuthoredBlocks(fresh, previous).zones).toHaveLength(2);
   });
 });

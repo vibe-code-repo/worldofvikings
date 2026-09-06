@@ -62,10 +62,10 @@ describe('loadConfig', () => {
   });
 
   it('allows writing worlds by default and blocks them on request', () => {
-    expect(loadConfig({}).worldsReadOnly).toBe(false);
-    expect(loadConfig({ WORLDS_READ_ONLY: '1' }).worldsReadOnly).toBe(true);
-    expect(loadConfig({ WORLDS_READ_ONLY: 'true' }).worldsReadOnly).toBe(true);
-    expect(loadConfig({ WORLDS_READ_ONLY: '0' }).worldsReadOnly).toBe(false);
+    expect(loadConfig({}).contentReadOnly).toBe(false);
+    expect(loadConfig({ WORLDS_READ_ONLY: '1' }).contentReadOnly).toBe(true);
+    expect(loadConfig({ WORLDS_READ_ONLY: 'true' }).contentReadOnly).toBe(true);
+    expect(loadConfig({ WORLDS_READ_ONLY: '0' }).contentReadOnly).toBe(false);
   });
 
   it('refuses a write protection flag it does not understand', () => {

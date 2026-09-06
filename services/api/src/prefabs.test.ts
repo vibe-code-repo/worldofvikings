@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { format } from 'prettier';
 import { loadConfig } from './config.js';
 import { buildServer } from './server.js';
 
@@ -11,6 +12,12 @@ let app: FastifyInstance;
 
 async function startServer(): Promise<FastifyInstance> {
   return buildServer(loadConfig({ LOG_LEVEL: 'silent', CONTENT_DIR: contentDir }));
+}
+
+async function startReadOnly(): Promise<FastifyInstance> {
+  return buildServer(
+    loadConfig({ LOG_LEVEL: 'silent', CONTENT_DIR: contentDir, WORLDS_READ_ONLY: '1' }),
+  );
 }
 
 async function writeCatalog(name: string, contents: unknown): Promise<void> {
@@ -80,8 +87,8 @@ describe('GET /prefabs', () => {
       },
     ]);
     expect(body.catalogs).toEqual([
-      { id: 'buildings', file: 'buildings.json', prefabs: 1 },
-      { id: 'vegetation', file: 'vegetation.json', prefabs: 2 },
+      { id: 'buildings', file: 'buildings.json', prefabs: 1, overlay: false },
+      { id: 'vegetation', file: 'vegetation.json', prefabs: 2, overlay: false },
     ]);
     expect(body.invalid).toEqual([]);
   });
@@ -165,5 +172,170 @@ describe('GET /prefabs', () => {
 
     expect(body.prefabs).toEqual([]);
     expect(body.invalid[0].errors.join(' ')).toContain('placeholder');
+  });
+});
+
+/**
+ * The overlay (ADR-0033).
+ *
+ * `imported.json` is rewritten whole by `generate:prefabs`, so a collision
+ * shape corrected in the editor cannot be saved there — the next regeneration
+ * would revert it with no error and no diff anybody reads. `overrides.json` is
+ * the one file that may redefine a prefab, and it is applied last.
+ */
+describe('the overrides catalogue', () => {
+  it('replaces a generated prefab instead of clashing with it', async () => {
+    await writeCatalog('imported.json', {
+      schemaVersion: 1,
+      id: 'imported',
+      prefabs: [prefab('pine_tree_01', 'Pine Tree 01', { collision: { kind: 'box' } })],
+    });
+    await writeCatalog('overrides.json', {
+      schemaVersion: 1,
+      id: 'overrides',
+      prefabs: [prefab('pine_tree_01', 'Pine Tree 01', { collision: { kind: 'none' } })],
+    });
+    app = await startServer();
+
+    const body = (await app.inject({ method: 'GET', url: '/prefabs' })).json();
+
+    expect(body.invalid).toEqual([]);
+    expect(body.prefabs).toHaveLength(1);
+    expect(body.prefabs[0].collision).toEqual({ kind: 'none' });
+    expect(body.prefabs[0].catalog).toBe('overrides');
+  });
+
+  /** Alphabetically `overrides.json` comes before `zzz.json`; precedence is not alphabetical. */
+  it('wins over a catalogue that is read after it', async () => {
+    await writeCatalog('overrides.json', {
+      schemaVersion: 1,
+      id: 'overrides',
+      prefabs: [prefab('pine_tree_01', 'Corrected')],
+    });
+    await writeCatalog('zzz.json', {
+      schemaVersion: 1,
+      id: 'zzz',
+      prefabs: [prefab('pine_tree_01', 'Original')],
+    });
+    app = await startServer();
+
+    const body = (await app.inject({ method: 'GET', url: '/prefabs' })).json();
+    expect(body.prefabs[0].name).toBe('Corrected');
+    expect(body.invalid).toEqual([]);
+  });
+
+  it('can also carry a prefab no other catalogue declares', async () => {
+    await writeCatalog('overrides.json', {
+      schemaVersion: 1,
+      id: 'overrides',
+      prefabs: [prefab('only_here', 'Only Here')],
+    });
+    app = await startServer();
+
+    const body = (await app.inject({ method: 'GET', url: '/prefabs' })).json();
+    expect(body.prefabs.map((entry: { id: string }) => entry.id)).toEqual(['only_here']);
+  });
+});
+
+describe('GET /prefabs/:catalog', () => {
+  it('serves one catalogue file', async () => {
+    await writeCatalog('base.json', {
+      schemaVersion: 1,
+      id: 'base',
+      prefabs: [prefab('barrel_01', 'Barrel')],
+    });
+    app = await startServer();
+
+    const response = await app.inject({ method: 'GET', url: '/prefabs/base' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().prefabs).toHaveLength(1);
+  });
+
+  it('answers 404 for a catalogue that is not there', async () => {
+    app = await startServer();
+    expect((await app.inject({ method: 'GET', url: '/prefabs/nothing' })).statusCode).toBe(404);
+  });
+
+  it('refuses an id that is not a valid file name', async () => {
+    app = await startServer();
+    const response = await app.inject({ method: 'GET', url: '/prefabs/..%2f..%2fsecrets' });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('answers 422 when the stored file is broken, because the request was fine', async () => {
+    await writeCatalog('broken.json', { schemaVersion: 9, id: 'broken', prefabs: [] });
+    app = await startServer();
+    expect((await app.inject({ method: 'GET', url: '/prefabs/broken' })).statusCode).toBe(422);
+  });
+});
+
+describe('PUT /prefabs/:catalog', () => {
+  const overrides = {
+    schemaVersion: 1,
+    id: 'overrides',
+    prefabs: [prefab('pine_tree_01', 'Pine Tree 01', { collision: { kind: 'hull' } })],
+  };
+
+  it('creates the file and then updates it', async () => {
+    app = await startServer();
+
+    const created = await app.inject({
+      method: 'PUT',
+      url: '/prefabs/overrides',
+      payload: overrides,
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).toMatchObject({ id: 'overrides', prefabs: 1, created: true });
+
+    const updated = await app.inject({
+      method: 'PUT',
+      url: '/prefabs/overrides',
+      payload: overrides,
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().created).toBe(false);
+  });
+
+  /** The file the API writes has to be one `pnpm format:check` leaves alone. */
+  it('writes the catalogue the way Prettier would', async () => {
+    app = await startServer();
+    await app.inject({ method: 'PUT', url: '/prefabs/overrides', payload: overrides });
+
+    const text = await readFile(join(contentDir, 'prefabs', 'overrides.json'), 'utf8');
+    // The acceptance criterion is `pnpm format:check`, which is idempotency:
+    // Prettier run over the written file must not change a byte of it.
+    expect(await format(text, { parser: 'json' })).toBe(text);
+  });
+
+  it('refuses a body that is not a catalogue', async () => {
+    app = await startServer();
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/prefabs/overrides',
+      payload: { schemaVersion: 1, id: 'overrides', prefabs: [{ id: 'x' }] },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toBe('invalid_prefab_catalog');
+  });
+
+  it('refuses a catalogue whose id does not match the url', async () => {
+    app = await startServer();
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/prefabs/base',
+      payload: overrides,
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toBe('id_mismatch');
+  });
+
+  it('answers 403 while the API is read-only', async () => {
+    app = await startReadOnly();
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/prefabs/overrides',
+      payload: overrides,
+    });
+    expect(response.statusCode).toBe(403);
   });
 });

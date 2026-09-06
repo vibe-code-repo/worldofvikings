@@ -31,13 +31,13 @@ pnpm dev
 
 ## Local URLs
 
-| Service | URL                          |
-| ------- | ---------------------------- |
-| Website | http://localhost:5172        |
-| Game    | http://localhost:5173        |
-| Editor  | http://localhost:5174        |
-| API     | http://localhost:3000/health |
-| Assets  | http://localhost:9000/health |
+| Service | URL                                                        |
+| ------- | ---------------------------------------------------------- |
+| Website | http://localhost:5172                                      |
+| Game    | http://localhost:5173                                      |
+| Editor  | http://localhost:5174                                      |
+| API     | http://localhost:3000/health, http://localhost:3000/worlds |
+| Assets  | http://localhost:9000/health                               |
 
 All ports are `strictPort`: a clash fails loudly instead of silently moving an
 app to a different port.

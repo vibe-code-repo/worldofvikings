@@ -54,6 +54,29 @@ pnpm validate
 
 Checks every file in `content/worlds/`. Runs in CI.
 
+## Reading and writing
+
+The editor runs in a browser and cannot touch the file system, so world files
+are read and written through `services/api` (ADR-0017):
+
+| Route             | Answer                                                                    |
+| ----------------- | ------------------------------------------------------------------------- |
+| `GET /worlds`     | `{ worlds: [{ id, name, zones, updatedAt }], invalid: [{ id, errors }] }` |
+| `GET /worlds/:id` | The world — 404 unknown, 422 when the stored file fails validation        |
+| `PUT /worlds/:id` | Writes it — 201 created, 200 replaced, 400 invalid body, 403 read-only    |
+
+A world id is also the file name, so it must match the identifier rule above;
+anything else is refused before a file is touched. `PUT` validates the body with
+`parseWorldDefinition`, requires the body's `id` to match the url, and writes
+the file atomically (temporary file plus rename) in exactly the formatting
+Prettier produces, with the fields in schema order. A saved world is therefore a
+normal, reviewable file: `pnpm format:check` stays green and `git diff` shows
+only what changed.
+
+`WORLDS_READ_ONLY=1` turns every write into 403. Deployments that carry official
+content set it — editor clients never publish into production data directly
+(spec §49).
+
 ## Planned (not implemented)
 
 `ZoneDefinition` streaming metadata, terrain, prefab definitions, spawn points,

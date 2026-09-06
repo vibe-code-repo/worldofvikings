@@ -49,6 +49,9 @@ export interface PackProvenance {
  * Both attributions are marked unconfirmed, and everything imported is
  * `NOASSERTION` and not redistributable until a person checks.
  */
+/** How the export is named in every provenance line this pipeline writes. */
+const EXPORT_NAME = 'the export tool export of the source project';
+
 export const ENVIRONMENT_FAMILY: PackProvenance = {
   source:
     'the source project — a third-party vendor POLYGON packs (material names atlas-a, ' +
@@ -196,6 +199,26 @@ export const SOURCE_FOLDERS: readonly SourceFolder[] = [
 ];
 
 /**
+ * The folder of the export that holds the assembled scenes.
+ *
+ * Not a source of models — nothing is imported *from* it. It is where the
+ * material assignment lives that the per-model files dropped, which is why the
+ * pipeline reads it at all (`scene-bindings.ts`).
+ */
+export const SCENE_BUNDLE_FOLDER = 'SceneHierarchyObject';
+
+/**
+ * The one sentence that says where a file came from.
+ *
+ * Composed in one place so every manifest entry this pipeline writes — models,
+ * extracted textures, textures taken from a scene bundle — words its provenance
+ * identically, and so that changing the wording is one edit rather than four.
+ */
+export function originFor(file: string): string {
+  return `${EXPORT_NAME}, ${file}`;
+}
+
+/**
  * Decides whether one exported file is a world-building asset, and what to call
  * it here.
  *
@@ -241,7 +264,7 @@ export function select(folder: string, fileName: string): Selection | Rejection 
     kind,
     path: `${group}/${name}.glb`,
     provenance,
-    origin: `the export tool export of the source project, ${file}`,
+    origin: originFor(file),
     sizeLimit: sizeLimitFor(group, stem),
   };
 }

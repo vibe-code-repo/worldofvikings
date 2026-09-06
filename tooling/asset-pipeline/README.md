@@ -20,11 +20,17 @@ who never imports an asset never runs it.
 | `glb.ts`                 | Read, measure and rewrite binary glTF                                |
 | `png.ts`                 | Decode, halve and encode PNG, to hold textures to 2048 px            |
 | `placeholder.ts`         | The hull box a clone loads when the store is not reachable           |
+| `scene-models.ts`        | Cuts one standalone model out of a scene bundle's node hierarchy     |
 | `import-world-assets.ts` | The command: walks the export, writes the three outputs              |
 
 Everything except the command itself is pure and unit-tested. The command is the
 only part that touches a file system, and the only part without a test — which
-is why the judgements it makes live in the other four files.
+is why the judgements it makes live in the other five files.
+
+`scene-models.ts` serves a second command, `pnpm import:scene-models`
+(`tooling/scripts/`), which fills the gap the first one leaves: an export also
+ships whole authored levels as one large GLB each, and about half of what stands
+in one was never exported as a file of its own. See ADR-0021.
 
 ## The decisions, and what they rest on
 

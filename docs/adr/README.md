@@ -27,3 +27,4 @@ change it describes.
 | [0016](0016-prefab-catalog-editor-document-and-command-history.md)      | Generated prefab catalog, editor document and command history | accepted |
 | [0017](0017-world-files-are-read-and-written-through-the-api.md)        | World files are read and written through the API              | accepted |
 | [0018](0018-editor-viewport-derives-the-scene-from-the-document.md)     | The editor viewport derives the scene from the document       | accepted |
+| [0021](0021-authored-worlds-are-imported-from-scene-bundles.md)         | Authored worlds are imported from scene bundles               | accepted |

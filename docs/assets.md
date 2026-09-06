@@ -108,6 +108,26 @@ and a byte-identical manifest. What it selects, how it treats an origin and what
 provenance it asserts are documented — with the measurements behind each — in
 `tooling/asset-pipeline/README.md`.
 
+## Importing models that only exist inside a scene bundle
+
+An export also ships whole authored levels as single large GLBs. Roughly half of
+what stands in one was never exported as a file of its own — house floors, wood
+piles, braziers, path rock groups — so a second pass cuts those out
+(ADR-0021):
+
+```bash
+pnpm import:scene-models --scene ~/assets-export/Assets/SceneHierarchyObject/Village1.glb \
+                         --store ~/assets-export/store
+pnpm import:scene-models --scene … --store … --dry-run
+```
+
+It **only adds**: a store path that already exists is left alone and named in
+the report, and textures are matched against the store by content hash, so a
+shared atlas stays one file. Anything larger than the size limit — a backdrop, a
+sky dome — is excluded and named rather than rescaled. Afterwards, run
+`pnpm generate:prefabs` so the new models reach the catalogue, then
+`pnpm import:scene` to write the world file (`docs/world-format.md`).
+
 ## Formats
 
 | Kind     | Format          | Notes                                   |

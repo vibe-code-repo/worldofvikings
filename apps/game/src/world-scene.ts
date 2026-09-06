@@ -318,6 +318,26 @@ export interface ZoneCollisionOptions {
   readonly manager: AssetManager;
   readonly zone: ZoneDefinition;
   readonly prefabs: readonly PrefabDefinition[];
+  /**
+   * Longest the build may hold the main thread before handing it back, in
+   * milliseconds. One frame's worth by default.
+   */
+  readonly sliceMilliseconds?: number;
+  /** How to hand the thread back; the next animation frame by default. */
+  readonly yieldToFrame?: () => Promise<void>;
+}
+
+/** Waits for the next frame, so a long build does not freeze the one running. */
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        resolve();
+      });
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
 }
 
 /**
@@ -329,12 +349,21 @@ export interface ZoneCollisionOptions {
  *
  * A prefab whose shape cannot be built costs its entities and nothing else —
  * the same bargain `placeEntities` makes with a model that will not load.
+ *
+ * The work is sliced: after a prefab, if the current slice has held the main
+ * thread for longer than `sliceMilliseconds`, the build waits for the next
+ * frame before going on. A thousand bodies is a second or two of solver work on
+ * a machine without a GPU, and a second in one piece is a second in which the
+ * page does not answer a key or draw a frame (agent rule 13).
  */
 export async function buildZoneCollision(
   options: ZoneCollisionOptions,
 ): Promise<{ readonly bodies: readonly StaticBody[]; readonly report: ZoneCollisionReport }> {
   const { physics, manager, zone, prefabs } = options;
+  const sliceMilliseconds = options.sliceMilliseconds ?? 8;
+  const yieldToFrame = options.yieldToFrame ?? nextFrame;
   const startedAt = performance.now();
+  let sliceStartedAt = startedAt;
   const { byId } = indexPrefabs(prefabs);
 
   const bodies: StaticBody[] = [];
@@ -391,6 +420,11 @@ export async function buildZoneCollision(
     } catch (error) {
       failed.push(`${prefabId}: ${error instanceof Error ? error.message : String(error)}`);
     }
+
+    if (performance.now() - sliceStartedAt > sliceMilliseconds) {
+      await yieldToFrame();
+      sliceStartedAt = performance.now();
+    }
   }
 
   return {
@@ -402,6 +436,8 @@ export async function buildZoneCollision(
       passable,
       undeclared,
       failed,
+      // Wall clock, waits included: what it cost the page, not what it cost
+      // the solver. The point of the slicing is that those two differ.
       milliseconds: Math.round(performance.now() - startedAt),
     },
   };

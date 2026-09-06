@@ -52,7 +52,16 @@ import type {
   TerrainDefinition,
   ZoneDefinition,
 } from '@wov/world-schema';
+import type { PhysicsWorld, StaticBody } from '@wov/physics';
 import { applyThinInstances, thinInstanceMatrices } from './render/thin-instances.js';
+import {
+  collisionShapeOf,
+  groupByScale,
+  placementOf,
+  readContainerBounds,
+  readContainerGeometry,
+  type ModelGeometry,
+} from './entity-collision.js';
 
 /** The stand-in a private texture falls back to when there is no store. */
 const TEXTURE_PLACEHOLDER = 'placeholders/textures/unavailable.png';
@@ -69,6 +78,10 @@ function textureSource(source: AssetSourceConfig, path: string): TerrainTextureS
  *
  * Several prefabs may name the same GLB, so the asset catalogue is
  * deduplicated here rather than throwing inside `createAssetCatalog`.
+ *
+ * A prefab's separate collider model is listed too (ADR-0026): it is loaded by
+ * the same manager, from the same store, with the same stand-in policy — a
+ * second loader for it would be a second answer to "where are the bytes".
  */
 export function indexPrefabs(prefabs: readonly PrefabDefinition[]): {
   readonly byId: ReadonlyMap<string, PrefabDefinition>;
@@ -83,6 +96,14 @@ export function indexPrefabs(prefabs: readonly PrefabDefinition[]): {
         path: prefab.asset,
         visibility: prefab.visibility,
         placeholder: prefab.placeholder,
+      });
+    }
+    const collider = prefab.collision?.asset;
+    if (collider !== undefined && !byAsset.has(collider.path)) {
+      byAsset.set(collider.path, {
+        path: collider.path,
+        visibility: collider.visibility,
+        placeholder: collider.placeholder,
       });
     }
   }
@@ -239,6 +260,14 @@ export async function placeEntities(options: ZoneSceneOptions): Promise<{
   readonly models: number;
   readonly thinInstances: number;
   readonly sources: AssetSourceCounts;
+  /**
+   * The loader that did the work, with every model of the zone still cached.
+   *
+   * Handed back rather than kept private because the collision builder needs
+   * the very same containers: reading the hull off a second copy of a model
+   * would be a second answer to "how big is this thing".
+   */
+  readonly manager: AssetManager;
 }> {
   const { scene, source, zone, prefabs } = options;
   const { byId, assets } = indexPrefabs(prefabs);
@@ -315,6 +344,156 @@ export async function placeEntities(options: ZoneSceneOptions): Promise<{
     models: known.length - failed.length,
     thinInstances,
     sources: manager.sources(),
+    manager,
+  };
+}
+
+/** What building a zone's collision cost and what it produced (ADR-0026). */
+export interface ZoneCollisionReport {
+  /** Distinct shapes built — one per prefab and scale. */
+  readonly shapes: number;
+  /** Bodies placed; one per entity that has a shape. */
+  readonly bodies: number;
+  /** Triangles handed to the solver, hull and mesh shapes together. */
+  readonly triangles: number;
+  /** Entities whose prefab collides against nothing, on purpose. */
+  readonly passable: number;
+  /** Entities whose prefab does not say what it collides against at all. */
+  readonly undeclared: number;
+  /** Prefabs whose shape could not be built, as `prefab: reason`. */
+  readonly failed: readonly string[];
+  /** Wall-clock time the whole build took, in milliseconds. */
+  readonly milliseconds: number;
+}
+
+export interface ZoneCollisionOptions {
+  readonly physics: PhysicsWorld;
+  /** The loader `placeEntities` handed back, models still cached. */
+  readonly manager: AssetManager;
+  readonly zone: ZoneDefinition;
+  readonly prefabs: readonly PrefabDefinition[];
+  /**
+   * Longest the build may hold the main thread before handing it back, in
+   * milliseconds. One frame's worth by default.
+   */
+  readonly sliceMilliseconds?: number;
+  /** How to hand the thread back; the next animation frame by default. */
+  readonly yieldToFrame?: () => Promise<void>;
+}
+
+/** Waits for the next frame, so a long build does not freeze the one running. */
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        resolve();
+      });
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+}
+
+/**
+ * Gives every entity of a zone a static collision body (ADR-0026).
+ *
+ * One shape per *(prefab, scale)* pair and one body per entity: the village
+ * places 1216 entities from 139 models but only 220 distinct pairs, so 996 of
+ * those bodies cost a transform and a pointer rather than a shape.
+ *
+ * A prefab whose shape cannot be built costs its entities and nothing else —
+ * the same bargain `placeEntities` makes with a model that will not load.
+ *
+ * The work is sliced: after a prefab, if the current slice has held the main
+ * thread for longer than `sliceMilliseconds`, the build waits for the next
+ * frame before going on. A thousand bodies is a second or two of solver work on
+ * a machine without a GPU, and a second in one piece is a second in which the
+ * page does not answer a key or draw a frame (agent rule 13).
+ */
+export async function buildZoneCollision(
+  options: ZoneCollisionOptions,
+): Promise<{ readonly bodies: readonly StaticBody[]; readonly report: ZoneCollisionReport }> {
+  const { physics, manager, zone, prefabs } = options;
+  const sliceMilliseconds = options.sliceMilliseconds ?? 8;
+  const yieldToFrame = options.yieldToFrame ?? nextFrame;
+  const startedAt = performance.now();
+  let sliceStartedAt = startedAt;
+  const { byId } = indexPrefabs(prefabs);
+
+  const bodies: StaticBody[] = [];
+  const failed: string[] = [];
+  let shapes = 0;
+  let placed = 0;
+  let triangles = 0;
+  let passable = 0;
+  let undeclared = 0;
+
+  for (const [prefabId, entities] of groupByPrefab(zone.entities)) {
+    const prefab = byId.get(prefabId);
+    if (prefab === undefined) {
+      continue;
+    }
+    const kind = prefab.collision?.kind;
+    if (kind === undefined) {
+      undeclared += entities.length;
+      continue;
+    }
+    if (kind === 'none') {
+      passable += entities.length;
+      continue;
+    }
+
+    try {
+      // The collider file when there is one, the model itself otherwise; the
+      // hull of a box needs no vertices, so it never reads any.
+      const source = prefab.collision?.asset?.path ?? prefab.asset;
+      const container = await manager.loadGlb(source);
+      const geometry: ModelGeometry | ReturnType<typeof readContainerBounds> =
+        kind === 'box' ? readContainerBounds(container) : readContainerGeometry(container);
+
+      for (const group of groupByScale(entities).values()) {
+        const shape = collisionShapeOf(prefab, group.scale, geometry);
+        if (shape === null) {
+          continue;
+        }
+        bodies.push(
+          physics.addStaticGroup({
+            name: `${prefabId}@${String(group.entities.length)}`,
+            shape,
+            placements: group.entities.map(placementOf),
+          }),
+        );
+        shapes += 1;
+        placed += group.entities.length;
+        if (shape.kind === 'mesh') {
+          triangles += shape.indices.length / 3;
+        } else if (shape.kind === 'hull') {
+          triangles += shape.positions.length / 3;
+        }
+      }
+    } catch (error) {
+      failed.push(`${prefabId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    if (performance.now() - sliceStartedAt > sliceMilliseconds) {
+      await yieldToFrame();
+      sliceStartedAt = performance.now();
+    }
+  }
+
+  return {
+    bodies,
+    report: {
+      shapes,
+      bodies: placed,
+      triangles: Math.round(triangles),
+      passable,
+      undeclared,
+      failed,
+      // Wall clock, waits included: what it cost the page, not what it cost
+      // the solver. The point of the slicing is that those two differ.
+      milliseconds: Math.round(performance.now() - startedAt),
+    },
   };
 }
 

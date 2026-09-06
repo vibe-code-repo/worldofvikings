@@ -40,7 +40,20 @@ type WovDebugWindow = Window & {
       readonly activeMeshes: number;
       readonly triangles: number;
     };
+    readonly collision: {
+      readonly shapes: number;
+      readonly bodies: number;
+      readonly triangles: number;
+      readonly passable: number;
+      readonly undeclared: number;
+      readonly failed: readonly string[];
+      readonly milliseconds: number;
+    } | null;
     groundAt(x: number, z: number): number | null;
+    rayHit(
+      from: readonly [number, number, number],
+      to: readonly [number, number, number],
+    ): { x: number; y: number; z: number } | null;
   };
 };
 
@@ -926,4 +939,203 @@ test('asset server reports healthy', async ({ request }) => {
   const response = await request.get(`${appUrl('assetUrl')}/health`);
   expect(response.status()).toBe(200);
   expect(await response.json()).toMatchObject({ service: 'world-of-vikings-assets' });
+});
+
+/**
+ * The village is solid (ADR-0026).
+ *
+ * These are the tests unit tests cannot stand in for. `MovementSystem` slides
+ * along a wall in a test with a wall made of arithmetic; the physics package
+ * builds a shape from triangles a test wrote out by hand. What neither can say
+ * is that the *authored* village — 1216 entities, most of them scaled unevenly
+ * and 133 of them mirrored — turns into shapes that stand where the models are
+ * drawn. Only walking into one says that.
+ *
+ * Every spawn point below is a place in `content/worlds/village1.json`. `?spawn=`
+ * puts the capsule there and the camera opens behind it looking along +z, so
+ * holding `W` walks in +z — which is why each site is approached from its −z
+ * side and the assertions are about `z`.
+ */
+
+/** Where the collision builder's report is, once it has one. */
+function collisionReport(
+  page: Page,
+): Promise<NonNullable<WovDebugWindow['__wov']>['collision'] | null> {
+  return page.evaluate(() => (window as WovDebugWindow).__wov?.collision ?? null);
+}
+
+/** Opens the village at a spawn point and waits until the world is solid. */
+async function standAt(page: Page, spawn: string): Promise<PlayerDebug> {
+  await page.goto(`${appUrl('gameUrl')}?spawn=${spawn}`);
+  await expect(page.getByTestId('game-collision')).toContainText(/\d+ bodies from \d+ shapes/, {
+    timeout: 180_000,
+  });
+  // The capsule is put down before the bodies are built; give the frame after
+  // that a moment so the first sample is where the player actually stands.
+  await page.waitForTimeout(600);
+  return livePlayer(page);
+}
+
+/**
+ * Holds `W` until the capsule stops moving, and answers where it stopped.
+ *
+ * Not "hold for N milliseconds": this browser has no GPU, the village is 1216
+ * entities, and the frame rate — and with it how much simulated time a second
+ * of wall clock buys — is not something a test may assume. Walking until the
+ * position stops changing measures the same thing and does not care.
+ */
+async function walkUntilStill(page: Page, budgetMs = 30_000): Promise<PlayerDebug> {
+  await page.keyboard.down('KeyW');
+  try {
+    const deadline = Date.now() + budgetMs;
+    let previous = await livePlayer(page);
+    let stillFor = 0;
+    while (Date.now() < deadline) {
+      await page.waitForTimeout(500);
+      const now = await livePlayer(page);
+      stillFor = Math.hypot(now.x - previous.x, now.z - previous.z) < 0.02 ? stillFor + 1 : 0;
+      previous = now;
+      if (stillFor >= 2) {
+        break;
+      }
+    }
+    return previous;
+  } finally {
+    await page.keyboard.up('KeyW');
+  }
+}
+
+/** Holds `W` until the capsule is past `z`, or until the budget runs out. */
+async function walkPast(page: Page, z: number, budgetMs = 30_000): Promise<PlayerDebug> {
+  await page.keyboard.down('KeyW');
+  try {
+    const deadline = Date.now() + budgetMs;
+    let at = await livePlayer(page);
+    while (at.z < z && Date.now() < deadline) {
+      await page.waitForTimeout(500);
+      at = await livePlayer(page);
+    }
+    return at;
+  } finally {
+    await page.keyboard.up('KeyW');
+  }
+}
+
+/** Casts a ray through the collision geometry the game built. */
+function rayHit(
+  page: Page,
+  from: readonly [number, number, number],
+  to: readonly [number, number, number],
+): Promise<{ x: number; y: number; z: number } | null> {
+  return page.evaluate(
+    ([a, b]) =>
+      (window as WovDebugWindow).__wov?.rayHit(
+        a as [number, number, number],
+        b as [number, number, number],
+      ) ?? null,
+    [from, to],
+  );
+}
+
+test('game builds one collision shape for many entities', async ({ page }) => {
+  await page.goto(appUrl('gameUrl'));
+  await expect(page.getByTestId('game-collision')).toContainText(/\d+ bodies from \d+ shapes/, {
+    timeout: 180_000,
+  });
+
+  const report = await collisionReport(page);
+  if (report === null) {
+    throw new Error('the game dev build published no collision report');
+  }
+
+  // Sharing, as a number rather than as a claim: a body per shape would make
+  // these two equal. The village is 1216 entities from 139 models.
+  expect(report.bodies).toBeGreaterThan(1000);
+  expect(report.shapes).toBeLessThan(report.bodies / 3);
+  // Every entity is accounted for: it has a shape, or it says it wants none.
+  expect(report.undeclared).toBe(0);
+  expect(report.passable).toBeGreaterThan(0);
+  expect(report.failed).toEqual([]);
+  // Triangles are for the few shapes that need them, not for the whole village.
+  expect(report.triangles).toBeLessThan(20_000);
+});
+
+/**
+ * A wall stops the player.
+ *
+ * Three claims, because the first one alone would pass with a player that
+ * cannot move at all: the capsule covered ground, it stopped short of the wall,
+ * and it stayed stopped while the key was still held.
+ */
+test('game stops the player at a stone wall', async ({ page }) => {
+  test.setTimeout(180_000);
+  // A stone wall runs across the path at z ≈ 164; the capsule starts 2.5 m
+  // short of it on open, level ground.
+  const start = await standAt(page, '171.95,161.5');
+
+  const walked = await walkUntilStill(page);
+  expect(walked.z - start.z).toBeGreaterThan(1);
+  expect(walked.z).toBeLessThan(163.9);
+
+  // Still holding the key changes nothing: it is stopped, not merely slow.
+  const pressed = await walkUntilStill(page, 6_000);
+  expect(Math.abs(pressed.z - walked.z)).toBeLessThan(0.1);
+
+  // And what stopped it is geometry in front of it, not the edge of the world.
+  const knee = pressed.y + 0.5;
+  expect(
+    await rayHit(page, [pressed.x, knee, pressed.z], [pressed.x, knee, pressed.z + 2]),
+  ).not.toBeNull();
+});
+
+/**
+ * A tree stops the player at its trunk and not at its crown.
+ *
+ * The one rule a screenshot cannot check and a collision test that only asks
+ * "does it collide" would pass either way: this tree's crown is 8.6 m across
+ * and its measured trunk is 0.4 m, so the same walk one metre to the side has
+ * to go straight through where the crown is.
+ */
+test('game stops the player at a tree trunk', async ({ page }) => {
+  test.setTimeout(180_000);
+  const start = await standAt(page, '151.68,134.5');
+  const stopped = await walkUntilStill(page);
+
+  expect(stopped.z - start.z).toBeGreaterThan(1);
+  // The trunk's near face is at z ≈ 137.1; a 0.4 m body stops in front of it.
+  expect(stopped.z).toBeLessThan(136.8);
+});
+
+test('game walks the player through the same tree’s crown', async ({ page }) => {
+  test.setTimeout(180_000);
+  // One metre to the side of that trunk — still deep inside a crown 4.3 m wide,
+  // which is what a hull or a bounds box would have collided against.
+  await standAt(page, '150.68,135.0');
+  const past = await walkPast(page, 139);
+  expect(past.z).toBeGreaterThan(139);
+});
+
+/**
+ * An archway is a hole, not a slab.
+ *
+ * `collision: mesh` is the only kind with a hole in it, and this is the test
+ * that says so: the capsule walks through the opening, and a ray through a post
+ * finds geometry where a ray through the opening finds none. A box or a convex
+ * hull would fail both halves.
+ */
+test('game walks the player through an archway', async ({ page }) => {
+  test.setTimeout(180_000);
+  // The archway stands at z ≈ 114.6, across the path.
+  const start = await standAt(page, '172.78,112.3');
+  expect(start.z).toBeLessThan(114);
+
+  const walked = await walkPast(page, 116);
+  expect(walked.z).toBeGreaterThan(116);
+
+  const height = 10.31 + 1;
+  const through = (x: number): Promise<{ x: number; y: number; z: number } | null> =>
+    rayHit(page, [x, height, 112.5], [x, height, 116.5]);
+  expect(await through(172.78)).toBeNull();
+  expect(await through(172.78 - 2.2)).not.toBeNull();
+  expect(await through(172.78 + 2.2)).not.toBeNull();
 });

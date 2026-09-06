@@ -233,7 +233,8 @@ across **all** catalogs, because an entity names the id alone.
       "asset": "environment/kenney-retro-fantasy-kit/detail-barrel.glb",
       "visibility": "public",
       "category": "prop",
-      "bounds": { "min": [-0.123, 0, -0.123], "max": [0.123, 0.3, 0.123] }
+      "bounds": { "min": [-0.123, 0, -0.123], "max": [0.123, 0.3, 0.123] },
+      "collision": { "kind": "box" }
     }
   ]
 }
@@ -247,6 +248,18 @@ across **all** catalogs, because an entity names the id alone.
 - `category` — `environment`, `vegetation`, `terrain`, `prop` or `dungeon`; the
   grouping the editor's asset browser uses (spec §13).
 - `bounds`, `defaultScale` — optional; `bounds` is copied from the manifest.
+- `collision` — optional; what the player bumps into (ADR-0026).
+  - `kind` — `none`, `box`, `hull` or `mesh`. `mesh` is the only one with a hole
+    in it, which is why an archway and the ground use it and nothing else does.
+  - `asset` — a separate low-triangle collider model (`path`, `visibility`,
+    `placeholder`), only with `kind: "mesh"`. Named in full rather than derived
+    from the prefab's own asset, because where the bytes live is not a thing to
+    guess (ADR-0015).
+  - `box` — an explicit box in the **model file's** space, the same space as
+    `bounds`, only with `kind: "box"`. A tree's `bounds` are its crown, so the
+    importer measures the trunk and writes it here instead.
+  - Absent means _undecided_, and a reader treats it as `none` — the behaviour
+    before the field existed. It is never read as "work a shape out yourself".
 
 `content/prefabs/base.json` is hand-written. `content/prefabs/imported.json` is
 generated from the asset manifest by `pnpm generate:prefabs` and committed — it

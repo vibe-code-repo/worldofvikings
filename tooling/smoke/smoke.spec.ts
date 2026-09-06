@@ -242,6 +242,9 @@ test('game keeps rendering frames', async ({ page }) => {
 
   await expect(page.getByTestId('game-frame')).toHaveText(/^frame \d+$/);
   await expect(page.getByTestId('game-marker')).toContainText(/frame \d+/);
+  // The readout in the corner exists in every build; a number proves that the
+  // sampling window closed at least once.
+  await expect(page.getByTestId('game-fps')).toHaveText(/^\d+ fps · \d+\.\d ms$/);
 });
 
 /**

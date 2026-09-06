@@ -70,6 +70,7 @@ import { createGamePhysicsWorld, toStaticMeshData } from './physics-backend.js';
 import { physicsGround } from './physics-ground.js';
 import { physicsObstacles } from './physics-obstacles.js';
 import { attachKeyboardMouse } from './input/keyboard-mouse.js';
+import { createFrameStats, formatFrameSample } from './frame-stats.js';
 import { createGameLoop } from './loop.js';
 import { interpolatePosition } from './render/interpolate.js';
 import { createGameScene } from './scene.js';
@@ -135,6 +136,7 @@ const assetStatus = document.querySelector<HTMLElement>('[data-testid="game-asse
 const assetSources = document.querySelector<HTMLElement>('[data-testid="game-asset-sources"]');
 const worldStatus = document.querySelector<HTMLElement>('[data-testid="game-world"]');
 const collisionStatus = document.querySelector<HTMLElement>('[data-testid="game-collision"]');
+const frameReadout = document.querySelector<HTMLElement>('[data-testid="game-fps"]');
 
 document.body.style.background = tokens.colorBackground;
 document.body.style.color = tokens.colorText;
@@ -146,6 +148,7 @@ for (const element of [
   assetSources,
   worldStatus,
   collisionStatus,
+  frameReadout,
 ]) {
   if (element) {
     element.style.background = tokens.colorSurface;
@@ -274,6 +277,7 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
   // be interpolated instead of snapped.
   let previous: Transform = getTransform(world, PLAYER) ?? createTransform();
 
+  const frameStats = createFrameStats();
   const loop = createGameLoop({
     scheduler: {
       request: (callback) => window.requestAnimationFrame(callback),
@@ -316,6 +320,10 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       // The camera updates on the scene's before-render hook, so it reads the
       // position written just above — this frame's, not the previous one's.
       renderer.renderFrame();
+      const sample = frameStats.frame(performance.now());
+      if (sample && frameReadout) {
+        frameReadout.textContent = formatFrameSample(sample);
+      }
     },
   });
 

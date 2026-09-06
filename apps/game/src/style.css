@@ -29,6 +29,18 @@ body {
   letter-spacing: 0.02em;
 }
 
+.stats {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
 /*
  * The bottom-left stack: controls, then one line per thing that can go wrong.
  * A column rather than a `bottom` offset per line, because the lines grow —

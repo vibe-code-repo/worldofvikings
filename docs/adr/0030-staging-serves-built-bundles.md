@@ -45,8 +45,8 @@ what a visitor will get.
   development servers exactly as before and stays the **default**, so a
   checkout that has never been built still starts. wov-dev sets `build`.
 - Building and serving are two commands, not one.
-  `infrastructure/deployment/staging-build.sh` builds (about 13 s for the whole
-  workspace on a developer machine); `staging-serve.sh` only serves, and
+  `infrastructure/deployment/staging-build.sh` builds (13 s for the whole workspace,
+  measured on wov-dev); `staging-serve.sh` only serves, and
   refuses to start when a `dist/` is missing. A build inside the unit's
   start-up would make `systemctl restart` minutes long and would leave the
   service **down** on a compile error; keeping them apart means a restart can

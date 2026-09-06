@@ -35,7 +35,7 @@ fail, and a service whose start-up build fails is a service that is down.
 cd /opt/worldofvikings
 git fetch … && git checkout --detach FETCH_HEAD
 pnpm install
-infrastructure/deployment/staging-build.sh   # ~1 min; must succeed
+infrastructure/deployment/staging-build.sh   # ~13 s on wov-dev; must succeed
 systemctl restart wov-staging.service        # seconds; only serves
 systemctl is-active wov-staging.service
 journalctl -u wov-staging.service -n 50 --no-pager

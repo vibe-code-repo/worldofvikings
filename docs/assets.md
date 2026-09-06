@@ -107,6 +107,76 @@ and a byte-identical manifest. What it selects, how it treats an origin and what
 provenance it asserts are documented — with the measurements behind each — in
 `tooling/asset-pipeline/README.md`.
 
+Idempotent **next to the other importers**, too, which is a separate property and
+was once broken. No command owns the whole manifest: `import:scene-models` writes
+rows for models it cuts out of a scene bundle into the same store. So a run keeps
+a private row it did not produce for as long as the store still holds that file,
+and a store file with no row is adopted rather than skipped. The store is a
+second source of truth next to the manifest, because it is persistent and shared
+— see ADR-0023 for the incident that established that and the measurements
+behind it. In practice: **pruning the store is how an asset leaves the manifest**,
+and a dropped row is named in the import report.
+
+### Materials and shared texture files
+
+The per-model part of that export carries no material assignment: 388 of the 437
+models arrive with one untextured `DefaultMaterial`. The assignment lives in the
+assembled scene bundles instead, so the import reads those once, up front, and
+writes each model's material back into its own GLB (ADR-0019). 328 of the 437
+end up with a base colour — 49 that kept the material they were exported with,
+279 bound from a scene bundle.
+
+Two rules make the result loadable rather than merely correct:
+
+- **Textures are files, and they sit below the model group.** A model at
+  `environment/rock.glb` refers to `textures/atlas-2a217835.png`, which resolves
+  to `environment/textures/atlas-2a217835.png` on disk and to
+  `…/store/environment/textures/…` over the asset server. The URI must not
+  contain `..`: Babylon.js rejects such a reference before it requests anything,
+  and the model then draws grey while every other signal reports success. File
+  names are `<model>-<slot>-<hash8>.png` after the model that first uses a
+  texture, identical bytes are written once per group, and anything over 2048 px is halved until it fits.
+- **Metallic 0, roughness 1, always.** The glTF default is metallic 1, so a
+  material that says nothing renders as rough metal.
+
+What each material means for the surface — cut out, double-sided, self-lit — is
+a checked table in `tooling/asset-pipeline/materials.ts`, not a rule over names.
+The table is keyed by a digest of the material name, with a plain-words note per
+row, because the source names carry vendor and product wording this repository
+does not repeat; `pnpm tsx tooling/asset-pipeline/material-key.ts "<name>"`
+prints the key for a new one. An unlisted material is reported by the importer
+and drawn opaque.
+
+Two things the export simply does not contain, and which no import can recover:
+the leaf and grass atlases are luminance masks whose colour lived in a material
+tint the exporter dropped, so foliage renders grey; and 109 models appear in no
+scene bundle at all, so they stay untextured and are named in the run report.
+
+`pnpm smoke` proves the rest on screen: with `WOV_ASSET_STORE` set,
+`tooling/smoke/textures.spec.ts` opens the editor on three private models and
+asserts the texture requests, the files the scene actually finished loading, and
+the pixels.
+
+## Importing models that only exist inside a scene bundle
+
+An export also ships whole authored levels as single large GLBs. Roughly half of
+what stands in one was never exported as a file of its own — house floors, wood
+piles, braziers, path rock groups — so a second pass cuts those out
+(ADR-0021):
+
+```bash
+pnpm import:scene-models --scene ~/assets-export/Assets/SceneHierarchyObject/Village1.glb \
+                         --store ~/assets-export/store
+pnpm import:scene-models --scene … --store … --dry-run
+```
+
+It **only adds**: a store path that already exists is left alone and named in
+the report, and textures are matched against the store by content hash, so a
+shared atlas stays one file. Anything larger than the size limit — a backdrop, a
+sky dome — is excluded and named rather than rescaled. Afterwards, run
+`pnpm generate:prefabs` so the new models reach the catalogue, then
+`pnpm import:scene` to write the world file (`docs/world-format.md`).
+
 ## Formats
 
 | Kind     | Format          | Notes                                   |

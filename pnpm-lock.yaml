@@ -166,6 +166,9 @@ importers:
       '@wov/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@wov/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@wov/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -212,9 +215,15 @@ importers:
       '@wov/physics':
         specifier: workspace:*
         version: link:../../packages/physics
+      '@wov/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@wov/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@wov/world-schema':
+        specifier: workspace:*
+        version: link:../../packages/world-schema
     devDependencies:
       vite:
         specifier: ^7.1.5

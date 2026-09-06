@@ -18,35 +18,39 @@ body {
   touch-action: none;
 }
 
-.marker,
-.status,
-.controls {
+.marker {
   position: fixed;
+  top: 1rem;
   left: 1rem;
   padding: 0.4rem 0.75rem;
   border-radius: 6px;
   pointer-events: none;
-}
-
-.marker {
-  top: 1rem;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
 
-.status {
+/*
+ * The bottom-left stack: controls, then one line per thing that can go wrong.
+ * A column rather than a `bottom` offset per line, because the lines grow —
+ * "world … unavailable: cannot reach the API at …" is three times the width of
+ * "world: loading…" and used to be drawn straight over its neighbour.
+ */
+.hud {
+  position: fixed;
   bottom: 1rem;
-  font-size: 0.8rem;
-  opacity: 0.75;
+  left: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  max-width: calc(100vw - 2rem);
+  pointer-events: none;
 }
 
-/* Three lines stacked above the bottom edge: renderer, assets, controls. */
-.status.assets {
-  bottom: 3rem;
-}
-
+.status,
 .controls {
-  bottom: 5.2rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
   font-size: 0.8rem;
   opacity: 0.75;
 }

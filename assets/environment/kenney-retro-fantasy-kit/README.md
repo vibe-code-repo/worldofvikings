@@ -33,7 +33,8 @@ question stays trivial to answer. The smoke test asserts that neither file 404s.
 ## Scale
 
 The kit is authored at roughly a third of a metre per unit: the barrel is 0.30
-units tall. Whatever places it scales it up; see `apps/game/src/environment.ts`.
+units tall. Whatever places it scales it up — a world file does so through the
+prefab's `defaultScale`.
 
 ## Adding more of the kit
 

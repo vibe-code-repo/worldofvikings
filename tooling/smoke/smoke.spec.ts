@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { CURRENT_WORLD_SCHEMA_VERSION } from '@wov/world-schema';
 
 /** Where the camera stands, as the game's dev bridge reports it. */
 interface CameraDebug {
@@ -30,6 +31,16 @@ type WovDebugWindow = Window & {
     readonly frameId: number;
     readonly camera: CameraDebug | null;
     readonly player: PlayerDebug | null;
+    readonly terrainBounds: {
+      readonly min: readonly [number, number, number];
+      readonly max: readonly [number, number, number];
+    } | null;
+    readonly render: {
+      readonly drawCalls: number;
+      readonly activeMeshes: number;
+      readonly triangles: number;
+    };
+    groundAt(x: number, z: number): number | null;
   };
 };
 
@@ -63,6 +74,11 @@ type WovEditorDebugWindow = Window & {
  */
 function apiUrl(path: string): string {
   return `${String(test.info().config.metadata['apiUrl'])}${path}`;
+}
+
+/** Where the app under test is, as `playwright.config.ts` decided. */
+function appUrl(app: 'websiteUrl' | 'gameUrl' | 'assetUrl'): string {
+  return String(test.info().config.metadata[app]);
 }
 
 /** The editor's whole debug bridge, or `null` while it is not installed. */
@@ -134,9 +150,13 @@ async function livePlayer(page: Page): Promise<PlayerDebug> {
 }
 
 test('website shows its marker and links to the game', async ({ page }) => {
-  await page.goto('http://localhost:5172');
+  await page.goto(appUrl('websiteUrl'));
   await expect(page.getByTestId('site-marker')).toHaveText('World of Vikings');
-  await expect(page.getByTestId('play-link')).toHaveAttribute('href', /5173|live\./);
+  // Either the game this run started, or the published client on a deployment.
+  await expect(page.getByTestId('play-link')).toHaveAttribute(
+    'href',
+    new RegExp(`${appUrl('gameUrl').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|live\\.`),
+  );
 });
 
 /**
@@ -155,7 +175,7 @@ const RENDERER_STATUS = /^(renderer|viewport) (ready — (webgl2|webgpu)|unavail
 const GAME_STATUS = /^renderer (ready — (webgl2|webgpu)|unavailable: .+)/;
 
 test('game shows its dev build marker', async ({ page }) => {
-  await page.goto('http://localhost:5173');
+  await page.goto(appUrl('gameUrl'));
   await expect(page.getByTestId('game-marker')).toContainText('World of Vikings');
   await expect(page.getByTestId('game-marker')).toContainText('game dev build');
   await expect(page.getByTestId('game-status')).toHaveText(GAME_STATUS);
@@ -174,7 +194,7 @@ test('game shows its dev build marker', async ({ page }) => {
  * proves the counter reaches the DOM. Both exist only in the dev build.
  */
 test('game keeps rendering frames', async ({ page }) => {
-  await page.goto('http://localhost:5173');
+  await page.goto(appUrl('gameUrl'));
 
   await expect.poll(() => frameId(page), { timeout: 10_000 }).not.toBeNull();
   const before = await frameId(page);
@@ -198,14 +218,36 @@ test('game keeps rendering frames', async ({ page }) => {
  * grants it, or through the held-button fallback if it does not — the camera
  * has to turn under both, which is exactly why the fallback exists.
  */
+/**
+ * Waits until the ground has stopped changing under the player.
+ *
+ * The terrain arrives after the first frames and puts the capsule down on it
+ * (ADR-0020), so a test that samples a position before and after that lands sees
+ * a teleport rather than what it was measuring. Either outcome settles the
+ * question — the tile loaded, or it did not — so both are waited for.
+ */
+async function groundSettled(page: Page): Promise<void> {
+  await expect(page.getByTestId('game-status')).toContainText(/terrain (ready|unavailable|drawn)/, {
+    timeout: 30_000,
+  });
+  // The capsule is put down on the tile and the camera eases after it, so the
+  // frame in which the status changes is the frame the camera is furthest from
+  // where it belongs. Same follow lag the camera-follow test waits out.
+  await page.waitForTimeout(600);
+}
+
 test('game camera frames the placeholder and answers mouse and wheel', async ({ page }) => {
-  await page.goto('http://localhost:5173');
+  await page.goto(appUrl('gameUrl'));
+  await groundSettled(page);
   const opening = await liveCamera(page);
+  const standing = await livePlayer(page);
 
   // Behind the capsule (−z, since it faces +z) and above its feet, at the
-  // configured distance rather than at the origin.
-  expect(opening.z).toBeLessThan(0);
-  expect(opening.y).toBeGreaterThan(1);
+  // configured distance. Relative to the *player*, not to the origin: the
+  // player is put down on the terrain once it loads (ADR-0020), and a camera
+  // pinned to world coordinates would only be testing where the tile is.
+  expect(opening.z).toBeLessThan(standing.z);
+  expect(opening.y).toBeGreaterThan(standing.y + 1);
   expect(opening.distance).toBeGreaterThan(1);
 
   const canvas = page.locator('#render-canvas');
@@ -238,8 +280,9 @@ test('game camera frames the placeholder and answers mouse and wheel', async ({ 
  * state, so a simulation that runs without reaching the picture still fails.
  */
 test('game walks the player capsule when a key is held', async ({ page }) => {
-  await page.goto('http://localhost:5173');
+  await page.goto(appUrl('gameUrl'));
   await expect(page.getByTestId('game-status')).toContainText('renderer ready');
+  await groundSettled(page);
 
   const start = await livePlayer(page);
 
@@ -271,7 +314,8 @@ test('game walks the player capsule when a key is held', async ({ page }) => {
  * distance.
  */
 test('game camera follows the player that walks away', async ({ page }) => {
-  await page.goto('http://localhost:5173');
+  await page.goto(appUrl('gameUrl'));
+  await groundSettled(page);
   const startPlayer = await livePlayer(page);
   const startCamera = await liveCamera(page);
 
@@ -298,35 +342,39 @@ test('game camera follows the player that walks away', async ({ page }) => {
   expect(gap).toBeLessThan(walkedCamera.distance + 0.5);
 });
 
-test('game loads its environment assets over the asset server', async ({ page }) => {
+test('game loads its world assets over the asset server', async ({ page }) => {
   const badResponses: string[] = [];
   page.on('response', (response) => {
     // A 404 under `/store/` is not a failure: the store lives outside the
     // repository and a clean clone has none, so the private assets fall back to
     // their committed placeholders (ADR-0015). Every *other* non-ok response
     // from the asset server is a real missing file.
-    const isStoreMiss = response.url().includes(':9000/store/') && response.status() === 404;
-    if (response.url().includes(':9000/') && !response.ok() && !isStoreMiss) {
+    const assetHost = `${appUrl('assetUrl')}/`;
+    const isStoreMiss =
+      response.url().startsWith(`${assetHost}store/`) && response.status() === 404;
+    if (response.url().startsWith(assetHost) && !response.ok() && !isStoreMiss) {
       badResponses.push(`${String(response.status())} ${response.url()}`);
     }
   });
 
-  await page.goto('http://localhost:5173');
+  await page.goto(appUrl('gameUrl'));
 
-  // The wording comes from `summarizePlacement` in @wov/asset-system, so this
-  // and the app cannot drift apart. A failed load reads
-  // "assets: 0 loaded, 1 failed (…)" and fails here.
-  // One vendored asset plus two from the private store. A private asset that
-  // fell back to its placeholder still counts as loaded — that is the point of
-  // the fallback — so this number does not depend on the store being mounted.
-  await expect(page.getByTestId('game-assets')).toHaveText('assets: 3 loaded');
+  // Every distinct model of the zone, loaded once and instanced per entity
+  // (ADR-0022). A model that fell back to its committed placeholder still
+  // counts as loaded — that is the point of the fallback — so this does not
+  // depend on the store being mounted. The number is not pinned because it is
+  // world data and a re-import may legitimately change it; what is pinned is
+  // that there are many of them and that none failed.
+  await expect(page.getByTestId('game-assets'), {
+    message: 'a failed model reads "…, N failed" and fails here',
+  }).toHaveText(/^assets: [1-9]\d{1,} models loaded$/, { timeout: 120_000 });
   // Where the bytes came from, not only how many arrived (ADR-0015). The
   // wording comes from `summarizeAssetSources`, so this and the app cannot
-  // drift apart either. "2 private" is pinned because that is what the probe
-  // asks for; the placeholder count is 0 with a store mounted and 2 without,
-  // and both are correct — the point is that it is stated rather than silent.
+  // drift apart. With a store mounted nothing falls back; without one every
+  // private asset does, and both are correct — the point is that it is stated
+  // rather than silent.
   await expect(page.getByTestId('game-asset-sources')).toHaveText(
-    /^assets: 2 private, [02] placeholder$/,
+    /^assets: \d+ private, \d+ placeholder$/,
   );
   // The GLB references its texture by a relative path, so a wrongly vendored
   // layout is a second failure mode. Babylon happens to reject the whole load
@@ -336,7 +384,7 @@ test('game loads its environment assets over the asset server', async ({ page })
 });
 
 test('game loads the physics backend and collides the ground', async ({ page }) => {
-  await page.goto('http://localhost:5173');
+  await page.goto(appUrl('gameUrl'));
   // Proves the whole chain in a real browser: the dynamic Havok import
   // resolved, the WASM module loaded from the URL Vite emitted, and the base
   // ground became static collision geometry (ADR-0013). Unit tests can prove
@@ -344,6 +392,115 @@ test('game loads the physics backend and collides the ground', async ({ page }) 
   await expect(page.getByTestId('game-status')).toContainText('physics ready', {
     timeout: 30_000,
   });
+});
+
+/**
+ * The ground the player stands on is the authored terrain, and the same tile is
+ * what physics collides against (ADR-0020).
+ *
+ * Three separate claims, because each can be true while the others are not: the
+ * tile covers the metres the world file names (a handedness flip breaks exactly
+ * this and nothing else), its triangles became collision geometry, and the
+ * capsule ended up standing on it rather than falling through.
+ *
+ * On a clone with no asset store the height field falls back to its committed
+ * hull box, which is still a tile of the right size in the right place — so the
+ * assertions hold either way and the status line says which one ran.
+ */
+test('game stands the player on the terrain it draws', async ({ page }) => {
+  await page.goto(appUrl('gameUrl'));
+  await expect(page.getByTestId('game-status')).toContainText('terrain ready', {
+    timeout: 30_000,
+  });
+
+  const bounds = await page.evaluate(() => (window as WovDebugWindow).__wov?.terrainBounds ?? null);
+  if (bounds === null) {
+    throw new Error('the game dev build published no terrain bounds');
+  }
+  // 0…300 m in x and z: what `terrain.position` and `terrain.size` say.
+  expect(bounds.min[0]).toBeCloseTo(0, 3);
+  expect(bounds.min[2]).toBeCloseTo(0, 3);
+  expect(bounds.max[0]).toBeCloseTo(300, 3);
+  expect(bounds.max[2]).toBeCloseTo(300, 3);
+
+  await expect(page.getByTestId('game-status')).toContainText(/\d+ collision triangles/);
+
+  // The capsule is on the ground the collision query reports, not under it.
+  const standing = await livePlayer(page);
+  const ground = await page.evaluate(
+    ([x, z]) => (window as WovDebugWindow).__wov?.groundAt(x as number, z as number) ?? null,
+    [standing.x, standing.z],
+  );
+  if (ground === null) {
+    throw new Error('the collision ground answered nothing under the player');
+  }
+  expect(Math.abs(standing.y - ground)).toBeLessThan(0.5);
+  expect(standing.y).toBeGreaterThan(bounds.min[1] - 0.5);
+});
+
+/**
+ * The client opens an authored world over the API and builds it (ADR-0022).
+ *
+ * The claims are separate on purpose, because each can hold while the others do
+ * not: the world file arrived and was accepted, its zone's ground is there, its
+ * entities reached the scene, and the capsule ended up on the ground rather
+ * than under it or a hundred metres above it.
+ *
+ * The entity count is read off the status line rather than pinned, because it
+ * is world data: a re-import may legitimately change it. What is asserted is
+ * the shape — more than a thousand of them, from more than one model.
+ */
+test('game opens the authored village over the API', async ({ page }) => {
+  await page.goto(appUrl('gameUrl'));
+
+  await expect(page.getByTestId('game-world')).toHaveText(
+    /^world village1 · zone village — \d+ entities from \d+ models$/,
+    { timeout: 120_000 },
+  );
+  const line = (await page.getByTestId('game-world').textContent()) ?? '';
+  const [, entities, models] = /— (\d+) entities from (\d+) models/.exec(line) ?? [];
+  expect(Number(entities)).toBeGreaterThan(1000);
+  expect(Number(models)).toBeGreaterThan(1);
+
+  // The ground of that zone, not the Phase 1 plane.
+  await expect(page.getByTestId('game-status')).toContainText(/terrain ready — \d+ collision/);
+
+  // Standing on the terrain the world file names, within a metre of what the
+  // collision query answers underneath the capsule.
+  const standing = await livePlayer(page);
+  const ground = await page.evaluate(
+    ([x, z]) => (window as WovDebugWindow).__wov?.groundAt(x as number, z as number) ?? null,
+    [standing.x, standing.z],
+  );
+  if (ground === null) {
+    throw new Error('the collision ground answered nothing under the player');
+  }
+  expect(Math.abs(standing.y - ground)).toBeLessThan(1);
+
+  // Instancing, as a number rather than as a claim: a thousand entities drawn
+  // one draw call each would be a thousand. Read off Babylon's own counter.
+  const render = await page.evaluate(() => (window as WovDebugWindow).__wov?.render ?? null);
+  if (render === null) {
+    throw new Error('the game dev build published no render counters');
+  }
+  expect(render.activeMeshes).toBeGreaterThan(100);
+  expect(render.drawCalls).toBeLessThan(render.activeMeshes / 2);
+});
+
+/**
+ * A client that cannot reach its API says so, in the line the world belongs in.
+ *
+ * The failure this pins is the silent one: an empty green plane with a happy
+ * "renderer ready" underneath it, which looks like a world that is still
+ * loading and is in fact a world that will never arrive.
+ */
+test('game says which API it could not reach', async ({ page }) => {
+  await page.goto(`${appUrl('gameUrl')}?world=no-such-world`);
+  await expect(page.getByTestId('game-world')).toContainText(/world "no-such-world"/, {
+    timeout: 60_000,
+  });
+  // Still a running client, not a blank page.
+  await expect(page.getByTestId('game-status')).toContainText('renderer ready');
 });
 
 test('editor shows its shell and a live viewport', async ({ page }) => {
@@ -474,6 +631,51 @@ test('editor opens a world, places a prefab, saves it and undoes', async ({ page
  * while the right mouse button is held. Nothing in a unit test can prove which
  * of the two a real keystroke reaches.
  */
+/**
+ * The imported village, in the viewport (ADR-0021).
+ *
+ * The importer's own report is a count of what it *wrote*; this is the only
+ * check that the file it wrote opens. It is worth a test of its own because
+ * scale is where this file differs from every other one in `content/`: 1 580
+ * entities across three zones, against the example world's one barrel. A
+ * reconciler that is quadratic in the entity count, a hierarchy that renders
+ * every row eagerly or a catalogue lookup that is a linear scan all pass the
+ * example world and fall over here.
+ *
+ * Both witnesses again, and both must clear a thousand: the document's entity
+ * count for the active zone and the scene's own count of entity roots.
+ */
+test('editor opens the imported village with more than a thousand entities', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('editor-viewport-status')).toHaveText(
+    /^viewport ready — (webgl2|webgpu)$/,
+  );
+
+  await page.getByTestId('menu-file').click();
+  await expect(page.getByTestId('menu-file-worlds')).toContainText('Village One');
+  await page.getByTestId('menu-open-village1').click();
+
+  await expect(page.getByTestId('editor-world-name')).toHaveText('Village One');
+  // The three zones the bundle is split into.
+  await expect(page.getByTestId('hierarchy-zone-village')).toContainText('Village');
+  await expect(page.getByTestId('hierarchy-zone-interiors')).toContainText('Village Interiors');
+  await expect(page.getByTestId('hierarchy-zone-surroundings')).toContainText('Surroundings');
+
+  await expect.poll(() => editorEntityCount(page), { timeout: 60_000 }).toBeGreaterThan(1000);
+  // One root per entity, not one per node of the loaded model: the two counts
+  // are the same number seen from the document and from the scene, so they are
+  // compared to each other rather than to a threshold.
+  const documented = await editorEntityCount(page);
+  await expect.poll(() => editorMeshCount(page), { timeout: 60_000 }).toBe(documented);
+
+  // Still rendering afterwards: a viewport that built the zone and then died is
+  // not a viewport that opened it.
+  const before = await editorFrameId(page);
+  await expect
+    .poll(() => editorFrameId(page), { timeout: 15_000, intervals: [200, 200, 400, 800] })
+    .toBeGreaterThan(before ?? 0);
+});
+
 test('editor switches tools with Q/W/E/R and deletes with the Delete key', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('editor-viewport-status')).toHaveText(
@@ -606,7 +808,10 @@ test('api serves the worlds in content/', async ({ request }) => {
 
   const world = await request.get(apiUrl('/worlds/example'));
   expect(world.status()).toBe(200);
-  expect(await world.json()).toMatchObject({ schemaVersion: 1, id: 'example' });
+  expect(await world.json()).toMatchObject({
+    schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
+    id: 'example',
+  });
 
   const missing = await request.get(apiUrl('/worlds/there-is-no-such-world'));
   expect(missing.status()).toBe(404);
@@ -625,7 +830,7 @@ test('api serves the merged prefab catalogue', async ({ request }) => {
 });
 
 test('asset server reports healthy', async ({ request }) => {
-  const response = await request.get('http://localhost:9000/health');
+  const response = await request.get(`${appUrl('assetUrl')}/health`);
   expect(response.status()).toBe(200);
   expect(await response.json()).toMatchObject({ service: 'world-of-vikings-assets' });
 });

@@ -6,6 +6,7 @@
  * same job for the asset server; this module adds the API and keeps the two
  * answers in one place.
  */
+import { resolveServiceUrl } from '@wov/shared';
 import { resolveAssetSourceConfig, type AssetEnv, type AssetSourceConfig } from '@wov/asset-system';
 
 /** The API base URL, without a trailing slash. */
@@ -30,10 +31,8 @@ export interface EditorConfig {
  * unexplained failure — the same rule `resolveAssetSourceConfig` follows.
  */
 export function resolveEditorConfig(env: EditorEnv = {}): EditorConfig {
-  const raw = (env.VITE_API_URL ?? '').trim();
-  const apiUrl = raw === '' ? DEFAULT_API_URL : raw;
-  if (!/^https?:\/\//i.test(apiUrl)) {
-    throw new Error(`VITE_API_URL must be an absolute http(s) URL, got "${apiUrl}"`);
-  }
-  return { apiUrl: apiUrl.replace(/\/+$/, ''), assets: resolveAssetSourceConfig(env) };
+  return {
+    apiUrl: resolveServiceUrl(env.VITE_API_URL, DEFAULT_API_URL, 'VITE_API_URL'),
+    assets: resolveAssetSourceConfig(env),
+  };
 }

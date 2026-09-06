@@ -11,7 +11,12 @@ things, kept apart on purpose:
    ground, fill and key light, sky colour and matching fog. A caller who wants
    it calls `createBaseScene`; the bootstrap never imposes it, and it creates no
    camera, because the game and the editor need different ones.
-3. **The third-person camera** (ADR-0008, spec §26) — mouse rotation with
+3. **The terrain renderer** (ADR-0020) — a loaded height field placed where a
+   zone's `terrain` says, with a generated multi-layer material that blends up
+   to eight ground textures by two RGBA splat maps. It renders terrain; it does
+   not decide where terrain is (that is world data) and it does not load the
+   model (that is `@wov/asset-system`).
+4. **The third-person camera** (ADR-0008, spec §26) — mouse rotation with
    pointer lock, wheel zoom, a frame-rate independent follow lag and collision
    avoidance as an interface. Its arithmetic is a separate Babylon-free module,
    and so is the decision of whether a mouse movement counts.
@@ -23,26 +28,32 @@ reads back. Rendering never owns the game state (spec §25), which is why
 
 ## Public API
 
-| Export                                                                                      | What it does                                                                                                              |
-| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `createRenderer(canvas, options)`                                                           | `Promise<RendererHandle>`. Builds engine, scene and render loop for a canvas.                                             |
-| `RendererHandle`                                                                            | `engine`, `scene`, `backend`, `config`, `disposed`, `onFrame`, `renderFrame`, `resize`, `dispose`.                        |
-| `selectBackend(config, caps)`                                                               | Pure choice between `'webgpu'` and `'webgl2'`. Separated out so it is testable.                                           |
-| `detectRenderCapabilities()`                                                                | What the current browser offers (`navigator.gpu`).                                                                        |
-| `resolveRenderConfig(overrides?)`                                                           | Normalises a partial `RenderConfig`; clamps `resolutionScale` to `0.25…2`.                                                |
-| `defaultRenderConfig`                                                                       | The defaults `resolveRenderConfig` merges into.                                                                           |
-| `createBaseScene(scene, opts?)`                                                             | `BaseSceneHandle`. Adds ground, two lights, sky colour and fog to an existing scene.                                      |
-| `BaseSceneHandle`                                                                           | `ground`, `groundMaterial`, `ambientLight`, `sun`, `options`, `dispose` (restores the old sky/fog).                       |
-| `resolveBaseSceneOptions(over?)`                                                            | Validates a partial base-scene description and derives the fog distances from the ground size.                            |
-| `defaultBaseSceneOptions`                                                                   | The resolved defaults: 100 m ground, no shadows, linear fog in the sky colour.                                            |
-| `createThirdPersonCamera(scene, options)`                                                   | `ThirdPersonCameraHandle`. The camera of spec §26, following a `() => Vector3`.                                           |
-| `ThirdPersonCameraHandle`                                                                   | `camera`, `settings`, `state`, `look`, `zoom`, `update`, `setObstacleQuery`, `attachControl`, `detachControl`, `dispose`. |
-| `stepThirdPersonCamera(state, input, settings)`                                             | One camera frame as pure arithmetic: new state, position and focus. No Babylon.                                           |
-| `resolveThirdPersonCameraSettings(over?)`                                                   | Validates a partial camera description; rejects a pitch range that reaches the pole.                                      |
-| `defaultThirdPersonCameraSettings`                                                          | The resolved defaults: 6 m out (2…12), −17°…66° pitch, 0.12 s follow lag.                                                 |
-| `CameraObstacleQuery`                                                                       | `(probe) => number \| null` — the seam physics plugs into. Default `noCameraObstacles`.                                   |
-| `createCameraLookInput(sink, o?)`                                                           | The pointer-lock / drag / wheel state machine, without DOM types.                                                         |
-| `wrapAngle`, `smoothingFactor`, `applyLook`, `applyZoom`, `wheelTicks`, `orbitDirection`, … | The individual camera functions, each testable on its own.                                                                |
+| Export                                                                                      | What it does                                                                                                               |
+| ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `createRenderer(canvas, options)`                                                           | `Promise<RendererHandle>`. Builds engine, scene and render loop for a canvas.                                              |
+| `RendererHandle`                                                                            | `engine`, `scene`, `backend`, `config`, `disposed`, `onFrame`, `renderFrame`, `resize`, `dispose`.                         |
+| `selectBackend(config, caps)`                                                               | Pure choice between `'webgpu'` and `'webgl2'`. Separated out so it is testable.                                            |
+| `detectRenderCapabilities()`                                                                | What the current browser offers (`navigator.gpu`).                                                                         |
+| `resolveRenderConfig(overrides?)`                                                           | Normalises a partial `RenderConfig`; clamps `resolutionScale` to `0.25…2`.                                                 |
+| `defaultRenderConfig`                                                                       | The defaults `resolveRenderConfig` merges into.                                                                            |
+| `createBaseScene(scene, opts?)`                                                             | `BaseSceneHandle`. Adds ground, two lights, sky colour and fog to an existing scene.                                       |
+| `BaseSceneHandle`                                                                           | `ground`, `groundMaterial`, `ambientLight`, `sun`, `options`, `dispose` (restores the old sky/fog).                        |
+| `resolveBaseSceneOptions(over?)`                                                            | Validates a partial base-scene description and derives the fog distances from the ground size.                             |
+| `defaultBaseSceneOptions`                                                                   | The resolved defaults: 100 m ground, no shadows, linear fog in the sky colour.                                             |
+| `createThirdPersonCamera(scene, options)`                                                   | `ThirdPersonCameraHandle`. The camera of spec §26, following a `() => Vector3`.                                            |
+| `ThirdPersonCameraHandle`                                                                   | `camera`, `settings`, `state`, `look`, `zoom`, `update`, `setObstacleQuery`, `attachControl`, `detachControl`, `dispose`.  |
+| `stepThirdPersonCamera(state, input, settings)`                                             | One camera frame as pure arithmetic: new state, position and focus. No Babylon.                                            |
+| `createTerrain(scene, heightField, options)`                                                | `TerrainHandle`. Places a loaded height field and gives it the splat material.                                             |
+| `TerrainHandle`                                                                             | `root`, `meshes` (what physics collides against), `material`, `textures`, `dispose`.                                       |
+| `createTerrainMaterial(scene, name, options)`                                               | The material on its own, for a view that draws ground without a physics world.                                             |
+| `clearLoaderTransform(root)`                                                                | Clears the glTF loader's handedness transform (half turn **and** mirror) so a tile covers the metres the world file names. |
+| `terrainFragmentSource(layers, splats)` / `TERRAIN_VERTEX_SOURCE`                           | The generated GLSL, Babylon-free so it can be asserted in a unit test.                                                     |
+| `layerRepeats(size, tileSize)`                                                              | Metres across ÷ metres per repeat — the one place `size` and `tileSize` meet.                                              |
+| `resolveThirdPersonCameraSettings(over?)`                                                   | Validates a partial camera description; rejects a pitch range that reaches the pole.                                       |
+| `defaultThirdPersonCameraSettings`                                                          | The resolved defaults: 6 m out (2…12), −17°…66° pitch, 0.12 s follow lag.                                                  |
+| `CameraObstacleQuery`                                                                       | `(probe) => number \| null` — the seam physics plugs into. Default `noCameraObstacles`.                                    |
+| `createCameraLookInput(sink, o?)`                                                           | The pointer-lock / drag / wheel state machine, without DOM types.                                                          |
+| `wrapAngle`, `smoothingFactor`, `applyLook`, `applyZoom`, `wheelTicks`, `orbitDirection`, … | The individual camera functions, each testable on its own.                                                                 |
 
 ```ts
 const renderer = await createRenderer(canvas, { resolutionScale: 1 });

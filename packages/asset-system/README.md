@@ -49,8 +49,12 @@ the build if the game can reach `manifest.ts` again, transitively included.
 - `new AssetManager({ source, scene, loadContainer? })`
   - `loadGlb(assetPath)` — returns the `AssetContainer`, loading it at most once
     per URL. Concurrent callers share one request.
-  - `instantiate(assetPath, { rename?, cloneMaterials? })` — instantiates a copy
-    from the cached container.
+  - `instantiate(assetPath, { rename?, cloneMaterials?, instanced? })` —
+    instantiates a copy from the cached container. `instanced: true` asks
+    Babylon for `InstancedMesh` copies, which share geometry _and_ material with
+    the container's meshes and are drawn together: 1216 entities from 139 models
+    cost 196 draw calls instead of 553 (ADR-0022). Off by default, because a
+    caller that means to recolour one copy must not get an instance.
   - `isCached(assetPath)`, `dispose()`.
 - `AssetLoadError` — carries `assetPath` **and** the resolved `url`, because a
   wrong `VITE_ASSET_URL` and a missing file are told apart by the URL that was

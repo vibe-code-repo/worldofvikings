@@ -15,6 +15,7 @@
  * it. Verify with `pnpm --filter @wov/game build && grep -r __wov dist/` —
  * that must find nothing.
  */
+import { SceneInstrumentation } from '@babylonjs/core/Instrumentation/sceneInstrumentation.js';
 import type { RendererBackend, RendererHandle, ThirdPersonCameraHandle } from '@wov/engine';
 import type { PlaceholderTarget } from './placeholder-target.js';
 
@@ -54,6 +55,46 @@ export interface WovDebugBridge {
    * gameplay state would pass even with the renderer disconnected.
    */
   readonly player: WovPlayerDebug | null;
+  /**
+   * Height of the collision ground at a point, or `null` where there is none.
+   *
+   * The same `raycastGround` the movement system's ground query uses, only from
+   * high above instead of from the capsule's head — which is what lets a test
+   * check the ground somewhere the player is not standing. It answers `null`
+   * until the physics world is up.
+   */
+  groundAt(x: number, z: number): number | null;
+  /**
+   * The world-space hull of the terrain tile, or `null` before it is loaded.
+   *
+   * Measured off the scene rather than restated from the world file: "the tile
+   * covers the metres it says" is the one claim a handedness flip breaks, and a
+   * number copied out of the description would agree with itself forever.
+   */
+  readonly terrainBounds: {
+    min: [number, number, number];
+    max: [number, number, number];
+  } | null;
+  /**
+   * What the last frame cost the renderer.
+   *
+   * Frames per second in a headless browser say nothing — there is no display
+   * to keep up with and the software rasteriser sets the pace. Draw calls and
+   * triangles do: they are what a world of 1216 entities is measured in, and
+   * they are the numbers that tell instancing from cloning (ADR-0022). Read
+   * off Babylon's own counters, not from our bookkeeping.
+   */
+  readonly render: WovRenderDebug;
+}
+
+/** Per-frame render counters, as plain numbers a test can read out of the page. */
+export interface WovRenderDebug {
+  /** Draw calls issued for the last rendered frame. */
+  drawCalls: number;
+  /** Meshes the camera found worth drawing, instances included. */
+  activeMeshes: number;
+  /** Triangles submitted for the last frame. */
+  triangles: number;
 }
 
 declare global {
@@ -67,6 +108,14 @@ declare global {
 export interface DevDebugSubjects {
   readonly camera?: ThirdPersonCameraHandle;
   readonly player?: PlaceholderTarget;
+  /** Answers `groundAt`; the app owns it because the app owns the physics world. */
+  readonly groundAt?: (x: number, z: number) => number | null;
+}
+
+/** The hull the bridge reports for the terrain tile. */
+export interface WovTerrainBounds {
+  min: [number, number, number];
+  max: [number, number, number];
 }
 
 /** Shown until the first frame lands, so `frame <digits>` never lies. */
@@ -83,7 +132,7 @@ export function installDevDebugBridge(
   renderer: RendererHandle,
   marker: HTMLElement | null,
   subjects: DevDebugSubjects = {},
-): void {
+): { reportTerrainBounds(bounds: WovTerrainBounds): void } {
   const camera = subjects.camera;
   const player = subjects.player;
   // One object, mutated per frame rather than rebuilt: the bridge is dev-only
@@ -92,16 +141,23 @@ export function installDevDebugBridge(
     ? { yaw: 0, pitch: 0, distance: 0, desiredDistance: 0, x: 0, y: 0, z: 0 }
     : null;
   const playerDebug: WovPlayerDebug | null = player ? { x: 0, y: 0, z: 0 } : null;
+  const groundAt = subjects.groundAt ?? ((): null => null);
   const bridge: {
     backend: RendererBackend;
     frameId: number;
     camera: WovCameraDebug | null;
     player: WovPlayerDebug | null;
+    groundAt: (x: number, z: number) => number | null;
+    terrainBounds: WovTerrainBounds | null;
+    render: WovRenderDebug;
   } = {
     backend: renderer.backend,
     frameId: -1,
     camera: cameraDebug,
     player: playerDebug,
+    groundAt,
+    terrainBounds: null,
+    render: { drawCalls: 0, activeMeshes: 0, triangles: 0 },
   };
   window.__wov = bridge;
 
@@ -112,8 +168,15 @@ export function installDevDebugBridge(
   frameElement.textContent = NO_FRAME_YET;
   marker?.append(frameElement);
 
+  // Babylon resets the draw-call counter per frame only while something asks
+  // it to; that is all this instrumentation is here for.
+  const instrumentation = new SceneInstrumentation(renderer.scene);
+
   renderer.onFrame((frame) => {
     bridge.frameId = frame.index;
+    bridge.render.drawCalls = instrumentation.drawCallsCounter.current;
+    bridge.render.activeMeshes = renderer.scene.getActiveMeshes().length;
+    bridge.render.triangles = Math.round(renderer.scene.getActiveIndices() / 3);
     if (camera && cameraDebug) {
       const state = camera.state;
       cameraDebug.yaw = state.yaw;
@@ -134,4 +197,10 @@ export function installDevDebugBridge(
     // changes every frame, so caching it would never hit (spec §38).
     frameElement.textContent = `frame ${frame.index}`;
   });
+
+  return {
+    reportTerrainBounds(bounds) {
+      bridge.terrainBounds = bounds;
+    },
+  };
 }

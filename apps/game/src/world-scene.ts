@@ -1,0 +1,319 @@
+/**
+ * Turning one zone of a world file into a scene (ADR-0022).
+ *
+ * The world file is the truth here exactly as it is in the editor (ADR-0018):
+ * nothing in this module decides what the world contains. It is handed a zone
+ * and a prefab catalogue and it makes the scene say the same thing — the
+ * ground from `zone.terrain` (ADR-0020) and one node per entity, each one
+ * carrying the model its prefab names.
+ *
+ * **Why entities are instanced.** The village zone places 1216 entities from
+ * 139 prefabs: eighty copies of one fence, sixty of one plank. Cloning each
+ * one would put eighty meshes in front of the rasteriser that differ only in
+ * their matrix. `AssetManager.instantiate({ instanced: true })` asks Babylon
+ * for `InstancedMesh` copies instead, which share geometry and material with
+ * the container's mesh and are drawn together — measured in `docs/development.md`.
+ * Anything Babylon cannot instance (a transform node, a skinned mesh) it
+ * clones, so the request never costs correctness.
+ *
+ * **Why one prefab at a time.** Each distinct asset is loaded once and
+ * instantiated as many times as the zone places it. That is also why the loads
+ * are sequential per prefab and parallel across them: 139 GLB requests at once
+ * would queue behind each other in the browser anyway, and the memory peak of
+ * 139 half-parsed containers is real.
+ */
+import type { Scene } from '@babylonjs/core/scene';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
+import { createTerrain } from '@wov/engine';
+import type { TerrainHandle, TerrainTextureSource } from '@wov/engine';
+import {
+  AssetManager,
+  assetStoreUrl,
+  assetUrl,
+  createAssetCatalog,
+  type AssetCatalogEntry,
+  type AssetSourceConfig,
+  type AssetSourceCounts,
+} from '@wov/asset-system';
+import type {
+  EntityDefinition,
+  PrefabDefinition,
+  TerrainDefinition,
+  ZoneDefinition,
+} from '@wov/world-schema';
+
+/** The stand-in a private texture falls back to when there is no store. */
+const TEXTURE_PLACEHOLDER = 'placeholders/textures/unavailable.png';
+
+/** Store URL plus the committed stand-in, for one private texture. */
+function textureSource(source: AssetSourceConfig, path: string): TerrainTextureSource {
+  return { url: assetStoreUrl(source, path), fallbackUrl: assetUrl(source, TEXTURE_PLACEHOLDER) };
+}
+
+/**
+ * The prefab catalogue, indexed the two ways this module reads it: by id, to
+ * resolve `EntityDefinition.prefab`, and by asset path, to tell the
+ * {@link AssetManager} which files live in the private store (ADR-0015).
+ *
+ * Several prefabs may name the same GLB, so the asset catalogue is
+ * deduplicated here rather than throwing inside `createAssetCatalog`.
+ */
+export function indexPrefabs(prefabs: readonly PrefabDefinition[]): {
+  readonly byId: ReadonlyMap<string, PrefabDefinition>;
+  readonly assets: readonly AssetCatalogEntry[];
+} {
+  const byId = new Map<string, PrefabDefinition>();
+  const byAsset = new Map<string, AssetCatalogEntry>();
+  for (const prefab of prefabs) {
+    byId.set(prefab.id, prefab);
+    if (!byAsset.has(prefab.asset)) {
+      byAsset.set(prefab.asset, {
+        path: prefab.asset,
+        visibility: prefab.visibility,
+        placeholder: prefab.placeholder,
+      });
+    }
+  }
+  return { byId, assets: [...byAsset.values()] };
+}
+
+/** Entities grouped by the prefab they place, in first-appearance order. */
+export function groupByPrefab(
+  entities: readonly EntityDefinition[],
+): ReadonlyMap<string, readonly EntityDefinition[]> {
+  const groups = new Map<string, EntityDefinition[]>();
+  for (const entity of entities) {
+    const group = groups.get(entity.prefab);
+    if (group === undefined) {
+      groups.set(entity.prefab, [entity]);
+    } else {
+      group.push(entity);
+    }
+  }
+  return groups;
+}
+
+/**
+ * Which zone the game walks around in: the first one with ground.
+ *
+ * A world file holds interiors and surroundings beside the outdoor zone, and
+ * only one of them has a `terrain` block. Streaming and portals are a later
+ * phase; until then "the zone with the ground" is the honest answer, and a
+ * world with no ground at all falls back to the first zone so that a flat test
+ * world still opens.
+ */
+export function playableZone(zones: readonly ZoneDefinition[]): ZoneDefinition | undefined {
+  return zones.find((zone) => zone.terrain !== undefined) ?? zones[0];
+}
+
+/** What {@link loadZoneTerrain} and {@link placeEntities} report back. */
+export interface ZoneScene {
+  readonly zone: ZoneDefinition;
+  /** The ground, or `null` for a zone that has none. */
+  readonly terrain: TerrainHandle | null;
+  /** One transform node per placed entity. */
+  readonly roots: readonly TransformNode[];
+  /** Entities whose prefab the catalogue does not know, by entity id. */
+  readonly unknownPrefabs: readonly string[];
+  /** Prefabs whose model would not load, as `prefab: reason`. */
+  readonly failed: readonly string[];
+  /** How many distinct prefab models were loaded. */
+  readonly models: number;
+  /** Where the bytes came from (ADR-0015). */
+  readonly sources: AssetSourceCounts;
+}
+
+export interface ZoneSceneOptions {
+  readonly scene: Scene;
+  readonly source: AssetSourceConfig;
+  readonly zone: ZoneDefinition;
+  readonly prefabs: readonly PrefabDefinition[];
+}
+
+/**
+ * Loads a zone's ground.
+ *
+ * The height field goes through the {@link AssetManager} so a clone with no
+ * asset store gets the committed hull box instead of an exception (ADR-0015);
+ * the textures go straight to a URL, because a texture has no container to
+ * load and its stand-in is one shared grey image.
+ *
+ * @throws {Error} when the height field loads but carries no mesh — a tile with
+ * nothing to stand on is worse than a missing one, because the player falls
+ * through it silently.
+ */
+export async function loadZoneTerrain(
+  scene: Scene,
+  source: AssetSourceConfig,
+  terrain: TerrainDefinition,
+  name: string,
+): Promise<{ readonly terrain: TerrainHandle; readonly sources: AssetSourceCounts }> {
+  const placeholder = `placeholders/${terrain.heightField}`;
+  const manager = new AssetManager({
+    source,
+    scene,
+    catalog: createAssetCatalog([
+      { path: terrain.heightField, visibility: 'private', placeholder },
+    ]),
+  });
+
+  const entries = await manager.instantiate(terrain.heightField);
+  const root = entries.rootNodes.find(
+    (node): node is TransformNode => node instanceof TransformNode,
+  );
+  if (root === undefined) {
+    throw new Error(`terrain "${terrain.heightField}" instantiated no transform node`);
+  }
+
+  const handle = createTerrain(scene, root, {
+    name,
+    position: [terrain.position[0], terrain.position[1], terrain.position[2]],
+    size: [terrain.size[0], terrain.size[1]],
+    layers: (terrain.layers ?? []).map((layer) => ({
+      ...textureSource(source, layer.texture),
+      tileSize: layer.tileSize,
+    })),
+    splat: (terrain.splat ?? []).map((path) => textureSource(source, path)),
+  });
+
+  if (handle.meshes.length === 0) {
+    handle.dispose();
+    throw new Error(`terrain "${terrain.heightField}" has no mesh to stand on`);
+  }
+  return { terrain: handle, sources: manager.sources() };
+}
+
+/**
+ * Puts every entity of a zone into the scene.
+ *
+ * One `TransformNode` per entity carries the entity's own transform, and the
+ * instantiated model is parented under it — `__root__` and all, so Babylon's
+ * handling of glTF's handedness stays where Babylon put it and the entity's
+ * transform composes on top of it. The editor does the same thing for the same
+ * reason (`apps/editor/src/scene/scene-sync.ts`), and the two have to agree:
+ * a prop the editor puts on a wall must be on that wall in the game.
+ *
+ * A prefab whose model fails to load costs its entities, not the zone: the
+ * failure is collected and reported, and everything else still stands.
+ */
+export async function placeEntities(options: ZoneSceneOptions): Promise<{
+  readonly roots: readonly TransformNode[];
+  readonly unknownPrefabs: readonly string[];
+  readonly failed: readonly string[];
+  readonly models: number;
+  readonly sources: AssetSourceCounts;
+}> {
+  const { scene, source, zone, prefabs } = options;
+  const { byId, assets } = indexPrefabs(prefabs);
+  const manager = new AssetManager({ source, scene, catalog: createAssetCatalog(assets) });
+
+  const roots: TransformNode[] = [];
+  const unknownPrefabs: string[] = [];
+  const failed: string[] = [];
+  const groups = groupByPrefab(zone.entities);
+
+  const known = [...groups].filter(([prefabId, entities]) => {
+    if (byId.has(prefabId)) {
+      return true;
+    }
+    // A dangling prefab reference is a world-file problem, not a load failure:
+    // it is named once per prefab rather than once per entity.
+    unknownPrefabs.push(...entities.map((entity) => entity.id));
+    return false;
+  });
+
+  await Promise.all(
+    known.map(async ([prefabId, entities]) => {
+      const prefab = byId.get(prefabId);
+      if (prefab === undefined) {
+        return;
+      }
+      for (const entity of entities) {
+        const root = new TransformNode(`entity:${entity.id}`, scene);
+        root.position.set(entity.position[0], entity.position[1], entity.position[2]);
+        const rotation = entity.rotation ?? [0, 0, 0];
+        root.rotation.set(rotation[0], rotation[1], rotation[2]);
+        const scale = entity.scale ?? [1, 1, 1];
+        root.scaling.set(scale[0], scale[1], scale[2]);
+        roots.push(root);
+
+        try {
+          const instantiated = await manager.instantiate(prefab.asset, {
+            rename: (nodeName) => `${entity.id}:${nodeName}`,
+            instanced: true,
+          });
+          for (const node of instantiated.rootNodes) {
+            node.parent = root;
+          }
+        } catch (error) {
+          failed.push(`${prefabId}: ${error instanceof Error ? error.message : String(error)}`);
+          // One report per prefab: 80 identical lines say nothing 1 does not.
+          return;
+        }
+      }
+    }),
+  );
+
+  return {
+    roots,
+    unknownPrefabs,
+    failed,
+    models: known.length - failed.length,
+    sources: manager.sources(),
+  };
+}
+
+/** Every mesh under these entity roots, for collision and for counting. */
+export function meshesUnder(roots: readonly TransformNode[]): readonly AbstractMesh[] {
+  return roots.flatMap((root) => root.getChildMeshes(false));
+}
+
+/** The two counts of one loader plus the other's, for one status line. */
+export function addSources(left: AssetSourceCounts, right: AssetSourceCounts): AssetSourceCounts {
+  return {
+    repository: left.repository + right.repository,
+    store: left.store + right.store,
+    placeholder: left.placeholder + right.placeholder,
+  };
+}
+
+/** Nothing loaded yet: the neutral element of {@link addSources}. */
+export const NO_SOURCES: AssetSourceCounts = { repository: 0, store: 0, placeholder: 0 };
+
+/** Where {@link spawnFromQuery} may put the player, and where it lands by default. */
+export interface SpawnArea {
+  /** Lowest `[x, z]` of the tile, in metres. */
+  readonly min: readonly [number, number];
+  /** Highest `[x, z]` of the tile, in metres. */
+  readonly max: readonly [number, number];
+  /** Used when the query names nothing usable. */
+  readonly fallback: readonly [number, number];
+}
+
+/**
+ * Reads an `x,z` spawn override off the query string.
+ *
+ * The village is 300 m across and the parts of it worth looking at — the paths,
+ * the cliffs, one particular house — are nowhere near the middle. Putting the
+ * capsule down somewhere else is how a screenshot can show them; anything
+ * malformed or outside the tile falls back to the middle rather than dropping
+ * the player off the edge.
+ */
+export function spawnFromQuery(value: string | null, area: SpawnArea): readonly [number, number] {
+  if (value === null) {
+    return area.fallback;
+  }
+  const parts = value.split(',').map((part) => Number.parseFloat(part.trim()));
+  const [x, z] = parts;
+  if (parts.length !== 2 || x === undefined || z === undefined) {
+    return area.fallback;
+  }
+  if (!Number.isFinite(x) || !Number.isFinite(z)) {
+    return area.fallback;
+  }
+  if (x < area.min[0] || x > area.max[0] || z < area.min[1] || z > area.max[1]) {
+    return area.fallback;
+  }
+  return [x, z];
+}

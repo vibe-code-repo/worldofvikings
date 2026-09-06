@@ -18,7 +18,9 @@
     "@wov/engine": "workspace:*",
     "@wov/gameplay": "workspace:*",
     "@wov/physics": "workspace:*",
-    "@wov/ui": "workspace:*"
+    "@wov/shared": "workspace:*",
+    "@wov/ui": "workspace:*",
+    "@wov/world-schema": "workspace:*"
   },
   "devDependencies": {
     "vite": "^7.1.5",

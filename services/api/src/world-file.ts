@@ -1,4 +1,9 @@
-import type { EntityDefinition, WorldDefinition, ZoneDefinition } from '@wov/world-schema';
+import type {
+  EntityDefinition,
+  TerrainDefinition,
+  WorldDefinition,
+  ZoneDefinition,
+} from '@wov/world-schema';
 import { formatJsonDocument } from './json-format.js';
 
 /**
@@ -27,6 +32,24 @@ function canonicalZone(zone: ZoneDefinition): Record<string, unknown> {
     id: zone.id,
     name: zone.name,
     entities: zone.entities.map(canonicalEntity),
+    ...(zone.terrain === undefined ? {} : { terrain: canonicalTerrain(zone.terrain) }),
+  };
+}
+
+function canonicalTerrain(terrain: TerrainDefinition): Record<string, unknown> {
+  return {
+    heightField: terrain.heightField,
+    position: terrain.position,
+    size: terrain.size,
+    ...(terrain.layers === undefined
+      ? {}
+      : {
+          layers: terrain.layers.map((layer) => ({
+            texture: layer.texture,
+            tileSize: layer.tileSize,
+          })),
+        }),
+    ...(terrain.splat === undefined ? {} : { splat: terrain.splat }),
   };
 }
 

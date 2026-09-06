@@ -158,7 +158,27 @@ describe('AssetManager.instantiate', () => {
 
     await manager.instantiate('environment/tree.glb', { rename, cloneMaterials: true });
 
-    expect(container.instantiateSpy).toHaveBeenCalledWith(rename, true, undefined);
+    expect(container.instantiateSpy).toHaveBeenCalledWith(rename, true, {
+      doNotInstantiate: true,
+    });
+  });
+
+  it('clones by default and only instances when asked', async () => {
+    // Babylon's own default is `doNotInstantiate: true`; this asserts that the
+    // flag is *always* stated, so the behaviour cannot change under us with a
+    // Babylon upgrade, and that `instanced` is what flips it (ADR-0022).
+    const container = fakeContainer();
+    const manager = managerWith(async () => container);
+
+    await manager.instantiate('environment/tree.glb');
+    expect(container.instantiateSpy).toHaveBeenLastCalledWith(undefined, false, {
+      doNotInstantiate: true,
+    });
+
+    await manager.instantiate('environment/tree.glb', { instanced: true });
+    expect(container.instantiateSpy).toHaveBeenLastCalledWith(undefined, false, {
+      doNotInstantiate: false,
+    });
   });
 });
 

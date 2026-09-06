@@ -16,6 +16,7 @@
     "@wov/asset-system": "workspace:*",
     "@wov/editor-core": "workspace:*",
     "@wov/engine": "workspace:*",
+    "@wov/shared": "workspace:*",
     "@wov/ui": "workspace:*",
     "@wov/world-schema": "workspace:*",
     "react": "^19.2.0",

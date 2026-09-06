@@ -39,6 +39,11 @@ pnpm dev
 | API     | http://localhost:3000/health, http://localhost:3000/worlds |
 | Assets  | http://localhost:9000/health                               |
 
+`pnpm smoke` starts its own editor (5184) and API (3100) instead of reusing
+these two. The API it starts points at a throwaway copy of `content/`, because
+the editor's save test writes real files — so the suite can run while
+`pnpm dev` is up, and `git status` stays clean either way.
+
 All ports are `strictPort`: a clash fails loudly instead of silently moving an
 app to a different port.
 

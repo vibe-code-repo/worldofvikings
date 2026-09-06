@@ -75,6 +75,12 @@ formatting so saved worlds stay reviewable, and refuses every write when
 `WORLDS_READ_ONLY` is set (ADR-0017). The game does not use those routes — it
 reads world files as data and still renders without a backend (spec §35).
 
+Inside the editor the same arrow points one way only: **the document is the
+truth and the scene follows it** (ADR-0018). Every gesture becomes an
+`EditorCommand` against the document, and the Babylon viewport reconciles itself
+against the result — it never edits the world. That is what makes a gizmo drag,
+a Delete keystroke and a number typed into the inspector undo identically.
+
 ## Rendering vs. state
 
 ```text

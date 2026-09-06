@@ -157,6 +157,9 @@ importers:
       '@babylonjs/core':
         specifier: ^8.31.1
         version: 8.56.2
+      '@wov/asset-system':
+        specifier: workspace:*
+        version: link:../../packages/asset-system
       '@wov/editor-core':
         specifier: workspace:*
         version: link:../../packages/editor-core
@@ -166,6 +169,9 @@ importers:
       '@wov/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@wov/world-schema':
+        specifier: workspace:*
+        version: link:../../packages/world-schema
       react:
         specifier: ^19.2.0
         version: 19.2.8

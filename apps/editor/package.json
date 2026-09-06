@@ -13,9 +13,11 @@
   },
   "dependencies": {
     "@babylonjs/core": "^8.31.1",
+    "@wov/asset-system": "workspace:*",
     "@wov/editor-core": "workspace:*",
     "@wov/engine": "workspace:*",
     "@wov/ui": "workspace:*",
+    "@wov/world-schema": "workspace:*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

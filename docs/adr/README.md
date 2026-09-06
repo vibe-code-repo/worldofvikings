@@ -26,3 +26,4 @@ change it describes.
 | [0015](0015-private-asset-store-with-repository-placeholders.md)        | A private asset store, with placeholders in the repository    | accepted |
 | [0016](0016-prefab-catalog-editor-document-and-command-history.md)      | Generated prefab catalog, editor document and command history | accepted |
 | [0017](0017-world-files-are-read-and-written-through-the-api.md)        | World files are read and written through the API              | accepted |
+| [0018](0018-editor-viewport-derives-the-scene-from-the-document.md)     | The editor viewport derives the scene from the document       | accepted |

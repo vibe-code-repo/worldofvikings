@@ -15,14 +15,14 @@
  * Babylon's x-mirroring of imported glTF stays where Babylon put it and the
  * entity's own transform composes on top of it.
  */
-import { Color3 } from '@babylonjs/core/Maths/math.color';
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
-import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder';
-import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
-import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
-import type { BaseTexture } from '@babylonjs/core/Materials/Textures/baseTexture';
-import type { Node } from '@babylonjs/core/node';
-import type { Scene } from '@babylonjs/core/scene';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import type { BaseTexture } from '@babylonjs/core/Materials/Textures/baseTexture.js';
+import type { Node } from '@babylonjs/core/node.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { AssetManager, AssetSourceCounts } from '@wov/asset-system';
 import type { EditorDocument } from '@wov/editor-core';
 import { activeZone } from '@wov/editor-core';

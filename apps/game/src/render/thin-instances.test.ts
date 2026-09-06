@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
-import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 // A builder module: it defines `CreateBox` and registers nothing, so it cannot
 // install the thin-instance side effect this file is checking for.
 import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';

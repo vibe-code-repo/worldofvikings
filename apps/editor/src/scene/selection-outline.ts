@@ -11,11 +11,11 @@
  * It reuses the line meshes the grid is built from, so it costs one draw call
  * and no new dependency.
  */
-import { Color3 } from '@babylonjs/core/Maths/math.color';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector';
-import { CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder';
-import type { LinesMesh } from '@babylonjs/core/Meshes/linesMesh';
-import type { Scene } from '@babylonjs/core/scene';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder.js';
+import type { LinesMesh } from '@babylonjs/core/Meshes/linesMesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import type { Bounds } from './editor-camera-math.js';
 import type { GridLine, Point3 } from './grid-lines.js';
 

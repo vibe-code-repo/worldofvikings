@@ -37,3 +37,4 @@ change it describes.
 | [0026](0026-entities-carry-a-collision-shape.md)                              | Entities carry a collision shape, decided at import time          | accepted |
 | [0027](0027-small-vegetation-receives-shadow-but-does-not-cast.md)            | Small vegetation receives shadow but does not cast it             | accepted |
 | [0028](0028-the-scene-import-carries-authored-blocks-forward.md)              | The scene import carries authored blocks forward                  | accepted |
+| [0029](0029-one-babylon-module-one-specifier.md)                              | One Babylon.js module, one import specifier                       | accepted |

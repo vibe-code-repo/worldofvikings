@@ -11,10 +11,10 @@
  * looking rather than at the origin, and the downward ray after it is the
  * surface snapping of spec §14: the grid decides x and z, the world decides y.
  */
-import { Ray } from '@babylonjs/core/Culling/ray';
-import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector';
-import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
-import type { Scene } from '@babylonjs/core/scene';
+import { Ray } from '@babylonjs/core/Culling/ray.js';
+import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 
 /**
  * A point in the world, in the world format's own shape.

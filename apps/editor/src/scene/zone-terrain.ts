@@ -19,8 +19,8 @@
  * game (`apps/game/src/world-scene.ts`) and the editor each own their own
  * loader, and the drawing itself has exactly one implementation.
  */
-import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
-import type { Scene } from '@babylonjs/core/scene';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import { AssetManager, assetStoreUrl, assetUrl, createAssetCatalog } from '@wov/asset-system';
 import type { AssetSourceConfig } from '@wov/asset-system';
 import { createTerrain } from '@wov/engine';

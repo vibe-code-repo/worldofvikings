@@ -24,7 +24,7 @@
  * `@wov/engine`, fed with the profile of the open world — the same function and
  * the same numbers the game uses (ADR-0024).
  */
-import type { Scene } from '@babylonjs/core/scene';
+import type { Scene } from '@babylonjs/core/scene.js';
 import {
   applyLighting,
   createRenderer,

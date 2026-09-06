@@ -35,9 +35,9 @@
  * because the editor does not draw thin instances and should not pay for them.
  */
 import '@babylonjs/core/Meshes/thinInstanceMesh.js';
-import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
-import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
-import type { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import type { EntityDefinition } from '@wov/world-schema';
 
 /** Floats in one 4×4 matrix — the stride of the `matrix` thin-instance buffer. */

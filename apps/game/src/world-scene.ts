@@ -30,11 +30,11 @@
  * would queue behind each other in the browser anyway, and the memory peak of
  * 139 half-parsed containers is real.
  */
-import type { Scene } from '@babylonjs/core/scene';
-import { Matrix } from '@babylonjs/core/Maths/math.vector';
-import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
-import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
-import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import type { Scene } from '@babylonjs/core/scene.js';
+import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import { createTerrain } from '@wov/engine';
 import type { TerrainHandle, TerrainTextureSource } from '@wov/engine';
 import {

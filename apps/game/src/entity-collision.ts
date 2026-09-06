@@ -22,10 +22,10 @@
  * measured on the container that was actually loaded — the same nodes the
  * renderer draws (ADR-0022, "measure, do not assume").
  */
-import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
-import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
-import type { AssetContainer } from '@babylonjs/core/assetContainer';
-import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
+import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
+import type { AssetContainer } from '@babylonjs/core/assetContainer.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import type { EntityDefinition, PrefabBounds, PrefabDefinition } from '@wov/world-schema';
 import type { Quat, StaticPlacement, StaticShapeDescription } from '@wov/physics';
 

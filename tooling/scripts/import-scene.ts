@@ -27,17 +27,14 @@
  *    contains models that never existed as their own file; those are for
  *    `pnpm import:scene-models`, and they must be visible, not lost.
  */
-import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { format, resolveConfig } from 'prettier';
-import {
-  CURRENT_WORLD_SCHEMA_VERSION,
-  parsePrefabCatalog,
-  parseWorldDefinition,
-} from '@wov/world-schema';
+import { CURRENT_WORLD_SCHEMA_VERSION, parseWorldDefinition } from '@wov/world-schema';
 import type { WorldDefinition } from '@wov/world-schema';
 import { readGlb } from '../asset-pipeline/glb.js';
 import { repoRoot } from './prefab-catalog.js';
+import { loadPrefabStems } from './prefab-stems.js';
 import type { SceneMiss, ZoneRule } from './scene-import.js';
 import { DEFAULT_ZONES, scanScene, toEntities, toKebab } from './scene-import.js';
 
@@ -66,44 +63,9 @@ const dryRun = process.argv.includes('--dry-run');
 
 // ------------------------------------------------------- the prefab catalogue
 
-const catalogDirectory = join(repoRoot, 'content', 'prefabs');
-
-/**
- * Store file stem to prefab id, e.g. `sm-env-stonewall-01` →
- * `environment-sm-env-stonewall-01`.
- *
- * The stem, not the id, is what a bundle node name can be folded onto: the id
- * carries the store folder as a prefix and a level designer never typed that.
- * A stem two catalogues both claim is dropped and named, because picking one
- * would place the wrong model and never say so.
- */
-const prefabsByStem = new Map<string, string>();
-const ambiguousStems = new Set<string>();
-
-for (const fileName of (await readdir(catalogDirectory)).sort()) {
-  if (!fileName.endsWith('.json')) {
-    continue;
-  }
-  const parsed = parsePrefabCatalog(
-    JSON.parse(await readFile(join(catalogDirectory, fileName), 'utf8')),
-  );
-  if (!parsed.ok) {
-    process.stderr.write(`FAIL content/prefabs/${fileName}: ${parsed.errors.join('; ')}\n`);
-    process.exit(1);
-  }
-  for (const prefab of parsed.catalog.prefabs) {
-    const stem = toKebab(prefab.asset.split('/').at(-1) ?? prefab.asset);
-    const claimed = prefabsByStem.get(stem);
-    if (claimed !== undefined && claimed !== prefab.id) {
-      ambiguousStems.add(stem);
-      prefabsByStem.delete(stem);
-      continue;
-    }
-    if (!ambiguousStems.has(stem)) {
-      prefabsByStem.set(stem, prefab.id);
-    }
-  }
-}
+const { byStem: prefabsByStem, ambiguous: ambiguousStems } = await loadPrefabStems(
+  join(repoRoot, 'content', 'prefabs'),
+);
 
 // -------------------------------------------------------------------- the run
 
@@ -114,10 +76,10 @@ const zones: readonly ZoneRule[] =
 
 process.stdout.write(`bundle:   ${sceneFile}\n`);
 process.stdout.write(`prefabs:  ${String(prefabsByStem.size)} store names from content/prefabs/\n`);
-if (ambiguousStems.size > 0) {
+if (ambiguousStems.length > 0) {
   process.stdout.write(
-    `          ${String(ambiguousStems.size)} name(s) claimed by two catalogues, left unmatched: ` +
-      `${[...ambiguousStems].sort().join(', ')}\n`,
+    `          ${String(ambiguousStems.length)} name(s) claimed by two catalogues, left unmatched: ` +
+      `${ambiguousStems.join(', ')}\n`,
   );
 }
 

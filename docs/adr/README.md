@@ -32,3 +32,4 @@ change it describes.
 | [0021](0021-authored-worlds-are-imported-from-scene-bundles.md)               | Authored worlds are imported from scene bundles                   | accepted |
 | [0022](0022-the-game-loads-its-world-from-the-api.md)                         | The game loads its world from the API, and instances its entities | accepted |
 | [0023](0023-the-store-is-a-second-source-of-truth-for-the-manifest.md)        | The private store is a second source of truth for the manifest    | accepted |
+| [0025](0025-scatter-is-an-editor-command-whose-result-is-persisted.md)        | Scatter is an editor command whose result is persisted            | accepted |

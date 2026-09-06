@@ -11,6 +11,7 @@ import {
   castsShadows,
   drawsAsThinInstances,
   groupByPrefab,
+  markAsBackdrop,
   indexPrefabs,
   playableZone,
   spawnFromQuery,
@@ -296,5 +297,58 @@ describe('castsShadows', () => {
     const grass = plant('grass-short-clump-1', 0.25);
     expect(drawsAsThinInstances(grass)).toBe(true);
     expect(SHADOW_CASTER_MINIMUM_HEIGHT).toBeGreaterThan(0.25);
+  });
+});
+
+describe('the backdrop', () => {
+  const shell = (): PrefabDefinition => ({
+    ...prefab('environment-backdrop-mountains-snow', 'environment/backdrop-mountains-snow.glb'),
+    category: 'backdrop',
+    bounds: { min: [-297, -297, -297], max: [297, 0, 297] },
+  });
+
+  it('is never drawn into the shadow map', () => {
+    // Not a measurement like vegetation's: the sun's map covers 120 m around
+    // the player and the nearest shell is 290 m out, so the question is not how
+    // tall it is.
+    expect(castsShadows(shell())).toBe(false);
+  });
+
+  it('is not thin-instanced — there are two of them, not two thousand', () => {
+    expect(drawsAsThinInstances(shell())).toBe(false);
+  });
+
+  it('takes a mesh out of the fog and out of the picking', () => {
+    const mesh = { applyFog: true, isPickable: true, getTotalVertices: () => 324 };
+    const marked = markAsBackdrop([{ getChildMeshes: () => [mesh] }]);
+    expect(marked).toEqual([mesh]);
+    expect(mesh.applyFog).toBe(false);
+    expect(mesh.isPickable).toBe(false);
+  });
+
+  it('writes the fog flag on the source mesh of an instance, not only on the copy', () => {
+    // `applyFog` is a material define, and an `InstancedMesh` shares its
+    // source's material: written on the copy alone it changes nothing and the
+    // mountains come out fog-grey. Same trap as `receiveShadows`.
+    const source = { applyFog: true, isPickable: true };
+    const instance = {
+      applyFog: true,
+      isPickable: true,
+      isAnInstance: true,
+      sourceMesh: source,
+      getTotalVertices: () => 324,
+    };
+    markAsBackdrop([{ getChildMeshes: () => [instance] }]);
+    expect(source.applyFog).toBe(false);
+    expect(source.isPickable).toBe(false);
+  });
+
+  it('skips the loader’s __root__ and the container’s transform nodes', () => {
+    const empty = { applyFog: true, isPickable: true, getTotalVertices: () => 0 };
+    const real = { applyFog: true, isPickable: true, getTotalVertices: () => 12 };
+    // What comes back is handed to `excludeFromShadows`, so a transform node in
+    // the list would be a node the shadow rig is asked to un-light.
+    expect(markAsBackdrop([{ getChildMeshes: () => [empty, real] }])).toEqual([real]);
+    expect(empty.applyFog).toBe(true);
   });
 });

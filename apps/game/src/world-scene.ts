@@ -46,6 +46,7 @@ import {
   type AssetSourceConfig,
   type AssetSourceCounts,
 } from '@wov/asset-system';
+import { isBackdrop } from '@wov/world-schema';
 import type {
   EntityDefinition,
   PrefabDefinition,
@@ -151,10 +152,97 @@ export const SHADOW_CASTER_MINIMUM_HEIGHT = 0.5;
  */
 export function castsShadows(prefab: PrefabDefinition): boolean {
   const bounds = prefab.bounds;
+  // A backdrop is out of the shadow map for a different reason and without a
+  // measurement: the sun's map covers 120 m around the player, the nearest
+  // shell stands 290 m away, and a shell 1 188 m across put into that map would
+  // stretch it over the whole world. It receives nothing either — `main.ts`
+  // hands every backdrop mesh to `excludeFromShadows`, which is both directions
+  // at once (ADR-0031).
+  if (isBackdrop(prefab)) {
+    return false;
+  }
   if (bounds === undefined || prefab.category !== 'vegetation') {
     return true;
   }
   return bounds.max[1] - bounds.min[1] >= SHADOW_CASTER_MINIMUM_HEIGHT;
+}
+
+/**
+ * The two flags a backdrop mesh has written on it, and the one number that says
+ * whether it is a mesh at all.
+ *
+ * Structural rather than `AbstractMesh`, for the reason every other pure module
+ * in this app is: the rule is testable without a renderer, and Babylon's mesh
+ * satisfies it as it stands.
+ */
+export interface BackdropMesh {
+  applyFog: boolean;
+  isPickable: boolean;
+  getTotalVertices(): number;
+  /** True on an `InstancedMesh`, which shares its source's material. */
+  readonly isAnInstance?: boolean;
+  /** Present on an `InstancedMesh`: the mesh whose material it shares. */
+  readonly sourceMesh?: { applyFog: boolean; isPickable: boolean };
+}
+
+/** A root node one `instantiate` call handed back. */
+export interface BackdropRoot<M extends BackdropMesh> {
+  getChildMeshes(directDescendantsOnly?: boolean): M[];
+}
+
+/**
+ * Takes one backdrop model out of the fog and out of the picking, and says
+ * which meshes it was.
+ *
+ * **Why no fog.** The village's fog is linear from 80 m to 420 m
+ * (`content/worlds/village1.json`) and the mountain shells stand 290–594 m out.
+ * Fogged, the outer one is *entirely* fog colour: the horizon becomes a flat
+ * grey band where a mountain range was. It would also be counted twice — the
+ * haze of distance is painted into the panorama already.
+ *
+ * **Why not pickable.** The editor rays against whatever is pickable to find
+ * the surface under the cursor and to drop a prop onto it, and a prop dropped
+ * onto a mountain lands half a kilometre from where it was aimed. Selecting a
+ * backdrop still works, through the hierarchy, where it is a row like any other.
+ *
+ * **Why no rendering group.** Because depth already does it: the shells really
+ * are the furthest geometry in the scene, 290 m beyond the last corner of a
+ * 300 m tile. A rendering group *sounds* like the answer to "draw it behind
+ * everything" and would have been a second, silent rule about draw order to
+ * keep in step with the first.
+ *
+ * **Why `applyFog` is written on the source mesh.** It is not a flag the
+ * renderer reads per draw — it is an input to the *material's* defines, and an
+ * `InstancedMesh` shares its source's material. Written on the instance alone
+ * it is accepted, changes nothing, and the mountains come out fog-grey. That is
+ * the same trap `receiveShadows` has, documented in the same words in
+ * `@wov/engine`'s lighting rig. `isPickable` really is per mesh, so it is
+ * written on both.
+ *
+ * @param roots the nodes one `instantiate` call returned — the loader's
+ *   `__root__` included, which is why the meshes are gathered by walking it.
+ */
+export function markAsBackdrop<M extends BackdropMesh>(roots: readonly BackdropRoot<M>[]): M[] {
+  const meshes: M[] = [];
+  for (const root of roots) {
+    for (const mesh of root.getChildMeshes(false)) {
+      // A `__root__` and the container's transform nodes come back from the
+      // same walk and are not surfaces; skipping them keeps the returned list
+      // exactly "what the shadow map must not see".
+      if (mesh.getTotalVertices() === 0) {
+        continue;
+      }
+      const shared = mesh.isAnInstance === true ? mesh.sourceMesh : undefined;
+      if (shared !== undefined) {
+        shared.applyFog = false;
+        shared.isPickable = false;
+      }
+      mesh.applyFog = false;
+      mesh.isPickable = false;
+      meshes.push(mesh);
+    }
+  }
+  return meshes;
 }
 
 /** Entities grouped by the prefab they place, in first-appearance order. */
@@ -203,6 +291,8 @@ export interface ZoneScene {
   readonly thinInstances: number;
   /** Meshes that must receive shadow without casting it; see {@link castsShadows}. */
   readonly nonCasters: readonly AbstractMesh[];
+  /** Meshes of the painted distance, out of the light entirely; see {@link isBackdrop}. */
+  readonly backdrop: readonly AbstractMesh[];
   /** Where the bytes came from (ADR-0015). */
   readonly sources: AssetSourceCounts;
 }
@@ -305,6 +395,12 @@ export async function placeEntities(options: ZoneSceneOptions): Promise<{
    * the rig.
    */
   readonly nonCasters: readonly AbstractMesh[];
+  /**
+   * The meshes of every backdrop entity, handed back for the same reason
+   * {@link nonCasters} is: the light belongs to the app (ADR-0024). What is done
+   * to them *here* is what does not need the light — fog and picking.
+   */
+  readonly backdrop: readonly AbstractMesh[];
   readonly sources: AssetSourceCounts;
   /**
    * The loader that did the work, with every model of the zone still cached.
@@ -336,6 +432,7 @@ export async function placeEntities(options: ZoneSceneOptions): Promise<{
 
   let thinInstances = 0;
   const nonCasters: AbstractMesh[] = [];
+  const backdrop: AbstractMesh[] = [];
 
   await Promise.all(
     known.map(async ([prefabId, entities]) => {
@@ -378,6 +475,9 @@ export async function placeEntities(options: ZoneSceneOptions): Promise<{
           for (const node of instantiated.rootNodes) {
             node.parent = root;
           }
+          if (isBackdrop(prefab)) {
+            backdrop.push(...markAsBackdrop(instantiated.rootNodes));
+          }
         } catch (error) {
           failed.push(`${prefabId}: ${error instanceof Error ? error.message : String(error)}`);
           // One report per prefab: 80 identical lines say nothing 1 does not.
@@ -394,6 +494,7 @@ export async function placeEntities(options: ZoneSceneOptions): Promise<{
     models: known.length - failed.length,
     thinInstances,
     nonCasters,
+    backdrop,
     sources: manager.sources(),
     manager,
   };

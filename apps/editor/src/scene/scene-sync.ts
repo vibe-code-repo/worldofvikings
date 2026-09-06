@@ -26,6 +26,7 @@ import type { Scene } from '@babylonjs/core/scene.js';
 import type { AssetManager, AssetSourceCounts } from '@wov/asset-system';
 import type { EditorDocument } from '@wov/editor-core';
 import { activeZone } from '@wov/editor-core';
+import { isBackdrop } from '@wov/world-schema';
 import type { EntityDefinition } from '@wov/world-schema';
 import type { Bounds } from './editor-camera-math.js';
 import { diffEntities, isEmptyDiff } from './entity-diff.js';
@@ -269,6 +270,20 @@ export function createSceneSync(options: SceneSyncOptions): SceneSync {
       }
       for (const node of instantiated.rootNodes) {
         node.parent = instance.root;
+      }
+      if (isBackdrop(prefab)) {
+        // Out of the picking, which is what the viewport rays against for both
+        // "what did I click on" and "what is the surface under this point"
+        // (`picking.ts`). Left pickable, a prop dropped near the horizon lands
+        // on a mountain half a kilometre away, and a click anywhere the shell
+        // covers selects a painted range instead of the house behind it. The
+        // hierarchy still lists it, so it stays selectable and editable —
+        // which is the parity rule: what a script can place, a person can move
+        // (ADR-0031).
+        for (const mesh of instance.root.getChildMeshes(false)) {
+          mesh.isPickable = false;
+          mesh.applyFog = false;
+        }
       }
       instance.pending?.dispose();
       instance.pending = null;

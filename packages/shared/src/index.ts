@@ -24,3 +24,29 @@ export function clamp(value: number, min: number, max: number): number {
 export function assertNever(value: never, message = 'Unexpected value'): never {
   throw new Error(`${message}: ${JSON.stringify(value)}`);
 }
+
+/**
+ * Normalises a configured service URL, or falls back to the local default.
+ *
+ * Both apps read one of these out of `import.meta.env` and both had the same
+ * three lines: an empty value means "the local development service", anything
+ * else has to be an absolute http(s) URL, and a trailing slash would turn
+ * `${base}/worlds` into a double slash. A malformed value throws here rather
+ * than turning every later request into an unexplained failure.
+ *
+ * @param configured the raw environment value, or `undefined` when unset.
+ * @param fallback the local default, used when `configured` is empty.
+ * @param name the variable's name, so the error says which one is wrong.
+ */
+export function resolveServiceUrl(
+  configured: string | undefined,
+  fallback: string,
+  name: string,
+): string {
+  const raw = (configured ?? '').trim();
+  const url = raw === '' ? fallback : raw;
+  if (!/^https?:\/\//i.test(url)) {
+    throw new Error(`${name} must be an absolute http(s) URL, got "${url}"`);
+  }
+  return url.replace(/\/+$/, '');
+}

@@ -76,7 +76,7 @@ VITE_ASSET_URL=https://assets.staging.world-of-vikings.com
 VITE_GAME_URL=https://live.staging.world-of-vikings.com
 ASSET_HOST=0.0.0.0
 ASSET_PORT=9000
-WOV_ASSET_STORE=/opt/wov-assets/store
+WOV_ASSET_STORE=/srv/asset-store
 ```
 
 `VITE_HMR_CLIENT_PORT` is only meaningful in `dev` mode — a built bundle has no

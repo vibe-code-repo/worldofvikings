@@ -50,6 +50,7 @@ import {
   SKY_UNIFORMS,
   SKY_VERTEX_SOURCE,
 } from './sky-shader.js';
+import { clearSceneSkyGradient, setSceneSkyGradient } from './sky-gradient.js';
 import { resolveLightingProfile } from './lighting-profile.js';
 import type { LightingProfileOptions, ResolvedLightingProfile } from './lighting-profile.js';
 
@@ -360,6 +361,17 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
   }
 
   const sky = profile.sky.enabled ? createSky(scene, profile) : null;
+  // The ground reflects this sky (ADR-0032). Recorded even when the dome itself
+  // is off: a profile can turn the sky box off and still want its colours in
+  // what the ground shows, and a terrain built before this call would otherwise
+  // keep reflecting the default evening for the life of the scene.
+  setSceneSkyGradient(scene, {
+    zenithColor: profile.sky.zenithColor,
+    horizonColor: profile.sky.horizonColor,
+    sunColor: profile.sky.sunColor,
+    sunSpread: profile.sky.sunSpread,
+    intensity: profile.sky.groundReflection,
+  });
 
   const cameras = [...(options.cameras ?? (scene.activeCamera ? [scene.activeCamera] : []))];
   const pipeline =
@@ -475,6 +487,7 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
       scene.fogStart = previous.fogStart;
       scene.fogEnd = previous.fogEnd;
       scene.shadowsEnabled = previous.shadowsEnabled;
+      clearSceneSkyGradient(scene);
     },
   };
 }

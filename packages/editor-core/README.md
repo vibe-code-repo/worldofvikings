@@ -63,6 +63,15 @@ Ids — `ids.ts`: `entityIdBase(prefabId)`, `nextEntityId(usedIds, prefabId)`,
 `nextEntityIds(usedIds, prefabIds)`. Deterministic: `<prefab>_001`, first free
 number, never `Math.random` (agent rule 17).
 
+Ground — `updateTerrainSurface(zoneId, { layers, flatNormals })` in
+`commands.ts` (ADR-0032). The one way a terrain layer's `metallic`,
+`smoothness` and `normalScale` change, and the one way `flatNormals` is
+switched. The editor's ground panel and `pnpm terrain-surface` both dispatch it,
+which is what keeps a script and the editor writing the same fields through the
+same validation. A patch field that is absent means "leave it alone" and `null`
+means "take it out of the file"; the two are different edits. It cannot add a
+layer or change a texture — those have an asset and an import behind them.
+
 Scatter — `scatter.ts` (ADR-0025). Planting many copies of a prefab over a
 region, as one command whose output is ordinary entities:
 

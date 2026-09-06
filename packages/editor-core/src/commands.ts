@@ -18,8 +18,11 @@
 import {
   EntityDefinitionSchema,
   IdentifierSchema,
+  TerrainDefinitionSchema,
   ZoneDefinitionSchema,
   type EntityDefinition,
+  type TerrainDefinition,
+  type TerrainLayer,
   type Vector3,
   type WorldDefinition,
   type ZoneDefinition,
@@ -111,6 +114,48 @@ export interface RenameZoneCommand {
   readonly name: string;
 }
 
+/**
+ * What one ground layer's surface is set to. Absent means "leave it alone".
+ *
+ * `null` is not the same as absent: it clears the field back out of the world
+ * file, which is how a layer goes back to being plain diffuse without an author
+ * having to know that 0 and "not stated" render the same.
+ */
+export interface TerrainSurfacePatch {
+  readonly normalScale?: number | null;
+  readonly metallic?: number | null;
+  readonly smoothness?: number | null;
+}
+
+/** One layer's index in the zone's terrain, and what to change about it. */
+export interface TerrainLayerChange {
+  readonly index: number;
+  readonly patch: TerrainSurfacePatch;
+}
+
+/**
+ * Changes how a zone's ground *behaves* — never what it is made of.
+ *
+ * Deliberately narrow. Which textures a terrain blends, which splat maps weight
+ * them and where the tile stands are import decisions with an asset behind each
+ * one; how rough the rock is and how far its bumps push is a look, and a look
+ * is something an author turns a dial for and watches change. So this command
+ * carries the four numbers and the one switch, and nothing that would let the
+ * editor invent a layer or point one at a file that is not in the store.
+ *
+ * It is also the editor half of a promise: the same function backs
+ * `pnpm terrain-surface`, so a value written into a world file by a script and
+ * a value typed into the panel travel the same path (ADR-0032).
+ */
+export interface UpdateTerrainSurfaceCommand {
+  readonly kind: 'updateTerrainSurface';
+  readonly zoneId: string;
+  /** Per-layer changes; layers not named here keep what they have. */
+  readonly layers?: readonly TerrainLayerChange[];
+  /** Facetted ground on or off; absent leaves it as it is. */
+  readonly flatNormals?: boolean;
+}
+
 export type EditorCommand =
   | AddEntitiesCommand
   | RemoveEntitiesCommand
@@ -119,7 +164,8 @@ export type EditorCommand =
   | RenameEntityCommand
   | AddZoneCommand
   | RemoveZoneCommand
-  | RenameZoneCommand;
+  | RenameZoneCommand
+  | UpdateTerrainSurfaceCommand;
 
 export type EditorCommandKind = EditorCommand['kind'];
 
@@ -200,6 +246,21 @@ export function renameZone(zoneId: string, name: string): RenameZoneCommand {
   return { kind: 'renameZone', zoneId, name };
 }
 
+export function updateTerrainSurface(
+  zoneId: string,
+  options: {
+    readonly layers?: readonly TerrainLayerChange[];
+    readonly flatNormals?: boolean;
+  } = {},
+): UpdateTerrainSurfaceCommand {
+  return {
+    kind: 'updateTerrainSurface',
+    zoneId,
+    ...(options.layers === undefined ? {} : { layers: options.layers }),
+    ...(options.flatNormals === undefined ? {} : { flatNormals: options.flatNormals }),
+  };
+}
+
 // --- applying ---------------------------------------------------------------
 
 /**
@@ -230,6 +291,8 @@ export function applyCommand(
       return applyRemoveZone(document, command);
     case 'renameZone':
       return applyRenameZone(document, command);
+    case 'updateTerrainSurface':
+      return applyUpdateTerrainSurface(document, command);
   }
 }
 
@@ -520,6 +583,109 @@ function applyRenameZone(
 
 function placement(entity: EntityDefinition, index: number | undefined): EntityPlacement {
   return index === undefined ? { entity } : { entity, index };
+}
+
+/** The three fields the surface patch may touch. */
+const SURFACE_FIELDS = ['normalScale', 'metallic', 'smoothness'] as const;
+
+function applyUpdateTerrainSurface(
+  document: EditorDocument,
+  command: UpdateTerrainSurfaceCommand,
+): CommandResult<AppliedCommand> {
+  const zone = findZone(document, command.zoneId);
+  if (zone === undefined) {
+    return unknownZone(command.zoneId);
+  }
+  const terrain = zone.terrain;
+  if (terrain === undefined) {
+    return fail(`zone "${command.zoneId}" has no terrain to change`);
+  }
+
+  const layers = [...(terrain.layers ?? [])];
+  const undo: TerrainLayerChange[] = [];
+  for (const change of command.layers ?? []) {
+    const layer = layers[change.index];
+    if (layer === undefined) {
+      return fail(
+        `zone "${command.zoneId}" has no terrain layer ${String(change.index)}; ` +
+          `it has ${String(layers.length)}`,
+      );
+    }
+    layers[change.index] = patchLayer(layer, change.patch);
+    undo.push({ index: change.index, patch: inverseSurfacePatch(layer, change.patch) });
+  }
+
+  const next: { -readonly [K in keyof TerrainDefinition]: TerrainDefinition[K] } = {
+    ...terrain,
+    ...(command.layers === undefined ? {} : { layers }),
+  };
+  if (command.flatNormals === true) {
+    next.flatNormals = true;
+  } else if (command.flatNormals === false) {
+    // Off is the default, so it is written by *leaving the field out*: a world
+    // file that says `"flatNormals": false` and one that says nothing draw the
+    // same ground, and only one of them makes a reader wonder why it is there.
+    delete next.flatNormals;
+  }
+  // Validated here rather than trusted: the numbers come from a text field in a
+  // panel or from a command line, and a metallic of 1.4 must be refused where
+  // it is typed, not where it is drawn.
+  const parsed = TerrainDefinitionSchema.safeParse(next);
+  if (!parsed.success) {
+    return fail(
+      `terrain of zone "${command.zoneId}" is not valid: ${firstIssue(parsed.error.issues)}`,
+    );
+  }
+
+  return ok({
+    document: withZoneTerrain(document, zone, parsed.data),
+    inverse: updateTerrainSurface(command.zoneId, {
+      ...(command.layers === undefined ? {} : { layers: undo }),
+      ...(command.flatNormals === undefined ? {} : { flatNormals: terrain.flatNormals === true }),
+    }),
+    createdEntityIds: [],
+  });
+}
+
+function patchLayer(layer: TerrainLayer, patch: TerrainSurfacePatch): TerrainLayer {
+  const next: Record<string, unknown> = { ...layer };
+  for (const field of SURFACE_FIELDS) {
+    if (!(field in patch)) {
+      continue;
+    }
+    const value = patch[field];
+    if (value === null) {
+      delete next[field];
+    } else if (value !== undefined) {
+      next[field] = value;
+    }
+  }
+  return next as TerrainLayer;
+}
+
+/** The patch that puts one layer back the way it was, field for field. */
+function inverseSurfacePatch(layer: TerrainLayer, patch: TerrainSurfacePatch): TerrainSurfacePatch {
+  const back: Record<string, number | null> = {};
+  for (const field of SURFACE_FIELDS) {
+    if (field in patch) {
+      back[field] = layer[field] ?? null;
+    }
+  }
+  return back as TerrainSurfacePatch;
+}
+
+function withZoneTerrain(
+  document: EditorDocument,
+  zone: ZoneDefinition,
+  terrain: TerrainDefinition,
+): EditorDocument {
+  const world: WorldDefinition = {
+    ...document.world,
+    zones: document.world.zones.map((candidate) =>
+      candidate.id === zone.id ? { ...candidate, terrain } : candidate,
+    ),
+  };
+  return { ...document, world, dirty: true };
 }
 
 function withZoneEntities(

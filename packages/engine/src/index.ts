@@ -64,10 +64,12 @@ export {
   DEFAULT_TERRAIN_COLOR,
   createTerrain,
   createTerrainMaterial,
+  terrainLayerSources,
   clearLoaderTransform,
 } from './terrain.js';
 export type {
   TerrainHandle,
+  TerrainLayerData,
   TerrainLayerSource,
   TerrainOptions,
   TerrainTextureSource,
@@ -78,13 +80,22 @@ export {
   TERRAIN_ATTRIBUTES,
   TERRAIN_VERTEX_SOURCE,
   layerRepeats,
+  plainSurface,
   shadowTapOffsets,
   terrainFragmentSource,
   terrainSamplerNames,
   terrainUniformNames,
   terrainVertexSource,
 } from './terrain-shader.js';
-export type { TerrainShadowShader } from './terrain-shader.js';
+export type { TerrainShadowShader, TerrainSurfaceShader } from './terrain-shader.js';
+
+export {
+  DEFAULT_SKY_GRADIENT,
+  clearSceneSkyGradient,
+  sceneSkyGradient,
+  setSceneSkyGradient,
+} from './sky-gradient.js';
+export type { SkyGradient } from './sky-gradient.js';
 
 export { applyLighting } from './lighting.js';
 export type { LightingHandle, LightingOptions } from './lighting.js';
@@ -107,6 +118,7 @@ export type {
 export {
   SKY_ATTRIBUTES,
   SKY_FRAGMENT_SOURCE,
+  SKY_GRADIENT_FUNCTION,
   SKY_UNIFORMS,
   SKY_VERTEX_SOURCE,
 } from './sky-shader.js';

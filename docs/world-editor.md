@@ -1,8 +1,8 @@
 # World editor
 
 > Status: **Phase 3 MVP** — free camera, grid, selection, gizmos, hierarchy,
-> inspector, asset browser, a scatter panel, open and save through the API. No
-> components, no terrain sculpting yet.
+> inspector, asset browser, a scatter panel, a ground panel, open and save
+> through the API. No components, no terrain sculpting yet.
 
 The editor is a **separate application** (`apps/editor`, production
 `editor.world-of-vikings.com`) that produces its own bundle. Editor code must
@@ -60,7 +60,9 @@ Ctrl+Z Undo              Ctrl+Y or Ctrl+Shift+Z Redo
 Ctrl+S Save
 ```
 
-Shortcuts are ignored while a text field has focus.
+Shortcuts are ignored while a text field has focus — a field that takes text,
+that is. A checkbox takes none, so Ctrl+Z straight after ticking one is an undo
+of the thing that was ticked.
 
 ## Placing things
 
@@ -155,6 +157,29 @@ because there every tuft has to be selectable. Grass takes the sun's shadow but
 is not drawn into the shadow map (ADR-0027), and vegetation collides against
 nothing (ADR-0026), so a scattered field costs no physics bodies: 4 103 of
 `village1`'s 5 248 entities are walk-through.
+
+## The ground panel
+
+How a zone's terrain layers _behave_ — not what they are made of — is turned in
+the ground panel (ADR-0032). Per layer: `metal` (how much of it is reflected sky
+rather than its own colour), `smooth` (how sharp that reflection is) and `bump`
+(how hard its normal map tilts the surface, disabled for a layer that has none).
+Above them, one checkbox draws the whole tile facetted.
+
+Every input dispatches one `updateTerrainSurface` command, so a change is an
+ordinary edit: Ctrl+Z takes it back and saving writes it into the world file.
+
+```bash
+# The same command without the editor, one layer at a time.
+pnpm terrain-surface --world village1 --zone village --show
+pnpm terrain-surface --world village1 --zone village \
+  --layer 1 --metallic 0.85 --smoothness 0.1 --normal-scale 1.5
+pnpm terrain-surface --world village1 --zone village --layer 0 --metallic none
+pnpm terrain-surface --world village1 --zone village --flat-normals on
+```
+
+Neither the panel nor the command can add a layer, change a texture or move the
+tile: each of those has an asset and an import behind it (ADR-0020, ADR-0021).
 
 ## Where the world data comes from
 

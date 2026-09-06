@@ -77,6 +77,7 @@ type WovEditorDebugWindow = Window & {
     readonly dirty: boolean;
     readonly undoDepth: number;
     readonly redoDepth: number;
+    readonly terrain: { readonly program: string; readonly meshes: number } | null;
   };
 };
 
@@ -133,6 +134,13 @@ function editorEntityCount(page: Page): Promise<number | null> {
 /** How many entity roots the *scene* holds — the independent witness. */
 function editorMeshCount(page: Page): Promise<number | null> {
   return page.evaluate(() => (window as WovEditorDebugWindow).__wovEditor?.meshCount ?? null);
+}
+
+/** The key of the shader the drawn ground compiled, or `null` while it has none. */
+function editorTerrainProgram(page: Page): Promise<string | null> {
+  return page.evaluate(
+    () => (window as WovEditorDebugWindow).__wovEditor?.terrain?.program ?? null,
+  );
 }
 
 /** The editor's frame counter, or `null` while its bridge is not installed. */
@@ -791,6 +799,56 @@ test('editor scatters a field of prefabs as one undoable command', async ({ page
   await page.keyboard.press('Control+z');
   await expect.poll(() => editorEntityCount(page)).toBe(before);
   await expect.poll(() => editorMeshCount(page)).toBe(before);
+});
+
+/**
+ * The ground panel, end to end — the editor half of ADR-0032's parity rule.
+ *
+ * `pnpm terrain-surface` writes the same fields through the same
+ * `updateTerrainSurface` command, and a unit test already proves that command
+ * patches a document correctly. What no unit test can prove is that the panel
+ * is wired to it and that the *viewport* follows: a checkbox that dispatches
+ * into nothing, or a command that reaches the document while the tile on screen
+ * keeps its old material, both leave every test green and the editor useless.
+ *
+ * So the witness is the tile's own compiled shader key, read off the material
+ * in the scene. Facetted ground is a different program from smooth ground
+ * (`terrain.ts`), so the string has to change when the box is ticked and change
+ * back on undo.
+ */
+test('editor changes the ground’s surface and the viewport follows', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('editor-viewport-status')).toHaveText(
+    /^viewport ready — (webgl2|webgpu)$/,
+  );
+  await page.getByTestId('menu-file').click();
+  await page.getByTestId('menu-open-village1').click();
+  await expect(page.getByTestId('editor-world-name')).toHaveText('Village One');
+
+  // The village zone is the one with ground; the panel says so for the others.
+  await expect.poll(() => editorTerrainProgram(page), { timeout: 120_000 }).not.toBeNull();
+  const smooth = await editorTerrainProgram(page);
+
+  // Every layer of the village tile is listed, with its three dials.
+  await expect(page.getByTestId('ground-layer-0')).toBeVisible();
+  await expect(page.getByTestId('ground-metallic-1')).toHaveValue('0.85');
+
+  // A number typed into the panel reaches the document.
+  await page.getByTestId('ground-metallic-1').fill('0.4');
+  await expect(page.getByTestId('editor-dirty')).toHaveText('unsaved changes');
+
+  // …and the switch reaches the picture: a facetted tile is a different program.
+  await page.getByTestId('ground-flat-normals').check();
+  await expect.poll(() => editorTerrainProgram(page), { timeout: 60_000 }).not.toBe(smooth);
+  const facetted = await editorTerrainProgram(page);
+  expect(facetted).toContain('f');
+
+  // Two edits, two undos, and the ground is the one the world file describes.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => editorTerrainProgram(page), { timeout: 60_000 }).toBe(smooth);
+  await page.keyboard.press('Control+z');
+  await expect(page.getByTestId('ground-metallic-1')).toHaveValue('0.85');
 });
 
 test('editor switches tools with Q/W/E/R and deletes with the Delete key', async ({ page }) => {

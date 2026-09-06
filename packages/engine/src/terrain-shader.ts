@@ -14,6 +14,8 @@
  * a way a test can see.
  */
 
+import { SKY_GRADIENT_FUNCTION } from './sky-shader.js';
+
 /** Splat weights per map: one per RGBA channel. */
 export const CHANNELS_PER_SPLAT_MAP = 4;
 
@@ -55,6 +57,35 @@ export interface TerrainShadowShader {
 }
 
 /**
+ * What a tile's layers do beyond showing a colour (ADR-0032).
+ *
+ * The mask is per layer and not a single flag because normal maps are world
+ * data: the village's gravel has one and, until someone imports it, its moss
+ * may not. A program that declares `uLayerNormal3` while the material binds
+ * nothing to it samples black — which reads as a surface tilted hard in one
+ * direction, everywhere, and looks like a lighting bug rather than a missing
+ * file.
+ */
+export interface TerrainSurfaceShader {
+  /** One flag per layer: true when a normal map is bound for it. */
+  readonly normalMaps: readonly boolean[];
+  /**
+   * Draw the ground facetted, taking the normal from screen-space derivatives
+   * instead of from the interpolated vertex normal.
+   *
+   * Derivatives rather than a second, flat-shaded vertex buffer: the height
+   * field is a shared grid, so a facetted copy would be three times the
+   * vertices for a switch that is off by default.
+   */
+  readonly flatNormals: boolean;
+}
+
+/** A tile with no normal maps and smooth normals — what a plain world gets. */
+export function plainSurface(layerCount: number): TerrainSurfaceShader {
+  return { normalMaps: Array.from({ length: layerCount }, () => false), flatNormals: false };
+}
+
+/**
  * The uniforms Babylon fills in by name, plus the ones the material binds.
  *
  * `world`, `worldViewProjection` and `cameraPosition` are Babylon's own
@@ -74,12 +105,22 @@ export function terrainUniformNames(layerCount: number, shadows = false): string
     'uAmbientGround',
     'uFogColor',
     'uFogRange',
+    // The sky the ground reflects (ADR-0032). Always declared, never optional:
+    // every surface reflects something, and a dielectric at 4 % is the floor.
+    'uSkyZenith',
+    'uSkyHorizon',
+    'uSkyGlow',
+    'uSkyParams',
   ];
   if (shadows) {
     uniforms.push('uShadowMatrix', 'uShadowDepthValues', 'uShadowInfo');
   }
   for (let layer = 0; layer < layerCount; layer += 1) {
     uniforms.push(`uLayerScale${String(layer)}`);
+    // x: normal strength, y: metallic, z: smoothness — one vector rather than
+    // three floats, because they are always set together and a layer that has
+    // two of the three is a layer someone forgot to finish.
+    uniforms.push(`uLayerSurface${String(layer)}`);
   }
   return uniforms;
 }
@@ -108,6 +149,7 @@ export function terrainSamplerNames(
   layerCount: number,
   splatCount: number,
   shadows = false,
+  surface?: TerrainSurfaceShader | undefined,
 ): string[] {
   const samplers: string[] = [];
   for (let map = 0; map < splatCount; map += 1) {
@@ -115,6 +157,9 @@ export function terrainSamplerNames(
   }
   for (let layer = 0; layer < layerCount; layer += 1) {
     samplers.push(`uLayer${String(layer)}`);
+    if (surface?.normalMaps[layer] === true) {
+      samplers.push(`uLayerNormal${String(layer)}`);
+    }
   }
   if (shadows) {
     samplers.push('uShadowMap');
@@ -186,6 +231,7 @@ export function terrainFragmentSource(
   layerCount: number,
   splatCount: number,
   shadows?: TerrainShadowShader | undefined,
+  surface?: TerrainSurfaceShader | undefined,
 ): string {
   if (!Number.isInteger(layerCount) || layerCount < 0 || layerCount > MAX_TERRAIN_LAYERS) {
     throw new Error(`terrain: layerCount must be 0..${String(MAX_TERRAIN_LAYERS)}`);
@@ -198,6 +244,12 @@ export function terrainFragmentSource(
       `terrain: ${String(layerCount)} layers need more than ${String(splatCount)} splat map(s)`,
     );
   }
+  if (surface !== undefined && surface.normalMaps.length !== layerCount) {
+    throw new Error(
+      `terrain: ${String(surface.normalMaps.length)} normal-map flags for ` +
+        `${String(layerCount)} layers`,
+    );
+  }
 
   if (shadows !== undefined && ![1, 4, 9].includes(shadows.taps)) {
     throw new Error(`terrain: shadow taps must be 1, 4 or 9, got ${String(shadows.taps)}`);
@@ -206,16 +258,24 @@ export function terrainFragmentSource(
     throw new Error(`terrain: shadow mapSize must be positive, got ${String(shadows.mapSize)}`);
   }
 
+  const shape = surface ?? plainSurface(layerCount);
+
   const declarations: string[] = [];
   for (let map = 0; map < splatCount; map += 1) {
     declarations.push(`uniform sampler2D uSplat${String(map)};`);
   }
   for (let layer = 0; layer < layerCount; layer += 1) {
     declarations.push(`uniform sampler2D uLayer${String(layer)};`);
+    if (shape.normalMaps[layer] === true) {
+      declarations.push(`uniform sampler2D uLayerNormal${String(layer)};`);
+    }
     declarations.push(`uniform vec2 uLayerScale${String(layer)};`);
+    declarations.push(`uniform vec3 uLayerSurface${String(layer)};`);
   }
 
-  return `precision highp float;
+  const extension = shape.flatNormals ? '#extension GL_OES_standard_derivatives : enable\n' : '';
+
+  return `${extension}precision highp float;
 
 varying vec2 vUv;
 varying vec3 vNormalW;
@@ -230,20 +290,75 @@ uniform vec3 uAmbientGround;
 uniform vec3 uFogColor;
 /** x: start, y: end, z: 1 when fog is on. */
 uniform vec3 uFogRange;
+/** The gradient sky this ground reflects, and the sun's glow in it. */
+uniform vec3 uSkyZenith;
+uniform vec3 uSkyHorizon;
+uniform vec3 uSkyGlow;
+/** x: sun spread, y: how much of the sky reaches the ground. */
+uniform vec2 uSkyParams;
 ${declarations.join('\n')}
 ${shadowDeclarations(shadows)}
-vec3 albedo(void) {
-${albedoBody(layerCount, splatCount)}
+${SKY_GRADIENT_FUNCTION}
+vec3 wovLayerBump(vec3 texel, float strength) {
+  vec3 bump = texel * 2.0 - 1.0;
+  bump.xy *= strength;
+  return bump;
 }
+
+${blendFunction(layerCount, splatCount, shape)}
+${normalFunction(shape)}
 ${shadowFunction(shadows)}
+/**
+ * How much of a reflection survives the surface, by roughness and view angle.
+ *
+ * Lazarov's analytic fit to the split-sum environment BRDF — two multiply-adds
+ * instead of the 2D lookup table a full physically based renderer stores. It is
+ * here because without it a rough layer mirrors the sky at full strength: a
+ * meadow at metallic 0.5 came out the colour of the zenith, measured on the
+ * village tile before this line existed. At roughness 1 it keeps about 45 % of
+ * the reflectance and none of the grazing blow-out.
+ */
+vec2 wovEnvBrdf(float nDotV, float roughness) {
+  vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+  vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+  vec4 r = roughness * c0 + c1;
+  float a004 = min(r.x * r.x, exp2(-9.28 * nDotV)) * r.x + r.y;
+  return vec2(-1.04, 1.04) * a004 + r.zw;
+}
+
+vec3 environmentLight(vec3 n, vec3 reflectance, float smoothness) {
+  vec3 view = normalize(cameraPosition - vPositionW);
+  float nDotV = clamp(dot(n, view), 0.0, 1.0);
+  float roughness = 1.0 - clamp(smoothness, 0.0, 1.0);
+  vec3 direction = normalize(mix(reflect(-view, n), n, roughness * roughness));
+  // A mirror-sharp sun disc has no business in gravel: the glow fades out with
+  // the square of smoothness, so only a near-mirror layer ever shows one.
+  vec3 glow = uSkyGlow * smoothness * smoothness;
+  vec3 sky = wovSkyColor(direction, uSkyZenith, uSkyHorizon, glow, uSunDirection, uSkyParams.x);
+  vec2 brdf = wovEnvBrdf(nDotV, roughness);
+  return (reflectance * brdf.x + vec3(brdf.y)) * sky * uSkyParams.y;
+}
+
 void main(void) {
-  vec3 surface = albedo();
-  vec3 n = normalize(vNormalW);
+  vec3 albedo;
+  vec3 bump;
+  float metallic;
+  float smoothness;
+  blendLayers(albedo, bump, metallic, smoothness);
+
+  vec3 n = shadeNormal(bump);
 
   // One hemispheric fill and one key light: the same two createBaseScene adds.
   vec3 ambient = mix(uAmbientGround, uAmbientSky, n.y * 0.5 + 0.5);
   float key = max(dot(n, -uSunDirection), 0.0);
-  vec3 lit = surface * (ambient + uSunColor * key * shadowFactor());
+  vec3 direct = ambient + uSunColor * key * shadowFactor();
+
+  // Metallic is the dial between "this layer has a colour" and "this layer
+  // shows the sky". A dielectric still reflects 4 %, which is why every tile
+  // carries an environment term even when no layer asked for one.
+  vec3 diffuse = albedo * (1.0 - metallic);
+  vec3 reflectance = mix(vec3(0.04), albedo, metallic);
+  vec3 lit = diffuse * direct + environmentLight(n, reflectance, smoothness);
 
   float distanceToCamera = length(cameraPosition - vPositionW);
   float fog = clamp((uFogRange.y - distanceToCamera) / (uFogRange.y - uFogRange.x), 0.0, 1.0);
@@ -253,15 +368,61 @@ void main(void) {
 `;
 }
 
-function albedoBody(layerCount: number, splatCount: number): string {
+/**
+ * `blendLayers()`: the weighted sum of everything a layer contributes.
+ *
+ * Colour, tilt, metallic and smoothness are blended by the **same** normalised
+ * weights in one pass, because they describe the same square centimetre of
+ * ground. Blending them apart would be three chances for the rock's metallic to
+ * land half a metre from the rock.
+ *
+ * The weights are normalised: the exported maps hold one weight per layer that
+ * already sums to roughly 255 across all channels, and dividing by the actual
+ * sum is what keeps a tile from going dark where the paint is thin — and what
+ * makes a six-layer tile with a half-empty second map correct rather than washed
+ * out. Where nothing is painted at all, layer 0 stands in, because a black hole
+ * in the ground is worse than a wrong-looking patch.
+ */
+function blendFunction(
+  layerCount: number,
+  splatCount: number,
+  surface: TerrainSurfaceShader,
+): string {
+  const bumpOf = (layer: number): string => {
+    const index = String(layer);
+    return surface.normalMaps[layer] === true
+      ? `wovLayerBump(texture2D(uLayerNormal${index}, vUv * uLayerScale${index}).rgb, ` +
+          `uLayerSurface${index}.x)`
+      : 'vec3(0.0, 0.0, 1.0)';
+  };
+
+  /** Everything layer 0 alone contributes, at the given indent. */
+  const onlyFirstLayer = (indent: string): string[] => [
+    `${indent}albedo = texture2D(uLayer0, vUv * uLayerScale0).rgb;`,
+    `${indent}bump = ${bumpOf(0)};`,
+    `${indent}metallic = uLayerSurface0.y;`,
+    `${indent}smoothness = uLayerSurface0.z;`,
+  ];
+
+  const lines: string[] = [
+    'void blendLayers(out vec3 albedo, out vec3 bump, out float metallic, out float smoothness) {',
+  ];
+
   if (layerCount === 0) {
-    return '  return uBaseColor;';
+    lines.push(
+      '  albedo = uBaseColor;',
+      '  bump = vec3(0.0, 0.0, 1.0);',
+      '  metallic = 0.0;',
+      '  smoothness = 0.0;',
+      '}',
+    );
+    return lines.join('\n');
   }
   if (splatCount === 0) {
-    return '  return texture2D(uLayer0, vUv * uLayerScale0).rgb;';
+    lines.push(...onlyFirstLayer('  '), '}');
+    return lines.join('\n');
   }
 
-  const lines: string[] = [];
   for (let map = 0; map < splatCount; map += 1) {
     lines.push(`  vec4 weights${String(map)} = texture2D(uSplat${String(map)}, vUv);`);
   }
@@ -274,19 +435,64 @@ function albedoBody(layerCount: number, splatCount: number): string {
 
   const sum = Array.from({ length: layerCount }, (_, layer) => weightOf(layer)).join(' + ');
   lines.push(`  float total = ${sum};`);
-  lines.push('  vec3 blended = vec3(0.0);');
-  for (let layer = 0; layer < layerCount; layer += 1) {
-    lines.push(
-      `  blended += ${weightOf(layer)} * ` +
-        `texture2D(uLayer${String(layer)}, vUv * uLayerScale${String(layer)}).rgb;`,
-    );
-  }
   // Unpainted ground falls back to the first layer instead of going black.
   lines.push('  if (total < 0.0001) {');
-  lines.push('    return texture2D(uLayer0, vUv * uLayerScale0).rgb;');
+  lines.push(...onlyFirstLayer('    '));
+  lines.push('    return;');
   lines.push('  }');
-  lines.push('  return blended / total;');
+  lines.push('  albedo = vec3(0.0);');
+  lines.push('  bump = vec3(0.0);');
+  lines.push('  metallic = 0.0;');
+  lines.push('  smoothness = 0.0;');
+  for (let layer = 0; layer < layerCount; layer += 1) {
+    const index = String(layer);
+    const weight = weightOf(layer);
+    lines.push(`  albedo += ${weight} * texture2D(uLayer${index}, vUv * uLayerScale${index}).rgb;`);
+    lines.push(`  bump += ${weight} * ${bumpOf(layer)};`);
+    lines.push(`  metallic += ${weight} * uLayerSurface${index}.y;`);
+    lines.push(`  smoothness += ${weight} * uLayerSurface${index}.z;`);
+  }
+  lines.push('  albedo /= total;');
+  lines.push('  bump /= total;');
+  lines.push('  metallic /= total;');
+  lines.push('  smoothness /= total;');
+  lines.push('}');
   return lines.join('\n');
+}
+
+/**
+ * `shadeNormal()`: the normal the lighting actually uses.
+ *
+ * Two steps, both of which can be a no-op. The geometric normal is the
+ * interpolated vertex normal, or — with `flatNormals` — the cross product of the
+ * world position's screen-space derivatives, forced into the same hemisphere as
+ * the vertex normal so that no triangle comes out inside-out.
+ *
+ * The tangent frame is not read from the mesh, because a terrain tile does not
+ * need one read: its UV **is** the tile's own x and z (`height-field.ts`), so
+ * the tangent is world +x projected onto the surface and the bitangent is world
+ * +z. A vertex attribute would be three floats per vertex restating that.
+ */
+function normalFunction(surface: TerrainSurfaceShader): string {
+  const geometric = surface.flatNormals
+    ? `  vec3 smoothNormal = normalize(vNormalW);
+  vec3 facet = normalize(cross(dFdx(vPositionW), dFdy(vPositionW)));
+  vec3 n = facet * sign(dot(facet, smoothNormal));`
+    : '  vec3 n = normalize(vNormalW);';
+
+  const tilt = surface.normalMaps.some((has) => has)
+    ? `  vec3 tangent = vec3(1.0, 0.0, 0.0) - n * n.x;
+  float span = length(tangent);
+  tangent = span > 0.0001 ? tangent / span : vec3(0.0, 0.0, 1.0);
+  vec3 bitangent = cross(tangent, n);
+  return normalize(tangent * bump.x + bitangent * bump.y + n * max(bump.z, 0.0001));`
+    : '  return n;';
+
+  return `vec3 shadeNormal(vec3 bump) {
+${geometric}
+${tilt}
+}
+`;
 }
 
 /** The extra varyings, uniforms and sampler a shadow-receiving tile declares. */

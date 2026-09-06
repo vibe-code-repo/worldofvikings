@@ -19,8 +19,8 @@ The game client opens a world through `services/api`, draws that zone's ground
 from its height field and splat layers (ADR-0020), places its entities from the
 prefab catalogue as GPU instances, and stands a placeholder capsule on the
 terrain with a third-person camera and a physics world (ADR-0022). `?world=`
-picks the world, `?spawn=x,z` where to stand, `?flat=1` and `?shadows=off` take
-the light apart for a measurement.
+picks the world, `?spawn=x,z` where to stand, `?look=yaw[,pitch]` where to aim,
+and `?flat=1` and `?shadows=off` take the light apart for a measurement.
 
 The village zone is 5248 entities from 140 models, 4032 of them scattered
 vegetation drawn as thin instances (ADR-0025). It is lit the way its world file
@@ -39,7 +39,9 @@ something that can be selected or moved. Its one rule is ADR-0018: **the
 document is the truth and the scene follows it** — every gesture becomes a
 command, and the viewport reconciles. It scatters prefabs over a region as one
 undoable command whose output is ordinary entities (ADR-0025), also available as
-`pnpm scatter`. There is no component system and no terrain sculpting yet.
+`pnpm scatter`. Its ground panel turns a terrain layer's metallic, smoothness
+and bump strength through the same command `pnpm terrain-surface` uses
+(ADR-0032). There is no component system and no terrain sculpting yet.
 
 The client has exactly one loop, one device edge and one ground query — read
 [ADR-0014](docs/adr/0014-one-loop-one-device-edge-one-ground.md) before adding a
@@ -91,6 +93,8 @@ pnpm import:backdrop --source <export> --store <store>       # see ADR-0031
 pnpm import:scene --scene <bundle> --world <id> --name <n>   # see ADR-0021, ADR-0028
 pnpm scatter --world <id> --zone <id> --region … --prefab … --density … --seed …
                  # one scatter run into a world file (ADR-0025)
+pnpm terrain-surface --world <id> --zone <id> --layer <n> --metallic … --smoothness …
+                 # a ground layer's surface, through the editor's own command (ADR-0032)
 pnpm check       # typecheck + lint + format:check + test + validate
 pnpm smoke       # Playwright: every app started, marker asserted
 ```

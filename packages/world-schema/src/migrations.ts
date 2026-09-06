@@ -44,8 +44,22 @@ const v2ToV3: WorldMigration = {
   migrate: (data) => ({ ...data, schemaVersion: 3 }),
 };
 
+/**
+ * v3 → v4: terrain layers gained `normalMap`, `normalScale`, `metallic` and
+ * `smoothness`, and a terrain gained `flatNormals` (ADR-0032).
+ *
+ * Additive again, and again nothing is invented. A v3 layer has no surface
+ * numbers, so it is a v4 layer that is plain diffuse — which is exactly how it
+ * was drawn. Writing the village's measured metallic values into every old
+ * world would be this migration deciding how those worlds look.
+ */
+const v3ToV4: WorldMigration = {
+  from: 3,
+  migrate: (data) => ({ ...data, schemaVersion: 4 }),
+};
+
 /** Every known step, in ascending order. */
-export const WORLD_MIGRATIONS: readonly WorldMigration[] = [v1ToV2, v2ToV3];
+export const WORLD_MIGRATIONS: readonly WorldMigration[] = [v1ToV2, v2ToV3, v3ToV4];
 
 /** What {@link migrateWorldData} did. */
 export type WorldMigrationResult =

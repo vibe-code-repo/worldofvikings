@@ -11,6 +11,7 @@ import {
   createTerrainMaterial,
   clearLoaderTransform,
 } from './terrain.js';
+import { sceneSkyGradient, setSceneSkyGradient } from './sky-gradient.js';
 
 const scenes: Scene[] = [];
 
@@ -163,5 +164,89 @@ describe('createTerrainMaterial', () => {
     // scene's lighting is part of building the material and does not throw with
     // a scene that has no lights at all — the case a blank editor scene is in.
     expect(material.getScene()).toBe(target);
+  });
+});
+
+describe('a layer’s surface', () => {
+  it('loads a normal map for the layers that have one, and binds a sampler for it', () => {
+    const target = scene();
+    const { material, textures } = createTerrainMaterial(target, 'ground', {
+      position: [0, 0, 0],
+      size: [300, 300],
+      splat: [{ url: 'splat-a.png' }],
+      layers: [
+        {
+          url: 'rock.png',
+          tileSize: 2,
+          normalMap: { url: 'rock-normal.png' },
+          normalScale: 1.5,
+          metallic: 0.85,
+          smoothness: 0.1,
+        },
+        { url: 'moss.png', tileSize: 2 },
+      ],
+    });
+
+    expect(textures.map((texture) => texture.name)).toEqual([
+      'splat-a.png',
+      'rock.png',
+      'rock-normal.png',
+      'moss.png',
+    ]);
+    expect(material.options.samplers).toContain('uLayerNormal0');
+    expect(material.options.samplers).not.toContain('uLayerNormal1');
+    expect(material.options.uniforms).toContain('uLayerSurface0');
+    expect(material.options.uniforms).toContain('uLayerSurface1');
+  });
+
+  it('binds the sky uniforms the ground reflects through', () => {
+    const target = scene();
+    setSceneSkyGradient(target, {
+      zenithColor: '#102040',
+      horizonColor: '#804020',
+      sunColor: '#ffffff',
+      sunSpread: 0.25,
+      intensity: 0.6,
+    });
+    const { material } = createTerrainMaterial(target, 'ground', {
+      position: [0, 0, 0],
+      size: [10, 10],
+    });
+    expect(material.options.uniforms).toEqual(
+      expect.arrayContaining(['uSkyZenith', 'uSkyHorizon', 'uSkyGlow', 'uSkyParams']),
+    );
+    // The values come from the scene, not from a second set of options here.
+    expect(sceneSkyGradient(target).intensity).toBe(0.6);
+  });
+
+  it('compiles a different program for a facetted tile than for a smooth one', () => {
+    const target = scene();
+    const smooth = createTerrainMaterial(target, 'a', {
+      position: [0, 0, 0],
+      size: [10, 10],
+      layers: [{ url: 'rock.png', tileSize: 2 }],
+    });
+    const facetted = createTerrainMaterial(target, 'b', {
+      position: [0, 0, 0],
+      size: [10, 10],
+      layers: [{ url: 'rock.png', tileSize: 2 }],
+      flatNormals: true,
+    });
+    expect(smooth.material.shaderPath).not.toEqual(facetted.material.shaderPath);
+  });
+
+  it('compiles a different program for a bumped tile than for a plain one', () => {
+    const target = scene();
+    const plain = createTerrainMaterial(target, 'a', {
+      position: [0, 0, 0],
+      size: [10, 10],
+      layers: [{ url: 'rock.png', tileSize: 2 }],
+    });
+    const bumped = createTerrainMaterial(target, 'b', {
+      position: [0, 0, 0],
+      size: [10, 10],
+      layers: [{ url: 'rock.png', tileSize: 2, normalMap: { url: 'rock-normal.png' } }],
+    });
+    expect(plain.material.shaderPath).not.toEqual(bumped.material.shaderPath);
   });
 });

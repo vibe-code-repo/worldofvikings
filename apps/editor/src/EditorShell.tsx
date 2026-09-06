@@ -19,6 +19,7 @@ import {
   renameZone,
   scatterCommand,
   serializeDocument,
+  updateTerrainSurface,
   updateTransform,
   type Rect,
   type ScatterOptions,
@@ -30,11 +31,13 @@ import type { EntityDefinition, Vector3, WorldDefinition } from '@wov/world-sche
 import { createEditorApi, type WorldSummary } from './api/client.js';
 import { resolveEditorConfig } from './config.js';
 import { publishEditorDebug } from './dev-debug.js';
+import { targetSwallowsKeystrokes } from './keyboard.js';
 import { EditorViewport, type ViewportController } from './EditorViewport.js';
 import { AssetBrowser } from './panels/AssetBrowser.js';
 import { Hierarchy } from './panels/Hierarchy.js';
 import { Inspector } from './panels/Inspector.js';
 import { MenuBar } from './panels/MenuBar.js';
+import { GroundPanel } from './panels/GroundPanel.js';
 import { ScatterPanel, type CornerPick } from './panels/ScatterPanel.js';
 import { TOOL_KEYS, type EditorTool } from './scene/gizmos.js';
 import { createPrefabIndex, type PrefabIndex } from './scene/prefab-index.js';
@@ -58,19 +61,6 @@ const DEFAULT_SCATTER_REGION: Rect = [-10, -10, 10, 10];
 
 /** How far a duplicate or a paste lands from its source, so it is not inside it. */
 const COPY_OFFSET: Vector3 = [DEFAULT_GRID_STEP * 4, 0, DEFAULT_GRID_STEP * 4];
-
-/** A keystroke typed into a field belongs to the field, not to the editor. */
-function isTyping(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  return (
-    target.isContentEditable ||
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement
-  );
-}
 
 /**
  * The editor (spec §13, §14).
@@ -292,7 +282,7 @@ export function EditorShell(): JSX.Element {
     const onKeyDown = (event: KeyboardEvent): void => {
       // The camera claims WASD/QE while it is flying and marks those events
       // handled; the tool shortcuts must not fire underneath it.
-      if (event.defaultPrevented || isTyping(event.target)) {
+      if (event.defaultPrevented || targetSwallowsKeystrokes(event.target)) {
         return;
       }
 
@@ -505,6 +495,28 @@ export function EditorShell(): JSX.Element {
           error={prefabError}
           selectedPrefabId={placingPrefabId}
           onSelectPrefab={setPlacingPrefabId}
+        />
+
+        <GroundPanel
+          terrain={zone?.terrain}
+          onLayer={(index, patch) => {
+            if (zoneId !== null) {
+              dispatch({
+                type: 'run',
+                command: updateTerrainSurface(zoneId, { layers: [{ index, patch }] }),
+                selectCreated: false,
+              });
+            }
+          }}
+          onFlatNormals={(facetted) => {
+            if (zoneId !== null) {
+              dispatch({
+                type: 'run',
+                command: updateTerrainSurface(zoneId, { flatNormals: facetted }),
+                selectCreated: false,
+              });
+            }
+          }}
         />
 
         <ScatterPanel

@@ -4,6 +4,7 @@ import {
   DEFAULT_WORLD_ID,
   FLAT_LIGHTING,
   lightingProfiles,
+  lookFromQuery,
   resolveGameConfig,
   worldIdFromQuery,
 } from './config.js';
@@ -81,5 +82,28 @@ describe('FLAT_LIGHTING', () => {
     // before there was a profile, not against nothing.
     expect(FLAT_LIGHTING.sun?.intensity).toBeGreaterThan(0);
     expect(FLAT_LIGHTING.ambient?.intensity).toBeGreaterThan(0);
+  });
+});
+
+describe('lookFromQuery', () => {
+  it('aims the camera in degrees, yaw only', () => {
+    expect(lookFromQuery('?look=90')).toEqual({ initialYaw: Math.PI / 2, initialPitch: 0.28 });
+  });
+
+  it('takes a pitch as well', () => {
+    const look = lookFromQuery('?look=-90,12');
+    expect(look?.initialYaw).toBeCloseTo(-Math.PI / 2, 6);
+    expect(look?.initialPitch).toBeCloseTo((12 * Math.PI) / 180, 6);
+  });
+
+  it('ignores a malformed value rather than framing something else', () => {
+    expect(lookFromQuery('?look=')).toBeUndefined();
+    expect(lookFromQuery('?look=north')).toBeUndefined();
+    expect(lookFromQuery('?look=1,2,3')).toBeUndefined();
+    expect(lookFromQuery('?look=10,south')).toBeUndefined();
+  });
+
+  it('is absent when nothing asked for it', () => {
+    expect(lookFromQuery('?world=village1')).toBeUndefined();
   });
 });

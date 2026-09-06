@@ -23,7 +23,7 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import { AssetManager, assetStoreUrl, assetUrl, createAssetCatalog } from '@wov/asset-system';
 import type { AssetSourceConfig } from '@wov/asset-system';
-import { createTerrain } from '@wov/engine';
+import { createTerrain, terrainLayerSources } from '@wov/engine';
 import type { TerrainHandle, TerrainTextureSource } from '@wov/engine';
 import type { TerrainDefinition } from '@wov/world-schema';
 
@@ -114,11 +114,9 @@ export function createZoneTerrain(options: ZoneTerrainOptions): ZoneTerrain {
       name,
       position: [terrain.position[0], terrain.position[1], terrain.position[2]],
       size: [terrain.size[0], terrain.size[1]],
-      layers: (terrain.layers ?? []).map((layer) => ({
-        ...textureSource(source, layer.texture),
-        tileSize: layer.tileSize,
-      })),
+      layers: terrainLayerSources(terrain.layers ?? [], (path) => textureSource(source, path)),
       splat: (terrain.splat ?? []).map((path) => textureSource(source, path)),
+      flatNormals: terrain.flatNormals === true,
       // The ground receives the sun's shadow map through its own shader
       // (ADR-0024). It has to be requested here rather than set afterwards:
       // the lookup is compiled into the tile's generated program.

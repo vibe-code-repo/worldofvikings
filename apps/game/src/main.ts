@@ -55,7 +55,12 @@ import { tokens } from '@wov/ui';
 import { isDebugRequested } from '@wov/shared';
 import { installDevDebugBridge } from './dev-debug.js';
 import type { BackdropReadout, WovCollisionDebug, WovTerrainBounds } from './dev-debug.js';
-import { lightingProfiles, resolveGameConfig, worldIdFromQuery } from './config.js';
+import {
+  lightingProfiles,
+  lookFromQuery,
+  resolveGameConfig,
+  worldIdFromQuery,
+} from './config.js';
 import { createWorldApi } from './world-api.js';
 import {
   NO_SOURCES,
@@ -226,6 +231,9 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
     // no rig at all, and a rig built for two seconds and thrown away is still a
     // rig that was paid for.
     lighting: lightingProfiles(window.location.search, []),
+    // `?look=yaw[,pitch]`, so a comparison screenshot can be aimed by URL
+    // instead of by dragging a mouse (ADR-0032).
+    camera: lookFromQuery(window.location.search) ?? {},
   });
   const { renderer, base, camera, player } = scene3d;
   /**

@@ -87,6 +87,14 @@ the author recorded as unconfirmed and the licence review open. Nothing is filed
 under a name that would be a guess. What the manifest _does_ state per file is
 geometric: where the origin sits, and how many triangles the model has.
 
+**Two tiles per height field (ADR-0032).** Beside the plain 257² copy the
+import writes an adaptive one: the source's 513² resolution in every coarse cell
+holding a triangle past 35°, thinned everywhere else, as a single watertight
+mesh. A fine vertex on the boundary with a coarse cell is placed on the straight
+coarse edge, which is what stops a T-junction opening. Measured on the village
+tile: 524 288 triangles at 513², 131 072 thinned, 281 216 adaptive, with the
+triangle area past 60° at 17.55 %, 16.06 % and 17.60 %.
+
 **Terrain is rebuilt, not repacked — the one exception to the rule below.**
 A height field arrives as a 513² grid with 524 288 triangles and a `TEXCOORD_0`
 that is all zeros, so it can be neither drawn with a ground texture nor afforded

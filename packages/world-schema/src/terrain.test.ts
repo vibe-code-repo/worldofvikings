@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TerrainDefinitionSchema } from './terrain.js';
+import { TerrainDefinitionSchema, terrainAssetPaths } from './terrain.js';
 
 const heightField = 'terrain/village-257.glb';
 const splatA = 'textures/village-splat-a.png';
@@ -123,5 +123,71 @@ describe('TerrainDefinitionSchema', () => {
       lod: 3,
     });
     expect(result.success).toBe(false);
+  });
+
+  it('accepts the surface fields a layer may carry', () => {
+    const result = TerrainDefinitionSchema.safeParse({
+      heightField,
+      position: [0, 0, 0],
+      size: [300, 300],
+      layers: [
+        {
+          texture: 'textures/terrain-rock-a.png',
+          tileSize: 2,
+          normalMap: 'textures/terrain-rock-a-normal.png',
+          normalScale: 1.5,
+          metallic: 0.85,
+          smoothness: 0.1,
+        },
+      ],
+      splat: [splatA],
+      flatNormals: false,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a normal strength with no normal map to scale', () => {
+    const result = TerrainDefinitionSchema.safeParse({
+      heightField,
+      position: [0, 0, 0],
+      size: [300, 300],
+      layers: [{ texture: 'textures/grass.png', tileSize: 2, normalScale: 2 }],
+      splat: [splatA],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a metallic value outside 0…1', () => {
+    const result = TerrainDefinitionSchema.safeParse({
+      heightField,
+      position: [0, 0, 0],
+      size: [300, 300],
+      layers: [{ texture: 'textures/grass.png', tileSize: 2, metallic: 1.4 }],
+      splat: [splatA],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('terrainAssetPaths', () => {
+  it('names every normal map, so validate:content sees them too', () => {
+    const terrain = TerrainDefinitionSchema.parse({
+      heightField,
+      position: [0, 0, 0],
+      size: [300, 300],
+      layers: [
+        { texture: 'textures/a.png', tileSize: 2, normalMap: 'textures/a-normal.png' },
+        { texture: 'textures/b.png', tileSize: 2 },
+      ],
+      splat: [splatA, splatB],
+    });
+    expect(terrainAssetPaths(terrain)).toEqual([
+      heightField,
+      splatA,
+      splatB,
+      'textures/a.png',
+      'textures/b.png',
+      'textures/a-normal.png',
+    ]);
   });
 });

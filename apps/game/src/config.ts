@@ -98,3 +98,41 @@ export function lightingProfiles(
   }
   return authored;
 }
+
+/**
+ * The camera aim `?look=` asks for, in degrees, or nothing.
+ *
+ * `?look=yaw` or `?look=yaw,pitch`, measured the way the camera measures them:
+ * yaw turns to the right, pitch is positive looking down. It is the third
+ * diagnostic switch, alongside `?flat=1` and `?shadows=off`, and it exists for
+ * the same reason `?spawn=` does — a screenshot that has to be comparable
+ * across two builds cannot be aimed by dragging a mouse. Nothing in the game
+ * writes it; it only ever sets where the camera starts, and the player can turn
+ * from there like always.
+ *
+ * Anything malformed is ignored rather than clamped to a guess: a typo must
+ * leave the default view, not silently frame something else.
+ */
+export function lookFromQuery(
+  search: string,
+): { readonly initialYaw: number; readonly initialPitch: number } | undefined {
+  const value = new URLSearchParams(search).get('look');
+  if (value === null) {
+    return undefined;
+  }
+  const parts = value.split(',').map((part) => Number.parseFloat(part.trim()));
+  const [yaw, pitch] = parts;
+  if (parts.length > 2 || yaw === undefined || !Number.isFinite(yaw)) {
+    return undefined;
+  }
+  if (pitch !== undefined && !Number.isFinite(pitch)) {
+    return undefined;
+  }
+  const radians = (degrees: number): number => (degrees * Math.PI) / 180;
+  return {
+    initialYaw: radians(yaw),
+    // The camera's own default when only a yaw is given, so `?look=90` turns
+    // without also tilting.
+    initialPitch: pitch === undefined ? 0.28 : radians(pitch),
+  };
+}

@@ -16,9 +16,11 @@ things, kept apart on purpose:
    player, a gradient sky, the scene's fog and a grading pipeline. Both apps
    call it with the same profile out of the same file, which is what makes the
    editor show an author the picture the player will get.
-4. **The terrain renderer** (ADR-0020) — a loaded height field placed where a
-   zone's `terrain` says, with a generated multi-layer material that blends up
-   to eight ground textures by two RGBA splat maps. It renders terrain; it does
+4. **The terrain renderer** (ADR-0020, ADR-0032) — a loaded height field placed
+   where a zone's `terrain` says, with a generated multi-layer material that
+   blends up to eight ground textures by two RGBA splat maps, together with a
+   normal map, a metallic and a smoothness per layer, and one reflection of the
+   sky the scene is lit under. It renders terrain; it does
    not decide where terrain is (that is world data) and it does not load the
    model (that is `@wov/asset-system`).
 5. **The third-person camera** (ADR-0008, spec §26) — mouse rotation with
@@ -57,7 +59,11 @@ reads back. Rendering never owns the game state (spec §25), which is why
 | `TerrainHandle`                                                                             | `root`, `meshes` (what physics collides against), `material`, `textures`, `dispose`.                                                      |
 | `createTerrainMaterial(scene, name, options)`                                               | The material on its own, for a view that draws ground without a physics world.                                                            |
 | `clearLoaderTransform(root)`                                                                | Clears the glTF loader's handedness transform (half turn **and** mirror) so a tile covers the metres the world file names.                |
-| `terrainFragmentSource(layers, splats)` / `TERRAIN_VERTEX_SOURCE`                           | The generated GLSL, Babylon-free so it can be asserted in a unit test.                                                                    |
+| `terrainFragmentSource(layers, splats, shadows?, surface?)` / `TERRAIN_VERTEX_SOURCE`       | The generated GLSL, Babylon-free so it can be asserted in a unit test.                                                                    |
+| `terrainLayerSources(layers, resolve)`                                                      | World-file layers to loadable ones, through the caller's own URL resolver. One mapping for the game and the editor.                       |
+| `TerrainSurfaceShader` / `plainSurface(count)`                                              | Which layers have a normal map and whether the tile is facetted — part of the program's shape.                                            |
+| `sceneSkyGradient(scene)` / `setSceneSkyGradient`                                           | The sky a scene is lit under, as numbers the ground can reflect (ADR-0032). Written by `applyLighting`, read by the terrain material.     |
+| `SKY_GRADIENT_FUNCTION`                                                                     | The sky as a function of direction, pasted into both the dome's program and the ground's.                                                 |
 | `layerRepeats(size, tileSize)`                                                              | Metres across ÷ metres per repeat — the one place `size` and `tileSize` meet.                                                             |
 | `resolveThirdPersonCameraSettings(over?)`                                                   | Validates a partial camera description; rejects a pitch range that reaches the pole.                                                      |
 | `defaultThirdPersonCameraSettings`                                                          | The resolved defaults: 6 m out (2…12), −17°…66° pitch, 0.12 s follow lag.                                                                 |

@@ -8,7 +8,14 @@ import {
   terrainSamplerNames,
   terrainUniformNames,
   terrainVertexSource,
+  type TerrainSurfaceShader,
 } from './terrain-shader.js';
+import { SKY_GRADIENT_FUNCTION } from './sky-shader.js';
+
+/** A surface shape: which layers have a normal map, and facets on or off. */
+function surface(normalMaps: boolean[], flatNormals = false): TerrainSurfaceShader {
+  return { normalMaps, flatNormals };
+}
 
 describe('terrainFragmentSource', () => {
   it('declares exactly the samplers the material binds', () => {
@@ -45,7 +52,7 @@ describe('terrainFragmentSource', () => {
       'float total = weights0.r + weights0.g + weights0.b + weights0.a + ' +
         'weights1.r + weights1.g;',
     );
-    expect(source).toContain('return blended / total;');
+    expect(source).toContain('albedo /= total;');
   });
 
   it('falls back to the first layer where nothing is painted', () => {
@@ -54,13 +61,13 @@ describe('terrainFragmentSource', () => {
 
   it('samples one texture directly when there is a layer but no splat map', () => {
     const source = terrainFragmentSource(1, 0);
-    expect(source).toContain('return texture2D(uLayer0, vUv * uLayerScale0).rgb;');
+    expect(source).toContain('albedo = texture2D(uLayer0, vUv * uLayerScale0).rgb;');
     expect(source).not.toContain('uSplat0');
   });
 
   it('returns a flat colour when there is no layer at all', () => {
     const source = terrainFragmentSource(0, 0);
-    expect(source).toContain('return uBaseColor;');
+    expect(source).toContain('albedo = uBaseColor;');
     expect(source).not.toContain('sampler2D');
   });
 
@@ -165,5 +172,118 @@ describe('layerRepeats', () => {
   it('refuses a tile size that would divide by zero', () => {
     expect(() => layerRepeats([300, 300], 0)).toThrow(/positive number of metres/);
     expect(() => layerRepeats([300, 300], -2)).toThrow(/positive number of metres/);
+  });
+});
+
+describe('the ground’s surface layers', () => {
+  it('declares a normal sampler only for the layers that have a map', () => {
+    const shape = surface([true, false, true]);
+    const source = terrainFragmentSource(3, 1, undefined, shape);
+    expect(source).toContain('uniform sampler2D uLayerNormal0;');
+    expect(source).not.toContain('uniform sampler2D uLayerNormal1;');
+    expect(source).toContain('uniform sampler2D uLayerNormal2;');
+    expect(terrainSamplerNames(3, 1, false, shape)).toEqual([
+      'uSplat0',
+      'uLayer0',
+      'uLayerNormal0',
+      'uLayer1',
+      'uLayer2',
+      'uLayerNormal2',
+    ]);
+  });
+
+  it('gives a layer without a map a flat tilt rather than a black texel', () => {
+    const source = terrainFragmentSource(2, 1, undefined, surface([true, false]));
+    expect(source).toContain('bump += weights0.g * vec3(0.0, 0.0, 1.0);');
+  });
+
+  it('blends tilt, metallic and smoothness by the weights the colour uses', () => {
+    const source = terrainFragmentSource(2, 1, undefined, surface([true, true]));
+    for (const line of [
+      'albedo += weights0.r * texture2D(uLayer0, vUv * uLayerScale0).rgb;',
+      'bump += weights0.r * wovLayerBump(texture2D(uLayerNormal0, vUv * uLayerScale0).rgb, ' +
+        'uLayerSurface0.x);',
+      'metallic += weights0.r * uLayerSurface0.y;',
+      'smoothness += weights0.r * uLayerSurface0.z;',
+    ]) {
+      expect(source).toContain(line);
+    }
+    expect(source).toContain('bump /= total;');
+  });
+
+  it('declares one surface uniform per layer, next to its scale', () => {
+    expect(terrainUniformNames(2)).toContain('uLayerSurface0');
+    expect(terrainUniformNames(2)).toContain('uLayerSurface1');
+    expect(terrainUniformNames(2)).not.toContain('uLayerSurface2');
+  });
+
+  it('refuses a normal-map mask that does not cover every layer', () => {
+    expect(() => terrainFragmentSource(3, 1, undefined, surface([true, false]))).toThrow(
+      /2 normal-map flags for 3 layers/,
+    );
+  });
+
+  it('builds the tangent frame from the tile’s own axes, not from an attribute', () => {
+    const source = terrainFragmentSource(1, 0, undefined, surface([true]));
+    // u runs along world x and v along world z (`height-field.ts`), so the
+    // frame is those two projected onto the surface.
+    expect(source).toContain('vec3 tangent = vec3(1.0, 0.0, 0.0) - n * n.x;');
+    expect(source).toContain('vec3 bitangent = cross(tangent, n);');
+  });
+
+  it('leaves the normal alone when no layer has a map', () => {
+    const source = terrainFragmentSource(2, 1, undefined, surface([false, false]));
+    expect(source).not.toContain('bitangent');
+  });
+});
+
+describe('facetted ground', () => {
+  it('is off unless asked for, and then asks for derivatives', () => {
+    expect(terrainFragmentSource(1, 0)).not.toContain('dFdx');
+    const flat = terrainFragmentSource(1, 0, undefined, surface([false], true));
+    expect(flat.startsWith('#extension GL_OES_standard_derivatives : enable\n')).toBe(true);
+    expect(flat).toContain('cross(dFdx(vPositionW), dFdy(vPositionW))');
+  });
+
+  it('keeps the facet on the same side as the vertex normal', () => {
+    // Without this the winding decides which way a triangle faces, and half the
+    // tile lights from underneath — with nothing in any log to say so.
+    const flat = terrainFragmentSource(1, 0, undefined, surface([false], true));
+    expect(flat).toContain('vec3 n = facet * sign(dot(facet, smoothNormal));');
+  });
+});
+
+describe('the sky the ground reflects', () => {
+  it('evaluates the very gradient the sky dome draws', () => {
+    const source = terrainFragmentSource(1, 0);
+    expect(source).toContain(SKY_GRADIENT_FUNCTION);
+    expect(source).toContain('wovSkyColor(direction, uSkyZenith, uSkyHorizon, glow');
+  });
+
+  it('names the sky uniforms the material binds', () => {
+    const names = terrainUniformNames(0);
+    expect(names).toEqual(
+      expect.arrayContaining(['uSkyZenith', 'uSkyHorizon', 'uSkyGlow', 'uSkyParams']),
+    );
+  });
+
+  it('pays for the reflection through the environment BRDF, not at full strength', () => {
+    // Without this a meadow at metallic 0.5 comes out the colour of the zenith.
+    const source = terrainFragmentSource(1, 0);
+    expect(source).toContain('vec2 wovEnvBrdf(float nDotV, float roughness)');
+    expect(source).toContain('(reflectance * brdf.x + vec3(brdf.y)) * sky * uSkyParams.y');
+  });
+
+  it('splits the surface into a diffuse half and a reflected half', () => {
+    const source = terrainFragmentSource(1, 0);
+    expect(source).toContain('vec3 diffuse = albedo * (1.0 - metallic);');
+    expect(source).toContain('vec3 reflectance = mix(vec3(0.04), albedo, metallic);');
+  });
+
+  it('blurs the reflection as the surface roughens', () => {
+    // A rough layer taking a mirror sample is a ground full of sun discs.
+    expect(terrainFragmentSource(1, 0)).toContain(
+      'normalize(mix(reflect(-view, n), n, roughness * roughness))',
+    );
   });
 });

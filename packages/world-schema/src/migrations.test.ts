@@ -42,6 +42,24 @@ describe('migrateWorldData', () => {
     });
   });
 
+  it('upgrades version 3 additively: a v3 terrain stays plain diffuse', () => {
+    const v3 = {
+      schemaVersion: 3,
+      id: 'main',
+      name: 'Main',
+      zones: [
+        {
+          id: 'a',
+          name: 'A',
+          entities: [],
+          terrain: { heightField: 't.glb', position: [0, 0, 0], size: [10, 10] },
+        },
+      ],
+    };
+    const result = migrateWorldData(v3, 4);
+    expect(result).toEqual({ ok: true, data: { ...v3, schemaVersion: 4 }, from: 3, to: 4 });
+  });
+
   it('walks every recorded step in one go, 1 to the current version', () => {
     const result = migrateWorldData(
       { schemaVersion: 1, id: 'main', name: 'Main', zones: [] },

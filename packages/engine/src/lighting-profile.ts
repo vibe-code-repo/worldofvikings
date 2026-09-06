@@ -46,6 +46,8 @@ export interface SkyOptions {
   readonly sunColor: ColorHex;
   /** How far the glow around the sun spreads: 0 a point, 1 the whole sky. */
   readonly sunSpread: number;
+  /** How much of this sky the ground reflects, 0…1 (ADR-0032). */
+  readonly groundReflection: number;
 }
 
 /** Linear distance fog, in metres. */
@@ -174,6 +176,9 @@ export const defaultLightingProfile: ResolvedLightingProfile = {
     horizonColor: '#e8c79a',
     sunColor: '#ffd9a8',
     sunSpread: 0.35,
+    // Full sky by default: the ground reflecting less than the dome shows is a
+    // decision a world makes, not a renderer default.
+    groundReflection: 1,
   },
   fog: {
     enabled: true,
@@ -358,6 +363,7 @@ export function resolveLightingProfile(
       horizonColor: requireHexColor(sky.horizonColor, 'sky.horizonColor'),
       sunColor: requireHexColor(sky.sunColor, 'sky.sunColor'),
       sunSpread: requireFraction(sky.sunSpread, 'sky.sunSpread'),
+      groundReflection: requireFraction(sky.groundReflection, 'sky.groundReflection'),
     },
     fog: {
       enabled: fog.enabled,

@@ -389,6 +389,320 @@ export function gridPositions(grid: HeightGrid): Float32Array {
   return positions;
 }
 
+// ------------------------------------------------------- adaptive resolution
+
+/**
+ * A finished tile as buffers, whatever grid it came from.
+ *
+ * A grid is not enough to describe an adaptive tile: its vertices are no longer
+ * `rows × columns` and its triangles are no longer two per cell. So the writer
+ * takes this instead, and {@link gridMesh} turns a plain grid into one.
+ */
+export interface TerrainMesh {
+  readonly positions: Float32Array;
+  readonly normals: Float32Array;
+  readonly uvs: Float32Array;
+  readonly indices: Uint32Array;
+  readonly bounds: HeightGridBounds;
+}
+
+/** A plain grid as a mesh: the same four buffers it always produced. */
+export function gridMesh(grid: HeightGrid): TerrainMesh {
+  return {
+    positions: gridPositions(grid),
+    normals: gridNormals(grid),
+    uvs: gridUvs(grid),
+    indices: gridIndices(grid),
+    bounds: gridBounds(grid),
+  };
+}
+
+/** The steepest of the two triangles of one source cell, in degrees. */
+function cellSlope(grid: HeightGrid, column: number, row: number): number {
+  const at = (c: number, r: number): number => grid.heights[r * grid.columns + c] ?? 0;
+  const h00 = at(column, row);
+  const h10 = at(column + 1, row);
+  const h01 = at(column, row + 1);
+  const h11 = at(column + 1, row + 1);
+  // Two triangles, each a plane: the gradient of a plane through three heights
+  // is the slope of that triangle, and the steeper of the two is the cell's.
+  const first = Math.hypot((h10 - h00) / grid.stepX, (h01 - h00) / grid.stepZ);
+  const second = Math.hypot((h11 - h01) / grid.stepX, (h11 - h10) / grid.stepZ);
+  return (Math.atan(Math.max(first, second)) * 180) / Math.PI;
+}
+
+/**
+ * What share of a grid's triangle area stands steeper than `degrees`.
+ *
+ * The number the thinning costs: a 513² tile has 7 % of its cells past 60°, a
+ * 257² one has a quarter fewer, because two neighbouring cliff cells averaged
+ * into one are a ramp. Reported by the importer so the loss is a figure in the
+ * log rather than a claim in a commit message.
+ */
+export function steepShare(grid: HeightGrid, degrees: number): number {
+  let steep = 0;
+  const cells = (grid.columns - 1) * (grid.rows - 1);
+  for (let row = 0; row < grid.rows - 1; row += 1) {
+    for (let column = 0; column < grid.columns - 1; column += 1) {
+      if (cellSlope(grid, column, row) > degrees) {
+        steep += 1;
+      }
+    }
+  }
+  return cells === 0 ? 0 : steep / cells;
+}
+
+/** What {@link adaptiveMesh} built, and what it cost. */
+export interface AdaptiveMesh extends TerrainMesh {
+  /** Coarse cells kept at the source resolution. */
+  readonly steepCells: number;
+  /** Coarse cells in the tile altogether. */
+  readonly coarseCells: number;
+  readonly vertices: number;
+  readonly triangles: number;
+}
+
+/**
+ * One mesh, coarse where the ground is gentle and full resolution where it is
+ * not (ADR-0032).
+ *
+ * Thinning 513² to 257² is what makes the village affordable, and it is also
+ * what rounds the cliffs off: a quarter of the faces past 60° stop being past
+ * 60°, because two cliff cells averaged into one are a ramp. Keeping the whole
+ * tile at 513² costs four times the triangles for ground that is flat almost
+ * everywhere — on the village tile, 7 % of it is steep.
+ *
+ * So the coarse cell is the unit: a coarse cell whose source triangles all stand
+ * below `minSlopeDegrees` is emitted as two triangles, and one that has a steep
+ * triangle anywhere in it is emitted at the source resolution.
+ *
+ * **The seam is the whole problem.** A fine cell against a coarse one puts a
+ * vertex halfway along an edge the coarse triangle draws straight — a
+ * T-junction, and a T-junction is a hairline of background showing through the
+ * ground, moving as the camera moves. The fix is not a stitching strip but the
+ * cheapest correct thing: a fine vertex that sits on the boundary **between** a
+ * steep cell and a gentle one is placed on the straight edge, at the average of
+ * the two coarse heights, instead of at its own. It gives up the height it knew
+ * exactly where nobody can see it — on the last centimetres before a coarse
+ * triangle takes over — and the two edges then coincide.
+ *
+ * Normals are accumulated from the triangles actually emitted rather than
+ * derived from the grid, because at a seam those are two different answers and
+ * only one of them matches what is drawn.
+ */
+export function adaptiveMesh(
+  grid: HeightGrid,
+  factor: number,
+  minSlopeDegrees: number,
+): AdaptiveMesh {
+  if (!Number.isInteger(factor) || factor < 1) {
+    throw new Error(`thinning factor must be a positive integer, got ${String(factor)}`);
+  }
+  if ((grid.columns - 1) % factor !== 0 || (grid.rows - 1) % factor !== 0) {
+    throw new Error(
+      `a ${String(grid.columns)} x ${String(grid.rows)} grid cannot be thinned by ` +
+        `${String(factor)} without losing its far edge`,
+    );
+  }
+  if (!Number.isFinite(minSlopeDegrees) || minSlopeDegrees < 0 || minSlopeDegrees >= 90) {
+    throw new Error(`the steep-slope threshold must be 0…90°, got ${String(minSlopeDegrees)}`);
+  }
+
+  const coarseColumns = (grid.columns - 1) / factor;
+  const coarseRows = (grid.rows - 1) / factor;
+  const steep = new Uint8Array(coarseColumns * coarseRows);
+  for (let cellRow = 0; cellRow < coarseRows; cellRow += 1) {
+    for (let cellColumn = 0; cellColumn < coarseColumns; cellColumn += 1) {
+      let found = false;
+      for (let row = cellRow * factor; row < (cellRow + 1) * factor && !found; row += 1) {
+        for (let column = cellColumn * factor; column < (cellColumn + 1) * factor; column += 1) {
+          if (cellSlope(grid, column, row) > minSlopeDegrees) {
+            found = true;
+            break;
+          }
+        }
+      }
+      steep[cellRow * coarseColumns + cellColumn] = found ? 1 : 0;
+    }
+  }
+  const inside = (cellColumn: number, cellRow: number): boolean =>
+    cellColumn >= 0 && cellRow >= 0 && cellColumn < coarseColumns && cellRow < coarseRows;
+  const isSteep = (cellColumn: number, cellRow: number): boolean =>
+    inside(cellColumn, cellRow) && steep[cellRow * coarseColumns + cellColumn] === 1;
+  /**
+   * True when the cell on the other side of an edge draws it as one straight
+   * line, so a fine vertex on that edge has to lie on it.
+   *
+   * A cell *outside* the tile draws nothing, so the tile's own border keeps its
+   * full detail — snapping there would round off every cliff that runs into the
+   * edge of the world, to match a neighbour that does not exist.
+   */
+  const drawnCoarse = (cellColumn: number, cellRow: number): boolean =>
+    inside(cellColumn, cellRow) && !isSteep(cellColumn, cellRow);
+
+  const heightAtGrid = (column: number, row: number): number =>
+    grid.heights[row * grid.columns + column] ?? 0;
+
+  /**
+   * The height a vertex is emitted with.
+   *
+   * On a seam — a fine vertex lying on a coarse edge whose other side is a
+   * coarse cell — it is the straight line between the two coarse corners, so
+   * the two edges coincide and no hairline opens.
+   */
+  const emittedHeight = (column: number, row: number): number => {
+    const onColumnLine = column % factor === 0;
+    const onRowLine = row % factor === 0;
+    if (onColumnLine && onRowLine) {
+      return heightAtGrid(column, row);
+    }
+    if (onColumnLine) {
+      // A vertical coarse edge; the cells left and right of it decide.
+      const cellColumn = column / factor;
+      const cellRow = Math.floor(row / factor);
+      if (!drawnCoarse(cellColumn - 1, cellRow) && !drawnCoarse(cellColumn, cellRow)) {
+        return heightAtGrid(column, row);
+      }
+      const low = heightAtGrid(column, cellRow * factor);
+      const high = heightAtGrid(column, (cellRow + 1) * factor);
+      return low + ((high - low) * (row - cellRow * factor)) / factor;
+    }
+    if (onRowLine) {
+      const cellRow = row / factor;
+      const cellColumn = Math.floor(column / factor);
+      if (!drawnCoarse(cellColumn, cellRow - 1) && !drawnCoarse(cellColumn, cellRow)) {
+        return heightAtGrid(column, row);
+      }
+      const low = heightAtGrid(cellColumn * factor, row);
+      const high = heightAtGrid((cellColumn + 1) * factor, row);
+      return low + ((high - low) * (column - cellColumn * factor)) / factor;
+    }
+    return heightAtGrid(column, row);
+  };
+
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const indexBySource = new Map<number, number>();
+  const width = grid.stepX * (grid.columns - 1);
+  const depth = grid.stepZ * (grid.rows - 1);
+
+  const vertexAt = (column: number, row: number): number => {
+    const key = row * grid.columns + column;
+    const known = indexBySource.get(key);
+    if (known !== undefined) {
+      return known;
+    }
+    const next = positions.length / 3;
+    const x = grid.originX + column * grid.stepX;
+    const z = grid.originZ + row * grid.stepZ;
+    positions.push(x, emittedHeight(column, row), z);
+    uvs.push((column * grid.stepX) / width, (row * grid.stepZ) / depth);
+    indexBySource.set(key, next);
+    return next;
+  };
+
+  /** Two triangles over one cell, wound as `gridIndices` winds them. */
+  const quad = (column: number, row: number, span: number): void => {
+    const topLeft = vertexAt(column, row);
+    const topRight = vertexAt(column + span, row);
+    const bottomLeft = vertexAt(column, row + span);
+    const bottomRight = vertexAt(column + span, row + span);
+    indices.push(topLeft, bottomLeft, topRight, topRight, bottomLeft, bottomRight);
+  };
+
+  let steepCells = 0;
+  for (let cellRow = 0; cellRow < coarseRows; cellRow += 1) {
+    for (let cellColumn = 0; cellColumn < coarseColumns; cellColumn += 1) {
+      const column = cellColumn * factor;
+      const row = cellRow * factor;
+      if (!isSteep(cellColumn, cellRow)) {
+        quad(column, row, factor);
+        continue;
+      }
+      steepCells += 1;
+      for (let inner = 0; inner < factor; inner += 1) {
+        for (let across = 0; across < factor; across += 1) {
+          quad(column + across, row + inner, 1);
+        }
+      }
+    }
+  }
+
+  const positionArray = Float32Array.from(positions);
+  const indexArray = Uint32Array.from(indices);
+  return {
+    positions: positionArray,
+    normals: meshNormals(positionArray, indexArray),
+    uvs: Float32Array.from(uvs),
+    indices: indexArray,
+    bounds: meshBounds(positionArray),
+    steepCells,
+    coarseCells: coarseColumns * coarseRows,
+    vertices: positionArray.length / 3,
+    triangles: indexArray.length / 3,
+  };
+}
+
+/**
+ * Per-vertex normals accumulated from the triangles that use them.
+ *
+ * Area-weighted, because the cross product of two edges is twice the triangle's
+ * area: a large gentle triangle should have more say in a shared vertex than a
+ * sliver. Not normalising per triangle first is what does that, for free.
+ */
+export function meshNormals(positions: Float32Array, indices: Uint32Array): Float32Array {
+  const normals = new Float32Array(positions.length);
+  for (let index = 0; index < indices.length; index += 3) {
+    const a = (indices[index] ?? 0) * 3;
+    const b = (indices[index + 1] ?? 0) * 3;
+    const c = (indices[index + 2] ?? 0) * 3;
+    const abx = (positions[b] ?? 0) - (positions[a] ?? 0);
+    const aby = (positions[b + 1] ?? 0) - (positions[a + 1] ?? 0);
+    const abz = (positions[b + 2] ?? 0) - (positions[a + 2] ?? 0);
+    const acx = (positions[c] ?? 0) - (positions[a] ?? 0);
+    const acy = (positions[c + 1] ?? 0) - (positions[a + 1] ?? 0);
+    const acz = (positions[c + 2] ?? 0) - (positions[a + 2] ?? 0);
+    const nx = aby * acz - abz * acy;
+    const ny = abz * acx - abx * acz;
+    const nz = abx * acy - aby * acx;
+    for (const vertex of [a, b, c]) {
+      normals[vertex] = (normals[vertex] ?? 0) + nx;
+      normals[vertex + 1] = (normals[vertex + 1] ?? 0) + ny;
+      normals[vertex + 2] = (normals[vertex + 2] ?? 0) + nz;
+    }
+  }
+  for (let vertex = 0; vertex < normals.length; vertex += 3) {
+    const length = Math.hypot(
+      normals[vertex] ?? 0,
+      normals[vertex + 1] ?? 0,
+      normals[vertex + 2] ?? 0,
+    );
+    if (length === 0) {
+      normals[vertex + 1] = 1;
+      continue;
+    }
+    normals[vertex] = (normals[vertex] ?? 0) / length;
+    normals[vertex + 1] = (normals[vertex + 1] ?? 0) / length;
+    normals[vertex + 2] = (normals[vertex + 2] ?? 0) / length;
+  }
+  return normals;
+}
+
+/** The hull of a position buffer. */
+function meshBounds(positions: Float32Array): HeightGridBounds {
+  const min: [number, number, number] = [Infinity, Infinity, Infinity];
+  const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  for (let index = 0; index < positions.length; index += 3) {
+    for (let axis = 0; axis < 3; axis += 1) {
+      const value = positions[index + axis] ?? 0;
+      min[axis] = Math.min(min[axis] as number, value);
+      max[axis] = Math.max(max[axis] as number, value);
+    }
+  }
+  return { min, max };
+}
+
 /**
  * Builds a complete, self-contained GLB from a grid: positions, normals, UVs,
  * indices and one plain material.
@@ -403,11 +717,15 @@ export function gridPositions(grid: HeightGrid): Float32Array {
  * is `terrain.position` in the world file (`docs/world-format.md`).
  */
 export function buildHeightFieldGlb(name: string, grid: HeightGrid): Glb {
-  const positions = gridPositions(grid);
-  const normals = gridNormals(grid);
-  const uvs = gridUvs(grid);
-  const indices = gridIndices(grid);
-  const bounds = gridBounds(grid);
+  return buildTerrainGlb(name, gridMesh(grid));
+}
+
+/**
+ * The same writer, for a tile whose vertices are not a rectangular grid — an
+ * adaptive one (see {@link adaptiveMesh}).
+ */
+export function buildTerrainGlb(name: string, mesh: TerrainMesh): Glb {
+  const { positions, normals, uvs, indices, bounds } = mesh;
 
   const views: { buffer: number; byteOffset: number; byteLength: number; target: number }[] = [];
   const parts: Buffer[] = [];
@@ -445,7 +763,7 @@ export function buildHeightFieldGlb(name: string, grid: HeightGrid): Glb {
   const uvView = push(floats(uvs), 34962);
   const indexView = push(uints(indices), 34963);
 
-  const vertexCount = grid.columns * grid.rows;
+  const vertexCount = positions.length / 3;
   const json: Gltf = {
     asset: { version: '2.0', generator: 'World of Vikings asset pipeline' },
     scene: 0,

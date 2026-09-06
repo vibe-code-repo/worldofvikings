@@ -8,6 +8,7 @@ import {
   gridPositions,
   gridSize,
   gridUvs,
+  heightAt,
   readHeightGrid,
   thinGrid,
   type HeightGrid,
@@ -187,5 +188,42 @@ describe('buildHeightFieldGlb / readHeightGrid', () => {
       accessor.count -= 1;
     }
     expect(() => readHeightGrid(readGlb(writeGlb(glb)), 'tile')).toThrow(/not a 5 x 5 grid/);
+  });
+});
+
+describe('heightAt', () => {
+  /** A 3 x 2 grid, 2 m apart, whose height is simply `x`. */
+  const ramp: HeightGrid = {
+    columns: 3,
+    rows: 2,
+    originX: 10,
+    originZ: 100,
+    stepX: 2,
+    stepZ: 2,
+    heights: Float32Array.from([10, 12, 14, 10, 12, 14]),
+  };
+
+  it('returns the vertex height at a vertex', () => {
+    expect(heightAt(ramp, 10, 100)).toBeCloseTo(10, 6);
+    expect(heightAt(ramp, 14, 102)).toBeCloseTo(14, 6);
+  });
+
+  it('interpolates inside a cell instead of snapping to a vertex', () => {
+    expect(heightAt(ramp, 11, 100)).toBeCloseTo(11, 6);
+    expect(heightAt(ramp, 13.5, 101)).toBeCloseTo(13.5, 6);
+  });
+
+  it('interpolates across both axes', () => {
+    const saddle: HeightGrid = { ...ramp, heights: Float32Array.from([0, 0, 0, 4, 4, 4]) };
+    expect(heightAt(saddle, 11, 101)).toBeCloseTo(2, 6);
+  });
+
+  it('clamps to the edge rather than refusing a point off the tile', () => {
+    expect(heightAt(ramp, -100, 100)).toBeCloseTo(10, 6);
+    expect(heightAt(ramp, 1000, 100)).toBeCloseTo(14, 6);
+  });
+
+  it('answers the origin height for a value that is not a number', () => {
+    expect(heightAt(ramp, Number.NaN, 100)).toBeCloseTo(10, 6);
   });
 });

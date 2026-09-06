@@ -136,6 +136,20 @@ Same picture, 2.8× the draw calls: 139 models are placed 1216 times, and an
 copies of one mesh together (ADR-0022). The terrain adds 131 072 collision
 triangles, which are not drawn — they are the physics mesh.
 
+Since the scatter runs (ADR-0025) the same zone is 5248 entities. Measured at
+one viewpoint (`?world=village1&spawn=165,165`), before and after, on the same
+machine:
+
+| View                                  | Entities | Draw calls | Active meshes | Triangles |
+| ------------------------------------- | -------- | ---------- | ------------- | --------- |
+| before the scatter runs               | 1216     | 118        | 583           | 357 472   |
+| 4032 scattered plants, thin-instanced | 5248     | 129        | 558           | 1 762 133 |
+
+Eleven more draw calls for 4032 more plants, because vegetation is drawn as thin
+instances: one mesh per plant _model_, whatever the number of copies. The
+triangle count is the price that does not go away — the tufts are on screen —
+and it is what a future LOD or distance fade has to work on.
+
 The game entry chunk is over Vite's 500 kB warning and Rollup says so on every
 build. It is almost entirely Babylon.js core; splitting it is open work under
 ADR-0006, and the number is written down here so a regression is visible rather

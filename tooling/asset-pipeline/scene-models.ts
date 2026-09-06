@@ -540,3 +540,70 @@ export function groupForStem(stem: string): 'environment' | 'vegetation' {
 export function hashOf(bytes: Buffer): string {
   return `sha256-${createHash('sha256').update(bytes).digest('hex')}`;
 }
+
+/**
+ * What the store and the manifest together say about a model path.
+ *
+ * - `known` — the manifest names it; nothing to do.
+ * - `adopt` — the store holds the file but the manifest has forgotten it. The
+ *   file is kept as it is and the manifest row is written back from it.
+ * - `new` — neither has it; cut it out of the bundle.
+ *
+ * `adopt` exists because the store outlives a single run and is shared between
+ * importers: `import:world-assets` rewrites the manifest rows it owns, and a
+ * pass that answered "the store already has this model" and then wrote nothing
+ * left the row missing for good (ADR-0023).
+ */
+export type StoreState = 'known' | 'adopt' | 'new';
+
+export function storeStateOf(
+  path: string,
+  manifestPaths: ReadonlySet<string>,
+  fileInStore: boolean,
+): StoreState {
+  if (manifestPaths.has(path)) {
+    return 'known';
+  }
+  return fileInStore ? 'adopt' : 'new';
+}
+
+/**
+ * The store paths of the texture files a stored model points at, in order and
+ * without repeats.
+ *
+ * A store model refers to its textures by a URI relative to its own folder and
+ * free of `..` (ADR-0019), so `environment/x.glb` saying `textures/y.png` means
+ * `environment/textures/y.png`. Images without a URI are embedded and are not
+ * files of the store at all.
+ */
+export function storeTexturePaths(json: Gltf, folder: string): string[] {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  for (const image of json.images ?? []) {
+    const uri = image.uri;
+    if (uri === undefined || uri.length === 0 || uri.startsWith('data:')) {
+      continue;
+    }
+    const path = `${folder}/${uri}`;
+    if (!seen.has(path)) {
+      seen.add(path);
+      paths.push(path);
+    }
+  }
+  return paths;
+}
+
+/**
+ * The node a cut texture was named after, read back out of its file name.
+ *
+ * A cut texture is `<folder>/textures/<stem>-<8 hex>.png`, named after the first
+ * model that needed it. Reading the stem back is what lets an adopted row carry
+ * the same provenance sentence the row it replaces carried, so a repaired
+ * manifest is byte-identical to one that was never damaged. Anything not shaped
+ * like that belongs to another importer and is left to it.
+ */
+export function textureNodeStem(texturePath: string): string | undefined {
+  const fileName = texturePath.slice(texturePath.lastIndexOf('/') + 1);
+  const match = /^(.+)-[0-9a-f]{8}\.png$/.exec(fileName);
+  return match?.[1];
+}

@@ -7,8 +7,11 @@ import {
   groupForStem,
   modelStem,
   planModels,
+  storeStateOf,
+  storeTexturePaths,
   subtreeOf,
   subtreeShape,
+  textureNodeStem,
 } from './scene-models.js';
 
 /**
@@ -277,5 +280,68 @@ describe('groupForStem', () => {
   it('falls back to scenery, which is what a piece of a village is', () => {
     expect(groupForStem('floor')).toBe('environment');
     expect(groupForStem('chesttop')).toBe('environment');
+  });
+});
+
+describe('storeStateOf', () => {
+  it('calls a path the manifest names already known, whatever the store holds', () => {
+    expect(storeStateOf('environment/a.glb', new Set(['environment/a.glb']), true)).toBe('known');
+    expect(storeStateOf('environment/a.glb', new Set(['environment/a.glb']), false)).toBe('known');
+  });
+
+  it('calls an unnamed path with a file in the store adoptable', () => {
+    // The regression: the file survives in the shared store while its manifest
+    // row was dropped by another importer. Skipping it leaves a hole that costs
+    // the world file a quarter of its entities.
+    expect(storeStateOf('environment/a.glb', new Set(), true)).toBe('adopt');
+  });
+
+  it('calls an unnamed path with no file new', () => {
+    expect(storeStateOf('environment/a.glb', new Set(), false)).toBe('new');
+  });
+});
+
+describe('storeTexturePaths', () => {
+  it('resolves a model-relative image URI against the model group folder', () => {
+    const json = {
+      asset: { version: '2.0' },
+      images: [{ uri: 'textures/sm-env-barrel-01-1a2b3c4d.png' }, { uri: 'textures/other.png' }],
+    } as unknown as Gltf;
+
+    expect(storeTexturePaths(json, 'environment')).toEqual([
+      'environment/textures/sm-env-barrel-01-1a2b3c4d.png',
+      'environment/textures/other.png',
+    ]);
+  });
+
+  it('ignores an embedded image, which is no file of its own', () => {
+    const json = {
+      asset: { version: '2.0' },
+      images: [{ bufferView: 0 }, { uri: 'data:image/png;base64,AAAA' }],
+    } as unknown as Gltf;
+
+    expect(storeTexturePaths(json, 'environment')).toEqual([]);
+  });
+
+  it('names each file once even when two materials share it', () => {
+    const json = {
+      asset: { version: '2.0' },
+      images: [{ uri: 'textures/atlas.png' }, { uri: 'textures/atlas.png' }],
+    } as unknown as Gltf;
+
+    expect(storeTexturePaths(json, 'vegetation')).toEqual(['vegetation/textures/atlas.png']);
+  });
+});
+
+describe('textureNodeStem', () => {
+  it('reads back the node a cut texture was named after', () => {
+    expect(textureNodeStem('environment/textures/sm-env-barrel-01-1a2b3c4d.png')).toBe(
+      'sm-env-barrel-01',
+    );
+  });
+
+  it('returns nothing for a name that is not the cut convention', () => {
+    expect(textureNodeStem('environment/textures/grass-ani.png')).toBeUndefined();
+    expect(textureNodeStem('environment/textures/sm-env-barrel-01-XYZ.png')).toBeUndefined();
   });
 });

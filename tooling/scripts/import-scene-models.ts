@@ -27,6 +27,15 @@
  * and a bundle copy is not automatically better than it. Same for textures,
  * which are matched to what the store already holds by content hash, so a
  * shared 2048 px atlas is one file rather than one per model (ADR-0015).
+ *
+ * **But a file left alone still gets its manifest row.** The store outlives a
+ * run and is shared with `import:world-assets`, which rewrites the rows it owns.
+ * A pass that saw the file, said "already there" and wrote nothing left the row
+ * missing for good — the prefab catalogue then lost 138 prefabs and the next
+ * world import wrote a village with a quarter of its entities gone. So "already
+ * there" now splits in two: the manifest names it (nothing to do), or only the
+ * store has it (the row is written back from the file, byte for byte). See
+ * ADR-0023.
  */
 import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -48,7 +57,15 @@ import {
   readPngSize,
 } from '../asset-pipeline/png.js';
 import { buildPlaceholderGlb, placeholderPathFor } from '../asset-pipeline/placeholder.js';
-import { cutModel, groupForStem, hashOf, planModels } from '../asset-pipeline/scene-models.js';
+import {
+  cutModel,
+  groupForStem,
+  hashOf,
+  planModels,
+  storeStateOf,
+  storeTexturePaths,
+  textureNodeStem,
+} from '../asset-pipeline/scene-models.js';
 import { repoRoot } from './prefab-catalog.js';
 import { loadPrefabStems } from './prefab-stems.js';
 import { DEFAULT_ZONES, scanScene } from './scene-import.js';
@@ -187,11 +204,35 @@ process.stdout.write(
 // -------------------------------------------------------------------- cutting
 
 const produced: AssetEntry[] = [];
+const producedPaths = new Set<string>();
 const skipped: string[] = [];
+const adopted: string[] = [];
 const excluded: string[] = [];
 const variants: string[] = [];
 const newTexturePaths: string[] = [];
 let reusedTextures = 0;
+
+function record(entry: AssetEntry): void {
+  if (producedPaths.has(entry.path)) {
+    return;
+  }
+  producedPaths.add(entry.path);
+  produced.push(entry);
+}
+
+/** The provenance sentence a cut model carries, so an adopted row repeats it exactly. */
+function modelOrigin(stem: string, triangles: number, instances: number): string {
+  return (
+    `modelling export, scene bundle ${bundleName}, node "${stem}" ` +
+    `(cut out with its material and texture reference, origin kept as in the bundle, ` +
+    `${String(triangles)} triangles, ${String(instances)} placement(s))`
+  );
+}
+
+/** The provenance sentence a cut texture carries, for the same reason. */
+function textureOrigin(stem: string): string {
+  return `modelling export, scene bundle ${bundleName} (embedded texture of node "${stem}", extracted)`;
+}
 
 /** Downscaled image bytes, keyed by the bytes the bundle embedded. */
 const resized = new Map<string, Buffer>();
@@ -199,9 +240,67 @@ const resized = new Map<string, Buffer>();
 for (const group of plan) {
   const folder = groupForStem(group.stem);
   const path = `${folder}/${group.stem}.glb`;
+  const state = storeStateOf(path, manifestPaths, await exists(join(storeRoot, path)));
 
-  if (manifestPaths.has(path) || (await exists(join(storeRoot, path)))) {
+  if (state === 'known') {
     skipped.push(`${path} — the store already has this model`);
+    continue;
+  }
+
+  if (state === 'adopt') {
+    // The file is in the store but no manifest row names it. That is not a
+    // reason to cut a second copy, and it is not a reason to walk past either:
+    // an unnamed store file is invisible to the prefab catalogue, so the world
+    // file loses every entity that referenced it. The row is written back from
+    // the file that is already there, byte for byte (ADR-0023).
+    const bytes = await readFile(join(storeRoot, path));
+    const stored = readGlb(bytes);
+    const measured = worldBounds(stored.json, path);
+    if (measured === undefined) {
+      excluded.push(`${path} — in the store but has no geometry`);
+      continue;
+    }
+    const bounds = rounded(measured);
+    const placeholderPath = placeholderPathFor(path);
+    await write(join(assetsDir, placeholderPath), buildPlaceholderGlb(group.stem, bounds));
+
+    for (const texturePath of storeTexturePaths(stored.json, folder)) {
+      if (manifestPaths.has(texturePath) || producedPaths.has(texturePath)) {
+        continue;
+      }
+      const textureBytes = await readFile(join(storeRoot, texturePath));
+      record({
+        id: texturePath.replace(/\.png$/, ''),
+        path: texturePath,
+        kind: 'texture',
+        bytes: textureBytes.byteLength,
+        hash: hashOf(textureBytes),
+        origin: textureOrigin(textureNodeStem(texturePath) ?? group.stem),
+        source: 'scene bundle of the authored village level',
+        author: 'unknown',
+        license: IMPORT_LICENSE,
+        redistributable: false,
+        visibility: 'private',
+        placeholder: TEXTURE_PLACEHOLDER,
+      });
+    }
+
+    record({
+      id: `${folder}/${group.stem}`,
+      path,
+      kind: 'mesh',
+      bytes: bytes.byteLength,
+      hash: hashOf(bytes),
+      bounds,
+      origin: modelOrigin(group.stem, group.triangles, group.instances),
+      source: 'scene bundle of the authored village level',
+      author: 'unknown',
+      license: IMPORT_LICENSE,
+      redistributable: false,
+      visibility: 'private',
+      placeholder: placeholderPath,
+    });
+    adopted.push(`${path} — already in the store, its manifest entry written back`);
     continue;
   }
 
@@ -257,13 +356,13 @@ for (const group of plan) {
       known.set(hash, texturePath);
       await write(join(storeRoot, texturePath), bytes);
       newTexturePaths.push(texturePath);
-      produced.push({
+      record({
         id: texturePath.replace(/\.png$/, ''),
         path: texturePath,
         kind: 'texture',
         bytes: bytes.byteLength,
         hash,
-        origin: `modelling export, scene bundle ${bundleName} (embedded texture of node "${group.stem}", extracted)`,
+        origin: textureOrigin(group.stem),
         source: 'scene bundle of the authored village level',
         author: 'unknown',
         license: IMPORT_LICENSE,
@@ -291,17 +390,14 @@ for (const group of plan) {
   const placeholderPath = placeholderPathFor(path);
   await write(join(assetsDir, placeholderPath), buildPlaceholderGlb(group.stem, bounds));
 
-  produced.push({
+  record({
     id: `${folder}/${group.stem}`,
     path,
     kind: 'mesh',
     bytes: bytes.byteLength,
     hash: hashOf(bytes),
     bounds,
-    origin:
-      `modelling export, scene bundle ${bundleName}, node "${group.stem}" ` +
-      `(cut out with its material and texture reference, origin kept as in the bundle, ` +
-      `${String(group.triangles)} triangles, ${String(group.instances)} placement(s))`,
+    origin: modelOrigin(group.stem, group.triangles, group.instances),
     source: 'scene bundle of the authored village level',
     author: 'unknown',
     license: IMPORT_LICENSE,
@@ -321,7 +417,7 @@ for (const entry of produced) {
 }
 for (const path of [...placeholderPaths].sort()) {
   const bytes = dryRun ? Buffer.alloc(0) : await readFile(join(assetsDir, path));
-  produced.push({
+  record({
     id: path.replace(/\.[^./]+$/, '').toLowerCase(),
     path,
     kind: 'mesh',
@@ -385,6 +481,7 @@ process.stdout.write(`  manifest       ${String(assets.length).padStart(5)}  ent
 
 for (const [title, lines] of [
   ['already in the store, left alone', skipped],
+  ['in the store but missing from the manifest, entry restored', adopted],
   ['excluded after measuring', excluded],
   ['one name, several shapes', variants],
   ['textures new to the store', newTexturePaths],

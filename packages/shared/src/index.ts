@@ -50,3 +50,17 @@ export function resolveServiceUrl(
   }
   return url.replace(/\/+$/, '');
 }
+
+/**
+ * Whether the page was opened with `?debug=1`.
+ *
+ * The other half of the debug-bridge gate (ADR-0030). A development build
+ * always publishes its bridge; a *built* bundle publishes one only when it was
+ * compiled with `WOV_DEBUG_BRIDGE=1` — a build-time constant, so a default
+ * `pnpm build` folds the branch away and drops the module — and the visitor
+ * asked for it here. Staging serves built bundles and has to stay measurable;
+ * a handle into the running client should still not be the default.
+ */
+export function isDebugRequested(search: string): boolean {
+  return new URLSearchParams(search).get('debug') === '1';
+}

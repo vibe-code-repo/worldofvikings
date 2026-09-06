@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assertNever, clamp, resolveServiceUrl } from './index.js';
+import { assertNever, clamp, isDebugRequested, resolveServiceUrl } from './index.js';
 
 describe('clamp', () => {
   it('returns the value when it is inside the range', () => {
@@ -42,5 +42,17 @@ describe('resolveServiceUrl', () => {
     expect(() => resolveServiceUrl('localhost:3000', 'http://x', 'VITE_API_URL')).toThrow(
       /VITE_API_URL must be an absolute http\(s\) URL/,
     );
+  });
+});
+
+describe('isDebugRequested', () => {
+  it('is off without the parameter', () => {
+    expect(isDebugRequested('')).toBe(false);
+    expect(isDebugRequested('?world=village1')).toBe(false);
+    expect(isDebugRequested('?debug=0')).toBe(false);
+  });
+
+  it('is on next to the other parameters the client already reads', () => {
+    expect(isDebugRequested('?world=village1&spawn=166,150&debug=1')).toBe(true);
   });
 });

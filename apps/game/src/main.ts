@@ -52,6 +52,7 @@ import {
 import { summarizeAssetSources } from '@wov/asset-system';
 import type { PhysicsWorld } from '@wov/physics';
 import { tokens } from '@wov/ui';
+import { isDebugRequested } from '@wov/shared';
 import { installDevDebugBridge } from './dev-debug.js';
 import type { WovCollisionDebug, WovTerrainBounds } from './dev-debug.js';
 import { lightingProfiles, resolveGameConfig, worldIdFromQuery } from './config.js';
@@ -327,9 +328,10 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
     reportTerrainBounds(bounds: WovTerrainBounds): void;
     reportCollision(report: WovCollisionDebug): void;
   } | null = null;
-  if (import.meta.env.DEV) {
-    // Vite replaces the condition with `false` when building for production,
-    // so Rollup drops this call and `./dev-debug.js` with it.
+  // `import.meta.env.DEV` and `__WOV_DEBUG_BRIDGE__` are both build-time
+  // literals, so a default `pnpm build` folds this to `false` and Rollup drops
+  // the call together with `./dev-debug.js` (ADR-0030).
+  if (import.meta.env.DEV || (__WOV_DEBUG_BRIDGE__ && isDebugRequested(window.location.search))) {
     debugBridge = installDevDebugBridge(renderer, marker, {
       camera,
       player,

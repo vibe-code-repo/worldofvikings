@@ -7,10 +7,13 @@
  */
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { isDebugRequested } from '@wov/shared';
 import { EditorShell } from './EditorShell.js';
 import { installEditorDebugBridge } from './dev-debug.js';
 
-if (import.meta.env.DEV) {
+// Both operands on the left are build-time literals, so a default build folds
+// this to `false` and never installs a bridge (ADR-0030).
+if (import.meta.env.DEV || (__WOV_DEBUG_BRIDGE__ && isDebugRequested(window.location.search))) {
   installEditorDebugBridge();
 }
 

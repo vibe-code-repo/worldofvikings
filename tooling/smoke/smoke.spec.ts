@@ -33,6 +33,31 @@ type WovDebugWindow = Window & {
   };
 };
 
+/**
+ * The editor's dev build publishes its own bridge on `window.__wovEditor`: the
+ * frame counter, the backend, and both counts of what is on screen — how many
+ * entities the document holds and how many meshes the viewport built for them.
+ */
+type WovEditorDebugWindow = Window & {
+  __wovEditor?: {
+    readonly backend: string;
+    readonly frameId: number;
+    readonly worldId: string;
+    readonly zoneId: string | null;
+    readonly entityCount: number;
+    readonly meshCount: number;
+    readonly selection: readonly string[];
+    readonly dirty: boolean;
+    readonly undoDepth: number;
+    readonly redoDepth: number;
+  };
+};
+
+/** The editor's frame counter, or `null` while its bridge is not installed. */
+function editorFrameId(page: Page): Promise<number | null> {
+  return page.evaluate(() => (window as WovEditorDebugWindow).__wovEditor?.frameId ?? null);
+}
+
 /** The current frame counter, or `null` while the bridge is not installed. */
 function frameId(page: Page): Promise<number | null> {
   return page.evaluate(() => (window as WovDebugWindow).__wov?.frameId ?? null);
@@ -291,10 +316,37 @@ test('game loads the physics backend and collides the ground', async ({ page }) 
   });
 });
 
-test('editor shows its shell and viewport placeholder', async ({ page }) => {
+test('editor shows its shell and a live viewport', async ({ page }) => {
   await page.goto('http://localhost:5174');
   await expect(page.getByTestId('editor-marker')).toContainText('world editor dev build');
   await expect(page.getByTestId('editor-viewport-status')).toHaveText(RENDERER_STATUS);
+});
+
+/**
+ * Same reason as the game's frame test: a mounted canvas is not a running
+ * render loop. It is worth its own test in the editor because the loop died
+ * here in a specific, invisible way — React StrictMode mounted the viewport
+ * twice, two Babylon engines bound themselves to one canvas, and the first
+ * one's teardown took the second one's WebGL context with it.
+ *
+ * Two witnesses again: the counter on the bridge, and the same number in the
+ * DOM. Backend and counter are both published so a stalled loop names itself.
+ */
+test('editor keeps rendering frames', async ({ page }) => {
+  await page.goto('http://localhost:5174');
+
+  await expect.poll(() => editorFrameId(page), { timeout: 10_000 }).not.toBeNull();
+  const before = await editorFrameId(page);
+  expect(before).not.toBeNull();
+
+  await expect
+    .poll(() => editorFrameId(page), { timeout: 5_000, intervals: [100, 100, 200, 200, 400] })
+    .toBeGreaterThan(before ?? 0);
+
+  await expect(page.getByTestId('editor-frame')).toHaveText(/^frame \d+$/);
+  await expect(page.getByTestId('editor-viewport-status')).toHaveText(
+    /^viewport ready — (webgl2|webgpu)$/,
+  );
 });
 
 test('api reports healthy', async ({ request }) => {

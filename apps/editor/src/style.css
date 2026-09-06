@@ -46,10 +46,14 @@ body,
   outline: none;
 }
 
-.viewport .hint {
+.viewport-status {
   position: absolute;
-  left: 1rem;
-  bottom: 1rem;
-  font-size: 0.8rem;
+  left: 0.75rem;
+  bottom: 0.6rem;
+  display: flex;
+  gap: 1rem;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
   opacity: 0.7;
+  pointer-events: none;
 }

@@ -1,6 +1,8 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import type { ApiConfig } from './config.js';
+import { prefabsRoutes } from './prefabs-routes.js';
+import { worldsRoutes } from './worlds-routes.js';
 
 /** Shape of the `/health` response. Kept stable — CI and the smoke test read it. */
 export interface HealthResponse {
@@ -26,6 +28,10 @@ export async function buildServer(config: ApiConfig): Promise<FastifyInstance> {
       uptimeSeconds: Math.round(process.uptime()),
     };
   });
+
+  // World and prefab data from `config.contentDir` (ADR-0017).
+  await app.register(worldsRoutes, { config });
+  await app.register(prefabsRoutes, { config });
 
   return app;
 }

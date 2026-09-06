@@ -2,7 +2,7 @@
  * `pnpm import:scene` — turns an authored scene bundle into `content/worlds/<id>.json`.
  *
  * ```bash
- * pnpm import:scene --scene ~/assets-export/Assets/SceneHierarchyObject/Village1.glb \
+ * pnpm import:scene --scene <export>/SceneHierarchyObject/Village1.glb \
  *                   --world village1 --name "Village One"
  * pnpm import:scene --scene … --world … --name … --dry-run      # report only
  * pnpm import:scene --scene … --world … --name … --zone-root Environments

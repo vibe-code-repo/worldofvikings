@@ -165,8 +165,8 @@ piles, braziers, path rock groups — so a second pass cuts those out
 (ADR-0021):
 
 ```bash
-pnpm import:scene-models --scene ~/assets-export/Assets/SceneHierarchyObject/Village1.glb \
-                         --store ~/assets-export/store
+pnpm import:scene-models --scene <export>/SceneHierarchyObject/Village1.glb \
+                         --store <store>
 pnpm import:scene-models --scene … --store … --dry-run
 ```
 

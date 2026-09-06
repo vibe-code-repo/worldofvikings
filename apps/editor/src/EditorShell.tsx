@@ -18,6 +18,7 @@ import {
   renameZone,
   scatterCommand,
   serializeDocument,
+  updateTerrainSurface,
   updateTransform,
   type Rect,
   type ScatterOptions,
@@ -34,6 +35,7 @@ import { AssetBrowser } from './panels/AssetBrowser.js';
 import { Hierarchy } from './panels/Hierarchy.js';
 import { Inspector } from './panels/Inspector.js';
 import { MenuBar } from './panels/MenuBar.js';
+import { GroundPanel } from './panels/GroundPanel.js';
 import { ScatterPanel, type CornerPick } from './panels/ScatterPanel.js';
 import { TOOL_KEYS, type EditorTool } from './scene/gizmos.js';
 import { createPrefabIndex, type PrefabIndex } from './scene/prefab-index.js';
@@ -493,6 +495,28 @@ export function EditorShell(): JSX.Element {
           error={prefabError}
           selectedPrefabId={placingPrefabId}
           onSelectPrefab={setPlacingPrefabId}
+        />
+
+        <GroundPanel
+          terrain={zone?.terrain}
+          onLayer={(index, patch) => {
+            if (zoneId !== null) {
+              dispatch({
+                type: 'run',
+                command: updateTerrainSurface(zoneId, { layers: [{ index, patch }] }),
+                selectCreated: false,
+              });
+            }
+          }}
+          onFlatNormals={(facetted) => {
+            if (zoneId !== null) {
+              dispatch({
+                type: 'run',
+                command: updateTerrainSurface(zoneId, { flatNormals: facetted }),
+                selectCreated: false,
+              });
+            }
+          }}
         />
 
         <ScatterPanel

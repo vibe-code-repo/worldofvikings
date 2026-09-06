@@ -29,6 +29,7 @@
     "import:scene": "tsx tooling/scripts/import-scene.ts",
     "import:scene-models": "tsx tooling/scripts/import-scene-models.ts",
     "scatter": "tsx tooling/scripts/scatter.ts",
+    "terrain-surface": "tsx tooling/scripts/terrain-surface.ts",
     "generate:prefabs": "tsx tooling/scripts/generate-prefabs.ts",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test && pnpm run validate",
     "smoke": "playwright test --config tooling/smoke/playwright.config.ts"

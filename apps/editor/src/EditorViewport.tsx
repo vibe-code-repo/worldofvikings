@@ -214,6 +214,19 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
         if (tile) {
           viewport.lighting().excludeFromShadows(tile.meshes);
         }
+        publishEditorDebug({
+          terrain:
+            tile === null
+              ? null
+              : {
+                  program:
+                    typeof tile.material.shaderPath === 'string'
+                      ? tile.material.shaderPath
+                      : JSON.stringify(tile.material.shaderPath),
+                  meshes: tile.meshes.length,
+                  textures: tile.textures.length,
+                },
+        });
       },
       onFailed: (reason) => {
         console.warn(`[editor] the ground of this zone did not load: ${reason}`);

@@ -460,7 +460,8 @@ select {
  */
 .drawers {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 22rem;
+  /* Asset browser, then the two panels that change a zone: ground and scatter. */
+  grid-template-columns: minmax(0, 1fr) 17rem 22rem;
   min-height: 0;
 }
 
@@ -507,6 +508,28 @@ select {
   gap: 0.1rem;
   color: var(--wov-muted);
   font-size: 0.7rem;
+}
+
+/* The ground panel reuses the scatter panel's frame; only its rows differ. */
+.ground-facets {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.35rem !important;
+}
+
+[data-testid='ground-layers'] li {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.1rem 0.35rem;
+  padding: 0.2rem 0;
+  border-bottom: 1px solid var(--wov-line);
+}
+
+[data-testid='ground-layers'] li > .menu-hint {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .scatter input[type='number'] {

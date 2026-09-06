@@ -58,6 +58,22 @@ export interface WovEditorDebug {
   /** How many undo and redo steps are available. */
   readonly undoDepth: number;
   readonly redoDepth: number;
+  /**
+   * The ground the viewport is actually drawing, or `null` when it has none.
+   *
+   * The surface numbers a world file states are not enough to prove the ground
+   * changed: a panel can dispatch a command that reaches the document and never
+   * the scene. `program` is the key of the compiled shader the tile ended up
+   * with (`terrain.ts`), which encodes the layer count, the splat count, the
+   * normal-map mask and whether the ground is facetted — so a facetted tile and
+   * a smooth one are two different strings, read off the material rather than
+   * restated from the document (ADR-0032).
+   */
+  readonly terrain: {
+    readonly program: string;
+    readonly meshes: number;
+    readonly textures: number;
+  } | null;
 }
 
 declare global {
@@ -80,6 +96,7 @@ const initial: WovEditorDebug = {
   dirty: false,
   undoDepth: 0,
   redoDepth: 0,
+  terrain: null,
 };
 
 // One mutable record behind the exported functions. The bridge is written from

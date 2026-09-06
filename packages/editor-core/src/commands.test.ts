@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CURRENT_WORLD_SCHEMA_VERSION } from '@wov/world-schema';
 import type { EditorDocument } from './document.js';
 import { createDocument } from './document.js';
 import {
@@ -11,6 +12,7 @@ import {
   removeZone,
   renameEntity,
   renameZone,
+  updateTerrainSurface,
   updateTransform,
   type EditorCommand,
 } from './commands.js';
@@ -312,5 +314,156 @@ describe('invertCommand', () => {
       ok: false,
       error: 'unknown zone "nowhere"',
     });
+  });
+});
+
+describe('updateTerrainSurface', () => {
+  /** A zone whose ground has two layers, one already carrying a surface. */
+  function grounded(): EditorDocument {
+    return createDocument({
+      schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
+      id: 'example',
+      name: 'Example',
+      zones: [
+        {
+          id: 'village',
+          name: 'Village',
+          entities: [],
+          terrain: {
+            heightField: 'terrain/tile.glb',
+            position: [0, 0, 0],
+            size: [300, 300],
+            splat: ['textures/splat.png'],
+            layers: [
+              { texture: 'textures/grass.png', tileSize: 2, metallic: 0.5 },
+              {
+                texture: 'textures/rock.png',
+                tileSize: 2,
+                normalMap: 'textures/rock-normal.png',
+              },
+            ],
+          },
+        },
+      ],
+    });
+  }
+
+  function terrainOf(document: EditorDocument) {
+    return document.world.zones[0]?.terrain;
+  }
+
+  it('sets a layer’s metallic, smoothness and normal strength', () => {
+    const result = applyCommand(
+      grounded(),
+      updateTerrainSurface('village', {
+        layers: [{ index: 1, patch: { metallic: 0.85, smoothness: 0.1, normalScale: 1.5 } }],
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(terrainOf(result.value.document)?.layers?.[1]).toEqual({
+      texture: 'textures/rock.png',
+      tileSize: 2,
+      normalMap: 'textures/rock-normal.png',
+      metallic: 0.85,
+      smoothness: 0.1,
+      normalScale: 1.5,
+    });
+  });
+
+  it('refuses a normal strength on a layer with no normal map, like the schema', () => {
+    const result = applyCommand(
+      grounded(),
+      updateTerrainSurface('village', { layers: [{ index: 0, patch: { normalScale: 2 } }] }),
+    );
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('normalScale') });
+  });
+
+  it('leaves every other layer and every other field alone', () => {
+    const result = applyCommand(
+      grounded(),
+      updateTerrainSurface('village', { layers: [{ index: 1, patch: { metallic: 0.85 } }] }),
+    );
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    const terrain = terrainOf(result.value.document);
+    expect(terrain?.layers?.[0]).toEqual({
+      texture: 'textures/grass.png',
+      tileSize: 2,
+      metallic: 0.5,
+    });
+    expect(terrain?.heightField).toBe('terrain/tile.glb');
+  });
+
+  it('clears a field with null rather than writing a zero that means the same', () => {
+    const result = applyCommand(
+      grounded(),
+      updateTerrainSurface('village', { layers: [{ index: 0, patch: { metallic: null } }] }),
+    );
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    expect(terrainOf(result.value.document)?.layers?.[0]).toEqual({
+      texture: 'textures/grass.png',
+      tileSize: 2,
+    });
+  });
+
+  it('turns facetted ground on and off', () => {
+    const result = applyCommand(grounded(), updateTerrainSurface('village', { flatNormals: true }));
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    expect(terrainOf(result.value.document)?.flatNormals).toBe(true);
+  });
+
+  it('inverts to exactly the values that were there before', () => {
+    const document = grounded();
+    const command = updateTerrainSurface('village', {
+      layers: [
+        { index: 0, patch: { metallic: 0.2 } },
+        { index: 1, patch: { smoothness: 0.4 } },
+      ],
+      flatNormals: true,
+    });
+    const forward = applyCommand(document, command);
+    if (!forward.ok) {
+      throw new Error(forward.error);
+    }
+    const back = applyCommand(forward.value.document, forward.value.inverse);
+    if (!back.ok) {
+      throw new Error(back.error);
+    }
+    expect(terrainOf(back.value.document)).toEqual(terrainOf(document));
+  });
+
+  it('refuses a value the schema would refuse in a file', () => {
+    const result = applyCommand(
+      grounded(),
+      updateTerrainSurface('village', { layers: [{ index: 0, patch: { metallic: 1.4 } }] }),
+    );
+    expect(result).toEqual({
+      ok: false,
+      error: expect.stringContaining('metallic'),
+    });
+  });
+
+  it('refuses a layer that is not there, by number', () => {
+    const result = applyCommand(
+      grounded(),
+      updateTerrainSurface('village', { layers: [{ index: 5, patch: { metallic: 0.1 } }] }),
+    );
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('no terrain layer 5') });
+  });
+
+  it('refuses a zone with no ground at all', () => {
+    const result = applyCommand(
+      createDocument(villageWorld()),
+      updateTerrainSurface('village', { flatNormals: true }),
+    );
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('no terrain') });
   });
 });

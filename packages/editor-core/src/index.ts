@@ -32,6 +32,7 @@ export {
   removeZone,
   renameEntity,
   renameZone,
+  updateTerrainSurface,
   updateTransform,
 } from './commands.js';
 export type {
@@ -47,8 +48,11 @@ export type {
   RemoveZoneCommand,
   RenameEntityCommand,
   RenameZoneCommand,
+  TerrainLayerChange,
+  TerrainSurfacePatch,
   TransformChange,
   TransformPatch,
+  UpdateTerrainSurfaceCommand,
   UpdateTransformCommand,
 } from './commands.js';
 

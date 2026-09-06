@@ -123,7 +123,10 @@ const server = createServer((request, response) => {
   })();
 });
 
-server.listen(port, '127.0.0.1', () => {
+// Loopback by default (a clean clone never exposes assets by accident); the
+// staging host on wov-dev sets ASSET_HOST=0.0.0.0 so the reverse proxy can reach it.
+const host = process.env['ASSET_HOST'] ?? '127.0.0.1';
+server.listen(port, host, () => {
   process.stdout.write(`asset server: http://localhost:${port} serving ${assetRoot}\n`);
   process.stdout.write(
     storeRoot === undefined

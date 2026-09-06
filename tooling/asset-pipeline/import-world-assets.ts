@@ -286,7 +286,10 @@ async function importOne(selection: Selection, sourceFile: string): Promise<Asse
     bytes: normalised.byteLength,
     hash: sha256(normalised),
     bounds,
-    origin: `${selection.origin} (origin normalised to the hull's base and centre, ${String(countTriangles(glb.json))} triangles)`,
+    // The wording must match what `originShiftFor` actually does: only terrain
+    // tiles are moved (centred on x/z); everything else keeps its authored
+    // origin, which is the ground-contact point and may sit above geometry.
+    origin: `${selection.origin} (${selection.group === 'terrain' ? 'origin centred on x/z of the hull, y kept' : 'origin kept as authored: ground-contact point, geometry may extend below y=0'}, ${String(countTriangles(glb.json))} triangles)`,
     source: selection.provenance.source,
     author: selection.provenance.author,
     license: IMPORT_LICENSE,

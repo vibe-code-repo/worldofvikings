@@ -1,22 +1,27 @@
 # @wov/game
 
-Browser game client (production: `live.world-of-vikings.com`). Phase 1 walks a
-placeholder capsule across the base scene — a 100 m ground, fill and key light,
-sky colour and matching fog — with the third-person camera following it and the
-first licensed asset standing on the ground beside it: keyboard and mouse
-produce intent, `@wov/gameplay` turns intent into a position, and the renderer
-draws that position.
+Browser game client (production: `live.world-of-vikings.com`). It opens an
+authored world over `services/api`, draws that zone's ground from its height
+field and splat layers, places its entities from the prefab catalogue as GPU
+instances, and walks a placeholder capsule over the result with the
+third-person camera following it: keyboard and mouse produce intent,
+`@wov/gameplay` turns intent into a position, and the renderer draws that
+position (ADR-0022).
 
 One DOM marker per concern: `game-marker` (the app is served), `game-status`
-(the renderer and the simulation), `game-assets` (the asset pipeline —
-`assets: 1 loaded`), `game-controls` (the key list). `pnpm smoke` asserts them.
+(the renderer, the simulation, physics and the ground), `game-world` (which
+world is on screen, or why none is), `game-assets` and `game-asset-sources`
+(the asset pipeline and where the bytes came from), `game-controls` (the key
+list). `pnpm smoke` asserts them.
 
-`src/environment.ts` holds the list of what is placed. It is a Phase 1 fixture,
-not world data: the world is authored in the editor and loaded from `content/`
-from Phase 4 on (agent rule 9).
+No world data lives in this app. `src/world-api.ts` fetches it, `src/config.ts`
+says where from, and `src/world-scene.ts` turns one zone into a scene. The
+client never reads `assets/manifest.json`: the prefab catalogue says where a
+model's bytes are (ADR-0015, ADR-0016).
 
 - Dev: `pnpm --filter @wov/game dev` → http://localhost:5173
 - Environment: `VITE_API_URL`, `VITE_ASSET_URL` (see `.env.example`)
+- Query string: `?world=<id>` (default `village1`), `?spawn=<x>,<z>`
 
 ## Controls
 
@@ -55,6 +60,9 @@ The arrow only points one way: state flows into the renderer and never back
 | `src/render/interpolate.ts`   | Blends two steps for the frame in between                    |
 | `src/placeholder-target.ts`   | The capsule the camera follows until there is a player       |
 | `src/scene.ts`                | Renderer, base scene, camera and capsule, from `@wov/engine` |
+| `src/config.ts`               | Where the API and the assets are, and which world to open    |
+| `src/world-api.ts`            | `GET /worlds/:id` and `GET /prefabs`, validated              |
+| `src/world-scene.ts`          | One zone → ground plus instanced entities                    |
 | `src/main.ts`                 | Wiring only                                                  |
 
 Why the device edge lives in the app rather than in a package, why the bindings
@@ -84,8 +92,11 @@ changing that one getter.
 
 ## Dev build only
 
-`src/dev-debug.ts` publishes `window.__wov = { backend, frameId, camera, player }`
-and writes `frame <n>` into the marker every frame. A loaded page proves nothing
+`src/dev-debug.ts` publishes
+`window.__wov = { backend, frameId, camera, player, groundAt, terrainBounds, render }`
+and writes `frame <n>` into the marker every frame. `render` carries Babylon's
+own per-frame draw-call, active-mesh and triangle counters, which is what the
+instancing of ADR-0022 is measured with — see `docs/development.md`. A loaded page proves nothing
 about a running renderer: the marker is there whether the loop ticks, stalls or
 throws after the first frame, so `pnpm smoke` watches the counter climb instead.
 The camera readout is there for the same reason — unit tests pin the camera
@@ -116,5 +127,7 @@ Dependencies: `@babylonjs/core` (renderer, ADR-0002), `vite`, `vitest` (the
 input adapter and the frame loop are testable logic and are tested here rather
 than in a package, ADR-0010), and the shared packages `@wov/gameplay` (state and
 systems), `@wov/engine` (renderer bootstrap, base scene, camera),
-`@wov/asset-system` (asset URLs, loading, placement — ADR-0011, ADR-0012) and
+`@wov/asset-system` (asset URLs, loading, placement — ADR-0011, ADR-0012),
+`@wov/world-schema` (validating the world file and the prefab catalogue the API
+answers with — ADR-0022), `@wov/shared` (the service-URL rule both apps use) and
 `@wov/ui` (design tokens).

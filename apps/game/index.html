@@ -10,13 +10,18 @@
   <body>
     <canvas id="render-canvas"></canvas>
     <div class="marker" data-testid="game-marker">World of Vikings &ndash; game dev build</div>
-    <div class="controls" data-testid="game-controls">
-      WASD move &middot; Shift sprint &middot; Space dodge &middot; E interact &middot; LMB attack
-      &middot; RMB block &middot; 1&ndash;5 slots &middot; click the scene to capture the mouse
+    <!-- One stack, bottom left: each line is its own row, so a longer status
+         never lands on top of the line below it. -->
+    <div class="hud">
+      <div class="controls" data-testid="game-controls">
+        WASD move &middot; Shift sprint &middot; Space dodge &middot; E interact &middot; LMB attack
+        &middot; RMB block &middot; 1&ndash;5 slots &middot; click the scene to capture the mouse
+      </div>
+      <div class="status" data-testid="game-status">starting…</div>
+      <div class="status" data-testid="game-world">world: loading…</div>
+      <div class="status" data-testid="game-assets">assets: loading…</div>
+      <div class="status" data-testid="game-asset-sources">assets: source unknown</div>
     </div>
-    <div class="status" data-testid="game-status">starting…</div>
-    <div class="status assets" data-testid="game-assets">assets: loading…</div>
-    <div class="status assets" data-testid="game-asset-sources">assets: source unknown</div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

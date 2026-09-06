@@ -35,6 +35,11 @@ type WovDebugWindow = Window & {
       readonly min: readonly [number, number, number];
       readonly max: readonly [number, number, number];
     } | null;
+    readonly render: {
+      readonly drawCalls: number;
+      readonly activeMeshes: number;
+      readonly triangles: number;
+    };
     groundAt(x: number, z: number): number | null;
   };
 };
@@ -337,7 +342,7 @@ test('game camera follows the player that walks away', async ({ page }) => {
   expect(gap).toBeLessThan(walkedCamera.distance + 0.5);
 });
 
-test('game loads its environment assets over the asset server', async ({ page }) => {
+test('game loads its world assets over the asset server', async ({ page }) => {
   const badResponses: string[] = [];
   page.on('response', (response) => {
     // A 404 under `/store/` is not a failure: the store lives outside the
@@ -354,20 +359,22 @@ test('game loads its environment assets over the asset server', async ({ page })
 
   await page.goto(appUrl('gameUrl'));
 
-  // The wording comes from `summarizePlacement` in @wov/asset-system, so this
-  // and the app cannot drift apart. A failed load reads
-  // "assets: 0 loaded, 1 failed (…)" and fails here.
-  // One vendored asset plus two from the private store. A private asset that
-  // fell back to its placeholder still counts as loaded — that is the point of
-  // the fallback — so this number does not depend on the store being mounted.
-  await expect(page.getByTestId('game-assets')).toHaveText('assets: 3 loaded');
+  // Every distinct model of the zone, loaded once and instanced per entity
+  // (ADR-0022). A model that fell back to its committed placeholder still
+  // counts as loaded — that is the point of the fallback — so this does not
+  // depend on the store being mounted. The number is not pinned because it is
+  // world data and a re-import may legitimately change it; what is pinned is
+  // that there are many of them and that none failed.
+  await expect(page.getByTestId('game-assets'), {
+    message: 'a failed model reads "…, N failed" and fails here',
+  }).toHaveText(/^assets: [1-9]\d{1,} models loaded$/, { timeout: 120_000 });
   // Where the bytes came from, not only how many arrived (ADR-0015). The
   // wording comes from `summarizeAssetSources`, so this and the app cannot
-  // drift apart either. "2 private" is pinned because that is what the probe
-  // asks for; the placeholder count is 0 with a store mounted and 2 without,
-  // and both are correct — the point is that it is stated rather than silent.
+  // drift apart. With a store mounted nothing falls back; without one every
+  // private asset does, and both are correct — the point is that it is stated
+  // rather than silent.
   await expect(page.getByTestId('game-asset-sources')).toHaveText(
-    /^assets: 2 private, [02] placeholder$/,
+    /^assets: \d+ private, \d+ placeholder$/,
   );
   // The GLB references its texture by a relative path, so a wrongly vendored
   // layout is a second failure mode. Babylon happens to reject the whole load
@@ -429,6 +436,71 @@ test('game stands the player on the terrain it draws', async ({ page }) => {
   }
   expect(Math.abs(standing.y - ground)).toBeLessThan(0.5);
   expect(standing.y).toBeGreaterThan(bounds.min[1] - 0.5);
+});
+
+/**
+ * The client opens an authored world over the API and builds it (ADR-0022).
+ *
+ * The claims are separate on purpose, because each can hold while the others do
+ * not: the world file arrived and was accepted, its zone's ground is there, its
+ * entities reached the scene, and the capsule ended up on the ground rather
+ * than under it or a hundred metres above it.
+ *
+ * The entity count is read off the status line rather than pinned, because it
+ * is world data: a re-import may legitimately change it. What is asserted is
+ * the shape — more than a thousand of them, from more than one model.
+ */
+test('game opens the authored village over the API', async ({ page }) => {
+  await page.goto(appUrl('gameUrl'));
+
+  await expect(page.getByTestId('game-world')).toHaveText(
+    /^world village1 · zone village — \d+ entities from \d+ models$/,
+    { timeout: 120_000 },
+  );
+  const line = (await page.getByTestId('game-world').textContent()) ?? '';
+  const [, entities, models] = /— (\d+) entities from (\d+) models/.exec(line) ?? [];
+  expect(Number(entities)).toBeGreaterThan(1000);
+  expect(Number(models)).toBeGreaterThan(1);
+
+  // The ground of that zone, not the Phase 1 plane.
+  await expect(page.getByTestId('game-status')).toContainText(/terrain ready — \d+ collision/);
+
+  // Standing on the terrain the world file names, within a metre of what the
+  // collision query answers underneath the capsule.
+  const standing = await livePlayer(page);
+  const ground = await page.evaluate(
+    ([x, z]) => (window as WovDebugWindow).__wov?.groundAt(x as number, z as number) ?? null,
+    [standing.x, standing.z],
+  );
+  if (ground === null) {
+    throw new Error('the collision ground answered nothing under the player');
+  }
+  expect(Math.abs(standing.y - ground)).toBeLessThan(1);
+
+  // Instancing, as a number rather than as a claim: a thousand entities drawn
+  // one draw call each would be a thousand. Read off Babylon's own counter.
+  const render = await page.evaluate(() => (window as WovDebugWindow).__wov?.render ?? null);
+  if (render === null) {
+    throw new Error('the game dev build published no render counters');
+  }
+  expect(render.activeMeshes).toBeGreaterThan(100);
+  expect(render.drawCalls).toBeLessThan(render.activeMeshes / 2);
+});
+
+/**
+ * A client that cannot reach its API says so, in the line the world belongs in.
+ *
+ * The failure this pins is the silent one: an empty green plane with a happy
+ * "renderer ready" underneath it, which looks like a world that is still
+ * loading and is in fact a world that will never arrive.
+ */
+test('game says which API it could not reach', async ({ page }) => {
+  await page.goto(`${appUrl('gameUrl')}?world=no-such-world`);
+  await expect(page.getByTestId('game-world')).toContainText(/world "no-such-world"/, {
+    timeout: 60_000,
+  });
+  // Still a running client, not a blank page.
+  await expect(page.getByTestId('game-status')).toContainText('renderer ready');
 });
 
 test('editor shows its shell and a live viewport', async ({ page }) => {
@@ -590,7 +662,11 @@ test('editor opens the imported village with more than a thousand entities', asy
   await expect(page.getByTestId('hierarchy-zone-surroundings')).toContainText('Surroundings');
 
   await expect.poll(() => editorEntityCount(page), { timeout: 60_000 }).toBeGreaterThan(1000);
-  await expect.poll(() => editorMeshCount(page), { timeout: 60_000 }).toBeGreaterThan(1000);
+  // One root per entity, not one per node of the loaded model: the two counts
+  // are the same number seen from the document and from the scene, so they are
+  // compared to each other rather than to a threshold.
+  const documented = await editorEntityCount(page);
+  await expect.poll(() => editorMeshCount(page), { timeout: 60_000 }).toBe(documented);
 
   // Still rendering afterwards: a viewport that built the zone and then died is
   // not a viewport that opened it.

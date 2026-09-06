@@ -30,6 +30,10 @@ const storeConfigured = (process.env['WOV_ASSET_STORE'] ?? '').trim().length > 0
  * One model per case the binding has to get right, and the texture each must
  * end up wearing.
  *
+ * The file names are the model that first needed a texture plus its slot and
+ * the content hash (ADR-0019), which is why a building and a rock name the same
+ * file: they share one atlas, and the rock is first in the sorted walk.
+ *
  * `colourful` is asserted only for the shelter, and that is a statement about
  * the source art rather than about the pipeline: the flat-shaded building
  * atlas is brown, the rock's corner of the same atlas is a neutral grey, and
@@ -42,7 +46,7 @@ const SUBJECTS = [
     entity: 'shelter',
     prefab: 'environment-sm-bld-preset-shelter-02-optimized',
     what: 'a building',
-    texture: 'atlas-a-mat-01-a-2-2a217835.png',
+    texture: 'sm-env-rock-03-1-0-2a217835.png',
     colourful: true,
     position: [0, 0, 0],
   },
@@ -50,7 +54,7 @@ const SUBJECTS = [
     entity: 'rock',
     prefab: 'environment-sm-env-rock-01',
     what: 'a rock',
-    texture: 'atlas-a-mat-01-a-2-2a217835.png',
+    texture: 'sm-env-rock-03-1-0-2a217835.png',
     colourful: false,
     position: [20, 0, 0],
   },
@@ -58,7 +62,7 @@ const SUBJECTS = [
     entity: 'bush',
     prefab: 'vegetation-bush-1a2',
     what: 'a bush with alpha-cut leaves',
-    texture: 'leaves-birch-3-dark-46087926.png',
+    texture: 'bush-1a2-small-1-dark-0-46087926.png',
     colourful: false,
     position: [40, 0, 0],
   },

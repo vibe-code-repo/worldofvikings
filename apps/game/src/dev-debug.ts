@@ -15,6 +15,7 @@
  * it. Verify with `pnpm --filter @wov/game build && grep -r __wov dist/` —
  * that must find nothing.
  */
+import { SceneInstrumentation } from '@babylonjs/core/Instrumentation/sceneInstrumentation.js';
 import type { RendererBackend, RendererHandle, ThirdPersonCameraHandle } from '@wov/engine';
 import type { PlaceholderTarget } from './placeholder-target.js';
 
@@ -74,6 +75,26 @@ export interface WovDebugBridge {
     min: [number, number, number];
     max: [number, number, number];
   } | null;
+  /**
+   * What the last frame cost the renderer.
+   *
+   * Frames per second in a headless browser say nothing — there is no display
+   * to keep up with and the software rasteriser sets the pace. Draw calls and
+   * triangles do: they are what a world of 1216 entities is measured in, and
+   * they are the numbers that tell instancing from cloning (ADR-0022). Read
+   * off Babylon's own counters, not from our bookkeeping.
+   */
+  readonly render: WovRenderDebug;
+}
+
+/** Per-frame render counters, as plain numbers a test can read out of the page. */
+export interface WovRenderDebug {
+  /** Draw calls issued for the last rendered frame. */
+  drawCalls: number;
+  /** Meshes the camera found worth drawing, instances included. */
+  activeMeshes: number;
+  /** Triangles submitted for the last frame. */
+  triangles: number;
 }
 
 declare global {
@@ -128,6 +149,7 @@ export function installDevDebugBridge(
     player: WovPlayerDebug | null;
     groundAt: (x: number, z: number) => number | null;
     terrainBounds: WovTerrainBounds | null;
+    render: WovRenderDebug;
   } = {
     backend: renderer.backend,
     frameId: -1,
@@ -135,6 +157,7 @@ export function installDevDebugBridge(
     player: playerDebug,
     groundAt,
     terrainBounds: null,
+    render: { drawCalls: 0, activeMeshes: 0, triangles: 0 },
   };
   window.__wov = bridge;
 
@@ -145,8 +168,15 @@ export function installDevDebugBridge(
   frameElement.textContent = NO_FRAME_YET;
   marker?.append(frameElement);
 
+  // Babylon resets the draw-call counter per frame only while something asks
+  // it to; that is all this instrumentation is here for.
+  const instrumentation = new SceneInstrumentation(renderer.scene);
+
   renderer.onFrame((frame) => {
     bridge.frameId = frame.index;
+    bridge.render.drawCalls = instrumentation.drawCallsCounter.current;
+    bridge.render.activeMeshes = renderer.scene.getActiveMeshes().length;
+    bridge.render.triangles = Math.round(renderer.scene.getActiveIndices() / 3);
     if (camera && cameraDebug) {
       const state = camera.state;
       cameraDebug.yaw = state.yaw;

@@ -12,20 +12,26 @@ World of Vikings is an open-source, browser-based third-person action RPG with a
 TypeScript, Vite; React only in the editor. The world is never procedurally
 generated.
 
-Current state: **Phase 1 (player, camera, movement)** for the game, **Phase 3
-MVP** for the editor.
+Current state: **Phase 4 (the authored world is on screen)** for the game,
+**Phase 3 MVP** for the editor.
 
-The game client walks a placeholder capsule across a lit base scene with a
-third-person camera, loads a licensed model over the asset server and runs a
-physics world that answers where the ground is. There is no character model, no
-combat and no authored world yet.
+The game client opens a world through `services/api`, draws that zone's ground
+from its height field and splat layers (ADR-0020), places its entities from the
+prefab catalogue as GPU instances, and stands a placeholder capsule on the
+terrain with a third-person camera and a physics world that collides against the
+same tile (ADR-0022). `?world=` picks the world, `?spawn=x,z` where to stand.
+The village zone is 1216 entities from 139 models. There is no character model,
+no combat, no zone streaming, and entity meshes are drawn but not collided
+against — the player walks through walls.
 
 The editor opens and saves worlds through `services/api` (ADR-0017), places
 prefabs from the generated catalogue (ADR-0016), and edits them with selection,
-move/rotate/scale gizmos, grid and surface snapping and an undo history. Its one
-rule is ADR-0018: **the document is the truth and the scene follows it** — every
-gesture becomes a command, and the viewport reconciles. There is no component
-system, no terrain sculpting and no scatter tool yet.
+move/rotate/scale gizmos, grid and surface snapping and an undo history. It
+draws the active zone's ground as scenery a prop can be dropped onto, but not as
+something that can be selected or moved. Its one rule is ADR-0018: **the
+document is the truth and the scene follows it** — every gesture becomes a
+command, and the viewport reconciles. There is no component system, no terrain
+sculpting and no scatter tool yet.
 
 The client has exactly one loop, one device edge and one ground query — read
 [ADR-0014](docs/adr/0014-one-loop-one-device-edge-one-ground.md) before adding a
@@ -33,25 +39,25 @@ second of any of them.
 
 ## 2. Folder responsibilities
 
-| Path                    | Owns                                      | Never contains                |
-| ----------------------- | ----------------------------------------- | ----------------------------- |
-| `apps/website`          | Public site, Play link                    | Game or editor logic          |
-| `apps/game`             | Game client bootstrap and HUD             | Editor code, world data       |
-| `apps/editor`           | React editor shell, panels, viewport      | Game-only logic, world rules  |
-| `services/api`          | HTTP service                              | Gameplay rules                |
-| `packages/shared`       | Framework-free helpers                    | Any dependency                |
-| `packages/world-schema` | Zod schemas + versioning for world data   | Babylon.js, React             |
-| `packages/asset-system` | Asset URLs, GLB loading/caching, manifest | Gameplay                      |
-| `packages/engine`       | Shared renderer layer                     | Gameplay state                |
-| `packages/physics`      | Physics contract + Havok backend          | Gameplay rules                |
-| `packages/gameplay`     | Gameplay state and systems                | Any renderer import           |
-| `packages/editor-core`  | Editor-only logic                         | Anything the game needs       |
-| `packages/ui`           | Framework-free UI tokens/helpers          | React components              |
-| `content/`              | Authored JSON game data                   | TypeScript                    |
-| `assets/`               | Public binary assets + placeholders       | Anything unlicensed           |
-| `tooling/`              | Scripts, validators, smoke tests          | Shipped code                  |
-| `infrastructure/`       | Deployment scaffolding (empty in Phase 1) | Anything needed for local dev |
-| `docs/`                 | Architecture, formats, ADRs               | Generated output              |
+| Path                    | Owns                                      | Never contains                   |
+| ----------------------- | ----------------------------------------- | -------------------------------- |
+| `apps/website`          | Public site, Play link                    | Game or editor logic             |
+| `apps/game`             | Game client bootstrap, world loading, HUD | Editor code, authored world data |
+| `apps/editor`           | React editor shell, panels, viewport      | Game-only logic, world rules     |
+| `services/api`          | HTTP service                              | Gameplay rules                   |
+| `packages/shared`       | Framework-free helpers                    | Any dependency                   |
+| `packages/world-schema` | Zod schemas + versioning for world data   | Babylon.js, React                |
+| `packages/asset-system` | Asset URLs, GLB loading/caching, manifest | Gameplay                         |
+| `packages/engine`       | Shared renderer layer                     | Gameplay state                   |
+| `packages/physics`      | Physics contract + Havok backend          | Gameplay rules                   |
+| `packages/gameplay`     | Gameplay state and systems                | Any renderer import              |
+| `packages/editor-core`  | Editor-only logic                         | Anything the game needs          |
+| `packages/ui`           | Framework-free UI tokens/helpers          | React components                 |
+| `content/`              | Authored JSON game data                   | TypeScript                       |
+| `assets/`               | Public binary assets + placeholders       | Anything unlicensed              |
+| `tooling/`              | Scripts, validators, smoke tests          | Shipped code                     |
+| `infrastructure/`       | Deployment scaffolding (empty in Phase 1) | Anything needed for local dev    |
+| `docs/`                 | Architecture, formats, ADRs               | Generated output                 |
 
 ## 3. Commands
 

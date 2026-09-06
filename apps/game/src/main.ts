@@ -25,12 +25,13 @@
  * second, engine-driven render loop would render frames the simulation never
  * saw.
  *
- * The environment probe and the physics backend are started next to the loop and
- * never awaited by it: a slow model or a 2 MB WASM download delays the barrel
- * and the collision, not the player walking (spec §38). The terrain probe joins
- * the same sequence: once the ground is loaded it replaces the placeholder plane
- * as both the picture and the collision geometry, and the player is put down on
- * it (ADR-0020).
+ * The world and the physics backend are started next to the loop and never
+ * awaited by it: a 400 kB world file or a 2 MB WASM download delays the village
+ * appearing, not the player walking (spec §38). The world arrives from the API
+ * (ADR-0022): its zone's ground replaces the placeholder plane as both the
+ * picture and the collision geometry, the player is put down on it, and its
+ * entities are placed from the prefab catalogue. Nothing here reads
+ * `assets/manifest.json` — the catalogue says where each model's bytes are.
  */
 import {
   MovementSystem,
@@ -46,14 +47,21 @@ import {
   type Transform,
   type WorldState,
 } from '@wov/gameplay';
-import { summarizeAssetSources, summarizePlacement } from '@wov/asset-system';
-import type { AssetEnv } from '@wov/asset-system';
+import { summarizeAssetSources } from '@wov/asset-system';
 import type { PhysicsWorld } from '@wov/physics';
 import { tokens } from '@wov/ui';
 import { installDevDebugBridge } from './dev-debug.js';
 import type { WovTerrainBounds } from './dev-debug.js';
-import { loadEnvironment } from './environment.js';
-import { VILLAGE_TERRAIN, loadTerrainProbe, spawnFromQuery } from './terrain-probe.js';
+import { resolveGameConfig, worldIdFromQuery } from './config.js';
+import { createWorldApi } from './world-api.js';
+import {
+  NO_SOURCES,
+  addSources,
+  loadZoneTerrain,
+  placeEntities,
+  playableZone,
+  spawnFromQuery,
+} from './world-scene.js';
 import { createGamePhysicsWorld, toStaticMeshData } from './physics-backend.js';
 import { physicsGround } from './physics-ground.js';
 import { attachKeyboardMouse } from './input/keyboard-mouse.js';
@@ -63,6 +71,20 @@ import { createGameScene } from './scene.js';
 
 /** The one entity the keys steer in Phase 1. */
 const PLAYER = toEntityId('player');
+
+/**
+ * The part of a Babylon mesh the terrain hull is measured from.
+ *
+ * Declared structurally rather than imported: this file needs three vectors off
+ * a bounding box, and importing `Mesh` for a type would be an import of the
+ * whole class for nothing.
+ */
+interface BoundingInfoLike {
+  readonly boundingBox: {
+    readonly minimumWorld: { x: number; y: number; z: number };
+    readonly maximumWorld: { x: number; y: number; z: number };
+  };
+}
 
 /**
  * How far above the tallest ground a spawn probe starts, in metres.
@@ -92,21 +114,25 @@ function playerSpec(position: { x: number; y: number; z: number }): {
 }
 
 /**
- * The one environment variable the asset system reads, picked out explicitly.
+ * The two environment variables the client reads, picked out explicitly.
  * `import.meta.env` carries Vite's own keys too, and handing the whole object
- * over would let a typo in `AssetEnv` pass unnoticed.
+ * over would let a typo in `GameEnv` pass unnoticed.
  */
-const assetEnv: AssetEnv = { VITE_ASSET_URL: import.meta.env.VITE_ASSET_URL };
+const config = resolveGameConfig({
+  VITE_ASSET_URL: import.meta.env.VITE_ASSET_URL,
+  VITE_API_URL: import.meta.env.VITE_API_URL,
+});
 
 const marker = document.querySelector<HTMLElement>('[data-testid="game-marker"]');
 const status = document.querySelector<HTMLElement>('[data-testid="game-status"]');
 const controls = document.querySelector<HTMLElement>('[data-testid="game-controls"]');
 const assetStatus = document.querySelector<HTMLElement>('[data-testid="game-assets"]');
 const assetSources = document.querySelector<HTMLElement>('[data-testid="game-asset-sources"]');
+const worldStatus = document.querySelector<HTMLElement>('[data-testid="game-world"]');
 
 document.body.style.background = tokens.colorBackground;
 document.body.style.color = tokens.colorText;
-for (const element of [marker, status, controls, assetStatus, assetSources]) {
+for (const element of [marker, status, controls, assetStatus, assetSources, worldStatus]) {
   if (element) {
     element.style.background = tokens.colorSurface;
     element.style.borderRadius = tokens.radius;
@@ -129,6 +155,18 @@ function setStatus(text: string): void {
 function setAssetStatus(text: string): void {
   if (assetStatus) {
     assetStatus.textContent = text;
+  }
+}
+
+/**
+ * Says which world is on screen, or why none is (ADR-0022). It is its own line
+ * because "the renderer is up" and "there is a village in front of you" are
+ * different claims, and a client with no API reachable must say the second one
+ * out loud instead of showing an empty plane.
+ */
+function setWorldStatus(text: string): void {
+  if (worldStatus) {
+    worldStatus.textContent = text;
   }
 }
 
@@ -182,6 +220,8 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
   let physics: PhysicsWorld | null = null;
   /** What the status line says about the renderer and the simulation. */
   let baseStatus = '';
+  /** Where the ground's bytes came from, kept so both loaders share one line. */
+  let terrainSources = NO_SOURCES;
 
   // The state the previous step ended in, kept so a frame between two steps can
   // be interpolated instead of snapped.
@@ -282,110 +322,179 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
   }
 
   /**
-   * Loads the terrain probe and lets the authored ground take over.
+   * Loads the world, its ground and its entities (ADR-0022).
    *
-   * Order matters and is the whole point: the tile becomes collision geometry
-   * *before* the placeholder plane is switched off, so there is never a frame in
-   * which the player has nothing to stand on. Only then is the capsule put down
-   * on the terrain — teleporting first would drop it through a floor that does
-   * not exist yet.
+   * Order matters and is the whole point:
+   *
+   * 1. the world file and the prefab catalogue arrive from the API;
+   * 2. the physics world comes up;
+   * 3. the zone's tile becomes collision geometry **before** the placeholder
+   *    plane is switched off, so there is never a frame in which the player has
+   *    nothing to stand on;
+   * 4. only then is the capsule put down on the terrain — teleporting first
+   *    would drop it through a floor that does not exist yet;
+   * 5. the entities are placed, which is the slow part and the one nothing else
+   *    waits for.
    *
    * The physics world is awaited rather than raced: a tile that is drawn but not
    * collidable is exactly the failure that looks fine in a screenshot.
    */
-  async function startTerrain(): Promise<void> {
-    const world3d = await startPhysics();
-    const query = new URLSearchParams(window.location.search);
-    let loaded;
+  async function startWorld(): Promise<void> {
+    const api = createWorldApi(config.apiUrl);
+    const worldId = worldIdFromQuery(window.location.search);
+
+    let world;
+    let prefabs;
     try {
-      loaded = await loadTerrainProbe(
-        renderer.scene,
-        assetEnv,
-        VILLAGE_TERRAIN,
-        query.get('terrain-layers'),
-      );
+      [world, prefabs] = await Promise.all([api.loadWorld(worldId), api.loadPrefabs()]);
     } catch (error) {
-      setStatus(`${baseStatus} · terrain unavailable: ${describe(error)}`);
+      // The whole world is gone, so this is said where the world belongs and
+      // not buried in the renderer's line: a clone with no API running must be
+      // told which URL it tried, not left with an empty green plane.
+      setWorldStatus(`world "${worldId}" unavailable: ${describe(error)}`);
+      setAssetStatus('assets: no world to load');
+      setAssetSources('assets: no world to load');
+      void startPhysics();
       return;
     }
 
-    if (debugBridge !== null) {
-      const hull = loaded.terrain.meshes.reduce<{
-        min: [number, number, number];
-        max: [number, number, number];
-      } | null>((box, mesh) => {
-        const info = mesh.getBoundingInfo().boundingBox;
-        if (box === null) {
-          return {
-            min: [info.minimumWorld.x, info.minimumWorld.y, info.minimumWorld.z],
-            max: [info.maximumWorld.x, info.maximumWorld.y, info.maximumWorld.z],
-          };
+    const zone = playableZone(world.zones);
+    if (zone === undefined) {
+      setWorldStatus(`world "${world.id}" has no zone to walk around in`);
+      void startPhysics();
+      return;
+    }
+    setWorldStatus(
+      `world ${world.id} · zone ${zone.id} — ${String(zone.entities.length)} entities, loading…`,
+    );
+
+    const world3d = await startPhysics();
+
+    if (zone.terrain !== undefined) {
+      try {
+        const ground3d = await loadZoneTerrain(
+          renderer.scene,
+          config.assets,
+          zone.terrain,
+          `${world.id}:${zone.id}`,
+        );
+        terrainSources = ground3d.sources;
+        reportTerrainBounds(ground3d.terrain.meshes);
+
+        const triangles = ground3d.terrain.meshes.reduce(
+          (total, mesh) => total + (mesh.getIndices()?.length ?? 0) / 3,
+          0,
+        );
+
+        if (world3d === null) {
+          setStatus(`${baseStatus} · terrain drawn, but nothing to collide with`);
+        } else {
+          for (const mesh of ground3d.terrain.meshes) {
+            world3d.addStaticMesh(toStaticMeshData(mesh));
+          }
+          // The authored ground has taken over; the Phase 1 plane would now
+          // fight it for pixels and answer ground queries a hundred metres
+          // below it.
+          base.ground.setEnabled(false);
+          standOn(zone.terrain.position, zone.terrain.size);
+          setStatus(
+            `${baseStatus} · terrain ready — ${String(Math.round(triangles))} collision triangles`,
+          );
         }
-        return {
-          min: [
-            Math.min(box.min[0], info.minimumWorld.x),
-            Math.min(box.min[1], info.minimumWorld.y),
-            Math.min(box.min[2], info.minimumWorld.z),
-          ],
-          max: [
-            Math.max(box.max[0], info.maximumWorld.x),
-            Math.max(box.max[1], info.maximumWorld.y),
-            Math.max(box.max[2], info.maximumWorld.z),
-          ],
-        };
-      }, null);
-      if (hull !== null) {
-        debugBridge.reportTerrainBounds(hull);
+      } catch (error) {
+        setStatus(`${baseStatus} · terrain unavailable: ${describe(error)}`);
       }
     }
 
-    const triangles = loaded.terrain.meshes.reduce(
-      (total, mesh) => total + (mesh.getIndices()?.length ?? 0) / 3,
-      0,
+    const placed = await placeEntities({
+      scene: renderer.scene,
+      source: config.assets,
+      zone,
+      prefabs,
+    });
+    for (const problem of placed.failed) {
+      console.error(`[game] a prefab of zone "${zone.id}" did not load — ${problem}`);
+    }
+    if (placed.unknownPrefabs.length > 0) {
+      console.warn(
+        `[game] ${String(placed.unknownPrefabs.length)} entities reference a prefab the ` +
+          'catalogue does not have',
+      );
+    }
+    setWorldStatus(
+      `world ${world.id} · zone ${zone.id} — ${String(placed.roots.length)} entities from ` +
+        `${String(placed.models)} models` +
+        (placed.failed.length > 0 ? `, ${String(placed.failed.length)} failed` : ''),
     );
-
-    if (world3d === null) {
-      setStatus(`${baseStatus} · terrain drawn, but nothing to collide with`);
-      return;
-    }
-
-    for (const mesh of loaded.terrain.meshes) {
-      world3d.addStaticMesh(toStaticMeshData(mesh));
-    }
-    // The authored ground has taken over; the Phase 1 plane would now fight it
-    // for pixels and answer ground queries a hundred metres below it.
-    base.ground.setEnabled(false);
-
-    const [spawnX, spawnZ] = spawnFromQuery(query.get('terrain-spawn'), VILLAGE_TERRAIN.size);
-    const spawnY = probeGround(spawnX, spawnZ);
-    if (spawnY !== null) {
-      world = createWorldState([playerSpec({ x: spawnX, y: spawnY, z: spawnZ })]);
-      previous = getTransform(world, PLAYER) ?? previous;
-    }
-
-    setStatus(
-      `${baseStatus} · terrain ready — ${String(Math.round(triangles))} collision triangles` +
-        (loaded.fromPlaceholder ? ' (placeholder tile: no asset store)' : ''),
+    setAssetStatus(
+      `assets: ${String(placed.models)} models loaded` +
+        (placed.failed.length > 0 ? `, ${String(placed.failed.length)} failed` : ''),
     );
+    setAssetSources(summarizeAssetSources(addSources(terrainSources, placed.sources)));
   }
 
-  void startTerrain();
+  /** Publishes the tile's measured hull to the dev bridge, if there is one. */
+  function reportTerrainBounds(meshes: readonly { getBoundingInfo(): BoundingInfoLike }[]): void {
+    if (debugBridge === null) {
+      return;
+    }
+    let hull: WovTerrainBounds | null = null;
+    for (const mesh of meshes) {
+      const info = mesh.getBoundingInfo().boundingBox;
+      const low = info.minimumWorld;
+      const high = info.maximumWorld;
+      hull =
+        hull === null
+          ? { min: [low.x, low.y, low.z], max: [high.x, high.y, high.z] }
+          : {
+              min: [
+                Math.min(hull.min[0], low.x),
+                Math.min(hull.min[1], low.y),
+                Math.min(hull.min[2], low.z),
+              ],
+              max: [
+                Math.max(hull.max[0], high.x),
+                Math.max(hull.max[1], high.y),
+                Math.max(hull.max[2], high.z),
+              ],
+            };
+    }
+    if (hull !== null) {
+      debugBridge.reportTerrainBounds(hull);
+    }
+  }
 
-  // Started after the loop and deliberately not awaited: a slow model delays
-  // the barrel appearing, not the scene showing up (spec §38).
-  void loadEnvironment(renderer.scene, assetEnv).then(
-    (result) => {
-      setAssetStatus(summarizePlacement(result.placement));
-      setAssetSources(summarizeAssetSources(result.sources));
-      for (const failure of result.placement.failures) {
-        console.error(`asset "${failure.placement.asset}" could not be placed`, failure.error);
-      }
-    },
-    (error: unknown) => {
-      setAssetStatus(`assets: loader unavailable — ${describe(error)}`);
-      setAssetSources('assets: source unknown');
-    },
-  );
+  /**
+   * Puts the capsule down on the ground, in the middle of the tile.
+   *
+   * `?spawn=x,z` moves it, in the same metres the world file uses. The village
+   * is 300 m across and the things worth looking at — the paths, the cliffs,
+   * one particular house — are nowhere near the middle, so a screenshot needs
+   * to be able to say where to stand. Anything malformed or outside the tile
+   * falls back to the middle rather than dropping the player off the edge.
+   */
+  function standOn(
+    position: readonly [number, number, number],
+    size: readonly [number, number],
+  ): void {
+    const middle: [number, number] = [position[0] + size[0] / 2, position[2] + size[1] / 2];
+    const [x, z] = spawnFromQuery(new URLSearchParams(window.location.search).get('spawn'), {
+      min: [position[0], position[2]],
+      max: [position[0] + size[0], position[2] + size[1]],
+      fallback: middle,
+    });
+    const y = probeGround(x, z);
+    if (y !== null) {
+      world = createWorldState([playerSpec({ x, y, z })]);
+      previous = getTransform(world, PLAYER) ?? previous;
+    }
+  }
+
+  // Started after the loop and deliberately not awaited: a slow world delays
+  // the village appearing, not the scene showing up (spec §38).
+  void startWorld().catch((error: unknown) => {
+    setWorldStatus(`world unavailable: ${describe(error)}`);
+  });
 }
 
 const canvas = document.querySelector<HTMLCanvasElement>('#render-canvas');

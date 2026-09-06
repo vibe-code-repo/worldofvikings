@@ -97,12 +97,12 @@ gzip; the browser downloads the gzip.
 
 | Chunk                | Raw      | Gzip   | When it loads                       |
 | -------------------- | -------- | ------ | ----------------------------------- |
-| `apps/game` entry    | 994 kB   | 245 kB | Always                              |
+| `apps/game` entry    | 1 086 kB | 270 kB | Always                              |
 | `webgpuEngine`       | 223 kB   | 54 kB  | Only on a WebGPU browser (ADR-0006) |
 | `glTFLoader`         | 132 kB   | 32 kB  | On the first asset load (ADR-0011)  |
 | `havok` binding      | 102 kB   | 26 kB  | On physics start-up (ADR-0013)      |
 | `HavokPhysics.wasm`  | 2 095 kB | 658 kB | With it                             |
-| `apps/editor` entry  | 1 465 kB | 377 kB | Always                              |
+| `apps/editor` entry  | 1 473 kB | 380 kB | Always                              |
 | `apps/website` entry | 1.1 kB   | 0.6 kB | Always                              |
 
 Totals on disk: game 5.5 MB, editor 3.9 MB, website 12 kB.
@@ -112,6 +112,29 @@ The game entry grew by 35 kB raw / 13 kB gzip with the terrain renderer
 needs were not in the bundle before. `@babylonjs/materials` was _not_ added —
 `MixMaterial` was measured against the real splat data and rejected, and the
 generated shader is a few kB of strings instead of a package.
+
+It grew by a further 93 kB raw / 26 kB gzip when the client started loading its
+world from the API (ADR-0022). That is `@wov/world-schema` and Zod: the client
+validates the world file and the prefab catalogue with the same schemas the
+service validated them with, rather than trusting a service it does not control
+(agent rule 10).
+
+## What the village costs to draw
+
+Measured in the dev build with `window.__wov.render`, standing in the middle of
+the village tile at 1280×720, headless Chromium on WebGL2. Frames per second are
+not listed on purpose: headless has no display to keep up with, so the number
+would say more about the rasteriser than about the scene.
+
+| View                                  | Draw calls | Active meshes | Triangles |
+| ------------------------------------- | ---------- | ------------- | --------- |
+| 1216 entities, instanced (what ships) | 196        | 1 018         | 509 870   |
+| the same view, cloned instead         | 553        | 1 018         | 509 870   |
+
+Same picture, 2.8× the draw calls: 139 models are placed 1216 times, and an
+`InstancedMesh` shares its source's geometry and material, so Babylon draws all
+copies of one mesh together (ADR-0022). The terrain adds 131 072 collision
+triangles, which are not drawn — they are the physics mesh.
 
 The game entry chunk is over Vite's 500 kB warning and Rollup says so on every
 build. It is almost entirely Babylon.js core; splitting it is open work under

@@ -98,8 +98,11 @@ export default defineConfig({
       command: `pnpm --filter @wov/game dev --port ${String(GAME_PORT)} --strictPort`,
       url: gameUrl,
       cwd: repoRoot,
-      env: { VITE_ASSET_URL: assetUrl },
-      reuseExistingServer: !process.env['CI'],
+      env: { VITE_API_URL: apiUrl, VITE_ASSET_URL: assetUrl },
+      // Never reuse, for the same reason as the editor below: the game now
+      // reads its world from the API (ADR-0022), and a server started by
+      // `pnpm dev` points at a different one.
+      reuseExistingServer: false,
       timeout: 120_000,
     },
     {
@@ -119,7 +122,8 @@ export default defineConfig({
       env: {
         API_PORT: String(API_PORT),
         CONTENT_DIR: contentDir,
-        API_CORS_ORIGINS: editorUrl,
+        // Both browser clients call it now (ADR-0022).
+        API_CORS_ORIGINS: `${editorUrl},${gameUrl}`,
       },
       reuseExistingServer: false,
       timeout: 120_000,

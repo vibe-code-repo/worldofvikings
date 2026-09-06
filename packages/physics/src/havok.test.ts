@@ -17,6 +17,7 @@ import {
   defaultGravity,
   physicsLayers,
   type PhysicsWorld,
+  type StaticGroup,
   type StaticMeshData,
 } from './index.js';
 import { createHavokPhysicsWorld, loadHavok, type HavokInstance } from './havok.js';
@@ -263,5 +264,135 @@ describe('raycastGround', () => {
 describe('collision layers', () => {
   it('keeps the world and character layers distinct', () => {
     expect(physicsLayers.world & physicsLayers.character).toBe(0);
+  });
+});
+
+/** A 1 m cube of triangles centred on the origin, for the hull and mesh kinds. */
+const UNIT_CUBE = {
+  positions: [
+    -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, 0.5, -0.5,
+    0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5,
+  ],
+  indices: [
+    0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 3, 2, 6, 3, 6, 7, 0, 3, 7, 0, 7, 4, 1, 5,
+    6, 1, 6, 2,
+  ],
+};
+
+/** A quarter turn about Y, as a quaternion. */
+const QUARTER_TURN_Y = { x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 };
+
+/** Casts along +x at `y` and reports how far it got. */
+function reach(physics: PhysicsWorld, y: number, toX = 20): number | null {
+  const hit = physics.raycast({ x: -20, y, z: 0 }, { x: toX, y, z: 0 });
+  return hit ? hit.point.x : null;
+}
+
+describe('raycast', () => {
+  it('reports the first surface along an arbitrary segment', async () => {
+    const physics = await createWorld();
+    physics.addStaticGroup({
+      name: 'wall',
+      shape: { kind: 'box', center: { x: 0, y: 0, z: 0 }, halfExtents: { x: 0.5, y: 2, z: 5 } },
+      placements: [{ position: { x: 4, y: 0, z: 0 } }],
+    });
+    expect(reach(physics, 0)).toBeCloseTo(3.5, 3);
+  });
+
+  it('answers nothing when the segment misses everything', async () => {
+    const physics = await createWorld();
+    physics.addStaticMesh(flatGround);
+    expect(physics.raycast({ x: 0, y: 5, z: 0 }, { x: 0, y: 4, z: 0 })).toBeNull();
+  });
+});
+
+describe('addStaticGroup', () => {
+  const boxGroup = (placements: StaticGroup['placements']): StaticGroup => ({
+    name: 'box',
+    shape: { kind: 'box', center: { x: 0, y: 0, z: 0 }, halfExtents: { x: 0.5, y: 2, z: 5 } },
+    placements,
+  });
+
+  it('puts one shape down at every placement', async () => {
+    const physics = await createWorld();
+    physics.addStaticGroup(boxGroup([{ position: { x: 4, y: 0, z: 0 } }]));
+    expect(reach(physics, 0)).toBeCloseTo(3.5, 3);
+  });
+
+  it('turns a body with its placement rotation', async () => {
+    const physics = await createWorld();
+    // The box is 1 m thick on x and 10 m long on z. Turned a quarter turn about
+    // Y it is 10 m thick on x, so a ray along +x meets it 5 m earlier.
+    physics.addStaticGroup(
+      boxGroup([{ position: { x: 4, y: 0, z: 0 }, rotation: QUARTER_TURN_Y }]),
+    );
+    expect(reach(physics, 0)).toBeCloseTo(-1, 3);
+  });
+
+  it('takes many placements of one shape', async () => {
+    const physics = await createWorld();
+    physics.addStaticGroup(
+      boxGroup([{ position: { x: 4, y: 0, z: 0 } }, { position: { x: -4, y: 0, z: 0 } }]),
+    );
+    expect(reach(physics, 0)).toBeCloseTo(-4.5, 3);
+  });
+
+  it('removes every body of the group at once', async () => {
+    const physics = await createWorld();
+    const group = physics.addStaticGroup(
+      boxGroup([{ position: { x: 4, y: 0, z: 0 } }, { position: { x: -4, y: 0, z: 0 } }]),
+    );
+    expect(reach(physics, 0)).not.toBeNull();
+
+    group.dispose();
+
+    expect(reach(physics, 0)).toBeNull();
+  });
+
+  it('collides against a convex hull of the points it is given', async () => {
+    const physics = await createWorld();
+    physics.addStaticGroup({
+      name: 'hull',
+      shape: { kind: 'hull', positions: UNIT_CUBE.positions },
+      placements: [{ position: { x: 4, y: 0, z: 0 } }],
+    });
+    expect(reach(physics, 0)).toBeCloseTo(3.5, 2);
+  });
+
+  it('collides against every triangle of a mesh, hole and all', async () => {
+    const physics = await createWorld();
+    // Two 1 m cubes 4 m apart, in one shape: a ray between them passes through.
+    const positions = [...UNIT_CUBE.positions];
+    const indices = [...UNIT_CUBE.indices];
+    const offset = UNIT_CUBE.positions.length / 3;
+    for (let index = 0; index < offset; index += 1) {
+      positions.push(
+        (UNIT_CUBE.positions[index * 3] ?? 0) + 4,
+        UNIT_CUBE.positions[index * 3 + 1] ?? 0,
+        UNIT_CUBE.positions[index * 3 + 2] ?? 0,
+      );
+    }
+    for (const index of UNIT_CUBE.indices) {
+      indices.push(index + offset);
+    }
+
+    physics.addStaticGroup({
+      name: 'two-posts',
+      shape: { kind: 'mesh', positions, indices },
+      placements: [{ position: { x: 0, y: 0, z: 0 } }],
+    });
+
+    // Along x the ray meets the first post.
+    expect(reach(physics, 0)).toBeCloseTo(-0.5, 2);
+    // Between the two posts, along z, nothing is in the way.
+    expect(physics.raycast({ x: 2, y: 0, z: -20 }, { x: 2, y: 0, z: 20 })).toBeNull();
+  });
+
+  it('refuses to add geometry to a disposed world', async () => {
+    const physics = await createWorld();
+    physics.dispose();
+    expect(() => physics.addStaticGroup(boxGroup([{ position: { x: 0, y: 0, z: 0 } }]))).toThrow(
+      /disposed/,
+    );
   });
 });

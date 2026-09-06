@@ -13,10 +13,14 @@ export type {
   GroundHit,
   PhysicsLayer,
   PhysicsWorld,
+  Quat,
   RaycastGroundOptions,
   StaticBody,
+  StaticGroup,
   StaticMeshData,
+  StaticPlacement,
+  StaticShapeDescription,
   Vec3,
 } from './contract.js';
-export { physicsLayers } from './contract.js';
+export { IDENTITY_ROTATION, physicsLayers } from './contract.js';
 export { characterPhysics, defaultGravity, simulationStep } from './defaults.js';

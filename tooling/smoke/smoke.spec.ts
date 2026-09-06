@@ -829,6 +829,11 @@ test('editor changes the ground’s surface and the viewport follows', async ({ 
   await expect.poll(() => editorTerrainProgram(page), { timeout: 120_000 }).not.toBeNull();
   const smooth = await editorTerrainProgram(page);
 
+  // The ground lives in the Zone inspector, one tab along. It was its own panel
+  // standing beside the terrain one until the two were folded together, and a
+  // test that still opened on it would be testing a layout nobody ships.
+  await page.getByTestId('right-tab-zone').click();
+
   // Every layer of the village tile is listed, with its three dials.
   await expect(page.getByTestId('ground-layer-0')).toBeVisible();
   await expect(page.getByTestId('ground-metallic-1')).toHaveValue('0.85');
@@ -838,7 +843,7 @@ test('editor changes the ground’s surface and the viewport follows', async ({ 
   await expect(page.getByTestId('editor-dirty')).toHaveText('unsaved changes');
 
   // …and the switch reaches the picture: a facetted tile is a different program.
-  await page.getByTestId('ground-flat-normals').check();
+  await page.getByTestId('ground-flatNormals').check();
   await expect.poll(() => editorTerrainProgram(page), { timeout: 60_000 }).not.toBe(smooth);
   const facetted = await editorTerrainProgram(page);
   expect(facetted).toContain('f');

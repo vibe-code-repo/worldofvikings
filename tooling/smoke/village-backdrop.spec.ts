@@ -118,7 +118,9 @@ function luminanceRow(png: Buffer, y: number): number[] {
 test.describe('the village horizon', () => {
   test.skip(!storeConfigured, 'needs WOV_ASSET_STORE: the backdrop models are private');
 
-  test('draws a painted mountain range, out of the fog and out of the light', async ({ page }) => {
+  test('draws a painted mountain range, hazed by the fog and out of the light', async ({
+    page,
+  }) => {
     // The same budget the other village test takes, and for the same reason:
     // where no GPU answers this is a 4 M triangle scene on a software rasteriser.
     test.setTimeout(360_000);

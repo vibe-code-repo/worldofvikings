@@ -131,6 +131,24 @@ The path turns from warm and yellow to neutral and faintly cool while staying
 dark; the meadow stays green and comes back to within a quarter of its old
 brightness.
 
+Repeated afterwards on the hillside west of the village — the reference view of
+§8, which frames a rock band, a meadow and shaded ground at once:
+
+| Patch on the hillside        | Before                        | After                         |
+| ---------------------------- | ----------------------------- | ----------------------------- |
+| Rock band across the slope   | R 86.5 G 86.5 B 31.3, B−R −55 | R 79.7 G 80.6 B 55.0, B−R −25 |
+| Meadow on the left slope     | R 56.6 G 64.0 B 31.1, G−R +7  | R 55.7 G 66.2 B 33.0, G−R +10 |
+| Shaded ground, foreground    | R 75.1 G 74.1 B 48.9, luma 73 | R 42.8 G 46.7 B 31.5, luma 45 |
+| All ground below the horizon | R 79.6 G 79.7 B 36.8, B−R −43 | R 60.2 G 63.7 B 32.3, B−R −28 |
+
+The rock keeps its brightness (82.5 → 78.6 luma) and loses its yellow: thirty
+points of B−R, which is the sky arriving on it. The meadow stays a meadow and
+gets greener rather than greyer, because the diffuse it lost to metallic came
+back as sun. The ground the sun does not reach falls to two thirds of its
+brightness and to within eleven points of neutral. That last row is the one the
+old frame could not produce at all: before, every dark patch was dark _yellow_.
+84.5 % of the pixels above the HUD differ between the two frames.
+
 ### 5. One adaptive tile, not two meshes
 
 The importer writes a second copy of the village tile that keeps the source
@@ -152,10 +170,19 @@ detail: there is no neighbour on the other side to match.
 35° is the threshold in the world file because it is where the source's own paint
 changes: the rock channel takes over at about 42° mean slope and the rough-rock
 channel at 73°. It takes all the cliff area back for 2.1× the triangles rather
-than 4×. Frame time over the whole village, same camera, 280 frames: 15.8 ms
-before, 20.0 ms after — the tile is 4 % of a 3.6 M-triangle frame and costs
-about a fifth of it, which is what a 2.1× ground costs when the ground is not
-what the frame is spent on.
+than 4×.
+
+What it costs was measured twice, from two cameras, and the two answers are far
+apart — so both are here rather than the flattering one. Over the whole village
+from the first camera, 280 frames: 15.8 ms before, 20.0 ms after. From the
+reference view of §8, alternating the two worlds in the same browser three times
+and taking the median of the three, 280 frames each: 19.3 ms before, 19.6 ms
+after, with the whole tile in frame both times (3 594 546 vs 3 744 690
+triangles — the full 150 144 the tile grew by). The reading spread by 4 ms
+between rounds on a machine that was also building something else, which is more
+than the difference being measured; what the pair of measurements supports is
+that a 2.1× ground costs somewhere between nothing and a fifth of the frame,
+because the ground is not what this frame is spent on.
 
 `terrain.heightSamples` names a regular-grid copy of the ground for tools that
 sample heights without a renderer. The drawn tile is no longer a grid, and
@@ -173,7 +200,11 @@ three times the vertices for a switch that is off.
 It is off by default and stays off in `village1.json`. The source world gets its
 angular look from flat-shaded rock meshes standing on a _smooth_ height field,
 so a facetted height field is a different ground, not a better-lit one. Measured
-on the same frame, it changes 10.2 % of the pixels above the HUD.
+on the same frame, it changes 10.2 % of the pixels above the HUD from the first
+camera and 5.1 % from the reference view of §8 — it is a change to the shading of
+the ground, so how much of a frame it touches is how much ground that frame
+shows. The patch means barely move (rock band B−R −24.7 against −24.5): the
+facets change where the light falls, not what colour the ground is.
 
 ### 7. Editor parity
 
@@ -187,6 +218,37 @@ not the picture both fail.
 The command is deliberately narrow: it cannot add a layer, change a texture or
 move the tile. Those have an asset and an import behind them (ADR-0020,
 ADR-0021).
+
+The panel's own witness is `Ctrl+Z` after ticking the facets box, and it found a
+bug that had nothing to do with the ground: the shell ignored every shortcut
+while the focus was in an `<input>`, and a checkbox is an `<input>`. So ticking a
+box and pressing undo did nothing, in the ground panel and anywhere else a
+checkbox will ever be. `swallowsKeystrokes` in `apps/editor/src/keyboard.ts` now
+asks what the input _does_ rather than what it is: text fields, text areas,
+selects and content-editable elements keep their keystrokes, and buttons,
+checkboxes, radios and ranges let a shortcut past.
+
+### 8. The frame these numbers come from
+
+Every "before" above is `village1` with the terrain block of schema version 3 —
+no surface fields, the 257² tile, the sun at 2.3 and the fill at 0.62 — served
+from a throwaway content directory as its own world so the two can be shot in
+one browser session. Every "after" is `content/worlds/village1.json` as it
+stands.
+
+The reference view is the hillside west of the village:
+
+```
+/?world=village1&spawn=120,120&look=-105,14
+```
+
+which puts the camera at x 125.6, y 13.4, z 121.5, yaw −105°, pitch 14°, with
+1280×720, the ANGLE flags the smoke config uses, and 280 settled frames before
+the shutter. The patches are rectangles in that frame: the rock band at
+(800,190)–(1200,270), the meadow at (100,200)–(420,300), the shaded foreground at
+(40,380)–(560,440), and all ground below the horizon at (0,170)–(1280,480).
+`?look=` exists so this is a line someone can paste rather than a mouse gesture
+someone has to repeat (`config.ts`).
 
 ## Alternatives considered
 

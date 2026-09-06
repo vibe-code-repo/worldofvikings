@@ -38,6 +38,42 @@ The authoritative definition is `packages/world-schema`.
 - Objects are strict: unknown fields are an error, not silently dropped.
 - Zone ids are unique per world; entity ids are unique per zone.
 
+## Prefab catalogs
+
+Prefabs live in `content/prefabs/*.json` and are what an entity's `prefab` field
+points at (spec §19, ADR-0016). A catalog is a file; a prefab id is unique
+across **all** catalogs, because an entity names the id alone.
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "base",
+  "prefabs": [
+    {
+      "id": "barrel-01",
+      "name": "Barrel",
+      "asset": "environment/kenney-retro-fantasy-kit/detail-barrel.glb",
+      "visibility": "public",
+      "category": "prop",
+      "bounds": { "min": [-0.123, 0, -0.123], "max": [0.123, 0.3, 0.123] }
+    }
+  ]
+}
+```
+
+- `asset` — path relative to the asset root, forward slashes, no `..`. The rule
+  is stated a second time here instead of imported from `@wov/asset-system`, so
+  that content stays validatable without an asset pipeline (ADR-0016).
+- `visibility` — `public` (ships in `assets/`) or `private` (private store).
+- `placeholder` — required for `private`, forbidden for `public` (ADR-0015).
+- `category` — `environment`, `vegetation`, `terrain`, `prop` or `dungeon`; the
+  grouping the editor's asset browser uses (spec §13).
+- `bounds`, `defaultScale` — optional; `bounds` is copied from the manifest.
+
+`content/prefabs/base.json` is hand-written. `content/prefabs/imported.json` is
+generated from the asset manifest by `pnpm generate:prefabs` and committed — it
+is authored data derived once, not a runtime generator (ADR-0016).
+
 ## Rules
 
 1. Entities reference a **prefab**; geometry is never inlined (spec §19).
@@ -52,10 +88,11 @@ The authoritative definition is `packages/world-schema`.
 pnpm validate
 ```
 
-Checks every file in `content/worlds/`. Runs in CI.
+Checks every file in `content/worlds/` and `content/prefabs/`, and that every
+`prefab` an entity references exists in exactly one catalog. Runs in CI.
 
 ## Planned (not implemented)
 
-`ZoneDefinition` streaming metadata, terrain, prefab definitions, spawn points,
+`ZoneDefinition` streaming metadata, terrain, spawn points,
 triggers, audio zones, quest markers, and the published-world manifest with per
 zone versions (spec §36).

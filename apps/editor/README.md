@@ -43,6 +43,11 @@ testable without a GPU:
 | `selection-outline.ts` — the twelve box edges  | `selection-outline.ts`            |
 | —                                              | `zone-terrain.ts` — the ground    |
 
+The ground panel (`panels/GroundPanel.tsx`, ADR-0032) is where a layer's
+metallic, smoothness and bump strength are turned, and where facetted ground is
+switched on. Every input dispatches `updateTerrainSurface`, the same command
+`pnpm terrain-surface` builds — the editor cannot fall behind a script that way.
+
 The active zone's `terrain` block is drawn as scenery (ADR-0020, ADR-0022): it
 is what surface snapping drops a prop onto, and it carries no entity id, so
 clicking it selects nothing and no gizmo can move it. Terrain editing is a later

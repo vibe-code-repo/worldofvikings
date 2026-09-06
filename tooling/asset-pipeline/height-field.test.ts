@@ -247,7 +247,11 @@ describe('adaptiveMesh', () => {
   });
 
   it('is the full tile when everything is steep', () => {
-    const mesh = adaptiveMesh(grid(9, 9, (column) => column * 20), 2, 35);
+    const mesh = adaptiveMesh(
+      grid(9, 9, (column) => column * 20),
+      2,
+      35,
+    );
     expect(mesh.steepCells).toBe(16);
     expect(mesh.triangles).toBe(128);
     expect(mesh.vertices).toBe(81);
@@ -305,7 +309,13 @@ describe('adaptiveMesh', () => {
   });
 
   it('refuses a threshold that is not an angle', () => {
-    expect(() => adaptiveMesh(grid(5, 5, () => 0), 2, 90)).toThrow(/0…90/);
+    expect(() =>
+      adaptiveMesh(
+        grid(5, 5, () => 0),
+        2,
+        90,
+      ),
+    ).toThrow(/0…90/);
   });
 });
 

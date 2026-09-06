@@ -11,7 +11,7 @@ World files (`content/worlds/*.json`):
 - `CURRENT_WORLD_SCHEMA_VERSION` — the format version this build understands.
 - `WorldDefinitionSchema`, `ZoneDefinitionSchema`, `EntityDefinitionSchema` — Zod schemas.
 - `parseWorldDefinition(data): WorldParseResult` — validates unknown data, migrating a known older version forward first; returns either the world (with `migratedFrom` when a migration ran) or human-readable errors.
-- `TerrainDefinitionSchema`, `TerrainLayerSchema`, `terrainAssetPaths(terrain)`, `MAX_TERRAIN_LAYERS`, `LAYERS_PER_SPLAT_MAP` — a zone's ground (ADR-0020).
+- `TerrainDefinitionSchema`, `TerrainLayerSchema`, `terrainAssetPaths(terrain)`, `MAX_TERRAIN_LAYERS`, `LAYERS_PER_SPLAT_MAP` — a zone's ground (ADR-0020), including each layer's optional `normalMap`, `normalScale`, `metallic` and `smoothness`, the terrain's `flatNormals` and its `heightSamples` (ADR-0032).
 - `LightingProfileSchema` and its groups (`SunLightSchema`, `AmbientLightSchema`, `SkySchema`, `FogSchema`, `ShadowsSchema`, `PostProcessingSchema`, `BloomSchema`, `VignetteSchema`, `SsaoSchema`), plus `SHADOW_FILTERS` and `TONE_MAPPINGS` — how a world or a zone is lit (ADR-0024). Every group and every field is optional; what a file leaves out comes from the renderer's defaults.
 - `migrateWorldData(data, target)`, `WORLD_MIGRATIONS` — the recorded upgrade steps between versions.
 - Types: `WorldDefinition`, `ZoneDefinition`, `EntityDefinition`, `WorldParseResult`, `TerrainDefinition`, `TerrainLayer`, `LightingProfile` (and one type per group), `WorldMigration`, `WorldMigrationResult`.

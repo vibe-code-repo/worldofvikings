@@ -39,3 +39,4 @@ change it describes.
 | [0028](0028-the-scene-import-carries-authored-blocks-forward.md)              | The scene import carries authored blocks forward                  | accepted |
 | [0029](0029-one-babylon-module-one-specifier.md)                              | One Babylon.js module, one import specifier                       | accepted |
 | [0030](0030-staging-serves-built-bundles.md)                                  | Staging serves built bundles, not a development server            | accepted |
+| [0032](0032-terrain-layers-carry-a-surface.md)                                | Terrain layers carry a surface, and the ground reflects the sky   | accepted |

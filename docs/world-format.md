@@ -140,18 +140,29 @@ scene reads:
 (no shadows, no sky, no fog, no grading), so a screenshot can be compared
 against the same frame with no rig at all.
 
-## Terrain (schemaVersion 2, ADR-0020)
+## Terrain (schemaVersion 2, ADR-0020; surface fields at 4, ADR-0032)
 
 `zone.terrain` is optional: a zone without ground — an interior, a dungeon
 level, a zone still being blocked out — simply has no `terrain`.
 
-| Field         | Meaning                                                                    |
-| ------------- | -------------------------------------------------------------------------- |
-| `heightField` | Asset path of the height field model, e.g. `terrain/village-257.glb`.      |
-| `position`    | Where the model's **own origin** lands in world space, `[x, y, z]` m.      |
-| `size`        | `[width, depth]` of the tile in metres, along x and z.                     |
-| `layers`      | Up to 8 ground textures, each with its `tileSize` in metres.               |
-| `splat`       | One or two RGBA weight maps: the first weights layers 1–4, the second 5–8. |
+| Field           | Meaning                                                                    |
+| --------------- | -------------------------------------------------------------------------- |
+| `heightField`   | Asset path of the height field model, e.g. `terrain/village-257.glb`.      |
+| `position`      | Where the model's **own origin** lands in world space, `[x, y, z]` m.      |
+| `size`          | `[width, depth]` of the tile in metres, along x and z.                     |
+| `heightSamples` | Optional: a regular-grid copy of the same ground, for offline tools.       |
+| `layers`        | Up to 8 ground textures, each with its `tileSize` in metres.               |
+| `splat`         | One or two RGBA weight maps: the first weights layers 1–4, the second 5–8. |
+| `flatNormals`   | Optional: draw the ground facetted. Default off.                           |
+
+Each layer may also carry a surface (ADR-0032), all four fields optional:
+
+| Field         | Meaning                                                                   |
+| ------------- | ------------------------------------------------------------------------- |
+| `normalMap`   | Asset path of a tangent-space normal map, tiled like the colour texture.  |
+| `normalScale` | 0…8, how hard it tilts the surface. Needs a `normalMap`; 1 is as painted. |
+| `metallic`    | 0…1, how much of this layer is reflected sky rather than its own colour.  |
+| `smoothness`  | 0…1, how sharp that reflection is. The opposite end of roughness.         |
 
 Rules the schema enforces:
 
@@ -163,8 +174,13 @@ Rules the schema enforces:
 - `tileSize` is metres per repeat, not a repeat count. The renderer computes the
   UV scale as `size / tileSize`, so a 2 m gravel texture stays 2 m of gravel
   when the tile is resized.
-- `pnpm validate:content` additionally checks that every path a terrain names
+- `pnpm validate:content` additionally checks that every path a terrain names —
+  the height field, the samples copy, every texture **and every normal map** —
   exists in `assets/manifest.json`.
+- `normalScale` without a `normalMap` is refused: a strength for a map that is
+  not there does nothing, and a number that does nothing is one someone trusts.
+- All five new fields default to what the renderer did before them, so a
+  version 3 file is a version 4 file whose ground is plain diffuse.
 
 **Where the tile sits.** The asset pipeline writes height fields with their
 local origin at the tile's minimum corner and does **not** centre them
@@ -185,25 +201,42 @@ thing they mean for an entity, whose `position` the loader never touches.
 
 **Splat channels.** Which channel drives which layer is a property of the map,
 not of the format: layer _n_ is weighted by channel _n_ (r, g, b, a of the first
-map, then of the second). For the village tile that order was measured — each
-channel's weight correlated against the height field's own slope, then three
-candidate orders rendered and compared — and is recorded in ADR-0020 and in the
-`layers` of `content/worlds/village1.json`, in this order:
+map, then of the second). For the village tile the order was measured again in
+ADR-0032, on the dominant channel of every texel of the 512² map, and one entry
+changed — what was read as a second grass is the layer the village paths are
+painted with:
 
-| Channel | Coverage | Mean slope | Layer                |
-| ------- | -------- | ---------- | -------------------- |
-| A.r     | 3.5 %    | 0.60       | `terrain-grass-b`    |
-| A.g     | 16.8 %   | 1.01 ↑     | `terrain-rock-a`     |
-| A.b     | 57.4 %   | 0.47 ↓     | `terrain-grass-a`    |
-| A.a     | 15.3 %   | 0.38 ↓     | `terrain-gravel`     |
-| B.r     | 0.1 %    | 3.35 ↑↑    | `terrain-rock-rough` |
-| B.g     | 6.8 %    | 0.73       | `terrain-moss`       |
+| Channel | Area   | Mean slope | Mean height | corr(slope) | Layer                 |
+| ------- | ------ | ---------- | ----------- | ----------- | --------------------- |
+| A.r     | 1.3 %  | 8.0°       | 13.2 m      | −0.02       | `terrain-gravel-path` |
+| A.g     | 15.6 % | 42.0°      | 30.2 m      | +0.38       | `terrain-rock-a`      |
+| A.b     | 65.8 % | 20.5°      | 20.3 m      | −0.27       | `terrain-grass-a`     |
+| A.a     | 10.9 % | 12.8°      | 12.0 m      | −0.23       | `terrain-gravel`      |
+| B.r     | 0.15 % | 73.3°      | 40.7 m      | +0.12       | `terrain-rock-rough`  |
+| B.g     | 6.3 %  | 32.6°      | 23.6 m      | +0.16       | `terrain-moss`        |
 
-The tile's own mean slope is 0.57 and its 99th percentile 3.30.
+A.r follows the paths and not the grass: sampled at the placed entities it
+carries 0.131 mean weight under the stone-and-brick path props and 0.161 under
+the wooden ones, against 0.039 under the bushes.
 
 A splat map is also stored **turned onto the ground's axes** by the import
 (`tooling/asset-pipeline/terrain-import.ts`), so a world file needs no axis
-field and a renderer samples it as `uv = (x, z) / size`.
+field and a renderer samples it as `uv = (x, z) / size`. That placement was
+re-measured in ADR-0032 against all eight ways of laying a square map over the
+tile — mean |r| against slope 0.195, against 0.09–0.13 for the other seven — and
+it is the one the import already produced.
+
+**Why `heightSamples`.** The village's drawn tile is adaptive: coarse where the
+ground is gentle, at the source resolution past 35° (ADR-0032). Its vertices are
+therefore not `rows × columns` and it cannot be read as a height grid at all.
+`pnpm scatter` needs a grid to interpolate between, so the world names one
+instead of an offline tool guessing which file to read. Absent means the height
+field is itself a grid, which is what it was through version 3.
+
+**Changing a layer's surface.** `pnpm terrain-surface --world <id> --zone <id>
+--layer <n> --metallic <0…1>` and the editor's ground panel are the same
+`updateTerrainSurface` command from `@wov/editor-core` (ADR-0032). Neither can
+add a layer or change a texture: those have an asset and an import behind them.
 
 **Who draws it.** The game draws the ground of the zone it opens and hands its
 triangles to physics, so the surface the player sees is the surface the player

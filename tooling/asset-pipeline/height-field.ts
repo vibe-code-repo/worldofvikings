@@ -389,7 +389,6 @@ export function gridPositions(grid: HeightGrid): Float32Array {
   return positions;
 }
 
-
 // ------------------------------------------------------- adaptive resolution
 
 /**

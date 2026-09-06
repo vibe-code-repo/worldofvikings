@@ -55,12 +55,7 @@ import { tokens } from '@wov/ui';
 import { isDebugRequested } from '@wov/shared';
 import { installDevDebugBridge } from './dev-debug.js';
 import type { WovCollisionDebug, WovTerrainBounds } from './dev-debug.js';
-import {
-  lightingProfiles,
-  lookFromQuery,
-  resolveGameConfig,
-  worldIdFromQuery,
-} from './config.js';
+import { lightingProfiles, lookFromQuery, resolveGameConfig, worldIdFromQuery } from './config.js';
 import { createWorldApi } from './world-api.js';
 import {
   NO_SOURCES,

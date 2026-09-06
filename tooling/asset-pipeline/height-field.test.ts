@@ -9,6 +9,7 @@ import {
   gridSize,
   gridUvs,
   heightAt,
+  heightAtOnTile,
   readHeightGrid,
   thinGrid,
   adaptiveMesh,
@@ -227,6 +228,73 @@ describe('heightAt', () => {
 
   it('answers the origin height for a value that is not a number', () => {
     expect(heightAt(ramp, Number.NaN, 100)).toBeCloseTo(10, 6);
+  });
+});
+
+describe('heightAtOnTile', () => {
+  /**
+   * The same ground twice, in the two frames the store actually holds.
+   *
+   * A raster rebuilt by `buildHeightFieldGlb` starts at the tile's corner; the
+   * modelling export's own raster is centred on it and starts at half the tile
+   * below zero. Both describe one 300 m tile placed at the origin, and a world
+   * coordinate has to reach the same ground through either.
+   */
+  const cornerFramed: HeightGrid = grid(5, 5, (c) => c);
+  const centreFramed: HeightGrid = {
+    ...cornerFramed,
+    originX: -2,
+    originZ: -2,
+  };
+
+  it('reads a corner-framed grid exactly as the grid-local lookup does', () => {
+    for (const [x, z] of [
+      [0, 0],
+      [1.5, 2.5],
+      [4, 4],
+    ] as const) {
+      expect(heightAtOnTile(cornerFramed, x, z, [0, 0, 0], [4, 4])).toBeCloseTo(
+        heightAt(cornerFramed, x, z),
+        6,
+      );
+    }
+  });
+
+  /**
+   * The regression this function exists for. Adding the grid's own origin to a
+   * centred raster reads the tile half a tile off its corner and answers a
+   * perfectly plausible height from the wrong place — which is how 4 032 tufts
+   * of grass came to float 47 m over the village with a clean exit code.
+   */
+  it('reads a centre-framed grid as the same ground, not shifted by its origin', () => {
+    for (const [x, z] of [
+      [0, 0],
+      [1.5, 2.5],
+      [4, 4],
+    ] as const) {
+      expect(heightAtOnTile(centreFramed, x, z, [0, 0, 0], [4, 4])).toBeCloseTo(
+        heightAtOnTile(cornerFramed, x, z, [0, 0, 0], [4, 4]),
+        6,
+      );
+    }
+    // And it is genuinely a different answer from the grid-local lookup, so
+    // this test fails if the mapping is ever quietly dropped again.
+    expect(heightAt(centreFramed, 1.5, 2.5)).not.toBeCloseTo(
+      heightAtOnTile(centreFramed, 1.5, 2.5, [0, 0, 0], [4, 4]),
+      3,
+    );
+  });
+
+  it('moves with the tile, so a tile placed away from the origin still reads', () => {
+    expect(heightAtOnTile(cornerFramed, 101.5, 202.5, [100, 0, 200], [4, 4])).toBeCloseTo(
+      heightAtOnTile(cornerFramed, 1.5, 2.5, [0, 0, 0], [4, 4]),
+      6,
+    );
+  });
+
+  it('clamps to the edge rather than refusing a point off the tile', () => {
+    expect(heightAtOnTile(cornerFramed, -50, 0, [0, 0, 0], [4, 4])).toBeCloseTo(0, 6);
+    expect(heightAtOnTile(cornerFramed, 900, 0, [0, 0, 0], [4, 4])).toBeCloseTo(4, 6);
   });
 });
 

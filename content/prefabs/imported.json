@@ -92,6 +92,16 @@
       "collision": { "kind": "box" }
     },
     {
+      "id": "environment-mountainskybox",
+      "name": "Mountainskybox",
+      "asset": "environment/mountainskybox.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/environment/mountainskybox.glb",
+      "category": "environment",
+      "bounds": { "min": [-297.0295, -297.0296, -297.0295], "max": [297.0296, 0, 297.0296] },
+      "collision": { "kind": "box" }
+    },
+    {
       "id": "environment-roof-sm-bld-preset-shelter-02",
       "name": "Roof Sm Bld Preset Shelter 02",
       "asset": "environment/roof-sm-bld-preset-shelter-02.glb",

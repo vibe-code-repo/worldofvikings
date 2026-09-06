@@ -51,7 +51,7 @@ import {
 import { parsePrefabCatalog, parseWorldDefinition } from '@wov/world-schema';
 import type { PrefabDefinition } from '@wov/world-schema';
 import { readGlb } from '@wov/content-build';
-import { heightAt, readHeightGrid } from '../asset-pipeline/height-field.js';
+import { heightAtOnTile, readHeightGrid } from '../asset-pipeline/height-field.js';
 import { repoRoot } from './repo-root.js';
 import { resolveContentDir, resolveStoreRoot } from './scatter-paths.js';
 
@@ -237,10 +237,13 @@ try {
       ' — set --store or WOV_ASSET_STORE to the asset store holding this height field',
   );
 }
-// The height field is a tile placed at `terrain.position`; the grid inside it
-// starts at its own origin, so a world coordinate is read at the difference.
+// The tile covers `terrain.position` to `position + size`, and the grid is
+// stretched over exactly that. It is read through the rectangle and not by
+// shifting the world coordinate onto the grid's own origin, because the two
+// frames are not the same: a rebuilt raster starts at the tile's corner and the
+// export's own raster is centred on it (`heightAtOnTile`).
 const groundAt = (x: number, z: number): number =>
-  terrain.position[1] + heightAt(grid, x - terrain.position[0], z - terrain.position[2]);
+  terrain.position[1] + heightAtOnTile(grid, x, z, terrain.position, terrain.size);
 
 // -------------------------------------------------------------- the keep-outs
 

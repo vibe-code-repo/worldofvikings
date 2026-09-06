@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { CURRENT_WORLD_SCHEMA_VERSION } from '@wov/world-schema';
 import { readGlb } from '@wov/content-build';
-import { heightAt, readHeightGrid } from '../asset-pipeline/height-field.js';
+import { heightAtOnTile, readHeightGrid } from '../asset-pipeline/height-field.js';
 
 /**
  * Where the three parts of the village's look meet (ADR-0024, ADR-0025, ADR-0026).
@@ -39,7 +39,7 @@ const TERRAIN = (
       join(import.meta.dirname, '..', 'fixtures', 'worlds', 'village-terrain.json'),
       'utf8',
     ),
-  ) as { zones: { terrain: { heightField: string; position: number[] } }[] }
+  ) as { zones: { terrain: { heightField: string; position: number[]; size: number[] } }[] }
 ).zones[0]!.terrain;
 
 /**
@@ -69,7 +69,13 @@ function fixtureWorlds(): { field: unknown; wallOnly: unknown } {
   const grid = readHeightGrid(glb, TERRAIN.heightField);
   const groundAt = (x: number, z: number): number =>
     (TERRAIN.position[1] ?? 0) +
-    heightAt(grid, x - (TERRAIN.position[0] ?? 0), z - (TERRAIN.position[2] ?? 0));
+    heightAtOnTile(
+      grid,
+      x,
+      z,
+      [TERRAIN.position[0] ?? 0, TERRAIN.position[1] ?? 0, TERRAIN.position[2] ?? 0],
+      [TERRAIN.size[0] ?? 0, TERRAIN.size[1] ?? 0],
+    );
 
   const wall = [
     {

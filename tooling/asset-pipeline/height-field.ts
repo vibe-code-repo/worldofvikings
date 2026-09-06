@@ -242,6 +242,47 @@ function clamp(value: number, high: number): number {
 }
 
 /**
+ * The ground height at a **world** `[x, z]`, for a grid placed as a world tile.
+ *
+ * A tile occupies the world rectangle from `position` to `position + size`, and
+ * the grid inside it is stretched over exactly that rectangle. The grid's own
+ * origin is *not* the tile's corner and must not be treated as one: a raster
+ * rebuilt by {@link buildHeightFieldGlb} starts at 0, while the modelling
+ * export's own raster of the same ground is centred and starts at −150. Both
+ * are the same 300 m tile, and mapping through the rectangle is what makes them
+ * answer alike — the two agree to 2.3 cm across the village.
+ *
+ * Subtracting `position` and then letting {@link heightAt} add the grid origin
+ * back reads a centred raster 150 m off its corner. That is the shape of a
+ * silent error rather than a crash: every answer is a real height from a real
+ * part of the tile, just the wrong part, and a scatter run over the village put
+ * 4 032 tufts of grass 47 m into the air and exited 0. `heightSamples` was
+ * introduced (ADR-0032) precisely so a tool may be handed a raster that is not
+ * the drawn tile, so the frames stopped being guaranteed to match on that day.
+ *
+ * @param position the tile's world placement; `y` is not used here, a caller
+ *   adds it to the result the way it adds it to everything else on the tile.
+ * @param size `[width, depth]` of the tile in metres.
+ */
+export function heightAtOnTile(
+  grid: HeightGrid,
+  x: number,
+  z: number,
+  position: readonly [number, number, number],
+  size: readonly [number, number],
+): number {
+  const spanX = grid.stepX * (grid.columns - 1);
+  const spanZ = grid.stepZ * (grid.rows - 1);
+  const width = size[0];
+  const depth = size[1];
+  // A degenerate tile would divide by zero; read it at its own origin instead,
+  // which is the same answer `heightAt` gives for a value that is not a number.
+  const alongX = width === 0 ? 0 : (x - position[0]) / width;
+  const alongZ = depth === 0 ? 0 : (z - position[2]) / depth;
+  return heightAt(grid, grid.originX + alongX * spanX, grid.originZ + alongZ * spanZ);
+}
+
+/**
  * Keeps every `factor`-th row and column, so `513² → 257²` at factor 2.
  *
  * Sampling, not averaging: the kept vertices are the source's own heights, so

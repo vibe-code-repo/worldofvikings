@@ -60,7 +60,9 @@ Ctrl+Z Undo              Ctrl+Y or Ctrl+Shift+Z Redo
 Ctrl+S Save
 ```
 
-Shortcuts are ignored while a text field has focus.
+Shortcuts are ignored while a text field has focus — a field that takes text,
+that is. A checkbox takes none, so Ctrl+Z straight after ticking one is an undo
+of the thing that was ticked.
 
 ## Placing things
 

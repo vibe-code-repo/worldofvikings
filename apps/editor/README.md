@@ -25,6 +25,7 @@ gizmo drag undoes with the same Ctrl+Z as a Delete key.
 | `state/store.ts`     | The reducer around `@wov/editor-core`, plus clipboard and errors    |
 | `api/client.ts`      | `GET /worlds`, `GET /worlds/:id`, `PUT /worlds/:id`, `GET /prefabs` |
 | `config.ts`          | `VITE_API_URL` and `VITE_ASSET_URL`, with local defaults            |
+| `keyboard.ts`        | Whether the focused element keeps a keystroke or the shell gets it  |
 | `panels/`            | Menu bar, hierarchy, inspector, asset browser                       |
 | `scene/`             | Everything Babylon (see below)                                      |
 | `dev-debug.ts`       | `window.__wovEditor`, the dev-only bridge `pnpm smoke` reads        |

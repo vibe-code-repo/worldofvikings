@@ -1,6 +1,7 @@
 import type { Movement, Transform } from './components.js';
 import type { EntityId } from './entity.js';
 import { flatGround, type GroundQuery } from './ground.js';
+import { NO_OBSTACLES, type ObstacleQuery } from './obstacles.js';
 import { NEUTRAL_INPUT, inputEquals, type InputState } from './input.js';
 import { horizontalLength, type Vec3 } from './vector.js';
 import type { WorldState } from './world.js';
@@ -33,12 +34,47 @@ function intendedVelocity(input: InputState, movement: Movement): { x: number; z
   return { x: input.moveX * scale * speed, z: input.moveZ * scale * speed };
 }
 
+/**
+ * Where the entity ends up when a wall is in the way.
+ *
+ * Three attempts, in this order: the move it asked for, then the same move on
+ * one axis only, then the other. That is what makes walking along a house feel
+ * like walking along a house instead of sticking to it — the component into the
+ * wall is dropped, the component along it survives.
+ *
+ * The axis that was given up also loses its velocity. Without that, a player
+ * held against a wall for two seconds shoots sideways the moment the wall ends,
+ * because the solver kept accelerating into it the whole time.
+ */
+function slide(
+  from: Vec3,
+  toX: number,
+  toZ: number,
+  radius: number,
+  ground: GroundQuery,
+  obstacles: ObstacleQuery,
+): { x: number; z: number; blockedX: boolean; blockedZ: boolean } {
+  const at = (x: number, z: number): Vec3 => ({ x, y: ground.heightAt(x, z) ?? from.y, z });
+
+  if (obstacles.isFree(from, at(toX, toZ), radius)) {
+    return { x: toX, z: toZ, blockedX: false, blockedZ: false };
+  }
+  if (toX !== from.x && obstacles.isFree(from, at(toX, from.z), radius)) {
+    return { x: toX, z: from.z, blockedX: false, blockedZ: true };
+  }
+  if (toZ !== from.z && obstacles.isFree(from, at(from.x, toZ), radius)) {
+    return { x: from.x, z: toZ, blockedX: true, blockedZ: false };
+  }
+  return { x: from.x, z: from.z, blockedX: true, blockedZ: true };
+}
+
 function stepEntity(
   transform: Transform,
   movement: Movement,
   input: InputState,
   dt: number,
   ground: GroundQuery,
+  obstacles: ObstacleQuery,
 ): StepResult {
   const target = intendedVelocity(input, movement);
   const velocity = movement.velocity;
@@ -64,8 +100,25 @@ function stepEntity(
 
   // Semi-implicit Euler: the new velocity moves the entity in the same step.
   // Fixing this order is half of what makes the simulation reproducible.
-  const nextX = transform.position.x + nextVx * dt;
-  const nextZ = transform.position.z + nextVz * dt;
+  const wantedX = transform.position.x + nextVx * dt;
+  const wantedZ = transform.position.z + nextVz * dt;
+
+  const moveTo = slide(
+    transform.position,
+    wantedX,
+    wantedZ,
+    movement.tuning.radius,
+    ground,
+    obstacles,
+  );
+  const nextX = moveTo.x;
+  const nextZ = moveTo.z;
+  if (moveTo.blockedX) {
+    nextVx = 0;
+  }
+  if (moveTo.blockedZ) {
+    nextVz = 0;
+  }
 
   const groundHeight = ground.heightAt(nextX, nextZ);
   const grounded = groundHeight !== null;
@@ -98,7 +151,7 @@ function stepEntity(
 /**
  * Turns intent into position.
  *
- * `update` is a pure function of `(state, input, dt, ground)`: it reads no
+ * `update` is a pure function of `(state, input, dt, ground, obstacles)`: it reads no
  * clock, no random source and no module-level state, it never mutates the
  * state it is given, and it returns the same numbers for the same arguments on
  * every machine (ADR-0009). Run it once per fixed step of
@@ -115,6 +168,7 @@ export const MovementSystem = {
     input: InputState,
     dt: number,
     ground: GroundQuery = DEFAULT_GROUND,
+    obstacles: ObstacleQuery = NO_OBSTACLES,
   ): WorldState {
     if (!Number.isFinite(dt) || dt < 0) {
       throw new RangeError(`MovementSystem.update: dt must be finite and >= 0, got ${dt}`);
@@ -146,7 +200,7 @@ export const MovementSystem = {
       }
 
       const entityInput = state.inputs.has(id) ? input : NEUTRAL_INPUT;
-      const stepped = stepEntity(transform, movement, entityInput, dt, ground);
+      const stepped = stepEntity(transform, movement, entityInput, dt, ground, obstacles);
       if (!stepped.changed) {
         continue;
       }

@@ -3,6 +3,7 @@ import { type MovementTuning, createMovement, createTransform } from './componen
 import { type EntityId, toEntityId } from './entity.js';
 import { advance, createStepAccumulator } from './fixed-step.js';
 import { NO_GROUND, flatGround } from './ground.js';
+import { NO_OBSTACLES, type ObstacleQuery } from './obstacles.js';
 import { type InputState, NEUTRAL_INPUT, createInputState } from './input.js';
 import { MovementSystem } from './movement-system.js';
 import { type WorldState, createWorldState, getInput, getMovement, getTransform } from './world.js';
@@ -13,6 +14,7 @@ const TEST_TUNING: MovementTuning = {
   deceleration: 30,
   maxSpeed: 5,
   sprintMultiplier: 1.6,
+  radius: 0.4,
 };
 
 const DT = 1 / 60;
@@ -269,5 +271,76 @@ describe('MovementSystem.update — determinism', () => {
     const loaded = structuredClone(saved) as WorldState;
 
     expect(positionOf(run(loaded, input, 40))).toEqual(positionOf(run(saved, input, 40)));
+  });
+});
+
+/**
+ * A wall: everything at or beyond `x = at` is solid, at every `z`.
+ *
+ * The query is written the way a real one behaves — it refuses the *destination*
+ * of a move for a body of the given radius — so the tests below are about the
+ * movement rules and not about how a ray meets a triangle.
+ */
+function wallAtX(at: number): ObstacleQuery {
+  return { isFree: (_from, to, radius) => to.x + radius < at };
+}
+
+describe('MovementSystem obstacles', () => {
+  const forward = createInputState({ moveX: 1 });
+
+  it('walks straight through nothing when no obstacle query is given', () => {
+    const after = run(world(), forward, 60);
+    expect(positionOf(after).x).toBeGreaterThan(1);
+  });
+
+  it('stops in front of a wall instead of walking into it', () => {
+    let state = world();
+    const wall = wallAtX(2);
+    for (let step = 0; step < 240; step += 1) {
+      state = MovementSystem.update(state, forward, DT, GROUND, wall);
+    }
+    const at = positionOf(state);
+    expect(at.x).toBeGreaterThan(1);
+    expect(at.x).toBeLessThanOrEqual(2 - TEST_TUNING.radius);
+  });
+
+  it('drops the speed it was pushing into the wall with', () => {
+    let state = world();
+    const wall = wallAtX(2);
+    for (let step = 0; step < 240; step += 1) {
+      state = MovementSystem.update(state, forward, DT, GROUND, wall);
+    }
+    expect(getMovement(state, PLAYER)?.velocity.x).toBe(0);
+  });
+
+  it('slides along the wall instead of sticking to it', () => {
+    let state = world();
+    const wall = wallAtX(2);
+    const diagonal = createInputState({ moveX: 1, moveZ: 1 });
+    for (let step = 0; step < 240; step += 1) {
+      state = MovementSystem.update(state, diagonal, DT, GROUND, wall);
+    }
+    const at = positionOf(state);
+    expect(at.x).toBeLessThanOrEqual(2 - TEST_TUNING.radius);
+    // The component along the wall survives: this is the whole point.
+    expect(at.z).toBeGreaterThan(5);
+  });
+
+  it('keeps the entity where it was when both axes are blocked', () => {
+    const blocked: ObstacleQuery = { isFree: () => false };
+    let state = world();
+    for (let step = 0; step < 60; step += 1) {
+      state = MovementSystem.update(state, forward, DT, GROUND, blocked);
+    }
+    expect(positionOf(state)).toEqual({ x: 0, y: 0, z: 0 });
+  });
+
+  it('is the same as no query at all when nothing is in the way', () => {
+    const free = run(world(), forward, 60);
+    let checked = world();
+    for (let step = 0; step < 60; step += 1) {
+      checked = MovementSystem.update(checked, forward, DT, GROUND, NO_OBSTACLES);
+    }
+    expect(positionOf(checked)).toEqual(positionOf(free));
   });
 });

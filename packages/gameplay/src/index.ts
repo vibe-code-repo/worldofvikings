@@ -24,6 +24,7 @@ export {
   type InputState,
 } from './input.js';
 export { NO_GROUND, flatGround, groundUnder, type GroundQuery } from './ground.js';
+export { NO_OBSTACLES, type ObstacleQuery } from './obstacles.js';
 export {
   addEntity,
   createWorldState,

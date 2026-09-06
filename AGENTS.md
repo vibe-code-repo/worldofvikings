@@ -20,9 +20,10 @@ from its height field and splat layers (ADR-0020), places its entities from the
 prefab catalogue as GPU instances, and stands a placeholder capsule on the
 terrain with a third-person camera and a physics world that collides against the
 same tile (ADR-0022). `?world=` picks the world, `?spawn=x,z` where to stand.
-The village zone is 1216 entities from 139 models. There is no character model,
-no combat, no zone streaming, and entity meshes are drawn but not collided
-against — the player walks through walls.
+The village zone is 5248 entities from 140 models, 4032 of them scattered
+vegetation drawn as thin instances. There is no character model, no combat, no
+zone streaming, and entity meshes are drawn but not collided against — the
+player walks through walls.
 
 The editor opens and saves worlds through `services/api` (ADR-0017), places
 prefabs from the generated catalogue (ADR-0016), and edits them with selection,
@@ -30,8 +31,9 @@ move/rotate/scale gizmos, grid and surface snapping and an undo history. It
 draws the active zone's ground as scenery a prop can be dropped onto, but not as
 something that can be selected or moved. Its one rule is ADR-0018: **the
 document is the truth and the scene follows it** — every gesture becomes a
-command, and the viewport reconciles. There is no component system, no terrain
-sculpting and no scatter tool yet.
+command, and the viewport reconciles. It scatters prefabs over a region as one
+undoable command whose output is ordinary entities (ADR-0025), also available as
+`pnpm scatter`. There is no component system and no terrain sculpting yet.
 
 The client has exactly one loop, one device edge and one ground query — read
 [ADR-0014](docs/adr/0014-one-loop-one-device-edge-one-ground.md) before adding a
@@ -80,6 +82,8 @@ pnpm validate:assets --write  # re-measure sizes and hashes (never invents prove
 pnpm import:world-assets --source <export> --store <store>   # see ADR-0015
 pnpm import:scene-models --scene <bundle> --store <store>    # see ADR-0021
 pnpm import:scene --scene <bundle> --world <id> --name <n>   # see ADR-0021
+pnpm scatter --world <id> --zone <id> --region … --prefab … --density … --seed …
+                 # one scatter run into a world file (ADR-0025)
 pnpm check       # typecheck + lint + format:check + test + validate
 pnpm smoke       # Playwright: every app started, marker asserted
 ```

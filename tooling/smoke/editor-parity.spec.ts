@@ -17,6 +17,30 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { decodePng } from '../asset-pipeline/png.js';
+
+/**
+ * Mean luminance of a frame, 0 for black and 1 for white.
+ *
+ * The whole frame, because the frames it is given are screenshots of the
+ * *canvas* and nothing else: every pixel in one is something the renderer drew
+ * under the profile being measured, and there is no panel in the picture to
+ * dilute the number.
+ */
+function meanLuminance(png: Buffer): number {
+  const { width, height, channels, data } = decodePng(png);
+  let sum = 0;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = (y * width + x) * channels;
+      const red = data[index] ?? 0;
+      const green = data[index + 1] ?? red;
+      const blue = data[index + 2] ?? red;
+      sum += (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255;
+    }
+  }
+  return sum / (width * height);
+}
 
 /** Where the API under test is (see `playwright.config.ts`). */
 function apiUrl(path: string): string {
@@ -25,11 +49,25 @@ function apiUrl(path: string): string {
 
 /** The editor's dev bridge, for the counts a panel cannot be trusted about. */
 type WovEditorDebugWindow = Window & {
-  __wovEditor?: { readonly entityCount: number; readonly worldId: string };
+  __wovEditor?: {
+    readonly entityCount: number;
+    readonly worldId: string;
+    readonly loadedCount: number;
+    readonly undoDepth: number;
+  };
 };
 
 function editorEntityCount(page: Page): Promise<number | null> {
   return page.evaluate(() => (window as WovEditorDebugWindow).__wovEditor?.entityCount ?? null);
+}
+
+/** How many entities show their real model rather than the stand-in cube. */
+function editorLoadedCount(page: Page): Promise<number | null> {
+  return page.evaluate(() => (window as WovEditorDebugWindow).__wovEditor?.loadedCount ?? null);
+}
+
+function editorUndoDepth(page: Page): Promise<number | null> {
+  return page.evaluate(() => (window as WovEditorDebugWindow).__wovEditor?.undoDepth ?? null);
 }
 
 /** Opens the editor and waits for a renderer, which every panel test needs. */
@@ -226,4 +264,115 @@ test('editor imports a scene bundle from the World menu', async ({ page, request
   await openWorld(page, 'parity-import');
   await expect(page.getByTestId('editor-world-name')).toHaveText('Parity Import');
   await expect.poll(() => editorEntityCount(page)).toBe(2);
+});
+
+/**
+ * (5) The viewport follows the panel.
+ *
+ * The other four tests prove that a change reaches the file. This one proves
+ * the half an author actually works with: that pressing a preset changes the
+ * *picture*, immediately, without a save and without a reload. It is the reason
+ * the panel produces commands instead of keeping its own copy — `EditorViewport`
+ * relights whenever the open world's profile differs from the one it last used
+ * (ADR-0018, ADR-0024).
+ *
+ * Measured, not looked at: three screenshots of the *canvas* under three
+ * profiles, compared by mean luminance. Evening is a low warm sun under a
+ * gradient sky with a graded frame; the flat preset has no sky, no shadow map
+ * and no grade, and the difference between the two is a number.
+ *
+ * **On the example world, not the village**, and that is the whole reason this
+ * test is reliable. The village keeps arriving for a minute after its entity
+ * count lands — 140 models decoding, stand-in cubes turning into barrels — and
+ * every one of them changes the frame on its own. Measured while writing this:
+ * an evening baseline read 0.180, and the *same* evening light read 0.129
+ * twenty seconds later, a drift larger than the effect. The example world is
+ * one barrel over a grid: once its model is up, nothing moves unless the panel
+ * moves it, so a difference in the picture can only have come from the panel.
+ *
+ * The claim is about the panel and the viewport, and it does not get truer on a
+ * bigger scene. What the village proves — that it renders at all, under the
+ * light its file asks for — is `village-light.spec.ts` and `lighting.spec.ts`.
+ */
+test.describe('live preview', () => {
+  // Smaller than the default, because every number below is a proportion over a
+  // whole frame and a smaller frame measures the same thing for a fraction of
+  // the fill cost — but a plausible editor window, not a postage stamp: the
+  // work area has four panels beside the viewport and needs room for them.
+  test.use({ viewport: { width: 960, height: 640 } });
+
+  test('editor relights the viewport while the lighting panel is used', async ({ page }) => {
+    await openEditor(page);
+    await openWorld(page, 'example');
+    // Its one model on screen, not just its one row in the hierarchy: a
+    // stand-in cube and a barrel are not the same picture.
+    await expect.poll(() => editorLoadedCount(page), { timeout: 60_000 }).toBe(1);
+
+    // Put the barrel in the picture — a lit object, not only the grid and the
+    // sky — and then drop the selection again, because a selection outline is
+    // the same bright colour under every light and would only dilute the
+    // measurement.
+    await page.getByTestId('hierarchy-entity-barrel_001').click();
+    await page.keyboard.press('KeyF');
+    await page.keyboard.press('Escape');
+
+    // The panel is open in every frame, so the screenshots are also a record of
+    // what the author sees while the light changes.
+    await page.getByTestId('right-tab-lighting').click();
+    await expect(page.getByTestId('lighting-fields')).toBeVisible();
+
+    const canvas = page.getByTestId('editor-canvas');
+    const photograph = async (name: string): Promise<number> =>
+      meanLuminance(await canvas.screenshot({ path: test.info().outputPath(`${name}.png`) }));
+
+    /**
+     * The picture once it has stopped changing by itself.
+     *
+     * Shots a second apart until two of them agree to within a thousandth,
+     * which is far below the effect being measured and above the noise a still
+     * frame carries — the post-processing chain and the shadow map both need a
+     * few frames after a relight. The last shot is the one kept, so the file on
+     * disk is the frame the number came from.
+     */
+    const settled = async (name: string): Promise<number> => {
+      let previous = await photograph(name);
+      for (let attempt = 0; attempt < 15; attempt += 1) {
+        await page.waitForTimeout(1_000);
+        const current = await photograph(name);
+        if (Math.abs(current - previous) < 0.001) {
+          return current;
+        }
+        previous = current;
+      }
+      throw new Error(`the viewport never stopped changing (last ${previous.toFixed(3)})`);
+    };
+
+    // The example world has no lighting block of its own, so the baseline is a
+    // preset too: the comparison is between two profiles, not between a profile
+    // and whatever the renderer falls back to.
+    await page.getByTestId('lighting-preset-evening').click();
+    const evening = await settled('editor-example-evening');
+
+    await page.getByTestId('lighting-preset-flat').click();
+    const flat = await settled('editor-example-flat');
+
+    const change = Math.abs(flat - evening);
+    test.info().annotations.push({
+      type: 'measurement',
+      description: `mean luminance ${evening.toFixed(3)} evening against ${flat.toFixed(3)} flat`,
+    });
+    expect(change).toBeGreaterThan(0.02);
+
+    // And one Ctrl+Z is the old look back — a preset is one command, and the
+    // history says so as plainly as the picture does.
+    expect(await editorUndoDepth(page)).toBe(2);
+    await page.keyboard.press('Control+z');
+    await expect.poll(() => editorUndoDepth(page)).toBe(1);
+    const back = await settled('editor-example-undone');
+    test.info().annotations.push({
+      type: 'measurement',
+      description: `mean luminance ${back.toFixed(3)} after one undo`,
+    });
+    expect(Math.abs(back - evening)).toBeLessThan(change / 4);
+  });
 });

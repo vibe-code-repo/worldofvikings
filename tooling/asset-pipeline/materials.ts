@@ -38,6 +38,23 @@
  * that says nothing renders as rough metal in a physically-based renderer:
  * the textures go black except where the environment reflects. That default is
  * the single most visible thing this table exists to override.
+ *
+ * **Colour.** The leaf and needle atlases in the store are brightness masks,
+ * not colour: measured over their opaque pixels, `Leaves Birch 1` averages
+ * R 115.4 G 115.1 B 115.4 and the two needle cards R=G=B 118.4 and 148.4 —
+ * grey to within a digit, spanning 101…140 for the broadleaf card. The green
+ * lived in a material colour the export dropped along with every other factor,
+ * so a tree imported without one is a grey tree. {@link TINTS} puts it back as
+ * `baseColorFactor`, per leaf card rather than per model: eleven tree, bush and
+ * hedge models share one broadleaf atlas and differ only in that factor, which
+ * is exactly what a multiplier is for.
+ *
+ * The factors are linear multipliers and glTF caps them at 1, so a tint can
+ * only take colour away. Green is therefore kept at or near 1 and red and blue
+ * are pulled down; pushing all three down to "reach" a saturated green would
+ * only produce a darker grey-green. Bark and trunk atlases are already coloured
+ * (R 113 G 98 B 80) and are left alone — a tint on top of them would be a
+ * second opinion about a colour someone already painted.
  */
 import { createHash } from 'node:crypto';
 
@@ -71,6 +88,44 @@ export const ROUGHNESS_FACTOR = 1;
 /** How strongly an emissive material lights itself, per channel. */
 export const EMISSIVE_FACTOR: readonly [number, number, number] = [1, 1, 1];
 
+/** A base colour multiplier: glTF's `baseColorFactor`, red, green, blue, alpha. */
+export type Tint = readonly [number, number, number, number];
+
+/**
+ * The leaf cards that need a colour, named after the card and not after the
+ * plant — a bush is not a tint of its own, because the bush models wear the
+ * same birch and broadleaf atlases the trees do (measured in the store).
+ */
+export type TintName =
+  | 'birch-leaf'
+  | 'birch-leaf-dark'
+  | 'broadleaf'
+  | 'maple-leaf'
+  | 'pine-needle'
+  | 'grass-card'
+  | 'plant-leaf';
+
+/**
+ * What each card is multiplied by.
+ *
+ * Read against a mask pixel of 115/255 (sRGB), which is where the broadleaf
+ * atlas sits: `broadleaf` lands the lit leaf near sRGB 82/115/55, a warm mid
+ * green, and `pine-needle` near 64/94/58, darker and cooler, the two apart by
+ * more than the eye needs to tell a conifer from an oak across the village.
+ * `grass-card` is the odd one out and deliberately gentle: that atlas was
+ * exported *with* its colour (R 87 G 107 B 55), so its factor only deepens what
+ * is already there instead of colouring a grey.
+ */
+export const TINTS: Readonly<Record<TintName, Tint>> = {
+  'birch-leaf': [0.55, 1, 0.24, 1],
+  'birch-leaf-dark': [0.4, 0.78, 0.18, 1],
+  broadleaf: [0.46, 0.95, 0.2, 1],
+  'maple-leaf': [0.62, 1, 0.2, 1],
+  'pine-needle': [0.26, 0.58, 0.24, 1],
+  'grass-card': [0.85, 1, 0.6, 1],
+  'plant-leaf': [0.44, 0.92, 0.24, 1],
+};
+
 /**
  * What kind of thing a material covers. The kind decides the surface, so the
  * table below states the kind and never repeats the same three flags 60 times.
@@ -96,6 +151,8 @@ export interface MaterialRow {
   readonly kind: MaterialKind;
   /** Plain description of the surface, standing in for the source name. */
   readonly note: string;
+  /** The colour the export dropped, when this material is a brightness mask. */
+  readonly tint?: TintName;
 }
 
 /**
@@ -120,22 +177,26 @@ export function materialKey(name: string): string {
  */
 export const MATERIAL_ROWS: Readonly<Record<string, MaterialRow>> = {
   // --- leaf --------------------------------------------------------------
-  b2c02ca97471: { kind: 'leaf', note: 'birch leaf card, variant 1' },
-  fe57438c34bf: { kind: 'leaf', note: 'birch leaf card, variant 2' },
-  cd2d33391502: { kind: 'leaf', note: 'birch leaf card, variant 3, dark' },
+  b2c02ca97471: { kind: 'leaf', note: 'birch leaf card, variant 1', tint: 'birch-leaf' },
+  fe57438c34bf: { kind: 'leaf', note: 'birch leaf card, variant 2', tint: 'birch-leaf' },
+  cd2d33391502: { kind: 'leaf', note: 'birch leaf card, variant 3, dark', tint: 'birch-leaf-dark' },
   ea2af043eb8c: { kind: 'leaf', note: 'birch leaf card, variant 3, dark, snow' },
-  '15b59a7c5177': { kind: 'leaf', note: 'broadleaf leaf card, variant 1' },
-  e69bfc033a92: { kind: 'leaf', note: 'broadleaf leaf card, variant 2' },
-  '6c95d763e3e7': { kind: 'leaf', note: 'broadleaf leaf card, variant 3' },
-  f60b61868de0: { kind: 'leaf', note: 'maple leaf card' },
-  '60baf15804ad': { kind: 'leaf', note: 'maple leaf card, instance 1' },
-  '3204c1689cce': { kind: 'leaf', note: 'pine needle card, variant 1' },
-  f0a25899c39a: { kind: 'leaf', note: 'pine needle card, variant 2' },
+  '15b59a7c5177': { kind: 'leaf', note: 'broadleaf leaf card, variant 1', tint: 'broadleaf' },
+  e69bfc033a92: { kind: 'leaf', note: 'broadleaf leaf card, variant 2', tint: 'broadleaf' },
+  '6c95d763e3e7': { kind: 'leaf', note: 'broadleaf leaf card, variant 3', tint: 'broadleaf' },
+  f60b61868de0: { kind: 'leaf', note: 'maple leaf card', tint: 'maple-leaf' },
+  '60baf15804ad': { kind: 'leaf', note: 'maple leaf card, instance 1', tint: 'maple-leaf' },
+  '3204c1689cce': { kind: 'leaf', note: 'pine needle card, variant 1', tint: 'pine-needle' },
+  f0a25899c39a: { kind: 'leaf', note: 'pine needle card, variant 2', tint: 'pine-needle' },
   // --- grass -------------------------------------------------------------
-  a1b5b4a25daa: { kind: 'grass', note: 'short grass card, 1 instance' },
-  '6fa61097c48b': { kind: 'grass', note: 'short grass card, low wild instance' },
-  d8efa434992f: { kind: 'grass', note: 'short plant leaf card' },
-  '28d03e41d8dd': { kind: 'grass', note: 'short plant leaf card, 2 variant' },
+  a1b5b4a25daa: { kind: 'grass', note: 'short grass card, 1 instance', tint: 'grass-card' },
+  '6fa61097c48b': {
+    kind: 'grass',
+    note: 'short grass card, low wild instance',
+    tint: 'grass-card',
+  },
+  d8efa434992f: { kind: 'grass', note: 'short plant leaf card', tint: 'plant-leaf' },
+  '28d03e41d8dd': { kind: 'grass', note: 'short plant leaf card, 2 variant', tint: 'grass-card' },
   '87d7cbb528de': { kind: 'grass', note: 'short plant leaf card, redblue variant' },
   dc91ba7b27d8: { kind: 'grass', note: 'short plant leaf card, snow variant' },
   ebe5743ecc05: { kind: 'grass', note: 'short plant leaf card, yellow variant' },
@@ -202,4 +263,16 @@ export function isListedMaterial(name: string): boolean {
 export function surfaceFor(name: string): MaterialSurface {
   const row = MATERIAL_ROWS[materialKey(name)];
   return row === undefined ? UNLISTED_SURFACE : SURFACE_BY_KIND[row.kind];
+}
+
+/**
+ * The base colour multiplier for one material name, or `undefined` when the
+ * material carries its own colour and must keep it.
+ *
+ * A material the table does not list gets no tint: an unknown name is reported
+ * by the importer and drawn as it arrived, never guessed at from its spelling.
+ */
+export function tintFor(name: string): Tint | undefined {
+  const row = MATERIAL_ROWS[materialKey(name)];
+  return row?.tint === undefined ? undefined : TINTS[row.tint];
 }

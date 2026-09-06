@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Gltf } from './glb.js';
-import { bindMaterials, pruneUnusedMaterials } from './material-binding.js';
+import { applySurfaces, bindMaterials, pruneUnusedMaterials } from './material-binding.js';
 
 /** A store model as the per-model export leaves it: one untextured material. */
 function untexturedModel(vertexCounts: number[], withUvs = true): Gltf {
@@ -189,5 +189,56 @@ describe('pruneUnusedMaterials', () => {
     const json = untexturedModel([2564]);
     delete json.materials;
     expect(pruneUnusedMaterials(json)).toBe(0);
+  });
+});
+
+describe('applySurfaces', () => {
+  /** A model as `import:scene-models` cuts it out: material authored, no factors. */
+  const cutOutOfABundle = (): Gltf => ({
+    asset: { version: '2.0' },
+    materials: [
+      { name: 'Leaves Birch 1', pbrMetallicRoughness: { baseColorTexture: { index: 0 } } },
+      { name: 'Birch_Bark_A', pbrMetallicRoughness: { baseColorTexture: { index: 1 } } },
+    ],
+  });
+
+  it('gives a leaf card its colour, its cutout and its two sides', () => {
+    const json = cutOutOfABundle();
+    applySurfaces(json);
+    const leaves = json.materials?.[0];
+    expect(leaves?.['alphaMode']).toBe('MASK');
+    expect(leaves?.['doubleSided']).toBe(true);
+    expect(
+      (leaves?.['pbrMetallicRoughness'] as Record<string, unknown>)['baseColorFactor'],
+    ).toEqual([0.55, 1, 0.24, 1]);
+  });
+
+  it('leaves bark opaque and uncoloured', () => {
+    const json = cutOutOfABundle();
+    applySurfaces(json);
+    const bark = json.materials?.[1];
+    expect(bark?.['alphaMode']).toBeUndefined();
+    expect(
+      (bark?.['pbrMetallicRoughness'] as Record<string, unknown>)['baseColorFactor'],
+    ).toBeUndefined();
+  });
+
+  it('takes back a colour the table no longer states, so a re-import cannot keep it', () => {
+    const json = cutOutOfABundle();
+    (json.materials?.[1]?.['pbrMetallicRoughness'] as Record<string, unknown>)['baseColorFactor'] =
+      [0.1, 0.9, 0.1, 1];
+    applySurfaces(json);
+    expect(
+      (json.materials?.[1]?.['pbrMetallicRoughness'] as Record<string, unknown>)['baseColorFactor'],
+    ).toBeUndefined();
+  });
+
+  it('is what bindMaterials ends with, so both importers agree', () => {
+    const json = untexturedModel([14852, 2564]);
+    bindMaterials(json, trunkAndLeaves, textureFor);
+    const leaves = json.materials?.find((material) => material.name === 'Leaves Birch 1');
+    expect(
+      (leaves?.['pbrMetallicRoughness'] as Record<string, unknown>)['baseColorFactor'],
+    ).toEqual([0.55, 1, 0.24, 1]);
   });
 });

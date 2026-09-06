@@ -31,6 +31,7 @@ import {
   ROUGHNESS_FACTOR,
   isListedMaterial,
   surfaceFor,
+  tintFor,
 } from './materials.js';
 
 /** A primitive that was left without a texture, and why. */
@@ -78,13 +79,23 @@ function hasTexture(json: Gltf, materialIndex: number | undefined): boolean {
  * Gives one material the settings the surface table asks for.
  *
  * Applied to authored materials as well as written ones: metalness is wrong in
- * both, because the exporter wrote no factors and the glTF default is metal.
+ * both, because the exporter wrote no factors and the glTF default is metal —
+ * and so is colour, which is why the leaf and needle masks get their
+ * `baseColorFactor` here too. The factor is written when the table names a tint
+ * and *removed* when it does not, so that re-importing a store model can only
+ * ever produce the colour the table currently states.
  */
 function applySurface(material: Record<string, unknown>, name: string): void {
   const surface = surfaceFor(name);
   const pbr = (material['pbrMetallicRoughness'] ?? {}) as Record<string, unknown>;
   pbr['metallicFactor'] = METALLIC_FACTOR;
   pbr['roughnessFactor'] = ROUGHNESS_FACTOR;
+  const tint = tintFor(name);
+  if (tint === undefined) {
+    delete pbr['baseColorFactor'];
+  } else {
+    pbr['baseColorFactor'] = [...tint];
+  }
   material['pbrMetallicRoughness'] = pbr;
 
   if (surface.alphaMode === 'MASK') {
@@ -105,6 +116,23 @@ function applySurface(material: Record<string, unknown>, name: string): void {
       // a lit window — not to objects with a glowing part.
       material['emissiveTexture'] = { ...(baseColour as Record<string, unknown>) };
     }
+  }
+}
+
+/**
+ * Gives every material of one model its surface and its colour.
+ *
+ * Public because two importers write store models: `import-world-assets`
+ * reaches it through {@link bindMaterials}, and `import:scene-models`, which
+ * cuts a model out of a scene bundle with its authored material already
+ * attached, has nothing to bind and calls this alone. Before it did, a bush cut
+ * out of the bundle kept the glTF defaults — opaque, single-sided, metallic and
+ * grey — while the same leaf card imported from the per-model export was cut
+ * out, lit from both sides and green.
+ */
+export function applySurfaces(json: Gltf): void {
+  for (const material of json.materials ?? []) {
+    applySurface(material as Record<string, unknown>, material.name ?? '');
   }
 }
 
@@ -241,9 +269,7 @@ export function bindMaterials(
   // Every material, not only the bound ones: an untextured `DefaultMaterial`
   // left at the glTF defaults is metallic 1 / rough 1, which draws a model that
   // has no texture as dark chrome rather than as plain grey.
-  for (const material of json.materials ?? []) {
-    applySurface(material as Record<string, unknown>, material.name ?? '');
-  }
+  applySurfaces(json);
 
   return {
     primitives: primitives.length,

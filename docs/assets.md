@@ -147,10 +147,48 @@ does not repeat; `pnpm tsx tooling/asset-pipeline/material-key.ts "<name>"`
 prints the key for a new one. An unlisted material is reported by the importer
 and drawn opaque.
 
-Two things the export simply does not contain, and which no import can recover:
-the leaf and grass atlases are luminance masks whose colour lived in a material
-tint the exporter dropped, so foliage renders grey; and 109 models appear in no
-scene bundle at all, so they stay untextured and are named in the run report.
+#### The colour the export dropped
+
+The leaf and needle atlases are brightness masks, not colour. Measured over
+their opaque pixels, the broadleaf card averages R 115.4 G 115.1 B 115.4 and the
+two needle cards R = G = B at 118.4 and 148.4 — grey to within a digit. The green
+lived in a material colour that the exporter dropped along with every other
+factor, so foliage imported without one is a grey tree.
+
+`materials.ts` puts it back as a `tint`, written into the store GLB as
+`pbrMetallicRoughness.baseColorFactor`. It is keyed **per leaf card, not per
+model**: eleven tree, bush and hedge models share one broadleaf atlas and differ
+only in that factor, which is what a multiplier is for. Bark and trunk atlases
+are already coloured (R 113 G 98 B 80) and are deliberately left alone. glTF caps
+a factor at 1, so a tint can only take colour away — green is therefore kept at
+or near 1 and red and blue are pulled down; pushing all three down to "reach" a
+saturated green would only produce a darker grey-green.
+
+Measured in the game on four specimens under identical light, before and after
+(mean RGB over the foliage pixels of the same crop):
+
+| Specimen        | before             | after              | green share     |
+| --------------- | ------------------ | ------------------ | --------------- |
+| bush, broadleaf | 67.5 / 73.2 / 63.3 | 57.5 / 73.2 / 43.9 | 35.9 % → 41.9 % |
+| birch crown     | 70.0 / 70.6 / 68.1 | 57.5 / 70.6 / 43.8 | 33.8 % → 41.1 % |
+| pine crown      | 74.3 / 75.0 / 73.5 | 42.6 / 59.5 / 40.8 | 33.7 % → 41.7 % |
+| grass clump     | 40.8 / 65.2 / 57.7 | 40.2 / 65.2 / 50.0 | 39.8 % → 42.0 % |
+
+The grass card is the odd one out: that atlas _was_ exported with its colour
+(R 87 G 107 B 55), so its tint only deepens what is already there.
+
+**The surface table reaches the whole store, not only what a run imports.**
+Models cut out of a scene bundle (below) are cut exactly once, so their
+materials would otherwise freeze at whatever the table said that day — a tint
+added later would reach every tree from the export and none of the bushes from
+the bundle. `import:world-assets` therefore re-applies the table to every
+private mesh in the store that it does not import itself, rewrites only the
+files whose bytes change, and says how many in its report
+(`surfaces: N stored model(s) another importer owns re-surfaced`). A second run
+re-surfaces nothing.
+
+One thing no import can recover: 109 models appear in no scene bundle at all, so
+they stay untextured and are named in the run report.
 
 `pnpm smoke` proves the rest on screen: with `WOV_ASSET_STORE` set,
 `tooling/smoke/textures.spec.ts` opens the editor on three private models and

@@ -58,7 +58,13 @@ export interface SceneSyncOptions {
 export interface SceneSync {
   /** Makes the scene match `document`. Cheap when nothing changed. */
   apply(document: EditorDocument): void;
-  /** Entity roots currently in the scene, counted from the scene itself. */
+  /**
+   * Entity roots currently in the scene, counted from the scene itself.
+   *
+   * Exactly one per entity, and that is the point: it is the independent
+   * witness that the document reached the picture, so it has to be comparable
+   * to `entityCount` without arithmetic.
+   */
   meshCount(): number;
   /**
    * How many of them show their real model rather than a stand-in cube.
@@ -123,6 +129,20 @@ export function textureFileName(source: string): string | undefined {
   }
   const file = url.split('?')[0]?.split('/').pop();
   return file === undefined || !file.includes('.') ? undefined : file;
+}
+
+/**
+ * The entity id written on this node itself, or `undefined`.
+ *
+ * The counterpart to {@link entityIdOf}, and the difference matters: a store
+ * model brings its own `__root__` transform node, which is parented under the
+ * entity root and therefore *inherits* an answer from the walking version. One
+ * entity would then be counted two or three times, depending on how deep the
+ * GLB's hierarchy is.
+ */
+function ownEntityId(node: Node): string | undefined {
+  const id: unknown = (node.metadata as Record<string, unknown> | null | undefined)?.[ENTITY_KEY];
+  return typeof id === 'string' ? id : undefined;
 }
 
 /** Reads the entity id off a node, walking up to the entity root. */
@@ -326,7 +346,9 @@ export function createSceneSync(options: SceneSyncOptions): SceneSync {
     meshCount() {
       // Counted off the scene, not off the map above: the point of this number
       // is to be an independent witness that the document reached the picture.
-      return scene.transformNodes.filter((node) => entityIdOf(node) !== undefined).length;
+      // Only nodes that carry the id *themselves* count — the intermediate
+      // nodes a loaded GLB brings inherit it and are not entities.
+      return scene.transformNodes.filter((node) => ownEntityId(node) !== undefined).length;
     },
 
     loadedCount() {

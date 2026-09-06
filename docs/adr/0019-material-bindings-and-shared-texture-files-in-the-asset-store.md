@@ -104,7 +104,7 @@ entries are new rows rather than edited ones.
 
 Two things stay wrong because the export does not contain them, and the report
 says so rather than guessing: the leaf and grass atlases are luminance masks
-whose green lived in a the source engine material tint that the export dropped, so foliage
+whose green lived in a material tint the export dropped, so foliage
 renders grey; and 109 models appear in no scene bundle — 102 that no level
 placed, 4 whose scene material has no texture, and 3 collision meshes with no
 UVs — so they keep an untextured `DefaultMaterial`.

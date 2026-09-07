@@ -79,6 +79,30 @@ ASSET_PORT=9000
 WOV_ASSET_STORE=/srv/asset-store
 ```
 
+`ASSET_CACHE_MAX_AGE` is deliberately **not** in that file. Its default of `0`
+is what staging wants: every asset carries an `ETag` and a `Last-Modified`, an
+unchanged file answers `304` with no body, and a texture re-imported under the
+same path is on screen after one reload (ADR-0052). Setting it would let a
+browser use a stored file without asking, for as long as it says — the one thing
+a host people import into must not do.
+
+### What the reverse proxy still owes (ADR-0052)
+
+Two settings live in Nginx Proxy Manager, not in this repository:
+
+- **Compress `application/json` for `api.staging`.** The proxy already
+  compresses the editor's JavaScript (1.88 MB → 476 kB) and does not list JSON.
+  The village world is 1.0 MB and gzips to 144 kB; the merged prefab catalogue
+  is 198 kB and gzips to 23 kB. Worth ~1.04 MB on a first open, nothing after
+  that — every later open is an empty 304. (Nginx downgrades a strong `ETag` to
+  a weak one when it gzips; harmless here, the service's tags are weak already.)
+- **`Cache-Control: public, max-age=31536000, immutable` for `/assets/*`** on
+  `www.`, `live.` and `editor.` — and only there, never for `index.html`. Those
+  file names carry a content hash, so a new build is a new URL. `vite preview`
+  cannot express a per-path header (its `preview.headers` callback is handed no
+  path), which is why this is the proxy's job. Without it the warm behaviour is
+  already correct — 42 requests, 42 × 304, 0.01 MB — just not free.
+
 `VITE_HMR_CLIENT_PORT` is only meaningful in `dev` mode — a built bundle has no
 HMR client.
 

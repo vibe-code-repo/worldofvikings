@@ -236,6 +236,37 @@ movement that no still frame can make. The walk needs room: at the square's
 spawn the player is stopped by a wall three metres north, so the thirty-metre
 version of that test is run on the `slope` view.
 
+## Measuring what an editor open costs on the wire
+
+`pnpm perf:cache` is the other measuring rig, and the one ADR-0052 is argued
+from. It builds the **editor** with the debug bridge, starts the API on a
+throwaway `CONTENT_DIR`, the asset server and `vite preview` on ports of their
+own, opens a world through the File menu, waits until `loadedCount ===
+entityCount` — every entity showing its model rather than the stand-in cube —
+and then reloads the page in the same browser profile and does it again:
+
+```bash
+WOV_ASSET_STORE=/srv/assets/store pnpm perf:cache --label after
+WOV_ASSET_STORE=/srv/assets/store pnpm perf:cache --label after --skip-build
+```
+
+It reports, per pass and per origin: requests, bytes on the wire, how many were
+`200`, how many were `304` and how many the browser answered without asking, and
+seconds. Three things it does that reading a network panel does not:
+
+- **CDP, not `performance.getEntriesByType('resource')`.** A resource entry
+  reports `transferSize: 0` for a cross-origin response without
+  `Timing-Allow-Origin`, and both measured servers are cross-origin by
+  construction — the page would report that it downloaded nothing.
+- **`Network.responseReceivedExtraInfo` decides the status.** The ordinary
+  response event reports what the _page_ got, which after a revalidation is the
+  stored `200`; the extra-info event carries what the _network_ answered, and its
+  absence means the browser never asked at all. Those are three different
+  outcomes and the rig counts them apart.
+- **A browser profile on disk with a stated `--disk-cache-size`.** An incognito
+  context caches in memory only and silently refuses the largest entries, so the
+  8 MB height field looked uncacheable when only the rig was.
+
 ## Environment
 
 Every app has a committed `.env.example` with working local defaults. Copy it to

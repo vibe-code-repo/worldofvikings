@@ -73,7 +73,7 @@ const AUDIO_PLACEHOLDER = 'placeholders/audio/silence.wav';
 const AUDIO_SET = 'private asset collection — audio set';
 
 /** What can honestly be said about who made them. */
-const AUDIO_AUTHOR = 'unconfirmed — third-party pack, licence review open';
+const AUDIO_AUTHOR = 'unconfirmed — third-party commercial pack, licence review open';
 
 function argument(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);

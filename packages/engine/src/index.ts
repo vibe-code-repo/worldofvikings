@@ -141,5 +141,9 @@ export type {
   Unsubscribe,
 } from './renderer.js';
 
-export { freezeStaticNodes, unfreezeStaticNodes } from './static-freeze.js';
-export type { FreezeReport, StaticNode } from './static-freeze.js';
+export {
+  freezeMaterialsWhenReady,
+  freezeStaticNodes,
+  unfreezeStaticNodes,
+} from './static-freeze.js';
+export type { FreezableScene, FreezeReport, StaticNode } from './static-freeze.js';

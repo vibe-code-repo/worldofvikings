@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { freezeStaticNodes, unfreezeStaticNodes, type StaticNode } from './static-freeze.js';
+import {
+  freezeMaterialsWhenReady,
+  freezeStaticNodes,
+  unfreezeStaticNodes,
+  type FreezableScene,
+  type StaticNode,
+} from './static-freeze.js';
 
 /** A node that records what was done to it, in the order it happened. */
 class FakeNode implements StaticNode {
@@ -118,5 +124,54 @@ describe('unfreezeStaticNodes', () => {
     expect(child.doNotSyncBoundingInfo).toBe(false);
     expect(trace).toContain('unfreeze:root');
     expect(trace).toContain('compute:root:forced');
+  });
+});
+
+describe('freezeMaterialsWhenReady', () => {
+  /** A scene that hands its readiness callback back instead of running it. */
+  function fakeScene(): {
+    scene: FreezableScene;
+    ready: () => void;
+    frozen: () => number;
+    checkedRenderTargets: () => boolean | undefined;
+  } {
+    let callback: (() => void) | null = null;
+    let checkRenderTargets: boolean | undefined;
+    let frozen = 0;
+    return {
+      scene: {
+        executeWhenReady(next, check) {
+          callback = next;
+          checkRenderTargets = check;
+        },
+        freezeMaterials() {
+          frozen += 1;
+        },
+      },
+      ready: () => callback?.(),
+      frozen: () => frozen,
+      checkedRenderTargets: () => checkRenderTargets,
+    };
+  }
+
+  it('does not freeze anything before the scene says it is ready', () => {
+    const fake = fakeScene();
+    freezeMaterialsWhenReady(fake.scene);
+    // A material frozen while its textures are still arriving is pinned to
+    // "not ready" and the ground stays grey for the life of the page.
+    expect(fake.frozen()).toBe(0);
+  });
+
+  it('freezes once the scene is ready', () => {
+    const fake = fakeScene();
+    freezeMaterialsWhenReady(fake.scene);
+    fake.ready();
+    expect(fake.frozen()).toBe(1);
+  });
+
+  it('waits for the render targets too, because the shadow map is one', () => {
+    const fake = fakeScene();
+    freezeMaterialsWhenReady(fake.scene);
+    expect(fake.checkedRenderTargets()).toBe(true);
   });
 });

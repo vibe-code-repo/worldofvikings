@@ -50,7 +50,7 @@ import {
   type WorldState,
 } from '@wov/gameplay';
 import { summarizeAssetSources } from '@wov/asset-system';
-import { freezeStaticNodes } from '@wov/engine';
+import { freezeMaterialsWhenReady, freezeStaticNodes } from '@wov/engine';
 import type { PhysicsWorld } from '@wov/physics';
 import { tokens } from '@wov/ui';
 import { isDebugRequested } from '@wov/shared';
@@ -533,6 +533,11 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
     // After the rig, not before: `excludeFromShadows` is what clears
     // `receiveShadows`, and a readout taken first would report the intention
     // rather than the result.
+    // Last of the three light statements, because each of them is a material
+    // change and a frozen material does not take one (ADR-0035). It waits for
+    // the scene to be ready on its own, so the seconds the ground's textures
+    // still need are not this call's problem.
+    freezeMaterialsWhenReady(renderer.scene);
     debugBridge?.reportBackdrop(placed.backdrop);
     (window as unknown as { __wovBackdrop?: unknown }).__wovBackdrop = placed.backdrop;
 

@@ -124,3 +124,49 @@ export function unfreezeStaticNodes(roots: readonly StaticNode[]): number {
   }
   return thawed;
 }
+
+/**
+ * The part of a Babylon scene {@link freezeMaterialsWhenReady} touches.
+ *
+ * Structural for the same reason {@link StaticNode} is: the *gate* is the part
+ * that can be wrong, and a test has to be able to open and close it by hand.
+ */
+export interface FreezableScene {
+  /**
+   * Calls back once every material, texture and render target in the scene is
+   * ready to draw.
+   */
+  executeWhenReady(callback: () => void, checkRenderTargets?: boolean): void;
+  /** Marks every material in the scene as not going to change again. */
+  freezeMaterials(): void;
+}
+
+/**
+ * Stops the renderer re-deciding every frame whether a static scene can be
+ * drawn (ADR-0035).
+ *
+ * Babylon re-verifies each submesh's material before every draw: it rebuilds
+ * the material's defines, renders them to a string and compares that string
+ * with the one the compiled effect was built from. Nothing in a placed village
+ * ever changes those defines, and the check was a fifth of the frame —
+ * `isReadyForSubMesh` 20% inclusive, of which building the defines string alone
+ * was 9% of the whole profile, and the shadow pass pays it a second time for
+ * every caster.
+ *
+ * A frozen material answers "ready" from the answer it gave last time. That is
+ * the truth about this scene and not a shortcut around a check: the falsehood
+ * would be freezing a material that is still going to change.
+ *
+ * **Why it waits.** `freezeMaterials` on a material whose textures have not
+ * arrived pins "not ready" — the ground stays grey for the life of the page and
+ * nothing ever asks again. `executeWhenReady` is the gate that cannot be
+ * guessed at from a frame count, and render targets are included in it because
+ * the sun's shadow map is one.
+ *
+ * @returns nothing; the freeze happens later, when the scene says it is ready.
+ */
+export function freezeMaterialsWhenReady(scene: FreezableScene): void {
+  scene.executeWhenReady(() => {
+    scene.freezeMaterials();
+  }, true);
+}

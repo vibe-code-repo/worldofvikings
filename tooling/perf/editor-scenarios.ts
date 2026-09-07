@@ -147,6 +147,45 @@ export interface LoadReport {
   readonly profile: ProfileReport;
   /** The frame after the camera framed the zone and the picture settled. */
   readonly settled: SettledFrameReport;
+  /**
+   * The same frame from a camera an author would actually be sitting at.
+   *
+   * {@link SettledFrameReport} is measured where `F` with nothing selected puts
+   * the camera, which for the village is 1 967 m up — about 4 m per pixel, with
+   * the entities covering roughly 3.5 % of the canvas and a 6 m building
+   * one and a half pixels wide. That is the right camera for a *frame time*,
+   * because it contains the whole zone and nothing is culled, and the wrong one
+   * for every claim about the *picture*: two builds could differ in every prop
+   * in the village and the canvas would still compare equal.
+   *
+   * So a second frame is taken with {@link EDIT_ENTITY_ID} framed, and the
+   * canvas at that camera is written beside the other one. `null` when the
+   * entity could not be framed.
+   */
+  readonly working: WorkingFrameReport | null;
+}
+
+/**
+ * A frame at a camera an author would work at, without a CPU profile.
+ *
+ * Deliberately smaller than {@link SettledFrameReport}: the run already has a
+ * profile of the settled frame, and what this one exists for is the counters
+ * that depend on the *view* — how many meshes the camera finds worth drawing —
+ * and a canvas that shows the village rather than the backdrop behind it.
+ */
+export interface WorkingFrameReport {
+  /** The entity that was framed. */
+  readonly entityId: string;
+  /** `false` when its row could not be clicked; the numbers are then the old view. */
+  readonly framed: boolean;
+  readonly seconds: number;
+  readonly elapsedSeconds: number;
+  readonly frames: number;
+  readonly framesPerSecond: number;
+  readonly sceneRenderMs: number | null;
+  readonly counters: EditorCounters;
+  readonly camera: readonly [number, number, number];
+  readonly cameraTarget: readonly [number, number, number];
 }
 
 /** The settled frame: what one frame of the open village costs the editor. */
@@ -257,6 +296,26 @@ export interface EditorPerfReport {
   readonly scenarios: readonly EditorScenarioId[];
   readonly viewport: { readonly width: number; readonly height: number };
   readonly assetStore: string | null;
+  /**
+   * The servers this run started, and the origins the page actually used.
+   *
+   * The rig serves whatever is in `apps/editor/dist`, and that bundle carries
+   * the API and asset URLs it was *built* with. With `--skip-build` after
+   * somebody else built the editor on other ports, the page then talks to
+   * another run's servers against another checkout's content — and the report
+   * looks entirely normal. It happened: a run died at the ten-minute model
+   * timeout because the page was fetching from ports this run never started,
+   * with nothing in the output saying so.
+   *
+   * `origins` is every origin the page requested from during the run, so a
+   * report can be checked afterwards instead of trusted.
+   */
+  readonly servers: {
+    readonly editorUrl: string;
+    readonly apiUrl: string;
+    readonly assetUrl: string;
+    readonly origins: readonly string[];
+  };
   readonly load: LoadReport;
   readonly dial: DialReport | null;
   readonly rebuild: RebuildReport | null;

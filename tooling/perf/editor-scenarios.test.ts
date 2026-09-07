@@ -73,6 +73,12 @@ describe('the report shape', () => {
       scenarios: ['load'],
       viewport: { width: 1280, height: 720 },
       assetStore: '/home/example/store',
+      servers: {
+        editorUrl: 'http://localhost:5302',
+        apiUrl: 'http://localhost:3301',
+        assetUrl: 'http://localhost:9301',
+        origins: ['http://localhost:3301', 'http://localhost:5302', 'http://localhost:9301'],
+      },
       load: {
         documentMs: 120,
         modelsMs: 60_000,
@@ -99,6 +105,24 @@ describe('the report shape', () => {
           cameraTarget: [0, 0, 0],
           profile: { samples: 10, totalMs: 3_000, samplingIntervalUs: 200, top: [], topSelf: [] },
         },
+        working: {
+          entityId: 'environment-sm-bld-roof-long-01_0001',
+          framed: true,
+          seconds: 3,
+          elapsedSeconds: 3.1,
+          frames: 40,
+          framesPerSecond: 12.9,
+          sceneRenderMs: 70,
+          counters: {
+            drawCalls: 500,
+            activeMeshes: 4_000,
+            triangles: 1_000_000,
+            shadowCasters: 6_000,
+            sceneTextures: 200,
+          },
+          camera: [0, 0, 0],
+          cameraTarget: [0, 0, 0],
+        },
       },
       dial: null,
       rebuild: null,
@@ -116,6 +140,7 @@ describe('the report shape', () => {
       'scenarios',
       'viewport',
       'assetStore',
+      'servers',
       'load',
       'dial',
       'rebuild',
@@ -131,6 +156,7 @@ describe('the report shape', () => {
       'longTasks',
       'profile',
       'settled',
+      'working',
     ]);
     expect(Object.keys(report.load.settled)).toEqual([
       'seconds',

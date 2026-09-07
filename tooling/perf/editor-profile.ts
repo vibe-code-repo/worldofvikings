@@ -46,6 +46,24 @@
  * measurement that leaves a modified world file behind has changed the thing the
  * next measurement measures.
  *
+ * **Two cameras, and only one of them is for the picture.** Every timing is
+ * taken where `F` with nothing selected puts the camera: over the whole zone,
+ * because that view contains all of it and nothing is culled away from the
+ * frame being timed. For the village that is 1 967 m up and about 4 m to the
+ * pixel, where the entities cover 3.5 % of the canvas and a 6 m building is a
+ * pixel and a half — so a canvas taken there cannot witness anything about the
+ * props at all. Each scenario therefore also leaves a `<label>.editor.<name>.
+ * close.rgba` taken with one building framed, and that is the file a "the
+ * picture did not change" claim belongs to.
+ *
+ * **Whose servers answered.** The rig serves whatever is in `apps/editor/dist`,
+ * and that bundle carries the API and asset URLs it was *built* with. With
+ * `--skip-build`, after another worktree or another rig run built it on other
+ * ports, the page fetches its worlds and its models from somebody else's
+ * servers. So the origins the page used are recorded in the report and checked
+ * against the ones this run started, and a run that does not finish still
+ * writes `<label>.editor.partial.json` saying how far it got.
+ *
  * ```bash
  * WOV_ASSET_STORE=/path/to/store pnpm perf:editor --label baseline
  * WOV_ASSET_STORE=/path/to/store pnpm perf:editor --label after --scenario dial --skip-build
@@ -74,6 +92,7 @@ import {
   type ProfileReport,
   type RebuildReport,
   type SettledFrameReport,
+  type WorkingFrameReport,
 } from './editor-scenarios.js';
 import { aggregateLongTasks, summariseDurations, type LongTaskEntry } from './long-tasks.js';
 import {
@@ -119,6 +138,15 @@ const LOAD_TIMEOUT_MS = 600_000;
 
 /** How long the textures have to stay still before the load counts as finished. */
 const TEXTURE_QUIET_MS = 2_000;
+
+/**
+ * How long the picture is left alone after the camera moves.
+ *
+ * Shorter than the settled window, because nothing is being *timed* here: the
+ * grading chain and the shadow map need a few frames after a camera move, and
+ * this is what keeps a canvas comparison from photographing the settling.
+ */
+const WORKING_SETTLE_MS = 2_500;
 
 interface Options {
   readonly label: string;
@@ -502,6 +530,9 @@ async function measureLoad(
       longTasks: longTaskReport(probe, { from: t0 ?? 0, to: lastMark }),
       profile: loadProfile,
       settled,
+      // Filled in by the caller: the close frame is taken after this returns,
+      // so that the camera it needs is only moved once every timing is in.
+      working: null,
     },
   };
 }
@@ -897,11 +928,85 @@ async function measureCanvasClick(page: Page): Promise<{
   return { pointerUpMs: entered === null || left === null ? null : left - entered, from };
 }
 
+/**
+ * Puts the camera where an author works: one building, framed.
+ *
+ * The rig's own settled frame is taken at `F` over the whole zone, 1 967 m up
+ * and about 4 m to the pixel, where the village covers 3.5 % of the canvas.
+ * That view is the right one for a frame time and useless as picture evidence,
+ * so every scenario also leaves behind a canvas taken from here.
+ *
+ * Deterministic for the same reason the zone framing is: the hull being framed
+ * is one fixed entity's, and the rig has already waited for every model.
+ */
+async function frameWorkingCamera(page: Page): Promise<boolean> {
+  await page.getByTestId('right-tab-entity').click();
+  const row = page.getByTestId(`hierarchy-entity-${EDIT_ENTITY_ID}`);
+  try {
+    await row.click({ timeout: 60_000 });
+  } catch {
+    say(`  warning: could not frame ${EDIT_ENTITY_ID}; the close frame is the far one`);
+    return false;
+  }
+  await page.keyboard.press('KeyF');
+  // Deselected again: a selection outline is the same bright colour under every
+  // build and would be the loudest thing in a picture comparison.
+  await page.keyboard.press('Escape');
+  await sleep(WORKING_SETTLE_MS);
+  return true;
+}
+
+/** Puts the camera back over the whole zone, where every other number is taken. */
+async function frameZoneCamera(page: Page): Promise<void> {
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('KeyF');
+  await sleep(WORKING_SETTLE_MS);
+}
+
+/** Counters and a frame time at whatever camera is current, with no profiler. */
+async function measureWorkingFrame(
+  page: Page,
+  framed: boolean,
+  seconds: number,
+): Promise<WorkingFrameReport> {
+  const before = await readCounters(page);
+  await sleep(seconds * 1_000);
+  const after = await readCounters(page);
+  const camera = await page.evaluate(() => {
+    const at = (window as unknown as ProbeWindow).__wovEditor?.camera;
+    return {
+      position: [at?.x ?? 0, at?.y ?? 0, at?.z ?? 0] as [number, number, number],
+      target: [at?.targetX ?? 0, at?.targetY ?? 0, at?.targetZ ?? 0] as [number, number, number],
+    };
+  });
+  const frames = after.frames - before.frames;
+  const elapsedSeconds = (after.now - before.now) / 1_000;
+  return {
+    entityId: EDIT_ENTITY_ID,
+    framed,
+    seconds,
+    elapsedSeconds,
+    frames,
+    framesPerSecond: elapsedSeconds > 0 ? frames / elapsedSeconds : 0,
+    sceneRenderMs: windowMean(before, after),
+    counters: {
+      drawCalls: after.drawCalls,
+      activeMeshes: after.activeMeshes,
+      triangles: after.triangles,
+      shadowCasters: after.shadowCasters,
+      sceneTextures: after.sceneTextures,
+    },
+    camera: camera.position,
+    cameraTarget: camera.target,
+  };
+}
+
 // --- the run -----------------------------------------------------------------
 
 async function measure(
   options: Options,
   page: Page,
+  origins: ReadonlySet<string>,
 ): Promise<{
   report: EditorPerfReport;
   frames: Map<string, { width: number; height: number; bytes: Uint8Array }>;
@@ -930,29 +1035,49 @@ async function measure(
 
   const client = await page.context().newCDPSession(page);
   const frames = new Map<string, { width: number; height: number; bytes: Uint8Array }>();
+  const canvas = '[data-testid="editor-canvas"]';
 
   const { load } = await measureLoad(page, client, options);
-  frames.set('load', await readCanvas(page, '[data-testid="editor-canvas"]'));
+  frames.set('load', await readCanvas(page, canvas));
+
+  // The same picture from a camera an author would be at, and the counters
+  // that camera changes. Taken once, right after the load, and then the camera
+  // goes back over the zone so every timing below is measured at the view the
+  // baselines were measured at.
+  say('framing one building for the close picture');
+  const framed = await frameWorkingCamera(page);
+  const working = await measureWorkingFrame(page, framed, options.seconds);
+  frames.set('load.close', await readCanvas(page, canvas));
+  await frameZoneCamera(page);
 
   let dial: DialReport | null = null;
   if (options.scenarios.includes('dial')) {
     say('dial: ten ground-metallic changes');
     dial = await measureDial(page);
-    frames.set('dial', await readCanvas(page, '[data-testid="editor-canvas"]'));
+    frames.set('dial', await readCanvas(page, canvas));
+    await frameWorkingCamera(page);
+    frames.set('dial.close', await readCanvas(page, canvas));
+    await frameZoneCamera(page);
   }
 
   let rebuild: RebuildReport | null = null;
   if (options.scenarios.includes('rebuild')) {
     say(`rebuild: ${String(REBUILD_TOGGLES)} flatNormals toggles`);
     rebuild = await measureRebuild(page);
-    frames.set('rebuild', await readCanvas(page, '[data-testid="editor-canvas"]'));
+    frames.set('rebuild', await readCanvas(page, canvas));
+    await frameWorkingCamera(page);
+    frames.set('rebuild.close', await readCanvas(page, canvas));
+    await frameZoneCamera(page);
   }
 
   let edit: EditReport | null = null;
   if (options.scenarios.includes('edit')) {
     say(`edit: ${EDIT_ENTITY_ID}`);
     edit = await measureEdit(page);
-    frames.set('edit', await readCanvas(page, '[data-testid="editor-canvas"]'));
+    frames.set('edit', await readCanvas(page, canvas));
+    await frameWorkingCamera(page);
+    frames.set('edit.close', await readCanvas(page, canvas));
+    await frameZoneCamera(page);
   }
 
   const identity = await page.evaluate(() => {
@@ -974,7 +1099,8 @@ async function measure(
       scenarios: options.scenarios,
       viewport: { width: viewport.width, height: viewport.height },
       assetStore: process.env['WOV_ASSET_STORE'] ?? null,
-      load,
+      servers: { editorUrl, apiUrl, assetUrl, origins: [...origins].sort() },
+      load: { ...load, working },
       dial,
       rebuild,
       edit,
@@ -982,8 +1108,85 @@ async function measure(
   };
 }
 
+/**
+ * Refuses a run whose page is not talking to the servers this run started.
+ *
+ * The bundle in `apps/editor/dist` carries the API and asset URLs it was
+ * *built* with, and `--skip-build` serves whatever is there. Another worktree,
+ * another branch or an earlier rig run on other ports leaves a bundle that
+ * fetches its worlds and its models from somebody else's servers — and the run
+ * either dies at the ten-minute model timeout with no report, or finishes and
+ * quietly reports a measurement of another checkout's content.
+ *
+ * Checked against the origins the page really used, not against an environment
+ * variable: what the bundle was told at build time is exactly the thing in
+ * doubt.
+ */
+function assertOwnServers(origins: ReadonlySet<string>): void {
+  const wanted = [apiUrl, assetUrl];
+  const missing = wanted.filter((origin) => !origins.has(origin));
+  const strangers = [...origins].filter(
+    (origin) => origin !== editorUrl && !wanted.includes(origin) && origin.includes('localhost'),
+  );
+  if (missing.length === 0 && strangers.length === 0) {
+    return;
+  }
+  throw new Error(
+    "the page is not talking to this run's servers: " +
+      `expected ${wanted.join(' and ')}` +
+      (missing.length > 0 ? `, never reached ${missing.join(' and ')}` : '') +
+      (strangers.length > 0 ? `, reached ${strangers.join(' and ')} instead` : '') +
+      '. The editor bundle carries the URLs it was built with — drop --skip-build.',
+  );
+}
+
 function milliseconds(value: number | null): string {
   return value === null ? 'n/a' : `${value.toFixed(0)} ms`;
+}
+
+/**
+ * Writes what the run knew when it fell over.
+ *
+ * Not an `EditorPerfReport`: it is deliberately a different file
+ * (`<label>.editor.partial.json`) with a different shape, so nothing can mistake
+ * a failed run for a measurement. What it carries is what a diagnosis needs and
+ * a stack trace does not have — which milestones were reached, how many of the
+ * entities had their models, and which servers the page was actually talking
+ * to.
+ */
+async function writePartialReport(
+  options: Options,
+  page: Page,
+  origins: ReadonlySet<string>,
+  error: unknown,
+): Promise<void> {
+  const state = await page
+    .evaluate(() => {
+      const it = (window as unknown as ProbeWindow).__wovEditor;
+      const probe = (window as unknown as ProbeWindow).__wovPerf;
+      return {
+        zoneId: it?.zoneId ?? null,
+        entityCount: it?.entityCount ?? null,
+        loadedCount: it?.loadedCount ?? null,
+        loadedTextureCount: it?.loadedTextures.length ?? null,
+        marks: probe?.marks ?? {},
+        longTaskCount: probe?.longTasks.length ?? null,
+      };
+    })
+    .catch(() => null);
+  const partial = {
+    label: options.label,
+    rig: 'editor',
+    failed: true,
+    takenAt: new Date().toISOString(),
+    reason: error instanceof Error ? error.message : String(error),
+    servers: { editorUrl, apiUrl, assetUrl, origins: [...origins].sort() },
+    state,
+  };
+  await mkdir(options.outDir, { recursive: true });
+  const path = join(options.outDir, `${options.label}.editor.partial.json`);
+  await writeFile(path, `${JSON.stringify(partial, null, 2)}\n`);
+  say(`the run did not finish; what it knew is in ${path}`);
 }
 
 async function main(): Promise<void> {
@@ -1036,7 +1239,31 @@ async function main(): Promise<void> {
 
     browser = await launchPerfBrowser();
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-    const { report, frames } = await measure(options, page);
+    // Every origin the page fetches from, so the run can prove afterwards which
+    // servers answered it (`assertOwnServers`).
+    const origins = new Set<string>();
+    page.on('request', (request) => {
+      try {
+        origins.add(new URL(request.url()).origin);
+      } catch {
+        // A `data:` or `blob:` URL; nothing to attribute.
+      }
+    });
+
+    let report: EditorPerfReport;
+    let frames: Map<string, { width: number; height: number; bytes: Uint8Array }>;
+    try {
+      ({ report, frames } = await measure(options, page, origins));
+    } catch (error) {
+      // Ten minutes of measurement is too much to throw away because the run
+      // did not reach its last milestone. What is known goes to disk first, and
+      // then the error is raised — a run that failed and left nothing behind is
+      // a run nobody can diagnose.
+      await writePartialReport(options, page, origins, error);
+      assertOwnServers(origins);
+      throw error;
+    }
+    assertOwnServers(origins);
 
     await mkdir(options.outDir, { recursive: true });
     const stem = join(options.outDir, `${options.label}.editor`);
@@ -1065,6 +1292,15 @@ async function main(): Promise<void> {
         `${String(settled.counters.activeMeshes)} active meshes · ` +
         `${String(settled.counters.shadowCasters)} shadow casters`,
     );
+    const working = load.working;
+    if (working !== null) {
+      say(
+        `  one building framed: scene.render ${working.sceneRenderMs?.toFixed(2) ?? 'n/a'} ms · ` +
+          `${working.framesPerSecond.toFixed(1)} fps · ${String(working.counters.drawCalls)} draw calls · ` +
+          `${String(working.counters.activeMeshes)} active meshes` +
+          (working.framed ? '' : ' (could not frame it; this is the far view)'),
+      );
+    }
     if (report.dial !== null) {
       say(
         `  dial: median ${report.dial.summary.medianMs.toFixed(0)} ms · ` +

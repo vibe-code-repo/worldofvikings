@@ -36957,7 +36957,7 @@
         "size": [300, 300],
         "layers": [
           {
-            "texture": "textures/terrain-gravel-path.png",
+            "texture": "textures/terrain-gravel.png",
             "tileSize": 2,
             "normalMap": "textures/terrain-gravel-normal.png",
             "normalScale": 3,

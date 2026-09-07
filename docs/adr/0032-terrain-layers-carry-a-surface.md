@@ -59,6 +59,11 @@ A grass layer would follow the grass. This one follows the paths, so the import
 takes the export's second, paler pebbles-and-sand image for it under the name
 `terrain-gravel-path.png`.
 
+_Amended 2026-09-07:_ on a large screen the pale image read as a whitish sheet
+rather than as stone, so the path layer now uses the same dark pebbles image as
+`0.A` with the same surface values. The pale image stays in the store for a
+world that wants a lighter road.
+
 ### 2. Four fields per layer, one per terrain, at schema version 4
 
 ```json

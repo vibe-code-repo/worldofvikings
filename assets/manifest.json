@@ -1,6 +1,6 @@
 {
   "manifestVersion": 2,
-  "generatedAt": "2026-09-06T23:39:00.440Z",
+  "generatedAt": "2026-09-07T16:53:08.956Z",
   "assets": [
     {
       "id": "environment/backdrop-mountains-clear",
@@ -20667,9 +20667,9 @@
       "id": "textures/village-splat-a",
       "path": "textures/village-splat-a.png",
       "kind": "texture",
-      "bytes": 535803,
-      "hash": "sha256-5e2c0b997c8f368d664090c3fa39f9585d1e5f00f22c8cb9331193952531af8b",
-      "origin": "Splat weights for terrain layers 1-4 (RGBA) of the village tile, taken from the modelling export under a chosen name. Turned onto the ground's axes by a mirror on the anti-diagonal.",
+      "bytes": 536353,
+      "hash": "sha256-5f64dd66458ef4c5b1a7567e0d525f100ad049433eafdca144966e39be7d3ad1",
+      "origin": "Splat weights for terrain layers 1-4 (RGBA) of the village tile, taken from the modelling export under a chosen name. Turned onto the ground's axes by a quarter turn clockwise.",
       "source": "private asset collection — terrain set",
       "author": "World of Vikings project",
       "license": "NOASSERTION",
@@ -20681,9 +20681,9 @@
       "id": "textures/village-splat-b",
       "path": "textures/village-splat-b.png",
       "kind": "texture",
-      "bytes": 82445,
-      "hash": "sha256-1f10f7ec5f1ba6e47ae3af4a93a8c04a13d660ac7cfbe60b644e0575153be2e8",
-      "origin": "Splat weights for terrain layers 5-6 (RG) of the village tile, taken from the modelling export under a chosen name. Turned onto the ground's axes by a mirror on the anti-diagonal.",
+      "bytes": 82509,
+      "hash": "sha256-781802e68c39e361ca33be2bfee8c2ab0d4247fe071e18dd74d6cb661b7ca6a1",
+      "origin": "Splat weights for terrain layers 5-6 (RG) of the village tile, taken from the modelling export under a chosen name. Turned onto the ground's axes by a quarter turn clockwise.",
       "source": "private asset collection — terrain set",
       "author": "World of Vikings project",
       "license": "NOASSERTION",

@@ -24,6 +24,10 @@ export interface PerfView {
  * the CPU budget is set by. `slope` looks down the hill from the north-east
  * corner, where the shadow map covers ground the square's view never shows.
  *
+ * `floor` is aimed rather than budgeted too: it looks down at the village's own
+ * ground, which is the surface ADR-0043 changes and the one neither `square`
+ * nor `slope` shows much of.
+ *
  * `rim` is aimed rather than budgeted: it frames the north edge of the tile and
  * the sky above it, which is where the 100 cliffs of `surroundings` would stand
  * if they were ever moved into the village. Half of that frame is sky, so its
@@ -40,6 +44,16 @@ export const PERF_VIEWS: readonly PerfView[] = [
     id: 'slope',
     description: 'north-east slope, looking back at the village',
     query: '?debug=1&world=village1&spawn=120,120&look=-105,14',
+  },
+  {
+    // The ground the author's report is about: the village floor between the
+    // work area and the houses, pitched down so that the frame is mostly paths
+    // and grass rather than fences and leaves. The square and the slope both
+    // spend most of their pixels on something standing up, which is why a
+    // change to the ground reads as almost nothing in either of them.
+    id: 'floor',
+    description: 'village floor, pitched down at the paths between the houses',
+    query: '?debug=1&world=village1&spawn=172,150&look=0,32',
   },
   {
     id: 'rim',

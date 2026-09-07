@@ -5,8 +5,8 @@ import {
   fitWithin,
   halve,
   isPng,
-  mirrorOnAntiDiagonal,
   readPngSize,
+  rotateQuarterTurn,
 } from './png.js';
 import type { RawImage } from './png.js';
 
@@ -120,29 +120,42 @@ describe('the unsupported cases', () => {
   });
 });
 
-describe('mirrorOnAntiDiagonal', () => {
-  it('maps out[row][col] to in[h-1-col][w-1-row]', () => {
+describe('rotateQuarterTurn', () => {
+  it('maps out[row][col] to in[h-1-col][row]', () => {
     const image: RawImage = {
       width: 3,
       height: 3,
       channels: 1,
       data: Buffer.from([1, 2, 3, 4, 5, 6, 7, 8, 9]),
     };
-    expect([...mirrorOnAntiDiagonal(image).data]).toEqual([9, 6, 3, 8, 5, 2, 7, 4, 1]);
+    expect([...rotateQuarterTurn(image).data]).toEqual([7, 4, 1, 8, 5, 2, 9, 6, 3]);
   });
 
-  it('is its own inverse, so the turn can be checked by applying it twice', () => {
-    const image: RawImage = {
-      width: 4,
-      height: 4,
-      channels: 2,
-      data: Buffer.from(Array.from({ length: 32 }, (_, index) => index)),
-    };
-    expect([...mirrorOnAntiDiagonal(mirrorOnAntiDiagonal(image)).data]).toEqual([...image.data]);
+  it('keeps every channel of every pixel together', () => {
+    const image = gradient(8, 8, 3);
+    const turned = rotateQuarterTurn(image);
+    for (let row = 0; row < 8; row += 1) {
+      for (let column = 0; column < 8; column += 1) {
+        const from = ((8 - 1 - column) * 8 + row) * 3;
+        const to = (row * 8 + column) * 3;
+        expect([...turned.data.subarray(to, to + 3)]).toEqual([
+          ...image.data.subarray(from, from + 3),
+        ]);
+      }
+    }
+  });
+
+  it('comes back to the original after four turns', () => {
+    const image = gradient(5, 5, 2);
+    let turned = image;
+    for (let turn = 0; turn < 4; turn += 1) {
+      turned = rotateQuarterTurn(turned);
+    }
+    expect([...turned.data]).toEqual([...image.data]);
   });
 
   it('refuses a non-square image instead of scrambling it', () => {
     const image: RawImage = { width: 2, height: 3, channels: 1, data: Buffer.alloc(6) };
-    expect(() => mirrorOnAntiDiagonal(image)).toThrow(/square/);
+    expect(() => rotateQuarterTurn(image)).toThrow(/square/);
   });
 });

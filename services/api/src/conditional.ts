@@ -44,9 +44,20 @@ import {
  */
 const REPRESENTATION_REVISION = `v${String(CURRENT_WORLD_SCHEMA_VERSION)}`;
 
-/** Validators for a representation the service built from one content file. */
-export function contentFileValidators(updatedAt: string, size: number): ComparableValidators {
-  return fileValidators(size, Date.parse(updatedAt), REPRESENTATION_REVISION);
+/**
+ * Validators for a representation the service built from one content file.
+ *
+ * The content id is folded into the tag as well. Size and modification time
+ * describe *a* file, not *which* file: two worlds written in the same
+ * millisecond with names of the same length are byte-for-byte the same stamp,
+ * and a tag that cannot tell them apart is a tag a test can prove wrong.
+ */
+export function contentFileValidators(
+  id: string,
+  updatedAt: string,
+  size: number,
+): ComparableValidators {
+  return fileValidators(size, Date.parse(updatedAt), `${REPRESENTATION_REVISION}-${id}`);
 }
 
 /**

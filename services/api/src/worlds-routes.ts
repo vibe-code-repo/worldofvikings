@@ -56,7 +56,7 @@ export const worldsRoutes: FastifyPluginAsync<{ config: ApiConfig }> = async (ap
     return sendConditional(
       request,
       reply,
-      contentFileValidators(loaded.updatedAt, loaded.size),
+      contentFileValidators(id, loaded.updatedAt, loaded.size),
       loaded.world,
     );
   });

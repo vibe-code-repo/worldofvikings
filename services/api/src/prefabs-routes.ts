@@ -62,7 +62,7 @@ export const prefabsRoutes: FastifyPluginAsync<{ config: ApiConfig }> = async (a
     return sendConditional(
       request,
       reply,
-      contentFileValidators(loaded.updatedAt, loaded.size),
+      contentFileValidators(catalog, loaded.updatedAt, loaded.size),
       loaded.catalog,
     );
   });

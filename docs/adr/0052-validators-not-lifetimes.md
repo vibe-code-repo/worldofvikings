@@ -71,8 +71,10 @@ back empty.**
 
 ### Why the ETag is weak, and why size plus mtime is enough here
 
-The tag is `W/"<size>-<mtime>"` (with a schema-version prefix on the API's,
-below). It is **weak** because size and mtime do not prove the bytes — a strong
+The tag is `W/"<size>-<mtime>"` (with a schema-version prefix and the content
+id on the API's, below: size and mtime describe _a_ file, not _which_ file, and
+two worlds written in the same millisecond with names of the same length would
+otherwise share a tag). It is **weak** because size and mtime do not prove the bytes — a strong
 tag would be a promise this server cannot keep. Weak costs nothing:
 RFC 9110 §13.1.2 requires `If-None-Match` to be compared with the _weak_
 function, so a weak tag revalidates exactly like a strong one, and it survives a
@@ -188,3 +190,12 @@ possible and was left out to keep the change reviewable.
 Both are outside this repository. If the asset pipeline ever rewrites store
 paths (Phase 5), hashed asset names become possible and `ASSET_CACHE_MAX_AGE`
 becomes something worth setting.
+
+## Addendum (2026-09-07, after review)
+
+- The API folds the content id into the tag (see above).
+- `readJsonFile` takes bytes and stamp from one open file handle. Read as two
+  calls on the path, a concurrent atomic write could pair the old body with the
+  new file's validator; a client caching that pair would be told `304` for the
+  old world until the next save. Measured with a tight read/write loop: 2 of
+  5 000 reads mismatched before, 0 after.

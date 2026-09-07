@@ -28,7 +28,13 @@ export interface WorldListing {
 }
 
 export type LoadedWorld =
-  | { readonly status: 'ok'; readonly world: WorldDefinition; readonly updatedAt: string }
+  | {
+      readonly status: 'ok';
+      readonly world: WorldDefinition;
+      readonly updatedAt: string;
+      /** Bytes of the file this was parsed from, for the response's ETag (ADR-0052). */
+      readonly size: number;
+    }
   | { readonly status: 'not-found' }
   | { readonly status: 'invalid'; readonly errors: readonly string[] };
 
@@ -80,7 +86,7 @@ export async function loadWorld(contentDir: string, id: string): Promise<LoadedW
   if (!parsed.ok) {
     return { status: 'invalid', errors: parsed.errors };
   }
-  return { status: 'ok', world: parsed.world, updatedAt: file.updatedAt };
+  return { status: 'ok', world: parsed.world, updatedAt: file.updatedAt, size: file.size };
 }
 
 export async function saveWorld(

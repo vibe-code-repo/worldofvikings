@@ -48,7 +48,13 @@ export interface PrefabListing {
 }
 
 export type LoadedCatalog =
-  | { readonly status: 'ok'; readonly catalog: PrefabCatalog; readonly updatedAt: string }
+  | {
+      readonly status: 'ok';
+      readonly catalog: PrefabCatalog;
+      readonly updatedAt: string;
+      /** Bytes of the file this was parsed from, for the response's ETag (ADR-0052). */
+      readonly size: number;
+    }
   | { readonly status: 'not-found' }
   | { readonly status: 'invalid'; readonly errors: readonly string[] };
 
@@ -135,7 +141,7 @@ export async function loadCatalog(contentDir: string, id: string): Promise<Loade
   }
   const parsed = parsePrefabCatalog(file.data);
   return parsed.ok
-    ? { status: 'ok', catalog: parsed.catalog, updatedAt: file.updatedAt }
+    ? { status: 'ok', catalog: parsed.catalog, updatedAt: file.updatedAt, size: file.size }
     : { status: 'invalid', errors: parsed.errors };
 }
 

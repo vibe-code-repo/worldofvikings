@@ -4,7 +4,13 @@ import { dirname, join } from 'node:path';
 
 /** A JSON file that could be read and parsed, or the reason it could not. */
 export type JsonFileResult =
-  | { readonly status: 'ok'; readonly data: unknown; readonly updatedAt: string }
+  | {
+      readonly status: 'ok';
+      readonly data: unknown;
+      readonly updatedAt: string;
+      /** Bytes on disk. Half of the response's cache validator (ADR-0052). */
+      readonly size: number;
+    }
   | { readonly status: 'not-found' }
   | { readonly status: 'unreadable'; readonly errors: readonly string[] };
 
@@ -39,9 +45,9 @@ export async function readJsonFile(path: string): Promise<JsonFileResult> {
     throw error;
   }
 
-  const updatedAt = await modifiedAt(path);
+  const stamp = await fileStamp(path);
   try {
-    return { status: 'ok', data: JSON.parse(text), updatedAt };
+    return { status: 'ok', data: JSON.parse(text), ...stamp };
   } catch (error) {
     return { status: 'unreadable', errors: [`<root>: ${describe(error)}`] };
   }
@@ -76,6 +82,17 @@ export async function writeJsonFileAtomically(
 
 export async function modifiedAt(path: string): Promise<string> {
   return (await stat(path)).mtime.toISOString();
+}
+
+/**
+ * Modification time and size in one `stat`.
+ *
+ * The pair is what a cache validator is built from (ADR-0052), and reading it
+ * twice would be two chances for the file to change between them.
+ */
+export async function fileStamp(path: string): Promise<{ updatedAt: string; size: number }> {
+  const stats = await stat(path);
+  return { updatedAt: stats.mtime.toISOString(), size: stats.size };
 }
 
 async function exists(path: string): Promise<boolean> {

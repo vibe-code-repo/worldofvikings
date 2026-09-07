@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import { parseWorldDefinition } from '@wov/world-schema';
 import type { ApiConfig } from './config.js';
+import { bodyValidators, contentFileValidators, sendConditional } from './conditional.js';
 import { isContentId } from './content-ids.js';
 import { listWorlds, loadWorld, saveWorld } from './world-store.js';
 
@@ -15,11 +16,21 @@ interface WorldParams {
  * to the files in `CONTENT_DIR/worlds`. Nothing here knows about Babylon.js or
  * the editor's UI; the schema decides what a world is (`@wov/world-schema`),
  * and this plugin only decides which status code says so.
+ *
+ * Both reads are conditional (ADR-0052): they carry an `ETag` — and, for one
+ * world, a real `Last-Modified` HTTP-date — and answer `304` when the editor
+ * already holds that version. `updatedAt` stays an ISO string in the body and
+ * in the listing; that is what the client reads, and it is not a header.
  */
 export const worldsRoutes: FastifyPluginAsync<{ config: ApiConfig }> = async (app, options) => {
   const { config } = options;
 
-  app.get('/worlds', async () => listWorlds(config.contentDir));
+  app.get('/worlds', async (request, reply) => {
+    // Serialised here rather than by Fastify, because the tag is a hash of
+    // exactly the bytes that go out.
+    const body = JSON.stringify(await listWorlds(config.contentDir));
+    return sendConditional(request, reply, bodyValidators(body), body);
+  });
 
   app.get<{ Params: WorldParams }>('/worlds/:id', async (request, reply) => {
     const { id } = request.params;
@@ -42,7 +53,12 @@ export const worldsRoutes: FastifyPluginAsync<{ config: ApiConfig }> = async (ap
         errors: loaded.errors,
       });
     }
-    return reply.header('last-modified', loaded.updatedAt).send(loaded.world);
+    return sendConditional(
+      request,
+      reply,
+      contentFileValidators(loaded.updatedAt, loaded.size),
+      loaded.world,
+    );
   });
 
   app.put<{ Params: WorldParams }>('/worlds/:id', async (request, reply) => {

@@ -15,6 +15,7 @@
   "dependencies": {
     "@fastify/cors": "^11.1.0",
     "@wov/content-build": "workspace:*",
+    "@wov/shared": "workspace:*",
     "@wov/world-schema": "workspace:*",
     "fastify": "^5.6.1"
   },

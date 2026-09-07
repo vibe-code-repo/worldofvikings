@@ -1,6 +1,10 @@
 # ADR-0045: The ground dressing is buried, and stays where it was authored
 
-- **Status:** accepted.
+- **Status:** accepted, with its cause corrected by
+  [ADR-0059](0059-the-ground-is-read-on-the-worlds-axes.md) and its numbers
+  re-measured by [ADR-0060](0060-the-turned-ground-re-measured.md); see the
+  amendment at the end of this file. Its rule — the placements stay where they
+  were authored — held, and is why the fix was possible.
 - **Date:** 2026-09-07
 - **Deciders:** world-data owners
 
@@ -86,3 +90,29 @@ was authored to be.
   hand or with `pnpm scatter`, and it is not made here.
 - `Environments/Start position` swallows 19 recognisable meshes including six
   rocks. Worth deciding whether that one pattern should split.
+
+## Amendment, 2026-09-07: the ground was not too high, it was turned
+
+This ADR's rule stands and its refusal to move anything was right: the fix, when
+it came, moved no placement. Three of its findings need correcting.
+
+- **"The ground sits too high", p05 −0.84 m / median −0.12 m / p95 +1.03 m,
+  89 % negative.** The distribution is real and it is mostly this repository's
+  own output: 4 032 of the 5 249 in-tile placements are `pnpm scatter` tufts
+  whose `y` was baked from that very surface, so they are negative by
+  construction and testify about nothing. Over the 1 216 authored, non-backdrop
+  placements the median gap is −0.041 m. There is no uniform vertical offset,
+  and the ground is not uniformly too high.
+- **The cause.** Not decimation, not an offset, not a tilt: the export writes
+  its raster and its scene placements in two different frames and the
+  difference is one reflection, which the import absorbed only half of
+  (ADR-0059). The village sits near the line the two readings agree on, so a
+  0.3 m error there read as ground dressing a paving stone too deep.
+- **"77 of 5 273 show less than 5 % of themselves."** 14 of the 77 are clouds
+  and the two painted shells, which stand outside the tile and cannot be
+  measured this way (ADR-0031). The real count was 63. On the corrected ground
+  62 of the 63 come out, one stays buried
+  (`environment-sm-env-stonewall-03_0069`), and one that was 35 % visible is
+  now under the surface (`environment-sm-env-stonewall-03_0124`) — the only
+  such regression in the world. Both are single placements and neither moves.
+  The full before/after is in ADR-0060.

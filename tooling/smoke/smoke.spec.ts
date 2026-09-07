@@ -1244,6 +1244,16 @@ test('game walks the player through an archway', async ({ page }) => {
  * heights and says a gate is open that the player cannot walk through, so both
  * are asserted against the client's own behaviour by the walk-through test
  * above rather than trusted on their own.
+ *
+ * They are heights **above the floor of the gate**, and the floor is found by
+ * probing for it ({@link gateFloor}) rather than taken from the archway's own
+ * origin. The two were the same number only by accident: while the ground was
+ * read on the wrong axes an archway sat anywhere from 0.6 m above its surface
+ * to 2.7 m under it, and once the ground is read the right way round
+ * (ADR-0059) every gate settles about half a metre into it. A knee probe
+ * placed 0.5 m over the origin of a gate whose floor is 0.6 m higher starts
+ * inside the hill and calls the gate bricked up — which it is not: walked
+ * through, the player passes it and keeps going for 23 m.
  */
 const PROBE_HEIGHTS_METRES = [0.5, 1.4] as const;
 /** Capsule radius 0.4 m, so the body is 0.8 m across. */
@@ -1265,6 +1275,40 @@ const VILLAGE = JSON.parse(
 const GATES = (VILLAGE.zones[0]?.entities ?? []).filter((entity) =>
   entity.prefab.includes('archway'),
 );
+
+/**
+ * The floor of a gate, relative to the archway's own origin.
+ *
+ * Read from the client's ground query three metres out on either side, not
+ * under the middle of the arch: `groundAt` casts down from high above and the
+ * archway's own beam is in the way, so asking at the centre answers 4.58 m —
+ * the top of the arch — for every gate in the village. Three metres clears the
+ * model's depth and is still inside the opening's approach.
+ *
+ * The higher of the two sides is the answer, because that is the ground a
+ * player must clear to walk through: this village's gates stand on ground that
+ * runs up to 0.9 m across their own span.
+ *
+ * `null` means neither side has ground under it, which is a broken world
+ * rather than a closed gate, and the caller says so.
+ */
+async function gateFloor(
+  page: Page,
+  through: (metres: number) => [number, number],
+): Promise<number | null> {
+  const sides: number[] = [];
+  for (const metres of [-3, 3]) {
+    const [x, z] = through(metres);
+    const ground = await page.evaluate(
+      ([px, pz]) => (window as WovDebugWindow).__wov?.groundAt(px as number, pz as number) ?? null,
+      [x, z],
+    );
+    if (ground !== null) {
+      sides.push(ground);
+    }
+  }
+  return sides.length === 0 ? null : Math.max(...sides);
+}
 
 test('game leaves every gate in the village open', async ({ page }) => {
   test.setTimeout(300_000);
@@ -1289,13 +1333,22 @@ test('game leaves every gate in the village open', async ({ page }) => {
       z - across * sin + through * cos,
     ];
 
+    const ground = await gateFloor(page, (metres) => [x + metres * sin, z + metres * cos]);
+    expect(ground, `gate ${gate.id} has no ground on either side of it`).not.toBeNull();
+    /** The probe heights are measured from here, in the archway's own frame. */
+    const floor = (ground ?? y) - y;
+
     let widest = 0;
     for (const height of PROBE_HEIGHTS_METRES) {
       let run = 0;
       let best = 0;
       for (let across = -2; across <= 2.001; across += 0.25) {
         const blocked =
-          (await rayHit(page, at(across, height, -0.9), at(across, height, 0.9))) !== null;
+          (await rayHit(
+            page,
+            at(across, floor + height, -0.9),
+            at(across, floor + height, 0.9),
+          )) !== null;
         run = blocked ? 0 : run + 0.25;
         best = Math.max(best, run);
       }
@@ -1314,7 +1367,7 @@ test('game leaves every gate in the village open', async ({ page }) => {
      * because that is where the archway's own posts stand — its half-width is
      * 2.77 m and the opening between the posts is about 4 m.
      */
-    const chest = PROBE_HEIGHTS_METRES[1] ?? 1.4;
+    const chest = floor + (PROBE_HEIGHTS_METRES[1] ?? 1.4);
     for (const side of [-2, 2]) {
       expect(
         await rayHit(page, at(side, chest, -0.9), at(side, chest, 0.9)),

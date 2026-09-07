@@ -29,6 +29,7 @@ gizmo drag undoes with the same Ctrl+Z as a Delete key.
 | `keyboard.ts`        | Whether the focused element keeps a keystroke or the shell gets it  |
 | `panels/`            | Menu bar, hierarchy, the four right-hand inspectors, asset browser  |
 | `scene/`             | Everything Babylon (see below)                                      |
+| `coalesce.ts`        | Many asks, one run before the next frame — see below                |
 | `dev-debug.ts`       | `window.__wovEditor`, the dev-only bridge `pnpm smoke` reads        |
 
 `scene/` keeps the arithmetic separate from the bindings, so the rules are
@@ -43,12 +44,19 @@ testable without a GPU:
 | `picking.ts` — ray to the ground plane         | `picking.ts` (the scene picks)    |
 | `prefab-index.ts` — catalogue by id, category  | —                                 |
 | `selection-outline.ts` — the twelve box edges  | `selection-outline.ts`            |
-| —                                              | `zone-terrain.ts` — the ground    |
+| `terrain-keys.ts` — what a ground edit changed | `zone-terrain.ts` — the ground    |
+| `panels/list-window.ts` — which rows to render | `panels/Hierarchy.tsx`            |
 
 The ground panel (`panels/GroundPanel.tsx`, ADR-0032) is where a layer's
 metallic, smoothness and bump strength are turned, and where facetted ground is
-switched on. Every input dispatches `updateTerrainSurface`, the same command
-`pnpm terrain-surface` builds — the editor cannot fall behind a script that way.
+switched on. Each dial is a slider beside a number box; both dispatch
+`updateTerrainSurface`, the same command `pnpm terrain-surface` builds — the
+editor cannot fall behind a script that way — and a whole slider drag folds into
+one undo entry. Turning a dial writes a **uniform** into the program the tile
+already carries instead of rebuilding the tile, which is what makes dragging one
+possible at all (ADR-0050): `scene/terrain-keys.ts` decides, field by field,
+whether an edit is a uniform, a new material over the loaded height field, or a
+reload.
 
 The active zone's `terrain` block is drawn as scenery (ADR-0020, ADR-0022): it
 is what surface snapping drops a prop onto, and it carries no entity id, so
@@ -81,6 +89,35 @@ Two consequences worth knowing:
 `SceneSync.meshCount()` counts entity **roots** — exactly one per entity, so it
 is comparable to the document's `entityCount` without arithmetic. A loaded GLB
 brings its own intermediate nodes under that root, and those are not entities.
+
+## How a zone reaches the screen
+
+Opening the village is 5273 entities, and three decisions about _how_ they land
+are the difference between three frames a second and the game's cost
+(ADR-0048, ADR-0049, ADR-0050):
+
+- **Instances, not clones.** `scene-sync.ts` instantiates a model with
+  `instanced: true`, so ninety copies of one fence share one geometry and one
+  material and still have ninety nodes — each pickable, each movable, which is
+  what an editor needs and what the thin instances the game scatters vegetation
+  with (ADR-0025) cannot give.
+- **A narrow freeze.** An entity's world matrices are pinned once its model has
+  landed and thawed again for exactly as long as it is selected or is being
+  written to. The hold is the document's `selection`, derived inside `apply()`
+  _before_ the diff's early return, because a click that changes nothing but the
+  selection is precisely the gesture that must thaw a prop.
+  `SceneSync.frozenCount()` is the witness, published on the debug bridge and
+  asserted by `pnpm smoke`.
+- **The game's shadow rule.** `castsShadows` from `@wov/world-schema` keeps
+  grass and painted distance out of the sun's map (ADR-0027, ADR-0031), so the
+  author is shown the light the game draws.
+
+And one about _when_ the viewport talks back. `scene-sync.ts` reports once per
+loaded model **and** once per loaded texture — about ten thousand times for the
+village — and each report used to walk the whole zone three times and set React
+state in the shell. `coalesce.ts` folds those asks into one run before the next
+frame, the walks sit behind `isEditorDebugInstalled()`, and the hierarchy renders
+the rows it shows rather than one `<li>` per entity (`panels/list-window.ts`).
 
 ## Where code belongs
 

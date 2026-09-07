@@ -18,9 +18,15 @@
  * what an editor is. A frozen node in the editor is a prop whose gizmo works,
  * whose document updates and whose picture never changes — the worst kind of
  * bug, because everything except the screen agrees. So the freeze lives here as
- * something an app asks for, `apps/game` asks for it after its zone is placed,
- * and `apps/editor` does not. {@link unfreezeStaticNodes} is the way back for
- * anything that later has to move after all.
+ * something an app asks for rather than something a placer does — and each app
+ * asks on its own terms. `apps/game` freezes a zone once, after it is placed
+ * (ADR-0035). `apps/editor` freezes **one entity at a time**, from the moment
+ * its model lands until the moment it is selected or written to (ADR-0049).
+ * ADR-0035 said the editor should never freeze at all; that was a choice made
+ * without a measurement, and what replaced it is a narrower rule kept in one
+ * place — `apps/editor/src/scene/scene-sync.ts`, with `frozenCount()` as its
+ * witness. {@link unfreezeStaticNodes} is the way back for anything that has to
+ * move after all, and it is what that rule calls.
  */
 
 /**

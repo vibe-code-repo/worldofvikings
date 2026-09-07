@@ -1,8 +1,20 @@
 # ADR-0035: The static world is frozen
 
-- **Status:** accepted
+- **Status:** accepted (amended by [ADR-0049](0049-the-editor-draws-a-zone-the-way-the-game-does.md))
 - **Date:** 2026-09-07
 - **Deciders:** `perf/cpu-frame`
+
+> **Amendment (ADR-0049).** Everything below still holds for `apps/game`. The
+> one sentence that does not is this file's reason for keeping the editor
+> unfrozen — "a frozen node in the editor is a prop whose gizmo works and whose
+> picture never changes". That was a choice made without a measurement, and the
+> measurement came later: unfrozen, the editor drew the same village at 315 ms a
+> frame against the game's 12 ms. ADR-0049 freezes the editor's entities
+> **narrowly** — one entity at a time, thawed for exactly as long as it is
+> selected or being written to — which is not the whole-zone freeze this file
+> rejected. `freezeMaterialsWhenReady` and the cached caster list stay the
+> game's alone; ADR-0049 measured the first at under 2 % of an editor frame and
+> declined it.
 
 ## Context
 

@@ -21,7 +21,9 @@ Prefab catalogs (`content/prefabs/*.json`, ADR-0016):
 - `CURRENT_PREFAB_SCHEMA_VERSION`, `PREFAB_CATEGORIES`, `PREFAB_VISIBILITIES`.
 - `PrefabCatalogSchema`, `PrefabDefinitionSchema`, `PrefabCategorySchema`, `PrefabVisibilitySchema`, `PrefabAssetPathSchema`, `PrefabBoundsSchema`.
 - `parsePrefabCatalog(data): PrefabCatalogParseResult`.
-- Types: `PrefabCatalog`, `PrefabDefinition`, `PrefabCategory`, `PrefabVisibility`, `PrefabBounds`, `PrefabCatalogParseResult`.
+- `isBackdrop(prefab)` — whether a prefab is painted distance rather than a thing in the world (ADR-0031).
+- `castsShadows(prefab)`, `SHADOW_CASTER_MINIMUM_HEIGHT` — whether a prefab belongs in the sun's shadow map, answered from its **measured bounds**: vegetation under 0.5 m does not cast, a backdrop never does, and a prefab with no measured bounds does (ADR-0027, ADR-0031). It lives here rather than in `apps/game` because the editor has to draw the same light and no app may import another (ADR-0049).
+- Types: `PrefabCatalog`, `PrefabDefinition`, `PrefabCategory`, `PrefabVisibility`, `PrefabBounds`, `PrefabCatalogParseResult`, `ShadowCastingPrefab` (the `{category, bounds?}` shape `castsShadows` asks for, so a catalogue row, a manifest row or a literal can all answer).
 
 Shared: `IdentifierSchema`, `Vector3Schema`, `HexColorSchema`, `AssetPathSchema`,
 `assetPathOf(kind)`, types `Identifier`, `Vector3`, `AssetKindHint`.

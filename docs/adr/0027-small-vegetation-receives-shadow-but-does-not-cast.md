@@ -1,8 +1,14 @@
 # ADR-0027: Small vegetation receives shadow but does not cast it
 
-- **Status:** accepted
+- **Status:** accepted (amended by [ADR-0049](0049-the-editor-draws-a-zone-the-way-the-game-does.md))
 - **Date:** 2026-09-06
 - **Deciders:** engine and game-client owners
+
+> **Amendment (ADR-0049).** The rule below is unchanged; only its address is.
+> `castsShadows` and `SHADOW_CASTER_MINIMUM_HEIGHT` now live in
+> `packages/world-schema/src/prefab.ts`, because the editor has to ask the same
+> question and `lint:boundaries` forbids one app importing another. Everywhere
+> this file says `apps/game/src/world-scene.ts`, read `@wov/world-schema`.
 
 ## Context
 

@@ -100,6 +100,24 @@ export function lightingProfiles(
 }
 
 /**
+ * Whether this client is allowed to make a sound at all (ADR-0052).
+ *
+ * `?mute=1` is the fourth diagnostic switch, beside `?flat=1`, `?shadows=off`
+ * and `?look=`, and it exists for the same reason the first one does: "the
+ * frame costs nothing extra now that there is sound" is not a claim, it is a
+ * measurement, and a measurement needs the same village from the same camera
+ * with the audio path off. It also gives the smoke suite a way to measure
+ * exactly what it measured before this feature existed.
+ *
+ * It is not the same thing as `sound.master.muted`, which is a *world's* own
+ * decision to be quiet: muting an authored zone still creates the engine, loads
+ * the clips and runs the emitters. `?mute=1` never starts any of it.
+ */
+export function soundEnabled(search: string): boolean {
+  return new URLSearchParams(search).get('mute') !== '1';
+}
+
+/**
  * The camera aim `?look=` asks for, in degrees, or nothing.
  *
  * `?look=yaw` or `?look=yaw,pitch`, measured the way the camera measures them:

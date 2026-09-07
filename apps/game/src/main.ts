@@ -41,6 +41,7 @@ import {
   createTransform,
   createWorldState,
   flatGround,
+  getMovement,
   getTransform,
   toEntityId,
   vec3,
@@ -50,13 +51,32 @@ import {
   type WorldState,
 } from '@wov/gameplay';
 import { summarizeAssetSources } from '@wov/asset-system';
-import { freezeMaterialsWhenReady, freezeStaticNodes } from '@wov/engine';
+import {
+  applyWorldSound,
+  createAudioEngine,
+  freezeMaterialsWhenReady,
+  freezeStaticNodes,
+  resolveSoundProfile,
+  surfaceOfLayer,
+  type AudioSystem,
+  type TerrainSurfaceProbe,
+  type WorldSoundHandle,
+} from '@wov/engine';
 import type { PhysicsWorld } from '@wov/physics';
 import { tokens } from '@wov/ui';
 import { isDebugRequested } from '@wov/shared';
 import { installDevDebugBridge } from './dev-debug.js';
 import type { BackdropReadout, WovCollisionDebug, WovTerrainBounds } from './dev-debug.js';
-import { lightingProfiles, lookFromQuery, resolveGameConfig, worldIdFromQuery } from './config.js';
+import {
+  lightingProfiles,
+  lookFromQuery,
+  resolveGameConfig,
+  soundEnabled,
+  worldIdFromQuery,
+} from './config.js';
+import { advanceStride, initialStride, type StrideState } from './footstep-stride.js';
+import { clipSource, createZoneSurfaceProbe } from './zone-sound.js';
+import type { WorldDefinition, ZoneDefinition } from '@wov/world-schema';
 import { createWorldApi } from './world-api.js';
 import {
   NO_SOURCES,
@@ -137,6 +157,7 @@ const assetStatus = document.querySelector<HTMLElement>('[data-testid="game-asse
 const assetSources = document.querySelector<HTMLElement>('[data-testid="game-asset-sources"]');
 const worldStatus = document.querySelector<HTMLElement>('[data-testid="game-world"]');
 const collisionStatus = document.querySelector<HTMLElement>('[data-testid="game-collision"]');
+const soundStatus = document.querySelector<HTMLElement>('[data-testid="game-sound"]');
 const frameReadout = document.querySelector<HTMLElement>('[data-testid="game-fps"]');
 
 document.body.style.background = tokens.colorBackground;
@@ -149,6 +170,7 @@ for (const element of [
   assetSources,
   worldStatus,
   collisionStatus,
+  soundStatus,
   frameReadout,
 ]) {
   if (element) {
@@ -198,6 +220,21 @@ function setWorldStatus(text: string): void {
 function setCollisionStatus(text: string): void {
   if (collisionStatus) {
     collisionStatus.textContent = text;
+  }
+}
+
+/**
+ * Says what can be heard, or why nothing can (ADR-0052).
+ *
+ * Its own line, like the world's and the collision's, and for the same reason:
+ * "the village is on screen" and "the village makes a noise" are different
+ * claims arriving seconds apart. It is also the only place a browser's autoplay
+ * policy can be reported — a page that has not been clicked has no sound, and
+ * that is not a bug to hunt.
+ */
+function setSoundStatus(text: string): void {
+  if (soundStatus) {
+    soundStatus.textContent = text;
   }
 }
 
@@ -277,6 +314,20 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
   /** Where the ground's bytes came from, kept so both loaders share one line. */
   let terrainSources = NO_SOURCES;
 
+  /**
+   * The page's audio engine, once it is up. `null` under `?mute=1`, and until
+   * the browser has handed one over.
+   */
+  let audio: AudioSystem | null = null;
+  /** The zone's sound: its bed, its emitters and its footstep banks. */
+  let sound: WorldSoundHandle | null = null;
+  /** Which splat layer is under a point, once the ground has been fitted. */
+  let surface: TerrainSurfaceProbe | null = null;
+  /** How far the player has walked since the last footstep. */
+  let stride: StrideState = initialStride;
+  /** The ground meshes, kept so the splat probe can be fitted against them. */
+  let groundMeshes: Parameters<typeof createZoneSurfaceProbe>[0]['meshes'] = [];
+
   // The state the previous step ended in, kept so a frame between two steps can
   // be interpolated instead of snapped.
   let previous: Transform = getTransform(world, PLAYER) ?? createTransform();
@@ -296,16 +347,15 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       // click fires in the first step of a frame and not again in the next.
       // The camera's own yaw is the frame the axes are rotated into, so "W"
       // means "away from the camera" whichever way the player turned it.
-      world = MovementSystem.update(
-        world,
-        input.sample(camera.state.yaw),
-        fixedDelta,
-        ground,
-        obstacles,
-      );
+      const sampled = input.sample(camera.state.yaw);
+      world = MovementSystem.update(world, sampled, fixedDelta, ground, obstacles);
       // Physics advances on the same fixed step as gameplay, not on the frame:
       // the simulation must not run faster on a 144 Hz display (ADR-0013).
       physics?.step(fixedDelta);
+      // Footsteps are paced by ground covered, on the fixed step rather than on
+      // the frame, for exactly the reason physics is: a 144 Hz display must not
+      // make the player walk faster or louder (ADR-0013, ADR-0052).
+      stepFootsteps(fixedDelta, sampled.sprint);
     },
 
     render(alpha) {
@@ -334,6 +384,10 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
   loop.start();
   baseStatus = `renderer ready — ${renderer.backend} · simulation 60 Hz`;
   setStatus(baseStatus);
+
+  // Next to the physics backend and never awaited by the loop: an audio engine
+  // that has not started should delay sound, not walking (spec §38).
+  const audioReady = startAudio();
 
   /** Set in the dev build only; see the note on `installDevDebugBridge`. */
   let debugBridge: {
@@ -372,6 +426,108 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
           : null;
       },
     });
+  }
+
+  /**
+   * Brings the page's audio engine up, and arranges for the first gesture to
+   * unlock it.
+   *
+   * `?mute=1` never creates one at all — see `soundEnabled`. A browser that
+   * refuses to give one is reported on the sound line and costs nothing else: a
+   * game without sound is a game, and a game that will not start is not.
+   *
+   * Babylon resumes the context on a pointer gesture of its own, but a player
+   * who reaches for WASD before clicking has made a gesture the browser accepts
+   * and Babylon is not listening for — so a one-shot `keydown` is added beside
+   * it. Both are `once`, because the second unlock of an unlocked engine is a
+   * promise that resolves to nothing.
+   */
+  async function startAudio(): Promise<AudioSystem | null> {
+    if (!soundEnabled(window.location.search)) {
+      setSoundStatus('sound: off — ?mute=1');
+      return null;
+    }
+    try {
+      const system = await createAudioEngine();
+      audio = system;
+      system.onStateChanged(() => {
+        reportSound();
+      });
+      reportSound();
+      const unlock = (): void => {
+        void system.unlock();
+      };
+      window.addEventListener('keydown', unlock, { once: true });
+      canvas.addEventListener('pointerdown', unlock, { once: true });
+      return system;
+    } catch (error) {
+      setSoundStatus(`sound unavailable: ${describe(error)}`);
+      return null;
+    }
+  }
+
+  /** One line for the sound row: whether it is audible, and what is in it. */
+  function reportSound(): void {
+    if (audio === null) {
+      return;
+    }
+    const zone =
+      sound === null
+        ? 'no zone sound yet'
+        : `${sound.report.replace(/^sound: /, '')}` +
+          (surface === null ? '' : ` · ground ${surface.usable ? 'mapped' : 'unmapped'}`);
+    setSoundStatus(`sound: ${audio.statusLine} — ${zone}`);
+  }
+
+  /**
+   * Counts the ground the player covered and plays a footstep when a stride is
+   * complete.
+   *
+   * The surface is asked per *step*, not per frame: a splat lookup is two
+   * texel reads and an argmax, which is nothing, but doing it sixty times a
+   * second to answer a question that is asked four times a second would still
+   * be sixty times too often.
+   */
+  function stepFootsteps(fixedDelta: number, sprinting: boolean): void {
+    if (sound === null) {
+      return;
+    }
+    const now = getTransform(world, PLAYER);
+    if (now === undefined) {
+      return;
+    }
+    const walked = advanceStride(
+      stride,
+      {
+        from: previous.position,
+        to: now.position,
+        grounded: getMovement(world, PLAYER)?.grounded ?? false,
+        sprinting,
+        deltaSeconds: fixedDelta,
+      },
+      sound.profile.footsteps,
+    );
+    stride = walked.state;
+    if (walked.step) {
+      sound.footstep(surfaceUnder(now.position.x, now.position.z));
+    }
+  }
+
+  /**
+   * Which surface the player is standing on, by the splat map's own answer
+   * (ADR-0053).
+   *
+   * Off the tile, or on ground the probe could not be fitted to, is the
+   * profile's default surface — a plain footstep rather than a confidently
+   * wrong one, and the sound line says which of the two is happening.
+   */
+  function surfaceUnder(x: number, z: number): string {
+    const footsteps = sound?.profile.footsteps;
+    if (footsteps === undefined) {
+      return '';
+    }
+    const layer = surface?.layerAt(x, z) ?? null;
+    return layer === null ? footsteps.defaultSurface : surfaceOfLayer(footsteps, layer);
   }
 
   /**
@@ -491,6 +647,9 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
           lighting.shadows !== null,
         );
         terrainSources = ground3d.sources;
+        // Kept for the splat probe: the surface a footstep lands on is fitted
+        // against these meshes' own uv attribute (ADR-0053).
+        groundMeshes = ground3d.terrain.meshes;
         // The ground receives through its own shader (ADR-0020) and must not
         // cast: a height field in its own shadow map self-shadows every slope
         // it has, and no bias makes a 300 m tile at 7 cm per texel clean.
@@ -587,6 +746,11 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
     );
     setAssetSources(summarizeAssetSources(addSources(terrainSources, placed.sources)));
 
+    // After the models and not awaited: see `startZoneSound`.
+    void startZoneSound(world, zone).catch((error: unknown) => {
+      setSoundStatus(`sound unavailable: ${describe(error)}`);
+    });
+
     // Last, and after the lines above have been written: the shapes are
     // measured on the models `placeEntities` loaded, so they cannot exist
     // before those models do — but "the village is on screen" is true the
@@ -617,6 +781,69 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
     } catch (error) {
       setCollisionStatus(`collision unavailable: ${describe(error)}`);
     }
+  }
+
+  /**
+   * Gives the zone its sound (ADR-0052).
+   *
+   * Deliberately last and deliberately not awaited by anything the player is
+   * waiting for. The village streams hundreds of megabytes of models before it
+   * can be walked around in; a megabyte of clips must not be in that queue, and
+   * a zone whose audio has not arrived is silent rather than stalled.
+   *
+   * The order inside is the same rule one level down: the splat maps are
+   * decoded first because a footstep with no surface is the one thing here that
+   * would be *wrong* rather than merely absent, and the clips are loaded after.
+   */
+  async function startZoneSound(worldFile: WorldDefinition, zone: ZoneDefinition): Promise<void> {
+    const system = await audioReady;
+    if (system === null) {
+      return;
+    }
+    // The world's profile, then the zone's on top of it — the same chain and
+    // the same precedence `lightingProfiles` uses one screen further up.
+    const profile = resolveSoundProfile(worldFile.sound, zone.sound);
+
+    if (groundMeshes.length > 0 && zone.terrain !== undefined) {
+      surface = await createZoneSurfaceProbe({
+        meshes: groundMeshes,
+        splat: zone.terrain.splat ?? [],
+        layerCount: zone.terrain.layers?.length ?? 0,
+        source: config.assets,
+      });
+      if (!surface.usable) {
+        console.warn(`[game] footsteps fall back to one surface — ${surface.status}`);
+      }
+    }
+
+    sound = await applyWorldSound(renderer.scene, {
+      audio: system,
+      profile,
+      clipSource: (path) => clipSource(config.assets, path),
+      entities: zone.entities.map((entity) => ({
+        id: entity.id,
+        prefab: entity.prefab,
+        position: entity.position,
+      })),
+      // The emitter follows the node `placeEntities` made for its entity, so a
+      // brazier moved in the editor takes its fire with it. A thin-instanced
+      // prefab has none by design (ADR-0025) and falls back to its position.
+      nodeOf: (entityId) => renderer.scene.getTransformNodeByName(`entity:${entityId}`),
+      // The camera, not the capsule: in third person the picture is the
+      // camera's, and so are the ears (ADR-0052).
+      listener: renderer.scene.activeCamera,
+      listenerAt: () => {
+        const at = renderer.scene.activeCamera?.globalPosition;
+        return at === undefined ? { x: 0, y: 0, z: 0 } : { x: at.x, y: at.y, z: at.z };
+      },
+    });
+    for (const problem of sound.problems) {
+      console.warn(`[game] zone "${zone.id}" sound — ${problem}`);
+    }
+    for (const clip of sound.failed) {
+      console.error(`[game] a clip of zone "${zone.id}" did not load — ${clip}`);
+    }
+    reportSound();
   }
 
   /** Publishes the tile's measured hull to the dev bridge, if there is one. */

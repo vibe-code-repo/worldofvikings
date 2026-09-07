@@ -18,9 +18,19 @@ found, with the built bundles in headless Chromium on ANGLE over Vulkan at
 | active meshes               | 14 445   | 974                 |
 | shadow casters              | 14 440   | 2 423               |
 
-Twenty-six times the frame cost, eighty-seven times the draw calls and six times
-the shadow casters, for the same 5 273 entities out of the same world file. None
-of that was the editor doing something an editor has to do. Three separate
+Eighty-seven times the draw calls and six times the shadow casters, for the same
+5 273 entities out of the same world file.
+
+**A correction, added by ADR-0051.** The frame times in the two columns are not
+comparable and the ratio between them, quoted here as twenty-six, meant nothing:
+the game's number is measured at `square`, a player's camera at ground level
+where the frustum culls most of the village, and the editor's is measured 1 967 m
+up with the whole zone inside the frustum. The counters do compare — draw calls
+and casters are properties of what was submitted, not of where the camera was —
+and they are what this ADR's argument rests on. The rig now also reports a frame
+with one building framed, so the editor's own two cameras can at least be read
+against each other. None of that changes what follows: none of the three
+decisions below was the editor doing something an editor has to do. Three separate
 decisions had each been made once, in passing, and never measured:
 
 1. **Every entity cloned its model.** `assets.instantiate(prefab.asset, { rename })`

@@ -51,3 +51,4 @@ change it describes.
 | [0048](0048-the-editor-reports-once-a-frame-and-lists-only-what-it-shows.md)  | The editor reports once a frame and lists only what it shows      | accepted        |
 | [0049](0049-the-editor-draws-a-zone-the-way-the-game-does.md)                 | The editor draws a zone the way the game does                     | accepted        |
 | [0050](0050-the-ground-is-reconciled-not-reloaded.md)                         | The ground is reconciled, not reloaded                            | accepted        |
+| [0051](0051-what-the-editor-owes-a-picture-nobody-checked.md)                 | What the editor owed a picture nobody was checking                | accepted        |

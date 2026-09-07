@@ -350,11 +350,12 @@ function shadowShapeKey(shadows: TerrainShadowShader | undefined): string {
  * switching the editor's lighting to the Noon preset, whose profile asks for
  * `pcf` where the village's own asks for `poisson`.
  *
- * So a tile under a PCF sun is simply not shadowed, and says so in one line
- * rather than filling the console. A comparison-sampler variant of the terrain
- * program is the real answer and is a change of its own.
+ * So a tile under a PCF sun is simply not shadowed, and says so in one warning
+ * when its material is built rather than in a driver error every frame. A
+ * comparison-sampler variant of the terrain program is the real answer and is a
+ * change of its own.
  */
-function sceneShadowGenerator(scene: Scene): ShadowGenerator | null {
+function sceneShadowGenerator(scene: Scene, announce = false): ShadowGenerator | null {
   for (const light of scene.lights) {
     if (!(light instanceof DirectionalLight)) {
       continue;
@@ -367,6 +368,17 @@ function sceneShadowGenerator(scene: Scene): ShadowGenerator | null {
       generator.filter === ShadowGenerator.FILTER_PCF ||
       generator.filter === ShadowGenerator.FILTER_PCSS
     ) {
+      if (announce) {
+        // Once per material build, which is once per tile per lighting change:
+        // an unshadowed ground under an otherwise shadowed village is exactly
+        // the kind of thing that is noticed six weeks later and blamed on
+        // something else.
+        console.warn(
+          '[terrain] this light filters its shadow map with a comparison sampler ' +
+            '(pcf/pcss); the ground reads the map as a plain texture and is drawn ' +
+            'without shadows under it',
+        );
+      }
       return null;
     }
     return generator;
@@ -488,7 +500,7 @@ export function createTerrainMaterial(
   const splat = options.splat ?? [];
   const shadows =
     options.receiveShadows === true
-      ? shadowShaderShape(sceneShadowGenerator(scene), options.shadowTaps ?? 4)
+      ? shadowShaderShape(sceneShadowGenerator(scene, true), options.shadowTaps ?? 4)
       : undefined;
   const surface: TerrainSurfaceShader = {
     normalMaps: layers.map((layer) => layer.normalMap !== undefined),

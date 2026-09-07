@@ -242,17 +242,21 @@ version of that test is run on the `slope` view.
 game rig cannot see what an author complains about. Opening `village1` in the
 editor takes over a minute with the main thread blocked for most of it, and the
 frame after it lands is nothing like the game's — the game draws that zone in
-about 12 ms after ADR-0035 and ADR-0025; the editor draws it in 300-400 ms.
-Neither number can be argued about until both are measured the same way, which
-is what this rig is for (ADR-0047).
+about 12 ms after ADR-0035 and ADR-0025; the editor drew it in 300-400 ms and
+draws it in 38-43 ms now. Those two numbers are not a ratio — the game's is a
+player's camera at ground level and the editor's is the whole zone from above —
+but neither could be argued about at all until both were measured the same way,
+which is what this rig is for (ADR-0047, ADR-0051).
 
 ```bash
 WOV_ASSET_STORE=/srv/assets/store pnpm perf:editor --label baseline
 WOV_ASSET_STORE=/srv/assets/store pnpm perf:editor --label after --scenario dial --skip-build
 ```
 
-Three scenarios, all in one browser session on one page, and one JSON report per
-run under `perf-results/` plus a PNG and one `.rgba` per scenario:
+Four scenarios, all in one browser session on one page, and one JSON report per
+run under `perf-results/` plus a PNG and two `.rgba` per scenario — one at the
+camera the timings are taken at and one `…close.rgba` with a single building
+framed:
 
 - **`load`** — open `village1` through the File menu and time the document
   (`entityCount`), the models (`loadedCount == entityCount`) and the textures
@@ -264,9 +268,14 @@ run under `perf-results/` plus a PNG and one `.rgba` per scenario:
 - **`dial`** — ten changes to layer 0's metallic in the Zone tab, each timed to
   the next rendered frame, with the terrain program key and the scene's texture
   count before and after, so a rebuild that leaks textures shows up.
+- **`rebuild`** — flip the facet switch four times, each timed to the tile on
+  screen carrying its new shader key. The ground edit that _must_ rebuild, next
+  to the dial, which must not (ADR-0050).
 - **`edit`** — select a fixed entity from the hierarchy, nudge its x five times,
   and click the canvas once with the select tool. The click is timed around the
-  viewport's own `pointerup` listener, which is where `scene.pick` runs.
+  viewport's own `pointerup` listener, which is where `scene.pick` runs — and
+  stops before React commits the selection, so read it as "how long the click
+  blocked the handler", not as what the author waits for.
 
 Three things it does that the game rig does not, and each is there because a
 measurement went wrong without it:
@@ -284,12 +293,27 @@ measurement went wrong without it:
   the sampling profiler roughly halved the frame rate of a page holding the
   village — 2.2 fps against 3.1 — so the counters and the profile are two
   separate windows.
+- **Two cameras, and only one of them is for the picture.** Every timing is taken
+  where `F` with nothing selected puts the camera, because that view contains the
+  whole zone and nothing is culled out of the frame being timed. For the village
+  that is 1 967 m up, about 4 m to the pixel, with the entities across 3.5 % of
+  the canvas — so a canvas read there says nothing about the props. Each scenario
+  therefore also writes a `…close.rgba` with one building framed, and that is the
+  file a "the picture did not change" claim belongs to (ADR-0051).
+- **It checks whose servers answered.** The bundle in `apps/editor/dist` carries
+  the API and asset URLs it was _built_ with, so `--skip-build` after another
+  worktree built the editor on other ports measures another checkout's content.
+  The origins the page used are recorded in the report and asserted against the
+  run's own, and a run that does not finish writes
+  `<label>.editor.partial.json` rather than discarding itself.
 
 The load number is the one that moves between runs: measured three times on one
 idle-ish machine it came out at 71 s, 96 s and 168 s, because it is dominated by
 main-thread work that competes with everything else running. Compare runs
 back to back on the same machine, and quote the long-task total beside the
-milestone — it moves with it.
+milestone — it moves with it. The settled frame moves too, by rather more than
+the counters beside it: one unchanged build at one camera has been measured
+between 53 ms and 125 ms, so quote it as a range over at least two runs.
 
 ### What the load costs now
 

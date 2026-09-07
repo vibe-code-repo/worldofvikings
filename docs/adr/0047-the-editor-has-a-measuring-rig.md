@@ -104,8 +104,14 @@ ANGLE over Vulkan at 1280×720, built bundles, the private asset store mounted:
 | position nudge → next frame (median)        | 1 485 ms                 | 1 180 ms  |
 | canvas click, `pointerup`                   | 156 ms                   | 98 ms     |
 
-The game draws the same zone at about 12 ms and 210 draw calls (ADR-0035,
-ADR-0025). The heaviest self time of the load profile is `_getDescendants` at
+The game draws the same zone at 210 draw calls (ADR-0025) and about 12 ms — but
+see the correction in ADR-0051 before dividing those two frame times by each
+other: the game's is measured at a player's camera at ground level and this one
+1 967 m up with the whole zone in the frustum, so the counters compare and the
+frame times do not. The rig therefore also reports a frame with one building
+framed, and writes a second canvas taken there: the settled camera puts the
+village across 3.5 % of the canvas at about 4 m to the pixel, which is a fine
+place to time a frame and no place at all to compare a picture. The heaviest self time of the load profile is `_getDescendants` at
 27 %, under `loadedTextures` at 65 % inclusive; of the settled frame it is
 Babylon's native bucket at 34-39 %, with `_isSynchronized` at 8 % and
 `_renderSubMeshForShadowMap` at 16 % inclusive over 14 440 casters. The terrain
@@ -133,6 +139,13 @@ it is not something to run after every edit. The load milestone is dominated by
 main-thread work and therefore by whatever else the machine is doing: three runs
 on one machine came out at 71 s, 96 s and 168 s. Runs have to be compared back to
 back, and the long-task total quoted beside the milestone — it moves with it.
+
+The settled frame moves with the machine too, and by more than this ADR first
+said. The counters are steady — `18 343 / 14 445 / 14 440` in every run of the
+baseline, and `696 / 9 172 / 2 196` in every run after ADR-0051 — but the frame
+_time_ behind them was measured between 53 ms and 125 ms for one unchanged build
+at one camera. Quote the settled frame as a range over at least two runs, the way
+the load milestone already is, and never read a single pair as an effect.
 The `edit` and `dial` latencies are quantised by a frame rate of two to three per
 second, which is why the idle frame time is reported beside them.
 

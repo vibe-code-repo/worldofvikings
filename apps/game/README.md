@@ -11,9 +11,10 @@ position (ADR-0022).
 One DOM marker per concern: `game-marker` (the app is served), `game-status`
 (the renderer, the simulation, physics and the ground), `game-collision` (what
 the player can bump into), `game-world` (which
-world is on screen, or why none is), `game-assets` and `game-asset-sources`
-(the asset pipeline and where the bytes came from), `game-controls` (the key
-list). `pnpm smoke` asserts them.
+world is on screen, or why none is), `game-sound` (whether the browser has let
+the page make a noise yet, and what is in the zone), `game-assets` and
+`game-asset-sources` (the asset pipeline and where the bytes came from),
+`game-controls` (the key list). `pnpm smoke` asserts them.
 
 No world data lives in this app. `src/world-api.ts` fetches it, `src/config.ts`
 says where from, and `src/world-scene.ts` turns one zone into a scene. The
@@ -24,8 +25,9 @@ model's bytes are (ADR-0015, ADR-0016).
 - Environment: `VITE_API_URL`, `VITE_ASSET_URL` (see `.env.example`)
 - Query string: `?world=<id>` (default `village1`), `?spawn=<x>,<z>`,
   `?flat=1` (the flat noon rig instead of the world's own, ADR-0024),
-  `?shadows=off` (the world's light without its shadow map) — the last two are
-  there so a measurement can hold everything else constant
+  `?shadows=off` (the world's light without its shadow map), `?mute=1` (no audio
+  engine at all, ADR-0052) — the last three are there so a measurement can hold
+  everything else constant
 
 ## Controls
 

@@ -28,6 +28,7 @@
  * ```bash
  * pnpm perf:frame --label baseline --view square
  * pnpm perf:frame --label frozen  --view square --skip-build
+ * pnpm perf:frame --label muted   --view square --skip-build --query mute=1
  * ```
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -73,6 +74,15 @@ interface Options {
   /** Seconds to let the frame rate settle after the village is complete. */
   readonly settleSeconds: number;
   readonly skipBuild: boolean;
+  /**
+   * Extra query parameters appended to the view's own, without the `?`.
+   *
+   * A view fixes the camera, which is what makes two runs comparable; a switch
+   * being measured is not part of the camera. `--query mute=1` is what lets the
+   * same view be measured with the audio path on and off, which is the only way
+   * "sound costs nothing in the frame" is a measurement rather than a hope.
+   */
+  readonly extraQuery: string;
   readonly outDir: string;
   /** Metres to walk before the second shadow reading; 0 skips the test. */
   readonly moveMetres: number;
@@ -93,6 +103,7 @@ function parseOptions(argv: readonly string[]): Options {
     seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : 3,
     settleSeconds: Number.isFinite(settle) && settle >= 0 ? settle : 3,
     skipBuild: argv.includes('--skip-build'),
+    extraQuery: (argument(argv, 'query') ?? '').replace(/^[?&]/, ''),
     outDir: resolve(argument(argv, 'out') ?? join(repoRoot, PERF_OUTPUT_DIR)),
     moveMetres: Number.isFinite(move) && move >= 0 ? move : 30,
   };
@@ -368,8 +379,12 @@ async function measure(options: Options, page: Page): Promise<Record<string, unk
     );
   }
 
-  say(`opening ${gameUrl}${view.query} — ${view.description}`);
-  await page.goto(`${gameUrl}${view.query}`, { waitUntil: 'load' });
+  const query =
+    options.extraQuery === ''
+      ? view.query
+      : `${view.query}${view.query.includes('?') ? '&' : '?'}${options.extraQuery}`;
+  say(`opening ${gameUrl}${query} — ${view.description}`);
+  await page.goto(`${gameUrl}${query}`, { waitUntil: 'load' });
   await waitForVillage(page);
   say('village complete; settling');
   await new Promise((wake) => setTimeout(wake, options.settleSeconds * 1000));
@@ -403,8 +418,9 @@ async function measure(options: Options, page: Page): Promise<Record<string, unk
   return {
     label: options.label,
     view: view.id,
+    query,
     viewDescription: view.description,
-    url: `${gameUrl}${view.query}`,
+    url: `${gameUrl}${query}`,
     takenAt: new Date().toISOString(),
     window: {
       seconds: options.seconds,

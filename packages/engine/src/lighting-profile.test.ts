@@ -51,6 +51,34 @@ describe('resolveLightingProfile', () => {
     );
   });
 
+  it('leaves colour alone by default, so an old world file grades as it did', () => {
+    expect(defaultLightingProfile.postProcessing.saturation).toBe(1);
+    expect(resolveLightingProfile({}).postProcessing.saturation).toBe(1);
+    expect(
+      resolveLightingProfile({ postProcessing: { contrast: 1.1 } }).postProcessing.saturation,
+    ).toBe(1);
+  });
+
+  it('carries a stated saturation through the flat post-processing merge', () => {
+    // The merge lists its flat keys by hand: a field added to the interface but
+    // forgotten there would validate, show up in the editor and do nothing.
+    const profile = resolveLightingProfile({ postProcessing: { saturation: 0.7 } });
+    expect(profile.postProcessing.saturation).toBe(0.7);
+    expect(profile.postProcessing.contrast).toBe(defaultLightingProfile.postProcessing.contrast);
+
+    const zoneWins = resolveLightingProfile(
+      { postProcessing: { saturation: 0.7 } },
+      { postProcessing: { saturation: 0.4 } },
+    );
+    expect(zoneWins.postProcessing.saturation).toBe(0.4);
+  });
+
+  it('rejects a negative saturation', () => {
+    expect(() => resolveLightingProfile({ postProcessing: { saturation: -0.2 } })).toThrow(
+      /postProcessing.saturation must be zero or more/,
+    );
+  });
+
   it('rejects a malformed colour rather than resolving it to black', () => {
     expect(() => resolveLightingProfile({ sun: { color: 'orange' } })).toThrow(
       /sun.color must be a #rrggbb colour/,

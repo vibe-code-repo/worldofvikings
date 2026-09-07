@@ -30,6 +30,13 @@ export interface PerfView {
  * frame time says little — it exists so the picture in ADR-0037 can be taken
  * again by name instead of from a query string somebody pasted once.
  *
+ * `vista` is the wide one, and it exists because the other two are not: a
+ * palisade fills `square` and a bush fills `slope`, so their colour statistics
+ * belong to two or three materials. `vista` stands at the north rim with the
+ * horizon across the middle of the frame — ground, haze and the painted range
+ * all in one picture — which is the kind of view a grade is actually judged in
+ * (ADR-0040).
+ *
  * `square-focus-sub` and `square-focus-texel` are `square` with the shadow
  * map's centre displaced by hand (`?shadowFocus=`, `apps/game/src/config.ts`).
  * They exist to prove shadow stability, which no single picture can show: with
@@ -60,6 +67,11 @@ export const PERF_VIEWS: readonly PerfView[] = [
     id: 'square-focus-texel',
     description: 'village square, shadow focus nudged one whole shadow texel (5.86 cm)',
     query: '?debug=1&shadowFocus=0.05859375,0',
+  },
+  {
+    id: 'vista',
+    description: 'north-east slope, looking out over the ground at the painted range',
+    query: '?debug=1&world=village1&spawn=120,120&look=75,-4',
   },
   {
     id: 'rim',

@@ -108,6 +108,13 @@ export interface PostProcessingOptions {
   readonly toneMapping: ToneMappingMode;
   readonly exposure: number;
   readonly contrast: number;
+  /**
+   * How much colour survives the grade: 0 greyscale, 1 untouched, 2 twice as
+   * colourful. The one knob in the profile that changes chroma without
+   * changing brightness or the lit-to-shaded ratio — see ADR-0040 for why
+   * neither the contrast nor the tone-mapping curve can do this job.
+   */
+  readonly saturation: number;
   readonly bloom: BloomOptions;
   readonly vignette: VignetteOptions;
   readonly ssao: SsaoOptions;
@@ -207,6 +214,10 @@ export const defaultLightingProfile: ResolvedLightingProfile = {
     toneMapping: 'aces',
     exposure: 1.15,
     contrast: 1.45,
+    // 1 is "leave the colour alone", the same convention `exposure` and
+    // `contrast` use, so a world that never heard of this field renders exactly
+    // as it did before the field existed (ADR-0040).
+    saturation: 1,
     bloom: { enabled: true, threshold: 0.82, weight: 0.35, scale: 0.5, kernel: 48 },
     vignette: { enabled: true, weight: 2.4, color: '#0d0a08' },
     // Measured before it was decided, not assumed — see ADR-0024.
@@ -321,6 +332,7 @@ export function resolveLightingProfile(
       toneMapping: base.postProcessing.toneMapping,
       exposure: base.postProcessing.exposure,
       contrast: base.postProcessing.contrast,
+      saturation: base.postProcessing.saturation,
     },
     ...postOverrides.map((override) =>
       override === undefined
@@ -331,6 +343,7 @@ export function resolveLightingProfile(
             toneMapping: override.toneMapping,
             exposure: override.exposure,
             contrast: override.contrast,
+            saturation: override.saturation,
           },
     ),
   );
@@ -386,6 +399,7 @@ export function resolveLightingProfile(
       toneMapping: post.toneMapping,
       exposure: requireNonNegative(post.exposure, 'postProcessing.exposure'),
       contrast: requireNonNegative(post.contrast, 'postProcessing.contrast'),
+      saturation: requireNonNegative(post.saturation, 'postProcessing.saturation'),
       bloom: {
         enabled: bloom.enabled,
         threshold: requireNonNegative(bloom.threshold, 'bloom.threshold'),

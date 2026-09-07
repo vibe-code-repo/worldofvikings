@@ -32,6 +32,7 @@ import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
+import { ColorCurves } from '@babylonjs/core/Materials/colorCurves.js';
 import { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial.js';
 import { ShaderStore } from '@babylonjs/core/Engines/shaderStore.js';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
@@ -294,6 +295,17 @@ function createPipeline(
     image.toneMappingType = toneMappingType(post.toneMapping);
     image.exposure = post.exposure;
     image.contrast = post.contrast;
+    // The one control that takes chroma out without taking light out: Babylon's
+    // colour curves run last in `applyImageProcessing`, after the tone map and
+    // after the contrast, and `globalSaturation` there is exactly a mix towards
+    // the pixel's own luminance. `-100…100` is Babylon's range for what this
+    // profile states as `0…2`, so 1 is the identity (ADR-0040).
+    const curves = new ColorCurves();
+    curves.globalSaturation = (post.saturation - 1) * 100;
+    image.colorCurves = curves;
+    // Guarded, so a world that never asks for a grade never pays for the
+    // `COLORCURVES` shader permutation it would compile.
+    image.colorCurvesEnabled = post.saturation !== 1;
     image.vignetteEnabled = post.vignette.enabled;
     image.vignetteWeight = post.vignette.weight;
     const vignette = Color3.FromHexString(post.vignette.color);

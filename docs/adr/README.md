@@ -48,3 +48,4 @@ change it describes.
 | [0037](0037-the-cliff-ring-stays-out-of-the-village.md)                       | The cliff ring stays out of the village                           | accepted |
 | [0038](0038-a-blocked-move-slides-along-the-face-it-met.md)                   | A blocked move slides along the face it met                       | accepted |
 | [0039](0039-the-shadow-map-is-snapped-to-its-own-texels.md)                   | The shadow map is snapped to its own texels                       | accepted |
+| [0040](0040-the-grade-has-a-saturation-of-its-own.md)                         | The grade has a saturation of its own                             | accepted |

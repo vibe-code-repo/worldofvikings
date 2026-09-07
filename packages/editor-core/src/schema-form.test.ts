@@ -102,7 +102,8 @@ describe('describeFields on the lighting profile', () => {
     expect(paths).toContain('postProcessing.vignette.weight');
     expect(paths).toContain('postProcessing.ssao.samples');
     expect(paths).toContain('sky.groundReflection');
-    expect(paths).toHaveLength(41);
+    expect(paths).toContain('postProcessing.saturation');
+    expect(paths).toHaveLength(42);
   });
 });
 

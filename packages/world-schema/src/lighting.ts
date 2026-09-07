@@ -204,6 +204,13 @@ export const PostProcessingSchema = z
     toneMapping: ToneMappingSchema,
     exposure: Gain,
     contrast: Gain,
+    /**
+     * How much colour survives the grade: 0 greyscale, 1 untouched, 2 twice as
+     * colourful. Bounded above rather than left open like the other gains, so
+     * the editor's control derives a range to step in and a mistyped number
+     * cannot ask for a look no screen can show (ADR-0040).
+     */
+    saturation: z.number().min(0).max(2).finite(),
     bloom: BloomSchema,
     vignette: VignetteSchema,
     ssao: SsaoSchema,

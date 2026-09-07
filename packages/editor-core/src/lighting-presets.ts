@@ -35,10 +35,10 @@ export const LIGHTING_PRESETS: readonly LightingPreset[] = [
   {
     id: 'evening',
     name: 'Evening',
-    description: 'The low warm sun the village was authored under (ADR-0024).',
+    description: 'The low, matte evening the village is authored under (ADR-0024, ADR-0040).',
     profile: {
-      sun: { direction: [0.58, -0.45, 0.68], color: '#ffd2a1', intensity: 2.3 },
-      ambient: { skyColor: '#8fb3d8', groundColor: '#4a4032', intensity: 0.62 },
+      sun: { direction: [0.58, -0.45, 0.68], color: '#ffe4c6', intensity: 2.3 },
+      ambient: { skyColor: '#a8bcd0', groundColor: '#4a4032', intensity: 0.8 },
       sky: {
         enabled: true,
         zenithColor: '#17478f',
@@ -53,7 +53,7 @@ export const LIGHTING_PRESETS: readonly LightingPreset[] = [
         distance: 120,
         bias: 0.006,
         normalBias: 0.012,
-        darkness: 0.25,
+        darkness: 0.42,
         filter: 'poisson',
       },
       postProcessing: {
@@ -62,6 +62,7 @@ export const LIGHTING_PRESETS: readonly LightingPreset[] = [
         toneMapping: 'aces',
         exposure: 1.15,
         contrast: 1.1,
+        saturation: 0.68,
         bloom: { enabled: true, threshold: 0.85, weight: 0.22, scale: 0.5, kernel: 32 },
         vignette: { enabled: true, weight: 1.2, color: '#0d0a08' },
         ssao: { enabled: false },
@@ -98,6 +99,7 @@ export const LIGHTING_PRESETS: readonly LightingPreset[] = [
         toneMapping: 'aces',
         exposure: 1,
         contrast: 1,
+        saturation: 1,
         bloom: { enabled: false },
         vignette: { enabled: false },
         ssao: { enabled: false },

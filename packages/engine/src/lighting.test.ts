@@ -298,6 +298,17 @@ describe('applyLighting', () => {
     expect(handle.ssao).toBeNull();
   });
 
+  it('grades colour out through the colour curves, and only when asked to', () => {
+    const untouched = applyLighting(scene(), {});
+    expect(untouched.pipeline?.imageProcessing?.colorCurvesEnabled).toBe(false);
+
+    const matte = applyLighting(scene(), { profiles: [{ postProcessing: { saturation: 0.7 } }] });
+    const image = matte.pipeline?.imageProcessing;
+    expect(image?.colorCurvesEnabled).toBe(true);
+    // Babylon states the same knob as -100…100 around zero.
+    expect(image?.colorCurves?.globalSaturation).toBeCloseTo(-30, 6);
+  });
+
   it('gives the ground a shadow lookup only once a shadow map exists', () => {
     const dark = scene();
     applyLighting(dark, { profiles: [{ shadows: { enabled: false } }] });

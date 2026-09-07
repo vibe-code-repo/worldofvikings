@@ -24,6 +24,21 @@ describe('LightingProfileSchema', () => {
     expect(LightingProfileSchema.safeParse({ sun: { color: '#ffd9a0' } }).success).toBe(true);
   });
 
+  it('takes a saturation between greyscale and twice as colourful, and nothing outside', () => {
+    expect(LightingProfileSchema.safeParse({ postProcessing: { saturation: 0.7 } }).success).toBe(
+      true,
+    );
+    expect(LightingProfileSchema.safeParse({ postProcessing: { saturation: 0 } }).success).toBe(
+      true,
+    );
+    expect(LightingProfileSchema.safeParse({ postProcessing: { saturation: -1 } }).success).toBe(
+      false,
+    );
+    expect(LightingProfileSchema.safeParse({ postProcessing: { saturation: 3 } }).success).toBe(
+      false,
+    );
+  });
+
   it('rejects a negative light intensity', () => {
     expect(LightingProfileSchema.safeParse({ sun: { intensity: -1 } }).success).toBe(false);
   });

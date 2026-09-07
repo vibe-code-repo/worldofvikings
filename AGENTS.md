@@ -33,7 +33,9 @@ way its world file says (ADR-0024): a low evening sun with one following 2048²
 shadow map that snaps to its own texels so its edges hold still while the player
 walks (ADR-0039), a gradient sky, a cool haze that reaches 1700 m — far enough that
 the painted range hazes with distance instead of standing dark behind it
-(ADR-0034) — and a graded frame. Grass takes that shadow without casting one
+(ADR-0034) — and a graded frame whose chroma is pulled back by the profile's
+own `saturation`, so the village reads matte rather than oversaturated
+(ADR-0040). Grass takes that shadow without casting one
 (ADR-0027). Every entity collides against the shape its prefab declares
 (ADR-0026) — 1145 bodies from 210 shared shapes, with 4128 tufts and bushes
 deliberately walk-through. A move that meets one of them is dropped onto that

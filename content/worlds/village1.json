@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "id": "village1",
   "name": "Village One",
   "lighting": {
@@ -31,6 +31,73 @@
       "bloom": { "enabled": true, "threshold": 0.85, "weight": 0.22, "scale": 0.5, "kernel": 32 },
       "vignette": { "enabled": true, "weight": 1.2, "color": "#0d0a08" },
       "ssao": { "enabled": false }
+    }
+  },
+  "sound": {
+    "master": {
+      "volume": 0.9
+    },
+    "footsteps": {
+      "enabled": true,
+      "volume": 0.5,
+      "strideWalk": 1.1,
+      "strideSprint": 1.5,
+      "minInterval": 0.18,
+      "pitchJitter": 0.06,
+      "defaultSurface": "gravel",
+      "banks": [
+        {
+          "surface": "gravel",
+          "clips": [
+            "audio/footsteps/gravel-01.ogg",
+            "audio/footsteps/gravel-02.ogg",
+            "audio/footsteps/gravel-03.ogg",
+            "audio/footsteps/gravel-04.ogg",
+            "audio/footsteps/gravel-05.ogg",
+            "audio/footsteps/gravel-06.ogg",
+            "audio/footsteps/gravel-07.ogg",
+            "audio/footsteps/gravel-08.ogg",
+            "audio/footsteps/gravel-09.ogg",
+            "audio/footsteps/gravel-10.ogg"
+          ]
+        },
+        {
+          "surface": "grass",
+          "volume": 0.9,
+          "clips": [
+            "audio/footsteps/grass-01.ogg",
+            "audio/footsteps/grass-02.ogg",
+            "audio/footsteps/grass-03.ogg",
+            "audio/footsteps/grass-04.ogg",
+            "audio/footsteps/grass-05.ogg",
+            "audio/footsteps/grass-06.ogg",
+            "audio/footsteps/grass-07.ogg",
+            "audio/footsteps/grass-08.ogg",
+            "audio/footsteps/grass-09.ogg"
+          ]
+        },
+        {
+          "surface": "wood",
+          "volume": 0.95,
+          "clips": [
+            "audio/footsteps/wood-01.ogg",
+            "audio/footsteps/wood-02.ogg",
+            "audio/footsteps/wood-03.ogg",
+            "audio/footsteps/wood-04.ogg"
+          ]
+        },
+        {
+          "surface": "water",
+          "volume": 0.8,
+          "clips": [
+            "audio/footsteps/water-01.ogg",
+            "audio/footsteps/water-02.ogg",
+            "audio/footsteps/water-03.ogg",
+            "audio/footsteps/water-04.ogg",
+            "audio/footsteps/water-05.ogg"
+          ]
+        }
+      ]
     }
   },
   "zones": [
@@ -37006,6 +37073,99 @@
           }
         ],
         "splat": ["textures/village-splat-a.png", "textures/village-splat-b.png"]
+      },
+      "sound": {
+        "ambience": {
+          "clip": "audio/ambience/forest-wind-crows.ogg",
+          "volume": 0.32,
+          "fadeSeconds": 2.5
+        },
+        "footsteps": {
+          "layerSurfaces": ["gravel", "gravel", "grass", "gravel", "gravel", "grass"]
+        },
+        "emitters": [
+          {
+            "id": "braziers",
+            "prefab": "environment-sm-prop-camp-brazier-01",
+            "clip": "audio/emitters/fire-small-loop.ogg",
+            "volume": 0.55,
+            "minDistance": 1.5,
+            "maxDistance": 25,
+            "rolloff": 1.6
+          },
+          {
+            "id": "candles",
+            "prefab": "environment-sm-prop-candle-melted-group-01",
+            "clip": "audio/emitters/fire-small-loop.ogg",
+            "volume": 0.18,
+            "minDistance": 0.6,
+            "maxDistance": 8,
+            "rolloff": 2.4
+          },
+          {
+            "id": "chimney",
+            "prefab": "environment-sm-bld-house-chimney-stone-01",
+            "clip": "audio/emitters/fire-small-loop.ogg",
+            "volume": 0.35,
+            "minDistance": 2,
+            "maxDistance": 20,
+            "rolloff": 1.4
+          },
+          {
+            "id": "forge",
+            "prefab": "environment-sm-prop-workbench-forge-01-preset",
+            "clip": "audio/emitters/forge-hammer.ogg",
+            "volume": 0.7,
+            "minDistance": 3,
+            "maxDistance": 60,
+            "rolloff": 1.2
+          },
+          {
+            "id": "crows",
+            "position": [176, 22, 132],
+            "clip": "audio/animals/crow-01.ogg",
+            "variants": [
+              "audio/animals/crow-02.ogg",
+              "audio/animals/crow-03.ogg",
+              "audio/animals/crow-04.ogg",
+              "audio/animals/crow-05.ogg"
+            ],
+            "loop": false,
+            "intervalSeconds": [20, 70],
+            "volume": 0.5,
+            "minDistance": 8,
+            "maxDistance": 80,
+            "rolloff": 0.8
+          },
+          {
+            "id": "hens",
+            "position": [136, 12.5, 158],
+            "clip": "audio/animals/chicken-01.ogg",
+            "variants": [
+              "audio/animals/chicken-02.ogg",
+              "audio/animals/rooster-01.ogg",
+              "audio/animals/rooster-02.ogg"
+            ],
+            "loop": false,
+            "intervalSeconds": [25, 80],
+            "volume": 0.45,
+            "minDistance": 3,
+            "maxDistance": 30,
+            "rolloff": 1.4
+          },
+          {
+            "id": "byre",
+            "position": [152, 12, 176],
+            "clip": "audio/animals/cow-01.ogg",
+            "variants": ["audio/animals/cat-01.ogg"],
+            "loop": false,
+            "intervalSeconds": [45, 150],
+            "volume": 0.4,
+            "minDistance": 4,
+            "maxDistance": 40,
+            "rolloff": 1.1
+          }
+        ]
       }
     },
     {
@@ -38160,7 +38320,26 @@
           "rotation": [0, 0, 0],
           "scale": [1, 1, 1]
         }
-      ]
+      ],
+      "sound": {
+        "ambience": {
+          "enabled": false
+        },
+        "footsteps": {
+          "defaultSurface": "wood"
+        },
+        "emitters": [
+          {
+            "id": "candles",
+            "prefab": "environment-sm-prop-candle-melted-group-01",
+            "clip": "audio/emitters/fire-small-loop.ogg",
+            "volume": 0.15,
+            "minDistance": 0.5,
+            "maxDistance": 6,
+            "rolloff": 2.6
+          }
+        ]
+      }
     },
     {
       "id": "surroundings",
@@ -39405,7 +39584,18 @@
           "rotation": [0, 0, 0],
           "scale": [1, 1.3, 1]
         }
-      ]
+      ],
+      "sound": {
+        "ambience": {
+          "clip": "audio/ambience/forest-wind-gusts.ogg",
+          "volume": 0.4,
+          "fadeSeconds": 3
+        },
+        "footsteps": {
+          "layerSurfaces": [],
+          "defaultSurface": "grass"
+        }
+      }
     }
   ]
 }

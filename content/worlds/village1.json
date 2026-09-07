@@ -36952,7 +36952,7 @@
       ],
       "terrain": {
         "heightField": "terrain/terrain-village1-adaptive.glb",
-        "heightSamples": "terrain/terrain-village1.glb",
+        "heightSamples": "terrain/terrain-village1-samples.glb",
         "position": [0, 0, 0],
         "size": [300, 300],
         "layers": [

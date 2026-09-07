@@ -13,7 +13,10 @@ import {
   readHeightGrid,
   thinGrid,
   adaptiveMesh,
+  gridMesh,
+  meshVsGrid,
   steepShare,
+  transposeGrid,
   type HeightGrid,
 } from './height-field.js';
 
@@ -384,6 +387,141 @@ describe('adaptiveMesh', () => {
         90,
       ),
     ).toThrow(/0…90/);
+  });
+});
+
+describe('transposeGrid', () => {
+  it('reads the height at (x, z) off the source at (z, x)', () => {
+    // Height 10·column + row, so every cell says which cell it is.
+    const source = grid(4, 3, (column, row) => column * 10 + row);
+    const turned = transposeGrid(source);
+    expect(turned.columns).toBe(3);
+    expect(turned.rows).toBe(4);
+    for (let row = 0; row < turned.rows; row += 1) {
+      for (let column = 0; column < turned.columns; column += 1) {
+        expect(turned.heights[row * turned.columns + column]).toBe(
+          source.heights[column * source.columns + row],
+        );
+      }
+    }
+  });
+
+  it('carries origin and step along with the axis they belong to', () => {
+    const source: HeightGrid = {
+      ...grid(4, 3, (column, row) => column + row),
+      originX: 10,
+      originZ: -4,
+      stepX: 2,
+      stepZ: 0.5,
+    };
+    const turned = transposeGrid(source);
+    expect([turned.originX, turned.originZ]).toEqual([-4, 10]);
+    expect([turned.stepX, turned.stepZ]).toEqual([0.5, 2]);
+    // The tile is the same rectangle seen the other way round.
+    expect(gridSize(turned)).toEqual([gridSize(source)[1], gridSize(source)[0]]);
+  });
+
+  it('reads the same ground the other way round, point for point', () => {
+    const source = grid(5, 5, (column, row) => column * 3 + row * 7);
+    const turned = transposeGrid(source);
+    for (const [x, z] of [
+      [0, 0],
+      [1.5, 3.25],
+      [4, 1],
+      [2.75, 2.75],
+    ] as const) {
+      expect(heightAt(turned, x, z)).toBeCloseTo(heightAt(source, z, x), 5);
+    }
+  });
+
+  it('is its own inverse', () => {
+    const source = grid(6, 4, (column, row) => column * 2 - row);
+    const back = transposeGrid(transposeGrid(source));
+    expect([...back.heights]).toEqual([...source.heights]);
+    expect(back.columns).toBe(source.columns);
+    expect(back.rows).toBe(source.rows);
+  });
+});
+
+describe('meshVsGrid — the tile and the raster on one ground', () => {
+  /** A 9×9 tile that is dead flat except for a cliff in one corner cell. */
+  const cliffGrid = (): HeightGrid =>
+    grid(9, 9, (column, row) => (column < 2 && row < 2 ? column * 20 : 0));
+
+  it('finds a plain grid tile exact at every one of its vertices', () => {
+    const source = grid(9, 9, (column, row) => column * 0.5 + row * 0.25);
+    const thinned = thinGrid(source, 2);
+    const agreement = meshVsGrid(gridMesh(thinned), source);
+    expect(agreement.nodes).toBe(thinned.columns * thinned.rows);
+    expect(agreement.exact).toBe(agreement.nodes);
+    expect(agreement.maxDelta).toBe(0);
+    expect(agreement.offGrid).toBe(0);
+  });
+
+  it('finds the adaptive tile exact everywhere except at its own seams', () => {
+    const source = cliffGrid();
+    const mesh = adaptiveMesh(source, 2, 35);
+    const agreement = meshVsGrid(mesh, source);
+    // Every vertex of an adaptive tile stands on a source node — the tile only
+    // ever leaves nodes out, it never invents one between them.
+    expect(agreement.offGrid).toBe(0);
+    expect(agreement.nodes).toBe(mesh.vertices);
+    // The seam vertices are the only disagreement, and they are deliberate:
+    // they give up their own height to close a T-junction. Nothing else may.
+    expect(agreement.nodes - agreement.exact).toBeLessThanOrEqual(4);
+    // Bounded by the coarse edge they were moved onto, never unbounded.
+    expect(agreement.maxDelta).toBeLessThanOrEqual(20);
+  });
+
+  it('is exact wherever the ground is gentle, whatever the threshold', () => {
+    const gentle = grid(9, 9, (column, row) => (column + row) * 0.01);
+    const agreement = meshVsGrid(adaptiveMesh(gentle, 2, 35), gentle);
+    expect(agreement.exact).toBe(agreement.nodes);
+    expect(agreement.maxDelta).toBe(0);
+  });
+
+  /**
+   * The regular tile and the adaptive tile are one ground.
+   *
+   * A tool with no renderer reads the raster and the player stands on the tile,
+   * so the two have to answer alike at every point they share. Coarse cells are
+   * where they can: an adaptive coarse cell is the same two triangles the
+   * thinned grid draws, over the same four corners.
+   */
+  it('draws its gentle cells exactly where the thinned grid draws them', () => {
+    const source = cliffGrid();
+    const coarse = gridMesh(thinGrid(source, 2));
+    const adaptive = adaptiveMesh(source, 2, 35);
+    const coarseAt = new Map<string, number>();
+    for (let index = 0; index < coarse.positions.length; index += 3) {
+      coarseAt.set(
+        `${String(coarse.positions[index])},${String(coarse.positions[index + 2])}`,
+        coarse.positions[index + 1] as number,
+      );
+    }
+    let shared = 0;
+    for (let index = 0; index < adaptive.positions.length; index += 3) {
+      const known = coarseAt.get(
+        `${String(adaptive.positions[index])},${String(adaptive.positions[index + 2])}`,
+      );
+      if (known === undefined) {
+        continue;
+      }
+      shared += 1;
+      expect(adaptive.positions[index + 1]).toBe(known);
+    }
+    // Every vertex the thinned tile has is a vertex the adaptive tile has too.
+    expect(shared).toBe(coarse.positions.length / 3);
+  });
+
+  it('counts a vertex the grid has no sample for as off the grid', () => {
+    const source = grid(5, 5, () => 1);
+    const mesh = gridMesh(source);
+    const moved = Float32Array.from(mesh.positions);
+    moved[0] = 0.5;
+    const agreement = meshVsGrid({ ...mesh, positions: moved }, source);
+    expect(agreement.offGrid).toBe(1);
+    expect(agreement.nodes).toBe(mesh.positions.length / 3 - 1);
   });
 });
 

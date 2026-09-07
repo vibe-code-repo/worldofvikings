@@ -646,7 +646,13 @@ for (const heightField of HEIGHT_FIELDS) {
       (decimated.steepCells === undefined
         ? '\n'
         : ` (${String(decimated.steepCells)} of ${String(decimated.coarseCells ?? 0)} cells ` +
-          `kept at the source resolution past ${String(decimated.steepSlope ?? 0)}°)\n`),
+          `kept at the source resolution past ${String(decimated.steepSlope ?? 0)}°)\n`) +
+      // What the tools and the renderer would disagree about if they read this
+      // tile against the authored raster: printed so it is a figure in the log
+      // rather than a claim in a commit message (ADR-0059).
+      `           agrees with the authored raster at ` +
+      `${String(decimated.agreement.exact)} of ${String(decimated.agreement.nodes)} shared ` +
+      `nodes, worst ${decimated.agreement.maxDelta.toFixed(3)} m\n`,
   );
 }
 

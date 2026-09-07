@@ -27,9 +27,13 @@ import {
   buildHeightFieldGlb,
   buildTerrainGlb,
   gridSize,
+  meshVsGrid,
+  gridMesh,
   readHeightGrid,
   steepShare,
   thinGrid,
+  transposeGrid,
+  type GridAgreement,
 } from './height-field.js';
 import {
   MAX_TEXTURE_SIZE,
@@ -73,6 +77,29 @@ export const TERRAIN_SURFACE_SET: PackProvenance = {
  * map says is a gravel path and at a spot it says is a rock face (ADR-0020).
  */
 export const SPLAT_ORIENTATION = 'mirror on the anti-diagonal';
+
+/**
+ * Which way round a height field's axes are, relative to the world the props
+ * stand in.
+ *
+ * The export's raster does not share the scene's axis order, exactly as its
+ * control maps do not ({@link SPLAT_ORIENTATION}). The import already absorbs
+ * half the difference — a placed model is mirrored in x on the way in — and
+ * the ground used to be taken as it came, which left the two a quarter turn
+ * apart. The village happens to sit near the line the two readings agree on,
+ * so the mistake showed up as ground dressing a paving stone too deep rather
+ * than as a landscape in the wrong place, and at the rim of the tile, where it
+ * is worth tens of metres, nothing was standing to complain.
+ *
+ * Measured over 374 authored placements from 34 families of flat ground
+ * dressing, scored by how tightly each family seats on each of the eight ways
+ * to turn a square raster: seven give 0.28–0.76 m of spread, the swap gives
+ * 0.068 m. The independent witness is the cliff ring of ADR-0037, which was
+ * never scattered onto and therefore cannot have been fitted to the ground it
+ * is measured against: 81 of 100 standing on the ground before, 100 of 100
+ * after, worst gap 27.22 m before and −0.81 m after (ADR-0059).
+ */
+export const HEIGHT_FIELD_ORIENTATION = 'swap of the horizontal axes';
 
 /** One texture taken out of the export under a chosen, stable name. */
 export interface TerrainTexture {
@@ -257,6 +284,15 @@ export interface HeightFieldImport {
  * lost — this adds a second, playable copy beside the source-fidelity one.
  */
 export const HEIGHT_FIELDS: readonly HeightFieldImport[] = [
+  // The raster a renderer-less tool reads (`heightSamples`). Rebuilt rather
+  // than repacked for one reason: the general import centres a terrain tile on
+  // its own hull, so the export's own copy of this ground spans −150…150 while
+  // every tile rebuilt here spans 0…300. Two rasters of one tile in two frames
+  // is the shape of a silent error — every answer is a real height from a real
+  // part of the tile, just the wrong part — and only `heightAtOnTile`'s
+  // fractional mapping has been hiding it. Full resolution, so the tools read
+  // the authored samples and not an interpolation of them.
+  { file: 'Terrain_Village1.glb', path: 'terrain/terrain-village1-samples.glb', factor: 1 },
   { file: 'Terrain_Village1.glb', path: 'terrain/terrain-village1-257.glb', factor: 2 },
   {
     file: 'Terrain_Village1.glb',
@@ -289,6 +325,11 @@ export interface DecimatedHeightField {
   /** Share of cells past 60° in the source grid, and in what was written. */
   readonly sourceSteepShare: number;
   readonly resultSteepShare: number;
+  /**
+   * How far the written tile stands from the authored raster at the nodes it
+   * shares with it — the number behind "the two grounds agree" (ADR-0059).
+   */
+  readonly agreement: GridAgreement;
 }
 
 /** The angle the import reports the loss at — cliff faces, not slopes. */
@@ -306,7 +347,11 @@ export function decimateHeightField(
   factor: number,
   steepSlope?: number,
 ): DecimatedHeightField {
-  const source = readHeightGrid(readGlb(bytes), label);
+  // The one place the export's axis order is corrected, so every tile built
+  // here — coarse, adaptive or full resolution — comes out on the world's axes
+  // and the tools and the renderer cannot end up on two different grounds
+  // ({@link HEIGHT_FIELD_ORIENTATION}).
+  const source = transposeGrid(readHeightGrid(readGlb(bytes), label));
   const thinned = thinGrid(source, factor);
   const name = label.replace(/\.glb$/i, '');
   const sourceSteepShare = steepShare(source, CLIFF_DEGREES);
@@ -328,6 +373,7 @@ export function decimateHeightField(
       triangles: (thinned.columns - 1) * (thinned.rows - 1) * 2,
       sourceSteepShare,
       resultSteepShare: steepShare(thinned, CLIFF_DEGREES),
+      agreement: meshVsGrid(gridMesh(thinned), source),
     };
   }
 
@@ -353,6 +399,7 @@ export function decimateHeightField(
     // Measured on the mesh that was written, not on the grid it came from: the
     // point of the adaptive tile is that this number stays near the source's.
     resultSteepShare: meshSteepShare(mesh.positions, mesh.indices, CLIFF_DEGREES),
+    agreement: meshVsGrid(mesh, source),
   };
 }
 
@@ -425,22 +472,25 @@ export function fitTerrainTexture(bytes: Buffer, label: string, isSplatMap = fal
   return encodePng(fitWithin(decodePng(bytes), MAX_TEXTURE_SIZE));
 }
 
-/** The manifest `origin` line for a thinned tile, with what was measured. */
+/** The manifest `origin` line for a rebuilt tile, with what was measured. */
 export function heightFieldOrigin(decimated: DecimatedHeightField): string {
   const from = `${String(decimated.sourceColumns)}x${String(decimated.sourceRows)}`;
   const to = `${String(decimated.columns)}x${String(decimated.rows)}`;
+  const turned = `turned onto the world's axes by a ${HEIGHT_FIELD_ORIENTATION}`;
+  const tail =
+    `normals and UVs rebuilt, ${turned}, origin kept at the tile corner, ` +
+    `${String(decimated.triangles)} triangles.`;
+  if (decimated.columns === decimated.sourceColumns && decimated.rows === decimated.sourceRows) {
+    return `Height field rebuilt at its full ${from} vertices, ${tail}`;
+  }
   if (decimated.steepSlope === undefined) {
-    return (
-      `Height field thinned from ${from} to ${to} vertices, normals and UVs rebuilt, ` +
-      `origin kept at the tile corner, ${String(decimated.triangles)} triangles.`
-    );
+    return `Height field thinned from ${from} to ${to} vertices, ${tail}`;
   }
   return (
     `Height field thinned from ${from} to ${to} vertices except past ` +
     `${String(decimated.steepSlope)} degrees, where the source resolution is kept ` +
     `(${String(decimated.steepCells ?? 0)} of ${String(decimated.coarseCells ?? 0)} cells); ` +
-    'normals and UVs rebuilt, origin kept at the tile corner, ' +
-    `${String(decimated.triangles)} triangles.`
+    tail
   );
 }
 

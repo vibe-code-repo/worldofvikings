@@ -1,4 +1,6 @@
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
+import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
+import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
 import { ShaderStore } from '@babylonjs/core/Engines/shaderStore.js';
 import type { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
@@ -7,6 +9,8 @@ import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Scene } from '@babylonjs/core/scene.js';
 import { afterEach, describe, expect, it } from 'vitest';
+// The shadow pass is a scene component; a `ShadowGenerator` without it throws.
+import './side-effects.js';
 import {
   DEFAULT_TERRAIN_COLOR,
   createTerrain,
@@ -443,5 +447,125 @@ describe('rebuilding a tile’s material over the height field it already has', 
     for (const texture of textures) {
       expect(target.textures).not.toContain(texture);
     }
+  });
+});
+
+/**
+ * How the ground reads the sun's shadow map is compiled into its program
+ * (ADR-0020, ADR-0024), and the rig above it can be replaced at any moment —
+ * the editor relights whenever the Lighting tab is used. Everything else about
+ * a light is picked up on the next bind; this is the one thing that cannot be.
+ */
+describe('a tile and the shadow map it was compiled for', () => {
+  const ground = {
+    name: 'ground',
+    position: [0, 0, 0],
+    size: [300, 300],
+    layers: [{ url: 'rock.png', tileSize: 2 }],
+    receiveShadows: true,
+  } as const;
+
+  /**
+   * A sun with a shadow map of its own, the way `applyLighting` builds one.
+   *
+   * `pcf` is written onto the private field rather than through
+   * `usePercentageCloserFiltering`, and that is not a shortcut. Babylon
+   * downgrades a PCF request to Poisson when the engine reports no shadow
+   * samplers (`set filter`, "Weblg1 fallback for PCF"), and `NullEngine`
+   * reports none — so the public setter cannot produce the filter a real
+   * WebGL2 browser produces, which is the one under test.
+   */
+  function sun(target: Scene, options: { mapSize?: number; pcf?: boolean } = {}): ShadowGenerator {
+    const light = new DirectionalLight('sun', new Vector3(0.5, -1, 0.5), target);
+    const generator = new ShadowGenerator(options.mapSize ?? 1024, light);
+    generator.useFloat32TextureType = true;
+    generator.usePoissonSampling = true;
+    if (options.pcf === true) {
+      (generator as unknown as { _filter: number })._filter = ShadowGenerator.FILTER_PCF;
+    }
+    return generator;
+  }
+
+  it('fits the map it was built under', () => {
+    const target = scene();
+    sun(target);
+    const terrain = createTerrain(target, loadedHeightField(target), ground);
+    expect(terrain.material.options.samplers).toContain('uShadowMap');
+    expect(terrain.shadowsMatchScene()).toBe(true);
+  });
+
+  it('does not fit a map that arrived after it was built', () => {
+    const target = scene();
+    // Built under a profile with the shadows switched off, which is a program
+    // with no shadow lookup in it at all.
+    const terrain = createTerrain(target, loadedHeightField(target), ground);
+    expect(terrain.material.options.samplers).not.toContain('uShadowMap');
+    expect(terrain.shadowsMatchScene()).toBe(true);
+
+    sun(target);
+
+    expect(terrain.shadowsMatchScene(), 'the shadows came back and the tile cannot see them').toBe(
+      false,
+    );
+    terrain.rebuildMaterial(ground);
+    expect(terrain.material.options.samplers).toContain('uShadowMap');
+    expect(terrain.shadowsMatchScene()).toBe(true);
+  });
+
+  it('does not fit a map of a different size', () => {
+    const target = scene();
+    const first = sun(target, { mapSize: 1024 });
+    const terrain = createTerrain(target, loadedHeightField(target), ground);
+    expect(terrain.shadowsMatchScene()).toBe(true);
+
+    first.getLight().dispose();
+    first.dispose();
+    sun(target, { mapSize: 2048 });
+
+    expect(terrain.shadowsMatchScene()).toBe(false);
+  });
+
+  /**
+   * PCF renders depth into a depth-stencil texture and hands it to a shader as
+   * a comparison sampler. The ground's hand-written program reads an ordinary
+   * `sampler2D`, and binding one to the other is not a wrong number but a
+   * rejected draw — `GL_INVALID_OPERATION: Mismatch between texture format and
+   * sampler type`, every frame. So a tile under a PCF sun is unshadowed.
+   */
+  it('does not try to read a comparison shadow map', () => {
+    const target = scene();
+    sun(target, { pcf: true });
+    const terrain = createTerrain(target, loadedHeightField(target), ground);
+
+    expect(terrain.material.options.samplers).not.toContain('uShadowMap');
+    // And it is at rest, not waiting for a rebuild that cannot help.
+    expect(terrain.shadowsMatchScene()).toBe(true);
+  });
+
+  it('stops sampling when the filter changes under it, rather than reading the wrong map', () => {
+    const target = scene();
+    const poisson = sun(target);
+    const terrain = createTerrain(target, loadedHeightField(target), ground);
+    expect(terrain.shadowsMatchScene()).toBe(true);
+
+    // The Noon preset over a world whose own profile asks for poisson.
+    poisson.getLight().dispose();
+    poisson.dispose();
+    sun(target, { pcf: true });
+
+    expect(terrain.shadowsMatchScene()).toBe(false);
+    terrain.rebuildMaterial(ground);
+    expect(terrain.material.options.samplers).not.toContain('uShadowMap');
+    expect(terrain.shadowsMatchScene()).toBe(true);
+  });
+
+  it('leaves a tile that never asked for shadows alone', () => {
+    const target = scene();
+    const terrain = createTerrain(target, loadedHeightField(target), {
+      ...ground,
+      receiveShadows: false,
+    });
+    sun(target);
+    expect(terrain.shadowsMatchScene()).toBe(true);
   });
 });

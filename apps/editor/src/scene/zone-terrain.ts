@@ -164,9 +164,21 @@ export function createZoneTerrain(options: ZoneTerrainOptions): ZoneTerrain {
         return;
       }
       const next = terrainKeys(name, terrain);
-      const change = terrainChange(keys, next);
+      let change = terrainChange(keys, next);
       keys = next;
       surface = terrain === undefined ? null : terrainSurface(terrain);
+
+      // The one thing about a tile that is not in its own block: how it reads
+      // the sun's shadow map is compiled into its program, and the light rig
+      // is rebuilt whenever the Lighting tab is used. A tile built while the
+      // shadows were off has no lookup in it at all, so turning them back on
+      // leaves the ground the only thing in the village not in shade — and
+      // nothing in the terrain block changed, so nothing else here would have
+      // noticed (ADR-0050). Asked of the tile rather than tracked here: only
+      // the tile knows what it compiled.
+      if (change === 'none' && handle !== null && !handle.shadowsMatchScene()) {
+        change = 'material';
+      }
 
       // Nothing moved. Every gizmo drag lands here: the document is replaced on
       // each of them and this method is called again with the same ground.
@@ -178,17 +190,22 @@ export function createZoneTerrain(options: ZoneTerrainOptions): ZoneTerrain {
       // (ADR-0050). Deliberately no `onChanged` — the meshes are the ones the
       // caller already knows about, and telling it otherwise would rebuild the
       // shadow-caster list and re-render the whole shell for a number.
-      if (change === 'uniform') {
+      if (change === 'uniform' && handle !== null && handle.shadowsMatchScene()) {
         if (surface !== null) {
-          handle?.update(surface);
+          handle.update(surface);
         }
+        return;
+      }
+      if (change === 'uniform' && handle === null) {
+        // A dial turned while the tile is still in flight; `load` applies it.
         return;
       }
 
       // A different material over the same height field: a swapped texture, a
-      // replaced splat map, the facet switch. The geometry is the same file
-      // with the same vertices, so it is kept and only the material is rebuilt.
-      if (change === 'material' && terrain !== undefined && handle !== null) {
+      // replaced splat map, the facet switch, a shadow map the compiled program
+      // cannot read. The geometry is the same file with the same vertices, so
+      // it is kept and only the material is rebuilt.
+      if (change !== 'reload' && terrain !== undefined && handle !== null) {
         handle.rebuildMaterial(drawOptions(terrain, name));
         onChanged?.(handle);
         return;

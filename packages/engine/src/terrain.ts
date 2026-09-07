@@ -236,6 +236,28 @@ export interface TerrainHandle {
    * is a different tile.
    */
   rebuildMaterial(options: TerrainOptions): void;
+  /**
+   * Whether the tile's compiled shadow lookup still fits the scene's map.
+   *
+   * The ground receives the sun through hand-written GLSL, and how it reads the
+   * map — its size, whether depth is a float, whether it can be read at all —
+   * is compiled into the program (ADR-0020, ADR-0024). Everything else about a
+   * light can change under a tile and be picked up on the next bind; this
+   * cannot.
+   *
+   * Which is a thing that happens. The editor relights whenever the Lighting
+   * tab is used, and a tile built while shadows were off carries a program with
+   * no shadow lookup in it *at all* — measured: `wovTerrain6x2n111111` where
+   * the lit tile is `wovTerrain6x2s4f2048n111111` — so turning the shadows back
+   * on leaves the ground the only thing in the village not in shade, with
+   * 7 469 casters rendering into a map it never samples and nothing anywhere
+   * saying so.
+   *
+   * `false` means the caller should call {@link TerrainHandle.rebuildMaterial}.
+   * Until it does, the tile stops sampling rather than reading a map it was not
+   * compiled for.
+   */
+  shadowsMatchScene(): boolean;
   dispose(): void;
 }
 
@@ -279,10 +301,7 @@ function registerProgram(
   shadows: TerrainShadowShader | undefined,
   surface: TerrainSurfaceShader,
 ): string {
-  const suffix =
-    shadows === undefined
-      ? ''
-      : `s${String(shadows.taps)}${shadows.float ? 'f' : 'p'}${String(shadows.mapSize)}`;
+  const suffix = shadowShapeKey(shadows);
   // The normal-map mask and the flat-normal switch are part of the shape for
   // the same reason the shadow shape is: two tiles that differ in either are
   // two different programs, and sharing a key would hand the second one the
@@ -301,11 +320,39 @@ function registerProgram(
 }
 
 /**
- * The sun's shadow generator, if the scene has one that can be sampled.
+ * The part of a program key that describes the shadow lookup, `''` for none.
+ *
+ * One function, so the key a tile is registered under and the answer to "does
+ * this tile still fit the scene's shadow map" cannot be written two different
+ * ways.
+ */
+function shadowShapeKey(shadows: TerrainShadowShader | undefined): string {
+  return shadows === undefined
+    ? ''
+    : `s${String(shadows.taps)}${shadows.float ? 'f' : 'p'}${String(shadows.mapSize)}`;
+}
+
+/**
+ * The sun's shadow generator, if the scene has one this shader can sample.
  *
  * Read off the scene rather than passed in, exactly like the lights in
  * {@link bindSceneLighting}: `applyLighting` owns the rig, and a second handle
  * to the same generator would be a second thing to keep in step.
+ *
+ * A PCF or PCSS generator is deliberately *not* one of them. Those two render
+ * depth into a depth-stencil texture and hand it to a shader as a **comparison
+ * sampler** (`effect.setDepthStencilTexture`), with colour writes switched off
+ * while the map is drawn. The ground's program is hand-written GLSL that reads
+ * the map as an ordinary `sampler2D` (`terrain-shader.ts`), and binding a
+ * comparison texture to one of those is not a wrong number, it is a rejected
+ * draw: `GL_INVALID_OPERATION: Mismatch between texture format and sampler
+ * type`, every frame, until the console's message cap swallows it. Measured by
+ * switching the editor's lighting to the Noon preset, whose profile asks for
+ * `pcf` where the village's own asks for `poisson`.
+ *
+ * So a tile under a PCF sun is simply not shadowed, and says so in one line
+ * rather than filling the console. A comparison-sampler variant of the terrain
+ * program is the real answer and is a change of its own.
  */
 function sceneShadowGenerator(scene: Scene): ShadowGenerator | null {
   for (const light of scene.lights) {
@@ -313,9 +360,16 @@ function sceneShadowGenerator(scene: Scene): ShadowGenerator | null {
       continue;
     }
     const generator = light.getShadowGenerator();
-    if (generator instanceof ShadowGenerator && generator.getShadowMap() !== null) {
-      return generator;
+    if (!(generator instanceof ShadowGenerator) || generator.getShadowMap() === null) {
+      continue;
     }
+    if (
+      generator.filter === ShadowGenerator.FILTER_PCF ||
+      generator.filter === ShadowGenerator.FILTER_PCSS
+    ) {
+      return null;
+    }
+    return generator;
   }
   return null;
 }
@@ -429,7 +483,7 @@ export function createTerrainMaterial(
   scene: Scene,
   name: string,
   options: TerrainOptions,
-): { material: ShaderMaterial; textures: Texture[] } {
+): { material: ShaderMaterial; textures: Texture[]; shadows: TerrainShadowShader | undefined } {
   const layers = options.layers ?? [];
   const splat = options.splat ?? [];
   const shadows =
@@ -504,7 +558,7 @@ export function createTerrainMaterial(
     }
   });
 
-  return { material, textures };
+  return { material, textures, shadows };
 }
 
 /**
@@ -572,6 +626,16 @@ function bindShadows(material: ShaderMaterial, scene: Scene, shadows: TerrainSha
     material.setVector3('uShadowInfo', new Vector3(1, 1 / shadows.mapSize, 0));
     return;
   }
+  // A rig can be replaced under a tile that stays — the editor relights
+  // whenever the lighting panel is used — and the new map may be a different
+  // size or a different depth format from the one this program was compiled
+  // to read. Binding it anyway is a ground that is entirely lit or entirely
+  // dark with nothing to say why. The tile stops sampling instead, and the
+  // caller rebuilds it ({@link TerrainHandle.shadowsMatchScene}).
+  if (shadowShapeKey(shadowShaderShape(generator, shadows.taps)) !== shadowShapeKey(shadows)) {
+    material.setVector3('uShadowInfo', new Vector3(1, 1 / shadows.mapSize, 0));
+    return;
+  }
 
   const camera = scene.activeCamera;
   material.setMatrix('uShadowMatrix', generator.getTransformMatrix());
@@ -611,6 +675,9 @@ export function createTerrain(
   let built = createTerrainMaterial(scene, name, options);
   let size: readonly [number, number] = [options.size[0], options.size[1]];
   let layerCount = (options.layers ?? []).length;
+  /** What the tile was asked for, so its fit can be re-checked later. */
+  let wantsShadows = options.receiveShadows === true;
+  let taps: 1 | 4 | 9 = options.shadowTaps ?? 4;
   const meshes = meshesUnder(root);
   const wear = (material: ShaderMaterial): void => {
     for (const mesh of meshes) {
@@ -645,6 +712,11 @@ export function createTerrain(
       applyTerrainUniforms(built.material, size, layerCount, surface);
     },
 
+    shadowsMatchScene() {
+      const now = wantsShadows ? shadowShaderShape(sceneShadowGenerator(scene), taps) : undefined;
+      return shadowShapeKey(now) === shadowShapeKey(built.shadows);
+    },
+
     rebuildMaterial(next) {
       if (disposed) {
         return;
@@ -657,6 +729,8 @@ export function createTerrain(
       built = createTerrainMaterial(scene, next.name ?? name, next);
       size = [next.size[0], next.size[1]];
       layerCount = (next.layers ?? []).length;
+      wantsShadows = next.receiveShadows === true;
+      taps = next.shadowTaps ?? 4;
       // The meshes are re-frozen against the same transform they already had,
       // which is free; what matters is that the position may have moved.
       root.position.set(next.position[0], next.position[1], next.position[2]);

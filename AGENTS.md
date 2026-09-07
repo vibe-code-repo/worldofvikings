@@ -34,8 +34,10 @@ the painted range hazes with distance instead of standing dark behind it
 (ADR-0034) — and a graded frame. Grass takes that shadow without casting one
 (ADR-0027). Every entity collides against the shape its prefab declares
 (ADR-0026) — 1145 bodies from 210 shared shapes, with 4128 tufts and bushes
-deliberately walk-through. There is no character model, no combat and no zone
-streaming.
+deliberately walk-through. A move that meets one of them is dropped onto that
+surface's plane rather than thrown away, so walking at a house is walking along
+it, and backing out of whatever was walked into always works (ADR-0038). There
+is no character model, no combat and no zone streaming.
 
 The editor opens and saves worlds through `services/api` (ADR-0017), places
 prefabs from the generated catalogue (ADR-0016), and edits them with selection,

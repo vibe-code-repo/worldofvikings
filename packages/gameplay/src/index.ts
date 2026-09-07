@@ -24,7 +24,8 @@ export {
   type InputState,
 } from './input.js';
 export { NO_GROUND, flatGround, groundUnder, type GroundQuery } from './ground.js';
-export { NO_OBSTACLES, type ObstacleQuery } from './obstacles.js';
+export { NO_OBSTACLES, type ObstacleHit, type ObstacleQuery } from './obstacles.js';
+export { MAX_SLIDE_ATTEMPTS, slideMove, type SlideOutcome, type SlideRequest } from './slide.js';
 export {
   addEntity,
   createWorldState,

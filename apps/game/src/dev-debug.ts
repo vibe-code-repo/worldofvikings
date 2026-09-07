@@ -22,6 +22,7 @@ import type {
   RendererHandle,
   ThirdPersonCameraHandle,
 } from '@wov/engine';
+import type { ObstacleQuery } from '@wov/gameplay';
 import type { PlaceholderTarget } from './placeholder-target.js';
 
 /** Where the camera stands, as plain numbers a test can read out of the page. */
@@ -42,6 +43,41 @@ export interface WovPlayerDebug {
   x: number;
   y: number;
   z: number;
+  /**
+   * The surface the player last ran into, as the raycast reported it
+   * (ADR-0038).
+   *
+   * The one readout that tells "stopped by the house on the left" from "stopped
+   * by the fence in front", and the reason it is on the bridge at all: sliding
+   * is a claim about a *direction*, and a position on its own cannot check a
+   * direction. It is the last face met and not the face met right now — a
+   * player standing still runs into nothing — so it keeps its value until the
+   * next one. All zeroes until something is first run into.
+   */
+  normalX: number;
+  normalY: number;
+  normalZ: number;
+  /** How far ahead that surface was, in metres. */
+  contactDistance: number;
+}
+
+/**
+ * Where a ray met collision geometry, and what it met.
+ *
+ * The normal is here for the same reason it is on `player` (ADR-0038): a test
+ * that walks along a house has to be able to say the surface beside the player
+ * is a wall and which way it faces, and a hit point alone says neither.
+ */
+export interface WovRayHit {
+  x: number;
+  y: number;
+  z: number;
+  /** Unit surface normal at the hit, as the raycast reported it. */
+  normalX: number;
+  normalY: number;
+  normalZ: number;
+  /** Distance from the start of the ray, in metres. */
+  distance: number;
 }
 
 /** The read-only view other dev tooling (and the smoke test) may rely on. */
@@ -81,7 +117,7 @@ export interface WovDebugBridge {
   rayHit(
     from: readonly [number, number, number],
     to: readonly [number, number, number],
-  ): { x: number; y: number; z: number } | null;
+  ): WovRayHit | null;
   /**
    * The world-space hull of the terrain tile, or `null` before it is loaded.
    *
@@ -261,7 +297,7 @@ export interface DevDebugSubjects {
   readonly rayHit?: (
     from: readonly [number, number, number],
     to: readonly [number, number, number],
-  ) => { x: number; y: number; z: number } | null;
+  ) => WovRayHit | null;
 }
 
 /** The hull the bridge reports for the terrain tile. */
@@ -288,6 +324,7 @@ export function installDevDebugBridge(
   reportTerrainBounds(bounds: WovTerrainBounds): void;
   reportCollision(report: WovCollisionDebug): void;
   reportBackdrop(meshes: readonly BackdropReadout[]): void;
+  watchObstacles(query: ObstacleQuery): ObstacleQuery;
 } {
   const camera = subjects.camera;
   const player = subjects.player;
@@ -296,7 +333,9 @@ export function installDevDebugBridge(
   const cameraDebug: WovCameraDebug | null = camera
     ? { yaw: 0, pitch: 0, distance: 0, desiredDistance: 0, x: 0, y: 0, z: 0 }
     : null;
-  const playerDebug: WovPlayerDebug | null = player ? { x: 0, y: 0, z: 0 } : null;
+  const playerDebug: WovPlayerDebug | null = player
+    ? { x: 0, y: 0, z: 0, normalX: 0, normalY: 0, normalZ: 0, contactDistance: 0 }
+    : null;
   const readLighting = subjects.lighting;
   const lightingDebug: WovLightingDebug | null = readLighting
     ? {
@@ -320,7 +359,7 @@ export function installDevDebugBridge(
     rayHit: (
       from: readonly [number, number, number],
       to: readonly [number, number, number],
-    ) => { x: number; y: number; z: number } | null;
+    ) => WovRayHit | null;
     terrainBounds: WovTerrainBounds | null;
     render: WovRenderDebug;
     lighting: WovLightingDebug | null;
@@ -411,6 +450,34 @@ export function installDevDebugBridge(
   });
 
   return {
+    /**
+     * The same obstacle query, with the last face it reported written onto the
+     * bridge.
+     *
+     * A decorator rather than a second query: the movement solver has to be
+     * asking the *same* thing the game asks, or the readout describes a
+     * measurement nobody made. It lives in this module so a production build
+     * drops it together with the rest of the bridge (ADR-0030).
+     */
+    watchObstacles(query) {
+      if (playerDebug === null) {
+        return query;
+      }
+      const contact = playerDebug;
+      return {
+        firstHit(from, to, radius) {
+          const hit = query.firstHit(from, to, radius);
+          if (hit !== null) {
+            contact.normalX = hit.normal.x;
+            contact.normalY = hit.normal.y;
+            contact.normalZ = hit.normal.z;
+            contact.contactDistance = hit.distance;
+          }
+          return hit;
+        },
+      };
+    },
+
     reportTerrainBounds(bounds) {
       bridge.terrainBounds = bounds;
     },

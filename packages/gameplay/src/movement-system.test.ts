@@ -4,6 +4,7 @@ import { type EntityId, toEntityId } from './entity.js';
 import { advance, createStepAccumulator } from './fixed-step.js';
 import { NO_GROUND, flatGround } from './ground.js';
 import { NO_OBSTACLES, type ObstacleQuery } from './obstacles.js';
+import { horizontalLength, type Vec3 } from './vector.js';
 import { type InputState, NEUTRAL_INPUT, createInputState } from './input.js';
 import { MovementSystem } from './movement-system.js';
 import { type WorldState, createWorldState, getInput, getMovement, getTransform } from './world.js';
@@ -278,11 +279,18 @@ describe('MovementSystem.update — determinism', () => {
  * A wall: everything at or beyond `x = at` is solid, at every `z`.
  *
  * The query is written the way a real one behaves — it refuses the *destination*
- * of a move for a body of the given radius — so the tests below are about the
- * movement rules and not about how a ray meets a triangle.
+ * of a move for a body of the given radius, and only when the move actually
+ * approaches the face (ADR-0038) — so the tests below are about the movement
+ * rules and not about how a ray meets a triangle.
  */
 function wallAtX(at: number): ObstacleQuery {
-  return { isFree: (_from, to, radius) => to.x + radius < at };
+  const facing: Vec3 = { x: -1, y: 0, z: 0 };
+  return {
+    firstHit: (from, to, radius) =>
+      to.x > from.x && to.x + radius >= at
+        ? { normal: facing, distance: Math.max(0, at - radius - from.x) }
+        : null,
+  };
 }
 
 describe('MovementSystem obstacles', () => {
@@ -327,7 +335,17 @@ describe('MovementSystem obstacles', () => {
   });
 
   it('keeps the entity where it was when both axes are blocked', () => {
-    const blocked: ObstacleQuery = { isFree: () => false };
+    // A face met head-on whichever way the body turns: there is never anything
+    // along it to slide onto, so the solver has to give the move up entirely.
+    const blocked: ObstacleQuery = {
+      firstHit: (from, to) => {
+        const length = horizontalLength(to.x - from.x, to.z - from.z) || 1;
+        return {
+          normal: { x: -(to.x - from.x) / length, y: 0, z: -(to.z - from.z) / length },
+          distance: 0,
+        };
+      },
+    };
     let state = world();
     for (let step = 0; step < 60; step += 1) {
       state = MovementSystem.update(state, forward, DT, GROUND, blocked);

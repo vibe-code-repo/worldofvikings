@@ -70,7 +70,7 @@ The arrow only points one way: state flows into the renderer and never back
 | `src/world-scene.ts`           | One zone → ground, entities, plants, collision bodies, and which meshes may cast (ADR-0027) |
 | `src/entity-collision.ts`      | Prefab shape + entity transform → one shared static shape                                   |
 | `src/physics-ground.ts`        | The ground query, answered by a downward ray                                                |
-| `src/physics-obstacles.ts`     | The obstacle query, answered by rays across the path                                        |
+| `src/physics-obstacles.ts`     | The obstacle query, answered by rays across the path — reports the face met (ADR-0038)      |
 | `src/main.ts`                  | Wiring only                                                                                 |
 
 Why the device edge lives in the app rather than in a package, why the bindings
@@ -106,9 +106,13 @@ and writes `frame <n>` into the marker every frame. `render` carries Babylon's
 own per-frame draw-call, active-mesh and triangle counters, which is what the
 instancing of ADR-0022 is measured with — see `docs/development.md`. `collision`
 carries what the zone's collision cost and produced, and `rayHit` casts through
-that geometry, which is the only way a test can ask about a **hole**: an
-archway's shape is only right if a line through its opening is clear and a line
-through its post is not (ADR-0026). A loaded page proves nothing
+that geometry — reporting the hit point, the surface normal and the distance —
+which is the only way a test can ask about a **hole**: an archway's shape is
+only right if a line through its opening is clear and a line through its post is
+not (ADR-0026). `player` carries the last surface the movement solver ran into,
+as `normalX/normalY/normalZ` and `contactDistance`: sliding along a wall is a
+claim about a direction, and a position on its own cannot check a direction
+(ADR-0038). A loaded page proves nothing
 about a running renderer: the marker is there whether the loop ticks, stalls or
 throws after the first frame, so `pnpm smoke` watches the counter climb instead.
 The camera readout is there for the same reason — unit tests pin the camera

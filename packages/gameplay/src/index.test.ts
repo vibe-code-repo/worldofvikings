@@ -21,6 +21,7 @@ describe('the public surface', () => {
       'DEFAULT_FIXED_DELTA',
       'DEFAULT_MAX_STEPS_PER_FRAME',
       'DEFAULT_MOVEMENT_TUNING',
+      'MAX_SLIDE_ATTEMPTS',
       'MovementSystem',
       'NEUTRAL_INPUT',
       'NO_GROUND',
@@ -41,6 +42,7 @@ describe('the public surface', () => {
       'groundUnder',
       'horizontalLength',
       'inputEquals',
+      'slideMove',
       'toEntityId',
       'vec3',
     ]);

@@ -46,3 +46,4 @@ change it describes.
 | [0035](0035-the-static-world-is-frozen.md)                                    | The static world is frozen                                        | accepted |
 | [0036](0036-a-re-import-keeps-the-entities-the-bundle-never-had.md)           | A re-import keeps the entities the bundle never had               | accepted |
 | [0037](0037-the-cliff-ring-stays-out-of-the-village.md)                       | The cliff ring stays out of the village                           | accepted |
+| [0038](0038-a-blocked-move-slides-along-the-face-it-met.md)                   | A blocked move slides along the face it met                       | accepted |

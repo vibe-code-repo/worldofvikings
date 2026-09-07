@@ -236,6 +236,61 @@ movement that no still frame can make. The walk needs room: at the square's
 spawn the player is stopped by a wall three metres north, so the thirty-metre
 version of that test is run on the `slope` view.
 
+## Measuring the editor
+
+`pnpm perf:editor` is the same idea for the other app, and it exists because the
+game rig cannot see what an author complains about. Opening `village1` in the
+editor takes over a minute with the main thread blocked for most of it, and the
+frame after it lands is nothing like the game's — the game draws that zone in
+about 12 ms after ADR-0035 and ADR-0025; the editor draws it in 300-400 ms.
+Neither number can be argued about until both are measured the same way, which
+is what this rig is for (ADR-0047).
+
+```bash
+WOV_ASSET_STORE=/srv/assets/store pnpm perf:editor --label baseline
+WOV_ASSET_STORE=/srv/assets/store pnpm perf:editor --label after --scenario dial --skip-build
+```
+
+Three scenarios, all in one browser session on one page, and one JSON report per
+run under `perf-results/` plus a PNG and one `.rgba` per scenario:
+
+- **`load`** — open `village1` through the File menu and time the document
+  (`entityCount`), the models (`loadedCount == entityCount`) and the textures
+  (the last time `loadedTextures` grew, confirmed by two quiet seconds), plus the
+  long tasks the main thread spent blocked and a CPU profile of the whole load.
+  Then `F` with nothing selected frames the zone, and the settled frame is
+  measured: `scene.render` over a window, draw calls, active meshes, triangles,
+  shadow casters, and a second profile.
+- **`dial`** — ten changes to layer 0's metallic in the Zone tab, each timed to
+  the next rendered frame, with the terrain program key and the scene's texture
+  count before and after, so a rebuild that leaks textures shows up.
+- **`edit`** — select a fixed entity from the hierarchy, nudge its x five times,
+  and click the canvas once with the select tool. The click is timed around the
+  viewport's own `pointerup` listener, which is where `scene.pick` runs.
+
+Three things it does that the game rig does not, and each is there because a
+measurement went wrong without it:
+
+- **The page stamps its own milestones.** The complaint under measurement is that
+  the main thread stops answering, and a probe from outside cannot time a thread
+  that is not answering. The rig redefines the bridge's counters as accessors
+  before the click, so the page records `performance.now()` at each milestone and
+  Node reads them back afterwards.
+- **Every latency is reported beside the idle frame time.** "890 ms from the
+  input to the next frame" is a stall at 60 fps and two ordinary frames at 2 fps.
+  Both editing scenarios measure the frame interval immediately before their
+  gestures.
+- **The frame window runs without the profiler.** Measured the other way round,
+  the sampling profiler roughly halved the frame rate of a page holding the
+  village — 2.2 fps against 3.1 — so the counters and the profile are two
+  separate windows.
+
+The load number is the one that moves between runs: measured three times on one
+idle-ish machine it came out at 71 s, 96 s and 168 s, because it is dominated by
+main-thread work that competes with everything else running. Compare runs
+back to back on the same machine, and quote the long-task total beside the
+milestone — it moves with it.
+
 ## Environment
 
 Every app has a committed `.env.example` with working local defaults. Copy it to

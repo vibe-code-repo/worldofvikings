@@ -310,6 +310,45 @@ describe('toEntities', () => {
   });
 });
 
+describe('the cliff zone rule', () => {
+  const scan = scanScene(bundleWithBackdrop(), {
+    zones: DEFAULT_ZONES,
+    prefabsByStem: withBackdropAliases(backdropStems),
+  });
+
+  /**
+   * Pinned on its own, and not as a line inside the backdrop's tests, because
+   * this one is a *decision* rather than a mechanism: the cliffs look like they
+   * belong with the horizon the village claims, and moving them has been
+   * attempted twice.
+   *
+   * They do not stand on the village's ground — 83 of the 100 sit within half a
+   * metre of it and 17 hang 3.8 m to 27.2 m over everything the world has,
+   * measured on the models rather than on their boxes and identical against all
+   * four rasters this repository can read (ADR-0036, `pnpm seating`). Changing
+   * this rule without re-running that measurement puts rocks in the sky.
+   */
+  it('keeps Environments/Rocks out of the village, because the cliffs do not stand on it', () => {
+    const cliff = scan.instances.find((instance) => instance.node === 2);
+    expect(cliff?.path).toBe('Environments/Rocks/SM_Env_Rock_Cliff_02 1');
+    expect(cliff?.zone).toBe('surroundings');
+  });
+
+  it('keeps Environments Outside Village out of the village for the same reason', () => {
+    const cliff = scan.instances.find((instance) => instance.node === 7);
+    expect(cliff?.path).toBe('Environments/Environments Outside Village/SM_Env_Rock_Cliff_03 1');
+    expect(cliff?.zone).toBe('surroundings');
+  });
+
+  it('claims Background and nothing else out of Environments for the village', () => {
+    const village = scan.instances.filter((instance) => instance.zone === 'village');
+    expect(village.map((instance) => instance.path.split('/')[1])).toEqual([
+      'Background',
+      'Background',
+    ]);
+  });
+});
+
 describe('carryOverAuthoredBlocks', () => {
   const fresh: WorldDefinition = {
     schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,

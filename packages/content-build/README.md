@@ -29,6 +29,7 @@ as a terminal report or as a panel.
 | `readGlb` / `writeGlb` / `worldBounds` / `nodeMatrix` … | binary glTF, with `node:` built-ins only        |
 | `measureTrunkBox` / `roundBounds`                       | a tree's collision box, measured on the model   |
 | `scanScene` / `decompose` / `carryOverAuthoredBlocks`   | the scene-import rules, as pure functions       |
+| `isImportedEntity` / `authoredEntities`                 | who minted an entity, so a re-import keeps work |
 | `buildImportedCatalog` / `prefabCollisionFor` …         | the catalogue rules, as pure functions          |
 | `loadPrefabStems`                                       | `content/prefabs/` indexed by store file name   |
 

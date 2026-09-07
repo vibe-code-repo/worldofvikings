@@ -21,7 +21,9 @@ import { readGlb } from './glb.js';
 import { loadPrefabStems } from './prefab-stems.js';
 import {
   DEFAULT_ZONES,
+  authoredEntities,
   carryOverAuthoredBlocks,
+  countAuthoredOutsideZones,
   scanScene,
   toEntities,
   toKebab,
@@ -87,6 +89,17 @@ export interface SceneImportReport {
   readonly ignoredRoots: readonly { readonly name: string; readonly meshNodes: number }[];
   /** Zones whose authored ground was carried over from the previous file. */
   readonly groundCarried: readonly string[];
+  /**
+   * Per zone, the entities kept from the previous file because the bundle
+   * never described them — a scattered field, a prop dropped in the editor
+   * (ADR-0036). Zones that kept nothing are not listed.
+   */
+  readonly entitiesCarried: readonly { readonly zone: string; readonly entities: number }[];
+  /**
+   * Authored entities lost because their zone is not in the bundle any more.
+   * Zero on every ordinary run; a number here is a deletion worth reading.
+   */
+  readonly entitiesDropped: number;
   /** `the world`, plus every zone whose authored light was carried over. */
   readonly lightingCarried: readonly string[];
   readonly dryRun: boolean;
@@ -104,11 +117,13 @@ function defaultSerialize(world: WorldDefinition): string {
 /**
  * Reads a bundle and writes `<contentDir>/worlds/<worldId>.json`.
  *
- * Ground and light are **carried over, not regenerated**: a bundle carries
- * placements and nothing else, so the `terrain` and `lighting` blocks of the
- * file being replaced are copied into the new one (ADR-0028). Without that,
- * re-running the import would silently take the ground out from under 5 248
- * placements.
+ * Ground, light and authored entities are **carried over, not regenerated**: a
+ * bundle carries its own placements and nothing else, so the `terrain` and
+ * `lighting` blocks of the file being replaced are copied into the new one
+ * (ADR-0028), and so is every entity the import did not mint — a scattered
+ * field, a prop dropped in the editor (ADR-0036). Without that, re-running the
+ * import would silently take the ground out from under 5 248 placements and
+ * then delete 4 032 of them.
  *
  * A previous file that exists but does not parse is an error rather than a
  * fresh start: carrying nothing over from it would look like success.
@@ -192,7 +207,11 @@ export async function importSceneBundle(options: SceneImportOptions): Promise<Sc
     await writeFile(worldFile, await serialize(world), 'utf8');
   }
 
-  return { ok: true, world, report: reportOf(options, scan, world, ambiguous, prefabsByStem.size) };
+  return {
+    ok: true,
+    world,
+    report: reportOf(options, scan, world, authored, ambiguous, prefabsByStem.size),
+  };
 }
 
 /** `Foo (3)` and `Foo 3` are the same model twice; the group is what it is called. */
@@ -204,6 +223,7 @@ function reportOf(
   options: SceneImportOptions,
   scan: ReturnType<typeof scanScene>,
   world: WorldDefinition,
+  authored: WorldDefinition | undefined,
   ambiguousStems: readonly string[],
   knownStems: number,
 ): SceneImportReport {
@@ -241,6 +261,12 @@ function reportOf(
       .filter((zone) => zone.terrain !== undefined)
       .map((zone) => zone.id)
       .sort(),
+    // Counted on the *written* world rather than on the previous one, so the
+    // number is what the file now holds and not what the function intended.
+    entitiesCarried: world.zones
+      .map((zone) => ({ zone: zone.id, entities: authoredEntities(zone).length }))
+      .filter((zone) => zone.entities > 0),
+    entitiesDropped: countAuthoredOutsideZones(world, authored),
     lightingCarried: [
       ...(world.lighting !== undefined ? ['the world'] : []),
       ...world.zones

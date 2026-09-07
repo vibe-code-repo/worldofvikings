@@ -14,7 +14,8 @@
  * The command that uses it is `tooling/scripts/import-scene.ts`; everything
  * here is a pure function so the rules can be tested without a 150 MB file.
  */
-import type { WorldDefinition } from '@wov/world-schema';
+import { isSceneEntityId, sceneEntityId } from '@wov/world-schema';
+import type { EntityDefinition, WorldDefinition, ZoneDefinition } from '@wov/world-schema';
 import { BACKDROP_MODELS } from './backdrop.js';
 import type { Gltf, GltfNode, Matrix4 } from './glb.js';
 import { IDENTITY, multiply, nodeMatrix } from './glb.js';
@@ -610,7 +611,10 @@ export function toEntities(
       const next = (counters.get(instance.prefab) ?? 0) + 1;
       counters.set(instance.prefab, next);
       return {
-        id: `${instance.prefab}_${String(next).padStart(4, '0')}`,
+        // The id namespace the carry-over reads back on the next run
+        // (`@wov/world-schema/entity-ids`, ADR-0036): minting it anywhere but
+        // there is how the two halves drift apart.
+        id: sceneEntityId(instance.prefab, next),
         prefab: instance.prefab,
         position: transform.position.map((value) => round(value, POSITION_DIGITS)) as [
           number,
@@ -634,24 +638,50 @@ export function toEntities(
 // ------------------------------------------------------- authored, not imported
 
 /**
+ * An entity the last scene import wrote, and therefore the bundle's to replace.
+ *
+ * The whole rule is one id shape, declared once in `@wov/world-schema`: the
+ * import mints `<prefab>_0001`, and every other minter stays out of that
+ * namespace on purpose (ADR-0036).
+ */
+export function isImportedEntity(entity: EntityDefinition): boolean {
+  return isSceneEntityId(entity.id, entity.prefab);
+}
+
+/** Everything in a zone that the scene import did not put there. */
+export function authoredEntities(zone: ZoneDefinition | undefined): readonly EntityDefinition[] {
+  return (zone?.entities ?? []).filter((entity) => !isImportedEntity(entity));
+}
+
+/**
  * Puts back the parts of a world file the bundle does not describe.
  *
  * A scene bundle carries placements and nothing else. The ground under them
- * (ADR-0020) and the light over them (ADR-0024) are authored *into the world
- * file*, by the terrain import and by hand — so rewriting the file from the
- * bundle, which is what `pnpm import:scene` does, would throw both away.
+ * (ADR-0020), the light over them (ADR-0024) and every entity that was *not*
+ * in the bundle — a scattered field (ADR-0025), a prop dropped in the editor —
+ * are authored *into the world file*, so rewriting the file from the bundle,
+ * which is what `pnpm import:scene` does, would throw all three away.
  *
  * That is not a hypothetical: the documented way to regenerate this repository's
  * content is store import → prefabs → scene import, and running it on a village
  * that had an evening gave back a village lit like a showroom, with nothing
- * failing and nothing said. The scatter runs are the deliberate exception —
- * they are re-run afterwards, because a scatter is a *command over entities*
- * and the entities are exactly what the import replaces (ADR-0025).
+ * failing and nothing said. The 4 032 scattered plants went the same way, and
+ * getting them back meant re-running three commands from a document — a step
+ * whose omission also has no symptom until somebody looks at the picture.
+ *
+ * **What is replaced, and what is kept.** An entity whose id says the import
+ * minted it ({@link isImportedEntity}) is the bundle's: the fresh list stands
+ * in for it, so a placement the bundle no longer has really does disappear.
+ * Everything else is authored and survives, in the order the previous file had
+ * it, appended after the bundle's own entities — which is the order the village
+ * already has on disk, so a re-import that changes nothing writes the same
+ * bytes (ADR-0036).
  *
  * Keyed by zone id and never by position: a bundle that gained or lost a zone
  * must not hand one zone's ground to another. A zone the bundle no longer has
  * is dropped with its authored blocks, because the fresh world is the list of
- * zones that exist.
+ * zones that exist; {@link countAuthoredOutsideZones} is how the caller can say
+ * out loud how much authored work that costs.
  */
 export function carryOverAuthoredBlocks(
   fresh: WorldDefinition,
@@ -670,11 +700,33 @@ export function carryOverAuthoredBlocks(
     ...(previous.lighting !== undefined ? { lighting: previous.lighting } : {}),
     zones: fresh.zones.map((zone) => {
       const was = before.get(zone.id);
+      const kept = authoredEntities(was);
       return {
         ...zone,
+        ...(kept.length > 0 ? { entities: [...zone.entities, ...kept] } : {}),
         ...(was?.terrain !== undefined ? { terrain: was.terrain } : {}),
         ...(was?.lighting !== undefined ? { lighting: was.lighting } : {}),
       };
     }),
   };
+}
+
+/**
+ * How many authored entities stand in zones the fresh world does not have.
+ *
+ * They are dropped — the fresh world is the list of zones that exist — and a
+ * loss that large has to be a number in the report rather than a surprise in a
+ * diff.
+ */
+export function countAuthoredOutsideZones(
+  fresh: WorldDefinition,
+  previous: WorldDefinition | undefined,
+): number {
+  if (previous === undefined) {
+    return 0;
+  }
+  const kept = new Set(fresh.zones.map((zone) => zone.id));
+  return previous.zones
+    .filter((zone) => !kept.has(zone.id))
+    .reduce((sum, zone) => sum + authoredEntities(zone).length, 0);
 }

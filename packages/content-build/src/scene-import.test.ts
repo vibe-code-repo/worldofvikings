@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Gltf, Matrix4 } from './glb.js';
-import { multiply, nodeMatrix } from './glb.js';
-import type { WorldDefinition } from '@wov/world-schema';
+import { IDENTITY, multiply, nodeMatrix } from './glb.js';
+import type { EntityDefinition, WorldDefinition } from '@wov/world-schema';
 import { CURRENT_WORLD_SCHEMA_VERSION } from '@wov/world-schema';
 import {
   DEFAULT_ZONES,
+  authoredEntities,
   carryOverAuthoredBlocks,
+  countAuthoredOutsideZones,
+  isImportedEntity,
   MIRROR_X,
   compose,
   decompose,
@@ -377,6 +380,146 @@ describe('carryOverAuthoredBlocks', () => {
       zones: [...fresh.zones, { id: 'caves', name: 'Caves', entities: [], lighting: {} }],
     };
     expect(carryOverAuthoredBlocks(fresh, previous).zones).toHaveLength(2);
+  });
+});
+
+// ------------------------------------------------------------ authored entities
+
+/** A placement with nothing interesting in it but its id and its prefab. */
+function entity(id: string, prefab: string): EntityDefinition {
+  return { id, prefab, position: [0, 0, 0] };
+}
+
+describe('isImportedEntity', () => {
+  it('claims what the import minted and nothing else', () => {
+    expect(isImportedEntity(entity('barrel-01_0001', 'barrel-01'))).toBe(true);
+    expect(isImportedEntity(entity('barrel-01_001', 'barrel-01'))).toBe(false);
+    expect(isImportedEntity(entity('barrel-01_s7_0001', 'barrel-01'))).toBe(false);
+  });
+
+  it('agrees with the ids toEntities hands out', () => {
+    const counters = new Map<string, number>();
+    const [first] = toEntities(
+      [
+        {
+          node: 1,
+          name: 'n',
+          path: 'n',
+          zone: 'village',
+          prefab: 'p',
+          triangles: 0,
+          matrix: IDENTITY,
+        },
+      ],
+      counters,
+    );
+    expect(first).toBeDefined();
+    expect(isImportedEntity(first as EntityDefinition)).toBe(true);
+  });
+});
+
+describe('authoredEntities', () => {
+  it('is everything in a zone the import did not mint', () => {
+    const zone = {
+      id: 'village',
+      name: 'Village',
+      entities: [
+        entity('barrel-01_0001', 'barrel-01'),
+        entity('grass_s7_0001', 'grass'),
+        entity('crate_003', 'crate'),
+      ],
+    };
+    expect(authoredEntities(zone).map((each) => each.id)).toEqual(['grass_s7_0001', 'crate_003']);
+    expect(authoredEntities(undefined)).toEqual([]);
+  });
+});
+
+describe('carryOverAuthoredBlocks, on entities', () => {
+  const bundle = [entity('barrel-01_0001', 'barrel-01'), entity('barrel-01_0002', 'barrel-01')];
+  const scattered = [
+    entity('grass_s7_0001', 'grass'),
+    entity('grass_s7_0002', 'grass'),
+    entity('bush_s11_0001', 'bush'),
+  ];
+  const byHand = entity('crate_003', 'crate');
+
+  const fresh: WorldDefinition = {
+    schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
+    id: 'village1',
+    name: 'Village One',
+    zones: [{ id: 'village', name: 'Village', entities: bundle }],
+  };
+
+  function previousWith(entities: readonly EntityDefinition[]): WorldDefinition {
+    return { ...fresh, zones: [{ id: 'village', name: 'Village', entities: [...entities] }] };
+  }
+
+  it('keeps a scattered field the bundle never described', () => {
+    const carried = carryOverAuthoredBlocks(fresh, previousWith([...bundle, ...scattered]));
+    expect(carried.zones[0]?.entities.map((each) => each.id)).toEqual([
+      'barrel-01_0001',
+      'barrel-01_0002',
+      'grass_s7_0001',
+      'grass_s7_0002',
+      'bush_s11_0001',
+    ]);
+  });
+
+  it('keeps a prop placed by hand in the editor', () => {
+    const carried = carryOverAuthoredBlocks(fresh, previousWith([...bundle, byHand]));
+    expect(carried.zones[0]?.entities.map((each) => each.id)).toContain('crate_003');
+  });
+
+  it('replaces the bundle own placements instead of doubling them', () => {
+    // The previous file has a third barrel and a moved first one; the bundle is
+    // the truth about both, so neither survives as an extra entity.
+    const previous = previousWith([
+      { ...entity('barrel-01_0001', 'barrel-01'), position: [9, 9, 9] },
+      entity('barrel-01_0002', 'barrel-01'),
+      entity('barrel-01_0003', 'barrel-01'),
+      ...scattered,
+    ]);
+    const entities = carryOverAuthoredBlocks(fresh, previous).zones[0]?.entities ?? [];
+    expect(entities).toHaveLength(5);
+    expect(entities[0]?.position).toEqual([0, 0, 0]);
+    expect(entities.map((each) => each.id)).not.toContain('barrel-01_0003');
+  });
+
+  it('is idempotent: importing the same bundle twice writes the same entities', () => {
+    const once = carryOverAuthoredBlocks(fresh, previousWith([...bundle, ...scattered]));
+    const twice = carryOverAuthoredBlocks(fresh, once);
+    expect(twice).toEqual(once);
+  });
+
+  it('leaves the key order of a zone alone', () => {
+    const carried = carryOverAuthoredBlocks(fresh, previousWith([...bundle, ...scattered]));
+    expect(Object.keys(carried.zones[0] ?? {})).toEqual(['id', 'name', 'entities']);
+  });
+
+  it('keys the carry-over by zone id, never by position', () => {
+    const twoZones: WorldDefinition = {
+      ...fresh,
+      zones: [
+        { id: 'interiors', name: 'Interiors', entities: [] },
+        { id: 'village', name: 'Village', entities: bundle },
+      ],
+    };
+    const carried = carryOverAuthoredBlocks(twoZones, previousWith([...bundle, ...scattered]));
+    expect(carried.zones[0]?.entities).toEqual([]);
+    expect(carried.zones[1]?.entities).toHaveLength(5);
+  });
+
+  it('counts the authored work a vanished zone would cost', () => {
+    const previous: WorldDefinition = {
+      ...fresh,
+      zones: [
+        { id: 'village', name: 'Village', entities: [...bundle] },
+        { id: 'caves', name: 'Caves', entities: [...scattered, byHand] },
+      ],
+    };
+    expect(countAuthoredOutsideZones(fresh, previous)).toBe(4);
+    expect(countAuthoredOutsideZones(fresh, previousWith(bundle))).toBe(0);
+    expect(countAuthoredOutsideZones(fresh, undefined)).toBe(0);
   });
 });
 

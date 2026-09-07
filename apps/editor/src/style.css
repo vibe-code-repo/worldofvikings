@@ -257,6 +257,51 @@ select {
   background: #202733;
 }
 
+/*
+ * One line per entity row (ADR-0048).
+ *
+ * The hierarchy renders only the rows the panel shows, and the two spacers
+ * standing in for the rest are `rows × row height` tall — arithmetic that needs
+ * every row to be the same height. Left to wrap, a generated id like
+ * `environment-sm-env-path-wood-side-01_0001` takes three lines in a
+ * 240-pixel column and the next one takes two, and the scrollbar then describes
+ * a list nobody has.
+ *
+ * The full id is on the button's `title` and in the inspector; the row is a
+ * place to find an entity, not to read its name. Zone rows are untouched —
+ * there is a handful of them and they are not windowed.
+ */
+.entities > li > .entity {
+  white-space: nowrap;
+}
+
+/*
+ * Truncated at the front, not at the back.
+ *
+ * Generated ids differ only in their last few characters —
+ * `…-wood-side-01_0001` and `…-wood-side-01_0002` — so an ellipsis at the end
+ * turns fifteen rows into fifteen copies of `environment-…`. `direction: rtl`
+ * puts the ellipsis at the start and keeps the tail, which is the half that
+ * says which entity this is; `text-align` keeps a short id where it always was,
+ * so a row that fits looks exactly as it did.
+ */
+.entity > .entity-id {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+.entity > .menu-hint {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: right;
+}
+
 .zone.active {
   color: var(--wov-accent);
   font-weight: 600;

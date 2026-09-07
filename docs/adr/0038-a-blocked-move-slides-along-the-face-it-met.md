@@ -110,3 +110,21 @@ closing that gap wants a swept query and is a separate change. The village has
 places where two walls make a nook a metre wide, and no amount of sliding gets a
 0.4 m body through one — those are level-design bugs and want an editor pass, not
 a movement rule.
+
+## Frame cost, measured
+
+The follow-up this ADR left open — "a blocked step costs at most three obstacle
+queries, and nobody has measured what that does to a frame" — was measured on
+the integration branch. `pnpm perf:frame` against the commit before this change,
+same machine, back to back, own ports:
+
+| view     | before               | after                |
+| -------- | -------------------- | -------------------- |
+| `square` | 12.48 ms · 549 calls | 12.28 ms · 549 calls |
+| `slope`  | 9.19 ms · 369 calls  | 9.46 ms · 369 calls  |
+
+The differences are smaller than the spread between two runs of the same build,
+draw calls and active meshes are identical, and `pnpm perf:compare` reports the
+frames as pixel-identical (mean |Δ| 0.0000/255 in both views). That is the
+expected shape of the result: the extra queries happen only in the frames where
+a move is blocked, and the profiler's camera stands still.

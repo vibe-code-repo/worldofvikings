@@ -39,6 +39,14 @@ surface's plane rather than thrown away, so walking at a house is walking along
 it, and backing out of whatever was walked into always works (ADR-0038). There
 is no character model, no combat and no zone streaming.
 
+Two further zones stand in the same world file and are never drawn, because the
+client renders the one zone that has ground under it: `interiors` (164 entities)
+and `surroundings` (177, among them a ring of 100 cliffs). The ring stays out of
+the village until there is ground outside the village tile for it to lean on —
+17 of the 100 hang between 3.8 m and 27.2 m above everything this repository
+has. That is measured, not assumed, and `pnpm seating` re-measures it
+(ADR-0037).
+
 The editor opens and saves worlds through `services/api` (ADR-0017), places
 prefabs from the generated catalogue (ADR-0016), and edits them with selection,
 move/rotate/scale gizmos, grid and surface snapping and an undo history. It
@@ -56,7 +64,10 @@ the same command `pnpm terrain-surface` uses, and the half below it edits the
 rest of the terrain block; which field belongs to which half is the schema's
 answer, so no number is offered twice (ADR-0032, ADR-0033). The scene import and
 the prefab catalogue run from the **World** menu as well as from the command
-line. There is no component system and no terrain sculpting yet.
+line, and a re-import from either keeps the ground, the light and every entity
+the bundle never described — a scattered field, a prop dropped by hand — so
+re-importing the village reproduces its world file byte for byte (ADR-0036).
+There is no component system and no terrain sculpting yet.
 
 **Editor parity (ADR-0033).** Anything a script writes, the editor can write, by
 calling the same code. Four right-hand inspectors edit the lighting profile of a

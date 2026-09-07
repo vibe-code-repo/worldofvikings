@@ -163,3 +163,54 @@ measuring placeholder hulls.
   touching the zone rule. The bar stays 95 % seated within 0.5 m.
 - The collision kind for a large irregular rock is worth its own decision. It is
   not blocking anything today, because nothing in the village is a cliff.
+
+## What the move would cost, measured on the integration branch
+
+This ADR says the ring stays out until there is ground for it to lean on. It did
+not say what moving it would cost, so the integration measured that once, in a
+working copy that was thrown away afterwards — the world file on this branch is
+byte-identical to the one before it.
+
+With all 100 cliffs moved into `village`, on the same machine and back to back
+(`pnpm perf:frame`, GPU flags, own ports):
+
+| view     | village as it ships  | with the ring moved in |
+| -------- | -------------------- | ---------------------- |
+| `square` | 12.28 ms · 549 calls | 13.16 ms · 557 calls   |
+| `slope`  | 9.46 ms · 369 calls  | 9.99 ms · 377 calls    |
+| `rim`    | 9.10 ms · 365 calls  | 9.96 ms · 371 calls    |
+
+Collision goes from 1145 bodies over 210 shapes to 1245 over 241. So the ring is
+affordable: under a millisecond in the densest view. **Cost is not the reason it
+stays out** — the 17 placements hanging over nothing are, and the `rim` picture
+still shows six house-sized rocks in open sky.
+
+The other half of that picture is worth recording too: seen from inside the
+village at `spawn=130,152&look=270`, the cliffs that _are_ seated make the rim
+look the way the bundle's author meant it to. The ring is not bad work. It is
+work that needs the neighbouring tile.
+
+The sliding rule of ADR-0038 does hold against a cliff, which was the open
+question when the two changes met. Walked into the box collider of the cliff at
+(116, 151.4), same content on both sides:
+
+| approach                       | before ADR-0038 | after   |
+| ------------------------------ | --------------- | ------- |
+| straight at the face           | 3.02 m          | 3.02 m  |
+| 30° across the face            | 3.21 m          | 4.73 m  |
+| 60° across the face            | 3.17 m          | 27.39 m |
+| four seconds in, four back out | 5.02 m          | 19.51 m |
+
+The reported face comes back as `[0.71, 0, 0.70]` — an axis of the bounding box,
+not the rock. That is this ADR's third follow-up seen from the player's side: a
+cliff 12 m by 20 m collides as the box its prefab declares, so sliding follows a
+straight invisible edge metres from the visible stone. It costs nothing today
+because no cliff stands in the village, and it is the first thing to decide if
+one ever does.
+
+The editor side of the current state was checked too, since a zone the game
+never draws is a zone only the editor can show: opening `village1` and selecting
+`Surroundings` lists **177 entities, 100 of them `rock-cliff`**, each selectable,
+with the inspector reading the position the world file holds (`…rock-cliff-03-1_0001`
+at 68.31 / 9.22 / 119.98). The ring is invisible in the game and fully editable
+in the editor, which is what ADR-0033 asks for.

@@ -26,6 +26,11 @@ Prefab catalogs (`content/prefabs/*.json`, ADR-0016):
 Shared: `IdentifierSchema`, `Vector3Schema`, `HexColorSchema`, `AssetPathSchema`,
 `assetPathOf(kind)`, types `Identifier`, `Vector3`, `AssetKindHint`.
 
+Entity ids: `sceneEntityId(prefab, n)`, `isSceneEntityId(id, prefab)`,
+`SCENE_ENTITY_ID_DIGITS` — the one declaration of which id shape the scene
+import owns, so a re-import knows what is its to replace and what somebody
+authored (ADR-0036).
+
 `assetPathOf('texture')` is `AssetPathSchema` with the _kind_ of file the field
 names attached through Zod's `.meta()`. It changes no validation. It exists so a
 panel can offer the asset store's own images for a ground texture without

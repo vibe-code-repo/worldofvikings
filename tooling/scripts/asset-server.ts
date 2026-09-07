@@ -23,30 +23,15 @@
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { routeRequest } from './asset-routes.js';
+import { contentTypeFor, routeRequest } from './asset-routes.js';
 
 const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const assetRoot = resolve(process.env['ASSET_ROOT'] ?? join(repoRoot, 'assets'));
 const configuredStore = process.env['WOV_ASSET_STORE']?.trim() ?? '';
 const storeRoot = configuredStore.length > 0 ? resolve(configuredStore) : undefined;
 const port = Number.parseInt(process.env['ASSET_PORT'] ?? '9000', 10);
-
-const contentTypes = new Map<string, string>([
-  ['.glb', 'model/gltf-binary'],
-  ['.gltf', 'model/gltf+json'],
-  ['.json', 'application/json; charset=utf-8'],
-  ['.png', 'image/png'],
-  ['.jpg', 'image/jpeg'],
-  ['.jpeg', 'image/jpeg'],
-  ['.webp', 'image/webp'],
-  ['.ktx2', 'image/ktx2'],
-  ['.ogg', 'audio/ogg'],
-  ['.mp3', 'audio/mpeg'],
-  ['.txt', 'text/plain; charset=utf-8'],
-  ['.md', 'text/markdown; charset=utf-8'],
-]);
 
 /** Resolves a request path inside the asset root, or `undefined` if it escapes. */
 export function resolveAssetPath(root: string, requestPath: string): string | undefined {
@@ -108,7 +93,7 @@ const server = createServer((request, response) => {
       }
       response.writeHead(200, {
         ...COMMON_HEADERS,
-        'content-type': contentTypes.get(extname(filePath)) ?? 'application/octet-stream',
+        'content-type': contentTypeFor(filePath),
         'content-length': stats.size,
         'cache-control': 'no-cache',
       });

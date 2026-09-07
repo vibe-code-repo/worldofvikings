@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { routeRequest } from './asset-routes.js';
+import { AUDIO_EXTENSIONS } from '@wov/asset-system';
+import { FALLBACK_CONTENT_TYPE, contentTypeFor, routeRequest } from './asset-routes.js';
 
 const roots = { assets: '/repo/assets', store: '/srv/assets/store' };
 
@@ -45,5 +46,33 @@ describe('routeRequest', () => {
     // it — and it is asserted below that the route still points into the store,
     // so the traversal check cannot be bypassed by prefixing `/store`.
     expect(routeRequest('/store/../../etc/passwd', roots)?.root).toBe('/srv/assets/store');
+  });
+});
+
+describe('contentTypeFor', () => {
+  it('names every audio extension this project can import', () => {
+    // The "valid in four places, unknown in a fifth" check: importing a format
+    // the server cannot name would only show up as a header nobody reads until
+    // a strict client refuses it.
+    for (const extension of AUDIO_EXTENSIONS) {
+      expect(contentTypeFor(`audio/ambience/bed${extension}`)).toMatch(/^audio\//);
+    }
+  });
+
+  it('serves an Opus file in an Ogg container as Ogg audio', () => {
+    expect(contentTypeFor('audio/footsteps/gravel-01.ogg')).toBe('audio/ogg');
+    expect(contentTypeFor('audio/footsteps/gravel-01.opus')).toBe('audio/ogg');
+  });
+
+  it('serves the silent placeholder as WAV rather than as bytes', () => {
+    expect(contentTypeFor('placeholders/audio/silence.wav')).toBe('audio/wav');
+  });
+
+  it('ignores the case of the extension', () => {
+    expect(contentTypeFor('environment/BARREL.GLB')).toBe('model/gltf-binary');
+  });
+
+  it('falls back rather than guessing for something it was never told about', () => {
+    expect(contentTypeFor('environment/notes.xyz')).toBe(FALLBACK_CONTENT_TYPE);
   });
 });

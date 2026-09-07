@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { ASSET_KINDS, ASSET_VISIBILITIES, isGeometryKind } from './asset-facts.js';
+import {
+  ASSET_KINDS,
+  ASSET_VISIBILITIES,
+  isAudioAssetPath,
+  isGeometryKind,
+} from './asset-facts.js';
 import type { AssetVisibility } from './asset-facts.js';
 
 /**
@@ -199,7 +204,12 @@ export const AssetManifestSchema = z
 
 export type AssetBounds = z.infer<typeof AssetBoundsSchema>;
 // Re-exported so a consumer of the manifest needs one import, not two.
-export { ASSET_KINDS, ASSET_VISIBILITIES } from './asset-facts.js';
+export {
+  ASSET_KINDS,
+  ASSET_VISIBILITIES,
+  AUDIO_EXTENSIONS,
+  isAudioAssetPath,
+} from './asset-facts.js';
 export type { AssetKind, AssetVisibility } from './asset-facts.js';
 export type AssetEntry = z.infer<typeof AssetEntrySchema>;
 export type AssetManifest = z.infer<typeof AssetManifestSchema>;
@@ -269,6 +279,21 @@ export const UNDETERMINED_LICENSE = 'NOASSERTION';
 const TEXTURE_EXTENSIONS = /\.(png|jpe?g|webp|ktx2|basis)$/i;
 
 /**
+ * The kind a version 1 row is migrated to, from its extension alone.
+ *
+ * Version 1 predates both `audio` and the store, so no such row exists today —
+ * but the branch is here rather than absent because the alternative is worse
+ * than useless: without it a `.ogg` would migrate to `mesh`, and a sound listed
+ * as geometry is a row the prefab catalogue would offer as something to place.
+ */
+function legacyKindOf(assetPath: string): 'audio' | 'texture' | 'mesh' {
+  if (isAudioAssetPath(assetPath)) {
+    return 'audio';
+  }
+  return TEXTURE_EXTENSIONS.test(assetPath) ? 'texture' : 'mesh';
+}
+
+/**
  * Version 1 → 2.
  *
  * Version 1 knew only where a file was and what it hashed to, so everything the
@@ -284,7 +309,7 @@ function migrateFromVersion1(legacy: z.infer<typeof LegacyAssetManifestSchema>):
     assets: legacy.assets.map((entry) => ({
       id: assetIdFromPath(entry.path),
       path: entry.path,
-      kind: TEXTURE_EXTENSIONS.test(entry.path) ? 'texture' : 'mesh',
+      kind: legacyKindOf(entry.path),
       bytes: entry.bytes,
       hash: entry.hash,
       origin: 'unknown — migrated from asset manifest version 1',

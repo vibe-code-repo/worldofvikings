@@ -55,7 +55,7 @@ export const AssetPathSchema = z
  * of every dependency but Zod (agent rule 9). It changes with that list in the
  * same commit.
  */
-export type AssetKindHint = 'mesh' | 'prefab' | 'terrain' | 'texture';
+export type AssetKindHint = 'mesh' | 'prefab' | 'terrain' | 'texture' | 'audio';
 
 /**
  * An asset path that also says *what kind* of file it names.

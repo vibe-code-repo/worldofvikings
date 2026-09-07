@@ -47,3 +47,4 @@ change it describes.
 | [0036](0036-a-re-import-keeps-the-entities-the-bundle-never-had.md)           | A re-import keeps the entities the bundle never had               | accepted |
 | [0037](0037-the-cliff-ring-stays-out-of-the-village.md)                       | The cliff ring stays out of the village                           | accepted |
 | [0038](0038-a-blocked-move-slides-along-the-face-it-met.md)                   | A blocked move slides along the face it met                       | accepted |
+| [0054](0054-audio-is-an-asset-kind-with-one-silent-placeholder.md)            | Audio is an asset kind, behind one silent placeholder             | accepted |

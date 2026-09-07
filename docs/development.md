@@ -210,7 +210,7 @@ client that has stopped loading — and then measures a three-second window:
 ```bash
 WOV_ASSET_STORE=/srv/assets/store pnpm perf:frame --label baseline --view square
 WOV_ASSET_STORE=/srv/assets/store pnpm perf:frame --label after --view square --skip-build
-pnpm perf:compare test-results/perf/baseline.square.rgba test-results/perf/after.square.rgba
+pnpm perf:compare perf-results/baseline.square.rgba perf-results/after.square.rgba
 ```
 
 Four things it does that a browser tab does not:

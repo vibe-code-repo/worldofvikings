@@ -45,6 +45,16 @@ import { findView, PERF_VIEWS } from './views.js';
 
 const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 
+/**
+ * Where reports land, relative to the repository root.
+ *
+ * Deliberately not under `test-results/`: Playwright empties that directory at
+ * the start of every run, so a baseline measured in the morning is gone the
+ * next time somebody types `pnpm smoke` — and gone *silently*, which is the
+ * worst way to lose the one number a change is being argued against.
+ */
+const PERF_OUTPUT_DIR = 'perf-results';
+
 /** Ports of this rig's own, so it can run while `pnpm dev` and `pnpm smoke` do. */
 const GAME_PORT = Number.parseInt(process.env['PERF_GAME_PORT'] ?? '5273', 10);
 const API_PORT = Number.parseInt(process.env['PERF_API_PORT'] ?? '3273', 10);
@@ -83,7 +93,7 @@ function parseOptions(argv: readonly string[]): Options {
     seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : 3,
     settleSeconds: Number.isFinite(settle) && settle >= 0 ? settle : 3,
     skipBuild: argv.includes('--skip-build'),
-    outDir: resolve(argument(argv, 'out') ?? join(repoRoot, 'test-results', 'perf')),
+    outDir: resolve(argument(argv, 'out') ?? join(repoRoot, PERF_OUTPUT_DIR)),
     moveMetres: Number.isFinite(move) && move >= 0 ? move : 30,
   };
 }

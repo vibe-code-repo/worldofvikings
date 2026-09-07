@@ -10,6 +10,7 @@ build/
 coverage/
 playwright-report/
 test-results/
+perf-results/
 .vitest/
 
 # local environment

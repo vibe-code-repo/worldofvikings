@@ -167,6 +167,37 @@ export interface TerrainOptions {
   readonly flatNormals?: boolean;
 }
 
+/**
+ * The numbers of one layer that live in a **uniform** rather than in a texture
+ * or in the compiled program (ADR-0050).
+ *
+ * `tileSize` is here because it reaches the shader as `uLayerScale`, computed
+ * by {@link layerRepeats} from the tile's size — a division, not a resource.
+ */
+export interface TerrainLayerUniforms {
+  readonly tileSize: number;
+  readonly normalScale?: number | undefined;
+  readonly metallic?: number | undefined;
+  readonly smoothness?: number | undefined;
+}
+
+/**
+ * What {@link TerrainHandle.update} writes: everything about a tile that is a
+ * value in the program it already has.
+ *
+ * A field left out is left alone, so turning one dial does not restate the
+ * others. What is *not* here — a texture, a splat map, the facet switch, the
+ * number of layers — is not an omission: each of those is a different program
+ * or a different resource, and the caller has to rebuild for it
+ * ({@link TerrainHandle.rebuildMaterial}).
+ */
+export interface TerrainSurfaceUpdate {
+  /** Colour used where nothing is painted; `#rrggbb`. */
+  readonly color?: string | undefined;
+  /** One entry per layer, in the tile's own layer order. */
+  readonly layers?: readonly TerrainLayerUniforms[] | undefined;
+}
+
 /** What {@link createTerrain} put into the scene, and how to take it out. */
 export interface TerrainHandle {
   /** The tile's root; its transform is where the world file put the tile. */
@@ -176,6 +207,35 @@ export interface TerrainHandle {
   readonly material: ShaderMaterial;
   /** Textures this handle created and therefore owns. */
   readonly textures: readonly Texture[];
+  /**
+   * Writes new values into the program this tile already has (ADR-0050).
+   *
+   * The cheap half of editing the ground: no mesh is touched, no texture is
+   * loaded, no shader is compiled. Turning a metalness dial is this.
+   *
+   * @throws when the update carries a different number of layers than the tile
+   * was built with — that is a rebuild, and silently ignoring the extra layer
+   * would leave a dial that writes into nothing.
+   */
+  update(surface: TerrainSurfaceUpdate): void;
+  /**
+   * Replaces this tile's material, keeping its loaded height field.
+   *
+   * The middle case: a layer texture swapped, a splat map replaced, the facet
+   * switch flipped, a layer added. All of those are a different program or a
+   * different set of textures, and none of them is a different *mesh* — the
+   * height field is the same file with the same vertices, and re-instantiating
+   * it is the most expensive part of the rebuild it does not need.
+   *
+   * The new material is built **before** the old one is disposed, so every
+   * texture whose URL did not change is answered out of Babylon's own texture
+   * cache instead of being downloaded and decoded again.
+   *
+   * `options.name`, `options.position` and `options.size` are honoured;
+   * `options.heightField` does not exist here, because a different height field
+   * is a different tile.
+   */
+  rebuildMaterial(options: TerrainOptions): void;
   dispose(): void;
 }
 
@@ -319,6 +379,46 @@ function meshesUnder(root: Node): AbstractMesh[] {
 }
 
 /**
+ * Writes the uniform half of a tile's surface into a material that already has
+ * the right program (ADR-0050).
+ *
+ * The one place those uniforms are written, called both when the material is
+ * built and when a dial is turned — so a tile built at metalness 0.4 and a tile
+ * turned to 0.4 cannot drift apart. A field the update leaves out is left as it
+ * was; a layer count that disagrees is refused rather than partly applied.
+ *
+ * @throws when `surface.layers` is present and is not exactly `layerCount`
+ * long. A dial that writes into a layer the program does not have is a dial
+ * that does nothing, and a dial that does nothing is one someone will trust.
+ */
+export function applyTerrainUniforms(
+  material: ShaderMaterial,
+  size: readonly [number, number],
+  layerCount: number,
+  surface: TerrainSurfaceUpdate,
+): void {
+  if (surface.layers !== undefined) {
+    if (surface.layers.length !== layerCount) {
+      throw new Error(
+        `terrain: this tile has ${String(layerCount)} layer(s), the update carries ` +
+          `${String(surface.layers.length)}; adding or removing a layer is a rebuild`,
+      );
+    }
+    surface.layers.forEach((layer, index) => {
+      const [uScale, vScale] = layerRepeats([size[0], size[1]], layer.tileSize);
+      material.setVector2(`uLayerScale${String(index)}`, new Vector2(uScale, vScale));
+      material.setVector3(
+        `uLayerSurface${String(index)}`,
+        new Vector3(layer.normalScale ?? 1, layer.metallic ?? 0, layer.smoothness ?? 0),
+      );
+    });
+  }
+  if (surface.color !== undefined) {
+    material.setColor3('uBaseColor', Color3.FromHexString(surface.color));
+  }
+}
+
+/**
  * Builds the material for a tile.
  *
  * Exported separately from {@link createTerrain} because the editor draws the
@@ -381,13 +481,14 @@ export function createTerrainMaterial(
       textures.push(normal);
       material.setTexture(`uLayerNormal${String(index)}`, normal);
     }
-    material.setVector3(
-      `uLayerSurface${String(index)}`,
-      new Vector3(layer.normalScale ?? 1, layer.metallic ?? 0, layer.smoothness ?? 0),
-    );
   });
 
-  material.setColor3('uBaseColor', Color3.FromHexString(options.color ?? DEFAULT_TERRAIN_COLOR));
+  // The same call an in-place dial makes, so a tile built with a metalness of
+  // 0.4 and a tile turned to 0.4 are the same uniform written by the same line.
+  applyTerrainUniforms(material, options.size, layers.length, {
+    color: options.color ?? DEFAULT_TERRAIN_COLOR,
+    layers,
+  });
   bindSceneLighting(material, scene);
   if (shadows !== undefined) {
     bindShadows(material, scene, shadows);
@@ -507,35 +608,74 @@ export function createTerrain(
   heightField.parent = root;
   root.position.set(options.position[0], options.position[1], options.position[2]);
 
-  const { material, textures } = createTerrainMaterial(scene, name, options);
+  let built = createTerrainMaterial(scene, name, options);
+  let size: readonly [number, number] = [options.size[0], options.size[1]];
+  let layerCount = (options.layers ?? []).length;
   const meshes = meshesUnder(root);
-  for (const mesh of meshes) {
-    mesh.material = material;
-    // Not `receiveShadows`: the flag drives Babylon's own generated materials
-    // and this one is hand-written, so the lookup lives in the shader instead
-    // (`TerrainOptions.receiveShadows`, ADR-0024). Left false so nothing reads
-    // it as a promise the material does not keep.
-    mesh.receiveShadows = false;
-    // The ground never moves once it is placed; skip its per-frame world matrix
-    // computation the same way the base ground does (spec §38).
-    mesh.freezeWorldMatrix();
-  }
+  const wear = (material: ShaderMaterial): void => {
+    for (const mesh of meshes) {
+      mesh.material = material;
+      // Not `receiveShadows`: the flag drives Babylon's own generated materials
+      // and this one is hand-written, so the lookup lives in the shader instead
+      // (`TerrainOptions.receiveShadows`, ADR-0024). Left false so nothing reads
+      // it as a promise the material does not keep.
+      mesh.receiveShadows = false;
+      // The ground never moves once it is placed; skip its per-frame world matrix
+      // computation the same way the base ground does (spec §38).
+      mesh.freezeWorldMatrix();
+    }
+  };
+  wear(built.material);
 
   let disposed = false;
   return {
     root,
     meshes,
-    material,
-    textures,
+    get material() {
+      return built.material;
+    },
+    get textures() {
+      return built.textures;
+    },
+
+    update(surface) {
+      if (disposed) {
+        return;
+      }
+      applyTerrainUniforms(built.material, size, layerCount, surface);
+    },
+
+    rebuildMaterial(next) {
+      if (disposed) {
+        return;
+      }
+      const previous = built;
+      // Built first, disposed second, and that order is the point: while the
+      // old textures are still alive Babylon answers a `new Texture(url)` for
+      // the same URL out of its own cache, so only the images that really
+      // changed are fetched and decoded again.
+      built = createTerrainMaterial(scene, next.name ?? name, next);
+      size = [next.size[0], next.size[1]];
+      layerCount = (next.layers ?? []).length;
+      // The meshes are re-frozen against the same transform they already had,
+      // which is free; what matters is that the position may have moved.
+      root.position.set(next.position[0], next.position[1], next.position[2]);
+      wear(built.material);
+      for (const texture of previous.textures) {
+        texture.dispose();
+      }
+      previous.material.dispose();
+    },
+
     dispose() {
       if (disposed) {
         return;
       }
       disposed = true;
-      for (const texture of textures) {
+      for (const texture of built.textures) {
         texture.dispose();
       }
-      material.dispose();
+      built.material.dispose();
       root.dispose(false, false);
     },
   };

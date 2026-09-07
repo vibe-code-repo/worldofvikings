@@ -1,4 +1,6 @@
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
+import { ShaderStore } from '@babylonjs/core/Engines/shaderStore.js';
+import type { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder.js';
@@ -248,5 +250,198 @@ describe('a layer’s surface', () => {
       layers: [{ url: 'rock.png', tileSize: 2, normalMap: { url: 'rock-normal.png' } }],
     });
     expect(plain.material.shaderPath).not.toEqual(bumped.material.shaderPath);
+  });
+});
+
+/**
+ * What the material actually holds for a uniform, read back through Babylon's
+ * own serialiser rather than off a private field.
+ *
+ * `serialize()` writes `vectors2`, `vectors3` and `colors3` as plain arrays, so
+ * a test can assert the number that would be sent to the GPU without compiling
+ * an effect — which a `NullEngine` never does.
+ */
+function uniformsOf(material: ShaderMaterial): {
+  vectors2: Record<string, number[]>;
+  vectors3: Record<string, number[]>;
+  colors3: Record<string, number[]>;
+} {
+  const serialized = material.serialize() as {
+    vectors2: Record<string, number[]>;
+    vectors3: Record<string, number[]>;
+    colors3: Record<string, number[]>;
+  };
+  return serialized;
+}
+
+describe('turning a dial without rebuilding the tile (ADR-0050)', () => {
+  const twoLayers = {
+    position: [0, 0, 0],
+    size: [300, 300],
+    splat: [{ url: 'splat-a.png' }],
+    layers: [
+      { url: 'rock.png', tileSize: 2, metallic: 0.1, smoothness: 0.2 },
+      { url: 'moss.png', tileSize: 4, metallic: 0.3, smoothness: 0.4 },
+    ],
+  } as const;
+
+  it('writes the same uniforms an equally built tile would have', () => {
+    const target = scene();
+    // Two tiles that end up describing the same ground: one built with the
+    // numbers, one built with others and then turned to them. If the dial and
+    // the builder ever write different uniforms, the editor and the game show
+    // the same world file differently — and nothing would say so.
+    const turned = createTerrain(target, loadedHeightField(target), twoLayers);
+    const built = createTerrain(target, loadedHeightField(target), {
+      ...twoLayers,
+      layers: [
+        { url: 'rock.png', tileSize: 8, normalScale: 0.5, metallic: 0.75, smoothness: 0.9 },
+        { url: 'moss.png', tileSize: 16, metallic: 0.05, smoothness: 0.6 },
+      ],
+    });
+
+    turned.update({
+      layers: [
+        { tileSize: 8, normalScale: 0.5, metallic: 0.75, smoothness: 0.9 },
+        { tileSize: 16, metallic: 0.05, smoothness: 0.6 },
+      ],
+    });
+
+    const after = uniformsOf(turned.material);
+    const reference = uniformsOf(built.material);
+    expect(after.vectors3['uLayerSurface0']).toEqual([0.5, 0.75, 0.9]);
+    expect(after.vectors3['uLayerSurface1']).toEqual([1, 0.05, 0.6]);
+    // 300 m of tile at 8 m a repeat.
+    expect(after.vectors2['uLayerScale0']).toEqual([37.5, 37.5]);
+    expect(after.vectors2['uLayerScale1']).toEqual([18.75, 18.75]);
+    expect(after.vectors3).toEqual(reference.vectors3);
+    expect(after.vectors2).toEqual(reference.vectors2);
+  });
+
+  it('keeps the tile it had: same meshes, same material, same textures', () => {
+    const target = scene();
+    const terrain = createTerrain(target, loadedHeightField(target), twoLayers);
+    const material = terrain.material;
+    const textures = [...terrain.textures];
+    const meshes = [...terrain.meshes];
+    const programs = Object.keys(ShaderStore.ShadersStore).length;
+
+    terrain.update({ layers: [{ tileSize: 2, metallic: 0.9 }, { tileSize: 4 }] });
+
+    expect(terrain.material).toBe(material);
+    expect(terrain.textures).toEqual(textures);
+    expect(terrain.meshes).toEqual(meshes);
+    // No new program registered: a turned dial is a value, not a compile.
+    expect(Object.keys(ShaderStore.ShadersStore).length).toBe(programs);
+    for (const texture of textures) {
+      expect(target.textures).toContain(texture);
+    }
+  });
+
+  it('leaves out what the update leaves out', () => {
+    const target = scene();
+    const terrain = createTerrain(target, loadedHeightField(target), {
+      ...twoLayers,
+      color: '#112233',
+    });
+    terrain.update({ layers: [{ tileSize: 2 }, { tileSize: 4 }] });
+    // An update with no colour must not quietly reset the tile to the default:
+    // a partial update that overwrites is worse than one that refuses.
+    expect(uniformsOf(terrain.material).colors3['uBaseColor']).toEqual([
+      0x11 / 255,
+      0x22 / 255,
+      0x33 / 255,
+    ]);
+  });
+
+  it('refuses an update with a different number of layers', () => {
+    const target = scene();
+    const terrain = createTerrain(target, loadedHeightField(target), twoLayers);
+    expect(() => {
+      terrain.update({ layers: [{ tileSize: 2 }] });
+    }).toThrow(/2 layer\(s\), the update carries 1/);
+  });
+
+  it('does nothing once the tile has been disposed', () => {
+    const target = scene();
+    const terrain = createTerrain(target, loadedHeightField(target), twoLayers);
+    terrain.dispose();
+    expect(() => {
+      terrain.update({ layers: [{ tileSize: 2 }, { tileSize: 4 }] });
+    }).not.toThrow();
+  });
+});
+
+describe('rebuilding a tile’s material over the height field it already has', () => {
+  const smooth = {
+    name: 'ground',
+    position: [0, 0, 0],
+    size: [300, 300],
+    splat: [{ url: 'splat-a.png' }],
+    layers: [{ url: 'rock.png', tileSize: 2 }],
+  } as const;
+
+  it('keeps the meshes and swaps the program', () => {
+    const target = scene();
+    const terrain = createTerrain(target, loadedHeightField(target), smooth);
+    const meshes = [...terrain.meshes];
+    const before = terrain.material;
+    const beforeTextures = [...terrain.textures];
+
+    terrain.rebuildMaterial({ ...smooth, flatNormals: true });
+
+    // The expensive half — the loaded height field — was not touched.
+    expect(terrain.meshes).toEqual(meshes);
+    for (const mesh of meshes) {
+      expect(mesh.isDisposed()).toBe(false);
+      expect(mesh.material).toBe(terrain.material);
+    }
+    // The cheap half really was rebuilt: a facetted tile is another program.
+    expect(terrain.material).not.toBe(before);
+    expect(terrain.material.shaderPath).not.toEqual(before.shaderPath);
+    // And the old one is gone rather than left in the scene as a leak.
+    expect(target.materials).not.toContain(before);
+    for (const texture of beforeTextures) {
+      expect(target.textures).not.toContain(texture);
+    }
+  });
+
+  it('moves the tile when the rebuild puts it somewhere else', () => {
+    const target = scene();
+    const terrain = createTerrain(target, loadedHeightField(target), smooth);
+    terrain.rebuildMaterial({ ...smooth, position: [10, 2, -5] });
+    expect([terrain.root.position.x, terrain.root.position.y, terrain.root.position.z]).toEqual([
+      10, 2, -5,
+    ]);
+  });
+
+  it('takes the new layer count with it, so a later dial is checked against it', () => {
+    const target = scene();
+    const terrain = createTerrain(target, loadedHeightField(target), smooth);
+    terrain.rebuildMaterial({
+      ...smooth,
+      layers: [
+        { url: 'rock.png', tileSize: 2 },
+        { url: 'moss.png', tileSize: 3 },
+      ],
+    });
+    expect(() => {
+      terrain.update({ layers: [{ tileSize: 2 }] });
+    }).toThrow(/2 layer\(s\), the update carries 1/);
+    terrain.update({ layers: [{ tileSize: 2 }, { tileSize: 6 }] });
+    expect(uniformsOf(terrain.material).vectors2['uLayerScale1']).toEqual([50, 50]);
+  });
+
+  it('disposes the material it ended up with, not the one it started from', () => {
+    const target = scene();
+    const terrain = createTerrain(target, loadedHeightField(target), smooth);
+    terrain.rebuildMaterial({ ...smooth, flatNormals: true });
+    const material = terrain.material;
+    const textures = [...terrain.textures];
+    terrain.dispose();
+    expect(target.materials).not.toContain(material);
+    for (const texture of textures) {
+      expect(target.textures).not.toContain(texture);
+    }
   });
 });

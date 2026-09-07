@@ -62,6 +62,7 @@ export type {
 
 export {
   DEFAULT_TERRAIN_COLOR,
+  applyTerrainUniforms,
   createTerrain,
   createTerrainMaterial,
   terrainLayerSources,
@@ -71,7 +72,9 @@ export type {
   TerrainHandle,
   TerrainLayerData,
   TerrainLayerSource,
+  TerrainLayerUniforms,
   TerrainOptions,
+  TerrainSurfaceUpdate,
   TerrainTextureSource,
 } from './terrain.js';
 export {

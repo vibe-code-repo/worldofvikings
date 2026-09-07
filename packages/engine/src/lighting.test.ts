@@ -93,6 +93,32 @@ describe('applyLighting', () => {
     expect(target.fogMode).toBe(Scene.FOGMODE_NONE);
   });
 
+  /**
+   * The curve is world data (ADR-0041). `exp` reaches Babylon as FOGMODE_EXP
+   * and not EXP2, and both sets of numbers are written whichever curve is on,
+   * so switching a world back does not find the other's numbers missing.
+   */
+  it('sets an exponential fog when the profile asks for one', () => {
+    const target = scene();
+    const handle = applyLighting(target, {
+      profiles: [{ fog: { mode: 'exp', density: 0.0005, start: 20, end: 90 } }],
+    });
+
+    expect(target.fogMode).toBe(Scene.FOGMODE_EXP);
+    expect(target.fogDensity).toBe(0.0005);
+    expect(target.fogStart).toBe(20);
+    expect(target.fogEnd).toBe(90);
+
+    handle.dispose();
+  });
+
+  it('leaves a profile that says nothing about the curve on the linear one', () => {
+    const target = scene();
+    const handle = applyLighting(target, { profiles: [{ fog: { end: 500 } }] });
+    expect(target.fogMode).toBe(Scene.FOGMODE_LINEAR);
+    handle.dispose();
+  });
+
   it('builds a shadow map at the size the profile asks for', () => {
     const target = scene();
     const handle = applyLighting(target, { profiles: [{ shadows: { mapSize: 512 } }] });

@@ -335,6 +335,7 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
     fogColor: scene.fogColor.clone(),
     fogStart: scene.fogStart,
     fogEnd: scene.fogEnd,
+    fogDensity: scene.fogDensity,
     shadowsEnabled: scene.shadowsEnabled,
   };
 
@@ -344,13 +345,21 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
   scene.clearColor = Color3.FromHexString(profile.sky.horizonColor).toColor4(1);
 
   if (profile.fog.enabled) {
-    // Linear, like `createBaseScene`: the near and far edge of the fade are
-    // stated in metres, which is what a level designer can pace out.
-    scene.fogMode = Scene.FOGMODE_LINEAR;
+    // `linear` states the near and far edge of the fade in metres, which is
+    // what a level designer can pace out; `exp` states haze per metre, which is
+    // what aerial perspective actually is (ADR-0041). Both sets of numbers are
+    // written whichever curve is active, so switching a world between them does
+    // not lose the other's.
+    //
+    // `exp` and not `exp2`: any exp2 density strong enough to haze the village's
+    // own 300 m tile puts the painted range past 99.9 % haze, which is the flat
+    // band of fog colour ADR-0031 was written against.
+    scene.fogMode = profile.fog.mode === 'exp' ? Scene.FOGMODE_EXP : Scene.FOGMODE_LINEAR;
     scene.fogEnabled = true;
     scene.fogColor = Color3.FromHexString(profile.fog.color);
     scene.fogStart = profile.fog.start;
     scene.fogEnd = profile.fog.end;
+    scene.fogDensity = profile.fog.density;
   } else {
     scene.fogMode = Scene.FOGMODE_NONE;
   }
@@ -580,6 +589,7 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
       scene.fogColor = previous.fogColor;
       scene.fogStart = previous.fogStart;
       scene.fogEnd = previous.fogEnd;
+      scene.fogDensity = previous.fogDensity;
       scene.shadowsEnabled = previous.shadowsEnabled;
       clearSceneSkyGradient(scene);
     },

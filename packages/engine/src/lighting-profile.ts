@@ -50,11 +50,18 @@ export interface SkyOptions {
   readonly groundReflection: number;
 }
 
-/** Linear distance fog, in metres. */
+/** Which distance curve the fog follows (ADR-0041). */
+export type FogMode = 'linear' | 'exp';
+
+/** Distance fog: a ramp between two distances, or haze per metre. */
 export interface FogOptions {
   readonly enabled: boolean;
+  /** `linear` uses `start`/`end`; `exp` uses `density`. */
+  readonly mode: FogMode;
   readonly start: number;
   readonly end: number;
+  /** Extinction per metre under `exp`; unused under `linear`. */
+  readonly density: number;
   /**
    * `null` means "whatever the horizon is", which is what it should almost
    * always be. Resolved to a colour by {@link resolveLightingProfile}, so
@@ -189,11 +196,19 @@ export const defaultLightingProfile: ResolvedLightingProfile = {
   },
   fog: {
     enabled: true,
+    // Linear by default, so every world file written before ADR-0041 keeps the
+    // curve it was tuned against. A world asks for aerial perspective; it is
+    // not given one behind its back.
+    mode: 'linear',
     // The village tile is 300 m across (ADR-0020): the fade starts beyond the
     // far side of the square and is total just past the tile's diagonal, so the
     // horizon dissolves instead of ending at an edge.
     start: 110,
     end: 340,
+    // Unused while `mode` is `linear`. Stated anyway, because it is the value a
+    // world inherits the moment it switches curve, and an unstated default of 0
+    // would be "switch to exp and get no fog at all".
+    density: 0.0011,
     color: '#e8c79a',
   },
   shadows: {
@@ -380,8 +395,10 @@ export function resolveLightingProfile(
     },
     fog: {
       enabled: fog.enabled,
+      mode: fog.mode,
       start: fogStart,
       end: fogEnd,
+      density: requireNonNegative(fog.density, 'fog.density'),
       color: requireHexColor(fogStated ? fog.color : sky.horizonColor, 'fog.color'),
     },
     shadows: {

@@ -94,19 +94,43 @@ export const SkySchema = z
   })
   .partial();
 
+/** The distance curves the fog offers. */
+export const FOG_MODES = ['linear', 'exp'] as const;
+export const FogModeSchema = z.enum(FOG_MODES);
+
 /**
- * Distance fog, in metres.
+ * Distance fog.
  *
- * Linear, like `createBaseScene`: the near and far edge of the fade are stated
- * in metres, which is the unit a level designer can pace out on the tile.
+ * Two curves, because they answer two different questions (ADR-0041).
+ *
+ * `linear` is the one `createBaseScene` uses and the default: the near and far
+ * edge of the fade are stated in metres, which is the unit a level designer can
+ * pace out on the tile. It is a straight ramp, so it says exactly where the
+ * horizon dissolves — and says almost nothing over the first fifth of it.
+ *
+ * `exp` is aerial perspective: haze accumulates along the line of sight at a
+ * constant rate, `density` per metre, so it is already visible a hundred metres
+ * out and never quite reaches full, which leaves a distant range some colour of
+ * its own instead of a flat band. `start`/`end` are unused under `exp` and
+ * `density` is unused under `linear`; both stay writable, so a world can be
+ * switched between the curves without losing the numbers for the other.
+ *
  * `color` defaults to the sky's horizon colour, because fog that does not match
  * the horizon is a grey wall standing in front of it.
  */
 export const FogSchema = z
   .strictObject({
     enabled: z.boolean(),
+    mode: FogModeSchema,
     start: NonNegativeMetres,
     end: PositiveMetres,
+    /**
+     * Extinction per metre under `exp`. The working range is small — 0.0005 is
+     * a clear evening, 0.003 a wall of haze — so it carries its own upper bound
+     * rather than being a `Gain`: the editor derives a control's range from the
+     * schema (ADR-0033), and an unbounded number gets a box instead of a slider.
+     */
+    density: z.number().min(0).max(0.005).finite(),
     color: HexColorSchema,
   })
   .partial();

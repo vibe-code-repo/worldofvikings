@@ -49,6 +49,24 @@ describe('LightingProfileSchema', () => {
     expect(LightingProfileSchema.safeParse({ shadows: { mapSize: 8192 } }).success).toBe(false);
   });
 
+  it('takes a fog mode from its two curves and refuses anything else', () => {
+    expect(LightingProfileSchema.safeParse({ fog: { mode: 'linear' } }).success).toBe(true);
+    expect(LightingProfileSchema.safeParse({ fog: { mode: 'exp' } }).success).toBe(true);
+    expect(LightingProfileSchema.safeParse({ fog: { mode: 'exp2' } }).success).toBe(false);
+  });
+
+  /**
+   * The bound is what makes the editor draw a slider a person can aim with: the
+   * whole working range of a per-metre extinction is a few thousandths, and an
+   * unbounded number would get a text box instead (ADR-0033, ADR-0041).
+   */
+  it('bounds the fog density to the range aerial perspective lives in', () => {
+    expect(LightingProfileSchema.safeParse({ fog: { density: 0.0005 } }).success).toBe(true);
+    expect(LightingProfileSchema.safeParse({ fog: { density: 0 } }).success).toBe(true);
+    expect(LightingProfileSchema.safeParse({ fog: { density: -0.001 } }).success).toBe(false);
+    expect(LightingProfileSchema.safeParse({ fog: { density: 0.02 } }).success).toBe(false);
+  });
+
   it('rejects a fog end of zero, which would divide the fade by nothing', () => {
     expect(LightingProfileSchema.safeParse({ fog: { end: 0 } }).success).toBe(false);
   });

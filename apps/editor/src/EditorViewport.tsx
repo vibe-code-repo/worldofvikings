@@ -193,6 +193,7 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
         meshCount: sync.meshCount(),
         loadedCount: sync.loadedCount(),
         loadedTextures: sync.loadedTextures(),
+        backdrop: sync.backdropFog(),
       });
       // The outline is first drawn around the stand-in cube, because that is
       // all that exists until the GLB lands. Redrawing it here is what makes it
@@ -425,6 +426,11 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
     if (viewport && lightingKey !== lightingKeyRef.current) {
       lightingKeyRef.current = lightingKey;
       viewport.relight([editorDocument.world.lighting, zone?.lighting]);
+      // The painted range is told whether it takes the fog, and the new profile
+      // may have changed the answer — including from "there is no fog yet",
+      // which is what a shell that loaded before the first relight was told
+      // (ADR-0041).
+      sync?.refreshBackdropFog();
     }
 
     terrainRef.current?.show(zone?.terrain, `${editorDocument.world.id}:${zone?.id ?? 'no-zone'}`);

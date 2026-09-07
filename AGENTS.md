@@ -31,9 +31,10 @@ mountain shells and 23 clouds, which are a prefab category of their own: never
 scattered onto, never picked, never in the shadow map (ADR-0031). It is lit the
 way its world file says (ADR-0024): a low evening sun with one following 2048²
 shadow map that snaps to its own texels so its edges hold still while the player
-walks (ADR-0039), a gradient sky, a cool haze that reaches 1700 m — far enough that
-the painted range hazes with distance instead of standing dark behind it
-(ADR-0034) — and a graded frame whose chroma is pulled back by the profile's
+walks (ADR-0039), a gradient sky, a cool haze that thickens
+exponentially with distance and puts the ground on the same curve as the houses
+standing on it, so the range recedes instead of standing dark behind it
+(ADR-0034, ADR-0041) — and a graded frame whose chroma is pulled back by the profile's
 own `saturation`, so the village reads matte rather than oversaturated
 (ADR-0040). Grass takes that shadow without casting one
 (ADR-0027). Every entity collides against the shape its prefab declares

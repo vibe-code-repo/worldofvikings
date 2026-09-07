@@ -12,7 +12,14 @@
       "sunColor": "#ffd9a8",
       "sunSpread": 0.2
     },
-    "fog": { "enabled": true, "start": 80, "end": 1700, "color": "#b4c0cc" },
+    "fog": {
+      "enabled": true,
+      "mode": "exp",
+      "start": 80,
+      "end": 1700,
+      "density": 0.0005,
+      "color": "#a3afbd"
+    },
     "shadows": {
       "enabled": true,
       "mapSize": 2048,

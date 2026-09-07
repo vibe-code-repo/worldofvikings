@@ -97,6 +97,21 @@ export {
 } from './sky-gradient.js';
 export type { SkyGradient } from './sky-gradient.js';
 
+// The fog curve (ADR-0041): arithmetic, no Babylon, because the game, the
+// editor, the terrain shader and a test that never opens a scene all have to
+// agree about how much haze sits at a distance.
+export {
+  BABYLON_FOGMODE,
+  FOG_ENCODE_POWER,
+  MAX_BACKDROP_HAZE,
+  backdropTakesFog,
+  fogModeCode,
+  fogVisibility,
+  hazeAt,
+  rawFogFactor,
+  sceneFogCurve,
+} from './fog.js';
+export type { FogCurve, FogCurveMode, SceneFogFields } from './fog.js';
 export { applyLighting } from './lighting.js';
 export type { LightingHandle, LightingOptions } from './lighting.js';
 export { defaultLightingProfile, resolveLightingProfile } from './lighting-profile.js';

@@ -172,9 +172,30 @@ function stepFor(
     return 1;
   }
   if (minimum !== undefined && maximum !== undefined && maximum - minimum <= 2) {
-    return 0.01;
+    // Hundredths, unless the whole range is narrower than that. Fog density is
+    // bounded at 0.005 per metre (ADR-0041), and a step of 0.01 there is a
+    // control with two positions: off, and past the end. So the step is also
+    // held down to a power of ten near a fiftieth of the range, which leaves
+    // every existing 0…1 and 0…2 field on its hundredths and gives a narrow
+    // one a slider it can actually be dragged along.
+    return Math.min(0.01, powerOfTenAtOrBelow((maximum - minimum) / 50));
   }
   return 0.1;
+}
+
+/**
+ * The largest power of ten that is not greater than `value`.
+ *
+ * Built from its exponent as a literal rather than with `Math.pow`, which
+ * returns 0.00009999999999999999 for ten to the minus four. That is the right
+ * number and the wrong one to put in a control's `step`, where a browser
+ * compares a typed value against it.
+ */
+function powerOfTenAtOrBelow(value: number): number {
+  if (!(value > 0)) {
+    return 0.01;
+  }
+  return Number(`1e${String(Math.floor(Math.log10(value)))}`);
 }
 
 function fieldFrom(key: string, schema: JsonSchema, required: boolean): FormField {

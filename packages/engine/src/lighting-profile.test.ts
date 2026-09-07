@@ -94,6 +94,22 @@ describe('resolveLightingProfile', () => {
     );
   });
 
+  /**
+   * Additive and inert: a world file that says nothing about the curve keeps
+   * the one it was tuned against, and `density` is carried even while it is
+   * unused so switching a world to `exp` does not switch its fog off (ADR-0041).
+   */
+  it('defaults the fog curve to linear and carries a density through the merge', () => {
+    expect(defaultLightingProfile.fog.mode).toBe('linear');
+    expect(defaultLightingProfile.fog.density).toBeGreaterThan(0);
+    expect(resolveLightingProfile({ fog: { end: 180 } }).fog.mode).toBe('linear');
+    const exponential = resolveLightingProfile({ fog: { mode: 'exp', density: 0.0005 } });
+    expect(exponential.fog.mode).toBe('exp');
+    expect(exponential.fog.density).toBe(0.0005);
+    // The linear numbers survive the switch, so a world can be moved back.
+    expect(exponential.fog.end).toBe(defaultLightingProfile.fog.end);
+  });
+
   it('rejects fog that ends before it starts', () => {
     expect(() => resolveLightingProfile({ fog: { start: 200, end: 100 } })).toThrow(
       /fog.end \(100\) must be greater than fog.start \(200\)/,

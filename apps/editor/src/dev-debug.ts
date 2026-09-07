@@ -74,6 +74,16 @@ export interface WovEditorDebug {
     readonly meshes: number;
     readonly textures: number;
   } | null;
+  /**
+   * The painted backdrop, as the meshes report it.
+   *
+   * The game asserts the same pair in `tooling/smoke/village-backdrop.spec.ts`.
+   * It is here because the editor got the answer wrong for as long as nobody
+   * looked: it refused fog on every backdrop mesh, so the range stood dark and
+   * green behind a hazed ground and an author had no way to see the picture the
+   * game would draw (ADR-0033, ADR-0041).
+   */
+  readonly backdrop: { readonly meshes: number; readonly fogged: number };
 }
 
 declare global {
@@ -97,6 +107,7 @@ const initial: WovEditorDebug = {
   undoDepth: 0,
   redoDepth: 0,
   terrain: null,
+  backdrop: { meshes: 0, fogged: 0 },
 };
 
 // One mutable record behind the exported functions. The bridge is written from

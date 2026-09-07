@@ -127,15 +127,18 @@ asked for.
 - **The 100 cliffs are still in a zone nothing draws, and are not ready to be
   moved.** They are in `content/worlds/village1.json` under `surroundings` with
   their transforms intact — 91 of the 100 unevenly scaled, 22 tilted — and they
-  have never been on screen. Moving them into the village was tried and
-  measured: against this zone's height field 22 of the 97 under
-  `Environments/Rocks` float more than 3 m, one of them by 29 m. The placements
-  are not wrong; they are byte-identical to the bundle. The ground under them is
-  the approximation — the cliffs were authored against a 513² surface and this
-  repository ships the 257² reduction, which loses a quarter of the faces
-  steeper than 60°, and a steep border rim is exactly what goes missing.
-  Snapping them down would be inventing placement (agent rule 16). This needs
-  the finer height field first, and then the zone rule is a one-line change.
+  have never been on screen. Moving them into the village was tried and measured
+  here, and the reason recorded in this section — that the ground under them is
+  the 257² approximation of a 513² surface, so the finer field would fix it —
+  **did not survive re-measurement and is withdrawn.** The finer field arrived
+  with ADR-0032 and changed nothing: all four rasters this repository can read
+  agree within 1.5 m, and 17 of the cliffs hang 3.8 m to 27.2 m over every
+  surface the world has. The extent given above ("x 55–118, z 119–151") is wrong
+  too; the cliffs are a ring around the whole tile. **[ADR-0036](0036-the-cliff-ring-stays-out-of-the-village.md)
+  has the measurement, the corrected cause and the decision;** `pnpm seating`
+  repeats it. The placements themselves are not wrong — they are byte-identical
+  to the bundle, and snapping them down would be inventing placement (agent
+  rule 16).
 - Zone streaming will change what "one zone the game draws" means. It will not
   change which zone the backdrop belongs to.
 - The sky dome is imported and unplaced. If the gradient sky is ever replaced by

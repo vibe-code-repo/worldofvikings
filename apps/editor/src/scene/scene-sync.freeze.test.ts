@@ -205,6 +205,41 @@ describe('the reconciler freezes what is not moving', () => {
     expect(sync.frozenCount(), 'a held entity must not be pinned by its own load').toBe(0);
   });
 
+  it('puts a prop back where the document has it after a drag it could not commit', async () => {
+    const placed = [
+      { id: 'barrel_1', prefab: PREFAB.id, position: [1, 0, 2] as [number, number, number] },
+    ];
+    sync.apply(documentWith(placed, ['barrel_1']));
+    await settle();
+
+    // A drag: the handles write the node, and then the gesture cannot become a
+    // command — `Escape` cleared the selection while the mouse was down. The
+    // document never changed, so the reconciler sees no diff at all.
+    sync.nodeFor('barrel_1')?.position.set(1, 1, 2);
+    sync.apply(documentWith(placed, []));
+    expect(modelAt('barrel_1'), 'the diff cannot see a node moved behind its back').toEqual([
+      1, 2, 2,
+    ]);
+
+    sync.restore(['barrel_1']);
+
+    expect(modelAt('barrel_1')).toEqual([1, 1, 2]);
+    // Pinned again afterwards: the restore goes through the same
+    // thaw-write-pin path a document move does.
+    expect(sync.frozenCount()).toBe(1);
+  });
+
+  it('restores a pinned prop too, and ignores ids it has never heard of', async () => {
+    sync.apply(documentWith([{ id: 'barrel_1', prefab: PREFAB.id, position: [0, 0, 0] }]));
+    await settle();
+    expect(sync.frozenCount()).toBe(1);
+
+    sync.restore(['barrel_1', 'never_placed']);
+
+    expect(modelAt('barrel_1')).toEqual([0, 1, 0]);
+    expect(sync.frozenCount()).toBe(1);
+  });
+
   it('takes a tuft of grass out of the shadow map and leaves a barrel in it', async () => {
     sync.apply(
       documentWith([

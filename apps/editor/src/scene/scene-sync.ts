@@ -121,6 +121,17 @@ export interface SceneSync {
    * {@link SceneSync.meshCount}), but whether the GLB has arrived yet.
    */
   loadedCount(): number;
+  /**
+   * Puts these entities back where the document has them.
+   *
+   * {@link SceneSync.apply} is a diff, so a node moved *outside* the document
+   * is a change it cannot see: a gizmo drag whose commit could not be computed
+   * leaves the prop drawn where the mouse let go, while the file, the inspector
+   * and the hierarchy all still say the old place and nothing puts it back.
+   * This is the way back — the last definition each entity was given, written
+   * onto its node again.
+   */
+  restore(entityIds: readonly string[]): void;
   /** The node for an entity, for gizmos and framing. */
   nodeFor(entityId: string): TransformNode | undefined;
   /** The entity a picked mesh belongs to, or `undefined` for scenery. */
@@ -585,6 +596,17 @@ export function createSceneSync(options: SceneSyncOptions): SceneSync {
         }
       }
       return frozen;
+    },
+
+    restore(entityIds) {
+      for (const id of entityIds) {
+        const instance = instances.get(id);
+        if (instance !== undefined) {
+          // `instance.entity` is the definition the document last handed this
+          // entity, so writing it again is the document speaking, not a guess.
+          writeTransform(instance, instance.entity);
+        }
+      }
     },
 
     nodeFor: (entityId) => instances.get(entityId)?.root,

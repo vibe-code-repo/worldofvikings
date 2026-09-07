@@ -109,6 +109,18 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
   /** The profile the viewport was last lit with, so a gizmo drag does not relight. */
   const lightingKeyRef = useRef<string>('');
   const dragStartRef = useRef<Map<string, GizmoTransform>>(new Map());
+  /**
+   * The selection the live drag began with, and the entity its handles are on.
+   *
+   * Captured rather than read again at drag end, because the selection can move
+   * while the mouse is down — `Escape` clears it, a hierarchy click replaces it
+   * — and the gesture belongs to the props it started on. Read at the end
+   * instead, an `Escape` mid-drag left the prop drawn where the mouse let go
+   * with the document still saying the old place, nothing to undo and `dirty`
+   * still false.
+   */
+  const dragSelectionRef = useRef<readonly string[]>([]);
+  const dragPrimaryRef = useRef<string | undefined>(undefined);
 
   // Live copies of everything the event handlers need to read.
   const documentRef = useRef(editorDocument);
@@ -310,6 +322,8 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
         // every selected entity are what the delta is measured against.
         const sync = syncRef.current;
         const starts = new Map<string, GizmoTransform>();
+        dragSelectionRef.current = [...documentRef.current.selection];
+        dragPrimaryRef.current = documentRef.current.selection.at(-1);
         for (const id of documentRef.current.selection) {
           const node = sync?.nodeFor(id);
           if (node) {
@@ -323,17 +337,31 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
         dragStartRef.current = starts;
       },
       onDragEnd(finished) {
-        const selection = documentRef.current.selection;
+        const sync = syncRef.current;
+        const held = dragSelectionRef.current;
+        dragSelectionRef.current = [];
+        const primary = dragPrimaryRef.current;
+        dragPrimaryRef.current = undefined;
+        // Entities the document no longer has — deleted or replaced while the
+        // mouse was down — are dropped: a transform for an entity that is gone
+        // is a command nothing can apply.
+        const alive = held.filter((id) => sync?.nodeFor(id) !== undefined);
         const changes = changesFromDrag(
-          selection,
+          alive,
           dragStartRef.current,
-          selection.at(-1),
+          primary !== undefined && alive.includes(primary) ? primary : undefined,
           finished,
           snappingRef.current,
         );
         if (changes.length > 0) {
           handlersRef.current.onTransform(changes);
+          return;
         }
+        // Nothing could be committed, and the handles have already moved the
+        // node. The reconciler sees no diff, so it is asked to say the document
+        // again for the props the drag held — otherwise the picture keeps a
+        // position the file never had.
+        sync?.restore(held);
       },
     });
     gizmosRef.current = gizmos;

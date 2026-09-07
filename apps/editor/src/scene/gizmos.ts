@@ -12,6 +12,15 @@
  * per frame — an undo stack with four hundred entries for one drag is not an
  * undo stack — and not never, which is what a viewport that edits the scene
  * instead of the document would produce.
+ *
+ * Which handles are attached *while* a drag is live is not decided here but in
+ * `gizmo-drag.ts`, and that is worth its own file: a tool change or a
+ * deselection that reaches the gizmos during a drag detaches the handle Babylon
+ * is dragging, and Babylon then never fires its drag end. The gesture never
+ * becomes a command, `isDragging()` never goes false again, and the viewport —
+ * which refuses to select anything while a drag is live — is dead to the mouse
+ * for the rest of the session, with the prop drawn where the document does not
+ * have it.
  */
 import { PositionGizmo } from '@babylonjs/core/Gizmos/positionGizmo.js';
 import { RotationGizmo } from '@babylonjs/core/Gizmos/rotationGizmo.js';
@@ -20,9 +29,24 @@ import { UtilityLayerRenderer } from '@babylonjs/core/Rendering/utilityLayerRend
 import type { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { Vector3 } from '@wov/world-schema';
+import {
+  beganDrag,
+  endedDrag,
+  isDragging,
+  noGizmoDrag,
+  wantAttachment,
+  type EditorTool,
+  type GizmoDragState,
+} from './gizmo-drag.js';
 
-/** Which handles are on screen. `select` shows none. */
-export type EditorTool = 'select' | 'move' | 'rotate' | 'scale';
+/**
+ * Which handles are on screen. `select` shows none.
+ *
+ * Declared in `gizmo-drag.ts` — the module that decides which of them is
+ * attached at any moment — and re-exported here, because this is the module
+ * every caller means when it says "the gizmos".
+ */
+export type { EditorTool } from './gizmo-drag.js';
 
 /** The tool each shortcut selects (spec §14). */
 export const TOOL_KEYS: Readonly<Record<string, EditorTool>> = {
@@ -92,9 +116,7 @@ export function createGizmos(options: GizmoSetOptions): GizmoSet {
   const scale = new ScaleGizmo(layer);
   const all = [move, rotate, scale];
 
-  let tool: EditorTool = 'select';
-  let attached: TransformNode | null = null;
-  let dragging = false;
+  let state: GizmoDragState<TransformNode> = noGizmoDrag<TransformNode>();
 
   // World-aligned handles, so dragging the x arrow moves along world x whatever
   // the prop is rotated to. The scale gizmo is the exception: scaling happens in
@@ -102,42 +124,55 @@ export function createGizmos(options: GizmoSetOptions): GizmoSet {
   move.updateGizmoRotationToMatchAttachedMesh = false;
   rotate.updateGizmoRotationToMatchAttachedMesh = false;
 
+  /** Puts `state.shown` onto the three gizmos; idempotent, so it can be re-said. */
+  const refresh = (): void => {
+    const { tool, node } = state.shown;
+    move.attachedNode = tool === 'move' ? node : null;
+    rotate.attachedNode = tool === 'rotate' ? node : null;
+    scale.attachedNode = tool === 'scale' ? node : null;
+  };
+
   for (const gizmo of all) {
     gizmo.attachedNode = null;
     gizmo.onDragStartObservable.add(() => {
-      dragging = true;
+      state = beganDrag(state);
       onDragStart();
     });
     gizmo.onDragEndObservable.add(() => {
-      dragging = false;
-      if (attached) {
-        onDragEnd(readTransform(attached));
+      const dragged = state.dragged;
+      state = endedDrag(state);
+      // Whatever the author asked for mid-drag happens now, and before the
+      // commit: the commit replaces the document, which attaches the handles
+      // again, and the two must not race to say different things.
+      refresh();
+      if (dragged !== null && !dragged.isDisposed()) {
+        onDragEnd(readTransform(dragged));
       }
     });
   }
 
-  const refresh = (): void => {
-    move.attachedNode = tool === 'move' ? attached : null;
-    rotate.attachedNode = tool === 'rotate' ? attached : null;
-    scale.attachedNode = tool === 'scale' ? attached : null;
+  const want = (next: { tool: EditorTool; node: TransformNode | null }): void => {
+    state = wantAttachment(state, next);
+    refresh();
   };
 
   return {
     setTool(next) {
-      tool = next;
-      refresh();
+      want({ tool: next, node: state.wanted.node });
     },
     attach(node) {
-      attached = node;
-      refresh();
+      want({ tool: state.wanted.tool, node });
     },
     setSnapping(snapping) {
       move.snapDistance = snapping.position;
       rotate.snapDistance = snapping.rotation;
       scale.snapDistance = snapping.position;
     },
-    isDragging: () => dragging,
+    isDragging: () => isDragging(state),
     dispose() {
+      // Belt and braces: a gizmo disposed mid-drag never fires its drag end, so
+      // the state is cleared here rather than left saying a drag is live.
+      state = noGizmoDrag<TransformNode>();
       for (const gizmo of all) {
         gizmo.dispose();
       }

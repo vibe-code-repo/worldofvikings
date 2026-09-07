@@ -291,6 +291,30 @@ main-thread work that competes with everything else running. Compare runs
 back to back on the same machine, and quote the long-task total beside the
 milestone — it moves with it.
 
+### What the load costs now
+
+Two thirds of that load was bookkeeping, not GLB decoding: the viewport reported
+the state of the scene once per loaded model _and_ once per loaded texture, and
+each report walked all 5273 entities. Reports are folded into one per frame, the
+walks happen only for a session that published the debug bridge, and the
+hierarchy renders the rows it shows instead of one button per entity (ADR-0048).
+Three back-to-back pairs on this rig, branch point against branch:
+
+| `load`                | before                | after                |
+| --------------------- | --------------------- | -------------------- |
+| every model on screen | 108.1 / 60.5 / 74.5 s | 25.7 / 21.5 / 17.2 s |
+| main thread blocked   | 105.7 / 58.3 / 72.0 s | 23.4 / 18.0 / 14.9 s |
+| longest single task   | 76.7 / 42.2 / 48.6 s  | 11.3 / 4.6 / 4.9 s   |
+
+Draw calls, active meshes, triangles, shadow casters, the camera and the canvas
+read-back are identical before and after, so this bought nothing from the
+picture. What is left of the load is Babylon's clone path under `instantiate`
+and the render loop itself.
+
+The settled frame is not comparable on a shared machine: with the counters
+byte-identical in all six of those runs, `scene.render` came out anywhere
+between 210 ms and 789 ms. Take that number on a quiet machine or not at all.
+
 ## Environment
 
 Every app has a committed `.env.example` with working local defaults. Copy it to

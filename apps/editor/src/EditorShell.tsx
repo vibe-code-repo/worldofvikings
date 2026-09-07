@@ -584,6 +584,37 @@ export function EditorShell(): JSX.Element {
     controllerRef.current = controller;
   }, []);
 
+  /*
+   * The handlers the memoised panels get, made once.
+   *
+   * A new arrow per render defeats `React.memo` completely: the props differ
+   * every time and the panel rebuilds anyway. These four are what the hierarchy
+   * and the right column need, and none of them closes over anything that
+   * changes, so they are made once per session (ADR-0048).
+   */
+  const activateZone = useCallback((id: string) => {
+    dispatch({ type: 'activateZone', zoneId: id });
+  }, []);
+
+  const selectFromList = useCallback((entityId: string, additive: boolean) => {
+    dispatch(
+      additive ? { type: 'toggleSelect', entityId } : { type: 'select', entityIds: [entityId] },
+    );
+  }, []);
+
+  const renameZoneById = useCallback((id: string, name: string) => {
+    dispatch({ type: 'run', command: renameZone(id, name) });
+  }, []);
+
+  const renameEntityById = useCallback(
+    (entityId: string, nextId: string) => {
+      if (zoneId !== null) {
+        dispatch({ type: 'run', command: renameEntity(zoneId, entityId, nextId) });
+      }
+    },
+    [zoneId],
+  );
+
   /** A viewport click while a corner is armed moves that corner of the region. */
   const onGroundPick = useCallback(
     (position: Vector3) => {
@@ -660,16 +691,10 @@ export function EditorShell(): JSX.Element {
       <div className="body">
         <Hierarchy
           document={document}
-          onActivateZone={(id) => dispatch({ type: 'activateZone', zoneId: id })}
-          onSelect={(entityId, additive) =>
-            dispatch(
-              additive
-                ? { type: 'toggleSelect', entityId }
-                : { type: 'select', entityIds: [entityId] },
-            )
-          }
+          onActivateZone={activateZone}
+          onSelect={selectFromList}
           onAddZone={addNewZone}
-          onRenameZone={(id, name) => dispatch({ type: 'run', command: renameZone(id, name) })}
+          onRenameZone={renameZoneById}
         />
 
         <section className="viewport">
@@ -704,13 +729,9 @@ export function EditorShell(): JSX.Element {
           prefabSaving={prefabSaving}
           lightingScope={lightingScope}
           onLightingScope={setLightingScope}
-          onRename={(entityId, nextId) => {
-            if (zoneId !== null) {
-              dispatch({ type: 'run', command: renameEntity(zoneId, entityId, nextId) });
-            }
-          }}
+          onRename={renameEntityById}
           onTransform={transformOne}
-          onRenameZone={(id, name) => dispatch({ type: 'run', command: renameZone(id, name) })}
+          onRenameZone={renameZoneById}
           onTerrain={terrain}
           onTerrainDrag={terrainDrag}
           onSurface={surface}

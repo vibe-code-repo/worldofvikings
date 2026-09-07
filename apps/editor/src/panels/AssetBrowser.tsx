@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import type { PrefabCategory } from '@wov/world-schema';
 import type { CatalogedPrefab } from '../api/client.js';
@@ -24,8 +24,11 @@ export interface AssetBrowserProps {
  * The size column comes from the manifest's measured hull, never from an
  * assumption: height, origin and units differ per source file and per exporting
  * tool, and "size unknown" is a more useful answer than a made-up one.
+ *
+ * Memoised: it lists 251 prefabs and none of them change while a world loads,
+ * but the shell around it re-renders whenever the status bar does (ADR-0048).
  */
-export function AssetBrowser(props: AssetBrowserProps): JSX.Element {
+export const AssetBrowser = memo(function AssetBrowser(props: AssetBrowserProps): JSX.Element {
   const { prefabs } = props;
   const [category, setCategory] = useState<PrefabCategory | 'all'>('all');
   const [search, setSearch] = useState('');
@@ -125,4 +128,4 @@ export function AssetBrowser(props: AssetBrowserProps): JSX.Element {
       )}
     </section>
   );
-}
+});

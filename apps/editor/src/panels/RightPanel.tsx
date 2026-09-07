@@ -14,7 +14,11 @@
  * *Entity* stays the tab a session opens on: it is the one that answers to a
  * click in the viewport, and moving it would make selecting a prop feel like it
  * did nothing.
+ *
+ * Memoised, like the hierarchy: the column answers to the document and to the
+ * tab, and to nothing else the shell re-renders for (ADR-0048).
  */
+import { memo } from 'react';
 import type { JSX } from 'react';
 import type {
   EditorDocument,
@@ -69,7 +73,7 @@ const LABELS: Record<RightPanelTab, string> = {
   lighting: 'Lighting',
 };
 
-export function RightPanel(props: RightPanelProps): JSX.Element {
+export const RightPanel = memo(function RightPanel(props: RightPanelProps): JSX.Element {
   return (
     <div className="right-panel" data-testid="editor-right-panel">
       <div className="tabs" role="tablist">
@@ -125,4 +129,4 @@ export function RightPanel(props: RightPanelProps): JSX.Element {
       )}
     </div>
   );
-}
+});

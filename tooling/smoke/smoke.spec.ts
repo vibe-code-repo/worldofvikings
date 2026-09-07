@@ -736,6 +736,44 @@ test('editor opens the imported village with more than a thousand entities', asy
   const documented = await editorEntityCount(page);
   await expect.poll(() => editorMeshCount(page), { timeout: 60_000 }).toBe(documented);
 
+  // The first row the panel drew, whatever the world file happens to start
+  // with — the test is about the list, not about a particular entity.
+  const first = await page
+    .getByTestId('hierarchy-entities')
+    .locator('> li > button')
+    .first()
+    .getAttribute('data-testid')
+    .then((id) => id?.replace('hierarchy-entity-', ''));
+  expect(first).toBeTruthy();
+
+  /*
+   * The hierarchy lists the rows it shows, not one per entity (ADR-0048).
+   *
+   * Counted rather than asserted against a number of pixels: the zone has more
+   * than five thousand entities and a 15 rem column shows some tens of them,
+   * so anything under a few hundred rendered rows is a window and five
+   * thousand is the eager list this replaced. The bound is loose on purpose —
+   * it is about the order of magnitude, not about the overscan.
+   */
+  const rows = page.getByTestId('hierarchy-entities').locator('> li > button');
+  expect(await rows.count()).toBeLessThan(300);
+
+  /*
+   * And selecting from somewhere else brings the row into view.
+   *
+   * The half of a windowed list that silently does not work: outside the
+   * window the row does not exist, so a selection made anywhere but in the
+   * list itself would leave the hierarchy looking as if nothing happened.
+   * Ctrl+D duplicates the entity selected above and selects the copy, which is
+   * appended — five thousand rows below whatever the panel is showing.
+   */
+  await page.getByTestId(`hierarchy-entity-${String(first)}`).click();
+  await page.keyboard.press('Control+d');
+  const copied = (await editorDebug(page))?.selection.at(-1);
+  expect(copied).toBeDefined();
+  expect(copied).not.toBe(first);
+  await expect(page.getByTestId(`hierarchy-entity-${String(copied)}`)).toBeVisible();
+
   // Still rendering afterwards: a viewport that built the zone and then died is
   // not a viewport that opened it.
   const before = await editorFrameId(page);

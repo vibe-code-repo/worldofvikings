@@ -26,6 +26,7 @@ who never imports an asset never runs it.
 | `material-binding.ts`    | Writes that material into the model's own glTF                       |
 | `scene-models.ts`        | Cuts one standalone model out of a scene bundle's node hierarchy     |
 | `import-world-assets.ts` | The command: walks the export, writes the three outputs              |
+| `seating.ts`             | How far a placed model stands above, or sinks into, the ground       |
 
 Everything except the command itself is pure and unit-tested — `scene-bindings.ts`
 apart, whose file reading is exercised against GLBs the test writes. The command
@@ -114,6 +115,15 @@ and that survive a re-import: `terrain-grass-a.png`, `village-splat-a.png`. The
 table is `terrain-import.ts`, and a splat map is copied at its authored size and
 never resized — each channel is a layer's weight, and halving it would bleed
 every path edge by a metre.
+
+**Placements are measured, never moved.** `seating.ts` answers the one question
+a hand-placed group raises after an import: does it touch the ground this
+repository ships? It takes the model's own vertices in the frame the game draws
+them in — the loader's root mirrors x, and a rock tilted 20° is metres from
+where its bounding box says it is — and reports the smallest gap to the surface
+underneath. The ground query is a parameter, so the regular raster and the drawn
+adaptive tile can be compared instead of one of them being trusted. `pnpm
+seating` is the command; ADR-0037 is what it was written for and what it found.
 
 **The tile is not centred.** The general import centres a terrain on x/z because
 those origins are container corners rather than authored anchors. A thinned tile

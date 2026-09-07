@@ -235,6 +235,15 @@ therefore not `rows × columns` and it cannot be read as a height grid at all.
 instead of an offline tool guessing which file to read. Absent means the height
 field is itself a grid, which is what it was through version 3.
 
+**Do the placements touch it?** `pnpm seating --world <id> --zone <id>
+[--prefab <substring>]` measures every placement of a zone against the ground of
+the zone that has one — the smallest gap between the model's own vertices and
+the surface under them, reported against both the raster and the drawn tile. It
+writes nothing. It exists because a zone with no ground of its own is exactly
+where the question comes up: the game draws one zone, so "may these be moved
+into it?" is a question about numbers, and it has been answered wrongly twice
+from a screenshot and from a bounding box (ADR-0037).
+
 **Changing a layer's surface.** `pnpm terrain-surface --world <id> --zone <id>
 --layer <n> --metallic <0…1>` and the editor's ground panel are the same
 `updateTerrainSurface` command from `@wov/editor-core` (ADR-0032). Neither can

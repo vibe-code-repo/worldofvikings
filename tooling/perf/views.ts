@@ -23,6 +23,12 @@ export interface PerfView {
  * `square` is the spawn default — the densest thing in the village and the view
  * the CPU budget is set by. `slope` looks down the hill from the north-east
  * corner, where the shadow map covers ground the square's view never shows.
+ *
+ * `rim` is aimed rather than budgeted: it frames the north edge of the tile and
+ * the sky above it, which is where the 100 cliffs of `surroundings` would stand
+ * if they were ever moved into the village. Half of that frame is sky, so its
+ * frame time says little — it exists so the picture in ADR-0037 can be taken
+ * again by name instead of from a query string somebody pasted once.
  */
 export const PERF_VIEWS: readonly PerfView[] = [
   {
@@ -34,6 +40,11 @@ export const PERF_VIEWS: readonly PerfView[] = [
     id: 'slope',
     description: 'north-east slope, looking back at the village',
     query: '?debug=1&world=village1&spawn=120,120&look=-105,14',
+  },
+  {
+    id: 'rim',
+    description: 'north rim, pitched up at the sky the cliff ring stands in',
+    query: '?debug=1&world=village1&spawn=77,255&look=0,-28',
   },
 ];
 

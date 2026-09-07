@@ -246,18 +246,29 @@ export interface ZoneRule {
  * change what "one zone" means; it will not change which zone this belongs to.
  *
  * **Why `Environments/Rocks` is *not* also moved, though it looks like it
- * should be.** Its 100 cliffs stand at x 55–118, z 119–151 on a tile that runs
- * 0–300 — inside the village — and in `surroundings`, which has no ground and
- * is therefore never the zone `playableZone` picks, they have never once been
- * drawn. Moving them was tried and measured, and it is not ready: against this
- * zone's height field 22 of the 97 float more than 3 m, one of them by 29 m,
- * because the cliffs were authored against a 513² surface and this repository
- * ships the 257² reduction of it (ADR-0020), which is exactly where a steep
- * border rim goes missing. The placements are not wrong — they are byte-identical
- * to the bundle — and snapping them to the ground would be inventing placement,
- * which this importer does not do (agent rule 16). It needs the finer height
- * field first, so the cliffs stay where they are and the reason is written down
- * rather than rediscovered (ADR-0031).
+ * should be.** Its 97 cliffs — with 3 more under `Environments Outside Village`
+ * — are a ring around the tile: 64 of the 100 stand within 15 m of an edge of
+ * the 300 m square, and in `surroundings`, which has no ground and is therefore
+ * never the zone `playableZone` picks, they have never once been drawn.
+ *
+ * They are not moved because they do not stand on this zone's ground, and that
+ * is measured rather than assumed: `pnpm seating --world village1 --zone
+ * surroundings --prefab rock-cliff` says 81 of 100 sit within half a metre of
+ * it, and two more rest on a neighbouring cliff, which counts. The other 17
+ * hang 3.8 m to 27.2 m over everything the world file has, six of them in a row
+ * over the north rim. 83 of 100 against a bar of 95 %.
+ *
+ * The resolution of the height field is **not** the reason, though ADR-0031
+ * said it was and this comment used to repeat it. The 257² reduction, the full
+ * 513² raster, the drawn adaptive tile and the modelling export's own raster
+ * give the same 17 floating placements and answers within 1.5 m of each other,
+ * and the export's raster matches the shipped one exactly. The cliffs lean on
+ * ground outside this tile, which is a zone this repository has not imported —
+ * not a surface it has approximated (ADR-0037).
+ *
+ * The placements are not wrong: they are byte-identical to the bundle. Snapping
+ * them down would be inventing placement, which this importer does not do
+ * (agent rule 16).
  */
 export const DEFAULT_ZONES: readonly ZoneRule[] = [
   {

@@ -45,3 +45,4 @@ change it describes.
 | [0034](0034-the-backdrop-takes-a-fog-that-reaches-past-it.md)                 | The backdrop takes a fog that reaches past it                     | accepted |
 | [0035](0035-the-static-world-is-frozen.md)                                    | The static world is frozen                                        | accepted |
 | [0036](0036-a-re-import-keeps-the-entities-the-bundle-never-had.md)           | A re-import keeps the entities the bundle never had               | accepted |
+| [0037](0037-the-cliff-ring-stays-out-of-the-village.md)                       | The cliff ring stays out of the village                           | accepted |

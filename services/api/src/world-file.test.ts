@@ -133,4 +133,81 @@ describe('serializeWorld', () => {
     expect(text).not.toContain('"toneMapping"');
     expect(text).not.toContain('"shadows"');
   });
+
+  /**
+   * The failure this test was written for had no symptom.
+   *
+   * `sound` landed in the world format, `village1.json` grew a bed and
+   * seventeen emitters, and this module — which writes the file by naming keys
+   * — had never been told about it. Opening the village in the editor and
+   * pressing Ctrl+S wrote it back silent: no error, no warning, and a diff
+   * removing a block nobody had touched. Caught by an editor parity test that
+   * placed an emitter through the panel and read the file back.
+   */
+  it('writes the sound profile a world carries, in schema order', () => {
+    const text = serializeWorld({
+      schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
+      id: 'example',
+      name: 'Example World',
+      // Out of order and with holes, like the lighting case above.
+      sound: {
+        cullDistance: 60,
+        ambience: { volume: 0.35, clip: 'audio/ambience/wind.ogg', enabled: true },
+      },
+      zones: [
+        {
+          id: 'village',
+          name: 'Village',
+          entities: [],
+          sound: {
+            footsteps: {
+              banks: [{ clips: ['audio/footsteps/gravel-01.ogg'], surface: 'gravel' }],
+              defaultSurface: 'gravel',
+              layerSurfaces: ['gravel', 'grass'],
+            },
+            emitters: [
+              {
+                clip: 'audio/emitters/fire.ogg',
+                loop: true,
+                prefab: 'camp-brazier-01',
+                id: 'fires',
+                volume: 0.55,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const written = JSON.parse(text) as {
+      sound: Record<string, unknown>;
+      zones: { sound: Record<string, unknown> }[];
+    };
+    expect(Object.keys(written.sound)).toEqual(['ambience', 'cullDistance']);
+    expect(Object.keys(written.sound['ambience'] as object)).toEqual(['enabled', 'clip', 'volume']);
+
+    const zone = written.zones[0]?.sound ?? {};
+    expect(Object.keys(zone)).toEqual(['footsteps', 'emitters']);
+    expect(Object.keys(zone['footsteps'] as object)).toEqual([
+      'layerSurfaces',
+      'defaultSurface',
+      'banks',
+    ]);
+    // A bank and an emitter come back in schema order too, not in the order the
+    // editor's object literal happened to have them.
+    expect(Object.keys((zone['footsteps'] as { banks: object[] }).banks[0] ?? {})).toEqual([
+      'surface',
+      'clips',
+    ]);
+    expect(Object.keys((zone['emitters'] as object[])[0] ?? {})).toEqual([
+      'id',
+      'prefab',
+      'clip',
+      'loop',
+      'volume',
+    ]);
+    // Nothing invented: a profile that says three things says three things.
+    expect(text).not.toContain('"master"');
+    expect(text).not.toContain('"minDistance"');
+  });
 });

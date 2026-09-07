@@ -63,7 +63,6 @@
         },
         {
           "surface": "grass",
-          "volume": 0.9,
           "clips": [
             "audio/footsteps/grass-01.ogg",
             "audio/footsteps/grass-02.ogg",
@@ -74,28 +73,29 @@
             "audio/footsteps/grass-07.ogg",
             "audio/footsteps/grass-08.ogg",
             "audio/footsteps/grass-09.ogg"
-          ]
+          ],
+          "volume": 0.9
         },
         {
           "surface": "wood",
-          "volume": 0.95,
           "clips": [
             "audio/footsteps/wood-01.ogg",
             "audio/footsteps/wood-02.ogg",
             "audio/footsteps/wood-03.ogg",
             "audio/footsteps/wood-04.ogg"
-          ]
+          ],
+          "volume": 0.95
         },
         {
           "surface": "water",
-          "volume": 0.8,
           "clips": [
             "audio/footsteps/water-01.ogg",
             "audio/footsteps/water-02.ogg",
             "audio/footsteps/water-03.ogg",
             "audio/footsteps/water-04.ogg",
             "audio/footsteps/water-05.ogg"
-          ]
+          ],
+          "volume": 0.8
         }
       ]
     }
@@ -37131,8 +37131,8 @@
               "audio/animals/crow-05.ogg"
             ],
             "loop": false,
-            "intervalSeconds": [20, 70],
             "volume": 0.5,
+            "intervalSeconds": [20, 70],
             "minDistance": 8,
             "maxDistance": 80,
             "rolloff": 0.8
@@ -37147,8 +37147,8 @@
               "audio/animals/rooster-02.ogg"
             ],
             "loop": false,
-            "intervalSeconds": [25, 80],
             "volume": 0.45,
+            "intervalSeconds": [25, 80],
             "minDistance": 3,
             "maxDistance": 30,
             "rolloff": 1.4
@@ -37159,8 +37159,8 @@
             "clip": "audio/animals/cow-01.ogg",
             "variants": ["audio/animals/cat-01.ogg"],
             "loop": false,
-            "intervalSeconds": [45, 150],
             "volume": 0.4,
+            "intervalSeconds": [45, 150],
             "minDistance": 4,
             "maxDistance": 40,
             "rolloff": 1.1

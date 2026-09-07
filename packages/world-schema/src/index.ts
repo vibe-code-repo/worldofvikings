@@ -83,6 +83,8 @@ export {
   PrefabCollisionSchema,
   PrefabDefinitionSchema,
   PrefabVisibilitySchema,
+  SHADOW_CASTER_MINIMUM_HEIGHT,
+  castsShadows,
   isBackdrop,
   parsePrefabCatalog,
 } from './prefab.js';
@@ -96,4 +98,5 @@ export type {
   PrefabCollisionKind,
   PrefabDefinition,
   PrefabVisibility,
+  ShadowCastingPrefab,
 } from './prefab.js';

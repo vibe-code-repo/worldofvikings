@@ -46,7 +46,7 @@ import {
   type AssetSourceConfig,
   type AssetSourceCounts,
 } from '@wov/asset-system';
-import { isBackdrop } from '@wov/world-schema';
+import { castsShadows, isBackdrop } from '@wov/world-schema';
 import type {
   EntityDefinition,
   PrefabDefinition,
@@ -121,50 +121,6 @@ export function indexPrefabs(prefabs: readonly PrefabDefinition[]): {
  */
 export function drawsAsThinInstances(prefab: PrefabDefinition): boolean {
   return prefab.category === 'vegetation';
-}
-
-/**
- * Shortest a model may be and still be drawn into the sun's shadow map.
- *
- * Half a metre, from the two ends of the measurement. A tuft of the scattered
- * grass is 0.25 m tall (`content/prefabs/imported.json`) and the shadow map
- * covers 120 m in 2048 texels — 5.9 cm of ground each — so its whole shadow is
- * about four texels. The next thing up is a bush at 1.88 m, which is 32 texels
- * and a shape a player can see. Nothing in the village stands between the two.
- */
-export const SHADOW_CASTER_MINIMUM_HEIGHT = 0.5;
-
-/**
- * Whether this prefab's copies are drawn into the sun's shadow map.
- *
- * Everything does, except vegetation too short for its shadow to be a shape.
- * That is not only a saving, though it is a large one — the village scatters
- * 3 473 tufts of grass, each of them a thin instance the shadow pass would draw
- * a second time every frame. It is also what the picture wants: tufts that cast
- * shadows cast them on *each other*, and a dense field of grass then reads as a
- * dark mat rather than as grass. They still **receive**: a tuft in the shade of
- * a house is in the shade (`excludeFromCasting` in `@wov/engine`).
- *
- * Measured on the model rather than assumed from the category, because the
- * category says what a thing is and the bounds say how big it is — and a prefab
- * that was never measured casts, because "we do not know" must not read as
- * "it is small".
- */
-export function castsShadows(prefab: PrefabDefinition): boolean {
-  const bounds = prefab.bounds;
-  // A backdrop is out of the shadow map for a different reason and without a
-  // measurement: the sun's map covers 120 m around the player, the nearest
-  // shell stands 290 m away, and a shell 1 188 m across put into that map would
-  // stretch it over the whole world. It receives nothing either — `main.ts`
-  // hands every backdrop mesh to `excludeFromShadows`, which is both directions
-  // at once (ADR-0031).
-  if (isBackdrop(prefab)) {
-    return false;
-  }
-  if (bounds === undefined || prefab.category !== 'vegetation') {
-    return true;
-  }
-  return bounds.max[1] - bounds.min[1] >= SHADOW_CASTER_MINIMUM_HEIGHT;
 }
 
 /**

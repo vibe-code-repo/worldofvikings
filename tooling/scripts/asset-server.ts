@@ -19,109 +19,33 @@
  *
  * Deliberately written against Node built-ins only: a static file server is not
  * worth a dependency (agent rule 12).
+ *
+ * **Caching (ADR-0052).** Every file answers with an `ETag` and a
+ * `Last-Modified`, and a request that already holds them is answered `304` with
+ * no body. `Cache-Control` stays revalidating — `public, max-age=0,
+ * must-revalidate`, which is `no-cache` said in full — so a texture replaced in
+ * the store is still visible on the next reload; what changed is that an
+ * *unchanged* file no longer costs its bytes a second time. A deployment that
+ * knowingly wants a lifetime sets `ASSET_CACHE_MAX_AGE` (seconds); see
+ * `tooling/README.md`.
+ *
+ * This file is configuration plus `listen`. Everything it decides lives in
+ * `asset-handler.ts`, `asset-cache.ts` and `asset-routes.ts`, which have tests.
  */
 import { createServer } from 'node:http';
-import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { routeRequest } from './asset-routes.js';
+import { readAssetCacheMaxAge } from './asset-cache.js';
+import { createAssetHandler } from './asset-handler.js';
 
 const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const assetRoot = resolve(process.env['ASSET_ROOT'] ?? join(repoRoot, 'assets'));
 const configuredStore = process.env['WOV_ASSET_STORE']?.trim() ?? '';
 const storeRoot = configuredStore.length > 0 ? resolve(configuredStore) : undefined;
 const port = Number.parseInt(process.env['ASSET_PORT'] ?? '9000', 10);
+const maxAgeSeconds = readAssetCacheMaxAge(process.env['ASSET_CACHE_MAX_AGE']);
 
-const contentTypes = new Map<string, string>([
-  ['.glb', 'model/gltf-binary'],
-  ['.gltf', 'model/gltf+json'],
-  ['.json', 'application/json; charset=utf-8'],
-  ['.png', 'image/png'],
-  ['.jpg', 'image/jpeg'],
-  ['.jpeg', 'image/jpeg'],
-  ['.webp', 'image/webp'],
-  ['.ktx2', 'image/ktx2'],
-  ['.ogg', 'audio/ogg'],
-  ['.mp3', 'audio/mpeg'],
-  ['.txt', 'text/plain; charset=utf-8'],
-  ['.md', 'text/markdown; charset=utf-8'],
-]);
-
-/** Resolves a request path inside the asset root, or `undefined` if it escapes. */
-export function resolveAssetPath(root: string, requestPath: string): string | undefined {
-  const decoded = decodeURIComponent(requestPath.split('?')[0] ?? '/');
-  const candidate = resolve(join(root, normalize(decoded)));
-  if (candidate !== root && !candidate.startsWith(root + sep)) {
-    return undefined;
-  }
-  return candidate;
-}
-
-/**
- * Headers every response carries, success or not.
- *
- * The failures need it as much as the successes: without the CORS header on a
- * 404, a browser reports "blocked by CORS policy" instead of "not found", and
- * the expected state of a clean clone — no store mounted, private assets 404,
- * placeholders load — reads in the console as a security problem.
- */
-const COMMON_HEADERS = { 'access-control-allow-origin': '*' } as const;
-
-const server = createServer((request, response) => {
-  void (async () => {
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-      response.writeHead(405, { ...COMMON_HEADERS, allow: 'GET, HEAD' }).end();
-      return;
-    }
-
-    if (request.url === '/health' || request.url === '/') {
-      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(
-        JSON.stringify({
-          status: 'ok',
-          service: 'world-of-vikings-assets',
-          root: assetRoot,
-          // Reported so "is the store mounted?" is answerable without SSH.
-          store: storeRoot ?? null,
-        }),
-      );
-      return;
-    }
-
-    const route = routeRequest(request.url ?? '/', { assets: assetRoot, store: storeRoot });
-    if (route === undefined) {
-      // A store request with no store: the expected state of a clean clone.
-      response.writeHead(404, COMMON_HEADERS).end('no asset store configured');
-      return;
-    }
-    const filePath = resolveAssetPath(route.root, route.path);
-    if (filePath === undefined) {
-      response.writeHead(403, COMMON_HEADERS).end('forbidden');
-      return;
-    }
-
-    try {
-      const stats = await stat(filePath);
-      if (!stats.isFile()) {
-        response.writeHead(404, COMMON_HEADERS).end('not found');
-        return;
-      }
-      response.writeHead(200, {
-        ...COMMON_HEADERS,
-        'content-type': contentTypes.get(extname(filePath)) ?? 'application/octet-stream',
-        'content-length': stats.size,
-        'cache-control': 'no-cache',
-      });
-      if (request.method === 'HEAD') {
-        response.end();
-        return;
-      }
-      createReadStream(filePath).pipe(response);
-    } catch {
-      response.writeHead(404, COMMON_HEADERS).end('not found');
-    }
-  })();
-});
+const server = createServer(createAssetHandler({ assetRoot, storeRoot, maxAgeSeconds }));
 
 // Loopback by default (a clean clone never exposes assets by accident); the
 // staging host on wov-dev sets ASSET_HOST=0.0.0.0 so the reverse proxy can reach it.
@@ -132,5 +56,10 @@ server.listen(port, host, () => {
     storeRoot === undefined
       ? `asset server: /store is not mounted (set WOV_ASSET_STORE to serve private assets)\n`
       : `asset server: /store serving ${storeRoot}\n`,
+  );
+  process.stdout.write(
+    maxAgeSeconds === 0
+      ? `asset server: every file is revalidated (ETag + Last-Modified, 304 when unchanged)\n`
+      : `asset server: files may be used for ${String(maxAgeSeconds)} s without asking (ASSET_CACHE_MAX_AGE)\n`,
   );
 });

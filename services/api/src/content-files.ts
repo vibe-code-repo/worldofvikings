@@ -1,10 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, open, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 /** A JSON file that could be read and parsed, or the reason it could not. */
 export type JsonFileResult =
-  | { readonly status: 'ok'; readonly data: unknown; readonly updatedAt: string }
+  | {
+      readonly status: 'ok';
+      readonly data: unknown;
+      readonly updatedAt: string;
+      /** Bytes on disk. Half of the response's cache validator (ADR-0052). */
+      readonly size: number;
+    }
   | { readonly status: 'not-found' }
   | { readonly status: 'unreadable'; readonly errors: readonly string[] };
 
@@ -28,20 +35,40 @@ export async function listJsonFiles(folder: string): Promise<string[]> {
   }
 }
 
+/**
+ * Reads a content file together with the stamp its cache validator is built
+ * from (ADR-0052).
+ *
+ * Bytes and stamp come from **one open handle**. Every write here is a rename
+ * (`writeJsonFileAtomically`), so a handle opened before the rename keeps
+ * pointing at the old inode: what it reads and what it stats belong to the same
+ * version of the file. Read as two calls on the path — the bytes first, the
+ * stat second — a write landing between them pairs the old body with the new
+ * file's validator, and a client that caches that pair holds the old world
+ * under a tag the server will keep answering 304 to.
+ */
 export async function readJsonFile(path: string): Promise<JsonFileResult> {
   let text: string;
+  let stamp: { updatedAt: string; size: number };
+  let handle: FileHandle;
   try {
-    text = await readFile(path, 'utf8');
+    handle = await open(path, 'r');
   } catch (error) {
     if (isNotFound(error)) {
       return { status: 'not-found' };
     }
     throw error;
   }
-
-  const updatedAt = await modifiedAt(path);
   try {
-    return { status: 'ok', data: JSON.parse(text), updatedAt };
+    const stats = await handle.stat();
+    stamp = { updatedAt: stats.mtime.toISOString(), size: stats.size };
+    text = await handle.readFile('utf8');
+  } finally {
+    await handle.close();
+  }
+
+  try {
+    return { status: 'ok', data: JSON.parse(text), ...stamp };
   } catch (error) {
     return { status: 'unreadable', errors: [`<root>: ${describe(error)}`] };
   }
@@ -76,6 +103,17 @@ export async function writeJsonFileAtomically(
 
 export async function modifiedAt(path: string): Promise<string> {
   return (await stat(path)).mtime.toISOString();
+}
+
+/**
+ * Modification time and size in one `stat`.
+ *
+ * The pair is what a cache validator is built from (ADR-0052), and reading it
+ * twice would be two chances for the file to change between them.
+ */
+export async function fileStamp(path: string): Promise<{ updatedAt: string; size: number }> {
+  const stats = await stat(path);
+  return { updatedAt: stats.mtime.toISOString(), size: stats.size };
 }
 
 async function exists(path: string): Promise<boolean> {

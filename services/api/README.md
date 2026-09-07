@@ -45,6 +45,15 @@ Rules the routes keep (reasoning in ADR-0017):
 - **`WORLDS_READ_ONLY=1` makes every write a 403.** Deployments that carry
   official content set it; editor clients never publish into production data
   directly (spec §49).
+- **Every read is conditional** (ADR-0052). All four `GET`s carry
+  `cache-control: public, max-age=0, must-revalidate` and a weak `ETag`, and
+  answer `304` with no body when the client sends it back in `If-None-Match`.
+  The two single-file reads also carry a real `Last-Modified` **HTTP-date**;
+  the two listings do not, because a body composed from several files has no
+  single modification time. `updatedAt` stays an ISO string **in the body and
+  in the listing** — that is what the client reads, and it is not a header.
+  The editor's second open of the village now answers `304` for the world, the
+  catalogue and the listing; before this it re-sent 1.15 MB every time.
 
 `GET /prefabs` merges every catalogue in `CONTENT_DIR/prefabs`
 (`{ schemaVersion, id, prefabs[] }`); the first definition of an id wins, and
@@ -57,6 +66,34 @@ applied last (ADR-0033). `content/prefabs/imported.json` is rewritten whole by
 `pnpm generate:prefabs`, so a collision shape corrected in the editor cannot be
 saved there — the next regeneration would revert it with no error and no diff.
 The editor writes the overlay instead; everything else keeps the first-wins rule.
+
+## Caching, and what the reverse proxy still owes
+
+The validators are computed from the content file's size and modification time
+(`src/conditional.ts`), with `CURRENT_WORLD_SCHEMA_VERSION` folded in: the
+service does not send the file, it sends a representation it builds from the
+parsed file, so a change in how it shapes that JSON has to invalidate caches the
+file's mtime knows nothing about. The tags are **weak** — size and mtime do not
+prove the bytes, and a weak tag revalidates identically (RFC 9110 §13.1.2) and
+survives a proxy that compresses on the fly. The listings' tags are a hash of
+the bytes about to be sent, which is the only thing that is true about an
+aggregate. The comparison itself is `@wov/shared`'s, shared with the asset
+server so the two cannot drift.
+
+Hand-written rather than `@fastify/etag`: the plugin hashes the serialised body
+of every response — 1.0 MB on `GET /worlds/:id`, plus the writes and the error
+bodies — to produce a validator that `stat` already provides. No new dependency
+was justified for it (AGENTS §7, agent rule 12).
+
+**Responses are not compressed here.** Measured over localhost, the village
+world is 1,007,111 bytes and gzips to 144,214 (`gzip -6`, 14.3 %); the merged
+catalogue is 197,508 and gzips to 22,852 (11.6 %). That is worth roughly 1.04 MB
+on a **first** open and nothing at all on any later one, which are empty 304s
+now. The reverse proxy in front of `api.staging` already compresses the editor's
+JavaScript and simply does not list `application/json`; adding the content type
+there is the change, not `@fastify/compress` in this service. Note that nginx
+downgrades a strong `ETag` to a weak one when it gzips — harmless here, because
+the tags are weak already and the comparison ignores the `W/` prefix.
 
 ## The content actions
 
@@ -83,6 +120,8 @@ would need extra packages for logging, validation and typing. See ADR-0005.
 
 Dependencies: `fastify`, `@fastify/cors` (the three dev apps run on their own
 origins), `@wov/world-schema` (the world and prefab formats are defined once, ADR-0004),
-`tsx` (TypeScript dev runner), `typescript`. Dev-only
+`@wov/shared` (the conditional-request helpers the asset server uses too, so the
+`ETag` comparison exists once — ADR-0052), `tsx` (TypeScript dev runner),
+`typescript`. Dev-only
 `prettier`: the JSON printer's test asserts against the real formatter instead
 of against a hand-written expectation.

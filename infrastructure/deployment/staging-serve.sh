@@ -11,10 +11,18 @@
 #
 # Why `vite preview` and not a static server of our own: it is already a
 # dependency, it serves each app from the same config that built it (base path,
-# SPA fallback, MIME types, immutable caching for hashed assets), and it fails
-# loudly when `dist/` is missing. A hand-written server would be a second
-# implementation of all of that for no gain (agent rule 12: no new dependency,
-# and no new code where a present one already answers).
+# SPA fallback, MIME types, an ETag on every file), and it fails loudly when
+# `dist/` is missing. A hand-written server would be a second implementation of
+# all of that for no gain (agent rule 12: no new dependency, and no new code
+# where a present one already answers).
+#
+# It does *not* mark the hashed `/assets/*` files immutable, whatever an earlier
+# version of this comment claimed: measured on vite 7.3.6, every file including
+# index.html gets `cache-control: no-cache` plus an ETag, and a reload answers
+# 304 for all of them. `preview.headers` is applied by a callback that is handed
+# no path, so it cannot say one thing for `/assets/*` and another for
+# index.html; setting `immutable` on the hashed paths belongs in the reverse
+# proxy (ADR-0052).
 #
 # Run `staging-build.sh` first — this script only serves.
 set -euo pipefail

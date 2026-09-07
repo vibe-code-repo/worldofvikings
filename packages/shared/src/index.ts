@@ -64,3 +64,18 @@ export function resolveServiceUrl(
 export function isDebugRequested(search: string): boolean {
   return new URLSearchParams(search).get('debug') === '1';
 }
+
+/**
+ * Conditional-request helpers, shared by the asset server and the API
+ * (ADR-0052). Both hand out files a browser sees again on every editor open,
+ * and a validator written twice is a validator that drifts.
+ */
+export {
+  fileValidators,
+  httpDate,
+  isNotModified,
+  revalidatingCacheControl,
+  type CacheValidators,
+  type ComparableValidators,
+  type ConditionalHeaders,
+} from './http-cache.js';

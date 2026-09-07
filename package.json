@@ -36,6 +36,7 @@
     "perf:frame": "tsx tooling/perf/frame-profile.ts",
     "perf:editor": "tsx tooling/perf/editor-profile.ts",
     "perf:compare": "tsx tooling/perf/compare-frames.ts",
+    "perf:cache": "tsx tooling/perf/cache-profile.ts",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test && pnpm run validate",
     "smoke": "playwright test --config tooling/smoke/playwright.config.ts"
   },
@@ -46,6 +47,7 @@
     "@wov/asset-system": "workspace:*",
     "@wov/content-build": "workspace:*",
     "@wov/editor-core": "workspace:*",
+    "@wov/shared": "workspace:*",
     "@wov/world-schema": "workspace:*",
     "concurrently": "^9.2.1",
     "dependency-cruiser": "^17.0.1",

@@ -269,6 +269,117 @@ describe('GET /prefabs/:catalog', () => {
   });
 });
 
+/**
+ * The merged catalogue is the other thing the editor fetches on every open
+ * (ADR-0052). Its validator cannot come from one file's modification time —
+ * it is composed from every file in the folder — so what has to be asserted is
+ * that adding, changing or removing any of them is noticed.
+ */
+describe('the prefab reads, asked conditionally', () => {
+  it('answers 304 for the merged catalogue while nothing changed', async () => {
+    await writeCatalog('base.json', {
+      schemaVersion: 1,
+      id: 'base',
+      prefabs: [prefab('barrel_01', 'Barrel')],
+    });
+    app = await startServer();
+    const first = await app.inject({ method: 'GET', url: '/prefabs' });
+
+    expect(first.headers['etag']).toMatch(/^W\/".+"$/);
+    expect(first.headers['cache-control']).toBe('public, max-age=0, must-revalidate');
+
+    const second = await app.inject({
+      method: 'GET',
+      url: '/prefabs',
+      headers: { 'if-none-match': String(first.headers['etag']) },
+    });
+    expect(second.statusCode).toBe(304);
+    expect(second.body).toBe('');
+  });
+
+  it('notices a second catalogue appearing in the folder', async () => {
+    await writeCatalog('base.json', {
+      schemaVersion: 1,
+      id: 'base',
+      prefabs: [prefab('barrel_01', 'Barrel')],
+    });
+    app = await startServer();
+    const first = await app.inject({ method: 'GET', url: '/prefabs' });
+
+    await writeCatalog('vegetation.json', {
+      schemaVersion: 1,
+      id: 'vegetation',
+      prefabs: [prefab('pine_tree_01', 'Pine', { category: 'vegetation' })],
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/prefabs',
+      headers: { 'if-none-match': String(first.headers['etag']) },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().prefabs).toHaveLength(2);
+  });
+
+  it('notices a correction saved into the overrides catalogue', async () => {
+    // The one file the editor writes (ADR-0033). A cached merged catalogue that
+    // survives an override is a collision shape the editor cannot fix.
+    await writeCatalog('base.json', {
+      schemaVersion: 1,
+      id: 'base',
+      prefabs: [prefab('barrel_01', 'Barrel')],
+    });
+    app = await startServer();
+    const first = await app.inject({ method: 'GET', url: '/prefabs' });
+
+    await writeCatalog('overrides.json', {
+      schemaVersion: 1,
+      id: 'overrides',
+      prefabs: [prefab('barrel_01', 'Barrel, corrected')],
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/prefabs',
+      headers: { 'if-none-match': String(first.headers['etag']) },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().prefabs[0].name).toBe('Barrel, corrected');
+  });
+
+  it('answers 304 for one catalogue file, and 200 once it was rewritten', async () => {
+    await writeCatalog('base.json', {
+      schemaVersion: 1,
+      id: 'base',
+      prefabs: [prefab('barrel_01', 'Barrel')],
+    });
+    app = await startServer();
+    const first = await app.inject({ method: 'GET', url: '/prefabs/base' });
+
+    expect(first.headers['last-modified']).toMatch(/GMT$/);
+
+    const unchanged = await app.inject({
+      method: 'GET',
+      url: '/prefabs/base',
+      headers: { 'if-none-match': String(first.headers['etag']) },
+    });
+    expect(unchanged.statusCode).toBe(304);
+
+    await writeCatalog('base.json', {
+      schemaVersion: 1,
+      id: 'base',
+      prefabs: [prefab('barrel_01', 'Barrel'), prefab('crate_01', 'Crate')],
+    });
+    const changed = await app.inject({
+      method: 'GET',
+      url: '/prefabs/base',
+      headers: { 'if-none-match': String(first.headers['etag']) },
+    });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json().prefabs).toHaveLength(2);
+  });
+});
+
 describe('PUT /prefabs/:catalog', () => {
   const overrides = {
     schemaVersion: 1,

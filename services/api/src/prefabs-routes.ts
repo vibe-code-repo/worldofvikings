@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import { parsePrefabCatalog } from '@wov/world-schema';
 import type { ApiConfig } from './config.js';
+import { bodyValidators, contentFileValidators, sendConditional } from './conditional.js';
 import { isContentId } from './content-ids.js';
 import { listPrefabs, loadCatalog, saveCatalog } from './prefab-store.js';
 
@@ -23,11 +24,19 @@ interface CatalogParams {
  * has no partial form, a partial write could not be validated as it is made,
  * and the editor holds the catalogue anyway — so "here is the file" is both the
  * honest request and the one that cannot half-succeed.
+ *
+ * Both reads are conditional (ADR-0052): they carry an `ETag` and answer `304`
+ * when the editor already holds that version.
  */
 export const prefabsRoutes: FastifyPluginAsync<{ config: ApiConfig }> = async (app, options) => {
   const { config } = options;
 
-  app.get('/prefabs', async () => listPrefabs(config.contentDir));
+  app.get('/prefabs', async (request, reply) => {
+    // The merged catalogue is composed from every file in `CONTENT_DIR/prefabs`,
+    // so its validator is a hash of the answer rather than one file's mtime.
+    const body = JSON.stringify(await listPrefabs(config.contentDir));
+    return sendConditional(request, reply, bodyValidators(body), body);
+  });
 
   app.get<{ Params: CatalogParams }>('/prefabs/:catalog', async (request, reply) => {
     const { catalog } = request.params;
@@ -50,7 +59,12 @@ export const prefabsRoutes: FastifyPluginAsync<{ config: ApiConfig }> = async (a
         errors: loaded.errors,
       });
     }
-    return reply.header('last-modified', loaded.updatedAt).send(loaded.catalog);
+    return sendConditional(
+      request,
+      reply,
+      contentFileValidators(catalog, loaded.updatedAt, loaded.size),
+      loaded.catalog,
+    );
   });
 
   app.put<{ Params: CatalogParams }>('/prefabs/:catalog', async (request, reply) => {

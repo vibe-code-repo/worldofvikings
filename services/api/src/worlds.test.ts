@@ -150,6 +150,131 @@ describe('GET /worlds/:id', () => {
   });
 });
 
+/**
+ * The editor asks for the same 1.4 MB world on every open (ADR-0052). What is
+ * asserted here is the pair that makes an empty answer possible *and* keeps a
+ * changed file visible: a validator on the way out, and 304 only while the file
+ * behind it is the same one.
+ */
+describe('GET /worlds/:id, asked conditionally', () => {
+  it('sends validators the client can come back with', async () => {
+    await writeWorldFile('village.json', VILLAGE_WORLD);
+    app = await startServer();
+
+    const response = await app.inject({ method: 'GET', url: '/worlds/village' });
+
+    expect(response.headers['etag']).toMatch(/^W\/".+"$/);
+    // An HTTP-date, not the ISO string this used to send — browsers ignore that
+    // one silently, which is why the header looked present and did nothing.
+    expect(response.headers['last-modified']).toMatch(/GMT$/);
+    expect(Date.parse(String(response.headers['last-modified']))).not.toBeNaN();
+    expect(response.headers['cache-control']).toBe('public, max-age=0, must-revalidate');
+    // `updatedAt` in the *body* is unchanged: it is what the client reads.
+    expect(response.json()).toEqual(VILLAGE_WORLD);
+  });
+
+  it('answers 304 with no body when the client already holds this world', async () => {
+    await writeWorldFile('village.json', VILLAGE_WORLD);
+    app = await startServer();
+    const first = await app.inject({ method: 'GET', url: '/worlds/village' });
+
+    const second = await app.inject({
+      method: 'GET',
+      url: '/worlds/village',
+      headers: { 'if-none-match': String(first.headers['etag']) },
+    });
+
+    expect(second.statusCode).toBe(304);
+    expect(second.body).toBe('');
+    // Repeated, or the next request has nothing to revalidate against.
+    expect(second.headers['etag']).toBe(first.headers['etag']);
+    expect(second.headers['last-modified']).toBe(first.headers['last-modified']);
+  });
+
+  it('answers 304 for an If-Modified-Since that is not older than the file', async () => {
+    await writeWorldFile('village.json', VILLAGE_WORLD);
+    app = await startServer();
+    const first = await app.inject({ method: 'GET', url: '/worlds/village' });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/worlds/village',
+      headers: { 'if-modified-since': String(first.headers['last-modified']) },
+    });
+
+    expect(response.statusCode).toBe(304);
+  });
+
+  it('sends the world again once the file changed', async () => {
+    // The property the whole change has to keep: an author who saves is not
+    // shown the version they replaced.
+    await writeWorldFile('village.json', VILLAGE_WORLD);
+    app = await startServer();
+    const first = await app.inject({ method: 'GET', url: '/worlds/village' });
+
+    await writeWorldFile('village.json', {
+      ...VILLAGE_WORLD,
+      name: 'Village by the fjord',
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/worlds/village',
+      headers: { 'if-none-match': String(first.headers['etag']) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().name).toBe('Village by the fjord');
+    expect(response.headers['etag']).not.toBe(first.headers['etag']);
+  });
+
+  it('does not confuse two worlds that happen to share a modification time', async () => {
+    await writeWorldFile('village.json', VILLAGE_WORLD);
+    await writeWorldFile('example.json', { ...VILLAGE_WORLD, id: 'example', name: 'Example' });
+    app = await startServer();
+
+    const village = await app.inject({ method: 'GET', url: '/worlds/village' });
+    const example = await app.inject({
+      method: 'GET',
+      url: '/worlds/example',
+      headers: { 'if-none-match': String(village.headers['etag']) },
+    });
+
+    expect(example.statusCode).toBe(200);
+    expect(example.json().name).toBe('Example');
+  });
+});
+
+describe('GET /worlds, asked conditionally', () => {
+  it('answers 304 while the listing is unchanged and 200 once it is not', async () => {
+    await writeWorldFile('village.json', VILLAGE_WORLD);
+    app = await startServer();
+    const first = await app.inject({ method: 'GET', url: '/worlds' });
+
+    expect(first.headers['etag']).toMatch(/^W\/".+"$/);
+    // A listing is composed from several files and has no single modification
+    // time; claiming one would be a claim nothing backs.
+    expect(first.headers['last-modified']).toBeUndefined();
+
+    const unchanged = await app.inject({
+      method: 'GET',
+      url: '/worlds',
+      headers: { 'if-none-match': String(first.headers['etag']) },
+    });
+    expect(unchanged.statusCode).toBe(304);
+    expect(unchanged.body).toBe('');
+
+    await writeWorldFile('example.json', { ...VILLAGE_WORLD, id: 'example', name: 'Example' });
+    const changed = await app.inject({
+      method: 'GET',
+      url: '/worlds',
+      headers: { 'if-none-match': String(first.headers['etag']) },
+    });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json().worlds).toHaveLength(2);
+  });
+});
+
 describe('PUT /worlds/:id', () => {
   it('creates a world file and answers 201', async () => {
     app = await startServer();

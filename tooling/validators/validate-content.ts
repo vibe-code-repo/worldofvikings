@@ -21,6 +21,7 @@ import { ASSET_MANIFEST_FILE_NAME, parseAssetManifest } from '@wov/asset-system/
 import {
   collectPrefabIds,
   findMissingTerrainAssets,
+  findSoundProblems,
   findUnknownPrefabReferences,
   type LoadedCatalog,
 } from './content-references.js';
@@ -129,6 +130,10 @@ for (const file of worldFiles) {
   const problems = [
     ...findUnknownPrefabReferences(result.world, prefabIndex.ids),
     ...findMissingTerrainAssets(result.world, manifestPaths),
+    ...findSoundProblems(result.world, {
+      assetPaths: manifestPaths,
+      prefabIds: prefabIndex.ids,
+    }),
   ];
   if (problems.length > 0) {
     fail(relative, problems);

@@ -46,6 +46,29 @@ export type {
   Vignette,
 } from './lighting.js';
 export {
+  AUDIO_DISTANCE_MODELS,
+  AUDIO_PANNING_MODELS,
+  AmbienceSchema,
+  AudioDistanceModelSchema,
+  AudioPanningModelSchema,
+  FootstepBankSchema,
+  FootstepsSchema,
+  SoundEmitterSchema,
+  SoundMasterSchema,
+  SoundProfileSchema,
+  SurfaceIdSchema,
+} from './sound.js';
+export type {
+  Ambience,
+  AudioDistanceModelName,
+  AudioPanningModelName,
+  FootstepBank,
+  Footsteps,
+  SoundEmitter,
+  SoundMaster,
+  SoundProfile,
+} from './sound.js';
+export {
   CURRENT_WORLD_SCHEMA_VERSION,
   EntityDefinitionSchema,
   WorldDefinitionSchema,

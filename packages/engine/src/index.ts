@@ -140,3 +140,6 @@ export type {
   ResizeHost,
   Unsubscribe,
 } from './renderer.js';
+
+export { freezeStaticNodes, unfreezeStaticNodes } from './static-freeze.js';
+export type { FreezeReport, StaticNode } from './static-freeze.js';

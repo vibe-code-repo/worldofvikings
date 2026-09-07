@@ -50,6 +50,7 @@ import {
   type WorldState,
 } from '@wov/gameplay';
 import { summarizeAssetSources } from '@wov/asset-system';
+import { freezeStaticNodes } from '@wov/engine';
 import type { PhysicsWorld } from '@wov/physics';
 import { tokens } from '@wov/ui';
 import { isDebugRequested } from '@wov/shared';
@@ -510,6 +511,15 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       prefabs,
     });
 
+    // The zone is placed and nothing in it moves again (ADR-0035). Said here
+    // rather than inside the placer because it is the *game's* claim: the same
+    // `placeEntities` runs behind an editor that has to be able to drag any of
+    // these, and the freeze is exactly what would break that.
+    //
+    // After every await above, and before the first frame that draws them, so
+    // the matrices being pinned are the ones the world file asked for.
+    const frozen = freezeStaticNodes(placed.roots);
+
     // Said once, on the meshes the scatter left behind, and not per entity: a
     // tuft of grass takes the shadow of the house beside it and throws none of
     // its own (ADR-0024, ADR-0025). Placed here rather than inside the placer
@@ -545,7 +555,8 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
         (placed.nonCasters.length > 0
           ? `, ${String(placed.nonCasters.length)} mesh(es) taking shadow without casting`
           : '') +
-        (placed.failed.length > 0 ? `, ${String(placed.failed.length)} failed` : ''),
+        (placed.failed.length > 0 ? `, ${String(placed.failed.length)} failed` : '') +
+        `, ${String(frozen.frozen)} nodes frozen`,
     );
     setAssetStatus(
       `assets: ${String(placed.models)} models loaded` +

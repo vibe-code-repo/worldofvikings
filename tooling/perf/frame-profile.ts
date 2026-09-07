@@ -30,35 +30,39 @@
  * pnpm perf:frame --label frozen  --view square --skip-build
  * ```
  */
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from '@playwright/test';
+import type { Browser, Page } from '@playwright/test';
 import {
   formatProfileTable,
   summarizeProfile,
   windowMean,
   type CpuProfile,
 } from './profile-summary.js';
+// The scaffolding both rigs share: servers, ports, the GPU request, the canvas
+// read-back. Extracted for `pnpm perf:editor` (ADR-0047); this rig's behaviour
+// is unchanged.
+import {
+  argument,
+  launchPerfBrowser,
+  numberArgument,
+  PERF_OUTPUT_DIR,
+  port,
+  readCanvas,
+  repoRoot,
+  run,
+  say,
+  serve,
+  stop,
+  waitForServer,
+} from './rig.js';
 import { findView, PERF_VIEWS } from './views.js';
 
-const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
-
-/**
- * Where reports land, relative to the repository root.
- *
- * Deliberately not under `test-results/`: Playwright empties that directory at
- * the start of every run, so a baseline measured in the morning is gone the
- * next time somebody types `pnpm smoke` — and gone *silently*, which is the
- * worst way to lose the one number a change is being argued against.
- */
-const PERF_OUTPUT_DIR = 'perf-results';
-
 /** Ports of this rig's own, so it can run while `pnpm dev` and `pnpm smoke` do. */
-const GAME_PORT = Number.parseInt(process.env['PERF_GAME_PORT'] ?? '5273', 10);
-const API_PORT = Number.parseInt(process.env['PERF_API_PORT'] ?? '3273', 10);
-const ASSET_PORT = Number.parseInt(process.env['PERF_ASSET_PORT'] ?? '9273', 10);
+const GAME_PORT = port('PERF_GAME_PORT', 5273);
+const API_PORT = port('PERF_API_PORT', 3273);
+const ASSET_PORT = port('PERF_ASSET_PORT', 9273);
 
 const gameUrl = `http://localhost:${String(GAME_PORT)}`;
 const apiUrl = `http://localhost:${String(API_PORT)}`;
@@ -78,94 +82,17 @@ interface Options {
   readonly moveMetres: number;
 }
 
-function argument(argv: readonly string[], name: string): string | undefined {
-  const index = argv.indexOf(`--${name}`);
-  return index === -1 ? undefined : argv[index + 1];
-}
-
 function parseOptions(argv: readonly string[]): Options {
-  const seconds = Number.parseFloat(argument(argv, 'seconds') ?? '3');
-  const settle = Number.parseFloat(argument(argv, 'settle') ?? '3');
-  const move = Number.parseFloat(argument(argv, 'move') ?? '30');
   return {
     label: argument(argv, 'label') ?? 'run',
     viewId: argument(argv, 'view') ?? 'square',
-    seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : 3,
-    settleSeconds: Number.isFinite(settle) && settle >= 0 ? settle : 3,
+    // Zero seconds is no window at all, so it falls back like a missing value.
+    seconds: numberArgument(argv, 'seconds', 3) || 3,
+    settleSeconds: numberArgument(argv, 'settle', 3),
     skipBuild: argv.includes('--skip-build'),
     outDir: resolve(argument(argv, 'out') ?? join(repoRoot, PERF_OUTPUT_DIR)),
-    moveMetres: Number.isFinite(move) && move >= 0 ? move : 30,
+    moveMetres: numberArgument(argv, 'move', 30),
   };
-}
-
-function say(text: string): void {
-  process.stdout.write(`${text}\n`);
-}
-
-/** Runs a command to completion, inheriting stdio, and throws on failure. */
-function run(command: string, args: readonly string[], env: NodeJS.ProcessEnv): Promise<void> {
-  return new Promise((resolveRun, rejectRun) => {
-    const child = spawn(command, [...args], {
-      cwd: repoRoot,
-      env: { ...process.env, ...env },
-      stdio: 'inherit',
-    });
-    child.on('error', rejectRun);
-    child.on('exit', (code) => {
-      if (code === 0) {
-        resolveRun();
-      } else {
-        rejectRun(new Error(`${command} ${args.join(' ')} exited with ${String(code)}`));
-      }
-    });
-  });
-}
-
-/**
- * Starts a server in its own process group.
- *
- * The group is the point: `pnpm --filter … preview` is a shell that starts
- * vite, and killing the shell leaves vite holding the port — which the next run
- * then fails on with `--strictPort`, several minutes after the run that leaked
- * it finished.
- */
-function serve(command: string, args: readonly string[], env: NodeJS.ProcessEnv): ChildProcess {
-  return spawn(command, [...args], {
-    cwd: repoRoot,
-    env: { ...process.env, ...env },
-    stdio: 'ignore',
-    detached: true,
-  });
-}
-
-function stop(child: ChildProcess): void {
-  if (child.pid === undefined || child.exitCode !== null) {
-    return;
-  }
-  try {
-    process.kill(-child.pid, 'SIGTERM');
-  } catch {
-    // Already gone; nothing to clean up.
-  }
-}
-
-/** Polls a URL until it answers or the budget runs out. */
-async function waitForServer(url: string, timeoutMs = 120_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // Not up yet.
-    }
-    if (Date.now() > deadline) {
-      throw new Error(`server did not answer within ${String(timeoutMs)} ms: ${url}`);
-    }
-    await new Promise((wake) => setTimeout(wake, 250));
-  }
 }
 
 /** The bridge readings one sample takes. */
@@ -237,48 +164,6 @@ async function waitForVillage(page: Page): Promise<void> {
     undefined,
     { timeout: 180_000 },
   );
-}
-
-/**
- * Reads the canvas back as raw RGBA — the HUD excluded, because the HUD is DOM
- * drawn on top of the canvas rather than into it.
- *
- * Base64 rather than an array of numbers: a 1280×720 frame is 3.6 million
- * values, and handing those across the CDP bridge one JSON number at a time
- * takes longer than the measurement it belongs to.
- */
-async function readCanvas(
-  page: Page,
-): Promise<{ width: number; height: number; bytes: Uint8Array }> {
-  const frame = await page.evaluate(() => {
-    const canvas = document.querySelector<HTMLCanvasElement>('#render-canvas');
-    if (canvas === null) {
-      return null;
-    }
-    const copy = document.createElement('canvas');
-    copy.width = canvas.width;
-    copy.height = canvas.height;
-    const context = copy.getContext('2d');
-    if (context === null) {
-      return null;
-    }
-    context.drawImage(canvas, 0, 0);
-    const data = context.getImageData(0, 0, copy.width, copy.height).data;
-    let binary = '';
-    const chunk = 0x8000;
-    for (let index = 0; index < data.length; index += chunk) {
-      binary += String.fromCharCode(...data.subarray(index, index + chunk));
-    }
-    return { width: copy.width, height: copy.height, base64: btoa(binary) };
-  });
-  if (frame === null) {
-    throw new Error('no render canvas to read back');
-  }
-  return {
-    width: frame.width,
-    height: frame.height,
-    bytes: new Uint8Array(Buffer.from(frame.base64, 'base64')),
-  };
 }
 
 /**
@@ -387,7 +272,8 @@ async function measure(options: Options, page: Page): Promise<Record<string, unk
 
   const summary = summarizeProfile(stopped.profile);
   const sceneRenderMs = windowMean(before, after);
-  const canvas = await readCanvas(page);
+  // The HUD is excluded because it is DOM drawn on top of the canvas.
+  const canvas = await readCanvas(page, '#render-canvas');
 
   // The shadow map has to keep following the player, which is a claim about
   // movement and cannot be made from a still frame.
@@ -479,12 +365,7 @@ async function main(): Promise<void> {
       waitForServer(gameUrl),
     ]);
 
-    browser = await chromium.launch({
-      // Headless Chromium rasterises in software unless it is told otherwise,
-      // and a village of 3.9 M triangles measured on SwiftShader is a
-      // measurement of SwiftShader. Same request `pnpm smoke` makes.
-      args: ['--use-gl=angle', '--use-angle=vulkan', '--ignore-gpu-blocklist'],
-    });
+    browser = await launchPerfBrowser();
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     const report = await measure(options, page);
 

@@ -7,6 +7,7 @@ import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder.js';
 import { Scene } from '@babylonjs/core/scene.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { applyLighting } from './lighting.js';
+import type { LightingHandle } from './lighting.js';
 import { createTerrainMaterial } from './terrain.js';
 
 const scenes: Scene[] = [];
@@ -23,6 +24,21 @@ function scene(): Scene {
   new FreeCamera('camera', new Vector3(0, 2, -10), created);
   scenes.push(created);
   return created;
+}
+
+/**
+ * The meshes the shadow map would draw, as the rig has them now.
+ *
+ * The list is derived from the scene, not asked for mesh by mesh: it is
+ * rebuilt on the pass after something changed rather than on every pass, so a
+ * test has to announce a pass to see the answer. That is the behaviour under
+ * test — a list rebuilt sixty times a second to reach the same conclusion was a
+ * tenth of the frame.
+ */
+function shadowCasters(handle: LightingHandle): readonly unknown[] {
+  const map = handle.shadows?.getShadowMap();
+  map?.onBeforeRenderObservable.notifyObservers(0);
+  return map?.renderList ?? [];
 }
 
 afterEach(() => {
@@ -134,14 +150,55 @@ describe('applyLighting', () => {
     handle.excludeFromShadows([ground]);
     expect(ground.receiveShadows).toBe(false);
 
-    const predicate = handle.shadows?.getShadowMap()?.renderListPredicate;
-    expect(predicate).toBeTypeOf('function');
-    expect(predicate?.(ground)).toBe(false);
-    expect(predicate?.(house)).toBe(true);
+    const casters = shadowCasters(handle);
+    expect(casters).not.toContain(ground);
+    expect(casters).toContain(house);
     // And the sky it made itself is never a caster: a box around the camera
     // would fill the map and put the whole village in shade.
     expect(handle.sky).not.toBeNull();
-    expect(handle.sky === null ? true : predicate?.(handle.sky)).toBe(false);
+    expect(casters).not.toContain(handle.sky);
+  });
+
+  it('takes in a mesh that arrives after the rig did', async () => {
+    const target = scene();
+    const handle = applyLighting(target);
+    expect(shadowCasters(handle)).toHaveLength(0);
+
+    const late = CreateGround('late', { width: 1, height: 1 }, target);
+    // Babylon announces a new mesh on the next tick, not inside `addMesh`.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(shadowCasters(handle)).toContain(late);
+  });
+
+  it('lets go of a mesh the scene disposed', async () => {
+    const target = scene();
+    const handle = applyLighting(target);
+    const doomed = CreateGround('doomed', { width: 1, height: 1 }, target);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(shadowCasters(handle)).toContain(doomed);
+
+    // The failure a list built once and never rebuilt would have: the map
+    // keeps drawing a mesh nothing else in the scene has any more.
+    doomed.dispose();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(shadowCasters(handle)).not.toContain(doomed);
+  });
+
+  it('reuses the caster list while the scene stands still', async () => {
+    const target = scene();
+    const house = CreateGround('house', { width: 1, height: 1 }, target);
+    const handle = applyLighting(target);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    shadowCasters(handle);
+    const first = handle.shadows?.getShadowMap()?.renderList;
+    shadowCasters(handle);
+    const second = handle.shadows?.getShadowMap()?.renderList;
+    // The same array object, not merely an equal one: rebuilding it is the
+    // whole cost this change removes, and an equality check would pass just as
+    // happily against a list rebuilt on every pass.
+    expect(second).toBe(first);
+    expect(second).toContain(house);
   });
 
   it('lets a mesh take shadow without casting one', () => {
@@ -153,9 +210,9 @@ describe('applyLighting', () => {
 
     handle.excludeFromCasting([grass]);
 
-    const predicate = handle.shadows?.getShadowMap()?.renderListPredicate;
-    expect(predicate?.(grass)).toBe(false);
-    expect(predicate?.(house)).toBe(true);
+    const casters = shadowCasters(handle);
+    expect(casters).not.toContain(grass);
+    expect(casters).toContain(house);
     // The whole point: it is out of the map as a caster and still in the
     // picture as a receiver. Excluding it outright would take both.
     expect(grass.receiveShadows).toBe(true);

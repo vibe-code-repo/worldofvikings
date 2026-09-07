@@ -395,19 +395,72 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
   }
 
   const shadowMap = shadows?.getShadowMap() ?? null;
+
+  /**
+   * Whether a mesh belongs in the shadow map at all.
+   *
+   * The same four questions the per-pass predicate asked, `isVisible` and
+   * `isEnabled` included. Babylon does skip a hidden mesh when it walks the
+   * list, so they are not strictly needed — but this change is about *when* the
+   * list is built, not about what is in it, and a caching change that also
+   * quietly widens the set is two changes wearing one coat.
+   */
+  const casts = (mesh: AbstractMesh): boolean =>
+    !excluded.has(mesh) && !nonCasters.has(mesh) && mesh.isVisible && mesh.isEnabled();
+
+  /**
+   * Set when the answer to {@link casts} may have changed for some mesh.
+   *
+   * The list the shadow pass draws from is derived from the scene, and it used
+   * to be *re*-derived on every pass: `renderListPredicate` makes Babylon walk
+   * `scene.meshes` and call the predicate on each of them before every shadow
+   * render (`prepareRenderList` in `objectRenderer.js`). At the village's 2 400
+   * casters that is a scan of the whole scene sixty times a second to arrive at
+   * the same answer it arrived at last frame.
+   *
+   * A list built once instead would be the other failure ADR-0024 names: it
+   * holds on to every mesh a zone change disposed. So the list is rebuilt from
+   * the scene, but only when the scene has changed — a mesh added, a mesh
+   * removed, or something excluded — which is what this flag records.
+   *
+   * A prop switched off *between* rebuilds is still skipped: Babylon checks
+   * `isEnabled` and `isVisible` itself when it walks the list. What needs a
+   * rebuild is a prop switched back **on**, and in this client nothing is —
+   * the one mesh that is ever disabled is the Phase 1 plane, once, before the
+   * village arrives.
+   */
+  let castersStale = true;
+
   if (shadowMap !== null) {
-    // Rebuilt from the scene on every shadow pass rather than appended to as
-    // models arrive: a list that is only ever added to also holds on to every
-    // mesh a zone change disposed.
-    //
-    // Deliberately *not* also culled to the shadow box here. Babylon does not
-    // frustum-cull a shadow map's render list, so narrowing it to the box the
-    // map covers looks like the obvious win — and it was measured and rejected:
-    // at the village's density it removed 1 of 2 581 casters, because they all
-    // stand inside 140 m of each other, and reading a bounding sphere off every
-    // mesh every pass cost 40 ms a frame in world-matrix updates. See ADR-0024.
-    shadowMap.renderListPredicate = (mesh) =>
-      !excluded.has(mesh) && !nonCasters.has(mesh) && mesh.isVisible && mesh.isEnabled();
+    // Deliberately *not* culled to the shadow box. Babylon does not frustum-cull
+    // a shadow map's render list, so narrowing it to the box the map covers
+    // looks like the obvious win — and it was measured and rejected: at the
+    // village's density it removed 1 of 2 581 casters, because they all stand
+    // inside 140 m of each other. See ADR-0024.
+    shadowMap.onBeforeRenderObservable.add(() => {
+      if (!castersStale) {
+        return;
+      }
+      // Refilled in place rather than replaced. Babylon hooks the array it was
+      // given so that adding to it can resize the map, and handing it a new one
+      // every rebuild is a different object for every one of those hooks to
+      // follow — the same reason its own `prepareRenderList` clears and refills
+      // instead of assigning.
+      const list = shadowMap.renderList ?? [];
+      list.length = 0;
+      for (const mesh of scene.meshes) {
+        if (casts(mesh)) {
+          list.push(mesh);
+        }
+      }
+      shadowMap.renderList = list;
+      castersStale = false;
+    });
+    const meshChanged = (): void => {
+      castersStale = true;
+    };
+    scene.onNewMeshAddedObservable.add(meshChanged);
+    scene.onMeshRemovedObservable.add(meshChanged);
   }
 
   const receive = (mesh: AbstractMesh): void => {
@@ -448,6 +501,7 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
         excluded.add(mesh);
         target(mesh).receiveShadows = false;
       }
+      castersStale = true;
     },
     excludeFromCasting(meshes) {
       for (const mesh of meshes) {
@@ -456,6 +510,7 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
         // rig did, and `receive` is what makes a late mesh a receiver at all.
         receive(mesh);
       }
+      castersStale = true;
     },
     focusShadows(x, y, z) {
       focus.set(x, y, z);

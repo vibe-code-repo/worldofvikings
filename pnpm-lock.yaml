@@ -127,6 +127,9 @@ importers:
       '@wov/editor-core':
         specifier: workspace:*
         version: link:packages/editor-core
+      '@wov/shared':
+        specifier: workspace:*
+        version: link:packages/shared
       '@wov/world-schema':
         specifier: workspace:*
         version: link:packages/world-schema
@@ -320,6 +323,9 @@ importers:
       '@wov/content-build':
         specifier: workspace:*
         version: link:../../packages/content-build
+      '@wov/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@wov/world-schema':
         specifier: workspace:*
         version: link:../../packages/world-schema

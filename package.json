@@ -45,6 +45,7 @@
     "@wov/asset-system": "workspace:*",
     "@wov/content-build": "workspace:*",
     "@wov/editor-core": "workspace:*",
+    "@wov/shared": "workspace:*",
     "@wov/world-schema": "workspace:*",
     "concurrently": "^9.2.1",
     "dependency-cruiser": "^17.0.1",

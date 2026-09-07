@@ -12,6 +12,21 @@
  * document-owned thing edited through commands like everything else (ADR-0018),
  * and this module becomes its reconciler rather than a loader.
  *
+ * **The ground is reconciled, not reloaded (ADR-0050).** The terrain block is
+ * three things at once, and {@link ZoneTerrain.show} tells them apart:
+ *
+ * 1. numbers that are *uniforms* — `tileSize`, `normalScale`, `metallic`,
+ *    `smoothness` — written straight into the program the tile already carries;
+ * 2. things that are a *material* — the layer and splat textures, the facet
+ *    switch, the tile's place and size — which build a new material over the
+ *    height field that is already loaded;
+ * 3. the height field itself, which is the only change that fetches a model.
+ *
+ * It used to be one key, the JSON of the whole block, so every keystroke in the
+ * Surface panel took the third path: dispose the tile, re-instantiate 3.5 MB of
+ * height field, compile a shader and create fourteen textures — measured at
+ * 0.8 s to 1.5 s a keystroke on the village (ADR-0050).
+ *
  * **Why the asset wiring is here and not in `@wov/engine`.** The engine owns
  * `createTerrain`, which both apps call. What differs is where the height
  * field's bytes come from, and that is `@wov/asset-system` — a dependency the
@@ -24,8 +39,20 @@ import type { Scene } from '@babylonjs/core/scene.js';
 import { AssetManager, assetStoreUrl, assetUrl, createAssetCatalog } from '@wov/asset-system';
 import type { AssetSourceConfig } from '@wov/asset-system';
 import { createTerrain, terrainLayerSources } from '@wov/engine';
-import type { TerrainHandle, TerrainTextureSource } from '@wov/engine';
+import type {
+  TerrainHandle,
+  TerrainOptions,
+  TerrainSurfaceUpdate,
+  TerrainTextureSource,
+} from '@wov/engine';
 import type { TerrainDefinition } from '@wov/world-schema';
+import {
+  NO_TERRAIN_KEYS,
+  terrainChange,
+  terrainKeys,
+  terrainSurface,
+  type TerrainKeys,
+} from './terrain-keys.js';
 
 /** The stand-in a private texture falls back to when there is no store. */
 const TEXTURE_PLACEHOLDER = 'placeholders/textures/unavailable.png';
@@ -62,24 +89,36 @@ export interface ZoneTerrainOptions {
   readonly onFailed?: (reason: string) => void;
 }
 
-/**
- * A key that changes exactly when the drawn ground would differ.
- *
- * Switching zones and back must not reload a 3.5 MB tile, and the document is
- * replaced on every edit, so identity comparison would reload on every click.
- */
-function terrainKey(name: string, terrain: TerrainDefinition | undefined): string {
-  return terrain === undefined ? '' : `${name}|${JSON.stringify(terrain)}`;
-}
-
 export function createZoneTerrain(options: ZoneTerrainOptions): ZoneTerrain {
   const { scene, source, onChanged, onFailed } = options;
   /** One manager per height field, so switching zones back does not reload it. */
   const managers = new Map<string, AssetManager>();
   let handle: TerrainHandle | null = null;
-  let key = '';
+  let keys: TerrainKeys = NO_TERRAIN_KEYS;
+  /**
+   * The dials as the document last stated them.
+   *
+   * Kept rather than read back off the handle, because a dial can be turned
+   * while the tile is still in flight: the load applies this on arrival, so a
+   * metalness typed during the first two seconds is not silently lost.
+   */
+  let surface: TerrainSurfaceUpdate | null = null;
   let generation = 0;
   let disposed = false;
+
+  /** Everything `createTerrain` and `rebuildMaterial` are handed, in one place. */
+  const drawOptions = (terrain: TerrainDefinition, name: string): TerrainOptions => ({
+    name,
+    position: [terrain.position[0], terrain.position[1], terrain.position[2]],
+    size: [terrain.size[0], terrain.size[1]],
+    layers: terrainLayerSources(terrain.layers ?? [], (path) => textureSource(source, path)),
+    splat: (terrain.splat ?? []).map((path) => textureSource(source, path)),
+    flatNormals: terrain.flatNormals === true,
+    // The ground receives the sun's shadow map through its own shader
+    // (ADR-0024). It has to be requested here rather than set afterwards:
+    // the lookup is compiled into the tile's generated program.
+    receiveShadows: true,
+  });
 
   const load = async (terrain: TerrainDefinition, name: string, mine: number): Promise<void> => {
     const placeholder = `placeholders/${terrain.heightField}`;
@@ -110,18 +149,12 @@ export function createZoneTerrain(options: ZoneTerrainOptions): ZoneTerrain {
       }
       return;
     }
-    handle = createTerrain(scene, root, {
-      name,
-      position: [terrain.position[0], terrain.position[1], terrain.position[2]],
-      size: [terrain.size[0], terrain.size[1]],
-      layers: terrainLayerSources(terrain.layers ?? [], (path) => textureSource(source, path)),
-      splat: (terrain.splat ?? []).map((path) => textureSource(source, path)),
-      flatNormals: terrain.flatNormals === true,
-      // The ground receives the sun's shadow map through its own shader
-      // (ADR-0024). It has to be requested here rather than set afterwards:
-      // the lookup is compiled into the tile's generated program.
-      receiveShadows: true,
-    });
+    handle = createTerrain(scene, root, drawOptions(terrain, name));
+    // A dial turned while the tile was in flight: the handle is younger than
+    // the document, so the document wins.
+    if (surface !== null) {
+      handle.update(surface);
+    }
     onChanged?.(handle);
   };
 
@@ -130,11 +163,39 @@ export function createZoneTerrain(options: ZoneTerrainOptions): ZoneTerrain {
       if (disposed) {
         return;
       }
-      const next = terrainKey(name, terrain);
-      if (next === key) {
+      const next = terrainKeys(name, terrain);
+      const change = terrainChange(keys, next);
+      keys = next;
+      surface = terrain === undefined ? null : terrainSurface(terrain);
+
+      // Nothing moved. Every gizmo drag lands here: the document is replaced on
+      // each of them and this method is called again with the same ground.
+      if (change === 'none') {
         return;
       }
-      key = next;
+
+      // Only the dials moved: write them into the program the tile already has
+      // (ADR-0050). Deliberately no `onChanged` — the meshes are the ones the
+      // caller already knows about, and telling it otherwise would rebuild the
+      // shadow-caster list and re-render the whole shell for a number.
+      if (change === 'uniform') {
+        if (surface !== null) {
+          handle?.update(surface);
+        }
+        return;
+      }
+
+      // A different material over the same height field: a swapped texture, a
+      // replaced splat map, the facet switch. The geometry is the same file
+      // with the same vertices, so it is kept and only the material is rebuilt.
+      if (change === 'material' && terrain !== undefined && handle !== null) {
+        handle.rebuildMaterial(drawOptions(terrain, name));
+        onChanged?.(handle);
+        return;
+      }
+
+      // A different height field, no ground at all, or a material change that
+      // arrived while the first tile was still in flight: load, as before.
       generation += 1;
       handle?.dispose();
       handle = null;

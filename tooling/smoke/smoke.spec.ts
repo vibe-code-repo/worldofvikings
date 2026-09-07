@@ -842,16 +842,25 @@ test('editor changes the ground’s surface and the viewport follows', async ({ 
   await page.getByTestId('ground-metallic-1').fill('0.4');
   await expect(page.getByTestId('editor-dirty')).toHaveText('unsaved changes');
 
+  // The slider beside it writes the same field through the same command, and
+  // the box follows — the two are one dial, not two (ADR-0050).
+  await page.getByTestId('ground-metallic-1-slider').fill('0.6');
+  await expect(page.getByTestId('ground-metallic-1')).toHaveValue('0.6');
+
   // …and the switch reaches the picture: a facetted tile is a different program.
   await page.getByTestId('ground-flatNormals').check();
   await expect.poll(() => editorTerrainProgram(page), { timeout: 60_000 }).not.toBe(smooth);
   const facetted = await editorTerrainProgram(page);
   expect(facetted).toContain('f');
 
-  // Two edits, two undos, and the ground is the one the world file describes.
+  // Three edits, three undos, and the ground is the one the world file
+  // describes. The whole slider drag is one of those three: a gesture folded
+  // into one history entry, the way the lighting sliders already were.
   await page.keyboard.press('Escape');
   await page.keyboard.press('Control+z');
   await expect.poll(() => editorTerrainProgram(page), { timeout: 60_000 }).toBe(smooth);
+  await page.keyboard.press('Control+z');
+  await expect(page.getByTestId('ground-metallic-1')).toHaveValue('0.4');
   await page.keyboard.press('Control+z');
   await expect(page.getByTestId('ground-metallic-1')).toHaveValue('0.85');
 });

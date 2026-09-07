@@ -109,6 +109,25 @@ describe('side effects guaranteed by @wov/engine', () => {
     expect(scene.defaultMaterial.getClassName()).toBe('StandardMaterial');
   });
 
+  it('makes a mesh instantiable (@babylonjs/core/Meshes/instancedMesh.js)', async () => {
+    const { scene } = await headlessRenderer();
+    const source = CreateBox('source', { size: 1 }, scene);
+    source.isVisible = false;
+
+    // Without the import this call throws. The second half of the witness is
+    // that the copy is a real scene node with its own transform: that is what
+    // makes it selectable and movable, which is the whole reason the editor
+    // uses instances instead of thin instances.
+    const copy = source.createInstance('copy');
+    copy.position = new Vector3(3, 0, 0);
+    copy.computeWorldMatrix(true);
+
+    expect(copy.getClassName()).toBe('InstancedMesh');
+    expect(source.instances).toHaveLength(1);
+    expect(copy.absolutePosition.x).toBe(3);
+    expect(scene.meshes).toContain(copy);
+  });
+
   it('gives a mesh created without a material the default one', async () => {
     const { scene } = await headlessRenderer();
     const box = CreateBox('probe', { size: 1 }, scene);

@@ -19,6 +19,17 @@
  * surface field appears here, once, and nothing in `apps/editor` changes
  * (ADR-0033).
  *
+ * **Why each dial is a slider and a box.** The numbers here are the ones an
+ * author *hunts* for — metalness at 0.4 or at 0.55 is a decision made by
+ * looking, not by typing — and a box alone makes that a keystroke at a time,
+ * each one its own command and its own undo step. So each dial is a range
+ * slider whose drag folds into one history entry (`onLayerDrag`, the same
+ * `coalesceKey` pattern as the lighting sliders) beside the box that still
+ * takes an exact value. Both write through `updateTerrainSurface`, which is
+ * what `pnpm terrain-surface` dispatches: parity is the point of this panel
+ * (ADR-0032), and the ground now keeps up with the drag because turning a dial
+ * writes a uniform instead of rebuilding the tile (ADR-0050).
+ *
  * **What it deliberately does not offer.** Adding a layer, changing a texture,
  * moving the tile. Those are the other half's, and each has an asset and an
  * import behind it (ADR-0020, ADR-0021).
@@ -41,6 +52,15 @@ export interface GroundPanelProps {
   /** The active zone's ground, or `undefined` when it has none. */
   readonly terrain: TerrainDefinition | undefined;
   readonly onLayer: (index: number, patch: TerrainSurfacePatch) => void;
+  /**
+   * A dial being dragged, with a key naming the gesture.
+   *
+   * The same command as {@link GroundPanelProps.onLayer} — parity is the point
+   * of this panel — folded into one undo entry for the whole drag, exactly as
+   * `SchemaFields` does for the lighting sliders. Without it a slider dragged
+   * from 0 to 1 leaves fifty history steps and fifty document replacements.
+   */
+  readonly onLayerDrag: (index: number, patch: TerrainSurfacePatch, gesture: string) => void;
   readonly onFlatNormals: (facetted: boolean) => void;
 }
 
@@ -118,23 +138,52 @@ export function GroundPanel(props: GroundPanelProps): JSX.Element {
                 <span className="menu-hint">
                   {String(index)} · {layer.texture.replace(/^.*\//, '')}
                 </span>
-                {dials.map((dial) => (
-                  <label key={dial.key}>
-                    {dial.label}
-                    <input
-                      type="number"
-                      min={dial.minimum}
-                      max={dial.maximum}
-                      step={dial.step}
-                      disabled={dial.key === 'normalScale' && layer.normalMap === undefined}
-                      data-testid={`ground-${dial.key}-${String(index)}`}
-                      value={layer[dial.key as keyof typeof layer] ?? 0}
-                      onChange={(event) =>
-                        props.onLayer(index, { [dial.key]: Number(event.target.value) })
-                      }
-                    />
-                  </label>
-                ))}
+                {dials.map((dial) => {
+                  const disabled = dial.key === 'normalScale' && layer.normalMap === undefined;
+                  const testId = `ground-${dial.key}-${String(index)}`;
+                  const shown = Number(layer[dial.key as keyof typeof layer] ?? 0);
+                  return (
+                    <label key={dial.key}>
+                      {dial.label}
+                      {/*
+                        The slider is the gesture and the box is the exact
+                        value, the same pair `SchemaFields` draws for a bounded
+                        number. The box keeps the plain test id: it is what
+                        `pnpm smoke` fills and reads back, and what the perf rig
+                        types into.
+                      */}
+                      <input
+                        type="range"
+                        aria-label={`${dial.label} slider`}
+                        min={dial.minimum}
+                        max={dial.maximum}
+                        step={dial.step}
+                        disabled={disabled}
+                        data-testid={`${testId}-slider`}
+                        value={shown}
+                        onChange={(event) =>
+                          props.onLayerDrag(
+                            index,
+                            { [dial.key]: Number(event.target.value) },
+                            testId,
+                          )
+                        }
+                      />
+                      <input
+                        type="number"
+                        min={dial.minimum}
+                        max={dial.maximum}
+                        step={dial.step}
+                        disabled={disabled}
+                        data-testid={testId}
+                        value={shown}
+                        onChange={(event) =>
+                          props.onLayer(index, { [dial.key]: Number(event.target.value) })
+                        }
+                      />
+                    </label>
+                  );
+                })}
               </li>
             ))}
           </ul>

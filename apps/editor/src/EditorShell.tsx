@@ -338,6 +338,19 @@ export function EditorShell(): JSX.Element {
     });
   }, []);
 
+  /** The same command while a Surface slider is dragged, as one undo entry. */
+  const surfaceDrag = useCallback(
+    (targetZoneId: string, index: number, patch: TerrainSurfacePatch, gesture: string) => {
+      dispatch({
+        type: 'run',
+        command: updateTerrainSurface(targetZoneId, { layers: [{ index, patch }] }),
+        selectCreated: false,
+        coalesceKey: `terrain-surface:${targetZoneId}:${gesture}`,
+      });
+    },
+    [],
+  );
+
   const flatNormals = useCallback((targetZoneId: string, facetted: boolean) => {
     dispatch({
       type: 'run',
@@ -701,6 +714,7 @@ export function EditorShell(): JSX.Element {
           onTerrain={terrain}
           onTerrainDrag={terrainDrag}
           onSurface={surface}
+          onSurfaceDrag={surfaceDrag}
           onFlatNormals={flatNormals}
           onLighting={lighting}
           onLightingDrag={lightingDrag}

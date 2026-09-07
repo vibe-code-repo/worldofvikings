@@ -50,6 +50,13 @@ export interface ZoneInspectorProps {
   readonly onRenameZone: (zoneId: string, name: string) => void;
   /** One layer's surface, through `updateTerrainSurface`. */
   readonly onSurface: (zoneId: string, index: number, patch: TerrainSurfacePatch) => void;
+  /** The same, while a dial is being dragged: one undo entry per gesture. */
+  readonly onSurfaceDrag: (
+    zoneId: string,
+    index: number,
+    patch: TerrainSurfacePatch,
+    gesture: string,
+  ) => void;
   /** The whole tile drawn facetted, through the same command. */
   readonly onFlatNormals: (zoneId: string, facetted: boolean) => void;
 }
@@ -135,6 +142,9 @@ export function ZoneInspector(props: ZoneInspectorProps): JSX.Element {
             fields={TERRAIN_FIELDS}
             terrain={terrain}
             onLayer={(index, patch) => props.onSurface(zone.id, index, patch)}
+            onLayerDrag={(index, patch, gesture) =>
+              props.onSurfaceDrag(zone.id, index, patch, gesture)
+            }
             onFlatNormals={(facetted) => props.onFlatNormals(zone.id, facetted)}
           />
 

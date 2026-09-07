@@ -50,6 +50,12 @@ export interface RightPanelProps {
   readonly onTerrain: (zoneId: string, patches: readonly FieldPatch[]) => void;
   readonly onTerrainDrag: (zoneId: string, patch: FieldPatch, gesture: string) => void;
   readonly onSurface: (zoneId: string, index: number, patch: TerrainSurfacePatch) => void;
+  readonly onSurfaceDrag: (
+    zoneId: string,
+    index: number,
+    patch: TerrainSurfacePatch,
+    gesture: string,
+  ) => void;
   readonly onFlatNormals: (zoneId: string, facetted: boolean) => void;
   readonly onLighting: (scope: LightingScope, patches: readonly FieldPatch[]) => void;
   readonly onLightingDrag: (scope: LightingScope, patch: FieldPatch, gesture: string) => void;
@@ -96,6 +102,7 @@ export function RightPanel(props: RightPanelProps): JSX.Element {
           onTerrain={props.onTerrain}
           onTerrainDrag={props.onTerrainDrag}
           onSurface={props.onSurface}
+          onSurfaceDrag={props.onSurfaceDrag}
           onFlatNormals={props.onFlatNormals}
           onRenameZone={props.onRenameZone}
         />

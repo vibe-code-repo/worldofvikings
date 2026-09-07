@@ -66,7 +66,12 @@ import type { PhysicsWorld } from '@wov/physics';
 import { tokens } from '@wov/ui';
 import { isDebugRequested } from '@wov/shared';
 import { installDevDebugBridge } from './dev-debug.js';
-import type { BackdropReadout, WovCollisionDebug, WovTerrainBounds } from './dev-debug.js';
+import type {
+  BackdropReadout,
+  WovCollisionDebug,
+  WovSoundDebug,
+  WovTerrainBounds,
+} from './dev-debug.js';
 import {
   lightingProfiles,
   lookFromQuery,
@@ -394,6 +399,7 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
     reportTerrainBounds(bounds: WovTerrainBounds): void;
     reportCollision(report: WovCollisionDebug): void;
     reportBackdrop(meshes: readonly BackdropReadout[]): void;
+    reportSound(readout: WovSoundDebug, surfaceAt: (x: number, z: number) => string | null): void;
     watchObstacles(query: ObstacleQuery): ObstacleQuery;
   } | null = null;
   // `import.meta.env.DEV` and `__WOV_DEBUG_BRIDGE__` are both build-time
@@ -843,6 +849,18 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
     for (const clip of sound.failed) {
       console.error(`[game] a clip of zone "${zone.id}" did not load — ${clip}`);
     }
+    debugBridge?.reportSound(
+      {
+        status: system.statusLine,
+        ambience: sound.ambience,
+        emitters: sound.emitters,
+        banks: profile.footsteps.banks.length,
+        failed: sound.failed.length,
+        surfaceMapped: surface?.usable ?? false,
+        surfaceStatus: surface?.status ?? 'no ground to fit a probe to',
+      },
+      (x, z) => surfaceUnder(x, z),
+    );
     reportSound();
   }
 

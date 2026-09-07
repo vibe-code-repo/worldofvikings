@@ -16,6 +16,7 @@
 import type { JSX } from 'react';
 import type { FormField, FormGroup, FormList } from '@wov/editor-core';
 import { valueAtPath } from '@wov/editor-core';
+import { beginGesture, gestureKey } from './gesture-key.js';
 
 export interface SchemaFieldsProps {
   /** The controls to draw, from `describeFields`. */
@@ -216,12 +217,20 @@ function Field(props: FieldProps): JSX.Element | null {
               max={field.maximum}
               step={field.step}
               value={shown}
+              // Where one gesture starts and the last one ended, so two drags
+              // of the same slider are two undo steps (`gesture-key.ts`).
+              onPointerDown={() => beginGesture(id)}
+              onKeyDown={(event) => {
+                if (!event.repeat) {
+                  beginGesture(id);
+                }
+              }}
               onChange={(event) => {
                 const next = Number(event.target.value);
                 // A drag is one gesture: the panel folds the steps into one
                 // undo entry rather than fifty.
                 if (props.onDrag) {
-                  props.onDrag(path, next, id);
+                  props.onDrag(path, next, gestureKey(id));
                 } else {
                   props.onChange(path, next);
                 }

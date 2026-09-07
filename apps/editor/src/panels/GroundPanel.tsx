@@ -42,6 +42,7 @@
 import type { JSX } from 'react';
 import type { TerrainDefinition } from '@wov/world-schema';
 import { fieldsCommandedBy, type FormField, type TerrainSurfacePatch } from '@wov/editor-core';
+import { beginGesture, gestureKey } from './gesture-key.js';
 
 /** The command whose fields this half of the panel owns. */
 export const GROUND_COMMAND = 'terrainSurface';
@@ -161,11 +162,20 @@ export function GroundPanel(props: GroundPanelProps): JSX.Element {
                         disabled={disabled}
                         data-testid={`${testId}-slider`}
                         value={shown}
+                        // Where one gesture starts and the last one ended: two
+                        // drags of the same dial are two undo steps, not one
+                        // (`gesture-key.ts`).
+                        onPointerDown={() => beginGesture(testId)}
+                        onKeyDown={(event) => {
+                          if (!event.repeat) {
+                            beginGesture(testId);
+                          }
+                        }}
                         onChange={(event) =>
                           props.onLayerDrag(
                             index,
                             { [dial.key]: Number(event.target.value) },
-                            testId,
+                            gestureKey(testId),
                           )
                         }
                       />

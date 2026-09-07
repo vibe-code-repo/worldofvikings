@@ -151,6 +151,61 @@ test('editor sets the lighting of a world and saves it into the file', async ({
  * the panel, because what is under test is the *reorder and its undo*, not a
  * way of typing six texture paths.
  */
+/**
+ * (1b) Two drags of one slider are two undo steps.
+ *
+ * A slider fires an `input` event per pixel, and the history folds consecutive
+ * entries carrying the same key into one so that a drag is one entry rather
+ * than fifty. The key used to be the control's own test id — a constant — so
+ * two *separate* drags of the same control folded into each other too, and one
+ * Ctrl+Z jumped past both. The value the first drag settled on was not in the
+ * history at all.
+ *
+ * Driven with a real mouse press and release, because the boundary under test
+ * is exactly what a press and a release mean: a scripted `input` event would
+ * take the same path through React and prove nothing about the gesture.
+ */
+test('editor makes each drag of a slider its own undo step', async ({ page }) => {
+  await openEditor(page);
+  await openWorld(page, 'example');
+  await page.getByTestId('right-tab-lighting').click();
+  // The example world has no lighting block, so a preset is what creates the
+  // fields to drag. It is one command, hence one entry.
+  await page.getByTestId('lighting-preset-evening').click();
+  await expect.poll(() => editorUndoDepth(page)).toBe(1);
+
+  // Shadow darkness rather than sun intensity: only a field the schema bounds
+  // at both ends gets a slider, and intensity has no maximum.
+  const slider = page.getByTestId('lighting-shadows-darkness-slider');
+  await slider.scrollIntoViewIfNeeded();
+  const dragTo = async (fraction: number): Promise<void> => {
+    const box = await slider.boundingBox();
+    if (!box) {
+      throw new Error('the shadow darkness slider is not on screen');
+    }
+    const y = box.y + box.height / 2;
+    await slider.hover({ position: { x: box.width * fraction, y: box.height / 2 } });
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * (fraction + 0.08), y, { steps: 6 });
+    await page.mouse.up();
+  };
+
+  const value = page.getByTestId('lighting-shadows-darkness-input');
+  await dragTo(0.2);
+  await expect.poll(() => editorUndoDepth(page)).toBe(2);
+  const afterFirst = await value.inputValue();
+
+  await dragTo(0.7);
+  await expect
+    .poll(() => editorUndoDepth(page), { message: 'the second drag folded into the first' })
+    .toBe(3);
+  expect(await value.inputValue()).not.toBe(afterFirst);
+
+  // And the step in between is reachable, which is the whole point.
+  await page.keyboard.press('Control+z');
+  await expect(value).toHaveValue(afterFirst);
+});
+
 test('editor reorders the terrain layers of a zone, and one undo puts them back', async ({
   page,
   request,

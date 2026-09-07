@@ -30,6 +30,7 @@
     "import:scene-models": "tsx tooling/scripts/import-scene-models.ts",
     "import:backdrop": "tsx tooling/scripts/import-backdrop.ts",
     "scatter": "tsx tooling/scripts/scatter.ts",
+    "seating": "tsx tooling/scripts/seating.ts",
     "terrain-surface": "tsx tooling/scripts/terrain-surface.ts",
     "generate:prefabs": "tsx tooling/scripts/generate-prefabs.ts",
     "perf:frame": "tsx tooling/perf/frame-profile.ts",

@@ -119,6 +119,8 @@ pnpm scatter --world <id> --zone <id> --region … --prefab … --density … --
                  # one scatter run into a world file (ADR-0025)
 pnpm terrain-surface --world <id> --zone <id> --layer <n> --metallic … --smoothness …
                  # a ground layer's surface, through the editor's own command (ADR-0032)
+pnpm seating --world <id> --zone <id> [--prefab <substring>]
+                 # how far a zone's placements stand above their ground (ADR-0036)
 pnpm check       # typecheck + lint + format:check + test + validate
 pnpm smoke       # Playwright: every app started, marker asserted
 ```

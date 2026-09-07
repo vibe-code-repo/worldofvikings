@@ -19,4 +19,8 @@ not part of any shipped bundle.
   triangles, a CDP CPU profile aggregated by function, and the canvas as raw
   RGBA. `pnpm perf:compare` puts two of those RGBA files side by side, which is
   how a change proves it left the picture alone. See `docs/development.md`.
+- `scripts/seating.ts` — `pnpm seating`; measures how far a zone's placements
+  stand above the ground of the zone that has one, against both the regular
+  raster and the drawn tile. Reads the private asset store, writes nothing. See
+  ADR-0036.
 - `asset-pipeline/` — reserved for the GLB/KTX2 pipeline (Phase 5+).

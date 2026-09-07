@@ -33,6 +33,7 @@ import {
   type RenderConfig,
   type RendererHandle,
 } from '@wov/engine';
+import { attachEditorRenderDebug } from '../dev-debug.js';
 import { createEditorCamera, type EditorCamera } from './editor-camera.js';
 import { createGrid, type GridHandle } from './grid.js';
 
@@ -96,6 +97,21 @@ export async function createViewport(
     }
   });
 
+  // The render counters `pnpm perf:editor` reads (ADR-0047). Both operands are
+  // build-time literals, so a default `pnpm build` folds this to `false` and
+  // drops `attachEditorRenderDebug` — and Babylon's instrumentation with it
+  // (ADR-0030). It is a second no-op when no bridge was installed, which is
+  // every debug-capable build opened without `?debug=1`.
+  const detachRenderDebug =
+    import.meta.env.DEV || __WOV_DEBUG_BRIDGE__
+      ? attachEditorRenderDebug({
+          scene,
+          onFrame: (listener) => renderer.onFrame(() => listener()),
+          shadowMap: () => lighting.shadows?.getShadowMap() ?? null,
+          camera: () => camera.camera,
+        })
+      : null;
+
   // See note 2 in the module comment: the canvas changes size when a panel
   // does, and `window` never hears about it.
   const observer =
@@ -122,6 +138,7 @@ export async function createViewport(
     },
     dispose() {
       observer?.disconnect();
+      detachRenderDebug?.();
       unsubscribeFrames();
       listeners.clear();
       lighting.dispose();

@@ -35,6 +35,7 @@
     "generate:prefabs": "tsx tooling/scripts/generate-prefabs.ts",
     "perf:frame": "tsx tooling/perf/frame-profile.ts",
     "perf:compare": "tsx tooling/perf/compare-frames.ts",
+    "perf:cache": "tsx tooling/perf/cache-profile.ts",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test && pnpm run validate",
     "smoke": "playwright test --config tooling/smoke/playwright.config.ts"
   },

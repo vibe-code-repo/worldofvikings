@@ -29,6 +29,17 @@ export interface PerfView {
  * if they were ever moved into the village. Half of that frame is sky, so its
  * frame time says little — it exists so the picture in ADR-0037 can be taken
  * again by name instead of from a query string somebody pasted once.
+ *
+ * `workyard` is aimed too: it stands west of the brick and paving cluster at
+ * x 181–188 / z 150–165, the densest run of ground dressing in the village and
+ * the place where a change to the ground shows first, so it is a named view
+ * rather than a coordinate somebody remembered.
+ *
+ * **A view is only reproducible where the capsule stands still.** The camera
+ * follows the placeholder character, and on a slope that character keeps
+ * sliding (ADR-0038), so a spawn on one is a different frame every run. All
+ * four of these spawn on level ground; two runs of the same build over any of
+ * them differ by 0.0000/255. Check that before adding a fifth.
  */
 export const PERF_VIEWS: readonly PerfView[] = [
   {
@@ -45,6 +56,11 @@ export const PERF_VIEWS: readonly PerfView[] = [
     id: 'rim',
     description: 'north rim, pitched up at the sky the cliff ring stands in',
     query: '?debug=1&world=village1&spawn=77,255&look=0,-28',
+  },
+  {
+    id: 'workyard',
+    description: 'work area east of the square, where the ground dressing is densest',
+    query: '?debug=1&world=village1&spawn=178,154&look=90,24',
   },
 ];
 

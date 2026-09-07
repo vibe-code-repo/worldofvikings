@@ -331,6 +331,23 @@ export interface SceneInstance {
   readonly zone: string;
   readonly prefab: string;
   readonly triangles: number;
+  /**
+   * Mesh nodes under this one whose *own* names are also known models.
+   *
+   * The search stops at the first hit, so claiming a node claims its whole
+   * subtree — that is what makes a house one entity instead of eighty planks,
+   * and it is right almost always. Almost: `Environments/Start position` in the
+   * village bundle carries a mesh of its own *and* matches the store stem
+   * `start-position`, so it is claimed as one entity and the 21 recognisable
+   * meshes under it — six of them rocks — never become entities of their own.
+   *
+   * That is lossless today only by luck: the store model cut from that node
+   * happens to contain all 22 meshes, so every rock is on screen inside it. The
+   * next node shaped like that need not be so lucky, and a silent drop is the
+   * one failure mode of this importer nobody can see. So it is counted, and the
+   * report says so out loud.
+   */
+  readonly swallowed: readonly string[];
   /** World matrix in the bundle's own coordinates, before mirroring. */
   readonly matrix: Matrix4;
 }
@@ -352,6 +369,14 @@ export interface SceneScan {
   readonly helpers: number;
   /** Bundle roots no zone rule claims, with the mesh nodes they hold. */
   readonly ignoredRoots: readonly { readonly name: string; readonly meshNodes: number }[];
+  /**
+   * Instances that swallowed recognisable meshes. See {@link SceneInstance.swallowed}.
+   */
+  readonly swallowing: readonly {
+    readonly path: string;
+    readonly prefab: string;
+    readonly names: readonly string[];
+  }[];
 }
 
 /** A reader over one bundle's node hierarchy, so nothing is walked twice. */
@@ -511,6 +536,31 @@ export function scanScene(json: Gltf, options: SceneScanOptions): SceneScan {
     walk(root, IDENTITY, []);
   }
 
+  /**
+   * Mesh descendants of `index` whose own names are known models, by name.
+   *
+   * Only *mesh* nodes count: a container whose name happens to match a stem
+   * carries nothing of its own, and reporting it would bury the real cases in
+   * noise.
+   */
+  const swallowedUnder = (index: number): string[] => {
+    const found: string[] = [];
+    const visit = (at: number): void => {
+      for (const child of graph.children(at)) {
+        const node = graph.nodes[child];
+        if (
+          node?.mesh !== undefined &&
+          matchName(graph.name(child), options.prefabsByStem) !== null
+        ) {
+          found.push(graph.name(child));
+        }
+        visit(child);
+      }
+    };
+    visit(index);
+    return found;
+  };
+
   const claimed = new Set<number>();
   const collect = (index: number, zone: ZoneRule, from: number): void => {
     // A subtree an earlier zone already claimed is that zone's, and the walk
@@ -535,6 +585,7 @@ export function scanScene(json: Gltf, options: SceneScanOptions): SceneScan {
         zone: zone.id,
         prefab,
         triangles: graph.subtreeTriangles(index),
+        swallowed: swallowedUnder(index),
         matrix: worldMatrices.get(index) ?? IDENTITY,
       });
       return;
@@ -580,7 +631,20 @@ export function scanScene(json: Gltf, options: SceneScanOptions): SceneScan {
     .filter((index) => graph.hasMesh(index) && !holdsSomethingTaken(index))
     .map((index) => ({ name: graph.name(index), meshNodes: graph.subtreeMeshNodes(index) }));
 
-  return { instances, misses, helpers, ignoredRoots };
+  return {
+    instances,
+    misses,
+    helpers,
+    ignoredRoots,
+    swallowing: instances
+      .filter((instance) => instance.swallowed.length > 0)
+      .map((instance) => ({
+        path: instance.path,
+        prefab: instance.prefab,
+        names: instance.swallowed,
+      }))
+      .sort((left, right) => right.names.length - left.names.length),
+  };
 }
 
 // -------------------------------------------------------------- world writing

@@ -139,6 +139,26 @@ if (report.ignoredRoots.length > 0) {
   }
 }
 
+if (report.swallowing.length > 0) {
+  const meshes = report.swallowing.reduce((sum, node) => sum + node.names.length, 0);
+  process.stdout.write(
+    `\n  claimed nodes that hold recognisable meshes of their own: ` +
+      `${String(report.swallowing.length)} node(s), ${String(meshes)} mesh(es).\n` +
+      '  They are inside the model that was placed, not dropped — but they are the only way\n' +
+      '  this importer can lose something silently, so they are named here:\n',
+  );
+  for (const node of report.swallowing.slice(0, 10)) {
+    process.stdout.write(
+      `    ${String(node.names.length).padStart(4)} mesh(es)  ${node.path}  →  ${node.prefab}\n` +
+        `                 ${node.names.slice(0, 8).join(', ')}` +
+        `${node.names.length > 8 ? ', …' : ''}\n`,
+    );
+  }
+  if (report.swallowing.length > 10) {
+    process.stdout.write(`    … and ${String(report.swallowing.length - 10)} more node(s)\n`);
+  }
+}
+
 process.stdout.write(
   `\n  unmatched: ${String(report.missedInstances)} instance(s) under ` +
     `${String(report.misses.length)} name(s), ${String(report.missedTriangles)} triangles\n`,

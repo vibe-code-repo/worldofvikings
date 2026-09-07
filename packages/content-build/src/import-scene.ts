@@ -87,6 +87,18 @@ export interface SceneImportReport {
   readonly misses: readonly SceneMissGroup[];
   readonly missedInstances: number;
   readonly ignoredRoots: readonly { readonly name: string; readonly meshNodes: number }[];
+  /**
+   * Nodes claimed as one prefab that hold recognisable meshes of their own.
+   *
+   * Not an error and not a drop — the claimed model may well contain all of
+   * them — but the one mechanism by which this importer could lose something
+   * without saying a word, so it says a word (`SceneInstance.swallowed`).
+   */
+  readonly swallowing: readonly {
+    readonly path: string;
+    readonly prefab: string;
+    readonly names: readonly string[];
+  }[];
   /** Zones whose authored ground was carried over from the previous file. */
   readonly groundCarried: readonly string[];
   /**
@@ -257,6 +269,7 @@ function reportOf(
       .sort((left, right) => right[1].count - left[1].count)
       .map(([name, group]) => ({ name, ...group })),
     ignoredRoots: [...scan.ignoredRoots].sort((left, right) => right.meshNodes - left.meshNodes),
+    swallowing: scan.swallowing,
     groundCarried: world.zones
       .filter((zone) => zone.terrain !== undefined)
       .map((zone) => zone.id)

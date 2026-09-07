@@ -47,6 +47,7 @@ change it describes.
 | [0036](0036-a-re-import-keeps-the-entities-the-bundle-never-had.md)           | A re-import keeps the entities the bundle never had               | accepted        |
 | [0037](0037-the-cliff-ring-stays-out-of-the-village.md)                       | The cliff ring stays out of the village                           | accepted        |
 | [0038](0038-a-blocked-move-slides-along-the-face-it-met.md)                   | A blocked move slides along the face it met                       | accepted        |
+| [0045](0045-the-ground-dressing-is-buried-and-stays-where-it-was-authored.md) | The ground dressing is buried, and stays where it was authored    | accepted        |
 | [0047](0047-the-editor-has-a-measuring-rig.md)                                | The editor has a measuring rig                                    | accepted        |
 | [0048](0048-the-editor-reports-once-a-frame-and-lists-only-what-it-shows.md)  | The editor reports once a frame and lists only what it shows      | accepted        |
 | [0049](0049-the-editor-draws-a-zone-the-way-the-game-does.md)                 | The editor draws a zone the way the game does                     | accepted        |

@@ -273,6 +273,46 @@ describe('scanScene', () => {
     const wall = scan.instances.find((instance) => instance.node === 2);
     expect(wall?.matrix[12]).toBe(4);
   });
+
+  it('says nothing about a claimed node whose children are not models in their own right', () => {
+    expect(scan.swallowing).toEqual([]);
+  });
+
+  /**
+   * The one way this importer can lose something without a word.
+   *
+   * `Environments/Start position` in the village bundle carries a mesh of its
+   * own *and* matches the store stem `start-position`, so the top-down search
+   * claims it as one entity and the 21 recognisable meshes under it — six of
+   * them rocks — never become entities. That is lossless there only by luck:
+   * the store model cut from that node happens to hold all 22 meshes. The next
+   * node shaped like that need not be so lucky, so the scan counts it.
+   */
+  it('names a claimed node that swallows meshes which are known models themselves', () => {
+    const nested = bundle();
+    // A second recognised model, standing *inside* the wall's subtree.
+    (nested.nodes ?? [])[3] = { name: 'Chest for Player', mesh: 0 };
+    const swallowed = scanScene(nested, { zones: DEFAULT_ZONES, prefabsByStem });
+
+    expect(swallowed.swallowing).toEqual([
+      {
+        path: 'Village/Village1/SM_Env_StoneWall_01 (3)',
+        prefab: 'environment-sm-env-stonewall-01',
+        names: ['Chest for Player'],
+      },
+    ]);
+    // Still one instance: this is a report, not a behaviour change. Splitting
+    // the subtree would scatter every house into its planks.
+    expect(swallowed.instances.filter((one) => one.zone === 'village')).toHaveLength(1);
+  });
+
+  it('does not count a container that merely shares a model’s name', () => {
+    // Only mesh nodes: a name-matching node with nothing of its own carries
+    // nothing that could be lost, and reporting it would bury the real cases.
+    const nested = bundle();
+    (nested.nodes ?? [])[3] = { name: 'Chest for Player' };
+    expect(scanScene(nested, { zones: DEFAULT_ZONES, prefabsByStem }).swallowing).toEqual([]);
+  });
 });
 
 describe('toEntities', () => {
@@ -304,6 +344,7 @@ describe('toEntities', () => {
       zone,
       prefab: 'p',
       triangles: 0,
+      swallowed: [],
       matrix: one,
     });
     const first = toEntities([make(1, 'a')], counters);
@@ -444,6 +485,7 @@ describe('isImportedEntity', () => {
           node: 1,
           name: 'n',
           path: 'n',
+          swallowed: [],
           zone: 'village',
           prefab: 'p',
           triangles: 0,

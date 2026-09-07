@@ -97,6 +97,37 @@ export {
 } from './sky-gradient.js';
 export type { SkyGradient } from './sky-gradient.js';
 
+export {
+  AUDIO_BUS_NAMES,
+  AudioUnavailableError,
+  createAudioEngine,
+  engineStateOf,
+} from './audio.js';
+export type {
+  AudioBusName,
+  AudioEngineOptions,
+  AudioStatusSource,
+  AudioSystem,
+  AudioUnsubscribe,
+  PlaceAudioOptions,
+  PlainAudioOptions,
+} from './audio.js';
+export {
+  AUDIBLE_GAIN_THRESHOLD,
+  audibleRadius,
+  defaultAudioFalloff,
+  distanceGain,
+  resolveAudioFalloff,
+} from './audio-falloff.js';
+export type { AudioDistanceModel, AudioFalloff } from './audio-falloff.js';
+export {
+  initialAudioUnlockState,
+  needsUserGesture,
+  nextAudioUnlockState,
+  summarizeAudioStatus,
+} from './audio-unlock.js';
+export type { AudioStatus, AudioUnlockEvent, AudioUnlockState } from './audio-unlock.js';
+
 export { applyLighting } from './lighting.js';
 export type { LightingHandle, LightingOptions } from './lighting.js';
 export { defaultLightingProfile, resolveLightingProfile } from './lighting-profile.js';

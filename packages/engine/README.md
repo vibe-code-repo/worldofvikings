@@ -23,7 +23,13 @@ things, kept apart on purpose:
    sky the scene is lit under. It renders terrain; it does
    not decide where terrain is (that is world data) and it does not load the
    model (that is `@wov/asset-system`).
-5. **The third-person camera** (ADR-0008, spec §26) — mouse rotation with
+5. **Sound** (ADR-0055) — `createAudioEngine` owns Babylon's AudioV2 engine,
+   its four buses, its one listener and the per-URL clip cache, and it plays a
+   clip either at a place in the world or simply into your ears. It is the audio
+   twin of the light rig: one module, one owner. It also owns the browser's
+   autoplay policy, as a state machine that can tell "click anywhere" apart from
+   three other kinds of silence.
+6. **The third-person camera** (ADR-0008, spec §26) — mouse rotation with
    pointer lock, wheel zoom, a frame-rate independent follow lag and collision
    avoidance as an interface. Its arithmetic is a separate Babylon-free module,
    and so is the decision of whether a mouse movement counts.
@@ -63,6 +69,11 @@ reads back. Rendering never owns the game state (spec §25), which is why
 | `terrainLayerSources(layers, resolve)`                                                      | World-file layers to loadable ones, through the caller's own URL resolver. One mapping for the game and the editor.                       |
 | `TerrainSurfaceShader` / `plainSurface(count)`                                              | Which layers have a normal map and whether the tile is facetted — part of the program's shape.                                            |
 | `sceneSkyGradient(scene)` / `setSceneSkyGradient`                                           | The sky a scene is lit under, as numbers the ground can reflect (ADR-0032). Written by `applyLighting`, read by the terrain material.     |
+| `createAudioEngine(options?)`                                                               | `Promise<AudioSystem>`. The page's audio engine, its four buses, its listener and the clip cache (ADR-0055).                              |
+| `audio.playAt(url, place?)` / `audio.play(url, options?)`                                   | One clip at a place in the world, or one clip simply heard. Buffers are cached per URL and shared.                                        |
+| `audio.attachListener(node)` / `audio.unlock()` / `audio.statusLine`                        | Where the ears are, asking the browser for sound, and the one line saying whether there is any.                                           |
+| `distanceGain(falloff, d)` / `audibleRadius(falloff)`                                       | The Web Audio distance curves, and the radius past which a source is not worth a panner.                                                  |
+| `nextAudioUnlockState(state, event)` / `summarizeAudioStatus(state)`                        | The autoplay state machine, and its status line. Pure.                                                                                    |
 | `SKY_GRADIENT_FUNCTION`                                                                     | The sky as a function of direction, pasted into both the dome's program and the ground's.                                                 |
 | `layerRepeats(size, tileSize)`                                                              | Metres across ÷ metres per repeat — the one place `size` and `tileSize` meet.                                                             |
 | `resolveThirdPersonCameraSettings(over?)`                                                   | Validates a partial camera description; rejects a pitch range that reaches the pole.                                                      |
@@ -161,6 +172,55 @@ Three seams are worth knowing about (ADR-0008):
   `attachControl` touch the DOM, and those are covered by `pnpm smoke`, which
   drives a real wheel and a real drag over the game canvas.
 
+## Sound
+
+```ts
+const audio = await createAudioEngine({ volume: 0.8 });
+audio.attachListener(scene.activeCamera); // the camera, not the player — see below
+await audio.playAt(clipUrl, { node, loop: true, minDistance: 1.5, rolloffFactor: 1.6 });
+await audio.play(footstepUrl, { playbackRate: 1.04 }); // no place: simply heard
+button.addEventListener('click', () => void audio.unlock());
+element.textContent = audio.statusLine; // "sound: click to enable" / "sound: on"
+```
+
+Create it **once per page**, next to the physics backend, and never await it in
+the frame loop: a clip that has not arrived should delay sound, not walking. It
+is not a scene member — a browser has one `AudioContext` worth having and its
+listener is one listener — which is why this hands back a handle instead of
+writing into a scene the way `applyLighting` does.
+
+**The listener follows the camera, not the player.** In third person the picture
+is the camera's, and a listener at the capsule's feet puts a brazier that is on
+screen to your left into your right ear the moment the camera swings round.
+
+**AudioV2, not the legacy `Audio/` engine**, and **nothing is added to
+`side-effects.ts`** — AudioV2 registers nothing on `Scene`, so an entry there
+would be bundle weight of exactly the kind the mesh-builder note below warns
+about. The modules are imported by `src/audio.ts` and nowhere else.
+
+**Autoplay is four different silences, not one.** `audio-unlock.ts` is a pure
+state machine because the audio context reads `suspended` both when the page has
+never been clicked and when something interrupted playback afterwards — and a
+"click anywhere" prompt is right for the first and useless for the second. What
+tells them apart is whether a gesture has ever reached the page, which is why
+the machine has memory. A gesture never reports success by itself: `resumeAsync`
+can still fail, and the status moves to `unlocked` only when the engine says it
+is running.
+
+**`audio-falloff.ts` is arithmetic the browser also does, and that is the
+point.** The panner applies the curve; nothing else can _ask_ about it.
+`audibleRadius` inverts each of the three Web Audio distance models so a
+distance cull has a number, and a test pins that inversion against the curve it
+came from.
+
+One measured caveat, found in a browser rather than reasoned about: Babylon's
+`sound.spatial` is a **mirror** initialised from its own defaults and never
+re-read from the panner sub-node. The creation options do configure the panner —
+the sub-node reads back `inverse / 1.5 / 1.6` for a brazier — but the mirror
+still says `linear / 1 / 1`. `playAt` therefore writes the resolved falloff
+through the mirror once after creating the sound, so that asking a sound how far
+it carries gives the answer you can hear.
+
 ## Side-effect imports
 
 `src/side-effects.ts` is the one place that lists the Babylon.js modules whose
@@ -185,5 +245,7 @@ Import the single builder you need
 
 - `@babylonjs/core` — the renderer this package exists to bootstrap (ADR-0002).
 - `@wov/shared` — `clamp` for the render config.
+
+No dependency was added for sound: AudioV2 ships inside `@babylonjs/core`.
 
 **Ownership.** Core maintainers.

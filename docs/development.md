@@ -176,6 +176,44 @@ ADR-0006, and the number is written down here so a regression is visible rather
 than gradual. Everything that _can_ be deferred already is — the four rows
 above the editor are separate chunks, not part of the entry.
 
+## Measuring a frame
+
+`pnpm perf:frame` is the rig every performance claim in this repository has to
+come from. It builds the game with the debug bridge (`WOV_DEBUG_BRIDGE=1`),
+starts an API, an asset server and `vite preview` on ports of their own, opens
+one of the named views in `tooling/perf/views.ts`, waits for the collision
+report — the last thing the client publishes, so a bridge that has one is a
+client that has stopped loading — and then measures a three-second window:
+
+```bash
+WOV_ASSET_STORE=/srv/assets/store pnpm perf:frame --label baseline --view square
+WOV_ASSET_STORE=/srv/assets/store pnpm perf:frame --label after --view square --skip-build
+pnpm perf:compare test-results/perf/baseline.square.rgba test-results/perf/after.square.rgba
+```
+
+Four things it does that a browser tab does not:
+
+- **The built bundles, not the dev server.** Vite serves every Babylon submodule
+  as its own module record; the built bundle is one tree-shaken file. Only one of
+  them is what a player runs, and they do not cost the same.
+- **The window's own mean, not the running one.** `window.__wov.render.frameTimeMs`
+  is the average over every frame since the page opened, which after ten seconds
+  of loading a village is mostly the loading. Two readings and the frame counts
+  behind them recover the mean of the frames in between.
+- **A CPU profile at 200 µs**, aggregated by function into self and inclusive
+  time. Inclusive is what says which _phase_ costs what; self is what a
+  micro-optimisation moves.
+- **The canvas as raw bytes.** The HUD is DOM on top of the canvas, so reading
+  the canvas excludes it without a rectangle anybody has to keep in step with the
+  layout. `pnpm perf:compare` reports the mean absolute difference per channel,
+  and a change that claims to leave the picture alone stays under 2/255.
+
+It also walks the player and reads the sun's position before and after, because
+the shadow map is centred on the player and "it still follows" is a claim about
+movement that no still frame can make. The walk needs room: at the square's
+spawn the player is stopped by a wall three metres north, so the thirty-metre
+version of that test is run on the `slope` view.
+
 ## Environment
 
 Every app has a committed `.env.example` with working local defaults. Copy it to

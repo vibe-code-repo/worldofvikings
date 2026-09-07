@@ -221,6 +221,19 @@ export interface WovLightingDebug {
   postProcessing: boolean;
   fog: boolean;
   sky: boolean;
+  /**
+   * Where the sun stands, which is the only readable witness that the shadow
+   * box still follows the player.
+   *
+   * The map covers `shadows.distance` metres around a focus point and the light
+   * is parked that far behind it (`@wov/engine`'s `focusShadows`). Nothing else
+   * in the scene says where that box is: the generator reports its size, not its
+   * centre. So a test that walks thirty metres and reads this twice is the one
+   * way to tell a following shadow map from one that was centred once and then
+   * left behind — which looks, from a still frame at the spawn point, exactly
+   * the same.
+   */
+  sun: { x: number; y: number; z: number };
 }
 
 declare global {
@@ -293,6 +306,7 @@ export function installDevDebugBridge(
         postProcessing: false,
         fog: false,
         sky: false,
+        sun: { x: 0, y: 0, z: 0 },
       }
     : null;
   const groundAt = subjects.groundAt ?? ((): null => null);
@@ -380,6 +394,10 @@ export function installDevDebugBridge(
       lightingDebug.postProcessing = rig?.pipeline != null;
       lightingDebug.fog = renderer.scene.fogEnabled && renderer.scene.fogMode !== 0;
       lightingDebug.sky = rig?.sky != null;
+      const sunAt = rig?.sun.position;
+      lightingDebug.sun.x = sunAt?.x ?? 0;
+      lightingDebug.sun.y = sunAt?.y ?? 0;
+      lightingDebug.sun.z = sunAt?.z ?? 0;
     }
     if (player && playerDebug) {
       const at = player.root.position;

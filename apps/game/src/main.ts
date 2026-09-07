@@ -56,7 +56,13 @@ import { tokens } from '@wov/ui';
 import { isDebugRequested } from '@wov/shared';
 import { installDevDebugBridge } from './dev-debug.js';
 import type { BackdropReadout, WovCollisionDebug, WovTerrainBounds } from './dev-debug.js';
-import { lightingProfiles, lookFromQuery, resolveGameConfig, worldIdFromQuery } from './config.js';
+import {
+  lightingProfiles,
+  lookFromQuery,
+  resolveGameConfig,
+  shadowFocusOffsetFromQuery,
+  worldIdFromQuery,
+} from './config.js';
 import { createWorldApi } from './world-api.js';
 import {
   NO_SOURCES,
@@ -233,6 +239,12 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
   });
   const { renderer, base, camera, player } = scene3d;
   /**
+   * What `?shadowFocus=dx,dz` displaces the shadow map's centre by, in metres.
+   *
+   * Zero unless a measurement asked for it; see `shadowFocusOffsetFromQuery`.
+   */
+  const shadowFocusOffset = shadowFocusOffsetFromQuery(window.location.search) ?? { x: 0, z: 0 };
+  /**
    * The light rig. Replaced once the world file says how it wants to be lit
    * (ADR-0024), so this is read through a variable rather than destructured.
    */
@@ -319,7 +331,11 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
         // (ADR-0024), so it has to be told where the player got to. Done here
         // rather than on a scene hook because this is the one place that knows
         // the interpolated position the frame is actually drawn at.
-        lighting.focusShadows(position.x, position.y, position.z);
+        lighting.focusShadows(
+          position.x + shadowFocusOffset.x,
+          position.y,
+          position.z + shadowFocusOffset.z,
+        );
       }
       // The camera updates on the scene's before-render hook, so it reads the
       // position written just above — this frame's, not the previous one's.

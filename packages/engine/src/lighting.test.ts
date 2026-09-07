@@ -116,13 +116,75 @@ describe('applyLighting', () => {
   it('parks the sun behind whatever the shadow map is focused on', () => {
     const target = scene();
     const handle = applyLighting(target, {
-      profiles: [{ sun: { direction: [0, -1, 0] }, shadows: { distance: 100 } }],
+      profiles: [{ sun: { direction: [0, -1, 0] }, shadows: { distance: 100, mapSize: 1024 } }],
     });
 
     handle.focusShadows(10, 5, -20);
-    expect(handle.sun.position.x).toBeCloseTo(10, 5);
+    // Behind the focus point by the full distance, along the light — that part
+    // is exact. Across it the position is quantised onto the map's own texels
+    // (ADR-0039), so it may sit up to half a texel away and must sit on the
+    // lattice: 100 m over 1024 texels is 9.77 cm.
+    const texel = 100 / 1024;
     expect(handle.sun.position.y).toBeCloseTo(105, 5);
-    expect(handle.sun.position.z).toBeCloseTo(-20, 5);
+    expect(Math.abs(handle.sun.position.x - 10)).toBeLessThanOrEqual(texel / 2 + 1e-9);
+    expect(Math.abs(handle.sun.position.z - -20)).toBeLessThanOrEqual(texel / 2 + 1e-9);
+    expect(handle.sun.position.x / texel).toBeCloseTo(Math.round(handle.sun.position.x / texel), 6);
+    expect(handle.sun.position.z / texel).toBeCloseTo(Math.round(handle.sun.position.z / texel), 6);
+  });
+
+  it('keeps the shadow map on the same texel grid while the focus walks', () => {
+    const target = scene();
+    const handle = applyLighting(target, {
+      // The village's own evening sun and map, so the numbers are the ones the
+      // shimmer was measured with: 120 m over 2048 texels is 5.86 cm a texel.
+      profiles: [{ sun: { direction: [0.58, -0.45, 0.68] }, shadows: { distance: 120 } }],
+    });
+    const generator = handle.shadows;
+    expect(generator).not.toBeNull();
+
+    /**
+     * Where the world origin lands in the map, in texels, fraction only.
+     *
+     * This is the thing that used to move. The map is a grid of texels laid
+     * over the world by the light matrix; if the fractional part of a fixed
+     * world point's texel coordinate changes between frames, every silhouette
+     * in the map is being rasterised onto a different grid and its edge
+     * crawls. A still frame cannot show that, so it is measured here.
+     */
+    const phase = (): [number, number] => {
+      // Babylon caches the light matrix per rendered frame, so a measurement
+      // that never renders would read the first frame's matrix sixty times and
+      // find it wonderfully stable. This is what makes each reading a frame.
+      target.incrementRenderId();
+      const matrix = generator?.getTransformMatrix();
+      if (matrix === undefined) {
+        throw new Error('no shadow transform to measure');
+      }
+      const inMap = Vector3.TransformCoordinates(Vector3.Zero(), matrix);
+      const half = 2048 / 2;
+      const fraction = (value: number): number => value - Math.floor(value);
+      return [fraction(inMap.x * half), fraction(inMap.y * half)];
+    };
+
+    // A walk at full speed, sampled at 60 Hz: 4.5 m/s is 7.5 cm a frame, which
+    // is more than one texel and lands on a different fraction of one every
+    // time. Before the snap these phases swept the whole ±0.5 texel.
+    handle.focusShadows(40, 6, -12);
+    const first = phase();
+    const parked = handle.sun.position.clone();
+    for (let frame = 1; frame <= 60; frame += 1) {
+      const walked = (frame * 4.5) / 60;
+      handle.focusShadows(40 + walked * 0.8, 6 + Math.sin(frame) * 0.02, -12 + walked * 0.6);
+      const now = phase();
+      expect(now[0]).toBeCloseTo(first[0], 4);
+      expect(now[1]).toBeCloseTo(first[1], 4);
+    }
+
+    // And it did follow the player rather than standing still, or the phase
+    // above would be constant for the least interesting of reasons.
+    // A second of walking is 4.5 m, and the map's centre went with it — bar
+    // the half texel it is allowed to lag by.
+    expect(Vector3.Distance(handle.sun.position, parked)).toBeGreaterThan(4.4);
   });
 
   it('makes every mesh a receiver, including ones added afterwards', async () => {

@@ -6,6 +6,7 @@ import {
   lightingProfiles,
   lookFromQuery,
   resolveGameConfig,
+  shadowFocusOffsetFromQuery,
   worldIdFromQuery,
 } from './config.js';
 
@@ -105,5 +106,25 @@ describe('lookFromQuery', () => {
 
   it('is absent when nothing asked for it', () => {
     expect(lookFromQuery('?world=village1')).toBeUndefined();
+  });
+});
+
+describe('shadowFocusOffsetFromQuery', () => {
+  it('reads a displacement in metres', () => {
+    expect(shadowFocusOffsetFromQuery('?shadowFocus=0.0234,-0.0586')).toEqual({
+      x: 0.0234,
+      z: -0.0586,
+    });
+  });
+
+  it('ignores a malformed value rather than shifting by a guess', () => {
+    expect(shadowFocusOffsetFromQuery('?shadowFocus=')).toBeUndefined();
+    expect(shadowFocusOffsetFromQuery('?shadowFocus=1')).toBeUndefined();
+    expect(shadowFocusOffsetFromQuery('?shadowFocus=1,2,3')).toBeUndefined();
+    expect(shadowFocusOffsetFromQuery('?shadowFocus=1,east')).toBeUndefined();
+  });
+
+  it('is absent when nothing asked for it', () => {
+    expect(shadowFocusOffsetFromQuery('?world=village1')).toBeUndefined();
   });
 });

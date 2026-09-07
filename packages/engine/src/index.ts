@@ -100,6 +100,11 @@ export type { SkyGradient } from './sky-gradient.js';
 export { applyLighting } from './lighting.js';
 export type { LightingHandle, LightingOptions } from './lighting.js';
 export { defaultLightingProfile, resolveLightingProfile } from './lighting-profile.js';
+// The shadow map's quantisation (ADR-0039): exported because it is the
+// arithmetic a stability measurement checks, not because an app has to call it
+// — `applyLighting` applies it by itself.
+export { shadowBasis, snapShadowFocus } from './shadow-snap.js';
+export type { ShadowBasis, ShadowVec3 } from './shadow-snap.js';
 export type {
   AmbientOptions,
   BloomOptions,

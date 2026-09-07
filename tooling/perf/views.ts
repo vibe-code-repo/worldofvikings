@@ -29,6 +29,16 @@ export interface PerfView {
  * if they were ever moved into the village. Half of that frame is sky, so its
  * frame time says little — it exists so the picture in ADR-0037 can be taken
  * again by name instead of from a query string somebody pasted once.
+ *
+ * `square-focus-sub` and `square-focus-texel` are `square` with the shadow
+ * map's centre displaced by hand (`?shadowFocus=`, `apps/game/src/config.ts`).
+ * They exist to prove shadow stability, which no single picture can show: with
+ * the village's 120 m map over 2048 texels one texel is 5.86 cm, so the two
+ * views nudge the map by 0.4 of a texel and by a whole one while camera,
+ * player and sun stay exactly where `square` puts them. Against `square` both
+ * must come out pixel-identical — the first because the map does not move at
+ * all, the second because it moves by whole texels and lands on the same world
+ * pixels (ADR-0039).
  */
 export const PERF_VIEWS: readonly PerfView[] = [
   {
@@ -40,6 +50,16 @@ export const PERF_VIEWS: readonly PerfView[] = [
     id: 'slope',
     description: 'north-east slope, looking back at the village',
     query: '?debug=1&world=village1&spawn=120,120&look=-105,14',
+  },
+  {
+    id: 'square-focus-sub',
+    description: 'village square, shadow focus nudged 0.4 of a shadow texel (2.34 cm)',
+    query: '?debug=1&shadowFocus=0.0234375,0',
+  },
+  {
+    id: 'square-focus-texel',
+    description: 'village square, shadow focus nudged one whole shadow texel (5.86 cm)',
+    query: '?debug=1&shadowFocus=0.05859375,0',
   },
   {
     id: 'rim',

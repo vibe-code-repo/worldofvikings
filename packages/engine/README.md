@@ -51,6 +51,7 @@ reads back. Rendering never owns the game state (spec §25), which is why
 | `LightingHandle`                                                                            | `profile`, `sun`, `ambient`, `shadows`, `sky`, `pipeline`, `ssao`, `excludeFromShadows`, `excludeFromCasting`, `focusShadows`, `dispose`. |
 | `resolveLightingProfile(...profiles)`                                                       | Merges partial profiles left to right (world, then zone) into a complete one, validating colours and distances.                           |
 | `defaultLightingProfile`                                                                    | The resolved defaults: the late-afternoon sun a world with no profile is lit by.                                                          |
+| `shadowBasis(direction)` / `snapShadowFocus(focus, basis, texel)`                           | The shadow map's own axes and a focus point quantised onto its texels (ADR-0039). Pure arithmetic; `applyLighting` applies it by itself.  |
 | `SKY_VERTEX_SOURCE` / `SKY_FRAGMENT_SOURCE`                                                 | The gradient sky's GLSL, Babylon-free so it can be asserted in a unit test.                                                               |
 | `createThirdPersonCamera(scene, options)`                                                   | `ThirdPersonCameraHandle`. The camera of spec §26, following a `() => Vector3`.                                                           |
 | `ThirdPersonCameraHandle`                                                                   | `camera`, `settings`, `state`, `look`, `zoom`, `update`, `setObstacleQuery`, `attachControl`, `detachControl`, `dispose`.                 |
@@ -108,6 +109,11 @@ Three things about it are decisions rather than details:
   frustum of `shadows.distance` metres, parked behind the point the app names
   through `focusShadows(x, y, z)`. The engine must not reach into gameplay to
   find the player (spec §25), so something has to tell it where to look.
+  That point is quantised onto whole texels of the map first (`shadow-snap.ts`,
+  ADR-0039): a centre that slides in fractions of a texel re-rasterises every
+  silhouette every frame, which is a shadow edge that crawls whenever the
+  player moves. Babylon only snaps inside its cascaded generator, so this
+  package does it — laterally, leaving the depth axis continuous.
 - **Everything casts and receives unless excluded.** The map's render list is
   rebuilt from the scene each pass and new meshes become receivers as they are
   added, because a village arrives over several seconds and a rule applied per

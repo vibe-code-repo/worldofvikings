@@ -52,6 +52,7 @@ import {
 } from './sky-shader.js';
 import { clearSceneSkyGradient, setSceneSkyGradient } from './sky-gradient.js';
 import { resolveLightingProfile } from './lighting-profile.js';
+import { shadowBasis, snapShadowFocus } from './shadow-snap.js';
 import type { LightingProfileOptions, ResolvedLightingProfile } from './lighting-profile.js';
 
 /**
@@ -143,6 +144,10 @@ export interface LightingHandle {
    * what makes 2048 texels worth having. Something has to say where those
    * metres are, and only the app knows: the engine must not reach into gameplay
    * to find the player (spec §25).
+   *
+   * The point is quantised onto whole texels of the map before it is used
+   * (`shadow-snap.ts`, ADR-0039), so a caller may hand this a position that
+   * changes every frame without the map's grid sliding underneath the world.
    */
   focusShadows(x: number, y: number, z: number): void;
   dispose(): void;
@@ -482,8 +487,30 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
   // wall something else should be able to darken.
   const meshAdded = scene.onNewMeshAddedObservable.add(receive);
 
+  /**
+   * The map's own axes and how much ground one of its texels covers.
+   *
+   * Both are read here rather than at module scope because both come out of
+   * this call's profile: a relight with a different `distance` or `mapSize`
+   * builds a fresh handle, and this one must not keep quantising to the old
+   * grid.
+   */
+  const basis = shadowBasis([direction.x, direction.y, direction.z]);
+  const texel = profile.shadows.distance / profile.shadows.mapSize;
+
   const place = (): void => {
-    sun.position = focus.subtract(direction.scale(profile.shadows.distance));
+    // Snapped onto whole texels of the map before the light is parked behind
+    // it (ADR-0039). Without this the 2048² grid slides with the player in
+    // arbitrary fractions of a texel and every shadow edge crawls; with it a
+    // step smaller than 5.9 cm produces the very same light matrix. The cost
+    // is that the map's centre now lags the focus point by up to half a texel,
+    // which at 120 m of coverage is under three centimetres.
+    const snapped = snapShadowFocus([focus.x, focus.y, focus.z], basis, texel);
+    sun.position = new Vector3(
+      snapped[0] - basis.forward[0] * profile.shadows.distance,
+      snapped[1] - basis.forward[1] * profile.shadows.distance,
+      snapped[2] - basis.forward[2] * profile.shadows.distance,
+    );
   };
   place();
 

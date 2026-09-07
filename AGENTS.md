@@ -20,7 +20,8 @@ from its height field and splat layers (ADR-0020), places its entities from the
 prefab catalogue as GPU instances, and stands a placeholder capsule on the
 terrain with a third-person camera and a physics world (ADR-0022). `?world=`
 picks the world, `?spawn=x,z` where to stand, `?look=yaw[,pitch]` where to aim,
-and `?flat=1` and `?shadows=off` take the light apart for a measurement.
+and `?flat=1`, `?shadows=off` and `?shadowFocus=` take the light apart for a
+measurement.
 
 The village zone is 5273 entities from 145 models, 4032 of them scattered
 vegetation drawn as thin instances (ADR-0025). Its ground is one adaptive tile
@@ -29,7 +30,8 @@ reflects the same sky the dome draws (ADR-0032). Behind it stand two painted
 mountain shells and 23 clouds, which are a prefab category of their own: never
 scattered onto, never picked, never in the shadow map (ADR-0031). It is lit the
 way its world file says (ADR-0024): a low evening sun with one following 2048²
-shadow map, a gradient sky, a cool haze that reaches 1700 m — far enough that
+shadow map that snaps to its own texels so its edges hold still while the player
+walks (ADR-0039), a gradient sky, a cool haze that reaches 1700 m — far enough that
 the painted range hazes with distance instead of standing dark behind it
 (ADR-0034) — and a graded frame. Grass takes that shadow without casting one
 (ADR-0027). Every entity collides against the shape its prefab declares

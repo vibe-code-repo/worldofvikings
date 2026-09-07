@@ -24,8 +24,10 @@ model's bytes are (ADR-0015, ADR-0016).
 - Environment: `VITE_API_URL`, `VITE_ASSET_URL` (see `.env.example`)
 - Query string: `?world=<id>` (default `village1`), `?spawn=<x>,<z>`,
   `?flat=1` (the flat noon rig instead of the world's own, ADR-0024),
-  `?shadows=off` (the world's light without its shadow map) — the last two are
-  there so a measurement can hold everything else constant
+  `?shadows=off` (the world's light without its shadow map),
+  `?shadowFocus=<dx>,<dz>` (metres the shadow map's centre is displaced by,
+  ADR-0039) — the last three are there so a measurement can hold everything
+  else constant
 
 ## Controls
 

@@ -136,3 +136,37 @@ export function lookFromQuery(
     initialPitch: pitch === undefined ? 0.28 : radians(pitch),
   };
 }
+
+/**
+ * The shadow-focus displacement `?shadowFocus=` asks for, in metres, or nothing.
+ *
+ * The fourth diagnostic switch, next to `?flat=1`, `?shadows=off` and `?look=`,
+ * and it exists for one measurement that cannot be taken any other way. The
+ * claim "the shadow map no longer moves when the focus point moves less than a
+ * texel" is a claim about two frames whose *only* difference is where the map
+ * is centred: same camera, same player, same sun. A walking player changes all
+ * three at once, so the harness needs to displace the focus point by hand.
+ * `?shadowFocus=dx,dz` adds those metres to the point the game hands to
+ * `focusShadows`, and nothing else in the frame moves.
+ *
+ * Anything malformed is ignored rather than guessed at, exactly like `?look=`:
+ * a typo must leave the measurement unshifted instead of shifting it by an
+ * amount nobody wrote down.
+ */
+export function shadowFocusOffsetFromQuery(
+  search: string,
+): { readonly x: number; readonly z: number } | undefined {
+  const value = new URLSearchParams(search).get('shadowFocus');
+  if (value === null) {
+    return undefined;
+  }
+  const parts = value.split(',').map((part) => Number.parseFloat(part.trim()));
+  const [x, z] = parts;
+  if (parts.length !== 2 || x === undefined || z === undefined) {
+    return undefined;
+  }
+  if (!Number.isFinite(x) || !Number.isFinite(z)) {
+    return undefined;
+  }
+  return { x, z };
+}

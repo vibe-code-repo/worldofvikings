@@ -128,6 +128,50 @@ export {
 } from './audio-unlock.js';
 export type { AudioStatus, AudioUnlockEvent, AudioUnlockState } from './audio-unlock.js';
 
+export { applyWorldSound } from './sound.js';
+export type { ClipSource, ListenerPoint, WorldSoundHandle, WorldSoundOptions } from './sound.js';
+export {
+  DEFAULT_EMITTER_MAX_COUNT,
+  bankForSurface,
+  defaultSoundProfile,
+  resolveSoundProfile,
+  soundProfileClips,
+  surfaceOfLayer,
+} from './sound-profile.js';
+export type {
+  AmbienceOptions,
+  FootstepBankOptions,
+  FootstepOptions,
+  ResolvedSoundProfile,
+  SoundBankInput,
+  SoundEmitterInput,
+  SoundEmitterOptions,
+  SoundMasterOptions,
+  SoundProfileOptions,
+} from './sound-profile.js';
+export { distanceBetween, planEmitters } from './sound-placement.js';
+export type { EmitterPlacement, EmitterPlan, PlacedEntity } from './sound-placement.js';
+export { createClipBag, intervalIn, jitteredRate, seededRandom } from './sound-bag.js';
+export type { ClipBag, RandomSource } from './sound-bag.js';
+export {
+  UNPAINTED_WEIGHT_TOTAL,
+  UV_FIT_TOLERANCE,
+  createTerrainSurfaceProbe,
+  decodeSplatImage,
+  dominantLayer,
+  fitAxis,
+  fitTileUv,
+  splatWeightsAt,
+} from './terrain-surface.js';
+export type {
+  AxisFit,
+  SplatImage,
+  TerrainSurfaceProbe,
+  TerrainSurfaceProbeOptions,
+  TileUvFit,
+  WorldToLocal,
+} from './terrain-surface.js';
+
 export { applyLighting } from './lighting.js';
 export type { LightingHandle, LightingOptions } from './lighting.js';
 export { defaultLightingProfile, resolveLightingProfile } from './lighting-profile.js';

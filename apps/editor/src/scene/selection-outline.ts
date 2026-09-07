@@ -54,33 +54,61 @@ export interface SelectionOutline {
   dispose(): void;
 }
 
-export function createSelectionOutline(scene: Scene): SelectionOutline {
-  let mesh: LinesMesh | null = null;
+export interface SelectionOutlineOptions {
+  /**
+   * Called once, with the box, the first time one is drawn.
+   *
+   * The caller needs it for the same reason the terrain's `onChanged` exists:
+   * the box is a measuring aid and must stay out of the sun's shadow map, and
+   * only the viewport knows where a mesh goes to say so. Without it the outline
+   * was a caster — measured, the sun's render list went from 32 to 33 the
+   * moment one entity was selected, while the grid beside it was excluded on
+   * purpose.
+   */
+  readonly onMesh?: (mesh: LinesMesh) => void;
+}
 
-  const clear = (): void => {
-    mesh?.dispose();
-    mesh = null;
-  };
+export function createSelectionOutline(
+  scene: Scene,
+  options: SelectionOutlineOptions = {},
+): SelectionOutline {
+  let mesh: LinesMesh | null = null;
 
   return {
     show(bounds) {
-      clear();
       if (bounds === null) {
+        if (mesh !== null) {
+          mesh.isVisible = false;
+        }
         return;
       }
       const lines = boxEdges(bounds).map(([start, end]) => [
         new Vector3(start[0], start[1], start[2]),
         new Vector3(end[0], end[1], end[2]),
       ]);
-      // Rebuilt rather than updated: the box changes only when the selection or
-      // its size does, which is a click or the end of a drag, never a frame.
-      mesh = CreateLineSystem('editor-selection', { lines }, scene);
-      mesh.color = new Color3(0.78, 0.64, 0.36);
-      mesh.isPickable = false;
-      // Drawn over the model it surrounds; a box hidden inside a solid prop
-      // says nothing.
-      mesh.renderingGroupId = 1;
+      if (mesh === null) {
+        // `updatable`, because the alternative is what this used to do:
+        // dispose the box and build another on every selection change. Every
+        // one of those is a mesh removed and a mesh added, and the light rig
+        // rebuilds its caster list from the whole scene whenever that happens
+        // — 14 446 meshes walked because a box moved. A box is always twelve
+        // edges, so the vertex count never changes and one mesh serves for
+        // the session.
+        mesh = CreateLineSystem('editor-selection', { lines, updatable: true }, scene);
+        mesh.color = new Color3(0.78, 0.64, 0.36);
+        mesh.isPickable = false;
+        // Drawn over the model it surrounds; a box hidden inside a solid prop
+        // says nothing.
+        mesh.renderingGroupId = 1;
+        options.onMesh?.(mesh);
+      } else {
+        CreateLineSystem('editor-selection', { lines, updatable: true, instance: mesh }, scene);
+      }
+      mesh.isVisible = true;
     },
-    dispose: clear,
+    dispose() {
+      mesh?.dispose();
+      mesh = null;
+    },
   };
 }

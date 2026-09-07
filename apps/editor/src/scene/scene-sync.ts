@@ -429,6 +429,19 @@ export function createSceneSync(options: SceneSyncOptions): SceneSync {
       const meshes = instance.root
         .getChildMeshes(false)
         .filter((mesh) => mesh !== instance.pending);
+      for (const mesh of meshes) {
+        if (mesh.getTotalVertices() === 0) {
+          // The `__root__` a glTF brings is a `Mesh` doing a transform node's
+          // job: it carries the loader's handedness conversion and no geometry
+          // at all. Babylon cannot instance it, so every entity gets its own —
+          // 5 274 of the village's 14 446 meshes — and each of them was walked
+          // by `_evaluateActiveMeshes` every frame and drawn into the sun's
+          // shadow map, where 5 274 of the 7 469 "casters" were these. Hidden,
+          // they are neither: both walks ask `isVisible` first, and nothing
+          // that draws is under this flag — the children have their own.
+          mesh.isVisible = false;
+        }
+      }
       if (isBackdrop(prefab)) {
         // Out of the picking, which is what the viewport rays against for both
         // "what did I click on" and "what is the surface under this point"

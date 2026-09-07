@@ -490,6 +490,13 @@ async function measureLoad(
       // Quiet, not complete: nothing publishes "every texture has arrived", so
       // the honest end of the load is the last time the count grew, confirmed by
       // two seconds in which it did not grow again.
+      //
+      // And "the count" is a count of distinct texture *files*, of which the
+      // whole village has eleven — one atlas per set. So this milestone can
+      // only ever confirm that no twelfth file appeared; it says nothing about
+      // the thousands of texture instances still decoding, and it lands in the
+      // same publish as the models mark in every run so far for exactly that
+      // reason. It is a guard against a missing atlas, not a second milestone.
       for (;;) {
         const readout = await readProbe(page);
         const last = readout.marks['textures'] ?? 0;
@@ -885,10 +892,15 @@ async function measureEdit(page: Page): Promise<EditReport> {
  *
  * Measured with a capture listener on `window` and a bubble listener on
  * `window`: the viewport's handler sits on the canvas in between, so the gap
- * between the two stamps is what the whole pick took — `scene.pick` against
- * every mesh in the zone, and whatever the selection change costs downstream of
- * it. Wrapping the handler itself would need the app's own code to cooperate
- * with the rig, which is the coupling the bridge exists to avoid.
+ * between the two stamps is what that handler took — `scene.pick` against every
+ * mesh in the zone, plus the React dispatch that *starts* the selection change.
+ * It stops there, and deliberately says so: React commits in a later
+ * microtask, so the outline, the inspector and the viewport's document effect
+ * are all outside the measurement. `clickLongTasks` is reported beside it and
+ * is the larger number of the two by roughly an order of magnitude, which is
+ * the size of what is left out. Wrapping the handler itself would need the
+ * app's own code to cooperate with the rig, which is the coupling the bridge
+ * exists to avoid.
  *
  * The select tool is the editor's default and nothing here changes it, so this
  * is a plain selection click and not a placement.

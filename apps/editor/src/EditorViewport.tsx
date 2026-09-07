@@ -246,7 +246,11 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
      * always follows the last one.
      */
     const reports = createCoalescer(report);
-    const outline = createSelectionOutline(viewport.scene);
+    const outline = createSelectionOutline(viewport.scene, {
+      // A measuring aid, like the grid: it must not throw a shadow over the
+      // prop it is drawn around.
+      onMesh: (box) => viewport.excludeFromShadows([box]),
+    });
     outlineRef.current = outline;
     // Scenery, not a document object: it is drawn and it is what a prop snaps
     // onto, and nothing in the editor can select or move it yet (ADR-0022).

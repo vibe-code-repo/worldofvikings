@@ -278,7 +278,18 @@ export interface EditReport {
   readonly toNextFrameMs: readonly number[];
   readonly summary: DurationSummary;
   readonly longTasks: LongTaskReport;
-  /** Milliseconds the canvas `pointerup` listeners took, the pick included. */
+  /**
+   * Milliseconds spent inside the viewport's own `pointerup` listener.
+   *
+   * That is `scene.pick` over every mesh in the zone plus the React dispatch
+   * that starts the selection change — and **not** the selection change itself:
+   * React commits in a later microtask, so the outline, the inspector and the
+   * viewport's document effect all run after this stopwatch has stopped. The
+   * gap between the two numbers is not small; `clickLongTasks` beside it is
+   * roughly an order of magnitude larger, and that is the part it leaves out.
+   * Read this as "how long the click blocked the handler", not as "how long
+   * before the author saw anything".
+   */
   readonly pointerUpMs: number | null;
   /** Long tasks during that one click, which is where the pick shows up. */
   readonly clickLongTasks: LongTaskReport;

@@ -20,7 +20,7 @@
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
 import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
-import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import type { InstantiatedEntries } from '@babylonjs/core/assetContainer.js';
 import { Scene } from '@babylonjs/core/scene.js';
@@ -81,7 +81,11 @@ describe('the reconciler freezes what is not moving', () => {
     options: { rename?: (name: string) => string } = {},
   ): Promise<InstantiatedEntries> => {
     const rename = options.rename ?? ((name: string) => name);
-    const root = new TransformNode(rename('__root__'), scene);
+    // A `Mesh` with no geometry, not a `TransformNode`: that is what Babylon's
+    // glTF loader hands back for `__root__`, and the difference matters —
+    // `getChildMeshes` returns it, the renderer walks it every frame, and the
+    // shadow pass used to draw it.
+    const root = new Mesh(rename('__root__'), scene);
     const mesh = CreateBox(rename('model'), { size: 0.5 }, scene);
     mesh.parent = root;
     mesh.position.y = 1;
@@ -238,6 +242,20 @@ describe('the reconciler freezes what is not moving', () => {
 
     expect(modelAt('barrel_1')).toEqual([0, 1, 0]);
     expect(sync.frozenCount()).toBe(1);
+  });
+
+  it('hides the empty root a loaded model brings, and nothing that draws', async () => {
+    sync.apply(documentWith([{ id: 'barrel_1', prefab: PREFAB.id, position: [0, 0, 0] }]));
+    await settle();
+
+    const node = sync.nodeFor('barrel_1');
+    const drawn = node?.getChildMeshes(false).filter((mesh) => mesh.getTotalVertices() > 0) ?? [];
+    const empty = node?.getChildMeshes(false).filter((mesh) => mesh.getTotalVertices() === 0) ?? [];
+
+    expect(empty.length, 'the fake loader brings a geometry-less root, as glTF does').toBe(1);
+    expect(empty.every((mesh) => !mesh.isVisible)).toBe(true);
+    expect(drawn.length).toBeGreaterThan(0);
+    expect(drawn.every((mesh) => mesh.isVisible)).toBe(true);
   });
 
   it('takes a tuft of grass out of the shadow map and leaves a barrel in it', async () => {

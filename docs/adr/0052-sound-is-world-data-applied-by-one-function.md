@@ -76,9 +76,9 @@ emitters states all of them, and `"emitters": []` is how a zone says "none".
 **The listener follows the camera, not the player.** In third person the picture
 is the camera's. A listener at the capsule's feet puts a brazier that is on the
 left of the screen into the right ear as soon as the camera swings round, which
-reads as a broken panner rather than as a decision. The editor attaches the same
-way to its orbit camera, so an author hears the scene from where they are
-looking.
+reads as a broken panner rather than as a decision. The editor will attach the
+same way to its orbit camera when its panel lands, so an author hears the scene
+from where they are looking.
 
 **Footsteps are not spatialised at all.** They come from the listener's own feet.
 Spatialising them at the capsule is the same mistake in the other direction: it

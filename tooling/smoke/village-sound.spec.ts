@@ -114,6 +114,10 @@ test.describe('the village sound', () => {
     expect(crashed, 'the page threw').toEqual([]);
 
     // ------------------------------------------------------- what is playing
+    // One "sound: ", not two: the engine's own status line already carries the
+    // prefix, and a readout that stutters is a readout nobody trusts.
+    await expect(page.getByTestId('game-sound')).toHaveText(/^sound: (?!sound)/);
+
     const sound = await readSound(page);
     expect(sound, 'the zone reported no sound at all').not.toBeNull();
     expect(sound?.ambience, 'the village has a bed in its world file').toBe(true);

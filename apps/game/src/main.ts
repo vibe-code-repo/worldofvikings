@@ -480,9 +480,12 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
     const zone =
       sound === null
         ? 'no zone sound yet'
-        : `${sound.report.replace(/^sound: /, '')}` +
+        : sound.report.replace(/^sound: /, '') +
           (surface === null ? '' : ` · ground ${surface.usable ? 'mapped' : 'unmapped'}`);
-    setSoundStatus(`sound: ${audio.statusLine} — ${zone}`);
+    // `statusLine` already begins with "sound: " — it is the one spelling of
+    // that answer (`audio-unlock.ts`), and prefixing it again reads as a bug in
+    // the very line whose job is to say whether there is a bug.
+    setSoundStatus(`${audio.statusLine} — ${zone}`);
   }
 
   /**

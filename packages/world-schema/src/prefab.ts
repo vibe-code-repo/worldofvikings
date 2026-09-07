@@ -312,7 +312,8 @@ export const SHADOW_CASTER_MINIMUM_HEIGHT = 0.5;
  */
 export interface ShadowCastingPrefab {
   readonly category: PrefabCategory;
-  readonly bounds?: { readonly min: readonly number[]; readonly max: readonly number[] };
+  readonly bounds?:
+    { readonly min: readonly number[]; readonly max: readonly number[] } | undefined;
 }
 
 /**

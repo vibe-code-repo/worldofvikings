@@ -212,7 +212,7 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
         // (ADR-0024): a height field in its own shadow map self-shadows every
         // slope it has.
         if (tile) {
-          viewport.lighting().excludeFromShadows(tile.meshes);
+          viewport.excludeFromShadows(tile.meshes);
         }
         publishEditorDebug({
           terrain:
@@ -238,6 +238,7 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
       assets,
       prefabs,
       onSceneChanged: report,
+      shadows: viewport,
     });
     syncRef.current = sync;
     sync.apply(documentRef.current);

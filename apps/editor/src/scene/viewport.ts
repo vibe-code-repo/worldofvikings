@@ -24,6 +24,7 @@
  * `@wov/engine`, fed with the profile of the open world — the same function and
  * the same numbers the game uses (ADR-0024).
  */
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import {
   applyLighting,
@@ -59,6 +60,19 @@ export interface ViewportHandle {
    * picture, and no amount of editor-side taste settings fixes that.
    */
   relight(profiles: readonly (LightingProfileOptions | undefined)[]): LightingHandle;
+  /**
+   * Keeps meshes out of the sun's shadow map in both directions, for good.
+   *
+   * `LightingHandle` has the same two methods and they are not enough on their
+   * own: {@link ViewportHandle.relight} throws the whole rig away and builds
+   * another, and everything the editor had told the old one about the ground,
+   * the grass and the painted distance goes with it. So the viewport remembers
+   * what it excluded and says it again to every rig it builds. Meshes that have
+   * been disposed since are dropped rather than resurrected.
+   */
+  excludeFromShadows(meshes: readonly AbstractMesh[]): void;
+  /** The same, as a caster only: it still takes the shadow of a house. */
+  excludeFromCasting(meshes: readonly AbstractMesh[]): void;
   dispose(): void;
 }
 
@@ -75,9 +89,22 @@ export async function createViewport(
 
   /** The grid is a measuring aid, not scenery: it must not throw a shadow. */
   const gridMeshes = [grid.minor, grid.major, grid.axes];
+  /** Everything the editor has taken out of the map, so a relight can say it again. */
+  const unlit = new Set<AbstractMesh>(gridMeshes);
+  const nonCasters = new Set<AbstractMesh>();
+  /** Drops what has been disposed since; a relight must not resurrect a dead mesh. */
+  const living = (meshes: Set<AbstractMesh>): AbstractMesh[] => {
+    for (const mesh of meshes) {
+      if (mesh.isDisposed()) {
+        meshes.delete(mesh);
+      }
+    }
+    return [...meshes];
+  };
   const light = (profiles: readonly (LightingProfileOptions | undefined)[]): LightingHandle => {
     const handle = applyLighting(scene, { profiles, cameras: [camera.camera] });
-    handle.excludeFromShadows(gridMeshes);
+    handle.excludeFromShadows(living(unlit));
+    handle.excludeFromCasting(living(nonCasters));
     return handle;
   };
   let lighting = light([]);
@@ -136,11 +163,25 @@ export async function createViewport(
       lighting = light(profiles);
       return lighting;
     },
+    excludeFromShadows(meshes) {
+      for (const mesh of meshes) {
+        unlit.add(mesh);
+      }
+      lighting.excludeFromShadows(meshes);
+    },
+    excludeFromCasting(meshes) {
+      for (const mesh of meshes) {
+        nonCasters.add(mesh);
+      }
+      lighting.excludeFromCasting(meshes);
+    },
     dispose() {
       observer?.disconnect();
       detachRenderDebug?.();
       unsubscribeFrames();
       listeners.clear();
+      unlit.clear();
+      nonCasters.clear();
       lighting.dispose();
       camera.dispose();
       grid.dispose();

@@ -17,7 +17,7 @@
  * says what may be written down.
  */
 import { z } from 'zod';
-import { IdentifierSchema, Vector3Schema, assetPathOf } from './common.js';
+import { IdentifierSchema, Vector3Schema, assetPathOf, turnedBy } from './common.js';
 
 /** A gain: real, never negative, no upper opinion. */
 const Gain = z.number().min(0).finite();
@@ -148,12 +148,18 @@ export const SoundEmitterSchema = z
   .strictObject({
     /** Names it in a readout and in the editor; unique within the zone. */
     id: IdentifierSchema,
-    /** Every entity of this prefab sounds. */
-    prefab: IdentifierSchema.optional(),
+    /**
+     * Every entity of this prefab sounds.
+     *
+     * The three anchors are marked `emitterAnchor` so a panel that already
+     * knows the answer does not offer it again — see `turnedBy` in
+     * `common.ts`. It is metadata; nothing about validation changes.
+     */
+    prefab: turnedBy('emitterAnchor', IdentifierSchema).optional(),
     /** This one entity sounds. */
-    entity: IdentifierSchema.optional(),
+    entity: turnedBy('emitterAnchor', IdentifierSchema).optional(),
     /** Nothing sounds; this point does. */
-    position: Vector3Schema.optional(),
+    position: turnedBy('emitterAnchor', Vector3Schema).optional(),
     clip: assetPathOf('audio'),
     /**
      * Further clips one of which is picked instead of {@link clip}, per start.

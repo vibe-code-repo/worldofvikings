@@ -30,10 +30,14 @@ import {
 import {
   lightingAt,
   parseLightingBlock,
+  parseSoundBlock,
   parseTerrainBlock,
+  soundAt,
   withLighting,
+  withSound,
   withTerrain,
   type LightingScope,
+  type SoundScope,
 } from './blocks.js';
 import { findZone, type EditorDocument } from './document.js';
 import { nextEntityIds } from './ids.js';
@@ -193,6 +197,23 @@ export interface SetTerrainCommand {
   readonly patches: readonly FieldPatch[];
 }
 
+/**
+ * Changes how a world or a zone sounds (ADR-0052, ADR-0033).
+ *
+ * Deliberately the same shape as {@link SetLightingCommand} rather than a
+ * family of emitter commands. An emitter is a *list entry* of the profile, so
+ * `['emitters', '3', 'volume']` is one slider, `['emitters']` is adding or
+ * removing one, and `['footsteps', 'layerSurfaces', '2']` is which bank the
+ * third ground layer answers with. A separate `addEmitter` would be a second
+ * way to write one block — which is exactly the arrangement that made the
+ * terrain block two panels that could disagree.
+ */
+export interface SetSoundCommand {
+  readonly kind: 'setSound';
+  readonly scope: SoundScope;
+  readonly patches: readonly FieldPatch[];
+}
+
 export type EditorCommand =
   | AddEntitiesCommand
   | RemoveEntitiesCommand
@@ -204,6 +225,7 @@ export type EditorCommand =
   | RenameZoneCommand
   | UpdateTerrainSurfaceCommand
   | SetLightingCommand
+  | SetSoundCommand
   | SetTerrainCommand;
 
 export type EditorCommandKind = EditorCommand['kind'];
@@ -316,6 +338,19 @@ export function setLightingField(
   return setLighting(scope, [{ path, value }]);
 }
 
+export function setSound(scope: SoundScope, patches: readonly FieldPatch[]): SetSoundCommand {
+  return { kind: 'setSound', scope, patches };
+}
+
+/** One field of a sound profile — a volume slider, a clip picked from the store. */
+export function setSoundField(
+  scope: SoundScope,
+  path: readonly string[],
+  value: unknown,
+): SetSoundCommand {
+  return setSound(scope, [{ path, value }]);
+}
+
 export function setTerrain(zoneId: string, patches: readonly FieldPatch[]): SetTerrainCommand {
   return { kind: 'setTerrain', zoneId, patches };
 }
@@ -363,6 +398,8 @@ export function applyCommand(
       return applyUpdateTerrainSurface(document, command);
     case 'setLighting':
       return applySetLighting(document, command);
+    case 'setSound':
+      return applySetSound(document, command);
     case 'setTerrain':
       return applySetTerrain(document, command);
   }
@@ -672,6 +709,33 @@ function applySetLighting(
       dirty: true,
     },
     inverse: setLighting(command.scope, [restorePatch(previous)]),
+    createdEntityIds: [],
+  });
+}
+
+function applySetSound(
+  document: EditorDocument,
+  command: SetSoundCommand,
+): CommandResult<AppliedCommand> {
+  if (command.scope.kind === 'zone' && findZone(document, command.scope.zoneId) === undefined) {
+    return unknownZone(command.scope.zoneId);
+  }
+
+  const previous = soundAt(document.world, command.scope);
+  const parsed = parseSoundBlock(applyFieldPatches(previous, command.patches));
+  if (!parsed.ok) {
+    return fail(`that sound value is not valid: ${parsed.errors.join('; ')}`);
+  }
+
+  return ok({
+    document: {
+      ...document,
+      world: withSound(document.world, command.scope, parsed.value),
+      dirty: true,
+    },
+    // The whole block, not the leaf: a patch that *created* `emitters` cannot
+    // be undone by deleting one entry out of it (see `restorePatch`).
+    inverse: setSound(command.scope, [restorePatch(previous)]),
     createdEntityIds: [],
   });
 }

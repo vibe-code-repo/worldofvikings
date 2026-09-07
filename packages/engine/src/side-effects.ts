@@ -60,6 +60,22 @@ import '@babylonjs/core/Culling/ray.js';
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent.js';
 
 /**
+ * GPU instances: `Mesh.createInstance`, and with it every copy an
+ * `AssetContainer` makes when it is asked for instances rather than clones.
+ *
+ * Symptom without it: `mesh.createInstance(...)` throws "InstancedMesh needs to
+ * be imported before as it contains a side-effect required by your code". The
+ * module registers the factory `Mesh` calls; `Meshes/instancedMesh.js` also
+ * exports the class, which is why a file that merely *types* against
+ * `InstancedMesh` can import it and prove nothing. Both apps depend on this:
+ * the game places a zone as instances (ADR-0025) and the editor does the same
+ * so that a village is a few hundred draw calls rather than eighteen thousand
+ * (ADR-0049). Until now they got it by accident, from whichever unrelated
+ * Babylon module happened to pull it into the bundle first.
+ */
+import '@babylonjs/core/Meshes/instancedMesh.js';
+
+/**
  * Deliberately NOT imported here: `@babylonjs/core/Meshes/meshBuilder.js`.
  *
  * It registers nothing. It only assembles the `MeshBuilder` object out of every

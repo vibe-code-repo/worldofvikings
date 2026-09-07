@@ -291,3 +291,65 @@ export function parsePrefabCatalog(data: unknown): PrefabCatalogParseResult {
   }
   return { ok: false, errors: formatIssues(result.error) };
 }
+
+/**
+ * Shortest a model may be and still be drawn into the sun's shadow map.
+ *
+ * Half a metre, from the two ends of the measurement. A tuft of the scattered
+ * grass is 0.25 m tall (`content/prefabs/imported.json`) and the shadow map
+ * covers 120 m in 2048 texels — 5.9 cm of ground each — so its whole shadow is
+ * about four texels. The next thing up is a bush at 1.88 m, which is 32 texels
+ * and a shape a player can see. Nothing in the village stands between the two.
+ */
+export const SHADOW_CASTER_MINIMUM_HEIGHT = 0.5;
+
+/**
+ * The part of a prefab this rule reads.
+ *
+ * Only the two fields, like {@link isBackdrop}, so a catalogue row, a manifest
+ * row or a literal can all ask — and so the rule can be exercised without
+ * building a whole {@link PrefabDefinition}.
+ */
+export interface ShadowCastingPrefab {
+  readonly category: PrefabCategory;
+  readonly bounds?:
+    { readonly min: readonly number[]; readonly max: readonly number[] } | undefined;
+}
+
+/**
+ * Whether this prefab's copies are drawn into the sun's shadow map.
+ *
+ * Everything does, except vegetation too short for its shadow to be a shape.
+ * That is not only a saving, though it is a large one — the village scatters
+ * 3 473 tufts of grass, each of them drawn a second time every frame by the
+ * shadow pass. It is also what the picture wants: tufts that cast shadows cast
+ * them on *each other*, and a dense field of grass then reads as a dark mat
+ * rather than as grass. They still **receive**: a tuft in the shade of a house
+ * is in the shade (`excludeFromCasting` in `@wov/engine`).
+ *
+ * Measured on the model rather than assumed from the category, because the
+ * category says what a thing is and the bounds say how big it is — and a prefab
+ * that was never measured casts, because "we do not know" must not read as
+ * "it is small".
+ *
+ * It lives here beside {@link isBackdrop} for the reason that one does: the
+ * game and the editor must not be able to drift about it. An author who lays
+ * out a field of grass under an editor that shadows every tuft is being shown a
+ * dark mat the game will never draw (ADR-0027, ADR-0049).
+ */
+export function castsShadows(prefab: ShadowCastingPrefab): boolean {
+  const bounds = prefab.bounds;
+  // A backdrop is out of the shadow map for a different reason and without a
+  // measurement: the sun's map covers 120 m around the player, the nearest
+  // shell stands 290 m away, and a shell 1 188 m across put into that map would
+  // stretch it over the whole world. It receives nothing either — the game
+  // hands every backdrop mesh to `excludeFromShadows`, which is both directions
+  // at once (ADR-0031).
+  if (isBackdrop(prefab)) {
+    return false;
+  }
+  if (bounds === undefined || prefab.category !== 'vegetation') {
+    return true;
+  }
+  return (bounds.max[1] ?? 0) - (bounds.min[1] ?? 0) >= SHADOW_CASTER_MINIMUM_HEIGHT;
+}

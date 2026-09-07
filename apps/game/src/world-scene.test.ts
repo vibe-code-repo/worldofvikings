@@ -2,13 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import type { AssetManager } from '@wov/asset-system';
 import type { PhysicsWorld, StaticGroup } from '@wov/physics';
+import { SHADOW_CASTER_MINIMUM_HEIGHT, castsShadows } from '@wov/world-schema';
 import type { EntityDefinition, PrefabDefinition, ZoneDefinition } from '@wov/world-schema';
 import {
   NO_SOURCES,
-  SHADOW_CASTER_MINIMUM_HEIGHT,
   addSources,
   buildZoneCollision,
-  castsShadows,
   drawsAsThinInstances,
   groupByPrefab,
   backdropTakesFog,
@@ -258,44 +257,20 @@ describe('buildZoneCollision', () => {
   });
 });
 
-describe('castsShadows', () => {
-  const plant = (id: string, height: number): PrefabDefinition => ({
-    ...prefab(id, `vegetation/${id}.glb`),
-    category: 'vegetation',
-    bounds: { min: [-0.5, 0, -0.5], max: [0.5, height, 0.5] },
-  });
-
-  it('leaves a tuft of grass out of the shadow map', () => {
-    expect(castsShadows(plant('grass-short-clump-1', 0.25))).toBe(false);
-  });
-
-  it('keeps a bush and a tree in it', () => {
-    expect(castsShadows(plant('bush-1a1', 1.88))).toBe(true);
-    expect(castsShadows(plant('pine-1b1', 16.14))).toBe(true);
-  });
-
-  it('measures the model, not the category: a short wall still casts', () => {
-    expect(
-      castsShadows({
-        ...prefab('kerb', 'environment/kerb.glb'),
-        bounds: { min: [-1, 0, -1], max: [1, 0.2, 1] },
-      }),
-    ).toBe(true);
-  });
-
-  it('casts when the prefab does not say how big it is', () => {
-    // Undecided must not mean invisible: a model with no measured bounds is a
-    // model nobody measured, not a model that is small.
-    expect(
-      castsShadows({ ...prefab('mystery', 'environment/x.glb'), category: 'vegetation' }),
-    ).toBe(true);
-  });
-
+describe('the shadow-caster rule the game shares with the editor', () => {
+  // The rule itself lives in `@wov/world-schema` and is tested there
+  // (ADR-0049). What belongs here is the pairing it has with this module's own
+  // rule about how those plants are drawn.
   it('draws the same plants as thin instances that it keeps out of the map', () => {
     // Not the same rule, and deliberately so — a bush is thin-instanced and
     // does cast — but a non-caster is always a thin instance, because that is
     // the only case where one mesh stands for thousands.
-    const grass = plant('grass-short-clump-1', 0.25);
+    const grass: PrefabDefinition = {
+      ...prefab('grass-short-clump-1', 'vegetation/grass-short-clump-1.glb'),
+      category: 'vegetation',
+      bounds: { min: [-0.5, 0, -0.5], max: [0.5, 0.25, 0.5] },
+    };
+    expect(castsShadows(grass)).toBe(false);
     expect(drawsAsThinInstances(grass)).toBe(true);
     expect(SHADOW_CASTER_MINIMUM_HEIGHT).toBeGreaterThan(0.25);
   });

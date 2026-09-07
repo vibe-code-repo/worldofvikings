@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   CURRENT_PREFAB_SCHEMA_VERSION,
   PREFAB_CATEGORIES,
+  SHADOW_CASTER_MINIMUM_HEIGHT,
+  castsShadows,
   isBackdrop,
   parsePrefabCatalog,
 } from './prefab.js';
+import type { ShadowCastingPrefab } from './prefab.js';
 
 const publicPrefab = {
   id: 'barrel-01',
@@ -224,5 +227,50 @@ describe('the backdrop category', () => {
     for (const category of PREFAB_CATEGORIES.filter((each) => each !== 'backdrop')) {
       expect(isBackdrop({ category })).toBe(false);
     }
+  });
+});
+
+describe('castsShadows', () => {
+  const plant = (height: number): ShadowCastingPrefab => ({
+    category: 'vegetation',
+    bounds: { min: [-0.5, 0, -0.5], max: [0.5, height, 0.5] },
+  });
+
+  it('leaves a tuft of grass out of the shadow map', () => {
+    expect(castsShadows(plant(0.25))).toBe(false);
+  });
+
+  it('keeps a bush and a tree in it', () => {
+    expect(castsShadows(plant(1.88))).toBe(true);
+    expect(castsShadows(plant(16.14))).toBe(true);
+  });
+
+  it('measures the model, not the category: a short wall still casts', () => {
+    expect(
+      castsShadows({ category: 'environment', bounds: { min: [-1, 0, -1], max: [1, 0.2, 1] } }),
+    ).toBe(true);
+  });
+
+  it('casts when the prefab does not say how big it is', () => {
+    // Undecided must not mean invisible: a model with no measured bounds is a
+    // model nobody measured, not a model that is small.
+    expect(castsShadows({ category: 'vegetation' })).toBe(true);
+  });
+
+  it('never draws a backdrop into the map, however it was measured', () => {
+    // Not a measurement like vegetation's: the sun's map covers 120 m around
+    // the player and the nearest shell is 290 m out, so the question is not how
+    // tall it is (ADR-0031).
+    expect(
+      castsShadows({
+        category: 'backdrop',
+        bounds: { min: [-297, -297, -297], max: [297, 0, 297] },
+      }),
+    ).toBe(false);
+  });
+
+  it('puts the threshold between the grass and the next thing up', () => {
+    expect(SHADOW_CASTER_MINIMUM_HEIGHT).toBeGreaterThan(0.25);
+    expect(SHADOW_CASTER_MINIMUM_HEIGHT).toBeLessThan(1.88);
   });
 });

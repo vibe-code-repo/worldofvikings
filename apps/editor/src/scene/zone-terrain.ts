@@ -25,7 +25,7 @@
  * It used to be one key, the JSON of the whole block, so every keystroke in the
  * Surface panel took the third path: dispose the tile, re-instantiate 3.5 MB of
  * height field, compile a shader and create fourteen textures — measured at
- * about 1.5 s a keystroke on the village.
+ * 0.8 s to 1.5 s a keystroke on the village (ADR-0050).
  *
  * **Why the asset wiring is here and not in `@wov/engine`.** The engine owns
  * `createTerrain`, which both apps call. What differs is where the height

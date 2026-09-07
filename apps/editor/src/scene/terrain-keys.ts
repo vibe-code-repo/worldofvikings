@@ -7,8 +7,8 @@
  * session. It used to answer with `JSON.stringify(terrain)`: one string, one
  * comparison, and any difference at all meant *reload the tile*. Turning a
  * metalness dial therefore disposed the tile, re-instantiated 3.5 MB of height
- * field, compiled a shader and created fourteen textures, measured at about
- * 1.5 s a keystroke on the village.
+ * field, compiled a shader and created fourteen textures, measured at 0.8 s to
+ * 1.5 s a keystroke on the village (ADR-0050).
  *
  * The block is three things, not one, and they cost three very different
  * amounts:

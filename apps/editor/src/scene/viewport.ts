@@ -92,37 +92,35 @@ export async function createViewport(
   /** Everything the editor has taken out of the map, so a relight can say it again. */
   const unlit = new Set<AbstractMesh>(gridMeshes);
   const nonCasters = new Set<AbstractMesh>();
-  /** Drops what has been disposed since; a relight must not resurrect a dead mesh. */
-  const living = (meshes: Set<AbstractMesh>): AbstractMesh[] => {
-    for (const mesh of meshes) {
-      if (mesh.isDisposed()) {
-        meshes.delete(mesh);
-      }
-    }
-    return [...meshes];
-  };
   /**
-   * How big each set was when it was last swept, so the sweep is amortised.
+   * Lets go of a mesh the scene has disposed.
    *
-   * Without one of these, an editor left open for a day would hold on to every
-   * mesh it ever excluded, including the ones an undone scatter disposed a
-   * thousand gestures ago. Sweeping on every call instead would be O(n) per
-   * entity during a load, which is 5 273 walks of a set that only grows.
+   * Both sets are written during a load and read only when the rig is rebuilt,
+   * so without this they are a list of every mesh the editor ever excluded —
+   * and a disposed `AbstractMesh` still holds its submeshes, its bounding info
+   * and its material. Measured: a zone switched away from and back to left the
+   * old zone's 5 273 entities in memory at about 25 KB each, while every
+   * counter in the debug bridge stayed byte-identical, which is exactly the
+   * kind of leak no assertion in this repository would have caught.
+   *
+   * Exact rather than swept now and then. Babylon announces every removal, and
+   * two `Set.delete` calls per mesh are cheaper than the walk a sweep does —
+   * and cheaper to reason about than a set that is allowed to be twice as big
+   * as the truth.
    */
-  const swept = new Map<Set<AbstractMesh>, number>();
+  const meshRemoved = scene.onMeshRemovedObservable.add((mesh) => {
+    unlit.delete(mesh);
+    nonCasters.delete(mesh);
+  });
   const remember = (meshes: Set<AbstractMesh>, added: readonly AbstractMesh[]): void => {
     for (const mesh of added) {
       meshes.add(mesh);
     }
-    if (meshes.size > (swept.get(meshes) ?? 0) * 2 + 64) {
-      living(meshes);
-      swept.set(meshes, meshes.size);
-    }
   };
   const light = (profiles: readonly (LightingProfileOptions | undefined)[]): LightingHandle => {
     const handle = applyLighting(scene, { profiles, cameras: [camera.camera] });
-    handle.excludeFromShadows(living(unlit));
-    handle.excludeFromCasting(living(nonCasters));
+    handle.excludeFromShadows([...unlit]);
+    handle.excludeFromCasting([...nonCasters]);
     return handle;
   };
   let lighting = light([]);
@@ -191,12 +189,12 @@ export async function createViewport(
     },
     dispose() {
       observer?.disconnect();
+      scene.onMeshRemovedObservable.remove(meshRemoved);
       detachRenderDebug?.();
       unsubscribeFrames();
       listeners.clear();
       unlit.clear();
       nonCasters.clear();
-      swept.clear();
       lighting.dispose();
       camera.dispose();
       grid.dispose();

@@ -170,6 +170,28 @@ is 0.9 % and the honest size of that saving. What is left to work on is
 cascades, or a shorter shadow distance; narrowing the caster list was measured
 and rejected in ADR-0024.
 
+### What the CPU costs, and what it stopped costing
+
+The table above is what the _picture_ costs. What the frame cost was a separate
+question, and the answer was that the renderer was re-deriving a static world
+sixty times a second (ADR-0035). Measured with `pnpm perf:frame` against the
+built bundles, headless Chromium on ANGLE over Vulkan at 1280×720, mean scene
+render over a three-second window once the village has finished arriving:
+
+|                           | village square | north-east slope |
+| ------------------------- | -------------- | ---------------- |
+| before                    | 24.44 ms       | 15.35 ms         |
+| entity transforms frozen  | 18.78 ms       | 11.12 ms         |
+| materials frozen          | 13.27 ms       | 10.16 ms         |
+| shadow caster list cached | **12.37 ms**   | **9.16 ms**      |
+
+Draw calls (549 and 369), active meshes (974 and 27) and triangles do not move
+across those rows, and both frames are byte-identical to the baseline over
+921 600 pixels: this is the same picture drawn for half the CPU. What is left is
+`_evaluateActiveMeshes` at 28 % — the walk over the scene rather than anything
+inside it — and the shadow pass at 25 %, which is 2 423 casters handled one at a
+time. Both need fewer meshes rather than cheaper ones; see ADR-0035.
+
 The game entry chunk is over Vite's 500 kB warning and Rollup says so on every
 build. It is almost entirely Babylon.js core; splitting it is open work under
 ADR-0006, and the number is written down here so a regression is visible rather

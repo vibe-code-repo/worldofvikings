@@ -43,3 +43,4 @@ change it describes.
 | [0032](0032-terrain-layers-carry-a-surface.md)                                | Terrain layers carry a surface, and the ground reflects the sky   | accepted |
 | [0033](0033-the-editor-can-do-everything-a-script-can.md)                     | The editor can do everything a script can                         | accepted |
 | [0034](0034-the-backdrop-takes-a-fog-that-reaches-past-it.md)                 | The backdrop takes a fog that reaches past it                     | accepted |
+| [0035](0035-the-static-world-is-frozen.md)                                    | The static world is frozen                                        | accepted |

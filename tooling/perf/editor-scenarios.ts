@@ -12,7 +12,7 @@ import type { DurationSummary, LongTaskSummary } from './long-tasks.js';
 import type { ProfileRow } from './profile-summary.js';
 
 /** The scenarios the rig knows. */
-export const EDITOR_SCENARIOS = ['load', 'dial', 'edit'] as const;
+export const EDITOR_SCENARIOS = ['load', 'dial', 'rebuild', 'edit'] as const;
 
 export type EditorScenarioId = (typeof EDITOR_SCENARIOS)[number];
 
@@ -45,6 +45,21 @@ export const DIAL_CHANGES = 10;
 /** The two values `dial` alternates between, on layer 0's metallic. */
 export const DIAL_VALUES = [0.2, 0.8] as const;
 
+/**
+ * How many times the `rebuild` scenario flips the facet switch.
+ *
+ * `dial` measures the gesture that must *not* rebuild the tile; this one
+ * measures the gesture that must. Ticking `flatNormals` compiles a different
+ * program (`terrain.ts` puts the facet switch in the shader key), so it is the
+ * one ground edit that can never be a uniform — which makes it the honest
+ * measurement of what a rebuild costs, and the shader key is the witness that
+ * one really happened.
+ *
+ * An even number, so the scenario leaves the ground the way it found it and the
+ * `edit` scenario after it is not looking at a different tile.
+ */
+export const REBUILD_TOGGLES = 4;
+
 /** How many position nudges the `edit` scenario makes, in metres each. */
 export const EDIT_NUDGES = 5;
 export const EDIT_NUDGE_METRES = 1;
@@ -57,8 +72,8 @@ export const EDIT_NUDGE_METRES = 1;
  * silently empty run: a typo that measures nothing and reports success is the
  * one failure mode a measuring rig must not have.
  *
- * `load` is always in the result whether it was asked for or not — `dial` and
- * `edit` are gestures *on an open village*, so the load always happens, and a
+ * `load` is always in the result whether it was asked for or not — every other
+ * scenario is a gesture *on an open village*, so the load always happens, and a
  * report that hid its cost would be hiding the run's own preconditions.
  */
 export function parseScenarios(raw: string | undefined): readonly EditorScenarioId[] {
@@ -184,6 +199,35 @@ export interface DialReport {
   readonly terrainTexturesAfter: number | null;
 }
 
+/** What the `rebuild` scenario reports. */
+export interface RebuildReport {
+  readonly toggles: number;
+  /** How long an ordinary frame took just before the gestures. */
+  readonly idleFrameMs: DurationSummary;
+  /**
+   * Milliseconds from the click on `flatNormals` to the tile on screen carrying
+   * the new program, `null` when it never arrived inside the budget.
+   *
+   * Read off the material rather than off the document: a command that reaches
+   * the document while the viewport keeps its old tile is exactly the failure
+   * this scenario exists to catch.
+   */
+  readonly toNewProgramMs: readonly (number | null)[];
+  readonly summary: DurationSummary;
+  readonly longTasks: LongTaskReport;
+  /** The shader keys the toggles walked through, in order. */
+  readonly programs: readonly (string | null)[];
+  /** `scene.textures.length` before and after — a leaking rebuild shows here. */
+  readonly sceneTexturesBefore: number;
+  readonly sceneTexturesAfter: number;
+  /** Textures the tile itself holds, before and after. */
+  readonly terrainTexturesBefore: number | null;
+  readonly terrainTexturesAfter: number | null;
+  /** Meshes the tile holds, before and after — a reused height field is equal. */
+  readonly terrainMeshesBefore: number | null;
+  readonly terrainMeshesAfter: number | null;
+}
+
 /** What the `edit` scenario reports. */
 export interface EditReport {
   readonly entityId: string;
@@ -215,5 +259,6 @@ export interface EditorPerfReport {
   readonly assetStore: string | null;
   readonly load: LoadReport;
   readonly dial: DialReport | null;
+  readonly rebuild: RebuildReport | null;
   readonly edit: EditReport | null;
 }

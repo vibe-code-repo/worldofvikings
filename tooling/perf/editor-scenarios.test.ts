@@ -21,8 +21,9 @@ describe('parseScenarios', () => {
     expect(parseScenarios('edit,dial')).toEqual(['load', 'dial', 'edit']);
   });
 
-  it('always includes the load, because the other two are gestures on an open village', () => {
+  it('always includes the load, because the others are gestures on an open village', () => {
     expect(parseScenarios('dial')).toEqual(['load', 'dial']);
+    expect(parseScenarios('rebuild')).toEqual(['load', 'rebuild']);
     expect(parseScenarios('edit')).toEqual(['load', 'edit']);
   });
 
@@ -100,6 +101,7 @@ describe('the report shape', () => {
         },
       },
       dial: null,
+      rebuild: null,
       edit: null,
     };
 
@@ -116,6 +118,7 @@ describe('the report shape', () => {
       'assetStore',
       'load',
       'dial',
+      'rebuild',
       'edit',
     ]);
     expect(Object.keys(report.load)).toEqual([

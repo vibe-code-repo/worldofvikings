@@ -10,7 +10,7 @@
  * barely moves — none of which the game rig can see, because none of it happens
  * in the game.
  *
- * Three scenarios, all on the same page in the same browser session:
+ * Four scenarios, all on the same page in the same browser session:
  *
  * 1. `load` — open `village1` through the File menu and time the three
  *    milestones (the document, the models, the textures), the long tasks the
@@ -19,8 +19,12 @@
  *    `scene.render` over a window, draw calls, active meshes, triangles, shadow
  *    casters, and a second CPU profile of the settled frames.
  * 2. `dial` — turn one ground dial ten times and time each change to the next
- *    rendered frame. This is the gesture the author called unusable.
- * 3. `edit` — select an entity, nudge it five times, and click the canvas once.
+ *    rendered frame. This is the gesture the author called unusable, and it is
+ *    the ground edit that must never rebuild the tile (ADR-0050).
+ * 3. `rebuild` — flip the facet switch four times and time each toggle to the
+ *    tile on screen carrying the new shader key. The ground edit that *must*
+ *    rebuild, so the two halves of ADR-0050 have a number each.
+ * 4. `edit` — select an entity, nudge it five times, and click the canvas once.
  *    This is the "is it fluid" number.
  *
  * **Why the built bundles.** Same as the game rig: Vite's dev server serves
@@ -57,6 +61,7 @@ import {
   EDIT_ENTITY_ID,
   EDIT_NUDGES,
   EDIT_NUDGE_METRES,
+  REBUILD_TOGGLES,
   dialValueAt,
   parseScenarios,
   type DialReport,
@@ -67,6 +72,7 @@ import {
   type LoadReport,
   type LongTaskReport,
   type ProfileReport,
+  type RebuildReport,
   type SettledFrameReport,
 } from './editor-scenarios.js';
 import { aggregateLongTasks, summariseDurations, type LongTaskEntry } from './long-tasks.js';
@@ -167,7 +173,11 @@ interface EditorBridgeShape {
   readonly loadedCount: number;
   readonly loadedTextures: readonly string[];
   readonly selection: readonly string[];
-  readonly terrain: { readonly program: string; readonly textures: number } | null;
+  readonly terrain: {
+    readonly program: string;
+    readonly meshes: number;
+    readonly textures: number;
+  } | null;
   readonly render: {
     readonly drawCalls: number;
     readonly activeMeshes: number;
@@ -695,7 +705,105 @@ async function measureDial(page: Page): Promise<DialReport> {
   };
 }
 
-// --- scenario 3: edit --------------------------------------------------------
+// --- scenario 3: rebuild -----------------------------------------------------
+
+/**
+ * Flips the facet switch and waits for the tile on screen to carry the new
+ * program.
+ *
+ * The witness is `terrain.program` off the material, not the checkbox and not
+ * the document: a command that reaches the document while the viewport keeps
+ * its old tile leaves every other number in this report unchanged. Timed inside
+ * the page for the same reason `changeInput` is — the thread being measured is
+ * the one that would have to answer a round trip.
+ */
+async function toggleFacets(
+  page: Page,
+): Promise<{ ms: number | null; program: string | null; meshes: number | null }> {
+  return page.evaluate(
+    async ([id, budget]: [string, number]) => {
+      const element = document.querySelector<HTMLInputElement>(`[data-testid="${id}"]`);
+      if (element === null) {
+        throw new Error(`no input with data-testid="${id}"`);
+      }
+      const bridge = (window as unknown as ProbeWindow).__wovEditor;
+      const before = bridge?.terrain?.program ?? null;
+      const started = performance.now();
+      element.click();
+      for (;;) {
+        const tile = bridge?.terrain ?? null;
+        const program = tile?.program ?? null;
+        if (program !== before) {
+          return {
+            ms: performance.now() - started,
+            program,
+            meshes: tile?.meshes ?? null,
+          };
+        }
+        if (performance.now() - started > budget) {
+          return { ms: null, program, meshes: tile?.meshes ?? null };
+        }
+        await new Promise((wake) => requestAnimationFrame(() => wake(undefined)));
+      }
+    },
+    ['ground-flatNormals', 120_000] as [string, number],
+  );
+}
+
+async function measureRebuild(page: Page): Promise<RebuildReport> {
+  await page.getByTestId('right-tab-zone').click();
+  await page.getByTestId('ground-flatNormals').waitFor({ timeout: 60_000 });
+
+  const before = await page.evaluate(() => {
+    const it = (window as unknown as ProbeWindow).__wovEditor;
+    return {
+      terrainTextures: it?.terrain?.textures ?? null,
+      terrainMeshes: it?.terrain?.meshes ?? null,
+      sceneTextures: it?.render.sceneTextures ?? 0,
+    };
+  });
+  const idle = await measureFrameInterval(page, 4);
+  const started = (await readProbe(page)).now;
+
+  const latencies: (number | null)[] = [];
+  const programs: (string | null)[] = [];
+  for (let index = 0; index < REBUILD_TOGGLES; index += 1) {
+    const step = await toggleFacets(page);
+    say(
+      `  flatNormals #${String(index + 1)} → ` +
+        `${step.ms === null ? 'no new tile' : `${step.ms.toFixed(0)} ms`} (${step.program ?? 'none'})`,
+    );
+    latencies.push(step.ms);
+    programs.push(step.program);
+  }
+
+  const finished = await readProbe(page);
+  const after = await page.evaluate(() => {
+    const it = (window as unknown as ProbeWindow).__wovEditor;
+    return {
+      terrainTextures: it?.terrain?.textures ?? null,
+      terrainMeshes: it?.terrain?.meshes ?? null,
+      sceneTextures: it?.render.sceneTextures ?? 0,
+    };
+  });
+
+  return {
+    toggles: REBUILD_TOGGLES,
+    idleFrameMs: summariseDurations(idle),
+    toNewProgramMs: latencies,
+    summary: summariseDurations(latencies.filter((each): each is number => each !== null)),
+    longTasks: longTaskReport(finished, { from: started, to: finished.now }),
+    programs,
+    sceneTexturesBefore: before.sceneTextures,
+    sceneTexturesAfter: after.sceneTextures,
+    terrainTexturesBefore: before.terrainTextures,
+    terrainTexturesAfter: after.terrainTextures,
+    terrainMeshesBefore: before.terrainMeshes,
+    terrainMeshesAfter: after.terrainMeshes,
+  };
+}
+
+// --- scenario 4: edit --------------------------------------------------------
 
 async function measureEdit(page: Page): Promise<EditReport> {
   const startedAt = (await readProbe(page)).now;
@@ -833,6 +941,13 @@ async function measure(
     frames.set('dial', await readCanvas(page, '[data-testid="editor-canvas"]'));
   }
 
+  let rebuild: RebuildReport | null = null;
+  if (options.scenarios.includes('rebuild')) {
+    say(`rebuild: ${String(REBUILD_TOGGLES)} flatNormals toggles`);
+    rebuild = await measureRebuild(page);
+    frames.set('rebuild', await readCanvas(page, '[data-testid="editor-canvas"]'));
+  }
+
   let edit: EditReport | null = null;
   if (options.scenarios.includes('edit')) {
     say(`edit: ${EDIT_ENTITY_ID}`);
@@ -861,6 +976,7 @@ async function measure(
       assetStore: process.env['WOV_ASSET_STORE'] ?? null,
       load,
       dial,
+      rebuild,
       edit,
     },
   };
@@ -955,6 +1071,17 @@ async function main(): Promise<void> {
           `worst ${report.dial.summary.maxMs.toFixed(0)} ms · ` +
           `idle frame ${report.dial.idleFrameMs.medianMs.toFixed(0)} ms · ` +
           `textures ${String(report.dial.sceneTexturesBefore)} → ${String(report.dial.sceneTexturesAfter)}`,
+      );
+    }
+    if (report.rebuild !== null) {
+      say(
+        `  rebuild: median ${report.rebuild.summary.medianMs.toFixed(0)} ms · ` +
+          `worst ${report.rebuild.summary.maxMs.toFixed(0)} ms · ` +
+          `idle frame ${report.rebuild.idleFrameMs.medianMs.toFixed(0)} ms · ` +
+          `blocked ${report.rebuild.longTasks.totalMs.toFixed(0)} ms · ` +
+          `tile meshes ${String(report.rebuild.terrainMeshesBefore)} → ` +
+          `${String(report.rebuild.terrainMeshesAfter)} · ` +
+          `textures ${String(report.rebuild.sceneTexturesBefore)} → ${String(report.rebuild.sceneTexturesAfter)}`,
       );
     }
     if (report.edit !== null) {

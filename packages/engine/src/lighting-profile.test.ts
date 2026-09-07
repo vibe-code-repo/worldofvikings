@@ -79,6 +79,50 @@ describe('resolveLightingProfile', () => {
     );
   });
 
+  /**
+   * The sun shafts are a second pass over the scene's geometry, so a world that
+   * never mentions them must not be handed them (ADR-0042).
+   */
+  it('leaves the sun shafts off unless a world asks for them', () => {
+    expect(defaultLightingProfile.postProcessing.sunShafts.enabled).toBe(false);
+    expect(resolveLightingProfile({}).postProcessing.sunShafts.enabled).toBe(false);
+    expect(
+      resolveLightingProfile({ postProcessing: { saturation: 0.7 } }).postProcessing.sunShafts
+        .enabled,
+    ).toBe(false);
+  });
+
+  it('lets a world switch the shafts on without restating every number', () => {
+    const profile = resolveLightingProfile({ postProcessing: { sunShafts: { enabled: true } } });
+    expect(profile.postProcessing.sunShafts).toEqual({
+      ...defaultLightingProfile.postProcessing.sunShafts,
+      enabled: true,
+    });
+  });
+
+  it('merges the sun shafts field by field, zone over world', () => {
+    const merged = resolveLightingProfile(
+      { postProcessing: { sunShafts: { enabled: true, maxAngleDegrees: 30 } } },
+      { postProcessing: { sunShafts: { maxAngleDegrees: 45 } } },
+    );
+    expect(merged.postProcessing.sunShafts.enabled).toBe(true);
+    expect(merged.postProcessing.sunShafts.maxAngleDegrees).toBe(45);
+    expect(merged.postProcessing.sunShafts.anchorDistance).toBe(
+      defaultLightingProfile.postProcessing.sunShafts.anchorDistance,
+    );
+  });
+
+  /**
+   * A pass computed at no resolution is not a cheap effect — it is a texture
+   * the shader samples and gets nothing out of, which reads as the effect
+   * silently failing rather than as a number out of range.
+   */
+  it('rejects a sun-shaft pass with no pixels in it', () => {
+    expect(() =>
+      resolveLightingProfile({ postProcessing: { sunShafts: { passScale: 0 } } }),
+    ).toThrow(/sunShafts.passScale must be a positive number/);
+  });
+
   it('rejects a malformed colour rather than resolving it to black', () => {
     expect(() => resolveLightingProfile({ sun: { color: 'orange' } })).toThrow(
       /sun.color must be a #rrggbb colour/,

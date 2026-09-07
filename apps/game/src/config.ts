@@ -73,6 +73,11 @@ export const FLAT_LIGHTING: LightingProfileOptions = {
 /** The world's own profile, with the shadow map switched off. */
 const NO_SHADOWS: LightingProfileOptions = { shadows: { enabled: false } };
 
+/** The world's own profile, with the sun shafts switched off. */
+const NO_SUN_SHAFTS: LightingProfileOptions = {
+  postProcessing: { sunShafts: { enabled: false } },
+};
+
 /**
  * The profiles to light with, given what the query string asks for.
  *
@@ -80,10 +85,15 @@ const NO_SHADOWS: LightingProfileOptions = { shadows: { enabled: false } };
  * - `?shadows=off` keeps it and turns only the shadow map off, which is the
  *   control a shadow measurement needs: same sun, same grade, same camera, no
  *   shadows, so the difference between two frames is the shadows and nothing
- *   else.
+ *   else;
+ * - `?shafts=off` is the same control for the sun shafts (ADR-0042). It matters
+ *   more than it looks: the shafts are a second pass over the scene's geometry,
+ *   and a cost measured by editing the world file between runs would be a cost
+ *   measured across two builds.
  *
- * Any other value is neither: these are diagnostic switches, and a typo in one
- * must not quietly change what a screenshot is showing.
+ * The last two combine, and both keep everything else the world states. Any
+ * other value is neither: these are diagnostic switches, and a typo in one must
+ * not quietly change what a screenshot is showing.
  */
 export function lightingProfiles(
   search: string,
@@ -93,18 +103,22 @@ export function lightingProfiles(
   if (params.get('flat') === '1') {
     return [FLAT_LIGHTING];
   }
+  const overrides: LightingProfileOptions[] = [];
   if (params.get('shadows') === 'off') {
-    return [...authored, NO_SHADOWS];
+    overrides.push(NO_SHADOWS);
   }
-  return authored;
+  if (params.get('shafts') === 'off') {
+    overrides.push(NO_SUN_SHAFTS);
+  }
+  return overrides.length === 0 ? authored : [...authored, ...overrides];
 }
 
 /**
  * The camera aim `?look=` asks for, in degrees, or nothing.
  *
  * `?look=yaw` or `?look=yaw,pitch`, measured the way the camera measures them:
- * yaw turns to the right, pitch is positive looking down. It is the third
- * diagnostic switch, alongside `?flat=1` and `?shadows=off`, and it exists for
+ * yaw turns to the right, pitch is positive looking down. It is a
+ * diagnostic switch, alongside `?flat=1`, `?shadows=off` and `?shafts=off`, and it exists for
  * the same reason `?spawn=` does — a screenshot that has to be comparable
  * across two builds cannot be aimed by dragging a mouse. Nothing in the game
  * writes it; it only ever sets where the camera starts, and the player can turn
@@ -140,7 +154,7 @@ export function lookFromQuery(
 /**
  * The shadow-focus displacement `?shadowFocus=` asks for, in metres, or nothing.
  *
- * The fourth diagnostic switch, next to `?flat=1`, `?shadows=off` and `?look=`,
+ * The fourth diagnostic switch, next to `?flat=1`, `?shadows=off`, `?shafts=off` and `?look=`,
  * and it exists for one measurement that cannot be taken any other way. The
  * claim "the shadow map no longer moves when the focus point moves less than a
  * texel" is a claim about two frames whose *only* difference is where the map

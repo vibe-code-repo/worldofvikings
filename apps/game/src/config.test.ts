@@ -63,6 +63,19 @@ describe('lightingProfiles', () => {
     expect(profiles.at(-1)).toEqual({ shadows: { enabled: false } });
   });
 
+  it('keeps the world profile and only turns the sun shafts off for ?shafts=off', () => {
+    const profiles = lightingProfiles('?shafts=off', authored);
+    expect(profiles[0]).toBe(authored[0]);
+    expect(profiles.at(-1)).toEqual({ postProcessing: { sunShafts: { enabled: false } } });
+  });
+
+  it('takes both diagnostic switches at once', () => {
+    const profiles = lightingProfiles('?shadows=off&shafts=off', authored);
+    expect(profiles[0]).toBe(authored[0]);
+    expect(profiles).toHaveLength(3);
+    expect(profiles.at(-1)).toEqual({ postProcessing: { sunShafts: { enabled: false } } });
+  });
+
   it('ignores a typo instead of half-applying it', () => {
     // A screenshot taken with `?flat=true` would silently be the lit one and be
     // reported as the flat one.
@@ -70,6 +83,8 @@ describe('lightingProfiles', () => {
     expect(lightingProfiles('?flat=0', authored)).toEqual(authored);
     expect(lightingProfiles('?flat', authored)).toEqual(authored);
     expect(lightingProfiles('?shadows=0', authored)).toEqual(authored);
+    expect(lightingProfiles('?shafts=0', authored)).toEqual(authored);
+    expect(lightingProfiles('?shafts', authored)).toEqual(authored);
   });
 });
 

@@ -108,6 +108,39 @@ export interface SsaoOptions {
   readonly scale: number;
 }
 
+/**
+ * Sun shafts: the fan of light a low sun throws past what stands in it.
+ *
+ * Off unless a world asks for it, and gated even then — see `sun-shafts.ts`
+ * for the gate and ADR-0042 for what it costs and why an ungated one is not
+ * merely wasteful but wrong.
+ */
+export interface SunShaftsOptions {
+  readonly enabled: boolean;
+  /** How bright the shafts come out, 0…1. */
+  readonly exposure: number;
+  /** How fast a shaft dims along its length, 0…1. */
+  readonly decay: number;
+  /** How much of each sample is added back, 0…1. */
+  readonly weight: number;
+  /** How far the samples spread out from the sun, 0…1. */
+  readonly density: number;
+  /** Samples along each shaft. */
+  readonly samples: number;
+  /** Fraction of the frame the occlusion pass is rendered at. */
+  readonly passScale: number;
+  /** Fraction of the frame the blur is computed at. */
+  readonly postScale: number;
+  /** How far off the view axis the sun may stand and still earn a pass. */
+  readonly maxAngleDegrees: number;
+  /** Half-width of the band the effect fades across and latches over. */
+  readonly hysteresisDegrees: number;
+  /** Metres from the camera to the stand-in for the sun. */
+  readonly anchorDistance: number;
+  /** Diameter in metres of that stand-in. */
+  readonly anchorSize: number;
+}
+
 /** The grade applied to the finished frame. */
 export interface PostProcessingOptions {
   readonly enabled: boolean;
@@ -125,6 +158,7 @@ export interface PostProcessingOptions {
   readonly bloom: BloomOptions;
   readonly vignette: VignetteOptions;
   readonly ssao: SsaoOptions;
+  readonly sunShafts: SunShaftsOptions;
 }
 
 /** A complete description of how a scene is lit. */
@@ -152,10 +186,11 @@ export interface LightingProfileOptions {
   readonly fog?: Partialise<FogOptions> | undefined;
   readonly shadows?: Partialise<ShadowOptions> | undefined;
   readonly postProcessing?:
-    | (Partialise<Omit<PostProcessingOptions, 'bloom' | 'vignette' | 'ssao'>> & {
+    | (Partialise<Omit<PostProcessingOptions, 'bloom' | 'vignette' | 'ssao' | 'sunShafts'>> & {
         readonly bloom?: Partialise<BloomOptions> | undefined;
         readonly vignette?: Partialise<VignetteOptions> | undefined;
         readonly ssao?: Partialise<SsaoOptions> | undefined;
+        readonly sunShafts?: Partialise<SunShaftsOptions> | undefined;
       })
     | undefined;
 }
@@ -237,6 +272,35 @@ export const defaultLightingProfile: ResolvedLightingProfile = {
     vignette: { enabled: true, weight: 2.4, color: '#0d0a08' },
     // Measured before it was decided, not assumed — see ADR-0024.
     ssao: { enabled: false, radius: 1.6, strength: 1.1, samples: 12, scale: 0.75 },
+    // Off by default for the same reason as `ssao`, and for one more: the
+    // effect renders the scene's geometry a second time, so a world that never
+    // asks for it must not be handed it (ADR-0042). Every other number here is
+    // the setting the village was tuned to, so switching it on in a world file
+    // is one `true` rather than eleven.
+    sunShafts: {
+      enabled: false,
+      // Tuned against the `sun` view of `village1`, where the evening sun
+      // stands behind one of the painted clouds: below about 0.4 the effect is
+      // a slightly bloomier sun rather than light through air (ADR-0042).
+      exposure: 0.5,
+      decay: 0.98,
+      weight: 0.65,
+      density: 0.96,
+      samples: 60,
+      passScale: 0.5,
+      postScale: 1,
+      // The frame's corner sits about 41° off the view axis at 16:9, so a sun
+      // just outside the picture still fans inwards; 55° stays well clear of
+      // the 90° at which the projection turns degenerate.
+      maxAngleDegrees: 55,
+      hysteresisDegrees: 5,
+      // Past the 1188 m the village's painted backdrop reaches and inside the
+      // camera's 10 000 m far plane.
+      anchorDistance: 1400,
+      // Small enough to stay a sun rather than a lamp: 45 m at 1 400 m is 1.8°
+      // across, and a wider disc washes the fans back into a halo.
+      anchorSize: 45,
+    },
   },
 };
 
@@ -365,6 +429,7 @@ export function resolveLightingProfile(
   const bloom = merge(base.postProcessing.bloom, ...postOverrides.map((o) => o?.bloom));
   const vignette = merge(base.postProcessing.vignette, ...postOverrides.map((o) => o?.vignette));
   const ssao = merge(base.postProcessing.ssao, ...postOverrides.map((o) => o?.ssao));
+  const sunShafts = merge(base.postProcessing.sunShafts, ...postOverrides.map((o) => o?.sunShafts));
 
   const fogStart = requireNonNegative(fog.start, 'fog.start');
   const fogEnd = requirePositive(fog.end, 'fog.end');
@@ -435,6 +500,25 @@ export function resolveLightingProfile(
         strength: requireNonNegative(ssao.strength, 'ssao.strength'),
         samples: Math.round(requirePositive(ssao.samples, 'ssao.samples')),
         scale: requireFraction(ssao.scale, 'ssao.scale'),
+      },
+      sunShafts: {
+        enabled: sunShafts.enabled,
+        exposure: requireFraction(sunShafts.exposure, 'sunShafts.exposure'),
+        decay: requireFraction(sunShafts.decay, 'sunShafts.decay'),
+        weight: requireFraction(sunShafts.weight, 'sunShafts.weight'),
+        density: requireFraction(sunShafts.density, 'sunShafts.density'),
+        samples: Math.round(requirePositive(sunShafts.samples, 'sunShafts.samples')),
+        // Not a fraction: a pass with no pixels in it is not a cheap effect,
+        // it is a texture the shader reads nothing out of.
+        passScale: requirePositive(sunShafts.passScale, 'sunShafts.passScale'),
+        postScale: requirePositive(sunShafts.postScale, 'sunShafts.postScale'),
+        maxAngleDegrees: requireNonNegative(sunShafts.maxAngleDegrees, 'sunShafts.maxAngleDegrees'),
+        hysteresisDegrees: requireNonNegative(
+          sunShafts.hysteresisDegrees,
+          'sunShafts.hysteresisDegrees',
+        ),
+        anchorDistance: requirePositive(sunShafts.anchorDistance, 'sunShafts.anchorDistance'),
+        anchorSize: requirePositive(sunShafts.anchorSize, 'sunShafts.anchorSize'),
       },
     },
   };

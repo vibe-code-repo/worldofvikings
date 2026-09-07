@@ -123,8 +123,13 @@ an interior can be dark under a world that is not, keeping the same sun.
 |                  | horizon into one band (ADR-0034, ADR-0041)                                            |
 | `shadows`        | `enabled`, `mapSize`, `distance`, `bias`, `normalBias`, `darkness`, `filter`          |
 | `postProcessing` | `enabled`, `fxaa`, `toneMapping`, `exposure`, `contrast`, `saturation`, `bloom`,      |
-|                  | `vignette`, `ssao` — `saturation` is 0 greyscale, 1 untouched, 2 twice as colourful,  |
-|                  | and it is the only grade knob that changes chroma alone (ADR-0040)                    |
+|                  | `vignette`, `ssao`, `sunShafts` — `saturation` is 0 greyscale, 1 untouched, 2 twice   |
+|                  | as colourful, and it is the only grade knob that changes chroma alone (ADR-0040)      |
+|                  | `sunShafts` is off unless a world asks for it and gated on the angle between the      |
+|                  | view axis and the sun, so it costs nothing at all in a frame the sun is not in;       |
+|                  | `enabled`, `exposure`, `decay`, `weight`, `density`, `samples`, `passScale`,          |
+|                  | `postScale`, `maxAngleDegrees`, `hysteresisDegrees`, `anchorDistance`, `anchorSize`   |
+|                  | (ADR-0042)                                                                            |
 
 Colours are `#rrggbb`. `mapSize` is a power of two from 256 to 4096.
 `toneMapping` is one of `none`, `standard`, `aces`, `neutral`; `shadows.filter`

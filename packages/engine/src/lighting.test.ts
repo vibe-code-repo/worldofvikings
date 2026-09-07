@@ -322,6 +322,51 @@ describe('applyLighting', () => {
     const handle = applyLighting(target, { profiles: [{ postProcessing: { enabled: false } }] });
     expect(handle.pipeline).toBeNull();
     expect(handle.ssao).toBeNull();
+    expect(handle.sunShafts).toBeNull();
+  });
+
+  it('builds no sun shafts for a world that did not ask for them', () => {
+    expect(applyLighting(scene(), {}).sunShafts).toBeNull();
+  });
+
+  /**
+   * Four things have to hold at once for the shafts to be anything other than a
+   * bright square in the sky, and none of them is visible from the outside of
+   * Babylon's post-process: the effect exists, the sky is out of the occlusion
+   * pass (it does not use the sky's material there and would bury the anchor
+   * behind a depth wall), the anchor is out of the shadow map, and the pass is
+   * *not* attached until the gate says the sun is in view (ADR-0042).
+   */
+  it('builds the shafts gated off, with the sky out of the pass and the anchor out of the map', () => {
+    const target = scene();
+    const camera = target.activeCamera;
+    const handle = applyLighting(target, {
+      profiles: [{ postProcessing: { sunShafts: { enabled: true } } }],
+    });
+    const shafts = handle.sunShafts;
+    expect(shafts).not.toBeNull();
+    expect(shafts?.effect.mesh).toBe(shafts?.anchor);
+    expect(shafts?.effect.excludedMeshes).toContain(handle.sky);
+    // Off until a frame decides otherwise, and off means both halves: the
+    // post-process detached *and* its render target off the camera.
+    expect(shafts?.isActive()).toBe(false);
+    expect(camera?.customRenderTargets).not.toContain(shafts?.effect.getPass());
+    // Neither caster nor receiver: a 90 m disc standing in for the sun must not
+    // throw a shadow across the range behind it.
+    expect(shafts?.anchor.receiveShadows).toBe(false);
+    expect(shadowCasters(handle)).not.toContain(shafts?.anchor);
+  });
+
+  it('takes the shafts, the anchor and its material back out on dispose', () => {
+    const target = scene();
+    const handle = applyLighting(target, {
+      profiles: [{ postProcessing: { sunShafts: { enabled: true } } }],
+    });
+    const anchor = handle.sunShafts?.anchor;
+    expect(target.meshes).toContain(anchor);
+    handle.dispose();
+    expect(target.meshes).not.toContain(anchor);
+    expect(anchor?.isDisposed()).toBe(true);
   });
 
   it('grades colour out through the colour curves, and only when asked to', () => {

@@ -122,8 +122,8 @@ function canonicalLighting(lighting: LightingProfile): Record<string, unknown> {
             ...inOrder(
               post,
               ['enabled', 'fxaa', 'toneMapping', 'exposure', 'contrast', 'saturation'],
-              // The three sub-blocks are written below, in their own order.
-              ['bloom', 'vignette', 'ssao'],
+              // The sub-blocks are written below, in their own order.
+              ['bloom', 'vignette', 'ssao', 'sunShafts'],
             ),
             ...(post.bloom === undefined
               ? {}
@@ -137,6 +137,24 @@ function canonicalLighting(lighting: LightingProfile): Record<string, unknown> {
               ? {}
               : {
                   ssao: inOrder(post.ssao, ['enabled', 'radius', 'strength', 'samples', 'scale']),
+                }),
+            ...(post.sunShafts === undefined
+              ? {}
+              : {
+                  sunShafts: inOrder(post.sunShafts, [
+                    'enabled',
+                    'exposure',
+                    'decay',
+                    'weight',
+                    'density',
+                    'samples',
+                    'passScale',
+                    'postScale',
+                    'maxAngleDegrees',
+                    'hysteresisDegrees',
+                    'anchorDistance',
+                    'anchorSize',
+                  ]),
                 }),
           },
         }),

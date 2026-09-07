@@ -39,6 +39,44 @@ describe('LightingProfileSchema', () => {
     );
   });
 
+  it('takes a sun-shaft gate angle up to a right angle, and nothing past it', () => {
+    expect(
+      LightingProfileSchema.safeParse({ postProcessing: { sunShafts: { maxAngleDegrees: 55 } } })
+        .success,
+    ).toBe(true);
+    // 90° is where the perspective divide turns degenerate and the effect
+    // starts painting a sun that is behind the player (ADR-0042).
+    expect(
+      LightingProfileSchema.safeParse({ postProcessing: { sunShafts: { maxAngleDegrees: 120 } } })
+        .success,
+    ).toBe(false);
+  });
+
+  it('keeps the sun anchor clear of the backdrop and inside the far plane', () => {
+    expect(
+      LightingProfileSchema.safeParse({ postProcessing: { sunShafts: { anchorDistance: 1400 } } })
+        .success,
+    ).toBe(true);
+    expect(
+      LightingProfileSchema.safeParse({ postProcessing: { sunShafts: { anchorDistance: 900 } } })
+        .success,
+    ).toBe(false);
+    expect(
+      LightingProfileSchema.safeParse({ postProcessing: { sunShafts: { anchorDistance: 12000 } } })
+        .success,
+    ).toBe(false);
+  });
+
+  it('refuses a sun-shaft pass with no pixels in it', () => {
+    expect(
+      LightingProfileSchema.safeParse({ postProcessing: { sunShafts: { passScale: 0 } } }).success,
+    ).toBe(false);
+    expect(
+      LightingProfileSchema.safeParse({ postProcessing: { sunShafts: { passScale: 0.25 } } })
+        .success,
+    ).toBe(true);
+  });
+
   it('rejects a negative light intensity', () => {
     expect(LightingProfileSchema.safeParse({ sun: { intensity: -1 } }).success).toBe(false);
   });

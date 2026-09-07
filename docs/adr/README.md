@@ -50,3 +50,4 @@ change it describes.
 | [0039](0039-the-shadow-map-is-snapped-to-its-own-texels.md)                   | The shadow map is snapped to its own texels                       | accepted |
 | [0040](0040-the-grade-has-a-saturation-of-its-own.md)                         | The grade has a saturation of its own                             | accepted |
 | [0041](0041-fog-is-exponential-and-the-ground-is-on-the-same-curve.md)        | Fog is exponential, and the ground is on the same curve           | accepted |
+| [0042](0042-sun-shafts-are-anchored-and-gated.md)                             | Sun shafts are anchored to a stand-in sun and gated               | accepted |

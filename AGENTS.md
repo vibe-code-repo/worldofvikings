@@ -20,8 +20,8 @@ from its height field and splat layers (ADR-0020), places its entities from the
 prefab catalogue as GPU instances, and stands a placeholder capsule on the
 terrain with a third-person camera and a physics world (ADR-0022). `?world=`
 picks the world, `?spawn=x,z` where to stand, `?look=yaw[,pitch]` where to aim,
-and `?flat=1`, `?shadows=off` and `?shadowFocus=` take the light apart for a
-measurement.
+and `?flat=1`, `?shadows=off`, `?shafts=off` and `?shadowFocus=` take the light
+apart for a measurement.
 
 The village zone is 5273 entities from 145 models, 4032 of them scattered
 vegetation drawn as thin instances (ADR-0025). Its ground is one adaptive tile
@@ -34,9 +34,11 @@ shadow map that snaps to its own texels so its edges hold still while the player
 walks (ADR-0039), a gradient sky, a cool haze that thickens
 exponentially with distance and puts the ground on the same curve as the houses
 standing on it, so the range recedes instead of standing dark behind it
-(ADR-0034, ADR-0041) — and a graded frame whose chroma is pulled back by the profile's
+(ADR-0034, ADR-0041), a graded frame whose chroma is pulled back by the profile's
 own `saturation`, so the village reads matte rather than oversaturated
-(ADR-0040). Grass takes that shadow without casting one
+(ADR-0040) — and shafts of light past the clouds when the player looks at the
+sun, gated on the angle to it so that a frame the sun is not in pays nothing at
+all for them (ADR-0042). Grass takes that shadow without casting one
 (ADR-0027). Every entity collides against the shape its prefab declares
 (ADR-0026) — 1145 bodies from 210 shared shapes, with 4128 tufts and bushes
 deliberately walk-through. A move that meets one of them is dropped onto that

@@ -26,7 +26,8 @@ model's bytes are (ADR-0015, ADR-0016).
   `?flat=1` (the flat noon rig instead of the world's own, ADR-0024),
   `?shadows=off` (the world's light without its shadow map),
   `?shadowFocus=<dx>,<dz>` (metres the shadow map's centre is displaced by,
-  ADR-0039) — the last three are there so a measurement can hold everything
+  ADR-0039), `?shafts=off` (the world's light without its sun shafts,
+  ADR-0042) — the last four are there so a measurement can hold everything
   else constant
 
 ## Controls

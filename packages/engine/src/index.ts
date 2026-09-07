@@ -120,6 +120,11 @@ export { defaultLightingProfile, resolveLightingProfile } from './lighting-profi
 // — `applyLighting` applies it by itself.
 export { shadowBasis, snapShadowFocus } from './shadow-snap.js';
 export type { ShadowBasis, ShadowVec3 } from './shadow-snap.js';
+// The sun-shaft gate (ADR-0042), exported for the same reason: it is the
+// arithmetic that decides whether a second scene pass is paid for, and it is
+// checked by a test rather than by a picture. `applyLighting` applies it itself.
+export { sunAnchorPosition, sunShaftsGate, sunViewAngleDegrees } from './sun-shafts.js';
+export type { SunShaftsGateState } from './sun-shafts.js';
 export type {
   AmbientOptions,
   BloomOptions,
@@ -132,6 +137,7 @@ export type {
   SkyOptions,
   SsaoOptions,
   SunOptions,
+  SunShaftsOptions,
   ToneMappingMode,
   VignetteOptions,
 } from './lighting-profile.js';

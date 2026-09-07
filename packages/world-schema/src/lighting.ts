@@ -30,6 +30,14 @@ const NonNegativeMetres = z.number().min(0).finite();
 const Gain = z.number().min(0).finite();
 /** A fraction of one, for the values that are genuinely a proportion. */
 const Fraction = z.number().min(0).max(1);
+/**
+ * The size of an off-screen pass, as a fraction of the frame.
+ *
+ * A `Fraction` would accept 0, and a render target with no pixels in it is not
+ * a cheap effect — it is a texture the shader samples and gets nothing from,
+ * which looks like the effect silently failing.
+ */
+const RenderRatio = z.number().min(0.05).max(1);
 
 /**
  * The key light: one directional sun.
@@ -220,6 +228,66 @@ export const SsaoSchema = z
   })
   .partial();
 
+/**
+ * Sun shafts: the fan of light a low sun throws past whatever stands in it.
+ *
+ * Off by default and gated when it is on, for two separate reasons that are
+ * both measured in ADR-0042. The cost is a second full pass over the scene's
+ * geometry rather than a fill-rate effect, so it does not get cheaper by being
+ * computed smaller. And the effect finds the sun by projecting a point onto the
+ * screen, which past 90° off the view axis mirrors a sun behind the player back
+ * into the middle of the frame — so an ungated effect is not merely wasted
+ * there, it is wrong.
+ *
+ * `decay`, `weight` and `density` are the three numbers the scattering
+ * technique is named for and are best left where they are; `exposure` is the
+ * dial to reach for, and `maxAngleDegrees` decides how often any of it is paid
+ * for at all.
+ */
+export const SunShaftsSchema = z
+  .strictObject({
+    enabled: z.boolean(),
+    /** How bright the shafts come out. */
+    exposure: Fraction,
+    /** How fast a shaft dims along its length. */
+    decay: Fraction,
+    /** How much of each sample is added back. */
+    weight: Fraction,
+    /** How far the samples are spread out from the sun. */
+    density: Fraction,
+    /** Samples along each shaft — quality against fill rate. */
+    samples: z.number().int().min(8).max(120),
+    /** Fraction of the frame the occlusion pass is rendered at. */
+    passScale: RenderRatio,
+    /** Fraction of the frame the blur is computed at. */
+    postScale: RenderRatio,
+    /**
+     * How far off the view axis the sun may stand and still be worth a pass.
+     *
+     * Bounded at 90° because that is where the projection turns degenerate, not
+     * because a wider angle would merely look worse.
+     */
+    maxAngleDegrees: z.number().min(0).max(90),
+    /**
+     * Half-width in degrees of the band around `maxAngleDegrees` that the
+     * effect fades across and latches over, so panning along the threshold
+     * cannot switch a full scene pass on and off every frame.
+     */
+    hysteresisDegrees: z.number().min(0).max(30),
+    /**
+     * Metres from the camera to the stand-in for the sun.
+     *
+     * The floor stands above the extent of a painted horizon, so the range
+     * eclipses the sun instead of the sun floating in front of it; the ceiling
+     * stays inside the camera's far plane, past which the anchor is clipped
+     * away and the pass renders nothing at all.
+     */
+    anchorDistance: z.number().min(1200).max(9000).finite(),
+    /** Diameter in metres of that stand-in — how wide the shafts fan from. */
+    anchorSize: PositiveMetres,
+  })
+  .partial();
+
 /** The grade applied to the finished frame. */
 export const PostProcessingSchema = z
   .strictObject({
@@ -238,6 +306,7 @@ export const PostProcessingSchema = z
     bloom: BloomSchema,
     vignette: VignetteSchema,
     ssao: SsaoSchema,
+    sunShafts: SunShaftsSchema,
   })
   .partial();
 
@@ -263,5 +332,6 @@ export type ToneMapping = z.infer<typeof ToneMappingSchema>;
 export type Bloom = z.infer<typeof BloomSchema>;
 export type Vignette = z.infer<typeof VignetteSchema>;
 export type Ssao = z.infer<typeof SsaoSchema>;
+export type SunShafts = z.infer<typeof SunShaftsSchema>;
 export type PostProcessing = z.infer<typeof PostProcessingSchema>;
 export type LightingProfile = z.infer<typeof LightingProfileSchema>;

@@ -41,9 +41,15 @@ import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import type { InstancedMesh } from '@babylonjs/core/Meshes/instancedMesh.js';
 // One specific builder rather than the whole `MeshBuilder` set — see ADR-0006.
 import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
+import { CreateDisc } from '@babylonjs/core/Meshes/Builders/discBuilder.js';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { DefaultRenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline.js';
 import { SSAO2RenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/ssao2RenderingPipeline.js';
+// The whole effect, shaders included: the module imports its own four programs,
+// so `side-effects.ts` needs no entry for it (ADR-0006, ADR-0029).
+import { VolumetricLightScatteringPostProcess } from '@babylonjs/core/PostProcesses/volumetricLightScatteringPostProcess.js';
 import { Scene } from '@babylonjs/core/scene.js';
 import {
   SKY_ATTRIBUTES,
@@ -54,7 +60,9 @@ import {
 import { clearSceneSkyGradient, setSceneSkyGradient } from './sky-gradient.js';
 import { resolveLightingProfile } from './lighting-profile.js';
 import { shadowBasis, snapShadowFocus } from './shadow-snap.js';
+import { sunAnchorPosition, sunShaftsGate } from './sun-shafts.js';
 import type { LightingProfileOptions, ResolvedLightingProfile } from './lighting-profile.js';
+import type { Vector3Tuple } from './base-scene.js';
 
 /**
  * Edge length of the sky box in metres.
@@ -93,6 +101,30 @@ export interface LightingOptions {
   readonly cameras?: readonly Camera[] | undefined;
 }
 
+/**
+ * The sun shafts, once a world has asked for them (ADR-0042).
+ *
+ * The effect is *not* simply attached and left there. It is a second render of
+ * the scene's geometry, and it is only correct while the sun is near the view
+ * axis, so it is attached and detached as the player turns. Everything about
+ * that is on this object rather than hidden inside the rig, because "is the
+ * expensive thing running right now" is the first question a measurement asks.
+ */
+export interface SunShaftsHandle {
+  /** Babylon's scattering pass. Detached from the camera while gated off. */
+  readonly effect: VolumetricLightScatteringPostProcess;
+  /**
+   * The stand-in for the sun: a billboarded disc the camera carries with it.
+   *
+   * It exists because the profile's sun is a direction and the effect needs a
+   * place. It is invisible in the camera pass and bright in the occlusion pass,
+   * so the only sun anybody sees is still the sky shader's own glow.
+   */
+  readonly anchor: Mesh;
+  /** Whether the effect is attached to the camera as of the last frame. */
+  isActive(): boolean;
+}
+
 /** What {@link applyLighting} put into the scene, and how to take it out. */
 export interface LightingHandle {
   /** The complete profile in use, defaults filled in. */
@@ -107,6 +139,8 @@ export interface LightingHandle {
   readonly pipeline: DefaultRenderingPipeline | null;
   /** The ambient-occlusion pipeline, or `null` — off unless measured. */
   readonly ssao: SSAO2RenderingPipeline | null;
+  /** The sun shafts, or `null` — off unless a world asked for them. */
+  readonly sunShafts: SunShaftsHandle | null;
   /**
    * Takes meshes out of the shadow map, as casters and as receivers.
    *
@@ -400,6 +434,16 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
   });
 
   const cameras = [...(options.cameras ?? (scene.activeCamera ? [scene.activeCamera] : []))];
+  const firstCamera = cameras[0];
+  // Built before the grading pipeline on purpose: the shafts are light in the
+  // scene, so they belong in the frame the tone map and the saturation then
+  // work on, rather than pasted over a finished picture (ADR-0042).
+  const shafts =
+    profile.postProcessing.enabled &&
+    profile.postProcessing.sunShafts.enabled &&
+    firstCamera !== undefined
+      ? createSunShafts(scene, firstCamera, profile, direction, sky)
+      : null;
   const pipeline =
     profile.postProcessing.enabled && cameras.length > 0
       ? createPipeline(scene, cameras, profile)
@@ -408,6 +452,16 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
     profile.postProcessing.enabled && profile.postProcessing.ssao.enabled && cameras.length > 0
       ? createSsao(scene, cameras, profile)
       : null;
+  // Before any camera renders, not on the camera hook: the post-process chain
+  // is bound *ahead* of `onBeforeCameraRenderObservable` while the pass's
+  // render target is collected after it, so a gate driven from there would
+  // switch the two halves on different frames.
+  const shaftsFrame =
+    shafts === null
+      ? null
+      : scene.onBeforeRenderObservable.add(() => {
+          shafts.update();
+        });
 
   /** Where the shadow box is centred; the light is parked behind it. */
   const focus = new Vector3(0, 0, 0);
@@ -418,6 +472,11 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
   const nonCasters = new Set<AbstractMesh>();
   if (sky !== null) {
     excluded.add(sky);
+  }
+  if (shafts !== null) {
+    // Neither caster nor receiver: it is a stand-in for the sun, and a sun that
+    // throws a shadow of its own is a 90 m disc darkening the range behind it.
+    excluded.add(shafts.anchor);
   }
 
   const shadowMap = shadows?.getShadowMap() ?? null;
@@ -544,6 +603,7 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
     sky,
     pipeline,
     ssao,
+    sunShafts: shafts,
     excludeFromShadows(meshes) {
       for (const mesh of meshes) {
         excluded.add(mesh);
@@ -570,8 +630,12 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
       }
       disposed = true;
       scene.onNewMeshAddedObservable.remove(meshAdded);
+      if (shaftsFrame !== null) {
+        scene.onBeforeRenderObservable.remove(shaftsFrame);
+      }
       excluded.clear();
       nonCasters.clear();
+      shafts?.dispose();
       ssao?.dispose();
       pipeline?.dispose();
       sky?.material?.dispose();
@@ -594,6 +658,195 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
       clearSceneSkyGradient(scene);
     },
   };
+}
+
+/** What the rig needs from the shafts on top of what it hands out. */
+interface SunShaftsRig extends SunShaftsHandle {
+  /** Repositions the anchor and re-decides the gate. Once a frame. */
+  update(): void;
+  dispose(): void;
+}
+
+/**
+ * Builds the sun shafts and the gate that decides when they run (ADR-0042).
+ *
+ * Three things have to be constructed rather than configured, and each of them
+ * is a way this effect is quietly wrong without it:
+ *
+ * - **An anchor.** The profile's sun is a direction; a screen-space effect needs
+ *   a place. So a disc rides with the camera at `anchorDistance` metres along
+ *   the direction the light comes from — beyond whatever the world paints on
+ *   its horizon, so the range eclipses the sun rather than the sun hanging in
+ *   front of it, and inside the far plane, so it is not clipped away.
+ * - **An anchor that is only visible to the pass.** Babylon renders `mesh` with
+ *   its *own* material in the occlusion pass and with the ordinary pipeline in
+ *   the camera pass, so one material serving both would put a hard-edged second
+ *   sun in the sky next to the sky shader's glow. `disableColorWrite` is
+ *   flipped around the pass instead: bright where the shafts are computed,
+ *   drawing nothing where the player looks.
+ * - **The sky out of the pass.** The sky box does not write depth in the camera
+ *   pass, but the occlusion pass does not use its material — it binds its own —
+ *   so the sky would write depth at about 1 000 m and bury a 1 400 m anchor
+ *   behind a wall. Everything else stays in: the backdrop shells and the clouds
+ *   are the occluders that make a shaft read as a shaft.
+ *
+ * The clear colour needs no help; Babylon's own pass observers already swap the
+ * scene to black around it.
+ */
+function createSunShafts(
+  scene: Scene,
+  camera: Camera,
+  profile: ResolvedLightingProfile,
+  sunDirection: Vector3,
+  sky: Mesh | null,
+): SunShaftsRig {
+  const options = profile.postProcessing.sunShafts;
+
+  const anchor = CreateDisc(
+    'lighting-sun-anchor',
+    { radius: options.anchorSize / 2, tessellation: 24 },
+    scene,
+  );
+  anchor.billboardMode = TransformNode.BILLBOARDMODE_ALL;
+  // Never picked (the editor's surface snapping rays whatever is pickable, and
+  // a prop dropped onto the sun would land 1.4 km away) and never hazed: at
+  // this distance any fog would wash the anchor to the fog colour and the
+  // shafts with it.
+  anchor.isPickable = false;
+  anchor.applyFog = false;
+
+  const material = new StandardMaterial('lighting-sun-anchor-material', scene);
+  material.disableLighting = true;
+  material.diffuseColor = Color3.Black();
+  material.specularColor = Color3.Black();
+  material.emissiveColor = Color3.FromHexString(profile.sky.sunColor);
+  // The camera pass draws it and writes nothing — see the note above.
+  material.disableColorWrite = true;
+  material.disableDepthWrite = true;
+  anchor.material = material;
+
+  const effect = new VolumetricLightScatteringPostProcess(
+    'wov-sun-shafts',
+    { postProcessRatio: options.postScale, passRatio: options.passScale },
+    camera,
+    anchor,
+    options.samples,
+  );
+  effect.exposure = options.exposure;
+  effect.decay = options.decay;
+  effect.weight = options.weight;
+  effect.density = options.density;
+  if (sky !== null) {
+    effect.excludedMeshes.push(sky);
+  }
+
+  const pass = effect.getPass();
+  const beforePass = pass.onBeforeRenderObservable.add(() => {
+    material.disableColorWrite = false;
+    material.disableDepthWrite = false;
+  });
+  const afterPass = pass.onAfterRenderObservable.add(() => {
+    material.disableColorWrite = true;
+    material.disableDepthWrite = true;
+  });
+
+  const direction: Vector3Tuple = [sunDirection.x, sunDirection.y, sunDirection.z];
+
+  /** The constructor attached both halves; the gate starts by taking them off. */
+  let active = true;
+  const detach = (): void => {
+    if (!active) {
+      return;
+    }
+    active = false;
+    camera.detachPostProcess(effect);
+    // Spliced by hand rather than through `effect.dispose(camera)`, which
+    // splices `scene.customRenderTargets` — the array `_createPass` did *not*
+    // push to when it had a camera. Trusting it leaves the second scene pass
+    // running with nothing reading its result.
+    const index = camera.customRenderTargets.indexOf(pass);
+    if (index !== -1) {
+      camera.customRenderTargets.splice(index, 1);
+    }
+  };
+  const attach = (): void => {
+    if (active) {
+      return;
+    }
+    active = true;
+    // Index 0: the shafts belong in the frame the grade then works on, not
+    // painted on top of a finished one.
+    camera.attachPostProcess(effect, 0);
+    if (!camera.customRenderTargets.includes(pass)) {
+      camera.customRenderTargets.push(pass);
+    }
+  };
+  detach();
+
+  const update = (): void => {
+    const eye = camera.globalPosition;
+    const at = sunAnchorPosition([eye.x, eye.y, eye.z], direction, options.anchorDistance);
+    anchor.position.set(at[0], at[1], at[2]);
+
+    // The camera's own forward axis, read off its view matrix rather than from
+    // a ray: `LookAtLH` writes the basis into the matrix's third column, and
+    // taking it from there needs neither the picking module nor a guess about
+    // which camera subclass this is.
+    const view = camera.getViewMatrix().m;
+    const forward: Vector3Tuple = [view[2] ?? 0, view[6] ?? 0, view[10] ?? 0];
+    const gate = sunShaftsGate(
+      forward,
+      direction,
+      options.maxAngleDegrees,
+      options.hysteresisDegrees,
+      active,
+    );
+    // Faded rather than switched, so the last few degrees before the gate
+    // closes dim the shafts out instead of blinking them off.
+    effect.exposure = options.exposure * gate.strength;
+    if (gate.active) {
+      attach();
+    } else {
+      detach();
+    }
+  };
+
+  let disposed = false;
+  const rig: SunShaftsRig = {
+    effect,
+    anchor,
+    isActive: () => active,
+    update,
+    dispose() {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      scene.onDisposeObservable.remove(sceneDisposed);
+      pass.onBeforeRenderObservable.remove(beforePass);
+      pass.onAfterRenderObservable.remove(afterPass);
+      detach();
+      effect.dispose(camera);
+      material.dispose();
+      anchor.dispose();
+    },
+  };
+
+  /**
+   * Taken down with the scene as well as with the handle.
+   *
+   * `Scene.dispose` walks its post-processes and calls `dispose()` on each with
+   * no camera; this effect's override then reads `camera.getScene()` and throws
+   * on `undefined`, which turns tearing a scene down into an exception nobody
+   * can trace back to a light. Disposing here first takes the effect out of the
+   * scene's list before that walk reaches it, and the flag above means doing it
+   * twice is free.
+   */
+  const sceneDisposed = scene.onDisposeObservable.add(() => {
+    rig.dispose();
+  });
+
+  return rig;
 }
 
 /**

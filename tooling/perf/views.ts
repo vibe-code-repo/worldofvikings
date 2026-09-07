@@ -37,6 +37,18 @@ export interface PerfView {
  * all in one picture — which is the kind of view a grade is actually judged in
  * (ADR-0040).
  *
+ * `sun` is aimed at village1's own sun — the only view in which the sun shafts
+ * are switched on at all, because they are gated on the angle between the view
+ * axis and the sun (ADR-0042). A gated effect makes a frame time depend on
+ * where the camera is pointing, which is exactly why the aim is written down
+ * here instead of pasted into a shell.
+ *
+ * `square-no-shafts`, `slope-no-shafts` and `sun-no-shafts` are those three
+ * views with `?shafts=off`. They are the control the shaft cost is measured
+ * against: same build, same camera, same grade, one effect. Measuring the
+ * before by editing `content/worlds/village1.json` between runs would compare
+ * two builds and call the difference an effect.
+ *
  * `square-focus-sub` and `square-focus-texel` are `square` with the shadow
  * map's centre displaced by hand (`?shadowFocus=`, `apps/game/src/config.ts`).
  * They exist to prove shadow stability, which no single picture can show: with
@@ -67,6 +79,26 @@ export const PERF_VIEWS: readonly PerfView[] = [
     id: 'square-focus-texel',
     description: 'village square, shadow focus nudged one whole shadow texel (5.86 cm)',
     query: '?debug=1&shadowFocus=0.05859375,0',
+  },
+  {
+    id: 'sun',
+    description: 'east of the square, looking into the evening sun behind a cloud',
+    query: '?debug=1&world=village1&spawn=145,93&look=-139.5,-24',
+  },
+  {
+    id: 'square-no-shafts',
+    description: 'village square, sun shafts switched off',
+    query: '?debug=1&shafts=off',
+  },
+  {
+    id: 'slope-no-shafts',
+    description: 'north-east slope, sun shafts switched off',
+    query: '?debug=1&world=village1&spawn=120,120&look=-105,14&shafts=off',
+  },
+  {
+    id: 'sun-no-shafts',
+    description: 'the same frame with the sun shafts switched off',
+    query: '?debug=1&world=village1&spawn=145,93&look=-139.5,-24&shafts=off',
   },
   {
     id: 'vista',

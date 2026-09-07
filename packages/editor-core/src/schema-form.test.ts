@@ -128,7 +128,10 @@ describe('describeFields on the lighting profile', () => {
     expect(paths).toContain('postProcessing.saturation');
     expect(paths).toContain('fog.mode');
     expect(paths).toContain('fog.density');
-    expect(paths).toHaveLength(44);
+    expect(paths).toContain('postProcessing.sunShafts.enabled');
+    expect(paths).toContain('postProcessing.sunShafts.maxAngleDegrees');
+    expect(paths).toContain('postProcessing.sunShafts.anchorDistance');
+    expect(paths).toHaveLength(56);
   });
 });
 

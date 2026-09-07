@@ -38,7 +38,8 @@
       "saturation": 0.68,
       "bloom": { "enabled": true, "threshold": 0.85, "weight": 0.22, "scale": 0.5, "kernel": 32 },
       "vignette": { "enabled": true, "weight": 1.2, "color": "#0d0a08" },
-      "ssao": { "enabled": false }
+      "ssao": { "enabled": false },
+      "sunShafts": { "enabled": true }
     }
   },
   "zones": [

@@ -152,7 +152,7 @@ is stopped by a wall of the _authored_ village rather than by one a test drew
 See each package's README for its public API and ownership. `@wov/gameplay` and
 `@wov/physics` never import each other: the app joins them, in
 `apps/game/src/physics-ground.ts` (ADR-0014) and `physics-obstacles.ts`
-(ADR-0026).
+(ADR-0026, ADR-0036).
 
 ## Build model
 

@@ -3,6 +3,7 @@ import type { EntityId } from './entity.js';
 import { flatGround, type GroundQuery } from './ground.js';
 import { NO_OBSTACLES, type ObstacleQuery } from './obstacles.js';
 import { NEUTRAL_INPUT, inputEquals, type InputState } from './input.js';
+import { slideMove } from './slide.js';
 import { horizontalLength, type Vec3 } from './vector.js';
 import type { WorldState } from './world.js';
 
@@ -35,37 +36,32 @@ function intendedVelocity(input: InputState, movement: Movement): { x: number; z
 }
 
 /**
- * Where the entity ends up when a wall is in the way.
+ * The speed left after the faces a move was stopped by have taken their share.
  *
- * Three attempts, in this order: the move it asked for, then the same move on
- * one axis only, then the other. That is what makes walking along a house feel
- * like walking along a house instead of sticking to it — the component into the
- * wall is dropped, the component along it survives.
- *
- * The axis that was given up also loses its velocity. Without that, a player
- * held against a wall for two seconds shoots sideways the moment the wall ends,
- * because the solver kept accelerating into it the whole time.
+ * Whatever was being pushed into a wall goes; whatever ran along it stays.
+ * Without that, a player held against a house for two seconds shoots sideways
+ * the moment the house ends, because the solver kept accelerating into it the
+ * whole time. A move that got nowhere at all — a corner — loses everything: a
+ * body that cannot move in any direction is not moving at any speed.
  */
-function slide(
-  from: Vec3,
-  toX: number,
-  toZ: number,
-  radius: number,
-  ground: GroundQuery,
-  obstacles: ObstacleQuery,
-): { x: number; z: number; blockedX: boolean; blockedZ: boolean } {
-  const at = (x: number, z: number): Vec3 => ({ x, y: ground.heightAt(x, z) ?? from.y, z });
-
-  if (obstacles.isFree(from, at(toX, toZ), radius)) {
-    return { x: toX, z: toZ, blockedX: false, blockedZ: false };
+function speedAfter(
+  velocityX: number,
+  velocityZ: number,
+  outcome: { readonly normals: readonly Vec3[]; readonly blocked: boolean },
+): { x: number; z: number } {
+  if (outcome.blocked) {
+    return { x: 0, z: 0 };
   }
-  if (toX !== from.x && obstacles.isFree(from, at(toX, from.z), radius)) {
-    return { x: toX, z: from.z, blockedX: false, blockedZ: true };
+  let x = velocityX;
+  let z = velocityZ;
+  for (const face of outcome.normals) {
+    const into = x * face.x + z * face.z;
+    if (into < 0) {
+      x -= into * face.x;
+      z -= into * face.z;
+    }
   }
-  if (toZ !== from.z && obstacles.isFree(from, at(from.x, toZ), radius)) {
-    return { x: from.x, z: toZ, blockedX: true, blockedZ: false };
-  }
-  return { x: from.x, z: from.z, blockedX: true, blockedZ: true };
+  return { x, z };
 }
 
 function stepEntity(
@@ -103,22 +99,22 @@ function stepEntity(
   const wantedX = transform.position.x + nextVx * dt;
   const wantedZ = transform.position.z + nextVz * dt;
 
-  const moveTo = slide(
-    transform.position,
-    wantedX,
-    wantedZ,
-    movement.tuning.radius,
+  // A blocked move is dropped onto the plane of whatever stopped it rather
+  // than thrown away, so walking at a house keeps the part of the walk that
+  // ran along the house (ADR-0036).
+  const moveTo = slideMove({
+    from: transform.position,
+    toX: wantedX,
+    toZ: wantedZ,
+    radius: movement.tuning.radius,
     ground,
     obstacles,
-  );
+  });
   const nextX = moveTo.x;
   const nextZ = moveTo.z;
-  if (moveTo.blockedX) {
-    nextVx = 0;
-  }
-  if (moveTo.blockedZ) {
-    nextVz = 0;
-  }
+  const kept = speedAfter(nextVx, nextVz, moveTo);
+  nextVx = kept.x;
+  nextVz = kept.z;
 
   const groundHeight = ground.heightAt(nextX, nextZ);
   const grounded = groundHeight !== null;

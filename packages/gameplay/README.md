@@ -21,7 +21,8 @@ apps/game copies the numbers into Babylon
 
 Everything the world outside can answer arrives as an interface: ground height
 comes from a `GroundQuery` and what is in the way from an `ObstacleQuery`, never
-from a raycast the system performs itself.
+from a raycast the system performs itself. What to _do_ about what is in the way
+stays here, in `slideMove` (ADR-0036).
 Phase 1 answers it from a flat plane, physics answers it from Havok later
 (spec §29), a test answers it from a table.
 
@@ -52,10 +53,16 @@ and a gamepad or a replay file can produce the same record later.
 **Ground** — `GroundQuery`, `flatGround(height)`, `NO_GROUND`,
 `groundUnder(ground, position)`.
 
-**Obstacles** — `ObstacleQuery` (`isFree(from, to, radius)`), `NO_OBSTACLES`
-(ADR-0026). When a move is refused, `MovementSystem` retries it on one axis and
-then the other, so an entity slides along a wall instead of sticking to it, and
-the axis it gave up loses its velocity.
+**Obstacles** — `ObstacleQuery` (`firstHit(from, to, radius)` → `ObstacleHit`
+or `null`), `NO_OBSTACLES` (ADR-0026). The query reports the surface a straight
+move first meets — its normal and how far ahead it is — not a verdict.
+
+**Sliding** — `slideMove(request)` → `SlideOutcome`, `MAX_SLIDE_ATTEMPTS`
+(ADR-0036). A pure function: a move that meets a face loses the part of itself
+that ran into the face and keeps the part that ran along it, then asks again, at
+most twice. A corner — two faces whose free directions contradict each other —
+stops the move rather than resolving it into one of the two walls.
+`MovementSystem` uses it, and takes the same components off the velocity.
 
 **Fixed timestep** — `createStepAccumulator(options)`, `advance(acc, frameDelta)`,
 `DEFAULT_FIXED_DELTA` (1/60 s), `DEFAULT_MAX_STEPS_PER_FRAME`.

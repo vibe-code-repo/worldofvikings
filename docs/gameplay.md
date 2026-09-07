@@ -23,8 +23,12 @@ loop runs the step, and the renderer draws the result (ADR-0010, ADR-0014). None
 of that is in this package — `@wov/gameplay` imports no renderer and no DOM, and
 `pnpm lint:boundaries` fails the build if that changes.
 
-Not yet implemented: gravity and jumping (`velocity.y` stays 0), collision
-against walls, entity facing (`Transform.yaw` is written by no system), and
+Collision against walls is `ObstacleQuery` plus `slideMove`: the query reports
+the surface a straight move first meets, and the solver drops the move onto that
+surface's plane rather than throwing it away (ADR-0026, ADR-0036).
+
+Not yet implemented: gravity and jumping (`velocity.y` stays 0), entity facing
+(`Transform.yaw` is written by no system), and
 anything that consumes `dodge`, `interact`, `attack`, `block` or the quick slots
 — they reach the state and wait there for the combat system of spec §28.
 

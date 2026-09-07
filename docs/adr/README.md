@@ -44,3 +44,4 @@ change it describes.
 | [0033](0033-the-editor-can-do-everything-a-script-can.md)                     | The editor can do everything a script can                         | accepted |
 | [0034](0034-the-backdrop-takes-a-fog-that-reaches-past-it.md)                 | The backdrop takes a fog that reaches past it                     | accepted |
 | [0035](0035-the-static-world-is-frozen.md)                                    | The static world is frozen                                        | accepted |
+| [0036](0036-a-blocked-move-slides-along-the-face-it-met.md)                   | A blocked move slides along the face it met                       | accepted |

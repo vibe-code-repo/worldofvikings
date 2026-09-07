@@ -340,6 +340,7 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
     reportTerrainBounds(bounds: WovTerrainBounds): void;
     reportCollision(report: WovCollisionDebug): void;
     reportBackdrop(meshes: readonly BackdropReadout[]): void;
+    watchObstacles(query: ObstacleQuery): ObstacleQuery;
   } | null = null;
   // `import.meta.env.DEV` and `__WOV_DEBUG_BRIDGE__` are both build-time
   // literals, so a default `pnpm build` folds this to `false` and Rollup drops
@@ -353,9 +354,23 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       groundAt: (x, z) => probeGround(x, z),
       // Same reason: the rig is replaced when the world file arrives.
       lighting: () => lighting,
-      rayHit: (from, to) =>
-        physics?.raycast({ x: from[0], y: from[1], z: from[2] }, { x: to[0], y: to[1], z: to[2] })
-          ?.point ?? null,
+      rayHit: (from, to) => {
+        const hit = physics?.raycast(
+          { x: from[0], y: from[1], z: from[2] },
+          { x: to[0], y: to[1], z: to[2] },
+        );
+        return hit
+          ? {
+              x: hit.point.x,
+              y: hit.point.y,
+              z: hit.point.z,
+              normalX: hit.normal.x,
+              normalY: hit.normal.y,
+              normalZ: hit.normal.z,
+              distance: hit.distance,
+            }
+          : null;
+      },
     });
   }
 
@@ -390,7 +405,10 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       // From here the movement system stops adhering to a hard-coded plane and
       // starts asking the collision geometry where the ground is.
       ground = physicsGround(created, () => getTransform(world, PLAYER)?.position.y ?? 0);
-      obstacles = physicsObstacles(created);
+      // The dev build watches the same query the solver asks, so a walk in the
+      // browser can read off which face stopped the player (ADR-0036).
+      const probes = physicsObstacles(created);
+      obstacles = debugBridge === null ? probes : debugBridge.watchObstacles(probes);
       physics = created;
       setStatus(`${baseStatus} · physics ready — ground is collision geometry`);
       return created;

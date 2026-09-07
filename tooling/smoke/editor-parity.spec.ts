@@ -333,6 +333,86 @@ test('editor imports a scene bundle from the World menu', async ({ page, request
 });
 
 /**
+ * (4b) A re-import keeps the work the bundle never described (ADR-0036).
+ *
+ * The failure this pins down had no symptom: `pnpm import:scene` rewrote a
+ * world file from the bundle and took every scattered plant with it — 4 032 of
+ * them in `village1` — with nothing failing and nothing logged, so the only
+ * defence was a document telling the operator to re-run three commands.
+ *
+ * Everything here goes through the editor's own surface, because that is the
+ * parity claim: the same `importSceneBundle`, reached from the **World** menu,
+ * has to keep a field the **Scatter** panel planted. The check is on the file
+ * the API serves, not on the panel — the panel could be showing a document
+ * nobody wrote.
+ */
+test('a re-import from the World menu keeps a scattered field', async ({ page, request }) => {
+  const worldId = 'parity-keep-scatter';
+
+  async function importFixture(): Promise<void> {
+    await page.getByTestId('menu-world').click();
+    await page.getByTestId('menu-world-import-scene').click();
+    await expect(page.getByTestId('content-action-dialog')).toBeVisible();
+    await page.getByTestId('import-scene-file').fill('village-fixture.glb');
+    await page.getByTestId('import-scene-world').fill(worldId);
+    await page.getByTestId('import-scene-name').fill('Parity Keep Scatter');
+    await page.getByTestId('content-action-run').click();
+    await expect(page.getByTestId('content-action-report')).toBeVisible();
+    await expect(page.getByTestId('content-action-error')).toHaveCount(0);
+  }
+
+  await openEditor(page);
+  await importFixture();
+  await page.getByTestId('content-action-close').click();
+
+  // A field of barrels over the two entities the bundle placed.
+  await openWorld(page, worldId);
+  await expect.poll(() => editorEntityCount(page)).toBe(2);
+  await page.getByTestId('assets-search').fill('Barrel');
+  await page.getByTestId('asset-barrel-01').click();
+  await page.getByTestId('scatter-add-prefab').click();
+  for (const [field, value] of [
+    ['scatter-x0', '0'],
+    ['scatter-z0', '0'],
+    ['scatter-x1', '20'],
+    ['scatter-z1', '20'],
+  ] as const) {
+    await page.getByTestId(field).fill(value);
+  }
+  await page.getByTestId('scatter-density').fill('5');
+  await page.getByTestId('scatter-seed').fill('3');
+  await page.getByTestId('scatter-run').click();
+  await expect.poll(() => editorEntityCount(page)).toBe(22);
+  await save(page);
+
+  // The same bundle again, into the same world.
+  await importFixture();
+  // The report says what it kept, so an operator reads it rather than assumes it.
+  await expect(page.getByTestId('content-action-report')).toContainText('"entitiesCarried"');
+  await expect(page.getByTestId('content-action-report')).toContainText('"entities": 20');
+  await expect(page.getByTestId('content-action-report')).toContainText('"entitiesDropped": 0');
+  await page.getByTestId('content-action-close').click();
+
+  const written = await request.get(apiUrl(`/worlds/${worldId}`));
+  expect(written.status()).toBe(200);
+  const world = await written.json();
+  const ids: string[] = world.zones[0].entities.map((each: { id: string }) => each.id);
+  expect(ids).toHaveLength(22);
+  // The bundle's own two, re-minted by this run and standing first.
+  expect(ids.slice(0, 2).every((id) => /_\d{4}$/.test(id))).toBe(true);
+  // And the whole field behind them, in the order the previous file had it.
+  expect(ids.slice(2)).toEqual(
+    Array.from({ length: 20 }, (_, index) => `barrel-01_s3_${String(index + 1).padStart(4, '0')}`),
+  );
+
+  // A third import changes nothing at all — the property the village proof is.
+  await importFixture();
+  await page.getByTestId('content-action-close').click();
+  const again = await request.get(apiUrl(`/worlds/${worldId}`));
+  expect(await again.json()).toEqual(world);
+});
+
+/**
  * (5) The viewport follows the panel.
  *
  * The other four tests prove that a change reaches the file. This one proves

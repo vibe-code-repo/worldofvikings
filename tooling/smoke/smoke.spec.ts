@@ -73,6 +73,8 @@ type WovEditorDebugWindow = Window & {
     readonly entityCount: number;
     readonly meshCount: number;
     readonly loadedCount: number;
+    /** Entity subtrees whose world matrices are pinned right now (ADR-0049). */
+    readonly frozenCount: number;
     readonly selection: readonly string[];
     readonly dirty: boolean;
     readonly undoDepth: number;
@@ -939,6 +941,54 @@ test('editor switches tools with Q/W/E/R and deletes with the Delete key', async
   await page.keyboard.press('Control+z');
   await expect.poll(() => editorEntityCount(page)).toBe(before);
   await expect(page.getByTestId('hierarchy-entity-barrel_001')).toBeVisible();
+});
+
+/**
+ * The narrow freeze, and the hold that makes it safe (ADR-0049).
+ *
+ * The editor pins an entity's world matrices once its model has landed and
+ * thaws it again for exactly as long as it is selected. Both halves fail
+ * silently. A freeze that stops happening — a lost `freeze` call, a reconciler
+ * that rebuilds instead of moving — costs a frame rate nobody attributes to it
+ * and no assertion in this suite notices. A *hold* that stops working is worse
+ * and quieter still: the gizmo drags, the inspector counts up, the document
+ * saves, and the prop does not move on screen, because everything except the
+ * picture agrees. `pnpm smoke` already drives a real gizmo (below), but that
+ * test would pass just as well with the freeze deleted, so it witnesses
+ * nothing about it.
+ *
+ * So this asserts the rule as an equation instead: with nothing selected every
+ * loaded entity is pinned, and selecting one takes exactly one off. It is
+ * cheap — the example world, not the village — and it is the assertion a later
+ * merge of this file has to keep passing.
+ */
+test('editor pins a loaded entity and lets the selected one go', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('editor-viewport-status')).toHaveText(
+    /^viewport ready — (webgl2|webgpu)$/,
+  );
+  await page.getByTestId('menu-file').click();
+  await page.getByTestId('menu-open-example').click();
+  await expect(page.getByTestId('hierarchy-entity-barrel_001')).toBeVisible();
+
+  // Only a landed model is pinned: a stand-in cube is about to be replaced, so
+  // pinning it would pin a matrix nothing will use. Waiting for the model is
+  // therefore what makes the equation below have a right-hand side at all.
+  await expect.poll(async () => (await editorDebug(page))?.loadedCount).toBeGreaterThan(0);
+  const loaded = (await editorDebug(page))?.loadedCount ?? 0;
+
+  // Nothing selected: everything that has its model is frozen.
+  await page.keyboard.press('Escape');
+  await expect.poll(async () => (await editorDebug(page))?.frozenCount).toBe(loaded);
+
+  // Selecting thaws exactly the selection, and nothing else.
+  await page.getByTestId('hierarchy-entity-barrel_001').click();
+  await expect(page.getByTestId('editor-selection')).toHaveText('1 selected');
+  await expect.poll(async () => (await editorDebug(page))?.frozenCount).toBe(loaded - 1);
+
+  // And letting go pins it again, where it now stands.
+  await page.keyboard.press('Escape');
+  await expect.poll(async () => (await editorDebug(page))?.frozenCount).toBe(loaded);
 });
 
 /**

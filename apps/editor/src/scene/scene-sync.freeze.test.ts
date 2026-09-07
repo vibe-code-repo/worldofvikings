@@ -89,8 +89,9 @@ describe('the reconciler freezes what is not moving', () => {
       rootNodes: [root],
       skeletons: [],
       animationGroups: [],
-      /* eslint-disable-next-line @typescript-eslint/no-empty-function */
-      dispose() {},
+      dispose() {
+        // Nothing to give back: this fake never took anything.
+      },
     } as unknown as InstantiatedEntries);
   };
 

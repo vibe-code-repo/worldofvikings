@@ -56,6 +56,20 @@ export interface WovEditorDebug {
    */
   readonly loadedCount: number;
   /**
+   * Entity subtrees whose world matrices are currently pinned (ADR-0049).
+   *
+   * The editor freezes an entity once its model has landed and thaws it again
+   * for exactly as long as it is selected — which is what lets it draw a
+   * village without Babylon re-deriving five thousand world matrices a frame.
+   * Both halves of that are invisible from outside: a freeze that silently
+   * stops happening costs a frame rate nobody attributes to it, and a hold that
+   * stops working is a prop whose gizmo moves and whose picture does not.
+   * Published so `pnpm smoke` can assert the rule rather than trust it — with
+   * nothing selected this equals {@link WovEditorDebug.loadedCount}, and every
+   * selected entity whose model has landed takes one off.
+   */
+  readonly frozenCount: number;
+  /**
    * File names of the textures the scene has finished loading.
    *
    * A model draws with or without its base colour, so `loadedCount` alone
@@ -175,6 +189,7 @@ const initial: WovEditorDebug = {
   entityCount: 0,
   meshCount: 0,
   loadedCount: 0,
+  frozenCount: 0,
   loadedTextures: [],
   selection: [],
   dirty: false,

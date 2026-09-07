@@ -214,6 +214,7 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
         publishEditorDebug({
           meshCount: sync.meshCount(),
           loadedCount: sync.loadedCount(),
+          frozenCount: sync.frozenCount(),
           loadedTextures: sync.loadedTextures(),
         });
       }
@@ -477,6 +478,11 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
         entityCount: zone?.entities.length ?? 0,
         meshCount: sync?.meshCount() ?? 0,
         loadedCount: sync?.loadedCount() ?? 0,
+        // Published from here as well as from `report`, because a selection is
+        // exactly what changes the answer and changes no mesh at all: the
+        // reconciler's early return means `onSceneChanged` never fires for it
+        // (ADR-0049).
+        frozenCount: sync?.frozenCount() ?? 0,
         loadedTextures: sync?.loadedTextures() ?? [],
         selection: [...editorDocument.selection],
         dirty: editorDocument.dirty,

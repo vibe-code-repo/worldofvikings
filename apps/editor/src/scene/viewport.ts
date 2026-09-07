@@ -101,6 +101,24 @@ export async function createViewport(
     }
     return [...meshes];
   };
+  /**
+   * How big each set was when it was last swept, so the sweep is amortised.
+   *
+   * Without one of these, an editor left open for a day would hold on to every
+   * mesh it ever excluded, including the ones an undone scatter disposed a
+   * thousand gestures ago. Sweeping on every call instead would be O(n) per
+   * entity during a load, which is 5 273 walks of a set that only grows.
+   */
+  const swept = new Map<Set<AbstractMesh>, number>();
+  const remember = (meshes: Set<AbstractMesh>, added: readonly AbstractMesh[]): void => {
+    for (const mesh of added) {
+      meshes.add(mesh);
+    }
+    if (meshes.size > (swept.get(meshes) ?? 0) * 2 + 64) {
+      living(meshes);
+      swept.set(meshes, meshes.size);
+    }
+  };
   const light = (profiles: readonly (LightingProfileOptions | undefined)[]): LightingHandle => {
     const handle = applyLighting(scene, { profiles, cameras: [camera.camera] });
     handle.excludeFromShadows(living(unlit));
@@ -164,15 +182,11 @@ export async function createViewport(
       return lighting;
     },
     excludeFromShadows(meshes) {
-      for (const mesh of meshes) {
-        unlit.add(mesh);
-      }
+      remember(unlit, meshes);
       lighting.excludeFromShadows(meshes);
     },
     excludeFromCasting(meshes) {
-      for (const mesh of meshes) {
-        nonCasters.add(mesh);
-      }
+      remember(nonCasters, meshes);
       lighting.excludeFromCasting(meshes);
     },
     dispose() {
@@ -182,6 +196,7 @@ export async function createViewport(
       listeners.clear();
       unlit.clear();
       nonCasters.clear();
+      swept.clear();
       lighting.dispose();
       camera.dispose();
       grid.dispose();

@@ -236,6 +236,44 @@ describe('applyLighting', () => {
     expect(handle.ssao).toBeNull();
   });
 
+  it('reaches the meshes the scene cannot see when it relights', () => {
+    const target = scene();
+    // What a loaded model is by the time it is drawn: the mesh whose material
+    // carries the light lives in an asset container, and only its copies are in
+    // the scene. Babylon maintains "which lights reach this mesh" by walking
+    // `scene.meshes`, so the source is in neither the add walk nor the walk
+    // `Light.dispose` does — and a relight leaves it pointing at a dead sun.
+    const source = CreateGround('source', { width: 1, height: 1 }, target);
+    const copy = source.createInstance('copy');
+    target.removeMesh(source);
+
+    const first = applyLighting(target, { profiles: [{ sun: { intensity: 3 } }] });
+    expect(source.lightSources).toContain(first.sun);
+
+    first.dispose();
+    const second = applyLighting(target, { profiles: [{ sun: { intensity: 9 } }] });
+
+    expect(copy.isAnInstance).toBe(true);
+    expect(source.lightSources, 'the new sun must reach the mesh that draws').toContain(second.sun);
+    expect(source.lightSources, 'and the disposed one must be gone').not.toContain(first.sun);
+  });
+
+  it('hands its lights to a source mesh whose first copy arrives later', async () => {
+    const target = scene();
+    const source = CreateGround('source', { width: 1, height: 1 }, target);
+    target.removeMesh(source);
+
+    const handle = applyLighting(target, { profiles: [{ sun: { intensity: 3 } }] });
+    // Nothing drew from it when the rig was built, so nothing offered it a sun.
+    expect(source.lightSources).not.toContain(handle.sun);
+
+    source.createInstance('copy');
+    // Babylon announces a new mesh on the next tick, not in `addMesh`.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(source.lightSources).toContain(handle.sun);
+  });
+
   it('gives the ground a shadow lookup only once a shadow map exists', () => {
     const dark = scene();
     applyLighting(dark, { profiles: [{ shadows: { enabled: false } }] });

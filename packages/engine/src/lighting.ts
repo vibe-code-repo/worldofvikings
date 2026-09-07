@@ -158,6 +158,62 @@ function target(mesh: AbstractMesh): AbstractMesh {
   return mesh.isAnInstance ? (mesh as InstancedMesh).sourceMesh : mesh;
 }
 
+/**
+ * Whether the mesh that carries this one's material is out of step with the
+ * scene's lights.
+ *
+ * Only ever true for a mesh whose material owner is *not in the scene* — which
+ * is every loaded model drawn as an instance, because the source it draws from
+ * stays in its asset container. Babylon keeps "which lights reach this mesh"
+ * up to date by walking `scene.meshes`, in both directions: `Scene.addLight`
+ * adds the new light to every mesh in the scene, `Light.dispose` removes the
+ * dead one from every mesh in the scene. A mesh outside the scene is in
+ * neither walk, and `InstancedMesh` answers `_removeLightSource` with nothing
+ * at all while forwarding `lightSources` straight to its source — so a
+ * disposed sun is never taken out of the list and a new one is pushed on top
+ * of it without the material ever being told.
+ *
+ * Both directions are asked, because both go wrong and they look different: a
+ * light the source has never heard of is a flat picture, a light it still holds
+ * after the rig that owned it was disposed is a picture nothing can change any
+ * more.
+ */
+function hasStaleLights(scene: Scene, mesh: AbstractMesh): boolean {
+  const owner = target(mesh);
+  if (owner === mesh) {
+    // In the scene, so Babylon's own two walks already reach it.
+    return false;
+  }
+  const known = owner.lightSources;
+  return (
+    known.some((light) => !scene.lights.includes(light)) ||
+    scene.lights.some((light) => light.isEnabled() && !known.includes(light))
+  );
+}
+
+/**
+ * How many drawn meshes are lit by something other than this scene's lights.
+ *
+ * Zero is the only right answer, at every moment, in both apps — which is
+ * exactly why it is worth publishing. The failure it names is silent: after one
+ * lighting change in the editor the whole zone was lit by a sun that had been
+ * disposed, nothing in the panel moved a pixel again for the rest of the
+ * session, and no error was logged because from Babylon's point of view nothing
+ * was wrong. A number a test can read turns that into a red line.
+ *
+ * Cheap enough to ask for: two array lookups per mesh over lists of two or three
+ * lights, and the caller decides how often it wants to know.
+ */
+export function meshesWithStaleLights(scene: Scene): number {
+  let stale = 0;
+  for (const mesh of scene.meshes) {
+    if (hasStaleLights(scene, mesh)) {
+      stale += 1;
+    }
+  }
+  return stale;
+}
+
 /** Babylon's tone-mapping constants, by the name a world file uses. */
 function toneMappingType(mode: ResolvedLightingProfile['postProcessing']['toneMapping']): number {
   switch (mode) {
@@ -475,12 +531,49 @@ export function applyLighting(scene: Scene, options: LightingOptions = {}): Ligh
     // scene (`world-scene.ts`), so this is the only route to it.
     target(mesh).receiveShadows = true;
   };
-  for (const mesh of scene.meshes) {
+
+  /**
+   * Hands this rig's lights to a mesh the scene cannot see.
+   *
+   * Babylon caches, per mesh, which lights reach it, and it maintains that
+   * cache by walking `scene.meshes`: `Scene.addLight` adds the new light to
+   * every mesh in the scene, `Light.dispose` removes the dead one from every
+   * mesh in the scene. A mesh that is not in the scene is in neither walk.
+   *
+   * Which is exactly where the meshes that carry a village's materials live.
+   * An `InstancedMesh` draws from a `sourceMesh` that sits in the asset
+   * container it was loaded from, not in the scene, and that source is what
+   * owns the material and therefore the light. It got this rig's lights only by
+   * accident, during the moment the loader had it in the scene before moving it
+   * into the container — so the *first* rig reaches it and no later one does.
+   *
+   * Measured consequence, before this: one lighting change in the editor and
+   * the whole zone went flat. The sun the sources still pointed at had been
+   * disposed, the new one had never been offered to them, and nothing in the
+   * Lighting panel moved a pixel again for the rest of the session. Nothing was
+   * logged, because from Babylon's point of view nothing was wrong.
+   *
+   * Only asked when a light is actually missing: this runs once per mesh added
+   * during a load — 5 273 of them for the village — and `_resyncLightSources`
+   * marks every submesh light-dirty, which is a shader re-evaluation nobody
+   * needs 5 273 times for the same 210 sources.
+   */
+  const relight = (mesh: AbstractMesh): void => {
+    if (hasStaleLights(scene, mesh)) {
+      target(mesh)._resyncLightSources();
+    }
+  };
+
+  const lit = (mesh: AbstractMesh): void => {
     receive(mesh);
+    relight(mesh);
+  };
+  for (const mesh of scene.meshes) {
+    lit(mesh);
   }
   // Models load for seconds after this call; every mesh one of them adds is a
   // wall something else should be able to darken.
-  const meshAdded = scene.onNewMeshAddedObservable.add(receive);
+  const meshAdded = scene.onNewMeshAddedObservable.add(lit);
 
   const place = (): void => {
     sun.position = focus.subtract(direction.scale(profile.shadows.distance));

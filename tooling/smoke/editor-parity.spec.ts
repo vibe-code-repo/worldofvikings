@@ -54,6 +54,7 @@ type WovEditorDebugWindow = Window & {
     readonly worldId: string;
     readonly loadedCount: number;
     readonly undoDepth: number;
+    readonly render: { readonly staleLightMeshes: number };
   };
 };
 
@@ -64,6 +65,13 @@ function editorEntityCount(page: Page): Promise<number | null> {
 /** How many entities show their real model rather than the stand-in cube. */
 function editorLoadedCount(page: Page): Promise<number | null> {
   return page.evaluate(() => (window as WovEditorDebugWindow).__wovEditor?.loadedCount ?? null);
+}
+
+/** Drawn meshes lit by something the scene no longer has; must always be 0. */
+function editorStaleLightMeshes(page: Page): Promise<number | null> {
+  return page.evaluate(
+    () => (window as WovEditorDebugWindow).__wovEditor?.render.staleLightMeshes ?? null,
+  );
 }
 
 function editorUndoDepth(page: Page): Promise<number | null> {
@@ -520,5 +528,64 @@ test.describe('live preview', () => {
       description: `mean luminance ${back.toFixed(3)} after one undo`,
     });
     expect(Math.abs(back - evening)).toBeLessThan(change / 4);
+  });
+
+  /**
+   * The sun still reaches the props after the rig has been rebuilt once.
+   *
+   * The test above passes with the light half broken, and that is why this one
+   * exists. A preset changes the sky, the fog and the clear colour, all of
+   * which are rebuilt from scratch on every relight, so the *frame* moves even
+   * when nothing in it is being lit any more.
+   *
+   * What can stop happening is the other half. A loaded model is drawn from a
+   * source mesh that lives in its asset container, not in the scene, and
+   * Babylon keeps "which lights reach this mesh" up to date by walking
+   * `scene.meshes` — so that source is in neither the walk that adds a new
+   * light nor the walk that removes a disposed one. Measured before the fix:
+   * after one lighting change the whole zone was lit by ambient alone and no
+   * further change in the panel moved a single pixel, with nothing logged.
+   *
+   * Asserted as a count rather than as pixels, because the pixels cannot say
+   * it here: the example world's one prop wears an unlit material (measured —
+   * `PBRMaterial.unlit` is true on it), so taking its sun away changes nothing
+   * on screen while leaving the bookkeeping exactly as broken. The count is the
+   * same in every world, and the village is too slow and too noisy to make a
+   * light assertion on.
+   */
+  test('editor keeps the sun reaching the props after a relight', async ({ page }) => {
+    await openEditor(page);
+    await openWorld(page, 'example');
+    await expect.poll(() => editorLoadedCount(page), { timeout: 60_000 }).toBe(1);
+    await page.getByTestId('right-tab-lighting').click();
+    await expect(page.getByTestId('lighting-fields')).toBeVisible();
+
+    /**
+     * The count, read only after the bridge has certainly sampled it again.
+     *
+     * It is published about once a second, not every frame, and its starting
+     * value is zero — so polling for zero would pass on the value the bridge
+     * was born with. Waiting past one sampling interval is what makes the
+     * reading an answer rather than a default.
+     */
+    const staleAfterASample = async (): Promise<number | null> => {
+      await page.waitForTimeout(1_500);
+      return editorStaleLightMeshes(page);
+    };
+
+    // Nothing is out of step before anything has been relit.
+    expect(await staleAfterASample()).toBe(0);
+
+    // Two rebuilds of the whole rig, and a change to one number in between.
+    await page.getByTestId('lighting-preset-evening').click();
+    expect(await staleAfterASample(), 'a preset left a prop on the old sun').toBe(0);
+
+    const intensity = page.getByTestId('lighting-sun-intensity-input');
+    await intensity.fill('12');
+    await intensity.blur();
+    expect(await staleAfterASample(), 'a second relight left a prop behind').toBe(0);
+
+    await page.getByTestId('lighting-preset-flat').click();
+    expect(await staleAfterASample(), 'a third relight left a prop behind').toBe(0);
   });
 });

@@ -100,7 +100,7 @@ export {
 } from './sky-gradient.js';
 export type { SkyGradient } from './sky-gradient.js';
 
-export { applyLighting } from './lighting.js';
+export { applyLighting, meshesWithStaleLights } from './lighting.js';
 export type { LightingHandle, LightingOptions } from './lighting.js';
 export { defaultLightingProfile, resolveLightingProfile } from './lighting-profile.js';
 export type {

@@ -32,6 +32,7 @@
  */
 import { SceneInstrumentation } from '@babylonjs/core/Instrumentation/sceneInstrumentation.js';
 import type { Scene } from '@babylonjs/core/scene.js';
+import { meshesWithStaleLights } from '@wov/engine';
 
 /** The read-only view `pnpm smoke` and other dev tooling may rely on. */
 export interface WovEditorDebug {
@@ -162,6 +163,31 @@ export interface WovEditorRenderDebug {
    * picture, the draw calls and the frame time all look exactly as before.
    */
   sceneTextures: number;
+  /**
+   * Meshes the scene is holding, `scene.meshes.length`.
+   *
+   * Beside {@link WovEditorDebug.meshCount}, which counts *entity roots* and
+   * therefore says the same thing after a zone switch whatever the scene is
+   * actually carrying. This one moves when something is not let go of: a zone
+   * switched away from and back to used to leave every mesh of the old zone
+   * behind while every other number in this bridge stayed byte-identical.
+   */
+  sceneMeshes: number;
+  /**
+   * Drawn meshes lit by something other than the scene's own lights.
+   *
+   * Zero is the only right answer. A loaded model is drawn from a source mesh
+   * that lives in its asset container rather than in the scene, and Babylon
+   * maintains "which lights reach this mesh" by walking `scene.meshes` — so a
+   * relight reaches every mesh except the ones that carry the materials. The
+   * measured symptom was a zone lit by a disposed sun with nothing logged and
+   * no panel able to change it again (`meshesWithStaleLights` in `@wov/engine`).
+   *
+   * Sampled about once a second rather than every frame: it is a walk over the
+   * whole scene, and the thing it watches for changes at the speed of a mouse
+   * click, not of a frame.
+   */
+  staleLightMeshes: number;
 }
 
 /** Where the viewport camera stands and what it orbits, in world metres. */
@@ -204,6 +230,8 @@ const initial: WovEditorDebug = {
     frames: 0,
     shadowCasters: 0,
     sceneTextures: 0,
+    sceneMeshes: 0,
+    staleLightMeshes: 0,
   },
   camera: null,
 };
@@ -238,6 +266,14 @@ export function publishEditorDebug(patch: Partial<WovEditorDebug>): void {
   }
   Object.assign(bridge, patch);
 }
+
+/**
+ * How often the stale-light walk is paid for, in milliseconds.
+ *
+ * A whole-scene walk at the village's 14 445 meshes, so not every frame; the
+ * thing it watches for changes when somebody clicks a lighting preset.
+ */
+const STALE_LIGHT_SAMPLE_MS = 1_000;
 
 /** A point the bridge reads off the camera, without importing Babylon's vector. */
 interface ReadablePoint {
@@ -286,6 +322,9 @@ export function attachEditorRenderDebug(probe: EditorRenderProbe): () => void {
   const camera: WovEditorCameraDebug = { x: 0, y: 0, z: 0, targetX: 0, targetY: 0, targetZ: 0 };
   bridge.camera = camera;
 
+  /** When the whole-scene walk below was last paid for. */
+  let sampled = 0;
+
   const unsubscribe = probe.onFrame(() => {
     const render = bridge.render;
     render.frameTimeMs = instrumentation.frameTimeCounter.average;
@@ -296,6 +335,12 @@ export function attachEditorRenderDebug(probe: EditorRenderProbe): () => void {
     // The list the pass just drew from, not the one somebody meant to fill.
     render.shadowCasters = probe.shadowMap()?.renderList?.length ?? 0;
     render.sceneTextures = probe.scene.textures.length;
+    render.sceneMeshes = probe.scene.meshes.length;
+    const now = Date.now();
+    if (now - sampled >= STALE_LIGHT_SAMPLE_MS) {
+      sampled = now;
+      render.staleLightMeshes = meshesWithStaleLights(probe.scene);
+    }
     const view = probe.camera();
     camera.x = view.position.x;
     camera.y = view.position.y;

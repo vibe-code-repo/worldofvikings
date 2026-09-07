@@ -5,7 +5,8 @@ import type { AssetSourceConfig } from '@wov/asset-system';
 import { snapPosition } from '@wov/editor-core';
 import type { EditorDocument, TransformChange } from '@wov/editor-core';
 import type { Vector3 } from '@wov/world-schema';
-import { publishEditorDebug } from './dev-debug.js';
+import { createCoalescer } from './coalesce.js';
+import { isEditorDebugInstalled, publishEditorDebug } from './dev-debug.js';
 import { changesFromDrag } from './scene/gizmo-commit.js';
 import {
   createGizmos,
@@ -187,18 +188,51 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
       scene: viewport.scene,
       catalog: prefabs.assets,
     });
+    /**
+     * The asset-origins line, forwarded only when it says something new.
+     *
+     * It is React state in the shell, and the shell is the whole editor. The
+     * count changes once per *asset* — 145 times for `village1` — while the
+     * scene changes once per *entity and texture*, about ten thousand times, so
+     * without this the status bar re-renders the shell for a string it already
+     * shows (ADR-0048).
+     */
+    let reportedSources: string | null = null;
+    const reportSources = (): void => {
+      const line = summarizeAssetSources(assets.sources());
+      if (line !== reportedSources) {
+        reportedSources = line;
+        handlersRef.current.onAssetSources(line);
+      }
+    };
     const report = (): void => {
-      handlersRef.current.onAssetSources(summarizeAssetSources(assets.sources()));
-      publishEditorDebug({
-        meshCount: sync.meshCount(),
-        loadedCount: sync.loadedCount(),
-        loadedTextures: sync.loadedTextures(),
-      });
+      reportSources();
+      // One guard, not one per field: every argument below is a walk over the
+      // whole zone, and a session that never opened the bridge must not pay for
+      // a number nobody can read (ADR-0048).
+      if (isEditorDebugInstalled()) {
+        publishEditorDebug({
+          meshCount: sync.meshCount(),
+          loadedCount: sync.loadedCount(),
+          loadedTextures: sync.loadedTextures(),
+        });
+      }
       // The outline is first drawn around the stand-in cube, because that is
       // all that exists until the GLB lands. Redrawing it here is what makes it
       // end up around the model rather than around a 1 m box.
       outline.show(sync.boundsOf(documentRef.current.selection));
     };
+    /*
+     * One report per frame, however many models and textures landed in it.
+     *
+     * `onSceneChanged` fires once per loaded model and once per loaded texture,
+     * and each report walks every entity of the zone — which made opening
+     * `village1` quadratic in its own entity count (ADR-0048). Nothing is lost
+     * by folding them: a report reads the current state, so the one that
+     * happens stands for all the asks that arrived before it, and a frame
+     * always follows the last one.
+     */
+    const reports = createCoalescer(report);
     const outline = createSelectionOutline(viewport.scene);
     outlineRef.current = outline;
     // Scenery, not a document object: it is drawn and it is what a prop snaps
@@ -207,7 +241,7 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
       scene: viewport.scene,
       source: assetSource,
       onChanged: (tile) => {
-        handlersRef.current.onAssetSources(summarizeAssetSources(assets.sources()));
+        reportSources();
         // The ground receives shadows through its own shader and must not cast
         // (ADR-0024): a height field in its own shadow map self-shadows every
         // slope it has.
@@ -237,7 +271,9 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
       scene: viewport.scene,
       assets,
       prefabs,
-      onSceneChanged: report,
+      onSceneChanged: () => {
+        reports.schedule();
+      },
     });
     syncRef.current = sync;
     sync.apply(documentRef.current);
@@ -247,6 +283,7 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
       syncRef.current = null;
       outlineRef.current = null;
       terrainRef.current = null;
+      reports.dispose();
       terrain.dispose();
       outline.dispose();
       sync.dispose();
@@ -428,16 +465,22 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
     }
 
     terrainRef.current?.show(zone?.terrain, `${editorDocument.world.id}:${zone?.id ?? 'no-zone'}`);
-    publishEditorDebug({
-      worldId: editorDocument.world.id,
-      zoneId: editorDocument.activeZoneId,
-      entityCount: zone?.entities.length ?? 0,
-      meshCount: sync?.meshCount() ?? 0,
-      loadedCount: sync?.loadedCount() ?? 0,
-      loadedTextures: sync?.loadedTextures() ?? [],
-      selection: [...editorDocument.selection],
-      dirty: editorDocument.dirty,
-    });
+    // `meshCount`, `loadedCount` and `loadedTextures` each walk the whole zone,
+    // and this effect runs on every edit — a gizmo drag, a nudged number, a
+    // ground dial. One guard around all of them, so only a session with the
+    // bridge open pays (ADR-0048).
+    if (isEditorDebugInstalled()) {
+      publishEditorDebug({
+        worldId: editorDocument.world.id,
+        zoneId: editorDocument.activeZoneId,
+        entityCount: zone?.entities.length ?? 0,
+        meshCount: sync?.meshCount() ?? 0,
+        loadedCount: sync?.loadedCount() ?? 0,
+        loadedTextures: sync?.loadedTextures() ?? [],
+        selection: [...editorDocument.selection],
+        dirty: editorDocument.dirty,
+      });
+    }
   }, [editorDocument, viewport, prefabs]);
 
   useEffect(() => {

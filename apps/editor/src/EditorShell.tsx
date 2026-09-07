@@ -23,6 +23,7 @@ import {
   scatterCommand,
   serializeDocument,
   setLighting,
+  setSound,
   setTerrain,
   updateTerrainSurface,
   updateTransform,
@@ -30,6 +31,7 @@ import {
   type FieldPatch,
   type LightingScope,
   type PrefabEdit,
+  type SoundScope,
   type Rect,
   type ScatterOptions,
   type TerrainSurfacePatch,
@@ -121,6 +123,19 @@ export function EditorShell(): JSX.Element {
   const [assets, setAssets] = useState<AssetIndex | null>(null);
   const assetsAsked = useRef(false);
   const [lightingScope, setLightingScope] = useState<'world' | 'zone'>('world');
+  const [soundScope, setSoundScope] = useState<'world' | 'zone'>('world');
+  /**
+   * Whether the author is listening to the zone (ADR-0052).
+   *
+   * **Off when a session starts, and it lives here.** An editor that starts a
+   * forge loop the moment a world opens is an editor nobody keeps open. It sits
+   * in the shell rather than in the viewport so that it survives the viewport
+   * being rebuilt — a renderer restart must not silently turn the sound back
+   * off under an author who asked for it. It is a view setting like the grid
+   * and is never written to the world file.
+   */
+  const [listening, setListening] = useState(false);
+  const [soundStatus, setSoundStatus] = useState('sound: off');
   const [prefabSaving, setPrefabSaving] = useState(false);
   const [contentAction, setContentAction] = useState<ContentAction>(null);
   const [actionRunning, setActionRunning] = useState(false);
@@ -164,15 +179,19 @@ export function EditorShell(): JSX.Element {
   /*
    * The asset manifest, read the first time somebody opens the zone inspector.
    *
-   * Not on start-up: it is 874 kB describing 1192 assets, and the only panel
-   * that needs it is the one offering height fields and ground textures to
-   * choose from. A session that never opens that tab never pays for it, and a
-   * session whose asset server is not running gets an empty picker and a text
-   * box that still works — which is why the failure sets an index rather than
-   * leaving `null` forever.
+   * Not on start-up: it is 874 kB describing 1192 assets, and the panels that
+   * need it are the two offering files to choose from — height fields and
+   * ground textures on the **Zone** tab, clips on **Sound**. A session that
+   * never opens either never pays for it, and a session whose asset server is
+   * not running gets an empty picker and a text box that still works — which is
+   * why the failure sets an index rather than leaving `null` forever.
+   *
+   * The entity inspector's emitter section needs it too, and does not get its
+   * own trigger: an author who has not opened the sound tab yet is offered a
+   * text field, exactly as on the zone tab before the manifest lands.
    */
   useEffect(() => {
-    if (rightTab !== 'zone' || assetsAsked.current) {
+    if ((rightTab !== 'zone' && rightTab !== 'sound') || assetsAsked.current) {
       return;
     }
     assetsAsked.current = true;
@@ -307,6 +326,19 @@ export function EditorShell(): JSX.Element {
       command: setLighting(scope, [patch]),
       selectCreated: false,
       coalesceKey: `lighting:${scope.kind === 'world' ? 'world' : scope.zoneId}:${gesture}`,
+    });
+  }, []);
+
+  const sound = useCallback((scope: SoundScope, patches: readonly FieldPatch[]) => {
+    dispatch({ type: 'run', command: setSound(scope, patches), selectCreated: false });
+  }, []);
+
+  const soundDrag = useCallback((scope: SoundScope, patch: FieldPatch, gesture: string) => {
+    dispatch({
+      type: 'run',
+      command: setSound(scope, [patch]),
+      selectCreated: false,
+      coalesceKey: `sound:${scope.kind === 'world' ? 'world' : scope.zoneId}:${gesture}`,
     });
   }, []);
 
@@ -673,6 +705,8 @@ export function EditorShell(): JSX.Element {
             }}
             placingPrefabId={placingPrefabId}
             groundPicking={cornerPick !== null}
+            listening={listening}
+            onSoundStatus={setSoundStatus}
             onPick={onPick}
             onPlace={place}
             onGroundPick={onGroundPick}
@@ -705,6 +739,18 @@ export function EditorShell(): JSX.Element {
           onLighting={lighting}
           onLightingDrag={lightingDrag}
           onSavePrefab={savePrefab}
+          sound={{
+            document,
+            assets,
+            scope: soundScope,
+            onScope: setSoundScope,
+            onSound: sound,
+            onSoundDrag: soundDrag,
+            listening,
+            onListening: setListening,
+            soundStatus,
+            entity: { assets, onSound: sound, onSoundDrag: soundDrag },
+          }}
         />
       </div>
 

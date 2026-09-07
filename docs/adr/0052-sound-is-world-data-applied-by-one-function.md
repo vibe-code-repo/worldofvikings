@@ -76,9 +76,9 @@ emitters states all of them, and `"emitters": []` is how a zone says "none".
 **The listener follows the camera, not the player.** In third person the picture
 is the camera's. A listener at the capsule's feet puts a brazier that is on the
 left of the screen into the right ear as soon as the camera swings round, which
-reads as a broken panner rather than as a decision. The editor will attach the
-same way to its orbit camera when its panel lands, so an author hears the scene
-from where they are looking.
+reads as a broken panner rather than as a decision. The editor attaches the same
+way to its orbit camera, so an author hears the scene from where they are
+looking.
 
 **Footsteps are not spatialised at all.** They come from the listener's own feet.
 Spatialising them at the capsule is the same mistake in the other direction: it
@@ -157,9 +157,45 @@ terms — which _sound_ a painted rock makes is a sound decision, not a
 ground-material one. The validator's length check is what keeps the two from
 drifting silently in the meantime.
 
-**Editor parity is not yet closed.** The engine function is the shared one by
-construction, and `SoundProfileSchema` is schema-drawn like every other panel's
-fields, so the panel is small — but it is not written. Until it is, sound is the
-one thing a script can author and the editor cannot, which ADR-0033 does not
-allow to stand. It is the next change on this branch, and it is named here
-rather than left implicit.
+**Editor parity, and the half of it a schema cannot give you.** The engine
+function is the shared one by construction and `SoundProfileSchema` is
+schema-drawn like every other panel's fields, so the **Sound** tab is a scope
+pair and one `SchemaFields` — every clip field arrives as a picker filtered to
+audio because the schema says `assetPathOf('audio')`, and a field added to the
+format appears in the editor with nothing in `apps/editor` changing.
+
+Two things did need deciding.
+
+_An emitter is placed from the entity, not from the list._ The format keeps
+emitters on the zone because 5273 entities of which seventeen sound would be
+5273 places to look — but an author meets them the other way round, selecting a
+brazier and asking what it sounds like. `entity-sound.ts` in `@wov/editor-core`
+is that join: it finds the emitter that sounds a selected entity, says whether
+it **names** the entity or merely **matches its prefab** (and how many
+placements a rule would change, so quietening one brazier cannot silence ten
+without saying so), and writes a new one as a single patch over the whole
+`emitters` list — which is what makes one undo take the whole block back out.
+The three anchor fields are not offered there, and not because the panel lists
+them: the schema marks them `emitterAnchor` through `turnedBy`, the same
+mechanism that keeps the terrain block one panel with two commands.
+
+_Listening is a view setting, and it is off._ An editor that starts a forge loop
+the moment a world opens is an editor nobody keeps open, and the browser would
+refuse to start one before a gesture anyway. The **Listen** switch lives in the
+shell rather than in the viewport so that a renderer restart cannot silently
+turn it off under an author who asked for it, and the audio engine itself is a
+module-level singleton, because an audio context is a per-page resource and
+React mounts the viewport twice in development. Nothing is written to the world
+file: muting a forge you are working next to must not change what a player
+hears. The zone's sound is rebuilt on the world id, the zone id and the two
+`sound` blocks — never on the document, which is replaced on every gizmo drag.
+
+**What the panel caught.** `services/api/src/world-file.ts` writes a world file
+by naming keys, and it had never been told about `sound`. Opening the village
+and pressing Ctrl+S wrote it back silent — no error, no warning, a diff
+removing a block nobody had touched. It is fixed by reading the key order off
+the sound schemas rather than listing them, the same bargain `canonicalTerrain`
+already makes, so the next field the format grows survives a round trip without
+anybody remembering that file. It is worth recording that no unit test found
+this and no amount of schema work would have: it took saving through the panel
+and reading the file back.

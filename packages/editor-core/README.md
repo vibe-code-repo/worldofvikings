@@ -45,6 +45,8 @@ Commands — `commands.ts`. The constructors return plain data:
 - `addZone(zone, { index? })`, `removeZone(zoneId)`, `renameZone(zoneId, name)`
 - `setLighting(scope, patches)`, `setLightingField(scope, path, value)` — how a
   world or a zone is lit (ADR-0024, ADR-0033)
+- `setSound(scope, patches)`, `setSoundField(scope, path, value)` — how a world
+  or a zone sounds (ADR-0052, ADR-0033)
 - `setTerrain(zoneId, patches)`, `setTerrainField(zoneId, path, value)` — the
   ground of a zone (ADR-0020, ADR-0033)
 - `applyCommand(document, command): CommandResult<AppliedCommand>` —
@@ -54,16 +56,18 @@ Commands — `commands.ts`. The constructors return plain data:
 A command that cannot be honoured returns `{ ok: false, error }` and changes
 nothing; it never throws and never leaves a half-applied document.
 
-Blocks — `blocks.ts`, `patch.ts` (ADR-0033). The lighting profile and the
-terrain block are trees of small optional objects, and a panel edits one leaf at
+Blocks — `blocks.ts`, `patch.ts` (ADR-0033). The lighting profile, the sound
+profile and the terrain block are trees of small optional objects, and a panel edits one leaf at
 a time, so a `FieldPatch` addresses a field by path: `['sun', 'intensity']`,
 `['layers', '2', 'tileSize']`, or `[]` for the whole block. A `null` value
 removes a key — a world file distinguishes "no fog block" from "a fog block that
 says nothing", and a panel has to be able to produce both.
 
 - `worldLighting()`, `zoneLighting(zoneId)`, `lightingAt(world, scope)`
-- `withLighting(world, scope, profile)`, `withTerrain(zone, terrain)`
-- `parseLightingBlock(value)`, `parseTerrainBlock(value)`
+- `worldSound()`, `zoneSound(zoneId)`, `soundAt(world, scope)`
+- `withLighting(world, scope, profile)`, `withSound(world, scope, profile)`,
+  `withTerrain(zone, terrain)`
+- `parseLightingBlock(value)`, `parseSoundBlock(value)`, `parseTerrainBlock(value)`
 - `valueAtPath`, `applyFieldPatch`, `applyFieldPatches`, `restorePatch`
 
 Both commands invert by restoring the **whole** block. A patch that created
@@ -74,11 +78,18 @@ Schema-driven forms — `schema-form.ts`, `world-forms.ts` (ADR-0033).
 `describeFields(schema)` turns a Zod object schema into control descriptors
 through `z.toJSONSchema`, so `apps/editor` contains no list of field names and a
 field added to `@wov/world-schema` reaches the panel by itself.
-`LIGHTING_FIELDS`, `TERRAIN_FIELDS` and `PREFAB_COLLISION_FIELDS` are the three
-blocks the editor draws. A field is described down to its control: a `#rrggbb`
+`LIGHTING_FIELDS`, `SOUND_FIELDS`, `SOUND_EMITTER_FIELDS`, `TERRAIN_FIELDS` and
+`PREFAB_COLLISION_FIELDS` are the blocks the editor draws. A field is described down to its control: a `#rrggbb`
 rule becomes a colour well, an `assetPathOf` annotation becomes an `asset` field
 carrying which kind of file it names, and an exclusive minimum is recorded so
 whoever invents a starting value does not invent an invalid one.
+
+Entity sound — `entity-sound.ts` (ADR-0052, ADR-0033): `emitterForEntity`,
+`addEntityEmitter`, `removeEmitterAt`, `emitterIdFor`, `zoneScopeOf`,
+`zoneSoundProfile`. Emitters live on the zone, but an author meets them from a
+selected entity. This finds the one that sounds an entity — a named placement
+beating a prefab rule, with the count of placements a rule would change — and
+turns "add an emitter here" into one patch over the whole `emitters` list.
 
 Lighting presets — `lighting-presets.ts`: `LIGHTING_PRESETS`,
 `lightingPreset(id)`. Not world data — the value a button writes _into_ a world,

@@ -26,12 +26,13 @@ import type {
 } from '@wov/editor-core';
 import type { AssetIndex } from '../api/assets.js';
 import type { CatalogedPrefab } from '../api/client.js';
-import { Inspector } from './Inspector.js';
+import { Inspector, type InspectorProps } from './Inspector.js';
 import { LightingPanel } from './LightingPanel.js';
 import { PrefabInspector } from './PrefabInspector.js';
+import { SoundPanel, type SoundPanelProps } from './SoundPanel.js';
 import { ZoneInspector } from './ZoneInspector.js';
 
-export const RIGHT_PANEL_TABS = ['entity', 'zone', 'prefab', 'lighting'] as const;
+export const RIGHT_PANEL_TABS = ['entity', 'zone', 'prefab', 'lighting', 'sound'] as const;
 export type RightPanelTab = (typeof RIGHT_PANEL_TABS)[number];
 
 export interface RightPanelProps {
@@ -54,6 +55,8 @@ export interface RightPanelProps {
   readonly onLighting: (scope: LightingScope, patches: readonly FieldPatch[]) => void;
   readonly onLightingDrag: (scope: LightingScope, patch: FieldPatch, gesture: string) => void;
   readonly onSavePrefab: (prefab: CatalogedPrefab, edit: PrefabEdit) => void;
+  /** Everything the sound tab and the inspector's emitter section need. */
+  readonly sound: SoundPanelProps & { readonly entity: InspectorProps['sound'] };
 }
 
 const LABELS: Record<RightPanelTab, string> = {
@@ -61,6 +64,7 @@ const LABELS: Record<RightPanelTab, string> = {
   zone: 'Zone',
   prefab: 'Prefab',
   lighting: 'Lighting',
+  sound: 'Sound',
 };
 
 export function RightPanel(props: RightPanelProps): JSX.Element {
@@ -87,6 +91,7 @@ export function RightPanel(props: RightPanelProps): JSX.Element {
           document={props.document}
           onRename={props.onRename}
           onTransform={props.onTransform}
+          sound={props.sound.entity}
         />
       )}
       {props.tab === 'zone' && (
@@ -107,6 +112,7 @@ export function RightPanel(props: RightPanelProps): JSX.Element {
           onSave={props.onSavePrefab}
         />
       )}
+      {props.tab === 'sound' && <SoundPanel {...props.sound} />}
       {props.tab === 'lighting' && (
         <LightingPanel
           document={props.document}

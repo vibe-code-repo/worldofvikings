@@ -19,6 +19,7 @@ import { createSceneSync, type SceneSync } from './scene/scene-sync.js';
 import { createSelectionOutline, type SelectionOutline } from './scene/selection-outline.js';
 import { createViewport, type ViewportHandle } from './scene/viewport.js';
 import { createZoneTerrain, type ZoneTerrain } from './scene/zone-terrain.js';
+import { createZoneSound, type ZoneSound } from './scene/zone-sound.js';
 
 /** How far the pointer may travel between press and release and still be a click. */
 const CLICK_SLOP_PX = 4;
@@ -62,6 +63,16 @@ export interface EditorViewportProps {
    * rather than having it typed in.
    */
   readonly groundPicking: boolean;
+  /**
+   * Whether the author is listening to the zone (ADR-0052).
+   *
+   * Off by default and owned by the shell, so it survives this component being
+   * rebuilt — which is also why the audio engine itself lives in a module and
+   * not in a ref (see `scene/zone-sound.ts`).
+   */
+  readonly listening: boolean;
+  /** Reports the sound readout, e.g. `sound: on — bed, 17 emitters`. */
+  readonly onSoundStatus: (line: string) => void;
   readonly onPick: (entityId: string | null, additive: boolean) => void;
   readonly onPlace: (prefabId: string, position: Vector3) => void;
   readonly onGroundPick: (position: Vector3) => void;
@@ -105,6 +116,7 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
   const gizmosRef = useRef<GizmoSet | null>(null);
   const outlineRef = useRef<SelectionOutline | null>(null);
   const terrainRef = useRef<ZoneTerrain | null>(null);
+  const soundRef = useRef<ZoneSound | null>(null);
   /** The profile the viewport was last lit with, so a gizmo drag does not relight. */
   const lightingKeyRef = useRef<string>('');
   const dragStartRef = useRef<Map<string, GizmoTransform>>(new Map());
@@ -253,6 +265,32 @@ export function EditorViewport(props: EditorViewportProps): JSX.Element {
       void assets.dispose();
     };
   }, [viewport, prefabs, assetSource]);
+
+  // --- what the zone sounds like -------------------------------------------
+  // Its own effect, and not part of the scene the document describes: sound
+  // outlives a model reload and must not be torn down with one.
+  useEffect(() => {
+    if (!viewport) {
+      return;
+    }
+    const sound = createZoneSound({
+      scene: viewport.scene,
+      source: assetSource,
+      onStatus: (line) => {
+        handlersRef.current.onSoundStatus(line);
+        publishEditorDebug({ sound: line });
+      },
+    });
+    soundRef.current = sound;
+    return () => {
+      soundRef.current = null;
+      sound.dispose();
+    };
+  }, [viewport, assetSource]);
+
+  useEffect(() => {
+    soundRef.current?.update(editorDocument, props.listening);
+  }, [editorDocument, props.listening, viewport]);
 
   // --- handles, picking and dropping ---------------------------------------
   useEffect(() => {

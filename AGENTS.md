@@ -36,7 +36,8 @@ the painted range hazes with distance instead of standing dark behind it
 (ADR-0027). It sounds the way its world file says (ADR-0052): a wind-and-crows
 bed, a fire on every brazier, candle group and chimney, the forge, three animal
 one-shots on random intervals, and footsteps whose surface comes from the splat
-layer under the player's feet rather than from a constant (ADR-0053). Every
+layer under the player's feet rather than from a constant (ADR-0053) — all of
+it authored and audible in the editor, not only in the game. Every
 entity collides against the shape its prefab declares
 (ADR-0026) — 1145 bodies from 210 shared shapes, with 4128 tufts and bushes
 deliberately walk-through. A move that meets one of them is dropped onto that
@@ -60,7 +61,7 @@ something that can be selected or moved. Its one rule is ADR-0018: **the
 document is the truth and the scene follows it** — every gesture becomes a
 command, and the viewport reconciles. It scatters prefabs over a region as one
 undoable command whose output is ordinary entities (ADR-0025), also available as
-`pnpm scatter`. Its right-hand column is four inspectors behind four tabs, drawn
+`pnpm scatter`. Its right-hand column is five inspectors behind five tabs, drawn
 from the schemas rather than from a list of field names, so a field added to
 `@wov/world-schema` appears with its own range and its own asset picker and
 nothing in `apps/editor` changes (ADR-0033). The Zone tab holds the ground: the
@@ -75,9 +76,12 @@ re-importing the village reproduces its world file byte for byte (ADR-0036).
 There is no component system and no terrain sculpting yet.
 
 **Editor parity (ADR-0033).** Anything a script writes, the editor can write, by
-calling the same code. Four right-hand inspectors edit the lighting profile of a
-world or a zone, the terrain block and its layer order, and a prefab's collision
-shape; the **World** menu runs the scene import and the prefab-catalogue
+calling the same code. Five right-hand inspectors edit the lighting profile of a
+world or a zone, its sound profile, the terrain block and its layer order, and a
+prefab's collision shape; an emitter is placed on a selected entity from the
+Entity tab and the **Sound** tab's `listen` switch plays the open zone through
+the same `applyWorldSound` the game calls (ADR-0052); the **World** menu runs
+the scene import and the prefab-catalogue
 generator through the API. The panels contain no list of field names — they are
 drawn from the Zod schemas, so a field added to `@wov/world-schema` appears in
 the editor by itself. A prefab correction goes into `content/prefabs/overrides.json`,

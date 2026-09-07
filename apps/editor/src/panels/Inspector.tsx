@@ -3,11 +3,14 @@ import type { JSX } from 'react';
 import type { EditorDocument, TransformPatch } from '@wov/editor-core';
 import { activeZone } from '@wov/editor-core';
 import type { EntityDefinition, Vector3 } from '@wov/world-schema';
+import { EntitySound, type EntitySoundBinding } from './EntitySound.js';
 
 export interface InspectorProps {
   readonly document: EditorDocument;
   readonly onRename: (entityId: string, nextId: string) => void;
   readonly onTransform: (entityId: string, patch: TransformPatch) => void;
+  /** What this entity sounds like (ADR-0052); see `EntitySound.tsx`. */
+  readonly sound: EntitySoundBinding;
 }
 
 /** Radians on disk, degrees in the panel: nobody authors a rotation in radians. */
@@ -123,6 +126,8 @@ export function Inspector(props: InspectorProps): JSX.Element {
         (shown) => shown / TO_DEGREES,
       )}
       {vector('scale', 'scale', entity.scale ?? [1, 1, 1], identity, identity)}
+
+      <EntitySound document={document} entityId={entity.id} {...props.sound} />
 
       {document.selection.length > 1 && (
         <p className="hint" data-testid="inspector-multi">

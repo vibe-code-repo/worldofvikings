@@ -258,7 +258,6 @@ pnpm import:backdrop     --source <export> --store "$WOV_ASSET_STORE"
 pnpm generate:prefabs    --store "$WOV_ASSET_STORE"   # again: new models, new prefabs
 pnpm import:scene --scene <export>/SceneHierarchyObject/Village1.glb \
                   --world village1 --name "Village One"
-# then the scatter runs, verbatim from docs/world-editor.md
 pnpm validate
 ```
 
@@ -267,15 +266,18 @@ pnpm validate
 second brings the models it cut into the catalogue.
 
 `import:scene` **rewrites** the world file from the bundle. What the bundle does
-not describe is carried over from the file being replaced — the zone's `terrain`
-block and the world's `lighting` block (ADR-0028) — and the run says so. What is
-_not_ carried over is the entities a scatter planted, because entities are
-exactly what the import replaces (ADR-0025); the three runs that dressed
-`village1` are written out in `docs/world-editor.md` and have to be repeated.
+not describe is carried over from the file being replaced, and the run says what
+it carried: the zone's `terrain` block and the world's `lighting` block
+(ADR-0028), and every entity the importer did not mint itself — a scattered
+field (ADR-0025), a prop dropped in the editor (ADR-0036). The bundle stays the
+truth about its own placements: those are re-minted from it, so one it no longer
+has really does disappear.
 
-The chain is deterministic. Run against an unchanged export and store it
-reproduces `assets/manifest.json`, `content/prefabs/imported.json` and
-`content/worlds/village1.json` byte for byte.
+The chain is deterministic, and on an unchanged export the last step is a run
+that changes nothing: `assets/manifest.json`, `content/prefabs/imported.json`
+and `content/worlds/village1.json` come back byte for byte, the world file with
+all 5 614 of its entities — 1 582 from the bundle and 4 032 from the scatter
+runs.
 
 ## The collision shape of a prefab
 

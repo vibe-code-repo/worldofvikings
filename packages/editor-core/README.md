@@ -108,7 +108,9 @@ Selection — `selection.ts`: `setSelection`, `toggleSelection`, `clearSelection
 
 Ids — `ids.ts`: `entityIdBase(prefabId)`, `nextEntityId(usedIds, prefabId)`,
 `nextEntityIds(usedIds, prefabIds)`. Deterministic: `<prefab>_001`, first free
-number, never `Math.random` (agent rule 17).
+number, never `Math.random` (agent rule 17). Deliberately outside the namespace
+the scene import mints into (`<prefab>_0001`), so a hand-placed prop is not
+deleted by the next `pnpm import:scene` (ADR-0036).
 
 Ground — `updateTerrainSurface(zoneId, { layers, flatNormals })` in
 `commands.ts` (ADR-0032). The one way a terrain layer's `metallic`,

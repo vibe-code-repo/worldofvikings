@@ -110,6 +110,12 @@ The whole field is a single history entry: one Ctrl+Z takes it all back. Running
 the same seed into the same zone twice is refused rather than doubling the
 field, because the ids carry the seed (`<prefab>_s<seed>_<n>`).
 
+That id is also what tells a re-import to leave the field alone. The scene
+import mints `<prefab>_0001` and replaces only what it minted; a scatter id and
+an id the editor hands out when a prop is placed by hand (`<prefab>_001`) are
+outside that namespace on purpose, so neither is deleted by the next
+**World → Import scene bundle…** (ADR-0036).
+
 ### The same tool from the command line
 
 `pnpm scatter` calls the same function without the editor, which is how a run in
@@ -131,11 +137,12 @@ default path.
 
 ### The runs that dressed `village1`
 
-Three runs, in this order. They append to `content/worlds/village1.json`; re-run
-them after any `pnpm import:scene`, which rewrites that file from the bundle and
-therefore drops them. The ground and the lighting block survive that rewrite
-(ADR-0028); the scattered entities are the one thing that does not, because
-entities are what the import replaces.
+Three runs, in this order. They append to `content/worlds/village1.json`, and
+they are a record of how the field was made rather than a chore to repeat: a
+`pnpm import:scene` rewrites that file from the bundle but keeps every entity it
+did not mint itself, so the ground, the lighting block **and** the 4 032
+scattered plants survive it (ADR-0028, ADR-0036). Re-run one of these only to
+change the field it planted.
 
 ```bash
 # 3 473 tufts of grass over the village, off the buildings and the paving

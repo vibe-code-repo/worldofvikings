@@ -5,11 +5,27 @@
  * entity is a function of the prefab and of the ids already in use, never of
  * `Math.random`. Two people doing the same steps produce the same world file,
  * and a test can state the expected id.
+ *
+ * They are also deliberately outside the namespace the scene import mints into
+ * (ADR-0036): a hand-placed prop must not be mistaken for one of the bundle's
+ * and replaced by the next `pnpm import:scene`.
  */
+import { SCENE_ENTITY_ID_DIGITS } from '@wov/world-schema';
 
 /** `<prefab>_042` — the separator is `_`, as in the authored example world. */
 const SEPARATOR = '_';
 const MINIMUM_DIGITS = 3;
+
+/**
+ * The first number whose plain spelling would reach into the scene import's
+ * reserved namespace (`<prefab>_0001`, `SCENE_ENTITY_ID_DIGITS`).
+ *
+ * Past it the number gets an `h` — for *hand-placed* — in front, because
+ * `barrel_1000` is a string a re-import would read as one of the bundle's own
+ * and replace, while `barrel_h1000` is unmistakably somebody's own work
+ * (ADR-0036). It takes a thousand copies of one prefab in one zone to see it.
+ */
+const RESERVED_FROM = 10 ** (SCENE_ENTITY_ID_DIGITS - 1);
 
 /**
  * The part of an entity id that says which prefab it came from.
@@ -40,7 +56,8 @@ export function nextEntityId(usedIds: Iterable<string>, prefabId: string): strin
   const used = usedIds instanceof Set ? usedIds : new Set(usedIds);
   const base = entityIdBase(prefabId);
   for (let counter = 1; ; counter += 1) {
-    const candidate = `${base}${SEPARATOR}${String(counter).padStart(MINIMUM_DIGITS, '0')}`;
+    const number = String(counter).padStart(MINIMUM_DIGITS, '0');
+    const candidate = `${base}${SEPARATOR}${counter < RESERVED_FROM ? number : `h${number}`}`;
     if (!used.has(candidate)) {
       return candidate;
     }

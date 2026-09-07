@@ -19,9 +19,12 @@
  * through the API (ADR-0033). A rule added here instead of in the package would
  * be a rule the editor does not have.
  *
- * **Ground and light are carried over, not regenerated** (ADR-0028). If the
- * world file being written already has a `terrain` or a `lighting` block, it is
- * copied into the new file unchanged and named in the report.
+ * **Ground, light and authored entities are carried over, not regenerated**
+ * (ADR-0028, ADR-0036). A `terrain` or `lighting` block in the world file being
+ * written is copied into the new file unchanged, and so is every entity the
+ * importer did not mint — a scattered field, a prop placed in the editor. All
+ * three are named in the report, so a re-import that changes nothing is a run
+ * that says it changed nothing.
  */
 import { join } from 'node:path';
 import { format, resolveConfig } from 'prettier';
@@ -112,6 +115,21 @@ if (report.groundCarried.length > 0) {
 if (report.lightingCarried.length > 0) {
   process.stdout.write(
     `  lighting carried over from the previous file: ${report.lightingCarried.join(', ')}\n`,
+  );
+}
+if (report.entitiesCarried.length > 0) {
+  process.stdout.write(
+    '  authored entities kept (scattered or placed by hand): ' +
+      `${report.entitiesCarried
+        .map((zone) => `${zone.zone} ${String(zone.entities)}`)
+        .join(', ')}\n`,
+  );
+}
+if (report.entitiesDropped > 0) {
+  process.stdout.write(
+    `  authored entities DROPPED with zones the bundle no longer has: ${String(
+      report.entitiesDropped,
+    )}\n`,
   );
 }
 if (report.ignoredRoots.length > 0) {

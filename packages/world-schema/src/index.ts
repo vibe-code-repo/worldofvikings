@@ -14,6 +14,7 @@ export {
   Vector3Schema,
 } from './common.js';
 export type { AssetKindHint, FieldCommandHint, Identifier } from './common.js';
+export { SCENE_ENTITY_ID_DIGITS, isSceneEntityId, sceneEntityId } from './entity-ids.js';
 export {
   AmbientLightSchema,
   BloomSchema,

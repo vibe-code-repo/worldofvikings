@@ -1,0 +1,219 @@
+/**
+ * What `pnpm perf:editor` measures, and the parts of it that are decisions.
+ *
+ * The script next door (`editor-profile.ts`) drives a browser; this module
+ * holds the things that can be wrong without a browser noticing: which
+ * scenarios a command line asked for, which entity the `edit` scenario picks
+ * up, and the shape of the report the three builders will diff their runs
+ * against. All of it is free of Playwright and of the DOM, so a unit test can
+ * hold it still.
+ */
+import type { DurationSummary, LongTaskSummary } from './long-tasks.js';
+import type { ProfileRow } from './profile-summary.js';
+
+/** The scenarios the rig knows. */
+export const EDITOR_SCENARIOS = ['load', 'dial', 'edit'] as const;
+
+export type EditorScenarioId = (typeof EDITOR_SCENARIOS)[number];
+
+/**
+ * The world every scenario opens, and the zone inside it.
+ *
+ * A constant rather than an option, for the reason `views.ts` gives for the
+ * game: a number without a scene is not a number, and the scene these three
+ * scenarios exist for is the one the author reported — 5273 entities in
+ * `village`, 3473 of them a single grass clump.
+ */
+export const EDITOR_WORLD_ID = 'village1';
+
+/**
+ * The entity the `edit` scenario selects and nudges.
+ *
+ * Fixed and written down, because "select something and move it" is not
+ * reproducible: a grass clump is one tiny mesh and a house is thirty, and the
+ * two do not cost the same to select, outline or re-transform. This one is the
+ * second entity of the zone in `content/worlds/village1.json` — near the top of
+ * the hierarchy, so clicking its row needs no long scroll — and it is a
+ * building, not vegetation, so it is representative of what an author actually
+ * drags around.
+ */
+export const EDIT_ENTITY_ID = 'environment-sm-bld-roof-long-01_0001';
+
+/** How many ground-dial changes the `dial` scenario makes. */
+export const DIAL_CHANGES = 10;
+
+/** The two values `dial` alternates between, on layer 0's metallic. */
+export const DIAL_VALUES = [0.2, 0.8] as const;
+
+/** How many position nudges the `edit` scenario makes, in metres each. */
+export const EDIT_NUDGES = 5;
+export const EDIT_NUDGE_METRES = 1;
+
+/**
+ * Reads `--scenario` off a command line.
+ *
+ * Accepts a comma-separated list (`--scenario dial,edit`), the word `all`, and
+ * nothing at all, which means `all`. An unknown name is an error rather than a
+ * silently empty run: a typo that measures nothing and reports success is the
+ * one failure mode a measuring rig must not have.
+ *
+ * `load` is always in the result whether it was asked for or not — `dial` and
+ * `edit` are gestures *on an open village*, so the load always happens, and a
+ * report that hid its cost would be hiding the run's own preconditions.
+ */
+export function parseScenarios(raw: string | undefined): readonly EditorScenarioId[] {
+  const requested = (raw ?? 'all')
+    .split(',')
+    .map((name) => name.trim().toLowerCase())
+    .filter((name) => name.length > 0);
+  if (requested.length === 0 || requested.includes('all')) {
+    return EDITOR_SCENARIOS;
+  }
+  const known = new Set<string>(EDITOR_SCENARIOS);
+  const unknown = requested.filter((name) => !known.has(name));
+  if (unknown.length > 0) {
+    throw new Error(
+      `unknown scenario "${unknown.join('", "')}"; known: ${EDITOR_SCENARIOS.join(', ')}, all`,
+    );
+  }
+  const chosen = new Set<EditorScenarioId>(requested as EditorScenarioId[]);
+  chosen.add('load');
+  return EDITOR_SCENARIOS.filter((id) => chosen.has(id));
+}
+
+/** The value the `dial` scenario writes on change `index`, starting at 0. */
+export function dialValueAt(index: number): number {
+  return DIAL_VALUES[index % DIAL_VALUES.length] ?? DIAL_VALUES[0];
+}
+
+/** A CPU profile, as it appears in a report. */
+export interface ProfileReport {
+  readonly samples: number;
+  readonly totalMs: number;
+  /** Sampling interval the profiler was asked for, in microseconds. */
+  readonly samplingIntervalUs: number;
+  /** Heaviest inclusive time first. */
+  readonly top: readonly ProfileRow[];
+  /** The same rows ordered by self time, which is where the CPU actually was. */
+  readonly topSelf: readonly ProfileRow[];
+}
+
+/** The counters one bridge reading takes. */
+export interface EditorCounters {
+  readonly drawCalls: number;
+  readonly activeMeshes: number;
+  readonly triangles: number;
+  readonly shadowCasters: number;
+  readonly sceneTextures: number;
+}
+
+/** Whether the `longtask` observer could be installed at all. */
+export interface LongTaskReport extends LongTaskSummary {
+  /**
+   * `false` when this browser has no `longtask` entry type.
+   *
+   * Reported rather than left out: a zero from a browser that never observed
+   * anything and a zero from a thread that was never blocked are the same
+   * number and opposite results.
+   */
+  readonly supported: boolean;
+}
+
+/** What the `load` scenario reports. */
+export interface LoadReport {
+  /** Milliseconds from the click on the world to the milestone. */
+  readonly documentMs: number | null;
+  readonly modelsMs: number | null;
+  readonly texturesMs: number | null;
+  readonly entityCount: number;
+  readonly loadedCount: number;
+  readonly loadedTextureCount: number;
+  readonly longTasks: LongTaskReport;
+  readonly profile: ProfileReport;
+  /** The frame after the camera framed the zone and the picture settled. */
+  readonly settled: SettledFrameReport;
+}
+
+/** The settled frame: what one frame of the open village costs the editor. */
+export interface SettledFrameReport {
+  /** The window the run asked for. */
+  readonly seconds: number;
+  /**
+   * The window it actually got, in page time.
+   *
+   * Not the same number: starting and stopping a CPU profile of a page holding
+   * a village takes over a second of its own, and a frame rate divided by the
+   * nominal window is a frame rate the run never had.
+   */
+  readonly elapsedSeconds: number;
+  readonly frames: number;
+  readonly framesPerSecond: number;
+  /** Mean `scene.render` over the window, or `null` when no frame was drawn. */
+  readonly sceneRenderMs: number | null;
+  readonly counters: EditorCounters;
+  /** Where the camera stood, so another run can be compared to this one. */
+  readonly camera: readonly [number, number, number];
+  readonly cameraTarget: readonly [number, number, number];
+  readonly profile: ProfileReport;
+}
+
+/** What the `dial` scenario reports. */
+export interface DialReport {
+  readonly changes: number;
+  /**
+   * How long an ordinary frame took just before the gestures, in milliseconds.
+   *
+   * The floor every latency below sits on. Without it the numbers cannot be
+   * read: the same "890 ms to the next frame" is a stall at 60 fps and two
+   * ordinary frames at 2 fps.
+   */
+  readonly idleFrameMs: DurationSummary;
+  /** Milliseconds from the input event to the next rendered frame. */
+  readonly toNextFrameMs: readonly number[];
+  readonly summary: DurationSummary;
+  readonly longTasks: LongTaskReport;
+  /** The terrain shader key before and after, and whether it changed. */
+  readonly programBefore: string | null;
+  readonly programAfter: string | null;
+  readonly programChanged: boolean;
+  /** `scene.textures.length` before and after the ten changes. */
+  readonly sceneTexturesBefore: number;
+  readonly sceneTexturesAfter: number;
+  /** Textures the terrain tile itself holds, before and after. */
+  readonly terrainTexturesBefore: number | null;
+  readonly terrainTexturesAfter: number | null;
+}
+
+/** What the `edit` scenario reports. */
+export interface EditReport {
+  readonly entityId: string;
+  /** `true` when the click on the row actually selected that entity. */
+  readonly selected: boolean;
+  /** How long an ordinary frame took just before the gestures. */
+  readonly idleFrameMs: DurationSummary;
+  /** Milliseconds from each position change to the next rendered frame. */
+  readonly toNextFrameMs: readonly number[];
+  readonly summary: DurationSummary;
+  readonly longTasks: LongTaskReport;
+  /** Milliseconds the canvas `pointerup` listeners took, the pick included. */
+  readonly pointerUpMs: number | null;
+  /** Long tasks during that one click, which is where the pick shows up. */
+  readonly clickLongTasks: LongTaskReport;
+}
+
+/** One run of the rig, as a report file holds it. */
+export interface EditorPerfReport {
+  readonly label: string;
+  readonly rig: 'editor';
+  readonly takenAt: string;
+  readonly url: string;
+  readonly worldId: string;
+  readonly zoneId: string | null;
+  readonly backend: string;
+  readonly scenarios: readonly EditorScenarioId[];
+  readonly viewport: { readonly width: number; readonly height: number };
+  readonly assetStore: string | null;
+  readonly load: LoadReport;
+  readonly dial: DialReport | null;
+  readonly edit: EditReport | null;
+}

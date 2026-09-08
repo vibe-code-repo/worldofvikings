@@ -130,6 +130,30 @@ Dateien standen in keiner von beiden.
 
 ## GLB inspizieren und reparieren
 
+### Der Asset-Speicher: Reihenfolge ist Pflicht
+
+```
+npm run store:aufbereiten
+```
+
+führt die beiden Store-Werkzeuge in der EINZIG richtigen Reihenfolge aus:
+
+1. `tools/store-vegetation-aufbereiten.mjs` schreibt `assets/store-lab/vegetation/`,
+2. `tools/store-prefabs.mjs` schreibt `shared/src/storePrefabs.ts`.
+
+Andersherum ist es kein Fehler, sondern ein STILLER Rückschritt. Der
+Generator setzt je Vegetationsmodell `model: 'store-lab/vegetation/<name>'`,
+**wenn die aufbereitete Datei da ist**, und sonst `'store/vegetation/<name>'`
+— er sieht nach, statt zu glauben. Läuft er vor der Aufbereitung, zeigen
+alle 94 Einträge auf den ROHEN Store: Der Wald steht dann, er ist nur
+grau, und kein Test wird davon rot. Umgekehrt genügt ein Lauf in der
+richtigen Reihenfolge; `git diff shared/src/storePrefabs.ts` zeigt, ob es
+gewirkt hat (94 Zeilen mit `store-lab/`).
+
+Beide Werkzeuge sind deterministisch: Ein zweiter Lauf ändert nichts.
+Ohne `assets/store` (Symlink auf den Store ausserhalb des Repos) brechen
+sie ab, statt eine halbe Wahrheit zu schreiben.
+
 | Werkzeug | Zweck |
 |---|---|
 | `glb-vorschau.py` | Rendert ein GLB als Vorschaubild, ohne den Client zu starten. |
@@ -150,7 +174,7 @@ Dateien standen in keiner von beiden.
 | `glb-glut.py` | Leitet aus der BaseColor eine Emissive-Karte ab und bettet sie ein — Lava und Glut leuchten damit im Spiel. |
 | `glb-textur-verkleinern.py` | Verkleinert eingebettete Texturen einer GLB. |
 | `glb-texture-jpeg.mjs` | Kodiert eingebettete PNG-Texturen nach JPEG um (Dateigröße). |
-| `store-vegetation-aufbereiten.mjs` | Bereitet die 94 Vegetations-GLBs aus `assets/store/vegetation/` nach `assets/store-lab/vegetation/` auf (gitignoriert, erzeugt) und schreibt daneben `BERICHT.json` mit Materialien vorher/nachher, Rolle, Tönung, Dreiecken und Hüllbox je Modell. Drei Dinge: (1) **Materialien zusammenlegen** — alles, was sich Bild, Alphamodus und Tönung teilt, wird EIN Material; Rinde und Laub bleiben getrennt, weil ihre UVs KACHELN (bis u = 8,5) und ein Atlas mit Wiederholung unmöglich ist. (2) **Verlorene Zuweisungen zurückholen** — 33 Primitive zeigen im Store auf ein texturloses `DefaultMaterial`; 19 finden ihr Material über den SHA1 ihrer POSITION-Bytes in einem Geschwistermodell, die restlichen 14 über die Bauart (Laubkarten haben exakt 2,00 Vertices je Dreieck, Körper 0,65–1,85). (3) **Tönen** — die Laub-, Nadel- und Ahorn-Atlanten sind Helligkeitsmasken (gemessen R = G = B, Laub 0,452); ohne `baseColorFactor` ist das Laub grau. Vorhandene Store-Faktoren werden übernommen, fehlende gesetzt. Ändert NUR den JSON-Teil der GLB, der BIN-Block geht Byte für Byte durch — Geometrie und `bounds` aus `prefabs.json` bleiben gültig, und der zweite Lauf ist byteidentisch. Prüfer: `tools/test/store-vegetation.ts`, `tools/test/store-flora.ts`. |
+| `store-vegetation-aufbereiten.mjs` | Bereitet die 94 Vegetations-GLBs aus `assets/store/vegetation/` nach `assets/store-lab/vegetation/` auf (gitignoriert, erzeugt) und schreibt daneben `BERICHT.json` mit Materialien vorher/nachher, Rolle, Tönung, Dreiecken und Hüllbox je Modell. Drei Dinge: (1) **Materialien zusammenlegen** — alles, was sich Bild, Alphamodus und Tönung teilt, wird EIN Material; Rinde und Laub bleiben getrennt, weil ihre UVs KACHELN (bis u = 8,5) und ein Atlas mit Wiederholung unmöglich ist. (2) **Verlorene Zuweisungen zurückholen** — 33 Primitive zeigen im Store auf ein texturloses `DefaultMaterial`; 19 finden ihr Material über den SHA1 ihrer POSITION-Bytes in einem Geschwistermodell, die restlichen 14 über die Bauart (Laubkarten haben exakt 2,00 Vertices je Dreieck, Körper 0,65–1,85). (3) **Tönen** — die Laub-, Nadel- und Ahorn-Atlanten sind Helligkeitsmasken (gemessen R = G = B, Laub 0,452); ohne `baseColorFactor` ist das Laub grau. Der Faktor des Quellmaterials hat VORRANG und wird je Material übernommen (39 von 151, in fünf verschiedenen Werten — deshalb steckt er im Zusammenlegungsschlüssel und nicht nur die Rolle). Wo keiner steht, kommt der Wert aus dem Original-Material der Spieldaten: dessen Laub-Shader färbt die graue Karte mit einer Ober- und einer Unterfarbe, glTF kennt nur einen Faktor, gesetzt wird das MITTEL aus beiden (`UNITY_LAUB` im Werkzeug, gemessen 08.09.2026). Ändert NUR den JSON-Teil der GLB, der BIN-Block geht Byte für Byte durch — Geometrie und `bounds` aus `prefabs.json` bleiben gültig, und der zweite Lauf ist byteidentisch. Prüfer: `tools/test/store-vegetation.ts`, `tools/test/store-flora.ts`. |
 | `fix-glb-buffer-length.mjs` | Repariert falsche `buffers[0].byteLength` aus AssetRipper. Three toleriert das, Babylon validiert streng. |
 | `fix-creature-models.js` | Rettet Kreaturenmodelle aus dem AssetRipper-Export — die Prefab-GLBs haben kein eingebettetes Material. |
 | `recover-textures.mjs` | Holt echte Texturen aus dem Client-Export zurück (2.639 von 2.763 PNGs waren 0 Byte). |

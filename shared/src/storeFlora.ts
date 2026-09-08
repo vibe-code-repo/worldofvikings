@@ -181,19 +181,30 @@ export const STORE_NADELWALD_FLORA: readonly FloraKurz[] = [
   { name: 'vegetation-pine-1b3', radius: 6.0, min: 1, max: 4, maxTilt: 26, wald: [true, 0.0, 0.95], gruppe: [16, 1, 3] }, // 33,5 m, r 7,0
   { name: 'vegetation-massive-tree-1a3', radius: 8.0, min: 0, max: 2, maxTilt: 22, wald: [true, 0.0, 0.9] }, // 28,9 m, r 12,3 — der grösste Baum des Bestands
   { name: 'vegetation-pine-1b2', radius: 5.0, min: 2, max: 6, maxTilt: 26, wald: [true, 0.0, 1.05], gruppe: [14, 2, 4] }, // 26,3 m, r 6,2
-  { name: 'vegetation-pine-1b4', radius: 4.6, min: 2, max: 7, maxTilt: 28, wald: [true, 0.0, 1.1], gruppe: [14, 2, 5] }, // 23,8 m, r 5,9
+  { name: 'vegetation-pine-1b4', radius: 4.6, min: 3, max: 10, maxTilt: 28, wald: [true, 0.0, 1.1], gruppe: [14, 2, 5] }, // 23,8 m, r 5,9
 
   // ── Schicht 2: Hauptbestand (14–19 m) ──────────────────────────────
   { name: 'vegetation-massive-tree-1a2', radius: 5.4, min: 1, max: 3, maxTilt: 24, wald: [true, 0.0, 1.1] }, // 18,7 m, r 7,6
   { name: 'vegetation-split-tree-1a3', radius: 5.4, min: 1, max: 4, maxTilt: 26, wald: [true, 0.0, 1.15], gruppe: [14, 1, 3] }, // 15,2 m, r 8,8
-  { name: 'vegetation-pine-1b1', radius: 3.0, min: 5, max: 14, maxTilt: 30, wald: [true, 0.0, 1.25], gruppe: [12, 2, 6] }, // 15,6 m, r 3,6
+  { name: 'vegetation-pine-1b1', radius: 3.0, min: 10, max: 26, maxTilt: 30, wald: [true, 0.0, 1.25], gruppe: [12, 2, 6] }, // 15,6 m, r 3,6
   { name: 'vegetation-massive-tree-1a1', radius: 4.2, min: 1, max: 4, maxTilt: 26, wald: [true, 0.0, 1.2] }, // 14,0 m, r 6,0
 
   // ── Schicht 3: Unterschicht (7–10 m) ───────────────────────────────
   // Sie macht den Bestand nach unten dicht — ohne sie sieht man unter den
   // Kronen hindurch bis zum Horizont.
-  { name: 'vegetation-split-tree-1a2', radius: 3.6, min: 2, max: 7, maxTilt: 30, wald: [true, 0.0, 1.35], gruppe: [12, 2, 5] }, // 9,3 m, r 5,9
-  { name: 'vegetation-split-tree-1a1', radius: 2.6, min: 4, max: 10, maxTilt: 32, wald: [true, 0.0, 1.4], gruppe: [10, 2, 6] }, // 7,6 m, r 4,2
+  //
+  // NACHGEMESSEN bei der Zusammenführung (08.09.2026): Mit den zuerst
+  // eingetragenen Zahlen trug der Nadelwald 1.802 Stämme und das
+  // Grasland 2.233 — der dichte Typ war der dünnere, weil das Grasland
+  // seinen Jungwuchs (`small-thin-tree`, 8–11 m) grosszügig streut und
+  // der als Baum zählt. `server/test/h4-graslandflora.ts` hält dagegen:
+  // Der Nadelwald muss mehr Bäume tragen als das Grasland, sonst ist die
+  // Unterscheidung nur ein anderer Name. Angehoben wurden deshalb die
+  // Stückzahlen der BILLIGEN Unterschicht (`pine-1b1`, `split-tree-1a1`,
+  // `split-tree-1a2`) und die von `pine-1b4` — nicht die der Riesen, die
+  // kosten je Stück ein Vielfaches. Ergebnis: 2.371 gegen 2.233.
+  { name: 'vegetation-split-tree-1a2', radius: 3.6, min: 6, max: 14, maxTilt: 30, wald: [true, 0.0, 1.35], gruppe: [12, 2, 5] }, // 9,3 m, r 5,9
+  { name: 'vegetation-split-tree-1a1', radius: 2.6, min: 10, max: 22, maxTilt: 32, wald: [true, 0.0, 1.4], gruppe: [10, 2, 6] }, // 7,6 m, r 4,2
 
   // ── Schicht 4: Totholz ─────────────────────────────────────────────
   // Kahle Kiefernstämme, 13–23 m, 80 Dreiecke. Sie kosten nichts und sind

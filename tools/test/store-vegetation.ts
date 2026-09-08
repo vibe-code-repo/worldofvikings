@@ -176,8 +176,15 @@ if (ersterLauf.length > 0) {
         (gemessen 0,350/0,447/0,186 beziehungsweise 0,707 hell), und ein
         Faktor könnte darauf nur dämpfen. Sie heissen deshalb `grasBunt`
         und `grasSchnee` und stehen hier ausdrücklich nicht.
+
+        Das `-2` am Ende MUSS mitgeprüft werden: Seit der Store-Faktor
+        Vorrang vor der Vorgabe hat, kann eine Rolle in einer Datei
+        zweimal vorkommen (zwei Grüntöne auf derselben Karte,
+        `small-thin-tree-1a5`), und die zweite heisst `laub-2`. Ohne den
+        Suffix im Muster rutschte ausgerechnet das Material durch die
+        Prüfung, das die Neuerung überhaupt erst erzeugt hat.
       */
-      if (/^(laub|laubDunkel|laubSchnee|nadeln|ahorn|gras|grasGelb)$/.test(mat.name)) {
+      if (/^(laub|laubDunkel|laubSchnee|nadeln|ahorn|gras|grasGelb)(-\d+)?$/.test(mat.name)) {
         const f = mat.pbrMetallicRoughness?.baseColorFactor;
         if (!f || f.length < 3) ungetoentesLaub.push(`${datei}:${mat.name}`);
       }

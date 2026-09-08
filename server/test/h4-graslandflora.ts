@@ -47,6 +47,8 @@ import {
   findPrefabByName,
   getStableHash,
   sanitizeWorldLayout,
+  STORE_FLORA_AKTIV,
+  STORE_FLORA_BEREIT,
   type WorldLayout,
 } from '@wov/shared';
 import { ZDOManager } from '../src/zdo/ZDOManager.js';
@@ -129,6 +131,30 @@ const summe = (m: Map<string, number>, wenn: (n: string) => boolean): number => 
   return s;
 };
 
+/*
+  ── Baum, Strauch oder Bodenpflanze: GEMESSEN, nicht am Namen geraten ──
+
+  Bis zur Store-Vegetation stand hier eine Namensliste (`Eiche`, `Birke`,
+  `Hasel`, `Margerite` …). Sie war stumpf geworden, sobald die
+  Kuratierungslisten auf den Store umschalten (`STORE_FLORA_AKTIV` in
+  `shared/src/storeFlora.ts`): Die Arten heissen dann
+  `vegetation-tree-1a3`, jede Namensregel greift ins Leere, und der Test
+  meldete nicht „falscher Bewuchs", sondern „Bäume vertreten: nein" —
+  bei einem Wald aus 2.100 Bäumen.
+
+  Die Höhe aus `renderScale.h` ist die Auskunft, die BEIDE Bestände
+  geben, und sie ist die, um die es hier eigentlich geht: Ein Grasland
+  ohne etwas Hohes, etwas Mittleres und etwas Bodennahes ist eine halbe
+  Umsetzung — unabhängig davon, wie die Arten heissen. Die Grenzen sind
+  am Bestand abgelesen und lassen bewusst Luft: Der niedrigste Baum
+  beider Bestände misst 6,7 m, der höchste Strauch 4,8 m, das höchste
+  Gras 0,3 m.
+*/
+const hoehe = (name: string): number => findPrefabByName(name)?.renderScale.h ?? 0;
+const istBaum = (name: string): boolean => hoehe(name) >= 6;
+const istStrauch = (name: string): boolean => hoehe(name) >= 1 && hoehe(name) < 6;
+const istBodenpflanze = (name: string): boolean => hoehe(name) > 0 && hoehe(name) < 1;
+
 // ── 1. Kuratiert: eigene Flora, sonst nichts ─────────────────────────
 const mitFlora = bewuchs(insel(GRASLAND_FLORA_NAMEN));
 const eigenAnzahl = summe(mitFlora, (n) => eigen.has(n));
@@ -138,12 +164,9 @@ check('kuratiert: NICHTS ausserhalb der Liste', fremdAnzahl === 0, `= ${fremdAnz
 // Alle drei Schichten müssen vertreten sein — eine Wiese ohne Bäume oder
 // ohne Blumen wäre kein Grasland, sondern eine halbe Umsetzung.
 const artenMit = [...mitFlora.keys()].filter((n) => eigen.has(n));
-const hatBaum = artenMit.some((n) => /^(Eiche|Birke)/.test(n));
-const hatStrauch = artenMit.some((n) => /^(Hasel|Schlehe|Hartriegel|Holunder|Brombeere|Wacholder)/.test(n));
-const hatBoden = artenMit.some((n) => /^(Margerite|Glockenblume|Trollblume|Schafgarbe|Brennnessel|Distel|Ampfer|Seggen|Farn)/.test(n));
-check('kuratiert: Bäume vertreten', hatBaum);
-check('kuratiert: Sträucher vertreten', hatStrauch);
-check('kuratiert: Bodenpflanzen vertreten', hatBoden);
+check('kuratiert: Bäume vertreten', artenMit.some(istBaum));
+check('kuratiert: Sträucher vertreten', artenMit.some(istStrauch));
+check('kuratiert: Bodenpflanzen vertreten', artenMit.some(istBodenpflanze));
 
 // ── 2. Ohne Kuratierung: gar nichts ──────────────────────────────────
 // Bis Block A stand hier „Originalbewuchs vorhanden": Eine Region ohne
@@ -170,9 +193,18 @@ check('leer: gar kein Bewuchs', summe(kahl, () => true) === 0, `= ${summe(kahl, 
 // ── 4. Nadelwald: anderes Bündel, mehr Bäume ─────────────────────────
 const nadelwald = bewuchs(insel(NADELWALD_FLORA_NAMEN));
 const nadelArten = [...nadelwald.keys()];
+/*
+  Nadelholz heisst im Altbestand `Fichte`/`Tanne`/`Kiefer` und im
+  Store-Bestand `vegetation-pine-*`. Beides steht hier ausdrücklich
+  nebeneinander — an der Höhe ist ein Nadelbaum nicht von einem
+  Laubbaum zu unterscheiden, und der Punkt dieses Wächters ist genau,
+  dass der Nadelwald NADELHOLZ trägt und nicht bloss Bäume.
+*/
+const istNadelholz = (n: string): boolean => /^(Fichte|Tanne|Kiefer)/.test(n) || /^vegetation-pine/.test(n);
 check(
-  'nadelwald: Fichten und Tannen wachsen',
-  nadelArten.some((n) => /^Fichte/.test(n)) && nadelArten.some((n) => /^Tanne/.test(n))
+  'nadelwald: Nadelholz wächst',
+  nadelArten.filter(istNadelholz).length >= 2,
+  nadelArten.filter(istNadelholz).join(', ')
 );
 check(
   'nadelwald: keine Wiesenblumen unter dem Kronendach',
@@ -181,8 +213,7 @@ check(
 );
 // Der Nadelwald ist der DICHTE Typ — er muss mehr Bäume tragen als das
 // Grasland, sonst ist die Unterscheidung nur ein anderer Name.
-const baeume = (m: Map<string, number>): number =>
-  summe(m, (n) => /^(Eiche|Birke|Fichte|Tanne)/.test(n));
+const baeume = (m: Map<string, number>): number => summe(m, istBaum);
 check(
   'nadelwald: mehr Bäume als im Grasland',
   baeume(nadelwald) > baeume(mitFlora),
@@ -273,10 +304,9 @@ console.log(`  Dichte 0.3 → ${d1} | 1.0 → ${g} | 2.5 → ${d2} Pflanzen`);
     const m = bewuchs(l);
     let staemme = 0, gross = 0;
     for (const [name, k] of m) {
-      if (!/^(Fichte|Tanne|Kiefer|Birke)/.test(name)) continue;
+      if (!istBaum(name)) continue;
       staemme += k;
-      const p = findPrefabByName(name);
-      if (p && p.renderScale.h >= 18) gross += k;
+      if (hoehe(name) >= 18) gross += k;
     }
     return { staemme, gross };
   };
@@ -383,15 +413,17 @@ console.log(`  Dichte 0.3 → ${d1} | 1.0 → ${g} | 2.5 → ${d2} Pflanzen`);
     console.log(`  ${biom}: ${drin} Pflanzen, ${arten.length}/${liste.length} Arten`);
   }
 
-  // Der Sumpf braucht seine Bäume — die Moorbirken stehen in FOLIAGE
-  // HINTER den wiederverwendeten Bodenpflanzen des Graslands (Farn,
-  // Seggen1, Brennnessel1) und müssen trotzdem Platz finden. Dasselbe
-  // Muster wie beim Nadelwald in Abschnitt 7.
+  // Der Sumpf braucht seine Bäume — sie stehen in FOLIAGE HINTER den
+  // niedrigeren Einträgen und müssen trotzdem Platz finden. Dasselbe
+  // Muster wie beim Nadelwald in Abschnitt 7. Gefragt wird nach der
+  // HÖHE und nicht nach `BirkeDicht[34]`: Welche Art der Sumpf trägt,
+  // ist eine Frage der Kuratierung; dass er überhaupt Bäume trägt, ist
+  // die Frage dieses Wächters.
   const sumpf = bewuchs(insel(SUMPF_FLORA_NAMEN, 'swamp'));
   check(
-    'swamp: Moorbirken kommen durch',
-    summe(sumpf, (n) => /^BirkeDicht[34]$/.test(n)) > 0,
-    `= ${summe(sumpf, (n) => /^BirkeDicht[34]$/.test(n))}`
+    'swamp: Bäume kommen durch',
+    summe(sumpf, istBaum) > 0,
+    `= ${summe(sumpf, istBaum)}`
   );
   // Und der Hohe Norden darf NICHT zuwachsen: Er ist über die Stückzahl
   // definiert, nicht über die Artenliste. Gemessen am Grasland auf
@@ -402,12 +434,35 @@ console.log(`  Dichte 0.3 → ${d1} | 1.0 → ${g} | 2.5 → ${d2} Pflanzen`);
   check('deepnorth: karg gegenüber dem Grasland', nHoch < nGras / 3, `${nHoch} gegen ${nGras}`);
   console.log(`  Hoher Norden ${nHoch} gegen Grasland ${nGras} Pflanzen auf gleicher Fläche`);
 
-  // Die Aschewüste ist absichtlich LEER (siehe ASCHE_FLORA). Der Test
-  // hält das fest, damit die Null als Entscheidung sichtbar bleibt und
-  // nicht als vergessene Liste durchgeht.
-  check('ashlands: Liste ist leer (Entwurf, kein Versäumnis)', ASCHE_FLORA_NAMEN.length === 0);
+  /*
+    Die Aschewüste — und der einzige Ort, an dem der Store-Bestand etwas
+    hinzufügt, wo vorher bewusst nichts stand.
+
+    Die alte Antwort war LEER, und das war eine Entscheidung, kein
+    Versäumnis: Der Altbestand kennt keinen Baum ohne Laub, und ein
+    belaubter Baum auf Asche wäre falscher gewesen als gar keiner. Der
+    Store bringt kahle Stämme mit (`vegetation-tree-*-2`), und damit
+    ändert sich die Antwort — nicht der Grund.
+
+    Beide Zustände bleiben deshalb geprüft, und der Test fragt die
+    Umschaltung, statt einen der beiden Fälle zu bevorzugen: Ohne
+    Store-Kuratierung MUSS die Liste leer und der Boden nackt sein; mit
+    ihr MÜSSEN es Stämme sein und nichts als Stämme — kein Gras, kein
+    Strauch, kein Laubdach auf der Asche.
+  */
   const asche = bewuchs(insel(ASCHE_FLORA_NAMEN, 'ashlands'));
-  check('ashlands: nackter Aschegrund', summe(asche, () => true) === 0, `= ${summe(asche, () => true)}`);
+  const alles = summe(asche, () => true);
+  if (STORE_FLORA_AKTIV && STORE_FLORA_BEREIT) {
+    check('ashlands: kahle Stämme statt gar nichts', alles > 0, `= ${alles}`);
+    check(
+      'ashlands: nur Stämme, kein Unterwuchs',
+      summe(asche, (n) => !istBaum(n)) === 0,
+      [...asche.keys()].filter((n) => !istBaum(n)).join(', ')
+    );
+  } else {
+    check('ashlands: Liste ist leer (Entwurf, kein Versäumnis)', ASCHE_FLORA_NAMEN.length === 0);
+    check('ashlands: nackter Aschegrund', alles === 0, `= ${alles}`);
+  }
 }
 
 // ── 10. Determinismus ────────────────────────────────────────────────

@@ -40,6 +40,7 @@ import {
   HeightmapProvider,
   NADELWALD_FLORA_NAMEN,
   RegionGeo,
+  findPrefabByName,
   getStableHash,
   sanitizeWorldLayout,
 } from '@wov/shared';
@@ -198,11 +199,24 @@ for (const zdo of listL) {
     if (!Number.isFinite(s) || s <= 0 || s > 10) badScale++;
   }
 }
-// Bäume heissen jetzt Eiche, Birke, Fichte, Tanne und Kiefer — die
-// alten Fremdnamen (Beech1, FirTree, …) gibt es in FOLIAGE nicht mehr.
+/*
+  Was ein Baum ist, wird GEMESSEN und nicht am Namen abgelesen.
+
+  Hier stand eine Namensliste (`Eiche`, `Birke`, `Fichte`, `Tanne`,
+  `Kiefer`). Seit die Kuratierungslisten auf die Store-Vegetation
+  umschalten können (`STORE_FLORA_AKTIV`), heissen dieselben Bäume
+  `vegetation-tree-1a3` — die Liste traf dann NICHTS mehr, und der Test
+  meldete „0 tree ZDOs" für einen Wald aus über 2.000 Bäumen. Ein
+  Wächter, der beim Umbenennen rot wird, misst den Namen und nicht die
+  Welt.
+
+  `renderScale.h` ist die Auskunft, die beide Bestände geben. 6 m ist
+  die Grenze mit Luft nach beiden Seiten: der niedrigste Baum beider
+  Bestände misst 6,7 m, der höchste Strauch 4,8 m.
+*/
 const baumHashes = new Set(
   [...GRASLAND_FLORA_NAMEN, ...NADELWALD_FLORA_NAMEN]
-    .filter((n) => /^(Eiche|Birke|Fichte|Tanne|Kiefer)/.test(n))
+    .filter((n) => (findPrefabByName(n)?.renderScale.h ?? 0) >= 6)
     .map((n) => getStableHash(n))
 );
 for (const zdo of listL) {

@@ -36,11 +36,21 @@
  * farbig. Rinde braucht also keine Tönung, Laub braucht sie zwingend.
  *
  * ── Und der zweite, wichtigere Befund ────────────────────────────────
- * Der Farbton fehlt NICHT überall. Der Store-Export trägt für 29 der 33
- * Laubmaterial-Slots einen `baseColorFactor` — Werte, die messbar
- * hinkommen (Laub 0.46/0.95/0.20 ergibt mit dem Atlas sRGB 0.31/0.43/0.21,
- * ein glaubhaftes Blattgrün). Sie stammen aus dem Original-Material und
- * werden hier deshalb NICHT überschrieben, sondern übernommen.
+ * Der Farbton fehlt NICHT überall. Der Store-Export trägt in 39 von 151
+ * Materialien einen `baseColorFactor` — Werte, die messbar hinkommen
+ * (Laub 0.46/0.95/0.20 ergibt mit dem Atlas sRGB 0.31/0.43/0.21, ein
+ * glaubhaftes Blattgrün). Sie stammen aus dem Original-Material und
+ * werden hier deshalb NICHT überschrieben, sondern JE MATERIAL
+ * übernommen — nicht je Rolle: Die 39 tragen fünf verschiedene Werte,
+ * und eine Tabelle je Rolle gäbe nur den häufigsten davon wieder.
+ *
+ * ── Und wo gar keiner steht: das Original-Material ───────────────────
+ * Für die Lücken (die wiederhergestellten Kronen und das eine
+ * verschneite Laubmaterial) wird nicht mehr geschätzt. Die Spieldaten
+ * des Vorbilds führen zu jedem Laub-Atlas ein Shadergraph-Material mit
+ * einer Ober- und einer Unterfarbe; glTF kennt nur einen Faktor, also
+ * steht hier das MITTEL aus beiden. Die Zahlen und ihre Herkunft stehen
+ * unten in `UNITY_LAUB`, gemessen am 08.09.2026.
  *
  * Er fehlt genau dort, wo es am meisten weh tut: In 33 Primitiven zeigt
  * das Material auf `DefaultMaterial` — kein Bild, keine Tönung, kein
@@ -88,11 +98,13 @@
  * Nachbarhälfte statt der eigenen Kachel.
  *
  * Ohne Blender (UV-Neuwicklung) bleibt es deshalb bei einem Material JE
- * ATLAS. Zusammengelegt wird alles, was sich Bild, Alphamodus, Cutoff,
- * Zweiseitigkeit UND Tönung teilt — nach der Tönung sind das alle
- * Laubmaterialien eines Modells (sie hängen ohnehin am selben Bild und
- * unterschieden sich nur im Namen und in der dritten Nachkommastelle der
- * Tönung). Was bleibt, steht in BERICHT.json: `materialienNachher`.
+ * ATLAS UND TÖNUNG. Zusammengelegt wird alles, was sich Bild,
+ * Alphamodus, Cutoff, Zweiseitigkeit UND Tönung teilt — in 93 von 94
+ * Modellen sind das alle Laubmaterialien zusammen. Die Ausnahme ist
+ * `small-thin-tree-1a5`: Sie führt zwei Grüntöne des Stores auf
+ * derselben Karte (`Leaves Birch 1` neben `Leaves 2`), und die bleiben
+ * getrennt, weil sonst einer von beiden lautlos seine Store-Farbe
+ * verlöre. Was bleibt, steht in BERICHT.json: `materialienNachher`.
  *
  * ── Der Binärteil wird nicht angefasst ───────────────────────────────
  * Alle 117 Bilder des Bestands liegen als externe `uri` neben den GLBs,
@@ -182,39 +194,99 @@ const BILD = {
 };
 
 /**
- * Die Tönung je Rolle — und die Begründung als Zahl daneben.
+ * Der Faktor des QUELLMATERIALS, wenn es einen mitbringt — sonst nichts.
  *
- * `wirkung` ist die gemessene Atlasfarbe MAL dem Faktor, in sRGB
- * zurückgerechnet: das, was am Ende auf dem Schirm steht. Sie ist
- * Dokumentation, keine Eingabe; `tools/test/store-vegetation.ts` rechnet
- * sie nach, damit sie nicht still veraltet.
- *
- * Übernommen statt neu erfunden wird überall dort, wo der Store selbst
- * einen Faktor mitbringt: Diese Werte stammen aus dem Original-Material,
- * und die Nachrechnung gibt ihnen recht. Neu gesetzt wird nur, wo gar
- * nichts stand.
+ * Das ist die erste von zwei Auskünften über die Tönung und die
+ * stärkere: Ein `baseColorFactor` im Store stammt aus dem
+ * Original-Material des Spiels und wird NICHT ersetzt. 39 der 151
+ * Store-Materialien tragen einen, und sie tragen ihn in fünf
+ * verschiedenen Werten — die Rolle allein ist also zu grob, um ihn
+ * wiederzugeben. (Vorher stand hier eine Tabelle je ROLLE, und die sechs
+ * `Leaves Birch 1/2` verloren dabei still ihren eigenen Wert
+ * 0.55/1.00/0.24 an den häufigeren 0.46/0.95/0.20.)
  */
-const TOENUNG = {
-  // Blattgrün. Der Store-Wert, in 21 Materialien der häufigste.
-  //   Atlas 0.452 grau → sRGB 0.31 / 0.43 / 0.21
-  laub: [0.46, 0.95, 0.2, 1],
-  // Dieselbe Karte im Schatten — der Store-Wert der `… Dark`-Materialien.
-  //   Atlas 0.452 grau → sRGB 0.30 / 0.40 / 0.20
-  laubDunkel: [0.4, 0.78, 0.18, 1],
-  // Schnee: so hell wie glTF es zulässt (Faktoren sind auf 1 gedeckelt),
-  // mit einem kühlen Stich. Mehr als 0.45 sRGB gibt der graue Laub-Atlas
-  // nicht her — ein wirklich weisser Winterbusch bräuchte eine eigene
-  // Textur. Steht als offener Punkt im Bericht.
-  laubSchnee: [0.94, 0.97, 1.0, 1],
-  // Nadeln, Store-Wert.  Atlas 0.581 → sRGB 0.31 / 0.45 / 0.30
-  nadeln: [0.26, 0.58, 0.24, 1],
-  // Ahorn, Store-Wert.   Atlas 0.647 → sRGB 0.52 / 0.64 / 0.30
-  ahorn: [0.62, 1.0, 0.2, 1],
-  // Gras, Store-Wert (der Atlas ist bereits farbig).
+const quellFaktor = (mat) => mat?.pbrMetallicRoughness?.baseColorFactor ?? null;
+
+/**
+ * Die Originalmaterialien aus den Spieldaten — die Herkunft der Zahlen
+ * darunter.
+ *
+ * Gemessen am 08.09.2026 aus `/home/mike/wov-lab-mess/laub-materialien.json`
+ * (Abschnitt `materialien`). Der Laub-Shader des Vorbilds
+ * (`Shader Graphs/Leaves Foliage`) färbt die graue Alphakarte mit ZWEI
+ * Farben: `Color_3E4BE667` oben in der Krone, `Color_99FDAD86` unten.
+ * glTF kennt nur einen `baseColorFactor` — genommen wird deshalb das
+ * MITTEL aus beiden, linear, wie Unity die Werte speichert. Das ist
+ * keine Schätzung mehr, sondern der arithmetische Mittelwert eines
+ * Verlaufs, den wir nicht nachbauen können.
+ *
+ * Die Zuordnung Store-Textur ↔ Original-Material läuft über den
+ * Texturnamen; der Store hängt an jeden noch seinen Inhaltshash.
+ */
+const UNITY_LAUB = {
+  // „Leaves 1" — Color Leaves Alpha ↔ bush-1a2-small-1-dark-0-46087926.png
+  //   oben 0.764/0.802/0.443, unten 0.431/0.490/0.286
+  leaves1: [0.5975, 0.646, 0.3645, 1],
+  // „Leaves Birch 3 Dark" — dieselbe Karte, die Schatten-/Sumpfvariante
+  //   oben 0.886/0.682/0.353, unten 0.365/0.243/0.182
+  leavesBirch3Dark: [0.6255, 0.4625, 0.2675, 1],
+  // „Leaves Birch 3 Dark Snow" — dieselbe Karte, verschneit
+  //   oben 0.976/0.979/0.996, unten 0.365/0.341/0.328
+  leavesBirch3DarkSnow: [0.6705, 0.66, 0.662, 1],
+  // „Pine 1" — Pine Alpha A ↔ pine-1b1-0-1-45d12350.png
+  //   oben 0.275/0.349/0.157, unten 0.404/0.404/0.404
+  pine1: [0.3395, 0.3765, 0.2805, 1],
+  // „Pine 2" — Pine Alpha B ↔ pine-1b1-1-b7d6f292.png
+  //   oben 0.651/0.671/0.592, unten 0.384/0.388/0.102
+  pine2: [0.5175, 0.5295, 0.347, 1],
+  // „Maple Leaves 1" — Maple Leaves Alpha A ↔ tree-1e1-1-ac727b2e.png
+  //   oben 0.412/0.451/0.208, unten 0.342/0.368/0.210
+  mapleLeaves1: [0.377, 0.4095, 0.209, 1],
+};
+
+/**
+ * Die VORGABE je Rolle — sie greift nur, wo das Quellmaterial keinen
+ * eigenen Faktor mitbringt.
+ *
+ * Das sind zwei Fälle, und beide sind echte Lücken, keine Geschmacksfrage:
+ * die 26 Kronen-Primitive, deren Material im Store verlorengegangen ist
+ * (`DefaultMaterial`, siehe Kopfkommentar Schritt 2), und das eine
+ * verschneite Laubmaterial, das ohne Faktor exportiert wurde. Ohne
+ * Tönung rendern sie GRAU — die Atlanten sind Helligkeitsmasken
+ * (gemessen R = G = B, Laub 0.452).
+ *
+ * Wo eine Zuordnung zum Original-Material besteht, steht hier dessen
+ * Mittel aus Ober- und Unterfarbe (siehe UNITY_LAUB) und keine
+ * Schätzung. Übrig bleibt genau eine geschätzte Zeile, `grasGelb` — für
+ * seinen Atlas gibt es keine benannte Zuordnung, das steht als offener
+ * Punkt im Bericht.
+ */
+const TOENUNG_VORGABE = {
+  // Wiederhergestellte Kronen der Massive-/Split-/Branched-Tree-Familie.
+  // In den Spieldaten haben diese Bäume zwei Submeshes, aber nur EIN
+  // Material (Rinde) — ein Original-Laubmaterial gibt es für sie nicht.
+  // Genommen wird die Laubfamilie ihrer Karte, „Leaves 1".
+  laub: UNITY_LAUB.leaves1,
+  // Dieselben Kronen in den `-dark`-Dateien (Sumpf, Schattenwald).
+  laubDunkel: UNITY_LAUB.leavesBirch3Dark,
+  // Verschneite Kronen und das faktorlose `Leaves Birch 3 Dark Snow`.
+  // Vorher stand hier [0.94, 0.97, 1.0, 1] — hell und kühl geschätzt,
+  // weil die Herkunft fehlte. Das Original ist deutlich gedämpfter.
+  laubSchnee: UNITY_LAUB.leavesBirch3DarkSnow,
+  // Nadeln und Ahorn: im Store trägt jedes dieser Materialien seinen
+  // eigenen Faktor, die Vorgabe ist also derzeit unerreicht. Sie steht
+  // trotzdem hier, damit ein künftiges Modell ohne Faktor nicht grau
+  // wird — und sie steht auf dem Original, nicht auf dem Nachbarwert.
+  nadeln: UNITY_LAUB.pine1,
+  ahorn: UNITY_LAUB.mapleLeaves1,
+  // Gras trägt seinen Store-Faktor selbst; die Vorgabe ist ebenfalls
+  // unerreicht und bleibt der bisherige Wert.
   gras: [0.85, 1.0, 0.6, 1],
   // Herbstgras: Der `-yellow`-Atlas ist mit 0.415/0.444/0.376 fast grau
-  // und trug KEINEN Faktor — ohne Tönung ist er ein schmutziger Fleck.
-  //   → sRGB 0.41 / 0.41 / 0.26, Strohfarbe.
+  // und trägt KEINEN Faktor — ohne Tönung ist er ein schmutziger Fleck.
+  // Der einzige geschätzte Wert, der übrig ist: Für „Grass_Short_01 2"
+  // steht keine Zuordnung in der Materialliste, die diese Runde
+  // abgedeckt hat.  → sRGB 0.41 / 0.41 / 0.26, Strohfarbe.
   grasGelb: [1.0, 0.86, 0.45, 1],
 };
 
@@ -455,23 +527,33 @@ for (const datei of dateien) {
     }
   }
 
-  // ── Schritt 2: je Rolle EIN Material bauen ────────────────────────
+  // ── Schritt 2: je Rolle, Bild UND Tönung ein Material bauen ───────
   //
-  // Das ist die Zusammenlegung. Zwei Materialien derselben Rolle hängen
-  // per Definition am selben Bild und tragen nach der Tönung denselben
-  // Faktor — sie zu trennen kostete einen Thin-Instance-Master und
-  // brächte nichts.
+  // Das ist die Zusammenlegung. Zwei Materialien, die sich Rolle, Bild
+  // und Faktor teilen, sind dasselbe Material — sie zu trennen kostete
+  // einen Thin-Instance-Master und brächte nichts.
+  //
+  // Der FAKTOR gehört in den Schlüssel und nicht bloss die Rolle: Genau
+  // ein Modell des Stores (`small-thin-tree-1a5`) führt zwei Laubkarten
+  // in zwei Grüntönen (`Leaves Birch 1` 0.55/1.00/0.24 neben `Leaves 2`
+  // 0.46/0.95/0.20). Nach Rolle allein zusammengelegt verlöre eines von
+  // beiden seine Store-Farbe — lautlos, denn getönt wäre es ja.
   const neueMaterialien = [];
   const indexJeSchluessel = new Map();
   for (const eintrag of rolleJePrim) {
-    const altBild = bildDesMaterials(json, json.materials[eintrag.prim.material]);
+    const altMaterial = json.materials[eintrag.prim.material];
+    const altBild = bildDesMaterials(json, altMaterial);
     const uri = altBild ?? standardBild(eintrag.rolle);
-    const schluessel = `${eintrag.rolle}|${uri}`;
+    const ausStore = quellFaktor(altMaterial);
+    const toenung = ausStore ?? TOENUNG_VORGABE[eintrag.rolle] ?? null;
+    eintrag.toenungQuelle = ausStore ? 'Store' : toenung ? 'Vorgabe' : 'ohne';
+    const schluessel = `${eintrag.rolle}|${uri}|${JSON.stringify(toenung)}`;
     if (!indexJeSchluessel.has(schluessel)) {
       indexJeSchluessel.set(schluessel, neueMaterialien.length);
-      neueMaterialien.push(baueMaterial(eintrag.rolle, uri));
+      neueMaterialien.push(baueMaterial(eintrag.rolle, uri, toenung, neueMaterialien));
     }
     eintrag.neuerIndex = indexJeSchluessel.get(schluessel);
+    eintrag.toenung = toenung;
   }
 
   // ── Schritt 3: Bilder, Texturen, Materialien neu setzen ───────────
@@ -498,7 +580,11 @@ for (const datei of dateien) {
       dreiecke: e.tris,
       rolle: e.rolle,
       herkunft: e.quelle,
-      toenung: TOENUNG[e.rolle] ?? null,
+      // Die WIRKLICH gesetzte Tönung, nicht die Tabellenzeile: Seit der
+      // Store-Faktor Vorrang hat, unterscheiden sich zwei Primitive
+      // derselben Rolle, und der Bericht muss das zeigen können.
+      toenung: e.toenung ?? null,
+      toenungAus: e.toenungQuelle,
     })),
   };
 }
@@ -524,10 +610,10 @@ function standardBild(rolle) {
  * eine ohne Zweiseitigkeit verschwindet von hinten. Beides ist zugleich
  * die Bedingung, unter der `AssetManager` den Wind anhängt.
  */
-function baueMaterial(rolle, uri) {
+function baueMaterial(rolle, uri, toenung, schon) {
   const karte = KARTEN_ROLLEN.has(rolle);
   const material = {
-    name: materialName(rolle, uri),
+    name: materialName(rolle, uri, schon),
     pbrMetallicRoughness: { metallicFactor: 0, roughnessFactor: 1 },
     doubleSided: karte,
   };
@@ -535,7 +621,6 @@ function baueMaterial(rolle, uri) {
     material.alphaMode = 'MASK';
     material.alphaCutoff = 0.5;
   }
-  const toenung = TOENUNG[rolle];
   if (toenung) material.pbrMetallicRoughness.baseColorFactor = [...toenung];
   return { material, uri };
 }
@@ -554,8 +639,22 @@ function baueMaterial(rolle, uri) {
  * genau dieses Wort aus, und ein Rindenmaterial, das den Cutout-Test
  * ohnehin nicht besteht, soll nicht zusätzlich am Namen scheitern —
  * sonst hinge die Erklärung an der falschen Stelle.
+ *
+ * Seit der Faktor im Zusammenlegungsschlüssel steckt, kann dieselbe
+ * Rolle in EINER Datei zweimal vorkommen (zwei Grüntöne auf derselben
+ * Karte, `small-thin-tree-1a5`). Die zweite bekommt `-2` angehängt,
+ * damit die Namen eindeutig bleiben — `tools/test/store-vegetation.ts`
+ * und `EntityManager.verschmelzeNachMaterial()` berichten über Namen,
+ * und zwei gleiche wären dort nicht auseinanderzuhalten. Die Zählung
+ * folgt der Reihenfolge der Primitive und ist damit so deterministisch
+ * wie der Rest des Werkzeugs.
  */
-function materialName(rolle, uri) {
+function materialName(rolle, uri, schon) {
+  const gleiche = schon.filter((m) => m.material.name.replace(/-\d+$/, '') === basisName(rolle, uri));
+  return gleiche.length === 0 ? basisName(rolle, uri) : `${basisName(rolle, uri)}-${gleiche.length + 1}`;
+}
+
+function basisName(rolle, uri) {
   if (rolle !== 'rinde') return rolle;
   if (uri === BILD.rindeEiche) return 'rinde-eiche';
   if (uri === BILD.rindeNadel) return 'rinde-nadel';
@@ -603,9 +702,22 @@ for (const [n, anzahl] of [...masterVerteilung].sort((a, b) => a[0] - b[0])) {
   console.log(`  ${n} Material${n === 1 ? ' ' : 'ien'}: ${anzahl} Modelle`);
 }
 console.log(`\nMaterial zurückgewonnen: ${ausZwilling} aus dem Zwilling, ${ausGeometrie} aus der Bauart`);
+/*
+  Gezählt wird nach Rolle UND Tönung, nicht nur nach Rolle: Der ganze
+  Sinn dieser Runde ist, dass eine Rolle mehrere Faktoren tragen kann —
+  den des Store-Materials, wo einer da ist, und die Vorgabe aus dem
+  Original-Material, wo keiner da war. Eine Zeile je Rolle verschwiege
+  genau das.
+*/
 const rollen = new Map();
-for (const m of werte) for (const p of m.primitive) rollen.set(p.rolle, (rollen.get(p.rolle) ?? 0) + 1);
-console.log('Primitive je Rolle:');
-for (const [r, n] of [...rollen].sort()) {
-  console.log(`  ${r.padEnd(12)} ${String(n).padStart(3)}  Tönung ${JSON.stringify(TOENUNG[r] ?? null)}`);
+for (const m of werte) {
+  for (const p of m.primitive) {
+    const k = `${p.rolle}|${p.toenungAus}|${JSON.stringify(p.toenung)}`;
+    rollen.set(k, (rollen.get(k) ?? 0) + 1);
+  }
+}
+console.log('Primitive je Rolle und Tönung:');
+for (const [k, n] of [...rollen].sort()) {
+  const [rolle, aus, toenung] = k.split('|');
+  console.log(`  ${rolle.padEnd(12)} ${String(n).padStart(3)}  ${aus.padEnd(7)} ${toenung}`);
 }

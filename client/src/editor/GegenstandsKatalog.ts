@@ -46,6 +46,32 @@
  * Vorgabe-Kategorie ist „Eigene Modelle" — die einzige Liste, die
  * überall vollständig vorhanden ist.
  *
+ * ── Zweite Quelle: der Speicher (`assets/store/`) ────────────────────
+ * Die Registry oben kennt nur Prefabs, und von denen nur GLBs. Im
+ * Speicher liegen aber auch Texturen, Töne, Höhenfelder und Kulissen —
+ * 672 Dateien, die bisher nur der Dateimanager zeigte. Sie stehen jetzt
+ * als eigener Bereich („Speicher · …") in derselben Auswahl, mit einer
+ * dreistufigen Ordnung: Art (Modelle · Texturen · Ton · Höhenfelder ·
+ * Kulisse) → Gruppe (Gebäude, Requisiten, Vegetation, Boden-Texturen,
+ * Schritte …) → Untergruppe als Filtermarken. Woher die Ordnung kommt,
+ * steht in `StoreKatalogDaten.ts`; dieser Datei gehört nur die Bedienung.
+ *
+ * Drei Dinge sind dabei anders als beim Prefab-Weg:
+ *   - Geladen wird DIREKT aus dem Speicher
+ *     (`SceneLoader.LoadAssetContainerAsync('/assets/store/…')`), nicht
+ *     über `AssetManager`. Der kennt die Store-Namen nicht — er löst
+ *     Prefabnamen auf, und der Speicher hat keine.
+ *   - Der Container gehört DIESER Ansicht und wird beim Wechsel ganz
+ *     entsorgt (Meshes, Materialien, Texturen). Beim Prefab-Weg bleiben
+ *     Materialien absichtlich stehen (sie gehören dem Asset-Cache); hier
+ *     gibt es keinen Cache, also gäbe es auch niemanden, der sie später
+ *     wieder freigäbe.
+ *   - Nicht jede Art ist ein Modell. Texturen bekommen eine Bildbühne
+ *     (mit Kachelansicht), Töne einen Abspieler. Die Bühne schaltet
+ *     zwischen den dreien um; beim Wechsel hält der Ton an und das Bild
+ *     wird gelöscht — sonst spielte der Schrittklang weiter, während man
+ *     längst ein Haus ansieht.
+ *
  * ── Warum der Katalog eine Überlagerung ist (Entwurf August 2026) ─────
  * Er füllte vorher den ganzen Viewport randlos aus und sah damit aus wie
  * ein zweiter Editor. Jetzt liegt er als große Tafel auf einem
@@ -67,6 +93,17 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader';
+import type { AssetContainer } from '@babylonjs/core/assetContainer';
+/*
+  Der glTF-Lader ist ein NEBENWIRKUNGS-Import: Ohne ihn kennt
+  `SceneLoader` das Format nicht und liefert wortlos nichts. `AssetManager`
+  bringt ihn zwar schon mit, aber darauf zu bauen hiesse, dass ein
+  Aufräumen dort diese Ansicht stillschweigend blind macht — die Vorschau
+  bliebe leer, ohne dass irgendwo ein Fehler stünde.
+  Side-effect import: without it SceneLoader silently knows no glTF.
+*/
+import '@babylonjs/loaders/glTF/2.0';
 import {
   BAU_PREFABS,
   EIGENE_MODELLE,
@@ -95,11 +132,22 @@ import {
   luecke,
   lupenBild,
   marke,
+  schalter,
   schwebendStil,
   sinnbild,
   stil,
   zierTitel,
 } from './design';
+import {
+  SPEICHER_WURZEL,
+  STORE_ARTEN,
+  gruppenDerArt,
+  ladeStoreKatalog,
+  sucheSpeicher,
+  untergruppenDerGruppe,
+  type StoreArt,
+  type StoreEintrag,
+} from './StoreKatalogDaten';
 
 /** Zeilen je Listenseite — s. Kopf („Warum Seiten"). */
 const SEITE_GROESSE = 60;
@@ -142,7 +190,23 @@ interface Kategorie {
   /** Erklärung unter der Auswahl — was steckt in dieser Liste? */
   hinweis: string;
   namen: () => string[];
+  /**
+   * Gesetzt = diese Kategorie kommt aus dem SPEICHER, nicht aus der
+   * Prefab-Registry. Die Liste heisst dann nicht „Prefabnamen", sondern
+   * „Store-Ids", und Vorschau, Infoblock und Verfügbarkeitsprüfung nehmen
+   * jeweils den anderen Zweig (s. `istSpeicher`).
+   */
+  speicher?: StoreArt;
 }
+
+/** Erklärungen der fünf Speicher-Arten — eine Zeile je Bereich. */
+const SPEICHER_HINWEIS: Readonly<Record<StoreArt, string>> = {
+  Modelle: 'Alle GLBs des Speichers — Gebäude, Requisiten, Gegenstände, Umgebung, Fahrzeuge, Vegetation.',
+  Texturen: 'Bilder des Speichers: Boden-Texturen der Landschaft und die Atlanten der Modelle.',
+  Ton: 'Klänge des Speichers (Opus in .ogg) — anhören mit dem Abspieler, „Weiter" geht die Untergruppe durch.',
+  Höhenfelder: 'Gelände-GLBs (terrain/) — dieselbe 3D-Vorschau wie bei Modellen, nur größer.',
+  Kulisse: 'Horizontschalen und Wolken. Bis 600 m Spannweite — die Kamera rückt dafür weiter weg.',
+};
 
 /**
  * Die Kategorien des Katalogs.
@@ -195,6 +259,26 @@ const KATEGORIEN: readonly Kategorie[] = [
     hinweis: `Die volle Registry, ${MIT_MODELL.length} Einträge — die meisten GLBs fehlen auf diesem Server.`,
     namen: () => MIT_MODELL.map((d) => d.name),
   },
+  /*
+    Der Speicher als eigener Bereich — fünf Kategorien, eine je Art.
+
+    Sie stehen HINTEN und nicht vorn: Die Vorgabe-Kategorie bleibt
+    „★ Eigene Modelle", wie sie es war. Wer den Katalog öffnet, um ein
+    Prefab nachzuschlagen, soll nicht plötzlich in einem Dateibrowser
+    landen. Der Speicher ist die zweite Frage („was liegt überhaupt da?"),
+    nicht die erste.
+
+    `namen()` liefert hier eine LEERE Liste und wird nie gerufen: Der
+    Bestand kommt aus zwei JSON-Dateien, die erst geladen werden müssen
+    (s. `speicherTreffer`). Ein Rückgabewert, der so tut, als wäre er die
+    Liste, wäre die schlechtere Lüge als eine leere.
+  */
+  ...STORE_ARTEN.map((art) => ({
+    name: `Speicher · ${art}`,
+    hinweis: SPEICHER_HINWEIS[art],
+    namen: () => [],
+    speicher: art,
+  })),
 ];
 
 /**
@@ -207,9 +291,21 @@ const KATEGORIEN: readonly Kategorie[] = [
  * Vegetation, PieceTable) — einmal zählen genügt für die Sitzung.
  */
 let katAnzahlen: readonly number[] | null = null;
-function katAnzahl(): readonly number[] {
-  if (!katAnzahlen) katAnzahlen = KATEGORIEN.map((k) => k.namen().length);
-  return katAnzahlen;
+function katAnzahl(speicher: readonly StoreEintrag[] | null): readonly number[] {
+  if (!katAnzahlen) katAnzahlen = KATEGORIEN.map((k) => (k.speicher ? -1 : k.namen().length));
+  /*
+    Die Speicher-Zahlen können NICHT mitgemerkt werden: Beim ersten
+    Listenaufbau ist der Bestand noch nicht geladen, und eine gemerkte
+    Null bliebe für die Sitzung stehen — die Marke sagte dauerhaft „0
+    Töne", während die Liste 44 zeigt. Sie werden deshalb jedes Mal
+    gezählt; das ist ein Durchlauf über 672 Einträge und damit
+    billiger als der Aufbau der Marken selbst.
+  */
+  return katAnzahlen.map((n, i) => {
+    const art = KATEGORIEN[i]?.speicher;
+    if (!art) return n;
+    return speicher ? speicher.filter((e) => e.art === art).length : 0;
+  });
 }
 
 /** Gemessene Kennzahlen des geladenen Modells. */
@@ -233,6 +329,10 @@ export class GegenstandsKatalog {
   private readonly blaetterZeile: HTMLDivElement;
   private readonly katHinweis: HTMLDivElement;
   private readonly markenZeile: HTMLDivElement;
+  /** Zweite Ebene des Speichers: die Gruppen der gewählten Art. */
+  private readonly gruppenZeile: HTMLDivElement;
+  /** Dritte Ebene: die Untergruppen der gewählten Gruppe als Filtermarken. */
+  private readonly untergruppenZeile: HTMLDivElement;
   private readonly infoBlock: HTMLDivElement;
   private readonly pruefKnopf: HTMLButtonElement;
   private readonly sucheFeld: HTMLInputElement;
@@ -255,12 +355,58 @@ export class GegenstandsKatalog {
   /** Raster am Boden — Maßstabsreferenz, Kantenlänge = `rasterSchritt`. */
   private raster: Mesh | null = null;
 
+  // ── Speicher-Bühnen (Bild und Ton liegen über dem Canvas) ─────────
+  private readonly bildFlaeche: HTMLDivElement;
+  private readonly bildRahmen: HTMLDivElement;
+  private readonly bild: HTMLImageElement;
+  private readonly bildKachelKnopf: HTMLButtonElement;
+  private readonly bildZeile: HTMLDivElement;
+  private readonly tonFlaeche: HTMLDivElement;
+  private readonly tonTitel: HTMLDivElement;
+  private readonly tonSpieler: HTMLAudioElement;
+  private readonly tonWeiter: HTMLButtonElement;
+
   // ── Listenzustand ─────────────────────────────────────────────────
   private kategorie = 0;
   private suchtext = '';
   private seite = 0;
   private gewaehlt: string | null = null;
   private sucheTimer: number | null = null;
+
+  // ── Speicherzustand ───────────────────────────────────────────────
+  /** Der geladene Bestand — null, solange nichts geladen ist. */
+  private speicher: readonly StoreEintrag[] | null = null;
+  private speicherLaedt = false;
+  private speicherFehler: string | null = null;
+  /** Nachschlagewerk Id → Eintrag; die Liste führt nur Ids. */
+  private storeIndex = new Map<string, StoreEintrag>();
+  /** Gewählte Gruppe der zweiten Ebene (null = alle). */
+  private gruppe: string | null = null;
+  /** Gewählte Untergruppe der dritten Ebene (null = alle). */
+  private untergruppe: string | null = null;
+  /** Kachelansicht der Texturvorschau (2 × 2 wiederholt). */
+  private kachelAn = false;
+  /**
+   * Zeigt die reinen Kollisionsnetze mit an.
+   *
+   * Vorgabe AUS: Zwölf der GLBs im Speicher sind keine Modelle, sondern
+   * unsichtbare Hüllen — texturlose graue Kästen, die zwischen den
+   * Häusern stehen und wie kaputte Häuser aussehen. Neun davon sind
+   * ausserdem verwaist (kein Prefab zeigt auf sie). Wer sie sucht,
+   * findet sie über die Untergruppe „Kollisionsnetze" oder diesen
+   * Schalter; wer sie nicht sucht, stolpert nicht über sie.
+   */
+  private netzeZeigen = false;
+  /**
+   * Der Container der Speicher-Vorschau. Er gehört DIESER Ansicht und
+   * wird beim Wechsel ganz entsorgt — anders als beim Prefab-Weg, wo die
+   * Materialien dem Asset-Cache gehören (s. Kopf).
+   */
+  private storeContainer: AssetContainer | null = null;
+  /** Der gerade gezeigte Speicher-Eintrag (für Infoblock, Ton und Kachel). */
+  private gezeigterStore: StoreEintrag | null = null;
+  /** Gemessene Bildgröße der Texturvorschau — erst nach `onload` bekannt. */
+  private bildMasse: { breite: number; hoehe: number } | null = null;
 
   /**
    * Laufende Nummer der Ladevorgänge. Jeder Klick erhöht sie; ein
@@ -431,7 +577,10 @@ export class GegenstandsKatalog {
         'font-size': '12.5px',
       })
     );
-    suche.placeholder = 'Suchen — eiche, grab, wood_roof …';
+    // Im Speicher-Bereich sucht dasselbe Feld auch über Gruppe,
+    // Untergruppe und Kennzeichen — „Fässer" und „Schnee" finden dort
+    // etwas, obwohl kein Dateiname so heisst.
+    suche.placeholder = 'Suchen — eiche, grab, Fässer, Nadelbäume, Schnee …';
     suche.oninput = () => {
       this.suchtext = suche.value.trim().toLowerCase();
       // Entprellt: Bei jedem Anschlag über bis zu 3.748 Namen zu filtern
@@ -538,6 +687,20 @@ export class GegenstandsKatalog {
     );
     linkeSpalte.appendChild(this.markenZeile);
 
+    // Die zwei Ebenen unter der Art. Sie sind LEER und unsichtbar,
+    // solange keine Speicher-Kategorie gewählt ist — eine dauerhaft
+    // reservierte, leere Zeile über der Liste wäre nur verschenkter Platz
+    // in der schmalsten Spalte des Editors.
+    this.gruppenZeile = el(
+      'div',
+      stil({ padding: '9px 12px 0', display: 'none', gap: '6px', 'flex-wrap': 'wrap', flex: 'none' })
+    );
+    this.untergruppenZeile = el(
+      'div',
+      stil({ padding: '7px 12px 0', display: 'none', gap: '5px', 'flex-wrap': 'wrap', flex: 'none' })
+    );
+    linkeSpalte.append(this.gruppenZeile, this.untergruppenZeile);
+
     this.liste = el(
       'div',
       stil({
@@ -601,6 +764,103 @@ export class GegenstandsKatalog {
       stil({ position: 'absolute', inset: '0', width: '100%', height: '100%', display: 'block', cursor: 'grab' })
     );
     buehne.appendChild(this.leinwand);
+
+    /*
+      ── Bildbühne (Texturen) ─────────────────────────────────────────
+      Eine Textur in einer 3D-Szene zu zeigen (auf einer Ebene, mit
+      Kamera) wäre der aufwendigere Weg zum schlechteren Bild: Man sähe
+      Perspektive, Beleuchtung und Filterung — alles Dinge, die man an
+      einer Textur GERADE NICHT sehen will. Ein <img> zeigt die Pixel.
+
+      Die Kachelansicht daneben beantwortet die einzige Frage, die ein
+      Einzelbild nicht beantwortet: Setzt sich das nahtlos fort? Sie
+      wiederholt dasselbe Bild 2 × 2 über `background-repeat` — dieselben
+      Bytes, kein zweiter Ladevorgang.
+    */
+    this.bildFlaeche = el(
+      'div',
+      stil({
+        position: 'absolute',
+        inset: '0',
+        display: 'none',
+        'flex-direction': 'column',
+        'align-items': 'center',
+        'justify-content': 'center',
+        gap: '12px',
+        padding: '18px',
+      })
+    );
+    this.bildRahmen = el(
+      'div',
+      stil({
+        'max-width': '100%',
+        'max-height': '100%',
+        display: 'grid',
+        'place-items': 'center',
+        overflow: 'hidden',
+        border: `1px solid ${F.randKnopf}`,
+        'border-radius': `${M.radiusFeld}px`,
+        background: F.feld,
+      })
+    );
+    this.bild = el(
+      'img',
+      stil({ display: 'block', 'max-width': '100%', 'max-height': '100%', 'object-fit': 'contain' })
+    );
+    this.bild.alt = '';
+    this.bildRahmen.appendChild(this.bild);
+    this.bildZeile = el(
+      'div',
+      stil({ display: 'flex', 'align-items': 'center', gap: '10px', 'flex-wrap': 'wrap', 'justify-content': 'center' })
+    );
+    this.bildKachelKnopf = knopf('Kachelansicht 2 × 2', () => this.kachelSetzen(!this.kachelAn), {
+      art: 'leise',
+      hoehe: 30,
+      pfad: PFAD.raster,
+    });
+    this.bildZeile.appendChild(this.bildKachelKnopf);
+    this.bildFlaeche.append(this.bildRahmen, this.bildZeile);
+    buehne.appendChild(this.bildFlaeche);
+
+    /*
+      ── Tonbühne ─────────────────────────────────────────────────────
+      Ein echtes <audio controls> statt eigener Knöpfe: Es bringt
+      Abspielen, Suchlauf, Dauer und Lautstärke mit, und zwar die des
+      Browsers — also die, die Mike schon kennt. Eine Wellenform ist hier
+      ausdrücklich nicht nötig; die Frage ist „wie klingt das", nicht „wie
+      sieht das aus".
+
+      Der „Weiter"-Knopf ist der eigentliche Gewinn: Neun Grasklänge
+      einzeln anzuklicken sagt wenig, sie hintereinander zu hören sagt
+      alles über die Streuung der Menge.
+    */
+    this.tonFlaeche = el(
+      'div',
+      stil({
+        position: 'absolute',
+        inset: '0',
+        display: 'none',
+        'flex-direction': 'column',
+        'align-items': 'center',
+        'justify-content': 'center',
+        gap: '14px',
+        padding: '18px',
+      })
+    );
+    this.tonTitel = el(
+      'div',
+      stil({ 'font-family': SCHRIFT.mono, 'font-size': '12.5px', color: F.textRuhig, 'text-align': 'center' })
+    );
+    this.tonSpieler = el('audio', stil({ width: 'min(460px, 90%)' }));
+    this.tonSpieler.controls = true;
+    this.tonSpieler.preload = 'metadata';
+    this.tonWeiter = knopf('Weiter in dieser Untergruppe', () => this.tonWeiterSpielen(), {
+      art: 'leise',
+      hoehe: 30,
+      pfad: PFAD.pfeilRechts,
+    });
+    this.tonFlaeche.append(this.tonTitel, this.tonSpieler, this.tonWeiter);
+    buehne.appendChild(this.tonFlaeche);
 
     // Schwebende Plaketten oben links: Ladezustand und Maßstab. Beide
     // sagen etwas, das man sonst raten müsste — ob das da wirklich das
@@ -750,6 +1010,11 @@ export class GegenstandsKatalog {
     if (!this.istOffen) return;
     this.root.style.display = 'none';
     this.engine?.stopRenderLoop(this.frame);
+    // Ein geschlossener Katalog rechnet keine Bilder — und darf erst
+    // recht keinen Ton mehr machen. Ein Schrittklang, der hinter der
+    // Karte weiterläuft, ist die Sorte Fehler, die man erst sucht,
+    // nachdem man sie eine Minute gehört hat.
+    this.tonAnhalten();
   }
 
   // ── Szene ──────────────────────────────────────────────────────────
@@ -790,6 +1055,27 @@ export class GegenstandsKatalog {
     this.kamera = kamera;
     this.assets = new AssetManager(scene);
     this.rasterBauen();
+
+    /*
+      Messzelle für Lecks — nur im Entwicklungsserver.
+
+      Der Katalog wechselt beim Durchblättern die Vorschau, und jede
+      Vorschau bringt Meshes, Materialien und Texturen mit. Ob das
+      Aufräumen wirklich aufräumt, sieht man an nichts: Ein Leck kostet
+      Speicher, aber kein Bild und keine Fehlermeldung. Diese Funktion ist
+      der Zeuge — eine Messung liest sie vor und nach zwanzig Wechseln und
+      hält die Zahlen gegeneinander (`/home/mike/wov-lab-mess/
+      katalog-speicher.mjs`). Im Produktionsbau wirft Vite den Zweig über
+      die Konstante `import.meta.env.DEV` weg.
+    */
+    if (import.meta.env.DEV) {
+      (window as unknown as Record<string, unknown>).__wovKatalogZaehler = (): Record<string, number> => ({
+        meshes: this.scene?.meshes.length ?? 0,
+        materialien: this.scene?.materials.length ?? 0,
+        texturen: this.scene?.textures.length ?? 0,
+        tonElemente: document.querySelectorAll('audio').length,
+      });
+    }
   }
 
   /**
@@ -846,7 +1132,7 @@ export class GegenstandsKatalog {
     const m = this.letzteMasse;
     const spanne = m ? Math.max(m.breite, m.hoehe, m.tiefe, 0.05) : 2;
     k.setTarget(m ? m.mitte.clone() : new Vector3(0, 1, 0));
-    k.radius = spanne * 2.4;
+    k.radius = spanne * this.kameraFaktor;
     k.alpha = -Math.PI / 2 + 0.7;
     k.beta = 1.12;
     // Nah- und Fernebene an die Größenordnung hängen: 0.02/2000 fest
@@ -869,6 +1155,15 @@ export class GegenstandsKatalog {
 
   private letzteMasse: Kennzahlen | null = null;
   private rasterSchritt = 1;
+  /**
+   * Wie weit die Kamera von der Objektgröße weg steht.
+   *
+   * 2,4 zeigt einen Körper ganz und mit Luft drumherum. Eine Kulisse ist
+   * aber kein Körper, sondern eine Hohlschale von bis zu 600 m — bei 2,4
+   * stünde man 1,4 km entfernt vor einem Punkt. Deshalb ist der Faktor
+   * kein Festwert mehr, sondern gehört zur Auswahl.
+   */
+  private kameraFaktor = 2.4;
 
   /**
    * Maus auf dem Canvas: Ziehen dreht, Rad zoomt.
@@ -924,12 +1219,76 @@ export class GegenstandsKatalog {
     if (i === this.kategorie) return;
     this.kategorie = i;
     this.seite = 0;
+    // Die zwei unteren Ebenen gehören zur ART. Sie mit in die neue
+    // Kategorie zu nehmen ergäbe eine leere Liste mit gesetztem Filter —
+    // der klassische „ich sehe nichts und weiss nicht, warum"-Zustand.
+    this.gruppe = null;
+    this.untergruppe = null;
     if (this.katSelect) this.katSelect.value = String(i);
+    if (KATEGORIEN[i]?.speicher) void this.speicherSicherstellen();
     this.listeFuellen();
+  }
+
+  /** Ist die aktuelle Kategorie ein Speicher-Bereich? Dann die Art, sonst null. */
+  private get speicherArt(): StoreArt | null {
+    return KATEGORIEN[this.kategorie]?.speicher ?? null;
+  }
+
+  /**
+   * Bestand des Speichers besorgen — genau einmal.
+   *
+   * `ladeStoreKatalog()` merkt sich sein Versprechen selbst; der Wächter
+   * hier verhindert nur die zweite ANZEIGE-Runde (Liste neu bauen), nicht
+   * die zweite Anfrage.
+   */
+  private async speicherSicherstellen(): Promise<void> {
+    if (this.speicher || this.speicherLaedt) return;
+    this.speicherLaedt = true;
+    this.speicherFehler = null;
+    this.listeFuellen();
+    try {
+      const bestand = await ladeStoreKatalog();
+      this.speicher = bestand;
+      this.storeIndex = new Map(bestand.map((e) => [e.id, e]));
+    } catch (err) {
+      // Der Speicher liegt ausserhalb des Repos; auf einem Checkout ohne
+      // ihn ist das kein Fehler des Katalogs, sondern eine Auskunft.
+      this.speicherFehler = String(err);
+      console.warn('[katalog] Speicher nicht lesbar', err);
+    } finally {
+      this.speicherLaedt = false;
+      this.listeFuellen();
+    }
+  }
+
+  /**
+   * Die Speicher-Einträge der aktuellen Art nach Suche und Filtern.
+   *
+   * Reihenfolge ist Absicht: erst die ART, dann die SUCHE, erst danach
+   * Gruppe und Untergruppe. Andersherum fände „Nadelbäume" nichts mehr,
+   * sobald die Gruppe „Bäume" gewählt ist — und die Zahlen auf den
+   * Gruppenmarken zeigten dann den Bestand statt der Treffer.
+   */
+  private speicherTreffer(): readonly StoreEintrag[] {
+    const art = this.speicherArt;
+    const bestand = this.speicher;
+    if (!art || !bestand) return [];
+    const derArt = bestand.filter(
+      (e) => e.art === art && (this.netzeZeigen || !e.kennzeichen.includes('Kollisionsnetz'))
+    );
+    return sucheSpeicher(derArt, this.suchtext);
+  }
+
+  /** Dieselben Treffer, zusätzlich auf Gruppe und Untergruppe verengt. */
+  private speicherGefiltert(): readonly StoreEintrag[] {
+    return this.speicherTreffer().filter(
+      (e) => (!this.gruppe || e.gruppe === this.gruppe) && (!this.untergruppe || e.untergruppe === this.untergruppe)
+    );
   }
 
   /** Namen der aktuellen Kategorie nach Suchfilter. */
   private treffer(): string[] {
+    if (this.speicherArt) return this.speicherGefiltert().map((e) => e.id);
     const alle = KATEGORIEN[this.kategorie]!.namen();
     return this.suchtext ? alle.filter((n) => n.toLowerCase().includes(this.suchtext)) : alle;
   }
@@ -955,7 +1314,32 @@ export class GegenstandsKatalog {
     this.katHinweis.appendChild(
       el('div', stil({ 'font-size': '11.5px', 'line-height': '1.55', color: F.gedimmt }), kat.hinweis)
     );
-    if (alle.length > 0) {
+    if (kat.speicher) {
+      // Im Speicher-Bereich gibt es keine „eigenes Modell"-Quote — die
+      // Frage stellt sich dort nicht (alles im Speicher IST eine Datei).
+      // An ihrer Stelle steht der Ladezustand: Ohne ihn sähe ein noch
+      // nicht geladener Bestand aus wie ein leerer.
+      this.katHinweis.appendChild(this.speicherZustand());
+      if (kat.speicher === 'Modelle') {
+        // Nur bei den Modellen: Texturen, Töne, Höhenfelder und Kulissen
+        // haben keine Kollisionsnetze, dort wäre der Schalter ein
+        // Bedienelement ohne Wirkung.
+        const netzZeile = el('div', stil({ display: 'flex', 'align-items': 'center', gap: '9px' }));
+        netzZeile.append(
+          schalter(this.netzeZeigen, (an) => {
+            this.netzeZeigen = an;
+            this.seite = 0;
+            this.listeFuellen();
+          }),
+          el(
+            'span',
+            stil({ 'font-size': '11.5px', color: F.gedimmt }),
+            'Kollisionsnetze mitzeigen (12 unsichtbare Hüllen, 9 davon ohne Hauptmodell)'
+          )
+        );
+        this.katHinweis.appendChild(netzZeile);
+      }
+    } else if (alle.length > 0) {
       const gut = eigen === alle.length;
       const keins = eigen === 0;
       const kasten = el(
@@ -989,12 +1373,14 @@ export class GegenstandsKatalog {
     // Suchen die häufigste Frage, und eine Auswahlliste kann sie nicht
     // beantworten, ohne dass man sie aufklappt.
     this.markenZeile.innerHTML = '';
-    const anzahlen = katAnzahl();
+    const anzahlen = katAnzahl(this.speicher);
     KATEGORIEN.forEach((k, i) => {
       this.markenZeile.appendChild(
         marke(`${k.name} ${anzahlen[i] ?? 0}`, i === this.kategorie, () => this.kategorieSetzen(i))
       );
     });
+
+    this.ebenenZeichnen();
 
     const seiten = Math.max(1, Math.ceil(alle.length / SEITE_GROESSE));
     if (this.seite >= seiten) this.seite = seiten - 1;
@@ -1062,8 +1448,181 @@ export class GegenstandsKatalog {
     return s;
   }
 
+  /**
+   * Der Zustandskasten des Speicher-Bereichs: lädt / da / nicht lesbar.
+   *
+   * Er ersetzt die „eigenes Modell"-Quote der Prefab-Kategorien. Ohne ihn
+   * wären „noch nicht geladen" und „nichts gefunden" auf dem Bildschirm
+   * dasselbe Bild — eine leere Liste.
+   */
+  private speicherZustand(): HTMLDivElement {
+    const laedt = this.speicherLaedt;
+    const kaputt = this.speicherFehler !== null;
+    const gut = !laedt && !kaputt && this.speicher !== null;
+    const kasten = el(
+      'div',
+      stil({
+        display: 'flex',
+        'align-items': 'center',
+        gap: '9px',
+        padding: '8px 10px',
+        background: gut ? F.okFlaeche : F.warnFlaeche,
+        border: `1px solid ${gut ? F.okRand : F.warnRand}`,
+        'border-radius': `${M.radiusKlein}px`,
+      })
+    );
+    const zeichen = sinnbild(gut ? PFAD.haken : PFAD.minus, 13, 2.4);
+    zeichen.style.color = gut ? F.ok : kaputt ? F.fehler : F.warnText;
+    const text = el(
+      'span',
+      stil({ 'font-size': '11.5px', 'line-height': '1.45', color: gut ? F.okText : kaputt ? F.fehler : F.warnText })
+    );
+    if (laedt) {
+      text.textContent = 'Speicherverzeichnis wird gelesen …';
+    } else if (kaputt) {
+      text.textContent = `Speicher nicht lesbar — ${SPEICHER_WURZEL}manifest.json antwortet nicht.`;
+    } else {
+      const art = this.speicherArt;
+      const derArt = (this.speicher ?? []).filter((e) => e.art === art).length;
+      text.append(
+        el('strong', stil({ color: F.textHell }), String(derArt)),
+        document.createTextNode(` Einträge dieser Art · ${this.speicher?.length ?? 0} im ganzen Speicher`)
+      );
+    }
+    kasten.append(zeichen, text);
+    return kasten;
+  }
+
+  /**
+   * Die zwei Ebenen unter der Art: Gruppen (mit Zahl) und Untergruppen.
+   *
+   * Gezählt wird auf dem Stand NACH der Suche (s. `speicherTreffer`) —
+   * eine Marke „Requisiten 242", die nach dem Tippen von „fass" immer
+   * noch 242 sagt, wäre eine Zahl über einen Bestand, den man gerade
+   * nicht ansieht.
+   */
+  private ebenenZeichnen(): void {
+    const art = this.speicherArt;
+    this.gruppenZeile.innerHTML = '';
+    this.untergruppenZeile.innerHTML = '';
+    if (!art || !this.speicher) {
+      this.gruppenZeile.style.display = 'none';
+      this.untergruppenZeile.style.display = 'none';
+      return;
+    }
+    const treffer = this.speicherTreffer();
+    const gruppen = gruppenDerArt(treffer, art);
+    this.gruppenZeile.style.display = gruppen.length > 1 ? 'flex' : 'none';
+    if (gruppen.length > 1) {
+      this.gruppenZeile.appendChild(
+        marke(`Alle ${treffer.length}`, this.gruppe === null, () => this.gruppeSetzen(null))
+      );
+      for (const g of gruppen) {
+        this.gruppenZeile.appendChild(
+          marke(`${g.name} ${g.anzahl}`, this.gruppe === g.name, () => this.gruppeSetzen(g.name))
+        );
+      }
+    }
+
+    // Untergruppen nur, wenn eine Gruppe steht: Über alle Gruppen hinweg
+    // wären es vierzig Marken, und „Fässer" hiesse dann bei Requisiten
+    // etwas anderes als bei Gegenständen.
+    if (!this.gruppe) {
+      this.untergruppenZeile.style.display = 'none';
+      return;
+    }
+    const unter = untergruppenDerGruppe(treffer, art, this.gruppe);
+    this.untergruppenZeile.style.display = unter.length > 1 ? 'flex' : 'none';
+    if (unter.length > 1) {
+      this.untergruppenZeile.appendChild(marke('alle', this.untergruppe === null, () => this.untergruppeSetzen(null)));
+      for (const u of unter) {
+        this.untergruppenZeile.appendChild(
+          marke(`${u.name} ${u.anzahl}`, this.untergruppe === u.name, () => this.untergruppeSetzen(u.name))
+        );
+      }
+    }
+  }
+
+  private gruppeSetzen(name: string | null): void {
+    if (this.gruppe === name) return;
+    this.gruppe = name;
+    // Eine Untergruppe der ALTEN Gruppe gibt es in der neuen nicht — sie
+    // stehen zu lassen hiesse, eine leere Liste mit unsichtbarem Grund.
+    this.untergruppe = null;
+    this.seite = 0;
+    this.listeFuellen();
+  }
+
+  private untergruppeSetzen(name: string | null): void {
+    if (this.untergruppe === name) return;
+    this.untergruppe = name;
+    this.seite = 0;
+    this.listeFuellen();
+  }
+
+  /**
+   * Eine Zeile des Speicher-Bereichs.
+   *
+   * Statt Stern und ⊘ (die dort nichts bedeuten) trägt sie die
+   * Untergruppe rechts — die Antwort auf „was ist das eigentlich?", ohne
+   * dass man klicken muss.
+   */
+  private speicherZeileBauen(eintrag: StoreEintrag): HTMLDivElement {
+    const aktiv = eintrag.id === this.gewaehlt;
+    const zeile = el(
+      'div',
+      stil({
+        display: 'flex',
+        'align-items': 'center',
+        gap: '9px',
+        height: '30px',
+        flex: 'none',
+        padding: '0 10px',
+        'border-radius': `${M.radiusKlein}px`,
+        cursor: 'pointer',
+        background: aktiv ? F.wahlFlaeche : 'transparent',
+        'box-shadow': aktiv ? `inset 0 0 0 1px ${F.akzent}` : 'none',
+        color: aktiv ? F.textHell : F.textRuhig,
+      })
+    );
+    if (!aktiv) beiUeberfahren(zeile, { background: F.erhoben });
+    const txt = el(
+      'span',
+      stil({
+        flex: '1',
+        'font-size': '12.5px',
+        overflow: 'hidden',
+        'text-overflow': 'ellipsis',
+        'white-space': 'nowrap',
+      }),
+      eintrag.name
+    );
+    zeile.title = `${eintrag.id} — ${eintrag.gruppe} / ${eintrag.untergruppe}`;
+    const rechts = el(
+      'span',
+      stil({ 'font-size': '10.5px', color: F.gedimmt2, flex: 'none' }),
+      eintrag.kennzeichen.length > 0 ? `${eintrag.untergruppe} · ${eintrag.kennzeichen[0]}` : eintrag.untergruppe
+    );
+    zeile.append(txt, rechts);
+
+    const da = this.vorhanden.get(eintrag.pfad);
+    if (da !== undefined) {
+      const merker = el(
+        'span',
+        stil({ 'font-family': SCHRIFT.mono, 'font-size': '10.5px', flex: 'none', color: da ? F.ok : F.fehler }),
+        da ? '✓' : '✕'
+      );
+      merker.title = da ? 'Datei liegt im Speicher' : 'Datei fehlt im Speicher (Manifest kennt sie, der Server nicht)';
+      zeile.appendChild(merker);
+    }
+    zeile.onclick = () => void this.waehle(eintrag.id);
+    return zeile;
+  }
+
   /** Eine Listenzeile: Stern, Name, Verfügbarkeitszeichen, Auswahlkasten. */
   private zeileBauen(name: string): HTMLDivElement {
+    const speicherEintrag = this.speicherArt ? this.storeIndex.get(name) : undefined;
+    if (speicherEintrag) return this.speicherZeileBauen(speicherEintrag);
     const aktiv = name === this.gewaehlt;
     const eigen = istEigenesModell(name);
     const zeile = el(
@@ -1176,8 +1735,16 @@ export class GegenstandsKatalog {
    * während ein großes GLB über die Leitung kommt.
    */
   private async waehle(name: string): Promise<void> {
+    const speicherEintrag = this.speicherArt ? this.storeIndex.get(name) : undefined;
+    if (speicherEintrag) {
+      await this.waehleSpeicher(speicherEintrag);
+      return;
+    }
     this.gewaehlt = name;
     this.listeFuellen();
+    // Zurück aus einer Speicher-Ansicht: Bild und Ton müssen weg, sonst
+    // liegt die Textur weiter über der Bühne, auf der das Modell steht.
+    this.buehneUmschalten('modell');
     const def = PREFABS_BY_NAME.get(name) ?? null;
     this.infoSchreiben(name, def, null, null);
 
@@ -1290,6 +1857,20 @@ export class GegenstandsKatalog {
 
   /** Gezeigtes Modell aus der Szene nehmen. */
   private modellFreigeben(): void {
+    if (this.storeContainer) {
+      /*
+        Der Speicher-Container gehört DIESER Ansicht: Meshes, Materialien
+        und Texturen gehen mit weg. `this.gezeigt` zeigt auf einen seiner
+        Wurzelknoten — ihn zusätzlich einzeln zu entsorgen wäre ein
+        zweites `dispose` auf denselben Knoten. Ohne diesen Zweig wüchse
+        `scene.textures` bei jedem Wechsel; ein 4096er-Atlas je Haus
+        summiert sich nach zwanzig Klicks auf mehrere hundert Megabyte.
+      */
+      this.storeContainer.dispose();
+      this.storeContainer = null;
+      this.gezeigt = null;
+      return;
+    }
     if (!this.gezeigt) return;
     // Materialien und Texturen NICHT mitentsorgen: Sie gehören dem
     // AssetContainer im Cache und werden von jeder weiteren Instanz
@@ -1381,6 +1962,277 @@ export class GegenstandsKatalog {
       materialien: materialien.size,
       mitte: min.add(max).scale(0.5),
     };
+  }
+
+  // ── Speicher: Vorschau je Art ──────────────────────────────────────
+
+  /**
+   * Die Bühne kann DREIERLEI zeigen, aber immer nur eines.
+   *
+   * Der Umschalter ist zugleich die Aufräumstelle: Wer von einem
+   * Schrittklang zu einem Haus wechselt, will nicht, dass der Klang
+   * weiterläuft, und wer von einer Textur weggeht, braucht ihr Bild nicht
+   * mehr im Speicher. Beides hier zu erledigen statt an jeder Aufrufstelle
+   * ist der Unterschied zwischen „meistens aufgeräumt" und „aufgeräumt".
+   */
+  private buehneUmschalten(was: 'modell' | 'bild' | 'ton'): void {
+    this.leinwand.style.display = was === 'modell' ? 'block' : 'none';
+    this.bildFlaeche.style.display = was === 'bild' ? 'flex' : 'none';
+    this.tonFlaeche.style.display = was === 'ton' ? 'flex' : 'none';
+    this.rasterPlakette.style.display = was === 'modell' ? '' : 'none';
+    if (was !== 'ton') this.tonAnhalten();
+    if (was !== 'bild') this.bildFreigeben();
+  }
+
+  /** Ton anhalten und die Quelle lösen. */
+  private tonAnhalten(): void {
+    if (!this.tonSpieler.getAttribute('src')) return;
+    this.tonSpieler.pause();
+    /*
+      `removeAttribute` statt `src = ''`: Ein leerer String ist eine
+      RELATIVE Adresse. Der Browser lädt daraufhin die Editorseite selbst
+      als Tondatei und meldet einen Fehler, den niemand zuordnen kann.
+    */
+    this.tonSpieler.removeAttribute('src');
+    this.tonSpieler.load();
+  }
+
+  /** Bild lösen — sonst hält der Browser die Pixel für die ganze Sitzung. */
+  private bildFreigeben(): void {
+    if (this.bild.getAttribute('src')) {
+      this.bild.removeAttribute('src');
+    }
+    this.bildRahmen.style.backgroundImage = 'none';
+    this.bildRahmen.style.width = '';
+    this.bildRahmen.style.height = '';
+    this.bild.style.display = 'block';
+  }
+
+  /**
+   * Ein Speicher-Eintrag ist gewählt — je nach Art in eine andere Bühne.
+   *
+   * `autoplay` setzt nur der „Weiter"-Knopf: Der Klick darauf IST die
+   * Nutzergeste, die der Browser für das Abspielen verlangt. Beim bloßen
+   * Anklicken einer Zeile wäre selbsttätiger Ton eine Zumutung.
+   */
+  private async waehleSpeicher(eintrag: StoreEintrag, autoplay = false): Promise<void> {
+    this.gewaehlt = eintrag.id;
+    this.gezeigterStore = eintrag;
+    this.listeFuellen();
+
+    const nummer = ++this.ladeNummer;
+    this.modellFreigeben();
+    this.letzteMasse = null;
+
+    if (eintrag.art === 'Ton') {
+      this.tonZeigen(eintrag, autoplay);
+      return;
+    }
+    if (eintrag.art === 'Texturen') {
+      this.texturZeigen(eintrag, nummer);
+      return;
+    }
+    await this.storeModellZeigen(eintrag, nummer);
+  }
+
+  /** Ton: Abspieler auf die Datei setzen, Infoblock schreiben. */
+  private tonZeigen(eintrag: StoreEintrag, autoplay: boolean): void {
+    this.buehneUmschalten('ton');
+    this.tonTitel.textContent = `${eintrag.gruppe} · ${eintrag.untergruppe} — ${eintrag.pfad}`;
+    this.tonSpieler.src = `${SPEICHER_WURZEL}${eintrag.pfad}`;
+    this.tonSpieler.load();
+    this.statusSetzen(`${eintrag.gruppe} — bereit`, 'neutral');
+    this.speicherInfoSchreiben(eintrag, null);
+    // Erst wenn die Dauer bekannt ist, kann sie im Infoblock stehen. Das
+    // Manifest nennt sie zwar in `origin`, aber als Fliesstext — die
+    // gemessene Zahl aus dem Element ist die verlässlichere Auskunft.
+    /*
+      BEIDE Ereignisse, und das ist kein Gürtel-und-Hosenträger: Bei
+      Opus-in-Ogg meldet Chromium `loadedmetadata` noch mit `duration =
+      Infinity` und reicht die echte Länge erst mit `durationchange`
+      nach. Nur auf das erste zu hören liefert dauerhaft „— s".
+      Chromium reports Infinity on loadedmetadata for Opus-in-Ogg.
+    */
+    const dauerZeigen = (): void => {
+      if (this.gezeigterStore?.id !== eintrag.id) return;
+      const d = this.tonSpieler.duration;
+      this.statusSetzen(Number.isFinite(d) ? `${fmt(d)} s` : 'bereit', 'da');
+      this.speicherInfoSchreiben(eintrag, null);
+    };
+    this.tonSpieler.onloadedmetadata = dauerZeigen;
+    this.tonSpieler.ondurationchange = dauerZeigen;
+    this.tonSpieler.onerror = () => {
+      if (this.gezeigterStore?.id !== eintrag.id) return;
+      this.vorhanden.set(eintrag.pfad, false);
+      this.statusSetzen('Klang liegt nicht vor', 'fehlt');
+      this.speicherInfoSchreiben(eintrag, 'Die Datei ist im Manifest verzeichnet, der Server liefert sie nicht aus.');
+      this.listeFuellen();
+    };
+    const nachbarn = this.tonNachbarn(eintrag);
+    this.tonWeiter.style.display = nachbarn.length > 1 ? '' : 'none';
+    this.tonWeiter.textContent = `Weiter (${nachbarn.length} in „${eintrag.untergruppe}")`;
+    if (autoplay) void this.tonSpieler.play().catch(() => undefined);
+  }
+
+  /** Alle Klänge derselben Untergruppe, in Listenreihenfolge. */
+  private tonNachbarn(eintrag: StoreEintrag): readonly StoreEintrag[] {
+    return (this.speicher ?? []).filter(
+      (e) => e.art === 'Ton' && e.gruppe === eintrag.gruppe && e.untergruppe === eintrag.untergruppe
+    );
+  }
+
+  /** Nächsten Klang der Untergruppe wählen und sofort abspielen. */
+  private tonWeiterSpielen(): void {
+    const jetzt = this.gezeigterStore;
+    if (!jetzt || jetzt.art !== 'Ton') return;
+    const liste = this.tonNachbarn(jetzt);
+    if (liste.length === 0) return;
+    const i = liste.findIndex((e) => e.id === jetzt.id);
+    // Modulo statt Anschlag am Ende: Neun Grasklänge im Kreis zu hören
+    // ist genau das, wofür der Knopf da ist — ein toter Knopf beim
+    // letzten Eintrag wäre eine Sackgasse ohne Grund.
+    const naechster = liste[(i + 1) % liste.length];
+    if (naechster) void this.waehleSpeicher(naechster, true);
+  }
+
+  /** Textur: Bild laden, Abmessungen messen, Kachelansicht anbieten. */
+  private texturZeigen(eintrag: StoreEintrag, nummer: number): void {
+    this.buehneUmschalten('bild');
+    this.statusSetzen(`lädt ${eintrag.pfad} …`, 'laedt');
+    this.speicherInfoSchreiben(eintrag, null);
+    this.kachelKnopfBeschriften();
+    this.bild.onload = () => {
+      if (nummer !== this.ladeNummer) return;
+      this.vorhanden.set(eintrag.pfad, true);
+      this.bildMasse = { breite: this.bild.naturalWidth, hoehe: this.bild.naturalHeight };
+      this.statusSetzen(`${this.bild.naturalWidth} × ${this.bild.naturalHeight} px`, 'da');
+      this.kachelZeichnen();
+      this.speicherInfoSchreiben(eintrag, null);
+      this.listeFuellen();
+    };
+    this.bild.onerror = () => {
+      if (nummer !== this.ladeNummer) return;
+      this.vorhanden.set(eintrag.pfad, false);
+      this.bildMasse = null;
+      this.statusSetzen('Bild liegt nicht vor', 'fehlt');
+      this.speicherInfoSchreiben(eintrag, 'Die Datei ist im Manifest verzeichnet, der Server liefert sie nicht aus.');
+      this.listeFuellen();
+    };
+    this.bildMasse = null;
+    this.bild.src = `${SPEICHER_WURZEL}${eintrag.pfad}`;
+  }
+
+  private kachelSetzen(an: boolean): void {
+    this.kachelAn = an;
+    this.kachelKnopfBeschriften();
+    this.kachelZeichnen();
+  }
+
+  private kachelKnopfBeschriften(): void {
+    this.bildKachelKnopf.textContent = this.kachelAn ? 'Einzelbild' : 'Kachelansicht 2 × 2';
+  }
+
+  /**
+   * Einzelbild oder 2 × 2 gekachelt.
+   *
+   * Die Kachelansicht benutzt DIESELBE Adresse als
+   * `background-image` — der Browser hat die Pixel schon, es kostet also
+   * keinen zweiten Ladevorgang. Sie beantwortet die einzige Frage, die
+   * ein Einzelbild nicht beantwortet: Setzt sich das nahtlos fort?
+   */
+  private kachelZeichnen(): void {
+    const quelle = this.bild.getAttribute('src');
+    if (!quelle) return;
+    if (!this.kachelAn) {
+      this.bildRahmen.style.backgroundImage = 'none';
+      this.bildRahmen.style.width = '';
+      this.bildRahmen.style.height = '';
+      this.bild.style.display = 'block';
+      return;
+    }
+    this.bild.style.display = 'none';
+    this.bildRahmen.style.width = '360px';
+    this.bildRahmen.style.height = '360px';
+    this.bildRahmen.style.backgroundImage = `url("${quelle}")`;
+    this.bildRahmen.style.backgroundRepeat = 'repeat';
+    this.bildRahmen.style.backgroundSize = '50% 50%';
+  }
+
+  /**
+   * Modell, Höhenfeld oder Kulisse — direkt aus dem Speicher.
+   *
+   * Bewusst NICHT über `AssetManager.instantiate()`: Der löst
+   * PREFABNAMEN auf (`modelBaseUrl` + `<name>.glb` unter
+   * `assets/models/`) und kennt die Store-Pfade nicht. Er würde hier
+   * für jeden Eintrag „liegt nicht vor" melden — eine falsche Auskunft
+   * über einen Bestand, der vollständig da ist.
+   */
+  private async storeModellZeigen(eintrag: StoreEintrag, nummer: number): Promise<void> {
+    this.buehneUmschalten('modell');
+    this.szeneSicherstellen();
+    const scene = this.scene;
+    if (!scene) return;
+    // Kulissen sind Hohlkugeln von bis zu 600 m — mit dem Faktor der
+    // Modelle stünde man 1,4 km entfernt vor einem Punkt.
+    this.kameraFaktor = eintrag.art === 'Kulisse' ? 1.25 : 2.4;
+    this.kameraRahmen();
+    this.statusSetzen(`lädt ${eintrag.pfad} …`, 'laedt');
+    this.speicherInfoSchreiben(eintrag, null);
+
+    const schraeg = eintrag.pfad.lastIndexOf('/');
+    const ordner = `${SPEICHER_WURZEL}${schraeg >= 0 ? eintrag.pfad.slice(0, schraeg + 1) : ''}`;
+    const datei = schraeg >= 0 ? eintrag.pfad.slice(schraeg + 1) : eintrag.pfad;
+
+    let uhr: number | null = null;
+    const abbruch = new Promise<'timeout'>((fertig) => {
+      uhr = window.setTimeout(() => fertig('timeout'), LADE_TIMEOUT);
+    });
+    let ergebnis: AssetContainer | 'timeout' | null;
+    try {
+      ergebnis = await Promise.race([SceneLoader.LoadAssetContainerAsync(ordner, datei, scene), abbruch]);
+    } catch (err) {
+      console.warn('[katalog] Speicher-Modell nicht ladbar', eintrag.pfad, err);
+      ergebnis = null;
+    } finally {
+      if (uhr !== null) window.clearTimeout(uhr);
+    }
+
+    if (nummer !== this.ladeNummer) {
+      // Überholt — der Container hängt noch nicht in der Szene, muss aber
+      // trotzdem weg: Er hält Geometrie und Texturen.
+      if (ergebnis && ergebnis !== 'timeout') ergebnis.dispose();
+      return;
+    }
+    if (ergebnis === 'timeout' || !ergebnis) {
+      this.vorhanden.set(eintrag.pfad, ergebnis === 'timeout' ? true : false);
+      this.statusSetzen(ergebnis === 'timeout' ? 'Zeitüberschreitung' : 'GLB liegt nicht vor', 'fehlt');
+      this.speicherInfoSchreiben(
+        eintrag,
+        ergebnis === 'timeout'
+          ? `Zeitüberschreitung nach ${LADE_TIMEOUT / 1000} s — Server antwortet nicht.`
+          : 'Die Datei ist im Manifest verzeichnet, der Server liefert sie nicht aus.'
+      );
+      this.listeFuellen();
+      return;
+    }
+
+    ergebnis.addAllToScene();
+    this.storeContainer = ergebnis;
+    this.vorhanden.set(eintrag.pfad, true);
+    const wurzel = ergebnis.rootNodes.find((n): n is TransformNode => n instanceof TransformNode) ?? null;
+    if (!wurzel) {
+      this.statusSetzen('GLB ohne sichtbare Geometrie', 'fehlt');
+      this.speicherInfoSchreiben(eintrag, 'Die Datei enthält keine Knoten — nichts zu zeigen.');
+      this.listeFuellen();
+      return;
+    }
+    this.gezeigt = wurzel;
+    const masse = this.messen(wurzel);
+    this.letzteMasse = masse;
+    this.kameraRahmen();
+    this.statusSetzen('GLB geladen', 'da');
+    this.speicherInfoSchreiben(eintrag, null);
+    this.listeFuellen();
   }
 
   // ── Metadaten ──────────────────────────────────────────────────────
@@ -1542,6 +2394,198 @@ export class GegenstandsKatalog {
     this.infoBlock.appendChild(gitter);
   }
 
+  /**
+   * Der Infoblock eines Speicher-Eintrags.
+   *
+   * Er beantwortet andere Fragen als der Prefab-Block darüber: Dort geht
+   * es um Spielwerte (localScale, Item-Gewicht, Animation), hier um die
+   * DATEI — wo sie liegt, wie gross sie ist, wie gross das Ding darin
+   * ist, ob es eine Kollision hat und ob man es weitergeben darf.
+   *
+   * „Id kopieren" ist der einzige Knopf: Der Speicher-Name ist das, was
+   * man gleich danach braucht — für eine Platzierung, eine Kuratierung
+   * oder eine Nachfrage. Ihn von Hand abzutippen (`environment/
+   * sm-bld-house-roof-thatch-peak-cap-beams-01`) ist eine Fehlerquelle
+   * ohne Gegenwert.
+   */
+  private speicherInfoSchreiben(eintrag: StoreEintrag, warnung: string | null): void {
+    this.infoBlock.innerHTML = '';
+
+    const kopf = el('div', stil({ display: 'flex', 'align-items': 'center', gap: '11px', 'flex-wrap': 'wrap' }));
+    kopf.appendChild(el('span', stil({ 'font-size': '15px', 'font-weight': '600', color: F.textHell }), eintrag.name));
+    kopf.appendChild(
+      el(
+        'span',
+        stil({
+          display: 'flex',
+          'align-items': 'center',
+          gap: '5px',
+          padding: '3px 9px',
+          'border-radius': '999px',
+          background: F.feld,
+          border: `1px solid ${F.randFeld}`,
+          'font-size': '10.5px',
+          color: F.textRuhig,
+        }),
+        `${eintrag.art} · ${eintrag.gruppe} · ${eintrag.untergruppe}`
+      )
+    );
+    for (const k of eintrag.kennzeichen) {
+      kopf.appendChild(
+        el(
+          'span',
+          stil({
+            padding: '3px 8px',
+            'border-radius': '999px',
+            background: F.warnFlaeche,
+            border: `1px solid ${F.warnRand}`,
+            'font-size': '10.5px',
+            color: F.warnText,
+          }),
+          k
+        )
+      );
+    }
+    kopf.appendChild(
+      el('span', stil({ 'font-family': SCHRIFT.mono, 'font-size': '11px', color: F.gedimmt2 }), eintrag.pfad)
+    );
+    kopf.appendChild(luecke());
+    if (warnung) {
+      kopf.appendChild(
+        el(
+          'span',
+          stil({
+            padding: '5px 10px',
+            'border-radius': `${M.radiusKlein}px`,
+            background: F.feld,
+            border: `1px solid ${F.warnRand}`,
+            'font-size': '11.5px',
+            color: F.fehler,
+          }),
+          `⚠ ${warnung}`
+        )
+      );
+    }
+    if (eintrag.kennzeichen.includes('Kollisionsnetz') && !eintrag.prefabName) {
+      // Neun der zwoelf Netze sind verwaist. Das ist keine Warnung ueber
+      // den Katalog, sondern eine Auskunft ueber den Speicher — und
+      // genau die Sorte, die man beim Aufraeumen braucht.
+      kopf.appendChild(
+        el(
+          'span',
+          stil({
+            padding: '5px 10px',
+            'border-radius': `${M.radiusKlein}px`,
+            background: F.feld,
+            border: `1px solid ${F.warnRand}`,
+            'font-size': '11.5px',
+            color: F.warnText,
+          }),
+          'verwaist — kein Prefab verweist auf dieses Netz'
+        )
+      );
+    }
+    const kopieren = knopf(
+      'Id kopieren',
+      () => {
+        void navigator.clipboard
+          ?.writeText(eintrag.id)
+          .then(() => this.statusSetzen(`„${eintrag.id}" kopiert`, 'da'))
+          // Ohne sicheren Kontext (http auf fremdem Host) gibt es keine
+          // Zwischenablage. Statt eines stummen Nichts sagt die Plakette,
+          // was los ist — und die Id steht im Kopf daneben zum Markieren.
+          .catch(() => this.statusSetzen('Zwischenablage nicht verfügbar', 'fehlt'));
+      },
+      { art: 'leise', hoehe: 30, pfad: PFAD.export, titel: eintrag.id }
+    );
+    kopf.appendChild(kopieren);
+    this.infoBlock.appendChild(kopf);
+
+    const felder: [string, string][] = [['Id', eintrag.id]];
+    felder.push(['Dateigröße', fmtBytes(eintrag.bytes)]);
+    const h = eintrag.bounds;
+    if (h) {
+      felder.push([
+        'Hüllbox B×H×T',
+        `${fmt(h.max[0] - h.min[0])} × ${fmt(h.max[1] - h.min[1])} × ${fmt(h.max[2] - h.min[2])} m`,
+      ]);
+    }
+    if (h && h.min[1] < -0.001) {
+      /*
+        Der Ursprung liegt bei 257 Modellen ueber der Unterkante — meist
+        Absicht (Bodenkontaktpunkt), bei drei Ausreissern nicht:
+        `sm-item-horn` reicht 15,2 m nach unten. Wer das nicht sieht,
+        setzt das Ding auf die Karte und sucht es dann unter dem Gelände.
+      */
+      felder.push(['Unterkante', `${fmt(h.min[1])} m unter dem Ursprung`]);
+    }
+    if (this.letzteMasse) {
+      felder.push(['Dreiecke', this.letzteMasse.dreiecke.toLocaleString('de-DE')], ['Meshes', String(this.letzteMasse.meshes)]);
+    }
+    if (this.storeContainer) {
+      /*
+        Materialien und Texturen sind hier keine Neugier, sondern die
+        Kontrolle: 468 der Store-GLBs holen ihre Texturen RELATIV
+        (`textures/<name>.png` neben der Datei). Stimmt die Wurzel-URL
+        nicht, kommt das Modell trotzdem — nur grau, und niemand sagt
+        etwas. Eine Texturzahl von 0 an einem Modell, das eine haben
+        müsste, ist genau dieser Fall.
+      */
+      felder.push(
+        ['Materialien', String(this.storeContainer.materials.length)],
+        ['Texturen geladen', String(this.storeContainer.textures.length)]
+      );
+    }
+    if (eintrag.kollisionsdatei) {
+      felder.push(['Kollisionsnetz', eintrag.kollisionsdatei]);
+    }
+    if (eintrag.kollision) {
+      felder.push([
+        'Kollision',
+        eintrag.kollision === 'box' ? 'Quader' : eintrag.kollision === 'mesh' ? 'Netz' : 'keine',
+      ]);
+    }
+    if (eintrag.art === 'Texturen') {
+      felder.push(['Abmessung', this.bildMasse ? `${this.bildMasse.breite} × ${this.bildMasse.hoehe} px` : '—']);
+      if (eintrag.gruppe === 'Boden-Texturen') {
+        // Die Bodentexturen liegen im Gelände auf einer festen Kachel;
+        // ohne den Hinweis rät man an der Pixelzahl herum, wie gross ein
+        // Grasbüschel im Spiel wird.
+        felder.push(['Kachel', 'Boden-Textur — wird im Gelände gekachelt (Kachelansicht zeigt den Stoß)']);
+      }
+    }
+    if (eintrag.art === 'Ton') {
+      const dauer = Number.isFinite(this.tonSpieler.duration) ? `${fmt(this.tonSpieler.duration)} s` : '—';
+      felder.push(['Dauer (gemessen)', dauer]);
+      if (eintrag.herkunft) {
+        /*
+          `origin` beginnt bei Ton mit „1.18 s, mono, 48 kHz, …" und geht
+          dann in die Werkzeugkette über. Getrennt wird deshalb am KOMMA
+          und nicht am Punkt — der Punkt ist hier das Dezimalzeichen, und
+          eine Trennung dort machte aus 1,18 s ein „1".
+        */
+        felder.push(['Manifest', eintrag.herkunft.split(',').slice(0, 3).join(',').trim()]);
+      }
+    }
+    felder.push(['Lizenz', eintrag.lizenzstatus]);
+    if (eintrag.prefabName) felder.push(['Prefab-Id', eintrag.prefabName]);
+
+    const gitter = el('div', stil({ display: 'flex', gap: '26px', 'flex-wrap': 'wrap' }));
+    for (const [k, v] of felder) {
+      const spalte = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '3px' }));
+      spalte.append(
+        el('span', beschriftungStil(), k),
+        el(
+          'span',
+          stil({ 'font-family': SCHRIFT.mono, 'font-size': '12px', color: F.textRuhig, 'max-width': '460px' }),
+          v
+        )
+      );
+      gitter.appendChild(spalte);
+    }
+    this.infoBlock.appendChild(gitter);
+  }
+
   // ── Verfügbarkeit ──────────────────────────────────────────────────
 
   /**
@@ -1560,6 +2604,16 @@ export class GegenstandsKatalog {
    */
   private async pruefeSeite(): Promise<void> {
     const namen = this.seitenNamen();
+    /*
+      Im Speicher-Bereich ist der Schlüssel der PFAD und nicht der
+      Modellname — dieselbe Frage, andere Adresse. Beides über einen
+      Kamm zu scheren (`PREFABS_BY_NAME`) meldete für jeden
+      Speicher-Eintrag „fehlt", denn die Registry kennt keinen davon.
+    */
+    if (this.speicherArt) {
+      await this.pruefeSpeicherSeite(namen);
+      return;
+    }
     const offen = namen
       .map((n) => PREFABS_BY_NAME.get(n)?.model)
       .filter((m): m is string => !!m && !this.vorhanden.has(m));
@@ -1604,6 +2658,62 @@ export class GegenstandsKatalog {
     }).length;
     this.statusSetzen(`${da} von ${namen.length} Modellen dieser Seite liegen vor.`, da > 0 ? 'da' : 'fehlt');
   }
+
+  /**
+   * Dasselbe für den Speicher — HEAD auf `/assets/store/<pfad>`.
+   *
+   * Auch hier nur die SICHTBARE Seite: 672 Anfragen auf einen Schlag
+   * wären dieselbe kleine Denial-of-Service-Attacke wie bei der
+   * Registry, nur mit einem Bestand, von dem fast alles daliegt.
+   */
+  private async pruefeSpeicherSeite(ids: readonly string[]): Promise<void> {
+    const offen = ids
+      .map((id) => this.storeIndex.get(id)?.pfad)
+      .filter((p): p is string => !!p && !this.vorhanden.has(p));
+    if (offen.length === 0) {
+      this.statusSetzen('Seite bereits geprüft.', 'neutral');
+      window.setTimeout(() => this.statusSetzen('', 'neutral'), 2000);
+      return;
+    }
+    this.pruefKnopf.disabled = true;
+    this.pruefKnopf.textContent = `prüfe ${offen.length} Dateien …`;
+    let naechster = 0;
+    const arbeiter = async (): Promise<void> => {
+      while (naechster < offen.length) {
+        const pfad = offen[naechster++]!;
+        try {
+          const antwort = await fetch(`${SPEICHER_WURZEL}${pfad}`, { method: 'HEAD' });
+          const typ = antwort.headers.get('content-type') ?? '';
+          this.vorhanden.set(pfad, antwort.ok && !typ.includes('text/html'));
+        } catch {
+          /* Netzfehler: unbekannt lassen (s. Kopf der Registry-Prüfung) */
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(PRUEF_PARALLEL, offen.length) }, arbeiter));
+    this.pruefKnopf.textContent = 'Verfügbarkeit dieser Seite prüfen';
+    this.pruefKnopf.disabled = false;
+    this.listeFuellen();
+    const da = ids.filter((id) => {
+      const p = this.storeIndex.get(id)?.pfad;
+      return p ? this.vorhanden.get(p) === true : false;
+    }).length;
+    this.statusSetzen(`${da} von ${ids.length} Dateien dieser Seite liegen vor.`, da > 0 ? 'da' : 'fehlt');
+  }
+}
+
+/**
+ * Dateigröße in der Einheit, in der man sie im Kopf hat.
+ *
+ * Bytes ausgeschrieben (`20560`) beantworten die Frage nicht, die man
+ * stellt („ist das gross?"). Gerundet wird bewusst grob — auf ein
+ * Kilobyte kommt es beim Durchsehen eines Speichers nie an.
+ */
+function fmtBytes(b: number): string {
+  if (!Number.isFinite(b) || b < 0) return '—';
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(0).replace('.', ',')} kB`;
+  return `${(b / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`;
 }
 
 /** Kurze Zahl fürs Auge: 12,4 statt 12.412345678. */

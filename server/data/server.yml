@@ -135,6 +135,11 @@ dungeons:
   # steuert allein, ob beim Weltbau Eingänge gebucht werden — solange es
   # kein Portal gibt, hat ein gebuchter Eingang keinen Nutzen.
   enabled: false
+  # E5/E8: laesst einen Admin im Dungeon-Editor einen Saal BAUEN — der
+  # Server schreibt die GLB nach assets/generiert/ und traegt das Modul in
+  # modul-registry.json ein. Ohne diesen Schalter lehnt der Server das
+  # Paket ab UND der Editor zeigt das Formular gar nicht erst an.
+  modulbau: true
   # doors, seeded: verworfen (A14, 20.08.) -- Tueren steuert das jeweilige
   # Kit selbst (RoomDef.doorTypes/doorChance in
   # shared/src/dungeonGenerator.ts), kein globaler Schalter liest "doors".

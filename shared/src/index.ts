@@ -15,6 +15,11 @@ export * from './types.js';
 export * from './protocol.js';
 export * from './hash.js';
 export * from './prefabs.js';
+// Der Asset-Speicher: Typen und Stellschrauben von Hand, die Daten
+// erzeugt (tools/store-prefabs.mjs). Bauer C baut den Gegenstandskatalog
+// auf `STORE_KATALOG` auf und braucht beides.
+export * from './storeKatalog.js';
+export * from './storePrefabs.js';
 export * from './npc.js';
 export * from './leben.js';
 export * from './aggro.js';

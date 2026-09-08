@@ -64,14 +64,15 @@ import { WindPlugin } from './WindPlugin';
 import { FlammenAtlas } from './FlammenAtlas';
 import { GlutPuls } from './GlutPuls';
 
-import { GENERATED_PREFIX, modelBaseUrl } from './assetUrls';
+import { GENERATED_PREFIX, modelBaseUrl, modelDateiName, modelUrl } from './assetUrls';
+import { storeSpiegelung } from '@wov/shared';
 
 const TEXTUR_BASE_URL = '/assets/textures/';
 
 // E6: `MODEL_BASE_URL`, `GENERATED_BASE_URL`, `GENERATED_PREFIX` und
 // `modelBaseUrl` wohnen in `assetUrls.ts` — Begründung im Kopf dort.
 // Weitergereicht, weil der Präfix hier immer schon zu haben war.
-export { GENERATED_PREFIX, modelBaseUrl };
+export { GENERATED_PREFIX, modelBaseUrl, modelDateiName, modelUrl };
 
 /**
  * Prefabs, deren GLB ein Material OHNE Albedo-Textur mitbringt, samt der
@@ -258,8 +259,23 @@ export class AssetManager {
       // Varianten laden die Datei ihres Alias-Ziels, behalten aber ihren
       // eigenen Container (Cache-Schlüssel bleibt `name` — s. MODELL_ALIAS).
       const datei = MODELL_ALIAS[name] ?? name;
-      // Die Basis folgt der DATEI, nicht dem Prefabnamen — s. modelBaseUrl().
-      p = SceneLoader.LoadAssetContainerAsync(modelBaseUrl(datei), `${datei}.glb`, this.scene)
+      /*
+        Basis und Dateiname getrennt, und beide aus `assetUrls.ts`.
+
+        Die Trennung ist nicht Geschmack: Babylon löst die relativen
+        Textur-URIs einer GLB gegen die BASIS auf. Wer den ganzen Pfad
+        als Dateinamen übergibt, lädt die GLB richtig und ihre Texturen
+        an der falschen Stelle — s. modelBaseUrl().
+      */
+      p = SceneLoader.LoadAssetContainerAsync(
+        modelBaseUrl(datei),
+        `${modelDateiName(datei)}.glb`,
+        this.scene
+      )
+        .then((container) => {
+          spiegeleWennNoetig(datei, container);
+          return container;
+        })
         .catch((err: unknown) => {
           this.failed.set(name, String(err));
           console.warn(`[assets] load failed: ${name}`, err);
@@ -1034,6 +1050,50 @@ export function entschaerfeVertexAlpha(mesh: Mesh): void {
  * keinem Elternknoten und steht bereits in Weltkoordinaten, localMatrix
  * wird also die Identität und der Determinantenzweig greift nicht.
  */
+/**
+ * Der Spiegelungs-Schalter des Asset-Speichers — die EINE Stelle, an der
+ * über die Händigkeit eines Store-Modells entschieden wird.
+ *
+ * ── Was Babylon von sich aus tut ─────────────────────────────────────
+ * glTF ist rechtshändig, Babylon linkshändig. Der glTF-Lader löst das,
+ * indem er der geladenen Hierarchie einen Knoten `__root__` mit
+ * `scaling.x = -1` voranstellt. Jedes Modell im Spiel läuft durch diese
+ * Spiegelung — die eigenen Exporte rechnen sie ein (Gedächtnisnotiz
+ * „Client spiegelt eigene Modelle": sie werden VORgespiegelt gebaut).
+ *
+ * ── Warum ein Schalter und keine Entscheidung ────────────────────────
+ * Ob der Fremdbestand aus `assets/store/` dieselbe Behandlung braucht,
+ * ist eine Messfrage: Man sieht es nur an einem Modell mit eindeutiger
+ * Händigkeit (Schrift, Wendeltreppe, asymmetrisches Werkzeug). Bauer D
+ * misst das; bis dahin steht `STORE_SPIEGELN_VORGABE` auf `false`, und
+ * diese Funktion tut nichts. Sie hier trotzdem einzubauen kostet drei
+ * Zeilen — sie später nachzurüsten hiesse, den Ladepfad ein zweites Mal
+ * zu verstehen.
+ *
+ * ── Warum HIER und nicht in `getMasters`/`instantiate` ───────────────
+ * Weil beide Wege am Container hängen: `getMasters` bäckt die Hierarchie
+ * in `localMatrix` (also auch `__root__`), `instantiate` klont sie
+ * mitsamt Wurzel. Ein Schalter an nur einem der beiden Orte spiegelte
+ * gesetzte Deko und gespawnte Objekte verschieden — und das fiele erst
+ * auf, wenn beides nebeneinander stünde.
+ *
+ * The one place the store's handedness is decided; see storeKatalog.ts.
+ */
+function spiegeleWennNoetig(datei: string, container: AssetContainer): void {
+  if (!storeSpiegelung(datei)) return;
+  const wurzel = container.rootNodes.find((n) => n.name === '__root__');
+  if (!(wurzel instanceof TransformNode)) {
+    // Kein `__root__` heisst: Der Lader hat die Konvention geändert oder
+    // die Datei ist keine glTF. Beides ist ein Befund und keine Lage,
+    // die man still übergeht — sonst stünde das Modell ungespiegelt da,
+    // obwohl der Schalter gesetzt ist, und niemand wüsste warum.
+    console.warn(`[assets] ${datei}: kein __root__ — Spiegelung nicht angewendet`);
+    return;
+  }
+  wurzel.scaling.x *= -1;
+  wurzel.computeWorldMatrix(true);
+}
+
 function zuMaster(mesh: Mesh): PrefabMaster {
   mesh.computeWorldMatrix(true);
   const localMatrix = mesh.getWorldMatrix().clone();
@@ -1147,6 +1207,25 @@ function isFoliageMaterial(name: string): boolean {
  * ist der verlässlichste Anhaltspunkt, den wir zur Ladezeit haben.
  */
 function swaysInWind(modelName: string): boolean {
+  /*
+    Der Asset-Speicher zuerst, und zwar über den ORDNER statt über den
+    Namen.
+
+    Diese Regel ist eine AUSSCHLUSSLISTE: Was nicht auf ihr steht, biegt
+    sich. Für den Altbestand geht das auf, weil dort jedes Bauteil
+    „wood_…" oder „stone_…" heisst. Ein Store-Modell heisst
+    `store/environment/sm-prop-barrel-03` — es beginnt mit „store", steht
+    auf keiner Zeile der Liste, und ohne diesen Zweig wackelte JEDES
+    Fass, jede Mauer und jeder Felsen im Wind. Ein Fehler, den man erst
+    bei Wind sieht und dann für einen Shaderfehler hält.
+
+    Der Ordner ist die bessere Auskunft als der Dateiname: `assets/store/
+    vegetation/` ist genau das, was sich biegen soll, und die Einteilung
+    stammt aus der Quelle statt aus einer Wortliste.
+  */
+  if (modelName.startsWith('store/') || modelName.startsWith('store-lab/')) {
+    return /^store(-lab)?\/vegetation\//.test(modelName);
+  }
   return !/^(wood|stone|iron|piece|goblin|dvergr|darkwood|blackmarble|ashwood|charred|guard|portal|turf|straw|thatch|roof|wall|floor|beam|pole|stair|fence|door|ladder|chest|bed|chair|table|bench|banner|sign|cart|ship|raft|karve|longship|rock|cliff|mine|silvervein|ice|giant|grave|stubbe)/i.test(
     modelName
   );

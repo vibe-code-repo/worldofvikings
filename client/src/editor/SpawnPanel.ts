@@ -35,7 +35,9 @@ import {
   NPC_STUFE_MIN,
   istEigenesModell,
   istNpcPrefab,
+  istStoreModell,
   loeseNpcAuf,
+  STORE_MODELL_NAMEN,
 } from '@wov/shared';
 import type { Fraktion, NpcDef, NpcRolle, QuestZustand } from '@wov/shared';
 // GrabhuegelGras teilt sich per MODELL_ALIAS die GLB von Grabhuegel (s.
@@ -116,6 +118,14 @@ const QUEST_TEXT: Readonly<Record<string, string>> = {
 function vorschauBild(name: string): string | null {
   const modell = PREFABS_BY_NAME.get(name)?.model;
   if (!modell) return null;
+  /*
+    Für den Asset-Speicher gibt es keine Vorschaubilder —
+    `tools/vorschaubilder.py` läuft über `assets/models/`, und der Store
+    liegt woanders. Der `onerror`-Rückfall des <img> finge das zwar auf,
+    aber um den Preis von bis zu 80 sinnlosen 404 je Listenseite. Ein
+    Bild, von dem man weiss, dass es nicht existiert, fragt man nicht ab.
+  */
+  if (istStoreModell(modell)) return null;
   const datei = MODELL_ALIAS[modell] ?? modell;
   return `/assets/vorschau/${datei}.png`;
 }
@@ -142,13 +152,39 @@ function eigeneZuerst(namen: readonly string[]): string[] {
   ];
 }
 
+/**
+ * Die Store-Namen als Menge — einmal gebaut statt 569-mal gesucht.
+ *
+ * `listeFuellen()` läuft bei jedem Tastendruck im Suchfeld; ein
+ * `includes` über 569 Namen je Zeile wäre eine Bremse, die man beim
+ * Tippen spürt.
+ */
+const STORE_NAMEN_MENGE: ReadonlySet<string> = new Set(STORE_MODELL_NAMEN);
+
 const KATEGORIEN: ReadonlyArray<{ name: string; namen: () => string[] }> = [
   // Zuerst, und damit die Vorgabe beim Öffnen: die kurze Liste der selbst
   // erzeugten Modelle. In den anderen Kategorien gehen sie zwischen
   // hunderten Einträgen unter (die Liste zeigt nur die ersten 80).
   // Nicht vorhandene Namen werden gefiltert, damit ein Eintrag ohne
   // passende GLB die Auswahl nicht mit einer toten Zeile verstopft.
-  { name: 'Eigene Modelle', namen: () => EIGENE_MODELLE.filter((n) => PREFABS_BY_NAME.has(n)) },
+  {
+    name: 'Eigene Modelle',
+    namen: () =>
+      EIGENE_MODELLE.filter((n) => PREFABS_BY_NAME.has(n) && !STORE_NAMEN_MENGE.has(n)),
+  },
+  /*
+    Der Asset-Speicher als EIGENE Kategorie.
+
+    Ohne sie wäre er zwar setzbar, aber unauffindbar: Er hängt in
+    `EIGENE_MODELLE` hinten an 113 Altnamen, und die Liste zeigt 80
+    Zeilen. Man müsste den Namen bereits kennen und ihn eintippen — genau
+    der Zustand, gegen den „Eigene Modelle" seinerzeit eingeführt wurde.
+
+    Die Suche darüber trägt hier mehr als anderswo: Die Namen sind nach
+    Gruppe geordnet (`environment-sm-prop-barrel-…`), ein „barrel" im
+    Suchfeld holt also das ganze Fach.
+  */
+  { name: 'Asset-Speicher', namen: () => [...STORE_MODELL_NAMEN] },
   { name: 'Vegetation', namen: () => eigeneZuerst([...new Set(FOLIAGE.map((f) => f.prefabName))]) },
   { name: 'Bauteile', namen: () => eigeneZuerst([...BAU_PREFABS]) },
   {

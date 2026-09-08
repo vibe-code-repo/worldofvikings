@@ -55,7 +55,7 @@ import { resolve } from 'node:path';
 
   Skip switches live in their own module so they can be tested.
 */
-import { WURZEL, brauchtModelle, brauchtBlender } from './testweichen.mjs';
+import { WURZEL, brauchtModelle, brauchtBlender, brauchtStore } from './testweichen.mjs';
 
 /*
   Weiche fuer Pruefer, die eine `python3`-Datei befragen.
@@ -871,6 +871,31 @@ const KERN = [
   // Bericht FALLEN lassen. Braucht keine Modelldateien, laeuft also auch
   // im CI-Checkout. Sekundenbruchteile.
   ['tools', 'test/manifest-zuordnung.ts'],
+
+  // ── Asset-Bruecke: der Speicher unter assets/store ─────────────────
+  //
+  // Drei Tests, absichtlich getrennt nach dem, was sie VORAUSSETZEN:
+  //
+  //  1. `shared/test/store-registry.ts` rechnet nur mit der erzeugten
+  //     Tabelle (eingecheckt) — keine Dateien, keine Weiche, laeuft im
+  //     CI-Checkout. Er haelt fest, dass die 569 Store-Prefabs wirklich
+  //     in PREFAB_DEFS/EIGENE_MODELLE stehen und dass kein Hash
+  //     zusammenstoesst. Sekundenbruchteile.
+  //
+  //  2. `client/test/store-ladepfad.ts` rechnet `modelBaseUrl()` durch —
+  //     ebenfalls dateilos. Ein falscher Zweig dort ergibt eine URL, die
+  //     plausibel aussieht und 404 liefert. Sekundenbruchteile.
+  //
+  //  3. `tools/test/store-erzeugung.ts` fasst die PLATTE an: zwei
+  //     Generatorlaeufe (byteidentisch?), das Eingecheckte gegen den
+  //     frischen Lauf, und jeder Modellpfad gegen die Datei dahinter.
+  //     Nur DER braucht die Weiche — `brauchtStore()` ueberspringt, wenn
+  //     `assets/store` ganz fehlt; fehlende EINZELDATEIEN darin sind ein
+  //     Befund und machen ihn rot (Begruendung in testweichen.mjs).
+  //     ~2 s (zwei node-Starts ueber 670 Manifest-Eintraege).
+  ['shared', 'test/store-registry.ts'],
+  ['client', 'test/store-ladepfad.ts'],
+  ['tools', 'test/store-erzeugung.ts', brauchtStore()],
 
   // ── Dungeon Generator 2.0 ──────────────────────────────────────────
   //

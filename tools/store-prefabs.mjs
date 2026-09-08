@@ -17,7 +17,7 @@
   sortiert, Zahlen laufen durch DIESELBE Rundung (`zahl()`). Das ist
   keine Kosmetik — eine erzeugte Datei, die sich bei jedem Lauf ändert,
   macht jeden `git diff` unlesbar, und dann sieht niemand mehr, WAS sich
-  geändert hat. `client/test/store-prefabs-erzeugung.ts` hält es fest.
+  geändert hat. `tools/test/store-erzeugung.ts` hält es fest.
 
   ── Was NICHT hierher gehört ─────────────────────────────────────────
   Die Stellschrauben (Spiegelung, Ordnernamen) und die Typen stehen in
@@ -321,8 +321,26 @@ function kennzeichenVon(stamm) {
   if (/(^|-)snow($|-)/.test(stamm)) aus.push('snow');
   if (/(^|-)dark($|-)/.test(stamm)) aus.push('dark');
   if (/(^|-)lod(-\d+)?($|-)/.test(stamm)) aus.push('lod');
-  if (/(^|-)collision($|-)/.test(stamm)) aus.push('kollision');
+  if (KOLLISIONSNAME.test(stamm)) aus.push('kollision');
   return aus;
+}
+
+/**
+ * Woran man eine Kollisionsdatei erkennt — der Dateiname, und sonst
+ * nichts.
+ *
+ * Bauer Ds Messprobe (08.09.2026) hat alle 581 Store-GLBs geöffnet und
+ * darin KEINEN einzigen `_col`-Knoten gefunden. Die `_col`-Konvention
+ * des Altbestands (`AssetManager.NUR_KOLLISION_NAME`) greift hier also
+ * nicht: Kollisionsgeometrie ist im Speicher immer eine eigene Datei.
+ * Das Muster ist absichtlich weiter als der heutige Bestand (`-col`,
+ * `_collision`, …) — es kostet nichts und fängt die nächste Schreibweise.
+ */
+const KOLLISIONSNAME = /(^|[-_])col(lision)?([-_.]|$)/i;
+
+/** `…-collision.glb` → `…` (der Modellstamm, den die Datei beschreibt). */
+function modellStammZuKollision(stamm) {
+  return stamm.replace(/[-_]col(lision)?$/i, '');
 }
 
 // ── Einsortierung ─────────────────────────────────────────────────────
@@ -530,9 +548,24 @@ for (const a of vorhanden) {
   let art;
   if (a.kind === 'texture') art = 'textur';
   else if (a.kind === 'audio') art = 'ton';
+  else if (kennzeichen.includes('kollision')) art = 'kollision';
   else if (a.kind === 'terrain' || gruppe === 'Höhenfelder') art = 'terrain';
   else if (gruppe === 'Kulisse') art = 'kulisse';
   else art = 'modell';
+
+  /*
+    Ein Ursprung tief unter dem Modell ist kein Fehler — die Quelle hält
+    den Szenenursprung fest, und 335 der 569 Prefabs reichen unter y=0
+    (Pfosten, Wurzeln, Fundamente). Verschöbe man sie auf min y = 0,
+    stünde jeder Pfahl auf dem Rasen statt darin.
+
+    Drei Dateien sind trotzdem eine Ansage: `sm-item-horn` (−15,2 m),
+    `sm-item-bag-large` (−14,9 m) und `sm-item-shrooms` (−8,8 m). Wer so
+    ein Modell setzt, sieht am Setzpunkt NICHTS — es hängt zwei
+    Stockwerke tiefer. Das Kennzeichen ist die einzige Warnung, die es
+    dafür gibt.
+  */
+  if (a.bounds && a.bounds.min[1] < -1) kennzeichen.push('ursprung-versetzt');
 
   let kollision;
   if (p?.collision) {
@@ -540,6 +573,19 @@ for (const a of vorhanden) {
     if (p.collision.box) kollision.box = p.collision.box;
     if (p.collision.asset?.path) kollision.netz = p.collision.asset.path;
   }
+
+  /*
+    Die eigene Kollisions-GLB — aus dem DATEINAMEN, nicht aus
+    `prefabs.json`. Die Quelle nennt nur drei der zwölf
+    `…-collision.glb`; neun weitere beschreiben ein Modell, das gar
+    nicht im Store liegt. Über den Namen findet man alle, die man finden
+    KANN, und die neun Waisen bleiben stumm liegen statt falsch
+    verknüpft.
+  */
+  const kollisionsDatei =
+    art === 'modell' && manifestNachPfad.has(`${ohneEndung(a.path)}-collision.glb`)
+      ? `${ohneEndung(a.path)}-collision.glb`
+      : undefined;
 
   katalog.push({
     id: a.id,
@@ -552,6 +598,15 @@ for (const a of vorhanden) {
     hash: a.hash,
     bounds: a.bounds,
     kollision,
+    kollisionsDatei,
+    /*
+      Kulissen (bis 594 m) und Höhenfelder (bis 300 m, mit eigenem
+      Gelände) bleiben im Katalog, dürfen aber nicht gesetzt oder
+      gestreut werden — Bauer Ds Punkt 5. `platzierbar` sagt das an der
+      EINZELNEN Zeile; `STORE_NICHT_STREUEN` sagt dasselbe als Menge,
+      für Aufrufer, die keinen Katalogeintrag zur Hand haben.
+    */
+    platzierbar: art === 'kulisse' || art === 'terrain' ? false : undefined,
     // `visibility`/`redistributable` sagen dasselbe in zwei Feldern; der
     // Katalog führt EINE Antwort. Ein Eintrag, bei dem beide auseinander
     // gehen, wird als `intern` behandelt — im Zweifel nicht nach draussen.
@@ -581,13 +636,15 @@ function katalogZeile(e) {
     t.push(`kennzeichen: [${e.kennzeichen.map(tsText).join(', ')}]`);
   }
   t.push(`bytes: ${e.bytes}`, `hash: ${tsText(e.hash)}`);
-  if (e.bounds) t.push(`bounds: ${boundsText(e.bounds)}`);
+  if (e.bounds) t.push(`bounds: ${boundsText(e.bounds)}`, `boundsRaum: 'datei'`);
   if (e.kollision) {
     const k = [`art: ${tsText(e.kollision.art)}`];
     if (e.kollision.box) k.push(`box: ${boundsText(e.kollision.box)}`);
     if (e.kollision.netz) k.push(`netz: ${tsText(e.kollision.netz)}`);
     t.push(`kollision: { ${k.join(', ')} }`);
   }
+  if (e.kollisionsDatei) t.push(`kollisionsDatei: ${tsText(e.kollisionsDatei)}`);
+  if (e.platzierbar === false) t.push('platzierbar: false');
   t.push(`lizenzstatus: ${tsText(e.lizenzstatus)}`);
   if (e.prefabName) t.push(`prefabName: ${tsText(e.prefabName)}`);
   return `  { ${t.join(', ')} },`;
@@ -595,10 +652,7 @@ function katalogZeile(e) {
 
 const gruppen = [...new Set(katalog.map((e) => e.gruppe))].sort();
 const nichtStreuen = defs
-  .filter((d) => {
-    const e = katalog.find((k) => k.prefabName === d.name);
-    return e?.art === 'kulisse' || e?.art === 'terrain';
-  })
+  .filter((d) => katalog.find((k) => k.prefabName === d.name)?.platzierbar === false)
   .map((d) => d.name);
 
 const kopf = `/**

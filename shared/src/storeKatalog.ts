@@ -27,8 +27,15 @@
  * Kulisse ist ~600 m breit (`environment/backdrop-mountains-clear.glb`),
  * ein Höhenfeld bringt sein eigenes Gelände mit. Wer sie zwischen die
  * Requisiten mischte, setzte einen halben Kilometer Berg neben ein Fass.
+ *
+ * `kollision` sind die zwölf `…-collision.glb` — unsichtbare
+ * Hüllgeometrie, die NIE ins Bild gehört. Sie tragen bewusst eine eigene
+ * Art und kein blosses Kennzeichen: Ein Kennzeichen übersieht man beim
+ * Filtern, eine Art nicht. Bauer Ds Messprobe hat sie gezählt und
+ * festgestellt, dass es KEINE `_col`-Knoten in den Dateien gibt — die
+ * Trennung läuft ausschliesslich über den Dateinamen.
  */
-export type StoreArt = 'modell' | 'textur' | 'ton' | 'terrain' | 'kulisse';
+export type StoreArt = 'modell' | 'textur' | 'ton' | 'terrain' | 'kulisse' | 'kollision';
 
 /**
  * Darf die Datei das Repo verlassen?
@@ -60,8 +67,11 @@ export interface StoreBounds {
  * abweicht. Fehlt sie, gilt `bounds` des Eintrags.
  *
  * `netz` ist der Pfad einer eigenen Kollisions-GLB relativ zum Store
- * (Namensregel `…-collision.glb`; im Client entspricht das der
- * `_col`-Konvention aus `AssetManager`).
+ * (Namensregel `…-collision.glb`). ACHTUNG, anders als beim Altbestand:
+ * Die `_col`-Konvention aus `AssetManager` greift hier NICHT — Bauer Ds
+ * Messprobe hat in keiner Store-GLB einen `_col`-Knoten gefunden. Die
+ * Kollisionsgeometrie ist immer eine eigene DATEI, nie ein Netz in der
+ * Modelldatei.
  */
 export interface StoreKollision {
   art: 'box' | 'none' | 'mesh';
@@ -97,10 +107,75 @@ export interface StoreEintrag {
   /** `sha256-…` aus dem Store-Manifest. */
   hash: string;
   bounds?: StoreBounds;
+  /**
+   * Bezugssystem von {@link bounds} und `kollision.box` — immer
+   * {@link STORE_BOUNDS_RAUM}, also DATEIRAUM.
+   *
+   * Steht als Feld da und nicht nur im Kommentar, weil der Unterschied
+   * teuer ist und man ihn einer Zahl nicht ansieht: Babylon klappt beim
+   * glTF-Import die x-Achse um (`__root__`, s.
+   * {@link STORE_SPIEGELN_VORGABE}). Im WELTRAUM gilt deshalb
+   * `min.x' = −max.x` und `max.x' = −min.x` — wer die Kiste
+   * unverändert als Weltkiste benutzt, spiegelt jedes unsymmetrische
+   * Hindernis. Umrechnung: {@link boundsNachWeltraum}.
+   *
+   * Gemessen von Bauer D über alle 581 Store-GLBs (Messprobe
+   * 08.09.2026): Die Werte aus `prefabs.json`/`manifest.json` treffen
+   * die Nachmessung exakt, `localScale` ist 1, die Einheit ist der
+   * Meter. Verlässlich ist also der WERT — nur eben im Dateiraum.
+   */
+  boundsRaum?: typeof STORE_BOUNDS_RAUM;
   kollision?: StoreKollision;
+  /**
+   * Pfad der eigenen Kollisions-GLB dieses Modells, relativ zum Store.
+   *
+   * Aus dem DATEINAMEN abgeleitet (`<modell>-collision.glb`) und nicht
+   * aus `prefabs.json`: Von den zwölf Kollisionsdateien im Speicher
+   * nennt die Quelle nur drei. Neun weitere beschreiben ein Modell, das
+   * gar nicht im Store liegt — die bleiben unverknüpft, und das steht
+   * hier so, damit niemand sie später für einen Fehler hält.
+   */
+  kollisionsDatei?: string;
+  /**
+   * Darf das in die Welt gesetzt oder gestreut werden?
+   *
+   * `false` bei Kulissen (bis 594 m breit) und Höhenfeldern (bis 300 m,
+   * mit eigenem Gelände). Beide bleiben im Katalog — man will sie sehen
+   * und einzeln benutzen können —, aber keine Streufunktion darf sie
+   * greifen. Fehlt das Feld, gilt `true`.
+   */
+  platzierbar?: boolean;
   lizenzstatus: StoreLizenzstatus;
   /** Name des zugehörigen `PrefabDef`, falls es eines gibt. */
   prefabName?: string;
+}
+
+/**
+ * Das Bezugssystem, in dem ALLE Hüllboxen des Katalogs stehen.
+ *
+ * Eine Konstante statt einer Zeichenkette an 670 Stellen zu prüfen: Wer
+ * `e.boundsRaum === STORE_BOUNDS_RAUM` schreibt, kann sich nicht
+ * vertippen, und wenn eines Tages ein zweiter Raum dazukommt, findet
+ * der Compiler jede Stelle.
+ */
+export const STORE_BOUNDS_RAUM = 'datei';
+
+/**
+ * Dateiraum → Weltraum: die x-Achse umklappen.
+ *
+ * Babylons glTF-Import stellt jedem Modell einen `__root__` mit
+ * gespiegelter x-Achse voran (Bauer Ds Messprobe: `rotQuat (0,1,0,0)`,
+ * `scaling (1,1,−1)` — zusammen die Händigkeitsumrechnung). Eine
+ * Hüllbox aus der Datei beschreibt das Modell VOR dieser Umrechnung.
+ *
+ * Für einen Zylinder ist der Unterschied null, für eine Treppe ist er
+ * die ganze Treppe. Deshalb eine Funktion und keine Fussnote.
+ */
+export function boundsNachWeltraum(b: StoreBounds): StoreBounds {
+  return {
+    min: [-b.max[0], b.min[1], b.min[2]],
+    max: [-b.min[0], b.max[1], b.max[2]],
+  };
 }
 
 /**
@@ -131,19 +206,25 @@ export const STORE_BASIS = 'store';
 /**
  * Müssen Store-Modelle in x gespiegelt werden?
  *
- * ── Warum es diesen Schalter überhaupt gibt ──────────────────────────
+ * ── Der Befund: `false`, und zwar gemessen ───────────────────────────
  * Babylon dreht beim glTF-Import die Händigkeit, indem es dem Modell
- * einen `__root__`-Knoten mit `scaling.x = -1` voransetzt. Für die
- * EIGENEN Modelle dieses Projekts ist das bekannt und eingerechnet: Sie
- * werden beim Export vorgespiegelt, sonst stünde jede Schrift
- * seitenverkehrt und jede Treppe drehte falsch herum.
+ * einen `__root__`-Knoten voransetzt — Bauer Ds Messprobe vom
+ * 08.09.2026 hat ihn ausgelesen: `rotQuat (0,1,0,0)` und
+ * `scaling (1,1,−1)`. Die negative Determinante, die dabei entsteht,
+ * rechnet der Client BEREITS heraus: `zuMaster()` in `AssetManager.ts`
+ * dreht dafür die `sideOrientation` um. Eine zweite Spiegelung an
+ * dieser Stelle stülpte die Modelle um — sie sähen von aussen aus wie
+ * von innen.
  *
- * Ob der fremde Store-Bestand dieselbe Behandlung braucht, ist eine
- * MESSFRAGE und keine Meinung — Bauer D misst sie an einem Modell mit
- * eindeutiger Händigkeit. Bis sein Befund vorliegt, steht hier `false`:
- * unverändert laden, also genau das, was Babylon von sich aus tut. Das
- * ist die einzige Vorgabe, die man später nicht rückwirkend erklären
- * muss.
+ * Deshalb steht hier `false`, und das ist kein Platzhalter mehr,
+ * sondern das Messergebnis. Zusätzliche y-Drehung: 0°; vorne ist nach
+ * dem Laden `+z`.
+ *
+ * Wer den Schalter je auf `true` dreht, MUSS `__root__.scaling`
+ * multiplizieren statt zuweisen (so macht es `spiegeleWennNoetig`):
+ * Eine Zuweisung wirft die Händigkeitsumrechnung weg, statt sie
+ * umzukehren, und das Modell steht danach in einer Achse, die niemand
+ * gemeint hat.
  *
  * ── Wo er wirkt ──────────────────────────────────────────────────────
  * `AssetManager.loadContainer()` — die EINE Stelle, an der ein
@@ -159,11 +240,11 @@ export const STORE_SPIEGELN_VORGABE = false;
 /**
  * Store-Prefabs, die es ANDERS halten als {@link STORE_SPIEGELN_VORGABE}.
  *
- * Erwartet wird, dass diese Menge leer bleibt: Der Bestand kommt aus
- * einem Werkzeug, und ein Werkzeug exportiert alles gleich. Sie steht
- * trotzdem hier, weil „alles gleich" eine Annahme ist — und eine
- * Annahme, die sich als falsch herausstellt, soll eine Zeile kosten und
- * nicht einen Umbau.
+ * Erwartet wird, dass diese Menge leer bleibt — Bauer Ds Messprobe hat
+ * alle 581 Dateien angesehen und keinen Sonderfall gefunden. Sie steht
+ * trotzdem hier, weil „alle gleich" eine Aussage über den heutigen
+ * Bestand ist; ein Modell, das morgen dazukommt, soll eine Zeile kosten
+ * und nicht einen Umbau.
  */
 export const STORE_SPIEGELN_AUSNAHMEN: ReadonlySet<StorePrefabName> = new Set<StorePrefabName>();
 

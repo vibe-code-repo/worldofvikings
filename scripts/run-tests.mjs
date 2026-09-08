@@ -640,6 +640,17 @@ const KERN = [
   // SPAWN_TABLE, Suche und ordnungserhaltendes Hinzufuegen/Entfernen fuer
   // die Auswahl-Widgets der drei Kuratierungslisten. DOM-frei, Sekunden.
   ['client', 'test/kuratierungs-katalog.ts'],
+  // Speicher-Katalog (Bauer C): die Einsortierungsregel des Asset-Speichers
+  // gegen den ECHTEN Bestand — alle Manifest-Eintraege durch `einsortieren`,
+  // Verteilung auf Art/Gruppe/Untergruppe, Uebersetzungstabelle ohne
+  // Dubletten, Suche ueber Gruppe/Untergruppe/Kennzeichen. Die Zaehlung IST
+  // der Test: Eine Regel, die stillschweigend alles in einen Sammeltopf
+  // kippt, sieht im Katalog aus wie Ordnung. DOM-frei, Sekunden.
+  // WEICHE: fehlt `assets/store` GANZ (CI-Checkout, der Speicher liegt
+  // ausserhalb des Repos), wird uebersprungen. Fehlt nur EINE Datei darin,
+  // wird der Test rot — dann ist der Speicher kaputt, nicht abwesend.
+  // The store catalogue's sorting rule against the real inventory.
+  ['client', 'test/store-katalog.ts', brauchtModelle('assets/store')],
   // Die Keulung der Schattenwerfer pro Instanz ist konservativ in genau
   // EINER Richtung: Was ueberlebt, wird eingereicht — verworfen wird nur,
   // was seitlich sicher ausserhalb des Lichtkastens liegt. Ein Fehler hier

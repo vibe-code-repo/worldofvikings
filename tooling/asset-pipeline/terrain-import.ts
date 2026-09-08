@@ -41,8 +41,8 @@ import {
   encodePng,
   fitWithin,
   isPng,
-  mirrorOnAntiDiagonal,
   readPngSize,
+  rotateQuarterTurn,
 } from './png.js';
 import { TERRAIN_SET, type PackProvenance } from './selection.js';
 
@@ -68,15 +68,21 @@ export const TERRAIN_SURFACE_SET: PackProvenance = {
  * wrongly turned map paints a perfectly plausible-looking landscape whose paths
  * simply do not follow the valleys.
  *
- * It was measured, not guessed. For each of the eight ways to turn or mirror a
- * square map, the terrain's own slope was averaged over the texels where the
- * rarest channel — 0.1 % coverage, the one that can only be a cliff face —
- * carries weight. Seven of the eight give 0.49–1.56, against a tile mean of
- * 0.57. One gives **3.39**, next to the tile's 99th percentile of 3.30: the
- * mirror on the anti-diagonal. Two screenshots then confirmed it, at a spot the
- * map says is a gravel path and at a spot it says is a rock face (ADR-0020).
+ * It is measured, not guessed. For each of the eight ways to turn or mirror a
+ * square map, the terrain's own slope is averaged over the texels where the
+ * rarest channel — 0.14 % coverage, the one that can only be a cliff face —
+ * carries weight. Measured against the tile the store ships, seven of the eight
+ * give 0.62–1.84 against a tile mean of 0.67; one gives **4.28**, past the
+ * tile's 99th percentile of 3.93. That one is a quarter turn clockwise.
+ *
+ * ADR-0020 and ADR-0032 named the mirror on the anti-diagonal, which is this
+ * turn with one vertical flip missing, and the pipeline shipped the mirror. The
+ * result was a village painted upside down about the middle of the tile: paths
+ * where the meadow belongs, and the cliff channel on ground of average
+ * steepness. `pnpm validate:assets` now re-measures this on the stored bytes so
+ * the same flip cannot be lost again (ADR-0043).
  */
-export const SPLAT_ORIENTATION = 'mirror on the anti-diagonal';
+export const SPLAT_ORIENTATION = 'quarter turn clockwise';
 
 /**
  * Which way round a height field's axes are, relative to the world the props
@@ -464,7 +470,7 @@ export function fitTerrainTexture(bytes: Buffer, label: string, isSplatMap = fal
           `${String(size.width)}x${String(size.height)}`,
       );
     }
-    return encodePng(mirrorOnAntiDiagonal(decodePng(bytes)));
+    return encodePng(rotateQuarterTurn(decodePng(bytes)));
   }
   if (size.width <= MAX_TEXTURE_SIZE && size.height <= MAX_TEXTURE_SIZE) {
     return bytes;

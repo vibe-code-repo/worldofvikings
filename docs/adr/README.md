@@ -47,6 +47,7 @@ change it describes.
 | [0036](0036-a-re-import-keeps-the-entities-the-bundle-never-had.md)           | A re-import keeps the entities the bundle never had               | accepted                          |
 | [0037](0037-the-cliff-ring-stays-out-of-the-village.md)                       | The cliff ring stays out of the village                           | superseded in part by 0060        |
 | [0038](0038-a-blocked-move-slides-along-the-face-it-met.md)                   | A blocked move slides along the face it met                       | accepted                          |
+| [0043](0043-the-village-control-map-was-turned-one-flip-short.md)             | The village control map was turned one flip short                 | accepted                          |
 | [0045](0045-the-ground-dressing-is-buried-and-stays-where-it-was-authored.md) | The ground dressing is buried, and stays where it was authored    | accepted, cause corrected by 0059 |
 | [0047](0047-the-editor-has-a-measuring-rig.md)                                | The editor has a measuring rig                                    | accepted                          |
 | [0048](0048-the-editor-reports-once-a-frame-and-lists-only-what-it-shows.md)  | The editor reports once a frame and lists only what it shows      | accepted                          |

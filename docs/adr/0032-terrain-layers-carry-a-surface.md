@@ -40,6 +40,15 @@ computed on the 512² grid. One placement stands out — mean |r| 0.195 against
 the anti-diagonal mirror of ADR-0020, sampled with the tile's own UV. So the
 raster placement was already right and is now measured rather than assumed.
 
+_Amended 2026-09-07 by [ADR-0043](0043-the-village-control-map-was-turned-one-flip-short.md):
+it was **not** the one the importer produced. The placement measured here is a
+quarter turn clockwise — the anti-diagonal mirror plus a vertical flip — and the
+importer shipped the mirror alone, so this section describes the map the
+measurement wanted and the renderer read the mirror image of it. The channel
+table below is unaffected: every number in it, including the per-entity weights,
+reproduces exactly under the corrected map and only under it, which is what says
+the channel order was right all along._
+
 Under that placement the six channels are:
 
 | Channel | Area   | Mean slope | Mean height | corr(slope) | Layer                        |
@@ -63,6 +72,19 @@ _Amended 2026-09-07:_ on a large screen the pale image read as a whitish sheet
 rather than as stone, so the path layer now uses the same dark pebbles image as
 `0.A` with the same surface values. The pale image stays in the store for a
 world that wants a lighter road.
+
+_Amended again, later the same day, by
+[ADR-0043](0043-the-village-control-map-was-turned-one-flip-short.md):_ that
+whitish sheet was the pale image landing in the middle of a meadow, because the
+control map was upside down. On the corrected map the channel falls on the paths
+the props stand on, and layer 0 is `terrain-gravel-path.png` again while layer 3
+keeps `terrain-gravel.png`. Two layers pointing at one file was the smell; the
+mirrored paint was the cause.
+
+_And on §4:_ the sun this section raised from 2.3 to 3.3 was raised to pay for
+the diffuse the metallic values eat. Anyone taking the metallic back down has to
+take the sun with it — measured, the two are worth about 28 levels of mean luma
+on the village floor.
 
 ### 2. Four fields per layer, one per terrain, at schema version 4
 

@@ -10,6 +10,10 @@
  * 4. Do the private entries still match the store — checked only when the store
  *    is reachable, skipped with a message when it is not. A contributor without
  *    `WOV_ASSET_STORE` must not fail CI for something they cannot see.
+ * 5. Is the village's control map still the right way up (ADR-0043)? A hash
+ *    says the bytes did not change; it does not say they were right, and a
+ *    wrongly turned splat map paints a plausible landscape that nothing else
+ *    notices. Also store-only, for the same reason as 4.
  *
  * ```bash
  * pnpm validate:assets            # check, exits 1 on drift
@@ -44,6 +48,13 @@ import {
   selectByVisibility,
 } from '@wov/asset-system/manifest';
 import type { AssetEntry } from '@wov/asset-system/manifest';
+import { readGlb } from '@wov/content-build';
+import { readHeightGrid } from '../asset-pipeline/height-field.js';
+import { decodePng } from '../asset-pipeline/png.js';
+import {
+  isSplatOrientationCorrect,
+  measureChannelSlope,
+} from '../asset-pipeline/splat-orientation.js';
 
 const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const assetsDir = join(repoRoot, 'assets');
@@ -231,6 +242,52 @@ if (privateEntries.length === 0) {
   }
 }
 
+// ------------------------------------------------- the control map's axes
+
+/**
+ * The one splat channel whose meaning is unambiguous, and the tile it paints.
+ *
+ * `village-splat-b.png` channel 0 is the rough-rock layer: 0.14 % of the tile
+ * at 73° mean slope, so it can only be a cliff face. `terrain-village1.glb` is
+ * the regular-grid copy of the ground the world file already names as
+ * `heightSamples`, which is what makes this measurable without a renderer.
+ */
+const SPLAT_ORIENTATION_CHECK = {
+  map: 'textures/village-splat-b.png',
+  channel: 0,
+  heightField: 'terrain/terrain-village1.glb',
+} as const;
+
+let orientationReport = 'splat orientation not checked';
+if (storeRoot !== undefined && storeRoot.length > 0) {
+  try {
+    const grid = readHeightGrid(
+      readGlb(await readFile(join(storeRoot, SPLAT_ORIENTATION_CHECK.heightField))),
+      SPLAT_ORIENTATION_CHECK.heightField,
+    );
+    const map = decodePng(await readFile(join(storeRoot, SPLAT_ORIENTATION_CHECK.map)));
+    const measured = measureChannelSlope(grid, map, SPLAT_ORIENTATION_CHECK.channel);
+    const numbers =
+      `cliff channel ${measured.channelGradient.toFixed(2)}, ` +
+      `tile p95 ${measured.tilePercentile.toFixed(2)}`;
+    if (isSplatOrientationCorrect(measured)) {
+      orientationReport = `splat orientation ok (${numbers})`;
+    } else {
+      problems.push(
+        `store ${SPLAT_ORIENTATION_CHECK.map} is turned the wrong way onto the ground: ` +
+          `${numbers}. The cliff channel has to sit on ground steeper than the tile's own ` +
+          `95th percentile (ADR-0043); re-run pnpm import:world-assets.`,
+      );
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      orientationReport = 'splat orientation not checked (not in this store)';
+    } else {
+      throw error;
+    }
+  }
+}
+
 if (problems.length > 0) {
   process.stderr.write(`FAIL assets/${ASSET_MANIFEST_FILE_NAME} does not describe reality\n`);
   for (const line of problems) {
@@ -244,5 +301,5 @@ if (problems.length > 0) {
 
 process.stdout.write(
   `OK   assets/${ASSET_MANIFEST_FILE_NAME} (${String(listed.length)} entries: ` +
-    `${String(found.length)} in assets/, ${storeReport})\n`,
+    `${String(found.length)} in assets/, ${storeReport}; ${orientationReport})\n`,
 );

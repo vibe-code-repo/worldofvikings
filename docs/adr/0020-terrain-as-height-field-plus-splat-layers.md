@@ -152,6 +152,14 @@ is a gravel path, and at a point it says is a rock face. The turn is applied in
 the **import**, so the store holds a map in the obvious convention, a world file
 needs no axis field, and the manifest's `origin` records that it happened.
 
+_Amended 2026-09-07 by [ADR-0043](0043-the-village-control-map-was-turned-one-flip-short.md):
+the turn is a **quarter turn clockwise**, which is this mirror composed with a
+vertical flip. The statistic above is the right statistic and the placement it
+picks is the right placement; the composition written into the importer was one
+flip short of it, so the village was painted mirrored about the middle of the
+tile for as long as this ADR stood. `pnpm validate:assets` now re-measures it on
+the stored bytes._
+
 ## Consequences
 
 - `CURRENT_WORLD_SCHEMA_VERSION` is 2; version 1 files still load, and a saved

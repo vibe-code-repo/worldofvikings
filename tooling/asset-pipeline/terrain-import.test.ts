@@ -193,8 +193,8 @@ describe('fitTerrainTexture', () => {
     };
     const turned = decodePng(fitTerrainTexture(encodePng(source), 'splat.png', true));
     expect([turned.width, turned.height]).toEqual([2, 2]);
-    // out[row][col] = in[h-1-col][w-1-row]: the marked texel lands bottom-right.
-    expect([...turned.data.subarray(12, 16)]).toEqual([255, 0, 0, 255]);
+    // out[row][col] = in[h-1-col][row]: the marked texel lands top-right.
+    expect([...turned.data.subarray(4, 8)]).toEqual([255, 0, 0, 255]);
     expect([...turned.data.subarray(0, 4)]).toEqual([0, 0, 0, 255]);
   });
 
@@ -210,8 +210,8 @@ describe('fitTerrainTexture', () => {
     const splat = TERRAIN_TEXTURES.find((texture) => texture.isSplatMap === true);
     const layer = TERRAIN_TEXTURES.find((texture) => texture.isSplatMap !== true);
     expect(splat).toBeDefined();
-    expect(terrainTextureOrigin(splat as never)).toContain('anti-diagonal');
-    expect(terrainTextureOrigin(layer as never)).not.toContain('anti-diagonal');
+    expect(terrainTextureOrigin(splat as never)).toContain('quarter turn clockwise');
+    expect(terrainTextureOrigin(layer as never)).not.toContain('quarter turn');
   });
 });
 

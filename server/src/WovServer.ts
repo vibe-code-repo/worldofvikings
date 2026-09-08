@@ -106,7 +106,7 @@ import { Reader } from './io/Reader.js';
 import { Writer } from './io/Writer.js';
 import { AdminCommandRegistry } from './admin/AdminCommands.js';
 import { AdminListe } from './admin/AdminListe.js';
-import { istSpielerId, type SpielerId } from './net/Identitaet.js';
+import { geheimnisAusEnv, istSpielerId, type SpielerId } from './net/Identitaet.js';
 import {
   ZONE_SIZE,
   findItem,
@@ -503,7 +503,12 @@ export class WovServer {
     //
     // Fuer den jetzigen Betrieb hinnehmbar: der Server laeuft tagelang
     // durch, und es ist ohnehin kein Passwort gesetzt.
-    const sessionSecret = this.config.sessionSecret ?? randomBytes(32);
+    // Lab (2026-09-08): a fixed secret from WOV_SESSION_SECRET_HEX in
+    // /etc/wov.env lets tools/lab-ticket.ts sign tickets that survive a
+    // server restart. Without the variable the old behaviour stays.
+    // Labor: festes Geheimnis aus /etc/wov.env, damit tools/lab-ticket.ts
+    // Tickets signieren kann, die einen Neustart ueberleben.
+    const sessionSecret = this.config.sessionSecret ?? geheimnisAusEnv() ?? randomBytes(32);
 
     // ── Konten ─────────────────
     // Eigene Datei je Instanz, wie die Welt und wie die Dungeons darueber:

@@ -77,8 +77,9 @@ the change looks like it did nothing.
 
 `measureChannelSlope` in `tooling/asset-pipeline/splat-orientation.ts` is the
 measurement above as a function, and `validate-assets.ts` runs it over
-`village-splat-b.png` channel 0 against `terrain-village1.glb` whenever a store
-is reachable:
+`village-splat-b.png` channel 0 against `terrain-village1-samples.glb` — the
+ground the import writes and the world file draws — whenever a store is
+reachable:
 
 > the weighted mean gradient under the cliff channel must exceed the tile's own
 > 95th percentile.

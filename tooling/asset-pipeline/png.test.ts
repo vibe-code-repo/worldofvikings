@@ -6,7 +6,7 @@ import {
   halve,
   isPng,
   readPngSize,
-  rotateQuarterTurn,
+  mirrorVertically,
 } from './png.js';
 import type { RawImage } from './png.js';
 
@@ -120,42 +120,45 @@ describe('the unsupported cases', () => {
   });
 });
 
-describe('rotateQuarterTurn', () => {
-  it('maps out[row][col] to in[h-1-col][row]', () => {
+describe('mirrorVertically', () => {
+  it('maps out[row][col] to in[h-1-row][col]', () => {
     const image: RawImage = {
       width: 3,
       height: 3,
       channels: 1,
       data: Buffer.from([1, 2, 3, 4, 5, 6, 7, 8, 9]),
     };
-    expect([...rotateQuarterTurn(image).data]).toEqual([7, 4, 1, 8, 5, 2, 9, 6, 3]);
+    expect([...mirrorVertically(image).data]).toEqual([7, 8, 9, 4, 5, 6, 1, 2, 3]);
   });
 
   it('keeps every channel of every pixel together', () => {
     const image = gradient(8, 8, 3);
-    const turned = rotateQuarterTurn(image);
+    const mirrored = mirrorVertically(image);
     for (let row = 0; row < 8; row += 1) {
       for (let column = 0; column < 8; column += 1) {
-        const from = ((8 - 1 - column) * 8 + row) * 3;
+        const from = ((8 - 1 - row) * 8 + column) * 3;
         const to = (row * 8 + column) * 3;
-        expect([...turned.data.subarray(to, to + 3)]).toEqual([
+        expect([...mirrored.data.subarray(to, to + 3)]).toEqual([
           ...image.data.subarray(from, from + 3),
         ]);
       }
     }
   });
 
-  it('comes back to the original after four turns', () => {
+  it('comes back to the original after two mirrors', () => {
     const image = gradient(5, 5, 2);
-    let turned = image;
-    for (let turn = 0; turn < 4; turn += 1) {
-      turned = rotateQuarterTurn(turned);
-    }
-    expect([...turned.data]).toEqual([...image.data]);
+    expect([...mirrorVertically(mirrorVertically(image)).data]).toEqual([...image.data]);
   });
 
-  it('refuses a non-square image instead of scrambling it', () => {
-    const image: RawImage = { width: 2, height: 3, channels: 1, data: Buffer.alloc(6) };
-    expect(() => rotateQuarterTurn(image)).toThrow(/square/);
+  it('handles a non-square image, which a turn could not', () => {
+    const image = gradient(2, 3, 1);
+    const mirrored = mirrorVertically(image);
+    expect(mirrored.width).toBe(2);
+    expect(mirrored.height).toBe(3);
+    expect([...mirrored.data]).toEqual([
+      ...image.data.subarray(4, 6),
+      ...image.data.subarray(2, 4),
+      ...image.data.subarray(0, 2),
+    ]);
   });
 });

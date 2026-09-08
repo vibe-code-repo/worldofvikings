@@ -247,15 +247,19 @@ if (privateEntries.length === 0) {
 /**
  * The one splat channel whose meaning is unambiguous, and the tile it paints.
  *
- * `village-splat-b.png` channel 0 is the rough-rock layer: 0.14 % of the tile
- * at 73° mean slope, so it can only be a cliff face. `terrain-village1.glb` is
- * the regular-grid copy of the ground the world file already names as
- * `heightSamples`, which is what makes this measurable without a renderer.
+ * `village-splat-b.png` channel 0 is the rough-rock layer: 0.32 % of the tile,
+ * so it can only be a cliff face. It is measured against
+ * `terrain-village1-samples.glb` — the file the import writes and the world
+ * file names as `heightSamples` — and against nothing else. The store also
+ * holds `terrain-village1.glb`, the raster as the export wrote it, on the
+ * export's own axes (ADR-0059); measuring against that one scores a placement
+ * that is right for a ground the game does not draw, which is how this check
+ * passed with the same number after the ground had been turned under it.
  */
 const SPLAT_ORIENTATION_CHECK = {
   map: 'textures/village-splat-b.png',
   channel: 0,
-  heightField: 'terrain/terrain-village1.glb',
+  heightField: 'terrain/terrain-village1-samples.glb',
 } as const;
 
 let orientationReport = 'splat orientation not checked';

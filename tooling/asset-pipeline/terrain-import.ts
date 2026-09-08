@@ -42,7 +42,7 @@ import {
   fitWithin,
   isPng,
   readPngSize,
-  rotateQuarterTurn,
+  mirrorVertically,
 } from './png.js';
 import { TERRAIN_SET, type PackProvenance } from './selection.js';
 
@@ -70,19 +70,24 @@ export const TERRAIN_SURFACE_SET: PackProvenance = {
  *
  * It is measured, not guessed. For each of the eight ways to turn or mirror a
  * square map, the terrain's own slope is averaged over the texels where the
- * rarest channel — 0.14 % coverage, the one that can only be a cliff face —
- * carries weight. Measured against the tile the store ships, seven of the eight
- * give 0.62–1.84 against a tile mean of 0.67; one gives **4.28**, past the
- * tile's 99th percentile of 3.93. That one is a quarter turn clockwise.
+ * rarest channel — 0.32 % coverage, the one that can only be a cliff face —
+ * carries weight. Against the ground the store now ships, seven of the eight
+ * give 0.62–1.84 and one gives **4.28**, against a tile whose own 95th
+ * percentile is 2.38. That one is a vertical mirror.
  *
- * ADR-0020 and ADR-0032 named the mirror on the anti-diagonal, which is this
- * turn with one vertical flip missing, and the pipeline shipped the mirror. The
- * result was a village painted upside down about the middle of the tile: paths
- * where the meadow belongs, and the cliff channel on ground of average
- * steepness. `pnpm validate:assets` now re-measures this on the stored bytes so
- * the same flip cannot be lost again (ADR-0043).
+ * Three placements have now been shipped and the first two were wrong, which is
+ * worth stating plainly because the failure has no symptom: a wrongly placed
+ * map still paints a landscape. ADR-0020 named the mirror on the anti-diagonal
+ * (0.64 here). ADR-0043 measured a quarter turn clockwise (1.84 here) and was
+ * right about the ground *as it was then read* — and then ADR-0059 found that
+ * ground itself was read on the wrong axes and turned it. A map is placed
+ * relative to a height field, so turning the height field moves the answer, and
+ * this constant has to be re-derived whenever {@link HEIGHT_FIELD_ORIENTATION}
+ * changes. `pnpm validate:assets` re-measures it on the stored bytes against
+ * the height field the import actually writes, so a placement cannot silently
+ * go stale a third time (ADR-0043, ADR-0061).
  */
-export const SPLAT_ORIENTATION = 'quarter turn clockwise';
+export const SPLAT_ORIENTATION = 'vertical mirror';
 
 /**
  * Which way round a height field's axes are, relative to the world the props
@@ -470,7 +475,7 @@ export function fitTerrainTexture(bytes: Buffer, label: string, isSplatMap = fal
           `${String(size.width)}x${String(size.height)}`,
       );
     }
-    return encodePng(rotateQuarterTurn(decodePng(bytes)));
+    return encodePng(mirrorVertically(decodePng(bytes)));
   }
   if (size.width <= MAX_TEXTURE_SIZE && size.height <= MAX_TEXTURE_SIZE) {
     return bytes;

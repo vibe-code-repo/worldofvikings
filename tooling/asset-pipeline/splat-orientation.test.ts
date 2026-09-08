@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HeightGrid } from './height-field.js';
-import { rotateQuarterTurn, type RawImage } from './png.js';
+import { mirrorVertically, type RawImage } from './png.js';
 import {
   isSplatOrientationCorrect,
   measureChannelSlope,
@@ -51,7 +51,7 @@ describe('measureChannelSlope', () => {
     const grid = ramp(64);
     // A quarter turn takes that row to a column, which crosses every steepness
     // the tile has — so the channel lands on average ground, not on the cliff.
-    const measured = measureChannelSlope(grid, rotateQuarterTurn(paint(64, [63])), 0);
+    const measured = measureChannelSlope(grid, mirrorVertically(paint(64, [63])), 0);
 
     expect(measured.channelGradient).toBeLessThan(measured.tilePercentile);
     expect(isSplatOrientationCorrect(measured)).toBe(false);

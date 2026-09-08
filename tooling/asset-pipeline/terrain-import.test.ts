@@ -183,7 +183,7 @@ describe('fitTerrainTexture', () => {
     expect(shrunk.readUInt32BE(16)).toBe(2048);
   });
 
-  it('turns a splat map onto the ground’s axes and keeps its size', () => {
+  it('mirrors a splat map onto the ground’s axes and keeps its size', () => {
     const source: RawImage = {
       width: 2,
       height: 2,
@@ -193,8 +193,8 @@ describe('fitTerrainTexture', () => {
     };
     const turned = decodePng(fitTerrainTexture(encodePng(source), 'splat.png', true));
     expect([turned.width, turned.height]).toEqual([2, 2]);
-    // out[row][col] = in[h-1-col][row]: the marked texel lands top-right.
-    expect([...turned.data.subarray(4, 8)]).toEqual([255, 0, 0, 255]);
+    // out[row][col] = in[h-1-row][col]: the marked texel lands bottom-left.
+    expect([...turned.data.subarray(8, 12)]).toEqual([255, 0, 0, 255]);
     expect([...turned.data.subarray(0, 4)]).toEqual([0, 0, 0, 255]);
   });
 
@@ -206,12 +206,12 @@ describe('fitTerrainTexture', () => {
     expect(() => fitTerrainTexture(Buffer.from('not a png'), 'x.png')).toThrow(/must be PNG/);
   });
 
-  it('records the turn in the origin line, so nobody has to rediscover it', () => {
+  it('records the mirror in the origin line, so nobody has to rediscover it', () => {
     const splat = TERRAIN_TEXTURES.find((texture) => texture.isSplatMap === true);
     const layer = TERRAIN_TEXTURES.find((texture) => texture.isSplatMap !== true);
     expect(splat).toBeDefined();
-    expect(terrainTextureOrigin(splat as never)).toContain('quarter turn clockwise');
-    expect(terrainTextureOrigin(layer as never)).not.toContain('quarter turn');
+    expect(terrainTextureOrigin(splat as never)).toContain('vertical mirror');
+    expect(terrainTextureOrigin(layer as never)).not.toContain('vertical mirror');
   });
 });
 

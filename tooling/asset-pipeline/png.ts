@@ -213,32 +213,28 @@ const COLOR_TYPE_BY_CHANNELS = new Map<number, number>([
 ]);
 
 /**
- * Turns an image a quarter turn clockwise: `out[row][col] = in[h-1-col][row]`.
+ * Mirrors an image top to bottom: `out[row][col] = in[h-1-row][col]`.
  *
  * A control map's axes are not the axes the ground is sampled on, and *which*
- * turn or mirror closes that gap was measured rather than assumed — see
- * `terrain-import.ts` for the measurement and ADR-0043 for the result. It
- * replaces the anti-diagonal mirror ADR-0020 named, which is this turn with one
- * vertical flip missing: that mirror lands the cliff channel on ground of
- * average steepness instead of on cliffs, which still looks like a landscape,
- * which is why nobody saw it for two ADRs. Pure and exact: pixels are moved,
- * never resampled, so a splat weight is never blurred into its neighbour and
- * the import stays byte-for-byte reproducible.
- *
- * @throws on a non-square image, where this mapping is not defined in place.
+ * turn or mirror closes that gap is measured rather than assumed — see
+ * `terrain-import.ts` for the measurement and ADR-0043 for the result. Two
+ * placements were shipped before this one and both landed the cliff channel on
+ * ground of ordinary steepness, which still looks like a landscape, which is
+ * why neither was seen: the anti-diagonal mirror of ADR-0020 scores 0.64 and
+ * the quarter turn of ADR-0043 scores 1.84, against a tile whose own 95th
+ * percentile is 2.38 and this mirror's 4.28. The quarter turn was right for the
+ * ground as it was then read; ADR-0059 turned the ground onto the world's axes
+ * and the map has to follow it. Pure and exact: pixels are moved, never
+ * resampled, so a splat weight is never blurred into its neighbour and the
+ * import stays byte-for-byte reproducible.
  */
-export function rotateQuarterTurn(image: RawImage): RawImage {
+export function mirrorVertically(image: RawImage): RawImage {
   const { width, height, channels, data } = image;
-  if (width !== height) {
-    throw new Error(`rotateQuarterTurn needs a square image, got ${width}x${height}`);
-  }
   const out = Buffer.alloc(data.length);
+  const stride = width * channels;
   for (let row = 0; row < height; row += 1) {
-    for (let column = 0; column < width; column += 1) {
-      const from = ((height - 1 - column) * width + row) * channels;
-      const to = (row * width + column) * channels;
-      data.copy(out, to, from, from + channels);
-    }
+    const from = (height - 1 - row) * stride;
+    data.copy(out, row * stride, from, from + stride);
   }
   return { width, height, channels, data: out };
 }

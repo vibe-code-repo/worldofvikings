@@ -47,7 +47,7 @@ change it describes.
 | [0036](0036-a-re-import-keeps-the-entities-the-bundle-never-had.md)           | A re-import keeps the entities the bundle never had               | accepted                          |
 | [0037](0037-the-cliff-ring-stays-out-of-the-village.md)                       | The cliff ring stays out of the village                           | superseded in part by 0060        |
 | [0038](0038-a-blocked-move-slides-along-the-face-it-met.md)                   | A blocked move slides along the face it met                       | accepted                          |
-| [0043](0043-the-village-control-map-was-turned-one-flip-short.md)             | The village control map was turned one flip short                 | accepted                          |
+| [0043](0043-the-village-control-map-was-turned-one-flip-short.md)             | The village control map was turned one flip short                 | corrected by 0061                 |
 | [0045](0045-the-ground-dressing-is-buried-and-stays-where-it-was-authored.md) | The ground dressing is buried, and stays where it was authored    | accepted, cause corrected by 0059 |
 | [0047](0047-the-editor-has-a-measuring-rig.md)                                | The editor has a measuring rig                                    | accepted                          |
 | [0048](0048-the-editor-reports-once-a-frame-and-lists-only-what-it-shows.md)  | The editor reports once a frame and lists only what it shows      | accepted                          |
@@ -57,3 +57,4 @@ change it describes.
 | [0052](0052-validators-not-lifetimes.md)                                      | Validators, not lifetimes: a second editor open transfers nothing | accepted                          |
 | [0059](0059-the-ground-is-read-on-the-worlds-axes.md)                         | The ground is read on the world's axes                            | accepted                          |
 | [0060](0060-the-turned-ground-re-measured.md)                                 | What stood on the old ground, re-measured on the new one          | accepted                          |
+| [0061](0061-a-control-map-is-placed-against-the-ground-it-paints.md)          | A control map is placed against the ground it paints              | accepted                          |

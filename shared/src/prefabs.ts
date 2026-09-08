@@ -29,6 +29,19 @@ import type { Hash, Vector3 } from './types.js';
 import prefabData from './prefabData.json';
 import { DUNGEONS, ENTRANCE_HULL_MODELS } from './dungeons.js';
 import type { RoomDef } from './dungeons.js';
+/*
+  Der Asset-Speicher (`assets/store/`) als Teil der Registry.
+
+  `storePrefabs.ts` ist ERZEUGT (tools/store-prefabs.mjs) und enthält
+  nichts als Daten — die Typen und Stellschrauben stehen daneben in
+  `storeKatalog.ts`. Der Import ist bewusst statisch: Server und Client
+  müssen auf „kennst du dieses Prefab?" dieselbe Antwort geben, und ein
+  nachgeladener Bestand gäbe je nach Zeitpunkt eine andere.
+
+  The generated store registry — statically imported so server and
+  client always agree on what exists.
+*/
+import { STORE_MODELL_NAMEN, STORE_PREFAB_DEFS } from './storePrefabs.js';
 
 export interface PrefabDef {
   name: string;
@@ -958,7 +971,7 @@ export const PREFAB_DEFS: PrefabDef[] = buildRegistry();
  * neuen Modell auseinandergelaufen, und die Frage „zeigt der Editor es an?"
  * hat dieselbe Antwort wie „darf es in der Welt stehen?".
  */
-export const EIGENE_MODELLE: readonly string[] = [
+const EIGENE_MODELLE_ALT: readonly string[] = [
   // Erster Gegenstand mit eigenem Modell (23.08.2026). Gebaut von
   // tools/messer-erzeugen.py — prozedural, 74 Flaechen, in ECHTEN
   // Metern, weil AvatarRig die Figurenskalierung an `handR` wieder
@@ -1257,6 +1270,31 @@ export const EIGENE_MODELLE: readonly string[] = [
 ];
 
 /**
+ * Die Positivliste, wie der Rest des Projekts sie kennt — Altbestand
+ * PLUS die 569 Prefabs des Asset-Speichers.
+ *
+ * ── Warum angehängt und nicht eingemischt ────────────────────────────
+ * Die REIHENFOLGE dieser Liste trägt die Gruppierung im Spawn-Editor
+ * (s. `EIGENE_MODELLE_SET` unten). Der Altbestand steht dort in einer
+ * von Hand gewählten Ordnung — Messer, Steinkreis, Bäume, Dungeon-Kits
+ * —, und wer 569 Namen dazwischenmischte, machte aus einer Liste, die
+ * man liest, eine, die man durchsucht. Hinten angehängt bleibt die alte
+ * Ordnung unangetastet, und der Store ist ein zusammenhängender Block.
+ *
+ * ── Warum überhaupt in dieselbe Liste ────────────────────────────────
+ * Weil sie zwei Fragen gleichzeitig beantwortet, und beide dieselbe
+ * Antwort brauchen: „zeigt der Editor es an?" und „darf es in der Welt
+ * stehen?". Eine zweite Liste daneben liefe beim ersten neuen Modell
+ * auseinander — genau die Erfahrung, die zu dieser Liste geführt hat.
+ *
+ * The whitelist: hand-built models plus the 569 store prefabs.
+ */
+export const EIGENE_MODELLE: readonly string[] = [
+  ...EIGENE_MODELLE_ALT,
+  ...STORE_MODELL_NAMEN,
+];
+
+/**
  * Dieselbe Liste als Menge — `pruefeLayout` fragt sie für JEDE Platzierung
  * und jeden kuratierten Namen einer Welt, und die Reihenfolge des Arrays
  * trägt die Gruppierung im Spawn-Editor, darf also nicht sortiert werden.
@@ -1374,6 +1412,26 @@ function buildRegistry(): PrefabDef[] {
       seen.add(room.name);
       defs.push(roomPrefabDef(room));
     }
+  }
+
+  /*
+    Der Asset-Speicher — 569 Prefabs aus `assets/store/`.
+
+    Steht VOR den Eingangshüllen und nach den Dungeon-Räumen, aber die
+    Stelle ist gleichgültig: Die Namen sind Kleinschreibung mit
+    Bindestrichen (`environment-sm-prop-barrel-03`), der Altbestand ist
+    durchweg CamelCase — eine Kollision ist strukturell ausgeschlossen.
+    Die `seen`-Prüfung bleibt trotzdem, denn „strukturell ausgeschlossen"
+    ist eine Behauptung über heute; `shared/test/store-registry.ts` hält
+    sie fest, und diese Zeile hält die Registry auch dann heil, wenn die
+    Behauptung eines Tages nicht mehr stimmt.
+
+    The 569 asset-store prefabs.
+  */
+  for (const def of STORE_PREFAB_DEFS) {
+    if (seen.has(def.name)) continue;
+    seen.add(def.name);
+    defs.push(def);
   }
 
   // Phase G: sichtbare Eingangs-Hüllen der Dungeon-Locations (Crypt2 …) —

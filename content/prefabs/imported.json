@@ -4673,6 +4673,16 @@
       "collision": { "kind": "mesh" }
     },
     {
+      "id": "terrain-terrain-village1-samples",
+      "name": "Terrain Village1 Samples",
+      "asset": "terrain/terrain-village1-samples.glb",
+      "visibility": "private",
+      "placeholder": "placeholders/terrain/terrain-village1-samples.glb",
+      "category": "terrain",
+      "bounds": { "min": [0, 6.61030912399292, 0], "max": [300, 73.00637817382812, 300] },
+      "collision": { "kind": "mesh" }
+    },
+    {
       "id": "terrain-terrain-village1",
       "name": "Terrain Village1",
       "asset": "terrain/terrain-village1.glb",

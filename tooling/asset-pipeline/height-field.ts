@@ -330,6 +330,53 @@ export function thinGrid(grid: HeightGrid, factor: number): HeightGrid {
 }
 
 /**
+ * The same ground read with its two horizontal axes swapped: the height at
+ * `(x, z)` of the result is the height at `(z, x)` of the source.
+ *
+ * **Why a height field needs this at all.** The modelling export writes its
+ * raster and its scene placements in two different frames, and the difference
+ * is one reflection. The import already absorbs half of it — a placed model is
+ * mirrored in x on the way in — and the ground was left as it came, which
+ * leaves the pair a quarter turn apart. Nothing about the files says so: the
+ * raster is square, the tile is square, and a wrongly turned ground is a
+ * perfectly plausible landscape that simply is not the one the props were
+ * placed on.
+ *
+ * It was measured, not guessed (ADR-0059). For each of the eight ways to turn
+ * or mirror a square raster, 374 authored placements from 34 families of flat
+ * ground dressing were seated on it, and the spread of each family about its
+ * own median taken. Seven of the eight give a mean absolute deviation of
+ * 0.28–0.76 m. One gives **0.068 m**: this one. The cliff ring of ADR-0037 —
+ * 100 placements that were never scattered onto, so they cannot have been
+ * fitted to the ground being tested — goes from 81 of 100 standing on the
+ * ground to **100 of 100** under the same swap.
+ *
+ * A pure index swap, so a square raster keeps its bytes and only changes which
+ * of them answers where. Origin and step travel with their axis, so a
+ * non-square or unevenly stepped grid transposes correctly too.
+ */
+export function transposeGrid(grid: HeightGrid): HeightGrid {
+  const columns = grid.rows;
+  const rows = grid.columns;
+  const heights = new Float32Array(grid.heights.length);
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      // The new (column, row) reads x from the source's z and z from its x.
+      heights[row * columns + column] = grid.heights[column * grid.columns + row] ?? 0;
+    }
+  }
+  return {
+    columns,
+    rows,
+    originX: grid.originZ,
+    originZ: grid.originX,
+    stepX: grid.stepZ,
+    stepZ: grid.stepX,
+    heights,
+  };
+}
+
+/**
  * Per-vertex normals from the neighbouring heights (central differences).
  *
  * For a surface `y = f(x, z)` the normal is `(-∂f/∂x, 1, -∂f/∂z)` normalised.
@@ -728,6 +775,67 @@ export function meshNormals(positions: Float32Array, indices: Uint32Array): Floa
     normals[vertex + 2] = (normals[vertex + 2] ?? 0) / length;
   }
   return normals;
+}
+
+/** How far a finished tile stands from the grid it was built out of. */
+export interface GridAgreement {
+  /** Mesh vertices standing exactly on a source grid node. */
+  readonly nodes: number;
+  /** Of those, the ones carrying that node's authored height unchanged. */
+  readonly exact: number;
+  /** The largest `|mesh height − authored sample|` over those nodes, in metres. */
+  readonly maxDelta: number;
+  /** Mesh vertices that sit between grid nodes, so the grid has no sample for them. */
+  readonly offGrid: number;
+}
+
+/**
+ * Where a tile and the raster it came from disagree, and by how much.
+ *
+ * A tool that has no renderer reads the raster; the player stands on the tile.
+ * The two are the same ground only as far as this says they are, so the number
+ * belongs in the import log and in a test rather than in a claim.
+ *
+ * Only vertices that land on a source grid node are compared — between nodes
+ * the tile is an interpolation and the raster has nothing to compare against.
+ * A coarse tile keeps every node it emits, so `exact` is expected to be all of
+ * them; the seam vertices of {@link adaptiveMesh} are the deliberate exception,
+ * and this is what bounds them.
+ */
+export function meshVsGrid(mesh: TerrainMesh, grid: HeightGrid): GridAgreement {
+  let nodes = 0;
+  let exact = 0;
+  let offGrid = 0;
+  let maxDelta = 0;
+  // A node is "hit" when the vertex is within a thousandth of a step of it,
+  // which is float32 noise rather than a tolerance on the geometry.
+  const slack = 1e-3;
+  for (let index = 0; index + 2 < mesh.positions.length; index += 3) {
+    const column = ((mesh.positions[index] ?? 0) - grid.originX) / grid.stepX;
+    const row = ((mesh.positions[index + 2] ?? 0) - grid.originZ) / grid.stepZ;
+    const nearColumn = Math.round(column);
+    const nearRow = Math.round(row);
+    if (
+      Math.abs(column - nearColumn) > slack ||
+      Math.abs(row - nearRow) > slack ||
+      nearColumn < 0 ||
+      nearRow < 0 ||
+      nearColumn >= grid.columns ||
+      nearRow >= grid.rows
+    ) {
+      offGrid += 1;
+      continue;
+    }
+    nodes += 1;
+    const delta = Math.abs(
+      (mesh.positions[index + 1] ?? 0) - (grid.heights[nearRow * grid.columns + nearColumn] ?? 0),
+    );
+    if (delta === 0) {
+      exact += 1;
+    }
+    maxDelta = Math.max(maxDelta, delta);
+  }
+  return { nodes, exact, maxDelta, offGrid };
 }
 
 /** The hull of a position buffer. */

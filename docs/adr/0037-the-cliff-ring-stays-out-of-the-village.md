@@ -1,8 +1,10 @@
 # ADR-0037: The cliff ring stays out of the village, and the reason is measured
 
-- **Status:** accepted. Corrects the follow-up note in
-  [ADR-0031](0031-the-backdrop-is-its-own-prefab-category.md), whose stated
-  cause did not survive measurement.
+- **Status:** superseded in its central finding by
+  [ADR-0060](0060-the-turned-ground-re-measured.md); see the amendment at the
+  end of this file. What it corrects in
+  [ADR-0031](0031-the-backdrop-is-its-own-prefab-category.md) still holds, and
+  so does its method — the answer it reached does not.
 - **Date:** 2026-09-07
 - **Deciders:** world-data and asset-pipeline owners
 
@@ -214,3 +216,67 @@ never draws is a zone only the editor can show: opening `village1` and selecting
 with the inspector reading the position the world file holds (`…rock-cliff-03-1_0001`
 at 68.31 / 9.22 / 119.98). The ring is invisible in the game and fully editable
 in the editor, which is what ADR-0033 asks for.
+
+## Amendment, 2026-09-07: the ring seats, and this ADR's reason is gone
+
+This ADR asked exactly the right question and got a wrong answer from a ground
+that was being read on the wrong axes. The height field's _resolution_ was
+never the cause — that part stands, and the four-raster table above is still
+true of the four rasters it names. But all four of them were the same
+landscape read with x and z the wrong way round, which is why they agreed with
+each other and disagreed with the rocks. `ADR-0059` turned the import onto the
+world's axes; nothing in `content/worlds/village1.json` moved.
+
+Re-run on the corrected ground, `pnpm seating --world village1 --zone
+surroundings --prefab rock-cliff`:
+
+| ground                                 | seated ≤ 0.5 m | over 0.5 m | over 3 m | worst    |
+| -------------------------------------- | -------------- | ---------- | -------- | -------- |
+| as this ADR measured it                | 81 / 100       | 19         | 18       | +27.21 m |
+| `heightSamples`, on the world's axes   | **100 / 100**  | **0**      | **0**    | −0.77 m  |
+| `heightField`, the drawn adaptive tile | **100 / 100**  | **0**      | **0**    | −0.81 m  |
+
+The 21 that showed less than 5 % of themselves are 0. Every sentence in this
+ADR that rests on the 17 is therefore withdrawn:
+
+- **"17 placements hang 3.8 m to 27.2 m over everything this repository has."**
+  None of them do. The nearest surface under each is the tile, and each is on
+  it.
+- **"Along the east edge they sink 33 m into it, along the north edge they
+  float 27 m over it. A single offset cannot fit both."** True, and it was the
+  clue: no offset fits a reflection about the diagonal, which is what this was.
+  The ring's heights follow this tile after all, once the tile is read the way
+  the placements were authored against.
+- **"That is the shape of geometry authored against a landscape this repository
+  does not have."** It is not. The landscape is here.
+- **"The export raster was checked against the shipped one in all eight ways a
+  square raster can be laid down. Exactly one reading matches … So the
+  orientation is not the cause either."** That check compared the shipped
+  raster with the export it was built from, and both were turned the same way,
+  so it could only ever return the identity. The question it looked like it had
+  answered — which reading do the _placements_ stand on — was not asked until
+  ADR-0059 asked it of 374 authored props, and the answer is the swap.
+- **"The condition for changing that is no longer 'a finer height field' — which
+  was cheap — but 'the ground outside the village tile', which is a zone, a
+  tile and a streaming decision."** That bill is withdrawn. The ring is not
+  waiting on a neighbouring tile, a zone, or streaming.
+- **`pnpm perf:frame --view rim`** framed the sky those six rocks hung in. There
+  are no rocks hanging in it, and the view itself now stands 30 m higher on a
+  different hillside (ADR-0060), so the picture cannot be retaken from it as it
+  is. Re-aiming it belongs with whoever moves the ring.
+
+**What has _not_ been decided.** Whether the 100 cliffs move into `village` is
+still open, and this amendment does not move them. Two of the three reasons
+this ADR gives against moving them are untouched by the re-measurement and are
+now the whole of the case:
+
+- half the ring is buried — 21 of 100 showed under 5 % of themselves on the old
+  ground and the figure on the new one is 0, but the median cliff still shows
+  only 50 % of itself, so the ring is authored to sit deep in the ground;
+- every cliff prefab collides as a `box`, and 100 hull boxes around 12 × 20 m
+  jagged rocks is a ring of invisible walls metres off the visible stone. That
+  is this ADR's third follow-up and it is now the blocking one.
+
+The cost measurement on the integration branch stands: under a millisecond in
+the densest view, 1 145 → 1 245 bodies. **Cost was never the reason and the
+neighbouring tile no longer is either. Collision shape is.**

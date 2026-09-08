@@ -164,9 +164,21 @@ test.describe('walking through the village', () => {
    * Measured over eight seconds on the commit before ADR-0038: 3.12 m, all of it
    * in the first second and then nothing at all. With sliding: 12.71 m, still
    * walking when the key was let go.
+   *
+   * The approach used to start at (152, 170) and is now two metres west and
+   * four north of it. Nothing about sliding changed; the yard did. That corner
+   * of the village held a planter box sunk 1.15 m into a ground that was read
+   * on the wrong axes, so the box was a hole in the collision world and the
+   * walk went straight past it. Read the right way round (ADR-0059) the box
+   * stands on the surface with 0.17 m of it embedded, and the old approach now
+   * ends wedged between it and the wall after 3.9 m — correctly, since a solid
+   * box is in the way. The wall this measures is the same run of stone; the
+   * line to it is one that does not pass through a planter. Measured on the
+   * corrected ground: 11.51 m of path for 10.33 m of displacement, so 1.2 m of
+   * it is the deflection this test exists for.
    */
   test('walks along an angled wall instead of sticking to it', async ({ page }) => {
-    const from = await standAt(page, 'spawn=152,170');
+    const from = await standAt(page, 'spawn=146,174');
     const path = await hold(page, 'd', 6);
     const to = await readPlayer(page);
 

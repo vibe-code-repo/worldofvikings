@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { decodePng, encodePng, type RawImage } from './png.js';
-import { writeGlb } from '@wov/content-build';
-import { buildHeightFieldGlb, type HeightGrid } from './height-field.js';
+import { readGlb, writeGlb } from '@wov/content-build';
+import { buildHeightFieldGlb, heightAt, readHeightGrid, type HeightGrid } from './height-field.js';
 import {
   HEIGHT_FIELDS,
+  HEIGHT_FIELD_ORIENTATION,
   TERRAIN_SURFACE_TEXTURES,
   TERRAIN_TEXTURES,
   VILLAGE_SPLAT_MAPS,
@@ -56,6 +57,15 @@ describe('the height field table', () => {
       expect(field.path).toMatch(/^terrain\/[a-z0-9-]+\.glb$/);
     }
   });
+
+  it('rebuilds the raster the tools read, so it shares the drawn tile’s frame', () => {
+    // `heightSamples` used to point at the export's own copy, which the general
+    // import recentres — the two grounds were 150 m apart in both axes and only
+    // `heightAtOnTile`'s fractional mapping hid it (ADR-0059).
+    const samples = HEIGHT_FIELDS.find((field) => field.factor === 1);
+    expect(samples).toBeDefined();
+    expect(samples?.steepSlope).toBeUndefined();
+  });
 });
 
 describe('decimateHeightField', () => {
@@ -87,6 +97,70 @@ describe('decimateHeightField', () => {
     expect(origin).toContain('9x9 to 5x5 vertices');
     expect(origin).toContain('normals and UVs rebuilt');
     expect(origin).toContain('origin kept at the tile corner');
+    expect(origin).toContain(HEIGHT_FIELD_ORIENTATION);
+  });
+
+  it('says a full-resolution tile was rebuilt rather than thinned', () => {
+    const origin = heightFieldOrigin(decimateHeightField(source, 'tile.glb', 1));
+    expect(origin).toContain('full 9x9 vertices');
+    expect(origin).not.toContain('thinned');
+  });
+
+  /**
+   * The axis swap, on a grid that says which cell it is.
+   *
+   * The height is `10·column + row`, so reading the ground at the wrong corner
+   * gives a different number rather than a plausible one — which is exactly
+   * what the shipped tile did for as long as this was missing (ADR-0059).
+   */
+  it("turns the export's raster onto the world's axes", () => {
+    const asymmetric = writeGlb(
+      buildHeightFieldGlb('tile', {
+        columns: 5,
+        rows: 5,
+        originX: 0,
+        originZ: 0,
+        stepX: 1,
+        stepZ: 1,
+        heights: Float32Array.from(
+          Array.from({ length: 25 }, (_unused, index) => (index % 5) * 10 + Math.floor(index / 5)),
+        ),
+      }),
+    );
+    const built = readHeightGrid(
+      readGlb(decimateHeightField(asymmetric, 'tile.glb', 1).bytes),
+      't',
+    );
+    // Source height at (column 4, row 0) is 40; the turned tile must answer 40
+    // at (x 0, z 4), not at (x 4, z 0).
+    expect(heightAt(built, 0, 4)).toBeCloseTo(40, 5);
+    expect(heightAt(built, 4, 0)).toBeCloseTo(4, 5);
+  });
+
+  it('reports how far the tile it wrote stands from the authored raster', () => {
+    const coarse = decimateHeightField(source, 'tile.glb', 2);
+    // A plain thinned tile keeps every height it emits, so it is exact.
+    expect(coarse.agreement.offGrid).toBe(0);
+    expect(coarse.agreement.exact).toBe(coarse.agreement.nodes);
+    expect(coarse.agreement.maxDelta).toBe(0);
+  });
+
+  /**
+   * The trap this closes: two rasters of one tile in two coordinate frames.
+   *
+   * The world file names both `heightSamples` and `heightField` with one
+   * `position` and one `size`, so a caller that reads either in world
+   * coordinates must land on the same ground. Before ADR-0059 they were 150 m
+   * apart in both axes and only a fractional mapping hid it.
+   */
+  it('builds every tile of one source on one rectangle', () => {
+    const tiles = [1, 2].map((factor) => decimateHeightField(source, 'tile.glb', factor));
+    const adaptive = decimateHeightField(source, 'tile.glb', 2, 35);
+    for (const tile of [...tiles, adaptive]) {
+      expect([tile.bounds.min[0], tile.bounds.min[2]]).toEqual([0, 0]);
+      expect([tile.bounds.max[0], tile.bounds.max[2]]).toEqual([8, 8]);
+      expect(tile.size).toEqual([8, 8]);
+    }
   });
 });
 

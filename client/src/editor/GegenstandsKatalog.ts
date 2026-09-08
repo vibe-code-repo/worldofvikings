@@ -79,7 +79,7 @@ import {
   istEigenesModell,
   type PrefabDef,
 } from '@wov/shared';
-import { AssetManager, modelBaseUrl } from '../engine/AssetManager';
+import { AssetManager, modelUrl } from '../engine/AssetManager';
 import {
   F,
   M,
@@ -1576,7 +1576,7 @@ export class GegenstandsKatalog {
         const datei = offen[naechster++]!;
         try {
           /*
-            Die Basis kommt aus `modelBaseUrl()` und nicht als feste
+            Die URL kommt aus `modelUrl()` und nicht als feste
             Zeichenkette: Seit E4 kann in `PREFABS_BY_NAME` auch ein zur
             Laufzeit registrierter Saal stehen, und dessen GLB liegt unter
             `assets/generiert/`. Fest verdrahtet meldete diese Prüfung ihn
@@ -1584,7 +1584,7 @@ export class GegenstandsKatalog {
             Das Modell IST da, nur an einem anderen Pfad, und der Katalog
             sagte trotzdem, es gebe es nicht.
           */
-          const antwort = await fetch(`${modelBaseUrl(datei)}${datei}.glb`, { method: 'HEAD' });
+          const antwort = await fetch(modelUrl(datei), { method: 'HEAD' });
           // Ein 200 mit HTML ist die typische Antwort eines Servers, der
           // Unbekanntes auf die Startseite umbiegt — das ist kein Modell.
           const typ = antwort.headers.get('content-type') ?? '';

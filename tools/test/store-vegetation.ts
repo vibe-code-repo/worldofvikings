@@ -201,6 +201,33 @@ check(
   ungetoentesLaub.slice(0, 5).join(', ')
 );
 
+/*
+  ── (c) Der EINGECHECKTE Bericht ist der aktuelle ────────────────────
+  `assets/store-lab/` ist gitignored — wer ohne den Store arbeitet, sieht
+  vom Ergebnis der Aufbereitung sonst nichts. `tools/berichte/store-
+  vegetation-bericht.json` ist deshalb die versionierte Kopie: Materialien
+  vorher/nachher, Rolle, Herkunft, Tönung und Hüllbox je Modell, lesbar
+  im `git diff`.
+
+  Eine Kopie ohne Wächter ist allerdings eine Kopie, die veraltet. Und
+  zwar lautlos: Sie sieht in jedem Zustand vollständig aus. Der Vergleich
+  ist möglich, weil der zweite Lauf byteidentisch ist — was Prüfung (a)
+  gerade festgestellt hat.
+*/
+const BERICHT_EINGECHECKT = join(WURZEL, 'tools/berichte/store-vegetation-bericht.json');
+const BERICHT_FRISCH = join(PROBE_ZIEL, 'BERICHT.json');
+if (ersterLauf.length > 0) {
+  const frisch = existsSync(BERICHT_FRISCH) ? readFileSync(BERICHT_FRISCH, 'utf8') : '';
+  const eingecheckt = existsSync(BERICHT_EINGECHECKT) ? readFileSync(BERICHT_EINGECHECKT, 'utf8') : '';
+  check(
+    'tools/berichte/store-vegetation-bericht.json ist der aktuelle Stand',
+    eingecheckt.length > 0 && eingecheckt === frisch,
+    eingecheckt.length === 0
+      ? 'Datei fehlt'
+      : 'Inhalt weicht ab — node tools/store-vegetation-aufbereiten.mjs, dann assets/store-lab/vegetation/BERICHT.json hierher kopieren'
+  );
+}
+
 console.log('\nMaster je Modell nach der Aufbereitung:');
 for (const [n, anzahl] of [...masterZaehler].sort((a, b) => a[0] - b[0])) {
   console.log(`  ${n} Material${n === 1 ? '' : 'ien'}: ${anzahl} Modelle`);

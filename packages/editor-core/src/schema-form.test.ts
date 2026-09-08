@@ -258,7 +258,7 @@ describe('the sound profile as a form', () => {
     if (footsteps.kind !== 'group') {
       throw new Error('footsteps is not a group');
     }
-    // Order is the whole meaning: entry n answers terrain layer n (ADR-0053).
+    // Order is the whole meaning: entry n answers terrain layer n (ADR-0063).
     expect(find(footsteps.fields, 'layerSurfaces')).toMatchObject({ kind: 'list' });
     expect(find(footsteps.fields, 'defaultSurface')).toMatchObject({ kind: 'text' });
   });

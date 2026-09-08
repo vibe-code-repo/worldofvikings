@@ -1,5 +1,5 @@
 /**
- * The editor's half of sound: hearing the zone you are editing (ADR-0052,
+ * The editor's half of sound: hearing the zone you are editing (ADR-0062,
  * ADR-0033).
  *
  * The twin of `apps/game/src/zone-sound.ts` — same `applyWorldSound`, same
@@ -42,7 +42,7 @@ import {
 import type { EditorDocument } from '@wov/editor-core';
 
 /**
- * The one stand-in every private audio clip falls back to (ADR-0054).
+ * The one stand-in every private audio clip falls back to (ADR-0064).
  *
  * The same quarter second of silence the game falls back to. It matters more
  * here than there: an author on a clean clone with no private store still gets

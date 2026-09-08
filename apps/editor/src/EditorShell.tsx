@@ -125,7 +125,7 @@ export function EditorShell(): JSX.Element {
   const [lightingScope, setLightingScope] = useState<'world' | 'zone'>('world');
   const [soundScope, setSoundScope] = useState<'world' | 'zone'>('world');
   /**
-   * Whether the author is listening to the zone (ADR-0052).
+   * Whether the author is listening to the zone (ADR-0062).
    *
    * **Off when a session starts, and it lives here.** An editor that starts a
    * forge loop the moment a world opens is an editor nobody keeps open. It sits

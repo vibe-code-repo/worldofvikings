@@ -1,5 +1,5 @@
 /**
- * The sound of a world or a zone, as data (ADR-0052).
+ * The sound of a world or a zone, as data (ADR-0062).
  *
  * Sound is world data for the same reason light is (ADR-0024): which bed a
  * valley lies under, how loud its forge is, and what its paths sound like
@@ -87,7 +87,7 @@ export const FootstepBankSchema = z.strictObject({
  *
  * They are **not** spatial. They come from the listener's own feet, and
  * spatialising them at the capsule puts your own steps behind you the moment
- * the camera orbits (ADR-0052).
+ * the camera orbits (ADR-0062).
  */
 export const FootstepsSchema = z
   .strictObject({
@@ -106,7 +106,7 @@ export const FootstepsSchema = z
      *
      * A parallel array rather than a `surface` field on the layer itself, and
      * that is a decision with a date on it: the natural home *is* the terrain
-     * layer, and ADR-0052 records moving it there as a follow-up. It is
+     * layer, and ADR-0062 records moving it there as a follow-up. It is
      * defensible on its own terms — which sound a painted rock makes is a sound
      * decision, not a ground-material one — and `pnpm validate:content` checks
      * the length against `terrain.layers` so the two cannot silently drift.

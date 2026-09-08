@@ -1,6 +1,6 @@
 /**
  * The blocks of a world file that are not entities: how a world or zone is lit
- * (ADR-0024), how it sounds (ADR-0052), and what the ground of a zone is
+ * (ADR-0024), how it sounds (ADR-0062), and what the ground of a zone is
  * (ADR-0020).
  *
  * Both were script-only until ADR-0033: a person edited the JSON, or ran a
@@ -29,7 +29,7 @@ import {
  * Which level of a world file a block command changes.
  *
  * Two levels, because that is what the format has: a world profile, and a zone
- * profile that overrides it group by group (ADR-0024, ADR-0052). An interior is
+ * profile that overrides it group by group (ADR-0024, ADR-0062). An interior is
  * a zone with its own `fog` and its own bed, not a second world.
  *
  * One type for light and for sound rather than two identical ones. They are the

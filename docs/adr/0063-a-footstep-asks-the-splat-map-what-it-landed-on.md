@@ -1,4 +1,4 @@
-# ADR-0053: A footstep asks the splat map what it landed on
+# ADR-0063: A footstep asks the splat map what it landed on
 
 - **Status:** accepted
 - **Date:** 2026-09-07

@@ -46,7 +46,7 @@ Commands — `commands.ts`. The constructors return plain data:
 - `setLighting(scope, patches)`, `setLightingField(scope, path, value)` — how a
   world or a zone is lit (ADR-0024, ADR-0033)
 - `setSound(scope, patches)`, `setSoundField(scope, path, value)` — how a world
-  or a zone sounds (ADR-0052, ADR-0033)
+  or a zone sounds (ADR-0062, ADR-0033)
 - `setTerrain(zoneId, patches)`, `setTerrainField(zoneId, path, value)` — the
   ground of a zone (ADR-0020, ADR-0033)
 - `applyCommand(document, command): CommandResult<AppliedCommand>` —
@@ -84,7 +84,7 @@ rule becomes a colour well, an `assetPathOf` annotation becomes an `asset` field
 carrying which kind of file it names, and an exclusive minimum is recorded so
 whoever invents a starting value does not invent an invalid one.
 
-Entity sound — `entity-sound.ts` (ADR-0052, ADR-0033): `emitterForEntity`,
+Entity sound — `entity-sound.ts` (ADR-0062, ADR-0033): `emitterForEntity`,
 `addEntityEmitter`, `removeEmitterAt`, `emitterIdFor`, `zoneScopeOf`,
 `zoneSoundProfile`. Emitters live on the zone, but an author meets them from a
 selected entity. This finds the one that sounds an entity — a named placement

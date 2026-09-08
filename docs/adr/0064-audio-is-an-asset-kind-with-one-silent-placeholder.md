@@ -1,4 +1,4 @@
-# ADR-0054: Audio is an asset kind, held in the private store behind one silent placeholder
+# ADR-0064: Audio is an asset kind, held in the private store behind one silent placeholder
 
 - **Status:** accepted
 - **Date:** 2026-09-07
@@ -110,4 +110,4 @@ sound module reports its own count separately for the same reason.
 
 **Follow-ups** — the world-data schema for sound, the engine module that plays
 it, and the footstep surface probe are separate decisions
-(ADR-0052, ADR-0053, ADR-0055).
+(ADR-0062, ADR-0063, ADR-0065).

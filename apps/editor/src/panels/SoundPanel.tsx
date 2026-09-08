@@ -1,5 +1,5 @@
 /**
- * The sound panel (ADR-0052, ADR-0033).
+ * The sound panel (ADR-0062, ADR-0033).
  *
  * A world's sound is world data — which bed a zone lies under, how loud its
  * forge is, and what its paths sound like underfoot — and until this panel it

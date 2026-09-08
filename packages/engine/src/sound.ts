@@ -1,6 +1,6 @@
 /**
  * A world's sound, put into a scene — the audio twin of `applyLighting`
- * (ADR-0052).
+ * (ADR-0062).
  *
  * `applyLighting` takes a resolved lighting profile and a scene and gives back
  * a handle that can put the scene back. This does the same for a resolved sound
@@ -55,7 +55,7 @@ export interface ListenerPoint {
 /** Where a clip's bytes are, and what to load instead if they are not there. */
 export interface ClipSource {
   readonly url: string;
-  /** A committed stand-in; for audio that is one silent WAV (ADR-0054). */
+  /** A committed stand-in; for audio that is one silent WAV (ADR-0064). */
   readonly fallbackUrl?: string | undefined;
 }
 
@@ -154,7 +154,7 @@ export async function applyWorldSound(
    * Loads a clip, falling back to its committed stand-in.
    *
    * The stand-in for audio is one silent WAV shared by every private clip
-   * (ADR-0054), so a clean clone with no asset store plays a village that is
+   * (ADR-0064), so a clean clone with no asset store plays a village that is
    * quiet rather than a village that throws.
    */
   async function resolveClip(path: string): Promise<string | null> {

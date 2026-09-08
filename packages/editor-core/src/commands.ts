@@ -198,7 +198,7 @@ export interface SetTerrainCommand {
 }
 
 /**
- * Changes how a world or a zone sounds (ADR-0052, ADR-0033).
+ * Changes how a world or a zone sounds (ADR-0062, ADR-0033).
  *
  * Deliberately the same shape as {@link SetLightingCommand} rather than a
  * family of emitter commands. An emitter is a *list entry* of the profile, so

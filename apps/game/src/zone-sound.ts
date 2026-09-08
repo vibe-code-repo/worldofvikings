@@ -5,7 +5,7 @@
  * `@wov/engine` owns the audio engine, the profile and `applyWorldSound`; this
  * module is the wiring only that side of the boundary can do — the asset store's
  * URLs (ADR-0015), the zone's entity list, and the terrain tile the splat probe
- * has to be fitted against (ADR-0053). The editor will have its own file with
+ * has to be fitted against (ADR-0063). The editor will have its own file with
  * the same shape and different answers, exactly as `zone-terrain.ts` is the
  * editor's answer to `loadZoneTerrain`.
  */
@@ -23,7 +23,7 @@ import {
 } from '@wov/engine';
 
 /**
- * The one stand-in every private audio clip falls back to (ADR-0054).
+ * The one stand-in every private audio clip falls back to (ADR-0064).
  *
  * A quarter second of silence, shared by all 44 rows. A mesh placeholder has to
  * have the right hull, which is why each mesh gets its own; silence has no hull.

@@ -33,10 +33,10 @@ way its world file says (ADR-0024): a low evening sun with one following 2048²
 shadow map, a gradient sky, a cool haze that reaches 1700 m — far enough that
 the painted range hazes with distance instead of standing dark behind it
 (ADR-0034) — and a graded frame. Grass takes that shadow without casting one
-(ADR-0027). It sounds the way its world file says (ADR-0052): a wind-and-crows
+(ADR-0027). It sounds the way its world file says (ADR-0062): a wind-and-crows
 bed, a fire on every brazier, candle group and chimney, the forge, three animal
 one-shots on random intervals, and footsteps whose surface comes from the splat
-layer under the player's feet rather than from a constant (ADR-0053) — all of
+layer under the player's feet rather than from a constant (ADR-0063) — all of
 it authored and audible in the editor, not only in the game. Every
 entity collides against the shape its prefab declares
 (ADR-0026) — 1145 bodies from 210 shared shapes, with 4128 tufts and bushes
@@ -80,7 +80,7 @@ calling the same code. Five right-hand inspectors edit the lighting profile of a
 world or a zone, its sound profile, the terrain block and its layer order, and a
 prefab's collision shape; an emitter is placed on a selected entity from the
 Entity tab and the **Sound** tab's `listen` switch plays the open zone through
-the same `applyWorldSound` the game calls (ADR-0052); the **World** menu runs
+the same `applyWorldSound` the game calls (ADR-0062); the **World** menu runs
 the scene import and the prefab-catalogue
 generator through the API. The panels contain no list of field names — they are
 drawn from the Zod schemas, so a field added to `@wov/world-schema` appears in
@@ -136,7 +136,7 @@ pnpm validate:assets --write  # re-measure sizes and hashes (never invents prove
 pnpm import:world-assets --source <export> --store <store>   # see ADR-0015
 pnpm import:scene-models --scene <bundle> --store <store>    # see ADR-0021
 pnpm import:backdrop --source <export> --store <store>       # see ADR-0031
-pnpm import:audio --source <export> --store <store>          # see ADR-0054
+pnpm import:audio --source <export> --store <store>          # see ADR-0064
 pnpm import:scene --scene <bundle> --world <id> --name <n>   # see ADR-0021, ADR-0028
 pnpm scatter --world <id> --zone <id> --region … --prefab … --density … --seed …
                  # one scatter run into a world file (ADR-0025)

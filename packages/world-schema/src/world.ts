@@ -14,7 +14,7 @@ import { TerrainDefinitionSchema } from './terrain.js';
  * version 3 the optional `lighting` on a world and on a zone (ADR-0024), and
  * version 4 the per-layer surface fields plus `flatNormals` on a terrain
  * (ADR-0032), and version 5 the optional `sound` on a world and on a zone
- * (ADR-0052).
+ * (ADR-0062).
  */
 export const CURRENT_WORLD_SCHEMA_VERSION = 5;
 
@@ -53,7 +53,7 @@ export const ZoneDefinitionSchema = z.strictObject({
   lighting: LightingProfileSchema.optional(),
   /**
    * How this zone sounds, overriding the world's profile group by group
-   * (ADR-0052).
+   * (ADR-0062).
    *
    * Optional all the way down, exactly like `lighting`: a zone that says
    * nothing sounds like its world, and a zone that says only
@@ -88,7 +88,7 @@ export const WorldDefinitionSchema = z
      */
     lighting: LightingProfileSchema.optional(),
     /**
-     * How this world sounds, unless a zone says otherwise (ADR-0052).
+     * How this world sounds, unless a zone says otherwise (ADR-0062).
      *
      * Absent means silence, and that is the honest default: a world with no
      * clips named has nothing to play, whereas a world with no lighting profile

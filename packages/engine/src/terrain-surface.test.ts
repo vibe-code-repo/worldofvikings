@@ -27,7 +27,7 @@ describe('dominantLayer', () => {
 
   it('uses the threshold the generated shader compiles in', () => {
     // If this pin breaks, the CPU and the GPU disagree about which ground the
-    // player is on — the exact failure ADR-0053 exists to prevent.
+    // player is on — the exact failure ADR-0063 exists to prevent.
     expect(terrainFragmentSource(4, 1)).toContain(
       `if (total < ${UNPAINTED_WEIGHT_TOTAL.toFixed(4)})`,
     );

@@ -172,7 +172,7 @@ without store access still runs and says so.
 three occupy space in the world and carry `bounds` in metres; a texture and a
 sound are refused if they do. `audio` rows share one placeholder,
 `placeholders/audio/silence.wav` — a sound has no hull to get wrong, so a
-quarter second of silence is the whole stand-in (ADR-0054). `AUDIO_EXTENSIONS`
+quarter second of silence is the whole stand-in (ADR-0064). `AUDIO_EXTENSIONS`
 and `isAudioAssetPath` are exported so the manifest, the importer and the asset
 server's content types answer "is this a sound?" the same way.
 

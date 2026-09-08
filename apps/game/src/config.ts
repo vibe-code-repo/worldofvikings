@@ -100,7 +100,7 @@ export function lightingProfiles(
 }
 
 /**
- * Whether this client is allowed to make a sound at all (ADR-0052).
+ * Whether this client is allowed to make a sound at all (ADR-0062).
  *
  * `?mute=1` is the fourth diagnostic switch, beside `?flat=1`, `?shadows=off`
  * and `?look=`, and it exists for the same reason the first one does: "the

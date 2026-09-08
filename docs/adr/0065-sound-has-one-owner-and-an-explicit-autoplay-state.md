@@ -1,4 +1,4 @@
-# ADR-0055: Sound has one owner in the engine, and an explicit autoplay state
+# ADR-0065: Sound has one owner in the engine, and an explicit autoplay state
 
 - **Status:** accepted
 - **Date:** 2026-09-07
@@ -145,6 +145,6 @@ have been stable since 2013, and the alternative is a cull with no number.
 be on engine state and clip counts, never on anything audible.
 
 **Follow-ups** — the world-data schema for sound and the function both clients
-call with it (ADR-0052), the footstep surface probe (ADR-0053), and the editor
+call with it (ADR-0062), the footstep surface probe (ADR-0063), and the editor
 panel that makes an emitter audible where it is placed. A mixer UI, occlusion,
 reverb zones and a per-player volume preference are deliberately not here.

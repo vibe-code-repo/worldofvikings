@@ -26,7 +26,7 @@ model's bytes are (ADR-0015, ADR-0016).
 - Query string: `?world=<id>` (default `village1`), `?spawn=<x>,<z>`,
   `?flat=1` (the flat noon rig instead of the world's own, ADR-0024),
   `?shadows=off` (the world's light without its shadow map), `?mute=1` (no audio
-  engine at all, ADR-0052) — the last three are there so a measurement can hold
+  engine at all, ADR-0062) — the last three are there so a measurement can hold
   everything else constant
 
 ## Controls

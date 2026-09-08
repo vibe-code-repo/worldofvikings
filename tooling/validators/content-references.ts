@@ -3,7 +3,7 @@
  * a prefab id must be unique across all catalogs, an entity may only reference
  * a prefab that exists (ADR-0016), a zone's terrain may only name assets the
  * manifest declares (ADR-0020), and a zone's sound may only name clips,
- * surfaces and emitter anchors that exist (ADR-0052).
+ * surfaces and emitter anchors that exist (ADR-0062).
  *
  * Pure functions so they are tested directly instead of through the script.
  */
@@ -99,7 +99,7 @@ export function findMissingTerrainAssets(
 }
 
 /**
- * The checks a sound block needs and no schema can make (ADR-0052).
+ * The checks a sound block needs and no schema can make (ADR-0062).
  *
  * Four things, all of which are silent failures at runtime and loud ones here:
  *
@@ -107,7 +107,7 @@ export function findMissingTerrainAssets(
  *    array parallel to `terrain.layers`, and the day a layer is inserted in the
  *    middle the two drift and every footstep on the tail of the tile is wrong.
  *    This is the check that pays for keeping the surface out of the layer
- *    itself, and ADR-0052 records moving it there once that block is free.
+ *    itself, and ADR-0062 records moving it there once that block is free.
  * 2. **Every clip must be declared in the manifest**, exactly as a terrain's
  *    height field must be — the same rule, for the same reason.
  * 3. **Every surface named must have a bank**, or the footstep is silence with

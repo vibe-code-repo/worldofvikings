@@ -31,7 +31,7 @@ export const TERRAIN_FIELDS: readonly FormField[] = describeFields(TerrainDefini
 
 /**
  * Every field of a sound profile: master, bed, footsteps, emitters, cull
- * distance (ADR-0052).
+ * distance (ADR-0062).
  *
  * Including the footstep banks and the emitter list, which are lists of groups
  * — `SchemaFields` already draws those with add, remove and reorder, and it

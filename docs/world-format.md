@@ -53,7 +53,7 @@ The authoritative definition is `packages/world-schema`.
 - Objects are strict: unknown fields are an error, not silently dropped.
 - Zone ids are unique per world; entity ids are unique per zone.
 - `lighting` is optional on the world and on a zone (schemaVersion 3, ADR-0024).
-- `sound` is optional on the world and on a zone (schemaVersion 5, ADR-0052).
+- `sound` is optional on the world and on a zone (schemaVersion 5, ADR-0062).
 
 ## The transform, exactly
 
@@ -143,7 +143,7 @@ scene reads:
 (no shadows, no sky, no fog, no grading), so a screenshot can be compared
 against the same frame with no rig at all.
 
-## Sound (schemaVersion 5, ADR-0052)
+## Sound (schemaVersion 5, ADR-0062)
 
 `sound` says how a world — or one zone of it — sounds. Like `lighting` it is
 optional all the way down, and what is left out comes from
@@ -175,7 +175,7 @@ the capsule along a wall (ADR-0038) cannot become a burst.
 layer order. The village's six layers — gravel, rock, grass, gravel, rough rock,
 moss — map onto two banks: `["gravel", "gravel", "grass", "gravel", "gravel",
 "grass"]`. `pnpm validate:content` checks the length against the terrain, and
-ADR-0052 records moving the field onto the layer itself as a follow-up.
+ADR-0062 records moving the field onto the layer itself as a follow-up.
 
 **An emitter carries exactly one of `prefab`, `entity` or `position`:**
 

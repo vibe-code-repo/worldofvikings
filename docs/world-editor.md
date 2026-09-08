@@ -46,7 +46,7 @@ five different questions and only one of them is ever the question:
 | **Zone**     | the active zone's name and its `terrain` block — height field, size, layers, splat |
 | **Prefab**   | the highlighted prefab's category and collision shape (ADR-0026)                   |
 | **Lighting** | the world's or the zone's lighting profile, with presets (ADR-0024)                |
-| **Sound**    | the world's or the zone's sound profile, and the **Listen** switch (ADR-0052)      |
+| **Sound**    | the world's or the zone's sound profile, and the **Listen** switch (ADR-0062)      |
 
 ### Hearing what you place
 

@@ -64,7 +64,7 @@ export interface EditorViewportProps {
    */
   readonly groundPicking: boolean;
   /**
-   * Whether the author is listening to the zone (ADR-0052).
+   * Whether the author is listening to the zone (ADR-0062).
    *
    * Off by default and owned by the shell, so it survives this component being
    * rebuilt — which is also why the audio engine itself lives in a module and

@@ -1,6 +1,6 @@
 /**
  * Which emitter sounds a given entity, and how to give one to an entity that
- * has none (ADR-0052, ADR-0033).
+ * has none (ADR-0062, ADR-0033).
  *
  * The world format keeps emitters as a list on the zone's `sound` block, not as
  * a field on the entity — 5273 entities of which seventeen make a noise would

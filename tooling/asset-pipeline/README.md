@@ -136,7 +136,7 @@ the choice and the alternative that was rejected.
 ## Sound: `pnpm import:audio`
 
 A second command over the same store, for a kind of file the model pipeline
-cannot describe (ADR-0054). It differs from the model import in three ways worth
+cannot describe (ADR-0064). It differs from the model import in three ways worth
 knowing before changing it.
 
 **Clips are addressed by the hash of their source bytes, never by a source file

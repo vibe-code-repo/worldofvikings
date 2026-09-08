@@ -9,7 +9,7 @@ export interface InspectorProps {
   readonly document: EditorDocument;
   readonly onRename: (entityId: string, nextId: string) => void;
   readonly onTransform: (entityId: string, patch: TransformPatch) => void;
-  /** What this entity sounds like (ADR-0052); see `EntitySound.tsx`. */
+  /** What this entity sounds like (ADR-0062); see `EntitySound.tsx`. */
   readonly sound: EntitySoundBinding;
 }
 

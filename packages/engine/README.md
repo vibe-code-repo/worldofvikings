@@ -23,7 +23,7 @@ things, kept apart on purpose:
    sky the scene is lit under. It renders terrain; it does
    not decide where terrain is (that is world data) and it does not load the
    model (that is `@wov/asset-system`).
-5. **Sound** (ADR-0052, ADR-0053, ADR-0055) — `createAudioEngine` owns Babylon's
+5. **Sound** (ADR-0062, ADR-0063, ADR-0065) — `createAudioEngine` owns Babylon's
    AudioV2 engine, its four buses, its one listener and the per-URL clip cache,
    and it plays a clip either at a place in the world or simply into your ears.
    `resolveSoundProfile` and `applyWorldSound` are the audio twins of
@@ -74,15 +74,15 @@ reads back. Rendering never owns the game state (spec §25), which is why
 | `terrainLayerSources(layers, resolve)`                                                      | World-file layers to loadable ones, through the caller's own URL resolver. One mapping for the game and the editor.                              |
 | `TerrainSurfaceShader` / `plainSurface(count)`                                              | Which layers have a normal map and whether the tile is facetted — part of the program's shape.                                                   |
 | `sceneSkyGradient(scene)` / `setSceneSkyGradient`                                           | The sky a scene is lit under, as numbers the ground can reflect (ADR-0032). Written by `applyLighting`, read by the terrain material.            |
-| `createAudioEngine(options?)`                                                               | `Promise<AudioSystem>`. The page's audio engine, its four buses, its listener and the clip cache (ADR-0055).                                     |
+| `createAudioEngine(options?)`                                                               | `Promise<AudioSystem>`. The page's audio engine, its four buses, its listener and the clip cache (ADR-0065).                                     |
 | `audio.playAt(url, place?)` / `audio.play(url, options?)`                                   | One clip at a place in the world, or one clip simply heard. Buffers are cached per URL and shared.                                               |
 | `audio.attachListener(node)` / `audio.unlock()` / `audio.statusLine`                        | Where the ears are, asking the browser for sound, and the one line saying whether there is any.                                                  |
 | `distanceGain(falloff, d)` / `audibleRadius(falloff)`                                       | The Web Audio distance curves, and the radius past which a source is not worth a panner.                                                         |
 | `nextAudioUnlockState(state, event)` / `summarizeAudioStatus(state)`                        | The autoplay state machine, and its status line. Pure.                                                                                           |
-| `resolveSoundProfile(...profiles)` / `defaultSoundProfile`                                  | A world's and a zone's sound blocks merged into one complete description. Babylon-free, Zod-free (ADR-0052).                                     |
+| `resolveSoundProfile(...profiles)` / `defaultSoundProfile`                                  | A world's and a zone's sound blocks merged into one complete description. Babylon-free, Zod-free (ADR-0062).                                     |
 | `applyWorldSound(scene, options)`                                                           | `Promise<WorldSoundHandle>`. The bed, the emitters, the one-shots, the distance cull and `footstep(surface)`. The audio twin of `applyLighting`. |
 | `planEmitters(emitters, entities)`                                                          | Expands a `prefab` rule over a zone's entities, and reports what matched nothing and what was capped. Pure.                                      |
-| `createTerrainSurfaceProbe(options)` / `dominantLayer(weights)` / `fitTileUv(pos, uv)`      | Which splat layer is under a point, under a uv fit measured off the mesh and verified (ADR-0053).                                                |
+| `createTerrainSurfaceProbe(options)` / `dominantLayer(weights)` / `fitTileUv(pos, uv)`      | Which splat layer is under a point, under a uv fit measured off the mesh and verified (ADR-0063).                                                |
 | `createClipBag(clips, random?)` / `jitteredRate(jitter, random)`                            | Never the same footstep twice running, and a seeded pitch jitter a test can watch.                                                               |
 | `SKY_GRADIENT_FUNCTION`                                                                     | The sky as a function of direction, pasted into both the dome's program and the ground's.                                                        |
 | `layerRepeats(size, tileSize)`                                                              | Metres across ÷ metres per repeat — the one place `size` and `tileSize` meet.                                                                    |
@@ -206,7 +206,7 @@ screen to your left into your right ear the moment the camera swings round.
 direction: they come from the listener's own feet, and panning them at the
 capsule puts your own steps behind you whenever the camera orbits.
 
-**A zone's sound is world data (ADR-0052).** `applyWorldSound` is what a client
+**A zone's sound is world data (ADR-0062).** `applyWorldSound` is what a client
 calls with a resolved profile; it never reads a file and never decides what a
 world sounds like.
 
@@ -224,7 +224,7 @@ const sound = await applyWorldSound(scene, {
 sound.footstep('gravel'); // once per stride, from the app's own accumulator
 ```
 
-**Which surface a footstep landed on comes from the splat map (ADR-0053),** read
+**Which surface a footstep landed on comes from the splat map (ADR-0063),** read
 on the CPU in the shader's own channel order and under a uv fit measured off the
 tile's own vertices. A fit that does not hold reports `unmapped` and the caller
 falls back to one surface — a plain footstep rather than a confidently wrong

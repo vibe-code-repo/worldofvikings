@@ -1,4 +1,4 @@
-# ADR-0052: Sound is world data, applied by one function both clients call
+# ADR-0062: Sound is world data, applied by one function both clients call
 
 - **Status:** accepted
 - **Date:** 2026-09-07
@@ -6,7 +6,7 @@
 
 ## Context
 
-ADR-0055 gave the project an audio engine: one `AudioSystem` per page, four
+ADR-0065 gave the project an audio engine: one `AudioSystem` per page, four
 buses, a clip cache, a listener and an explicit autoplay state. It deliberately
 stopped there. It knows how to play a clip; it does not know that this village
 has eleven braziers, that the ground beside the forge is gravel, or that the
@@ -97,7 +97,7 @@ tuning this game actually has — 1.1 m at 4.5 m/s is about four steps a second,
 
 ### Nothing in `side-effects.ts`, and nothing awaited
 
-ADR-0055 already recorded why AudioV2 adds no side-effect import. This ADR adds
+ADR-0065 already recorded why AudioV2 adds no side-effect import. This ADR adds
 the ordering rule: **the audio engine starts next to the physics backend and is
 never awaited by the loop, and the zone's clips are loaded after
 `placeEntities`.** The village streams hundreds of megabytes of models before
@@ -111,7 +111,7 @@ sound has not arrived is silent, never stalled.
 _Bytes on the wire._ The village loads 182.4 MB without sound and 183.5 MB with
 it: **+1.11 MB, 0.6 %**. That is 465 KB of clips — the bed, two emitter loops
 and 28 footstep clips, all the profile preloads — plus 618 KB the splat probe
-pays to re-download the two splat maps (see ADR-0053; the design expected an
+pays to re-download the two splat maps (see ADR-0063; the design expected an
 HTTP-cache hit and the development asset server sends no cache headers, which is
 a deployment question and not one this repository should answer by caching a
 file an importer rewrites).

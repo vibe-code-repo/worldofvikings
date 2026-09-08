@@ -1,6 +1,6 @@
 /**
  * Which ground layer is under a point — the splat map, asked on the CPU
- * (ADR-0053).
+ * (ADR-0063).
  *
  * A footstep has to know what it landed on, and the answer already exists: the
  * terrain shader decides it per pixel, sixty times a second, out of the splat

@@ -44,7 +44,7 @@ CC0 with everything else this project authors.
 One of them is not a box. `placeholders/audio/silence.wav` is a tenth of a
 second of zeroes written by `tooling/asset-pipeline/import-audio.ts`, and every
 private clip points at that one file: a sound has no hull that could be got
-wrong, so there is nothing to give each of them its own (ADR-0054).
+wrong, so there is nothing to give each of them its own (ADR-0064).
 
 They are the one deliberate exception to "nothing generated is committed"
 (AGENTS.md §5.7): their whole purpose is to exist where the generator cannot run.

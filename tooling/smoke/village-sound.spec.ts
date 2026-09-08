@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 
 /**
  * The proof that the village's sound profile reaches the audio engine, and that
- * a footstep asks the ground what it landed on (ADR-0052, ADR-0053).
+ * a footstep asks the ground what it landed on (ADR-0062, ADR-0063).
  *
  * Unit tests pin what `resolveSoundProfile` answers, which placements a prefab
  * rule expands to, and what `dominantLayer` picks out of a set of weights. None

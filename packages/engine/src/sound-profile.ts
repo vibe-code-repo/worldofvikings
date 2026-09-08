@@ -1,6 +1,6 @@
 /**
  * The sound profile as plain data: defaults, merging and validation
- * (ADR-0052).
+ * (ADR-0062).
  *
  * Free of Babylon.js and of Zod, exactly like `lighting-profile.ts` and for the
  * same two reasons: `@wov/world-schema` describes data files and must stay free

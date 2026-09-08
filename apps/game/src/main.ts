@@ -229,7 +229,7 @@ function setCollisionStatus(text: string): void {
 }
 
 /**
- * Says what can be heard, or why nothing can (ADR-0052).
+ * Says what can be heard, or why nothing can (ADR-0062).
  *
  * Its own line, like the world's and the collision's, and for the same reason:
  * "the village is on screen" and "the village makes a noise" are different
@@ -359,7 +359,7 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       physics?.step(fixedDelta);
       // Footsteps are paced by ground covered, on the fixed step rather than on
       // the frame, for exactly the reason physics is: a 144 Hz display must not
-      // make the player walk faster or louder (ADR-0013, ADR-0052).
+      // make the player walk faster or louder (ADR-0013, ADR-0062).
       stepFootsteps(fixedDelta, sampled.sprint);
     },
 
@@ -524,7 +524,7 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
 
   /**
    * Which surface the player is standing on, by the splat map's own answer
-   * (ADR-0053).
+   * (ADR-0063).
    *
    * Off the tile, or on ground the probe could not be fitted to, is the
    * profile's default surface — a plain footstep rather than a confidently
@@ -657,7 +657,7 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
         );
         terrainSources = ground3d.sources;
         // Kept for the splat probe: the surface a footstep lands on is fitted
-        // against these meshes' own uv attribute (ADR-0053).
+        // against these meshes' own uv attribute (ADR-0063).
         groundMeshes = ground3d.terrain.meshes;
         // The ground receives through its own shader (ADR-0020) and must not
         // cast: a height field in its own shadow map self-shadows every slope
@@ -793,7 +793,7 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
   }
 
   /**
-   * Gives the zone its sound (ADR-0052).
+   * Gives the zone its sound (ADR-0062).
    *
    * Deliberately last and deliberately not awaited by anything the player is
    * waiting for. The village streams hundreds of megabytes of models before it
@@ -839,7 +839,7 @@ async function start(canvas: HTMLCanvasElement): Promise<void> {
       // prefab has none by design (ADR-0025) and falls back to its position.
       nodeOf: (entityId) => renderer.scene.getTransformNodeByName(`entity:${entityId}`),
       // The camera, not the capsule: in third person the picture is the
-      // camera's, and so are the ears (ADR-0052).
+      // camera's, and so are the ears (ADR-0062).
       listener: renderer.scene.activeCamera,
       listenerAt: () => {
         const at = renderer.scene.activeCamera?.globalPosition;

@@ -166,7 +166,7 @@ export interface WovDebugBridge {
   readonly backdrop: WovBackdropDebug | null;
 
   /**
-   * What the zone's sound is doing, or `null` before it is started (ADR-0052).
+   * What the zone's sound is doing, or `null` before it is started (ADR-0062).
    *
    * Reported, because none of it can be heard from a test: a headless browser
    * has no output device, so "there is a bed and seventeen emitters" is a
@@ -177,7 +177,7 @@ export interface WovDebugBridge {
 
   /**
    * Which surface a footstep at this point would use, or `null` before the
-   * splat probe is fitted (ADR-0053).
+   * splat probe is fitted (ADR-0063).
    *
    * The only witness there is for the one claim of this feature that can be
    * wrong rather than merely absent. A footstep is 200 ms of gravel either way;

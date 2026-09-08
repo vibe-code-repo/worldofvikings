@@ -1,5 +1,5 @@
 /**
- * The emitter of the selected entity, inside the entity inspector (ADR-0052,
+ * The emitter of the selected entity, inside the entity inspector (ADR-0062,
  * ADR-0033).
  *
  * The sound panel edits a zone's whole profile; this edits the one question an

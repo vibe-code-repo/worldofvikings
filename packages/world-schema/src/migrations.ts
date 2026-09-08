@@ -59,7 +59,7 @@ const v3ToV4: WorldMigration = {
 };
 
 /**
- * v4 → v5: worlds and zones gained an optional `sound` (ADR-0052).
+ * v4 → v5: worlds and zones gained an optional `sound` (ADR-0062).
  *
  * Additive, like the three steps before it, and again nothing is invented. A v4
  * file names no clips, so it is a v5 file that is silent — which is exactly how

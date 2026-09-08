@@ -530,7 +530,7 @@ test.describe('live preview', () => {
 });
 
 /**
- * (6) Sound, placed and heard in the editor (ADR-0052, ADR-0033).
+ * (6) Sound, placed and heard in the editor (ADR-0062, ADR-0033).
  *
  * Three claims, and the third is the one a passing unit test cannot make.
  *
@@ -593,7 +593,7 @@ test('editor places a sound on an entity, saves it, and plays the zone', async (
     .evaluateAll((options) => options.map((option) => option.getAttribute('value') ?? ''));
   expect(clips.length).toBeGreaterThan(0);
   // Audio and nothing else. The shared silent stand-in is an audio row too
-  // (ADR-0054) and belongs in the list — it is a legitimate thing to point a
+  // (ADR-0064) and belongs in the list — it is a legitimate thing to point a
   // field at while a clip is missing — so the assertion is on the format.
   expect(clips.every((path) => /\.(ogg|wav|mp3|m4a)$/.test(path))).toBe(true);
   const bed = clips.find((path) => path.startsWith('audio/ambience/')) ?? clips[0];
@@ -601,7 +601,7 @@ test('editor places a sound on an entity, saves it, and plays the zone', async (
   await page.getByTestId('sound-ambience-clip-input').fill(String(bed));
   await page.getByTestId('sound-ambience-enabled-input').check();
   // The surface-to-footstep mapping: the field that says what the ground under
-  // a player's feet sounds like (ADR-0053).
+  // a player's feet sounds like (ADR-0063).
   await page.getByTestId('sound-footsteps-defaultSurface-input').fill('gravel');
   await expect(page.getByTestId('editor-dirty')).toHaveText('unsaved changes');
 

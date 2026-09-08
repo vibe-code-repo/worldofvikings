@@ -54,6 +54,14 @@ import { Biome } from './types.js';
 import { getStableHash } from './hash.js';
 import type { Foliage } from './vegetation.js';
 import { EIGENE_MODELLE_SET } from './prefabs.js';
+import {
+  STORE_FLORA_AKTIV,
+  STORE_GRASLAND_FLORA,
+  STORE_NADELWALD_FLORA,
+  STORE_SUMPF_FLORA,
+  STORE_HOCHNORD_FLORA,
+  STORE_ASCHE_FLORA,
+} from './storeFlora.js';
 
 /**
  * Vorgaben, die für alle eigenen Einträge gleich sind.
@@ -148,7 +156,17 @@ export const ALLE_BIOME: number =
   Biome.Ocean |
   Biome.Mistlands;
 
-type FloraKurz = {
+/**
+ * Die Kurzform eines Streueintrags — exportiert, weil
+ * `shared/src/storeFlora.ts` dieselbe Bauart benutzt.
+ *
+ * Sie ist bewusst DATEN und kein fertiges `Foliage`: Die Umrechnung samt
+ * `BASIS` und `ALLE_BIOME` bleibt hier. Zwei Umrechner liefen
+ * auseinander, und `storeFlora.ts` müsste dieses Modul dafür zur Laufzeit
+ * importieren — zusammen mit dem Import in die Gegenrichtung ein Zyklus.
+ * Ein reiner Typ-Import ist zur Laufzeit nichts.
+ */
+export type FloraKurz = {
   readonly name: string;
   /** Mindestabstand zweier Exemplare in Metern. */
   readonly radius: number;
@@ -625,6 +643,50 @@ export const HOCHNORD_FLORA: readonly Foliage[] = mitDickenStaemmen(HOCHNORD_FLO
  */
 export const ASCHE_FLORA: readonly Foliage[] = [];
 
+// ── Die Store-Vegetation ─────────────────────────────────────────────
+//
+// `shared/src/storeFlora.ts` liefert dieselbe Kurzform wie oben; die
+// Umrechnung nach `Foliage` geschieht HIER, mit demselben `flora()` und
+// derselben BASIS. Die dicken Stammvarianten (`mitDickenStaemmen`)
+// entfallen: Sie sind eine Mechanik der eigenen Bäume, der Store liefert
+// seine Stärkestufen als eigene Modelle mit.
+
+const STORE_GRASLAND: readonly Foliage[] = STORE_GRASLAND_FLORA.map(flora);
+const STORE_NADELWALD: readonly Foliage[] = STORE_NADELWALD_FLORA.map(flora);
+const STORE_SUMPF: readonly Foliage[] = STORE_SUMPF_FLORA.map(flora);
+const STORE_HOCHNORD: readonly Foliage[] = STORE_HOCHNORD_FLORA.map(flora);
+const STORE_ASCHE: readonly Foliage[] = STORE_ASCHE_FLORA.map(flora);
+
+/**
+ * Ist die Store-Vegetation wirklich da?
+ *
+ * Ein Streueintrag ohne PrefabDef streut NICHTS — `findPrefabByHash()`
+ * findet den Hash nicht, und die Region bleibt kahl, lautlos. Die
+ * PrefabDefs für den Store erzeugt `tools/store-prefabs.mjs` nach
+ * `shared/src/storePrefabs.ts` und trägt ihre Namen in `EIGENE_MODELLE`
+ * ein; solange das nicht geschehen ist, wäre ein Umschalten der
+ * Kuratierungslisten ein Weltuntergang mit grünem Testlauf.
+ *
+ * Deshalb wird nicht geglaubt, sondern nachgesehen — und das Ergebnis
+ * ist EXPORTIERT, nicht versteckt: `tools/test/store-flora.ts` liest es,
+ * und wer sich wundert, warum die alten Birken noch stehen, findet hier
+ * die Antwort statt eines stillen Fehlschlags.
+ *
+ * Verlangt wird VOLLSTÄNDIGKEIT, nicht „irgendetwas ist da": Eine halb
+ * eingetragene Liste ergäbe eine halb kahle Welt, und das wäre der
+ * schlechtere von zwei Zuständen.
+ */
+export const STORE_FLORA_BEREIT: boolean = [
+  STORE_GRASLAND,
+  STORE_NADELWALD,
+  STORE_SUMPF,
+  STORE_HOCHNORD,
+  STORE_ASCHE,
+].every((buendel) => buendel.every((f) => EIGENE_MODELLE_SET.has(f.prefabName)));
+
+/** Wird gestreut UND kuratiert: die Store-Listen statt der alten? */
+const STORE_GILT = STORE_FLORA_AKTIV && STORE_FLORA_BEREIT;
+
 /**
  * Die Bündel in FOLIAGE-Reihenfolge.
  *
@@ -632,6 +694,14 @@ export const ASCHE_FLORA: readonly Foliage[] = [];
  * vorn nach hinten ab und prüft jeden Kandidaten gegen die schon
  * belegten Flächen. Grasland zuerst, weil es das grösste Bündel ist und
  * seine Zahlen die längste Messgeschichte haben.
+ *
+ * Die Store-Bündel stehen HINTEN, und beide Bestände stehen IMMER drin —
+ * auch bei umgeschalteter Kuratierung. Beides hat denselben Grund: Der
+ * Streudurchlauf verwirft jeden Kandidaten, den die Region nicht
+ * bestellt hat, und ein nicht bestellter Eintrag kostet nichts ausser
+ * einem Vergleich. Was er dagegen ERMÖGLICHT, ist der von Hand im Editor
+ * gesetzte alte Baum und der alte Spielstand — beide brauchen ihren
+ * Prefab in `EIGENE_FLORA`, sonst verschwindet er.
  */
 const BUENDEL: readonly (readonly Foliage[])[] = [
   GRASLAND_FLORA,
@@ -639,6 +709,11 @@ const BUENDEL: readonly (readonly Foliage[])[] = [
   SUMPF_FLORA,
   HOCHNORD_FLORA,
   ASCHE_FLORA,
+  STORE_GRASLAND,
+  STORE_NADELWALD,
+  STORE_SUMPF,
+  STORE_HOCHNORD,
+  STORE_ASCHE,
 ];
 
 /**
@@ -696,8 +771,19 @@ export const EIGENE_FLORA_HASHES: ReadonlySet<number> = new Set(
  * Listen die EINZIGE Stelle, an der steht, was wo wächst. Eine Region
  * ohne Liste bleibt kahl — nicht als Fehler, sondern weil es keine
  * Standardtabelle mehr gibt, aus der sie sich bedienen könnte.
+ *
+ * ── Und genau hier schaltet der Store-Bestand um ─────────────────────
+ * `namen()` wählt zwischen altem und neuem Bündel. Die STREUTABELLE
+ * (EIGENE_FLORA) enthält weiterhin beide — es wechselt nur, was eine
+ * Region angeboten bekommt. Damit ist die Umstellung eine Änderung der
+ * Kuratierung und keine der Prefab-Registrierung: Alte Welten behalten
+ * ihre gesetzten Bäume, und `STORE_FLORA_AKTIV = false` stellt Stufe 0
+ * wieder her, ohne dass eine Zeile zurückgenommen werden müsste.
  */
-export const GRASLAND_FLORA_NAMEN: readonly string[] = GRASLAND_FLORA.map((f) => f.prefabName);
+const namen = (store: readonly Foliage[], alt: readonly Foliage[]): readonly string[] =>
+  (STORE_GILT ? store : alt).map((f) => f.prefabName);
+
+export const GRASLAND_FLORA_NAMEN: readonly string[] = namen(STORE_GRASLAND, GRASLAND_FLORA);
 
 /**
  * Dasselbe für den Nadelwald — und zugleich die Liste des Bioms
@@ -705,13 +791,21 @@ export const GRASLAND_FLORA_NAMEN: readonly string[] = GRASLAND_FLORA.map((f) =>
  * nicht: „Nadelwald" IST seine Landschaftsform, und zwei Listen mit
  * demselben Inhalt liefen nach der ersten Änderung auseinander.
  */
-export const NADELWALD_FLORA_NAMEN: readonly string[] = NADELWALD_FLORA.map((f) => f.prefabName);
+export const NADELWALD_FLORA_NAMEN: readonly string[] = namen(STORE_NADELWALD, NADELWALD_FLORA);
 
 /** Der Sumpf (insel-3). */
-export const SUMPF_FLORA_NAMEN: readonly string[] = SUMPF_FLORA.map((f) => f.prefabName);
+export const SUMPF_FLORA_NAMEN: readonly string[] = namen(STORE_SUMPF, SUMPF_FLORA);
 
 /** Der Hohe Norden (land-1). */
-export const HOCHNORD_FLORA_NAMEN: readonly string[] = HOCHNORD_FLORA.map((f) => f.prefabName);
+export const HOCHNORD_FLORA_NAMEN: readonly string[] = namen(STORE_HOCHNORD, HOCHNORD_FLORA);
 
-/** Die Aschewüste (insel-16) — leer, siehe ASCHE_FLORA. */
-export const ASCHE_FLORA_NAMEN: readonly string[] = ASCHE_FLORA.map((f) => f.prefabName);
+/**
+ * Die Aschewüste (insel-16).
+ *
+ * Ohne Store-Bestand leer (siehe ASCHE_FLORA und die Begründung dort);
+ * mit ihm die kahlen Stümpfe aus `storeFlora.ts`. Das ist der einzige
+ * Ort, an dem der Store etwas hinzufügt, wo vorher bewusst nichts stand
+ * — und der Grund steht dort: Er bringt Stämme OHNE Laub mit, und daran
+ * war die alte Antwort gescheitert.
+ */
+export const ASCHE_FLORA_NAMEN: readonly string[] = namen(STORE_ASCHE, ASCHE_FLORA);

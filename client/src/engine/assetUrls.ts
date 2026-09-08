@@ -65,7 +65,17 @@ export const STORE_BASE_URL = '/assets/';
 
 /**
  * Die Präfixe, an denen ein Store-Modell zu erkennen ist. `store/` ist
- * der unveränderte Bestand, `store-lab/` die abgeleiteten Fassungen.
+ * der unveränderte Bestand, `store-lab/` die abgeleiteten Fassungen
+ * (`tools/store-vegetation-aufbereiten.mjs`): `store/vegetation/pine-1b2`
+ * und `store-lab/vegetation/pine-1b2` sind dasselbe Modell in zwei
+ * Zuständen, roh und aufbereitet. Welchen davon ein Prefab nennt,
+ * entscheidet `tools/store-prefabs.mjs` beim Erzeugen — und die Basis
+ * folgt dem ORDNER, nicht einer Namensregel wie bei `Gen_`.
+ *
+ * Warum die Präfixe hier stehen und NICHT in `MODELL_ALIAS`: Die Dateien
+ * liegen ausserhalb des Repos, ihre Namen erzeugt `tools/store-prefabs.mjs`
+ * aus `assets/store/prefabs.json`. Eine Aliastabelle wäre eine zweite,
+ * handgepflegte Wahrheit über 570 Prefabs.
  */
 export const STORE_PREFIXE = ['store/', 'store-lab/'] as const;
 

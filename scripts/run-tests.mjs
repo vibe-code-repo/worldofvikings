@@ -464,7 +464,40 @@ const KERN = [
   ['server', 'test/h1-layout.ts'],
   ['server', 'test/h2-routen.ts'],
   ['server', 'test/h3-routen-vorschau.ts'],
+  /*
+    Der Vorposten von h4-graslandflora: dieselbe Regel („ein kuratierter
+    Name ohne Streueintrag bleibt lautlos kahl"), aber als reine Aussage
+    ueber zwei Listen statt ueber 11 x 11 gestreute Zonen. Er faellt in
+    Millisekunden und nennt den Namen; h4 braucht dafuer den halben
+    Server. Beide bleiben stehen — der eine prueft die Verdrahtung, der
+    andere, dass am Ende wirklich etwas aus dem Boden kommt.
+
+    Ohne Weiche: kein `assets/`, keine GPU, reine Tabellen.
+  */
+  ['shared', 'test/flora-verdrahtung.ts'],
   ['server', 'test/h4-graslandflora.ts'],
+  /*
+    Die Store-Vegetation, zwei Fragen und zwei Dateien:
+
+      store-flora.ts       Steht jeder Name in `shared/src/storeFlora.ts`
+                           auch im Store, und ergibt jede Biomliste eine
+                           Landschaft (Baum, Strauch, Schnee nur im
+                           Norden)? Misst die Hoehen aus prefabs.json —
+                           am Namen liesse sich das nicht entscheiden.
+
+      store-vegetation.ts  Laeuft die Aufbereitung durch, ist ihr Ergebnis
+                           beim zweiten Lauf byteidentisch, und traegt
+                           danach jedes Laubmaterial eine Toenung? Ohne
+                           die waere das Laub grau — und grau sieht nicht
+                           nach Fehler aus, sondern nach Herbst.
+
+    WEICHE `brauchtModelle('assets/store')`: Der Store liegt ausserhalb
+    des Repos (Symlink assets/store). Fehlt er GANZ, wird uebersprungen;
+    fehlt eine EINZELNE Datei, werden die Tests rot — die Sonde
+    entscheidet nie selbst, ob sie laufen darf.
+  */
+  ['tools/test', 'store-flora.ts', brauchtModelle('assets/store')],
+  ['tools/test', 'store-vegetation.ts', brauchtModelle('assets/store')],
   ['server', 'test/d6-zdo-delta.ts'],
   ['server', 'test/d8-save-async.ts'],
   ['server', 'test/d9-terrain-verdichtung.ts'],

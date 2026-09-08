@@ -69,7 +69,29 @@ const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '..');
 const STORE = join(WURZEL, 'assets/store');
 const STORE_LAB = join(WURZEL, 'assets/store-lab');
-const ZIEL = join(WURZEL, 'shared/src/storePrefabs.ts');
+/*
+  ZWEI Ziele, und der Schnitt dazwischen ist kein Ordnungssinn.
+
+  `storePrefabs.ts` traegt, was SERVER UND SPIEL brauchen: die 569
+  PrefabDefs, ihre Namen fuer `EIGENE_MODELLE`, die Streusperre. Es haengt
+  am Barrel (`shared/src/index.ts`) und damit im Spiel-Bundle.
+
+  `storeKatalogDaten.ts` traegt den KATALOG — 670 Eintraege mit Lizenz,
+  Kennzeichen, Huellbox und Kollisionsart. Den liest nur der Editor.
+  Solange beides in EINER Datei stand, lud jeder Spieler die 670
+  Katalogzeilen mit: Rollup kann aus einem Modul nichts wegwerfen, das
+  ueber `export *` erreichbar ist und dessen Nachbar gebraucht wird.
+  Gemessen am 08.09.2026 vor dem Schnitt: 670-mal `lizenzstatus` im
+  ausgelieferten Spiel-Chunk, 682 KB roh / 118 KB gzip.
+
+  Deshalb steht `storeKatalogDaten.ts` NICHT im Barrel — genauso wenig
+  wie `featurePieces.ts`, und aus demselben Grund (siehe Kopf von
+  `shared/src/index.ts`). Wer den Katalog will, nennt seinen Pfad.
+*/
+const ZIEL_PREFABS = join(WURZEL, 'shared/src/storePrefabs.ts');
+const ZIEL_KATALOG = join(WURZEL, 'shared/src/storeKatalogDaten.ts');
+const DATEI_PREFABS = 'storePrefabs.ts';
+const DATEI_KATALOG = 'storeKatalogDaten.ts';
 
 // ── Hilfen ────────────────────────────────────────────────────────────
 
@@ -372,11 +394,19 @@ const kopf = `/**
  * Typen, Ordnernamen und der Spiegelungs-Schalter stehen von Hand
  * gepflegt in \`storeKatalog.ts\`; hier sind nur die Daten.
  *
+ * ── Was hier NICHT steht: der Katalog ────────────────────────────────
+ * \`STORE_KATALOG\` (${katalog.length} Einträge mit Lizenz, Kennzeichen,
+ * Hüllbox und Kollisionsart) liegt in \`storeKatalogDaten.ts\`. Diese
+ * Datei hier hängt am Barrel und damit im SPIEL-Bundle; der Katalog
+ * interessiert nur den Editor. Zusammen in einer Datei lud ihn jeder
+ * Spieler mit — Rollup kann aus einem Modul nichts wegwerfen, dessen
+ * Nachbar gebraucht wird.
+ *
  * Generated store registry — do not edit by hand.
  */
 import { PrefabFlag } from './types.js';
 import type { PrefabDef } from './prefabs.js';
-import type { StoreEintrag, StorePrefabName } from './storeKatalog.js';
+import type { StorePrefabName } from './storeKatalog.js';
 import type { Vector3 } from './types.js';
 
 /**
@@ -432,20 +462,55 @@ export const STORE_NICHT_STREUEN: ReadonlySet<StorePrefabName> = new Set([
 ${nichtStreuen.map((n) => `  ${tsText(n)},`).join('\n')}
 ]);
 
-/**
- * Der vollständige Katalog: JEDE Datei, die unter \`assets/store/\`
- * wirklich liegt — ${katalog.length} Einträge, auch Texturen, Töne und
- * Kollisionsnetze, zu denen es kein Prefab gibt.
+`);
+
+const textPrefabs = teile.join('');
+
+// ── Zweites Erzeugnis: der Katalog, nur für den Editor ────────────────
+
+const katalogTeile = [
+  `/**
+ * storeKatalogDaten.ts — ERZEUGT, NICHT VON HAND ÄNDERN.
+ *
+ *   npx tsx tools/store-prefabs.mjs
+ *
+ * Der vollständige Katalog des Asset-Speichers: JEDE Datei, die unter
+ * \\\`assets/store/\\\` wirklich liegt — ${katalog.length} Einträge, auch
+ * Texturen, Töne und Kollisionsnetze, zu denen es kein Prefab gibt.
+ *
+ * ── Warum diese Datei NICHT im Barrel steht ──────────────────────────
+ * \\\`shared/src/index.ts\\\` exportiert sie mit Absicht nicht, und das ist
+ * dieselbe Entscheidung wie bei \\\`featurePieces.ts\\\` (Begründung dort im
+ * Kopf): Ein \\\`export *\\\` von hier zöge diese ${katalog.length} Zeilen
+ * über jedes Client-Modul, das aus '@wov/shared' importiert, ins
+ * SPIEL-Bundle. Genau das war der Zustand bis zum 08.09.2026 — der
+ * ausgelieferte Prefab-Chunk trug ${katalog.length}-mal \\\`lizenzstatus\\\`
+ * durch die Leitung jedes Spielers, für einen Katalog, den nur der
+ * Editor aufschlägt (682 KB roh, 118 KB gzip).
+ *
+ * Der Bündler kann daran nichts kürzen: Was über \\\`export *\\\` erreichbar
+ * ist und in einem Modul steht, dessen Nachbar gebraucht wird, bleibt
+ * drin. Der Schnitt muss deshalb in der DATEIAUFTEILUNG liegen.
+ *
+ * Wer den Katalog braucht, nennt seinen Pfad:
+ *
+ *   import { STORE_KATALOG } from '@wov/shared/src/storeKatalogDaten.js';
  *
  * Gruppen in diesem Bestand: ${gruppen.join(', ')}.
+ *
+ * Generated store catalogue — do not edit by hand, editor-only.
  */
+import type { StoreEintrag, StorePrefabName } from './storeKatalog.js';
+
+/** Die ${katalog.length} Einträge, nach \\\`id\\\` sortiert. */
 export const STORE_KATALOG: readonly StoreEintrag[] = [
-`);
-teile.push(katalog.map(katalogZeile).join('\n'));
-teile.push(`
+`,
+];
+katalogTeile.push(katalog.map(katalogZeile).join('\n'));
+katalogTeile.push(`
 ];
 
-/** \`id\` → Katalogeintrag. */
+/** \\\`id\\\` → Katalogeintrag. */
 export const STORE_KATALOG_NACH_ID: ReadonlyMap<string, StoreEintrag> = new Map(
   STORE_KATALOG.map((e) => [e.id, e])
 );
@@ -456,20 +521,36 @@ export const STORE_KATALOG_NACH_PREFAB: ReadonlyMap<StorePrefabName, StoreEintra
 );
 `);
 
-const text = teile.join('');
+const textKatalog = katalogTeile.join('');
+
+/*
+  BEIDE Erzeugnisse werden geprüft, nicht nur eines.
+
+  Vor dem Schnitt gab es eine Datei und damit auch nur eine Frage. Zwei
+  Dateien, von denen der Wächter eine ansieht, wären schlechter als eine:
+  Der Katalog könnte veralten, ohne dass irgendwo etwas rot würde — und
+  er ist genau der Teil, den kein Testlauf sonst anfasst.
+*/
+const ERZEUGNISSE = [
+  { name: DATEI_PREFABS, ziel: ZIEL_PREFABS, text: textPrefabs },
+  { name: DATEI_KATALOG, ziel: ZIEL_KATALOG, text: textKatalog },
+];
 
 if (process.argv.includes('--pruefen')) {
-  const alt = existsSync(ZIEL) ? readFileSync(ZIEL, 'utf8') : '';
-  if (alt === text) {
-    console.log(`ok   shared/src/storePrefabs.ts ist aktuell (${defs.length} Prefabs, ${katalog.length} Katalogzeilen)`);
+  const veraltet = ERZEUGNISSE.filter(
+    (e) => (existsSync(e.ziel) ? readFileSync(e.ziel, 'utf8') : '') !== e.text
+  );
+  if (veraltet.length === 0) {
+    console.log(`ok   beide Erzeugnisse sind aktuell (${defs.length} Prefabs, ${katalog.length} Katalogzeilen)`);
     process.exit(0);
   }
-  console.error('FAIL shared/src/storePrefabs.ts weicht ab — npx tsx tools/store-prefabs.mjs erneut laufen lassen');
+  for (const e of veraltet) console.error(`FAIL shared/src/${e.name} weicht ab`);
+  console.error('npx tsx tools/store-prefabs.mjs erneut laufen lassen');
   process.exit(1);
 }
 
 /*
-  `--nach <pfad>` schreibt woandershin.
+  `--nach <ordner>` schreibt woandershin.
 
   Nur für `tools/test/store-erzeugung.ts` da, und der Grund ist eine
   Regel und keine Bequemlichkeit: Ein Test darf keine getrackte
@@ -478,13 +559,20 @@ if (process.argv.includes('--pruefen')) {
   aber genau die Datei zerschossen, deren Abweichung er gerade meldet.
   Mit `--nach` legt er zwei Läufe in einen Temp-Ordner und vergleicht
   dort; das Original fasst er nur lesend an.
+
+  Seit dem Schnitt ist das Argument ein ORDNER und keine Datei mehr —
+  es entstehen zwei Erzeugnisse, und beide behalten dort ihren Namen.
 */
 const nachIndex = process.argv.indexOf('--nach');
-const ziel = nachIndex >= 0 ? resolve(process.argv[nachIndex + 1] ?? '') : ZIEL;
+const nachOrdner = nachIndex >= 0 ? resolve(process.argv[nachIndex + 1] ?? '') : null;
 
-writeFileSync(ziel, text, 'utf8');
+for (const e of ERZEUGNISSE) {
+  const ziel = nachOrdner === null ? e.ziel : join(nachOrdner, e.name);
+  writeFileSync(ziel, e.text, 'utf8');
+  console.log(`${ziel} geschrieben`);
+}
 console.log(
-  `${ziel} geschrieben: ${defs.length} Prefabs, ${katalog.length} Katalogzeilen, ` +
+  `${defs.length} Prefabs, ${katalog.length} Katalogzeilen, ` +
     `${nichtStreuen.length} nicht streubar, ${gruppen.length} Gruppen (${gruppen.join(', ')})`
 );
 if (fehlend.length > 0) {

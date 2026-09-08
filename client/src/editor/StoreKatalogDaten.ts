@@ -30,8 +30,16 @@
  *
  * ── Und seit der Zusammenfuehrung geht es in die andere Richtung ─────
  * `tools/store-prefabs.mjs` IMPORTIERT `einsortieren()` von hier und
- * baut damit `STORE_KATALOG` in `shared/src/storePrefabs.ts`. Die Regel
- * gibt es damit nur noch EINMAL.
+ * baut damit `STORE_KATALOG` in `shared/src/storeKatalogDaten.ts`. Die
+ * Regel gibt es damit nur noch EINMAL.
+ *
+ * Jene Datei haengt mit Absicht NICHT am Barrel `shared/src/index.ts`:
+ * Der Katalog wiegt 291 KB Quelltext und wird nur hier gelesen — im
+ * Barrel laege er in jedem Spiel-Bundle. DIESES Modul liest ihn
+ * uebrigens weiterhin nicht, sondern holt Manifest und Prefab-Liste
+ * selbst per fetch: So sieht der Katalog den Speicher, wie er auf der
+ * Platte LIEGT (1255 Manifest-Eintraege samt Platzhaltern), und nicht
+ * den Stand des letzten Generatorlaufs.
  *
  * Vorher gab es sie zweimal — der Generator hatte seine eigene —, und
  * die beiden widersprachen sich bei 477 der 670 Eintraege: „Fels" gegen

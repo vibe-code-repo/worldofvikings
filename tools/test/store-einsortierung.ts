@@ -35,7 +35,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STORE_KATALOG } from '@wov/shared';
+/*
+  Tiefer Import statt Barrel: `storeKatalogDaten.ts` haengt mit Absicht
+  NICHT an `shared/src/index.ts` — sonst laege der Katalog wieder im
+  Spiel-Bundle (Begruendung dort im Kopf). Ein Test darf ihn holen, das
+  Spiel nicht.
+*/
+import { STORE_KATALOG } from '@wov/shared/src/storeKatalogDaten.js';
 import {
   einsortieren,
   type PrefabKategorie,

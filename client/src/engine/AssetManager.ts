@@ -53,7 +53,7 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
-import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { Matrix } from '@babylonjs/core/Maths/math.vector';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { Material } from '@babylonjs/core/Materials/material';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
@@ -155,12 +155,6 @@ export const MODELL_ALIAS: Readonly<Record<string, string>> = {
   */
   RockVaultEntry: 'RockVaultCell',
 };
-
-/**
- * Kachelmass des Terrains: TerrainSplat rechnet uv = weltXZ × 0.5, eine
- * 256er-Bodenkachel deckt also 2 × 2 m.
- */
-const TERRAIN_UV_SCALE = 0.5;
 
 
 /**

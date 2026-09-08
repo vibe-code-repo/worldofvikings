@@ -16,8 +16,20 @@ export * from './protocol.js';
 export * from './hash.js';
 export * from './prefabs.js';
 // Der Asset-Speicher: Typen und Stellschrauben von Hand, die Daten
-// erzeugt (tools/store-prefabs.mjs). Bauer C baut den Gegenstandskatalog
-// auf `STORE_KATALOG` auf und braucht beides.
+// erzeugt (tools/store-prefabs.mjs).
+//
+// BEWUSST NICHT HIER: storeKatalogDaten.ts. Dieselbe Entscheidung wie bei
+// featurePieces.ts oben, und derselbe Messwert dahinter: Der Katalog sind
+// 670 Eintraege mit Lizenz, Kennzeichen, Huellbox und Kollisionsart
+// (291 KB Quelltext), und ihn liest ausschliesslich der Editor. Solange
+// er in storePrefabs.ts stand, lud ihn jeder Spieler mit -- der
+// ausgelieferte Prefab-Chunk trug 670-mal `lizenzstatus` durch die
+// Leitung (682 KB roh / 118,66 KB gzip, gemessen 08.09.2026). Ein
+// `export *` von hier stellte genau das wieder her: Der Baumschnitt
+// greift nicht durch ein Modul hindurch, dessen Nachbar gebraucht wird.
+//
+// Wer den Katalog will, nennt seinen Pfad:
+//   import { STORE_KATALOG } from '@wov/shared/src/storeKatalogDaten.js';
 export * from './storeKatalog.js';
 export * from './storePrefabs.js';
 export * from './npc.js';

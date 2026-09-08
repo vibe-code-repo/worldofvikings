@@ -29,9 +29,6 @@ import {
   PREFABS_BY_NAME,
   PREFAB_DEFS,
   STORE_BASIS,
-  STORE_KATALOG,
-  STORE_KATALOG_NACH_ID,
-  STORE_KATALOG_NACH_PREFAB,
   STORE_LAB_BASIS,
   STORE_MODELL_NAMEN,
   STORE_NICHT_STREUEN,
@@ -44,6 +41,20 @@ import {
   istStoreModell,
   storeSpiegelung,
 } from '@wov/shared';
+/*
+  Der Katalog kommt über seinen PFAD und nicht über das Barrel.
+
+  `shared/src/index.ts` exportiert `storeKatalogDaten.ts` mit Absicht
+  nicht: Die 670 Einträge lägen sonst in jedem Spiel-Bundle, für eine
+  Tabelle, die nur der Editor aufschlägt (Begründung im Barrel, Wächter
+  in `tools/test/store-erzeugung.ts`). Ein Test darf sie holen — er wird
+  nicht ausgeliefert.
+*/
+import {
+  STORE_KATALOG,
+  STORE_KATALOG_NACH_ID,
+  STORE_KATALOG_NACH_PREFAB,
+} from '@wov/shared/src/storeKatalogDaten.js';
 
 let fehler = 0;
 function check(name: string, ok: boolean, detail = ''): void {

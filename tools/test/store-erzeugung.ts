@@ -33,18 +33,28 @@
  *   npx tsx tools/test/store-erzeugung.ts
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STORE_KATALOG, STORE_PREFAB_DEFS } from '@wov/shared';
+import { STORE_PREFAB_DEFS } from '@wov/shared';
+// Der Katalog kommt ueber seinen Pfad — er steht mit Absicht nicht im
+// Barrel, damit er nicht im Spiel-Bundle landet.
+import { STORE_KATALOG } from '@wov/shared/src/storeKatalogDaten.js';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = join(HIER, '..', '..');
 const GENERATOR = join(WURZEL, 'tools/store-prefabs.mjs');
 /** Der `tsx`-Aufrufer aus dem Arbeitsbaum — kein `npx`, kein Netz. */
 const TSX = join(WURZEL, 'node_modules/.bin/tsx');
-const ERZEUGT = join(WURZEL, 'shared/src/storePrefabs.ts');
+/*
+  ZWEI Erzeugnisse seit dem Bundle-Schnitt (08.09.2026): Die PrefabDefs
+  haengen am Barrel und damit im Spiel, der Katalog steht daneben und
+  wird nur vom Editor gelesen. Beide werden hier geprueft — ein Waechter,
+  der nur eine der beiden ansieht, laesst die andere lautlos veralten,
+  und der Katalog ist genau der Teil, den sonst nichts anfasst.
+*/
+const ERZEUGNISSE = ['storePrefabs.ts', 'storeKatalogDaten.ts'] as const;
 const STORE = join(WURZEL, 'assets/store');
 const STORE_LAB = join(WURZEL, 'assets/store-lab');
 
@@ -71,31 +81,64 @@ if (fehler > 0) {
 // ── 1. Zwei Läufe, byteidentisch ──────────────────────────────────────
 const tmp = mkdtempSync(join(tmpdir(), 'wov-store-'));
 try {
-  const laeufe: string[] = [];
+  /*
+    `--nach` nimmt seit dem Schnitt einen ORDNER: Es entstehen zwei
+    Dateien, und beide behalten dort ihren Namen. Je Lauf ein eigener
+    Unterordner, sonst überschriebe der zweite Lauf den ersten und der
+    Vergleich wäre eine Datei mit sich selbst.
+  */
+  const laeufe: Record<string, string>[] = [];
   for (const nr of [1, 2]) {
-    const ziel = join(tmp, `lauf${nr}.ts`);
+    const ordner = join(tmp, `lauf${nr}`);
+    mkdirSync(ordner, { recursive: true });
     /*
       `tsx` und nicht `node`: Der Generator holt seine Einsortierregel
       aus `client/src/editor/StoreKatalogDaten.ts` — damit sie nur
       EINMAL dasteht (siehe Kopf des Generators). Mit `node` bräche der
       Lauf beim Import ab, und dieser Test wäre der Erste, der es merkt.
     */
-    const lauf = spawnSync(TSX, [GENERATOR, '--nach', ziel], { cwd: WURZEL, encoding: 'utf-8' });
+    const lauf = spawnSync(TSX, [GENERATOR, '--nach', ordner], { cwd: WURZEL, encoding: 'utf-8' });
     check(`Generatorlauf ${nr} endet mit Code 0`, lauf.status === 0, lauf.stderr?.trim());
-    laeufe.push(existsSync(ziel) ? readFileSync(ziel, 'utf8') : `<lauf ${nr} hat nichts geschrieben>`);
+    const dateien: Record<string, string> = {};
+    for (const name of ERZEUGNISSE) {
+      const pfad = join(ordner, name);
+      dateien[name] = existsSync(pfad) ? readFileSync(pfad, 'utf8') : `<lauf ${nr}: ${name} fehlt>`;
+    }
+    laeufe.push(dateien);
   }
-  check(
-    'zweiter Lauf ist byteidentisch zum ersten',
-    laeufe[0] === laeufe[1],
-    `${laeufe[0]?.length ?? 0} gegen ${laeufe[1]?.length ?? 0} Zeichen`
-  );
+  for (const name of ERZEUGNISSE) {
+    check(
+      `${name}: zweiter Lauf ist byteidentisch zum ersten`,
+      laeufe[0]![name] === laeufe[1]![name],
+      `${laeufe[0]![name]?.length ?? 0} gegen ${laeufe[1]![name]?.length ?? 0} Zeichen`
+    );
+  }
 
   // ── 2. Das Eingecheckte ist der aktuelle Stand ──────────────────────
-  const eingecheckt = existsSync(ERZEUGT) ? readFileSync(ERZEUGT, 'utf8') : '';
+  for (const name of ERZEUGNISSE) {
+    const pfad = join(WURZEL, 'shared/src', name);
+    const eingecheckt = existsSync(pfad) ? readFileSync(pfad, 'utf8') : '';
+    check(
+      `shared/src/${name} ist aktuell (npx tsx tools/store-prefabs.mjs)`,
+      eingecheckt === laeufe[0]![name],
+      eingecheckt.length === 0 ? 'Datei fehlt' : 'Inhalt weicht ab'
+    );
+  }
+
+  /*
+    ── 2a. Und der Katalog steht NICHT im Barrel ──────────────────────
+    Der eigentliche Grund für den Schnitt, und die einzige Stelle, an der
+    er festgehalten ist. Ein `export * from './storeKatalogDaten.js'` in
+    `shared/src/index.ts` sähe harmlos aus, wäre sofort grün und legte
+    die 670 Katalogzeilen wieder in jedes Spiel-Bundle. Geprüft wird der
+    Quelltext, weil die Wirkung erst im gebauten Bündel sichtbar wäre —
+    und dorthin schaut kein Test.
+  */
+  const barrel = readFileSync(join(WURZEL, 'shared/src/index.ts'), 'utf8');
   check(
-    'shared/src/storePrefabs.ts ist aktuell (npx tsx tools/store-prefabs.mjs)',
-    eingecheckt === laeufe[0],
-    eingecheckt.length === 0 ? 'Datei fehlt' : 'Inhalt weicht ab'
+    'shared/src/index.ts exportiert den Katalog NICHT',
+    !/^\s*export\s.*['"]\.\/storeKatalogDaten\.js['"]/m.test(barrel),
+    'ein export * zieht die 670 Katalogzeilen zurück ins Spiel-Bundle'
   );
 } finally {
   rmSync(tmp, { recursive: true, force: true });

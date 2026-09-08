@@ -27,6 +27,7 @@ export {
   SkySchema,
   SsaoSchema,
   SunLightSchema,
+  SunShaftsSchema,
   TONE_MAPPINGS,
   ToneMappingSchema,
   VignetteSchema,
@@ -42,6 +43,7 @@ export type {
   Sky,
   Ssao,
   SunLight,
+  SunShafts,
   ToneMapping,
   Vignette,
 } from './lighting.js';

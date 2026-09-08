@@ -38,12 +38,32 @@ export function serializeWorld(world: WorldDefinition): string {
  * and spelling every one of them out as a ternary would be sixty lines that all
  * say the same thing. This says it once — and it still refuses to invent a
  * field, because a key that is absent stays absent.
+ *
+ * **Anything not on the list is kept, at the end.** `keys` decides the order of
+ * the fields it names and nothing else; it is not a filter. It used to be one,
+ * and that made it a silent way to lose world data: a field added to
+ * `@wov/world-schema` validated, reached the editor, was written by an author
+ * and then vanished the next time the world was saved, with no error anywhere.
+ * The list is still worth keeping in step with the schema — a new field
+ * otherwise lands at the bottom of its group rather than where it belongs — but
+ * forgetting to now costs an ordering, not a value.
  */
-function inOrder<T extends object>(value: T, keys: readonly (keyof T)[]): Record<string, unknown> {
+function inOrder<T extends object>(
+  value: T,
+  keys: readonly (keyof T)[],
+  /** Keys the caller writes itself, so the catch-all does not write them twice. */
+  writtenByTheCaller: readonly (keyof T)[] = [],
+): Record<string, unknown> {
   const ordered: Record<string, unknown> = {};
   for (const key of keys) {
     if (value[key] !== undefined) {
       ordered[key as string] = value[key];
+    }
+  }
+  const skip = new Set<string>(writtenByTheCaller.map((key) => key as string));
+  for (const [key, held] of Object.entries(value)) {
+    if (held !== undefined && !(key in ordered) && !skip.has(key)) {
+      ordered[key] = held;
     }
   }
   return ordered;
@@ -76,11 +96,12 @@ function canonicalLighting(lighting: LightingProfile): Record<string, unknown> {
             'horizonColor',
             'sunColor',
             'sunSpread',
+            'groundReflection',
           ]),
         }),
     ...(lighting.fog === undefined
       ? {}
-      : { fog: inOrder(lighting.fog, ['enabled', 'start', 'end', 'color']) }),
+      : { fog: inOrder(lighting.fog, ['enabled', 'mode', 'start', 'end', 'density', 'color']) }),
     ...(lighting.shadows === undefined
       ? {}
       : {
@@ -98,7 +119,12 @@ function canonicalLighting(lighting: LightingProfile): Record<string, unknown> {
       ? {}
       : {
           postProcessing: {
-            ...inOrder(post, ['enabled', 'fxaa', 'toneMapping', 'exposure', 'contrast']),
+            ...inOrder(
+              post,
+              ['enabled', 'fxaa', 'toneMapping', 'exposure', 'contrast', 'saturation'],
+              // The sub-blocks are written below, in their own order.
+              ['bloom', 'vignette', 'ssao', 'sunShafts'],
+            ),
             ...(post.bloom === undefined
               ? {}
               : {
@@ -111,6 +137,24 @@ function canonicalLighting(lighting: LightingProfile): Record<string, unknown> {
               ? {}
               : {
                   ssao: inOrder(post.ssao, ['enabled', 'radius', 'strength', 'samples', 'scale']),
+                }),
+            ...(post.sunShafts === undefined
+              ? {}
+              : {
+                  sunShafts: inOrder(post.sunShafts, [
+                    'enabled',
+                    'exposure',
+                    'decay',
+                    'weight',
+                    'density',
+                    'samples',
+                    'passScale',
+                    'postScale',
+                    'maxAngleDegrees',
+                    'hysteresisDegrees',
+                    'anchorDistance',
+                    'anchorSize',
+                  ]),
                 }),
           },
         }),
@@ -144,7 +188,7 @@ const TERRAIN_LAYER_KEYS = Object.keys(TerrainLayerSchema.shape) as (keyof Terra
  * format accepts survives a round trip through the editor (ADR-0033).
  */
 function canonicalTerrain(terrain: TerrainDefinition): Record<string, unknown> {
-  const ordered = inOrder(terrain, TERRAIN_KEYS);
+  const ordered = inOrder(terrain, TERRAIN_KEYS, ['layers']);
   if (terrain.layers !== undefined) {
     ordered['layers'] = terrain.layers.map((layer) => inOrder(layer, TERRAIN_LAYER_KEYS));
   }

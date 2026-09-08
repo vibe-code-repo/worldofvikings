@@ -529,6 +529,17 @@ test.describe('live preview', () => {
     // what the author sees while the light changes.
     await page.getByTestId('right-tab-lighting').click();
     await expect(page.getByTestId('lighting-fields')).toBeVisible();
+    // Editor parity for the sun shafts (ADR-0042, ADR-0033): the panel is drawn
+    // from the schema, so every knob has to be here without a line of editor
+    // code. Attached rather than visible — a group with no value in this world
+    // renders collapsed, and the assertion is that the controls exist at all.
+    await expect(page.getByTestId('lighting-postProcessing-sunShafts')).toBeAttached();
+    await expect(
+      page.getByTestId('lighting-postProcessing-sunShafts-maxAngleDegrees-input'),
+    ).toBeAttached();
+    await expect(
+      page.getByTestId('lighting-postProcessing-sunShafts-anchorDistance-input'),
+    ).toBeAttached();
 
     const canvas = page.getByTestId('editor-canvas');
     const photograph = async (name: string): Promise<number> =>

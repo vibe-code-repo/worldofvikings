@@ -101,6 +101,16 @@ export interface WovEditorDebug {
     readonly textures: number;
   } | null;
   /**
+   * The painted backdrop, as the meshes report it.
+   *
+   * The game asserts the same pair in `tooling/smoke/village-backdrop.spec.ts`.
+   * It is here because the editor got the answer wrong for as long as nobody
+   * looked: it refused fog on every backdrop mesh, so the range stood dark and
+   * green behind a hazed ground and an author had no way to see the picture the
+   * game would draw (ADR-0033, ADR-0041).
+   */
+  readonly backdrop: { readonly meshes: number; readonly fogged: number };
+  /**
    * What the last frame cost the renderer (ADR-0047).
    *
    * The game has had this since ADR-0024 and the editor had nothing: every
@@ -234,6 +244,7 @@ const initial: WovEditorDebug = {
     staleLightMeshes: 0,
   },
   camera: null,
+  backdrop: { meshes: 0, fogged: 0 },
 };
 
 /** A bridge record nothing else holds a reference to. */

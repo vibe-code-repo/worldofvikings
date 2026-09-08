@@ -44,6 +44,35 @@ export interface PerfView {
  * sliding (ADR-0038), so a spawn on one is a different frame every run. All
  * four of these spawn on level ground; two runs of the same build over any of
  * them differ by 0.0000/255. Check that before adding a fifth.
+ *
+ * `vista` is the wide one, and it exists because the other two are not: a
+ * palisade fills `square` and a bush fills `slope`, so their colour statistics
+ * belong to two or three materials. `vista` stands at the north rim with the
+ * horizon across the middle of the frame — ground, haze and the painted range
+ * all in one picture — which is the kind of view a grade is actually judged in
+ * (ADR-0040).
+ *
+ * `sun` is aimed at village1's own sun — the only view in which the sun shafts
+ * are switched on at all, because they are gated on the angle between the view
+ * axis and the sun (ADR-0042). A gated effect makes a frame time depend on
+ * where the camera is pointing, which is exactly why the aim is written down
+ * here instead of pasted into a shell.
+ *
+ * `square-no-shafts`, `slope-no-shafts` and `sun-no-shafts` are those three
+ * views with `?shafts=off`. They are the control the shaft cost is measured
+ * against: same build, same camera, same grade, one effect. Measuring the
+ * before by editing `content/worlds/village1.json` between runs would compare
+ * two builds and call the difference an effect.
+ *
+ * `square-focus-sub` and `square-focus-texel` are `square` with the shadow
+ * map's centre displaced by hand (`?shadowFocus=`, `apps/game/src/config.ts`).
+ * They exist to prove shadow stability, which no single picture can show: with
+ * the village's 120 m map over 2048 texels one texel is 5.86 cm, so the two
+ * views nudge the map by 0.4 of a texel and by a whole one while camera,
+ * player and sun stay exactly where `square` puts them. Against `square` both
+ * must come out pixel-identical — the first because the map does not move at
+ * all, the second because it moves by whole texels and lands on the same world
+ * pixels (ADR-0039).
  */
 export const PERF_VIEWS: readonly PerfView[] = [
   {
@@ -65,6 +94,41 @@ export const PERF_VIEWS: readonly PerfView[] = [
     id: 'floor',
     description: 'village floor, pitched down at the paths between the houses',
     query: '?debug=1&world=village1&spawn=172,150&look=0,32',
+  },
+  {
+    id: 'square-focus-sub',
+    description: 'village square, shadow focus nudged 0.4 of a shadow texel (2.34 cm)',
+    query: '?debug=1&shadowFocus=0.0234375,0',
+  },
+  {
+    id: 'square-focus-texel',
+    description: 'village square, shadow focus nudged one whole shadow texel (5.86 cm)',
+    query: '?debug=1&shadowFocus=0.05859375,0',
+  },
+  {
+    id: 'sun',
+    description: 'east of the square, looking into the evening sun behind a cloud',
+    query: '?debug=1&world=village1&spawn=145,93&look=-139.5,-24',
+  },
+  {
+    id: 'square-no-shafts',
+    description: 'village square, sun shafts switched off',
+    query: '?debug=1&shafts=off',
+  },
+  {
+    id: 'slope-no-shafts',
+    description: 'north-east slope, sun shafts switched off',
+    query: '?debug=1&world=village1&spawn=120,120&look=-105,14&shafts=off',
+  },
+  {
+    id: 'sun-no-shafts',
+    description: 'the same frame with the sun shafts switched off',
+    query: '?debug=1&world=village1&spawn=145,93&look=-139.5,-24&shafts=off',
+  },
+  {
+    id: 'vista',
+    description: 'north-east slope, looking out over the ground at the painted range',
+    query: '?debug=1&world=village1&spawn=120,120&look=75,-4',
   },
   {
     id: 'rim',

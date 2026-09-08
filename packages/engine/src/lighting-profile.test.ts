@@ -51,6 +51,78 @@ describe('resolveLightingProfile', () => {
     );
   });
 
+  it('leaves colour alone by default, so an old world file grades as it did', () => {
+    expect(defaultLightingProfile.postProcessing.saturation).toBe(1);
+    expect(resolveLightingProfile({}).postProcessing.saturation).toBe(1);
+    expect(
+      resolveLightingProfile({ postProcessing: { contrast: 1.1 } }).postProcessing.saturation,
+    ).toBe(1);
+  });
+
+  it('carries a stated saturation through the flat post-processing merge', () => {
+    // The merge lists its flat keys by hand: a field added to the interface but
+    // forgotten there would validate, show up in the editor and do nothing.
+    const profile = resolveLightingProfile({ postProcessing: { saturation: 0.7 } });
+    expect(profile.postProcessing.saturation).toBe(0.7);
+    expect(profile.postProcessing.contrast).toBe(defaultLightingProfile.postProcessing.contrast);
+
+    const zoneWins = resolveLightingProfile(
+      { postProcessing: { saturation: 0.7 } },
+      { postProcessing: { saturation: 0.4 } },
+    );
+    expect(zoneWins.postProcessing.saturation).toBe(0.4);
+  });
+
+  it('rejects a negative saturation', () => {
+    expect(() => resolveLightingProfile({ postProcessing: { saturation: -0.2 } })).toThrow(
+      /postProcessing.saturation must be zero or more/,
+    );
+  });
+
+  /**
+   * The sun shafts are a second pass over the scene's geometry, so a world that
+   * never mentions them must not be handed them (ADR-0042).
+   */
+  it('leaves the sun shafts off unless a world asks for them', () => {
+    expect(defaultLightingProfile.postProcessing.sunShafts.enabled).toBe(false);
+    expect(resolveLightingProfile({}).postProcessing.sunShafts.enabled).toBe(false);
+    expect(
+      resolveLightingProfile({ postProcessing: { saturation: 0.7 } }).postProcessing.sunShafts
+        .enabled,
+    ).toBe(false);
+  });
+
+  it('lets a world switch the shafts on without restating every number', () => {
+    const profile = resolveLightingProfile({ postProcessing: { sunShafts: { enabled: true } } });
+    expect(profile.postProcessing.sunShafts).toEqual({
+      ...defaultLightingProfile.postProcessing.sunShafts,
+      enabled: true,
+    });
+  });
+
+  it('merges the sun shafts field by field, zone over world', () => {
+    const merged = resolveLightingProfile(
+      { postProcessing: { sunShafts: { enabled: true, maxAngleDegrees: 30 } } },
+      { postProcessing: { sunShafts: { maxAngleDegrees: 45 } } },
+    );
+    expect(merged.postProcessing.sunShafts.enabled).toBe(true);
+    expect(merged.postProcessing.sunShafts.maxAngleDegrees).toBe(45);
+    expect(merged.postProcessing.sunShafts.anchorDistance).toBe(
+      defaultLightingProfile.postProcessing.sunShafts.anchorDistance,
+    );
+  });
+
+  /**
+   * A pass computed at no resolution is not a cheap effect — it is a texture
+   * the shader samples and gets nothing out of, which reads as the effect
+   * silently failing rather than as a number out of range.
+   */
+  it('rejects a sun-shaft pass with no pixels in it', () => {
+    expect(() =>
+      resolveLightingProfile({ postProcessing: { sunShafts: { passScale: 0 } } }),
+    ).toThrow(/sunShafts.passScale must be a positive number/);
+  });
+
   it('rejects a malformed colour rather than resolving it to black', () => {
     expect(() => resolveLightingProfile({ sun: { color: 'orange' } })).toThrow(
       /sun.color must be a #rrggbb colour/,
@@ -64,6 +136,22 @@ describe('resolveLightingProfile', () => {
     expect(() => resolveLightingProfile({ sun: { direction: [0, Number.NaN, 1] } })).toThrow(
       /must be finite/,
     );
+  });
+
+  /**
+   * Additive and inert: a world file that says nothing about the curve keeps
+   * the one it was tuned against, and `density` is carried even while it is
+   * unused so switching a world to `exp` does not switch its fog off (ADR-0041).
+   */
+  it('defaults the fog curve to linear and carries a density through the merge', () => {
+    expect(defaultLightingProfile.fog.mode).toBe('linear');
+    expect(defaultLightingProfile.fog.density).toBeGreaterThan(0);
+    expect(resolveLightingProfile({ fog: { end: 180 } }).fog.mode).toBe('linear');
+    const exponential = resolveLightingProfile({ fog: { mode: 'exp', density: 0.0005 } });
+    expect(exponential.fog.mode).toBe('exp');
+    expect(exponential.fog.density).toBe(0.0005);
+    // The linear numbers survive the switch, so a world can be moved back.
+    expect(exponential.fog.end).toBe(defaultLightingProfile.fog.end);
   });
 
   it('rejects fog that ends before it starts', () => {

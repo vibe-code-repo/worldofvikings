@@ -56,6 +56,29 @@ describe('describeFields on the lighting profile', () => {
     expect(mapSize).toMatchObject({ kind: 'number', integer: true, minimum: 256, maximum: 4096 });
   });
 
+  /**
+   * The fog controls, which ADR-0041 added. `mode` has to come out a choice or
+   * the panel draws a text box for it, and `density` has to come out with a step
+   * inside its own range: a 0…0.005 field on a step of 0.01 is a control with
+   * two positions, off and past the end.
+   */
+  it('draws the fog curve as a choice and its density with a step it can reach', () => {
+    const fog = find(fields, 'fog');
+    if (fog.kind !== 'group') {
+      throw new Error('fog should be a group');
+    }
+    expect(find(fog.fields, 'mode')).toMatchObject({
+      kind: 'choice',
+      options: ['linear', 'exp'],
+    });
+    expect(find(fog.fields, 'density')).toMatchObject({
+      kind: 'number',
+      minimum: 0,
+      maximum: 0.005,
+      step: 0.0001,
+    });
+  });
+
   it('offers the enum values as a choice', () => {
     const shadows = find(fields, 'shadows');
     if (shadows.kind !== 'group') {
@@ -102,7 +125,13 @@ describe('describeFields on the lighting profile', () => {
     expect(paths).toContain('postProcessing.vignette.weight');
     expect(paths).toContain('postProcessing.ssao.samples');
     expect(paths).toContain('sky.groundReflection');
-    expect(paths).toHaveLength(41);
+    expect(paths).toContain('postProcessing.saturation');
+    expect(paths).toContain('fog.mode');
+    expect(paths).toContain('fog.density');
+    expect(paths).toContain('postProcessing.sunShafts.enabled');
+    expect(paths).toContain('postProcessing.sunShafts.maxAngleDegrees');
+    expect(paths).toContain('postProcessing.sunShafts.anchorDistance');
+    expect(paths).toHaveLength(56);
   });
 });
 

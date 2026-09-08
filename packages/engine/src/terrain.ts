@@ -29,7 +29,7 @@
  * dependency of this repository.
  */
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
-import { Vector2, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { Vector2, Vector3, Vector4 } from '@babylonjs/core/Maths/math.vector.js';
 import { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial.js';
 import { ShaderStore } from '@babylonjs/core/Engines/shaderStore.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
@@ -40,7 +40,7 @@ import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
 import { Constants } from '@babylonjs/core/Engines/constants.js';
-import { Scene } from '@babylonjs/core/scene.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import {
   TERRAIN_ATTRIBUTES,
   layerRepeats,
@@ -52,6 +52,7 @@ import {
   type TerrainSurfaceShader,
 } from './terrain-shader.js';
 import { sceneSkyGradient } from './sky-gradient.js';
+import { fogModeCode, sceneFogCurve } from './fog.js';
 
 /**
  * One image the terrain material samples, and where to get it.
@@ -603,9 +604,17 @@ function bindSceneLighting(material: ShaderMaterial, scene: Scene): void {
     (fill ? fill.groundColor : Color3.Black()).scale(fill ? fill.intensity : 0.5),
   );
 
-  const fogOn = scene.fogEnabled && scene.fogMode === Scene.FOGMODE_LINEAR;
+  // The mode travels into the shader, not a boolean. Sending `1 if linear` is
+  // how the ground silently drops out of an exponential fog while everything
+  // standing on it keeps hazing (ADR-0041); `sceneFogCurve` is the one place
+  // that reads Babylon's fog fields, so the game, the editor and this uniform
+  // cannot disagree about what curve the scene is on.
+  const curve = sceneFogCurve(scene);
   material.setColor3('uFogColor', scene.fogColor);
-  material.setVector3('uFogRange', new Vector3(scene.fogStart, scene.fogEnd, fogOn ? 1 : 0));
+  material.setVector4(
+    'uFogRange',
+    new Vector4(curve.start, curve.end, fogModeCode(curve.mode), curve.density),
+  );
 
   // The sky the ground reflects, from the same profile the dome is drawn with
   // (`sky-gradient.ts`). Read here rather than passed in for the same reason

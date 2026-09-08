@@ -100,9 +100,34 @@ export {
 } from './sky-gradient.js';
 export type { SkyGradient } from './sky-gradient.js';
 
+// The fog curve (ADR-0041): arithmetic, no Babylon, because the game, the
+// editor, the terrain shader and a test that never opens a scene all have to
+// agree about how much haze sits at a distance.
+export {
+  BABYLON_FOGMODE,
+  FOG_ENCODE_POWER,
+  MAX_BACKDROP_HAZE,
+  backdropTakesFog,
+  fogModeCode,
+  fogVisibility,
+  hazeAt,
+  rawFogFactor,
+  sceneFogCurve,
+} from './fog.js';
+export type { FogCurve, FogCurveMode, SceneFogFields } from './fog.js';
 export { applyLighting, meshesWithStaleLights } from './lighting.js';
 export type { LightingHandle, LightingOptions } from './lighting.js';
 export { defaultLightingProfile, resolveLightingProfile } from './lighting-profile.js';
+// The shadow map's quantisation (ADR-0039): exported because it is the
+// arithmetic a stability measurement checks, not because an app has to call it
+// — `applyLighting` applies it by itself.
+export { shadowBasis, snapShadowFocus } from './shadow-snap.js';
+export type { ShadowBasis, ShadowVec3 } from './shadow-snap.js';
+// The sun-shaft gate (ADR-0042), exported for the same reason: it is the
+// arithmetic that decides whether a second scene pass is paid for, and it is
+// checked by a test rather than by a picture. `applyLighting` applies it itself.
+export { sunAnchorPosition, sunShaftsGate, sunViewAngleDegrees } from './sun-shafts.js';
+export type { SunShaftsGateState } from './sun-shafts.js';
 export type {
   AmbientOptions,
   BloomOptions,
@@ -115,6 +140,7 @@ export type {
   SkyOptions,
   SsaoOptions,
   SunOptions,
+  SunShaftsOptions,
   ToneMappingMode,
   VignetteOptions,
 } from './lighting-profile.js';

@@ -288,8 +288,17 @@ uniform vec3 uSunColor;
 uniform vec3 uAmbientSky;
 uniform vec3 uAmbientGround;
 uniform vec3 uFogColor;
-/** x: start, y: end, z: 1 when fog is on. */
-uniform vec3 uFogRange;
+/**
+ * x: linear start, y: linear end, z: Babylon's fog-mode code (0 none, 1 exp,
+ * 3 linear), w: extinction per metre under exp.
+ *
+ * z is the mode and no longer a 0/1 switch. It used to read "1 when the scene
+ * is FOGMODE_LINEAR", which meant that switching a world to an exponential
+ * curve took the ground out of the fog altogether while everything standing on
+ * it went on hazing — invisible in a diff and nearly invisible on screen at
+ * village distances (ADR-0041).
+ */
+uniform vec4 uFogRange;
 /** The gradient sky this ground reflects, and the sun's glow in it. */
 uniform vec3 uSkyZenith;
 uniform vec3 uSkyHorizon;
@@ -360,9 +369,22 @@ void main(void) {
   vec3 reflectance = mix(vec3(0.04), albedo, metallic);
   vec3 lit = diffuse * direct + environmentLight(n, reflectance, smoothness);
 
+  // Fog. Three branches, because all three are reachable: the Phase-1 base
+  // scene and every world written before ADR-0041 are linear, a world that asks
+  // for aerial perspective is exponential, and the flat-lighting switch in
+  // apps/game turns fog off entirely.
   float distanceToCamera = length(cameraPosition - vPositionW);
-  float fog = clamp((uFogRange.y - distanceToCamera) / (uFogRange.y - uFogRange.x), 0.0, 1.0);
-  fog = mix(1.0, fog, uFogRange.z);
+  float linearFog = clamp((uFogRange.y - distanceToCamera) / (uFogRange.y - uFogRange.x), 0.0, 1.0);
+  float expFog = exp(-uFogRange.w * distanceToCamera);
+  float fog = uFogRange.z < 0.5 ? 1.0 : (uFogRange.z < 2.0 ? expFog : linearFog);
+  // The same encode Babylon's fogFragment applies on its PBR path, where it
+  // reads toLinearSpace(fog). Without it the ground hazes at half the rate of
+  // the houses standing on it, and the one surface that carries the depth cue
+  // is the one surface that shows none (ADR-0041). No hash characters in these
+  // comments: Babylon's shader processor reads a preprocessor directive out of
+  // a line that is commented out, and an unmatched conditional here silently
+  // eats the rest of the program.
+  fog = pow(fog, 2.2);
   gl_FragColor = vec4(mix(uFogColor, lit, fog), 1.0);
 }
 `;

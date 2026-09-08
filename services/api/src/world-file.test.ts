@@ -133,4 +133,46 @@ describe('serializeWorld', () => {
     expect(text).not.toContain('"toneMapping"');
     expect(text).not.toContain('"shadows"');
   });
+
+  /**
+   * The key list orders fields; it does not decide which ones exist.
+   *
+   * It used to do both, and that made forgetting a name a silent way to lose
+   * world data: `postProcessing.saturation` (ADR-0040) and the fog's `mode` and
+   * `density` (ADR-0041) all validated, reached the editor, could be authored —
+   * and vanished on the next save, with nothing failing anywhere. A field the
+   * schema accepts now survives a round trip whether or not anybody remembered
+   * to name it here.
+   */
+  it('keeps a lighting field the key list never heard of', () => {
+    const text = serializeWorld({
+      schemaVersion: CURRENT_WORLD_SCHEMA_VERSION,
+      id: 'example',
+      name: 'Example World',
+      lighting: {
+        fog: { color: '#a3afbd', density: 0.0005, mode: 'exp', enabled: true },
+        sky: { groundReflection: 0.6, enabled: true },
+        postProcessing: { saturation: 0.68, enabled: true },
+      },
+      zones: [{ id: 'village', name: 'Village', entities: [] }],
+    });
+
+    const written = JSON.parse(text) as { lighting: Record<string, Record<string, unknown>> };
+    expect(written.lighting['fog']).toEqual({
+      enabled: true,
+      mode: 'exp',
+      density: 0.0005,
+      color: '#a3afbd',
+    });
+    // Named in the list, so they come back in the schema's order and not the
+    // caller's — which is what the canonical form is for.
+    expect(Object.keys(written.lighting['fog'] ?? {})).toEqual([
+      'enabled',
+      'mode',
+      'density',
+      'color',
+    ]);
+    expect(written.lighting['sky']?.['groundReflection']).toBe(0.6);
+    expect(written.lighting['postProcessing']?.['saturation']).toBe(0.68);
+  });
 });

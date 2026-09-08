@@ -3,8 +3,8 @@
   "id": "village1",
   "name": "Village One",
   "lighting": {
-    "sun": { "direction": [0.58, -0.45, 0.68], "color": "#ffd2a1", "intensity": 3.3 },
-    "ambient": { "skyColor": "#8fb3d8", "groundColor": "#4a4032", "intensity": 0.85 },
+    "sun": { "direction": [0.58, -0.45, 0.68], "color": "#ffe4c6", "intensity": 3.0 },
+    "ambient": { "skyColor": "#a8bcd0", "groundColor": "#4a4032", "intensity": 1.1 },
     "sky": {
       "enabled": true,
       "zenithColor": "#17478f",
@@ -12,14 +12,21 @@
       "sunColor": "#ffd9a8",
       "sunSpread": 0.2
     },
-    "fog": { "enabled": true, "start": 80, "end": 1700, "color": "#b4c0cc" },
+    "fog": {
+      "enabled": true,
+      "mode": "exp",
+      "start": 80,
+      "end": 1700,
+      "density": 0.0005,
+      "color": "#a3afbd"
+    },
     "shadows": {
       "enabled": true,
       "mapSize": 2048,
       "distance": 120,
       "bias": 0.006,
       "normalBias": 0.012,
-      "darkness": 0.25,
+      "darkness": 0.42,
       "filter": "poisson"
     },
     "postProcessing": {
@@ -28,9 +35,11 @@
       "toneMapping": "aces",
       "exposure": 1.15,
       "contrast": 1.1,
+      "saturation": 0.68,
       "bloom": { "enabled": true, "threshold": 0.85, "weight": 0.22, "scale": 0.5, "kernel": 32 },
       "vignette": { "enabled": true, "weight": 1.2, "color": "#0d0a08" },
-      "ssao": { "enabled": false }
+      "ssao": { "enabled": false },
+      "sunShafts": { "enabled": true }
     }
   },
   "zones": [

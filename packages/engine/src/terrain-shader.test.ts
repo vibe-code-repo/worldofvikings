@@ -81,6 +81,25 @@ describe('terrainFragmentSource', () => {
     const source = terrainFragmentSource(0, 0);
     expect(source).toContain('(uFogRange.y - distanceToCamera) / (uFogRange.y - uFogRange.x)');
   });
+
+  /**
+   * The ground has to haze at the rate everything standing on it hazes at.
+   * Babylon's `fogFragment` raises the factor to 2.2 under `#ifdef PBR`, every
+   * GLB here is a PBR material, and the ground's own shader did not — so the
+   * one surface carrying the depth cue showed half the haze (ADR-0041).
+   */
+  it('encodes the fog factor the way Babylon encodes it for a PBR material', () => {
+    expect(terrainFragmentSource(0, 0)).toContain('fog = pow(fog, 2.2);');
+  });
+
+  it('branches on the fog mode rather than on a switch that only knows linear', () => {
+    const source = terrainFragmentSource(0, 0);
+    // A vec4, because the mode and the density have to travel with the range.
+    expect(source).toContain('uniform vec4 uFogRange;');
+    expect(source).toContain('exp(-uFogRange.w * distanceToCamera)');
+    // 0 none, 1 exp, 3 linear — Babylon's own codes.
+    expect(source).toContain('uFogRange.z < 0.5 ? 1.0 : (uFogRange.z < 2.0 ? expFog : linearFog)');
+  });
 });
 
 describe('TERRAIN_VERTEX_SOURCE', () => {

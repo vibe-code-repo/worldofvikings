@@ -30,12 +30,12 @@
  * would queue behind each other in the browser anyway, and the memory peak of
  * 139 half-parsed containers is real.
  */
-import { Scene } from '@babylonjs/core/scene.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
-import { createTerrain, terrainLayerSources } from '@wov/engine';
+import { backdropTakesFog, createTerrain, sceneFogCurve, terrainLayerSources } from '@wov/engine';
 import type { TerrainHandle, TerrainTextureSource } from '@wov/engine';
 import {
   AssetManager,
@@ -160,12 +160,14 @@ export interface BackdropRoot<M extends BackdropMesh> {
  * hazed ground in front of it, so the furthest thing in the world was also the
  * heaviest. Depth ran backwards.
  *
- * So the question is asked per mesh instead ({@link backdropTakesFog}): a
- * backdrop takes the fog when the fog reaches past it, and stays out of it when
- * it does not. That keeps the original guarantee — no fog can flatten the
- * horizon, because a fog ending before the shell simply does not apply to it —
- * and lets a world that hazes to 1 100 m put the range behind its own air
- * (ADR-0034).
+ * So the question is asked per mesh instead — `backdropTakesFog` in
+ * `@wov/engine`: a backdrop takes the fog when it still keeps enough of its own
+ * colour through it, and stays out of it when it does not. That keeps the
+ * original guarantee, that no fog can flatten the horizon into a band of fog
+ * colour, and lets a world put its range behind its own air (ADR-0034,
+ * restated for the exponential curve in ADR-0041). The rule lives in the engine
+ * rather than here because the editor has to give the same answer, and the
+ * boundary rules forbid it importing this file.
  *
  * **Why not pickable.** The editor rays against whatever is pickable to find
  * the surface under the cursor and to drop a prop onto it, and a prop dropped
@@ -188,29 +190,10 @@ export interface BackdropRoot<M extends BackdropMesh> {
  *
  * @param roots the nodes one `instantiate` call returned — the loader's
  *   `__root__` included, which is why the meshes are gathered by walking it.
- * @param takesFog asked once per mesh; see {@link backdropTakesFog}, which is
- *   the rule, kept apart from the walk so it can be read without a renderer.
+ * @param takesFog asked once per mesh; the rule itself is `backdropTakesFog`
+ *   in `@wov/engine`, kept apart from this walk so it can be read, tested and
+ *   called by the editor without a renderer.
  */
-/**
- * Whether a backdrop mesh takes the scene's fog.
- *
- * `reach` is how far away the farthest point of that mesh can be — its world
- * bounding sphere's centre distance plus its radius. The fog has to end beyond
- * that, not merely somewhere inside it: a shell whose far side sits past
- * `fog.end` is drawn with a band of pure fog colour across it, which is the
- * flat horizon this rule exists to prevent.
- *
- * Strictly greater, so a fog ending exactly at the shell does not fog it: at
- * `end === reach` the far side is at fog factor 1, which is that same flat
- * band on the last row of pixels.
- */
-export function backdropTakesFog(
-  fog: { readonly enabled: boolean; readonly end: number },
-  reach: number,
-): boolean {
-  return fog.enabled && fog.end > reach;
-}
-
 export function markAsBackdrop<M extends BackdropMesh>(
   roots: readonly BackdropRoot<M>[],
   takesFog: (mesh: M) => boolean,
@@ -477,10 +460,7 @@ export async function placeEntities(options: ZoneSceneOptions): Promise<{
                 mesh.computeWorldMatrix(true);
                 const sphere = mesh.getBoundingInfo().boundingSphere;
                 return backdropTakesFog(
-                  {
-                    enabled: scene.fogEnabled && scene.fogMode === Scene.FOGMODE_LINEAR,
-                    end: scene.fogEnd,
-                  },
+                  sceneFogCurve(scene),
                   sphere.centerWorld.length() + sphere.radiusWorld,
                 );
               }),

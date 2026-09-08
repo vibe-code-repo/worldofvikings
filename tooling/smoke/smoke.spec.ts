@@ -857,6 +857,23 @@ test('editor scatters a field of prefabs as one undoable command', async ({ page
  * back on undo.
  */
 test('editor changes the ground’s surface and the viewport follows', async ({ page }) => {
+  /*
+   * Five minutes, because this is the only test that opens the *village* in the
+   * *editor* and then keeps working in it.
+   *
+   * The ground does arrive: measured from inside the page, the tile's material
+   * is compiled about ten seconds after the world opens. What costs the wall
+   * clock is everything the editor does around it — 5273 entities, their models
+   * and their textures — which holds the main thread long enough that a single
+   * `page.evaluate` of the poll below can take tens of seconds to be answered.
+   * The suite's 90 s budget was under the 120 s this test's own first poll asks
+   * for, so on a cold dev server the test died inside that poll and on a warm
+   * one two steps later, both times with time still on the poll's clock. The
+   * budget now covers the three polls (120 s + 60 s + 60 s) with room for the
+   * panel work between them, so a real regression fails on the assertion that
+   * broke rather than on the clock.
+   */
+  test.setTimeout(300_000);
   await page.goto('/');
   await expect(page.getByTestId('editor-viewport-status')).toHaveText(
     /^viewport ready — (webgl2|webgpu)$/,

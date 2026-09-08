@@ -30,6 +30,14 @@ const NonNegativeMetres = z.number().min(0).finite();
 const Gain = z.number().min(0).finite();
 /** A fraction of one, for the values that are genuinely a proportion. */
 const Fraction = z.number().min(0).max(1);
+/**
+ * The size of an off-screen pass, as a fraction of the frame.
+ *
+ * A `Fraction` would accept 0, and a render target with no pixels in it is not
+ * a cheap effect — it is a texture the shader samples and gets nothing from,
+ * which looks like the effect silently failing.
+ */
+const RenderRatio = z.number().min(0.05).max(1);
 
 /**
  * The key light: one directional sun.
@@ -94,19 +102,43 @@ export const SkySchema = z
   })
   .partial();
 
+/** The distance curves the fog offers. */
+export const FOG_MODES = ['linear', 'exp'] as const;
+export const FogModeSchema = z.enum(FOG_MODES);
+
 /**
- * Distance fog, in metres.
+ * Distance fog.
  *
- * Linear, like `createBaseScene`: the near and far edge of the fade are stated
- * in metres, which is the unit a level designer can pace out on the tile.
+ * Two curves, because they answer two different questions (ADR-0041).
+ *
+ * `linear` is the one `createBaseScene` uses and the default: the near and far
+ * edge of the fade are stated in metres, which is the unit a level designer can
+ * pace out on the tile. It is a straight ramp, so it says exactly where the
+ * horizon dissolves — and says almost nothing over the first fifth of it.
+ *
+ * `exp` is aerial perspective: haze accumulates along the line of sight at a
+ * constant rate, `density` per metre, so it is already visible a hundred metres
+ * out and never quite reaches full, which leaves a distant range some colour of
+ * its own instead of a flat band. `start`/`end` are unused under `exp` and
+ * `density` is unused under `linear`; both stay writable, so a world can be
+ * switched between the curves without losing the numbers for the other.
+ *
  * `color` defaults to the sky's horizon colour, because fog that does not match
  * the horizon is a grey wall standing in front of it.
  */
 export const FogSchema = z
   .strictObject({
     enabled: z.boolean(),
+    mode: FogModeSchema,
     start: NonNegativeMetres,
     end: PositiveMetres,
+    /**
+     * Extinction per metre under `exp`. The working range is small — 0.0005 is
+     * a clear evening, 0.003 a wall of haze — so it carries its own upper bound
+     * rather than being a `Gain`: the editor derives a control's range from the
+     * schema (ADR-0033), and an unbounded number gets a box instead of a slider.
+     */
+    density: z.number().min(0).max(0.005).finite(),
     color: HexColorSchema,
   })
   .partial();
@@ -196,6 +228,66 @@ export const SsaoSchema = z
   })
   .partial();
 
+/**
+ * Sun shafts: the fan of light a low sun throws past whatever stands in it.
+ *
+ * Off by default and gated when it is on, for two separate reasons that are
+ * both measured in ADR-0042. The cost is a second full pass over the scene's
+ * geometry rather than a fill-rate effect, so it does not get cheaper by being
+ * computed smaller. And the effect finds the sun by projecting a point onto the
+ * screen, which past 90° off the view axis mirrors a sun behind the player back
+ * into the middle of the frame — so an ungated effect is not merely wasted
+ * there, it is wrong.
+ *
+ * `decay`, `weight` and `density` are the three numbers the scattering
+ * technique is named for and are best left where they are; `exposure` is the
+ * dial to reach for, and `maxAngleDegrees` decides how often any of it is paid
+ * for at all.
+ */
+export const SunShaftsSchema = z
+  .strictObject({
+    enabled: z.boolean(),
+    /** How bright the shafts come out. */
+    exposure: Fraction,
+    /** How fast a shaft dims along its length. */
+    decay: Fraction,
+    /** How much of each sample is added back. */
+    weight: Fraction,
+    /** How far the samples are spread out from the sun. */
+    density: Fraction,
+    /** Samples along each shaft — quality against fill rate. */
+    samples: z.number().int().min(8).max(120),
+    /** Fraction of the frame the occlusion pass is rendered at. */
+    passScale: RenderRatio,
+    /** Fraction of the frame the blur is computed at. */
+    postScale: RenderRatio,
+    /**
+     * How far off the view axis the sun may stand and still be worth a pass.
+     *
+     * Bounded at 90° because that is where the projection turns degenerate, not
+     * because a wider angle would merely look worse.
+     */
+    maxAngleDegrees: z.number().min(0).max(90),
+    /**
+     * Half-width in degrees of the band around `maxAngleDegrees` that the
+     * effect fades across and latches over, so panning along the threshold
+     * cannot switch a full scene pass on and off every frame.
+     */
+    hysteresisDegrees: z.number().min(0).max(30),
+    /**
+     * Metres from the camera to the stand-in for the sun.
+     *
+     * The floor stands above the extent of a painted horizon, so the range
+     * eclipses the sun instead of the sun floating in front of it; the ceiling
+     * stays inside the camera's far plane, past which the anchor is clipped
+     * away and the pass renders nothing at all.
+     */
+    anchorDistance: z.number().min(1200).max(9000).finite(),
+    /** Diameter in metres of that stand-in — how wide the shafts fan from. */
+    anchorSize: PositiveMetres,
+  })
+  .partial();
+
 /** The grade applied to the finished frame. */
 export const PostProcessingSchema = z
   .strictObject({
@@ -204,9 +296,17 @@ export const PostProcessingSchema = z
     toneMapping: ToneMappingSchema,
     exposure: Gain,
     contrast: Gain,
+    /**
+     * How much colour survives the grade: 0 greyscale, 1 untouched, 2 twice as
+     * colourful. Bounded above rather than left open like the other gains, so
+     * the editor's control derives a range to step in and a mistyped number
+     * cannot ask for a look no screen can show (ADR-0040).
+     */
+    saturation: z.number().min(0).max(2).finite(),
     bloom: BloomSchema,
     vignette: VignetteSchema,
     ssao: SsaoSchema,
+    sunShafts: SunShaftsSchema,
   })
   .partial();
 
@@ -232,5 +332,6 @@ export type ToneMapping = z.infer<typeof ToneMappingSchema>;
 export type Bloom = z.infer<typeof BloomSchema>;
 export type Vignette = z.infer<typeof VignetteSchema>;
 export type Ssao = z.infer<typeof SsaoSchema>;
+export type SunShafts = z.infer<typeof SunShaftsSchema>;
 export type PostProcessing = z.infer<typeof PostProcessingSchema>;
 export type LightingProfile = z.infer<typeof LightingProfileSchema>;

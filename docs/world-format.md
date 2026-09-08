@@ -15,7 +15,7 @@ The authoritative definition is `packages/world-schema`.
   "name": "Example World",
   "lighting": {
     "sun": { "direction": [0.58, -0.45, 0.68], "color": "#ffd2a1", "intensity": 2.3 },
-    "fog": { "enabled": true, "start": 80, "end": 1700, "color": "#b4c0cc" }
+    "fog": { "enabled": true, "mode": "exp", "density": 0.0005, "color": "#a3afbd" }
   },
   "zones": [
     {
@@ -115,11 +115,21 @@ an interior can be dark under a world that is not, keeping the same sun.
 | `sun`            | `direction` (the direction light _travels_), `color`, `intensity`                     |
 | `ambient`        | `skyColor`, `groundColor`, `intensity` — the hemispheric fill                         |
 | `sky`            | `enabled`, `zenithColor`, `horizonColor`, `sunColor`, `sunSpread`, `groundReflection` |
-| `fog`            | `enabled`, `start`, `end` in metres, `color` (defaults to the sky's horizon)          |
-|                  | `end` also decides whether the painted distance hazes: a backdrop takes the fog only  |
-|                  | when the fog reaches past it, so a short `end` cannot flatten the horizon (ADR-0034)  |
+| `fog`            | `enabled`, `mode` (`linear` or `exp`), `color` (defaults to the sky's horizon)        |
+|                  | `linear` fades between `start` and `end` in metres; `exp` accumulates `density` of    |
+|                  | haze per metre and never quite reaches full, which is aerial perspective (ADR-0041)   |
+|                  | The curve also decides whether the painted distance hazes: a backdrop takes the fog   |
+|                  | only while it keeps enough of its own colour through it, so no fog can flatten the    |
+|                  | horizon into one band (ADR-0034, ADR-0041)                                            |
 | `shadows`        | `enabled`, `mapSize`, `distance`, `bias`, `normalBias`, `darkness`, `filter`          |
-| `postProcessing` | `enabled`, `fxaa`, `toneMapping`, `exposure`, `contrast`, `bloom`, `vignette`, `ssao` |
+| `postProcessing` | `enabled`, `fxaa`, `toneMapping`, `exposure`, `contrast`, `saturation`, `bloom`,      |
+|                  | `vignette`, `ssao`, `sunShafts` — `saturation` is 0 greyscale, 1 untouched, 2 twice   |
+|                  | as colourful, and it is the only grade knob that changes chroma alone (ADR-0040)      |
+|                  | `sunShafts` is off unless a world asks for it and gated on the angle between the      |
+|                  | view axis and the sun, so it costs nothing at all in a frame the sun is not in;       |
+|                  | `enabled`, `exposure`, `decay`, `weight`, `density`, `samples`, `passScale`,          |
+|                  | `postScale`, `maxAngleDegrees`, `hysteresisDegrees`, `anchorDistance`, `anchorSize`   |
+|                  | (ADR-0042)                                                                            |
 
 Colours are `#rrggbb`. `mapSize` is a power of two from 256 to 4096.
 `toneMapping` is one of `none`, `standard`, `aces`, `neutral`; `shadows.filter`

@@ -93,6 +93,32 @@ describe('applyLighting', () => {
     expect(target.fogMode).toBe(Scene.FOGMODE_NONE);
   });
 
+  /**
+   * The curve is world data (ADR-0041). `exp` reaches Babylon as FOGMODE_EXP
+   * and not EXP2, and both sets of numbers are written whichever curve is on,
+   * so switching a world back does not find the other's numbers missing.
+   */
+  it('sets an exponential fog when the profile asks for one', () => {
+    const target = scene();
+    const handle = applyLighting(target, {
+      profiles: [{ fog: { mode: 'exp', density: 0.0005, start: 20, end: 90 } }],
+    });
+
+    expect(target.fogMode).toBe(Scene.FOGMODE_EXP);
+    expect(target.fogDensity).toBe(0.0005);
+    expect(target.fogStart).toBe(20);
+    expect(target.fogEnd).toBe(90);
+
+    handle.dispose();
+  });
+
+  it('leaves a profile that says nothing about the curve on the linear one', () => {
+    const target = scene();
+    const handle = applyLighting(target, { profiles: [{ fog: { end: 500 } }] });
+    expect(target.fogMode).toBe(Scene.FOGMODE_LINEAR);
+    handle.dispose();
+  });
+
   it('builds a shadow map at the size the profile asks for', () => {
     const target = scene();
     const handle = applyLighting(target, { profiles: [{ shadows: { mapSize: 512 } }] });
@@ -116,13 +142,75 @@ describe('applyLighting', () => {
   it('parks the sun behind whatever the shadow map is focused on', () => {
     const target = scene();
     const handle = applyLighting(target, {
-      profiles: [{ sun: { direction: [0, -1, 0] }, shadows: { distance: 100 } }],
+      profiles: [{ sun: { direction: [0, -1, 0] }, shadows: { distance: 100, mapSize: 1024 } }],
     });
 
     handle.focusShadows(10, 5, -20);
-    expect(handle.sun.position.x).toBeCloseTo(10, 5);
+    // Behind the focus point by the full distance, along the light — that part
+    // is exact. Across it the position is quantised onto the map's own texels
+    // (ADR-0039), so it may sit up to half a texel away and must sit on the
+    // lattice: 100 m over 1024 texels is 9.77 cm.
+    const texel = 100 / 1024;
     expect(handle.sun.position.y).toBeCloseTo(105, 5);
-    expect(handle.sun.position.z).toBeCloseTo(-20, 5);
+    expect(Math.abs(handle.sun.position.x - 10)).toBeLessThanOrEqual(texel / 2 + 1e-9);
+    expect(Math.abs(handle.sun.position.z - -20)).toBeLessThanOrEqual(texel / 2 + 1e-9);
+    expect(handle.sun.position.x / texel).toBeCloseTo(Math.round(handle.sun.position.x / texel), 6);
+    expect(handle.sun.position.z / texel).toBeCloseTo(Math.round(handle.sun.position.z / texel), 6);
+  });
+
+  it('keeps the shadow map on the same texel grid while the focus walks', () => {
+    const target = scene();
+    const handle = applyLighting(target, {
+      // The village's own evening sun and map, so the numbers are the ones the
+      // shimmer was measured with: 120 m over 2048 texels is 5.86 cm a texel.
+      profiles: [{ sun: { direction: [0.58, -0.45, 0.68] }, shadows: { distance: 120 } }],
+    });
+    const generator = handle.shadows;
+    expect(generator).not.toBeNull();
+
+    /**
+     * Where the world origin lands in the map, in texels, fraction only.
+     *
+     * This is the thing that used to move. The map is a grid of texels laid
+     * over the world by the light matrix; if the fractional part of a fixed
+     * world point's texel coordinate changes between frames, every silhouette
+     * in the map is being rasterised onto a different grid and its edge
+     * crawls. A still frame cannot show that, so it is measured here.
+     */
+    const phase = (): [number, number] => {
+      // Babylon caches the light matrix per rendered frame, so a measurement
+      // that never renders would read the first frame's matrix sixty times and
+      // find it wonderfully stable. This is what makes each reading a frame.
+      target.incrementRenderId();
+      const matrix = generator?.getTransformMatrix();
+      if (matrix === undefined) {
+        throw new Error('no shadow transform to measure');
+      }
+      const inMap = Vector3.TransformCoordinates(Vector3.Zero(), matrix);
+      const half = 2048 / 2;
+      const fraction = (value: number): number => value - Math.floor(value);
+      return [fraction(inMap.x * half), fraction(inMap.y * half)];
+    };
+
+    // A walk at full speed, sampled at 60 Hz: 4.5 m/s is 7.5 cm a frame, which
+    // is more than one texel and lands on a different fraction of one every
+    // time. Before the snap these phases swept the whole ±0.5 texel.
+    handle.focusShadows(40, 6, -12);
+    const first = phase();
+    const parked = handle.sun.position.clone();
+    for (let frame = 1; frame <= 60; frame += 1) {
+      const walked = (frame * 4.5) / 60;
+      handle.focusShadows(40 + walked * 0.8, 6 + Math.sin(frame) * 0.02, -12 + walked * 0.6);
+      const now = phase();
+      expect(now[0]).toBeCloseTo(first[0], 4);
+      expect(now[1]).toBeCloseTo(first[1], 4);
+    }
+
+    // And it did follow the player rather than standing still, or the phase
+    // above would be constant for the least interesting of reasons.
+    // A second of walking is 4.5 m, and the map's centre went with it — bar
+    // the half texel it is allowed to lag by.
+    expect(Vector3.Distance(handle.sun.position, parked)).toBeGreaterThan(4.4);
   });
 
   it('makes every mesh a receiver, including ones added afterwards', async () => {
@@ -234,6 +322,62 @@ describe('applyLighting', () => {
     const handle = applyLighting(target, { profiles: [{ postProcessing: { enabled: false } }] });
     expect(handle.pipeline).toBeNull();
     expect(handle.ssao).toBeNull();
+    expect(handle.sunShafts).toBeNull();
+  });
+
+  it('builds no sun shafts for a world that did not ask for them', () => {
+    expect(applyLighting(scene(), {}).sunShafts).toBeNull();
+  });
+
+  /**
+   * Four things have to hold at once for the shafts to be anything other than a
+   * bright square in the sky, and none of them is visible from the outside of
+   * Babylon's post-process: the effect exists, the sky is out of the occlusion
+   * pass (it does not use the sky's material there and would bury the anchor
+   * behind a depth wall), the anchor is out of the shadow map, and the pass is
+   * *not* attached until the gate says the sun is in view (ADR-0042).
+   */
+  it('builds the shafts gated off, with the sky out of the pass and the anchor out of the map', () => {
+    const target = scene();
+    const camera = target.activeCamera;
+    const handle = applyLighting(target, {
+      profiles: [{ postProcessing: { sunShafts: { enabled: true } } }],
+    });
+    const shafts = handle.sunShafts;
+    expect(shafts).not.toBeNull();
+    expect(shafts?.effect.mesh).toBe(shafts?.anchor);
+    expect(shafts?.effect.excludedMeshes).toContain(handle.sky);
+    // Off until a frame decides otherwise, and off means both halves: the
+    // post-process detached *and* its render target off the camera.
+    expect(shafts?.isActive()).toBe(false);
+    expect(camera?.customRenderTargets).not.toContain(shafts?.effect.getPass());
+    // Neither caster nor receiver: a 90 m disc standing in for the sun must not
+    // throw a shadow across the range behind it.
+    expect(shafts?.anchor.receiveShadows).toBe(false);
+    expect(shadowCasters(handle)).not.toContain(shafts?.anchor);
+  });
+
+  it('takes the shafts, the anchor and its material back out on dispose', () => {
+    const target = scene();
+    const handle = applyLighting(target, {
+      profiles: [{ postProcessing: { sunShafts: { enabled: true } } }],
+    });
+    const anchor = handle.sunShafts?.anchor;
+    expect(target.meshes).toContain(anchor);
+    handle.dispose();
+    expect(target.meshes).not.toContain(anchor);
+    expect(anchor?.isDisposed()).toBe(true);
+  });
+
+  it('grades colour out through the colour curves, and only when asked to', () => {
+    const untouched = applyLighting(scene(), {});
+    expect(untouched.pipeline?.imageProcessing?.colorCurvesEnabled).toBe(false);
+
+    const matte = applyLighting(scene(), { profiles: [{ postProcessing: { saturation: 0.7 } }] });
+    const image = matte.pipeline?.imageProcessing;
+    expect(image?.colorCurvesEnabled).toBe(true);
+    // Babylon states the same knob as -100…100 around zero.
+    expect(image?.colorCurves?.globalSaturation).toBeCloseTo(-30, 6);
   });
 
   it('reaches the meshes the scene cannot see when it relights', () => {

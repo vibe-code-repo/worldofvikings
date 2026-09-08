@@ -45,6 +45,7 @@ import type { InstancedMesh } from '@babylonjs/core/Meshes/instancedMesh.js';
 import type { Node } from '@babylonjs/core/node.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { AssetManager, AssetSourceCounts } from '@wov/asset-system';
+import { backdropTakesFog, sceneFogCurve } from '@wov/engine';
 import { freezeStaticNodes, unfreezeStaticNodes } from '@wov/engine';
 import type { EditorDocument } from '@wov/editor-core';
 import { activeZone } from '@wov/editor-core';
@@ -158,6 +159,29 @@ export interface SceneSync {
    * that a test can read without a renderer telling it what it wants to hear.
    */
   frozenCount(): number;
+  /**
+   * The painted backdrop as the *meshes* report it: how many there are and how
+   * many of them take the fog.
+   *
+   * Editor parity has to be witnessed rather than claimed (ADR-0033). The rule
+   * is `backdropTakesFog` in `@wov/engine` and the game asserts it in
+   * `tooling/smoke/village-backdrop.spec.ts`; this is the same claim on this
+   * side of the wire, and it is the one that was wrong — the editor used to
+   * refuse fog on every backdrop mesh, so an author dragging the fog sliders
+   * saw the ground haze and the mountains stay dark (ADR-0041).
+   */
+  backdropFog(): { readonly meshes: number; readonly fogged: number };
+  /**
+   * Re-asks the fog question for every backdrop mesh already in the scene.
+   *
+   * A backdrop is told whether it takes fog when it loads, and the scene's fog
+   * is written by `applyLighting`, which the editor runs whenever the profile
+   * changes — including while an author drags the fog sliders. Without this the
+   * mountains would keep whichever answer they happened to get at load time,
+   * which for a shell that loaded before the first relight is "no fog at all"
+   * (ADR-0041).
+   */
+  refreshBackdropFog(): void;
   dispose(): void;
 }
 
@@ -290,6 +314,30 @@ export function createSceneSync(options: SceneSyncOptions): SceneSync {
   // One material for every stand-in: a cube per entity with its own material
   // would be a material per entity for the same colour.
   const pendingMaterial = new StandardMaterial('editor-pending', scene);
+  // Every backdrop mesh this sync has built, for `backdropFog()`. Disposed ones
+  // are filtered out on read rather than removed here: a rebuild disposes a
+  // whole entity root at once, and a second bookkeeping path for it would be a
+  // second thing to keep in step.
+  const backdropMeshes: AbstractMesh[] = [];
+
+  /**
+   * Writes `applyFog` on every backdrop mesh from the scene's current fog.
+   *
+   * The rule is the game's own (`backdropTakesFog` in `@wov/engine`), so an
+   * author sees the horizon the game will draw rather than the editor's own
+   * opinion of it (ADR-0033, ADR-0034, ADR-0041).
+   */
+  const askTheFog = (): void => {
+    const fog = sceneFogCurve(scene);
+    for (const mesh of backdropMeshes) {
+      if (mesh.isDisposed()) {
+        continue;
+      }
+      mesh.computeWorldMatrix(true);
+      const sphere = mesh.getBoundingInfo().boundingSphere;
+      mesh.applyFog = backdropTakesFog(fog, sphere.centerWorld.length() + sphere.radiusWorld);
+    }
+  };
   pendingMaterial.diffuseColor = new Color3(0.42, 0.46, 0.54);
   pendingMaterial.emissiveColor = new Color3(0.08, 0.09, 0.12);
 
@@ -451,16 +499,26 @@ export function createSceneSync(options: SceneSyncOptions): SceneSync {
         // hierarchy still lists it, so it stays selectable and editable —
         // which is the parity rule: what a script can place, a person can move
         // (ADR-0031).
+        // Fog is asked, not refused. This used to read `applyFog = false` for
+        // every backdrop mesh, so an author dragging the fog sliders in the
+        // Lighting panel watched the ground haze while the mountains stayed
+        // dark and green — the exact picture ADR-0034 was written to get rid
+        // of, shown only in the editor. The rule is the game's own, out of
+        // `@wov/engine` so there is one of it (ADR-0033, ADR-0041).
         for (const mesh of meshes) {
           mesh.isPickable = false;
-          mesh.applyFog = false;
-          // `applyFog` is a material define, and an instance shares its
-          // source's material: said on the instance alone it is accepted and
-          // does nothing. `isPickable` really is per mesh, so it is said twice.
-          const owner = materialOwner(mesh);
-          owner.applyFog = false;
-          owner.isPickable = false;
+          // `isPickable` is per mesh and an instance shares its source's
+          // material, so the source is told as well.
+          materialOwner(mesh).isPickable = false;
+          // A container's transform nodes come back from the same walk and are
+          // not surfaces; asking one for a bounding sphere is asking a point
+          // how far away it is.
+          if (mesh.getTotalVertices() === 0) {
+            continue;
+          }
+          backdropMeshes.push(mesh);
         }
+        askTheFog();
       }
       if (shadows !== undefined && !castsShadows(prefab)) {
         // The game's rule, by the game's own function (`@wov/world-schema`):
@@ -591,6 +649,11 @@ export function createSceneSync(options: SceneSyncOptions): SceneSync {
       return scene.transformNodes.filter((node) => ownEntityId(node) !== undefined).length;
     },
 
+    refreshBackdropFog: askTheFog,
+    backdropFog() {
+      const live = backdropMeshes.filter((mesh) => !mesh.isDisposed());
+      return { meshes: live.length, fogged: live.filter((mesh) => mesh.applyFog).length };
+    },
     loadedCount() {
       let loaded = 0;
       for (const instance of instances.values()) {

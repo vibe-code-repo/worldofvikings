@@ -57,6 +57,39 @@ export function brauchtModelle(...dateien) {
   };
 }
 
+/*
+  Weiche fuer Tests, die den ASSET-SPEICHER brauchen (`assets/store`).
+
+  Er liegt wie `assets/models` ausserhalb des Repos — ein Symlink auf
+  `~/wov-assets/store`, 672 Dateien, die nie in Git landen. Im
+  CI-Checkout gibt es ihn nicht.
+
+  ── Warum eine EIGENE Weiche und nicht `brauchtModelle` ──────────────
+  Die Unterscheidung ist die ganze Absicht: Fehlt der Ordner GANZ, ist
+  das der bekannte Zustand einer Maschine ohne Assets — uebersprungen.
+  Fehlen EINZELNE Dateien darin, ist der Speicher unvollstaendig oder
+  `shared/src/storePrefabs.ts` veraltet, und das ist ein Befund, kein
+  Umstand. Deshalb prueft die Weiche NUR den Ordner; die Dateien prueft
+  der Test selbst und wird dabei rot.
+
+  `brauchtModelle('assets/store')` taete dasselbe, sagte im Grund aber
+  "Modell-Dateien fehlen" — und wer das liest, sucht unter
+  `assets/models` und findet dort alles an seinem Platz.
+
+  Skips when the asset store (a symlink outside the repo) is absent;
+  missing files INSIDE it are a finding, not a reason to skip.
+*/
+export function brauchtStore() {
+  return () => {
+    if (process.env.WOV_OHNE_STORE === '1') {
+      return 'WOV_OHNE_STORE=1 gesetzt — Asset-Speicher von Hand abgeschaltet (Probe des CI-Falls)';
+    }
+    return existsSync(resolve(WURZEL, 'assets/store'))
+      ? null
+      : 'assets/store fehlt — der Asset-Speicher liegt ausserhalb des Repos (ln -s ~/wov-assets/store assets/store)';
+  };
+}
+
 /**
  * Grund, warum hier kein Blender läuft — oder `null`, wenn einer läuft.
  *

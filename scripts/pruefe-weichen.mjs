@@ -32,7 +32,7 @@
  * Guards the skip switches: they must skip for a reason, and never always.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -42,9 +42,14 @@ const EIGEN = process.argv.find((a) => a.startsWith('--weichen='));
 const WEICHENPFAD = EIGEN ? resolve(EIGEN.slice('--weichen='.length)) : join(HIER, 'testweichen.mjs');
 if (EIGEN) console.log(`[weichen] Weichen-Datei ersetzt: ${WEICHENPFAD}`);
 
-const { brauchtModelle, brauchtBlender, missingBlenderReason, BLENDER_REF, WURZEL } = await import(
-  pathToFileURL(WEICHENPFAD).href
-);
+const {
+  brauchtModelle,
+  brauchtBlender,
+  brauchtStore,
+  missingBlenderReason,
+  BLENDER_REF,
+  WURZEL,
+} = await import(pathToFileURL(WEICHENPFAD).href);
 
 /* Der Zeuge muss auch dann gelten, wenn der Sammellauf gerade den FEHLSTAND
    probt: `WOV_OHNE_MODELLE=1 node scripts/run-tests.mjs` vererbt die
@@ -55,7 +60,7 @@ const { brauchtModelle, brauchtBlender, missingBlenderReason, BLENDER_REF, WURZE
 
    Die Überschreibungen werden deshalb hier abgeräumt und nur dort gesetzt,
    wo ein Fall sie ausdrücklich braucht. */
-for (const schluessel of ['WOV_OHNE_MODELLE', 'WOV_OHNE_BLENDER']) {
+for (const schluessel of ['WOV_OHNE_MODELLE', 'WOV_OHNE_BLENDER', 'WOV_OHNE_STORE']) {
   if (process.env[schluessel] !== undefined) {
     console.log(`[weichen] ${schluessel} aus der Umgebung abgeräumt — jeder Fall setzt sie selbst`);
     delete process.env[schluessel];
@@ -179,9 +184,38 @@ console.log('\n[3] Der Zeuge: billige Auskunft gegen echten Blender-Start');
   }
 }
 
+console.log('\n[3b] brauchtStore — der Asset-Speicher');
+{
+  /*
+    Die Weiche prüft NUR, ob `assets/store` überhaupt da ist. Das ist
+    ihre ganze Absicht (Begründung in testweichen.mjs): Ein fehlender
+    Ordner ist eine Maschine ohne Assets, eine fehlende Datei DARIN ist
+    ein Befund, den der Test selbst melden soll.
+  */
+  const echt = brauchtStore()();
+  const daIstEr = existsSync(join(WURZEL, 'assets/store'));
+  pruefe(
+    daIstEr ? echt === null : typeof echt === 'string',
+    `assets/store ${daIstEr ? 'liegt vor ⇒ kein Grund' : 'fehlt ⇒ Grund im Klartext'} (bekam ${JSON.stringify(echt)})`,
+  );
+  if (!daIstEr) {
+    pruefe(String(echt).includes('assets/store'), 'der Grund NENNT den fehlenden Ordner');
+  }
+
+  const vorgetaeuscht = mitUmgebung('WOV_OHNE_STORE', '1', () => brauchtStore()());
+  pruefe(
+    String(vorgetaeuscht).includes('WOV_OHNE_STORE'),
+    'WOV_OHNE_STORE=1 ⇒ übersprungen, und der Grund nennt die Variable',
+  );
+}
+
 console.log('\n[4] Verdrahtung — hängen die Weichen am Sammellauf?');
 {
   const lauf = readFileSync(join(WURZEL, 'scripts', 'run-tests.mjs'), 'utf8');
+  pruefe(
+    /'test\/store-erzeugung\.ts',\s*brauchtStore\(/.test(lauf),
+    'der Erzeugungstest der Asset-Brücke steht hinter brauchtStore(...)',
+  );
   pruefe(
     /from '\.\/testweichen\.mjs'/.test(lauf),
     'run-tests.mjs bezieht die Weichen aus testweichen.mjs',

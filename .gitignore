@@ -113,3 +113,9 @@ tools/web/vorschau.js
 # ihre eigenen Build-Ausgaben:
 wov-web/build/
 wov-web/.svelte-kit/
+
+# Aufbereitete Store-Vegetation (tools/store-vegetation-aufbereiten.mjs).
+# Erzeugt aus assets/store/vegetation/, in Sekunden neu gebaut, 53 MB —
+# und der Store selbst liegt ohnehin ausserhalb des Repos. Der Ordnername
+# sagt am Pfad, was die Datei ist: aus dem Store abgeleitet, nicht gepflegt.
+assets/store-lab/

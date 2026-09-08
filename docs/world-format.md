@@ -53,6 +53,7 @@ The authoritative definition is `packages/world-schema`.
 - Objects are strict: unknown fields are an error, not silently dropped.
 - Zone ids are unique per world; entity ids are unique per zone.
 - `lighting` is optional on the world and on a zone (schemaVersion 3, ADR-0024).
+- `sound` is optional on the world and on a zone (schemaVersion 5, ADR-0062).
 
 ## The transform, exactly
 
@@ -151,6 +152,67 @@ scene reads:
 `?flat=1` on the game's URL replaces the world's profile with a flat-noon one
 (no shadows, no sky, no fog, no grading), so a screenshot can be compared
 against the same frame with no rig at all.
+
+## Sound (schemaVersion 5, ADR-0062)
+
+`sound` says how a world — or one zone of it — sounds. Like `lighting` it is
+optional all the way down, and what is left out comes from
+`defaultSoundProfile` in `@wov/engine`. Unlike lighting, the default is
+**silence**: a scene has to be lit by something or it is a black frame, but a
+scene that names no clips has nothing to play, and inventing a wind loop for
+every world that never asked for one would be the renderer deciding what the
+game sounds like.
+
+A zone's profile overrides the world's group by group and field by field. The
+two _lists_ — `emitters` and `footsteps.banks` — replace whole rather than
+merging, so `"emitters": []` on a zone is how a zone says "none of the world's".
+
+| Group          | Fields                                                                                            |
+| -------------- | ------------------------------------------------------------------------------------------------- |
+| `master`       | `volume`, `muted` — authored silence, not the same thing as `?mute=1`                             |
+| `ambience`     | `enabled`, `clip`, `volume`, `fadeSeconds`, `loopStart`, `loopEnd` — one non-spatial bed          |
+| `footsteps`    | `enabled`, `volume`, `strideWalk`, `strideSprint`, `minInterval`, `pitchJitter`, `layerSurfaces`, |
+|                | `defaultSurface`, `banks` — a bank is `{ surface, clips[], volume? }`                             |
+| `emitters`     | a list; see below                                                                                 |
+| `cullDistance` | metres past which a placed sound is paused rather than kept running                               |
+
+**A stride is metres, not seconds.** A footstep clock that ticks in time keeps
+playing while the player stands against a wall and speeds up downhill;
+`minInterval` is only the floor underneath, so that the collision solver pushing
+the capsule along a wall (ADR-0038) cannot become a burst.
+
+**`layerSurfaces` is parallel to `terrain.layers`,** one surface id per layer in
+layer order. The village's six layers — gravel, rock, grass, gravel, rough rock,
+moss — map onto two banks: `["gravel", "gravel", "grass", "gravel", "gravel",
+"grass"]`. `pnpm validate:content` checks the length against the terrain, and
+ADR-0062 records moving the field onto the layer itself as a follow-up.
+
+**An emitter carries exactly one of `prefab`, `entity` or `position`:**
+
+| Field                        | Meaning                                                              |
+| ---------------------------- | -------------------------------------------------------------------- |
+| `id`                         | names it in a readout; unique within the profile                     |
+| `prefab`                     | a _rule_: every entity of the zone placed from this prefab sounds    |
+| `entity`                     | one named placement                                                  |
+| `position`                   | a point, with no object behind it                                    |
+| `clip`, `variants`           | what it plays; one of them is chosen per start                       |
+| `loop`                       | defaults to true unless `intervalSeconds` is given                   |
+| `intervalSeconds`            | `[min, max]` of silence between plays of a one-shot                  |
+| `volume`                     | its own gain, under the master's                                     |
+| `minDistance`, `maxDistance` | metres; `maxDistance` is honoured by the `linear` model only         |
+| `rolloff`, `distanceModel`   | how it fades — `linear`, `inverse` (the default) or `exponential`    |
+| `panning`                    | `equalpower` (the default) or `HRTF`                                 |
+| `maxCount`                   | the most placements a `prefab` rule may sound at once; 64 by default |
+
+A rule is the shape the village uses: eleven braziers are one emitter, and a
+twelfth dropped into the square is audible without anyone editing the block.
+
+`pnpm validate:content` additionally checks that every clip a profile names is
+in `assets/manifest.json`, that every surface it names has a bank, and that
+every emitter points at a prefab or an entity that exists.
+
+`?mute=1` on the game's URL never creates the audio engine at all, which is what
+makes "sound costs nothing in the frame" a measurement rather than a hope.
 
 ## Terrain (schemaVersion 2, ADR-0020; surface fields at 4, ADR-0032)
 

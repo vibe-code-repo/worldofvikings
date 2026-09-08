@@ -55,7 +55,7 @@ export const AssetPathSchema = z
  * of every dependency but Zod (agent rule 9). It changes with that list in the
  * same commit.
  */
-export type AssetKindHint = 'mesh' | 'prefab' | 'terrain' | 'texture';
+export type AssetKindHint = 'mesh' | 'prefab' | 'terrain' | 'texture' | 'audio';
 
 /**
  * An asset path that also says *what kind* of file it names.
@@ -92,8 +92,17 @@ export function assetPathOf(kind: AssetKindHint): typeof AssetPathSchema {
  * {@link assetPathOf} makes, for the same reason: the alternative is a list of
  * four field names in a panel, which drifts the first time a fifth arrives
  * (ADR-0033). Validation is untouched.
+ *
+ * `emitterAnchor` is the same bargain for a different question. An emitter says
+ * where it is with exactly one of `prefab`, `entity` or `position`
+ * (`sound.ts`), and *which one* is not something an author decides from an
+ * entity: with a brazier selected the anchor is already answered — it is this
+ * entity — and three boxes to contradict that with is how a sound ends up bound
+ * to nothing. So the entity inspector leaves those three fields to the sound
+ * panel, and it knows which three they are because the schema says so and not
+ * because a panel keeps a list of names.
  */
-export type FieldCommandHint = 'terrainSurface';
+export type FieldCommandHint = 'terrainSurface' | 'emitterAnchor';
 
 /** Annotates a field with the command that writes it. See {@link FieldCommandHint}. */
 export function turnedBy<T extends z.ZodType>(command: FieldCommandHint, schema: T): T {

@@ -115,6 +115,81 @@ export {
   sceneFogCurve,
 } from './fog.js';
 export type { FogCurve, FogCurveMode, SceneFogFields } from './fog.js';
+export {
+  AUDIO_BUS_NAMES,
+  AudioUnavailableError,
+  createAudioEngine,
+  engineStateOf,
+} from './audio.js';
+export type {
+  AudioBusName,
+  AudioEngineOptions,
+  AudioStatusSource,
+  AudioSystem,
+  AudioUnsubscribe,
+  PlaceAudioOptions,
+  PlainAudioOptions,
+} from './audio.js';
+export {
+  AUDIBLE_GAIN_THRESHOLD,
+  audibleRadius,
+  defaultAudioFalloff,
+  distanceGain,
+  resolveAudioFalloff,
+} from './audio-falloff.js';
+export type { AudioDistanceModel, AudioFalloff } from './audio-falloff.js';
+export {
+  initialAudioUnlockState,
+  needsUserGesture,
+  nextAudioUnlockState,
+  summarizeAudioStatus,
+} from './audio-unlock.js';
+export type { AudioStatus, AudioUnlockEvent, AudioUnlockState } from './audio-unlock.js';
+
+export { applyWorldSound } from './sound.js';
+export type { ClipSource, ListenerPoint, WorldSoundHandle, WorldSoundOptions } from './sound.js';
+export {
+  DEFAULT_EMITTER_MAX_COUNT,
+  bankForSurface,
+  defaultSoundProfile,
+  resolveSoundProfile,
+  soundProfileClips,
+  surfaceOfLayer,
+} from './sound-profile.js';
+export type {
+  AmbienceOptions,
+  FootstepBankOptions,
+  FootstepOptions,
+  ResolvedSoundProfile,
+  SoundBankInput,
+  SoundEmitterInput,
+  SoundEmitterOptions,
+  SoundMasterOptions,
+  SoundProfileOptions,
+} from './sound-profile.js';
+export { distanceBetween, planEmitters } from './sound-placement.js';
+export type { EmitterPlacement, EmitterPlan, PlacedEntity } from './sound-placement.js';
+export { createClipBag, intervalIn, jitteredRate, seededRandom } from './sound-bag.js';
+export type { ClipBag, RandomSource } from './sound-bag.js';
+export {
+  UNPAINTED_WEIGHT_TOTAL,
+  UV_FIT_TOLERANCE,
+  createTerrainSurfaceProbe,
+  decodeSplatImage,
+  dominantLayer,
+  fitAxis,
+  fitTileUv,
+  splatWeightsAt,
+} from './terrain-surface.js';
+export type {
+  AxisFit,
+  SplatImage,
+  TerrainSurfaceProbe,
+  TerrainSurfaceProbeOptions,
+  TileUvFit,
+  WorldToLocal,
+} from './terrain-surface.js';
+
 export { applyLighting, meshesWithStaleLights } from './lighting.js';
 export type { LightingHandle, LightingOptions } from './lighting.js';
 export { defaultLightingProfile, resolveLightingProfile } from './lighting-profile.js';

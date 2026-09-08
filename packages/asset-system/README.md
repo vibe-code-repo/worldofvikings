@@ -168,6 +168,14 @@ served from the asset store (`WOV_ASSET_STORE`, `/store/…` on the asset server
 the repository holds only its `placeholder`, a box with the same hull, so a clone
 without store access still runs and says so.
 
+`kind` is one of `mesh`, `prefab`, `terrain`, `texture` and `audio`. The first
+three occupy space in the world and carry `bounds` in metres; a texture and a
+sound are refused if they do. `audio` rows share one placeholder,
+`placeholders/audio/silence.wav` — a sound has no hull to get wrong, so a
+quarter second of silence is the whole stand-in (ADR-0064). `AUDIO_EXTENSIONS`
+and `isAudioAssetPath` are exported so the manifest, the importer and the asset
+server's content types answer "is this a sound?" the same way.
+
 After adding, replacing or deleting an asset:
 
 ```bash

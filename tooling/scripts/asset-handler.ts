@@ -13,9 +13,9 @@
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { join, normalize, resolve, sep } from 'node:path';
 import { assetCacheHeaders, assetNotModified } from './asset-cache.js';
-import { routeRequest } from './asset-routes.js';
+import { contentTypeFor, routeRequest } from './asset-routes.js';
 
 /** What the handler serves, and how long a client may hold it. */
 export interface AssetHandlerOptions {
@@ -26,21 +26,6 @@ export interface AssetHandlerOptions {
   /** `ASSET_CACHE_MAX_AGE`, seconds. `0` means: revalidate every time. */
   readonly maxAgeSeconds?: number | undefined;
 }
-
-const contentTypes = new Map<string, string>([
-  ['.glb', 'model/gltf-binary'],
-  ['.gltf', 'model/gltf+json'],
-  ['.json', 'application/json; charset=utf-8'],
-  ['.png', 'image/png'],
-  ['.jpg', 'image/jpeg'],
-  ['.jpeg', 'image/jpeg'],
-  ['.webp', 'image/webp'],
-  ['.ktx2', 'image/ktx2'],
-  ['.ogg', 'audio/ogg'],
-  ['.mp3', 'audio/mpeg'],
-  ['.txt', 'text/plain; charset=utf-8'],
-  ['.md', 'text/markdown; charset=utf-8'],
-]);
 
 /** Resolves a request path inside the asset root, or `undefined` if it escapes. */
 export function resolveAssetPath(root: string, requestPath: string): string | undefined {
@@ -122,7 +107,7 @@ export function createAssetHandler(
         response.writeHead(200, {
           ...COMMON_HEADERS,
           ...cache,
-          'content-type': contentTypes.get(extname(filePath)) ?? 'application/octet-stream',
+          'content-type': contentTypeFor(filePath),
           'content-length': stats.size,
         });
         if (request.method === 'HEAD') {

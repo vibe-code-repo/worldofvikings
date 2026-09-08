@@ -23,7 +23,18 @@ things, kept apart on purpose:
    sky the scene is lit under. It renders terrain; it does
    not decide where terrain is (that is world data) and it does not load the
    model (that is `@wov/asset-system`).
-5. **The third-person camera** (ADR-0008, spec §26) — mouse rotation with
+5. **Sound** (ADR-0062, ADR-0063, ADR-0065) — `createAudioEngine` owns Babylon's
+   AudioV2 engine, its four buses, its one listener and the per-URL clip cache,
+   and it plays a clip either at a place in the world or simply into your ears.
+   `resolveSoundProfile` and `applyWorldSound` are the audio twins of
+   `resolveLightingProfile` and `applyLighting`: a zone's bed, its emitters and
+   its footstep banks are world data, resolved in one place and put into a scene
+   by one function that both clients call. `terrain-surface.ts` answers which
+   ground a footstep landed on, by asking the splat map on the CPU in the
+   shader's own terms. It also owns the browser's autoplay policy, as a state
+   machine that can tell "click anywhere" apart from three other kinds of
+   silence.
+6. **The third-person camera** (ADR-0008, spec §26) — mouse rotation with
    pointer lock, wheel zoom, a frame-rate independent follow lag and collision
    avoidance as an interface. Its arithmetic is a separate Babylon-free module,
    and so is the decision of whether a mouse movement counts.
@@ -35,49 +46,59 @@ reads back. Rendering never owns the game state (spec §25), which is why
 
 ## Public API
 
-| Export                                                                                      | What it does                                                                                                                                           |
-| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `createRenderer(canvas, options)`                                                           | `Promise<RendererHandle>`. Builds engine, scene and render loop for a canvas.                                                                          |
-| `RendererHandle`                                                                            | `engine`, `scene`, `backend`, `config`, `disposed`, `onFrame`, `renderFrame`, `resize`, `dispose`.                                                     |
-| `selectBackend(config, caps)`                                                               | Pure choice between `'webgpu'` and `'webgl2'`. Separated out so it is testable.                                                                        |
-| `detectRenderCapabilities()`                                                                | What the current browser offers (`navigator.gpu`).                                                                                                     |
-| `resolveRenderConfig(overrides?)`                                                           | Normalises a partial `RenderConfig`; clamps `resolutionScale` to `0.25…2`.                                                                             |
-| `defaultRenderConfig`                                                                       | The defaults `resolveRenderConfig` merges into.                                                                                                        |
-| `createBaseScene(scene, opts?)`                                                             | `BaseSceneHandle`. Adds ground, two lights, sky colour and fog to an existing scene.                                                                   |
-| `BaseSceneHandle`                                                                           | `ground`, `groundMaterial`, `ambientLight`, `sun`, `options`, `dispose` (restores the old sky/fog).                                                    |
-| `resolveBaseSceneOptions(over?)`                                                            | Validates a partial base-scene description and derives the fog distances from the ground size.                                                         |
-| `defaultBaseSceneOptions`                                                                   | The resolved defaults: 100 m ground, no shadows, linear fog in the sky colour.                                                                         |
-| `applyLighting(scene, options?)`                                                            | `LightingHandle`. Puts the profile's sun, fill, shadow map, sky, fog and grading chain into a scene.                                                   |
-| `LightingHandle`                                                                            | `profile`, `sun`, `ambient`, `shadows`, `sky`, `pipeline`, `ssao`, `sunShafts`, `excludeFromShadows`, `excludeFromCasting`, `focusShadows`, `dispose`. |
-| `resolveLightingProfile(...profiles)`                                                       | Merges partial profiles left to right (world, then zone) into a complete one, validating colours and distances.                                        |
-| `defaultLightingProfile`                                                                    | The resolved defaults: the late-afternoon sun a world with no profile is lit by.                                                                       |
-| `shadowBasis(direction)` / `snapShadowFocus(focus, basis, texel)`                           | The shadow map's own axes and a focus point quantised onto its texels (ADR-0039). Pure arithmetic; `applyLighting` applies it by itself.               |
-| `sunShaftsGate(...)` / `sunViewAngleDegrees(...)` / `sunAnchorPosition(...)`                | Whether the sun is near enough to the view axis for shafts, and where to park the stand-in that represents it (ADR-0042). No Babylon import.           |
-| `hazeAt(fog, distance)` / `fogVisibility` / `rawFogFactor`                                  | How much haze sits at a distance on either curve, including the 2.2 encode Babylon's PBR path applies (ADR-0041). No Babylon import.                   |
-| `backdropTakesFog(fog, reach)` / `MAX_BACKDROP_HAZE`                                        | Whether a painted backdrop mesh is drawn hazed, or kept out of the fog because it would be a flat band of it (ADR-0034, ADR-0041).                     |
-| `sceneFogCurve(scene)` / `fogModeCode(mode)` / `BABYLON_FOGMODE`                            | The curve a scene is fogged with, read off Babylon's own fields, and the mode code the terrain shader is sent.                                         |
-| `SKY_VERTEX_SOURCE` / `SKY_FRAGMENT_SOURCE`                                                 | The gradient sky's GLSL, Babylon-free so it can be asserted in a unit test.                                                                            |
-| `createThirdPersonCamera(scene, options)`                                                   | `ThirdPersonCameraHandle`. The camera of spec §26, following a `() => Vector3`.                                                                        |
-| `ThirdPersonCameraHandle`                                                                   | `camera`, `settings`, `state`, `look`, `zoom`, `update`, `setObstacleQuery`, `attachControl`, `detachControl`, `dispose`.                              |
-| `stepThirdPersonCamera(state, input, settings)`                                             | One camera frame as pure arithmetic: new state, position and focus. No Babylon.                                                                        |
-| `createTerrain(scene, heightField, options)`                                                | `TerrainHandle`. Places a loaded height field and gives it the splat material.                                                                         |
-| `TerrainHandle`                                                                             | `root`, `meshes` (what physics collides against), `material`, `textures`, `dispose`.                                                                   |
-| `createTerrainMaterial(scene, name, options)`                                               | The material on its own, for a view that draws ground without a physics world.                                                                         |
-| `clearLoaderTransform(root)`                                                                | Clears the glTF loader's handedness transform (half turn **and** mirror) so a tile covers the metres the world file names.                             |
-| `terrainFragmentSource(layers, splats, shadows?, surface?)` / `TERRAIN_VERTEX_SOURCE`       | The generated GLSL, Babylon-free so it can be asserted in a unit test.                                                                                 |
-| `terrainLayerSources(layers, resolve)`                                                      | World-file layers to loadable ones, through the caller's own URL resolver. One mapping for the game and the editor.                                    |
-| `TerrainSurfaceShader` / `plainSurface(count)`                                              | Which layers have a normal map and whether the tile is facetted — part of the program's shape.                                                         |
-| `sceneSkyGradient(scene)` / `setSceneSkyGradient`                                           | The sky a scene is lit under, as numbers the ground can reflect (ADR-0032). Written by `applyLighting`, read by the terrain material.                  |
-| `SKY_GRADIENT_FUNCTION`                                                                     | The sky as a function of direction, pasted into both the dome's program and the ground's.                                                              |
-| `layerRepeats(size, tileSize)`                                                              | Metres across ÷ metres per repeat — the one place `size` and `tileSize` meet.                                                                          |
-| `resolveThirdPersonCameraSettings(over?)`                                                   | Validates a partial camera description; rejects a pitch range that reaches the pole.                                                                   |
-| `defaultThirdPersonCameraSettings`                                                          | The resolved defaults: 6 m out (2…12), −17°…66° pitch, 0.12 s follow lag.                                                                              |
-| `CameraObstacleQuery`                                                                       | `(probe) => number \| null` — the seam physics plugs into. Default `noCameraObstacles`.                                                                |
-| `createCameraLookInput(sink, o?)`                                                           | The pointer-lock / drag / wheel state machine, without DOM types.                                                                                      |
-| `wrapAngle`, `smoothingFactor`, `applyLook`, `applyZoom`, `wheelTicks`, `orbitDirection`, … | The individual camera functions, each testable on its own.                                                                                             |
-| `TerrainHandle.update(surface)`                                                             | Writes the surface uniforms into the program the tile already has — a dial turned, not a tile rebuilt (ADR-0050). Throws on a layer-count mismatch.    |
-| `TerrainHandle.rebuildMaterial(options)`                                                    | A new material over the height field that is already loaded: a swapped texture, a replaced splat map, the facet switch (ADR-0050).                     |
-| `applyTerrainUniforms(material, size, layerCount, surface)`                                 | The one place the layer uniforms are written, so a tile _built_ at metalness 0.4 and a tile _turned_ to 0.4 cannot drift apart.                        |
+| Export                                                                                      | What it does                                                                                                                                        |
+| ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createRenderer(canvas, options)`                                                           | `Promise<RendererHandle>`. Builds engine, scene and render loop for a canvas.                                                                       |
+| `RendererHandle`                                                                            | `engine`, `scene`, `backend`, `config`, `disposed`, `onFrame`, `renderFrame`, `resize`, `dispose`.                                                  |
+| `selectBackend(config, caps)`                                                               | Pure choice between `'webgpu'` and `'webgl2'`. Separated out so it is testable.                                                                     |
+| `detectRenderCapabilities()`                                                                | What the current browser offers (`navigator.gpu`).                                                                                                  |
+| `resolveRenderConfig(overrides?)`                                                           | Normalises a partial `RenderConfig`; clamps `resolutionScale` to `0.25…2`.                                                                          |
+| `defaultRenderConfig`                                                                       | The defaults `resolveRenderConfig` merges into.                                                                                                     |
+| `createBaseScene(scene, opts?)`                                                             | `BaseSceneHandle`. Adds ground, two lights, sky colour and fog to an existing scene.                                                                |
+| `BaseSceneHandle`                                                                           | `ground`, `groundMaterial`, `ambientLight`, `sun`, `options`, `dispose` (restores the old sky/fog).                                                 |
+| `resolveBaseSceneOptions(over?)`                                                            | Validates a partial base-scene description and derives the fog distances from the ground size.                                                      |
+| `defaultBaseSceneOptions`                                                                   | The resolved defaults: 100 m ground, no shadows, linear fog in the sky colour.                                                                      |
+| `applyLighting(scene, options?)`                                                            | `LightingHandle`. Puts the profile's sun, fill, shadow map, sky, fog and grading chain into a scene.                                                |
+| `LightingHandle`                                                                            | `profile`, `sun`, `ambient`, `shadows`, `sky`, `pipeline`, `ssao`, `excludeFromShadows`, `excludeFromCasting`, `focusShadows`, `dispose`.           |
+| `resolveLightingProfile(...profiles)`                                                       | Merges partial profiles left to right (world, then zone) into a complete one, validating colours and distances.                                     |
+| `defaultLightingProfile`                                                                    | The resolved defaults: the late-afternoon sun a world with no profile is lit by.                                                                    |
+| `SKY_VERTEX_SOURCE` / `SKY_FRAGMENT_SOURCE`                                                 | The gradient sky's GLSL, Babylon-free so it can be asserted in a unit test.                                                                         |
+| `createThirdPersonCamera(scene, options)`                                                   | `ThirdPersonCameraHandle`. The camera of spec §26, following a `() => Vector3`.                                                                     |
+| `ThirdPersonCameraHandle`                                                                   | `camera`, `settings`, `state`, `look`, `zoom`, `update`, `setObstacleQuery`, `attachControl`, `detachControl`, `dispose`.                           |
+| `stepThirdPersonCamera(state, input, settings)`                                             | One camera frame as pure arithmetic: new state, position and focus. No Babylon.                                                                     |
+| `createTerrain(scene, heightField, options)`                                                | `TerrainHandle`. Places a loaded height field and gives it the splat material.                                                                      |
+| `TerrainHandle`                                                                             | `root`, `meshes` (what physics collides against), `material`, `textures`, `dispose`.                                                                |
+| `createTerrainMaterial(scene, name, options)`                                               | The material on its own, for a view that draws ground without a physics world.                                                                      |
+| `clearLoaderTransform(root)`                                                                | Clears the glTF loader's handedness transform (half turn **and** mirror) so a tile covers the metres the world file names.                          |
+| `terrainFragmentSource(layers, splats, shadows?, surface?)` / `TERRAIN_VERTEX_SOURCE`       | The generated GLSL, Babylon-free so it can be asserted in a unit test.                                                                              |
+| `terrainLayerSources(layers, resolve)`                                                      | World-file layers to loadable ones, through the caller's own URL resolver. One mapping for the game and the editor.                                 |
+| `TerrainSurfaceShader` / `plainSurface(count)`                                              | Which layers have a normal map and whether the tile is facetted — part of the program's shape.                                                      |
+| `sceneSkyGradient(scene)` / `setSceneSkyGradient`                                           | The sky a scene is lit under, as numbers the ground can reflect (ADR-0032). Written by `applyLighting`, read by the terrain material.               |
+| `createAudioEngine(options?)`                                                               | `Promise<AudioSystem>`. The page's audio engine, its four buses, its listener and the clip cache (ADR-0065).                                        |
+| `audio.playAt(url, place?)` / `audio.play(url, options?)`                                   | One clip at a place in the world, or one clip simply heard. Buffers are cached per URL and shared.                                                  |
+| `audio.attachListener(node)` / `audio.unlock()` / `audio.statusLine`                        | Where the ears are, asking the browser for sound, and the one line saying whether there is any.                                                     |
+| `distanceGain(falloff, d)` / `audibleRadius(falloff)`                                       | The Web Audio distance curves, and the radius past which a source is not worth a panner.                                                            |
+| `nextAudioUnlockState(state, event)` / `summarizeAudioStatus(state)`                        | The autoplay state machine, and its status line. Pure.                                                                                              |
+| `resolveSoundProfile(...profiles)` / `defaultSoundProfile`                                  | A world's and a zone's sound blocks merged into one complete description. Babylon-free, Zod-free (ADR-0062).                                        |
+| `applyWorldSound(scene, options)`                                                           | `Promise<WorldSoundHandle>`. The bed, the emitters, the one-shots, the distance cull and `footstep(surface)`. The audio twin of `applyLighting`.    |
+| `planEmitters(emitters, entities)`                                                          | Expands a `prefab` rule over a zone's entities, and reports what matched nothing and what was capped. Pure.                                         |
+| `createTerrainSurfaceProbe(options)` / `dominantLayer(weights)` / `fitTileUv(pos, uv)`      | Which splat layer is under a point, under a uv fit measured off the mesh and verified (ADR-0063).                                                   |
+| `createClipBag(clips, random?)` / `jitteredRate(jitter, random)`                            | Never the same footstep twice running, and a seeded pitch jitter a test can watch.                                                                  |
+| `SKY_GRADIENT_FUNCTION`                                                                     | The sky as a function of direction, pasted into both the dome's program and the ground's.                                                           |
+| `layerRepeats(size, tileSize)`                                                              | Metres across ÷ metres per repeat — the one place `size` and `tileSize` meet.                                                                       |
+| `resolveThirdPersonCameraSettings(over?)`                                                   | Validates a partial camera description; rejects a pitch range that reaches the pole.                                                                |
+| `defaultThirdPersonCameraSettings`                                                          | The resolved defaults: 6 m out (2…12), −17°…66° pitch, 0.12 s follow lag.                                                                           |
+| `CameraObstacleQuery`                                                                       | `(probe) => number \| null` — the seam physics plugs into. Default `noCameraObstacles`.                                                             |
+| `createCameraLookInput(sink, o?)`                                                           | The pointer-lock / drag / wheel state machine, without DOM types.                                                                                   |
+| `wrapAngle`, `smoothingFactor`, `applyLook`, `applyZoom`, `wheelTicks`, `orbitDirection`, … | The individual camera functions, each testable on its own.                                                                                          |
+| `shadowBasis(direction)` / `snapShadowFocus(focus, basis, texel)`                           | The shadow map's own axes and a focus point quantised onto its texels (ADR-0039). Pure arithmetic; `applyLighting` applies it by itself.            |
+| `sunShaftsGate(...)` / `sunViewAngleDegrees(...)` / `sunAnchorPosition(...)`                | Whether the sun is near enough to the view axis for shafts, and where to park the stand-in that represents it (ADR-0042). No Babylon import.        |
+| `hazeAt(fog, distance)` / `fogVisibility` / `rawFogFactor`                                  | How much haze sits at a distance on either curve, including the 2.2 encode Babylon's PBR path applies (ADR-0041). No Babylon import.                |
+| `backdropTakesFog(fog, reach)` / `MAX_BACKDROP_HAZE`                                        | Whether a painted backdrop mesh is drawn hazed, or kept out of the fog because it would be a flat band of it (ADR-0034, ADR-0041).                  |
+| `sceneFogCurve(scene)` / `fogModeCode(mode)` / `BABYLON_FOGMODE`                            | The curve a scene is fogged with, read off Babylon's own fields, and the mode code the terrain shader is sent.                                      |
+| `TerrainHandle.update(surface)`                                                             | Writes the surface uniforms into the program the tile already has — a dial turned, not a tile rebuilt (ADR-0050). Throws on a layer-count mismatch. |
+| `TerrainHandle.rebuildMaterial(options)`                                                    | A new material over the height field that is already loaded: a swapped texture, a replaced splat map, the facet switch (ADR-0050).                  |
+| `applyTerrainUniforms(material, size, layerCount, surface)`                                 | The one place the layer uniforms are written, so a tile _built_ at metalness 0.4 and a tile _turned_ to 0.4 cannot drift apart.                     |
 
 ```ts
 const renderer = await createRenderer(canvas, { resolutionScale: 1 });
@@ -174,6 +195,82 @@ Three seams are worth knowing about (ADR-0008):
   `attachControl` touch the DOM, and those are covered by `pnpm smoke`, which
   drives a real wheel and a real drag over the game canvas.
 
+## Sound
+
+```ts
+const audio = await createAudioEngine({ volume: 0.8 });
+audio.attachListener(scene.activeCamera); // the camera, not the player — see below
+await audio.playAt(clipUrl, { node, loop: true, minDistance: 1.5, rolloffFactor: 1.6 });
+await audio.play(footstepUrl, { playbackRate: 1.04 }); // no place: simply heard
+button.addEventListener('click', () => void audio.unlock());
+element.textContent = audio.statusLine; // "sound: click to enable" / "sound: on"
+```
+
+Create it **once per page**, next to the physics backend, and never await it in
+the frame loop: a clip that has not arrived should delay sound, not walking. It
+is not a scene member — a browser has one `AudioContext` worth having and its
+listener is one listener — which is why this hands back a handle instead of
+writing into a scene the way `applyLighting` does.
+
+**The listener follows the camera, not the player.** In third person the picture
+is the camera's, and a listener at the capsule's feet puts a brazier that is on
+screen to your left into your right ear the moment the camera swings round.
+**Footsteps are not spatialised at all**, for the same reason in the other
+direction: they come from the listener's own feet, and panning them at the
+capsule puts your own steps behind you whenever the camera orbits.
+
+**A zone's sound is world data (ADR-0062).** `applyWorldSound` is what a client
+calls with a resolved profile; it never reads a file and never decides what a
+world sounds like.
+
+```ts
+const profile = resolveSoundProfile(world.sound, zone.sound);
+const sound = await applyWorldSound(scene, {
+  audio,
+  profile,
+  clipSource: (path) => ({ url: storeUrl(path), fallbackUrl: silenceUrl }),
+  entities: zone.entities, // so a `prefab` emitter rule has something to match
+  nodeOf: (id) => scene.getTransformNodeByName(`entity:${id}`),
+  listener: scene.activeCamera,
+  listenerAt: () => scene.activeCamera.globalPosition,
+});
+sound.footstep('gravel'); // once per stride, from the app's own accumulator
+```
+
+**Which surface a footstep landed on comes from the splat map (ADR-0063),** read
+on the CPU in the shader's own channel order and under a uv fit measured off the
+tile's own vertices. A fit that does not hold reports `unmapped` and the caller
+falls back to one surface — a plain footstep rather than a confidently wrong
+one.
+
+**AudioV2, not the legacy `Audio/` engine**, and **nothing is added to
+`side-effects.ts`** — AudioV2 registers nothing on `Scene`, so an entry there
+would be bundle weight of exactly the kind the mesh-builder note below warns
+about. The modules are imported by `src/audio.ts` and nowhere else.
+
+**Autoplay is four different silences, not one.** `audio-unlock.ts` is a pure
+state machine because the audio context reads `suspended` both when the page has
+never been clicked and when something interrupted playback afterwards — and a
+"click anywhere" prompt is right for the first and useless for the second. What
+tells them apart is whether a gesture has ever reached the page, which is why
+the machine has memory. A gesture never reports success by itself: `resumeAsync`
+can still fail, and the status moves to `unlocked` only when the engine says it
+is running.
+
+**`audio-falloff.ts` is arithmetic the browser also does, and that is the
+point.** The panner applies the curve; nothing else can _ask_ about it.
+`audibleRadius` inverts each of the three Web Audio distance models so a
+distance cull has a number, and a test pins that inversion against the curve it
+came from.
+
+One measured caveat, found in a browser rather than reasoned about: Babylon's
+`sound.spatial` is a **mirror** initialised from its own defaults and never
+re-read from the panner sub-node. The creation options do configure the panner —
+the sub-node reads back `inverse / 1.5 / 1.6` for a brazier — but the mirror
+still says `linear / 1 / 1`. `playAt` therefore writes the resolved falloff
+through the mirror once after creating the sound, so that asking a sound how far
+it carries gives the answer you can hear.
+
 ## Side-effect imports
 
 `src/side-effects.ts` is the one place that lists the Babylon.js modules whose
@@ -198,5 +295,7 @@ Import the single builder you need
 
 - `@babylonjs/core` — the renderer this package exists to bootstrap (ADR-0002).
 - `@wov/shared` — `clamp` for the render config.
+
+No dependency was added for sound: AudioV2 ships inside `@babylonjs/core`.
 
 **Ownership.** Core maintainers.

@@ -13,8 +13,9 @@ World files (`content/worlds/*.json`):
 - `parseWorldDefinition(data): WorldParseResult` — validates unknown data, migrating a known older version forward first; returns either the world (with `migratedFrom` when a migration ran) or human-readable errors.
 - `TerrainDefinitionSchema`, `TerrainLayerSchema`, `terrainAssetPaths(terrain)`, `MAX_TERRAIN_LAYERS`, `LAYERS_PER_SPLAT_MAP` — a zone's ground (ADR-0020), including each layer's optional `normalMap`, `normalScale`, `metallic` and `smoothness`, the terrain's `flatNormals` and its `heightSamples` (ADR-0032).
 - `LightingProfileSchema` and its groups (`SunLightSchema`, `AmbientLightSchema`, `SkySchema`, `FogSchema`, `ShadowsSchema`, `PostProcessingSchema`, `BloomSchema`, `VignetteSchema`, `SsaoSchema`), plus `SHADOW_FILTERS` and `TONE_MAPPINGS` — how a world or a zone is lit (ADR-0024). Every group and every field is optional; what a file leaves out comes from the renderer's defaults.
+- `SoundProfileSchema` and its groups (`SoundMasterSchema`, `AmbienceSchema`, `FootstepsSchema`, `FootstepBankSchema`, `SoundEmitterSchema`), plus `AUDIO_DISTANCE_MODELS` and `AUDIO_PANNING_MODELS` — how a world or a zone sounds (ADR-0062). Optional all the way down like `lighting`, but the default is silence rather than a stand-in: a world that names no clips has nothing to play. An emitter carries exactly one of `prefab` (a rule over every placement of that prefab), `entity` or `position`.
 - `migrateWorldData(data, target)`, `WORLD_MIGRATIONS` — the recorded upgrade steps between versions.
-- Types: `WorldDefinition`, `ZoneDefinition`, `EntityDefinition`, `WorldParseResult`, `TerrainDefinition`, `TerrainLayer`, `LightingProfile` (and one type per group), `WorldMigration`, `WorldMigrationResult`.
+- Types: `WorldDefinition`, `ZoneDefinition`, `EntityDefinition`, `WorldParseResult`, `TerrainDefinition`, `TerrainLayer`, `LightingProfile`, `SoundProfile` (and one type per group), `WorldMigration`, `WorldMigrationResult`.
 
 Prefab catalogs (`content/prefabs/*.json`, ADR-0016):
 

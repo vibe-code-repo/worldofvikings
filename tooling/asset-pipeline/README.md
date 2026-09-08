@@ -7,6 +7,7 @@ files in the **private asset store**, hull-box **placeholders** committed in
 ```bash
 pnpm import:world-assets --source ~/assets/export --store ~/assets/store
 pnpm import:world-assets --source … --store … --dry-run    # report, write nothing
+pnpm import:audio --source ~/assets/export/audio --store ~/assets/store
 ```
 
 Nothing in here is shipped code, and nothing in here runs in CI. A contributor
@@ -132,9 +133,51 @@ keeps its corner origin instead, so a file spanning `0…300 m` still spans
 the same thing `position` means for an entity. `docs/world-format.md` carries
 the choice and the alternative that was rejected.
 
+## Sound: `pnpm import:audio`
+
+A second command over the same store, for a kind of file the model pipeline
+cannot describe (ADR-0064). It differs from the model import in three ways worth
+knowing before changing it.
+
+**Clips are addressed by the hash of their source bytes, never by a source file
+name.** A name-keyed table would carry 44 source names into this repository,
+which is the one thing this import may not do. Hashing also means a renamed
+export still resolves, byte-identical duplicates collapse by themselves, and a
+file whose bytes changed is refused rather than silently re-encoded as if it
+were still the clip that was reviewed.
+
+**What is taken is a fraction of what exists.** The export holds 524 clips,
+85 MB. This phase takes 44 — village footsteps for four surfaces, two ambience
+beds, three placed emitters and eleven animal one-shots — because nothing in
+this repository can select or fire the rest. Creature vocalisations (236 clips)
+need creatures, the melee and weapon sets need an animation event system, music
+(40 clips, half the export by weight) needs a music director and a streaming
+decode path, UI sounds need an inventory, and the firearms are the wrong genre
+outright. The snow, metal and tile footstep banks are left because no zone has
+those surfaces. Importing any of them now would be bytes nothing can reach.
+
+**Sources are grossly over-encoded for what they are** — a third of a second of
+gravel at 619 kbps stereo. Everything is re-encoded to Opus at 48 kHz: mono at
+48 kbps for one-shots and emitter loops, stereo at 64 kbps for the two beds.
+The 44 clips come to 975 KB, against a 2 MB budget the command fails over. Two
+clips are also cut to length, because a bed's real cost is not its download but
+the decoded PCM it holds for the whole session: a stereo minute is roughly
+23 MB of float samples.
+
+`-map_metadata -1` strips every tag on the way, `-vn` drops an embedded cover
+image, and `-t` sits after `-i` so it trims the output rather than seeking the
+input. All three are in `ffmpegArgumentsFor`, with a test each.
+
+This command needs **`ffmpeg` and `ffprobe`** on the importer's machine, and
+says so by name when they are missing. That is a store-side tool like the
+private export itself; a clean clone never runs it (agent rule 18).
+
 ## Dependencies
 
-None. Every module uses `node:` built-ins only.
+None. Every module uses `node:` built-ins only. `pnpm import:audio` shells out
+to `ffmpeg`, which is a tool on the importer's machine rather than a dependency
+of this repository — nothing installs it, and nothing but that one command
+needs it.
 
 That is a deliberate choice rather than an accident: the pipeline touches the
 glTF _container_, not its geometry — it measures a hull, writes one node

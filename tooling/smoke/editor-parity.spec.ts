@@ -55,6 +55,7 @@ type WovEditorDebugWindow = Window & {
     readonly loadedCount: number;
     readonly undoDepth: number;
     readonly render: { readonly staleLightMeshes: number };
+    readonly sound: string;
   };
 };
 
@@ -72,6 +73,11 @@ function editorStaleLightMeshes(page: Page): Promise<number | null> {
   return page.evaluate(
     () => (window as WovEditorDebugWindow).__wovEditor?.render.staleLightMeshes ?? null,
   );
+}
+
+/** What the *viewport's* audio says it is doing, not what the panel claims. */
+function editorSound(page: Page): Promise<string | null> {
+  return page.evaluate(() => (window as WovEditorDebugWindow).__wovEditor?.sound ?? null);
 }
 
 function editorUndoDepth(page: Page): Promise<number | null> {
@@ -654,4 +660,150 @@ test.describe('live preview', () => {
     await page.getByTestId('lighting-preset-flat').click();
     expect(await staleAfterASample(), 'a third relight left a prop behind').toBe(0);
   });
+});
+
+/**
+ * (6) Sound, placed and heard in the editor (ADR-0062, ADR-0033).
+ *
+ * Three claims, and the third is the one a passing unit test cannot make.
+ *
+ * *The panel writes the file.* A bed and a footstep surface set on the **Sound**
+ * tab, saved, and read back off the API — the world file is what the game will
+ * open tomorrow, and a panel that updates itself proves nothing about it.
+ *
+ * *An emitter is a gesture, not JSON.* With an entity selected, "Add emitter
+ * here" binds one to that entity by id and the volume beside it is an ordinary
+ * field. Before this existed the game could sound a brazier and an author could
+ * only get one by typing an entity id into a file, which is precisely the parity
+ * gap ADR-0033 exists to close.
+ *
+ * *An author can hear it.* Off by default — asserted, because an editor that
+ * starts a forge loop on load is an editor nobody keeps open — and on after one
+ * click, with the emitter the panel just wrote in the count. The assertion is on
+ * the *viewport's* readout via the debug bridge, never on anything audible:
+ * headless Chromium has no output device, WebAudio still runs, and what is being
+ * proved is that the panel reached the audio graph.
+ *
+ * The example world, not the village: one barrel and no `sound` block at all, so
+ * the panel has to create one and every number below can only have come from
+ * this test.
+ */
+test('editor places a sound on an entity, saves it, and plays the zone', async ({
+  page,
+  request,
+}) => {
+  const worldId = 'parity-sound';
+  const source = await (await request.get(apiUrl('/worlds/example'))).json();
+  const seeded = await request.put(apiUrl(`/worlds/${worldId}`), {
+    data: { ...source, id: worldId, name: 'Parity Sound' },
+  });
+  expect(seeded.status()).toBeLessThan(300);
+
+  await openEditor(page);
+  await openWorld(page, worldId);
+  await expect(page.getByTestId('hierarchy-entity-barrel_001')).toBeVisible();
+
+  // --- the zone's bed and its footstep surfaces, on the panel ---------------
+  await page.getByTestId('right-tab-sound').click();
+  await expect(page.getByTestId('sound-scope-hint')).toContainText('Parity Sound');
+  // Nothing is playing until somebody asks, and the panel says so.
+  await expect(page.getByTestId('sound-status')).toHaveText('sound: off');
+  expect(await editorSound(page)).toBe('sound: off');
+
+  await page.getByTestId('sound-scope-zone').click();
+  await expect(page.getByTestId('sound-scope-hint')).toContainText('sounds like its world');
+
+  // Every clip field is a picker filtered to audio, because the schema says so
+  // and not because the panel knows which fields are clips (ADR-0033).
+  // A group that does not exist yet is drawn collapsed — there is nothing in it
+  // to show. Opening it is what an author does, so the test does it too.
+  await page.getByTestId('sound-ambience').locator('summary').click();
+  await page.getByTestId('sound-footsteps').locator('summary').click();
+
+  const clips = await page
+    .getByTestId('sound-ambience-clip-options')
+    .locator('option')
+    .evaluateAll((options) => options.map((option) => option.getAttribute('value') ?? ''));
+  expect(clips.length).toBeGreaterThan(0);
+  // Audio and nothing else. The shared silent stand-in is an audio row too
+  // (ADR-0064) and belongs in the list — it is a legitimate thing to point a
+  // field at while a clip is missing — so the assertion is on the format.
+  expect(clips.every((path) => /\.(ogg|wav|mp3|m4a)$/.test(path))).toBe(true);
+  const bed = clips.find((path) => path.startsWith('audio/ambience/')) ?? clips[0];
+
+  await page.getByTestId('sound-ambience-clip-input').fill(String(bed));
+  await page.getByTestId('sound-ambience-enabled-input').check();
+  // The surface-to-footstep mapping: the field that says what the ground under
+  // a player's feet sounds like (ADR-0063).
+  await page.getByTestId('sound-footsteps-defaultSurface-input').fill('gravel');
+  await expect(page.getByTestId('editor-dirty')).toHaveText('unsaved changes');
+
+  // --- an emitter on the selected entity -----------------------------------
+  await page.getByTestId('right-tab-entity').click();
+  await page.getByTestId('hierarchy-entity-barrel_001').click();
+  await expect(page.getByTestId('entity-sound-empty')).toHaveText('This entity makes no sound.');
+  await page.getByTestId('entity-sound-add').click();
+
+  await expect(page.getByTestId('entity-sound-id')).toHaveText('barrel_001-sound');
+  await expect(page.getByTestId('entity-sound-scope')).toHaveText('bound to this entity');
+  // The anchor is not offered here — the schema marks those three fields and
+  // the renderer leaves them out, so the panel cannot unbind the emitter it
+  // just bound.
+  await expect(page.getByTestId('entity-sound-emitters-0-entity')).toHaveCount(0);
+  await expect(page.getByTestId('entity-sound-emitters-0-prefab')).toHaveCount(0);
+
+  const volume = page.getByTestId('entity-sound-emitters-0-volume-input');
+  await volume.fill('0.42');
+  await volume.blur();
+  const radius = page.getByTestId('entity-sound-emitters-0-minDistance-input');
+  await radius.fill('2.5');
+  await radius.blur();
+
+  await page
+    .getByTestId('editor-right-panel')
+    .screenshot({ path: test.info().outputPath('editor-entity-emitter.png') });
+
+  await save(page);
+
+  // The file, not the panel.
+  const saved = await (await request.get(apiUrl(`/worlds/${worldId}`))).json();
+  expect(saved.zones[0].sound.ambience).toMatchObject({ enabled: true, clip: bed });
+  expect(saved.zones[0].sound.footsteps.defaultSurface).toBe('gravel');
+  expect(saved.zones[0].sound.emitters).toHaveLength(1);
+  expect(saved.zones[0].sound.emitters[0]).toMatchObject({
+    id: 'barrel_001-sound',
+    entity: 'barrel_001',
+    loop: true,
+    volume: 0.42,
+    minDistance: 2.5,
+  });
+
+  // --- and the author can hear it ------------------------------------------
+  await page.getByTestId('right-tab-sound').click();
+  await page.getByTestId('sound-listen-input').check();
+
+  // The viewport's own readout, through the bridge. The status half depends on
+  // the browser's autoplay policy — "on" after a real click, "click to enable"
+  // if it is not satisfied — so the assertion is on the half this change owns:
+  // the zone reached the audio graph, with the emitter the panel just wrote.
+  await expect
+    .poll(() => editorSound(page), { timeout: 30_000 })
+    .toMatch(/^sound: (on|click to enable) — 1 bed, 1 emitter\(s\)/);
+  await expect(page.getByTestId('sound-status')).toContainText('1 emitter(s)');
+
+  // What it actually said, kept in the report — the autoplay half of that line
+  // is the browser's answer, not this project's, and it is worth recording
+  // rather than asserting exactly.
+  test.info().annotations.push({
+    type: 'measurement',
+    description: `editor readout: ${String(await editorSound(page))}`,
+  });
+  await page
+    .getByTestId('editor-right-panel')
+    .screenshot({ path: test.info().outputPath('editor-sound-panel.png') });
+
+  // …and turning it off takes it away again, which is the half that makes the
+  // switch worth having.
+  await page.getByTestId('sound-listen-input').uncheck();
+  await expect.poll(() => editorSound(page)).toBe('sound: off');
 });

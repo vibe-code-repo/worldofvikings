@@ -11,9 +11,10 @@ position (ADR-0022).
 One DOM marker per concern: `game-marker` (the app is served), `game-status`
 (the renderer, the simulation, physics and the ground), `game-collision` (what
 the player can bump into), `game-world` (which
-world is on screen, or why none is), `game-assets` and `game-asset-sources`
-(the asset pipeline and where the bytes came from), `game-controls` (the key
-list). `pnpm smoke` asserts them.
+world is on screen, or why none is), `game-sound` (whether the browser has let
+the page make a noise yet, and what is in the zone), `game-assets` and
+`game-asset-sources` (the asset pipeline and where the bytes came from),
+`game-controls` (the key list). `pnpm smoke` asserts them.
 
 No world data lives in this app. `src/world-api.ts` fetches it, `src/config.ts`
 says where from, and `src/world-scene.ts` turns one zone into a scene. The
@@ -27,7 +28,7 @@ model's bytes are (ADR-0015, ADR-0016).
   `?shadows=off` (the world's light without its shadow map),
   `?shadowFocus=<dx>,<dz>` (metres the shadow map's centre is displaced by,
   ADR-0039), `?shafts=off` (the world's light without its sun shafts,
-  ADR-0042) — the last four are there so a measurement can hold everything
+  ADR-0042), `?mute=1` (no audio engine at all, ADR-0062) — the last five are there so a measurement can hold everything
   else constant
 
 ## Controls

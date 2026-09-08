@@ -34,6 +34,8 @@ export {
   renameZone,
   setLighting,
   setLightingField,
+  setSound,
+  setSoundField,
   setTerrain,
   setTerrainField,
   updateTerrainSurface,
@@ -53,6 +55,7 @@ export type {
   RenameEntityCommand,
   RenameZoneCommand,
   SetLightingCommand,
+  SetSoundCommand,
   SetTerrainCommand,
   TerrainLayerChange,
   TerrainSurfacePatch,
@@ -65,13 +68,28 @@ export type {
 export {
   lightingAt,
   parseLightingBlock,
+  parseSoundBlock,
   parseTerrainBlock,
+  soundAt,
   withLighting,
+  withSound,
   withTerrain,
   worldLighting,
+  worldSound,
   zoneLighting,
+  zoneSound,
 } from './blocks.js';
-export type { BlockResult, LightingScope } from './blocks.js';
+export type { BlockResult, BlockScope, LightingScope, SoundScope } from './blocks.js';
+
+export {
+  addEntityEmitter,
+  emitterForEntity,
+  emitterIdFor,
+  removeEmitterAt,
+  zoneScopeOf,
+  zoneSoundProfile,
+} from './entity-sound.js';
+export type { AddEntityEmitterOptions, EntityEmitter } from './entity-sound.js';
 
 export { applyFieldPatch, applyFieldPatches, restorePatch, valueAtPath } from './patch.js';
 export type { FieldPatch } from './patch.js';
@@ -91,7 +109,13 @@ export type {
   FormVector,
 } from './schema-form.js';
 
-export { LIGHTING_FIELDS, PREFAB_COLLISION_FIELDS, TERRAIN_FIELDS } from './world-forms.js';
+export {
+  LIGHTING_FIELDS,
+  PREFAB_COLLISION_FIELDS,
+  SOUND_EMITTER_FIELDS,
+  SOUND_FIELDS,
+  TERRAIN_FIELDS,
+} from './world-forms.js';
 
 export { LIGHTING_PRESETS, lightingPreset } from './lighting-presets.js';
 export type { LightingPreset } from './lighting-presets.js';

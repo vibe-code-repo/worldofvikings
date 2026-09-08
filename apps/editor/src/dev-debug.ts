@@ -95,6 +95,14 @@ export interface WovEditorDebug {
    * a smooth one are two different strings, read off the material rather than
    * restated from the document (ADR-0032).
    */
+  /**
+   * What the viewport's audio is doing — `sound: off` until an author listens.
+   *
+   * On the bridge and not only in the panel for the reason every other number
+   * here is: a panel can show a line about a zone nobody is playing. This one
+   * is written by the thing that owns the sounds.
+   */
+  readonly sound: string;
   readonly terrain: {
     readonly program: string;
     readonly meshes: number;
@@ -231,6 +239,7 @@ const initial: WovEditorDebug = {
   dirty: false,
   undoDepth: 0,
   redoDepth: 0,
+  sound: 'sound: off',
   terrain: null,
   render: {
     drawCalls: 0,

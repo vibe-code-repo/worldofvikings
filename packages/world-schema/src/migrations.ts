@@ -58,8 +58,22 @@ const v3ToV4: WorldMigration = {
   migrate: (data) => ({ ...data, schemaVersion: 4 }),
 };
 
+/**
+ * v4 → v5: worlds and zones gained an optional `sound` (ADR-0062).
+ *
+ * Additive, like the three steps before it, and again nothing is invented. A v4
+ * file names no clips, so it is a v5 file that is silent — which is exactly how
+ * it sounded. Writing the village's bed into every old world would be this
+ * migration deciding what those worlds sound like, and that is an author's
+ * decision, not a format's (agent rule 11).
+ */
+const v4ToV5: WorldMigration = {
+  from: 4,
+  migrate: (data) => ({ ...data, schemaVersion: 5 }),
+};
+
 /** Every known step, in ascending order. */
-export const WORLD_MIGRATIONS: readonly WorldMigration[] = [v1ToV2, v2ToV3, v3ToV4];
+export const WORLD_MIGRATIONS: readonly WorldMigration[] = [v1ToV2, v2ToV3, v3ToV4, v4ToV5];
 
 /** What {@link migrateWorldData} did. */
 export type WorldMigrationResult =

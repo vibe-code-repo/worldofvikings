@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { IdentifierSchema, Vector3Schema, findDuplicates, formatIssues } from './common.js';
 import { LightingProfileSchema } from './lighting.js';
 import { migrateWorldData } from './migrations.js';
+import { SoundProfileSchema } from './sound.js';
 import { TerrainDefinitionSchema } from './terrain.js';
 
 /**
@@ -12,9 +13,10 @@ import { TerrainDefinitionSchema } from './terrain.js';
  * `migrations.ts` — version 2 added the optional `terrain` on a zone (ADR-0020),
  * version 3 the optional `lighting` on a world and on a zone (ADR-0024), and
  * version 4 the per-layer surface fields plus `flatNormals` on a terrain
- * (ADR-0032).
+ * (ADR-0032), and version 5 the optional `sound` on a world and on a zone
+ * (ADR-0062).
  */
-export const CURRENT_WORLD_SCHEMA_VERSION = 4;
+export const CURRENT_WORLD_SCHEMA_VERSION = 5;
 
 /** A single placed entity. It references a prefab instead of inlining geometry. */
 export const EntityDefinitionSchema = z.strictObject({
@@ -49,6 +51,18 @@ export const ZoneDefinitionSchema = z.strictObject({
    * same sun, none of its reach.
    */
   lighting: LightingProfileSchema.optional(),
+  /**
+   * How this zone sounds, overriding the world's profile group by group
+   * (ADR-0062).
+   *
+   * Optional all the way down, exactly like `lighting`: a zone that says
+   * nothing sounds like its world, and a zone that says only
+   * `{"ambience": {"clip": "audio/ambience/cellar.ogg"}}` is its world under a
+   * different bed. Declared after `lighting` and before nothing, so the two
+   * profiles of a zone stand next to each other in every file that carries
+   * both.
+   */
+  sound: SoundProfileSchema.optional(),
 });
 
 /** The root object of every file in `content/worlds/`. */
@@ -73,6 +87,16 @@ export const WorldDefinitionSchema = z
      * saying the same thing.
      */
     lighting: LightingProfileSchema.optional(),
+    /**
+     * How this world sounds, unless a zone says otherwise (ADR-0062).
+     *
+     * Absent means silence, and that is the honest default: a world with no
+     * clips named has nothing to play, whereas a world with no lighting profile
+     * still has to be lit by something. Declared before `zones` for the reason
+     * `lighting` is — Zod writes keys back in declaration order, so this is the
+     * order every tool that round-trips a world file writes.
+     */
+    sound: SoundProfileSchema.optional(),
     zones: z.array(ZoneDefinitionSchema),
   })
   .refine((world) => findDuplicates(world.zones.map((zone) => zone.id)).length === 0, {

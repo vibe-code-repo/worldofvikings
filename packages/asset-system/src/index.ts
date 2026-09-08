@@ -31,7 +31,13 @@ export { AssetLoadError, AssetManager } from './asset-manager.js';
 export type { AssetManagerOptions, InstantiateOptions } from './asset-manager.js';
 export { createAssetCatalog, summarizeAssetSources } from './asset-catalog.js';
 export type { AssetCatalog, AssetCatalogEntry, AssetSourceCounts } from './asset-catalog.js';
-export { ASSET_KINDS, ASSET_VISIBILITIES, isGeometryKind } from './asset-facts.js';
+export {
+  ASSET_KINDS,
+  ASSET_VISIBILITIES,
+  AUDIO_EXTENSIONS,
+  isAudioAssetPath,
+  isGeometryKind,
+} from './asset-facts.js';
 export type { AssetKind, AssetVisibility } from './asset-facts.js';
 export type { GlbLoader } from './glb-loader.js';
 export { createBabylonGlbLoader } from './babylon-glb-loader.js';

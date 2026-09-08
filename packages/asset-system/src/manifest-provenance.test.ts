@@ -111,7 +111,41 @@ describe('the version 2 asset entry', () => {
   });
 
   it('rejects an unknown kind instead of ignoring it', () => {
-    expect(errorsOf(manifest([{ ...publicEntry, kind: 'audio' }]))).toMatch(/kind/);
+    // `video` and not `audio`: audio became a real kind, and an example that is
+    // silently valid would turn this test green while testing nothing.
+    expect(errorsOf(manifest([{ ...publicEntry, kind: 'video' }]))).toMatch(/kind/);
+  });
+
+  it('accepts audio, and describes it as a file with no extent in metres', () => {
+    const clip = {
+      ...privateEntry,
+      id: 'audio/footsteps/gravel-01',
+      path: 'audio/footsteps/gravel-01.ogg',
+      kind: 'audio',
+      bytes: 2219,
+      origin: '0.34 s, mono, 48 kHz, Opus at 48 kbps.',
+      placeholder: 'placeholders/audio/silence.wav',
+    };
+    const { bounds: _dropped, ...withoutBounds } = clip;
+    const result = parseAssetManifest(manifest([withoutBounds]));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.manifest.assets[0]?.kind).toBe('audio');
+    }
+    // A sound has a falloff radius in metres, but that lives on the emitter
+    // that plays it, never on the file.
+    expect(errorsOf(manifest([clip]))).toMatch(/bounds/);
+  });
+
+  it('still demands a placeholder for a private clip, shared or not', () => {
+    const { placeholder: _dropped, ...clip } = {
+      ...privateEntry,
+      id: 'audio/ambience/forest-wind-gusts',
+      path: 'audio/ambience/forest-wind-gusts.ogg',
+      kind: 'audio',
+      bounds: undefined,
+    };
+    expect(errorsOf(manifest([clip]))).toMatch(/placeholder/);
   });
 
   it('never accepts a blank licence, author, source or origin', () => {

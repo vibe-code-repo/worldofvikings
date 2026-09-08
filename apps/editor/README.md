@@ -18,34 +18,36 @@ gizmo drag undoes with the same Ctrl+Z as a Delete key.
 
 ## Layout of `src/`
 
-| Path                 | Owns                                                                |
-| -------------------- | ------------------------------------------------------------------- |
-| `EditorShell.tsx`    | The session, the keyboard, and what the panels are wired to         |
-| `EditorViewport.tsx` | The canvas: scene reconciliation, picking, gizmo commits, drops     |
-| `state/store.ts`     | The reducer around `@wov/editor-core`, plus clipboard and errors    |
-| `api/client.ts`      | Worlds, prefab catalogues, and the two content actions              |
-| `api/assets.ts`      | The asset manifest, indexed by kind for the zone inspector's picker |
-| `config.ts`          | `VITE_API_URL` and `VITE_ASSET_URL`, with local defaults            |
-| `keyboard.ts`        | Whether the focused element keeps a keystroke or the shell gets it  |
-| `panels/`            | Menu bar, hierarchy, the four right-hand inspectors, asset browser  |
-| `scene/`             | Everything Babylon (see below)                                      |
-| `coalesce.ts`        | Many asks, one run before the next frame — see below                |
-| `dev-debug.ts`       | `window.__wovEditor`, the dev-only bridge `pnpm smoke` reads        |
+| Path                 | Owns                                                               |
+| -------------------- | ------------------------------------------------------------------ |
+| `EditorShell.tsx`    | The session, the keyboard, and what the panels are wired to        |
+| `EditorViewport.tsx` | The canvas: scene reconciliation, picking, gizmo commits, drops    |
+| `state/store.ts`     | The reducer around `@wov/editor-core`, plus clipboard and errors   |
+| `api/client.ts`      | Worlds, prefab catalogues, and the two content actions             |
+| `api/assets.ts`      | The asset manifest, indexed by kind for the zone and sound pickers |
+| `config.ts`          | `VITE_API_URL` and `VITE_ASSET_URL`, with local defaults           |
+| `keyboard.ts`        | Whether the focused element keeps a keystroke or the shell gets it |
+| `panels/`            | Menu bar, hierarchy, the five right-hand inspectors, asset browser |
+| `scene/`             | Everything Babylon (see below)                                     |
+| `dev-debug.ts`       | `window.__wovEditor`, the dev-only bridge `pnpm smoke` reads       |
+| `coalesce.ts`        | Many asks, one run before the next frame — see below               |
 
 `scene/` keeps the arithmetic separate from the bindings, so the rules are
 testable without a GPU:
 
-| Pure                                           | Babylon binding                   |
-| ---------------------------------------------- | --------------------------------- |
-| `editor-camera-math.ts` — orbit, pan, fly, `F` | `editor-camera.ts`, `viewport.ts` |
-| `grid-lines.ts` — spacing and axes             | `grid.ts`                         |
-| `entity-diff.ts` — what changed in a zone      | `scene-sync.ts`                   |
-| `gizmo-commit.ts` — a drag as one command      | `gizmos.ts`                       |
-| `picking.ts` — ray to the ground plane         | `picking.ts` (the scene picks)    |
-| `prefab-index.ts` — catalogue by id, category  | —                                 |
-| `selection-outline.ts` — the twelve box edges  | `selection-outline.ts`            |
-| `terrain-keys.ts` — what a ground edit changed | `zone-terrain.ts` — the ground    |
-| `panels/list-window.ts` — which rows to render | `panels/Hierarchy.tsx`            |
+| Pure                                           | Babylon binding                    |
+| ---------------------------------------------- | ---------------------------------- |
+| `editor-camera-math.ts` — orbit, pan, fly, `F` | `editor-camera.ts`, `viewport.ts`  |
+| `grid-lines.ts` — spacing and axes             | `grid.ts`                          |
+| `entity-diff.ts` — what changed in a zone      | `scene-sync.ts`                    |
+| `gizmo-commit.ts` — a drag as one command      | `gizmos.ts`                        |
+| `picking.ts` — ray to the ground plane         | `picking.ts` (the scene picks)     |
+| `prefab-index.ts` — catalogue by id, category  | —                                  |
+| `selection-outline.ts` — the twelve box edges  | `selection-outline.ts`             |
+| —                                              | `zone-terrain.ts` — the ground     |
+| —                                              | `zone-sound.ts` — the zone's audio |
+| `terrain-keys.ts` — what a ground edit changed | `zone-terrain.ts` — the ground     |
+| `panels/list-window.ts` — which rows to render | `panels/Hierarchy.tsx`             |
 
 The ground panel (`panels/GroundPanel.tsx`, ADR-0032) is where a layer's
 metallic, smoothness and bump strength are turned, and where facetted ground is

@@ -1,7 +1,7 @@
 # World editor
 
 > Status: **Phase 3 MVP** — free camera, grid, selection, gizmos, hierarchy,
-> four inspectors, asset browser, a scatter panel, open and save through the
+> five inspectors, asset browser, a scatter panel, open and save through the
 > API, and the two content build steps from the **World** menu. No components,
 > no terrain sculpting yet.
 
@@ -37,15 +37,36 @@ Both default to their local ports, so a clean clone needs no `.env`; see
 └────────────────────────────────────────────────────────────────┘
 ```
 
-The right-hand column is four inspectors behind four tabs, because they answer
-four different questions and only one of them is ever the question:
+The right-hand column is five inspectors behind five tabs, because they answer
+five different questions and only one of them is ever the question:
 
 | Tab          | Edits                                                                              |
 | ------------ | ---------------------------------------------------------------------------------- |
-| **Entity**   | the selected entity: id, prefab, position, rotation, scale                         |
+| **Entity**   | the selected entity: id, prefab, position, rotation, scale — and its emitter       |
 | **Zone**     | the active zone's name and its `terrain` block — height field, size, layers, splat |
 | **Prefab**   | the highlighted prefab's category and collision shape (ADR-0026)                   |
 | **Lighting** | the world's or the zone's lighting profile, with presets (ADR-0024)                |
+| **Sound**    | the world's or the zone's sound profile, and the **Listen** switch (ADR-0062)      |
+
+### Hearing what you place
+
+The **Sound** tab's `listen` switch is off when a session starts and stays a
+view setting — it is never written to the world file, the same way the grid is
+not. Turned on, the viewport plays the open zone through the same
+`applyWorldSound` the game calls, with the orbit camera as the listener: an
+author hears the scene from where they are looking, and a radius dragged in the
+panel is audible while it is being dragged.
+
+The readout beside the switch is the viewport's, not the panel's — for example
+`sound: on — 1 bed, 17 emitter(s), 4 footstep bank(s)`, or
+`sound: click to enable` when the browser has not yet let audio start.
+
+An emitter is placed from the **Entity** tab rather than typed into the file:
+with an entity selected, _Add emitter here_ binds one to it by id, and the
+fields below it are the ordinary schema-drawn controls. An entity that is
+matched by a **prefab rule** instead — the way the village sounds its eleven
+braziers on one line — says so, with the number of placements that one edit
+would change.
 
 ## Mouse
 

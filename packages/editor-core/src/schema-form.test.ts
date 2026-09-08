@@ -4,7 +4,14 @@ import {
   TerrainDefinitionSchema,
   TerrainLayerSchema,
 } from '@wov/world-schema';
-import { describeFields, fieldPaths, humanizeKey, type FormField } from './schema-form.js';
+import {
+  describeFields,
+  fieldPaths,
+  fieldsCommandedBy,
+  humanizeKey,
+  type FormField,
+} from './schema-form.js';
+import { SOUND_EMITTER_FIELDS, SOUND_FIELDS } from './world-forms.js';
 
 function find(fields: readonly FormField[], key: string): FormField {
   const found = fields.find((field) => field.key === key);
@@ -239,5 +246,55 @@ describe('a field added to a schema', () => {
       asset: 'texture',
       required: false,
     });
+  });
+});
+
+/**
+ * The sound panel is drawn from the schema like every other one (ADR-0033), so
+ * these assertions are about the *contract between the schema and the panel*
+ * and not about the panel: an audio path has to arrive as a picker of audio
+ * rows, and the three anchor fields have to arrive marked, or the entity
+ * inspector would have to keep a list of their names.
+ */
+describe('the sound profile as a form', () => {
+  it('offers every clip field as an audio picker, however deep it sits', () => {
+    const ambience = find(SOUND_FIELDS, 'ambience');
+    if (ambience.kind !== 'group') {
+      throw new Error('ambience is not a group');
+    }
+    expect(find(ambience.fields, 'clip')).toMatchObject({ kind: 'asset', asset: 'audio' });
+
+    // …including the ones inside two lists: a bank's clips are a list of asset
+    // paths inside a list of groups, which is the shape a hand-written panel
+    // gets wrong first.
+    const footsteps = find(SOUND_FIELDS, 'footsteps');
+    if (footsteps.kind !== 'group') {
+      throw new Error('footsteps is not a group');
+    }
+    const banks = find(footsteps.fields, 'banks');
+    if (banks.kind !== 'list' || banks.item.kind !== 'group') {
+      throw new Error('banks is not a list of groups');
+    }
+    const clips = find(banks.item.fields, 'clips');
+    if (clips.kind !== 'list') {
+      throw new Error('clips is not a list');
+    }
+    expect(clips.item).toMatchObject({ kind: 'asset', asset: 'audio' });
+  });
+
+  it('draws the footstep surface mapping as a list the panel can reorder', () => {
+    const footsteps = find(SOUND_FIELDS, 'footsteps');
+    if (footsteps.kind !== 'group') {
+      throw new Error('footsteps is not a group');
+    }
+    // Order is the whole meaning: entry n answers terrain layer n (ADR-0063).
+    expect(find(footsteps.fields, 'layerSurfaces')).toMatchObject({ kind: 'list' });
+    expect(find(footsteps.fields, 'defaultSurface')).toMatchObject({ kind: 'text' });
+  });
+
+  it('marks the three emitter anchors, so the entity inspector can leave them out', () => {
+    expect(
+      fieldsCommandedBy(SOUND_EMITTER_FIELDS, 'emitterAnchor').map((each) => each.path),
+    ).toEqual([['prefab'], ['entity'], ['position']]);
   });
 });

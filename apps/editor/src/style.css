@@ -823,7 +823,54 @@ select {
   background: #10151c;
 }
 
-/* --- lighting, zone and prefab inspectors --------------------------------- */
+/* --- lighting, sound, zone and prefab inspectors --------------------------- */
+
+/*
+ * The Listen switch sits above everything else in the sound panel, with the
+ * readout beside it: whether an author is hearing this zone and what it is
+ * playing are one question, and splitting them across the panel would make the
+ * status a thing nobody reads.
+ */
+.sound-listen {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.2rem 0 0.5rem;
+}
+
+.sound-listen > .schema-field {
+  grid-template-columns: 3.2rem auto;
+  margin-bottom: 0;
+}
+
+.sound-listen > .menu-hint {
+  margin-left: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sound-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0.4rem 0 0.6rem;
+}
+
+/* The emitter of the selected entity, below its transform in the inspector. */
+.panel-section {
+  margin-top: 0.9rem;
+  border-top: 1px solid var(--wov-line);
+  padding-top: 0.5rem;
+}
+
+.panel-section > h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--wov-muted);
+}
 
 .lighting-presets {
   display: flex;

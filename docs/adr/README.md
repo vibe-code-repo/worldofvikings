@@ -35,7 +35,7 @@ change it describes.
 | [0024](0024-lighting-as-world-data-with-one-shadow-map.md)                    | Lighting is world data, drawn with one following shadow map           | accepted                          |
 | [0025](0025-scatter-is-an-editor-command-whose-result-is-persisted.md)        | Scatter is an editor command whose result is persisted                | accepted                          |
 | [0026](0026-entities-carry-a-collision-shape.md)                              | Entities carry a collision shape, decided at import time              | accepted                          |
-| [0027](0027-small-vegetation-receives-shadow-but-does-not-cast.md)            | Small vegetation receives shadow but does not cast it                 | amended by 0049                   |
+| [0027](0027-small-vegetation-receives-shadow-but-does-not-cast.md)            | Small vegetation receives shadow but does not cast it                 | accepted                          |
 | [0028](0028-the-scene-import-carries-authored-blocks-forward.md)              | The scene import carries authored blocks forward                      | accepted                          |
 | [0029](0029-one-babylon-module-one-specifier.md)                              | One Babylon.js module, one import specifier                           | accepted                          |
 | [0030](0030-staging-serves-built-bundles.md)                                  | Staging serves built bundles, not a development server                | accepted                          |
@@ -43,10 +43,14 @@ change it describes.
 | [0032](0032-terrain-layers-carry-a-surface.md)                                | Terrain layers carry a surface, and the ground reflects the sky       | accepted                          |
 | [0033](0033-the-editor-can-do-everything-a-script-can.md)                     | The editor can do everything a script can                             | accepted                          |
 | [0034](0034-the-backdrop-takes-a-fog-that-reaches-past-it.md)                 | The backdrop takes a fog that reaches past it                         | accepted                          |
-| [0035](0035-the-static-world-is-frozen.md)                                    | The static world is frozen                                            | amended by 0049                   |
+| [0035](0035-the-static-world-is-frozen.md)                                    | The static world is frozen                                            | accepted                          |
 | [0036](0036-a-re-import-keeps-the-entities-the-bundle-never-had.md)           | A re-import keeps the entities the bundle never had                   | accepted                          |
-| [0037](0037-the-cliff-ring-stays-out-of-the-village.md)                       | The cliff ring stays out of the village                               | superseded in part by 0060        |
+| [0037](0037-the-cliff-ring-stays-out-of-the-village.md)                       | The cliff ring stays out of the village                               | accepted                          |
 | [0038](0038-a-blocked-move-slides-along-the-face-it-met.md)                   | A blocked move slides along the face it met                           | accepted                          |
+| [0062](0062-sound-is-world-data-applied-by-one-function.md)                   | Sound is world data, applied by one function both clients call        | accepted                          |
+| [0063](0063-a-footstep-asks-the-splat-map-what-it-landed-on.md)               | A footstep asks the splat map what it landed on                       | accepted                          |
+| [0064](0064-audio-is-an-asset-kind-with-one-silent-placeholder.md)            | Audio is an asset kind, behind one silent placeholder                 | accepted                          |
+| [0065](0065-sound-has-one-owner-and-an-explicit-autoplay-state.md)            | Sound has one owner, and an explicit autoplay state                   | accepted                          |
 | [0043](0043-the-village-control-map-was-turned-one-flip-short.md)             | The village control map was turned one flip short                     | corrected by 0061                 |
 | [0045](0045-the-ground-dressing-is-buried-and-stays-where-it-was-authored.md) | The ground dressing is buried, and stays where it was authored        | accepted, cause corrected by 0059 |
 | [0047](0047-the-editor-has-a-measuring-rig.md)                                | The editor has a measuring rig                                        | accepted                          |

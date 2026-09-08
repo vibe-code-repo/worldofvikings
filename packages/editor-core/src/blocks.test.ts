@@ -1,16 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import type { LightingProfile, TerrainDefinition } from '@wov/world-schema';
+import type { LightingProfile, SoundProfile, TerrainDefinition } from '@wov/world-schema';
 import {
   applyCommand,
   setLighting,
   setLightingField,
+  setSound,
+  setSoundField,
   setTerrain,
   setTerrainField,
   type EditorCommand,
 } from './commands.js';
 import { createDocument, type EditorDocument } from './document.js';
 import { LIGHTING_PRESETS } from './lighting-presets.js';
-import { lightingAt, worldLighting, zoneLighting } from './blocks.js';
+import {
+  lightingAt,
+  soundAt,
+  worldLighting,
+  worldSound,
+  zoneLighting,
+  zoneSound,
+} from './blocks.js';
 import { villageWorld } from './test-support.js';
 
 const ground: TerrainDefinition = {
@@ -194,5 +203,82 @@ describe('setTerrain', () => {
   it('refuses a zone that does not exist', () => {
     const result = applyCommand(lit(), setTerrainField('nowhere', ['size'], [10, 10]));
     expect(result).toEqual({ ok: false, error: 'unknown zone "nowhere"' });
+  });
+});
+
+const village: SoundProfile = {
+  master: { volume: 0.8 },
+  ambience: { enabled: true, clip: 'audio/ambience/wind.ogg', volume: 0.35 },
+  emitters: [
+    { id: 'fires', prefab: 'camp-brazier-01', clip: 'audio/emitters/fire.ogg', loop: true },
+  ],
+};
+
+function audible(): EditorDocument {
+  return createDocument({ ...villageWorld(), sound: village });
+}
+
+describe('setSound', () => {
+  it('changes one field and leaves the rest of the profile alone', () => {
+    const next = apply(audible(), setSoundField(worldSound(), ['ambience', 'volume'], 0.5));
+    const profile = soundAt(next.world, worldSound());
+    expect(profile?.ambience?.volume).toBe(0.5);
+    expect(profile?.ambience?.clip).toBe('audio/ambience/wind.ogg');
+    expect(profile?.master?.volume).toBe(0.8);
+  });
+
+  it('creates a zone profile on a zone that had none, and undo removes the block', () => {
+    const document = audible();
+    const scope = zoneSound('village');
+    expect(soundAt(document.world, scope)).toBeUndefined();
+    const next = apply(document, setSoundField(scope, ['ambience', 'clip'], 'audio/a/cave.ogg'));
+    expect(soundAt(next.world, scope)?.ambience?.clip).toBe('audio/a/cave.ogg');
+    expectRoundtrip(document, setSoundField(scope, ['ambience', 'clip'], 'audio/a/cave.ogg'));
+  });
+
+  it('writes the sound block in front of the zones, where a person will find it', () => {
+    const next = apply(
+      createDocument(villageWorld()),
+      setSoundField(worldSound(), ['cullDistance'], 40),
+    );
+    const keys = Object.keys(next.world);
+    expect(keys.indexOf('sound')).toBeLessThan(keys.indexOf('zones'));
+  });
+
+  it('refuses a value the schema refuses, and leaves the document untouched', () => {
+    const document = audible();
+    // Two anchors: the emitter schema demands exactly one.
+    const broken = applyCommand(
+      document,
+      setSound(worldSound(), [{ path: ['emitters', '0', 'entity'], value: 'barrel_001' }]),
+    );
+    expect(broken.ok).toBe(false);
+    if (broken.ok) {
+      return;
+    }
+    expect(broken.error).toContain('exactly one');
+  });
+
+  it('refuses a duplicate emitter id', () => {
+    const document = audible();
+    const broken = applyCommand(
+      document,
+      setSound(worldSound(), [
+        {
+          path: ['emitters'],
+          value: [
+            { id: 'fires', prefab: 'camp-brazier-01', clip: 'audio/emitters/fire.ogg' },
+            { id: 'fires', prefab: 'well-01', clip: 'audio/emitters/fire.ogg' },
+          ],
+        },
+      ]),
+    );
+    expect(broken.ok).toBe(false);
+  });
+
+  it('is undoable field by field and block by block', () => {
+    const document = audible();
+    expectRoundtrip(document, setSoundField(worldSound(), ['master', 'volume'], 0.2));
+    expectRoundtrip(document, setSound(worldSound(), [{ path: [], value: null }]));
   });
 });

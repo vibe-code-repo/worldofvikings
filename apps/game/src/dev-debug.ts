@@ -164,6 +164,45 @@ export interface WovDebugBridge {
    * after the fact, rather than assumed from the code that set them.
    */
   readonly backdrop: WovBackdropDebug | null;
+
+  /**
+   * What the zone's sound is doing, or `null` before it is started (ADR-0062).
+   *
+   * Reported, because none of it can be heard from a test: a headless browser
+   * has no output device, so "there is a bed and seventeen emitters" is a
+   * count only the thing that made them knows, and "the frame did not get more
+   * expensive" is measured against the same page with `?mute=1`.
+   */
+  readonly sound: WovSoundDebug | null;
+
+  /**
+   * Which surface a footstep at this point would use, or `null` before the
+   * splat probe is fitted (ADR-0063).
+   *
+   * The only witness there is for the one claim of this feature that can be
+   * wrong rather than merely absent. A footstep is 200 ms of gravel either way;
+   * asking the probe at two ends of a painted path is what tells "the splat map
+   * is being read" from "every footstep is gravel".
+   */
+  surfaceAt(x: number, z: number): string | null;
+}
+
+/** What the zone's sound reports about itself. */
+export interface WovSoundDebug {
+  /** The engine's own state, in the words `audio-unlock.ts` chooses. */
+  readonly status: string;
+  /** Whether an ambience bed is playing. */
+  readonly ambience: boolean;
+  /** How many placed, looping emitters are running. */
+  readonly emitters: number;
+  /** How many footstep banks have clips behind them. */
+  readonly banks: number;
+  /** Clip paths that would not load, not even as the silent stand-in. */
+  readonly failed: number;
+  /** Whether the splat probe was fitted to this zone's ground. */
+  readonly surfaceMapped: boolean;
+  /** Why, when it was not. */
+  readonly surfaceStatus: string;
 }
 
 /**
@@ -324,6 +363,7 @@ export function installDevDebugBridge(
   reportTerrainBounds(bounds: WovTerrainBounds): void;
   reportCollision(report: WovCollisionDebug): void;
   reportBackdrop(meshes: readonly BackdropReadout[]): void;
+  reportSound(readout: WovSoundDebug, surfaceAt: (x: number, z: number) => string | null): void;
   watchObstacles(query: ObstacleQuery): ObstacleQuery;
 } {
   const camera = subjects.camera;
@@ -365,6 +405,8 @@ export function installDevDebugBridge(
     lighting: WovLightingDebug | null;
     collision: WovCollisionDebug | null;
     backdrop: WovBackdropDebug | null;
+    sound: WovSoundDebug | null;
+    surfaceAt: (x: number, z: number) => string | null;
   } = {
     backend: renderer.backend,
     frameId: -1,
@@ -383,6 +425,8 @@ export function installDevDebugBridge(
     lighting: lightingDebug,
     collision: null,
     backdrop: null,
+    sound: null,
+    surfaceAt: () => null,
   };
   window.__wov = bridge;
 
@@ -496,6 +540,11 @@ export function installDevDebugBridge(
         receivingShadow: meshes.filter((mesh) => mesh.receiveShadows).length,
         drawn: 0,
       };
+    },
+
+    reportSound(readout, surfaceAt) {
+      bridge.sound = readout;
+      bridge.surfaceAt = surfaceAt;
     },
   };
 }

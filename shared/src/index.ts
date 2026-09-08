@@ -20,6 +20,9 @@ export * from './leben.js';
 export * from './aggro.js';
 export * from './vegetation.js';
 export * from './flora.js';
+// Die Streutabelle der Store-Vegetation. Flach exportiert wie flora.js,
+// weil die Prüfer und der Editor dieselbe Tür benutzen.
+export * from './storeFlora.js';
 export * from './features.js';
 export * from './dungeons.js';
 export * from './dungeonRaster.js';

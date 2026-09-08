@@ -123,12 +123,29 @@ function buildFoliage(): Foliage[] {
       `[vegetation] ${fremd} von ${roh.length} Eintraegen ohne eigenes Modell uebersprungen`
     );
   }
+  /*
+    Streueintraege ohne PrefabDef fallen heraus — und werden GESAMMELT
+    gemeldet, nicht einzeln.
+
+    Der Unterschied ist nicht Kosmetik: Seit `shared/src/storeFlora.ts`
+    die Store-Vegetation mitbringt, sind es bis zur Registrierung ihrer
+    PrefabDefs (tools/store-prefabs.mjs -> EIGENE_MODELLE) 86 Zeilen bei
+    JEDEM Start. Sechsundachtzig gleiche Warnungen liest niemand, und
+    danach liest niemand mehr die eine, die dazwischen steht.
+  */
+  const ohnePrefab: string[] = [];
   for (const f of EIGENE_FLORA) {
     if (!PREFABS_BY_NAME.has(f.prefabName)) {
-      console.warn(`[flora] Eigener Eintrag ohne Prefab: '${f.prefabName}'`);
+      ohnePrefab.push(f.prefabName);
       continue;
     }
     list.push(f);
+  }
+  if (ohnePrefab.length > 0) {
+    console.warn(
+      `[flora] ${ohnePrefab.length} von ${EIGENE_FLORA.length} Streueintraegen ohne PrefabDef ` +
+        `uebersprungen: ${ohnePrefab.slice(0, 5).join(', ')}${ohnePrefab.length > 5 ? ' …' : ''}`
+    );
   }
   return list;
 }

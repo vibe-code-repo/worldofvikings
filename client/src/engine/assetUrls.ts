@@ -62,5 +62,30 @@ export const GENERATED_PREFIX = 'Gen_';
  * Andersherum suchte der Lader dort, wo nichts liegt.
  */
 export function modelBaseUrl(datei: string): string {
-  return datei.startsWith(GENERATED_PREFIX) ? GENERATED_BASE_URL : MODEL_BASE_URL;
+  if (datei.startsWith(GENERATED_PREFIX)) return GENERATED_BASE_URL;
+  if (STORE_PRAEFIXE.some((p) => datei.startsWith(p))) return ASSET_BASE_URL;
+  return MODEL_BASE_URL;
 }
+
+/**
+ * Dritte Basis: der Store und seine Aufbereitung.
+ *
+ * Anders als bei `Gen_` steckt die Auskunft hier nicht im Namen, sondern
+ * im PFAD: `store/vegetation/pine-1b2` und `store-lab/vegetation/pine-1b2`
+ * sind dasselbe Modell in zwei Zuständen — roh aus dem Store und
+ * aufbereitet (`tools/store-vegetation-aufbereiten.mjs`). Ein Prefab
+ * nennt eines von beiden, und die Basis muss dem Ordner folgen, nicht
+ * einer Namensregel.
+ *
+ * `assets/` und nicht `assets/models/`, weil beide Ordner Geschwister von
+ * `models/` sind und nicht seine Kinder — genau wie `assets/generiert/`.
+ * Der Dev-Server serviert ohnehin den ganzen `assets`-Baum
+ * (`client/vite.config.ts`, `assetHandler`), live tut nginx dasselbe.
+ *
+ * Warum die Präfixe hier UND nicht in `MODELL_ALIAS`: Die Dateien liegen
+ * ausserhalb des Repos, ihre Namen erzeugt `tools/store-prefabs.mjs` aus
+ * `assets/store/prefabs.json`. Eine Aliastabelle wäre eine zweite,
+ * handgepflegte Wahrheit über 570 Prefabs.
+ */
+const STORE_PRAEFIXE = ['store/', 'store-lab/'] as const;
+export const ASSET_BASE_URL = '/assets/';

@@ -28,6 +28,30 @@
  * shared-Fassung (`STORE_KATALOG`) abgestimmt, die parallel entsteht.
  * Ist sie da, wird aus diesem Modul ein Import — nicht ein Umbau.
  *
+ * ── Und seit der Zusammenfuehrung geht es in die andere Richtung ─────
+ * `tools/store-prefabs.mjs` IMPORTIERT `einsortieren()` von hier und
+ * baut damit `STORE_KATALOG` in `shared/src/storePrefabs.ts`. Die Regel
+ * gibt es damit nur noch EINMAL.
+ *
+ * Vorher gab es sie zweimal — der Generator hatte seine eigene —, und
+ * die beiden widersprachen sich bei 477 der 670 Eintraege: „Fels" gegen
+ * „Felsen", „Fass" gegen „Faesser", der Ton hier in vier Gruppen und
+ * dort in einer. Anzusehen war das keiner der beiden Seiten; jede fuer
+ * sich sah geschlossen aus. Genommen wurde DIESE, weil sie die feinere
+ * ist (drei Ebenen beim Ton statt „Ton/Ton") und weil sie die ist, die
+ * ein Mensch zu sehen bekommt.
+ *
+ * Zwei Folgen daraus, beide gewollt:
+ *  • `textures/village-splat-*` sind MODELL-Texturen (Untergruppe
+ *    „Mischkarten") und keine Boden-Texturen. Boden-Texturen sind genau
+ *    `textures/terrain-*`, und das bleiben 12.
+ *  • Kollisionsnetze bleiben in IHRER Gruppe (ein Bootshaus-Netz ist ein
+ *    Gebaeude) und bekommen die Untergruppe „Kollisionsnetze".
+ *
+ * Wer hier etwas aendert, laesst `npx tsx tools/store-prefabs.mjs`
+ * laufen — sonst faehrt `tools/test/store-einsortierung.ts` alle 670
+ * Eintraege dagegen und wird rot.
+ *
  * ── Was NICHT hier steht ─────────────────────────────────────────────
  * Kein Babylon, kein DOM, keine Vorschau. Das Modul liest zwei
  * JSON-Dateien und sortiert Zeichenketten; es laeuft deshalb auch unter

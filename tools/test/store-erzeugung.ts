@@ -42,6 +42,8 @@ import { STORE_KATALOG, STORE_PREFAB_DEFS } from '@wov/shared';
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = join(HIER, '..', '..');
 const GENERATOR = join(WURZEL, 'tools/store-prefabs.mjs');
+/** Der `tsx`-Aufrufer aus dem Arbeitsbaum — kein `npx`, kein Netz. */
+const TSX = join(WURZEL, 'node_modules/.bin/tsx');
 const ERZEUGT = join(WURZEL, 'shared/src/storePrefabs.ts');
 const STORE = join(WURZEL, 'assets/store');
 const STORE_LAB = join(WURZEL, 'assets/store-lab');
@@ -72,7 +74,13 @@ try {
   const laeufe: string[] = [];
   for (const nr of [1, 2]) {
     const ziel = join(tmp, `lauf${nr}.ts`);
-    const lauf = spawnSync('node', [GENERATOR, '--nach', ziel], { cwd: WURZEL, encoding: 'utf-8' });
+    /*
+      `tsx` und nicht `node`: Der Generator holt seine Einsortierregel
+      aus `client/src/editor/StoreKatalogDaten.ts` — damit sie nur
+      EINMAL dasteht (siehe Kopf des Generators). Mit `node` bräche der
+      Lauf beim Import ab, und dieser Test wäre der Erste, der es merkt.
+    */
+    const lauf = spawnSync(TSX, [GENERATOR, '--nach', ziel], { cwd: WURZEL, encoding: 'utf-8' });
     check(`Generatorlauf ${nr} endet mit Code 0`, lauf.status === 0, lauf.stderr?.trim());
     laeufe.push(existsSync(ziel) ? readFileSync(ziel, 'utf8') : `<lauf ${nr} hat nichts geschrieben>`);
   }
@@ -85,7 +93,7 @@ try {
   // ── 2. Das Eingecheckte ist der aktuelle Stand ──────────────────────
   const eingecheckt = existsSync(ERZEUGT) ? readFileSync(ERZEUGT, 'utf8') : '';
   check(
-    'shared/src/storePrefabs.ts ist aktuell (node tools/store-prefabs.mjs)',
+    'shared/src/storePrefabs.ts ist aktuell (npx tsx tools/store-prefabs.mjs)',
     eingecheckt === laeufe[0],
     eingecheckt.length === 0 ? 'Datei fehlt' : 'Inhalt weicht ab'
   );

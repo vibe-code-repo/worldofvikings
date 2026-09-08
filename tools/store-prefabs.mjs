@@ -24,9 +24,36 @@
   `shared/src/storeKatalog.ts` — von Hand gepflegt. Stünden sie im Kopf
   der erzeugten Datei, wäre der nächste Lauf ein lautloser Rückbau.
 
+  ── Die Einsortierung steht NICHT hier ───────────────────────────────
+  Art, Gruppe und Untergruppe kommen aus `einsortieren()` in
+  `client/src/editor/StoreKatalogDaten.ts` — derselben Funktion, mit der
+  der Gegenstands-Katalog seine Schubladen baut.
+
+  Bis zur Zusammenführung stand die Regel zweimal da, einmal hier und
+  einmal dort, und die beiden waren AUSEINANDER: 477 der 670 Einträge
+  landeten in verschiedenen Fächern („Fels" gegen „Felsen", „Fass" gegen
+  „Fässer", der Ton als eine Schublade gegen den Ton in vieren). Keine
+  der beiden war falsch — sie waren nur nicht dieselbe, und beim Lesen
+  fällt das nirgends auf: Jede für sich sieht vollständig aus.
+
+  Genommen wurde die Fassung des Katalogs, weil sie die feinere ist (der
+  Ton bekommt seine drei Ebenen statt „Ton/Ton", die Höhenfelder ihre
+  Fächer) und weil sie die ist, die ein Mensch zu sehen bekommt. Dass die
+  Regel im Client-Ordner liegt und ein Werkzeug sie holt, ist kein
+  Bruch der Schichtung, sondern derselbe Griff, den
+  `tools/manifest-zuordnung.ts` schon tut: Werkzeuge dürfen den Client
+  lesen, der Client nie ein Werkzeug.
+
+  Nur die KENNZEICHEN bleiben hier (`kennzeichenVon`). Der Katalog
+  beschriftet damit Knöpfe („Schnee", „Dunkel"), die erzeugte Datei
+  führt sie als Daten (`snow`, `dark`, `lod`, `kollision`) — zwei
+  Aufgaben, zwei Vokabulare, und `art: 'kollision'` hängt an diesem hier.
+
+  DESHALB `tsx` UND NICHT `node`: Die Regel ist TypeScript.
+
   Aufruf:
-    node tools/store-prefabs.mjs            (schreibt shared/src/storePrefabs.ts)
-    node tools/store-prefabs.mjs --pruefen  (schreibt nichts, Code 1 bei Abweichung)
+    npx tsx tools/store-prefabs.mjs            (schreibt shared/src/storePrefabs.ts)
+    npx tsx tools/store-prefabs.mjs --pruefen  (schreibt nichts, Code 1 bei Abweichung)
 
   Ohne `assets/store/` bricht der Lauf mit Code 2 ab und sagt, warum —
   der Ordner liegt ausserhalb des Repos (Symlink auf den Asset-Speicher).
@@ -36,243 +63,13 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { einsortieren } from '../client/src/editor/StoreKatalogDaten.ts';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '..');
 const STORE = join(WURZEL, 'assets/store');
 const STORE_LAB = join(WURZEL, 'assets/store-lab');
 const ZIEL = join(WURZEL, 'shared/src/storePrefabs.ts');
-
-// ── Übersetzungstabellen ──────────────────────────────────────────────
-
-/*
-  Die fünf Schubladen des Fremdbestands. Die Kennung sagt sie selbst:
-  `environment-sm-<typ>-<wort>-<nr>`, und `<typ>` ist genau einer davon.
-
-  `generic` und `plant` fehlen hier mit Absicht — es gibt je EIN Modell
-  damit (`sm-generic-treedead-01`, `sm-plant-mushrooms-02`), und beide
-  sind Vegetation. Sie laufen unten über eine eigene Zeile.
-*/
-const TYP_GRUPPE = {
-  bld: 'Gebäude',
-  prop: 'Requisiten',
-  item: 'Gegenstände',
-  env: 'Umgebung',
-  veh: 'Fahrzeuge',
-};
-
-/*
-  Das Wort NACH dem Typ ist das Fach: `sm-prop-barrel-03` liegt bei den
-  Fässern. Übersetzt sind alle 157 vorkommenden Wörter und nicht nur die
-  häufigsten — ein Fach namens „trashbag" zwischen „Truhe" und „Tisch"
-  sieht aus wie ein Fehler, und wer es sieht, muss jedes Mal neu prüfen,
-  ob es einer ist.
-
-  Wörter ohne Eintrag bleiben unverändert stehen (Grossbuchstabe vorn).
-  Das ist der vorgesehene Zustand für alles Neue: lesbar genug, um
-  nicht zu stören, und auffällig genug, um ergänzt zu werden.
-*/
-const WORT = {
-  alchemy: 'Alchemie',
-  animal: 'Tiere',
-  anvil: 'Amboss',
-  archway: 'Torbogen',
-  arrow: 'Pfeil',
-  astroid: 'Felsbrocken',
-  bag: 'Beutel',
-  barrel: 'Fass',
-  basket: 'Korb',
-  bathtub: 'Wanne',
-  bed: 'Bett',
-  bell: 'Glocke',
-  bellows: 'Blasebalg',
-  bench: 'Bank',
-  big: 'Grossform',
-  billy: 'Kessel',
-  boat: 'Boot',
-  bone: 'Knochen',
-  bonfire: 'Lagerfeuer',
-  book: 'Buch',
-  bookcase: 'Bücherregal',
-  books: 'Bücher',
-  bottle: 'Flasche',
-  bowl: 'Schale',
-  bracelet: 'Armreif',
-  bracket: 'Halterung',
-  brazier: 'Feuerschale',
-  bread: 'Brot',
-  brick: 'Ziegel',
-  bricks: 'Ziegel',
-  bucket: 'Eimer',
-  cabinet: 'Schrank',
-  camp: 'Lager',
-  candle: 'Kerze',
-  candlestick: 'Leuchter',
-  cart: 'Karren',
-  cauldron: 'Kessel',
-  chain: 'Kette',
-  chair: 'Stuhl',
-  chandelier: 'Kronleuchter',
-  cheese: 'Käse',
-  chest: 'Truhe',
-  chestbottom: 'Truhe',
-  chesttop: 'Truhe',
-  chopping: 'Hackklotz',
-  clay: 'Ton',
-  cloud: 'Wolke',
-  coins: 'Münzen',
-  cow: 'Kuh',
-  crate: 'Kiste',
-  crystal: 'Kristall',
-  cup: 'Becher',
-  destroyed: 'Ruinenteile',
-  dish: 'Teller',
-  dock: 'Steg',
-  door: 'Tür',
-  dresser: 'Kommode',
-  dummy: 'Übungspuppe',
-  fabric: 'Stoff',
-  fence: 'Zaun',
-  fireworks: 'Feuerwerk',
-  fish: 'Fisch',
-  floor: 'Boden',
-  forge: 'Schmiede',
-  gallows: 'Galgen',
-  garlic: 'Knoblauch',
-  gem: 'Edelstein',
-  glacier: 'Gletscher',
-  goblet: 'Kelch',
-  goblin: 'Kobold',
-  grass: 'Gras',
-  grasspatch: 'Grasfleck',
-  grate: 'Gitter',
-  grinding: 'Schleifstein',
-  ground: 'Boden',
-  groundmound: 'Erdhügel',
-  hammer: 'Hammer',
-  hay: 'Heu',
-  hook: 'Haken',
-  horn: 'Horn',
-  horse: 'Pferd',
-  horseshoe: 'Hufeisen',
-  house: 'Haus',
-  iceberg: 'Eisberg',
-  icechunk: 'Eisbrocken',
-  ingot: 'Barren',
-  ink: 'Tinte',
-  jar: 'Krug',
-  jug: 'Kanne',
-  kettle: 'Kessel',
-  ladder: 'Leiter',
-  leather: 'Leder',
-  lock: 'Schloss',
-  lockpick: 'Dietrich',
-  log: 'Stamm',
-  logs: 'Stämme',
-  map: 'Karte',
-  metal: 'Metall',
-  minetrack: 'Grubenbahn',
-  mortar: 'Mörser',
-  mug: 'Krug',
-  mushroom: 'Pilz',
-  mushrooms: 'Pilze',
-  obelisk: 'Obelisk',
-  onion: 'Zwiebel',
-  ore: 'Erz',
-  parchment: 'Pergament',
-  path: 'Weg',
-  pillar: 'Säule',
-  pillow: 'Kissen',
-  plank: 'Brett',
-  plant: 'Pflanze',
-  planter: 'Pflanzkasten',
-  planterbox: 'Pflanzkasten',
-  pole: 'Pfahl',
-  poster: 'Aushang',
-  pot: 'Topf',
-  potion: 'Trank',
-  preset: 'Bauwerk',
-  pumpkin: 'Kürbis',
-  quest: 'Auftrag',
-  quiver: 'Köcher',
-  railing: 'Geländer',
-  ring: 'Ring',
-  rock: 'Fels',
-  roof: 'Dach',
-  rope: 'Seil',
-  rubble: 'Geröll',
-  rug: 'Teppich',
-  rune: 'Rune',
-  sack: 'Sack',
-  shelf: 'Regal',
-  shelves: 'Regale',
-  shrooms: 'Pilze',
-  sign: 'Schild',
-  spike: 'Spiess',
-  stairs: 'Treppe',
-  start: 'Startpunkt',
-  statue: 'Statue',
-  stirring: 'Rührstab',
-  stone: 'Stein',
-  stonewall: 'Steinmauer',
-  stool: 'Hocker',
-  structure: 'Bauwerk',
-  table: 'Tisch',
-  tiles: 'Fliesen',
-  tongs: 'Zange',
-  torchstick: 'Fackel',
-  trashbag: 'Abfallsack',
-  treedead: 'Totholz',
-  vase: 'Vase',
-  village: 'Dorf',
-  wall: 'Mauer',
-  wardrobe: 'Kleiderschrank',
-  water: 'Wasser',
-  weight: 'Gewicht',
-  well: 'Brunnen',
-  wheat: 'Weizen',
-  wheelbarrow: 'Schubkarre',
-  wood: 'Holz',
-  workbench: 'Werkbank',
-};
-
-/*
-  Vegetation sortiert sich nicht nach dem Typwort, sondern danach, WAS es
-  ist: `massive-tree`, `split-tree` und `branched-tree` sind allesamt
-  Laubbäume in verschiedenen Wuchsformen, `pine` die einzige Nadelform.
-  Wer nach einem Baum sucht, sucht nach „Baum" und nicht nach „split".
-*/
-const VEGETATION_FACH = {
-  tree: 'Laubbäume',
-  massive: 'Laubbäume',
-  split: 'Laubbäume',
-  branched: 'Laubbäume',
-  large: 'Büsche',
-  bush: 'Büsche',
-  small: 'Büsche',
-  pine: 'Nadelbäume',
-  grass: 'Gras',
-  branch: 'Äste',
-  plant: 'Pilze',
-  generic: 'Totholz',
-};
-
-/** Untergruppen der Tonspur — der zweite Pfadabschnitt sagt sie. */
-const TON_FACH = {
-  footsteps: 'Schritte',
-  animals: 'Tiere',
-  ambience: 'Umgebung',
-  emitters: 'Quellen',
-};
-
-/** Boden-Texturen: das Material im Dateinamen. */
-const BODEN_FACH = {
-  grass: 'Gras',
-  gravel: 'Kies',
-  moss: 'Moos',
-  rock: 'Fels',
-  village: 'Mischkarten',
-};
 
 // ── Hilfen ────────────────────────────────────────────────────────────
 
@@ -289,11 +86,6 @@ function zahl(v) {
   const gerundet = Math.round(v * 1e4) / 1e4;
   // -0 gibt es in JSON, aber nicht in einem lesbaren Quelltext.
   return Object.is(gerundet, -0) ? 0 : gerundet;
-}
-
-/** Erster Buchstabe gross — für Wörter ohne Übersetzung. */
-function grossVorn(w) {
-  return w.length === 0 ? w : w[0].toUpperCase() + w.slice(1);
 }
 
 function tsText(s) {
@@ -341,118 +133,6 @@ const KOLLISIONSNAME = /(^|[-_])col(lision)?([-_.]|$)/i;
 /** `…-collision.glb` → `…` (der Modellstamm, den die Datei beschreibt). */
 function modellStammZuKollision(stamm) {
   return stamm.replace(/[-_]col(lision)?$/i, '');
-}
-
-// ── Einsortierung ─────────────────────────────────────────────────────
-
-/**
- * Wohin gehört diese Datei? — die einzige Stelle, die das entscheidet.
- *
- * Gefragt wird mit Pfad UND (falls vorhanden) Prefab-Kennung, denn beide
- * wissen etwas, was der andere nicht weiss: Der Pfad kennt Texturen und
- * Töne, zu denen es kein Prefab gibt; die Kennung kennt `category`,
- * an der Kulisse und Höhenfeld hängen.
- *
- * Reihenfolge der Regeln ist bedeutsam: Texturen und Töne ZUERST, sonst
- * verschluckt die Vegetationsregel `vegetation/textures/tree-1a3-….png`.
- */
-function einsortieren(pfad, kategorie) {
-  const teile = pfad.split('/');
-  const datei = ohneEndung(teile[teile.length - 1]);
-  const kennzeichen = kennzeichenVon(datei);
-
-  // (1) Ton.
-  if (teile[0] === 'audio') {
-    return { gruppe: 'Ton', untergruppe: TON_FACH[teile[1]] ?? grossVorn(teile[1] ?? ''), kennzeichen };
-  }
-
-  // (2) Modell-Texturen — jeder `textures`-Ordner INNERHALB eines
-  // Modellordners. Die Schreibweise wechselt (`textures`, `Textures`:
-  // das Kenney-Kit bringt seine Ordnerstruktur unverändert mit).
-  const texturIndex = teile.findIndex((t) => t.toLowerCase() === 'textures');
-  if (texturIndex > 0) {
-    return {
-      gruppe: 'Modell-Texturen',
-      untergruppe: teile[0] === 'vegetation' ? 'Vegetation' : 'Umgebung',
-      kennzeichen,
-    };
-  }
-
-  // (3) Boden-Texturen — der eigene Ordner ganz oben.
-  if (teile[0] === 'textures') {
-    const wort = datei.replace(/^terrain-/, '').split('-')[0] ?? '';
-    return { gruppe: 'Boden-Texturen', untergruppe: BODEN_FACH[wort] ?? grossVorn(wort), kennzeichen };
-  }
-
-  // (4) Höhenfelder. Sie bringen ihr eigenes Gelände mit und werden nie
-  // gestreut — deshalb eine eigene Gruppe und nicht „Umgebung".
-  if (kategorie === 'terrain' || teile[0] === 'terrain') {
-    return { gruppe: 'Höhenfelder', untergruppe: 'Gelände', kennzeichen };
-  }
-
-  /*
-    (5) Kulissen: ~600 m breite Bergsilhouetten, die Himmelskuppel — und
-    die drei Wolkenbretter. Die Wolken sind mit 8 m klein genug, um wie
-    eine Requisite auszusehen, gehören aber in dieselbe Schublade: Sie
-    stehen im Himmel und haben auf dem Boden nichts verloren. Die Quelle
-    sagt das selbst (`category: backdrop`), und diese Regel glaubt ihr.
-  */
-  if (kategorie === 'backdrop') {
-    let fach = 'Berge';
-    if (datei.startsWith('backdrop-sky')) fach = 'Himmel';
-    else if (datei.includes('cloud')) fach = 'Wolken';
-    return { gruppe: 'Kulisse', untergruppe: fach, kennzeichen };
-  }
-
-  // (6) Vegetation.
-  if (teile[0] === 'vegetation') {
-    const w = datei.split('-');
-    // `sm-plant-mushrooms-02` und `sm-generic-treedead-01` tragen das
-    // Kennwort an zweiter Stelle, alle anderen an erster.
-    const schluessel = w[0] === 'sm' ? (w[1] ?? '') : (w[0] ?? '');
-    return {
-      gruppe: 'Vegetation',
-      untergruppe: VEGETATION_FACH[schluessel] ?? grossVorn(schluessel),
-      kennzeichen,
-    };
-  }
-
-  // (7) Umgebungsbestand: `sm-<typ>-<wort>-<nr>`.
-  const w = datei.split('-');
-  if (w[0] === 'sm' && TYP_GRUPPE[w[1]]) {
-    const wort = w[2] ?? '';
-    return { gruppe: TYP_GRUPPE[w[1]], untergruppe: WORT[wort] ?? grossVorn(wort), kennzeichen };
-  }
-  // `sm-generic-…` / `sm-plant-…` im Umgebungsordner: Vegetation, die
-  // dort einsortiert wurde, wo sie gefunden wurde.
-  if (w[0] === 'sm' && VEGETATION_FACH[w[1]]) {
-    return { gruppe: 'Vegetation', untergruppe: VEGETATION_FACH[w[1]], kennzeichen };
-  }
-
-  /*
-    (8) Der Rest des Umgebungsordners — Einzelstücke ohne die
-    `sm-`-Namensregel VORN (`floor`, `chesttop`, `start-position`,
-    `roof-sm-bld-preset-shelter-02`, das Kenney-Kit).
-
-    Zwei Anläufe, in dieser Reihenfolge:
-      • Steht `sm-<typ>` irgendwo IM Namen, ist die Gruppe damit gesagt
-        — `roof-sm-bld-…` ist das Dach eines Gebäudes und nicht
-        „Umgebung, Fach Dach".
-      • Sonst gilt das erste Wort, das die Tabelle kennt.
-    Findet sich keins, bleibt „Sonstiges". Eine Sammelschublade ist
-    ehrlicher als eine erfundene Ordnung — und sie fällt beim Lesen auf.
-  */
-  const fach = w.find((wort) => WORT[wort]);
-  const smIndex = w.indexOf('sm');
-  if (smIndex >= 0 && TYP_GRUPPE[w[smIndex + 1]]) {
-    return {
-      gruppe: TYP_GRUPPE[w[smIndex + 1]],
-      untergruppe: fach ? WORT[fach] : (WORT[w[smIndex + 2]] ?? grossVorn(w[smIndex + 2] ?? '')),
-      kennzeichen,
-    };
-  }
-  if (fach) return { gruppe: 'Umgebung', untergruppe: WORT[fach], kennzeichen };
-  return { gruppe: 'Umgebung', untergruppe: 'Sonstiges', kennzeichen };
 }
 
 // ── Einlesen ──────────────────────────────────────────────────────────
@@ -538,20 +218,41 @@ for (const p of prefabQuelle.prefabs) prefabNachAssetId.set(p.asset, p);
 
 for (const a of vorhanden) {
   const p = prefabNachAssetId.get(a.path);
-  const { gruppe, untergruppe, kennzeichen } = einsortieren(a.path, p?.category);
+  /*
+    Die EINE Einsortierregel — sie steht im Katalog des Editors, nicht
+    hier (siehe Kopf). Sie bekommt genau, was sie liest: Pfad, Sorte aus
+    dem Manifest und, falls es dazu ein Prefab gibt, dessen `category`.
+  */
+  const ordnung = einsortieren({
+    id: a.id,
+    path: a.path,
+    kind: a.kind,
+    category: p?.category ?? null,
+  });
+  const gruppe = ordnung.gruppe;
+  const untergruppe = ordnung.untergruppe;
+  const kennzeichen = kennzeichenVon(ohneEndung(a.path.split('/').pop() ?? a.path));
   /*
     `art` ist NICHT `kind` aus dem Manifest. Das Manifest sagt, was die
     Datei technisch ist (mesh, prefab, texture, audio, terrain); der
     Katalog sagt, wie man damit umgeht — und da fallen Kulisse und
     Höhenfeld aus `modell` heraus, weil man sie nicht streuen darf.
+
+    Die Regel liefert dafür `art` als Beschriftung („Modelle",
+    „Texturen", …); die erzeugte Datei führt sie als Kennung, und sie
+    kennt eine Stufe mehr: `kollision`. Ein Kollisionsnetz ist im
+    Katalog ein Modell mit eigenem Fach — für den Server ist es etwas,
+    das man NIE setzt. Deshalb bleibt diese eine Zeile hier.
   */
-  let art;
-  if (a.kind === 'texture') art = 'textur';
-  else if (a.kind === 'audio') art = 'ton';
-  else if (kennzeichen.includes('kollision')) art = 'kollision';
-  else if (a.kind === 'terrain' || gruppe === 'Höhenfelder') art = 'terrain';
-  else if (gruppe === 'Kulisse') art = 'kulisse';
-  else art = 'modell';
+  const ART_KENNUNG = {
+    Modelle: 'modell',
+    Texturen: 'textur',
+    Ton: 'ton',
+    Höhenfelder: 'terrain',
+    Kulisse: 'kulisse',
+  };
+  const art = kennzeichen.includes('kollision') ? 'kollision' : ART_KENNUNG[ordnung.art];
+  if (art === undefined) throw new Error(`${a.path}: unbekannte Art ${ordnung.art}`);
 
   /*
     Ein Ursprung tief unter dem Modell ist kein Fehler — die Quelle hält
@@ -658,7 +359,7 @@ const nichtStreuen = defs
 const kopf = `/**
  * storePrefabs.ts — ERZEUGT, NICHT VON HAND ÄNDERN.
  *
- *   node tools/store-prefabs.mjs
+ *   npx tsx tools/store-prefabs.mjs
  *
  * Quelle: assets/store/manifest.json + assets/store/prefabs.json
  * (der Asset-Speicher liegt ausserhalb des Repos, s. Generatorkopf).
@@ -763,7 +464,7 @@ if (process.argv.includes('--pruefen')) {
     console.log(`ok   shared/src/storePrefabs.ts ist aktuell (${defs.length} Prefabs, ${katalog.length} Katalogzeilen)`);
     process.exit(0);
   }
-  console.error('FAIL shared/src/storePrefabs.ts weicht ab — node tools/store-prefabs.mjs erneut laufen lassen');
+  console.error('FAIL shared/src/storePrefabs.ts weicht ab — npx tsx tools/store-prefabs.mjs erneut laufen lassen');
   process.exit(1);
 }
 

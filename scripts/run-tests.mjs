@@ -936,10 +936,19 @@ const KERN = [
   //     Nur DER braucht die Weiche — `brauchtStore()` ueberspringt, wenn
   //     `assets/store` ganz fehlt; fehlende EINZELDATEIEN darin sind ein
   //     Befund und machen ihn rot (Begruendung in testweichen.mjs).
-  //     ~2 s (zwei node-Starts ueber 670 Manifest-Eintraege).
+  //     ~2 s (zwei tsx-Starts ueber 670 Manifest-Eintraege).
+  //
+  //  4. `tools/test/store-einsortierung.ts` haelt die EINE
+  //     Einsortierregel fest: Der Generator holt sie aus
+  //     `client/src/editor/StoreKatalogDaten.ts`, und dieser Test faehrt
+  //     alle 670 Katalogeintraege dagegen. Vor der Zusammenfuehrung gab
+  //     es die Regel zweimal, und sie widersprach sich bei 477 von 670
+  //     Eintraegen — anzusehen war das keiner der beiden Seiten.
+  //     Braucht `assets/store` fuer Sorte und Kategorie.
   ['shared', 'test/store-registry.ts'],
   ['client', 'test/store-ladepfad.ts'],
   ['tools', 'test/store-erzeugung.ts', brauchtStore()],
+  ['tools', 'test/store-einsortierung.ts', brauchtModelle('assets/store')],
 
   // ── Dungeon Generator 2.0 ──────────────────────────────────────────
   //

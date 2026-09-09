@@ -64,6 +64,8 @@ import {
   BIOME_TILE,
   HIMMEL_IRRADIANZ,
   himmelIrradianzGewichte,
+  TRIPLANAR,
+  triplanarGewichte,
 } from '../../client/src/engine/TerrainSplat.js';
 // Das Werkzeug ist ein `.mjs` ohne Typen — genau deshalb wird es HIER
 // importiert und nicht nachgebildet: Eine Nachbildung prüft sich selbst.
@@ -335,6 +337,147 @@ check(
     'die Felsstufen der grasigen Biome sind metallfrei (sonst schwarzer Hang)',
     schuldig.length === 0,
     schuldig.map((t) => `Tile ${t} → ${FELS_TILE[t]}/${RAU_TILE[t]}`).join('; ')
+  );
+}
+
+// ── (h) Die dunklen Biome behalten auf der WAND die dunkle Schicht ──
+/*
+  Der Befund vom 09.09.2026 (Mike, Feinabgleich): Der Schwarzwald hatte
+  sandsteinfarbene Steilhänge. Ursache war `RAU_TILE`, das bis dahin für
+  JEDES Biom `Cliff` führte — also `terrain-rock-rough`, den HELLEN Fels
+  des Bergpanoramas (`design/look-referenz.md`, Bild 3: Luma 104, H 30,
+  S 0,39). Ab 40° zog er sich über jede dunkle Waldflanke.
+
+  Die Look-Referenz sagt zu genau dieser Stelle: „Wer diese Schicht am
+  STEILSTEN Hang misst, misst sie nicht" — am 47°-Hang waren die
+  vermeintlichen `rock-a`-Bildpunkte in Wahrheit `Cliff`. Diese Prüfung
+  hält fest, dass sie es jetzt nicht mehr sind.
+
+  Geprüft wird über die MESSGRÖSSE der beiden Schichten, nicht über den
+  Tile-Namen: `Rock` ist im Speicher `terrain-rock-a` mit Metallic 0,85,
+  `Cliff` ist `terrain-rock-rough` mit Metallic 0. Ein Umbenennen der
+  Konstanten liefe hier also nicht durch.
+*/
+{
+  const dunkleBiome: [string, number][] = [
+    ['Schwarzwald', 8],
+    ['Sumpf', 2],
+  ];
+  const hell: string[] = [];
+  for (const [name, biom] of dunkleBiome) {
+    const grund = BIOME_TILE[biom]!;
+    const r = SCHICHT_OBERFLAECHE[RAU_TILE[grund]!];
+    // Die dunkle Wandschicht ist die metallische; die helle raue hat
+    // Metallic 0. Genau diese Zahl unterscheidet sie.
+    if (!r || r.metallic < 0.5) hell.push(`${name}: RAU_TILE[${grund}] = ${RAU_TILE[grund]}`);
+  }
+  check(
+    'Schwarzwald und Sumpf tragen auch auf der senkrechten Wand den DUNKLEN Fels',
+    hell.length === 0,
+    hell.join('; ')
+  );
+  check(
+    'die Wand des Schwarzwalds ist dieselbe Kachel wie sein mittlerer Hang',
+    RAU_TILE[TILE.Forest] === FELS_TILE[TILE.Forest] &&
+      RAU_TILE[TILE.Forest] === HANG_TILE[TILE.Forest],
+    `${HANG_TILE[TILE.Forest]}/${FELS_TILE[TILE.Forest]}/${RAU_TILE[TILE.Forest]}`
+  );
+}
+
+// ── (i) Die Gewichte der drei Projektionen ─────────────────────────
+/*
+  `triplanarGewichte` ist die eine Funktion, an der der ganze Umbau
+  hängt: Sie sagt, WIEVIEL von der Projektion von oben und wieviel von
+  den beiden Seitenprojektionen in den Bildpunkt geht. Der Shader rechnet
+  dieselbe Zeile (erzeugt in `triGewichteGlsl`), damit hier nachrechenbar
+  ist, was dort passiert.
+
+  Drei Eigenschaften, und jede hat einen Fehler, den sie verhindert:
+
+   - SUMME 1. Wären es 0,9, käme jede Wand um ein Zehntel zu dunkel
+     heraus — und zwar als Farbe, die auf keiner Textur steht.
+   - UNTER `TRIPLANAR.beginn` EXAKT [1, 0, 0]. Nicht „ungefähr":
+     `mix(x, y, 0.0)` ist bitgenau `x`, und darauf steht der Nachweis,
+     dass der flache Boden nach diesem Umbau BITGLEICH ist. Ein
+     Gewicht von 1e-7 auf einer Seitenprojektion wäre eine zweite
+     Texturabtastung und ein anderes letztes Bit.
+   - MONOTON. Je steiler, desto weniger von oben. Eine Rampe, die
+     zwischendurch zurückläuft, gäbe ein Band am Hang, in dem die
+     Textur zweimal umschlägt.
+*/
+{
+  const grade: number[] = [];
+  for (let g = 0; g <= 90; g += 1) grade.push(g);
+  // Eine Neigung in eine Normale: ny = cos, und der Rest auf die x-Achse.
+  // Zusätzlich eine gedrehte Fassung (45° um y), damit auch der Fall
+  // geprüft wird, in dem sich BEIDE Seitenprojektionen teilen.
+  const normale = (grad: number, azimut: number): [number, number, number] => {
+    const s = Math.sin((grad * Math.PI) / 180);
+    return [s * Math.cos(azimut), Math.cos((grad * Math.PI) / 180), s * Math.sin(azimut)];
+  };
+
+  const summeAb: string[] = [];
+  const flachAb: string[] = [];
+  const monoAb: string[] = [];
+  let vorigesOben = Number.POSITIVE_INFINITY;
+  for (const g of grade) {
+    for (const az of [0, Math.PI / 4, Math.PI / 2]) {
+      const [nx, ny, nz] = normale(g, az);
+      const [oben, sx, sz] = triplanarGewichte(nx, ny, nz);
+      if (Math.abs(oben + sx + sz - 1) > 1e-9) summeAb.push(`${g}°/${az.toFixed(2)}: ${(oben + sx + sz).toFixed(9)}`);
+      if (g < TRIPLANAR.beginn && (oben !== 1 || sx !== 0 || sz !== 0)) {
+        flachAb.push(`${g}°: [${oben}, ${sx}, ${sz}]`);
+      }
+      if (oben < 0 || sx < 0 || sz < 0) summeAb.push(`${g}°: negatives Gewicht`);
+    }
+    // Monotonie auf der Achsenlage (azimut 0) — die anderen sind
+    // dieselbe Rechnung mit umverteilten Seitenanteilen.
+    const [oben] = triplanarGewichte(...normale(g, 0));
+    if (oben > vorigesOben + 1e-12) monoAb.push(`${g}°: ${oben.toFixed(6)} > ${vorigesOben.toFixed(6)}`);
+    vorigesOben = oben;
+  }
+  check('die drei Projektionsgewichte summieren sich auf 1', summeAb.length === 0, summeAb.slice(0, 4).join('; '));
+  check(
+    `unter ${TRIPLANAR.beginn}° ist das Gewicht exakt [1, 0, 0] — daran hängt „flacher Boden bitgleich"`,
+    flachAb.length === 0,
+    flachAb.slice(0, 4).join('; ')
+  );
+  check(
+    'das Gewicht der Projektion von oben fällt monoton mit der Neigung',
+    monoAb.length === 0,
+    monoAb.slice(0, 4).join('; ')
+  );
+
+  // Die Rampe selbst: erst ab `beginn` überhaupt etwas, ab `voll` die
+  // reine |N|^k-Verteilung. Bei 90° darf von oben nichts mehr kommen.
+  const [obenBeginn] = triplanarGewichte(...normale(TRIPLANAR.beginn + 0.001, 0));
+  const [obenSenkrecht, sxSenkrecht] = triplanarGewichte(...normale(90, 0));
+  check(
+    'die Seitenprojektionen blenden erst hinter der Schwelle ein',
+    obenBeginn < 1 && obenBeginn > 0.999,
+    `bei ${TRIPLANAR.beginn + 0.001}°: ${obenBeginn.toFixed(6)}`
+  );
+  check(
+    'auf der senkrechten Wand kommt nichts mehr von oben',
+    Math.abs(obenSenkrecht) < 1e-9 && Math.abs(sxSenkrecht - 1) < 1e-9,
+    `[${obenSenkrecht.toFixed(9)}, ${sxSenkrecht.toFixed(9)}]`
+  );
+  check(
+    'der Exponent hält den 45°-Fall aus der Mitte (sonst Matsch)',
+    (() => {
+      // Bei 45° und Azimut 0 stehen |N.y| und |N.x| gleich — die
+      // Gewichte müssen sich dort zu gleichen Teilen aufteilen, und mit
+      // steigendem Exponenten wird der Übergang schmaler. Geprüft wird,
+      // dass bei 40° die Projektion von oben noch klar führt.
+      const [oben40] = triplanarGewichte(...normale(40, 0));
+      return oben40 > 0.6 && TRIPLANAR.schaerfe >= 4 && TRIPLANAR.schaerfe <= 8;
+    })(),
+    `oben bei 40° = ${triplanarGewichte(...normale(40, 0))[0].toFixed(3)}, k = ${TRIPLANAR.schaerfe}`
+  );
+  check(
+    'die Schwelle liegt unter der Neigung, ab der die Hangkachel voll deckt',
+    TRIPLANAR.beginn < RAMPEN.hang.voll && TRIPLANAR.beginn < TRIPLANAR.voll,
+    `${TRIPLANAR.beginn}° / ${TRIPLANAR.voll}° gegen ${RAMPEN.hang.voll}°`
   );
 }
 

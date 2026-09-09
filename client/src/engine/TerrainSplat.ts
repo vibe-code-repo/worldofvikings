@@ -266,12 +266,62 @@ export const FELS_TILE: readonly number[] = [
   /* 15 LavaCrust */ TILE.Basalt,
 ];
 
-/** Dasselbe für den steilsten Hang: überall Klippe, in der Asche Basalt. */
+/**
+ * Kachel des STEILSTEN Hangs — die Wand, die eine Geländebearbeitung
+ * stehen lässt.
+ *
+ * Bis zum 09.09.2026 stand hier „überall Klippe, in der Asche Basalt".
+ * Das war die Zeile, die im Schwarzwald sandsteinfarbene Steilhänge
+ * gemacht hat: Tile 5 (`Cliff` = `terrain-rock-rough`) ist der HELLE
+ * Fels des Bergpanoramas (Farbtextur sRGB 115–152, `design/look-referenz.md`
+ * Bild 3, Luma 104), und der stand ab 40° quer über jeder dunklen
+ * Waldflanke. Die Look-Referenz sagt es selbst, unter „die Falle, an
+ * der der erste Anlauf hängengeblieben ist": Wer `rock-a` am steilsten
+ * Hang misst, misst in Wahrheit die Cliff-Zeile.
+ *
+ * Jetzt folgt die Tabelle derselben Entscheidung wie `FELS_TILE`: Wo
+ * DUNKLER Fels gewollt ist, bleibt es auch auf der Wand dunkel.
+ *
+ *   Schwarzwald (Tile 1)          Cliff → Rock — der gemeldete Sandstein
+ *   Sumpf (Tile 10, 13)           Cliff → Rock — dieselbe Begründung
+ *   Berg/Tiefer Norden (Tile 4)   bleibt Cliff, siehe unten
+ *   Grasland/Heide/Sand/Mistlands bleibt Cliff (hell; Bild 3:
+ *     (Tile 0, 8, 9, 11)          Hangfels/Moos = 1,60)
+ *
+ * ── Warum Berg und Tiefer Norden NICHT mitziehen ────────────────────
+ * Ihre GRUNDkachel ist bereits `Rock` (`BIOME_TILE[4]` und `[64]`).
+ * Stünde hier ebenfalls `Rock`, zeigte das Biom auf flachem Grund, am
+ * mittleren und am steilsten Hang dieselbe Kachel — es gäbe dort gar
+ * keinen rauen Fels mehr. `tools/test/terrain-schichten.ts` prüft genau
+ * das („steiler Hang zeigt dieselbe Kachel wie flacher Grund"), und die
+ * Look-Referenz stützt es: Das Bergpanorama ist der Beleg FÜR den
+ * hellen Fels, nicht gegen ihn.
+ *
+ * Damit unterscheidet sich diese Tabelle von `FELS_TILE` nur noch in
+ * den Zeilen 2, 3, 4 und 12 (Dirt, Cleared, Rock, Paved). Drei davon
+ * sind Mal-Kacheln und können nie Grundkachel eines Bioms sein
+ * (`BIOME_TILE` zeigt auf keine von ihnen), die vierte ist der Berg.
+ * Für alle übrigen Biome liegt der Unterschied zwischen den beiden
+ * Felsstufen jetzt nicht mehr in der KACHEL, sondern in der DECKUNG:
+ * `fels` kommt über `RAMPEN.fels.anteil` nur auf 0,85, `rau` deckt voll.
+ */
 export const RAU_TILE: readonly number[] = [
-  TILE.Cliff, TILE.Cliff, TILE.Cliff, TILE.Cliff,
-  TILE.Cliff, TILE.Cliff, TILE.Basalt, TILE.Basalt,
-  TILE.Cliff, TILE.Cliff, TILE.Cliff, TILE.Cliff,
-  TILE.Cliff, TILE.Cliff, TILE.Basalt, TILE.Basalt,
+  /*  0 Grass     */ TILE.Cliff,
+  /*  1 Forest    */ TILE.Rock,
+  /*  2 Dirt      */ TILE.Cliff,
+  /*  3 Cleared   */ TILE.Cliff,
+  /*  4 Rock      */ TILE.Cliff,
+  /*  5 Cliff     */ TILE.Cliff,
+  /*  6 LavaEmber */ TILE.Basalt,
+  /*  7 Ash       */ TILE.Basalt,
+  /*  8 Heath     */ TILE.Cliff,
+  /*  9 Sand      */ TILE.Cliff,
+  /* 10 SwampMud  */ TILE.Rock,
+  /* 11 Moss      */ TILE.Cliff,
+  /* 12 Paved     */ TILE.Cliff,
+  /* 13 SwampDark */ TILE.Rock,
+  /* 14 Basalt    */ TILE.Basalt,
+  /* 15 LavaCrust */ TILE.Basalt,
 ];
 
 /**
@@ -349,6 +399,111 @@ const FELS_BEGINN = nyBeiGrad(RAMPEN.fels.beginn);
 const FELS_VOLL = nyBeiGrad(RAMPEN.fels.voll);
 const RAU_BEGINN = nyBeiGrad(RAMPEN.rau.beginn);
 const RAU_VOLL = nyBeiGrad(RAMPEN.rau.voll);
+
+/**
+ * Weltmeter → Kachel-UV. `0.5` heisst: eine Wiederholung je 2 m.
+ *
+ * Steht als Konstante da, weil die Triplanar-Projektionen dieselbe Zahl
+ * für die SENKRECHTE Achse brauchen (`wpos.y * UV_SKALA`). Zwei
+ * getippte 0.5 wären zwei Kachelmaße, die auf der Wand gegeneinander
+ * laufen — sichtbar nur als Naht an der Oberkante.
+ */
+const UV_SKALA = 0.5;
+
+/**
+ * Triplanar: die Projektion, die auch an einer senkrechten Wand trägt.
+ *
+ * ── Der Befund (09.09.2026, Screenshot Mike) ─────────────────────────
+ * Alle Schichten wurden von OBEN projiziert: `uv = welt.xz · 0,5`. Auf
+ * flachem Grund ist das genau richtig und billig. An einer senkrechten
+ * Wand ändern sich x und z über die ganze Wandhöhe nicht mehr — nur y
+ * läuft, und y kommt in der UV nicht vor. Ein einziger Texelstreifen
+ * wird deshalb über die volle Wandhöhe gezogen: die vertikalen Streifen
+ * im Screenshot. Der Streckfaktor ist 1/cos(Neigung), also 1,15 bei 30°,
+ * 1,41 bei 45° — und unendlich bei 90°.
+ *
+ * Das Vorbild braucht das nicht: Sein Terrain ist ein Unity-Höhenfeld
+ * ohne senkrechte Wände, seine Klippen sind Meshes. UNSER Gelände ist
+ * bearbeitbar — „Einebnen" (`levelground`, `PieceTable.ts`) setzt alle
+ * Vertices im Radius auf EINE Höhe und lässt am Rand eine Stufe von
+ * beliebiger Höhe über eine Gitterweite (1 m) stehen. Bei Mikes 10-m-Wand
+ * sind das 84°.
+ *
+ * ── Was jetzt passiert ───────────────────────────────────────────────
+ * Drei Projektionen statt einer: von oben (x/z, wie bisher), von der
+ * Seite (z/y) und von vorn (x/y), gewichtet mit |N|^`schaerfe`,
+ * normiert. Das ist die Standardkonstruktion; `schaerfe` ist der Regler
+ * gegen den Matsch in der Mitte — bei 1 mischen sich an einem 45°-Hang
+ * zwei Projektionen zu gleichen Teilen und heben ihre Struktur
+ * gegenseitig auf, bei 6 liegt die zweite Projektion dort bei 12 %.
+ *
+ * ── Und warum es einen Schalter darüber gibt ─────────────────────────
+ * Unter `beginn` Grad ist das Gewicht der Seiten EXAKT null, nicht bloss
+ * klein. Zwei Gründe:
+ *
+ *  - Das Bild auf flachem Boden muss BITGLEICH bleiben. Der ganze
+ *    Feinabgleich (`design/look-referenz.md`) ist auf ihm kalibriert;
+ *    eine Änderung von einem Byte an der Wiese wäre ein Rückschritt,
+ *    für den es keinen Befund gibt. `mix(x, y, 0.0)` ist `x` bitgenau,
+ *    und `0.0 + c · 1.0` ist `c` bitgenau — daran hängt der Nachweis.
+ *  - Es kostet nichts, wo nichts zu holen ist. Die beiden
+ *    Seitenabtastungen stehen im Shader hinter `if (w > 0.0)`; auf
+ *    flachem Grund läuft also weiterhin GENAU eine Texturabtastung je
+ *    Schicht. Die Ableitungen werden trotzdem unbedingt gerechnet —
+ *    `dFdx` in bedingtem Code ist in GLSL ES 3.00 undefiniert, und das
+ *    ist die Sorte Fehler, die nur auf einem anderen Treiber auftritt.
+ *
+ * `beginn` 25° ist bewusst dieselbe Gegend wie `RAMPEN.hang.voll` (30°):
+ * Ab dort deckt die Hangkachel voll, und genau die drei Hangschichten
+ * sind es, die triplanar abgetastet werden (siehe `tileSampler`).
+ */
+export const TRIPLANAR = {
+  /** Darunter eine einzige Abtastung von oben, bitgleich zu vorher. */
+  beginn: 25,
+  /** Ab hier volle |N|^schaerfe-Gewichtung. */
+  voll: 35,
+  /** Exponent der Gewichte. Grösser = härterer Wechsel, weniger Matsch. */
+  schaerfe: 6,
+} as const;
+
+const TRI_BEGINN = nyBeiGrad(TRIPLANAR.beginn);
+const TRI_VOLL = nyBeiGrad(TRIPLANAR.voll);
+
+/**
+ * Die Gewichte der drei Projektionen — dieselbe Rechnung wie im Shader.
+ *
+ * Reihenfolge `[oben, seiteX, seiteZ]`:
+ *  - `oben`   projiziert x/z (die bisherige, einzige Abtastung),
+ *  - `seiteX` projiziert z/y (Wand, deren Normale in x zeigt),
+ *  - `seiteZ` projiziert x/y (Wand, deren Normale in z zeigt).
+ *
+ * Steht hier in TypeScript, damit `tools/test/terrain-schichten.ts` sie
+ * nachrechnen kann, ohne einen Shader zu übersetzen — Summe 1, unter
+ * `TRIPLANAR.beginn` exakt `[1, 0, 0]`, monoton fallend in `oben`.
+ *
+ * @param nx/ny/nz Die GEOMETRISCHE Normale (Vertexnormale des
+ *   Höhenfelds), nicht die per Normal-Map gestörte. Dieselbe Grösse, aus
+ *   der auch `hangK`/`rauK` entstehen — sonst könnte die Projektion an
+ *   einer anderen Neigung umschalten als die Kachel.
+ */
+export function triplanarGewichte(
+  nx: number,
+  ny: number,
+  nz: number
+): [oben: number, seiteX: number, seiteZ: number] {
+  const g = Math.min(1, Math.max(0, (TRI_BEGINN - ny) / (TRI_BEGINN - TRI_VOLL)));
+  const k = TRIPLANAR.schaerfe;
+  const px = Math.pow(Math.abs(nx), k);
+  const py = Math.pow(Math.abs(ny), k);
+  const pz = Math.pow(Math.abs(nz), k);
+  const s = px + py + pz;
+  // Entartete Normale (alles null): dann gilt die Projektion von oben.
+  const qx = s > 0 ? px / s : 0;
+  const qy = s > 0 ? py / s : 1;
+  const qz = s > 0 ? pz / s : 0;
+  // mix(vec3(oben=1, 0, 0), q, g) — bei g = 0 bitgenau [1, 0, 0].
+  return [1 + g * (qy - 1), g * qx, g * qz];
+}
 
 /**
  * Wie viel vom Himmel den Boden erreicht (Analogon zu `sky.groundReflection`
@@ -840,7 +995,7 @@ export class TerrainSplatMaterial {
     wps.x.connectTo(worldXZ.x);
     wps.z.connectTo(worldXZ.y);
 
-    const uvScale = cnst('uvScale', 0.5);
+    const uvScale = cnst('uvScale', UV_SKALA);
     const tileUV = new MultiplyBlock('tileUV');
     worldXZ.xy.connectTo(tileUV.left);
     uvScale.output.connectTo(tileUV.right);
@@ -1016,6 +1171,30 @@ export class TerrainSplatMaterial {
         : [`float vbKachelFaktor_${suffix}(float tile) { return 1.0; }`];
 
     /**
+     * Die Gewichte der drei Projektionen, als GLSL — Zeile für Zeile
+     * dasselbe wie `triplanarGewichte()` weiter oben.
+     *
+     * Erzeugt statt getippt, damit Schwelle, Rampe und Exponent im
+     * Shader dieselben Zahlen sind wie in der TypeScript-Fassung, die
+     * der Test nachrechnet. Der Suffix aus demselben Grund wie bei
+     * `vbKachelFaktor_*`: Jeder `CustomBlock` schreibt seinen `code`
+     * einmal in den Shader, ein fester Name wäre sechsfach definiert.
+     */
+    const triGewichteGlsl = (suffix: string): string[] => [
+      `vec3 vbTriW_${suffix}(vec3 nrm) {`,
+      // Der Schalter: unter TRIPLANAR.beginn ist das Ergebnis der
+      // clamp-Funktion exakt 0.0, und mix(x, y, 0.0) ist x bitgenau.
+      `  float g = clamp((${TRI_BEGINN.toFixed(6)} - nrm.y) / ${(TRI_BEGINN - TRI_VOLL).toFixed(6)}, 0.0, 1.0);`,
+      `  vec3 p = pow(abs(nrm), vec3(${TRIPLANAR.schaerfe.toFixed(1)}));`,
+      '  float s = p.x + p.y + p.z;',
+      '  vec3 q = (s > 0.0) ? (p / s) : vec3(0.0, 1.0, 0.0);',
+      // Reihenfolge [oben, seiteX, seiteZ]: die Projektion von oben liest
+      // q.y (Normale zeigt nach oben), die x-Seite liest q.x.
+      '  return mix(vec3(1.0, 0.0, 0.0), vec3(q.y, q.x, q.z), g);',
+      '}',
+    ];
+
+    /**
      * Ein Tile aus dem 16er-Stapel lesen — mit `textureGrad` statt
      * `texture`.
      *
@@ -1064,9 +1243,45 @@ export class TerrainSplatMaterial {
        * gamma-korrigierte Normale zeigt in die falsche Richtung, und zwar
        * systematisch: 0,5 wird zu 0,21, aus „flach" wird „gekippt".
        */
-      linearisieren = true
+      linearisieren = true,
+      /**
+       * Die geometrische Weltnormale — nur wenn gesetzt, wird triplanar
+       * abgetastet.
+       *
+       * Bewusst ein OPT-IN je Abtastung und kein globaler Schalter: Von
+       * den zwölf Farb- und sieben Normalabtastungen des Splats sind auf
+       * einer steilen Wand nur die drei HANGSTUFEN überhaupt sichtbar.
+       * `hangK` deckt ab 30° voll, `rauK` ab 50°, und beide Lerps liegen
+       * hinter der Eckenmischung — was darunter liegt (die vier
+       * Biom-Ecken, die Makro-Ebene, Sand, die drei Mal-Kacheln, die
+       * Lavakruste), ist an einer Wand vollständig zugedeckt und würde
+       * für nichts das Dreifache kosten.
+       *
+       * Der Übergangsbereich ist damit abgedeckt: Zwischen 25° (Beginn
+       * der Seitengewichte) und 30° (volle Hangdeckung) sind die
+       * Eck-Kacheln zwar noch zu 40 bis 0 % sichtbar UND planar
+       * projiziert — dort beträgt die Streckung aber höchstens
+       * 1/cos(30°) = 1,15, und das ist genau die Grössenordnung, die
+       * vier Jahre lang niemandem aufgefallen ist.
+       */
+      nrmEingang: NodeMaterialConnectionPoint | null = null,
+      /**
+       * Der Rückgabewert ist eine WELTNORMALE statt einer Farbe.
+       *
+       * Nur zusammen mit `nrmEingang` sinnvoll: Drei Normal-Maps aus
+       * drei verschiedenen Achsenbasen lassen sich nicht als Zahlen
+       * mischen — jede muss erst in Weltkoordinaten gedreht werden
+       * (Whiteout-Mischung, siehe unten). Der Block liefert deshalb im
+       * Normalfall nicht die Karte, sondern das fertige Ergebnis.
+       */
+      alsWeltNormale = false
     ): NodeMaterialConnectionPoint => {
       const stapel = quelle ?? splatQuelle;
+      // WebGPU ist ein Testpfad (siehe unten) und bleibt beim bisherigen
+      // Einzelsample: `nrmEingang` wird dort ignoriert. Für die
+      // Normalvariante gibt es dann nichts zu liefern — die Weltnormale
+      // selbst ist die richtige Antwort („keine Störung").
+      if (scene.getEngine().isWebGPU && alsWeltNormale && nrmEingang) return nrmEingang;
       if (scene.getEngine().isWebGPU) {
         // glslang erlaubt einen kombinierten sampler2D(texture, sampler)
         // nur direkt am texture*-Aufruf, nicht als Funktionsargument. Der
@@ -1126,6 +1341,122 @@ export class TerrainSplatMaterial {
 
       const cb = new CustomBlock(`tile_${name}`);
       const fn = `vbTileSample_${name}`;
+      if (nrmEingang) {
+        // ── Triplanar-Zweig ───────────────────────────────────────────
+        // Derselbe Atlaszugriff, nur bis zu dreimal: einmal von oben
+        // (x/z, die bisherige UV, bitgleich), einmal von der Seite (z/y)
+        // und einmal von vorn (x/y). Welche davon zählt, sagt
+        // `vbTriW_*`; welche davon überhaupt ABGETASTET wird, sagen die
+        // drei `if` — auf flachem Grund ist das genau eine.
+        //
+        // Die Ableitungen aller drei Ebenen entstehen VOR den `if`.
+        // `dFdx` liest den Nachbarpixel im 2×2-Block; steht der Aufruf
+        // in einem Zweig, den nicht alle vier Pixel nehmen, ist das
+        // Ergebnis laut GLSL-ES-3.00-Spezifikation undefiniert. Auf
+        // dieser Karte fiele das vermutlich nicht auf, auf der nächsten
+        // als flackernde Naht an jeder Wandkante.
+        cb.options = {
+          name: `tile_${name}`,
+          target: 'Fragment',
+          functionName: fn,
+          inParameters: [
+            { name: 'atlas', type: 'sampler2D' },
+            { name: 'uvKont', type: 'Vector2' },
+            { name: 'layer', type: 'Float' },
+            { name: 'wpos', type: 'Vector3' },
+            { name: 'cpos', type: 'Vector3' },
+            { name: 'nrm', type: 'Vector3' },
+          ],
+          outParameters: [{ name: 'result', type: 'Vector3' }],
+          code: [
+            ...kachelGlsl(name),
+            ...triGewichteGlsl(name),
+            ...(alsWeltNormale
+              ? glslTabelle(`VB_NST_${name}`, SCHICHT_OBERFLAECHE.map((o) => o.normalStaerke))
+              : []),
+            // Eine Ebene abtasten. Identisch zur bisherigen Zeile im
+            // Einzelsample-Zweig — Inset 0,02, Stauchung 0,96, y-Gradient
+            // in den Atlasraum skaliert.
+            `vec3 vbEbene_${name}(sampler2D atlas, vec2 uvKont, vec2 ddx, vec2 ddy, float layer) {`,
+            '  vec2 f = fract(uvKont);',
+            '  float y = (layer + 0.02 + f.y * 0.96) / 16.0;',
+            '  const float YS = 0.96 / 16.0;',
+            '  vec3 c = textureGrad(atlas, vec2(f.x, y),',
+            '                       vec2(ddx.x, ddx.y * YS),',
+            '                       vec2(ddy.x, ddy.y * YS)).rgb;',
+            linearisieren ? '  return pow(c, vec3(2.2));' : '  return c;',
+            '}',
+            `void ${fn}(sampler2D atlas, vec2 uvKontRoh, float layer, vec3 wpos, vec3 cpos,`,
+            '                       vec3 nrm, out vec3 result) {',
+            `  float k = ${freq.toFixed(4)} * vbKachelFaktor_${name}(layer);`,
+            `  vec2 vs = vec2(${versatz[0].toFixed(3)}, ${versatz[1].toFixed(3)});`,
+            // Die drei UVs. Waagerechte Achse der Seitenebenen ist die
+            // jeweils ANDERE Weltachse, senkrechte Achse ist y — mit
+            // demselben Kachelmass (`UV_SKALA`), sonst hätte die Wand
+            // eine andere Kachelbreite als der Boden, an den sie stösst.
+            '  vec2 uvO = uvKontRoh * k + vs;',
+            `  vec2 uvX = vec2(uvKontRoh.y, wpos.y * ${UV_SKALA.toFixed(4)}) * k + vs;`,
+            `  vec2 uvZ = vec2(uvKontRoh.x, wpos.y * ${UV_SKALA.toFixed(4)}) * k + vs;`,
+            '  float dist = length(cpos - wpos);',
+            `  float bias = 1.0 + max(0.0, (dist - ${FERN_START.toFixed(1)}) / ${FERN_SKALA.toFixed(1)});`,
+            `  bias = min(bias, ${FERN_MAX.toFixed(1)});`,
+            '  vec2 dOx = dFdx(uvO) * bias; vec2 dOy = dFdy(uvO) * bias;',
+            '  vec2 dXx = dFdx(uvX) * bias; vec2 dXy = dFdy(uvX) * bias;',
+            '  vec2 dZx = dFdx(uvZ) * bias; vec2 dZy = dFdy(uvZ) * bias;',
+            `  vec3 w = vbTriW_${name}(nrm);`,
+            ...(alsWeltNormale
+              ? [
+                  '  vec3 N = normalize(nrm);',
+                  // Flach: gar nicht abtasten. Der Aufrufer mischt diesen
+                  // Ausgang mit demselben `g` ein, das hier 0 ist — was
+                  // wir zurückgeben, ist dort mit Faktor null gewichtet.
+                  // Drei Abtastungen für einen Faktor null wären der
+                  // teuerste Weg, nichts zu tun.
+                  '  if (w.x >= 1.0) { result = N; return; }',
+                  `  float st = VB_NST_${name}[int(clamp(layer, 0.0, 15.0) + 0.5)];`,
+                  '  vec3 acc = vec3(0.0);',
+                  // Whiteout-Mischung (die übliche Konstruktion für
+                  // triplanare Normalen): Jede Karte wird in der
+                  // Achsenbasis IHRER Ebene mit der Weltnormale addiert
+                  // und danach nach Welt gedreht. Ohne diese Drehung
+                  // zeigt das Relief einer Seitenprojektion in die Wand
+                  // hinein — die Beleuchtung kippt dann genau dort, wo
+                  // die Streifen vorher waren.
+                  '  if (w.x > 0.0) {',
+                  `    vec3 m = vbEbene_${name}(atlas, uvO, dOx, dOy, layer) * 2.0 - 1.0; m.xy *= st;`,
+                  '    acc += vec3(m.xy + N.xz, abs(m.z) * N.y).xzy * w.x;',
+                  '  }',
+                  '  if (w.y > 0.0) {',
+                  `    vec3 m = vbEbene_${name}(atlas, uvX, dXx, dXy, layer) * 2.0 - 1.0; m.xy *= st;`,
+                  '    acc += vec3(m.xy + N.zy, abs(m.z) * N.x).zyx * w.y;',
+                  '  }',
+                  '  if (w.z > 0.0) {',
+                  `    vec3 m = vbEbene_${name}(atlas, uvZ, dZx, dZy, layer) * 2.0 - 1.0; m.xy *= st;`,
+                  '    acc += vec3(m.xy + N.xy, abs(m.z) * N.z).xyz * w.z;',
+                  '  }',
+                  '  result = normalize(acc);',
+                ]
+              : [
+                  // `0.0 + c · 1.0` ist `c` bitgenau — daran hängt der
+                  // Nachweis „flacher Boden unverändert".
+                  '  vec3 acc = vec3(0.0);',
+                  `  if (w.x > 0.0) acc += vbEbene_${name}(atlas, uvO, dOx, dOy, layer) * w.x;`,
+                  `  if (w.y > 0.0) acc += vbEbene_${name}(atlas, uvX, dXx, dXy, layer) * w.y;`,
+                  `  if (w.z > 0.0) acc += vbEbene_${name}(atlas, uvZ, dZx, dZy, layer) * w.z;`,
+                  '  result = acc;',
+                ]),
+            '}',
+          ],
+        };
+        const ot = cb as unknown as Record<string, NodeMaterialConnectionPoint>;
+        stapel.source.connectTo(ot.atlas);
+        tileUV.output.connectTo(ot.uvKont);
+        layerInput.connectTo(ot.layer);
+        wps.xyzOut.connectTo(ot.wpos);
+        cameraPos.output.connectTo(ot.cpos);
+        nrmEingang.connectTo(ot.nrm);
+        return (cb as unknown as { result: NodeMaterialConnectionPoint }).result;
+      }
       cb.options = {
         name: `tile_${name}`,
         target: 'Fragment',
@@ -1357,7 +1688,10 @@ export class TerrainSplatMaterial {
     // sie bei 30° und war bei 44° voll, und WELCHE Kachel sie zog, sagte
     // eine Zeile in Terrain.ts (immer die dunkle `rock-a`) statt einer
     // Tabelle — siehe `FELS_TILE`.
-    const rockSample = sampleLayer(terrainMarkerSplit.x, 'rock');
+    // Triplanar (siehe `nrmEingang`): Von allen Farbabtastungen bekommen
+    // es nur die drei Hangstufen — sie sind die einzigen, die auf einer
+    // Wand überhaupt zu sehen sind.
+    const rockSample = tileSampler(terrainMarkerSplit.x, 'rock', 1, [0, 0], null, true, nrmSplit.xyzOut);
     const felsBeginn = cnst('felsBeginn', FELS_BEGINN);
     const rockD = new SubtractBlock('rockD'); felsBeginn.output.connectTo(rockD.left); nrmSplit.y.connectTo(rockD.right);
     const felsRampe = cnst('felsRampe', FELS_BEGINN - FELS_VOLL);
@@ -1432,8 +1766,8 @@ export class TerrainSplatMaterial {
       rauTileAus = hw.rauTile;
       hangKAus = hw.hangK;
       rauKAus = hw.rauK;
-      hangTeil = sampleLayer(hangTileAus, 'hang');
-      rauTeil = sampleLayer(rauTileAus, 'rau');
+      hangTeil = tileSampler(hangTileAus, 'hang', 1, [0, 0], null, true, nrmSplit.xyzOut);
+      rauTeil = tileSampler(rauTileAus, 'rau', 1, [0, 0], null, true, nrmSplit.xyzOut);
     }
 
     // ── Paint-Mask (Dirt / Cultivated / Paved) ──────────────────────
@@ -1638,6 +1972,42 @@ export class TerrainSplatMaterial {
       const nHang = nAbtastung(hangTileAus, 'nhang');
       const nRau = nAbtastung(rauTileAus, 'nrau');
 
+      /**
+       * Dieselben drei Hangschichten noch einmal — aber TRIPLANAR und
+       * gleich als WELTNORMALE.
+       *
+       * Warum nicht einfach die Karten oben triplanar mischen: Drei
+       * Karten aus drei verschiedenen Achsenbasen sind drei verschiedene
+       * Sprachen. `(0.5, 0.5, 1)` heisst in der Ebene von oben „zeigt
+       * nach +y", in der Seitenebene „zeigt nach +x". Zahlenweise
+       * gemischt kommt Unsinn heraus, der zufällig wie eine Normale
+       * aussieht. Die Umrechnung muss deshalb VOR der Mischung
+       * passieren, und danach ist das Ergebnis eine Weltrichtung — kein
+       * Wert mehr, den die Tangentenbasis unten noch drehen dürfte.
+       *
+       * Auf flachem Grund tasten diese drei Blöcke NICHTS ab (siehe die
+       * `w.x >= 1.0`-Abkürzung im Sampler) und liefern die
+       * Geometrienormale; `vbTerrainOberflaeche` mischt sie dort mit
+       * Faktor null ein.
+       *
+       * Umgekehrt bleiben AUF DER WAND die drei planaren Abtastungen
+       * darüber (`nHang`/`nFels`/`nRau`) stehen, obwohl ihr Ergebnis
+       * dort vollständig übermischt wird. Loswerden liessen sie sich
+       * nur, indem man auch den bisherigen Pfad hinter eine Bedingung
+       * legt — und damit wäre der Nachweis „flacher Boden bitgleich"
+       * aufgegeben (aus der Zuweisung würde ein `mix`). Der Handel ist
+       * bewusst so herum: etwas teurer auf der seltenen Wand,
+       * unverändert auf der häufigen Wiese.
+       */
+      const nTriAbtastung = (
+        tileEingang: NodeMaterialConnectionPoint,
+        name: string
+      ): NodeMaterialConnectionPoint =>
+        tileSampler(tileEingang, name, 1, [0, 0], normalQuelle, false, nrmSplit.xyzOut, true);
+      const nTriFels = nTriAbtastung(terrainMarkerSplit.x, 'tfels');
+      const nTriHang = nTriAbtastung(hangTileAus, 'thang');
+      const nTriRau = nTriAbtastung(rauTileAus, 'trau');
+
       const oberflaeche = new CustomBlock('terrainOberflaeche');
       oberflaeche.options = {
         name: 'terrainOberflaeche',
@@ -1652,6 +2022,9 @@ export class TerrainSplatMaterial {
           { name: 'nHang', type: 'Vector3' },
           { name: 'nRau', type: 'Vector3' },
           { name: 'nSchnee', type: 'Vector3' },
+          { name: 'nTriFels', type: 'Vector3' },
+          { name: 'nTriHang', type: 'Vector3' },
+          { name: 'nTriRau', type: 'Vector3' },
           { name: 'tiles', type: 'Vector4' },
           { name: 'weights', type: 'Vector4' },
           { name: 'felsTile', type: 'Float' },
@@ -1688,6 +2061,7 @@ export class TerrainSplatMaterial {
           '}',
           'void vbTerrainOberflaeche(vec3 nEcke0, vec3 nEcke1, vec3 nEcke2, vec3 nEcke3,',
           '                          vec3 nFels, vec3 nHang, vec3 nRau, vec3 nSchnee,',
+          '                          vec3 nTriFels, vec3 nTriHang, vec3 nTriRau,',
           '                          vec4 tiles, vec4 weights, float felsTile, float hangTile,',
           '                          float rauTile, float kSand, float kHang, float kFels,',
           '                          float kRau, float kSchnee, vec3 wpos, vec2 uv, vec3 surfN,',
@@ -1751,7 +2125,42 @@ export class TerrainSplatMaterial {
           '  vec3 B = q1perp * st0.y + q0perp * st1.y;',
           '  float det = max(dot(T, T), dot(B, B));',
           '  float sc = (det == 0.0) ? 0.0 : inversesqrt(det);',
-          '  normale = normalize(T * (n.x * sc) + B * (n.y * sc) + N * max(n.z, 0.0001));',
+          '  vec3 flach = normalize(T * (n.x * sc) + B * (n.y * sc) + N * max(n.z, 0.0001));',
+          // ── Und ab 25° die triplanare Fassung darüber ────────────────
+          //
+          // Die Tangentenbasis oben ist aus den Ableitungen der
+          // OBEN-UV gebaut (`uv` = Welt-x/z). An einer senkrechten Wand
+          // steht diese UV still: `dFdx(uv)` wird in einer Achse null,
+          // `T` fällt weg, und was übrig bleibt, ist eine Störung, die
+          // nur noch in einer Richtung arbeitet. Das ist derselbe
+          // Rechenfehler wie bei der Farbe, nur sieht man ihn als
+          // falsches Relief statt als Streifen.
+          //
+          // Die drei `nTri*` sind bereits WELTnormalen (siehe
+          // `nTriAbtastung`), werden also nicht mehr gedreht, sondern
+          // in derselben Reihenfolge wie die Farbe übereinandergelegt.
+          // Grundlage ist `flach`: Unterhalb von 30° deckt die
+          // Hangkachel noch nicht voll, und was darunter liegt, sind die
+          // vier Eck-Kacheln — die bleiben planar (siehe `nrmEingang`).
+          `  float triG = clamp((${TRI_BEGINN.toFixed(6)} - N.y) / ${(TRI_BEGINN - TRI_VOLL).toFixed(6)}, 0.0, 1.0);`,
+          '  normale = flach;',
+          '  if (triG > 0.0) {',
+          '    vec3 welt = flach;',
+          '    welt = normalize(mix(welt, nTriHang, kHang));',
+          '    welt = normalize(mix(welt, nTriFels, kFels));',
+          '    welt = normalize(mix(welt, nTriRau, kRau));',
+          // Schnee hat keine eigene Stapelzeile (seine Farbe ist eine
+          // Konstante) und deshalb auch keine triplanare Abtastung. Wo
+          // er deckt, gilt weiter der bisherige Pfad — eine Schneedecke
+          // ist glatt, ihr Relief ist nicht der gemeldete Befund.
+          '    welt = normalize(mix(welt, flach, schnee));',
+          '    normale = normalize(mix(flach, welt, triG));',
+          '  }',
+          // Die Zuweisung steht bewusst IM Zweig und nicht dahinter:
+          // `normalize(mix(flach, welt, 0.0))` wäre zwar `normalize(flach)`,
+          // und `flach` ist schon normiert — aber `inversesqrt(1.0)` ist
+          // nicht garantiert exakt 1.0. Ein einziges Bit Unterschied auf
+          // der Wiese, und der Nachweis „bitgleich" wäre keiner mehr.
           '}',
         ],
       };
@@ -1764,6 +2173,9 @@ export class TerrainSplatMaterial {
       nHang.connectTo(o.nHang!);
       nRau.connectTo(o.nRau!);
       normalTexs[0]!.rgb.connectTo(o.nSchnee!);
+      nTriFels.connectTo(o.nTriFels!);
+      nTriHang.connectTo(o.nTriHang!);
+      nTriRau.connectTo(o.nTriRau!);
       aTiles.output.connectTo(o.tiles!);
       aWeights.output.connectTo(o.weights!);
       terrainMarkerSplit.x.connectTo(o.felsTile!);

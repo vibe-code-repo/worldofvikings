@@ -1012,6 +1012,36 @@ const KERN = [
   ['tools', 'test/store-erzeugung.ts', brauchtStore()],
   ['tools', 'test/store-einsortierung.ts', brauchtModelle('assets/store')],
 
+  // ── Stufe 2: die Bodenschichten des Vorbilds ──────────────────────
+  //
+  // `tools/test/terrain-schichten.ts` haelt vier Dinge fest, von denen
+  // keines beim Ausfuehren auffaellt:
+  //
+  //  1. Das Werkzeug `store-terrain-schichten.mjs` laeuft DETERMINISTISCH
+  //     — zweiter Lauf, byteidentische Dateien. Seine Ausgabe liegt unter
+  //     `assets/generiert/` und damit ausserhalb von Git; ein `git
+  //     status` wuerde eine wandernde Ausgabe nie melden.
+  //
+  //  2. Werkzeug und Shader nennen DIESELBEN Zahlen. Kachelmass,
+  //     Normalstaerke, Metallic und Glaette stehen zwangslaeufig zweimal
+  //     (das Werkzeug baut die Pixel, `TerrainSplat.ts` baut den Shader,
+  //     und der entsteht, bevor `assets/generiert/` gelesen wird). Zwei
+  //     Listen laufen auseinander, sobald jemand EINE korrigiert.
+  //
+  //  3. Jedes der fuenf Biome hat eine Kachel fuer flach, mittleren und
+  //     steilen Hang. Fehlt eine, traegt der Berg weiter Gras — das sieht
+  //     nicht falsch aus, nur nicht nach Berg.
+  //
+  //  4. Beide Schalter (`STORE_BODEN_AKTIV`, `BODEN_FACETTIERT`) sind als
+  //     `boolean` typisiert. Mit einem Literaltyp narrowt TypeScript den
+  //     anderen Zweig zu totem Code, und der Rueckfall auf Stufe 0 ist
+  //     beim naechsten Umbau still kaputt.
+  //
+  // WEICHE `brauchtStore()`: Fehlt `assets/store` GANZ, wird
+  // uebersprungen (CI-Checkout). Fehlen EINZELNE Texturen darin, wird der
+  // Test rot — das ist ein unvollstaendiger Speicher, kein Umstand.
+  ['tools', 'test/terrain-schichten.ts', brauchtStore()],
+
   // ── Dungeon Generator 2.0 ──────────────────────────────────────────
   //
   // Vierzehn Dateien, die bis zum 31.08.2026 nur von Hand liefen. Das ist

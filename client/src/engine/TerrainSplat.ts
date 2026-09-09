@@ -70,7 +70,7 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture';
 import type { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { Constants } from '@babylonjs/core/Engines/constants';
-import { Color3, Vector2, Vector3 } from '@babylonjs/core/Maths/math';
+import { Color3, Vector2, Vector3, Vector4 } from '@babylonjs/core/Maths/math';
 import type { Scene } from '@babylonjs/core/scene';
 
 /** Tile-Indizes im 256×4096-Stack (G-TEX, 16/16 gegen Slices verifiziert). */
@@ -94,6 +94,162 @@ export const BIOME_TILE: Record<number, number> = {
 };
 
 const TEX_BASE = '/assets/textures/';
+
+// ── Stufe 2: die Bodenschichten des Vorbilds ────────────────────────
+/**
+ * Rückfallschalter auf den Altbestand.
+ *
+ * `true` (Vorgabe): Der Splat sampelt die Store-Stapel aus
+ * `assets/generiert/terrain/` (erzeugt von `tools/store-terrain-schichten.mjs`),
+ * bekommt eine Normale JE SCHICHT statt sechs Sammelgruppen, ein
+ * Metallic/Glätte-Paar je Schicht und einen Himmelsterm für die
+ * Reflexion. `false`: alles bleibt, wie Stufe 0 es gemessen hat —
+ * `terrain_d_array.png`, sechs Gruppen-Normalmaps, Lambert plus
+ * Blinn-Phong-Glanz.
+ *
+ * Der Schalter ist bewusst als `boolean` typisiert und nicht als
+ * Literal: Mit `true as const` würde TypeScript den Altbestand-Zweig als
+ * toten Code narrowen, und der Rückfall wäre nach dem nächsten Umbau
+ * still kaputt — ohne dass `npm run typecheck` etwas dazu sagt.
+ */
+export const STORE_BODEN_AKTIV: boolean = true;
+
+/**
+ * Facettierte Schattierung: die Normale je Dreieck statt interpoliert.
+ *
+ * Vorgabe AUS, und das ist ein Messergebnis, kein Geschmack. Der Boden
+ * des Vorbilds ist glatt schattiert (URP-Terrain/Lit auf einem 513²-Feld
+ * mit geteilten Ecken, 263 169 Vertices gegen 524 288 Dreiecke — also
+ * genau ein Vertex je Gitterpunkt). Die harten Kanten, die man dort für
+ * facettiertes Gelände hält, kommen von flach schattierten
+ * Klippen-MESHES auf dem Hang, nicht vom Boden (Analyse §5).
+ *
+ * Über Screen-Space-Ableitungen statt über einen zweiten, flach
+ * schattierten Vertexpuffer: Das Höhenfeld ist ein geteiltes Gitter,
+ * eine facettierte Kopie wäre die dreifache Vertexzahl für einen
+ * Schalter, der aus ist.
+ */
+export const BODEN_FACETTIERT: boolean = false;
+
+/** Basis des Store-Stapels; der Dev-Server liefert `assets/` unter `/assets/`. */
+const STORE_TEX_BASE = '/assets/generiert/terrain/';
+
+/**
+ * Was eine Schicht ist, ausser einer Farbe (Analyse §2 „Boden").
+ *
+ * Die Zahlen stehen im `terrain`-Block der Zone `village` von
+ * `content/worlds/village1.json` des Schwesterprojekts, wo sie am Bild
+ * kalibriert wurden (ADR-0032). Sie stehen HIER ein zweites Mal, weil
+ * der Shader sie beim Bau braucht und `assets/generiert/` erst zur
+ * Laufzeit da ist. Dass beide Listen dieselben sind, prüft
+ * `scripts/run-tests.mjs` gegen `tools/store-terrain-schichten.mjs` —
+ * eine abgeschriebene Zahl, die niemand nachschlägt, ist eine geratene.
+ */
+export interface SchichtOberflaeche {
+  /** Weltmeter je Wiederholung. Der Splat kachelt mit 2 m (uvScale 0.5). */
+  readonly kachelMeter: number;
+  /** Stärke der Normalmap, im Original je Schicht verschieden (1,2–5). */
+  readonly normalStaerke: number;
+  /** 0 = Dielektrikum, 1 = Metall. Fels liegt bei 0,85 — daher der Himmelsterm. */
+  readonly metallic: number;
+  /** 0 = matt, 1 = Spiegel. Der ganze Boden liegt unter 0,25. */
+  readonly smoothness: number;
+}
+
+/**
+ * Je Tile-Index eine Oberfläche, in der Reihenfolge von `TILE`.
+ *
+ * Die zwei Altbestand-Zeilen (7 Ash, 15 LavaCrust) tragen die Werte, die
+ * der alte Shader für sie gerechnet hat: `normalStrength` 0,7, kein
+ * Metall, `GLOSS_BASIS` als Glätte. Sie sollen aussehen wie vorher.
+ */
+export const SCHICHT_OBERFLAECHE: readonly SchichtOberflaeche[] = [
+  /*  0 Grass     */ { kachelMeter: 2, normalStaerke: 2, metallic: 0.5, smoothness: 0 },
+  /*  1 Forest    */ { kachelMeter: 2, normalStaerke: 1.2, metallic: 0, smoothness: 0 },
+  /*  2 Dirt      */ { kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
+  /*  3 Cleared   */ { kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
+  /*  4 Rock      */ { kachelMeter: 2, normalStaerke: 1.5, metallic: 0.85, smoothness: 0.1 },
+  /*  5 Cliff     */ { kachelMeter: 3, normalStaerke: 5, metallic: 0, smoothness: 0 },
+  /*  6 LavaEmber */ { kachelMeter: 3, normalStaerke: 5, metallic: 0, smoothness: 0 },
+  /*  7 Ash       */ { kachelMeter: 2, normalStaerke: 0.7, metallic: 0, smoothness: 0.1 },
+  /*  8 Heath     */ { kachelMeter: 2, normalStaerke: 2, metallic: 0.5, smoothness: 0 },
+  /*  9 Sand      */ { kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
+  /* 10 SwampMud  */ { kachelMeter: 2, normalStaerke: 1.2, metallic: 0, smoothness: 0 },
+  /* 11 Moss      */ { kachelMeter: 2, normalStaerke: 1.2, metallic: 0, smoothness: 0 },
+  /* 12 Paved     */ { kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
+  /* 13 SwampDark */ { kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
+  /* 14 Basalt    */ { kachelMeter: 3, normalStaerke: 5, metallic: 0, smoothness: 0 },
+  /* 15 LavaCrust */ { kachelMeter: 2, normalStaerke: 0.7, metallic: 0, smoothness: 0.1 },
+];
+
+/**
+ * Die Steigungsrampe des Vorbilds, übersetzt auf unsere Tiles.
+ *
+ * Im Dorf ist die Kanalzuordnung eine reine Steigungsrampe (Analyse §2):
+ * Gras unter 15°, Moos/Kies zwischen 15° und 30°, Fels ab ~35°, rauer
+ * Fels ab ~65°; Kies nur auf Wegen. Der Splat hatte bisher EINE Stufe
+ * davon — `rockK`, die Fels-Rampe von 30° auf 44°. Diese zwei Tabellen
+ * sind die beiden fehlenden Stufen.
+ *
+ * Sie hängen am BIOM, nicht an einer neuen Vertexgrösse: Welche Kachel
+ * ein Hang trägt, sagt bereits das dominante Eck-Tile des Pixels. Ein
+ * weiteres Vertex-Attribut hätte eine weitere Varying-Location gekostet,
+ * und davon sind unter WebGPU nur 16 erlaubt — der Kommentar bei
+ * `terrainMarker` erzählt, was das letzte Mal passiert ist.
+ *
+ * Gelesen als „Biom-Grundkachel → Kachel des mittleren Hangs":
+ *  Grasland → Moos, Schwarzwald → Fels A, Sumpf → Kies dunkel,
+ *  Heide/Sand → Erde, Asche → Basalt. Fels bleibt Fels.
+ */
+export const HANG_TILE: readonly number[] = [
+  /*  0 Grass     */ TILE.Moss,
+  /*  1 Forest    */ TILE.Rock,
+  /*  2 Dirt      */ TILE.Dirt,
+  /*  3 Cleared   */ TILE.Cleared,
+  /*  4 Rock      */ TILE.Rock,
+  /*  5 Cliff     */ TILE.Cliff,
+  /*  6 LavaEmber */ TILE.Basalt,
+  /*  7 Ash       */ TILE.Basalt,
+  /*  8 Heath     */ TILE.Dirt,
+  /*  9 Sand      */ TILE.Dirt,
+  /* 10 SwampMud  */ TILE.SwampDark,
+  /* 11 Moss      */ TILE.Rock,
+  /* 12 Paved     */ TILE.Paved,
+  /* 13 SwampDark */ TILE.SwampDark,
+  /* 14 Basalt    */ TILE.Basalt,
+  /* 15 LavaCrust */ TILE.Basalt,
+];
+
+/** Dasselbe für „rauer Fels ab ~65°": überall Klippe, in der Asche Basalt. */
+export const RAU_TILE: readonly number[] = [
+  TILE.Cliff, TILE.Cliff, TILE.Cliff, TILE.Cliff,
+  TILE.Cliff, TILE.Cliff, TILE.Basalt, TILE.Basalt,
+  TILE.Cliff, TILE.Cliff, TILE.Cliff, TILE.Cliff,
+  TILE.Cliff, TILE.Cliff, TILE.Basalt, TILE.Basalt,
+];
+
+// Grenzen der beiden neuen Rampen, als Kosinus der Hangneigung (= ny der
+// geometrischen Normalen). Die mittlere Rampe endet genau dort, wo die
+// bestehende Fels-Rampe (`felsBeginn` 0.87 ≈ 30°) beginnt — die beiden
+// stapeln sich, statt sich zu überschneiden.
+/** ny bei 15°: ab hier mischt sich die Hangkachel ein. */
+const HANG_BEGINN = 0.966;
+/** ny bei 30°: hier ist sie voll, und die Fels-Rampe übernimmt. */
+const HANG_VOLL = 0.866;
+/** ny bei 56°: ab hier mischt sich der rauhe Fels ein. */
+const RAU_BEGINN = 0.559;
+/** ny bei 65°: hier ist er voll. */
+const RAU_VOLL = 0.4226;
+
+/**
+ * Wie viel vom Himmel den Boden erreicht (Analogon zu `sky.groundReflection`
+ * des Schwesterprojekts, ADR-0032).
+ *
+ * 1,0 hiesse: Der Boden sieht die ganze Halbkugel. Er sieht sie nicht —
+ * er steht in einer Welt aus Bäumen und Hängen. Der Wert ist der eine
+ * Regler, an dem gedreht wird, wenn der Boden zu hell oder zu flau steht.
+ */
+const HIMMEL_ANTEIL = 1.0;
 
 /**
  * Paint mask atlas — one 65×65 tile per visible zone in a single texture.
@@ -288,6 +444,27 @@ const VAR_BASIS = 0.944;
 const VAR_MIN = 0.6;
 const VAR_MAX = 1.35;
 
+/**
+ * Die Himmelsfarben, die der Boden spiegelt — was `Lighting` liefert.
+ *
+ * Absichtlich ein eigener, kleiner Typ und kein Verweis auf eine Klasse
+ * aus `Lighting.ts`/`ValheimSky.ts`: Dieser Zweig kennt
+ * `lighting.sky.gibHimmelsfarben()` noch nicht, und der Boden soll auch
+ * dann übersetzen und ein richtiges Bild liefern, wenn es die Funktion
+ * nicht gibt. Ein struktureller Typ passt auf ihr Ergebnis, sobald sie da
+ * ist, und verlangt bis dahin nichts.
+ *
+ * LINEAR, wie alles, was in dieses Material geht (`Lighting.fogColorLinear`).
+ */
+export interface HimmelsFarben {
+  /** Farbe senkrecht über dem Boden. */
+  readonly zenit: Color3;
+  /** Farbe am Horizont. Sollte die Nebelfarbe sein — sonst wird die Naht sichtbar. */
+  readonly horizont: Color3;
+  /** Sonnenglühen im Verlauf. Fehlt sie, wird sie aus dem Horizont abgeleitet. */
+  readonly glanz?: Color3;
+}
+
 export class TerrainSplatMaterial {
   readonly material: NodeMaterial;
   /** Sonnenrichtung/-farbe/-ambient + Nebeldichte werden pro Frame gesetzt. */
@@ -309,7 +486,45 @@ export class TerrainSplatMaterial {
   /** Richtung ZUR Sonne in Weltkoordinaten, normalisiert. */
   private readonly zurSonneBlock: InputBlock;
 
+  // ── Der Himmel, den der Boden spiegelt ────────────────────────────
+  /** Zenitfarbe des Verlaufs, LINEAR. Siehe `setzeHimmel()`. */
+  private readonly himmelZenitBlock: InputBlock;
+  /** Horizontfarbe des Verlaufs, LINEAR. */
+  private readonly himmelHorizontBlock: InputBlock;
+  /** Sonnenglühen im Verlauf, LINEAR. Nur glatte Schichten zeigen es. */
+  private readonly himmelGlanzBlock: InputBlock;
+  /**
+   * Der zuletzt von aussen gesetzte Himmel, oder null.
+   *
+   * Solange er null ist, leitet `syncLighting()` die drei Farben je Frame
+   * aus der Nebelfarbe ab. Ist er gesetzt, gilt er — sonst überschriebe
+   * der nächste Frame stillschweigend, was Bauer Licht gesetzt hat, und
+   * die Suche danach ginge über die halbe Beleuchtung.
+   *
+   * Gemerkt statt nur „ein Schalter ist umgelegt": `syncLighting()` darf
+   * die Farben je Frame mitbekommen (achter Parameter), und dann muss der
+   * NEUE Wert gelten, nicht der erste, den je jemand gesetzt hat.
+   */
+  private himmelGesetzt: HimmelsFarben | null = null;
+
+  /**
+   * Der Nebelbereich, wie ihn die Szene führt: x Start, y Ende,
+   * z Modus-Code, w Dichte.
+   *
+   * Der Modus ist Babylons eigener Code (0 aus, 1 EXP, 2 EXP2,
+   * 3 LINEAR) und ausdrücklich KEIN 0/1-Schalter. Genau daran ist es im
+   * Schwesterprojekt einmal gescheitert (ADR-0041): Dort stand „1, wenn
+   * die Szene linear nebelt", und als die Welt auf eine exponentielle
+   * Kurve umgestellt wurde, fiel der Boden aus dem Nebel heraus, während
+   * alles, was darauf stand, weiter hazte. Im Diff unsichtbar, auf dem
+   * Bild fast unsichtbar.
+   */
+  private readonly nebelBereichBlock: InputBlock;
+  /** Die Szene, aus der `syncLighting()` Nebelmodus und -grenzen liest. */
+  private readonly szene: Scene;
+
   constructor(scene: Scene, waterLevel: number, sonne: DirectionalLight) {
+    this.szene = scene;
     const mat = new NodeMaterial('terrainSplat', scene, { emitComments: false });
     mat.mode = NodeMaterialModes.Material;
 
@@ -363,6 +578,15 @@ export class TerrainSplatMaterial {
     const zurSonne = cnst3v('zurSonneWelt', new Vector3(0, 1, 0));
     this.zurSonneBlock = zurSonne;
 
+    // Der Himmel, den der Boden spiegelt. Die Vorgabewerte sind die
+    // Ableitung aus der Vorgabe-Nebelfarbe (siehe `syncLighting`) — sie
+    // stehen hier nur, damit das Material auch dann ein sinnvolles Bild
+    // liefert, wenn `syncLighting()` noch kein einziges Mal lief (der
+    // erste Frame nach dem Bauen eines Chunks).
+    this.himmelZenitBlock = cnst3('himmelZenit', new Color3(0.225, 0.3025, 0.481));
+    this.himmelHorizontBlock = cnst3('himmelHorizont', new Color3(0.5, 0.55, 0.6));
+    this.himmelGlanzBlock = cnst3('himmelGlanz', new Color3(0.75, 0.7, 0.6));
+
     // ── Vertex: world pos, world normal, clip pos ───────────────────
     const worldPos = new TransformBlock('worldPos');
     position.output.connectTo(worldPos.vector);
@@ -406,7 +630,14 @@ export class TerrainSplatMaterial {
     // strukturlosem Matsch ("man sieht die Texturen nicht", obwohl die
     // Daten korrekt gesampelt werden).
     const maxAniso = scene.getEngine().getCaps().maxAnisotropy;
-    const splatTex = new Texture(TEX_BASE + 'terrain_d_array.png', scene, false, false, Texture.TRILINEAR_SAMPLINGMODE);
+    // Beide Stapel haben dieselbe Form (16 Zeilen übereinander) und
+    // dieselben Wrap-Regeln; nur der Dateiname unterscheidet sie. Genau
+    // deshalb ist der Umstieg auf die Store-Schichten hier eine Zeile und
+    // nicht ein zweiter Sampler-Pfad.
+    const splatDatei = STORE_BODEN_AKTIV
+      ? STORE_TEX_BASE + 'store_d_array.png'
+      : TEX_BASE + 'terrain_d_array.png';
+    const splatTex = new Texture(splatDatei, scene, false, false, Texture.TRILINEAR_SAMPLINGMODE);
     splatTex.anisotropicFilteringLevel = maxAniso;
     splatTex.wrapU = Texture.WRAP_ADDRESSMODE;
     splatTex.wrapV = Texture.CLAMP_ADDRESSMODE;
@@ -549,6 +780,72 @@ export class TerrainSplatMaterial {
     splatQuelle.texture = splatTex;
 
     /**
+     * Der Normalen-Stapel — dieselben 16 Zeilen, dieselbe Zeilennummer je
+     * Tile, nur mit Richtungen statt Farben.
+     *
+     * Dass Farbe und Normale AUS DEMSELBEN Zeilenindex kommen, ist der
+     * eigentliche Gewinn gegenüber den sechs Sammelgruppen des
+     * Altbestands: Dort bekam Sumpfschlamm dieselbe Körnung wie Fels,
+     * weil beide in derselben Gruppe lagen, und niemand konnte das an
+     * einer Zahl sehen. Hier ist ein Auseinanderlaufen nicht möglich —
+     * es gibt nur einen Index.
+     *
+     * `invertY` bleibt aus wie beim Farbstapel; der Stapel ist von oben
+     * nach unten gebaut (tools/store-terrain-schichten.mjs).
+     */
+    let normalQuelle: ImageSourceBlock | null = null;
+    if (STORE_BODEN_AKTIV) {
+      const nTex = new Texture(
+        STORE_TEX_BASE + 'store_n_array.png', scene, false, false, Texture.TRILINEAR_SAMPLINGMODE
+      );
+      nTex.anisotropicFilteringLevel = maxAniso;
+      nTex.wrapU = Texture.WRAP_ADDRESSMODE;
+      nTex.wrapV = Texture.CLAMP_ADDRESSMODE;
+      normalQuelle = new ImageSourceBlock('normalAtlas');
+      normalQuelle.texture = nTex;
+    }
+
+    /**
+     * GLSL-Nachschlagetabellen aus einer TypeScript-Liste.
+     *
+     * Ein `const float[16]` mit dynamischem Index ist in GLSL ES 3.00
+     * (unser WebGL2-Pfad) erlaubt und kostet keine Textur, keinen
+     * Sampler und kein Uniform. Erzeugt statt getippt, damit die Zahl im
+     * Shader dieselbe ist wie die in `SCHICHT_OBERFLAECHE` — eine von
+     * Hand nachgeführte Kopie wäre genau die Sorte Fehler, die niemand
+     * sieht, weil beide Fassungen für sich plausibel aussehen.
+     */
+    const glslTabelle = (name: string, werte: readonly number[]): string[] => [
+      `const float ${name}[16] = float[16](`,
+      '  ' + werte.map((w) => w.toFixed(4)).join(', '),
+      ');',
+    ];
+    /**
+     * Der UV-Faktor je Schicht: 2 m (die Kachelung des Splats, `uvScale`
+     * 0.5) geteilt durch das Kachelmass der Schicht. Rauer Fels ist im
+     * Original 3 m breit und braucht deshalb 0,667 — ohne diesen Faktor
+     * wäre er anderthalbmal zu fein und der einzige Untergrund, der die
+     * Massstabsfolge des Vorbilds nicht einhält.
+     */
+    const kachelFaktoren = SCHICHT_OBERFLAECHE.map((s) => 2 / s.kachelMeter);
+    /**
+     * Der Name trägt ein Suffix, weil jeder Tile-Zugriff seinen EIGENEN
+     * `CustomBlock` bekommt und Babylon dessen `code` je Block einmal in
+     * den Shader schreibt. Ein fester Name wäre zwölfmal definiert und
+     * der Shader unübersetzbar — dieselbe Vorsichtsmassnahme, die
+     * `vbTileSample_${name}` schon trifft.
+     */
+    const kachelGlsl = (suffix: string): string[] =>
+      STORE_BODEN_AKTIV
+        ? [
+            ...glslTabelle(`VB_KACHEL_${suffix}`, kachelFaktoren),
+            `float vbKachelFaktor_${suffix}(float tile) {`,
+            `  return VB_KACHEL_${suffix}[int(clamp(tile, 0.0, 15.0) + 0.5)];`,
+            '}',
+          ]
+        : [`float vbKachelFaktor_${suffix}(float tile) { return 1.0; }`];
+
+    /**
      * Ein Tile aus dem 16er-Stapel lesen — mit `textureGrad` statt
      * `texture`.
      *
@@ -583,8 +880,23 @@ export class TerrainSplatMaterial {
       /** UV-Faktor: 1 = normale Kachelung, <1 = gröber (für die Makro-Ebene). */
       freq = 1,
       /** UV-Versatz, damit grobe und feine Ebene nicht deckungsgleich laufen. */
-      versatz: readonly [number, number] = [0, 0]
+      versatz: readonly [number, number] = [0, 0],
+      /**
+       * Der Stapel, aus dem gelesen wird — der Farbstapel, wenn nichts
+       * anderes gesagt ist. Der NORMALEN-Stapel hat dieselbe Form (16
+       * Zeilen, dieselbe Zeilennummer je Tile), aber andere Daten: seine
+       * Werte sind eine Richtung, keine Farbe. Deshalb der zweite
+       * Schalter.
+       */
+      quelle: ImageSourceBlock | null = null,
+      /**
+       * sRGB → linear anwenden. Für Farbe ja, für Normalen NEIN — eine
+       * gamma-korrigierte Normale zeigt in die falsche Richtung, und zwar
+       * systematisch: 0,5 wird zu 0,21, aus „flach" wird „gekippt".
+       */
+      linearisieren = true
     ): NodeMaterialConnectionPoint => {
+      const stapel = quelle ?? splatQuelle;
       if (scene.getEngine().isWebGPU) {
         // glslang erlaubt einen kombinierten sampler2D(texture, sampler)
         // nur direkt am texture*-Aufruf, nicht als Funktionsargument. Der
@@ -632,9 +944,10 @@ export class TerrainSplatMaterial {
         yAtlas.output.connectTo(atlasUv.y);
         const tex = new TextureBlock(`tile_${name}_tex`);
         tex.fragmentOnly = true;
-        splatQuelle.source.connectTo(tex.source);
+        stapel.source.connectTo(tex.source);
         atlasUv.xy.connectTo(tex.uv);
 
+        if (!linearisieren) return tex.rgb;
         const linear = new PowBlock(`tile_${name}_linear`);
         tex.rgb.connectTo(linear.value);
         cnst3(`tile_${name}_gamma`, new Color3(2.2, 2.2, 2.2)).output.connectTo(linear.power);
@@ -656,8 +969,11 @@ export class TerrainSplatMaterial {
         ],
         outParameters: [{ name: 'result', type: 'Vector3' }],
         code: [
+          ...kachelGlsl(name),
           `void ${fn}(sampler2D atlas, vec2 uvKontRoh, float layer, vec3 wpos, vec3 cpos, out vec3 result) {`,
-          `  vec2 uvKont = uvKontRoh * ${freq.toFixed(4)} + vec2(${versatz[0].toFixed(3)}, ${versatz[1].toFixed(3)});`,
+          // Kachelmass je Schicht (Store-Pfad; im Altbestand konstant 1).
+          // VOR dem Versatz, damit der Versatz in Kachelbreiten bleibt.
+          `  vec2 uvKont = uvKontRoh * (${freq.toFixed(4)} * vbKachelFaktor_${name}(layer)) + vec2(${versatz[0].toFixed(3)}, ${versatz[1].toFixed(3)});`,
           '  vec2 ddx = dFdx(uvKont);',
           '  vec2 ddy = dFdy(uvKont);',
           // ── Entfernungsunschärfe ──────────────────────────────────
@@ -692,12 +1008,12 @@ export class TerrainSplatMaterial {
           // Gemessen: Tile 0 hat in der Datei RGB(81,112,64), gerendert
           // kam RGB(162,185,138) heraus. Nur für die Diffuse-Tiles —
           // Noise- und Normal-Maps sind Daten, keine Farben.
-          '  result = pow(c, vec3(2.2));',
+          linearisieren ? '  result = pow(c, vec3(2.2));' : '  result = c;',
           '}',
         ],
       };
       const o = cb as unknown as Record<string, NodeMaterialConnectionPoint>;
-      splatQuelle.source.connectTo(o.atlas);
+      stapel.source.connectTo(o.atlas);
       tileUV.output.connectTo(o.uvKont);
       layerInput.connectTo(o.layer);
       wps.xyzOut.connectTo(o.wpos);
@@ -888,6 +1204,77 @@ export class TerrainSplatMaterial {
     const rockClamp = new ClampBlock('rockClamp'); rockT2.output.connectTo(rockClamp.value);
     const c085r = cnst('c085r', 0.85);
     const rockK = new MultiplyBlock('rockK'); rockClamp.output.connectTo(rockK.left); c085r.output.connectTo(rockK.right);
+
+    // ── Die zwei fehlenden Stufen der Steigungsrampe ────────────────
+    // Bisher kannte der Splat genau eine Schwelle: Fels ab 30°. Das
+    // Vorbild hat vier (Analyse §2 „Boden"): Gras unter 15°, Moos/Kies
+    // von 15° bis 30°, Fels ab ~35°, rauer Fels ab ~65°. Die zwei
+    // fehlenden Stufen kommen hier dazu — die mittlere endet genau dort,
+    // wo `rockK` beginnt, und die oberste setzt hinter dem Fels an.
+    //
+    // Welche Kachel die jeweilige Stufe zeigt, sagt das DOMINANTE
+    // Eck-Tile des Pixels (siehe HANG_TILE / RAU_TILE). Es wird hier
+    // ausgerechnet und nicht als Vertexgrösse mitgeführt: Zwei weitere
+    // Float-Attribute wären zwei weitere Varying-Locations, und unter
+    // WebGPU sind nur 16 erlaubt.
+    let hangTeil: NodeMaterialConnectionPoint | null = null;
+    let rauTeil: NodeMaterialConnectionPoint | null = null;
+    let hangKAus: NodeMaterialConnectionPoint | null = null;
+    let rauKAus: NodeMaterialConnectionPoint | null = null;
+    let hangTileAus: NodeMaterialConnectionPoint | null = null;
+    let rauTileAus: NodeMaterialConnectionPoint | null = null;
+    if (STORE_BODEN_AKTIV) {
+      const hangWahl = new CustomBlock('terrainHangWahl');
+      hangWahl.options = {
+        name: 'terrainHangWahl',
+        target: 'Fragment',
+        functionName: 'vbHangWahl',
+        inParameters: [
+          { name: 'tiles', type: 'Vector4' },
+          { name: 'weights', type: 'Vector4' },
+          { name: 'ny', type: 'Float' },
+        ],
+        outParameters: [
+          { name: 'hangTile', type: 'Float' },
+          { name: 'rauTile', type: 'Float' },
+          { name: 'hangK', type: 'Float' },
+          { name: 'rauK', type: 'Float' },
+        ],
+        code: [
+          ...glslTabelle('VB_HANG', HANG_TILE),
+          ...glslTabelle('VB_RAU', RAU_TILE),
+          'void vbHangWahl(vec4 tiles, vec4 weights, float ny,',
+          '                out float hangTile, out float rauTile,',
+          '                out float hangK, out float rauK) {',
+          // Dominante Ecke, branchfrei über step(): das Tile mit dem
+          // grössten Gewicht ist das Biom, in dem der Pixel liegt.
+          // Gemischt wird die FARBE weiterhin über alle vier Ecken —
+          // hier geht es nur um die Frage, WELCHE Hangkachel gilt, und
+          // eine Mischung aus Moos und Basalt wäre darauf keine Antwort.
+          '  float t = tiles.x; float w = weights.x;',
+          '  float s = step(w, weights.y); t = mix(t, tiles.y, s); w = mix(w, weights.y, s);',
+          '  s = step(w, weights.z);       t = mix(t, tiles.z, s); w = mix(w, weights.z, s);',
+          '  s = step(w, weights.w);       t = mix(t, tiles.w, s);',
+          '  int i = int(clamp(t, 0.0, 15.0) + 0.5);',
+          '  hangTile = VB_HANG[i];',
+          '  rauTile = VB_RAU[i];',
+          `  hangK = clamp((${HANG_BEGINN.toFixed(4)} - ny) / ${(HANG_BEGINN - HANG_VOLL).toFixed(4)}, 0.0, 1.0);`,
+          `  rauK = clamp((${RAU_BEGINN.toFixed(4)} - ny) / ${(RAU_BEGINN - RAU_VOLL).toFixed(4)}, 0.0, 1.0);`,
+          '}',
+        ],
+      };
+      const hw = hangWahl as unknown as Record<string, NodeMaterialConnectionPoint>;
+      aTiles.output.connectTo(hw.tiles);
+      aWeights.output.connectTo(hw.weights);
+      nrmSplit.y.connectTo(hw.ny);
+      hangTileAus = hw.hangTile;
+      rauTileAus = hw.rauTile;
+      hangKAus = hw.hangK;
+      rauKAus = hw.rauK;
+      hangTeil = sampleLayer(hangTileAus, 'hang');
+      rauTeil = sampleLayer(rauTileAus, 'rau');
+    }
+
     // ── Paint-Mask (Dirt / Cultivated / Paved) ──────────────────────
     // Sitzt bewusst NACH dem Sandband und VOR dem Fels:
     //  - nach Sand, damit ein Lehmweg am Strand als Weg liest
@@ -938,7 +1325,23 @@ export class TerrainSplatMaterial {
     pavedSample.connectTo((paint as unknown as Record<string, never>).cPaved);
     const painted = (paint as unknown as { result: NodeMaterialConnectionPoint }).result;
 
-    const rockLerp = new LerpBlock('rockLerp'); painted.connectTo(rockLerp.left); rockSample.connectTo(rockLerp.right); rockK.output.connectTo(rockLerp.gradient);
+    // Reihenfolge der drei Hangstufen: Hangkachel VOR dem Fels (sie ist
+    // die flachere), rauer Fels DANACH (er ist die steilste). So deckt
+    // jede Stufe die vorige zu, statt sich mit ihr zu mischen — dieselbe
+    // Wirkungsreihenfolge wie im Original-Shader.
+    let vorFels: NodeMaterialConnectionPoint = painted;
+    if (hangTeil && hangKAus) {
+      const hangLerp = new LerpBlock('hangLerp');
+      painted.connectTo(hangLerp.left); hangTeil.connectTo(hangLerp.right); hangKAus.connectTo(hangLerp.gradient);
+      vorFels = hangLerp.output;
+    }
+    const rockLerp = new LerpBlock('rockLerp'); vorFels.connectTo(rockLerp.left); rockSample.connectTo(rockLerp.right); rockK.output.connectTo(rockLerp.gradient);
+    let nachFels: NodeMaterialConnectionPoint = rockLerp.output;
+    if (rauTeil && rauKAus) {
+      const rauLerp = new LerpBlock('rauLerp');
+      rockLerp.output.connectTo(rauLerp.left); rauTeil.connectTo(rauLerp.right); rauKAus.connectTo(rauLerp.gradient);
+      nachFels = rauLerp.output;
+    }
 
     // ── Schnee (Mountain/DeepNorth), nur auf flachen Stellen ────────
     const snowCol = cnst3('snowCol', new Color3(0.93, 0.95, 0.99));
@@ -947,7 +1350,7 @@ export class TerrainSplatMaterial {
     const ss065 = cnst('ss065', 0.65);
     ss04.output.connectTo(snowSS.edge0); ss065.output.connectTo(snowSS.edge1); nrmSplit.y.connectTo(snowSS.value);
     const snowK = new MultiplyBlock('snowK'); terrainMarkerSplit.y.connectTo(snowK.left); snowSS.output.connectTo(snowK.right);
-    const snowLerp = new LerpBlock('snowLerp'); rockLerp.output.connectTo(snowLerp.left); snowCol.output.connectTo(snowLerp.right); snowK.output.connectTo(snowLerp.gradient);
+    const snowLerp = new LerpBlock('snowLerp'); nachFels.connectTo(snowLerp.left); snowCol.output.connectTo(snowLerp.right); snowK.output.connectTo(snowLerp.gradient);
 
     // ── Lava (AshLands): dunkle Kruste + glühende Risse ─────────────
     const crustTile = cnst('crustTile', TILE.LavaCrust);
@@ -1008,15 +1411,24 @@ export class TerrainSplatMaterial {
     // DXT5nm-Rückrechnung wie das Array selbst.
     //
     // Reihenfolge = Gruppenindex in vbTileNormalGroup unten.
-    const normalTexs = [
-      'terraintile_n_0',      // 0 weich: Grass, Heath, Sand, Moss
-      'forest_n',             // 1 Waldboden        (_ForestNormal)
-      'terraintile_n_1',      // 2 mittel: Dirt, Ash, Sumpf
-      'cultivated_n',         // 3 umgegraben       (_CultivatedNormal)
-      'gouacherock_big_n',    // 4 Fels und Lava    (_CliffNormal)
-      'paved_n',              // 5 gepflastert      (_PavedNormal)
-      'snow_normal',          // 6 Schnee           (_SnowNormal)
-    ].map((n, i) => {
+    // Im Store-Pfad wird von diesen sieben nur noch `snow_normal`
+    // gebraucht: Schnee ist die einzige Deckschicht ohne eigene
+    // Stapelzeile (seine Farbe ist eine Konstante, `snowCol`). Die
+    // übrigen sechs werden dann gar nicht erst geladen — sie wären
+    // sonst rund 1,5 MB VRAM, an die kein Sampler mehr geht.
+    const normalTexs = (
+      STORE_BODEN_AKTIV
+        ? ['snow_normal']
+        : [
+            'terraintile_n_0',      // 0 weich: Grass, Heath, Sand, Moss
+            'forest_n',             // 1 Waldboden        (_ForestNormal)
+            'terraintile_n_1',      // 2 mittel: Dirt, Ash, Sumpf
+            'cultivated_n',         // 3 umgegraben       (_CultivatedNormal)
+            'gouacherock_big_n',    // 4 Fels und Lava    (_CliffNormal)
+            'paved_n',              // 5 gepflastert      (_PavedNormal)
+            'snow_normal',          // 6 Schnee           (_SnowNormal)
+          ]
+    ).map((n, i) => {
       const t = new Texture(TEX_BASE + n + '.png', scene, false, false, Texture.TRILINEAR_SAMPLINGMODE);
       t.anisotropicFilteringLevel = maxAniso;
       // WRAP statt fract(): jede Normal-Map ist eine eigene Textur (kein
@@ -1030,102 +1442,283 @@ export class TerrainSplatMaterial {
       return tb;
     });
 
-    const normalStrength = cnst('normalStrength', 0.7); // Referenzwert uNormalStrength
-    const perturb = new CustomBlock('terrainNormal');
-    perturb.options = {
-      name: 'terrainNormal',
-      target: 'Fragment',
-      functionName: 'terrainNormalPerturb',
-      inParameters: [
-        { name: 'n0', type: 'Vector3' },
-        { name: 'n1', type: 'Vector3' },
-        { name: 'n2', type: 'Vector3' },
-        { name: 'n3', type: 'Vector3' },
-        { name: 'n4', type: 'Vector3' },
-        { name: 'n5', type: 'Vector3' },
-        { name: 'nSnow', type: 'Vector3' },
-        { name: 'schnee', type: 'Float' },
-        { name: 'tiles', type: 'Vector4' },
-        { name: 'weights', type: 'Vector4' },
-        { name: 'wpos', type: 'Vector3' },
-        { name: 'uv', type: 'Vector2' },
-        { name: 'surfN', type: 'Vector3' },
-        { name: 'strength', type: 'Float' },
-      ],
-      outParameters: [{ name: 'result', type: 'Vector3' }],
-      code: [
-        // Tile → welche der sechs Normal-Maps. Die Zuordnung folgt den
-        // Slot-Namen des Originals: was `_ForestNormal` heisst, liegt auf
-        // Waldboden, `_CliffNormal` auf Fels und Lava, und so weiter.
-        'float vbTileNormalGroup(float tile) {',
-        `  if (tile == ${TILE.Forest}.0) return 1.0;`,
-        `  if (tile == ${TILE.Cleared}.0) return 3.0;`,
-        `  if (tile == ${TILE.Paved}.0) return 5.0;`,
-        `  if (tile == ${TILE.Rock}.0 || tile == ${TILE.Cliff}.0 || tile == ${TILE.LavaEmber}.0`,
-        `   || tile == ${TILE.Basalt}.0 || tile == ${TILE.LavaCrust}.0) return 4.0;`,
-        `  if (tile == ${TILE.Grass}.0 || tile == ${TILE.Heath}.0 || tile == ${TILE.Sand}.0`,
-        `   || tile == ${TILE.Moss}.0) return 0.0;`,
-        '  return 2.0;',   // Dirt, Ash, SwampMud, SwampDark
-        '}',
-        // Branchfreie Auswahl: je Gruppe eine 0/1-Maske aus zwei step().
-        'vec3 vbPickGroup(float g, vec3 a, vec3 b, vec3 c, vec3 d, vec3 e, vec3 f) {',
-        '  return a * (step(g, 0.5))',
-        '       + b * (step(0.5, g) * step(g, 1.5))',
-        '       + c * (step(1.5, g) * step(g, 2.5))',
-        '       + d * (step(2.5, g) * step(g, 3.5))',
-        '       + e * (step(3.5, g) * step(g, 4.5))',
-        '       + f * (step(4.5, g));',
-        '}',
-        'void terrainNormalPerturb(vec3 n0, vec3 n1, vec3 n2, vec3 n3, vec3 n4, vec3 n5,',
-        '                          vec3 nSnow, float schnee, vec4 tiles, vec4 weights,',
-        '                          vec3 wpos, vec2 uv, vec3 surfN, float strength, out vec3 result) {',
-        '  vec4 w = weights / max(weights.x + weights.y + weights.z + weights.w, 1e-5);',
-        '  vec3 nc = vbPickGroup(vbTileNormalGroup(tiles.x), n0, n1, n2, n3, n4, n5) * w.x',
-        '          + vbPickGroup(vbTileNormalGroup(tiles.y), n0, n1, n2, n3, n4, n5) * w.y',
-        '          + vbPickGroup(vbTileNormalGroup(tiles.z), n0, n1, n2, n3, n4, n5) * w.z',
-        '          + vbPickGroup(vbTileNormalGroup(tiles.w), n0, n1, n2, n3, n4, n5) * w.w;',
-        // Schnee liegt ÜBER der Tile-Mischung, genau wie seine Farbe: er
-        // deckt zu, statt sich einzumischen. Derselbe Faktor wie dort.
-        '  nc = mix(nc, nSnow, clamp(schnee, 0.0, 1.0));',
-        '  vec3 mapN = nc * 2.0 - 1.0;',
-        '  mapN.xy *= strength;',
-        // Tangentenfreie Störung (Schüler-Technik, wie in der Referenz):
-        // unsere Terrain-Geometrie führt keine Tangenten mit, deshalb wird
-        // die Basis pro Pixel aus den Screen-Space-Ableitungen von
-        // Weltposition und UV rekonstruiert. Braucht Ableitungen — in
-        // GLSL ES 3.00 (WebGL2, unser Pfad) Kernsprache.
-        '  vec3 q0 = dFdx(wpos);',
-        '  vec3 q1 = dFdy(wpos);',
-        '  vec2 st0 = dFdx(uv);',
-        '  vec2 st1 = dFdy(uv);',
-        '  vec3 N = normalize(surfN);',
-        '  vec3 q1perp = cross(q1, N);',
-        '  vec3 q0perp = cross(N, q0);',
-        '  vec3 T = q1perp * st0.x + q0perp * st1.x;',
-        '  vec3 B = q1perp * st0.y + q0perp * st1.y;',
-        '  float det = max(dot(T, T), dot(B, B));',
-        '  float sc = (det == 0.0) ? 0.0 : inversesqrt(det);',
-        '  result = normalize(T * (mapN.x * sc) + B * (mapN.y * sc) + N * mapN.z);',
-        '}',
-      ],
-    };
-    const pIn = perturb as unknown as Record<string, never>;
-    normalTexs[0].rgb.connectTo(pIn.n0);
-    normalTexs[1].rgb.connectTo(pIn.n1);
-    normalTexs[2].rgb.connectTo(pIn.n2);
-    normalTexs[3].rgb.connectTo(pIn.n3);
-    normalTexs[4].rgb.connectTo(pIn.n4);
-    normalTexs[5].rgb.connectTo(pIn.n5);
-    normalTexs[6].rgb.connectTo(pIn.nSnow);
-    snowK.output.connectTo(pIn.schnee);
-    aTiles.output.connectTo((perturb as unknown as Record<string, never>).tiles);
-    aWeights.output.connectTo((perturb as unknown as Record<string, never>).weights);
-    wps.xyzOut.connectTo((perturb as unknown as Record<string, never>).wpos);
-    rotUV.xy.connectTo((perturb as unknown as Record<string, never>).uv);
-    nrmSplit.xyzOut.connectTo((perturb as unknown as Record<string, never>).surfN);
-    normalStrength.output.connectTo((perturb as unknown as Record<string, never>).strength);
+    /**
+     * Die gestörte Normale und, im Store-Pfad, das Material darunter.
+     *
+     * `gestoerteNormale` ist der Ausgang, mit dem beleuchtet wird —
+     * beide Pfade füllen ihn, und alles dahinter kennt den Unterschied
+     * nicht mehr. `metallicAus`/`glaetteAus` bleiben im Altbestand null;
+     * dort rechnet der Blinn-Phong-Glanz weiter wie bisher.
+     */
+    let gestoerteNormale: NodeMaterialConnectionPoint;
+    let metallicAus: NodeMaterialConnectionPoint | null = null;
+    let glaetteAus: NodeMaterialConnectionPoint | null = null;
+
+    if (STORE_BODEN_AKTIV && normalQuelle && hangTileAus && rauTileAus && hangKAus && rauKAus) {
+      // ── Store-Pfad: eine Normale JE SCHICHT ─────────────────────────
+      // Acht Abtastungen des Normalen-Stapels statt sieben fester
+      // Texturen: die vier Eck-Tiles, die drei Hangstufen und der
+      // Schnee. Jede trifft dieselbe Stapelzeile wie ihre Farbe.
+      //
+      // Der Sand bekommt bewusst KEINE eigene Normalabtastung. Seine
+      // Fläche liegt an der Wasserlinie und ist dort flach; was ihn
+      // ausmacht (Metallic 0,75, Glätte 0,1) ist eine Zahl aus der
+      // Tabelle und braucht keine Textur. Eine neunte Abtastung für ein
+      // Korn, das unter Wasser liegt, wäre nicht zu rechtfertigen.
+      const nAbtastung = (
+        tileEingang: NodeMaterialConnectionPoint,
+        name: string
+      ): NodeMaterialConnectionPoint => tileSampler(tileEingang, name, 1, [0, 0], normalQuelle, false);
+      const nEcke0 = nAbtastung(tilesSplit.x, 'n0');
+      const nEcke1 = nAbtastung(tilesSplit.y, 'n1');
+      const nEcke2 = nAbtastung(tilesSplit.z, 'n2');
+      const nEcke3 = nAbtastung(tilesSplit.w, 'n3');
+      const nFels = nAbtastung(terrainMarkerSplit.x, 'nfels');
+      const nHang = nAbtastung(hangTileAus, 'nhang');
+      const nRau = nAbtastung(rauTileAus, 'nrau');
+
+      const oberflaeche = new CustomBlock('terrainOberflaeche');
+      oberflaeche.options = {
+        name: 'terrainOberflaeche',
+        target: 'Fragment',
+        functionName: 'vbTerrainOberflaeche',
+        inParameters: [
+          { name: 'nEcke0', type: 'Vector3' },
+          { name: 'nEcke1', type: 'Vector3' },
+          { name: 'nEcke2', type: 'Vector3' },
+          { name: 'nEcke3', type: 'Vector3' },
+          { name: 'nFels', type: 'Vector3' },
+          { name: 'nHang', type: 'Vector3' },
+          { name: 'nRau', type: 'Vector3' },
+          { name: 'nSchnee', type: 'Vector3' },
+          { name: 'tiles', type: 'Vector4' },
+          { name: 'weights', type: 'Vector4' },
+          { name: 'felsTile', type: 'Float' },
+          { name: 'hangTile', type: 'Float' },
+          { name: 'rauTile', type: 'Float' },
+          { name: 'kSand', type: 'Float' },
+          { name: 'kHang', type: 'Float' },
+          { name: 'kFels', type: 'Float' },
+          { name: 'kRau', type: 'Float' },
+          { name: 'kSchnee', type: 'Float' },
+          { name: 'wpos', type: 'Vector3' },
+          { name: 'uv', type: 'Vector2' },
+          { name: 'surfN', type: 'Vector3' },
+        ],
+        outParameters: [
+          { name: 'normale', type: 'Vector3' },
+          { name: 'metallic', type: 'Float' },
+          { name: 'glaette', type: 'Float' },
+        ],
+        code: [
+          ...glslTabelle('VB_NSTAERKE', SCHICHT_OBERFLAECHE.map((o) => o.normalStaerke)),
+          ...glslTabelle('VB_METALLIC', SCHICHT_OBERFLAECHE.map((o) => o.metallic)),
+          ...glslTabelle('VB_GLAETTE', SCHICHT_OBERFLAECHE.map((o) => o.smoothness)),
+          'int vbIdx(float tile) { return int(clamp(tile, 0.0, 15.0) + 0.5); }',
+          // Eine Karte in eine Neigung umrechnen, mit der Stärke DIESER
+          // Schicht. Die Stärke gehört an diese Stelle und nicht hinter
+          // die Mischung: Das Original führt sie je Schicht (1,2 bis 5),
+          // und ein globaler Wert macht aus rauem Fels (5) und Moos (1,2)
+          // dieselbe Oberfläche.
+          'vec3 vbNeigung(vec3 karte, float tile) {',
+          '  vec3 n = karte * 2.0 - 1.0;',
+          '  n.xy *= VB_NSTAERKE[vbIdx(tile)];',
+          '  return n;',
+          '}',
+          'void vbTerrainOberflaeche(vec3 nEcke0, vec3 nEcke1, vec3 nEcke2, vec3 nEcke3,',
+          '                          vec3 nFels, vec3 nHang, vec3 nRau, vec3 nSchnee,',
+          '                          vec4 tiles, vec4 weights, float felsTile, float hangTile,',
+          '                          float rauTile, float kSand, float kHang, float kFels,',
+          '                          float kRau, float kSchnee, vec3 wpos, vec2 uv, vec3 surfN,',
+          '                          out vec3 normale, out float metallic, out float glaette) {',
+          '  vec4 w = weights / max(weights.x + weights.y + weights.z + weights.w, 1e-5);',
+          // Grundmischung: die vier Ecken, für Neigung UND Material mit
+          // DENSELBEN Gewichten. Getrennt gemischt wären es zwei
+          // Chancen, dass das Metall des Felsens einen halben Meter
+          // neben dem Felsen landet.
+          '  vec3 n = vbNeigung(nEcke0, tiles.x) * w.x + vbNeigung(nEcke1, tiles.y) * w.y',
+          '        + vbNeigung(nEcke2, tiles.z) * w.z + vbNeigung(nEcke3, tiles.w) * w.w;',
+          '  float m = VB_METALLIC[vbIdx(tiles.x)] * w.x + VB_METALLIC[vbIdx(tiles.y)] * w.y',
+          '          + VB_METALLIC[vbIdx(tiles.z)] * w.z + VB_METALLIC[vbIdx(tiles.w)] * w.w;',
+          '  float g = VB_GLAETTE[vbIdx(tiles.x)] * w.x + VB_GLAETTE[vbIdx(tiles.y)] * w.y',
+          '          + VB_GLAETTE[vbIdx(tiles.z)] * w.z + VB_GLAETTE[vbIdx(tiles.w)] * w.w;',
+          // Danach dieselben fünf Überblendungen in derselben
+          // Reihenfolge wie bei der FARBE (Sand, Hang, Fels, rauer Fels,
+          // Schnee). Wer hier eine Reihenfolge ändert, ohne sie dort zu
+          // ändern, bekommt Material und Farbe an verschiedene Stellen —
+          // und das sieht man erst am Hang, nie im Diff.
+          `  m = mix(m, ${SCHICHT_OBERFLAECHE[TILE.Sand]!.metallic.toFixed(4)}, kSand);`,
+          `  g = mix(g, ${SCHICHT_OBERFLAECHE[TILE.Sand]!.smoothness.toFixed(4)}, kSand);`,
+          '  n = mix(n, vbNeigung(nHang, hangTile), kHang);',
+          '  m = mix(m, VB_METALLIC[vbIdx(hangTile)], kHang);',
+          '  g = mix(g, VB_GLAETTE[vbIdx(hangTile)], kHang);',
+          '  n = mix(n, vbNeigung(nFels, felsTile), kFels);',
+          '  m = mix(m, VB_METALLIC[vbIdx(felsTile)], kFels);',
+          '  g = mix(g, VB_GLAETTE[vbIdx(felsTile)], kFels);',
+          '  n = mix(n, vbNeigung(nRau, rauTile), kRau);',
+          '  m = mix(m, VB_METALLIC[vbIdx(rauTile)], kRau);',
+          '  g = mix(g, VB_GLAETTE[vbIdx(rauTile)], kRau);',
+          // Schnee liegt ÜBER allem, wie seine Farbe. Seine Karte ist
+          // eine eigene Textur, seine Stärke die des Altbestands (0,7),
+          // und seine Glätte 1,0 — `_SnowGloss` des Originals.
+          '  float schnee = clamp(kSchnee, 0.0, 1.0);',
+          '  vec3 nS = nSchnee * 2.0 - 1.0; nS.xy *= 0.7;',
+          '  n = mix(n, nS, schnee);',
+          `  m = mix(m, 0.0, schnee);`,
+          `  g = mix(g, ${GLOSS_SCHNEE.toFixed(2)}, schnee);`,
+          '  metallic = clamp(m, 0.0, 1.0);',
+          '  glaette = clamp(g, 0.0, 1.0);',
+          // ── Geometrische Normale ────────────────────────────────────
+          BODEN_FACETTIERT
+            ? '  vec3 glatt = normalize(surfN);\n' +
+              '  vec3 facette = normalize(cross(dFdx(wpos), dFdy(wpos)));\n' +
+              // In dieselbe Halbkugel drehen wie die Vertexnormale, sonst
+              // kommt je nach Wicklungsrichtung ein Dreieck von innen.
+              '  vec3 N = facette * sign(dot(facette, glatt));'
+            : '  vec3 N = normalize(surfN);',
+          // Tangentenfreie Störung (wie im Altbestand-Zweig, gleiche
+          // Herleitung): Unsere Chunks führen keine Tangenten mit, also
+          // wird die Basis pro Pixel aus den Ableitungen von Weltposition
+          // und UV rekonstruiert.
+          '  vec3 q0 = dFdx(wpos);',
+          '  vec3 q1 = dFdy(wpos);',
+          '  vec2 st0 = dFdx(uv);',
+          '  vec2 st1 = dFdy(uv);',
+          '  vec3 q1perp = cross(q1, N);',
+          '  vec3 q0perp = cross(N, q0);',
+          '  vec3 T = q1perp * st0.x + q0perp * st1.x;',
+          '  vec3 B = q1perp * st0.y + q0perp * st1.y;',
+          '  float det = max(dot(T, T), dot(B, B));',
+          '  float sc = (det == 0.0) ? 0.0 : inversesqrt(det);',
+          '  normale = normalize(T * (n.x * sc) + B * (n.y * sc) + N * max(n.z, 0.0001));',
+          '}',
+        ],
+      };
+      const o = oberflaeche as unknown as Record<string, NodeMaterialConnectionPoint>;
+      nEcke0.connectTo(o.nEcke0!);
+      nEcke1.connectTo(o.nEcke1!);
+      nEcke2.connectTo(o.nEcke2!);
+      nEcke3.connectTo(o.nEcke3!);
+      nFels.connectTo(o.nFels!);
+      nHang.connectTo(o.nHang!);
+      nRau.connectTo(o.nRau!);
+      normalTexs[0]!.rgb.connectTo(o.nSchnee!);
+      aTiles.output.connectTo(o.tiles!);
+      aWeights.output.connectTo(o.weights!);
+      terrainMarkerSplit.x.connectTo(o.felsTile!);
+      hangTileAus.connectTo(o.hangTile!);
+      rauTileAus.connectTo(o.rauTile!);
+      sandK.output.connectTo(o.kSand!);
+      hangKAus.connectTo(o.kHang!);
+      rockK.output.connectTo(o.kFels!);
+      rauKAus.connectTo(o.kRau!);
+      snowK.output.connectTo(o.kSchnee!);
+      wps.xyzOut.connectTo(o.wpos!);
+      tileUV.output.connectTo(o.uv!);
+      nrmSplit.xyzOut.connectTo(o.surfN!);
+      gestoerteNormale = o.normale!;
+      metallicAus = o.metallic!;
+      glaetteAus = o.glaette!;
+    } else {
+      const normalStrength = cnst('normalStrength', 0.7); // Referenzwert uNormalStrength
+      const perturb = new CustomBlock('terrainNormal');
+      perturb.options = {
+        name: 'terrainNormal',
+        target: 'Fragment',
+        functionName: 'terrainNormalPerturb',
+        inParameters: [
+          { name: 'n0', type: 'Vector3' },
+          { name: 'n1', type: 'Vector3' },
+          { name: 'n2', type: 'Vector3' },
+          { name: 'n3', type: 'Vector3' },
+          { name: 'n4', type: 'Vector3' },
+          { name: 'n5', type: 'Vector3' },
+          { name: 'nSnow', type: 'Vector3' },
+          { name: 'schnee', type: 'Float' },
+          { name: 'tiles', type: 'Vector4' },
+          { name: 'weights', type: 'Vector4' },
+          { name: 'wpos', type: 'Vector3' },
+          { name: 'uv', type: 'Vector2' },
+          { name: 'surfN', type: 'Vector3' },
+          { name: 'strength', type: 'Float' },
+        ],
+        outParameters: [{ name: 'result', type: 'Vector3' }],
+        code: [
+          // Tile → welche der sechs Normal-Maps. Die Zuordnung folgt den
+          // Slot-Namen des Originals: was `_ForestNormal` heisst, liegt auf
+          // Waldboden, `_CliffNormal` auf Fels und Lava, und so weiter.
+          'float vbTileNormalGroup(float tile) {',
+          `  if (tile == ${TILE.Forest}.0) return 1.0;`,
+          `  if (tile == ${TILE.Cleared}.0) return 3.0;`,
+          `  if (tile == ${TILE.Paved}.0) return 5.0;`,
+          `  if (tile == ${TILE.Rock}.0 || tile == ${TILE.Cliff}.0 || tile == ${TILE.LavaEmber}.0`,
+          `   || tile == ${TILE.Basalt}.0 || tile == ${TILE.LavaCrust}.0) return 4.0;`,
+          `  if (tile == ${TILE.Grass}.0 || tile == ${TILE.Heath}.0 || tile == ${TILE.Sand}.0`,
+          `   || tile == ${TILE.Moss}.0) return 0.0;`,
+          '  return 2.0;',   // Dirt, Ash, SwampMud, SwampDark
+          '}',
+          // Branchfreie Auswahl: je Gruppe eine 0/1-Maske aus zwei step().
+          'vec3 vbPickGroup(float g, vec3 a, vec3 b, vec3 c, vec3 d, vec3 e, vec3 f) {',
+          '  return a * (step(g, 0.5))',
+          '       + b * (step(0.5, g) * step(g, 1.5))',
+          '       + c * (step(1.5, g) * step(g, 2.5))',
+          '       + d * (step(2.5, g) * step(g, 3.5))',
+          '       + e * (step(3.5, g) * step(g, 4.5))',
+          '       + f * (step(4.5, g));',
+          '}',
+          'void terrainNormalPerturb(vec3 n0, vec3 n1, vec3 n2, vec3 n3, vec3 n4, vec3 n5,',
+          '                          vec3 nSnow, float schnee, vec4 tiles, vec4 weights,',
+          '                          vec3 wpos, vec2 uv, vec3 surfN, float strength, out vec3 result) {',
+          '  vec4 w = weights / max(weights.x + weights.y + weights.z + weights.w, 1e-5);',
+          '  vec3 nc = vbPickGroup(vbTileNormalGroup(tiles.x), n0, n1, n2, n3, n4, n5) * w.x',
+          '          + vbPickGroup(vbTileNormalGroup(tiles.y), n0, n1, n2, n3, n4, n5) * w.y',
+          '          + vbPickGroup(vbTileNormalGroup(tiles.z), n0, n1, n2, n3, n4, n5) * w.z',
+          '          + vbPickGroup(vbTileNormalGroup(tiles.w), n0, n1, n2, n3, n4, n5) * w.w;',
+          // Schnee liegt ÜBER der Tile-Mischung, genau wie seine Farbe: er
+          // deckt zu, statt sich einzumischen. Derselbe Faktor wie dort.
+          '  nc = mix(nc, nSnow, clamp(schnee, 0.0, 1.0));',
+          '  vec3 mapN = nc * 2.0 - 1.0;',
+          '  mapN.xy *= strength;',
+          // Tangentenfreie Störung (Schüler-Technik, wie in der Referenz):
+          // unsere Terrain-Geometrie führt keine Tangenten mit, deshalb wird
+          // die Basis pro Pixel aus den Screen-Space-Ableitungen von
+          // Weltposition und UV rekonstruiert. Braucht Ableitungen — in
+          // GLSL ES 3.00 (WebGL2, unser Pfad) Kernsprache.
+          '  vec3 q0 = dFdx(wpos);',
+          '  vec3 q1 = dFdy(wpos);',
+          '  vec2 st0 = dFdx(uv);',
+          '  vec2 st1 = dFdy(uv);',
+          '  vec3 N = normalize(surfN);',
+          '  vec3 q1perp = cross(q1, N);',
+          '  vec3 q0perp = cross(N, q0);',
+          '  vec3 T = q1perp * st0.x + q0perp * st1.x;',
+          '  vec3 B = q1perp * st0.y + q0perp * st1.y;',
+          '  float det = max(dot(T, T), dot(B, B));',
+          '  float sc = (det == 0.0) ? 0.0 : inversesqrt(det);',
+          '  result = normalize(T * (mapN.x * sc) + B * (mapN.y * sc) + N * mapN.z);',
+          '}',
+        ],
+      };
+      const pIn = perturb as unknown as Record<string, never>;
+      normalTexs[0].rgb.connectTo(pIn.n0);
+      normalTexs[1].rgb.connectTo(pIn.n1);
+      normalTexs[2].rgb.connectTo(pIn.n2);
+      normalTexs[3].rgb.connectTo(pIn.n3);
+      normalTexs[4].rgb.connectTo(pIn.n4);
+      normalTexs[5].rgb.connectTo(pIn.n5);
+      normalTexs[6].rgb.connectTo(pIn.nSnow);
+      snowK.output.connectTo(pIn.schnee);
+      aTiles.output.connectTo((perturb as unknown as Record<string, never>).tiles);
+      aWeights.output.connectTo((perturb as unknown as Record<string, never>).weights);
+      wps.xyzOut.connectTo((perturb as unknown as Record<string, never>).wpos);
+      rotUV.xy.connectTo((perturb as unknown as Record<string, never>).uv);
+      nrmSplit.xyzOut.connectTo((perturb as unknown as Record<string, never>).surfN);
+      normalStrength.output.connectTo((perturb as unknown as Record<string, never>).strength);
+      gestoerteNormale = (perturb as unknown as { result: NodeMaterialConnectionPoint }).result;
+    }
+
     const litNrm = new VectorSplitterBlock('litNrm');
-    (perturb as unknown as { result: NodeMaterialConnectionPoint }).result.connectTo(litNrm.xyzIn);
+    gestoerteNormale.connectTo(litNrm.xyzIn);
 
     // ── Beleuchtung (Lambert) ───────────────────────────────────────
     this.sunDirBlock = new InputBlock('sunDir');
@@ -1285,7 +1878,7 @@ export class TerrainSplatMaterial {
       ],
     };
     const g = glanz as unknown as Record<string, never>;
-    (perturb as unknown as { result: NodeMaterialConnectionPoint }).result.connectTo(g.nrm);
+    gestoerteNormale.connectTo(g.nrm);
     this.sunDirBlock.output.connectTo(g.sunDir);
     wps.xyzOut.connectTo(g.wpos);
     cameraPos.output.connectTo(g.cpos);
@@ -1296,24 +1889,187 @@ export class TerrainSplatMaterial {
     const glanzTeil = (glanz as unknown as { result: NodeMaterialConnectionPoint }).result;
 
     const mitGlanz = new AddBlock('mitGlanz'); lit.output.connectTo(mitGlanz.left); glanzTeil.connectTo(mitGlanz.right);
-    const finalCol = new AddBlock('finalCol'); mitGlanz.output.connectTo(finalCol.left); lavaEmissive.output.connectTo(finalCol.right);
 
-    // ── Nebel (EXP2 manuell) ────────────────────────────────────────
+    // ── Himmelsterm: das, was Fels überhaupt erst sichtbar macht ─────
+    //
+    // Die Schichten des Vorbilds tragen Metallic 0,5 bis 0,85 bei einer
+    // Glätte unter 0,25. Eine Fläche mit Metallic 0,85 hat fast keine
+    // eigene Farbe mehr — sie IST eine Spiegelung. Ohne etwas zum
+    // Spiegeln wird sie schwarz, und zwar genau so schwarz, wie die
+    // Metall-Requisiten dieses Clients es nachts werden
+    // (`AssetManager.setzeMetallgrad`). Das Schwesterprojekt löst es mit
+    // `sky.groundReflection`, einem Verlaufshimmel als Umgebungslicht
+    // (ADR-0032); hier steht dasselbe, nur ohne Cubemap: eine Richtung
+    // in den Verlauf einsetzen kostet ein paar Rechenschritte, ein
+    // gerendertes Cubemap kostet einen halben Frame auf einem Client,
+    // der ohnehin an der CPU hängt.
+    //
+    // ── Woher die zwei Farben kommen (Schnittstelle für Bauer Licht) ──
+    // `himmelZenit` und `himmelHorizont` sind Uniforms mit dem Setter
+    // `setzeHimmel(zenit, horizont, glanz)`. Ruft niemand ihn auf, leitet
+    // `syncLighting()` beide je Frame aus der linearen Nebelfarbe ab —
+    // nach DERSELBEN Regel, mit der `ValheimSky` seinen Verlauf baut
+    // (Horizont = Nebelfarbe, Zenit = abgedunkelt und blauer). Der Boden
+    // spiegelt damit von sich aus denselben Himmel, den man über ihm
+    // sieht, und die Naht am Horizont bleibt zu.
+    //
+    // Wenn Bauer Licht den `look:`-Block hat, füttert er `setzeHimmel()`
+    // mit dessen Zenit/Horizont/Sonnenglühen und der Boden zieht mit,
+    // ohne dass hier etwas geändert werden muss.
+    let farbeVorNebel: NodeMaterialConnectionPoint = mitGlanz.output;
+    if (STORE_BODEN_AKTIV && metallicAus && glaetteAus) {
+      const himmel = new CustomBlock('terrainHimmel');
+      himmel.options = {
+        name: 'terrainHimmel',
+        target: 'Fragment',
+        functionName: 'vbTerrainHimmel',
+        inParameters: [
+          { name: 'albedo', type: 'Vector3' },
+          { name: 'direkt', type: 'Vector3' },
+          { name: 'nrm', type: 'Vector3' },
+          { name: 'wpos', type: 'Vector3' },
+          { name: 'cpos', type: 'Vector3' },
+          { name: 'zurSonne', type: 'Vector3' },
+          { name: 'zenit', type: 'Vector3' },
+          { name: 'horizont', type: 'Vector3' },
+          { name: 'glanzFarbe', type: 'Vector3' },
+          { name: 'metallic', type: 'Float' },
+          { name: 'glaette', type: 'Float' },
+          { name: 'schatten', type: 'Float' },
+        ],
+        outParameters: [{ name: 'result', type: 'Vector3' }],
+        code: [
+          // Der Verlauf. Bewusst dieselbe Form wie `vhSkyGradient` in
+          // ValheimSky.ts: zum Horizont hin gestaucht (pow 0.45), unter
+          // dem Horizont schnell dunkel. Nachgebaut statt aufgerufen,
+          // weil dieses Material ein NodeMaterial ist und ValheimSky ein
+          // ShaderMaterial — es gibt keinen gemeinsamen Quelltext, den
+          // beide einbinden könnten.
+          'vec3 vbHimmelFarbe(vec3 dir, vec3 zenit, vec3 horizont, vec3 glanzFarbe, vec3 zurSonne) {',
+          '  float hoch = clamp(dir.y, 0.0, 1.0);',
+          '  vec3 col = mix(horizont, zenit, pow(hoch, 0.45));',
+          '  float runter = clamp(-dir.y * 8.0, 0.0, 1.0);',
+          '  col = mix(col, horizont * 0.16, runter);',
+          '  col += glanzFarbe * pow(max(dot(dir, zurSonne), 0.0), 8.0);',
+          '  return col;',
+          '}',
+          // Wie viel einer Spiegelung die Oberfläche überhaupt
+          // durchlässt, nach Rauheit und Blickwinkel — Lazarovs
+          // analytische Näherung der Split-Sum-Umgebungs-BRDF, zwei
+          // Multiplikationen statt einer 2D-Tabelle. Ohne sie spiegelt
+          // eine raue Schicht den Himmel in voller Stärke: Eine Wiese mit
+          // Metallic 0,5 käme in der Farbe des Zenits heraus.
+          'vec2 vbEnvBrdf(float nDotV, float rauheit) {',
+          '  vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);',
+          '  vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);',
+          '  vec4 r = rauheit * c0 + c1;',
+          '  float a004 = min(r.x * r.x, exp2(-9.28 * nDotV)) * r.x + r.y;',
+          '  return vec2(-1.04, 1.04) * a004 + r.zw;',
+          '}',
+          'void vbTerrainHimmel(vec3 albedo, vec3 direkt, vec3 nrm, vec3 wpos, vec3 cpos,',
+          '                     vec3 zurSonne, vec3 zenit, vec3 horizont, vec3 glanzFarbe,',
+          '                     float metallic, float glaette, float schatten, out vec3 result) {',
+          '  vec3 N = normalize(nrm);',
+          '  vec3 V = normalize(cpos - wpos);',
+          '  float nDotV = clamp(dot(N, V), 0.0, 1.0);',
+          '  float rauheit = 1.0 - clamp(glaette, 0.0, 1.0);',
+          // Je rauer, desto mehr wandert die Blickrichtung von der
+          // Spiegelrichtung zur Normalen — der billige Ersatz für ein
+          // vorgefiltertes Cubemap.
+          '  vec3 dir = normalize(mix(reflect(-V, N), N, rauheit * rauheit));',
+          // Eine scharfe Sonnenscheibe hat in Kies nichts verloren: das
+          // Glühen fällt mit dem Quadrat der Glätte weg, ein Spiegel
+          // zeigt es, Moos nicht.
+          '  vec3 himmel = vbHimmelFarbe(dir, zenit, horizont, glanzFarbe * glaette * glaette, zurSonne);',
+          '  vec2 brdf = vbEnvBrdf(nDotV, rauheit);',
+          // Ein Dielektrikum spiegelt 4 % — deshalb bekommt JEDE Schicht
+          // einen Himmelsanteil, auch die mit Metallic 0.
+          '  vec3 reflexion = mix(vec3(0.04), albedo, metallic);',
+          `  vec3 umgebung = (reflexion * brdf.x + vec3(brdf.y)) * himmel * ${HIMMEL_ANTEIL.toFixed(3)};`,
+          // Der Schatten dämpft auch die Spiegelung — nicht ganz (der
+          // Himmel steht ja weiter da), aber deutlich, sonst leuchtet
+          // eine Felsplatte im Schlagschatten heller als daneben.
+          '  umgebung *= mix(0.45, 1.0, clamp(schatten, 0.0, 1.0));',
+          // Metallic ist der Regler zwischen „diese Schicht hat eine
+          // Farbe" und „diese Schicht zeigt den Himmel".
+          '  result = albedo * (1.0 - metallic) * direkt + umgebung;',
+          '}',
+        ],
+      };
+      const hi = himmel as unknown as Record<string, NodeMaterialConnectionPoint>;
+      depthLerp.output.connectTo(hi.albedo!);
+      litSum.output.connectTo(hi.direkt!);
+      gestoerteNormale.connectTo(hi.nrm!);
+      wps.xyzOut.connectTo(hi.wpos!);
+      cameraPos.output.connectTo(hi.cpos!);
+      zurSonne.output.connectTo(hi.zurSonne!);
+      this.himmelZenitBlock.output.connectTo(hi.zenit!);
+      this.himmelHorizontBlock.output.connectTo(hi.horizont!);
+      this.himmelGlanzBlock.output.connectTo(hi.glanzFarbe!);
+      metallicAus.connectTo(hi.metallic!);
+      glaetteAus.connectTo(hi.glaette!);
+      schattenAusgang.connectTo(hi.schatten!);
+      farbeVorNebel = hi.result!;
+    }
+
+    const finalCol = new AddBlock('finalCol'); farbeVorNebel.connectTo(finalCol.left); lavaEmissive.output.connectTo(finalCol.right);
+
+    // ── Nebel: die Kurve, die die Szene gerade fährt ────────────────
+    //
+    // Hier stand eine fest verdrahtete EXP2-Kette aus zehn Blöcken. Sie
+    // war richtig, solange der Client EXP2 nebelt — und genau das ist die
+    // Annahme, die als Nächstes fällt: Der Nachbau des Vorbilds läuft auf
+    // eine EXPONENTIELLE Kurve hinaus (Analyse §4 „Bauer Licht",
+    // ADR-0041), und den Schalter legt Bauer Licht um, nicht dieser
+    // Shader. Eine Nebelkette, die den Schalter nicht kennt, hat dann
+    // eine andere Kurve als alles, was auf dem Boden steht — Boden und
+    // Baum verschwinden verschieden schnell im Dunst.
+    //
+    // Deshalb liest die Kette den Modus jetzt zur Laufzeit aus
+    // `scene.fogMode` (`syncLighting()` schiebt ihn nach) und rechnet
+    // ALLE vier Fälle. OHNE Potenz: Der Rest dieses Clients (Standard
+    // über `StandardGammaFix`, PBR über `PbrNebelFix`) rechnet den Nebel
+    // ebenfalls ohne `pow(fog, 2.2)`; das Schwesterprojekt braucht die
+    // Potenz nur, weil Babylons PBR-Pfad dort `toLinearSpace(fog)`
+    // anwendet. Sie hier zu übernehmen hiesse, den Boden gegen die
+    // beiden anderen Pfade dieses Clients zu verstimmen.
     const camD = new SubtractBlock('camD'); wps.xyzOut.connectTo(camD.left); cameraPos.output.connectTo(camD.right);
-    const camDS = new VectorSplitterBlock('camDS'); camD.output.connectTo(camDS.xyzIn);
-    const dx2 = new MultiplyBlock('dx2'); camDS.x.connectTo(dx2.left); camDS.x.connectTo(dx2.right);
-    const dy2 = new MultiplyBlock('dy2'); camDS.y.connectTo(dy2.left); camDS.y.connectTo(dy2.right);
-    const dz2 = new MultiplyBlock('dz2'); camDS.z.connectTo(dz2.left); camDS.z.connectTo(dz2.right);
-    const d2A = new AddBlock('d2A'); dx2.output.connectTo(d2A.left); dy2.output.connectTo(d2A.right);
-    const dist2 = new AddBlock('dist2'); d2A.output.connectTo(dist2.left); dz2.output.connectTo(dist2.right);
     this.fogDensityBlock = new InputBlock('fogDensity');
     this.fogDensityBlock.value = 0.0055;
-    const fd2 = new MultiplyBlock('fd2'); this.fogDensityBlock.output.connectTo(fd2.left); this.fogDensityBlock.output.connectTo(fd2.right);
-    const expo = new MultiplyBlock('expo'); fd2.output.connectTo(expo.left); dist2.output.connectTo(expo.right);
-    const negExpo = new MultiplyBlock('negExpo'); expo.output.connectTo(negExpo.left); cnst('cnege', -1).output.connectTo(negExpo.right);
-    const eBase = cnst('eBase', Math.E);
-    const expVal = new PowBlock('expVal'); eBase.output.connectTo(expVal.value); negExpo.output.connectTo(expVal.power);
-    const fogFactor = new SubtractBlock('fogFactor'); cnst('c1fog', 1).output.connectTo(fogFactor.left); expVal.output.connectTo(fogFactor.right);
+    this.nebelBereichBlock = new InputBlock('nebelBereich');
+    // Vorgabe = der Stand des Altbestands: EXP2 (Babylon-Code 2), Start
+    // und Ende belanglos, solange der Modus nicht linear ist.
+    this.nebelBereichBlock.value = new Vector4(0, 1000, Constants.FOGMODE_EXP2, 0.0055);
+    const nebel = new CustomBlock('terrainNebel');
+    nebel.options = {
+      name: 'terrainNebel',
+      target: 'Fragment',
+      functionName: 'vbTerrainNebel',
+      inParameters: [
+        { name: 'camD', type: 'Vector3' },
+        { name: 'bereich', type: 'Vector4' },
+      ],
+      outParameters: [{ name: 'result', type: 'Float' }],
+      code: [
+        'void vbTerrainNebel(vec3 camD, vec4 bereich, out float result) {',
+        '  float d = length(camD);',
+        '  float linear = clamp((bereich.y - d) / max(bereich.y - bereich.x, 1e-4), 0.0, 1.0);',
+        '  float e1 = exp(-bereich.w * d);',
+        '  float e2 = exp(-(bereich.w * d) * (bereich.w * d));',
+        // Reihenfolge der Schwellen = Babylons Codes: 0 aus, 1 EXP,
+        // 2 EXP2, 3 LINEAR.
+        '  float sicht = bereich.z < 0.5 ? 1.0',
+        '              : (bereich.z < 1.5 ? e1',
+        '              : (bereich.z < 2.5 ? e2 : linear));',
+        // Ausgegeben wird der NEBELANTEIL (1 = ganz Nebel), weil der
+        // Lerp weiter unten so herum mischt.
+        '  result = 1.0 - clamp(sicht, 0.0, 1.0);',
+        '}',
+      ],
+    };
+    camD.output.connectTo((nebel as unknown as Record<string, never>).camD);
+    this.nebelBereichBlock.output.connectTo((nebel as unknown as Record<string, never>).bereich);
+    const fogFactor = nebel as unknown as { result: NodeMaterialConnectionPoint };
 
     // ── Gerichteter Nebel: zwei Farben, gemischt über den Sehstrahl ──
     // Dieselbe Rechnung wie in `NebelRichtung.ts`, nur in Weltkoordinaten
@@ -1352,7 +2108,7 @@ export class TerrainSplatMaterial {
     fogColorSonne.output.connectTo((nebelRichtung as unknown as Record<string, never>).fogZu);
     const nebelFarbe = (nebelRichtung as unknown as { result: NodeMaterialConnectionPoint }).result;
 
-    const fogLerp = new LerpBlock('fogLerp'); finalCol.output.connectTo(fogLerp.left); nebelFarbe.connectTo(fogLerp.right); fogFactor.output.connectTo(fogLerp.gradient);
+    const fogLerp = new LerpBlock('fogLerp'); finalCol.output.connectTo(fogLerp.left); nebelFarbe.connectTo(fogLerp.right); fogFactor.result.connectTo(fogLerp.gradient);
 
     const fragOut = new FragmentOutputBlock('fragOut');
     fogLerp.output.connectTo(fragOut.rgb);
@@ -1439,7 +2195,21 @@ export class TerrainSplatMaterial {
     /** LINEAR (Lighting.fogColorSonnenLinear) — Blick ZUR Sonne. */
     fogColorSonne: Color3,
     /** Richtung ZUR Sonne in WELTKOORDINATEN (Lighting.zurSonneWelt). */
-    zurSonneWelt: Vector3
+    zurSonneWelt: Vector3,
+    /**
+     * Der Himmel, den der Boden spiegelt — je Frame, aus dem `look:`-Profil.
+     *
+     * Optional und mit Rückfall: Fehlt er (dieser Zweig), leitet die
+     * Methode Zenit und Horizont weiter aus der Nebelfarbe ab. Der
+     * Integrator verdrahtet ihn mit EINER Zeile in `client/src/main.ts`
+     * an der Stelle, an der `terrain.syncLighting(...)` steht — als
+     * achtes Argument:
+     *
+     *   lighting.sky.gibHimmelsfarben?.() ?? null,
+     *
+     * `TerrainManager.syncLighting` reicht ihn unverändert durch.
+     */
+    himmel?: HimmelsFarben | null
   ): void {
     this.sunDirBlock.value = sunDir;
     this.sunColBlock.value = sunColor;
@@ -1448,5 +2218,73 @@ export class TerrainSplatMaterial {
     this.fogColorBlock.value = fogColor;
     this.fogColorSonnenBlock.value = fogColorSonne;
     this.zurSonneBlock.value = zurSonneWelt;
+
+    // Nebelmodus und -grenzen kommen aus der SZENE, nicht aus einer
+    // Kopie: `Lighting` setzt `scene.fogMode`, und wer ihn umschaltet
+    // (Bauer Licht, wenn der Nachbau auf EXP geht), soll den Boden nicht
+    // zusätzlich anfassen müssen. Die Dichte kommt weiterhin von
+    // `Lighting` — sie folgt dem Wetter und ist dort die Wahrheit.
+    this.nebelBereichBlock.value = new Vector4(
+      this.szene.fogStart,
+      this.szene.fogEnd,
+      this.szene.fogMode,
+      fogDensity
+    );
+
+    // Der Himmel, solange ihn niemand von aussen setzt: Horizont IST die
+    // Nebelfarbe, Zenit eine abgedunkelte, blauere Fassung davon. Das ist
+    // nicht geraten, sondern dieselbe Regel, mit der `ValheimSky` seinen
+    // Verlauf baut (dort `zenith.set(h.r*0.45, h.g*0.55, min(1, h.b*0.8+0.001))`).
+    // Dass beide dieselbe Regel benutzen, ist der Grund, warum die Naht
+    // am Horizont zubleibt: Der Boden spiegelt genau den Himmel, den man
+    // über ihm sieht.
+    if (himmel) this.himmelGesetzt = himmel;
+    const gesetzt = this.himmelGesetzt;
+    if (gesetzt) {
+      this.himmelZenitBlock.value = gesetzt.zenit;
+      this.himmelHorizontBlock.value = gesetzt.horizont;
+      // Kein Glühen mitgeliefert? Dann aus dem Horizont ableiten — eine
+      // schwarze Sonnenscheibe im gespiegelten Himmel wäre schlimmer als
+      // eine ungefähre.
+      this.himmelGlanzBlock.value = gesetzt.glanz ?? gesetzt.horizont.scale(0.6);
+    } else {
+      this.himmelHorizontBlock.value = fogColor;
+      this.himmelZenitBlock.value = new Color3(
+        fogColor.r * 0.45,
+        fogColor.g * 0.55,
+        Math.min(1, fogColor.b * 0.8 + 0.001)
+      );
+      // Das Glühen um die Sonne: die zweite Nebelfarbe, gedämpft. Sie ist
+      // im Keyframe-Modell dieses Clients genau die warme Farbe, die man
+      // beim Blick zur Sonne sieht.
+      this.himmelGlanzBlock.value = fogColorSonne.scale(0.6);
+    }
+  }
+
+  /**
+   * Den Himmel setzen, den der Boden spiegelt — die Schnittstelle für
+   * Bauer Licht.
+   *
+   * Ein Aufruf schaltet die Ableitung aus der Nebelfarbe ab: Ab dann
+   * gelten diese Werte, bis wieder jemand ruft — entweder hier oder über
+   * den achten Parameter von `syncLighting()`, den der Integrator in
+   * `client/src/main.ts` an der `terrain.syncLighting(...)`-Stelle mit
+   * einer Zeile verdrahtet. Erwartet werden
+   * LINEARE Farben, wie sie `Lighting.fogColorLinear` liefert — wer
+   * Hex-Werte aus einem `look:`-Block direkt hereingibt, gibt sRGB in
+   * eine lineare Pipeline und bekommt einen zu dunklen, zu satten
+   * Himmel (dieselbe Falle, die `StandardGammaFix` beschreibt).
+   *
+   * @param zenit    Farbe senkrecht über dem Boden.
+   * @param horizont Farbe am Horizont. Sollte die Nebelfarbe sein oder
+   *                 sehr nah daran, sonst wird die Naht sichtbar.
+   * @param glanz    Sonnenglühen im Verlauf. Nur Schichten mit hoher
+   *                 Glätte zeigen es (Faktor Glätte²).
+   */
+  setzeHimmel(zenit: Color3, horizont: Color3, glanz?: Color3): void {
+    this.himmelGesetzt = glanz ? { zenit, horizont, glanz } : { zenit, horizont };
+    this.himmelZenitBlock.value = zenit;
+    this.himmelHorizontBlock.value = horizont;
+    this.himmelGlanzBlock.value = glanz ?? horizont.scale(0.6);
   }
 }

@@ -43,6 +43,7 @@ import {
 } from '@wov/shared';
 import type { ClientWorld } from '../world/World';
 import { TerrainSplatMaterial, TILE, BIOME_TILE, maskUV, maskUVEmpty } from './TerrainSplat';
+import type { HimmelsFarben } from './TerrainSplat';
 import { WaterPlugin } from './WaterPlugin';
 import { WaterRefraction } from './WaterRefraction';
 import { WaterDepthMap } from './WaterDepthMap';
@@ -645,7 +646,20 @@ export class TerrainManager {
     /** Zweite Nebelfarbe (Blick zur Sonne), LINEAR. */
     fogColorSonne: Color3,
     /** Richtung ZUR Sonne in Weltkoordinaten. */
-    zurSonneWelt: Vector3
+    zurSonneWelt: Vector3,
+    /**
+     * Der Himmel, den der metallische Boden spiegelt (Stufe 2).
+     *
+     * Nur DURCHGEREICHT, nicht ausgewertet — die Begründung steht an
+     * `TerrainSplatMaterial.syncLighting`. Optional: Fehlt das Argument,
+     * leitet der Splat Zenit und Horizont weiter aus der Nebelfarbe ab
+     * und sieht richtig aus; er wird nur nicht von einem `look:`-Profil
+     * geführt. Der Integrator hängt in `client/src/main.ts` an den
+     * bestehenden `terrain.syncLighting(...)`-Aufruf EINE Zeile an:
+     *
+     *   lighting.sky.gibHimmelsfarben?.() ?? null,
+     */
+    himmel?: HimmelsFarben | null
   ): void {
     this.splat.syncLighting(
       sunDir,
@@ -654,8 +668,21 @@ export class TerrainManager {
       fogDensity,
       fogColor,
       fogColorSonne,
-      zurSonneWelt
+      zurSonneWelt,
+      himmel
     );
+  }
+
+  /**
+   * Den Himmel EINMAL setzen, statt ihn je Frame mitzugeben — die andere
+   * Hälfte derselben Schnittstelle (`TerrainSplatMaterial.setzeHimmel`).
+   *
+   * Gedacht für den Fall, dass das `look:`-Profil fest steht und sich nur
+   * beim Wetterwechsel ändert; wandert der Himmel mit der Tageszeit,
+   * gehört er in `syncLighting`.
+   */
+  setzeHimmel(zenit: Color3, horizont: Color3, glanz?: Color3): void {
+    this.splat.setzeHimmel(zenit, horizont, glanz);
   }
 
   /**

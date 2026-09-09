@@ -651,6 +651,35 @@ const KERN = [
   // wird der Test rot — dann ist der Speicher kaputt, nicht abwesend.
   // The store catalogue's sorting rule against the real inventory.
   ['client', 'test/store-katalog.ts', brauchtModelle('assets/store')],
+  /*
+    Stufe 2 (Bauer „Leistung"), Metall: `AssetManager.setzeMetallgrad`
+    raet den Metallgrad aus dem MATERIALNAMEN — richtig fuer den alten
+    Fremdexport, falsch fuer den Store, dessen GLBs ihren
+    `metallicFactor` selbst tragen (durchweg 0). Ohne die Ausnahme
+    rendern der Kristall und der Ring nahezu SCHWARZ: Das Labor hat keine
+    `environmentTexture`, und ein volles Metall findet dann nichts zum
+    Spiegeln. Der Test laeuft ueber die echte Klasse gegen die echten
+    Materialnamen des Speichers und prueft die GEGENRICHTUNG mit — fuer
+    den Altbestand muss die Namensregel weiter greifen, sonst waere er
+    auch dann gruen, wenn jemand `setzeMetallgrad` ganz entfernt.
+    NullEngine, keine GPU.
+    WEICHE wie oben: ohne `assets/store` uebersprungen.
+    Store materials must stay metallic 0 (the lab has no IBL).
+  */
+  ['client', 'test/store-metall.ts', brauchtModelle('assets/store')],
+  /*
+    Stufe 2, Toenung: Die Instanzfarbe, die den gestempelten Store-Wald
+    aufbricht (`EntityManager.instanzToenung`). Geprueft wird, was ohne
+    Test lautlos schiefginge — Determinismus je WELTPOSITION (an den
+    Instanzindex gebunden wechselte ein Baum beim Vorbeilaufen die
+    Farbe), die tatsaechliche Streuung (ein wirkungsloser Schalter sieht
+    aus wie eine zu kleine Amplitude), das Fenster aus der Look-Analyse
+    und ein Mittelwert von 1,0, damit die Toenung keine spaetere
+    Look-Messung um einen unbekannten Betrag verschiebt. Reine
+    Arithmetik, kein Babylon-Zustand, <1 s.
+    Per-instance tint: deterministic, spread, amplitude, neutral mean.
+  */
+  ['client', 'test/instanz-toenung.ts'],
   // Die Keulung der Schattenwerfer pro Instanz ist konservativ in genau
   // EINER Richtung: Was ueberlebt, wird eingereicht — verworfen wird nur,
   // was seitlich sicher ausserhalb des Lichtkastens liegt. Ein Fehler hier

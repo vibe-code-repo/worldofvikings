@@ -57,9 +57,12 @@ export interface Figur {
  * `wikinger/WikingerKoerper` ist die Standardfigur aus dem Synty-Rig:
  * 63 Knochen, Clips `idle/gehen/rennen/springen/angriff` (Sprung =
  * Absprung, Flug, Fall; Angriff = Faustschlag). Er steht VORN und ist
- * damit die Vorgabe; die Wikingerin bleibt waehlbar, damit vorhandene
- * Spielstaende ihre Figur behalten. Frisuren und Ruestung (aussehen.ts)
- * gehoeren zur Wikingerin; AvatarRig laedt Teile nur fuer sie.
+ * damit die Vorgabe. Die Wikingerin steht NICHT mehr in der Liste
+ * (Mike, 09.09.2026: „den bestehenden ersetzen"): Ein gespeichertes
+ * `wikingerin` faellt ueber figurZu() auf den Wikinger zurueck, genau die
+ * Regel, fuer die diese Liste gebaut ist. Ihre Dateien und die Teile aus
+ * aussehen.ts bleiben liegen; AvatarRig zieht sie nur an, wenn der
+ * Koerper wieder die Wikingerin ist.
  *
  * ⚠ Der Wikingerin fehlt der Sprung nicht mehr: Ihre Clips heissen
  * `idle/gehen/rennen/springen/angriff/weitsprung`. AvatarRig sucht sie
@@ -68,7 +71,6 @@ export interface Figur {
  */
 export const FIGUREN: readonly Figur[] = [
   { id: 'wikinger', modell: 'wikinger/WikingerKoerper', name: 'Wikinger' },
-  { id: 'wikingerin', modell: 'wikingerin/WikingerinKoerper', name: 'Wikingerin' },
 ] as const;
 
 /** Was ein Spieler bekommt, der nie gewählt hat — der bisherige Charakter. */

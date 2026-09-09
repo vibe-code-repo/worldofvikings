@@ -53,6 +53,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { STORE_FLORA_BUENDEL } from '../../shared/src/storeFlora.js';
+import { zeichnetDerGrasClutter } from '../../shared/src/storeKatalog.js';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = join(HIER, '..', '..');
@@ -179,11 +180,28 @@ check(
   Bewuchs.
 */
 const schneeImStore = prefabs.filter((p) => p.asset.startsWith('vegetation/') && /-snow$/.test(p.id));
-const schneeGestreut = schneeImStore.filter((p) => biomJeName.get(p.id) === 'hochnord');
+/*
+  ⚠ Seit Stufe 2 gibt es einen ZWEITEN Weg in die Welt: Was der
+  Gras-Clutter zeichnet, wird nicht mehr gestreut
+  (`zeichnetDerGrasClutter`, Begründung bei `STORE_GRAS_AKTIV`).
+  `grass-short-clump-snow` ist eines der beiden `-snow`-Modelle und steht
+  deshalb in KEINER Streuliste mehr.
+
+  Die Zusage dieses Wächters bleibt dieselbe — „beide Schneemodelle
+  werden benutzt" —, sie hat nur zwei Erfüllungswege. Durch Löschen ist
+  er weiterhin nicht zu bestehen: Der zweite Weg verlangt, dass das
+  Modell in `STORE_GRAS_IM_CLUTTER` steht.
+*/
+const schneeBenutzt = schneeImStore.filter(
+  (p) => biomJeName.get(p.id) === 'hochnord' || zeichnetDerGrasClutter(p.id)
+);
 check(
-  `alle ${schneeImStore.length} -snow-Modelle des Stores stehen im Hohen Norden`,
-  schneeGestreut.length === schneeImStore.length,
-  schneeImStore.filter((p) => !biomJeName.has(p.id)).map((p) => p.id).join(', ')
+  `alle ${schneeImStore.length} -snow-Modelle des Stores werden benutzt (gestreut oder im Clutter)`,
+  schneeBenutzt.length === schneeImStore.length,
+  schneeImStore
+    .filter((p) => !schneeBenutzt.includes(p))
+    .map((p) => p.id)
+    .join(', ')
 );
 
 if (fehler > 0) {

@@ -267,3 +267,75 @@ export function storeSpiegelung(modell: string): boolean {
 export function istStoreModell(modell: string): boolean {
   return modell.startsWith(`${STORE_BASIS}/`) || modell.startsWith(`${STORE_LAB_BASIS}/`);
 }
+
+/**
+ * Zeichnet der GRAS-CLUTTER die Grasbüschel des Speichers — statt sie als
+ * Prefabs zu streuen?
+ *
+ * ── Warum der Schalter hier steht und nicht im Client ────────────────
+ * Er hat zwei Seiten, und beide müssen dieselbe Wahrheit lesen:
+ * `client/src/engine/GrassClutter.ts` entscheidet daran, ob die
+ * Wiesen-Einträge die Store-Geometrie bekommen, und
+ * `shared/src/storeFlora.ts` entscheidet daran, ob die vier
+ * `grass-short-clump-*` überhaupt noch in einer Biom-Streuliste stehen.
+ * Zwei Schalter liefen beim ersten Umlegen auseinander — und zwar
+ * lautlos: Bei „Clutter an, Streuung an" stünde jedes Büschel zweimal da,
+ * bei „beides aus" wäre die Wiese kahl. `shared` ist der einzige Ort, den
+ * beide Seiten importieren dürfen.
+ *
+ * ── Was `true` bedeutet (Vorgabe) ────────────────────────────────────
+ * Die Büschel sind Thin Instances des Clutters: dieselbe Keulung,
+ * derselbe Wind, dieselbe Sichtweite wie das übrige Bodengrün — und ein
+ * Master statt tausender Prefab-Einträge. Am Referenzort 10077/−18723
+ * gemessen (09.09.2026, drei Läufe): 12.024 Prefab-Instanzen
+ * `vegetation-grass-short-clump-1` und 2.311 `-redblue` fallen damit aus
+ * der Streuung heraus.
+ *
+ * ── Was `false` bedeutet ─────────────────────────────────────────────
+ * Der Rückfall auf Stufe 1: Der Clutter zeichnet wieder die
+ * Altbestands-Karten (`MESH_FILES` dort), und die vier Büschel stehen
+ * wieder in den Streulisten. Kein halber Zustand, keine Zeile, die
+ * zurückgenommen werden müsste.
+ *
+ * Draws the store's grass clumps as clutter thin instances (true) or
+ * scatters them as prefabs like stage 1 did (false).
+ */
+export const STORE_GRAS_AKTIV = true;
+
+/**
+ * Die Store-Prefabs, die der Gras-Clutter zeichnet.
+ *
+ * Vier Dateien, ein Modell in vier Farben: `grass-short-clump-1` (grün,
+ * `baseColorFactor` [0.85, 1, 0.6]), `-redblue` (Blüten), `-yellow`
+ * (Trockengras) und `-snow`. Jede trägt zwei Netze — LOD0 mit sechs und
+ * LOD1 mit vier Dreiecken — unter EINEM Material.
+ *
+ * ── Warum nicht in `STORE_NICHT_STREUEN` ─────────────────────────────
+ * Diese Menge steht in der ERZEUGTEN `storePrefabs.ts` und bedeutet dort
+ * etwas anderes: „`platzierbar: false`", also Kulissen und Höhenfelder,
+ * die überhaupt nicht in die Welt dürfen. `shared/test/store-registry.ts`
+ * prüft, dass sich beide Angaben exakt decken — ein Eintrag hier drin
+ * bräche diesen Test, und der nächste Generatorlauf überschriebe ihn
+ * ohnehin. Vor allem aber sollen die Büschel im Editor weiter von Hand
+ * setzbar bleiben: Sie sind nicht unplatzierbar, sie werden nur nicht
+ * mehr GESTREUT.
+ */
+export const STORE_GRAS_IM_CLUTTER: ReadonlySet<StorePrefabName> = new Set<StorePrefabName>([
+  'vegetation-grass-short-clump-1',
+  'vegetation-grass-short-clump-redblue',
+  'vegetation-grass-short-clump-snow',
+  'vegetation-grass-short-clump-yellow',
+]);
+
+/**
+ * Zeichnet der Clutter dieses Prefab — darf es also nicht gestreut
+ * werden?
+ *
+ * Eine Funktion statt zweier Abfragen an der Aufrufstelle: Wer nur
+ * {@link STORE_GRAS_IM_CLUTTER} fragt und den Schalter vergisst, streut
+ * bei `STORE_GRAS_AKTIV = false` nichts mehr — die Wiese wäre kahl, und
+ * niemand sähe warum.
+ */
+export function zeichnetDerGrasClutter(name: StorePrefabName): boolean {
+  return STORE_GRAS_AKTIV && STORE_GRAS_IM_CLUTTER.has(name);
+}

@@ -128,20 +128,141 @@ const FOAM_DEPTH = 0.2;
 /** `_DepthFade` — Tiefe (m), über die Farbe und Deckkraft von flach nach
  *  tief laufen. */
 const DEPTH_FADE = 15;
-/** `_FoamColor` — kein reines Weiß, sondern neutrales Hellgrau. */
-const FOAM_COLOR = [0.838, 0.838, 0.838] as const;
+// ── Die beiden Ankerfarben des neuen Looks ─────────────────────────
+//
+// Sie stammen aus dem `lighting`-Block von `content/worlds/village1.json`
+// des Schwesterprojekts (Stand main a81cee3) und sind dort AM BILD
+// kalibriert, nicht gesetzt: Nebel `#a3afbd`, Himmelshorizont `#dfa974`
+// (siehe „Analyse — Look-Übertragung ins Labor" §2 „Licht und
+// Nachbearbeitung" sowie §4 „Bauer Gras und Wasser").
+//
+// ⚠ SIE SIND sRGB. Die Szene rechnet linear (Farbraum-Block in
+// Lighting.ts), und `_ColorTop`/`_ColorBottom` unten sind lineare
+// Materialfarben. Wer ein Hex aus dem neuen Projekt roh hineinschreibt,
+// gibt einen Gammawert in eine lineare Kette — zu dunkel und zu satt.
+// Genau diese Falle beschreibt die Analyse für `Lighting.ts`; sie gilt
+// hier wortgleich. Deshalb steht hier die UMRECHNUNG und nicht die Zahl.
+
+/** Ein sRGB-Hex in den linearen Raum, mit demselben Exponenten wie
+ *  Babylons `toLinearSpace` (2.2) — dieselbe Kurve wie im Rest des Clients. */
+function srgbNachLinear(hex: number): readonly [number, number, number] {
+  const kanal = (v: number): number => Math.pow(v / 255, 2.2);
+  return [kanal((hex >> 16) & 255), kanal((hex >> 8) & 255), kanal(hex & 255)] as const;
+}
+
+/** Nebelfarbe `#a3afbd` (kühles Blaugrau), linear. */
+export const NEBEL_LINEAR = srgbNachLinear(0xa3afbd);
+/** Himmelshorizont `#dfa974` (warmer Sand), linear. */
+export const HORIZONT_LINEAR = srgbNachLinear(0xdfa974);
+
+/** Relative Helligkeit nach Rec. 709 — das Mass, das erhalten bleiben soll. */
+function luma(c: readonly [number, number, number]): number {
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+
+/**
+ * Den FARBTON einer Ankerfarbe über eine Materialfarbe legen, ohne deren
+ * Helligkeit zu ändern.
+ *
+ * ── Warum nicht einfach mischen ──────────────────────────────────────
+ * `#dfa974` ist mit Luma 0,46 fast dreimal so hell wie
+ * `_ColorBottomShallow` (0,175). Eine gerade Mischung mit 45 % höbe das
+ * Flachwasser auf mehr als das Doppelte seiner Helligkeit — aus dem
+ * "man sieht den Sand durchs Wasser"-Ton würde ein leuchtender Streifen,
+ * und die gemessenen Materialwerte des Vorbilds wären weg. Gefragt ist
+ * aber nur das eine, was die neuen Farben beitragen sollen: die
+ * Richtung, in die Wasser und Luft sich neigen — kühl in der Ferne,
+ * warm am Saum.
+ *
+ * Deshalb wird das Ziel zuerst auf die Helligkeit der Basis
+ * heruntergerechnet und erst dann gemischt. Was sich ändert, ist damit
+ * ausschliesslich der Ton; die Helligkeit jeder Farbe bleibt die
+ * gemessene. Nachprüfbar in `client/test/wasser-farben.ts`.
+ */
+function tonUeberlagern(
+  basis: readonly [number, number, number],
+  ziel: readonly [number, number, number],
+  gewicht: number
+): readonly [number, number, number] {
+  const skala = luma(ziel) > 0 ? luma(basis) / luma(ziel) : 0;
+  return [
+    basis[0] * (1 - gewicht) + ziel[0] * skala * gewicht,
+    basis[1] * (1 - gewicht) + ziel[1] * skala * gewicht,
+    basis[2] * (1 - gewicht) + ziel[2] * skala * gewicht,
+  ] as const;
+}
+
+/**
+ * Die Gewichte — wie stark jede Farbe dem neuen Look folgt.
+ *
+ * Sie sind gestaffelt nach dem, was man an der Stelle SIEHT, nicht nach
+ * Geschmack:
+ *
+ *  • Das Fernwasser (`_LOD`) trägt am meisten (0,75). Es stösst am
+ *    Horizont direkt an den Nebel; laufen die beiden auseinander, ist die
+ *    Naht eine sichtbare Kante — dieselbe Begründung, mit der die Analyse
+ *    für `ValheimSky` „Horizont = Nebelfarbe lassen" verlangt.
+ *  • Der tiefe Grund (0,55) und die Fläche darüber (0,35) folgen
+ *    schwächer: Sie stehen im Nahbereich, wo die Materialfarbe das Bild
+ *    macht.
+ *  • Der Schaum (0,25) bleibt fast neutral — er ist eine Helligkeit, kein
+ *    Farbträger.
+ *  • Das Flachwasser folgt dem HORIZONT (0,45), nicht dem Nebel: Der Saum
+ *    ist die Stelle, an der das warme Licht auf den Grund trifft. Genau
+ *    diese Zweiteilung — kühle Ferne, warmer Saum — ist der Kern des
+ *    Zielbildes.
+ */
+const WASSER_NEBEL_GEWICHT = { top: 0.35, deep: 0.55, lod: 0.75, foam: 0.25 } as const;
+const WASSER_HORIZONT_GEWICHT = { shallow: 0.45 } as const;
+
+/** `_FoamColor` — kein reines Weiß, sondern neutrales Hellgrau
+ *  (0.838³), leicht zum Nebel gedreht. */
+const FOAM_COLOR = tonUeberlagern([0.838, 0.838, 0.838], NEBEL_LINEAR, WASSER_NEBEL_GEWICHT.foam);
 /** `_ColorBottomShallow` — Farbe über flachem Grund (olivsandig, das ist
- *  der "man sieht den Sand durchs Wasser"-Ton). */
-const COLOR_SHALLOW = [0.196, 0.176, 0.106] as const;
-/** `_ColorBottom` — Farbe über tiefem Grund. */
-const COLOR_DEEP = [0.098, 0.196, 0.169] as const;
+ *  der "man sieht den Sand durchs Wasser"-Ton), zum warmen Horizont gedreht.
+ *  Gemessener Ausgangswert: (0.196, 0.176, 0.106). */
+const COLOR_SHALLOW = tonUeberlagern([0.196, 0.176, 0.106], HORIZONT_LINEAR, WASSER_HORIZONT_GEWICHT.shallow);
+/** `_ColorBottom` — Farbe über tiefem Grund, zum Nebel gedreht.
+ *  Gemessener Ausgangswert: (0.098, 0.196, 0.169). */
+const COLOR_DEEP = tonUeberlagern([0.098, 0.196, 0.169], NEBEL_LINEAR, WASSER_NEBEL_GEWICHT.deep);
 /**
  * `_ColorTop` — die Farbe der Wasserfläche selbst, sobald der Grund nicht
  * mehr durchscheint. Das ist der helle Grünton, der das Meer ausmacht.
  * Er stand bisher ungenutzt im Material: ohne Refraktion gab es keinen
  * Punkt, an dem "Grund" und "Wasserkörper" getrennt gewesen wären.
+ * Gemessener Ausgangswert: (0.315, 0.524, 0.361).
  */
-const COLOR_TOP = [0.315, 0.524, 0.361] as const;
+const COLOR_TOP = tonUeberlagern([0.315, 0.524, 0.361], NEBEL_LINEAR, WASSER_NEBEL_GEWICHT.top);
+
+/**
+ * Die fertige Palette — dieselben Werte, die der Shader unten bekommt,
+ * nur an einer Stelle greifbar.
+ *
+ * Sie ist exportiert, WEIL sie sonst niemand prüfen kann: Der Shader ist
+ * eine Zeichenkette, die Farbe ein Pixel, und der Weg dazwischen führt
+ * über eine GPU. Die Rechnung davor lässt sich dagegen zeigen — dass die
+ * Helligkeiten die gemessenen bleiben und die Töne die neuen sind
+ * (`client/test/wasser-farben.ts`).
+ */
+export const WASSER_PALETTE = {
+  schaum: FOAM_COLOR,
+  flach: COLOR_SHALLOW,
+  tief: COLOR_DEEP,
+  oben: COLOR_TOP,
+} as const;
+
+/** Die gemessenen Ausgangswerte des Vorbild-Materials — der Bezugspunkt,
+ *  gegen den der Test die Helligkeiten hält. */
+export const WASSER_PALETTE_BASIS = {
+  schaum: [0.838, 0.838, 0.838],
+  flach: [0.196, 0.176, 0.106],
+  tief: [0.098, 0.196, 0.169],
+  oben: [0.315, 0.524, 0.361],
+  fern: [0.098, 0.196, 0.169],
+} as const;
+
+/** Rec.-709-Helligkeit — dieselbe Funktion, die {@link tonUeberlagern} benutzt. */
+export const wasserLuma = luma;
 /**
  * Stärke des Sonnenglitzerns.
  *
@@ -234,9 +355,13 @@ const REFRACTION_MAX = 0.01;
  */
 const LOD_BLEND_START = 100;
 const LOD_BLEND_END = 120;
-/** `water_lod._ColorTop` (= `_ColorBottom` desselben Materials). Auch das
- *  Fernwasser-Mesh in Terrain.ts färbt sich danach. */
-export const COLOR_LOD = [0.098, 0.196, 0.169] as const;
+/**
+ * `water_lod._ColorTop` (= `_ColorBottom` desselben Materials). Auch das
+ * Fernwasser-Mesh in Terrain.ts färbt sich danach — und genau deshalb
+ * trägt diese Farbe das GRÖSSTE Nebelgewicht: Sie stösst am Horizont
+ * unmittelbar an den Nebel. Gemessener Ausgangswert: (0.098, 0.196, 0.169).
+ */
+export const COLOR_LOD = tonUeberlagern([0.098, 0.196, 0.169], NEBEL_LINEAR, WASSER_NEBEL_GEWICHT.lod);
 
 export class WaterPlugin extends MaterialPluginBase {
   /**

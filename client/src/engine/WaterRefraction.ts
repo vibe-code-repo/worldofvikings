@@ -65,7 +65,7 @@ import { RenderTargetTexture } from '@babylonjs/core/Materials/Textures/renderTa
 import { WATER_LEVEL } from '@wov/shared';
 import type { Scene } from '@babylonjs/core/scene';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
-import { istGestreuteLandschaft } from './RefraktionsAuswahl';
+import { huelleZuGross, istGestreuteLandschaft } from './RefraktionsAuswahl';
 
 /**
  * Auflösung des Refraktionsbildes relativ zur Render-Auflösung, indiziert
@@ -123,6 +123,16 @@ export function gehoertHinein(mesh: AbstractMesh): boolean {
   // (ein Chunk reicht fast immer über die Wasserlinie hinaus).
   if (n.startsWith('terrain')) return true;
   if (!mesh.subMeshes || mesh.subMeshes.length === 0) return false;
+  // Der Riegel hinter E23: Was über 100 m spannt, ist ein Instanzbestand
+  // oder eine Kulisse, kein Gegenstand im Flachwasser. Die Markierung aus
+  // dem EntityManager fängt die bekannten FOLIAGE-Buckets ab; diese Regel
+  // fängt alles, was NICHT als FOLIAGE geführt wird und trotzdem eine
+  // Bestandshülle mitbringt — der Fall, den man erst am Bild bemerkt.
+  // Sie steht NACH dem Gelände, das die Prüfung nicht überleben würde
+  // (ein Zonen-Chunk misst 64 m, das Fern-Terrain ein Vielfaches) und als
+  // Meeresgrund immer hineingehört.
+  const huelle = mesh.getBoundingInfo().boundingBox.extendSizeWorld;
+  if (huelleZuGross(2 * Math.max(huelle.x, huelle.y, huelle.z))) return false;
   return mesh.getBoundingInfo().boundingBox.minimumWorld.y < TAUCHT_EIN_BIS;
 }
 

@@ -203,11 +203,50 @@ function modellPfad(assetPfad) {
   return `store/${stamm}`;
 }
 
+/**
+ * Die nachgemessene Hüllbox der aufbereiteten Vegetation.
+ *
+ * `prefabs.json` beschreibt den STORE. Seit `store-vegetation-aufbereiten.mjs`
+ * die verschachtelten LOD-Schalen abträgt, ist die aufbereitete Datei
+ * nicht mehr dieselbe Geometrie — bei neun Modellen wandert die Hüllbox.
+ * Meist um Millimeter (die Fernstufe reicht ein paar Zehntel tiefer),
+ * beim Grasbüschel um sechs Zentimeter in z, weil dessen Fernstufe
+ * tatsächlich WEITER reicht als die Nahstufe.
+ *
+ * Wo eine aufbereitete Datei existiert, gilt deshalb ihre eigene
+ * Nachmessung aus BERICHT.json und nicht mehr `bounds`. Für alles andere
+ * (Umgebung, Requisiten, Gelände) bleibt `prefabs.json` die Quelle — dort
+ * wird nichts abgetragen, und die Messprobe hat die Werte auf allen 581
+ * Dateien bitgenau bestätigt (`design/store-konventionen.md` §3.4).
+ *
+ * Fehlt der Bericht, wird NICHT geraten: dann gilt `bounds`, und der Lauf
+ * sagt es auf der Konsole. Ein stiller Rückfall auf die alte Zahl wäre
+ * ein Platzhalterkasten, der neben seinem Modell steht.
+ */
+const BERICHT_PFAD = join(STORE_LAB, 'vegetation', 'BERICHT.json');
+const aufbereiteteHuellen = existsSync(BERICHT_PFAD)
+  ? new Map(
+      Object.entries(lies(BERICHT_PFAD).modelle).map(([n, m]) => [`vegetation/${n}`, m.huellbox])
+    )
+  : new Map();
+
+/** Breite und Höhe für `renderScale`, aus der Quelle, die für dieses Modell gilt. */
+function masse(assetPfad, bounds) {
+  const eigen = aufbereiteteHuellen.get(ohneEndung(assetPfad));
+  const b = eigen ?? bounds;
+  return {
+    breite: Math.max(b.max[0] - b.min[0], b.max[2] - b.min[2]),
+    hoehe: b.max[1] - b.min[1],
+    aus: eigen ? 'store-lab' : 'prefabs.json',
+  };
+}
+
 // ── Prefab-Definitionen ───────────────────────────────────────────────
 
 const defs = [];
 const katalog = [];
 const fehlend = [];
+let ausStoreLab = 0;
 
 const prefabNachAsset = new Map();
 for (const p of prefabQuelle.prefabs) {
@@ -219,9 +258,11 @@ for (const p of prefabQuelle.prefabs) {
 }
 
 for (const p of [...prefabNachAsset.values()].sort((a, b) => (a.id < b.id ? -1 : 1))) {
-  const b = p.bounds;
-  const breite = Math.max(b.max[0] - b.min[0], b.max[2] - b.min[2]);
-  const hoehe = b.max[1] - b.min[1];
+  // Die Masse kommen aus derselben Datei, die auch geladen wird — s.
+  // `masse()`: aufbereitete Vegetation misst sich selbst, alles andere
+  // steht in `prefabs.json`.
+  const { breite, hoehe, aus } = masse(p.asset, p.bounds);
+  if (aus === 'store-lab') ausStoreLab++;
   defs.push({
     name: p.id,
     // renderScale ist der PLATZHALTERKASTEN, den der Client zeigt, bis
@@ -574,6 +615,13 @@ for (const e of ERZEUGNISSE) {
 console.log(
   `${defs.length} Prefabs, ${katalog.length} Katalogzeilen, ` +
     `${nichtStreuen.length} nicht streubar, ${gruppen.length} Gruppen (${gruppen.join(', ')})`
+);
+console.log(
+  aufbereiteteHuellen.size === 0
+    ? `Hinweis: ${BERICHT_PFAD} fehlt — renderScale kommt für ALLE Prefabs aus prefabs.json ` +
+        '(erst `node tools/store-vegetation-aufbereiten.mjs` laufen lassen)'
+    : `renderScale: ${ausStoreLab} Prefabs aus der nachgemessenen Hüllbox von store-lab, ` +
+        `${defs.length - ausStoreLab} aus prefabs.json`
 );
 if (fehlend.length > 0) {
   console.log(`Hinweis: ${fehlend.length} Prefab(s) ohne Datei im Store übersprungen — ${fehlend.join(', ')}`);

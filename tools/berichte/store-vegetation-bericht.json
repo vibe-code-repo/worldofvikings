@@ -1,5 +1,6 @@
 {
   "erzeugtVon": "tools/store-vegetation-aufbereiten.mjs",
+  "lodSchalenEntfernt": true,
   "modelle": {
     "branch-1a1": {
       "materialienVorher": [
@@ -12,18 +13,38 @@
       ],
       "masterNachher": 2,
       "dreiecke": 1408,
-      "huellbox": {
+      "lod": {
+        "dreieckeVorher": 1408,
+        "dreieckeNachher": 1408,
+        "gefallen": [],
+        "geprueft": [],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
         "min": [
-          -2.2986,
-          -2.0978,
-          -2.436
+          -1.3901,
+          0.0117,
+          -1.6941
         ],
         "max": [
-          2.2869,
-          3.0546,
-          2.104
+          3.1954,
+          4.0645,
+          2.8459
         ]
       },
+      "huellbox": {
+        "min": [
+          -1.3901,
+          0.0117,
+          -1.6941
+        ],
+        "max": [
+          3.1954,
+          4.0645,
+          2.8459
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 616,
@@ -57,18 +78,38 @@
       ],
       "masterNachher": 2,
       "dreiecke": 730,
-      "huellbox": {
+      "lod": {
+        "dreieckeVorher": 730,
+        "dreieckeNachher": 730,
+        "gefallen": [],
+        "geprueft": [],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
         "min": [
-          -2.3341,
-          -1.3376,
-          -1.4827
+          -3.9094,
+          -0.0506,
+          -0.3707
         ],
         "max": [
-          1.3344,
-          1.6263,
-          1.7326
+          0.0663,
+          2.7615,
+          2.707
         ]
       },
+      "huellbox": {
+        "min": [
+          -3.9094,
+          -0.0506,
+          -0.3707
+        ],
+        "max": [
+          0.0663,
+          2.7615,
+          2.707
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 232,
@@ -102,18 +143,38 @@
       ],
       "masterNachher": 2,
       "dreiecke": 1240,
-      "huellbox": {
+      "lod": {
+        "dreieckeVorher": 1240,
+        "dreieckeNachher": 1240,
+        "gefallen": [],
+        "geprueft": [],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
         "min": [
-          -2.1458,
-          -1.4312,
-          -2.5368
+          -2.2099,
+          -0.0248,
+          -2.3823
         ],
         "max": [
-          2.296,
-          3.0717,
-          2.1937
+          2.2319,
+          4.2884,
+          2.3482
         ]
       },
+      "huellbox": {
+        "min": [
+          -2.2099,
+          -0.0248,
+          -2.3823
+        ],
+        "max": [
+          2.2319,
+          4.2884,
+          2.3482
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 520,
@@ -147,18 +208,38 @@
       ],
       "masterNachher": 2,
       "dreiecke": 1276,
-      "huellbox": {
+      "lod": {
+        "dreieckeVorher": 1276,
+        "dreieckeNachher": 1276,
+        "gefallen": [],
+        "geprueft": [],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
         "min": [
-          -1.6839,
-          -1.371,
-          -1.6477
+          -1.4135,
+          -0.0248,
+          -2.7326
         ],
         "max": [
-          1.4424,
-          3.0717,
-          4.0748
+          1.7128,
+          4.0681,
+          2.9764
         ]
       },
+      "huellbox": {
+        "min": [
+          -1.4135,
+          -0.0248,
+          -2.7326
+        ],
+        "max": [
+          1.7128,
+          4.0681,
+          2.9764
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 520,
@@ -191,6 +272,31 @@
       ],
       "masterNachher": 2,
       "dreiecke": 6532,
+      "lod": {
+        "dreieckeVorher": 6532,
+        "dreieckeNachher": 6532,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "SubMesh_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -5.172,
+          -0.3886,
+          -6.1375
+        ],
+        "max": [
+          6.3843,
+          13.4974,
+          5.5144
+        ]
+      },
       "huellbox": {
         "min": [
           -5.172,
@@ -203,6 +309,7 @@
           5.5144
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 4404,
@@ -235,6 +342,31 @@
       ],
       "masterNachher": 2,
       "dreiecke": 6532,
+      "lod": {
+        "dreieckeVorher": 6532,
+        "dreieckeNachher": 6532,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "SubMesh_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -5.4818,
+          -0.4779,
+          -5.3589
+        ],
+        "max": [
+          6.0298,
+          16.5985,
+          5.7892
+        ]
+      },
       "huellbox": {
         "min": [
           -5.4818,
@@ -247,6 +379,7 @@
           5.7892
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 4404,
@@ -278,6 +411,25 @@
       ],
       "masterNachher": 1,
       "dreiecke": 810,
+      "lod": {
+        "dreieckeVorher": 810,
+        "dreieckeNachher": 810,
+        "gefallen": [],
+        "geprueft": [],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -1.1038,
+          -0.5559,
+          -1.1163
+        ],
+        "max": [
+          1.147,
+          1.3202,
+          1.0079
+        ]
+      },
       "huellbox": {
         "min": [
           -1.1038,
@@ -290,6 +442,7 @@
           1.0079
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 810,
@@ -314,6 +467,25 @@
       ],
       "masterNachher": 1,
       "dreiecke": 810,
+      "lod": {
+        "dreieckeVorher": 810,
+        "dreieckeNachher": 810,
+        "gefallen": [],
+        "geprueft": [],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -1.1038,
+          -0.5559,
+          -1.1163
+        ],
+        "max": [
+          1.147,
+          1.3202,
+          1.0079
+        ]
+      },
       "huellbox": {
         "min": [
           -1.1038,
@@ -326,6 +498,7 @@
           1.0079
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 810,
@@ -350,6 +523,25 @@
       ],
       "masterNachher": 1,
       "dreiecke": 624,
+      "lod": {
+        "dreieckeVorher": 624,
+        "dreieckeNachher": 624,
+        "gefallen": [],
+        "geprueft": [],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -1.5637,
+          -0.7085,
+          -1.4342
+        ],
+        "max": [
+          1.5387,
+          2.0185,
+          1.4684
+        ]
+      },
       "huellbox": {
         "min": [
           -1.5637,
@@ -362,6 +554,7 @@
           1.4684
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 624,
@@ -386,6 +579,25 @@
       ],
       "masterNachher": 1,
       "dreiecke": 624,
+      "lod": {
+        "dreieckeVorher": 624,
+        "dreieckeNachher": 624,
+        "gefallen": [],
+        "geprueft": [],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -1.5637,
+          -0.7085,
+          -1.4342
+        ],
+        "max": [
+          1.5387,
+          2.0185,
+          1.4684
+        ]
+      },
       "huellbox": {
         "min": [
           -1.5637,
@@ -398,6 +610,7 @@
           1.4684
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 624,
@@ -422,6 +635,25 @@
       ],
       "masterNachher": 1,
       "dreiecke": 624,
+      "lod": {
+        "dreieckeVorher": 624,
+        "dreieckeNachher": 624,
+        "gefallen": [],
+        "geprueft": [],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -1.5637,
+          -0.7085,
+          -1.4342
+        ],
+        "max": [
+          1.5387,
+          2.0185,
+          1.4684
+        ]
+      },
       "huellbox": {
         "min": [
           -1.5637,
@@ -434,6 +666,7 @@
           1.4684
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 624,
@@ -458,6 +691,25 @@
       ],
       "masterNachher": 1,
       "dreiecke": 624,
+      "lod": {
+        "dreieckeVorher": 624,
+        "dreieckeNachher": 624,
+        "gefallen": [],
+        "geprueft": [],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -1.5637,
+          -0.7085,
+          -1.4342
+        ],
+        "max": [
+          1.5387,
+          2.0185,
+          1.4684
+        ]
+      },
       "huellbox": {
         "min": [
           -1.5637,
@@ -470,6 +722,7 @@
           1.4684
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 624,
@@ -494,6 +747,25 @@
       ],
       "masterNachher": 1,
       "dreiecke": 810,
+      "lod": {
+        "dreieckeVorher": 810,
+        "dreieckeNachher": 810,
+        "gefallen": [],
+        "geprueft": [],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -1.7953,
+          -0.6785,
+          -1.6714
+        ],
+        "max": [
+          1.6396,
+          2.1279,
+          1.5466
+        ]
+      },
       "huellbox": {
         "min": [
           -1.7953,
@@ -506,6 +778,7 @@
           1.5466
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 810,
@@ -529,8 +802,30 @@
         "gras"
       ],
       "masterNachher": 1,
-      "dreiecke": 10,
-      "huellbox": {
+      "dreiecke": 6,
+      "lod": {
+        "dreieckeVorher": 10,
+        "dreieckeNachher": 6,
+        "gefallen": [
+          {
+            "knoten": "SM_Env_Grass_Short_Clump_01_LOD1",
+            "stufe": 1,
+            "lage": "Geschwister",
+            "unter": "SM_Env_Grass_Short_Clump_01_LOD0",
+            "dreiecke": 4,
+            "gegenDreiecke": 6
+          }
+        ],
+        "geprueft": [
+          {
+            "knoten": "Grass_Short_Clump_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 440
+      },
+      "huellboxVorher": {
         "min": [
           -0.5,
           -0.0269,
@@ -542,21 +837,22 @@
           0.5738
         ]
       },
+      "huellbox": {
+        "min": [
+          -0.5,
+          -0.0269,
+          -0.3682
+        ],
+        "max": [
+          0.5,
+          0.2231,
+          0.5422
+        ]
+      },
+      "huellboxGleich": false,
       "primitive": [
         {
           "dreiecke": 6,
-          "rolle": "gras",
-          "herkunft": "Datei",
-          "toenung": [
-            0.85,
-            1,
-            0.6,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 4,
           "rolle": "gras",
           "herkunft": "Datei",
           "toenung": [
@@ -577,8 +873,24 @@
         "grasBunt"
       ],
       "masterNachher": 1,
-      "dreiecke": 10,
-      "huellbox": {
+      "dreiecke": 6,
+      "lod": {
+        "dreieckeVorher": 10,
+        "dreieckeNachher": 6,
+        "gefallen": [
+          {
+            "knoten": "SM_Env_Grass_Short_Clump_01_LOD1",
+            "stufe": 1,
+            "lage": "Geschwister",
+            "unter": "SM_Env_Grass_Short_Clump_01_LOD0",
+            "dreiecke": 4,
+            "gegenDreiecke": 6
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 440
+      },
+      "huellboxVorher": {
         "min": [
           -0.5,
           -0.0269,
@@ -590,16 +902,22 @@
           0.5738
         ]
       },
+      "huellbox": {
+        "min": [
+          -0.5,
+          -0.0269,
+          -0.3682
+        ],
+        "max": [
+          0.5,
+          0.2231,
+          0.5422
+        ]
+      },
+      "huellboxGleich": false,
       "primitive": [
         {
           "dreiecke": 6,
-          "rolle": "grasBunt",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 4,
           "rolle": "grasBunt",
           "herkunft": "Datei",
           "toenung": null,
@@ -615,8 +933,24 @@
         "grasSchnee"
       ],
       "masterNachher": 1,
-      "dreiecke": 10,
-      "huellbox": {
+      "dreiecke": 6,
+      "lod": {
+        "dreieckeVorher": 10,
+        "dreieckeNachher": 6,
+        "gefallen": [
+          {
+            "knoten": "SM_Env_Grass_Short_Clump_01_LOD1",
+            "stufe": 1,
+            "lage": "Geschwister",
+            "unter": "SM_Env_Grass_Short_Clump_01_LOD0",
+            "dreiecke": 4,
+            "gegenDreiecke": 6
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 440
+      },
+      "huellboxVorher": {
         "min": [
           -0.5,
           -0.0269,
@@ -628,16 +962,22 @@
           0.5738
         ]
       },
+      "huellbox": {
+        "min": [
+          -0.5,
+          -0.0269,
+          -0.3682
+        ],
+        "max": [
+          0.5,
+          0.2231,
+          0.5422
+        ]
+      },
+      "huellboxGleich": false,
       "primitive": [
         {
           "dreiecke": 6,
-          "rolle": "grasSchnee",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 4,
           "rolle": "grasSchnee",
           "herkunft": "Datei",
           "toenung": null,
@@ -653,8 +993,24 @@
         "grasGelb"
       ],
       "masterNachher": 1,
-      "dreiecke": 10,
-      "huellbox": {
+      "dreiecke": 6,
+      "lod": {
+        "dreieckeVorher": 10,
+        "dreieckeNachher": 6,
+        "gefallen": [
+          {
+            "knoten": "SM_Env_Grass_Short_Clump_01_LOD1",
+            "stufe": 1,
+            "lage": "Geschwister",
+            "unter": "SM_Env_Grass_Short_Clump_01_LOD0",
+            "dreiecke": 4,
+            "gegenDreiecke": 6
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 440
+      },
+      "huellboxVorher": {
         "min": [
           -0.5,
           -0.0269,
@@ -666,21 +1022,22 @@
           0.5738
         ]
       },
+      "huellbox": {
+        "min": [
+          -0.5,
+          -0.0269,
+          -0.3682
+        ],
+        "max": [
+          0.5,
+          0.2231,
+          0.5422
+        ]
+      },
+      "huellboxGleich": false,
       "primitive": [
         {
           "dreiecke": 6,
-          "rolle": "grasGelb",
-          "herkunft": "Datei",
-          "toenung": [
-            1,
-            0.86,
-            0.45,
-            1
-          ],
-          "toenungAus": "Vorgabe"
-        },
-        {
-          "dreiecke": 4,
           "rolle": "grasGelb",
           "herkunft": "Datei",
           "toenung": [
@@ -703,19 +1060,48 @@
         "laub"
       ],
       "masterNachher": 2,
-      "dreiecke": 9683,
-      "huellbox": {
+      "dreiecke": 7370,
+      "lod": {
+        "dreieckeVorher": 9683,
+        "dreieckeNachher": 7370,
+        "gefallen": [
+          {
+            "knoten": "Large_Bush_1A1_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "large-bush-1a1",
+            "dreiecke": 2313,
+            "gegenDreiecke": 7370
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 235400
+      },
+      "huellboxVorher": {
         "min": [
-          -1.4883,
-          -1.4952,
-          -1.5453
+          -1.3721,
+          -0.1648,
+          -1.4849
         ],
         "max": [
-          1.3571,
-          3.3973,
-          1.3693
+          1.4733,
+          3.5941,
+          1.4298
         ]
       },
+      "huellbox": {
+        "min": [
+          -1.3721,
+          -0.1648,
+          -1.4848
+        ],
+        "max": [
+          1.4733,
+          3.5941,
+          1.4298
+        ]
+      },
+      "huellboxGleich": false,
       "primitive": [
         {
           "dreiecke": 3590,
@@ -726,25 +1112,6 @@
         },
         {
           "dreiecke": 3780,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 45,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 2268,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -767,19 +1134,48 @@
         "laub"
       ],
       "masterNachher": 2,
-      "dreiecke": 10882,
-      "huellbox": {
+      "dreiecke": 8133,
+      "lod": {
+        "dreieckeVorher": 10882,
+        "dreieckeNachher": 8133,
+        "gefallen": [
+          {
+            "knoten": "Large_Bush_1A2_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "large-bush-1a2",
+            "dreiecke": 2749,
+            "gegenDreiecke": 8133
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 279872
+      },
+      "huellboxVorher": {
         "min": [
-          -1.101,
-          -1.7865,
-          -1.1484
+          -1.0796,
+          -0.2906,
+          -1.1765
         ],
         "max": [
-          1.0897,
-          3.4715,
-          1.0037
+          1.1111,
+          3.5699,
+          0.9756
         ]
       },
+      "huellbox": {
+        "min": [
+          -1.0796,
+          -0.2906,
+          -1.1765
+        ],
+        "max": [
+          1.1111,
+          3.5699,
+          0.9756
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 3625,
@@ -790,25 +1186,6 @@
         },
         {
           "dreiecke": 4508,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 45,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 2704,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -831,19 +1208,48 @@
         "laub"
       ],
       "masterNachher": 2,
-      "dreiecke": 6509,
-      "huellbox": {
+      "dreiecke": 4426,
+      "lod": {
+        "dreieckeVorher": 6509,
+        "dreieckeNachher": 4426,
+        "gefallen": [
+          {
+            "knoten": "Large_Bush_1A3_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "large-bush-1a3",
+            "dreiecke": 2083,
+            "gegenDreiecke": 4426
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 212996
+      },
+      "huellboxVorher": {
         "min": [
-          -0.9789,
-          -1.2795,
-          -1.0965
+          -0.9027,
+          -0.1371,
+          -1.1467
         ],
         "max": [
-          1.3141,
-          2.3398,
-          1.2627
+          1.3903,
+          2.5494,
+          1.2125
         ]
       },
+      "huellbox": {
+        "min": [
+          -0.9027,
+          -0.1371,
+          -1.1467
+        ],
+        "max": [
+          1.3903,
+          2.5494,
+          1.2125
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 998,
@@ -854,25 +1260,6 @@
         },
         {
           "dreiecke": 3428,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.55,
-            1,
-            0.24,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 27,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 2056,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -895,19 +1282,48 @@
         "laub"
       ],
       "masterNachher": 2,
-      "dreiecke": 10882,
-      "huellbox": {
+      "dreiecke": 8133,
+      "lod": {
+        "dreieckeVorher": 10882,
+        "dreieckeNachher": 8133,
+        "gefallen": [
+          {
+            "knoten": "Large_Bush_1A4_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "large-bush-1a4",
+            "dreiecke": 2749,
+            "gegenDreiecke": 8133
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 279872
+      },
+      "huellboxVorher": {
         "min": [
-          -1.4523,
-          -2.0937,
-          -1.3949
+          -1.4217,
+          -0.3571,
+          -1.3586
         ],
         "max": [
-          1.6542,
-          4.2658,
-          1.471
+          1.6848,
+          4.4168,
+          1.5073
         ]
       },
+      "huellbox": {
+        "min": [
+          -1.4217,
+          -0.3571,
+          -1.3586
+        ],
+        "max": [
+          1.6848,
+          4.4168,
+          1.5073
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 3625,
@@ -918,25 +1334,6 @@
         },
         {
           "dreiecke": 4508,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 45,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 2704,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -959,19 +1356,48 @@
         "laub"
       ],
       "masterNachher": 2,
-      "dreiecke": 9683,
-      "huellbox": {
+      "dreiecke": 7370,
+      "lod": {
+        "dreieckeVorher": 9683,
+        "dreieckeNachher": 7370,
+        "gefallen": [
+          {
+            "knoten": "Large_Bush_1A5_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "large-bush-1a5",
+            "dreiecke": 2313,
+            "gegenDreiecke": 7370
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 235400
+      },
+      "huellboxVorher": {
         "min": [
-          -1.5029,
-          -1.6254,
-          -1.8437
+          -1.5809,
+          -0.1947,
+          -1.8207
         ],
         "max": [
-          1.6864,
-          4.0124,
-          1.6936
+          1.6083,
+          4.4481,
+          1.7166
         ]
       },
+      "huellbox": {
+        "min": [
+          -1.5809,
+          -0.1947,
+          -1.8207
+        ],
+        "max": [
+          1.6083,
+          4.4481,
+          1.7166
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 3590,
@@ -982,25 +1408,6 @@
         },
         {
           "dreiecke": 3780,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.55,
-            1,
-            0.24,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 45,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 2268,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -1023,8 +1430,24 @@
         "laubDunkel"
       ],
       "masterNachher": 2,
-      "dreiecke": 23295,
-      "huellbox": {
+      "dreiecke": 14110,
+      "lod": {
+        "dreieckeVorher": 23295,
+        "dreieckeNachher": 14110,
+        "gefallen": [
+          {
+            "knoten": "Massive_Tree_1A1_LOD_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Massive_Tree_1A1 1 Dark",
+            "dreiecke": 9185,
+            "gegenDreiecke": 14110
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 335576
+      },
+      "huellboxVorher": {
         "min": [
           -5.9865,
           -0.5865,
@@ -1036,6 +1459,19 @@
           5.5772
         ]
       },
+      "huellbox": {
+        "min": [
+          -5.9865,
+          -0.5773,
+          -5.9833
+        ],
+        "max": [
+          5.727,
+          14.0243,
+          5.5772
+        ]
+      },
+      "huellboxGleich": false,
       "primitive": [
         {
           "dreiecke": 7896,
@@ -1046,25 +1482,6 @@
         },
         {
           "dreiecke": 6214,
-          "rolle": "laubDunkel",
-          "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
-          "toenung": [
-            0.6255,
-            0.4625,
-            0.2675,
-            1
-          ],
-          "toenungAus": "Vorgabe"
-        },
-        {
-          "dreiecke": 5415,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 3770,
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
@@ -1088,6 +1505,36 @@
       ],
       "masterNachher": 2,
       "dreiecke": 9185,
+      "lod": {
+        "dreieckeVorher": 9185,
+        "dreieckeNachher": 9185,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Massive_Tree_1A1_LOD_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          },
+          {
+            "knoten": "SubMesh_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -5.9865,
+          -0.5865,
+          -5.9833
+        ],
+        "max": [
+          5.727,
+          14.0243,
+          5.5693
+        ]
+      },
       "huellbox": {
         "min": [
           -5.9865,
@@ -1100,6 +1547,7 @@
           5.5693
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 5415,
@@ -1132,6 +1580,31 @@
       ],
       "masterNachher": 2,
       "dreiecke": 14110,
+      "lod": {
+        "dreieckeVorher": 14110,
+        "dreieckeNachher": 14110,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "SubMesh_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -5.9865,
+          -0.5773,
+          -5.9833
+        ],
+        "max": [
+          5.727,
+          14.0243,
+          5.5772
+        ]
+      },
       "huellbox": {
         "min": [
           -5.9865,
@@ -1144,6 +1617,7 @@
           5.5772
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 7896,
@@ -1176,7 +1650,35 @@
         "laubDunkel"
       ],
       "masterNachher": 2,
-      "dreiecke": 23295,
+      "dreiecke": 14110,
+      "lod": {
+        "dreieckeVorher": 23295,
+        "dreieckeNachher": 14110,
+        "gefallen": [
+          {
+            "knoten": "Massive_Tree_1A2_LOD_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Massive_Tree_1A2 1 Dark",
+            "dreiecke": 9185,
+            "gegenDreiecke": 14110
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 335624
+      },
+      "huellboxVorher": {
+        "min": [
+          -6.8968,
+          -0.702,
+          -7.5588
+        ],
+        "max": [
+          7.0096,
+          18.6537,
+          6.8029
+        ]
+      },
       "huellbox": {
         "min": [
           -6.8968,
@@ -1189,6 +1691,7 @@
           6.8029
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 7896,
@@ -1199,25 +1702,6 @@
         },
         {
           "dreiecke": 6214,
-          "rolle": "laubDunkel",
-          "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
-          "toenung": [
-            0.6255,
-            0.4625,
-            0.2675,
-            1
-          ],
-          "toenungAus": "Vorgabe"
-        },
-        {
-          "dreiecke": 5415,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 3770,
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
@@ -1241,6 +1725,36 @@
       ],
       "masterNachher": 2,
       "dreiecke": 9185,
+      "lod": {
+        "dreieckeVorher": 9185,
+        "dreieckeNachher": 9185,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Massive_Tree_1A2_LOD_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          },
+          {
+            "knoten": "SubMesh_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -6.8968,
+          -0.702,
+          -7.5588
+        ],
+        "max": [
+          7.0096,
+          18.6537,
+          6.8029
+        ]
+      },
       "huellbox": {
         "min": [
           -6.8968,
@@ -1253,6 +1767,7 @@
           6.8029
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 5415,
@@ -1285,6 +1800,31 @@
       ],
       "masterNachher": 2,
       "dreiecke": 14110,
+      "lod": {
+        "dreieckeVorher": 14110,
+        "dreieckeNachher": 14110,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "SubMesh_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -6.8968,
+          -0.702,
+          -7.5588
+        ],
+        "max": [
+          7.0096,
+          18.6537,
+          6.8029
+        ]
+      },
       "huellbox": {
         "min": [
           -6.8968,
@@ -1297,6 +1837,7 @@
           6.8029
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 7896,
@@ -1329,8 +1870,24 @@
         "laubDunkel"
       ],
       "masterNachher": 2,
-      "dreiecke": 23296,
-      "huellbox": {
+      "dreiecke": 14110,
+      "lod": {
+        "dreieckeVorher": 23296,
+        "dreieckeNachher": 14110,
+        "gefallen": [
+          {
+            "knoten": "Massive_Tree_1A3_LOD_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Massive_Tree_1A3 1 Dark",
+            "dreiecke": 9186,
+            "gegenDreiecke": 14110
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 335532
+      },
+      "huellboxVorher": {
         "min": [
           -11.4829,
           -1.2235,
@@ -1342,6 +1899,19 @@
           11.7914
         ]
       },
+      "huellbox": {
+        "min": [
+          -11.4829,
+          -1.2048,
+          -12.3257
+        ],
+        "max": [
+          12.3191,
+          28.875,
+          11.7914
+        ]
+      },
+      "huellboxGleich": false,
       "primitive": [
         {
           "dreiecke": 7896,
@@ -1352,25 +1922,6 @@
         },
         {
           "dreiecke": 6214,
-          "rolle": "laubDunkel",
-          "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
-          "toenung": [
-            0.6255,
-            0.4625,
-            0.2675,
-            1
-          ],
-          "toenungAus": "Vorgabe"
-        },
-        {
-          "dreiecke": 5416,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 3770,
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
@@ -1394,6 +1945,36 @@
       ],
       "masterNachher": 2,
       "dreiecke": 9186,
+      "lod": {
+        "dreieckeVorher": 9186,
+        "dreieckeNachher": 9186,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Massive_Tree_1A3_LOD_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          },
+          {
+            "knoten": "SubMesh_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -11.4667,
+          -1.2235,
+          -12.3257
+        ],
+        "max": [
+          12.3191,
+          28.875,
+          11.7914
+        ]
+      },
       "huellbox": {
         "min": [
           -11.4667,
@@ -1406,6 +1987,7 @@
           11.7914
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 5416,
@@ -1438,6 +2020,31 @@
       ],
       "masterNachher": 2,
       "dreiecke": 14110,
+      "lod": {
+        "dreieckeVorher": 14110,
+        "dreieckeNachher": 14110,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "SubMesh_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -11.4829,
+          -1.2048,
+          -12.3257
+        ],
+        "max": [
+          12.3191,
+          28.875,
+          11.7914
+        ]
+      },
       "huellbox": {
         "min": [
           -11.4829,
@@ -1450,6 +2057,7 @@
           11.7914
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 7896,
@@ -1482,19 +2090,48 @@
         "nadeln"
       ],
       "masterNachher": 2,
-      "dreiecke": 8080,
-      "huellbox": {
+      "dreiecke": 6808,
+      "lod": {
+        "dreieckeVorher": 8080,
+        "dreieckeNachher": 6808,
+        "gefallen": [
+          {
+            "knoten": "Pine_1B1_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Pine_1B1",
+            "dreiecke": 1272,
+            "gegenDreiecke": 6808
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 113184
+      },
+      "huellboxVorher": {
         "min": [
-          -3.2214,
-          -5.6042,
-          -3.2872
+          -3.1334,
+          -0.5613,
+          -3.3268
         ],
         "max": [
-          3.5583,
-          14.2453,
-          3.0045
+          3.6463,
+          15.5783,
+          2.9648
         ]
       },
+      "huellbox": {
+        "min": [
+          -3.1334,
+          -0.5613,
+          -3.3268
+        ],
+        "max": [
+          3.6463,
+          15.5783,
+          2.9648
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 3232,
@@ -1505,25 +2142,6 @@
         },
         {
           "dreiecke": 3576,
-          "rolle": "nadeln",
-          "herkunft": "Datei",
-          "toenung": [
-            0.26,
-            0.58,
-            0.24,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 80,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1192,
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
@@ -1545,6 +2163,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 80,
+      "lod": {
+        "dreieckeVorher": 80,
+        "dreieckeNachher": 80,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Pine_1B1_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -0.3211,
+          -0.5613,
+          -0.3211
+        ],
+        "max": [
+          0.3211,
+          13.6217,
+          0.3211
+        ]
+      },
       "huellbox": {
         "min": [
           -0.3211,
@@ -1557,6 +2200,7 @@
           0.3211
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 80,
@@ -1577,19 +2221,48 @@
         "nadeln"
       ],
       "masterNachher": 2,
-      "dreiecke": 8080,
-      "huellbox": {
+      "dreiecke": 6808,
+      "lod": {
+        "dreieckeVorher": 8080,
+        "dreieckeNachher": 6808,
+        "gefallen": [
+          {
+            "knoten": "Pine_1B1_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Pine_1B1",
+            "dreiecke": 1272,
+            "gegenDreiecke": 6808
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 113184
+      },
+      "huellboxVorher": {
         "min": [
-          -3.2214,
-          -5.6042,
-          -3.2872
+          -3.1334,
+          -0.5613,
+          -3.3268
         ],
         "max": [
-          3.5583,
-          14.2453,
-          3.0045
+          3.6463,
+          15.5783,
+          2.9648
         ]
       },
+      "huellbox": {
+        "min": [
+          -3.1334,
+          -0.5613,
+          -3.3268
+        ],
+        "max": [
+          3.6463,
+          15.5783,
+          2.9648
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 3232,
@@ -1600,25 +2273,6 @@
         },
         {
           "dreiecke": 3576,
-          "rolle": "nadeln",
-          "herkunft": "Datei",
-          "toenung": [
-            0.26,
-            0.58,
-            0.24,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 80,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1192,
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
@@ -1640,6 +2294,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 80,
+      "lod": {
+        "dreieckeVorher": 80,
+        "dreieckeNachher": 80,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Pine_1B2_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -0.5691,
+          -0.9457,
+          -0.5691
+        ],
+        "max": [
+          0.5692,
+          22.9772,
+          0.5692
+        ]
+      },
       "huellbox": {
         "min": [
           -0.5691,
@@ -1652,6 +2331,7 @@
           0.5692
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 80,
@@ -1672,19 +2352,48 @@
         "nadeln"
       ],
       "masterNachher": 2,
-      "dreiecke": 8080,
-      "huellbox": {
+      "dreiecke": 6808,
+      "lod": {
+        "dreieckeVorher": 8080,
+        "dreieckeNachher": 6808,
+        "gefallen": [
+          {
+            "knoten": "Pine_1B2_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Pine_1B2",
+            "dreiecke": 1272,
+            "gegenDreiecke": 6808
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 108624
+      },
+      "huellboxVorher": {
         "min": [
-          -5.4337,
-          -9.4529,
-          -5.5447
+          -5.2853,
+          -0.9457,
+          -5.6116
         ],
         "max": [
-          6.002,
-          24.0284,
-          5.0679
+          6.1505,
+          26.277,
+          5.001
         ]
       },
+      "huellbox": {
+        "min": [
+          -5.2853,
+          -0.9457,
+          -5.6116
+        ],
+        "max": [
+          6.1505,
+          26.277,
+          5.001
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 3232,
@@ -1695,25 +2404,6 @@
         },
         {
           "dreiecke": 3576,
-          "rolle": "nadeln",
-          "herkunft": "Datei",
-          "toenung": [
-            0.26,
-            0.58,
-            0.24,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 80,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1192,
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
@@ -1735,6 +2425,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 80,
+      "lod": {
+        "dreieckeVorher": 80,
+        "dreieckeNachher": 80,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Pine_1B3_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -0.7915,
+          -1.4887,
+          -0.7915
+        ],
+        "max": [
+          0.7915,
+          31.9146,
+          0.7915
+        ]
+      },
       "huellbox": {
         "min": [
           -0.7915,
@@ -1747,6 +2462,7 @@
           0.7915
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 80,
@@ -1767,19 +2483,48 @@
         "nadeln"
       ],
       "masterNachher": 2,
-      "dreiecke": 8080,
-      "huellbox": {
+      "dreiecke": 6808,
+      "lod": {
+        "dreieckeVorher": 8080,
+        "dreieckeNachher": 6808,
+        "gefallen": [
+          {
+            "knoten": "Pine_1B3_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Pine_1B3",
+            "dreiecke": 1272,
+            "gegenDreiecke": 6808
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 10272
+      },
+      "huellboxVorher": {
         "min": [
-          -6.067,
-          -11.4084,
-          -6.2094
+          -5.9004,
+          -1.4887,
+          -6.1157
         ],
         "max": [
-          6.8001,
-          33.3778,
-          6.1928
+          6.9668,
+          33.4801,
+          6.2865
         ]
       },
+      "huellbox": {
+        "min": [
+          -5.9004,
+          -1.4887,
+          -6.1157
+        ],
+        "max": [
+          6.9668,
+          33.4801,
+          6.2865
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 3232,
@@ -1790,25 +2535,6 @@
         },
         {
           "dreiecke": 3576,
-          "rolle": "nadeln",
-          "herkunft": "Datei",
-          "toenung": [
-            0.26,
-            0.58,
-            0.24,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 80,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1192,
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
@@ -1831,19 +2557,48 @@
         "nadeln"
       ],
       "masterNachher": 2,
-      "dreiecke": 8048,
-      "huellbox": {
+      "dreiecke": 6784,
+      "lod": {
+        "dreieckeVorher": 8048,
+        "dreieckeNachher": 6784,
+        "gefallen": [
+          {
+            "knoten": "Pine_1B4_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Pine_1B4",
+            "dreiecke": 1264,
+            "gegenDreiecke": 6784
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 10224
+      },
+      "huellboxVorher": {
         "min": [
-          -5.7627,
-          -8.8727,
-          -5.8917
+          -5.8538,
+          -0.0001,
+          -5.7406
         ],
         "max": [
-          5.1431,
-          21.2137,
-          5.2466
+          5.0521,
+          23.8108,
+          5.3978
         ]
       },
+      "huellbox": {
+        "min": [
+          -5.8538,
+          -0.0001,
+          -5.7406
+        ],
+        "max": [
+          5.0521,
+          23.8108,
+          5.3978
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 3232,
@@ -1854,25 +2609,6 @@
         },
         {
           "dreiecke": 3552,
-          "rolle": "nadeln",
-          "herkunft": "Datei",
-          "toenung": [
-            0.26,
-            0.58,
-            0.24,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 80,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1184,
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
@@ -1894,6 +2630,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 80,
+      "lod": {
+        "dreieckeVorher": 80,
+        "dreieckeNachher": 80,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Pine_1B4_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -0.4629,
+          -0.0001,
+          -0.4629
+        ],
+        "max": [
+          0.4629,
+          20.2838,
+          0.4629
+        ]
+      },
       "huellbox": {
         "min": [
           -0.4629,
@@ -1906,6 +2667,7 @@
           0.4629
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 80,
@@ -1926,19 +2688,48 @@
         "nadeln"
       ],
       "masterNachher": 2,
-      "dreiecke": 8048,
-      "huellbox": {
+      "dreiecke": 6784,
+      "lod": {
+        "dreieckeVorher": 8048,
+        "dreieckeNachher": 6784,
+        "gefallen": [
+          {
+            "knoten": "Pine_1B4_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Pine_1B4",
+            "dreiecke": 1264,
+            "gegenDreiecke": 6784
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 10224
+      },
+      "huellboxVorher": {
         "min": [
-          -5.7627,
-          -8.8727,
-          -5.8917
+          -5.8538,
+          -0.0001,
+          -5.7406
         ],
         "max": [
-          5.1431,
-          21.2137,
-          5.2466
+          5.0521,
+          23.8108,
+          5.3978
         ]
       },
+      "huellbox": {
+        "min": [
+          -5.8538,
+          -0.0001,
+          -5.7406
+        ],
+        "max": [
+          5.0521,
+          23.8108,
+          5.3978
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 3232,
@@ -1949,25 +2740,6 @@
         },
         {
           "dreiecke": 3552,
-          "rolle": "nadeln",
-          "herkunft": "Datei",
-          "toenung": [
-            0.26,
-            0.58,
-            0.24,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 80,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1184,
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
@@ -1990,19 +2762,48 @@
         "nadeln"
       ],
       "masterNachher": 2,
-      "dreiecke": 8080,
-      "huellbox": {
+      "dreiecke": 6808,
+      "lod": {
+        "dreieckeVorher": 8080,
+        "dreieckeNachher": 6808,
+        "gefallen": [
+          {
+            "knoten": "Pine_1B5_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Pine_1B5",
+            "dreiecke": 1272,
+            "gegenDreiecke": 6808
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 10272
+      },
+      "huellboxVorher": {
         "min": [
-          -7.4261,
-          -12.9191,
-          -8.4728
+          -7.6445,
+          0.0029,
+          -8.6264
         ],
         "max": [
-          8.3485,
-          31.0614,
-          7.3086
+          8.13,
+          34.8642,
+          7.1549
         ]
       },
+      "huellbox": {
+        "min": [
+          -7.6445,
+          0.0029,
+          -8.6264
+        ],
+        "max": [
+          8.13,
+          34.8642,
+          7.1549
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 3232,
@@ -2013,25 +2814,6 @@
         },
         {
           "dreiecke": 3576,
-          "rolle": "nadeln",
-          "herkunft": "Datei",
-          "toenung": [
-            0.26,
-            0.58,
-            0.24,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 80,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1192,
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
@@ -2053,6 +2835,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 80,
+      "lod": {
+        "dreieckeVorher": 80,
+        "dreieckeNachher": 80,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Pine_1B5_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -0.7364,
+          0.0029,
+          -0.7364
+        ],
+        "max": [
+          0.7364,
+          29.7046,
+          0.7364
+        ]
+      },
       "huellbox": {
         "min": [
           -0.7364,
@@ -2065,6 +2872,7 @@
           0.7364
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 80,
@@ -2085,19 +2893,48 @@
         "nadeln"
       ],
       "masterNachher": 2,
-      "dreiecke": 8080,
-      "huellbox": {
+      "dreiecke": 6808,
+      "lod": {
+        "dreieckeVorher": 8080,
+        "dreieckeNachher": 6808,
+        "gefallen": [
+          {
+            "knoten": "Pine_1B5_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Pine_1B5",
+            "dreiecke": 1272,
+            "gegenDreiecke": 6808
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 10272
+      },
+      "huellboxVorher": {
         "min": [
-          -7.4261,
-          -12.9191,
-          -8.4728
+          -7.6445,
+          0.0029,
+          -8.6264
         ],
         "max": [
-          8.3485,
-          31.0614,
-          7.3086
+          8.13,
+          34.8642,
+          7.1549
         ]
       },
+      "huellbox": {
+        "min": [
+          -7.6445,
+          0.0029,
+          -8.6264
+        ],
+        "max": [
+          8.13,
+          34.8642,
+          7.1549
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 3232,
@@ -2108,25 +2945,6 @@
         },
         {
           "dreiecke": 3576,
-          "rolle": "nadeln",
-          "herkunft": "Datei",
-          "toenung": [
-            0.26,
-            0.58,
-            0.24,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 80,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1192,
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
@@ -2148,6 +2966,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 445,
+      "lod": {
+        "dreieckeVorher": 445,
+        "dreieckeNachher": 445,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "SM_Plant_Mushrooms_02",
+            "stufe": 2,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -0.2759,
+          -0.1456,
+          -0.3451
+        ],
+        "max": [
+          0.2759,
+          0.3314,
+          0.3451
+        ]
+      },
       "huellbox": {
         "min": [
           -0.2759,
@@ -2160,6 +3003,7 @@
           0.3451
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 445,
@@ -2178,23 +3022,59 @@
       ],
       "materialienNachher": [
         "rinde-eiche",
-        "laub",
-        "rinde-nadel"
+        "laub"
       ],
-      "masterNachher": 3,
-      "dreiecke": 11702,
-      "huellbox": {
+      "masterNachher": 2,
+      "dreiecke": 7326,
+      "lod": {
+        "dreieckeVorher": 11702,
+        "dreieckeNachher": 7326,
+        "gefallen": [
+          {
+            "knoten": "Small_Thin_Tree_1A2_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "small-thin-tree-1a2",
+            "dreiecke": 3502,
+            "gegenDreiecke": 8200
+          },
+          {
+            "knoten": "Small_Thin_Tree_1A2_2",
+            "stufe": 2,
+            "lage": "verschachtelt",
+            "unter": "small-thin-tree-1a2",
+            "dreiecke": 874,
+            "gegenDreiecke": 10828
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 396432
+      },
+      "huellboxVorher": {
         "min": [
-          -2.2992,
-          -3.0936,
-          -2.4635
+          -2.3021,
+          -0.2611,
+          -2.5134
         ],
         "max": [
-          2.5973,
-          7.6702,
-          2.1252
+          2.5944,
+          8.1028,
+          2.0753
         ]
       },
+      "huellbox": {
+        "min": [
+          -2.3021,
+          -0.2611,
+          -2.5134
+        ],
+        "max": [
+          2.5944,
+          8.1028,
+          2.0753
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 3356,
@@ -2205,44 +3085,6 @@
         },
         {
           "dreiecke": 3970,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 1716,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1786,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 72,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 802,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -2263,23 +3105,59 @@
       ],
       "materialienNachher": [
         "rinde-eiche",
-        "laub",
-        "rinde-nadel"
+        "laub"
       ],
-      "masterNachher": 3,
-      "dreiecke": 15240,
-      "huellbox": {
+      "masterNachher": 2,
+      "dreiecke": 9562,
+      "lod": {
+        "dreieckeVorher": 15240,
+        "dreieckeNachher": 9562,
+        "gefallen": [
+          {
+            "knoten": "Small_Thin_Tree_1A3_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "small-thin-tree-1a3",
+            "dreiecke": 4548,
+            "gegenDreiecke": 10692
+          },
+          {
+            "knoten": "Small_Thin_Tree_1A3_2",
+            "stufe": 2,
+            "lage": "verschachtelt",
+            "unter": "small-thin-tree-1a3",
+            "dreiecke": 1130,
+            "gegenDreiecke": 14110
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 517284
+      },
+      "huellboxVorher": {
         "min": [
-          -3.8042,
-          -4.4129,
-          -4.1303
+          -4.0332,
+          -0.2611,
+          -4.0768
         ],
         "max": [
-          3.5096,
-          10.3588,
-          3.5961
+          3.2807,
+          11.1969,
+          3.6496
         ]
       },
+      "huellbox": {
+        "min": [
+          -4.0332,
+          -0.2611,
+          -4.0768
+        ],
+        "max": [
+          3.2807,
+          11.1969,
+          3.6496
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 4332,
@@ -2290,44 +3168,6 @@
         },
         {
           "dreiecke": 5230,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 2196,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 2352,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 72,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1058,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -2349,24 +3189,59 @@
       ],
       "materialienNachher": [
         "rinde-eiche",
-        "laub",
-        "rinde-nadel",
-        "laub-2"
+        "laub"
       ],
-      "masterNachher": 4,
-      "dreiecke": 17022,
-      "huellbox": {
+      "masterNachher": 2,
+      "dreiecke": 10958,
+      "lod": {
+        "dreieckeVorher": 17022,
+        "dreieckeNachher": 10958,
+        "gefallen": [
+          {
+            "knoten": "Small_Thin_Tree_1A5_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "small-thin-tree-1a5",
+            "dreiecke": 4972,
+            "gegenDreiecke": 12050
+          },
+          {
+            "knoten": "Small_Thin_Tree_1A5_2",
+            "stufe": 2,
+            "lage": "verschachtelt",
+            "unter": "small-thin-tree-1a5",
+            "dreiecke": 1092,
+            "gegenDreiecke": 15930
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 544800
+      },
+      "huellboxVorher": {
         "min": [
-          -3.5311,
-          -3.5307,
-          -4.023
+          -3.5867,
+          -0.2613,
+          -3.9909
         ],
         "max": [
-          3.2606,
-          9.6514,
-          3.6523
+          3.205,
+          10.3542,
+          3.6844
         ]
       },
+      "huellbox": {
+        "min": [
+          -3.5867,
+          -0.2613,
+          -3.9909
+        ],
+        "max": [
+          3.205,
+          10.3542,
+          3.6844
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 5288,
@@ -2386,44 +3261,6 @@
             1
           ],
           "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 2704,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 2268,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.55,
-            1,
-            0.24,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 72,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1020,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
         }
       ]
     },
@@ -2437,8 +3274,24 @@
         "laubDunkel"
       ],
       "masterNachher": 2,
-      "dreiecke": 15758,
-      "huellbox": {
+      "dreiecke": 9473,
+      "lod": {
+        "dreieckeVorher": 15758,
+        "dreieckeNachher": 9473,
+        "gefallen": [
+          {
+            "knoten": "Split_Tree_1A1_LOD_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Split_Tree_1A1 1 Dark",
+            "dreiecke": 6285,
+            "gegenDreiecke": 9473
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 371124
+      },
+      "huellboxVorher": {
         "min": [
           -3.891,
           -0.1579,
@@ -2450,6 +3303,19 @@
           4.244
         ]
       },
+      "huellbox": {
+        "min": [
+          -3.891,
+          -0.155,
+          -3.4015
+        ],
+        "max": [
+          4.0435,
+          7.5991,
+          4.244
+        ]
+      },
+      "huellboxGleich": false,
       "primitive": [
         {
           "dreiecke": 6197,
@@ -2460,25 +3326,6 @@
         },
         {
           "dreiecke": 3276,
-          "rolle": "laubDunkel",
-          "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
-          "toenung": [
-            0.6255,
-            0.4625,
-            0.2675,
-            1
-          ],
-          "toenungAus": "Vorgabe"
-        },
-        {
-          "dreiecke": 4647,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1638,
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
@@ -2502,6 +3349,36 @@
       ],
       "masterNachher": 2,
       "dreiecke": 6285,
+      "lod": {
+        "dreieckeVorher": 6285,
+        "dreieckeNachher": 6285,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Split_Tree_1A1_LOD_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          },
+          {
+            "knoten": "SubMesh_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -3.891,
+          -0.1579,
+          -3.2691
+        ],
+        "max": [
+          4.0435,
+          7.3347,
+          4.244
+        ]
+      },
       "huellbox": {
         "min": [
           -3.891,
@@ -2514,6 +3391,7 @@
           4.244
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 4647,
@@ -2546,6 +3424,31 @@
       ],
       "masterNachher": 2,
       "dreiecke": 9473,
+      "lod": {
+        "dreieckeVorher": 9473,
+        "dreieckeNachher": 9473,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "SubMesh_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -3.891,
+          -0.155,
+          -3.4015
+        ],
+        "max": [
+          4.0435,
+          7.5991,
+          4.244
+        ]
+      },
       "huellbox": {
         "min": [
           -3.891,
@@ -2558,6 +3461,7 @@
           4.244
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 6197,
@@ -2590,8 +3494,24 @@
         "laubDunkel"
       ],
       "masterNachher": 2,
-      "dreiecke": 15757,
-      "huellbox": {
+      "dreiecke": 9473,
+      "lod": {
+        "dreieckeVorher": 15757,
+        "dreieckeNachher": 9473,
+        "gefallen": [
+          {
+            "knoten": "Split_Tree_1A2_LOD_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Split_Tree_1A2 1 Dark",
+            "dreiecke": 6284,
+            "gegenDreiecke": 9473
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 371028
+      },
+      "huellboxVorher": {
         "min": [
           -4.749,
           -0.3086,
@@ -2603,6 +3523,19 @@
           5.4324
         ]
       },
+      "huellbox": {
+        "min": [
+          -4.749,
+          -0.3056,
+          -5.6453
+        ],
+        "max": [
+          5.9252,
+          9.2673,
+          5.4324
+        ]
+      },
+      "huellboxGleich": false,
       "primitive": [
         {
           "dreiecke": 6197,
@@ -2613,25 +3546,6 @@
         },
         {
           "dreiecke": 3276,
-          "rolle": "laubDunkel",
-          "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
-          "toenung": [
-            0.6255,
-            0.4625,
-            0.2675,
-            1
-          ],
-          "toenungAus": "Vorgabe"
-        },
-        {
-          "dreiecke": 4646,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1638,
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
@@ -2655,6 +3569,36 @@
       ],
       "masterNachher": 2,
       "dreiecke": 6284,
+      "lod": {
+        "dreieckeVorher": 6284,
+        "dreieckeNachher": 6284,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Split_Tree_1A2_LOD_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          },
+          {
+            "knoten": "SubMesh_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -4.5142,
+          -0.3086,
+          -5.6453
+        ],
+        "max": [
+          5.7255,
+          9.0179,
+          5.4324
+        ]
+      },
       "huellbox": {
         "min": [
           -4.5142,
@@ -2667,6 +3611,7 @@
           5.4324
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 4646,
@@ -2699,6 +3644,31 @@
       ],
       "masterNachher": 2,
       "dreiecke": 9473,
+      "lod": {
+        "dreieckeVorher": 9473,
+        "dreieckeNachher": 9473,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "SubMesh_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -4.749,
+          -0.3056,
+          -5.6453
+        ],
+        "max": [
+          5.9252,
+          9.2673,
+          5.4324
+        ]
+      },
       "huellbox": {
         "min": [
           -4.749,
@@ -2711,6 +3681,7 @@
           5.4324
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 6197,
@@ -2743,7 +3714,35 @@
         "laubDunkel"
       ],
       "masterNachher": 2,
-      "dreiecke": 15789,
+      "dreiecke": 9491,
+      "lod": {
+        "dreieckeVorher": 15789,
+        "dreieckeNachher": 9491,
+        "gefallen": [
+          {
+            "knoten": "Split_Tree_1A3_LOD_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Split_Tree_1A3 1 Dark",
+            "dreiecke": 6298,
+            "gegenDreiecke": 9491
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 371508
+      },
+      "huellboxVorher": {
+        "min": [
+          -8.3865,
+          -0.359,
+          -8.8023
+        ],
+        "max": [
+          8.0702,
+          15.2192,
+          7.0549
+        ]
+      },
       "huellbox": {
         "min": [
           -8.3865,
@@ -2756,6 +3755,7 @@
           7.0549
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 6215,
@@ -2766,25 +3766,6 @@
         },
         {
           "dreiecke": 3276,
-          "rolle": "laubDunkel",
-          "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
-          "toenung": [
-            0.6255,
-            0.4625,
-            0.2675,
-            1
-          ],
-          "toenungAus": "Vorgabe"
-        },
-        {
-          "dreiecke": 4660,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1638,
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
@@ -2808,6 +3789,36 @@
       ],
       "masterNachher": 2,
       "dreiecke": 6298,
+      "lod": {
+        "dreieckeVorher": 6298,
+        "dreieckeNachher": 6298,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Split_Tree_1A3_LOD_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          },
+          {
+            "knoten": "SubMesh_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -8.3865,
+          -0.359,
+          -8.5056
+        ],
+        "max": [
+          8.0702,
+          14.8262,
+          6.7062
+        ]
+      },
       "huellbox": {
         "min": [
           -8.3865,
@@ -2820,6 +3831,7 @@
           6.7062
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 4660,
@@ -2852,6 +3864,31 @@
       ],
       "masterNachher": 2,
       "dreiecke": 9491,
+      "lod": {
+        "dreieckeVorher": 9491,
+        "dreieckeNachher": 9491,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "SubMesh_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -8.3865,
+          -0.359,
+          -8.8023
+        ],
+        "max": [
+          8.0702,
+          15.2192,
+          7.0549
+        ]
+      },
       "huellbox": {
         "min": [
           -8.3865,
@@ -2864,6 +3901,7 @@
           7.0549
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 6215,
@@ -2895,6 +3933,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 1445,
+      "lod": {
+        "dreieckeVorher": 1445,
+        "dreieckeNachher": 1445,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1A3_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -6.8694,
+          -1.0234,
+          -6.6146
+        ],
+        "max": [
+          6.7748,
+          24.5484,
+          6.4746
+        ]
+      },
       "huellbox": {
         "min": [
           -6.8694,
@@ -2907,6 +3970,7 @@
           6.4746
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 1445,
@@ -2926,6 +3990,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 98,
+      "lod": {
+        "dreieckeVorher": 98,
+        "dreieckeNachher": 98,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1A3_2",
+            "stufe": 2,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -3.6582,
+          -1.0234,
+          -2.5833
+        ],
+        "max": [
+          2.2868,
+          20.8074,
+          3.9765
+        ]
+      },
       "huellbox": {
         "min": [
           -3.6582,
@@ -2938,6 +4027,7 @@
           3.9765
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 98,
@@ -2958,19 +4048,56 @@
         "laub"
       ],
       "masterNachher": 2,
-      "dreiecke": 28093,
-      "huellbox": {
+      "dreiecke": 16304,
+      "lod": {
+        "dreieckeVorher": 28093,
+        "dreieckeNachher": 16304,
+        "gefallen": [
+          {
+            "knoten": "Tree_1A3_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Tree_1A3",
+            "dreiecke": 8871,
+            "gegenDreiecke": 19222
+          },
+          {
+            "knoten": "Tree_1A3_2",
+            "stufe": 2,
+            "lage": "verschachtelt",
+            "unter": "Tree_1A3",
+            "dreiecke": 2918,
+            "gegenDreiecke": 25175
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 138716
+      },
+      "huellboxVorher": {
         "min": [
-          -7.9762,
-          -9.1891,
-          -7.8291
+          -8.2993,
+          -1.0234,
+          -8.0263
         ],
         "max": [
-          8.0188,
-          24.561,
-          8.1244
+          7.6958,
+          25.4475,
+          7.9272
         ]
       },
+      "huellbox": {
+        "min": [
+          -8.2993,
+          -1.0234,
+          -8.0263
+        ],
+        "max": [
+          7.6958,
+          25.4475,
+          7.9272
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 2624,
@@ -2981,44 +4108,6 @@
         },
         {
           "dreiecke": 13680,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.55,
-            1,
-            0.24,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 1445,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 7426,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.55,
-            1,
-            0.24,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 98,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 2820,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -3040,6 +4129,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 1416,
+      "lod": {
+        "dreieckeVorher": 1416,
+        "dreieckeNachher": 1416,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1A4_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -3.4496,
+          -0.5836,
+          -3.5078
+        ],
+        "max": [
+          3.3255,
+          13.8888,
+          3.5525
+        ]
+      },
       "huellbox": {
         "min": [
           -3.4496,
@@ -3052,6 +4166,7 @@
           3.5525
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 1416,
@@ -3071,6 +4186,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 16,
+      "lod": {
+        "dreieckeVorher": 16,
+        "dreieckeNachher": 16,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1A4_2",
+            "stufe": 2,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -0.3481,
+          -0.5836,
+          -0.3552
+        ],
+        "max": [
+          0.3583,
+          11.7744,
+          0.356
+        ]
+      },
       "huellbox": {
         "min": [
           -0.3481,
@@ -3083,6 +4223,7 @@
           0.356
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 16,
@@ -3102,6 +4243,25 @@
       ],
       "masterNachher": 1,
       "dreiecke": 2628,
+      "lod": {
+        "dreieckeVorher": 2628,
+        "dreieckeNachher": 2628,
+        "gefallen": [],
+        "geprueft": [],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -3.4496,
+          -0.5833,
+          -3.5078
+        ],
+        "max": [
+          3.3255,
+          13.889,
+          3.5526
+        ]
+      },
       "huellbox": {
         "min": [
           -3.4496,
@@ -3114,6 +4274,7 @@
           3.5526
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 2628,
@@ -3133,6 +4294,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 1417,
+      "lod": {
+        "dreieckeVorher": 1417,
+        "dreieckeNachher": 1417,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1A5_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -2.7969,
+          -0.5046,
+          -2.8182
+        ],
+        "max": [
+          3.2401,
+          12.0462,
+          3.0206
+        ]
+      },
       "huellbox": {
         "min": [
           -2.7969,
@@ -3145,6 +4331,7 @@
           3.0206
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 1417,
@@ -3164,6 +4351,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 16,
+      "lod": {
+        "dreieckeVorher": 16,
+        "dreieckeNachher": 16,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1A5_2",
+            "stufe": 2,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -0.2805,
+          -0.5046,
+          -0.2825
+        ],
+        "max": [
+          0.2796,
+          10.2125,
+          0.274
+        ]
+      },
       "huellbox": {
         "min": [
           -0.2805,
@@ -3176,6 +4388,7 @@
           0.274
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 16,
@@ -3195,6 +4408,25 @@
       ],
       "masterNachher": 1,
       "dreiecke": 2628,
+      "lod": {
+        "dreieckeVorher": 2628,
+        "dreieckeNachher": 2628,
+        "gefallen": [],
+        "geprueft": [],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -2.7969,
+          -0.5043,
+          -2.8183
+        ],
+        "max": [
+          3.2401,
+          12.0464,
+          3.0207
+        ]
+      },
       "huellbox": {
         "min": [
           -2.7969,
@@ -3207,6 +4439,7 @@
           3.0207
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 2628,
@@ -3226,6 +4459,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 737,
+      "lod": {
+        "dreieckeVorher": 737,
+        "dreieckeNachher": 737,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1B1_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -2.6162,
+          -0.5009,
+          -3.2374
+        ],
+        "max": [
+          3.0129,
+          10.5919,
+          3.1735
+        ]
+      },
       "huellbox": {
         "min": [
           -2.6162,
@@ -3238,6 +4496,7 @@
           3.1735
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 737,
@@ -3257,6 +4516,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 31,
+      "lod": {
+        "dreieckeVorher": 31,
+        "dreieckeNachher": 31,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1B1_2",
+            "stufe": 2,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -0.2322,
+          -0.5009,
+          -0.1891
+        ],
+        "max": [
+          0.2955,
+          10.3422,
+          0.3609
+        ]
+      },
       "huellbox": {
         "min": [
           -0.2322,
@@ -3269,6 +4553,7 @@
           0.3609
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 31,
@@ -3287,23 +4572,59 @@
       ],
       "materialienNachher": [
         "rinde-eiche",
-        "laub",
-        "rinde-nadel"
+        "laub"
       ],
-      "masterNachher": 3,
-      "dreiecke": 13772,
-      "huellbox": {
+      "masterNachher": 2,
+      "dreiecke": 8018,
+      "lod": {
+        "dreieckeVorher": 13772,
+        "dreieckeNachher": 8018,
+        "gefallen": [
+          {
+            "knoten": "Tree_1B1_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Tree_1B1",
+            "dreiecke": 4351,
+            "gegenDreiecke": 9421
+          },
+          {
+            "knoten": "Tree_1B1_2",
+            "stufe": 2,
+            "lage": "verschachtelt",
+            "unter": "Tree_1B1",
+            "dreiecke": 1403,
+            "gegenDreiecke": 12369
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 546152
+      },
+      "huellboxVorher": {
         "min": [
-          -3.2729,
-          -4.0787,
-          -3.8735
+          -3.3137,
+          -0.5009,
+          -3.8957
         ],
         "max": [
-          3.7865,
-          10.5924,
-          3.5505
+          3.7457,
+          11.1426,
+          3.5283
         ]
       },
+      "huellbox": {
+        "min": [
+          -3.3137,
+          -0.5009,
+          -3.8957
+        ],
+        "max": [
+          3.7457,
+          11.1426,
+          3.5283
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 1358,
@@ -3314,44 +4635,6 @@
         },
         {
           "dreiecke": 6660,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 737,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 3614,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 31,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1372,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -3373,6 +4656,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 745,
+      "lod": {
+        "dreieckeVorher": 745,
+        "dreieckeNachher": 745,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1B2_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -3.7971,
+          -1.0929,
+          -4.6082
+        ],
+        "max": [
+          4.986,
+          15.9142,
+          5.487
+        ]
+      },
       "huellbox": {
         "min": [
           -3.7971,
@@ -3385,6 +4693,7 @@
           5.487
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 745,
@@ -3404,6 +4713,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 31,
+      "lod": {
+        "dreieckeVorher": 31,
+        "dreieckeNachher": 31,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1B2_2",
+            "stufe": 2,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -0.5595,
+          -1.0929,
+          -0.4576
+        ],
+        "max": [
+          0.4569,
+          15.5377,
+          0.5568
+        ]
+      },
       "huellbox": {
         "min": [
           -0.5595,
@@ -3416,6 +4750,7 @@
           0.5568
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 31,
@@ -3434,23 +4769,59 @@
       ],
       "materialienNachher": [
         "rinde-eiche",
-        "laub",
-        "rinde-nadel"
+        "laub"
       ],
-      "masterNachher": 3,
-      "dreiecke": 18504,
-      "huellbox": {
+      "masterNachher": 2,
+      "dreiecke": 10718,
+      "lod": {
+        "dreieckeVorher": 18504,
+        "dreieckeNachher": 10718,
+        "gefallen": [
+          {
+            "knoten": "Tree_1B2_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Tree_1B2",
+            "dreiecke": 5825,
+            "gegenDreiecke": 12679
+          },
+          {
+            "knoten": "Tree_1B2_2",
+            "stufe": 2,
+            "lage": "verschachtelt",
+            "unter": "Tree_1B2",
+            "dreiecke": 1961,
+            "gegenDreiecke": 16543
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 740112
+      },
+      "huellboxVorher": {
         "min": [
-          -5.7903,
-          -5.7653,
-          -5.1895
+          -5.689,
+          -1.0929,
+          -5.0504
         ],
         "max": [
-          5.9587,
-          15.9142,
-          5.8177
+          5.9173,
+          16.7467,
+          5.8628
         ]
       },
+      "huellbox": {
+        "min": [
+          -5.689,
+          -1.0929,
+          -5.0504
+        ],
+        "max": [
+          5.9173,
+          16.7467,
+          5.8628
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 1358,
@@ -3461,44 +4832,6 @@
         },
         {
           "dreiecke": 9360,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 745,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 5080,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 31,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1930,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -3520,6 +4853,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 746,
+      "lod": {
+        "dreieckeVorher": 746,
+        "dreieckeNachher": 746,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1B3_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -6.2414,
+          -1.0332,
+          -5.059
+        ],
+        "max": [
+          6.0128,
+          21.909,
+          6.6078
+        ]
+      },
       "huellbox": {
         "min": [
           -6.2414,
@@ -3532,6 +4890,7 @@
           6.6078
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 746,
@@ -3551,6 +4910,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 277,
+      "lod": {
+        "dreieckeVorher": 277,
+        "dreieckeNachher": 277,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1B3_2",
+            "stufe": 2,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -6.2414,
+          -1.0332,
+          -4.9816
+        ],
+        "max": [
+          5.0658,
+          21.3684,
+          6.6078
+        ]
+      },
       "huellbox": {
         "min": [
           -6.2414,
@@ -3563,6 +4947,7 @@
           6.6078
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 277,
@@ -3581,23 +4966,59 @@
       ],
       "materialienNachher": [
         "rinde-eiche",
-        "laub",
-        "rinde-nadel"
+        "laub"
       ],
-      "masterNachher": 3,
-      "dreiecke": 18751,
-      "huellbox": {
+      "masterNachher": 2,
+      "dreiecke": 10718,
+      "lod": {
+        "dreieckeVorher": 18751,
+        "dreieckeNachher": 10718,
+        "gefallen": [
+          {
+            "knoten": "Tree_1B3_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Tree_1B3",
+            "dreiecke": 5826,
+            "gegenDreiecke": 12925
+          },
+          {
+            "knoten": "Tree_1B3_2",
+            "stufe": 2,
+            "lage": "verschachtelt",
+            "unter": "Tree_1B3",
+            "dreiecke": 2207,
+            "gegenDreiecke": 16544
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 760916
+      },
+      "huellboxVorher": {
         "min": [
-          -7.9583,
-          -7.7417,
-          -7.8656
+          -8.0118,
+          -1.0332,
+          -7.7238
         ],
         "max": [
-          6.9607,
-          21.9138,
-          7.9767
+          6.7732,
+          22.9761,
+          7.9292
         ]
       },
+      "huellbox": {
+        "min": [
+          -8.0118,
+          -1.0332,
+          -7.7238
+        ],
+        "max": [
+          6.7732,
+          22.9761,
+          7.9292
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 1358,
@@ -3608,44 +5029,6 @@
         },
         {
           "dreiecke": 9360,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 746,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 5080,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 277,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1930,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -3667,6 +5050,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 336,
+      "lod": {
+        "dreieckeVorher": 336,
+        "dreieckeNachher": 336,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1C1_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -2.8278,
+          -0.5106,
+          -2.0783
+        ],
+        "max": [
+          2.8061,
+          7.3986,
+          1.8115
+        ]
+      },
       "huellbox": {
         "min": [
           -2.8278,
@@ -3679,6 +5087,7 @@
           1.8115
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 336,
@@ -3698,6 +5107,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 208,
+      "lod": {
+        "dreieckeVorher": 208,
+        "dreieckeNachher": 208,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1C1_2",
+            "stufe": 2,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -2.3664,
+          -0.5106,
+          -2.0783
+        ],
+        "max": [
+          1.0196,
+          7.3639,
+          1.8115
+        ]
+      },
       "huellbox": {
         "min": [
           -2.3664,
@@ -3710,6 +5144,7 @@
           1.8115
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 208,
@@ -3728,23 +5163,59 @@
       ],
       "materialienNachher": [
         "rinde-eiche",
-        "laub",
-        "rinde-nadel"
+        "laub"
       ],
-      "masterNachher": 3,
-      "dreiecke": 5684,
-      "huellbox": {
+      "masterNachher": 2,
+      "dreiecke": 3208,
+      "lod": {
+        "dreieckeVorher": 5684,
+        "dreieckeNachher": 3208,
+        "gefallen": [
+          {
+            "knoten": "Tree_1C1_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Tree_1C1",
+            "dreiecke": 1736,
+            "gegenDreiecke": 3948
+          },
+          {
+            "knoten": "Tree_1C1_2",
+            "stufe": 2,
+            "lage": "verschachtelt",
+            "unter": "Tree_1C1",
+            "dreiecke": 740,
+            "gegenDreiecke": 4944
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 38664
+      },
+      "huellboxVorher": {
         "min": [
-          -3.613,
-          -1.8679,
-          -3.4755
+          -3.6366,
+          -0.5106,
+          -3.5057
         ],
         "max": [
-          3.2895,
-          7.3987,
-          2.936
+          3.2659,
+          8.3476,
+          2.9058
         ]
       },
+      "huellbox": {
+        "min": [
+          -3.6366,
+          -0.5106,
+          -3.5057
+        ],
+        "max": [
+          3.2659,
+          8.3476,
+          2.9058
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 628,
@@ -3755,44 +5226,6 @@
         },
         {
           "dreiecke": 2580,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 336,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1400,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 208,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 532,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -3814,6 +5247,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 500,
+      "lod": {
+        "dreieckeVorher": 500,
+        "dreieckeNachher": 500,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1C2_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -2.0785,
+          -0.6425,
+          -3.3762
+        ],
+        "max": [
+          2.5447,
+          8.1052,
+          3.1775
+        ]
+      },
       "huellbox": {
         "min": [
           -2.0785,
@@ -3826,6 +5284,7 @@
           3.1775
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 500,
@@ -3845,6 +5304,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 352,
+      "lod": {
+        "dreieckeVorher": 352,
+        "dreieckeNachher": 352,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1C2_2",
+            "stufe": 2,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -1.943,
+          -0.6425,
+          -3.3762
+        ],
+        "max": [
+          2.5447,
+          8.1052,
+          2.4415
+        ]
+      },
       "huellbox": {
         "min": [
           -1.943,
@@ -3857,6 +5341,7 @@
           2.4415
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 352,
@@ -3875,23 +5360,59 @@
       ],
       "materialienNachher": [
         "rinde-eiche",
-        "laub",
-        "rinde-nadel"
+        "laub"
       ],
-      "masterNachher": 3,
-      "dreiecke": 6070,
-      "huellbox": {
+      "masterNachher": 2,
+      "dreiecke": 3378,
+      "lod": {
+        "dreieckeVorher": 6070,
+        "dreieckeNachher": 3378,
+        "gefallen": [
+          {
+            "knoten": "Tree_1C2_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Tree_1C2",
+            "dreiecke": 1834,
+            "gegenDreiecke": 4236
+          },
+          {
+            "knoten": "Tree_1C2_2",
+            "stufe": 2,
+            "lage": "verschachtelt",
+            "unter": "Tree_1C2",
+            "dreiecke": 858,
+            "gegenDreiecke": 5212
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 106740
+      },
+      "huellboxVorher": {
         "min": [
-          -3.4817,
-          -2.0372,
-          -4.5131
+          -3.1665,
+          -0.6425,
+          -4.5791
         ],
         "max": [
-          4.4405,
-          8.1052,
-          4.7067
+          4.7557,
+          9.3599,
+          4.6408
         ]
       },
+      "huellbox": {
+        "min": [
+          -3.1665,
+          -0.6425,
+          -4.5791
+        ],
+        "max": [
+          4.7557,
+          9.3599,
+          4.6408
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 918,
@@ -3902,44 +5423,6 @@
         },
         {
           "dreiecke": 2460,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 500,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1334,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 352,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 506,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -3960,23 +5443,59 @@
       ],
       "materialienNachher": [
         "rinde-eiche",
-        "laub",
-        "rinde-nadel"
+        "laub"
       ],
-      "masterNachher": 3,
-      "dreiecke": 6509,
-      "huellbox": {
+      "masterNachher": 2,
+      "dreiecke": 3674,
+      "lod": {
+        "dreieckeVorher": 6509,
+        "dreieckeNachher": 3674,
+        "gefallen": [
+          {
+            "knoten": "Tree_1C3_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "tree-1c3",
+            "dreiecke": 1997,
+            "gegenDreiecke": 4512
+          },
+          {
+            "knoten": "Tree_1C3_2",
+            "stufe": 2,
+            "lage": "verschachtelt",
+            "unter": "tree-1c3",
+            "dreiecke": 838,
+            "gegenDreiecke": 5671
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 268388
+      },
+      "huellboxVorher": {
         "min": [
-          -5.9006,
-          -1.4015,
-          -5.5849
+          -5.9519,
+          -0.9624,
+          -5.5449
         ],
         "max": [
-          4.9847,
-          8.9833,
-          6.1342
+          4.9334,
+          11.3802,
+          6.1742
         ]
       },
+      "huellbox": {
+        "min": [
+          -5.9519,
+          -0.9624,
+          -5.5449
+        ],
+        "max": [
+          4.9334,
+          11.3802,
+          6.1742
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 644,
@@ -3987,44 +5506,6 @@
         },
         {
           "dreiecke": 3030,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 353,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1644,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 214,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 624,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -4046,6 +5527,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 826,
+      "lod": {
+        "dreieckeVorher": 826,
+        "dreieckeNachher": 826,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1D1_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -2.634,
+          0,
+          -3.4218
+        ],
+        "max": [
+          2.6727,
+          9.8662,
+          3.0732
+        ]
+      },
       "huellbox": {
         "min": [
           -2.634,
@@ -4058,6 +5564,7 @@
           3.0732
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 826,
@@ -4077,6 +5584,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 192,
+      "lod": {
+        "dreieckeVorher": 192,
+        "dreieckeNachher": 192,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1D1_2",
+            "stufe": 2,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -2.1637,
+          0,
+          -3.4218
+        ],
+        "max": [
+          2.6727,
+          7.1908,
+          3.0732
+        ]
+      },
       "huellbox": {
         "min": [
           -2.1637,
@@ -4089,6 +5621,7 @@
           3.0732
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 192,
@@ -4107,23 +5640,59 @@
       ],
       "materialienNachher": [
         "rinde-eiche",
-        "laub",
-        "rinde-nadel"
+        "laub"
       ],
-      "masterNachher": 3,
-      "dreiecke": 11658,
-      "huellbox": {
+      "masterNachher": 2,
+      "dreiecke": 6732,
+      "lod": {
+        "dreieckeVorher": 11658,
+        "dreieckeNachher": 6732,
+        "gefallen": [
+          {
+            "knoten": "Tree_1D1_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Tree_1D1",
+            "dreiecke": 3658,
+            "gegenDreiecke": 8000
+          },
+          {
+            "knoten": "Tree_1D1_2",
+            "stufe": 2,
+            "lage": "verschachtelt",
+            "unter": "Tree_1D1",
+            "dreiecke": 1268,
+            "gegenDreiecke": 10390
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 77796
+      },
+      "huellboxVorher": {
         "min": [
-          -4.318,
-          -4.4075,
-          -5.331
+          -4.5732,
+          0,
+          -4.8854
         ],
         "max": [
-          4.2402,
-          9.8662,
-          3.778
+          3.985,
+          10.9018,
+          4.2236
         ]
       },
+      "huellbox": {
+        "min": [
+          -4.5732,
+          0,
+          -4.8854
+        ],
+        "max": [
+          3.985,
+          10.9018,
+          4.2236
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 1512,
@@ -4134,44 +5703,6 @@
         },
         {
           "dreiecke": 5220,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 826,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 2832,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 192,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1076,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -4193,6 +5724,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 678,
+      "lod": {
+        "dreieckeVorher": 678,
+        "dreieckeNachher": 678,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1D2_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -2.9456,
+          0,
+          -2.4285
+        ],
+        "max": [
+          3.0298,
+          10.1119,
+          2.6687
+        ]
+      },
       "huellbox": {
         "min": [
           -2.9456,
@@ -4205,6 +5761,7 @@
           2.6687
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 678,
@@ -4224,6 +5781,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 176,
+      "lod": {
+        "dreieckeVorher": 176,
+        "dreieckeNachher": 176,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1D2_2",
+            "stufe": 2,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -2.625,
+          0,
+          -1.1907
+        ],
+        "max": [
+          3.0298,
+          6.6782,
+          2.3443
+        ]
+      },
       "huellbox": {
         "min": [
           -2.625,
@@ -4236,6 +5818,7 @@
           2.3443
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 176,
@@ -4254,23 +5837,59 @@
       ],
       "materialienNachher": [
         "rinde-eiche",
-        "laub",
-        "rinde-nadel"
+        "laub"
       ],
-      "masterNachher": 3,
-      "dreiecke": 9024,
-      "huellbox": {
+      "masterNachher": 2,
+      "dreiecke": 5192,
+      "lod": {
+        "dreieckeVorher": 9024,
+        "dreieckeNachher": 5192,
+        "gefallen": [
+          {
+            "knoten": "Tree_1D2_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Tree_1D2",
+            "dreiecke": 2836,
+            "gegenDreiecke": 6188
+          },
+          {
+            "knoten": "Tree_1D2_2",
+            "stufe": 2,
+            "lage": "verschachtelt",
+            "unter": "Tree_1D2",
+            "dreiecke": 996,
+            "gegenDreiecke": 8028
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 41820
+      },
+      "huellboxVorher": {
         "min": [
-          -4.6802,
-          -3.8108,
-          -3.9518
+          -4.5078,
+          0,
+          -3.883
         ],
         "max": [
-          3.9606,
-          10.1119,
-          3.8799
+          4.133,
+          10.983,
+          3.9487
         ]
       },
+      "huellbox": {
+        "min": [
+          -4.5078,
+          0,
+          -3.883
+        ],
+        "max": [
+          4.133,
+          10.983,
+          3.9487
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 1214,
@@ -4281,44 +5900,6 @@
         },
         {
           "dreiecke": 3978,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 678,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 2158,
-          "rolle": "laub",
-          "herkunft": "Datei",
-          "toenung": [
-            0.46,
-            0.95,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 176,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 820,
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
@@ -4340,6 +5921,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 1292,
+      "lod": {
+        "dreieckeVorher": 1292,
+        "dreieckeNachher": 1292,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1E1_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -4.9106,
+          -0.428,
+          -6.3952
+        ],
+        "max": [
+          5.3624,
+          15.0609,
+          4.0444
+        ]
+      },
       "huellbox": {
         "min": [
           -4.9106,
@@ -4352,6 +5958,7 @@
           4.0444
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 1292,
@@ -4371,6 +5978,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 318,
+      "lod": {
+        "dreieckeVorher": 318,
+        "dreieckeNachher": 318,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1E1_2",
+            "stufe": 2,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -4.9106,
+          -0.428,
+          -2.9469
+        ],
+        "max": [
+          2.9249,
+          10.2237,
+          4.0444
+        ]
+      },
       "huellbox": {
         "min": [
           -4.9106,
@@ -4383,6 +6015,7 @@
           4.0444
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 318,
@@ -4401,23 +6034,59 @@
       ],
       "materialienNachher": [
         "rinde-eiche",
-        "ahorn",
-        "rinde-nadel"
+        "ahorn"
       ],
-      "masterNachher": 3,
-      "dreiecke": 20262,
-      "huellbox": {
+      "masterNachher": 2,
+      "dreiecke": 11678,
+      "lod": {
+        "dreieckeVorher": 20262,
+        "dreieckeNachher": 11678,
+        "gefallen": [
+          {
+            "knoten": "Tree_1E1_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Tree_1E1",
+            "dreiecke": 6346,
+            "gegenDreiecke": 13916
+          },
+          {
+            "knoten": "Tree_1E1_2",
+            "stufe": 2,
+            "lage": "verschachtelt",
+            "unter": "Tree_1E1",
+            "dreiecke": 2238,
+            "gegenDreiecke": 18024
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 125724
+      },
+      "huellboxVorher": {
         "min": [
-          -6.8683,
-          -5.7416,
-          -7.427
+          -6.7007,
+          -0.428,
+          -8.3449
         ],
         "max": [
-          7.0598,
-          15.0609,
-          6.3795
+          7.2275,
+          16.8445,
+          5.4616
         ]
       },
+      "huellbox": {
+        "min": [
+          -6.7007,
+          -0.428,
+          -8.3449
+        ],
+        "max": [
+          7.2275,
+          16.8445,
+          5.4616
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 2366,
@@ -4428,44 +6097,6 @@
         },
         {
           "dreiecke": 9312,
-          "rolle": "ahorn",
-          "herkunft": "Datei",
-          "toenung": [
-            0.62,
-            1,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 1292,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 5054,
-          "rolle": "ahorn",
-          "herkunft": "Datei",
-          "toenung": [
-            0.62,
-            1,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 318,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1920,
           "rolle": "ahorn",
           "herkunft": "Datei",
           "toenung": [
@@ -4487,6 +6118,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 910,
+      "lod": {
+        "dreieckeVorher": 910,
+        "dreieckeNachher": 910,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1E2_1",
+            "stufe": 1,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -4.7806,
+          -0.4387,
+          -5.0924
+        ],
+        "max": [
+          3.6859,
+          14.7634,
+          4.5274
+        ]
+      },
       "huellbox": {
         "min": [
           -4.7806,
@@ -4499,6 +6155,7 @@
           4.5274
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 910,
@@ -4518,6 +6175,31 @@
       ],
       "masterNachher": 1,
       "dreiecke": 345,
+      "lod": {
+        "dreieckeVorher": 345,
+        "dreieckeNachher": 345,
+        "gefallen": [],
+        "geprueft": [
+          {
+            "knoten": "Tree_1E2_2",
+            "stufe": 2,
+            "behalten": "keine Schale darüber oder daneben"
+          }
+        ],
+        "binGespartBytes": 0
+      },
+      "huellboxVorher": {
+        "min": [
+          -4.3711,
+          -0.4387,
+          -4.1166
+        ],
+        "max": [
+          2.2391,
+          11.1687,
+          4.5274
+        ]
+      },
       "huellbox": {
         "min": [
           -4.3711,
@@ -4530,6 +6212,7 @@
           4.5274
         ]
       },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 345,
@@ -4548,23 +6231,59 @@
       ],
       "materialienNachher": [
         "rinde-eiche",
-        "ahorn",
-        "rinde-nadel"
+        "ahorn"
       ],
-      "masterNachher": 3,
-      "dreiecke": 13357,
-      "huellbox": {
+      "masterNachher": 2,
+      "dreiecke": 7626,
+      "lod": {
+        "dreieckeVorher": 13357,
+        "dreieckeNachher": 7626,
+        "gefallen": [
+          {
+            "knoten": "Tree_1E2_1",
+            "stufe": 1,
+            "lage": "verschachtelt",
+            "unter": "Tree_1E2",
+            "dreiecke": 4154,
+            "gegenDreiecke": 9203
+          },
+          {
+            "knoten": "Tree_1E2_2",
+            "stufe": 2,
+            "lage": "verschachtelt",
+            "unter": "Tree_1E2",
+            "dreiecke": 1577,
+            "gegenDreiecke": 11780
+          }
+        ],
+        "geprueft": [],
+        "binGespartBytes": 95804
+      },
+      "huellboxVorher": {
         "min": [
-          -7.1008,
-          -7.1058,
-          -6.3128
+          -7.047,
+          -0.4387,
+          -6.797
         ],
         "max": [
-          5.9219,
-          14.7636,
-          6.3665
+          5.9756,
+          16.7336,
+          5.8823
         ]
       },
+      "huellbox": {
+        "min": [
+          -7.047,
+          -0.4387,
+          -6.797
+        ],
+        "max": [
+          5.9756,
+          16.7336,
+          5.8823
+        ]
+      },
+      "huellboxGleich": true,
       "primitive": [
         {
           "dreiecke": 1650,
@@ -4575,44 +6294,6 @@
         },
         {
           "dreiecke": 5976,
-          "rolle": "ahorn",
-          "herkunft": "Datei",
-          "toenung": [
-            0.62,
-            1,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 910,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 3244,
-          "rolle": "ahorn",
-          "herkunft": "Datei",
-          "toenung": [
-            0.62,
-            1,
-            0.2,
-            1
-          ],
-          "toenungAus": "Store"
-        },
-        {
-          "dreiecke": 345,
-          "rolle": "rinde",
-          "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
-        },
-        {
-          "dreiecke": 1232,
           "rolle": "ahorn",
           "herkunft": "Datei",
           "toenung": [

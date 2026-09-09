@@ -202,6 +202,159 @@ check(
 );
 
 /*
+  ── (b2) Die abgetragenen LOD-Schalen ────────────────────────────────
+
+  34 Store-Modelle tragen ihre eigene Fernstufe MIT IN DERSELBEN DATEI,
+  als Kindknoten der Nahstufe (`Tree_1E1` mit `Tree_1E1_1` und
+  `Tree_1E1_2` darunter). Unity hätte je nach Entfernung eine davon
+  eingeschaltet; Babylon zeichnet alle. Die Aufbereitung trägt sie ab.
+
+  Drei Fehlerarten, alle drei lautlos:
+
+   (i)   ZU WENIG. Die Regel greift nicht mehr (Knotennamen ändern sich
+         beim nächsten Store-Import), und der Wald ist ohne jede Meldung
+         wieder ein Viertel teurer.
+   (ii)  ZU VIEL. Die Regel greift zu breit und trägt eine Krone ab. Ein
+         Baum ohne Laub sieht aus wie ein toter Baum — und tote Bäume
+         gibt es im Bestand wirklich, das fiele niemandem auf.
+   (iii) UNVOLLSTÄNDIG BERICHTET. Der Bericht nennt eine Zahl, aber
+         nicht, WELCHE Knoten fielen und wogegen sie gemessen wurden;
+         dann ist das Ergebnis nicht mehr nachprüfbar, nur noch zu
+         glauben.
+*/
+type LodEintrag = {
+  knoten: string;
+  stufe: number;
+  lage: string;
+  unter: string;
+  dreiecke: number;
+  gegenDreiecke: number;
+};
+type BerichtModell = {
+  huellbox: { min: number[]; max: number[] };
+  huellboxVorher: { min: number[]; max: number[] };
+  huellboxGleich: boolean;
+  lod: {
+    dreieckeVorher: number;
+    dreieckeNachher: number;
+    gefallen: LodEintrag[];
+    geprueft: { knoten: string; stufe: number; behalten: string }[];
+    binGespartBytes: number;
+  };
+};
+
+if (ersterLauf.length > 0 && existsSync(join(PROBE_ZIEL, 'BERICHT.json'))) {
+  const bericht = JSON.parse(readFileSync(join(PROBE_ZIEL, 'BERICHT.json'), 'utf8')) as {
+    lodSchalenEntfernt: boolean;
+    modelle: Record<string, BerichtModell>;
+  };
+  const modelle = Object.entries(bericht.modelle);
+  check('der Bericht sagt, dass die LOD-Schalen entfernt wurden', bericht.lodSchalenEntfernt === true);
+
+  const vor = modelle.reduce((s, [, m]) => s + m.lod.dreieckeVorher, 0);
+  const nach = modelle.reduce((s, [, m]) => s + m.lod.dreieckeNachher, 0);
+  const anteil = (vor - nach) / vor;
+  /*
+    Die Schranken sind weit gesetzt und trotzdem scharf: Gemessen am
+    Bestand vom 09.09.2026 fallen 25,6 % der Dreiecke (149.362 von
+    584.136). Unter 15 % hat die Regel etwas verloren, über 40 % hat sie
+    etwas erwischt, das keine Fernstufe ist. Beides ist ein Grund
+    hinzusehen — keine Zahl zum stillen Nachziehen.
+  */
+  check(
+    `die LOD-Schalen sind wirklich weg (${((anteil * 100)).toFixed(1)} % der Dreiecke, ${vor - nach} von ${vor})`,
+    anteil >= 0.15 && anteil <= 0.4,
+    'erwartet 15…40 %'
+  );
+
+  const ohneGeometrie = modelle.filter(([, m]) => m.lod.dreieckeNachher === 0);
+  check(
+    'kein Modell hat dabei seine ganze Geometrie verloren',
+    ohneGeometrie.length === 0,
+    ohneGeometrie.slice(0, 5).map(([n]) => n).join(', ')
+  );
+
+  // Jeder gefallene Knoten VOLLSTÄNDIG beschrieben — sonst ist die Zahl
+  // oben eine Behauptung.
+  const unvollstaendig: string[] = [];
+  let gefalleneKnoten = 0;
+  for (const [name, m] of modelle) {
+    for (const g of m.lod.gefallen) {
+      gefalleneKnoten++;
+      const vollstaendig =
+        typeof g.knoten === 'string' &&
+        g.knoten.length > 0 &&
+        Number.isInteger(g.stufe) &&
+        g.stufe >= 1 &&
+        (g.lage === 'verschachtelt' || g.lage === 'Geschwister') &&
+        typeof g.unter === 'string' &&
+        g.unter.length > 0 &&
+        g.dreiecke > 0 &&
+        // Die behaltene Schale hat MEHR Dreiecke — das ist die Bedingung,
+        // unter der der Knoten überhaupt fallen durfte. Steht im Bericht
+        // etwas anderes, hat das Werkzeug anders gehandelt als es sagt.
+        g.gegenDreiecke > g.dreiecke;
+      if (!vollstaendig) unvollstaendig.push(`${name}:${g.knoten ?? '?'}`);
+    }
+  }
+  check(
+    `jeder gefallene Knoten ist vollständig berichtet (${gefalleneKnoten} Knoten)`,
+    gefalleneKnoten > 0 && unvollstaendig.length === 0,
+    unvollstaendig.slice(0, 5).join(', ')
+  );
+
+  // Die Dateien, welche die Fernstufe als EIGENE Datei führen, müssen sie
+  // vollständig behalten — dort IST die Fernstufe der ganze Inhalt.
+  for (const eigen of ['massive-tree-1a1-lod-1', 'split-tree-1a1-lod-1', 'pine-1b1-1']) {
+    const m = bericht.modelle[eigen];
+    if (!m) continue;
+    check(`${eigen} behält seine Geometrie (eigene Fernstufen-Datei)`, m.lod.gefallen.length === 0);
+  }
+
+  /*
+    Die HÜLLBOX ist die Zusage an `tools/store-prefabs.mjs`, das sie für
+    `renderScale` übernimmt. Sie DARF sich ändern — eine Fernstufe reicht
+    manchmal ein paar Millimeter weiter —, aber nicht um Meter: Dann wäre
+    kein LOD abgetragen worden, sondern ein Objekt.
+  */
+  const boxSprung = modelle.filter(([, m]) => {
+    if (m.huellboxGleich) return false;
+    return [0, 1, 2].some(
+      (i) =>
+        Math.abs(m.huellbox.min[i]! - m.huellboxVorher.min[i]!) > 0.1 ||
+        Math.abs(m.huellbox.max[i]! - m.huellboxVorher.max[i]!) > 0.1
+    );
+  });
+  check(
+    'keine Hüllbox springt um mehr als 10 cm',
+    boxSprung.length === 0,
+    boxSprung.slice(0, 5).map(([n]) => n).join(', ')
+  );
+
+  /*
+    Und die Gegenprobe zur Nachmessung selbst: `tree-1e1` ist in
+    `design/store-konventionen.md` UNABHÄNGIG nachgemessen worden
+    (−6,701 / −0,428 / −8,345 → 7,228 / 16,845 / 5,462). Trifft der
+    Bericht diese Zahlen, rechnet `huellbox()` die Knotenversätze richtig
+    mit — und nur dann taugt sie als Quelle für `renderScale`. Die alte
+    Fassung las blosse Accessor-Grenzen und lag an jeder Krone daneben
+    (die Laubkarten hängen bis zu 9,4 m über dem Stammfuss).
+  */
+  const e1 = bericht.modelle['tree-1e1'];
+  if (e1) {
+    const soll = { min: [-6.701, -0.428, -8.345], max: [7.228, 16.845, 5.462] };
+    const passt =
+      [0, 1, 2].every((i) => Math.abs(e1.huellbox.min[i]! - soll.min[i]!) < 0.001) &&
+      [0, 1, 2].every((i) => Math.abs(e1.huellbox.max[i]! - soll.max[i]!) < 0.001);
+    check(
+      'tree-1e1 trifft die unabhängige Nachmessung aus design/store-konventionen.md',
+      passt,
+      `gemessen ${JSON.stringify(e1.huellbox)}`
+    );
+  }
+}
+
+/*
   ── (c) Der EINGECHECKTE Bericht ist der aktuelle ────────────────────
   `assets/store-lab/` ist gitignored — wer ohne den Store arbeitet, sieht
   vom Ergebnis der Aufbereitung sonst nichts. `tools/berichte/store-

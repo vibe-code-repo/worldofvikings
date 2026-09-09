@@ -106,14 +106,87 @@
  * getrennt, weil sonst einer von beiden lautlos seine Store-Farbe
  * verlöre. Was bleibt, steht in BERICHT.json: `materialienNachher`.
  *
- * ── Der Binärteil wird nicht angefasst ───────────────────────────────
+ * ── Die zweite Schale: LOD-Stufen IN der Datei ───────────────────────
+ * (Nachtrag Bauer „Leistung", 09.09.2026 — gemessen, nicht vermutet.)
+ *
+ * 34 der 94 Modelle tragen ihre eigene LOD-Kette MIT IN DERSELBEN DATEI,
+ * als Kindknoten der LOD0-Schale:
+ *
+ *   tree-1e1.glb      Tree_1E1 (11.678 Dr.)
+ *                       ├─ Tree_1E1_1  (6.346 Dr.)
+ *                       └─ Tree_1E1_2  (2.238 Dr.)      = 20.262 gesamt
+ *   massive-tree-1a1-1-dark.glb
+ *                     Massive_Tree_1A1 1 Dark (14.110)
+ *                       └─ Massive_Tree_1A1_LOD_1 (9.185) = 23.295
+ *
+ * Sie stehen NICHT nebeneinander, sondern ineinander: dieselbe Hüllbox,
+ * dieselbe Achse, dieselben Materialien — Unity hätte je nach Entfernung
+ * eine davon eingeschaltet, Babylon zeichnet ALLE. Der Befund aus Schritt 1
+ * („zwei beschädigte Varianten") war die richtige Beobachtung mit der
+ * falschen Erklärung: Es ist keine Schadensvariante, es ist die
+ * Fernstufe. Der Beweis steht in den Zahlen — dieselbe Silhouette bei
+ * 55 % beziehungsweise 19 % der Dreiecke, und für drei Familien liegt
+ * genau diese Fernstufe zusätzlich als eigene Datei daneben
+ * (`massive-tree-1a1-lod-1.glb` = 9.185 Dreiecke, bitgleich).
+ *
+ * Der Client hat dagegen eine Abwehr, aber sie greift hier nicht:
+ * `AssetManager` filtert `/^lod\d/i` — auf den ANFANG des Meshnamens
+ * verankert, weil der alte Fremdexport seine Schalen `Lod0`/`Lod1`
+ * nannte. Der Store nennt sie `Tree_1E1_1` und `…_LOD_1`. Kein einziger
+ * Name beginnt mit „lod", also rendert jede Schale mit.
+ *
+ * Entfernt wird deshalb HIER, in der Aufbereitung: Was gar nicht erst in
+ * die Datei kommt, wird auch nicht geladen, nicht geparst, nicht in den
+ * Puffer geschoben und nicht gezeichnet. Über alle 94 Modelle sind das
+ * 164.649 von 584.136 Dreiecken — 28,2 %.
+ *
+ * ERKANNT wird eine Schale an drei Bedingungen ZUSAMMEN, nie am Namen
+ * allein (ein Name ist eine Behauptung, kein Beweis):
+ *
+ *   1. NAME  `…_LOD_<n>` oder `…_<n>` mit n >= 1.
+ *   2. LAGE  Der Knoten hängt UNTER einer anderen Schale mit Geometrie
+ *            (verschachtelt) oder NEBEN einer gleichnamigen mit
+ *            kleinerer Stufe (Geschwister — so liegen die vier
+ *            Grasbüschel).
+ *   3. MASS  Weniger Dreiecke als die behaltene Schale UND eine Hüllbox,
+ *            die in deren Hüllbox liegt (1 cm Toleranz). Das ist der
+ *            Zeuge: Ein zweites, eigenständiges Objekt stünde woanders
+ *            oder wäre grösser. Fällt eine der drei Bedingungen, bleibt
+ *            der Knoten stehen und der Bericht sagt, warum.
+ *
+ * Nie entfernt wird die Stufe 0 und nie der letzte Knoten mit Geometrie:
+ * `massive-tree-1a1-lod-1.glb` IST die Fernstufe und behält sie deshalb
+ * vollständig.
+ *
+ * `--lod-behalten` stellt den alten Zustand her — für die
+ * Vergleichsmessung, nicht für den Betrieb.
+ *
+ * ── Der Binärteil: bufferView-weise, nie byteweise ───────────────────
  * Alle 117 Bilder des Bestands liegen als externe `uri` neben den GLBs,
  * kein einziges als bufferView. Ein Material zu tönen oder ihm ein Bild
- * zu geben ist damit eine reine JSON-Änderung; der BIN-Block wird Byte
- * für Byte übernommen. Das hat zwei Folgen, die beide gewollt sind:
- * Geometrie, Hüllboxen und die `bounds` aus `prefabs.json` bleiben
- * gültig, und der zweite Lauf ist byteidentisch (der Test dazu:
- * `tools/test/store-vegetation.ts`).
+ * zu geben ist damit eine reine JSON-Änderung.
+ *
+ * Solange nur Materialien umgebaut wurden, ging der BIN-Block deshalb
+ * Byte für Byte durch. Seit die LOD-Schalen fallen, stimmt das nicht mehr
+ * — ihre Positions- und Indexdaten wären tote 15 MB im Download. Der
+ * BIN wird deshalb NEU GEPACKT, aber auf der Ebene der bufferViews und
+ * nicht der Bytes: Jeder noch von einem Accessor benutzte bufferView
+ * wandert als GANZES und in seiner alten Reihenfolge in den neuen Block,
+ * `byteStride` und Innenaufbau bleiben unangetastet (83 bufferViews des
+ * Bestands sind verschränkt — ein byteweises Umpacken müsste ihre
+ * Verschränkung verstehen, ein bufferView-weises muss es nicht).
+ * `byteOffset` wird neu geschrieben, die Accessor-Offsets sind relativ
+ * zum bufferView und bleiben.
+ *
+ * Was daraus folgt, und was NICHT:
+ *   • Die überlebende Geometrie ist bitgleich — dieselben Bytes, nur an
+ *     einer anderen Stelle im Block.
+ *   • Der zweite Lauf ist byteidentisch (die Reihenfolge hängt allein am
+ *     alten Index; Test: `tools/test/store-vegetation.ts`).
+ *   • Die `bounds` aus `prefabs.json` gelten für die aufbereitete Datei
+ *     NICHT mehr ungeprüft. Sie stehen deshalb nachgemessen in
+ *     BERICHT.json (`huellbox`), und `tools/store-prefabs.mjs` nimmt sie
+ *     von dort, sobald es eine aufbereitete Datei gibt.
  *
  * Ausdrücklich NICHT angefasst, weil es an anderer Stelle schon
  * beantwortet ist (Messprobe Bauer D, `design/store-konventionen.md`):
@@ -178,6 +251,13 @@ const ZIEL_STANDARD = 'assets/store-lab/vegetation';
 const QUELLE = resolve(WURZEL, arg('quelle', QUELLE_STANDARD));
 const ZIEL = resolve(WURZEL, arg('ziel', ZIEL_STANDARD));
 const NUR_PRUEFEN = flag('nur-pruefen');
+/**
+ * Die überzähligen LOD-Schalen stehen lassen? Vorgabe: NEIN.
+ *
+ * Siehe den Abschnitt „Die zweite Schale" im Kopfkommentar. Der Schalter
+ * ist der Rückweg für eine Vergleichsmessung — nicht für den Betrieb.
+ */
+const LOD_BEHALTEN = flag('lod-behalten');
 
 // ── Die Bilder, benannt ──────────────────────────────────────────────
 //
@@ -328,12 +408,159 @@ function glbLesen(pfad) {
 }
 
 /**
- * GLB schreiben, Binärteil unverändert.
+ * Den Binärteil auf die noch benutzten bufferViews eindampfen.
  *
- * Anders als in `baum-material-zusammenlegen.mjs` werden hier KEINE
- * bufferViews neu gepackt — dieses Werkzeug ändert ausschliesslich den
- * JSON-Teil. Der BIN-Block geht Byte für Byte durch, samt seiner
- * Ausrichtung; nur die JSON-Länge und damit der Dateikopf ändern sich.
+ * Aufgerufen, NACHDEM die LOD-Schalen aus dem Knotenbaum gefallen sind:
+ * Ihre Accessoren sind dann unerreichbar, ihre bufferViews damit tote
+ * Bytes. Über den Bestand sind das rund 15 der 45 MB.
+ *
+ * Umgepackt wird bufferView-WEISE (s. Kopfkommentar): Jeder benutzte
+ * View wandert als Ganzes, in der Reihenfolge seines alten Index, 4-Byte
+ * ausgerichtet in den neuen Block. Innen ändert sich nichts — deshalb
+ * bleiben `byteStride` und die Accessor-`byteOffset`s gültig, und die
+ * überlebende Geometrie ist bitgleich.
+ *
+ * Ist nichts weggefallen, kommt der ursprüngliche Puffer unverändert
+ * zurück (die Ausrichtung stimmt dann schon).
+ */
+function binNeuPacken(json, bin) {
+  /*
+    ERST die Accessoren, DANN die bufferViews.
+
+    Ein Mesh, das aus `json.meshes` gefallen ist, nimmt seine Accessoren
+    nicht mit — die stehen weiter im Array und hielten über ihren
+    `bufferView` genau die Bytes am Leben, die weg sollen. Der erste
+    Anlauf sparte deshalb 0,0 MiB bei 140.000 entfernten Dreiecken; das
+    ist die Sorte Fehler, die man nur an einer Zahl sieht, die sich nicht
+    bewegt.
+  */
+  const accBenutzt = new Set();
+  for (const mesh of json.meshes) {
+    for (const prim of mesh.primitives) {
+      for (const a of Object.values(prim.attributes)) accBenutzt.add(a);
+      if (prim.indices !== undefined) accBenutzt.add(prim.indices);
+      for (const ziel of prim.targets ?? []) for (const a of Object.values(ziel)) accBenutzt.add(a);
+    }
+  }
+  if (accBenutzt.size < json.accessors.length) {
+    const alte = [...accBenutzt].sort((a, b) => a - b);
+    const neuerIndex = new Map(alte.map((alt, i) => [alt, i]));
+    json.accessors = alte.map((alt) => json.accessors[alt]);
+    for (const mesh of json.meshes) {
+      for (const prim of mesh.primitives) {
+        for (const k of Object.keys(prim.attributes)) prim.attributes[k] = neuerIndex.get(prim.attributes[k]);
+        if (prim.indices !== undefined) prim.indices = neuerIndex.get(prim.indices);
+        for (const ziel of prim.targets ?? []) {
+          for (const k of Object.keys(ziel)) ziel[k] = neuerIndex.get(ziel[k]);
+        }
+      }
+    }
+  }
+
+  /*
+    ZUSCHNITT INNERHALB eines bufferViews.
+
+    77 der 94 Modelle führen ihren ganzen Bestand in ZWEI bufferViews —
+    einem verschränkten für alle Vertexattribute, einem für alle Indizes.
+    Ansichtsweise ausgesiebt spart das nichts: Der View bleibt benutzt,
+    weil die überlebende Schale darin steht. Genau so las sich der zweite
+    Anlauf, 2,8 statt der erwarteten 15 MiB.
+
+    Geschnitten wird deshalb auch INNEN, aber nur an einem Stück: Von
+    jedem View bleibt die Spanne von der ersten bis zur letzten Stelle,
+    die ein überlebender Accessor anfasst. Das ist die Annahme, dass die
+    Schalen im Puffer hintereinander liegen — sie stimmt in diesem
+    Bestand (die Fernstufe ist ein eigenes Mesh und wurde als Ganzes
+    exportiert), und wo sie nicht stimmte, bliebe schlimmstenfalls
+    ungenutzter Zwischenraum stehen. Falsch wird nichts: Die Accessoren
+    bekommen ihren Versatz um genau den Anfang der Spanne verringert.
+
+    Bei einem VERSCHRÄNKTEN View muss der Anfang auf einer
+    Schrittweitengrenze liegen, sonst verschöbe sich das Raster gegen die
+    Daten. Liegt er das nicht, bleibt der View ungeschnitten — lieber ein
+    paar Kilobyte zu viel als ein Modell, dessen Normalen aus den
+    Positionen des Nachbarvertex kommen.
+  */
+  const spanne = new Map();
+  const breiteVon = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 };
+  const anzahlVon = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16 };
+  for (const acc of json.accessors) {
+    if (acc.bufferView === undefined) continue;
+    const bv = json.bufferViews[acc.bufferView];
+    const elementBytes = breiteVon[acc.componentType] * anzahlVon[acc.type];
+    const von = acc.byteOffset ?? 0;
+    const bis = bv.byteStride ? (acc.count - 1) * bv.byteStride + elementBytes + von : von + acc.count * elementBytes;
+    const s = spanne.get(acc.bufferView);
+    if (!s) spanne.set(acc.bufferView, { von, bis });
+    else {
+      if (von < s.von) s.von = von;
+      if (bis > s.bis) s.bis = bis;
+    }
+  }
+  const zuschnitt = new Map();
+  for (const [i, s] of spanne) {
+    const bv = json.bufferViews[i];
+    const anfang = bv.byteStride && s.von % bv.byteStride !== 0 ? 0 : s.von;
+    const laenge = Math.min(bv.byteLength, s.bis) - anfang;
+    if (anfang > 0 || laenge < bv.byteLength) zuschnitt.set(i, { anfang, laenge });
+  }
+
+  const benutzt = new Set(spanne.keys());
+  if (benutzt.size === json.bufferViews.length && zuschnitt.size === 0) {
+    return { json, bin, gespart: 0 };
+  }
+
+  const alteViews = json.bufferViews;
+  const neueViews = [];
+  const umnummerierung = new Map();
+  const stuecke = [];
+  let offset = 0;
+  // Aufsteigend nach ALTEM Index — das ist die eine Reihenfolge, die
+  // nicht davon abhängt, in welcher Folge die Accessoren gelesen wurden.
+  // Ohne sie wäre der zweite Lauf nicht mehr byteidentisch.
+  const versatz = new Map();
+  for (let i = 0; i < alteViews.length; i++) {
+    if (!benutzt.has(i)) continue;
+    const bv = alteViews[i];
+    const z = zuschnitt.get(i) ?? { anfang: 0, laenge: bv.byteLength };
+    versatz.set(i, z.anfang);
+    const von = (bv.byteOffset ?? 0) + z.anfang;
+    stuecke.push(bin.subarray(von, von + z.laenge));
+    const neu = { ...bv, byteOffset: offset, byteLength: z.laenge };
+    if (offset === 0) delete neu.byteOffset;
+    umnummerierung.set(i, neueViews.length);
+    neueViews.push(neu);
+    offset += z.laenge;
+    // glTF verlangt die Ausrichtung des grössten Komponententyps; 4 Byte
+    // deckt alles ab, was hier vorkommt (float32 und uint32).
+    const luecke = (4 - (offset % 4)) % 4;
+    if (luecke > 0) {
+      stuecke.push(Buffer.alloc(luecke));
+      offset += luecke;
+    }
+  }
+  json.bufferViews = neueViews;
+  for (const acc of json.accessors) {
+    if (acc.bufferView === undefined) continue;
+    const ab = versatz.get(acc.bufferView) ?? 0;
+    acc.bufferView = umnummerierung.get(acc.bufferView);
+    if (ab > 0) {
+      const neu = (acc.byteOffset ?? 0) - ab;
+      if (neu > 0) acc.byteOffset = neu;
+      else delete acc.byteOffset;
+    }
+  }
+  const neu = Buffer.concat(stuecke);
+  json.buffers = [{ byteLength: neu.length }];
+  return { json, bin: neu, gespart: bin.length - neu.length };
+}
+
+/**
+ * GLB schreiben.
+ *
+ * Der übergebene BIN-Block geht Byte für Byte durch (das Umpacken hat
+ * `binNeuPacken` schon erledigt, falls es nötig war); nur die JSON-Länge
+ * und damit der Dateikopf ändern sich hier.
  */
 function glbSchreiben(pfad, json, bin) {
   let jsonBuf = Buffer.from(JSON.stringify(json), 'utf8');
@@ -383,24 +610,393 @@ const dreiecke = (json, prim) =>
 const vertexDichte = (json, prim) =>
   json.accessors[prim.attributes.POSITION].count / dreiecke(json, prim);
 
-/** Hüllbox eines Modells über alle Primitive, aus den Accessor-Grenzen. */
-function huellbox(json) {
-  const min = [Infinity, Infinity, Infinity];
-  const max = [-Infinity, -Infinity, -Infinity];
-  for (const mesh of json.meshes) {
-    for (const prim of mesh.primitives) {
-      const acc = json.accessors[prim.attributes.POSITION];
-      if (!acc.min || !acc.max) continue;
-      for (let i = 0; i < 3; i++) {
-        if (acc.min[i] < min[i]) min[i] = acc.min[i];
-        if (acc.max[i] > max[i]) max[i] = acc.max[i];
-      }
+/**
+ * Die 4x4-Matrix eines Knotens, spaltenweise wie in glTF.
+ *
+ * Der Bestand nutzt ausschliesslich `translation` (und zwar 26-mal —
+ * jede Laubkarte hängt versetzt über ihrem Stamm); `rotation`, `scale`
+ * und `matrix` kommen in keiner der 94 Dateien vor. Sie werden trotzdem
+ * gelesen, weil ein stiller Ausfall bei einem künftigen Modell teurer
+ * wäre als die zwanzig Zeilen hier.
+ */
+function knotenMatrix(n) {
+  if (n.matrix) return n.matrix.slice();
+  const [tx, ty, tz] = n.translation ?? [0, 0, 0];
+  const [qx, qy, qz, qw] = n.rotation ?? [0, 0, 0, 1];
+  const [sx, sy, sz] = n.scale ?? [1, 1, 1];
+  const r = [
+    1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy + qz * qw), 2 * (qx * qz - qy * qw),
+    2 * (qx * qy - qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz + qx * qw),
+    2 * (qx * qz + qy * qw), 2 * (qy * qz - qx * qw), 1 - 2 * (qx * qx + qy * qy),
+  ];
+  const s = [sx, sx, sx, sy, sy, sy, sz, sz, sz];
+  return [
+    r[0] * s[0], r[1] * s[1], r[2] * s[2], 0,
+    r[3] * s[3], r[4] * s[4], r[5] * s[5], 0,
+    r[6] * s[6], r[7] * s[7], r[8] * s[8], 0,
+    tx, ty, tz, 1,
+  ];
+}
+
+const matMal = (a, b) => {
+  const aus = new Array(16).fill(0);
+  for (let c = 0; c < 4; c++) {
+    for (let r = 0; r < 4; r++) {
+      let s = 0;
+      for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+      aus[c * 4 + r] = s;
     }
   }
-  return { min: min.map(runde), max: max.map(runde) };
+  return aus;
+};
+
+const punktMal = (m, p) => [
+  m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+  m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+  m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
+];
+
+const leereBox = () => ({ min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] });
+
+function boxDazu(box, p) {
+  for (let i = 0; i < 3; i++) {
+    if (p[i] < box.min[i]) box.min[i] = p[i];
+    if (p[i] > box.max[i]) box.max[i] = p[i];
+  }
+}
+
+/** Liegt `innen` in `aussen`, mit `luft` Metern Toleranz? */
+const boxLiegtIn = (innen, aussen, luft) =>
+  [0, 1, 2].every((i) => innen.min[i] >= aussen.min[i] - luft && innen.max[i] <= aussen.max[i] + luft);
+
+/**
+ * Hüllbox eines Teilbaums IM DATEIRAUM — mit den Knotentransformationen.
+ *
+ * Die Transformationen sind hier nicht optional: `tree-1e1` hat seine
+ * Laubkarten 9,36 m über dem Stammfuss hängen, und ohne den Versatz
+ * käme die Krone bei y = 7,49 statt bei 16,84 heraus. Die alte Fassung
+ * dieser Funktion las blosse Accessor-Grenzen und lag deshalb an jedem
+ * Baum daneben — unbemerkt, weil sie nur im Bericht stand.
+ *
+ * Der Vergleichswert steht in `design/store-konventionen.md`: dort ist
+ * `vegetation-tree-1e1` mit −6,701 / −0,428 / −8,345 → 7,228 / 16,845 /
+ * 5,462 nachgemessen. Genau das kommt hier heraus.
+ *
+ * DATEIRAUM heisst: noch nicht x-gespiegelt. Für `renderScale` (Breite
+ * und Höhe) ist das gleichgültig, für eine Kiste im Weltraum nicht —
+ * s. `design/store-konventionen.md` §3.4.
+ */
+function teilbaumBox(json, wurzel, matrix = null) {
+  const box = leereBox();
+  const gehe = (i, eltern) => {
+    const n = json.nodes[i];
+    const m = matMal(eltern, knotenMatrix(n));
+    if (n.mesh !== undefined) {
+      for (const prim of json.meshes[n.mesh].primitives) {
+        const acc = json.accessors[prim.attributes.POSITION];
+        if (!acc.min || !acc.max) continue;
+        // Alle acht Ecken, nicht nur min/max: Unter einer Drehung ist die
+        // Box der gedrehten Ecken eine andere als die gedrehte Box.
+        for (let e = 0; e < 8; e++) {
+          boxDazu(
+            box,
+            punktMal(m, [
+              e & 1 ? acc.max[0] : acc.min[0],
+              e & 2 ? acc.max[1] : acc.min[1],
+              e & 4 ? acc.max[2] : acc.min[2],
+            ])
+          );
+        }
+      }
+    }
+    for (const k of n.children ?? []) gehe(k, m);
+  };
+  gehe(wurzel, matrix ?? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  return box;
+}
+
+/** Hüllbox des ganzen Modells: alle Wurzeln der Szene, gerundet. */
+function huellbox(json) {
+  const box = leereBox();
+  for (const w of json.scenes?.[json.scene ?? 0]?.nodes ?? []) {
+    const b = teilbaumBox(json, w);
+    boxDazu(box, b.min);
+    boxDazu(box, b.max);
+  }
+  return { min: box.min.map(runde), max: box.max.map(runde) };
+}
+
+/** Dreiecke eines Teilbaums. */
+function teilbaumDreiecke(json, wurzel) {
+  const n = json.nodes[wurzel];
+  let t = 0;
+  if (n.mesh !== undefined) for (const prim of json.meshes[n.mesh].primitives) t += dreiecke(json, prim);
+  for (const k of n.children ?? []) t += teilbaumDreiecke(json, k);
+  return t;
 }
 
 const runde = (x) => Math.round(x * 10000) / 10000;
+
+// ── LOD-Schalen ──────────────────────────────────────────────────────
+
+/**
+ * Die Stufe, die ein Knotenname behauptet — oder null.
+ *
+ * Zwei Schreibweisen kommen im Bestand vor, und beide werden gelesen:
+ * `Massive_Tree_1A1_LOD_1` / `SM_…_Clump_01_LOD1` (ausgeschrieben) und
+ * `Tree_1E1_1` / `Pine_1B1_1` (nur die Ziffer). Die zweite ist die
+ * riskante — sie träfe auch einen Knoten, der einfach so auf eine Ziffer
+ * endet. Deshalb ist der Name nur die erste von drei Bedingungen; die
+ * Lage und das Mass entscheiden mit (s. Kopfkommentar).
+ *
+ * `Tree_1E1` selbst fällt NICHT darauf herein: Nach dem letzten
+ * Unterstrich steht `1E1`, und das sind keine reinen Ziffern.
+ */
+function lodStufe(name) {
+  const m = /^(.*?)_(?:LOD_?)?(\d+)$/i.exec(name ?? '');
+  if (!m) return null;
+  const ausgeschrieben = /_LOD_?\d+$/i.test(name);
+  return { basis: m[1], stufe: Number(m[2]), ausgeschrieben };
+}
+
+/**
+ * Die überzähligen LOD-Schalen aus dem Knotenbaum nehmen.
+ *
+ * Gibt den Bericht zurück; das JSON wird an Ort und Stelle umgebaut
+ * (Knoten und Meshes werden neu durchnummeriert, damit im Ergebnis nichts
+ * Unerreichbares stehenbleibt — ein unerreichbares Mesh zählte in jeder
+ * späteren Messung mit und wäre eine zweite Wahrheit).
+ *
+ * Die TOLERANZ, mit der die Hüllbox der Schale in der der behaltenen
+ * liegen muss, ist nicht absolut, sondern hängt an der Grösse des
+ * Modells — und zwar weil sie es gemessen tun muss:
+ *
+ *   massive-tree-1a1 (14 m hoch)   LOD_1 bleibt 0,9 cm innerhalb
+ *   massive-tree-1a3 (29 m hoch)   LOD_1 reicht 2,0 cm tiefer
+ *
+ * Beides ist dieselbe Fernstufe derselben Baumfamilie; nur ist die eine
+ * doppelt so gross. Eine feste Grenze von einem Zentimeter hätte den
+ * grösseren Baum durchfallen lassen und seine Schale stehengelassen —
+ * lautlos, denn ein Baum mit zu vielen Dreiecken sieht richtig aus.
+ *
+ * 0,2 % der längsten Kante der behaltenen Schale, mindestens 1 cm. Beim
+ * 29-m-Baum sind das 6 cm, beim Grasbüschel bleibt es bei 1 cm. Ein
+ * eigenständiges zweites Objekt verfehlt die Box nicht um Promille,
+ * sondern um einen Gutteil seiner eigenen Grösse.
+ */
+const LOD_LUFT_MIN_M = 0.01;
+const LOD_LUFT_ANTEIL = 0.002;
+
+const lodLuft = (box) =>
+  Math.max(LOD_LUFT_MIN_M, LOD_LUFT_ANTEIL * Math.max(...[0, 1, 2].map((i) => box.max[i] - box.min[i])));
+
+function lodSchalenTrennen(json, datei) {
+  const gefallen = [];
+  const geprueft = [];
+  if (LOD_BEHALTEN) return { gefallen, geprueft, aktiv: false };
+
+  const eltern = new Map();
+  json.nodes.forEach((n, i) => {
+    for (const k of n.children ?? []) eltern.set(k, i);
+  });
+  const hatGeometrie = (i) => teilbaumDreiecke(json, i) > 0;
+
+  /** Der Knoten mit Geometrie, unter dem `i` hängt — oder null. */
+  function traegerDarueber(i) {
+    for (let p = eltern.get(i); p !== undefined; p = eltern.get(p)) {
+      if (json.nodes[p].mesh !== undefined) return p;
+    }
+    return null;
+  }
+
+  const kandidaten = [];
+  json.nodes.forEach((n, i) => {
+    const s = lodStufe(n.name);
+    if (!s || s.stufe < 1 || !hatGeometrie(i)) return;
+    // Bedingung 2 (LAGE), erster Fall: verschachtelt.
+    const oben = traegerDarueber(i);
+    if (oben !== null) {
+      kandidaten.push({ knoten: i, stufe: s.stufe, gegen: oben, lage: 'verschachtelt' });
+      return;
+    }
+    /*
+      Zweiter Fall: ein Geschwister mit derselben Basis und kleinerer
+      Stufe (so liegen die vier Grasbüschel — `…_Clump_01_LOD0` und
+      `…_Clump_01_LOD1` nebeneinander unter derselben Wurzel).
+
+      Hier muss BEIDEN Namen das Wort „LOD" ausgeschrieben anhängen, und
+      das ist keine Pedanterie: Nebeneinander liegende Geschwister sind im
+      Bestand normalerweise TEILE eines Modells, keine Stufen — 24 Modelle
+      führen `SubMesh_0` neben `SubMesh_1` (Stamm neben Krone). Nach der
+      blossen Ziffer beurteilt wäre `SubMesh_1` eine Fernstufe von
+      `SubMesh_0`, und dann hinge die Krone allein am Mass-Zeugen. Sie
+      besteht ihn heute (die Krone ragt über den Stamm hinaus), aber bei
+      einem Baum mit enger Krone bestünde sie ihn nicht, und dann fiele
+      lautlos das Laub weg.
+
+      `_LOD0`/`_LOD1` nebeneinander ist dagegen Unitys LODGroup-Schreibweise
+      und keine Nummerierung von Teilen. Für den verschachtelten Fall
+      oben bleibt die blosse Ziffer erlaubt — dort ist die LAGE (ein
+      Knoten hängt IM anderen) schon ein Argument, das Teile nicht
+      liefern.
+    */
+    const p = eltern.get(i);
+    const geschwister = p === undefined ? (json.scenes?.[json.scene ?? 0]?.nodes ?? []) : (json.nodes[p].children ?? []);
+    if (s.ausgeschrieben) {
+      for (const g of geschwister) {
+        if (g === i) continue;
+        const gs = lodStufe(json.nodes[g].name);
+        if (gs?.ausgeschrieben && gs.basis === s.basis && gs.stufe < s.stufe && hatGeometrie(g)) {
+          kandidaten.push({ knoten: i, stufe: s.stufe, gegen: g, lage: 'Geschwister', nurName: true });
+          return;
+        }
+      }
+    }
+    geprueft.push({ knoten: n.name, stufe: s.stufe, behalten: 'keine Schale darüber oder daneben' });
+  });
+
+  const fallen = new Set();
+  for (const k of kandidaten) {
+    const meins = teilbaumDreiecke(json, k.knoten);
+    // Die Bezugsgrösse ist die behaltene Schale OHNE die Kandidaten
+    // darunter — sonst verglichen sich bei einer dreistufigen Kette
+    // (tree-1e1) Stufe 1 und Stufe 2 gegen die Summe aller drei.
+    // BEIDE Boxen im DATEIRAUM, nicht je im eigenen Knotenraum: Die
+    // behaltene Schale hängt bei den Geschwisterfällen unter einer
+    // anderen Kette als die Kandidatin, und ein Vergleich zweier Boxen
+    // aus verschiedenen Räumen ist keiner.
+    const gegenBox = teilbaumBoxOhne(json, k.gegen, new Set([k.knoten]), kette(json, eltern, k.gegen));
+    const gegenTris = teilbaumDreieckeOhne(json, k.gegen, new Set([k.knoten]));
+    const meineBox = teilbaumBox(json, k.knoten, kette(json, eltern, k.knoten));
+    const kleiner = meins < gegenTris;
+    /*
+      Der Mass-Zeuge — mit einer Ausnahme, die benannt sein will:
+      Tragen BEIDE Knoten das Wort „LOD" ausgeschrieben und dieselbe
+      Basis (`nurName`), dann hat der Exporteur die Stufenfolge selbst
+      erklärt, und die Hüllbox darf abweichen. Sie tut es auch: Die
+      Fernstufe des Grasbüschels ist in z sechs Zentimeter WEITER als die
+      Nahstufe (LOD0 −0,37…0,54, LOD1 −0,43…0,57) — eine dezimierte Karte
+      steht eben anders. Ohne diese Ausnahme bliebe an jedem Grasbüschel
+      eine zweite Karte stehen; mit ihr bleibt der strenge Zeuge dort, wo
+      der Name allein nichts beweist.
+    */
+    const drin = k.nurName || boxLiegtIn(meineBox, gegenBox, lodLuft(gegenBox));
+    if (kleiner && drin) {
+      fallen.add(k.knoten);
+      gefallen.push({
+        knoten: json.nodes[k.knoten].name,
+        stufe: k.stufe,
+        lage: k.lage,
+        unter: json.nodes[k.gegen].name,
+        dreiecke: meins,
+        gegenDreiecke: gegenTris,
+      });
+    } else {
+      geprueft.push({
+        knoten: json.nodes[k.knoten].name,
+        stufe: k.stufe,
+        behalten: !kleiner
+          ? `nicht kleiner (${meins} gegen ${gegenTris} Dreiecke)`
+          : 'Hüllbox liegt nicht in der behaltenen Schale',
+      });
+    }
+  }
+
+  if (fallen.size > 0) knotenbaumNeu(json, fallen, datei);
+  return { gefallen, geprueft, aktiv: true };
+}
+
+/** Die Weltmatrix eines Knotens im Dateiraum (Kette von der Szenenwurzel). */
+function kette(json, eltern, i) {
+  const weg = [];
+  for (let p = eltern.get(i); p !== undefined; p = eltern.get(p)) weg.unshift(p);
+  let m = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  for (const p of weg) m = matMal(m, knotenMatrix(json.nodes[p]));
+  return m;
+}
+
+function teilbaumDreieckeOhne(json, wurzel, aus) {
+  if (aus.has(wurzel)) return 0;
+  const n = json.nodes[wurzel];
+  let t = 0;
+  if (n.mesh !== undefined) for (const prim of json.meshes[n.mesh].primitives) t += dreiecke(json, prim);
+  for (const k of n.children ?? []) t += teilbaumDreieckeOhne(json, k, aus);
+  return t;
+}
+
+function teilbaumBoxOhne(json, wurzel, aus, start = null) {
+  const box = leereBox();
+  const gehe = (i, m0) => {
+    if (aus.has(i)) return;
+    const n = json.nodes[i];
+    const m = matMal(m0, knotenMatrix(n));
+    if (n.mesh !== undefined) {
+      for (const prim of json.meshes[n.mesh].primitives) {
+        const acc = json.accessors[prim.attributes.POSITION];
+        if (!acc.min || !acc.max) continue;
+        for (let e = 0; e < 8; e++) {
+          boxDazu(box, punktMal(m, [
+            e & 1 ? acc.max[0] : acc.min[0],
+            e & 2 ? acc.max[1] : acc.min[1],
+            e & 4 ? acc.max[2] : acc.min[2],
+          ]));
+        }
+      }
+    }
+    for (const k of n.children ?? []) gehe(k, m);
+  };
+  gehe(wurzel, start ?? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  return box;
+}
+
+/**
+ * Knoten und Meshes neu aufbauen, ohne die gefallenen Teilbäume.
+ *
+ * Erst wird gesammelt, was von den Szenenwurzeln aus noch erreichbar ist,
+ * dann werden `nodes` und `meshes` in AUFSTEIGENDER alter Reihenfolge neu
+ * geschrieben. Die Reihenfolge ist der Grund, warum der zweite Lauf
+ * byteidentisch bleibt.
+ *
+ * Wirft, wenn eine Datei dabei ihre ganze Geometrie verlöre — das wäre
+ * kein Sparen mehr, sondern ein Löschen, und `massive-tree-1a1-lod-1.glb`
+ * (die Fernstufe als eigene Datei) ist genau der Fall, an dem das
+ * auffallen müsste.
+ */
+function knotenbaumNeu(json, fallen, datei) {
+  const behalten = [];
+  const gesehen = new Set();
+  const sammle = (i) => {
+    if (fallen.has(i) || gesehen.has(i)) return;
+    gesehen.add(i);
+    behalten.push(i);
+    for (const k of json.nodes[i].children ?? []) sammle(k);
+  };
+  for (const w of json.scenes?.[json.scene ?? 0]?.nodes ?? []) sammle(w);
+  behalten.sort((a, b) => a - b);
+
+  const neuerKnoten = new Map(behalten.map((alt, i) => [alt, i]));
+  const alteMeshes = [...new Set(behalten.map((i) => json.nodes[i].mesh).filter((m) => m !== undefined))].sort(
+    (a, b) => a - b
+  );
+  if (alteMeshes.length === 0) {
+    throw new Error(`${datei}: LOD-Trennung liesse das Modell ohne jede Geometrie zurück`);
+  }
+  const neuesMesh = new Map(alteMeshes.map((alt, i) => [alt, i]));
+
+  json.nodes = behalten.map((alt) => {
+    const n = { ...json.nodes[alt] };
+    if (n.mesh !== undefined) n.mesh = neuesMesh.get(n.mesh);
+    const kinder = (n.children ?? []).filter((k) => neuerKnoten.has(k)).map((k) => neuerKnoten.get(k));
+    if (kinder.length > 0) n.children = kinder;
+    else delete n.children;
+    return n;
+  });
+  json.meshes = alteMeshes.map((alt) => json.meshes[alt]);
+  json.scenes = (json.scenes ?? []).map((s) => ({
+    ...s,
+    nodes: (s.nodes ?? []).filter((k) => neuerKnoten.has(k)).map((k) => neuerKnoten.get(k)),
+  }));
+}
 
 // ── Rollen ───────────────────────────────────────────────────────────
 
@@ -491,13 +1087,33 @@ if (!NUR_PRUEFEN) {
   }
 }
 
-const bericht = { erzeugtVon: 'tools/store-vegetation-aufbereiten.mjs', modelle: {} };
+const bericht = {
+  erzeugtVon: 'tools/store-vegetation-aufbereiten.mjs',
+  lodSchalenEntfernt: !LOD_BEHALTEN,
+  modelle: {},
+};
 let ausGeometrie = 0;
 let ausZwilling = 0;
 
 for (const datei of dateien) {
   const { json, bin } = modelle.get(datei);
   const vorher = json.materials.map((m) => m.name);
+
+  // ── Schritt 0: die überzähligen LOD-Schalen ───────────────────────
+  //
+  // VOR der Materialrunde, damit die Schalen nicht mitgezählt und nicht
+  // mitgetönt werden. NACH dem Zwillingsindex oben — der ist über die
+  // unveränderten Dateien gebaut, und die Schalen tragen dort teils das
+  // Material, das ihrer LOD0-Schwester fehlt (`Massive_Tree_1A1_LOD_1`
+  // heisst `Oak_Bark_A 2 Dark`, ihre LOD0 heisst `DefaultMaterial`).
+  // Erst trennen, dann den Index bauen, hiesse die Auskunft wegwerfen,
+  // wegen der es den Index gibt.
+  const dreieckeVorher = json.meshes.reduce(
+    (s, m) => s + m.primitives.reduce((t, p) => t + dreiecke(json, p), 0),
+    0
+  );
+  const huellboxVorher = huellbox(json);
+  const lod = lodSchalenTrennen(json, datei);
 
   // ── Schritt 1: jedem Primitiv eine Rolle geben ────────────────────
   const rolleJePrim = [];
@@ -568,14 +1184,40 @@ for (const datei of dateien) {
 
   pruefeIndizes(json, datei);
 
-  if (!NUR_PRUEFEN) glbSchreiben(join(ZIEL, datei), json, bin);
+  const gepackt = binNeuPacken(json, bin);
+  if (!NUR_PRUEFEN) glbSchreiben(join(ZIEL, datei), json, gepackt.bin);
 
+  const huellboxNachher = huellbox(json);
   bericht.modelle[datei.replace(/\.glb$/, '')] = {
     materialienVorher: vorher,
     materialienNachher: json.materials.map((m) => m.name),
     masterNachher: json.materials.length,
     dreiecke: rolleJePrim.reduce((s, e) => s + e.tris, 0),
-    huellbox: huellbox(json),
+    /*
+      Der LOD-Block ist die BEGRÜNDUNG, nicht nur die Zahl: Er nennt jeden
+      gefallenen Knoten mit seiner Stufe, seiner Lage und der Schale, gegen
+      die er gemessen wurde — und unter `lod.geprueft` auch jeden Knoten,
+      der wie eine Schale HIESS und trotzdem stehenblieb. Ohne die zweite
+      Liste sähe ein Fehlurteil aus wie ein Modell, das eben keine
+      Fernstufe hatte.
+    */
+    lod: {
+      dreieckeVorher,
+      dreieckeNachher: rolleJePrim.reduce((s, e) => s + e.tris, 0),
+      gefallen: lod.gefallen,
+      geprueft: lod.geprueft,
+      binGespartBytes: gepackt.gespart,
+    },
+    huellboxVorher,
+    huellbox: huellboxNachher,
+    /*
+      Hat das Abtragen der Schalen die Hüllbox verändert? Fast nie — eine
+      Fernstufe hat dieselbe Silhouette. Aber „fast nie" ist keine Zusage,
+      und `renderScale` hängt daran: `tools/store-prefabs.mjs` nimmt genau
+      diese Box, sobald eine aufbereitete Datei existiert.
+    */
+    huellboxGleich:
+      JSON.stringify(huellboxVorher) === JSON.stringify(huellboxNachher),
     primitive: rolleJePrim.map((e) => ({
       dreiecke: e.tris,
       rolle: e.rolle,
@@ -702,6 +1344,34 @@ for (const [n, anzahl] of [...masterVerteilung].sort((a, b) => a[0] - b[0])) {
   console.log(`  ${n} Material${n === 1 ? ' ' : 'ien'}: ${anzahl} Modelle`);
 }
 console.log(`\nMaterial zurückgewonnen: ${ausZwilling} aus dem Zwilling, ${ausGeometrie} aus der Bauart`);
+
+// ── LOD-Schalen ──────────────────────────────────────────────────────
+const lodVor = werte.reduce((s, m) => s + m.lod.dreieckeVorher, 0);
+const lodNach = werte.reduce((s, m) => s + m.lod.dreieckeNachher, 0);
+const lodModelle = werte.filter((m) => m.lod.gefallen.length > 0).length;
+const lodBytes = werte.reduce((s, m) => s + m.lod.binGespartBytes, 0);
+const boxAnders = Object.entries(bericht.modelle).filter(([, m]) => !m.huellboxGleich);
+console.log(
+  `\nLOD-Schalen: ${LOD_BEHALTEN ? 'BEHALTEN (--lod-behalten)' : 'entfernt'} — ` +
+    `${lodModelle} Modelle betroffen`
+);
+console.log(
+  `  Dreiecke ${lodVor} → ${lodNach} (−${lodVor - lodNach}, ` +
+    `${(100 * ((lodVor - lodNach) / lodVor)).toFixed(1)} %), ` +
+    `Binärteil −${(lodBytes / 1048576).toFixed(1)} MiB`
+);
+// Die Hüllbox ist die Zusage an `tools/store-prefabs.mjs`. Ändert sie
+// sich, muss man das SEHEN — nicht in einer 4000-Zeilen-JSON suchen.
+console.log(
+  boxAnders.length === 0
+    ? '  Hüllboxen: alle unverändert'
+    : `  Hüllboxen VERÄNDERT bei ${boxAnders.length} Modell(en): ${boxAnders.map(([n]) => n).join(', ')}`
+);
+const stehen = werte.flatMap((m) => m.lod.geprueft);
+if (stehen.length > 0) {
+  console.log(`  Wie eine Schale benannt, aber stehengeblieben: ${stehen.length}`);
+  for (const s of stehen) console.log(`    ${s.knoten} (Stufe ${s.stufe}) — ${s.behalten}`);
+}
 /*
   Gezählt wird nach Rolle UND Tönung, nicht nur nach Rolle: Der ganze
   Sinn dieser Runde ist, dass eine Rolle mehrere Faktoren tragen kann —

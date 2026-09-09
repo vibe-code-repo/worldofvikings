@@ -176,12 +176,38 @@ interface ClutterEntry {
    * ergibt derselbe Faktor viele feine Halme, beim Store drei Segel, die
    * dem Spieler vor dem Gesicht stehen.
    *
-   * Die Werte hier sind deshalb die der Stufe-1-STREUUNG, die dasselbe
+   * Die BREITE hier ist deshalb die der Stufe-1-STREUUNG, die dasselbe
    * Modell als Prefab setzte (`storeFlora.ts`: `scaleMin` 0,8,
    * `scaleMax` 1,4 bei `localScale` 1) — also genau die Grösse, gegen die
-   * der Bildvergleich läuft. Nebenwirkung, die dazugehört: Die höchste
-   * Halmspitze liegt damit bei 0,223 × 1,5 × 1,4 = 0,47 m, also unter der
-   * halben Meter-Marke, ab der ADR-0027 keinen Schattenwurf mehr will.
+   * der Bildvergleich läuft.
+   *
+   * ── Die HÖHE dagegen kommt aus dem Referenzbild (09.09.2026) ─────────
+   * Bild 1 der Sichtprüfung (`design/look-referenz.md`) zeigt die Wiese
+   * des Originals von schräg oben. Darin ist die Figur 104 Bildpunkte
+   * hoch (Kopf y 262 bis Fuss y 366, Rechteck 900/240–1060/400), ein
+   * Büschel daneben 37 bis 60 Bildpunkte (Rechteck 780/200–900/300).
+   * Bei 1,8 m Figurhöhe sind das 0,64 bis 1,04 m Halm — und die Büschel
+   * liegen im Bild WEITER WEG als die Figur, sind also eher noch höher.
+   *
+   * Mit `prefabScale.y` 1,5 stand unsere höchste Spitze bei
+   * 0,223 × 1,5 × 1,4 = 0,47 m, das typische Büschel (Skala 1,15) bei
+   * 0,38 m — halb so hoch wie das Vorbild. Deshalb 3,0:
+   *
+   *     höchste Spitze   0,223 × 3,0 × 1,4 = 0,94 m
+   *     typisches Büschel 0,223 × 3,0 × 1,15 = 0,77 m
+   *
+   * Das trifft die gemessene Spanne. Die Breite bleibt bei 1,0 — ein
+   * Büschel wird länger, nicht grösser; drei gekreuzte Karten von 1,0 m
+   * Breite sind schon die Obergrenze, ab der sie als Segel lesbar werden.
+   *
+   * ── Was mit der halben Meter-Marke ist ───────────────────────────────
+   * Die Spitze liegt jetzt ÜBER 0,5 m. Das ist unschädlich, und zwar
+   * nicht aus Nachsicht: `Shadows.ts` nimmt Clutter über sein
+   * Namenspräfix von der Werferliste aus (`NIE_WERFEN`, `^(clutter|…)`),
+   * unabhängig von der Höhe. ADR-0027 („Gras wirft keinen Schatten")
+   * hängt also an keiner Zahl, die hier stünde. Nachgemessen wird es
+   * trotzdem: `fein-mess.mjs` zählt je Aufnahme die Clutter-Meshes in
+   * allen Schattengeneratoren, und die Zahl muss 0 bleiben.
    */
   readonly storeScale?: {
     readonly prefabScale: readonly [number, number, number];
@@ -358,8 +384,8 @@ const B = Biome;
  * ein frei erfundener Ersatzwert später zurückgenommen werden musste.
  */
 const ROH_ENTRIES: readonly ClutterEntry[] = [
-  { key: 'meadowsGrass', biome: B.Meadows | B.Ocean, amount: 200, mesh: 'default', texture: 'grass_meadows_gen', storeGras: 'gruen', storeScale: { prefabScale: [1, 1.5, 1], scaleMin: 0.9, scaleMax: 1.4 }, terrainTint: true, texRepeatU: 1, prefabScale: [1.5, 2.0, 1.5], scaleMin: 1.0, scaleMax: 2.3, maxTiltCos: cos(25), minAlt: 0.4, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 0, fractalMax: 1, cutoff: 0.46, fadeMin: 20, fadeMax: 35, swayAmp: 0.1, pushDist: 2.0, pinUpNormals: true, color: [1, 1, 1] },
-  { key: 'meadowsGrassShort', biome: B.Meadows | B.Ocean, amount: 250, mesh: 'default', texture: 'grass_meadows_gen', storeGras: 'gruen', storeScale: { prefabScale: [1, 1, 1], scaleMin: 0.8, scaleMax: 1.2 }, terrainTint: true, texRepeatU: 1, prefabScale: [1.2, 1.2, 1.2], scaleMin: 1.0, scaleMax: 2.0, maxTiltCos: cos(25), minAlt: 0.3, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 1.0, fractalMax: 3.0, cutoff: 0.46, fadeMin: 20, fadeMax: 35, swayAmp: 0.05, pushDist: 0.5, pinUpNormals: true, color: [1, 1, 1] },
+  { key: 'meadowsGrass', biome: B.Meadows | B.Ocean, amount: 200, mesh: 'default', texture: 'grass_meadows_gen', storeGras: 'gruen', storeScale: { prefabScale: [1, 3.0, 1], scaleMin: 0.9, scaleMax: 1.4 }, terrainTint: true, texRepeatU: 1, prefabScale: [1.5, 2.0, 1.5], scaleMin: 1.0, scaleMax: 2.3, maxTiltCos: cos(25), minAlt: 0.4, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 0, fractalMax: 1, cutoff: 0.46, fadeMin: 20, fadeMax: 35, swayAmp: 0.1, pushDist: 2.0, pinUpNormals: true, color: [1, 1, 1] },
+  { key: 'meadowsGrassShort', biome: B.Meadows | B.Ocean, amount: 250, mesh: 'default', texture: 'grass_meadows_gen', storeGras: 'gruen', storeScale: { prefabScale: [1, 1.8, 1], scaleMin: 0.8, scaleMax: 1.2 }, terrainTint: true, texRepeatU: 1, prefabScale: [1.2, 1.2, 1.2], scaleMin: 1.0, scaleMax: 2.0, maxTiltCos: cos(25), minAlt: 0.3, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 1.0, fractalMax: 3.0, cutoff: 0.46, fadeMin: 20, fadeMax: 35, swayAmp: 0.05, pushDist: 0.5, pinUpNormals: true, color: [1, 1, 1] },
   { key: 'meadowsShrub', biome: B.Meadows | B.Ocean, amount: 8, mesh: 'plane', texture: 'clutter_shrub', terrainTint: false, texRepeatU: 1, prefabScale: [0.3, 1.0, 0.3], scaleMin: 1.0, scaleMax: 1.5, maxTiltCos: cos(30), minAlt: 1.0, maxAlt: 1000, terrainTilt: false, snapToWater: false, randomOffset: 0, inForest: true, forestMin: 0, forestMax: 1.15, fractalScale: 0, fractalMin: 0.5, fractalMax: 1, cutoff: 0.5, fadeMin: 20, fadeMax: 35, swayAmp: 0.05, pushDist: 0.8, pinUpNormals: true, color: [1, 1, 1] },
   { key: 'meadowsFern', biome: B.Meadows, amount: 30, mesh: 'fern', texture: 'autumn_ormbunke_green', terrainTint: false, texRepeatU: 1, prefabScale: [1, 1, 1], scaleMin: 1.0, scaleMax: 1.0, maxTiltCos: cos(18), minAlt: 1.0, maxAlt: 4.0, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: true, forestMin: 0, forestMax: 1.0, fractalScale: 0, fractalMin: 0.5, fractalMax: 1, cutoff: 0.5, fadeMin: 3.8, fadeMax: 40, swayAmp: 0.04, pushDist: 1.0, pinUpNormals: false, color: [1, 1, 1] },
   { key: 'heathGrass', biome: B.Plains, amount: 200, mesh: 'default', texture: 'grass_heath_gen', terrainTint: false, texRepeatU: 1, prefabScale: [1.3, 3.5, 1.3], scaleMin: 0.7, scaleMax: 1.5, maxTiltCos: cos(30), minAlt: 0.5, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 0, fractalMax: 0.8, cutoff: 0.5, fadeMin: 20, fadeMax: 35, swayAmp: 0.12, pushDist: 1.5, pinUpNormals: true, color: [1, 1, 1] },

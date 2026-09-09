@@ -100,6 +100,42 @@ export interface EnvSetup {
   ambColorNight: EnvColor;
   lightIntensityDay: number;
   lightIntensityNight: number;
+  /*
+    ── Die zwei optionalen Abend-Schlüssel (09.09.2026) ───────────────
+
+    Das Referenzmodell kennt für Grundlicht und Sonnenstärke nur einen
+    TAG- und einen NACHT-Wert und blendet beide mit dem TAGGEWICHT
+    ineinander. Für ein Wetter, das ein ABEND ist, ist das eine
+    Zwangsjacke: Bei Tagesbruchteil 0,7083 (17 h) liegt das Taggewicht
+    bei 0,408, das Grundlicht besteht dort also zu 59 % aus dem
+    NACHT-Keyframe. Ein helles Abend-Grundlicht ist so nur zu haben,
+    indem man die Nacht mit aufhellt. Am Modul nachgerechnet
+    (09.09.2026): Selbst `ambColorDay` auf reines Weiss gedreht bringt
+    bei 17 h nur ×1,10 — nötig waren ×2,23.
+
+    Das Schwesterprojekt hat diesen Zwang nicht, weil sein Lichtaufbau
+    STATISCH ist: `content/worlds/village1.json` schreibt
+    `sun.intensity` 3,0 und `ambient.intensity` 1,1 hin, ohne
+    Tageszeit. Was hier fehlte, war also keine Farbe, sondern der
+    zweite Stützpunkt.
+
+    Beide Felder sind OPTIONAL, und ohne sie rechnen `mischeAmbient()`
+    und `mischeStaerke()` Zeile für Zeile weiter wie bisher — die
+    anderen Wetter dieser Tabelle und alles aus envData.json bleiben
+    unberührt. Gesetzt sind sie allein bei `Klar-Comic`.
+
+    Ein MORGEN-Schlüssel fehlt bewusst: Der Look beschreibt einen
+    Abend, für den Morgen gibt es kein Zielbild, und eine erfundene
+    Zahl wäre eine dritte Wahrheit — dieselbe Regel, nach der Morgen-
+    und Nacht-Keyframes von `Klar-Comic` aus `Clear` übernommen sind.
+
+    Two optional EVENING keys. The reference model interpolates ambient
+    and light intensity between a day and a night key only; at 17 h the
+    day weight is 0.408, so an evening cannot get brighter than the
+    night key allows. Absent, `evaluateEnv` behaves exactly as before.
+  */
+  ambColorEvening?: EnvColor;
+  lightIntensityEvening?: number;
   /** Max sun elevation in degrees (vanilla default 60). */
   sunAngle: number;
   /** Caves/crypts: no sun, permanent night lighting. */
@@ -526,6 +562,36 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
     ambColorDay: c(0.86, 0.95, 1.0),
     ambColorNight: c(0.357, 0.368, 0.485),
     /*
+      ── Das Abend-Grundlicht (09.09.2026) ─────────────────────────────
+
+      Ohne diesen Schlüssel besteht das Grundlicht um 17 h zu 59 % aus
+      `ambColorNight`, und der Boden bekam davon 0,167 der 1,467, die er
+      braucht — 25 % statt der 39 %, die das Vorbild an dieser Stelle
+      hat (`village1.json`: Hemisphäre `#a8bcd0`×1,1 gegen Sonne
+      `#ffe4c6`×3,0; deren Anteil am `direct` ist 0,395).
+
+      Wie die Zahl entstanden ist, in dieser Reihenfolge:
+        1. Am Referenzort gemessen, was der Boden HAT: Grundlicht
+           linear 0,3296 × Stärke 0,5082 = 0,1675.
+        2. Am Vorbild gemessen, was er BRAUCHT: `direkt` 1,467
+           (Bauer Boden 2: ×2,0 auf den Wert, den der Splat sah) mit
+           39 % Grundlichtanteil → 0,5722.
+        3. Zurückgerechnet durch die Kuppel-Verrechnung in
+           `Lighting.apply()` — die Stärke steigt mit der Farbe, weil
+           der Abzug ihr Verhältnis zur Kuppelhelligkeit (0,324) ist:
+           nötig sind linear 0,7343, also sRGB × 1,439.
+        4. Diese eine Farbe auf den Abend-Stützpunkt aufgelöst
+           (normierte Tagseite bei 17 h: Tag 0,4032, Abend 0,5968).
+
+      Gegenprobe am Modul: Grundlichtterm 0,5733, Sonnenterm 0,8949,
+      `direkt` 1,468, Anteil 0,390.
+
+      Die Nacht bleibt unangetastet — bei Tagesbruchteil 0 ist das
+      tagseitige Gewicht null, und `mischeAmbient` liefert exakt
+      `ambColorNight`.
+    */
+    ambColorEvening: c(0.775, 0.82, 1.0),
+    /*
       1,55 und nicht die 3,0 des Schwesterprojekts — die beiden Zahlen
       sind nicht vergleichbar, weil die Formeln es nicht sind.
 
@@ -548,6 +614,38 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
     */
     lightIntensityDay: 1.55,
     lightIntensityNight: 1.0,
+    /*
+      ── Die Abend-Sonnenstärke (09.09.2026) ───────────────────────────
+
+      Der Absatz darüber bleibt richtig und ist trotzdem überholt: 1,224
+      bei 17 h war am Bild kalibriert — aber gegen einen BODEN, der
+      seine Lichtstärken damals gar nicht bekam. `client/src/main.ts`
+      reichte dem Splat Farbe ohne Stärke weiter (behoben am selben
+      Tag), und der Fehler hob sich um 17 h fast auf: Der Boden sah
+      0,733 statt 0,661. Bauer Boden 2 hat am lebenden Client
+      nachgemessen, dass das Vorbild bei `direkt` ×2,0 liegt — also
+      1,467 —, und ×2 auf einen zu hohen Wert ist keine Kalibrierung.
+
+      1,55 bleibt deshalb stehen: MITTAG ist nicht das Problem. Bei
+      Taggewicht 1,0 liefert `mischeStaerke` weiter genau 1,55, und die
+      Mittagsmessung sass mit einem Grundlichtanteil von 0,39 schon auf
+      dem Verhältnis des Vorbilds. Zu dunkel ist allein der ABEND, und
+      der hat jetzt seinen eigenen Stützpunkt.
+
+      2,67: Gebraucht wird bei 17 h eine Stärke von 2,219
+      (Sonnenfarbe linear 0,8251 × 2,219 × Lambert 0,4889 = 0,895, der
+      Sonnenanteil von 1,467). Auf der normierten Tagseite
+      (Tag 0,4032 / Abend 0,5968) macht das
+      `(2,219 − 1,55 · 0,4032) / 0,5968 = 2,671`.
+
+      Nacht und Morgen bleiben unangetastet: Dort ist das tagseitige
+      Gewicht null und `mischeStaerke` liefert `lightIntensityNight`.
+
+      2.67: the evening needs intensity 2.219 at 17 h; on the normalised
+      day side (day 0.403 / evening 0.597) that is 2.671. Midday and
+      night are untouched.
+    */
+    lightIntensityEvening: 2.67,
     // 26,8° bei 17 h — s. Herleitung oben. 45 (wie `Clear`) gäbe 26,2°;
     // 46 trifft die 27° des Profils näher, ohne den Mittagsstand zu kippen.
     sunAngle: 46,
@@ -844,6 +942,63 @@ function weighByPhase(
 }
 
 /**
+ * Das TAGSEITIGE Gewicht für die beiden optionalen Abend-Schlüssel.
+ *
+ * Grundlicht und Sonnenstärke werden im Referenzmodell nicht wie die
+ * Farben ADDIERT, sondern zwischen Nacht und Tag INTERPOLIERT
+ * (EnvMan.cs:711 für das Ambient; für die Stärke siehe die Begründung
+ * bei `lightIntensity` unten). Ein Abend-Stützpunkt muss diese Form
+ * behalten, sonst wäre er ein zweites Rechenmodell im selben Objekt.
+ *
+ * Deshalb wird der Abend nicht als dritter Summand angehängt, sondern
+ * die TAGSEITE bekommt zwei Keyframes: Tag und Abend werden nach ihren
+ * Gewichten zu EINER Farbe gemittelt (deshalb `/ s` — normiert, anders
+ * als bei `weighByPhase`, wo die Gewichte bei 17 h auf 1,012 kommen),
+ * und diese eine Farbe geht wie bisher gegen die Nacht.
+ *
+ * Fällt der Abend weg, ist `s = w.day`, die Tagseite ist der Tagwert und
+ * die Zeile ist Zeichen für Zeichen die alte. Der Morgen bleibt
+ * aussen vor: Bei Tagesbruchteil 0,25 ist `s = 0`, und dann kommt die
+ * Nachtfarbe heraus — genau wie bisher.
+ *
+ * The day-side weight for the two optional evening keys: day and evening
+ * are averaged into one value (normalised), which is then interpolated
+ * against night exactly as before.
+ */
+function tagseite(w: PhaseWeights, hatAbend: boolean): { s: number; wTag: number; wAbend: number } {
+  const s = w.day + (hatAbend ? w.evening : 0);
+  if (s <= 0) return { s: 0, wTag: 1, wAbend: 0 };
+  return { s, wTag: w.day / s, wAbend: (hatAbend ? w.evening : 0) / s };
+}
+
+/** Grundlicht: Nacht → (Tag, Abend), s. `tagseite`. */
+function mischeAmbient(env: EnvSetup, w: PhaseWeights): EnvColor {
+  const abend = env.ambColorEvening;
+  const { s, wTag, wAbend } = tagseite(w, abend !== undefined);
+  if (s <= 0) return env.ambColorNight;
+  const d = env.ambColorDay;
+  const tag: EnvColor =
+    abend === undefined
+      ? d
+      : {
+          r: d.r * wTag + abend.r * wAbend,
+          g: d.g * wTag + abend.g * wAbend,
+          b: d.b * wTag + abend.b * wAbend,
+        };
+  return lerpColor(env.ambColorNight, tag, Math.min(1, s));
+}
+
+/** Sonnenstärke: Nacht → (Tag, Abend), s. `tagseite`. */
+function mischeStaerke(env: EnvSetup, w: PhaseWeights): number {
+  const abend = env.lightIntensityEvening;
+  const { s, wTag, wAbend } = tagseite(w, abend !== undefined);
+  if (s <= 0) return env.lightIntensityNight;
+  const tag =
+    abend === undefined ? env.lightIntensityDay : env.lightIntensityDay * wTag + abend * wAbend;
+  return lerp(env.lightIntensityNight, tag, Math.min(1, s));
+}
+
+/**
  * Interpolate an EnvSetup at a given day fraction (0 = midnight,
  * 0.5 = midday). This is the Babylon-side equivalent of EnvMan.SetEnv.
  */
@@ -884,7 +1039,9 @@ export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
       env.fogDensityEvening * w.evening,
     sunColor: weighByPhase(env, 'sunColor', w, true),
     // EnvMan.cs:711 — RenderSettings.ambientLight = Lerp(night, day, dayInt).
-    ambColor: lerpColor(env.ambColorNight, env.ambColorDay, w.day),
+    // Seit dem 09.09.2026 durch `mischeAmbient()`, das GENAU diese Zeile
+    // rechnet, solange kein `ambColorEvening` gesetzt ist.
+    ambColor: mischeAmbient(env, w),
     /*
       ── Die Sonnenstärke wird INTERPOLIERT, nicht aufsummiert ─────────
 
@@ -915,8 +1072,11 @@ export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
       Interpolated, not summed: at day fractions 0.25 and 0.75 both
       weights are exactly zero and the sum went black twice per cycle.
       The ambient line below always did it this way (EnvMan Lerp).
+
+      Seit dem 09.09.2026 steht die Interpolation in `mischeStaerke()` —
+      dieselbe Zeile, solange kein `lightIntensityEvening` gesetzt ist.
     */
-    lightIntensity: lerp(env.lightIntensityNight, env.lightIntensityDay, w.day),
+    lightIntensity: mischeStaerke(env, w),
     cloudAlpha: env.rainCloudAlpha,
     // Light travels from the sky towards the ground → negate. |height|
     // keeps the MOON overhead at night (there is one main light that

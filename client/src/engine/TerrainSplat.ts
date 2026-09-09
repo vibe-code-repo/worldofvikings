@@ -47,11 +47,9 @@ import { AddBlock } from '@babylonjs/core/Materials/Node/Blocks/addBlock';
 import { SubtractBlock } from '@babylonjs/core/Materials/Node/Blocks/subtractBlock';
 import { MultiplyBlock } from '@babylonjs/core/Materials/Node/Blocks/multiplyBlock';
 import { DivideBlock } from '@babylonjs/core/Materials/Node/Blocks/divideBlock';
-import { ModBlock } from '@babylonjs/core/Materials/Node/Blocks/modBlock';
 import { MaxBlock } from '@babylonjs/core/Materials/Node/Blocks/maxBlock';
 import { ClampBlock } from '@babylonjs/core/Materials/Node/Blocks/clampBlock';
 import { PowBlock } from '@babylonjs/core/Materials/Node/Blocks/powBlock';
-import { StepBlock } from '@babylonjs/core/Materials/Node/Blocks/stepBlock';
 import { LerpBlock } from '@babylonjs/core/Materials/Node/Blocks/lerpBlock';
 import { SmoothStepBlock } from '@babylonjs/core/Materials/Node/Blocks/smoothStepBlock';
 import { VectorSplitterBlock } from '@babylonjs/core/Materials/Node/Blocks/vectorSplitterBlock';
@@ -248,8 +246,63 @@ const RAU_VOLL = 0.4226;
  * 1,0 hiesse: Der Boden sieht die ganze Halbkugel. Er sieht sie nicht —
  * er steht in einer Welt aus Bäumen und Hängen. Der Wert ist der eine
  * Regler, an dem gedreht wird, wenn der Boden zu hell oder zu flau steht.
+ *
+ * Er steht auf 1,0 und ist damit KEIN Anschlag mehr: Bis zur Nacharbeit
+ * am 09.09.2026 hing hinter dem Regler eine Grösse, die am Referenzort
+ * rund ein Hundertstel der Bodenfarbe ausmachte (siehe
+ * `HIMMEL_IRRADIANZ`), und ein Drehen daran war deshalb wirkungslos.
+ * Jetzt hängt die volle Umgebungsbeleuchtung daran.
  */
 const HIMMEL_ANTEIL = 1.0;
+
+/**
+ * Halbkugel-Irradianz des Kuppelverlaufs, als zwei Zahlentripel.
+ *
+ * Was hier steht, ist die Projektion des Verlaufs `mix(horizont, zenit,
+ * 1 − e^(−3,2·y))` — das ist `vhSkyGradient` aus ValheimSky.ts, und dort
+ * steht die Wahrheit — auf die ersten drei Legendre-Polynome, gefaltet
+ * mit dem Kosinuslappen. Das ist der klassische Weg, aus einer
+ * richtungsabhängigen Leuchtdichte eine Einstrahlung zu machen
+ * (Ramamoorthi/Hanrahan 2001); die Faltungsgewichte sind 1, 2/3 und 1/4.
+ *
+ * Weil der Verlauf in Horizont- und Zenitfarbe LINEAR ist, zerfällt das
+ * Integral in zwei Gewichte, die nur noch von `N.y` abhängen — der
+ * Shader rechnet also kein Integral, sondern eine Zeile:
+ *
+ *   E(N)/π = horizont · wH(N.y) + zenit · wZ(N.y)
+ *
+ * Probe: Bei `N.y = 1` ergeben die sechs Zahlen wH = 0,1726 und
+ * wZ = 0,8274 — Summe genau 1,0, wie es für eine weisse Kuppel sein
+ * muss. Ein flacher Boden sieht also zu 83 % den Zenit; genau das ist
+ * der Grund, warum die alte Fassung (EIN Abtastwert in Richtung der
+ * Normalen) so kalt und so dunkel war und trotzdem "richtig" aussah:
+ * Sie traf am Referenzort um 17 Uhr den Zenit mit linear
+ * 0,005/0,060/0,280 — der Horizont stand bei 0,375/0,443/0,533.
+ *
+ * Die Zahlen liegen hier und nicht nur im GLSL-Text, damit
+ * `tools/test/terrain-schichten.ts` sie nachrechnen kann, ohne einen
+ * Shader zu übersetzen.
+ */
+export const HIMMEL_IRRADIANZ = {
+  /** Horizontfarbe: konstanter Anteil, N.y-Anteil, P₂-Anteil. */
+  horizont: [0.649868, -0.41909, -0.058201],
+  /** Zenitfarbe: dieselben drei. */
+  zenit: [0.350132, 0.41909, 0.058201],
+} as const;
+
+/**
+ * Die Irradianz-Gewichte als TypeScript — dieselbe Zeile wie im Shader.
+ *
+ * Nur für Tests und Messungen: Ein Shader, dessen Zahlen niemand
+ * nachrechnen kann, ist eine Behauptung.
+ */
+export function himmelIrradianzGewichte(ny: number): { wH: number; wZ: number } {
+  const y = Math.min(1, Math.max(-1, ny));
+  const p2 = 1.5 * y * y - 0.5;
+  const h = HIMMEL_IRRADIANZ.horizont;
+  const z = HIMMEL_IRRADIANZ.zenit;
+  return { wH: h[0] + h[1] * y + h[2] * p2, wZ: z[0] + z[1] * y + z[2] * p2 };
+}
 
 /**
  * Paint mask atlas — one 65×65 tile per visible zone in a single texture.
@@ -681,7 +734,13 @@ export class TerrainSplatMaterial {
     worldXZ.xy.connectTo(tileUV.left);
     uvScale.output.connectTo(tileUV.right);
 
-    const noiseUVScale = cnst('noiseUVScale', 0.015);
+    // Dieselbe Zahl wie die mittlere Oktave der Helligkeitsvariation, und
+    // zwar buchstaeblich dieselbe: Der Sampler hier liefert BEIDES — den
+    // Rotationswinkel der Tile-UVs (Kanal r) und die mittlere Oktave
+    // (Kanal g). Stand hier eine zweite 0,015, war `VAR_SKALA_MITTEL` eine
+    // Konstante, die niemand las, und ein Aendern dort haette nichts
+    // bewegt (eslint meldete sie deshalb als unbenutzt).
+    const noiseUVScale = cnst('noiseUVScale', VAR_SKALA_MITTEL);
     const noiseUV = new MultiplyBlock('noiseUV');
     worldXZ.xy.connectTo(noiseUV.left);
     noiseUVScale.output.connectTo(noiseUV.right);
@@ -1916,6 +1975,44 @@ export class TerrainSplatMaterial {
     // Wenn Bauer Licht den `look:`-Block hat, füttert er `setzeHimmel()`
     // mit dessen Zenit/Horizont/Sonnenglühen und der Boden zieht mit,
     // ohne dass hier etwas geändert werden muss.
+    //
+    // ── Nacharbeit 09.09.2026: EIN Abtastwert ist kein Halbkugel ──────
+    //
+    // Die erste Fassung hat die Umgebung mit EINEM Abtastwert des
+    // Verlaufs genähert: `dir = mix(reflect(-V,N), N, rauheit²)`, bei
+    // Rauheit 1 also genau die Normale. Für den flachen Boden zeigt die
+    // senkrecht nach oben, und dort steht der ZENIT — am Referenzort um
+    // 17 Uhr linear 0,005/0,060/0,280, während der Horizont bei
+    // 0,375/0,443/0,533 steht. Der Boden spiegelte damit den dunkelsten
+    // und blausten Punkt des ganzen Himmels, und die Sonne, die in
+    // derselben Halbkugel steht, gar nicht: `glanzFarbe · glaette²` ist
+    // bei Glätte 0 (Gras, Heide) exakt null. Was ankam, waren rund
+    // 1 % der Bodenfarbe — deshalb bewegte auch `HIMMEL_ANTEIL` nichts.
+    //
+    // Ein einzelner Abtastwert IST die richtige Näherung, solange die
+    // Oberfläche glatt ist: Ein Spiegel zeigt eine Richtung. Er ist die
+    // falsche, sobald sie rau ist — dann zeigt die Fläche nicht eine
+    // Richtung, sondern das Mittel über die halbe Kugel, und das ist die
+    // vorgefilterte Stufe, die ein Cubemap in seinem letzten Mip stehen
+    // hat. Ohne Cubemap muss sie ausgerechnet werden, und weil der
+    // Verlauf in seinen zwei Farben linear ist, geht das geschlossen:
+    // `HIMMEL_IRRADIANZ` (zwei Zahlentripel) statt eines Integrals.
+    //
+    // ── Was das Schwesterprojekt an dieser Stelle tut ────────────────
+    // `packages/engine/src/terrain-shader.ts`, `environmentLight()`:
+    // dieselbe Split-Sum-Zerlegung, dieselbe Lazarov-BRDF, dieselbe
+    // Zeile `lit = albedo·(1−metallic)·direct + environmentLight(...)`,
+    // und derselbe EINE Abtastwert. Dass der Boden dort trotzdem hell
+    // ist, liegt nicht an der Spiegelung, sondern am Lichtstand: Es
+    // rechnet mit ungewandelten sRGB-Zahlen (`Color3.FromHexString`
+    // direkt ins Uniform), Sonne `#ffe4c6` × 3,0 und Hemisphäre
+    // `#a8bcd0` × 1,1 — `direct` liegt dort bei ~2,0 gegen ~0,75 hier,
+    // wo Sonne, Ambient und Nebel LINEAR hineingehen (`toLinear()` in
+    // Lighting.ts, s. `StandardGammaFix`). Übernommen wird deshalb der
+    // Aufbau und nicht die Zahl; die Spiegelung wird hier zusätzlich
+    // richtig gestellt, weil `direct` diesen Fehler nicht mehr zudeckt.
+    // ADR-0032 (Verlaufshimmel als Umgebungslicht) und ADR-0043
+    // (Schichtmischung) bleiben die Vorlage, ADR-0034 die Messvorschrift.
     let farbeVorNebel: NodeMaterialConnectionPoint = mitGlanz.output;
     if (STORE_BODEN_AKTIV && metallicAus && glaetteAus) {
       const himmel = new CustomBlock('terrainHimmel');
@@ -1926,6 +2023,7 @@ export class TerrainSplatMaterial {
         inParameters: [
           { name: 'albedo', type: 'Vector3' },
           { name: 'direkt', type: 'Vector3' },
+          { name: 'sonnenLicht', type: 'Vector3' },
           { name: 'nrm', type: 'Vector3' },
           { name: 'wpos', type: 'Vector3' },
           { name: 'cpos', type: 'Vector3' },
@@ -1939,19 +2037,36 @@ export class TerrainSplatMaterial {
         ],
         outParameters: [{ name: 'result', type: 'Vector3' }],
         code: [
-          // Der Verlauf. Bewusst dieselbe Form wie `vhSkyGradient` in
-          // ValheimSky.ts: zum Horizont hin gestaucht (pow 0.45), unter
-          // dem Horizont schnell dunkel. Nachgebaut statt aufgerufen,
-          // weil dieses Material ein NodeMaterial ist und ValheimSky ein
+          // Der Verlauf, Zeile für Zeile wie `vhSkyGradient` in
+          // ValheimSky.ts. Nachgebaut statt aufgerufen, weil dieses
+          // Material ein NodeMaterial ist und ValheimSky ein
           // ShaderMaterial — es gibt keinen gemeinsamen Quelltext, den
           // beide einbinden könnten.
+          //
+          // Hier stand `pow(hoch, 0.45)` mit einer Abdunklung unter dem
+          // Horizont; das ist die Form des SCHWESTERPROJEKTS
+          // (sky-shader.ts), nicht die der Kuppel, die über diesem Boden
+          // steht. `pow` hat bei hoch = 0 eine unendliche Steigung und
+          // setzt damit eine harte Kante genau auf den Horizont — der
+          // Grund, warum ValheimSky auf `1 − e^(−3,2·y)` gewechselt ist.
+          // Zwei Verläufe für einen Himmel heisst: Der Boden spiegelt
+          // einen anderen Himmel, als man über ihm sieht.
           'vec3 vbHimmelFarbe(vec3 dir, vec3 zenit, vec3 horizont, vec3 glanzFarbe, vec3 zurSonne) {',
-          '  float hoch = clamp(dir.y, 0.0, 1.0);',
-          '  vec3 col = mix(horizont, zenit, pow(hoch, 0.45));',
-          '  float runter = clamp(-dir.y * 8.0, 0.0, 1.0);',
-          '  col = mix(col, horizont * 0.16, runter);',
+          '  float t = 1.0 - exp(-3.2 * max(clamp(dir.y, -1.0, 1.0), 0.0));',
+          '  vec3 col = mix(horizont, zenit, t);',
           '  col += glanzFarbe * pow(max(dot(dir, zurSonne), 0.0), 8.0);',
           '  return col;',
+          '}',
+          // Die vorgefilterte Stufe desselben Verlaufs: die Einstrahlung
+          // über der Halbkugel um die Normale, mit dem Kosinuslappen
+          // gefaltet. Zwei Gewichte statt eines Integrals — die Herkunft
+          // der sechs Zahlen steht bei `HIMMEL_IRRADIANZ`.
+          'vec3 vbHimmelIrradianz(vec3 N, vec3 zenit, vec3 horizont) {',
+          '  float y = clamp(N.y, -1.0, 1.0);',
+          '  float p2 = 1.5 * y * y - 0.5;',
+          `  float wH = ${HIMMEL_IRRADIANZ.horizont[0].toFixed(6)} + ${HIMMEL_IRRADIANZ.horizont[1].toFixed(6)} * y + ${HIMMEL_IRRADIANZ.horizont[2].toFixed(6)} * p2;`,
+          `  float wZ = ${HIMMEL_IRRADIANZ.zenit[0].toFixed(6)} + ${HIMMEL_IRRADIANZ.zenit[1].toFixed(6)} * y + ${HIMMEL_IRRADIANZ.zenit[2].toFixed(6)} * p2;`,
+          '  return max(vec3(0.0), horizont * wH + zenit * wZ);',
           '}',
           // Wie viel einer Spiegelung die Oberfläche überhaupt
           // durchlässt, nach Rauheit und Blickwinkel — Lazarovs
@@ -1966,30 +2081,44 @@ export class TerrainSplatMaterial {
           '  float a004 = min(r.x * r.x, exp2(-9.28 * nDotV)) * r.x + r.y;',
           '  return vec2(-1.04, 1.04) * a004 + r.zw;',
           '}',
-          'void vbTerrainHimmel(vec3 albedo, vec3 direkt, vec3 nrm, vec3 wpos, vec3 cpos,',
+          'void vbTerrainHimmel(vec3 albedo, vec3 direkt, vec3 sonnenLicht, vec3 nrm,',
+          '                     vec3 wpos, vec3 cpos,',
           '                     vec3 zurSonne, vec3 zenit, vec3 horizont, vec3 glanzFarbe,',
           '                     float metallic, float glaette, float schatten, out vec3 result) {',
           '  vec3 N = normalize(nrm);',
           '  vec3 V = normalize(cpos - wpos);',
           '  float nDotV = clamp(dot(N, V), 0.0, 1.0);',
           '  float rauheit = 1.0 - clamp(glaette, 0.0, 1.0);',
-          // Je rauer, desto mehr wandert die Blickrichtung von der
-          // Spiegelrichtung zur Normalen — der billige Ersatz für ein
-          // vorgefiltertes Cubemap.
-          '  vec3 dir = normalize(mix(reflect(-V, N), N, rauheit * rauheit));',
-          // Eine scharfe Sonnenscheibe hat in Kies nichts verloren: das
-          // Glühen fällt mit dem Quadrat der Glätte weg, ein Spiegel
-          // zeigt es, Moos nicht.
-          '  vec3 himmel = vbHimmelFarbe(dir, zenit, horizont, glanzFarbe * glaette * glaette, zurSonne);',
+          // Die scharfe Seite: eine Richtung, eine Farbe. Die
+          // Sonnenscheibe hat in Kies nichts verloren — das Glühen fällt
+          // mit dem Quadrat der Glätte weg, ein Spiegel zeigt es, Moos
+          // nicht.
+          '  vec3 scharf = vbHimmelFarbe(reflect(-V, N), zenit, horizont,',
+          '                              glanzFarbe * glaette * glaette, zurSonne);',
+          // Die stumpfe Seite: das Mittel über die Halbkugel. Der
+          // Schatten dämpft sie — nicht ganz (der Himmel steht ja weiter
+          // da), aber deutlich, sonst leuchtet eine Felsplatte im
+          // Schlagschatten heller als daneben.
+          //
+          // `sonnenLicht` kommt VERSCHATTET von aussen (derselbe Ausgang,
+          // der auch in `direkt` steckt) und ist die zweite Hälfte
+          // derselben Einstrahlung: Die Sonne steht in dieser Halbkugel,
+          // und eine raue Fläche im Sonnenlicht ist hell, auch wenn sie
+          // die Scheibe nirgends spiegelt. Sie hier wegzulassen war der
+          // zweite Grund, warum der Himmelsterm nichts beitrug — der
+          // Sonnenanteil folgt damit ohne eigenes Uniform der Tageszeit.
+          '  vec3 stumpf = vbHimmelIrradianz(N, zenit, horizont)',
+          '              * mix(0.45, 1.0, clamp(schatten, 0.0, 1.0)) + sonnenLicht;',
+          // Rauheit² ist dieselbe Blende wie vorher, nur zwischen den
+          // beiden RICHTIGEN Enden statt zwischen zwei Richtungen.
+          '  vec3 vorgefiltert = mix(scharf, stumpf, rauheit * rauheit);',
           '  vec2 brdf = vbEnvBrdf(nDotV, rauheit);',
           // Ein Dielektrikum spiegelt 4 % — deshalb bekommt JEDE Schicht
-          // einen Himmelsanteil, auch die mit Metallic 0.
+          // einen Himmelsanteil, auch die mit Metallic 0. `brdf.y` wird
+          // bei Rauheit 1 leicht negativ (−0,0024); ungeklemmt zöge das
+          // von einer matten Fläche Licht ab, statt keines zuzugeben.
           '  vec3 reflexion = mix(vec3(0.04), albedo, metallic);',
-          `  vec3 umgebung = (reflexion * brdf.x + vec3(brdf.y)) * himmel * ${HIMMEL_ANTEIL.toFixed(3)};`,
-          // Der Schatten dämpft auch die Spiegelung — nicht ganz (der
-          // Himmel steht ja weiter da), aber deutlich, sonst leuchtet
-          // eine Felsplatte im Schlagschatten heller als daneben.
-          '  umgebung *= mix(0.45, 1.0, clamp(schatten, 0.0, 1.0));',
+          `  vec3 umgebung = (reflexion * brdf.x + vec3(max(brdf.y, 0.0))) * vorgefiltert * ${HIMMEL_ANTEIL.toFixed(3)};`,
           // Metallic ist der Regler zwischen „diese Schicht hat eine
           // Farbe" und „diese Schicht zeigt den Himmel".
           '  result = albedo * (1.0 - metallic) * direkt + umgebung;',
@@ -1999,6 +2128,7 @@ export class TerrainSplatMaterial {
       const hi = himmel as unknown as Record<string, NodeMaterialConnectionPoint>;
       depthLerp.output.connectTo(hi.albedo!);
       litSum.output.connectTo(hi.direkt!);
+      sunAusgang.connectTo(hi.sonnenLicht!);
       gestoerteNormale.connectTo(hi.nrm!);
       wps.xyzOut.connectTo(hi.wpos!);
       cameraPos.output.connectTo(hi.cpos!);

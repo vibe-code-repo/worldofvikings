@@ -28,6 +28,12 @@
  *      Schicht, die jemand halb fertig gemacht hat. Metallic ohne
  *      Himmelsterm ist schwarz, Normalmap ohne Stärke ist flach.
  *
+ *  (e) EIN VORZEICHEN IN DER HIMMELS-IRRADIANZ. Die sechs Zahlen in
+ *      `HIMMEL_IRRADIANZ` sind das Halbkugel-Mittel des Kuppelverlaufs.
+ *      Ein Tippfehler darin macht den Boden zu hell, zu dunkel oder zu
+ *      blau — und alle drei sehen aus wie eine Geschmacksfrage. Geprüft
+ *      wird gegen eine stumpfe Summe über 20 000 Richtungen.
+ *
  *  (d) EIN BIOM OHNE HANG. Die Steigungsrampe (`HANG_TILE`, `RAU_TILE`)
  *      muss für JEDES der fünf Biome sagen, was auf flachem Grund liegt
  *      und was am Hang. Fehlt ein Eintrag, zeigt der Hang dort weiter
@@ -53,6 +59,8 @@ import {
   RAU_TILE,
   TILE,
   BIOME_TILE,
+  HIMMEL_IRRADIANZ,
+  himmelIrradianzGewichte,
 } from '../../client/src/engine/TerrainSplat.js';
 // Das Werkzeug ist ein `.mjs` ohne Typen — genau deshalb wird es HIER
 // importiert und nicht nachgebildet: Eine Nachbildung prüft sich selbst.
@@ -275,6 +283,76 @@ check(
     existsSync(join(AUS, d))
   )
 );
+
+/*
+  ── (e) Die sechs Zahlen der Himmels-Irradianz ─────────────────────
+  Der Boden spiegelt seit dem 09.09.2026 nicht mehr EINEN Abtastwert des
+  Verlaufs, sondern dessen Mittel über die Halbkugel (`HIMMEL_IRRADIANZ`).
+  Sechs Konstanten, die niemand ansieht: Ein Vorzeichenfehler darin macht
+  den Boden zu hell oder zu kalt, und beides sieht aus wie eine
+  Geschmacksfrage.
+
+  Geprüft wird nicht die Herleitung, sondern das Ergebnis — gegen eine
+  stumpfe Summe über 20 000 Richtungen desselben Verlaufs, den
+  `vhSkyGradient` in ValheimSky.ts zeichnet. Zwei Wege zur selben Zahl.
+*/
+function irradianzStumpf(ny: number): { wH: number; wZ: number } {
+  // Kosinusgewichtete Halbkugel um N, N in der xy-Ebene bei Winkel a.
+  const a = Math.acos(Math.max(-1, Math.min(1, ny)));
+  const Nx = Math.sin(a), Ny = Math.cos(a);
+  const N = 20_000;
+  let sH = 0, sZ = 0, sW = 0;
+  const gold = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < N; i++) {
+    const y = 1 - (2 * i + 1) / N;
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    const phi = i * gold;
+    const dx = Math.cos(phi) * r, dy = y, dz = Math.sin(phi) * r;
+    const cos = dx * Nx + dy * Ny;
+    if (cos <= 0) continue;
+    // vhSkyGradient: t = 1 − e^(−3,2·max(y,0)); col = mix(horizont, zenit, t)
+    const t = 1 - Math.exp(-3.2 * Math.max(dy, 0));
+    sH += (1 - t) * cos;
+    sZ += t * cos;
+    sW += cos;
+    void dz;
+  }
+  // Normiert auf die Einstrahlung einer weissen Kuppel (Σcos), damit die
+  // Summe der zwei Gewichte bei ny = 1 gerade 1,0 ergibt.
+  return { wH: sH / sW, wZ: sZ / sW };
+}
+{
+  const abw: string[] = [];
+  for (const ny of [1, 0.9, 0.7, 0.5, 0.2, 0]) {
+    const a = himmelIrradianzGewichte(ny);
+    const b = irradianzStumpf(ny);
+    // Die geschlossene Form ist eine SH-2-Näherung; 0,03 ist der Abstand,
+    // den die abgeschnittenen Ordnungen im schlimmsten Fall lassen.
+    if (Math.abs(a.wH - b.wH) > 0.03 || Math.abs(a.wZ - b.wZ) > 0.03) {
+      abw.push(`ny=${ny.toFixed(1)}: ${a.wH.toFixed(3)}/${a.wZ.toFixed(3)} gegen ${b.wH.toFixed(3)}/${b.wZ.toFixed(3)}`);
+    }
+  }
+  check(
+    'die Himmels-Irradianz trifft die stumpfe Summe über den Kuppelverlauf',
+    abw.length === 0,
+    abw.join('; ')
+  );
+  const oben = himmelIrradianzGewichte(1);
+  check(
+    'ein flacher Boden bekommt genau eine weisse Kuppel (Summe der Gewichte = 1)',
+    Math.abs(oben.wH + oben.wZ - 1) < 1e-3,
+    (oben.wH + oben.wZ).toFixed(4)
+  );
+  check(
+    'der flache Boden sieht ueberwiegend den Zenit, nicht den Horizont',
+    oben.wZ > 4 * oben.wH,
+    `${oben.wH.toFixed(4)} / ${oben.wZ.toFixed(4)}`
+  );
+  check(
+    'die sechs Zahlen sind drei Paare',
+    HIMMEL_IRRADIANZ.horizont.length === 3 && HIMMEL_IRRADIANZ.zenit.length === 3
+  );
+}
 
 /*
   Die zwei Altbestand-Zeilen. Sie sind der Grund, warum der Stapel nicht

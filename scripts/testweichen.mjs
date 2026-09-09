@@ -90,6 +90,45 @@ export function brauchtStore() {
   };
 }
 
+/*
+  Weiche fuer den Bodenschichten-Pruefer: er braucht ZWEI Ordner.
+
+  `store-terrain-schichten.mjs` baut den Stapel aus dem Asset-Speicher
+  (`assets/store/textures`) UND aus dem Altbestand
+  (`assets/textures/terrain_d_array.png`): Zeile 7 (Asche) und Zeile 15
+  (die Emissionsmaske der Lava-Risse) haben im Speicher keine
+  Entsprechung und werden von dort uebernommen.
+
+  `brauchtStore()` allein kannte nur den ersten. Auf einer Maschine mit
+  Speicher, aber ohne Altbestand — genau der Zustand eines frischen
+  Arbeitsbaums, in dem nur `assets/store` verlinkt wurde — lief der Test
+  also an und brach hart ab: `fehlendeDateien()` meldet die Datei, und
+  `spawnSync` des Werkzeugs kommt mit Code 1 zurueck. Das sieht aus wie
+  ein kaputter Boden und ist ein fehlender Symlink.
+
+  Die Regel bleibt die von `brauchtStore()`, nur jetzt fuer beide
+  Ordner: Fehlt ein Ordner GANZ, ist das der bekannte Zustand einer
+  Maschine ohne Assets — uebersprungen. Fehlen EINZELNE Dateien darin,
+  ist das ein Befund, und der Test wird rot; deshalb prueft die Weiche
+  ausdruecklich nur auf die Ordner und nicht auf die Dateien.
+
+  Skips when either asset folder is missing entirely; missing single
+  files inside them stay a finding.
+*/
+export function brauchtBodenQuellen() {
+  const speicher = brauchtStore();
+  return () => {
+    const s = speicher();
+    if (s !== null) return s;
+    if (process.env.WOV_OHNE_ALTBESTAND === '1') {
+      return 'WOV_OHNE_ALTBESTAND=1 gesetzt — Altbestand-Texturen von Hand abgeschaltet (Probe des CI-Falls)';
+    }
+    return existsSync(resolve(WURZEL, 'assets/textures'))
+      ? null
+      : 'assets/textures fehlt — die zwei Altbestand-Zeilen (Asche, Lava-Maske) kommen von dort (ln -s ~/worldofvikings/assets/textures assets/textures)';
+  };
+}
+
 /**
  * Grund, warum hier kein Blender läuft — oder `null`, wenn einer läuft.
  *

@@ -46,6 +46,7 @@ const {
   brauchtModelle,
   brauchtBlender,
   brauchtStore,
+  brauchtBodenQuellen,
   missingBlenderReason,
   BLENDER_REF,
   WURZEL,
@@ -60,7 +61,12 @@ const {
 
    Die Überschreibungen werden deshalb hier abgeräumt und nur dort gesetzt,
    wo ein Fall sie ausdrücklich braucht. */
-for (const schluessel of ['WOV_OHNE_MODELLE', 'WOV_OHNE_BLENDER', 'WOV_OHNE_STORE']) {
+for (const schluessel of [
+  'WOV_OHNE_MODELLE',
+  'WOV_OHNE_BLENDER',
+  'WOV_OHNE_STORE',
+  'WOV_OHNE_ALTBESTAND',
+]) {
   if (process.env[schluessel] !== undefined) {
     console.log(`[weichen] ${schluessel} aus der Umgebung abgeräumt — jeder Fall setzt sie selbst`);
     delete process.env[schluessel];
@@ -209,6 +215,43 @@ console.log('\n[3b] brauchtStore — der Asset-Speicher');
   );
 }
 
+console.log('\n[3c] brauchtBodenQuellen — Speicher UND Altbestand');
+{
+  /*
+    Der Bodenschichten-Prüfer braucht ZWEI Ordner: `assets/store` für die
+    sechs gemalten Schichten und `assets/textures` für die zwei
+    Altbestand-Zeilen (Asche, Emissionsmaske der Lava-Risse). Bis zum
+    09.09.2026 hing er an `brauchtStore()` allein und brach auf einer
+    Maschine mit Speicher, aber ohne Altbestand HART ab statt zu
+    überspringen — der Zustand eines frischen Arbeitsbaums.
+
+    Beide Richtungen: fehlt ein Ordner ganz ⇒ Grund im Klartext; sind
+    beide da ⇒ kein Grund, und der Test darf rot werden, wenn EINZELNE
+    Dateien fehlen.
+  */
+  const echt = brauchtBodenQuellen()();
+  const beide =
+    existsSync(join(WURZEL, 'assets/store')) && existsSync(join(WURZEL, 'assets/textures'));
+  pruefe(
+    beide ? echt === null : typeof echt === 'string',
+    `beide Ordner ${beide ? 'liegen vor ⇒ kein Grund' : 'fehlen (mind. einer) ⇒ Grund im Klartext'} (bekam ${JSON.stringify(echt)})`,
+  );
+  const ohneStore = mitUmgebung('WOV_OHNE_STORE', '1', () => brauchtBodenQuellen()());
+  pruefe(
+    String(ohneStore).includes('WOV_OHNE_STORE'),
+    'fehlender Speicher ⇒ übersprungen, und der Grund nennt ihn',
+  );
+  const ohneAlt = mitUmgebung('WOV_OHNE_ALTBESTAND', '1', () => brauchtBodenQuellen()());
+  pruefe(
+    String(ohneAlt).includes('WOV_OHNE_ALTBESTAND'),
+    'fehlender Altbestand ⇒ übersprungen, und der Grund nennt ihn',
+  );
+  pruefe(
+    ohneStore !== ohneAlt,
+    'die zwei Gründe sind verschieden — wer liest, sieht WELCHER Ordner fehlt',
+  );
+}
+
 console.log('\n[4] Verdrahtung — hängen die Weichen am Sammellauf?');
 {
   const lauf = readFileSync(join(WURZEL, 'scripts', 'run-tests.mjs'), 'utf8');
@@ -236,12 +279,16 @@ console.log('\n[4] Verdrahtung — hängen die Weichen am Sammellauf?');
     /'stonevault-kantensonde\.ts',\s*brauchtModelle\(/.test(lauf),
     'die Kantensonde steht weiterhin hinter brauchtModelle(...)',
   );
+  pruefe(
+    /'test\/terrain-schichten\.ts',\s*brauchtBodenQuellen\(/.test(lauf),
+    'der Bodenschichten-Prüfer steht hinter brauchtBodenQuellen(...), nicht mehr hinter brauchtStore(...)',
+  );
 }
 
 // Leerlauf-Falle: ein Lauf ohne Zusicherungen darf nicht wie ein bestandener
 // aussehen (dieselbe Regel wie beim Pfad-Wächter).
-if (geprueft < 14) {
-  console.log(`\nWEICHEN-PROBE ROT — nur ${geprueft} Zusicherungen gefahren, erwartet mindestens 14.`);
+if (geprueft < 19) {
+  console.log(`\nWEICHEN-PROBE ROT — nur ${geprueft} Zusicherungen gefahren, erwartet mindestens 19.`);
   process.exit(1);
 }
 if (fehler > 0) {

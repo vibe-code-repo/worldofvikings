@@ -118,20 +118,129 @@ export const SCHICHTEN = {
  * dunkler und entsättigt.
  *
  * `altbestand: true` heisst „Zeile aus terrain_d_array.png übernehmen".
+ *
+ * ── Die vier Zeilen des Feinabgleichs (09.09.2026) ───────────────────
+ * Vier Tönungen standen bis hierher auf [1, 1, 1] — nicht weil das die
+ * richtige Farbe war, sondern weil noch niemand gemessen hatte, welche
+ * es ist. Die Referenzbilder aus dem Original geben sie jetzt vor; die
+ * Zielzahlen stehen in `design/look-referenz.md`.
+ *
+ * ── Wie eine Tönung berechnet wird, und was dabei fast schiefging ────
+ * Die naheliegende Rechnung ist
+ *
+ *       t = (Ziel_sRGB / Ist_sRGB) ^ 2.2
+ *
+ * — sie unterstellt, dass der Bildwert PROPORTIONAL zur Albedo ist. Das
+ * ist er nicht. Gemessen am 45°-Hang (Mittag), Tönung 1,000 gegen 1,537
+ * auf DENSELBEN Bildpunkten:
+ *
+ *       Kanal   t=1,000   t=1,537   → D (skaliert)   A (skaliert nicht)
+ *       R       98,7      112,0        0,0739          0,0500  (40 %)
+ *       G       99,8       98,8        0,0459          0,0811  (64 %)
+ *       B       96,3       82,8        0,0757          0,0417  (36 %)
+ *
+ * `Bild_linear = Albedo_linear · D + A`. Vierzig bis vierundsechzig
+ * Prozent des Bildwertes hängen NICHT an der Albedo — das ist der
+ * Himmelsterm plus Nebel. Mit der naiven Formel hätte die
+ * Cliff-Zeile 1,54 statt 2,14 bekommen und wäre bei S 0,26 statt 0,38
+ * stehengeblieben; genau das ist im ersten Anlauf passiert.
+ *
+ * Gerechnet wird deshalb aus ZWEI Messungen je Zeile: D und A auflösen,
+ * dann `t = (Ziel_linear − A) / D`. Die zweite Messung ist billig — man
+ * lässt das Werkzeug einmal mit einer bekannten Probetönung laufen.
+ *
+ * „Ist" ist dabei kein Bildschirmeindruck, sondern die Messung JE
+ * SCHICHT aus `~/wov-lab-mess/fein-mess.mjs`: Bildpunkte werden über
+ * `scene.pick` ihrer Vertex-Normalen zugeordnet, aus Neigung und
+ * Biom-Tile fällt die wirksame Kachel, und erst deren Bildpunkte werden
+ * gemittelt. Eine Bandmessung über das halbe Bild hätte stattdessen
+ * Baumkronen und Schatten mitgewogen.
+ *
+ * ── Die Stunde gehört zur Zahl ───────────────────────────────────────
+ * Bild 1 und 2 der Referenz sind warmes Nachmittagslicht und werden
+ * gegen 17 Uhr (`t=0.708333`) gehalten, Bild 3 steht in der Sonne und
+ * wird gegen Mittag (`t=0.5`) gehalten. Gegen die falsche Stunde
+ * kalibriert bekäme man eine Farbe, die im Bild nie eintritt.
+ *
+ * ── Kein Anschlag ist gefallen ───────────────────────────────────────
+ * Die Tönung greift auf die Textur im Speicher, und `zuSrgb` klemmt bei
+ * 255. Nachgezählt am fertigen Stapel: Zeile 0 Maximum 133, Zeile 4
+ * Maximum 55, Zeile 5 Maximum 236, Zeile 11 Maximum 85 — kein einziger
+ * Texel in der Klemme (`(t >= 255).sum() == 0` je Zeile).
  */
 export const ZUORDNUNG = [
-  /* 0  Grass      */ { name: 'Grass', schicht: 'grass-a', toenung: [1, 1, 1] },
+  // Der Wiesengrund. Referenz: Bild 1, die Fläche ZWISCHEN den Büscheln
+  // (Luma 57,5, H 53, S 0,42) — unsere lag bei Luma 51,2 mit H 58.
+  // Es fehlte also vor allem Helligkeit, nicht Farbe.
+  /* 0  Grass      */ { name: 'Grass', schicht: 'grass-a', toenung: [1.378, 1.279, 1.032] },
   /* 1  Forest     */ { name: 'Forest', schicht: 'moss', toenung: [0.88, 0.92, 0.85] },
   /* 2  Dirt       */ { name: 'Dirt', schicht: 'gravel', toenung: [1.15, 1.02, 0.85] },
   /* 3  Cleared    */ { name: 'Cleared', schicht: 'gravel-path', toenung: [0.9, 0.84, 0.74] },
+  // Der dunkle Fels — und die EINZIGE Zeile, die der Feinabgleich
+  // absichtlich stehengelassen hat. Die Begründung ist eine Messung, kein
+  // Übersehen; sie steht hier, damit niemand sie ein zweites Mal machen
+  // muss.
+  //
+  // ── Erstens: WO man diese Schicht misst ─────────────────────────────
+  // Nicht am steilsten Hang. Am 47°-Nordhang des Schwarzwaldes zeichnet
+  // die Rampe längst `RAU_TILE` = `rock-rough`; wer dort misst, misst
+  // den HELLEN Fels und hält ihn für den dunklen. Genau daran ist am
+  // 09.09.2026 ein erster Anlauf gescheitert: Eine Tönung an `rock-a`
+  // schien die Farbe in die falsche Richtung zu ziehen — in Wahrheit sah
+  // man die Wirkung der Cliff-Zeile. Der Zeuge ist deshalb eine
+  // 24°-Flanke (−27060/−5500), wo `HANG_TILE[Forest] = Rock` gilt.
+  //
+  // ── Zweitens: die Tönung wirkt dort fast nicht ──────────────────────
+  // Gegenprobe an genau diesem Zeugen, [1, 1, 1] gegen [0,95, 0,97, 1,30]
+  // (also Blau +30 % linear):
+  //
+  //            ohne Tönung        mit Tönung
+  //   17 Uhr   65,7/69,0/63,7     63,6/66,0/60,6   B−R −2,0 → −3,0
+  //   Mittag   68,2/72,8/65,6     65,0/69,7/62,8   B−R −2,6 → −2,2
+  //
+  // Ein Blauzuschlag von 30 % auf die Albedo bewegt B−R um ein Zehntel
+  // Byte in die eine und ein halbes in die andere Richtung — das ist
+  // Rauschen. Der Grund steckt in Metallic 0,85: Was diese Schicht im
+  // Bild ausmacht, ist der Himmelsterm, nicht ihre Eigenfarbe. Eine
+  // Tönung hier ist ein Regler ohne Wirkung, und ein wirkungsloser
+  // Regler mit einer Zahl darin ist schlimmer als keiner — beim nächsten
+  // Mal dreht jemand daran und wundert sich.
+  //
+  // ── Drittens: und Metallic senken wäre die falsche Richtung ─────────
+  // Metallic 0 multipliziert den diffusen Anteil mit 1/(1−0,85) = 6,7.
+  // Die Schicht steht am Zeugen ohnehin schon auf Luma 65,7 (17 Uhr) und
+  // 68,2 (Mittag), während die Referenz für Fels im Schatten auf 39,3
+  // und für Fels im Licht auf 46,3 steht. Sie ist also nicht zu dunkel,
+  // sondern eher zu HELL — heller machen löst nichts.
+  //
+  // Was von Mikes Befund „schwarz" bleibt: nichts Messbares. Er stammt
+  // aus `boden2-hang-nachher.png`; seit Stufe „Boden 3" trägt der
+  // Himmelsterm diese Schicht. Farblich ist sie mit B−R −2 bis −3 nahezu
+  // neutral, also das verlangte Blaugrau und nicht das alte Braun.
   /* 4  Rock       */ { name: 'Rock', schicht: 'rock-a', toenung: [1, 1, 1] },
-  /* 5  Cliff      */ { name: 'Cliff', schicht: 'rock-rough', toenung: [1, 1, 1] },
+  // Der helle, raue Fels. Referenz: Bild 3, die tan-braunen Hangbänder
+  // (Luma 104, H 30, S 0,39). Bei uns war er mittags Beton: Luma 99 bei
+  // S 0,05 und H 80 — die Helligkeit stimmte fast, die FARBE fehlte
+  // ganz. Die Tönung sättigt und wärmt; die Luma steigt dabei kaum
+  // (99 → 109), weil Rot steigt, während Blau um denselben Betrag
+  // fällt. Nachgemessen am 45°-Hang mittags: 127,6/105,9/79,5,
+  // H 33, S 0,38.
+  //
+  // Die Zahl 2,139 ist der Grund, aus dem oben die Zwei-Punkt-Rechnung
+  // steht: Aus einer einzelnen Messung wäre 1,537 gefallen, und damit
+  // blieb der Hang bei S 0,26 — sichtbar zu blass.
+  /* 5  Cliff      */ { name: 'Cliff', schicht: 'rock-rough', toenung: [2.139, 1.024, 0.373] },
   /* 6  LavaEmber  */ { name: 'LavaEmber', schicht: 'rock-rough', toenung: [0.55, 0.4, 0.36] },
   /* 7  Ash        */ { name: 'Ash', altbestand: true },
   /* 8  Heath      */ { name: 'Heath', schicht: 'grass-b', toenung: [1.25, 1.12, 0.9] },
   /* 9  Sand       */ { name: 'Sand', schicht: 'gravel-path', toenung: [1.05, 1.0, 0.9] },
   /* 10 SwampMud   */ { name: 'SwampMud', schicht: 'moss', toenung: [0.62, 0.6, 0.52] },
-  /* 11 Moss       */ { name: 'Moss', schicht: 'moss', toenung: [1, 1, 1] },
+  // Die Hangkachel des Graslands (`HANG_TILE[Grass] = Moss`) — also die
+  // Farbe der 15°-bis-30°-Flanken, auf denen bei uns fast die halbe
+  // Insel liegt. Referenz: Bild 3, die grünen Moosstreifen am Hang
+  // (H 44, S 0,39); unsere lag bei H 65 mit S 0,35, also zu kühl.
+  // Die Luma bleibt (59,9 → 61,1).
+  /* 11 Moss       */ { name: 'Moss', schicht: 'moss', toenung: [1.317, 0.972, 1.0] },
   /* 12 Paved      */ { name: 'Paved', schicht: 'gravel-path', toenung: [1, 1, 1] },
   /* 13 SwampDark  */ { name: 'SwampDark', schicht: 'gravel', toenung: [0.75, 0.75, 0.68] },
   /* 14 Basalt     */ { name: 'Basalt', schicht: 'rock-rough', toenung: [0.55, 0.53, 0.52] },

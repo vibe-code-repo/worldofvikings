@@ -288,6 +288,52 @@ const BILD = {
 const quellFaktor = (mat) => mat?.pbrMetallicRoughness?.baseColorFactor ?? null;
 
 /**
+ * Rollen, deren Tönung den Store-Faktor SCHLÄGT — die einzige Ausnahme
+ * von der Regel darüber, und sie ist am Bild belegt.
+ *
+ * ── Warum es diese Ausnahme geben muss ───────────────────────────────
+ * Der Vorrang des Store-Faktors ist richtig, solange dieser Faktor aus
+ * dem Original-Material stammt und die Fläche danach so aussieht wie im
+ * Vorbild. Beim Wiesengras trifft das zweite nicht zu, und zwar
+ * messbar: `grass-short-clump-1` trägt [0.85, 1.0, 0.6]; damit steht
+ * unser Halm am Referenzort um 17 Uhr auf
+ *
+ *     sRGB 78,5 / 87,9 / 57,4   Luma 83,7   H 78°   S 0,39
+ *
+ * die Büschel des Originals (Referenzbild 1, Rechtecke in
+ * `design/look-referenz.md`) dagegen auf
+ *
+ *     sRGB 68,1 / 66,0 / 36,2   Luma 64,3   H 56°   S 0,47
+ *
+ * Unser Gras ist also zu hell, zu grün und zu blau — es liest sich als
+ * frisches Maigrün, wo das Vorbild ein gelbstichiges Sommergras zeigt.
+ * Ohne diese Ausnahme gäbe es keinen Regler dafür: Die Tönungskarte
+ * `grass_terrain_color` bleibt für Store-Büschel bewusst aus (zweimal
+ * grün ergibt Neon, siehe GrassClutter.ts), und die Instanzstreuung ist
+ * eine ±7-%-Schwankung um genau diesen Faktor, kein Ersatz für ihn.
+ *
+ * ── Die Rechnung ─────────────────────────────────────────────────────
+ * Der Halm ist eine alphagetestete Karte auf einem StandardMaterial,
+ * also Lambert: Der Faktor multipliziert das Bild linear. Auf sRGB
+ * gelesen ist die Korrektur deshalb
+ *
+ *     k = (Ziel / Ist) ^ 2.2  =  (0.731, 0.533, 0.363)
+ *
+ * und der neue Faktor das Produkt aus altem Faktor und Korrektur:
+ *
+ *     [0.85, 1.00, 0.60] × (0.731, 0.533, 0.363) = [0.622, 0.533, 0.218]
+ *
+ * Die Zahl steht in `TOENUNG_VORGABE.gras`, damit sie nur EINMAL im
+ * Werkzeug steht; diese Menge sagt bloss, dass sie gewinnt.
+ *
+ * NICHT drin: `grasGelb`, `grasBunt`, `grasSchnee`. Für sie gibt es
+ * kein Referenzbild — das Original zeigt in allen drei Aufnahmen
+ * Wiesen- und Hanggras, kein Trockengras und keinen Schnee. `grasGelb`
+ * bleibt damit die eine geschätzte Zeile, die sie schon war.
+ */
+const TOENUNG_VORRANG = new Set(['gras']);
+
+/**
  * Die Originalmaterialien aus den Spieldaten — die Herkunft der Zahlen
  * darunter.
  *
@@ -359,9 +405,9 @@ const TOENUNG_VORGABE = {
   // wird — und sie steht auf dem Original, nicht auf dem Nachbarwert.
   nadeln: UNITY_LAUB.pine1,
   ahorn: UNITY_LAUB.mapleLeaves1,
-  // Gras trägt seinen Store-Faktor selbst; die Vorgabe ist ebenfalls
-  // unerreicht und bleibt der bisherige Wert.
-  gras: [0.85, 1.0, 0.6, 1],
+  // Wiesengras. Steht in TOENUNG_VORRANG und schlägt damit den
+  // Store-Faktor [0.85, 1.0, 0.6] — die Begründung dort.
+  gras: [0.46, 0.22, 0.04, 1],
   // Herbstgras: Der `-yellow`-Atlas ist mit 0.415/0.444/0.376 fast grau
   // und trägt KEINEN Faktor — ohne Tönung ist er ein schmutziger Fleck.
   // Der einzige geschätzte Wert, der übrig ist: Für „Grass_Short_01 2"
@@ -1161,8 +1207,12 @@ for (const datei of dateien) {
     const altBild = bildDesMaterials(json, altMaterial);
     const uri = altBild ?? standardBild(eintrag.rolle);
     const ausStore = quellFaktor(altMaterial);
-    const toenung = ausStore ?? TOENUNG_VORGABE[eintrag.rolle] ?? null;
-    eintrag.toenungQuelle = ausStore ? 'Store' : toenung ? 'Vorgabe' : 'ohne';
+    // TOENUNG_VORRANG schlägt den Store-Faktor — siehe dort.
+    const vorrang = TOENUNG_VORRANG.has(eintrag.rolle)
+      ? (TOENUNG_VORGABE[eintrag.rolle] ?? null)
+      : null;
+    const toenung = vorrang ?? ausStore ?? TOENUNG_VORGABE[eintrag.rolle] ?? null;
+    eintrag.toenungQuelle = vorrang ? 'Vorrang' : ausStore ? 'Store' : toenung ? 'Vorgabe' : 'ohne';
     const schluessel = `${eintrag.rolle}|${uri}|${JSON.stringify(toenung)}`;
     if (!indexJeSchluessel.has(schluessel)) {
       indexJeSchluessel.set(schluessel, neueMaterialien.length);

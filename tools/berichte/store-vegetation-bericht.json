@@ -856,12 +856,12 @@
           "rolle": "gras",
           "herkunft": "Datei",
           "toenung": [
-            0.85,
-            1,
-            0.6,
+            0.46,
+            0.22,
+            0.04,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Vorrang"
         }
       ]
     },

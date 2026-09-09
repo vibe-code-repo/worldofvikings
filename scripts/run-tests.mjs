@@ -1066,6 +1066,30 @@ const KERN = [
   ['tools', 'test/terrain-schichten.ts', brauchtBodenQuellen()],
 
   /*
+    Feinabgleich (09.09.2026): die Regler, die am REFERENZBILD kalibriert
+    wurden — vier Bodentoenungen, die Toenung des Store-Grases und die
+    Halmhoehe. `tools/test/look-referenz.ts` haelt fest, dass keiner
+    davon lautlos zurueckrutscht:
+
+     * Eine Zeile auf [1, 1, 1] zurueckgesetzt ergibt genau den Zustand,
+       den die Sichtpruefung beanstandet hat (weisslicher Fels,
+       olivbrauner Wiesengrund) — ohne Fehlermeldung.
+     * Eine Toenung ueber 2 kann die Textur oben abschneiden; geprueft
+       wird der hellste Texel je Quelltextur gegen die Klemme bei 255.
+     * `TOENUNG_VORRANG` ist die einzige Stelle, an der die Grastoenung
+       den Store-Faktor schlaegt. Faellt sie weg, ist das Gras wieder
+       maigruen — und getoent ist es ja, es sieht also nach Absicht aus.
+     * Die Halmspitze liegt jetzt UEBER der halben Meter-Marke. Dass Gras
+       trotzdem keinen Schatten wirft, haengt an einer Namensregel in
+       Shadows.ts; der Test haelt beide Seiten gegeneinander.
+
+    Braucht `assets/store/textures` nur fuer die Klemmprobe; fehlt der
+    Ordner, ueberspringt er DIESEN EINEN Abschnitt und prueft den Rest
+    weiter. Deshalb keine Weiche.
+  */
+  ['tools', 'test/look-referenz.ts'],
+
+  /*
     Stufe 2 (Bauer „Licht"): das Wetter „Klar-Comic", der `look:`-Block und
     die Nebelkurve. Reine Rechnung — kein Browser, keine GPU, kein
     `assets/`, rund 0,3 s; er braucht deshalb keine Weiche fuer den

@@ -1327,15 +1327,32 @@ export class TerrainManager {
         positions[vi * 3 + 1] = h;
         positions[vi * 3 + 2] = wz;
 
-        // central-difference normal (1m grid), continued across zone borders
+        // Zentrale Differenz über die SCHRITTWEITE DIESES GITTERS, über
+        // Zonengrenzen hinweg fortgesetzt.
+        //
+        // Hier stand fest `rx ± 1`, also die Steigung des 1-m-Rasters —
+        // auch für die Fern-Chunks, deren Vertices 4 m auseinander
+        // liegen. Ein Fernvertex bekam damit die Normale EINES Punktes
+        // statt die des Dreiecks, das aus ihm gebaut wird: eine
+        // 1-m-Felskante wurde über 4 m gestreckt und schattierte eine
+        // Fläche, die es so gar nicht gibt. Gemessen am 09.09.2026 am
+        // Referenzort: von allen Bildpunkten über 56° Neigung stammten
+        // 100 % aus Fern-Chunks (Luma 92 gegen 55 nebenan) — der ferne
+        // Boden trug damit systematisch die steileren Kacheln und mehr
+        // Horizontlicht als derselbe Hügel in der Nähe. Das ist der
+        // Beitrag dieses Bauers zu den +9,6 Luma aus dem Prüferbericht.
+        //
+        // Mit `step` als Fühlerweite ist die Normale das Mittel über
+        // genau die Strecke, die der Fern-Chunk auch zeichnet. Für
+        // Nah-Chunks (step = 1) ändert sich kein Bit.
         const zvx = zx0 + dx;
         const zvy = zy0 + dz;
-        const hL = heightAcross(zvx, zvy, rx - 1, ry);
-        const hR = heightAcross(zvx, zvy, rx + 1, ry);
-        const hD = heightAcross(zvx, zvy, rx, ry - 1);
-        const hU = heightAcross(zvx, zvy, rx, ry + 1);
-        let nx = (hL - hR) / 2;
-        let nz = (hD - hU) / 2;
+        const hL = heightAcross(zvx, zvy, rx - step, ry);
+        const hR = heightAcross(zvx, zvy, rx + step, ry);
+        const hD = heightAcross(zvx, zvy, rx, ry - step);
+        const hU = heightAcross(zvx, zvy, rx, ry + step);
+        let nx = (hL - hR) / (2 * step);
+        let nz = (hD - hU) / (2 * step);
         const inv = 1 / Math.sqrt(nx * nx + 1 + nz * nz);
         nx *= inv; nz *= inv;
         const ny = inv;

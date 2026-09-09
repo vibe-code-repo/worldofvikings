@@ -1186,6 +1186,23 @@ const KERN = [
 ];
 
 const LANG = [
+  /*
+    Stufe 2 (Bauer „Licht"): das Wetter „Klar-Comic", der `look:`-Block und
+    die Nebelkurve. Reine Rechnung — kein Browser, keine GPU, kein
+    `assets/`, rund 0,3 s; er braucht deshalb keine Weiche fuer den
+    CI-Checkout.
+
+    Was er festhaelt, ist dreimal dieselbe Sorte Fehler: etwas, das
+    aussieht wie ein gesetzter Wert und keiner ist. Ein fehlendes
+    EnvSetup-Feld bekommt still den Wert von `Clear` untergeschoben; ein
+    Tippfehler im `look:`-Block kommt nie im Client an; und eine
+    Nebeldichte, die von exp2 nach exp uebernommen wird, aendert die
+    Sichtweite um Faktor 1,2, ohne dass irgendwo eine Zahl falsch aussaehe.
+
+    Stage 2 (lighting): the Klar-Comic weather, the look: block and the fog
+    curve. Pure arithmetic, ~0.3 s, no browser and no assets.
+  */
+  ['server', 'test/stufe2-licht.ts'],
   ['server', 'test/g3-streaming.ts'],
   ['server', 'test/g5-dungeons.ts'],
   ['server', 'test/f3-leveling.ts'],

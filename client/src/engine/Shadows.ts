@@ -67,6 +67,7 @@ import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
 import { huellkoerperAufweiten, zellMeshAusPrototyp } from '../entities/EntityManager';
+import { beiLook, look, type LookProfil } from './lookProfil';
 import {
   NEUPACK_ABSTAND,
   konservativerAuswahlRadius,
@@ -147,6 +148,40 @@ const HUNDERT_FPS_SCHATTEN: ShadowLevel = { kaskaden: 2, distanz: 80, aufloesung
 export function schattenKonfiguration(stufe: number, hundertFpsProfil: boolean): ShadowLevel | null {
   if (hundertFpsProfil && stufe === 1) return HUNDERT_FPS_SCHATTEN;
   return SHADOW_LEVELS[stufe] ?? null;
+}
+
+/**
+ * Look-Profil ueber eine Qualitaetsstufe legen — reine Rechnung.
+ *
+ * Die beiden Groessen werden UNTERSCHIEDLICH behandelt, und das ist der
+ * eigentliche Inhalt dieser Funktion:
+ *
+ *  · `reichweite` ERSETZT die Distanz der Stufe. Sie ist eine
+ *    Look-Entscheidung: Das Vorbild hat 40 m mit zwei Kaskaden
+ *    (QualitySettings HighFidelity), das Schwesterprojekt 120 m. Wer sie
+ *    in server.yml eintraegt, will sie sehen, auch wenn sie laenger ist
+ *    als die Stufe vorsah — ein stiller Deckel waere ein Regler, der bei
+ *    der Haelfte der Werte nichts tut.
+ *  · `aufloesung` ist eine OBERGRENZE. Sie ist keine Look-Groesse,
+ *    sondern ein Hardwarepreis, den der Spieler mit der Stufe gewaehlt
+ *    hat: Auf "Niedrig" 512 auf 2048 hochzudrehen ist genau die Sorte
+ *    Uebergriff, gegen die es die Stufe gibt. Gemessen auf dieser Insel
+ *    kostet ein Sprung von 1024 auf 4096 rund 36 ms je Bild (s.
+ *    SHADOW_LEVELS).
+ *
+ * Applying the look profile to a quality level: range REPLACES, resolution
+ * is an upper bound the level may undercut.
+ */
+export function schattenMitLook(
+  cfg: ShadowLevel | null,
+  profil: { aufloesung: number; reichweite: number }
+): ShadowLevel | null {
+  if (!cfg) return null;
+  return {
+    kaskaden: cfg.kaskaden,
+    distanz: profil.reichweite,
+    aufloesung: Math.min(cfg.aufloesung, profil.aufloesung),
+  };
 }
 
 /**
@@ -283,6 +318,9 @@ interface VegetationsSchattenMaster {
 
 export class Shadows {
   private generator: CascadedShadowGenerator | null = null;
+  /** Das geltende Look-Profil (vor dem Anmelden die Vorgabe). */
+  private profil: LookProfil = look();
+  private loeseLook: (() => void) | null = null;
   private stufe = 0;
   private hundertFpsProfil = false;
   private fern = true;
@@ -333,10 +371,53 @@ export class Shadows {
     scene.onNewMeshAddedObservable.add((m) => {
       if (this.generator) this.nimmAuf(m);
     });
+
+    /*
+      Das Look-Profil trifft ERST BEIM ANMELDEN ein, der Generator steht
+      da laengst. `mapSize` laesst sich nachtraeglich nicht aendern
+      (s. setLevel), deshalb wird neu aufgebaut statt umkonfiguriert —
+      genau das tut `setLevel` ohnehin, es muss nur dazu ueberredet
+      werden, die Gleichheitspruefung am Anfang nicht zu nehmen.
+      The profile only arrives on login; rebuild rather than reconfigure.
+    */
+    this.loeseLook = beiLook((profil) => {
+      this.profil = profil;
+      if (!this.generator) return;
+      const stufe = this.stufe;
+      this.stufe = -1;
+      this.setLevel(stufe);
+    });
   }
 
   private konfiguration(stufe = this.stufe): ShadowLevel | null {
-    return schattenKonfiguration(stufe, this.hundertFpsProfil);
+    return schattenMitLook(
+      schattenKonfiguration(stufe, this.hundertFpsProfil),
+      this.profil.schatten
+    );
+  }
+
+  /**
+   * Nur zum Messen: was am Generator tatsaechlich anliegt.
+   *
+   * Am MODUL abgefragt und nicht am Bild — ob `stabilizeCascades` greift,
+   * sieht man einem Standbild nicht an, und ein Schalter ohne Zeugen ist
+   * ein Schalter, von dem man nie erfaehrt, dass er wirkungslos war.
+   * For measuring only: what the generator actually carries.
+   */
+  messwerte(): Record<string, unknown> | null {
+    const g = this.generator;
+    if (!g) return { generator: null, stufe: this.stufe };
+    return {
+      stufe: this.stufe,
+      kaskaden: g.numCascades,
+      reichweite: g.shadowMaxZ,
+      aufloesung: g.mapSize,
+      gerastet: g.stabilizeCascades,
+      dunkelheit: +g.darkness.toFixed(3),
+      lambda: +g.lambda.toFixed(3),
+      pcf: g.usePercentageCloserFiltering,
+      werfer: g.getShadowMap()?.renderList?.length ?? 0,
+    };
   }
 
   /** Profil-spezifische Texeldichte und Kaskadenstabilisierung umschalten. */
@@ -921,7 +1002,32 @@ export class Shadows {
     // schweren Insel: dunkle Pixeleinbrueche -28 %, bewegte Pixel -20..24 %,
     // GPU +0,6 ms bei weiter 107..109 FPS. Die normalen Stufen bleiben auf
     // `false`, damit ihr zuvor gemessener Stand unveraendert bleibt.
-    g.stabilizeCascades = this.hundertFpsProfil && i === 1;
+    /*
+      ── Rastern statt nachbauen (Look-Profil, `schatten.rasten`) ───────
+
+      Hier stand `this.hundertFpsProfil && i === 1`, also: nur im
+      100-FPS-Profil. Die Messung von E15 dagegen (Kriseln des
+      Bodenschattens unter wandernder Sonne, 2,29 % gerastet gegen
+      2,04 % frei) bleibt gueltig — sie hat nur eine ANDERE Frage
+      beantwortet als die, die der Look stellt.
+
+      Der Look stellt diese: Das Schwesterprojekt fuehrt ein einzelnes
+      2048er-Ortho-Fenster, das der Kamera folgt und dabei auf das
+      Texelraster gerastet wird (ADR-0039). Ohne diese Rasterung KRIECHT
+      jede Schattenkante beim Gehen — nicht beim Sonnenlauf, beim GEHEN,
+      und ein Spieler geht die ganze Zeit. Babylon hat die Rasterung
+      eingebaut; sie nachzubauen waere Arbeit fuer ein schlechteres
+      Ergebnis.
+
+      Der Preis steht in E15 und wird bezahlt: ein Drittel der beim
+      Sonnenkriseln erreichbaren Verbesserung. Der Gewinn — E25 hat ihn
+      auf derselben Insel gemessen — sind 28 % weniger dunkle
+      Pixeleinbrueche und 20 bis 24 % weniger bewegte Pixel bei +0,6 ms.
+
+      Babylon has the texel snapping built in; ADR-0039 rebuilds it by
+      hand. Switch it on rather than reproducing it.
+    */
+    g.stabilizeCascades = this.profil.schatten.rasten;
     // Der Profilpfad hat nur zwei Kaskaden; sein einzelner Uebergang ist
     // dadurch breiter im Bild und fiel beim Kameraschwenk als Flackern auf.
     // Babylons Standard 0,1 mischt nur auf den letzten zehn Prozent einer
@@ -989,6 +1095,24 @@ export class Shadows {
     // kostet gut die doppelte Zahl Abtastungen.
     g.usePercentageCloserFiltering = true;
     g.filteringQuality = CascadedShadowGenerator.QUALITY_MEDIUM;
+    /*
+      ── Wie dunkel ein Schatten ist ───────────────────────────────────
+
+      Babylons `darkness` ist der ANTEIL LICHT, der im Schatten
+      uebrigbleibt: 0 = stockschwarz (Babylons Vorgabe, und das stand
+      hier bisher unausgesprochen), 1 = gar kein Schatten. Das Profil des
+      Schwesterprojekts nennt 0,42, und das ist in dieser Bedeutung ein
+      vergleichsweise HELLER Schatten — genau die Richtung, in die dieses
+      Bild muss: Die Vorher-Messung am Referenzort liegt bei Luma 36,5 im
+      nahen Boden, das Zielbild bei 55.
+
+      Ein flacher Schatten ist zugleich Teil der Comic-Handschrift: Er
+      trennt Formen, ohne Zeichnung in den Ritzen zu loeschen.
+
+      Babylon's `darkness` is the fraction of light LEFT in shadow, so
+      0.42 is a comparatively light shadow — the direction this image needs.
+    */
+    g.darkness = this.profil.schatten.dunkelheit;
     // Selbstverschattung ("shadow acne") an flachen Böschungen vermeiden.
     g.bias = 0.005;
     g.normalBias = 0.02;
@@ -1074,6 +1198,8 @@ export class Shadows {
   }
 
   dispose(): void {
+    this.loeseLook?.();
+    this.loeseLook = null;
     this.abbauen();
     for (const stand of this.vegetationsSchatten.values()) stand.schatten.dispose();
     this.vegetationsSchatten.clear();

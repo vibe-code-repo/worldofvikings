@@ -50,6 +50,7 @@ import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { Color3, Vector3 } from '@babylonjs/core/Maths/math';
 import type { Scene } from '@babylonjs/core/scene';
 import type { EnvState } from '@wov/shared';
+import { beiLook, hexLinear, HORIZONT_AUS_NEBEL, look, type LookProfil } from './lookProfil';
 
 const SHADER_NAME = 'valheimSky';
 
@@ -95,7 +96,7 @@ const GOLDENER_WINKEL = Math.PI * (3 - Math.sqrt(5));
  * Lichtausbreitungsrichtung.
  */
 export const SKY_GRADIENT_GLSL = /* glsl */ `
-vec3 vhSkyGradient(vec3 dir, vec3 horizon, vec3 zenith, vec3 sunGlow, vec3 toSun, float night) {
+vec3 vhSkyGradient(vec3 dir, vec3 horizon, vec3 zenith, vec3 sunGlow, vec3 toSun, float night, float glutBreite) {
   // Zum Horizont hin gestaucht, damit der Himmel dort als "dicke Luft"
   // liest. Exponentiell statt pow(up, 0.45): pow hat bei up=0 eine
   // UNENDLICHE Steigung und setzt damit eine sichtbar harte Kante genau
@@ -105,8 +106,30 @@ vec3 vhSkyGradient(vec3 dir, vec3 horizon, vec3 zenith, vec3 sunGlow, vec3 toSun
   float t = 1.0 - exp(-3.2 * max(clamp(dir.y, -1.0, 1.0), 0.0));
   vec3 col = mix(horizon, zenith, t);
   // Breiter Glow: hält die Abendwärme über den Himmel verteilt.
+  //
+  // Die Schärfe kommt aus 'look.himmel.sonnenglühen' und folgt der
+  // Abbildung des Schwesterprojekts (sky-shader.ts): 0 = harte kleine
+  // Scheibe (Exponent 220), 1 = über den halben Himmel (Exponent 3).
+  // Der Profilwert 0,2 landet bei 176 — deutlich enger als die 8,0, die
+  // hier fest standen. Das ist gewollt: Die alte 8,0 kam aus einer Zeit,
+  // in der der Glow die ZWEITE Nebelfarbe trug und den halben Himmel
+  // wärmen musste. Er trägt jetzt die Sonnenfarbe, und die gehört um die
+  // Sonne herum, nicht über den ganzen Himmel.
+  // Sharpness follows the sister project's mapping: 0 = hard disc, 1 = wide.
+  float schaerfe = mix(220.0, 3.0, clamp(glutBreite, 0.0, 1.0));
   float sunDot = dot(dir, toSun);
-  return mix(col, sunGlow, pow(max(sunDot, 0.0), 8.0) * 0.55 * (1.0 - night));
+  return mix(col, sunGlow, pow(max(sunDot, 0.0), schaerfe) * 0.55 * (1.0 - night));
+}
+
+// Die alte Signatur mit SECHS Argumenten bleibt — 'WaterPlugin.ts' ruft
+// sie so, und das Wasser gehört einem anderen Bauer. 0.977 ist nicht
+// gegriffen, sondern die Umkehrung: mix(220,3,x) = 8 hat die Lösung
+// x = (220−8)/217 = 0.9770, also exakt der Exponent, der vorher fest
+// hier stand. Das Wasser sieht dadurch aus wie zuvor.
+// The six-argument signature stays for WaterPlugin; 0.977 inverts
+// mix(220,3,x) = 8, i.e. exactly the exponent that used to be hard-coded.
+vec3 vhSkyGradient(vec3 dir, vec3 horizon, vec3 zenith, vec3 sunGlow, vec3 toSun, float night) {
+  return vhSkyGradient(dir, horizon, zenith, sunGlow, toSun, night, 0.977);
 }
 `;
 
@@ -133,6 +156,7 @@ uniform vec3 uSunColor;    // = EnvState.sunColor
 uniform vec3 uSunDir;      // TRUE sun direction, y<0 after sunset
 uniform float uNight;      // 0 = full day, 1 = full night
 uniform float uCloud;      // coverage 0..1 (EnvSetup.rainCloudAlpha)
+uniform float uGlutBreite; // look.himmel.sonnenglühen, 0..1
 uniform float uTime;       // seconds, drives cloud drift
 
 ${SKY_GRADIENT_GLSL}
@@ -193,7 +217,7 @@ void main(void) {
   // plausibel aus, brach aber genau diese Eigenschaft (Nebel-Übereinstimmung
   // ging von 0.002 auf 0.155) — deshalb fehlt er bewusst.
   vec3 toSun = normalize(uSunDir);
-  vec3 col = vhSkyGradient(dir, uHorizon, uZenith, uSunGlow, toSun, uNight);
+  vec3 col = vhSkyGradient(dir, uHorizon, uZenith, uSunGlow, toSun, uNight, uGlutBreite);
 
   // ── sun / moon ──────────────────────────────────────────────────
   float sunDot = dot(dir, toSun);
@@ -321,6 +345,17 @@ export class ValheimSky {
   private readonly sonnenFarbe = new Color3();
   private readonly sonnenRichtung = new Vector3(0, 1, 0);
 
+  /**
+   * Zenit und Horizont aus `look.himmel`, bereits in LINEAR — einmal
+   * umgerechnet und danach nur noch gelesen. `update()` läuft in jedem
+   * Bild, eine Hex-Umrechnung pro Frame wäre Müll ohne Gegenwert.
+   */
+  private readonly profilZenit = new Color3();
+  private readonly profilHorizont = new Color3();
+  /** Ob `look.himmel.horizont` eine Farbe nennt oder dem Nebel folgt. */
+  private horizontAusNebel = true;
+  private glutBreite = 0.2;
+
   constructor(scene: Scene, radius = 3000) {
     registerShader();
 
@@ -340,6 +375,7 @@ export class ValheimSky {
           'uNight',
           'uCloud',
           'uTime',
+          'uGlutBreite',
         ],
         // Der Quelltext oben liegt im GLSL-Store. Ohne die explizite Sprache
         // sucht ShaderMaterial unter WebGPU nach einer WGSL-Datei namens
@@ -394,6 +430,43 @@ export class ValheimSky {
     // (nachgemessen: Mittelwert der +Y-Fläche exakt 0,0,0).
     // WaterRefraction.ts macht dasselbe für seinen Szenenpass.
     scene.customRenderTargets.push(this.probe.cubeTexture);
+
+    this.uebernimmLook(look());
+    beiLook((profil) => this.uebernimmLook(profil));
+  }
+
+  /** Zenit, Horizont und Glühbreite aus dem Look-Profil übernehmen. */
+  private uebernimmLook(profil: LookProfil): void {
+    hexLinear(profil.himmel.zenit, this.profilZenit);
+    this.horizontAusNebel = profil.himmel.horizont.trim() === HORIZONT_AUS_NEBEL;
+    if (!this.horizontAusNebel) hexLinear(profil.himmel.horizont, this.profilHorizont);
+    this.glutBreite = profil.himmel['sonnenglühen'];
+  }
+
+  /**
+   * Die beiden Farben, aus denen der Verlauf entsteht — in LINEAR, wie sie
+   * im Shader stehen.
+   *
+   * Für Bauer „Boden": Der Splat braucht einen HIMMELSTERM für Schichten
+   * mit Metallic 0,5–0,95, sonst wird Fels schwarz (`groundReflection` im
+   * Schwesterprojekt, Analyse §4). Bis diese Auskunft existierte, blieb
+   * dort nur `scene.fogColor` — das ist der HORIZONT und sagt nichts
+   * darüber, was senkrecht über der Fläche steht.
+   *
+   * KOPIEN, keine Referenzen: `update()` beschreibt `reflectState` in
+   * place, ein durchgereichter Zeiger änderte sich dem Empfänger unter
+   * den Händen. Wer pro Frame fragt, gibt ein Ziel mit.
+   * For Bauer "Boden": the two gradient colours in LINEAR. Copies, not
+   * references — `update()` writes reflectState in place.
+   */
+  gibHimmelsfarben(zielZenit = new Color3(), zielHorizont = new Color3()): {
+    zenit: Color3;
+    horizont: Color3;
+  } {
+    return {
+      zenit: zielZenit.copyFrom(this.reflectState.zenith),
+      horizont: zielHorizont.copyFrom(this.reflectState.horizon),
+    };
   }
 
   /**
@@ -413,9 +486,23 @@ export class ValheimSky {
     //
     // Geschrieben wird gleich in `reflectState` — das ist derselbe Wert,
     // der auch in die Uniforms geht, und genau dafür ist es gedacht.
+    const night = 1 - Math.min(1, Math.max(0, (state.elevation + 0.25) / 0.45));
+
     const horizon = this.reflectState.horizon;
     horizon.set(state.fogColor.r, state.fogColor.g, state.fogColor.b);
     horizon.toLinearSpaceToRef(horizon);
+    /*
+      ── Horizont = Nebelfarbe, ausser das Profil sagt etwas anderes ────
+
+      Die Vorgabe (`look.himmel.horizont: nebel`) laesst es beim
+      Nebelwert, und das ist keine Faulheit: Die untere Halbkugel der
+      Kuppel liegt exakt auf dieser Farbe (s. Kommentar am Fragment), und
+      genau dadurch gibt es am Meereshorizont keine Naht zu verstecken.
+      Wer eine feste Farbe eintraegt, bekommt sie — aber ZUM TAG HIN
+      eingeblendet. Nachts stuende sie sonst unveraendert hell ueber
+      einer dunklen Welt, waehrend der Nebel laengst schwarz ist.
+    */
+    if (!this.horizontAusNebel) Color3.LerpToRef(this.profilHorizont, horizon, night, horizon);
     // Zenith: a deeper, slightly bluer version of the horizon. Derived
     // rather than authored so any EnvSetup — including ones only the dump
     // tool knows about — gets a sane sky without extra data.
@@ -426,11 +513,34 @@ export class ValheimSky {
     // Zehnerpotenz kleiner sind als die Gamma-Werte vorher.
     const zenith = this.reflectState.zenith;
     zenith.set(horizon.r * 0.45, horizon.g * 0.55, Math.min(1, horizon.b * 0.8 + 0.001));
+    /*
+      ── Zenit aus dem Profil, zur NACHT hin auf den abgeleiteten Wert ──
 
-    const night = 1 - Math.min(1, Math.max(0, (state.elevation + 0.25) / 0.45));
+      Der abgeleitete Zenit oben bleibt stehen und ist der Nachtwert. Ein
+      fest gesetztes #17478f haette den Mitternachtshimmel auf einem
+      kraeftigen Blau eingefroren, waehrend Nebel und Boden schwarz
+      werden — dieselbe Sorte Fehler wie ein fester Ambient-Abzug in der
+      Nacht (Lighting.ts, Messung vom 16.08.2026).
+    */
+    Color3.LerpToRef(this.profilZenit, zenith, night, zenith);
 
+    /*
+      ── Der Schein traegt die SONNENFARBE, nicht die zweite Nebelfarbe ─
+
+      Hier stand `state.fogColorSun`. Das trug, solange jedes Wetter zwei
+      verschiedene Nebelfarben hatte. `Klar-Comic` hat sie absichtlich
+      NICHT (eine kuehle Dunstfarbe, Waerme aus Himmel und Strahlen) —
+      damit waeren `sunGlow` und `horizon` identisch und der ganze
+      Glow-Term ein Nullbetrag: ein Himmel ohne Sonne, an einem Profil,
+      das ein Abend ist.
+      Die Sonnenfarbe kommt aus DENSELBEN vier Keyframes, das Argument
+      des alten Kommentars gilt also unveraendert weiter.
+
+      The glow carries the sun colour, not the second fog colour: with a
+      single cool haze colour the old term would be a no-op.
+    */
     const sunGlow = this.reflectState.sunGlow;
-    sunGlow.set(state.fogColorSun.r, state.fogColorSun.g, state.fogColorSun.b);
+    sunGlow.set(state.sunColor.r, state.sunColor.g, state.sunColor.b);
     sunGlow.toLinearSpaceToRef(sunGlow);
     const sunColor = this.sonnenFarbe;
     sunColor.set(state.sunColor.r, state.sunColor.g, state.sunColor.b);
@@ -453,6 +563,7 @@ export class ValheimSky {
     this.material.setVector3('uSunDir', this.sonnenRichtung);
     this.material.setFloat('uNight', night);
     this.material.setFloat('uCloud', state.cloudAlpha);
+    this.material.setFloat('uGlutBreite', this.glutBreite);
     this.material.setFloat('uTime', this.time);
 
     // Umgebungslicht nachziehen — aber nicht mit 60 Hz, siehe dort.

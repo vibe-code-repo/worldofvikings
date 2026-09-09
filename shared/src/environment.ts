@@ -189,6 +189,16 @@ export const ENV_SNOW = 'Snow';
 export const ENV_DARKLANDS = 'Darklands_dark';
 export const ENV_ASH_RAIN = 'Ashrain';
 export const ENV_MISTLANDS = 'Mistlands_dark';
+/**
+ * Das Look-Wetter der Stufe 2 — handgestimmt, kein Vanilla-Name.
+ *
+ * Der Bindestrich ist Absicht: Er trennt es sichtbar von den 39 Namen,
+ * die `tools/dump-envsetup.mjs` aus einem Asset-Export schreibt. Wer in
+ * envData.json nach ihm sucht, findet ihn nicht, und das ist richtig so
+ * — die Herleitung steht am Datensatz unten.
+ * The stage-2 look weather — hand-tuned, deliberately not a vanilla name.
+ */
+export const ENV_KLAR_COMIC = 'Klar-Comic';
 
 /**
  * Weather table. Structure + timing verified; colours approximate the
@@ -438,6 +448,112 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
     alwaysDark: false,
     rainCloudAlpha: 0.4,
   },
+  {
+    // ── Klar-Comic ────────────────────────────────────────────────────
+    // Das am Bild kalibrierte Look-Wetter der Stufe 2. Kein Vanilla-Wetter
+    // und ausdrücklich keins: Es steht hier, weil es HANDGESTIMMT ist, und
+    // die handgestimmte Tabelle ist genau dieser Ort. In envData.json
+    // gehört es NICHT — die Datei schreibt `tools/dump-envsetup.mjs` aus
+    // einem Asset-Export neu, ein Eintrag dort wäre beim nächsten Lauf weg.
+    //
+    // Das Profil ist ein ABEND (Sonnenrichtung [0.58,−0.45,0.68] des
+    // Schwesterprojekts, Elevation 27°), nicht ein Tagesmittel. Getroffen
+    // wird es bei Tagesbruchteil 0,7083 (= 17 h): `phaseWeights` liefert
+    // dort Tag 0,408 und Abend 0,604, und `elevationFactor` × sunAngle 46
+    // ergibt 26,8° — die 27° des Vorbilds auf eine Zehntelstunde genau.
+    //
+    // ⚠ NICHT bei 18 h messen. Bei Tagesbruchteil 0,75 sind Tag- UND
+    // Nachtgewicht exakt null (der Tagbogen endet bei 0,75, der Nachtbogen
+    // beginnt dort), und `lightIntensity` zieht ausschliesslich aus diesen
+    // beiden. Am Modul gemessen: sunColor (0,0,0), Intensität 0,000. Das
+    // ist keine Eigenheit dieses Wetters, sondern der Dämmerungs-Nullpunkt
+    // des Keyframe-Modells — er trifft jedes Wetter gleich.
+    //
+    // Herleitung der Abend-Werte aus dem `lighting`-Block von
+    // village1.json (Stand main a81cee3). Gesucht ist nicht der
+    // KEYFRAME-Wert, sondern die gewichtete Summe bei 17 h:
+    //
+    //   Sonne   0,408·Tag + 0,604·Abend = (1.012, 0.899, 0.766)
+    //           Ziel #ffe4c6            = (1.000, 0.894, 0.776)
+    //   Nebel   0,408·Tag + 0,604·Abend = (0.640, 0.690, 0.751)
+    //           Ziel #a3afbd            = (0.639, 0.686, 0.741)
+    //   Dichte  0,408·0,0009 + 0,604·0,0012 = 0,00109  (Ziel exp 0,0011)
+    //
+    // Die Farben stehen als SRGB, wie jede EnvColor in dieser Datei —
+    // `Lighting.inLinear()` wandelt sie. Wer die Hex-Werte aus
+    // village1.json vorlinearisiert einträgt, linearisiert doppelt: zu
+    // dunkel und zu satt (Analyse §4, „Gamma-Fallen").
+    //
+    // NEBELDICHTEN sind neu gerechnet und nicht aus `Clear` übernommen:
+    // Dieses Wetter läuft auf der exp-Kurve, `Clear` auf exp2. Bei 0,0011
+    // liegt die halbe Sichtbarkeit auf 630 m (`sichtweite()` in
+    // shared/src/lookProfil.ts) — dieselbe Sicht wie exp 0,0005 mit der
+    // 2,2-Potenz, die der Boden des Schwesterprojekts anwendet und dieser
+    // Client nirgends.
+    //
+    // fogColorSun* == fogColor* IN DEN DATEN. Der neue Look hat EINE kühle
+    // Dunstfarbe und holt die Wärme aus Himmelsglühen und Strahlen. Das
+    // Plugin für den gerichteten Nebel bleibt verdrahtet und wirkt hier
+    // neutral; wer die alte Handschrift will, dreht `look.nebelWaerme`
+    // hoch — das mischt zur Sonnenfarbe hin, ohne diese Daten anzufassen.
+    //
+    // Morgen und Nacht sind aus `Clear` übernommen (Analyse §4): Der Look
+    // beschreibt einen Abend, und eine erfundene Nacht wäre eine dritte
+    // Wahrheit ohne Zielbild.
+    //
+    // Klar-Comic: the image-calibrated look weather of stage 2. Hand-tuned,
+    // therefore in this table and not in envData.json (which the dump tool
+    // rewrites). The profile is an EVENING, met at day fraction 0.7083
+    // (17 h). Do NOT measure at 18 h — day and night weights are both
+    // exactly zero there and the sun goes black.
+    name: ENV_KLAR_COMIC,
+    fogColorMorning: c(0.3, 0.31, 0.34),
+    fogColorDay: c(0.68, 0.73, 0.79),
+    fogColorEvening: c(0.6, 0.65, 0.71),
+    fogColorNight: c(0.145, 0.15, 0.169),
+    fogColorSunMorning: c(0.3, 0.31, 0.34),
+    fogColorSunDay: c(0.68, 0.73, 0.79),
+    fogColorSunEvening: c(0.6, 0.65, 0.71),
+    fogColorSunNight: c(0.145, 0.15, 0.169),
+    fogDensityMorning: 0.0016,
+    fogDensityDay: 0.0009,
+    fogDensityEvening: 0.0012,
+    fogDensityNight: 0.0025,
+    sunColorMorning: c(1.0, 0.75, 0.55),
+    sunColorDay: c(1.0, 0.96, 0.9),
+    sunColorEvening: c(1.0, 0.84, 0.66),
+    sunColorNight: c(0.364, 0.384, 0.486),
+    ambColorDay: c(0.86, 0.95, 1.0),
+    ambColorNight: c(0.357, 0.368, 0.485),
+    /*
+      1,55 und nicht die 3,0 des Schwesterprojekts — die beiden Zahlen
+      sind nicht vergleichbar, weil die Formeln es nicht sind.
+
+      Dieser Client INTERPOLIERT zwischen Nacht- und Tagstärke
+      (`evaluateEnv`, s. dort, warum nicht mehr summiert wird). Die
+      Nachtstärke ist damit der SOCKEL der ganzen Kurve, nicht ein
+      Summand: Bei 17 h (Taggewicht 0,408) liegen
+      `1,0 + (1,55 − 1,0) · 0,408 = 1,224` an. Genau dieser Wert ist am
+      Bild kalibriert worden (Regionsmessung am Referenzort, s.
+      LOOK_VORGABE); mit 3,0 lägen dort 1,82 an, also 48 % zu viel.
+
+      `lightIntensityNight: 1.0` ist aus `Clear` übernommen und sieht nur
+      hell aus: In diesem Datenmodell steckt die Dunkelheit der Nacht in
+      der FARBE (`sunColorNight` ist ein dunkles Blau), nicht in der
+      Stärke. Wer die Nacht hier dunkler machen will, dreht an der Farbe.
+
+      1.55, not the sister project's 3.0: this client interpolates from
+      the night intensity, so that value is the floor of the curve rather
+      than a summand. 17 h lands at 1.224, the calibrated figure.
+    */
+    lightIntensityDay: 1.55,
+    lightIntensityNight: 1.0,
+    // 26,8° bei 17 h — s. Herleitung oben. 45 (wie `Clear`) gäbe 26,2°;
+    // 46 trifft die 27° des Profils näher, ohne den Mittagsstand zu kippen.
+    sunAngle: 46,
+    alwaysDark: false,
+    rainCloudAlpha: 0.06,
+  },
 ];
 
 /**
@@ -679,8 +795,32 @@ function weighByPhase(
   env: EnvSetup,
   prefix: 'fogColor' | 'fogColorSun' | 'sunColor',
   w: PhaseWeights,
-  /** Morgen/Abend/Tag zählen im Original nur mit, wenn dayInt > 0 ist —
-   *  siehe `if (dayInt > 0f)` in EnvMan.cs:686 und 699. */
+  /**
+   * Ob die TAGSEITIGEN Keyframes (Tag, Morgen, Abend) mitzählen.
+   *
+   * ── Hier stand `w.day > 0`, und das war der schwarze Sonnenaufgang ──
+   * Die Begründung lautete „siehe `if (dayInt > 0f)` in EnvMan.cs:686
+   * und 699", und der Port war wörtlich richtig. Er hat nur eine Sorte
+   * Augenblick übersehen: Bei Tagesbruchteil 0,25 und 0,75 — also
+   * PUNKT 6 und 18 Uhr — sind Tag- UND Nachtgewicht exakt null, während
+   * der Morgen- bzw. Abend-Keyframe mit 0,5 voll dasteht. Das Tor warf
+   * damit die einzige Farbe weg, die es an diesem Punkt gab, und die
+   * Sonne wurde schwarz (gemessen: sunColor (0,0,0) bei 6 h und 18 h,
+   * Bauer „Gras", 09.09.2026).
+   *
+   * Gefragt wird deshalb nach dem GESAMTEN tagseitigen Gewicht. Am
+   * Zweck ändert das nichts — tief in der Nacht sind Morgen und Abend
+   * ohnehin null, das Tor schliesst also weiterhin dort, wo es soll.
+   *
+   * Was es NICHT ist: eine Glättung. Die Formel bleibt dieselbe
+   * gewichtete Summe; nur wird sie nicht mehr an zwei Zeitpunkten pro
+   * Zyklus komplett abgeschaltet.
+   *
+   * The gate used to ask `w.day > 0`. At day fractions 0.25 and 0.75 both
+   * day and night weight are exactly zero while morning/evening carry
+   * 0.5 — the gate threw away the only colour there and the sun went
+   * black. It now asks for the whole day-side weight.
+   */
   dayGated: boolean
 ): EnvColor {
   const k = (suffix: string): EnvColor =>
@@ -688,7 +828,7 @@ function weighByPhase(
   let r = k('Night').r * w.night;
   let g = k('Night').g * w.night;
   let b = k('Night').b * w.night;
-  if (!dayGated || w.day > 0) {
+  if (!dayGated || w.day + w.morning + w.evening > 0) {
     for (const [suffix, weight] of [
       ['Day', w.day],
       ['Morning', w.morning],
@@ -745,7 +885,38 @@ export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
     sunColor: weighByPhase(env, 'sunColor', w, true),
     // EnvMan.cs:711 — RenderSettings.ambientLight = Lerp(night, day, dayInt).
     ambColor: lerpColor(env.ambColorNight, env.ambColorDay, w.day),
-    lightIntensity: env.lightIntensityDay * w.day + env.lightIntensityNight * w.night,
+    /*
+      ── Die Sonnenstärke wird INTERPOLIERT, nicht aufsummiert ─────────
+
+      Hier stand `Id · w.day + In · w.night`. An den beiden Vierteln des
+      Tages (Bruchteil 0,25 und 0,75 = 6 und 18 Uhr) sind BEIDE Gewichte
+      exakt null — der Tagbogen endet dort, der Nachtbogen beginnt dort —
+      und die Summe war damit zweimal je Zyklus 0,000. Die Szene wurde
+      nachtschwarz, obwohl der Morgen- bzw. Abend-Keyframe mit 0,5
+      danebenstand (gemessen über 24 h in Viertelstunden, Bauer „Gras",
+      09.09.2026; die Reihe steht im Test `stufe2-licht.ts`).
+
+      Die Zeile darunter — das Umgebungslicht — machte es die ganze Zeit
+      richtig: `Lerp(night, day, dayInt)`, mit EnvMan.cs:711 als Beleg.
+      Diese hier war die einzige Stelle, an der zwei Phasengewichte
+      ADDIERT wurden, und zwei Gewichte zu addieren, die gleichzeitig
+      durch null gehen, ergibt null.
+
+      An den Enden ändert sich dadurch NICHTS: Um Mitternacht ist
+      `w.day = 0` und die Interpolation liefert `In`, mittags ist
+      `w.day = 1` und sie liefert `Id` — beides genau wie vorher. Anders
+      wird es nur in den Übergängen, und zwar so, wie das Datenmodell es
+      meint: Die Dunkelheit der Nacht steckt in der FARBE
+      (`sunColorNight` ist dunkelblau), nicht in der Stärke. Die alte
+      Summe hat den Übergang deshalb doppelt gedämpft — einmal über die
+      Farbe, einmal über die Stärke — und an den zwei Nullpunkten mit
+      null multipliziert.
+
+      Interpolated, not summed: at day fractions 0.25 and 0.75 both
+      weights are exactly zero and the sum went black twice per cycle.
+      The ambient line below always did it this way (EnvMan Lerp).
+    */
+    lightIntensity: lerp(env.lightIntensityNight, env.lightIntensityDay, w.day),
     cloudAlpha: env.rainCloudAlpha,
     // Light travels from the sky towards the ground → negate. |height|
     // keeps the MOON overhead at night (there is one main light that

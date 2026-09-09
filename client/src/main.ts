@@ -77,6 +77,7 @@ import { Lighting } from './engine/Lighting';
 import { installiereStandardGammaFix } from './engine/StandardGammaFix';
 import { installierePbrNebelFix } from './engine/PbrNebelFix';
 import { installiereNebelRichtung } from './engine/NebelRichtung';
+import { setzeLook } from './engine/lookProfil';
 import {
   installiereFackelLicht,
   fackelNotbremse,
@@ -1892,6 +1893,24 @@ async function main() {
     socket.on(PacketType.WeltWetter, (reader) => {
       const umgebung = reader.readString();
       const dichte = reader.readFloat32();
+      // Der `look:`-Block haengt HINTEN dran (s. WovServer). `remaining`
+      // gefragt und nicht blind gelesen: Ein Server ohne den Block
+      // schickt das Feld nicht, und ein Lesefehler hier kostete die
+      // ganze Wettervorgabe.
+      if (reader.remaining > 0) {
+        try {
+          const roh: unknown = JSON.parse(reader.readString());
+          const profil = setzeLook(roh);
+          console.log(
+            `[look] ${profil.tonemapping} bel ${profil.belichtung} kon ${profil.kontrast} ` +
+              `saett ${profil.saettigung} nebel ${profil.nebelmodus} ` +
+              `schatten ${profil.schatten.aufloesung}/${profil.schatten.reichweite}m/` +
+              `${profil.schatten.dunkelheit}${profil.schatten.rasten ? '/gerastet' : ''}`
+          );
+        } catch (e) {
+          console.warn('[look] Serverblock unlesbar — es bleibt bei der Vorgabe', e);
+        }
+      }
 
       if (umgebung !== WETTER_AUTOMATISCH && !envPinned) {
         if (lighting.setEnvironmentByName(umgebung)) {

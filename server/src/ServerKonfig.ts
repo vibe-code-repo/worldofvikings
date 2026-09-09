@@ -21,8 +21,10 @@ import { type ServerConfig } from './WovServer.js';
 import {
   findEnvironment,
   istNebelDichte,
+  LOOK_VORGABE,
   NEBEL_AUTOMATISCH,
   NEBEL_DICHTE_MAX,
+  pruefeLook,
   SAVE_INTERVAL_MS,
   WETTER_AUTOMATISCH,
   type WetterVorgabe,
@@ -95,6 +97,15 @@ export const BEKANNTE_SCHLUESSEL: Record<string, readonly string[]> = Object.ass
     ],
     dungeons: ['enabled', 'modulbau'],
     wetter: ['umgebung', 'nebeldichte'],
+    /*
+      Der Look-Block. Nur die OBERSTE Ebene steht hier — die
+      Unterabschnitte (bloom, vignette, ca, dof, strahlen, himmel,
+      schatten) prueft `pruefeLook` gegen LOOK_VORGABE, und zwar
+      rekursiv und mit Typen. Zwei Listen derselben Schluessel waeren
+      genau die zweite Wahrheit, gegen die dieser Riegel antritt;
+      deshalb wird sie hier aus der Vorgabe ABGELEITET.
+    */
+    look: Object.keys(LOOK_VORGABE),
   }
 );
 
@@ -171,6 +182,44 @@ function leseWetterVorgabe(wetter: Record<string, unknown>): WetterVorgabe {
 }
 
 /**
+ * Ein `look:`-Fehler beendet den Start. Eigene Klasse, damit der Test
+ * ihn von einem YAML-Syntaxfehler unterscheiden kann.
+ */
+export class LookKonfigFehler extends Error {
+  constructor(readonly meldungen: readonly string[]) {
+    super(`server.yml look: ${meldungen.join('; ')}`);
+    this.name = 'LookKonfigFehler';
+  }
+}
+
+/**
+ * Abschnitt `look:` aus server.yml — PRUEFEN, nicht heilen.
+ *
+ * ── Warum hier ein Startfehler steht und bei `wetter:` nur eine Warnung
+ * Weil die Fehlerbilder verschieden sind. Ein falscher Umgebungsname ist
+ * SICHTBAR: Der Server wuerfelt weiter, im Log steht die Zeile, und die
+ * Welt hat Wetter. Ein Tippfehler im Look-Block dagegen faellt
+ * NIRGENDWO auf — `saettigng: 40` sieht im Editor aus wie ein gesetzter
+ * Regler, kommt nie im Client an, und die einzige Spur waere ein Bild,
+ * von dem niemand weiss, wie es aussehen sollte. Genau diese Sorte
+ * stiller Wirkungslosigkeit hat A14 aus dieser Datei geraeumt (sechzehn
+ * Schluessel, die etwas versprachen und nichts taten); ein neuer Block
+ * mit dreissig Reglern darf sie nicht wieder einfuehren.
+ *
+ * Gemeldet werden ALLE Befunde auf einmal und nicht nur der erste — wer
+ * eine Konfiguration abtippt, vertippt sich selten genau einmal.
+ */
+export function leseLookVorgabe(yaml: Record<string, unknown>): Record<string, unknown> | undefined {
+  const roh = yaml.look;
+  if (roh === undefined || roh === null) return undefined;
+  const fehler = pruefeLook(roh);
+  if (fehler.length > 0) {
+    throw new LookKonfigFehler(fehler.map((f) => `${f.pfad}: ${f.grund}`));
+  }
+  return roh as Record<string, unknown>;
+}
+
+/**
  * @param datenVerzeichnis server/data (enthaelt server.yml, welten/, worlds/)
  * @param instanz 'dev' | 'live' — bestimmt Weltdatei UND Spielstandnamen
  */
@@ -196,6 +245,10 @@ export function leseServerKonfig(
     const world = (yaml.world ?? {}) as Record<string, unknown>;
     const dungeons = (yaml.dungeons ?? {}) as Record<string, unknown>;
     const wetter = (yaml.wetter ?? {}) as Record<string, unknown>;
+    // VOR allem anderen, damit ein Look-Fehler nicht erst nach dem
+    // Weltaufbau auffaellt. Der Wurf verlaesst `leseServerKonfig`
+    // absichtlich NICHT ueber den Sammel-catch unten — s. dort.
+    const lookVorgabe = leseLookVorgabe(yaml);
 
     // Weltdatei je Instanz. Fehlt sie, endet der Start hier mit einer
     // lesbaren Meldung — vorher warf erst readFileSync in WovServer.init()
@@ -270,9 +323,23 @@ export function leseServerKonfig(
       // schreiben dadurch nichts (s. Kopfkommentar von
       // ServerConfig.metrikenDatei).
       metrikenDatei: resolve(datenVerzeichnis, 'metriken.json'),
-      wetterVorgabe: leseWetterVorgabe(wetter),
+      wetterVorgabe: { ...leseWetterVorgabe(wetter), look: lookVorgabe },
     };
   } catch (err) {
+    /*
+      Der Look-Block ist die eine Ausnahme vom "weiter mit Vorgabewerten".
+      Der Rest dieser Funktion darf an einem kaputten YAML mit Defaults
+      weiterlaufen -- ein Server auf Port 2456 faellt auf. Ein Server, der
+      den halben Look-Block still verwirft, faellt nicht auf; genau davor
+      schuetzt der Riegel, und ein Sammel-catch, der ihn schluckt, waere
+      derselbe Fehler eine Ebene hoeher.
+    */
+    if (err instanceof LookKonfigFehler) {
+      console.error(`[Main] server.yml, Abschnitt look:`);
+      for (const m of err.meldungen) console.error(`[Main]   ${m}`);
+      console.error(`[Main] Bekannte Schluessel: LOOK_VORGABE in shared/src/lookProfil.ts`);
+      process.exit(1);
+    }
     console.error(`[Main] Failed to parse server.yml: ${err}`);
     return {};
   }

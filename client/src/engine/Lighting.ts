@@ -72,6 +72,8 @@ import {
   type EnvState,
 } from '@wov/shared';
 
+import { beiLook, look, setzeNebelmodus } from './lookProfil';
+
 // Der Exponent des Sonnen-/Blick-Terms steht jetzt bei dem Code, der ihn
 // auswertet — dem Shader-Plugin. Siehe NebelRichtung.FOG_SUN_EXPONENT.
 
@@ -370,7 +372,29 @@ export class Lighting {
     // Aufteilung steht bei `AMBIENT_ANTEIL_HIMMEL`.
     scene.environmentIntensity = UMGEBUNGS_INTENSITAET;
 
-    scene.fogMode = Scene.FOGMODE_EXP2;
+    /*
+      ── Die Nebelkurve kommt aus dem Look-Profil ──────────────────────
+
+      Hier stand fest `FOGMODE_EXP2`. Die Kurve ist aber genau die
+      Eigenschaft, die dieses Bild von dem des Schwesterprojekts trennt:
+      exp2 ist nah flach und fern steil, exp faellt gleichmaessig — und
+      "keine Luftperspektive im Spielbereich" ist genau die Beschwerde,
+      die ADR-0041 drueben behoben hat.
+
+      Der Modus wirkt auf ALLE drei Nebelpfade auf einmal, ohne dass an
+      einem davon etwas zu aendern waere: StandardMaterial und PBR ziehen
+      ihn ueber Babylons `CalcFogFactor()` aus dem Define, das dieser
+      Setter setzt (`StandardGammaFix` und `PbrNebelFix` fassen die Kurve
+      nicht an — der eine entfernt eine Gamma-Konvertierung, der andere
+      eine Potenzierung des Sichtbarkeitsanteils, beide modusunabhaengig),
+      und die Nebelkette des Terrain-NodeMaterials liest `scene.fogMode`
+      und `scene.fogDensity` zur Laufzeit.
+
+      The fog curve comes from the look profile and hits all three fog
+      paths at once — no per-path change is needed.
+    */
+    setzeNebelmodus(scene, look().nebelmodus);
+    beiLook((p) => setzeNebelmodus(scene, p.nebelmodus));
 
     this.bindeLinearenNebel();
 
@@ -507,6 +531,31 @@ export class Lighting {
     // ein frisches Objekt, ein Spread wäre eine Zuteilung pro Frame ohne
     // Gegenwert.
     if (this.nebelDichteFest !== null) state.fogDensity = this.nebelDichteFest;
+    /*
+      ── Waerme der zweiten Nebelfarbe ─────────────────────────────────
+
+      `look.nebelWaerme` ist 0 in der Vorgabe, und 0 heisst hier
+      ausdruecklich "die Keyframe-Daten gelten unveraendert" — NICHT
+      "beide Nebelfarben gleichsetzen". Der Unterschied ist der ganze
+      Punkt: Bei `Klar-Comic` sind `fogColorSun*` und `fogColor*` in den
+      Daten ohnehin identisch (der neue Look hat EINE kuehle Dunstfarbe),
+      bei `Misty` und `Clear` bleibt ihr gerichteter Nebel dadurch
+      unberuehrt. Ein Wert > 0 mischt zur SONNENFARBE hin und holt die
+      alte Handschrift fuer jedes Wetter zurueck, ohne Daten zu aendern.
+
+      Das Plugin (`NebelRichtung`) bleibt in jedem Fall verdrahtet: Es
+      mischt pro Pixel zwischen zwei Farben, und zwei gleiche Farben zu
+      mischen kostet dieselben Instruktionen wie eine — ausbauen wuerde
+      den Schalter nur unbrauchbar machen.
+    */
+    const waerme = look().nebelWaerme;
+    if (waerme > 0) {
+      state.fogColorSun = {
+        r: state.fogColor.r + (state.sunColor.r - state.fogColor.r) * waerme,
+        g: state.fogColor.g + (state.sunColor.g - state.fogColor.g) * waerme,
+        b: state.fogColor.b + (state.sunColor.b - state.fogColor.b) * waerme,
+      };
+    }
     this.state = state;
 
     // ── Sun / moon ────────────────────────────────────────────────

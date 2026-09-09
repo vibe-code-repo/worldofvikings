@@ -1392,6 +1392,12 @@ export class WovServer {
     peer.sendPacketWith(PacketType.WeltWetter, (w) => {
       w.writeString(this.config.wetterVorgabe.umgebung);
       w.writeFloat32(this.config.wetterVorgabe.nebelDichte);
+      // Der `look:`-Block reist mit: dieselbe Reise (einmal beim
+      // Anmelden, vor dem Weltdokument), derselbe Grund. Angehaengt und
+      // nicht davorgestellt, damit ein Client ohne Look-Kenntnis die
+      // beiden alten Felder unveraendert liest — der Leser drueben
+      // fragt `remaining > 0`, bevor er zugreift.
+      w.writeString(JSON.stringify(this.config.wetterVorgabe.look ?? {}));
     });
     // Layout-Modus: Das Weltdokument folgt SOFORT auf die ServerConfig —
     // der Client wartet darauf, bevor er seine Welt baut (Flag Bit 5).

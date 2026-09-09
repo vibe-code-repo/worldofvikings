@@ -65,7 +65,12 @@ export class CharakterPanel {
      * schon davorstehen, entstünde `wikingerin/wikingerin/…`.
      */
     private readonly aussehenTeile: () => Record<string, string | null>,
-    private readonly i18n: GameI18n
+    private readonly i18n: GameI18n,
+    /**
+     * Koerperdatei der gewaehlten Figur unter /assets/models/, MIT Endung
+     * (`modellDateiZu(figur)`). Fehlt sie, zeigt das Fenster die Wikingerin.
+     */
+    private readonly modellDatei?: string
   ) {
     this.wurzel = document.createElement('div');
     this.wurzel.id = 'charakter-fenster';
@@ -192,7 +197,7 @@ export class CharakterPanel {
       const mod = await import('./CharakterVorschau.js');
       if (marke !== this.oeffnungsZaehler) return; // inzwischen geschlossen
       this.vorschau = new mod.CharakterVorschau(this.leinwand);
-      await this.vorschau.ladeKoerper();
+      await this.vorschau.ladeKoerper(this.modellDatei);
       if (marke !== this.oeffnungsZaehler) {
         this.vorschau.dispose();
         this.vorschau = null;

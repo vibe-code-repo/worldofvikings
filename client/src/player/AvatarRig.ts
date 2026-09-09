@@ -58,7 +58,7 @@ import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
-import { FIGUR_VORGABE, modellDateiZu } from '@wov/shared';
+import { AUSSEHEN_ORDNER, FIGUR_VORGABE, modellDateiZu } from '@wov/shared';
 
 /** Körpermaße in Metern (die Figur ist ~1,8 m hoch). */
 const SPIELER_HOEHE = 1.8;
@@ -81,23 +81,26 @@ const MODELL_HALBHOEHE = 0.495;
  * Pose greift ins Leere und — schlimmer, weil man es erst beim Graben
  * merkt — das Werkzeug bleibt am Ersatz-Pivot statt in der Hand.
  */
+// Dritter Namensatz (09.09.2026): der Wikinger aus dem Synty-Rig —
+// `Hips`, `Spine_01`, `Shoulder_L`, `Elbow_L`, `UpperLeg_L`, `LowerLeg_L`,
+// `Ankle_L`, `Hand_R`.
 const KNOCHEN_NAMEN = {
-  huefte: ['Hip', 'mixamorig:Hips'],
-  rumpf: ['Spine01', 'mixamorig:Spine1'],
+  huefte: ['Hip', 'Hips', 'mixamorig:Hips'],
+  rumpf: ['Spine01', 'Spine_01', 'mixamorig:Spine1'],
   kopf: ['Head', 'mixamorig:Head'],
-  beinL: ['L_Thigh', 'mixamorig:LeftUpLeg'],
-  knieL: ['L_Calf', 'mixamorig:LeftLeg'],
-  beinR: ['R_Thigh', 'mixamorig:RightUpLeg'],
-  knieR: ['R_Calf', 'mixamorig:RightLeg'],
-  armL: ['L_Upperarm', 'mixamorig:LeftArm'],
-  ellbogenL: ['L_Forearm', 'mixamorig:LeftForeArm'],
-  armR: ['R_Upperarm', 'mixamorig:RightArm'],
-  ellbogenR: ['R_Forearm', 'mixamorig:RightForeArm'],
+  beinL: ['L_Thigh', 'UpperLeg_L', 'mixamorig:LeftUpLeg'],
+  knieL: ['L_Calf', 'LowerLeg_L', 'mixamorig:LeftLeg'],
+  beinR: ['R_Thigh', 'UpperLeg_R', 'mixamorig:RightUpLeg'],
+  knieR: ['R_Calf', 'LowerLeg_R', 'mixamorig:RightLeg'],
+  armL: ['L_Upperarm', 'Shoulder_L', 'mixamorig:LeftArm'],
+  ellbogenL: ['L_Forearm', 'Elbow_L', 'mixamorig:LeftForeArm'],
+  armR: ['R_Upperarm', 'Shoulder_R', 'mixamorig:RightArm'],
+  ellbogenR: ['R_Forearm', 'Elbow_R', 'mixamorig:RightForeArm'],
 } as const satisfies Record<string, readonly string[]>;
 
 /** Fussknochen — dieselbe Zweitnamen-Regel wie bei KNOCHEN_NAMEN. */
-const FUSS_LINKS = ['L_Foot', 'mixamorig:LeftFoot'] as const;
-const FUSS_RECHTS = ['R_Foot', 'mixamorig:RightFoot'] as const;
+const FUSS_LINKS = ['L_Foot', 'Ankle_L', 'mixamorig:LeftFoot'] as const;
+const FUSS_RECHTS = ['R_Foot', 'Ankle_R', 'mixamorig:RightFoot'] as const;
 
 /**
  * Grenzen der Fussanpassung.
@@ -132,7 +135,7 @@ const FUSS_ABSENK_MAX = 0.35;
 const FUSS_GLAETTUNG_S = 0.09;
 
 /** Der Knochen, an dem das getragene Werkzeug hängt. */
-const HAND_NAMEN = ['R_Hand', 'mixamorig:RightHand'] as const;
+const HAND_NAMEN = ['R_Hand', 'Hand_R', 'mixamorig:RightHand'] as const;
 /**
  * Grenzen für `speedRatio`. Die Clips werden auf die tatsächliche
  * Geschwindigkeit normiert, damit die Füsse nicht über den Boden rutschen
@@ -896,7 +899,7 @@ export class AvatarRig {
       // Figur wäre beim Laufen aus ihrer eigenen Kollisionskapsel gewandert)
       // noch gemessen, weshalb alle vier Clips als Standpose galten und es
       // schlicht kein "gehen" und kein "rennen" gab.
-      if (!/^(Root|Hip|Pelvis|mixamorig:Hips)$/.test(zielName)) continue;
+      if (!/^(Root|Hip|Hips|Pelvis|mixamorig:Hips)$/.test(zielName)) continue;
       const keys = ta.animation.getKeys();
       if (keys.length < 2) continue;
 
@@ -1428,6 +1431,11 @@ export class AvatarRig {
    * erzeugt sie aus derselben Armatur und prueft das nach.
    */
   async setzeAussehen(teile: Record<string, string | null>): Promise<void> {
+    // Frisuren und Ruestung sind Teildateien der Wikingerin (aussehen.ts)
+    // und tragen DEREN Gelenkliste. An einer anderen Figur — dem Wikinger
+    // aus dem Synty-Rig — saessen sie am falschen Knochen; dort wird das
+    // Aussehen deshalb schlicht nicht angezogen.
+    if (!this.modellDatei.startsWith(`${AUSSEHEN_ORDNER}/`)) return;
     if (!this.halter) {
       // Modell noch nicht da — merken und nach dem Laden nachziehen.
       this.offenesAussehen = { ...(this.offenesAussehen ?? {}), ...teile };

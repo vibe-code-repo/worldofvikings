@@ -110,10 +110,23 @@ export class CharakterVorschau {
 
   private beiGroesse = () => this.engine.resize();
 
-  /** Körper laden und den Ruhezyklus starten. */
-  async ladeKoerper(): Promise<void> {
+  /**
+   * Ob Teildateien (Frisur, Ruestung) an diesen Koerper passen. Nur die
+   * Wikingerin traegt die Gelenkliste aus aussehen.ts; am Wikinger aus dem
+   * Synty-Rig wird nichts angezogen — dieselbe Regel wie in AvatarRig.
+   */
+  private teileErlaubt = true;
+
+  /**
+   * Körper laden und den Ruhezyklus starten.
+   *
+   * `datei` ist der Pfad unter /assets/models/ MIT Endung — die Vorgabe
+   * ist die Wikingerin; die Figurenwahl reicht ihren eigenen durch.
+   */
+  async ladeKoerper(datei: string = teilPfad(AUSSEHEN_KOERPER)): Promise<void> {
+    this.teileErlaubt = datei === teilPfad(AUSSEHEN_KOERPER);
     const res = await SceneLoader.ImportMeshAsync(
-      '', WURZEL, teilPfad(AUSSEHEN_KOERPER), this.scene);
+      '', WURZEL, datei, this.scene);
     this.skelett = res.skeletons[0] ?? null;
 
     // Ruhezyklus über denselben Namensabgleich wie AvatarRig — nicht
@@ -130,6 +143,7 @@ export class CharakterVorschau {
    * Mehrfaches Setzen desselben Teils ist ein Nichts-Tun.
    */
   async setze(slot: string, datei: string | null): Promise<void> {
+    if (!this.teileErlaubt) return;
     if (this.aktuell.get(slot) === (datei ?? '')) return;
 
     const vorher = this.aktuell.get(slot);

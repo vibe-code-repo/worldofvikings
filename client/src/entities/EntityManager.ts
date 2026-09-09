@@ -1280,6 +1280,9 @@ export class EntityManager {
   private async setzeFremdesAussehen(u: ZDOEntityUpdate): Promise<void> {
     const dyn = this.dynamics.get(u.key);
     if (!dyn) return;
+    // Nur die Wikingerin traegt die Teildateien aus aussehen.ts; jede
+    // andere Figur (der Wikinger) bekommt keine — siehe AvatarRig.setzeAussehen.
+    if (u.figur && !modellZu(u.figur).startsWith(`${AUSSEHEN_ORDNER}/`)) return;
     dyn.aussehen ??= new Map();
 
     // Skelett des Koerpers suchen — an ihm haengen alle Teile.

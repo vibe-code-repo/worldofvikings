@@ -774,7 +774,8 @@ async function main() {
   const charakterPanel = new CharakterPanel(
     () => equipment,
     aussehenTeile,
-    i18n
+    i18n,
+    modellDateiZu(selectedFigure)
   );
 
   /**

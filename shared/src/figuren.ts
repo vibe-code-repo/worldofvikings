@@ -53,12 +53,21 @@ export interface Figur {
  * Die alte Einzeldatei WikingerinBasis.glb bleibt vorerst liegen: Sie
  * ist der Stand, mit dem bis heute gespielt wurde.
  *
+ * ── Der Wikinger (09.09.2026) ───────────────────────────────────────
+ * `wikinger/WikingerKoerper` ist die Standardfigur aus dem Synty-Rig:
+ * 63 Knochen, Clips `idle/gehen/rennen/springen/angriff` (Sprung =
+ * Absprung, Flug, Fall; Angriff = Faustschlag). Er steht VORN und ist
+ * damit die Vorgabe; die Wikingerin bleibt waehlbar, damit vorhandene
+ * Spielstaende ihre Figur behalten. Frisuren und Ruestung (aussehen.ts)
+ * gehoeren zur Wikingerin; AvatarRig laedt Teile nur fuer sie.
+ *
  * ⚠ Der Wikingerin fehlt der Sprung nicht mehr: Ihre Clips heissen
  * `idle/gehen/rennen/springen/angriff/weitsprung`. AvatarRig sucht sie
  * ueber Namensmuster; `weitsprung` enthaelt bewusst weder "spring" noch
  * "rennen", damit es keinem Zustand untergeschoben wird.
  */
 export const FIGUREN: readonly Figur[] = [
+  { id: 'wikinger', modell: 'wikinger/WikingerKoerper', name: 'Wikinger' },
   { id: 'wikingerin', modell: 'wikingerin/WikingerinKoerper', name: 'Wikingerin' },
 ] as const;
 

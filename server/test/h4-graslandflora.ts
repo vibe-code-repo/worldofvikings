@@ -50,6 +50,9 @@ import {
   STORE_FLORA_AKTIV,
   STORE_FLORA_BEREIT,
   STORE_GRAS_AKTIV,
+  // Der Fels steht in denselben Kuratierungslisten wie der Bewuchs und
+  // muss von ihm unterschieden werden — s. `istFels` weiter unten.
+  STORE_FELSEN_NAMEN,
   type WorldLayout,
 } from '@wov/shared';
 import { ZDOManager } from '../src/zdo/ZDOManager.js';
@@ -152,9 +155,25 @@ const summe = (m: Map<string, number>, wenn: (n: string) => boolean): number => 
   Gras 0,3 m.
 */
 const hoehe = (name: string): number => findPrefabByName(name)?.renderScale.h ?? 0;
-const istBaum = (name: string): boolean => hoehe(name) >= 6;
-const istStrauch = (name: string): boolean => hoehe(name) >= 1 && hoehe(name) < 6;
-const istBodenpflanze = (name: string): boolean => hoehe(name) > 0 && hoehe(name) < 1;
+/*
+  ⚠ Seit `shared/src/storeFelsen.ts` steht in denselben Listen auch
+  GESTEIN, und die drei Fragen unten sind Fragen an den BEWUCHS.
+
+  Ein halb eingegrabener 30-cm-Findling misst sich wie eine
+  Bodenpflanze, ein 20-m-Klippenblock wie ein Baum — die Höhe allein
+  kann das nicht trennen. Ohne diesen Filter meldete der Wächter unten
+  elf „Bodenpflanzen" in der Streuung und meinte damit Steine, und die
+  Aschewüste hätte plötzlich „Unterwuchs".
+
+  Gefiltert wird über die Streutabelle des Felsens und NICHT über ein
+  Namensmuster: Was ein Fels ist, steht dort und nirgends sonst.
+*/
+const istFels = (name: string): boolean => STORE_FELSEN_NAMEN.has(name);
+const istBaum = (name: string): boolean => !istFels(name) && hoehe(name) >= 6;
+const istStrauch = (name: string): boolean =>
+  !istFels(name) && hoehe(name) >= 1 && hoehe(name) < 6;
+const istBodenpflanze = (name: string): boolean =>
+  !istFels(name) && hoehe(name) > 0 && hoehe(name) < 1;
 
 // ── 1. Kuratiert: eigene Flora, sonst nichts ─────────────────────────
 const mitFlora = bewuchs(insel(GRASLAND_FLORA_NAMEN));
@@ -476,11 +495,22 @@ console.log(`  Dichte 0.3 → ${d1} | 1.0 → ${g} | 2.5 → ${d2} Pflanzen`);
   const alles = summe(asche, () => true);
   if (STORE_FLORA_AKTIV && STORE_FLORA_BEREIT) {
     check('ashlands: kahle Stämme statt gar nichts', alles > 0, `= ${alles}`);
+    /*
+      „Kein Unterwuchs" heisst kein GRÜN — nicht „nichts ausser
+      Stämmen". Der Fels der Aschewüste (`STORE_ASCHE_FELSEN`, bewusst
+      nur die kantigen Formen) ist ausdrücklich gewollt: Basalt auf
+      Schlacke ist kein Widerspruch, ein Strauch wäre einer. Der
+      Wächter zählt deshalb alles, was weder Stamm noch Stein ist — und
+      das muss null bleiben.
+    */
+    const gruen = (n: string): boolean => !istBaum(n) && !istFels(n);
     check(
-      'ashlands: nur Stämme, kein Unterwuchs',
-      summe(asche, (n) => !istBaum(n)) === 0,
-      [...asche.keys()].filter((n) => !istBaum(n)).join(', ')
+      'ashlands: nur Stämme und Fels, kein Unterwuchs',
+      summe(asche, gruen) === 0,
+      [...asche.keys()].filter(gruen).join(', ')
     );
+    const steine = summe(asche, istFels);
+    console.log(`  Aschewüste: ${alles} Stück, davon ${steine} Fels`);
   } else {
     check('ashlands: Liste ist leer (Entwurf, kein Versäumnis)', ASCHE_FLORA_NAMEN.length === 0);
     check('ashlands: nackter Aschegrund', alles === 0, `= ${alles}`);

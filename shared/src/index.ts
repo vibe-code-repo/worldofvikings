@@ -40,6 +40,10 @@ export * from './flora.js';
 // Die Streutabelle der Store-Vegetation. Flach exportiert wie flora.js,
 // weil die Prüfer und der Editor dieselbe Tür benutzen.
 export * from './storeFlora.js';
+// Die Streutabelle des Store-Felsens -- dieselbe Tuer wie storeFlora.js.
+// Zusaetzlich fuer den Client: `STORE_FELSEN_NAMEN` entscheidet dort ueber
+// die Kollisionsform (EntityManager).
+export * from './storeFelsen.js';
 export * from './features.js';
 export * from './dungeons.js';
 export * from './dungeonRaster.js';

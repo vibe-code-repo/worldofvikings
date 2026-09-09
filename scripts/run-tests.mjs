@@ -505,6 +505,31 @@ const KERN = [
   ['tools/test', 'store-flora.ts', brauchtModelle('assets/store')],
   ['tools/test', 'store-vegetation.ts', brauchtModelle('assets/store')],
   /*
+    Der Store-FELS, und die Fragen sind andere als beim Bewuchs:
+
+      store-felsen.ts  Gibt es jede Art, liegt ihr Neigungsfenster
+                       richtigherum, bevorzugt der grosse Fels wirklich
+                       den Hang, und steckt jeder Stein zwischen 20 und
+                       60 % seiner Hoehe im Boden? Die Zahlen kommen aus
+                       den Huellboxen in prefabs.json und aus den GLBs
+                       selbst — dem Namen sieht man keine davon an.
+
+    Der teuerste stille Fehler, gegen den er steht, ist ein VERDREHTES
+    Neigungsfenster: Bei minTilt > maxTilt ist die Bedingung in
+    streuung.ts fuer jede Neigung falsch, die Art verschwindet
+    vollstaendig aus der Welt — ohne Fehlermeldung, denn ein abgewiesener
+    Kandidat ist der Normalfall.
+
+    Er prueft ausserdem die Annahme, unter der der EntityManager ohne den
+    Katalog ueber Store-Kollision entscheidet (STORE_NICHT_STREUEN statt
+    `kollision: none`). Hier ist der Katalog umsonst, im Spiel-Buendel
+    waere er es nicht.
+
+    WEICHE wie bei den Nachbarn: fehlt `assets/store` GANZ, wird
+    uebersprungen; fehlt eine EINZELNE Datei, wird er rot.
+  */
+  ['tools/test', 'store-felsen.ts', brauchtModelle('assets/store')],
+  /*
     Stufe 2 „Look", Bauer Gras und Wasser — drei Waechter ueber drei
     Fehler, die alle NICHTS brechen und deshalb keinem auffallen:
 
@@ -761,6 +786,21 @@ const KERN = [
   // bleibt. Synthetischer Prototyp statt GLB (assets/ liegt ausserhalb des
   // Repos), NullEngine, Sekunden.
   ['client', 'test/kollisionsnetz.ts'],
+  /*
+    Die Gegenprobe dazu fuer den SPEICHER: Sein Fels muss ein Hindernis
+    sein, seine Vegetation und seine Kulissen duerfen es nicht werden.
+
+    Der Fehler, gegen den er steht, hat kein Symptom: `store-prefabs.mjs`
+    gibt jedem Speicher-Prefab nur PERSISTENT, `COLLIDING_FLAGS` findet
+    darin nichts, und die Klippe landet in `colliderless` — sie steht da,
+    sieht richtig aus, und man laeuft hindurch. Gemessen wird der ganze
+    Weg an echten Prefabnamen (getMasters -> applyStatic -> colliderSpecs),
+    DOM-frei unter der NullEngine, Sekundenbruchteile.
+
+    Ohne Weiche: Die GLBs werden nicht geladen, der Container ist
+    synthetisch — gebraucht wird nur die Prefab-Registrierung.
+  */
+  ['client', 'test/store-fels-kollision.ts'],
   /*
     E2, zweite Haelfte: der geschriebene Saal durch Babylons ECHTEN
     glTF-Lader. `server/test/glb-schreiber.ts` liest mit einem eigenen,

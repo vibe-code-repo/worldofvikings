@@ -47,6 +47,7 @@ import {
   SUMPF_FLORA,
   SUMPF_FLORA_NAMEN,
 } from '../src/index.js';
+import { STORE_FELSEN_BUENDEL } from '../src/storeFelsen.js';
 
 let fehler = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -116,7 +117,21 @@ check(
 );
 
 // ── Der Schalter tut, was er sagt ────────────────────────────────────
-const storeNamen = new Set(STORE_FLORA_BUENDEL.flatMap(([, l]) => l.map((f) => f.name)));
+/*
+  Der Speicher-Bestand sind ZWEI Tabellen, seit es Fels gibt: die
+  Vegetation in `storeFlora.ts` und das Gestein in `storeFelsen.ts`.
+  Beide hängen über `flora.ts` in dieselben Kuratierungslisten, jede an
+  ihrem eigenen Schalter.
+
+  Die Zusage dieses Wächters ändert sich dadurch NICHT — sie lautet
+  weiter „in den Listen steht nichts aus dem Altbestand". Was sich
+  ändert, ist die Menge, gegen die verglichen wird: Ohne den Fels darin
+  meldete er 22 Fremdlinge und meinte damit die eigenen Steine.
+*/
+const storeNamen = new Set([
+  ...STORE_FLORA_BUENDEL.flatMap(([, l]) => l.map((f) => f.name)),
+  ...STORE_FELSEN_BUENDEL.flatMap(([, l]) => l.map((f) => f.name)),
+]);
 const kuratiert = new Set(LISTEN.flatMap(([, l]) => l));
 const ausStore = [...kuratiert].filter((n) => storeNamen.has(n)).length;
 if (STORE_FLORA_AKTIV && STORE_FLORA_BEREIT) {

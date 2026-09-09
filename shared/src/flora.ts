@@ -62,6 +62,14 @@ import {
   STORE_HOCHNORD_FLORA,
   STORE_ASCHE_FLORA,
 } from './storeFlora.js';
+import {
+  STORE_FELSEN_AKTIV,
+  STORE_GRASLAND_FELSEN,
+  STORE_NADELWALD_FELSEN,
+  STORE_SUMPF_FELSEN,
+  STORE_HOCHNORD_FELSEN,
+  STORE_ASCHE_FELSEN,
+} from './storeFelsen.js';
 
 /**
  * Vorgaben, die für alle eigenen Einträge gleich sind.
@@ -175,6 +183,21 @@ export type FloraKurz = {
   readonly max: number;
   /** Erlaubte Hangneigung in Grad. */
   readonly maxTilt: number;
+  /**
+   * UNTERE Kante des Neigungsfensters in Grad — 0, wenn nichts dasteht.
+   *
+   * Bis zu den Store-Felsen (`storeFelsen.ts`) brauchte das niemand: Eine
+   * Pflanze wächst vom flachen Boden bis zu ihrer Grenze, und `flora()`
+   * schrieb deshalb fest `minTilt: 0`. „Kommt am Hang öfter vor" ist
+   * damit gar nicht ausdrückbar — erst eine Untergrenze macht aus einem
+   * Streueintrag einen Hangbewohner.
+   *
+   * Die Einheit ist GRAD, nicht Kosinus: `worldgen/streuung.ts` rechnet
+   * selbst um (`const minTilt = f32(Math.cos(f32(veg.minTilt *
+   * DEG2RAD_F)))`) und prüft dann `normal.y >= cos(maxTilt) && normal.y
+   * <= cos(minTilt)`. Nachgesehen, nicht angenommen.
+   */
+  readonly minTilt?: number;
   /** Waldfenster: [drinnen?, von, bis]. */
   readonly wald: readonly [boolean, number, number];
   readonly scaleMin?: number;
@@ -183,6 +206,27 @@ export type FloraKurz = {
   readonly gruppe?: readonly [number, number, number];
   /** Zufällige Neigung in Grad — bei Bodenpflanzen erwünscht. */
   readonly kippen?: number;
+  /**
+   * Höhenversatz gegen den Boden in Metern (`groundOffset`) — negativ
+   * senkt das Modell ein.
+   *
+   * Das „eingearbeitet" aus dem Felsauftrag. Wie tief ein Modell dabei
+   * WIRKLICH sitzt, hängt an seinem Ursprung: Die Store-Felsen haben ihn
+   * mittig und stecken schon bei 0 zur Hälfte im Boden (Rechnung im Kopf
+   * von `storeFelsen.ts`). Die Vorgabe ist deshalb 0 und nicht „ein
+   * bisschen negativ".
+   */
+  readonly versatz?: number;
+  /**
+   * Wahrscheinlichkeit 0…1, dass sich das Modell in die HANGNORMALE
+   * dreht (`chanceToUseGroundTilt`).
+   *
+   * Die zweite Hälfte von „eingearbeitet": Ein Fels, der senkrecht auf
+   * einem 45°-Hang steht, schwebt auf der Talseite. Greift die Drehung,
+   * bleibt `kippen` (randTilt) für dieses Exemplar UNBENUTZT — die
+   * beiden sind Alternativen, nicht Summanden (s. `streuung.ts`).
+   */
+  readonly hangfolge?: number;
 };
 
 function flora(k: FloraKurz): Foliage {
@@ -196,7 +240,7 @@ function flora(k: FloraKurz): Foliage {
     radius: k.radius,
     min: k.min,
     max: k.max,
-    minTilt: 0,
+    minTilt: k.minTilt ?? 0,
     maxTilt: k.maxTilt,
     inForest: k.wald[0],
     forestTresholdMin: k.wald[1],
@@ -207,6 +251,11 @@ function flora(k: FloraKurz): Foliage {
     groupSizeMin: k.gruppe?.[1] ?? 1,
     groupSizeMax: k.gruppe?.[2] ?? 1,
     randTilt: k.kippen ?? 0,
+    // Beide Vorgaben sind der bisherige Zustand aus `BASIS`: kein
+    // Versatz, keine Hangdrehung. Kein bestehender Eintrag ändert sich
+    // dadurch — die drei neuen Felder tragen nur die, die sie setzen.
+    groundOffset: k.versatz ?? BASIS.groundOffset,
+    chanceToUseGroundTilt: k.hangfolge ?? BASIS.chanceToUseGroundTilt,
   };
 }
 
@@ -657,6 +706,37 @@ const STORE_SUMPF: readonly Foliage[] = STORE_SUMPF_FLORA.map(flora);
 const STORE_HOCHNORD: readonly Foliage[] = STORE_HOCHNORD_FLORA.map(flora);
 const STORE_ASCHE: readonly Foliage[] = STORE_ASCHE_FLORA.map(flora);
 
+// ── Der Store-Fels ───────────────────────────────────────────────────
+//
+// `shared/src/storeFelsen.ts` liefert dieselbe Kurzform und läuft durch
+// denselben `flora()`. Eine eigene Datei, weil sie einem anderen Bauer
+// gehört als die Vegetation — technisch ist es dieselbe Streutabelle.
+
+const STORE_FELSEN_GRASLAND: readonly Foliage[] = STORE_GRASLAND_FELSEN.map(flora);
+const STORE_FELSEN_NADELWALD: readonly Foliage[] = STORE_NADELWALD_FELSEN.map(flora);
+const STORE_FELSEN_SUMPF: readonly Foliage[] = STORE_SUMPF_FELSEN.map(flora);
+const STORE_FELSEN_HOCHNORD: readonly Foliage[] = STORE_HOCHNORD_FELSEN.map(flora);
+const STORE_FELSEN_ASCHE: readonly Foliage[] = STORE_ASCHE_FELSEN.map(flora);
+
+/**
+ * Sind die Felsmodelle wirklich registriert?
+ *
+ * Dieselbe Frage wie `STORE_FLORA_BEREIT` und aus demselben Grund: Ein
+ * Streueintrag ohne PrefabDef streut nichts, und zwar lautlos. Getrennt
+ * geprüft, weil beide Bestände getrennt umschaltbar sind — eine Welt mit
+ * Fels und ohne Store-Bäume muss möglich bleiben, und umgekehrt.
+ */
+export const STORE_FELSEN_BEREIT: boolean = [
+  STORE_FELSEN_GRASLAND,
+  STORE_FELSEN_NADELWALD,
+  STORE_FELSEN_SUMPF,
+  STORE_FELSEN_HOCHNORD,
+  STORE_FELSEN_ASCHE,
+].every((buendel) => buendel.every((f) => EIGENE_MODELLE_SET.has(f.prefabName)));
+
+/** Wird gestreut UND kuratiert: steht der Fels in den Namenslisten? */
+const FELSEN_GILT = STORE_FELSEN_AKTIV && STORE_FELSEN_BEREIT;
+
 /**
  * Ist die Store-Vegetation wirklich da?
  *
@@ -704,6 +784,25 @@ const STORE_GILT = STORE_FLORA_AKTIV && STORE_FLORA_BEREIT;
  * Prefab in `EIGENE_FLORA`, sonst verschwindet er.
  */
 const BUENDEL: readonly (readonly Foliage[])[] = [
+  // Der FELS steht ganz vorn, und das ist die einzige Stelle, an der die
+  // Reihenfolge dieser Liste etwas entscheidet.
+  //
+  // Streu-Vorrecht heisst: Wer zuerst kommt, bekommt den Platz, und was
+  // schon liegt, blockiert den Radius. Ein Findling, der erst NACH dem
+  // Bewuchs gezogen wird, findet auf einer bewachsenen Wiese keinen
+  // Platz mehr — und umgekehrt soll kein Baum in einem Felsblock stehen.
+  // Dieselbe Überlegung, die `flora.ts` schon für den Hohen Norden
+  // festhält ("Vor dem Kleinbewuchs, damit die grossen Steine ihren
+  // Platz bekommen"), nur jetzt für die ganze Welt.
+  //
+  // Teuer ist das nicht: Der Fels ist die kleinste Menge der Tabelle
+  // (22 Arten gegen 94), und die Neigungsfenster werfen die meisten
+  // Kandidaten ohnehin weg, bevor ein Platz belegt wird.
+  STORE_FELSEN_GRASLAND,
+  STORE_FELSEN_NADELWALD,
+  STORE_FELSEN_SUMPF,
+  STORE_FELSEN_HOCHNORD,
+  STORE_FELSEN_ASCHE,
   GRASLAND_FLORA,
   NADELWALD_FLORA,
   SUMPF_FLORA,
@@ -780,10 +879,34 @@ export const EIGENE_FLORA_HASHES: ReadonlySet<number> = new Set(
  * ihre gesetzten Bäume, und `STORE_FLORA_AKTIV = false` stellt Stufe 0
  * wieder her, ohne dass eine Zeile zurückgenommen werden müsste.
  */
-const namen = (store: readonly Foliage[], alt: readonly Foliage[]): readonly string[] =>
-  (STORE_GILT ? store : alt).map((f) => f.prefabName);
+const namen = (
+  store: readonly Foliage[],
+  alt: readonly Foliage[],
+  fels: readonly Foliage[] = []
+): readonly string[] => [
+  ...(STORE_GILT ? store : alt).map((f) => f.prefabName),
+  /*
+    Der FELS hängt an einem EIGENEN Schalter und nicht an dem der
+    Vegetation.
 
-export const GRASLAND_FLORA_NAMEN: readonly string[] = namen(STORE_GRASLAND, GRASLAND_FLORA);
+    Beide Bestände kommen aus dem Store, aber sie beantworten
+    verschiedene Fragen: `STORE_FLORA_AKTIV` entscheidet, ob die Welt
+    Store-BÄUME oder die alten trägt; `STORE_FELSEN_AKTIV`, ob sie
+    überhaupt Fels trägt. An denselben Schalter gehängt, hiesse ein
+    Rückfall auf die alten Bäume auch: keine Felsen mehr — und das wäre
+    nicht der Zustand davor, sondern ein dritter.
+
+    Deshalb wird angehängt und nicht ersetzt: Die Felsliste steht NEBEN
+    der Vegetationsliste, in jeder Stellung des anderen Schalters.
+  */
+  ...(FELSEN_GILT ? fels.map((f) => f.prefabName) : []),
+];
+
+export const GRASLAND_FLORA_NAMEN: readonly string[] = namen(
+  STORE_GRASLAND,
+  GRASLAND_FLORA,
+  STORE_FELSEN_GRASLAND
+);
 
 /**
  * Dasselbe für den Nadelwald — und zugleich die Liste des Bioms
@@ -791,13 +914,25 @@ export const GRASLAND_FLORA_NAMEN: readonly string[] = namen(STORE_GRASLAND, GRA
  * nicht: „Nadelwald" IST seine Landschaftsform, und zwei Listen mit
  * demselben Inhalt liefen nach der ersten Änderung auseinander.
  */
-export const NADELWALD_FLORA_NAMEN: readonly string[] = namen(STORE_NADELWALD, NADELWALD_FLORA);
+export const NADELWALD_FLORA_NAMEN: readonly string[] = namen(
+  STORE_NADELWALD,
+  NADELWALD_FLORA,
+  STORE_FELSEN_NADELWALD
+);
 
 /** Der Sumpf (insel-3). */
-export const SUMPF_FLORA_NAMEN: readonly string[] = namen(STORE_SUMPF, SUMPF_FLORA);
+export const SUMPF_FLORA_NAMEN: readonly string[] = namen(
+  STORE_SUMPF,
+  SUMPF_FLORA,
+  STORE_FELSEN_SUMPF
+);
 
 /** Der Hohe Norden (land-1). */
-export const HOCHNORD_FLORA_NAMEN: readonly string[] = namen(STORE_HOCHNORD, HOCHNORD_FLORA);
+export const HOCHNORD_FLORA_NAMEN: readonly string[] = namen(
+  STORE_HOCHNORD,
+  HOCHNORD_FLORA,
+  STORE_FELSEN_HOCHNORD
+);
 
 /**
  * Die Aschewüste (insel-16).
@@ -808,4 +943,8 @@ export const HOCHNORD_FLORA_NAMEN: readonly string[] = namen(STORE_HOCHNORD, HOC
  * — und der Grund steht dort: Er bringt Stämme OHNE Laub mit, und daran
  * war die alte Antwort gescheitert.
  */
-export const ASCHE_FLORA_NAMEN: readonly string[] = namen(STORE_ASCHE, ASCHE_FLORA);
+export const ASCHE_FLORA_NAMEN: readonly string[] = namen(
+  STORE_ASCHE,
+  ASCHE_FLORA,
+  STORE_FELSEN_ASCHE
+);

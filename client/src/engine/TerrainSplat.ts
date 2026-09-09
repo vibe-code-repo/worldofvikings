@@ -444,6 +444,27 @@ const VAR_BASIS = 0.944;
 const VAR_MIN = 0.6;
 const VAR_MAX = 1.35;
 
+/**
+ * Die Himmelsfarben, die der Boden spiegelt — was `Lighting` liefert.
+ *
+ * Absichtlich ein eigener, kleiner Typ und kein Verweis auf eine Klasse
+ * aus `Lighting.ts`/`ValheimSky.ts`: Dieser Zweig kennt
+ * `lighting.sky.gibHimmelsfarben()` noch nicht, und der Boden soll auch
+ * dann übersetzen und ein richtiges Bild liefern, wenn es die Funktion
+ * nicht gibt. Ein struktureller Typ passt auf ihr Ergebnis, sobald sie da
+ * ist, und verlangt bis dahin nichts.
+ *
+ * LINEAR, wie alles, was in dieses Material geht (`Lighting.fogColorLinear`).
+ */
+export interface HimmelsFarben {
+  /** Farbe senkrecht über dem Boden. */
+  readonly zenit: Color3;
+  /** Farbe am Horizont. Sollte die Nebelfarbe sein — sonst wird die Naht sichtbar. */
+  readonly horizont: Color3;
+  /** Sonnenglühen im Verlauf. Fehlt sie, wird sie aus dem Horizont abgeleitet. */
+  readonly glanz?: Color3;
+}
+
 export class TerrainSplatMaterial {
   readonly material: NodeMaterial;
   /** Sonnenrichtung/-farbe/-ambient + Nebeldichte werden pro Frame gesetzt. */
@@ -473,14 +494,18 @@ export class TerrainSplatMaterial {
   /** Sonnenglühen im Verlauf, LINEAR. Nur glatte Schichten zeigen es. */
   private readonly himmelGlanzBlock: InputBlock;
   /**
-   * Hat jemand `setzeHimmel()` gerufen?
+   * Der zuletzt von aussen gesetzte Himmel, oder null.
    *
-   * Solange nicht, leitet `syncLighting()` die drei Farben je Frame aus
-   * der Nebelfarbe ab. Danach nicht mehr — sonst überschriebe der
-   * nächste Frame stillschweigend, was Bauer Licht gesetzt hat, und die
-   * Suche danach ginge über die halbe Beleuchtung.
+   * Solange er null ist, leitet `syncLighting()` die drei Farben je Frame
+   * aus der Nebelfarbe ab. Ist er gesetzt, gilt er — sonst überschriebe
+   * der nächste Frame stillschweigend, was Bauer Licht gesetzt hat, und
+   * die Suche danach ginge über die halbe Beleuchtung.
+   *
+   * Gemerkt statt nur „ein Schalter ist umgelegt": `syncLighting()` darf
+   * die Farben je Frame mitbekommen (achter Parameter), und dann muss der
+   * NEUE Wert gelten, nicht der erste, den je jemand gesetzt hat.
    */
-  private himmelVonAussen = false;
+  private himmelGesetzt: HimmelsFarben | null = null;
 
   /**
    * Der Nebelbereich, wie ihn die Szene führt: x Start, y Ende,
@@ -2170,7 +2195,21 @@ export class TerrainSplatMaterial {
     /** LINEAR (Lighting.fogColorSonnenLinear) — Blick ZUR Sonne. */
     fogColorSonne: Color3,
     /** Richtung ZUR Sonne in WELTKOORDINATEN (Lighting.zurSonneWelt). */
-    zurSonneWelt: Vector3
+    zurSonneWelt: Vector3,
+    /**
+     * Der Himmel, den der Boden spiegelt — je Frame, aus dem `look:`-Profil.
+     *
+     * Optional und mit Rückfall: Fehlt er (dieser Zweig), leitet die
+     * Methode Zenit und Horizont weiter aus der Nebelfarbe ab. Der
+     * Integrator verdrahtet ihn mit EINER Zeile in `client/src/main.ts`
+     * an der Stelle, an der `terrain.syncLighting(...)` steht — als
+     * achtes Argument:
+     *
+     *   lighting.sky.gibHimmelsfarben?.() ?? null,
+     *
+     * `TerrainManager.syncLighting` reicht ihn unverändert durch.
+     */
+    himmel?: HimmelsFarben | null
   ): void {
     this.sunDirBlock.value = sunDir;
     this.sunColBlock.value = sunColor;
@@ -2199,7 +2238,16 @@ export class TerrainSplatMaterial {
     // Dass beide dieselbe Regel benutzen, ist der Grund, warum die Naht
     // am Horizont zubleibt: Der Boden spiegelt genau den Himmel, den man
     // über ihm sieht.
-    if (!this.himmelVonAussen) {
+    if (himmel) this.himmelGesetzt = himmel;
+    const gesetzt = this.himmelGesetzt;
+    if (gesetzt) {
+      this.himmelZenitBlock.value = gesetzt.zenit;
+      this.himmelHorizontBlock.value = gesetzt.horizont;
+      // Kein Glühen mitgeliefert? Dann aus dem Horizont ableiten — eine
+      // schwarze Sonnenscheibe im gespiegelten Himmel wäre schlimmer als
+      // eine ungefähre.
+      this.himmelGlanzBlock.value = gesetzt.glanz ?? gesetzt.horizont.scale(0.6);
+    } else {
       this.himmelHorizontBlock.value = fogColor;
       this.himmelZenitBlock.value = new Color3(
         fogColor.r * 0.45,
@@ -2217,8 +2265,11 @@ export class TerrainSplatMaterial {
    * Den Himmel setzen, den der Boden spiegelt — die Schnittstelle für
    * Bauer Licht.
    *
-   * Ein Aufruf schaltet die Ableitung aus der Nebelfarbe DAUERHAFT ab:
-   * Ab dann gelten diese Werte, bis wieder jemand ruft. Erwartet werden
+   * Ein Aufruf schaltet die Ableitung aus der Nebelfarbe ab: Ab dann
+   * gelten diese Werte, bis wieder jemand ruft — entweder hier oder über
+   * den achten Parameter von `syncLighting()`, den der Integrator in
+   * `client/src/main.ts` an der `terrain.syncLighting(...)`-Stelle mit
+   * einer Zeile verdrahtet. Erwartet werden
    * LINEARE Farben, wie sie `Lighting.fogColorLinear` liefert — wer
    * Hex-Werte aus einem `look:`-Block direkt hereingibt, gibt sRGB in
    * eine lineare Pipeline und bekommt einen zu dunklen, zu satten
@@ -2230,10 +2281,10 @@ export class TerrainSplatMaterial {
    * @param glanz    Sonnenglühen im Verlauf. Nur Schichten mit hoher
    *                 Glätte zeigen es (Faktor Glätte²).
    */
-  setzeHimmel(zenit: Color3, horizont: Color3, glanz: Color3): void {
-    this.himmelVonAussen = true;
+  setzeHimmel(zenit: Color3, horizont: Color3, glanz?: Color3): void {
+    this.himmelGesetzt = glanz ? { zenit, horizont, glanz } : { zenit, horizont };
     this.himmelZenitBlock.value = zenit;
     this.himmelHorizontBlock.value = horizont;
-    this.himmelGlanzBlock.value = glanz;
+    this.himmelGlanzBlock.value = glanz ?? horizont.scale(0.6);
   }
 }

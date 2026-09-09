@@ -154,6 +154,41 @@ Beide Werkzeuge sind deterministisch: Ein zweiter Lauf ändert nichts.
 Ohne `assets/store` (Symlink auf den Store ausserhalb des Repos) brechen
 sie ab, statt eine halbe Wahrheit zu schreiben.
 
+### Der Fels steht in `shared/src/storeFelsen.ts`, nicht im Werkzeug
+
+Die Streutabelle des Speicher-Felsens ist HANDARBEIT und wird von keinem
+Generator geschrieben — anders als `storePrefabs.ts`. Sie steht in
+`shared/src/storeFelsen.ts` und haengt ueber `shared/src/flora.ts` in
+denselben Umrechner wie `storeFlora.ts`.
+
+Zwei Dinge daran sind gemessen und nicht geraten, und beide sind
+Fallgruben fuer den naechsten, der die Zahlen anfasst:
+
+* **Der Ursprung der Felsmodelle liegt MITTIG, nicht am Fuss.** Ein
+  Findling steckt bei `versatz: 0` schon von sich aus rund zur Haelfte im
+  Boden. Wer ihm zusaetzlich die naheliegenden −0,15 bis −0,3 m gibt,
+  laesst ein 0,27 m hohes Modell VERSCHWINDEN — ohne Fehler, ohne
+  Warnung. Die Rechnung je Modell steht im Kopf der Datei.
+* **`minTilt`/`maxTilt` sind GRAD, nicht Kosinus.** `streuung.ts` rechnet
+  selbst um. Ein verdrehtes Paar (min > max) macht die Bedingung fuer
+  JEDE Neigung falsch, und die Art faellt lautlos aus der Welt.
+
+Waechter: `tools/test/store-felsen.ts` (Namen, Fenster, Einbaufenster
+20–60 %, Textur, und die Annahme, unter der der Client ohne den Katalog
+ueber Store-Kollision entscheidet) und
+`client/test/store-fels-kollision.ts` (Fels fest, Vegetation und Kulisse
+durchlaessig). Nachgemessen im Gelaende wird mit
+`~/wov-lab-mess/felsen-streuprobe.mts` (Hangverteilung, Stueckzahl je
+Klasse und Neigungsband) und `~/wov-lab-mess/felsen-eingrabung.mts`
+(Schwebe und Versenkung am gestreuten Stand) — beide offline, ohne
+Server und ohne GPU.
+
+Eine bestehende Weltdatei zieht das NICHT von allein nach:
+`RegionDef.vegetation` in `server/data/welten/<instanz>.json` ist eine
+Abschrift der Kuratierungslisten. Erneuert wird sie mit
+`tools/welt-flora-auffrischen.mjs` (`--von` / `--nach`, schreibt nie die
+Quelle).
+
 Der Boden steht DANEBEN, nicht in dieser Kette:
 
 ```

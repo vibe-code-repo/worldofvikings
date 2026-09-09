@@ -36,8 +36,15 @@ import {
   haarfarbeZu,
   ruestungZu,
   istFrisur,
+  // Fels-Kollision: `STORE_FELSEN_NAMEN` sagt, welches Speicher-Prefab die
+  // exakte Oberflaeche statt eines Huellquaders bekommt, `istStoreModell`,
+  // ob ein Prefab ueberhaupt aus dem Speicher stammt (s.
+  // istFesterStoreKoerper unten).
+  STORE_FELSEN_NAMEN,
+  istStoreModell,
+  STORE_NICHT_STREUEN,
 } from '@wov/shared';
-import type { NpcEinordnung, SteinKitConfig } from '@wov/shared';
+import type { NpcEinordnung, SteinKitConfig, PrefabDef } from '@wov/shared';
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { erzeugeSteinKitMaterial, mergeSteinKit } from '../engine/DungeonSteinMaterial.js';
 import { faerbeHaar } from '../player/haarfarbe.js';
@@ -81,6 +88,71 @@ const FELS_KOLLISION = /^(rock|minerock|silvervein|copperore|tinore|obsidian|sto
  * Hüllquader.
  */
 const FELS_MAX_DREIECKE = 4000;
+
+/**
+ * Der Ordner, in dem der Speicher seine PFLANZEN führt.
+ *
+ * Er ist die Grenze von {@link istFesterStoreKoerper} — siehe die
+ * Begründung dort. Als Konstante und nicht als Zeichenkette an der
+ * Abfrage, weil `storeKatalog.ts` denselben Namen für den Ladepfad
+ * benutzt und beide Stellen dieselbe Wahrheit lesen müssen.
+ */
+const STORE_VEGETATIONSORDNER = 'vegetation/';
+
+/**
+ * Ist das ein Speicher-Modell, das ein HINDERNIS sein soll?
+ *
+ * ── Warum die Flags hier nicht reichen ───────────────────────────────
+ * `COLLIDING_FLAGS` liest die Prefab-Flags des Altbestands (TREE_BASE,
+ * DESTRUCTIBLE, PIECE …). Die Speicher-Prefabs haben davon KEINES: Ihr
+ * Generator (`tools/store-prefabs.mjs`) vergibt genau `PERSISTENT`, mit
+ * der ausdrücklichen Begründung, alle anderen Flags beschrieben
+ * VERHALTEN, und ein Fremdmodell habe keins — „es steht da, und das ist
+ * alles".
+ *
+ * Für Deko stimmt das. Für einen Findling nicht: Ohne Körper läuft man
+ * mitten durch einen 20-m-Felsen hindurch, und das ist der einzige
+ * Fehler dieser Art, den man beim Spielen sofort merkt.
+ *
+ * ── Warum die Vegetation ausgenommen ist ─────────────────────────────
+ * Die Grenze ist der Ordner: Was unter `…/vegetation/` liegt, bleibt
+ * durchlässig, alles andere aus dem Speicher wird fest. Das ist keine
+ * Bequemlichkeit, sondern Zuständigkeit — die Kollision der Bäume ist
+ * eine eigene Entscheidung mit eigener Messung (rund 150 Stämme im
+ * 48-m-Kollisionsfenster einer Waldzone), und sie gehört dem Bauer, dem
+ * die Vegetation gehört. Sie hier beiläufig mitzuschalten hiesse, die
+ * halbe Welt in einem Fels-Auftrag umzubauen.
+ *
+ * `SOFT_VEGETATION` prüft die Aufrufstelle davor ohnehin weiter; sie
+ * fängt `…-grass-…`, `…-bush-…` und Verwandte auch dann, wenn sie
+ * einmal ausserhalb des Vegetationsordners liegen sollten.
+ *
+ * ── Und die, die der Speicher selbst als „kein Körper" führt ─────────
+ * `StoreEintrag.kollision.art` kennt `box`, `mesh` und `none`. Die
+ * `none`-Einträge dürfen keinen Körper bekommen — durch eine Wolke und
+ * eine 594 m breite Bergkulisse läuft man hindurch.
+ *
+ * Gefragt wird trotzdem NICHT der Katalog, sondern
+ * {@link STORE_NICHT_STREUEN}. Der Grund steht in `shared/src/index.ts`:
+ * `storeKatalogDaten.ts` ist absichtlich NICHT im Spiel-Bündel — 670
+ * Katalogzeilen, die nur der Editor braucht, lüde sonst jeder Spieler
+ * mit. Eine Kollisionsentscheidung darf das nicht auslösen.
+ *
+ * Tragfähig ist der Ersatz, weil beide Mengen sich AUSSERHALB der
+ * Vegetation exakt decken — nachgemessen: Von den 27 `none`-Einträgen
+ * liegen 21 unter `vegetation/` (Büsche, Äste, Gras, Pilz) und werden
+ * schon vom Ordner abgefangen; die übrigen sechs (drei Kulissen, drei
+ * Wolken) stehen samt und sonders in `STORE_NICHT_STREUEN`. Dass das so
+ * bleibt, hält `tools/test/store-felsen.ts` fest, und zwar am KATALOG —
+ * dort ist er umsonst.
+ *
+ * Is this a store model that should block the player?
+ */
+function istFesterStoreKoerper(def: PrefabDef | undefined): boolean {
+  if (!def?.model || !istStoreModell(def.model)) return false;
+  if (def.model.includes(STORE_VEGETATIONSORDNER)) return false;
+  return !STORE_NICHT_STREUEN.has(def.name);
+}
 
 /**
  * Bauwerke, durch die man hindurchgehen können muss.
@@ -1952,7 +2024,7 @@ export class EntityManager {
       const def = findPrefabByHash(bucket.prefabHash);
       const flags = def?.flags ?? 0n;
       const solide =
-        (flags & COLLIDING_FLAGS) !== 0n &&
+        ((flags & COLLIDING_FLAGS) !== 0n || istFesterStoreKoerper(def)) &&
         (flags & NEVER_COLLIDING_FLAGS) === 0n &&
         !SOFT_VEGETATION.test(bucket.prefabName);
       if (!solide) {
@@ -1998,8 +2070,24 @@ export class EntityManager {
       // Die Obergrenze schützt vor Ausreissern: Was auch immer künftig
       // unter den Namensfilter fällt, darf die Physik nicht sprengen —
       // dann bleibt es bei der Box.
+      //
+      // Für den Speicher-Fels gilt dasselbe, nur wird er nicht am
+      // Namensmuster erkannt, sondern an der Streutabelle: `FELS_KOLLISION`
+      // ist auf den Anfang verankert (`^rock…`), und ein Speicher-Prefab
+      // heisst `environment-sm-env-rock-cliff-01` — es fiele durch.
+      //
+      // Nachgezogen wird das NICHT durch ein zweites Namensmuster hier,
+      // sondern durch die Menge aus `shared/src/storeFelsen.ts`: Was ein
+      // Fels ist, steht dort und nirgends sonst. Ein Muster im Client
+      // liefe beim ersten Modell auseinander, das anders heisst — und
+      // zwar lautlos, denn „hat eine Box statt der Oberfläche" bricht
+      // nichts, es fühlt sich nur falsch an.
+      //
+      // Das Dreiecksbudget trägt: Die 22 Modelle liegen bei 24 bis 986
+      // Dreiecken (gemessen aus den GLBs), die Grenze steht bei 4.000.
       const renderMasters = masters ?? [];
-      const felsig = FELS_KOLLISION.test(bucket.prefabName);
+      const felsig =
+        FELS_KOLLISION.test(bucket.prefabName) || STORE_FELSEN_NAMEN.has(bucket.prefabName);
       const dreiecke = felsig
         ? renderMasters.reduce((s, m) => s + (m.getTotalIndices() / 3 || 0), 0)
         : 0;

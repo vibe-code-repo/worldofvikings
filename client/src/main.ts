@@ -3469,6 +3469,22 @@ async function main() {
   /** Windzeiger der Minimap — einmal angelegt, pro Frame beschrieben. */
   const minimapWind = { dirX: 0, dirZ: 0, intensity: 0 };
 
+  /*
+    Zielfarben für den Himmel, den der Boden spiegelt (Stufe 2, „Look").
+
+    `ValheimSky.gibHimmelsfarben()` legt ohne Zielobjekte zwei frische
+    Color3 an — es gibt Kopien heraus, weil `update()` `reflectState` an
+    Ort und Stelle überschreibt und ein durchgereichter Zeiger sich dem
+    Empfänger unter den Händen änderte. Hier wird pro Frame gefragt,
+    also werden die Ziele mitgegeben (so steht es an der Methode): zwei
+    Objekte für die ganze Sitzung statt zwei je Bild.
+
+    Targets for the sky the ground reflects — passed in because this is a
+    per-frame caller (see `gibHimmelsfarben`).
+  */
+  const bodenHimmelZenit = new Color3();
+  const bodenHimmelHorizont = new Color3();
+
   scene.onBeforeRenderObservable.add(() => {
     if (!world || !terrain || !player || !entities || !grass) return; // waiting for buildWorld()
     const updateStart = performance.now();
@@ -3689,7 +3705,13 @@ async function main() {
       // Weltkoordinaten, weil die Nebelkette des Terrains dort rechnet —
       // Standard und PBR bekommen dieselbe Richtung im Sichtraum.
       lighting.fogColorSonnenLinear,
-      lighting.zurSonneWelt
+      lighting.zurSonneWelt,
+      // Stufe 2: der Himmel, den der metallische Boden spiegelt. Ohne
+      // dieses Argument leitet der Splat Zenit und Horizont aus der
+      // Nebelfarbe ab — richtig aussehend, aber nicht vom `look:`-Profil
+      // geführt. `?.` weil ältere Himmelsfassungen die Methode nicht
+      // haben; dann bleibt es beim abgeleiteten Verlauf.
+      lighting.sky.gibHimmelsfarben?.(bodenHimmelZenit, bodenHimmelHorizont) ?? null
     );
     WindPlugin.time += dt;
     // G-VEG: grass clutter follows the player, wind time advances.

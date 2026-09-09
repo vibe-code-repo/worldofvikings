@@ -216,7 +216,37 @@ look:
   # 0,45. Beide zielen auf dieselbe GEMESSENE Saettigung, nicht auf
   # denselben Reglerwert.
   tonemapping: neutral
-  belichtung: 1.05
+  # 1,35 und nicht mehr 1,05 — bei der ZUSAMMENFUEHRUNG neu gemessen
+  # (09.09.2026, Referenzort 10077/−18723, t=0.708333, Gier 0,
+  # Neigung −0,18, ~/wov-lab-mess/stufe2-kalibrieren.mjs).
+  #
+  # Die 1,05 war richtig, als sie entstand: Bauer Licht ALLEIN traf damit
+  # den fernen Boden auf 57,3 bei einem Ziel von 57,4. Dieselbe Stelle,
+  # dieselbe Pose, dieselbe Stunde ergab nach der Zusammenfuehrung mit
+  # Boden, Gras und Leistung nur noch 48,9 — der neue Store-Boden, das
+  # Clutter-Gras und die dichtere Store-Vegetation sind zusammen dunkler
+  # als das, wogegen kalibriert wurde. Der HIMMEL blieb dabei fast
+  # stehen (68,5 → 72,9), es ist also der Boden, der wegsackt, nicht das
+  # Bild.
+  #
+  # Gemessene Reihe (ferner / naher Boden, Ziel 57,4 / 55,8):
+  #   1,05  48,9 / 40,1     1,20  52,9 / 42,8
+  #   1,35  56,4 / 45,5     1,50  59,9 / 48,0     1,70  64,2 / 51,0
+  # 1,35 setzt den fernen Boden auf −1,0 ans Ziel und halbiert die Luecke
+  # des nahen (−15,7 → −10,3). Preis: Der Himmel steigt 72,9 → 84,9. Er
+  # hat keine Zielzahl (das Vorbildbild gibt nur die beiden Boeden vor),
+  # und er clippt nicht — deshalb ist das der Preis und nicht der Fehler.
+  #
+  # Drei andere Regler wurden ZUERST versucht und bewegen hier nichts;
+  # wer die Luecke erneut angeht, spart sich damit drei Sitzungen:
+  #   HIMMEL_ANTEIL  steht in TerrainSplat.ts schon auf 1,0 (Anschlag).
+  #   nebelWaerme    0 → 0,35 faerbt `fogColorSun` nachweislich warm
+  #                  (0,640/0,691/0,752 → 0,770/0,764/0,757), aendert die
+  #                  Regionen aber um 0,0: Die Pose blickt VON der Sonne
+  #                  weg, und nur dort gilt die zweite Nebelfarbe.
+  #   dunkelheit     0,42 → 0,55 kommt im Client an (messwerte meldet
+  #                  0,55) und aendert die Regionen um ≤ 0,1 Luma.
+  belichtung: 1.35
   kontrast: 1.15
   # FAKTOR: 1 = unveraendert, 0.68 = das Ziel. NICHT Babylons Reglerwert
   # (der laeuft von -100 bis +100 mit 0 als neutral, eine 68 dort heisst

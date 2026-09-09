@@ -26,6 +26,7 @@
     "extract:assets": "npm run extract --workspace=tools/asset-extractor",
     "parse:prefabs": "npm run parse --workspace=tools/prefab-parser",
     "store:aufbereiten": "node tools/store-vegetation-aufbereiten.mjs && tsx tools/store-prefabs.mjs",
+    "store:boden": "node tools/store-terrain-schichten.mjs",
     "test": "node scripts/run-tests.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",

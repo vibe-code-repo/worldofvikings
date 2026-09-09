@@ -154,6 +154,30 @@ Beide Werkzeuge sind deterministisch: Ein zweiter Lauf ändert nichts.
 Ohne `assets/store` (Symlink auf den Store ausserhalb des Repos) brechen
 sie ab, statt eine halbe Wahrheit zu schreiben.
 
+Der Boden steht DANEBEN, nicht in dieser Kette:
+
+```
+npm run store:boden
+```
+
+ruft `tools/store-terrain-schichten.mjs` und schreibt
+`assets/generiert/terrain/`. Es wäre bequem, das an `store:aufbereiten`
+anzuhängen — es gehört trotzdem nicht dorthin, aus zwei Gründen.
+Erstens gibt es zwischen beiden KEINE Reihenfolge: Die Kette oben ist
+eine Kette, weil `store-prefabs.mjs` die Ausgabe der Aufbereitung liest;
+das Bodenwerkzeug liest nichts davon und wird von nichts darin gelesen.
+Zweitens haben sie verschiedene EINGABEN. Die Kette oben braucht allein
+`assets/store`. Das Bodenwerkzeug braucht zusätzlich `assets/textures` —
+den Altbestand, aus dem die Zeilen „Asche" und „Lava-Kruste" sowie die
+Normalmaps kommen. Angehängt würde `store:aufbereiten` auf jeder
+Maschine mit Store, aber ohne Altbestand mit Code 2 abbrechen und die
+fertige Vegetation mit in den Fehlschlag ziehen (gemessen 09.09.2026 im
+Integrationsbaum — genau dieser Abbruch, bevor `assets/textures`
+verlinkt war).
+
+Wer beides braucht, ruft beides; wer nur den Wald anfasst, baut den
+Boden nicht neu.
+
 | Werkzeug | Zweck |
 |---|---|
 | `glb-vorschau.py` | Rendert ein GLB als Vorschaubild, ohne den Client zu starten. |

@@ -713,6 +713,23 @@ const KERN = [
     Per-instance tint: deterministic, spread, amplitude, neutral mean.
   */
   ['client', 'test/instanz-toenung.ts'],
+  /*
+    Stufe 2 (Integration): das zweite Netz gegen die verschachtelten
+    Fernstufen des Speichers (`AssetManager.fernSchalen`). Abgetragen
+    werden sie offline im Aufbereitungswerkzeug; die Regel im Client
+    fängt nur, was ohne Aufbereitung ankommt.
+
+    Der Test bewacht die Grenze in BEIDE Richtungen, und die zweite ist
+    die wichtige: Der Speicher liefert dieselben Schalen AUCH als
+    eigenständige Prefabs (`massive-tree-1a1-lod-1.glb` enthält einzig
+    `Massive_Tree_1A1_LOD_1`, 9.185 Dreiecke). Eine Regel über den Namen
+    — das nächste, wonach hier jemand greift — hätte diese Modelle leer
+    gerendert, ohne Fehler und ohne dass irgendetwas rot geworden wäre.
+    NullEngine, kein `assets/`, <1 s.
+    The client-side net for nested LOD shells, and the standalone prefabs
+    it must NOT touch.
+  */
+  ['client', 'test/lod-fernschalen.ts'],
   // Die Keulung der Schattenwerfer pro Instanz ist konservativ in genau
   // EINER Richtung: Was ueberlebt, wird eingereicht — verworfen wird nur,
   // was seitlich sicher ausserhalb des Lichtkastens liegt. Ein Fehler hier

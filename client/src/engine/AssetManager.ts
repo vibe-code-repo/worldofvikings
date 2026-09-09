@@ -209,6 +209,148 @@ const LOD_NAME = /^lod\d/i;
 const LOD0_NAME = /^lod0/i;
 const NON_LOD0 = /^lod[1-9]\d*/i;
 
+/*
+  ── Zweites Netz gegen verschachtelte Fernstufen (Stufe 2) ─────────────
+
+  Der Speicher legt seine Fernstufen NICHT als `Lod1` neben das Modell,
+  sondern als KIND der Nahstufe in dieselbe Datei: `Tree_1E1` hält
+  `Tree_1E1_1` und `Tree_1E1_2`, `Massive_Tree_1A1 1 Dark` hält
+  `Massive_Tree_1A1_LOD_1`. Unity hätte umgeschaltet, Babylon zeichnet
+  alles übereinander — ein Viertel aller Dreiecke für ein doppelt
+  verschattetes Bild. Die Regel oben (`^lod\d`) greift dort nicht, weil
+  kein Store-Name mit „lod" BEGINNT.
+
+  Abgetragen werden die Schalen offline, in
+  `tools/store-vegetation-aufbereiten.mjs`. Das hier ist nur das Netz
+  darunter: für einen Lauf mit `--lod-behalten`, für einen Speicher, der
+  nie aufbereitet wurde, und für neue Modelle, die niemand durchs
+  Werkzeug geschickt hat.
+
+  ES GEHT NICHT ÜBER DEN NAMEN. Am Namen allein gemessen wäre die Regel
+  falsch, und zwar zerstörerisch: Der Speicher liefert dieselben Schalen
+  AUCH als eigenständige Prefabs. `massive-tree-1a1-lod-1.glb` enthält
+  einzig `Massive_Tree_1A1_LOD_1` (9.185 Dreiecke), `pine-1b1-1.glb`
+  einzig `Pine_1B1_1` (80 Dreiecke) — beide sind ein absichtlich
+  billiger Fernbaum zum Setzen. Ein `/_LOD_?\d/i` über den Namen hätte
+  diese Prefabs LEER gerendert, ohne Fehler und ohne Test.
+
+  Deshalb dieselben DREI Bedingungen wie im Werkzeug, und nur zusammen:
+    1. Der Name behauptet eine Stufe ≥ 1 (`_LOD_1`, `_LOD1`, `_1`).
+    2. In DERSELBEN Datei liegt eine Schale mit demselben Stamm und
+       NIEDRIGERER Stufe — die Nahstufe, die bleibt.
+    3. Die Hüllbox der Fernstufe liegt INNERHALB der behaltenen
+       (Toleranz 0,2 % der längsten Kante).
+  Fehlt die Nahstufe, wie in den beiden Prefabs oben, ist die Bedingung
+  nicht erfüllt und das Modell bleibt vollständig.
+
+  Second net for the store's nested LOD shells. Never by name alone: the
+  store also ships those shells as standalone prefabs, so a name rule
+  would render them empty. Same three conditions as the offline tool.
+*/
+
+/**
+ * Stufennummer aus einem Knotennamen — `null`, wenn der Name keine
+ * behauptet. Ein angehängtes `_primitiveN` des glTF-Laders zählt NICHT
+ * als Stufe: Es entsteht erst beim Laden, wenn ein Mesh mehrere
+ * Primitive hat, und stünde sonst als „Stufe 1" da.
+ */
+export function lodStufeAusName(name: string): { stamm: string; stufe: number } | null {
+  const ohnePrimitive = name.replace(/_primitive\d+$/i, '');
+  const treffer = /^(.*?)_(?:lod_?)?(\d+)$/i.exec(ohnePrimitive);
+  if (!treffer) return null;
+  const stufe = Number(treffer[2]);
+  if (!Number.isFinite(stufe)) return null;
+  return { stamm: treffer[1], stufe };
+}
+
+/**
+ * Ob der Name die Stufe AUSDRÜCKLICH nennt (`_LOD_1`, `_LOD1`) statt sie
+ * nur an eine Ziffer zu hängen (`_1`). Der Unterschied entscheidet, wie
+ * nah die Nahstufe stehen muss — s. `fernSchalen()`.
+ */
+function nenntLodAusdruecklich(name: string): boolean {
+  return /_lod_?\d+(_primitive\d+)?$/i.test(name);
+}
+
+/**
+ * Namen vergleichbar machen: Der Speicher schreibt denselben Stamm mal
+ * `Tree_1E1`, mal `large-bush-1a1`, mal `Massive_Tree_1A1 1 Dark`.
+ * Trennzeichen tragen hier keine Bedeutung.
+ */
+function normStamm(name: string): string {
+  return name.toLowerCase().replace(/[-_ ]/g, '');
+}
+
+/**
+ * Die verschachtelten Fernstufen eines Containers — die Meshes, die
+ * NICHT gezeichnet werden dürfen (s. den Block über `lodStufeAusName`).
+ *
+ * Gibt ein leeres Set zurück, wenn die Datei durchs Werkzeug gelaufen
+ * ist; dann gibt es die Schalen gar nicht mehr. Der Normalfall kostet
+ * damit einen Durchlauf über die Meshliste und sonst nichts.
+ */
+export function fernSchalen(meshes: Mesh[]): Set<Mesh> {
+  const raus = new Set<Mesh>();
+  const mitStufe = meshes
+    .map((m) => ({ mesh: m, ...(lodStufeAusName(m.name) ?? { stamm: '', stufe: -1 }) }))
+    .filter((e) => e.stufe >= 1);
+  if (mitStufe.length === 0) return raus;
+
+  /** Vorfahrenkette eines Knotens, für die Bedingung „hängt darunter". */
+  const vorfahren = (m: Mesh): Set<unknown> => {
+    const s = new Set<unknown>();
+    let p = m.parent;
+    while (p) {
+      s.add(p);
+      p = p.parent;
+    }
+    return s;
+  };
+
+  for (const eintrag of mitStufe) {
+    const { mesh, stamm, stufe } = eintrag;
+    const ahnen = vorfahren(mesh);
+    const ausdruecklich = nenntLodAusdruecklich(mesh.name);
+    const stammNorm = normStamm(stamm);
+
+    // Bedingung 2: eine Schale mit demselben Stamm und NIEDRIGERER Stufe.
+    const nah = meshes.find((k) => {
+      if (k === mesh) return false;
+      const kStufe = lodStufeAusName(k.name)?.stufe ?? 0;
+      if (kStufe >= stufe) return false; // eine höhere Stufe trägt keine
+      if (!normStamm(k.name).startsWith(stammNorm)) return false;
+      // Nur bei ausdrücklichem `_LOD_N` genügt ein Geschwister; eine
+      // blosse Ziffer (`_1`) muss UNTER der Nahstufe hängen. Sonst
+      // verwechselt die Regel Varianten mit Stufen — `_01`/`_02` sind
+      // im Speicher zwei Pflanzen, nicht zwei Entfernungen.
+      if (ahnen.has(k)) return true;
+      return ausdruecklich && k.parent === mesh.parent;
+    });
+    if (!nah) continue;
+
+    // Bedingung 3: Hüllbox innerhalb der behaltenen.
+    mesh.computeWorldMatrix(true);
+    nah.computeWorldMatrix(true);
+    const a = mesh.getBoundingInfo().boundingBox;
+    const b = nah.getBoundingInfo().boundingBox;
+    const kante = Math.max(
+      b.maximumWorld.x - b.minimumWorld.x,
+      b.maximumWorld.y - b.minimumWorld.y,
+      b.maximumWorld.z - b.minimumWorld.z
+    );
+    const tol = kante * 0.002;
+    const drin =
+      a.minimumWorld.x >= b.minimumWorld.x - tol &&
+      a.minimumWorld.y >= b.minimumWorld.y - tol &&
+      a.minimumWorld.z >= b.minimumWorld.z - tol &&
+      a.maximumWorld.x <= b.maximumWorld.x + tol &&
+      a.maximumWorld.y <= b.maximumWorld.y + tol &&
+      a.maximumWorld.z <= b.maximumWorld.z + tol;
+    if (drin) raus.add(mesh);
+  }
+  return raus;
+}
+
 /** Master mesh + its transform relative to the prefab root. */
 export interface PrefabMaster {
   mesh: Mesh;
@@ -467,6 +609,17 @@ export class AssetManager {
       (m): m is Mesh => m instanceof Mesh && !!m.geometry
     );
     const hasLods = withGeometry.some((m) => LOD_NAME.test(m.name));
+    // Zweites Netz gegen die verschachtelten Fernstufen des Speichers —
+    // die Begründung und die drei Bedingungen stehen an `fernSchalen()`.
+    // Im Regelfall (Datei durchs Werkzeug gelaufen) ist das Set leer.
+    const fern = fernSchalen(withGeometry);
+    if (fern.size > 0) {
+      console.warn(
+        `[AssetManager] ${name}: ${fern.size} verschachtelte Fernstufe(n) abgeschaltet ` +
+          `(${[...fern].map((m) => m.name).join(', ')}). Diese Datei ist nicht durch ` +
+          `tools/store-vegetation-aufbereiten.mjs gelaufen.`
+      );
+    }
 
     // Erst sammeln, dann zusammenlegen: Das Verschmelzen braucht die GLB-
     // Hierarchie noch INTAKT (MergeMeshes liest die Weltmatrix jedes
@@ -487,6 +640,10 @@ export class AssetManager {
       }
       if (hasLods && !LOD0_NAME.test(mesh.name)) {
         mesh.setEnabled(false); // higher LOD shells never render
+        continue;
+      }
+      if (fern.has(mesh)) {
+        mesh.setEnabled(false); // verschachtelte Fernstufe, s. fernSchalen()
         continue;
       }
       // Submeshes ohne echtes Material überspringen.

@@ -467,6 +467,19 @@ export class PostProcessing {
       profil.ca.an && this.letzteOptionen.chromaticAberration;
     this.setDepthOfField(profil.dof.an && this.letzteOptionen.depthOfField);
     this.setSunShafts(profil.strahlen.an && this.letzteOptionen.sunShafts);
+    /*
+      ZULETZT, aus demselben Grund wie in `apply()`: Die drei Zeilen
+      darüber hängen Pässe an und ab, also steht erst jetzt fest, welcher
+      Pass vorne in der Kette liegt — und MSAA wirkt nur dort (die lange
+      Begründung steht an `setzeMsaa`).
+
+      Ohne diese Zeile blieb die Abtastung nach einem Profilwechsel auf
+      dem Pass stehen, der VORHER vorne lag. Das Profil kommt vom Server
+      und trifft den Client mitten im Spiel (Anmeldung, Wetterwechsel);
+      wer dabei die Tiefenunschärfe verliert und den Strahlenkranz
+      bekommt, verlöre sonst still seine Kantenglättung.
+    */
+    this.setzeMsaa(this.letzteOptionen.antiAliasing);
   }
 
   apply(opts: PostProcessingOptions): void {
@@ -724,12 +737,45 @@ export class PostProcessing {
    * Nutzer hat den Framerate-Verfall ausdrücklich als Problem benannt; ein
    * Effekt, der die Bildrate halbiert, gehört nicht in die Voreinstellung.
    * Einschaltbar bleibt er über die Einstellungen.
+   *
+   * ── ZWEI Verhältnisse, nicht eines (Stufe 2, gemessen 09.09.2026) ───
+   *
+   * Babylon nimmt für `ratio` entweder eine Zahl oder ein Paar:
+   * `passRatio` misst die VERDECKUNGS-Passage (das Teure),
+   * `postProcessRatio` die AUSGABE des Passes. Hier stand eine einzelne
+   * `0.25` und hat damit beides verkleinert. Die Verdeckung darf klein
+   * sein; die Ausgabe darf es nicht, und zwar aus einem Grund, der mit
+   * dem Aussehen des Kranzes nichts zu tun hat:
+   *
+   * Sobald ein PostProcess an der Kamera hängt, rendert die Szene in die
+   * Zieltextur des ERSTEN Passes der Kette — dessen Größe ist also die
+   * Auflösung des ganzen Spiels. Steht der Strahlenpass vorn und misst
+   * ein Viertel, läuft das komplette Bild in 400×225 und wird auf
+   * 1600×900 hochgezogen. Das sieht aus wie „MSAA ist weg" und ist in
+   * Wahrheit ein Viertel der Bildpunkte: schneller UND treppig, ohne
+   * dass irgendwo ein Schalter auf aus stünde.
+   *
+   * Vorn steht er, sobald kein vollformatiger Pass mehr vor ihm hängt.
+   * Nachgestellt am Referenzort (~/wov-lab-mess/stufe2-msaa2.mjs): Mit
+   * dem ausgelieferten Profil hängt er hinten (Index 9) und alles ist in
+   * Ordnung. Schaltet der Spieler Tiefenunschärfe, Bewegungsunschärfe
+   * und chromatische Aberration ab, rutscht er auf Index 0 — und die
+   * Szene rendert 400×225. Das ist der Befund, den Bauer Licht gemeldet
+   * hat (schneller, aliased); die Strahlen SCHALTEN das MSAA nicht ab,
+   * `setzeMsaa()` ist richtig.
+   *
+   * `postProcessRatio: 1` behebt das an der Wurzel: Der Pass gibt in
+   * voller Auflösung aus und ist damit als erster Pass unschädlich. Die
+   * Verdeckungs-Passage bleibt bei 0,25 — dort liegen die Kosten, und
+   * ihre Auflösung sieht man dem weichen Kranz nicht an.
    */
   private setSunShafts(enabled: boolean): void {
     if (enabled && !this.shafts) {
       const vls = new VolumetricLightScatteringPostProcess(
         'valheimSunShafts',
-        0.25, // Viertelauflösung — siehe Kostenhinweis oben
+        // Verdeckung klein (dort liegen die Kosten), Ausgabe VOLL — die
+        // Begründung steht im Block oben, sie ist nicht optisch.
+        { passRatio: 0.25, postProcessRatio: 1 },
         this.camera,
         undefined,
         60, // Samples

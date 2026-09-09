@@ -498,6 +498,39 @@ const KERN = [
   */
   ['tools/test', 'store-flora.ts', brauchtModelle('assets/store')],
   ['tools/test', 'store-vegetation.ts', brauchtModelle('assets/store')],
+  /*
+    Stufe 2 „Look", Bauer Gras und Wasser — drei Waechter ueber drei
+    Fehler, die alle NICHTS brechen und deshalb keinem auffallen:
+
+      gras-clutter-streuung.ts  Steht ein `grass-short-clump-*` zugleich in
+                                einer Biom-Streuliste UND im Gras-Clutter?
+                                Dann setzt die Welt ein Prefab-Bueschel in
+                                ein Clutter-Bueschel — unsichtbar, aber am
+                                Referenzort 12.024 + 2.311 Instanzen teuer.
+
+      refraktion-huelle.ts      Haelt die 100-m-Schranke des Unterwasser-
+                                Passes (Lehre E23), und kommt ihr wirklich
+                                kein streubares Store-Modell nahe? Ein
+                                Bestands-Master im Pass kostet Millionen
+                                Dreiecke, ohne das Bild zu aendern.
+
+      wasser-farben.ts          Sind die neuen Ankerfarben (#a3afbd /
+                                #dfa974) LINEAR gerechnet, und behaelt jede
+                                Wasserfarbe die Helligkeit ihres gemessenen
+                                Ausgangswerts? Ein roh eingesetztes Hex ist
+                                in einer linearen Kette kein Fehler,
+                                sondern nur zu dunkel und zu satt.
+
+    OHNE WEICHE, alle drei: Sie lesen ausschliesslich versionierte
+    Tabellen — `shared/src/storeFlora.ts`, die ERZEUGTEN, aber
+    eingecheckten `storePrefabs.ts`/`storeKatalogDaten.ts` und die
+    Farbrechnung aus `WaterPlugin.ts`. Kein `assets/`, keine GPU, keine
+    GLB. Sie laufen deshalb auch im CI-Checkout ohne Store. Zusammen unter
+    einer Sekunde (drei tsx-Starts).
+  */
+  ['shared', 'test/gras-clutter-streuung.ts'],
+  ['client', 'test/refraktion-huelle.ts'],
+  ['client', 'test/wasser-farben.ts'],
   ['server', 'test/d6-zdo-delta.ts'],
   ['server', 'test/d8-save-async.ts'],
   ['server', 'test/d9-terrain-verdichtung.ts'],

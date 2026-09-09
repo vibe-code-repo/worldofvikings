@@ -72,6 +72,45 @@
  */
 
 import type { FloraKurz } from './flora.js';
+import { STORE_GRAS_AKTIV } from './storeKatalog.js';
+
+/**
+ * Die vier Grasbüschel — die einzigen Einträge dieser Datei, die ein
+ * SCHALTER ein- und ausbaut.
+ *
+ * Seit Stufe 2 zeichnet der Gras-Clutter sie als Thin Instances
+ * (`client/src/engine/GrassClutter.ts`, Tabelle `STORE_GRAS_MODELLE`).
+ * Zweimal dasselbe Büschel an derselben Stelle sähe man nicht, es
+ * kostete nur — und die Prefab-Streuung ist die teure Hälfte: 12.024
+ * Instanzen `-clump-1` und 2.311 `-redblue` allein am Referenzort
+ * (gemessen 09.09.2026).
+ *
+ * Die Zeilen bleiben trotzdem STEHEN und werden nicht gelöscht: Sie sind
+ * die andere Hälfte des Rückfalls. Mit `STORE_GRAS_AKTIV = false`
+ * zeichnet der Clutter wieder seine Altbestands-Karten, und dann muss
+ * die Streuung die Büschel wieder liefern — sonst wäre „aus" nicht der
+ * Zustand davor, sondern ein dritter.
+ */
+const GRAS_BUESCHEL_WIESE: readonly FloraKurz[] = [
+  { name: 'vegetation-grass-short-clump-1', radius: 0.5, min: 18, max: 44, maxTilt: 32, wald: [false, 0.0, 5], gruppe: [4, 3, 7], kippen: 6, scaleMin: 0.8, scaleMax: 1.4 }, // 0,2 m, r 0,6
+  { name: 'vegetation-grass-short-clump-redblue', radius: 0.7, min: 6, max: 16, maxTilt: 28, wald: [false, 1.1, 5], gruppe: [5, 2, 5], kippen: 6 }, // 0,2 m, r 0,6
+];
+
+/** Dasselbe für den Hohen Norden — Schneegras und Trockengras. */
+const GRAS_BUESCHEL_HOCHNORD: readonly FloraKurz[] = [
+  { name: 'vegetation-grass-short-clump-snow', radius: 0.7, min: 4, max: 12, maxTilt: 35, wald: [false, 0.0, 5], gruppe: [5, 2, 4], kippen: 6, scaleMin: 0.8, scaleMax: 1.3 }, // 0,2 m
+  { name: 'vegetation-grass-short-clump-yellow', radius: 0.8, min: 3, max: 9, maxTilt: 38, wald: [false, 0.0, 5], gruppe: [5, 1, 4], kippen: 7, scaleMin: 0.8, scaleMax: 1.3 }, // 0,2 m, Trockengras
+];
+
+/**
+ * Die Büschel, sofern der Clutter sie NICHT schon zeichnet — leer bei
+ * `STORE_GRAS_AKTIV = true`.
+ *
+ * Eine Funktion und kein `if` an den fünf Streulisten: Der Schalter wird
+ * an EINER Stelle gelesen, und die Listen bleiben Tabellen.
+ */
+const buescheln = (liste: readonly FloraKurz[]): readonly FloraKurz[] =>
+  STORE_GRAS_AKTIV ? [] : liste;
 
 /**
  * Steht die Store-Vegetation in den Kuratierungslisten?
@@ -141,20 +180,14 @@ export const STORE_GRASLAND_FLORA: readonly FloraKurz[] = [
   { name: 'vegetation-bush-1a3', radius: 1.5, min: 3, max: 10, maxTilt: 38, wald: [true, 0.9, 1.3], gruppe: [8, 2, 4], kippen: 4 }, // 2,1 m, r 1,8
 
   // ── Grasbüschel ────────────────────────────────────────────────────
-  // Zehn Dreiecke je Büschel — das billigste Modell des ganzen Bestands,
-  // und deshalb das einzige, das die Fläche wirklich decken darf. Die
-  // Gruppengrösse multipliziert: 18…44 Ziehungen à 3…7 ergeben rund 55
-  // bis 300 Büschel je Zone.
-  //
-  // Kein Waldfenster (`false`): Gras wächst auf der Wiese UND unter den
-  // Bäumen; ein Fenster täuschte hier eine Regel vor, die niemand liest
-  // (siehe Kopf von `flora.ts`, „NACHGEPRÜFT").
-  { name: 'vegetation-grass-short-clump-1', radius: 0.5, min: 18, max: 44, maxTilt: 32, wald: [false, 0.0, 5], gruppe: [4, 3, 7], kippen: 6, scaleMin: 0.8, scaleMax: 1.4 }, // 0,2 m, r 0,6
-  // Die bunte Variante ist der Blumen-Ersatz: derselbe Büschel, aber mit
-  // roten und blauen Blüten im Atlas (gemessen 0,350/0,447/0,186 — der
-  // einzige Vegetationsatlas des Stores mit echter Buntheit). Sie steht
-  // deshalb nur auf der offenen Wiese und in Horsten.
-  { name: 'vegetation-grass-short-clump-redblue', radius: 0.7, min: 6, max: 16, maxTilt: 28, wald: [false, 1.1, 5], gruppe: [5, 2, 5], kippen: 6 }, // 0,2 m, r 0,6
+  // Zehn Dreiecke je Büschel — das billigste Modell des ganzen Bestands.
+  // Seit Stufe 2 zeichnet sie trotzdem nicht die Streuung, sondern der
+  // Gras-Clutter (Thin Instances, gemeinsame Keulung): Die Zeilen stehen
+  // in `GRAS_BUESCHEL_WIESE` oben und kommen nur bei
+  // `STORE_GRAS_AKTIV = false` hierher zurück. Die bunte Variante ist der
+  // Blumen-Ersatz (Atlas 0,350/0,447/0,186 — der einzige
+  // Vegetationsatlas des Stores mit echter Buntheit).
+  ...buescheln(GRAS_BUESCHEL_WIESE),
 
   // ── Fallholz ───────────────────────────────────────────────────────
   // Abgebrochene, noch belaubte Äste — sie liegen dort, wo der Wald
@@ -306,8 +339,9 @@ export const STORE_HOCHNORD_FLORA: readonly FloraKurz[] = [
   // gilt hier genauso — die GRUPPENGRÖSSE multipliziert die Stückzahl,
   // und das fällt beim Lesen der Zeile nicht auf.
   { name: 'vegetation-bush-1a2-small-1-snow', radius: 1.6, min: 1, max: 5, maxTilt: 40, wald: [false, 0.0, 5], gruppe: [8, 1, 3], kippen: 5 }, // 2,0 m, r 1,6
-  { name: 'vegetation-grass-short-clump-snow', radius: 0.7, min: 4, max: 12, maxTilt: 35, wald: [false, 0.0, 5], gruppe: [5, 2, 4], kippen: 6, scaleMin: 0.8, scaleMax: 1.3 }, // 0,2 m
-  { name: 'vegetation-grass-short-clump-yellow', radius: 0.8, min: 3, max: 9, maxTilt: 38, wald: [false, 0.0, 5], gruppe: [5, 1, 4], kippen: 7, scaleMin: 0.8, scaleMax: 1.3 }, // 0,2 m, Trockengras
+  // Schnee- und Trockengras zeichnet der Clutter, siehe
+  // `GRAS_BUESCHEL_HOCHNORD` oben.
+  ...buescheln(GRAS_BUESCHEL_HOCHNORD),
 ];
 
 /**

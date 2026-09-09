@@ -49,6 +49,7 @@ import {
   sanitizeWorldLayout,
   STORE_FLORA_AKTIV,
   STORE_FLORA_BEREIT,
+  STORE_GRAS_AKTIV,
   type WorldLayout,
 } from '@wov/shared';
 import { ZDOManager } from '../src/zdo/ZDOManager.js';
@@ -166,7 +167,28 @@ check('kuratiert: NICHTS ausserhalb der Liste', fremdAnzahl === 0, `= ${fremdAnz
 const artenMit = [...mitFlora.keys()].filter((n) => eigen.has(n));
 check('kuratiert: Bäume vertreten', artenMit.some(istBaum));
 check('kuratiert: Sträucher vertreten', artenMit.some(istStrauch));
-check('kuratiert: Bodenpflanzen vertreten', artenMit.some(istBodenpflanze));
+/*
+  ⚠ Die unterste Schicht ist seit Stufe 2 nicht mehr Sache der STREUUNG.
+  Die vier `grass-short-clump-*` waren die einzigen Arten unter einem
+  Meter; sie zeichnet jetzt der Gras-Clutter als Thin Instances
+  (`client/src/engine/GrassClutter.ts`, Schalter `STORE_GRAS_AKTIV`).
+
+  Der Wächter wird deshalb nicht gestrichen, sondern umgehängt: Solange
+  der Clutter zuständig ist, MUSS die Streuliste den Boden freilassen —
+  stünde dort wieder eine Bodenpflanze, stünde sie im Clutter-Gras. Ist
+  der Clutter aus, gilt die alte Zusage unverändert. So bleibt in beiden
+  Stellungen genau eine Quelle für die unterste Schicht, und der Test
+  sagt, welche.
+*/
+if (STORE_GRAS_AKTIV) {
+  check(
+    'kuratiert: unterste Schicht liegt beim Clutter, nicht in der Streuung',
+    !artenMit.some(istBodenpflanze),
+    artenMit.filter(istBodenpflanze).join(', ')
+  );
+} else {
+  check('kuratiert: Bodenpflanzen vertreten', artenMit.some(istBodenpflanze));
+}
 
 // ── 2. Ohne Kuratierung: gar nichts ──────────────────────────────────
 // Bis Block A stand hier „Originalbewuchs vorhanden": Eine Region ohne

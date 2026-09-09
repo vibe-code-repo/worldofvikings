@@ -33,9 +33,16 @@ import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import type { Scene } from '@babylonjs/core/scene';
-import { Biome, WATER_LEVEL, fbm } from '@wov/shared';
+import { Biome, STORE_GRAS_AKTIV, WATER_LEVEL, fbm } from '@wov/shared';
 import type { ClientWorld } from '../world/World';
 import { ClutterWindPlugin } from './ClutterWindPlugin';
+import { modelBaseUrl, modelDateiName } from './assetUrls';
+
+// Der Schalter wohnt in `shared` und wird hier nur weitergereicht: Beide
+// Seiten — Clutter und Streutabelle (`shared/src/storeFlora.ts`) — müssen
+// dieselbe Wahrheit lesen, sonst steht jedes Büschel zweimal oder gar
+// nicht in der Welt. Die Begründung steht bei der Konstante selbst.
+export { STORE_GRAS_AKTIV };
 
 /** Original m_grassPatchSize / m_distance from the dumped scene (documentation
  *  reference only — see BUILD_RADIUS below for the value that actually gates
@@ -143,6 +150,137 @@ interface ClutterEntry {
   /** Cross meshes get up-normals (lit like the ground) — 3D meshes keep theirs. */
   readonly pinUpNormals: boolean;
   readonly color: [number, number, number];
+  /**
+   * Welches Store-Büschel zeichnet diesen Eintrag — statt `mesh`/`texture`?
+   *
+   * Gesetzt heisst: Geometrie, Atlas UND Tönung kommen aus der GLB
+   * (siehe {@link STORE_GRAS_MODELLE}); `mesh` und `texture` bleiben als
+   * Rückfall stehen und greifen wieder, sobald `STORE_GRAS_AKTIV` aus
+   * ist. Die Tönungskarte `grass_terrain_color` bleibt für solche
+   * Einträge AUS — der Store-Atlas ist bereits farbig, zweimal grün ergibt
+   * Neon (siehe {@link MEADOWS_TINT} und den Kopf dieser Datei).
+   */
+  readonly storeGras?: StoreGrasName;
+  /**
+   * Grösse des Büschels, WENN der Store zeichnet — statt `prefabScale`,
+   * `scaleMin` und `scaleMax`.
+   *
+   * ── Warum eigene Zahlen und nicht die der Tabelle ────────────────────
+   * Am Bild gelernt (09.09.2026, `gras-probe2-wiese.png`): Beide Modelle
+   * sind zwar fast gleich gross — `clutter_default` misst 0,90 × 0,28 m,
+   * das Store-Büschel 1,00 × 0,25 m —, aber sie sind ANDERS gebaut. Der
+   * Altbestands-Halm verteilt 36 Dreiecke über seine Spanne; das
+   * Store-Büschel sind DREI Karten mit zusammen 6 Dreiecken. Mit `prefabScale`
+   * 1,5/2,0/1,5 mal `scaleMax` 2,3 wird daraus eine 2,2 m breite Karte —
+   * gemessen an einer Instanz: Skala x 2,198, y 2,93. Beim Altbestand
+   * ergibt derselbe Faktor viele feine Halme, beim Store drei Segel, die
+   * dem Spieler vor dem Gesicht stehen.
+   *
+   * Die Werte hier sind deshalb die der Stufe-1-STREUUNG, die dasselbe
+   * Modell als Prefab setzte (`storeFlora.ts`: `scaleMin` 0,8,
+   * `scaleMax` 1,4 bei `localScale` 1) — also genau die Grösse, gegen die
+   * der Bildvergleich läuft. Nebenwirkung, die dazugehört: Die höchste
+   * Halmspitze liegt damit bei 0,223 × 1,5 × 1,4 = 0,47 m, also unter der
+   * halben Meter-Marke, ab der ADR-0027 keinen Schattenwurf mehr will.
+   */
+  readonly storeScale?: {
+    readonly prefabScale: readonly [number, number, number];
+    readonly scaleMin: number;
+    readonly scaleMax: number;
+  };
+  /**
+   * Eintrag, den es NUR mit dem Store gibt.
+   *
+   * Die drei Farbvarianten des Speichers (Blüten, Trockengras, Schnee)
+   * haben im Altbestand keine Entsprechung. Sie stehen deshalb nicht in
+   * der Stufe-0-Tabelle, sondern werden bei `STORE_GRAS_AKTIV = false`
+   * herausgefiltert — sonst zeigte der Rückfall einen Zustand, den es nie
+   * gab.
+   */
+  readonly nurMitStore?: boolean;
+}
+
+/**
+ * Die Grasbüschel des Speichers, wie der Clutter sie zeichnet.
+ *
+ * ── Was in der Datei steht (gemessen, nicht angenommen) ──────────────
+ * `vegetation/grass-short-clump-*.glb`, 4.3 kB, zwei Knoten unter EINEM
+ * Material: `…_LOD0` mit 6 Dreiecken / 12 Ecken und `…_LOD1` mit 4 / 8.
+ * LOD0 sind drei gekreuzte Karten von 1,00 m Breite und 0,25 m Höhe
+ * (y −0,027 … 0,223) — fast genau die Masse von `clutter_default.glb`
+ * (0,90 × 0,28 m), nur mit 6 statt 36 Dreiecken. Die Normalen sind bereits
+ * nach OBEN eingebacken (y 0,996…0,997), passen also zu `pinUpNormals`.
+ *
+ * ── Warum LOD1 nicht mitgeladen wird ─────────────────────────────────
+ * Beide Netze stehen im selben Knotenbaum an derselben Stelle. Wer die
+ * Datei einfach ausliest, bekommt beide und zeichnet jedes Büschel
+ * doppelt ineinander — 10 statt 6 Dreiecke für dasselbe Bild. Der
+ * Knotenname ist die einzige Unterscheidung, deshalb steht er hier.
+ *
+ * ── Warum COLOR_0 NICHT übernommen wird ──────────────────────────────
+ * Die GLB trägt Vertexfarben, und sie sind KEINE Farben: gemessen
+ * (0,13/1,00/1,00) an den oberen und (0,01/0,00/1,00) an den unteren
+ * Ecken — eine Biegemaske für den Synty-Windshader. Als `ColorKind` an
+ * ein StandardMaterial gehängt, multipliziert Babylon sie auf die
+ * Grundfarbe: Der Halmfuss würde blauschwarz. Die Biegung liefert bei uns
+ * ohnehin `ClutterWindPlugin` aus der Vertexhöhe.
+ *
+ * ── Woher die Tönung kommt ───────────────────────────────────────────
+ * Aus der GLB, zur Ladezeit ausgelesen (`PBRMaterial.albedoColor` =
+ * `baseColorFactor`, linear) — NICHT hier abgeschrieben. `grass-short-
+ * clump-1` trägt [0.85, 1, 0.6], `-yellow` [1, 0.86, 0.45], die beiden
+ * anderen keine. Eine Kopie an dieser Stelle liefe beim nächsten Lauf von
+ * `tools/store-vegetation-aufbereiten.mjs` auseinander, und zwar lautlos.
+ */
+const STORE_GRAS_MODELLE = {
+  gruen: { modell: 'store-lab/vegetation/grass-short-clump-1', netz: 'SM_Env_Grass_Short_Clump_01_LOD0' },
+  bunt: { modell: 'store-lab/vegetation/grass-short-clump-redblue', netz: 'SM_Env_Grass_Short_Clump_01_LOD0' },
+  gelb: { modell: 'store-lab/vegetation/grass-short-clump-yellow', netz: 'SM_Env_Grass_Short_Clump_01_LOD0' },
+  schnee: { modell: 'store-lab/vegetation/grass-short-clump-snow', netz: 'SM_Env_Grass_Short_Clump_01_LOD0' },
+} as const;
+
+type StoreGrasName = keyof typeof STORE_GRAS_MODELLE;
+
+/**
+ * Tönungsstreuung je Büschel — gegen den „gestempelten" Bestand.
+ *
+ * Die Analyse „Look-Übertragung ins Labor" (§2 „Vegetation") hält fest,
+ * woran der Vorbild-Shader seine Lebendigkeit hat: Die Laub- und
+ * Halmfarbe ist Grundton × zwei Weltraum-Rauschskalen. Unser Clutter
+ * kennt kein Rauschen — jedes Büschel eines Eintrags trägt exakt dieselbe
+ * Farbe, und eine Wiese aus 45.000 identischen Büscheln liest sich als
+ * Stempelmuster. Der billige Ersatz, den die Analyse selbst vorschlägt:
+ * eine Streuung je THIN INSTANCE über den vorhandenen Farbpuffer.
+ *
+ * ── Warum die Zahlen hoch zwei-Komma-zwei gehen ──────────────────────
+ * Der Instanzfarb-Puffer multipliziert im LINEAREN Raum (die Szene
+ * rechnet linear, siehe Farbraum-Block in Lighting.ts). Ein linearer
+ * Faktor 1,07 sieht auf dem Bildschirm nur wie 1,07^(1/2.2) ≈ 1,03 aus —
+ * die Hälfte der beabsichtigten Wirkung. Deshalb ist hier die
+ * WAHRNEHMBARE Streuung angegeben und wird beim Füllen des Puffers nach
+ * linear gehoben.
+ *
+ *   Luma  ±7 %  — Helligkeit; darunter sieht man nichts, darüber wird die
+ *                 Wiese fleckig statt lebendig.
+ *   Farbe ±5 %  — gegenläufig auf Rot und Blau, also eine Drehung von
+ *                 gelbgrün nach blaugrün. Grün bleibt unberührt, damit die
+ *                 gemessene Grundfarbe des Atlas erhalten bleibt.
+ *
+ * ── Nachgemessen am Puffer (09.09.2026, 18.260 Büschel `meadowsGrass`) ─
+ * Wahrnehmbarer Grünkanal: Mittel 1,000, Standardabweichung 0,040,
+ * Spanne 0,930…1,070 — also genau die beabsichtigten ±7 %. Linear
+ * gemessen liegt die Spanne bei 0,852…1,161; im Rotkanal, auf den die
+ * Farbdrehung zusätzlich wirkt, bei 0,762…1,290. Der Unterschied
+ * zwischen beiden Zahlenpaaren IST der Grund für die Potenz unten; wer
+ * die Streuung an den linearen Werten abliest, hält sie für doppelt so
+ * stark, wie sie aussieht.
+ */
+const GRAS_LUMA_STREUUNG = 0.07;
+const GRAS_FARB_STREUUNG = 0.05;
+
+/** Wahrnehmbaren Faktor in den linearen Raum heben (siehe oben). */
+function nachLinear(faktor: number): number {
+  return Math.pow(Math.max(0, faktor), 2.2);
 }
 
 /**
@@ -219,9 +357,9 @@ const B = Biome;
  * über die Bildsprache — dieselbe Lehre wie bei der Fels-Schwelle (E4), wo
  * ein frei erfundener Ersatzwert später zurückgenommen werden musste.
  */
-const ENTRIES: readonly ClutterEntry[] = [
-  { key: 'meadowsGrass', biome: B.Meadows | B.Ocean, amount: 200, mesh: 'default', texture: 'grass_meadows_gen', terrainTint: true, texRepeatU: 1, prefabScale: [1.5, 2.0, 1.5], scaleMin: 1.0, scaleMax: 2.3, maxTiltCos: cos(25), minAlt: 0.4, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 0, fractalMax: 1, cutoff: 0.46, fadeMin: 20, fadeMax: 35, swayAmp: 0.1, pushDist: 2.0, pinUpNormals: true, color: [1, 1, 1] },
-  { key: 'meadowsGrassShort', biome: B.Meadows | B.Ocean, amount: 250, mesh: 'default', texture: 'grass_meadows_gen', terrainTint: true, texRepeatU: 1, prefabScale: [1.2, 1.2, 1.2], scaleMin: 1.0, scaleMax: 2.0, maxTiltCos: cos(25), minAlt: 0.3, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 1.0, fractalMax: 3.0, cutoff: 0.46, fadeMin: 20, fadeMax: 35, swayAmp: 0.05, pushDist: 0.5, pinUpNormals: true, color: [1, 1, 1] },
+const ROH_ENTRIES: readonly ClutterEntry[] = [
+  { key: 'meadowsGrass', biome: B.Meadows | B.Ocean, amount: 200, mesh: 'default', texture: 'grass_meadows_gen', storeGras: 'gruen', storeScale: { prefabScale: [1, 1.5, 1], scaleMin: 0.9, scaleMax: 1.4 }, terrainTint: true, texRepeatU: 1, prefabScale: [1.5, 2.0, 1.5], scaleMin: 1.0, scaleMax: 2.3, maxTiltCos: cos(25), minAlt: 0.4, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 0, fractalMax: 1, cutoff: 0.46, fadeMin: 20, fadeMax: 35, swayAmp: 0.1, pushDist: 2.0, pinUpNormals: true, color: [1, 1, 1] },
+  { key: 'meadowsGrassShort', biome: B.Meadows | B.Ocean, amount: 250, mesh: 'default', texture: 'grass_meadows_gen', storeGras: 'gruen', storeScale: { prefabScale: [1, 1, 1], scaleMin: 0.8, scaleMax: 1.2 }, terrainTint: true, texRepeatU: 1, prefabScale: [1.2, 1.2, 1.2], scaleMin: 1.0, scaleMax: 2.0, maxTiltCos: cos(25), minAlt: 0.3, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 1.0, fractalMax: 3.0, cutoff: 0.46, fadeMin: 20, fadeMax: 35, swayAmp: 0.05, pushDist: 0.5, pinUpNormals: true, color: [1, 1, 1] },
   { key: 'meadowsShrub', biome: B.Meadows | B.Ocean, amount: 8, mesh: 'plane', texture: 'clutter_shrub', terrainTint: false, texRepeatU: 1, prefabScale: [0.3, 1.0, 0.3], scaleMin: 1.0, scaleMax: 1.5, maxTiltCos: cos(30), minAlt: 1.0, maxAlt: 1000, terrainTilt: false, snapToWater: false, randomOffset: 0, inForest: true, forestMin: 0, forestMax: 1.15, fractalScale: 0, fractalMin: 0.5, fractalMax: 1, cutoff: 0.5, fadeMin: 20, fadeMax: 35, swayAmp: 0.05, pushDist: 0.8, pinUpNormals: true, color: [1, 1, 1] },
   { key: 'meadowsFern', biome: B.Meadows, amount: 30, mesh: 'fern', texture: 'autumn_ormbunke_green', terrainTint: false, texRepeatU: 1, prefabScale: [1, 1, 1], scaleMin: 1.0, scaleMax: 1.0, maxTiltCos: cos(18), minAlt: 1.0, maxAlt: 4.0, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: true, forestMin: 0, forestMax: 1.0, fractalScale: 0, fractalMin: 0.5, fractalMax: 1, cutoff: 0.5, fadeMin: 3.8, fadeMax: 40, swayAmp: 0.04, pushDist: 1.0, pinUpNormals: false, color: [1, 1, 1] },
   { key: 'heathGrass', biome: B.Plains, amount: 200, mesh: 'default', texture: 'grass_heath_gen', terrainTint: false, texRepeatU: 1, prefabScale: [1.3, 3.5, 1.3], scaleMin: 0.7, scaleMax: 1.5, maxTiltCos: cos(30), minAlt: 0.5, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 0, fractalMax: 0.8, cutoff: 0.5, fadeMin: 20, fadeMax: 35, swayAmp: 0.12, pushDist: 1.5, pinUpNormals: true, color: [1, 1, 1] },
@@ -232,8 +370,33 @@ const ENTRIES: readonly ClutterEntry[] = [
   { key: 'swampFern', biome: B.Swamp, amount: 4, mesh: 'fern', texture: 'autumn_ormbunke_swamp', terrainTint: false, texRepeatU: 1, prefabScale: [1, 1, 1], scaleMin: 0.5, scaleMax: 1.0, maxTiltCos: cos(18), minAlt: 0.0, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 0, fractalMin: 0.5, fractalMax: 1, cutoff: 0.5, fadeMin: 3.8, fadeMax: 40, swayAmp: 0.02, pushDist: 0.5, pinUpNormals: false, color: [1, 1, 1] },
   { key: 'deepforestFern', biome: B.BlackForest, amount: 10, mesh: 'fern', texture: 'autumn_ormbunke_green', terrainTint: false, texRepeatU: 1, prefabScale: [1, 1, 1], scaleMin: 1.0, scaleMax: 1.0, maxTiltCos: cos(18), minAlt: 1.0, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 0, fractalMin: 0.5, fractalMax: 1, cutoff: 0.5, fadeMin: 3.8, fadeMax: 40, swayAmp: 0.04, pushDist: 1.0, pinUpNormals: false, color: [1, 1, 1] },
   { key: 'vass', biome: B.Meadows | B.Swamp | B.Mountain | B.BlackForest | B.Plains | B.Ocean | B.Mistlands, amount: 30, mesh: 'vass', texture: 'vass_texture01', terrainTint: false, texRepeatU: 1, prefabScale: [1, 1, 1], scaleMin: 1.0, scaleMax: 1.3, maxTiltCos: cos(90), minAlt: -1.0, maxAlt: -0.1, terrainTilt: false, snapToWater: true, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 0, fractalMax: 1, cutoff: 0.5, fadeMin: 35, fadeMax: 40, swayAmp: 0.15, pushDist: 1.45, pinUpNormals: false, color: [1, 1, 1] },
+  // ── Nur mit dem Store: die drei Farbvarianten des Büschels ────────
+  //
+  // Sie ersetzen ihre eigene Prefab-Streuung, nicht mehr und nicht
+  // weniger. Deshalb ist `amount` EINS und nicht 200: Ein Kandidat je
+  // 10-m-Patch sind rechnerisch 41 je 64-m-Zone, und das Fraktalfenster
+  // darunter lässt rund ein Viertel durch — die Grössenordnung, die
+  // `shared/src/storeFlora.ts` für diese drei Zeilen vorsah (6…16 bzw.
+  // 3…12 je Zone). Eine Wiese machen sie nicht; sie sind der Farbtupfer
+  // darin.
+  { key: 'wieseGrasBunt', biome: B.Meadows, amount: 1, mesh: 'default', texture: 'grass_meadows_gen', storeGras: 'bunt', storeScale: { prefabScale: [1, 1.3, 1], scaleMin: 0.9, scaleMax: 1.3 }, nurMitStore: true, terrainTint: false, texRepeatU: 1, prefabScale: [1.2, 1.4, 1.2], scaleMin: 0.9, scaleMax: 1.3, maxTiltCos: cos(28), minAlt: 0.4, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 7, fractalMin: 0.55, fractalMax: 1, cutoff: 0.5, fadeMin: 20, fadeMax: 35, swayAmp: 0.05, pushDist: 0.6, pinUpNormals: true, color: [1, 1, 1] },
+  { key: 'nordGrasGelb', biome: B.DeepNorth | B.Mountain, amount: 1, mesh: 'default', texture: 'grass_heath_gen', storeGras: 'gelb', storeScale: { prefabScale: [1, 1.3, 1], scaleMin: 0.8, scaleMax: 1.3 }, nurMitStore: true, terrainTint: false, texRepeatU: 1, prefabScale: [1.2, 1.4, 1.2], scaleMin: 0.8, scaleMax: 1.3, maxTiltCos: cos(38), minAlt: 0.5, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 7, fractalMin: 0.5, fractalMax: 1, cutoff: 0.5, fadeMin: 20, fadeMax: 35, swayAmp: 0.06, pushDist: 0.6, pinUpNormals: true, color: [1, 1, 1] },
+  { key: 'nordGrasSchnee', biome: B.DeepNorth | B.Mountain, amount: 1, mesh: 'default', texture: 'grass_heath_gen', storeGras: 'schnee', storeScale: { prefabScale: [1, 1.2, 1], scaleMin: 0.8, scaleMax: 1.3 }, nurMitStore: true, terrainTint: false, texRepeatU: 1, prefabScale: [1.2, 1.3, 1.2], scaleMin: 0.8, scaleMax: 1.3, maxTiltCos: cos(35), minAlt: 0.5, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 7, fractalMin: 0.45, fractalMax: 1, cutoff: 0.5, fadeMin: 20, fadeMax: 35, swayAmp: 0.05, pushDist: 0.6, pinUpNormals: true, color: [1, 1, 1] },
   { key: 'lilies', biome: B.Meadows | B.BlackForest, amount: 40, mesh: 'lily', texture: 'waterlilies', terrainTint: false, texRepeatU: 1, prefabScale: [1, 1, 1], scaleMin: 0.4, scaleMax: 0.6, maxTiltCos: cos(90), minAlt: -1.5, maxAlt: -0.2, terrainTilt: false, snapToWater: true, schwimmt: true, randomOffset: 0.1, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 2, fractalMin: 0, fractalMax: 1, cutoff: 0.45, fadeMin: 20, fadeMax: 35, swayAmp: 0.05, pushDist: 2.0, pinUpNormals: false, color: [0.618, 0.618, 0.618] },
 ];
+
+/**
+ * Die Tabelle, wie sie WIRKT.
+ *
+ * Ohne den Store fallen die drei `nurMitStore`-Zeilen heraus, und die
+ * beiden Wiesen-Einträge zeichnen wieder ihre Altbestands-Karten
+ * (`storeGras` wird dann nirgends gelesen). `ROH_ENTRIES` bleibt darüber
+ * als die vollständige, unveränderte Tabelle stehen — der Rückfall ist
+ * eine Auswahl, keine zweite Wahrheit.
+ */
+const ENTRIES: readonly ClutterEntry[] = ROH_ENTRIES.filter(
+  (e) => STORE_GRAS_AKTIV || e.nurMitStore !== true
+);
 
 /**
  * BUG (reported): grass/plants visibly "build up" while running in one
@@ -361,9 +524,35 @@ interface Variant {
   geometry: { positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices: Uint32Array };
   material: StandardMaterial;
   topY: number;
+  /**
+   * Die WIRKSAME Grösse — `entry.storeScale`, wenn der Store zeichnet,
+   * sonst die Tabellenwerte. An einer Stelle aufgelöst, damit Zellaufbau,
+   * Windhöhe und externe Streuer (`wiesenStreugut`) nicht dreimal
+   * dieselbe Fallunterscheidung treffen — und einer davon sie vergisst.
+   */
+  groesse: { prefabScale: readonly [number, number, number]; scaleMin: number; scaleMax: number };
+  /**
+   * Braucht dieser Eintrag einen Farbpuffer je Thin Instance — und wofür?
+   *
+   * `karte`   die Wiesen-Tönung aus `grass_terrain_color` (Altbestand),
+   * `streuung` die Tönungsstreuung je Büschel (Store-Gras),
+   * `nein`    kein Puffer.
+   *
+   * Beides zugleich gibt es nicht, und das ist der Punkt: Der Store-Atlas
+   * ist bereits farbig, die Tönungskarte darüber ergäbe grün × grün.
+   */
+  farbe: 'karte' | 'streuung' | 'nein';
 }
 
 interface QueuedCell { cx: number; cy: number; d2: number }
+
+/** Ein Store-Büschel, fertig zum Zeichnen: Geometrie, Atlas, Tönung. */
+interface StoreGrasFertig {
+  geometry: Variant['geometry'];
+  textur: Texture;
+  /** `baseColorFactor` der GLB — LINEAR, direkt als `diffuseColor` brauchbar. */
+  tint: [number, number, number];
+}
 
 /**
  * Ein Wiesen-Eintrag, wie ihn externe Bewuchs-Streuer brauchen (HuegelGras
@@ -461,6 +650,15 @@ export class GrassClutter {
   /** Geladene Clutter-Texturen, Schlüssel = ENTRIES.texture. */
   private texturen = new Map<string, Texture>();
 
+  /**
+   * Die aufbereiteten Store-Büschel, Schlüssel = {@link STORE_GRAS_MODELLE}.
+   *
+   * Leer, wenn `STORE_GRAS_AKTIV` aus ist ODER eine Datei fehlt — beides
+   * ist derselbe Zustand für den Rest der Klasse: Der Eintrag fällt auf
+   * seine `mesh`/`texture`-Angabe zurück und zeichnet den Altbestand.
+   */
+  private storeGras = new Map<StoreGrasName, StoreGrasFertig>();
+
   private readonly cells = new Map<string, CellMesh[]>();
   private queue: QueuedCell[] = [];
   private playerPatchX = Number.NaN;
@@ -503,15 +701,26 @@ export class GrassClutter {
       }
       this.texturen = textures;
 
-      // grass_terrain_color-Tönung: VORGEHALTEN, aber derzeit ungenutzt.
+      // Die Store-Büschel — Geometrie, Atlas und Tönung aus der GLB.
+      if (STORE_GRAS_AKTIV) await this.storeGrasLaden(SceneLoader);
+
+      // grass_terrain_color-Tönung: nur noch für den ALTBESTAND.
       //
-      // ACHTUNG (klargestellt am 2026-08-01): Dieser Block lädt die Tönung,
-      // angewandt wird sie aber nirgends — `terrainTint` steht in ALLEN
-      // ENTRIES auf false, und nur dieses Feld schaltet den Farb-Buffer
-      // (siehe unten `if (variant.entry.terrainTint)`). Der Kommentar
-      // behauptete bis hierher das Gegenteil und hat bei der Suche nach
-      // dem gelbstichigen Gras Zeit gekostet. Stattdessen färbt MEADOWS_TINT
-      // über `material.diffuseColor` pauschal, ohne Ortsabhängigkeit.
+      // ⚠ Der Absatz an dieser Stelle behauptete bis zum 09.09.2026,
+      // `terrainTint` stehe „in ALLEN ENTRIES auf false" und die Karte sei
+      // ungenutzt. Beides stimmt nicht mehr und hat schon einmal Zeit
+      // gekostet: `meadowsGrass` und `meadowsGrassShort` tragen `true`, und
+      // genau sie zogen die Karte je Instanz. Nachgemessen ergibt dieser
+      // Weg auf dem Bildschirm ein sehr dunkles Grün — Atlas
+      // (82, 122, 46) × Karte (89, 119, 66)/255 sind linear
+      // (0.029, 0.092, 0.006), zurück in sRGB rund (51, 86, 25).
+      //
+      // Seit Stufe 2 nehmen dieselben beiden Einträge den Store-Atlas
+      // (⌀ 87/107/55, bereits farbig) und dessen `baseColorFactor` — die
+      // Karte bleibt für sie AUS. Sie wird trotzdem weiter geladen: Bei
+      // `STORE_GRAS_AKTIV = false` ist sie sofort wieder die Farbquelle,
+      // und ein Ladeweg, der nur in einer Schalterstellung existiert, ist
+      // der Weg, der beim Umlegen kaputt ist.
       //
       // Der Mechanismus stammt aus dem Original: WEISSE Halm-Maske ×
       // Terrainfarbe. Deaktiviert war er, weil unsere selbst erzeugten
@@ -553,7 +762,15 @@ export class GrassClutter {
       }
 
       this.variants = ENTRIES.map((entry) => {
-        const geometry = geometries.get(entry.mesh)!;
+        // Store zuerst: liegt eine aufbereitete Quelle vor, zeichnet der
+        // Eintrag SIE. `entry.mesh` bleibt der Rückfall — nicht als
+        // Zierde, sondern weil `STORE_GRAS_AKTIV = false` und eine
+        // fehlende Datei denselben Weg nehmen müssen.
+        const store = entry.storeGras ? this.storeGras.get(entry.storeGras) : undefined;
+        const geometry = store?.geometry ?? geometries.get(entry.mesh)!;
+        const groesse = store && entry.storeScale
+          ? { ...entry.storeScale }
+          : { prefabScale: entry.prefabScale, scaleMin: entry.scaleMin, scaleMax: entry.scaleMax };
         // top Y for sway normalization
         let topY = 0;
         for (let i = 1; i < geometry.positions.length; i += 3) topY = Math.max(topY, geometry.positions[i]);
@@ -614,14 +831,23 @@ export class GrassClutter {
           // user changing the "Vegetationsqualität" setting mid-game.
           fadeMin: entry.fadeMin,
           fadeMax: entry.fadeMax,
-          topY: Math.max(topY * entry.prefabScale[1] * entry.scaleMax, 0.05),
+          topY: Math.max(topY * groesse.prefabScale[1] * groesse.scaleMax, 0.05),
           pinUpNormals: entry.pinUpNormals,
           // Nur was AUF dem Wasser liegt, steigt und fällt mit ihm —
           // nicht alles, was auf den Wasserspiegel gesetzt wird. Der
           // Unterschied zwischen Seerose und Schilf, siehe `schwimmt`.
           aufWasser: entry.schwimmt === true,
         });
-        return { entry, geometry, material, topY };
+        return {
+          entry,
+          geometry,
+          material,
+          topY,
+          groesse,
+          // Ein Puffer, zwei Bedeutungen — nie beide zugleich (siehe
+          // `Variant.farbe`).
+          farbe: store ? ('streuung' as const) : entry.terrainTint ? ('karte' as const) : ('nein' as const),
+        };
       });
       for (const v of this.variants) this.applyTexture(v);
 
@@ -631,6 +857,112 @@ export class GrassClutter {
     } catch (err) {
       console.warn('[GrassClutter] failed to load clutter assets — ground cover disabled', err);
     }
+  }
+
+  /**
+   * Die Store-Büschel laden: Geometrie, Atlas und Tönung je Modell.
+   *
+   * ── Warum die Basis-URL über `modelBaseUrl()` geht ───────────────────
+   * Die Store-GLBs tragen ihren Atlas NICHT eingebettet, sondern als
+   * relative URI `textures/…png` daneben, und Babylon löst die gegen die
+   * übergebene Wurzel auf. Mit `/assets/` statt `/assets/store-lab/
+   * vegetation/` sucht der Lader unter `/assets/textures/…`, findet
+   * nichts — und wirft: Der ganze Container fällt aus, `ImportMeshAsync`
+   * liefert nichts, und im Bild fehlt das Gras ohne erkennbaren Grund
+   * (§6.1 der Store-Konventionen, dort am Bild gelernt). `modelBaseUrl()`
+   * ist genau die Funktion, die diesen Schnitt macht.
+   *
+   * ── Warum ein Fehler hier NICHT durchschlägt ────────────────────────
+   * Jedes Modell wird einzeln versucht. Was fehlt, fehlt in seiner Map —
+   * und der Eintrag zeichnet den Altbestand. Ein `throw` an dieser Stelle
+   * nähme der Wiese ihr gesamtes Gras, weil `load()` darüber im Catch
+   * landet; das ist der Unterschied zwischen „ein Büschel sieht anders
+   * aus" und „die Insel ist kahl".
+   */
+  private async storeGrasLaden(
+    SceneLoader: typeof import('@babylonjs/core/Loading/sceneLoader').SceneLoader
+  ): Promise<void> {
+    const namen = Object.keys(STORE_GRAS_MODELLE) as StoreGrasName[];
+    for (const name of namen) {
+      const quelle = STORE_GRAS_MODELLE[name];
+      try {
+        const res = await SceneLoader.ImportMeshAsync(
+          '',
+          modelBaseUrl(quelle.modell),
+          `${modelDateiName(quelle.modell)}.glb`,
+          this.scene
+        );
+        // Nur LOD0. Beide Netze stehen an derselben Stelle im Baum; wer
+        // sie beide nimmt, zeichnet jedes Büschel doppelt ineinander.
+        const src = res.meshes.find(
+          (m): m is Mesh => m instanceof Mesh && m.name === quelle.netz && m.getTotalVertices() > 0
+        );
+        if (!src) throw new Error(`Knoten ${quelle.netz} fehlt`);
+        const geometry = {
+          positions: Float32Array.from(src.getVerticesData('position') ?? []),
+          normals: Float32Array.from(src.getVerticesData('normal') ?? []),
+          uvs: Float32Array.from(src.getVerticesData('uv') ?? []),
+          indices: Uint32Array.from(src.getIndices() ?? []),
+        };
+        // `COLOR_0` wird bewusst NICHT gelesen — es ist eine Biegemaske,
+        // keine Farbe (siehe STORE_GRAS_MODELLE).
+        //
+        // Strukturell statt über den PBRMaterial-Typ: Der Import zöge
+        // `@babylonjs/core/Materials/PBR` in dieses Bündel, und gebraucht
+        // werden genau zwei Felder.
+        const mat = src.material as unknown as {
+          albedoTexture?: { url?: string | null; name?: string } | null;
+          albedoColor?: { r: number; g: number; b: number };
+        } | null;
+        const url = mat?.albedoTexture?.url ?? null;
+        if (!url) throw new Error('kein Atlas am Material');
+        const farbe = mat?.albedoColor;
+        // Eigene Textur statt der des Laders: `makeTexture()` setzt
+        // `useSRGBBuffer` und die Filterung, an denen die ganze
+        // Farbrechnung dieser Datei hängt (siehe dort).
+        const textur = this.makeTexture(url);
+        this.storeGras.set(name, {
+          geometry,
+          textur,
+          tint: farbe ? [farbe.r, farbe.g, farbe.b] : [1, 1, 1],
+        });
+        // Erst jetzt aufräumen: Material UND Ladetextur, sonst bleibt je
+        // Modell ein unbenutztes PBRMaterial samt Bild in der Szene.
+        for (const m of res.meshes) {
+          m.material?.dispose(false, true);
+          m.dispose();
+        }
+      } catch (err) {
+        console.warn(
+          `[GrassClutter] Store-Gras "${name}" (${quelle.modell}) nicht geladen — ` +
+            'der Eintrag zeichnet den Altbestand',
+          err
+        );
+      }
+    }
+    console.log(
+      `[GrassClutter] Store-Gras: ${this.storeGras.size}/${namen.length} Büschel geladen`
+    );
+  }
+
+  /**
+   * Die Tönungsstreuung EINER Instanz — deterministisch aus derselben
+   * Hash-Kette wie Ort, Drehung und Grösse.
+   *
+   * Deterministisch ist keine Feinheit: Zellen werden beim Weggehen
+   * verworfen und beim Zurückkommen neu gebaut. Aus einer Zufallszahl
+   * bekäme dasselbe Büschel jedes Mal eine andere Farbe, und die Wiese
+   * flackerte beim Hin- und Herlaufen.
+   *
+   * Felder 5 und 6 der Hash-Kette; 0…4 sind vergeben (Ort, Drehung,
+   * Grösse, Höhenversatz).
+   */
+  private streuungsFarbe(px: number, py: number, e: number, i: number): [number, number, number, number] {
+    const luma = nachLinear(1 + (hash(px, py, e, i, 5) * 2 - 1) * GRAS_LUMA_STREUUNG);
+    const dreh = (hash(px, py, e, i, 6) * 2 - 1) * GRAS_FARB_STREUUNG;
+    // Gegenläufig auf Rot und Blau: eine Drehung gelbgrün ↔ blaugrün, die
+    // den Grünkanal — also die gemessene Grundfarbe des Atlas — in Ruhe lässt.
+    return [luma * nachLinear(1 + dreh), luma, luma * nachLinear(1 - dreh), 1];
   }
 
   /** Per-instance meadows tint: grass_terrain_color at worldXZ × 0.01 (wrap). */
@@ -733,9 +1065,12 @@ export class GrassClutter {
         geometry: v.geometry,
         material: v.material,
         dichteProM2: v.entry.amount / (PATCH * PATCH),
-        prefabScale: v.entry.prefabScale,
-        scaleMin: v.entry.scaleMin,
-        scaleMax: v.entry.scaleMax,
+        // Die WIRKSAME Grösse, nicht die der Tabelle: Sonst stünden auf
+        // der Grabhügelkuppel Büschel in Altbestandsmassen mitten in einer
+        // Wiese aus Store-Büscheln.
+        prefabScale: v.groesse.prefabScale,
+        scaleMin: v.groesse.scaleMin,
+        scaleMax: v.groesse.scaleMax,
       }));
   }
 
@@ -788,6 +1123,18 @@ export class GrassClutter {
    */
   private applyTexture(v: Variant): void {
     const entry = v.entry;
+    const store = entry.storeGras ? this.storeGras.get(entry.storeGras) : undefined;
+    if (store) {
+      // Der Store-Atlas ist bereits farbig; die einzige Tönung ist der
+      // `baseColorFactor` aus derselben GLB. KEINE Kachelung (`texRepeatU`
+      // gilt für die Waldkarten des Altbestands) und keine Kopie: Alle
+      // Einträge, die dasselbe Büschel zeichnen, teilen sich eine Textur.
+      store.textur.hasAlpha = true;
+      store.textur.getAlphaFromRGB = false;
+      v.material.diffuseTexture = store.textur;
+      v.material.diffuseColor.set(...store.tint);
+      return;
+    }
     const base = this.texturen.get(entry.texture);
     if (!base) return;
     // Bei Repeat ≠ 1 eine EIGENE Instanz: uScale hängt an der Texture, nicht
@@ -1075,14 +1422,17 @@ export class GrassClutter {
             } else {
               Quaternion.RotationAxisToRef(up, rot, q);
             }
-            const s = entry.scaleMin + hash(patchX, patchY, e, i, 3) * (entry.scaleMax - entry.scaleMin);
+            const groesse = this.variants[e].groesse;
+            const s = groesse.scaleMin + hash(patchX, patchY, e, i, 3) * (groesse.scaleMax - groesse.scaleMin);
             const m = Matrix.Compose(
-              new Vector3(s * entry.prefabScale[0], s * entry.prefabScale[1], s * entry.prefabScale[2]),
+              new Vector3(s * groesse.prefabScale[0], s * groesse.prefabScale[1], s * groesse.prefabScale[2]),
               q,
               new Vector3(x, y, z)
             );
             matrices[e].push(m);
-            if (entry.terrainTint) tints[e].push(this.terrainTintAt(x, z));
+            const farbe = this.variants[e].farbe;
+            if (farbe === 'karte') tints[e].push(this.terrainTintAt(x, z));
+            else if (farbe === 'streuung') tints[e].push(this.streuungsFarbe(patchX, patchY, e, i));
           }
         }
       }
@@ -1115,7 +1465,7 @@ export class GrassClutter {
       for (let i = 0; i < list.length; i++) list[i].toArray(data, i * 16);
       mesh.thinInstanceSetBuffer('matrix', data, 16, false);
       let col: Float32Array | null = null;
-      if (variant.entry.terrainTint) {
+      if (variant.farbe !== 'nein') {
         col = new Float32Array(list.length * 4);
         for (let i = 0; i < list.length; i++) col.set(tints[e][i], i * 4);
         mesh.thinInstanceSetBuffer('color', col, 4, false);

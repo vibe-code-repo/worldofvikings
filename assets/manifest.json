@@ -1,13 +1,9 @@
 {
- "erzeugt": "2026-09-05T18:42:29.919Z",
+ "erzeugt": "2026-09-09T19:21:55.443Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 225,
- "gemessen": 222,
- "uebernommen": [
-  "SteingrabGang_feucht",
-  "SteingrabGang_frost",
-  "SteingrabGang_moos"
- ],
+ "anzahl": 223,
+ "gemessen": 223,
+ "uebernommen": [],
  "modelle": {
   "Ampfer1": {
    "datei": "Ampfer1.glb",
@@ -3541,84 +3537,6 @@
    "meshlos": false,
    "skins": 0
   },
-  "SteingrabGang_feucht": {
-   "datei": "SteingrabGang_feucht.glb",
-   "foliage": false,
-   "bytes": 5656000,
-   "huelle": {
-    "min": [
-     -2.004,
-     -0.249,
-     -4.003
-    ],
-    "max": [
-     2.021,
-     4,
-     4.021
-    ]
-   },
-   "breite": 4.025,
-   "hoehe": 4.249,
-   "tiefe": 8.024,
-   "dreiecke": 19990,
-   "materialien": 1,
-   "bilder": 2,
-   "animationen": [],
-   "meshlos": false,
-   "skins": 0
-  },
-  "SteingrabGang_frost": {
-   "datei": "SteingrabGang_frost.glb",
-   "foliage": false,
-   "bytes": 5592060,
-   "huelle": {
-    "min": [
-     -2.004,
-     -0.249,
-     -4.003
-    ],
-    "max": [
-     2.021,
-     4,
-     4.021
-    ]
-   },
-   "breite": 4.025,
-   "hoehe": 4.249,
-   "tiefe": 8.024,
-   "dreiecke": 19990,
-   "materialien": 1,
-   "bilder": 2,
-   "animationen": [],
-   "meshlos": false,
-   "skins": 0
-  },
-  "SteingrabGang_moos": {
-   "datei": "SteingrabGang_moos.glb",
-   "foliage": false,
-   "bytes": 5751676,
-   "huelle": {
-    "min": [
-     -2.004,
-     -0.249,
-     -4.003
-    ],
-    "max": [
-     2.021,
-     4,
-     4.021
-    ]
-   },
-   "breite": 4.025,
-   "hoehe": 4.249,
-   "tiefe": 8.024,
-   "dreiecke": 19990,
-   "materialien": 1,
-   "bilder": 2,
-   "animationen": [],
-   "meshlos": false,
-   "skins": 0
-  },
   "SteingrabKammer": {
    "datei": "SteingrabKammer.glb",
    "foliage": false,
@@ -5420,6 +5338,53 @@
    "animationen": [],
    "meshlos": false,
    "skins": 0
+  },
+  "wikinger/WikingerKoerper": {
+   "datei": "wikinger/WikingerKoerper.glb",
+   "foliage": false,
+   "bytes": 678948,
+   "huelle": {
+    "min": [
+     -1.024,
+     -0.003,
+     -0.159
+    ],
+    "max": [
+     1.024,
+     1.788,
+     0.16
+    ]
+   },
+   "breite": 2.048,
+   "hoehe": 1.791,
+   "tiefe": 0.32,
+   "dreiecke": 1302,
+   "materialien": 3,
+   "bilder": 1,
+   "animationen": [
+    {
+     "name": "idle",
+     "dauer": 4.958
+    },
+    {
+     "name": "gehen",
+     "dauer": 1.333
+    },
+    {
+     "name": "rennen",
+     "dauer": 0.583
+    },
+    {
+     "name": "springen",
+     "dauer": 1.458
+    },
+    {
+     "name": "angriff",
+     "dauer": 1.958
+    }
+   ],
+   "meshlos": false,
+   "skins": 1
   },
   "wikingerin/H_01": {
    "datei": "wikingerin/H_01.glb",

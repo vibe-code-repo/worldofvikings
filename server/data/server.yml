@@ -167,8 +167,11 @@ wetter:
   # Name einer Umgebung aus shared/src/envData.json (Clear, Misty, Rain,
   # ThunderStorm, LightRain, Snow, SwampRain, ...). Leer = wuerfeln wie
   # bisher. Ein unbekannter Name wird beim Start gemeldet und ignoriert.
-  umgebung: Misty
-  # Feste Nebeldichte (EXP2). Leer oder fehlend = der Tageszeit folgen.
+  umgebung: Klar-Comic
+  # Feste Nebeldichte. Leer oder fehlend = der Tageszeit folgen — und das
+  # ist bei Klar-Comic die richtige Wahl: Dieses Wetter bringt seine vier
+  # Dichten fuer die exp-Kurve selbst mit (0,0009 bis 0,0025), eine feste
+  # Zahl aus der EXP2-Zeit waere hier eine Wand.
   #
   # WARUM HIER EINE ZAHL STEHT UND NICHT NUR Misty: Die Dichte einer
   # Umgebung schwankt ueber den Tag erheblich -- Misty steht mittags auf
@@ -176,4 +179,105 @@ wetter:
   # Misty um 13.6 h liefert; festgenagelt bleibt diese Sicht rund um die
   # Uhr. Die Nebel-FARBE folgt weiter der Tageszeit, nachts wird es also
   # dunkler, aber nicht dichter.
-  nebeldichte: 0.0171
+  nebeldichte:
+
+# ── Look ───────────────────────────────────────────────────────────────
+# Tonemapping, Nachbearbeitung, Himmel und Schatten. Der Block ist
+# OPTIONAL: Fehlt er ganz, gilt LOOK_VORGABE aus shared/src/lookProfil.ts
+# — dieselben Zahlen, die unten stehen. Er steht hier trotzdem
+# ausgeschrieben, weil er sonst unauffindbar waere.
+#
+# ACHTUNG, ZWEI DINGE:
+#
+#  1. Ein UNBEKANNTER Schluessel in diesem Block BEENDET DEN START mit
+#     einer Meldung. Das weicht bewusst von `wetter:` ab, wo ein
+#     Tippfehler nur eine Warnung ergibt: Ein falscher Umgebungsname ist
+#     sichtbar (die Welt wuerfelt weiter), ein falscher Look-Schluessel
+#     ist es NICHT — er sieht aus wie ein gesetzter Regler und kommt nie
+#     an. Genau diese stille Wirkungslosigkeit hat A14 aus dieser Datei
+#     geraeumt; ein Block mit dreissig Reglern darf sie nicht
+#     zurueckbringen.
+#  2. Die Werte erreichen einen Client NUR BEIM ANMELDEN (Paket
+#     WeltWetter, wie `wetter:`). Wer hier dreht, waehrend jemand spielt,
+#     aendert bei ihm nichts — er muss neu verbinden.
+look:
+  # aces | neutral | aus.
+  #
+  # `neutral` (KHR-PBR-Neutral) steht hier NICHT aus Gewohnheit, sondern
+  # als Messergebnis. Sieben Einstellungen verschraenkt in einer Sitzung
+  # am Referenzort (~/wov-lab-mess/licht-kalibrieren.mjs): ACES kommt am
+  # nahen Boden auch mit Belichtung 2,0 nicht ueber Luma 40, waehrend der
+  # Himmel auf 71 steigt — Ziel sind 55,8. Neutral trifft es bei
+  # Belichtung 1,05 mit 53,4. Die vollstaendige Tabelle steht bei
+  # LOOK_VORGABE in shared/src/lookProfil.ts.
+  #
+  # Das Schwesterprojekt faehrt ACES mit Saettigung 0,68 — kein
+  # Widerspruch: Neutral ist der buntere Tonemapper, deshalb steht hier
+  # 0,45. Beide zielen auf dieselbe GEMESSENE Saettigung, nicht auf
+  # denselben Reglerwert.
+  tonemapping: neutral
+  belichtung: 1.05
+  kontrast: 1.15
+  # FAKTOR: 1 = unveraendert, 0.68 = das Ziel. NICHT Babylons Reglerwert
+  # (der laeuft von -100 bis +100 mit 0 als neutral, eine 68 dort heisst
+  # "68 % MEHR Saettigung"). Umgerechnet wird im Client, an einer Stelle.
+  saettigung: 0.45
+  # exp | exp2. exp faellt gleichmaessig und macht Luftperspektive im
+  # Spielbereich; exp2 (der alte Stand) ist nah flach und fern steil.
+  nebelmodus: exp
+  # 0 = die zwei Nebelfarben des Wetters gelten unveraendert. > 0 mischt
+  # die Sonnen-Nebelfarbe zur Sonnenfarbe hin und holt die alte warme
+  # Handschrift zurueck, ohne Wetterdaten anzufassen.
+  nebelWaerme: 0
+  bloom:
+    an: true
+    schwelle: 0.85
+    staerke: 0.22
+    skala: 0.5
+    kernel: 32
+  vignette:
+    an: true
+    staerke: 1.2
+    farbe: '#0d0a08'
+  # Chromatische Aberration und Tiefenunschaerfe bleiben AN. Das
+  # Schwesterprojekt hat beides nicht, das VORBILD zeigt beides
+  # (Farbsaeume am Schild, unscharfe Ferne) — sie gehoeren zum Zielbild.
+  # `staerke` ist Babylons aberrationAmount, also eine Pixelverschiebung.
+  ca:
+    an: true
+    staerke: 4.5
+  dof:
+    an: true
+  # Der Strahlenkranz kostet eine eigene Verdeckungspassage ueber die
+  # ganze Szene. `an: true` heisst nur "das Profil erlaubt ihn" — ob er
+  # laeuft, entscheidet zusaetzlich die Grafikeinstellung des Spielers
+  # (dort steht er weiterhin auf aus).
+  strahlen:
+    an: true
+    ankerAbstand: 1400
+    torWinkel: 55
+    hysterese: 5
+    exposure: 0.18
+    decay: 0.965
+    gewicht: 0.5
+    dichte: 0.94
+  himmel:
+    zenit: '#17478f'
+    # `nebel` heisst: Der Horizont IST die Nebelfarbe. Eine feste Farbe
+    # hier zeichnet ueber dem Meer eine sichtbare Naht, sobald sich
+    # Wetter oder Tageszeit bewegen — und beide bewegen sich.
+    horizont: nebel
+    sonnenglühen: 0.2
+  schatten:
+    # OBERGRENZE, keine Vorgabe: Die Qualitaetsstufe des Spielers darf
+    # darunter bleiben (auf "Niedrig" sind es 512).
+    aufloesung: 2048
+    # ERSETZT die Reichweite der Stufe. Das Vorbild faehrt 40 m mit zwei
+    # Kaskaden, das Schwesterprojekt 120 m.
+    reichweite: 120
+    # Anteil Licht, der IM SCHATTEN uebrigbleibt (Babylons `darkness`):
+    # 0 = stockschwarz, 1 = kein Schatten.
+    dunkelheit: 0.42
+    # Kaskadengrenzen aufs Texelraster rasten. Ohne das kriecht jede
+    # Schattenkante beim Gehen.
+    rasten: true

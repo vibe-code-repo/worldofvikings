@@ -64,39 +64,47 @@ import { TAARenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeli
 import { Constants } from '@babylonjs/core/Engines/constants';
 import { MotionBlurPostProcess } from '@babylonjs/core/PostProcesses/motionBlurPostProcess';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration';
+import { ColorCurves } from '@babylonjs/core/Materials/colorCurves';
 import { VolumetricLightScatteringPostProcess } from '@babylonjs/core/PostProcesses/volumetricLightScatteringPostProcess';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { ValheimDof } from './ValheimDof';
+import { beiLook, hexLinear4, look, type LookProfil } from './lookProfil';
+import { strahlenTor, strahlenWinkel } from '@wov/shared';
 import type { Camera } from '@babylonjs/core/Cameras/camera';
 import type { Scene } from '@babylonjs/core/scene';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Observer } from '@babylonjs/core/Misc/observable';
 import type { Nullable } from '@babylonjs/core/types';
 
-/** Unity-Profilwerte (siehe Header) — hier zentral, damit die Herkunft
- *  jedes Zahlenwerts nachvollziehbar bleibt. */
-const BLOOM_INTENSITY = 0.3;
-const BLOOM_THRESHOLD = 0.7;
-/** Unity-"radius 5.0" ist keine Pixelgröße, sondern ein Stufenfaktor der
- *  Pyramide. Babylons bloomKernel IST eine Pixelgröße (Blur-Kernel).
- *  64 px liefert bei 1080p eine vergleichbar breite, weiche Aura. */
-const BLOOM_KERNEL = 64;
-/** Unity intensity 0.15 auf [0..1]; Babylons aberrationAmount ist eine
- *  Pixelverschiebung (Default 30 = deutlich sichtbar). 0.15 × 30 ≈ 4.5 →
- *  dezente Farbsäume nur an kontrastreichen Kanten, wie im Original. */
-const CHROMATIC_ABERRATION = 4.5;
-/**
- * Kontrast 1.0 statt der 1.2 aus dem Original-Profil — BEWUSSTE Abweichung,
- * gemessen begründet: Unity wendet die 1.2 in linearem HDR an, Babylons
- * ImageProcessing hier dagegen auf das fertige LDR/Gamma-Bild. Dort wirkt
- * derselbe Wert massiv übersteuert: Bodenmessung ergab RGB(26,61,2) —
- * Blaukanal auf 2 zerquetscht, Sättigung 98 %, Strukturvarianz halbiert
- * (sd 3.9 vs. 10.0 in der three.js-Referenz). Geclippte Kanäle löschen
- * genau die Textur-Tonwerte aus, die der Nutzer vermisst hat
- * ("man sieht die Bodentexturen nicht").
- */
-const CONTRAST = 1.0;
-const EXPOSURE = 1.0;
+/*
+  ── Wo die Nachbearbeitungs-Zahlen heute stehen ──────────────────────
+
+  Hier standen sechs Konstanten (BLOOM_INTENSITY/THRESHOLD/KERNEL,
+  CHROMATIC_ABERRATION, CONTRAST, EXPOSURE). Sie sind in das Look-Profil
+  gewandert (`shared/src/lookProfil.ts`, einstellbar über `look:` in
+  server.yml), weil sie genau die Regler sind, an denen der Look haengt —
+  und ein Look-Regler, den man nur durch Neuuebersetzen erreicht, ist
+  keiner.
+
+  Was NICHT verlorengehen darf, sind die Herleitungen, die an ihnen
+  hingen. Sie stehen jetzt bei den Feldern, die sie erklaeren:
+
+   · Bloom-Kernel: Unitys "radius 5.0" ist ein Stufenfaktor der Pyramide,
+     Babylons `bloomKernel` eine PIXELGROESSE. → LookBloom.kernel
+   · Chromatische Aberration: Unity-intensity 0.15 auf [0..1], Babylons
+     `aberrationAmount` ist eine Pixelverschiebung (Vorgabe 30). 0.15 × 30
+     ≈ 4.5. → LookCa.staerke
+   · Kontrast: Unity wendet seine 1.2 in linearem HDR an, Babylons
+     ImageProcessing hier auf das fertige LDR/Gamma-Bild — derselbe Wert
+     uebersteuert dort (Bodenmessung RGB(26,61,2), Blaukanal auf 2
+     zerquetscht, Strukturvarianz halbiert). Deshalb stand hier 1.0.
+     Heute 1,15, und der Unterschied ist gemessen statt geraten: Er
+     gehoert zum Tonemapper, mit dem er zusammen kalibriert wurde
+     (Tabelle bei LOOK_VORGABE).
+
+  The six post-processing constants moved into the look profile; their
+  derivations moved to the fields they explain.
+*/
 /** shutterAngle 150° / 360° — Anteil der Frame-Zeit, über den verwischt
  *  wird; entspricht Babylons motionStrength-Skala (1.0 = voller Frame). */
 const MOTION_STRENGTH = 150 / 360;
@@ -168,6 +176,9 @@ const SSAO_MAX_Z = 1000;
 /** Name der Pipeline — wird zum An- und Abhängen an die Kamera gebraucht. */
 const SSAO_NAME = 'valheimSSAO';
 
+/** Kamera-Vorwaerts im lokalen Raum — Konstante, s. `update()`. */
+const VORWAERTS = new Vector3(0, 0, 1);
+
 export interface PostProcessingOptions {
   bloom: boolean;
   motionBlur: boolean;
@@ -222,6 +233,22 @@ export class PostProcessing {
    * ein frisches, nur ohne GC-Druck.
    */
   private readonly strahlenQuelle = new Vector3();
+  /** Blickachse der Kamera — gehalten, weil das Tor sie in jedem Bild braucht. */
+  private readonly blickAchse = new Vector3();
+  /** Das geltende Look-Profil (vor dem Anmelden die Vorgabe). */
+  private profil: LookProfil = look();
+  /**
+   * Die zuletzt vom SPIELER gewählten Optionen.
+   *
+   * Gehalten, weil Profil und Spielerwahl beide über dieselben drei
+   * Schalter (CA, DOF, Strahlen) entscheiden und in BELIEBIGER
+   * Reihenfolge eintreffen: Das Profil kommt beim Anmelden, die Optionen
+   * beim Öffnen der Einstellungen. Wer nur den zuletzt Eingetroffenen
+   * auswertet, schaltet dem anderen seine Wahl ab.
+   */
+  private letzteOptionen: PostProcessingOptions = DEFAULT_POSTPROCESSING;
+  /** Abmeldung vom Look-Profil — sonst hält der Beobachter die Pipeline fest. */
+  private loeseLook: (() => void) | null = null;
   /** Beobachter, der die Renderliste der Tiefen-Passage setzt (s. dort). */
   private gbufferFilter: Nullable<Observer<Scene>> = null;
   private readonly focusSource: FocusSource | null;
@@ -338,12 +365,6 @@ export class PostProcessing {
 
     this.pipeline = new DefaultRenderingPipeline('valheimPost', true, scene, [camera]);
 
-    this.pipeline.bloomThreshold = BLOOM_THRESHOLD;
-    this.pipeline.bloomWeight = BLOOM_INTENSITY;
-    this.pipeline.bloomKernel = BLOOM_KERNEL;
-    this.pipeline.bloomScale = 0.5;
-
-    this.pipeline.chromaticAberration.aberrationAmount = CHROMATIC_ABERRATION;
 
     // Das DOF DIESER Pipeline bleibt aus — es ist Babylons physikalisches
     // Kameramodell (Blende/Brennweite) und verwischt auch den Vordergrund.
@@ -354,32 +375,108 @@ export class PostProcessing {
     this.pipeline.sharpenEnabled = false;
 
     this.pipeline.imageProcessingEnabled = true;
-    const ip = this.pipeline.imageProcessing;
-    if (ip) {
-      ip.contrast = CONTRAST;
-      ip.exposure = EXPOSURE;
-      ip.toneMappingEnabled = true;
-      // Unity-Tonemapper "Neutral" — Babylons KHR_PBR_NEUTRAL ist der
-      // direkte Gegenpart (hue-erhaltend). Ein ACES-Experiment (um die
-      // three.js-Referenz zu treffen, die linear + ACESFilmic rendert)
-      // wurde per A/B-Messung VERWORFEN: auf unserer Gamma-LDR-Pipeline
-      // dunkelt ACES doppelt ab (Boden RGB(26,61,2) → (6,37,0), Sättigung
-      // 98 % → 100 %). Der Sättigungs-Crush entsteht vor dem
-      // Post-Processing im Material/Licht — dort ansetzen, nicht hier.
-      ip.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_KHR_PBR_NEUTRAL;
-      ip.vignetteEnabled = false;
-    }
+
+    this.wendeLookAn(look());
+    this.loeseLook = beiLook((profil) => this.wendeLookAn(profil));
 
     this.apply(DEFAULT_POSTPROCESSING);
   }
 
+  /**
+   * Alles, was das Look-Profil an dieser Pipeline steuert.
+   *
+   * ── Warum ACES jetzt gilt und die alte Messung trotzdem stimmt ──────
+   * Hier stand KHR-Neutral mit einer A/B-Messung als Begründung: ACES
+   * dunkelt "doppelt ab" (Boden RGB(26,61,2) → (6,37,0)) und die
+   * Sättigung stieg von 98 auf 100 %. Beide Zahlen sind richtig gemessen
+   * — und beide wurden unter Belichtung 1,0 und OHNE Sättigungsregler
+   * genommen. Genau das sind die zwei Regler, die zum Tonemapper gehören:
+   * ACES ist dunkler UND flauer als Neutral, deshalb steht im Profil
+   * Belichtung 1,15 daneben, und deshalb steht der Sättigungsregler
+   * ueberhaupt erst hier. ADR-0040 des Schwesterprojekts hat dieselbe
+   * Wahl an denselben Zahlen getroffen: Neutral liefert 0,70 mittlere
+   * Sättigung, ACES 0,52 — Neutral macht das Bild BUNTER, und "bunter"
+   * ist das Gegenteil des Ziels.
+   *
+   * Neutral bleibt als `tonemapping: neutral` erreichbar; die alte
+   * Einstellung ist damit nicht verloren, sondern eine Zeile in
+   * server.yml.
+   *
+   * ── Sättigung ist PROZENT ───────────────────────────────────────────
+   * `ColorCurves.globalSaturation` rechnet intern `value / 100`. Das
+   * Profil führt sie deshalb als 68 und nicht als 0,68 — eine 0,68 hier
+   * wäre eine Sättigung von 0,68 % und ein graues Bild. Der
+   * Sättigungsregler ist ausserdem NUR wirksam, wenn `colorCurvesEnabled`
+   * gesetzt ist: Babylon prüft das Flag beim Anlegen der Defines, ein
+   * gesetzter Wert ohne Flag ist stumm.
+   */
+  private wendeLookAn(profil: LookProfil): void {
+    this.profil = profil;
+
+    this.pipeline.bloomThreshold = profil.bloom.schwelle;
+    this.pipeline.bloomWeight = profil.bloom.staerke;
+    this.pipeline.bloomKernel = profil.bloom.kernel;
+    this.pipeline.bloomScale = profil.bloom.skala;
+    this.pipeline.chromaticAberration.aberrationAmount = profil.ca.staerke;
+
+    const ip = this.pipeline.imageProcessing;
+    if (ip) {
+      ip.contrast = profil.kontrast;
+      ip.exposure = profil.belichtung;
+      ip.toneMappingEnabled = profil.tonemapping !== 'aus';
+      ip.toneMappingType =
+        profil.tonemapping === 'aces'
+          ? ImageProcessingConfiguration.TONEMAPPING_ACES
+          : ImageProcessingConfiguration.TONEMAPPING_KHR_PBR_NEUTRAL;
+
+      /*
+        Die EINE Umrechnung vom Profilfaktor auf Babylons Regler.
+
+        `ColorCurves` klemmt die Sättigung auf −100…+100 und rechnet
+        daraus intern `1 + s/100` (colorCurves.js, `result.a`). 0 ist
+        also neutral, +68 hiesse "68 % MEHR". Der Profilfaktor 0,68 wird
+        damit zu −32.
+
+        Das ist keine Vermutung, sondern ein bezahlter Fehler: Mit einer
+        direkt durchgereichten 68 stieg die gemessene Sättigung am
+        Referenzort auf 0,98, statt auf 0,45 zu fallen — das Bild war
+        knallgrün statt matt.
+      */
+      const kurven = ip.colorCurves ?? new ColorCurves();
+      kurven.globalSaturation = (profil.saettigung - 1) * 100;
+      ip.colorCurves = kurven;
+      // Faktor 1 ist neutral — dann kostet die Kurve nur Instruktionen
+      // und ändert nichts, also bleibt sie aus.
+      ip.colorCurvesEnabled = Math.abs(profil.saettigung - 1) > 1e-4;
+
+      ip.vignetteEnabled = profil.vignette.an;
+      ip.vignetteWeight = profil.vignette.staerke;
+      hexLinear4(profil.vignette.farbe, ip.vignetteColor);
+      // MULTIPLY statt Babylons Vorgabe OPAQUE: OPAQUE legt die
+      // Vignettenfarbe DECKEND über die Ränder, MULTIPLY dunkelt sie ab
+      // und lässt die Struktur stehen. Für eine dunkle Ecke ist das der
+      // gemeinte Effekt; deckend wäre ein schwarzer Rahmen.
+      ip.vignetteBlendMode = ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
+    }
+
+    // CA und DOF sind zugleich Spieler-Einstellungen (PostProcessingOptions).
+    // Das Profil sagt, ob sie ÜBERHAUPT in Frage kommen; `apply()` sagt,
+    // ob der Spieler sie will. Beides muss zutreffen — sonst überschriebe
+    // der Serverwert eine Einstellung, die der Spieler abgeschaltet hat.
+    this.pipeline.chromaticAberrationEnabled =
+      profil.ca.an && this.letzteOptionen.chromaticAberration;
+    this.setDepthOfField(profil.dof.an && this.letzteOptionen.depthOfField);
+    this.setSunShafts(profil.strahlen.an && this.letzteOptionen.sunShafts);
+  }
+
   apply(opts: PostProcessingOptions): void {
-    this.pipeline.bloomEnabled = opts.bloom;
-    this.pipeline.chromaticAberrationEnabled = opts.chromaticAberration;
+    this.letzteOptionen = opts;
+    this.pipeline.bloomEnabled = opts.bloom && this.profil.bloom.an;
+    this.pipeline.chromaticAberrationEnabled = opts.chromaticAberration && this.profil.ca.an;
     this.pipeline.fxaaEnabled = opts.antiAliasing;
     this.setMotionBlur(opts.motionBlur);
-    this.setDepthOfField(opts.depthOfField);
-    this.setSunShafts(opts.sunShafts);
+    this.setDepthOfField(opts.depthOfField && this.profil.dof.an);
+    this.setSunShafts(opts.sunShafts && this.profil.strahlen.an);
     this.setSSAO(opts.ambientOcclusion);
     this.setTemporalAA(opts.temporalAA);
     this.syncGeometryBuffer();
@@ -544,15 +641,63 @@ export class PostProcessing {
     if (this.shafts && sunDir) {
       // Die Quelle muss weit genug weg sein, dass sie sich beim Laufen nicht
       // mitbewegt — sonst wandert der Kranz mit dem Spieler statt am Himmel
-      // zu stehen. 2 km liegt innerhalb der Far-Plane (4 km).
+      // zu stehen. `look.strahlen.ankerAbstand` liegt innerhalb der
+      // Far-Plane (4 km); die 1400 m der Vorgabe stammen aus ADR-0042.
+      const d = this.profil.strahlen.ankerAbstand;
       const c = this.camera.globalPosition;
-      this.strahlenQuelle.set(
-        c.x + sunDir.x * 2000,
-        c.y + sunDir.y * 2000,
-        c.z + sunDir.z * 2000
-      );
+      this.strahlenQuelle.set(c.x + sunDir.x * d, c.y + sunDir.y * d, c.z + sunDir.z * d);
       this.shafts.customMeshPosition = this.strahlenQuelle;
+
+      /*
+        ── Das Tor (ADR-0042) ──────────────────────────────────────────
+
+        Der Ursprung des Kranzes entsteht aus einer Projektion, und eine
+        perspektivische Division kann einen Punkt VOR der Kamera nicht
+        von seinem Spiegelbild dahinter unterscheiden: Jenseits von 90°
+        landet der projizierte Ursprung wieder im Bild, und der Effekt
+        malt einen Strahlenkranz um eine Sonne, die im Ruecken steht.
+        Der Effekt faellt dort nicht aus — er LUEGT, und zwar in genau
+        den Bildern, die ein Spieler in der dritten Person meistens
+        sieht.
+
+        Warum die Belichtung und nicht der Pass: Ab- und Anhaengen ist
+        eine ganze zweite Szenenpassage, und ein Schwenk entlang der
+        Schwelle taete das in jedem Bild. Die Rampe ueber das
+        Hysterese-Band blendet stattdessen aus; bei 0 kostet der Pass
+        zwar noch, malt aber nichts mehr.
+
+        Der Bildwinkel deckelt den Torwinkel nach unten: Bei 16:9 sitzt
+        die Bildecke rund 41° neben der Achse, eine Sonne knapp
+        ausserhalb des Bildes faechert also noch herein. 55° laesst ihr
+        das und bleibt weit weg von der 90°-Singularitaet.
+
+        The gate: past 90° the projected origin folds back into frame and
+        the effect lies. Ramp the exposure across the hysteresis band.
+      */
+      // Blickachse ohne Zuteilung: `getForwardRay()` legt pro Frame einen
+      // Ray samt zwei Vector3 an — genau der Muell, den `Lighting.apply()`
+      // sich vor einem Jahr abgewoehnt hat.
+      Vector3.TransformNormalToRef(VORWAERTS, this.camera.getWorldMatrix(), this.blickAchse);
+      this.blickAchse.normalize();
+      const winkel = strahlenWinkel(this.blickAchse, sunDir);
+      const tor = strahlenTor(
+        winkel,
+        this.profil.strahlen.torWinkel,
+        this.profil.strahlen.hysterese
+      );
+      this.shafts.exposure = this.profil.strahlen.exposure * tor;
     }
+  }
+
+  /** Nur zum Messen: was der Strahlenkranz gerade tut. / For measuring only. */
+  get strahlenMesswerte(): { an: boolean; exposure: number; ankerAbstand: number } | null {
+    return this.shafts
+      ? {
+          an: true,
+          exposure: +this.shafts.exposure.toFixed(4),
+          ankerAbstand: this.profil.strahlen.ankerAbstand,
+        }
+      : null;
   }
 
   /** Fokusdistanz fürs HUD, leer wenn DOF aus ist. */
@@ -593,10 +738,28 @@ export class PostProcessing {
         false
       );
       vls.useCustomMeshPosition = true;
-      vls.exposure = 0.18;
-      vls.decay = 0.965;
-      vls.weight = 0.5;
-      vls.density = 0.94;
+      vls.exposure = this.profil.strahlen.exposure;
+      vls.decay = this.profil.strahlen.decay;
+      vls.weight = this.profil.strahlen.gewicht;
+      vls.density = this.profil.strahlen.dichte;
+      /*
+        ── Die Kuppel raus aus der Verdeckung (ADR-0042, Punkt 2) ──────
+
+        `ValheimSky.mesh` traegt `infiniteDistance` — es reitet mit der
+        Kamera und liegt in der Tiefe VOR dem Anker, den `update()` in
+        `ankerAbstand` Metern setzt. In der Verdeckungspassage schreibt
+        es damit eine Wand ueber den ganzen Himmel, hinter der der Anker
+        begraben liegt: Der Kranz kaeme nie zustande, und zwar ohne dass
+        irgendetwas falsch aussieht — es faechert einfach nichts.
+
+        Alles ANDERE bleibt drin. Baeume, Felsen und Gebaeude sind genau
+        die Verdecker, die aus einem Lichtfleck einen Faecher machen.
+
+        The sky dome rides with the camera and would bury the anchor
+        behind a depth wall in the occlusion pass. Everything else stays.
+      */
+      const kuppel = this.scene.getMeshByName('valheimSky');
+      if (kuppel) vls.excludedMeshes.push(kuppel);
       this.shafts = vls;
     } else if (!enabled && this.shafts) {
       this.shafts.dispose(this.camera);
@@ -767,6 +930,8 @@ export class PostProcessing {
   }
 
   dispose(): void {
+    this.loeseLook?.();
+    this.loeseLook = null;
     this.setMotionBlur(false);
     this.setDepthOfField(false);
     this.setSunShafts(false);

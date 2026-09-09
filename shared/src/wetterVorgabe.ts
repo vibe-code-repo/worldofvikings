@@ -40,6 +40,19 @@ export interface WetterVorgabe {
    * (EXP2), Werte über ~0,2 sind praktisch undurchsichtig.
    */
   readonly nebelDichte: number;
+  /**
+   * Der `look:`-Block aus server.yml, TEILWEISE — nur was dort steht.
+   *
+   * Er reist mit der Wettervorgabe, weil er dieselbe Reise macht: einmal
+   * beim Anmelden, vor dem Weltdokument, damit der Client seine
+   * Beleuchtung baut, bevor die erste Zone steht. Ein eigenes Paket
+   * hätte dieselbe Reihenfolge erzwingen müssen und nichts gewonnen.
+   *
+   * Vollständig gemacht wird er erst im Client (`mischeLook` gegen
+   * LOOK_VORGABE) — der Server hat kein Bild und trifft deshalb keine
+   * Look-Entscheidung, er PRÜFT nur.
+   */
+  readonly look?: Record<string, unknown>;
 }
 
 export const WETTER_VORGABE_AUS: WetterVorgabe = {

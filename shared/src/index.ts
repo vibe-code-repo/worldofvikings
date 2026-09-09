@@ -76,6 +76,7 @@ export * from './figuren.js';
 export * from './aussehen.js';
 export * from './ausruestung.js';
 export * from './wetterVorgabe.js';
+export * from './lookProfil.js';
 export * from './serverConfigFlags.js';
 export * from './worldgen/index.js';
 export * from './items/index.js';

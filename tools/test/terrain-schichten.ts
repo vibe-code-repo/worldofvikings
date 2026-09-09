@@ -56,7 +56,10 @@ import { fileURLToPath } from 'node:url';
 import {
   SCHICHT_OBERFLAECHE,
   HANG_TILE,
+  FELS_TILE,
   RAU_TILE,
+  RAMPEN,
+  nyBeiGrad,
   TILE,
   BIOME_TILE,
   HIMMEL_IRRADIANZ,
@@ -183,8 +186,9 @@ for (const [name, biom] of BIOME) {
     continue;
   }
   const hang = HANG_TILE[grund];
+  const fels = FELS_TILE[grund];
   const rau = RAU_TILE[grund];
-  if (hang === undefined || rau === undefined) {
+  if (hang === undefined || fels === undefined || rau === undefined) {
     luecken.push(`${name}: Rampe unvollständig`);
     continue;
   }
@@ -204,9 +208,135 @@ check(
 
 check(
   'jede Rampenkachel hat selbst eine Oberfläche',
-  [...HANG_TILE, ...RAU_TILE].every((t) => SCHICHT_OBERFLAECHE[t] !== undefined),
+  [...HANG_TILE, ...FELS_TILE, ...RAU_TILE].every((t) => SCHICHT_OBERFLAECHE[t] !== undefined),
   'ein Eintrag zeigt auf ein Tile ausserhalb von 0..15'
 );
+
+/*
+  Alle DREI Tabellen führen sechzehn Zeilen. Der Splat indiziert sie im
+  GLSL mit `VB_HANG[i]`, `i` aus dem Tile-Index — eine Tabelle mit
+  fünfzehn Einträgen liest dort über das Ende hinaus, und GLSL sagt dazu
+  nichts. `FELS_TILE` wird zusätzlich in `Terrain.ts` je Vertex gelesen;
+  ein `undefined` würde dort zu NaN im Attributpuffer und der ganze
+  Chunk verschwände lautlos.
+*/
+check(
+  'alle sechzehn Zeilen haben Hang-, Fels- und Rau-Kachel',
+  HANG_TILE.length === 16 && FELS_TILE.length === 16 && RAU_TILE.length === 16 &&
+    [...HANG_TILE, ...FELS_TILE, ...RAU_TILE].every((t) => Number.isInteger(t) && t >= 0 && t < 16),
+  `${HANG_TILE.length}/${FELS_TILE.length}/${RAU_TILE.length}`
+);
+
+// ── (f) Die Steigungsrampe ist monoton und überschneidungsfrei ──────
+/*
+  Drei Stufen, die sich stapeln. Zwei Arten, das still kaputtzumachen:
+
+   - EINE STUFE LÄUFT RÜCKWÄRTS (`beginn` ≥ `voll`). Der Shader teilt
+     durch `beginn − voll`; wird das null, ist die Rampe eine Division
+     durch null, und wird es negativ, blendet die Stufe auf FLACHEM Grund
+     ein statt am Hang. Beides sieht man erst im Bild, und dann sieht es
+     aus wie ein Beleuchtungsfehler.
+
+   - ZWEI STUFEN ÜBERSCHNEIDEN SICH. Sie werden nacheinander per Lerp
+     aufgelegt (`hangLerp`, `rockLerp`, `rauLerp`). Überlappen sie, mischt
+     der Hang zwei Kacheln, die beide „halb da" sind — ein Grauschleier
+     statt eines Übergangs. Die Grenzen sollen sich BERÜHREN.
+
+  Und die Umrechnung selbst: `nyBeiGrad` muss fallen (steiler = kleineres
+  ny). Ein Vorzeichenfehler darin drehte die ganze Rampe um, ohne dass
+  eine der beiden Prüfungen oben etwas merkte.
+*/
+{
+  const stufen: [string, { beginn: number; voll: number }][] = [
+    ['Hang', RAMPEN.hang],
+    ['Fels', RAMPEN.fels],
+    ['Rau', RAMPEN.rau],
+  ];
+  const fehler2: string[] = [];
+  for (const [name, s] of stufen) {
+    if (!(s.beginn < s.voll)) fehler2.push(`${name}: beginn ${s.beginn}° nicht kleiner als voll ${s.voll}°`);
+    if (s.beginn < 0 || s.voll > 90) fehler2.push(`${name}: ausserhalb 0..90°`);
+  }
+  check('jede Stufe der Steigungsrampe läuft aufwärts', fehler2.length === 0, fehler2.join('; '));
+
+  check(
+    'die drei Stufen berühren sich, statt sich zu überschneiden',
+    RAMPEN.hang.voll === RAMPEN.fels.beginn && RAMPEN.fels.voll === RAMPEN.rau.beginn,
+    `${RAMPEN.hang.voll}/${RAMPEN.fels.beginn} und ${RAMPEN.fels.voll}/${RAMPEN.rau.beginn}`
+  );
+
+  check(
+    'die Rampe ist monoton: flach → Hang → Fels → rauer Fels',
+    RAMPEN.hang.beginn < RAMPEN.hang.voll &&
+      RAMPEN.hang.voll <= RAMPEN.fels.beginn &&
+      RAMPEN.fels.voll <= RAMPEN.rau.beginn &&
+      RAMPEN.rau.voll <= 90,
+    [RAMPEN.hang.beginn, RAMPEN.hang.voll, RAMPEN.fels.voll, RAMPEN.rau.voll].join(' → ')
+  );
+
+  check(
+    'die Fels-Stufe deckt nicht ganz zu (Rest der Kachel darunter bleibt)',
+    RAMPEN.fels.anteil > 0 && RAMPEN.fels.anteil <= 1,
+    String(RAMPEN.fels.anteil)
+  );
+
+  /*
+    Die oberste Stufe muss auf UNSEREM Gelände auslösen. Gemessen
+    (hang-histogramm.mjs, 09.09.2026): über 56° kommt auf keiner der drei
+    Messstellen ein einziger Vertex vor, 44–56° sind 0–1,3 %. Eine Stufe,
+    die erst bei 56° einsetzt, ist auf diesen Inseln toter Code — genau
+    der Zustand, den diese Nacharbeit behoben hat. 50° ist die Grenze,
+    ab der das wieder gilt.
+  */
+  check(
+    'die oberste Stufe ist auf unserem Gelände erreichbar (voll unter 56°)',
+    RAMPEN.rau.voll < 56,
+    `${RAMPEN.rau.voll}° — über 56° hat das Histogramm keinen einzigen Vertex`
+  );
+
+  const abwNy: string[] = [];
+  for (const [g, erwartet] of [[0, 1], [30, Math.sqrt(3) / 2], [60, 0.5], [90, 0]] as [number, number][]) {
+    if (Math.abs(nyBeiGrad(g) - erwartet) > 1e-6) abwNy.push(`${g}°: ${nyBeiGrad(g).toFixed(6)}`);
+  }
+  check('nyBeiGrad rechnet Grad in den Kosinus der Neigung um', abwNy.length === 0, abwNy.join('; '));
+  check(
+    'steiler heisst kleineres ny',
+    nyBeiGrad(RAMPEN.hang.beginn) > nyBeiGrad(RAMPEN.fels.beginn) &&
+      nyBeiGrad(RAMPEN.fels.beginn) > nyBeiGrad(RAMPEN.rau.beginn) &&
+      nyBeiGrad(RAMPEN.rau.beginn) > nyBeiGrad(RAMPEN.rau.voll),
+    [RAMPEN.hang.beginn, RAMPEN.fels.beginn, RAMPEN.rau.beginn, RAMPEN.rau.voll]
+      .map((g) => nyBeiGrad(g).toFixed(4)).join(' > ')
+  );
+}
+
+// ── (g) Der Fels des Graslands ist der HELLE ───────────────────────
+/*
+  Der Befund vom 09.09.2026: Auf einem 45°-Hang lag `terrain-rock-a` und
+  wurde als Erde gelesen (Luma 25 um 17 Uhr, Wiese daneben 55). Die
+  Ursache steht in der Quelle: Tile 4 ist im Original „Ani Dark
+  Rockwall" mit Metallic 0,85 auf einer Albedo von sRGB 23–49; bei
+  Metallic ist F₀ die eigene Albedo, eine dunkle Schicht spiegelt also
+  auch dunkel. Der helle Fels des Zielbildes ist Tile 5,
+  `Terrain_Meadow_Rock_Rough_01` mit Metallic 0.
+
+  Diese Prüfung hält fest, was daraus folgt, damit es nicht beim
+  nächsten Aufräumen zurückrutscht: Wo Gras wächst, ist der Fels der
+  METALLFREIE. Ein Hang aus Metallic-0,85-Gestein wird ohne
+  HDR-Umgebung schwarz, und die haben wir nicht.
+*/
+{
+  const grasArtig = [TILE.Grass, TILE.Heath, TILE.Sand, TILE.Moss];
+  const schuldig = grasArtig.filter((t) => {
+    const f = SCHICHT_OBERFLAECHE[FELS_TILE[t]!];
+    const r = SCHICHT_OBERFLAECHE[RAU_TILE[t]!];
+    return !f || !r || f.metallic > 0.5 || r.metallic > 0.5;
+  });
+  check(
+    'die Felsstufen der grasigen Biome sind metallfrei (sonst schwarzer Hang)',
+    schuldig.length === 0,
+    schuldig.map((t) => `Tile ${t} → ${FELS_TILE[t]}/${RAU_TILE[t]}`).join('; ')
+  );
+}
 
 // ── Der Rückfall bleibt erreichbar ─────────────────────────────────
 /*

@@ -42,7 +42,7 @@ import {
   WATER_LEVEL,
 } from '@wov/shared';
 import type { ClientWorld } from '../world/World';
-import { TerrainSplatMaterial, TILE, BIOME_TILE, maskUV, maskUVEmpty } from './TerrainSplat';
+import { TerrainSplatMaterial, TILE, BIOME_TILE, FELS_TILE, maskUV, maskUVEmpty } from './TerrainSplat';
 import type { HimmelsFarben } from './TerrainSplat';
 import { WaterPlugin } from './WaterPlugin';
 import { WaterRefraction } from './WaterRefraction';
@@ -1389,7 +1389,16 @@ export class TerrainManager {
             : biome === Biome.DeepNorth
               ? 0.9
               : 0;
-        aRockTile[vi] = biome === Biome.AshLands ? TILE.Basalt : TILE.Rock;
+        // Kachel der MITTLEREN Felsstufe. Hier stand
+        // `biome === AshLands ? Basalt : Rock` — jedes Biom ausser der
+        // Asche bekam damit `terrain-rock-a`, im Original die dunkle
+        // Wandschicht „Ani Dark Rockwall" (Metallic 0,85, Albedo sRGB
+        // 23–49). Auf einem Grashügel war das ein Erdband, kein Fels.
+        // Welche Kachel wirklich gilt, sagt jetzt `FELS_TILE` — dieselbe
+        // Art Tabelle wie `HANG_TILE`/`RAU_TILE` und wie diese über die
+        // GRUNDKACHEL des Bioms indiziert, damit alle drei Stufen aus
+        // einer Reihe kommen.
+        aRockTile[vi] = FELS_TILE[BIOME_TILE[biome] ?? TILE.Rock] ?? TILE.Rock;
 
         if (farMaskUV) {
           aMaskUV[vi * 2] = farMaskUV[0];

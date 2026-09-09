@@ -185,9 +185,9 @@ export const SCHICHT_OBERFLAECHE: readonly SchichtOberflaeche[] = [
  *
  * Im Dorf ist die Kanalzuordnung eine reine Steigungsrampe (Analyse §2):
  * Gras unter 15°, Moos/Kies zwischen 15° und 30°, Fels ab ~35°, rauer
- * Fels ab ~65°; Kies nur auf Wegen. Der Splat hatte bisher EINE Stufe
- * davon — `rockK`, die Fels-Rampe von 30° auf 44°. Diese zwei Tabellen
- * sind die beiden fehlenden Stufen.
+ * Fels ab ~65°; Kies nur auf Wegen. Welche GRADZAHLEN bei uns gelten,
+ * steht in `RAMPEN`; welche KACHEL welche Stufe zeigt, in dieser Tabelle
+ * und in `FELS_TILE`/`RAU_TILE`.
  *
  * Sie hängen am BIOM, nicht an einer neuen Vertexgrösse: Welche Kachel
  * ein Hang trägt, sagt bereits das dominante Eck-Tile des Pixels. Ein
@@ -218,7 +218,55 @@ export const HANG_TILE: readonly number[] = [
   /* 15 LavaCrust */ TILE.Basalt,
 ];
 
-/** Dasselbe für „rauer Fels ab ~65°": überall Klippe, in der Asche Basalt. */
+/**
+ * Kachel des MITTLEREN Fels — die Stufe zwischen Hangkachel und Klippe.
+ *
+ * Sie stand bis zum 09.09.2026 als eine Zeile in `Terrain.ts`
+ * (`biome === AshLands ? Basalt : Rock`) und war damit die einzige der
+ * drei Stufen ohne Tabelle. Das war kein Schönheitsfehler: Tile 4
+ * (`Rock`) ist im Speicher `terrain-rock-a`, und das ist im Original die
+ * Schicht **„Ani Dark Rockwall"** — nachgelesen in
+ * `~/wov-assets/Assets/TerrainLayer/Ani Dark Rockwall.json`: Metallic
+ * 0,85, Glätte 0,1, Kachel 2 m. Ihre Farbtextur liegt zwischen sRGB 23
+ * und 49 (p50 38, Maximum 49); sie ist die DUNKLE Wand, kein heller
+ * Fels. Mit Metallic 0,85 ist ihr F₀ die eigene, dunkle Albedo — eine
+ * Schicht, die 2 % des Himmels spiegelt und 15 % ihrer eigenen, dunklen
+ * Farbe diffus zeigt. Gemessen am 48°-Hang um 17 Uhr: Luma 25, während
+ * die Wiese daneben bei 55 steht. Genau das ist Mikes Befund „ich lese
+ * sie als Erde".
+ *
+ * Der helle Fels des Zielbildes ist die ANDERE Schicht:
+ * `Terrain_Meadow_Rock_Rough_01` (Metallic **0**, Glätte 0, Normale 5,
+ * Kachel 3 m) = `terrain-rock-rough`, Farbtextur sRGB 115–152. Sie
+ * hängt bei uns an Tile 5 (`Cliff`) und ist die Kachel von `RAU_TILE`.
+ *
+ * Daraus die Zuordnung: Wo das Vorbild helle Steilhänge zeigt
+ * (Grasland, Heide, Sand, Mistlands), trägt schon die MITTLERE Stufe die
+ * helle raue Schicht — der dunkle Zwischenring wäre sonst ein Band aus
+ * Erde quer über jeden Hügel. Wo dunkler Fels gewollt ist
+ * (Schwarzwald, Sumpf, Berg/Tiefer Norden), bleibt es bei `Rock`; in der
+ * Asche bei `Basalt`.
+ */
+export const FELS_TILE: readonly number[] = [
+  /*  0 Grass     */ TILE.Cliff,
+  /*  1 Forest    */ TILE.Rock,
+  /*  2 Dirt      */ TILE.Rock,
+  /*  3 Cleared   */ TILE.Rock,
+  /*  4 Rock      */ TILE.Rock,
+  /*  5 Cliff     */ TILE.Cliff,
+  /*  6 LavaEmber */ TILE.Basalt,
+  /*  7 Ash       */ TILE.Basalt,
+  /*  8 Heath     */ TILE.Cliff,
+  /*  9 Sand      */ TILE.Cliff,
+  /* 10 SwampMud  */ TILE.Rock,
+  /* 11 Moss      */ TILE.Cliff,
+  /* 12 Paved     */ TILE.Rock,
+  /* 13 SwampDark */ TILE.Rock,
+  /* 14 Basalt    */ TILE.Basalt,
+  /* 15 LavaCrust */ TILE.Basalt,
+];
+
+/** Dasselbe für den steilsten Hang: überall Klippe, in der Asche Basalt. */
 export const RAU_TILE: readonly number[] = [
   TILE.Cliff, TILE.Cliff, TILE.Cliff, TILE.Cliff,
   TILE.Cliff, TILE.Cliff, TILE.Basalt, TILE.Basalt,
@@ -226,18 +274,81 @@ export const RAU_TILE: readonly number[] = [
   TILE.Cliff, TILE.Cliff, TILE.Basalt, TILE.Basalt,
 ];
 
-// Grenzen der beiden neuen Rampen, als Kosinus der Hangneigung (= ny der
-// geometrischen Normalen). Die mittlere Rampe endet genau dort, wo die
-// bestehende Fels-Rampe (`felsBeginn` 0.87 ≈ 30°) beginnt — die beiden
-// stapeln sich, statt sich zu überschneiden.
-/** ny bei 15°: ab hier mischt sich die Hangkachel ein. */
-const HANG_BEGINN = 0.966;
-/** ny bei 30°: hier ist sie voll, und die Fels-Rampe übernimmt. */
-const HANG_VOLL = 0.866;
-/** ny bei 56°: ab hier mischt sich der rauhe Fels ein. */
-const RAU_BEGINN = 0.559;
-/** ny bei 65°: hier ist er voll. */
-const RAU_VOLL = 0.4226;
+/**
+ * Die drei Stufen der Steigungsrampe, in GRAD Hangneigung.
+ *
+ * ── Warum nicht die Zahlen des Vorbilds ──────────────────────────────
+ * Das Dorf staffelt Gras < 15°, Moos/Kies 15–30°, Fels ab ~35°, rauen
+ * Fels ab ~65° (Analyse §2). Diese Zahlen sind für ein handmodelliertes
+ * 300-m-Tal gemacht. UNSERE Inseln sind nirgends so steil. Gemessen mit
+ * `~/wov-lab-mess/hang-histogramm.mjs` über die Vertex-Normalen im
+ * 250-m-Umkreis:
+ *
+ *   Ort                  <15°   15–30°  30–44°  44–56°  >56°
+ *   Referenz 10077/−18723  35 %   48 %    16 %   0,6 %   0
+ *   Spawn-Insel            54 %   43 %     3 %   0       0
+ *   10500/−17600           29 %   52 %    18 %   1,3 %   0
+ *
+ * Über 56° kommt hier NICHTS vor. Die oberste Stufe („rauer Fels ab
+ * 65°") konnte auf unseren Inseln also niemals auslösen, und der Fels
+ * ab 30° traf nur die obersten 3–18 %, dort aber mit der dunklen
+ * Wandschicht. Übernommen wird deshalb die REIHENFOLGE des Vorbilds,
+ * nicht seine oberste Gradzahl: Die beiden Felsstufen werden auf die
+ * Verteilung unserer Inseln heruntergezogen, so dass sie die steilsten
+ * Prozent treffen, statt leer zu laufen.
+ *
+ * ── Die Grenzen, und warum die unterste NICHT verschoben wird ────────
+ * Ein erster Versuch zog alle drei Stufen herunter (12/22/34/46, der
+ * Vorschlag aus dem Auftrag). Gemessen am Referenzort (Bildpunkte den
+ * Vertex-Normalen zugeordnet, 17 Uhr, ohne Gras) verschiebt das den
+ * SANFTEN Grund, auf dem die Kalibrierung von Stufe 2 steht:
+ *
+ *   Neigungsband   Stufe 2   12/22/34/46
+ *   15–22°           59,2       64,1
+ *   22–30°           59,9       71,7
+ *
+ * Das ist kein Fels an einem Hang mehr, das ist ein Steinschleier über
+ * jedem Grashügel — 15–30° sind auf unseren Inseln 43–52 % der Fläche.
+ * Die Regionsmessung „nah 55,8 ± 3" hätte das nicht überlebt.
+ *
+ * Also bleibt die unterste Stufe da, wo Stufe 2 sie kalibriert hat
+ * (15°→30°, die Zahl des Vorbilds), und nur die zwei Felsstufen rücken
+ * nach unten. Jede Stufe endet, wo die nächste anfängt — sie stapeln
+ * sich, sie überschneiden sich nicht (geprüft in
+ * `tools/test/terrain-schichten.ts`):
+ *
+ *   Hang  15° → 30°   unverändert; lässt die 29–54 % unter 15° in Ruhe
+ *   Fels  30° → 40°   trifft die 3–18 % über 30° (vorher: voll erst 44°)
+ *   Rau   40° → 50°   voll auf den steilsten 0,6–1,3 % (vorher: 56°→65°,
+ *                     also nie)
+ *
+ * `anteil` ist die Deckung, die die Fels-Stufe höchstens erreicht (0,85,
+ * der Wert der three.js-Referenz). Die letzten 15 % bleiben die Kachel
+ * darunter — das ist die Streuung, die ein reiner Lerp sonst verliert.
+ */
+export const RAMPEN = {
+  /** Hangkachel (Moos/Kies/Erde je Biom). */
+  hang: { beginn: 15, voll: 30 },
+  /** Mittlerer Fels (`FELS_TILE`). */
+  fels: { beginn: 30, voll: 40, anteil: 0.85 },
+  /** Steilster Hang, raue Felsschicht (`RAU_TILE`). */
+  rau: { beginn: 40, voll: 50 },
+} as const;
+
+/**
+ * Hangneigung in Grad → `ny` der Normalen. Der Shader rechnet in `ny`,
+ * geredet wird in Grad; diese Funktion ist die einzige Umrechnung.
+ */
+export function nyBeiGrad(grad: number): number {
+  return Math.cos((grad * Math.PI) / 180);
+}
+
+const HANG_BEGINN = nyBeiGrad(RAMPEN.hang.beginn);
+const HANG_VOLL = nyBeiGrad(RAMPEN.hang.voll);
+const FELS_BEGINN = nyBeiGrad(RAMPEN.fels.beginn);
+const FELS_VOLL = nyBeiGrad(RAMPEN.fels.voll);
+const RAU_BEGINN = nyBeiGrad(RAMPEN.rau.beginn);
+const RAU_VOLL = nyBeiGrad(RAMPEN.rau.voll);
 
 /**
  * Wie viel vom Himmel den Boden erreicht (Analogon zu `sky.groundReflection`
@@ -1239,29 +1350,20 @@ export class TerrainSplatMaterial {
     // körnige Eindruck im Original entsteht nicht im Blend, sondern aus
     // der Tile-Textur selbst plus der UV-Rotation (oben) und den
     // Tile-Normal-Maps. Deshalb zurückgesetzt.
-    // NACHGEMESSEN: Die Rampe begann bei ny = 0.72, also erst ab 44°
-    // Hangneigung. Über die Vertex-Normalen von 40 Chunks ausgezählt
-    // liegt die Geländeverteilung so:
-    //
-    //   bis 26°   80.7 %      35-44°    4.7 %
-    //   26-35°    12.4 %      über 44°  2.2 %
-    //
-    // Fels konnte damit auf 2 % der Fläche überhaupt erscheinen und war
-    // erst ab 62° voll ausgefahren — auf 0.03 % der Vertices. Genau das
-    // ist die gemeldete Beobachtung: Berghänge ohne Steintextur.
-    //
-    // Die Rampe beginnt jetzt bei 30° und ist bei 44° voll. Das trifft
-    // die 13 % Gelände, die als „Hang" durchgehen, und lässt die 80 %
-    // unter 26° unberührt. Der Wert ist ABGESTIMMT, nicht rekonstruiert:
-    // die Schwelle steht im Original-Shader, und der liegt im Export nur
-    // als 0-Byte-Datei vor (die Materialdaten führen keine dazu).
+    // NACHGEMESSEN (09.09.2026, Nacharbeit „Boden 3"): Die Schwellen
+    // stehen jetzt an EINER Stelle, in `RAMPEN` — dort steht auch das
+    // Histogramm, aus dem sie stammen. Die Rampe beginnt bei 22° und ist
+    // bei 34° voll; darüber übernimmt die raue Schicht. Vorher begann
+    // sie bei 30° und war bei 44° voll, und WELCHE Kachel sie zog, sagte
+    // eine Zeile in Terrain.ts (immer die dunkle `rock-a`) statt einer
+    // Tabelle — siehe `FELS_TILE`.
     const rockSample = sampleLayer(terrainMarkerSplit.x, 'rock');
-    const felsBeginn = cnst('felsBeginn', 0.87);   // ny bei 30 Grad
+    const felsBeginn = cnst('felsBeginn', FELS_BEGINN);
     const rockD = new SubtractBlock('rockD'); felsBeginn.output.connectTo(rockD.left); nrmSplit.y.connectTo(rockD.right);
-    const felsRampe = cnst('felsRampe', 0.15);     // voll bei 44 Grad
+    const felsRampe = cnst('felsRampe', FELS_BEGINN - FELS_VOLL);
     const rockT2 = new DivideBlock('rockT2'); rockD.output.connectTo(rockT2.left); felsRampe.output.connectTo(rockT2.right);
     const rockClamp = new ClampBlock('rockClamp'); rockT2.output.connectTo(rockClamp.value);
-    const c085r = cnst('c085r', 0.85);
+    const c085r = cnst('c085r', RAMPEN.fels.anteil);
     const rockK = new MultiplyBlock('rockK'); rockClamp.output.connectTo(rockK.left); c085r.output.connectTo(rockK.right);
 
     // ── Die zwei fehlenden Stufen der Steigungsrampe ────────────────

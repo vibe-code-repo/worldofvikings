@@ -639,7 +639,20 @@ export class TerrainManager {
   /** Per frame: sync sun/ambient/fog into the splat material (Lighting). */
   syncLighting(
     sunDir: Vector3,
+    /**
+     * Sonnenfarbe MAL Sonnenstärke (`Lighting.bodenSonne`), nicht
+     * `sun.diffuse`.
+     *
+     * Der Boden ist das einzige Material, das sein Licht als Uniform
+     * bekommt; jedes andere multipliziert `Light.intensity` selbst. Wer
+     * hier die nackte Farbe hereingibt, baut den Fehler wieder ein, den
+     * der 09.09.2026 behoben hat — sichtbar nicht am Tag, sondern in der
+     * Dungeon-Instanz, wo `Lighting.apply()` beide Intensitäten dämpft.
+     *
+     * Sun colour TIMES intensity, not `sun.diffuse`.
+     */
     sunColor: Color3,
+    /** Grundlichtfarbe MAL Stärke (`Lighting.bodenAmbient`) — s. oben. */
     ambient: Color3,
     fogDensity: number,
     fogColor: Color3,

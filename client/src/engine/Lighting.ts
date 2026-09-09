@@ -327,6 +327,40 @@ export class Lighting {
   private readonly sonnenGlanz = new Color3();
   private readonly ambFarbe = new Color3();
   private readonly ambBoden = new Color3();
+
+  /**
+   * Sonne und Grundlicht als FERTIGE Strahldichte — Farbe × Stärke.
+   *
+   * ── Warum es diese beiden Puffer gibt (09.09.2026) ──────────────────
+   * Ein Babylon-Material bekommt Farbe und Stärke getrennt und
+   * multipliziert selbst. Ein Material, das seine Lichtwerte als Uniform
+   * gereicht bekommt — der Boden ist hier das einzige —, bekommt EINE
+   * Zahl, und die muss beides enthalten.
+   *
+   * `client/src/main.ts` reichte dem Boden bis heute `sun.diffuse` und
+   * `ambient.diffuse` OHNE die zugehörige `intensity` weiter. Um 17 Uhr
+   * fällt das kaum auf, weil sich die beiden Fehler fast aufheben
+   * (Sonne 1,2245 zu hoch, Grundlicht 0,5082 zu niedrig); im DUNGEON
+   * fällt es auseinander: `apply()` multipliziert dort beide
+   * Intensitäten mit `dungeonAmbient`, und der Boden sah davon nichts —
+   * gemessen am 09.09.2026 im Steingrab (Sonnenstärke 0, Grundlicht
+   * 0,868): Der Boden bekam 0,2258 statt 0,0678, also das 3,3-fache
+   * dessen, was die Wände sehen.
+   *
+   * Das Schwesterprojekt macht es in `bindSceneLighting()`
+   * (`packages/engine/src/terrain.ts`) genau so: `sun.diffuse.scale(
+   * sun.intensity)` und `fill.diffuse.scale(fill.intensity)`.
+   *
+   * Beschrieben werden sie am ENDE von `apply()`, NACH der
+   * Dungeon-Dämpfung — davor stünde wieder die ungedämpfte Zahl darin.
+   * Gehalten statt frisch erzeugt aus demselben Grund wie alle Farben
+   * darüber: kein Müll pro Frame.
+   *
+   * Sun and ambient as FINISHED radiance — colour × intensity — for the
+   * one material that receives its lighting as uniforms (the terrain).
+   */
+  readonly bodenSonne = new Color3();
+  readonly bodenAmbient = new Color3();
   /** Identisch mit `scene.fogColor` (GAMMA, s. Farbraum-Block). */
   private readonly nebelFarbe = new Color3();
   /** GAMMA-Zwischenschritt für `fogColorSonnenLinear`. */
@@ -617,6 +651,13 @@ export class Lighting {
       this.ambient.intensity *= this.dungeonAmbient;
       this.scene.environmentIntensity = UMGEBUNGS_INTENSITAET * this.dungeonAmbient;
     }
+
+    // ── Licht für Materialien ohne eigene Lichtbindung ────────────
+    // Farbe × Stärke, HIER und nicht früher: Erst nach der
+    // Dungeon-Dämpfung stehen die endgültigen Intensitäten. Siehe
+    // `bodenSonne` / `bodenAmbient` für die ganze Begründung.
+    this.sonnenFarbe.scaleToRef(this.sun.intensity, this.bodenSonne);
+    this.ambFarbe.scaleToRef(this.ambient.intensity, this.bodenAmbient);
 
     // ── Sky ───────────────────────────────────────────────────────
     // The dome derives horizon/glow from this same state, so it fuses with

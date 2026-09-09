@@ -3695,8 +3695,17 @@ async function main() {
     // G-TEX: sync sun/ambient/fog into the terrain splat material
     terrain.syncLighting(
       lighting.sun.direction,
-      lighting.sun.diffuse,
-      lighting.ambient.diffuse,
+      // Farbe × STÄRKE, nicht die nackte Farbe: Der Boden ist das einzige
+      // Material, das seine Lichtwerte als Uniform bekommt und die
+      // Intensität deshalb nicht selbst anwenden kann. Hier stand bis zum
+      // 09.09.2026 `lighting.sun.diffuse` / `lighting.ambient.diffuse` —
+      // um 17 Uhr hoben sich die beiden Fehler fast auf, im Dungeon nicht:
+      // Dort dämpft `Lighting.apply()` beide Intensitäten, und der Boden
+      // blieb voll hell. Die fertigen Puffer liegen in `Lighting`, samt
+      // Messzahlen. / Colour × intensity — the terrain gets its lighting
+      // as uniforms and cannot apply the intensity itself.
+      lighting.bodenSonne,
+      lighting.bodenAmbient,
       scene.fogDensity,
       // LINEAR — `scene.fogColor` ist Babylons Gamma-Wert und würde vom
       // ImageProcessing-Pass ein zweites Mal aufgehellt (Lighting.ts).

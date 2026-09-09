@@ -595,12 +595,41 @@ export class AssetManager {
    * (`beech_leaf_small` gegen `beech_leaf`), sie bräuchte denselben
    * PathID-Abgleich wie die Texturwiederherstellung.
    */
-  private setzeMetallgrad(material: PBRMaterial): void {
+  private setzeMetallgrad(material: PBRMaterial, modelName: string): void {
     if (this.metallGeprueft.has(material.uniqueId)) return;
     this.metallGeprueft.add(material.uniqueId);
     // Eine echte Metallic-Map ist die Ausnahme, aber wenn sie da ist, ist
     // der Faktor 1 richtig — dann steuert der Kanal, nicht der Faktor.
     if (material.metallicTexture) return;
+    /*
+      DER STORE SAGT SEINEN METALLGRAD SELBST — die Namensregel gilt für
+      ihn nicht.
+
+      Die Regel unten ist aus dem alten Fremdexport abgeleitet, in dem die
+      Materialien ihren `_Metallic`-Wert beim Rippen verloren hatten; der
+      Name war die einzige verbliebene Auskunft. Der Store hat dieses
+      Problem nicht: Seine GLBs tragen `metallicFactor` im Material, und er
+      ist bei allen 151 Vegetations- und allen Requisitenmaterialien 0
+      (Synty POLYGON arbeitet ohne Metall — s. `Analyse — Look-Übertragung
+      ins Labor`, §2 „Geometrie und Material").
+
+      Angewandt richtete die Regel deshalb nur Schaden an. Sie trifft im
+      Store `Metal_PolygonFantasyKingdom_Mat_01_A 5` (Ring) und `SM_Item_Crystal_04`
+      und jedes `sm-wep-sword-*`, setzt `metallic = 1`, und weil das Labor
+      keine `environmentTexture` hat, hat ein vollmetallisches Material
+      nichts zu spiegeln: Es rendert nahezu SCHWARZ. Derselbe Fehlermodus
+      wie bei den Erzbrocken unten, nur ohne den Fels-Vorrang, der ihn dort
+      abfängt.
+
+      Erkannt am MODELLPFAD und nicht am Materialnamen: Der Pfad sagt, aus
+      welchem Bestand die Datei stammt, und das ist genau die Frage. Eine
+      Ausnahmeliste von Materialnamen wäre eine zweite Wahrheit, die beim
+      nächsten Store-Import still auseinanderliefe.
+    */
+    if (istStoreModell(modelName)) {
+      material.metallic = material.metallic ?? 0;
+      return;
+    }
     // FELS SCHLÄGT METALL.
     //
     // `rock1_copper` ist ein Kupfererz-Brocken: überwiegend Gestein, mit
@@ -647,7 +676,7 @@ export class AssetManager {
       return;
     }
 
-    this.setzeMetallgrad(material);
+    this.setzeMetallgrad(material, modelName);
 
     // Wind für Modelle ohne Cutout-Laub — muss VOR dem Cutout-Block
     // stehen, dessen frühe `return`s solche Materialien sonst aussortieren
@@ -1175,6 +1204,21 @@ function zuMaster(mesh: Mesh): PrefabMaster {
  * ganze Oberfläche metallisch machen.
  */
 const FELSIG = /rock|stone|cliff/i;
+
+/**
+ * Stammt dieses Modell aus dem Store?
+ *
+ * Der Pfad ist die Auskunft, nicht der Name: `store/…` ist der Bestand
+ * wie geliefert, `store-lab/…` die im Labor aufbereitete Fassung
+ * derselben Datei (`tools/store-vegetation-aufbereiten.mjs`). Beide
+ * bringen ihre Materialwerte selbst mit — s. `setzeMetallgrad`.
+ *
+ * Exportiert, weil `client/test/store-metall.ts` an derselben Regel
+ * misst und zwei Kopien davon unweigerlich auseinanderliefen.
+ */
+export function istStoreModell(modelName: string): boolean {
+  return /^store(-lab)?\//.test(modelName);
+}
 
 const METALLISCH =
   /metal|iron|bronze|silver|copper|flametal|anvil|forge|cauldron|coin|crystal|sword|axe|mace|atgeir|arbalest|shield|armor|helm|chitin|marble|obsidian|silverore|copperore|tinore/i;

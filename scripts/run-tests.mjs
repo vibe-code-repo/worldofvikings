@@ -948,8 +948,8 @@ const KERN = [
     Test, damit ein Rueckfall nicht nur „rot" ist, sondern beziffert.
 
     Ohne Welt und ohne Netz: dieselbe `nahfeldAus`-Bank wie in
-    `kollision-schritt.ts`, reine Geometrie. ~10 s (der Scan wirft rund
-    16.000 Abfragen).
+    `kollision-schritt.ts`, reine Geometrie. ~2 s, obwohl der Scan rund
+    16.000 Abfragen wirft — der Vorfilter des Nahfelds traegt.
 
     Swept-sphere collision: corners, wall ends, and the lateral gap the
     three offset rays used to leave. Counting proof plus fixed cases.
@@ -1179,7 +1179,7 @@ const KERN = [
 
     Der Test misst an einer echt gestreuten Region: 546 -> 282 Formen
     ueber die geladenen Zonen (320 m). Braucht keine Modelldatei,
-    gezaehlt werden Groessen. ~5 s.
+    gezaehlt werden Groessen. ~2 s.
 
     Scale ladder shared by client and server; counts the shapes a real
     scattered region needs before and after.

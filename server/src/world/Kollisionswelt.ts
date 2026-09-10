@@ -38,9 +38,9 @@ import type { BodenAbfrage, HindernisAbfrage, Treffer } from '@wov/shared/src/be
 import {
   BODEN_VERSATZ,
   KOERPER_RADIUS,
-  STEIGUNGS_GRENZE_COS,
   STRAHL_HOEHEN,
   STUFEN_HOEHE,
+  istWand,
 } from '@wov/shared/src/bewegung/masse.js';
 import type { Vector3 } from '@wov/shared';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
@@ -60,6 +60,18 @@ export const LEERE_FORMQUELLE: FormQuelle = Object.freeze({
  * genug, dass ein Spieler ueber einer Schlucht nicht am Grund klebt.
  */
 const BODEN_TIEFE = 3;
+
+/**
+ * Wie weit ueber dem rechnerischen Startpunkt der Bodenstrahl beginnt, in m.
+ *
+ * Ein Zehntelmillimeter, und er ist noetig: Steht die Figur genau eine
+ * Stufenhoehe unter einer Kante, faellt der Strahlanfang EXAKT auf deren
+ * Oberflaeche. Ein Strahl, der auf der Flaeche beginnt, gilt der
+ * Kistenabfrage als „von innen" und meldet die Unterseite — die ist keine
+ * begehbare Flaeche, und die Figur wird nicht aufgesetzt. Eine Stufe von
+ * exakt 0,40 m waere damit die einzige, die nicht ginge.
+ */
+const BODEN_START_LUFT = 1e-4;
 
 /**
  * Wie weit ueber die eigentliche Reichweite hinaus eingesammelt wird, in m.
@@ -399,6 +411,12 @@ export class Kollisionswelt {
   private quelle: FormQuelle;
   /** Wiederverwendeter Puffer der Gitterabfrage — kein Muell je Strahl. */
   private readonly dreieckPuffer: number[] = [];
+  /** Fertige Koerper je ZDO — s. `koerperVon`. Schwach, damit ein
+   *  entferntes ZDO nicht als Matrix im Speicher haengen bleibt. */
+  private readonly koerperCache = new WeakMap<
+    object,
+    { koerper: Koerper; form: KollisionsForm; pos: Vector3; rot: { x: number; y: number; z: number; w: number }; rev: number }
+  >();
 
   constructor(
     private readonly zdos: ZDOManager,
@@ -442,10 +460,56 @@ export class Kollisionswelt {
         if (!prefab) continue;
         const form = this.quelle.formFuer(prefab.name);
         if (!form) continue;
-        koerper.push(this.baueKoerper(form, zdo.position, zdo.rotation, this.skalierung(zdo, prefab)));
+        koerper.push(this.koerperVon(zdo, prefab, form));
       }
     }
     return this.baueNahfeld(koerper);
+  }
+
+  /**
+   * Der fertige Koerper eines ZDO — aus dem Zwischenspeicher, wenn sich
+   * an ihm nichts geaendert hat.
+   *
+   * Ein Findling steht still, seit die Zone gestreut wurde; seine
+   * Drehmatrix und seine Weltumhuellende jedes Eingabepaket neu zu rechnen
+   * ist die Sorte Arbeit, die nur in Messreihen auftaucht: bei 25 Spielern
+   * und 20 Hz waeren das 100.000 Quaternion-Aufloesungen je Sekunde fuer
+   * Zahlen, die sich nie aendern.
+   *
+   * Die Gueltigkeit haengt an drei Dingen, und alle drei sind billig zu
+   * pruefen: Position und Drehung als OBJEKTE (der ZDO-Speicher setzt sie
+   * neu, statt sie zu beschreiben) und die Datenrevision, die jedes
+   * `setMember` hochzaehlt — also auch eine geaenderte Skalierung.
+   */
+  private koerperVon(
+    zdo: {
+      position: Vector3;
+      rotation: { x: number; y: number; z: number; w: number };
+      revision: { dataRevision: number };
+      getVec3(n: string, d?: Vector3): Vector3;
+      getFloat(n: string, d?: number): number;
+    },
+    prefab: { localScale: Vector3 },
+    form: KollisionsForm
+  ): Koerper {
+    const alt = this.koerperCache.get(zdo);
+    if (
+      alt !== undefined &&
+      alt.pos === zdo.position &&
+      alt.rot === zdo.rotation &&
+      alt.rev === zdo.revision.dataRevision &&
+      alt.form === form
+    ) {
+      return alt.koerper;
+    }
+    const koerper = this.baueKoerper(form, zdo.position, zdo.rotation, this.skalierung(zdo, prefab));
+    this.koerperCache.set(zdo, {
+      koerper, form,
+      pos: zdo.position,
+      rot: zdo.rotation,
+      rev: zdo.revision.dataRevision,
+    });
+    return koerper;
   }
 
   /**
@@ -618,6 +682,35 @@ export class Kollisionswelt {
   private baueNahfeld(koerper: readonly Koerper[]): Nahfeld {
     const gelaende = this.gelaende;
     const selbst = this;
+    /*
+      Vorfilter je Abfrage — und der lohnt sich, weil eine Abfrage sechs
+      Strahlen wirft und ein Bodenblick fuenf. Ohne ihn liefe JEDER Strahl
+      gegen JEDEN Koerper des Nahfelds: bei 200 Formen sind das ueber
+      14.000 Slab-Tests je Eingabepaket (gemessen 0,81 ms). Der Weg eines
+      Schritts ist aber nur 12,5 cm lang; was ihn nicht einmal mit seiner
+      Huellbox beruehrt, faellt hier mit sechs Vergleichen heraus statt
+      mit drei Divisionen je Strahl.
+    */
+    // Zwei Puffer, nicht einer: `gleitBewegung` fragt den Boden MITTEN im
+    // Aufbau einer Hindernisabfrage (das Ziel des Suchwegs liegt auf der
+    // Bodenhoehe). Ein geteilter Puffer wuerde dabei unter der laufenden
+    // Schleife ausgetauscht — der klassische Fehler, den niemand sieht,
+    // weil er nur bei bestimmten Standorten zuschlaegt.
+    const pufferWand: Koerper[] = [];
+    const pufferBoden: Koerper[] = [];
+    const vorfilter = (
+      ziel: Koerper[],
+      x0: number, y0: number, z0: number, x1: number, y1: number, z1: number
+    ): Koerper[] => {
+      ziel.length = 0;
+      for (const k of koerper) {
+        if (k.hx1 < x0 || k.hx0 > x1) continue;
+        if (k.hy1 < y0 || k.hy0 > y1) continue;
+        if (k.hz1 < z0 || k.hz0 > z1) continue;
+        ziel.push(k);
+      }
+      return ziel;
+    };
 
     return {
       anzahl: koerper.length,
@@ -641,18 +734,20 @@ export class Kollisionswelt {
       hoeheBei(x: number, z: number, yFuss: number): number | null {
         const boden = gelaende(x, z);
         if (koerper.length === 0) return boden;
-        const oy = yFuss + STUFEN_HOEHE;
+        const oy = yFuss + STUFEN_HOEHE + BODEN_START_LUFT;
         const v = KOERPER_RADIUS * BODEN_VERSATZ;
+        const nahe = vorfilter(pufferBoden, x - v, oy - BODEN_TIEFE, z - v, x + v, oy, z + v);
+        if (nahe.length === 0) return boden;
         let hoechste = boden;
         for (let f = 0; f < 5; f += 1) {
           const px = x + (f === 1 ? -v : f === 2 ? v : 0);
           const pz = z + (f === 3 ? -v : f === 4 ? v : 0);
-          for (const k of koerper) {
-            const t = selbst.strahl(k, px, oy, pz, 0, -1, 0, BODEN_TIEFE);
+          for (const k of nahe) {
+            const t = selbst.strahl(k, px, oy, pz, 0, -1, 0, BODEN_TIEFE + BODEN_START_LUFT);
             if (t === null) continue;
             // Nur begehbare Flaechen tragen: Die Flanke eines Felsens ist
             // kein Boden, sonst stuende die Figur in der Wand.
-            if (t.normale.y < STEIGUNGS_GRENZE_COS) continue;
+            if (istWand(t.normale)) continue;
             if (t.punkt.y > hoechste) hoechste = t.punkt.y;
           }
         }
@@ -683,6 +778,20 @@ export class Kollisionswelt {
         const qz = vx;
         const weite = weg + radius;
 
+        // Alles, was die sechs Strahlen zusammen ueberstreichen, in EINER
+        // Huellbox — dahinter bleibt nur, was ueberhaupt in Frage kommt.
+        const spanne = weite + radius;
+        const nahe = vorfilter(
+          pufferWand,
+          Math.min(von.x, von.x + vx * spanne) - radius,
+          Math.min(von.y, nach.y) + STRAHL_HOEHEN[0]!,
+          Math.min(von.z, von.z + vz * spanne) - radius,
+          Math.max(von.x, von.x + vx * spanne) + radius,
+          Math.max(von.y, nach.y) + STRAHL_HOEHEN[STRAHL_HOEHEN.length - 1]!,
+          Math.max(von.z, von.z + vz * spanne) + radius
+        );
+        if (nahe.length === 0) return null;
+
         let naechster: Treffer | null = null;
         for (const hoehe of STRAHL_HOEHEN) {
           // Die Strahlen folgen dem Hoehenunterschied der Bewegung, damit
@@ -694,12 +803,12 @@ export class Kollisionswelt {
           for (let s = -1; s <= 1; s += 1) {
             const ox = von.x + qx * radius * s;
             const oz = von.z + qz * radius * s;
-            for (const k of koerper) {
+            for (const k of nahe) {
               const t = selbst.strahl(k, ox, von.y + hoehe, oz, dx, dyn, dz, strecke);
               if (t === null) continue;
               // Hang oder Stufe, keine Wand: Darueber laeuft die Figur,
               // die Bodenabfrage hebt sie an.
-              if (t.normale.y >= STEIGUNGS_GRENZE_COS) continue;
+              if (!istWand(t.normale)) continue;
               // Nur was sich NAEHERT, steht im Weg (s. `abfragen.ts`).
               const flach = Math.sqrt(t.normale.x * t.normale.x + t.normale.z * t.normale.z);
               if (flach <= 1e-9) continue;

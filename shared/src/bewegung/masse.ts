@@ -145,6 +145,24 @@ export const SCHRITT_LAENGE = 1 / 60;
 export const MAX_SCHRITTE = 5;
 
 /**
+ * Wand oder Hang? Die eine Regel, nach der beide Seiten entscheiden.
+ *
+ * Eine Flaeche ist eine WAND, wenn sie steiler steht als die
+ * Steigungsgrenze — dann stoppt die Bewegung in sie hinein und gleitet
+ * hoechstens daran entlang. Alles Flachere ist HANG: Darueber laeuft die
+ * Figur, und die Bodenabfrage hebt sie an.
+ *
+ * Sie steht hier und nicht beim Aufrufer, weil sonst je eine Kopie im
+ * Server und im Client staende — und zwei Kopien einer Schwelle sind zwei
+ * Schwellen, sobald jemand eine davon anfasst.
+ *
+ * `normale` muss ein Einheitsvektor sein, so wie ein Strahlwurf sie meldet.
+ */
+export function istWand(normale: { y: number }): boolean {
+  return normale.y < STEIGUNGS_GRENZE_COS;
+}
+
+/**
  * Der Deckel des SERVERS — hoeher als `MAX_SCHRITTE`, und mit Grund.
  *
  * `handlePlayerInput` klemmt die Wanduhr-Spanne zwischen zwei Paketen seit

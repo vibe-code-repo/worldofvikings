@@ -1093,6 +1093,36 @@ const KERN = [
   //     Braucht `assets/store` fuer Sorte und Kategorie.
   ['shared', 'test/store-registry.ts'],
   ['client', 'test/store-ladepfad.ts'],
+
+  // ── Kollisionsformen: Client und Server sehen DASSELBE ─────────────
+  //
+  // Seit dem 10.09.2026 leitet nicht mehr der Client allein die Form
+  // eines Hindernisses ab, sondern `shared/src/kollision/formen.ts` fuer
+  // beide Seiten. Drei Tests, getrennt nach dem, was sie VORAUSSETZEN:
+  //
+  //  1. `shared/test/kollision-mengen.ts` rechnet nur mit den
+  //     eingecheckten Tabellen — keine Datei, keine Weiche, laeuft im
+  //     CI-Checkout. Er haelt fest, dass die Menge "fest" nach dem
+  //     Wechsel auf `storeKollisionDaten.ts` dieselbe geblieben ist
+  //     (454 Speicher-Prefabs) und dass die geteilte Ableitung ohne
+  //     `Math.hypot/pow/atan2` auskommt (Portierungsfalle: andere
+  //     Laufzeit, andere Bits). Sekundenbruchteile.
+  //
+  //  2. `client/test/kollision-formen.ts` faehrt acht Prefabs ueber den
+  //     ECHTEN Client-Weg (SceneLoader + AssetManager.getMasters) und
+  //     haelt die Havok-Parameter gegen
+  //     `shared/test/golden/kollision-formen.json` — dort steht neben
+  //     dem Sollwert auch der von origin/main. Ausserdem: die Abbildung
+  //     GLB -> Clientraum, Vertex fuer Vertex gegen den Node-Leser des
+  //     Servers. Braucht `assets/store`. ~5 s.
+  //
+  //  3. `server/test/kollision-formen.ts` macht dasselbe OHNE Babylon
+  //     und misst die Vorladung. Sein (c)-Teil laeuft absichtlich auch
+  //     ohne Speicher (leere Quelle, kein Absturz) — die Weiche steht
+  //     trotzdem, weil (a) und (b) die Dateien brauchen. ~2 s.
+  ['shared', 'test/kollision-mengen.ts'],
+  ['client', 'test/kollision-formen.ts', brauchtStore()],
+  ['server', 'test/kollision-formen.ts', brauchtStore()],
   ['tools', 'test/store-erzeugung.ts', brauchtStore()],
   ['tools', 'test/store-einsortierung.ts', brauchtModelle('assets/store')],
 

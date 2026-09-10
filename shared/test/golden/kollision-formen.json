@@ -1,0 +1,263 @@
+{
+ "hinweis": "Die Havok-Parameter der acht Prueflinge, gemessen am 10.09.2026. `havokVorher` ist die Ableitung aus origin/main (client/src/engine/Physics.ts, deriveCollider/buildMeshCollider), `havok` die erwartete von heute (shared/src/kollision/formen.ts). Sieben von acht sind identisch bis 1e-15; die Treppe ist die EINE bewusste Aenderung, s. `geaendert`. ERZEUGT aus mess/altNeu.ts — Zahlen nicht von Hand nachbessern.",
+ "toleranz": {
+  "kisteKapsel": 0.0001,
+  "netzHuelle": 0.0001
+ },
+ "prefabs": [
+  {
+   "name": "vegetation-tree-1c3",
+   "modell": "store-lab/vegetation/tree-1c3",
+   "havok": {
+    "art": "kapsel",
+    "a": [
+     0,
+     -0.6796326183421008,
+     0
+    ],
+    "b": [
+     0,
+     11.097412540827452,
+     0
+    ],
+    "radius": 0.2827773548024305
+   },
+   "havokVorher": {
+    "art": "kapsel",
+    "a": [
+     0,
+     -0.6796326183421006,
+     0
+    ],
+    "b": [
+     0,
+     11.097412540827452,
+     0
+    ],
+    "radius": 0.28277735480243055
+   }
+  },
+  {
+   "name": "vegetation-branched-tree-2a1",
+   "modell": "store-lab/vegetation/branched-tree-2a1",
+   "havok": {
+    "art": "kapsel",
+    "a": [
+     0,
+     2.954000060961075,
+     0
+    ],
+    "b": [
+     0,
+     10.15475192148941,
+     0
+    ],
+    "radius": 3.3426130763743593
+   },
+   "havokVorher": {
+    "art": "kapsel",
+    "a": [
+     0,
+     2.9540000609610746,
+     0
+    ],
+    "b": [
+     0,
+     10.15475192148941,
+     0
+    ],
+    "radius": 3.342613076374359
+   }
+  },
+  {
+   "name": "environment-sm-env-rock-cliff-01",
+   "modell": "store/environment/sm-env-rock-cliff-01",
+   "havok": {
+    "art": "netz",
+    "dreiecke": 968,
+    "min": [
+     -4.551562309265137,
+     -4.752834796905518,
+     -4.882304668426514
+    ],
+    "max": [
+     4.551562309265137,
+     13.720168113708496,
+     4.882304668426514
+    ]
+   },
+   "havokVorher": {
+    "art": "netz",
+    "dreiecke": 968,
+    "min": [
+     -4.551562309265137,
+     -4.752834796905518,
+     -4.882304668426514
+    ],
+    "max": [
+     4.551562309265137,
+     13.720168113708496,
+     4.882304668426514
+    ]
+   }
+  },
+  {
+   "name": "environment-sm-env-rock-round-01",
+   "modell": "store/environment/sm-env-rock-round-01",
+   "havok": {
+    "art": "netz",
+    "dreiecke": 80,
+    "min": [
+     -0.4500999450683594,
+     -0.4442748427391052,
+     -0.43675708770751953
+    ],
+    "max": [
+     0.35373735427856445,
+     0.4458443522453308,
+     0.41329383850097656
+    ]
+   },
+   "havokVorher": {
+    "art": "netz",
+    "dreiecke": 80,
+    "min": [
+     -0.4500999450683594,
+     -0.4442748427391052,
+     -0.43675708770751953
+    ],
+    "max": [
+     0.35373735427856445,
+     0.4458443522453308,
+     0.41329383850097656
+    ]
+   }
+  },
+  {
+   "name": "environment-sm-env-stone-01",
+   "modell": "store/environment/sm-env-stone-01",
+   "havok": {
+    "art": "netz",
+    "dreiecke": 24,
+    "min": [
+     -0.27908626198768616,
+     0,
+     -0.2615419030189514
+    ],
+    "max": [
+     0.2790859639644623,
+     0.2048216611146927,
+     0.26154080033302307
+    ]
+   },
+   "havokVorher": {
+    "art": "netz",
+    "dreiecke": 24,
+    "min": [
+     -0.27908626198768616,
+     0,
+     -0.2615419030189514
+    ],
+    "max": [
+     0.2790859639644623,
+     0.2048216611146927,
+     0.26154080033302307
+    ]
+   }
+  },
+  {
+   "name": "environment-barrel-destructible",
+   "modell": "store/environment/barrel-destructible",
+   "havok": {
+    "art": "kiste",
+    "mitte": [
+     0,
+     0.5155963897705078,
+     0
+    ],
+    "masse": [
+     0.76763916015625,
+     1.0311927795410156,
+     0.76788330078125
+    ]
+   },
+   "havokVorher": {
+    "art": "kiste",
+    "mitte": [
+     0,
+     0.5155963897705078,
+     0
+    ],
+    "masse": [
+     0.76763916015625,
+     1.0311927795410156,
+     0.76788330078125
+    ]
+   }
+  },
+  {
+   "name": "environment-sm-prop-crate-stack-01",
+   "modell": "store/environment/sm-prop-crate-stack-01",
+   "havok": {
+    "art": "kapsel",
+    "a": [
+     0,
+     0.7553267039971321,
+     0
+    ],
+    "b": [
+     0,
+     1.386641069440368,
+     0
+    ],
+    "radius": 0.7553257503228157
+   },
+   "havokVorher": {
+    "art": "kapsel",
+    "a": [
+     0,
+     0.7553267039971321,
+     0
+    ],
+    "b": [
+     0,
+     1.386641069440368,
+     0
+    ],
+    "radius": 0.7553257503228157
+   }
+  },
+  {
+   "name": "environment-sm-bld-house-stairs-03",
+   "modell": "store/environment/sm-bld-house-stairs-03",
+   "havok": {
+    "art": "netz",
+    "dreiecke": 482,
+    "min": [
+     -2.5213623046875,
+     0,
+     -3.7741241455078125
+    ],
+    "max": [
+     0.0792236328125,
+     1.4722404479980469,
+     0.153076171875
+    ]
+   },
+   "havokVorher": {
+    "art": "kiste",
+    "mitte": [
+     0,
+     0.7361202239990234,
+     0
+    ],
+    "masse": [
+     5.042724609375,
+     1.4722404479980469,
+     7.548248291015625
+    ]
+   },
+   "geaendert": "Der Speicher fuehrt dieses Prefab als `art: 'mesh'` mit eigener `…-collision.glb`. Der Client las diese Datei bisher nicht und gab der Treppe die Huellbox ihrer Stufen: 5,04 x 1,47 x 7,55 m, um den Ursprung zentriert — mehr als das Doppelte ihres Grundrisses (x -2,52..0,08, z -3,77..0,15), und fuer die 0,4-m-Kapsel unbegehbar. Treppen sind im Vorbild die einzigen nicht-konvexen Netze ueberhaupt."
+  }
+ ]
+}

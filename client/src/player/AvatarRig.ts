@@ -1970,10 +1970,11 @@ export class AvatarRig {
     const v2 = Vector3.TransformNormal(neu.subtract(von), inv).normalize();
     if (Vector3.Dot(v1, v2) > 0.99999) return;
     const delta = Quaternion.FromUnitVectorsToRef(v1, v2, new Quaternion());
-    if (!knoten.rotationQuaternion) knoten.rotationQuaternion = Quaternion.Identity();
-    // Babylon: a.multiply(b) wendet erst a, dann b an → erst die alte
-    // Drehung, dann die Korrektur im Elternraum.
-    knoten.rotationQuaternion.multiplyInPlace(delta);
+    const q = knoten.rotationQuaternion ?? Quaternion.Identity();
+    // Reihenfolge GEMESSEN (10.09.2026, Hang 47°): `delta * q` bringt beide
+    // Fuesse auf ±2,5 cm an den Boden, `q * delta` liess den Bergfuss 12 cm
+    // im Hang stecken — die Korrektur liegt im Elternraum, also links.
+    knoten.rotationQuaternion = delta.multiply(q);
   }
 
   /** Dreht `knoten` um eine Weltachse (durch seinen Ursprung) um `winkel`. */
@@ -1984,8 +1985,8 @@ export class AvatarRig {
     // Spiegelung (Determinante < 0) kehrt den Drehsinn um.
     const det = eltern ? eltern.getWorldMatrix().determinant() : 1;
     const delta = Quaternion.RotationAxis(achse, det < 0 ? -winkel : winkel);
-    if (!knoten.rotationQuaternion) knoten.rotationQuaternion = Quaternion.Identity();
-    knoten.rotationQuaternion.multiplyInPlace(delta);
+    const q = knoten.rotationQuaternion ?? Quaternion.Identity();
+    knoten.rotationQuaternion = delta.multiply(q);
   }
 
   dispose(): void {

@@ -59,6 +59,7 @@ import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
 import { AUSSEHEN_ORDNER, FIGUR_VORGABE, modellDateiZu } from '@wov/shared';
+import { toeneFigurMeshes } from '../engine/FigurToenung.js';
 
 /** Körpermaße in Metern (die Figur ist ~1,8 m hoch). */
 const SPIELER_HOEHE = 1.8;
@@ -491,6 +492,10 @@ export class AvatarRig {
       const { SceneLoader } = await import('@babylonjs/core/Loading/sceneLoader');
       await import('@babylonjs/loaders/glTF/2.0');
       const res = await SceneLoader.ImportMeshAsync('', '/assets/models/', this.modellDatei, scene);
+
+      // Tönung auftragen, bevor das erste Bild steht — Begründung und
+      // Messung stehen an `FIGUR_TOENUNG` (shared/src/figuren.ts).
+      toeneFigurMeshes(res.meshes, this.modellDatei);
 
       // JETZT vermessen, vor dem Umhängen: Solange die Meshes am
       // Szenenwurzel hängen, IST ihr Weltmaß das Modellmaß. Nach

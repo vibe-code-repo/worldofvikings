@@ -51,6 +51,7 @@ import '@babylonjs/loaders/glTF';
 
 import { AUSSEHEN_KOERPER, teilPfad } from '@wov/shared';
 import { faerbeHaar } from '../player/haarfarbe.js';
+import { toeneFigurMeshes } from '../engine/FigurToenung.js';
 
 const WURZEL = '/assets/models/';
 
@@ -127,6 +128,9 @@ export class CharakterVorschau {
     this.teileErlaubt = datei === teilPfad(AUSSEHEN_KOERPER);
     const res = await SceneLoader.ImportMeshAsync(
       '', WURZEL, datei, this.scene);
+    // Dieselbe Tönung wie im Spiel — sonst steht im Anmeldebildschirm
+    // eine andere Figur als danach auf dem Feld (s. FIGUR_TOENUNG).
+    toeneFigurMeshes(res.meshes, datei);
     this.skelett = res.skeletons[0] ?? null;
 
     // Ruhezyklus über denselben Namensabgleich wie AvatarRig — nicht

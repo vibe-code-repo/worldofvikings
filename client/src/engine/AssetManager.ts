@@ -63,6 +63,7 @@ import { ShadowDepthWrapper } from '@babylonjs/core/Materials/shadowDepthWrapper
 import { WindPlugin } from './WindPlugin';
 import { FlammenAtlas } from './FlammenAtlas';
 import { GlutPuls } from './GlutPuls';
+import { toeneFigurMaterial } from './FigurToenung';
 
 import { GENERATED_PREFIX, modelBaseUrl, modelDateiName, modelUrl } from './assetUrls';
 import { storeSpiegelung } from '@wov/shared';
@@ -834,6 +835,11 @@ export class AssetManager {
     }
 
     this.setzeMetallgrad(material, modelName);
+
+    // Die Tönung der Spielfigur — hier greift sie für FREMDE Spieler; die
+    // eigene Figur laedt an AvatarRig vorbei am Cache (s. FigurToenung.ts).
+    // Die Zeile tut nichts an einem Modell ohne Eintrag in FIGUR_TOENUNG.
+    toeneFigurMaterial(material, modelName);
 
     // Wind für Modelle ohne Cutout-Laub — muss VOR dem Cutout-Block
     // stehen, dessen frühe `return`s solche Materialien sonst aussortieren

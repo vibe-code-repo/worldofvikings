@@ -802,6 +802,27 @@ const KERN = [
   */
   ['client', 'test/store-fels-kollision.ts'],
   /*
+    Die Spielfigur ist HAUTFARBEN und nicht weiss.
+
+    Der Fehler dahinter hat kein Symptom im Testlauf: Als am 09.09. der
+    Synty-Wikinger Vorgabefigur wurde, kam er ohne Toenung — sein
+    Hautfeld ist sRGB 255/204/173, linear also eine Albedo von 1,0 im
+    Rotkanal, und die laeuft unter unserer Sonne ueber. Die Datei laedt,
+    die Clips laufen, npm test bleibt gruen, die Figur ist weiss.
+
+    Geprueft wird deshalb die DECKUNG (jede Figur aus FIGUREN hat eine
+    Zeile in FIGUR_TOENUNG — genau die vergessene Zeile), die HERLEITUNG
+    der drei Zahlen (Atlas mal Toenung ergibt die Hautkarte der
+    Wikingerin, der Figur aus dem Vorher-Bild) und die VERDRAHTUNG bis
+    ins echte PBRMaterial, fuer beide Namensformen: der AssetManager
+    reicht den Modellnamen durch, AvatarRig und die Charaktervorschau den
+    Dateinamen.
+
+    Ohne Weiche: Es wird kein GLB geladen, die beiden gemessenen Farben
+    stehen als Konstanten im Test. NullEngine, Sekundenbruchteile.
+  */
+  ['client', 'test/figur-toenung.ts'],
+  /*
     E2, zweite Haelfte: der geschriebene Saal durch Babylons ECHTEN
     glTF-Lader. `server/test/glb-schreiber.ts` liest mit einem eigenen,
     nachsichtigen Parser; im Spiel liest der Lader, und der ist streng.

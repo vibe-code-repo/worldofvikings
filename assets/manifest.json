@@ -1,5 +1,5 @@
 {
- "erzeugt": "2026-09-10T16:51:32.729Z",
+ "erzeugt": "2026-09-10T18:15:34.290Z",
  "quelle": "tools/asset-manifest.mjs",
  "anzahl": 224,
  "gemessen": 224,
@@ -4021,7 +4021,7 @@
   "SwordNorth": {
    "datei": "SwordNorth.glb",
    "foliage": false,
-   "bytes": 28380,
+   "bytes": 28360,
    "huelle": {
     "min": [
      -0.118,
@@ -5368,7 +5368,7 @@
   "wikinger/WikingerKoerper": {
    "datei": "wikinger/WikingerKoerper.glb",
    "foliage": false,
-   "bytes": 736360,
+   "bytes": 850728,
    "huelle": {
     "min": [
      -1.024,
@@ -5407,6 +5407,14 @@
     {
      "name": "angriff",
      "dauer": 1.208
+    },
+    {
+     "name": "angriff2",
+     "dauer": 1.458
+    },
+    {
+     "name": "angriff3",
+     "dauer": 1.042
     },
     {
      "name": "faust",

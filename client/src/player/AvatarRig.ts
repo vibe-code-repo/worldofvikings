@@ -194,6 +194,14 @@ interface Joint {
 }
 
 /** Ein Clip samt der in ihm eingebackenen Geschwindigkeit (m/s). */
+/**
+ * Wie lange nach dem Ende eines Schlags der naechste noch als Teil der
+ * Kombo zaehlt (s). Kuerzer als der Schlagtakt darf es nicht sein, sonst
+ * kaeme man nie zu Hieb 2; laenger als eine knappe Sekunde, und jeder
+ * gelegentliche Klick landet im Finisher.
+ */
+const KOMBO_FENSTER = 0.6;
+
 interface Clip {
   grp: AnimationGroup;
   tempo: number;
@@ -285,6 +293,25 @@ export class AvatarRig {
    * meldet — er wird von `schlage()` angestossen und laeuft dann ab.
    */
   private clipAngriff: Clip | null = null;
+  /**
+   * Alle Schlagclips in Kombo-Reihenfolge (`angriff`, `angriff2`,
+   * `angriff3`, …). `clipAngriff` ist immer der gerade gewaehlte davon.
+   *
+   * Vorbild (10.09.2026, Player-Animator des Originals): drei Schwert-
+   * hiebe, die bei aufeinanderfolgenden Schlaegen 1 → 2 → 3 durchlaufen
+   * und danach wieder von vorn beginnen. Dort schaltet der Waffen-
+   * Substate (2/3/4) den Zustand um; hier zaehlt `schlage()` selbst
+   * weiter, solange der naechste Schlag ins Kombo-Fenster faellt.
+   */
+  private clipsAngriff: Clip[] = [];
+  /** Index des zuletzt gestarteten Schlags in `clipsAngriff`. */
+  private angriffIndex = -1;
+  /**
+   * Restzeit des Kombo-Fensters (s): faellt der naechste Schlag hinein,
+   * geht die Kette weiter, sonst beginnt sie bei Hieb 1. Laeuft ab dem
+   * Start eines Schlags fuer Schlagdauer + KOMBO_FENSTER.
+   */
+  private komboRest = 0;
   /**
    * Restlaufzeit des Schlags in Sekunden; > 0 heisst „schlaegt gerade".
    *
@@ -589,8 +616,18 @@ export class AvatarRig {
       // `weitsprung` (nur die Wikingerin hat ihn) fängt keines der Muster
       // ab und bleibt bewusst ein unbenutzter Clip: Er gehört zu keinem
       // Zustand, den das Spiel kennt.
-      this.clipAngriff = nachName(/angriff|attack|schlag|punch|hit/i, clips);
-      const rest = clips.filter((c) => c !== this.clipSprung && c !== this.clipAngriff);
+      // Kombo-Kette: alle Clips, die mit `angriff` beginnen, in Namens-
+      // reihenfolge (angriff, angriff2, angriff3). Gibt es keine solche
+      // Reihe, bleibt es beim einen Schlagclip nach dem alten Muster.
+      const kette = clips
+        .filter((c) => /^angriff/i.test(c.grp.name))
+        .sort((x, y) => x.grp.name.localeCompare(y.grp.name, undefined, { numeric: true }));
+      const einzel = kette.length ? null : nachName(/angriff|attack|schlag|punch|hit/i, clips);
+      this.clipsAngriff = kette.length ? kette : einzel ? [einzel] : [];
+      this.clipAngriff = this.clipsAngriff[0] ?? null;
+      this.angriffIndex = -1;
+      this.komboRest = 0;
+      const rest = clips.filter((c) => c !== this.clipSprung && !this.clipsAngriff.includes(c));
       const wandernd = rest.filter((c) => c.tempo > 0.1);
       this.clipsRuhe = rest.filter((c) => c.tempo <= 0.1);
       // Sprechende Namen schlagen die Messung. Der Tripo-Export vergibt
@@ -608,7 +645,10 @@ export class AvatarRig {
             (this.clipsRuhe.length > 1 ? ` (+${this.clipsRuhe.length - 1} weitere Standpose)` : '') +
             `, gehen ${zeig(this.clipGehen)}, rennen ${zeig(this.clipRennen)}` +
             `, sprung ${this.clipSprung ? `"${this.clipSprung.grp.name}" ${this.clipLaenge(this.clipSprung).toFixed(2)} s` : '—'}` +
-            `, angriff ${this.clipAngriff ? `"${this.clipAngriff.grp.name}" ${this.clipLaenge(this.clipAngriff).toFixed(2)} s` : '—'}`
+            `, angriff ${this.clipAngriff ? `"${this.clipAngriff.grp.name}" ${this.clipLaenge(this.clipAngriff).toFixed(2)} s` : '—'}` +
+            (this.clipsAngriff.length > 1
+              ? ` (Kombo: ${this.clipsAngriff.map((c) => `${c.grp.name} ${this.clipLaenge(c).toFixed(2)} s`).join(' → ')})`
+              : '')
         );
         // KEIN `enableBlending` hier: Übergänge laufen über die Gewichte
         // der Gruppen (siehe wechsleZu). Beides zusammen blendet doppelt —
@@ -1153,9 +1193,15 @@ export class AvatarRig {
    *          bleibt es beim reinen Serverschlag ohne sichtbare Geste.
    */
   schlage(): boolean {
-    if (!this.clipAngriff || !this.nutzeClip) return false;
-    const clip = this.clipAngriff;
+    if (!this.clipsAngriff.length || !this.nutzeClip) return false;
+    // Kombo: innerhalb des Fensters den naechsten Hieb der Kette, sonst
+    // wieder Hieb 1. Ein einzelner Schlagclip laeuft damit wie bisher.
+    const n = this.clipsAngriff.length;
+    this.angriffIndex = this.komboRest > 0 && this.angriffIndex >= 0 ? (this.angriffIndex + 1) % n : 0;
+    const clip = this.clipsAngriff[this.angriffIndex]!;
+    this.clipAngriff = clip;
     this.angriffRest = this.angriffDauer;
+    this.komboRest = this.angriffDauer + KOMBO_FENSTER;
     this.setzeAngriffTempo();
 
     if (this.aktiv === clip) {
@@ -1304,6 +1350,7 @@ export class AvatarRig {
       // dem Sprung: Wer im Fallen zuschlaegt, soll den Schlag sehen, und
       // ein Sprungclip, der den Schlag ueberschreibt, sieht aus wie ein
       // verschluckter Klick.
+      if (this.komboRest > 0) this.komboRest = Math.max(0, this.komboRest - dt);
       if (this.angriffRest > 0) {
         this.angriffRest = Math.max(0, this.angriffRest - dt);
         // SELBSTHEILUNG: Die Uhr ist die Absicht, die Gruppe die

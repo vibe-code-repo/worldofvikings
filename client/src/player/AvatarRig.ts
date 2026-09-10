@@ -51,7 +51,7 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { faerbeHaar } from './haarfarbe.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
-import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Space } from '@babylonjs/core/Maths/math.axis';
 import type { Bone } from '@babylonjs/core/Bones/bone';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
@@ -137,6 +137,19 @@ const FUSS_VERSATZ_MAX = 0.45;
  */
 const FUSS_ABSENK_MAX = 0.35;
 const FUSS_GLAETTUNG_S = 0.09;
+/**
+ * Fuss-IK je Fuss (Stufe 2, 10.09.2026): Wie weit ein Fuss hoechstens
+ * gegenueber der Animation gehoben oder gesenkt wird (m), und ab welcher
+ * animierten Sohlenhoehe ueber dem Rig-Boden ein Fuss als „aufgesetzt"
+ * gilt und den Halter mitziehen darf. Ein Schwungfuss mitten im Schritt
+ * darf das Becken nicht in die Tiefe reissen.
+ */
+const IK_HUB_MAX = 0.5;
+const IK_AUFGESETZT = 0.12;
+/** Ein-/Ausblenden des Fuss-IK (Sprung, Modellwechsel). */
+const IK_BLENDE = 0.15;
+/** Abstand (m) vor/hinter dem Knoechel fuer die Hangneigung unter dem Fuss. */
+const IK_NEIGUNG_SCHRITT = 0.12;
 
 /** Der Knochen, an dem das getragene Werkzeug hängt. */
 const HAND_NAMEN = ['R_Hand', 'Hand_R', 'mixamorig:RightHand'] as const;
@@ -326,6 +339,19 @@ export class AvatarRig {
   private fussVersatz = 0;
   /** Weltpositionen der beiden Fussknochen — einmal geholt, dann gemerkt. */
   private fussKnoten: TransformNode[] = [];
+  /**
+   * Beinketten fuer das Fuss-IK: Oberschenkel, Unterschenkel, Knoechel je
+   * Seite (Reihenfolge wie fussKnoten: links, rechts). Leer, wenn das
+   * Modell die Knochen nicht mitbringt — dann bleibt es bei der
+   * Halter-Absenkung.
+   */
+  private ikBeine: Array<{ bein: TransformNode; knie: TransformNode; fuss: TransformNode }> = [];
+  /** Aktuelles Gewicht des Fuss-IK (0…1), wird bei Sprung/Fall ausgeblendet. */
+  private ikGewicht = 0;
+  /** Fuss-IK an/aus (Messzellen vergleichen beide Zustaende). */
+  ikAn = true;
+  /** Letzter Flugzustand aus update(), fuer das IK-Gewicht. */
+  private inDerLuftMerker = false;
   /**
    * Abstand Knöchel → Sohle in Metern, beim Laden aus der Ruhepose
    * gemessen.
@@ -829,6 +855,29 @@ export class AvatarRig {
           if (tn) { this.fussKnoten.push(tn); break; }
         }
       }
+      // Beinketten fuer das Fuss-IK — nur wenn beide Seiten komplett sind.
+      this.ikBeine = [];
+      if (this.fussKnoten.length === 2 && this.skelett) {
+        const finde = (namen: readonly string[]) => {
+          for (const n of namen) {
+            const tn = this.skelett!.bones.find((b) => b.name === n)?.getTransformNode();
+            if (tn) return tn;
+          }
+          return null;
+        };
+        const seiten: Array<[readonly string[], readonly string[]]> = [
+          [KNOCHEN_NAMEN.beinL, KNOCHEN_NAMEN.knieL],
+          [KNOCHEN_NAMEN.beinR, KNOCHEN_NAMEN.knieR],
+        ];
+        const ketten = seiten.map(([b, k], i) => {
+          const bein = finde(b);
+          const knie = finde(k);
+          const fuss = this.fussKnoten[i]!;
+          return bein && knie && fuss.parent === knie && knie.parent === bein ? { bein, knie, fuss } : null;
+        });
+        if (ketten.every((k) => k !== null)) this.ikBeine = ketten as typeof this.ikBeine;
+        else console.warn('[avatar] Beinketten unvollstaendig — Fuss-IK aus, nur Halter-Absenkung');
+      }
       if (this.fussKnoten.length < 2) {
         console.warn('[avatar] Fussknochen nicht gefunden — keine Bodenanpassung');
       } else {
@@ -941,7 +990,12 @@ export class AvatarRig {
    * Hang weiterhin — das holt Stufe 2 (Bein-IK).
    */
   private messeFussVersatz(): number {
-    let noetig = -Infinity;
+    // Mit Fuss-IK (Stufe 2) folgt das Becken dem TIEFEREN aufgesetzten
+    // Fuss, das IK hebt den anderen auf seinen Boden. Ohne IK wie bisher
+    // der hoechste Wert, damit kein Fuss im Boden steckt.
+    const mitIk = this.ikAn && this.ikBeine.length === 2;
+    const rigBoden = this.root.getAbsolutePosition().y;
+    let noetig = mitIk ? Infinity : -Infinity;
     for (const knoten of this.fussKnoten) {
       knoten.computeWorldMatrix(true);
       const p = knoten.getAbsolutePosition();
@@ -961,9 +1015,16 @@ export class AvatarRig {
       // beschreibt die Lage der Figur OHNE Anhebung und ändert sich nur,
       // wenn sich der Boden ändert.
       const sohleOhneVersatz = p.y - this.knoechelHoehe - this.fussVersatz;
-      noetig = Math.max(noetig, boden - sohleOhneVersatz);
+      if (mitIk) {
+        // Nur ein aufgesetzter Fuss zieht das Becken — ein Schwungfuss
+        // ueber einer Kante darf es nicht in die Tiefe reissen.
+        if (sohleOhneVersatz - rigBoden > IK_AUFGESETZT) continue;
+        noetig = Math.min(noetig, boden - sohleOhneVersatz);
+      } else {
+        noetig = Math.max(noetig, boden - sohleOhneVersatz);
+      }
     }
-    if (!Number.isFinite(noetig)) return 0;
+    if (!Number.isFinite(noetig)) return mitIk ? this.fussVersatz : 0;
     return Math.min(Math.max(noetig, -FUSS_ABSENK_MAX), FUSS_VERSATZ_MAX);
   }
 
@@ -1500,6 +1561,7 @@ export class AvatarRig {
    *                Vorrang vor allen anderen hat.
    */
   update(dt: number, speed: number, maxSpeed: number, rennt = false, inDerLuft = false): void {
+    this.inDerLuftMerker = inDerLuft;
     // Fussanpassung ZUERST: Sie liest die Pose des vorigen Bildes und
     // setzt nur den Halter — die Clipwahl weiter unten stört sie nicht.
     this.passeAnBodenAn(dt, inDerLuft);
@@ -1659,7 +1721,7 @@ export class AvatarRig {
       this.root.getScene().onAfterAnimationsObservable.remove(this.schichtBeobachter);
       this.schichtBeobachter = null;
     }
-    if (!clips.length) return;
+    // Auch ohne Schichtclips wird der Beobachter gebraucht: Er traegt das Fuss-IK.
     const scene = this.root.getScene();
     const hand = scene.getTransformNodeByName('Hand_R');
     const finger = new Set(hand ? hand.getDescendants(false).map((n) => n.name) : []);
@@ -1698,8 +1760,10 @@ export class AvatarRig {
       // Als Zustand darf die Gruppe nie laufen.
       clip.grp.stop();
     }
-    if (!this.schichten.length && !this.aktionen.size) return;
-    this.schichtBeobachter = scene.onAfterAnimationsObservable.add(() => this.wendeSchichtenAn());
+    this.schichtBeobachter = scene.onAfterAnimationsObservable.add(() => {
+      this.wendeSchichtenAn();
+      this.wendeFussIkAn();
+    });
   }
 
   /**
@@ -1803,6 +1867,125 @@ export class AvatarRig {
       else if (gewicht >= 1) k.knoten.rotationQuaternion.copyFrom(q);
       else Quaternion.SlerpToRef(k.knoten.rotationQuaternion, q, gewicht, k.knoten.rotationQuaternion);
     }
+  }
+
+  /**
+   * Fuss-IK je Fuss (Stufe 2): Jeder Fuss bekommt die Hoehe des Bodens
+   * unter IHM, mit der animierten Hebung darueber — der Schrittzyklus
+   * bleibt, nur das Gelaende kommt dazu. Zwei-Knochen-IK auf
+   * Oberschenkel und Unterschenkel, Kniebeugeebene aus der Animation;
+   * der Knoechel behaelt seine animierte Weltdrehung und neigt sich
+   * zusaetzlich mit dem Hang unter dem Fuss. Laeuft nach der
+   * Animationsauswertung (und nach den Waffenschichten), damit die
+   * Knochen nicht gleich wieder ueberschrieben werden.
+   */
+  private wendeFussIkAn(): void {
+    const dt = this.root.getScene().getEngine().getDeltaTime() / 1000;
+    const ziel = this.ikAn && this.bodenSonde && this.ikBeine.length === 2 && !this.inDerLuftMerker && this.nutzeClip ? 1 : 0;
+    const schritt = dt / IK_BLENDE;
+    this.ikGewicht += Math.max(-schritt, Math.min(schritt, ziel - this.ikGewicht));
+    if (this.ikGewicht <= 0 || !this.bodenSonde) return;
+    const rigBoden = this.root.getAbsolutePosition().y;
+    const sonde = this.bodenSonde;
+    const vorn = this.root.forward.clone();
+    vorn.y = 0;
+    vorn.normalize();
+
+    for (const { bein, knie, fuss } of this.ikBeine) {
+      bein.computeWorldMatrix(true);
+      knie.computeWorldMatrix(true);
+      fuss.computeWorldMatrix(true);
+      const H = bein.getAbsolutePosition().clone();
+      const K = knie.getAbsolutePosition().clone();
+      const A = fuss.getAbsolutePosition().clone();
+      const boden = sonde(A.x, A.z);
+      if (!Number.isFinite(boden)) continue;
+      // Animierte Sohlenhoehe ueber dem Rig-Boden (ohne die Halterverschiebung)
+      const sohleAnim = A.y - this.fussVersatz - this.knoechelHoehe - rigBoden;
+      const sollY = boden + sohleAnim + this.knoechelHoehe;
+      const dy = Math.max(-IK_HUB_MAX, Math.min(IK_HUB_MAX, sollY - A.y)) * this.ikGewicht;
+      const fussWeltVorher = fuss.getWorldMatrix().clone();
+      if (Math.abs(dy) > 0.002) {
+        const T = new Vector3(A.x, A.y + dy, A.z);
+        const l1 = Vector3.Distance(H, K);
+        const l2 = Vector3.Distance(K, A);
+        const richtung = T.subtract(H);
+        let d = richtung.length();
+        if (d < 1e-4 || l1 < 1e-4 || l2 < 1e-4) continue;
+        const dMax = (l1 + l2) * 0.995;
+        if (d > dMax) {
+          richtung.scaleInPlace(dMax / d);
+          d = dMax;
+          T.copyFrom(H).addInPlace(richtung);
+        }
+        const e = richtung.scale(1 / d);
+        // Kniebeugeebene aus der Animation: Anteil von (K-H) quer zu e.
+        const hk = K.subtract(H);
+        const quer = hk.subtract(e.scale(Vector3.Dot(hk, e)));
+        if (quer.lengthSquared() < 1e-6) quer.copyFrom(vorn);
+        quer.normalize();
+        const a = (l1 * l1 - l2 * l2 + d * d) / (2 * d);
+        const h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+        const K2 = H.add(e.scale(a)).addInPlace(quer.scale(h));
+        // Oberschenkel: Richtung (K-H) → (K2-H), im Raum des Elternknotens.
+        this.dreheZu(bein, H, K, K2);
+        knie.computeWorldMatrix(true);
+        const K2w = knie.getAbsolutePosition().clone();
+        fuss.computeWorldMatrix(true);
+        const A2 = fuss.getAbsolutePosition().clone();
+        // Unterschenkel: (A2-K2w) → (T-K2w).
+        this.dreheZu(knie, K2w, A2, T);
+        knie.computeWorldMatrix(true);
+        // Knoechel: animierte Weltdrehung wiederherstellen
+        //   fussWelt = fussLokal * knieWelt  →  fussLokal = fussWeltVorher * knieWelt⁻¹
+        const lokal = fussWeltVorher.multiply(Matrix.Invert(knie.getWorldMatrix()));
+        const q = new Quaternion();
+        lokal.decompose(undefined, q, undefined);
+        if (!fuss.rotationQuaternion) fuss.rotationQuaternion = q;
+        else fuss.rotationQuaternion.copyFrom(q);
+      }
+      // Hangneigung unter dem Fuss: Sohle vorn/hinten abtasten, um die
+      // Querachse kippen (nur so weit, wie das IK anliegt).
+      const vornH = sonde(A.x + vorn.x * IK_NEIGUNG_SCHRITT, A.z + vorn.z * IK_NEIGUNG_SCHRITT);
+      const hintenH = sonde(A.x - vorn.x * IK_NEIGUNG_SCHRITT, A.z - vorn.z * IK_NEIGUNG_SCHRITT);
+      if (Number.isFinite(vornH) && Number.isFinite(hintenH)) {
+        const neigung = Math.atan2(vornH - hintenH, 2 * IK_NEIGUNG_SCHRITT) * this.ikGewicht;
+        if (Math.abs(neigung) > 0.005) {
+          const quer = Vector3.Cross(Vector3.Up(), vorn).normalize();
+          this.dreheUm(fuss, quer, -neigung);
+        }
+      }
+    }
+  }
+
+  /**
+   * Dreht `knoten` so, dass die Weltrichtung (von → alt) auf (von → neu)
+   * zeigt. Gerechnet im Raum des Elternknotens, damit die Spiegelung des
+   * glTF-Wurzelknotens (Skalierung 1/1/-1) mit hineinfaellt.
+   */
+  private dreheZu(knoten: TransformNode, von: Vector3, alt: Vector3, neu: Vector3): void {
+    const eltern = knoten.parent as TransformNode | null;
+    const inv = eltern ? Matrix.Invert(eltern.getWorldMatrix()) : Matrix.Identity();
+    const v1 = Vector3.TransformNormal(alt.subtract(von), inv).normalize();
+    const v2 = Vector3.TransformNormal(neu.subtract(von), inv).normalize();
+    if (Vector3.Dot(v1, v2) > 0.99999) return;
+    const delta = Quaternion.FromUnitVectorsToRef(v1, v2, new Quaternion());
+    if (!knoten.rotationQuaternion) knoten.rotationQuaternion = Quaternion.Identity();
+    // Babylon: a.multiply(b) wendet erst a, dann b an → erst die alte
+    // Drehung, dann die Korrektur im Elternraum.
+    knoten.rotationQuaternion.multiplyInPlace(delta);
+  }
+
+  /** Dreht `knoten` um eine Weltachse (durch seinen Ursprung) um `winkel`. */
+  private dreheUm(knoten: TransformNode, achseWelt: Vector3, winkel: number): void {
+    const eltern = knoten.parent as TransformNode | null;
+    const inv = eltern ? Matrix.Invert(eltern.getWorldMatrix()) : Matrix.Identity();
+    const achse = Vector3.TransformNormal(achseWelt, inv).normalize();
+    // Spiegelung (Determinante < 0) kehrt den Drehsinn um.
+    const det = eltern ? eltern.getWorldMatrix().determinant() : 1;
+    const delta = Quaternion.RotationAxis(achse, det < 0 ? -winkel : winkel);
+    if (!knoten.rotationQuaternion) knoten.rotationQuaternion = Quaternion.Identity();
+    knoten.rotationQuaternion.multiplyInPlace(delta);
   }
 
   dispose(): void {

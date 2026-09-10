@@ -1127,26 +1127,36 @@ const KERN = [
   ['tools', 'test/terrain-schichten.ts', brauchtBodenQuellen()],
 
   /*
-    Feinabgleich (09.09.2026): die Regler, die am REFERENZBILD kalibriert
-    wurden — vier Bodentoenungen, die Toenung des Store-Grases und die
-    Halmhoehe. `tools/test/look-referenz.ts` haelt fest, dass keiner
-    davon lautlos zurueckrutscht:
+    Der Boden gegen das VORBILD (10.09.2026, `design/original-boden.md`).
+    `tools/test/look-referenz.ts` ist dabei umgedreht worden, und das ist
+    der Kern der Sache: Bis dahin hat er vier TOENUNGEN bewacht, die am
+    Referenzbild zurueckgerechnet waren. Die Spezifikation aus den
+    Spieldateien sagt, dass es sie im Vorbild nicht gibt (alle
+    `m_DiffuseRemap` 0…1, alle `m_Specular` schwarz) — ein Test, der eine
+    Erfindung bewacht, macht sie unantastbar.
 
-     * Eine Zeile auf [1, 1, 1] zurueckgesetzt ergibt genau den Zustand,
-       den die Sichtpruefung beanstandet hat (weisslicher Fels,
-       olivbrauner Wiesengrund) — ohne Fehlermeldung.
-     * Eine Toenung ueber 2 kann die Textur oben abschneiden; geprueft
-       wird der hellste Texel je Quelltextur gegen die Klemme bei 255.
-     * `TOENUNG_VORRANG` ist die einzige Stelle, an der die Grastoenung
-       den Store-Faktor schlaegt. Faellt sie weg, ist das Gras wieder
-       maigruen — und getoent ist es ja, es sieht also nach Absicht aus.
-     * Die Halmspitze liegt jetzt UEBER der halben Meter-Marke. Dass Gras
-       trotzdem keinen Schatten wirft, haengt an einer Namensregel in
-       Shadows.ts; der Test haelt beide Seiten gegeneinander.
+    Was er jetzt festhaelt:
 
-    Braucht `assets/store/textures` nur fuer die Klemmprobe; fehlt der
-    Ordner, ueberspringt er DIESEN EINEN Abschnitt und prueft den Rest
-    weiter. Deshalb keine Weiche.
+     * KEINE Zeile traegt eine Toenung. Der naechste „der Hang ist zu
+       hell"-Befund laesst sich in zehn Minuten mit einem Faktor
+       erschlagen; wer einen braucht, braucht zuerst eine Messung.
+     * Die Schichtoberflaechen stehen auf Tabelle A der Spezifikation.
+       Metallic 0,85 auf `rock-a` und Kachel 3 m / Normale 5 auf
+       `rock-rough` sind die zwei Paare, aus denen „ich lese den Fels als
+       Erde" entstanden ist.
+     * Die Rampe hat einen DECKEL. Das Vorbild hat bei ≥ 45° nur 0,425
+       Felsgewicht — Moos bleibt in der Wand.
+     * Die Halmhoehen sind die der Detail-Prototypen (0,50–0,75 m hoch,
+       0,25–0,38 m kurz am Steilhang), und kurzes Gras haengt an der
+       NEIGUNG statt an der Menge.
+     * `TOENUNG_VORRANG` traegt nur noch, wofuer das Vorbild eine Zahl
+       liefert (Ahorn ja, Gras nein).
+     * Und unveraendert: Gras wirft keinen Schatten, kein Laubmaterial
+       reisst aus, Schnee bleibt im Hohen Norden.
+
+    Braucht `assets/store-lab/vegetation` nur fuer den Laub-Zensus; fehlt
+    der Ordner, ueberspringt er DIESEN EINEN Abschnitt und prueft den
+    Rest weiter. Deshalb keine Weiche.
   */
   ['tools', 'test/look-referenz.ts'],
 

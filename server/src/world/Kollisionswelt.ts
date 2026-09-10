@@ -34,6 +34,7 @@
  * Instanzmatrix; die Strahlen laufen dann nur noch gegen diese Liste.
  */
 import type { FormQuelle, KollisionsForm, Vek3 } from '@wov/shared/src/kollision/form.js';
+import { skalierungsStufe } from '@wov/shared/src/kollision/formen.js';
 import type { BodenAbfrage, HindernisAbfrage, Treffer } from '@wov/shared/src/bewegung/abfragen.js';
 import {
   BODEN_VERSATZ,
@@ -45,6 +46,11 @@ import {
 import type { Vector3 } from '@wov/shared';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
 import type { PrefabManager } from '../prefab/PrefabManager.js';
+
+/** Alle drei Achsen auf die gemeinsame Groessenstufe einrasten. */
+function gestufteSkalierung(v: Vector3): Vector3 {
+  return { x: skalierungsStufe(v.x), y: skalierungsStufe(v.y), z: skalierungsStufe(v.z) };
+}
 
 /** Nichts hat eine Form — der Zustand vor Bauer A's Quelle. */
 export const LEERE_FORMQUELLE: FormQuelle = Object.freeze({
@@ -886,16 +892,30 @@ export class Kollisionswelt {
    * Prefabs, sonst 1. Die letzte Stufe ist kein Zierrat: Rock_3/Rock_4
    * stehen mit localScale 2 im Katalog, und wer sie mit 1 rechnet, laesst
    * den Server an halben Felsen vorbeilaufen.
+   *
+   * ZUM SCHLUSS DIE STUFE. Was hier herauskommt, geht durch
+   * `skalierungsStufe` — dieselbe Funktion, die der Client auf dieselbe
+   * Zahl anwendet, bevor er sein Havok-Shape baut
+   * (`Physics.formFuerSkalierung`). Das ist KEINE Sparmassnahme auf
+   * dieser Seite (der Server baut keine Netze nach, er rechnet gegen die
+   * Form der Vorlage); es ist die Bedingung dafuer, dass die Ersparnis
+   * auf der Client-Seite nicht eine neue Abweichung aufmacht. Rastet nur
+   * einer von beiden ein, stehen wieder zwei verschiedene Felsen in
+   * derselben Welt — und das ist der Fehler, den diese ganze Datei
+   * aufraeumt.
    */
   private skalierung(
     zdo: { getVec3(n: string, d?: Vector3): Vector3; getFloat(n: string, d?: number): number },
     prefab: { localScale: Vector3 }
   ): Vector3 {
     const v = zdo.getVec3('scale', { x: 0, y: 0, z: 0 });
-    if (v.x !== 0 || v.y !== 0 || v.z !== 0) return v;
+    if (v.x !== 0 || v.y !== 0 || v.z !== 0) return gestufteSkalierung(v);
     const s = zdo.getFloat('scaleScalar', 0);
-    if (s !== 0) return { x: s, y: s, z: s };
-    return prefab.localScale;
+    if (s !== 0) {
+      const g = skalierungsStufe(s);
+      return { x: g, y: g, z: g };
+    }
+    return gestufteSkalierung(prefab.localScale);
   }
 
   /** T·R·S einmal aufloesen: Drehmatrix, Skalierung, Weltumhuellende. */

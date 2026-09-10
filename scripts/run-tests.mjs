@@ -1167,6 +1167,24 @@ const KERN = [
   //     als Gleichung (Fels und Strahl gedreht ergeben R·P) und nicht als
   //     Plausibilitaet. ~3 s.
   ['shared', 'test/kollision-mengen.ts'],
+  /*
+    Die GROESSENSTUFEN (11.09.2026). Die Form steht lokal zur Instanz,
+    die Instanzgroesse muss also IN die Form — und die Streuung wuerfelt
+    sie kontinuierlich. Mit dem alten Millimeterschluessel bekam damit
+    jeder Stein sein eigenes Havok-Netz samt eigener Kopie der
+    Vertexdaten. `skalierungsStufe` rastet die Groesse auf 20 Stufen je
+    Oktave (<= 5 % relativ) ein, und Client wie Server rufen DIESELBE
+    Funktion — eine Ersparnis, die nur einer von beiden macht, waere eine
+    neue Abweichung.
+
+    Der Test misst an einer echt gestreuten Region: 546 -> 282 Formen
+    ueber die geladenen Zonen (320 m). Braucht keine Modelldatei,
+    gezaehlt werden Groessen. ~5 s.
+
+    Scale ladder shared by client and server; counts the shapes a real
+    scattered region needs before and after.
+  */
+  ['server', 'test/kollision-formstufen.ts'],
   ['client', 'test/kollision-formen.ts', brauchtStore()],
   ['server', 'test/kollision-formen.ts', brauchtStore()],
   ['server', 'test/kollision-einhaengung.ts', brauchtStore()],

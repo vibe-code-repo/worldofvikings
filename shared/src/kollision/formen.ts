@@ -402,3 +402,58 @@ function messe(p: Float32Array): Messung {
   }
   return { radien, minY, maxY, maxX, maxZ, maxXOben, maxZOben };
 }
+
+/**
+ * Wie viele Stufen eine Verdopplung der Größe hat. 20 → höchstens 5 %
+ * Unterschied zwischen dem, was ein Körper misst, und dem, was er
+ * darstellt (bei 1,0 sind es 5 %, bei 2,0 noch 2,5 %).
+ */
+export const SKALIERUNGS_STUFEN_JE_OKTAVE = 20;
+
+/**
+ * Rastet eine Instanzskalierung auf eine gemeinsame Stufe ein.
+ *
+ * ── Wofür das gut ist ────────────────────────────────────────────────
+ * Die Streuung würfelt je Exemplar eine KONTINUIERLICHE Größe
+ * (`streuung.ts`: `state.rangeFloat(veg.scaleMin, veg.scaleMax)`). Weil
+ * die Kollisionsform lokal zur Instanz gemessen wird, muss die Größe in
+ * die FORM (s. Kopf von `client/src/engine/Physics.ts`) — und damit
+ * bekommt jedes Exemplar eine eigene. Gemessen im 48-m-Fenster einer
+ * echten Welt: 13 Felsen, 13 verschiedene Havok-Netze, jedes mit einer
+ * eigenen Kopie der Vertexdaten, und bei jedem Zonen-`sync()` neu
+ * gebaut. Der Kopfkommentar von `Physics.ts` ging von „rund 30
+ * Größenklassen" aus; es waren so viele wie Steine.
+ *
+ * ── Warum je Oktave und nicht je Meter ───────────────────────────────
+ * Ein festes Raster (etwa 5 cm) ist bei einem Grashalm grob und bei
+ * einem Felsen fein — der Fehler soll aber am ANTEIL hängen, nicht an
+ * der Größe. Deshalb wird zuerst durch Halbieren/Verdoppeln in das
+ * Intervall [1, 2) gebracht und DORT linear gerastet: 20 Stufen je
+ * Oktave sind höchstens 5 % relativ, über den ganzen Wertebereich.
+ *
+ * ── Warum es so und nicht mit `log`/`pow` gerechnet wird ─────────────
+ * Der Kopf dieser Datei verbietet `Math.pow` und Verwandte: Sie liefern
+ * in Node und im Browser nicht garantiert dieselben Bits, und genau das
+ * würde hier zwei verschiedene Formen bauen — was diese Funktion
+ * verhindern soll. Halbieren und Verdoppeln sind in binärer Gleitkomma
+ * exakt, `Math.round` ist in der Sprache festgelegt. Damit kommt auf
+ * beiden Seiten dieselbe Zahl heraus, nicht ungefähr dieselbe.
+ *
+ * Nicht positive oder nicht endliche Werte kommen unverändert zurück:
+ * Eine Skalierung 0 ist ein Fehler weiter oben, und den soll diese
+ * Funktion nicht in eine plausible Zahl verwandeln.
+ *
+ * Quantises an instance scale onto a shared ladder of 20 steps per
+ * octave (≤ 5 % relative), so client and server build the SAME shape.
+ */
+export function skalierungsStufe(s: number): number {
+  if (!Number.isFinite(s) || s === 0) return s;
+  const negativ = s < 0;
+  let rest = negativ ? -s : s;
+  let oktave = 1;
+  while (rest >= 2) { rest = rest / 2; oktave = oktave * 2; }
+  while (rest < 1) { rest = rest * 2; oktave = oktave / 2; }
+  const gestuft =
+    (Math.round(rest * SKALIERUNGS_STUFEN_JE_OKTAVE) / SKALIERUNGS_STUFEN_JE_OKTAVE) * oktave;
+  return negativ ? -gestuft : gestuft;
+}

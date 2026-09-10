@@ -259,5 +259,47 @@
    },
    "geaendert": "Der Speicher fuehrt dieses Prefab als `art: 'mesh'` mit eigener `…-collision.glb`. Der Client las diese Datei bisher nicht und gab der Treppe die Huellbox ihrer Stufen: 5,04 x 1,47 x 7,55 m, um den Ursprung zentriert — mehr als das Doppelte ihres Grundrisses (x -2,52..0,08, z -3,77..0,15), und fuer die 0,4-m-Kapsel unbegehbar. Treppen sind im Vorbild die einzigen nicht-konvexen Netze ueberhaupt."
   }
- ]
+ ],
+ "netzPrueflinge": [
+  {
+   "name": "environment-sm-bld-preset-shelter-02-optimized",
+   "modell": "store/environment/sm-bld-preset-shelter-02-optimized",
+   "dreiecke": 5001,
+   "huelle": [
+    -7.9927,
+    -1.25,
+    -5.8897,
+    0.4927,
+    7.556,
+    0.8897
+   ]
+  },
+  {
+   "name": "environment-sm-prop-dock-02",
+   "modell": "store/environment/sm-prop-dock-02",
+   "dreiecke": 1432,
+   "huelle": [
+    -2.0204,
+    -3.6546,
+    -2.6181,
+    2.033,
+    0.7743,
+    2.5045
+   ]
+  },
+  {
+   "name": "environment-sm-prop-archway-01",
+   "modell": "store/environment/sm-prop-archway-01",
+   "dreiecke": 440,
+   "huelle": [
+    -1.704,
+    0.0,
+    -0.1487,
+    1.704,
+    2.891,
+    0.1487
+   ]
+  }
+ ],
+ "hinweisNetzPrueflinge": "Die vier `art: 'mesh'`-Prefabs ausser Fels und Gelaende. Die Treppe steht oben in `prefabs` (sie hat ein `havokVorher`); die drei hier sind am 11.09.2026 dazugekommen, weil sie vorher unbeobachtet waren — ein Unterstand, ein Steg und ein Torbogen als Katalog-Kiste waeren drei massive Bloecke. Dreieckszahl und Huellbox am 11.09.2026 gemessen; Server (Node-Leser) und Client (Babylon) liefern dieselben Zahlen. Kein `havokVorher`: ein Vergleichswert aus origin/main gaebe es hier nur erfunden."
 }

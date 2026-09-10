@@ -22,6 +22,16 @@
  *      die achte ist die EINE bewusste Änderung und trägt ihre
  *      Begründung im Feld `geaendert`.
  *
+ *  (d) DIE ÜBRIGEN `mesh`-PREFABS BEKOMMEN IHR NETZ. Vier Prefabs tragen
+ *      im Katalog `art: 'mesh'` und sind weder Fels noch Gelände;
+ *      beobachtet war bis zum 11.09.2026 nur eines davon (die Treppe,
+ *      oben in (b)). Ein Unterstand, ein Steg und ein Torbogen, die
+ *      still auf die Katalog-Kiste zurückfallen, sind drei massive
+ *      Blöcke — durch deren Durchgang läuft niemand mehr, und man merkt
+ *      es erst dort. Geprüft werden Formart, Dreieckszahl und Hüllbox;
+ *      die Hüllbox ist der Zeuge dagegen, dass zwar ein Netz entsteht,
+ *      aber aus dem SICHT-Netz statt aus dem `_collision`-Netz.
+ *
  *  (c) DIE KAPSELRADIEN DER BÄUME BLEIBEN STÄMME. Die Stammband-Messung
  *      kann die Krone erwischen; dann steht eine Tonne von mehreren
  *      Metern um den Baum. Im Vorbild liegen die Stammkapseln bei 0,25 /
@@ -80,6 +90,26 @@ interface Golden {
     havok: Record<string, unknown>;
     havokVorher: Record<string, unknown>;
     geaendert?: string;
+  }[];
+  /**
+   * Die `art: 'mesh'`-Prefabs, die weder Fels noch Gelände sind.
+   *
+   * Warum sie eine eigene Liste haben und nicht in `prefabs` stehen: Dort
+   * lautet die Frage „hat sich gegenüber origin/main etwas verschoben",
+   * und die braucht ein `havokVorher` aus dem alten Client. Hier ist die
+   * Frage eine andere und eine einfachere — bekommt dieses Prefab
+   * überhaupt sein NETZ, oder fällt es auf die Katalog-Kiste zurück?
+   * Ein Unterstand, ein Steg und ein Torbogen als massiver Block sind
+   * drei Durchgänge, durch die niemand mehr läuft; bis zum 11.09.2026
+   * stand von den vier `mesh`-Prefabs nur die Treppe unter Beobachtung.
+   */
+  netzPrueflinge: {
+    name: string;
+    modell: string;
+    /** Dreiecke der abgeleiteten Form — gemessen, nicht geschätzt. */
+    dreiecke: number;
+    /** Hüllbox der Form: [minX, minY, minZ, maxX, maxY, maxZ]. */
+    huelle: number[];
   }[];
 }
 const golden = JSON.parse(readFileSync(GOLDEN, 'utf8')) as Golden;
@@ -338,6 +368,44 @@ async function main(): Promise<void> {
     if (form?.art === 'kapsel' && form.radius > 1.0) {
       baumRadien.push(`${p.name}: r ${form.radius.toFixed(2)} m`);
     }
+  }
+
+  // ── (d) Die uebrigen `mesh`-Prefabs ────────────────────────────────
+  /*
+    Geprüft wird das, was hier schiefgehen KANN: dass die Form ein Netz
+    ist und nicht die Katalog-Kiste, dass sie Dreiecke hat, und dass ihre
+    Hüllbox dieselbe geblieben ist. Kein Vergleich mit origin/main — die
+    drei sind erst am 11.09.2026 unter Beobachtung gekommen, ein
+    „vorher" gäbe es nur erfunden.
+
+    Die Hüllbox ist der Zeuge gegen die stille Variante des Fehlers: eine
+    Form, die zwar `netz` heisst, aber das SICHT-Netz statt des
+    `_collision`-Netzes gemessen hat. Die Dreieckszahl allein sähe das
+    nicht.
+  */
+  for (const p of golden.netzPrueflinge) {
+    const katalog = storeKollision(p.name);
+    const { kollision, sicht } = await clientNetze(p.modell, katalog?.netz);
+    const optionen = { stammartig: false, dungeonRaum: false };
+    const form =
+      (kollision
+        ? kollisionsForm(kollision.positionen, kollision.indizes, p.name, katalog, {
+            ...optionen,
+            eigenesNetz: true,
+          })
+        : null) ??
+      (sicht ? kollisionsForm(sicht.positionen, sicht.indizes, p.name, katalog, optionen) : null);
+    pruefe(form?.art === 'netz', `(d) ${p.name}: bekommt ein Netz, keine Kiste`, `art ${String(form?.art)}`);
+    if (form?.art !== 'netz') continue;
+    const dreiecke = form.indizes.length / 3;
+    pruefe(dreiecke === p.dreiecke, `(d) ${p.name}: ${dreiecke} Dreiecke wie festgehalten`,
+      `soll ${p.dreiecke}`);
+    const ist = [form.min.x, form.min.y, form.min.z, form.max.x, form.max.y, form.max.z];
+    pruefe(
+      ist.every((v, i) => Math.abs(v - p.huelle[i]!) < golden.toleranz.netzHuelle),
+      `(d) ${p.name}: Hüllbox wie festgehalten`,
+      `ist [${ist.map((v) => v.toFixed(4)).join(', ')}] / soll [${p.huelle.join(', ')}]`
+    );
   }
 
   if (baumRadien.length > 0) {

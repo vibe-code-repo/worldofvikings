@@ -34,6 +34,7 @@
  * Instanzmatrix; die Strahlen laufen dann nur noch gegen diese Liste.
  */
 import type { FormQuelle, KollisionsForm, Vek3 } from '@wov/shared/src/kollision/form.js';
+import { skalierungsStufe } from '@wov/shared/src/kollision/formen.js';
 import type { BodenAbfrage, HindernisAbfrage, Treffer } from '@wov/shared/src/bewegung/abfragen.js';
 import {
   BODEN_VERSATZ,
@@ -45,6 +46,11 @@ import {
 import type { Vector3 } from '@wov/shared';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
 import type { PrefabManager } from '../prefab/PrefabManager.js';
+
+/** Alle drei Achsen auf die gemeinsame Groessenstufe einrasten. */
+function gestufteSkalierung(v: Vector3): Vector3 {
+  return { x: skalierungsStufe(v.x), y: skalierungsStufe(v.y), z: skalierungsStufe(v.z) };
+}
 
 /** Nichts hat eine Form — der Zustand vor Bauer A's Quelle. */
 export const LEERE_FORMQUELLE: FormQuelle = Object.freeze({
@@ -222,7 +228,7 @@ interface LokalTreffer { t: number; nx: number; ny: number; nz: number }
  */
 function strahlKiste(
   ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, weite: number,
-  min: Vek3, max: Vek3
+  x0: number, y0: number, z0: number, x1: number, y1: number, z1: number
 ): LokalTreffer | null {
   let tMin = 0;
   let tMax = weite;
@@ -232,8 +238,8 @@ function strahlKiste(
   for (let a = 0; a < 3; a += 1) {
     const o = a === 0 ? ox : a === 1 ? oy : oz;
     const d = a === 0 ? dx : a === 1 ? dy : dz;
-    const lo = a === 0 ? min.x : a === 1 ? min.y : min.z;
-    const hi = a === 0 ? max.x : a === 1 ? max.y : max.z;
+    const lo = a === 0 ? x0 : a === 1 ? y0 : z0;
+    const hi = a === 0 ? x1 : a === 1 ? y1 : z1;
     if (d > -1e-12 && d < 1e-12) {
       if (o < lo || o > hi) return null;
       continue;
@@ -405,6 +411,355 @@ function strahlNetz(
   return best;
 }
 
+// ── Kugel-Sweep gegen eine Form (im LOKALRAUM der Instanz) ──────────
+
+/*
+  WARUM EIN SWEEP UND NICHT DREI STRAHLEN.
+
+  Bis zum 11.09.2026 tastete `ersterTreffer` die Figur mit drei Strahlen je
+  Hoehe ab: einer in der Mitte, zwei um einen Koerperradius quer zur
+  Laufrichtung versetzt. Das ist eine PUNKTabtastung eines FLAECHIGEN
+  Koerpers, und zwischen den Abtastpunkten liegt Nichts: Ein Wandende oder
+  eine Hausecke, die lateral GENAU zwischen zwei Strahlen steht, wird von
+  keinem getroffen. Der Angreifer-Pruefer hat das reproduziert — diagonal
+  auf die Ecke zweier Waende zu, und die Figur laeuft hindurch, bei jeder
+  geprueften Wanddicke (0,025 / 0,1 / 0,4 m) und jedem Winkel (35–52 Grad).
+  Ein dichteres Strahlenbuendel verschiebt die Luecke nur, es schliesst sie
+  nicht; die Luecke ist die Bauart.
+
+  Der Sweep hat keine Luecke, weil er kein Buendel ist: Eine Kugel vom
+  Halbmesser r, die den Weg entlangfaehrt, ueberstreicht das VOLLE Profil
+  der Figur. Gerechnet wird er als Minkowski-Summe — Strahl gegen die um r
+  aufgeblasene Form —, also mit derselben Sorte Algebra wie vorher und
+  ohne Iteration.
+
+  WARUM DIE UNTERE KUGEL HOEHER SITZT ALS DER ALTE STRAHL. Die Hoehen aus
+  `masse.ts` SIND die Stufenregel: Der untere Strahl lag 3 cm ueber der
+  Stufenhoehe, damit ein 0,40-m-Absatz darunter durchlaeuft und ein
+  0,5-m-Sockel getroffen wird. Eine Kugel MIT MITTELPUNKT auf 0,43 reicht
+  bis 0,03 hinunter und trifft jeden Absatz — die Stufenregel waere weg.
+  Der Mittelpunkt der unteren Kugel sitzt deshalb um r hoeher, sodass ihre
+  UNTERSEITE genau auf `STRAHL_HOEHEN[0]` liegt. Damit bleibt die
+  Stufenregel Zeichen fuer Zeichen dieselbe, und der Bereich, der bisher
+  gar nicht abgefragt wurde (zwischen 0,43 und 1,4 — ein Balken in
+  Huefthoehe), ist jetzt mit abgedeckt.
+
+  UNGLEICHFOERMIGE SKALIERUNG IST EINE NAEHERUNG. Der Sweep laeuft im
+  Lokalraum der Instanz; eine Weltkugel vom Halbmesser r ist dort ein
+  Ellipsoid mit den Halbachsen r/sx, r/sy, r/sz. Fuer die KISTE wird das
+  exakt behandelt (je Achse um r/s_achse aufgeblasen — der Versatz der
+  Flaeche in der Welt ist dann genau r). Fuer Kapsel und Netz waere ein
+  Ellipsoid-Sweep eine andere Rechnung; dort steht stattdessen EIN
+  Halbmesser r/min(sx,sy,sz). Das ist die groesste der drei Halbachsen,
+  die Kugel umschliesst das Ellipsoid also — die Naeherung blockt im
+  schlimmsten Fall etwas zu frueh und laesst nie etwas durch. Bei
+  gleichfoermiger Skalierung (der Normalfall: `scaleScalar`) ist sie exakt.
+
+  DIE FLUCHTTUER BLEIBT, UND SIE WIRD GENAUER. Wer mit dem MITTELPUNKT in
+  einer Form steckt, ist weiterhin in jede Richtung frei. Neu ist der
+  Zustand dazwischen: Mittelpunkt draussen, aber naeher als r — die Figur
+  BERUEHRT die Wand, weil der Client sie drangestellt hat. Frueher fiel
+  dieser Fall unter „Strahl beginnt innen = frei", und die Figur waere ab
+  der ersten Beruehrung durch die Wand gelaufen. Jetzt wird er mit t = 0
+  und der Normale „vom naechsten Punkt der Flaeche zum Mittelpunkt"
+  gemeldet; die Regel „nur was sich NAEHERT, blockiert" entscheidet dann
+  richtig herum: weiter hinein ist blockiert, wieder heraus ist frei.
+*/
+
+/**
+ * Wie weit ueber den Halbmesser hinaus noch als BERUEHRUNG gilt, in m.
+ *
+ * Ein Zehntel Mikrometer, und er hat denselben Grund wie `BODEN_START_LUFT`
+ * weiter oben: Genau AUF der Flaeche ist die eine Lage, die ein
+ * Slab-Verfahren nicht entscheiden kann. Wer dort steht, soll in den
+ * Beruehrungszweig fallen (Normale aus der Flaeche, Richtungsregel
+ * entscheidet), nicht in den Strahlzweig.
+ */
+const BERUEHR_LUFT = 1e-7;
+
+/**
+ * Kugel-Sweep gegen eine achsenparallele Kiste.
+ *
+ * `rx/ry/rz` ist der Kugelhalbmesser in LOKALEN Einheiten je Achse
+ * (r/skalierung). Die aufgeblasene Kiste hat scharfe Ecken statt runder —
+ * das ist der bekannte Fehler der Minkowski-NAEHERUNG mit einer Kiste: An
+ * einer Aussenecke blockt sie bis zu r·(√2−1) ≈ 17 cm zu frueh. Zu frueh
+ * ist die richtige Seite des Fehlers, und die Alternative (drei
+ * Kantenzylinder plus Eckkugeln je Kiste) kostet ein Vielfaches fuer eine
+ * Genauigkeit, die kein Spieler von der Wanddicke unterscheiden kann.
+ */
+function sweepKiste(
+  ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, weite: number,
+  min: Vek3, max: Vek3, rx: number, ry: number, rz: number
+): LokalTreffer | null {
+  // (1) Fluchttuer: Mittelpunkt IN der Form — frei in jede Richtung.
+  if (ox > min.x && ox < max.x && oy > min.y && oy < max.y && oz > min.z && oz < max.z) {
+    return null;
+  }
+
+  // (2) Beruehrung schon beim Start: Mittelpunkt in der aufgeblasenen Kiste.
+  const qx = ox < min.x ? min.x : ox > max.x ? max.x : ox;
+  const qy = oy < min.y ? min.y : oy > max.y ? max.y : oy;
+  const qz = oz < min.z ? min.z : oz > max.z ? max.z : oz;
+  const ax = ox - qx, ay = oy - qy, az = oz - qz;
+  /*
+    Das `+ BERUEHR_LUFT` ist kein Zierrat. Ein Mittelpunkt, der GENAU
+    einen Halbmesser vor der Flaeche sitzt, beruehrt sie; ohne die Luft
+    faellt er in den Strahlteil (3), und dort beginnt der Strahl EXAKT auf
+    der Slab-Grenze der aufgeblasenen Kiste. Ein Strahl, der auf der
+    Flaeche beginnt, gilt dem Slab-Verfahren als „von innen" und meldet
+    die AUSTRITTSflaeche — deren Normale zeigt in Laufrichtung, der
+    Treffer faellt durch die Pruefung „nur was sich naehert", und die
+    Figur laeuft hindurch. Auf einem Raster, dessen Standorte auf der
+    Wanddicke aufgehen, waren das 2505 von 5659 beruehrenden Schritten.
+  */
+  if (
+    ax < rx + BERUEHR_LUFT && ax > -rx - BERUEHR_LUFT &&
+    ay < ry + BERUEHR_LUFT && ay > -ry - BERUEHR_LUFT &&
+    az < rz + BERUEHR_LUFT && az > -rz - BERUEHR_LUFT
+  ) {
+    const l = Math.sqrt(ax * ax + ay * ay + az * az);
+    if (l > 1e-12) return { t: 0, nx: ax / l, ny: ay / l, nz: az / l };
+    // Mittelpunkt EXAKT auf der Oberflaeche: die naechstliegende Flaeche
+    // traegt die Normale.
+    let beste = ox - min.x, nx = -1, ny = 0, nz = 0;
+    if (max.x - ox < beste) { beste = max.x - ox; nx = 1; ny = 0; nz = 0; }
+    if (oy - min.y < beste) { beste = oy - min.y; nx = 0; ny = -1; nz = 0; }
+    if (max.y - oy < beste) { beste = max.y - oy; nx = 0; ny = 1; nz = 0; }
+    if (oz - min.z < beste) { beste = oz - min.z; nx = 0; ny = 0; nz = -1; }
+    if (max.z - oz < beste) { nx = 0; ny = 0; nz = 1; }
+    return { t: 0, nx, ny, nz };
+  }
+
+  // (3) Strahl gegen die aufgeblasene Kiste. Der Mittelpunkt liegt nach
+  //     (2) ausserhalb, es kann also nur die EINTRITTSflaeche kommen.
+  return strahlKiste(
+    ox, oy, oz, dx, dy, dz, weite,
+    min.x - rx, min.y - ry, min.z - rz,
+    max.x + rx, max.y + ry, max.z + rz
+  );
+}
+
+/**
+ * Kugel-Sweep gegen eine stehende Kapsel (Baumstamm).
+ *
+ * Die Minkowski-Summe aus Kapsel und Kugel ist wieder eine Kapsel —
+ * dasselbe Achsensegment, Halbmesser r_form + r. Exakt, keine Naeherung
+ * (ausser der oben beschriebenen bei ungleichfoermiger Skalierung).
+ */
+function sweepKapsel(
+  ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, weite: number,
+  cx: number, cz: number, radius: number, yMin: number, yMax: number, rl: number
+): LokalTreffer | null {
+  // Abstand des Mittelpunkts zum Achsensegment.
+  const py = oy < yMin ? yMin : oy > yMax ? yMax : oy;
+  const ex = ox - cx, ey = oy - py, ez = oz - cz;
+  const l = Math.sqrt(ex * ex + ey * ey + ez * ez);
+  if (l < radius) return null;                      // Fluchttuer: steckt drin
+  if (l < radius + rl + BERUEHR_LUFT) {             // Beruehrung beim Start
+    return l > 1e-12 ? { t: 0, nx: ex / l, ny: ey / l, nz: ez / l } : null;
+  }
+  return strahlKapsel(ox, oy, oz, dx, dy, dz, weite, cx, cz, radius + rl, yMin, yMax);
+}
+
+/**
+ * Kugel-Sweep gegen ein Segment vom Halbmesser `rl` (Kantenzylinder samt
+ * Eckkugeln) — der Rand des Dreiecks, den der Ebenentest nicht abdeckt.
+ *
+ * Liefert den kleinsten Parameter t in [0, weite], an dem die Kugel das
+ * Segment beruehrt, oder −1. Die Richtung `d` ist im Lokalraum NICHT
+ * normiert (sie wurde durch die Skalierung geteilt); die Gleichungen
+ * stehen deshalb allgemein da, mit `a` statt 1.
+ */
+function sweepSegment(
+  ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, weite: number,
+  ax: number, ay: number, az: number, bx: number, by: number, bz: number, rl: number
+): number {
+  const r2 = rl * rl;
+  let beste = -1;
+  const merke = (t: number): void => {
+    if (t < 0 || t > weite) return;
+    if (beste < 0 || t < beste) beste = t;
+  };
+
+  const mx = bx - ax, my = by - ay, mz = bz - az;
+  const mm = mx * mx + my * my + mz * mz;
+  const wx = ox - ax, wy = oy - ay, wz = oz - az;
+
+  if (mm > 1e-18) {
+    const md = mx * dx + my * dy + mz * dz;
+    const mw = mx * wx + my * wy + mz * wz;
+    // Anteile senkrecht zur Kantenachse — daraus wird der Zylinder.
+    const dpx = dx - (mx * md) / mm, dpy = dy - (my * md) / mm, dpz = dz - (mz * md) / mm;
+    const wpx = wx - (mx * mw) / mm, wpy = wy - (my * mw) / mm, wpz = wz - (mz * mw) / mm;
+    const a = dpx * dpx + dpy * dpy + dpz * dpz;
+    const b = 2 * (dpx * wpx + dpy * wpy + dpz * wpz);
+    const c = wpx * wpx + wpy * wpy + wpz * wpz - r2;
+    if (c <= 0) {
+      const s0 = mw / mm;
+      if (s0 >= 0 && s0 <= 1) merke(0);
+    } else if (a > 1e-18) {
+      const disk = b * b - 4 * a * c;
+      if (disk >= 0) {
+        const t = (-b - Math.sqrt(disk)) / (2 * a);
+        const s = (mw + md * t) / mm;
+        if (s >= 0 && s <= 1) merke(t);
+      }
+    }
+  }
+
+  // Die beiden Eckkugeln.
+  const a2 = dx * dx + dy * dy + dz * dz;
+  for (let e = 0; e < 2; e += 1) {
+    const px = e === 0 ? ax : bx, py = e === 0 ? ay : by, pz = e === 0 ? az : bz;
+    const qx = ox - px, qy = oy - py, qz = oz - pz;
+    const c = qx * qx + qy * qy + qz * qz - r2;
+    if (c <= 0) { merke(0); continue; }
+    if (a2 <= 1e-18) continue;
+    const b = 2 * (qx * dx + qy * dy + qz * dz);
+    const disk = b * b - 4 * a2 * c;
+    if (disk < 0) continue;
+    merke((-b - Math.sqrt(disk)) / (2 * a2));
+  }
+
+  return beste;
+}
+
+/**
+ * Kugel-Sweep gegen ein Dreiecksnetz.
+ *
+ * Je Dreieck drei Stufen, und die teureren laufen nur, wenn die billige
+ * nicht reicht:
+ *  1. EBENE. Wann beruehrt die Kugel die um rl verschobene Dreiecksebene?
+ *     Bleibt der Abstand zur Ebene immer groesser als rl (Kugel entfernt
+ *     sich oder ist zu weit weg), faellt das Dreieck hier heraus — das ist
+ *     der Fall fuer die allermeisten.
+ *  2. FLAECHE. Liegt der Beruehrpunkt IM Dreieck (Baryzentrik), ist der
+ *     Treffer gefunden; Normale ist die Ebenennormale.
+ *  3. RAND. Sonst koennen es nur die drei Kanten sein — je ein
+ *     Segment-Sweep (Zylinder + zwei Eckkugeln). Erster Treffer gewinnt,
+ *     Normale = (Kugelmittelpunkt beim Treffer − naechster Punkt auf dem
+ *     Segment), normiert.
+ *
+ * Die Normale wird am Ende nach AUSSEN orientiert (weg vom Mittelpunkt der
+ * Huellbox) — aus denselben zwei Gruenden wie bei `strahlNetz`: Ein
+ * `_col`-Netz aus einer GLB hat keine verlaessliche Wicklung, und eine
+ * gegen die Bewegung gedrehte Normale mauert eine Figur ein, die im Netz
+ * steckt.
+ */
+function sweepNetz(
+  ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, weite: number,
+  positionen: Float32Array, indizes: Uint32Array, gitter: NetzGitter | null, puffer: number[],
+  mx: number, my: number, mz: number, rl: number
+): LokalTreffer | null {
+  let bestT = -1;
+  let bnx = 0, bny = 0, bnz = 0;
+  let bkx = 0, bky = 0, bkz = 0; // Beruehrpunkt auf der Flaeche
+  let anzahl = indizes.length / 3;
+  let liste: number[] | null = null;
+
+  if (gitter) {
+    const ex = ox + dx * weite, ey = oy + dy * weite, ez = oz + dz * weite;
+    // Die Gitterabfrage muss um den Kugelhalbmesser weiter greifen —
+    // sonst faellt genau das Dreieck heraus, das die Kugel seitlich
+    // streift, und der Sweep haette dieselbe Luecke wie die Strahlen.
+    gitter.sammle(
+      Math.min(ox, ex) - rl, Math.min(oy, ey) - rl, Math.min(oz, ez) - rl,
+      Math.max(ox, ex) + rl, Math.max(oy, ey) + rl, Math.max(oz, ez) + rl,
+      puffer
+    );
+    liste = puffer;
+    anzahl = puffer.length;
+  }
+
+  for (let i = 0; i < anzahl; i += 1) {
+    const d3 = (liste ? liste[i]! : i) * 3;
+    const ia = indizes[d3]! * 3, ib = indizes[d3 + 1]! * 3, ic = indizes[d3 + 2]! * 3;
+    const px = positionen[ia]!, py = positionen[ia + 1]!, pz = positionen[ia + 2]!;
+    const e1x = positionen[ib]! - px, e1y = positionen[ib + 1]! - py, e1z = positionen[ib + 2]! - pz;
+    const e2x = positionen[ic]! - px, e2y = positionen[ic + 1]! - py, e2z = positionen[ic + 2]! - pz;
+
+    let nx = e1y * e2z - e1z * e2y;
+    let ny = e1z * e2x - e1x * e2z;
+    let nz = e1x * e2y - e1y * e2x;
+    const nn = nx * nx + ny * ny + nz * nz;
+    if (nn <= 1e-24) continue; // entartetes Dreieck
+    const nl = Math.sqrt(nn);
+    nx /= nl; ny /= nl; nz /= nl;
+
+    // (1) Ebene. Normale auf die Seite des Mittelpunkts drehen, damit der
+    //     Abstand positiv ist.
+    let sd = (ox - px) * nx + (oy - py) * ny + (oz - pz) * nz;
+    if (sd < 0) { nx = -nx; ny = -ny; nz = -nz; sd = -sd; }
+    const dn = dx * nx + dy * ny + dz * nz;
+    let tE: number;
+    if (sd <= rl + BERUEHR_LUFT) {
+      tE = 0;                               // beruehrt die Ebene schon
+    } else if (dn < -1e-12) {
+      tE = (sd - rl) / -dn;
+      if (tE > weite) continue;
+    } else {
+      continue;                             // Ebene bleibt ausser Reichweite
+    }
+    if (bestT >= 0 && tE >= bestT) continue; // kann den Bestand nicht schlagen
+
+    // (2) Flaeche: Beruehrpunkt in die Ebene projizieren und baryzentrisch
+    //     pruefen. `nn` ist zugleich die Determinante der Baryzentrik.
+    const abst = sd + dn * tE;
+    const bx = ox + dx * tE - nx * abst;
+    const by = oy + dy * tE - ny * abst;
+    const bz = oz + dz * tE - nz * abst;
+    const vx = bx - px, vy = by - py, vz = bz - pz;
+    const d00 = e1x * e1x + e1y * e1y + e1z * e1z;
+    const d01 = e1x * e2x + e1y * e2y + e1z * e2z;
+    const d11 = e2x * e2x + e2y * e2y + e2z * e2z;
+    const d20 = vx * e1x + vy * e1y + vz * e1z;
+    const d21 = vx * e2x + vy * e2y + vz * e2z;
+    const det = d00 * d11 - d01 * d01;
+    if (det <= 1e-24) continue;
+    const u = (d11 * d20 - d01 * d21) / det;
+    const v = (d00 * d21 - d01 * d20) / det;
+    if (u >= 0 && v >= 0 && u + v <= 1) {
+      bestT = tE; bnx = nx; bny = ny; bnz = nz; bkx = bx; bky = by; bkz = bz;
+      continue;
+    }
+
+    // (3) Rand: die drei Kanten als Segment-Sweep.
+    const cx = px + e1x, cy = py + e1y, cz = pz + e1z;   // zweiter Eckpunkt
+    const ex2 = px + e2x, ey2 = py + e2y, ez2 = pz + e2z; // dritter Eckpunkt
+    const grenze = bestT >= 0 && bestT < weite ? bestT : weite;
+    for (let e = 0; e < 3; e += 1) {
+      const sax = e === 0 ? px : e === 1 ? cx : ex2;
+      const say = e === 0 ? py : e === 1 ? cy : ey2;
+      const saz = e === 0 ? pz : e === 1 ? cz : ez2;
+      const sbx = e === 0 ? cx : e === 1 ? ex2 : px;
+      const sby = e === 0 ? cy : e === 1 ? ey2 : py;
+      const sbz = e === 0 ? cz : e === 1 ? ez2 : pz;
+      const t = sweepSegment(ox, oy, oz, dx, dy, dz, grenze, sax, say, saz, sbx, sby, sbz, rl);
+      if (t < 0) continue;
+      if (bestT >= 0 && t >= bestT) continue;
+      // Normale: vom naechsten Punkt des Segments zum Kugelmittelpunkt.
+      const kx = ox + dx * t, ky = oy + dy * t, kz = oz + dz * t;
+      const sx2 = sbx - sax, sy2 = sby - say, sz2 = sbz - saz;
+      const smm = sx2 * sx2 + sy2 * sy2 + sz2 * sz2;
+      let s = smm > 1e-18 ? ((kx - sax) * sx2 + (ky - say) * sy2 + (kz - saz) * sz2) / smm : 0;
+      if (s < 0) s = 0; else if (s > 1) s = 1;
+      const qx = sax + sx2 * s, qy = say + sy2 * s, qz = saz + sz2 * s;
+      let gx = kx - qx, gy = ky - qy, gz = kz - qz;
+      const gl = Math.sqrt(gx * gx + gy * gy + gz * gz);
+      if (gl <= 1e-12) continue;
+      gx /= gl; gy /= gl; gz /= gl;
+      bestT = t; bnx = gx; bny = gy; bnz = gz; bkx = qx; bky = qy; bkz = qz;
+    }
+  }
+
+  if (bestT < 0) return null;
+  // Nach aussen orientieren: weg vom Huellbox-Mittelpunkt.
+  const rx = bkx - mx, ry = bky - my, rz = bkz - mz;
+  if (bnx * rx + bny * ry + bnz * rz < 0) { bnx = -bnx; bny = -bny; bnz = -bnz; }
+  return { t: bestT, nx: bnx, ny: bny, nz: bnz };
+}
+
 // ── Die Welt ────────────────────────────────────────────────────────
 
 export class Kollisionswelt {
@@ -537,16 +892,30 @@ export class Kollisionswelt {
    * Prefabs, sonst 1. Die letzte Stufe ist kein Zierrat: Rock_3/Rock_4
    * stehen mit localScale 2 im Katalog, und wer sie mit 1 rechnet, laesst
    * den Server an halben Felsen vorbeilaufen.
+   *
+   * ZUM SCHLUSS DIE STUFE. Was hier herauskommt, geht durch
+   * `skalierungsStufe` — dieselbe Funktion, die der Client auf dieselbe
+   * Zahl anwendet, bevor er sein Havok-Shape baut
+   * (`Physics.formFuerSkalierung`). Das ist KEINE Sparmassnahme auf
+   * dieser Seite (der Server baut keine Netze nach, er rechnet gegen die
+   * Form der Vorlage); es ist die Bedingung dafuer, dass die Ersparnis
+   * auf der Client-Seite nicht eine neue Abweichung aufmacht. Rastet nur
+   * einer von beiden ein, stehen wieder zwei verschiedene Felsen in
+   * derselben Welt — und das ist der Fehler, den diese ganze Datei
+   * aufraeumt.
    */
   private skalierung(
     zdo: { getVec3(n: string, d?: Vector3): Vector3; getFloat(n: string, d?: number): number },
     prefab: { localScale: Vector3 }
   ): Vector3 {
     const v = zdo.getVec3('scale', { x: 0, y: 0, z: 0 });
-    if (v.x !== 0 || v.y !== 0 || v.z !== 0) return v;
+    if (v.x !== 0 || v.y !== 0 || v.z !== 0) return gestufteSkalierung(v);
     const s = zdo.getFloat('scaleScalar', 0);
-    if (s !== 0) return { x: s, y: s, z: s };
-    return prefab.localScale;
+    if (s !== 0) {
+      const g = skalierungsStufe(s);
+      return { x: g, y: g, z: g };
+    }
+    return gestufteSkalierung(prefab.localScale);
   }
 
   /** T·R·S einmal aufloesen: Drehmatrix, Skalierung, Weltumhuellende. */
@@ -601,28 +970,36 @@ export class Kollisionswelt {
   }
 
   /**
-   * Ein Strahl gegen EINEN Koerper.
+   * Ein Strahl — oder ein Kugel-Sweep — gegen EINEN Koerper.
    *
    * Der Strahl wird in den Lokalraum der Instanz gebracht (S⁻¹·Rᵀ·(p−T));
    * der Parameter t bleibt dabei derselbe, weil eine affine Abbildung ihn
    * nicht veraendert — die gemeldete Entfernung ist also weiterhin die in
    * der WELT gemessene. Die Normale kommt mit R·(S⁻¹⊙n) zurueck (die
    * inverse Transponierte von R·S), danach normiert.
+   *
+   * `radius` = 0 ist der reine Strahl (so fragt die BODENabfrage, deren
+   * fuenf Versaetze die Standflaeche schon abdecken und die auf die
+   * Punktgenauigkeit angewiesen ist). `radius` > 0 fegt eine Kugel dieses
+   * Halbmessers den Weg entlang — s. den Abschnittskopf oben. `weite` ist
+   * in beiden Faellen der Weg des MITTELPUNKTS.
    */
   private strahl(
     k: Koerper,
     ox: number, oy: number, oz: number,
     dx: number, dy: number, dz: number,
-    weite: number
+    weite: number,
+    radius = 0
   ): Treffer | null {
-    // Grobpruefung gegen die Weltumhuellende (Slab, ohne Normale).
+    // Grobpruefung gegen die Weltumhuellende (Slab, ohne Normale), um den
+    // Kugelhalbmesser geweitet.
     {
       let t0 = 0, t1 = weite;
       for (let a = 0; a < 3; a += 1) {
         const o = a === 0 ? ox : a === 1 ? oy : oz;
         const d = a === 0 ? dx : a === 1 ? dy : dz;
-        const lo = a === 0 ? k.hx0 : a === 1 ? k.hy0 : k.hz0;
-        const hi = a === 0 ? k.hx1 : a === 1 ? k.hy1 : k.hz1;
+        const lo = (a === 0 ? k.hx0 : a === 1 ? k.hy0 : k.hz0) - radius;
+        const hi = (a === 0 ? k.hx1 : a === 1 ? k.hy1 : k.hz1) + radius;
         if (d > -1e-12 && d < 1e-12) {
           if (o < lo || o > hi) return null;
           continue;
@@ -645,19 +1022,47 @@ export class Kollisionswelt {
     const ldy = (k.r[1]! * dx + k.r[4]! * dy + k.r[7]! * dz) / k.sy;
     const ldz = (k.r[2]! * dx + k.r[5]! * dy + k.r[8]! * dz) / k.sz;
 
+    /*
+      Der Kugelhalbmesser in LOKALEN Einheiten. Fuer die Kiste je Achse
+      (dann ist der Flaechenversatz in der Welt genau `radius`), fuer
+      Kapsel und Netz einer — die groesste der drei Halbachsen, damit die
+      Ersatzkugel das Ellipsoid umschliesst und nichts durchrutscht
+      (s. Abschnittskopf). Bei gleichfoermiger Skalierung sind beide gleich.
+    */
+    const sMin = Math.min(Math.abs(k.sx), Math.abs(k.sy), Math.abs(k.sz));
+
     let lok: LokalTreffer | null;
     if (k.form.art === 'kiste') {
-      lok = strahlKiste(lox, loy, loz, ldx, ldy, ldz, weite, k.form.min, k.form.max);
+      if (radius === 0) {
+        lok = strahlKiste(
+          lox, loy, loz, ldx, ldy, ldz, weite,
+          k.form.min.x, k.form.min.y, k.form.min.z,
+          k.form.max.x, k.form.max.y, k.form.max.z
+        );
+      } else {
+        lok = sweepKiste(
+          lox, loy, loz, ldx, ldy, ldz, weite, k.form.min, k.form.max,
+          radius / Math.abs(k.sx), radius / Math.abs(k.sy), radius / Math.abs(k.sz)
+        );
+      }
     } else if (k.form.art === 'kapsel') {
-      lok = strahlKapsel(lox, loy, loz, ldx, ldy, ldz, weite, k.form.x, k.form.z, k.form.radius, k.form.yMin, k.form.yMax);
+      lok = radius === 0
+        ? strahlKapsel(lox, loy, loz, ldx, ldy, ldz, weite, k.form.x, k.form.z, k.form.radius, k.form.yMin, k.form.yMax)
+        : sweepKapsel(lox, loy, loz, ldx, ldy, ldz, weite, k.form.x, k.form.z, k.form.radius, k.form.yMin, k.form.yMax, radius / sMin);
     } else {
-      lok = strahlNetz(
-        lox, loy, loz, ldx, ldy, ldz, weite,
-        k.form.positionen, k.form.indizes, k.gitter, this.dreieckPuffer,
-        (k.form.min.x + k.form.max.x) / 2,
-        (k.form.min.y + k.form.max.y) / 2,
-        (k.form.min.z + k.form.max.z) / 2
-      );
+      const mmx = (k.form.min.x + k.form.max.x) / 2;
+      const mmy = (k.form.min.y + k.form.max.y) / 2;
+      const mmz = (k.form.min.z + k.form.max.z) / 2;
+      lok = radius === 0
+        ? strahlNetz(
+            lox, loy, loz, ldx, ldy, ldz, weite,
+            k.form.positionen, k.form.indizes, k.gitter, this.dreieckPuffer, mmx, mmy, mmz
+          )
+        : sweepNetz(
+            lox, loy, loz, ldx, ldy, ldz, weite,
+            k.form.positionen, k.form.indizes, k.gitter, this.dreieckPuffer, mmx, mmy, mmz,
+            radius / sMin
+          );
     }
     if (lok === null) return null;
 
@@ -671,10 +1076,22 @@ export class Kollisionswelt {
     if (l <= 1e-12) return null;
     const nx = wx / l, ny = wy / l, nz = wz / l;
 
+    /*
+      `punkt` ist der Punkt auf der FLAECHE, nicht der Mittelpunkt der
+      Kugel. Beim reinen Strahl (radius = 0) sind beide dasselbe und die
+      Rechnung faellt weg — die Bodenabfrage bekommt Bit fuer Bit, was sie
+      vorher bekam. Beim Sweep steht der Mittelpunkt einen Halbmesser VOR
+      der Flaeche; wer den als Trefferpunkt meldet, meldet einen Punkt in
+      der Luft, und `kollision-einhaengung` misst genau das (sie haelt den
+      Treffer gegen die Huellbox der Form).
+    */
+    const mx2 = ox + dx * lok.t, my2 = oy + dy * lok.t, mz2 = oz + dz * lok.t;
     return {
       normale: { x: nx, y: ny, z: nz },
       abstand: lok.t,
-      punkt: { x: ox + dx * lok.t, y: oy + dy * lok.t, z: oz + dz * lok.t },
+      punkt: radius === 0
+        ? { x: mx2, y: my2, z: mz2 }
+        : { x: mx2 - nx * radius, y: my2 - ny * radius, z: mz2 - nz * radius },
     };
   }
 
@@ -755,14 +1172,26 @@ export class Kollisionswelt {
       },
 
       /**
-       * Sechs Strahlen: zwei Hoehen ueber den Fuessen, je drei seitliche
-       * Versaetze (−r / 0 / +r), jeder reicht einen Radius ueber das Ziel
-       * hinaus — so haelt die Figur VOR der Wand statt in ihr.
+       * ZWEI Kugel-Sweeps: je Hoehe eine Kugel vom Halbmesser `radius`,
+       * die den Weg von `von` nach `nach` entlangfaehrt.
        *
-       * Kein Kapselwurf: Ein gefegter Koerper faengt auf jedem Hang das
-       * Gelaende unter den eigenen Fuessen ein; Strahlen lassen sich
-       * genau dorthin zielen, wo eine Wand waere, und ihre HOEHEN sind
-       * zugleich die Stufenregel.
+       * Bis zum 11.09.2026 standen hier sechs STRAHLEN — zwei Hoehen mal
+       * drei Versaetze quer zur Laufrichtung. Warum das nicht reicht und
+       * was der Sweep stattdessen tut, steht im Abschnittskopf
+       * „Kugel-Sweep gegen eine Form" weiter oben; die Kurzfassung: Ein
+       * Wandende, das lateral ZWISCHEN zwei Strahlen liegt, wird von
+       * keinem getroffen, und die Figur laeuft durch die Hausecke.
+       *
+       * Die Hoehen aus `masse.ts` bleiben, was sie sind. Die UNTERE Kugel
+       * sitzt mit ihrem Mittelpunkt um `radius` hoeher, damit ihre
+       * Unterseite genau auf `STRAHL_HOEHEN[0]` liegt — sonst waere die
+       * Stufenregel dahin (ein 0,40-m-Absatz wuerde blockieren). Die obere
+       * behaelt ihren Mittelpunkt auf Brusthoehe.
+       *
+       * Kein Kapsel-Sweep ueber die ganze Koerperhoehe: Ein gefegter
+       * Koerper, der bis zu den Fuessen reicht, faengt auf jedem Hang das
+       * Gelaende unter sich ein — die zwei Hoehen SIND die Stufen- und
+       * Hangregel, und die soll ein Sweep nicht ersetzen, sondern erben.
        */
       ersterTreffer(von: Vek3, nach: Vek3, radius: number): Treffer | null {
         if (koerper.length === 0) return null;
@@ -773,49 +1202,54 @@ export class Kollisionswelt {
 
         const vx = wx / weg;
         const vz = wz / weg;
-        // Quer zur Laufrichtung — der Versatz der Schulterstrahlen.
-        const qx = -vz;
-        const qz = vx;
-        const weite = weg + radius;
+        // Der MITTELPUNKT faehrt genau den Weg; den Radius bringt die
+        // Kugel selbst mit (frueher lag er als Zuschlag auf der Weite).
+        const weite = weg;
 
-        // Alles, was die sechs Strahlen zusammen ueberstreichen, in EINER
-        // Huellbox — dahinter bleibt nur, was ueberhaupt in Frage kommt.
-        const spanne = weite + radius;
+        /*
+          Alles, was die beiden Kugeln zusammen ueberstreichen, in EINER
+          Huellbox. Waagerecht: der Weg, um den Halbmesser nach allen
+          Seiten geweitet. Senkrecht: von der Unterseite der unteren Kugel
+          (= `STRAHL_HOEHEN[0]`, unveraendert gegenueber dem Strahlenbau)
+          bis zur Oberseite der oberen.
+        */
         const nahe = vorfilter(
           pufferWand,
-          Math.min(von.x, von.x + vx * spanne) - radius,
+          Math.min(von.x, von.x + vx * weite) - radius,
           Math.min(von.y, nach.y) + STRAHL_HOEHEN[0]!,
-          Math.min(von.z, von.z + vz * spanne) - radius,
-          Math.max(von.x, von.x + vx * spanne) + radius,
-          Math.max(von.y, nach.y) + STRAHL_HOEHEN[STRAHL_HOEHEN.length - 1]!,
-          Math.max(von.z, von.z + vz * spanne) + radius
+          Math.min(von.z, von.z + vz * weite) - radius,
+          Math.max(von.x, von.x + vx * weite) + radius,
+          Math.max(von.y, nach.y) + STRAHL_HOEHEN[STRAHL_HOEHEN.length - 1]! + radius,
+          Math.max(von.z, von.z + vz * weite) + radius
         );
         if (nahe.length === 0) return null;
 
+        // Die Kugeln folgen dem Hoehenunterschied der Bewegung, damit sie
+        // an einer Steigung nicht in den Berg zeigen.
+        const dy = (nach.y - von.y) / weite;
+        const laenge = Math.sqrt(1 + dy * dy);
+        const dx = vx / laenge, dz = vz / laenge, dyn = dy / laenge;
+        const strecke = weite * laenge;
+
         let naechster: Treffer | null = null;
-        for (const hoehe of STRAHL_HOEHEN) {
-          // Die Strahlen folgen dem Hoehenunterschied der Bewegung, damit
-          // sie an einer Steigung nicht in den Berg zeigen.
-          const dy = (nach.y - von.y) / weite;
-          const laenge = Math.sqrt(1 + dy * dy);
-          const dx = vx / laenge, dz = vz / laenge, dyn = dy / laenge;
-          const strecke = weite * laenge;
-          for (let s = -1; s <= 1; s += 1) {
-            const ox = von.x + qx * radius * s;
-            const oz = von.z + qz * radius * s;
-            for (const k of nahe) {
-              const t = selbst.strahl(k, ox, von.y + hoehe, oz, dx, dyn, dz, strecke);
-              if (t === null) continue;
-              // Hang oder Stufe, keine Wand: Darueber laeuft die Figur,
-              // die Bodenabfrage hebt sie an.
-              if (!istWand(t.normale)) continue;
-              // Nur was sich NAEHERT, steht im Weg (s. `abfragen.ts`).
-              const flach = Math.sqrt(t.normale.x * t.normale.x + t.normale.z * t.normale.z);
-              if (flach <= 1e-9) continue;
-              const naeherung = (wx * t.normale.x + wz * t.normale.z) / flach;
-              if (naeherung > -1e-6) continue;
-              if (naechster === null || t.abstand < naechster.abstand) naechster = t;
-            }
+        for (let h = 0; h < STRAHL_HOEHEN.length; h += 1) {
+          // Untere Kugel: Unterseite auf der Strahlhoehe (s. Kopf).
+          const hoehe = h === 0 ? STRAHL_HOEHEN[h]! + radius : STRAHL_HOEHEN[h]!;
+          for (const k of nahe) {
+            const t = selbst.strahl(k, von.x, von.y + hoehe, von.z, dx, dyn, dz, strecke, radius);
+            if (t === null) continue;
+            // Hang oder Stufe, keine Wand: Darueber laeuft die Figur,
+            // die Bodenabfrage hebt sie an.
+            if (!istWand(t.normale)) continue;
+            // Nur was sich NAEHERT, steht im Weg (s. `abfragen.ts`). Das
+            // ist zugleich die Regel, die eine BERUEHRUNG beim Start
+            // richtig herum aufloest: weiter in die Wand ist blockiert,
+            // von ihr weg ist frei.
+            const flach = Math.sqrt(t.normale.x * t.normale.x + t.normale.z * t.normale.z);
+            if (flach <= 1e-9) continue;
+            const naeherung = (wx * t.normale.x + wz * t.normale.z) / flach;
+            if (naeherung > -1e-6) continue;
+            if (naechster === null || t.abstand < naechster.abstand) naechster = t;
           }
         }
         return naechster;

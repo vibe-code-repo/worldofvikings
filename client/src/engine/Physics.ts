@@ -48,6 +48,10 @@ import type { Scene } from '@babylonjs/core/scene';
 // Die Form kommt aus `shared` — dieselbe Ableitung, die der Server
 // benutzt. Hier wird nur noch das Havok-Shape daraus gebaut.
 import type { KollisionsForm } from '@wov/shared';
+// Die Größenstufen — dieselbe Funktion, die der Server auf dieselbe
+// Instanzskalierung anwendet (`Kollisionswelt.skalierung`). Nur wenn
+// beide Seiten DIESELBE Zahl in die Form rechnen, ist es dieselbe Form.
+import { skalierungsStufe } from '@wov/shared';
 
 /**
  * Gravitation (m/s²) — das Original weicht vom Unity-Default ab: die
@@ -341,16 +345,30 @@ export class StaticColliderSet {
   }
 
   /**
-   * Die Form zu einer Instanzgroesse — gebaut, wenn es sie noch nicht
-   * gibt. Der Schluessel rundet auf einen Millimeter je Meter: Zwei
-   * Findlinge mit 2,110 und 2,1104 teilen sich eine Form, und der Fehler
-   * bleibt unter dem, was ein Spieler je bemerkt.
+   * Die Form zu einer Instanzgröße — gebaut, wenn es sie noch nicht gibt.
+   *
+   * Bis zum 11.09.2026 rundete der Schlüssel hier auf einen Millimeter
+   * (`toFixed(3)`) mit der Begründung, zwei Findlinge mit 2,110 und
+   * 2,1104 teilten sich dann eine Form. Das war eine Rechnung ohne die
+   * Streuung: Die würfelt je Exemplar eine kontinuierliche Größe
+   * (`shared/src/worldgen/streuung.ts`, `rangeFloat(scaleMin, scaleMax)`),
+   * und auf einen Millimeter genau ist jede davon eine eigene. Gemessen
+   * in einer echten Welt: 13 Felsen im 48-m-Fenster, 13 Havok-Netze —
+   * jedes mit einer eigenen Kopie der Vertexdaten, jedes Zonen-`sync()`
+   * neu gebaut.
+   *
+   * Jetzt rastet `skalierungsStufe` die Größe erst auf eine gemeinsame
+   * Stufe ein (20 je Oktave, ≤ 5 % relativ), und die STUFE geht sowohl in
+   * den Schlüssel als auch in die Form. Der Server tut mit derselben
+   * Funktion dasselbe — sonst hätte man zwar weniger Formen, aber wieder
+   * zwei verschiedene.
    */
   private formFuerSkalierung(sx: number, sy: number, sz: number): PhysicsShape {
-    const schluessel = `${sx.toFixed(3)},${sy.toFixed(3)},${sz.toFixed(3)}`;
+    const gx = skalierungsStufe(sx), gy = skalierungsStufe(sy), gz = skalierungsStufe(sz);
+    const schluessel = `${gx},${gy},${gz}`;
     let f = this.shapes.get(schluessel);
     if (!f) {
-      f = this.buildShape(sx, sy, sz);
+      f = this.buildShape(gx, gy, gz);
       this.shapes.set(schluessel, f);
     }
     return f;

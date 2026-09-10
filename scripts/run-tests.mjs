@@ -990,6 +990,23 @@ const KERN = [
     ~1 s.
   */
   ['server', 'test/abgleich-seq-position.ts'],
+  /*
+    Der Kugel-Sweep (11.09.2026): Ecken, Wandenden und die laterale
+    Luecke, die die drei versetzten Strahlen davor gelassen haben. Sein
+    wichtigster Teil ist ein ZAEHLBEWEIS — ein Scan ueber Winkel und
+    Standort rund um ein Wandende zaehlt die Einzelschritte, die die Wand
+    beruehren wuerden und trotzdem nicht gemeldet werden. Mit den Strahlen
+    waren es bis zu 18,9 %, jetzt sind es 0; die alten Zahlen stehen im
+    Test, damit ein Rueckfall nicht nur „rot" ist, sondern beziffert.
+
+    Ohne Welt und ohne Netz: dieselbe `nahfeldAus`-Bank wie in
+    `kollision-schritt.ts`, reine Geometrie. ~2 s, obwohl der Scan rund
+    16.000 Abfragen wirft — der Vorfilter des Nahfelds traegt.
+
+    Swept-sphere collision: corners, wall ends, and the lateral gap the
+    three offset rays used to leave. Counting proof plus fixed cases.
+  */
+  ['server', 'test/kollision-ecke.ts'],
   // G1-Durchsicht: einziger E2E-Test fuer Dungeon-Betreten/-Verlassen ueber
   // echten WebSocket-Handshake. War tot durch ZWEI unabhaengige
   // Test-Bugs (Handshake-HMAC und ZDOSync-Parser bauten die Produktivlogik
@@ -1202,6 +1219,24 @@ const KERN = [
   //     als Gleichung (Fels und Strahl gedreht ergeben R·P) und nicht als
   //     Plausibilitaet. ~3 s.
   ['shared', 'test/kollision-mengen.ts'],
+  /*
+    Die GROESSENSTUFEN (11.09.2026). Die Form steht lokal zur Instanz,
+    die Instanzgroesse muss also IN die Form — und die Streuung wuerfelt
+    sie kontinuierlich. Mit dem alten Millimeterschluessel bekam damit
+    jeder Stein sein eigenes Havok-Netz samt eigener Kopie der
+    Vertexdaten. `skalierungsStufe` rastet die Groesse auf 20 Stufen je
+    Oktave (<= 5 % relativ) ein, und Client wie Server rufen DIESELBE
+    Funktion — eine Ersparnis, die nur einer von beiden macht, waere eine
+    neue Abweichung.
+
+    Der Test misst an einer echt gestreuten Region: 546 -> 282 Formen
+    ueber die geladenen Zonen (320 m). Braucht keine Modelldatei,
+    gezaehlt werden Groessen. ~2 s.
+
+    Scale ladder shared by client and server; counts the shapes a real
+    scattered region needs before and after.
+  */
+  ['server', 'test/kollision-formstufen.ts'],
   ['client', 'test/kollision-formen.ts', brauchtStore()],
   ['server', 'test/kollision-formen.ts', brauchtStore()],
   ['server', 'test/kollision-einhaengung.ts', brauchtStore()],

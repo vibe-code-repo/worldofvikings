@@ -1,5 +1,5 @@
 {
- "erzeugt": "2026-09-09T19:21:55.443Z",
+ "erzeugt": "2026-09-10T15:46:03.551Z",
  "quelle": "tools/asset-manifest.mjs",
  "anzahl": 223,
  "gemessen": 223,
@@ -5342,7 +5342,7 @@
   "wikinger/WikingerKoerper": {
    "datei": "wikinger/WikingerKoerper.glb",
    "foliage": false,
-   "bytes": 678948,
+   "bytes": 736360,
    "huelle": {
     "min": [
      -1.024,
@@ -5380,6 +5380,10 @@
     },
     {
      "name": "angriff",
+     "dauer": 1.208
+    },
+    {
+     "name": "faust",
      "dauer": 1.958
     }
    ],

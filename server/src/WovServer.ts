@@ -109,7 +109,7 @@ import { AdminListe } from './admin/AdminListe.js';
 import { geheimnisAusEnv, istSpielerId, type SpielerId } from './net/Identitaet.js';
 import {
   ZONE_SIZE,
-  findItem,
+  findItem, ITEM_DEFS,
   REZEPTE,
   type Inventory,
   packContainer,
@@ -1485,6 +1485,9 @@ export class WovServer {
       const START: Array<[string, number]> = [
         ['Hammer', 1], ['AxeFlint', 1], ['Hoe', 1], ['PickaxeAntler', 1],
         ['Cultivator', 1], ['Wood', 12], ['Stone', 30],
+        // Das Nordschwert, damit der Schwerthieb des Wikingers von Anfang
+        // an eine Klinge hat (10.09.2026).
+        ['SwordNorth', 1],
         // Kleidung als GEGENSTAENDE: Seit sie in Ausruestungsslots liegt,
         // waere ein neuer Charakter sonst nackt und haette keinen Weg,
         // daran etwas zu aendern -- die Teile lassen sich (noch) nirgends
@@ -3470,6 +3473,30 @@ export class WovServer {
    * den Welt-Save — so kommen eigene NPCs dauerhaft in die Welt.
    */
   private registerSpawnCommand(): void {
+    // item give <Name> [Anzahl] — legt einen Gegenstand ins eigene
+    // Inventar (10.09.2026). Gebaut, damit bestehende Charaktere, die die
+    // Startausruestung laengst haben, neue Gegenstaende wie das Nordschwert
+    // zum Ausprobieren bekommen, ohne dass man den Spielstand anfasst.
+    this.adminCommands.register('item', (peer, args) => {
+      const sub = (args.shift() ?? '').toLowerCase();
+      if (sub !== 'give' && sub !== 'gib') {
+        return { ok: false, active: false, message: 'Aufruf: item give <Name> [Anzahl]' };
+      }
+      const name = args[0];
+      if (!name) return { ok: false, active: false, message: 'Aufruf: item give <Name> [Anzahl]' };
+      const def = findItem(name)
+        ?? ITEM_DEFS.find((i) => i.name.toLowerCase() === name.toLowerCase());
+      if (!def) return { ok: false, active: false, message: `Unbekannter Gegenstand: ${name}` };
+      const menge = Math.max(1, Math.floor(Number(args[1]) || 1));
+      const rest = peer.inventar.addItem(def, menge);
+      this.inventarSync(peer);
+      const drin = menge - rest;
+      return { ok: drin > 0, active: false,
+        message: drin > 0
+          ? `${drin}× ${def.label} ins Inventar gelegt${rest > 0 ? ` (${rest} passten nicht)` : ''}`
+          : `Kein Platz im Inventar für ${def.label}` };
+    });
+
     this.adminCommands.register('spawn', (peer, args) => {
       const name = args[0];
       if (!name) {

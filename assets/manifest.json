@@ -1,8 +1,8 @@
 {
- "erzeugt": "2026-09-10T15:46:03.551Z",
+ "erzeugt": "2026-09-10T16:31:39.685Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 223,
- "gemessen": 223,
+ "anzahl": 224,
+ "gemessen": 224,
  "uebernommen": [],
  "modelle": {
   "Ampfer1": {
@@ -4017,6 +4017,32 @@
    ],
    "meshlos": false,
    "skins": 1
+  },
+  "SwordNorth": {
+   "datei": "SwordNorth.glb",
+   "foliage": false,
+   "bytes": 28200,
+   "huelle": {
+    "min": [
+     -0.118,
+     -0.25,
+     -0.027
+    ],
+    "max": [
+     0.118,
+     0.795,
+     0.027
+    ]
+   },
+   "breite": 0.236,
+   "hoehe": 1.045,
+   "tiefe": 0.054,
+   "dreiecke": 364,
+   "materialien": 0,
+   "bilder": 0,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
   },
   "Tanne1": {
    "datei": "Tanne1.glb",

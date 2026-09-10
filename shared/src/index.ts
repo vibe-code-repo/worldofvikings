@@ -32,6 +32,26 @@ export * from './prefabs.js';
 //   import { STORE_KATALOG } from '@wov/shared/src/storeKatalogDaten.js';
 export * from './storeKatalog.js';
 export * from './storePrefabs.js';
+// Die KOLLISIONSANGABE des Speichers — schmal, und deshalb hier drin.
+//
+// Sie steht auch im Katalog daneben, aber der liegt ausserhalb des
+// Barrels (s. oben). Client UND Server muessen sie lesen koennen: Der
+// eine baut daraus Havok-Formen, der andere rechnet die Spielerbewegung
+// dagegen — zwei Quellen liefen lautlos auseinander. Die Datei traegt
+// deshalb nur die AUSNAHMEN (27 ohne Koerper, 19 Netz, 73 eigene Kiste),
+// nicht 670 Katalogzeilen: 12,6 KB Quelltext gegen 291 KB.
+export * from './storeKollisionDaten.js';
+// Die gemeinsame Kollisions-Formableitung — die EINE Stelle, an der aus
+// Modellgeometrie eine Form wird. Client (Havok) und Server (eigene
+// Abfrage) rufen dieselbe Funktion mit denselben Zahlen auf.
+//
+// BEWUSST NICHT HIER: `kollision/glb.ts`. Der GLB-Leser ist ein
+// SERVERWEG — der Client bekommt seine Vertexdaten von Babylon und
+// braeuchte ihn nie; ueber das Barrel laege er in jedem Spiel-Bundle.
+//   import { leseGlb } from '@wov/shared/src/kollision/glb.js';
+export * from './kollision/form.js';
+export * from './kollision/formen.js';
+export * from './kollision/festeKoerper.js';
 export * from './npc.js';
 export * from './leben.js';
 export * from './aggro.js';

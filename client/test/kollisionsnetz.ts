@@ -37,7 +37,6 @@ import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
-import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { AssetContainer } from '@babylonjs/core/assetContainer';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
@@ -47,6 +46,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 // Methoden am Mesh, obwohl die Typen sie kennen.
 import '@babylonjs/core/Meshes/thinInstanceMesh';
 
+import type { KollisionsForm } from '@wov/shared';
 import { AssetManager } from '../src/engine/AssetManager';
 import { EntityManager } from '../src/entities/EntityManager';
 import { Shadows, schattenKonfiguration } from '../src/engine/Shadows';
@@ -151,22 +151,22 @@ function setze(mgr: EntityManager, prefab: string, modell: string, hash: number)
 
 const warte = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
-interface SpecMesh {
-  kind: string;
-  mesh?: Mesh;
-}
-
-/** Der einzige Collider-Spec des Managers, samt Positionen und Dreiecken. */
+/**
+ * Die einzige Kollisionsform des Managers, samt Höhen und Dreiecken.
+ *
+ * Seit dem 10.09.2026 ist das eine {@link KollisionsForm} aus `shared`
+ * und kein Babylon-`Mesh` mehr: Der Server braucht dieselbe Form und
+ * kennt Babylon nicht. Die Frage bleibt dieselbe — welche Dreiecke sind
+ * drin, und auf welcher Höhe liegen sie.
+ */
 function specGeometrie(mgr: EntityManager): { tris: number; ys: number[] } | null {
-  const specs = [...mgr.colliderSpecs.values()] as SpecMesh[];
-  if (specs.length !== 1) return null;
-  const spec = specs[0]!;
-  if (spec.kind !== 'mesh' || !spec.mesh) return null;
-  const pos = spec.mesh.getVerticesData(VertexBuffer.PositionKind) ?? [];
-  const idx = spec.mesh.getIndices() ?? [];
+  const formen = [...mgr.colliderSpecs.values()] as KollisionsForm[];
+  if (formen.length !== 1) return null;
+  const form = formen[0]!;
+  if (form.art !== 'netz') return null;
   const ys: number[] = [];
-  for (let i = 1; i < pos.length; i += 3) ys.push(pos[i]!);
-  return { tris: idx.length / 3, ys };
+  for (let i = 1; i < form.positionen.length; i += 3) ys.push(form.positionen[i]!);
+  return { tris: form.indizes.length / 3, ys };
 }
 
 async function main(): Promise<void> {

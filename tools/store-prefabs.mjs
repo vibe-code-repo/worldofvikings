@@ -87,11 +87,27 @@ const STORE_LAB = join(WURZEL, 'assets/store-lab');
   Deshalb steht `storeKatalogDaten.ts` NICHT im Barrel — genauso wenig
   wie `featurePieces.ts`, und aus demselben Grund (siehe Kopf von
   `shared/src/index.ts`). Wer den Katalog will, nennt seinen Pfad.
+
+  `storeKollisionDaten.ts` ist die DRITTE Datei, und sie ist der Grund,
+  warum es nicht bei zweien bleiben konnte: Die Kollisionsangabe
+  (`art`, `box`, `netz`) steht in `prefabs.json` und wanderte bisher nur
+  in den Katalog — also genau dorthin, wo das SPIEL sie nicht lesen darf.
+  Der Server soll die Spielerbewegung aber gegen dieselben Formen rechnen
+  wie der Client, und beide haengen am Barrel. Also wird die Angabe ein
+  zweites Mal geschrieben, schmal und ohne Lizenz, Hash, Gruppe und
+  Kennzeichen: Sie traegt nur die AUSNAHMEN (kein Koerper, Netz, eigene
+  Kiste), der Rest ist die Vorgabe `box`.
+
+  Third file, and the reason there could not be just two: the collision
+  record must be readable by the GAME (client and server), the catalogue
+  must not.
 */
 const ZIEL_PREFABS = join(WURZEL, 'shared/src/storePrefabs.ts');
 const ZIEL_KATALOG = join(WURZEL, 'shared/src/storeKatalogDaten.ts');
+const ZIEL_KOLLISION = join(WURZEL, 'shared/src/storeKollisionDaten.ts');
 const DATEI_PREFABS = 'storePrefabs.ts';
 const DATEI_KATALOG = 'storeKatalogDaten.ts';
+const DATEI_KOLLISION = 'storeKollisionDaten.ts';
 
 // ── Hilfen ────────────────────────────────────────────────────────────
 
@@ -272,6 +288,45 @@ for (const p of [...prefabNachAsset.values()].sort((a, b) => (a.id < b.id ? -1 :
     h: zahl(Math.max(0.1, hoehe)),
     model: modellPfad(p.asset),
   });
+}
+
+// ── Kollisionsangaben: die schmale Tabelle fuers Spiel ────────────────
+
+/*
+  AUSNAHMEN, nicht Vollstand.
+
+  524 der 570 Quelleintraege sagen `box`, und 451 davon ohne eigene
+  Kiste — das ist die Vorgabe und braucht keine Zeile. Geschrieben wird
+  nur, was davon abweicht: kein Koerper (`none`), eigenes Netz (`mesh`)
+  und die Kisten, die von der Modell-Huellbox abweichen. Das haelt die
+  Datei bei wenigen KB, und genau darum geht es: Sie haengt am Barrel und
+  liegt damit im Spiel-Bundle jedes Spielers.
+
+  Exceptions only — `box` without an own box is the default and costs no
+  line.
+*/
+const kollisionOhne = [];
+const kollisionNetze = [];
+const kollisionKisten = [];
+for (const p of [...prefabNachAsset.values()].sort((a, b) => (a.id < b.id ? -1 : 1))) {
+  const c = p.collision;
+  if (!c) continue;
+  if (c.kind === 'none') {
+    kollisionOhne.push(p.id);
+  } else if (c.kind === 'mesh') {
+    /*
+      Der Pfad kommt aus der Quelle, wenn sie ihn nennt (3 von 19), sonst
+      aus der NAMENSREGEL `<modell>-collision.glb` — aber nur, wenn diese
+      Datei wirklich im Speicher liegt. Ein Pfad ins Leere waere hier
+      teurer als gar keiner: Der Server suchte eine Datei, faende sie
+      nicht und haette danach keine Kollision statt einer abgeleiteten.
+    */
+    const ausNamen = `${ohneEndung(p.asset)}-collision.glb`;
+    const netz = c.asset?.path ?? (manifestNachPfad.has(ausNamen) ? ausNamen : null);
+    kollisionNetze.push([p.id, netz]);
+  } else if (c.box) {
+    kollisionKisten.push([p.id, c.box]);
+  }
 }
 
 // ── Katalog ───────────────────────────────────────────────────────────
@@ -564,6 +619,100 @@ export const STORE_KATALOG_NACH_PREFAB: ReadonlyMap<StorePrefabName, StoreEintra
 
 const textKatalog = katalogTeile.join('');
 
+// ── Drittes Erzeugnis: die Kollisionsangabe, für Client UND Server ────
+
+const textKollision = `/**
+ * storeKollisionDaten.ts — ERZEUGT, NICHT VON HAND ÄNDERN.
+ *
+ *   npx tsx tools/store-prefabs.mjs
+ *
+ * Die Kollisionsangabe aus \`prefabs.json\`, schmal: nur die AUSNAHMEN.
+ * ${kollisionOhne.length} Prefabs ohne Körper, ${kollisionNetze.length} mit eigenem Netz,
+ * ${kollisionKisten.length} mit einer Kiste, die von der Modell-Hüllbox abweicht.
+ * Alles andere ist \`${'box'}\` ohne eigene Kiste — das ist die Vorgabe und
+ * braucht keine Zeile.
+ *
+ * ── Warum diese Datei AM BARREL hängt und der Katalog nicht ──────────
+ * Dieselbe Angabe steht auch in \`storeKatalogDaten.ts\`. Die liegt
+ * bewusst ausserhalb des Barrels (291 KB, nur der Editor liest sie), und
+ * eine Kollisionsentscheidung darf sie nicht nachziehen — die Begründung
+ * steht im Kopf von \`shared/src/index.ts\`.
+ *
+ * Gebraucht wird die Angabe aber von BEIDEN Seiten des Spiels: Der
+ * Client baut daraus seine Havok-Formen, der Server rechnet die
+ * Spielerbewegung dagegen. Hätten sie zwei Quellen, liefen sie
+ * auseinander — und zwar lautlos: Der Spieler stünde im Client vor einem
+ * Stein, den der Server nicht kennt, und würde hindurchgezogen.
+ *
+ * Deshalb diese dritte Datei. Sie kostet, was sie kostet: die Namen der
+ * Ausnahmen und sonst nichts.
+ *
+ * Generated collision record — do not edit by hand. Exceptions only.
+ */
+import type { StoreBounds, StoreKollision, StorePrefabName } from './storeKatalog.js';
+import { STORE_MODELL_NAMEN } from './storePrefabs.js';
+
+/** Was ein Store-Prefab bekommt, wenn es unten nicht steht. */
+export const STORE_KOLLISION_VORGABE: StoreKollision = { art: 'box' };
+
+/** \`art: 'none'\` — durch diese Prefabs läuft man hindurch. */
+export const STORE_OHNE_KOERPER: ReadonlySet<StorePrefabName> = new Set([
+${kollisionOhne.map((n) => `  ${tsText(n)},`).join('\n')}
+]);
+
+/**
+ * \`art: 'mesh'\` — exakte Geometrie statt Hüllquader.
+ *
+ * Der Wert ist der Pfad der eigenen Kollisions-GLB relativ zum Speicher,
+ * oder \`null\`, wenn die Quelle keine nennt und auch keine
+ * \`…-collision.glb\` danebenliegt. \`null\` heisst NICHT „keine Kollision",
+ * sondern „die Geometrie des Modells selbst".
+ */
+export const STORE_KOLLISIONSNETZ: ReadonlyMap<StorePrefabName, string | null> = new Map([
+${kollisionNetze.map(([n, p]) => `  [${tsText(n)}, ${p === null ? 'null' : tsText(p)}],`).join('\n')}
+]);
+
+/**
+ * \`art: 'box'\` MIT eigener Kiste — im DATEIRAUM, wie \`StoreEintrag.bounds\`.
+ *
+ * Achtung, dieselbe Falle wie dort: Babylon klappt beim glTF-Import die
+ * x-Achse um. Wer diese Kiste als Weltkiste benutzt, muss sie durch
+ * \`boundsNachWeltraum()\` schicken (\`storeKatalog.ts\`).
+ */
+export const STORE_KOLLISIONSKISTE: ReadonlyMap<StorePrefabName, StoreBounds> = new Map([
+${kollisionKisten
+  .map(
+    ([n, b]) =>
+      `  [${tsText(n)}, { min: [${b.min.map(zahl).join(', ')}], max: [${b.max.map(zahl).join(', ')}] }],`
+  )
+  .join('\n')}
+]);
+
+/** Die Namen des Speichers — die Grenze, ausserhalb derer nichts gilt. */
+const STORE_NAMEN: ReadonlySet<StorePrefabName> = new Set(STORE_MODELL_NAMEN);
+
+/**
+ * Die Kollisionsangabe eines Prefabs — \`null\` für alles, was nicht aus
+ * dem Speicher kommt.
+ *
+ * Die Unterscheidung ist nötig, weil die Tabelle Ausnahmen führt: Ohne
+ * die Namensgrenze bekäme JEDER Name die Vorgabe \`box\`, auch
+ * \`Beech_small1\` aus dem Altbestand — und der hat mit dem Speicher
+ * nichts zu tun.
+ *
+ * The store's collision record for a prefab, or null if it is not a
+ * store prefab at all.
+ */
+export function storeKollision(prefabName: StorePrefabName): StoreKollision | null {
+  if (!STORE_NAMEN.has(prefabName)) return null;
+  if (STORE_OHNE_KOERPER.has(prefabName)) return { art: 'none' };
+  const netz = STORE_KOLLISIONSNETZ.get(prefabName);
+  if (netz !== undefined) return netz === null ? { art: 'mesh' } : { art: 'mesh', netz };
+  const box = STORE_KOLLISIONSKISTE.get(prefabName);
+  return box === undefined ? STORE_KOLLISION_VORGABE : { art: 'box', box };
+}
+`;
+
 /*
   BEIDE Erzeugnisse werden geprüft, nicht nur eines.
 
@@ -575,6 +724,7 @@ const textKatalog = katalogTeile.join('');
 const ERZEUGNISSE = [
   { name: DATEI_PREFABS, ziel: ZIEL_PREFABS, text: textPrefabs },
   { name: DATEI_KATALOG, ziel: ZIEL_KATALOG, text: textKatalog },
+  { name: DATEI_KOLLISION, ziel: ZIEL_KOLLISION, text: textKollision },
 ];
 
 if (process.argv.includes('--pruefen')) {
@@ -582,7 +732,7 @@ if (process.argv.includes('--pruefen')) {
     (e) => (existsSync(e.ziel) ? readFileSync(e.ziel, 'utf8') : '') !== e.text
   );
   if (veraltet.length === 0) {
-    console.log(`ok   beide Erzeugnisse sind aktuell (${defs.length} Prefabs, ${katalog.length} Katalogzeilen)`);
+    console.log(`ok   alle Erzeugnisse sind aktuell (${defs.length} Prefabs, ${katalog.length} Katalogzeilen, ${kollisionOhne.length + kollisionNetze.length + kollisionKisten.length} Kollisions-Ausnahmen)`);
     process.exit(0);
   }
   for (const e of veraltet) console.error(`FAIL shared/src/${e.name} weicht ab`);

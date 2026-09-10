@@ -54,6 +54,7 @@ import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import '@babylonjs/core/Meshes/thinInstanceMesh';
 
 import { findPrefabByName, getStableHash, STORE_FELSEN_NAMEN } from '@wov/shared';
+import type { KollisionsForm } from '@wov/shared';
 import { AssetManager } from '../src/engine/AssetManager';
 import { EntityManager } from '../src/entities/EntityManager';
 import type { ZDOEntityUpdate } from '../src/net/ZDOSync';
@@ -142,8 +143,8 @@ async function formVon(prefab: string): Promise<string | null> {
   setze(mgr, prefab, def.model, getStableHash(prefab));
   await warte();
   mgr.flush();
-  const specs = [...mgr.colliderSpecs.values()] as { kind: string }[];
-  return specs.length === 0 ? null : (specs[0]!.kind ?? '?');
+  const formen = [...mgr.colliderSpecs.values()] as KollisionsForm[];
+  return formen.length === 0 ? null : (formen[0]!.art ?? '?');
 }
 
 /*
@@ -164,10 +165,10 @@ async function main(): Promise<void> {
   );
 
   const fels = await formVon(FELS);
-  pruefe(fels === 'mesh', `(a) Fels bekommt die exakte Oberfläche (ist: ${fels ?? 'gar keine'})`);
+  pruefe(fels === 'netz', `(a) Fels bekommt die exakte Oberfläche (ist: ${fels ?? 'gar keine'})`);
 
   const deko = await formVon(DEKO);
-  pruefe(deko === 'box', `(b) feste Deko bekommt einen Hüllquader (ist: ${deko ?? 'gar keine'})`);
+  pruefe(deko === 'kiste', `(b) feste Deko bekommt einen Hüllquader (ist: ${deko ?? 'gar keine'})`);
 
   const baum = await formVon(BAUM);
   pruefe(baum === null, `(c) Vegetation bleibt durchlässig (ist: ${baum ?? 'keine Form'})`);

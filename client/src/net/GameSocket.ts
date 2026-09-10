@@ -323,14 +323,26 @@ export class GameSocket {
     this.ws.send(packet.buffer);
   }
 
+  /**
+   * Eingabe senden — GIBT die vergebene Sequenznummer ZURÜCK.
+   *
+   * Der Rückgabewert ist neu und der einzige ehrliche Weg, wie der
+   * Aufrufer erfährt, unter welcher Nummer diese Eingabe abging: Der
+   * Zähler lebt hier drin, und der Abgleich
+   * (client/src/net/Positionsverlauf.ts) muss zu genau dieser Nummer
+   * die eigene Position ablegen. Ein zweiter Zähler im Aufrufer liefe
+   * beim ersten übersprungenen Paket auseinander, und der Abgleich
+   * verglich dann stillschweigend die falschen zwei Zeitpunkte.
+   */
   sendPlayerInput(
     moveX: number, moveZ: number,
     lookYaw: number, lookPitch: number,
     moveY: number,
     running: boolean, jumping: boolean
-  ): void {
+  ): number {
     const w = new BinaryWriter();
-    w.writeInt32(++this.inputSeq);
+    const seq = ++this.inputSeq;
+    w.writeInt32(seq);
     w.writeFloat32(moveX);
     w.writeFloat32(moveZ);
     w.writeFloat32(lookYaw);
@@ -339,6 +351,7 @@ export class GameSocket {
     w.writeBool(running);
     w.writeBool(jumping);
     this.sendPacket(PacketType.PlayerInput, w.toUint8Array());
+    return seq;
   }
 
   sendAdminCommand(command: string): void {

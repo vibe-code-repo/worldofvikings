@@ -5,23 +5,20 @@
  * dürfen aus der Warteschlange fallen, welche müssen beim nächsten
  * Replay erneut angewendet werden?"
  *
- * NICHT VERDRAHTET — bewusst. Es gibt heute keine Vorhersage-
- * Warteschlange im Client: player/PlayerController.ts hält fest, dass
- * Client und Server dieselbe Bewegung rechnen "so both sides agree
- * without reconciliation for now", und main.ts (Frame-Loop) korrigiert
- * Drift stattdessen weich über die Distanz zur zuletzt gemeldeten
- * Serverposition (serverPos), nicht über gespeicherte/wiederholte
- * Eingaben.
+ * SEIT DEM ABGLEICH PER EINGABESEQUENZ VERDRAHTET: Die Warteschlange
+ * gibt es — client/src/net/Positionsverlauf.ts führt zu jeder gesendeten
+ * Eingabe die Position mit, die der Client bei ihrem Absenden hatte, und
+ * `verwirfAelterAls` räumt sie mit dieser Regel wieder ab.
  *
- * Der Server schickt seit F6 die zuletzt verarbeitete Eingabe-
- * Sequenznummer im PlayerState-Paket zurück (WovServer.sendPlayerState);
- * main.ts liest sie bereits aus. Die eigentliche Reconciliation — eine
- * Warteschlange gesendeter Eingaben führen, hier verwerfen, den Rest neu
- * simulieren — ist NICHT gebaut: eine halbe Umsetzung (Regel vorhanden,
- * aber ohne echte Warteschlange in die Bewegung eingehängt) wäre
- * trügerischer als eine sauber benannte Lücke. Diese Funktion ist die
- * Regel, isoliert und getestet, für den Tag, an dem jemand die
- * Warteschlange baut.
+ * Was es weiterhin NICHT gibt, ist ein Replay: Der Client fährt Havok,
+ * eine Eingabefolge lässt sich damit nicht deterministisch nachspielen.
+ * Die Warteschlange dient deshalb nicht dem Wiederholen, sondern dem
+ * MESSEN — sie beantwortet die Frage „wo stand ich, als der Server
+ * das hier bestätigte?", und der so gemessene Versatz wird auf die
+ * aktuelle Position angewandt. Der Kommentar in
+ * player/PlayerController.ts ("so both sides agree without
+ * reconciliation for now") beschreibt weiterhin die Bewegung selbst,
+ * nicht diesen Abgleich.
  */
 
 export interface EingabeMitSeq {

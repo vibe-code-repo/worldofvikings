@@ -261,6 +261,8 @@ export class PlayerController {
    */
   private readonly tempoTmp = new Vector3();
   private readonly augeTmp = new Vector3();
+  /** Kratzvektor für `verschiebeWeich` — läuft je Bild, darf nichts belegen. */
+  private readonly versatzTmp = new Vector3();
   /** Gehaltene Höhe, solange unter der Figur noch kein Collider liegt. */
   private dungeonHalteY = 0;
   /**
@@ -471,6 +473,43 @@ export class PlayerController {
     this.dungeonHalteY = y;
     this.controller?.setPosition(new Vector3(x, y + BODY_HEIGHT / 2, z));
     this.controller?.setVelocity(Vector3.Zero());
+  }
+
+  /**
+   * WEICHE Korrektur: die Figur um einen Betrag versetzen, ohne ihren
+   * Bewegungszustand anzufassen (Abgleich Client↔Server, s.
+   * client/src/net/Positionsverlauf.ts).
+   *
+   * Warum das eine Methode HIER ist und nicht drei Zeilen in main.ts:
+   * `position` ist ein SPIEGEL, keine Wahrheit. Am Ende jedes `update()`
+   * steht `this.position.set(p.x, p.y - BODY_HEIGHT / 2, p.z)` mit `p`
+   * aus der Havok-Kapsel — wer nur den Spiegel verschiebt, verschiebt
+   * gar nichts: Der Wert steht ein einziges Bild lang anders da und ist
+   * im nächsten wieder der alte.
+   *
+   * Genau das tat der weiche Abgleich in `main.ts` seit jeher
+   * (`player.position.x += dx * f`). Gemessen am 2026-09-11: Die Figur
+   * bleibt stehen, der Server steht ebenfalls still, zwischen beiden
+   * liegen 3,3 m — und über fünf Sekunden und rund fünfzig ausgegebene
+   * Korrekturen ändert sich diese Zahl um keinen Zentimeter. Der weiche
+   * Abgleich hat nie gezogen; sichtbar war von ihm nur das eine
+   * verschobene Bild je Korrektur, und das ist das Zittern, das der
+   * Nutzer als „wirkt wie Lag" gemeldet hat.
+   *
+   * Die GESCHWINDIGKEIT bleibt ausdrücklich unangetastet — anders als in
+   * `teleportTo`. Der Versatz korrigiert die STELLE, nicht die Bewegung:
+   * Ein Nullen im Lauf wäre ein Bremsen, und in der Luft setzte es die
+   * Schwerkraft zurück (`current.y + GRAVITY.y * dt` fängt dann jedes
+   * Bild wieder bei null an, die Figur schwebte zu Boden).
+   */
+  verschiebeWeich(dx: number, dy: number, dz: number): void {
+    this.position.set(this.position.x + dx, this.position.y + dy, this.position.z + dz);
+    const c = this.controller;
+    // Ohne Havok (Fallback-Zweig) IST `position` die Wahrheit — dann ist
+    // die Zeile oben schon alles.
+    if (!c) return;
+    const p = c.getPosition();
+    c.setPosition(this.versatzTmp.set(p.x + dx, p.y + dy, p.z + dz));
   }
 
   /** Diagnose: Zustand des Spielerkörpers. */

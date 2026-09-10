@@ -98,6 +98,7 @@ import { BaumImpostor } from './engine/BaumImpostor';
 import { PlayerController } from './player/PlayerController';
 import { GameSocket } from './net/GameSocket';
 import { ladeModulRegistrierung } from './net/ModuleRegistryLoad';
+import { Abgleicher } from './net/Positionsverlauf';
 import { parseZDOSync, ZDOSpiegel } from './net/ZDOSync';
 import { Hud } from './ui/Hud';
 import { GrassClutter } from './engine/GrassClutter';
@@ -865,17 +866,21 @@ async function main() {
    * Klick mitten im Lauf neu angestossen.
    */
   const ANGRIFF_TAKT = 0.5;
-  /** Letzte Server-Spielerposition (PlayerState) — Soft-Reconciliation. */
+  /** Letzte Server-Spielerposition (PlayerState) — nur für die Diagnosezeile. */
   let serverPos: { x: number; y: number; z: number } | null = null;
   /**
    * F6: letzte vom Server bestätigte Eingabe-Sequenznummer (PlayerState,
-   * angehängtes Feld). Nur ausgelesen und in der Diagnosezeile angezeigt —
-   * es gibt noch keine Vorhersage-Warteschlange, die sie zum Verwerfen
-   * bestätigter Eingaben nutzen könnte (s. client/src/net/Eingabeverwerfung.ts
-   * für die isolierte, bereits getestete Verwerfungsregel und die
-   * Begründung, warum hier aufgehört wurde).
+   * angehängtes Feld) — die Nummer, unter der der Abgleich nachschlägt,
+   * wo der Client stand, als er diese Eingabe abschickte.
    */
   let letzterBestaetigterInputSeq = -1;
+  /**
+   * Der Abgleich Client↔Server. Die ganze Logik (Verlauf, Schwellen,
+   * weiches/hartes Nachziehen) steht in client/src/net/Positionsverlauf.ts
+   * — hier stehen nur die drei Aufrufe: merken beim Senden, melden beim
+   * Empfangen, anwenden je Bild.
+   */
+  const abgleicher = new Abgleicher();
   // Audio: startet mit der ersten Nutzergeste (Browser-Autoplay-Regel).
   const audio = new GameAudio();
   window.addEventListener('pointerdown', () => audio.start(), { once: true });
@@ -1279,6 +1284,17 @@ async function main() {
       // Ruhehaltung der Arme live einstellen (Modell ist in T-Pose gebunden).
       // Clip aus der GLB statt prozeduraler Pose (siehe AvatarRig.nutzeClip).
       anim: (an: boolean) => player?.avatar.setClipAnimation(an) ?? false,
+      /**
+       * Abgleich Client↔Server in Zahlen — für die Messläufe.
+       *
+       * `ereignisse` ist die Kennzahl, um die es geht: wie oft der
+       * Abgleich überhaupt eingegriffen hat. Auf freiem Feld soll sie im
+       * Gehen wie im Sprint null bleiben; jedes Ereignis ist ein Ruck,
+       * den Mike als Lag sieht. `zaehlerAus()` setzt sie zurück, damit
+       * ein Messabschnitt bei null anfängt.
+       */
+      get abgleich() { return abgleicher.diagnose; },
+      zaehlerAus: () => abgleicher.zaehlerZuruecksetzen(),
       /**
        * Frame-Zeit nach Teilsystem aufschlüsseln.
        *
@@ -2033,6 +2049,11 @@ async function main() {
       // F6: angehängtes Feld, älterer/neuerer Leser kommen sich nicht in
       // die Quere — s. Kommentar in WovServer.sendPlayerState.
       if (reader.remaining >= 4) letzterBestaetigterInputSeq = reader.readInt32();
+      // Der Abgleich entscheidet hier, OB nachgezogen wird; angewandt
+      // wird es im Bild (s. abgleicher.schritt weiter unten).
+      if (serverPos && player) {
+        abgleicher.serverMeldung(serverPos, letzterBestaetigterInputSeq, player.position, imDungeon);
+      }
       hud.setVitals(health, stamina);
       // Ausdauer-Abgleich: Der Server ist die Wahrheit, der Controller rechnet
       // sie zwischen zwei Paketen nur mit (PlayerController.setzeServerAusdauer).
@@ -2226,6 +2247,10 @@ async function main() {
       // Spieler sofort zur ALTEN Stelle zurück (so entstand die Schleife
       // "beim Weglaufen spawne ich immer wieder am Eingang").
       serverPos = null;
+      // Aus demselben Grund ist der Positionsverlauf hinüber: Seine
+      // Punkte stehen alle am alten Ort, und ein Versatz daraus wäre die
+      // Teleportstrecke selbst.
+      abgleicher.zuruecksetzen();
       imDungeon = drin;
       // Das dokumenteigene Steinmaterial anlegen, BEVOR die Kit-Teile
       // geladen werden — `prepareMasters` bemalt sie beim Laden, und beim
@@ -3512,22 +3537,22 @@ async function main() {
     input.setUiOpen(cursorNoetig());
 
     miss('spieler', () => player!.update(dt));
-    // Soft-Reconciliation: Client und Server rechnen dieselbe Bewegung,
-    // driften aber unter Latenz/Paketverlust auseinander. Kleine Drift
-    // wird weich zurueckgezogen, grosse hart gesetzt. Im Dungeon ist der
-    // Client fuer y autoritativ (Raum-Collider) — dort nur x/z pruefen.
-    if (serverPos && socket?.connected && !player.frozen) {
-      const dx = serverPos.x - player.position.x;
-      const dz = serverPos.z - player.position.z;
-      const dy = imDungeon ? 0 : serverPos.y - player.position.y;
-      const drift = Math.hypot(dx, dy, dz);
-      if (drift > 8) {
-        player.teleportTo(serverPos.x, imDungeon ? player.position.y : serverPos.y, serverPos.z);
-      } else if (drift > 1.5) {
-        const f = 1 - Math.exp(-dt / 0.4);
-        player.position.x += dx * f;
-        player.position.z += dz * f;
-        if (!imDungeon) player.position.y += dy * f;
+    // Abgleich Client↔Server. Die Entscheidung ist beim Eintreffen des
+    // PlayerState gefallen (abgleicher.serverMeldung, gegen die eigene
+    // Position ZUM ZEITPUNKT der bestätigten Eingabe statt gegen jetzt);
+    // hier wird nur noch der Anteil dieses Bildes angewandt. Warum das
+    // nicht mehr hier gerechnet wird: client/src/net/Positionsverlauf.ts.
+    if (socket?.connected && !player.frozen) {
+      const befehl = abgleicher.schritt(dt);
+      if (befehl?.art === 'setzen') {
+        player.teleportTo(befehl.x, befehl.y ?? player.position.y, befehl.z);
+      } else if (befehl?.art === 'schieben') {
+        // NICHT `player.position.x += …`: `position` ist ein Spiegel, den
+        // das nächste `update()` aus der Havok-Kapsel überschreibt — so
+        // stand es hier seit jeher, und deshalb hat der weiche Abgleich
+        // nie gezogen (Messung im Kopfkommentar von
+        // PlayerController.verschiebeWeich).
+        player.verschiebeWeich(befehl.dx, befehl.dy, befehl.dz);
       }
     }
     // Zielen/Ghost/Auslösen nach der Spielerbewegung, damit Kamera und
@@ -3862,7 +3887,7 @@ async function main() {
         // Phase G: im Dungeon meldet der Client seine Physik-Höhe über das
         // moveY-Feld — der Server hat dort keine Heightmap, nur der Client
         // simuliert die Raum-Collider (siehe handlePlayerInput serverseitig).
-        socket.sendPlayerInput(
+        const seq = socket.sendPlayerInput(
           mv.x,
           mv.z,
           player.yaw,
@@ -3871,6 +3896,9 @@ async function main() {
           mv.running,
           false
         );
+        // Wo standen wir, als diese Eingabe abging? Genau das braucht der
+        // Abgleich, wenn der Server sie bestätigt.
+        abgleicher.merkeEingabe(seq, player.position);
       }
     }
 

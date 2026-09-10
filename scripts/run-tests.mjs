@@ -665,10 +665,26 @@ const KERN = [
   ['client', 'test/menu-i18n.ts'],
   // F6 (Roadmap): seq-Verwerfungsregel für Client-Vorhersage-
   // Reconciliation (client/src/net/Eingabeverwerfung.ts) — reine
-  // Funktion, NICHT in eine Vorhersage-Warteschlange verdrahtet (die
-  // gibt es im Client noch nicht, s. Kopfkommentar der Produktivdatei
-  // und Bericht, Abschnitt "offen"). DOM-frei, Sekunden.
+  // Funktion. Seit dem Abgleich per Eingabesequenz nicht mehr tot:
+  // Positionsverlauf.verwirfAelterAls ruft sie (s. naechster Eintrag).
+  // DOM-frei, Sekunden.
   ['client', 'test/f6-seq-verwerfung.ts'],
+  /*
+    Der Abgleich Client<->Server gegen die eigene Position ZUM ZEITPUNKT
+    der bestaetigten Eingabe (client/src/net/Positionsverlauf.ts).
+
+    Warum das ein KERN-Test ist: Diese Regel entscheidet, ob die Figur
+    beim Laufen zurueckgezogen wird. Ihr Fehlerbild ist kein Absturz,
+    sondern „wirkt wie Lag" — und das faellt in keinem anderen Test auf.
+    Geprueft werden Ringpuffer, Verwerfen (der bestaetigte seq bleibt
+    liegen, weil Schaden/Respawn dasselbe Paket ausser der Reihe
+    schicken), die Driftrechnung gegen den Verlaufspunkt statt gegen
+    jetzt, das Abtragen des Versatzes ueber tau, die Selbstheilung nach
+    einem Sprung des Clients und der Rueckfall auf das alte Verhalten.
+
+    DOM-frei, Sekundenbruchteile.
+  */
+  ['client', 'test/positionsverlauf.ts'],
   ['client', 'test/entity-index.ts'],
   // Die Grafikoption begrenzt die gemeinsamen Bild-/Schattenmatrizen der
   // Vegetation. Der reine Kreisfilter sichert den unveraenderten Standard
@@ -957,6 +973,23 @@ const KERN = [
     bit-identical, and client (60 Hz) and server (20 Hz) must stay in step.
   */
   ['server', 'test/ausdauer-abgleich.ts'],
+  /*
+    Gehoert `PlayerState.seq` zu der Position, die im selben Paket steht?
+
+    Der Client rechnet seine Drift gegen die eigene Position ZUM
+    ZEITPUNKT der bestaetigten Eingabe. Das setzt voraus, dass der Server
+    beide Felder aus DEMSELBEN Takt schickt — bis zum Umbau tat er es
+    nicht: `sendPlayerState` lief VOR der Positionsberechnung und meldete
+    die Stelle des vorigen Takts mit der seq des aktuellen. Ein
+    Client-Test kann das nicht sehen; er sieht nur, was aus dem Paket
+    herauskommt, nicht was hineingeschrieben wurde.
+
+    Fake-Peer wie g1-admin-fly, echter Writer/Reader, kein Netz. Prueft
+    ausserdem den Takt (10 Hz statt 4 Hz) und dass Aufrufer ausserhalb
+    des Eingabepfads (Schaden, Respawn) unveraendert sofort melden.
+    ~1 s.
+  */
+  ['server', 'test/abgleich-seq-position.ts'],
   // G1-Durchsicht: einziger E2E-Test fuer Dungeon-Betreten/-Verlassen ueber
   // echten WebSocket-Handshake. War tot durch ZWEI unabhaengige
   // Test-Bugs (Handshake-HMAC und ZDOSync-Parser bauten die Produktivlogik

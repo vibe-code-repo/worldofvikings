@@ -145,9 +145,25 @@ const FUSS_GLAETTUNG_S = 0.09;
  * darf das Becken nicht in die Tiefe reissen.
  */
 const IK_HUB_MAX = 0.5;
-const IK_AUFGESETZT = 0.12;
 /** Ein-/Ausblenden des Fuss-IK (Sprung, Modellwechsel). */
 const IK_BLENDE = 0.15;
+/**
+ * Nach dem Vorbild (Opsive CharacterIK.PositionLowerBody, dekompiliert
+ * unter ~/wov-assets/Scripts): die Huefte folgt dem Gelaende unter den
+ * Fuessen mit 4/s (m_HipsPositionAdjustmentSpeed), ein Fuss-IK-Gewicht
+ * steigt mit 10/s (m_FootWeightActiveAdjustmentSpeed) und faellt mit 2/s
+ * (m_FootWeightInactiveAdjustmentSpeed). Gehoben wird NUR ein Fuss, der
+ * sonst im Boden steckte; ein Fuss ueber dem Boden bleibt bei der
+ * Animation. Genau das unterscheidet das Original vom ersten Anlauf am
+ * 10.09., der jeden Fuss jedes Bild auf den Boden zog (wabbelige Beine)
+ * und die Huefte nach der animierten Sohle statt nach dem Gelaende
+ * setzte (gebeugte Haltung).
+ */
+const IK_HUEFTE_TEMPO = 4;
+const IK_GEWICHT_AN = 10;
+const IK_GEWICHT_AUS = 2;
+/** Boden weiter unter dem Fuss als das zaehlt nicht mehr (Kante, Grube). */
+const IK_REICHWEITE = 0.9;
 /** Abstand (m) vor/hinter dem Knoechel fuer die Hangneigung unter dem Fuss. */
 const IK_NEIGUNG_SCHRITT = 0.12;
 
@@ -348,6 +364,10 @@ export class AvatarRig {
   private ikBeine: Array<{ bein: TransformNode; knie: TransformNode; fuss: TransformNode }> = [];
   /** Aktuelles Gewicht des Fuss-IK (0…1), wird bei Sprung/Fall ausgeblendet. */
   private ikGewicht = 0;
+  /** Gewicht je Fuss (0…1): 10/s hoch, solange er gehoben wird, 2/s runter. */
+  private ikFussGewicht = [0, 0];
+  /** Geglaettete Hebung je Fuss (m), gegen Rauschen der Bodensonde. */
+  private ikHebung = [0, 0];
   /** Fuss-IK an/aus (Messzellen vergleichen beide Zustaende). */
   ikAn = true;
   /** Letzter Flugzustand aus update(), fuer das IK-Gewicht. */
@@ -976,7 +996,8 @@ export class AvatarRig {
       ? 0
       : this.messeFussVersatz();
 
-    const k = Math.min(1, dt / FUSS_GLAETTUNG_S);
+    const mitIk = this.ikAn && this.ikBeine.length === 2;
+    const k = Math.min(1, mitIk ? dt * IK_HUEFTE_TEMPO : dt / FUSS_GLAETTUNG_S);
     this.fussVersatz += (ziel - this.fussVersatz) * k;
     this.halter.position.y = this.grundAnhebung + this.fussVersatz;
   }
@@ -990,41 +1011,40 @@ export class AvatarRig {
    * Hang weiterhin — das holt Stufe 2 (Bein-IK).
    */
   private messeFussVersatz(): number {
-    // Mit Fuss-IK (Stufe 2) folgt das Becken dem TIEFEREN aufgesetzten
-    // Fuss, das IK hebt den anderen auf seinen Boden. Ohne IK wie bisher
-    // der hoechste Wert, damit kein Fuss im Boden steckt.
+    // Mit Fuss-IK (Stufe 2) wie im Original: Die Huefte sinkt um den
+    // groessten Gelaendeabfall unter einem der Fuesse gegenueber der
+    // Standflaeche der Kapsel (root.y) — nie hoeher, nur tiefer. Was das
+    // Gelaende dann unter einem Fuss anhebt, holt das IK am Bein nach.
+    // Der Bezug ist das GELAENDE, nicht die animierte Sohle: So bleibt
+    // die Huefte ruhig, waehrend die Fuesse im Schrittzyklus schwingen.
     const mitIk = this.ikAn && this.ikBeine.length === 2;
-    const rigBoden = this.root.getAbsolutePosition().y;
-    let noetig = mitIk ? Infinity : -Infinity;
+    if (mitIk) {
+      const rigBoden = this.root.getAbsolutePosition().y;
+      let abfall = 0;
+      for (const knoten of this.fussKnoten) {
+        knoten.computeWorldMatrix(true);
+        const p = knoten.getAbsolutePosition();
+        const boden = this.bodenSonde!(p.x, p.z);
+        if (!Number.isFinite(boden)) continue;
+        const tiefe = rigBoden - boden;
+        // Kante oder Grube: ausserhalb der Reichweite zaehlt der Fuss nicht.
+        if (tiefe > IK_REICHWEITE) continue;
+        abfall = Math.max(abfall, tiefe);
+      }
+      return -Math.min(abfall, FUSS_ABSENK_MAX);
+    }
+    let noetig = -Infinity;
     for (const knoten of this.fussKnoten) {
       knoten.computeWorldMatrix(true);
       const p = knoten.getAbsolutePosition();
       const boden = this.bodenSonde!(p.x, p.z);
       if (!Number.isFinite(boden)) continue;
-      // Nicht der Knöchel zählt, sondern die SOHLE darunter.
-      //
-      // UND: Der bereits wirkende Versatz muss herausgerechnet werden.
-      // Gemessen wird die Figur, NACHDEM die Anhebung des letzten Bildes
-      // schon anliegt — nähme man diesen Wert direkt, sähe die Messung
-      // ihre eigene Wirkung und meldete „passt". Im nächsten Bild fiele
-      // die Anhebung auf null, der Fuss steckte wieder, und das Ganze
-      // begänne von vorn. Genau so schwang es beim ersten Versuch
-      // zwischen 0,138 m und 0 hin und her.
-      //
-      // Mit dem Herausrechnen wird die Grösse zu einem festen Punkt: Sie
-      // beschreibt die Lage der Figur OHNE Anhebung und ändert sich nur,
-      // wenn sich der Boden ändert.
+      // Nicht der Knöchel zählt, sondern die SOHLE darunter, und der schon
+      // wirkende Versatz wird herausgerechnet (siehe Kommentar der Stufe 1).
       const sohleOhneVersatz = p.y - this.knoechelHoehe - this.fussVersatz;
-      if (mitIk) {
-        // Nur ein aufgesetzter Fuss zieht das Becken — ein Schwungfuss
-        // ueber einer Kante darf es nicht in die Tiefe reissen.
-        if (sohleOhneVersatz - rigBoden > IK_AUFGESETZT) continue;
-        noetig = Math.min(noetig, boden - sohleOhneVersatz);
-      } else {
-        noetig = Math.max(noetig, boden - sohleOhneVersatz);
-      }
+      noetig = Math.max(noetig, boden - sohleOhneVersatz);
     }
-    if (!Number.isFinite(noetig)) return mitIk ? this.fussVersatz : 0;
+    if (!Number.isFinite(noetig)) return 0;
     return Math.min(Math.max(noetig, -FUSS_ABSENK_MAX), FUSS_VERSATZ_MAX);
   }
 
@@ -1891,7 +1911,7 @@ export class AvatarRig {
     vorn.y = 0;
     vorn.normalize();
 
-    for (const { bein, knie, fuss } of this.ikBeine) {
+    this.ikBeine.forEach(({ bein, knie, fuss }, i) => {
       bein.computeWorldMatrix(true);
       knie.computeWorldMatrix(true);
       fuss.computeWorldMatrix(true);
@@ -1899,19 +1919,30 @@ export class AvatarRig {
       const K = knie.getAbsolutePosition().clone();
       const A = fuss.getAbsolutePosition().clone();
       const boden = sonde(A.x, A.z);
-      if (!Number.isFinite(boden)) continue;
-      // Animierte Sohlenhoehe ueber dem Rig-Boden (ohne die Halterverschiebung)
-      const sohleAnim = A.y - this.fussVersatz - this.knoechelHoehe - rigBoden;
-      const sollY = boden + sohleAnim + this.knoechelHoehe;
-      const dy = Math.max(-IK_HUB_MAX, Math.min(IK_HUB_MAX, sollY - A.y)) * this.ikGewicht;
+      // Wie tief steckt die animierte Sohle (samt Hueftabsenkung) im Boden?
+      // Nur DAS wird gehoben — ein Fuss ueber dem Boden bleibt, wie die
+      // Animation ihn setzt (Original: Bedingung `… - footOffset - hipsOffset < 0`).
+      const eindringen = Number.isFinite(boden) && rigBoden - boden <= IK_REICHWEITE
+        ? boden - (A.y - this.knoechelHoehe)
+        : 0;
+      const aktiv = eindringen > 0.003;
+      const zielGewicht = aktiv ? 1 : 0;
+      const tempo = aktiv ? IK_GEWICHT_AN : IK_GEWICHT_AUS;
+      const alt = this.ikFussGewicht[i]!;
+      this.ikFussGewicht[i] = Math.max(0, Math.min(1, alt + Math.max(-tempo * dt, Math.min(tempo * dt, zielGewicht - alt))));
+      // Hebung leicht geglaettet (Sondenrauschen), aber ohne Nachlauf nach
+      // unten: Steckt der Fuss nicht mehr, faellt die Hebung sofort weg.
+      const sollHebung = Math.min(IK_HUB_MAX, Math.max(0, eindringen));
+      this.ikHebung[i] = sollHebung <= 0 ? 0 : this.ikHebung[i]! + (sollHebung - this.ikHebung[i]!) * Math.min(1, dt * 20);
+      const dy = this.ikHebung[i]! * this.ikGewicht;
       const fussWeltVorher = fuss.getWorldMatrix().clone();
-      if (Math.abs(dy) > 0.002) {
+      if (dy > 0.002) {
         const T = new Vector3(A.x, A.y + dy, A.z);
         const l1 = Vector3.Distance(H, K);
         const l2 = Vector3.Distance(K, A);
         const richtung = T.subtract(H);
         let d = richtung.length();
-        if (d < 1e-4 || l1 < 1e-4 || l2 < 1e-4) continue;
+        if (d < 1e-4 || l1 < 1e-4 || l2 < 1e-4) return;
         const dMax = (l1 + l2) * 0.995;
         if (d > dMax) {
           richtung.scaleInPlace(dMax / d);
@@ -1927,13 +1958,11 @@ export class AvatarRig {
         const a = (l1 * l1 - l2 * l2 + d * d) / (2 * d);
         const h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
         const K2 = H.add(e.scale(a)).addInPlace(quer.scale(h));
-        // Oberschenkel: Richtung (K-H) → (K2-H), im Raum des Elternknotens.
         this.dreheZu(bein, H, K, K2);
         knie.computeWorldMatrix(true);
         const K2w = knie.getAbsolutePosition().clone();
         fuss.computeWorldMatrix(true);
         const A2 = fuss.getAbsolutePosition().clone();
-        // Unterschenkel: (A2-K2w) → (T-K2w).
         this.dreheZu(knie, K2w, A2, T);
         knie.computeWorldMatrix(true);
         // Knoechel: animierte Weltdrehung wiederherstellen
@@ -1944,18 +1973,22 @@ export class AvatarRig {
         if (!fuss.rotationQuaternion) fuss.rotationQuaternion = q;
         else fuss.rotationQuaternion.copyFrom(q);
       }
-      // Hangneigung unter dem Fuss: Sohle vorn/hinten abtasten, um die
-      // Querachse kippen (nur so weit, wie das IK anliegt).
-      const vornH = sonde(A.x + vorn.x * IK_NEIGUNG_SCHRITT, A.z + vorn.z * IK_NEIGUNG_SCHRITT);
-      const hintenH = sonde(A.x - vorn.x * IK_NEIGUNG_SCHRITT, A.z - vorn.z * IK_NEIGUNG_SCHRITT);
-      if (Number.isFinite(vornH) && Number.isFinite(hintenH)) {
-        const neigung = Math.atan2(vornH - hintenH, 2 * IK_NEIGUNG_SCHRITT) * this.ikGewicht;
-        if (Math.abs(neigung) > 0.005) {
-          const quer = Vector3.Cross(Vector3.Up(), vorn).normalize();
-          this.dreheUm(fuss, quer, -neigung);
+      // Hangneigung unter dem Fuss — nur mit dem Fussgewicht, also nur
+      // fuer einen Fuss, der auf dem Boden steht (Original: Rotation aus
+      // der Bodennormalen, gewichtet wie die Position).
+      const g = this.ikFussGewicht[i]! * this.ikGewicht;
+      if (g > 0.01) {
+        const vornH = sonde(A.x + vorn.x * IK_NEIGUNG_SCHRITT, A.z + vorn.z * IK_NEIGUNG_SCHRITT);
+        const hintenH = sonde(A.x - vorn.x * IK_NEIGUNG_SCHRITT, A.z - vorn.z * IK_NEIGUNG_SCHRITT);
+        if (Number.isFinite(vornH) && Number.isFinite(hintenH)) {
+          const neigung = Math.atan2(vornH - hintenH, 2 * IK_NEIGUNG_SCHRITT) * g;
+          if (Math.abs(neigung) > 0.005) {
+            const querAchse = Vector3.Cross(Vector3.Up(), vorn).normalize();
+            this.dreheUm(fuss, querAchse, -neigung);
+          }
         }
       }
-    }
+    });
   }
 
   /**

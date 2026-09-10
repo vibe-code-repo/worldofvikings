@@ -405,6 +405,11 @@ export class GameSocket {
     this.sendPacket(PacketType.Attack, w.toUint8Array());
   }
 
+  /** Parade (Rechtsklick mit Waffe): kein Payload, der Server oeffnet das Fenster. */
+  sendParry(): void {
+    this.sendPacket(PacketType.Parry, new Uint8Array(0));
+  }
+
   /** Interaktion (E): Position + Prefab-Hash des Ziels. */
   sendInteract(x: number, y: number, z: number, prefabHash: number): void {
     const w = new BinaryWriter();

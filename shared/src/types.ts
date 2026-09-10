@@ -246,6 +246,11 @@ export enum PacketType {
   RemovePiece = 56,
   /** Client → Server: Essen (Taste F). Payload: String itemName. */
   Eat = 57,
+  /**
+   * Client → Server: Parade (Rechtsklick mit Waffe). Kein Payload. Der
+   * Server oeffnet ein kurzes Fenster, in dem Treffer abgewehrt werden.
+   */
+  Parry = 58,
 
   // Admin
   PlayerList = 50,

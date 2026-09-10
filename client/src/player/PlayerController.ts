@@ -106,6 +106,23 @@ const SPRUNG_SPERRE = 0.15;
  * erreicht; kurzes Abheben an einer Geländekante bleibt darunter.
  */
 const FALL_SCHWELLE = 4;
+/**
+ * Wie lange (s) die Kapsel ohne Bodenkontakt fallen muss, bevor die Figur
+ * als „stuerzt" gilt. Beim Hinunterlaufen an Haengen verliert der
+ * Kollider immer wieder fuer ein paar Bilder den Kontakt — ohne Verzug
+ * flackerte dort die Sprung-/Fallanimation (Mike, 10.09.2026). Das
+ * Original (Opsive) wartet ebenfalls, bevor es „Fall" zeigt.
+ */
+const STURZ_VERZUG = 0.25;
+/**
+ * Boden-Snap: Verliert die Kapsel ohne Absprung den Kontakt und liegt der
+ * Boden weniger als so viele Meter unter ihr, wird sie mit SNAP_TEMPO
+ * nach unten gezogen statt frei zu fallen — so bleibt sie am Hang kleben,
+ * wie ein Character-Controller es tut, und die Fuesse setzen sofort
+ * wieder auf.
+ */
+const SNAP_ABSTAND = 0.6;
+const SNAP_TEMPO = 8;
 
 // ── Physics body (C# Character: Rigidbody + CapsuleCollider) ─────────
 /**
@@ -270,6 +287,8 @@ export class PlayerController {
    * der Zeit, auf die der Sprungclip gestreckt wird.
    */
   private flugRest = 0;
+  /** Wie lange (s) die Kapsel schon ohne Kontakt faellt (siehe STURZ_VERZUG). */
+  private sturzZeit = 0;
   /** Ob die Figur gerade keinen Boden unter sich hat — steuert die Sprunganimation. */
   private inDerLuft = false;
   /** Public so Equipment can attach a held tool to the rig's hand node. */
@@ -547,6 +566,13 @@ export class PlayerController {
     // bisherige Verhalten an Hängen nicht verändern, sondern nur einen
     // laufenden Absprung nicht abwürgen.
     const amBoden = supported && this.sprungSperre === 0;
+    // Boden-Snap am Hang (siehe SNAP_ABSTAND): kein Absprung, kein
+    // laufender Flug, Boden knapp unter der Kapsel → nach unten ziehen.
+    let snap = false;
+    if (!supported && !springt && this.flugRest === 0 && this.bodenSonde) {
+      const bodenY = this.bodenSonde(this.position.x, this.position.y, this.position.z);
+      if (bodenY !== null && this.position.y - bodenY < SNAP_ABSTAND && this.position.y >= bodenY) snap = true;
+    }
 
     const velocity = this.tempoTmp.set(
       moving ? wx * speed : 0,
@@ -554,7 +580,7 @@ export class PlayerController {
       // Bildraten-Einbruch mehr Strecke pro Frame zurück, als das
       // Terrain-Mesh dick ist, und fällt hindurch (gemessen am 2026-07-30:
       // −7,5 m/s nach 0,8 s freiem Fall, bei 8 fps knapp 1 m pro Frame).
-      springt ? JUMP_SPEED : amBoden ? 0 : Math.max(-MAX_FALL_SPEED, current.y + GRAVITY.y * dt),
+      springt ? JUMP_SPEED : amBoden ? 0 : snap ? -SNAP_TEMPO : Math.max(-MAX_FALL_SPEED, current.y + GRAVITY.y * dt),
       moving ? wz * speed : 0
     );
     c.setVelocity(velocity);
@@ -634,8 +660,13 @@ export class PlayerController {
     if (this.flugRest > 0 && this.flugRest < FLUGZEIT * 0.5 && supported && vEnde <= 0) {
       this.flugRest = 0;
     }
-    // Sturz ohne eigenen Absprung — über eine Kante getreten.
-    const stuerzt = !supported && vEnde < -FALL_SCHWELLE;
+    // Sturz ohne eigenen Absprung — über eine Kante getreten. Erst nach
+    // STURZ_VERZUG ununterbrochenem Fallen, sonst flackert am Hang die
+    // Fallanimation (der Kollider verliert dort bildweise den Kontakt).
+    // Der Boden-Snap zaehlt als Kontakt.
+    const faellt = !supported && !snap && vEnde < -FALL_SCHWELLE;
+    this.sturzZeit = faellt ? this.sturzZeit + dt : 0;
+    const stuerzt = this.sturzZeit >= STURZ_VERZUG;
     this.inDerLuft = this.flugRest > 0 || stuerzt;
   }
 

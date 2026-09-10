@@ -205,6 +205,10 @@ export interface ServerConfig {
   sessionSecret?: Buffer;
 }
 
+/** Parade: Fenster (ms), in dem ein Treffer abgewehrt wird (Clip 0,45 s + Nachlauf). */
+const PARADE_FENSTER_MS = 600;
+/** Parade: Ausdauerkosten (ein Schlag kostet 8). */
+const PARADE_AUSDAUER = 4;
 const DEFAULT_CONFIG: ServerConfig = {
   name: 'World of Vikings Server',
   password: '',
@@ -1652,6 +1656,9 @@ export class WovServer {
       case PacketType.Attack:
         this.handleAttack(peer, reader);
         break;
+      case PacketType.Parry:
+        this.handleParry(peer);
+        break;
       case PacketType.TerrainOp:
         this.handleTerrainOp(peer, reader);
         break;
@@ -2626,11 +2633,39 @@ export class WovServer {
   }
 
   /** Kreaturen-Treffer auf Spieler (vom SpawnSystem gemeldet). */
+  /**
+   * Parade (Rechtsklick mit Waffe): oeffnet PARADE_FENSTER_MS lang ein
+   * Fenster, in dem Kreaturentreffer abgewehrt werden. Kostet Ausdauer wie
+   * ein halber Schlag, damit man nicht dauerhaft parieren kann. Der Client
+   * spielt die Geste sofort (AvatarRig.starteAktion), der Server
+   * entscheidet nur ueber die Wirkung — wie beim Schlag.
+   */
+  private handleParry(peer: Peer): void {
+    if (peer.stamina < PARADE_AUSDAUER) return;
+    peer.stamina -= PARADE_AUSDAUER;
+    peer.staminaZuletztVerbraucht = Date.now();
+    peer.paradeBis = Date.now() + PARADE_FENSTER_MS;
+    this.sendPlayerState(peer);
+  }
+
   private applyCreatureAttack(pos: Vector3, damage: number, radius: number): void {
     const r2 = radius * radius;
     for (const peer of this.net.getPeers()) {
       const d = (peer.position.x - pos.x) ** 2 + (peer.position.z - pos.z) ** 2;
       if (d > r2) continue;
+      // Parade: Treffer im Fenster prallt ab. Kein Schaden, aber der
+      // Spieler erfaehrt es — sonst sieht ein abgewehrter Treffer aus wie
+      // ein Fehlschlag der Kreatur.
+      if (peer.paradeBis > Date.now()) {
+        peer.paradeBis = 0;
+        peer.sendPacketWith(PacketType.InteractResult, (w) => {
+          w.writeBool(true);
+          w.writeString('Pariert');
+          w.writeString('');
+          w.writeInt32(0);
+        });
+        continue;
+      }
       peer.health = Math.max(0, peer.health - damage);
       if (peer.health <= 0) {
         // Tod: zurück zum Weltspawn, volle HP — Betten/Gräber später.

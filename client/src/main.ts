@@ -1467,6 +1467,13 @@ async function main() {
       /** Diagnose: Pose eines dynamischen Entities (Namens-Teilstring). */
       dynPose: (name: string) => entities?.dynamicPose(name) ?? null,
       /** Diagnose: Schlag mit beliebiger Waffe an der Spielerposition. */
+      /** Parade wie per Rechtsklick: Geste + Server-Fenster (Messzellen). */
+      pariere: () => {
+        if (!player || !socket?.connected) return false;
+        if (!player.avatar.starteAktion('parade')) return false;
+        socket.sendParry();
+        return true;
+      },
       schlag: (waffe = '') => {
         if (!player || !socket?.connected) return false;
         socket.sendAttack(player.position.x, player.position.y, player.position.z, player.yaw, waffe);
@@ -3809,7 +3816,7 @@ async function main() {
       !cursorNoetig() &&
       equipment?.rightItem
     ) {
-      player.avatar.starteAktion('parade');
+      if (player.avatar.starteAktion('parade')) socket?.sendParry();
     }
 
     // E ist kontextsensitiv: Interagierbares in Reichweite (Pickable, Tür,

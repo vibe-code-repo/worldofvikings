@@ -120,6 +120,11 @@ export class Peer {
   staminaZuletztVerbraucht: number;
   /** Akku fuer den 4-Hz-PlayerState-Versand (s). */
   staminaSyncAkku?: number;
+  /**
+   * Parade: Zeitstempel (ms), bis zu dem Treffer abgewehrt werden. 0 =
+   * keine Parade. Gesetzt von handleParry, gelesen in applyCreatureAttack.
+   */
+  paradeBis: number;
 
   /** Respawn-Punkt (Bett) — null = Weltspawn. */
   spawnPoint: Vector3 | null;
@@ -202,6 +207,7 @@ export class Peer {
     this.health = 100;
     this.stamina = 100;
     this.staminaZuletztVerbraucht = 0;
+    this.paradeBis = 0;
     this.spawnPoint = null;
     this.foodBonus = 0;
     this.foodBis = 0;

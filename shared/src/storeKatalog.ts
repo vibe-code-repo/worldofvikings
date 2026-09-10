@@ -269,6 +269,25 @@ export function istStoreModell(modell: string): boolean {
 }
 
 /**
+ * Der Pfad einer Kollisions-GLB als MODELLNAME — so, wie ihn der Ladeweg
+ * erwartet: mit Speicherpräfix und ohne Endung.
+ *
+ * `STORE_KOLLISIONSNETZ` führt ihn relativ zum Speicher und MIT `.glb`
+ * (`environment/sm-bld-house-stairs-03-collision.glb`), weil er so in
+ * `prefabs.json` steht. Geladen wird über `PrefabDef.model`, und das ist
+ * `store/environment/sm-bld-house-stairs-03` — zwei Schreibweisen
+ * derselben Datei. Wer sie von Hand ineinander umrechnet, vergisst beim
+ * zweiten Mal die Endung, und das Ergebnis ist ein 404 statt eines
+ * Fehlers.
+ *
+ * Der ABGELEITETE Ordner (`store-lab/`) kommt hier nicht vor: Dort liegt
+ * nur aufbereitete Vegetation, und die trägt keine Kollisionsnetze.
+ */
+export function kollisionsModellPfad(netzPfad: string): string {
+  return `${STORE_BASIS}/${netzPfad.replace(/\.[^./]+$/, '')}`;
+}
+
+/**
  * Zeichnet der GRAS-CLUTTER die Grasbüschel des Speichers — statt sie als
  * Prefabs zu streuen?
  *

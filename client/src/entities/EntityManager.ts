@@ -36,19 +36,24 @@ import {
   haarfarbeZu,
   ruestungZu,
   istFrisur,
-  // Fels-Kollision: `STORE_FELSEN_NAMEN` sagt, welches Speicher-Prefab die
-  // exakte Oberflaeche statt eines Huellquaders bekommt, `istStoreModell`,
-  // ob ein Prefab ueberhaupt aus dem Speicher stammt (s.
-  // istFesterStoreKoerper unten).
-  STORE_FELSEN_NAMEN,
-  istStoreModell,
-  STORE_NICHT_STREUEN,
+  // ── Kollision: alles aus `shared`, nichts mehr von hier ─────────────
+  // `istFesterKoerper` sagt, WELCHES Prefab einen Koerper bekommt,
+  // `kollisionsForm` WELCHE Form, `BEGEHBAR_NAME`, welches Bauwerk das
+  // Flag-Gatter umgehen darf, und `storeKollision`, was der Speicher
+  // selbst ueber seine Kollision sagt. Alle vier liest der Server
+  // ebenfalls — daran haengt, dass Bild und Serverrechnung dieselben
+  // Hindernisse sehen.
+  BEGEHBAR_NAME,
+  istFesterKoerper,
+  kollisionsForm,
+  kollisionsModellPfad,
+  storeKollision,
 } from '@wov/shared';
-import type { NpcEinordnung, SteinKitConfig, PrefabDef } from '@wov/shared';
+import type { NpcEinordnung, SteinKitConfig } from '@wov/shared';
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { erzeugeSteinKitMaterial, mergeSteinKit } from '../engine/DungeonSteinMaterial.js';
 import { faerbeHaar } from '../player/haarfarbe.js';
-import { buildMeshCollider, deriveCollider, StaticColliderSet } from '../engine/Physics';
+import { StaticColliderSet } from '../engine/Physics';
 
 import {
   IMPOSTOR_GRENZE_M_VORGABE,
@@ -72,108 +77,6 @@ import {
 } from '../engine/RefraktionsAuswahl';
 import type { ClientWorld } from '../world/World';
 import type { ZDOEntityUpdate } from '../net/ZDOSync';
-/**
- * Prefabs, die statt eines Hüllquaders ihre exakte Oberfläche als
- * Kollision bekommen — Findlinge, Erzbrocken, Abbaufelsen.
- *
- * Erfasst die 15 gespawnten Felsklassen: Rock_3/4, Rock_4_plains,
- * rock1..4_* (mountain/heath/coast/forest/copper), rock_mistlands1,
- * MineRock_Tin, MineRock_Obsidian, silvervein.
- */
-const FELS_KOLLISION = /^(rock|minerock|silvervein|copperore|tinore|obsidian|stone)/i;
-/**
- * Obergrenze für die exakte Fels-Kollision. Die Felsen des Exports liegen
- * bei 196 bis rund 800 Dreiecken; 4000 lässt Luft nach oben, ohne dass
- * ein unerwartet feines Modell die Physik sprengt. Darüber bleibt es beim
- * Hüllquader.
- */
-const FELS_MAX_DREIECKE = 4000;
-
-/**
- * Der Ordner, in dem der Speicher seine PFLANZEN führt.
- *
- * Er ist die Grenze von {@link istFesterStoreKoerper} — siehe die
- * Begründung dort. Als Konstante und nicht als Zeichenkette an der
- * Abfrage, weil `storeKatalog.ts` denselben Namen für den Ladepfad
- * benutzt und beide Stellen dieselbe Wahrheit lesen müssen.
- */
-const STORE_VEGETATIONSORDNER = 'vegetation/';
-
-/**
- * Ist das ein Speicher-Modell, das ein HINDERNIS sein soll?
- *
- * ── Warum die Flags hier nicht reichen ───────────────────────────────
- * `COLLIDING_FLAGS` liest die Prefab-Flags des Altbestands (TREE_BASE,
- * DESTRUCTIBLE, PIECE …). Die Speicher-Prefabs haben davon KEINES: Ihr
- * Generator (`tools/store-prefabs.mjs`) vergibt genau `PERSISTENT`, mit
- * der ausdrücklichen Begründung, alle anderen Flags beschrieben
- * VERHALTEN, und ein Fremdmodell habe keins — „es steht da, und das ist
- * alles".
- *
- * Für Deko stimmt das. Für einen Findling nicht: Ohne Körper läuft man
- * mitten durch einen 20-m-Felsen hindurch, und das ist der einzige
- * Fehler dieser Art, den man beim Spielen sofort merkt.
- *
- * ── Warum die Vegetation ausgenommen ist ─────────────────────────────
- * Die Grenze ist der Ordner: Was unter `…/vegetation/` liegt, bleibt
- * durchlässig, alles andere aus dem Speicher wird fest. Das ist keine
- * Bequemlichkeit, sondern Zuständigkeit — die Kollision der Bäume ist
- * eine eigene Entscheidung mit eigener Messung (rund 150 Stämme im
- * 48-m-Kollisionsfenster einer Waldzone), und sie gehört dem Bauer, dem
- * die Vegetation gehört. Sie hier beiläufig mitzuschalten hiesse, die
- * halbe Welt in einem Fels-Auftrag umzubauen.
- *
- * `SOFT_VEGETATION` prüft die Aufrufstelle davor ohnehin weiter; sie
- * fängt `…-grass-…`, `…-bush-…` und Verwandte auch dann, wenn sie
- * einmal ausserhalb des Vegetationsordners liegen sollten.
- *
- * ── Und die, die der Speicher selbst als „kein Körper" führt ─────────
- * `StoreEintrag.kollision.art` kennt `box`, `mesh` und `none`. Die
- * `none`-Einträge dürfen keinen Körper bekommen — durch eine Wolke und
- * eine 594 m breite Bergkulisse läuft man hindurch.
- *
- * Gefragt wird trotzdem NICHT der Katalog, sondern
- * {@link STORE_NICHT_STREUEN}. Der Grund steht in `shared/src/index.ts`:
- * `storeKatalogDaten.ts` ist absichtlich NICHT im Spiel-Bündel — 670
- * Katalogzeilen, die nur der Editor braucht, lüde sonst jeder Spieler
- * mit. Eine Kollisionsentscheidung darf das nicht auslösen.
- *
- * Tragfähig ist der Ersatz, weil beide Mengen sich AUSSERHALB der
- * Vegetation exakt decken — nachgemessen: Von den 27 `none`-Einträgen
- * liegen 21 unter `vegetation/` (Büsche, Äste, Gras, Pilz) und werden
- * schon vom Ordner abgefangen; die übrigen sechs (drei Kulissen, drei
- * Wolken) stehen samt und sonders in `STORE_NICHT_STREUEN`. Dass das so
- * bleibt, hält `tools/test/store-felsen.ts` fest, und zwar am KATALOG —
- * dort ist er umsonst.
- *
- * Is this a store model that should block the player?
- */
-function istFesterStoreKoerper(def: PrefabDef | undefined): boolean {
-  if (!def?.model || !istStoreModell(def.model)) return false;
-  if (def.model.includes(STORE_VEGETATIONSORDNER)) return false;
-  return !STORE_NICHT_STREUEN.has(def.name);
-}
-
-/**
- * Bauwerke, durch die man hindurchgehen können muss.
- *
- * Für sie gilt dasselbe wie für Dungeon-Räume: Ein Hüllquader wäre fatal,
- * weil er den Durchgang massiv macht — beim Steinkreis stünde man vor einer
- * unsichtbaren Wand statt zwischen den Steinen. Deshalb ist die exakte
- * Kollision hier NICHT ans Dreiecksbudget gebunden (der Steinkreis hat
- * 11.362), und wenn sie nicht zustande kommt, bleibt das Prefab lieber ganz
- * ohne Kollision als mit einer Box.
- *
- * Bezahlbar ist das aus demselben Grund wie bei den Felsen: Die Shape wird
- * über alle Instanzen geteilt (StaticColliderSet), pro Instanz entstehen nur
- * Transform und Body.
- */
-// Steinkreis wieder mit drin (16.08.2026): Ohne den Eintrag bekaeme er
-// die uebliche Box statt exakter Mesh-Kollision, und man stuende vor dem
-// Durchgang statt hindurchzugehen — genau der Fall, den der Kommentar
-// weiter oben als Begruendung fuer BEGEHBAR anfuehrt.
-const BEGEHBAR = /^(Grabhuegel|Steinkreis)/i;
-
 
 /** Flags whose ZDOs move on their own (server-side AI / physics). */
 const DYNAMIC_FLAGS =
@@ -252,67 +155,73 @@ export function vegetationsMatrizenImRadius<T extends { m: ArrayLike<number> }>(
     return dx * dx + dz * dz <= r2;
   });
 }
-/**
- * Welche Prefab-KLASSEN den Spieler blockieren.
- *
- * Das ist die eigentliche Regel des Originals: Unity entscheidet über
- * Layer, und Character.cs nimmt genau die soliden davon —
- *   s_groundRayMask = LayerMask.GetMask("Default", "static_solid",
- *       "Default_small", "piece", "terrain", "blocker", "vehicle")
- * (Character.cs:518). Die Layer-Zuordnung je Prefab liegt nicht im Export
- * (die Prefab-Roots fehlen, nur Sub-Meshes wurden extrahiert), also bilden
- * die Flags dieselbe Einteilung ab.
- *
- * Vorher hing die Auswahl an der GEOMETRIE ("alles über 0,5 m"). Genau
- * daher kamen die riesigen Kollisionsboxen um Äste und Deko: Ein liegender
- * Ast ist gross, aber im Vorbild läuft man hindurch, weil er auf keinem
- * soliden Layer liegt.
- */
-const COLLIDING_FLAGS =
-  PrefabFlag.TREE_BASE |      // grosse, fällbare Bäume
-  // Kleine Bäume, Stümpfe, Felsen und Klippen tragen in den Originaldaten
-  // NICHT TREE_BASE, sondern DESTRUCTIBLE — TREE_BASE ist den fällbaren
-  // Bäumen mit Umfall-Animation vorbehalten. Ohne dieses Flag lief man
-  // durch Beech_small1/2, FirTree_small und stubbe hindurch.
-  PrefabFlag.DESTRUCTIBLE |
-  PrefabFlag.TREE_LOG |       // gefällte Stämme
-  PrefabFlag.MINE_ROCK_5 |    // abbaubare Felsen
-  PrefabFlag.PIECE |          // Bauteile
-  PrefabFlag.WEAR_N_TEAR |    // Gebautes mit Abnutzung
-  PrefabFlag.DOOR |
-  PrefabFlag.BED |
-  PrefabFlag.CHAIR |
-  PrefabFlag.CONTAINER |
-  PrefabFlag.CRAFTING_STATION |
-  PrefabFlag.COOKING_STATION |
-  PrefabFlag.SMELTER |
-  PrefabFlag.FIREPLACE |
-  PrefabFlag.ITEM_STAND |
-  PrefabFlag.ARMOR_STAND;
-
-/**
- * Klassen, die NIE blockieren, auch wenn sie zufällig eines der obigen
- * Flags mitführen: Aufsammelbares ist im Original ein Trigger, Pflanzen
- * und Item-Drops laufen einem durch.
- */
-const NEVER_COLLIDING_FLAGS =
-  PrefabFlag.PICKABLE | PrefabFlag.PICKABLE_ITEM | PrefabFlag.ITEM_DROP | PrefabFlag.PLANT;
-
-/**
- * Weiche Vegetation, durch die man läuft, obwohl sie DESTRUCTIBLE ist.
- *
- * Büsche, Sträucher und herumliegende Äste sind zerstörbar, aber kein
- * Hindernis — im Vorbild entscheidet darüber der Layer, den unser Export
- * nicht enthält (die Prefab-Roots fehlen). Der Name ist hier der
- * verlässlichste verfügbare Ersatz; er trifft AshlandsBranch1-3, Bush01,
- * RaspberryBush, shrub_2 und Verwandte, während Beech_small, FirTree_small,
- * stubbe und alle Felsen solide bleiben.
- */
-const SOFT_VEGETATION = /bush|shrub|branch|berry|seed|shoot|sapling|vines|flower|grass/i;
-
 /** ?showcolliders=1 — zeichnet die Kollisionsformen als Drahtgitter. */
 const SHOW_COLLIDERS =
   typeof location !== 'undefined' && new URLSearchParams(location.search).has('showcolliders');
+
+/**
+ * Mehrere Master zu EINER Punktwolke in Prefab-Koordinaten zusammenlegen
+ * — die Eingabe der gemeinsamen Formableitung.
+ *
+ * Die Master sind ein Netz je GLB-Submesh mit eigenem lokalen Versatz;
+ * `formen.ts` will EINE Liste in Instanzkoordinaten und kennt keine
+ * Matrizen. Umgerechnet wird deshalb hier, und zwar von Hand aus den
+ * Matrixelementen: Ein Baum-GLB trägt Zehntausende Vertices, und ein
+ * `Vector3` je Vertex (mal jedes Prefab) reicht, um einen Frame zu
+ * verschlucken.
+ *
+ * `null`, wenn nichts zusammenkommt. Meshes ohne Indizes steuern ihre
+ * Positionen bei (die Kiste/Kapsel misst sie mit), aber keine Dreiecke —
+ * ein Netz-Collider kann sie nicht gebrauchen.
+ *
+ * Merges the masters' vertices into one prefab-local cloud for the shared
+ * shape derivation.
+ */
+function netzAusMastern(
+  meshes: readonly import('@babylonjs/core/Meshes/mesh').Mesh[],
+  locals: readonly Matrix[]
+): { positionen: Float32Array; indizes: Uint32Array | null } | null {
+  const teile: {
+    pos: Float32Array | number[];
+    idx: ArrayLike<number> | null;
+    m: Float32Array;
+  }[] = [];
+  let ecken = 0;
+  let dreiecke = 0;
+  for (let i = 0; i < meshes.length; i++) {
+    const pos = meshes[i]!.getVerticesData(VertexBuffer.PositionKind);
+    if (!pos) continue;
+    const idx = meshes[i]!.getIndices();
+    const local = locals[i];
+    teile.push({
+      pos,
+      idx: idx && idx.length > 0 ? idx : null,
+      m: (local ? local.m : Matrix.Identity().m) as unknown as Float32Array,
+    });
+    ecken += pos.length;
+    dreiecke += idx ? idx.length : 0;
+  }
+  if (ecken === 0) return null;
+
+  const positionen = new Float32Array(ecken);
+  const indizes = dreiecke > 0 ? new Uint32Array(dreiecke) : null;
+  let p = 0;
+  let q = 0;
+  for (const t of teile) {
+    const e = t.m;
+    const basis = p / 3;
+    for (let v = 0; v < t.pos.length; v += 3) {
+      const x = t.pos[v]!;
+      const y = t.pos[v + 1]!;
+      const z = t.pos[v + 2]!;
+      positionen[p++] = e[0]! * x + e[4]! * y + e[8]! * z + e[12]!;
+      positionen[p++] = e[1]! * x + e[5]! * y + e[9]! * z + e[13]!;
+      positionen[p++] = e[2]! * x + e[6]! * y + e[10]! * z + e[14]!;
+    }
+    if (indizes && t.idx) for (let k = 0; k < t.idx.length; k++) indizes[q++] = basis + t.idx[k]!;
+  }
+  return { positionen, indizes: indizes === null ? null : indizes.subarray(0, q) };
+}
 
 /**
  * Kantenlänge einer Zelle des Umkreis-Index, in Metern.
@@ -2014,23 +1923,21 @@ export class EntityManager {
     const dungeonRoom = getRoomByHash(bucket.prefabHash) !== undefined;
     // Begehbare Bauwerke umgehen das Flag-Gatter aus DEMSELBEN Grund wie
     // Dungeon-Räume: Sie tragen nur PERSISTENT, und das steht nicht in
-    // COLLIDING_FLAGS. Ohne diese Ausnahme landeten sie unten in
-    // `colliderless`, noch bevor die BEGEHBAR-Zweige weiter unten je
+    // KOLLIDIERENDE_FLAGS. Ohne diese Ausnahme landeten sie in
+    // `colliderless`, noch bevor die Netz-Zweige weiter unten je
     // erreicht wurden — gemessen am laufenden Client hatte deshalb auch
     // der Steinkreis gar keine Kollision, man lief mitten hindurch.
-    const begehbarePruefungUmgehen = BEGEHBAR.test(bucket.prefabName);
-    // Nur solide Klassen bekommen überhaupt einen Körper — s. COLLIDING_FLAGS.
-    if (!dungeonRoom && !begehbarePruefungUmgehen) {
-      const def = findPrefabByHash(bucket.prefabHash);
-      const flags = def?.flags ?? 0n;
-      const solide =
-        ((flags & COLLIDING_FLAGS) !== 0n || istFesterStoreKoerper(def)) &&
-        (flags & NEVER_COLLIDING_FLAGS) === 0n &&
-        !SOFT_VEGETATION.test(bucket.prefabName);
-      if (!solide) {
-        this.colliderless.add(bucket.prefabName);
-        return;
-      }
+    const begehbar = BEGEHBAR_NAME.test(bucket.prefabName);
+    // Nur solide Klassen bekommen überhaupt einen Körper. Die Regel steht
+    // in `shared` und nicht mehr hier: Der Server muss dieselbe Menge
+    // „fest" haben, sonst zieht seine Korrektur den Spieler durch etwas
+    // hindurch, vor dem er im Bild steht.
+    if (!istFesterKoerper(findPrefabByHash(bucket.prefabHash), bucket.prefabName, {
+      dungeonRaum: dungeonRoom,
+      begehbar,
+    })) {
+      this.colliderless.add(bucket.prefabName);
+      return;
     }
     const masters = this.masterMeshes.get(bucket.masterKey);
     // Ein eigenes Kollisionsnetz aus der GLB (`_col`) ERSETZT die
@@ -2047,88 +1954,52 @@ export class EntityManager {
     let entry = this.colliders.get(bucket.masterKey);
     if (!entry) {
       const def = findPrefabByHash(bucket.prefabHash);
-      // Trees get a trunk capsule, everything else its bounding box — see
-      // deriveCollider() for why a box is wrong around a crown.
-      // Dungeon-Räume bekommen die EXAKTE Mesh-Geometrie: eine Box würde
-      // das begehbare Innere massiv machen (buildMeshCollider).
-      const treeLike = def ? (def.flags & PrefabFlag.TREE_BASE) !== 0n : false;
-      // FELSEN bekommen ebenfalls die exakte Oberfläche.
-      //
-      // Ein Findling ist unregelmässig und liegt schräg im Hang; sein
-      // Hüllquader steht als unsichtbare Wand weit davor, und man rennt
-      // dagegen, bevor man den Stein überhaupt berührt. Gemeldet als:
-      // "Rock_4 hat eine sehr grosse Box, man läuft erstmal gegen eine
-      // unsichtbare Wand — es sollte wie Terrain behandelt werden, nur
-      // die reine Oberfläche."
-      //
-      // Bezahlbar ist das, weil die SHAPE zwischen allen Instanzen
-      // geteilt wird (siehe StaticColliderSet): Rock_4 hat 196 Dreiecke,
-      // rock4_copper 272 — einmal trianguliert, dann tragen alle 84
-      // Instanzen dieselbe Form. Nur Transform und Body existieren pro
-      // Instanz, und das ist bei der Box nicht anders.
-      //
-      // Die Obergrenze schützt vor Ausreissern: Was auch immer künftig
-      // unter den Namensfilter fällt, darf die Physik nicht sprengen —
-      // dann bleibt es bei der Box.
-      //
-      // Für den Speicher-Fels gilt dasselbe, nur wird er nicht am
-      // Namensmuster erkannt, sondern an der Streutabelle: `FELS_KOLLISION`
-      // ist auf den Anfang verankert (`^rock…`), und ein Speicher-Prefab
-      // heisst `environment-sm-env-rock-cliff-01` — es fiele durch.
-      //
-      // Nachgezogen wird das NICHT durch ein zweites Namensmuster hier,
-      // sondern durch die Menge aus `shared/src/storeFelsen.ts`: Was ein
-      // Fels ist, steht dort und nirgends sonst. Ein Muster im Client
-      // liefe beim ersten Modell auseinander, das anders heisst — und
-      // zwar lautlos, denn „hat eine Box statt der Oberfläche" bricht
-      // nichts, es fühlt sich nur falsch an.
-      //
-      // Das Dreiecksbudget trägt: Die 22 Modelle liegen bei 24 bis 986
-      // Dreiecken (gemessen aus den GLBs), die Grenze steht bei 4.000.
-      const renderMasters = masters ?? [];
-      const felsig =
-        FELS_KOLLISION.test(bucket.prefabName) || STORE_FELSEN_NAMEN.has(bucket.prefabName);
-      const dreiecke = felsig
-        ? renderMasters.reduce((s, m) => s + (m.getTotalIndices() / 3 || 0), 0)
-        : 0;
-      const begehbar = BEGEHBAR.test(bucket.prefabName);
-      const exakt = dungeonRoom || begehbar || (felsig && dreiecke <= FELS_MAX_DREIECKE);
-      const locals = this.masterLocals.get(bucket.masterKey) ?? [];
-      // ── Eigenes Kollisionsnetz aus der GLB (`_col`) ─────────────────
-      // Es ERSETZT die Kollision vollständig: gebacken wird NUR aus ihm,
-      // die sichtbaren Master kollidieren dann nicht mehr. Genau das ist
-      // der Zweck — eine Treppe, deren Kollision aus den gerenderten
-      // Stufen kommt, ist für die 0,4-m-Kapsel unbegehbar (Herleitung im
-      // AssetManager-Kopf), das `_col`-Netz legt die glatte Rampe unter.
-      //
-      // Der Ersatz gilt AUCH, wenn `exakt` nicht greifen würde: Wer ein
-      // Kollisionsnetz mitliefert, hat sich etwas dabei gedacht, und die
-      // Hüllbox aus `deriveCollider` wäre für so ein Prefab bestenfalls
-      // Zufall.
-      const kollLocals = this.kollisionsLocals.get(bucket.masterKey) ?? [];
-      const eigenesNetz =
-        kollMasters && kollMasters.length > 0
-          ? buildMeshCollider(bucket.prefabName, kollMasters, kollLocals, this.scene)
-          : null;
-      // `buildMeshCollider` gibt null zurück, wenn keine Geometrie
-      // zusammenkommt. Für Felsen ist die Hüllform dann immer noch besser
-      // als GAR KEINE Kollision — bei Dungeon-Räumen dagegen wäre eine Box
-      // fatal (sie machte das begehbare Innere massiv), dort bleibt es
-      // beim bisherigen Verhalten.
-      const spec =
-        eigenesNetz ??
-        (exakt ? buildMeshCollider(bucket.prefabName, renderMasters, locals, this.scene) : null) ??
-        (dungeonRoom || begehbar ? null : deriveCollider(renderMasters, locals, treeLike));
-      if (!spec) {
+      /*
+        Die FORM entscheidet `shared/src/kollision/formen.ts` — dieselbe
+        Funktion, die der Server aufruft. Hier wird nur noch geliefert,
+        was sie nicht selbst wissen kann: die zusammengelegte Geometrie,
+        das Baum-Flag, der Dungeon-Raum und ob ein EIGENES Kollisionsnetz
+        vorliegt.
+
+        Ein eigenes Netz (`_col` aus der GLB oder die `…-collision.glb`
+        des Speichers) ERSETZT die Kollision vollständig: gebacken wird
+        nur aus ihm, die sichtbaren Master kollidieren dann nicht mehr.
+        Genau das ist sein Zweck — eine Treppe, deren Kollision aus den
+        gerenderten Stufen kommt, ist für die 0,4-m-Kapsel unbegehbar
+        (Herleitung im AssetManager-Kopf), das `_col`-Netz legt die
+        glatte Rampe darunter.
+
+        Kommt daraus keine Geometrie zusammen, gilt der normale Weg mit
+        den sichtbaren Mastern — deshalb das `??` und nicht ein `if`.
+      */
+      const stammartig = def ? (def.flags & PrefabFlag.TREE_BASE) !== 0n : false;
+      const katalog = storeKollision(bucket.prefabName);
+      const optionen = { stammartig, dungeonRaum: dungeonRoom };
+      const eigen = netzAusMastern(
+        kollMasters ?? [],
+        this.kollisionsLocals.get(bucket.masterKey) ?? []
+      );
+      const sicht = netzAusMastern(masters ?? [], this.masterLocals.get(bucket.masterKey) ?? []);
+      const form =
+        (eigen
+          ? kollisionsForm(eigen.positionen, eigen.indizes, bucket.prefabName, katalog, {
+              ...optionen,
+              eigenesNetz: true,
+            })
+          : null) ??
+        (sicht
+          ? kollisionsForm(sicht.positionen, sicht.indizes, bucket.prefabName, katalog, optionen)
+          : null);
+      if (!form) {
         this.colliderless.add(bucket.prefabName);
         return;
       }
       const carrier = new Mesh(`col_${bucket.masterKey}`, this.scene);
       carrier.isVisible = false;
       carrier.isPickable = false;
-      entry = { carrier, set: new StaticColliderSet(carrier, spec, this.scene), signature: '' };
+      entry = { carrier, set: new StaticColliderSet(carrier, form, this.scene), signature: '' };
       this.colliders.set(bucket.masterKey, entry);
-      this.colliderSpecs.set(bucket.masterKey, spec);
+      this.colliderSpecs.set(bucket.masterKey, form);
     }
 
     // Keep only what is close enough to walk into. Translation lives at
@@ -2230,7 +2101,30 @@ export class EntityManager {
       // no GLB in the export — nothing to instance (sprites come in Phase 5)
       return;
     }
-    void this.assets.getMasters(model).then((masters) => {
+    /*
+      Das eigene Kollisionsnetz des Speichers — eine ZWEITE Datei.
+
+      Der Altbestand trägt seines im Modell (`_col`-Mesh); der Speicher
+      nennt es in `prefabs.json` als `…-collision.glb`, und in keiner
+      seiner GLBs steckt ein `_col`-Knoten. Beide Wege enden hier in
+      derselben Liste `kollision`, damit die Formableitung nur EINEN Fall
+      kennt: „es gibt ein eigenes Netz" oder „es gibt keines".
+
+      Betroffen sind vier Bauwerke (Treppe, Unterstand, Steg, Torbogen) —
+      die 15 Höhenfelder mit `art: 'mesh'` bekommen ohnehin nie einen
+      Körper (`istFesterStoreKoerper`). Geladen wird die zweite Datei
+      also fast nie, und wenn, dann genau dort, wo eine Hüllbox den
+      Durchgang zumauerte.
+    */
+    const netz = storeKollision(bucketVorlage.prefabName)?.netz;
+    const laden =
+      netz === undefined
+        ? this.assets.getMasters(model)
+        : Promise.all([
+            this.assets.getMasters(model),
+            this.assets.getKollisionsMasters(kollisionsModellPfad(netz)),
+          ]).then(([a, b]) => [...a, ...b]);
+    void laden.then((masters) => {
       const bucket = this.buckets.get(schluessel);
       if (!bucket || masters.length === 0) return;
       // E23: FOLIAGE wird nur über Wasser gestreut. Die gemeinsame Hülle

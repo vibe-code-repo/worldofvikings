@@ -668,13 +668,49 @@ export class AssetManager {
       kandidaten.push(mesh);
     }
 
-    const result = verschmelzeNachMaterial(kandidaten).map(zuMaster);
+    /*
+      ── ERST alle Weltmatrizen, DANN abhängen (10.09.2026) ─────────────
+      `zuMaster()` bäckt die Weltmatrix eines Meshes in `localMatrix` und
+      hängt es danach von seinem Elternknoten ab. Solange jedes Netz
+      direkt unter `__root__` hing, war die Reihenfolge gleichgültig.
+
+      In 80 der 675 Speicher-GLBs hängt aber ein Netz unter einem
+      ANDEREN Netz — bei jedem Baum das Laub unter dem Stamm. Für das
+      Laub lief `zuMaster()` dann in eine Hierarchie, aus der der Stamm
+      (und mit ihm `__root__`) gerade entfernt worden war: Seine
+      `localMatrix` kam ohne die x-Spiegelung des glTF-Imports heraus.
+      Gemessen an `tree-1c3`: Stamm-Hüllbox x ∈ [−3,08; 3,53], Laub
+      x ∈ [−5,95; 4,93] statt [−4,93; 5,95] — die Krone stand
+      spiegelverkehrt über ihrem Stamm.
+
+      Aufgefallen ist das nicht im Bild (eine gespiegelte Krone sieht aus
+      wie eine Krone), sondern beim Vergleich gegen den Node-GLB-Leser
+      des Servers (`shared/src/kollision/glb.ts`): Punkt für Punkt
+      dieselbe Datei, und in x das umgekehrte Vorzeichen. Auf die
+      KOLLISIONSFORM wirkt es sich nicht aus — die misst |x| und |z| —,
+      auf jede künftige Frage nach echten Koordinaten schon.
+
+      Collect every world matrix BEFORE detaching any mesh: `zuMaster()`
+      unparents, and a nested mesh measured afterwards loses the glTF
+      import's x flip.
+    */
+    const verschmolzen = verschmelzeNachMaterial(kandidaten);
+    const weltmatrizen = verschmolzen.map((m) => {
+      m.computeWorldMatrix(true);
+      return m.getWorldMatrix().clone();
+    });
+    const result = verschmolzen.map((m, i) => zuMaster(m, weltmatrizen[i]!));
     for (const master of result) entschaerfeVertexAlpha(master.mesh);
     // Die Kollisionsnetze hinten anhängen: `zuMaster()` bäckt auch ihre
-    // Hierarchie in `localMatrix` — genau das, was buildMeshCollider()
-    // beim Zusammentragen der Dreiecke erwartet.
-    for (const mesh of verschmelzeNachMaterial(kollision)) {
-      const master = zuMaster(mesh);
+    // Hierarchie in `localMatrix` — genau das, was die gemeinsame
+    // Formableitung beim Zusammentragen der Dreiecke erwartet.
+    const kollVerschmolzen = verschmelzeNachMaterial(kollision);
+    const kollMatrizen = kollVerschmolzen.map((m) => {
+      m.computeWorldMatrix(true);
+      return m.getWorldMatrix().clone();
+    });
+    for (let i = 0; i < kollVerschmolzen.length; i++) {
+      const master = zuMaster(kollVerschmolzen[i]!, kollMatrizen[i]!);
       master.nurKollision = true;
       // Der `col_`-Präfix ist die WIRKSAME Absicherung gegen die
       // Schattenkarte: Shadows.werferNeuBestimmen() scannt scene.meshes
@@ -689,6 +725,43 @@ export class AssetManager {
     }
     this.masters.set(name, result);
     return result;
+  }
+
+  /**
+   * Eine GLB, die NUR Kollision ist — die `…-collision.glb` des
+   * Speichers.
+   *
+   * Der Altbestand trägt sein Kollisionsnetz IM Modell (`_col`-Mesh, s.
+   * Kopf); der Speicher hat dafür eine eigene DATEI, und in keiner
+   * einzigen seiner 581 GLBs steckt ein `_col`-Knoten (Bauer Ds
+   * Messprobe). Ohne diesen Weg bekäme eine Treppe die Hüllbox ihrer
+   * Stufen — für die 0,4-m-Kapsel unbegehbar, also genau der Fehler, den
+   * die `_col`-Konvention beim Altbestand verhindert.
+   *
+   * Warum nicht einfach `getMasters()`: Dessen Ergebnis ist BILD. Ein
+   * Kollisionsnetz, das dort landet, steht als grauer Klotz in der
+   * Treppe — oder, heimtückischer, wirft nur seinen Schatten, denn
+   * `Shadows.werferNeuBestimmen()` entscheidet allein über den NAMEN
+   * (`NIE_WERFEN`, dort `col_`). Deshalb bekommt es hier dieselbe
+   * Behandlung wie ein `_col`-Master: Präfix, unsichtbar, nicht pickbar.
+   *
+   * Die Umschrift ist bleibend — dieselbe Datei wird nie als Bild
+   * gebraucht, und `getMasters()` gibt für einen Namen immer dieselben
+   * Prototypen zurück.
+   *
+   * Loads a collision-only GLB and marks its masters like `_col` meshes.
+   */
+  async getKollisionsMasters(name: string): Promise<PrefabMaster[]> {
+    const masters = await this.getMasters(name);
+    for (const master of masters) {
+      if (master.nurKollision) continue;
+      master.nurKollision = true;
+      master.mesh.name = `col_${master.mesh.name}`;
+      master.mesh.isVisible = false;
+      master.mesh.isPickable = false;
+      master.mesh.setEnabled(false);
+    }
+    return masters;
   }
 
   /**
@@ -1280,9 +1353,17 @@ function spiegeleWennNoetig(datei: string, container: AssetContainer): void {
   wurzel.computeWorldMatrix(true);
 }
 
-function zuMaster(mesh: Mesh): PrefabMaster {
+/**
+ * Ein geladenes Mesh zum wiederverwendbaren Prototyp machen.
+ *
+ * `welt` ist seine Weltmatrix, VOR dem Abhängen genommen — sie muss von
+ * aussen kommen, weil ein verschachteltes Netz seine Hierarchie sonst
+ * schon verloren hat, wenn es an die Reihe kommt (Herleitung an der
+ * Aufrufstelle in `getMasters`).
+ */
+function zuMaster(mesh: Mesh, welt?: Matrix): PrefabMaster {
   mesh.computeWorldMatrix(true);
-  const localMatrix = mesh.getWorldMatrix().clone();
+  const localMatrix = (welt ?? mesh.getWorldMatrix()).clone();
   // Babylon derives backface-culling orientation from the mesh's OWN
   // world-matrix determinant (Meshes/mesh.js, _getWorldMatrixDeterminant),
   // computed once per mesh — not per thin instance. A negative

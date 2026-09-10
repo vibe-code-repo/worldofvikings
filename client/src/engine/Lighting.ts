@@ -427,8 +427,8 @@ export class Lighting {
       The fog curve comes from the look profile and hits all three fog
       paths at once — no per-path change is needed.
     */
-    setzeNebelmodus(scene, look().nebelmodus);
-    beiLook((p) => setzeNebelmodus(scene, p.nebelmodus));
+    setzeNebelmodus(scene, look().nebelmodus, look().nebelStart, look().nebelEnde);
+    beiLook((p) => setzeNebelmodus(scene, p.nebelmodus, p.nebelStart, p.nebelEnde));
 
     this.bindeLinearenNebel();
 

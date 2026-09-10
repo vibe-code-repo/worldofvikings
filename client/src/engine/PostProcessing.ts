@@ -68,6 +68,7 @@ import { ColorCurves } from '@babylonjs/core/Materials/colorCurves';
 import { VolumetricLightScatteringPostProcess } from '@babylonjs/core/PostProcesses/volumetricLightScatteringPostProcess';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { ValheimDof } from './ValheimDof';
+import { setzeGrading } from './Grading';
 import { beiLook, hexLinear4, look, type LookProfil } from './lookProfil';
 import { strahlenTor, strahlenWinkel } from '@wov/shared';
 import type { Camera } from '@babylonjs/core/Cameras/camera';
@@ -448,6 +449,21 @@ export class PostProcessing {
       // Faktor 1 ist neutral — dann kostet die Kurve nur Instruktionen
       // und ändert nichts, also bleibt sie aus.
       ip.colorCurvesEnabled = Math.abs(profil.saettigung - 1) > 1e-4;
+
+      /*
+        ── Die Farbhandschrift des Vorbilds ───────────────────────────
+        `ShadowsMidtonesHighlights` als 3D-Nachschlagetabelle, gebaut
+        wie URPs `LutBuilder3D` und in denselben Steckplatz gehängt:
+        Babylon wendet `colorGradingTexture` NACH Tonemapping, Gamma und
+        Kontrast an — dieselbe Stelle der Kette. Die Rechnung und der
+        Befund, dass die Lichter-Zeile des Vorbilds nie feuert, stehen
+        in `Grading.ts`.
+      */
+      // `ip` ist der POST-PROCESS und reicht nur einen Teil der Regler
+      // durch (Kontrast, Belichtung, Vignette). `colorGradingTexture`
+      // gehört nicht dazu — die Tabelle wird deshalb an der
+      // Konfiguration selbst gesetzt, die dahinter steht.
+      setzeGrading(this.scene, ip.imageProcessingConfiguration, profil.grading);
 
       ip.vignetteEnabled = profil.vignette.an;
       ip.vignetteWeight = profil.vignette.staerke;

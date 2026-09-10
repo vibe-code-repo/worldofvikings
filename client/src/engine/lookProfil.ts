@@ -31,7 +31,13 @@
  */
 import { Color3, Color4 } from '@babylonjs/core/Maths/math';
 import { Scene } from '@babylonjs/core/scene';
-import { LOOK_VORGABE, mischeLook, type LookProfil, HORIZONT_AUS_NEBEL } from '@wov/shared';
+import {
+  LOOK_VORGABE,
+  mischeLook,
+  type LookProfil,
+  type Nebelmodus,
+  HORIZONT_AUS_NEBEL,
+} from '@wov/shared';
 
 export { LOOK_VORGABE, HORIZONT_AUS_NEBEL };
 export type { LookProfil };
@@ -107,8 +113,33 @@ export function hexLinear4(hex: string, ziel = new Color4()): Color4 {
  * steigt bei Gleichheit selbst aus, und ein unnötiges Neuübersetzen
  * aller Shader kostet auf dieser Szene rund eine Sekunde.
  */
-export function setzeNebelmodus(scene: Scene, modus: 'exp' | 'exp2'): void {
-  const ziel = modus === 'exp' ? Scene.FOGMODE_EXP : Scene.FOGMODE_EXP2;
+export function setzeNebelmodus(
+  scene: Scene,
+  modus: Nebelmodus,
+  start = 0,
+  ende = 0
+): void {
+  /*
+    Start und Ende ZUERST, und ohne die Sperre anzufassen: `fogStart`
+    und `fogEnd` sind gewöhnliche Zahlen, die Babylon je Bild in
+    `vFogInfos` schiebt — sie brauchen kein neues Define. Nur der MODUS
+    ist eins, und nur er läuft deshalb durch die Sperre unten.
+
+    Sie werden auch dann gesetzt, wenn der Modus schon stimmt: Sonst
+    bliebe ein geändertes `nebelEnde` beim Profilwechsel liegen, weil
+    die Funktion vorher am `if` aussteigt. Genau diese Sorte Rückkehr
+    ist der Grund, aus dem hier überhaupt eine Funktion steht.
+  */
+  if (modus === 'linear') {
+    scene.fogStart = start;
+    scene.fogEnd = ende;
+  }
+  const ziel =
+    modus === 'exp'
+      ? Scene.FOGMODE_EXP
+      : modus === 'linear'
+        ? Scene.FOGMODE_LINEAR
+        : Scene.FOGMODE_EXP2;
   if (scene.fogMode === ziel) return;
   const vorher = scene.blockMaterialDirtyMechanism;
   scene.blockMaterialDirtyMechanism = false;

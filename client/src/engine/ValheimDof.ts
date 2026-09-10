@@ -77,6 +77,7 @@ import { Constants } from '@babylonjs/core/Engines/constants';
 import '@babylonjs/core/Rendering/geometryBufferRendererSceneComponent';
 import type { Scene } from '@babylonjs/core/scene';
 import type { Camera } from '@babylonjs/core/Cameras/camera';
+import { look } from './lookProfil';
 
 /** Alle vier aus unnamed_9679.json (die aktivierte DOF-Komponente). */
 const FOCAL_SIZE = 0.36;
@@ -165,6 +166,20 @@ void main(void) {
 
 export class ValheimDof {
   private readonly pp: PostProcess;
+
+  /**
+   * Die DOF-Zahlen des Look-Profils — oder `null`, wenn der Autofokus
+   * dieser Datei gelten soll.
+   *
+   * `fokus: 0` ist die Schalterstellung dafür. Sie steht bewusst nicht
+   * als eigener `an`-Regler daneben: `dof.an` sagt bereits, OB
+   * Tiefenunschärfe läuft; ein zweiter Schalter für WELCHE wäre ein
+   * Zustand mehr, den jemand falsch kombinieren kann.
+   */
+  private get profilDof(): { fokus: number; blende: number; brennweite: number } | null {
+    const d = look().dof;
+    return d.fokus > 0 ? d : null;
+  }
   private focal = MIN_DISTANCE;
   private sinceFocus = 0;
   /** Nur für die Diagnoseanzeige. */
@@ -213,14 +228,53 @@ export class ValheimDof {
       const w = engine.getRenderWidth();
       const h = engine.getRenderHeight();
       effect.setFloat2('texelSize', 1 / w, 1 / h);
-      effect.setFloat('focusDistance', this.focal);
-      effect.setFloat('focusSize', FOCAL_SIZE);
-      effect.setFloat('apertureTerm', 1 / (1 - APERTURE) - 1);
-      // DepthOfField.cs:195/205 — internalBlurWidth = maxBlurSize * width/1024.
-      effect.setFloat(
-        'maxRadius',
-        MAX_BLUR_SIZE * (w / 1024) * HIGH_RES_SCALE * this.blurScale
-      );
+      /*
+        ── Zwei Vorbilder, zwei Kurven ─────────────────────────────────
+
+        Diese Datei ist gegen den ALTEN Referenztitel gebaut (Unitys
+        `ImageEffects.DepthOfField` mit focalSize 0,36, aperture 0,612
+        und einem Autofokus per Strahl). Tale of Dark Lands macht etwas
+        anderes und Einfacheres (design/original-boden.md §E): URP-Bokeh
+        mit FESTEM Fokus auf 2 m, Blende 6, Brennweite 47 mm. Es sucht
+        keine Entfernung — alles jenseits weniger Meter ist gleich weich.
+
+        Steht im Profil eine `fokus`-Zahl, gilt sie und der Autofokus
+        bleibt stehen. Die Umrechnung auf unsere CoC-Kurve, Zeile für
+        Zeile:
+
+          URP  CoC(z) = (z − P) / z · maxCoC
+               maxCoC = (f/N) · (f/1000) / (P − f/1000)
+                      = (47/6) · 0,047 / (2 − 0,047) = 0,1885
+               Radius = CoC · min(0,05 · h, 14) Bildpunkte
+
+          hier `rel = (z − fokus) / z` ist derselbe Ausdruck; die
+               Amplitude 0,1885 wandert deshalb NICHT in `apertureTerm`
+               (der ist 1), sondern in `maxRadius`. Totzone keine —
+               `focusSize` 0, das Vorbild hat keine.
+
+        Bei 900 Bildpunkten Höhe sind das 0,1885 · 14 = 2,6 px: eine
+        milde, aber ab etwa 10 m voll anliegende Weichzeichnung. Unser
+        Autofokus war bis 70 m knackscharf — genau der Unterschied, den
+        F18 meint.
+      */
+      const p = this.profilDof;
+      if (p) {
+        const f = p.brennweite / 1000;
+        const maxCoC = (p.brennweite / p.blende) * f / Math.max(p.fokus - f, 1e-4);
+        effect.setFloat('focusDistance', p.fokus);
+        effect.setFloat('focusSize', 0);
+        effect.setFloat('apertureTerm', 1);
+        effect.setFloat('maxRadius', maxCoC * Math.min(0.05 * h, 14) * this.blurScale);
+      } else {
+        effect.setFloat('focusDistance', this.focal);
+        effect.setFloat('focusSize', FOCAL_SIZE);
+        effect.setFloat('apertureTerm', 1 / (1 - APERTURE) - 1);
+        // DepthOfField.cs:195/205 — internalBlurWidth = maxBlurSize * width/1024.
+        effect.setFloat(
+          'maxRadius',
+          MAX_BLUR_SIZE * (w / 1024) * HIGH_RES_SCALE * this.blurScale
+        );
+      }
     };
 
     // Index 0: vor Bloom/Tonemapping der DefaultRenderingPipeline.

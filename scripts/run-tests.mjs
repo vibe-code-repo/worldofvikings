@@ -916,6 +916,28 @@ const KERN = [
   // kein Socket. War tot wegen einer veralteten Fake-Peer-Attrappe (siehe
   // Kommentar im Test) — Fix ist NUR im Test, nicht in WovServer.ts.
   ['server', 'test/g1-admin-fly.ts'],
+  /*
+    Bewegungsschritt und Serverkollision: die reinen Regeln (Akkumulator,
+    Gleiten, Wand-gegen-Hang, Bodenkleben) und die Strahlabfrage gegen
+    Kiste, Kapsel und Netz — einmal ohne Welt, einmal ueber
+    `handlePlayerInput` mit echten ZDOs und gestellter Uhr.
+
+    Der wichtigste Eintrag der beiden ist der Regressionsteil: Mit LEERER
+    Formquelle muss der Server nach 100 Eingabepaketen auf derselben
+    Stelle stehen wie der Bestand vor dem Umbau. Ohne ihn liesse sich der
+    Rueckfallweg („noch keine Formen") nur behaupten.
+
+    Der Serverteil misst ausserdem die Kosten der Abfrage bei 200 Formen
+    in Reichweite und wird rot, wenn sie ueber 1 ms je Paket steigen —
+    die Zahl steht in der Ausgabe, damit eine Verschlechterung sichtbar
+    ist, bevor sie die Grenze reisst. ~6 s zusammen, kein Netz.
+
+    Fixed movement step and server-side collision: pure rules plus ray
+    queries against box, capsule and mesh; includes the empty-source
+    regression and the per-packet cost measurement.
+  */
+  ['shared', 'test/bewegung-schritt.ts'],
+  ['server', 'test/kollision-schritt.ts'],
   // G1-Durchsicht: einziger E2E-Test fuer Dungeon-Betreten/-Verlassen ueber
   // echten WebSocket-Handshake. War tot durch ZWEI unabhaengige
   // Test-Bugs (Handshake-HMAC und ZDOSync-Parser bauten die Produktivlogik

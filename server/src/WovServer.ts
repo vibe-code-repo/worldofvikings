@@ -94,6 +94,8 @@ import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
+import { Kollisionswelt } from './world/Kollisionswelt.js';
+import { Spielerbewegung } from './world/Spielerbewegung.js';
 // Ueber den expliziten Pfad, nicht ueber den Barrel: eine Geo ohne
 // Landmasse braucht nur der Server, und der Client-Bundle-Schnitt soll
 // nicht daran wachsen.
@@ -248,6 +250,9 @@ export class WovServer {
   // ── Subsystems ─────────────────────────────────────────────────
   readonly zdos: ZDOManager;
   readonly prefabs: PrefabManager;
+  /** Hindernisse der Oberwelt — Formquelle einhaengen: `setzeFormQuelle`. */
+  readonly kollisionswelt: Kollisionswelt;
+  private readonly spielerbewegung: Spielerbewegung;
   readonly net: NetManager;
   /** Konten und Charaktere. Eigene Datei je Instanz, wie die Welt. */
   private readonly kontenDb: Kontendatenbank;
@@ -444,6 +449,12 @@ export class WovServer {
     // Initialize subsystems
     this.zdos = new ZDOManager(this.serverUserId);
     this.prefabs = new PrefabManager();
+    // Ohne Formquelle ist die Kollisionswelt leer und der Bewegungsschritt
+    // rechnet wie vor dem Umbau (s. Kollisionswelt.ts).
+    this.kollisionswelt = new Kollisionswelt(this.zdos, this.prefabs, (x, z) =>
+      this.getGroundHeight(x, z)
+    );
+    this.spielerbewegung = new Spielerbewegung(this.kollisionswelt);
     // Die Höhenabfrage als Closure: `this.heightmaps` entsteht erst in
     // `init()`, der Aufruf erfolgt aber immer später (bei einem Befehl).
     this.adminCommands = new AdminCommandRegistry({
@@ -2066,20 +2077,11 @@ export class WovServer {
           : peer.position.y;
       newPos = { x: newX, y, z: newZ };
     } else {
-      const speed = rennt ? 7.5 : 4.5; // m/s (walk/run reference speeds)
-      const newX = peer.position.x + moveX * speed * deltaSec;
-      const newZ = peer.position.z + moveZ * speed * deltaSec;
-
-      // D6: terrain height + gravity — walk up/down slopes, fall at 15 m/s
-      const ground = this.getGroundHeight(newX, newZ);
-      let y = peer.position.y;
-      if (y > ground) {
-        y = Math.max(ground, y - 15 * deltaSec);
-      } else {
-        y = ground;
-      }
-
-      newPos = { x: newX, y, z: newZ };
+      // Oberwelt: feste Schritte gegen Gelände UND Hindernisse
+      // (server/src/world/Spielerbewegung.ts). Tempi, Schwerkraft und
+      // Stufenregel stehen in shared/src/bewegung/masse.ts — dieselbe
+      // Quelle, aus der auch der Client-Controller lesen kann.
+      newPos = this.spielerbewegung.schritt(peer, moveX, moveZ, rennt, deltaSec);
     }
 
     peer.position = newPos;

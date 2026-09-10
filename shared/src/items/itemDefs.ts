@@ -374,11 +374,12 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     // stange) auf Hand-Y, Modell-Y (Klinge) auf Hand-X und Modell-Z auf
     // Hand-(-Z) legt — ausgerechnet ueber Quaternion.FromRotationMatrix,
     // nicht von Hand geraten. holdPosition schiebt die Parierstange
-    // in die Handflaechenmitte (Schwerpunkt der Hand_R-Vertices in Blender:
-    // x -0,004, y 0,033, z 0,005) und 5,5 cm zur Daumenseite, knapp
-    // ausserhalb des Daumenansatzes (Thumb_01 bei x 0,038) — so laeuft der
-    // Griff durch die geschlossene Hand und die Parierstange liegt oben
-    // auf der Faust (7 cm sassen Mike zu weit unten, Richtung Finger).
+    // in den Fingerring der Original-Greifpose (SwordIdle, in Blender auf
+    // Hand_R gelegt: die gekruemmten Finger umschliessen y 0,06–0,10 /
+    // z 0,00–0,07, Daumen darueber) und 8 cm zur Daumenseite, damit die
+    // Faust den hinteren Teil des 20-cm-Griffs haelt und vor ihr noch
+    // Griff bis zur Parierstange bleibt (Mike, 10.09.: Griff weiter
+    // hinten halten).
     name: 'SwordNorth',
     label: 'Nordschwert',
     itemType: ItemType.TwoHandedWeapon,
@@ -387,7 +388,7 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     maxStackSize: 1,
     weight: 2,
     toolTier: 1,
-    holdPosition: [0.055, 0.035, 0.005],
+    holdPosition: [0.08, 0.08, 0.035],
     holdRotation: [0, Math.PI, Math.PI / 2],
     maxDurability: 200,
     useDurabilityDrain: 1,

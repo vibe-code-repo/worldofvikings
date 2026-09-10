@@ -55,6 +55,9 @@ import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Space } from '@babylonjs/core/Maths/math.axis';
 import type { Bone } from '@babylonjs/core/Bones/bone';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
+import type { Animation } from '@babylonjs/core/Animations/animation';
+import type { Observer } from '@babylonjs/core/Misc/observable';
+import type { Nullable } from '@babylonjs/core/types';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
@@ -202,6 +205,51 @@ interface Joint {
  */
 const KOMBO_FENSTER = 0.6;
 
+/**
+ * Tempo, mit dem Schlagclips laufen (Vorbild: Player-Animator des
+ * Originals, Attack 1/2/3 mit Speed 2,5). Die Clips sind seit dem
+ * 10.09.2026 abends KOMPLETT (Ausholen, Hieb, Rueckkehr in die Ruhepose,
+ * ~3 s) — bei 2,5 also 1,2 s je Hieb. Vorher waren sie um den Hieb
+ * geschnitten und auf den Schlagtakt gestaucht; sie endeten mitten in der
+ * Bewegung, und der Wechsel in die Ruhepose war ein Sprung.
+ */
+const ANGRIFF_TEMPO = 2.5;
+/** Ueberblendung Hieb → Hieb (Original: Transition Duration 0,15 s). */
+const UEBERBLEND_ANGRIFF = 0.15;
+/**
+ * Ueberblendung Hieb → Ruhe/Gehen (Original: Exit-Transition 0,25 s).
+ * Sie BEGINNT diese Zeit vor dem Clipende, solange der Hieb noch laeuft:
+ * Babylon raeumt eine beendete Einmal-Abspielung sofort ab, und eine
+ * Ueberblendung, deren Quelle verschwindet, springt — genau das Zittern
+ * bei der Rueckkehr in die Ruhepose, das Mike am 10.09. gemeldet hat
+ * (gemessen: 45 m/s an der Hand in einem einzigen Bild).
+ */
+const UEBERBLEND_AUSSTIEG = 0.25;
+/** Ein-/Ausblenden der Waffenschichten (Arm, Finger). */
+const SCHICHT_BLENDE = 0.15;
+/**
+ * Knochen der Armschicht (Original: „Right Arm Layer", Clip
+ * SwordIdleMovement — der Arm haelt die Waffe, waehrend der Koerper den
+ * normalen Ruhe-/Geh-/Rennzyklus spielt).
+ */
+const SCHICHT_ARM = ['Clavicle_R', 'Shoulder_R', 'Elbow_R', 'Hand_R'] as const;
+
+/**
+ * Eine Animationsschicht nach dem Muster der Unity-Layer: ein Clip, der
+ * NUR bestimmte Knochen ueberschreibt und ueber den laufenden Koerperclip
+ * gelegt wird. Babylon kennt so etwas nicht (zwei Gruppen auf demselben
+ * Knochen mischen sich per Gewicht statt sich zu ueberschreiben), deshalb
+ * wird der Clip hier selbst abgetastet und nach der Animationsauswertung
+ * per Slerp auf die Knoten geschrieben.
+ */
+interface Schicht {
+  name: string;
+  kanaele: Array<{ knoten: TransformNode; anim: Animation }>;
+  von: number;
+  bis: number;
+  fps: number;
+}
+
 interface Clip {
   grp: AnimationGroup;
   tempo: number;
@@ -312,6 +360,13 @@ export class AvatarRig {
    * Start eines Schlags fuer Schlagdauer + KOMBO_FENSTER.
    */
   private komboRest = 0;
+  /** Waffenschichten (Arm, Finger), nur wirksam solange etwas gehalten wird. */
+  private schichten: Schicht[] = [];
+  /** Aktuelles Gewicht der Waffenschichten (0…1), wird ein-/ausgeblendet. */
+  private schichtGewicht = 0;
+  /** Laufzeit der Schichtclips (s), fuer die Abtastposition. */
+  private schichtZeit = 0;
+  private schichtBeobachter: Nullable<Observer<Scene>> = null;
   /**
    * Restlaufzeit des Schlags in Sekunden; > 0 heisst „schlaegt gerade".
    *
@@ -351,7 +406,7 @@ export class AvatarRig {
    * UEBERBLENDUNG Sekunden; solange laufen beide Gruppen gleichzeitig und
    * werden über ihr Gewicht gemischt.
    */
-  private blende: { von: Clip; nach: Clip; t: number } | null = null;
+  private blende: { von: Clip; nach: Clip; t: number; dauer: number } | null = null;
   /**
    * Ob die Clips aus der Datei benutzt werden.
    *
@@ -480,6 +535,9 @@ export class AvatarRig {
   setHeldItem(node: TransformNode | null): void {
     if (this.held && this.held !== node) this.held.parent = null;
     this.held = node;
+    // Beim Ergreifen die Schichtclips von vorn, damit Arm und Finger nicht
+    // mitten im Zyklus einsteigen.
+    if (node) this.schichtZeit = 0;
     // Parent only — the caller owns the node's local transform. Resetting it
     // here would fight the GLB import transform (which arrives as a
     // rotationQuaternion and silently overrides any Euler rotation set later).
@@ -627,7 +685,13 @@ export class AvatarRig {
       this.clipAngriff = this.clipsAngriff[0] ?? null;
       this.angriffIndex = -1;
       this.komboRest = 0;
-      const rest = clips.filter((c) => c !== this.clipSprung && !this.clipsAngriff.includes(c));
+      // Waffenschichten (arm_*, hand_*) sind keine Zustaende: Sie werden
+      // unten zu Schichten und nehmen an keiner Einteilung teil.
+      const schichtClips = clips.filter((c) => /^(arm|hand)_/i.test(c.grp.name));
+      this.baueSchichten(schichtClips);
+      const rest = clips.filter(
+        (c) => c !== this.clipSprung && !this.clipsAngriff.includes(c) && !schichtClips.includes(c)
+      );
       const wandernd = rest.filter((c) => c.tempo > 0.1);
       this.clipsRuhe = rest.filter((c) => c.tempo <= 0.1);
       // Sprechende Namen schlagen die Messung. Der Tripo-Export vergibt
@@ -648,6 +712,9 @@ export class AvatarRig {
             `, angriff ${this.clipAngriff ? `"${this.clipAngriff.grp.name}" ${this.clipLaenge(this.clipAngriff).toFixed(2)} s` : '—'}` +
             (this.clipsAngriff.length > 1
               ? ` (Kombo: ${this.clipsAngriff.map((c) => `${c.grp.name} ${this.clipLaenge(c).toFixed(2)} s`).join(' → ')})`
+              : '') +
+            (this.schichten.length
+              ? `, Schichten ${this.schichten.map((s) => `${s.name} (${s.kanaele.length} Knochen)`).join(', ')}`
               : '')
         );
         // KEIN `enableBlending` hier: Übergänge laufen über die Gewichte
@@ -1100,7 +1167,7 @@ export class AvatarRig {
    * stattdessen um, was den Wechsel selbst bei richtiger Phase ruckeln
    * ließ.
    */
-  private wechsleZu(ziel: Clip, schleife = true, vonVorn = false): void {
+  private wechsleZu(ziel: Clip, schleife = true, vonVorn = false, dauer = UEBERBLENDUNG): void {
     const von = this.aktiv;
     if (von === ziel) return;
 
@@ -1132,7 +1199,7 @@ export class AvatarRig {
     if (von && von.grp.isPlaying) {
       ziel.grp.setWeightForAllAnimatables(0);
       von.grp.setWeightForAllAnimatables(1);
-      this.blende = { von, nach: ziel, t: 0 };
+      this.blende = { von, nach: ziel, t: 0, dauer };
     } else {
       ziel.grp.setWeightForAllAnimatables(1);
     }
@@ -1143,7 +1210,12 @@ export class AvatarRig {
   private treibeUeberblendung(dt: number): void {
     const b = this.blende;
     if (!b) return;
-    b.t += dt / UEBERBLENDUNG;
+    b.t += dt / b.dauer;
+    // Quelle schon zu Ende (Einmal-Abspielung abgelaufen): Babylon hat
+    // ihre Animatables entfernt, ein Restgewicht darauf springt. Dann
+    // sofort fertig — die Rueckkehr wird unten ohnehin vor dem Clipende
+    // gestartet, so dass dieser Fall die Ausnahme bleibt.
+    if (!b.von.grp.isPlaying) b.t = 1;
     const w = Math.min(1, b.t);
     b.nach.grp.setWeightForAllAnimatables(w);
     b.von.grp.setWeightForAllAnimatables(1 - w);
@@ -1200,8 +1272,6 @@ export class AvatarRig {
     this.angriffIndex = this.komboRest > 0 && this.angriffIndex >= 0 ? (this.angriffIndex + 1) % n : 0;
     const clip = this.clipsAngriff[this.angriffIndex]!;
     this.clipAngriff = clip;
-    this.angriffRest = this.angriffDauer;
-    this.komboRest = this.angriffDauer + KOMBO_FENSTER;
     this.setzeAngriffTempo();
 
     if (this.aktiv === clip) {
@@ -1227,7 +1297,7 @@ export class AvatarRig {
       return true;
     }
 
-    this.wechsleZu(clip, false, true);
+    this.wechsleZu(clip, false, true, UEBERBLEND_ANGRIFF);
     return true;
   }
 
@@ -1252,7 +1322,15 @@ export class AvatarRig {
   private setzeAngriffTempo(): void {
     if (!this.clipAngriff) return;
     const laenge = this.clipLaenge(this.clipAngriff);
-    this.clipAngriff.grp.speedRatio = laenge > 0 ? laenge / this.angriffDauer : 1;
+    // Volle Hiebe laufen mit ANGRIFF_TEMPO wie im Original; kuerzer als der
+    // Schlagtakt (angriffDauer) wird kein Clip, sonst ueberlappten sich
+    // zwei Klicks im selben Clip.
+    const dauer = Math.max(this.angriffDauer, laenge / ANGRIFF_TEMPO);
+    this.clipAngriff.grp.speedRatio = laenge > 0 ? laenge / dauer : 1;
+    // Die Uhr endet UEBERBLEND_AUSSTIEG vor dem Clipende: dann beginnt die
+    // Rueckkehr, waehrend der Hieb noch seine letzten Bilder spielt.
+    this.angriffRest = Math.max(0.05, dauer - UEBERBLEND_AUSSTIEG);
+    this.komboRest = this.angriffRest + KOMBO_FENSTER;
   }
 
   /** Laeuft gerade ein Schlag? Fuer HUD und Messzellen. */
@@ -1378,7 +1456,10 @@ export class AvatarRig {
         // Sprung (siehe wechsleZu). Der Schlag startet nicht hier, sondern
         // in `schlage()`; hier wird nur ZURUECK gewechselt, wenn die Uhr
         // abgelaufen ist.
-        if (ziel) this.wechsleZu(ziel, !springt, springt);
+        if (ziel) {
+          const ausHieb = this.aktiv !== null && this.clipsAngriff.includes(this.aktiv);
+          this.wechsleZu(ziel, !springt, springt, ausHieb ? UEBERBLEND_AUSSTIEG : UEBERBLENDUNG);
+        }
         // Kein Ruheclip vorhanden: Gehzyklus einfrieren statt mitten im
         // Schritt stehenzubleiben.
         else this.stelleRuhepose();
@@ -1460,7 +1541,74 @@ export class AvatarRig {
     this.head.rotation.x = -0.05 - 0.16 * amount; // Blick bleibt waagerecht
   }
 
+  /**
+   * Schichten aus den Clips bauen: `arm_*` ueberschreibt die Armknochen
+   * (SCHICHT_ARM), `hand_*` alle Knoten unterhalb von Hand_R (die Finger).
+   * Genommen werden nur Rotationskanaele — die Translationen der Knochen
+   * sind in den Exporten konstant und tragen nichts bei.
+   */
+  private baueSchichten(clips: Clip[]): void {
+    this.schichten = [];
+    if (this.schichtBeobachter) {
+      this.root.getScene().onAfterAnimationsObservable.remove(this.schichtBeobachter);
+      this.schichtBeobachter = null;
+    }
+    if (!clips.length) return;
+    const hand = this.root.getScene().getTransformNodeByName('Hand_R');
+    const finger = new Set(hand ? hand.getDescendants(false).map((n) => n.name) : []);
+    for (const clip of clips) {
+      const istArm = /^arm_/i.test(clip.grp.name);
+      const maske = (name: string) =>
+        istArm ? (SCHICHT_ARM as readonly string[]).includes(name) : finger.has(name);
+      const kanaele: Schicht['kanaele'] = [];
+      let fps = 60;
+      for (const ta of clip.grp.targetedAnimations) {
+        const ziel = ta.target as TransformNode;
+        if (ta.animation.targetProperty !== 'rotationQuaternion' || !maske(ziel.name)) continue;
+        kanaele.push({ knoten: ziel, anim: ta.animation });
+        fps = ta.animation.framePerSecond;
+      }
+      if (kanaele.length) {
+        this.schichten.push({ name: clip.grp.name, kanaele, von: clip.grp.from, bis: clip.grp.to, fps });
+      }
+      // Als Zustand darf die Gruppe nie laufen.
+      clip.grp.stop();
+    }
+    if (!this.schichten.length) return;
+    this.schichtBeobachter = this.root.getScene().onAfterAnimationsObservable.add(() => this.wendeSchichtenAn());
+  }
+
+  /**
+   * Nach der Animationsauswertung: Schichtclips abtasten und mit dem
+   * aktuellen Gewicht auf die Knoten schreiben. Ziel 1, solange etwas
+   * gehalten wird und kein Hieb laeuft (im Original ueberschreibt der
+   * Full-Body-Layer mit dem Hieb alle Schichten, und die Hiebclips
+   * greifen den Griff selbst); sonst 0.
+   */
+  private wendeSchichtenAn(): void {
+    const dt = this.root.getScene().getEngine().getDeltaTime() / 1000;
+    const zielGewicht = this.held && this.angriffRest <= 0 && this.nutzeClip ? 1 : 0;
+    const schritt = dt / SCHICHT_BLENDE;
+    this.schichtGewicht += Math.max(-schritt, Math.min(schritt, zielGewicht - this.schichtGewicht));
+    if (this.schichtGewicht <= 0) return;
+    this.schichtZeit += dt;
+    for (const s of this.schichten) {
+      const spanne = s.bis - s.von;
+      const frame = spanne > 0 ? s.von + ((this.schichtZeit * s.fps) % spanne) : s.von;
+      for (const k of s.kanaele) {
+        const q = k.anim.evaluate(frame) as Quaternion;
+        if (!k.knoten.rotationQuaternion) k.knoten.rotationQuaternion = q.clone();
+        else if (this.schichtGewicht >= 1) k.knoten.rotationQuaternion.copyFrom(q);
+        else Quaternion.SlerpToRef(k.knoten.rotationQuaternion, q, this.schichtGewicht, k.knoten.rotationQuaternion);
+      }
+    }
+  }
+
   dispose(): void {
+    if (this.schichtBeobachter) {
+      this.root.getScene().onAfterAnimationsObservable.remove(this.schichtBeobachter);
+      this.schichtBeobachter = null;
+    }
     this.root.dispose(false, true);
   }
 

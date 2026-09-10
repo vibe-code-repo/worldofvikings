@@ -216,6 +216,8 @@ const KOMBO_FENSTER = 0.6;
 const ANGRIFF_TEMPO = 2.5;
 /** Ueberblendung Hieb → Hieb (Original: Transition Duration 0,15 s). */
 const UEBERBLEND_ANGRIFF = 0.15;
+/** Ueberblendung Ruhe/Gehen → erster Hieb (Original: AnyState-Transition 0,08 s). */
+const UEBERBLEND_EINSTIEG = 0.08;
 /**
  * Ueberblendung Hieb → Ruhe/Gehen (Original: Exit-Transition 0,25 s).
  * Sie BEGINNT diese Zeit vor dem Clipende, solange der Hieb noch laeuft:
@@ -736,6 +738,7 @@ export class AvatarRig {
       // `idle` ablegt — sollen verlässlich dort landen, wo sie hingehören,
       // statt von der Tempo-Heuristik einsortiert zu werden.
       this.clipRuhe = nachName(/idle|ruhe|stand/i, this.clipsRuhe) ?? this.clipsRuhe[0] ?? null;
+      if (this.clipRuhe) this.gleicheHueftversatzAn(clips, this.clipRuhe);
       this.clipGehen = nachName(/gehen|walk/i, wandernd) ?? wandernd[0] ?? null;
       this.clipRennen = nachName(/rennen|run|jog/i, wandernd) ?? wandernd[wandernd.length - 1] ?? null;
       if (clips.length) {
@@ -1338,8 +1341,52 @@ export class AvatarRig {
       return true;
     }
 
-    this.wechsleZu(clip, false, true, UEBERBLEND_ANGRIFF);
+    const ausHieb = this.aktiv !== null && this.clipsAngriff.includes(this.aktiv);
+    this.wechsleZu(clip, false, true, ausHieb ? UEBERBLEND_ANGRIFF : UEBERBLEND_EINSTIEG);
     return true;
+  }
+
+  /**
+   * Hueftversatz aller Clips an den Ruheclip angleichen (waagerecht).
+   *
+   * Jeder Clip bringt seine eigene Huefte-Startposition mit — die Quelle
+   * legt den Ursprung je Aufnahme woanders hin, und das Entfernen der
+   * Wurzelbewegung nimmt nur den linearen Drift, nicht den Anfangswert.
+   * Gemessen am 10.09.2026 am Wikinger: Ruhe z 0,051, Gehen und alle
+   * Hiebe z 0. Bei jedem Wechsel rutschte die Figur damit 5 cm nach
+   * hinten — im Einstieg in den ersten Hieb zusammen mit Armwechsel und
+   * Kauern der sichtbare Ruck. Die Hoehe bleibt: Kauern und Aufrichten
+   * gehoeren zur Bewegung.
+   */
+  private gleicheHueftversatzAn(clips: Clip[], ruhe: Clip): void {
+    const hueftKeys = (grp: AnimationGroup) => {
+      for (const ta of grp.targetedAnimations) {
+        if (ta.animation.targetProperty !== 'position') continue;
+        const zielName = (ta.target as { name?: string })?.name ?? '';
+        if (/^(Root|Hip|Hips|Pelvis|mixamorig:Hips)$/.test(zielName)) return ta.animation.getKeys();
+      }
+      return null;
+    };
+    const ref = hueftKeys(ruhe.grp);
+    if (!ref || !ref.length) return;
+    const soll = ref[0]!.value as Vector3;
+    let verschoben = 0;
+    for (const c of clips) {
+      if (c === ruhe) continue;
+      const keys = hueftKeys(c.grp);
+      if (!keys || !keys.length) continue;
+      const ist = keys[0]!.value as Vector3;
+      const dx = soll.x - ist.x;
+      const dz = soll.z - ist.z;
+      if (Math.abs(dx) < 1e-4 && Math.abs(dz) < 1e-4) continue;
+      for (const k of keys) {
+        const v = k.value as Vector3;
+        v.x += dx;
+        v.z += dz;
+      }
+      verschoben++;
+    }
+    if (verschoben) console.log(`[avatar] Hueftversatz von ${verschoben} Clips an "${ruhe.grp.name}" angeglichen`);
   }
 
   /**

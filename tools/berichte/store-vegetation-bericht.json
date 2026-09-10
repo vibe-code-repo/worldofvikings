@@ -58,12 +58,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -123,12 +123,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -188,12 +188,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -253,12 +253,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -323,12 +323,12 @@
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.5975,
-            0.646,
-            0.3645,
+            0.245,
+            0.2649,
+            0.1494,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -393,12 +393,12 @@
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.5975,
-            0.646,
-            0.3645,
+            0.245,
+            0.2649,
+            0.1494,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -449,12 +449,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -505,12 +505,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -561,12 +561,12 @@
           "rolle": "laubDunkel",
           "herkunft": "Datei",
           "toenung": [
-            0.4,
-            0.78,
-            0.18,
+            0.164,
+            0.3198,
+            0.0738,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -617,12 +617,12 @@
           "rolle": "laubSchnee",
           "herkunft": "Datei",
           "toenung": [
-            0.6705,
-            0.66,
-            0.662,
+            0.2749,
+            0.2706,
+            0.2714,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -673,12 +673,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.55,
-            1,
-            0.24,
+            0.2255,
+            0.41,
+            0.0984,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -729,12 +729,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.55,
-            1,
-            0.24,
+            0.2255,
+            0.41,
+            0.0984,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -785,12 +785,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -1115,12 +1115,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -1189,12 +1189,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -1263,12 +1263,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.55,
-            1,
-            0.24,
+            0.2255,
+            0.41,
+            0.0984,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -1337,12 +1337,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -1411,12 +1411,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.55,
-            1,
-            0.24,
+            0.2255,
+            0.41,
+            0.0984,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -1485,12 +1485,12 @@
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.6255,
-            0.4625,
-            0.2675,
+            0.2565,
+            0.1896,
+            0.1097,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -1561,12 +1561,12 @@
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.5975,
-            0.646,
-            0.3645,
+            0.245,
+            0.2649,
+            0.1494,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -1631,12 +1631,12 @@
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.5975,
-            0.646,
-            0.3645,
+            0.245,
+            0.2649,
+            0.1494,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -1705,12 +1705,12 @@
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.6255,
-            0.4625,
-            0.2675,
+            0.2565,
+            0.1896,
+            0.1097,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -1781,12 +1781,12 @@
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.5975,
-            0.646,
-            0.3645,
+            0.245,
+            0.2649,
+            0.1494,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -1851,12 +1851,12 @@
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.5975,
-            0.646,
-            0.3645,
+            0.245,
+            0.2649,
+            0.1494,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -1925,12 +1925,12 @@
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.6255,
-            0.4625,
-            0.2675,
+            0.2565,
+            0.1896,
+            0.1097,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -2001,12 +2001,12 @@
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.5975,
-            0.646,
-            0.3645,
+            0.245,
+            0.2649,
+            0.1494,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -2071,12 +2071,12 @@
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.5975,
-            0.646,
-            0.3645,
+            0.245,
+            0.2649,
+            0.1494,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -2145,12 +2145,12 @@
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
-            0.26,
-            0.58,
-            0.24,
+            0.1066,
+            0.2378,
+            0.0984,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -2276,12 +2276,12 @@
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
-            0.26,
-            0.58,
-            0.24,
+            0.1066,
+            0.2378,
+            0.0984,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -2407,12 +2407,12 @@
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
-            0.26,
-            0.58,
-            0.24,
+            0.1066,
+            0.2378,
+            0.0984,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -2538,12 +2538,12 @@
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
-            0.26,
-            0.58,
-            0.24,
+            0.1066,
+            0.2378,
+            0.0984,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -2612,12 +2612,12 @@
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
-            0.26,
-            0.58,
-            0.24,
+            0.1066,
+            0.2378,
+            0.0984,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -2743,12 +2743,12 @@
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
-            0.26,
-            0.58,
-            0.24,
+            0.1066,
+            0.2378,
+            0.0984,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -2817,12 +2817,12 @@
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
-            0.26,
-            0.58,
-            0.24,
+            0.1066,
+            0.2378,
+            0.0984,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -2948,12 +2948,12 @@
           "rolle": "nadeln",
           "herkunft": "Datei",
           "toenung": [
-            0.26,
-            0.58,
-            0.24,
+            0.1066,
+            0.2378,
+            0.0984,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -3088,12 +3088,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -3171,12 +3171,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -3255,12 +3255,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.55,
-            1,
-            0.24,
+            0.2255,
+            0.41,
+            0.0984,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -3329,12 +3329,12 @@
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.6255,
-            0.4625,
-            0.2675,
+            0.2565,
+            0.1896,
+            0.1097,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -3405,12 +3405,12 @@
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.5975,
-            0.646,
-            0.3645,
+            0.245,
+            0.2649,
+            0.1494,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -3475,12 +3475,12 @@
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.5975,
-            0.646,
-            0.3645,
+            0.245,
+            0.2649,
+            0.1494,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -3549,12 +3549,12 @@
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.6255,
-            0.4625,
-            0.2675,
+            0.2565,
+            0.1896,
+            0.1097,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -3625,12 +3625,12 @@
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.5975,
-            0.646,
-            0.3645,
+            0.245,
+            0.2649,
+            0.1494,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -3695,12 +3695,12 @@
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.5975,
-            0.646,
-            0.3645,
+            0.245,
+            0.2649,
+            0.1494,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -3769,12 +3769,12 @@
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.6255,
-            0.4625,
-            0.2675,
+            0.2565,
+            0.1896,
+            0.1097,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -3845,12 +3845,12 @@
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.5975,
-            0.646,
-            0.3645,
+            0.245,
+            0.2649,
+            0.1494,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -3915,12 +3915,12 @@
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
           "toenung": [
-            0.5975,
-            0.646,
-            0.3645,
+            0.245,
+            0.2649,
+            0.1494,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorgabe+D"
         }
       ]
     },
@@ -4111,12 +4111,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.55,
-            1,
-            0.24,
+            0.2255,
+            0.41,
+            0.0984,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -4638,12 +4638,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -4835,12 +4835,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -5032,12 +5032,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -5229,12 +5229,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -5426,12 +5426,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -5509,12 +5509,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -5706,12 +5706,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -5903,12 +5903,12 @@
           "rolle": "laub",
           "herkunft": "Datei",
           "toenung": [
-            0.46,
-            0.95,
-            0.2,
+            0.1886,
+            0.3895,
+            0.082,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Store+D"
         }
       ]
     },
@@ -6100,12 +6100,12 @@
           "rolle": "ahorn",
           "herkunft": "Datei",
           "toenung": [
-            0.62,
-            1,
-            0.2,
+            0.1546,
+            0.1679,
+            0.0857,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Vorrang+D"
         }
       ]
     },
@@ -6297,12 +6297,12 @@
           "rolle": "ahorn",
           "herkunft": "Datei",
           "toenung": [
-            0.62,
-            1,
-            0.2,
+            0.1546,
+            0.1679,
+            0.0857,
             1
           ],
-          "toenungAus": "Store"
+          "toenungAus": "Vorrang+D"
         }
       ]
     }

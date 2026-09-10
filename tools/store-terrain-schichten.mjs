@@ -167,12 +167,84 @@ export const SCHICHTEN = {
  * 255. Nachgezählt am fertigen Stapel: Zeile 0 Maximum 133, Zeile 4
  * Maximum 55, Zeile 5 Maximum 236, Zeile 11 Maximum 85 — kein einziger
  * Texel in der Klemme (`(t >= 255).sum() == 0` je Zeile).
+ *
+ * ── Nachtrag 10.09.2026: der Massstab ist das VERHÄLTNIS ─────────────
+ * (Bauer „Farbabgleich 2", nach Mikes Sichtprüfung „die Texturen der
+ * Berghänge sind zu hell".)
+ *
+ * Die Zielzahlen oben sind Luma-Werte AUS DEN REFERENZBILDERN, und
+ * `design/look-referenz.md` sagt im selben Atemzug, dass ein Luma-
+ * Vergleich über Bilder hinweg falsch ist. Der Feinabgleich hat trotzdem
+ * gegen sie kalibriert — mit dem Ergebnis, dass die Cliff-Zeile ihre
+ * Zielluma auf die Zehntel trifft (Mittag am 45°-Hang: 102,9 gegen
+ * 104,4) und der Hang trotzdem grell aussieht. Der Grund steht in der
+ * einen Zahl, die das Vorbild BINNENBILDLICH vorgibt:
+ *
+ *                        Hangfels/Himmel   Moos/Himmel   Hangfels/Moos
+ *   Vorbild (Bild 3)          0,73            0,435          1,69
+ *   unser Stand c6a3fee       1,17            0,855          1,37
+ *
+ * Der hellste Boden stand also HELLER als der Himmel über ihm — ein
+ * Zustand, den das Vorbild nirgends zeigt. Um 17 Uhr, wo Mike gesehen
+ * hat, ist es noch deutlicher: die Cliff-Zeile misst dort 133,6.
+ *
+ * ── Warum die Zeilen gedämpft werden und nicht nur der Himmel ────────
+ * Beides. Der Himmel ist um denselben Faktor zu dunkel, in dem BEIDE
+ * Bodenverhältnisse danebenliegen (1,60 und 1,97) — deshalb ist der
+ * Tag-Keyframe `fogColorDay` mitgehoben worden (s.
+ * `shared/src/environment.ts`). Er allein reicht aber nicht: `fogColor`
+ * ist eine sRGB-Farbe mit Anschlag bei 1,0, und der Himmelsverlauf
+ * dämpft den Zenit zusätzlich auf 0,45/0,55/0,80 des Horizonts. Über
+ * etwa ×1,3 an der Bildluma kommt man so nicht hinaus, gebraucht wären
+ * ×1,6.
+ *
+ * ── Die Zahl für die Cliff-Zeile: die SÄTTIGUNG ──────────────────────
+ * Sie ist der belastbarste Zeuge, den diese Runde gefunden hat, weil sie
+ * ohne Belichtungsvergleich auskommt. Der Tonemapper (KHR-PBR-Neutral)
+ * ENTSÄTTIGT helle Werte; eine Fläche, die zu hell steht, verliert
+ * darüber ihre Farbe. Gemessen am 45°-Hang mittags:
+ *
+ *   Tönung [2,139, 1,024, 0,373]   Luma 102,9   S 0,338
+ *   Tönung × 0,6                   Luma  77,3   S 0,410
+ *   Vorbild (Bild 3, Hangfels tan)              S 0,408
+ *
+ * Genau bei ×0,6 hört das Ausbleichen auf, und die Zeile trifft die
+ * Sättigung des Vorbilds auf drei Tausendstel. Das ist die neue Zahl:
+ * [1,283, 0,614, 0,224]. Der Farbton bleibt dabei stehen (33,5 → 33,6
+ * gegen 30,5 im Vorbild, innerhalb der ±5°-Toleranz).
+ *
+ * Die Moss-Zeile folgt derselben Rechnung über `Hangfels/Moos = 1,6`
+ * (Mittel der beiden Moosstreifen des Vorbilds): [0,623, 0,460, 0,473].
+ *
+ * ── Und die Grass-Zeile: Grün muss dominieren ────────────────────────
+ * [1,378, 1,279, 1,032] hatte ROT über Grün. Auf einer Quelltextur mit
+ * R ≈ G (terrain-grass-a, linear 0,0399/0,0401/0,0007) heisst das: Der
+ * Wiesengrund KANN nicht grün werden. Gemessen (Mittag, ebener Blick)
+ * kam er auf 62,4/62,4/40,5 heraus — Rot und Grün auf dieselbe Zehntel
+ * gleich, also Khaki. Die neue Zeile [1,27, 1,35, 1,00] dreht das um
+ * (G/R = 1,063) und lässt die Luma stehen (+2,3 % rechnerisch). Die
+ * Referenzfarbe H 53 des Vorbilds bleibt damit knapp unterschritten —
+ * absichtlich: Bild 1 ist eine Nachmittagsaufnahme, ihre Wärme steckt im
+ * LICHT, und unser 17-Uhr-Licht bringt sie ohnehin mit.
  */
 export const ZUORDNUNG = [
   // Der Wiesengrund. Referenz: Bild 1, die Fläche ZWISCHEN den Büscheln
-  // (Luma 57,5, H 53, S 0,42) — unsere lag bei Luma 51,2 mit H 58.
-  // Es fehlte also vor allem Helligkeit, nicht Farbe.
-  /* 0  Grass      */ { name: 'Grass', schicht: 'grass-a', toenung: [1.378, 1.279, 1.032] },
+  // (Luma 57,5, H 53, S 0,42).
+  //
+  // 10.09.2026: [1,378, 1,279, 1,032] → [1,27, 1,35, 1,00]. Nicht die
+  // Helligkeit war falsch, sondern die REIHENFOLGE der Kanäle — Rot stand
+  // über Grün, und die Quelltextur bringt R ≈ G mit (linear
+  // 0,0399/0,0401/0,0007). Damit KANN der Grund nicht grün werden; er kam
+  // im Bild als Khaki heraus (Mittag, ebener Blick: 62,4/62,4/40,5), und
+  // Mikes Sichtprüfung sagte „es wirkt alles sehr braun". Jetzt ist
+  // G/R = 1,063, die Luma bleibt (rechnerisch +2,3 %).
+  //
+  // Die Referenz H 53 wird dabei bewusst NICHT angesteuert: Bild 1 ist
+  // eine Nachmittagsaufnahme, ihre Wärme steckt im LICHT und nicht in der
+  // Albedo. Gemessen an unserem eigenen Halm: mittags H 61,2, um 17 Uhr
+  // H 56,1 — das Vorbild steht auf H 56,0. Die Stunde bringt die Wärme
+  // mit; wer sie zusätzlich in die Tönung legt, zählt sie doppelt.
+  /* 0  Grass      */ { name: 'Grass', schicht: 'grass-a', toenung: [1.27, 1.35, 1] },
   /* 1  Forest     */ { name: 'Forest', schicht: 'moss', toenung: [0.88, 0.92, 0.85] },
   /* 2  Dirt       */ { name: 'Dirt', schicht: 'gravel', toenung: [1.15, 1.02, 0.85] },
   /* 3  Cleared    */ { name: 'Cleared', schicht: 'gravel-path', toenung: [0.9, 0.84, 0.74] },
@@ -229,7 +301,17 @@ export const ZUORDNUNG = [
   // Die Zahl 2,139 ist der Grund, aus dem oben die Zwei-Punkt-Rechnung
   // steht: Aus einer einzelnen Messung wäre 1,537 gefallen, und damit
   // blieb der Hang bei S 0,26 — sichtbar zu blass.
-  /* 5  Cliff      */ { name: 'Cliff', schicht: 'rock-rough', toenung: [2.139, 1.024, 0.373] },
+  //
+  // 10.09.2026: [2,139, 1,024, 0,373] → ×0,6 = [1,283, 0,614, 0,224].
+  // Mikes Befund „die Texturen der Berghänge sind zu hell", und er hat
+  // recht, obwohl die ZIELLUMA sass (Mittag 102,9 gegen 104,4): Der Hang
+  // stand HELLER als der Himmel über ihm — Hangfels/Himmel 1,17 gegen
+  // 0,73 im Vorbild, und um 17 Uhr misst die Zeile 133,6. Die Zahl 0,6
+  // kommt nicht aus dieser Ungleichung, sondern aus der SÄTTIGUNG (s.
+  // Nachtrag im Kopfkommentar): Bei ×0,6 hört das Ausbleichen durch den
+  // Tonemapper auf, und die Zeile trifft S 0,410 gegen S 0,408 des
+  // Vorbilds — ein Zeuge, der ohne Belichtungsvergleich auskommt.
+  /* 5  Cliff      */ { name: 'Cliff', schicht: 'rock-rough', toenung: [1.283, 0.614, 0.224] },
   /* 6  LavaEmber  */ { name: 'LavaEmber', schicht: 'rock-rough', toenung: [0.55, 0.4, 0.36] },
   /* 7  Ash        */ { name: 'Ash', altbestand: true },
   /* 8  Heath      */ { name: 'Heath', schicht: 'grass-b', toenung: [1.25, 1.12, 0.9] },
@@ -239,8 +321,16 @@ export const ZUORDNUNG = [
   // Farbe der 15°-bis-30°-Flanken, auf denen bei uns fast die halbe
   // Insel liegt. Referenz: Bild 3, die grünen Moosstreifen am Hang
   // (H 44, S 0,39); unsere lag bei H 65 mit S 0,35, also zu kühl.
-  // Die Luma bleibt (59,9 → 61,1).
-  /* 11 Moss       */ { name: 'Moss', schicht: 'moss', toenung: [1.317, 0.972, 1.0] },
+  //
+  // 10.09.2026: [1,317, 0,972, 1,0] → [0,623, 0,460, 0,473]. Der Farbton
+  // der Zeile bleibt unangetastet (R/G weiter 1,354), gedämpft wird
+  // allein die Helligkeit — über die EINE Beziehung, die das Vorbild für
+  // diese beiden Schichten GEMEINSAM angibt: `Hangfels/Moos` 1,69
+  // (Bild 3, Streifen 1) beziehungsweise 1,54 (Streifen 2). Unser Stand
+  // lag bei 1,37; nach der Dämpfung der Cliff-Zeile hätte er ohne diese
+  // Zeile bei 1,09 gelegen — das Moos wäre fast so hell gewesen wie der
+  // Fels darüber. Gezielt wird auf 1,6, das Mittel der beiden Streifen.
+  /* 11 Moss       */ { name: 'Moss', schicht: 'moss', toenung: [0.623, 0.46, 0.473] },
   /* 12 Paved      */ { name: 'Paved', schicht: 'gravel-path', toenung: [1, 1, 1] },
   /* 13 SwampDark  */ { name: 'SwampDark', schicht: 'gravel', toenung: [0.75, 0.75, 0.68] },
   /* 14 Basalt     */ { name: 'Basalt', schicht: 'rock-rough', toenung: [0.55, 0.53, 0.52] },

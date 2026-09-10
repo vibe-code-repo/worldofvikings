@@ -544,12 +544,82 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
     // exactly zero there and the sun goes black.
     name: ENV_KLAR_COMIC,
     fogColorMorning: c(0.3, 0.31, 0.34),
-    fogColorDay: c(0.68, 0.73, 0.79),
-    fogColorEvening: c(0.6, 0.65, 0.71),
+    /*
+      ── Der Tag-Himmel (10.09.2026) ─────────────────────────────────
+
+      0,68/0,73/0,79 → 0,83/0,87/0,92. Diese Farbe ist nicht nur Nebel:
+      `look.himmel.horizont` steht auf `nebel`, der HORIZONT DES HIMMELS
+      IST also dieser Wert, und `ValheimSky` leitet den Zenit als
+      0,45/0,55/0,80 davon ab. Wer hier dreht, dreht am Himmel.
+
+      Warum: Das Vorbild legt für den Tag-Himmel zwei Verhältnisse fest,
+      beide aus Bild 3 (`design/look-referenz.md`) —
+      `Hangfels/Himmel = 0,73` und `Moos/Himmel = 0,435`. Gemessen am
+      Stand `c6a3fee` (Mittag, EIN Bild mit Himmel, Hang und Wiese im
+      Rahmen): 1,17 und 0,855. Der Boden stand also HELLER als der
+      Himmel über ihm — ein Zustand, den keines der drei Vorbildbilder
+      zeigt.
+
+      Beide Verhältnisse liegen um denselben Faktor daneben (1,60 und
+      1,97), und das ist die Signatur EINES zu dunklen Himmels und nicht
+      zweier zu heller Bodenzeilen: Die Beziehung der Bodenzeilen
+      untereinander (`Hangfels/Moos`) lag mit 1,37 gegen 1,69 nur 20 %
+      daneben. Dazu passt die Sättigung — der Vorbildhimmel ist mit
+      S 0,133 ein heller Dunst, unserer war mit S 0,354 ein tiefes Blau.
+
+      Was die Zahl NICHT kann: Sie reicht nicht aus. `fogColor` ist eine
+      sRGB-Farbe mit Anschlag bei 1,0, und die Zenitableitung dämpft
+      zusätzlich; über etwa ×1,3 an der Bildluma des Himmels kommt man so
+      nicht hinaus, gebraucht wären ×1,6. Gemessen: Himmel 93,4 → 106,4,
+      `Hangfels/Himmel` 1,17 → 0,84 (zusammen mit der gedämpften
+      Cliff-Zeile). Der Rest sitzt in der Zenitableitung von
+      `ValheimSky.ts` und in der Belichtung — beides gehörte dieser Runde
+      nicht.
+
+      Abend, Morgen und Nacht bleiben unangetastet: Der Befund ist am TAG
+      gemessen, und `fogColorEvening` trägt die Kalibrierung des
+      Feinabgleichs (0,408 · Tag + 0,604 · Abend = Ziel #a3afbd bei 17 h).
+      Diese Summe verschiebt sich mit dem Tag-Keyframe um 0,408 ihres
+      Betrags; nachgemessen um 17 Uhr bewegt sich der Wiesengrund dabei
+      um weniger als eine Luma-Einheit, weil der Nebel bei Dichte 0,0012
+      auf den nahen Boden kaum wirkt.
+
+      The day fog colour IS the sky horizon (`look.himmel.horizont:
+      nebel`). Raised because the reference fixes two within-image sky
+      ratios that our sky missed by the same factor; see
+      design/look-referenz.md, addendum 2026-09-10.
+    */
+    fogColorDay: c(0.83, 0.87, 0.92),
+    /*
+      Nachgeführt zum Tag-Keyframe darüber, damit die GEWICHTETE SUMME
+      bei 17 h stehenbleibt — sie und nicht dieser Stützpunkt ist am Bild
+      kalibriert (Ziel #a3afbd = 0,639/0,686/0,741, s. den Block über
+      `sunColorMorning` und `server/test/stufe2-licht.ts`).
+
+      Die Rechnung, Kanal für Kanal, mit den Gewichten Tag 0,408 und
+      Abend 0,604 bei Tagesbruchteil 0,7083:
+
+        Abend = (Ziel − 0,408 · Tag) / 0,604
+              = ((0,639, 0,686, 0,741) − 0,408 · (0,83, 0,87, 0,92)) / 0,604
+              = (0,497, 0,548, 0,605)
+
+      Ohne diese Zeile wäre der Abendnebel um 0,408 der Tagesänderung
+      mitgewandert (gemessen: 0,701/0,748/0,805 statt 0,639/0,686/0,741),
+      und die 17-Uhr-Kalibrierung des Feinabgleichs wäre still verstellt
+      worden. Der Test hätte es gemerkt; die Zahl steht hier, damit man
+      nicht den Test anpasst.
+
+      Der ABEND selbst ist damit ausdrücklich NICHT nachgemessen: Der
+      Befund vom 10.09.2026 ist am Mittag entstanden, und die Vermutung,
+      dass der Abendhimmel dasselbe Missverhältnis trägt (`Hangfels/
+      Himmel` liegt um 17 Uhr noch höher als mittags), ist eine
+      Vermutung. Wer sie prüft, misst zuerst und dreht dann hier.
+    */
+    fogColorEvening: c(0.497, 0.548, 0.605),
     fogColorNight: c(0.145, 0.15, 0.169),
     fogColorSunMorning: c(0.3, 0.31, 0.34),
-    fogColorSunDay: c(0.68, 0.73, 0.79),
-    fogColorSunEvening: c(0.6, 0.65, 0.71),
+    fogColorSunDay: c(0.83, 0.87, 0.92),
+    fogColorSunEvening: c(0.497, 0.548, 0.605),
     fogColorSunNight: c(0.145, 0.15, 0.169),
     fogDensityMorning: 0.0016,
     fogDensityDay: 0.0009,

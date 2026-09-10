@@ -330,8 +330,56 @@ const quellFaktor = (mat) => mat?.pbrMetallicRoughness?.baseColorFactor ?? null;
  * kein Referenzbild — das Original zeigt in allen drei Aufnahmen
  * Wiesen- und Hanggras, kein Trockengras und keinen Schnee. `grasGelb`
  * bleibt damit die eine geschätzte Zeile, die sie schon war.
+ *
+ * ── Der zweite Eintrag: `ahorn` (10.09.2026) ─────────────────────────
+ * Mikes Sichtprüfung: „Bäume sind stellenweise sehr hell vom Blattlaub
+ * her, nicht alle, einzelne." Der Zensus über ALLE 94 Modelle sagt,
+ * welche. Gerechnet wird je Material die Albedo, wie sie am Bildschirm
+ * ankommt: der Atlasmittelwert über die DECKENDEN Texel (Alpha >= 128,
+ * linear) MAL dem `baseColorFactor`. Beides steht im Bestand, geschätzt
+ * ist daran nichts.
+ *
+ *   Modell(e)                    Material     linLuma   x Median
+ *   grass-short-clump-snow       grasSchnee    0.4688     3.41
+ *   tree-1e1, tree-1e2           ahorn         0.3287     2.39   <--
+ *   pine-1b1-0 … (5 Kiefern)     nadeln        0.1478     1.07
+ *   bush-1a2 … (6 Modelle)       laub          0.1476     1.07
+ *   branch-1a1 … (19 Modelle)    laub          0.1376     1.00
+ *   massive-/split-tree (12)     laub          0.1070     0.78
+ *   massive-…-1-dark (6)         laubDunkel    0.0840     0.61
+ *
+ * Der Median liegt bei 0,1376, die Schwelle „1,3 x" also bei 0,1788.
+ * ZWEI Zeilen stehen darüber, und nur eine davon ist ein Fehler:
+ *
+ *   grasSchnee ist SCHNEE. Der Atlas ist absichtlich fast weiss
+ *     (gemessen 0,707/0,708/0,704 sRGB), und `grass-short-clump-snow`
+ *     steht ausschliesslich in `GRAS_BUESCHEL_HOCHNORD`
+ *     (shared/src/storeFlora.ts) — auf der Wiese kommt er nicht vor.
+ *     Heller Schnee im Hohen Norden ist richtig, nicht auffaellig.
+ *
+ *   ahorn ist es NICHT. `tree-1e1`/`tree-1e2` stehen im Wiesen-Wald
+ *     (`wald: [true, 0.95, 1.4]`), also genau dort, wo Mike laeuft — und
+ *     sie sind mit 2,39 x Median doppelt so hell wie ihre Nachbarn. Der
+ *     Grund steht in zwei Zahlen: Der Ahorn-Atlas ist mit linear 0,383
+ *     der HELLSTE Laubatlas des Bestands (der gewoehnliche Laubatlas
+ *     liegt bei 0,174, also 2,2 x dunkler), und sein Store-Faktor
+ *     [0,62, 1,00, 0,20] daempft ihn NICHT — der Gruenkanal steht auf
+ *     dem Anschlag 1,0. Zwei Helligkeiten multiplizieren sich, keine
+ *     bremst.
+ *
+ * Genommen wird die gemessene Originalfarbe `Maple Leaves 1` aus den
+ * Spieldaten (`UNITY_LAUB.mapleLeaves1`, s. dort) — dieselbe Quelle, aus
+ * der die uebrigen Vorgaben stammen. Mit ihr faellt die Albedo auf
+ * 0,1482 linear, also 1,08 x Median: Der Ahorn steht damit neben Kiefer
+ * (1,07) und Busch (1,07) statt doppelt so hell.
+ *
+ * Warum der Vorrang der richtige Regler ist und nicht ein zusaetzlicher
+ * Daempfungsfaktor: Der Store-Faktor beschreibt bei diesem Material
+ * nachweislich nicht die Blattfarbe des Vorbilds — er laesst einen 2,2 x
+ * zu hellen Atlas ungebremst durch. Die Originalmessung tut es. Dieselbe
+ * Begruendung wie bei `gras`, nur an einem anderen Material.
  */
-const TOENUNG_VORRANG = new Set(['gras']);
+const TOENUNG_VORRANG = new Set(['gras', 'ahorn']);
 
 /**
  * Die Originalmaterialien aus den Spieldaten — die Herkunft der Zahlen
@@ -440,6 +488,82 @@ const KARTEN_ROLLEN = new Set([
   'grasBunt',
   'grasSchnee',
 ]);
+
+/**
+ * Dämpfung je Rolle — der EINE Regler für „Laub zu hell", ohne die
+ * Store-Faktoren einzuebnen.
+ *
+ * Sie multipliziert, was gewonnen hat (Store-Faktor oder Vorgabe), und
+ * hält damit die Unterschiede ZWISCHEN den Materialien: `Leaves Birch 1`
+ * bleibt heller als `Leaves 1`, beide werden nur gemeinsam leiser. Ein
+ * einzelner Faktor auf alle Vegetation wäre der bequeme Weg gewesen und
+ * hätte genau das zerstört, was die Store-Faktoren tragen.
+ *
+ * ── Woher die Zahl kommt (10.09.2026, Mittag) ────────────────────────
+ * Gemessen in EINEM Bild (`~/.cache/wov-lab/farbe-fernblick-vorher.png`,
+ * feste Rechtecke, `~/wov-lab-mess/farbe-rechtecke.py`), damit die
+ * Verhaeltnisse belastbar sind — ein Luma-Vergleich ueber zwei Aufnahmen
+ * hinweg waere es nicht (`design/look-referenz.md`, „Was diese Tabelle
+ * NICHT sagt"):
+ *
+ *              Kronen   Himmel   Boden    Kronen/Himmel   Kronen/Boden
+ *   unser       94.9     93.4     59.2        1.02            1.60
+ *   Vorbild     48.3    142.1     57.5        0.34            0.84
+ *
+ * Das Vorbild (Bild 1, Busch 1280,85–1420,200; Bild 3, Himmel) hat seine
+ * Kronen DUNKLER als die Wiese darunter. Bei uns standen sie 60 % darueber
+ * und genau auf der Himmelsluma — die Regel „kein Laub heller als der
+ * Himmel" war damit nicht knapp erfuellt, sondern gerissen.
+ *
+ * Und das ist zugleich die Erklaerung fuer Mikes ERSTEN Befund („die
+ * Farben des Bodens passen nicht, es wirkt alles sehr braun"), der auf
+ * den Boden zeigt und nicht am Boden liegt: Der Wiesengrund steht
+ * gemessen auf der Referenz (Vordergrund-Ausschnitt Mittag L 64,1 · H
+ * 54,4 · S 0,431 gegen Bild 1 L 52,9–61,9 · H 52–55 · S 0,42–0,46). Wenn
+ * ueber diesem Grund aber Kronen mit der 1,6-fachen Luma stehen, stellt
+ * sich das Auge auf DIE ein — und derselbe Grund liest sich als dunkler
+ * Lehm. Das Laub leiser zu stellen hebt den Boden, ohne ihn anzufassen.
+ *
+ * ── Die Rechnung ─────────────────────────────────────────────────────
+ * Laubkarten sind alphagetestete StandardMaterials, also Lambert: kein
+ * Himmelsterm, kein additiver Anteil. Nachgerechnet aus zwei Laeufen
+ * (Daempfung 1,0 und 0,6) auf denselben Bildpunkten, linear gerechnet:
+ *
+ *     I(t) = 0,1175 · t + (−0,003)
+ *
+ * Der Achsenabschnitt ist innerhalb der Messgenauigkeit NULL — anders als
+ * beim Boden, wo 4 bis 13 Prozent des Bildwertes aus dem Himmelsterm
+ * kommen (s. `tools/store-terrain-schichten.mjs`). Beim Laub ist die
+ * Daempfung deshalb ein direkter Regler auf die Bildluma.
+ *
+ * Gezielt wird auf Kronen ≈ 62, also Kronen/Boden ≈ 1,05 — die Bandbreite
+ * „Bild 1, Buesche/Baum L 60–70" aus Mikes Auftrag, nicht die 0,84 des
+ * Vorbilds. Begruendung: Mikes Befund lautet „nicht alle, einzelne", der
+ * Ausreisser (Ahorn, s. TOENUNG_VORRANG) ist getrennt behoben, und den
+ * Wald in einer Runde ganz auf 0,84 zu ziehen waere ein Umfaerben und
+ * keine Fehlerbehebung. `t = I(62)/0,1175 = 0,41`.
+ *
+ * Nachgemessen mit 0,41 am selben Rechteck: Kronen 69,7 (statt 94,9),
+ * Kronen/Himmel 0,655 (statt 1,016) — das Laub steht damit klar unter
+ * dem Himmel. Der Rest der Luecke zum Vorbild (0,34) ist NICHT Laub,
+ * sondern der Himmel selbst; die Zahlen dazu stehen in
+ * `design/look-referenz.md`, Nachtrag vom 10.09.2026.
+ *
+ * ── Warum alle fuenf Rollen denselben Faktor tragen ──────────────────
+ * Weil der Zensus sagt, dass die Familie ZUSAMMEN zu hell steht und nicht
+ * einzelne Mitglieder: ohne den Ahorn (der seinen eigenen Befund hat)
+ * liegen alle Laubmaterialien zwischen 0,61 und 1,07 × Median. Ein
+ * unterschiedlicher Faktor je Rolle wuerde eine Ordnung erfinden, die in
+ * keiner Messung steht. Wer spaeter eine Rolle einzeln nachzieht, tut es
+ * genau hier — und braucht dafuer eine Zahl, keine Meinung.
+ */
+const TOENUNG_DAEMPFUNG = {
+  laub: [0.41, 0.41, 0.41],
+  laubDunkel: [0.41, 0.41, 0.41],
+  laubSchnee: [0.41, 0.41, 0.41],
+  nadeln: [0.41, 0.41, 0.41],
+  ahorn: [0.41, 0.41, 0.41],
+};
 
 // ── GLB lesen und schreiben ──────────────────────────────────────────
 
@@ -1211,8 +1335,17 @@ for (const datei of dateien) {
     const vorrang = TOENUNG_VORRANG.has(eintrag.rolle)
       ? (TOENUNG_VORGABE[eintrag.rolle] ?? null)
       : null;
-    const toenung = vorrang ?? ausStore ?? TOENUNG_VORGABE[eintrag.rolle] ?? null;
-    eintrag.toenungQuelle = vorrang ? 'Vorrang' : ausStore ? 'Store' : toenung ? 'Vorgabe' : 'ohne';
+    const gewaehlt = vorrang ?? ausStore ?? TOENUNG_VORGABE[eintrag.rolle] ?? null;
+    // Die Dämpfung (s. TOENUNG_DAEMPFUNG) multipliziert, was gewonnen
+    // hat — sie ERSETZT nichts. Alpha (Index 3) bleibt unangetastet: es
+    // ist keine Farbe, und ein gedämpftes Alpha wäre ein halbdurch-
+    // sichtiges Blatt.
+    const daempfung = TOENUNG_DAEMPFUNG[eintrag.rolle] ?? null;
+    const toenung = gewaehlt && daempfung
+      ? gewaehlt.map((v, i) => (i < 3 ? +(v * daempfung[i]).toFixed(4) : v))
+      : gewaehlt;
+    eintrag.toenungQuelle = (vorrang ? 'Vorrang' : ausStore ? 'Store' : gewaehlt ? 'Vorgabe' : 'ohne')
+      + (daempfung ? '+D' : '');
     const schluessel = `${eintrag.rolle}|${uri}|${JSON.stringify(toenung)}`;
     if (!indexJeSchluessel.has(schluessel)) {
       indexJeSchluessel.set(schluessel, neueMaterialien.length);

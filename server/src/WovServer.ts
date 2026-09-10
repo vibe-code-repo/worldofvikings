@@ -2064,11 +2064,9 @@ export class WovServer {
       peer.stamina = aus.wert;
       peer.staminaZuletztVerbraucht = aus.zuletztVerbraucht;
     }
+    // Der Versand steht NICHT hier, sondern am Ende dieser Methode —
+    // s. den Kommentar dort. Hier laeuft nur die Uhr weiter.
     peer.staminaSyncAkku = (peer.staminaSyncAkku ?? 0) + deltaSec;
-    if (peer.staminaSyncAkku >= 0.25) {
-      peer.staminaSyncAkku = 0;
-      this.sendPlayerState(peer);
-    }
 
     let newPos: Vector3;
 
@@ -2112,6 +2110,38 @@ export class WovServer {
       this.zdosVon(peer).updateZDOZone(charZDO, newPos);
       charZDO.revision.reviseData();
       charZDO.dirty = true;
+    }
+
+    /*
+      Vitals- und Positionsmeldung — NACH der Bewegung, nicht davor.
+      ------------------------------------------------------------------
+      Bis heute stand dieser Aufruf oben, direkt hinter der Ausdauer. Das
+      Paket meldete damit `peer.position` aus dem VORIGEN Takt, trug aber
+      `peer.lastInputSeq` aus dem AKTUELLEN — die beiden Felder gehörten
+      nicht zusammen. Der Client, der seine eigene Position zu genau
+      dieser Sequenznummer nachschlägt (client/src/net/Positionsverlauf.ts),
+      verglich dann zwei verschiedene Zeitpunkte und maß einen Versatz von
+      einem ganzen Bewegungsschritt, den es nicht gab. Hier unten gehört
+      der gemeldete `seq` zur gemeldeten Stelle.
+
+      TAKT: 0,1 s statt 0,25 s.
+      Bandbreite: die Nutzlast ist 24 Byte (health f32, stamina f32,
+      Vector3 3×f32, seq i32), mit Pakettyp-Byte und WebSocket-Rahmen
+      (2 Byte, unmaskiert, Nutzlast < 126) rund 27 Byte auf der Leitung.
+      4 Hz waren 108 B/s je Spieler, 10 Hz sind 270 B/s — ein Zuwachs von
+      162 B/s ≈ 1,3 kbit/s je Spieler. Bei 100 gleichzeitigen Spielern
+      sind das 27 kB/s ≈ 216 kbit/s ausgehend für den ganzen Server; das
+      ZDO-Streaming derselben Spieler bewegt ein Vielfaches davon. Der
+      Takt ist bewusst nicht an den Eingabetakt (20 Hz) gekoppelt: 10 Hz
+      halten das Alter der Meldung unter der Zeitkonstante des weichen
+      Nachziehens (τ 0,4 s), mehr bringt für den Abgleich nichts.
+
+      Andere Aufrufer von sendPlayerState (Schaden, Respawn, Essen …)
+      bleiben unberührt — sie melden ohnehin außer der Reihe.
+    */
+    if (peer.staminaSyncAkku >= 0.1) {
+      peer.staminaSyncAkku = 0;
+      this.sendPlayerState(peer);
     }
   }
 

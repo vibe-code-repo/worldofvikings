@@ -118,7 +118,7 @@ export class Peer {
   stamina: number;
   /** Zeitstempel (ms) des letzten Ausdauer-Verbrauchs — Regen-Sperre 1,5 s. */
   staminaZuletztVerbraucht: number;
-  /** Akku fuer den 4-Hz-PlayerState-Versand (s). */
+  /** Akku fuer den 10-Hz-PlayerState-Versand (s), s. WovServer.handlePlayerInput. */
   staminaSyncAkku?: number;
   /**
    * Parade: Zeitstempel (ms), bis zu dem Treffer abgewehrt werden. 0 =

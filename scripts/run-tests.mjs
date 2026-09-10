@@ -1142,9 +1142,17 @@ const KERN = [
   //     und misst die Vorladung. Sein (c)-Teil laeuft absichtlich auch
   //     ohne Speicher (leere Quelle, kein Absturz) — die Weiche steht
   //     trotzdem, weil (a) und (b) die Dateien brauchen. ~2 s.
+  //
+  //  4. `server/test/kollision-einhaengung.ts` setzt eine ECHTE Felsform
+  //     ueber die VORGABEWURZEL in die Kollisionswelt und schiesst
+  //     darauf. Er deckt die Naht ab, die keiner der drei anderen sieht:
+  //     Wurzel, Skalierungskette und die (−x,y,z)-Abbildung — letztere
+  //     als Gleichung (Fels und Strahl gedreht ergeben R·P) und nicht als
+  //     Plausibilitaet. ~3 s.
   ['shared', 'test/kollision-mengen.ts'],
   ['client', 'test/kollision-formen.ts', brauchtStore()],
   ['server', 'test/kollision-formen.ts', brauchtStore()],
+  ['server', 'test/kollision-einhaengung.ts', brauchtStore()],
   ['tools', 'test/store-erzeugung.ts', brauchtStore()],
   ['tools', 'test/store-einsortierung.ts', brauchtModelle('assets/store')],
 

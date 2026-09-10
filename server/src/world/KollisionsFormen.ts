@@ -43,10 +43,24 @@ import {
 } from '@wov/shared';
 import { leseGlb, type GlbNetz } from '@wov/shared/src/kollision/glb.js';
 
-/** `<repo>/assets` — dieselbe Wurzel, aus der auch der Client lädt. */
+/**
+ * `<repo>/assets` — dieselbe Wurzel, aus der auch der Client lädt.
+ *
+ * DREI Schritte hinauf, nicht vier: Diese Datei liegt in
+ * `server/src/world/`, also `world → src → server → <repo>`. Das
+ * benachbarte `dungeon/ModuleBuild.ts` braucht vier, weil es eine Ebene
+ * tiefer steht — wer die Zeile von dort übernimmt, landet ÜBER dem Repo.
+ * Das fällt nicht auf: Eine Wurzel, die es nicht gibt, ist genau der Fall
+ * „kein Speicher im CI-Checkout", und dann meldet `vorladen()` brav null
+ * Formen und der Server läuft ohne ein einziges Hindernis weiter.
+ * Gemessen mit `existsSync` (s. `server/test/kollision-einhaengung.ts`).
+ *
+ * Gilt für beide Startarten: `tsx src/main.ts` (Quelle) und `dist/` —
+ * `rootDir: src` erhält die Tiefe.
+ */
 export const ASSET_WURZEL = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../../assets'
+  '../../../assets'
 );
 
 /**

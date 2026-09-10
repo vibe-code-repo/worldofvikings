@@ -10,6 +10,7 @@ import { createWovServer } from './WovServer.js';
 import { leseServerKonfig } from './ServerKonfig.js';
 import { instanzName } from '@wov/shared/src/instanz.js';
 import { ladeModulRegistrierung } from './world/dungeon/ModuleBuild.js';
+import { ASSET_WURZEL, KollisionsFormen } from './world/KollisionsFormen.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = resolve(__dirname, '../data');
@@ -72,6 +73,47 @@ for (const zeile of modulStand.warnungen) console.warn(`[Modulbau] ${zeile}`);
 for (const zeile of modulStand.meldungen) console.error(`[Modulbau] abgelehnt: ${zeile}`);
 
 const server = createWovServer(config);
+
+/*
+  DIE EINE EINHAENGESTELLE.
+
+  Bis hierher sind die beiden Haelften unabhaengig: `KollisionsFormen`
+  (server/src/world/KollisionsFormen.ts) WEISS, welche Form ein Prefab
+  hat, und `Kollisionswelt` (server/src/world/Kollisionswelt.ts) RECHNET
+  damit — kennt aber ohne diese Zeile nur die leere Quelle und laesst die
+  Figur wie vor dem Umbau durch jeden Felsen laufen. Beide Seiten sprechen
+  denselben Raum (s. shared/src/kollision/form.ts): Formen stehen in
+  Clientkoordinaten, lokal zur Instanz, VOR Drehung und Skalierung — die
+  legt `Kollisionswelt.baueKoerper` mit derselben Kette an wie
+  `composeZdoWorld` im Client.
+
+  Vorgeladen wird HIER und nicht beim ersten Schritt: Eine GLB zu lesen
+  dauert Millisekunden, und die faenden sonst mitten im Bewegungsschritt
+  statt — als Ruckler fuer genau den Spieler, der zuerst an diesem Fels
+  vorbeilaeuft.
+*/
+const kollisionsFormen = new KollisionsFormen();
+const kollisionsStand = kollisionsFormen.vorladen();
+server.kollisionswelt.setzeFormQuelle(kollisionsFormen);
+console.log(
+  `[Kollision] ${kollisionsStand.fest} feste Koerper aus ${kollisionsStand.geladen} Prefabs in ${kollisionsStand.ms} ms`
+);
+/*
+  Null feste Koerper ist der EINE Zustand, den man nicht sieht: Der Server
+  laeuft, die Welt sieht normal aus, und erst beim Laufen gegen einen
+  Felsen merkt man, dass er keiner ist. Im CI-Checkout ohne `assets/` ist
+  das richtig und erwartet — auf einem Server MIT Speicher ist es ein
+  Fehler, und dann soll er in der ersten Bildschirmseite stehen.
+*/
+if (kollisionsStand.fest === 0) {
+  console.warn(
+    `[Kollision] KEINE Formen — Spieler laufen durch alle Hindernisse. Wurzel: ${ASSET_WURZEL}`
+  );
+} else if (kollisionsStand.fehlend > 0) {
+  console.warn(
+    `[Kollision] ${kollisionsStand.fehlend} Modelldatei(en) fehlen, z. B. ${kollisionsFormen.fehlendeDateien.slice(0, 5).join(', ')}`
+  );
+}
 
 // Graceful shutdown
 process.on('SIGINT', () => {

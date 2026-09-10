@@ -1383,8 +1383,15 @@ export class AvatarRig {
       const dx = soll.x - ist.x;
       const dz = soll.z - ist.z;
       if (Math.abs(dx) < 1e-4 && Math.abs(dz) < 1e-4) continue;
+      // Babylon fuehrt das erste Schluesselbild doppelt (keys[0] und keys[1]
+      // zeigen auf DASSELBE Vector3); wer stur ueber die Liste geht, schiebt
+      // den Anfang doppelt und den Rest einfach — gemessen am 10.09.:
+      // z 0,101 am Anfang, 0,051 am Ende. Deshalb je Objekt nur einmal.
+      const gesehen = new Set<Vector3>();
       for (const k of keys) {
         const v = k.value as Vector3;
+        if (gesehen.has(v)) continue;
+        gesehen.add(v);
         v.x += dx;
         v.z += dz;
       }

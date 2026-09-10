@@ -2034,6 +2034,9 @@ async function main() {
       // die Quere — s. Kommentar in WovServer.sendPlayerState.
       if (reader.remaining >= 4) letzterBestaetigterInputSeq = reader.readInt32();
       hud.setVitals(health, stamina);
+      // Ausdauer-Abgleich: Der Server ist die Wahrheit, der Controller rechnet
+      // sie zwischen zwei Paketen nur mit (PlayerController.setzeServerAusdauer).
+      player?.setzeServerAusdauer(stamina);
       // Dieselbe Zahl im eigenen Namensschild — eine Quelle, zwei Anzeigen.
       namensschilder?.setSpielerLeben(health);
     });

@@ -16,6 +16,7 @@ import {
   CharacterSupportedState,
 } from '@babylonjs/core/Physics/v2/characterController';
 import { WATER_LEVEL } from '@wov/shared';
+import { ausdauerSchritt, AUSDAUER_REGEL } from '@wov/shared/src/bewegung/ausdauer.js';
 import type { Scene } from '@babylonjs/core/scene';
 import type { InputManager } from '../engine/InputManager';
 import type { ClientWorld } from '../world/World';
@@ -209,6 +210,18 @@ export class PlayerController {
    */
   private _figurYaw = 0;
   private _moveIntent = { x: 0, z: 0, running: false };
+  /**
+   * Mitgerechnete Ausdauer — dieselbe Regel wie im Server.
+   *
+   * Vorher kannte der Client keine Ausdauer: Er rannte, solange Shift lag,
+   * während der Server nach rund zehn Sekunden auf Gehtempo fiel. Nach
+   * 20 s Sprint standen 190 m gegen 122 m, und der weiche Abgleich in
+   * `main.ts` zog die Figur ruckweise zurück — für Mike sah das aus wie
+   * Lag. Der Wert hier ist eine VORHERSAGE; die Wahrheit kommt vom Server
+   * (`setzeServerAusdauer`, PlayerState alle 0,25 s).
+   */
+  private ausdauer = AUSDAUER_REGEL.max;
+  private ausdauerZuletztVerbraucht = 0;
   /** Aktueller Kameraabstand — vom Mausrad zwischen BOOM_MIN und BOOM_MAX bewegt. */
   private boomLength = BOOM_LENGTH;
   /**
@@ -690,6 +703,18 @@ export class PlayerController {
   get pitch(): number { return this._pitch; }
   /** World-space move intent (same values sent to the server). */
   get moveIntent(): { x: number; z: number; running: boolean } { return this._moveIntent; }
+  /** Mitgerechnete Ausdauer (0..100) — nur zum Ablesen (HUD, Messung). */
+  get ausdauerStand(): number { return this.ausdauer; }
+  /**
+   * Serverwert übernehmen. Der Server hat recht, nicht die Vorhersage.
+   *
+   * Wird aus dem PlayerState-Paket gefüttert (viermal je Sekunde). Die
+   * Uhr-Marke bleibt lokal: Sie steht ohnehin auf demselben Takt, weil
+   * beide Seiten sie setzen, sobald gerannt wird.
+   */
+  setzeServerAusdauer(wert: number): void {
+    if (Number.isFinite(wert)) this.ausdauer = wert;
+  }
 
   /** dt in seconds. */
   update(dt: number): void {
@@ -708,7 +733,24 @@ export class PlayerController {
     if (this.input.isDown('KeyA')) mx -= 1;
     if (this.input.isDown('KeyD')) mx += 1;
 
-    const running = this.input.isDown('ShiftLeft');
+    // Ausdauer mitrechnen — dieselbe Funktion, die der Server rechnet.
+    // `rennWunsch` geht unverändert an den Server (er bleibt autoritativ);
+    // `running` ist das, was hier tatsächlich passiert. Im Baumodus und im
+    // Warten (frozen) zehrt nichts: Dort geht kein Bewegungswunsch hinaus,
+    // der Server verbraucht also auch nichts.
+    const rennWunsch = this.input.isDown('ShiftLeft');
+    const ausdauer = ausdauerSchritt(
+      { wert: this.ausdauer, zuletztVerbraucht: this.ausdauerZuletztVerbraucht },
+      {
+        rennWunsch,
+        bewegt: (mx !== 0 || mz !== 0) && !this._bauModus && !this.frozen,
+        dt,
+        jetzt: Date.now(),
+      }
+    );
+    this.ausdauer = ausdauer.wert;
+    this.ausdauerZuletztVerbraucht = ausdauer.zuletztVerbraucht;
+    const running = ausdauer.rennt;
     const speed = running ? RUN_SPEED : WALK_SPEED;
 
     // Leertaste als FLANKE, nicht als Dauerzustand: Gedrückthalten soll nicht
@@ -746,7 +788,7 @@ export class PlayerController {
       wx /= len;
       wz /= len;
     }
-    this._moveIntent = { x: wx, z: wz, running };
+    this._moveIntent = { x: wx, z: wz, running: rennWunsch };
 
     if (this._bauModus) {
       // ── Schweben im Baumodus ────────────────────────────────────────
@@ -755,7 +797,9 @@ export class PlayerController {
       // frozen-Zweig darunter jeden Frame festgenagelt, damit Havok keine
       // Fallgeschwindigkeit ansammelt — beim Abschalten fällt die Figur
       // dann mit der normalen Weltgravitation zu Boden.
-      const tempo = running ? BAU_FLUG_TEMPO_SCHNELL : BAU_FLUG_TEMPO;
+      // Schweben kostet keine Ausdauer, also entscheidet hier der reine
+      // Tastenwunsch — `running` wäre im Baumodus immer false.
+      const tempo = rennWunsch ? BAU_FLUG_TEMPO_SCHNELL : BAU_FLUG_TEMPO;
       if (moving) {
         this.position.x += wx * tempo * dt;
         this.position.z += wz * tempo * dt;

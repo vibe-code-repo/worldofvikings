@@ -938,6 +938,25 @@ const KERN = [
   */
   ['shared', 'test/bewegung-schritt.ts'],
   ['server', 'test/kollision-schritt.ts'],
+  /*
+    Die Ausdauerregel, nach dem Umzug nach `shared/src/bewegung/ausdauer.ts`.
+
+    Warum sie einen eigenen Eintrag bekommt: Sie entscheidet ueber das
+    TEMPO (7,5 gegen 4,5 m/s) und damit ueber eine Wegstrecke. Solange nur
+    der Server sie kannte, lief der Client nach 20 s Sprint 190 m weit,
+    waehrend der Server bei 122 m stand — der weiche Abgleich zog die Figur
+    die ganze Zeit zurueck, und das sah aus wie Lag. Der Test haelt fest,
+    dass der Server nach dem Umbau BITGLEICH dasselbe rechnet (100 Pakete
+    durch `handlePlayerInput` mit gestellter Uhr, dazu ein 20-s-Sprint bis
+    in den Saegezahn) und dass zwei verschiedene Takte — Client 60 Hz,
+    Server 20 Hz — dabei nicht auseinanderlaufen.
+
+    Kein Netz, keine GPU, ~2 s.
+
+    The stamina rule after its move into `shared`: server behaviour must be
+    bit-identical, and client (60 Hz) and server (20 Hz) must stay in step.
+  */
+  ['server', 'test/ausdauer-abgleich.ts'],
   // G1-Durchsicht: einziger E2E-Test fuer Dungeon-Betreten/-Verlassen ueber
   // echten WebSocket-Handshake. War tot durch ZWEI unabhaengige
   // Test-Bugs (Handshake-HMAC und ZDOSync-Parser bauten die Produktivlogik

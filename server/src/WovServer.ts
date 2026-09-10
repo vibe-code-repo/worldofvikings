@@ -131,6 +131,14 @@ import { erfasseTick, schliesseSekundeAb } from './Metriken.js';
 import type { MetrikSchnappschuss } from '@wov/shared/src/metrik.js';
 // G12 Schritt 1: strukturierte Logs hinter einem Schalter, s. Kopfkommentar.
 import { strukturLog } from './util/StrukturLog.js';
+// Die Ausdauerregel liegt seit dem Ausdauer-Abgleich in `shared`, damit der
+// Client sie MITRECHNEN kann — vorher kannte nur diese Datei sie, der Client
+// rannte weiter, und der Abgleich zog die Figur staendig zurueck.
+import {
+  ausdauerAbzug,
+  ausdauerSchritt,
+  AUSDAUER_REGEL,
+} from '@wov/shared/src/bewegung/ausdauer.js';
 
 export interface ServerConfig {
   name: string;
@@ -211,6 +219,14 @@ export interface ServerConfig {
 const PARADE_FENSTER_MS = 600;
 /** Parade: Ausdauerkosten (ein Schlag kostet 8). */
 const PARADE_AUSDAUER = 4;
+/**
+ * Schlag: Ausdauerkosten.
+ *
+ * Stand frueher als blanke 8 zweimal in `handleAttack`. Sie gehoert
+ * NICHT in die gemeinsame Ausdauerregel: Was ein Schlag kostet, ist eine
+ * Kampfzahl, und `ausdauerAbzug` nimmt die Kosten deshalb als Parameter.
+ */
+const SCHLAG_AUSDAUER = 8;
 const DEFAULT_CONFIG: ServerConfig = {
   name: 'World of Vikings Server',
   password: '',
@@ -2034,15 +2050,19 @@ export class WovServer {
     // dadurch nie ein frisches PlayerState, seine Reconciliation hielt an
     // der letzten OBERWELT-Position fest und zog den Spieler immer wieder
     // neben den Eingang zurück (Nutzerbericht 2026-08-03).
+    // Die Regel selbst steht in `shared/src/bewegung/ausdauer.ts` — dieselbe
+    // Funktion rechnet der Client je Bild mit. Die Zahlen und die Reihenfolge
+    // sind unveraendert; hier bleibt nur die Frage stehen, ob sie ueberhaupt
+    // gilt (im Admin-Flug gilt sie nicht).
     const bewegt = moveX !== 0 || moveZ !== 0;
-    const rennt = !peer.flying && running && bewegt && peer.stamina > 0;
+    const aus = ausdauerSchritt(
+      { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
+      { rennWunsch: !peer.flying && running, bewegt, dt: deltaSec, jetzt: now }
+    );
+    const rennt = !peer.flying && aus.rennt;
     if (!peer.flying) {
-      if (rennt) {
-        peer.stamina = Math.max(0, peer.stamina - 10 * deltaSec);
-        peer.staminaZuletztVerbraucht = now;
-      } else if (now - peer.staminaZuletztVerbraucht > 1500 && peer.stamina < 100) {
-        peer.stamina = Math.min(100, peer.stamina + 14 * deltaSec);
-      }
+      peer.stamina = aus.wert;
+      peer.staminaZuletztVerbraucht = aus.zuletztVerbraucht;
     }
     peer.staminaSyncAkku = (peer.staminaSyncAkku ?? 0) + deltaSec;
     if (peer.staminaSyncAkku >= 0.25) {
@@ -2508,9 +2528,14 @@ export class WovServer {
     // Faust. handleHarvest bekommt dieselbe geprüfte Waffe weitergereicht,
     // eine zweite Prüfung dort erübrigt sich.
     waffe = gepruefteWaffe(peer.inventar, waffe);
-    if (peer.stamina < 8) return;
-    peer.stamina -= 8;
-    peer.staminaZuletztVerbraucht = Date.now();
+    const nachSchlag = ausdauerAbzug(
+      { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
+      SCHLAG_AUSDAUER,
+      Date.now()
+    );
+    if (!nachSchlag) return;
+    peer.stamina = nachSchlag.wert;
+    peer.staminaZuletztVerbraucht = nachSchlag.zuletztVerbraucht;
     this.sendPlayerState(peer);
     const schaden = WAFFEN_SCHADEN[waffe] ?? 4; // Faust
     let ziel: import('./zdo/ZDO.js').ZDO | null = null;
@@ -2643,9 +2668,14 @@ export class WovServer {
    * entscheidet nur ueber die Wirkung — wie beim Schlag.
    */
   private handleParry(peer: Peer): void {
-    if (peer.stamina < PARADE_AUSDAUER) return;
-    peer.stamina -= PARADE_AUSDAUER;
-    peer.staminaZuletztVerbraucht = Date.now();
+    const nachParade = ausdauerAbzug(
+      { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
+      PARADE_AUSDAUER,
+      Date.now()
+    );
+    if (!nachParade) return;
+    peer.stamina = nachParade.wert;
+    peer.staminaZuletztVerbraucht = nachParade.zuletztVerbraucht;
     peer.paradeBis = Date.now() + PARADE_FENSTER_MS;
     this.sendPlayerState(peer);
   }
@@ -2672,7 +2702,7 @@ export class WovServer {
       if (peer.health <= 0) {
         // Tod: zurück zum Weltspawn, volle HP — Betten/Gräber später.
         peer.health = 100;
-        peer.stamina = 100;
+        peer.stamina = AUSDAUER_REGEL.max;
         if (peer.dungeonId) this.leaveDungeon(peer);
         const wieder = peer.spawnPoint ?? this.weltSpawn();
         this.teleportPeer(peer, { ...wieder }, null);

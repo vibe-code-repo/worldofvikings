@@ -938,6 +938,23 @@ const KERN = [
   */
   ['shared', 'test/bewegung-schritt.ts'],
   ['server', 'test/kollision-schritt.ts'],
+  /*
+    Der Kugel-Sweep (11.09.2026): Ecken, Wandenden und die laterale
+    Luecke, die die drei versetzten Strahlen davor gelassen haben. Sein
+    wichtigster Teil ist ein ZAEHLBEWEIS — ein Scan ueber Winkel und
+    Standort rund um ein Wandende zaehlt die Einzelschritte, die die Wand
+    beruehren wuerden und trotzdem nicht gemeldet werden. Mit den Strahlen
+    waren es bis zu 18,9 %, jetzt sind es 0; die alten Zahlen stehen im
+    Test, damit ein Rueckfall nicht nur „rot" ist, sondern beziffert.
+
+    Ohne Welt und ohne Netz: dieselbe `nahfeldAus`-Bank wie in
+    `kollision-schritt.ts`, reine Geometrie. ~10 s (der Scan wirft rund
+    16.000 Abfragen).
+
+    Swept-sphere collision: corners, wall ends, and the lateral gap the
+    three offset rays used to leave. Counting proof plus fixed cases.
+  */
+  ['server', 'test/kollision-ecke.ts'],
   // G1-Durchsicht: einziger E2E-Test fuer Dungeon-Betreten/-Verlassen ueber
   // echten WebSocket-Handshake. War tot durch ZWEI unabhaengige
   // Test-Bugs (Handshake-HMAC und ZDOSync-Parser bauten die Produktivlogik

@@ -164,6 +164,13 @@ const IK_GEWICHT_AN = 10;
 const IK_GEWICHT_AUS = 2;
 /** Boden weiter unter dem Fuss als das zaehlt nicht mehr (Kante, Grube). */
 const IK_REICHWEITE = 0.9;
+/**
+ * m_FootOffsetAdjustment des Originals (0,005 im Spielerprefab der Steam-
+ * Fassung, ausgelesen am 10.09.2026): Der Fuss wird 5 mm tiefer gesetzt
+ * als seine Ruhehoehe ueber dem Boden, damit die Sohle nie sichtbar
+ * schwebt.
+ */
+const IK_SOHLE_ABSENKUNG = 0.005;
 /** Abstand (m) vor/hinter dem Knoechel fuer die Hangneigung unter dem Fuss. */
 const IK_NEIGUNG_SCHRITT = 0.12;
 
@@ -1923,7 +1930,7 @@ export class AvatarRig {
       // Nur DAS wird gehoben — ein Fuss ueber dem Boden bleibt, wie die
       // Animation ihn setzt (Original: Bedingung `… - footOffset - hipsOffset < 0`).
       const eindringen = Number.isFinite(boden) && rigBoden - boden <= IK_REICHWEITE
-        ? boden - (A.y - this.knoechelHoehe)
+        ? boden - IK_SOHLE_ABSENKUNG - (A.y - this.knoechelHoehe)
         : 0;
       const aktiv = eindringen > 0.003;
       const zielGewicht = aktiv ? 1 : 0;

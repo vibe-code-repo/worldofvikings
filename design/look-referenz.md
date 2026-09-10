@@ -202,3 +202,143 @@ diese Schicht am STEILSTEN Hang misst, misst sie nicht. Ab 40° zieht
 „rock-a"-Bildpunkte zu grossen Teilen heller Fels. Eine Tönungsänderung
 an `rock-a` schien dort in die Gegenrichtung zu wirken — sichtbar war in
 Wahrheit die Cliff-Zeile.
+
+## Nachtrag 10.09.2026: die VERHÄLTNISSE sind der Massstab
+
+Mikes Sichtprüfung nach dem Ausrollen von `c6a3fee`: „Die Farben des
+Bodens passen nicht — es wirkt alles sehr braun; die Texturen der
+Berghänge sind zu hell; prüfe nochmal die Bilder. Bäume sind stellenweise
+sehr hell vom Blattlaub her, nicht alle, einzelne."
+
+Die Messung dazu hat drei Dinge ergeben, und das erste ist unbequem:
+**Die Bodenzeilen trafen ihre Zielzahlen.** Der Wiesengrund stand mittags
+im Vordergrund-Ausschnitt auf L 64,1 · H 54,4 · S 0,431 gegen L 52,9–61,9
+· H 52–55 · S 0,42–0,46 im Vorbild, und die Cliff-Zeile am 45°-Hang auf
+L 102,9 gegen 104,4. Wer also nur die Luma-Spalten der Tabelle oben
+abhakt, findet keinen Fehler — und sieht trotzdem, was Mike sieht.
+
+Der Fehler steht in den Spalten, die diese Datei selbst als die
+belastbaren bezeichnet, und die bis heute niemand nachgerechnet hat:
+
+| Verhältnis (Mittag, EIN Bild) | Vorbild | `c6a3fee` | nach dieser Runde |
+| --- | --- | --- | --- |
+| Hangfels / Himmel | 0,73 | 1,18 | 0,84 |
+| Moos / Himmel | 0,435 | 0,855 | 0,62 |
+| Hangfels / Moos | 1,69 | 1,37 | 1,33 |
+| Kronen / Himmel | 0,34 | 1,02 | 0,65 |
+| Kronen / Boden | 0,84 | 1,60 | 1,48 |
+| Büschel / Grund | 1,12 | 1,07 | 1,06 |
+| Himmel (Luma) | 142,1 | 93,4 | 111,6 |
+| Kronen (Luma) | 48,3 | 94,9 | 72,1 |
+
+Die `Hangfels`-Zeile der Tabelle steht auf dem FERNEN Hangband (Dunst
+dazwischen). Nah am 45°-Hang, wo der Nebel nichts beiträgt, sieht es so
+aus — und hier steht auch der Zeuge, aus dem die Zahl 0,6 stammt:
+
+| 45°-Hang, `rock-rough` | Luma | H | S |
+| --- | --- | --- | --- |
+| Vorbild (Bild 3, Hangfels tan) | 104,4 | 30,5 | **0,408** |
+| `c6a3fee`, Mittag | 102,9 | 33,5 | 0,338 |
+| nachher, Mittag | 79,4 | 33,4 | 0,352 |
+| nachher, am Hang mit Himmel im Bild | 76,1 | 33,6 | **0,410** |
+| `c6a3fee`, 17 Uhr | **133,6** | 27,9 | 0,339 |
+| nachher, 17 Uhr | 107,1 | 27,8 | 0,364 |
+
+Die Zielluma sass also schon vorher — was fehlte, war die Sättigung, und
+die kommt nicht aus einer Tönung, sondern aus dem Tonemapper: KHR-PBR-
+Neutral entsättigt helle Werte, und eine Fläche, die zu hell steht,
+verliert darüber ihre Farbe. Bei ×0,6 hört das auf.
+
+Und der andere Grund, aus dem die Luma allein nichts gesagt hat: Um
+17 Uhr, wo Mike gesehen hat, stand dieselbe Zeile auf 133,6 statt 104,4.
+Die Kalibrierung war gegen MITTAG gefahren, der Befund kam vom Abend.
+
+Gemessen mit `~/wov-lab-mess/farbe-rechtecke.py` auf
+`~/.cache/wov-lab/farbe-fernblick-{vorher,nachher}.png` — einer Pose, in
+der Himmel, Kronen, Hangband und Wiesengrund gleichzeitig im Rahmen
+stehen. Nur so ist das Verhältnis eines; über zwei Aufnahmen hinweg
+gemittelt wäre es keins.
+
+Zwei Sätze fallen daraus:
+
+* **Der hellste Boden stand HELLER als der Himmel.** Im Vorbild ist das
+  nirgends zu finden (der Satz stand schon oben, unter „Bild 3"); bei uns
+  war es der Normalfall, und um 17 Uhr misst die Cliff-Zeile 133,6.
+* **Die Baumkronen standen auf der Himmelsluma und 60 % über dem Boden.**
+  Im Vorbild sind sie DUNKLER als die Wiese. Das ist zugleich die
+  Erklärung für „es wirkt alles sehr braun": Das Auge stellt sich auf die
+  hellste grosse Fläche ein, und wenn das die Kronen sind, liest sich ein
+  Wiesengrund, der die Referenz trifft, als dunkler Lehm.
+
+### Was daraufhin gedreht wurde
+
+| Regler | vorher | nachher | Zeuge |
+| --- | --- | --- | --- |
+| `Grass` (Tile 0) | [1,378 / 1,279 / 1,032] | [1,27 / 1,35 / 1,00] | R stand über G auf einer Textur mit R ≈ G — der Grund konnte gar nicht grün werden |
+| `Cliff` (Tile 5) | [2,139 / 1,024 / 0,373] | [1,283 / 0,614 / 0,224] | bei ×0,6 hört das Ausbleichen durch den Tonemapper auf: S 0,410 gegen S 0,408 im Vorbild |
+| `Moss` (Tile 11) | [1,317 / 0,972 / 1,0] | [0,623 / 0,460 / 0,473] | `Hangfels/Moos` auf 1,6, das Mittel der beiden Moosstreifen |
+| `TOENUNG_DAEMPFUNG` (Laub) | — | ×0,41 je Laubrolle | Kronen/Boden 1,60 → 1,42, Kronen/Himmel 1,02 → 0,66 |
+| `ahorn` in `TOENUNG_VORRANG` | Store [0,62 / 1,00 / 0,20] | Original [0,377 / 0,4095 / 0,209] | Albedo 2,39 × Median → 1,08 × Median |
+| `fogColorDay` (Klar-Comic) | (0,68 / 0,73 / 0,79) | (0,83 / 0,87 / 0,92) | der Himmel war der zweite Teil des Missverhältnisses, s. unten |
+
+### Die Sättigung ist eine Decke, kein Regler dieser Runde
+
+Jede Fläche liegt um denselben Betrag unter der Referenzsättigung, und
+zwar unabhängig davon, welche Fläche man misst:
+
+| Fläche (Mittag) | unser S | Vorbild S |
+| --- | --- | --- |
+| Wiesengrund | 0,344 | 0,42 |
+| Büschel | 0,442 | 0,468 |
+| Hangfels | 0,338 | 0,408 |
+| Moos | 0,376 | 0,414 |
+
+Der Grund ist EIN Regler: `look.saettigung` steht auf 0,45. Am lebenden
+Client gegengeprüft (Farbkurven aus, sonst nichts geändert): Der
+Wiesengrund springt von S 0,344 auf 0,711, der Hangfels von 0,338 auf
+0,640. Die Referenzwerte liegen also MITTEN in dem, was der Regler
+wegnimmt — mit 0,45 sind sie auf keiner Fläche erreichbar, mit rund 0,57
+wären sie es. `server.yml` gehört dieser Runde nicht; die Zahl steht hier,
+damit sie beim nächsten Mal nicht wieder gesucht werden muss.
+
+### Der Himmel hat jetzt eine Zielzahl
+
+Bis hierher stand in der Kalibrierung: „Der Himmel hat keine Zielzahl
+(das Vorbildbild gibt nur die beiden Böden vor)." Das ist überholt. Bild 3
+enthält Hangfels UND Himmel UND Moos, und aus zwei der drei Zeilen folgt
+die dritte: Ein Himmel, unter dem `Hangfels/Himmel = 0,73` und
+`Moos/Himmel = 0,435` gleichzeitig gelten, ist festgelegt.
+
+Unser Himmel stand um den Faktor 1,6 bis 1,9 zu dunkel unter diesen
+beiden Bedingungen — und zusätzlich zu satt (S 0,354 gegen 0,133 im
+Vorbild; der Vorbildhimmel ist ein heller Dunst, unserer ein tiefes
+Blau). Angehoben wurde deshalb der Tag-Keyframe `fogColorDay` (der
+Horizont IST die Nebelfarbe, `look.himmel.horizont: nebel`), von
+(0,68 / 0,73 / 0,79) auf (0,83 / 0,87 / 0,92).
+
+Weiter geht es an dieser Schraube nicht: `fogColor` ist eine sRGB-Farbe
+mit Anschlag bei 1,0, und `ValheimSky` leitet den Zenit als
+0,45/0,55/0,80 des Horizonts ab — die Bildluma des Himmels lässt sich so
+um höchstens etwa ×1,3 heben, gebraucht wären ×1,6. Der Rest sitzt in
+`ValheimSky.ts` (Zenitableitung) und in der Belichtung, und beides
+gehörte dieser Runde nicht. Deshalb bleibt `Hangfels/Himmel` bei 0,84
+statt 0,73 stehen; das ist der benannte Rest, nicht ein übersehener.
+
+### Was NICHT der Befund war
+
+* **Der Wiesengrund.** Er trifft die Referenz an beiden Stunden
+  (17 Uhr: L 54,0 · H 58,6 gegen L 57,5 · H 53; Halm H 56,1 gegen H 56,0).
+  Geändert wurde an ihm nur die Kanalreihenfolge, nicht die Helligkeit.
+* **`rock-a`.** Am 24°-Schwarzwaldzeugen mittags L 28,9 bei B−R −0,3 —
+  neutrales Dunkelgrau, wie Bild 2 es verlangt (28,1 bis 39,3, B−R ≈ 0).
+* **Die `-snow`-Modelle.** Der Laub-Zensus wirft `grass-short-clump-snow`
+  mit 3,41 × Median aus; das Modell steht ausschliesslich in
+  `GRAS_BUESCHEL_HOCHNORD` (`shared/src/storeFlora.ts`) und ist damit
+  kein Wiesenproblem. `tools/test/look-referenz.ts` prüft beides
+  zusammen: die Ausnahme für Schnee UND dass Schnee im Hohen Norden
+  bleibt.
+* **Die Findlinge und Klippen-MESHES.** Sie stehen im Bild deutlich zu
+  hell (am hanghimmel-Zeugen misst der Findling neben der Figur L 183
+  gegen L 50,6 und 75,9 der beiden Felsbrocken aus Bild 1). Das ist
+  `tools/store-prefabs.mjs` und nicht diese Runde — festgehalten, damit
+  es nicht noch einmal gesucht wird.

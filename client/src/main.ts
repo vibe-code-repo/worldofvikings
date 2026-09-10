@@ -3786,8 +3786,8 @@ async function main() {
       // Die Geste ist für Waffe UND Faust dieselbe: Was der Schlag
       // anrichtet, entscheidet der Server anhand der geprüften Waffe
       // (handleAttack → WAFFEN_SCHADEN, Faust = 4). Zwei Animationen
-      // hätten hier nichts zu unterscheiden — das Modell bringt genau
-      // einen Schlagclip mit.
+      // hätten hier nichts zu unterscheiden; welche Hiebe der Kombo
+      // laufen, entscheidet AvatarRig.schlage() selbst.
       player.avatar.schlage();
       socket.sendAttack(
         player.position.x,
@@ -3796,6 +3796,20 @@ async function main() {
         player.yaw,
         equipment?.rightItem?.shared.name ?? ''
       );
+    }
+    // Rechtsklick = Parade (10.09.2026): rein sichtbar, nach dem Vorbild
+    // des Upperbody-Layers im Original (SwordParryLeft/Right/Down). Der
+    // Server kennt noch keinen Block-Zustand — die Geste ist das Erste,
+    // die Wirkung kommt spaeter. Nur mit Waffe in der Hand, damit die
+    // leere Faust nicht mit einem unsichtbaren Schwert pariert.
+    if (
+      input.wasMousePressed(2) &&
+      document.pointerLockElement &&
+      !placement?.selectedPiece &&
+      !cursorNoetig() &&
+      equipment?.rightItem
+    ) {
+      player.avatar.starteAktion('parade');
     }
 
     // E ist kontextsensitiv: Interagierbares in Reichweite (Pickable, Tür,

@@ -248,7 +248,37 @@ interface Schicht {
   von: number;
   bis: number;
   fps: number;
+  /** Dauerschicht (Arm/Finger, Schleife) oder Einmal-Aktion (Ausruesten, Parade). */
+  schleife: boolean;
+  /** Abspieltempo (Original: Ausruesten 2,75, Ablegen 2,25, Parade 1,5). */
+  tempo: number;
 }
+
+/**
+ * Laufende Einmal-Aktion auf der Oberkoerperschicht (Ausruesten, Ablegen,
+ * Parade). Waehrend sie laeuft, ruhen Arm- und Fingerschicht — im
+ * Original liegt der Upperbody Layer ueber dem Right Arm Layer.
+ */
+interface Aktion {
+  schicht: Schicht;
+  zeit: number;
+  /** Laufzeit in Sekunden (Clipdauer / Tempo). */
+  dauer: number;
+}
+
+/** Ein-/Ausblenden einer Einmal-Aktion (Original: Transition 0,1–0,15 s). */
+const AKTION_BLENDE = 0.1;
+/**
+ * Knochen der Oberkoerperschicht (Original: „Upperbody Layer" fuer
+ * Ausruesten, Ablegen, Parieren). Finger beider Haende kommen ueber die
+ * Nachfahren von Hand_L/Hand_R dazu.
+ */
+const SCHICHT_OBERKOERPER = [
+  'Spine_01', 'Spine_02', 'Spine_03', 'Neck', 'Head',
+  'Clavicle_L', 'Shoulder_L', 'Elbow_L', 'Hand_L',
+  'Clavicle_R', 'Shoulder_R', 'Elbow_R', 'Hand_R',
+] as const;
+const AKTION_TEMPO: Record<string, number> = { ausruesten: 2.75, ablegen: 2.25, parade: 1.5 };
 
 interface Clip {
   grp: AnimationGroup;
@@ -366,6 +396,9 @@ export class AvatarRig {
   private schichtGewicht = 0;
   /** Laufzeit der Schichtclips (s), fuer die Abtastposition. */
   private schichtZeit = 0;
+  /** Einmal-Schichten nach Name (ausruesten, ablegen, parade_links, …). */
+  private aktionen = new Map<string, Schicht>();
+  private aktion: Aktion | null = null;
   private schichtBeobachter: Nullable<Observer<Scene>> = null;
   /**
    * Restlaufzeit des Schlags in Sekunden; > 0 heisst „schlaegt gerade".
@@ -533,11 +566,14 @@ export class AvatarRig {
    * otherwise the tool flails around with the walk cycle.
    */
   setHeldItem(node: TransformNode | null): void {
+    const vorher = this.held !== null;
     if (this.held && this.held !== node) this.held.parent = null;
     this.held = node;
     // Beim Ergreifen die Schichtclips von vorn, damit Arm und Finger nicht
     // mitten im Zyklus einsteigen.
     if (node) this.schichtZeit = 0;
+    if (node && !vorher) this.starteAktion('ausruesten');
+    else if (!node && vorher) this.starteAktion('ablegen');
     // Parent only — the caller owns the node's local transform. Resetting it
     // here would fight the GLB import transform (which arrives as a
     // rotationQuaternion and silently overrides any Euler rotation set later).
@@ -687,7 +723,7 @@ export class AvatarRig {
       this.komboRest = 0;
       // Waffenschichten (arm_*, hand_*) sind keine Zustaende: Sie werden
       // unten zu Schichten und nehmen an keiner Einteilung teil.
-      const schichtClips = clips.filter((c) => /^(arm|hand)_/i.test(c.grp.name));
+      const schichtClips = clips.filter((c) => /^(arm|hand)_|^(ausruesten|ablegen|parade)/i.test(c.grp.name));
       this.baueSchichten(schichtClips);
       const rest = clips.filter(
         (c) => c !== this.clipSprung && !this.clipsAngriff.includes(c) && !schichtClips.includes(c)
@@ -715,7 +751,8 @@ export class AvatarRig {
               : '') +
             (this.schichten.length
               ? `, Schichten ${this.schichten.map((s) => `${s.name} (${s.kanaele.length} Knochen)`).join(', ')}`
-              : '')
+              : '') +
+            (this.aktionen.size ? `, Aktionen ${[...this.aktionen.keys()].join(', ')}` : '')
         );
         // KEIN `enableBlending` hier: Übergänge laufen über die Gewichte
         // der Gruppen (siehe wechsleZu). Beides zusammen blendet doppelt —
@@ -1549,17 +1586,31 @@ export class AvatarRig {
    */
   private baueSchichten(clips: Clip[]): void {
     this.schichten = [];
+    this.aktionen.clear();
+    this.aktion = null;
     if (this.schichtBeobachter) {
       this.root.getScene().onAfterAnimationsObservable.remove(this.schichtBeobachter);
       this.schichtBeobachter = null;
     }
     if (!clips.length) return;
-    const hand = this.root.getScene().getTransformNodeByName('Hand_R');
+    const scene = this.root.getScene();
+    const hand = scene.getTransformNodeByName('Hand_R');
     const finger = new Set(hand ? hand.getDescendants(false).map((n) => n.name) : []);
+    const handL = scene.getTransformNodeByName('Hand_L');
+    const oberkoerper = new Set<string>([
+      ...SCHICHT_OBERKOERPER,
+      ...finger,
+      ...(handL ? handL.getDescendants(false).map((n) => n.name) : []),
+    ]);
     for (const clip of clips) {
       const istArm = /^arm_/i.test(clip.grp.name);
+      const istAktion = /^(ausruesten|ablegen|parade)/i.test(clip.grp.name);
       const maske = (name: string) =>
-        istArm ? (SCHICHT_ARM as readonly string[]).includes(name) : finger.has(name);
+        istAktion
+          ? oberkoerper.has(name)
+          : istArm
+            ? (SCHICHT_ARM as readonly string[]).includes(name)
+            : finger.has(name);
       const kanaele: Schicht['kanaele'] = [];
       let fps = 60;
       for (const ta of clip.grp.targetedAnimations) {
@@ -1569,13 +1620,50 @@ export class AvatarRig {
         fps = ta.animation.framePerSecond;
       }
       if (kanaele.length) {
-        this.schichten.push({ name: clip.grp.name, kanaele, von: clip.grp.from, bis: clip.grp.to, fps });
+        const schicht: Schicht = {
+          name: clip.grp.name, kanaele, von: clip.grp.from, bis: clip.grp.to, fps,
+          schleife: !istAktion,
+          tempo: istAktion ? AKTION_TEMPO[clip.grp.name.split('_')[0]!.toLowerCase()] ?? 1 : 1,
+        };
+        if (istAktion) this.aktionen.set(clip.grp.name.toLowerCase(), schicht);
+        else this.schichten.push(schicht);
       }
       // Als Zustand darf die Gruppe nie laufen.
       clip.grp.stop();
     }
-    if (!this.schichten.length) return;
-    this.schichtBeobachter = this.root.getScene().onAfterAnimationsObservable.add(() => this.wendeSchichtenAn());
+    if (!this.schichten.length && !this.aktionen.size) return;
+    this.schichtBeobachter = scene.onAfterAnimationsObservable.add(() => this.wendeSchichtenAn());
+  }
+
+  /**
+   * Einmal-Aktion auf der Oberkoerperschicht starten: `ausruesten`,
+   * `ablegen`, `parade_links|rechts|unten` oder nur `parade` (zufaellige
+   * Richtung — das Original waehlt sie nach der Richtung des eingehenden
+   * Treffers, die der Client hier nicht kennt).
+   *
+   * @returns false, wenn die Figur keinen solchen Clip mitbringt oder
+   *          gerade ein Hieb laeuft (im Original ueberschreibt der Full
+   *          Body Layer alles, eine Parade waehrend des Hiebs ist unsichtbar).
+   */
+  starteAktion(name: string): boolean {
+    if (!this.nutzeClip) return false;
+    let schluessel = name.toLowerCase();
+    if (schluessel === 'parade') {
+      const richtungen = [...this.aktionen.keys()].filter((k) => k.startsWith('parade_'));
+      if (!richtungen.length) return false;
+      schluessel = richtungen[Math.floor(Math.random() * richtungen.length)]!;
+    }
+    const schicht = this.aktionen.get(schluessel);
+    if (!schicht) return false;
+    if (schluessel.startsWith('parade') && this.angriffRest > 0) return false;
+    const spanne = (schicht.bis - schicht.von) / schicht.fps;
+    this.aktion = { schicht, zeit: 0, dauer: spanne / schicht.tempo };
+    return true;
+  }
+
+  /** Laeuft gerade eine Parade? Fuer HUD und Messzellen. */
+  get pariert(): boolean {
+    return this.aktion !== null && this.aktion.schicht.name.toLowerCase().startsWith('parade');
   }
 
   /**
@@ -1587,20 +1675,66 @@ export class AvatarRig {
    */
   private wendeSchichtenAn(): void {
     const dt = this.root.getScene().getEngine().getDeltaTime() / 1000;
-    const zielGewicht = this.held && this.angriffRest <= 0 && this.nutzeClip ? 1 : 0;
+
+    // ── Einmal-Aktion (Oberkoerper) ──────────────────────────────────
+    // Ihr Gewicht: Einblenden am Anfang, Ausblenden am Ende, dazwischen 1.
+    let aktionGewicht = 0;
+    const ak = this.aktion;
+    if (ak) {
+      ak.zeit += dt;
+      if (ak.zeit >= ak.dauer || (this.angriffRest > 0 && !ak.schicht.name.toLowerCase().startsWith('ablegen'))) {
+        // Zu Ende — oder ein Hieb hat sie ueberholt (Full Body Layer).
+        this.aktion = null;
+      } else {
+        aktionGewicht = Math.min(1, ak.zeit / AKTION_BLENDE, (ak.dauer - ak.zeit) / AKTION_BLENDE);
+        const s = ak.schicht;
+        const frame = Math.min(s.bis, s.von + ak.zeit * s.tempo * s.fps);
+        this.schreibeSchicht(s, frame, aktionGewicht);
+      }
+    }
+
+    // ── Dauerschichten (Arm, Finger) ─────────────────────────────────
+    // Das Gewicht haengt an der laufenden Ueberblendung, nicht an einer
+    // eigenen Uhr: Beim Wechsel in den Hieb sinkt es genau so, wie das
+    // Gewicht des Hiebclips steigt, und beim Ausstieg umgekehrt. Ein
+    // getrenntes Ausblenden liess fuer einige Bilder den unbewaffneten
+    // Arm des Ruheclips durchscheinen — das „Zucken" beim ersten Hieb,
+    // das Mike am 10.09. gemeldet hat.
+    let ziel = 0;
+    if (this.held && this.nutzeClip) {
+      const b = this.blende;
+      const hieb = (c: Clip | null) => c !== null && this.clipsAngriff.includes(c);
+      if (this.angriffRest > 0 || hieb(this.aktiv)) {
+        ziel = b && hieb(b.nach) && !hieb(b.von) ? 1 - Math.min(1, b.t) : 0;
+      } else {
+        ziel = b && hieb(b.von) ? Math.min(1, b.t) : 1;
+      }
+    }
+    // Waehrend einer Aktion tritt die Dauerschicht zurueck (Upperbody
+    // Layer liegt im Original ueber dem Right Arm Layer).
+    ziel *= 1 - aktionGewicht;
+    // Ohne Ueberblendung (z. B. Waffe weg) weich nachziehen.
     const schritt = dt / SCHICHT_BLENDE;
-    this.schichtGewicht += Math.max(-schritt, Math.min(schritt, zielGewicht - this.schichtGewicht));
+    this.schichtGewicht = this.blende
+      ? ziel
+      : this.schichtGewicht + Math.max(-schritt, Math.min(schritt, ziel - this.schichtGewicht));
     if (this.schichtGewicht <= 0) return;
     this.schichtZeit += dt;
     for (const s of this.schichten) {
       const spanne = s.bis - s.von;
       const frame = spanne > 0 ? s.von + ((this.schichtZeit * s.fps) % spanne) : s.von;
-      for (const k of s.kanaele) {
-        const q = k.anim.evaluate(frame) as Quaternion;
-        if (!k.knoten.rotationQuaternion) k.knoten.rotationQuaternion = q.clone();
-        else if (this.schichtGewicht >= 1) k.knoten.rotationQuaternion.copyFrom(q);
-        else Quaternion.SlerpToRef(k.knoten.rotationQuaternion, q, this.schichtGewicht, k.knoten.rotationQuaternion);
-      }
+      this.schreibeSchicht(s, frame, this.schichtGewicht);
+    }
+  }
+
+  /** Schicht bei `frame` abtasten und mit `gewicht` auf ihre Knoten legen. */
+  private schreibeSchicht(s: Schicht, frame: number, gewicht: number): void {
+    if (gewicht <= 0) return;
+    for (const k of s.kanaele) {
+      const q = k.anim.evaluate(frame) as Quaternion;
+      if (!k.knoten.rotationQuaternion) k.knoten.rotationQuaternion = q.clone();
+      else if (gewicht >= 1) k.knoten.rotationQuaternion.copyFrom(q);
+      else Quaternion.SlerpToRef(k.knoten.rotationQuaternion, q, gewicht, k.knoten.rotationQuaternion);
     }
   }
 

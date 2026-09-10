@@ -1,5 +1,5 @@
 {
- "erzeugt": "2026-09-10T18:39:45.146Z",
+ "erzeugt": "2026-09-10T19:00:54.414Z",
  "quelle": "tools/asset-manifest.mjs",
  "anzahl": 224,
  "gemessen": 224,
@@ -5368,7 +5368,7 @@
   "wikinger/WikingerKoerper": {
    "datei": "wikinger/WikingerKoerper.glb",
    "foliage": false,
-   "bytes": 973768,
+   "bytes": 1241036,
    "huelle": {
     "min": [
      -1.024,
@@ -5427,6 +5427,26 @@
     {
      "name": "hand_schwert",
      "dauer": 0.875
+    },
+    {
+     "name": "ausruesten",
+     "dauer": 1.042
+    },
+    {
+     "name": "ablegen",
+     "dauer": 1.292
+    },
+    {
+     "name": "parade_links",
+     "dauer": 0.625
+    },
+    {
+     "name": "parade_rechts",
+     "dauer": 0.625
+    },
+    {
+     "name": "parade_unten",
+     "dauer": 0.625
     }
    ],
    "meshlos": false,

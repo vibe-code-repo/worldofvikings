@@ -379,7 +379,29 @@ const quellFaktor = (mat) => mat?.pbrMetallicRoughness?.baseColorFactor ?? null;
  * zu hellen Atlas ungebremst durch. Die Originalmessung tut es. Dieselbe
  * Begruendung wie bei `gras`, nur an einem anderen Material.
  */
-const TOENUNG_VORRANG = new Set(['gras', 'ahorn']);
+/*
+  ── 10.09.2026: `gras` ist raus ────────────────────────────────────────
+  Die Zahl [0,46, 0,22, 0,04] war aus Referenzbild 1 ZURÜCKGERECHNET
+  (`k = (Ziel/Ist)^2.2`, die Rechnung steht oben) — also eine
+  Bildkorrektur an der Albedo, und damit genau die Sorte Eingriff, die
+  diese Runde aus dem Boden entfernt hat: Sie legt eine Farbe, die aus
+  Licht, Nebel und Grading kommt, in die Textur.
+
+  Das Vorbild tönt seine Grasbüschel nicht. `design/original-boden.md`
+  §B: Die Detail-Ebenen von TerrainL1 führen `healthyColor` = `dryColor`
+  = WEISS; was ein Halm an Farbe hat, hat er aus seinem Material — und
+  das ist bei uns der Store-Faktor [0,85, 1,00, 0,60], der genau aus
+  diesem Material stammt (F30).
+
+  Der Befund, der die Ausnahme begründet hat, bleibt trotzdem richtig:
+  Unser Halm stand um 17 Uhr auf H 78° und S 0,39 gegen H 56° und S 0,47
+  im Vorbild — zu grün, zu hell. Nur ist die Ursache jetzt woanders zu
+  suchen, nämlich im LICHT (Sonne #FFC98C, Grundlicht aus dem
+  Skybox-Tint), und dort ist sie in dieser Runde auch angefasst worden.
+  Was danach übrigbleibt, misst der Nachweis; steht es weiter daneben,
+  ist das ein Befund und kein Grund für einen Faktor.
+*/
+const TOENUNG_VORRANG = new Set(['ahorn']);
 
 /**
  * Die Originalmaterialien aus den Spieldaten — die Herkunft der Zahlen
@@ -557,12 +579,30 @@ const KARTEN_ROLLEN = new Set([
  * keiner Messung steht. Wer spaeter eine Rolle einzeln nachzieht, tut es
  * genau hier — und braucht dafuer eine Zahl, keine Meinung.
  */
+/*
+  ── 10.09.2026: die Dämpfung steht auf 1,0 ─────────────────────────────
+  Der Faktor 0,41 war am BILD gerechnet (`t = I(62)/0,1175`) und sollte
+  `Kronen/Himmel` von 1,016 auf 0,655 ziehen. Das Vorbild liefert für
+  ihn keine Zahl: Seine Laubmaterialien tragen die Farben, die im Store
+  stehen, und einen Dämpfungsregler kennt es nicht.
+
+  Zurückgenommen, weil er dasselbe tut wie die Bodentönungen — eine
+  Bildhelligkeit in die Albedo legen. Der Zeuge, an dem sich das
+  entscheidet, bleibt `Kronen/Himmel` 0,34 aus Bild 3: Nach Licht,
+  Nebel und Grading dieser Runde wird er neu gemessen. Trifft er, war
+  die Dämpfung ein Symptomregler; trifft er nicht, steht der Befund
+  wieder da — dann aber mit einem Bild, das sonst dem Vorbild entspricht,
+  und nicht als Korrektur auf einer Korrektur.
+
+  Die Tabelle bleibt stehen und wird nicht gelöscht: Sie ist der Ort, an
+  dem eine GEMESSENE Dämpfung stünde, wenn das Vorbild je eine hergibt.
+*/
 const TOENUNG_DAEMPFUNG = {
-  laub: [0.41, 0.41, 0.41],
-  laubDunkel: [0.41, 0.41, 0.41],
-  laubSchnee: [0.41, 0.41, 0.41],
-  nadeln: [0.41, 0.41, 0.41],
-  ahorn: [0.41, 0.41, 0.41],
+  laub: [1, 1, 1],
+  laubDunkel: [1, 1, 1],
+  laubSchnee: [1, 1, 1],
+  nadeln: [1, 1, 1],
+  ahorn: [1, 1, 1],
 };
 
 // ── GLB lesen und schreiben ──────────────────────────────────────────

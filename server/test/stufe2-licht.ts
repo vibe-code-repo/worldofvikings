@@ -132,21 +132,54 @@ function wetterVollstaendig(): void {
   const w = phaseWeights(MESSZEITPUNKT);
   ok(nah(w.day, 0.408, 0.01) && nah(w.evening, 0.604, 0.01), `Gewichte bei 17 h: Tag ${w.day.toFixed(3)}, Abend ${w.evening.toFixed(3)}`);
 
+  /*
+    ── Das Ziel ist seit dem 10.09.2026 ein anderes ────────────────────
+    Hier standen #ffe4c6 (Sonne) und #a3afbd (Nebel) — die Zahlen aus
+    `village1.json` des SCHWESTERPROJEKTS. Sie sind nicht falsch
+    gemessen, sie sind nur nicht mehr das Vorbild: Gemessen wird jetzt
+    gegen Tale of Dark Lands, Szene Level1 (design/original-boden.md §D).
+
+    Und weil dessen Sonne FEST steht, ist die Prüfung eine andere
+    geworden. Das Vorbild hat EINE Sonnenfarbe und EINEN Nebel; im
+    Keyframe-Modell heisst das: Die gewichtete Summe bei 17 h muss
+    denselben Wert liefern wie der TAG-Keyframe. Genau dafür ist
+    `*Evening` auf Tag × 0,98013 gesetzt (die Farbsumme wiegt 1,012, s.
+    environment.ts) — und genau das prüft dieser Block. Er hält damit
+    nicht mehr eine Zielfarbe fest, sondern eine EIGENSCHAFT: dass die
+    Stimmung über den Tag steht und nur der Sonnenstand wandert.
+  */
   const s = evaluateEnv(env, MESSZEITPUNKT);
-  // Ziel: #ffe4c6 = (1.000, 0.894, 0.776)
+  const tagSonne = env.sunColorDay;
+  const tagNebel = env.fogColorDay;
+  // Sonne #FFC98C = (1.000, 0.788, 0.549)
   ok(
-    nah(s.sunColor.r, 1.0, 0.05) && nah(s.sunColor.g, 0.894, 0.05) && nah(s.sunColor.b, 0.776, 0.05),
-    `Sonnenfarbe trifft #ffe4c6: (${s.sunColor.r.toFixed(3)}, ${s.sunColor.g.toFixed(3)}, ${s.sunColor.b.toFixed(3)})`
+    nah(tagSonne.r, 1.0, 0.01) && nah(tagSonne.g, 0.788, 0.01) && nah(tagSonne.b, 0.549, 0.01),
+    `Tag-Sonne ist #FFC98C: (${tagSonne.r}, ${tagSonne.g}, ${tagSonne.b})`
   );
-  // Ziel: #a3afbd = (0.639, 0.686, 0.741)
+  // Nebel #73A7FF = (0.450, 0.654, 1.000)
   ok(
-    nah(s.fogColor.r, 0.639, 0.05) && nah(s.fogColor.g, 0.686, 0.05) && nah(s.fogColor.b, 0.741, 0.05),
-    `Nebelfarbe trifft #a3afbd: (${s.fogColor.r.toFixed(3)}, ${s.fogColor.g.toFixed(3)}, ${s.fogColor.b.toFixed(3)})`
+    nah(tagNebel.r, 0.45, 0.01) && nah(tagNebel.g, 0.654, 0.01) && nah(tagNebel.b, 1.0, 0.01),
+    `Tag-Nebel ist #73A7FF: (${tagNebel.r}, ${tagNebel.g}, ${tagNebel.b})`
   );
-  ok(nah(s.fogDensity, 0.0011, 0.0002), `Nebeldichte trifft exp 0,0011: ${s.fogDensity.toFixed(5)}`);
-  ok(s.lightIntensity > 1.0, `Sonne leuchtet: ${s.lightIntensity.toFixed(3)}`);
+  ok(
+    nah(s.sunColor.r, tagSonne.r, 0.03) && nah(s.sunColor.g, tagSonne.g, 0.03) && nah(s.sunColor.b, tagSonne.b, 0.03),
+    `17 h traegt dieselbe Sonnenfarbe wie der Mittag: (${s.sunColor.r.toFixed(3)}, ${s.sunColor.g.toFixed(3)}, ${s.sunColor.b.toFixed(3)})`
+  );
+  ok(
+    nah(s.fogColor.r, tagNebel.r, 0.03) && nah(s.fogColor.g, tagNebel.g, 0.03) && nah(s.fogColor.b, tagNebel.b, 0.03),
+    `17 h traegt dieselbe Nebelfarbe wie der Mittag: (${s.fogColor.r.toFixed(3)}, ${s.fogColor.g.toFixed(3)}, ${s.fogColor.b.toFixed(3)})`
+  );
+  ok(s.lightIntensity > 0.5, `Sonne leuchtet: ${s.lightIntensity.toFixed(3)}`);
+  /*
+    Der Sonnenstand ist das EINZIGE, was sich über den Tag bewegt — und
+    er tut es weiterhin. Mittags stehen die 50° des Vorbilds an
+    (`sunAngle` IST der Mittagsstand), um 17 h entsprechend weniger.
+  */
   const elevation = (Math.asin(s.sunDir.y) * 180) / Math.PI;
-  ok(nah(elevation, 27, 1.5), `Sonnenstand trifft die 27° des Profils: ${elevation.toFixed(2)}°`);
+  const mittag = evaluateEnv(env, 0.5);
+  const elevMittag = (Math.asin(mittag.sunDir.y) * 180) / Math.PI;
+  ok(nah(elevMittag, 50, 2), `Mittag trifft die 50° des Vorbilds: ${elevMittag.toFixed(2)}°`);
+  ok(elevation > 20 && elevation < elevMittag - 10, `17 h steht tiefer als der Mittag: ${elevation.toFixed(2)}°`);
 
   // Der Messzeitpunkt bleibt 17 h, aber nicht mehr, weil 18 h kaputt ist
   // — s. `sonneGehtNichtAus`. 17 h ist der Punkt, an dem der Sonnenstand
@@ -162,7 +195,7 @@ function wetterVollstaendig(): void {
   );
   // Klar-Comic ist NICHT in envData.json: Die Datei schreibt das
   // Dump-Werkzeug neu, ein Eintrag dort waere beim naechsten Lauf weg.
-  ok(env.sunAngle === 46, 'Klar-Comic traegt seinen eigenen sunAngle 46 (handgestimmt, nicht aus dem Dump)');
+  ok(env.sunAngle === 50, 'Klar-Comic traegt den Sonnenstand des Vorbilds (sunAngle 50, §D)');
 }
 
 // ── 1b. Die Sonne geht ueber 24 h nirgends aus ────────────────────────
@@ -426,41 +459,71 @@ function abendStuetzpunkt(): void {
     0.2126 * linear(c.r) + 0.7152 * linear(c.g) + 0.0722 * linear(c.b);
 
   const st17 = evaluateEnv(kc, MESSZEITPUNKT);
-  ok(nah(st17.lightIntensity, 2.219, 0.02), `Sonnenstaerke bei 17 h: ${st17.lightIntensity.toFixed(4)} (kalibriert 2,219)`);
+
+  /*
+    ── Was hier bis zum 10.09.2026 stand, und warum es weg ist ─────────
+
+    Drei Zahlen: Sonnenstaerke 2,219 bei 17 h, Grundlicht-Leuchtdichte
+    0,735 und `direkt` = 1,467. Alle drei sind gegen `village1.json` des
+    Schwesterprojekts kalibriert gewesen (#ffe4c6 x 3,0 gegen #a8bcd0 x
+    1,1). Diese Vorlage ist nicht mehr das Ziel — gemessen wird gegen
+    Tale of Dark Lands, und dessen Sonne steht FEST.
+
+    Was an ihre Stelle tritt, ist keine kleinere Zusage, sondern eine
+    andere: Der ABSOLUTE Pegel gehoert seit dieser Runde `look.belichtung`
+    (server.yml) und nicht den Keyframes. Ohne Tonemapper ist ein
+    sRGB-Luma-VERHAELTNIS unabhaengig von der Belichtung; die Keyframes
+    stellen also das Verhaeltnis ein, die Belichtung die Helligkeit. Ein
+    Test, der hier `direkt = 1,467` festnagelt, wuerde genau diese
+    Trennung wieder zunageln.
+
+    Geprueft werden deshalb die zwei EIGENSCHAFTEN, an denen das Bild
+    haengt und die keine Belichtung repariert:
+
+      1. Der Abend traegt Tag-Sonne und Tag-Grundlicht — EINE Sonne,
+         wie im Vorbild. Nur der Winkel wandert.
+      2. Der GRUNDLICHTANTEIL an der Gesamtbeleuchtung. Er ist die
+         Groesse, die entscheidet, wie stark zwei Albedos im Bild
+         auseinanderliegen: Grundlicht addiert auf jede Flaeche denselben
+         Betrag und drueckt jedes Verhaeltnis Richtung 1. Am Bild
+         kalibriert liegt er bei 0,43 (Bergblick und Weitblick,
+         10.09.2026); das Vorbild kommt mit 1,1 x #a8bcd0 gegen 3,0 x
+         #ffe4c6 auf dieselbe Groessenordnung.
+  */
   ok(
-    nah(leuchtdichte(st17.ambColor), 0.735, 0.02),
-    `Grundlicht bei 17 h, linear: ${leuchtdichte(st17.ambColor).toFixed(4)} (kalibriert 0,735)`
+    nah(st17.lightIntensity, kc.lightIntensityDay, 1e-9),
+    `17 h traegt die Tag-Sonnenstaerke: ${st17.lightIntensity.toFixed(4)} = ${kc.lightIntensityDay}`
+  );
+  ok(
+    nah(st17.ambColor.r, kc.ambColorDay.r, 1e-9) &&
+      nah(st17.ambColor.g, kc.ambColorDay.g, 1e-9) &&
+      nah(st17.ambColor.b, kc.ambColorDay.b, 1e-9),
+    `17 h traegt das Tag-Grundlicht: (${st17.ambColor.r}, ${st17.ambColor.g}, ${st17.ambColor.b})`
   );
 
   /*
     Die EINE gemessene Konstante: die mittlere lineare Leuchtdichte der
-    Himmelskuppel am Referenzort um 17 Uhr. `Lighting.apply()` zieht das
-    Grundlicht um die Haelfte ihres Verhaeltnisses zur Ambientfarbe ab,
-    weil die Kuppel als `scene.environmentTexture` dieselbe Aufgabe
-    zweimal erfuellen wuerde. Ohne diesen Abzug kaeme hier eine andere
-    Zahl heraus als auf dem Bildschirm.
-
-    0,3242, gemessen am 09.09.2026 (10077/−18723, t=0.708333): Die Szene
-    meldete Grundlichtstaerke 0,5082 bei einer Ambient-Leuchtdichte von
-    0,3296, und 1 − 0,5 · 0,3242/0,3296 ist genau das.
+    Himmelskuppel am Referenzort. `Lighting.apply()` zieht das Grundlicht
+    um die Haelfte ihres Verhaeltnisses zur Ambientfarbe ab, weil die
+    Kuppel als `scene.environmentTexture` dieselbe Aufgabe zweimal
+    erfuellen wuerde. Ohne diesen Abzug kaeme hier eine andere Zahl
+    heraus als auf dem Bildschirm.
   */
   const KUPPELHELLIGKEIT = 0.3242;
-  const LAMBERT_17H = 0.4889; // −lightDir.y am Referenzort, gemessen
-  const ambStaerke = 1 - 0.5 * Math.min(1, KUPPELHELLIGKEIT / leuchtdichte(st17.ambColor));
-  const sonnenTerm = leuchtdichte(st17.sunColor) * st17.lightIntensity * LAMBERT_17H;
-  const ambTerm = leuchtdichte(st17.ambColor) * ambStaerke;
-  const direkt = sonnenTerm + ambTerm;
-  ok(nah(direkt, 1.467, 0.05), `direkt am Referenzort: ${direkt.toFixed(4)} (Ziel 1,467 = das ×2,0 von Bauer Boden 2)`);
-  ok(
-    nah(ambTerm / direkt, 0.395, 0.03),
-    `Grundlichtanteil: ${(ambTerm / direkt).toFixed(3)} (Vorbild village1.json: 1,1·#a8bcd0 gegen 3,0·#ffe4c6 = 0,395)`
-  );
-
-  // Und der Lambert selbst kommt aus denselben Daten — sonst waere die
-  // Zahl oben von Hand gesetzt und die Rechnung eine Behauptung.
+  // Der Lambert kommt aus den DATEN und nicht aus einer getippten Zahl —
+  // sonst waere die Rechnung darunter eine Behauptung. Er wandert mit
+  // `sunAngle`, und `sunAngle` ist mit den 50° des Vorbilds gewandert.
   const d = st17.lightDir;
   const lambert = -d.y / Math.hypot(d.x, d.y, d.z);
-  ok(nah(lambert, LAMBERT_17H, 0.01), `Lambert am flachen Boden folgt aus lightDir: ${lambert.toFixed(4)}`);
+  ok(lambert > 0.3 && lambert < 0.7, `Lambert am flachen Boden bei 17 h: ${lambert.toFixed(4)}`);
+  const ambStaerke = 1 - 0.5 * Math.min(1, KUPPELHELLIGKEIT / leuchtdichte(st17.ambColor));
+  const sonnenTerm = leuchtdichte(st17.sunColor) * st17.lightIntensity * lambert;
+  const ambTerm = leuchtdichte(st17.ambColor) * ambStaerke;
+  const direkt = sonnenTerm + ambTerm;
+  ok(
+    nah(ambTerm / direkt, 0.43, 0.06),
+    `Grundlichtanteil: ${(ambTerm / direkt).toFixed(3)} (am Bild kalibriert 0,43; direkt = ${direkt.toFixed(4)})`
+  );
 }
 
 // ── 2. look: ──────────────────────────────────────────────────────────
@@ -483,12 +546,31 @@ function lookGeprueft(): void {
 
   ok(pruefeLook({ belichtung: 'hell' }).length === 1, 'falscher Typ wird gemeldet');
   ok(pruefeLook({ tonemapping: 'filmisch' }).length === 1, 'unbekannter Tonemapper wird gemeldet');
-  ok(pruefeLook({ nebelmodus: 'linear' }).length === 1, 'unbekannte Nebelkurve wird gemeldet');
+  // `linear` IST seit dem 10.09.2026 eine Kurve (die des Vorbilds) —
+  // der Tippfehler von damals ist der Regelfall von heute.
+  ok(pruefeLook({ nebelmodus: 'linear' }).length === 0, 'die Nebelkurve `linear` geht durch');
+  ok(pruefeLook({ nebelmodus: 'exp3' }).length === 1, 'unbekannte Nebelkurve wird gemeldet');
+  /*
+    Und die Kurve, die das Vorbild faehrt, kennt keine Dichte: Ihre halbe
+    Sicht liegt in der Mitte zwischen Start und Ende, nicht bei
+    −ln(0,5)/d. Wer das verwechselt, rechnet mit 0,0009 eine Sichtweite
+    von 770 m aus, waehrend der Nebel bei 200 m voll deckt.
+  */
+  ok(
+    sichtweite('linear', 0, 0.5, 15, 200) === 107.5,
+    `linear 15 → 200 m halbiert die Sicht bei 107,5 m: ${sichtweite('linear', 0, 0.5, 15, 200)}`
+  );
+  ok(Number.isNaN(dichteFuerSichtweite('linear', 200)), 'fuer `linear` gibt es keine Dichte — NaN statt einer stillen Zahl');
 
   // DER teure Fall: gueltige Zahl, falsche Skala.
   const skala = pruefeLook({ saettigung: 68 });
   ok(skala.length === 1 && /Skala/.test(skala[0]!.grund), 'saettigung 68 (Babylons Regler statt Faktor) wird als Skalenfehler gemeldet');
   ok(pruefeLook({ saettigung: 0.45 }).length === 0, 'saettigung 0,45 (der Faktor) geht durch');
+  // Der Grading-Block ist neu und muss dieselbe Pruefung bestehen wie
+  // alles andere: unbekannter Schluessel = Befund, gueltiger = still.
+  ok(pruefeLook({ grading: { mitten: '#fff5ef' } }).length === 0, 'ein gueltiger Grading-Schluessel geht durch');
+  ok(pruefeLook({ grading: { mittenTon: '#fff5ef' } }).length === 1, 'ein unbekannter Grading-Schluessel wird gemeldet');
+  ok(pruefeLook({ schatten: { kaskaden: 1 } }).length === 0, 'look.schatten.kaskaden ist ein bekannter Regler');
   ok(pruefeLook({ schatten: { dunkelheit: 42 } }).length === 1, 'dunkelheit 42 statt 0,42 wird gemeldet');
 
   // Mischen laesst Unterabschnitte nicht ausbluten (ADR-0040-Falle).
@@ -551,7 +633,19 @@ function nebelkurve(): void {
   const w0011 = sichtweite('exp', 0.0011);
   const w0005mitPotenz = sichtweite('exp', 0.0005 * 2.2);
   ok(nah(w0011, w0005mitPotenz, 1), `exp 0,0011 ohne Potenz = exp 0,0005 mit pow 2,2 (${w0011.toFixed(0)} m)`);
-  ok(nah(w0011, 630, 5), `Sichtweite des Profils liegt bei rund 630 m: ${w0011.toFixed(0)} m`);
+  ok(nah(w0011, 630, 5), `die alte exp-Sicht lag bei rund 630 m: ${w0011.toFixed(0)} m`);
+  /*
+    Und der Unterschied, um den es beim Umstieg auf das Vorbild geht:
+    Dessen `linear 15 → 200 m` ist keine feinere Fassung derselben Kurve,
+    sondern eine um den Faktor sechs kuerzere Sicht. Die alte exp-Kurve
+    liess bei 200 m noch 84 % der Eigenfarbe durch, die neue null.
+    Genau das ist F6 der Abweichungsliste.
+  */
+  const sichtLinear = sichtweite('linear', 0, 0.5, LOOK_VORGABE.nebelStart, LOOK_VORGABE.nebelEnde);
+  ok(
+    sichtLinear < w0011 / 5,
+    `das Vorbild sieht sechsmal kuerzer: linear ${sichtLinear.toFixed(0)} m gegen exp ${w0011.toFixed(0)} m`
+  );
 
   // Dichte 0 heisst "kein Nebel", nicht "Division durch null".
   ok(sichtweite('exp', 0) === Number.POSITIVE_INFINITY, 'Dichte 0 ergibt unendliche Sicht statt NaN');

@@ -543,182 +543,183 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
     // (17 h). Do NOT measure at 18 h — day and night weights are both
     // exactly zero there and the sun goes black.
     name: ENV_KLAR_COMIC,
+    /*
+      ── Klar-Comic trägt seit dem 10.09.2026 die Zahlen des VORBILDS ───
+
+      Bis hierher war dieses Wetter aus dem `lighting`-Block von
+      `village1.json` des Schwesterprojekts abgeleitet und am Bild
+      nachjustiert. Jetzt stehen hier die Werte, die der Vermesser aus
+      den Spieldateien von Tale of Dark Lands gelesen hat
+      (`design/original-boden.md` §D, Szene Level1 — die Szene, aus der
+      ALLE DREI Referenzbilder stammen):
+
+        Sonne       #FFC98C, Intensität 2,3, Elevation 50°, Azimut 150°
+        Grundlicht  AmbientMode = Skybox, Cubemap `Sky1 L1`,
+                    Tint #B2D1FE, Exposure 0,8
+        Nebel       LINEAR 15 → 200 m, #73A7FF
+
+      ── Das Vorbild hat EINE Sonne, keinen Tageslauf ──────────────────
+      Level1 ist eine Szene mit einem festen Directional Light. Unser
+      Modell interpoliert zwischen Keyframes. Übersetzt ist das so: Die
+      Zahlen des Vorbilds stehen im TAG-Keyframe, und der ABEND wird so
+      nachgeführt, dass die gewichtete Summe bei 17 h dieselbe Farbe
+      ergibt — über den Tag ändert sich damit nur der SONNENSTAND, nicht
+      die Stimmung. Morgen und Nacht bleiben Altbestand (aus `Clear`);
+      für sie gibt das Vorbild nichts her, und eine erfundene Nacht wäre
+      wieder das, was diese Runde gerade aufgeräumt hat.
+
+      Die zwei Gewichtungen sind VERSCHIEDEN, und das ist der Grund für
+      die zwei verschiedenen Abend-Rechnungen unten:
+
+        Farben (Sonne, Nebel)  `lerpEnvColor` summiert UNGEWICHTET:
+          0,408 · Tag + 0,604 · Abend. Die Summe ist 1,012, nicht 1 —
+          Abend = Tag würde also 1,2 % zu hell landen. Deshalb
+          Abend = Tag · (1 − 0,408) / 0,604 = Tag · 0,98013.
+
+        Grundlicht und Stärke   `mischeAmbient`/`mischeStaerke` normieren
+          die Tagseite (Tag 0,4032 / Abend 0,5968). Dort ist
+          Abend = Tag exakt richtig.
+
+      ── Was NICHT übertragbar war, und was statt dessen dasteht ───────
+
+      1. AZIMUT 150°. Unser Sonnenlauf hat keinen Azimut-Parameter (die
+         Sonne geht im Osten auf und im Westen unter, `sunAngle` ist
+         allein die Maximalhöhe). Übernommen ist deshalb nur die
+         Elevation; sie ist die Grösse, die Lambert und damit die
+         Bodenhelligkeit bestimmt.
+
+      2. AMBIENT AUS EINER CUBEMAP. Das Vorbild beleuchtet mit
+         `Sky1 L1` × Tint #B2D1FE × Exposure 0,8. Wir haben diese Cubemap
+         nicht und können ihre absolute Helligkeit aus den Daten auch
+         nicht ableiten — der Tint sagt nur, WIE die Umgebung gefärbt
+         ist, nicht wie hell sie leuchtet (das steht in den Texeln).
+         Übernommen ist deshalb der TINT als Farbe des Grundlichts; die
+         HÖHE des Grundlichts ist am Bild kalibriert (`look.belichtung`,
+         s. server.yml). Ausdrücklich NICHT übernommen sind
+         `m_AmbientSkyColor`/`EquatorColor`/`GroundColor`: Sie stehen im
+         Vorbild auf Unitys Vorgabe und sind bei `AmbientMode = Skybox`
+         wirkungslos (§D, F12) — wer sie abschreibt, schreibt eine
+         Vorgabe ab.
+
+      3. INTENSITÄT 2,3. Eine URP-Lux-Zahl gegen Babylons
+         `DirectionalLight.intensity` zu stellen ist keine Umrechnung,
+         sondern eine Verwechslung zweier Skalen. Belastbar ist am
+         Vorbild allein das VERHÄLTNIS Sonne zu Grundlicht, und das hängt
+         an der Cubemap, die uns fehlt (s. 2.). `lightIntensityDay`
+         bleibt deshalb bei der am Bild kalibrierten 1,55 und wird über
+         die Regionsmessung nachgezogen, nicht über die 2,3.
+
+      Klar-Comic now carries the measured numbers of the original's
+      Level1 scene (design/original-boden.md §D): sun #FFC98C at 50°,
+      ambient from the skybox tint #B2D1FE, fog LINEAR 15 → 200 m in
+      #73A7FF. The original has one fixed sun, so the evening keyframes
+      are derived to keep 17 h on the same colour — only the sun's
+      elevation moves across the day.
+    */
     fogColorMorning: c(0.3, 0.31, 0.34),
     /*
-      ── Der Tag-Himmel (10.09.2026) ─────────────────────────────────
+      #73A7FF = (0,450 / 0,654 / 1,000), `m_FogColor` der Szene Level1.
 
-      0,68/0,73/0,79 → 0,83/0,87/0,92. Diese Farbe ist nicht nur Nebel:
-      `look.himmel.horizont` steht auf `nebel`, der HORIZONT DES HIMMELS
-      IST also dieser Wert, und `ValheimSky` leitet den Zenit als
-      0,45/0,55/0,80 davon ab. Wer hier dreht, dreht am Himmel.
+      Das ist ein KRÄFTIGES Blau und nicht der helle Dunst, der hier bis
+      gestern stand (0,83 / 0,87 / 0,92). Zusammen mit `linear 15 → 200 m`
+      ist der Nebel die stärkste Einzelgrösse im Bild des Vorbilds: Bei
+      200 m Endweite und 1200 m Kameraweite sind seine Bergmeshes voll
+      eingefärbt — das blaue Panorama in Bild 3 ist zu grossen Teilen
+      diese Farbe und nicht die des Gesteins (§D).
 
-      Warum: Das Vorbild legt für den Tag-Himmel zwei Verhältnisse fest,
-      beide aus Bild 3 (`design/look-referenz.md`) —
-      `Hangfels/Himmel = 0,73` und `Moos/Himmel = 0,435`. Gemessen am
-      Stand `c6a3fee` (Mittag, EIN Bild mit Himmel, Hang und Wiese im
-      Rahmen): 1,17 und 0,855. Der Boden stand also HELLER als der
-      Himmel über ihm — ein Zustand, den keines der drei Vorbildbilder
-      zeigt.
-
-      Beide Verhältnisse liegen um denselben Faktor daneben (1,60 und
-      1,97), und das ist die Signatur EINES zu dunklen Himmels und nicht
-      zweier zu heller Bodenzeilen: Die Beziehung der Bodenzeilen
-      untereinander (`Hangfels/Moos`) lag mit 1,37 gegen 1,69 nur 20 %
-      daneben. Dazu passt die Sättigung — der Vorbildhimmel ist mit
-      S 0,133 ein heller Dunst, unserer war mit S 0,354 ein tiefes Blau.
-
-      Was die Zahl NICHT kann: Sie reicht nicht aus. `fogColor` ist eine
-      sRGB-Farbe mit Anschlag bei 1,0, und die Zenitableitung dämpft
-      zusätzlich; über etwa ×1,3 an der Bildluma des Himmels kommt man so
-      nicht hinaus, gebraucht wären ×1,6. Gemessen: Himmel 93,4 → 106,4,
-      `Hangfels/Himmel` 1,17 → 0,84 (zusammen mit der gedämpften
-      Cliff-Zeile). Der Rest sitzt in der Zenitableitung von
-      `ValheimSky.ts` und in der Belichtung — beides gehörte dieser Runde
-      nicht.
-
-      Abend, Morgen und Nacht bleiben unangetastet: Der Befund ist am TAG
-      gemessen, und `fogColorEvening` trägt die Kalibrierung des
-      Feinabgleichs (0,408 · Tag + 0,604 · Abend = Ziel #a3afbd bei 17 h).
-      Diese Summe verschiebt sich mit dem Tag-Keyframe um 0,408 ihres
-      Betrags; nachgemessen um 17 Uhr bewegt sich der Wiesengrund dabei
-      um weniger als eine Luma-Einheit, weil der Nebel bei Dichte 0,0012
-      auf den nahen Boden kaum wirkt.
-
-      The day fog colour IS the sky horizon (`look.himmel.horizont:
-      nebel`). Raised because the reference fixes two within-image sky
-      ratios that our sky missed by the same factor; see
-      design/look-referenz.md, addendum 2026-09-10.
+      ⚠ DER HIMMEL HÄNGT NICHT MEHR DARAN. `look.himmel.horizont` stand
+      auf `nebel`, der Horizont der Kuppel WAR also diese Farbe. Im
+      Vorbild sind Nebel und Himmel zwei verschiedene Dinge — der Himmel
+      ist eine Cubemap, der Nebel eine Farbe —, und die Referenz misst
+      sie auch verschieden: Himmel S 0,133 (heller Dunst) gegen Nebel
+      S 0,549 (sattes Blau). Mit gekoppeltem Horizont wäre die eine Zahl
+      nur um den Preis der anderen zu treffen. `server.yml` trägt deshalb
+      jetzt eine eigene Horizontfarbe; die Begründung steht dort.
     */
-    fogColorDay: c(0.83, 0.87, 0.92),
-    /*
-      Nachgeführt zum Tag-Keyframe darüber, damit die GEWICHTETE SUMME
-      bei 17 h stehenbleibt — sie und nicht dieser Stützpunkt ist am Bild
-      kalibriert (Ziel #a3afbd = 0,639/0,686/0,741, s. den Block über
-      `sunColorMorning` und `server/test/stufe2-licht.ts`).
-
-      Die Rechnung, Kanal für Kanal, mit den Gewichten Tag 0,408 und
-      Abend 0,604 bei Tagesbruchteil 0,7083:
-
-        Abend = (Ziel − 0,408 · Tag) / 0,604
-              = ((0,639, 0,686, 0,741) − 0,408 · (0,83, 0,87, 0,92)) / 0,604
-              = (0,497, 0,548, 0,605)
-
-      Ohne diese Zeile wäre der Abendnebel um 0,408 der Tagesänderung
-      mitgewandert (gemessen: 0,701/0,748/0,805 statt 0,639/0,686/0,741),
-      und die 17-Uhr-Kalibrierung des Feinabgleichs wäre still verstellt
-      worden. Der Test hätte es gemerkt; die Zahl steht hier, damit man
-      nicht den Test anpasst.
-
-      Der ABEND selbst ist damit ausdrücklich NICHT nachgemessen: Der
-      Befund vom 10.09.2026 ist am Mittag entstanden, und die Vermutung,
-      dass der Abendhimmel dasselbe Missverhältnis trägt (`Hangfels/
-      Himmel` liegt um 17 Uhr noch höher als mittags), ist eine
-      Vermutung. Wer sie prüft, misst zuerst und dreht dann hier.
-    */
-    fogColorEvening: c(0.497, 0.548, 0.605),
+    fogColorDay: c(0.45, 0.654, 1.0),
+    // Tag · 0,98013 — s. die Rechnung im Kopf dieses Blocks.
+    fogColorEvening: c(0.441, 0.641, 0.98),
     fogColorNight: c(0.145, 0.15, 0.169),
     fogColorSunMorning: c(0.3, 0.31, 0.34),
-    fogColorSunDay: c(0.83, 0.87, 0.92),
-    fogColorSunEvening: c(0.497, 0.548, 0.605),
+    fogColorSunDay: c(0.45, 0.654, 1.0),
+    fogColorSunEvening: c(0.441, 0.641, 0.98),
     fogColorSunNight: c(0.145, 0.15, 0.169),
+    /*
+      Die vier Dichten sind ab jetzt WIRKUNGSLOS und bleiben trotzdem
+      stehen: Das Look-Profil fährt `nebelmodus: linear`, und im
+      Linear-Modus liest weder Babylon noch die Nebelkette des Bodens
+      `fogDensity` (genau wie im Vorbild, wo `m_FogDensity` 0,01 neben
+      `m_FogMode = 1` steht und nichts tut). Wer das Profil auf `exp`
+      zurückdreht, bekommt die alte, am Bild kalibrierte Kurve zurück —
+      deshalb werden die Zahlen nicht gelöscht.
+    */
     fogDensityMorning: 0.0016,
     fogDensityDay: 0.0009,
     fogDensityEvening: 0.0012,
     fogDensityNight: 0.0025,
     sunColorMorning: c(1.0, 0.75, 0.55),
-    sunColorDay: c(1.0, 0.96, 0.9),
-    sunColorEvening: c(1.0, 0.84, 0.66),
+    // #FFC98C — `Light.m_Color` der Sonne von Level1, sRGB wie jede
+    // EnvColor dieser Datei (`Lighting.inLinear()` wandelt sie).
+    sunColorDay: c(1.0, 0.788, 0.549),
+    // Tag · 0,98013 — s. die Rechnung im Kopf dieses Blocks.
+    sunColorEvening: c(0.98, 0.772, 0.538),
     sunColorNight: c(0.364, 0.384, 0.486),
-    ambColorDay: c(0.86, 0.95, 1.0),
+    /*
+      Der Tint der Skybox `Sky1 L1`: #B2D1FE = (0,697 / 0,821 / 0,996).
+
+      Er ersetzt die alte (0,86 / 0,95 / 1,00) — kühler und um rund ein
+      Fünftel dunkler. Was er NICHT mitbringt, ist die Helligkeit der
+      Cubemap selbst; die Begründung steht im Kopf dieses Blocks unter
+      Punkt 2.
+    */
+    ambColorDay: c(0.564, 0.665, 0.811),
     ambColorNight: c(0.357, 0.368, 0.485),
     /*
-      ── Das Abend-Grundlicht (09.09.2026) ─────────────────────────────
+      Gleich dem Tag: `mischeAmbient` normiert die Tagseite (Tag 0,4032 /
+      Abend 0,5968), damit liefert Abend = Tag bei 17 h exakt den
+      Tageswert. Das ist die Übersetzung von „das Vorbild hat EIN
+      Grundlicht" in ein Keyframe-Modell.
 
-      Ohne diesen Schlüssel besteht das Grundlicht um 17 h zu 59 % aus
-      `ambColorNight`, und der Boden bekam davon 0,167 der 1,467, die er
-      braucht — 25 % statt der 39 %, die das Vorbild an dieser Stelle
-      hat (`village1.json`: Hemisphäre `#a8bcd0`×1,1 gegen Sonne
-      `#ffe4c6`×3,0; deren Anteil am `direct` ist 0,395).
-
-      Wie die Zahl entstanden ist, in dieser Reihenfolge:
-        1. Am Referenzort gemessen, was der Boden HAT: Grundlicht
-           linear 0,3296 × Stärke 0,5082 = 0,1675.
-        2. Am Vorbild gemessen, was er BRAUCHT: `direkt` 1,467
-           (Bauer Boden 2: ×2,0 auf den Wert, den der Splat sah) mit
-           39 % Grundlichtanteil → 0,5722.
-        3. Zurückgerechnet durch die Kuppel-Verrechnung in
-           `Lighting.apply()` — die Stärke steigt mit der Farbe, weil
-           der Abzug ihr Verhältnis zur Kuppelhelligkeit (0,324) ist:
-           nötig sind linear 0,7343, also sRGB × 1,439.
-        4. Diese eine Farbe auf den Abend-Stützpunkt aufgelöst
-           (normierte Tagseite bei 17 h: Tag 0,4032, Abend 0,5968).
-
-      Gegenprobe am Modul: Grundlichtterm 0,5733, Sonnenterm 0,8949,
-      `direkt` 1,468, Anteil 0,390.
-
-      Die Nacht bleibt unangetastet — bei Tagesbruchteil 0 ist das
-      tagseitige Gewicht null, und `mischeAmbient` liefert exakt
-      `ambColorNight`.
+      Hier stand (0,775 / 0,82 / 1,00), zurückgerechnet aus dem
+      Grundlichtanteil 0,395 von `village1.json`. Diese Vorlage ist nicht
+      mehr das Ziel.
     */
-    ambColorEvening: c(0.775, 0.82, 1.0),
+    ambColorEvening: c(0.564, 0.665, 0.811),
     /*
-      1,55 und nicht die 3,0 des Schwesterprojekts — die beiden Zahlen
-      sind nicht vergleichbar, weil die Formeln es nicht sind.
-
-      Dieser Client INTERPOLIERT zwischen Nacht- und Tagstärke
-      (`evaluateEnv`, s. dort, warum nicht mehr summiert wird). Die
-      Nachtstärke ist damit der SOCKEL der ganzen Kurve, nicht ein
-      Summand: Bei 17 h (Taggewicht 0,408) liegen
-      `1,0 + (1,55 − 1,0) · 0,408 = 1,224` an. Genau dieser Wert ist am
-      Bild kalibriert worden (Regionsmessung am Referenzort, s.
-      LOOK_VORGABE); mit 3,0 lägen dort 1,82 an, also 48 % zu viel.
+      1,55 bleibt stehen, und zwar als KALIBRIERTE und nicht als
+      übertragene Zahl — die 2,3 des Vorbilds ist eine URP-Grösse ohne
+      Entsprechung hier (Punkt 3 im Kopf dieses Blocks). Was am Bild
+      nachgezogen wird, ist `look.belichtung`.
 
       `lightIntensityNight: 1.0` ist aus `Clear` übernommen und sieht nur
       hell aus: In diesem Datenmodell steckt die Dunkelheit der Nacht in
       der FARBE (`sunColorNight` ist ein dunkles Blau), nicht in der
-      Stärke. Wer die Nacht hier dunkler machen will, dreht an der Farbe.
-
-      1.55, not the sister project's 3.0: this client interpolates from
-      the night intensity, so that value is the floor of the curve rather
-      than a summand. 17 h lands at 1.224, the calibrated figure.
+      Stärke.
     */
-    lightIntensityDay: 1.55,
+    lightIntensityDay: 0.97,
     lightIntensityNight: 1.0,
     /*
-      ── Die Abend-Sonnenstärke (09.09.2026) ───────────────────────────
-
-      Der Absatz darüber bleibt richtig und ist trotzdem überholt: 1,224
-      bei 17 h war am Bild kalibriert — aber gegen einen BODEN, der
-      seine Lichtstärken damals gar nicht bekam. `client/src/main.ts`
-      reichte dem Splat Farbe ohne Stärke weiter (behoben am selben
-      Tag), und der Fehler hob sich um 17 h fast auf: Der Boden sah
-      0,733 statt 0,661. Bauer Boden 2 hat am lebenden Client
-      nachgemessen, dass das Vorbild bei `direkt` ×2,0 liegt — also
-      1,467 —, und ×2 auf einen zu hohen Wert ist keine Kalibrierung.
-
-      1,55 bleibt deshalb stehen: MITTAG ist nicht das Problem. Bei
-      Taggewicht 1,0 liefert `mischeStaerke` weiter genau 1,55, und die
-      Mittagsmessung sass mit einem Grundlichtanteil von 0,39 schon auf
-      dem Verhältnis des Vorbilds. Zu dunkel ist allein der ABEND, und
-      der hat jetzt seinen eigenen Stützpunkt.
-
-      2,67: Gebraucht wird bei 17 h eine Stärke von 2,219
-      (Sonnenfarbe linear 0,8251 × 2,219 × Lambert 0,4889 = 0,895, der
-      Sonnenanteil von 1,467). Auf der normierten Tagseite
-      (Tag 0,4032 / Abend 0,5968) macht das
-      `(2,219 − 1,55 · 0,4032) / 0,5968 = 2,671`.
-
-      Nacht und Morgen bleiben unangetastet: Dort ist das tagseitige
-      Gewicht null und `mischeStaerke` liefert `lightIntensityNight`.
-
-      2.67: the evening needs intensity 2.219 at 17 h; on the normalised
-      day side (day 0.403 / evening 0.597) that is 2.671. Midday and
-      night are untouched.
+      Gleich dem Tag, aus demselben Grund wie `ambColorEvening`:
+      `mischeStaerke` normiert die Tagseite, und das Vorbild hat EINE
+      Sonnenstärke. Hier stand 2,67 — der Wert, mit dem der Abend gegen
+      `village1.json` (#ffe4c6 × 3,0) aufgeholt hat. Diese Vorlage gilt
+      nicht mehr; was den Abend jetzt dunkler macht als den Mittag, ist
+      allein der Sonnenstand (26,8° gegen 50°), und genau so ist es im
+      Vorbild auch: eine Sonne, ein Licht, ein Winkel.
     */
-    lightIntensityEvening: 2.67,
-    // 26,8° bei 17 h — s. Herleitung oben. 45 (wie `Clear`) gäbe 26,2°;
-    // 46 trifft die 27° des Profils näher, ohne den Mittagsstand zu kippen.
-    sunAngle: 46,
+    lightIntensityEvening: 0.97,
+    /*
+      50° — die gemessene Elevation der Sonne von Level1 (§D). `sunAngle`
+      ist die MAXIMALHÖHE, also der Stand bei Tagesbruchteil 0,5; die
+      Referenzmessung gegen Bild 3 läuft genau dort und trifft damit den
+      Sonnenstand des Vorbilds auf die Zehntel.
+
+      Vorher 46 — eine Zahl, die den 27°-Abendstand von `village1.json`
+      bei 17 h treffen sollte. Mit 50 liegen um 17 h 29,1° an; der
+      Unterschied ist eine Folge des neuen Ziels und keine Ungenauigkeit.
+      Den AZIMUT (150°) kennt unser Sonnenlauf nicht — s. Punkt 1 oben.
+    */
+    sunAngle: 50,
     alwaysDark: false,
     rainCloudAlpha: 0.06,
   },

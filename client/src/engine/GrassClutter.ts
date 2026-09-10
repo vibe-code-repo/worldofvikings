@@ -106,6 +106,24 @@ interface ClutterEntry {
   readonly scaleMin: number;
   readonly scaleMax: number;
   readonly maxTiltCos: number; // cos(rad(m_maxTilt))
+  /**
+   * MINDESTneigung, als Kosinus — die Umkehrung von `maxTiltCos`.
+   *
+   * Gesetzt heisst: Dieser Eintrag wächst NUR dort, wo der Boden
+   * steiler ist als der angegebene Winkel (`ny <= minTiltCos`). Fehlt
+   * das Feld, gilt keine Untergrenze, und alles bleibt wie bisher.
+   *
+   * Warum es das gibt: Das Vorbild hat ZWEI Grashöhen und trennt sie
+   * nach der NEIGUNG, nicht nach der Menge (design/original-boden.md §B,
+   * F29). Sein kurzes Gras (Prototyp 2 und 6, 0,25–0,38 m) steht zu
+   * 89 % beziehungsweise 76 % über 30°, während das hohe (Prototyp 0/5)
+   * überall wächst. Bei uns unterschieden sich `meadowsGrass` und
+   * `meadowsGrassShort` nur in Höhe und Menge und standen auf DERSELBEN
+   * Fläche — der Steilhang war damit kahl statt kurz bewachsen, und das
+   * ist genau, was Bild 2 der Look-Referenz zeigt: kurze Büschel
+   * zwischen den Felsplatten.
+   */
+  readonly minTiltCos?: number;
   readonly minAlt: number;
   readonly maxAlt: number;
   readonly terrainTilt: boolean;
@@ -181,24 +199,32 @@ interface ClutterEntry {
    * `scaleMax` 1,4 bei `localScale` 1) — also genau die Grösse, gegen die
    * der Bildvergleich läuft.
    *
-   * ── Die HÖHE dagegen kommt aus dem Referenzbild (09.09.2026) ─────────
-   * Bild 1 der Sichtprüfung (`design/look-referenz.md`) zeigt die Wiese
-   * des Originals von schräg oben. Darin ist die Figur 104 Bildpunkte
-   * hoch (Kopf y 262 bis Fuss y 366, Rechteck 900/240–1060/400), ein
-   * Büschel daneben 37 bis 60 Bildpunkte (Rechteck 780/200–900/300).
-   * Bei 1,8 m Figurhöhe sind das 0,64 bis 1,04 m Halm — und die Büschel
-   * liegen im Bild WEITER WEG als die Figur, sind also eher noch höher.
+   * ── Die HÖHE kommt aus den DETAIL-PROTOTYPEN (10.09.2026) ───────────
+   * Hier stand eine Schätzung aus Bild 1 der Look-Referenz: Die Figur
+   * misst dort 104 Bildpunkte, ein Büschel daneben 37 bis 60 — bei 1,8 m
+   * Figurhöhe also 0,64 bis 1,04 m Halm. Daraus wurde `prefabScale.y`
+   * 3,0.
    *
-   * Mit `prefabScale.y` 1,5 stand unsere höchste Spitze bei
-   * 0,223 × 1,5 × 1,4 = 0,47 m, das typische Büschel (Skala 1,15) bei
-   * 0,38 m — halb so hoch wie das Vorbild. Deshalb 3,0:
+   * Die Schätzung war systematisch zu hoch, und man sieht auch warum:
+   * Die gemessene Figur steht im Bild NÄHER an der Kamera als die
+   * Büschel, ein Bildpunkt ist bei ihr also weniger Meter wert. Die
+   * Spieldaten sagen es genauer (`design/original-boden.md` §B, F28) —
+   * `minHeight`/`maxHeight` der Detail-Prototypen sind SKALEN auf die
+   * Prefab-Höhe, und `SM_Env_Grass_Short_Clump_01_LOD0` ist 0,25 m hoch:
    *
-   *     höchste Spitze   0,223 × 3,0 × 1,4 = 0,94 m
-   *     typisches Büschel 0,223 × 3,0 × 1,15 = 0,77 m
+   *     Prototyp 0/5  Skala 2,0–3,0  →  **0,50–0,75 m**   überall
+   *     Prototyp 2/6  Skala 1,0–1,5  →  **0,25–0,38 m**   am Steilhang
    *
-   * Das trifft die gemessene Spanne. Die Breite bleibt bei 1,0 — ein
-   * Büschel wird länger, nicht grösser; drei gekreuzte Karten von 1,0 m
-   * Breite sind schon die Obergrenze, ab der sie als Segel lesbar werden.
+   * Unser Store-Büschel misst 0,223 m. Daraus:
+   *
+   *     hoch  0,223 × 2,40 × 0,94…1,40 = 0,50…0,75 m
+   *     kurz  0,223 × 1,41 × 0,80…1,20 = 0,25…0,38 m
+   *
+   * `scaleMin` des hohen Büschels geht dabei von 0,90 auf 0,94 — mit
+   * 0,90 läge die Untergrenze bei 0,48 m und damit knapp unter der
+   * gemessenen Spanne. Die Breite bleibt bei 1,0: Ein Büschel wird
+   * länger, nicht grösser; drei gekreuzte Karten von 1,0 m Breite sind
+   * schon die Obergrenze, ab der sie als Segel lesbar werden.
    *
    * ── Was mit der halben Meter-Marke ist ───────────────────────────────
    * Die Spitze liegt jetzt ÜBER 0,5 m. Das ist unschädlich, und zwar
@@ -384,8 +410,8 @@ const B = Biome;
  * ein frei erfundener Ersatzwert später zurückgenommen werden musste.
  */
 const ROH_ENTRIES: readonly ClutterEntry[] = [
-  { key: 'meadowsGrass', biome: B.Meadows | B.Ocean, amount: 200, mesh: 'default', texture: 'grass_meadows_gen', storeGras: 'gruen', storeScale: { prefabScale: [1, 3.0, 1], scaleMin: 0.9, scaleMax: 1.4 }, terrainTint: true, texRepeatU: 1, prefabScale: [1.5, 2.0, 1.5], scaleMin: 1.0, scaleMax: 2.3, maxTiltCos: cos(25), minAlt: 0.4, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 0, fractalMax: 1, cutoff: 0.46, fadeMin: 20, fadeMax: 35, swayAmp: 0.1, pushDist: 2.0, pinUpNormals: true, color: [1, 1, 1] },
-  { key: 'meadowsGrassShort', biome: B.Meadows | B.Ocean, amount: 250, mesh: 'default', texture: 'grass_meadows_gen', storeGras: 'gruen', storeScale: { prefabScale: [1, 1.8, 1], scaleMin: 0.8, scaleMax: 1.2 }, terrainTint: true, texRepeatU: 1, prefabScale: [1.2, 1.2, 1.2], scaleMin: 1.0, scaleMax: 2.0, maxTiltCos: cos(25), minAlt: 0.3, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 1.0, fractalMax: 3.0, cutoff: 0.46, fadeMin: 20, fadeMax: 35, swayAmp: 0.05, pushDist: 0.5, pinUpNormals: true, color: [1, 1, 1] },
+  { key: 'meadowsGrass', biome: B.Meadows | B.Ocean, amount: 200, mesh: 'default', texture: 'grass_meadows_gen', storeGras: 'gruen', storeScale: { prefabScale: [1, 2.4, 1], scaleMin: 0.94, scaleMax: 1.4 }, terrainTint: false, texRepeatU: 1, prefabScale: [1.5, 2.0, 1.5], scaleMin: 1.0, scaleMax: 2.3, maxTiltCos: cos(25), minAlt: 0.4, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 0, fractalMax: 1, cutoff: 0.46, fadeMin: 40, fadeMax: 56, swayAmp: 0.1, pushDist: 2.0, pinUpNormals: true, color: [1, 1, 1] },
+  { key: 'meadowsGrassShort', biome: B.Meadows | B.Ocean, amount: 250, mesh: 'default', texture: 'grass_meadows_gen', storeGras: 'gruen', storeScale: { prefabScale: [1, 1.41, 1], scaleMin: 0.8, scaleMax: 1.2 }, terrainTint: false, texRepeatU: 1, prefabScale: [1.2, 1.2, 1.2], scaleMin: 1.0, scaleMax: 2.0, maxTiltCos: cos(70), minTiltCos: cos(30), minAlt: 0.3, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 1.0, fractalMax: 3.0, cutoff: 0.46, fadeMin: 40, fadeMax: 56, swayAmp: 0.05, pushDist: 0.5, pinUpNormals: true, color: [1, 1, 1] },
   { key: 'meadowsShrub', biome: B.Meadows | B.Ocean, amount: 8, mesh: 'plane', texture: 'clutter_shrub', terrainTint: false, texRepeatU: 1, prefabScale: [0.3, 1.0, 0.3], scaleMin: 1.0, scaleMax: 1.5, maxTiltCos: cos(30), minAlt: 1.0, maxAlt: 1000, terrainTilt: false, snapToWater: false, randomOffset: 0, inForest: true, forestMin: 0, forestMax: 1.15, fractalScale: 0, fractalMin: 0.5, fractalMax: 1, cutoff: 0.5, fadeMin: 20, fadeMax: 35, swayAmp: 0.05, pushDist: 0.8, pinUpNormals: true, color: [1, 1, 1] },
   { key: 'meadowsFern', biome: B.Meadows, amount: 30, mesh: 'fern', texture: 'autumn_ormbunke_green', terrainTint: false, texRepeatU: 1, prefabScale: [1, 1, 1], scaleMin: 1.0, scaleMax: 1.0, maxTiltCos: cos(18), minAlt: 1.0, maxAlt: 4.0, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: true, forestMin: 0, forestMax: 1.0, fractalScale: 0, fractalMin: 0.5, fractalMax: 1, cutoff: 0.5, fadeMin: 3.8, fadeMax: 40, swayAmp: 0.04, pushDist: 1.0, pinUpNormals: false, color: [1, 1, 1] },
   { key: 'heathGrass', biome: B.Plains, amount: 200, mesh: 'default', texture: 'grass_heath_gen', terrainTint: false, texRepeatU: 1, prefabScale: [1.3, 3.5, 1.3], scaleMin: 0.7, scaleMax: 1.5, maxTiltCos: cos(30), minAlt: 0.5, maxAlt: 1000, terrainTilt: true, snapToWater: false, randomOffset: 0, inForest: false, forestMin: 0, forestMax: 1, fractalScale: 5, fractalMin: 0, fractalMax: 0.8, cutoff: 0.5, fadeMin: 20, fadeMax: 35, swayAmp: 0.12, pushDist: 1.5, pinUpNormals: true, color: [1, 1, 1] },
@@ -1433,6 +1459,12 @@ export class GrassClutter {
               const len = Math.sqrt(hx * hx + 1.5 * 1.5 + hz * hz);
               nx = -hx / len; ny = 1.5 / len; nz = -hz / len;
               if (ny < entry.maxTiltCos) continue;
+              // Die Untergrenze: `ny` FÄLLT mit steigender Neigung,
+              // „steiler als X" heisst deshalb `ny <= cos(X)`. Wer hier
+              // versehentlich `>=` schreibt, bekommt kurzes Gras in der
+              // Ebene und einen kahlen Hang — dieselbe Fläche wie vorher,
+              // nur mit einem Feld mehr, das nichts tut.
+              if (entry.minTiltCos !== undefined && ny > entry.minTiltCos) continue;
             }
 
             let y = h;

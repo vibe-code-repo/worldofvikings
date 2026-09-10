@@ -26,8 +26,16 @@
 /** Tonemapping-Kurve. `aus` heisst: gar keine, das Bild bleibt roh. */
 export type Tonemapping = 'aces' | 'neutral' | 'aus';
 
-/** Nebelkurve. `exp` = lineare Extinktion, `exp2` = quadratische. */
-export type Nebelmodus = 'exp' | 'exp2';
+/**
+ * Nebelkurve.
+ *
+ * `exp` = lineare Extinktion, `exp2` = quadratische, `linear` = Babylons
+ * FOGMODE_LINEAR: voll sichtbar bis `nebelStart`, ab `nebelEnde` ganz
+ * Nebel, dazwischen geradlinig. Das ist die Kurve des Vorbilds
+ * (`m_FogMode = 1`, design/original-boden.md §D) — und die einzige der
+ * drei, die zwei ENTFERNUNGEN statt einer Dichte braucht.
+ */
+export type Nebelmodus = 'exp' | 'exp2' | 'linear';
 
 export interface LookBloom {
   an: boolean;
@@ -66,8 +74,50 @@ export interface LookCa {
   staerke: number;
 }
 
+/**
+ * `ShadowsMidtonesHighlights` des Vorbilds — die einzige Komponente,
+ * die in Level1 Farbe verschiebt (design/original-boden.md §E).
+ *
+ * Die Felder stehen so, wie Unity sie ablegt: drei Gammafarben und je
+ * ein Offset, dazu zwei Schwellenpaare auf der LUMINANZ. Was daraus
+ * wird, rechnet `client/src/engine/Grading.ts` — dort steht auch, warum
+ * die Lichter-Zeile des Vorbilds nie feuert.
+ */
+export interface LookGrading {
+  an: boolean;
+  /** Hex, sRGB (Unity: `shadows.rgb`). */
+  schatten: string;
+  /** Unity: `shadows.w`. Positiv wird VERVIERFACHT, negativ nicht. */
+  schattenOffset: number;
+  /** Luminanz, unter der die Schatten-Zeile voll gilt. */
+  schattenStart: number;
+  /** Luminanz, ab der sie nicht mehr gilt. */
+  schattenEnde: number;
+  /** Hex, sRGB. */
+  mitten: string;
+  mittenOffset: number;
+  /** Hex, sRGB. */
+  lichter: string;
+  lichterOffset: number;
+  /** Luminanz, ab der die Lichter-Zeile einsetzt. */
+  lichterStart: number;
+  lichterEnde: number;
+}
+
 export interface LookDof {
   an: boolean;
+  /**
+   * Fokusentfernung in METERN (URP `focusDistance`).
+   *
+   * Ersetzt den Autofokus, den `ValheimDof` bisher gefahren hat: Das
+   * Vorbild fokussiert FEST auf 2 m und laesst alles dahinter gleich
+   * weich werden — es gibt dort keinen Strahl, der die Entfernung sucht.
+   */
+  fokus: number;
+  /** Blendenzahl (URP `aperture`). */
+  blende: number;
+  /** Brennweite in MILLIMETERN (URP `focalLength`). */
+  brennweite: number;
 }
 
 export interface LookStrahlen {
@@ -105,6 +155,16 @@ export interface LookSchatten {
   aufloesung: number;
   /** Reichweite der letzten Kaskade in Metern. */
   reichweite: number;
+  /**
+   * Zahl der Kaskaden, ODER 0 = „die Qualitaetsstufe entscheidet".
+   *
+   * Wie `reichweite` eine Look-Entscheidung und deshalb ein ERSATZ und
+   * kein Deckel: Das Vorbild faehrt auf der wirksamen URP-Stufe
+   * genau EINE Kaskade ueber 50 m (§D). Jede Kaskade ist eine eigene
+   * Renderpassage ueber die ganze Werferliste — die Zahl kostet also
+   * nicht nur Speicher.
+   */
+  kaskaden: number;
   /** 0 = schwarz, 1 = kein Schatten (Babylons `ShadowGenerator.darkness`). */
   dunkelheit: number;
   /** Kaskadengrenzen auf das Texelraster rasten (`stabilizeCascades`). */
@@ -139,6 +199,15 @@ export interface LookProfil {
   /** Nebelkurve für Szene UND Boden. */
   nebelmodus: Nebelmodus;
   /**
+   * Entfernung, ab der `linear` zu nebeln beginnt (Meter).
+   *
+   * Nur bei `nebelmodus: linear` gelesen — genau wie im Vorbild, wo
+   * `m_FogDensity` neben `m_FogMode = 1` steht und nichts tut.
+   */
+  nebelStart: number;
+  /** Entfernung, ab der `linear` voll deckt (Meter). */
+  nebelEnde: number;
+  /**
    * Wärme der zweiten Nebelfarbe, 0..1.
    *
    * 0 (Vorgabe) heisst: Die Keyframe-Daten gelten unverändert — bei
@@ -148,6 +217,7 @@ export interface LookProfil {
    * Handschrift für jedes Wetter zurück, ohne Daten zu ändern.
    */
   nebelWaerme: number;
+  grading: LookGrading;
   bloom: LookBloom;
   vignette: LookVignette;
   ca: LookCa;
@@ -219,16 +289,31 @@ export const HORIZONT_AUS_NEBEL = 'nebel';
  *    −100…+100-Skala steht an der einen Stelle, die sie bindet.
  */
 export const LOOK_VORGABE: LookProfil = {
-  tonemapping: 'neutral',
-  belichtung: 1.05,
-  kontrast: 1.15,
-  saettigung: 0.45,
-  nebelmodus: 'exp',
+  tonemapping: 'aus',
+  belichtung: 1.0,
+  kontrast: 1.0,
+  saettigung: 1.0,
+  nebelmodus: 'linear',
+  nebelStart: 15,
+  nebelEnde: 200,
   nebelWaerme: 0,
-  bloom: { an: true, schwelle: 0.85, staerke: 0.22, skala: 0.5, kernel: 32 },
-  vignette: { an: true, staerke: 1.2, farbe: '#0d0a08' },
-  ca: { an: true, staerke: 4.5 },
-  dof: { an: true },
+  grading: {
+    an: true,
+    schatten: '#ffffff',
+    schattenOffset: 0,
+    schattenStart: 0,
+    schattenEnde: 0.3,
+    mitten: '#fff5ef',
+    mittenOffset: 0,
+    lichter: '#ffe9c7',
+    lichterOffset: -0.164,
+    lichterStart: 1.07,
+    lichterEnde: 1.58,
+  },
+  bloom: { an: true, schwelle: 0.35, staerke: 0.55, skala: 0.5, kernel: 32 },
+  vignette: { an: true, staerke: 0.686, farbe: '#0d0a08' },
+  ca: { an: true, staerke: 3.0 },
+  dof: { an: true, fokus: 2.0, blende: 6.0, brennweite: 47 },
   strahlen: {
     an: true,
     ankerAbstand: 1400,
@@ -239,8 +324,8 @@ export const LOOK_VORGABE: LookProfil = {
     gewicht: 0.5,
     dichte: 0.94,
   },
-  himmel: { zenit: '#17478f', horizont: HORIZONT_AUS_NEBEL, 'sonnenglühen': 0.2 },
-  schatten: { aufloesung: 2048, reichweite: 120, dunkelheit: 0.42, rasten: true },
+  himmel: { zenit: '#819195', horizont: '#819195', 'sonnenglühen': 0.2 },
+  schatten: { aufloesung: 1024, reichweite: 50, kaskaden: 1, dunkelheit: 0.42, rasten: true },
 };
 
 // ── Nebelkurve ───────────────────────────────────────────────────────
@@ -256,7 +341,18 @@ export const LOOK_VORGABE: LookProfil = {
  * Wer nur die Dichte übernimmt, wechselt zugleich die Sichtweite — und
  * zwar bei kleinen Dichten um mehr als eine Zehnerpotenz.
  */
-export function sichtweite(modus: Nebelmodus, dichte: number, schwelle = 0.5): number {
+export function sichtweite(
+  modus: Nebelmodus,
+  dichte: number,
+  schwelle = 0.5,
+  start = 0,
+  ende = 0
+): number {
+  // `linear` kennt gar keine Dichte: Die Sichtbarkeit faellt geradlinig
+  // von 1 bei `start` auf 0 bei `ende`, die halbe Sicht liegt also genau
+  // in der Mitte. Wer hier die Dichte einsetzte, bekaeme eine Zahl aus
+  // einer Kurve, die nicht laeuft.
+  if (modus === 'linear') return start + (ende - start) * (1 - schwelle);
   if (!(dichte > 0)) return Number.POSITIVE_INFINITY;
   const l = -Math.log(schwelle);
   return modus === 'exp' ? l / dichte : Math.sqrt(l) / dichte;
@@ -268,6 +364,10 @@ export function dichteFuerSichtweite(
   weite: number,
   schwelle = 0.5
 ): number {
+  // Fuer `linear` gibt es keine Dichte — die Sicht steht dort in
+  // `nebelStart`/`nebelEnde`. NaN statt einer stillen Zahl: Ein Aufrufer,
+  // der hier landet, rechnet mit der falschen Groesse.
+  if (modus === 'linear') return Number.NaN;
   const l = -Math.log(schwelle);
   return modus === 'exp' ? l / weite : Math.sqrt(l) / weite;
 }
@@ -308,6 +408,19 @@ const BEREICHE: ReadonlyMap<string, readonly [number, number]> = new Map([
   ['look.kontrast', [0, 4]],
   ['look.saettigung', [0, 4]],
   ['look.nebelWaerme', [0, 1]],
+  ['look.nebelStart', [0, 4000]],
+  ['look.nebelEnde', [1, 20000]],
+  ['look.grading.schattenOffset', [-1, 1]],
+  ['look.grading.mittenOffset', [-1, 1]],
+  ['look.grading.lichterOffset', [-1, 1]],
+  ['look.grading.schattenStart', [0, 2]],
+  ['look.grading.schattenEnde', [0, 2]],
+  ['look.grading.lichterStart', [0, 2]],
+  ['look.grading.lichterEnde', [0, 2]],
+  ['look.dof.fokus', [0.1, 2000]],
+  ['look.dof.blende', [0.5, 64]],
+  ['look.dof.brennweite', [1, 600]],
+  ['look.schatten.kaskaden', [0, 4]],
   ['look.bloom.schwelle', [0, 4]],
   ['look.bloom.staerke', [0, 4]],
   ['look.bloom.skala', [0.05, 1]],
@@ -385,8 +498,8 @@ export function pruefeLook(roh: unknown, pfad = 'look'): LookFehler[] {
       fehler.push({ pfad: 'look.tonemapping', grund: `erwartet aces|neutral|aus, bekam "${tm}"` });
     }
     const nm = (roh as Record<string, unknown>).nebelmodus;
-    if (typeof nm === 'string' && !['exp', 'exp2'].includes(nm)) {
-      fehler.push({ pfad: 'look.nebelmodus', grund: `erwartet exp|exp2, bekam "${nm}"` });
+    if (typeof nm === 'string' && !['exp', 'exp2', 'linear'].includes(nm)) {
+      fehler.push({ pfad: 'look.nebelmodus', grund: `erwartet exp|exp2|linear, bekam "${nm}"` });
     }
   }
   return fehler;

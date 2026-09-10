@@ -353,10 +353,17 @@ check(
   vermeintlichen `rock-a`-Bildpunkte in Wahrheit `Cliff`. Diese Prüfung
   hält fest, dass sie es jetzt nicht mehr sind.
 
-  Geprüft wird über die MESSGRÖSSE der beiden Schichten, nicht über den
-  Tile-Namen: `Rock` ist im Speicher `terrain-rock-a` mit Metallic 0,85,
-  `Cliff` ist `terrain-rock-rough` mit Metallic 0. Ein Umbenennen der
+  Geprüft wird über die QUELLTEXTUR und nicht über den Tile-Namen: Der
+  dunkle Wandfels ist `terrain-rock-a` (linear 0,023/0,020/0,017, also
+  sRGB um 40), der helle raue `terrain-rock-rough` (0,228/0,198/0,159,
+  sRGB um 125) — Faktor zehn in der Albedo. Ein Umbenennen der
   Konstanten liefe hier also nicht durch.
+
+  ⚠ Hier stand bis zum 10.09.2026 `metallic >= 0.5` als Unterscheidung.
+  Das war richtig, solange `rock-a` die Ebene `Ani Dark Rockwall` mit
+  Metallic 0,85 war — und ist mit F25 hinfällig geworden: Level1 fährt
+  `Ani Dark Rockwall 3` mit Metallic 0,20, und damit sagt diese Zahl
+  nichts mehr über hell und dunkel. Die Albedo tut es weiterhin.
 */
 {
   const dunkleBiome: [string, number][] = [
@@ -366,10 +373,10 @@ check(
   const hell: string[] = [];
   for (const [name, biom] of dunkleBiome) {
     const grund = BIOME_TILE[biom]!;
-    const r = SCHICHT_OBERFLAECHE[RAU_TILE[grund]!];
-    // Die dunkle Wandschicht ist die metallische; die helle raue hat
-    // Metallic 0. Genau diese Zahl unterscheidet sie.
-    if (!r || r.metallic < 0.5) hell.push(`${name}: RAU_TILE[${grund}] = ${RAU_TILE[grund]}`);
+    const zeile = (ZUORDNUNG as Array<{ schicht?: string }>)[RAU_TILE[grund]!];
+    if (zeile?.schicht !== 'rock-a') {
+      hell.push(`${name}: RAU_TILE[${grund}] = ${RAU_TILE[grund]} (${zeile?.schicht ?? '—'})`);
+    }
   }
   check(
     'Schwarzwald und Sumpf tragen auch auf der senkrechten Wand den DUNKLEN Fels',

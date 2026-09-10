@@ -201,87 +201,126 @@ wetter:
 #     WeltWetter, wie `wetter:`). Wer hier dreht, waehrend jemand spielt,
 #     aendert bei ihm nichts — er muss neu verbinden.
 look:
-  # aces | neutral | aus.
+  # ── Tonemapping: KEINS ───────────────────────────────────────────────
+  # `aus`, und das ist eine Messung aus den Spieldateien, keine Meinung:
+  # Level1 setzt `Tonemapping.mode = 0 = None`, und ALLE NEUN Spiel-Level
+  # tun dasselbe (design/original-boden.md §E). Nur Menue, Charakterwahl
+  # und Village1 fahren `Neutral`.
   #
-  # `neutral` (KHR-PBR-Neutral) steht hier NICHT aus Gewohnheit, sondern
-  # als Messergebnis. Sieben Einstellungen verschraenkt in einer Sitzung
-  # am Referenzort (~/wov-lab-mess/licht-kalibrieren.mjs): ACES kommt am
-  # nahen Boden auch mit Belichtung 2,0 nicht ueber Luma 40, waehrend der
-  # Himmel auf 71 steigt — Ziel sind 55,8. Neutral trifft es bei
-  # Belichtung 1,05 mit 53,4. Die vollstaendige Tabelle steht bei
-  # LOOK_VORGABE in shared/src/lookProfil.ts.
+  # Der Widerspruch zu der Messreihe, die hier bis gestern `neutral`
+  # begruendet hat, ist echt und aufgeloest: Jene Reihe zielte auf
+  # `village-square-staging.png` — ein Bild aus dem SCHWESTERPROJEKT.
+  # Das Zielbild ist seit dem 10.09.2026 Tale of Dark Lands, und das hat
+  # keine Kurve. Die Tabelle bei LOOK_VORGABE bleibt trotzdem stehen; sie
+  # ist richtig fuer die Frage, die sie beantwortet hat.
   #
-  # Das Schwesterprojekt faehrt ACES mit Saettigung 0,68 — kein
-  # Widerspruch: Neutral ist der buntere Tonemapper, deshalb steht hier
-  # 0,45. Beide zielen auf dieselbe GEMESSENE Saettigung, nicht auf
-  # denselben Reglerwert.
-  tonemapping: neutral
-  # 1,35 und nicht mehr 1,05 — bei der ZUSAMMENFUEHRUNG neu gemessen
-  # (09.09.2026, Referenzort 10077/−18723, t=0.708333, Gier 0,
-  # Neigung −0,18, ~/wov-lab-mess/stufe2-kalibrieren.mjs).
+  # Was `aus` mit sich bringt, ist der Grund, aus dem diese Runde
+  # ueberhaupt kalibrierbar ist: OHNE Kurve ist ein sRGB-Luma-VERHAELTNIS
+  # unabhaengig von der Belichtung — beide Seiten laufen durch dieselbe
+  # Potenz 1/2,2, der Faktor kuerzt sich. Genau drei Verhaeltnisse sind
+  # der Abnahmemassstab (`design/look-referenz.md`: Hangfels/Himmel 0,73,
+  # Kronen/Himmel 0,34, Moos/Himmel 0,435); mit einem Tonemapper haette
+  # jede Belichtungskorrektur sie wieder verschoben.
+  tonemapping: aus
+  # Am Bild kalibriert und NICHT uebertragen: Die `postExposure 0,7` des
+  # Vorbilds steht in einer Komponente, die AUS ist (ColorAdjustments,
+  # §E), und Unitys Blende ist ohnehin keine Babylon-Belichtung. Diese
+  # Zahl stellt die absolute Helligkeit auf die Regionswerte der
+  # Referenzbilder ein; die Verhaeltnisse beruehrt sie nicht (s. oben).
+  belichtung: 1.42
+  # Der Kontrast des Vorbilds kommt aus `ShadowsMidtonesHighlights`
+  # (unten), nicht aus einem Kontrastregler: `ColorAdjustments` ist in
+  # Level1 abgeschaltet, und sein `contrast` steht dort auf 0 (F4).
+  kontrast: 1.0
+  # Das Vorbild hat KEINEN Saettigungsregler: In keiner der zwoelf
+  # Szenen des Spiels ist `saturation` ueberschrieben (§E, F2). Die 0,45
+  # war eine Erfindung des Labors — sie hat eine Farbe weggenommen, die
+  # danach mit Toenungen wieder hereingerechnet wurde.
+  saettigung: 1.0
+  # ── Nebel: linear 15 → 200 m ─────────────────────────────────────────
+  # `m_FogMode = 1` (Linear), `m_LinearFogStart` 15, `m_LinearFogEnd` 200
+  # (§D). Im Linear-Modus liest niemand `fogDensity` — auch das Vorbild
+  # nicht, dessen `m_FogDensity` 0,01 daneben steht und nichts tut.
   #
-  # Die 1,05 war richtig, als sie entstand: Bauer Licht ALLEIN traf damit
-  # den fernen Boden auf 57,3 bei einem Ziel von 57,4. Dieselbe Stelle,
-  # dieselbe Pose, dieselbe Stunde ergab nach der Zusammenfuehrung mit
-  # Boden, Gras und Leistung nur noch 48,9 — der neue Store-Boden, das
-  # Clutter-Gras und die dichtere Store-Vegetation sind zusammen dunkler
-  # als das, wogegen kalibriert wurde. Der HIMMEL blieb dabei fast
-  # stehen (68,5 → 72,9), es ist also der Boden, der wegsackt, nicht das
-  # Bild.
-  #
-  # Gemessene Reihe (ferner / naher Boden, Ziel 57,4 / 55,8):
-  #   1,05  48,9 / 40,1     1,20  52,9 / 42,8
-  #   1,35  56,4 / 45,5     1,50  59,9 / 48,0     1,70  64,2 / 51,0
-  # 1,35 setzt den fernen Boden auf −1,0 ans Ziel und halbiert die Luecke
-  # des nahen (−15,7 → −10,3). Preis: Der Himmel steigt 72,9 → 84,9. Er
-  # hat keine Zielzahl (das Vorbildbild gibt nur die beiden Boeden vor),
-  # und er clippt nicht — deshalb ist das der Preis und nicht der Fehler.
-  #
-  # Drei andere Regler wurden ZUERST versucht und bewegen hier nichts;
-  # wer die Luecke erneut angeht, spart sich damit drei Sitzungen:
-  #   HIMMEL_ANTEIL  steht in TerrainSplat.ts schon auf 1,0 (Anschlag).
-  #   nebelWaerme    0 → 0,35 faerbt `fogColorSun` nachweislich warm
-  #                  (0,640/0,691/0,752 → 0,770/0,764/0,757), aendert die
-  #                  Regionen aber um 0,0: Die Pose blickt VON der Sonne
-  #                  weg, und nur dort gilt die zweite Nebelfarbe.
-  #   dunkelheit     0,42 → 0,55 kommt im Client an (messwerte meldet
-  #                  0,55) und aendert die Regionen um ≤ 0,1 Luma.
-  belichtung: 1.35
-  kontrast: 1.15
-  # FAKTOR: 1 = unveraendert, 0.68 = das Ziel. NICHT Babylons Reglerwert
-  # (der laeuft von -100 bis +100 mit 0 als neutral, eine 68 dort heisst
-  # "68 % MEHR Saettigung"). Umgerechnet wird im Client, an einer Stelle.
-  saettigung: 0.45
-  # exp | exp2. exp faellt gleichmaessig und macht Luftperspektive im
-  # Spielbereich; exp2 (der alte Stand) ist nah flach und fern steil.
-  nebelmodus: exp
-  # 0 = die zwei Nebelfarben des Wetters gelten unveraendert. > 0 mischt
-  # die Sonnen-Nebelfarbe zur Sonnenfarbe hin und holt die alte warme
-  # Handschrift zurueck, ohne Wetterdaten anzufassen.
+  # Das ist ERHEBLICH dichter als die exp-Kurve mit 0,0009, die hier
+  # stand: Bei 200 m war unser Bild zu 16 % Nebel, das Vorbild ist es zu
+  # 100 %. F6 nennt das die wahrscheinlichste Ursache dafuer, dass unsere
+  # Ferne anders wirkt.
+  nebelmodus: linear
+  nebelStart: 15
+  nebelEnde: 200
   nebelWaerme: 0
+  # ── Grading: die ganze Farbhandschrift des Vorbilds ──────────────────
+  # `ShadowsMidtonesHighlights` ist die EINZIGE Komponente, die in Level1
+  # Farbe verschiebt (§E). Die Zahlen stehen so, wie Unity sie ablegt:
+  # Farben in Gamma, Offset im vierten Kanal. Umgerechnet wird im Client
+  # (client/src/engine/Grading.ts), und dort steht auch der Befund, den
+  # man beim Abschreiben verpasst: `lichterStart` 1,07 liegt UEBER der
+  # hoechsten Luminanz, die der LDR-Farbraum des Vorbilds erreichen kann
+  # — die Lichter-Zeile feuert nie. Sie steht hier trotzdem, damit die
+  # Rechnung vollstaendig bleibt.
+  grading:
+    an: true
+    schatten: '#ffffff'
+    schattenOffset: 0
+    schattenStart: 0
+    schattenEnde: 0.3
+    mitten: '#fff5ef'
+    mittenOffset: 0
+    lichter: '#ffe9c7'
+    lichterOffset: -0.164
+    lichterStart: 1.07
+    lichterEnde: 1.58
+  # Schwelle 0,35 statt 0,85, Staerke 0,55 statt 0,22 — beide direkt aus
+  # dem Profil `FantasyL1` (§E). Das Vorbild blueht viel frueher und
+  # staerker; unsere Schwelle liess praktisch nichts durch. Die
+  # Dirt-Textur (dirtIntensity 12,0) haben wir nicht, das ist ein eigener
+  # Effekt und keine Zahl (F15).
   bloom:
     an: true
-    schwelle: 0.85
-    staerke: 0.22
+    schwelle: 0.35
+    staerke: 0.55
     skala: 0.5
     kernel: 32
+  # UMGERECHNET, nicht kopiert: URPs `intensity 0,25` und Babylons
+  # `vignetteWeight` sind verschiedene Skalen. Verglichen wurde die
+  # ABDUNKLUNG IN DER BILDECKE bei 16:9 (F16):
+  #
+  #   URP      dist = 0,5 · (0,25 · 3) = 0,375 je Achse, Rundheit 1,
+  #            Glaettung 1/(0,2 · 5) = 1  →  (1 − 2 · 0,375²)^1 = 0,719
+  #   Babylon  vignetteTerm = 1,271 bei FOV 0,5 rad,
+  #            vignette = 1,271^(−2·w)  →  w = ln(0,719) / (−2 · ln 1,271)
+  #                                          = 0,686
+  #
+  # 1,2 dunkelte die Ecke auf 0,56 ab, also fast doppelt so stark wie das
+  # Vorbild. Die Referenzrechtecke liegen alle in der Bildmitte — diese
+  # Zahl ist deshalb gerechnet und nicht gemessen, und das steht hier.
   vignette:
     an: true
-    staerke: 1.2
+    staerke: 0.686
     farbe: '#0d0a08'
-  # Chromatische Aberration und Tiefenunschaerfe bleiben AN. Das
-  # Schwesterprojekt hat beides nicht, das VORBILD zeigt beides
-  # (Farbsaeume am Schild, unscharfe Ferne) — sie gehoeren zum Zielbild.
-  # `staerke` ist Babylons aberrationAmount, also eine Pixelverschiebung.
+  # Unity-intensity 0,10 (§E) auf Babylons Pixelverschiebung: 0,10 × 30
+  # = 3,0 — dieselbe Umrechnung, mit der hier 4,5 stand (die galt fuer
+  # die 0,15 des Schwesterprojekts).
   ca:
     an: true
-    staerke: 4.5
+    staerke: 3.0
+  # ── Tiefenunschaerfe: jetzt mit Zahlen ───────────────────────────────
+  # Bisher war das ein Schalter. Das Vorbild fuehrt Bokeh mit
+  # focusDistance 2,0 m, aperture 6,0, focalLength 47 mm (§E; die
+  # gaussianStart/End 70/100 gelten nur im Gauss-Modus und sind hier
+  # wirkungslos). Wie daraus ein Unschaerferadius wird, steht in
+  # client/src/engine/ValheimDof.ts — kurz: URP rechnet
+  # maxCoC = (f/N) · (f/1000) / (P − f/1000) = 0,1885, und das mal 14
+  # Bildpunkten ergibt rund 2,6 px. Eine milde, aber ueber die ganze
+  # Ferne gleichmaessige Weichzeichnung, die schon ab etwa 10 m voll
+  # anliegt — deutlich frueher als unser bisheriger Autofokus (scharf bis
+  # 70 m).
   dof:
     an: true
-  # Der Strahlenkranz kostet eine eigene Verdeckungspassage ueber die
-  # ganze Szene. `an: true` heisst nur "das Profil erlaubt ihn" — ob er
-  # laeuft, entscheidet zusaetzlich die Grafikeinstellung des Spielers
-  # (dort steht er weiterhin auf aus).
+    fokus: 2.0
+    blende: 6.0
+    brennweite: 47
   strahlen:
     an: true
     ankerAbstand: 1400
@@ -291,23 +330,44 @@ look:
     decay: 0.965
     gewicht: 0.5
     dichte: 0.94
+  # ── Himmel: vom Nebel ABGEKOPPELT ────────────────────────────────────
+  # Hier stand `horizont: nebel`, und das war richtig, solange Himmel und
+  # Dunst dieselbe Farbe haben sollten. Im Vorbild haben sie es nicht:
+  # Der Himmel ist die Cubemap `Sky1 L1` (Tint #B2D1FE, Exposure 0,8),
+  # der Nebel eine eigene Farbe #73A7FF (§D). Die Referenz misst beide
+  # getrennt und deutlich verschieden — Himmel S 0,133 (heller Dunst)
+  # gegen Nebel S 0,549 (sattes Blau). Mit gekoppeltem Horizont waere die
+  # eine Zahl nur um den Preis der anderen zu treffen.
+  #
+  # Die Cubemap haben wir nicht. Was die Referenz hergibt, ist GENAU EINE
+  # Himmelsfarbe: Bild 3, Rechteck 1220,20–1290,70, RGB 129/145,4/148,6
+  # = #819195 bei Luma 142,1. Eingetragen ist sie fuer Zenit UND Horizont
+  # — eine gleichmaessige Kuppel. Ein Verlauf waere hier eine Erfindung:
+  # Das Vorbild hat einen, aber er steckt in Texeln, die wir nicht haben,
+  # und aus einem einzigen Messwert folgen keine zwei Stuetzpunkte.
+  #
+  # Der Preis ist benannt und nicht uebersehen: Am Meereshorizont trifft
+  # jetzt eine Nebelwand (#73A7FF ab 200 m) auf eine andersfarbige Kuppel
+  # — eine sichtbare Naht. Das Vorbild hat sie auch; dort faellt sie
+  # nicht auf, weil sein Spielfeld 200 m misst und ringsum Bergmeshes
+  # stehen. Bei uns ist sie eine offene Frage fuer die Roadmap (F36).
   himmel:
-    zenit: '#17478f'
-    # `nebel` heisst: Der Horizont IST die Nebelfarbe. Eine feste Farbe
-    # hier zeichnet ueber dem Meer eine sichtbare Naht, sobald sich
-    # Wetter oder Tageszeit bewegen — und beide bewegen sich.
-    horizont: nebel
+    zenit: '#819195'
+    horizont: '#819195'
     sonnenglühen: 0.2
+  # ── Schatten: 50 m, EINE Kaskade ─────────────────────────────────────
+  # Die Notiz, die hier stand („Das Vorbild faehrt 40 m mit zwei
+  # Kaskaden"), war falsch: 40 m / 2 Kaskaden stehen in Unitys
+  # `QualitySettings`, und URP liest die nicht. Wirksam sind die Werte
+  # des URP-Assets, und das faehrt auf der Stufe „Balanced" (HDR an,
+  # MSAA 1, LUT 32) 50 m mit EINER Kaskade und einer 1024er Karte (§D).
+  #
+  # `kaskaden` ist neu und ersetzt — wie `reichweite` — die Zahl der
+  # Qualitaetsstufe. Eine Kaskade statt zwei ist zugleich eine ganze
+  # Renderpassage weniger ueber die Werferliste.
   schatten:
-    # OBERGRENZE, keine Vorgabe: Die Qualitaetsstufe des Spielers darf
-    # darunter bleiben (auf "Niedrig" sind es 512).
-    aufloesung: 2048
-    # ERSETZT die Reichweite der Stufe. Das Vorbild faehrt 40 m mit zwei
-    # Kaskaden, das Schwesterprojekt 120 m.
-    reichweite: 120
-    # Anteil Licht, der IM SCHATTEN uebrigbleibt (Babylons `darkness`):
-    # 0 = stockschwarz, 1 = kein Schatten.
+    aufloesung: 1024
+    reichweite: 50
+    kaskaden: 1
     dunkelheit: 0.42
-    # Kaskadengrenzen aufs Texelraster rasten. Ohne das kriecht jede
-    # Schattenkante beim Gehen.
     rasten: true

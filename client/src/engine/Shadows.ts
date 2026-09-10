@@ -157,11 +157,24 @@ export function schattenKonfiguration(stufe: number, hundertFpsProfil: boolean):
  * eigentliche Inhalt dieser Funktion:
  *
  *  · `reichweite` ERSETZT die Distanz der Stufe. Sie ist eine
- *    Look-Entscheidung: Das Vorbild hat 40 m mit zwei Kaskaden
- *    (QualitySettings HighFidelity), das Schwesterprojekt 120 m. Wer sie
- *    in server.yml eintraegt, will sie sehen, auch wenn sie laenger ist
- *    als die Stufe vorsah — ein stiller Deckel waere ein Regler, der bei
- *    der Haelfte der Werte nichts tut.
+ *    Look-Entscheidung: Das Vorbild faehrt 50 m mit EINER Kaskade, das
+ *    Schwesterprojekt 120 m. Wer sie in server.yml eintraegt, will sie
+ *    sehen, auch wenn sie laenger ist als die Stufe vorsah — ein stiller
+ *    Deckel waere ein Regler, der bei der Haelfte der Werte nichts tut.
+ *
+ *    ⚠ Hier stand „Das Vorbild hat 40 m mit zwei Kaskaden
+ *    (QualitySettings HighFidelity)". Das ist falsch, und der Fehler ist
+ *    lehrreich: Die 40 m / 2 Kaskaden stehen zwar in Unitys
+ *    `QualitySettings` — aber URP liest die nicht, es liest die Werte
+ *    seines EIGENEN Assets (design/original-boden.md §D). Wirksam sind
+ *    50 m mit 1 Kaskade und einer 1024er Karte (Performant/Balanced)
+ *    beziehungsweise 150 m mit 4 (HighFidelity).
+ *
+ *  · `kaskaden` ERSETZT die Kaskadenzahl der Stufe, wenn es > 0 ist.
+ *    Auch das ist eine Look-Entscheidung und kein Hardwarepreis — und
+ *    sie geht in die BILLIGE Richtung: Jede Kaskade rendert die
+ *    Werferliste komplett erneut, eine statt zwei ist also eine ganze
+ *    Passage weniger.
  *  · `aufloesung` ist eine OBERGRENZE. Sie ist keine Look-Groesse,
  *    sondern ein Hardwarepreis, den der Spieler mit der Stufe gewaehlt
  *    hat: Auf "Niedrig" 512 auf 2048 hochzudrehen ist genau die Sorte
@@ -174,11 +187,17 @@ export function schattenKonfiguration(stufe: number, hundertFpsProfil: boolean):
  */
 export function schattenMitLook(
   cfg: ShadowLevel | null,
-  profil: { aufloesung: number; reichweite: number }
+  profil: { aufloesung: number; reichweite: number; kaskaden?: number }
 ): ShadowLevel | null {
   if (!cfg) return null;
+  // 0 (oder fehlend) heisst „die Stufe entscheidet" — dieselbe
+  // Vereinbarung wie an jedem anderen optionalen Look-Regler. Ein
+  // fehlendes Feld darf hier nicht als `numCascades = 0` durchgehen:
+  // Babylons CascadedShadowGenerator klemmt das zwar, würde aber eine
+  // Stufe rendern, die niemand gewählt hat.
+  const kaskaden = profil.kaskaden && profil.kaskaden > 0 ? profil.kaskaden : cfg.kaskaden;
   return {
-    kaskaden: cfg.kaskaden,
+    kaskaden,
     distanz: profil.reichweite,
     aufloesung: Math.min(cfg.aufloesung, profil.aufloesung),
   };

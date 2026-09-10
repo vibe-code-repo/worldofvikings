@@ -47,25 +47,53 @@
  * auf die Zielkante skaliert.
  *
  * ── Die Zahlen je Schicht ────────────────────────────────────────────
- * `kachelMeter`, `normalStaerke`, `metallic` und `smoothness` sind NICHT
- * geraten. Sie stehen im `terrain`-Block der Zone `village` von
- * `content/worlds/village1.json` des Schwesterprojekts, wo sie am Bild
- * kalibriert wurden (ADR-0032). Nachgelesen am 09.09.2026:
+ * Sie stammen seit dem 10.09.2026 aus den TerrainLayer-Assets des
+ * VORBILDS selbst (`design/original-boden.md`, Tabelle in §A und die
+ * Gesamtliste „Alle TerrainLayer des Spiels"), nicht mehr aus
+ * `village1.json` des Schwesterprojekts. Welche Store-Textur welche
+ * Ebene ist, steht in derselben Tabelle:
  *
- *   terrain-gravel-path  2 m  normal 3    metallic 0.75  smooth 0.10
- *   terrain-rock-a       2 m  normal 1.5  metallic 0.85  smooth 0.10
- *   terrain-grass-a      2 m  normal 2    metallic 0.50  smooth 0
- *   terrain-gravel       2 m  normal 3    metallic 0.75  smooth 0.10
- *   terrain-rock-rough   3 m  normal 5    metallic 0     smooth 0
- *   terrain-moss         2 m  normal 1.2  metallic 0     smooth 0
+ *   Store-Datei          Ebene im Vorbild             Kachel  Met.  Glätte  Nrm
+ *   terrain-gravel-path  Ani Dark Pebbles_Sand          2 m   0,75   0,10   3,0
+ *   terrain-gravel       Ani Dark Pebbles_Sand          2 m   0,75   0,10   3,0
+ *   terrain-rock-a       Ani Dark Rockwall 3            5 m   0,20   0,20   1,5
+ *   terrain-grass-a      Ani Grass 2                    2 m   0,70   0      2,0
+ *   terrain-rock-rough   Terrain_Meadow_Rock_Moss_01    7 m   0      0      2,0
+ *   terrain-moss         Moss very Dark                 2 m   0      0      1,2
  *
- * `terrain-grass-b` führt der Weltdatei keine eigene Zeile; es teilt sich
- * die Normalmap mit `grass-a` und erbt deshalb dessen Werte.
+ * Zwei dieser Zeilen sind KORREKTUREN und keine Übernahmen:
  *
- * Metallic 0,5 bis 0,85 bei Glätte 0,1 ist der Kern des Looks und
- * zugleich seine Falle: Ein Boden mit Metallic 0,85 hat fast keine
- * Eigenfarbe mehr, er zeigt den Himmel. OHNE einen Himmelsterm im Shader
- * wird er schwarz. Der Term steht in `TerrainSplat.ts` (`terrainHimmel`);
+ *  · `terrain-rock-a` stand auf 2 m / Metallic 0,85 / Glätte 0,10. Das
+ *    ist `Ani Dark Rockwall` — eine Ebene, die es im Spiel gibt, die
+ *    Level1 und Village1 aber NICHT benutzen (F25). Das Spiel führt drei
+ *    Rockwall-Ebenen auf DERSELBEN Diffuse-Textur (PathID 96) und
+ *    unterscheidet sie nur in Metallic und Kachelmaß; die Referenzbilder
+ *    stammen aus Level1, und Level1 fährt die matte dritte (0,20 / 5 m).
+ *    Die TEXTUR muss dafür nicht getauscht werden — nur diese vier
+ *    Zahlen. Das behebt Mikes Befund „ich lese den Fels als Erde" an der
+ *    Ursache: Bei Metallic 0,85 bleibt vom diffusen Anteil ein Sechstel
+ *    übrig und der Rest ist Himmel; bei 0,20 zeigt die Schicht wieder
+ *    ihre eigene, dunkle Wandfarbe.
+ *
+ *  · `terrain-rock-rough` stand auf 3 m / Normale 5 — das sind die Werte
+ *    von `Terrain_Meadow_Rock_Rough_01`, und die ist im GANZEN Spiel von
+ *    keinem Terrain referenziert (F26). Der helle Fels, den Bild 3 zeigt,
+ *    ist `Terrain_Meadow_Rock_Moss_01` (7 m, Normale 2,0). Die Diffuse-
+ *    Textur dieser Ebene (`Rock_Moss_Texture_01`) liegt NICHT im Store —
+ *    übernommen sind deshalb Kachelmaß und Normalstärke, die Farbe bleibt
+ *    die vorhandene `terrain-rock-rough`. Das ist die eine Ersatzrechnung
+ *    dieser Tabelle, und sie steht hier, damit sie niemand für eine
+ *    vollständige Übernahme hält. Nebenbei fällt damit die einzige
+ *    Normalstärke 5 des Repos weg: Das Maximum aller im Spiel BENUTZTEN
+ *    Ebenen ist 3,0 (F27).
+ *
+ * `terrain-grass-b` teilt sich die Normalmap mit `grass-a` und erbt
+ * dessen Werte; eine eigene Ebene im Vorbild hat es nicht.
+ *
+ * Metallic 0,70 bis 0,75 bei Glätte 0 bis 0,10 bleibt der Kern des Looks
+ * und zugleich seine Falle: Ein Boden mit hohem Metallic hat kaum
+ * Eigenfarbe, er zeigt den Himmel. OHNE einen Himmelsterm im Shader wird
+ * er schwarz. Der Term steht in `TerrainSplat.ts` (`terrainHimmel`);
  * diese Zahlen ohne ihn zu setzen ist ein Rückschritt, kein Fortschritt.
  *
  * ── Determinismus ────────────────────────────────────────────────────
@@ -92,17 +120,18 @@ const ALT_KANTE = 256;
 const ZEILEN = 16;
 
 /**
- * Die Schichten, wie sie im Store liegen, mit den Werten aus village1.json.
+ * Die Schichten, wie sie im Store liegen, mit den Werten des VORBILDS
+ * (`design/original-boden.md` §A — Herleitung im Kopf dieser Datei).
  *
  * `farbe` und `normale` sind Dateinamen ohne Endung unter `STORE`.
  */
 export const SCHICHTEN = {
   'gravel-path': { farbe: 'terrain-gravel-path', normale: 'terrain-gravel-normal', kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
-  'rock-a': { farbe: 'terrain-rock-a', normale: 'terrain-rock-a-normal', kachelMeter: 2, normalStaerke: 1.5, metallic: 0.85, smoothness: 0.1 },
-  'grass-a': { farbe: 'terrain-grass-a', normale: 'terrain-grass-normal', kachelMeter: 2, normalStaerke: 2, metallic: 0.5, smoothness: 0 },
-  'grass-b': { farbe: 'terrain-grass-b', normale: 'terrain-grass-normal', kachelMeter: 2, normalStaerke: 2, metallic: 0.5, smoothness: 0 },
+  'rock-a': { farbe: 'terrain-rock-a', normale: 'terrain-rock-a-normal', kachelMeter: 5, normalStaerke: 1.5, metallic: 0.2, smoothness: 0.2 },
+  'grass-a': { farbe: 'terrain-grass-a', normale: 'terrain-grass-normal', kachelMeter: 2, normalStaerke: 2, metallic: 0.7, smoothness: 0 },
+  'grass-b': { farbe: 'terrain-grass-b', normale: 'terrain-grass-normal', kachelMeter: 2, normalStaerke: 2, metallic: 0.7, smoothness: 0 },
   gravel: { farbe: 'terrain-gravel', normale: 'terrain-gravel-normal', kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
-  'rock-rough': { farbe: 'terrain-rock-rough', normale: 'terrain-rock-rough-normal', kachelMeter: 3, normalStaerke: 5, metallic: 0, smoothness: 0 },
+  'rock-rough': { farbe: 'terrain-rock-rough', normale: 'terrain-rock-rough-normal', kachelMeter: 7, normalStaerke: 2, metallic: 0, smoothness: 0 },
   moss: { farbe: 'terrain-moss', normale: 'terrain-moss-normal', kachelMeter: 2, normalStaerke: 1.2, metallic: 0, smoothness: 0 },
 };
 
@@ -111,229 +140,62 @@ export const SCHICHTEN = {
  * `client/src/engine/TerrainSplat.ts` und darf sich nicht verschieben:
  * die Indizes stehen in den Vertex-Attributen jedes Chunks.
  *
- * `toenung` multipliziert die Farbe (linear gerechnet, nicht auf den
- * sRGB-Bytes — sonst dunkelt eine Tönung von 0,6 um mehr als 40 %).
- * Sie ist der Weg, aus sechs gemalten Schichten sechzehn Untergründe zu
- * machen, ohne eine siebte zu malen: Sumpfmoos ist dasselbe Moos, nur
- * dunkler und entsättigt.
- *
  * `altbestand: true` heisst „Zeile aus terrain_d_array.png übernehmen".
  *
- * ── Die vier Zeilen des Feinabgleichs (09.09.2026) ───────────────────
- * Vier Tönungen standen bis hierher auf [1, 1, 1] — nicht weil das die
- * richtige Farbe war, sondern weil noch niemand gemessen hatte, welche
- * es ist. Die Referenzbilder aus dem Original geben sie jetzt vor; die
- * Zielzahlen stehen in `design/look-referenz.md`.
+ * ── Warum jede Tönung auf [1, 1, 1] steht (10.09.2026) ───────────────
+ * Weil das Vorbild keine hat. `design/original-boden.md` §A, gelesen aus
+ * den Spieldateien selbst: Alle sieben TerrainLayer von TerrainL1 tragen
+ * `m_DiffuseRemapMin/Max` 0…1 und `m_Specular` schwarz — die Textur geht
+ * unverfälscht in den Splat, und dasselbe gilt für die zwölf übrigen
+ * Terrains des Spiels. Es gibt im ganzen Vorbild keinen Regler, der eine
+ * Bodentextur umfärbt (Abweichung F24).
  *
- * ── Wie eine Tönung berechnet wird, und was dabei fast schiefging ────
- * Die naheliegende Rechnung ist
+ * Hier standen bis zu diesem Commit sechzehn Tönungen, elf davon von
+ * eins verschieden, drei davon (Grass, Cliff, Moss) am Referenzbild
+ * kalibriert. Sie waren nicht falsch GERECHNET — sie beantworteten die
+ * falsche Frage: Sie legen eine Bildfarbe, die aus LICHT, NEBEL und
+ * GRADING kommt, in die Albedo. Wer die Albedo dämpft, um einen zu
+ * hellen Hang zu beruhigen, dämpft ihn auch dort, wo er im Schatten
+ * steht; das Vorbild lässt die Textur in Ruhe und dreht am Licht.
  *
- *       t = (Ziel_sRGB / Ist_sRGB) ^ 2.2
+ * Was die Farbe stattdessen trägt, steht jetzt an den Stellen, an denen
+ * das Vorbild sie führt — jede davon eine gemessene Zahl:
  *
- * — sie unterstellt, dass der Bildwert PROPORTIONAL zur Albedo ist. Das
- * ist er nicht. Gemessen am 45°-Hang (Mittag), Tönung 1,000 gegen 1,537
- * auf DENSELBEN Bildpunkten:
+ *   Sonne      #FFC98C, Elevation 50°     → shared/src/environment.ts
+ *   Grundlicht Skybox-Tint #B2D1FE × 0,8  → shared/src/environment.ts
+ *   Nebel      linear 15→200 m #73A7FF    → environment.ts + server.yml
+ *   Grading    ShadowsMidtonesHighlights  → server.yml `look.grading`
+ *   Oberfläche Metallic/Glätte/Kachel     → SCHICHTEN oben
  *
- *       Kanal   t=1,000   t=1,537   → D (skaliert)   A (skaliert nicht)
- *       R       98,7      112,0        0,0739          0,0500  (40 %)
- *       G       99,8       98,8        0,0459          0,0811  (64 %)
- *       B       96,3       82,8        0,0757          0,0417  (36 %)
+ * ── Und was das für die Klemme heisst ────────────────────────────────
+ * Der ganze Absatz über `zuSrgb`-Anschläge und die Zwei-Punkt-Rechnung
+ * (`Bild_linear = Albedo · D + A`) ist damit gegenstandslos: Bei Faktor
+ * 1 IST die Zeile die Quelltextur, Texel für Texel. Der Rechenweg bleibt
+ * im Werkzeug stehen (`toenungsTabelle`), weil eine Zeile ihn wieder
+ * brauchen kann, sobald eine MESSUNG am Vorbild eine Zahl dafür liefert
+ * — geraten wird hier keine mehr.
  *
- * `Bild_linear = Albedo_linear · D + A`. Vierzig bis vierundsechzig
- * Prozent des Bildwertes hängen NICHT an der Albedo — das ist der
- * Himmelsterm plus Nebel. Mit der naiven Formel hätte die
- * Cliff-Zeile 1,54 statt 2,14 bekommen und wäre bei S 0,26 statt 0,38
- * stehengeblieben; genau das ist im ersten Anlauf passiert.
- *
- * Gerechnet wird deshalb aus ZWEI Messungen je Zeile: D und A auflösen,
- * dann `t = (Ziel_linear − A) / D`. Die zweite Messung ist billig — man
- * lässt das Werkzeug einmal mit einer bekannten Probetönung laufen.
- *
- * „Ist" ist dabei kein Bildschirmeindruck, sondern die Messung JE
- * SCHICHT aus `~/wov-lab-mess/fein-mess.mjs`: Bildpunkte werden über
- * `scene.pick` ihrer Vertex-Normalen zugeordnet, aus Neigung und
- * Biom-Tile fällt die wirksame Kachel, und erst deren Bildpunkte werden
- * gemittelt. Eine Bandmessung über das halbe Bild hätte stattdessen
- * Baumkronen und Schatten mitgewogen.
- *
- * ── Die Stunde gehört zur Zahl ───────────────────────────────────────
- * Bild 1 und 2 der Referenz sind warmes Nachmittagslicht und werden
- * gegen 17 Uhr (`t=0.708333`) gehalten, Bild 3 steht in der Sonne und
- * wird gegen Mittag (`t=0.5`) gehalten. Gegen die falsche Stunde
- * kalibriert bekäme man eine Farbe, die im Bild nie eintritt.
- *
- * ── Kein Anschlag ist gefallen ───────────────────────────────────────
- * Die Tönung greift auf die Textur im Speicher, und `zuSrgb` klemmt bei
- * 255. Nachgezählt am fertigen Stapel: Zeile 0 Maximum 133, Zeile 4
- * Maximum 55, Zeile 5 Maximum 236, Zeile 11 Maximum 85 — kein einziger
- * Texel in der Klemme (`(t >= 255).sum() == 0` je Zeile).
- *
- * ── Nachtrag 10.09.2026: der Massstab ist das VERHÄLTNIS ─────────────
- * (Bauer „Farbabgleich 2", nach Mikes Sichtprüfung „die Texturen der
- * Berghänge sind zu hell".)
- *
- * Die Zielzahlen oben sind Luma-Werte AUS DEN REFERENZBILDERN, und
- * `design/look-referenz.md` sagt im selben Atemzug, dass ein Luma-
- * Vergleich über Bilder hinweg falsch ist. Der Feinabgleich hat trotzdem
- * gegen sie kalibriert — mit dem Ergebnis, dass die Cliff-Zeile ihre
- * Zielluma auf die Zehntel trifft (Mittag am 45°-Hang: 102,9 gegen
- * 104,4) und der Hang trotzdem grell aussieht. Der Grund steht in der
- * einen Zahl, die das Vorbild BINNENBILDLICH vorgibt:
- *
- *                        Hangfels/Himmel   Moos/Himmel   Hangfels/Moos
- *   Vorbild (Bild 3)          0,73            0,435          1,69
- *   unser Stand c6a3fee       1,17            0,855          1,37
- *
- * Der hellste Boden stand also HELLER als der Himmel über ihm — ein
- * Zustand, den das Vorbild nirgends zeigt. Um 17 Uhr, wo Mike gesehen
- * hat, ist es noch deutlicher: die Cliff-Zeile misst dort 133,6.
- *
- * ── Warum die Zeilen gedämpft werden und nicht nur der Himmel ────────
- * Beides. Der Himmel ist um denselben Faktor zu dunkel, in dem BEIDE
- * Bodenverhältnisse danebenliegen (1,60 und 1,97) — deshalb ist der
- * Tag-Keyframe `fogColorDay` mitgehoben worden (s.
- * `shared/src/environment.ts`). Er allein reicht aber nicht: `fogColor`
- * ist eine sRGB-Farbe mit Anschlag bei 1,0, und der Himmelsverlauf
- * dämpft den Zenit zusätzlich auf 0,45/0,55/0,80 des Horizonts. Über
- * etwa ×1,3 an der Bildluma kommt man so nicht hinaus, gebraucht wären
- * ×1,6.
- *
- * ── Die Zahl für die Cliff-Zeile: die SÄTTIGUNG ──────────────────────
- * Sie ist der belastbarste Zeuge, den diese Runde gefunden hat, weil sie
- * ohne Belichtungsvergleich auskommt. Der Tonemapper (KHR-PBR-Neutral)
- * ENTSÄTTIGT helle Werte; eine Fläche, die zu hell steht, verliert
- * darüber ihre Farbe. Gemessen am 45°-Hang mittags:
- *
- *   Tönung [2,139, 1,024, 0,373]   Luma 102,9   S 0,338
- *   Tönung × 0,6                   Luma  77,3   S 0,410
- *   Vorbild (Bild 3, Hangfels tan)              S 0,408
- *
- * Genau bei ×0,6 hört das Ausbleichen auf, und die Zeile trifft die
- * Sättigung des Vorbilds auf drei Tausendstel. Das ist die neue Zahl:
- * [1,283, 0,614, 0,224]. Der Farbton bleibt dabei stehen (33,5 → 33,6
- * gegen 30,5 im Vorbild, innerhalb der ±5°-Toleranz).
- *
- * Die Moss-Zeile folgt derselben Rechnung über `Hangfels/Moos = 1,6`
- * (Mittel der beiden Moosstreifen des Vorbilds): [0,623, 0,460, 0,473].
- *
- * ── Und die Grass-Zeile: Grün muss dominieren ────────────────────────
- * [1,378, 1,279, 1,032] hatte ROT über Grün. Auf einer Quelltextur mit
- * R ≈ G (terrain-grass-a, linear 0,0399/0,0401/0,0007) heisst das: Der
- * Wiesengrund KANN nicht grün werden. Gemessen (Mittag, ebener Blick)
- * kam er auf 62,4/62,4/40,5 heraus — Rot und Grün auf dieselbe Zehntel
- * gleich, also Khaki. Die neue Zeile [1,27, 1,35, 1,00] dreht das um
- * (G/R = 1,063) und lässt die Luma stehen (+2,3 % rechnerisch). Die
- * Referenzfarbe H 53 des Vorbilds bleibt damit knapp unterschritten —
- * absichtlich: Bild 1 ist eine Nachmittagsaufnahme, ihre Wärme steckt im
- * LICHT, und unser 17-Uhr-Licht bringt sie ohnehin mit.
+ * No tint on any row any more: the original never recolours a terrain
+ * texture (every `m_DiffuseRemap` 0…1, every `m_Specular` black). Colour
+ * comes from sun, ambient, fog and grading instead — see
+ * design/original-boden.md §A and F24.
  */
 export const ZUORDNUNG = [
-  // Der Wiesengrund. Referenz: Bild 1, die Fläche ZWISCHEN den Büscheln
-  // (Luma 57,5, H 53, S 0,42).
-  //
-  // 10.09.2026: [1,378, 1,279, 1,032] → [1,27, 1,35, 1,00]. Nicht die
-  // Helligkeit war falsch, sondern die REIHENFOLGE der Kanäle — Rot stand
-  // über Grün, und die Quelltextur bringt R ≈ G mit (linear
-  // 0,0399/0,0401/0,0007). Damit KANN der Grund nicht grün werden; er kam
-  // im Bild als Khaki heraus (Mittag, ebener Blick: 62,4/62,4/40,5), und
-  // Mikes Sichtprüfung sagte „es wirkt alles sehr braun". Jetzt ist
-  // G/R = 1,063, die Luma bleibt (rechnerisch +2,3 %).
-  //
-  // Die Referenz H 53 wird dabei bewusst NICHT angesteuert: Bild 1 ist
-  // eine Nachmittagsaufnahme, ihre Wärme steckt im LICHT und nicht in der
-  // Albedo. Gemessen an unserem eigenen Halm: mittags H 61,2, um 17 Uhr
-  // H 56,1 — das Vorbild steht auf H 56,0. Die Stunde bringt die Wärme
-  // mit; wer sie zusätzlich in die Tönung legt, zählt sie doppelt.
-  /* 0  Grass      */ { name: 'Grass', schicht: 'grass-a', toenung: [1.27, 1.35, 1] },
-  /* 1  Forest     */ { name: 'Forest', schicht: 'moss', toenung: [0.88, 0.92, 0.85] },
-  /* 2  Dirt       */ { name: 'Dirt', schicht: 'gravel', toenung: [1.15, 1.02, 0.85] },
-  /* 3  Cleared    */ { name: 'Cleared', schicht: 'gravel-path', toenung: [0.9, 0.84, 0.74] },
-  // Der dunkle Fels — und die EINZIGE Zeile, die der Feinabgleich
-  // absichtlich stehengelassen hat. Die Begründung ist eine Messung, kein
-  // Übersehen; sie steht hier, damit niemand sie ein zweites Mal machen
-  // muss.
-  //
-  // ── Erstens: WO man diese Schicht misst ─────────────────────────────
-  // Nicht am steilsten Hang. Am 47°-Nordhang des Schwarzwaldes zeichnet
-  // die Rampe längst `RAU_TILE` = `rock-rough`; wer dort misst, misst
-  // den HELLEN Fels und hält ihn für den dunklen. Genau daran ist am
-  // 09.09.2026 ein erster Anlauf gescheitert: Eine Tönung an `rock-a`
-  // schien die Farbe in die falsche Richtung zu ziehen — in Wahrheit sah
-  // man die Wirkung der Cliff-Zeile. Der Zeuge ist deshalb eine
-  // 24°-Flanke (−27060/−5500), wo `HANG_TILE[Forest] = Rock` gilt.
-  //
-  // ── Zweitens: die Tönung wirkt dort fast nicht ──────────────────────
-  // Gegenprobe an genau diesem Zeugen, [1, 1, 1] gegen [0,95, 0,97, 1,30]
-  // (also Blau +30 % linear):
-  //
-  //            ohne Tönung        mit Tönung
-  //   17 Uhr   65,7/69,0/63,7     63,6/66,0/60,6   B−R −2,0 → −3,0
-  //   Mittag   68,2/72,8/65,6     65,0/69,7/62,8   B−R −2,6 → −2,2
-  //
-  // Ein Blauzuschlag von 30 % auf die Albedo bewegt B−R um ein Zehntel
-  // Byte in die eine und ein halbes in die andere Richtung — das ist
-  // Rauschen. Der Grund steckt in Metallic 0,85: Was diese Schicht im
-  // Bild ausmacht, ist der Himmelsterm, nicht ihre Eigenfarbe. Eine
-  // Tönung hier ist ein Regler ohne Wirkung, und ein wirkungsloser
-  // Regler mit einer Zahl darin ist schlimmer als keiner — beim nächsten
-  // Mal dreht jemand daran und wundert sich.
-  //
-  // ── Drittens: und Metallic senken wäre die falsche Richtung ─────────
-  // Metallic 0 multipliziert den diffusen Anteil mit 1/(1−0,85) = 6,7.
-  // Die Schicht steht am Zeugen ohnehin schon auf Luma 65,7 (17 Uhr) und
-  // 68,2 (Mittag), während die Referenz für Fels im Schatten auf 39,3
-  // und für Fels im Licht auf 46,3 steht. Sie ist also nicht zu dunkel,
-  // sondern eher zu HELL — heller machen löst nichts.
-  //
-  // Was von Mikes Befund „schwarz" bleibt: nichts Messbares. Er stammt
-  // aus `boden2-hang-nachher.png`; seit Stufe „Boden 3" trägt der
-  // Himmelsterm diese Schicht. Farblich ist sie mit B−R −2 bis −3 nahezu
-  // neutral, also das verlangte Blaugrau und nicht das alte Braun.
+  /* 0  Grass      */ { name: 'Grass', schicht: 'grass-a', toenung: [1, 1, 1] },
+  /* 1  Forest     */ { name: 'Forest', schicht: 'moss', toenung: [1, 1, 1] },
+  /* 2  Dirt       */ { name: 'Dirt', schicht: 'gravel', toenung: [1, 1, 1] },
+  /* 3  Cleared    */ { name: 'Cleared', schicht: 'gravel-path', toenung: [1, 1, 1] },
   /* 4  Rock       */ { name: 'Rock', schicht: 'rock-a', toenung: [1, 1, 1] },
-  // Der helle, raue Fels. Referenz: Bild 3, die tan-braunen Hangbänder
-  // (Luma 104, H 30, S 0,39). Bei uns war er mittags Beton: Luma 99 bei
-  // S 0,05 und H 80 — die Helligkeit stimmte fast, die FARBE fehlte
-  // ganz. Die Tönung sättigt und wärmt; die Luma steigt dabei kaum
-  // (99 → 109), weil Rot steigt, während Blau um denselben Betrag
-  // fällt. Nachgemessen am 45°-Hang mittags: 127,6/105,9/79,5,
-  // H 33, S 0,38.
-  //
-  // Die Zahl 2,139 ist der Grund, aus dem oben die Zwei-Punkt-Rechnung
-  // steht: Aus einer einzelnen Messung wäre 1,537 gefallen, und damit
-  // blieb der Hang bei S 0,26 — sichtbar zu blass.
-  //
-  // 10.09.2026: [2,139, 1,024, 0,373] → ×0,6 = [1,283, 0,614, 0,224].
-  // Mikes Befund „die Texturen der Berghänge sind zu hell", und er hat
-  // recht, obwohl die ZIELLUMA sass (Mittag 102,9 gegen 104,4): Der Hang
-  // stand HELLER als der Himmel über ihm — Hangfels/Himmel 1,17 gegen
-  // 0,73 im Vorbild, und um 17 Uhr misst die Zeile 133,6. Die Zahl 0,6
-  // kommt nicht aus dieser Ungleichung, sondern aus der SÄTTIGUNG (s.
-  // Nachtrag im Kopfkommentar): Bei ×0,6 hört das Ausbleichen durch den
-  // Tonemapper auf, und die Zeile trifft S 0,410 gegen S 0,408 des
-  // Vorbilds — ein Zeuge, der ohne Belichtungsvergleich auskommt.
-  /* 5  Cliff      */ { name: 'Cliff', schicht: 'rock-rough', toenung: [1.283, 0.614, 0.224] },
-  /* 6  LavaEmber  */ { name: 'LavaEmber', schicht: 'rock-rough', toenung: [0.55, 0.4, 0.36] },
+  /* 5  Cliff      */ { name: 'Cliff', schicht: 'rock-rough', toenung: [1, 1, 1] },
+  /* 6  LavaEmber  */ { name: 'LavaEmber', schicht: 'rock-rough', toenung: [1, 1, 1] },
   /* 7  Ash        */ { name: 'Ash', altbestand: true },
-  /* 8  Heath      */ { name: 'Heath', schicht: 'grass-b', toenung: [1.25, 1.12, 0.9] },
-  /* 9  Sand       */ { name: 'Sand', schicht: 'gravel-path', toenung: [1.05, 1.0, 0.9] },
-  /* 10 SwampMud   */ { name: 'SwampMud', schicht: 'moss', toenung: [0.62, 0.6, 0.52] },
-  // Die Hangkachel des Graslands (`HANG_TILE[Grass] = Moss`) — also die
-  // Farbe der 15°-bis-30°-Flanken, auf denen bei uns fast die halbe
-  // Insel liegt. Referenz: Bild 3, die grünen Moosstreifen am Hang
-  // (H 44, S 0,39); unsere lag bei H 65 mit S 0,35, also zu kühl.
-  //
-  // 10.09.2026: [1,317, 0,972, 1,0] → [0,623, 0,460, 0,473]. Der Farbton
-  // der Zeile bleibt unangetastet (R/G weiter 1,354), gedämpft wird
-  // allein die Helligkeit — über die EINE Beziehung, die das Vorbild für
-  // diese beiden Schichten GEMEINSAM angibt: `Hangfels/Moos` 1,69
-  // (Bild 3, Streifen 1) beziehungsweise 1,54 (Streifen 2). Unser Stand
-  // lag bei 1,37; nach der Dämpfung der Cliff-Zeile hätte er ohne diese
-  // Zeile bei 1,09 gelegen — das Moos wäre fast so hell gewesen wie der
-  // Fels darüber. Gezielt wird auf 1,6, das Mittel der beiden Streifen.
-  /* 11 Moss       */ { name: 'Moss', schicht: 'moss', toenung: [0.623, 0.46, 0.473] },
+  /* 8  Heath      */ { name: 'Heath', schicht: 'grass-b', toenung: [1, 1, 1] },
+  /* 9  Sand       */ { name: 'Sand', schicht: 'gravel-path', toenung: [1, 1, 1] },
+  /* 10 SwampMud   */ { name: 'SwampMud', schicht: 'moss', toenung: [1, 1, 1] },
+  /* 11 Moss       */ { name: 'Moss', schicht: 'moss', toenung: [1, 1, 1] },
   /* 12 Paved      */ { name: 'Paved', schicht: 'gravel-path', toenung: [1, 1, 1] },
-  /* 13 SwampDark  */ { name: 'SwampDark', schicht: 'gravel', toenung: [0.75, 0.75, 0.68] },
-  /* 14 Basalt     */ { name: 'Basalt', schicht: 'rock-rough', toenung: [0.55, 0.53, 0.52] },
+  /* 13 SwampDark  */ { name: 'SwampDark', schicht: 'gravel', toenung: [1, 1, 1] },
+  /* 14 Basalt     */ { name: 'Basalt', schicht: 'rock-rough', toenung: [1, 1, 1] },
   /* 15 LavaCrust  */ { name: 'LavaCrust', altbestand: true },
 ];
 

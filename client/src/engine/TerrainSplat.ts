@@ -160,23 +160,63 @@ export interface SchichtOberflaeche {
  * Die zwei Altbestand-Zeilen (7 Ash, 15 LavaCrust) tragen die Werte, die
  * der alte Shader für sie gerechnet hat: `normalStrength` 0,7, kein
  * Metall, `GLOSS_BASIS` als Glätte. Sie sollen aussehen wie vorher.
+ *
+ * ── Die Zahlen kommen seit dem 10.09.2026 aus dem VORBILD ────────────
+ * Nicht mehr aus `village1.json` des Schwesterprojekts, sondern aus den
+ * TerrainLayer-Assets von Tale of Dark Lands selbst
+ * (`design/original-boden.md` §A). Zwei Zeilen ändern sich dabei, und
+ * beide sind Korrekturen mit einem sichtbaren Befund dahinter:
+ *
+ *  · Tile 4 `Rock` (= `terrain-rock-a`): Metallic 0,85 → **0,20**,
+ *    Glätte 0,10 → **0,20**, Kachel 2 m → **5 m**. Das Spiel führt DREI
+ *    Rockwall-Ebenen auf DERSELBEN Diffuse-Textur (PathID 96) und
+ *    unterscheidet sie nur in Metallic und Kachelmaß; das Labor hatte
+ *    `Ani Dark Rockwall` erwischt — eine Ebene, die Level1 und Village1
+ *    gar nicht benutzen. Die Referenzbilder stammen aus Level1, und
+ *    Level1 fährt die matte dritte (F25).
+ *
+ *    Das ist zugleich die Antwort auf Mikes Befund „ich lese den Fels
+ *    als Erde", und sie sitzt an der Ursache: Bei Metallic 0,85 bleiben
+ *    vom diffusen Anteil 15 % übrig, der Rest ist Himmelsterm — die
+ *    Schicht zeigt fast nur noch, was über ihr steht. Bei 0,20 zeigt sie
+ *    wieder ihre eigene, dunkle Wandfarbe. Der alte Kommentar bei
+ *    `FELS_TILE` hat den Mechanismus richtig beschrieben und die falsche
+ *    Folgerung gezogen (ein anderes Tile statt anderer Zahlen).
+ *
+ *  · Tile 5/6/14 `Cliff`/`LavaEmber`/`Basalt` (= `terrain-rock-rough`):
+ *    Kachel 3 m → **7 m**, Normalstärke 5 → **2,0**. Die alten Zahlen
+ *    sind die von `Terrain_Meadow_Rock_Rough_01`, und die ist im ganzen
+ *    Spiel von KEINEM Terrain referenziert (F26). Der helle Fels, den
+ *    Bild 3 zeigt, ist `Terrain_Meadow_Rock_Moss_01`. Seine Diffuse-
+ *    Textur liegt nicht im Speicher — übernommen sind deshalb Kachelmaß
+ *    und Normalstärke, die Farbe bleibt die vorhandene. Damit fällt
+ *    nebenbei die einzige Normalstärke 5 des Repos weg: Das Maximum
+ *    aller im Spiel BENUTZTEN Ebenen ist 3,0 (F27).
+ *
+ *  · Tile 0/8 `Grass`/`Heath`: Metallic 0,5 → **0,70**, der Wert von
+ *    `Ani Grass 2` (die Ebene, aus der `terrain-grass-a` stammt).
+ *
+ * Dass diese Liste dieselbe ist wie `SCHICHTEN` in
+ * `tools/store-terrain-schichten.mjs`, prüft `tools/test/
+ * terrain-schichten.ts`; dass die ZAHLEN die des Vorbilds sind,
+ * `tools/test/look-referenz.ts`.
  */
 export const SCHICHT_OBERFLAECHE: readonly SchichtOberflaeche[] = [
-  /*  0 Grass     */ { kachelMeter: 2, normalStaerke: 2, metallic: 0.5, smoothness: 0 },
+  /*  0 Grass     */ { kachelMeter: 2, normalStaerke: 2, metallic: 0.7, smoothness: 0 },
   /*  1 Forest    */ { kachelMeter: 2, normalStaerke: 1.2, metallic: 0, smoothness: 0 },
   /*  2 Dirt      */ { kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
   /*  3 Cleared   */ { kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
-  /*  4 Rock      */ { kachelMeter: 2, normalStaerke: 1.5, metallic: 0.85, smoothness: 0.1 },
-  /*  5 Cliff     */ { kachelMeter: 3, normalStaerke: 5, metallic: 0, smoothness: 0 },
-  /*  6 LavaEmber */ { kachelMeter: 3, normalStaerke: 5, metallic: 0, smoothness: 0 },
+  /*  4 Rock      */ { kachelMeter: 5, normalStaerke: 1.5, metallic: 0.2, smoothness: 0.2 },
+  /*  5 Cliff     */ { kachelMeter: 7, normalStaerke: 2, metallic: 0, smoothness: 0 },
+  /*  6 LavaEmber */ { kachelMeter: 7, normalStaerke: 2, metallic: 0, smoothness: 0 },
   /*  7 Ash       */ { kachelMeter: 2, normalStaerke: 0.7, metallic: 0, smoothness: 0.1 },
-  /*  8 Heath     */ { kachelMeter: 2, normalStaerke: 2, metallic: 0.5, smoothness: 0 },
+  /*  8 Heath     */ { kachelMeter: 2, normalStaerke: 2, metallic: 0.7, smoothness: 0 },
   /*  9 Sand      */ { kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
   /* 10 SwampMud  */ { kachelMeter: 2, normalStaerke: 1.2, metallic: 0, smoothness: 0 },
   /* 11 Moss      */ { kachelMeter: 2, normalStaerke: 1.2, metallic: 0, smoothness: 0 },
   /* 12 Paved     */ { kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
   /* 13 SwampDark */ { kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
-  /* 14 Basalt    */ { kachelMeter: 3, normalStaerke: 5, metallic: 0, smoothness: 0 },
+  /* 14 Basalt    */ { kachelMeter: 7, normalStaerke: 2, metallic: 0, smoothness: 0 },
   /* 15 LavaCrust */ { kachelMeter: 2, normalStaerke: 0.7, metallic: 0, smoothness: 0.1 },
 ];
 
@@ -372,17 +412,126 @@ export const RAU_TILE: readonly number[] = [
  *   Rau   40° → 50°   voll auf den steilsten 0,6–1,3 % (vorher: 56°→65°,
  *                     also nie)
  *
- * `anteil` ist die Deckung, die die Fels-Stufe höchstens erreicht (0,85,
- * der Wert der three.js-Referenz). Die letzten 15 % bleiben die Kachel
- * darunter — das ist die Streuung, die ein reiner Lerp sonst verliert.
+ * ── Die DECKUNGEN, und warum sie am 10.09.2026 gefallen sind ─────────
+ * Die drei Gradzahlen bleiben, wo sie stehen — was sich ändert, sind die
+ * `anteil`e. Der Grund ist die gemessene Verteilung des Vorbilds
+ * (`design/original-boden.md` §A, „Die Rampe ist gemalt, nicht gerechnet
+ * — mit Zahlen"): Mittleres FELSGEWICHT je Neigungsband
+ *
+ *     < 15°  0,076    15–30°  0,110    30–45°  0,216    ≥ 45°  0,425
+ *
+ * Selbst am steilsten Hang ist der Boden des Vorbilds also **weniger als
+ * zur Hälfte Fels** — der Rest bleibt Moos. Genau das zeigt Bild 2 der
+ * Look-Referenz: grüne Moosinseln mitten in der Felswand.
+ *
+ * Unsere Rampe stand auf dem Gegenteil. `fels.anteil` 0,85 und ein `rau`
+ * OHNE Deckel ergaben ab 50° ein Felsgewicht von **1,0** — eine Wand aus
+ * reinem Fels, wo das Vorbild 0,425 hat. Das ist nicht eine feinere
+ * Fassung derselben Karte, sondern eine andere Aussage.
+ *
+ * Neu sind deshalb `fels.anteil` 0,40 und ein `rau.anteil` 0,10. Die
+ * Rechnung (dieselbe, die der Shader fährt, `Fels = kF·(1−kR) + kR`):
+ *
+ *     30–40°  Rampenmittel 0,48 × 0,40 = 0,192   (Vorbild 0,216)
+ *     45°     0,40 + 0,60 · 0,478 · 0,10 = 0,429 (Vorbild 0,425)
+ *     ≥ 50°   0,40 + 0,60 · 0,10        = 0,460
+ *
+ * ── Was diese Formel NICHT kann, und warum das kein Fehler ist ───────
+ * Unter 30° bleibt sie bei null, während das Vorbild dort 0,076 bis
+ * 0,110 Fels hat. Diese Zahlen kommen nicht aus der Neigung: Das
+ * Prüfbild `original-splat-TerrainL1.png` zeigt, dass der Autor seinen
+ * Fels dem FLUSSLAUF und den Graten entlang gemalt hat, quer über alle
+ * Neigungen — und dass er ihn am steilsten Rand der Karte gerade NICHT
+ * gemalt hat. Gegenprobe aus derselben Messung: Eine 30°-Regel färbt
+ * 34,0 % der Fläche und verfehlt trotzdem 35 % des gemalten Felses.
+ *
+ * Wer die 0,076 nachahmen wollte, müsste Fels gleichmässig über jede
+ * flache Wiese streuen. Wie das aussieht, steht zwei Absätze weiter oben
+ * gemessen: ein Steinschleier über jedem Grashügel. Die zwei flachen
+ * Bänder bleiben deshalb leer, und das ist eine benannte Lücke (F21),
+ * keine übersehene.
+ *
+ * ── Und die Flächenanteile, die dabei herauskommen ───────────────────
+ * Am Referenzort (Neigungshistogramm oben) ergibt die neue Rampe rund
+ * **3,3 %** Felsfläche. Das Vorbild hat 16,9 % — aber diese 16,9 %
+ * gehören `Ani Dark Rockwall 3`, und das ist in unseren Tabellen
+ * `rock-a`, die Kachel von SCHWARZWALD und BERG. Was auf der WIESE
+ * erscheint, ist über `FELS_TILE[Grass]`/`RAU_TILE[Grass]` die Kachel
+ * `Cliff`, und ihre Entsprechung im Vorbild ist
+ * `Terrain_Meadow_Rock_Moss_01` mit **5,7 %** Fläche und mittlerer
+ * Neigung 40,4°. Gegen diese Zahl steht 3,3 % — der Rest ist der
+ * Unterschied der Gelände: Über 44° liegen bei uns 0,6 % der Fläche, im
+ * Vorbild 16 %.
+ *
+ * `anteil` ist die Deckung, die die jeweilige Stufe höchstens erreicht.
+ * Was fehlt, bleibt die Kachel darunter — das ist die Streuung, die ein
+ * reiner Lerp sonst verliert, und im Vorbild ist es das Moos in der Wand.
  */
 export const RAMPEN = {
   /** Hangkachel (Moos/Kies/Erde je Biom). */
   hang: { beginn: 15, voll: 30 },
   /** Mittlerer Fels (`FELS_TILE`). */
-  fels: { beginn: 30, voll: 40, anteil: 0.85 },
+  fels: { beginn: 30, voll: 40, anteil: 0.4 },
   /** Steilster Hang, raue Felsschicht (`RAU_TILE`). */
-  rau: { beginn: 40, voll: 50 },
+  rau: { beginn: 40, voll: 50, anteil: 0.1 },
+} as const;
+
+/**
+ * Die Rauschmaske auf dem Felsanteil — damit der Fels nicht an
+ * Höhenlinien klebt.
+ *
+ * ── Warum es sie geben MUSS, und zwar gemessen ───────────────────────
+ * Der Deckel aus `RAMPEN` allein macht den Fels UNSICHTBAR. Nachgerechnet
+ * an einem 45°-Hang im Grasland, mit den Gewichten, die der Shader
+ * mischt:
+ *
+ *     Moos (Hangkachel)  0,571
+ *     Fels (Cliff)       0,429
+ *
+ * Moos gewinnt also ÜBERALL, und zwar auf jedem Hang gleich — eine
+ * gleichmässige Mischung ohne eine einzige Stelle, an der Fels die
+ * Oberhand hat. Am lebenden Client nachgesehen (Bergblick, Mittag):
+ * NULL Bildpunkte, deren wirksame Schicht `rock-rough` ist, wo vorher
+ * 3682 Rasterzellen standen.
+ *
+ * Das Vorbild hat denselben MITTELWERT und trotzdem sichtbare Felsbänder,
+ * weil seine Karte GEMALT ist: `Ani Dark Rockwall 3` hat Fläche 0,168 und
+ * Dominanz 0,153 — auf 15 % der Texel ist Fels die stärkste Schicht,
+ * anderswo gar nicht. 0,425 ist der Mittelwert über beides, nicht der
+ * Zustand jedes Texels. Eine Formel, die überall 0,43 liefert, trifft die
+ * Zahl und verfehlt das Bild.
+ *
+ * ── Was diese Maske tut ──────────────────────────────────────────────
+ * Sie multipliziert den Felsanteil mit `1 + staerke · (2n − 1)`, wobei
+ * `n` ein Wertrauschen über die Weltkoordinate ist. Der ERWARTUNGSWERT
+ * bleibt damit exakt der von `RAMPEN` — das Rauschen ist symmetrisch um
+ * 0,5 —, aber die VARIANZ kommt zurück: An manchen Stellen steht der
+ * Fels bei 0,76, an anderen bei 0,04.
+ *
+ * Kein Klemmen, und das ist nachgerechnet: `fels.anteil` 0,40 × 1,9 =
+ * 0,76 und `rau.anteil` 0,10 × 1,9 = 0,19 bleiben beide unter 1. Ein
+ * `clamp` bei 1 würde die obere Hälfte der Verteilung abschneiden und
+ * damit den Mittelwert senken — die Maske wäre dann nicht mehr
+ * erwartungstreu, und der Deckel oben stimmte nicht mehr.
+ *
+ * ── Die zwei Zahlen ──────────────────────────────────────────────────
+ * `skala` ist die Wellenlänge der ersten Oktave in Metern. 24 m mit
+ * einer zweiten Oktave bei 24/2,7 ≈ 9 m ergibt Flecken in der
+ * Grössenordnung der gemessenen Kantenbreiten des Vorbilds (2,7 bis
+ * 4,3 m Median, §A) — die Kante eines Flecks ist rund ein Achtel seiner
+ * Wellenlänge.
+ *
+ * `staerke` 0,9 ist der grösste Wert, der ohne Klemmen auskommt (s.
+ * oben). Kleiner heisst gleichmässiger und damit wieder in Richtung
+ * Mischung; 1,0 hiesse, dass der Fels stellenweise ganz verschwindet,
+ * was das Vorbild ebenfalls zeigt — aber dann greift die Klemme auf der
+ * anderen Seite.
+ */
+export const FELS_RAUSCHEN = {
+  /** Wellenlänge der ersten Oktave in Metern. */
+  skala: 24,
+  /** Ausschlag um 1 herum, 0 = keine Maske. */
+  staerke: 0.9,
 } as const;
 
 /**
@@ -1698,7 +1847,55 @@ export class TerrainSplatMaterial {
     const rockT2 = new DivideBlock('rockT2'); rockD.output.connectTo(rockT2.left); felsRampe.output.connectTo(rockT2.right);
     const rockClamp = new ClampBlock('rockClamp'); rockT2.output.connectTo(rockClamp.value);
     const c085r = cnst('c085r', RAMPEN.fels.anteil);
-    const rockK = new MultiplyBlock('rockK'); rockClamp.output.connectTo(rockK.left); c085r.output.connectTo(rockK.right);
+    const rockKRoh = new MultiplyBlock('rockKRoh'); rockClamp.output.connectTo(rockKRoh.left); c085r.output.connectTo(rockKRoh.right);
+
+    /*
+      ── Die Rauschmaske (siehe `FELS_RAUSCHEN`) ──────────────────────
+
+      Sie sitzt HIER und nicht in `vbHangWahl`, damit BEIDE Felsstufen
+      denselben Faktor bekommen: Ein Fleck, in dem `fels` hoch und `rau`
+      niedrig steht, hätte an der 40°-Grenze eine Kante, die nichts
+      bedeutet.
+
+      Das Rauschen läuft über die WELTkoordinate und nicht über die UV
+      der Kachel — es soll ja gerade nicht mit der Textur mitwandern,
+      sondern eine Landschaft zeichnen.
+    */
+    const felsRauschen = new CustomBlock('terrainFelsRauschen');
+    felsRauschen.options = {
+      name: 'terrainFelsRauschen',
+      target: 'Fragment',
+      functionName: 'vbFelsRauschen',
+      inParameters: [{ name: 'wpos', type: 'Vector3' }],
+      outParameters: [{ name: 'result', type: 'Float' }],
+      code: [
+        'float vbFelsHash(vec2 p) {',
+        '  vec2 q = fract(p * vec2(123.34, 456.21));',
+        '  q += dot(q, q + 45.32);',
+        '  return fract(q.x * q.y);',
+        '}',
+        'float vbFelsWert(vec2 p) {',
+        '  vec2 i = floor(p); vec2 f = fract(p);',
+        // Glatte Interpolation: ohne sie sieht man das Gitter des
+        // Rauschens als Rautenmuster im Hang.
+        '  f = f * f * (3.0 - 2.0 * f);',
+        '  float a = vbFelsHash(i);',
+        '  float b = vbFelsHash(i + vec2(1.0, 0.0));',
+        '  float c = vbFelsHash(i + vec2(0.0, 1.0));',
+        '  float d = vbFelsHash(i + vec2(1.0, 1.0));',
+        '  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);',
+        '}',
+        'void vbFelsRauschen(vec3 wpos, out float result) {',
+        `  float s = 1.0 / ${FELS_RAUSCHEN.skala.toFixed(1)};`,
+        '  float n = vbFelsWert(wpos.xz * s) * 0.65 + vbFelsWert(wpos.xz * s * 2.7) * 0.35;',
+        `  result = 1.0 + ${FELS_RAUSCHEN.staerke.toFixed(3)} * (n * 2.0 - 1.0);`,
+        '}',
+      ],
+    };
+    wps.xyzOut.connectTo((felsRauschen as unknown as Record<string, never>).wpos);
+    const felsMaske = (felsRauschen as unknown as { result: NodeMaterialConnectionPoint }).result;
+    const rockK = new MultiplyBlock('rockK');
+    rockKRoh.output.connectTo(rockK.left); felsMaske.connectTo(rockK.right);
 
     // ── Die zwei fehlenden Stufen der Steigungsrampe ────────────────
     // Bisher kannte der Splat genau eine Schwelle: Fels ab 30°. Das
@@ -1754,7 +1951,10 @@ export class TerrainSplatMaterial {
           '  hangTile = VB_HANG[i];',
           '  rauTile = VB_RAU[i];',
           `  hangK = clamp((${HANG_BEGINN.toFixed(4)} - ny) / ${(HANG_BEGINN - HANG_VOLL).toFixed(4)}, 0.0, 1.0);`,
-          `  rauK = clamp((${RAU_BEGINN.toFixed(4)} - ny) / ${(RAU_BEGINN - RAU_VOLL).toFixed(4)}, 0.0, 1.0);`,
+          // Der Deckel: `rau` deckte bis zum 10.09.2026 VOLL, und damit
+          // stand jede Wand über 50° auf reinem Fels. Das Vorbild hat
+          // dort 0,425 — die Begründung steht bei `RAMPEN`.
+          `  rauK = clamp((${RAU_BEGINN.toFixed(4)} - ny) / ${(RAU_BEGINN - RAU_VOLL).toFixed(4)}, 0.0, 1.0) * ${RAMPEN.rau.anteil.toFixed(4)};`,
           '}',
         ],
       };
@@ -1765,7 +1965,10 @@ export class TerrainSplatMaterial {
       hangTileAus = hw.hangTile;
       rauTileAus = hw.rauTile;
       hangKAus = hw.hangK;
-      rauKAus = hw.rauK;
+      // Dieselbe Maske wie auf `rockK` — die Begründung steht dort.
+      const rauMask = new MultiplyBlock('rauKMaske');
+      hw.rauK.connectTo(rauMask.left); felsMaske.connectTo(rauMask.right);
+      rauKAus = rauMask.output;
       hangTeil = tileSampler(hangTileAus, 'hang', 1, [0, 0], null, true, nrmSplit.xyzOut);
       rauTeil = tileSampler(rauTileAus, 'rau', 1, [0, 0], null, true, nrmSplit.xyzOut);
     }

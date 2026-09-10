@@ -342,3 +342,144 @@ statt 0,73 stehen; das ist der benannte Rest, nicht ein übersehener.
   gegen L 50,6 und 75,9 der beiden Felsbrocken aus Bild 1). Das ist
   `tools/store-prefabs.mjs` und nicht diese Runde — festgehalten, damit
   es nicht noch einmal gesucht wird.
+
+## Nachtrag 10.09.2026 (2): die Spezifikation schlägt das Bild
+
+Seit `design/original-boden.md` gibt es eine zweite Quelle, und sie ist
+die stärkere: Zahlen aus den SPIELDATEIEN von Tale of Dark Lands statt
+aus Screenshots. Wo beide etwas sagen, gilt die Spezifikation; diese
+Datei bleibt für das, was nur ein Bild hergibt — die VERHÄLTNISSE.
+
+Drei Zeilen dieser Datei sind damit überholt und stehen nur noch als
+Geschichte:
+
+| Zeile | stand hier | sagt die Spezifikation |
+| --- | --- | --- |
+| Halmhöhe | 0,64–1,04 m, gegen die Figur geschätzt | **0,50–0,75 m**; die Figur steht im Bild näher an der Kamera als die Büschel (§B, F28) |
+| `rock-rough` (Tile 5) als „heller Fels" | `Terrain_Meadow_Rock_Rough_01` | diese Ebene benutzt **kein einziges Terrain des Spiels**; gemeint ist `Terrain_Meadow_Rock_Moss_01` (7 m, Normale 2,0 — F26) |
+| `rock-a` (Tile 4) bei Metallic 0,85 | „Metallic senken wäre die falsche Richtung" | Level1 fährt `Ani Dark Rockwall **3**` mit Metallic **0,20** und Kachel 5 m (F25) — die Messung war richtig, die Ebene die falsche |
+
+Und eine Zeile, die schon hier stand und jetzt eine Begründung hat: Die
+Sättigung 0,45 war „eine Decke, kein Regler dieser Runde". Sie ist keine
+Decke mehr — das Vorbild überschreibt `saturation` in **keiner** seiner
+zwölf Szenen (§E, F2), und der Regler steht auf 1,0.
+
+### Was am Maßstab NICHT überholt ist
+
+Die drei binnenbildlichen Verhältnisse aus Bild 3. Sie kommen aus einem
+Bild, in dem Himmel, Hangfels und Moos gleichzeitig stehen, und genau
+das kann keine Asset-Datei ersetzen:
+
+    Hangfels / Himmel  0,73      Moos / Himmel  0,435
+    Kronen  / Himmel   0,34      Hangfels / Moos 1,69
+
+### Wie sie ab jetzt gemessen werden — zwei Fallen, beide bezahlt
+
+**(1) Ein Fehlschuss ist kein Himmel.** `~/wov-lab-mess/original-lib.mjs`
+ordnet jede Rasterzelle über `scene.pick` einer Schicht zu und hat
+Zellen, in denen der Strahl nichts trifft, als „Himmel" gezählt. In
+Wahrheit steht dort meist ferner, vom Nebel gedeckter Boden.
+
+**(2) Die Baumkronen sind nicht pickbar.** Gemessen am Referenzort: In
+923 von 1600 Zellen trifft der Strahl die Himmelskuppel HINTER der
+Krone. Die Zellenmaske kann Kronen deshalb weder finden noch aussparen —
+der „Himmel" mass RGB 74/96/71, also Laub, während die Kuppel selbst auf
+129/145/149 steht. Ein Verhältnis gegen diesen Himmel ist keins.
+
+Behoben ist beides über denselben Handgriff, den die Halmmaske schon
+benutzt: einmal MIT und einmal OHNE die Kronen aufnehmen. Die Differenz
+ist die Kronenfläche, die Aufnahme ohne Kronen der saubere Himmel.
+Erkannt werden Kronen am MATERIALNAMEN (`laub`, `laubDunkel`,
+`laubSchnee`, `nadeln`, `ahorn`, `baum`) — die Rinde heisst anders.
+
+### Der Zeuge heisst jetzt `weitblick`
+
+Die alte Bergblick-Pose taugt für diese Verhältnisse nicht mehr: Mit dem
+linearen Nebel des Vorbilds (15 → 200 m) ist alles, was dort „Hangfels"
+heisst, zu über 90 % Nebelfarbe. Nachgemessen: Sonne × 0,5 und
+Grundlicht × 0,12 bewegen den „Fels" dieser Pose von 88,4 auf 81,9 — er
+hängt am Nebel und nicht am Licht.
+
+Gemessen wird deshalb an zwei Posen, und beide stehen im Messskript:
+
+* `weitblick` (10077/−18723, Blick waagerecht, Neigung −0,25): Himmel,
+  Kronen und Wiesengrund in einem Rahmen.
+* `hanghimmel` (10111/−18649, Neigung −0,62): Fels und Himmel in einem
+  Rahmen, nah genug, dass der Nebel nicht die Aussage ist.
+
+### Und die eine Zahl, die keine Belichtung repariert
+
+Ohne Tonemapper (`look.tonemapping: aus`, wie das Vorbild) ist ein
+sRGB-Luma-VERHÄLTNIS unabhängig von der Belichtung: Beide Seiten laufen
+durch dieselbe Potenz 1/2,2, der gemeinsame Faktor kürzt sich heraus.
+Nachgemessen über eine Reihe von Belichtung 0,8 bis 2,0 am selben Bild:
+`Moos/Himmel` wandert von 0,857 auf 0,862 — fünf Tausendstel über eine
+Verdopplung der Helligkeit.
+
+Das trennt die Kalibrierung sauber in zwei Schritte, und beide haben
+ihren eigenen Regler:
+
+    VERHÄLTNIS   Licht und Grundlicht (shared/src/environment.ts)
+    HELLIGKEIT   look.belichtung (server/data/server.yml)
+
+Mit einem Tonemapper wäre das nicht so — er verschiebt Verhältnisse,
+sobald sich die Belichtung ändert, und genau deshalb hat die Runde vom
+09.09. die Zielsättigung nie getroffen.
+
+### Der Stand nach dem Umbau (10.09.2026, Bauer „Original-Boden")
+
+Gemessen mit `~/wov-lab-mess/original-mess.mjs` an 16 Posen, vorher der
+Stand `2c359d0`, nachher `lab/original`. Die Verhältnisse stehen je Pose,
+weil sie nur INNERHALB eines Bildes eine Aussage sind.
+
+| Verhältnis (Mittag) | Pose | Vorbild | vorher | nachher |
+| --- | --- | --- | --- | --- |
+| Moos / Himmel | `weitblick` | 0,435 | — | **0,417** |
+| Moos / Himmel | `wiese-eben` | 0,435 | 0,606 | **0,424** |
+| Moos / Himmel | `schwarzwald` | 0,435 | 0,633 | **0,423** |
+| Hangfels / Himmel | `hanghimmel` | 0,73 | — | **0,634** |
+| Hangfels / Himmel | `hanghimmel`, 17 Uhr | 0,73 | — | **0,732** |
+| Hangfels / Himmel | `berg` | 0,73 | 1,067 | 0,806 |
+| Kronen / Himmel | `weitblick` | 0,34 | — | 0,670 |
+| Hangfels / Moos | `hanghimmel` | 1,69 | — | 1,177 |
+
+Und die absoluten Zahlen am Verhältniszeugen `weitblick` (Mittag):
+
+| Region | Vorbild (Bild 3 / Bild 1) | nachher |
+| --- | --- | --- |
+| Himmel | 142,1 | **142,3** |
+| Moos | 61,8–67,8 | 59,4 |
+| Wiesengrund | 57,5 (Bild 1, Nachmittag) | 47,0 |
+| Kronen | 48,3 | 95,3 |
+
+Clipping ist auf allen sechzehn Aufnahmen 0,000 bis 0,003 %.
+
+### Die drei Lücken, mit Diagnose
+
+**Kronen / Himmel 0,67 gegen 0,34.** Das ist die grösste. Sie ist NICHT
+die Laubdämpfung: Die stand bis heute auf ×0,41 und ist zurückgenommen
+worden (sie war eine Bildkorrektur an der Albedo, s. `store-vegetation-
+aufbereiten.mjs`) — und das Licht des Vorbilds erreicht ohne sie
+denselben Wert, den sie vorher erreicht hat (0,65 bis 0,67). Der Rest
+sitzt im VERHÄLTNIS der Albedos: Im Vorbild ist die Krone DUNKLER als
+der Bodengrund (48,3 gegen 61,8), bei uns heller (95,3 gegen 59,4). Das
+ist eine Aussage über die Laubatlanten und nicht über eine
+Look-Einstellung — und `design/original-boden.md` misst zwar die
+Baum-PREFABS von Level1 (§C), nicht aber ihre Materialfarben. Solange
+die fehlt, wäre jeder Faktor hier wieder eine Zahl aus einem Bild.
+
+**Hangfels / Moos 1,18 gegen 1,69.** Der Grund steht in der Rampe: Mit
+dem Deckel des Vorbilds (0,425 bei ≥ 45°) ist unser Fels an JEDER Stelle
+eine Mischung, und die gemessenen „Fels"-Bildpunkte tragen zu einem
+Viertel bis zur Hälfte Moos. Das Vorbild hat denselben MITTELWERT und
+trotzdem reine Felsbänder, weil seine Karte gemalt ist; die Rauschmaske
+in `TerrainSplat.ts` holt einen Teil dieser Streuung zurück (Fels
+erreicht in den stärksten Flecken 0,78), aber nicht die ganze.
+
+**Der Farbort des hellen Felses.** Er misst jetzt H 169–213 bei S 0,13
+statt der H 30 / S 0,41 des Vorbilds — grau-grün statt tan. Zwei
+Ursachen, beide benannt: die Mischung von oben, und die Textur.
+`terrain-rock-rough` ist NICHT `Terrain_Meadow_Rock_Moss_01`; deren
+Diffuse-Karte liegt nicht im Speicher, übernommen sind nur Kachelmaß und
+Normalstärke (F26). Vorher stand diese Zeile auf H 33 / S 0,35 — aber nur,
+weil eine Tönung [1,283 / 0,614 / 0,224] sie dorthin gerechnet hat.

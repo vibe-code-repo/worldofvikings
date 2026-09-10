@@ -977,6 +977,10 @@ const EIGENE_MODELLE_ALT: readonly string[] = [
   // Metern, weil AvatarRig die Figurenskalierung an `handR` wieder
   // herausrechnet.
   'Messer',
+  // Das Nordschwert (10.09.2026): erstes Schwert, mit dem der Schwerthieb
+  // des Wikingers eine Klinge in der Hand hat. Fehlt der Name hier,
+  // streicht bauItemDefs() das Modell still und die Hand bleibt leer.
+  'SwordNorth',
   // Wieder aufgenommen 16.08.2026 — siehe HINT_DEFS.
   'Steinkreis',
   'BirkeHoch1',

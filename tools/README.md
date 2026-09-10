@@ -289,6 +289,7 @@ statt Vermutungen.
 | `ws-check.mjs` | Prüft, ob `/ws` steht — lokal und über den Reverse-Proxy. |
 | `dump-spawn-zdos.ts` | Listet ZDOs nahe dem Weltursprung aus einem Save. |
 | `scan-missing-models.mts` | Prüft für jedes renderbare Prefab, ob seine GLB existiert und Meshes enthält. |
+| `kollisions-kistenprobe.mts` | Startet den Spielserver mit EINER erfundenen Kiste vor dem Spawn — einer Wand, die nur der Server kennt (`server/src/world/Kollisionswelt.ts`, Formquelle). Der Client zeichnet dort nichts und stoppt nicht; was passiert, kommt zwingend vom Server. Damit lässt sich die Serverkollision im laufenden Spiel zeigen und messen, solange die echten Kollisionsformen der Prefabs noch fehlen. `WOV_KISTE="x,z,kante"` setzt Ort und Kantenlänge (Vorgabe `0,0,4`); der Port kommt wie immer aus `server/data/server.yml`. Gemessen wird mit `~/wov-lab-mess/kollision-drift.mjs --kiste x,z`. Kein Test — es behauptet nichts, es stellt eine Lage her. |
 
 ## Bekannte Mängel
 

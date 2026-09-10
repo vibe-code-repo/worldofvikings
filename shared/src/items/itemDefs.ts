@@ -364,12 +364,18 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     // Speichers (SwordNorth.glb), so vorbereitet, dass die Parierstange
     // im Ursprung liegt und die Klinge entlang +Y zeigt.
     //
-    // Haltung: Der Handknoten des Wikingers zeigt mit +Y zu den Fingern
-    // (Bone-Achse, so gebaut). Klinge entlang +Y heisst also Klinge in
-    // Verlaengerung des Unterarms — Drehung null. holdPosition schiebt
-    // den Griff 8 cm vom Handgelenk in die Handflaeche. In Blender an
-    // Hand_R gesetzt und gerendert (tools-Kontrolle vom 10.09.), nicht
-    // gegen Babylon nachgemessen: Kante und Griffsitz sind Augenmass.
+    // Haltung (im Spiel gemessen, 10.09.2026, Playwright-Probe gegen den
+    // Handknoten Hand_R des Wikingers bei haengendem Arm): +X zeigt in
+    // Daumenrichtung (nach vorn), +Y zu den Fingern (nach unten), +Z zum
+    // Koerper (Handflaeche). Ein Schwert liegt in der FAUST, nicht in der
+    // Verlaengerung des Unterarms: Klinge entlang der Daumenachse, Kante
+    // entlang der Knoechel (Fingerachse), Flachseite in der Handflaeche.
+    // holdRotation ist der Babylon-Euler, der Modell-X (Kante/Parier-
+    // stange) auf Hand-Y, Modell-Y (Klinge) auf Hand-X und Modell-Z auf
+    // Hand-(-Z) legt — ausgerechnet ueber Quaternion.FromRotationMatrix,
+    // nicht von Hand geraten. holdPosition schiebt die Parierstange
+    // 7 cm vom Handgelenk in die Faust und 4,5 cm zur Daumenseite, so
+    // dass der Griff durch die geschlossene Hand laeuft.
     name: 'SwordNorth',
     label: 'Nordschwert',
     itemType: ItemType.TwoHandedWeapon,
@@ -378,8 +384,8 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     maxStackSize: 1,
     weight: 2,
     toolTier: 1,
-    holdPosition: [0, 0.08, 0],
-    holdRotation: [0, 0, 0],
+    holdPosition: [0.045, 0.07, 0],
+    holdRotation: [0, Math.PI, Math.PI / 2],
     maxDurability: 200,
     useDurabilityDrain: 1,
     attackStamina: 10,

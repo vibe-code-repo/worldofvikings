@@ -1359,11 +1359,15 @@ export class AvatarRig {
    * gehoeren zur Bewegung.
    */
   private gleicheHueftversatzAn(clips: Clip[], ruhe: Clip): void {
+    // Ausdruecklich die HUEFTE, nicht `Root`: Der Wurzelknoten steht in
+    // jedem Clip gleich (0/0/0) und haette als erster Treffer die Angleichung
+    // still zu einem Nichts gemacht — genau so lief der erste Anlauf am
+    // 10.09. ins Leere.
     const hueftKeys = (grp: AnimationGroup) => {
       for (const ta of grp.targetedAnimations) {
         if (ta.animation.targetProperty !== 'position') continue;
         const zielName = (ta.target as { name?: string })?.name ?? '';
-        if (/^(Root|Hip|Hips|Pelvis|mixamorig:Hips)$/.test(zielName)) return ta.animation.getKeys();
+        if (/^(Hip|Hips|Pelvis|mixamorig:Hips)$/.test(zielName)) return ta.animation.getKeys();
       }
       return null;
     };

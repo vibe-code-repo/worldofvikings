@@ -1310,6 +1310,10 @@ export class AvatarRig {
     const clip = this.clipsAngriff[this.angriffIndex]!;
     this.clipAngriff = clip;
     this.setzeAngriffTempo();
+    // Die Uhr endet UEBERBLEND_AUSSTIEG vor dem Clipende: dann beginnt die
+    // Rueckkehr, waehrend der Hieb noch seine letzten Bilder spielt.
+    this.angriffRest = Math.max(0.05, this.hiebDauer(clip) - UEBERBLEND_AUSSTIEG);
+    this.komboRest = this.angriffRest + KOMBO_FENSTER;
 
     if (this.aktiv === clip) {
       // ── Schon am Schlagen: SELBST neu anstossen ──────────────────
@@ -1359,15 +1363,20 @@ export class AvatarRig {
   private setzeAngriffTempo(): void {
     if (!this.clipAngriff) return;
     const laenge = this.clipLaenge(this.clipAngriff);
-    // Volle Hiebe laufen mit ANGRIFF_TEMPO wie im Original; kuerzer als der
-    // Schlagtakt (angriffDauer) wird kein Clip, sonst ueberlappten sich
-    // zwei Klicks im selben Clip.
-    const dauer = Math.max(this.angriffDauer, laenge / ANGRIFF_TEMPO);
+    const dauer = this.hiebDauer(this.clipAngriff);
     this.clipAngriff.grp.speedRatio = laenge > 0 ? laenge / dauer : 1;
-    // Die Uhr endet UEBERBLEND_AUSSTIEG vor dem Clipende: dann beginnt die
-    // Rueckkehr, waehrend der Hieb noch seine letzten Bilder spielt.
-    this.angriffRest = Math.max(0.05, dauer - UEBERBLEND_AUSSTIEG);
-    this.komboRest = this.angriffRest + KOMBO_FENSTER;
+    // NUR das Tempo, keine Uhr: setAngriffDauer() ruft hierher, und wer
+    // hier die Uhr stellte, hielte sie bei jedem Aufruf wieder auf Anfang
+    // (so lief am 10.09. jeder Hieb bis zum harten Gruppenende durch).
+  }
+
+  /**
+   * Wie lange ein Hieb laeuft (s): volle Clips mit ANGRIFF_TEMPO wie im
+   * Original, aber nie kuerzer als der Schlagtakt (angriffDauer), sonst
+   * ueberlappten sich zwei Klicks im selben Clip.
+   */
+  private hiebDauer(clip: Clip): number {
+    return Math.max(this.angriffDauer, this.clipLaenge(clip) / ANGRIFF_TEMPO);
   }
 
   /** Laeuft gerade ein Schlag? Fuer HUD und Messzellen. */

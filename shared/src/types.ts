@@ -251,6 +251,12 @@ export enum PacketType {
    * Server oeffnet ein kurzes Fenster, in dem Treffer abgewehrt werden.
    */
   Parry = 58,
+  /**
+   * Server → Client: Treffereffekt. Payload: Vector3 pos, Int32 art
+   * (0 hart/Holz: Funken und Splitter, 1 Fleisch: Blut, 2 Parade: Funke).
+   * Geht an alle Spieler im Umkreis, damit auch Mitspieler den Treffer sehen.
+   */
+  HitEffect = 59,
 
   // Admin
   PlayerList = 50,

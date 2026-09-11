@@ -113,6 +113,7 @@ import { RENDER_SCALE } from './ui/Settings';
 import { LoadingScreen } from './ui/LoadingScreen';
 import { GameI18n } from './i18n';
 import { Equipment } from './player/Equipment';
+import { KampfEffekte } from './engine/KampfEffekte';
 import { Hotbar } from './ui/Hotbar';
 import { InventoryPanel } from './ui/InventoryPanel';
 import { ContainerPanel } from './ui/ContainerPanel';
@@ -714,6 +715,8 @@ async function main() {
   let loading: LoadingScreen | null = null;
   let inventory: Inventory | null = null;
   let equipment: Equipment | null = null;
+  /** Slash, Trefferblitz, Blut, Paradefunke (KampfEffekte.ts). */
+  const kampfEffekte = new KampfEffekte(scene);
   let hotbar: Hotbar | null = null;
   let inventoryPanel: InventoryPanel | null = null;
   let containerPanel: ContainerPanel | null = null;
@@ -1541,6 +1544,17 @@ async function main() {
       /** Diagnose: Pose eines dynamischen Entities (Namens-Teilstring). */
       dynPose: (name: string) => entities?.dynamicPose(name) ?? null,
       /** Diagnose: Schlag mit beliebiger Waffe an der Spielerposition. */
+      /** Treffereffekt vor der Figur ausloesen (Messzellen): art 0 hart, 1 Blut, 2 Parade. */
+      effekt: (art = 0) => {
+        if (!player) return false;
+        const vorn = player.avatar.root.forward.clone();
+        vorn.y = 0;
+        vorn.normalize();
+        const p = player.avatar.root.getAbsolutePosition().add(vorn.scale(1.0));
+        p.y += 1.1;
+        kampfEffekte.treffer(p, art);
+        return true;
+      },
       /** Parade wie per Rechtsklick: Geste + Server-Fenster (Messzellen). */
       pariere: () => {
         if (!player || !socket?.connected) return false;
@@ -2180,6 +2194,14 @@ async function main() {
     });
 
     // Interaktions-Ergebnis: Meldung + ggf. Beute ins Inventar.
+    // Treffereffekt vom Server (Kreatur getroffen: Blut; Holz/Stein: Funken;
+    // Parade: Funke) — auch fuer Treffer, die Mitspieler landen.
+    socket.on(PacketType.HitEffect, (reader) => {
+      const pos = reader.readVector3();
+      const art = reader.readInt32();
+      kampfEffekte.treffer(new Vector3(pos.x, pos.y, pos.z), art);
+    });
+
     socket.on(PacketType.InteractResult, (reader) => {
       reader.readBool();
       const message = reader.readString();
@@ -3882,7 +3904,18 @@ async function main() {
       // hätten hier nichts zu unterscheiden; welche Hiebe der Kombo
       // laufen, entscheidet AvatarRig.schlage() selbst.
       // Mit Waffe die Hiebe, mit leerer Hand die Faeuste (Mike, 11.09.2026).
-      player.avatar.schlage(!!equipment?.rightItem);
+      const bewaffnet = !!equipment?.rightItem;
+      if (player.avatar.schlage(bewaffnet) && bewaffnet) {
+        // Slash-Halbmond zur Spitze des jeweiligen Hiebs (Hand_R-Maxima
+        // der drei Clips bei Tempo 2,5: 0,28 / 0,40 / 0,68 s), vor der
+        // Figur in Brusthoehe; Hieb 2 ist der Querhieb von der anderen Seite.
+        const hieb = player.avatar.letzterHieb;
+        const verzug = [0.28, 0.4, 0.68][hieb] ?? 0.3;
+        setTimeout(() => {
+          const halter = equipment?.gehalten;
+          if (halter) kampfEffekte.schlagBogen(halter);
+        }, verzug * 1000);
+      }
       socket.sendAttack(
         player.position.x,
         player.position.y,
@@ -4038,7 +4071,7 @@ async function main() {
   window.addEventListener('resize', () => engine.resize());
 
   // dev/debug handle (Playwright probes, F9 inspector sessions)
-  (window as unknown as Record<string, unknown>).__dbg = { scene, input, gameSettings, get post() { return post; }, get entities() { return entities; }, assets, get terrain() { return terrain; }, lighting, get player() { return player; }, get world() { return world; }, get inventory() { return inventory; }, get equipment() { return equipment; }, get placement() { return placement; }, get grass() { return grass; }, get shadows() { return shadows; }, get namensschilder() { return namensschilder; },
+  (window as unknown as Record<string, unknown>).__dbg = { scene, input, gameSettings, kampfEffekte, get post() { return post; }, get entities() { return entities; }, assets, get terrain() { return terrain; }, lighting, get player() { return player; }, get world() { return world; }, get inventory() { return inventory; }, get equipment() { return equipment; }, get placement() { return placement; }, get grass() { return grass; }, get shadows() { return shadows; }, get namensschilder() { return namensschilder; },
     // Fackeln: Helligkeit auf echter Hardware nachziehen, Notbremse von
     // Hand auslösen oder wieder lösen — s. engine/FackelLicht.ts.
     fackeln: {

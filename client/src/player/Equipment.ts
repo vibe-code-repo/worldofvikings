@@ -36,6 +36,10 @@ export class Equipment {
    */
   private readonly slots = new Map<AusruestungsSlot, ItemStack>();
   private heldNode: TransformNode | null = null;
+  /** Der Halter der gehaltenen Waffe (fuer Effekte, die mit der Klinge mitgehen). */
+  get gehalten(): TransformNode | null {
+    return this.heldNode;
+  }
   /** Guards against a slow model load landing after the item was swapped. */
   private loadToken = 0;
   private readonly listeners = new Set<() => void>();

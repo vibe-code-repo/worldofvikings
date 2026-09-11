@@ -17,6 +17,8 @@ import {
 } from '@babylonjs/core/Physics/v2/characterController';
 import { WATER_LEVEL } from '@wov/shared';
 import { ausdauerSchritt, AUSDAUER_REGEL } from '@wov/shared/src/bewegung/ausdauer.js';
+import type { BodenAbfrage } from '@wov/shared/src/bewegung/abfragen.js';
+import { hangBremse } from '@wov/shared/src/bewegung/gelaendeHang.js';
 import {
   KOERPER_HOEHE,
   KOERPER_RADIUS,
@@ -320,6 +322,27 @@ export class PlayerController {
   private readonly augeTmp = new Vector3();
   /** Kratzvektor für `verschiebeWeich` — läuft je Bild, darf nichts belegen. */
   private readonly versatzTmp = new Vector3();
+  /**
+   * Die Heightmap als Bodenabfrage der geteilten Regeln — EIN Objekt für
+   * die ganze Sitzung, weil `stepPhysics` sie je Bild braucht und ein
+   * frisches Literal je Bild Müll wäre. Der Rückruf liest `this.world`
+   * erst beim Aufruf, die Reihenfolge der Feldinitialisierung ist also
+   * gleichgültig.
+   */
+  private readonly hangBoden: BodenAbfrage = {
+    hoeheBei: (x: number, z: number): number => this.world.getGroundHeight(x, z),
+  };
+  /**
+   * Messhebel: die Steigungsgrenze am Gelände abschalten (`__vb.hang(false)`).
+   *
+   * Nur für Zeugen, und zwar aus einem Grund: Ein Schalter, dessen Wirkung
+   * man nicht sieht, ist von einem wirkungslosen Schalter nicht zu
+   * unterscheiden. Mit ihm misst EINE Sitzung beide Zustände an derselben
+   * Geländewand — aus steigt die Figur hinauf (und der Server, der die
+   * Regel weiter fährt, zieht sie zurück), an bleibt sie stehen. Der
+   * Server kennt diesen Hebel nicht; er gilt immer.
+   */
+  hangRegelAn = true;
   /** Gehaltene Höhe, solange unter der Figur noch kein Collider liegt. */
   private dungeonHalteY = 0;
   /**
@@ -631,6 +654,52 @@ export class PlayerController {
     const c = this.controller!;
     const support = c.checkSupport(dt, DOWN);
     this.lastSupport = support.supportedState;
+
+    // ── Steigungsgrenze am GELAENDE (11.09.2026) ─────────────────────
+    //
+    // `maxSlopeCosine` am Havok-Controller deckt nur ab, was ein KOERPER
+    // ist — Felsnetze, Bauwerke, Dungeonwände. Das Gelände ist zwar ein
+    // Havok-Höhenfeld (Terrain.buildGroundBody), aber die Kapsel klettert
+    // trotzdem hinauf: Die Wunschgeschwindigkeit wird hier direkt gesetzt,
+    // `integrate()` projiziert sie auf die Hangfläche, und die
+    // Heightmap-Klemme weiter unten hebt die Figur anschliessend auf die
+    // neue Höhe. Gemessen an Mikes planierter Wand bei −16736/−5218.
+    //
+    // Also dieselbe geteilte Regel wie serverseitig, VOR der Integration
+    // auf den Bewegungswunsch (`gelaendeHang.ts`): Was bergauf in eine
+    // Fläche über der Grenze läuft, fällt weg; quer dazu bleibt die
+    // Bewegung. Der Server rechnet Zeichen für Zeichen dasselbe, also
+    // stoppen beide an derselben Stelle und der Abgleich hat nichts zu
+    // korrigieren.
+    //
+    // Additiv und vor allem anderen: Die Bodenfolge, der Sprung und die
+    // Heightmap-Klemme darunter bleiben, wie sie sind — sie sehen nur
+    // einen bereits beschnittenen Wunsch. Im Dungeon gilt die Regel
+    // nicht, dort ist die Heightmap bedeutungslos (und die Raumwände sind
+    // Körper, für die `maxSlopeCosine` längst greift).
+    if (moving && !this.dungeonMode && this.hangRegelAn) {
+      const erlaubt = hangBremse(
+        this.hangBoden,
+        this.position.x,
+        this.position.z,
+        this.position.y,
+        wx * speed * dt,
+        wz * speed * dt
+      );
+      if (erlaubt.flaeche !== null) {
+        // `wx`/`wz` sind eine RICHTUNG, `erlaubt` ein Weg — also wieder
+        // auf Länge 1 bringen. Bleibt nichts übrig, steht die Figur.
+        const rest = Math.sqrt(erlaubt.x * erlaubt.x + erlaubt.z * erlaubt.z);
+        if (rest < 1e-9) {
+          wx = 0;
+          wz = 0;
+          moving = false;
+        } else {
+          wx = erlaubt.x / rest;
+          wz = erlaubt.z / rest;
+        }
+      }
+    }
 
     // Wunschgeschwindigkeit DIREKT setzen statt über calculateMovement().
     //

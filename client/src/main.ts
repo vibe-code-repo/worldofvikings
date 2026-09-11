@@ -44,6 +44,7 @@ import {
   opRadius,
   dekodiereTerrainComp,
   TERRAIN_HIT_OPS,
+  TERRAIN_OP_DEFAULTS,
   Inventory,
   findItem,
   unpackContainer,
@@ -1432,6 +1433,35 @@ async function main() {
       admin: (line: string) => {
         socket?.sendAdminCommand(line);
         return socket?.connected ?? false;
+      },
+      /**
+       * Eine Gelände-Operation schicken — wie ein Hackenschlag, nur ohne
+       * Hacke. Nur für Messläufe: Eine steile Geländewand baut man sonst
+       * nur von Hand mit dem Planier-Werkzeug, und ein Zeuge, der erst
+       * eine Werkzeugleiste bedienen muss, misst am Ende die Werkzeugleiste.
+       *
+       * Es ist ausdrücklich KEINE Abkürzung an der Prüfung vorbei: Der
+       * Server nimmt das Paket über denselben `handleTerrainOp` an (Radius
+       * ≤ 8, Hub ≤ 8, höchstens 10 m vom Spieler) und spielt die Op an
+       * alle zurück, uns eingeschlossen — Client und Server haben danach
+       * bitgleich dasselbe Gelände.
+       *
+       *   __vb.gelaendeOp(x, y, z, { level: true, levelRadius: 8, square: true })
+       */
+      /**
+       * Messhebel: Steigungsgrenze am Gelände im CLIENT an/aus. Der
+       * Server fährt sie unabhängig davon weiter — genau deshalb ist der
+       * Hebel etwas wert: Er trennt „der Client bremst" von „der Server
+       * bremst" an derselben Wand, in derselben Sitzung.
+       */
+      hang: (an: boolean) => {
+        if (player) player.hangRegelAn = an;
+        return player?.hangRegelAn ?? null;
+      },
+      gelaendeOp: (x: number, y: number, z: number, teil: Record<string, unknown>) => {
+        if (!socket?.connected) return false;
+        socket.sendTerrainOp(x, y, z, JSON.stringify({ ...TERRAIN_OP_DEFAULTS, ...teil }));
+        return true;
       },
       /** Diagnose: Platzierungsmodus (F4 -> Frei setzen). */
       deko: () => dekoPlatzierung.diagnose(),

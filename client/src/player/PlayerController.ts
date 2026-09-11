@@ -664,13 +664,19 @@ export class PlayerController {
     if (springt) {
       vy = JUMP_SPEED;
     } else if (amBoden || snap) {
-      const nx = this.position.x + (moving ? wx * speed * dt : 0);
-      const nz = this.position.z + (moving ? wz * speed * dt : 0);
-      const zielBoden = this.dungeonMode
-        ? (this.bodenSonde?.(nx, this.position.y, nz) ?? null)
-        : this.world.getGroundHeight(nx, nz);
-      if (zielBoden !== null && Number.isFinite(zielBoden) && Math.abs(zielBoden - this.position.y) < SNAP_ABSTAND) {
-        vy = Math.max(-SNAP_TEMPO, Math.min(BODEN_FOLGE_AUF_MAX, (zielBoden - this.position.y) / Math.max(dt, 1e-3)));
+      // RELATIV folgen: Hoehenunterschied des Bodens zwischen jetziger und
+      // naechster Position, nicht der Abstand Kapsel↔Boden. Der Abstand
+      // ist am Hang durch die Kugelform der Kapsel immer positiv, und wer
+      // ihn wegdrueckt, schiebt die Kapsel in den Hang — sie rutschte im
+      // Stand bergab (Mike, 11.09.2026). Im Stand deshalb wie frueher 0.
+      const sonde = (x: number, z: number) =>
+        this.dungeonMode ? (this.bodenSonde?.(x, this.position.y, z) ?? null) : this.world.getGroundHeight(x, z);
+      if (moving && amBoden) {
+        const hier = sonde(this.position.x, this.position.z);
+        const dort = sonde(this.position.x + wx * speed * dt, this.position.z + wz * speed * dt);
+        vy = hier !== null && dort !== null && Number.isFinite(hier) && Number.isFinite(dort) && Math.abs(dort - hier) < SNAP_ABSTAND
+          ? Math.max(-SNAP_TEMPO, Math.min(BODEN_FOLGE_AUF_MAX, (dort - hier) / Math.max(dt, 1e-3)))
+          : 0;
       } else {
         vy = amBoden ? 0 : -SNAP_TEMPO;
       }

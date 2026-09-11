@@ -64,6 +64,7 @@ import { WindPlugin } from './WindPlugin';
 import { FlammenAtlas } from './FlammenAtlas';
 import { GlutPuls } from './GlutPuls';
 import { toeneFigurMaterial } from './FigurToenung';
+import { toeneStoreMaterial } from './StoreToenung';
 
 import { GENERATED_PREFIX, modelBaseUrl, modelDateiName, modelUrl } from './assetUrls';
 import { storeSpiegelung } from '@wov/shared';
@@ -908,6 +909,15 @@ export class AssetManager {
     }
 
     this.setzeMetallgrad(material, modelName);
+
+    // Die fehlende Grundfarbe der Speicher-Modelle nachreichen: bei 593
+    // von 635 Materialslots fehlt der `baseColorFactor` in der GLB, und
+    // der Lader setzt dann 1/1/1 — deshalb standen Findlinge und Klippen
+    // bei Luma 85 statt im gemessenen Band 51–76. Direkt hinter
+    // `setzeMetallgrad`, weil beide dieselbe Auskunft auswerten (der
+    // Modellpfad sagt, dass es Speicher ist). Die Zeile tut nichts an
+    // einem Modell ohne Zeile in SYNTY_GRUNDFARBE und ohne Fels-Gruppe.
+    toeneStoreMaterial(material, modelName);
 
     // Die Tönung der Spielfigur — hier greift sie für FREMDE Spieler; die
     // eigene Figur laedt an AvatarRig vorbei am Cache (s. FigurToenung.ts).

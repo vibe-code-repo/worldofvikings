@@ -842,6 +842,27 @@ const KERN = [
   */
   ['client', 'test/figur-toenung.ts'],
   /*
+    Findlinge und Klippen stehen nicht auf 1/1/1.
+
+    Derselbe Fehlertyp wie eine Zeile darueber, nur an den Speicher-
+    Modellen: Bei 593 von 635 Materialslots fehlt der `baseColorFactor`
+    in der GLB, der Lader setzt 1/1/1, und der Fels steht bei sRGB-Luma
+    85 statt im gemessenen Band 51–76. Nichts daran bricht, nichts meldet
+    sich — man sieht es nur im Bild.
+
+    Geprueft wird die TABELLE (kein 1/1/1, keine Vegetation, kein
+    Namenszusammenstoss mit den aufbereiteten Laubmaterialien), die
+    FELS-GRUPPE gegen zwei Listen (zehn Landschaftsfelsen ja, neun
+    Bauwerke und Requisiten mit demselben Wortstamm nein), der VORRANG
+    der gemessenen Zeile vor dem Gruppenwert, die VERDRAHTUNG bis in ein
+    echtes PBRMaterial samt „gesetzt, nicht multipliziert" — und zuletzt
+    die NACHRECHNUNG: aus dem gemessenen Spiegelungssockel folgt Luma
+    61,9, gemessen wurden 62,0.
+
+    Ohne Weiche: kein GLB, kein Speicher, NullEngine, Sekundenbruchteile.
+  */
+  ['shared', 'test/synty-grundfarben.ts'],
+  /*
     E2, zweite Haelfte: der geschriebene Saal durch Babylons ECHTEN
     glTF-Lader. `server/test/glb-schreiber.ts` liest mit einem eigenen,
     nachsichtigen Parser; im Spiel liest der Lader, und der ist streng.

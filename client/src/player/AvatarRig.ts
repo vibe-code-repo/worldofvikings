@@ -137,6 +137,8 @@ const FUSS_VERSATZ_MAX = 0.45;
  */
 const FUSS_ABSENK_MAX = 0.35;
 const FUSS_GLAETTUNG_S = 0.09;
+/** Wie hoch ein Knie mindestens ueber dem Boden bleibt (m), Schienbeindicke des Modells. */
+const KNIE_RADIUS = 0.1;
 /**
  * Fuss-IK je Fuss (Stufe 2, 10.09.2026): Wie weit ein Fuss hoechstens
  * gegenueber der Animation gehoben oder gesenkt wird (m), und ab welcher
@@ -1068,17 +1070,28 @@ export class AvatarRig {
       }
       return -Math.min(abfall, FUSS_ABSENK_MAX);
     }
+    // Stufe 1, seit 11.09.2026 mit zwei Regeln aus der Messung der Hiebe:
+    // (1) Absenken erlaubt nur das GELAENDE (Boden unter dem Fuss tiefer
+    //     als die Standflaeche), nie eine animierte Fusshebung — sonst
+    //     zieht ein Sprung oder Tritt die ganze Figur nach unten (gemessen:
+    //     −13 cm beim dritten Hieb, −10 cm beim zweiten).
+    // (2) Auch die KNIE pruefen: Kniet die Figur (dritter Hieb, Huefte auf
+    //     30 cm), versinken sonst die Schienbeine im Boden; ein Knie wird
+    //     wie ein Fuss mit KNIE_RADIUS ueber dem Boden gehalten.
+    const rigBoden = this.root.getAbsolutePosition().y;
     let noetig = -Infinity;
-    for (const knoten of this.fussKnoten) {
+    const pruefe = (knoten: TransformNode, hoehe: number) => {
       knoten.computeWorldMatrix(true);
       const p = knoten.getAbsolutePosition();
       const boden = this.bodenSonde!(p.x, p.z);
-      if (!Number.isFinite(boden)) continue;
-      // Nicht der Knöchel zählt, sondern die SOHLE darunter, und der schon
-      // wirkende Versatz wird herausgerechnet (siehe Kommentar der Stufe 1).
-      const sohleOhneVersatz = p.y - this.knoechelHoehe - this.fussVersatz;
-      noetig = Math.max(noetig, boden - sohleOhneVersatz);
-    }
+      if (!Number.isFinite(boden)) return;
+      // Der schon wirkende Versatz wird herausgerechnet (siehe Kommentar der Stufe 1).
+      const unterkanteOhneVersatz = p.y - hoehe - this.fussVersatz;
+      const beitrag = Math.max(boden - unterkanteOhneVersatz, Math.min(0, boden - rigBoden));
+      noetig = Math.max(noetig, beitrag);
+    };
+    for (const knoten of this.fussKnoten) pruefe(knoten, this.knoechelHoehe);
+    for (const { knie } of this.ikBeine) pruefe(knie, KNIE_RADIUS);
     if (!Number.isFinite(noetig)) return 0;
     return Math.min(Math.max(noetig, -FUSS_ABSENK_MAX), FUSS_VERSATZ_MAX);
   }

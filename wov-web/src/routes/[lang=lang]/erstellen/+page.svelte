@@ -822,7 +822,7 @@
   .schmiede-kopf h1 {
     margin: 0 0 16px;
     color: var(--runengold);
-    font-family: Georgia, 'Times New Roman', serif;
+    font-family: var(--schrift-kopf);
     font-size: clamp(22px, 2vw, 30px);
     font-weight: 700;
     letter-spacing: 0.14em;
@@ -839,7 +839,7 @@
     outline: none;
     background: rgba(9, 11, 16, 0.84);
     color: var(--text);
-    font-family: Georgia, 'Times New Roman', serif;
+    font-family: var(--schrift);
     font-size: 15px;
     letter-spacing: 0.07em;
     text-align: center;
@@ -861,7 +861,7 @@
   .panel-kopf { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
   .panel-kopf h2, .klasseninfo h2, .klasseninfo h3 {
     margin: 0;
-    font-family: Georgia, 'Times New Roman', serif;
+    font-family: var(--schrift-kopf);
     color: var(--runengold);
     text-transform: uppercase;
   }
@@ -920,14 +920,14 @@
     transition: visibility 0s linear, opacity 0.35s ease;
   }
   .figur-lader.ausblenden { visibility: hidden; opacity: 0; transition-delay: 0.35s, 0s; }
-  .figur-lader p { margin: 0; font-family: Georgia, 'Times New Roman', serif; font-size: 11px; letter-spacing: 0.13em; text-transform: uppercase; }
+  .figur-lader p { margin: 0; font-family: var(--schrift-kappen); font-size: 11px; letter-spacing: 0.13em; text-transform: uppercase; }
   .runenportal { position: relative; width: 184px; height: 184px; border: 1px solid rgba(222, 180, 59, 0.4); border-radius: 50%; box-shadow: 0 0 24px rgba(225, 177, 38, 0.16), inset 0 0 28px rgba(225, 177, 38, 0.1); animation: portal-atmen 2.2s ease-in-out infinite; }
   .runenportal::before, .runenportal::after { content: ''; position: absolute; border-radius: 50%; }
   .runenportal::before { inset: 14px; border: 1px dashed rgba(240, 204, 93, 0.48); animation: portal-drehen 14s linear infinite reverse; }
   .runenportal::after { inset: 52px; border: 1px solid rgba(240, 204, 93, 0.32); box-shadow: inset 0 0 18px rgba(240, 204, 93, 0.18); }
   .runenring { position: absolute; inset: 0; animation: portal-drehen 10s linear infinite; }
-  .runenring span { position: absolute; top: 50%; left: 50%; color: #f0cf69; font-family: Georgia, 'Times New Roman', serif; font-size: 17px; transform: translate(-50%, -50%) rotate(var(--r)) translateY(-72px); transform-origin: center; }
-  .runenkern { position: absolute; inset: 50% auto auto 50%; display: grid; place-items: center; width: 62px; height: 62px; border-radius: 50%; background: radial-gradient(circle, rgba(237, 197, 69, 0.2), transparent 68%); font-family: Georgia, 'Times New Roman', serif; font-size: 38px; font-style: normal; transform: translate(-50%, -50%); animation: runenkern-leuchten 1.65s ease-in-out infinite; }
+  .runenring span { position: absolute; top: 50%; left: 50%; color: #f0cf69; font-family: var(--schrift-kopf); font-size: 17px; transform: translate(-50%, -50%) rotate(var(--r)) translateY(-72px); transform-origin: center; }
+  .runenkern { position: absolute; inset: 50% auto auto 50%; display: grid; place-items: center; width: 62px; height: 62px; border-radius: 50%; background: radial-gradient(circle, rgba(237, 197, 69, 0.2), transparent 68%); font-family: var(--schrift-kopf); font-size: 38px; font-style: normal; transform: translate(-50%, -50%); animation: runenkern-leuchten 1.65s ease-in-out infinite; }
   .figur-lader.fehler { color: #b98d72; }
   .figur-lader.fehler .runenportal, .figur-lader.fehler .runenportal::before, .figur-lader.fehler .runenkern, .figur-lader.fehler .runenring { animation-play-state: paused; }
   .figur-lader.fehler .runenportal { border-color: rgba(166, 91, 61, 0.45); box-shadow: 0 0 20px rgba(91, 34, 24, 0.2), inset 0 0 28px rgba(91, 34, 24, 0.12); }
@@ -948,7 +948,7 @@
   .klassen-signet { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid color-mix(in srgb, var(--klasse), transparent 25%); border-radius: 7px; background: rgba(6, 8, 9, 0.72); color: var(--klasse); font-size: 25px; box-shadow: 0 0 18px color-mix(in srgb, var(--klasse), transparent 72%); }
   .klasseninfo h2 { color: var(--klasse); font-size: 27px; letter-spacing: 0.04em; }
   .klassen-titel p { margin: 1px 0 0; color: var(--runengold); font-family: var(--schrift-kappen); font-size: 10px; font-weight: 700; text-transform: uppercase; }
-  .klassen-text { margin: 14px 6px 17px 0; color: #c2b9a5; font-family: Georgia, 'Times New Roman', serif; font-size: 13px; font-style: italic; line-height: 1.65; }
+  .klassen-text { margin: 14px 6px 17px 0; color: #c2b9a5; font-family: var(--schrift); font-size: 13px; font-style: italic; line-height: 1.65; }
   .klasseninfo h3 { margin: 0 0 9px; font-size: 13px; letter-spacing: 0.08em; }
   .werte-block { padding-bottom: 16px; border-bottom: 1px solid rgba(194, 150, 42, 0.18); }
   .wert-zeile { display: grid; grid-template-columns: 94px 1fr 24px; align-items: center; gap: 8px; margin: 5px 0; color: #a99f88; font-size: 11px; }
@@ -958,19 +958,19 @@
   .faehigkeiten { padding-top: 15px; }
   .faehigkeiten article { display: grid; grid-template-columns: 36px 1fr; gap: 10px; margin: 8px 0; padding: 8px; border: 1px solid rgba(194, 150, 42, 0.18); border-radius: 4px; background: rgba(2, 4, 5, 0.48); }
   .faehigkeiten article > span { display: grid; place-items: center; height: 36px; border: 1px solid rgba(213, 138, 69, 0.55); border-radius: 4px; color: var(--klasse); font-size: 20px; }
-  .faehigkeiten h4 { margin: 0 0 3px; color: var(--runengold); font-family: Georgia, 'Times New Roman', serif; font-size: 12px; text-transform: uppercase; }
+  .faehigkeiten h4 { margin: 0 0 3px; color: var(--runengold); font-family: var(--schrift-kopf); font-size: 12px; text-transform: uppercase; }
   .faehigkeiten article p, .dummy-notiz { margin: 0; color: #aaa18f; font-size: 10px; line-height: 1.5; }
 
   .klassenwahl { grid-column: 2; grid-row: 3; display: flex; justify-content: center; gap: clamp(5px, 0.8vw, 12px); z-index: 3; }
   .klassenwahl button { width: 60px; padding: 0; border: 0; background: transparent; color: #bcb39f; cursor: pointer; }
   .klassen-icon { display: grid; place-items: center; width: 60px; height: 60px; border: 2px solid rgba(150, 132, 96, 0.35); border-radius: 9px; background: radial-gradient(circle at 50% 36%, color-mix(in srgb, var(--klasse), transparent 64%), rgba(5, 7, 9, 0.92) 68%); color: var(--klasse); box-shadow: inset 0 0 14px #000; transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s; }
   .klassen-icon i { display: grid; place-items: center; width: 30px; height: 30px; font-family: 'DejaVu Sans', sans-serif; font-size: 28px; font-style: normal; line-height: 1; }
-  .klassenwahl button small { display: block; margin-top: 4px; overflow: hidden; font-family: Georgia, 'Times New Roman', serif; font-size: 9px; letter-spacing: 0.03em; text-overflow: ellipsis; text-transform: uppercase; }
+  .klassenwahl button small { display: block; margin-top: 4px; overflow: hidden; font-family: var(--schrift-kappen); font-size: 9px; letter-spacing: 0.03em; text-overflow: ellipsis; text-transform: uppercase; }
   .klassenwahl button:hover > .klassen-icon, .klassenwahl button.aktiv > .klassen-icon { transform: translateY(-3px); border-color: var(--runengold); box-shadow: 0 0 14px color-mix(in srgb, var(--klasse), transparent 48%), inset 0 0 12px #000; }
   .klassenwahl button.aktiv small { color: var(--runengold); }
 
   .schmiede-aktionen { grid-column: 1 / -1; grid-row: 4; display: flex; align-items: end; justify-content: space-between; gap: 16px; z-index: 4; }
-  .zurueck, .erstellen-los { min-width: 140px; padding: 9px 18px; border: 1px solid rgba(172, 142, 70, 0.56); border-radius: 4px; font-family: Georgia, 'Times New Roman', serif; font-size: 11px; letter-spacing: 0.08em; text-align: center; text-transform: uppercase; }
+  .zurueck, .erstellen-los { min-width: 140px; padding: 9px 18px; border: 1px solid rgba(172, 142, 70, 0.56); border-radius: 4px; font-family: var(--schrift-kappen); font-size: 11px; letter-spacing: 0.08em; text-align: center; text-transform: uppercase; }
   .zurueck { background: rgba(14, 15, 23, 0.9); color: #c5baa3; }
   .erstellen-los { min-width: 180px; background: linear-gradient(180deg, #6e541b, #32250d); color: #f4ce5f; cursor: pointer; box-shadow: inset 0 1px rgba(255, 222, 126, 0.24); }
   .erstellen-los:hover { border-color: var(--runengold); box-shadow: 0 0 18px rgba(255, 215, 0, 0.17); }

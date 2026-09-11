@@ -127,6 +127,14 @@ const SNAP_TEMPO = 8;
 /** Geländefolgen bergauf: höchstens so schnell (m/s) nach oben zielen. */
 const BODEN_FOLGE_AUF_MAX = 3;
 /**
+ * Wie hoch die Kapselmitte beim Gehen ueber der Heightmap sein darf, ohne
+ * dass gezogen wird (m): Auf 23° Hang liegt der Kapselboden geometrisch
+ * ~9 cm ueber dem Boden unter der Mitte. Darueber zieht ein sanfter Zug
+ * (hoechstens BODEN_HOVER_ZUG_MAX m/s) zurueck.
+ */
+const BODEN_HOVER_TOLERANZ = 0.1;
+const BODEN_HOVER_ZUG_MAX = 1.0;
+/**
  * Glaettung der SICHTBAREN Hoehe (Figur und Kamera) gegenueber der
  * Physikkapsel. Die Kapsel klettert ueber jede Unebenheit des Kollisions-
  * netzes in Stufen (gemessen 11.09.2026: im Mittel 4 cm je Bild beim
@@ -677,6 +685,14 @@ export class PlayerController {
         vy = hier !== null && dort !== null && Number.isFinite(hier) && Number.isFinite(dort) && Math.abs(dort - hier) < SNAP_ABSTAND
           ? Math.max(-SNAP_TEMPO, Math.min(BODEN_FOLGE_AUF_MAX, (dort - hier) / Math.max(dt, 1e-3)))
           : 0;
+        // Nur relativ zu folgen laesst die Kapsel ueber Wellen langsam
+        // aufsteigen (gemessen: 0 → 18 cm in 3 s) — was ein Huegel nach
+        // oben drueckt, kommt nie zurueck. Oberhalb der Toleranz, die die
+        // Kugelform am Hang ohnehin braucht, sanft nach unten ziehen.
+        if (hier !== null && Number.isFinite(hier)) {
+          const ueberschuss = this.position.y - hier - BODEN_HOVER_TOLERANZ;
+          if (ueberschuss > 0) vy -= Math.min(BODEN_HOVER_ZUG_MAX, ueberschuss / 0.2);
+        }
       } else {
         vy = amBoden ? 0 : -SNAP_TEMPO;
       }

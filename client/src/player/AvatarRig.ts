@@ -382,6 +382,8 @@ export class AvatarRig {
    * bleibt schaltbar fuer Messungen.
    */
   ikAn = false;
+  /** Fussneigung nach dem Gelaende an/aus (Messzellen vergleichen beide Zustaende). */
+  neigungAn = true;
   /** Letzter Flugzustand aus update(), fuer das IK-Gewicht. */
   private inDerLuftMerker = false;
   /**
@@ -1925,7 +1927,7 @@ export class AvatarRig {
     // Original: Fussrotation aus der Bodennormalen, gewichtet wie die
     // Position (10/s an, 2/s aus). „Aufgesetzt" heisst hier: die animierte
     // Sohle liegt nahe am Rig-Boden — ein Schwungfuss bleibt, wie er ist.
-    if (!this.inDerLuftMerker) {
+    if (!this.inDerLuftMerker && this.neigungAn) {
       this.fussKnoten.forEach((fuss, i) => {
         fuss.computeWorldMatrix(true);
         const A = fuss.getAbsolutePosition();

@@ -2582,6 +2582,7 @@ export class WovServer {
     }
     if (!ziel) return this.handleHarvest(peer, pos, waffe);
     const name = this.prefabs.getByHash(ziel.prefabHash)?.name ?? '?';
+    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 1);
     // Startwert aus shared/leben.ts statt aus einem Literal. Der
     // `||`-Zweig greift nur noch für Wesen aus Saves von VOR dieser
     // Änderung — seit `stelleLebenSicher` bringt jede Kreatur ihre Punkte
@@ -2676,6 +2677,7 @@ export class WovServer {
 
     const startHp = art === 'baum' ? 60 : art === 'fels' ? 90 : 15;
     const schaden = WAFFEN_SCHADEN[waffe] ?? 4;
+    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 0);
     const hp = (ziel.getInt(HEALTH_MEMBER) || startHp) - schaden;
     if (hp > 0) {
       ziel.setInt(HEALTH_MEMBER, hp);
@@ -2697,6 +2699,23 @@ export class WovServer {
    * spielt die Geste sofort (AvatarRig.starteAktion), der Server
    * entscheidet nur ueber die Wirkung — wie beim Schlag.
    */
+  /**
+   * Treffereffekt an alle Spieler im Umkreis (Vorbild: MeleeImpact /
+   * bloodSplash / MeleeSpark des Originals, hier als Ereignis, das der
+   * Client in Partikel uebersetzt). `art`: 0 hart, 1 Fleisch, 2 Parade.
+   */
+  private sendeTrefferEffekt(pos: Vector3, art: number, umkreis = 40): void {
+    const r2 = umkreis * umkreis;
+    for (const p of this.net.getPeers()) {
+      const d = (p.position.x - pos.x) ** 2 + (p.position.z - pos.z) ** 2;
+      if (d > r2) continue;
+      p.sendPacketWith(PacketType.HitEffect, (w) => {
+        w.writeVector3(pos);
+        w.writeInt32(art);
+      });
+    }
+  }
+
   private handleParry(peer: Peer): void {
     const nachParade = ausdauerAbzug(
       { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
@@ -2720,6 +2739,7 @@ export class WovServer {
       // ein Fehlschlag der Kreatur.
       if (peer.paradeBis > Date.now()) {
         peer.paradeBis = 0;
+        this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.1, z: peer.position.z }, 2);
         peer.sendPacketWith(PacketType.InteractResult, (w) => {
           w.writeBool(true);
           w.writeString('Pariert');
@@ -2728,6 +2748,7 @@ export class WovServer {
         });
         continue;
       }
+      this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.2, z: peer.position.z }, 1);
       peer.health = Math.max(0, peer.health - damage);
       if (peer.health <= 0) {
         // Tod: zurück zum Weltspawn, volle HP — Betten/Gräber später.

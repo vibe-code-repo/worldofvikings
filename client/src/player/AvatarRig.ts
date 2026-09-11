@@ -1569,6 +1569,11 @@ export class AvatarRig {
     return c !== null && (this.clipsAngriff.includes(c) || this.clipsFaust.includes(c));
   }
 
+  /** Index des zuletzt gestarteten Hiebs in seiner Kette (0…n−1), −1 = keiner. */
+  get letzterHieb(): number {
+    return this.angriffIndex;
+  }
+
   /** Laeuft gerade ein Schlag? Fuer HUD und Messzellen. */
   get schlaegt(): boolean {
     return this.angriffRest > 0;

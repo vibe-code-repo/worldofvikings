@@ -26,6 +26,7 @@ import {
   type Akkumulator,
 } from '@wov/shared/src/bewegung/festerSchritt.js';
 import { bewegungsSchritt, type BewegungsZustand } from '@wov/shared/src/bewegung/schritt.js';
+import { neuerHangSpeicher } from '@wov/shared/src/bewegung/gelaendeHang.js';
 import {
   GEH_TEMPO,
   LAUF_TEMPO,
@@ -77,9 +78,24 @@ export class Spielerbewegung {
     const nah = this.kollision.nahfeld(wesen.position, weg);
 
     const eingabe = { x: moveX, z: moveZ, rennt };
+    // EIN Hangspeicher je Eingabepaket, nicht je Schritt: Die vier
+    // Gelaendeabfragen der Steigungsgrenze fallen damit einmal an statt
+    // bis zu dreissigmal. Frisch je Paket und nicht am Spieler gehalten,
+    // damit kein Zustand ueber Pakete hinweg altert — der Speicher prueft
+    // seine Gueltigkeit ohnehin selbst (s. `HangSpeicher`), aber ein
+    // Objekt, das nur so lange lebt wie der Aufruf, kann gar nicht erst
+    // falsch werden.
+    const hangSpeicher = neuerHangSpeicher();
     let zustand: BewegungsZustand = wesen.position;
     for (let i = 0; i < ergebnis.schritte; i += 1) {
-      zustand = bewegungsSchritt(zustand, eingabe, ergebnis.akku.schrittLaenge, nah, nah);
+      zustand = bewegungsSchritt(
+        zustand,
+        eingabe,
+        ergebnis.akku.schrittLaenge,
+        nah,
+        nah,
+        hangSpeicher
+      );
     }
     return { x: zustand.x, y: zustand.y, z: zustand.z };
   }

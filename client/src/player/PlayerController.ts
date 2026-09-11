@@ -17,7 +17,7 @@ import {
 } from '@babylonjs/core/Physics/v2/characterController';
 import { WATER_LEVEL } from '@wov/shared';
 import { ausdauerSchritt, AUSDAUER_REGEL } from '@wov/shared/src/bewegung/ausdauer.js';
-import type { BodenAbfrage } from '@wov/shared/src/bewegung/abfragen.js';
+import type { GelaendeAbfrage } from '@wov/shared/src/bewegung/abfragen.js';
 import { hangBremse } from '@wov/shared/src/bewegung/gelaendeHang.js';
 import {
   KOERPER_HOEHE,
@@ -329,8 +329,8 @@ export class PlayerController {
    * erst beim Aufruf, die Reihenfolge der Feldinitialisierung ist also
    * gleichgültig.
    */
-  private readonly hangBoden: BodenAbfrage = {
-    hoeheBei: (x: number, z: number): number => this.world.getGroundHeight(x, z),
+  private readonly hangBoden: GelaendeAbfrage = {
+    gelaendeHoehe: (x: number, z: number): number => this.world.getGroundHeight(x, z),
   };
   /**
    * Messhebel: die Steigungsgrenze am Gelände abschalten (`__vb.hang(false)`).
@@ -678,11 +678,14 @@ export class PlayerController {
     // nicht, dort ist die Heightmap bedeutungslos (und die Raumwände sind
     // Körper, für die `maxSlopeCosine` längst greift).
     if (moving && !this.dungeonMode && this.hangRegelAn) {
+      // Ohne Speicher: Der Client ruft die Regel ohnehin nur einmal je
+      // Bild, da gibt es nichts zu sparen — und ein gemerkter Wert waere
+      // hier nur eine Stelle, an der Bild und Physik auseinanderlaufen
+      // koennen.
       const erlaubt = hangBremse(
         this.hangBoden,
         this.position.x,
         this.position.z,
-        this.position.y,
         wx * speed * dt,
         wz * speed * dt
       );

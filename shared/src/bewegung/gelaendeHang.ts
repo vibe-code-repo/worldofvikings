@@ -23,6 +23,15 @@
  * taete im Vorbild die eigene Slide-Faehigkeit, die bildratenabhaengig
  * ist und bewusst nicht uebernommen wurde (s. `STEIGUNGS_GRENZE_GRAD`).
  *
+ * WORAN GEMESSEN WIRD: am reinen GELAENDE (`GelaendeAbfrage`), nicht an
+ * `BodenAbfrage.hoeheBei`. Das ist keine Sparmassnahme, sondern die
+ * richtige Frage — die Oberkante eines Felsens ist eine FORM und hat
+ * ihre eigene Normale aus dem Strahlwurf, und der Client hat hier
+ * ohnehin nur die Heightmap. Dass es nebenbei billig ist, entschied
+ * trotzdem mit: Ueber `hoeheBei` gefuehrt (fuenf Bodenstrahlen je
+ * Abfrage gegen jeden Koerper im Nahfeld) kostete ein Eingabepaket bei
+ * 200 Formen 0,96–1,10 ms statt 0,40 ms.
+ *
  * WIE DIE FLAECHE GEMESSEN WIRD: vier Hoehenabfragen als ZENTRALE
  * DIFFERENZ in den Weltachsen, um die Vorderkante der Kapsel herum. Die
  * Normale kommt damit aus dem Hoehenfeld selbst und haengt NICHT von der
@@ -48,7 +57,7 @@
  * dasselbe rechnen).
  */
 import type { Vek3 } from '../kollision/form.js';
-import type { BodenAbfrage } from './abfragen.js';
+import type { GelaendeAbfrage } from './abfragen.js';
 import { entlangFlaeche, waagerechteFlaeche } from './gleiten.js';
 import { istWand, KOERPER_RADIUS } from './masse.js';
 
@@ -98,19 +107,17 @@ export const HANG_MESSWEITE = KOERPER_RADIUS;
  * mit y > 0. Damit laesst sie sich ohne Sonderfall an `istWand()` und an
  * `gleiten.ts` weiterreichen.
  *
- * KOSTEN: vier Bodenabfragen je Schritt, und nur, wenn die Figur sich
- * ueberhaupt bewegt (`hangBremse` steigt bei Stillstand vorher aus). Auf
- * dem Server sind das vier `hoeheBei` statt einer — die Zahl steht hier,
- * damit sie niemand suchen muss, falls der Bewegungsschritt je zu teuer
- * wird. Billiger geht es nicht ehrlich: Drei Abfragen ergeben nur einen
- * einseitigen Gefaellevektor, und der zeigt an einer schraeg liegenden
- * Wand in die falsche Richtung (s. Kopf dieser Datei).
+ * KOSTEN: vier Gelaendeabfragen. Billiger geht es nicht ehrlich — drei
+ * Abfragen ergeben nur einen einseitigen Gefaellevektor, und der zeigt an
+ * einer schraeg liegenden Wand in die falsche Richtung (s. Kopf dieser
+ * Datei). Wie OFT sie anfallen, entscheidet der Aufrufer: `hangBremse`
+ * steigt bei Stillstand vorher aus, und mit einem `HangSpeicher` faellt
+ * die Messung einmal je Eingabepaket an statt einmal je 1/60-Schritt.
  */
 export function gelaendeHang(
-  boden: BodenAbfrage,
+  gelaende: GelaendeAbfrage,
   x: number,
   z: number,
-  yFuss: number,
   ex: number,
   ez: number
 ): Vek3 | null {
@@ -118,10 +125,10 @@ export function gelaendeHang(
   const bz = z + ez * HANG_VORSCHAU;
   const d = HANG_MESSWEITE;
 
-  const xPlus = boden.hoeheBei(bx + d, bz, yFuss);
-  const xMinus = boden.hoeheBei(bx - d, bz, yFuss);
-  const zPlus = boden.hoeheBei(bx, bz + d, yFuss);
-  const zMinus = boden.hoeheBei(bx, bz - d, yFuss);
+  const xPlus = gelaende.gelaendeHoehe(bx + d, bz);
+  const xMinus = gelaende.gelaendeHoehe(bx - d, bz);
+  const zPlus = gelaende.gelaendeHoehe(bx, bz + d);
+  const zMinus = gelaende.gelaendeHoehe(bx, bz - d);
   if (xPlus === null || xMinus === null || zPlus === null || zMinus === null) return null;
 
   const gx = (xPlus - xMinus) / (2 * d);
@@ -143,6 +150,55 @@ export interface HangErgebnis {
 }
 
 /**
+ * Gemerkte Hangflaeche — damit die Messung einmal je EINGABEPAKET
+ * anfaellt und nicht einmal je 1/60-Schritt.
+ *
+ * WARUM DER SPEICHER BEIM AUFRUFER LIEGT und nicht in diesem Modul: Der
+ * Bewegungsschritt muss rein bleiben (kein Modulzustand, gleiche
+ * Argumente ergeben gleiche Zahlen — s. Kopf von `schritt.ts`). Ein
+ * `let` hier drin waere geteilter Zustand zwischen allen Spielern des
+ * Servers, und der erste, der ihn bemerkt, waere ein Spieler, der an
+ * einer Wand haengt, weil ein anderer gerade an einer stand.
+ *
+ * WAS ER DARF. Ein Eingabepaket deckt bis zu 30 Schritte ab; die Figur
+ * legt dabei hoechstens einen halben Meter zurueck, und die Flaeche
+ * darunter aendert sich auf dieser Strecke nicht sprunghaft — ausser an
+ * genau der Kante, um die es geht. Deshalb wird der gemerkte Wert nur
+ * benutzt, solange die Figur sich WENIGER ALS `HANG_SPEICHER_WEITE`
+ * von der Messstelle entfernt hat und in dieselbe Richtung laeuft;
+ * darueber wird neu gemessen. An einer Wand heisst das: hoechstens 0,2 m
+ * weiter, als ohne Speicher — und die Kapsel steht dann immer noch
+ * 0,2 m vor der Flaeche.
+ */
+export interface HangSpeicher {
+  /** Falsch, solange nichts gemessen wurde. */
+  gueltig: boolean;
+  /** Wo gemessen wurde. */
+  x: number;
+  z: number;
+  /** In welche Richtung gemessen wurde (Einheitsvektor). */
+  ex: number;
+  ez: number;
+  /** Die Flaeche, oder `null` fuer „dort ist keine Wand". */
+  flaeche: Vek3 | null;
+}
+
+/** Ein leerer Speicher. Einer je Spieler und Eingabepaket genuegt. */
+export function neuerHangSpeicher(): HangSpeicher {
+  return { gueltig: false, x: 0, z: 0, ex: 0, ez: 0, flaeche: null };
+}
+
+/**
+ * Wie weit die Figur von der Messstelle weglaufen darf, bevor neu
+ * gemessen wird, in m.
+ *
+ * 0,2 — die Haelfte der Vorschau. Damit liegt die Messstelle immer noch
+ * im vorderen Halbraum der Kapsel, und die Regel greift hoechstens
+ * 0,2 m spaeter als ohne Speicher.
+ */
+export const HANG_SPEICHER_WEITE = 0.2;
+
+/**
  * Die Regel selbst: waagerechten Bewegungswunsch gegen den Gelaendehang.
  *
  * `wegX`/`wegZ` ist die VERSCHIEBUNG dieses Schritts (nicht die Richtung);
@@ -150,6 +206,11 @@ export interface HangErgebnis {
  * der Wunsch BIT FUER BIT unveraendert zurueck — es wird nicht einmal
  * multipliziert —, damit flaches Gelaende die bestehende Bewegung nicht
  * um ein letztes Bit verschiebt.
+ *
+ * `speicher` ist freiwillig: Ohne ihn wird in jedem Aufruf gemessen (so
+ * rechnet der Client, der die Regel ohnehin nur einmal je Bild ruft), mit
+ * ihm einmal je Eingabepaket (so rechnet der Server, der je Paket bis zu
+ * 30 Schritte faehrt).
  *
  * Nur EINE Umlenkung, keine Schleife wie in `gleitBewegung`: Was quer zum
  * Hang uebrig bleibt, laeuft auf der Hoehenlinie, und dort ist die
@@ -159,17 +220,40 @@ export interface HangErgebnis {
  * Ecke in `gleiten.ts`).
  */
 export function hangBremse(
-  boden: BodenAbfrage,
+  gelaende: GelaendeAbfrage,
   x: number,
   z: number,
-  yFuss: number,
   wegX: number,
-  wegZ: number
+  wegZ: number,
+  speicher?: HangSpeicher
 ): HangErgebnis {
   const laenge = Math.sqrt(wegX * wegX + wegZ * wegZ);
   if (laenge === 0) return { x: wegX, z: wegZ, flaeche: null };
+  const ex = wegX / laenge;
+  const ez = wegZ / laenge;
 
-  const flaeche = gelaendeHang(boden, x, z, yFuss, wegX / laenge, wegZ / laenge);
+  let flaeche: Vek3 | null;
+  if (
+    speicher !== undefined &&
+    speicher.gueltig &&
+    speicher.ex === ex &&
+    speicher.ez === ez &&
+    (x - speicher.x) * (x - speicher.x) + (z - speicher.z) * (z - speicher.z) <
+      HANG_SPEICHER_WEITE * HANG_SPEICHER_WEITE
+  ) {
+    flaeche = speicher.flaeche;
+  } else {
+    flaeche = gelaendeHang(gelaende, x, z, ex, ez);
+    if (speicher !== undefined) {
+      speicher.gueltig = true;
+      speicher.x = x;
+      speicher.z = z;
+      speicher.ex = ex;
+      speicher.ez = ez;
+      speicher.flaeche = flaeche;
+    }
+  }
+
   if (flaeche === null || !istWand(flaeche)) return { x: wegX, z: wegZ, flaeche: null };
 
   // Ab hier wie an einer Wand: den Anteil IN die Flaeche wegnehmen, den

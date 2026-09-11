@@ -23,7 +23,7 @@
  */
 import type { Vek3 } from '../kollision/form.js';
 import type { BodenAbfrage, HindernisAbfrage } from './abfragen.js';
-import { hangBremse } from './gelaendeHang.js';
+import { hangBremse, type HangSpeicher } from './gelaendeHang.js';
 import { gleitBewegung } from './gleiten.js';
 import { BODEN_KLEBEN, FALL_TEMPO, GEH_TEMPO, KOERPER_RADIUS, LAUF_TEMPO } from './masse.js';
 
@@ -60,7 +60,14 @@ export function bewegungsSchritt(
   eingabe: BewegungsEingabe,
   dt: number,
   boden: BodenAbfrage,
-  hindernis: HindernisAbfrage
+  hindernis: HindernisAbfrage,
+  /**
+   * Freiwilliger Speicher fuer die Hangflaeche. Wer ihn mitgibt, misst
+   * sie einmal je Eingabepaket statt in jedem der bis zu 30 Schritte;
+   * der Schritt bleibt rein, weil der Zustand beim Aufrufer liegt
+   * (s. `HangSpeicher`). Ohne ihn wird in jedem Schritt gemessen.
+   */
+  hangSpeicher?: HangSpeicher
 ): BewegungsZustand {
   const tempo = eingabe.rennt ? LAUF_TEMPO : GEH_TEMPO;
   // Erst der HANG, dann die Formen. Die Steigungsgrenze gilt seit dem
@@ -77,9 +84,9 @@ export function bewegungsSchritt(
     boden,
     zustand.x,
     zustand.z,
-    zustand.y,
     eingabe.x * tempo * dt,
-    eingabe.z * tempo * dt
+    eingabe.z * tempo * dt,
+    hangSpeicher
   );
   const wunschX = zustand.x + hang.x;
   const wunschZ = zustand.z + hang.z;
@@ -132,7 +139,6 @@ export function flaechenDesSchritts(
     boden,
     zustand.x,
     zustand.z,
-    zustand.y,
     eingabe.x * tempo * dt,
     eingabe.z * tempo * dt
   );

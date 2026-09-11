@@ -13,10 +13,16 @@ import {
   neuerAkkumulator,
   weiter,
 } from '../src/bewegung/festerSchritt.js';
-import { gelaendeHang, hangBremse, HANG_VORSCHAU } from '../src/bewegung/gelaendeHang.js';
+import {
+  gelaendeHang,
+  hangBremse,
+  neuerHangSpeicher,
+  HANG_SPEICHER_WEITE,
+  HANG_VORSCHAU,
+} from '../src/bewegung/gelaendeHang.js';
 import { gleitBewegung } from '../src/bewegung/gleiten.js';
 import { bewegungsSchritt } from '../src/bewegung/schritt.js';
-import { ebenerBoden, OHNE_HINDERNISSE, type HindernisAbfrage, type Treffer } from '../src/bewegung/abfragen.js';
+import { ebenerBoden, gelaendeAus, OHNE_HINDERNISSE, type HindernisAbfrage, type Treffer } from '../src/bewegung/abfragen.js';
 import {
   BODEN_KLEBEN,
   FALL_TEMPO,
@@ -282,32 +288,32 @@ console.log('\n[5] Steigungsgrenze am Gelaende:');
   /** Eine schiefe Ebene, die in +x mit `grad` ansteigt. */
   const hangBoden = (grad: number) => {
     const g = Math.tan((grad * Math.PI) / 180);
-    return { hoeheBei: (x: number): number => x * g };
+    return { hoeheBei: (x: number): number => x * g, gelaendeHoehe: (x: number): number => x * g };
   };
   const schritt = GEH_TEMPO * SCHRITT_LAENGE;
 
   // 55 Grad: unter der Grenze, also unangetastet — und zwar BIT FUER BIT.
-  const flach = hangBremse(hangBoden(55), 0, 0, 0, schritt, 0);
+  const flach = hangBremse(hangBoden(55), 0, 0, schritt, 0);
   pruefe('55 Grad bergauf: Wunsch unveraendert',
     flach.x === schritt && flach.z === 0 && flach.flaeche === null, `${flach.x}`);
 
   // 65 Grad bergauf: die Bewegung IN den Hang faellt weg.
-  const steil = hangBremse(hangBoden(65), 0, 0, 0, schritt, 0);
+  const steil = hangBremse(hangBoden(65), 0, 0, schritt, 0);
   pruefe('65 Grad bergauf: gestoppt',
     steil.x === 0 && steil.z === 0 && steil.flaeche !== null, `${steil.x}`);
 
   // Bergab bleibt frei — sonst kaeme man von einem Plateau nicht herunter.
-  const runter = hangBremse(hangBoden(65), 0, 0, 0, -schritt, 0);
+  const runter = hangBremse(hangBoden(65), 0, 0, -schritt, 0);
   pruefe('65 Grad bergab: frei',
     runter.x === -schritt && runter.flaeche === null, `${runter.x}`);
 
   // Quer zum Hang: der Anteil entlang der Hoehenlinie bleibt vollstaendig.
-  const quer = hangBremse(hangBoden(65), 0, 0, 0, 0, schritt);
+  const quer = hangBremse(hangBoden(65), 0, 0, 0, schritt);
   pruefe('65 Grad quer: unveraendert (keine Steigung in Laufrichtung)',
     quer.x === 0 && quer.z === schritt && quer.flaeche === null, `${quer.z}`);
 
   // Schraeg hinauf: die x-Haelfte faellt weg, die z-Haelfte gleitet weiter.
-  const schraeg = hangBremse(hangBoden(65), 0, 0, 0, schritt, schritt);
+  const schraeg = hangBremse(hangBoden(65), 0, 0, schritt, schritt);
   pruefe('65 Grad schraeg: gleitet quer weiter, nicht hinauf',
     nah(schraeg.x, 0, 1e-12) && schraeg.z > schritt * 0.99 && schraeg.flaeche !== null,
     `x=${schraeg.x.toFixed(6)} z=${schraeg.z.toFixed(4)}`);
@@ -317,21 +323,21 @@ console.log('\n[5] Steigungsgrenze am Gelaende:');
   // Die Flaechenneigung bleibt 76 — also gesperrt.
   {
     const e = { x: Math.cos((70 * Math.PI) / 180), z: Math.sin((70 * Math.PI) / 180) };
-    const zick = hangBremse(hangBoden(76), 0, 0, 0, e.x * schritt, e.z * schritt);
+    const zick = hangBremse(hangBoden(76), 0, 0, e.x * schritt, e.z * schritt);
     pruefe('76-Grad-Wand schraeg von der Seite: kein Zickzack hinauf',
       nah(zick.x, 0, 1e-12) && zick.flaeche !== null, `x=${zick.x.toFixed(6)}`);
   }
 
   // Die Normale ist eine Einheitsnormale und ihr y ist cos(Neigung) —
   // dieselbe Groesse, die `istWand` an Formen prueft.
-  const n = gelaendeHang(hangBoden(65), 0, 0, 0, 1, 0)!;
+  const n = gelaendeHang(hangBoden(65), 0, 0, 1, 0)!;
   const len = Math.sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
   pruefe('Hangnormale ist Einheitsvektor', nah(len, 1, 1e-12), `${len}`);
   pruefe('Hangnormale y = cos(65 Grad)',
     nah(n.y, Math.cos((65 * Math.PI) / 180), 1e-12), `${n.y.toFixed(6)}`);
   pruefe('Hangnormale zeigt der Figur entgegen (bergab)', n.x < 0, `${n.x.toFixed(3)}`);
   pruefe('genau an der Grenze ist noch kein Stopp',
-    !istWand(gelaendeHang(hangBoden(STEIGUNGS_GRENZE_GRAD - 0.01), 0, 0, 0, 1, 0)!),
+    !istWand(gelaendeHang(hangBoden(STEIGUNGS_GRENZE_GRAD - 0.01), 0, 0, 1, 0)!),
     `${STEIGUNGS_GRENZE_GRAD} Grad`);
 
   // Eine Gelaendestufe: 0,5 m auf einen Schlag, also weit ueber der
@@ -346,13 +352,51 @@ console.log('\n[5] Steigungsgrenze am Gelaende:');
   // liegen — eine Kante, die schmaler ist als das Gitter, gibt es dort
   // gar nicht. Eine planierte Editor-Kante (6 m auf 1 m) liegt weit
   // darueber und wird sicher erfasst.
-  const stufe = { hoeheBei: (x: number): number => (x >= HANG_VORSCHAU ? 1.6 : 0) };
-  const gestoppt = hangBremse(stufe, 0, 0, 0, schritt, 0);
+  const stufe = gelaendeAus((x: number): number => (x >= HANG_VORSCHAU ? 1.6 : 0));
+  const gestoppt = hangBremse(stufe, 0, 0, schritt, 0);
   pruefe('1,6-m-Gelaendekante im Messfenster stoppt (63 Grad)', gestoppt.x === 0, `${gestoppt.x}`);
-  const kleine = { hoeheBei: (x: number): number => (x >= HANG_VORSCHAU ? 1.2 : 0) };
-  const drueber = hangBremse(kleine, 0, 0, 0, schritt, 0);
+  const kleine = gelaendeAus((x: number): number => (x >= HANG_VORSCHAU ? 1.2 : 0));
+  const drueber = hangBremse(kleine, 0, 0, schritt, 0);
   pruefe('1,2-m-Gelaendekante bleibt begehbar (56 Grad im Messfenster)',
     drueber.x === schritt, `${drueber.x}`);
+
+  // Der Speicher: die vier Abfragen fallen einmal je Eingabepaket an,
+  // nicht in jedem der bis zu dreissig Schritte. Gezaehlt wird, WIE OFT
+  // das Gelaende ueberhaupt gefragt wird — die Zahl ist der ganze Grund,
+  // warum es den Speicher gibt (Eingabepaket bei 200 Formen: 1,03 ms
+  // ohne, 0,40 ms mit).
+  {
+    let abfragen = 0;
+    const g = Math.tan((65 * Math.PI) / 180);
+    const gezaehlt = { gelaendeHoehe: (x: number): number => { abfragen += 1; return x * g; } };
+    const speicher = neuerHangSpeicher();
+    for (let i = 0; i < 30; i += 1) hangBremse(gezaehlt, 0, 0, schritt, 0, speicher);
+    pruefe('30 Schritte am selben Ort kosten vier Gelaendeabfragen',
+      abfragen === 4, `${abfragen}`);
+
+    abfragen = 0;
+    for (let i = 0; i < 30; i += 1) hangBremse(gezaehlt, 0, 0, schritt, 0);
+    pruefe('ohne Speicher kostet jeder Schritt vier', abfragen === 120, `${abfragen}`);
+
+    // Weggelaufen: ueber der Weite wird neu gemessen, darunter nicht.
+    abfragen = 0;
+    hangBremse(gezaehlt, HANG_SPEICHER_WEITE * 0.5, 0, schritt, 0, speicher);
+    pruefe('halbe Speicherweite weiter: noch gueltig', abfragen === 0, `${abfragen}`);
+    hangBremse(gezaehlt, HANG_SPEICHER_WEITE * 2, 0, schritt, 0, speicher);
+    pruefe('doppelte Speicherweite weiter: neu gemessen', abfragen === 4, `${abfragen}`);
+
+    // Richtungswechsel misst ebenfalls neu — die Messstelle liegt vor der
+    // Figur, und „vor" heisst bei jeder Richtung woanders.
+    abfragen = 0;
+    hangBremse(gezaehlt, HANG_SPEICHER_WEITE * 2, 0, 0, schritt, speicher);
+    pruefe('andere Laufrichtung: neu gemessen', abfragen === 4, `${abfragen}`);
+
+    // Und das Ergebnis bleibt dasselbe, ob mit oder ohne Speicher.
+    const mit = hangBremse(hangBoden(65), 0, 0, schritt, 0, neuerHangSpeicher());
+    const ohne = hangBremse(hangBoden(65), 0, 0, schritt, 0);
+    pruefe('Speicher aendert die Antwort nicht',
+      mit.x === ohne.x && mit.z === ohne.z, `${mit.x} vs. ${ohne.x}`);
+  }
 
   // Der ganze Schritt: auf der schiefen Ebene laufen, mit Boden darunter.
   let auf = { x: 0, y: 0, z: 0 };

@@ -33,8 +33,35 @@ export interface Treffer {
   readonly punkt: Vek3;
 }
 
+/**
+ * Nur das GELAENDE — ohne Felsen, Bauwerke und Dungeonboeden.
+ * The terrain alone, without rocks, buildings and dungeon floors.
+ *
+ * Getrennt von `BodenAbfrage`, und zwar aus zwei Gruenden, die beide
+ * gemessen sind:
+ *
+ *  1) SIE IST EINE ANDERE FRAGE. Die Steigungsgrenze am Gelaende
+ *     (`gelaendeHang.ts`) will wissen, wie das Hoehenfeld GENEIGT ist.
+ *     Die Oberkante eines Felsens, auf dem die Figur gerade steht, ist
+ *     dafuer kein Gelaende, sondern eine Form — und Formen haben ihre
+ *     eigene Normale aus dem Strahlwurf. Der Client hat an dieser Stelle
+ *     ohnehin nichts anderes als die Heightmap; damit rechnen beide
+ *     Seiten dieselbe Flaeche.
+ *
+ *  2) SIE IST BILLIG. `Nahfeld.hoeheBei` wirft fuenf Bodenstrahlen gegen
+ *     jeden Koerper im Nahfeld. Die Hangregel braucht vier Abfragen je
+ *     Schritt; ueber `hoeheBei` gefuehrt kostete das Eingabepaket
+ *     dadurch 0,96–1,10 ms statt 0,40 ms (200 Formen, gemessen am
+ *     11.09.2026 in `server/test/kollision-schritt.ts` [B3]). Ueber
+ *     diese Abfrage ist es ein Heightmap-Zugriff.
+ */
+export interface GelaendeAbfrage {
+  /** Hoehe des Gelaendes an `(x, z)`, oder `null`, wo keines ist. */
+  gelaendeHoehe(x: number, z: number): number | null;
+}
+
 /** Was unter der Figur liegt. What is below the body. */
-export interface BodenAbfrage {
+export interface BodenAbfrage extends GelaendeAbfrage {
   /**
    * Hoehe des Bodens an `(x, z)`, oder `null`, wo keiner ist.
    *
@@ -72,5 +99,10 @@ export const OHNE_HINDERNISSE: HindernisAbfrage = Object.freeze({
 
 /** Ebener Boden auf fester Hoehe — der Stellvertreter fuer Tests. */
 export function ebenerBoden(hoehe = 0): BodenAbfrage {
-  return { hoeheBei: (): number => hoehe };
+  return { hoeheBei: (): number => hoehe, gelaendeHoehe: (): number => hoehe };
+}
+
+/** Ein Gelaende aus einer Funktion — der Stellvertreter fuer Tests. */
+export function gelaendeAus(f: (x: number, z: number) => number): GelaendeAbfrage {
+  return { gelaendeHoehe: f };
 }

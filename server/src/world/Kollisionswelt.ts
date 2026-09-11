@@ -1133,6 +1133,20 @@ export class Kollisionswelt {
       anzahl: koerper.length,
 
       /**
+       * NUR das Gelaende — ohne einen einzigen Strahl.
+       *
+       * Die Steigungsgrenze am Gelaende fragt hier und nicht bei
+       * `hoeheBei`: Sie will die Neigung des HOEHENFELDES wissen, und die
+       * Oberkante eines Felsens ist keine. Dass es nebenbei der billigste
+       * Weg ist, zaehlt am heissen Pfad trotzdem — vier Abfragen je
+       * Schritt ueber `hoeheBei` (fuenf Bodenstrahlen je Abfrage) trieben
+       * das Eingabepaket bei 200 Formen von 0,40 auf 1,03 ms.
+       */
+      gelaendeHoehe(x: number, z: number): number | null {
+        return gelaende(x, z);
+      },
+
+      /**
        * Hoehe unter `(x, z)`: Gelaende ODER die hoechste nach oben
        * gerichtete Flaeche, die ein Bodenstrahl von einer Stufenhoehe
        * ueber den Fuessen nach unten findet.

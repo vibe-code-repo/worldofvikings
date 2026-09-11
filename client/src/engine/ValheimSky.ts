@@ -713,8 +713,8 @@ export class ValheimSky {
    *
    * Der Import ist dynamisch, damit `StandardMaterial` und `CubeTexture`
    * nicht im Hauptbündel landen — ein Diagnosepfad darf das Spiel nichts
-   * kosten. Fehlen die Dateien, bleibt die Kuppel stehen: Babylon meldet
-   * einen 404 auf der Konsole und das Material wird nicht getauscht.
+   * kosten. Fehlen die Dateien, bleibt die Kuppel stehen: der Tausch des
+   * Materials haengt am `onLoad` der Wuerfelkarte, `onError` raeumt auf.
    */
   private async ladeWuerfelkarte(scene: Scene): Promise<void> {
     try {
@@ -723,19 +723,36 @@ export class ValheimSky {
         import('@babylonjs/core/Materials/Textures/cubeTexture'),
         import('@babylonjs/core/Materials/Textures/texture'),
       ]);
-      const tex = new CubeTexture('/assets/generiert/himmel/allsky', scene, [
-        '_px.jpg', '_py.jpg', '_pz.jpg', '_nx.jpg', '_ny.jpg', '_nz.jpg',
-      ]);
-      tex.coordinatesMode = Texture.SKYBOX_MODE;
-      const mat = new StandardMaterial('valheimSkyCubemap', scene);
-      mat.backFaceCulling = false;
-      mat.disableLighting = true;
-      mat.reflectionTexture = tex;
-      mat.diffuseColor.set(0, 0, 0);
-      mat.specularColor.set(0, 0, 0);
-      mat.fogEnabled = false;
-      this.mesh.material = mat;
-      console.info('[ValheimSky] ?sky=cubemap — Original-Würfelkarte statt Verlauf (nur lokal).');
+      // Das Material erst tauschen, wenn alle sechs Flaechen geladen sind.
+      // Vorher stand `this.mesh.material = mat` synchron VOR dem Laden, und
+      // ein 404 (die Karte liegt auf keinem ausgerollten Host) liess die
+      // Kuppel mit kaputter Reflexion stehen — `catch` sieht nur den
+      // Import, nicht das asynchrone Laden (Pruefer Block A, 11.09.2026).
+      // Swap the material only once all six faces loaded; a 404 must
+      // leave the dome untouched.
+      const tex = new CubeTexture(
+        '/assets/generiert/himmel/allsky',
+        scene,
+        ['_px.jpg', '_py.jpg', '_pz.jpg', '_nx.jpg', '_ny.jpg', '_nz.jpg'],
+        false,
+        null,
+        () => {
+          tex.coordinatesMode = Texture.SKYBOX_MODE;
+          const mat = new StandardMaterial('valheimSkyCubemap', scene);
+          mat.backFaceCulling = false;
+          mat.disableLighting = true;
+          mat.reflectionTexture = tex;
+          mat.diffuseColor.set(0, 0, 0);
+          mat.specularColor.set(0, 0, 0);
+          mat.fogEnabled = false;
+          this.mesh.material = mat;
+          console.info('[ValheimSky] ?sky=cubemap — Original-Würfelkarte statt Verlauf (nur lokal).');
+        },
+        (meldung) => {
+          tex.dispose();
+          console.warn('[ValheimSky] ?sky=cubemap: Würfelkarte fehlt, Kuppel bleibt:', meldung);
+        },
+      );
     } catch (e) {
       console.warn('[ValheimSky] ?sky=cubemap fehlgeschlagen, Kuppel bleibt:', e);
     }

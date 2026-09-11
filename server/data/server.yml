@@ -372,11 +372,10 @@ look:
   # keine Look-Entscheidung, sondern die Bedingung dafuer, dass diese
   # beiden Farben ueberhaupt frei waehlbar sind.
   #
-  # ⚠ Die Wolken- und Halo-Felder aus A5/A12 stehen NOCH NICHT hier:
-  # `pruefeLook()` kennt sie erst, wenn `shared/src/lookHimmel.ts` in
-  # `lookProfil.ts` eingehaengt ist (Einhaengezeile im Kopf jener
-  # Datei). Bis dahin gelten ihre Vorgaben; ein Eintrag hier wuerde den
-  # Serverstart beenden, und genau so ist die Pruefung gemeint.
+  # Die Wolken- und Halo-Felder aus A5/A12 (wolken, wolkenHelligkeit,
+  # wolkenSchatten, wolkenParallaxe, silberrand, haloBreite, haloStaerke)
+  # sind seit 11.09.2026 eingehaengt (`shared/src/lookHimmel.ts` in
+  # `lookProfil.ts`); fehlen sie hier, gelten die kalibrierten Vorgaben.
   himmel:
     zenit: '#6B8798'
     horizont: '#8D9598'

@@ -25,9 +25,10 @@
  * die vier Zeilen einhängt (s. unten), greifen die Werte aus `server.yml`
  * ohne eine einzige weitere Änderung.
  *
- * ⚠ Bis dahin gehören diese Schlüssel NICHT in `server/data/server.yml`:
- * `pruefeLook()` kennt sie nicht, meldet „liest niemand" und der Server
- * startet nicht. Das ist kein Versehen, sondern die Haltung der Datei.
+ * Eingehängt seit 11.09.2026 (Integrator Block A, Commit 43785c6): die
+ * Schlüssel dürfen in `server/data/server.yml` stehen, `pruefeLook()`
+ * kennt sie und prüft ihre Bereiche. Die Einhängezeilen unten sind
+ * Dokumentation des Weges, nicht mehr eine offene Aufgabe.
  *
  * ── EINHÄNGEZEILE für den Integrator (shared/src/lookProfil.ts) ──────
  *

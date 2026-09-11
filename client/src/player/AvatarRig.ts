@@ -250,6 +250,12 @@ const KOMBO_FENSTER = 0.6;
  * Bewegung, und der Wechsel in die Ruhepose war ein Sprung.
  */
 const ANGRIFF_TEMPO = 2.5;
+/**
+ * Waffenlos (Original: Body-Zustandsmaschine): Punch 1 und 2 mit Speed 2,
+ * der Tritt mit 1,5. Die Kette heisst `faust`, `faust2`, `faust3`.
+ */
+const FAUST_TEMPO = 2;
+const TRITT_TEMPO = 1.5;
 /** Ueberblendung Hieb → Hieb (Original: Transition Duration 0,15 s). */
 const UEBERBLEND_ANGRIFF = 0.15;
 /** Ueberblendung Ruhe/Gehen → erster Hieb (Original: AnyState-Transition 0,08 s). */
@@ -444,7 +450,14 @@ export class AvatarRig {
    * weiter, solange der naechste Schlag ins Kombo-Fenster faellt.
    */
   private clipsAngriff: Clip[] = [];
-  /** Index des zuletzt gestarteten Schlags in `clipsAngriff`. */
+  /**
+   * Waffenlose Kette (`faust`, `faust2`, `faust3`: Schlag, Schlag, Tritt).
+   * `schlage(bewaffnet)` waehlt zwischen beiden Ketten; die aktive steht
+   * in `kette`.
+   */
+  private clipsFaust: Clip[] = [];
+  private kette: Clip[] = [];
+  /** Index des zuletzt gestarteten Schlags in `kette`. */
   private angriffIndex = -1;
   /**
    * Restzeit des Kombo-Fensters (s): faellt der naechste Schlag hinein,
@@ -775,12 +788,17 @@ export class AvatarRig {
       // Kombo-Kette: alle Clips, die mit `angriff` beginnen, in Namens-
       // reihenfolge (angriff, angriff2, angriff3). Gibt es keine solche
       // Reihe, bleibt es beim einen Schlagclip nach dem alten Muster.
-      const kette = clips
-        .filter((c) => /^angriff/i.test(c.grp.name))
-        .sort((x, y) => x.grp.name.localeCompare(y.grp.name, undefined, { numeric: true }));
+      const sortiert = (muster: RegExp) =>
+        clips
+          .filter((c) => muster.test(c.grp.name))
+          .sort((x, y) => x.grp.name.localeCompare(y.grp.name, undefined, { numeric: true }));
+      const kette = sortiert(/^angriff/i);
       const einzel = kette.length ? null : nachName(/angriff|attack|schlag|punch|hit/i, clips);
       this.clipsAngriff = kette.length ? kette : einzel ? [einzel] : [];
-      this.clipAngriff = this.clipsAngriff[0] ?? null;
+      // Waffenlose Kette: faust, faust2, faust3 (Schlag, Schlag, Tritt).
+      this.clipsFaust = sortiert(/^faust/i);
+      this.kette = this.clipsAngriff.length ? this.clipsAngriff : this.clipsFaust;
+      this.clipAngriff = this.kette[0] ?? null;
       this.angriffIndex = -1;
       this.komboRest = 0;
       // Waffenschichten (arm_*, hand_*) sind keine Zustaende: Sie werden
@@ -788,7 +806,7 @@ export class AvatarRig {
       const schichtClips = clips.filter((c) => /^(arm|hand)_|^(ausruesten|ablegen|parade)/i.test(c.grp.name));
       this.baueSchichten(schichtClips);
       const rest = clips.filter(
-        (c) => c !== this.clipSprung && !this.clipsAngriff.includes(c) && !schichtClips.includes(c)
+        (c) => c !== this.clipSprung && !this.clipsAngriff.includes(c) && !this.clipsFaust.includes(c) && !schichtClips.includes(c)
       );
       const wandernd = rest.filter((c) => c.tempo > 0.1);
       this.clipsRuhe = rest.filter((c) => c.tempo <= 0.1);
@@ -811,6 +829,9 @@ export class AvatarRig {
             `, angriff ${this.clipAngriff ? `"${this.clipAngriff.grp.name}" ${this.clipLaenge(this.clipAngriff).toFixed(2)} s` : '—'}` +
             (this.clipsAngriff.length > 1
               ? ` (Kombo: ${this.clipsAngriff.map((c) => `${c.grp.name} ${this.clipLaenge(c).toFixed(2)} s`).join(' → ')})`
+              : '') +
+            (this.clipsFaust.length
+              ? `, faust ${this.clipsFaust.map((c) => `${c.grp.name} ${this.clipLaenge(c).toFixed(2)} s`).join(' → ')}`
               : '') +
             (this.schichten.length
               ? `, Schichten ${this.schichten.map((s) => `${s.name} (${s.kanaele.length} Knochen)`).join(', ')}`
@@ -1399,13 +1420,22 @@ export class AvatarRig {
    * @returns false, wenn das Modell keinen Schlagclip mitbringt — dann
    *          bleibt es beim reinen Serverschlag ohne sichtbare Geste.
    */
-  schlage(): boolean {
-    if (!this.clipsAngriff.length || !this.nutzeClip) return false;
+  schlage(bewaffnet = true): boolean {
+    if (!this.nutzeClip) return false;
+    // Kette waehlen: mit Waffe die Hiebe, ohne die Faeuste (Mike, 11.09.2026).
+    // Fehlt eine Kette, laeuft die andere — besser als keine Geste.
+    const gewuenscht = bewaffnet ? this.clipsAngriff : this.clipsFaust;
+    const kette = gewuenscht.length ? gewuenscht : bewaffnet ? this.clipsFaust : this.clipsAngriff;
+    if (!kette.length) return false;
+    if (kette !== this.kette) {
+      this.kette = kette;
+      this.angriffIndex = -1;
+    }
     // Kombo: innerhalb des Fensters den naechsten Hieb der Kette, sonst
     // wieder Hieb 1. Ein einzelner Schlagclip laeuft damit wie bisher.
-    const n = this.clipsAngriff.length;
+    const n = kette.length;
     this.angriffIndex = this.komboRest > 0 && this.angriffIndex >= 0 ? (this.angriffIndex + 1) % n : 0;
-    const clip = this.clipsAngriff[this.angriffIndex]!;
+    const clip = kette[this.angriffIndex]!;
     this.clipAngriff = clip;
     this.setzeAngriffTempo();
     // Die Uhr endet UEBERBLEND_AUSSTIEG vor dem Clipende: dann beginnt die
@@ -1436,7 +1466,7 @@ export class AvatarRig {
       return true;
     }
 
-    const ausHieb = this.aktiv !== null && this.clipsAngriff.includes(this.aktiv);
+    const ausHieb = this.istHieb(this.aktiv);
     this.wechsleZu(clip, false, true, ausHieb ? UEBERBLEND_ANGRIFF : UEBERBLEND_EINSTIEG);
     return true;
   }
@@ -1529,7 +1559,14 @@ export class AvatarRig {
    * ueberlappten sich zwei Klicks im selben Clip.
    */
   private hiebDauer(clip: Clip): number {
-    return Math.max(this.angriffDauer, this.clipLaenge(clip) / ANGRIFF_TEMPO);
+    const name = clip.grp.name.toLowerCase();
+    const tempo = this.clipsFaust.includes(clip) ? (/^faust3/.test(name) ? TRITT_TEMPO : FAUST_TEMPO) : ANGRIFF_TEMPO;
+    return Math.max(this.angriffDauer, this.clipLaenge(clip) / tempo);
+  }
+
+  /** Gehoert der Clip zu einer der Angriffsketten (Hiebe oder Faeuste)? */
+  private istHieb(c: Clip | null): boolean {
+    return c !== null && (this.clipsAngriff.includes(c) || this.clipsFaust.includes(c));
   }
 
   /** Laeuft gerade ein Schlag? Fuer HUD und Messzellen. */
@@ -1657,7 +1694,7 @@ export class AvatarRig {
         // in `schlage()`; hier wird nur ZURUECK gewechselt, wenn die Uhr
         // abgelaufen ist.
         if (ziel) {
-          const ausHieb = this.aktiv !== null && this.clipsAngriff.includes(this.aktiv);
+          const ausHieb = this.istHieb(this.aktiv);
           this.wechsleZu(ziel, !springt, springt, ausHieb ? UEBERBLEND_AUSSTIEG : UEBERBLENDUNG);
         }
         // Kein Ruheclip vorhanden: Gehzyklus einfrieren statt mitten im
@@ -1868,7 +1905,7 @@ export class AvatarRig {
     let ziel = 0;
     if (this.held && this.nutzeClip) {
       const b = this.blende;
-      const hieb = (c: Clip | null) => c !== null && this.clipsAngriff.includes(c);
+      const hieb = (c: Clip | null) => this.istHieb(c);
       if (this.angriffRest > 0 || hieb(this.aktiv)) {
         ziel = b && hieb(b.nach) && !hieb(b.von) ? 1 - Math.min(1, b.t) : 0;
       } else {

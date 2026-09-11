@@ -3889,9 +3889,10 @@ async function main() {
           const vorn = p.avatar.root.forward.clone();
           vorn.y = 0;
           vorn.normalize();
-          const mitte = p.avatar.root.getAbsolutePosition().add(vorn.scale(0.9));
-          mitte.y += 1.1;
-          kampfEffekte.schlagBogen(mitte, hieb);
+          const rechts = p.avatar.root.right.clone();
+          rechts.y = 0;
+          rechts.normalize();
+          kampfEffekte.schlagBogen(p.avatar.root.getAbsolutePosition(), hieb, vorn, rechts);
         }, verzug * 1000);
       }
       socket.sendAttack(

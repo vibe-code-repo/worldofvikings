@@ -22,7 +22,7 @@
  * wirkte; Zahlen im Code, damit man sie zurueckdrehen kann.
  */
 import type { Scene } from '@babylonjs/core/scene';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
@@ -30,80 +30,27 @@ import { Material } from '@babylonjs/core/Materials/material';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { ParticleSystem } from '@babylonjs/core/Particles/particleSystem';
 import { Constants } from '@babylonjs/core/Engines/constants';
-import { PostProcess } from '@babylonjs/core/PostProcesses/postProcess';
-import { Effect } from '@babylonjs/core/Materials/effect';
-import type { Camera } from '@babylonjs/core/Cameras/camera';
-import { Matrix } from '@babylonjs/core/Maths/math.vector';
 
 const VFX = '/assets/vfx/';
 /**
- * Slash: EIN Halbmond (aus der SwordSlash-Tafel des Originals geschnitten —
- * die Tafel ist kein sauberes 4×2-Flipbook, ihre Boegen liegen quer ueber
- * den Zellgrenzen), Dauer wie im Original 0,25 s; statt Bildwechsel
- * waechst der Bogen von 0,7 auf 1,2 und blendet aus.
+ * Slash nach dem Original (Steam-Fassung, Particle-Prefab
+ * ThirdPersonSlashParent → SwordSlashEffect2): EIN Quad von 3,5 m, das die
+ * 4×2-Tafel `SwordSlash` als Flipbook ueber 0,25 s abspielt — die fruehen
+ * Bilder sind der breite Bogen, die spaeten die duenne Linie —, und zwar
+ * IN DER EBENE DES HIEBS (Kind des Schwert-Prefabs), nicht als Billboard.
+ * Mikes Screenshot vom 11.09.2026 zeigt genau das: ein duenner, langer
+ * Streifen waagerecht um die Figur. Der Verzerrungs-Shader des Originals
+ * (KriptoFX Distortion) ist hier ein additives, gedaempftes Weiss.
  */
 const SLASH_DAUER = 0.25;
-const SLASH_GROESSE = 2.0;
-const SLASH_WACHSTUM: [number, number] = [0.7, 1.2];
-/**
- * Der Slash des Originals ist KEIN leuchtender Bogen: Material
- * „SwordSlash" mit dem Shader KriptoFX/RFX4/Distortion — die Alphamaske
- * des Bogens verzerrt das Bild dahinter ueber die Normalmap
- * (SwordSlashN), dazu ein Hauch Aufhellung und ein paar Funken. Hier als
- * Bildschirm-Nachbearbeitung, die nur laeuft, solange ein Bogen lebt.
- */
-const SLASH_VERZERRUNG = 0.035;
-const SLASH_AUFHELLUNG = 0.18;
-const SLASH_MAX = 2;
-
-/** Ein lebender Bogen fuer die Nachbearbeitung. */
-interface Bogen {
-  pos: Vector3;
-  start: number;
-  winkel: number;
-  spiegel: number;
-}
-
-Effect.ShadersStore['kampfSlashFragmentShader'] = `
-precision highp float;
-varying vec2 vUV;
-uniform sampler2D textureSampler;
-uniform sampler2D maske;
-uniform sampler2D normale;
-uniform vec2 aufloesung;
-uniform int anzahl;
-uniform vec4 bogen[${SLASH_MAX}];   // xy: Mitte (UV), z: halbe Groesse (px), w: Drehung (rad)
-uniform vec2 bogenExtra[${SLASH_MAX}]; // x: Spiegel (+1/-1), y: Staerke (0..1)
-void main(void) {
-  vec2 uv = vUV;
-  vec2 px = vUV * aufloesung;
-  float hell = 0.0;
-  for (int i = 0; i < ${SLASH_MAX}; i++) {
-    if (i >= anzahl) { break; }
-    vec2 mitte = bogen[i].xy * aufloesung;
-    float halb = bogen[i].z;
-    float rot = bogen[i].w;
-    vec2 d = px - mitte;
-    float cs = cos(rot); float sn = sin(rot);
-    vec2 l = vec2(cs * d.x + sn * d.y, -sn * d.x + cs * d.y) / halb;
-    l.x *= bogenExtra[i].x;
-    if (abs(l.x) > 1.0 || abs(l.y) > 1.0) { continue; }
-    vec2 tuv = l * 0.5 + 0.5;
-    float a = texture2D(maske, tuv).a * bogenExtra[i].y;
-    vec3 n = texture2D(normale, tuv).xyz * 2.0 - 1.0;
-    uv += n.xy * ${SLASH_VERZERRUNG.toFixed(3)} * a;
-    hell += a * ${SLASH_AUFHELLUNG.toFixed(3)};
-  }
-  vec3 farbe = texture2D(textureSampler, uv).rgb;
-  gl_FragColor = vec4(farbe + vec3(hell), 1.0);
-}
-`;
-/**
- * Neigung des Bogens je Hieb (rad, im Bild gegen den Uhrzeigersinn):
- * Hieb 1 ist der Stich (schraeg), Hieb 2 der Querhieb (waagerecht, von
- * der anderen Seite → gespiegelt), Hieb 3 der Ueberkopfhieb (senkrecht).
- */
-const SLASH_WINKEL = [0.5, 0, Math.PI / 2] as const;
+const SLASH_GROESSE = 3.5;
+const SLASH_SPALTEN = 4;
+const SLASH_ZEILEN = 2;
+/** Abstand der Quadmitte vor der Figur und Hoehe (Original: 1,6 / 1,05). */
+const SLASH_VORN = 1.3;
+const SLASH_HOEHE = 1.05;
+/** Helligkeit des additiven Weiss (die Verzerrung des Originals ist nicht grell). */
+const SLASH_HELLE = 0.55;
 
 /** Trefferart, wie der Server sie schickt (PacketType.HitEffect). */
 export const TREFFER_HART = 0;
@@ -114,15 +61,11 @@ export class KampfEffekte {
   private readonly texturen = new Map<string, Texture>();
   /** Ein Material fuer alle Slashes — einmal kompiliert, dann sofort da. */
   private readonly slashMaterial: StandardMaterial;
-  /** Lebende Boegen fuer die Verzerrung. */
-  private readonly boegen: Bogen[] = [];
-  private verzerrung: PostProcess | null = null;
-  private verzerrungKamera: Camera | null = null;
 
   constructor(private readonly scene: Scene) {
     // Alles vorladen: Der Slash lebt 0,25 s — wer die Textur erst beim
     // ersten Hieb anfordert, sieht den ersten Hieb nie (gemessen 11.09.2026).
-    for (const n of ['schwert_slash.png', 'treffer_blitz.png', 'treffer_funken.png', 'treffer_flash.png', 'punkt_weich.png', 'punkt_hart.png', 'blut_spritzer.png', 'funke.png']) {
+    for (const n of ['schwert_slash_tafel.png', 'treffer_blitz.png', 'treffer_funken.png', 'treffer_flash.png', 'punkt_weich.png', 'punkt_hart.png', 'blut_spritzer.png', 'funke.png']) {
       this.textur(n);
     }
     // Das Slash-Material ebenfalls vorab: Beim ersten Hieb kompilierte der
@@ -130,9 +73,9 @@ export class KampfEffekte {
     // war. Also einmal bauen und den Shader an einem unsichtbaren Quad
     // uebersetzen lassen.
     const mat = new StandardMaterial('kampf_slash', scene);
-    const tex = this.textur('schwert_slash.png');
+    const tex = this.textur('schwert_slash_tafel.png');
     mat.disableLighting = true;
-    mat.emissiveColor = Color3.White();
+    mat.emissiveColor = new Color3(SLASH_HELLE, SLASH_HELLE, SLASH_HELLE);
     mat.emissiveTexture = tex;
     mat.opacityTexture = tex;
     mat.transparencyMode = Material.MATERIAL_ALPHABLEND;
@@ -159,77 +102,50 @@ export class KampfEffekte {
    * Halbmond vor der Figur: `pos` ist die Mitte, `spiegeln` dreht die
    * Oeffnung (Hieb von links / von rechts).
    */
-  schlagBogen(pos: Vector3, hieb = 0): void {
+  /**
+   * Slash in der Ebene des Hiebs. `vorn`/`rechts`: waagerechte Achsen der
+   * Figur. Hieb 1 und 2 sind Querhiebe (Quad liegt flach, Bogen um die
+   * Figur; Hieb 2 gespiegelt), Hieb 3 der Ueberkopfhieb (Quad steht
+   * senkrecht in Laufrichtung).
+   */
+  schlagBogen(wurzel: Vector3, hieb: number, vorn: Vector3, rechts: Vector3): void {
     const h = Math.max(0, Math.min(2, hieb));
-    this.boegen.push({ pos: pos.clone(), start: performance.now(), winkel: SLASH_WINKEL[h]!, spiegel: h === 1 ? -1 : 1 });
-    if (this.boegen.length > SLASH_MAX) this.boegen.shift();
-    // Funken am Bogen (Kind „Sparks" des Slash-Prefabs im Original)
-    this.burst({ name: 'slash_funken', textur: 'treffer_funken.png', pos, anzahl: 5, groesse: [0.06, 0.12], leben: [0.25, 0.45], tempo: [1.5, 3.5],
+    const plane = MeshBuilder.CreatePlane('kampf_slash', { size: SLASH_GROESSE }, this.scene);
+    plane.position.copyFrom(wurzel).addInPlace(vorn.scale(SLASH_VORN));
+    plane.position.y += SLASH_HOEHE;
+    plane.isPickable = false;
+    plane.receiveShadows = false;
+    // Ebene ausrichten: Quad-Normale und Quad-Oben (Bogen oeffnet sich nach Quad-Unten)
+    const oben = Vector3.Up();
+    const normale = h === 2 ? rechts : oben;
+    const quadOben = h === 2 ? oben : vorn;
+    plane.rotationQuaternion = Quaternion.FromLookDirectionLH(normale, quadOben);
+    if (h === 1) plane.scaling.x = -1;
+    const mat = this.slashMaterial.clone('kampf_slash_' + h)!;
+    const tex = this.textur('schwert_slash_tafel.png').clone();
+    tex.uScale = 1 / SLASH_SPALTEN;
+    tex.vScale = 1 / SLASH_ZEILEN;
+    mat.emissiveTexture = tex;
+    mat.opacityTexture = tex;
+    plane.material = mat;
+    // Funken am Bogen (Kind „Sparks" des Slash-Prefabs)
+    this.burst({ name: 'slash_funken', textur: 'treffer_funken.png', pos: plane.position.clone(), anzahl: 5, groesse: [0.06, 0.12], leben: [0.25, 0.45], tempo: [1.5, 3.5],
       farbe: new Color4(1, 0.95, 0.7, 1), additiv: true, streuung: 1 });
-    this.verzerrungAn();
-  }
-
-  /** Nachbearbeitung nur anhaengen, solange Boegen leben (sie kostet einen Vollbild-Durchlauf). */
-  private verzerrungAn(): void {
-    const kamera = this.scene.activeCamera;
-    if (!kamera) return;
-    if (this.verzerrung && this.verzerrungKamera === kamera) return;
-    this.verzerrungAus();
-    const pp = new PostProcess('kampfSlash', 'kampfSlash', ['aufloesung', 'anzahl', 'bogen', 'bogenExtra'], ['maske', 'normale'], 1.0, kamera);
-    const maske = this.textur('schwert_slash.png');
-    const normale = this.textur('schwert_slash_n.png');
-    pp.onApply = (effect) => {
-      const engine = this.scene.getEngine();
-      const breite = engine.getRenderWidth();
-      const hoehe = engine.getRenderHeight();
-      effect.setFloat2('aufloesung', breite, hoehe);
-      effect.setTexture('maske', maske);
-      effect.setTexture('normale', normale);
-      const jetzt = performance.now();
-      const daten: number[] = [];
-      const extra: number[] = [];
-      let n = 0;
-      const sicht = this.scene.getTransformMatrix();
-      const viewport = kamera.viewport.toGlobal(breite, hoehe);
-      for (const b of this.boegen) {
-        const t = (jetzt - b.start) / 1000;
-        if (t > SLASH_DAUER || n >= SLASH_MAX) continue;
-        const a = t / SLASH_DAUER;
-        const s = SLASH_WACHSTUM[0] + (SLASH_WACHSTUM[1] - SLASH_WACHSTUM[0]) * a;
-        const mitte = Vector3.Project(b.pos, Matrix.IdentityReadOnly, sicht, viewport);
-        const rand = Vector3.Project(b.pos.add(kamera.getDirection(new Vector3(1, 0, 0)).scale((SLASH_GROESSE / 2) * s)), Matrix.IdentityReadOnly, sicht, viewport);
-        if (mitte.z < 0 || mitte.z > 1) continue;
-        const halb = Math.hypot(rand.x - mitte.x, rand.y - mitte.y);
-        // Babylon liefert Pixel von oben; die Nachbearbeitung zaehlt v von unten.
-        daten.push(mitte.x / breite, 1 - mitte.y / hoehe, halb, b.winkel);
-        extra.push(b.spiegel, 1 - a * a);
-        n++;
-      }
-      while (daten.length < SLASH_MAX * 4) daten.push(0, 0, 1, 0);
-      while (extra.length < SLASH_MAX * 2) extra.push(1, 0);
-      effect.setInt('anzahl', n);
-      effect.setArray4('bogen', daten);
-      effect.setArray2('bogenExtra', extra);
-    };
-    this.verzerrung = pp;
-    this.verzerrungKamera = kamera;
-    // Abhaengen, sobald kein Bogen mehr lebt (pro Bild geprueft).
+    const start = performance.now();
+    const frames = SLASH_SPALTEN * SLASH_ZEILEN;
     const obs = this.scene.onBeforeRenderObservable.add(() => {
-      const jetzt = performance.now();
-      while (this.boegen.length && (jetzt - this.boegen[0]!.start) / 1000 > SLASH_DAUER) this.boegen.shift();
-      if (!this.boegen.length) {
+      const t = (performance.now() - start) / 1000;
+      const f = Math.min(frames - 1, Math.floor((t / SLASH_DAUER) * frames));
+      tex.uOffset = (f % SLASH_SPALTEN) / SLASH_SPALTEN;
+      // Zeile 0 liegt oben in der Datei; Babylon zaehlt v von unten.
+      tex.vOffset = 1 - (Math.floor(f / SLASH_SPALTEN) + 1) / SLASH_ZEILEN;
+      if (t >= SLASH_DAUER) {
         this.scene.onBeforeRenderObservable.remove(obs);
-        this.verzerrungAus();
+        plane.dispose(false, false);
+        mat.dispose(false, false);
+        tex.dispose();
       }
     });
-  }
-
-  private verzerrungAus(): void {
-    if (this.verzerrung) {
-      this.verzerrung.dispose(this.verzerrungKamera ?? undefined);
-      this.verzerrung = null;
-      this.verzerrungKamera = null;
-    }
   }
 
   /** Treffer an `pos` nach Art (siehe TREFFER_*). */

@@ -71,6 +71,7 @@ import { ValheimDof } from './ValheimDof';
 import { setzeGrading } from './Grading';
 import { beiLook, hexLinear4, look, type LookProfil } from './lookProfil';
 import { strahlenTor, strahlenWinkel } from '@wov/shared';
+import { strahlenLatch } from './strahlenLatch';
 import type { Camera } from '@babylonjs/core/Cameras/camera';
 import type { Scene } from '@babylonjs/core/scene';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
@@ -195,7 +196,12 @@ export interface PostProcessingOptions {
 
 export const DEFAULT_POSTPROCESSING: PostProcessingOptions = {
   bloom: true,
-  motionBlur: true,
+  // Voreinstellung AUS (A4) — dieselbe Zahl und dieselbe Begründung wie in
+  // ui/Settings.ts, wo sie ausführlich steht. Hier ist sie nur der
+  // Rückfallwert vor dem Anmelden; die beiden dürfen nicht auseinanderlaufen,
+  // sonst hängt der Geometrie-Pass für ein paar Frames an, bevor die echten
+  // Einstellungen ihn wieder abschalten. Test: server/test/stufe2-licht.ts.
+  motionBlur: false,
   chromaticAberration: true,
   antiAliasing: true,
   // Original-Voreinstellung: GraphicsSettingsManager.cs:46 → true.
@@ -236,6 +242,38 @@ export class PostProcessing {
   private readonly strahlenQuelle = new Vector3();
   /** Blickachse der Kamera — gehalten, weil das Tor sie in jedem Bild braucht. */
   private readonly blickAchse = new Vector3();
+  /**
+   * Hängt der Strahlenpass GERADE an der Kamera? (A1)
+   *
+   * Das ist nicht dasselbe wie `shafts !== null`: Der Pass EXISTIERT,
+   * solange die Option an ist, aber er HÄNGT nur, solange das Tor offen
+   * ist. Genau dieser Unterschied ist der Kostenhebel — siehe
+   * `haengeStrahlenAb()`.
+   * Whether the shaft pass is currently attached — not the same as "exists".
+   */
+  private strahlenAngehaengt = false;
+  /**
+   * Platz, an dem der Strahlenpass zuletzt in `camera._postProcesses` stand.
+   *
+   * `detachPostProcess` ersetzt den Eintrag durch `null` statt ihn zu
+   * entfernen (`camera.js:578-582`), und `attachPostProcess(pp, i)` füllt
+   * ein solches Loch wieder auf, statt zu spleissen (`:560-562`). Wer sich
+   * den Platz merkt, hängt den Pass an GENAU DIESELBE Stelle der Kette
+   * zurück — das Bild bleibt bitgleich, und die Kette wächst nicht mit
+   * jedem Torwechsel um einen Eintrag.
+   * Remembering the slot puts the pass back in the exact same chain
+   * position and keeps the array from growing on every gate crossing.
+   */
+  private strahlenPlatz = -1;
+  /**
+   * Zeuge: wie oft das Tor seit dem Bau des Passes umgeschaltet hat.
+   *
+   * Ohne Zähler ist „flackert beim Schwenk nicht" eine Behauptung. Ein
+   * Schwenk über das Hysterese-Band (50°…55°) darf diese Zahl NICHT
+   * hochzählen; nur das Verlassen des Bandes darf es.
+   * Witness: a pan across the hysteresis band must not increment this.
+   */
+  private strahlenUmschaltungen = 0;
   /** Das geltende Look-Profil (vor dem Anmelden die Vorgabe). */
   private profil: LookProfil = look();
   /**
@@ -689,11 +727,46 @@ export class PostProcessing {
         den Bildern, die ein Spieler in der dritten Person meistens
         sieht.
 
-        Warum die Belichtung und nicht der Pass: Ab- und Anhaengen ist
-        eine ganze zweite Szenenpassage, und ein Schwenk entlang der
-        Schwelle taete das in jedem Bild. Die Rampe ueber das
-        Hysterese-Band blendet stattdessen aus; bei 0 kostet der Pass
-        zwar noch, malt aber nichts mehr.
+        ── Warum das Tor seit A1 den PASS schaltet, nicht nur die
+           Belichtung ─────────────────────────────────────────────────
+
+        Hier stand: „Warum die Belichtung und nicht der Pass: Ab- und
+        Anhaengen ist eine ganze zweite Szenenpassage, und ein Schwenk
+        entlang der Schwelle taete das in jedem Bild. […] bei 0 kostet
+        der Pass zwar noch, malt aber nichts mehr."
+
+        Der erste Halbsatz stimmt, der letzte ist falsch — und zwar in
+        beiden Hälften. Der Composite-Shader endet mit
+
+            gl_FragColor = vec4(color.rgb * exposure, realColor.a)
+                         + realColor * (1.5 - 0.4);
+
+        (`Shaders/volumetricLightScattering.fragment.js`). Bei
+        `exposure = 0` faellt nur der STREUTERM heraus; der Faktor 1,1
+        auf das Szenenbild bleibt. Ein geschlossenes Tor liess damit das
+        ganze Bild um 10 % heller — bei einem auf Luma 57,4 kalibrierten
+        Look sind das +5,7 Luma, weit ausserhalb des ±3-Fensters der
+        Bodenkalibrierung. Und gekostet hat es weiter: 61 Texturzugriffe
+        je Bildpunkt im Composite (die Schleife laeuft vor `exposure`)
+        plus die vollstaendige Verdeckungspassage, denn die haengt an
+        `camera.customRenderTargets` und wird von `scene.js:4037-4038`
+        unabhaengig von der Post-Process-Kette gerendert.
+
+        Deshalb ist das Tor jetzt ein LATCH, der den Pass wirklich
+        abhaengt (siehe `haengeStrahlenAb`). Der Einwand von damals —
+        ein Schwenk auf der Schwelle schaltet in jedem Bild — bleibt
+        richtig und wird durch die Hysterese beantwortet, nicht durch
+        die Rampe: eingehaengt wird erst bei <= 50° (Tor voll offen),
+        ausgehaengt erst bei > 55° (Tor ganz zu). Zwischen beidem
+        passiert nichts, und `strahlenUmschaltungen` ist der Zeuge
+        dafuer.
+
+        Die Rampe bleibt trotzdem auf der Belichtung liegen: Sie blendet
+        den Kranz auf dem Weg NACH DRAUSSEN aus, bevor abgehaengt wird,
+        sodass das Abhaengen selbst nichts mehr am Bild aendert. Nach
+        innen schaltet sie bei 50° hart zu — dort steht die Sonne rund
+        9° ausserhalb der Bildecke und der Kranz traegt fast nichts, das
+        ist der billigste Ort fuer eine Kante.
 
         Der Bildwinkel deckelt den Torwinkel nach unten: Bei 16:9 sitzt
         die Bildecke rund 41° neben der Achse, eine Sonne knapp
@@ -701,7 +774,10 @@ export class PostProcessing {
         das und bleibt weit weg von der 90°-Singularitaet.
 
         The gate: past 90° the projected origin folds back into frame and
-        the effect lies. Ramp the exposure across the hysteresis band.
+        the effect lies. Since A1 the gate LATCHES the pass off instead of
+        only zeroing the exposure — with `exposure = 0` the composite
+        still multiplied the whole image by 1.1 and still paid for both
+        the occlusion pass and its 61 texture fetches per pixel.
       */
       // Blickachse ohne Zuteilung: `getForwardRay()` legt pro Frame einen
       // Ray samt zwei Vector3 an — genau der Muell, den `Lighting.apply()`
@@ -714,19 +790,157 @@ export class PostProcessing {
         this.profil.strahlen.torWinkel,
         this.profil.strahlen.hysterese
       );
-      this.shafts.exposure = this.profil.strahlen.exposure * tor;
+      // Der Latch. `tor` ist die REINE Funktion aus dem Look-Profil
+      // (1 bei <= 50°, 0 bei >= 55°, dazwischen die Rampe) — der Zustand
+      // liegt hier, nicht dort: `strahlenTor()` bleibt testbar ohne
+      // Kamera und ohne Vorgeschichte.
+      const soll = strahlenLatch(tor, this.strahlenAngehaengt);
+      if (soll !== this.strahlenAngehaengt) {
+        if (soll) this.haengeStrahlenAn();
+        else this.haengeStrahlenAb();
+      }
+      // Nur solange der Pass haengt, hat seine Belichtung eine Wirkung —
+      // und nur dann darf sie gesetzt werden, sonst stuende beim naechsten
+      // Anhaengen ein Wert aus einem anderen Blickwinkel darin.
+      if (this.strahlenAngehaengt) this.shafts.exposure = this.profil.strahlen.exposure * tor;
     }
   }
 
-  /** Nur zum Messen: was der Strahlenkranz gerade tut. / For measuring only. */
-  get strahlenMesswerte(): { an: boolean; exposure: number; ankerAbstand: number } | null {
+  /**
+   * Nur zum Messen: was der Strahlenkranz gerade tut. / For measuring only.
+   *
+   * `angehaengt` und `passagen` sind die beiden Zahlen, auf die es seit A1
+   * ankommt. `an: true` hiess frueher „der Effekt kostet"; seit dem Latch
+   * heisst das nur noch „die Option ist an". Was WIRKLICH laeuft, steht in
+   * `angehaengt` (Composite) und `passagen` (Verdeckungspassage). `passagen`
+   * ist zugleich der Leck-Zeuge nach dem Vorbild von `DungeonGodrays.werte()`:
+   * nach zehn Torwechseln muss dort 0 oder 1 stehen, nicht 10.
+   */
+  get strahlenMesswerte(): {
+    an: boolean;
+    angehaengt: boolean;
+    exposure: number;
+    passagen: number;
+    umschaltungen: number;
+    kettenplatz: number;
+    ankerAbstand: number;
+  } | null {
     return this.shafts
       ? {
           an: true,
+          angehaengt: this.strahlenAngehaengt,
           exposure: +this.shafts.exposure.toFixed(4),
+          passagen: this.camera.customRenderTargets.length,
+          umschaltungen: this.strahlenUmschaltungen,
+          kettenplatz: this.camera._postProcesses.indexOf(this.shafts),
           ankerAbstand: this.profil.strahlen.ankerAbstand,
         }
       : null;
+  }
+
+  /**
+   * Den Strahlenpass abhaengen — OHNE `dispose`. (A1)
+   *
+   * Zwei Listen, nicht eine. Das ist der ganze Punkt:
+   *
+   *  1. `camera.detachPostProcess(vls)` nimmt den COMPOSITE aus der Kette.
+   *     Allein bringt das fast nichts — die teure Haelfte haengt woanders.
+   *  2. Die Verdeckungspassage ist eine `RenderTargetTexture` in
+   *     `camera.customRenderTargets` (`volumetricLightScatteringPostProcess.js:291`),
+   *     und `scene.js:4037-4038` rendert diese Liste in jedem Bild,
+   *     unabhaengig von der Post-Process-Kette. Ohne (2) bleibt also
+   *     genau der Zustand „Effekt weg, Kosten bleiben". Ihre `renderList`
+   *     ist `null`, was in Babylon 8.56 nicht „nichts" heisst, sondern
+   *     `scene.getActiveMeshes()` — also JEDES aktive Mesh ein zweites Mal.
+   *
+   * Und warum kein `dispose`: Jede neue `RenderTargetTexture` zieht eine
+   * neue Render-Pass-Id (`objectRenderer.js:297`), und ihr Abraeumen laeuft
+   * ueber jede Szene, jedes Mesh und jedes Submesh, um dort den DrawWrapper
+   * zu entfernen (`abstractEngine.renderPass.js:14-20`). Bei rund 245
+   * aktiven Meshes ist das ein CPU-Ausschlag je Umschaltung — fuer etwas,
+   * das zwei Listenoperationen sein koennen. `dispose` bleibt dem
+   * Abschalten der OPTION vorbehalten (`setSunShafts(false)`).
+   *
+   * Detaching without dispose: the composite comes out of the camera chain,
+   * the occlusion render target out of `camera.customRenderTargets`. Skipping
+   * the second list leaves "effect gone, cost staying". A dispose/rebuild
+   * would churn render-pass ids across every mesh and submesh.
+   */
+  private haengeStrahlenAb(): void {
+    const vls = this.shafts;
+    if (!vls || !this.strahlenAngehaengt) return;
+    // Platz merken, BEVOR detach ein `null` daraus macht.
+    this.strahlenPlatz = this.camera._postProcesses.indexOf(vls);
+    this.camera.detachPostProcess(vls);
+    const rtt = vls.getPass();
+    const i = this.camera.customRenderTargets.indexOf(rtt);
+    if (i !== -1) this.camera.customRenderTargets.splice(i, 1);
+    this.strahlenAngehaengt = false;
+    this.strahlenUmschaltungen++;
+    // Der erste Pass der Kette hat sich geaendert — und nur dort wirkt MSAA.
+    this.setzeMsaa(this.letzteOptionen.antiAliasing);
+  }
+
+  /**
+   * Den Strahlenpass wieder anhaengen — an GENAU denselben Platz. (A1)
+   *
+   * Warum der Platz zaehlt: Die Kette ist geordnet, und der Strahlenpass
+   * liegt im ausgelieferten Profil hinten (Platz 9), also NACH Bloom,
+   * Vignette und Bildverarbeitung. Haengte man ihn beim Wiederanhaengen
+   * vorn ein, waere das Bild bei offenem Tor ein anderes als vorher — der
+   * Effekt saehe „irgendwie anders" aus, ohne dass ein Regler sich bewegt
+   * haette.
+   *
+   * Warum nie als ERSTER: Sobald ein PostProcess haengt, rendert die Szene
+   * in die Zieltextur des ersten Passes, und `setzeMsaa()` legt die
+   * Mehrfachabtastung genau dort hin. `pp.samples = n` ruft
+   * `texture.setSamples(n)` und legt damit Zielpuffer NEU AN
+   * (`postProcess.js:90-95`). Stuende der Strahlenpass vorn, kostete jede
+   * Torueberquerung eine Neuanlage der MSAA-Puffer — der Umschaltsturm,
+   * den der Latch gerade vermeiden soll. In der abgemagerten Einstellung
+   * (Tiefenunschaerfe, Bewegungsunschaerfe und Farbsaum aus) rutscht er
+   * genau dorthin; deshalb die Regel und nicht die Hoffnung.
+   *
+   * Re-attaching at the exact same chain slot keeps the open-gate picture
+   * identical, and never at slot 0, where `setzeMsaa` would reallocate the
+   * MSAA buffers on every gate crossing.
+   */
+  private haengeStrahlenAn(): void {
+    const vls = this.shafts;
+    if (!vls || this.strahlenAngehaengt) return;
+    this.camera.attachPostProcess(vls, this.strahlenZielplatz());
+    const rtt = vls.getPass();
+    if (this.camera.customRenderTargets.indexOf(rtt) === -1) {
+      this.camera.customRenderTargets.push(rtt);
+    }
+    this.strahlenAngehaengt = true;
+    this.strahlenUmschaltungen++;
+    this.setzeMsaa(this.letzteOptionen.antiAliasing);
+  }
+
+  /**
+   * Wohin der Strahlenpass beim Anhaengen gehoert.
+   *
+   * `null` heisst „ans Ende" (`camera.js:557-559`). Der gemerkte Platz wird
+   * nur benutzt, wenn dort noch das Loch steht, das `detachPostProcess`
+   * hinterlassen hat (`_postProcesses[i] === null`) — sonst haette sich die
+   * Kette zwischenzeitlich umgebaut (die DefaultRenderingPipeline haengt
+   * bei jedem Umschalten ALLE ihre Paesse neu an), und ein Spleiss an eine
+   * veraltete Stelle waere geraten statt gewusst.
+   */
+  private strahlenZielplatz(): number | null {
+    const kette = this.camera._postProcesses;
+    // Erster BELEGTER Platz — davor darf der Strahlenpass nicht landen.
+    let ersterBelegt = -1;
+    for (let i = 0; i < kette.length; i++) {
+      if (kette[i]) {
+        ersterBelegt = i;
+        break;
+      }
+    }
+    const merk = this.strahlenPlatz;
+    if (merk > ersterBelegt && merk < kette.length && kette[merk] === null) return merk;
+    return null;
   }
 
   /** Fokusdistanz fürs HUD, leer wenn DOF aus ist. */
@@ -753,6 +967,25 @@ export class PostProcessing {
    * Nutzer hat den Framerate-Verfall ausdrücklich als Problem benannt; ein
    * Effekt, der die Bildrate halbiert, gehört nicht in die Voreinstellung.
    * Einschaltbar bleibt er über die Einstellungen.
+   *
+   * ⚠ Die Zahl 40 → 17 fps ist GEMESSEN, aber in einer ANDEREN Einstellung:
+   * Einzel-`ratio` 0,5 mit 100 Abtastungen und OHNE Tor. Ausgeliefert wird
+   * 0,25/1 mit 60 Abtastungen und, seit A1, mit einem Tor, das den Pass
+   * wirklich abhängt. Sie taugt als Warnung, nicht als Entscheidungszahl;
+   * die liefert erst die Messung A2 (Δp95 in vier Posen).
+   *
+   * ── Diese Methode schaltet die OPTION, nicht das Tor (A1) ───────────
+   *
+   * Hier entsteht und verschwindet der Pass — mit `dispose`, weil der
+   * Spieler die Option selten umlegt. Das TOR dagegen fällt bis zu
+   * 60-mal je Sekunde und darf deshalb nichts abräumen: Es hängt nur an
+   * und ab (`haengeStrahlenAn` / `haengeStrahlenAb`). Wer die beiden
+   * verwechselt, baut bei jedem Schwenk über 55° eine
+   * `RenderTargetTexture` neu und zieht ihre Render-Pass-Id durch jedes
+   * Mesh der Szene.
+   *
+   * This method switches the OPTION (with dispose); the gate only attaches
+   * and detaches.
    *
    * ── ZWEI Verhältnisse, nicht eines (Stufe 2, gemessen 09.09.2026) ───
    *
@@ -822,10 +1055,74 @@ export class PostProcessing {
       */
       const kuppel = this.scene.getMeshByName('valheimSky');
       if (kuppel) vls.excludedMeshes.push(kuppel);
+      /*
+        ── Der Anker ist ein sichtbares Mesh, und niemand hat es versteckt ──
+
+        `mesh = undefined` oben heisst nicht „kein Mesh", sondern
+        `CreateDefaultMesh` (`volumetricLightScatteringPostProcess.js:94`):
+        eine 1-m-Plane mit `BILLBOARDMODE_ALL` und einem
+        `StandardMaterial` mit `emissiveColor = (1,1,1)` — bei (0,0,0).
+        `useCustomMeshPosition` verschiebt nur die BILDSCHIRMkoordinate
+        (`_updateMeshScreenCoordinates`), nicht den Mesh.
+
+        Er kostet damit zweimal: In der Kamerapassage steht er als
+        weisses Quadrat im Weltursprung, und in der Verdeckungspassage
+        schreibt er ueber den `material.bind`-Zweig (Zeile 332-334) WEISS
+        statt schwarz — dort ist er also eine zweite, falsche
+        Lichtquelle. Fuer die Position wird er nicht gebraucht: Die kommt
+        aus `customMeshPosition`.
+
+        `setEnabled(false)` nimmt ihn aus `_evaluateActiveMeshes`
+        (`scene.js:3834`) und damit aus BEIDEN Passagen; die Aufnahme in
+        `excludedMeshes` ist der Guertel zum Hosentraeger, falls eine
+        spaetere Babylon-Fassung die Verdeckungsliste anders bildet.
+
+        The anchor billboard is a real scene mesh at the origin with an
+        emissive white material — visible in the camera pass and a false
+        light source in the occlusion pass. Disable it; the position comes
+        from `customMeshPosition` anyway.
+      */
+      vls.mesh.setEnabled(false);
+      vls.excludedMeshes.push(vls.mesh);
       this.shafts = vls;
+      // Der Konstruktor haengt selbst an (Kamera-Argument) und schiebt die
+      // Verdeckungspassage in `camera.customRenderTargets`. Der Latch
+      // uebernimmt diesen Zustand, statt ihn zu erraten.
+      this.strahlenAngehaengt = true;
+      this.strahlenPlatz = this.camera._postProcesses.indexOf(vls);
+      this.strahlenUmschaltungen = 0;
+      this.setzeMsaa(this.letzteOptionen.antiAliasing);
     } else if (!enabled && this.shafts) {
-      this.shafts.dispose(this.camera);
+      const vls = this.shafts;
+      // ZUERST aus den beiden Listen, DANN abraeumen — sonst stuende in
+      // `camera.customRenderTargets` eine abgeraeumte Zieltextur, und die
+      // naechste Bildschleife liefe in eine tote statt in eine fehlende.
+      // (Muster: `DungeonGodrays.raeumePassageAb`.)
+      this.haengeStrahlenAb();
+      /*
+        Das echte Leck: `PostProcess.dispose()` raeumt `this.mesh` NICHT ab
+        (`postProcess.js:745-784` kennt ihn nicht, und
+        `VolumetricLightScatteringPostProcess.dispose` raeumt nur die RTT).
+        Jedes Aus-und-wieder-Ein der Option liesse damit ein weiteres
+        selbstleuchtendes Billboard samt `StandardMaterial` im Weltursprung
+        zurueck. Material zuerst — `mesh.dispose()` nimmt es nicht mit.
+
+        Was hier dagegen NICHT noetig ist: die Handarbeit an
+        `camera.customRenderTargets` VOR dem `dispose`, die
+        `DungeonGodrays` leistet. `RenderTargetTexture.dispose()` raeumt
+        sich in 8.56.2 aus jeder Kamera selbst
+        (`renderTargetTexture.js:954-959`). Sie steht oben trotzdem, weil
+        der Latch ohnehin abhaengen muss.
+
+        The actual leak is the internal billboard: no dispose path touches
+        `this.mesh`.
+      */
+      vls.mesh.material?.dispose();
+      vls.mesh.dispose();
+      vls.dispose(this.camera);
       this.shafts = null;
+      this.strahlenAngehaengt = false;
+      this.strahlenPlatz = -1;
     }
   }
 

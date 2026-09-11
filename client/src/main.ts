@@ -104,6 +104,7 @@ import { Hud } from './ui/Hud';
 import { GrassClutter } from './engine/GrassClutter';
 import { HuegelGras } from './engine/HuegelGras';
 import { SettingsStore, VEGETATION_RANGE } from './ui/Settings';
+import type { GameSettings } from './ui/Settings';
 import { SettingsPanel } from './ui/SettingsPanel';
 import { PostProcessing } from './engine/PostProcessing';
 import { Shadows } from './engine/Shadows';
@@ -619,6 +620,22 @@ async function main() {
 
   const params = new URLSearchParams(location.search);
 
+  /**
+   * `?shafts=off` — Diagnoseschalter für die Strahlenmessung (A1).
+   *
+   * Erzwingt die Sonnenstrahlen aus, OHNE den gespeicherten Stand
+   * anzufassen: Genau das braucht die Messung „an gegen aus", die bei
+   * geschlossenem Tor bitgleich sein muss — sonst müsste sie zwischen
+   * zwei Bildern die Einstellungen umschreiben und hätte danach einen
+   * anderen Spielstand als davor.
+   *
+   * Muster: `params.has('flat')` in engine/Terrain.ts.
+   */
+  const strahlenAus = params.get('shafts') === 'off';
+  /** Spielerwahl plus die Diagnoseschalter aus der Adresse. */
+  const postOptionen = (s: GameSettings): GameSettings =>
+    strahlenAus ? { ...s, sunShafts: false } : s;
+
   // World-dependent systems — only exist once the world (seed) is known.
   // `world` selbst steht weiter oben, beim Zeiger-Hinweis — Begruendung dort.
   /** Spawn-Editor des Testflugs offen? (gibt die Maus frei, s. cursorNoetig) */
@@ -1025,7 +1042,9 @@ async function main() {
   // those bindings any earlier throws (temporal dead zone).
   const gameSettings = new SettingsStore();
   const settingsPanel = new SettingsPanel(gameSettings, i18n);
-  gameSettings.onChange((s) => {
+  gameSettings.onChange((gewaehlt) => {
+    // `?shafts=off` legt sich über die Spielerwahl, ohne sie zu speichern.
+    const s = postOptionen(gewaehlt);
     terrain?.setDetailQuality(s.detailQuality);
     terrain?.setWaterQuality(s.waterQuality);
     grass?.setQuality(s.vegetationQuality);
@@ -1438,6 +1457,15 @@ async function main() {
       /** Diagnose: laufen die Flammen-Atlanten? */
       flammen: () => FlammenAtlas.diagnose(),
       /**
+       * Diagnose: was tut der Strahlenkranz gerade? (A1)
+       *
+       * `angehaengt` und `passagen` sind die Zahlen, an denen das Tor
+       * haengt — ohne sie ist „abgehaengt" eine Behauptung. `passagen`
+       * ist zugleich der Leck-Zeuge: nach zehn Torwechseln 0 oder 1.
+       * `null`, wenn die Option aus ist.
+       */
+      strahlen: () => post?.strahlenMesswerte ?? null,
+      /**
        * Diagnose: Woran haengt es, wenn eine Fackel nicht leuchtet?
        *
        * Drei Stationen, die von aussen gleich aussehen: Der Pool existiert
@@ -1838,7 +1866,7 @@ async function main() {
     grass.setQuality(gameSettings.get().vegetationQuality);
     grass.setDensity(gameSettings.get().grassDensity);
     minimap.setZeitSichtbar(gameSettings.get().weltzeit);
-    const aktuelleSettings = gameSettings.get();
+    const aktuelleSettings = postOptionen(gameSettings.get());
     post.apply(aktuelleSettings.hundertFpsProfil
       ? {
           ...aktuelleSettings,

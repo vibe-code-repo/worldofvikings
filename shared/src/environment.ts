@@ -721,7 +721,34 @@ const BASE_ENVIRONMENTS: readonly EnvBase[] = [
     */
     sunAngle: 50,
     alwaysDark: false,
-    rainCloudAlpha: 0.06,
+    /*
+      ── A5 (11.09.2026): 0,06 war keine geringe Deckung, sondern keine ─
+
+      Die Kuppel rechnet ihre Wolkendichte gegen die Schwelle
+      `1,25 − deckung · 1,15` (`ValheimSky.ts`). Bei 0,06 steht die
+      Schwelle auf 1,181, während das FBM der Lagen im Mittel rund 0,8
+      erreicht und nur in Spitzen darüber kommt — es gab also nicht
+      wenige Wolken, sondern in keinem Bild eine. Genau das steht in der
+      Bestandsaufnahme der Roadmap als „Himmel oben ohne Wolken".
+
+      0,34 ist am Vorbild GEMESSEN. Bild 3 der Referenz, Himmelsfenster
+      1170–1350 / 0–150 (reiner Himmel, ohne Berg und ohne Sonnenhof):
+
+        Spanne p95 − p5 = 28 Luma     Anteil über 1,03 × Median = 32 %
+
+      Das sind dünne, weiche Schleier und keine Schäfchenherde. Der
+      Zeuge ist `~/wov-lab-mess/himmel-mess.mjs`: Er misst dieselben zwei
+      Zahlen INNERHALB eines Elevationsbandes — sonst zählte der
+      Himmelsverlauf als Streuung mit und jede Wolkenaussage wäre eine
+      Aussage über den Verlauf.
+
+      Die übrigen Wetter bleiben unberührt: Ihre Deckungen stehen in
+      `envData.json` und beschreiben Regen, nicht diesen Look.
+
+      A5: 0.06 produced literally zero clouds (the dome's threshold sits
+      above the noise); 0.34 is measured against reference image 3.
+    */
+    rainCloudAlpha: 0.4,
   },
 ];
 

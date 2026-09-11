@@ -339,21 +339,47 @@ look:
   # gegen Nebel S 0,549 (sattes Blau). Mit gekoppeltem Horizont waere die
   # eine Zahl nur um den Preis der anderen zu treffen.
   #
-  # Die Cubemap haben wir nicht. Was die Referenz hergibt, ist GENAU EINE
-  # Himmelsfarbe: Bild 3, Rechteck 1220,20–1290,70, RGB 129/145,4/148,6
-  # = #819195 bei Luma 142,1. Eingetragen ist sie fuer Zenit UND Horizont
-  # — eine gleichmaessige Kuppel. Ein Verlauf waere hier eine Erfindung:
-  # Das Vorbild hat einen, aber er steckt in Texeln, die wir nicht haben,
-  # und aus einem einzigen Messwert folgen keine zwei Stuetzpunkte.
+  # ── A5 / Tor T2 (11.09.): der Verlauf ist keine Erfindung mehr ──────
+  # Hier stand: „Die Cubemap haben wir nicht. Was die Referenz hergibt,
+  # ist GENAU EINE Himmelsfarbe (Bild 3, Rechteck 1220,20–1290,70, RGB
+  # 129/145,4/148,6 = #819195 bei Luma 142,1) — ein Verlauf waere eine
+  # Erfindung, aus einem einzigen Messwert folgen keine zwei
+  # Stuetzpunkte." Das war richtig, solange die Karte nur behauptet war.
   #
-  # Der Preis ist benannt und nicht uebersehen: Am Meereshorizont trifft
-  # jetzt eine Nebelwand (#73A7FF ab 200 m) auf eine andersfarbige Kuppel
-  # — eine sichtbare Naht. Das Vorbild hat sie auch; dort faellt sie
-  # nicht auf, weil sein Spielfeld 200 m misst und ringsum Bergmeshes
-  # stehen. Bei uns ist sie eine offene Frage fuer die Roadmap (F36).
+  # Sie liegt lokal vor (`AllSky_FantasyClouds_High3`, sechs Flaechen zu
+  # 2048²) und liefert die zweite Stuetze. Mit dem Tint #B2D1FE und
+  # Exposure 0,8 des Vorbilds gemessen:
+  #
+  #   Elevation +42°:  L 113  S 0,58        Elevation +5°:  L 168  S 0,33
+  #
+  # Also Zenit dunkler und deutlich blauer, Horizont heller und fast
+  # weiss. Dieselbe RICHTUNG misst Bild 3 auf dem Bildschirm, nur
+  # flacher (L 137,7 oben gegen L 154,6 weiter unten) — die Vorlage
+  # drueckt ihren eigenen Verlauf mit ihrer Nachbearbeitung zusammen,
+  # und das tut unsere auch.
+  #
+  # Die zwei Farben unten sind deshalb gemessen und nicht gegriffen:
+  # Ihr Mittel ueber die Himmelsflaeche der Pose `weitblick` haelt die
+  # kalibrierte Luma 142, ihre Spreizung ist die des Vorbilds, und die
+  # Saettigung des Zenits holt die 0,13 der Referenz, die eine
+  # gleichmaessige Kuppel bei 0,081 liegen liess. Nachgemessen mit
+  # `~/wov-lab-mess/himmel-mess.mjs`; `?sky=flach` faehrt zum Vergleich
+  # den Stand davor.
+  #
+  # Die NAHT am Meereshorizont, die hier als offene Frage (F36) stand,
+  # schliesst A6: Die Kuppel wird in ihrem untersten Band (2,0°) selbst
+  # zur Nebelfarbe. Der Regler dafuer sitzt in `ValheimSky.ts` — er ist
+  # keine Look-Entscheidung, sondern die Bedingung dafuer, dass diese
+  # beiden Farben ueberhaupt frei waehlbar sind.
+  #
+  # ⚠ Die Wolken- und Halo-Felder aus A5/A12 stehen NOCH NICHT hier:
+  # `pruefeLook()` kennt sie erst, wenn `shared/src/lookHimmel.ts` in
+  # `lookProfil.ts` eingehaengt ist (Einhaengezeile im Kopf jener
+  # Datei). Bis dahin gelten ihre Vorgaben; ein Eintrag hier wuerde den
+  # Serverstart beenden, und genau so ist die Pruefung gemeint.
   himmel:
-    zenit: '#819195'
-    horizont: '#819195'
+    zenit: '#6B8798'
+    horizont: '#8D9598'
     sonnenglühen: 0.2
   # ── Schatten: 50 m, EINE Kaskade ─────────────────────────────────────
   # Die Notiz, die hier stand („Das Vorbild faehrt 40 m mit zwei
@@ -365,9 +391,41 @@ look:
   # `kaskaden` ist neu und ersetzt — wie `reichweite` — die Zahl der
   # Qualitaetsstufe. Eine Kaskade statt zwei ist zugleich eine ganze
   # Renderpassage weniger ueber die Werferliste.
+  #
+  # ── A7 (11.09.): `dunkelheit` 0,42 → 0,62, am VERHAELTNIS gemessen ───
+  # Babylons `darkness` ist das RESTLICHT im Schatten, nicht seine
+  # Staerke — die Unity-Zahl des Vorbilds (Schattenstaerke 1,0) waere
+  # hier eine 0,0 und damit ein schwarzer Schatten. Uebertragen wird
+  # deshalb nicht die Zahl, sondern das, was man im Bild misst:
+  # Bild 2 der Referenz hat Licht/Schatten am Fels = 1,21 (47,8 zu 39,3).
+  #
+  # Zeuge: `~/wov-lab-mess/himmel-mess.mjs`, Pose `felsschatten`
+  # (10111/−18649, der freie 46°-Hang). Die Schattenmaske entsteht durch
+  # ABSCHALTEN — einmal mit, einmal mit `darkness = 1`, die Differenz IST
+  # der Schatten —, gemessen wird auf den Gesteinsschichten rock-rough
+  # und rock-a. Drei Punkte:
+  #
+  #     darkness 0,25 → 1,375     0,42 → 1,313     0,62 → 1,236
+  #
+  # 0,62 liegt im Fenster 1,21 ± 0,05. Der Regler wirkt also, und er
+  # wirkt in der erwarteten Richtung.
+  #
+  # `ambColorDay` ist dabei NICHT mitbewegt worden, und das ist gemessen
+  # und nicht vergessen: Der Schritt von 0,42 auf 0,62 hebt am
+  # Verhaeltniszeugen `weitblick` den Moosgrund von L 59,8 auf 59,5 und
+  # den Himmel von 142,8 auf 143,0 — also unter einem Prozent, und
+  # Moos/Himmel bleibt bei 0,416. Es gab nichts auszugleichen; ein Griff
+  # an das Grundlicht waere eine Aenderung ohne Befund gewesen.
+  #
+  # Was damit NICHT erreicht ist: Das Vorbild kommt auf sein flaches
+  # Verhaeltnis ueber einen SCHWARZEN Schatten und ein sehr starkes
+  # Cubemap-Grundlicht (D/A ≈ 0,5 linear), wir ueber ein aufgehelltes
+  # Schattenrestlicht (D/A ≈ 3,3). Dieselbe Zahl, anderer Weg. Der Weg
+  # des Vorbilds hiesse, das Grundlicht auf das Sechsfache zu heben und
+  # die Bodenkalibrierung der Stufe 2 neu zu fahren — ein eigener Block.
   schatten:
     aufloesung: 1024
     reichweite: 50
     kaskaden: 1
-    dunkelheit: 0.42
+    dunkelheit: 0.62
     rasten: true

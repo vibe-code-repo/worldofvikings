@@ -483,3 +483,161 @@ Ursachen, beide benannt: die Mischung von oben, und die Textur.
 Diffuse-Karte liegt nicht im Speicher, übernommen sind nur Kachelmaß und
 Normalstärke (F26). Vorher stand diese Zeile auf H 33 / S 0,35 — aber nur,
 weil eine Tönung [1,283 / 0,614 / 0,224] sie dorthin gerechnet hat.
+
+## Nachtrag 11.09.2026: Himmel (A5), Nebelwand (A6), Sonnenhof (A12), Schatten (A7)
+
+Bauer „Himmel und Licht", Block A der [[Roadmap — ToDL-MMORPG (Labor)]].
+Zeuge für alles hier: `~/wov-lab-mess/himmel-mess.mjs`, Bilder und
+Rohwerte unter `~/.cache/wov-lab/a5-*`, `a6-*`, `a7-*`, `a12-*`.
+
+### Die dritte Quelle: die Original-Würfelkarte
+
+Bis hierher galt die Begründung aus `server.yml`: „Was die Referenz
+hergibt, ist GENAU EINE Himmelsfarbe — ein Verlauf wäre eine Erfindung."
+Das stimmte, solange die Cubemap nur behauptet war. Sie liegt lokal vor
+(`~/wov-assets/Assets/Cubemap/AllSky_FantasyClouds_High3.png`, ein
+Streifen aus sechs 2048er-Flächen in der Reihenfolge +X −X +Y −Y +Z −Z)
+und ist mit dem Tint `#B2D1FE` und der Exposure 0,8 des Vorbilds
+vermessen:
+
+| Elevation | Luma | Sättigung |
+| --- | --- | --- |
+| +42° | 113 | 0,58 |
+| +30° | 137 | 0,47 |
+| +23° | 153 | 0,39 |
+| +14° | 161 | 0,36 |
+| +5° | 168 | 0,33 |
+
+**Der Zenit ist dunkler und blauer, der Horizont heller und blasser.**
+Dieselbe Richtung misst Bild 3 auf dem Bildschirm, nur flacher (oben
+L 137,7 / S 0,135, weiter unten L 154,6 / S 0,070) — die Nachbearbeitung
+des Vorbilds drückt seinen eigenen Verlauf zusammen, und unsere tut das
+auch.
+
+Das ist der zweite Stützpunkt, der 2026-09-10 noch fehlte. Tor T2 ist
+damit nicht nur entschieden, sondern belegt.
+
+### Die Wolken haben eine Zielzahl
+
+Gemessen in Bild 3, Fenster 1170–1350 / 0–150 (reiner Himmel, ohne Berg
+und ohne Sonnenhof):
+
+    Spanne p95 − p5 = 28 Luma        Anteil über 1,03 × Median = 32 %
+
+Wichtig ist, WIE man das nachmisst: innerhalb EINES Elevationsbandes.
+Über den ganzen Himmel gemessen wäre der Verlauf als Streuung mitgezählt
+und jede Wolkenaussage eine Aussage über den Verlauf.
+
+### Der Sonnenhof hat zwei Terme, nicht einen
+
+Radiales Profil um den hellsten Punkt des Sonnenhofs in Bild 3
+(Himmelsgrund dort rund L 152):
+
+| Abstand | Luma | Überschuss |
+| --- | --- | --- |
+| 0–40 px | 197 | +45 |
+| 40–80 px | 177 | +25 |
+| 120–160 px | 166 | +14 |
+| 160–200 px | 155 | +3 |
+| > 240 px | ≈ 152 | ±0 |
+
+Der schmale Term (`sonnenglühen` 0,2 = Exponent 176) hat 5,1°
+Halbwertsbreite und ist bei 9° praktisch aus — er trifft den Kern und
+lässt den Hof weg. Deshalb A12: ein zweiter, breiterer Summand
+(`haloBreite` 0,28 = Exponent 65 = 8,3° Halbwertsbreite, `haloStaerke`
+0,22). Beide stehen nebeneinander, nicht statt einander.
+
+### Was daraus in den Daten steht
+
+| Stelle | vorher | nachher | warum |
+| --- | --- | --- | --- |
+| `look.himmel.zenit` | `#819195` | `#6B8798` | dunkler und blauer, Richtung aus der Würfelkarte |
+| `look.himmel.horizont` | `#819195` | `#8D9598` | heller und blasser, dito |
+| `rainCloudAlpha` (Klar-Comic) | 0,06 | 0,40 | 0,06 war rechnerisch wolkenlos, s. unten |
+| `look.schatten.dunkelheit` | 0,42 | 0,62 | Verhältnis Licht/Schatten am Fels, Bild 2 = 1,21 |
+| neu: `look.himmel.wolken*`, `silberrand`, `halo*` | — | `shared/src/lookHimmel.ts` | bis zur Einhängung Vorgaben |
+
+### Zwei Rechnungen, die wie Regler aussahen und keine waren
+
+**(1) Eine Wolkendeckung von 0,06 ist keine geringe Deckung, sondern
+keine.** Die Kuppel prüfte ihre FBM-Dichte gegen `1,25 − Deckung · 1,15`
+und nahm dabei an, die Dichte laufe über 0..1. Nachgemessen über 4.800
+Richtungen des sichtbaren Himmels tut sie das nicht: Mittel 0,466,
+Streuung 0,069, p5 0,363, p95 0,584 — eine Summe aus fünf Oktaven landet
+nach dem Grenzwertsatz um ihren Mittelwert. Mit 0,06 stand die Schwelle
+1,7 Streuungen darüber; wo sie überschritten war, lag die Deckkraft bei
+5 %. Die Wolken waren rechnerisch vorhanden und im Bild nicht zu sehen.
+Seit die Dichte zuerst auf ihre eigene Streuung normiert wird, heisst der
+Regler, was sein Name sagt: 0,20 → 11 %, 0,34 → 24 %, 0,50 → 41 % des
+Himmels.
+
+**(2) Die CPU-Fassung des Himmels war nie nachgezogen worden.**
+`ValheimSky.himmelsFarbeToRef()` — die Quelle des Umgebungslichts —
+rechnete den Sonnenschein mit `pow(cos, 8)`, der Shader längst mit dem
+Profilwert (`sonnenglühen` 0,2 → 176). Acht ist ein Lappen von 23°
+Halbwertsbreite, 176 einer von 5°: Das Umgebungslicht trug eine
+Sonnenwärme über rund ein Achtel der Kugel, die die Kuppel nirgends
+zeichnet. Die Zahl stammt aus der Zeit vor dem Profilregler.
+
+### Wie man den Himmel ab jetzt misst
+
+Drei Zeugen, alle in `~/wov-lab-mess/himmel-mess.mjs`:
+
+* **Verlauf** — Himmelsluma je Elevationsband, aus den KAMERAACHSEN
+  gerechnet und nicht aus der Bildzeile. Eine Bildzeile ist bei geneigter
+  Kamera keine Höhe.
+* **Wolken** — Streuung (p95 − p5) und Anteil über 1,03 × Median
+  innerhalb eines Bandes.
+* **Naht** — mittlere Farbe im Band 0,3°…1,2° über und unter `dir.y = 0`.
+  Ohne Maske, weil dort keine Zelle verlässlich ist: Der Strahl trifft
+  mal die Kuppel, mal fernes Wasser, mal nichts.
+
+Und zwei Fallen, beide bezahlt:
+
+* **Eine Himmelszelle ist nicht lauter Himmel.** Die Zellenmaske aus
+  `original-lib.mjs` etikettiert je MITTELSTRAHL; an den Zellenrändern
+  steht trotzdem Blatt. Wer die ganze Zelle misst statt ihres
+  Mittelfensters (und dabei das Laub nicht ausblendet), bekommt am
+  Referenzort L 118,5 / S 0,202 statt L 142,2 / S 0,081 — und eine
+  „Wolkenspanne" von 75, die die Baumkrone ist.
+* **Die Kamera kann nicht nach oben sehen.** Sie ist ein Ausleger, der
+  auf die Figur zielt; bei negativer Neigung sinkt sie unter die Figur
+  und wird vom Boden geklemmt. Gemessen: −0,25, −0,95 und −1,35 liefern
+  auf ebenem Grund dasselbe Bild. Was ein Spieler vom Himmel überhaupt zu
+  sehen bekommt, sind die Elevationen **−8° bis +37°** — dort müssen die
+  Wolken lesbar sein, und dort ist die alte Projektion `dir.xz /
+  max(up, 0,06)` zu Rauschen zusammengeschrumpft.
+
+### A7: das Schattenverhältnis, und was es NICHT beweist
+
+Pose `felsschatten` steht bei **10111 / −18649** (Gier −2,734, Neigung
+0,20, Ausleger 4,5) — dem freien 46°-Hang aus Gestein und Moos. Nicht an
+einem Findling: `findlingSuchen()` findet am Referenzort 66 Store-Felsen,
+prüft mit einem Strahl zur Sonne, welche besonnt sind, und liefert die
+acht grössten; jeder einzelne steht im geschlossenen Laubwald
+(`~/.cache/wov-lab/findling-0..7.png`). Was die Schattenmaske dort misst,
+sind Baumstämme unter einem Kronendach — Verhältnis 1,00, also gar keine
+Aussage.
+
+Die Schattenmaske entsteht durch ABSCHALTEN: einmal mit Schatten, einmal
+mit `ShadowGenerator.darkness = 1`, die Differenz IST der Schlagschatten.
+Gemessen wird auf den Gesteinsschichten `rock-rough` und `rock-a`.
+
+| `look.schatten.dunkelheit` | Licht / Schatten am Fels |
+| --- | --- |
+| 0,25 | 1,375 |
+| 0,42 (vorher) | 1,313 |
+| **0,62** | **1,236** (Vorbild 1,21) |
+
+`ambColorDay` ist dabei nicht mitbewegt worden, und das ist gemessen und
+nicht vergessen: Der Schritt von 0,42 auf 0,62 hebt am Zeugen
+`weitblick` den Moosgrund von L 59,8 auf 59,5 und den Himmel von 142,8
+auf 143,0 — unter einem Prozent, `Moos/Himmel` bleibt bei 0,416. Es gab
+nichts auszugleichen.
+
+**Was damit nicht erreicht ist:** Das Vorbild kommt auf sein flaches
+Verhältnis über einen SCHWARZEN Schatten und ein sehr starkes
+Cubemap-Grundlicht (direkt/Grundlicht ≈ 0,5 linear), wir über ein
+aufgehelltes Schattenrestlicht (≈ 3,3). Dieselbe Zahl, anderer Weg. Den
+Weg des Vorbilds zu gehen hiesse, das Grundlicht auf das Sechsfache zu
+heben und die Bodenkalibrierung der Stufe 2 neu zu fahren.

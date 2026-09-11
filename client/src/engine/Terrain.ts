@@ -241,7 +241,34 @@ const UFER_REIHEN_SOLL = 16;
  */
 const WATER_ALPHA_FALLBACK = 0.9;
 
-/** Aussenmass des Fernwassers (m). EXP2-Nebel schluckt die Aussenkante. */
+/**
+ * Aussenmass des Fernwassers (m).
+ *
+ * Hier stand „EXP2-Nebel schluckt die Aussenkante". Das gilt seit dem
+ * 10.09.2026 nicht mehr: Das Look-Profil faehrt `nebelmodus: linear` mit
+ * 15 → 200 m (die Kurve des Vorbilds), und im Linear-Modus liest niemand
+ * `fogDensity`. Die Aussenkante wird also nicht mehr von einer
+ * auslaufenden Dichte verschluckt — sie liegt schlicht 1.024 m weit weg,
+ * mehr als das Fuenffache der Entfernung, ab der der Nebel zu 100 %
+ * deckt. Hinter der Nebelwand ist sie nicht mehr zu sehen.
+ *
+ * Der RING bleibt damit richtig, seine Begruendung aendert sich: Er
+ * schliesst nicht mehr eine weiche Kante ab, sondern fuellt die Flaeche
+ * zwischen dem Nahwasser und der Entfernung, ab der ohnehin nur noch
+ * Nebelfarbe steht. Wer die Sichtweite deutlich ueber 200 m setzt, muss
+ * diese Zahl neu begruenden — dann ist die Aussenkante wieder ein
+ * Bildproblem (Roadmap G9, Tor T1).
+ *
+ * Die NAHT darueber — wo die Nebelwand auf die Himmelskuppel trifft —
+ * gehoert nicht hierher: Sie loest `ValheimSky.ts` (A6), indem die
+ * Kuppel in ihrem untersten Band selbst zur Nebelfarbe wird. Gemessen an
+ * der Pose `wasserkante`: ΔRGB 3,6 zwischen dem Band 0,3°…1,2° ueber und
+ * unter dem Horizont.
+ *
+ * Outer size of the far-water ring. The old note ("exp2 fog swallows the
+ * outer edge") no longer applies: fog is LINEAR 15 → 200 m, so the edge
+ * simply sits five times further out than full fog coverage.
+ */
 const FAR_WATER_SIZE = 2048;
 /**
  * `aDepth` des Fernwasser-Rings (m). Gross genug, dass depth01 = 1 (volle

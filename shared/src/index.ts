@@ -102,6 +102,9 @@ export * from './aussehen.js';
 export * from './ausruestung.js';
 export * from './wetterVorgabe.js';
 export * from './lookProfil.js';
+// Die Himmelsfelder aus A5/A12. Eigene Datei, solange `lookProfil.ts`
+// dem Integrator gehört — s. den Kopf von `lookHimmel.ts`.
+export * from './lookHimmel.js';
 export * from './serverConfigFlags.js';
 export * from './worldgen/index.js';
 export * from './items/index.js';

@@ -48,7 +48,13 @@ export const TREFFER_PARADE = 2;
 export class KampfEffekte {
   private readonly texturen = new Map<string, Texture>();
 
-  constructor(private readonly scene: Scene) {}
+  constructor(private readonly scene: Scene) {
+    // Alles vorladen: Der Slash lebt 0,25 s — wer die Textur erst beim
+    // ersten Hieb anfordert, sieht den ersten Hieb nie (gemessen 11.09.2026).
+    for (const n of ['schwert_slash.png', 'treffer_blitz.png', 'treffer_funken.png', 'treffer_flash.png', 'punkt_weich.png', 'punkt_hart.png', 'blut_spritzer.png', 'funke.png']) {
+      this.textur(n);
+    }
+  }
 
   private textur(name: string): Texture {
     let t = this.texturen.get(name);

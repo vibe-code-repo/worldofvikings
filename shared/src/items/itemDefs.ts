@@ -417,8 +417,9 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
   },
   {
     // Speer (Mikes eigenes Modell, 12.09.2026): 1,90 m, Spitze oben, Ursprung
-    // 1,11 m ueber dem unteren Ende — genau die Hoehe der rechten Hand in der
-    // Ruhepose arm_speer (1,12 m), damit das Ende am Boden aufsteht. Die
+    // 1,15 m ueber dem unteren Ende — die Hoehe der rechten Hand in der
+    // Ruhepose arm_speer (gemessen 1,14 m im Spiel), damit das Ende am Boden
+    // aufsteht (mit 1,11 m schwebte es 3,7 cm). Die
     // Laengsachse laeuft wie beim Schwert durch die Faust; in der Pose steht
     // die Faustachse senkrecht, also der Speer aufrecht neben der Figur.
     name: 'Spear',

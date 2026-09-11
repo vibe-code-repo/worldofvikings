@@ -38,6 +38,41 @@
  * Die HÖHE dagegen ist gemessen, je Modell einzeln — s. die Zahlen an
  * den Zeilen unten.
  *
+ * ── Nachgemessen am 11.09.2026, im laufenden Spiel ──────────────────
+ * Frontal in einen EINZELN stehenden `large-bush-1a2` (10302,4 /
+ * −18773,7), Client (Havok) und Server (eigene Abfrage) je Bild
+ * mitgeschrieben, A/B über dieselbe Welt und denselben Strauch:
+ *
+ *   ohne Tabelle  Server läuft durch den Mittelpunkt (0,001 m),
+ *                 Client ebenso — 26 m Weg, kein Halt.
+ *   mit Tabelle   Server steht 50 Bilder lang bei 1,085 m
+ *                 (= 0,65 · Exemplarskalierung + 0,4 m Figur),
+ *                 Client drückt bis 0,74 m hinein und gleitet ab.
+ *                 0 harte Sprünge.
+ *
+ * Die 0,3 m, die der Client TIEFER kommt als der Server, sind nicht
+ * buschspezifisch: Am Felsen daneben ist es umgekehrt (Client 0,95 m,
+ * Server 0,24 m) — Havoks Figurensteuerung und die Strahlabfrage des
+ * Servers lösen Durchdringung verschieden auf. Die Drift zwischen
+ * beiden Seiten liegt am Busch bei 2,1 m gegen 1,5 m am Felsen und
+ * 1,3 m im freien Lauf; sie entsteht, weil der Server bei EXAKT
+ * frontalem Stoss gar nicht abgleitet (die Tangentialkomponente ist
+ * null) und der Client schon. Nachgezogen wird sie weich, in beiden
+ * Fällen ohne harten Sprung.
+ *
+ * Die kleinen Büsche bleiben durchlässig (Client 0,10 m, Server 0,08 m
+ * vom Mittelpunkt, Weg ungebremst) — die Gegenprobe zur selben Stunde.
+ *
+ * ── Was sie kostet ──────────────────────────────────────────────────
+ * Am Referenzort 10077 / −18723 NICHTS: 31 Körper vorher wie nachher,
+ * der nächste grosse Busch steht 207 m entfernt. Am Waldrand
+ * (10302 / −18774), wo sie streuen: 25 → 47 Körper, davon 22 Kapseln.
+ * Ladezeit bis „Gelände fertig" 9821 ms gegen 9835 ms. Die Vorladung
+ * des Servers wird nicht teurer, sondern billiger — die fünf Formen
+ * stehen im Quelltext, ihre GLBs werden dafür nicht mehr geöffnet.
+ * Kein Kollisionsträger steht in der Schattenwerferliste (`col_` ist in
+ * `Shadows.ts` NIE_WERFEN; nachgezählt: 79 Werfer, 0 davon `col_`).
+ *
  * Hand-maintained overrides: prefabs whose collision shape comes neither
  * from the store catalogue nor from geometry. Asked BEFORE both.
  */

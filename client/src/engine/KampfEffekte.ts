@@ -114,7 +114,11 @@ export class KampfEffekte {
       mat.alpha = 1 - a * a;
       if (t >= SLASH_DAUER) {
         if (obs) this.scene.onBeforeRenderObservable.remove(obs);
-        plane.dispose(false, true);
+        // NICHT `dispose(false, true)`: das raeumt auch die Textur ab, die
+        // im Cache fuer den naechsten Hieb liegt — ab dem zweiten Slash war
+        // nichts mehr zu sehen (11.09.2026).
+        plane.dispose(false, false);
+        mat.dispose(false, false);
         traeger.dispose();
       }
     });

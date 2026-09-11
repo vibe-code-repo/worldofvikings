@@ -13,6 +13,7 @@ import {
   neuerAkkumulator,
   weiter,
 } from '../src/bewegung/festerSchritt.js';
+import { gelaendeHang, hangBremse, HANG_VORSCHAU } from '../src/bewegung/gelaendeHang.js';
 import { gleitBewegung } from '../src/bewegung/gleiten.js';
 import { bewegungsSchritt } from '../src/bewegung/schritt.js';
 import { ebenerBoden, OHNE_HINDERNISSE, type HindernisAbfrage, type Treffer } from '../src/bewegung/abfragen.js';
@@ -267,6 +268,104 @@ console.log('\n[4] Schwerkraft und Bodenkleben:');
     zr = bewegungsSchritt(zr, { x: 0, z: 1, rennt: true }, SCHRITT_LAENGE, boden0, OHNE_HINDERNISSE);
   }
   pruefe('60 Schritte rennen = Lauftempo', nah(zr.z, LAUF_TEMPO, 1e-9), `${zr.z.toFixed(6)} m`);
+}
+
+// ── [5] Steigungsgrenze am GELAENDE ────────────────────────────────
+//
+// Warum das ein KERN-Test ist: Die Regel entscheidet an einer reinen
+// HOEHENFUNKTION, also ohne jede Geometrie — genau die Sorte Entscheidung,
+// die hierher gehoert. Gemessen wird an gestellten Haengen, deren Neigung
+// bekannt ist, weil ein echtes Gelaende die Frage „war das nun 59 oder 61
+// Grad?" nie beantwortet.
+console.log('\n[5] Steigungsgrenze am Gelaende:');
+{
+  /** Eine schiefe Ebene, die in +x mit `grad` ansteigt. */
+  const hangBoden = (grad: number) => {
+    const g = Math.tan((grad * Math.PI) / 180);
+    return { hoeheBei: (x: number): number => x * g };
+  };
+  const schritt = GEH_TEMPO * SCHRITT_LAENGE;
+
+  // 55 Grad: unter der Grenze, also unangetastet — und zwar BIT FUER BIT.
+  const flach = hangBremse(hangBoden(55), 0, 0, 0, schritt, 0);
+  pruefe('55 Grad bergauf: Wunsch unveraendert',
+    flach.x === schritt && flach.z === 0 && flach.flaeche === null, `${flach.x}`);
+
+  // 65 Grad bergauf: die Bewegung IN den Hang faellt weg.
+  const steil = hangBremse(hangBoden(65), 0, 0, 0, schritt, 0);
+  pruefe('65 Grad bergauf: gestoppt',
+    steil.x === 0 && steil.z === 0 && steil.flaeche !== null, `${steil.x}`);
+
+  // Bergab bleibt frei — sonst kaeme man von einem Plateau nicht herunter.
+  const runter = hangBremse(hangBoden(65), 0, 0, 0, -schritt, 0);
+  pruefe('65 Grad bergab: frei',
+    runter.x === -schritt && runter.flaeche === null, `${runter.x}`);
+
+  // Quer zum Hang: der Anteil entlang der Hoehenlinie bleibt vollstaendig.
+  const quer = hangBremse(hangBoden(65), 0, 0, 0, 0, schritt);
+  pruefe('65 Grad quer: unveraendert (keine Steigung in Laufrichtung)',
+    quer.x === 0 && quer.z === schritt && quer.flaeche === null, `${quer.z}`);
+
+  // Schraeg hinauf: die x-Haelfte faellt weg, die z-Haelfte gleitet weiter.
+  const schraeg = hangBremse(hangBoden(65), 0, 0, 0, schritt, schritt);
+  pruefe('65 Grad schraeg: gleitet quer weiter, nicht hinauf',
+    nah(schraeg.x, 0, 1e-12) && schraeg.z > schritt * 0.99 && schraeg.flaeche !== null,
+    `x=${schraeg.x.toFixed(6)} z=${schraeg.z.toFixed(4)}`);
+
+  // Das Zickzack, das eine reine Laengsmessung durchliesse: 70 Grad neben
+  // der Falllinie einer 76-Grad-Wand sind laengs des Weges nur 55 Grad.
+  // Die Flaechenneigung bleibt 76 — also gesperrt.
+  {
+    const e = { x: Math.cos((70 * Math.PI) / 180), z: Math.sin((70 * Math.PI) / 180) };
+    const zick = hangBremse(hangBoden(76), 0, 0, 0, e.x * schritt, e.z * schritt);
+    pruefe('76-Grad-Wand schraeg von der Seite: kein Zickzack hinauf',
+      nah(zick.x, 0, 1e-12) && zick.flaeche !== null, `x=${zick.x.toFixed(6)}`);
+  }
+
+  // Die Normale ist eine Einheitsnormale und ihr y ist cos(Neigung) —
+  // dieselbe Groesse, die `istWand` an Formen prueft.
+  const n = gelaendeHang(hangBoden(65), 0, 0, 0, 1, 0)!;
+  const len = Math.sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
+  pruefe('Hangnormale ist Einheitsvektor', nah(len, 1, 1e-12), `${len}`);
+  pruefe('Hangnormale y = cos(65 Grad)',
+    nah(n.y, Math.cos((65 * Math.PI) / 180), 1e-12), `${n.y.toFixed(6)}`);
+  pruefe('Hangnormale zeigt der Figur entgegen (bergab)', n.x < 0, `${n.x.toFixed(3)}`);
+  pruefe('genau an der Grenze ist noch kein Stopp',
+    !istWand(gelaendeHang(hangBoden(STEIGUNGS_GRENZE_GRAD - 0.01), 0, 0, 0, 1, 0)!),
+    `${STEIGUNGS_GRENZE_GRAD} Grad`);
+
+  // Eine Gelaendestufe: 0,5 m auf einen Schlag, also weit ueber der
+  // Stufenhoehe — dieselbe Regel deckt sie ab, ohne eine zweite zu brauchen.
+  //
+  // WIE HOCH eine Kante sein muss, um zu sperren, folgt aus der Breite des
+  // Messfensters und sonst nichts: Die zentrale Differenz ist
+  // 2 · HANG_MESSWEITE = 0,8 m breit, also sperrt, was darauf mehr als
+  // tan(60 Grad) · 0,8 m = 1,39 m steigt. Das ist KEIN Widerspruch zur
+  // Stufenhoehe 0,40 m an Formen: Dort misst ein Strahl eine senkrechte
+  // Kistenkante, hier ein Hoehenfeld, dessen Stuetzpunkte 1 m auseinander
+  // liegen — eine Kante, die schmaler ist als das Gitter, gibt es dort
+  // gar nicht. Eine planierte Editor-Kante (6 m auf 1 m) liegt weit
+  // darueber und wird sicher erfasst.
+  const stufe = { hoeheBei: (x: number): number => (x >= HANG_VORSCHAU ? 1.6 : 0) };
+  const gestoppt = hangBremse(stufe, 0, 0, 0, schritt, 0);
+  pruefe('1,6-m-Gelaendekante im Messfenster stoppt (63 Grad)', gestoppt.x === 0, `${gestoppt.x}`);
+  const kleine = { hoeheBei: (x: number): number => (x >= HANG_VORSCHAU ? 1.2 : 0) };
+  const drueber = hangBremse(kleine, 0, 0, 0, schritt, 0);
+  pruefe('1,2-m-Gelaendekante bleibt begehbar (56 Grad im Messfenster)',
+    drueber.x === schritt, `${drueber.x}`);
+
+  // Der ganze Schritt: auf der schiefen Ebene laufen, mit Boden darunter.
+  let auf = { x: 0, y: 0, z: 0 };
+  for (let i = 0; i < 60; i += 1) {
+    auf = bewegungsSchritt(auf, { x: 1, z: 0, rennt: false }, SCHRITT_LAENGE, hangBoden(50), OHNE_HINDERNISSE);
+  }
+  pruefe('50 Grad: eine Sekunde bergauf kommt voran', auf.x > GEH_TEMPO * 0.99, `${auf.x.toFixed(2)} m`);
+  let gegen = { x: 0, y: 0, z: 0 };
+  for (let i = 0; i < 60; i += 1) {
+    gegen = bewegungsSchritt(gegen, { x: 1, z: 0, rennt: false }, SCHRITT_LAENGE, hangBoden(70), OHNE_HINDERNISSE);
+  }
+  pruefe('70 Grad: eine Sekunde bergauf bringt nichts',
+    nah(gegen.x, 0, 1e-12) && nah(gegen.y, 0, 1e-12), `${gegen.x.toFixed(4)} m`);
 }
 
 console.log(`\n${fehler === 0 ? 'ALLE GRUEN' : `${fehler} FEHLGESCHLAGEN`}`);

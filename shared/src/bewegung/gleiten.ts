@@ -83,8 +83,12 @@ export interface GleitErgebnis {
  * Die Flaeche, wie die Waagerechte sie sieht: ein Einheitsvektor in x/z,
  * oder `null` fuer eine Flaeche, in die eine waagerechte Bewegung gar
  * nicht hineinlaufen kann (Boden oder Decke).
+ *
+ * Herausgegeben, seit der Gelaendehang dieselbe Umlenkung braucht
+ * (`gelaendeHang.ts`): Ein zu steiler Hang wird von derselben Regel
+ * behandelt wie eine Wand, und zwei Kopien einer Regel sind zwei Regeln.
  */
-function waagerechteFlaeche(normale: Vek3): Vek3 | null {
+export function waagerechteFlaeche(normale: Vek3): Vek3 | null {
   const laenge = laenge2d(normale.x, normale.z);
   return laenge === 0 ? null : { x: normale.x / laenge, y: 0, z: normale.z / laenge };
 }
@@ -92,9 +96,10 @@ function waagerechteFlaeche(normale: Vek3): Vek3 | null {
 /**
  * Der Teil von `(x, z)`, der ENTLANG `flaeche` laeuft — oder `null`, wenn
  * keiner das tut (Bewegung verlaesst die Flaeche schon, oder sie traf
- * frontal auf).
+ * frontal auf). Herausgegeben aus demselben Grund wie
+ * `waagerechteFlaeche`.
  */
-function entlangFlaeche(x: number, z: number, flaeche: Vek3): { x: number; z: number } | null {
+export function entlangFlaeche(x: number, z: number, flaeche: Vek3): { x: number; z: number } | null {
   const hinein = x * flaeche.x + z * flaeche.z;
   if (hinein >= 0) return null;
   const gx = x - hinein * flaeche.x;

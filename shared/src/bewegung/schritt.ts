@@ -23,6 +23,7 @@
  */
 import type { Vek3 } from '../kollision/form.js';
 import type { BodenAbfrage, HindernisAbfrage } from './abfragen.js';
+import { hangBremse } from './gelaendeHang.js';
 import { gleitBewegung } from './gleiten.js';
 import { BODEN_KLEBEN, FALL_TEMPO, GEH_TEMPO, KOERPER_RADIUS, LAUF_TEMPO } from './masse.js';
 
@@ -62,8 +63,26 @@ export function bewegungsSchritt(
   hindernis: HindernisAbfrage
 ): BewegungsZustand {
   const tempo = eingabe.rennt ? LAUF_TEMPO : GEH_TEMPO;
-  const wunschX = zustand.x + eingabe.x * tempo * dt;
-  const wunschZ = zustand.z + eingabe.z * tempo * dt;
+  // Erst der HANG, dann die Formen. Die Steigungsgrenze gilt seit dem
+  // 11.09.2026 auch am Gelaende (s. `gelaendeHang.ts`): Was bergauf in
+  // eine zu steile Flaeche laeuft, faellt hier weg, und was uebrig
+  // bleibt, loest anschliessend `gleitBewegung` gegen Felsen und Waende
+  // auf. Umgekehrt liefe die Figur erst an einer Huettenwand entlang und
+  // dann doch die Wand hinauf, an der sie entlanggleitet.
+  //
+  // Auf flachem Boden kommt der Wunsch BIT FUER BIT unveraendert zurueck
+  // (`hangBremse` rechnet dann gar nicht erst) — die Regression der
+  // leeren Formquelle bleibt deshalb identisch zum Bestand.
+  const hang = hangBremse(
+    boden,
+    zustand.x,
+    zustand.z,
+    zustand.y,
+    eingabe.x * tempo * dt,
+    eingabe.z * tempo * dt
+  );
+  const wunschX = zustand.x + hang.x;
+  const wunschZ = zustand.z + hang.z;
 
   const ziel = gleitBewegung({
     von: zustand,
@@ -109,13 +128,27 @@ export function flaechenDesSchritts(
   hindernis: HindernisAbfrage
 ): { readonly normalen: readonly Vek3[]; readonly blockiert: boolean } {
   const tempo = eingabe.rennt ? LAUF_TEMPO : GEH_TEMPO;
+  const hang = hangBremse(
+    boden,
+    zustand.x,
+    zustand.z,
+    zustand.y,
+    eingabe.x * tempo * dt,
+    eingabe.z * tempo * dt
+  );
   const ergebnis = gleitBewegung({
     von: zustand,
-    nachX: zustand.x + eingabe.x * tempo * dt,
-    nachZ: zustand.z + eingabe.z * tempo * dt,
+    nachX: zustand.x + hang.x,
+    nachZ: zustand.z + hang.z,
     radius: KOERPER_RADIUS,
     boden,
     hindernis,
   });
-  return { normalen: ergebnis.normalen, blockiert: ergebnis.blockiert };
+  // Die Hangflaeche steht VORN in der Liste: Sie hat den Wunsch als
+  // erste beschnitten. Ohne sie meldete die Diagnose an einer
+  // Gelaendewand „nichts getroffen, nicht blockiert" — und wer die Figur
+  // dort stehen sieht, suchte den Fehler an der falschen Stelle.
+  const normalen = hang.flaeche === null ? ergebnis.normalen : [hang.flaeche, ...ergebnis.normalen];
+  const blockiert = ergebnis.blockiert || (hang.flaeche !== null && hang.x === 0 && hang.z === 0);
+  return { normalen, blockiert };
 }

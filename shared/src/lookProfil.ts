@@ -37,6 +37,21 @@ export type Tonemapping = 'aces' | 'neutral' | 'aus';
  */
 export type Nebelmodus = 'exp' | 'exp2' | 'linear';
 
+/*
+ * Die Himmelsregler aus A5/A12 stehen in einer eigenen Datei, weil sie im
+ * Block-A-Workflow einem anderen Bauer gehoerten als dieses Profil. Sie
+ * sind trotzdem KEINE zweite Wahrheit: die Felder werden unten in
+ * `LookHimmel` geerbt, ihre Vorgaben in `LOOK_VORGABE.himmel` gespreizt
+ * und ihre Waechter in `BEREICHE` eingehaengt — von hier aus gesehen
+ * verhalten sie sich also wie jedes andere Feld des Profils.
+ *
+ * The sky knobs from A5/A12 live in their own file (a different builder
+ * owned them this round) but are wired in as ordinary profile fields:
+ * inherited into `LookHimmel`, spread into `LOOK_VORGABE.himmel`, and
+ * appended to `BEREICHE`.
+ */
+import { LOOK_HIMMEL_PLUS_VORGABE, LOOK_HIMMEL_PLUS_BEREICHE, type LookHimmelPlus } from './lookHimmel';
+
 export interface LookBloom {
   an: boolean;
   /** Helligkeit, ab der ein Pixel blüht (0..1 nach Tonemapping). */
@@ -134,7 +149,7 @@ export interface LookStrahlen {
   dichte: number;
 }
 
-export interface LookHimmel {
+export interface LookHimmel extends LookHimmelPlus {
   /** Hex, sRGB. */
   zenit: string;
   /**
@@ -324,7 +339,7 @@ export const LOOK_VORGABE: LookProfil = {
     gewicht: 0.5,
     dichte: 0.94,
   },
-  himmel: { zenit: '#819195', horizont: '#819195', 'sonnenglühen': 0.2 },
+  himmel: { zenit: '#6B8798', horizont: '#8D9598', 'sonnenglühen': 0.2, ...LOOK_HIMMEL_PLUS_VORGABE },
   schatten: { aufloesung: 1024, reichweite: 50, kaskaden: 1, dunkelheit: 0.42, rasten: true },
 };
 
@@ -435,6 +450,7 @@ const BEREICHE: ReadonlyMap<string, readonly [number, number]> = new Map([
   ['look.strahlen.gewicht', [0, 4]],
   ['look.strahlen.dichte', [0, 1]],
   ['look.himmel.sonnenglühen', [0, 1]],
+  ...LOOK_HIMMEL_PLUS_BEREICHE,
   ['look.schatten.aufloesung', [128, 4096]],
   ['look.schatten.reichweite', [10, 2000]],
   ['look.schatten.dunkelheit', [0, 1]],

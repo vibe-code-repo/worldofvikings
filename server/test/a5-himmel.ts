@@ -52,6 +52,7 @@ import {
   haloWinkel,
   liesHimmelPlus,
   mischeLook,
+  pruefeLook,
 } from '@wov/shared';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -88,15 +89,61 @@ function reglerFallenZurueck(): void {
   );
   ok(liesHimmelPlus(42).silberrand === LOOK_HIMMEL_PLUS_VORGABE.silberrand, 'Unsinn statt Objekt: die Vorgabe');
 
-  // ZUSTAND A — noch nicht eingehaengt: `mischeLook` kennt die Felder
-  // nicht und wirft sie weg. Der Client muss die Vorgaben sehen.
+  /*
+    ZUSTAND A — NOCH NICHT eingehaengt.
+
+    Diesen Zustand gibt es seit der Integration nicht mehr im laufenden
+    Profil; er laesst sich aber weiter fahren, indem man `mischeLook()`
+    eine Vorgabe gibt, in der die neuen Felder fehlen. Genau das ist die
+    Aussage, die hier haelt: `mischeLook` nimmt nur, was die VORGABE
+    kennt — der Filter ist der Grund, warum ein `look.himmel`-Block mit
+    unbekanntem Schluessel nicht still durchrutscht.
+
+    (Bis zur Integration stand hier `mischeLook(...)` ohne zweites
+    Argument; das prueft seit dem Einhaengen das Gegenteil und ist nach
+    unten als ZUSTAND B gewandert.)
+  */
+  const ohneNeueFelder = {
+    ...LOOK_VORGABE,
+    himmel: { zenit: LOOK_VORGABE.himmel.zenit, horizont: LOOK_VORGABE.himmel.horizont, 'sonnenglühen': 0.2 },
+  } as unknown as typeof LOOK_VORGABE;
+  const alt = mischeLook({ himmel: { zenit: '#123456', wolken: 0.9, haloStaerke: 0.9 } }, ohneNeueFelder);
+  const ausAlt = liesHimmelPlus(alt.himmel);
+  ok(alt.himmel.zenit === '#123456', 'bekannte Felder kommen durch (zenit)');
+  ok(
+    ausAlt.wolken === LOOK_HIMMEL_PLUS_VORGABE.wolken && ausAlt.haloStaerke === LOOK_HIMMEL_PLUS_VORGABE.haloStaerke,
+    'Vorgabe ohne die neuen Felder: mischeLook filtert sie weg, der Leser faellt auf die Vorgabe zurueck'
+  );
+
+  /*
+    ZUSTAND B — EINGEHAENGT, und zwar durch `mischeLook` hindurch.
+
+    Das ist der Riegel gegen eine halb ausgefuehrte Einhaengung: Fehlt
+    die Zeile `...LOOK_HIMMEL_PLUS_VORGABE` in `LOOK_VORGABE.himmel`,
+    wirft `gefiltert()` die Schluessel wieder weg und diese Pruefung
+    faellt um — sichtbar, statt dass der Himmel still auf den Vorgaben
+    stehen bleibt.
+  */
   const gemischt = mischeLook({ himmel: { zenit: '#123456', wolken: 0.9, haloStaerke: 0.9 } });
   const ausProfil = liesHimmelPlus(gemischt.himmel);
-  ok(gemischt.himmel.zenit === '#123456', 'bekannte Felder kommen durch (zenit)');
   ok(
-    ausProfil.wolken === LOOK_HIMMEL_PLUS_VORGABE.wolken &&
-      ausProfil.haloStaerke === LOOK_HIMMEL_PLUS_VORGABE.haloStaerke,
-    'noch nicht eingehaengt: die neuen Felder fallen auf die Vorgabe zurueck'
+    ausProfil.wolken === 0.9 && ausProfil.haloStaerke === 0.9,
+    'eingehaengt: die neuen Felder kommen durch mischeLook aus dem Profil'
+  );
+  ok(
+    Object.keys(LOOK_HIMMEL_PLUS_VORGABE).every((k) => k in LOOK_VORGABE.himmel),
+    'eingehaengt: jedes neue Feld steht in LOOK_VORGABE.himmel'
+  );
+  const ohneWaechter = LOOK_HIMMEL_PLUS_BEREICHE.filter(([p, [, oben]]) => {
+    const feld = p.replace('look.himmel.', '');
+    const fehler = pruefeLook({ himmel: { [feld]: oben * 100 + 100 } });
+    return !fehler.some((f) => f.pfad === p && f.grund.includes('ausserhalb'));
+  }).map(([p]) => p);
+  ok(
+    ohneWaechter.length === 0,
+    `eingehaengt: jeder neue Regler wird vom Bereichswaechter gefangen${
+      ohneWaechter.length ? ` — ohne Waechter: ${ohneWaechter.join(', ')}` : ''
+    }`
   );
 
   // ZUSTAND B — eingehaengt: dasselbe Objekt, aber die Felder stehen

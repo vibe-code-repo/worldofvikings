@@ -6,7 +6,14 @@
     {
       "id": "wikinger",
       "model": "wikinger/WikingerKoerper",
-      "name": "Wikinger"
+      "name": "Wikinger",
+      "nameEn": "Viking"
+    },
+    {
+      "id": "wikingerin",
+      "model": "wikingerin/WikingerinKoerper",
+      "name": "Wikingerin",
+      "nameEn": "Viking woman"
     }
   ],
   "defaultFigure": "wikinger",
@@ -14,169 +21,415 @@
     {
       "id": "H_01",
       "file": "H_01",
-      "name": "Kurzer Bob"
+      "name": "Frisur 01",
+      "nameEn": "Hairstyle 01"
     },
     {
       "id": "H_02",
       "file": "H_02",
-      "name": "Glatt, schulterlang"
+      "name": "Frisur 02",
+      "nameEn": "Hairstyle 02"
     },
     {
       "id": "H_03",
       "file": "H_03",
-      "name": "Wellig, lang"
+      "name": "Frisur 03",
+      "nameEn": "Hairstyle 03"
     },
     {
       "id": "H_04",
       "file": "H_04",
-      "name": "Seitenscheitel"
+      "name": "Frisur 04",
+      "nameEn": "Hairstyle 04"
     },
     {
       "id": "H_05",
       "file": "H_05",
-      "name": "Lang, offen"
+      "name": "Frisur 05",
+      "nameEn": "Hairstyle 05"
     },
     {
       "id": "H_06",
       "file": "H_06",
-      "name": "Voll, gestuft"
+      "name": "Frisur 06",
+      "nameEn": "Hairstyle 06"
     },
     {
       "id": "H_07",
       "file": "H_07",
-      "name": "Sehr lang"
+      "name": "Frisur 07",
+      "nameEn": "Hairstyle 07"
     },
     {
       "id": "H_08",
       "file": "H_08",
-      "name": "Kurz, gescheitelt"
+      "name": "Frisur 08",
+      "nameEn": "Hairstyle 08"
     },
     {
       "id": "H_09",
       "file": "H_09",
-      "name": "Mittellang"
+      "name": "Frisur 09",
+      "nameEn": "Hairstyle 09"
     },
     {
       "id": "H_10",
       "file": "H_10",
-      "name": "Halblang, gewellt"
+      "name": "Frisur 10",
+      "nameEn": "Hairstyle 10"
     },
     {
       "id": "H_11",
       "file": "H_11",
-      "name": "Anliegend"
+      "name": "Frisur 11",
+      "nameEn": "Hairstyle 11"
     },
     {
       "id": "H_12",
       "file": "H_12",
-      "name": "Lockig"
+      "name": "Frisur 12",
+      "nameEn": "Hairstyle 12"
     },
     {
       "id": "H_13",
       "file": "H_13",
-      "name": "Stufig"
+      "name": "Frisur 13",
+      "nameEn": "Hairstyle 13"
     },
     {
       "id": "H_14",
       "file": "H_14",
-      "name": "Zurückgekämmt"
+      "name": "Frisur 14",
+      "nameEn": "Hairstyle 14"
     },
     {
       "id": "H_15",
       "file": "H_15",
-      "name": "Sehr kurz"
+      "name": "Frisur 15",
+      "nameEn": "Hairstyle 15"
     },
     {
       "id": "H_16",
       "file": "H_16",
-      "name": "Strähnig, lang"
+      "name": "Frisur 16",
+      "nameEn": "Hairstyle 16"
     },
     {
       "id": "H_17",
       "file": "H_17",
-      "name": "Wallend"
+      "name": "Frisur 17",
+      "nameEn": "Hairstyle 17"
     },
     {
       "id": "H_18",
       "file": "H_18",
-      "name": "Dicht, lang"
+      "name": "Frisur 18",
+      "nameEn": "Hairstyle 18"
     },
     {
       "id": "H_19",
       "file": "H_19",
-      "name": "Strähnig, mittel"
+      "name": "Frisur 19",
+      "nameEn": "Hairstyle 19"
     },
     {
       "id": "H_20",
       "file": "H_20",
-      "name": "Strähnig, kurz"
+      "name": "Frisur 20",
+      "nameEn": "Hairstyle 20"
     },
     {
       "id": "H_21",
       "file": "H_21",
-      "name": "Zottelig"
+      "name": "Frisur 21",
+      "nameEn": "Hairstyle 21"
+    },
+    {
+      "id": "H_22",
+      "file": "H_22",
+      "name": "Frisur 22",
+      "nameEn": "Hairstyle 22"
+    },
+    {
+      "id": "H_23",
+      "file": "H_23",
+      "name": "Frisur 23",
+      "nameEn": "Hairstyle 23"
+    },
+    {
+      "id": "H_24",
+      "file": "H_24",
+      "name": "Frisur 24",
+      "nameEn": "Hairstyle 24"
+    },
+    {
+      "id": "H_25",
+      "file": "H_25",
+      "name": "Frisur 25",
+      "nameEn": "Hairstyle 25"
+    },
+    {
+      "id": "H_26",
+      "file": "H_26",
+      "name": "Frisur 26",
+      "nameEn": "Hairstyle 26"
+    },
+    {
+      "id": "H_27",
+      "file": "H_27",
+      "name": "Frisur 27",
+      "nameEn": "Hairstyle 27"
+    },
+    {
+      "id": "H_28",
+      "file": "H_28",
+      "name": "Frisur 28",
+      "nameEn": "Hairstyle 28"
+    },
+    {
+      "id": "H_29",
+      "file": "H_29",
+      "name": "Frisur 29",
+      "nameEn": "Hairstyle 29"
+    },
+    {
+      "id": "H_30",
+      "file": "H_30",
+      "name": "Frisur 30",
+      "nameEn": "Hairstyle 30"
+    },
+    {
+      "id": "H_31",
+      "file": "H_31",
+      "name": "Frisur 31",
+      "nameEn": "Hairstyle 31"
+    },
+    {
+      "id": "H_32",
+      "file": "H_32",
+      "name": "Frisur 32",
+      "nameEn": "Hairstyle 32"
+    },
+    {
+      "id": "H_33",
+      "file": "H_33",
+      "name": "Frisur 33",
+      "nameEn": "Hairstyle 33"
+    },
+    {
+      "id": "H_34",
+      "file": "H_34",
+      "name": "Frisur 34",
+      "nameEn": "Hairstyle 34"
+    },
+    {
+      "id": "H_35",
+      "file": "H_35",
+      "name": "Frisur 35",
+      "nameEn": "Hairstyle 35"
+    },
+    {
+      "id": "H_36",
+      "file": "H_36",
+      "name": "Frisur 36",
+      "nameEn": "Hairstyle 36"
+    },
+    {
+      "id": "H_37",
+      "file": "H_37",
+      "name": "Frisur 37",
+      "nameEn": "Hairstyle 37"
+    },
+    {
+      "id": "H_38",
+      "file": "H_38",
+      "name": "Frisur 38",
+      "nameEn": "Hairstyle 38"
     }
   ],
   "defaultHairstyle": "H_01",
+  "beards": [
+    {
+      "id": "B_01",
+      "file": "B_01",
+      "name": "Bart 01",
+      "nameEn": "Beard 01"
+    },
+    {
+      "id": "B_02",
+      "file": "B_02",
+      "name": "Bart 02",
+      "nameEn": "Beard 02"
+    },
+    {
+      "id": "B_03",
+      "file": "B_03",
+      "name": "Bart 03",
+      "nameEn": "Beard 03"
+    },
+    {
+      "id": "B_04",
+      "file": "B_04",
+      "name": "Bart 04",
+      "nameEn": "Beard 04"
+    },
+    {
+      "id": "B_05",
+      "file": "B_05",
+      "name": "Bart 05",
+      "nameEn": "Beard 05"
+    },
+    {
+      "id": "B_06",
+      "file": "B_06",
+      "name": "Bart 06",
+      "nameEn": "Beard 06"
+    },
+    {
+      "id": "B_07",
+      "file": "B_07",
+      "name": "Bart 07",
+      "nameEn": "Beard 07"
+    },
+    {
+      "id": "B_08",
+      "file": "B_08",
+      "name": "Bart 08",
+      "nameEn": "Beard 08"
+    },
+    {
+      "id": "B_09",
+      "file": "B_09",
+      "name": "Bart 09",
+      "nameEn": "Beard 09"
+    },
+    {
+      "id": "B_10",
+      "file": "B_10",
+      "name": "Bart 10",
+      "nameEn": "Beard 10"
+    },
+    {
+      "id": "B_11",
+      "file": "B_11",
+      "name": "Bart 11",
+      "nameEn": "Beard 11"
+    },
+    {
+      "id": "B_12",
+      "file": "B_12",
+      "name": "Bart 12",
+      "nameEn": "Beard 12"
+    },
+    {
+      "id": "B_13",
+      "file": "B_13",
+      "name": "Bart 13",
+      "nameEn": "Beard 13"
+    },
+    {
+      "id": "B_14",
+      "file": "B_14",
+      "name": "Bart 14",
+      "nameEn": "Beard 14"
+    },
+    {
+      "id": "B_15",
+      "file": "B_15",
+      "name": "Bart 15",
+      "nameEn": "Beard 15"
+    },
+    {
+      "id": "B_16",
+      "file": "B_16",
+      "name": "Bart 16",
+      "nameEn": "Beard 16"
+    },
+    {
+      "id": "B_17",
+      "file": "B_17",
+      "name": "Bart 17",
+      "nameEn": "Beard 17"
+    },
+    {
+      "id": "B_18",
+      "file": "B_18",
+      "name": "Bart 18",
+      "nameEn": "Beard 18"
+    }
+  ],
+  "defaultBeard": "",
   "hairColors": [
     {
       "id": "rabenschwarz",
       "name": "Rabenschwarz",
+      "nameEn": "Raven black",
       "hex": "#1A1613"
     },
     {
       "id": "dunkelbraun",
       "name": "Dunkelbraun",
+      "nameEn": "Dark brown",
       "hex": "#2E2018"
     },
     {
       "id": "kastanie",
       "name": "Kastanienbraun",
+      "nameEn": "Chestnut",
       "hex": "#4A2C1A"
     },
     {
       "id": "mittelbraun",
       "name": "Mittelbraun",
+      "nameEn": "Medium brown",
       "hex": "#6F593F"
     },
     {
       "id": "hellbraun",
       "name": "Hellbraun",
+      "nameEn": "Light brown",
       "hex": "#8A6A45"
     },
     {
       "id": "aschblond",
       "name": "Aschblond",
+      "nameEn": "Ash blonde",
       "hex": "#A89272"
     },
     {
       "id": "weizenblond",
       "name": "Weizenblond",
+      "nameEn": "Wheat blonde",
       "hex": "#C8AB77"
     },
     {
       "id": "hellblond",
       "name": "Hellblond",
+      "nameEn": "Light blonde",
       "hex": "#E0CDA0"
     },
     {
       "id": "fuchsrot",
       "name": "Fuchsrot",
+      "nameEn": "Fox red",
       "hex": "#8C3A17"
     },
     {
       "id": "kupfer",
       "name": "Kupferrot",
+      "nameEn": "Copper red",
       "hex": "#B5602A"
     },
     {
       "id": "eisgrau",
       "name": "Eisgrau",
+      "nameEn": "Ice grey",
       "hex": "#9A9691"
     },
     {
       "id": "schneeweiss",
       "name": "Schneeweiß",
+      "nameEn": "Snow white",
       "hex": "#DED9D0"
     }
   ],
@@ -186,12 +439,14 @@
       "id": "leder_bh",
       "file": "R_LederBH",
       "name": "Leder-Oberteil",
+      "nameEn": "Leather top",
       "slot": "oberkoerper"
     },
     {
       "id": "leder_shorts",
       "file": "R_LederShorts",
       "name": "Lederhose, kurz",
+      "nameEn": "Leather shorts",
       "slot": "beine"
     }
   ],

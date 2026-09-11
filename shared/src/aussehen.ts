@@ -13,15 +13,14 @@
  * liefen unweigerlich auseinander.
  *
  * ── Warum die Teile EINZELN geladen werden ──────────────────────────
- * Alle 21 Frisuren in einer Datei wären 17,5 MB, die jeder Spieler vor
- * dem Anmeldebildschirm herunterlädt, um eine davon zu tragen.
- * Getrennt sind es 3,76 MB für den Körper und 0,28 bis 1,71 MB für die
- * gewählte Frisur.
+ * Alle 38 Frisuren und 18 Bärte in einer Datei müsste jeder Spieler
+ * herunterladen, obwohl jeweils nur eine Auswahl getragen wird. Getrennt
+ * lädt der Client lediglich Körper, gewählte Frisur und gewählten Bart.
  *
  * Das funktioniert nur, weil jede Teildatei DIESELBE Gelenkliste trägt
- * wie der Körper — 51 Knochen, Index für Index gleich. Erzeugt werden
- * sie deshalb ausschliesslich von tools/asset-aufteilen.py, das genau
- * das nachprüft und sonst abbricht. Wer eine Teildatei von Hand
+ * wie der Körper — 63 Knochen, Index für Index gleich. Erzeugt werden
+ * sie deshalb ausschliesslich von tools/web/charakterteile-exportieren.py,
+ * das genau das nachprüft und sonst abbricht. Wer eine Teildatei von Hand
  * exportiert, riskiert eine Frisur, die im Spiel am Fussgelenk hängt.
  */
 
@@ -43,37 +42,88 @@ export interface Frisur {
 /**
  * Reihenfolge = Reihenfolge in der Auswahl.
  *
- * Die Namen sind bewusst beschreibend und nicht durchnummeriert:
- * `H_07` sagt niemandem, ob es kurz oder lang ist. Die KENNUNG bleibt
- * `H_07`, weil sie im Spielstand steht — der Anzeigename darf sich
- * ändern, sobald jemand die Frisuren einmal in Ruhe angesehen hat.
+ * Bis die endgültigen Namen feststehen, entspricht die Nummer im Namen
+ * der stabilen Kennung. Der Anzeigename darf später geändert werden;
+ * `H_07` selbst bleibt unverändert, weil die Kennung im Spielstand steht.
  */
 export const FRISUREN: readonly Frisur[] = [
-  { id: 'H_01', datei: 'H_01', name: 'Kurzer Bob' },
-  { id: 'H_02', datei: 'H_02', name: 'Glatt, schulterlang' },
-  { id: 'H_03', datei: 'H_03', name: 'Wellig, lang' },
-  { id: 'H_04', datei: 'H_04', name: 'Seitenscheitel' },
-  { id: 'H_05', datei: 'H_05', name: 'Lang, offen' },
-  { id: 'H_06', datei: 'H_06', name: 'Voll, gestuft' },
-  { id: 'H_07', datei: 'H_07', name: 'Sehr lang' },
-  { id: 'H_08', datei: 'H_08', name: 'Kurz, gescheitelt' },
-  { id: 'H_09', datei: 'H_09', name: 'Mittellang' },
-  { id: 'H_10', datei: 'H_10', name: 'Halblang, gewellt' },
-  { id: 'H_11', datei: 'H_11', name: 'Anliegend' },
-  { id: 'H_12', datei: 'H_12', name: 'Lockig' },
-  { id: 'H_13', datei: 'H_13', name: 'Stufig' },
-  { id: 'H_14', datei: 'H_14', name: 'Zurückgekämmt' },
-  { id: 'H_15', datei: 'H_15', name: 'Sehr kurz' },
-  { id: 'H_16', datei: 'H_16', name: 'Strähnig, lang' },
-  { id: 'H_17', datei: 'H_17', name: 'Wallend' },
-  { id: 'H_18', datei: 'H_18', name: 'Dicht, lang' },
-  { id: 'H_19', datei: 'H_19', name: 'Strähnig, mittel' },
-  { id: 'H_20', datei: 'H_20', name: 'Strähnig, kurz' },
-  { id: 'H_21', datei: 'H_21', name: 'Zottelig' },
+  { id: 'H_01', datei: 'H_01', name: 'Frisur 01' },
+  { id: 'H_02', datei: 'H_02', name: 'Frisur 02' },
+  { id: 'H_03', datei: 'H_03', name: 'Frisur 03' },
+  { id: 'H_04', datei: 'H_04', name: 'Frisur 04' },
+  { id: 'H_05', datei: 'H_05', name: 'Frisur 05' },
+  { id: 'H_06', datei: 'H_06', name: 'Frisur 06' },
+  { id: 'H_07', datei: 'H_07', name: 'Frisur 07' },
+  { id: 'H_08', datei: 'H_08', name: 'Frisur 08' },
+  { id: 'H_09', datei: 'H_09', name: 'Frisur 09' },
+  { id: 'H_10', datei: 'H_10', name: 'Frisur 10' },
+  { id: 'H_11', datei: 'H_11', name: 'Frisur 11' },
+  { id: 'H_12', datei: 'H_12', name: 'Frisur 12' },
+  { id: 'H_13', datei: 'H_13', name: 'Frisur 13' },
+  { id: 'H_14', datei: 'H_14', name: 'Frisur 14' },
+  { id: 'H_15', datei: 'H_15', name: 'Frisur 15' },
+  { id: 'H_16', datei: 'H_16', name: 'Frisur 16' },
+  { id: 'H_17', datei: 'H_17', name: 'Frisur 17' },
+  { id: 'H_18', datei: 'H_18', name: 'Frisur 18' },
+  { id: 'H_19', datei: 'H_19', name: 'Frisur 19' },
+  { id: 'H_20', datei: 'H_20', name: 'Frisur 20' },
+  { id: 'H_21', datei: 'H_21', name: 'Frisur 21' },
+  { id: 'H_22', datei: 'H_22', name: 'Frisur 22' },
+  { id: 'H_23', datei: 'H_23', name: 'Frisur 23' },
+  { id: 'H_24', datei: 'H_24', name: 'Frisur 24' },
+  { id: 'H_25', datei: 'H_25', name: 'Frisur 25' },
+  { id: 'H_26', datei: 'H_26', name: 'Frisur 26' },
+  { id: 'H_27', datei: 'H_27', name: 'Frisur 27' },
+  { id: 'H_28', datei: 'H_28', name: 'Frisur 28' },
+  { id: 'H_29', datei: 'H_29', name: 'Frisur 29' },
+  { id: 'H_30', datei: 'H_30', name: 'Frisur 30' },
+  { id: 'H_31', datei: 'H_31', name: 'Frisur 31' },
+  { id: 'H_32', datei: 'H_32', name: 'Frisur 32' },
+  { id: 'H_33', datei: 'H_33', name: 'Frisur 33' },
+  { id: 'H_34', datei: 'H_34', name: 'Frisur 34' },
+  { id: 'H_35', datei: 'H_35', name: 'Frisur 35' },
+  { id: 'H_36', datei: 'H_36', name: 'Frisur 36' },
+  { id: 'H_37', datei: 'H_37', name: 'Frisur 37' },
+  { id: 'H_38', datei: 'H_38', name: 'Frisur 38' },
 ] as const;
 
 /** Was ein Spieler bekommt, der nie gewählt hat. */
 export const FRISUR_VORGABE = FRISUREN[0]!.id;
+
+export interface Bart {
+  /** Stabile Kennung; leer bedeutet glatt rasiert. */
+  readonly id: string;
+  readonly datei: string;
+  readonly name: string;
+}
+
+export const BAERTE: readonly Bart[] = Array.from({ length: 18 }, (_, index) => {
+  const nummer = String(index + 1).padStart(2, '0');
+  return { id: `B_${nummer}`, datei: `B_${nummer}`, name: `Bart ${nummer}` };
+});
+
+export const BART_VORGABE = '';
+
+export function istBart(id: unknown): boolean {
+  return typeof id === 'string' && (id === '' || BAERTE.some((b) => b.id === id));
+}
+
+export function bartZu(id: string | null | undefined): Bart | null {
+  return BAERTE.find((b) => b.id === id) ?? null;
+}
+
+/**
+ * Bart und Frisur reisen gemeinsam im vorhandenen Frisurfeld. So bleiben
+ * Kontendatenbank, ZDO und ältere Clients kompatibel; `H_04+B_02` bedeutet
+ * Frisur H_04 mit Bart B_02, ein altes `H_04` weiterhin nur die Frisur.
+ */
+export function frisurMitBart(frisur: string, bart: string): string {
+  return bart ? `${frisur}+${bart}` : frisur;
+}
+
+export function bartAusFrisur(id: string | null | undefined): Bart | null {
+  return bartZu(typeof id === 'string' ? id.split('+', 2)[1] : undefined);
+}
 
 /**
  * Rüstungsslots. Ein Slot trägt höchstens ein Teil.
@@ -99,7 +149,9 @@ export const RUESTUNG: readonly Ruestungsteil[] = [
 
 /** Kennt die Liste diese Frisur? Der Server glaubt dem Client nichts. */
 export function istFrisur(id: unknown): boolean {
-  return typeof id === 'string' && FRISUREN.some((f) => f.id === id);
+  if (typeof id !== 'string') return false;
+  const [frisur, bart = ''] = id.split('+', 2);
+  return FRISUREN.some((f) => f.id === frisur) && istBart(bart);
 }
 
 /** Kennt die Liste dieses Rüstungsteil? Leerstring = nichts angezogen. */
@@ -113,7 +165,8 @@ export function istRuestung(id: unknown): boolean {
  * unbrauchbar machen — dieselbe Regel wie bei figurZu().
  */
 export function frisurZu(id: string | null | undefined): Frisur {
-  return FRISUREN.find((f) => f.id === id) ?? FRISUREN[0]!;
+  const frisur = typeof id === 'string' ? id.split('+', 1)[0] : undefined;
+  return FRISUREN.find((f) => f.id === frisur) ?? FRISUREN[0]!;
 }
 
 export function ruestungZu(id: string | null | undefined): Ruestungsteil | null {

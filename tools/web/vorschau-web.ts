@@ -14,13 +14,12 @@
  * buendeln — die Datei auf der Webseite ist ERZEUGT.
  *
  * ── Warum die Teile einzeln geladen werden ──────────────────────────
- * Alle 21 Frisuren zusammen sind 17,5 MB. Der Koerper allein ist
- * 3,76 MB, eine Frisur 0,28 bis 1,71 MB. Wer die Auswahl oeffnet, soll
- * nicht auf 20 Frisuren warten, die er nicht traegt.
+ * Die 38 Frisuren und 18 Bärte werden einzeln nachgeladen. Wer die
+ * Auswahl öffnet, soll nicht auf 55 Teile warten, die er nicht trägt.
  *
  * Das funktioniert nur, weil jede Teildatei DIESELBE Gelenkliste traegt
- * wie der Koerper — 51 Knochen, Index fuer Index. Erzeugt werden sie von
- * tools/asset-aufteilen.py, das genau das nachprueft und sonst abbricht.
+ * wie der Koerper — 63 Knochen, Index fuer Index. Erzeugt werden sie von
+ * tools/web/charakterteile-exportieren.py aus derselben Blender-Datei.
  */
 import { Engine } from '@babylonjs/core/Engines/engine';
 import { Scene } from '@babylonjs/core/scene';
@@ -52,6 +51,8 @@ import '@babylonjs/loaders/glTF';
 
 interface Teil {
   netze: AbstractMesh[];
+  wurzeln: TransformNode[];
+  skelette: Skeleton[];
 }
 
 interface WaffenSchicht {
@@ -78,6 +79,8 @@ export class Vorschau {
   private teileErlaubt = true;
   /** Verhindert, dass Reset und Zufall denselben Körper mehrfach importieren. */
   private koerperDatei = '';
+  private koerperWurzeln: TransformNode[] = [];
+  private koerperGruppen: AnimationGroup[] = [];
   /** Nordschwert samt Arm- und Greifpose; nur beim Krieger sichtbar. */
   private waffeHalter: TransformNode | null = null;
   private waffeLaden: Promise<void> | null = null;
@@ -272,7 +275,8 @@ export class Vorschau {
     if (wurzel === this.wurzel) return;
     this.wurzel = wurzel;
     for (const teil of this.geladen.values()) {
-      for (const m of teil.netze) m.dispose();
+      for (const wurzel of teil.wurzeln) wurzel.dispose(false, true);
+      for (const skelett of teil.skelette) skelett.dispose();
     }
     this.geladen.clear();
     this.aktuell.clear();
@@ -285,20 +289,44 @@ export class Vorschau {
     this.waffeHalter = null;
     this.waffeLaden = null;
     this.waffenSchichten = [];
+    this.koerperWurzeln = [];
+    this.koerperGruppen = [];
+    this.koerperDatei = '';
   }
 
   async ladeKoerper(datei: string): Promise<void> {
     if (datei === this.koerperDatei) return;
+
+    // Beim Wechsel zwischen Wikinger und Wikingerin müssen Körper,
+    // Animationen und die auf dessen Skelett gezogenen Module gemeinsam
+    // verschwinden. Ein blosses zweites Importieren stellte beide Körper
+    // ineinander und liess Haare am alten Skelett weiterlaufen.
+    this.waffeHalter?.dispose(false, true);
+    this.waffeHalter = null;
+    this.waffeLaden = null;
+    for (const teil of this.geladen.values()) {
+      for (const wurzel of teil.wurzeln) wurzel.dispose(false, true);
+      for (const skelett of teil.skelette) skelett.dispose();
+    }
+    this.geladen.clear();
+    this.aktuell.clear();
+    for (const gruppe of this.koerperGruppen) gruppe.dispose();
+    for (const wurzel of this.koerperWurzeln) wurzel.dispose(false, true);
+    this.skelett?.dispose();
+    this.skelett = null;
+    this.koerperWurzeln = [];
+    this.koerperGruppen = [];
+
     const res = await SceneLoader.ImportMeshAsync('', this.wurzel, datei + '.glb', this.scene);
 
     this.koerperDatei = datei;
-    this.teileErlaubt = datei === 'wikingerin/WikingerinKoerper';
+    this.teileErlaubt = /^(wikinger\/WikingerKoerper|wikingerin\/WikingerinKoerper)$/.test(datei);
 
     // Der Synty-Atlas ist für einen nahezu unbeleuchteten Unity-Shader
     // gemalt. Das Spiel tönt ihn deshalb auf dieselben gemessenen Werte;
     // die Webseite muss dieselbe Figur und nicht eine ausgewaschene Kopie
     // davon zeigen. Jedes Material nur einmal setzen, weil Meshes teilen.
-    if (datei === 'wikinger/WikingerKoerper') {
+    if (this.teileErlaubt) {
       const gesehen = new Set();
       for (const mesh of res.meshes) {
         const material = mesh.material;
@@ -331,7 +359,9 @@ export class Vorschau {
     // Alle Wurzelnetze unter den gemeinsamen, soeben vermessenen
     // Figurenknoten hängen. Damit drehen Körper und kompatible Anbauteile
     // gemeinsam, ohne die Händigkeit der glTF-Wurzel selbst anzufassen.
-    for (const teil of res.meshes.filter((m) => !m.parent)) teil.parent = this.figurKnoten;
+    this.koerperWurzeln = res.meshes.filter((m) => !m.parent);
+    for (const teil of this.koerperWurzeln) teil.parent = this.figurKnoten;
+    this.koerperGruppen = res.animationGroups;
     this.skelett = res.skeletons[0] ?? null;
     for (const g of res.animationGroups) g.stop();
     // Ueber den Namen, nicht "der erste Clip": Die Reihenfolge im glTF ist
@@ -456,7 +486,11 @@ export class Vorschau {
         // atmet. Zulaessig nur, weil beide dieselbe Gelenkliste haben.
         if (this.skelett) m.skeleton = this.skelett;
       }
-      this.geladen.set(datei, { netze });
+      this.geladen.set(datei, {
+        netze,
+        wurzeln: res.meshes.filter((m) => m.parent === this.figurKnoten),
+        skelette: res.skeletons,
+      });
     }
     this.zeige(datei, true);
     // Nach dem Anzeigen faerben — eine frisch geladene Frisur bringt ihr
@@ -483,15 +517,17 @@ export class Vorschau {
 
   private faerbeFrisur(): void {
     if (!this.haarHex) return;
-    const datei = this.aktuell.get('frisur');
-    if (!datei) return;
     const farbe = Color3.FromHexString(this.haarHex).toLinearSpace();
-    for (const m of this.geladen.get(datei)?.netze ?? []) {
-      const mat = m.material as unknown as Record<string, unknown> | null;
-      if (!mat) continue;
-      // Nach Bauart statt nach Klasse: glTF liefert ein PBR-Material.
-      if ('albedoColor' in mat) mat['albedoColor'] = farbe;
-      else if ('diffuseColor' in mat) mat['diffuseColor'] = farbe;
+    for (const slot of ['frisur', 'bart']) {
+      const datei = this.aktuell.get(slot);
+      if (!datei) continue;
+      for (const m of this.geladen.get(datei)?.netze ?? []) {
+        const mat = m.material as unknown as Record<string, unknown> | null;
+        if (!mat) continue;
+        // Nach Bauart statt nach Klasse: glTF liefert ein PBR-Material.
+        if ('albedoColor' in mat) mat['albedoColor'] = farbe;
+        else if ('diffuseColor' in mat) mat['diffuseColor'] = farbe;
+      }
     }
   }
 

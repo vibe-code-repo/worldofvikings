@@ -74,10 +74,12 @@
   interface AppearanceEntry {
     id: string;
     name: string;
+    nameEn?: string;
   }
   interface Appearance {
     figures: AppearanceEntry[];
     hairstyles: AppearanceEntry[];
+    beards: AppearanceEntry[];
     equipment: AppearanceEntry[];
   }
 
@@ -95,7 +97,10 @@
   let names = $state<Record<string, string>>({});
 
   function nameOf(id: string): string {
-    return id ? (names[id] ?? id) : t['create.appearance.chest.none'];
+    if (!id) return t['create.appearance.chest.none'];
+    const [hair, beard] = id.split('+', 2);
+    if (beard) return `${names[hair] ?? hair} · ${names[beard] ?? beard}`;
+    return names[id] ?? id;
   }
 
   /* ------------------------------------------------------------ loading */
@@ -233,8 +238,8 @@
       try {
         const data = await holeJson<Appearance>('/assets/appearance.json');
         const map: Record<string, string> = {};
-        for (const e of [...data.figures, ...data.hairstyles, ...data.equipment]) {
-          map[e.id] = e.name;
+        for (const e of [...data.figures, ...data.hairstyles, ...(data.beards ?? []), ...data.equipment]) {
+          map[e.id] = lang === 'en' && e.nameEn ? e.nameEn : e.name;
         }
         names = map;
       } catch {

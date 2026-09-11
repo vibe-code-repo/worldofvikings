@@ -35,10 +35,11 @@ import { fileURLToPath } from 'node:url';
 import {
   FIGUREN, FIGUR_VORGABE,
   FRISUREN, FRISUR_VORGABE,
+  BAERTE, BART_VORGABE,
   HAARFARBEN, HAARFARBE_VORGABE,
   RUESTUNG, AUSSEHEN_ORDNER, AUSSEHEN_KOERPER,
   FRACTION_SUNRISE, FRACTION_MIDDAY, FRACTION_SUNSET,
-} from '@wov/shared';
+} from '../shared/src/index.ts';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -46,21 +47,44 @@ const AUS = argv.includes('--aus')
   ? argv[argv.indexOf('--aus') + 1]
   : resolve(HIER, '../assets/appearance.json');
 
+const englischeHaarfarben = {
+  rabenschwarz: 'Raven black', dunkelbraun: 'Dark brown', kastanie: 'Chestnut',
+  mittelbraun: 'Medium brown', hellbraun: 'Light brown', aschblond: 'Ash blonde',
+  weizenblond: 'Wheat blonde', hellblond: 'Light blonde', fuchsrot: 'Fox red',
+  kupfer: 'Copper red', eisgrau: 'Ice grey', schneeweiss: 'Snow white',
+};
+
 const daten = {
   generatedBy: 'tools/aussehen-json.mjs aus shared/src/aussehen.ts — nicht von Hand bearbeiten',
   folder: AUSSEHEN_ORDNER,
   body: AUSSEHEN_KOERPER,
-  figures: FIGUREN.map((f) => ({ id: f.id, model: f.modell, name: f.name })),
+  figures: FIGUREN.map((f) => ({
+    id: f.id, model: f.modell, name: f.name,
+    nameEn: f.id === 'wikingerin' ? 'Viking woman' : 'Viking',
+  })),
   defaultFigure: FIGUR_VORGABE,
-  hairstyles: FRISUREN.map((f) => ({ id: f.id, file: f.datei, name: f.name })),
+  hairstyles: FRISUREN.map((f, index) => ({
+    id: f.id, file: f.datei, name: f.name,
+    nameEn: `Hairstyle ${String(index + 1).padStart(2, '0')}`,
+  })),
   defaultHairstyle: FRISUR_VORGABE,
+  beards: BAERTE.map((b, index) => ({
+    id: b.id, file: b.datei, name: b.name,
+    nameEn: `Beard ${String(index + 1).padStart(2, '0')}`,
+  })),
+  defaultBeard: BART_VORGABE,
   // Der Hex-Wert geht MIT: Die Webseite setzt ihn als Farbfleck neben
   // die Auswahl und reicht ihn an die Vorschau weiter. Sie kennt
   // shared/aussehen.ts nicht — vorschau-web.ts importiert bewusst nur
   // Babylon.
-  hairColors: HAARFARBEN.map((h) => ({ id: h.id, name: h.name, hex: h.hex })),
+  hairColors: HAARFARBEN.map((h) => ({
+    id: h.id, name: h.name, nameEn: englischeHaarfarben[h.id] ?? h.name, hex: h.hex,
+  })),
   defaultHairColor: HAARFARBE_VORGABE,
-  equipment: RUESTUNG.map((r) => ({ id: r.id, file: r.datei, name: r.name, slot: r.slot })),
+  equipment: RUESTUNG.map((r) => ({
+    id: r.id, file: r.datei, name: r.name,
+    nameEn: r.id === 'leder_bh' ? 'Leather top' : 'Leather shorts', slot: r.slot,
+  })),
   // Tageszeit-Marken fuer die Uhrzeit-Auswahl der Webseite.
   //
   // Aus dem Umgebungsmodell abgeleitet, nicht abgeschrieben: die
@@ -81,7 +105,7 @@ const daten = {
 mkdirSync(dirname(AUS), { recursive: true });
 writeFileSync(AUS, JSON.stringify(daten, null, 2) + '\n', 'utf8');
 console.log(
-  'GESCHRIEBEN %s — %d Figuren, %d Frisuren, %d Ruestungsteile, %d Haarfarben',
-  AUS, daten.figures.length, daten.hairstyles.length, daten.equipment.length,
+  'GESCHRIEBEN %s — %d Figuren, %d Frisuren, %d Baerte, %d Ruestungsteile, %d Haarfarben',
+  AUS, daten.figures.length, daten.hairstyles.length, daten.beards.length, daten.equipment.length,
   daten.hairColors.length
 );

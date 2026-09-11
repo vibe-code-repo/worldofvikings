@@ -56,7 +56,7 @@ browser is the one that walks into the world.
 ![Character creation on the website: figure, hairstyle, hair colour and clothing, with a live 3D preview](Docs/bilder/erstellen.webp)
 
 **Running today** — walking, running, jumping, swimming · day and night · weather and fog,
-steerable from the server · character creation with figure, 21 hairstyles and 12 hair colours ·
+steerable from the server · character creation with two body types, 38 hairstyles, 18 beards and 12 hair colours ·
 equipment slots as a paperdoll, with clothing as real inventory items · inventory, chests,
 crafting · terraforming with hoe and cultivator · attack on the left mouse button, weapon or
 fist · multiplayer with zone-based replication · world editor, world map, chat.
@@ -191,7 +191,7 @@ dasselbe Babylon wie der Client, aus diesem Repo gebündelt — die Figur, die i
 ist die, die nachher durch die Welt läuft.
 
 **Läuft heute** — Gehen, Rennen, Springen, Schwimmen · Tag und Nacht · Wetter und Nebel, vom
-Server steuerbar · Charaktererstellung mit Figur, 21 Frisuren und 12 Haarfarben · Ausrüstungsslots
+Server steuerbar · Charaktererstellung mit zwei Körperformen, 38 Frisuren, 18 Bärten und 12 Haarfarben · Ausrüstungsslots
 als Paperdoll, mit Kleidung als echten Inventargegenständen · Inventar, Truhen, Handwerk ·
 Terraforming mit Hacke und Kultivator · Schlagen auf der linken Maustaste, mit Waffe oder Faust
 · Mehrspieler mit zonenbasierter Replikation · Welteditor, Weltkarte, Chat.

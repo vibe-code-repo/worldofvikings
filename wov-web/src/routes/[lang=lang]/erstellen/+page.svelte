@@ -66,16 +66,18 @@
    */
   interface Eintrag {
     /** sRGB-Hex, nur bei Haarfarben belegt. */
-    hex?: string; id: string; name: string; file?: string; model?: string; slot?: string }
+    hex?: string; id: string; name: string; nameEn?: string; file?: string; model?: string; slot?: string }
   interface Aussehen {
     folder: string;
     body: string;
     figures: Eintrag[];
     hairstyles: Eintrag[];
+    beards: Eintrag[];
     hairColors: Eintrag[];
     equipment: Eintrag[];
     defaultFigure?: string;
     defaultHairstyle?: string;
+    defaultBeard?: string;
     defaultHairColor?: string;
     /**
      * Stunde → Beschriftung, z. B. { "3": "Sonnenaufgang" }.
@@ -144,10 +146,11 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'wikinger-schwert-20260911';
+  const FIGUREN_STAND = 'wikinger-modular-20260911';
 
   let figur = $state('');
   let frisur = $state('');
+  let bart = $state('');
   let haarfarbe = $state('');
   let ober = $state('');
   let beine = $state('');
@@ -244,7 +247,7 @@
         // `server` steht hier nicht mehr drin: Welches Gestade gewählt ist,
         // führt seit den Kontoseiten `wov-gestade` (writeShore), und zwei
         // Orte für dieselbe Angabe laufen früher oder später auseinander.
-        JSON.stringify({ figur, frisur, haarfarbe, ober, beine, name: spielerName, zeit })
+        JSON.stringify({ figur, frisur, bart, haarfarbe, ober, beine, name: spielerName, zeit })
       );
     } catch {
       /* privater Modus: dann eben nicht */
@@ -254,6 +257,10 @@
   function datei(liste: Eintrag[], id: string): string | null {
     const e = liste.find((x) => x.id === id);
     return e?.file && daten ? `${daten.folder}/${e.file}` : null;
+  }
+
+  function eintragName(eintrag: Eintrag): string {
+    return lang === 'en' ? eintrag.nameEn ?? eintrag.name : eintrag.name;
   }
 
   /** Das Körpermodell der gewählten Figur, relativ zu /assets/models/. */
@@ -267,6 +274,8 @@
   async function zeigeAussehen() {
     if (!vorschau || !daten) return;
     await vorschau.setze('frisur', datei(daten.hairstyles, frisur) ?? datei(daten.hairstyles, daten.hairstyles[0]?.id ?? ''));
+    // Bärte gibt es im Master nur für den männlichen Grundkörper.
+    await vorschau.setze('bart', figur === 'wikinger' ? datei(daten.beards ?? [], bart) : null);
     // Die Haarfarbe ist kein Modell, sondern eine Toenung auf dem
     // Frisurmodell -- deshalb NACH der Frisur und ueber einen eigenen Weg.
     // Ohne diesen Aufruf steht die Auswahl da und die Vorschau zeigt sie
@@ -324,6 +333,7 @@
 
     figur = gueltig(daten.figures, alt.figur) ?? daten.defaultFigure ?? daten.figures[0]?.id ?? '';
     frisur = gueltig(daten.hairstyles, alt.frisur) ?? daten.defaultHairstyle ?? daten.hairstyles[0]?.id ?? '';
+    bart = gueltig(daten.beards ?? [], alt.bart) ?? daten.defaultBeard ?? '';
     haarfarbe =
       gueltig(daten.hairColors, alt.haarfarbe) ?? daten.defaultHairColor ?? daten.hairColors[0]?.id ?? '';
     ober = gueltig(daten.equipment, alt.ober) ?? '';
@@ -431,6 +441,7 @@
     if (!daten) return;
     figur = zufall(daten.figures);
     frisur = zufall(daten.hairstyles);
+    bart = figur === 'wikinger' && Math.random() > 0.25 ? zufall(daten.beards ?? []) : '';
     haarfarbe = zufall(daten.hairColors);
     ober = zufall(oberTeile, true);
     beine = zufall(beinTeile, true);
@@ -442,6 +453,7 @@
     if (!daten) return;
     figur = daten.defaultFigure ?? daten.figures[0]?.id ?? '';
     frisur = daten.defaultHairstyle ?? daten.hairstyles[0]?.id ?? '';
+    bart = daten.defaultBeard ?? '';
     haarfarbe = daten.defaultHairColor ?? daten.hairColors[0]?.id ?? '';
     ober = '';
     beine = '';
@@ -482,7 +494,9 @@
       const neu = await createCharacter(gestade, token, {
         name: spielerName.trim(),
         figure: figur,
-        hairstyle: frisur,
+        // Das bestehende Drahtfeld bleibt kompatibel: H_04+B_02 bedeutet
+        // Frisur 04 mit Bart 02; alte H_04-Werte gelten unverändert weiter.
+        hairstyle: figur === 'wikinger' && bart ? `${frisur}+${bart}` : frisur,
         hairColor: haarfarbe,
         top: ober,
         legs: beine,
@@ -610,22 +624,30 @@
         <div class="erstellen-feld">
           <label class="feldname" for="create-figure">{t['create.appearance.figure.label']}</label>
           <select id="create-figure" bind:value={figur} onchange={() => { merke(); void ladeAlles(); }}>
-            {#each daten?.figures ?? [] as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
+            {#each daten?.figures ?? [] as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
           </select>
         </div>
-        <p class="platzhalter-hinweis">{lang === 'de' ? 'Weitere Körperformen folgen.' : 'More body shapes coming later.'}</p>
+        <p class="platzhalter-hinweis">{lang === 'de' ? 'Beide Körper verwenden dieselben modularen Frisuren.' : 'Both bodies use the same modular hairstyles.'}</p>
       {:else if detailTab === 'gesicht'}
-        <div class="platzhalter-flaeche">
-          <span aria-hidden="true">ᛟ</span>
-          <p>{lang === 'de' ? 'Gesichtszüge werden im nächsten Schritt ergänzt.' : 'Facial features will be added in the next step.'}</p>
+        <div class="erstellen-feld">
+          <label class="feldname" for="create-beard">{lang === 'de' ? 'Bart' : 'Beard'}</label>
+          <div class="waehler">
+            <button type="button" disabled={figur !== 'wikinger'} aria-label={lang === 'de' ? 'Voriger Bart' : 'Previous beard'} onclick={() => { bart = schritt([{ id: '', name: '' }, ...(daten?.beards ?? [])], bart, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
+            <select id="create-beard" disabled={figur !== 'wikinger'} bind:value={bart} onchange={() => { merke(); void zeigeAussehen(); }}>
+              <option value="">{lang === 'de' ? 'Glatt rasiert' : 'Clean-shaven'}</option>
+              {#each daten?.beards ?? [] as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
+            </select>
+            <button type="button" disabled={figur !== 'wikinger'} aria-label={lang === 'de' ? 'Nächster Bart' : 'Next beard'} onclick={() => { bart = schritt([{ id: '', name: '' }, ...(daten?.beards ?? [])], bart, 1, false); merke(); void zeigeAussehen(); }}>›</button>
+          </div>
         </div>
+        {#if figur !== 'wikinger'}<p class="platzhalter-hinweis">{lang === 'de' ? 'Bärte sind für den männlichen Körper verfügbar.' : 'Beards are available for the male body.'}</p>{/if}
       {:else if detailTab === 'haare'}
         <div class="erstellen-feld">
           <label class="feldname" for="create-hairstyle">{t['create.appearance.hair.label']}</label>
           <div class="waehler">
             <button type="button" aria-label={t['create.appearance.hair.previous']} onclick={() => { frisur = schritt(daten?.hairstyles ?? [], frisur, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
             <select id="create-hairstyle" bind:value={frisur} onchange={() => { merke(); void zeigeAussehen(); }}>
-              {#each daten?.hairstyles ?? [] as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
+              {#each daten?.hairstyles ?? [] as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
             </select>
             <button type="button" aria-label={t['create.appearance.hair.next']} onclick={() => { frisur = schritt(daten?.hairstyles ?? [], frisur, 1, false); merke(); void zeigeAussehen(); }}>›</button>
           </div>
@@ -637,8 +659,8 @@
               type="button"
               class:aktiv={haarfarbe === farbe.id}
               style={'--farbton:' + (farbe.hex ?? '#777')}
-              title={farbe.name}
-              aria-label={farbe.name}
+              title={eintragName(farbe)}
+              aria-label={eintragName(farbe)}
               aria-pressed={haarfarbe === farbe.id}
               onclick={() => { haarfarbe = farbe.id; merke(); void zeigeAussehen(); }}
             ></button>
@@ -649,14 +671,14 @@
           <label class="feldname" for="create-top">{t['create.appearance.chest.label']}</label>
           <select id="create-top" bind:value={ober} onchange={() => { merke(); void zeigeAussehen(); }}>
             <option value="">{t['create.appearance.chest.none']}</option>
-            {#each oberTeile as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
+            {#each oberTeile as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
           </select>
         </div>
         <div class="erstellen-feld">
           <label class="feldname" for="create-legs">{t['create.appearance.legs.label']}</label>
           <select id="create-legs" bind:value={beine} onchange={() => { merke(); void zeigeAussehen(); }}>
             <option value="">{t['create.appearance.legs.none']}</option>
-            {#each beinTeile as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
+            {#each beinTeile as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
           </select>
         </div>
       {:else}
@@ -910,10 +932,6 @@
   .farbwahl button { width: 22px; height: 22px; padding: 0; border: 2px solid rgba(255, 255, 255, 0.5); border-radius: 50%; background: var(--farbton); box-shadow: 0 1px 5px #000; cursor: pointer; }
   .farbwahl button.aktiv { outline: 2px solid var(--runengold); outline-offset: 2px; }
   .platzhalter-hinweis { margin: 0; color: #9d947e; font-size: 11px; line-height: 1.45; }
-  .platzhalter-flaeche { display: grid; place-items: center; min-height: 118px; color: #a99b7d; text-align: center; }
-  .platzhalter-flaeche span { color: var(--runengold); font-size: 30px; opacity: 0.66; }
-  .platzhalter-flaeche p { max-width: 230px; margin: 4px 0 0; font-size: 11px; }
-
   .buehne { grid-column: 2; grid-row: 2; position: relative; min-height: 0; overflow: visible; }
   .figur-lader {
     position: absolute;

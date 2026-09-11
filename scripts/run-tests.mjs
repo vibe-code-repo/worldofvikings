@@ -1335,6 +1335,22 @@ const KERN = [
   */
   ['server', 'test/stufe2-licht.ts'],
 
+  /*
+    Block A, Bauer „Himmel und Licht": der Verlauf der Kuppel (A5), die
+    Wolkendeckung, der zweite Sonnenhof (A12) und die Schattendunkelheit
+    (A7) — alles als DATEN, ohne Browser und ohne Bild.
+
+    Warum ein eigener Test und nicht ein Abschnitt in stufe2-licht.ts:
+    Er faehrt `shared/src/lookHimmel.ts` in BEIDEN Zustaenden — „noch
+    nicht in LookHimmel eingehaengt" und „eingehaengt" —, und genau
+    dieser Wechsel steht dem Integrator noch bevor. Faellt der Test beim
+    Einhaengen um, hat er seine Arbeit getan.
+
+    Block A, builder "sky and light": dome gradient, cloud cover, the
+    second sun halo and the shadow darkness — data only, no browser.
+  */
+  ['server', 'test/a5-himmel.ts'],
+
   // ── Dungeon Generator 2.0 ──────────────────────────────────────────
   //
   // Vierzehn Dateien, die bis zum 31.08.2026 nur von Hand liefen. Das ist

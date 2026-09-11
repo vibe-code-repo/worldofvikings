@@ -25,14 +25,15 @@ import type { Scene } from '@babylonjs/core/scene';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
-import { Mesh } from '@babylonjs/core/Meshes/mesh';
-import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Material } from '@babylonjs/core/Materials/material';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { ParticleSystem } from '@babylonjs/core/Particles/particleSystem';
 import { Constants } from '@babylonjs/core/Engines/constants';
-import type { Observer } from '@babylonjs/core/Misc/observable';
+import { PostProcess } from '@babylonjs/core/PostProcesses/postProcess';
+import { Effect } from '@babylonjs/core/Materials/effect';
+import type { Camera } from '@babylonjs/core/Cameras/camera';
+import { Matrix } from '@babylonjs/core/Maths/math.vector';
 
 const VFX = '/assets/vfx/';
 /**
@@ -44,6 +45,59 @@ const VFX = '/assets/vfx/';
 const SLASH_DAUER = 0.25;
 const SLASH_GROESSE = 2.0;
 const SLASH_WACHSTUM: [number, number] = [0.7, 1.2];
+/**
+ * Der Slash des Originals ist KEIN leuchtender Bogen: Material
+ * „SwordSlash" mit dem Shader KriptoFX/RFX4/Distortion — die Alphamaske
+ * des Bogens verzerrt das Bild dahinter ueber die Normalmap
+ * (SwordSlashN), dazu ein Hauch Aufhellung und ein paar Funken. Hier als
+ * Bildschirm-Nachbearbeitung, die nur laeuft, solange ein Bogen lebt.
+ */
+const SLASH_VERZERRUNG = 0.035;
+const SLASH_AUFHELLUNG = 0.18;
+const SLASH_MAX = 2;
+
+/** Ein lebender Bogen fuer die Nachbearbeitung. */
+interface Bogen {
+  pos: Vector3;
+  start: number;
+  winkel: number;
+  spiegel: number;
+}
+
+Effect.ShadersStore['kampfSlashFragmentShader'] = `
+precision highp float;
+varying vec2 vUV;
+uniform sampler2D textureSampler;
+uniform sampler2D maske;
+uniform sampler2D normale;
+uniform vec2 aufloesung;
+uniform int anzahl;
+uniform vec4 bogen[${SLASH_MAX}];   // xy: Mitte (UV), z: halbe Groesse (px), w: Drehung (rad)
+uniform vec2 bogenExtra[${SLASH_MAX}]; // x: Spiegel (+1/-1), y: Staerke (0..1)
+void main(void) {
+  vec2 uv = vUV;
+  vec2 px = vUV * aufloesung;
+  float hell = 0.0;
+  for (int i = 0; i < ${SLASH_MAX}; i++) {
+    if (i >= anzahl) { break; }
+    vec2 mitte = bogen[i].xy * aufloesung;
+    float halb = bogen[i].z;
+    float rot = bogen[i].w;
+    vec2 d = px - mitte;
+    float cs = cos(rot); float sn = sin(rot);
+    vec2 l = vec2(cs * d.x + sn * d.y, -sn * d.x + cs * d.y) / halb;
+    l.x *= bogenExtra[i].x;
+    if (abs(l.x) > 1.0 || abs(l.y) > 1.0) { continue; }
+    vec2 tuv = l * 0.5 + 0.5;
+    float a = texture2D(maske, tuv).a * bogenExtra[i].y;
+    vec3 n = texture2D(normale, tuv).xyz * 2.0 - 1.0;
+    uv += n.xy * ${SLASH_VERZERRUNG.toFixed(3)} * a;
+    hell += a * ${SLASH_AUFHELLUNG.toFixed(3)};
+  }
+  vec3 farbe = texture2D(textureSampler, uv).rgb;
+  gl_FragColor = vec4(farbe + vec3(hell), 1.0);
+}
+`;
 /**
  * Neigung des Bogens je Hieb (rad, im Bild gegen den Uhrzeigersinn):
  * Hieb 1 ist der Stich (schraeg), Hieb 2 der Querhieb (waagerecht, von
@@ -60,6 +114,10 @@ export class KampfEffekte {
   private readonly texturen = new Map<string, Texture>();
   /** Ein Material fuer alle Slashes — einmal kompiliert, dann sofort da. */
   private readonly slashMaterial: StandardMaterial;
+  /** Lebende Boegen fuer die Verzerrung. */
+  private readonly boegen: Bogen[] = [];
+  private verzerrung: PostProcess | null = null;
+  private verzerrungKamera: Camera | null = null;
 
   constructor(private readonly scene: Scene) {
     // Alles vorladen: Der Slash lebt 0,25 s — wer die Textur erst beim
@@ -102,38 +160,76 @@ export class KampfEffekte {
    * Oeffnung (Hieb von links / von rechts).
    */
   schlagBogen(pos: Vector3, hieb = 0): void {
-    // Billboard-Traeger + gedrehtes Quad darunter: im Billboard-Modus
-    // ueberschreibt Babylon die eigene Drehung, deshalb zwei Knoten.
-    const traeger = new TransformNode('kampf_slash_traeger', this.scene);
-    traeger.position.copyFrom(pos);
-    traeger.billboardMode = Mesh.BILLBOARDMODE_ALL;
-    const plane = MeshBuilder.CreatePlane('kampf_slash', { size: SLASH_GROESSE }, this.scene);
-    plane.parent = traeger;
-    plane.rotation.z = SLASH_WINKEL[Math.max(0, Math.min(2, hieb))]!;
-    plane.isPickable = false;
-    plane.receiveShadows = false;
-    const spiegeln = hieb === 1;
-    const mat = this.slashMaterial;
-    plane.material = mat;
-    const start = performance.now();
-    const spiegel = spiegeln ? -1 : 1;
-    let obs: Observer<Scene> | null = null;
-    obs = this.scene.onBeforeRenderObservable.add(() => {
-      const t = (performance.now() - start) / 1000;
-      const a = Math.min(1, t / SLASH_DAUER);
-      const s = SLASH_WACHSTUM[0] + (SLASH_WACHSTUM[1] - SLASH_WACHSTUM[0]) * a;
-      plane.scaling.set(s * spiegel, s, s);
-      mat.alpha = 1 - a * a;
-      if (t >= SLASH_DAUER) {
-        if (obs) this.scene.onBeforeRenderObservable.remove(obs);
-        // NICHT `dispose(false, true)`: das raeumt auch die Textur ab, die
-        // im Cache fuer den naechsten Hieb liegt — ab dem zweiten Slash war
-        // nichts mehr zu sehen (11.09.2026).
-        plane.dispose(false, false);
-        mat.alpha = 1;
-        traeger.dispose();
+    const h = Math.max(0, Math.min(2, hieb));
+    this.boegen.push({ pos: pos.clone(), start: performance.now(), winkel: SLASH_WINKEL[h]!, spiegel: h === 1 ? -1 : 1 });
+    if (this.boegen.length > SLASH_MAX) this.boegen.shift();
+    // Funken am Bogen (Kind „Sparks" des Slash-Prefabs im Original)
+    this.burst({ name: 'slash_funken', textur: 'treffer_funken.png', pos, anzahl: 5, groesse: [0.06, 0.12], leben: [0.25, 0.45], tempo: [1.5, 3.5],
+      farbe: new Color4(1, 0.95, 0.7, 1), additiv: true, streuung: 1 });
+    this.verzerrungAn();
+  }
+
+  /** Nachbearbeitung nur anhaengen, solange Boegen leben (sie kostet einen Vollbild-Durchlauf). */
+  private verzerrungAn(): void {
+    const kamera = this.scene.activeCamera;
+    if (!kamera) return;
+    if (this.verzerrung && this.verzerrungKamera === kamera) return;
+    this.verzerrungAus();
+    const pp = new PostProcess('kampfSlash', 'kampfSlash', ['aufloesung', 'anzahl', 'bogen', 'bogenExtra'], ['maske', 'normale'], 1.0, kamera);
+    const maske = this.textur('schwert_slash.png');
+    const normale = this.textur('schwert_slash_n.png');
+    pp.onApply = (effect) => {
+      const engine = this.scene.getEngine();
+      const breite = engine.getRenderWidth();
+      const hoehe = engine.getRenderHeight();
+      effect.setFloat2('aufloesung', breite, hoehe);
+      effect.setTexture('maske', maske);
+      effect.setTexture('normale', normale);
+      const jetzt = performance.now();
+      const daten: number[] = [];
+      const extra: number[] = [];
+      let n = 0;
+      const sicht = this.scene.getTransformMatrix();
+      const viewport = kamera.viewport.toGlobal(breite, hoehe);
+      for (const b of this.boegen) {
+        const t = (jetzt - b.start) / 1000;
+        if (t > SLASH_DAUER || n >= SLASH_MAX) continue;
+        const a = t / SLASH_DAUER;
+        const s = SLASH_WACHSTUM[0] + (SLASH_WACHSTUM[1] - SLASH_WACHSTUM[0]) * a;
+        const mitte = Vector3.Project(b.pos, Matrix.IdentityReadOnly, sicht, viewport);
+        const rand = Vector3.Project(b.pos.add(kamera.getDirection(new Vector3(1, 0, 0)).scale((SLASH_GROESSE / 2) * s)), Matrix.IdentityReadOnly, sicht, viewport);
+        if (mitte.z < 0 || mitte.z > 1) continue;
+        const halb = Math.hypot(rand.x - mitte.x, rand.y - mitte.y);
+        // Babylon liefert Pixel von oben; die Nachbearbeitung zaehlt v von unten.
+        daten.push(mitte.x / breite, 1 - mitte.y / hoehe, halb, b.winkel);
+        extra.push(b.spiegel, 1 - a * a);
+        n++;
+      }
+      while (daten.length < SLASH_MAX * 4) daten.push(0, 0, 1, 0);
+      while (extra.length < SLASH_MAX * 2) extra.push(1, 0);
+      effect.setInt('anzahl', n);
+      effect.setArray4('bogen', daten);
+      effect.setArray2('bogenExtra', extra);
+    };
+    this.verzerrung = pp;
+    this.verzerrungKamera = kamera;
+    // Abhaengen, sobald kein Bogen mehr lebt (pro Bild geprueft).
+    const obs = this.scene.onBeforeRenderObservable.add(() => {
+      const jetzt = performance.now();
+      while (this.boegen.length && (jetzt - this.boegen[0]!.start) / 1000 > SLASH_DAUER) this.boegen.shift();
+      if (!this.boegen.length) {
+        this.scene.onBeforeRenderObservable.remove(obs);
+        this.verzerrungAus();
       }
     });
+  }
+
+  private verzerrungAus(): void {
+    if (this.verzerrung) {
+      this.verzerrung.dispose(this.verzerrungKamera ?? undefined);
+      this.verzerrung = null;
+      this.verzerrungKamera = null;
+    }
   }
 
   /** Treffer an `pos` nach Art (siehe TREFFER_*). */

@@ -141,6 +141,8 @@
   let fertig = $state(false);
   let fussHinweisAn = $state(false);
 
+  const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
+
   let figur = $state('');
   let frisur = $state('');
   let haarfarbe = $state('');
@@ -534,7 +536,17 @@
 />
 
 <main class="charakter-schmiede" data-testid="character-creator">
-  <div class="kulisse" aria-hidden="true"></div>
+  <div class="kulisse" aria-hidden="true">
+    <video
+      src={HINTERGRUND_VIDEO}
+      poster="/assets/video/schwarzwald.webp"
+      autoplay
+      muted
+      loop
+      playsinline
+      preload="auto"
+    ></video>
+  </div>
 
   <header class="schmiede-kopf">
     <h1>{t['create.title']}</h1>
@@ -737,20 +749,43 @@
     position: absolute;
     inset: 0;
     z-index: -2;
-    background-image:
-      linear-gradient(180deg, rgba(3, 8, 13, 0.36) 0%, rgba(4, 7, 9, 0.1) 46%, rgba(2, 3, 4, 0.93) 100%),
-      linear-gradient(90deg, rgba(2, 4, 5, 0.76) 0%, transparent 30%, transparent 67%, rgba(2, 4, 5, 0.82) 100%),
-      url('/assets/bilder/recke.webp');
+    overflow: hidden;
+    background-image: url('/assets/video/schwarzwald.webp');
     background-size: cover;
     background-position: center;
     filter: saturate(0.76) contrast(1.08);
+  }
+
+  .kulisse video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    transform: scale(1.025);
+  }
+
+  .kulisse::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background:
+      linear-gradient(180deg, rgba(3, 8, 13, 0.36) 0%, rgba(4, 7, 9, 0.1) 46%, rgba(2, 3, 4, 0.93) 100%),
+      linear-gradient(90deg, rgba(2, 4, 5, 0.76) 0%, transparent 30%, transparent 67%, rgba(2, 4, 5, 0.82) 100%);
   }
 
   .kulisse::after {
     content: '';
     position: absolute;
     inset: 0;
+    z-index: 2;
     background: radial-gradient(circle at 51% 45%, transparent 0 24%, rgba(0, 0, 0, 0.22) 55%, rgba(0, 0, 0, 0.62) 100%);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .kulisse video { display: none; }
   }
 
   .schmiede-kopf {

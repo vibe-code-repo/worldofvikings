@@ -58,6 +58,8 @@ export const TREFFER_PARADE = 2;
 
 export class KampfEffekte {
   private readonly texturen = new Map<string, Texture>();
+  /** Ein Material fuer alle Slashes — einmal kompiliert, dann sofort da. */
+  private readonly slashMaterial: StandardMaterial;
 
   constructor(private readonly scene: Scene) {
     // Alles vorladen: Der Slash lebt 0,25 s — wer die Textur erst beim
@@ -65,6 +67,24 @@ export class KampfEffekte {
     for (const n of ['schwert_slash.png', 'treffer_blitz.png', 'treffer_funken.png', 'treffer_flash.png', 'punkt_weich.png', 'punkt_hart.png', 'blut_spritzer.png', 'funke.png']) {
       this.textur(n);
     }
+    // Das Slash-Material ebenfalls vorab: Beim ersten Hieb kompilierte der
+    // Shader noch, und der Bogen war schon wieder weg, bevor er zu sehen
+    // war. Also einmal bauen und den Shader an einem unsichtbaren Quad
+    // uebersetzen lassen.
+    const mat = new StandardMaterial('kampf_slash', scene);
+    const tex = this.textur('schwert_slash.png');
+    mat.disableLighting = true;
+    mat.emissiveColor = Color3.White();
+    mat.emissiveTexture = tex;
+    mat.opacityTexture = tex;
+    mat.transparencyMode = Material.MATERIAL_ALPHABLEND;
+    mat.alphaMode = Constants.ALPHA_ADD;
+    mat.backFaceCulling = false;
+    this.slashMaterial = mat;
+    const probe = MeshBuilder.CreatePlane('kampf_slash_warm', { size: 0.01 }, scene);
+    probe.isVisible = false;
+    probe.material = mat;
+    void mat.forceCompilationAsync(probe).finally(() => probe.dispose(false, false));
   }
 
   private textur(name: string): Texture {
@@ -93,15 +113,7 @@ export class KampfEffekte {
     plane.isPickable = false;
     plane.receiveShadows = false;
     const spiegeln = hieb === 1;
-    const mat = new StandardMaterial('kampf_slash', this.scene);
-    const tex = this.textur('schwert_slash.png');
-    mat.disableLighting = true;
-    mat.emissiveColor = Color3.White();
-    mat.emissiveTexture = tex;
-    mat.opacityTexture = tex;
-    mat.transparencyMode = Material.MATERIAL_ALPHABLEND;
-    mat.alphaMode = Constants.ALPHA_ADD;
-    mat.backFaceCulling = false;
+    const mat = this.slashMaterial;
     plane.material = mat;
     const start = performance.now();
     const spiegel = spiegeln ? -1 : 1;
@@ -118,7 +130,7 @@ export class KampfEffekte {
         // im Cache fuer den naechsten Hieb liegt — ab dem zweiten Slash war
         // nichts mehr zu sehen (11.09.2026).
         plane.dispose(false, false);
-        mat.dispose(false, false);
+        mat.alpha = 1;
         traeger.dispose();
       }
     });
@@ -194,6 +206,7 @@ export class KampfEffekte {
   }
 
   dispose(): void {
+    this.slashMaterial.dispose(false, false);
     for (const t of this.texturen.values()) t.dispose();
     this.texturen.clear();
   }

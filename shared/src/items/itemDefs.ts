@@ -394,6 +394,27 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     useDurabilityDrain: 1,
     attackStamina: 10,
   },
+  {
+    // Kampfstab (Mikes eigenes Modell, 11.09.2026): 1,65 m, Kopf oben,
+    // Ursprung am Griffpunkt der rechten Hand 0,60 m ueber dem unteren
+    // Ende — deshalb ohne den 8-cm-Versatz des Schwerts. Gleiche Drehung
+    // wie das Schwert: die Laengsachse laeuft durch die Faust; die linke
+    // Hand greift in der Katana-Ruhepose 20 cm darunter.
+    name: 'Staff',
+    label: 'Kampfstab',
+    itemType: ItemType.TwoHandedWeapon,
+    icon: 'staff',
+    model: 'Staff',
+    maxStackSize: 1,
+    weight: 2,
+    toolTier: 1,
+    holdPosition: [0, 0.08, 0.035],
+    holdRotation: [0, Math.PI, Math.PI / 2],
+    animationSet: 'staff',
+    maxDurability: 200,
+    useDurabilityDrain: 1,
+    attackStamina: 10,
+  },
 ];
 
 /**

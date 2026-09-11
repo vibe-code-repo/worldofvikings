@@ -252,6 +252,8 @@ const KOMBO_FENSTER = 0.6;
  * Bewegung, und der Wechsel in die Ruhepose war ein Sprung.
  */
 const ANGRIFF_TEMPO = 2.5;
+/** Dritter Stabhieb (Original: Katana Attack 3 From Idle mit Speed 1,5 statt 2,5). */
+const STAB_TEMPO_HIEB3 = 1.5;
 /**
  * Waffenlos (Original: Body-Zustandsmaschine): Punch 1 und 2 mit Speed 2,
  * der Tritt mit 1,5. Die Kette heisst `faust`, `faust2`, `faust3`.
@@ -279,6 +281,15 @@ const SCHICHT_BLENDE = 0.15;
  * normalen Ruhe-/Geh-/Rennzyklus spielt).
  */
 const SCHICHT_ARM = ['Clavicle_R', 'Shoulder_R', 'Elbow_R', 'Hand_R'] as const;
+/**
+ * Knochen der beidhaendigen Armschicht (`arm_stab`, Original: Katana-
+ * Ruhepose): beide Arme halten den Stab, die Finger beider Haende kommen
+ * ueber die Nachfahren von Hand_L/Hand_R dazu.
+ */
+const SCHICHT_ARME_BEIDE = [
+  'Clavicle_L', 'Shoulder_L', 'Elbow_L', 'Hand_L',
+  'Clavicle_R', 'Shoulder_R', 'Elbow_R', 'Hand_R',
+] as const;
 
 /**
  * Eine Animationsschicht nach dem Muster der Unity-Layer: ein Clip, der
@@ -298,6 +309,8 @@ interface Schicht {
   schleife: boolean;
   /** Abspieltempo (Original: Ausruesten 2,75, Ablegen 2,25, Parade 1,5). */
   tempo: number;
+  /** Zu welcher Waffe die Schicht gehoert (Dauerschichten: schwert oder stab). */
+  satz: Waffensatz;
 }
 
 /**
@@ -330,6 +343,13 @@ interface Clip {
   grp: AnimationGroup;
   tempo: number;
 }
+
+/**
+ * Welche Angriffskette und welche Waffenschichten laufen: `faust` ohne
+ * Waffe, `schwert` einhaendig (angriff*, arm_schwert, hand_schwert),
+ * `stab` beidhaendig (stab_angriff*, arm_stab, stab_ausruesten, ...).
+ */
+export type Waffensatz = 'faust' | 'schwert' | 'stab';
 
 export class AvatarRig {
   readonly root: TransformNode;
@@ -458,6 +478,14 @@ export class AvatarRig {
    * in `kette`.
    */
   private clipsFaust: Clip[] = [];
+  /** Beidhaendige Stabkette: stab_angriff, stab_angriff2, stab_angriff3 (Katana-Familie des Originals). */
+  private clipsStab: Clip[] = [];
+  /**
+   * Waffensatz des zuletzt ergriffenen Gegenstands. Bleibt beim Ablegen
+   * stehen, damit Ablegen-Clip und ausblendende Schichten noch zur
+   * abgelegten Waffe passen.
+   */
+  private waffensatz: Waffensatz = 'schwert';
   private kette: Clip[] = [];
   /** Index des zuletzt gestarteten Schlags in `kette`. */
   private angriffIndex = -1;
@@ -642,10 +670,11 @@ export class AvatarRig {
    * While something is held the right arm stops swinging (see update) —
    * otherwise the tool flails around with the walk cycle.
    */
-  setHeldItem(node: TransformNode | null): void {
+  setHeldItem(node: TransformNode | null, satz: Waffensatz = 'schwert'): void {
     const vorher = this.held !== null;
     if (this.held && this.held !== node) this.held.parent = null;
     this.held = node;
+    if (node) this.waffensatz = satz;
     // Beim Ergreifen die Schichtclips von vorn, damit Arm und Finger nicht
     // mitten im Zyklus einsteigen.
     if (node) this.schichtZeit = 0;
@@ -799,16 +828,23 @@ export class AvatarRig {
       this.clipsAngriff = kette.length ? kette : einzel ? [einzel] : [];
       // Waffenlose Kette: faust, faust2, faust3 (Schlag, Schlag, Tritt).
       this.clipsFaust = sortiert(/^faust/i);
+      // Stabkette: stab_angriff, stab_angriff2, stab_angriff3 (beidhaendig).
+      this.clipsStab = sortiert(/^stab_angriff/i);
       this.kette = this.clipsAngriff.length ? this.clipsAngriff : this.clipsFaust;
       this.clipAngriff = this.kette[0] ?? null;
       this.angriffIndex = -1;
       this.komboRest = 0;
       // Waffenschichten (arm_*, hand_*) sind keine Zustaende: Sie werden
       // unten zu Schichten und nehmen an keiner Einteilung teil.
-      const schichtClips = clips.filter((c) => /^(arm|hand)_|^(ausruesten|ablegen|parade)/i.test(c.grp.name));
+      const schichtClips = clips.filter((c) => /^(arm|hand)_|^(stab_)?(ausruesten|ablegen|parade)/i.test(c.grp.name));
       this.baueSchichten(schichtClips);
       const rest = clips.filter(
-        (c) => c !== this.clipSprung && !this.clipsAngriff.includes(c) && !this.clipsFaust.includes(c) && !schichtClips.includes(c)
+        (c) =>
+          c !== this.clipSprung &&
+          !this.clipsAngriff.includes(c) &&
+          !this.clipsFaust.includes(c) &&
+          !this.clipsStab.includes(c) &&
+          !schichtClips.includes(c)
       );
       const wandernd = rest.filter((c) => c.tempo > 0.1);
       this.clipsRuhe = rest.filter((c) => c.tempo <= 0.1);
@@ -1433,12 +1469,13 @@ export class AvatarRig {
    * @returns false, wenn das Modell keinen Schlagclip mitbringt — dann
    *          bleibt es beim reinen Serverschlag ohne sichtbare Geste.
    */
-  schlage(bewaffnet = true): boolean {
+  schlage(satz: Waffensatz = 'schwert'): boolean {
     if (!this.nutzeClip) return false;
-    // Kette waehlen: mit Waffe die Hiebe, ohne die Faeuste (Mike, 11.09.2026).
-    // Fehlt eine Kette, laeuft die andere — besser als keine Geste.
-    const gewuenscht = bewaffnet ? this.clipsAngriff : this.clipsFaust;
-    const kette = gewuenscht.length ? gewuenscht : bewaffnet ? this.clipsFaust : this.clipsAngriff;
+    // Kette waehlen: Schwert die Hiebe, Stab die beidhaendige Kette, ohne
+    // Waffe die Faeuste (Mike, 11.09.2026). Fehlt eine Kette, laeuft eine
+    // andere — besser als keine Geste.
+    const gewuenscht = satz === 'stab' ? this.clipsStab : satz === 'schwert' ? this.clipsAngriff : this.clipsFaust;
+    const kette = gewuenscht.length ? gewuenscht : ([this.clipsAngriff, this.clipsFaust, this.clipsStab].find((k) => k.length) ?? []);
     if (!kette.length) return false;
     if (kette !== this.kette) {
       this.kette = kette;
@@ -1573,13 +1610,19 @@ export class AvatarRig {
    */
   private hiebDauer(clip: Clip): number {
     const name = clip.grp.name.toLowerCase();
-    const tempo = this.clipsFaust.includes(clip) ? (/^faust3/.test(name) ? TRITT_TEMPO : FAUST_TEMPO) : ANGRIFF_TEMPO;
+    const tempo = this.clipsFaust.includes(clip)
+      ? /^faust3/.test(name)
+        ? TRITT_TEMPO
+        : FAUST_TEMPO
+      : this.clipsStab.includes(clip) && /3$/.test(name)
+        ? STAB_TEMPO_HIEB3
+        : ANGRIFF_TEMPO;
     return Math.max(this.angriffDauer, this.clipLaenge(clip) / tempo);
   }
 
   /** Gehoert der Clip zu einer der Angriffsketten (Hiebe oder Faeuste)? */
   private istHieb(c: Clip | null): boolean {
-    return c !== null && (this.clipsAngriff.includes(c) || this.clipsFaust.includes(c));
+    return c !== null && (this.clipsAngriff.includes(c) || this.clipsFaust.includes(c) || this.clipsStab.includes(c));
   }
 
   /** Index des zuletzt gestarteten Hiebs in seiner Kette (0…n−1), −1 = keiner. */
@@ -1815,19 +1858,21 @@ export class AvatarRig {
     const hand = scene.getTransformNodeByName('Hand_R');
     const finger = new Set(hand ? hand.getDescendants(false).map((n) => n.name) : []);
     const handL = scene.getTransformNodeByName('Hand_L');
-    const oberkoerper = new Set<string>([
-      ...SCHICHT_OBERKOERPER,
-      ...finger,
-      ...(handL ? handL.getDescendants(false).map((n) => n.name) : []),
-    ]);
+    const fingerL = new Set(handL ? handL.getDescendants(false).map((n) => n.name) : []);
+    const oberkoerper = new Set<string>([...SCHICHT_OBERKOERPER, ...finger, ...fingerL]);
+    // Beidhaendige Stabschicht: beide Arme samt allen Fingern.
+    const beideArme = new Set<string>([...SCHICHT_ARME_BEIDE, ...finger, ...fingerL]);
     for (const clip of clips) {
       const istArm = /^arm_/i.test(clip.grp.name);
-      const istAktion = /^(ausruesten|ablegen|parade)/i.test(clip.grp.name);
+      const istStab = /^(arm_stab|hand_stab|stab_)/i.test(clip.grp.name);
+      const istAktion = /^(stab_)?(ausruesten|ablegen|parade)/i.test(clip.grp.name);
       const maske = (name: string) =>
         istAktion
           ? oberkoerper.has(name)
           : istArm
-            ? (SCHICHT_ARM as readonly string[]).includes(name)
+            ? istStab
+              ? beideArme.has(name)
+              : (SCHICHT_ARM as readonly string[]).includes(name)
             : finger.has(name);
       const kanaele: Schicht['kanaele'] = [];
       let fps = 60;
@@ -1841,7 +1886,8 @@ export class AvatarRig {
         const schicht: Schicht = {
           name: clip.grp.name, kanaele, von: clip.grp.from, bis: clip.grp.to, fps,
           schleife: !istAktion,
-          tempo: istAktion ? AKTION_TEMPO[clip.grp.name.split('_')[0]!.toLowerCase()] ?? 1 : 1,
+          tempo: istAktion ? AKTION_TEMPO[clip.grp.name.replace(/^stab_/i, '').split('_')[0]!.toLowerCase()] ?? 1 : 1,
+          satz: istStab ? 'stab' : 'schwert',
         };
         if (istAktion) this.aktionen.set(clip.grp.name.toLowerCase(), schicht);
         else this.schichten.push(schicht);
@@ -1868,14 +1914,19 @@ export class AvatarRig {
   starteAktion(name: string): boolean {
     if (!this.nutzeClip) return false;
     let schluessel = name.toLowerCase();
+    // Stab: die stab_-Varianten, wenn die Figur sie mitbringt, sonst die des Schwerts.
+    const praefix = this.waffensatz === 'stab' ? 'stab_' : '';
     if (schluessel === 'parade') {
-      const richtungen = [...this.aktionen.keys()].filter((k) => k.startsWith('parade_'));
+      let richtungen = [...this.aktionen.keys()].filter((k) => k.startsWith(`${praefix}parade_`));
+      if (!richtungen.length) richtungen = [...this.aktionen.keys()].filter((k) => k.startsWith('parade_'));
       if (!richtungen.length) return false;
       schluessel = richtungen[Math.floor(Math.random() * richtungen.length)]!;
+    } else if (praefix && this.aktionen.has(praefix + schluessel)) {
+      schluessel = praefix + schluessel;
     }
     const schicht = this.aktionen.get(schluessel);
     if (!schicht) return false;
-    if (schluessel.startsWith('parade') && this.angriffRest > 0) return false;
+    if (schluessel.includes('parade') && this.angriffRest > 0) return false;
     const spanne = (schicht.bis - schicht.von) / schicht.fps;
     this.aktion = { schicht, zeit: 0, dauer: spanne / schicht.tempo };
     return true;
@@ -1902,7 +1953,7 @@ export class AvatarRig {
     const ak = this.aktion;
     if (ak) {
       ak.zeit += dt;
-      if (ak.zeit >= ak.dauer || (this.angriffRest > 0 && !ak.schicht.name.toLowerCase().startsWith('ablegen'))) {
+      if (ak.zeit >= ak.dauer || (this.angriffRest > 0 && !ak.schicht.name.toLowerCase().includes('ablegen'))) {
         // Zu Ende — oder ein Hieb hat sie ueberholt (Full Body Layer).
         this.aktion = null;
       } else {
@@ -1941,6 +1992,8 @@ export class AvatarRig {
     if (this.schichtGewicht <= 0) return;
     this.schichtZeit += dt;
     for (const s of this.schichten) {
+      // Nur die Schichten der gehaltenen Waffe (Schwert: rechter Arm, Stab: beide Arme).
+      if (s.satz !== this.waffensatz) continue;
       const spanne = s.bis - s.von;
       const frame = spanne > 0 ? s.von + ((this.schichtZeit * s.fps) % spanne) : s.von;
       this.schreibeSchicht(s, frame, this.schichtGewicht);

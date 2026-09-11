@@ -4637,6 +4637,8 @@ function pickableItem(prefabName: string): { name: string; amount: number } | nu
 /** Nahkampfschaden je Waffe ('' = Faust). */
 const WAFFEN_SCHADEN: Record<string, number> = {
   '': 4,
+  SwordNorth: 12,
+  Staff: 10,
   Club: 12,
   AxeFlint: 15,
   PickaxeAntler: 8,

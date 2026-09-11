@@ -981,6 +981,8 @@ const EIGENE_MODELLE_ALT: readonly string[] = [
   // des Wikingers eine Klinge in der Hand hat. Fehlt der Name hier,
   // streicht bauItemDefs() das Modell still und die Hand bleibt leer.
   'SwordNorth',
+  // Kampfstab, Mikes eigenes Modell (11.09.2026), beidhaendig.
+  'Staff',
   // Wieder aufgenommen 16.08.2026 — siehe HINT_DEFS.
   'Steinkreis',
   'BirkeHoch1',

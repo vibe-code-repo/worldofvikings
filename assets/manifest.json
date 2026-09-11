@@ -1,8 +1,8 @@
 {
- "erzeugt": "2026-09-11T14:19:25.627Z",
+ "erzeugt": "2026-09-11T21:21:07.702Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 224,
- "gemessen": 224,
+ "anzahl": 225,
+ "gemessen": 225,
  "uebernommen": [],
  "modelle": {
   "Ampfer1": {
@@ -3381,6 +3381,32 @@
    "meshlos": false,
    "skins": 0
   },
+  "Staff": {
+   "datei": "Staff.glb",
+   "foliage": false,
+   "bytes": 395196,
+   "huelle": {
+    "min": [
+     -0.206,
+     -0.6,
+     -0.106
+    ],
+    "max": [
+     0.211,
+     1.05,
+     0.125
+    ]
+   },
+   "breite": 0.417,
+   "hoehe": 1.65,
+   "tiefe": 0.231,
+   "dreiecke": 9670,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
   "Steinbank1": {
    "datei": "Steinbank1.glb",
    "foliage": true,
@@ -5368,7 +5394,7 @@
   "wikinger/WikingerKoerper": {
    "datei": "wikinger/WikingerKoerper.glb",
    "foliage": false,
-   "bytes": 1379700,
+   "bytes": 1898712,
    "huelle": {
     "min": [
      -1.024,
@@ -5454,6 +5480,42 @@
     },
     {
      "name": "parade_unten",
+     "dauer": 0.625
+    },
+    {
+     "name": "stab_angriff",
+     "dauer": 3.042
+    },
+    {
+     "name": "stab_angriff2",
+     "dauer": 3.042
+    },
+    {
+     "name": "stab_angriff3",
+     "dauer": 1.792
+    },
+    {
+     "name": "arm_stab",
+     "dauer": 0.125
+    },
+    {
+     "name": "stab_ausruesten",
+     "dauer": 1.708
+    },
+    {
+     "name": "stab_ablegen",
+     "dauer": 1.292
+    },
+    {
+     "name": "stab_parade_links",
+     "dauer": 0.625
+    },
+    {
+     "name": "stab_parade_rechts",
+     "dauer": 0.667
+    },
+    {
+     "name": "stab_parade_unten",
      "dauer": 0.625
     }
    ],

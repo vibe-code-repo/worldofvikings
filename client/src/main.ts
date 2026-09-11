@@ -3904,8 +3904,10 @@ async function main() {
       // hätten hier nichts zu unterscheiden; welche Hiebe der Kombo
       // laufen, entscheidet AvatarRig.schlage() selbst.
       // Mit Waffe die Hiebe, mit leerer Hand die Faeuste (Mike, 11.09.2026).
-      const bewaffnet = !!equipment?.rightItem;
-      if (player.avatar.schlage(bewaffnet) && bewaffnet) {
+      const rechts = equipment?.rightItem;
+      const satz = rechts ? (rechts.shared.animationSet === 'staff' ? ('stab' as const) : ('schwert' as const)) : ('faust' as const);
+      // Der Slash-Halbmond gehoert zur Klinge; der Stab bekommt keinen.
+      if (player.avatar.schlage(satz) && satz === 'schwert') {
         // Slash-Halbmond zur Spitze des jeweiligen Hiebs (Hand_R-Maxima
         // der drei Clips bei Tempo 2,5: 0,28 / 0,40 / 0,68 s), vor der
         // Figur in Brusthoehe; Hieb 2 ist der Querhieb von der anderen Seite.

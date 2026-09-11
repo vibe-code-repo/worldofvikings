@@ -78,6 +78,11 @@ export interface ItemShared {
    */
   holdPosition?: readonly [number, number, number];
   holdRotation?: readonly [number, number, number];
+  /**
+   * Animationssatz der Figur beim Halten: `sword` einhaendig (Vorgabe),
+   * `staff` beidhaendig (Katana-Kette und beidarmige Ruheschicht).
+   */
+  animationSet?: 'sword' | 'staff';
 
   // Cost levers. Deliberately unused in the first pass (see the plan): the
   // fields exist so enabling stamina/durability later is a local change.

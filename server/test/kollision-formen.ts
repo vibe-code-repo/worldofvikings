@@ -29,7 +29,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { kollisionsForm, storeKollision, type KollisionsForm } from '@wov/shared';
+import {
+  FORM_UEBERSTEUERUNG,
+  GROSSBUSCH_RADIUS,
+  kollisionsForm,
+  storeKollision,
+  type KollisionsForm,
+} from '@wov/shared';
 import { leseGlb } from '@wov/shared/src/kollision/glb.js';
 import { KollisionsFormen } from '../src/world/KollisionsFormen';
 
@@ -100,9 +106,17 @@ function gleich(a: Record<string, unknown> | null, b: Record<string, unknown> | 
 // ── (c) zuerst: ohne Speicher darf nichts krachen ────────────────────
 const leer = new KollisionsFormen(join(WURZEL, 'gibt-es-nicht'));
 const leerErgebnis = leer.vorladen();
+/*
+  `fest` ist hier NICHT null, sondern genau so gross wie die Handtabelle
+  (`shared/src/kollision/formUebersteuerung.ts`) — und das ist der
+  Unterschied zwischen „erfunden" und „erklärt": Die fünf grossen Büsche
+  haben ihre Kapsel im Quelltext stehen und brauchen keine GLB. Alles
+  andere, was aus Geometrie käme, bleibt ohne Speicher leer.
+*/
 pruefe(
-  leerErgebnis.fest === 0 && leerErgebnis.fehlend > 0,
-  `(c) ohne assets/: keine Form, ${leerErgebnis.fehlend} fehlende Datei(en), kein Absturz`,
+  leerErgebnis.fest === FORM_UEBERSTEUERUNG.size && leerErgebnis.fehlend > 0,
+  `(c) ohne assets/: nur die ${FORM_UEBERSTEUERUNG.size} Handformen, ` +
+    `${leerErgebnis.fehlend} fehlende Datei(en), kein Absturz`,
   JSON.stringify(leerErgebnis)
 );
 pruefe(
@@ -191,6 +205,29 @@ pruefe(
 pruefe(
   quelle.formFuer('environment-sm-env-rock-cliff-01')?.art === 'netz',
   '(b) der Fels bekommt die exakte Oberfläche, nicht die Katalog-Kiste'
+);
+/*
+  Und die Ausnahme von der Ausnahme: Speicher-Vegetation bekommt keinen
+  Körper — AUSSER den fünf grossen Büschen. Die Zeile darüber
+  (`vegetation-tree-1c3`) und diese hier gehören zusammen gelesen.
+*/
+for (const [name, form] of FORM_UEBERSTEUERUNG) {
+  const ist = quelle.formFuer(name);
+  pruefe(
+    ist?.art === 'kapsel' &&
+      form.art === 'kapsel' &&
+      ist.radius === form.radius &&
+      ist.yMin === form.yMin &&
+      ist.yMax === form.yMax,
+    `(b) ${name}: die Handform erreicht die Quelle unverändert`,
+    JSON.stringify(ist)
+  );
+}
+pruefe(
+  quelle.formFuer('vegetation-large-bush-1a1')?.art === 'kapsel' &&
+    quelle.formFuer('vegetation-bush-1a1') === null &&
+    quelle.formFuer('vegetation-grass-short-clump-1') === null,
+  `(b) grosse Büsche fest (r ${GROSSBUSCH_RADIUS} m), kleine Büsche und Gras durchlässig`
 );
 
 console.log(fehler === 0 ? '\nOK — Server und Client sehen dieselben Hindernisse' : `\n${fehler} FEHLER`);

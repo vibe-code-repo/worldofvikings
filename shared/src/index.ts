@@ -52,6 +52,7 @@ export * from './storeKollisionDaten.js';
 export * from './kollision/form.js';
 export * from './kollision/formen.js';
 export * from './kollision/festeKoerper.js';
+export * from './kollision/formUebersteuerung.js';
 export * from './npc.js';
 export * from './leben.js';
 export * from './aggro.js';

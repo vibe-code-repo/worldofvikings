@@ -88,7 +88,13 @@ interface Golden {
     name: string;
     modell: string;
     havok: Record<string, unknown>;
-    havokVorher: Record<string, unknown>;
+    /**
+     * Die Form aus origin/main — oder `null`, wenn es dort KEINE gab.
+     * `null` steht nur zusammen mit `geaendert`: Ein Prefab, das erst
+     * heute einen Körper bekommt, hat kein „vorher", das man vergleichen
+     * könnte, und eine erfundene Zahl wäre schlimmer als keine.
+     */
+    havokVorher: Record<string, unknown> | null;
     geaendert?: string;
   }[];
   /**

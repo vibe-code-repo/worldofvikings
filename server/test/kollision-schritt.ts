@@ -18,6 +18,7 @@
  * Lauf: npx tsx server/test/kollision-schritt.ts   (aus server/)
  */
 import { createWovServer } from '../src/WovServer.js';
+import { KollisionsFormen } from '../src/world/KollisionsFormen.js';
 import { Kollisionswelt } from '../src/world/Kollisionswelt.js';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
@@ -34,6 +35,7 @@ import {
   LAUF_TEMPO,
   SCHRITT_LAENGE,
 } from '@wov/shared/src/bewegung/masse.js';
+import { GROSSBUSCH_RADIUS } from '@wov/shared';
 
 let fehler = 0;
 function pruefe(name: string, ok: boolean, detail = ''): void {
@@ -398,6 +400,71 @@ const testQuelle: FormQuelle = {
   console.log(`  (25 Spieler zu 20 Hz = 500 Pakete/s -> ${(jePaket * 500 / 10).toFixed(1)} % einer Kernlast)`);
 
   for (const z of zdos) server.zdos.destroyZDO(z.zdoid);
+}
+
+// [B4] Grosse Buesche sind fest, kleine nicht ─────────────────────────
+/*
+  Die Entscheidung vom 11.09.2026 am SERVERWEG, nicht nur an der Tabelle:
+  Ein grosser Busch muss den Spieler anhalten, ein kleiner ihn
+  durchlassen — und zwar hier, wo die Serverkorrektur entsteht. Laeuft
+  das auseinander, sieht man im Client die Kapsel und wird vom Server
+  hindurchgezogen (oder umgekehrt: man steht im Bild frei und der Server
+  haelt einen fest).
+
+  Die ECHTE Formquelle, nicht die Testkiste von oben: Der Weg von
+  `formUebersteuerung` ueber `KollisionsFormen.ableiten` bis zum
+  Nahfeld soll mitgeprueft werden. Er braucht dafuer keine GLB — die
+  Handform steht in einer Zeile Quelltext —, deshalb laeuft dieser
+  Abschnitt auch im CI-Checkout ohne `assets/`.
+*/
+{
+  const echteQuelle = new KollisionsFormen();
+  server.kollisionswelt.setzeFormQuelle(echteQuelle);
+
+  const GROSS = 'vegetation-large-bush-1a1';
+  const KLEIN = 'vegetation-bush-1a1';
+  const grossForm = echteQuelle.formFuer(GROSS);
+  pruefe('grosser Busch: die Quelle liefert eine Kapsel',
+    grossForm?.art === 'kapsel' && grossForm.radius === GROSSBUSCH_RADIUS,
+    JSON.stringify(grossForm));
+  pruefe('kleiner Busch: die Quelle liefert weiterhin nichts',
+    echteQuelle.formFuer(KLEIN) === null);
+
+  for (const [name, haeltAn] of [[GROSS, true], [KLEIN, false]] as const) {
+    const hash = getStableHash(name);
+    const def = server.prefabs.getByHash(hash);
+    pruefe(`${name} ist registriert`, def !== undefined);
+    if (def === undefined) continue;
+    const zdo = server.zdos.createZDO(hash, { x: platz.x + 8, y: platz.y, z: platz.z });
+
+    const peer = machPeer();
+    peer.position = { ...platz };
+    uhr = echteUhr();
+    peer.lastInputTime = uhr;
+    for (let i = 0; i < 100; i += 1) {
+      uhr += TAKT;
+      schickeEingabe(peer, eingabe(1, 0, false));
+    }
+    const gelaufen = peer.position.x - platz.x;
+    /*
+      Wo der Halt zu erwarten ist: Der Mantel steht bei 8 −
+      r·Skalierung, und die Figur (KOERPER_RADIUS) haelt davor. Die
+      Skalierung des EXEMPLARS kommt aus dem Katalog — nicht geraten,
+      sondern abgefragt, wie oben bei Rock_3.
+    */
+    const mantel = 8 - GROSSBUSCH_RADIUS * def.localScale.x;
+    const halt = mantel - KOERPER_RADIUS;
+    if (haeltAn) {
+      pruefe(`${name}: der Server haelt davor an`,
+        gelaufen > halt - 0.35 && gelaufen <= mantel,
+        `x+${gelaufen.toFixed(2)} m (Mantel +${mantel.toFixed(2)}, erwartet ~+${halt.toFixed(2)}, frei waeren +${(4.5 * 5).toFixed(0)})`);
+    } else {
+      pruefe(`${name}: man laeuft hindurch`,
+        gelaufen > 20,
+        `x+${gelaufen.toFixed(2)} m`);
+    }
+    server.zdos.destroyZDO(zdo.zdoid);
+  }
 }
 
 Date.now = echteUhr;

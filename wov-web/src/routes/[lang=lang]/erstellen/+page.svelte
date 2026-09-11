@@ -66,7 +66,7 @@
    */
   interface Eintrag {
     /** sRGB-Hex, nur bei Haarfarben belegt. */
-    hex?: string; id: string; name: string; file?: string; slot?: string }
+    hex?: string; id: string; name: string; file?: string; model?: string; slot?: string }
   interface Aussehen {
     folder: string;
     body: string;
@@ -142,6 +142,8 @@
   let fussHinweisAn = $state(false);
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
+  /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
+  const FIGUREN_STAND = 'wikinger-20260911';
 
   let figur = $state('');
   let frisur = $state('');
@@ -253,6 +255,12 @@
     return e?.file && daten ? `${daten.folder}/${e.file}` : null;
   }
 
+  /** Das Körpermodell der gewählten Figur, relativ zu /assets/models/. */
+  function koerperDatei(): string {
+    const ausgewaehlt = daten?.figures.find((eintrag) => eintrag.id === figur);
+    return ausgewaehlt?.model ?? (daten ? `${daten.folder}/${daten.body}` : '');
+  }
+
   /* -------------------------------------------------------- Die Bühne */
 
   async function zeigeAussehen() {
@@ -274,7 +282,7 @@
     hinweisText = null;
     try {
       await vorschau.setzeWurzel(modellWurzel);
-      await vorschau.ladeKoerper(`${daten.folder}/${daten.body}`);
+      await vorschau.ladeKoerper(koerperDatei());
       await zeigeAussehen();
       fertig = true;
     } catch (e) {
@@ -282,7 +290,7 @@
       // „liess sich nicht laden“ — damit war weder zu erkennen, ob der Server
       // schweigt, ob die Datei fehlt oder ob der Browser die Domaingrenze
       // blockt, und jede Fehlersuche begann mit Raten.
-      const url = `${modellWurzel}${daten.folder}/${daten.body}.glb`;
+      const url = `${modellWurzel}${koerperDatei()}.glb`;
       console.warn('[erstellung] Laden fehlgeschlagen:', url, e);
       let grund = String(e instanceof Error ? e.message : e);
       try {
@@ -333,7 +341,7 @@
 
     if (!daten) {
       try {
-        daten = await holeJson<Aussehen>('/assets/appearance.json');
+        daten = await holeJson<Aussehen>(`/assets/appearance.json?v=${FIGUREN_STAND}`);
       } catch (e) {
         console.error('[erstellung]', e);
         hinweisText = t['create.stage.hint.lists_missing'];
@@ -350,7 +358,7 @@
         heraus — Vite soll die 2,8 MB weder anfassen noch mitziehen.
       */
       try {
-        const pfad = '/assets/js/vorschau.js';
+        const pfad = `/assets/js/vorschau.js?v=${FIGUREN_STAND}`;
         const modul = (await import(/* @vite-ignore */ pfad)) as {
           Vorschau: new (leinwand: HTMLCanvasElement, wurzel: string) => Vorschau;
         };

@@ -42,6 +42,7 @@ import { DynamicTexture as Fleck } from '@babylonjs/core/Materials/Textures/dyna
 import { RawCubeTexture } from '@babylonjs/core/Materials/Textures/rawCubeTexture';
 import { Constants } from '@babylonjs/core/Engines/constants';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Skeleton } from '@babylonjs/core/Bones/skeleton';
@@ -65,6 +66,10 @@ export class Vorschau {
   private zerstoert = false;
   private beobachter: ResizeObserver | null = null;
   private sonne!: DirectionalLight;
+  /** Nur das alte Wikingerin-Rig kann deren separate Aussehensteile tragen. */
+  private teileErlaubt = true;
+  /** Verhindert, dass Reset und Zufall denselben Körper mehrfach importieren. */
+  private koerperDatei = '';
   /*
     Ein Knoten fuer alles, was zur Figur gehoert.
 
@@ -198,7 +203,10 @@ export class Vorschau {
     this.zeigerAnschliessen(leinwand);
 
     this.figurKnoten = new TransformNode('figur', this.scene);
-    this.figurKnoten.scaling.setAll(Vorschau.FIGURHOEHE);
+    // Der Skalierungsfaktor folgt nach dem Laden aus den echten Modellmaßen.
+    // Die alte Wikingerin ist 1,0 Modelleinheit hoch, der neue Wikinger
+    // bereits 1,79. Ein fester Faktor von 1,8 machte ihn sonst 3,2 m groß.
+    this.figurKnoten.scaling.setAll(1);
 
     this.scene.onBeforeRenderObservable.add(() => this.blickpunktNachfuehren());
     this.umgebungslichtSetzen();
@@ -259,14 +267,49 @@ export class Vorschau {
   }
 
   async ladeKoerper(datei: string): Promise<void> {
+    if (datei === this.koerperDatei) return;
     const res = await SceneLoader.ImportMeshAsync('', this.wurzel, datei + '.glb', this.scene);
 
-    /*
-      Die Figur misst im Modell 1,00 Einheit (nachgemessen mit
-      tools/glb-bbox.js). Die Szene rechnet in Metern, ein Mensch ist
-      1,80 m — also gestreckt. Sie steht bei y = 0, und dort liegt seit dem
-      Gelaendeaufbau genau die Bodenhoehe des gewaehlten Ortes.
-    */
+    this.koerperDatei = datei;
+    this.teileErlaubt = datei === 'wikingerin/WikingerinKoerper';
+
+    // Der Synty-Atlas ist für einen nahezu unbeleuchteten Unity-Shader
+    // gemalt. Das Spiel tönt ihn deshalb auf dieselben gemessenen Werte;
+    // die Webseite muss dieselbe Figur und nicht eine ausgewaschene Kopie
+    // davon zeigen. Jedes Material nur einmal setzen, weil Meshes teilen.
+    if (datei === 'wikinger/WikingerKoerper') {
+      const gesehen = new Set();
+      for (const mesh of res.meshes) {
+        const material = mesh.material;
+        if (!material || gesehen.has(material)) continue;
+        gesehen.add(material);
+        if (material instanceof PBRMaterial) {
+          material.albedoColor.set(0.7305, 0.4904, 0.4179);
+        }
+      }
+    }
+
+    // Beide spielbaren Körper haben andere Exportmaße. Aus der Bindepose
+    // messen, auf 1,80 m bringen und den tiefsten Punkt auf den Boden setzen.
+    let unten = Infinity;
+    let oben = -Infinity;
+    for (const mesh of res.meshes) {
+      if (mesh.getTotalVertices() === 0) continue;
+      mesh.computeWorldMatrix(true);
+      const kasten = mesh.getBoundingInfo().boundingBox;
+      unten = Math.min(unten, kasten.minimumWorld.y);
+      oben = Math.max(oben, kasten.maximumWorld.y);
+    }
+    const hoehe = oben - unten;
+    const faktor = Number.isFinite(hoehe) && hoehe > 0.01
+      ? Vorschau.FIGURHOEHE / hoehe
+      : Vorschau.FIGURHOEHE;
+    this.figurKnoten.scaling.setAll(faktor);
+    this.figurKnoten.position.y = Number.isFinite(unten) ? -unten * faktor : 0;
+
+    // Alle Wurzelnetze unter den gemeinsamen, soeben vermessenen
+    // Figurenknoten hängen. Damit drehen Körper und kompatible Anbauteile
+    // gemeinsam, ohne die Händigkeit der glTF-Wurzel selbst anzufassen.
     for (const teil of res.meshes.filter((m) => !m.parent)) teil.parent = this.figurKnoten;
     this.skelett = res.skeletons[0] ?? null;
     for (const g of res.animationGroups) g.stop();
@@ -286,6 +329,7 @@ export class Vorschau {
   }
 
   async setze(slot: string, datei: string | null): Promise<void> {
+    if (!this.teileErlaubt) return;
     if (this.aktuell.get(slot) === (datei ?? '')) return;
     const vorher = this.aktuell.get(slot);
     if (vorher) this.zeige(vorher, false);

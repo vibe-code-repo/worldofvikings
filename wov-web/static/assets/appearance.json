@@ -4,12 +4,12 @@
   "body": "WikingerinKoerper",
   "figures": [
     {
-      "id": "wikingerin",
-      "model": "wikingerin/WikingerinKoerper",
-      "name": "Wikingerin"
+      "id": "wikinger",
+      "model": "wikinger/WikingerKoerper",
+      "name": "Wikinger"
     }
   ],
-  "defaultFigure": "wikingerin",
+  "defaultFigure": "wikinger",
   "hairstyles": [
     {
       "id": "H_01",

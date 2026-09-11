@@ -22,8 +22,11 @@ import {
   GEH_TEMPO,
   KOERPER_RADIUS,
   LAUF_TEMPO,
+  KOERPER_HOEHE,
   MAX_SCHRITTE,
   SCHRITT_LAENGE,
+  STEIGUNGS_GRENZE_COS,
+  STEIGUNGS_GRENZE_GRAD,
   STRAHL_HOEHEN,
   STUFEN_HOEHE,
   istWand,
@@ -189,13 +192,50 @@ console.log('\n[3] Wand oder Hang:');
     const r = (grad * Math.PI) / 180;
     return { x: Math.sin(r), y: Math.cos(r), z: 0 };
   };
+  // Die Grenze ist seit dem 11.09.2026 60 Grad (Originalwert des
+  // Vorbilds, Entscheidung Mike). 45 und 55 sind das, was vorher Wand war
+  // und jetzt Hang sein MUSS; 65 ist die Gegenprobe.
   pruefe('35 Grad ist Hang', !istWand(normaleBei(35)));
-  pruefe('45 Grad ist Wand', istWand(normaleBei(45)));
+  pruefe('45 Grad ist Hang (bis 11.09.2026 Wand)', !istWand(normaleBei(45)));
+  pruefe('55 Grad ist Hang', !istWand(normaleBei(55)));
+  pruefe('65 Grad ist Wand', istWand(normaleBei(65)));
   pruefe('senkrecht ist Wand', istWand({ x: 1, y: 0, z: 0 }));
   pruefe('waagerecht ist Hang', !istWand({ x: 0, y: 1, z: 0 }));
+
+  // Das Literal gegen seine Herleitung: `masse.ts` darf keine
+  // Trigonometrie rufen, also steht der Kosinus als Zahl da — und genau
+  // deshalb muss EIN Test nachrechnen, dass es die richtige ist.
+  pruefe('STEIGUNGS_GRENZE_COS ist cos(STEIGUNGS_GRENZE_GRAD)',
+    Math.abs(STEIGUNGS_GRENZE_COS - Math.cos((STEIGUNGS_GRENZE_GRAD * Math.PI) / 180)) < 1e-12,
+    `${STEIGUNGS_GRENZE_COS} vs. ${Math.cos((STEIGUNGS_GRENZE_GRAD * Math.PI) / 180)}`);
+
   pruefe('der untere Strahl liegt zwischen Stufenhoehe und 0,5 m',
     STRAHL_HOEHEN[0]! > STUFEN_HOEHE && STRAHL_HOEHEN[0]! < 0.5,
     `${STRAHL_HOEHEN[0]} m`);
+
+  /*
+    Die beiden Sweep-Kugeln des Servers, nachgerechnet (s.
+    `Kollisionswelt.ersterTreffer` und den Kopf von `STRAHL_HOEHEN`):
+
+      untere Kugel  Mitte STRAHL_HOEHEN[0] + r   → oben  +r
+      obere  Kugel  Mitte STRAHL_HOEHEN[1]       → oben  +r, unten −r
+
+    Zwei Bedingungen, und beide haengen an der Kapselhoehe:
+    der Scheitel der oberen Kugel IST der Scheitel der Kapsel, und
+    zwischen den Kugeln darf keine Luecke klaffen — sonst faellt ein
+    waagerechter Balken genau hindurch, ohne getroffen zu werden.
+  */
+  const r = KOERPER_RADIUS;
+  const untenOben = STRAHL_HOEHEN[0]! + r + r;
+  const obenUnten = STRAHL_HOEHEN[1]! - r;
+  const obenOben = STRAHL_HOEHEN[1]! + r;
+  pruefe('die obere Sweep-Kugel endet auf Kapselhoehe',
+    Math.abs(obenOben - KOERPER_HOEHE) < 1e-9,
+    `${obenOben.toFixed(3)} m vs. ${KOERPER_HOEHE} m`);
+  pruefe('zwischen den beiden Sweep-Kugeln klafft keine Luecke',
+    obenUnten <= untenOben + 1e-9,
+    `untere bis ${untenOben.toFixed(3)} m, obere ab ${obenUnten.toFixed(3)} m ` +
+      `(Ueberdeckung ${(untenOben - obenUnten).toFixed(3)} m)`);
 }
 
 // ── [4] Senkrecht: Kleben und Fallen ───────────────────────────────

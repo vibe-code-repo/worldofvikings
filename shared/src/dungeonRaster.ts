@@ -32,8 +32,9 @@
  *
  *  1. Alle DREIZEHN geparsten Original-Kits deklarieren `gridSize 4` —
  *     SunkenCrypt, ForestCrypt, DvergrTown, Cave, GoblinCamp, ausnahmslos.
- *  2. Die Spielfigur passt dazu: BODY_RADIUS 0,4 m (0,8 m Schulterbreite),
- *     BODY_HEIGHT 1,8 m. Ein 4-m-Gang ist fünfmal Schulterbreite — zwei
+ *  2. Die Spielfigur passt dazu: Kapselradius 0,4 m (0,8 m Schulterbreite),
+ *     Kapselhöhe 2,0 m (sichtbare Figur 1,8 m; bis 11.09.2026 war auch die
+ *     Kapsel 1,8). Ein 4-m-Gang ist fünfmal Schulterbreite — zwei
  *     Spieler nebeneinander, Platz zum Ausholen. Bei 2 m wäre es ein Rohr.
  *  3. Die echten Raumgrößen im ForestCrypt-Kit sind durchweg gerade
  *     (Grundflächen 2/4/6/8/10/12/16/20 m, Höhen 4/5/6/8/10/12 m), die

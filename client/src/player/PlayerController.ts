@@ -17,6 +17,11 @@ import {
 } from '@babylonjs/core/Physics/v2/characterController';
 import { WATER_LEVEL } from '@wov/shared';
 import { ausdauerSchritt, AUSDAUER_REGEL } from '@wov/shared/src/bewegung/ausdauer.js';
+import {
+  KOERPER_HOEHE,
+  KOERPER_RADIUS,
+  STEIGUNGS_GRENZE_GRAD as STEIGUNGS_GRENZE_GRAD_GETEILT,
+} from '@wov/shared/src/bewegung/masse.js';
 import type { Scene } from '@babylonjs/core/scene';
 import type { InputManager } from '../engine/InputManager';
 import type { ClientWorld } from '../world/World';
@@ -126,25 +131,49 @@ const SNAP_ABSTAND = 0.6;
 const SNAP_TEMPO = 8;
 
 // ── Physics body (C# Character: Rigidbody + CapsuleCollider) ─────────
+/*
+ * Die drei Kapselzahlen kommen seit dem 11.09.2026 aus `@wov/shared`
+ * (`shared/src/bewegung/masse.ts`) statt hier zu stehen.
+ *
+ * WARUM: Der Server rechnet dieselbe Bewegung aus denselben Zahlen. Solange
+ * sie hier NOCH EINMAL standen, war jede davon zwei Zahlen, sobald jemand
+ * eine anfasste — und was der Spieler von so einem Auseinanderlaufen sieht,
+ * ist ein Ruck („haengt am Felsen, springt dann nach vorne"). Mit der
+ * Umstellung auf die Originalwerte (Kapsel 2,0 m, Hang 60 Grad) waere genau
+ * das passiert: zwei Dateien, ein Wert vergessen.
+ *
+ * Die NAMEN bleiben, was sie waren, und sie bleiben exportiert: Der
+ * Dungeon-Testlaeufer baut die Figur damit nach, und knapp hundert Stellen
+ * in dieser Datei rechnen mit `BODY_HEIGHT`. Ein Alias ist billiger als eine
+ * Umbenennung, die nichts gewinnt.
+ *
+ * The three capsule numbers now come from `@wov/shared` — one source for
+ * client and server. Names kept as aliases so existing call sites stand.
+ */
 /**
  * Capsule radius — a Viking is about 0.4 m wide at the shoulders.
- * Kapselradius. EXPORTIERT, weil ein Testlaeufer die Figur nachbauen muss und
- * eine abgeschriebene Zahl still auseinanderlaufen wuerde.
- * EXPORTED because a test runner has to rebuild the figure, and a copied number
- * would silently drift apart.
+ * Kapselradius. Original (Spieldaten des Vorbilds): ebenfalls 0,4.
  */
-export const BODY_RADIUS = 0.4;
-/** Capsule height, matching EYE_HEIGHT plus a bit of head. / Kapselhoehe. */
-export const BODY_HEIGHT = 1.8;
+export const BODY_RADIUS = KOERPER_RADIUS;
 /**
- * Steigungsgrenze in Grad: darueber rutscht die Figur ab (Babylons Vorgabe
- * waeren 60). Ebenfalls exportiert — eine Treppe, die steiler ist als dieser
- * Wert, ist unbegehbar, und genau das muss ein Test messen koennen.
- * Slope limit in degrees; steeper and the figure slides. Also exported — a
- * staircase steeper than this value is unwalkable, and a test must be able to
- * measure exactly that.
+ * Kapselhoehe in m. Original: 2,0 — die Kapsel ist absichtlich hoeher als
+ * die sichtbare Figur (1,8 m, s. `AvatarRig.SPIELER_HOEHE`); die 20 cm sind
+ * Kopfraum, damit ein Tuersturz blockt, unter dem die Figur sonst
+ * durchliefe. Die Kapsel wird ueber ihre MITTE gesetzt, `position` ist die
+ * SOHLE — deshalb steht an jeder Setzstelle `+ BODY_HEIGHT / 2` und am
+ * Spiegel `- BODY_HEIGHT / 2`. Beide wachsen mit, die Fuesse bleiben stehen.
+ * Capsule height; the capsule is deliberately taller than the visible figure.
  */
-export const STEIGUNGS_GRENZE_GRAD = 40;
+export const BODY_HEIGHT = KOERPER_HOEHE;
+/**
+ * Steigungsgrenze in Grad: darueber stoppt die Figur. Original: 60 — was
+ * hier zufaellig Babylons eigene Vorgabe ist. Exportiert, weil eine Treppe,
+ * die steiler ist als dieser Wert, unbegehbar ist und genau das ein Test
+ * messen koennen muss.
+ * Slope limit in degrees. Also exported — a staircase steeper than this is
+ * unwalkable, and a test must be able to measure exactly that.
+ */
+export const STEIGUNGS_GRENZE_GRAD = STEIGUNGS_GRENZE_GRAD_GETEILT;
 /**
  * Beschleunigung des Charaktercontrollers. Babylons Vorgabe (0,05) ist so
  * traege, dass die Figur an einer Steigung gar nicht erst in Fahrt kommt.
@@ -550,8 +579,10 @@ export class PlayerController {
     // einem 37-%-Hang statt der vollen 18 m. Das Vorbild beschleunigt praktisch
     // sofort, deshalb hier ein Vielfaches davon.
     this.controller.acceleration = FIGUR_BESCHLEUNIGUNG;
-    // Steigungsgrenze wie im Vorbild: etwa 40° sind noch begehbar, steiler
-    // rutscht man ab (Babylon-Vorgabe wären 60°).
+    // Steigungsgrenze wie im Vorbild: 60° sind noch begehbar, steiler
+    // stoppt die Figur bergauf (`SlopeLimit: 60` im Spielerblock der
+    // Vorbild-Szene). Dass Babylons eigene Vorgabe ebenfalls 60° ist, ist
+    // Zufall — die Zahl kommt aus `masse.ts` und gilt auch serverseitig.
     this.controller.maxSlopeCosine = Math.cos((STEIGUNGS_GRENZE_GRAD * Math.PI) / 180);
   }
 

@@ -263,10 +263,18 @@ const MAX_AUFFUELLUNGEN = 4000;
  * `EBENE_IN_HOEHEN_SCHRITTEN` (16), je Lauf EINE Zelle (4 m) waagerecht.
  *
  * WARUM DREI UNGLEICHE LAEUFE UND NICHT ZWEI GLEICHE? Zwei Laeufe zu 8 Stufen
- * ergeben 4 m Anstieg auf 4 m Lauf — genau 45 Grad. Die Spielfigur kommt dort
- * NICHT hinauf: `PlayerController` setzt `maxSlopeCosine` auf
- * `STEIGUNGS_GRENZE_GRAD` = 40 Grad, und Havoks Charaktercontroller laesst eine
- * steilere Flaeche nicht als Boden gelten. Gemessen am 2026-08-30
+ * ergeben 4 m Anstieg auf 4 m Lauf — genau 45 Grad. Die Spielfigur kam dort
+ * NICHT hinauf: `maxSlopeCosine` stand auf `STEIGUNGS_GRENZE_GRAD` = 40 Grad,
+ * und Havoks Charaktercontroller laesst eine steilere Flaeche nicht als Boden
+ * gelten.
+ *
+ * NACHTRAG 11.09.2026: Die Grenze liegt jetzt bei 60 Grad (Originalwert,
+ * `shared/src/bewegung/masse.ts`). Die 45-Grad-Variante WAERE damit begehbar.
+ * Die drei ungleichen Laeufe bleiben dennoch: Sie sind auch die schoenere
+ * Treppe, und der Umbau haette keinen Gewinn ausser einer gesparten Zelle.
+ * Die Messreihe unten bleibt als Beleg stehen, WIE hart die Grenze wirkt —
+ * sie wirkt jetzt an einer anderen Stelle, nicht schwaecher.
+ * Gemessen am 2026-08-30
  * (`client/test/dungeon2-laeufer.ts`, Seed 2, Lauf (-7,-4,E0)):
  *
  *   Steigungsgrenze 40 Grad -> hoechste Fusshoehe 6,00 m (Start 6,00 m)

@@ -70,6 +70,8 @@ export class KampfEffekte {
   private readonly texturen = new Map<string, Texture>();
   /** Ein Material fuer alle Slashes — einmal kompiliert, dann sofort da. */
   private readonly slashMaterial: StandardMaterial;
+  /** Die Slash-Tafel als eigene Textur mit Kachelmassstab (3×3). */
+  private readonly slashTextur: Texture;
 
   constructor(private readonly scene: Scene) {
     // Alles vorladen: Der Slash lebt 0,25 s — wer die Textur erst beim
@@ -82,7 +84,11 @@ export class KampfEffekte {
     // war. Also einmal bauen und den Shader an einem unsichtbaren Quad
     // uebersetzen lassen.
     const mat = new StandardMaterial('kampf_slash', scene);
-    const tex = this.textur('schwert_slash_tafel.png');
+    const tex = new Texture(VFX + 'schwert_slash_tafel.png', scene, false, true, Texture.TRILINEAR_SAMPLINGMODE);
+    tex.hasAlpha = true;
+    tex.uScale = 1 / SLASH_KACHELN;
+    tex.vScale = 1 / SLASH_KACHELN;
+    this.slashTextur = tex;
     mat.disableLighting = true;
     mat.emissiveColor = new Color3(SLASH_HELLE, SLASH_HELLE, SLASH_HELLE);
     mat.emissiveTexture = tex;
@@ -120,12 +126,12 @@ export class KampfEffekte {
     plane.receiveShadows = false;
     // Lokal Z (Normale) → rechts, lokal Y (Quadhoehe 1,75) → vorn, damit lokal X (Breite 3,5) senkrecht steht.
     plane.rotationQuaternion = Quaternion.FromLookDirectionLH(rechts, vorn);
-    const mat = this.slashMaterial.clone('kampf_slash_i')!;
-    const tex = this.textur('schwert_slash_tafel.png').clone();
-    tex.uScale = 1 / SLASH_KACHELN;
-    tex.vScale = 1 / SLASH_KACHELN;
-    mat.emissiveTexture = tex;
-    mat.opacityTexture = tex;
+    // Material und Textur werden GETEILT, nicht geklont: `StandardMaterial.clone`
+    // scheiterte an einem Material-Plugin der Look-Pipeline
+    // (StandardGammaFixPlugin, 11.09.2026). Hiebe folgen im Schlagtakt
+    // 0,5 s, der Bogen lebt 0,25 s — Ueberlappung gibt es nicht.
+    const mat = this.slashMaterial;
+    const tex = this.slashTextur;
     plane.material = mat;
     // Funken (Kind „Sparks" des Slash-Prefabs)
     this.burst({ name: 'slash_funken', textur: 'treffer_funken.png', pos: plane.position.clone(), anzahl: 5, groesse: [0.06, 0.12], leben: [0.25, 0.45], tempo: [1.5, 3.5],
@@ -155,8 +161,7 @@ export class KampfEffekte {
       if (t >= SLASH_DAUER) {
         this.scene.onBeforeRenderObservable.remove(obs);
         plane.dispose(false, false);
-        mat.dispose(false, false);
-        tex.dispose();
+        mat.alpha = 1;
       }
     });
   }
@@ -232,6 +237,7 @@ export class KampfEffekte {
 
   dispose(): void {
     this.slashMaterial.dispose(false, false);
+    this.slashTextur.dispose();
     for (const t of this.texturen.values()) t.dispose();
     this.texturen.clear();
   }

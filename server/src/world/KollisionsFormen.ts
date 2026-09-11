@@ -32,6 +32,7 @@ import {
   PREFAB_DEFS,
   getRoomByHash,
   getStableHash,
+  formUebersteuerung,
   istFesterKoerper,
   kollisionsForm,
   kollisionsModellPfad,
@@ -155,6 +156,15 @@ export class KollisionsFormen implements FormQuelle {
   private ableiten(prefabName: string): KollisionsForm | null {
     const def = this.defs.get(prefabName);
     if (!this.istFest(prefabName, def)) return null;
+    /*
+      Die Handtabelle VOR dem Dateizugriff — sie steht in einer Zeile
+      Quelltext und braucht die GLB nicht. Das ist nicht nur schneller:
+      Ohne `assets/` (CI-Checkout) bekommt der Server für die grossen
+      Büsche trotzdem dieselbe Kapsel wie der Client, statt sie unter
+      `fehlend` zu verbuchen und den Spieler hindurchzuziehen.
+    */
+    const handform = formUebersteuerung(prefabName);
+    if (handform !== null) return handform;
     if (!def?.model) return null;
 
     const inhalt = this.leseModell(def.model);

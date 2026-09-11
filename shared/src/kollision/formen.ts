@@ -35,6 +35,7 @@
 import type { KollisionsForm, Vek3 } from './form.js';
 import type { StoreKollision } from '../storeKatalog.js';
 import { STORE_FELSEN_NAMEN } from '../storeFelsen.js';
+import { formUebersteuerung } from './formUebersteuerung.js';
 
 /**
  * Höhenband, in dem der Stammradius gemessen wird — in Metern über dem
@@ -171,6 +172,20 @@ export function kollisionsForm(
     dass beide Mengen dieselbe Antwort geben, hält
     `shared/test/kollision-formen.ts` fest.
   */
+  /*
+    NOCH weiter vorn als `art: 'none'` steht die Handtabelle. Sie ist die
+    Entscheidung GEGEN die Quelle (s. `formUebersteuerung.ts`), und die
+    fünf grossen Büsche stehen in der Quelle genau auf `none` — stünde
+    sie hinter der Zeile darunter, wäre sie nie erreicht.
+
+    Sie braucht die Geometrie nicht und sieht sie auch nicht an: Damit
+    sind Client und Server hier trivialerweise bitgleich, ohne dass
+    irgendeine Vertexmessung zwischen Babylon und dem Node-Leser
+    auseinanderlaufen könnte.
+  */
+  const uebersteuert = formUebersteuerung(prefabName);
+  if (uebersteuert !== null) return uebersteuert;
+
   if (katalogAngabe !== null && katalogAngabe.art === 'none') return null;
 
   const begehbar = BEGEHBAR_NAME.test(prefabName);

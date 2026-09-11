@@ -39,17 +39,19 @@ import {
   // ── Kollision: alles aus `shared`, nichts mehr von hier ─────────────
   // `istFesterKoerper` sagt, WELCHES Prefab einen Koerper bekommt,
   // `kollisionsForm` WELCHE Form, `BEGEHBAR_NAME`, welches Bauwerk das
-  // Flag-Gatter umgehen darf, und `storeKollision`, was der Speicher
-  // selbst ueber seine Kollision sagt. Alle vier liest der Server
-  // ebenfalls — daran haengt, dass Bild und Serverrechnung dieselben
-  // Hindernisse sehen.
+  // Flag-Gatter umgehen darf, `formUebersteuerung`, welche Handvoll
+  // Prefabs ihre Form von Hand bekommt (die grossen Buesche), und
+  // `storeKollision`, was der Speicher selbst ueber seine Kollision
+  // sagt. Alle liest der Server ebenfalls — daran haengt, dass Bild und
+  // Serverrechnung dieselben Hindernisse sehen.
   BEGEHBAR_NAME,
+  formUebersteuerung,
   istFesterKoerper,
   kollisionsForm,
   kollisionsModellPfad,
   storeKollision,
 } from '@wov/shared';
-import type { NpcEinordnung, SteinKitConfig } from '@wov/shared';
+import type { KollisionsForm, NpcEinordnung, SteinKitConfig } from '@wov/shared';
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { erzeugeSteinKitMaterial, mergeSteinKit } from '../engine/DungeonSteinMaterial.js';
 import { faerbeHaar } from '../player/haarfarbe.js';
@@ -1945,7 +1947,26 @@ export class EntityManager {
     // reicht es auch allein: ein Prefab, das NUR aus `_col` besteht, hat
     // keine sichtbaren Master und trotzdem Kollision.
     const kollMasters = this.kollisionsMasters.get(bucket.masterKey);
-    if ((!masters || masters.length === 0) && (!kollMasters || kollMasters.length === 0)) return;
+    /*
+      Eine Form aus der HANDTABELLE (`shared/src/kollision/
+      formUebersteuerung.ts`) braucht überhaupt keine Geometrie — sie
+      steht in der Zeile. Sie wird deshalb hier abgefragt und nicht erst
+      unten in `kollisionsForm()`: Die grossen Büsche haben 4 426 bis
+      8 133 Dreiecke, und `netzAusMastern()` kopierte davon bei jedem
+      ersten Aufbau eines Buckets sämtliche Vertexpositionen zusammen,
+      nur um sie an eine Funktion zu geben, die sie wegwirft.
+
+      Sie steht auch VOR der Master-Abfrage: Ein Bucket, dessen Master
+      noch nicht geladen sind, bekäme sonst keinen Körper, obwohl seine
+      Form von keinem Master abhängt.
+    */
+    const handform = formUebersteuerung(bucket.prefabName);
+    if (
+      handform === null &&
+      (!masters || masters.length === 0) &&
+      (!kollMasters || kollMasters.length === 0)
+    )
+      return;
 
     // Kollisionseintrag je BUCKET (masterKey), nicht je Prefabname: Zwei
     // Buckets desselben Prefabs teilten sich sonst Träger UND Signatur und
@@ -1975,21 +1996,24 @@ export class EntityManager {
       const stammartig = def ? (def.flags & PrefabFlag.TREE_BASE) !== 0n : false;
       const katalog = storeKollision(bucket.prefabName);
       const optionen = { stammartig, dungeonRaum: dungeonRoom };
-      const eigen = netzAusMastern(
-        kollMasters ?? [],
-        this.kollisionsLocals.get(bucket.masterKey) ?? []
-      );
-      const sicht = netzAusMastern(masters ?? [], this.masterLocals.get(bucket.masterKey) ?? []);
-      const form =
-        (eigen
-          ? kollisionsForm(eigen.positionen, eigen.indizes, bucket.prefabName, katalog, {
-              ...optionen,
-              eigenesNetz: true,
-            })
-          : null) ??
-        (sicht
-          ? kollisionsForm(sicht.positionen, sicht.indizes, bucket.prefabName, katalog, optionen)
-          : null);
+      let form: KollisionsForm | null = handform;
+      if (form === null) {
+        const eigen = netzAusMastern(
+          kollMasters ?? [],
+          this.kollisionsLocals.get(bucket.masterKey) ?? []
+        );
+        const sicht = netzAusMastern(masters ?? [], this.masterLocals.get(bucket.masterKey) ?? []);
+        form =
+          (eigen
+            ? kollisionsForm(eigen.positionen, eigen.indizes, bucket.prefabName, katalog, {
+                ...optionen,
+                eigenesNetz: true,
+              })
+            : null) ??
+          (sicht
+            ? kollisionsForm(sicht.positionen, sicht.indizes, bucket.prefabName, katalog, optionen)
+            : null);
+      }
       if (!form) {
         this.colliderless.add(bucket.prefabName);
         return;

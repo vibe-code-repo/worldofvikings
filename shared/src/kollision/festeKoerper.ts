@@ -17,6 +17,7 @@ import type { PrefabDef } from '../prefabs.js';
 import { istStoreModell } from '../storeKatalog.js';
 import { STORE_NICHT_STREUEN } from '../storePrefabs.js';
 import { STORE_OHNE_KOERPER } from '../storeKollisionDaten.js';
+import { formUebersteuerung } from './formUebersteuerung.js';
 
 /**
  * Welche Prefab-KLASSEN den Spieler blockieren.
@@ -130,6 +131,16 @@ export const STORE_VEGETATIONSORDNER = 'vegetation/';
  */
 export function istFesterStoreKoerper(def: PrefabDef | undefined): boolean {
   if (!def?.model || !istStoreModell(def.model)) return false;
+  /*
+    Die Handtabelle steht VOR dem Ordner und vor beiden Mengen — sie ist
+    die Entscheidung GEGEN die Quelle, und eine Ausnahme, die hinter der
+    Regel steht, ist keine. Für die fünf grossen Büsche sagen hier sonst
+    DREI Gatter hintereinander „durchlässig": der Ordner
+    `…/vegetation/`, `STORE_OHNE_KOERPER` (sie stehen alle fünf auf
+    `art: 'none'`) und weiter unten das Namensmuster
+    WEICHE_VEGETATION (`bush`).
+  */
+  if (formUebersteuerung(def.name) !== null) return true;
   if (def.model.includes(STORE_VEGETATIONSORDNER)) return false;
   return !STORE_NICHT_STREUEN.has(def.name) && !STORE_OHNE_KOERPER.has(def.name);
 }
@@ -150,6 +161,11 @@ export function istFesterKoerper(
   optionen: { dungeonRaum?: boolean; begehbar?: boolean } = {}
 ): boolean {
   if (optionen.dungeonRaum === true || optionen.begehbar === true) return true;
+  // Wer eine Form von Hand bekommt, bekommt auch einen Körper — sonst
+  // stünde die Form in der Tabelle und nichts läse sie. Ganz vorn, weil
+  // das Namensmuster WEICHE_VEGETATION weiter unten jeden `bush`
+  // abfängt, auch den 4,4 m hohen.
+  if (formUebersteuerung(prefabName) !== null) return true;
   const flags = def?.flags ?? 0n;
   return (
     ((flags & KOLLIDIERENDE_FLAGS) !== 0n || istFesterStoreKoerper(def)) &&

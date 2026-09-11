@@ -258,6 +258,26 @@
     ]
    },
    "geaendert": "Der Speicher fuehrt dieses Prefab als `art: 'mesh'` mit eigener `…-collision.glb`. Der Client las diese Datei bisher nicht und gab der Treppe die Huellbox ihrer Stufen: 5,04 x 1,47 x 7,55 m, um den Ursprung zentriert — mehr als das Doppelte ihres Grundrisses (x -2,52..0,08, z -3,77..0,15), und fuer die 0,4-m-Kapsel unbegehbar. Treppen sind im Vorbild die einzigen nicht-konvexen Netze ueberhaupt."
+  },
+  {
+   "name": "vegetation-large-bush-1a1",
+   "modell": "store-lab/vegetation/large-bush-1a1",
+   "havok": {
+    "art": "kapsel",
+    "a": [
+     0,
+     0.65,
+     0
+    ],
+    "b": [
+     0,
+     2.944,
+     0
+    ],
+    "radius": 0.65
+   },
+   "havokVorher": null,
+   "geaendert": "Entscheidung vom 11.09.2026: Grosse Buesche sind fest wie im Vorbild (Kapsel r 0,65 m, Hoehe 3,5-4,6 m; kleine Buesche und Gras bleiben durchlaessig). Vorher gab es KEINE Form - der Speicher-Katalog fuehrt alle fuenf `vegetation-large-bush-*` als `art: 'none'`, und man lief mitten durch einen 3,6 m hohen Strauch. Die Zahlen kommen aus `shared/src/kollision/formUebersteuerung.ts` und nicht aus der Geometrie: Radius 0,65 m aus den Original-Spieldaten, yMax 3,594 m aus der Huellbox des Sichtnetzes (Ursprung = Standflaeche, gemessen: Unterkante 0,165 m darunter). Dieser Pruefling steht hier, weil er der einzige im Golden ist, dessen Form die Geometrie GAR NICHT ansieht - Client und Server muessen ihn trotzdem gleich bauen."
   }
  ],
  "netzPrueflinge": [

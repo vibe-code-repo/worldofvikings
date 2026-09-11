@@ -33,24 +33,33 @@ import { Constants } from '@babylonjs/core/Engines/constants';
 
 const VFX = '/assets/vfx/';
 /**
- * Slash nach dem Original (Steam-Fassung, Particle-Prefab
- * ThirdPersonSlashParent → SwordSlashEffect2): EIN Quad von 3,5 m, das die
- * 4×2-Tafel `SwordSlash` als Flipbook ueber 0,25 s abspielt — die fruehen
- * Bilder sind der breite Bogen, die spaeten die duenne Linie —, und zwar
- * IN DER EBENE DES HIEBS (Kind des Schwert-Prefabs), nicht als Billboard.
- * Mikes Screenshot vom 11.09.2026 zeigt genau das: ein duenner, langer
- * Streifen waagerecht um die Figur. Der Verzerrungs-Shader des Originals
- * (KriptoFX Distortion) ist hier ein additives, gedaempftes Weiss.
+ * Slash nach dem Original — Werte des Partikelsystems SwordSlashEffect2
+ * unter „Sword North Weapon" (Steam-Fassung, 11.09.2026 per UnityPy):
+ * EIN Quad 3,5 × 1,75 m (startSize3D 3,5/1,75/3,5), Render-Ausrichtung
+ * „Local" unter ThirdPersonSlashParent (Position 0/1,05/1,62, Drehung
+ * X→Y, Y→Z): Die Quadbreite steht SENKRECHT (oben), die Quadhoehe zeigt
+ * nach vorn, die Normale nach rechts. Texture-Sheet 3×3 ueber die
+ * Lebensdauer 0,25 s (die spaeten Kacheln sind die duennen Boegen), Farbe
+ * ueber die Lebensdauer: (1, 0,88, 0,54) → (1, 0,58, 0) bei 47 % →
+ * (1, 0,26, 0), Alpha 1 bis 83 %, dann 0. Das Elternsystem sendet nicht
+ * (Emission aus). Dasselbe Prefab fuer jeden Hieb, keine Spiegelung.
+ * Mikes Screenshot vom 11.09. zeigt genau diesen senkrechten Bogen von
+ * schraeg hinten als duennen Streifen.
  */
 const SLASH_DAUER = 0.25;
-const SLASH_GROESSE = 3.5;
-const SLASH_SPALTEN = 4;
-const SLASH_ZEILEN = 2;
-/** Abstand der Quadmitte vor der Figur und Hoehe (Original: 1,6 / 1,05). */
-const SLASH_VORN = 1.3;
+const SLASH_BREITE = 3.5;
+const SLASH_HOEHE_QUAD = 1.75;
+const SLASH_KACHELN = 3;
+const SLASH_VORN = 1.62;
 const SLASH_HOEHE = 1.05;
-/** Helligkeit des additiven Weiss (die Verzerrung des Originals ist nicht grell). */
-const SLASH_HELLE = 0.55;
+/** Helligkeit des additiven Farbverlaufs (das Original ist Verzerrung + Tint, nicht grell). */
+const SLASH_HELLE = 0.7;
+const SLASH_FARBEN: Array<[number, [number, number, number]]> = [
+  [0, [1, 0.884, 0.542]],
+  [0.467, [1, 0.575, 0]],
+  [1, [1, 0.264, 0]],
+];
+const SLASH_ALPHA_ABFALL = 0.835;
 
 /** Trefferart, wie der Server sie schickt (PacketType.HitEffect). */
 export const TREFFER_HART = 0;
@@ -102,43 +111,47 @@ export class KampfEffekte {
    * Halbmond vor der Figur: `pos` ist die Mitte, `spiegeln` dreht die
    * Oeffnung (Hieb von links / von rechts).
    */
-  /**
-   * Slash in der Ebene des Hiebs. `vorn`/`rechts`: waagerechte Achsen der
-   * Figur. Hieb 1 und 2 sind Querhiebe (Quad liegt flach, Bogen um die
-   * Figur; Hieb 2 gespiegelt), Hieb 3 der Ueberkopfhieb (Quad steht
-   * senkrecht in Laufrichtung).
-   */
-  schlagBogen(wurzel: Vector3, hieb: number, vorn: Vector3, rechts: Vector3): void {
-    const h = Math.max(0, Math.min(2, hieb));
-    const plane = MeshBuilder.CreatePlane('kampf_slash', { size: SLASH_GROESSE }, this.scene);
+  /** Slash wie im Original: senkrechtes Quad in der Ebene Laufrichtung/Oben, 1,62 m vor der Figur. */
+  schlagBogen(wurzel: Vector3, _hieb: number, vorn: Vector3, rechts: Vector3): void {
+    const plane = MeshBuilder.CreatePlane('kampf_slash', { width: SLASH_BREITE, height: SLASH_HOEHE_QUAD }, this.scene);
     plane.position.copyFrom(wurzel).addInPlace(vorn.scale(SLASH_VORN));
     plane.position.y += SLASH_HOEHE;
     plane.isPickable = false;
     plane.receiveShadows = false;
-    // Ebene ausrichten: Quad-Normale und Quad-Oben (Bogen oeffnet sich nach Quad-Unten)
-    const oben = Vector3.Up();
-    const normale = h === 2 ? rechts : oben;
-    const quadOben = h === 2 ? oben : vorn;
-    plane.rotationQuaternion = Quaternion.FromLookDirectionLH(normale, quadOben);
-    if (h === 1) plane.scaling.x = -1;
-    const mat = this.slashMaterial.clone('kampf_slash_' + h)!;
+    // Lokal Z (Normale) → rechts, lokal Y (Quadhoehe 1,75) → vorn, damit lokal X (Breite 3,5) senkrecht steht.
+    plane.rotationQuaternion = Quaternion.FromLookDirectionLH(rechts, vorn);
+    const mat = this.slashMaterial.clone('kampf_slash_i')!;
     const tex = this.textur('schwert_slash_tafel.png').clone();
-    tex.uScale = 1 / SLASH_SPALTEN;
-    tex.vScale = 1 / SLASH_ZEILEN;
+    tex.uScale = 1 / SLASH_KACHELN;
+    tex.vScale = 1 / SLASH_KACHELN;
     mat.emissiveTexture = tex;
     mat.opacityTexture = tex;
     plane.material = mat;
-    // Funken am Bogen (Kind „Sparks" des Slash-Prefabs)
+    // Funken (Kind „Sparks" des Slash-Prefabs)
     this.burst({ name: 'slash_funken', textur: 'treffer_funken.png', pos: plane.position.clone(), anzahl: 5, groesse: [0.06, 0.12], leben: [0.25, 0.45], tempo: [1.5, 3.5],
       farbe: new Color4(1, 0.95, 0.7, 1), additiv: true, streuung: 1 });
     const start = performance.now();
-    const frames = SLASH_SPALTEN * SLASH_ZEILEN;
+    const frames = SLASH_KACHELN * SLASH_KACHELN;
     const obs = this.scene.onBeforeRenderObservable.add(() => {
       const t = (performance.now() - start) / 1000;
-      const f = Math.min(frames - 1, Math.floor((t / SLASH_DAUER) * frames));
-      tex.uOffset = (f % SLASH_SPALTEN) / SLASH_SPALTEN;
+      const a = Math.min(1, t / SLASH_DAUER);
+      const f = Math.min(frames - 1, Math.floor(a * frames));
+      tex.uOffset = (f % SLASH_KACHELN) / SLASH_KACHELN;
       // Zeile 0 liegt oben in der Datei; Babylon zaehlt v von unten.
-      tex.vOffset = 1 - (Math.floor(f / SLASH_SPALTEN) + 1) / SLASH_ZEILEN;
+      tex.vOffset = 1 - (Math.floor(f / SLASH_KACHELN) + 1) / SLASH_KACHELN;
+      // Farbverlauf des Originals
+      let farbe = SLASH_FARBEN[SLASH_FARBEN.length - 1]![1];
+      for (let i = 1; i < SLASH_FARBEN.length; i++) {
+        const [t0, c0] = SLASH_FARBEN[i - 1]!;
+        const [t1, c1] = SLASH_FARBEN[i]!;
+        if (a <= t1) {
+          const k = (a - t0) / (t1 - t0);
+          farbe = [c0[0] + (c1[0] - c0[0]) * k, c0[1] + (c1[1] - c0[1]) * k, c0[2] + (c1[2] - c0[2]) * k];
+          break;
+        }
+      }
+      mat.emissiveColor.set(farbe[0] * SLASH_HELLE, farbe[1] * SLASH_HELLE, farbe[2] * SLASH_HELLE);
+      mat.alpha = a < SLASH_ALPHA_ABFALL ? 1 : 1 - (a - SLASH_ALPHA_ABFALL) / (1 - SLASH_ALPHA_ABFALL);
       if (t >= SLASH_DAUER) {
         this.scene.onBeforeRenderObservable.remove(obs);
         plane.dispose(false, false);

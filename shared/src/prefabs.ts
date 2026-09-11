@@ -983,6 +983,8 @@ const EIGENE_MODELLE_ALT: readonly string[] = [
   'SwordNorth',
   // Kampfstab, Mikes eigenes Modell (11.09.2026), beidhaendig.
   'Staff',
+  // Speer, Mikes eigenes Modell (12.09.2026), aufrecht getragen.
+  'Spear',
   // Wieder aufgenommen 16.08.2026 — siehe HINT_DEFS.
   'Steinkreis',
   'BirkeHoch1',

@@ -1,8 +1,8 @@
 {
- "erzeugt": "2026-09-11T21:21:07.702Z",
+ "erzeugt": "2026-09-11T22:23:50.528Z",
  "quelle": "tools/asset-manifest.mjs",
- "anzahl": 225,
- "gemessen": 225,
+ "anzahl": 226,
+ "gemessen": 226,
  "uebernommen": [],
  "modelle": {
   "Ampfer1": {
@@ -3381,6 +3381,32 @@
    "meshlos": false,
    "skins": 0
   },
+  "Spear": {
+   "datei": "Spear.glb",
+   "foliage": false,
+   "bytes": 460256,
+   "huelle": {
+    "min": [
+     -0.127,
+     -1.11,
+     -0.116
+    ],
+    "max": [
+     0.109,
+     0.79,
+     0.121
+    ]
+   },
+   "breite": 0.237,
+   "hoehe": 1.9,
+   "tiefe": 0.238,
+   "dreiecke": 9736,
+   "materialien": 1,
+   "bilder": 3,
+   "animationen": [],
+   "meshlos": false,
+   "skins": 0
+  },
   "Staff": {
    "datei": "Staff.glb",
    "foliage": false,
@@ -5394,7 +5420,7 @@
   "wikinger/WikingerKoerper": {
    "datei": "wikinger/WikingerKoerper.glb",
    "foliage": false,
-   "bytes": 1898712,
+   "bytes": 1963688,
    "huelle": {
     "min": [
      -1.024,
@@ -5517,6 +5543,14 @@
     {
      "name": "stab_parade_unten",
      "dauer": 0.625
+    },
+    {
+     "name": "arm_speer",
+     "dauer": 0.042
+    },
+    {
+     "name": "hand_speer",
+     "dauer": 0.875
     }
    ],
    "meshlos": false,

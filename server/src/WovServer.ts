@@ -4639,6 +4639,7 @@ const WAFFEN_SCHADEN: Record<string, number> = {
   '': 4,
   SwordNorth: 12,
   Staff: 10,
+  Spear: 11,
   Club: 12,
   AxeFlint: 15,
   PickaxeAntler: 8,

@@ -3905,7 +3905,13 @@ async function main() {
       // laufen, entscheidet AvatarRig.schlage() selbst.
       // Mit Waffe die Hiebe, mit leerer Hand die Faeuste (Mike, 11.09.2026).
       const rechts = equipment?.rightItem;
-      const satz = rechts ? (rechts.shared.animationSet === 'staff' ? ('stab' as const) : ('schwert' as const)) : ('faust' as const);
+      const satz = rechts
+        ? rechts.shared.animationSet === 'staff'
+          ? ('stab' as const)
+          : rechts.shared.animationSet === 'spear'
+            ? ('speer' as const)
+            : ('schwert' as const)
+        : ('faust' as const);
       // Der Slash-Halbmond gehoert zur Klinge; der Stab bekommt keinen.
       if (player.avatar.schlage(satz) && satz === 'schwert') {
         // Slash-Halbmond zur Spitze des jeweiligen Hiebs (Hand_R-Maxima

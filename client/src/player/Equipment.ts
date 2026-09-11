@@ -193,7 +193,7 @@ export class Equipment {
 
     this.heldNode = holder;
     // Beidhaendige Waffen (Stab) laufen auf der Katana-Kette und den Stabschichten.
-    this.avatar.setHeldItem(holder, shared.animationSet === 'staff' ? 'stab' : 'schwert');
+    this.avatar.setHeldItem(holder, shared.animationSet === 'staff' ? 'stab' : shared.animationSet === 'spear' ? 'speer' : 'schwert');
   }
 
   dispose(): void {

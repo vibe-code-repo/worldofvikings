@@ -415,6 +415,27 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     useDurabilityDrain: 1,
     attackStamina: 10,
   },
+  {
+    // Speer (Mikes eigenes Modell, 12.09.2026): 1,90 m, Spitze oben, Ursprung
+    // 1,11 m ueber dem unteren Ende — genau die Hoehe der rechten Hand in der
+    // Ruhepose arm_speer (1,12 m), damit das Ende am Boden aufsteht. Die
+    // Laengsachse laeuft wie beim Schwert durch die Faust; in der Pose steht
+    // die Faustachse senkrecht, also der Speer aufrecht neben der Figur.
+    name: 'Spear',
+    label: 'Speer',
+    itemType: ItemType.TwoHandedWeapon,
+    icon: 'spear',
+    model: 'Spear',
+    maxStackSize: 1,
+    weight: 2,
+    toolTier: 1,
+    holdPosition: [0, 0.08, 0.035],
+    holdRotation: [0, Math.PI, Math.PI / 2],
+    animationSet: 'spear',
+    maxDurability: 200,
+    useDurabilityDrain: 1,
+    attackStamina: 10,
+  },
 ];
 
 /**

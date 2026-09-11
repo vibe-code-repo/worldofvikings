@@ -347,9 +347,11 @@ interface Clip {
 /**
  * Welche Angriffskette und welche Waffenschichten laufen: `faust` ohne
  * Waffe, `schwert` einhaendig (angriff*, arm_schwert, hand_schwert),
- * `stab` beidhaendig (stab_angriff*, arm_stab, stab_ausruesten, ...).
+ * `stab` beidhaendig (stab_angriff*, arm_stab, stab_ausruesten, ...),
+ * `speer` einhaendig aufrecht getragen (arm_speer, hand_speer; Hiebe und
+ * Aktionen leiht er sich: Hiebe vom Stab, Ausruesten/Parade vom Schwert).
  */
-export type Waffensatz = 'faust' | 'schwert' | 'stab';
+export type Waffensatz = 'faust' | 'schwert' | 'stab' | 'speer';
 
 export class AvatarRig {
   readonly root: TransformNode;
@@ -1474,7 +1476,8 @@ export class AvatarRig {
     // Kette waehlen: Schwert die Hiebe, Stab die beidhaendige Kette, ohne
     // Waffe die Faeuste (Mike, 11.09.2026). Fehlt eine Kette, laeuft eine
     // andere — besser als keine Geste.
-    const gewuenscht = satz === 'stab' ? this.clipsStab : satz === 'schwert' ? this.clipsAngriff : this.clipsFaust;
+    const gewuenscht =
+      satz === 'stab' || satz === 'speer' ? this.clipsStab : satz === 'schwert' ? this.clipsAngriff : this.clipsFaust;
     const kette = gewuenscht.length ? gewuenscht : ([this.clipsAngriff, this.clipsFaust, this.clipsStab].find((k) => k.length) ?? []);
     if (!kette.length) return false;
     if (kette !== this.kette) {
@@ -1865,6 +1868,7 @@ export class AvatarRig {
     for (const clip of clips) {
       const istArm = /^arm_/i.test(clip.grp.name);
       const istStab = /^(arm_stab|hand_stab|stab_)/i.test(clip.grp.name);
+      const istSpeer = /^(arm_speer|hand_speer|speer_)/i.test(clip.grp.name);
       const istAktion = /^(stab_)?(ausruesten|ablegen|parade)/i.test(clip.grp.name);
       const maske = (name: string) =>
         istAktion
@@ -1887,7 +1891,7 @@ export class AvatarRig {
           name: clip.grp.name, kanaele, von: clip.grp.from, bis: clip.grp.to, fps,
           schleife: !istAktion,
           tempo: istAktion ? AKTION_TEMPO[clip.grp.name.replace(/^stab_/i, '').split('_')[0]!.toLowerCase()] ?? 1 : 1,
-          satz: istStab ? 'stab' : 'schwert',
+          satz: istStab ? 'stab' : istSpeer ? 'speer' : 'schwert',
         };
         if (istAktion) this.aktionen.set(clip.grp.name.toLowerCase(), schicht);
         else this.schichten.push(schicht);

@@ -23,6 +23,7 @@
  */
 import type { Scene } from '@babylonjs/core/scene';
 import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
+import type { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
@@ -50,8 +51,17 @@ const SLASH_DAUER = 0.25;
 const SLASH_BREITE = 3.5;
 const SLASH_HOEHE_QUAD = 1.75;
 const SLASH_KACHELN = 3;
-const SLASH_VORN = 1.62;
-const SLASH_HOEHE = 1.05;
+/**
+ * Versatz des Quads im SCHWERT-Rahmen (Original: ThirdPersonSlashParent
+ * lokal 0 / 1,053 / 1,619 unter dem Schwert-Objekt, das an der Hand
+ * haengt). Unser Halter hat die Klinge entlang +Y (Modellachse), die
+ * Schneide entlang X, die Flachseite entlang Z; das Original-Schwert hat
+ * die Klinge entlang +Z und die Quadbreite entlang seiner Y-Achse — also
+ * hier: Quad in der XY-Ebene des Halters (Schneide × Klinge), Mitte 1,05 m
+ * schneidenseitig und 1,62 m klingenwaerts. So folgt der Bogen der Hand.
+ */
+const SLASH_SCHNEIDE = 1.05;
+const SLASH_KLINGE = 1.62;
 /** Helligkeit des additiven Farbverlaufs (das Original ist Verzerrung + Tint, nicht grell). */
 const SLASH_HELLE = 0.7;
 const SLASH_FARBEN: Array<[number, [number, number, number]]> = [
@@ -117,24 +127,20 @@ export class KampfEffekte {
    * Halbmond vor der Figur: `pos` ist die Mitte, `spiegeln` dreht die
    * Oeffnung (Hieb von links / von rechts).
    */
-  /** Slash wie im Original: senkrechtes Quad in der Ebene Laufrichtung/Oben, 1,62 m vor der Figur. */
-  schlagBogen(wurzel: Vector3, _hieb: number, vorn: Vector3, rechts: Vector3): void {
+  /** Slash wie im Original: Quad in der Schwertebene, Kind des Waffenhalters, folgt der Hand. */
+  schlagBogen(halter: TransformNode): void {
     const plane = MeshBuilder.CreatePlane('kampf_slash', { width: SLASH_BREITE, height: SLASH_HOEHE_QUAD }, this.scene);
-    plane.position.copyFrom(wurzel).addInPlace(vorn.scale(SLASH_VORN));
-    plane.position.y += SLASH_HOEHE;
+    plane.parent = halter;
+    plane.position.set(SLASH_SCHNEIDE, SLASH_KLINGE, 0);
+    plane.rotationQuaternion = Quaternion.Identity();
     plane.isPickable = false;
     plane.receiveShadows = false;
-    // Lokal Z (Normale) → rechts, lokal Y (Quadhoehe 1,75) → vorn, damit lokal X (Breite 3,5) senkrecht steht.
-    plane.rotationQuaternion = Quaternion.FromLookDirectionLH(rechts, vorn);
-    // Material und Textur werden GETEILT, nicht geklont: `StandardMaterial.clone`
-    // scheiterte an einem Material-Plugin der Look-Pipeline
-    // (StandardGammaFixPlugin, 11.09.2026). Hiebe folgen im Schlagtakt
-    // 0,5 s, der Bogen lebt 0,25 s — Ueberlappung gibt es nicht.
     const mat = this.slashMaterial;
     const tex = this.slashTextur;
     plane.material = mat;
     // Funken (Kind „Sparks" des Slash-Prefabs)
-    this.burst({ name: 'slash_funken', textur: 'treffer_funken.png', pos: plane.position.clone(), anzahl: 5, groesse: [0.06, 0.12], leben: [0.25, 0.45], tempo: [1.5, 3.5],
+    plane.computeWorldMatrix(true);
+    this.burst({ name: 'slash_funken', textur: 'treffer_funken.png', pos: plane.getAbsolutePosition().clone(), anzahl: 5, groesse: [0.06, 0.12], leben: [0.25, 0.45], tempo: [1.5, 3.5],
       farbe: new Color4(1, 0.95, 0.7, 1), additiv: true, streuung: 1 });
     const start = performance.now();
     const frames = SLASH_KACHELN * SLASH_KACHELN;

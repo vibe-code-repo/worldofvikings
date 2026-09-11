@@ -3883,16 +3883,9 @@ async function main() {
         // Figur in Brusthoehe; Hieb 2 ist der Querhieb von der anderen Seite.
         const hieb = player.avatar.letzterHieb;
         const verzug = [0.28, 0.4, 0.68][hieb] ?? 0.3;
-        const p = player;
         setTimeout(() => {
-          if (!p.avatar) return;
-          const vorn = p.avatar.root.forward.clone();
-          vorn.y = 0;
-          vorn.normalize();
-          const rechts = p.avatar.root.right.clone();
-          rechts.y = 0;
-          rechts.normalize();
-          kampfEffekte.schlagBogen(p.avatar.root.getAbsolutePosition(), hieb, vorn, rechts);
+          const halter = equipment?.gehalten;
+          if (halter) kampfEffekte.schlagBogen(halter);
         }, verzug * 1000);
       }
       socket.sendAttack(

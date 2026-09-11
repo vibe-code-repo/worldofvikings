@@ -26,6 +26,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Material } from '@babylonjs/core/Materials/material';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
@@ -43,6 +44,12 @@ const VFX = '/assets/vfx/';
 const SLASH_DAUER = 0.25;
 const SLASH_GROESSE = 2.0;
 const SLASH_WACHSTUM: [number, number] = [0.7, 1.2];
+/**
+ * Neigung des Bogens je Hieb (rad, im Bild gegen den Uhrzeigersinn):
+ * Hieb 1 ist der Stich (schraeg), Hieb 2 der Querhieb (waagerecht, von
+ * der anderen Seite → gespiegelt), Hieb 3 der Ueberkopfhieb (senkrecht).
+ */
+const SLASH_WINKEL = [0.5, 0, Math.PI / 2] as const;
 
 /** Trefferart, wie der Server sie schickt (PacketType.HitEffect). */
 export const TREFFER_HART = 0;
@@ -74,13 +81,18 @@ export class KampfEffekte {
    * Halbmond vor der Figur: `pos` ist die Mitte, `spiegeln` dreht die
    * Oeffnung (Hieb von links / von rechts).
    */
-  schlagBogen(pos: Vector3, spiegeln = false): void {
+  schlagBogen(pos: Vector3, hieb = 0): void {
+    // Billboard-Traeger + gedrehtes Quad darunter: im Billboard-Modus
+    // ueberschreibt Babylon die eigene Drehung, deshalb zwei Knoten.
+    const traeger = new TransformNode('kampf_slash_traeger', this.scene);
+    traeger.position.copyFrom(pos);
+    traeger.billboardMode = Mesh.BILLBOARDMODE_ALL;
     const plane = MeshBuilder.CreatePlane('kampf_slash', { size: SLASH_GROESSE }, this.scene);
-    plane.position.copyFrom(pos);
-    plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    plane.parent = traeger;
+    plane.rotation.z = SLASH_WINKEL[Math.max(0, Math.min(2, hieb))]!;
     plane.isPickable = false;
     plane.receiveShadows = false;
-    if (spiegeln) plane.scaling.x = -1;
+    const spiegeln = hieb === 1;
     const mat = new StandardMaterial('kampf_slash', this.scene);
     const tex = this.textur('schwert_slash.png');
     mat.disableLighting = true;
@@ -103,6 +115,7 @@ export class KampfEffekte {
       if (t >= SLASH_DAUER) {
         if (obs) this.scene.onBeforeRenderObservable.remove(obs);
         plane.dispose(false, true);
+        traeger.dispose();
       }
     });
   }

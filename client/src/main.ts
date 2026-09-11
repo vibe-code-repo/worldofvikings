@@ -3891,7 +3891,7 @@ async function main() {
           vorn.normalize();
           const mitte = p.avatar.root.getAbsolutePosition().add(vorn.scale(0.9));
           mitte.y += 1.1;
-          kampfEffekte.schlagBogen(mitte, hieb === 1);
+          kampfEffekte.schlagBogen(mitte, hieb);
         }, verzug * 1000);
       }
       socket.sendAttack(

@@ -1277,6 +1277,25 @@ const KERN = [
   ['tools', 'test/terrain-schichten.ts', brauchtBodenQuellen()],
 
   /*
+    Die Rauschmaske auf dem Felsanteil (A11, 11.09.2026).
+
+    `tools/test/fels-rauschen.ts` rechnet ueber 4 Millionen Proben nach,
+    was im Kopf von `client/src/engine/felsRauschen.ts` als Zahl steht:
+    Der Erwartungswert bleibt der Deckel aus `RAMPEN` (der Ausschlag 1,45
+    klemmt unten bei 0, und ein abgeschnittener Schwanz HEBT den Mittel-
+    wert — der Ausgleich rechnet ihn heraus), der Fels wird nirgends rein
+    (Vorbild 0,0 %), und es gibt wieder reines Moos (Vorbild 19,2 %; die
+    alte Maske hatte 0,0 %). Dazu: die erzeugten GLSL-Zeilen tragen
+    dieselben Zahlen wie die TypeScript-Fassung — ohne das ist die
+    CPU-Fassung eine Abschrift, und jede Messmaske, die sie benutzt,
+    misst eine andere Schicht als der Bildschirm zeigt.
+
+    KEINE WEICHE: Die Datei importiert bewusst kein Babylon und braucht
+    keine Assets, laeuft also auch im CI-Checkout.
+  */
+  ['tools', 'test/fels-rauschen.ts'],
+
+  /*
     Der Boden gegen das VORBILD (10.09.2026, `design/original-boden.md`).
     `tools/test/look-referenz.ts` ist dabei umgedreht worden, und das ist
     der Kern der Sache: Bis dahin hat er vier TOENUNGEN bewacht, die am

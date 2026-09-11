@@ -36,6 +36,7 @@ import {
   FIGUREN, FIGUR_VORGABE,
   FRISUREN, FRISUR_VORGABE,
   BAERTE, BART_VORGABE,
+  AUGENBRAUEN, AUGENBRAUE_VORGABE,
   HAARFARBEN, HAARFARBE_VORGABE,
   RUESTUNG, AUSSEHEN_ORDNER, AUSSEHEN_KOERPER,
   FRACTION_SUNRISE, FRACTION_MIDDAY, FRACTION_SUNSET,
@@ -73,6 +74,11 @@ const daten = {
     nameEn: `Beard ${String(index + 1).padStart(2, '0')}`,
   })),
   defaultBeard: BART_VORGABE,
+  eyebrows: AUGENBRAUEN.map((a, index) => ({
+    id: a.id, file: a.datei, name: a.name, figure: a.figur,
+    nameEn: `Eyebrows ${String(index % 10 + 1).padStart(2, '0')}`,
+  })),
+  defaultEyebrows: AUGENBRAUE_VORGABE,
   // Der Hex-Wert geht MIT: Die Webseite setzt ihn als Farbfleck neben
   // die Auswahl und reicht ihn an die Vorschau weiter. Sie kennt
   // shared/aussehen.ts nicht — vorschau-web.ts importiert bewusst nur
@@ -105,7 +111,7 @@ const daten = {
 mkdirSync(dirname(AUS), { recursive: true });
 writeFileSync(AUS, JSON.stringify(daten, null, 2) + '\n', 'utf8');
 console.log(
-  'GESCHRIEBEN %s — %d Figuren, %d Frisuren, %d Baerte, %d Ruestungsteile, %d Haarfarben',
-  AUS, daten.figures.length, daten.hairstyles.length, daten.beards.length, daten.equipment.length,
-  daten.hairColors.length
+  'GESCHRIEBEN %s — %d Figuren, %d Frisuren, %d Baerte, %d Augenbrauen, %d Ruestungsteile, %d Haarfarben',
+  AUS, daten.figures.length, daten.hairstyles.length, daten.beards.length, daten.eyebrows.length,
+  daten.equipment.length, daten.hairColors.length
 );

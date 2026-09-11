@@ -13,7 +13,7 @@
  * liefen unweigerlich auseinander.
  *
  * ── Warum die Teile EINZELN geladen werden ──────────────────────────
- * Alle 38 Frisuren und 18 Bärte in einer Datei müsste jeder Spieler
+ * Alle 38 Frisuren, 18 Bärte und 17 Augenbrauenformen in einer Datei müsste jeder Spieler
  * herunterladen, obwohl jeweils nur eine Auswahl getragen wird. Getrennt
  * lädt der Client lediglich Körper, gewählte Frisur und gewählten Bart.
  *
@@ -112,6 +112,40 @@ export function bartZu(id: string | null | undefined): Bart | null {
   return BAERTE.find((b) => b.id === id) ?? null;
 }
 
+export interface Augenbraue {
+  /** Geschlechtsspezifische Kennung; AM = männlich, AF = weiblich. */
+  readonly id: string;
+  readonly datei: string;
+  readonly name: string;
+  readonly figur: 'wikinger' | 'wikingerin';
+}
+
+/** Zehn männliche und sieben weibliche Formen aus dem Figuren-Master. */
+export const AUGENBRAUEN: readonly Augenbraue[] = [
+  ...Array.from({ length: 10 }, (_, index) => {
+    const nummer = String(index + 1).padStart(2, '0');
+    return { id: `AM_${nummer}`, datei: `AM_${nummer}`, name: `Augenbrauen ${nummer}`, figur: 'wikinger' as const };
+  }),
+  ...Array.from({ length: 7 }, (_, index) => {
+    const nummer = String(index + 1).padStart(2, '0');
+    return { id: `AF_${nummer}`, datei: `AF_${nummer}`, name: `Augenbrauen ${nummer}`, figur: 'wikingerin' as const };
+  }),
+];
+
+/** Entspricht den im Blender-Master eingesetzten Varianten. */
+export const AUGENBRAUE_VORGABE = {
+  wikinger: 'AM_07',
+  wikingerin: 'AF_01',
+} as const;
+
+export function istAugenbraue(id: unknown): boolean {
+  return typeof id === 'string' && AUGENBRAUEN.some((a) => a.id === id);
+}
+
+export function augenbraueZu(id: string | null | undefined): Augenbraue | null {
+  return AUGENBRAUEN.find((a) => a.id === id) ?? null;
+}
+
 /**
  * Bart und Frisur reisen gemeinsam im vorhandenen Frisurfeld. So bleiben
  * Kontendatenbank, ZDO und ältere Clients kompatibel; `H_04+B_02` bedeutet
@@ -122,7 +156,18 @@ export function frisurMitBart(frisur: string, bart: string): string {
 }
 
 export function bartAusFrisur(id: string | null | undefined): Bart | null {
-  return bartZu(typeof id === 'string' ? id.split('+', 2)[1] : undefined);
+  return bartZu(typeof id === 'string' ? id.split('+').find((teil) => teil.startsWith('B_')) : undefined);
+}
+
+export function augenbraueAusFrisur(id: string | null | undefined): Augenbraue | null {
+  return augenbraueZu(
+    typeof id === 'string' ? id.split('+').find((teil) => /^A[MF]_/.test(teil)) : undefined,
+  );
+}
+
+/** Kompaktes, rückwärtskompatibles Drahtformat im vorhandenen Frisurfeld. */
+export function frisurMitGesicht(frisur: string, bart: string, augenbraue: string): string {
+  return [frisur, bart, augenbraue].filter(Boolean).join('+');
 }
 
 /**
@@ -150,8 +195,11 @@ export const RUESTUNG: readonly Ruestungsteil[] = [
 /** Kennt die Liste diese Frisur? Der Server glaubt dem Client nichts. */
 export function istFrisur(id: unknown): boolean {
   if (typeof id !== 'string') return false;
-  const [frisur, bart = ''] = id.split('+', 2);
-  return FRISUREN.some((f) => f.id === frisur) && istBart(bart);
+  const [frisur, ...teile] = id.split('+');
+  if (!FRISUREN.some((f) => f.id === frisur) || teile.length > 2) return false;
+  const baerte = teile.filter((teil) => istBart(teil) && teil !== '');
+  const brauen = teile.filter((teil) => istAugenbraue(teil));
+  return baerte.length <= 1 && brauen.length <= 1 && baerte.length + brauen.length === teile.length;
 }
 
 /** Kennt die Liste dieses Rüstungsteil? Leerstring = nichts angezogen. */

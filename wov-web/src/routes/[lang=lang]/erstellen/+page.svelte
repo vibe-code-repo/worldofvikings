@@ -66,18 +66,20 @@
    */
   interface Eintrag {
     /** sRGB-Hex, nur bei Haarfarben belegt. */
-    hex?: string; id: string; name: string; nameEn?: string; file?: string; model?: string; slot?: string }
+    hex?: string; id: string; name: string; nameEn?: string; file?: string; model?: string; slot?: string; figure?: string }
   interface Aussehen {
     folder: string;
     body: string;
     figures: Eintrag[];
     hairstyles: Eintrag[];
     beards: Eintrag[];
+    eyebrows: Eintrag[];
     hairColors: Eintrag[];
     equipment: Eintrag[];
     defaultFigure?: string;
     defaultHairstyle?: string;
     defaultBeard?: string;
+    defaultEyebrows?: Record<string, string>;
     defaultHairColor?: string;
     /**
      * Stunde → Beschriftung, z. B. { "3": "Sonnenaufgang" }.
@@ -146,11 +148,12 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'wikinger-modular-20260911';
+  const FIGUREN_STAND = 'wikinger-brauen-20260911';
 
   let figur = $state('');
   let frisur = $state('');
   let bart = $state('');
+  let augenbraue = $state('');
   let haarfarbe = $state('');
   let ober = $state('');
   let beine = $state('');
@@ -211,6 +214,7 @@
 
   const oberTeile = $derived(daten?.equipment.filter((r) => r.slot === 'oberkoerper') ?? []);
   const beinTeile = $derived(daten?.equipment.filter((r) => r.slot === 'beine') ?? []);
+  const augenbrauen = $derived(daten?.eyebrows?.filter((a) => a.figure === figur) ?? []);
 
   const gestadeHinweis = $derived(
     gestade === 'dev'
@@ -247,7 +251,7 @@
         // `server` steht hier nicht mehr drin: Welches Gestade gewählt ist,
         // führt seit den Kontoseiten `wov-gestade` (writeShore), und zwei
         // Orte für dieselbe Angabe laufen früher oder später auseinander.
-        JSON.stringify({ figur, frisur, bart, haarfarbe, ober, beine, name: spielerName, zeit })
+        JSON.stringify({ figur, frisur, bart, augenbraue, haarfarbe, ober, beine, name: spielerName, zeit })
       );
     } catch {
       /* privater Modus: dann eben nicht */
@@ -269,6 +273,10 @@
     return ausgewaehlt?.model ?? (daten ? `${daten.folder}/${daten.body}` : '');
   }
 
+  function brauenVorgabe(): string {
+    return daten?.defaultEyebrows?.[figur] ?? augenbrauen[0]?.id ?? '';
+  }
+
   /* -------------------------------------------------------- Die Bühne */
 
   async function zeigeAussehen() {
@@ -276,6 +284,7 @@
     await vorschau.setze('frisur', datei(daten.hairstyles, frisur) ?? datei(daten.hairstyles, daten.hairstyles[0]?.id ?? ''));
     // Bärte gibt es im Master nur für den männlichen Grundkörper.
     await vorschau.setze('bart', figur === 'wikinger' ? datei(daten.beards ?? [], bart) : null);
+    await vorschau.setze('augenbraue', datei(daten.eyebrows ?? [], augenbraue));
     // Die Haarfarbe ist kein Modell, sondern eine Toenung auf dem
     // Frisurmodell -- deshalb NACH der Frisur und ueber einen eigenen Weg.
     // Ohne diesen Aufruf steht die Auswahl da und die Vorschau zeigt sie
@@ -326,6 +335,13 @@
     });
   }
 
+  async function figurGewechselt() {
+    if (!augenbrauen.some((a) => a.id === augenbraue)) augenbraue = brauenVorgabe();
+    if (figur !== 'wikinger') bart = '';
+    merke();
+    await ladeAlles();
+  }
+
   function vorgabenWaehlen() {
     if (!daten) return;
     const gueltig = (liste: Eintrag[], wert?: string) =>
@@ -334,6 +350,8 @@
     figur = gueltig(daten.figures, alt.figur) ?? daten.defaultFigure ?? daten.figures[0]?.id ?? '';
     frisur = gueltig(daten.hairstyles, alt.frisur) ?? daten.defaultHairstyle ?? daten.hairstyles[0]?.id ?? '';
     bart = gueltig(daten.beards ?? [], alt.bart) ?? daten.defaultBeard ?? '';
+    augenbraue = gueltig(daten.eyebrows ?? [], alt.augenbraue) ?? '';
+    if (!augenbrauen.some((a) => a.id === augenbraue)) augenbraue = brauenVorgabe();
     haarfarbe =
       gueltig(daten.hairColors, alt.haarfarbe) ?? daten.defaultHairColor ?? daten.hairColors[0]?.id ?? '';
     ober = gueltig(daten.equipment, alt.ober) ?? '';
@@ -442,6 +460,7 @@
     figur = zufall(daten.figures);
     frisur = zufall(daten.hairstyles);
     bart = figur === 'wikinger' && Math.random() > 0.25 ? zufall(daten.beards ?? []) : '';
+    augenbraue = zufall(daten.eyebrows?.filter((a) => a.figure === figur) ?? []);
     haarfarbe = zufall(daten.hairColors);
     ober = zufall(oberTeile, true);
     beine = zufall(beinTeile, true);
@@ -454,6 +473,7 @@
     figur = daten.defaultFigure ?? daten.figures[0]?.id ?? '';
     frisur = daten.defaultHairstyle ?? daten.hairstyles[0]?.id ?? '';
     bart = daten.defaultBeard ?? '';
+    augenbraue = brauenVorgabe();
     haarfarbe = daten.defaultHairColor ?? daten.hairColors[0]?.id ?? '';
     ober = '';
     beine = '';
@@ -496,7 +516,7 @@
         figure: figur,
         // Das bestehende Drahtfeld bleibt kompatibel: H_04+B_02 bedeutet
         // Frisur 04 mit Bart 02; alte H_04-Werte gelten unverändert weiter.
-        hairstyle: figur === 'wikinger' && bart ? `${frisur}+${bart}` : frisur,
+        hairstyle: [frisur, figur === 'wikinger' ? bart : '', augenbraue].filter(Boolean).join('+'),
         hairColor: haarfarbe,
         top: ober,
         legs: beine,
@@ -623,12 +643,22 @@
       {#if detailTab === 'koerper'}
         <div class="erstellen-feld">
           <label class="feldname" for="create-figure">{t['create.appearance.figure.label']}</label>
-          <select id="create-figure" bind:value={figur} onchange={() => { merke(); void ladeAlles(); }}>
+          <select id="create-figure" bind:value={figur} onchange={() => { void figurGewechselt(); }}>
             {#each daten?.figures ?? [] as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
           </select>
         </div>
         <p class="platzhalter-hinweis">{lang === 'de' ? 'Beide Körper verwenden dieselben modularen Frisuren.' : 'Both bodies use the same modular hairstyles.'}</p>
       {:else if detailTab === 'gesicht'}
+        <div class="erstellen-feld">
+          <label class="feldname" for="create-eyebrows">{lang === 'de' ? 'Augenbrauen' : 'Eyebrows'}</label>
+          <div class="waehler">
+            <button type="button" aria-label={lang === 'de' ? 'Vorige Augenbrauen' : 'Previous eyebrows'} onclick={() => { augenbraue = schritt(augenbrauen, augenbraue, -1, false); merke(); void zeigeAussehen(); }}>‹</button>
+            <select id="create-eyebrows" bind:value={augenbraue} onchange={() => { merke(); void zeigeAussehen(); }}>
+              {#each augenbrauen as e (e.id)}<option value={e.id}>{eintragName(e)}</option>{/each}
+            </select>
+            <button type="button" aria-label={lang === 'de' ? 'Nächste Augenbrauen' : 'Next eyebrows'} onclick={() => { augenbraue = schritt(augenbrauen, augenbraue, 1, false); merke(); void zeigeAussehen(); }}>›</button>
+          </div>
+        </div>
         <div class="erstellen-feld">
           <label class="feldname" for="create-beard">{lang === 'de' ? 'Bart' : 'Beard'}</label>
           <div class="waehler">

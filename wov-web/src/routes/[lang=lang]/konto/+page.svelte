@@ -80,6 +80,7 @@
     figures: AppearanceEntry[];
     hairstyles: AppearanceEntry[];
     beards: AppearanceEntry[];
+    eyebrows: AppearanceEntry[];
     equipment: AppearanceEntry[];
   }
 
@@ -98,9 +99,7 @@
 
   function nameOf(id: string): string {
     if (!id) return t['create.appearance.chest.none'];
-    const [hair, beard] = id.split('+', 2);
-    if (beard) return `${names[hair] ?? hair} · ${names[beard] ?? beard}`;
-    return names[id] ?? id;
+    return id.split('+').map((teil) => names[teil] ?? teil).join(' · ');
   }
 
   /* ------------------------------------------------------------ loading */
@@ -238,7 +237,7 @@
       try {
         const data = await holeJson<Appearance>('/assets/appearance.json');
         const map: Record<string, string> = {};
-        for (const e of [...data.figures, ...data.hairstyles, ...(data.beards ?? []), ...data.equipment]) {
+        for (const e of [...data.figures, ...data.hairstyles, ...(data.beards ?? []), ...(data.eyebrows ?? []), ...data.equipment]) {
           map[e.id] = lang === 'en' && e.nameEn ? e.nameEn : e.name;
         }
         names = map;

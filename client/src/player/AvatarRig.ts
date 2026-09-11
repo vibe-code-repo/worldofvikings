@@ -2163,7 +2163,7 @@ export class AvatarRig {
 
   private faerbeFrisur(): void {
     if (!this.haarHex) return;
-    for (const slot of ['frisur', 'bart']) {
+    for (const slot of ['frisur', 'bart', 'augenbraue']) {
       const datei = this.getragen.get(slot);
       if (!datei) continue;
       // Kein Klon: `ladeTeil` holt jedes Teil ueber `ImportMeshAsync`, und

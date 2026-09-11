@@ -14,8 +14,9 @@
  * buendeln — die Datei auf der Webseite ist ERZEUGT.
  *
  * ── Warum die Teile einzeln geladen werden ──────────────────────────
- * Die 38 Frisuren und 18 Bärte werden einzeln nachgeladen. Wer die
- * Auswahl öffnet, soll nicht auf 55 Teile warten, die er nicht trägt.
+ * Die 38 Frisuren, 18 Bärte und 17 Augenbrauenformen werden einzeln
+ * nachgeladen. Wer die Auswahl öffnet, soll nicht auf 72 Teile warten,
+ * die er nicht trägt.
  *
  * Das funktioniert nur, weil jede Teildatei DIESELBE Gelenkliste traegt
  * wie der Koerper — 63 Knochen, Index fuer Index. Erzeugt werden sie von
@@ -518,7 +519,7 @@ export class Vorschau {
   private faerbeFrisur(): void {
     if (!this.haarHex) return;
     const farbe = Color3.FromHexString(this.haarHex).toLinearSpace();
-    for (const slot of ['frisur', 'bart']) {
+    for (const slot of ['frisur', 'bart', 'augenbraue']) {
       const datei = this.aktuell.get(slot);
       if (!datei) continue;
       for (const m of this.geladen.get(datei)?.netze ?? []) {

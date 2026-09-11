@@ -1,7 +1,6 @@
 {
   "femaleBody": [
     "Chr_Head_Female_00",
-    "Chr_Eyebrow_Female_01",
     "Chr_Torso_Female_00",
     "Chr_ArmUpperLeft_Female_00",
     "Chr_ArmUpperRight_Female_00",
@@ -239,6 +238,78 @@
     {
       "id": "B_18",
       "source": "Chr_FacialHair_Male_18"
+    }
+  ],
+  "eyebrowsMale": [
+    {
+      "id": "AM_01",
+      "source": "Chr_Eyebrow_Male_01"
+    },
+    {
+      "id": "AM_02",
+      "source": "Chr_Eyebrow_Male_02"
+    },
+    {
+      "id": "AM_03",
+      "source": "Chr_Eyebrow_Male_03"
+    },
+    {
+      "id": "AM_04",
+      "source": "Chr_Eyebrow_Male_04"
+    },
+    {
+      "id": "AM_05",
+      "source": "Chr_Eyebrow_Male_05"
+    },
+    {
+      "id": "AM_06",
+      "source": "Chr_Eyebrow_Male_06"
+    },
+    {
+      "id": "AM_07",
+      "source": "Chr_Eyebrow_Male_07"
+    },
+    {
+      "id": "AM_08",
+      "source": "Chr_Eyebrow_Male_08"
+    },
+    {
+      "id": "AM_09",
+      "source": "Chr_Eyebrow_Male_09"
+    },
+    {
+      "id": "AM_10",
+      "source": "Chr_Eyebrow_Male_10"
+    }
+  ],
+  "eyebrowsFemale": [
+    {
+      "id": "AF_01",
+      "source": "Chr_Eyebrow_Female_01"
+    },
+    {
+      "id": "AF_02",
+      "source": "Chr_Eyebrow_Female_02"
+    },
+    {
+      "id": "AF_03",
+      "source": "Chr_Eyebrow_Female_03"
+    },
+    {
+      "id": "AF_04",
+      "source": "Chr_Eyebrow_Female_04"
+    },
+    {
+      "id": "AF_05",
+      "source": "Chr_Eyebrow_Female_05"
+    },
+    {
+      "id": "AF_06",
+      "source": "Chr_Eyebrow_Female_06"
+    },
+    {
+      "id": "AF_07",
+      "source": "Chr_Eyebrow_Female_07"
     }
   ]
 }

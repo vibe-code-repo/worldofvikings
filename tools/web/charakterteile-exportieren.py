@@ -117,30 +117,38 @@ def spiel_animationen_vorbereiten() -> None:
 sammlungen_einblenden()
 
 # Weiblicher Grundkoerper ohne die im Master nur als Beispiel eingesetzte
-# Frisur. Haare werden im Editor als eigenes Modul daruebergelegt.
+# Frisur und Augenbraue. Beides wird im Editor als eigenes Modul aufgelegt.
 female = [
     objekt
     for objekt in bpy.data.collections["Player_Female"].objects
-    if objekt.type == "MESH" and not objekt.name.startswith("Chr_Hair_")
+    if objekt.type == "MESH"
+    and not objekt.name.startswith(("Chr_Hair_", "Chr_Eyebrow_"))
 ]
-if len(female) != 12:
-    raise RuntimeError(f"Erwartet 12 weibliche Koerperteile, gefunden: {len(female)}")
+if len(female) != 11:
+    raise RuntimeError(f"Erwartet 11 weibliche Koerperteile, gefunden: {len(female)}")
 spiel_animationen_vorbereiten()
 auswaehlen(female)
 glb_exportieren(AUSGABE / "WikingerinKoerper.glb", True)
 
 # Ein Modul je Datei. Die stabilen Kurzkennungen H_XX/B_XX stehen spaeter im
 # Spielstand; der originale Blender-Objektname bleibt im Bericht erhalten.
-bericht = {"femaleBody": [o.name for o in female], "hair": [], "beards": []}
-for praefix, ziel_praefix, schluessel in (
-    ("Chr_Hair_", "H_", "hair"),
-    ("Chr_FacialHair_Male_", "B_", "beards"),
+bericht = {
+    "femaleBody": [o.name for o in female],
+    "hair": [],
+    "beards": [],
+    "eyebrowsMale": [],
+    "eyebrowsFemale": [],
+}
+for praefix, ziel_praefix, schluessel, erwartet in (
+    ("Chr_Hair_", "H_", "hair", 38),
+    ("Chr_FacialHair_Male_", "B_", "beards", 18),
+    ("Chr_Eyebrow_Male_", "AM_", "eyebrowsMale", 10),
+    ("Chr_Eyebrow_Female_", "AF_", "eyebrowsFemale", 7),
 ):
     objekte = sorted(
         (o for o in bpy.data.objects if o.type == "MESH" and o.name.startswith(praefix)),
         key=lambda o: int(o.name.rsplit("_", 1)[1]),
     )
-    erwartet = 38 if schluessel == "hair" else 18
     if len(objekte) != erwartet:
         raise RuntimeError(
             f"Erwartet {erwartet} Objekte fuer {schluessel}, gefunden: {len(objekte)}"
@@ -157,6 +165,8 @@ for praefix, ziel_praefix, schluessel in (
 )
 print(
     f"FERTIG: {len(bericht['hair'])} Haare, {len(bericht['beards'])} Baerte, "
+    f"{len(bericht['eyebrowsMale'])} maennliche und "
+    f"{len(bericht['eyebrowsFemale'])} weibliche Augenbrauen, "
     f"{len(bericht['femaleBody'])} weibliche Koerperteile",
     flush=True,
 )

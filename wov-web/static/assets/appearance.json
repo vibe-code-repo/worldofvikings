@@ -359,6 +359,131 @@
     }
   ],
   "defaultBeard": "",
+  "eyebrows": [
+    {
+      "id": "AM_01",
+      "file": "AM_01",
+      "name": "Augenbrauen 01",
+      "figure": "wikinger",
+      "nameEn": "Eyebrows 01"
+    },
+    {
+      "id": "AM_02",
+      "file": "AM_02",
+      "name": "Augenbrauen 02",
+      "figure": "wikinger",
+      "nameEn": "Eyebrows 02"
+    },
+    {
+      "id": "AM_03",
+      "file": "AM_03",
+      "name": "Augenbrauen 03",
+      "figure": "wikinger",
+      "nameEn": "Eyebrows 03"
+    },
+    {
+      "id": "AM_04",
+      "file": "AM_04",
+      "name": "Augenbrauen 04",
+      "figure": "wikinger",
+      "nameEn": "Eyebrows 04"
+    },
+    {
+      "id": "AM_05",
+      "file": "AM_05",
+      "name": "Augenbrauen 05",
+      "figure": "wikinger",
+      "nameEn": "Eyebrows 05"
+    },
+    {
+      "id": "AM_06",
+      "file": "AM_06",
+      "name": "Augenbrauen 06",
+      "figure": "wikinger",
+      "nameEn": "Eyebrows 06"
+    },
+    {
+      "id": "AM_07",
+      "file": "AM_07",
+      "name": "Augenbrauen 07",
+      "figure": "wikinger",
+      "nameEn": "Eyebrows 07"
+    },
+    {
+      "id": "AM_08",
+      "file": "AM_08",
+      "name": "Augenbrauen 08",
+      "figure": "wikinger",
+      "nameEn": "Eyebrows 08"
+    },
+    {
+      "id": "AM_09",
+      "file": "AM_09",
+      "name": "Augenbrauen 09",
+      "figure": "wikinger",
+      "nameEn": "Eyebrows 09"
+    },
+    {
+      "id": "AM_10",
+      "file": "AM_10",
+      "name": "Augenbrauen 10",
+      "figure": "wikinger",
+      "nameEn": "Eyebrows 10"
+    },
+    {
+      "id": "AF_01",
+      "file": "AF_01",
+      "name": "Augenbrauen 01",
+      "figure": "wikingerin",
+      "nameEn": "Eyebrows 01"
+    },
+    {
+      "id": "AF_02",
+      "file": "AF_02",
+      "name": "Augenbrauen 02",
+      "figure": "wikingerin",
+      "nameEn": "Eyebrows 02"
+    },
+    {
+      "id": "AF_03",
+      "file": "AF_03",
+      "name": "Augenbrauen 03",
+      "figure": "wikingerin",
+      "nameEn": "Eyebrows 03"
+    },
+    {
+      "id": "AF_04",
+      "file": "AF_04",
+      "name": "Augenbrauen 04",
+      "figure": "wikingerin",
+      "nameEn": "Eyebrows 04"
+    },
+    {
+      "id": "AF_05",
+      "file": "AF_05",
+      "name": "Augenbrauen 05",
+      "figure": "wikingerin",
+      "nameEn": "Eyebrows 05"
+    },
+    {
+      "id": "AF_06",
+      "file": "AF_06",
+      "name": "Augenbrauen 06",
+      "figure": "wikingerin",
+      "nameEn": "Eyebrows 06"
+    },
+    {
+      "id": "AF_07",
+      "file": "AF_07",
+      "name": "Augenbrauen 07",
+      "figure": "wikingerin",
+      "nameEn": "Eyebrows 07"
+    }
+  ],
+  "defaultEyebrows": {
+    "wikinger": "AM_07",
+    "wikingerin": "AF_01"
+  },
   "hairColors": [
     {
       "id": "rabenschwarz",

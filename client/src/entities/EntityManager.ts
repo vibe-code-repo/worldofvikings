@@ -34,6 +34,7 @@ import {
   AUSSEHEN_ORDNER,
   frisurZu,
   bartAusFrisur,
+  augenbraueAusFrisur,
   haarfarbeZu,
   ruestungZu,
   istFrisur,
@@ -1282,6 +1283,8 @@ export class EntityManager {
         ? `${AUSSEHEN_ORDNER}/${frisurZu(u.frisur).datei}` : null,
       bart: u.frisur && istFrisur(u.frisur) && bartAusFrisur(u.frisur)
         ? `${AUSSEHEN_ORDNER}/${bartAusFrisur(u.frisur)!.datei}` : null,
+      augenbraue: u.frisur && istFrisur(u.frisur) && augenbraueAusFrisur(u.frisur)
+        ? `${AUSSEHEN_ORDNER}/${augenbraueAusFrisur(u.frisur)!.datei}` : null,
       oberkoerper: ruestungZu(ober) ? `${AUSSEHEN_ORDNER}/${ruestungZu(ober)!.datei}` : null,
       beine: ruestungZu(beine) ? `${AUSSEHEN_ORDNER}/${ruestungZu(beine)!.datei}` : null,
     };
@@ -1316,7 +1319,7 @@ export class EntityManager {
       // `instantiateModelsToScene` teilt Materialien zwischen allen
       // Instanzen. Ohne Klon faerbte der erste Spieler mit dieser
       // Frisur alle anderen mit (s. haarfarbe.ts).
-      if (slot === 'frisur' || slot === 'bart') {
+      if (slot === 'frisur' || slot === 'bart' || slot === 'augenbraue') {
         faerbeHaar(netze, haarfarbeZu(u.haarfarbe).hex, true);
       }
       dyn.aussehen.set(slot, { datei, wurzel });

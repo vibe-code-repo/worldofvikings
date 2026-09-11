@@ -219,7 +219,10 @@
    * Stand, und eine Vorschau, die etwas anderes zeigt als das, was einen dort
    * erwartet, wäre schlimmer als keine.
    */
-  const modellWurzel = $derived(`${SHORES[gestade].url}/assets/models/`);
+  // Die Vorschau kommt aus derselben Auslieferung wie die Webseite. Dadurch
+  // bleibt sie unabhängig von Login-Status, Gestade und CORS-Regeln der
+  // Spielserver; nur das Erstellen selbst spricht weiterhin deren API an.
+  const modellWurzel = '/assets/models/';
 
   /** 00:00 … 23:00, die markanten Stunden mit Namen dahinter. */
   const stunden = $derived(

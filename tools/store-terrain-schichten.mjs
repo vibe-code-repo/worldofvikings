@@ -112,8 +112,53 @@ import sharp from 'sharp';
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '..');
 const STORE = resolve(WURZEL, 'assets/store/textures');
+const STORE_LAB = resolve(WURZEL, 'assets/store-lab/textures');
 const ALTBESTAND = resolve(WURZEL, 'assets/textures');
 const AUS = resolve(WURZEL, 'assets/generiert/terrain');
+
+/**
+ * Wo eine Kacheltextur gesucht wird — der Speicher zuerst.
+ *
+ * `assets/store` ist nur lesbar (Symlink auf Mikes Asset-Speicher). Eine
+ * Textur, die es dort noch nicht gibt, legt `tools/store-boden-quellen.mjs`
+ * unter `assets/store-lab/textures/` ab; sobald sie per rsync im Speicher
+ * liegt, gewinnt automatisch wieder der Speicher, und der Zwischenstand
+ * fällt von selbst weg. Die Reihenfolge ist deshalb genau diese.
+ */
+const TEXTUR_ORTE = [STORE, STORE_LAB];
+
+/**
+ * Die erste vorhandene Fassung eines Kachelnamens, oder `null`.
+ *
+ * Gibt den ORT mit zurück, nicht nur den Pfad: `store-schichten.json`
+ * schreibt ihn mit, damit man einem gebauten Stapel ansieht, aus welchem
+ * Bestand jede Zeile stammt. Ohne das ist „der Fels sieht anders aus als
+ * bei dir" eine Stunde Suche.
+ */
+function texturOrt(name) {
+  for (const ort of TEXTUR_ORTE) {
+    const p = resolve(ort, `${name}.png`);
+    if (existsSync(p)) return { pfad: p, ort: ort === STORE ? 'speicher' : 'labor' };
+  }
+  return null;
+}
+
+/**
+ * Die Kandidaten einer Schicht in der Reihenfolge, in der sie gelten:
+ * die gewünschte Karte zuerst, dann der benannte Ersatz.
+ */
+function farbKandidaten(s) {
+  return s.farbeErsatz ? [s.farbe, s.farbeErsatz] : [s.farbe];
+}
+
+/** Die Farbkarte, die eine Schicht wirklich bekommt. */
+function farbQuelle(s) {
+  for (const name of farbKandidaten(s)) {
+    const ort = texturOrt(name);
+    if (ort) return { name, ...ort };
+  }
+  return null;
+}
 
 /** Zeilen des Altbestand-Stapels — 16 Kacheln à 256², oben beginnend. */
 const ALT_KANTE = 256;
@@ -131,7 +176,29 @@ export const SCHICHTEN = {
   'grass-a': { farbe: 'terrain-grass-a', normale: 'terrain-grass-normal', kachelMeter: 2, normalStaerke: 2, metallic: 0.7, smoothness: 0 },
   'grass-b': { farbe: 'terrain-grass-b', normale: 'terrain-grass-normal', kachelMeter: 2, normalStaerke: 2, metallic: 0.7, smoothness: 0 },
   gravel: { farbe: 'terrain-gravel', normale: 'terrain-gravel-normal', kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
-  'rock-rough': { farbe: 'terrain-rock-rough', normale: 'terrain-rock-rough-normal', kachelMeter: 7, normalStaerke: 2, metallic: 0, smoothness: 0 },
+  /*
+    Der helle Hangfels (Tile 5 `Cliff`, 6, 14).
+
+    ── Warum hier zwei Namen stehen (A9, 11.09.2026) ──────────────────
+    Bis zum 10.09. trug diese Zeile `terrain-rock-rough`. Das ist,
+    nachgemessen, genau die Karte der Ebene `Terrain_Meadow_Rock_Rough_01`
+    — und die benutzt im ganzen Vorbild KEIN Terrain (F26). Die Ebene,
+    die den hellen Fels der Wiese malt, ist `Terrain_Meadow_Rock_Moss_01`;
+    ihre Kachel (7 m) und Normalstärke (2,0) stehen seit dem 10.09. hier,
+    ihre FARBE fehlte.
+
+    Jetzt ist sie da, als `terrain-rock-moss`. Der Unterschied ist kein
+    Feinschliff, sondern eine Halbierung: lineare Luma über alle Texel
+    0,0859 gegen 0,2014, Farbton 51° gegen 35°, Sättigung 0,289 gegen
+    0,153 — aus grauem Schotter wird sandfarbener Fels mit Moosflecken.
+
+    `farbeErsatz` ist kein Komfort. Die neue Karte entsteht aus einem
+    Quellbestand ausserhalb des Repos (`tools/store-boden-quellen.mjs`);
+    auf einer Maschine ohne ihn — im CI, und bei jedem, der frisch
+    klont — muss der Boden trotzdem bauen. `store-schichten.json` hält
+    fest, welche der beiden Karten ein Stapel wirklich trägt.
+  */
+  'rock-rough': { farbe: 'terrain-rock-moss', farbeErsatz: 'terrain-rock-rough', normale: 'terrain-rock-rough-normal', kachelMeter: 7, normalStaerke: 2, metallic: 0, smoothness: 0 },
   moss: { farbe: 'terrain-moss', normale: 'terrain-moss-normal', kachelMeter: 2, normalStaerke: 1.2, metallic: 0, smoothness: 0 },
 };
 
@@ -251,10 +318,13 @@ async function altZeile(datei, zeile, kante) {
 export function fehlendeDateien() {
   const fehlt = [];
   for (const s of Object.values(SCHICHTEN)) {
-    for (const n of [s.farbe, s.normale]) {
-      const p = resolve(STORE, `${n}.png`);
-      if (!existsSync(p)) fehlt.push(p);
+    // Die Farbkarte darf aus jedem der beiden Orte kommen, und bei einer
+    // Schicht mit `farbeErsatz` genuegt EINE der beiden Fassungen —
+    // fehlen alle, ist das ein Befund.
+    if (!farbQuelle(s)) {
+      fehlt.push(farbKandidaten(s).map((n) => resolve(STORE, `${n}.png`)).join(' oder '));
     }
+    if (!texturOrt(s.normale)) fehlt.push(resolve(STORE, `${s.normale}.png`));
   }
   if (!existsSync(resolve(ALTBESTAND, 'terrain_d_array.png'))) {
     fehlt.push(resolve(ALTBESTAND, 'terrain_d_array.png'));
@@ -293,11 +363,16 @@ export function tabelle(kante) {
         };
       }
       const s = SCHICHTEN[z.schicht];
+      const fq = farbQuelle(s);
       return {
         tile: i,
         name: z.name,
         quelle: z.schicht,
-        farbe: s.farbe,
+        // Die WIRKLICH benutzte Karte, nicht die gewuenschte — sonst
+        // behauptet die Tabelle eine Farbe, die im Stapel nicht steht.
+        farbe: fq?.name ?? s.farbe,
+        farbeGewuenscht: s.farbe,
+        farbeOrt: fq?.ort ?? null,
         normale: s.normale,
         toenung: z.toenung,
         kachelMeter: s.kachelMeter,
@@ -331,7 +406,8 @@ async function baue(kante) {
       continue;
     }
     const s = SCHICHTEN[z.schicht];
-    const roh = await laden(resolve(STORE, `${s.farbe}.png`), kante);
+    const fq = farbQuelle(s);
+    const roh = await laden(fq.pfad, kante);
     const [tr, tg, tb] = z.toenung.map(toenungsTabelle);
     const ziel = i * zeilenBytes;
     for (let p = 0; p < zeilenBytes; p += 3) {
@@ -339,7 +415,7 @@ async function baue(kante) {
       farbe[ziel + p + 1] = tg[roh[p + 1]];
       farbe[ziel + p + 2] = tb[roh[p + 2]];
     }
-    (await laden(resolve(STORE, `${s.normale}.png`), kante)).copy(normale, ziel);
+    (await laden(texturOrt(s.normale).pfad, kante)).copy(normale, ziel);
   }
 
   const schreiben = async (daten, datei) => {
@@ -356,6 +432,12 @@ async function baue(kante) {
   for (const d of ['store_d_array.png', 'store_n_array.png']) {
     console.log(`  ${d.padEnd(20)} ${mb(readFileSync(resolve(AUS, d)).length)} MB Datei, ` +
       `${mb(kante * kante * ZEILEN * 4)} MB roh im VRAM (ohne Mipmaps)`);
+  }
+  const ersatz = Object.entries(SCHICHTEN).filter(([, s]) => s.farbeErsatz);
+  for (const [name, s] of ersatz) {
+    const fq = farbQuelle(s);
+    console.log(`  Schicht ${name}: ${fq.name} (${fq.ort})` +
+      (fq.name === s.farbe ? '' : `  — ERSATZ, ${s.farbe} liegt nirgends`));
   }
   console.log(`  Ausgabe: ${AUS}`);
 }

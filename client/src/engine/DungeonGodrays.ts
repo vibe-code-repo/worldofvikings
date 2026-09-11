@@ -29,19 +29,41 @@
  * Standing in a corridor without a shaft — the normal case — the effect is
  * fully detached. That is the actual cost lever.
  *
- * ── Der Leck-Fallstrick in Babylon ────────────────────────────────────
- * `VolumetricLightScatteringPostProcess` legt seine Zieltextur in
- * `camera.customRenderTargets`, wenn es mit einer Kamera gebaut wurde — sein
- * `dispose(camera)` raeumt aber nur `scene.customRenderTargets` auf
- * (nachgelesen in `volumetricLightScatteringPostProcess.js`, Zeile 260 gegen
- * 291). Wer sich darauf verlaesst, laesst bei jedem Stufenwechsel eine
- * vollstaendige Szenenpassage in der Kamera liegen: Der Effekt ist weg, die
- * Kosten bleiben — und wachsen mit jedem Wechsel. Diese Klasse raeumt die
- * Liste deshalb selbst.
- * Babylon's `dispose(camera)` only cleans `scene.customRenderTargets`, while
- * the constructor with a camera pushes into `camera.customRenderTargets`. Every
- * tier switch would leave a complete scene pass behind: the effect gone, the
- * cost staying, growing with each switch. This class cleans that list itself.
+ * ── Der Leck-Fallstrick in Babylon: richtiggestellt (A1, 11.09.2026) ──
+ * Hier stand, `dispose(camera)` raeume nur `scene.customRenderTargets` auf,
+ * waehrend der Konstruktor mit Kamera in `camera.customRenderTargets`
+ * schiebt — und jeder Stufenwechsel lasse deshalb eine vollstaendige
+ * Szenenpassage in der Kamera liegen ("der Effekt ist weg, die Kosten
+ * bleiben"). Die Beobachtung stimmt (`volumetricLightScatteringPostProcess.js`,
+ * Zeile 260 gegen 291), die Schlussfolgerung nicht: `dispose` ruft in Zeile
+ * 264 `this._volumetricLightScatteringRTT.dispose()`, und
+ * `RenderTargetTexture.dispose()` raeumt sich in Babylon 8.56.2 SELBST aus
+ * jeder Kamera (`renderTargetTexture.js:950` fuer die Szene, `:954-959` in der
+ * Schleife ueber `scene.cameras`). Die Leckprobe „1 statt 11" waere auch ohne
+ * die Handarbeit in `raeumePassageAb()` gruen gewesen.
+ *
+ * `raeumePassageAb()` bleibt trotzdem stehen — aber als das, was es wirklich
+ * ist: Idempotenz und eine Absicherung gegen den naechsten Versionswechsel,
+ * nicht die Behebung eines Lecks. Die Reihenfolge dort (erst aus der Liste,
+ * dann `dispose`) ist aus demselben Grund weiter richtig.
+ *
+ * Das ECHTE Leck liegt woanders und hat mit den Listen nichts zu tun:
+ * `mesh = undefined` im Konstruktor unten heisst nicht „kein Mesh", sondern
+ * `CreateDefaultMesh` (Zeile 479) — eine 1-m-Plane mit
+ * `emissiveColor = (1,1,1)` bei (0,0,0). `PostProcess.dispose()` raeumt
+ * `this.mesh` NIRGENDS ab, also bleibt bei jedem Aus-und-wieder-Ein ein
+ * weiteres selbstleuchtendes Billboard samt `StandardMaterial` in der Szene.
+ * Sichtbar ist er obendrein, in der Kamerapassage wie in der Verdeckung.
+ * `PostProcessing.setSunShafts()` behandelt beides seit A1
+ * (`mesh.setEnabled(false)` beim Bauen, Mesh und Material beim Abraeumen);
+ * hier ist es BEWUSST NOCH OFFEN — A1 durfte an dieser Datei nur den
+ * Kommentar anfassen, und die Zahl gehoert in eine Dungeon-Messung, nicht in
+ * eine Aussenmessung.
+ *
+ * Correction (A1): `RenderTargetTexture.dispose()` removes itself from every
+ * camera in 8.56.2, so the manual splice below is idempotence, not a leak fix.
+ * The real leak is the internal billboard mesh at the origin, which no dispose
+ * path touches — handled in PostProcessing since A1, still open here.
  */
 import { VolumetricLightScatteringPostProcess } from '@babylonjs/core/PostProcesses/volumetricLightScatteringPostProcess';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';

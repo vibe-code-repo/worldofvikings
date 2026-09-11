@@ -175,7 +175,15 @@ export const RENDER_SCALE = [0.5, 0.75, 0.85, 1.0] as const;
 /** Meter fuer Baeume/Buesche; 0 bedeutet das volle Streaming-Fenster. */
 export const VEGETATION_RANGE = [160, 200, 240, 0] as const;
 
-const DEFAULTS: GameSettings = {
+/**
+ * Ausgeliefert, solange der Spieler nichts umgestellt hat.
+ *
+ * Exportiert, seit `server/test/stufe2-licht.ts` die Vorgaben prueft (A4):
+ * Eine Voreinstellung, die nur im Quelltext steht, kippt beim naechsten
+ * Umbau still zurueck. Am MODUL abgefragt statt per Regex — ein `as const`
+ * oder eine umgebrochene Zeile laesst jeden Ausdruck danebengreifen.
+ */
+export const DEFAULTS: GameSettings = {
   vegetationQuality: 2,
   vegetationRange: 3, // unbegrenzt — bestehende Darstellung unveraendert
   detailQuality: 2,
@@ -220,7 +228,35 @@ const DEFAULTS: GameSettings = {
   distantShadows: true,
   hundertFpsProfil: false,
   bloom: true,
-  motionBlur: true,
+  /**
+   * Voreinstellung AUS (A4). Der Schalter BLEIBT — nur die Vorgabe kippt.
+   *
+   * Zwei Gründe, und der erste ist der, der zählt:
+   *
+   *  1. Die Vorlage hat sie nicht. Das Ingame-Profil des Vorbilds führt
+   *     zwar „Motion Blur AN, shutterAngle 150°, sampleCount 10" — aber
+   *     das ist das Profil, aus dem auch „Depth of Field AUS" stammt, und
+   *     dessen Aussagen gelten nur für die Komponenten, die dort
+   *     eingetragen sind. Was auf dem Bildschirm steht, entscheiden die
+   *     Grafikoptionen, und dort ist Bewegungsunschärfe im Original-Look
+   *     kein Posten, den wir nachgemessen hätten. Eine Voreinstellung, die
+   *     wir nicht belegen können, gehört auf aus.
+   *  2. Sie ist teuer, und zwar an der teuersten Stelle. Ein an
+   *     `isObjectBased = false` gebundener Kamera-Blur braucht trotzdem die
+   *     TIEFE, also den GeometryBufferRenderer — eine komplette zweite
+   *     Renderpassage über Terrain, Vegetation und jede Instanz
+   *     (`PostProcessing.syncGeometryBuffer`). Am 2026-08-02 waren das 244
+   *     von 1134 Zeichenaufrufen je Bild. Wer sie will, bekommt sie; wer
+   *     nichts einstellt, bezahlt sie nicht.
+   *
+   * Was das NICHT heisst: dass der Effekt weg ist. Er steht unverändert in
+   * den Einstellungen (`SettingsPanel.ts`, `settings.motion_blur`), mit
+   * denselben Werten. Geprüft in `server/test/stufe2-licht.ts`.
+   *
+   * Default OFF (A4): the reference profile does not establish it for the
+   * look we ship, and it drags a full geometry pass along. The option stays.
+   */
+  motionBlur: false,
   chromaticAberration: true,
   antiAliasing: true,
   depthOfField: true,

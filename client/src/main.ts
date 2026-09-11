@@ -3823,7 +3823,8 @@ async function main() {
       // (handleAttack → WAFFEN_SCHADEN, Faust = 4). Zwei Animationen
       // hätten hier nichts zu unterscheiden; welche Hiebe der Kombo
       // laufen, entscheidet AvatarRig.schlage() selbst.
-      player.avatar.schlage();
+      // Mit Waffe die Hiebe, mit leerer Hand die Faeuste (Mike, 11.09.2026).
+      player.avatar.schlage(!!equipment?.rightItem);
       socket.sendAttack(
         player.position.x,
         player.position.y,

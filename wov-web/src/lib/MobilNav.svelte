@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { MOBILNAV, FAHRT } from './seiten';
+  import { MOBILNAV, FAHRT, FAHRT_STAND } from './seiten';
   import Ikone from './Ikone.svelte';
   import { localeFrom, localizedPath, messages, stripLocale } from './i18n';
 
@@ -29,7 +29,7 @@
     </a>
   {/each}
 
-  <a class="mobil-fahrt" href={localizedPath(lang, FAHRT)}>
+  <a class="mobil-fahrt" data-sveltekit-reload href={`${localizedPath(lang, FAHRT)}?stand=${FAHRT_STAND}`}>
     <span class="kreis"><Ikone name="segeln" /></span>
     <span class="nur-vorlesen">{t['mobile_nav.voyage.label']}</span>
   </a>

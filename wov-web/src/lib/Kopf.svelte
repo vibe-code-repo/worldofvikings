@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { HAUPTNAV, FAHRT } from './seiten';
+  import { HAUPTNAV, FAHRT, FAHRT_STAND } from './seiten';
   import { LOCALES, localeFrom, localizedPath, messages, stripLocale } from './i18n';
   import { ACCOUNT_EVENT, type ShoreId, readAccountName, signedInShore } from './account';
 
@@ -129,7 +129,11 @@
         Charaktererstellung, nicht ins Spiel — nur die Beschriftung ist
         kürzer als beim alten „Auf Fahrt gehen“.
       -->
-      <a class="nav-play" href={localizedPath(lang, FAHRT)}>{t['header.nav.play_button']}</a>
+      <!-- Vollständige Navigation: Ein lange offener Tab darf nicht seine
+           alte, bereits geladene Editor-Route wiederverwenden. -->
+      <a class="nav-play" data-sveltekit-reload href={`${localizedPath(lang, FAHRT)}?stand=${FAHRT_STAND}`}
+        >{t['header.nav.play_button']}</a
+      >
 
       <!--
         Zwei Beschriftungen je Punkt, eine davon per CSS ausgeblendet.

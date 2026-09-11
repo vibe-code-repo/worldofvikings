@@ -141,6 +141,8 @@ export const FUSSNAV: Seite[] = HAUPTNAV.filter(
 
 /** Wohin „Auf Fahrt gehen“ führt — die Charaktererstellung, nicht direkt ins Spiel. */
 export const FAHRT = '/erstellen';
+/** Ändern, wenn der Editor neue statische Routenmodule oder Modelle erhält. */
+export const FAHRT_STAND = '20260911-brauen';
 
 /** Alle Adressen (ohne Sprachpräfix), die in die Sitemap gehören. */
 export const SITEMAP = HAUPTNAV.filter((s) => s.indexieren).map((s) => s.pfad);

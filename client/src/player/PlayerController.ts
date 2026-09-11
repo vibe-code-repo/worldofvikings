@@ -137,6 +137,13 @@ const BODEN_FOLGE_AUF_MAX = 3;
  * Kamera an einem Knochen der geglaettet bewegten Figur.
  */
 const SICHT_GLAETTUNG_S = 0.15;
+/**
+ * Die Kamera glaettet zusaetzlich die Bodenhoehe selbst (Zeitkonstante),
+ * damit die Bodenwellen des 1-m-Rasters nicht als Ruckeln im Bild landen.
+ * Die Figur bekommt das NICHT — sie muss auf dem Boden stehen; die Kamera
+ * darf am Hang ein paar Zentimeter nachlaufen (bei 1,4 m/s und 23°: ~11 cm).
+ */
+const KAMERA_HOEHEN_GLAETTUNG_S = 0.2;
 
 // ── Physics body (C# Character: Rigidbody + CapsuleCollider) ─────────
 /**
@@ -319,6 +326,8 @@ export class PlayerController {
   private sichtRest = NaN;
   /** Sichtbare Hoehe fuer Figur und Kamera (m). */
   private sichtY = NaN;
+  /** Geglaettete Kamerahoehe (m), siehe KAMERA_HOEHEN_GLAETTUNG_S. */
+  private kameraY = NaN;
   /** Wie lange (s) die Kapsel schon ohne Kontakt faellt (siehe STURZ_VERZUG). */
   private sturzZeit = 0;
   /** Ob die Figur gerade keinen Boden unter sich hat — steuert die Sprunganimation. */
@@ -947,7 +956,9 @@ export class PlayerController {
     const sprung = !Number.isFinite(this.sichtRest) || this.inDerLuft || Math.abs(rest - this.sichtRest) > 1.5;
     this.sichtRest = sprung ? rest : this.sichtRest + (rest - this.sichtRest) * Math.min(1, dt / SICHT_GLAETTUNG_S);
     this.sichtY = boden !== null && Number.isFinite(boden) ? boden + this.sichtRest : this.position.y;
-    const eye = this.augeTmp.set(this.position.x, this.sichtY + EYE_HEIGHT, this.position.z);
+    const kameraSprung = !Number.isFinite(this.kameraY) || this.inDerLuft || Math.abs(this.sichtY - this.kameraY) > 1.5;
+    this.kameraY = kameraSprung ? this.sichtY : this.kameraY + (this.sichtY - this.kameraY) * Math.min(1, dt / KAMERA_HOEHEN_GLAETTUNG_S);
+    const eye = this.augeTmp.set(this.position.x, this.kameraY + EYE_HEIGHT, this.position.z);
     const boom = this.boomLength;
     const camX = eye.x - forwardX * cp * boom;
     const camZ = eye.z - forwardZ * cp * boom;

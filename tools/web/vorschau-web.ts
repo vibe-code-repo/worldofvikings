@@ -27,7 +27,7 @@ import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color4 } from '@babylonjs/core/Maths/math.color';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
@@ -44,6 +44,7 @@ import { Constants } from '@babylonjs/core/Engines/constants';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
+import type { Animation } from '@babylonjs/core/Animations/animation';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
@@ -51,6 +52,13 @@ import '@babylonjs/loaders/glTF';
 
 interface Teil {
   netze: AbstractMesh[];
+}
+
+interface WaffenSchicht {
+  kanaele: Array<{ knoten: TransformNode; animation: Animation }>;
+  von: number;
+  bis: number;
+  bilderJeSekunde: number;
 }
 
 export class Vorschau {
@@ -70,6 +78,12 @@ export class Vorschau {
   private teileErlaubt = true;
   /** Verhindert, dass Reset und Zufall denselben Körper mehrfach importieren. */
   private koerperDatei = '';
+  /** Nordschwert samt Arm- und Greifpose; nur beim Krieger sichtbar. */
+  private waffeHalter: TransformNode | null = null;
+  private waffeLaden: Promise<void> | null = null;
+  private waffeAktiv = false;
+  private waffenZeit = 0;
+  private waffenSchichten: WaffenSchicht[] = [];
   /*
     Ein Knoten fuer alles, was zur Figur gehoert.
 
@@ -120,13 +134,12 @@ export class Vorschau {
       Alle Werte in METERN, seit die Szene die echte Welt zeigt. Die Figur
       ist 1,80 m: Brust bei 1,05, Scheitel bei rund 1,62.
 
-      Ausgangsabstand 6,5 m statt der frueheren 3,4: Bei 3,4 fuellte die
-      Figur das Bild und vom Wald sah man Rinde. Aus 6,5 m steht sie ganz
-      im Bild UND der Bestand dahinter ist zu erkennen — darum geht es auf
-      dieser Seite. Bis 16 m laesst sich herausziehen, bis 2,2 m heran.
+      Ausgangsabstand 3,2 m: Die Figur ist damit etwas praesentierter als
+      zuvor bei 3,6 m, bleibt aber samt Schwert und Fuessen voll im Bild.
+      Bis 5,5 m laesst sich herausziehen, bis 2,2 m heran.
     */
     this.kamera = new ArcRotateCamera(
-      'vorschau', Math.PI / 2, Math.PI / 2.12, 3.6,
+      'vorschau', Math.PI / 2, Math.PI / 2.12, 3.2,
       new Vector3(0, 1.05, 0), this.scene);
     /*
       NAHE SCHNITTEBENE. Babylons Vorgabe ist minZ = 1 — gedacht fuer eine
@@ -209,6 +222,10 @@ export class Vorschau {
     this.figurKnoten.scaling.setAll(1);
 
     this.scene.onBeforeRenderObservable.add(() => this.blickpunktNachfuehren());
+    // Babylon mischt gleichzeitig laufende Gruppen. Die Waffenpose soll
+    // Idle dagegen gezielt am rechten Arm und an den Fingern UEBERSCHREIBEN.
+    // Darum wird sie nach Babylons Animationsdurchlauf von Hand aufgetragen.
+    this.scene.onAfterAnimationsObservable.add(() => this.wendeWaffenPoseAn());
     this.umgebungslichtSetzen();
 
     /*
@@ -264,6 +281,10 @@ export class Vorschau {
     for (const m of [...this.scene.meshes]) m.dispose();
     this.skelett = null;
     this.ruhe = null;
+    this.waffeHalter?.dispose();
+    this.waffeHalter = null;
+    this.waffeLaden = null;
+    this.waffenSchichten = [];
   }
 
   async ladeKoerper(datei: string): Promise<void> {
@@ -318,6 +339,7 @@ export class Vorschau {
     this.ruhe = res.animationGroups.find((g) => /idle|ruhe|stand/i.test(g.name))
       ?? res.animationGroups[0] ?? null;
     this.ruhe?.start(true);
+    this.bereiteWaffenPoseVor(res.animationGroups);
 
     /*
       Der Hain kommt NACH der Figur und ohne await: Er ist Kulisse, und
@@ -326,6 +348,92 @@ export class Vorschau {
       die beide nichts kosten.
     */
 
+  }
+
+  /**
+   * Zeigt das Nordschwert nur für den Krieger. Es wird einmal geladen und
+   * an den echten Handknochen gehängt; dessen Animation führt es danach mit.
+   */
+  async setzeWaffe(aktiv: boolean): Promise<void> {
+    this.waffeAktiv = aktiv;
+    this.waffenZeit = 0;
+    if (!aktiv) {
+      this.waffeHalter?.setEnabled(false);
+      return;
+    }
+    if (!this.waffeHalter) {
+      this.waffeLaden ??= this.ladeNordschwert();
+      await this.waffeLaden;
+    }
+    this.waffeHalter?.setEnabled(this.waffeAktiv);
+  }
+
+  private async ladeNordschwert(): Promise<void> {
+    const hand = this.scene.getTransformNodeByName('Hand_R');
+    if (!hand) throw new Error('Hand_R für das Nordschwert nicht gefunden');
+
+    const res = await SceneLoader.ImportMeshAsync(
+      '', this.wurzel, 'wikinger/SwordNorth.glb', this.scene,
+    );
+    const halter = new TransformNode('krieger-schwert', this.scene);
+    halter.position.set(0.08, 0.08, 0.035);
+    halter.rotation.set(0, Math.PI, Math.PI / 2);
+    // Der Körper wird auf 1,80 m normiert, das Schwert liegt bereits in
+    // Metern vor und darf diese Skalierung nicht noch einmal erben.
+    halter.scaling.setAll(1 / this.figurKnoten.scaling.x);
+    halter.parent = hand;
+
+    const modell = new TransformNode('krieger-schwert-modell', this.scene);
+    modell.parent = halter;
+    for (const knoten of [...res.meshes, ...res.transformNodes]) {
+      if (!knoten.parent) knoten.parent = modell;
+    }
+    this.waffeHalter = halter;
+    halter.setEnabled(this.waffeAktiv);
+  }
+
+  private bereiteWaffenPoseVor(gruppen: AnimationGroup[]): void {
+    const hand = this.scene.getTransformNodeByName('Hand_R');
+    const finger = new Set(hand?.getDescendants(false).map((knoten) => knoten.name) ?? []);
+    const arm = new Set(['Clavicle_R', 'Shoulder_R', 'Elbow_R', 'Hand_R']);
+    this.waffenSchichten = [];
+
+    for (const gruppe of gruppen.filter((g) => /^(arm|hand)_schwert$/i.test(g.name))) {
+      const maske = /^arm_/i.test(gruppe.name) ? arm : finger;
+      const kanaele: WaffenSchicht['kanaele'] = [];
+      let bilderJeSekunde = 60;
+      for (const spur of gruppe.targetedAnimations) {
+        const knoten = spur.target as TransformNode;
+        if (spur.animation.targetProperty !== 'rotationQuaternion' || !maske.has(knoten.name)) continue;
+        kanaele.push({ knoten, animation: spur.animation });
+        bilderJeSekunde = spur.animation.framePerSecond;
+      }
+      if (kanaele.length) {
+        this.waffenSchichten.push({
+          kanaele,
+          von: gruppe.from,
+          bis: gruppe.to,
+          bilderJeSekunde,
+        });
+      }
+      gruppe.stop();
+    }
+  }
+
+  private wendeWaffenPoseAn(): void {
+    if (!this.waffeAktiv || !this.waffenSchichten.length) return;
+    this.waffenZeit += this.engine.getDeltaTime() / 1000;
+    for (const schicht of this.waffenSchichten) {
+      const spanne = schicht.bis - schicht.von;
+      const bild = spanne > 0
+        ? schicht.von + ((this.waffenZeit * schicht.bilderJeSekunde) % spanne)
+        : schicht.von;
+      for (const kanal of schicht.kanaele) {
+        const drehung = kanal.animation.evaluate(bild) as Quaternion;
+        if (!kanal.knoten.rotationQuaternion) kanal.knoten.rotationQuaternion = drehung.clone();
+        else kanal.knoten.rotationQuaternion.copyFrom(drehung);
+      }
+    }
   }
 
   async setze(slot: string, datei: string | null): Promise<void> {
@@ -581,7 +689,7 @@ export class Vorschau {
   }
 
   private blickpunktNachfuehren(): void {
-    const AUSGANG = 3.6;
+    const AUSGANG = 3.2;
     const BRUST = 1.05;
     const KOPF = 1.62;
     const nah = this.kamera.lowerRadiusLimit ?? 2.2;
@@ -591,7 +699,7 @@ export class Vorschau {
 
   blickZurueck(): void {
     this.figurKnoten.rotation.y = 0;
-    this.kamera.radius = 3.6;
+    this.kamera.radius = 3.2;
     this.videoMassstabSetzen();
     // Der Blickpunkt folgt beim naechsten Frame von selbst; ihn hier
     // ebenfalls zu setzen waere eine zweite Wahrheit ueber dieselbe Zahl.

@@ -92,6 +92,7 @@
   interface Vorschau {
     setzeWurzel(url: string): Promise<void>;
     ladeKoerper(pfad: string): Promise<void>;
+    setzeWaffe(aktiv: boolean): Promise<void>;
     setze(slot: string, datei: string | null): Promise<void>;
     /** sRGB-Hex; leer laesst die Farbe des Modells stehen. */
     setzeHaarfarbe(hex: string): void;
@@ -143,7 +144,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'wikinger-20260911';
+  const FIGUREN_STAND = 'wikinger-schwert-20260911';
 
   let figur = $state('');
   let frisur = $state('');
@@ -283,6 +284,7 @@
     try {
       await vorschau.setzeWurzel(modellWurzel);
       await vorschau.ladeKoerper(koerperDatei());
+      await vorschau.setzeWaffe(klasseId === 'krieger');
       await zeigeAussehen();
       fertig = true;
     } catch (e) {
@@ -306,6 +308,13 @@
       fertig = false;
       hinweisText = fuelle(t['create.stage.hint.not_loaded'], { grund });
     }
+  }
+
+  function waehleKlasse(id: string) {
+    klasseId = id;
+    void vorschau?.setzeWaffe(id === 'krieger').catch((fehler) => {
+      console.warn('[erstellung] Waffe ließ sich nicht umschalten:', fehler);
+    });
   }
 
   function vorgabenWaehlen() {
@@ -734,7 +743,7 @@
         style={'--klasse:' + eintrag.farbe}
         class:aktiv={klasseId === eintrag.id}
         aria-pressed={klasseId === eintrag.id}
-        onclick={() => (klasseId = eintrag.id)}
+        onclick={() => waehleKlasse(eintrag.id)}
       ><span class="klassen-icon" aria-hidden="true"><i>{eintrag.zeichen}</i></span><small>{eintrag.name[lang]}</small></button>
     {/each}
   </nav>

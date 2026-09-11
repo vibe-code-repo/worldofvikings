@@ -58,6 +58,10 @@ import {
   type EnvColor,
 } from '@wov/shared';
 import { leseLookVorgabe, LookKonfigFehler } from '../src/ServerKonfig.js';
+// A1/A4: der Latch und die Vorgaben der Grafikoptionen. Beide Module sind
+// bewusst frei von Babylon- und DOM-Abhaengigkeiten, sonst liefe hier nichts.
+import { strahlenLatch } from '../../client/src/engine/strahlenLatch.js';
+import { DEFAULTS } from '../../client/src/ui/Settings.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -673,6 +677,139 @@ function strahlenTorPruefen(): void {
   ok(mitte > 0 && mitte < 1, `im Band wird geblendet statt geschaltet: 52,5° → ${mitte.toFixed(2)}`);
 }
 
+// ── 5. Strahlen-Latch (A1) ────────────────────────────────────────────
+
+/**
+ * Der Latch haengt den Pass wirklich ab — und darf dabei nicht flackern.
+ *
+ * Geprueft wird die ENTSCHEIDUNG, nicht das Umhaengen: `strahlenLatch()`
+ * ist genau die Funktion, die `PostProcessing.update()` je Bild fragt.
+ * Das Umhaengen selbst (zwei Listen, `setzeMsaa`) braucht eine Kamera und
+ * wird im Browser gemessen (`~/.cache/wov-lab/a1-*.json`).
+ *
+ * Die Zahl, um die es geht, ist die der UMSCHALTUNGEN ueber einen
+ * Schwenk. Ohne sie ist „flackert nicht" eine Behauptung.
+ */
+function strahlenLatchPruefen(): void {
+  console.log('\n5. Strahlen-Latch (A1)');
+  const { torWinkel: tw, hysterese: hy } = LOOK_VORGABE.strahlen;
+  const tor = (w: number): number => strahlenTor(w, tw, hy);
+
+  ok(strahlenLatch(tor(0), false) === true, '0° aus dem Stand: haengt an');
+  ok(strahlenLatch(tor(180), true) === false, '180° (Sonne im Ruecken): haengt ab');
+  // Die Haltezone. Beide Richtungen, sonst prueft man nur eine Haelfte.
+  ok(strahlenLatch(tor(52.5), true) === true, 'im Band angehaengt: bleibt angehaengt');
+  ok(strahlenLatch(tor(52.5), false) === false, 'im Band abgehaengt: bleibt abgehaengt');
+  // Und die beiden Kanten, an denen doch geschaltet wird.
+  ok(strahlenLatch(tor(50), false) === true, '50° (Tor voll offen): schaltet ein');
+  ok(strahlenLatch(tor(55), true) === false, '55° (Tor ganz zu): schaltet aus');
+  // Kaputte Zahl: Zustand halten, nicht „an" raten.
+  ok(strahlenLatch(Number.NaN, false) === false, 'NaN laesst den Zustand stehen (aus bleibt aus)');
+  ok(strahlenLatch(Number.NaN, true) === true, 'NaN laesst den Zustand stehen (an bleibt an)');
+
+  /*
+    Der Zeuge aus der Karte: „Schwenk ueber 52–53° flackert nicht."
+    Nachgestellt als Schwenk in 0,1°-Schritten hin und zurueck; gezaehlt
+    wird, wie oft der Latch kippt. Der Schwenk im Band zaehlt NULL, ein
+    Schwenk ueber das ganze Band genau eins je Richtung.
+  */
+  const schwenk = (
+    von: number,
+    bis: number,
+    start: boolean
+  ): { zustand: boolean; wechsel: number } => {
+    let zustand = start;
+    let wechsel = 0;
+    const schritt = von < bis ? 0.1 : -0.1;
+    for (let w = von; schritt > 0 ? w <= bis + 1e-9 : w >= bis - 1e-9; w += schritt) {
+      const neu = strahlenLatch(tor(w), zustand);
+      if (neu !== zustand) wechsel++;
+      zustand = neu;
+    }
+    return { zustand, wechsel };
+  };
+
+  const hin = schwenk(52, 53, true);
+  const zurueck = schwenk(53, 52, hin.zustand);
+  ok(
+    hin.wechsel + zurueck.wechsel === 0,
+    `52° → 53° → 52° angehaengt: ${hin.wechsel + zurueck.wechsel} Umschaltungen (0 erwartet)`
+  );
+  const hinAus = schwenk(52, 53, false);
+  const zurueckAus = schwenk(53, 52, hinAus.zustand);
+  ok(
+    hinAus.wechsel + zurueckAus.wechsel === 0,
+    `52° → 53° → 52° abgehaengt: ${hinAus.wechsel + zurueckAus.wechsel} Umschaltungen (0 erwartet)`
+  );
+  const raus = schwenk(45, 60, true);
+  const rein = schwenk(60, 45, raus.zustand);
+  ok(
+    raus.wechsel === 1 && rein.wechsel === 1,
+    `45° → 60° → 45°: genau je eine Umschaltung (${raus.wechsel}/${rein.wechsel})`
+  );
+  ok(rein.zustand === true, '… und am Ende haengt der Pass wieder');
+  /*
+    Die Richtung, in der das Abhaengen unsichtbar sein MUSS: Beim
+    Verlassen des Bandes steht die Belichtung schon auf 0, weil die Rampe
+    sie dorthin gefahren hat. Das Abhaengen aendert dann kein Bild mehr.
+  */
+  ok(
+    tor(55.0001) === 0,
+    'beim Abhaengen ist die Belichtung bereits 0 — das Abhaengen aendert kein Bild'
+  );
+}
+
+// ── 6. Vorgaben der Grafikoptionen (A4) ───────────────────────────────
+
+/**
+ * Bewegungsunschaerfe steht auf AUS — und der Schalter existiert weiter.
+ *
+ * Beide Haelften zaehlen. Eine Vorgabe umlegen ist eine Zeile; sie
+ * versehentlich zusammen mit der Option zu entfernen ebenfalls, und
+ * niemandem faellt es auf, weil ein fehlender Schalter genauso aussieht
+ * wie ein Schalter, den keiner anfasst.
+ *
+ * Und: Die Vorgabe steht an ZWEI Stellen — `DEFAULTS` in ui/Settings.ts
+ * (was der Spieler bekommt) und `DEFAULT_POSTPROCESSING` in
+ * engine/PostProcessing.ts (was vor dem Anmelden gilt). Laufen sie
+ * auseinander, haengt der Geometrie-Pass fuer ein paar Bilder an und
+ * wieder ab, ohne dass irgendwo ein Schalter kippt.
+ */
+function vorgabenGrafikoptionen(): void {
+  console.log('\n6. Vorgaben der Grafikoptionen (A4)');
+  ok(DEFAULTS.motionBlur === false, 'ui/Settings.ts: Bewegungsunschaerfe ist AUS voreingestellt');
+  ok('motionBlur' in DEFAULTS, 'die Option gibt es weiter — nur die Vorgabe hat sich geaendert');
+  // Der Schalter im Einstellungsfenster ist der Teil, den ein Test sonst
+  // nicht sieht: Ohne diese Zeile faende ihn niemand mehr.
+  const panel = readFileSync(resolve(__dirname, '../../client/src/ui/SettingsPanel.ts'), 'utf8');
+  ok(
+    panel.includes("'settings.motion_blur'"),
+    'und er steht weiter im Einstellungsfenster (settings.motion_blur)'
+  );
+  /*
+    `DEFAULT_POSTPROCESSING` wird gelesen statt importiert: engine/
+    PostProcessing.ts zieht die halbe Babylon-Pipeline mit sich und laeuft
+    in einem Node-Test nicht an. Gesucht wird deshalb im Quelltext — und
+    zwar in dem Block, um den es geht, nicht irgendwo in der Datei.
+  */
+  const pp = readFileSync(resolve(__dirname, '../../client/src/engine/PostProcessing.ts'), 'utf8');
+  const anfang = pp.indexOf('export const DEFAULT_POSTPROCESSING');
+  // Bis zum Ende des Objektliterals, nicht bis zum naechsten Kommentar: Ein
+  // Suchanker im Kommentar daneben faellt beim ersten Umformulieren aus, und
+  // ein `indexOf` mit -1 schnitte dann die halbe Datei mit hinein — der Test
+  // wuerde gruen bleiben, weil irgendwo darin schon `motionBlur: false` steht.
+  const ende = pp.indexOf('\n};', anfang);
+  const block = anfang >= 0 && ende > anfang ? pp.slice(anfang, ende) : '';
+  ok(block.includes('motionBlur'), 'DEFAULT_POSTPROCESSING als Block gefunden');
+  ok(
+    /motionBlur:\s*false/.test(block),
+    'engine/PostProcessing.ts: derselbe Rueckfallwert vor dem Anmelden'
+  );
+  // Die Sonnenstrahlen bleiben, was sie waren — A4 fasst sie nicht an,
+  // die Entscheidung ueber ihre Vorgabe ist A2.
+  ok(DEFAULTS.sunShafts === false, 'Sonnenstrahlen unveraendert AUS (ihre Vorgabe entscheidet A2)');
+}
+
 function main(): void {
   wetterVollstaendig();
   sonneGehtNichtAus();
@@ -680,6 +817,8 @@ function main(): void {
   lookGeprueft();
   nebelkurve();
   strahlenTorPruefen();
+  strahlenLatchPruefen();
+  vorgabenGrafikoptionen();
 }
 
 try {

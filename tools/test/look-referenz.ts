@@ -348,8 +348,46 @@ function check(name: string, ok: boolean, detail = ''): void {
   );
   check(
     'der Vorrang wird vor dem Store-Faktor gelesen',
-    /const gewaehlt = vorrang \?\? ausStore/.test(quelle),
+    /const gewaehlt = gemessen \?\? vorrang \?\? ausStore/.test(quelle),
     'die Reihenfolge in Schritt 2 ist die ganze Wirkung'
+  );
+
+  /*
+    ── Und seit dem 11.09.2026 (A8) steht davor noch eine Stufe ───────
+
+    `UNITY_JE_MATERIAL` gibt je QUELLMATERIAL die gemessene Farbe des
+    Vorbilds. Das ist die stärkste Auskunft, die es gibt — dieselbe
+    Alphakarte, aber die Farbe dessen, der sie benutzt hat, statt der
+    des Asset-Herstellers. Sie muss deshalb ganz vorn stehen.
+
+    Geprüft wird beides: dass die Tabelle die Materialien führt, die im
+    Speicher wirklich vorkommen, und dass sie VOR dem Store-Faktor
+    gelesen wird. Ohne die zweite Hälfte wäre die Tabelle da und
+    wirkungslos, und das sähe man keiner Zeile an.
+  */
+  const jeMaterial = /const UNITY_JE_MATERIAL = \{([\s\S]*?)\n\};/.exec(quelle)?.[1] ?? '';
+  const gefordert = [
+    'Leaves 1', 'Leaves 2', 'Leaves 3',
+    'Leaves Birch 1', 'Leaves Birch 2', 'Leaves Birch 3 Dark',
+    'Pine 1', 'Pine 2', 'Maple Leaves 1',
+    'Grass_Short_Plant_Leaves_1A1_Yellow',
+  ];
+  const fehlend = gefordert.filter((n) => !jeMaterial.includes(n));
+  check(
+    `UNITY_JE_MATERIAL führt die ${String(gefordert.length)} Quellmaterialien des Speichers`,
+    fehlend.length === 0,
+    fehlend.join(', ')
+  );
+  check(
+    'die gemessene Originalfarbe wird VOR dem Vorrang und dem Store-Faktor gelesen',
+    /const gemessen = UNITY_JE_MATERIAL\[eintrag\.quellMat\]/.test(quelle) &&
+      /gemessen \?\? vorrang/.test(quelle),
+    'sonst steht die Tabelle da und wirkt nicht'
+  );
+  check(
+    'grasGelb ist keine Schätzung mehr (Originalmaterial „…_Yellow")',
+    jeMaterial.includes('Grass_Short_Plant_Leaves_1A1_Yellow'),
+    'die letzte geratene Zeile des Bestands'
   );
 }
 
@@ -452,17 +490,35 @@ async function laubZensus(): Promise<void> {
 
   const sortiert = zeilen.map((z) => z.luma).sort((a, b) => a - b);
   const median = sortiert[Math.floor(sortiert.length / 2)]!;
-  const schranke = 1.3 * median;
+  /*
+    ── Warum 1,5 und nicht mehr 1,3 (A8, 11.09.2026) ─────────────────
+    Die Schranke ist eine Ausreisser-Sperre, kein Zielwert. Mikes Befund
+    war ein Material bei 2,39 × Median; 1,3 war damals der nächste runde
+    Wert darunter.
+
+    Seit A8 trägt JEDES Laubmaterial die gemessene Farbe des Vorbilds
+    (`UNITY_JE_MATERIAL`), und der Median ist dadurch von 0,1376 auf
+    0,1070 gefallen — die Familie ist als ganze dunkler geworden. Die
+    SPREIZUNG ist damit die des Vorbilds selbst: von 0,0840
+    (`Leaves Birch 3 Dark`) bis 0,1481 (`Maple Leaves 1`), also 1,38 ×
+    Median am oberen Ende. Eine Schranke bei 1,3 würde ab jetzt die
+    Originalfarbe des Ahorns beanstanden — sie wäre eine Sperre gegen
+    die Quelle, aus der sie sich rechtfertigt.
+
+    1,5 lässt die gemessene Spreizung durch und fängt den Fehlermodus
+    weiter ab, um den es geht: ein Material, das ums Doppelte ausreisst.
+  */
+  const schranke = 1.5 * median;
   // Schnee darf hell sein — solange er im Hohen Norden bleibt.
   const schnee = /schnee|snow/i;
   const ausreisser = zeilen.filter((z) => z.luma > schranke && !(schnee.test(z.material) || schnee.test(z.modell)));
   check(
-    `kein Laubmaterial über 1,3 × Median (Median ${median.toFixed(4)}, Schranke ${schranke.toFixed(4)}, ${zeilen.length} Materialien)`,
+    `kein Laubmaterial über 1,5 × Median (Median ${median.toFixed(4)}, Schranke ${schranke.toFixed(4)}, ${zeilen.length} Materialien)`,
     ausreisser.length === 0,
     ausreisser.map((z) => `${z.modell}/${z.material} ${z.luma.toFixed(4)} = ${(z.luma / median).toFixed(2)} × [${z.faktor.join(', ')}]`).join('; ')
   );
   const ahorn = zeilen.filter((z) => z.material === 'ahorn');
-  check('der Ahorn steht in der Familie (≤ 1,3 × Median)', ahorn.length > 0 && ahorn.every((z) => z.luma <= schranke),
+  check('der Ahorn steht in der Familie (≤ 1,5 × Median)', ahorn.length > 0 && ahorn.every((z) => z.luma <= schranke),
     ahorn.map((z) => `${z.modell} ${z.luma.toFixed(4)} = ${(z.luma / median).toFixed(2)} ×`).join('; ') || 'kein ahorn-Material gefunden');
 }
 

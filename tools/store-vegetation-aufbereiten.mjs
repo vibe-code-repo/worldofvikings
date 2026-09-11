@@ -234,6 +234,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, copyFileSync, rmSy
 import { createHash } from 'node:crypto';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { decode as decodePng } from './lib/png.mjs';
 
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -402,6 +403,88 @@ const quellFaktor = (mat) => mat?.pbrMetallicRoughness?.baseColorFactor ?? null;
   ist das ein Befund und kein Grund für einen Faktor.
 */
 const TOENUNG_VORRANG = new Set(['ahorn']);
+
+/**
+ * Die Farbe, die das VORBILD diesem Quellmaterial gibt — nach dem Namen
+ * des Materials, das im Store steht.
+ *
+ * ── Warum es diese Tabelle gibt (A8, 11.09.2026) ─────────────────────
+ * `Kronen/Himmel` steht bei 0,65 statt 0,34, und die Diagnose hat drei
+ * Verdächtige gehabt. Zwei davon sind erledigt, und beide durch eine
+ * Messung und nicht durch einen Regler:
+ *
+ *  1. DER ATLAS IST NICHT SCHULD. Die vier Blattkarten des Vorbilds
+ *     (`Color Leaves Alpha`, `Pine Alpha A/B`, `Maple Leaves Alpha A`)
+ *     sind GRAUSTUFEN — Sättigung der deckenden Texel 0,0002 bis 0,0018.
+ *     Ihre lineare Luma über die deckenden Texel (Alpha ≥ 128):
+ *
+ *         Color Leaves Alpha    0,17383      Pine Alpha A   0,30313
+ *         Pine Alpha B          0,19855      Maple A        0,38172
+ *
+ *     Das ist Bild für Bild dieselbe Karte, die im Speicher liegt. Die
+ *     Blattfarbe kommt also VOLLSTÄNDIG aus den Materialfarben — und
+ *     damit ist diese Tabelle die einzige Stelle, an der sie entsteht.
+ *
+ *  2. DIE 26 KRONEN MIT `DefaultMaterial` SIND NICHT DIE HELLEN. Sie
+ *     bekommen `TOENUNG_VORGABE.laub` (= `UNITY_LAUB.leaves1`, lineare
+ *     Luma des Faktors 0,615) und liegen damit UNTER den Store-Faktoren
+ *     der übrigen Kronen (0,792 und 0,849). Der Bericht weist es je
+ *     Primitiv aus (`albedo` im Zensus).
+ *
+ *  3. WAS ÜBRIG BLEIBT: die Store-Faktoren selbst. Sie sind die Zahlen
+ *     des ASSET-HERSTELLERS, nicht die des Vorbilds — und das Vorbild
+ *     fährt dieselben Karten mit eigenen, DUNKLEREN Farben. Beispiel
+ *     `Leaves Birch 1`: Store 0,55/1,00/0,24 (lineare Luma 0,849),
+ *     Vorbild 0,5525/0,5995/0,3725 (0,573) — ein Drittel dunkler, bei
+ *     identischer Karte.
+ *
+ * Deshalb steht hier je QUELLMATERIAL die gemessene Farbe des Vorbilds.
+ * Nicht je Rolle: Ein Vorrang je Rolle würde `Leaves 1`, `Leaves 2` und
+ * `Leaves Birch 1` auf denselben Wert ziehen und damit genau die
+ * Unterschiede einebnen, die der Schlüssel in Schritt 2 bewahrt (siehe
+ * dort, `small-thin-tree-1a5`).
+ *
+ * ── Woher die Zahlen kommen ──────────────────────────────────────────
+ * Aus `/home/mike/wov-lab-mess/laub-materialien.json`, Abschnitt
+ * `materialien` — derselben Quelle wie `UNITY_LAUB` und nach derselben
+ * Regel gelesen: MITTEL aus `Color_3E4BE667` (oben in der Krone) und
+ * `Color_99FDAD86` (unten), linear, weil glTF nur EINEN
+ * `baseColorFactor` kennt und wir den Verlauf nicht nachbauen. Geschätzt
+ * ist an keiner Zeile etwas.
+ *
+ * ── Und damit ist `grasGelb` vermessen ───────────────────────────────
+ * Die eine geschätzte Zeile des Bestands (`TOENUNG_VORGABE.grasGelb`,
+ * „sRGB 0,41/0,41/0,26, Strohfarbe") hat eine Herkunft bekommen:
+ * `Grass_Short_Plant_Leaves_1A1_Yellow` steht in derselben Liste. Die
+ * Vorgabe bleibt stehen, greift aber nur noch, wenn ein künftiges
+ * Modell diesen Materialnamen NICHT trägt.
+ *
+ * Measured original material colours, keyed by the source material name
+ * the store GLB carries. Mean of the shader graph's upper and lower
+ * crown colour, linear — same rule as UNITY_LAUB.
+ */
+const UNITY_JE_MATERIAL = {
+  // ── Laubkarten (`Color Leaves Alpha`) ──────────────────────────────
+  'Leaves 1': [0.5975, 0.646, 0.3645, 1],
+  'Leaves 2': [0.6695, 0.741, 0.2785, 1],
+  'Leaves 3': [0.5475, 0.7265, 0.2945, 1],
+  'Leaves Birch 1': [0.5525, 0.5995, 0.3725, 1],
+  'Leaves Birch 2': [0.478, 0.5425, 0.325, 1],
+  'Leaves Birch 3 Dark': [0.6255, 0.4625, 0.2675, 1],
+  'Leaves Birch 3 Dark Snow': [0.6705, 0.66, 0.662, 1],
+  // ── Nadeln und Ahorn ───────────────────────────────────────────────
+  'Pine 1': [0.3395, 0.3765, 0.2805, 1],
+  'Pine 2': [0.5175, 0.5295, 0.347, 1],
+  'Maple Leaves 1': [0.377, 0.4095, 0.209, 1],
+  // ── Grasbüschel ────────────────────────────────────────────────────
+  // Die `1A1`-Familie teilt sich EINE Geometrie und unterscheidet sich
+  // nur in diesen Farben; der Store hat für drei der vier gar keinen
+  // Faktor mitgebracht (`grasBunt`, `grasSchnee` standen auf „ohne").
+  'Grass_Short_Plant_Leaves_1A1 2': [0.8175, 0.804, 0.5405, 1],
+  Grass_Short_Plant_Leaves_1A1_Yellow: [0.925, 0.6945, 0.5375, 1],
+  Grass_Short_Plant_Leaves_1A1_Snow: [0.8315, 0.849, 0.884, 1],
+  Grass_Short_Plant_Leaves_1A1_RedBlue: [0.868, 0.479, 0.822, 1],
+};
 
 /**
  * Die Originalmaterialien aus den Spieldaten — die Herkunft der Zahlen
@@ -604,6 +687,17 @@ const TOENUNG_DAEMPFUNG = {
   nadeln: [1, 1, 1],
   ahorn: [1, 1, 1],
 };
+
+/** Lineare Albedo der Bodenschicht, gegen die verglichen wird. */
+const BODEN_ALBEDO_LINEAR = 0.0367;
+
+/** sRGB-Byte → linear. */
+function srgbZuLinear(v) {
+  const c = v / 255;
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+const atlasZwischen = new Map();
 
 // ── GLB lesen und schreiben ──────────────────────────────────────────
 
@@ -1332,6 +1426,10 @@ for (const datei of dateien) {
       const mat = json.materials[prim.material];
       let rolle = rolleVonMaterial(json, mat, datei);
       let quelle = 'Datei';
+      // Der Name des QUELLmaterials — der Schlüssel in
+      // `UNITY_JE_MATERIAL`. Bei `DefaultMaterial` ist er verloren; dann
+      // gilt der des Zwillings, der auch schon die Rolle liefert.
+      let quellMat = mat.name ?? '';
       if (rolle === null) {
         const gefunden = zwilling.get(fingerabdruck(json, bin, prim));
         if (gefunden) {
@@ -1339,6 +1437,7 @@ for (const datei of dateien) {
           // Materialname kommt MIT, weil `-dark`/`-snow` sonst verloren
           // ginge — der Dateiname des Zwillings ist ein anderer.
           rolle = bildRolle(gefunden.uri, gefunden.mat, datei);
+          quellMat = gefunden.mat;
           quelle = `Zwilling (${gefunden.mat})`;
           ausZwilling++;
         } else {
@@ -1349,7 +1448,7 @@ for (const datei of dateien) {
           ausGeometrie++;
         }
       }
-      rolleJePrim.push({ prim, rolle, quelle, tris: dreiecke(json, prim) });
+      rolleJePrim.push({ prim, rolle, quelle, quellMat, tris: dreiecke(json, prim) });
     }
   }
 
@@ -1371,11 +1470,19 @@ for (const datei of dateien) {
     const altBild = bildDesMaterials(json, altMaterial);
     const uri = altBild ?? standardBild(eintrag.rolle);
     const ausStore = quellFaktor(altMaterial);
+    /*
+      Die gemessene Farbe des VORBILDS schlägt alles andere — sie ist die
+      einzige Zahl in dieser Kette, die aus dem Vorbild stammt und nicht
+      vom Asset-Hersteller (Store) oder aus einer Rollenvorgabe. Der
+      Schlüssel ist der Name des QUELLmaterials, nicht die Rolle; die
+      Begründung steht bei `UNITY_JE_MATERIAL`.
+    */
+    const gemessen = UNITY_JE_MATERIAL[eintrag.quellMat] ?? null;
     // TOENUNG_VORRANG schlägt den Store-Faktor — siehe dort.
     const vorrang = TOENUNG_VORRANG.has(eintrag.rolle)
       ? (TOENUNG_VORGABE[eintrag.rolle] ?? null)
       : null;
-    const gewaehlt = vorrang ?? ausStore ?? TOENUNG_VORGABE[eintrag.rolle] ?? null;
+    const gewaehlt = gemessen ?? vorrang ?? ausStore ?? TOENUNG_VORGABE[eintrag.rolle] ?? null;
     // Die Dämpfung (s. TOENUNG_DAEMPFUNG) multipliziert, was gewonnen
     // hat — sie ERSETZT nichts. Alpha (Index 3) bleibt unangetastet: es
     // ist keine Farbe, und ein gedämpftes Alpha wäre ein halbdurch-
@@ -1384,8 +1491,13 @@ for (const datei of dateien) {
     const toenung = gewaehlt && daempfung
       ? gewaehlt.map((v, i) => (i < 3 ? +(v * daempfung[i]).toFixed(4) : v))
       : gewaehlt;
-    eintrag.toenungQuelle = (vorrang ? 'Vorrang' : ausStore ? 'Store' : gewaehlt ? 'Vorgabe' : 'ohne')
+    eintrag.toenungQuelle =
+      (gemessen ? 'Vorbild' : vorrang ? 'Vorrang' : ausStore ? 'Store' : gewaehlt ? 'Vorgabe' : 'ohne')
       + (daempfung ? '+D' : '');
+    // Was der Store gesagt HÄTTE — der Zeuge für die Wirkung dieser
+    // Tabelle. Ohne ihn steht im Bericht nur das Ergebnis, und niemand
+    // sieht mehr, um wie viel die Messung den Herstellerwert verschiebt.
+    eintrag.toenungVorher = ausStore ?? null;
     const schluessel = `${eintrag.rolle}|${uri}|${JSON.stringify(toenung)}`;
     if (!indexJeSchluessel.has(schluessel)) {
       indexJeSchluessel.set(schluessel, neueMaterialien.length);
@@ -1393,6 +1505,7 @@ for (const datei of dateien) {
     }
     eintrag.neuerIndex = indexJeSchluessel.get(schluessel);
     eintrag.toenung = toenung;
+    eintrag.uri = uri;
   }
 
   // ── Schritt 3: Bilder, Texturen, Materialien neu setzen ───────────
@@ -1445,12 +1558,105 @@ for (const datei of dateien) {
       dreiecke: e.tris,
       rolle: e.rolle,
       herkunft: e.quelle,
+      // Der Name des Quellmaterials — der Schlüssel, über den
+      // `UNITY_JE_MATERIAL` greift. Ohne ihn sieht man im Bericht
+      // nicht, WARUM eine Zeile „Vorbild" sagt und die daneben nicht.
+      quellMaterial: e.quellMat || null,
       // Die WIRKLICH gesetzte Tönung, nicht die Tabellenzeile: Seit der
       // Store-Faktor Vorrang hat, unterscheiden sich zwei Primitive
       // derselben Rolle, und der Bericht muss das zeigen können.
       toenung: e.toenung ?? null,
       toenungAus: e.toenungQuelle,
+      // Was der Store gesagt hätte. Steht daneben, damit die Wirkung
+      // der Messung als Zahl im Bericht landet und nicht nur im Bild.
+      toenungStore: e.toenungVorher,
+      ...albedoZeile(e),
     })),
+  };
+}
+
+/**
+ * Der ZENSUS: Wie hell ist dieses Primitiv am Bildschirm, bevor Licht
+ * darauf fällt?
+ *
+ * ── Warum das im Bericht stehen muss ─────────────────────────────────
+ * „Kronen zu hell" ist keine Zahl, und ein Faktor ohne Zahl ist ein
+ * Geschmack. Die Zahl, um die es geht, ist die ALBEDO: der Mittelwert
+ * des Atlas über die DECKENDEN Texel (Alpha ≥ 128; ein durchsichtiges
+ * Texel ist kein Blatt), linear gerechnet, MAL dem `baseColorFactor`
+ * des Materials. Genau dieses Produkt geht in den Lambert-Term des
+ * Clients — beim Laub ohne Himmelsterm und ohne additiven Anteil
+ * (gemessen: Achsenabschnitt 0,000 ± 0,003, s. `TOENUNG_DAEMPFUNG`).
+ *
+ * Bis zum 11.09.2026 ist dieser Zensus von Hand gerechnet worden, und
+ * seine Ergebnisse stehen als Tabelle in einem Kommentar (oben, bei
+ * `TOENUNG_VORRANG`). Eine Tabelle in einem Kommentar altert ohne
+ * Vorwarnung; jetzt rechnet ihn der Lauf und schreibt ihn mit.
+ *
+ * ── Der Bezugswert ───────────────────────────────────────────────────
+ * Der BODEN. Das Vorbild hat seine Kronen DUNKLER als die Wiese darunter
+ * (48,3 gegen 61,8 Bildluma, `design/look-referenz.md`); bei uns stehen
+ * sie darüber. Die lineare Albedo der Bodenschichten liegt bei 0,0366
+ * (`grass-a`) und 0,0367 (`moss`) — gemessen an denselben Zeilen, die
+ * `tools/store-terrain-schichten.mjs` in den Stapel schreibt. Der
+ * Bericht führt `xBoden` deshalb je Primitiv mit: Wer 4 sagt, ist
+ * viermal so hell wie der Grund, auf dem er steht.
+ *
+ * Albedo census per primitive: atlas mean over opaque texels (linear)
+ * times the base colour factor, plus the ratio against the terrain's
+ * ground albedo.
+ */
+/**
+ * Lineare Luma eines Atlas über seine deckenden Texel.
+ *
+ * Gelesen wird aus der QUELLE und nicht aus dem Ziel: Der Aufbereiter
+ * kopiert die Bilder unverändert, und im Prüflauf (`--nur-pruefen`)
+ * existiert das Ziel gar nicht.
+ */
+function atlasLuma(uri) {
+  if (atlasZwischen.has(uri)) return atlasZwischen.get(uri);
+  let wert = null;
+  try {
+    const bild = decodePng(join(QUELLE, uri));
+    const { data, ch } = bild;
+    let n = 0;
+    let sr = 0;
+    let sg = 0;
+    let sb = 0;
+    for (let i = 0; i < data.length; i += ch) {
+      if (ch === 4 && data[i + 3] < 128) continue;
+      n++;
+      sr += srgbZuLinear(data[i]);
+      sg += srgbZuLinear(data[ch > 2 ? i + 1 : i]);
+      sb += srgbZuLinear(data[ch > 2 ? i + 2 : i]);
+    }
+    wert = n === 0
+      ? null
+      : {
+          deckendAnteil: +(n / (bild.w * bild.h)).toFixed(4),
+          linear: +(0.2126 * (sr / n) + 0.7152 * (sg / n) + 0.0722 * (sb / n)).toFixed(5),
+        };
+  } catch {
+    // Ein fehlender Atlas ist kein Grund, den Lauf abzubrechen — die
+    // Zeile bleibt dann im Bericht leer, und das sieht man ihr an.
+    wert = null;
+  }
+  atlasZwischen.set(uri, wert);
+  return wert;
+}
+
+/** Die Zensuszeile eines Primitivs. */
+function albedoZeile(e) {
+  const atlas = e.uri ? atlasLuma(e.uri) : null;
+  if (!atlas) return { atlas: null, faktorLuma: null, albedo: null, xBoden: null };
+  const t = e.toenung;
+  const faktorLuma = t ? 0.2126 * t[0] + 0.7152 * t[1] + 0.0722 * t[2] : 1;
+  const albedo = atlas.linear * faktorLuma;
+  return {
+    atlas: { bild: e.uri.split('/').pop(), ...atlas },
+    faktorLuma: +faktorLuma.toFixed(4),
+    albedo: +albedo.toFixed(5),
+    xBoden: +(albedo / BODEN_ALBEDO_LINEAR).toFixed(2),
   };
 }
 

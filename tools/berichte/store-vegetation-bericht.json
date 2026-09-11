@@ -50,20 +50,45 @@
           "dreiecke": 616,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         },
         {
           "dreiecke": 792,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 1",
           "toenung": [
+            0.5975,
+            0.646,
+            0.3645,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -115,20 +140,45 @@
           "dreiecke": 232,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         },
         {
           "dreiecke": 498,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 1",
           "toenung": [
+            0.5975,
+            0.646,
+            0.3645,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -180,20 +230,45 @@
           "dreiecke": 520,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         },
         {
           "dreiecke": 720,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 1",
           "toenung": [
+            0.5975,
+            0.646,
+            0.3645,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -245,20 +320,45 @@
           "dreiecke": 520,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         },
         {
           "dreiecke": 756,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 1",
           "toenung": [
+            0.5975,
+            0.646,
+            0.3645,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -315,20 +415,40 @@
           "dreiecke": 4404,
           "rolle": "rinde",
           "herkunft": "Bauart: Körper (< 2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 2128,
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.5975,
             0.646,
             0.3645,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -385,20 +505,40 @@
           "dreiecke": 4404,
           "rolle": "rinde",
           "herkunft": "Bauart: Körper (< 2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 2128,
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.5975,
             0.646,
             0.3645,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -448,13 +588,28 @@
           "dreiecke": 810,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 2",
           "toenung": [
+            0.6695,
+            0.741,
+            0.2785,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6924,
+          "albedo": 0.12036,
+          "xBoden": 3.28
         }
       ]
     },
@@ -504,13 +659,28 @@
           "dreiecke": 810,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 2",
           "toenung": [
+            0.6695,
+            0.741,
+            0.2785,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6924,
+          "albedo": 0.12036,
+          "xBoden": 3.28
         }
       ]
     },
@@ -560,13 +730,28 @@
           "dreiecke": 624,
           "rolle": "laubDunkel",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves Birch 3 Dark",
           "toenung": [
+            0.6255,
+            0.4625,
+            0.2675,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.4,
             0.78,
             0.18,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.4831,
+          "albedo": 0.08397,
+          "xBoden": 2.29
         }
       ]
     },
@@ -616,13 +801,23 @@
           "dreiecke": 624,
           "rolle": "laubSchnee",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves Birch 3 Dark Snow",
           "toenung": [
             0.6705,
             0.66,
             0.662,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorbild+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6624,
+          "albedo": 0.11514,
+          "xBoden": 3.14
         }
       ]
     },
@@ -672,13 +867,28 @@
           "dreiecke": 624,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves Birch 1",
           "toenung": [
+            0.5525,
+            0.5995,
+            0.3725,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.55,
             1,
             0.24,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.5731,
+          "albedo": 0.09963,
+          "xBoden": 2.71
         }
       ]
     },
@@ -728,13 +938,28 @@
           "dreiecke": 624,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves Birch 1",
           "toenung": [
+            0.5525,
+            0.5995,
+            0.3725,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.55,
             1,
             0.24,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.5731,
+          "albedo": 0.09963,
+          "xBoden": 2.71
         }
       ]
     },
@@ -784,13 +1009,28 @@
           "dreiecke": 810,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 1",
           "toenung": [
+            0.5975,
+            0.646,
+            0.3645,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -855,13 +1095,28 @@
           "dreiecke": 6,
           "rolle": "gras",
           "herkunft": "Datei",
+          "quellMaterial": "Grass_Short_Plant_Leaves_1A1 2",
           "toenung": [
+            0.8175,
+            0.804,
+            0.5405,
+            1
+          ],
+          "toenungAus": "Vorbild",
+          "toenungStore": [
             0.85,
             1,
             0.6,
             1
           ],
-          "toenungAus": "Store"
+          "atlas": {
+            "bild": "grass-short-clump-1-0-95be72fa.png",
+            "deckendAnteil": 0.0351,
+            "linear": 0.13042
+          },
+          "faktorLuma": 0.7878,
+          "albedo": 0.10275,
+          "xBoden": 2.8
         }
       ]
     },
@@ -920,8 +1175,23 @@
           "dreiecke": 6,
           "rolle": "grasBunt",
           "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
+          "quellMaterial": "Grass_Short_Plant_Leaves_1A1_RedBlue",
+          "toenung": [
+            0.868,
+            0.479,
+            0.822,
+            1
+          ],
+          "toenungAus": "Vorbild",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "grass-short-clump-redblue-0-2927a804.png",
+            "deckendAnteil": 0.0351,
+            "linear": 0.14564
+          },
+          "faktorLuma": 0.5865,
+          "albedo": 0.08541,
+          "xBoden": 2.33
         }
       ]
     },
@@ -980,8 +1250,23 @@
           "dreiecke": 6,
           "rolle": "grasSchnee",
           "herkunft": "Datei",
-          "toenung": null,
-          "toenungAus": "ohne"
+          "quellMaterial": "Grass_Short_Plant_Leaves_1A1_Snow",
+          "toenung": [
+            0.8315,
+            0.849,
+            0.884,
+            1
+          ],
+          "toenungAus": "Vorbild",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "grass-short-clump-snow-0-ea100638.png",
+            "deckendAnteil": 0.0351,
+            "linear": 0.46878
+          },
+          "faktorLuma": 0.8478,
+          "albedo": 0.39743,
+          "xBoden": 10.83
         }
       ]
     },
@@ -1040,13 +1325,23 @@
           "dreiecke": 6,
           "rolle": "grasGelb",
           "herkunft": "Datei",
+          "quellMaterial": "Grass_Short_Plant_Leaves_1A1_Yellow",
           "toenung": [
-            1,
-            0.86,
-            0.45,
+            0.925,
+            0.6945,
+            0.5375,
             1
           ],
-          "toenungAus": "Vorgabe"
+          "toenungAus": "Vorbild",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "grass-short-clump-yellow-0-77e877a5.png",
+            "deckendAnteil": 0.0351,
+            "linear": 0.16167
+          },
+          "faktorLuma": 0.7322,
+          "albedo": 0.11837,
+          "xBoden": 3.23
         }
       ]
     },
@@ -1107,20 +1402,45 @@
           "dreiecke": 3590,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 3780,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 1",
           "toenung": [
+            0.5975,
+            0.646,
+            0.3645,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -1181,20 +1501,45 @@
           "dreiecke": 3625,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 4508,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 2",
           "toenung": [
+            0.6695,
+            0.741,
+            0.2785,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6924,
+          "albedo": 0.12036,
+          "xBoden": 3.28
         }
       ]
     },
@@ -1255,20 +1600,45 @@
           "dreiecke": 998,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 3428,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves Birch 2",
           "toenung": [
+            0.478,
+            0.5425,
+            0.325,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.55,
             1,
             0.24,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.5131,
+          "albedo": 0.08919,
+          "xBoden": 2.43
         }
       ]
     },
@@ -1329,20 +1699,45 @@
           "dreiecke": 3625,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 4508,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 2",
           "toenung": [
+            0.6695,
+            0.741,
+            0.2785,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6924,
+          "albedo": 0.12036,
+          "xBoden": 3.28
         }
       ]
     },
@@ -1403,20 +1798,45 @@
           "dreiecke": 3590,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 3780,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves Birch 1",
           "toenung": [
+            0.5525,
+            0.5995,
+            0.3725,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.55,
             1,
             0.24,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.5731,
+          "albedo": 0.09963,
+          "xBoden": 2.71
         }
       ]
     },
@@ -1477,20 +1897,40 @@
           "dreiecke": 7896,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 6214,
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.6255,
             0.4625,
             0.2675,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.4831,
+          "albedo": 0.08397,
+          "xBoden": 2.29
         }
       ]
     },
@@ -1553,20 +1993,40 @@
           "dreiecke": 5415,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 3770,
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.5975,
             0.646,
             0.3645,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -1623,20 +2083,40 @@
           "dreiecke": 7896,
           "rolle": "rinde",
           "herkunft": "Zwilling (Oak_Bark_A 2 Dark)",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 6214,
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.5975,
             0.646,
             0.3645,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -1697,20 +2177,40 @@
           "dreiecke": 7896,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 6214,
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.6255,
             0.4625,
             0.2675,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.4831,
+          "albedo": 0.08397,
+          "xBoden": 2.29
         }
       ]
     },
@@ -1773,20 +2273,40 @@
           "dreiecke": 5415,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 3770,
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.5975,
             0.646,
             0.3645,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -1843,20 +2363,40 @@
           "dreiecke": 7896,
           "rolle": "rinde",
           "herkunft": "Zwilling (Oak_Bark_A 2 Dark)",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 6214,
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.5975,
             0.646,
             0.3645,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -1917,20 +2457,40 @@
           "dreiecke": 7896,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 6214,
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.6255,
             0.4625,
             0.2675,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.4831,
+          "albedo": 0.08397,
+          "xBoden": 2.29
         }
       ]
     },
@@ -1993,20 +2553,40 @@
           "dreiecke": 5416,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 3770,
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.5975,
             0.646,
             0.3645,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -2063,20 +2643,40 @@
           "dreiecke": 7896,
           "rolle": "rinde",
           "herkunft": "Zwilling (Oak_Bark_A 2 Dark)",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 6214,
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.5975,
             0.646,
             0.3645,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -2137,20 +2737,45 @@
           "dreiecke": 3232,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         },
         {
           "dreiecke": 3576,
           "rolle": "nadeln",
           "herkunft": "Datei",
+          "quellMaterial": "Pine 1",
           "toenung": [
+            0.3395,
+            0.3765,
+            0.2805,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.26,
             0.58,
             0.24,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "pine-1b1-0-1-45d12350.png",
+            "deckendAnteil": 0.3098,
+            "linear": 0.30313
+          },
+          "faktorLuma": 0.3617,
+          "albedo": 0.10964,
+          "xBoden": 2.99
         }
       ]
     },
@@ -2206,8 +2831,18 @@
           "dreiecke": 80,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         }
       ]
     },
@@ -2268,20 +2903,45 @@
           "dreiecke": 3232,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         },
         {
           "dreiecke": 3576,
           "rolle": "nadeln",
           "herkunft": "Datei",
+          "quellMaterial": "Pine 2",
           "toenung": [
+            0.5175,
+            0.5295,
+            0.347,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.26,
             0.58,
             0.24,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "pine-1b1-1-b7d6f292.png",
+            "deckendAnteil": 0.3098,
+            "linear": 0.19855
+          },
+          "faktorLuma": 0.5138,
+          "albedo": 0.10201,
+          "xBoden": 2.78
         }
       ]
     },
@@ -2337,8 +2997,18 @@
           "dreiecke": 80,
           "rolle": "rinde",
           "herkunft": "Zwilling (Trunks)",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         }
       ]
     },
@@ -2399,20 +3069,45 @@
           "dreiecke": 3232,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         },
         {
           "dreiecke": 3576,
           "rolle": "nadeln",
           "herkunft": "Datei",
+          "quellMaterial": "Pine 1",
           "toenung": [
+            0.3395,
+            0.3765,
+            0.2805,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.26,
             0.58,
             0.24,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "pine-1b1-0-1-45d12350.png",
+            "deckendAnteil": 0.3098,
+            "linear": 0.30313
+          },
+          "faktorLuma": 0.3617,
+          "albedo": 0.10964,
+          "xBoden": 2.99
         }
       ]
     },
@@ -2468,8 +3163,18 @@
           "dreiecke": 80,
           "rolle": "rinde",
           "herkunft": "Zwilling (Trunks)",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         }
       ]
     },
@@ -2530,20 +3235,45 @@
           "dreiecke": 3232,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         },
         {
           "dreiecke": 3576,
           "rolle": "nadeln",
           "herkunft": "Datei",
+          "quellMaterial": "Pine 1",
           "toenung": [
+            0.3395,
+            0.3765,
+            0.2805,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.26,
             0.58,
             0.24,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "pine-1b1-0-1-45d12350.png",
+            "deckendAnteil": 0.3098,
+            "linear": 0.30313
+          },
+          "faktorLuma": 0.3617,
+          "albedo": 0.10964,
+          "xBoden": 2.99
         }
       ]
     },
@@ -2604,20 +3334,45 @@
           "dreiecke": 3232,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         },
         {
           "dreiecke": 3552,
           "rolle": "nadeln",
           "herkunft": "Datei",
+          "quellMaterial": "Pine 1",
           "toenung": [
+            0.3395,
+            0.3765,
+            0.2805,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.26,
             0.58,
             0.24,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "pine-1b1-0-1-45d12350.png",
+            "deckendAnteil": 0.3098,
+            "linear": 0.30313
+          },
+          "faktorLuma": 0.3617,
+          "albedo": 0.10964,
+          "xBoden": 2.99
         }
       ]
     },
@@ -2673,8 +3428,18 @@
           "dreiecke": 80,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         }
       ]
     },
@@ -2735,20 +3500,45 @@
           "dreiecke": 3232,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         },
         {
           "dreiecke": 3552,
           "rolle": "nadeln",
           "herkunft": "Datei",
+          "quellMaterial": "Pine 2",
           "toenung": [
+            0.5175,
+            0.5295,
+            0.347,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.26,
             0.58,
             0.24,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "pine-1b1-1-b7d6f292.png",
+            "deckendAnteil": 0.3098,
+            "linear": 0.19855
+          },
+          "faktorLuma": 0.5138,
+          "albedo": 0.10201,
+          "xBoden": 2.78
         }
       ]
     },
@@ -2809,20 +3599,45 @@
           "dreiecke": 3232,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         },
         {
           "dreiecke": 3576,
           "rolle": "nadeln",
           "herkunft": "Datei",
+          "quellMaterial": "Pine 1",
           "toenung": [
+            0.3395,
+            0.3765,
+            0.2805,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.26,
             0.58,
             0.24,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "pine-1b1-0-1-45d12350.png",
+            "deckendAnteil": 0.3098,
+            "linear": 0.30313
+          },
+          "faktorLuma": 0.3617,
+          "albedo": 0.10964,
+          "xBoden": 2.99
         }
       ]
     },
@@ -2878,8 +3693,18 @@
           "dreiecke": 80,
           "rolle": "rinde",
           "herkunft": "Zwilling (Trunks)",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         }
       ]
     },
@@ -2940,20 +3765,45 @@
           "dreiecke": 3232,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         },
         {
           "dreiecke": 3576,
           "rolle": "nadeln",
           "herkunft": "Datei",
+          "quellMaterial": "Pine 2",
           "toenung": [
+            0.5175,
+            0.5295,
+            0.347,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.26,
             0.58,
             0.24,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "pine-1b1-1-b7d6f292.png",
+            "deckendAnteil": 0.3098,
+            "linear": 0.19855
+          },
+          "faktorLuma": 0.5138,
+          "albedo": 0.10201,
+          "xBoden": 2.78
         }
       ]
     },
@@ -3009,8 +3859,18 @@
           "dreiecke": 445,
           "rolle": "pilz",
           "herkunft": "Datei",
+          "quellMaterial": "PolygonNature_01",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "sm-plant-mushrooms-02-0-1142e5d2.png",
+            "deckendAnteil": 1,
+            "linear": 0.10705
+          },
+          "faktorLuma": 1,
+          "albedo": 0.10705,
+          "xBoden": 2.92
         }
       ]
     },
@@ -3080,20 +3940,45 @@
           "dreiecke": 3356,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 3970,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 2",
           "toenung": [
+            0.6695,
+            0.741,
+            0.2785,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6924,
+          "albedo": 0.12036,
+          "xBoden": 3.28
         }
       ]
     },
@@ -3163,20 +4048,45 @@
           "dreiecke": 4332,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 5230,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 2",
           "toenung": [
+            0.6695,
+            0.741,
+            0.2785,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6924,
+          "albedo": 0.12036,
+          "xBoden": 3.28
         }
       ]
     },
@@ -3247,20 +4157,45 @@
           "dreiecke": 5288,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 5670,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves Birch 1",
           "toenung": [
+            0.5525,
+            0.5995,
+            0.3725,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.55,
             1,
             0.24,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.5731,
+          "albedo": 0.09963,
+          "xBoden": 2.71
         }
       ]
     },
@@ -3321,20 +4256,40 @@
           "dreiecke": 6197,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 3276,
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.6255,
             0.4625,
             0.2675,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.4831,
+          "albedo": 0.08397,
+          "xBoden": 2.29
         }
       ]
     },
@@ -3397,20 +4352,40 @@
           "dreiecke": 4647,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 1638,
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.5975,
             0.646,
             0.3645,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -3467,20 +4442,40 @@
           "dreiecke": 6197,
           "rolle": "rinde",
           "herkunft": "Zwilling (Oak_Bark_A 2 Dark)",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 3276,
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.5975,
             0.646,
             0.3645,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -3541,20 +4536,40 @@
           "dreiecke": 6197,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 3276,
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.6255,
             0.4625,
             0.2675,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.4831,
+          "albedo": 0.08397,
+          "xBoden": 2.29
         }
       ]
     },
@@ -3617,20 +4632,40 @@
           "dreiecke": 4646,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 1638,
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.5975,
             0.646,
             0.3645,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -3687,20 +4722,40 @@
           "dreiecke": 6197,
           "rolle": "rinde",
           "herkunft": "Zwilling (Oak_Bark_A 2 Dark)",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 3276,
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.5975,
             0.646,
             0.3645,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -3761,20 +4816,40 @@
           "dreiecke": 6215,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 3276,
           "rolle": "laubDunkel",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.6255,
             0.4625,
             0.2675,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.4831,
+          "albedo": 0.08397,
+          "xBoden": 2.29
         }
       ]
     },
@@ -3837,20 +4912,40 @@
           "dreiecke": 4660,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 1638,
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.5975,
             0.646,
             0.3645,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -3907,20 +5002,40 @@
           "dreiecke": 6215,
           "rolle": "rinde",
           "herkunft": "Zwilling (Oak_Bark_A 2 Dark)",
+          "quellMaterial": "Oak_Bark_A 2 Dark",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 3276,
           "rolle": "laub",
           "herkunft": "Bauart: Laubkarte (2,00 V/Dreieck)",
+          "quellMaterial": "DefaultMaterial",
           "toenung": [
             0.5975,
             0.646,
             0.3645,
             1
           ],
-          "toenungAus": "Vorgabe+D"
+          "toenungAus": "Vorgabe+D",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -3976,8 +5091,18 @@
           "dreiecke": 1445,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Birch_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "tree-1a3-0-c6f2bd38.png",
+            "deckendAnteil": 1,
+            "linear": 0.38242
+          },
+          "faktorLuma": 1,
+          "albedo": 0.38242,
+          "xBoden": 10.42
         }
       ]
     },
@@ -4033,8 +5158,18 @@
           "dreiecke": 98,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Birch_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "tree-1a3-0-c6f2bd38.png",
+            "deckendAnteil": 1,
+            "linear": 0.38242
+          },
+          "faktorLuma": 1,
+          "albedo": 0.38242,
+          "xBoden": 10.42
         }
       ]
     },
@@ -4103,20 +5238,45 @@
           "dreiecke": 2624,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Birch_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "tree-1a3-0-c6f2bd38.png",
+            "deckendAnteil": 1,
+            "linear": 0.38242
+          },
+          "faktorLuma": 1,
+          "albedo": 0.38242,
+          "xBoden": 10.42
         },
         {
           "dreiecke": 13680,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves Birch 1",
           "toenung": [
+            0.5525,
+            0.5995,
+            0.3725,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.55,
             1,
             0.24,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.5731,
+          "albedo": 0.09963,
+          "xBoden": 2.71
         }
       ]
     },
@@ -4172,8 +5332,18 @@
           "dreiecke": 1416,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Birch_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "tree-1a3-0-c6f2bd38.png",
+            "deckendAnteil": 1,
+            "linear": 0.38242
+          },
+          "faktorLuma": 1,
+          "albedo": 0.38242,
+          "xBoden": 10.42
         }
       ]
     },
@@ -4229,8 +5399,18 @@
           "dreiecke": 16,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Birch_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "tree-1a3-0-c6f2bd38.png",
+            "deckendAnteil": 1,
+            "linear": 0.38242
+          },
+          "faktorLuma": 1,
+          "albedo": 0.38242,
+          "xBoden": 10.42
         }
       ]
     },
@@ -4280,8 +5460,18 @@
           "dreiecke": 2628,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Birch_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "tree-1a3-0-c6f2bd38.png",
+            "deckendAnteil": 1,
+            "linear": 0.38242
+          },
+          "faktorLuma": 1,
+          "albedo": 0.38242,
+          "xBoden": 10.42
         }
       ]
     },
@@ -4337,8 +5527,18 @@
           "dreiecke": 1417,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Birch_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "tree-1a3-0-c6f2bd38.png",
+            "deckendAnteil": 1,
+            "linear": 0.38242
+          },
+          "faktorLuma": 1,
+          "albedo": 0.38242,
+          "xBoden": 10.42
         }
       ]
     },
@@ -4394,8 +5594,18 @@
           "dreiecke": 16,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Birch_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "tree-1a3-0-c6f2bd38.png",
+            "deckendAnteil": 1,
+            "linear": 0.38242
+          },
+          "faktorLuma": 1,
+          "albedo": 0.38242,
+          "xBoden": 10.42
         }
       ]
     },
@@ -4445,8 +5655,18 @@
           "dreiecke": 2628,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Birch_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "tree-1a3-0-c6f2bd38.png",
+            "deckendAnteil": 1,
+            "linear": 0.38242
+          },
+          "faktorLuma": 1,
+          "albedo": 0.38242,
+          "xBoden": 10.42
         }
       ]
     },
@@ -4502,8 +5722,18 @@
           "dreiecke": 737,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         }
       ]
     },
@@ -4559,8 +5789,18 @@
           "dreiecke": 31,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         }
       ]
     },
@@ -4630,20 +5870,45 @@
           "dreiecke": 1358,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 6660,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 3",
           "toenung": [
+            0.5475,
+            0.7265,
+            0.2945,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6573,
+          "albedo": 0.11425,
+          "xBoden": 3.11
         }
       ]
     },
@@ -4699,8 +5964,18 @@
           "dreiecke": 745,
           "rolle": "rinde",
           "herkunft": "Zwilling (Trunks)",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         }
       ]
     },
@@ -4756,8 +6031,18 @@
           "dreiecke": 31,
           "rolle": "rinde",
           "herkunft": "Zwilling (Trunks)",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         }
       ]
     },
@@ -4827,20 +6112,45 @@
           "dreiecke": 1358,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 9360,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 2",
           "toenung": [
+            0.6695,
+            0.741,
+            0.2785,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6924,
+          "albedo": 0.12036,
+          "xBoden": 3.28
         }
       ]
     },
@@ -4896,8 +6206,18 @@
           "dreiecke": 746,
           "rolle": "rinde",
           "herkunft": "Zwilling (Trunks)",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         }
       ]
     },
@@ -4953,8 +6273,18 @@
           "dreiecke": 277,
           "rolle": "rinde",
           "herkunft": "Zwilling (Trunks)",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         }
       ]
     },
@@ -5024,20 +6354,45 @@
           "dreiecke": 1358,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 9360,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 1",
           "toenung": [
+            0.5975,
+            0.646,
+            0.3645,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -5093,8 +6448,18 @@
           "dreiecke": 336,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         }
       ]
     },
@@ -5150,8 +6515,18 @@
           "dreiecke": 208,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         }
       ]
     },
@@ -5221,20 +6596,45 @@
           "dreiecke": 628,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 2580,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 1",
           "toenung": [
+            0.5975,
+            0.646,
+            0.3645,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -5290,8 +6690,18 @@
           "dreiecke": 500,
           "rolle": "rinde",
           "herkunft": "Zwilling (Trunks)",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         }
       ]
     },
@@ -5347,8 +6757,18 @@
           "dreiecke": 352,
           "rolle": "rinde",
           "herkunft": "Zwilling (Trunks)",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         }
       ]
     },
@@ -5418,20 +6838,45 @@
           "dreiecke": 918,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 2460,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 1",
           "toenung": [
+            0.5975,
+            0.646,
+            0.3645,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -5501,20 +6946,45 @@
           "dreiecke": 644,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 3030,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 1",
           "toenung": [
+            0.5975,
+            0.646,
+            0.3645,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6154,
+          "albedo": 0.10697,
+          "xBoden": 2.91
         }
       ]
     },
@@ -5570,8 +7040,18 @@
           "dreiecke": 826,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         }
       ]
     },
@@ -5627,8 +7107,18 @@
           "dreiecke": 192,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         }
       ]
     },
@@ -5698,20 +7188,45 @@
           "dreiecke": 1512,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 5220,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 2",
           "toenung": [
+            0.6695,
+            0.741,
+            0.2785,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6924,
+          "albedo": 0.12036,
+          "xBoden": 3.28
         }
       ]
     },
@@ -5767,8 +7282,18 @@
           "dreiecke": 678,
           "rolle": "rinde",
           "herkunft": "Zwilling (Trunks)",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         }
       ]
     },
@@ -5824,8 +7349,18 @@
           "dreiecke": 176,
           "rolle": "rinde",
           "herkunft": "Zwilling (Trunks)",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         }
       ]
     },
@@ -5895,20 +7430,45 @@
           "dreiecke": 1214,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 3978,
           "rolle": "laub",
           "herkunft": "Datei",
+          "quellMaterial": "Leaves 2",
           "toenung": [
+            0.6695,
+            0.741,
+            0.2785,
+            1
+          ],
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
             0.46,
             0.95,
             0.2,
             1
           ],
-          "toenungAus": "Store+D"
+          "atlas": {
+            "bild": "bush-1a2-small-1-dark-0-46087926.png",
+            "deckendAnteil": 0.3277,
+            "linear": 0.17383
+          },
+          "faktorLuma": 0.6924,
+          "albedo": 0.12036,
+          "xBoden": 3.28
         }
       ]
     },
@@ -5964,8 +7524,18 @@
           "dreiecke": 1292,
           "rolle": "rinde",
           "herkunft": "Zwilling (Trunks)",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         }
       ]
     },
@@ -6021,8 +7591,18 @@
           "dreiecke": 318,
           "rolle": "rinde",
           "herkunft": "Zwilling (Trunks)",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         }
       ]
     },
@@ -6092,20 +7672,45 @@
           "dreiecke": 2366,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 9312,
           "rolle": "ahorn",
           "herkunft": "Datei",
+          "quellMaterial": "Maple Leaves 1",
           "toenung": [
             0.377,
             0.4095,
             0.209,
             1
           ],
-          "toenungAus": "Vorrang+D"
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
+            0.62,
+            1,
+            0.2,
+            1
+          ],
+          "atlas": {
+            "bild": "tree-1e1-1-ac727b2e.png",
+            "deckendAnteil": 0.2685,
+            "linear": 0.38172
+          },
+          "faktorLuma": 0.3881,
+          "albedo": 0.14815,
+          "xBoden": 4.04
         }
       ]
     },
@@ -6161,8 +7766,18 @@
           "dreiecke": 910,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         }
       ]
     },
@@ -6218,8 +7833,18 @@
           "dreiecke": 345,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Trunks",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "pine-1b1-0-8c80d300.png",
+            "deckendAnteil": 1,
+            "linear": 0.06191
+          },
+          "faktorLuma": 1,
+          "albedo": 0.06191,
+          "xBoden": 1.69
         }
       ]
     },
@@ -6289,20 +7914,45 @@
           "dreiecke": 1650,
           "rolle": "rinde",
           "herkunft": "Datei",
+          "quellMaterial": "Oak_Bark_A",
           "toenung": null,
-          "toenungAus": "ohne"
+          "toenungAus": "ohne",
+          "toenungStore": null,
+          "atlas": {
+            "bild": "massive-tree-1a1-1-dark-0-755765f4.png",
+            "deckendAnteil": 1,
+            "linear": 0.13161
+          },
+          "faktorLuma": 1,
+          "albedo": 0.13161,
+          "xBoden": 3.59
         },
         {
           "dreiecke": 5976,
           "rolle": "ahorn",
           "herkunft": "Datei",
+          "quellMaterial": "Maple Leaves 1",
           "toenung": [
             0.377,
             0.4095,
             0.209,
             1
           ],
-          "toenungAus": "Vorrang+D"
+          "toenungAus": "Vorbild+D",
+          "toenungStore": [
+            0.62,
+            1,
+            0.2,
+            1
+          ],
+          "atlas": {
+            "bild": "tree-1e1-1-ac727b2e.png",
+            "deckendAnteil": 0.2685,
+            "linear": 0.38172
+          },
+          "faktorLuma": 0.3881,
+          "albedo": 0.14815,
+          "xBoden": 4.04
         }
       ]
     }

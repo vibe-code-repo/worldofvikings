@@ -138,7 +138,55 @@ check(
 
 // ── (b) Eine Wahrheit, zwei Listen ─────────────────────────────────
 const tab = tabelle(512) as { tiles: { tile: number; name: string; quelle: string;
+  farbe: string; farbeGewuenscht: string; farbeOrt: string | null;
   kachelMeter: number; normalStaerke: number; metallic: number; smoothness: number }[] };
+
+/*
+  ── (f) Die Ersatzkarte des hellen Hangfelses (A9, 11.09.2026) ───────
+
+  Tile 5/6/14 wollen `terrain-rock-moss` — die Diffuse-Karte der Ebene,
+  die das Vorbild auf der Wiese wirklich benutzt. Sie liegt nicht im
+  Asset-Speicher, sondern entsteht aus einem Quellbestand ausserhalb des
+  Repos (`tools/store-boden-quellen.mjs`). Auf einer Maschine ohne
+  diesen Bestand MUSS der Boden trotzdem bauen; dann gilt `farbeErsatz`.
+
+  Zwei Dinge sind dabei still gefährlich, und beide stehen hier:
+   · Der Ersatz greift, OHNE dass es auffällt. Deshalb schreibt die
+     Tabelle die wirklich benutzte Karte samt Ort mit, und dieser Test
+     hält fest, dass sie das tut.
+   · Der Wunsch wird vergessen. `farbeGewuenscht` bleibt deshalb auch
+     dann `terrain-rock-moss`, wenn gerade der Ersatz gebaut wird — sonst
+     wüsste nach einem Lauf ohne Quellbestand niemand mehr, dass hier
+     eine Karte fehlt.
+*/
+{
+  const felsZeilen = tab.tiles.filter((t) => t.quelle === 'rock-rough');
+  check(
+    'der helle Hangfels wünscht sich die Karte des Vorbilds',
+    felsZeilen.length >= 3 && felsZeilen.every((t) => t.farbeGewuenscht === 'terrain-rock-moss'),
+    felsZeilen.map((t) => `${String(t.tile)}:${t.farbeGewuenscht}`).join(' ')
+  );
+  check(
+    'jede Zeile sagt, welche Karte sie wirklich trägt und woher',
+    tab.tiles
+      .filter((t) => t.quelle !== 'altbestand')
+      .every((t) => typeof t.farbe === 'string' && t.farbe.length > 0 && t.farbeOrt !== null),
+    tab.tiles.filter((t) => t.quelle !== 'altbestand' && !t.farbeOrt).map((t) => t.name).join(', ')
+  );
+  const gebaut = felsZeilen[0]?.farbe ?? '';
+  check(
+    'die gebaute Karte ist die gewünschte oder der benannte Ersatz',
+    gebaut === 'terrain-rock-moss' || gebaut === 'terrain-rock-rough',
+    `${gebaut} (${felsZeilen[0]?.farbeOrt ?? '—'})`
+  );
+  if (gebaut !== 'terrain-rock-moss') {
+    console.log(
+      '     Hinweis: Es wird der ERSATZ gebaut — `terrain-rock-moss` liegt weder im\n' +
+        '     Speicher noch unter assets/store-lab/textures/. `npm run store:quellen`\n' +
+        '     holt sie, wenn der Quellbestand auf dieser Maschine vorhanden ist.'
+    );
+  }
+}
 check(
   'das Werkzeug beschreibt genau 16 Tiles — so viele hat der Stapel',
   tab.tiles.length === 16 && SCHICHT_OBERFLAECHE.length === 16,

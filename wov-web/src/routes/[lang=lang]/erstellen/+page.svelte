@@ -666,7 +666,19 @@
   </aside>
 
   <section class="buehne" aria-label={lang === 'de' ? 'Charaktervorschau' : 'Character preview'}>
-    <div class="figur-dummy" class:ausblenden={fertig} aria-hidden="true"></div>
+    <div class="figur-lader" class:ausblenden={fertig} class:fehler={Boolean(hinweisText)} aria-hidden="true">
+      <div class="runenportal">
+        <div class="runenring">
+          {#each ['ᚠ', 'ᚢ', 'ᚦ', 'ᚨ', 'ᚱ', 'ᚲ', 'ᚷ', 'ᚹ'] as rune, index (rune)}
+            <span style={`--r:${index * 45}deg`}>{rune}</span>
+          {/each}
+        </div>
+        <i class="runenkern">{hinweisText ? 'ᛁ' : 'ᛉ'}</i>
+      </div>
+      <p>{hinweisText
+        ? (lang === 'de' ? '3D-Vorschau nicht verfügbar' : '3D preview unavailable')
+        : (lang === 'de' ? 'Der Recke wird gerufen …' : 'Summoning your Viking …')}</p>
+    </div>
     <canvas bind:this={leinwand}></canvas>
     <div class="buehne-hinweis nur-vorlesen" aria-live="polite" class:fertig>{hinweisText ?? t['create.stage.hint.loading']}</div>
     <div class="buehne-werkzeug">
@@ -886,16 +898,35 @@
   .platzhalter-flaeche p { max-width: 230px; margin: 4px 0 0; font-size: 11px; }
 
   .buehne { grid-column: 2; grid-row: 2; position: relative; min-height: 0; overflow: visible; }
-  .figur-dummy {
+  .figur-lader {
     position: absolute;
-    inset: -8px 5% -18px;
-    background: url('/assets/bilder/held.webp') 80% center / auto 106% no-repeat;
-    filter: saturate(0.72) contrast(1.08) drop-shadow(0 16px 22px rgba(0, 0, 0, 0.7));
-    opacity: 0.94;
-    mask-image: radial-gradient(ellipse 78% 88% at 54% 50%, #000 0 62%, transparent 94%);
-    transition: opacity 0.35s ease;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 18px;
+    color: #d8b950;
+    text-align: center;
+    text-shadow: 0 2px 8px #000;
+    pointer-events: none;
+    transition: visibility 0s linear, opacity 0.35s ease;
   }
-  .figur-dummy.ausblenden { opacity: 0; }
+  .figur-lader.ausblenden { visibility: hidden; opacity: 0; transition-delay: 0.35s, 0s; }
+  .figur-lader p { margin: 0; font-family: Georgia, 'Times New Roman', serif; font-size: 11px; letter-spacing: 0.13em; text-transform: uppercase; }
+  .runenportal { position: relative; width: 184px; height: 184px; border: 1px solid rgba(222, 180, 59, 0.4); border-radius: 50%; box-shadow: 0 0 24px rgba(225, 177, 38, 0.16), inset 0 0 28px rgba(225, 177, 38, 0.1); animation: portal-atmen 2.2s ease-in-out infinite; }
+  .runenportal::before, .runenportal::after { content: ''; position: absolute; border-radius: 50%; }
+  .runenportal::before { inset: 14px; border: 1px dashed rgba(240, 204, 93, 0.48); animation: portal-drehen 14s linear infinite reverse; }
+  .runenportal::after { inset: 52px; border: 1px solid rgba(240, 204, 93, 0.32); box-shadow: inset 0 0 18px rgba(240, 204, 93, 0.18); }
+  .runenring { position: absolute; inset: 0; animation: portal-drehen 10s linear infinite; }
+  .runenring span { position: absolute; top: 50%; left: 50%; color: #f0cf69; font-family: Georgia, 'Times New Roman', serif; font-size: 17px; transform: translate(-50%, -50%) rotate(var(--r)) translateY(-72px); transform-origin: center; }
+  .runenkern { position: absolute; inset: 50% auto auto 50%; display: grid; place-items: center; width: 62px; height: 62px; border-radius: 50%; background: radial-gradient(circle, rgba(237, 197, 69, 0.2), transparent 68%); font-family: Georgia, 'Times New Roman', serif; font-size: 38px; font-style: normal; transform: translate(-50%, -50%); animation: runenkern-leuchten 1.65s ease-in-out infinite; }
+  .figur-lader.fehler { color: #b98d72; }
+  .figur-lader.fehler .runenportal, .figur-lader.fehler .runenportal::before, .figur-lader.fehler .runenkern, .figur-lader.fehler .runenring { animation-play-state: paused; }
+  .figur-lader.fehler .runenportal { border-color: rgba(166, 91, 61, 0.45); box-shadow: 0 0 20px rgba(91, 34, 24, 0.2), inset 0 0 28px rgba(91, 34, 24, 0.12); }
+  .figur-lader.fehler .runenring span, .figur-lader.fehler .runenkern { color: #b87559; }
+  @keyframes portal-drehen { to { transform: rotate(360deg); } }
+  @keyframes portal-atmen { 50% { border-color: rgba(255, 220, 102, 0.72); box-shadow: 0 0 44px rgba(225, 177, 38, 0.3), inset 0 0 36px rgba(225, 177, 38, 0.17); } }
+  @keyframes runenkern-leuchten { 50% { opacity: 0.58; transform: translate(-50%, -50%) scale(0.9); } }
   .buehne canvas { position: absolute; inset: -28px -10px -36px; width: calc(100% + 20px); height: calc(100% + 64px); outline: none; background: transparent; cursor: grab; touch-action: none; }
   .buehne canvas:active { cursor: grabbing; }
   .buehne-hinweis { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; color: #b8ad95; font-size: 12px; text-align: center; text-shadow: 0 2px 6px #000; pointer-events: none; }
@@ -967,5 +998,9 @@
     .schmiede-aktionen { align-items: stretch; flex-direction: column-reverse; }
     .konto-aktion { align-items: stretch; text-align: right; }
     .zurueck, .erstellen-los { width: 100%; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .runenportal, .runenportal::before, .runenkern, .runenring { animation: none; }
   }
 </style>

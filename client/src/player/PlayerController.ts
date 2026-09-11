@@ -124,6 +124,19 @@ const STURZ_VERZUG = 0.25;
  */
 const SNAP_ABSTAND = 0.6;
 const SNAP_TEMPO = 8;
+/** Geländefolgen bergauf: höchstens so schnell (m/s) nach oben zielen. */
+const BODEN_FOLGE_AUF_MAX = 3;
+/**
+ * Glaettung der SICHTBAREN Hoehe (Figur und Kamera) gegenueber der
+ * Physikkapsel. Die Kapsel klettert ueber jede Unebenheit des Kollisions-
+ * netzes in Stufen (gemessen 11.09.2026: im Mittel 4 cm je Bild beim
+ * Gehen), und Kamera wie Figur zitterten mit. Geglaettet wird nur der
+ * Rest ueber dem Heightmap-Boden, nicht die Hoehe selbst — an einem
+ * gleichmaessigen Hang folgt die Sicht dem Gelaende ohne Nachlauf, nur
+ * die Stufen der Kapsel werden verschliffen. Im Original haengt die
+ * Kamera an einem Knochen der geglaettet bewegten Figur.
+ */
+const SICHT_GLAETTUNG_S = 0.15;
 
 // ── Physics body (C# Character: Rigidbody + CapsuleCollider) ─────────
 /**
@@ -302,6 +315,10 @@ export class PlayerController {
    * der Zeit, auf die der Sprungclip gestreckt wird.
    */
   private flugRest = 0;
+  /** Geglaetteter Rest der Kapselhoehe ueber dem Boden (m), siehe SICHT_GLAETTUNG_S. */
+  private sichtRest = NaN;
+  /** Sichtbare Hoehe fuer Figur und Kamera (m). */
+  private sichtY = NaN;
   /** Wie lange (s) die Kapsel schon ohne Kontakt faellt (siehe STURZ_VERZUG). */
   private sturzZeit = 0;
   /** Ob die Figur gerade keinen Boden unter sich hat — steuert die Sprunganimation. */
@@ -626,15 +643,36 @@ export class PlayerController {
       if (bodenY !== null && this.position.y - bodenY < SNAP_ABSTAND && this.position.y >= bodenY) snap = true;
     }
 
-    const velocity = this.tempoTmp.set(
-      moving ? wx * speed : 0,
+    // Gelaende FOLGEN statt Hoehe halten: Mit vy = 0 hob die Kapsel beim
+    // Gehen ueber jede Welle ab und schwebte im Mittel 10 cm ueber dem
+    // Boden (gemessen 11.09.2026 auf 5 % Gefaelle: 3,5 Richtungswechsel
+    // je Sekunde — das „Wackeln" von Figur und Kamera). Jetzt zielt die
+    // senkrechte Geschwindigkeit auf die Bodenhoehe unter der NAECHSTEN
+    // Position, nach unten bis SNAP_TEMPO, nach oben sanft (den Rest
+    // druekt der Kollider ohnehin heraus). Nur wenn der Boden weiter als
+    // SNAP_ABSTAND weg ist (Kante), gilt die Schwerkraft.
+    let vy: number;
+    if (springt) {
+      vy = JUMP_SPEED;
+    } else if (amBoden || snap) {
+      const nx = this.position.x + (moving ? wx * speed * dt : 0);
+      const nz = this.position.z + (moving ? wz * speed * dt : 0);
+      const zielBoden = this.dungeonMode
+        ? (this.bodenSonde?.(nx, this.position.y, nz) ?? null)
+        : this.world.getGroundHeight(nx, nz);
+      if (zielBoden !== null && Number.isFinite(zielBoden) && Math.abs(zielBoden - this.position.y) < SNAP_ABSTAND) {
+        vy = Math.max(-SNAP_TEMPO, Math.min(BODEN_FOLGE_AUF_MAX, (zielBoden - this.position.y) / Math.max(dt, 1e-3)));
+      } else {
+        vy = amBoden ? 0 : -SNAP_TEMPO;
+      }
+    } else {
       // Fallgeschwindigkeit begrenzen: Ungebremst legt die Kapsel bei einem
       // Bildraten-Einbruch mehr Strecke pro Frame zurück, als das
       // Terrain-Mesh dick ist, und fällt hindurch (gemessen am 2026-07-30:
       // −7,5 m/s nach 0,8 s freiem Fall, bei 8 fps knapp 1 m pro Frame).
-      springt ? JUMP_SPEED : amBoden ? 0 : snap ? -SNAP_TEMPO : Math.max(-MAX_FALL_SPEED, current.y + GRAVITY.y * dt),
-      moving ? wz * speed : 0
-    );
+      vy = Math.max(-MAX_FALL_SPEED, current.y + GRAVITY.y * dt);
+    }
+    const velocity = this.tempoTmp.set(moving ? wx * speed : 0, vy, moving ? wz * speed : 0);
     c.setVelocity(velocity);
     c.integrate(dt, support, GRAVITY);
 
@@ -901,7 +939,15 @@ export class PlayerController {
     const cp = Math.cos(this._pitch);
     const forwardX = -sinY;
     const forwardZ = -cosY;
-    const eye = this.augeTmp.set(this.position.x, this.position.y + EYE_HEIGHT, this.position.z);
+    // Sichtbare Hoehe: Kapselstufen verschleifen (siehe SICHT_GLAETTUNG_S).
+    const boden = this.dungeonMode
+      ? (this.bodenSonde?.(this.position.x, this.position.y, this.position.z) ?? null)
+      : this.world.getGroundHeight(this.position.x, this.position.z);
+    const rest = boden !== null && Number.isFinite(boden) ? this.position.y - boden : 0;
+    const sprung = !Number.isFinite(this.sichtRest) || this.inDerLuft || Math.abs(rest - this.sichtRest) > 1.5;
+    this.sichtRest = sprung ? rest : this.sichtRest + (rest - this.sichtRest) * Math.min(1, dt / SICHT_GLAETTUNG_S);
+    this.sichtY = boden !== null && Number.isFinite(boden) ? boden + this.sichtRest : this.position.y;
+    const eye = this.augeTmp.set(this.position.x, this.sichtY + EYE_HEIGHT, this.position.z);
     const boom = this.boomLength;
     const camX = eye.x - forwardX * cp * boom;
     const camZ = eye.z - forwardZ * cp * boom;
@@ -938,7 +984,7 @@ export class PlayerController {
     }
 
     const rig = this.avatar.root;
-    rig.position.set(this.position.x, this.position.y, this.position.z);
+    rig.position.set(this.position.x, this.sichtY, this.position.z);
     // model forward is +Z; look forward is (-sin yaw, -cos yaw)
     rig.rotation.setAll(0);
     rig.rotation.y = this._figurYaw + Math.PI;

@@ -375,8 +375,13 @@ export class AvatarRig {
   private ikFussGewicht = [0, 0];
   /** Geglaettete Hebung je Fuss (m), gegen Rauschen der Bodensonde. */
   private ikHebung = [0, 0];
-  /** Fuss-IK an/aus (Messzellen vergleichen beide Zustaende). */
-  ikAn = true;
+  /**
+   * Bein-IK an/aus. Seit 11.09.2026 AUS (Mike: die vorherigen Einstellungen
+   * mit Fussneigung reichen) — es bleibt bei der Halter-Absenkung der
+   * Stufe 1 plus der Fussneigung nach dem Gelaende. Der Code der Stufe 2
+   * bleibt schaltbar fuer Messungen.
+   */
+  ikAn = false;
   /** Letzter Flugzustand aus update(), fuer das IK-Gewicht. */
   private inDerLuftMerker = false;
   /**
@@ -1908,15 +1913,54 @@ export class AvatarRig {
    */
   private wendeFussIkAn(): void {
     const dt = this.root.getScene().getEngine().getDeltaTime() / 1000;
-    const ziel = this.ikAn && this.bodenSonde && this.ikBeine.length === 2 && !this.inDerLuftMerker && this.nutzeClip ? 1 : 0;
-    const schritt = dt / IK_BLENDE;
-    this.ikGewicht += Math.max(-schritt, Math.min(schritt, ziel - this.ikGewicht));
-    if (this.ikGewicht <= 0 || !this.bodenSonde) return;
-    const rigBoden = this.root.getAbsolutePosition().y;
+    if (!this.bodenSonde || this.fussKnoten.length < 2 || !this.nutzeClip) return;
     const sonde = this.bodenSonde;
+    const rigBoden = this.root.getAbsolutePosition().y;
     const vorn = this.root.forward.clone();
     vorn.y = 0;
     vorn.normalize();
+    const rechts = Vector3.Cross(Vector3.Up(), vorn).normalize();
+
+    // ── Fussneigung nach dem Gelaende (immer, auch ohne Bein-IK) ──────
+    // Original: Fussrotation aus der Bodennormalen, gewichtet wie die
+    // Position (10/s an, 2/s aus). „Aufgesetzt" heisst hier: die animierte
+    // Sohle liegt nahe am Rig-Boden — ein Schwungfuss bleibt, wie er ist.
+    if (!this.inDerLuftMerker) {
+      this.fussKnoten.forEach((fuss, i) => {
+        fuss.computeWorldMatrix(true);
+        const A = fuss.getAbsolutePosition();
+        const sohleAnim = A.y - this.fussVersatz - this.knoechelHoehe - rigBoden;
+        const aufgesetzt = sohleAnim < 0.03;
+        const tempo = aufgesetzt ? IK_GEWICHT_AN : IK_GEWICHT_AUS;
+        const alt = this.ikFussGewicht[i]!;
+        const g = Math.max(0, Math.min(1, alt + Math.max(-tempo * dt, Math.min(tempo * dt, (aufgesetzt ? 1 : 0) - alt))));
+        this.ikFussGewicht[i] = g;
+        if (g <= 0.01) return;
+        const hv = sonde(A.x + vorn.x * IK_NEIGUNG_SCHRITT, A.z + vorn.z * IK_NEIGUNG_SCHRITT);
+        const hh = sonde(A.x - vorn.x * IK_NEIGUNG_SCHRITT, A.z - vorn.z * IK_NEIGUNG_SCHRITT);
+        const hr = sonde(A.x + rechts.x * IK_NEIGUNG_SCHRITT, A.z + rechts.z * IK_NEIGUNG_SCHRITT);
+        const hl = sonde(A.x - rechts.x * IK_NEIGUNG_SCHRITT, A.z - rechts.z * IK_NEIGUNG_SCHRITT);
+        if (![hv, hh, hr, hl].every(Number.isFinite)) return;
+        // Bodennormale aus den vier Proben; Neigung = Drehung, die „oben"
+        // auf die Normale legt, um die Achse oben × Normale.
+        const normale = new Vector3(0, 1, 0)
+          .subtract(vorn.scale((hv - hh) / (2 * IK_NEIGUNG_SCHRITT)))
+          .subtract(rechts.scale((hr - hl) / (2 * IK_NEIGUNG_SCHRITT)))
+          .normalize();
+        const achse = Vector3.Cross(Vector3.Up(), normale);
+        const sinus = achse.length();
+        if (sinus < 0.005) return;
+        achse.scaleInPlace(1 / sinus);
+        const winkel = Math.atan2(sinus, Vector3.Dot(Vector3.Up(), normale)) * g;
+        this.dreheUm(fuss, achse, winkel);
+      });
+    }
+
+    // ── Bein-IK (Stufe 2, nur mit ikAn) ─────────────────────────────
+    const ziel = this.ikAn && this.ikBeine.length === 2 && !this.inDerLuftMerker ? 1 : 0;
+    const schritt = dt / IK_BLENDE;
+    this.ikGewicht += Math.max(-schritt, Math.min(schritt, ziel - this.ikGewicht));
+    if (this.ikGewicht <= 0) return;
 
     this.ikBeine.forEach(({ bein, knie, fuss }, i) => {
       bein.computeWorldMatrix(true);
@@ -1979,21 +2023,6 @@ export class AvatarRig {
         lokal.decompose(undefined, q, undefined);
         if (!fuss.rotationQuaternion) fuss.rotationQuaternion = q;
         else fuss.rotationQuaternion.copyFrom(q);
-      }
-      // Hangneigung unter dem Fuss — nur mit dem Fussgewicht, also nur
-      // fuer einen Fuss, der auf dem Boden steht (Original: Rotation aus
-      // der Bodennormalen, gewichtet wie die Position).
-      const g = this.ikFussGewicht[i]! * this.ikGewicht;
-      if (g > 0.01) {
-        const vornH = sonde(A.x + vorn.x * IK_NEIGUNG_SCHRITT, A.z + vorn.z * IK_NEIGUNG_SCHRITT);
-        const hintenH = sonde(A.x - vorn.x * IK_NEIGUNG_SCHRITT, A.z - vorn.z * IK_NEIGUNG_SCHRITT);
-        if (Number.isFinite(vornH) && Number.isFinite(hintenH)) {
-          const neigung = Math.atan2(vornH - hintenH, 2 * IK_NEIGUNG_SCHRITT) * g;
-          if (Math.abs(neigung) > 0.005) {
-            const querAchse = Vector3.Cross(Vector3.Up(), vorn).normalize();
-            this.dreheUm(fuss, querAchse, -neigung);
-          }
-        }
       }
     });
   }

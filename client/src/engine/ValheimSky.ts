@@ -83,6 +83,7 @@ import type { Scene } from '@babylonjs/core/scene';
 import type { EnvState } from '@wov/shared';
 import {
   haloExponent,
+  kuppelNacht,
   liesHimmelPlus,
   LOOK_HIMMEL_PLUS_VORGABE,
   type LookHimmelPlus,
@@ -856,7 +857,28 @@ export class ValheimSky {
     //
     // Geschrieben wird gleich in `reflectState` — das ist derselbe Wert,
     // der auch in die Uniforms geht, und genau dafür ist es gedacht.
-    const night = 1 - Math.min(1, Math.max(0, (state.elevation + 0.25) / 0.45));
+    /*
+      ── Dieselbe Uhr wie das Licht, jetzt auch als Code ────────────────
+
+      Hier stand die Rampe ausgeschrieben: `1 - clamp((elevation + 0.25)
+      / 0.45)`. Die Zahlen sind UNVERÄNDERT — Sterne, Mond und
+      Sonnenscheibe hängen im Fragment-Shader an genau diesem Wert und
+      verblassen zur selben Sekunde wie bisher. Was sich ändert, ist der
+      Ort: `kuppelNacht` steht in `shared/src/environment.ts` neben
+      `tagseitenAnteil`, der Uhr, die Nebel, Sonne und Grundlicht fährt.
+
+      Warum das mehr ist als Aufräumen: Das schwarze Band am Horizont
+      entstand aus einem WIDERSPRUCH zwischen beiden — die Kuppel stand
+      auf Tagfarbe, während Licht und Nebel schon Nacht rechneten. Als
+      zwei Ausdrücke an zwei Orten war das niemandem nachzuweisen; als
+      zwei Funktionen nebeneinander ist es eine Eigenschaft, die ein Test
+      festhalten kann (`shared/test/umgebung-tageslauf.ts`, Abschnitt 6).
+
+      Same clock as the light — identical numbers (0.25 / 0.45), moved
+      next to `tagseitenAnteil` so the two can be checked against each
+      other.
+    */
+    const night = kuppelNacht(state.elevation);
 
     const horizon = this.reflectState.horizon;
     horizon.set(state.fogColor.r, state.fogColor.g, state.fogColor.b);

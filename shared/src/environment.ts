@@ -957,9 +957,139 @@ function elevationFactor(dayFraction: number): number {
  * m_sunHorizonTransitionH = 0.08, m_sunHorizonTransitionL = 0.02
  * (EnvMan.cs:46/48). Die Asymmetrie ist gewollt: Der Morgen steigt
  * schnell an und klingt langsam aus, der Abend umgekehrt.
+ *
+ * ── SEIT DEM 12.09.2026 SIND DIESE VIER ZAHLEN NUR NOCH DIE MISCHUNG ──
+ *
+ * Wieviel Tagseite überhaupt zählt, sagt jetzt allein der Sonnenstand
+ * (`tagseitenAnteil`). Die Gewichte hier entscheiden nur noch, WELCHER
+ * der drei tagseitigen Keyframes die Farbe stellt — Tag, Morgen oder
+ * Abend. Die Summe der vier ist damit keine Helligkeit mehr, und der
+ * Absatz oben über die „gegen Schwarz gedämpfte" Dämmerung beschreibt
+ * die alte Rechnung; die Dämpfung steckt jetzt im Nachtanteil
+ * `night · (1 − tagseitenAnteil)`.
+ *
+ * These four are only the MIX now; how much day side counts at all comes
+ * from the sun's elevation (`tagseitenAnteil`).
  */
+const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+
 const SUN_HORIZON_TRANSITION_H = 0.08;
-const SUN_HORIZON_TRANSITION_L = 0.02;
+/*
+  ── 0,02 war die halbe Ursache des schwarzen Abends ──────────────────
+
+  Mit 0,02 fällt das Abendgewicht bei f = 0,76 (18:14) auf exakt null,
+  während die Sonne erst bei f = 0,85 (20:24) untergeht: auf 19,6 % des
+  Zyklus stand die Sonne bis zu 19° hoch und es gab trotzdem KEINEN
+  tagseitigen Keyframe mehr, aus dem sich eine Farbe hätte mischen
+  lassen. Morgens dasselbe Loch ab f = 0,24 rückwärts bis zum
+  Sonnenaufgang bei f = 0,1333.
+
+  Die Rampe muss deshalb mindestens so weit reichen, wie der Tagesanteil
+  überhaupt zählt — und das ist bis `ELEV_DAEMMERUNG` unter dem Horizont,
+  also bis f = 0,1243 (morgens) bzw. f = 0,8590 (abends). Vom jeweiligen
+  Gipfel (0,26 / 0,74) aus sind das 0,1357 bzw. 0,1190; 0,14 deckt beide
+  Seiten mit Rand ab und bleibt EINE Zahl.
+
+  Was sich dadurch NICHT ändert: die Gewichte oberhalb des Gipfels — dort
+  führt `SUN_HORIZON_TRANSITION_H`. Um 17 h (f = 0,70833) stehen deshalb
+  unverändert Tag 0,408 und Abend 0,604 an; die Wache in
+  `server/test/stufe2-licht.ts` misst genau diese beiden Zahlen.
+
+  0.02 let the evening weight die at f = 0.76 while the sun sets at 0.85.
+  The ramp now reaches past the horizon on both sides; the high side (and
+  with it the 17 h weights) is untouched.
+*/
+const SUN_HORIZON_TRANSITION_L = 0.14;
+
+/**
+ * Ab diesem Sonnenstand zählt die Tagseite voll (Elevationsfaktor, also
+ * `sunAngle`-Anteile: 0,40 sind bei Klar-Comic 20,0°).
+ *
+ * Warum die Tagseite oben NICHT weiter ansteigt: Der Keyframe beschreibt
+ * die STIMMUNG des Himmels, nicht den Einfallswinkel. Wie schräg das
+ * Licht auftrifft, steht schon in `lightDir` und rechnet Babylon in jedem
+ * Pixel mit; wer es hier ein zweites Mal hineinrechnet, dunkelt den
+ * Nachmittag doppelt ab. Zwischen Mittag und 18:04 ist der Himmel voll
+ * „Tag", und das Bild wird trotzdem flacher, weil die Sonne sinkt.
+ *
+ * ── Warum ausgerechnet 0,40 und keine rundere Zahl ───────────────────
+ *
+ * An den beiden Vierteln des Tages (f = 0,25 und f = 0,75) hat der
+ * NACHTBOGEN seinen Wurzelknick: `sqrt` startet dort mit senkrechter
+ * Tangente. Bekommt der Nachtanteil an dieser Stelle einen Beiwert über
+ * null, schlägt diese senkrechte Tangente durch, und die Sonne wird für
+ * einen Augenblick wieder HELLER, obwohl sie sinkt (gemessen: genau ein
+ * Anstieg, bei f = 0,7507, mit `ELEV_TAG_VOLL = 0,55`).
+ *
+ * Der Beiwert ist `1 − tagseitenAnteil`. Er ist null, solange die
+ * Tagseite voll zählt — und der Sonnenstand an den beiden Vierteln ist
+ * 0,4894 (morgens) und 0,4253 (abends). Jede Schwelle unterhalb von
+ * 0,4253 legt den Knick damit in einen Bereich, in dem er nichts wiegt.
+ * 0,40 tut das mit Rand.
+ *
+ * 0.40 sits below the sun's elevation at both quarter points (0.489 /
+ * 0.425), where the night arc's sqrt has a vertical tangent — that is
+ * what makes the evening fall monotone.
+ */
+const ELEV_TAG_VOLL = 0.4;
+/**
+ * So tief unter dem Horizont endet die Tagseite (Dämmerband).
+ *
+ * Bei Sonnenuntergang (Elevation 0) bleiben dadurch 0,10 / 0,50 = 20 %
+ * Tagseite stehen — die Dämmerung — und erst 0,0090 Zyklusanteile später
+ * (rund 16 Sekunden Bildschirmzeit) ist die Tagseite sauber null. Ab da
+ * ist jede Zahl dieser Datei Zeichen für Zeichen die alte: die NACHT
+ * bleibt unangetastet.
+ */
+const ELEV_DAEMMERUNG = 0.1;
+
+/**
+ * Der tagseitige Anteil — die EINE Uhr.
+ *
+ * ── Warum es diese Funktion gibt ─────────────────────────────────────
+ * Bis zum 11.09.2026 liefen im Tageslauf zwei Uhren gegeneinander: Die
+ * Phasengewichte endeten bei f = 0,75 bzw. 0,25, der Sonnenbogen erst bei
+ * 0,85 bzw. 0,1333. Auf 19,6 % des Zyklus stand die Sonne also am Himmel,
+ * während Licht, Nebel und Grundlicht bereits ausschliesslich aus dem
+ * Nacht-Keyframe kamen — gemessen fiel die Sonnenleuchtdichte zwischen
+ * 17:42 und 18:18 um den Faktor 176 und lag danach bei 0,73 % des
+ * Mittagswerts, dem 27. Teil der Mitternachtshelligkeit. Umgekehrt
+ * addierten sich Tag- und Abendgewicht kurz vor dem Knick auf 1,199 und
+ * schoben die Sonnenfarbe mit (1,180 / 0,930 / 0,648) über Weiss.
+ *
+ * Beides verschwindet, wenn die Menge Tag nicht mehr aus den Gewichten,
+ * sondern aus dem Sonnenstand kommt. Die Funktion ist monoton im
+ * Sonnenstand, liegt in 0..1 und ist am Mittag exakt 1 — der Mittag
+ * bleibt dadurch Zeichen für Zeichen, wie er war.
+ *
+ * The single clock: how much the day side counts, straight from the sun's
+ * elevation. Monotone, 0..1, exactly 1 at midday.
+ */
+export function tagseitenAnteil(elevation: number): number {
+  return clamp01((elevation + ELEV_DAEMMERUNG) / (ELEV_TAG_VOLL + ELEV_DAEMMERUNG));
+}
+
+/**
+ * Der Nachtanteil der Himmelskuppel — dieselbe Grösse, andere Rampe.
+ *
+ * Die Kuppel hing schon immer am Sonnenstand (`ValheimSky.update`), aber
+ * mit zwei nirgends benannten Zahlen mitten im Code. Sie stehen jetzt
+ * hier, neben der Uhr, die das Licht fährt: Damit kann keine der beiden
+ * Rampen still von der anderen wegwandern, und der Widerspruch, der das
+ * schwarze Band am Horizont erzeugt hat („Himmel auf Tagfarbe, Licht auf
+ * Nacht"), ist als Eigenschaft prüfbar — wo die Kuppel Tag zeigt
+ * (`kuppelNacht` klein), ist `tagseitenAnteil` nachweislich > 0.
+ *
+ * DIE ZAHLEN SIND UNVERÄNDERT (0,25 / 0,45). Sterne, Mond und
+ * Sonnenscheibe verblassen deshalb zur selben Sekunde wie bisher; ihre
+ * Helligkeit hängt im Fragment-Shader an genau diesem Wert.
+ *
+ * The dome's night term, unchanged in value (0.25 / 0.45) — moved here so
+ * dome and light demonstrably read the same clock.
+ */
+export function kuppelNacht(elevation: number): number {
+  return 1 - clamp01((elevation + 0.25) / 0.45);
+}
 
 export interface PhaseWeights {
   night: number;
@@ -968,7 +1098,6 @@ export interface PhaseWeights {
   evening: number;
 }
 
-const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 export function phaseWeights(dayFraction: number): PhaseWeights {
   const f = ((dayFraction % 1) + 1) % 1;
@@ -986,57 +1115,80 @@ export function phaseWeights(dayFraction: number): PhaseWeights {
   };
 }
 
-/** Gewichtete Summe von vier Keyframe-Farben (EnvMan.SetEnv). */
-function weighByPhase(
+/**
+ * Die tagseitige Mischung: WELCHER der drei Keyframes die Farbe stellt.
+ *
+ * Normiert, im Unterschied zur alten Summe — die Menge Tag steht seit dem
+ * 12.09.2026 in `tagseitenAnteil` und nicht mehr in diesen Gewichten.
+ * Genau daran lag der Überlauf: Tag- und Abendgewicht summierten sich auf
+ * 7,2 % des Zyklus auf bis zu 1,199 und hoben die Sonne über Weiss, und
+ * unmittelbar danach fielen beide auf null und rissen sie um den Faktor
+ * 176 nach unten. Eine Mischung kann weder das eine noch das andere.
+ *
+ * Fällt die Summe auf null (kein tagseitiger Keyframe in Reichweite), gilt
+ * der Tag-Keyframe. Das ist eine Wache, kein Arbeitspfad: Die Rampen
+ * reichen seit derselben Änderung über den ganzen Bereich, in dem
+ * `tagseitenAnteil` überhaupt grösser als null ist.
+ *
+ * Which of the three day-side keyframes supplies the colour — normalised.
+ */
+function tagseitenMischung(w: PhaseWeights): { tag: number; morgen: number; abend: number } {
+  const summe = w.day + w.morning + w.evening;
+  if (!(summe > 0)) return { tag: 1, morgen: 0, abend: 0 };
+  return { tag: w.day / summe, morgen: w.morning / summe, abend: w.evening / summe };
+}
+
+/**
+ * Eine Keyframe-Farbe für einen Augenblick: Nachtanteil plus Tagseite.
+ *
+ * ── Die Form, und warum sie die Gewichtssumme nicht mehr sprengen kann ─
+ *
+ *   Farbe = nacht · (1 − t) · Nacht-Keyframe  +  t · Tagseiten-Mischung
+ *
+ * mit `t = tagseitenAnteil(elevation)` und `nacht = w.night`. Die Summe
+ * der Anteile ist `nacht · (1 − t) + t ≤ 1` für jedes `nacht ≤ 1` — die
+ * Schranke ist also keine geprüfte Zusage, sondern eine Eigenschaft der
+ * Form. An beiden Enden bleibt alles, wie es war: bei `t = 0` steht dort
+ * `nacht · Nacht-Keyframe` (Zeichen für Zeichen die alte Nacht), bei
+ * `t = 1` ist der Nachtanteil null und es zählt allein die Tagseite (der
+ * Mittag also unverändert).
+ *
+ * Das alte Tor `dayGated` ist damit weg. Es fragte die Gewichte, ob es
+ * noch Tag sei — und die Gewichte waren die falsche Uhr.
+ *
+ * Night share plus day side; the weights can no longer sum past 1.
+ */
+function mischeKeyframes(
   env: EnvSetup,
   prefix: 'fogColor' | 'fogColorSun' | 'sunColor',
   w: PhaseWeights,
-  /**
-   * Ob die TAGSEITIGEN Keyframes (Tag, Morgen, Abend) mitzählen.
-   *
-   * ── Hier stand `w.day > 0`, und das war der schwarze Sonnenaufgang ──
-   * Die Begründung lautete „siehe `if (dayInt > 0f)` in EnvMan.cs:686
-   * und 699", und der Port war wörtlich richtig. Er hat nur eine Sorte
-   * Augenblick übersehen: Bei Tagesbruchteil 0,25 und 0,75 — also
-   * PUNKT 6 und 18 Uhr — sind Tag- UND Nachtgewicht exakt null, während
-   * der Morgen- bzw. Abend-Keyframe mit 0,5 voll dasteht. Das Tor warf
-   * damit die einzige Farbe weg, die es an diesem Punkt gab, und die
-   * Sonne wurde schwarz (gemessen: sunColor (0,0,0) bei 6 h und 18 h,
-   * Bauer „Gras", 09.09.2026).
-   *
-   * Gefragt wird deshalb nach dem GESAMTEN tagseitigen Gewicht. Am
-   * Zweck ändert das nichts — tief in der Nacht sind Morgen und Abend
-   * ohnehin null, das Tor schliesst also weiterhin dort, wo es soll.
-   *
-   * Was es NICHT ist: eine Glättung. Die Formel bleibt dieselbe
-   * gewichtete Summe; nur wird sie nicht mehr an zwei Zeitpunkten pro
-   * Zyklus komplett abgeschaltet.
-   *
-   * The gate used to ask `w.day > 0`. At day fractions 0.25 and 0.75 both
-   * day and night weight are exactly zero while morning/evening carry
-   * 0.5 — the gate threw away the only colour there and the sun went
-   * black. It now asks for the whole day-side weight.
-   */
-  dayGated: boolean
+  tagAnteil: number
 ): EnvColor {
   const k = (suffix: string): EnvColor =>
     env[`${prefix}${suffix}` as keyof EnvSetup] as EnvColor;
-  let r = k('Night').r * w.night;
-  let g = k('Night').g * w.night;
-  let b = k('Night').b * w.night;
-  if (!dayGated || w.day + w.morning + w.evening > 0) {
-    for (const [suffix, weight] of [
-      ['Day', w.day],
-      ['Morning', w.morning],
-      ['Evening', w.evening],
-    ] as const) {
-      const c = k(suffix);
-      r += c.r * weight;
-      g += c.g * weight;
-      b += c.b * weight;
-    }
-  }
-  return { r, g, b };
+  const m = tagseitenMischung(w);
+  const nachtAnteil = w.night * (1 - tagAnteil);
+  const n = k('Night');
+  const d = k('Day');
+  const mo = k('Morning');
+  const ab = k('Evening');
+  return {
+    r: n.r * nachtAnteil + (d.r * m.tag + mo.r * m.morgen + ab.r * m.abend) * tagAnteil,
+    g: n.g * nachtAnteil + (d.g * m.tag + mo.g * m.morgen + ab.g * m.abend) * tagAnteil,
+    b: n.b * nachtAnteil + (d.b * m.tag + mo.b * m.morgen + ab.b * m.abend) * tagAnteil,
+  };
+}
+
+/** Dieselbe Form für die vier Nebeldichten. */
+function mischeDichte(env: EnvSetup, w: PhaseWeights, tagAnteil: number): number {
+  const m = tagseitenMischung(w);
+  return (
+    env.fogDensityNight * w.night * (1 - tagAnteil) +
+    (env.fogDensityDay * m.tag +
+      env.fogDensityMorning * m.morgen +
+      env.fogDensityEvening * m.abend) *
+      tagAnteil
+  );
 }
 
 /**
@@ -1050,30 +1202,35 @@ function weighByPhase(
  *
  * Deshalb wird der Abend nicht als dritter Summand angehängt, sondern
  * die TAGSEITE bekommt zwei Keyframes: Tag und Abend werden nach ihren
- * Gewichten zu EINER Farbe gemittelt (deshalb `/ s` — normiert, anders
- * als bei `weighByPhase`, wo die Gewichte bei 17 h auf 1,012 kommen),
- * und diese eine Farbe geht wie bisher gegen die Nacht.
+ * Gewichten zu EINER Farbe gemittelt, und diese eine Farbe geht gegen die
+ * Nacht.
  *
- * Fällt der Abend weg, ist `s = w.day`, die Tagseite ist der Tagwert und
- * die Zeile ist Zeichen für Zeichen die alte. Der Morgen bleibt
- * aussen vor: Bei Tagesbruchteil 0,25 ist `s = 0`, und dann kommt die
- * Nachtfarbe heraus — genau wie bisher.
+ * ── Was sich am 12.09.2026 geändert hat ──────────────────────────────
+ * Der MISCHUNGSANTEIL kommt weiter aus den Phasengewichten (bei 17 h also
+ * unverändert Tag 0,4032 / Abend 0,5968, s. der Block bei
+ * `ambColorEvening`), die MENGE dagegen aus `tagseitenAnteil`. Vorher
+ * stand hier `s = w.day + w.evening`, und dieses `s` fiel zwischen 18:14
+ * und 20:24 auf null, während die Sonne noch bis zu 19° hoch stand: Das
+ * Grundlicht sprang mitten am Abend auf den Nacht-Keyframe. Der Morgen
+ * blieb bei der alten Rechnung ganz aussen vor — deshalb dasselbe Loch
+ * zwischen Sonnenaufgang und f = 0,24, nur ohne eigenen Namen.
  *
- * The day-side weight for the two optional evening keys: day and evening
- * are averaged into one value (normalised), which is then interpolated
- * against night exactly as before.
+ * Fällt der Abend weg, ist die Tagseite der Tagwert und die Zeile ist
+ * Zeichen für Zeichen die alte.
+ *
+ * Mix from the phase weights, AMOUNT from the sun's elevation.
  */
-function tagseite(w: PhaseWeights, hatAbend: boolean): { s: number; wTag: number; wAbend: number } {
+function tagseite(w: PhaseWeights, hatAbend: boolean): { wTag: number; wAbend: number } {
   const s = w.day + (hatAbend ? w.evening : 0);
-  if (s <= 0) return { s: 0, wTag: 1, wAbend: 0 };
-  return { s, wTag: w.day / s, wAbend: (hatAbend ? w.evening : 0) / s };
+  if (!(s > 0)) return { wTag: 1, wAbend: 0 };
+  return { wTag: w.day / s, wAbend: (hatAbend ? w.evening : 0) / s };
 }
 
-/** Grundlicht: Nacht → (Tag, Abend), s. `tagseite`. */
-function mischeAmbient(env: EnvSetup, w: PhaseWeights): EnvColor {
+/** Grundlicht: Nacht → (Tag, Abend), Menge aus `tagseitenAnteil`. */
+function mischeAmbient(env: EnvSetup, w: PhaseWeights, tagAnteil: number): EnvColor {
   const abend = env.ambColorEvening;
-  const { s, wTag, wAbend } = tagseite(w, abend !== undefined);
-  if (s <= 0) return env.ambColorNight;
+  if (tagAnteil <= 0) return env.ambColorNight;
+  const { wTag, wAbend } = tagseite(w, abend !== undefined);
   const d = env.ambColorDay;
   const tag: EnvColor =
     abend === undefined
@@ -1083,17 +1240,17 @@ function mischeAmbient(env: EnvSetup, w: PhaseWeights): EnvColor {
           g: d.g * wTag + abend.g * wAbend,
           b: d.b * wTag + abend.b * wAbend,
         };
-  return lerpColor(env.ambColorNight, tag, Math.min(1, s));
+  return lerpColor(env.ambColorNight, tag, tagAnteil);
 }
 
-/** Sonnenstärke: Nacht → (Tag, Abend), s. `tagseite`. */
-function mischeStaerke(env: EnvSetup, w: PhaseWeights): number {
+/** Sonnenstärke: Nacht → (Tag, Abend), Menge aus `tagseitenAnteil`. */
+function mischeStaerke(env: EnvSetup, w: PhaseWeights, tagAnteil: number): number {
   const abend = env.lightIntensityEvening;
-  const { s, wTag, wAbend } = tagseite(w, abend !== undefined);
-  if (s <= 0) return env.lightIntensityNight;
+  if (tagAnteil <= 0) return env.lightIntensityNight;
+  const { wTag, wAbend } = tagseite(w, abend !== undefined);
   const tag =
     abend === undefined ? env.lightIntensityDay : env.lightIntensityDay * wTag + abend * wAbend;
-  return lerp(env.lightIntensityNight, tag, Math.min(1, s));
+  return lerp(env.lightIntensityNight, tag, tagAnteil);
 }
 
 /**
@@ -1108,6 +1265,15 @@ export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
     ? { night: 1, day: 0, morning: 0, evening: 0 }
     : phaseWeights(dayFraction);
   const elevation = env.alwaysDark ? -1 : elevationFactor(dayFraction);
+  /*
+    ── EINE Uhr: die Menge Tag kommt aus dem Sonnenstand ──────────────
+
+    Alles, was unten tagseitig ist — Nebelfarbe, Sonnenfarbe, Grundlicht,
+    Sonnenstärke, Nebeldichte —, hängt ab hier an derselben Zahl. Bei
+    `alwaysDark` ist die Elevation −1, `tagseitenAnteil` also 0, und die
+    Höhle bleibt genau so dunkel, wie sie war.
+  */
+  const tagAnteil = tagseitenAnteil(elevation);
 
   // Sun rises in the east, sets in the west; azimuth sweeps with the day so
   // shadows rotate through the cycle instead of only shortening.
@@ -1117,11 +1283,21 @@ export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
   const height = Math.sin(elevation * maxElevRad);
   const horiz = Math.cos(elevation * maxElevRad);
 
-  const fogColor = weighByPhase(env, 'fogColor', w, false);
-  // EnvMan.cs:705 — der Sonnennebel wird gegen den normalen Nebel
-  // zurückgemischt, sobald weder Tag noch Nacht klar dominieren.
-  const sunFogRaw = weighByPhase(env, 'fogColorSun', w, true);
-  const sunMix = clamp01(Math.max(w.night, w.day) * 3);
+  const fogColor = mischeKeyframes(env, 'fogColor', w, tagAnteil);
+  /*
+    EnvMan.cs:705 — der Sonnennebel wird gegen den normalen Nebel
+    zurückgemischt, sobald weder Tag noch Nacht klar dominieren.
+
+    Gefragt wird jetzt die EINE Uhr statt zweier Phasengewichte: `w.day`
+    war bei Tagesbruchteil 0,75 exakt null, und dort fiel der gerichtete
+    Nebel schlagartig auf die ungerichtete Farbe zurück, obwohl die Sonne
+    noch 21° hoch stand. Für `Klar-Comic` ändert das nichts (beide
+    Nebelfarben sind dort absichtlich gleich), für jedes andere Wetter
+    schon.
+  */
+  const nachtAnteil = w.night * (1 - tagAnteil);
+  const sunFogRaw = mischeKeyframes(env, 'fogColorSun', w, tagAnteil);
+  const sunMix = clamp01(Math.max(nachtAnteil, tagAnteil) * 3);
 
   return {
     fogColor,
@@ -1130,16 +1306,12 @@ export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
       g: fogColor.g + (sunFogRaw.g - fogColor.g) * sunMix,
       b: fogColor.b + (sunFogRaw.b - fogColor.b) * sunMix,
     },
-    fogDensity:
-      env.fogDensityNight * w.night +
-      env.fogDensityDay * w.day +
-      env.fogDensityMorning * w.morning +
-      env.fogDensityEvening * w.evening,
-    sunColor: weighByPhase(env, 'sunColor', w, true),
+    fogDensity: mischeDichte(env, w, tagAnteil),
+    sunColor: mischeKeyframes(env, 'sunColor', w, tagAnteil),
     // EnvMan.cs:711 — RenderSettings.ambientLight = Lerp(night, day, dayInt).
     // Seit dem 09.09.2026 durch `mischeAmbient()`, das GENAU diese Zeile
     // rechnet, solange kein `ambColorEvening` gesetzt ist.
-    ambColor: mischeAmbient(env, w),
+    ambColor: mischeAmbient(env, w, tagAnteil),
     /*
       ── Die Sonnenstärke wird INTERPOLIERT, nicht aufsummiert ─────────
 
@@ -1174,7 +1346,7 @@ export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
       Seit dem 09.09.2026 steht die Interpolation in `mischeStaerke()` —
       dieselbe Zeile, solange kein `lightIntensityEvening` gesetzt ist.
     */
-    lightIntensity: mischeStaerke(env, w),
+    lightIntensity: mischeStaerke(env, w, tagAnteil),
     cloudAlpha: env.rainCloudAlpha,
     // Light travels from the sky towards the ground → negate. |height|
     // keeps the MOON overhead at night (there is one main light that
@@ -1190,9 +1362,20 @@ export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
       y: height,
       z: Math.sin(azimuth) * horiz,
     },
-    // EnvMan flips das Sonnenlicht um 180°, sobald nightInt > 0 ist
-    // (EnvMan.cs:679). Als Ja/Nein-Auskunft fürs HUD: Nacht dominiert.
-    isNight: w.night > w.day,
+    /*
+      Als Ja/Nein-Auskunft fürs HUD (`main.ts` schreibt „tag"/„nacht").
+
+      Hier stand `w.night > w.day`, und das war dieselbe zweite Uhr wie
+      überall sonst: Bei Tagesbruchteil 0,80 (19:12) meldete es Nacht,
+      während die Sonne noch 11° über dem Horizont stand. Gefragt wird
+      jetzt der Sonnenstand selbst — das ist die Entscheidung E2 der
+      Analyse, wörtlich: Tag gilt, solange die Sonne oben ist. Höhlen
+      (`alwaysDark`) tragen Elevation −1 und bleiben Nacht.
+
+      Was das NICHT ist: ein Lichtschalter. Der Übergang liegt in
+      `tagseitenAnteil` und ist stetig; diese Zeile beschriftet nur.
+    */
+    isNight: elevation <= 0,
     elevation,
   };
 }

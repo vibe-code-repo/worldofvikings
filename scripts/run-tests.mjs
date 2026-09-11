@@ -1087,6 +1087,18 @@ const KERN = [
   // Licht-Hints kommen an der Registry an. Ein Prefab ohne `light` ist
   // nicht kaputt, es ist dunkel — und dunkel faellt nirgends auf.
   ['shared', 'test/licht-hints.ts'],
+  /*
+    F1 „Tageslauf" (12.09.2026): der Tageslauf hat EINE Uhr.
+
+    Bis dahin endete der Tagbogen der Phasengewichte bei f = 0,75, der
+    Sonnenbogen erst bei f = 0,85 — auf 19,6 % des Zyklus stand die Sonne
+    bis zu 19° hoch und es galt trotzdem nur das Nacht-Keyframe. Der Test
+    faehrt 1440 Stuetzstellen ueber `evaluateEnv` und haelt fuenf
+    Eigenschaften fest (kein Loch, Monotonie am Abend, Gewichtssumme,
+    Mittag bitgleich, Nacht bitgleich) plus den Nichtwiderspruch zwischen
+    Himmelskuppel und Licht. Reine Funktion, keine Szene, ~1 s.
+  */
+  ['shared', 'test/umgebung-tageslauf.ts'],
   // F1 (Roadmap, Security-Review-Paket 3): Truhen mit echtem, entnehmbarem
   // Inhalt statt des alten Ein-Bit-Schalters. E2E ueber echte WebSocket-
   // Verbindungen (handleTruheOeffnen/handleContainerAction sind private

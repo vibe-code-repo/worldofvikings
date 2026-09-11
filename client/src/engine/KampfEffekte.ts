@@ -60,8 +60,14 @@ const SLASH_KACHELN = 3;
  * hier: Quad in der XY-Ebene des Halters (Schneide × Klinge), Mitte 1,05 m
  * schneidenseitig und 1,62 m klingenwaerts. So folgt der Bogen der Hand.
  */
-const SLASH_SCHNEIDE = 1.05;
-const SLASH_KLINGE = 1.62;
+// Gemessen 11.09.: mit dem Original-Versatz 1,05/1,62 lag der Bogen 1,6 m
+// neben der Klinge (der Rahmen des Original-Schwertobjekts ist ein
+// anderer). Nach Mikes Screenshot beginnt der Streifen an der Klinge und
+// laeuft entlang der Schlagrichtung — also Quad mittig auf der Klinge,
+// Mitte 0,9 m klingenwaerts, damit der Bogen (oberes Drittel der Kachel)
+// an der Spitze sitzt.
+const SLASH_SCHNEIDE = 0;
+const SLASH_KLINGE = 0.9;
 /** Helligkeit des additiven Farbverlaufs (das Original ist Verzerrung + Tint, nicht grell). */
 const SLASH_HELLE = 0.7;
 const SLASH_FARBEN: Array<[number, [number, number, number]]> = [

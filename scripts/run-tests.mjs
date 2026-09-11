@@ -27,7 +27,10 @@
  *
  * Reine Werkzeuge/Messbänke, keine Tests (drucken Zahlen, behaupten nichts,
  * kein process.exit(1)-Pfad — s. jeweiliger Kopfkommentar):
- * shared/test/rain-freq.ts, shared/test/heightmap-bench.ts.
+ * shared/test/rain-freq.ts, shared/test/heightmap-bench.ts,
+ * client/test/durchgangshoehe-mess.ts, client/test/torbogen-hoehe-mess.ts
+ * (beide vom 11.09.2026, zur Umstellung auf die Original-Kapselhöhe 2,0 m:
+ * wie hoch die niedrigste Stelle wirklich ist, durch die die Figur muss).
  *
  * Ebenfalls NICHT enthalten: shared/test/dungeon2-browser-check.ts. Das ist
  * kein Node-Test, sondern der BÜNDEL-EINSTIEG der Browser-Seite des

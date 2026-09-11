@@ -34,11 +34,15 @@ import { Constants } from '@babylonjs/core/Engines/constants';
 import type { Observer } from '@babylonjs/core/Misc/observable';
 
 const VFX = '/assets/vfx/';
-/** Slash-Flipbook: Spalten × Zeilen, Dauer (Original 0,25 s). */
-const SLASH_SPALTEN = 4;
-const SLASH_ZEILEN = 2;
+/**
+ * Slash: EIN Halbmond (aus der SwordSlash-Tafel des Originals geschnitten —
+ * die Tafel ist kein sauberes 4×2-Flipbook, ihre Boegen liegen quer ueber
+ * den Zellgrenzen), Dauer wie im Original 0,25 s; statt Bildwechsel
+ * waechst der Bogen von 0,7 auf 1,2 und blendet aus.
+ */
 const SLASH_DAUER = 0.25;
 const SLASH_GROESSE = 2.0;
+const SLASH_WACHSTUM: [number, number] = [0.7, 1.2];
 
 /** Trefferart, wie der Server sie schickt (PacketType.HitEffect). */
 export const TREFFER_HART = 0;
@@ -78,10 +82,7 @@ export class KampfEffekte {
     plane.receiveShadows = false;
     if (spiegeln) plane.scaling.x = -1;
     const mat = new StandardMaterial('kampf_slash', this.scene);
-    const tex = this.textur('schwert_slash.png').clone();
-    tex.hasAlpha = true;
-    tex.uScale = 1 / SLASH_SPALTEN;
-    tex.vScale = 1 / SLASH_ZEILEN;
+    const tex = this.textur('schwert_slash.png');
     mat.disableLighting = true;
     mat.emissiveColor = Color3.White();
     mat.emissiveTexture = tex;
@@ -91,18 +92,17 @@ export class KampfEffekte {
     mat.backFaceCulling = false;
     plane.material = mat;
     const start = performance.now();
+    const spiegel = spiegeln ? -1 : 1;
     let obs: Observer<Scene> | null = null;
     obs = this.scene.onBeforeRenderObservable.add(() => {
       const t = (performance.now() - start) / 1000;
-      const frames = SLASH_SPALTEN * SLASH_ZEILEN;
-      const f = Math.min(frames - 1, Math.floor((t / SLASH_DAUER) * frames));
-      tex.uOffset = (f % SLASH_SPALTEN) / SLASH_SPALTEN;
-      // Zeile 0 liegt oben im Bild; Babylon zaehlt v von unten.
-      tex.vOffset = 1 - (Math.floor(f / SLASH_SPALTEN) + 1) / SLASH_ZEILEN;
+      const a = Math.min(1, t / SLASH_DAUER);
+      const s = SLASH_WACHSTUM[0] + (SLASH_WACHSTUM[1] - SLASH_WACHSTUM[0]) * a;
+      plane.scaling.set(s * spiegel, s, s);
+      mat.alpha = 1 - a * a;
       if (t >= SLASH_DAUER) {
         if (obs) this.scene.onBeforeRenderObservable.remove(obs);
         plane.dispose(false, true);
-        tex.dispose();
       }
     });
   }

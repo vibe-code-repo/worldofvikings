@@ -59,6 +59,13 @@ import {
 // Through the barrel, NOT through a relative path out of `client/test/`: that
 // lies outside the client type check's `rootDir` and `tsc` aborts with TS6059.
 import { dungeon2 } from '@wov/shared';
+/*
+  Die Figurenmasse kommen seit dem 11.09.2026 aus `masse.ts` statt als
+  abgeschriebene Zahlen hier zu stehen — sonst misst dieser Pruefer eine
+  Figur, die es nicht mehr gibt (die Kapsel ist jetzt 2,0 m hoch, nicht
+  1,8). Body measures now imported, not copied.
+*/
+import { KOERPER_HOEHE, KOERPER_RADIUS } from '@wov/shared/src/bewegung/masse.js';
 
 const {
   erzeugeLayout,
@@ -122,9 +129,6 @@ async function pruefeAsync(name: string, fn: () => Promise<void>): Promise<void>
  * body radius. Not coarser: a gap one cell wide would be stepped over.
  */
 const SCHRITT_M = 0.25;
-/** Figurenmasse aus `dungeonRaster.ts`. / Body measures from `dungeonRaster.ts`. */
-const KOERPER_RADIUS = 0.4;
-const KOERPER_HOEHE = 1.8;
 /** Fusshoehe, ab der ein Hindernis zaehlt. / Foot height an obstacle counts from. */
 const STOLPER_HOEHE = 0.35;
 

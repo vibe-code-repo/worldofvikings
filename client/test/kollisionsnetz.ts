@@ -4,7 +4,10 @@
  * Warum es diese Konvention gibt (Herleitung im Kopf von
  * client/src/engine/AssetManager.ts): Die Spielerkapsel hat 0,4 m Radius,
  * und an einer 0,25-m-Setzstufe steht die Kontaktnormale bei
- * acos((0,4−0,25)/0,4) ≈ 68° — weit über der Steigungsgrenze von 40°. Eine
+ * acos((0,4−0,25)/0,4) ≈ 68° — über der Steigungsgrenze, auch nach deren
+ * Anhebung auf den Originalwert 60° am 11.09.2026. Die höchste Kante, die
+ * eine 0,4-m-Kapsel so noch nimmt, ist r·(1−cos(Grenze)): bei 40° waren das
+ * 9,4 cm, bei 60° sind es 20 cm — beides unter einer 25-cm-Stufe. Eine
  * Treppe, deren Kollision aus dem GERENDERTEN Mesh gebacken wird, ist damit
  * unbegehbar, egal wie flach ihre Rampe im Mittel ist. Ein `_col`-Mesh legt
  * stattdessen die glatte Rampe unter die Stufen.

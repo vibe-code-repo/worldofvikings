@@ -74,9 +74,15 @@ const SCHILD_HOEHE = 48;
 /** Luft zwischen Scheitel und Unterkante des Schilds (m). */
 const KOPF_LUFT = 0.35;
 /**
- * Höhe der Spielerfigur (m) — Kapselhöhe aus PlayerController (BODY_HEIGHT).
- * Bewusst als Konstante gespiegelt statt exportiert: Das Schild braucht nur
- * einen Anhaltspunkt für den Scheitel, keine Kopplung an die Physik.
+ * Höhe der SICHTBAREN Spielerfigur (m) — dasselbe Maß, auf das AvatarRig das
+ * Modell skaliert (`AvatarRig.SPIELER_HOEHE`).
+ *
+ * AUSDRÜCKLICH NICHT die Kapselhöhe: Die steht seit dem 11.09.2026 auf dem
+ * Originalwert 2,0 m und ist damit 20 cm höher als die Figur (Kopfraum, damit
+ * Türstürze blocken). Das Schild hängt über dem KOPF, nicht über der Kapsel —
+ * mit 2,0 schwebte es sichtbar zu hoch. Bewusst als Konstante gespiegelt statt
+ * importiert: Das Schild braucht einen Anhaltspunkt für den Scheitel, keine
+ * Kopplung an die Physik.
  */
 const SPIELER_HOEHE = 1.8;
 

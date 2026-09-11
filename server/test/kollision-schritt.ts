@@ -137,8 +137,14 @@ console.log('\n[A] Strahl gegen Formen (ebener Boden, ohne ZDO):');
   }
 
   // Haenge: eine Platte, deren Oberflaeche DURCH den Startpunkt laeuft und
-  // in +x ansteigt. 35 Grad traegt (Hang), 45 Grad nicht (Wand).
-  for (const [grad, begehbar] of [[35, true], [45, false]] as const) {
+  // in +x ansteigt.
+  //
+  // Seit dem 11.09.2026 liegt die Grenze auf dem Originalwert 60 Grad
+  // (vorher 40). 45 und 55 sind also genau die Faelle, die frueher als
+  // WAND gestoppt haben und jetzt erlaufen werden muessen — 35 bleibt als
+  // Boden-Fall stehen, 65 ist die Gegenprobe, dass die Grenze ueberhaupt
+  // noch eine ist.
+  for (const [grad, begehbar] of [[35, true], [45, true], [55, true], [65, false]] as const) {
     const r = (grad * Math.PI) / 360; // halber Winkel fuer das Quaternion
     const rampe = eben.nahfeldAus([{
       form: kiste({ x: 0, y: -3, z: -6 }, { x: 20, y: 0, z: 6 }),

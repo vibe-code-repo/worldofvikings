@@ -38,11 +38,11 @@
  * constant can change and an old document would then be silently reinterpreted.
  *
  * `ZELLE_M`, `EBENE_M` und die 4-m-Mindesthoehe sind die belegten Werte aus
- * `shared/src/dungeonRaster.ts` (Figurenmasse BODY_RADIUS 0.4 / BODY_HEIGHT 1.8,
- * Z-Fighting-Rechnung fuer die Stockwerkshoehe). Die Herleitung ueberlebt den
- * Neubau, das Modul nicht.
+ * `shared/src/dungeonRaster.ts` (Figurenmasse aus `bewegung/masse.ts`:
+ * KOERPER_RADIUS 0.4 / KOERPER_HOEHE 2.0, Z-Fighting-Rechnung fuer die
+ * Stockwerkshoehe). Die Herleitung ueberlebt den Neubau, das Modul nicht.
  * `ZELLE_M`, `EBENE_M` and the 4 m headroom are the values already justified in
- * `shared/src/dungeonRaster.ts` (body radius 0.4 / body height 1.8, the
+ * `shared/src/dungeonRaster.ts` (capsule radius 0.4 / capsule height 2.0, the
  * z-fighting calculation behind the storey height). The reasoning survives the
  * rebuild, the module does not.
  */

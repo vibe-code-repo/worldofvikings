@@ -39,6 +39,7 @@ import {
   type RoomDef,
   type Vector3,
 } from '../src/index.js';
+import { STEIGUNGS_GRENZE_GRAD } from '../src/bewegung/masse.js';
 
 let fehler = 0;
 const pruefe = (bedingung: boolean, text: string): void => {
@@ -301,12 +302,16 @@ console.log('Rasterprüfung für Dungeon-Bauteile');
 // 4 m Lauf = 41,2°, und damit über der Grenze. Seither steigt sie über
 // drei Zellen (6 m Lauf, 30,3°).
 //
-// GRENZE: `STEIGUNGS_GRENZE_GRAD` aus `client/src/player/PlayerController.ts`
-// (dort `maxSlopeCosine` des `PhysicsCharacterController`). Der Wert wird
-// hier ABGESCHRIEBEN statt importiert — `shared` darf nicht auf `client`
-// zugreifen, sonst zöge die Datenschicht die Engine mit sich. Wer ihn dort
-// ändert, muss ihn hier nachziehen; der Verweis steht an beiden Stellen.
-const STEIGUNGS_GRENZE_GRAD = 40;
+// GRENZE: `STEIGUNGS_GRENZE_GRAD` — seit dem 11.09.2026 IMPORTIERT statt
+// abgeschrieben. Die Zahl wohnt jetzt in `shared/src/bewegung/masse.ts`,
+// von wo sie Server UND Client beziehen (der Controller setzt daraus sein
+// `maxSlopeCosine`). Vorher stand sie im Client, also ausserhalb dessen,
+// was `shared` importieren darf, und musste hier als Kopie leben — mit
+// dem üblichen Ergebnis, dass eine Kopie beim Ändern zurückbleibt.
+//
+// Der Wert ist seit dem 11.09.2026 der Originalwert 60° (vorher 40°). Für
+// diesen Wächter heißt das: Er wird LOCKERER, nie strenger — kein Bauteil,
+// das gestern durchkam, fällt heute durch.
 {
   const eigene = DUNGEONS.flatMap((d) => d.rooms).filter((r) => istEigenesModell(r.name));
   let geprueft = 0;

@@ -2157,13 +2157,19 @@ const HANDGESCHRIEBENE_KITS: readonly EigenesKitJson[] = [
 
           Bis zum 3.9.2026 war der Lauf 4 m (0,286 m Auftritt, 41,2°),
           und genau daran ist die Treppe im Spiel gescheitert: Der
-          Charaktercontroller der Figur lässt höchstens
-          `STEIGUNGS_GRENZE_GRAD` = 40° zu
-          (`client/src/player/PlayerController.ts`, dort `maxSlopeCosine`);
+          Charaktercontroller der Figur ließ damals höchstens
+          `STEIGUNGS_GRENZE_GRAD` = 40° zu (dort `maxSlopeCosine`);
           darüber trägt ihn die Fläche nicht mehr, die Figur rutscht ab.
           41,2° liegt einen Grad daneben — die Treppe sah in jedem
           Rendering richtig aus und war trotzdem unbegehbar.
           Zum Vergleich: `SteingrabTreppe` hat 33,7° und funktioniert.
+
+          NACHTRAG 11.09.2026: Die Grenze steht jetzt auf dem Originalwert
+          60° (`shared/src/bewegung/masse.ts`, Entscheidung Mike). Die alten
+          41,2° wären damit begehbar — die Treppe bleibt trotzdem auf 6 m
+          Lauf. Der Grund ist nicht mehr die Grenze, sondern das Gefühl:
+          30,3° laufen sich wie eine Treppe, 41,2° wie eine Rampe, und der
+          Platzbedarf ist längst eingerechnet.
 
           Der Lauf ist deshalb auf drei Zellen gestreckt. Weiter zu
           strecken hat einen Preis: Je länger die Hülle, desto seltener

@@ -480,6 +480,16 @@ const UNITY_JE_MATERIAL = {
   // Die `1A1`-Familie teilt sich EINE Geometrie und unterscheidet sich
   // nur in diesen Farben; der Store hat für drei der vier gar keinen
   // Faktor mitgebracht (`grasBunt`, `grasSchnee` standen auf „ohne").
+  //
+  // ⚠ FÜR DAS GRAS IST DAS MITTEL SEIT DEM 12.09.2026 NUR NOCH DIE HÄLFTE
+  // DER GESCHICHTE. Der Verlauf, den glTF nicht abbilden kann, entsteht
+  // jetzt im Shader: `GRAS_SPITZEN` in `client/src/engine/GrassClutter.ts`
+  // führt Spitzen- und Fussfarbe derselben vier Materialien und legt
+  // daraus einen Höhenverlauf auf den Halm — mittelwerttreu, der Faktor
+  // hier bleibt also die Farbe bei halber Halmhöhe und damit richtig.
+  // Wer eine dieser vier Zeilen ändert, muss die dortige Tabelle
+  // mitziehen; `client/test/gras-spitzen.ts` vergleicht beide Seiten an
+  // der fertigen GLB und wird sonst rot.
   'Grass_Short_Plant_Leaves_1A1 2': [0.8175, 0.804, 0.5405, 1],
   Grass_Short_Plant_Leaves_1A1_Yellow: [0.925, 0.6945, 0.5375, 1],
   Grass_Short_Plant_Leaves_1A1_Snow: [0.8315, 0.849, 0.884, 1],

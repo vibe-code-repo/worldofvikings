@@ -764,6 +764,19 @@ const KERN = [
   */
   ['client', 'test/instanz-toenung.ts'],
   /*
+    Runde 2, Hebel 3: der Spitzen-Verlauf des Grases (`GRAS_SPITZEN`).
+    Geprueft wird, dass der Faktor bei halber Halmhoehe auf 1,0 steht
+    (der Verlauf verteilt Farbe, er hellt nicht auf — sonst waere jede
+    Look-Messung danach verschoben), dass Mittel mal Faktor wieder die
+    gemessenen Farben des Vorbilds ergibt (ein Tippfehler in einer der
+    acht Farben faellt hier auf statt im Bild) und dass die aufbereitete
+    GLB dasselbe Mittel traegt wie die Tabelle im Client. Der letzte
+    Punkt braucht den Speicher und wird ohne ihn uebersprungen; der Rest
+    ist reine Arithmetik, <1 s.
+    Grass tip gradient: mean-preserving, endpoints, GLB factor in sync.
+  */
+  ['client', 'test/gras-spitzen.ts'],
+  /*
     Stufe 2 (Integration): das zweite Netz gegen die verschachtelten
     Fernstufen des Speichers (`AssetManager.fernSchalen`). Abgetragen
     werden sie offline im Aufbereitungswerkzeug; die Regel im Client

@@ -65,6 +65,24 @@ export interface ClutterWindOptions {
    * `snapToWater` — Seerosen und Schilf. Siehe WELLE_GLSL-Block unten.
    */
   aufWasser: boolean;
+  /**
+   * Spitzenkontrast des Halms — hell und gelbgrün oben, warm dunkel unten.
+   *
+   * Dimensionslos, je Kanal: `d = (oben − unten) / (oben + unten)`. Der
+   * Shader multipliziert daraus `1 + d · (2h − 1)` auf die Grundfarbe,
+   * h ist die auf [0,1] normierte Höhe im Halm. Bei h = 0,5 steht der
+   * Faktor auf 1 — der Verlauf verteilt die Farbe über die Höhe, ohne
+   * die mittlere Helligkeit zu verschieben.
+   *
+   * `null` heisst: kein Verlauf, das Material tönt wie bisher mit einer
+   * Farbe. Herkunft und Herleitung der Zahlen stehen bei `GRAS_SPITZEN`
+   * in GrassClutter.ts.
+   */
+  spitzen?: readonly [number, number, number] | null;
+  /** Lokale y-Koordinate des Halmfusses (Nulllinie des Verlaufs). */
+  halmMinY?: number;
+  /** Lokale Höhe des Halms, Fuss bis Spitze (> 0). */
+  halmSpanY?: number;
 }
 
 /**
@@ -138,7 +156,11 @@ export class ClutterWindPlugin extends MaterialPluginBase {
       material,
       'ClutterWind',
       210,
-      { CLUTTERWIND: true, CLUTTER_AUF_WASSER: opts.aufWasser },
+      // CLUTTER_SPITZEN aus demselben Grund wie CLUTTER_AUF_WASSER aus
+      // `opts` und nicht aus `this.opts`: getCustomCode() läuft schon
+      // während super(). Über das Define steht der Code immer im Shader
+      // und der Präprozessor entscheidet, ob er übrig bleibt.
+      { CLUTTERWIND: true, CLUTTER_AUF_WASSER: opts.aufWasser, CLUTTER_SPITZEN: opts.spitzen != null },
       true,
       true
     );
@@ -216,6 +238,11 @@ export class ClutterWindPlugin extends MaterialPluginBase {
         { name: 'clutterFadeMax', size: 1, type: 'float' },
         { name: 'clutterDistanceScale', size: 1, type: 'float' },
         { name: 'clutterTopY', size: 1, type: 'float' },
+        // Spitzen-Verlauf: Kontrast je Kanal, dazu Fuss und 1/Halmhöhe.
+        // Immer angemeldet, nicht an `opts` gehängt — die Methode läuft
+        // wie getCustomCode() schon während super() (s. getSamplers()).
+        { name: 'clutterSpitze', size: 3, type: 'vec3' },
+        { name: 'clutterHalm', size: 2, type: 'vec2' },
       ],
     };
   }
@@ -246,6 +273,18 @@ export class ClutterWindPlugin extends MaterialPluginBase {
     uniformBuffer.updateFloat('clutterFadeMax', this.opts.fadeMax);
     uniformBuffer.updateFloat('clutterDistanceScale', ClutterWindPlugin.distanceScale);
     uniformBuffer.updateFloat('clutterTopY', this.opts.topY);
+    // Ohne Verlauf ein Kontrast von null: Der Faktor im Shader wird damit
+    // 1,0, das Bild bleibt Bit für Bit das alte. Das Uniform trotzdem zu
+    // schreiben ist billiger als eine Fallunterscheidung je Frame — und
+    // sicherer: Ein NICHT beschriebenes Uniform behielte den Wert des
+    // zuletzt gebundenen Materials.
+    const sp = this.opts.spitzen;
+    uniformBuffer.updateFloat3('clutterSpitze', sp?.[0] ?? 0, sp?.[1] ?? 0, sp?.[2] ?? 0);
+    uniformBuffer.updateFloat2(
+      'clutterHalm',
+      this.opts.halmMinY ?? 0,
+      1 / Math.max(this.opts.halmSpanY ?? 1, 1e-4)
+    );
 
     if (!this.opts.aufWasser) return;
 
@@ -327,6 +366,20 @@ export class ClutterWindPlugin extends MaterialPluginBase {
           float ditherStart = mix(fMinS, fMaxJ, 0.6);
           vClutterFade = 1.0 - smoothstep(ditherStart, fMaxJ, camDist);
           float hFactor = clamp(positionUpdated.y / clutterTopY, 0.0, 1.0);
+        #ifdef CLUTTER_SPITZEN
+          {
+            // ── Spitzen hell, Fuss warm dunkel ─────────────────────────
+            // Der Farbverlauf über die Halmhöhe, wie ihn das Vorbild im
+            // MATERIAL führt (Herleitung: GRAS_SPITZEN in
+            // GrassClutter.ts). Bewusst HIER, vor dem Schrumpfen ein paar
+            // Zeilen weiter: Danach ist positionUpdated.y mit dem
+            // Abstand skaliert, und ein ferner Halm wäre auf ganzer Länge
+            // olivbraun statt kleiner.
+            float hGrad = clamp((positionUpdated.y - clutterHalm.x) * clutterHalm.y, 0.0, 1.0);
+            // 1 + d·(2h−1): bei halber Höhe genau 1, also mittelwerttreu.
+            vClutterSpitze = vec3(1.0) + clutterSpitze * (2.0 * hGrad - 1.0);
+          }
+        #endif
           // distance shrink (InstanceRenderer LOD) — blades sink into the ground
           positionUpdated *= mix(0.05, 1.0, shrinkFade);
           // wind sway: phase from instance position, amplitude by vertex height
@@ -466,6 +519,9 @@ export class ClutterWindPlugin extends MaterialPluginBase {
         // `out` on a local variable is a GLSL compile error.
         CUSTOM_VERTEX_DEFINITIONS: /* glsl */ `
           varying float vClutterFade;
+          #ifdef CLUTTER_SPITZEN
+            varying vec3 vClutterSpitze;
+          #endif
           #ifdef CLUTTER_AUF_WASSER
             uniform sampler2D clutterGroundTex;
             const float CLUTTER_WATER_LEVEL = ${WATER_LEVEL.toFixed(1)};
@@ -554,7 +610,20 @@ export class ClutterWindPlugin extends MaterialPluginBase {
       // main() (see the CUSTOM_VERTEX_DEFINITIONS note above).
       CUSTOM_FRAGMENT_DEFINITIONS: /* glsl */ `
         varying float vClutterFade;
+        #ifdef CLUTTER_SPITZEN
+          varying vec3 vClutterSpitze;
+        #endif
         float clutterHash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+      `,
+      // Der Verlauf gehört auf die ALBEDO, nicht auf das fertige Bild:
+      // Dieser Punkt liegt nach Textur und Instanzfarbe und noch vor dem
+      // Licht (default.fragment: CUSTOM_FRAGMENT_UPDATE_DIFFUSE). Weiter
+      // hinten multipliziert, färbte er auch Schatten, Nebel und
+      // Eigenleuchtung mit — der Halm leuchtete dann nachts gelbgrün.
+      CUSTOM_FRAGMENT_UPDATE_DIFFUSE: /* glsl */ `
+        #ifdef CLUTTER_SPITZEN
+          baseColor.rgb *= vClutterSpitze;
+        #endif
       `,
       CUSTOM_FRAGMENT_BEFORE_LIGHTS: opts.pinUpNormals ? 'normalW = vec3(0.0, 1.0, 0.0);' : '',
       CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR: /* glsl */ `

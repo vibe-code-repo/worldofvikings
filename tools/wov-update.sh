@@ -150,6 +150,12 @@ DIENSTE_LAUFEN=0
 # auch kein stillschweigend weggeräumter Rest eines früheren Laufs, den sie
 # gerade noch als Grund für den Abbruch genannt hat.
 BAU_BEGONNEN=0
+# Wird kurz vor "node scripts/run-tests.mjs" auf den Pfad eines Protokolls
+# gesetzt (per tee mitgeschrieben, an der Ausgabe selbst ändert das nichts).
+# Bricht der Lauf ab, nennt die Aufräumfunktion daraus die roten Tests
+# NAMENTLICH statt nur "Tests nicht bestanden" zu sagen — bisher stand die
+# einzige Fundstelle mitten im (oft langen) Protokoll weiter oben.
+TEST_PROTOKOLL=""
 
 aufraeumen() {
   local code=$?
@@ -181,6 +187,11 @@ aufraeumen() {
     else
       echo "Die Dienste sind GESTOPPT und bleiben es. Das ist Absicht: Was" >&2
       echo "Typecheck, Tests oder Build nicht besteht, geht nicht in Betrieb." >&2
+      if [ -n "$TEST_PROTOKOLL" ] && [ -f "$TEST_PROTOKOLL" ] \
+        && grep -q '^▶ .* … FEHLGESCHLAGEN' "$TEST_PROTOKOLL"; then
+        echo "  Roter Test (siehe Protokoll oben):" >&2
+        grep '^▶ .* … FEHLGESCHLAGEN' "$TEST_PROTOKOLL" | sed 's/^/    /' >&2
+      fi
       echo "  Ursache beheben, dann erneut: sudo tools/wov-update.sh" >&2
       echo "  Notfalls den vorhandenen Stand starten: systemctl start wov.target" >&2
     fi
@@ -739,7 +750,13 @@ echo "▶ Typecheck"
 npm run typecheck
 echo
 echo "▶ Tests"
-node scripts/run-tests.mjs
+# Mitschnitt nach TEST_PROTOKOLL (mktemp) — NUR damit die Aufräumfunktion im
+# Fehlerfall die roten Testnamen zitieren kann. Die Ausgabe selbst bleibt
+# unverändert (tee schreibt und leitet gleichzeitig durch); set -o pipefail
+# (s. oben) sorgt dafür, dass der Exit-Code weiterhin der von run-tests.mjs
+# ist, nicht der von tee.
+TEST_PROTOKOLL="$(mktemp)"
+node scripts/run-tests.mjs 2>&1 | tee "$TEST_PROTOKOLL"
 
 # ── 7. Client bauen — nur auf live ───────────────────────────────────
 # Auf dev liefert der Vite-Dev-Server aus den Quellen aus, ein Build wäre

@@ -615,6 +615,10 @@ const KERN = [
   // WovServer). Sekunden.
   ['server', 'test/g12-metriken.ts'],
   ['server', 'test/k1-konten.ts'],
+  // Anmeldung ohne Ticket-Sprung: der eingebaute Anmeldedialog fuer einen
+  // lokalen Klon (client/src/ui/Anmeldung.ts) haengt vollstaendig an
+  // dieser HTTP-API. Echter node:http-Server, Sekunden.
+  ['server', 'test/konto-lokal.ts'],
   // F14 (Roadmap): Reichweiten-Auswahl der Chat-Empfänger (Whisper/
   // Normal/Shout, Herleitung s. Kopfkommentar von ChatReichweite.ts),
   // Grenzwert exakt auf der Reichweite, Absender immer dabei, sowie die

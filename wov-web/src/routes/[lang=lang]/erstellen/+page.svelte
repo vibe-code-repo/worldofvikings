@@ -14,11 +14,11 @@
     type ShoreId,
     clearToken,
     createCharacter,
+    enterGame,
     errorMessageKey,
     isLoggedOut,
     isShore,
     play,
-    playUrl,
     readShore,
     readToken,
     signedInShore,
@@ -427,7 +427,9 @@
         legs: beine,
       });
       const ticket = await play(gestade, token, neu.character.id);
-      location.href = playUrl(gestade, ticket.sessionToken, lang, zeit);
+      // `weiter` came from `/anmelden`, forwarded here through the
+      // address, and is only honoured same-origin — see `enterGame`.
+      enterGame(gestade, ticket.sessionToken, lang, zeit, page.url.searchParams.get('weiter'));
     } catch (err) {
       sendet = false;
       if (isLoggedOut(err)) return zurAnmeldung();

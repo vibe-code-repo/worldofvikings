@@ -41,8 +41,13 @@ assert.deepEqual({
   ready: 'Ready',
 });
 assert.match(account, /searchParams\.set\('lang', language\)/);
-assert.match(createPage, /playUrl\(gestade, ticket\.sessionToken, lang, zeit\)/);
-assert.match(accountPage, /playUrl\(shore, ticket\.sessionToken, lang\)/);
+// Beide Wege reichen die Sprache seit `enterGame()` (Anmeldung ohne
+// Ticket-Sprung) weiter — gleichursprung schreibt sie relativ ins Ziel,
+// fremdursprung faellt intern auf `playUrl()` zurueck; beides steckt in
+// `enterGame` selbst, s. `assert.match(account, ...)` unten.
+assert.match(createPage, /enterGame\(gestade, ticket\.sessionToken, lang, zeit/);
+assert.match(accountPage, /enterGame\(shore, ticket\.sessionToken, lang/);
+assert.match(account, /spiel\.searchParams\.set\('lang', language\)/);
 assert.match(main, /new GameI18n\(ausAdresse\.get\('lang'\)\)/);
 assert.match(main, /new LoadingScreen\(i18n\)/);
 

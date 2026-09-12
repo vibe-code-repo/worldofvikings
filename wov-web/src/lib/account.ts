@@ -659,3 +659,70 @@ export function playUrl(
   url.hash = `ticket=${encodeURIComponent(sessionToken)}`;
   return url.toString();
 }
+
+/**
+ * The client's own localStorage key for a session ticket.
+ *
+ * MUST match `SESSION_TOKEN_KEY` in `client/src/net/GameSocket.ts` and
+ * `client/src/ui/Anmeldung.ts`. Duplicated rather than shared: the website
+ * and the game are separate npm packages with separate bundlers, and this
+ * one string is the entire contract between them.
+ */
+const GAME_SESSION_TOKEN_KEY = 'wov-session-token';
+
+/**
+ * Hands a session ticket to the game and navigates there — the one place
+ * that decides HOW the handoff happens, so `konto` and `erstellen` do not
+ * each reinvent it.
+ *
+ * ── Same origin: no more fragment jump ─────────────────────────────────
+ * Once the website and a shore's game host are literally the SAME origin
+ * (one container behind one nginx — routes `/` website, `/play` game, see
+ * the "Ursprung" work), a `#ticket=` round trip through the address bar is
+ * unnecessary and worse: it is a second mechanism for something a single
+ * `localStorage.setItem` already does when both apps share a storage area.
+ * This writes the ticket straight into the key the game already reads on
+ * startup (`client/src/main.ts`, `tokenLiegtVor`) and navigates relatively
+ * to `/play/` — no other origin ever appears in the address bar.
+ *
+ * ── Different origins: unchanged ───────────────────────────────────────
+ * Today's dev/live split (and any shore that genuinely lives elsewhere)
+ * keeps working exactly as before: `playUrl()`'s fragment handoff, because
+ * a cross-origin write into someone else's localStorage is not possible —
+ * only the target page itself can store it, which is what the fragment is
+ * for.
+ *
+ * ── `weiter` ────────────────────────────────────────────────────────────
+ * `client/src/main.ts` sends a visitor with no session here as
+ * `/anmelden?weiter=/play/…` (see its "Ein Ursprung" comment) so that
+ * `/anmelden` → `/konto` or `/erstellen` → here can send them back to
+ * where they actually wanted to go instead of the bare game root. Only
+ * honoured on the SAME-origin path: it names a path on the game host, and
+ * a path meant for one origin is not meaningful pasted onto another one's
+ * fragment handoff. Must start with exactly one `/` — `//host/evil` is an
+ * open redirect (a scheme-relative URL), not a path, and is rejected.
+ */
+export function enterGame(
+  shore: ShoreId,
+  sessionToken: string,
+  language: Locale,
+  time?: string,
+  weiter?: string | null,
+): void {
+  const ziel = new URL(SHORES[shore].url);
+  if (typeof window !== 'undefined' && window.location.origin === ziel.origin) {
+    try {
+      window.localStorage.setItem(GAME_SESSION_TOKEN_KEY, sessionToken);
+      const zielPfad = weiter && weiter.startsWith('/') && !weiter.startsWith('//') ? weiter : '/play/';
+      const spiel = new URL(zielPfad, ziel.origin);
+      spiel.searchParams.set('lang', language);
+      if (time) spiel.searchParams.set('time', time);
+      location.href = spiel.pathname + spiel.search;
+      return;
+    } catch {
+      // Privater Modus: kein Speicher fuer die Uebergabe -- dann bleibt
+      // nur der Fragment-Weg, der das Ticket in der Adresse selbst traegt.
+    }
+  }
+  location.href = playUrl(shore, sessionToken, language, time);
+}

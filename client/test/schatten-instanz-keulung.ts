@@ -14,6 +14,11 @@
  *  3. Entartete Eingaben liefern 0 statt Müll.
  *  4. Die Neupack-Schwelle feuert beim ersten Mal und ab der Schwelle.
  *  5. Der Auswahlradius deckt Frustumecken und flachen Schattenwurf ab.
+ *  6. Der Kameraversatz geht in den Radius ein — ohne ihn verliert jeder
+ *     Kameraschwenk am fernen Rand Werfer (G6).
+ *  7. Die Hysterese haelt den Radius stehen. Das ist die eigentliche
+ *     Zusage von G6: Ein wandernder Radius schaltet ganze Schattenfelder
+ *     an und aus, und daran ist die Keulung in E27 gescheitert.
  */
 import {
   NEUPACK_ABSTAND,
@@ -21,6 +26,7 @@ import {
   konservativerAuswahlRadius,
   packeInstanzenRadial,
   quantisiereRadius,
+  radiusMitHysterese,
 } from '../src/engine/SchattenInstanzKeulung.js';
 
 let fehler = 0;
@@ -108,6 +114,61 @@ console.log('Schattenkeulung pro Instanz (radial)');
 
   pruefe(quantisiereRadius(201, 16) === 208, 'Radius wird nicht konservativ aufgerundet');
   pruefe(quantisiereRadius(Number.POSITIVE_INFINITY) === Number.POSITIVE_INFINITY, 'unendlicher Radius ging verloren');
+
+  // Kameraversatz: Gepackt wird um den SPIELER, gerechnet aus dem Frustum
+  // der KAMERA. Ohne diesen Summanden verliert jeder Kameraschwenk am
+  // fernen Rand Werfer (G6).
+  const mitArm = konservativerAuswahlRadius(distanz, fov, aspect, 0, -1, 0, 20, 8, NEUPACK_ABSTAND, 8);
+  pruefe(mitArm === hoch + 8, 'Kameraversatz geht nicht in den Auswahlradius ein');
+  pruefe(
+    konservativerAuswahlRadius(distanz, fov, aspect, 0, -1, 0, 20, 8, NEUPACK_ABSTAND, -5) === hoch,
+    'negativer Kameraversatz darf den Radius nicht verkleinern'
+  );
+}
+
+// ── 7. Hysterese auf dem Radius (G6) ────────────────────────────────
+//
+// Die Zusage, die hier festgehalten wird, ist nicht „der Radius ist
+// richtig", sondern „der Radius BLEIBT STEHEN". Ein wandernder Radius
+// schaltet ganze Schattenfelder an und aus, und genau daran ist die
+// Keulung in E27 gescheitert.
+{
+  const band = NEUPACK_ABSTAND;
+  // Noch nie gepackt: der Aufnahmeradius, eine Bandbreite über dem Bedarf.
+  pruefe(radiusMitHysterese(100, Number.NaN, band) === 100 + band, 'erstes Packen ohne Zuschlag');
+
+  // Der gepackte Ring deckt den Bedarf: halten, egal wie die Sonne driftet.
+  const gepackt = radiusMitHysterese(100, Number.NaN, band);
+  for (const bedarf of [100, 100 - band, 100 + band]) {
+    pruefe(
+      radiusMitHysterese(bedarf, gepackt, band) === gepackt,
+      `Radius wandert bei Bedarf ${bedarf}, statt stehenzubleiben`
+    );
+  }
+
+  // Wächst der Bedarf über den gepackten Ring hinaus, MUSS sofort
+  // nachgezogen werden — sonst fehlen Schatten, und das ist der teurere
+  // Fehler.
+  pruefe(
+    radiusMitHysterese(gepackt + 1, gepackt, band) === gepackt + 1 + band,
+    'wachsender Bedarf wird nicht sofort aufgenommen'
+  );
+
+  // Fallengelassen wird erst deutlich später (mehr als zwei Bandbreiten).
+  pruefe(
+    radiusMitHysterese(gepackt - 2 * band - 1, gepackt, band) < gepackt,
+    'ein weit geschrumpfter Bedarf verkleinert den Ring nicht'
+  );
+
+  // Unendlich trägt sich in beide Richtungen korrekt durch.
+  pruefe(
+    radiusMitHysterese(Number.POSITIVE_INFINITY, 200, band) === Number.POSITIVE_INFINITY,
+    'waagerechte Sonne muss die Keulung auch mit Hysterese abschalten'
+  );
+  pruefe(
+    Number.isFinite(radiusMitHysterese(100, Number.POSITIVE_INFINITY, band)),
+    'aus dem unendlichen Ring kommt man nicht zurück'
+  );
 }
 
 console.log(

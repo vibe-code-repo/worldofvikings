@@ -112,7 +112,8 @@ export function konservativerAuswahlRadius(
   sonneZ: number,
   objektHoehe: number,
   objektRadius: number,
-  nachlauf = NEUPACK_ABSTAND
+  nachlauf = NEUPACK_ABSTAND,
+  kameraVersatz = 0
 ): number {
   if (!(shadowMaxZ > 0)) return 0;
   const halbHoch = shadowMaxZ * Math.tan(Math.max(0, vertikalesFov) * 0.5);
@@ -122,7 +123,59 @@ export function konservativerAuswahlRadius(
   const senkrecht = Math.abs(sonneY);
   if (senkrecht < 1e-3 && horizontal > 0) return Number.POSITIVE_INFINITY;
   const wurf = senkrecht > 0 ? Math.max(0, objektHoehe) * horizontal / senkrecht : 0;
-  return frustumRadius + wurf + Math.max(0, objektRadius) + Math.max(0, nachlauf);
+  return (
+    frustumRadius +
+    wurf +
+    Math.max(0, objektRadius) +
+    Math.max(0, nachlauf) +
+    Math.max(0, kameraVersatz)
+  );
+}
+
+/**
+ * Der Radius, mit dem tatsächlich gepackt wird — mit Hysterese (G6).
+ *
+ * ── Warum es ohne Hysterese im Bild ploppt ───────────────────────────
+ * `konservativerAuswahlRadius` hängt an der SONNENRICHTUNG, und die
+ * wandert dauernd. `quantisiereRadius` rastet sie auf 16-m-Stufen, aber
+ * eine Rasterung allein hat eine Kante: Direkt an einer Stufengrenze
+ * genügt der kleinste Sonnenschritt, und der geforderte Radius springt
+ * hin und her. Jeder Sprung nach unten wirft alle Instanzen im
+ * abgeschnittenen Ring aus dem Wurf, jeder nach oben holt sie zurück —
+ * ein sichtbares Ein- und Ausblenden ganzer Schattenfelder, das genau
+ * dann auffällt, wenn der Spieler die Kamera schwenkt und den Ring ins
+ * Bild dreht. Das ist der Befund, an dem E27 die Keulung abgeschaltet
+ * hat.
+ *
+ * ── Die Regel: aufnehmen früher als fallenlassen ─────────────────────
+ * Aufgenommen wird eine Bandbreite ÜBER dem Bedarf, damit der nächste
+ * Sonnenschritt nicht sofort wieder ein Packen auslöst. Fallengelassen
+ * wird erst, wenn der Bedarf zwei Bandbreiten unter dem gepackten Radius
+ * liegt. Dazwischen bleibt der gepackte Radius stehen — und ein Radius,
+ * der stehenbleibt, kann nicht ploppen. Der Preis ist ein etwas zu
+ * grosser Ring, also ein paar Werfer zu viel; das ist die richtige
+ * Richtung für einen Fehler, der sonst Schatten löscht.
+ *
+ * `gepackt` darf NaN sein (noch nie gepackt) — dann gilt der
+ * Aufnahmeradius. `Infinity` auf beiden Seiten bedeutet weiterhin
+ * „nichts keulen" und trägt sich korrekt durch: Ein unendlicher Bedarf
+ * schlägt jeden endlichen gepackten Radius, ein unendlicher gepackter
+ * Radius fällt auf einen endlichen Bedarf zurück.
+ *
+ * Pick up a band early, drop only two bands late: a radius that holds
+ * still cannot pop.
+ */
+export function radiusMitHysterese(
+  gefordert: number,
+  gepackt: number,
+  band: number = NEUPACK_ABSTAND
+): number {
+  const b = Math.max(0, band);
+  const aufnahme = Number.isFinite(gefordert) ? gefordert + b : gefordert;
+  if (Number.isNaN(gepackt)) return aufnahme;
+  // Der gepackte Ring deckt den Bedarf noch UND ist nicht unnötig weit.
+  if (gepackt >= gefordert && gepackt <= aufnahme + b) return gepackt;
+  return aufnahme;
 }
 
 /** Radius nur in groben Stufen ändern, damit die wandernde Sonne nicht

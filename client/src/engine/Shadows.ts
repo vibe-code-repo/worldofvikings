@@ -78,6 +78,7 @@ import {
   konservativerAuswahlRadius,
   packeInstanzenRadial,
   quantisiereRadius,
+  radiusMitHysterese,
 } from './SchattenInstanzKeulung';
 
 /**
@@ -271,8 +272,12 @@ export function schattenLambda(stufe: number, hundertFpsProfil: boolean): number
  *
  * Measured height replaces the name list for the size question; an
  * unmeasured mesh always keeps its shadow.
+ *
+ * Exportiert, damit die Zahl als ZAHL geprueft werden kann — dieselbe
+ * Begruendung wie bei MIN_KASKADEN oben: `darfWerfen()` braucht eine
+ * Szene mit GPU, die Schwelle nicht.
  */
-const MIN_WURF_HOEHE_M = 0.5;
+export const MIN_WURF_HOEHE_M = 0.5;
 
 /**
  * Meshes, die keinen Schatten WERFEN.
@@ -439,11 +444,34 @@ export class Shadows {
   private readonly vegetationsQuellen = new Set<AbstractMesh>();
   private readonly vegetationsKlone = new Set<AbstractMesh>();
   private readonly vegetationsPackPending = new Set<VegetationsSchattenMaster>();
-  // E27: Der E26-Weg ist vorerst deaktiviert. Im Live-Test blendeten seine
-  // separaten Schatten-Meshes beim Kameraschwenk sichtbar ein und aus.
-  // Bis der Klonpfad die Blickwinkel-Parität nachweislich hält, bleibt der
-  // vollständige, vor E26 verwendete Vegetationsmaster der Werfer.
-  private vegetationsInstanzKeulung = false;
+  /*
+    ── E27 (aus) → G6 (an) ────────────────────────────────────────────
+    Hier stand: „Der E26-Weg ist vorerst deaktiviert. Im Live-Test
+    blendeten seine separaten Schatten-Meshes beim Kameraschwenk sichtbar
+    ein und aus."
+
+    Der Befund war richtig, die Ursache lag aber nicht im Klonpfad,
+    sondern im AUSWAHLRADIUS, und zwar an zwei Stellen:
+
+     1. Er wurde um den SPIELER gelegt, aus einem Frustum gerechnet, das
+        von der KAMERA ausgeht. Zwischen beiden liegt die Auslegerlänge
+        des Kameraarms. Schwenkt der Spieler, wandert das Frustum um ihn
+        herum, und am fernen Rand fielen Werfer heraus, die es hätte
+        halten müssen. Behoben, indem der Kameraversatz in den Radius
+        eingeht (konservativerAuswahlRadius, Parameter `kameraVersatz`).
+     2. Er hing ohne Hysterese an der wandernden Sonne. Die 16-m-Rasterung
+        von `quantisiereRadius` hat eine Kante: Direkt an einer Stufe
+        genügt der kleinste Sonnenschritt, und der Ring sprang auf und ab
+        — ganze Schattenfelder gingen an und aus. Behoben durch
+        `radiusMitHysterese` (aufnehmen eine Bandbreite früher,
+        fallenlassen zwei Bandbreiten später).
+
+    Beides zusammen macht den Radius bei reinem Kameraschwenk KONSTANT,
+    und ein Radius, der stehenbleibt, kann nichts ploppen lassen. Zeuge
+    ist `vegetationsSchattenStats().aktiv` über einen vollen 360-Grad-
+    Schwenk: bleibt die Zahl stehen, wird auch nichts umgeschaltet.
+  */
+  private vegetationsInstanzKeulung = true;
   /**
    * Merker für `freezeShadowCastersBoundingInfo` (G5).
    *
@@ -639,6 +667,18 @@ export class Shadows {
     return max;
   }
 
+  /**
+   * Der GEFORDERTE Radius — ohne Hysterese, s. geltenderRadius().
+   *
+   * `kameraVersatz`: Das Frustum, aus dem der Radius gerechnet wird, geht
+   * von der KAMERA aus; gepackt wird aber um den SPIELER. Zwischen beiden
+   * liegt der Kameraarm. Ohne diesen Summanden verschiebt jeder
+   * Kameraschwenk das Frustum um bis zu einer Auslegerlänge aus dem Ring
+   * heraus, und am fernen Rand verschwinden Schatten — genau das Symptom,
+   * an dem E27 den ganzen Weg abgeschaltet hat. Mit ihm ist der Radius
+   * vom Blickwinkel UNABHÄNGIG: Er hängt nur noch am Betrag des Abstands,
+   * und der ändert sich beim Drehen nicht.
+   */
   private auswahlRadius(stand: VegetationsSchattenMaster): number {
     const cfg = this.konfiguration();
     if (!cfg) return 0;
@@ -646,6 +686,11 @@ export class Shadows {
     const fov = kamera?.fov ?? Math.PI / 3;
     const aspect = kamera ? this.scene.getEngine().getAspectRatio(kamera) : 16 / 9;
     const d = this.sonne.direction;
+    let versatz = 0;
+    if (kamera && !Number.isNaN(this.letzteX)) {
+      const p = kamera.globalPosition;
+      versatz = Math.hypot(p.x - this.letzteX, p.z - this.letzteZ);
+    }
     return quantisiereRadius(konservativerAuswahlRadius(
       cfg.distanz,
       fov,
@@ -654,8 +699,23 @@ export class Shadows {
       d.y,
       d.z,
       stand.modellHoehe * stand.maxSkala,
-      stand.modellRadius * stand.maxSkala
+      stand.modellRadius * stand.maxSkala,
+      NEUPACK_ABSTAND,
+      versatz
     ));
+  }
+
+  /**
+   * Der Radius, mit dem WIRKLICH gepackt wird: gefordert plus Hysterese
+   * gegen den zuletzt gepackten Ring (G6, Herleitung bei
+   * radiusMitHysterese). Beide Aufrufer — setPlayerPosition() und
+   * packeVegetationsMaster() — müssen dieselbe Zahl sehen, sonst packte
+   * die eine Seite gegen einen Radius, den die andere gar nicht verlangt
+   * hat, und der Vergleich `radius === stand.gepackterRadius` liefe jeden
+   * Frame auf ein Neupacken hinaus.
+   */
+  private geltenderRadius(stand: VegetationsSchattenMaster): number {
+    return radiusMitHysterese(this.auswahlRadius(stand), stand.gepackterRadius);
   }
 
   private packeVegetationsMaster(stand: VegetationsSchattenMaster): void {
@@ -670,7 +730,7 @@ export class Shadows {
     } else {
       if (stand.ziel.length < daten.length) stand.ziel = new Float32Array(daten.length);
       stand.maxSkala = this.maximaleSkala(daten);
-      const radius = this.auswahlRadius(stand);
+      const radius = this.geltenderRadius(stand);
       const x = Number.isNaN(this.letzteX) ? 0 : this.letzteX;
       const z = Number.isNaN(this.letzteZ) ? 0 : this.letzteZ;
       const n = Number.isFinite(radius)
@@ -804,7 +864,7 @@ export class Shadows {
     if (this.vegetationsInstanzKeulung) {
       for (const stand of this.vegetationsSchatten.values()) {
         if (!stand.bereit || stand.matrizen === null) continue;
-        const radius = this.auswahlRadius(stand);
+        const radius = this.geltenderRadius(stand);
         if (radius === stand.gepackterRadius) continue;
         radiusGeaendert = true;
         if (radius > stand.gepackterRadius) {

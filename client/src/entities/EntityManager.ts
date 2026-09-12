@@ -876,7 +876,20 @@ function merkeModellHoehe(mesh: Mesh, daten: Float32Array | null): void {
   // ungeprüft stehen.
   if (daten === null || daten.length < 16) return;
   const roh = mesh.getRawBoundingInfo().boundingBox;
-  const modell = roh.maximum.y - roh.minimum.y;
+  MODELL_HOEHE.set(mesh, (roh.maximum.y - roh.minimum.y) * groessteInstanzSkala(daten));
+}
+
+/**
+ * Die grösste Skalierung in einem Instanzpuffer — reine Rechnung, ohne
+ * Szene testbar (client/test/modell-hoehe.ts).
+ *
+ * Genommen wird je Instanz die GRÖSSTE der drei Spaltennormen und davon
+ * das Maximum über alle Instanzen. Das überschätzt eine ungleichmässig
+ * skalierte oder gekippte Instanz bewusst — und zwar in die richtige
+ * Richtung: Ein zu grosser Wert lässt einen Werfer in der Liste, ein zu
+ * kleiner löscht einen sichtbaren Schatten.
+ */
+export function groessteInstanzSkala(daten: ArrayLike<number>): number {
   let skala = 0;
   for (let o = 0; o + 16 <= daten.length; o += 16) {
     const sx = Math.hypot(daten[o]!, daten[o + 1]!, daten[o + 2]!);
@@ -885,7 +898,7 @@ function merkeModellHoehe(mesh: Mesh, daten: Float32Array | null): void {
     const groesste = sx > sy ? (sx > sz ? sx : sz) : sy > sz ? sy : sz;
     if (groesste > skala) skala = groesste;
   }
-  MODELL_HOEHE.set(mesh, modell * skala);
+  return skala;
 }
 
 /**

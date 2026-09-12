@@ -415,10 +415,12 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     // 30 cm tiefer: die Ruhehaltung fasst ihn 1,08 m ueber dem Ende (Hand
     // 1,059 m, Stab 2 Grad geneigt), damit er aufrecht am Boden aufsteht —
     // im beidhaendigen Hieb liegen die Haende in Brusthoehe, und genau
-    // dieser knappe Meter Schaft faehrt sonst durch Rumpf und Beine. Mit
-    // 0,30 haelt die Faust ihn etwa in der Mitte (0,78 m ueber dem Ende
-    // bei 1,65 m Laenge).
-    holdOffsetStrike: 0.3,
+    // dieser knappe Meter Schaft faehrt sonst durch Rumpf und Beine.
+    // Gemessen (12.09.2026, Stabachse zu Rumpf-/Beinknoten je Hieb): mit
+    // 0,30 noch 1 cm zum Hals, mit 0,70 6 cm, erst mit 0,90 ueberall
+    // ueber 23 cm — die Faust greift dann 18 cm ueber dem Ende, der Stab
+    // wird im Hieb wie eine Klinge gefuehrt.
+    holdOffsetStrike: 0.9,
     animationSet: 'spear',
     maxDurability: 200,
     useDurabilityDrain: 1,
@@ -441,10 +443,10 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     toolTier: 1,
     holdPosition: [0, 0.08, 0.035],
     holdRotation: [0, Math.PI, Math.PI / 2],
-    // Im Hieb rutscht der Speer 15 cm durch die Faust: die Hand greift von
-    // 1,08 m auf etwa 0,93 m ueber dem Ende, damit die Spitze im Hieb nicht
-    // zu weit vorsteht.
-    holdOffsetStrike: 0.15,
+    // Im Hieb rutscht der Speer 90 cm durch die Faust: die Hand greift
+    // 18 cm ueber dem Ende. Gemessen wie beim Stab: mit 0,70 noch 6 cm
+    // zum Hals, mit 0,90 ueberall ueber 23 cm Abstand zu Rumpf und Beinen.
+    holdOffsetStrike: 0.9,
     animationSet: 'spear',
     maxDurability: 200,
     useDurabilityDrain: 1,

@@ -95,7 +95,7 @@
   /** Was vom Vorschau-Bündel benutzt wird — gemessen an `vorschau.js`. */
   interface Vorschau {
     setzeWurzel(url: string): Promise<void>;
-    ladeKoerper(pfad: string): Promise<void>;
+    ladeKoerper(pfad: string): Promise<boolean>;
     setzeWaffe(art: 'schwert' | 'stab' | null): Promise<void>;
     setze(slot: string, datei: string | null): Promise<void>;
     /** sRGB-Hex; leer laesst die Farbe des Modells stehen. */
@@ -145,10 +145,12 @@
   let hinweisText = $state<string | null>(null);
   let fertig = $state(false);
   let fussHinweisAn = $state(false);
+  /** Verhindert, dass ein älterer Komplett-Ladevorgang eine neuere Wahl überschreibt. */
+  let ladeLauf = 0;
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'wikinger-posebereit-20260912';
+  const FIGUREN_STAND = 'wikinger-auswahl-stabil-20260912';
 
   let figur = $state('');
   let frisur = $state('');
@@ -274,12 +276,17 @@
 
   /* -------------------------------------------------------- Die Bühne */
 
-  async function zeigeAussehen() {
-    if (!vorschau || !daten) return;
+  async function zeigeAussehen(lauf?: number): Promise<boolean> {
+    if (!vorschau || !daten) return false;
+    const istAktuell = () => lauf === undefined || lauf === ladeLauf;
+    if (!istAktuell()) return false;
     await vorschau.setze('frisur', datei(daten.hairstyles, frisur) ?? datei(daten.hairstyles, daten.hairstyles[0]?.id ?? ''));
+    if (!istAktuell()) return false;
     // Bärte gibt es im Master nur für den männlichen Grundkörper.
     await vorschau.setze('bart', figur === 'wikinger' ? datei(daten.beards ?? [], bart) : null);
+    if (!istAktuell()) return false;
     await vorschau.setze('augenbraue', datei(daten.eyebrows ?? [], augenbraue));
+    if (!istAktuell()) return false;
     // Die Haarfarbe ist kein Modell, sondern eine Toenung auf dem
     // Frisurmodell -- deshalb NACH der Frisur und ueber einen eigenen Weg.
     // Ohne diesen Aufruf steht die Auswahl da und die Vorschau zeigt sie
@@ -287,7 +294,9 @@
     const ton = (daten.hairColors ?? []).find((h) => h.id === haarfarbe)?.hex ?? '';
     vorschau.setzeHaarfarbe(ton);
     await vorschau.setze('oberkoerper', datei(daten.equipment, ober));
+    if (!istAktuell()) return false;
     await vorschau.setze('beine', datei(daten.equipment, beine));
+    return istAktuell();
   }
 
   /**
@@ -308,13 +317,18 @@
 
   async function ladeAlles() {
     if (!vorschau || !daten) return;
+    const lauf = ++ladeLauf;
+    const istAktuell = () => lauf === ladeLauf;
     fertig = false;
     hinweisText = null;
     try {
       await vorschau.setzeWurzel(modellWurzel);
-      await vorschau.ladeKoerper(koerperDatei());
+      if (!istAktuell()) return;
+      const koerperGeladen = await vorschau.ladeKoerper(koerperDatei());
+      if (!koerperGeladen || !istAktuell()) return;
       await vorschau.setzeWaffe(waffeFuerKlasse(klasseId));
-      await zeigeAussehen();
+      if (!istAktuell()) return;
+      if (!await zeigeAussehen(lauf)) return;
       // Während Frisur und Kleidung nachladen, kann bereits eine andere
       // Klasse gewählt worden sein. Solange abgleichen, bis genau diese
       // Wahl samt Haltung fertig ist; danach drei echte Renderframes warten.
@@ -322,7 +336,9 @@
       while (true) {
         const abgeglicheneKlasse = klasseId;
         await vorschau.setzeWaffe(waffeFuerKlasse(abgeglicheneKlasse));
+        if (!istAktuell()) return;
         await warteBilder();
+        if (!istAktuell()) return;
         if (klasseId === abgeglicheneKlasse) break;
       }
       fertig = true;
@@ -452,6 +468,7 @@
    * weiter und hinge an einer Leinwand, die niemand mehr sieht.
    */
   function raeumeBuehne() {
+    ladeLauf += 1;
     vorschau?.dispose();
     vorschau = null;
     fertig = false;

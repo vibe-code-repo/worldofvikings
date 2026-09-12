@@ -82,6 +82,12 @@ export class Vorschau {
   private teileErlaubt = true;
   /** Verhindert, dass Reset und Zufall denselben Körper mehrfach importieren. */
   private koerperDatei = '';
+  /** Nur der zuletzt angeforderte Körper darf nach dem asynchronen Import sichtbar werden. */
+  private koerperLauf = 0;
+  /** Macht noch laufende Teile-Importe beim Körperwechsel eindeutig ungültig. */
+  private teileEpoche = 0;
+  /** Pro Auswahlfeld gewinnt der jüngste Import, auch wenn ein älterer später fertig wird. */
+  private readonly teileLaeufe = new Map<string, number>();
   private koerperWurzeln: TransformNode[] = [];
   private koerperGruppen: AnimationGroup[] = [];
   /** Klassenwaffen samt Arm- und Greifpose, jeweils nur bei ihrer Klasse. */
@@ -277,6 +283,9 @@ export class Vorschau {
   async setzeWurzel(wurzel: string): Promise<void> {
     if (wurzel === this.wurzel) return;
     this.wurzel = wurzel;
+    this.koerperLauf += 1;
+    this.teileEpoche += 1;
+    this.teileLaeufe.clear();
     for (const teil of this.geladen.values()) {
       for (const wurzel of teil.wurzeln) wurzel.dispose(false, true);
       for (const skelett of teil.skelette) skelett.dispose();
@@ -297,8 +306,12 @@ export class Vorschau {
     this.koerperDatei = '';
   }
 
-  async ladeKoerper(datei: string): Promise<void> {
-    if (datei === this.koerperDatei) return;
+  async ladeKoerper(datei: string): Promise<boolean> {
+    if (datei === this.koerperDatei) return true;
+
+    const lauf = ++this.koerperLauf;
+    this.teileEpoche += 1;
+    this.teileLaeufe.clear();
 
     // Beim Wechsel zwischen Wikinger und Wikingerin müssen Körper,
     // Animationen und die auf dessen Skelett gezogenen Module gemeinsam
@@ -319,8 +332,20 @@ export class Vorschau {
     this.skelett = null;
     this.koerperWurzeln = [];
     this.koerperGruppen = [];
+    this.koerperDatei = '';
 
     const res = await SceneLoader.ImportMeshAsync('', this.wurzel, datei + '.glb', this.scene);
+
+    // Ein langsamer alter Import darf eine inzwischen neu gewählte Figur
+    // nicht wieder über die Bühne legen. Genau dadurch blieben zuvor der
+    // alte Körper und dessen Haare sichtbar, obwohl die Auswahl bereits
+    // „Wikingerin“ zeigte.
+    if (lauf !== this.koerperLauf || this.zerstoert) {
+      for (const gruppe of res.animationGroups) gruppe.dispose();
+      for (const wurzel of res.meshes.filter((m) => !m.parent)) wurzel.dispose(false, true);
+      for (const skelett of res.skeletons) skelett.dispose();
+      return false;
+    }
 
     this.koerperDatei = datei;
     this.teileErlaubt = /^(wikinger\/WikingerKoerper|wikingerin\/WikingerinKoerper)$/.test(datei);
@@ -380,7 +405,7 @@ export class Vorschau {
       Faellt er ganz aus, steht die Figur trotzdem — vor Himmel und Boden,
       die beide nichts kosten.
     */
-
+    return true;
   }
 
   /**
@@ -518,10 +543,14 @@ export class Vorschau {
 
   async setze(slot: string, datei: string | null): Promise<void> {
     if (!this.teileErlaubt) return;
-    if (this.aktuell.get(slot) === (datei ?? '')) return;
+    const ziel = datei ?? '';
+    if (this.aktuell.get(slot) === ziel && (!datei || this.geladen.has(datei))) return;
+    const epoche = this.teileEpoche;
+    const lauf = (this.teileLaeufe.get(slot) ?? 0) + 1;
+    this.teileLaeufe.set(slot, lauf);
     const vorher = this.aktuell.get(slot);
     if (vorher) this.zeige(vorher, false);
-    this.aktuell.set(slot, datei ?? '');
+    this.aktuell.set(slot, ziel);
     if (!datei) return;
 
     if (!this.geladen.has(datei)) {
@@ -536,12 +565,25 @@ export class Vorschau {
         // atmet. Zulaessig nur, weil beide dieselbe Gelenkliste haben.
         if (this.skelett) m.skeleton = this.skelett;
       }
-      this.geladen.set(datei, {
+      const importiertesTeil = {
         netze,
         wurzeln: res.meshes.filter((m) => m.parent === this.figurKnoten),
         skelette: res.skeletons,
-      });
+      };
+      // ImportMeshAsync schaltet Netze sofort ein. Zuerst ausblenden und
+      // erst nach dem Lauf-Abgleich freigeben, sonst blitzt eine alte
+      // Frisur auf oder bleibt nach schnellem Weiterklicken sogar stehen.
+      for (const m of netze) m.setEnabled(false);
+      if (epoche !== this.teileEpoche || this.teileLaeufe.get(slot) !== lauf
+          || this.aktuell.get(slot) !== datei || this.zerstoert) {
+        for (const wurzel of importiertesTeil.wurzeln) wurzel.dispose(false, true);
+        for (const skelett of importiertesTeil.skelette) skelett.dispose();
+        return;
+      }
+      this.geladen.set(datei, importiertesTeil);
     }
+    if (epoche !== this.teileEpoche || this.teileLaeufe.get(slot) !== lauf
+        || this.aktuell.get(slot) !== datei || this.zerstoert) return;
     this.zeige(datei, true);
     // Nach dem Anzeigen faerben — eine frisch geladene Frisur bringt ihr
     // eigenes Material mit und waere sonst wieder platzhalterbraun.
@@ -795,6 +837,9 @@ export class Vorschau {
 
   dispose(): void {
     this.zerstoert = true;
+    this.koerperLauf += 1;
+    this.teileEpoche += 1;
+    this.teileLaeufe.clear();
     this.beobachter?.disconnect();
     window.removeEventListener('resize', this.beiGroesse);
     this.scene.dispose();

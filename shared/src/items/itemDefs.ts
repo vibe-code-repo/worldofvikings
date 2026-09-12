@@ -396,7 +396,7 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
   },
   {
     // Kampfstab (Mikes eigenes Modell, 11.09.2026, schlanke Fassung 12.09.):
-    // 1,65 m, Kopf oben, Ursprung am Griffpunkt der rechten Hand 1,26 m
+    // 1,65 m, Kopf oben, Ursprung am Griffpunkt der rechten Hand 1,35 m
     // ueber dem unteren Ende — deshalb ohne den 8-cm-Versatz des Schwerts.
     // Gleiche Drehung wie das Schwert: die Laengsachse laeuft durch die
     // Faust. Ruhehaltung wie der Speer (Mike, 12.09.): aufrecht in der
@@ -419,7 +419,7 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
   {
     // Speer (Mikes eigenes Modell, 12.09.2026): 1,90 m, Spitze oben, Ursprung
     // 1,26 m ueber dem unteren Ende — die Hoehe der rechten Hand in der
-    // Ruhepose arm_speer (Hand 1,21 m, Stab 10 Grad nach hinten gekippt), damit das Ende am Boden
+    // Ruhepose arm_speer (Hand 1,30 m, Stab 15 Grad nach hinten gekippt), damit das Ende am Boden
     // aufsteht (mit 1,11 m schwebte es 3,7 cm, mit 1,15 m nach der Pose vom 12.09. 10,8 cm). Die
     // Laengsachse laeuft wie beim Schwert durch die Faust; in der Pose steht
     // die Faustachse senkrecht, also der Speer aufrecht neben der Figur.

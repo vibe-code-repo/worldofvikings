@@ -96,7 +96,7 @@
   interface Vorschau {
     setzeWurzel(url: string): Promise<void>;
     ladeKoerper(pfad: string): Promise<void>;
-    setzeWaffe(aktiv: boolean): Promise<void>;
+    setzeWaffe(art: 'schwert' | 'stab' | null): Promise<void>;
     setze(slot: string, datei: string | null): Promise<void>;
     /** sRGB-Hex; leer laesst die Farbe des Modells stehen. */
     setzeHaarfarbe(hex: string): void;
@@ -148,7 +148,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'wikinger-brauen-20260911';
+  const FIGUREN_STAND = 'wikinger-druidenstab-20260912';
 
   let figur = $state('');
   let frisur = $state('');
@@ -302,7 +302,7 @@
     try {
       await vorschau.setzeWurzel(modellWurzel);
       await vorschau.ladeKoerper(koerperDatei());
-      await vorschau.setzeWaffe(klasseId === 'krieger');
+      await vorschau.setzeWaffe(waffeFuerKlasse(klasseId));
       await zeigeAussehen();
       fertig = true;
     } catch (e) {
@@ -330,9 +330,15 @@
 
   function waehleKlasse(id: string) {
     klasseId = id;
-    void vorschau?.setzeWaffe(id === 'krieger').catch((fehler) => {
+    void vorschau?.setzeWaffe(waffeFuerKlasse(id)).catch((fehler) => {
       console.warn('[erstellung] Waffe ließ sich nicht umschalten:', fehler);
     });
+  }
+
+  function waffeFuerKlasse(id: string): 'schwert' | 'stab' | null {
+    if (id === 'krieger') return 'schwert';
+    if (id === 'druide') return 'stab';
+    return null;
   }
 
   async function figurGewechselt() {

@@ -63,6 +63,8 @@ interface WaffenSchicht {
   bilderJeSekunde: number;
 }
 
+type Waffenart = 'schwert' | 'stab';
+
 export class Vorschau {
   private readonly engine: Engine;
   private readonly scene: Scene;
@@ -82,12 +84,12 @@ export class Vorschau {
   private koerperDatei = '';
   private koerperWurzeln: TransformNode[] = [];
   private koerperGruppen: AnimationGroup[] = [];
-  /** Nordschwert samt Arm- und Greifpose; nur beim Krieger sichtbar. */
-  private waffeHalter: TransformNode | null = null;
-  private waffeLaden: Promise<void> | null = null;
-  private waffeAktiv = false;
+  /** Klassenwaffen samt Arm- und Greifpose, jeweils nur bei ihrer Klasse. */
+  private waffenHalter = new Map<Waffenart, TransformNode>();
+  private waffenLaden = new Map<Waffenart, Promise<void>>();
+  private waffeAktiv: Waffenart | null = null;
   private waffenZeit = 0;
-  private waffenSchichten: WaffenSchicht[] = [];
+  private waffenSchichten = new Map<Waffenart, WaffenSchicht[]>();
   /*
     Ein Knoten fuer alles, was zur Figur gehoert.
 
@@ -286,10 +288,10 @@ export class Vorschau {
     for (const m of [...this.scene.meshes]) m.dispose();
     this.skelett = null;
     this.ruhe = null;
-    this.waffeHalter?.dispose();
-    this.waffeHalter = null;
-    this.waffeLaden = null;
-    this.waffenSchichten = [];
+    for (const halter of this.waffenHalter.values()) halter.dispose(false, true);
+    this.waffenHalter.clear();
+    this.waffenLaden.clear();
+    this.waffenSchichten.clear();
     this.koerperWurzeln = [];
     this.koerperGruppen = [];
     this.koerperDatei = '';
@@ -302,9 +304,9 @@ export class Vorschau {
     // Animationen und die auf dessen Skelett gezogenen Module gemeinsam
     // verschwinden. Ein blosses zweites Importieren stellte beide Körper
     // ineinander und liess Haare am alten Skelett weiterlaufen.
-    this.waffeHalter?.dispose(false, true);
-    this.waffeHalter = null;
-    this.waffeLaden = null;
+    for (const halter of this.waffenHalter.values()) halter.dispose(false, true);
+    this.waffenHalter.clear();
+    this.waffenLaden.clear();
     for (const teil of this.geladen.values()) {
       for (const wurzel of teil.wurzeln) wurzel.dispose(false, true);
       for (const skelett of teil.skelette) skelett.dispose();
@@ -382,21 +384,23 @@ export class Vorschau {
   }
 
   /**
-   * Zeigt das Nordschwert nur für den Krieger. Es wird einmal geladen und
-   * an den echten Handknochen gehängt; dessen Animation führt es danach mit.
+   * Zeigt das Nordschwert beim Krieger und den Holzstab beim Druiden. Beide
+   * werden an den echten Handknochen gehängt und nur bei Bedarf geladen.
    */
-  async setzeWaffe(aktiv: boolean): Promise<void> {
-    this.waffeAktiv = aktiv;
+  async setzeWaffe(art: Waffenart | null): Promise<void> {
+    this.waffeAktiv = art;
     this.waffenZeit = 0;
-    if (!aktiv) {
-      this.waffeHalter?.setEnabled(false);
-      return;
+    for (const [vorhanden, halter] of this.waffenHalter) {
+      halter.setEnabled(vorhanden === art);
     }
-    if (!this.waffeHalter) {
-      this.waffeLaden ??= this.ladeNordschwert();
-      await this.waffeLaden;
+    if (!art || this.waffenHalter.has(art)) return;
+
+    if (!this.waffenLaden.has(art)) {
+      const laden = art === 'schwert' ? this.ladeNordschwert() : this.ladeDruidenstab();
+      this.waffenLaden.set(art, laden);
     }
-    this.waffeHalter?.setEnabled(this.waffeAktiv);
+    await this.waffenLaden.get(art);
+    this.waffenHalter.get(art)?.setEnabled(this.waffeAktiv === art);
   }
 
   private async ladeNordschwert(): Promise<void> {
@@ -419,18 +423,58 @@ export class Vorschau {
     for (const knoten of [...res.meshes, ...res.transformNodes]) {
       if (!knoten.parent) knoten.parent = modell;
     }
-    this.waffeHalter = halter;
-    halter.setEnabled(this.waffeAktiv);
+    this.waffenHalter.set('schwert', halter);
+    halter.setEnabled(this.waffeAktiv === 'schwert');
+  }
+
+  private async ladeDruidenstab(): Promise<void> {
+    const hand = this.scene.getTransformNodeByName('Hand_R');
+    if (!hand) throw new Error('Hand_R für den Druidenstab nicht gefunden');
+
+    const res = await SceneLoader.ImportMeshAsync(
+      '', this.wurzel, 'wikinger/DruidStaff.glb', this.scene,
+    );
+    const halter = new TransformNode('druide-stab', this.scene);
+    halter.position.set(0.08, 0.08, 0.035);
+    // Der Stab zeigt im Asset entlang +Y. Die Katana-Ruhepose greift entlang
+    // der lokalen -X-Achse der rechten Hand; Z +90° legt beides übereinander.
+    halter.rotation.set(0, Math.PI, Math.PI / 2);
+    halter.scaling.setAll(1 / this.figurKnoten.scaling.x);
+    halter.parent = hand;
+
+    const modell = new TransformNode('druide-stab-modell', this.scene);
+    modell.scaling.setAll(1.65);
+    // Nicht am Stabende greifen: Rund ein Viertel bleibt rechts der Hand,
+    // der längere Teil läuft durch die linke Hand und über sie hinaus.
+    modell.position.set(0, -0.41, -0.08);
+    modell.parent = halter;
+    for (const knoten of [...res.meshes, ...res.transformNodes]) {
+      if (!knoten.parent) knoten.parent = modell;
+    }
+    this.waffenHalter.set('stab', halter);
+    halter.setEnabled(this.waffeAktiv === 'stab');
   }
 
   private bereiteWaffenPoseVor(gruppen: AnimationGroup[]): void {
     const hand = this.scene.getTransformNodeByName('Hand_R');
     const finger = new Set(hand?.getDescendants(false).map((knoten) => knoten.name) ?? []);
     const arm = new Set(['Clavicle_R', 'Shoulder_R', 'Elbow_R', 'Hand_R']);
-    this.waffenSchichten = [];
+    const handLinks = this.scene.getTransformNodeByName('Hand_L');
+    const fingerBeide = new Set([
+      ...finger,
+      ...(handLinks?.getDescendants(false).map((knoten) => knoten.name) ?? []),
+    ]);
+    const armeBeide = new Set([
+      ...arm,
+      ...fingerBeide,
+      'Clavicle_L', 'Shoulder_L', 'Elbow_L', 'Hand_L',
+    ]);
+    this.waffenSchichten.clear();
 
-    for (const gruppe of gruppen.filter((g) => /^(arm|hand)_schwert$/i.test(g.name))) {
-      const maske = /^arm_/i.test(gruppe.name) ? arm : finger;
+    for (const gruppe of gruppen.filter((g) => /^(arm|hand)_(schwert|stab)$/i.test(g.name))) {
+      const stab = /_stab$/i.test(gruppe.name);
+      const art: Waffenart = stab ? 'stab' : 'schwert';
+      const maske = stab ? armeBeide : (/^arm_/i.test(gruppe.name) ? arm : finger);
       const kanaele: WaffenSchicht['kanaele'] = [];
       let bilderJeSekunde = 60;
       for (const spur of gruppe.targetedAnimations) {
@@ -440,21 +484,25 @@ export class Vorschau {
         bilderJeSekunde = spur.animation.framePerSecond;
       }
       if (kanaele.length) {
-        this.waffenSchichten.push({
+        const schichten = this.waffenSchichten.get(art) ?? [];
+        schichten.push({
           kanaele,
           von: gruppe.from,
           bis: gruppe.to,
           bilderJeSekunde,
         });
+        this.waffenSchichten.set(art, schichten);
       }
       gruppe.stop();
     }
   }
 
   private wendeWaffenPoseAn(): void {
-    if (!this.waffeAktiv || !this.waffenSchichten.length) return;
+    if (!this.waffeAktiv) return;
+    const schichten = this.waffenSchichten.get(this.waffeAktiv) ?? [];
+    if (!schichten.length) return;
     this.waffenZeit += this.engine.getDeltaTime() / 1000;
-    for (const schicht of this.waffenSchichten) {
+    for (const schicht of schichten) {
       const spanne = schicht.bis - schicht.von;
       const bild = spanne > 0
         ? schicht.von + ((this.waffenZeit * schicht.bilderJeSekunde) % spanne)

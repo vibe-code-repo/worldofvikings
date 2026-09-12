@@ -92,6 +92,9 @@ def spiel_animationen_vorbereiten() -> None:
         ("faust3", "BodyKickFromIdle"),
         ("arm_schwert", "SwordIdleMovement"),
         ("hand_schwert", "SwordIdle"),
+        # Beidhändige Stabhaltung für Druiden. Der männliche Standardexport
+        # trägt denselben Clip unter diesem stabilen Web-/Spielnamen.
+        ("arm_stab", "KatanaIdle"),
         ("ausruesten", "SwordEquipFromIdle"),
         ("ablegen", "SwordUnequipFromIdle"),
         ("parade_links", "SwordParryLeft"),

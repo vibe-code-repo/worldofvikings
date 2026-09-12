@@ -148,7 +148,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'wikinger-druidenstab-spielgriff-20260912';
+  const FIGUREN_STAND = 'wikinger-druidenstab-spielgriff2-20260912';
 
   let figur = $state('');
   let frisur = $state('');
@@ -304,7 +304,12 @@
       await vorschau.ladeKoerper(koerperDatei());
       await vorschau.setzeWaffe(waffeFuerKlasse(klasseId));
       await zeigeAussehen();
+      // Während Frisur und Kleidung nachladen, kann bereits eine andere
+      // Klasse gewählt worden sein. Ab jetzt dürfen weitere Klicks ihre
+      // Waffe selbst umschalten; dieser letzte Abgleich korrigiert den
+      // Klassenstand, mit dem der erste Waffenimport begonnen hatte.
       fertig = true;
+      await vorschau.setzeWaffe(waffeFuerKlasse(klasseId));
     } catch (e) {
       // Die Meldung nennt Adresse UND Grund. Eine Vorgängerfassung sagte nur
       // „liess sich nicht laden“ — damit war weder zu erkennen, ob der Server

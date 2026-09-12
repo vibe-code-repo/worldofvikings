@@ -4,7 +4,7 @@
  * selbst navigieren lassen und erhält eine Standkennung gegen HTML-Caches.
  */
 (() => {
-  const STAND = '20260912-druidenstab-spielgriff';
+  const STAND = '20260912-druidenstab-spielgriff2';
   const SELECTOR = 'a.nav-play, a.mobil-fahrt, a.gate-play';
   const EDITOR_PATHS = new Set(['/de/erstellen', '/en/create']);
 

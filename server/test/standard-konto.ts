@@ -20,8 +20,14 @@
  *  5. Das Standardkonto ist NIE Admin: `standardKontoSicherstellen` kennt
  *     keine AdminListe (strukturelle Garantie, siehe StandardKonto.ts)
  *     und warnt, wenn `everyone-admin` es trotzdem zum Admin macht.
- *  6. `ServerKonfig.leseStandardKonto` (ueber `leseServerKonfig`) prueft
+ *  6. `ServerKonfig.leseStandardKonten` (ueber `leseServerKonfig`) prueft
  *     den Block: Name/Charakter/Passwort wie bei der Registrierung.
+ *  7. Die LISTENFORM: Zwei Bloecke ergeben zwei Konten (`gast` fuer die
+ *     deutsche Anmeldeseite, `guest` fuer die englische), beide lassen
+ *     sich ueber die echte HTTP-API anmelden, der Status meldet beide
+ *     Namen, die Einzelblock-Form gilt weiter, und ein doppelt
+ *     vergebener Name wird beim Lesen abgefangen statt erst an der
+ *     UNIQUE-Spalte der Datenbank.
  *
  * Lauf: npx tsx test/standard-konto.ts   (aus server/)
  */
@@ -109,7 +115,7 @@ async function kontoAnlegenUndAnmelden(): Promise<void> {
     // ── Login ueber die echte HTTP-API ──────────────────────────────
     const api = new KontoApi(db, Buffer.from('ab'.repeat(16), 'hex'), () => ({
       spieler: 0, plaetze: 10, tag: 1, welt: 'test',
-    }), vorgabe.name);
+    }), [vorgabe.name]);
     const { server, basis } = await startServer(api);
     try {
       const login = await ruf(basis, '/accounts/login', {
@@ -209,18 +215,19 @@ function serverKonfigValidiert(): void {
     schreiben(['standard-konto:', '  name: gast', '  passwort: gast', '  charakter: Gast'].join('\n'));
     const gueltig = leseServerKonfig(verzeichnis, 'test');
     pruefe(
-      'gueltiger Block kommt an',
-      gueltig.standardKonto?.name === 'gast' &&
-        gueltig.standardKonto?.passwort === 'gast' &&
-        gueltig.standardKonto?.charakter === 'Gast',
-      JSON.stringify(gueltig.standardKonto),
+      'gueltiger Einzelblock kommt als einelementige Liste an',
+      gueltig.standardKonten?.length === 1 &&
+        gueltig.standardKonten[0]?.name === 'gast' &&
+        gueltig.standardKonten[0]?.passwort === 'gast' &&
+        gueltig.standardKonten[0]?.charakter === 'Gast',
+      JSON.stringify(gueltig.standardKonten),
     );
 
     // Name zu kurz (< 3 Zeichen, wie bei der Registrierung).
     schreiben(['standard-konto:', '  name: ab', '  passwort: gast', '  charakter: Gast'].join('\n'));
     const { warnungen: w1 } = eingefangen(() => {
       const k = leseServerKonfig(verzeichnis, 'test');
-      pruefe('zu kurzer Name -> standardKonto bleibt aus', k.standardKonto === undefined);
+      pruefe('zu kurzer Name -> kein Standardkonto', k.standardKonten?.length === 0);
     });
     pruefe('Warnung nennt den Namen', w1.some((w) => w.includes('standard-konto')), w1.join(' | '));
 
@@ -228,14 +235,14 @@ function serverKonfigValidiert(): void {
     schreiben(['standard-konto:', '  name: gast', '  passwort: abc', '  charakter: Gast'].join('\n'));
     eingefangen(() => {
       const k = leseServerKonfig(verzeichnis, 'test');
-      pruefe('zu kurzes Passwort -> standardKonto bleibt aus', k.standardKonto === undefined);
+      pruefe('zu kurzes Passwort -> kein Standardkonto', k.standardKonten?.length === 0);
     });
 
     // Ungueltiger Charaktername (leer).
     schreiben(['standard-konto:', '  name: gast', '  passwort: gast', '  charakter: ""'].join('\n'));
     eingefangen(() => {
       const k = leseServerKonfig(verzeichnis, 'test');
-      pruefe('ungueltiger Charaktername -> standardKonto bleibt aus', k.standardKonto === undefined);
+      pruefe('ungueltiger Charaktername -> kein Standardkonto', k.standardKonten?.length === 0);
     });
 
     // Ganz ohne Block.
@@ -245,9 +252,156 @@ function serverKonfigValidiert(): void {
       'utf-8',
     );
     const ohneBlock = leseServerKonfig(verzeichnis, 'test');
-    pruefe('kein Block -> standardKonto undefined', ohneBlock.standardKonto === undefined);
+    pruefe('kein Block -> leere Liste', ohneBlock.standardKonten?.length === 0);
+
+    // ── 7. Listenform ──────────────────────────────────────────────
+    schreiben(
+      [
+        'standard-konto:',
+        '  - name: gast',
+        '    passwort: gast',
+        '    charakter: Gast',
+        '  - name: guest',
+        '    passwort: guest',
+        '    charakter: Guest',
+      ].join('\n'),
+    );
+    const { warnungen: wListe } = eingefangen(() => {
+      const liste = leseServerKonfig(verzeichnis, 'test');
+      pruefe(
+        'Liste -> beide Konten, in der Reihenfolge der Datei',
+        liste.standardKonten?.length === 2 &&
+          liste.standardKonten[0]?.name === 'gast' &&
+          liste.standardKonten[1]?.name === 'guest' &&
+          liste.standardKonten[1]?.charakter === 'Guest',
+        JSON.stringify(liste.standardKonten),
+      );
+    });
+    // Der Riegel aus A14 darf die Listeneintraege nicht fuer unbekannte
+    // Schluessel "0"/"1" halten -- sonst begraebt er echte Tippfehler.
+    pruefe(
+      'Liste loest keine "liest niemand"-Warnung aus',
+      !wListe.some((w) => w.includes('liest niemand')),
+      wListe.join(' | '),
+    );
+
+    // Ein kaputter Eintrag nimmt die anderen NICHT mit.
+    schreiben(
+      [
+        'standard-konto:',
+        '  - name: ab',
+        '    passwort: gast',
+        '    charakter: Gast',
+        '  - name: guest',
+        '    passwort: guest',
+        '    charakter: Guest',
+      ].join('\n'),
+    );
+    eingefangen(() => {
+      const k = leseServerKonfig(verzeichnis, 'test');
+      pruefe(
+        'kaputter Eintrag faellt einzeln weg, der gueltige bleibt',
+        k.standardKonten?.length === 1 && k.standardKonten[0]?.name === 'guest',
+        JSON.stringify(k.standardKonten),
+      );
+    });
+
+    // Doppelter Name -- NOCASE, wie die Spalte `benutzername`.
+    schreiben(
+      [
+        'standard-konto:',
+        '  - name: gast',
+        '    passwort: gast',
+        '    charakter: Gast',
+        '  - name: GAST',
+        '    passwort: anders',
+        '    charakter: Zweit',
+      ].join('\n'),
+    );
+    const { warnungen: wDoppelt } = eingefangen(() => {
+      const k = leseServerKonfig(verzeichnis, 'test');
+      pruefe(
+        'doppelter Name -> nur der erste Eintrag',
+        k.standardKonten?.length === 1 && k.standardKonten[0]?.passwort === 'gast',
+        JSON.stringify(k.standardKonten),
+      );
+    });
+    pruefe(
+      'Warnung nennt den doppelten Namen',
+      wDoppelt.some((w) => w.includes('steht schon weiter oben')),
+      wDoppelt.join(' | '),
+    );
   } finally {
     rmSync(verzeichnis, { recursive: true, force: true });
+  }
+}
+
+// ── 7. Zwei Konten entstehen wirklich und beide koennen sich anmelden ──
+async function zweiKontenAusDerListe(): Promise<void> {
+  console.log('4. Zwei Standardkonten -> beide existieren, beide melden sich an');
+  const ordner = mkdtempSync(join(tmpdir(), 'wov-standardkonto-zwei-'));
+  const db = new Kontendatenbank(join(ordner, 'konten.db'));
+  // Genau das, was `WovServer` mit `config.standardKonten` tut: je
+  // Eintrag ein Aufruf.
+  const vorgaben = [
+    { name: 'gast', passwort: 'gast', charakter: 'Gast' },
+    { name: 'guest', passwort: 'guest', charakter: 'Guest' },
+  ];
+
+  try {
+    eingefangen(() => {
+      for (const v of vorgaben) standardKontoSicherstellen(db, v, false);
+    });
+    pruefe('Konto "gast" existiert', db.kontoNachName('gast') !== null);
+    pruefe('Konto "guest" existiert', db.kontoNachName('guest') !== null);
+    const guest = db.kontoNachName('guest');
+    const guestCharaktere = guest ? db.charaktereVonKonto(guest.id) : [];
+    pruefe(
+      'Konto "guest" hat genau den Charakter "Guest"',
+      guestCharaktere.length === 1 && guestCharaktere[0]?.name === 'Guest',
+      JSON.stringify(guestCharaktere.map((c) => c.name)),
+    );
+
+    const api = new KontoApi(db, Buffer.from('cd'.repeat(16), 'hex'), () => ({
+      spieler: 0, plaetze: 10, tag: 1, welt: 'test',
+    }), vorgaben.map((v) => v.name));
+    const { server, basis } = await startServer(api);
+    try {
+      for (const v of vorgaben) {
+        const login = await ruf(basis, '/accounts/login', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ username: v.name, password: v.passwort }),
+        });
+        pruefe(
+          `Login mit ${v.name}/${v.passwort} klappt`,
+          login.status === 200,
+          JSON.stringify(login.daten),
+        );
+      }
+
+      const status = await ruf(basis, '/accounts/status');
+      const namen = (status.daten?.standardKonten as { name: string }[] | undefined) ?? [];
+      pruefe(
+        'status meldet beide Namen unter standardKonten',
+        namen.length === 2 && namen[0]?.name === 'gast' && namen[1]?.name === 'guest',
+        JSON.stringify(status.daten),
+      );
+      // Rueckwaertskompatibilitaet: die ausgelieferte Webseite fragt
+      // heute `standardKonto` (Einzahl) ab.
+      const einzahl = status.daten?.standardKonto as Record<string, unknown> | undefined;
+      pruefe('status meldet weiterhin standardKonto = erster Eintrag', einzahl?.name === 'gast');
+      pruefe(
+        'status meldet KEIN Passwort',
+        !JSON.stringify(status.daten).toLowerCase().includes('passwor'),
+        JSON.stringify(status.daten),
+      );
+    } finally {
+      server.close();
+    }
+  } finally {
+    db.schliessen();
+    rmSync(ordner, { recursive: true, force: true });
   }
 }
 
@@ -255,6 +409,7 @@ async function main(): Promise<void> {
   await kontoAnlegenUndAnmelden();
   ohneBlockKeinKonto();
   serverKonfigValidiert();
+  await zweiKontenAusDerListe();
 
   if (fehler > 0) {
     console.error(`\n${fehler} Pruefung(en) fehlgeschlagen`);

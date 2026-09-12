@@ -128,8 +128,19 @@ export function unbekannteSchluessel(yaml: unknown): string[] {
       continue;
     }
     if (typeof inhalt !== 'object' || inhalt === null) continue;
-    for (const schluessel of Object.keys(inhalt as Record<string, unknown>)) {
-      if (!bekannt.includes(schluessel)) gefunden.push(`${abschnitt}.${schluessel}`);
+    /*
+      Ein Abschnitt darf auch eine LISTE gleichartiger Bloecke sein
+      (`standard-konto:` seit den zwei Standardkonten gast/guest). Ohne
+      diese Verzweigung waere jeder Listeneintrag ein "unbekannter
+      Schluessel" mit dem Namen "0", "1", ... — eine Warnung, die
+      niemandem etwas sagt und die echten Tippfehler im Log begraebt.
+      Geprueft wird deshalb jeder Eintrag gegen dieselbe Schluesselliste.
+    */
+    for (const block of Array.isArray(inhalt) ? (inhalt as unknown[]) : [inhalt]) {
+      if (typeof block !== 'object' || block === null) continue;
+      for (const schluessel of Object.keys(block as Record<string, unknown>)) {
+        if (!bekannt.includes(schluessel)) gefunden.push(`${abschnitt}.${schluessel}`);
+      }
     }
   }
   return gefunden;
@@ -185,22 +196,16 @@ function leseWetterVorgabe(wetter: Record<string, unknown>): WetterVorgabe {
 }
 
 /**
- * Abschnitt `standard-konto:` aus server.yml — Ausprobieren ohne
- * Registrierung (siehe StandardKonto.ts).
- *
- * GEPRUEFT und im Zweifel VERWORFEN, genau wie `wetter:` und aus demselben
- * Grund: Ein Tippfehler hier ist sichtbar (niemand kann sich mit dem
- * kaputten Namen anmelden, das Konto existiert schlicht nicht) und ein
- * Startabbruch waere fuer eine Ausprobier-Bequemlichkeit unverhaeltnis-
- * maessig — anders als beim `look:`-Block, dessen Fehler NIRGENDWO
- * auffaellt.
+ * Ein einzelner `standard-konto:`-Block. `undefined`, wenn er unbrauchbar
+ * ist — die Maengel stehen dann bereits im Log.
  */
-function leseStandardKonto(yaml: Record<string, unknown>): StandardKontoVorgabe | undefined {
-  const roh = yaml['standard-konto'];
-  if (roh === undefined || roh === null) return undefined;
-  if (typeof roh !== 'object') {
+function leseStandardKontoBlock(
+  roh: unknown,
+  herkunft: string,
+): StandardKontoVorgabe | undefined {
+  if (typeof roh !== 'object' || roh === null || Array.isArray(roh)) {
     console.warn(
-      '[Konfig] server.yml: standard-konto ist kein Block — Standardkonto bleibt aus',
+      `[Konfig] server.yml: ${herkunft} ist kein Block — dieses Standardkonto bleibt aus`,
     );
     return undefined;
   }
@@ -224,12 +229,65 @@ function leseStandardKonto(yaml: Record<string, unknown>): StandardKontoVorgabe 
   }
   if (maengel.length > 0) {
     for (const m of maengel) {
-      console.warn(`[Konfig] server.yml standard-konto: ${m} — Standardkonto bleibt aus`);
+      console.warn(`[Konfig] server.yml ${herkunft}: ${m} — dieses Standardkonto bleibt aus`);
     }
     return undefined;
   }
 
   return { name, passwort, charakter };
+}
+
+/**
+ * Abschnitt `standard-konto:` aus server.yml — Ausprobieren ohne
+ * Registrierung (siehe StandardKonto.ts).
+ *
+ * GEPRUEFT und im Zweifel VERWORFEN, genau wie `wetter:` und aus demselben
+ * Grund: Ein Tippfehler hier ist sichtbar (niemand kann sich mit dem
+ * kaputten Namen anmelden, das Konto existiert schlicht nicht) und ein
+ * Startabbruch waere fuer eine Ausprobier-Bequemlichkeit unverhaeltnis-
+ * maessig — anders als beim `look:`-Block, dessen Fehler NIRGENDWO
+ * auffaellt.
+ *
+ * ── Warum ein Block ODER eine Liste gilt ─────────────────────────────
+ * Die Webseite gibt es auf Deutsch und auf Englisch, und ein englischer
+ * Besucher soll sich nicht mit einem deutschen Wort anmelden muessen:
+ * Gebraucht werden zwei Konten (`gast` und `guest`), nicht eins. Die
+ * EINZELNE Blockform bleibt trotzdem gueltig — server.yml gehoert
+ * ausdruecklich dem Betreiber (die Datei wird nie mitdeployed), und ein
+ * bestehender Block darf durch ein Update dieser Leseschicht nicht
+ * plötzlich "kein Block" heissen und das Ausprobieren abschalten.
+ *
+ * Ein einzelner unbrauchbarer Eintrag nimmt die uebrigen NICHT mit: Wer
+ * sich in einem von zwei Konten vertippt, soll das andere behalten.
+ * Doppelte Namen werden hier abgefangen und nicht erst in der Datenbank
+ * — dort wuerde der zweite Eintrag an der UNIQUE-Spalte scheitern, und
+ * im Log staende eine Fehlermeldung ueber ein misslungenes Anlegen statt
+ * des eigentlichen Befundes: derselbe Name steht zweimal in der Datei.
+ */
+function leseStandardKonten(yaml: Record<string, unknown>): StandardKontoVorgabe[] {
+  const roh = yaml['standard-konto'];
+  if (roh === undefined || roh === null) return [];
+
+  const bloecke = Array.isArray(roh) ? (roh as unknown[]) : [roh];
+  const konten: StandardKontoVorgabe[] = [];
+  for (const [i, block] of bloecke.entries()) {
+    // Die Herkunftsangabe nennt bei einer Liste den Listenplatz, damit
+    // eine Warnung ohne Nachzaehlen auf die richtige Zeile zeigt.
+    const herkunft = Array.isArray(roh) ? `standard-konto[${i}]` : 'standard-konto';
+    const vorgabe = leseStandardKontoBlock(block, herkunft);
+    if (!vorgabe) continue;
+    // NOCASE wie die Spalte `benutzername` in der Kontendatenbank: "Gast"
+    // und "gast" sind dort dasselbe Konto, also auch hier.
+    if (konten.some((k) => k.name.toLowerCase() === vorgabe.name.toLowerCase())) {
+      console.warn(
+        `[Konfig] server.yml ${herkunft}: name "${vorgabe.name}" steht schon weiter oben — ` +
+          'dieser Eintrag bleibt aus',
+      );
+      continue;
+    }
+    konten.push(vorgabe);
+  }
+  return konten;
 }
 
 /**
@@ -379,7 +437,7 @@ export function leseServerKonfig(
       // ServerConfig.metrikenDatei).
       metrikenDatei: resolve(datenVerzeichnis, 'metriken.json'),
       wetterVorgabe: { ...leseWetterVorgabe(wetter), look: lookVorgabe },
-      standardKonto: leseStandardKonto(yaml),
+      standardKonten: leseStandardKonten(yaml),
     };
   } catch (err) {
     /*

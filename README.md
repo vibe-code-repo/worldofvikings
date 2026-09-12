@@ -33,30 +33,36 @@ dialog instead, so `npm run dev` alone is always enough to create an account and
 
 ### Try it without registering
 
-Every instance started from this repository's `server/data/server.yml` also creates a
-standard account on first start: **user `gast`, password `gast`**, with one ready-made
-character (`Gast`). Sign in with it directly — on the built-in dialog or on `wov-web`'s
-`/anmelden` page, which shows this same hint whenever the server it talks to reports the
-account (`GET /accounts/status`, never the password itself).
+Every instance started from this repository's `server/data/server.yml` also creates two
+standard accounts on first start: **user `gast`, password `gast`** (character `Gast`) and
+**user `guest`, password `guest`** (character `Guest`). There are two because the website
+is bilingual — its German sign-in page names `gast`, the English one `guest`, so nobody
+has to type the other language's word. Sign in with either one directly — on the built-in
+dialog or on `wov-web`'s `/anmelden` page, which shows this same hint whenever the server
+it talks to reports the accounts (`GET /accounts/status`, never the passwords themselves).
 
-It is created once, the same way a real registration is (same password hashing, same
+They are created once, the same way a real registration is (same password hashing, same
 account database), and an existing password is never overwritten — so changing the
-block below only affects an instance that has not started yet. It is also never an
-admin account on its own; the only thing that can make it (or anyone) an admin is
+block below only affects an instance that has not started yet. Neither is ever an
+admin account on its own; the only thing that can make them (or anyone) an admin is
 `players.everyone-admin: true`, and the server warns loudly about that regardless.
 
 Operators running a real, public instance should disable this before anyone else finds
-the well-known password in this public repository — either remove the block from
+the well-known passwords in this public repository — either remove the block from
 `server/data/server.yml`:
 
 ```yaml
 standard-konto:
-  name: gast
-  passwort: gast
-  charakter: Gast
+  - name: gast
+    passwort: gast
+    charakter: Gast
+  - name: guest
+    passwort: guest
+    charakter: Guest
 ```
 
-or change `passwort` to something private. There is no separate on/off switch.
+or change each `passwort` to something private. There is no separate on/off switch. A
+single block without the list dashes still works and means exactly one account.
 
 ## Local URLs
 

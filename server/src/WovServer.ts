@@ -230,10 +230,15 @@ export interface ServerConfig {
   wetterVorgabe: WetterVorgabe;
   /**
    * Ausprobieren ohne Registrierung (server.yml `standard-konto:`).
-   * `undefined` = kein Standardkonto — der Betreiber hat den Block
-   * entfernt oder er stand nie in der Datei. Siehe StandardKonto.ts.
+   * Leer oder `undefined` = kein Standardkonto — der Betreiber hat den
+   * Block entfernt oder er stand nie in der Datei. Siehe StandardKonto.ts.
+   *
+   * Eine LISTE, weil die Webseite zweisprachig ist: `gast` fuer die
+   * deutsche Anmeldeseite, `guest` fuer die englische. server.yml darf
+   * weiterhin einen einzelnen Block enthalten, `ServerKonfig` macht
+   * daraus eine einelementige Liste.
    */
-  standardKonto?: StandardKontoVorgabe;
+  standardKonten?: StandardKontoVorgabe[];
   /** Kartengenerierungs-Umbau: 'layout' = designer-definierte Welt. */
   worldMode: 'valheim' | 'layout';
   /** Pfad des WorldLayout-Dokuments (nur worldMode 'layout'). */
@@ -593,8 +598,12 @@ export class WovServer {
     // Direkt hier, wo die Kontendatenbank geoeffnet wird -- Begruendung
     // (Idempotenz, Passwort-Handling, warum kein AdminListe-Zugriff) in
     // StandardKonto.ts.
-    if (this.config.standardKonto) {
-      standardKontoSicherstellen(this.kontenDb, this.config.standardKonto, this.config.everyoneAdmin);
+    // Jeder Eintrag einzeln: die Konten sind voneinander unabhaengig,
+    // und `standardKontoSicherstellen` bricht auch dann nicht ab, wenn
+    // eines davon nicht angelegt werden kann.
+    const standardKonten = this.config.standardKonten ?? [];
+    for (const vorgabe of standardKonten) {
+      standardKontoSicherstellen(this.kontenDb, vorgabe, this.config.everyoneAdmin);
     }
     // Der dritte Parameter beantwortet `/accounts/status` fuer die
     // Webseite. Er wird als Funktion uebergeben und nicht als Wert: `this.net`
@@ -605,7 +614,7 @@ export class WovServer {
       plaetze: this.config.maxPlayers,
       tag: this.getDay(),
       welt: this.config.worldName,
-    }), this.config.standardKonto?.name);
+    }), standardKonten.map((k) => k.name));
 
     this.net = new NetManager({
       port: this.config.port,

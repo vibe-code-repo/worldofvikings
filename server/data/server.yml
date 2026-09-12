@@ -71,6 +71,12 @@ players:
 # block or change the password before anyone else finds it in this
 # public repository.
 #
+# EN: One block or a LIST of blocks. There are two standard accounts
+# because the website is bilingual: an English visitor should not have to
+# sign in with a German word. The list order is what `/accounts/status`
+# reports first, and a single block (the form this file used to have)
+# still works unchanged — see `leseStandardKonten` in ServerKonfig.ts.
+#
 # DE: Das Standardkonto — Ausprobieren ohne Registrierung. Wird einmal
 # beim Serverstart angelegt (server/src/konto/StandardKonto.ts), falls
 # es noch nicht existiert: ein Konto "gast" mit Passwort "gast" und
@@ -86,10 +92,20 @@ players:
 # eine echte, oeffentliche Instanz betreibt, sollte diesen Block
 # entfernen oder das Passwort aendern, bevor es jemand anders in diesem
 # oeffentlichen Repository findet.
+#
+# Hier stehen ZWEI Konten, weil die Webseite zweisprachig ist: Die
+# deutsche Anmeldeseite nennt "gast", die englische "guest" — sonst
+# muesste sich ein englischer Besucher ein deutsches Wort merken. Ein
+# einzelner Block (die fruehere Form dieser Datei) gilt weiterhin; ein
+# unbrauchbarer Eintrag nimmt die anderen nicht mit, er wird einzeln
+# verworfen und gemeldet.
 standard-konto:
-  name: gast
-  passwort: gast
-  charakter: Gast
+  - name: gast
+    passwort: gast
+    charakter: Gast
+  - name: guest
+    passwort: guest
+    charakter: Guest
 
 world:
   # Welt und Spielstand bestimmt WOV_INSTANZ (dev|live), nicht diese Datei:

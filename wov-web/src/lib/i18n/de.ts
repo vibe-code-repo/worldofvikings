@@ -568,6 +568,9 @@ export const de = {
   // Nur sichtbar, wenn das gewaehlte Gestade ein Standardkonto meldet
   // (KontoApi.status(), Feld `standardKonto`) — Name und Passwort stehen
   // hier fest, weil die API das Passwort nie mitschickt (server.yml).
+  // Die deutsche Seite nennt "gast", die englische "guest" — das Gestade
+  // legt beide Konten an, damit niemand das Wort der anderen Sprache
+  // tippen muss.
   'login.try_it_out': 'Zum Ausprobieren: Benutzer gast, Passwort gast.',
 
   /* -------------------------------------------- account.page (/konto) */

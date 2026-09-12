@@ -373,6 +373,13 @@ systemctl status wov.target --no-pager
 journalctl -u wov-server -n 30 --no-pager
 ```
 
+To check the whole chain the way a visitor does, sign in with one of the two standard
+accounts `server/data/server.yml` creates on first start: `gast`/`gast` on the German
+pages, `guest`/`guest` on the English ones (see the `standard-konto:` block there and the
+README). `/api/accounts/status` lists them under `standardKonten`; if that field is
+missing, the game server never created them — check `journalctl -u wov-server` for a
+`[Konfig] server.yml standard-konto:` warning.
+
 A plain `curl http://<host>:2467/` against the game server itself (bypassing
 nginx) is expected to answer `426 Upgrade Required` — that's how
 `tools/wov-update.sh`'s own health check recognizes a live server; anything else

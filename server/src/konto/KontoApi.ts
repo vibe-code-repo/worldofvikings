@@ -123,13 +123,18 @@ export class KontoApi {
      */
     private readonly zustand: () => Serverzustand,
     /**
-     * Name of the standard account (`server.yml` `standard-konto:`), or
-     * `undefined` when the operator removed that block. The PASSWORD is
-     * deliberately not a constructor argument — it lives in `server.yml`
+     * Names of the standard accounts (`server.yml` `standard-konto:`),
+     * empty when the operator removed that block. The PASSWORDS are
+     * deliberately not constructor arguments — they live in `server.yml`
      * and the README, and this class hands the browser nothing it could
      * not already read there. See `StandardKonto.ts`.
+     *
+     * Eine Liste, weil die Webseite zweisprachig ist: Die deutsche
+     * Anmeldeseite nennt `gast`, die englische `guest`. Die Reihenfolge
+     * ist die der Datei und bleibt es — `standardKonto` (Einzahl) in der
+     * Antwort ist der ERSTE Eintrag, und daran haengen aeltere Clients.
      */
-    private readonly standardKontoName?: string,
+    private readonly standardKontoNamen: readonly string[] = [],
   ) {
     // Domain separation: a different key for account tokens, derived from
     // the same secret. See the header comment.
@@ -229,7 +234,17 @@ export class KontoApi {
       // README, nicht in dieser oeffentlichen, tokenlosen Antwort. Das
       // Feld fehlt ganz, wenn der Betreiber den Block entfernt hat, damit
       // die Webseite den Hinweis nur zeigt, wenn er wirklich stimmt.
-      ...(this.standardKontoName ? { standardKonto: { name: this.standardKontoName } } : {}),
+      // `standardKonto` (Einzahl, erster Eintrag) bleibt, weil eine
+      // Webseite im Umlauf ist, die genau dieses Feld abfragt — ein
+      // Gestade, das nur noch die Liste meldet, wuerde dort den Hinweis
+      // wortlos verschwinden lassen. `standardKonten` ist die volle
+      // Wahrheit fuer alles, was sie schon kennt.
+      ...(this.standardKontoNamen.length > 0
+        ? {
+            standardKonto: { name: this.standardKontoNamen[0] },
+            standardKonten: this.standardKontoNamen.map((name) => ({ name })),
+          }
+        : {}),
     });
   }
 

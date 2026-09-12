@@ -511,7 +511,9 @@ export const en: Messages = {
   // Shown only when the selected shore reports a standard account
   // (KontoApi.status(), field `standardKonto`) — name and password are
   // fixed text here because the API never sends the password (server.yml).
-  'login.try_it_out': 'To try it out: user gast, password gast.',
+  // The English page names `guest`, the German one `gast`: the shore
+  // creates both, so nobody has to sign in with the other language's word.
+  'login.try_it_out': 'To try it out: user guest, password guest.',
 
   /* -------------------------------------------- account.page (/konto) */
   'account.page.meta.title': 'Your heroes',

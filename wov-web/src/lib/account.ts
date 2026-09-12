@@ -591,6 +591,15 @@ export interface ShoreStatus {
    * this unauthenticated response.
    */
   standardKonto?: { name: string };
+  /**
+   * Every standard account the shore offers, in the order `server.yml`
+   * lists them; `standardKonto` above is the first of them. There are two
+   * because this site is bilingual (`gast` and `guest`) — WHICH one a
+   * page names follows its language, so the hint text is translated and
+   * this field only answers whether to show a hint at all. Absent on an
+   * older shore that knows the singular field only.
+   */
+  standardKonten?: { name: string }[];
 }
 
 /**

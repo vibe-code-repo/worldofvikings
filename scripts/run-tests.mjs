@@ -666,8 +666,11 @@ const KERN = [
   // Start legt nichts doppelt an und laesst das Passwort unveraendert,
   // Login klappt ueber die echte HTTP-API, der Status meldet den Namen
   // (nie das Passwort), und das Konto bleibt admin-frei ausser durch
-  // `everyone-admin` (dann warnt der Server). Echter node:http-Server auf
-  // Port 0, Sekunden.
+  // `everyone-admin` (dann warnt der Server). Dazu die Listenform: zwei
+  // Konten (gast fuer die deutsche Anmeldeseite, guest fuer die
+  // englische) entstehen beide und melden sich beide an, ein kaputter
+  // oder doppelter Eintrag nimmt die anderen nicht mit, und ein einzelner
+  // Block gilt weiter. Echter node:http-Server auf Port 0, Sekunden.
   ['server', 'test/standard-konto.ts'],
   // Herkunft.ts hinter einem Reverse-Proxy: Loopback-Peer + X-Forwarded-For/
   // X-Real-IP wird geglaubt, jede andere Peer-Adresse nicht; und zwei

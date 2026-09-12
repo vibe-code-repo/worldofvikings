@@ -809,7 +809,7 @@ fi
 # seine Abhängigkeiten deshalb nicht mitinstalliert.
 echo
 echo "▶ Webseite bauen"
-(cd wov-web && npm ci && npm run build && bash tools/ohne-js-pruefen.sh)
+(cd wov-web && npm ci --include=dev && npm run build && bash tools/ohne-js-pruefen.sh)
 
 # ── 8. Dienste starten ───────────────────────────────────────────────
 # Gestartet wird, was auf DIESEM Container aktiviert ist. Die Unit-Dateien

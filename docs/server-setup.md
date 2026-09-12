@@ -92,7 +92,7 @@ install it on its own:
 
 ```bash
 cd /opt/worldofvikings/wov-web
-npm ci
+npm ci --include=dev   # SvelteKit and Vite are devDependencies; with NODE_ENV=production a plain `npm ci` would skip them and the build fails
 cd /opt/worldofvikings
 ```
 

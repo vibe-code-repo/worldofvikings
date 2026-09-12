@@ -117,7 +117,7 @@ fi
 # jedem künftigen Pull nach; hier ist es der EINMALIGE erste Bau.
 if [[ -d "$PROJECT_DIR/wov-web" ]]; then
   echo "→ Webseite bauen (wov-web)"
-  (cd "$PROJECT_DIR/wov-web" && npm ci && bash tools/ausrollen.sh) || \
+  (cd "$PROJECT_DIR/wov-web" && npm ci --include=dev && bash tools/ausrollen.sh) || \
     echo "FEHLGESCHLAGEN: Webseite nicht gebaut — 'wov-web/tools/ausrollen.sh' von Hand nachholen."
 fi
 

@@ -14,20 +14,20 @@
  * buendeln — die Datei auf der Webseite ist ERZEUGT.
  *
  * ── Warum die Teile einzeln geladen werden ──────────────────────────
- * Alle 21 Frisuren zusammen sind 17,5 MB. Der Koerper allein ist
- * 3,76 MB, eine Frisur 0,28 bis 1,71 MB. Wer die Auswahl oeffnet, soll
- * nicht auf 20 Frisuren warten, die er nicht traegt.
+ * Die 38 Frisuren, 18 Bärte und 17 Augenbrauenformen werden einzeln
+ * nachgeladen. Wer die Auswahl öffnet, soll nicht auf 72 Teile warten,
+ * die er nicht trägt.
  *
  * Das funktioniert nur, weil jede Teildatei DIESELBE Gelenkliste traegt
- * wie der Koerper — 51 Knochen, Index fuer Index. Erzeugt werden sie von
- * tools/asset-aufteilen.py, das genau das nachprueft und sonst abbricht.
+ * wie der Koerper — 63 Knochen, Index fuer Index. Erzeugt werden sie von
+ * tools/web/charakterteile-exportieren.py aus derselben Blender-Datei.
  */
 import { Engine } from '@babylonjs/core/Engines/engine';
 import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color4 } from '@babylonjs/core/Maths/math.color';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
@@ -42,7 +42,9 @@ import { DynamicTexture as Fleck } from '@babylonjs/core/Materials/Textures/dyna
 import { RawCubeTexture } from '@babylonjs/core/Materials/Textures/rawCubeTexture';
 import { Constants } from '@babylonjs/core/Engines/constants';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
+import type { Animation } from '@babylonjs/core/Animations/animation';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Skeleton } from '@babylonjs/core/Bones/skeleton';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
@@ -50,7 +52,18 @@ import '@babylonjs/loaders/glTF';
 
 interface Teil {
   netze: AbstractMesh[];
+  wurzeln: TransformNode[];
+  skelette: Skeleton[];
 }
+
+interface WaffenSchicht {
+  kanaele: Array<{ knoten: TransformNode; animation: Animation }>;
+  von: number;
+  bis: number;
+  bilderJeSekunde: number;
+}
+
+type Waffenart = 'schwert' | 'stab';
 
 export class Vorschau {
   private readonly engine: Engine;
@@ -65,6 +78,26 @@ export class Vorschau {
   private zerstoert = false;
   private beobachter: ResizeObserver | null = null;
   private sonne!: DirectionalLight;
+  /** Nur die beiden spielbaren Körper können modulare Aussehensteile tragen. */
+  private teileErlaubt = true;
+  /** Die alten Frisuren passen geometrisch nur auf den Wikingerin-Kopf. */
+  private frisurenErlaubt = true;
+  /** Verhindert, dass Reset und Zufall denselben Körper mehrfach importieren. */
+  private koerperDatei = '';
+  /** Nur der zuletzt angeforderte Körper darf nach dem asynchronen Import sichtbar werden. */
+  private koerperLauf = 0;
+  /** Macht noch laufende Teile-Importe beim Körperwechsel eindeutig ungültig. */
+  private teileEpoche = 0;
+  /** Pro Auswahlfeld gewinnt der jüngste Import, auch wenn ein älterer später fertig wird. */
+  private readonly teileLaeufe = new Map<string, number>();
+  private koerperWurzeln: TransformNode[] = [];
+  private koerperGruppen: AnimationGroup[] = [];
+  /** Klassenwaffen samt Arm- und Greifpose, jeweils nur bei ihrer Klasse. */
+  private waffenHalter = new Map<Waffenart, TransformNode>();
+  private waffenLaden = new Map<Waffenart, Promise<void>>();
+  private waffeAktiv: Waffenart | null = null;
+  private waffenZeit = 0;
+  private waffenSchichten = new Map<Waffenart, WaffenSchicht[]>();
   /*
     Ein Knoten fuer alles, was zur Figur gehoert.
 
@@ -115,13 +148,12 @@ export class Vorschau {
       Alle Werte in METERN, seit die Szene die echte Welt zeigt. Die Figur
       ist 1,80 m: Brust bei 1,05, Scheitel bei rund 1,62.
 
-      Ausgangsabstand 6,5 m statt der frueheren 3,4: Bei 3,4 fuellte die
-      Figur das Bild und vom Wald sah man Rinde. Aus 6,5 m steht sie ganz
-      im Bild UND der Bestand dahinter ist zu erkennen — darum geht es auf
-      dieser Seite. Bis 16 m laesst sich herausziehen, bis 2,2 m heran.
+      Ausgangsabstand 3,2 m: Die Figur ist damit etwas praesentierter als
+      zuvor bei 3,6 m, bleibt aber samt Schwert und Fuessen voll im Bild.
+      Bis 5,5 m laesst sich herausziehen, bis 2,2 m heran.
     */
     this.kamera = new ArcRotateCamera(
-      'vorschau', Math.PI / 2, Math.PI / 2.12, 3.6,
+      'vorschau', Math.PI / 2, Math.PI / 2.12, 3.2,
       new Vector3(0, 1.05, 0), this.scene);
     /*
       NAHE SCHNITTEBENE. Babylons Vorgabe ist minZ = 1 — gedacht fuer eine
@@ -198,9 +230,16 @@ export class Vorschau {
     this.zeigerAnschliessen(leinwand);
 
     this.figurKnoten = new TransformNode('figur', this.scene);
-    this.figurKnoten.scaling.setAll(Vorschau.FIGURHOEHE);
+    // Der Skalierungsfaktor folgt nach dem Laden aus den echten Modellmaßen.
+    // Die alte Wikingerin ist 1,0 Modelleinheit hoch, der neue Wikinger
+    // bereits 1,79. Ein fester Faktor von 1,8 machte ihn sonst 3,2 m groß.
+    this.figurKnoten.scaling.setAll(1);
 
     this.scene.onBeforeRenderObservable.add(() => this.blickpunktNachfuehren());
+    // Babylon mischt gleichzeitig laufende Gruppen. Die Waffenpose soll
+    // Idle dagegen gezielt am rechten Arm und an den Fingern UEBERSCHREIBEN.
+    // Darum wird sie nach Babylons Animationsdurchlauf von Hand aufgetragen.
+    this.scene.onAfterAnimationsObservable.add(() => this.wendeWaffenPoseAn());
     this.umgebungslichtSetzen();
 
     /*
@@ -246,8 +285,12 @@ export class Vorschau {
   async setzeWurzel(wurzel: string): Promise<void> {
     if (wurzel === this.wurzel) return;
     this.wurzel = wurzel;
+    this.koerperLauf += 1;
+    this.teileEpoche += 1;
+    this.teileLaeufe.clear();
     for (const teil of this.geladen.values()) {
-      for (const m of teil.netze) m.dispose();
+      for (const wurzel of teil.wurzeln) wurzel.dispose(false, true);
+      for (const skelett of teil.skelette) skelett.dispose();
     }
     this.geladen.clear();
     this.aktuell.clear();
@@ -256,18 +299,100 @@ export class Vorschau {
     for (const m of [...this.scene.meshes]) m.dispose();
     this.skelett = null;
     this.ruhe = null;
+    for (const halter of this.waffenHalter.values()) halter.dispose(false, true);
+    this.waffenHalter.clear();
+    this.waffenLaden.clear();
+    this.waffenSchichten.clear();
+    this.koerperWurzeln = [];
+    this.koerperGruppen = [];
+    this.koerperDatei = '';
   }
 
-  async ladeKoerper(datei: string): Promise<void> {
+  async ladeKoerper(datei: string): Promise<boolean> {
+    if (datei === this.koerperDatei) return true;
+
+    const lauf = ++this.koerperLauf;
+    this.teileEpoche += 1;
+    this.teileLaeufe.clear();
+
+    // Beim Wechsel zwischen Wikinger und Wikingerin müssen Körper,
+    // Animationen und die auf dessen Skelett gezogenen Module gemeinsam
+    // verschwinden. Ein blosses zweites Importieren stellte beide Körper
+    // ineinander und liess Haare am alten Skelett weiterlaufen.
+    for (const halter of this.waffenHalter.values()) halter.dispose(false, true);
+    this.waffenHalter.clear();
+    this.waffenLaden.clear();
+    for (const teil of this.geladen.values()) {
+      for (const wurzel of teil.wurzeln) wurzel.dispose(false, true);
+      for (const skelett of teil.skelette) skelett.dispose();
+    }
+    this.geladen.clear();
+    this.aktuell.clear();
+    for (const gruppe of this.koerperGruppen) gruppe.dispose();
+    for (const wurzel of this.koerperWurzeln) wurzel.dispose(false, true);
+    this.skelett?.dispose();
+    this.skelett = null;
+    this.koerperWurzeln = [];
+    this.koerperGruppen = [];
+    this.koerperDatei = '';
+
     const res = await SceneLoader.ImportMeshAsync('', this.wurzel, datei + '.glb', this.scene);
 
-    /*
-      Die Figur misst im Modell 1,00 Einheit (nachgemessen mit
-      tools/glb-bbox.js). Die Szene rechnet in Metern, ein Mensch ist
-      1,80 m — also gestreckt. Sie steht bei y = 0, und dort liegt seit dem
-      Gelaendeaufbau genau die Bodenhoehe des gewaehlten Ortes.
-    */
-    for (const teil of res.meshes.filter((m) => !m.parent)) teil.parent = this.figurKnoten;
+    // Ein langsamer alter Import darf eine inzwischen neu gewählte Figur
+    // nicht wieder über die Bühne legen. Genau dadurch blieben zuvor der
+    // alte Körper und dessen Haare sichtbar, obwohl die Auswahl bereits
+    // „Wikingerin“ zeigte.
+    if (lauf !== this.koerperLauf || this.zerstoert) {
+      for (const gruppe of res.animationGroups) gruppe.dispose();
+      for (const wurzel of res.meshes.filter((m) => !m.parent)) wurzel.dispose(false, true);
+      for (const skelett of res.skeletons) skelett.dispose();
+      return false;
+    }
+
+    this.koerperDatei = datei;
+    this.teileErlaubt = /^(wikinger\/WikingerKoerper|wikingerin\/WikingerinKoerper)$/.test(datei);
+    this.frisurenErlaubt = datei === 'wikingerin/WikingerinKoerper';
+
+    // Der Synty-Atlas ist für einen nahezu unbeleuchteten Unity-Shader
+    // gemalt. Das Spiel tönt ihn deshalb auf dieselben gemessenen Werte;
+    // die Webseite muss dieselbe Figur und nicht eine ausgewaschene Kopie
+    // davon zeigen. Jedes Material nur einmal setzen, weil Meshes teilen.
+    if (this.teileErlaubt) {
+      const gesehen = new Set();
+      for (const mesh of res.meshes) {
+        const material = mesh.material;
+        if (!material || gesehen.has(material)) continue;
+        gesehen.add(material);
+        if (material instanceof PBRMaterial) {
+          material.albedoColor.set(0.7305, 0.4904, 0.4179);
+        }
+      }
+    }
+
+    // Beide spielbaren Körper haben andere Exportmaße. Aus der Bindepose
+    // messen, auf 1,80 m bringen und den tiefsten Punkt auf den Boden setzen.
+    let unten = Infinity;
+    let oben = -Infinity;
+    for (const mesh of res.meshes) {
+      if (mesh.getTotalVertices() === 0) continue;
+      mesh.computeWorldMatrix(true);
+      const kasten = mesh.getBoundingInfo().boundingBox;
+      unten = Math.min(unten, kasten.minimumWorld.y);
+      oben = Math.max(oben, kasten.maximumWorld.y);
+    }
+    const hoehe = oben - unten;
+    const faktor = Number.isFinite(hoehe) && hoehe > 0.01
+      ? Vorschau.FIGURHOEHE / hoehe
+      : Vorschau.FIGURHOEHE;
+    this.figurKnoten.scaling.setAll(faktor);
+    this.figurKnoten.position.y = Number.isFinite(unten) ? -unten * faktor : 0;
+
+    // Alle Wurzelnetze unter den gemeinsamen, soeben vermessenen
+    // Figurenknoten hängen. Damit drehen Körper und kompatible Anbauteile
+    // gemeinsam, ohne die Händigkeit der glTF-Wurzel selbst anzufassen.
+    this.koerperWurzeln = res.meshes.filter((m) => !m.parent);
+    for (const teil of this.koerperWurzeln) teil.parent = this.figurKnoten;
+    this.koerperGruppen = res.animationGroups;
     this.skelett = res.skeletons[0] ?? null;
     for (const g of res.animationGroups) g.stop();
     // Ueber den Namen, nicht "der erste Clip": Die Reihenfolge im glTF ist
@@ -275,6 +400,7 @@ export class Vorschau {
     this.ruhe = res.animationGroups.find((g) => /idle|ruhe|stand/i.test(g.name))
       ?? res.animationGroups[0] ?? null;
     this.ruhe?.start(true);
+    this.bereiteWaffenPoseVor(res.animationGroups);
 
     /*
       Der Hain kommt NACH der Figur und ohne await: Er ist Kulisse, und
@@ -282,14 +408,155 @@ export class Vorschau {
       Faellt er ganz aus, steht die Figur trotzdem — vor Himmel und Boden,
       die beide nichts kosten.
     */
+    return true;
+  }
 
+  /**
+   * Zeigt das Nordschwert beim Krieger und den Holzstab beim Druiden. Beide
+   * werden an den echten Handknochen gehängt und nur bei Bedarf geladen.
+   */
+  async setzeWaffe(art: Waffenart | null): Promise<void> {
+    this.waffeAktiv = art;
+    this.waffenZeit = 0;
+    for (const [vorhanden, halter] of this.waffenHalter) {
+      halter.setEnabled(vorhanden === art);
+    }
+    if (!art || this.waffenHalter.has(art)) return;
+
+    if (!this.waffenLaden.has(art)) {
+      const laden = art === 'schwert' ? this.ladeNordschwert() : this.ladeDruidenstab();
+      this.waffenLaden.set(art, laden);
+    }
+    await this.waffenLaden.get(art);
+    this.waffenHalter.get(art)?.setEnabled(this.waffeAktiv === art);
+  }
+
+  private async ladeNordschwert(): Promise<void> {
+    const hand = this.scene.getTransformNodeByName('Hand_R');
+    if (!hand) throw new Error('Hand_R für das Nordschwert nicht gefunden');
+
+    const res = await SceneLoader.ImportMeshAsync(
+      '', this.wurzel, 'wikinger/SwordNorth.glb', this.scene,
+    );
+    const halter = new TransformNode('krieger-schwert', this.scene);
+    halter.position.set(0.08, 0.08, 0.035);
+    halter.rotation.set(0, Math.PI, Math.PI / 2);
+    // Der Körper wird auf 1,80 m normiert, das Schwert liegt bereits in
+    // Metern vor und darf diese Skalierung nicht noch einmal erben.
+    halter.scaling.setAll(1 / this.figurKnoten.scaling.x);
+    halter.parent = hand;
+
+    const modell = new TransformNode('krieger-schwert-modell', this.scene);
+    modell.parent = halter;
+    for (const knoten of [...res.meshes, ...res.transformNodes]) {
+      if (!knoten.parent) knoten.parent = modell;
+    }
+    this.waffenHalter.set('schwert', halter);
+    halter.setEnabled(this.waffeAktiv === 'schwert');
+  }
+
+  private async ladeDruidenstab(): Promise<void> {
+    const hand = this.scene.getTransformNodeByName('Hand_R');
+    if (!hand) throw new Error('Hand_R für den Druidenstab nicht gefunden');
+
+    const res = await SceneLoader.ImportMeshAsync(
+      '', this.wurzel, 'wikinger/DruidStaff.glb', this.scene,
+    );
+    const halter = new TransformNode('druide-stab', this.scene);
+    // SpearIdle dreht die Hand so, dass deren lokale Z-Achse quer über
+    // den Bildschirm läuft. Der Stabmittelpunkt sitzt bei 7,4 cm im
+    // geschlossenen Fingerring; der Schwertwert 3,5 cm lag daneben.
+    halter.position.set(0.08, 0.08, 0.074);
+    // Der Stab zeigt im Asset entlang +Y. In der Speer-Ruhepose zeigt die
+    // lokale +X-Achse der rechten Hand senkrecht nach oben; Z -90° legt die
+    // Stabachse genau darauf.
+    halter.rotation.set(0, 0, -Math.PI / 2);
+    halter.scaling.setAll(1 / this.figurKnoten.scaling.x);
+    halter.parent = hand;
+
+    const modell = new TransformNode('druide-stab-modell', this.scene);
+    // Das Spielmodell ist ein schlanker Wanderstab. Seine Laenge bleibt
+    // 1,62 m; nur die beiden Querachsen werden auf rund ein Drittel der
+    // bisherigen Staerke gebracht. Gleichmaessiges Skalieren hatte aus dem
+    // 3-cm-Schaft in der Vorschau einen fast unterarmdicken Pfosten gemacht.
+    modell.scaling.set(0.55, 1.65, 0.55);
+    // Die Hand sitzt rund 1,06 m über dem Boden. Dieser Versatz legt das
+    // Metallende auf den Boden und lässt die verzierte Spitze nach oben.
+    // Kein seitlicher Modellversatz: Die Griffachse laeuft durch den von
+    // SpearIdle geschlossenen Fingerring. Der alte Z-Versatz von -8 cm
+    // stellte den Stab sichtbar neben die Faust.
+    modell.position.set(0, -1.06, 0);
+    modell.parent = halter;
+    for (const knoten of [...res.meshes, ...res.transformNodes]) {
+      if (!knoten.parent) knoten.parent = modell;
+    }
+    this.waffenHalter.set('stab', halter);
+    halter.setEnabled(this.waffeAktiv === 'stab');
+  }
+
+  private bereiteWaffenPoseVor(gruppen: AnimationGroup[]): void {
+    const hand = this.scene.getTransformNodeByName('Hand_R');
+    const finger = new Set(hand?.getDescendants(false).map((knoten) => knoten.name) ?? []);
+    const arm = new Set(['Clavicle_R', 'Shoulder_R', 'Elbow_R', 'Hand_R']);
+    this.waffenSchichten.clear();
+
+    for (const gruppe of gruppen.filter((g) => /^(arm|hand)_(schwert|speer)$/i.test(g.name))) {
+      const speer = /_speer$/i.test(gruppe.name);
+      const art: Waffenart = speer ? 'stab' : 'schwert';
+      const maske = /^arm_/i.test(gruppe.name) ? arm : finger;
+      const kanaele: WaffenSchicht['kanaele'] = [];
+      let bilderJeSekunde = 60;
+      for (const spur of gruppe.targetedAnimations) {
+        const knoten = spur.target as TransformNode;
+        if (spur.animation.targetProperty !== 'rotationQuaternion' || !maske.has(knoten.name)) continue;
+        kanaele.push({ knoten, animation: spur.animation });
+        bilderJeSekunde = spur.animation.framePerSecond;
+      }
+      if (kanaele.length) {
+        const schichten = this.waffenSchichten.get(art) ?? [];
+        schichten.push({
+          kanaele,
+          von: gruppe.from,
+          bis: gruppe.to,
+          bilderJeSekunde,
+        });
+        this.waffenSchichten.set(art, schichten);
+      }
+      gruppe.stop();
+    }
+  }
+
+  private wendeWaffenPoseAn(): void {
+    if (!this.waffeAktiv) return;
+    const schichten = this.waffenSchichten.get(this.waffeAktiv) ?? [];
+    if (!schichten.length) return;
+    this.waffenZeit += this.engine.getDeltaTime() / 1000;
+    for (const schicht of schichten) {
+      const spanne = schicht.bis - schicht.von;
+      const bild = spanne > 0
+        ? schicht.von + ((this.waffenZeit * schicht.bilderJeSekunde) % spanne)
+        : schicht.von;
+      for (const kanal of schicht.kanaele) {
+        const drehung = kanal.animation.evaluate(bild) as Quaternion;
+        if (!kanal.knoten.rotationQuaternion) kanal.knoten.rotationQuaternion = drehung.clone();
+        else kanal.knoten.rotationQuaternion.copyFrom(drehung);
+      }
+    }
   }
 
   async setze(slot: string, datei: string | null): Promise<void> {
-    if (this.aktuell.get(slot) === (datei ?? '')) return;
+    if (!this.teileErlaubt) return;
+    // Schutz auch für andere Aufrufer als die aktuelle Svelte-Seite: Ein
+    // altes, hautgebundenes Haarteil darf nie auf den neuen Wikinger geraten.
+    if (slot === 'frisur' && !this.frisurenErlaubt) datei = null;
+    const ziel = datei ?? '';
+    if (this.aktuell.get(slot) === ziel && (!datei || this.geladen.has(datei))) return;
+    const epoche = this.teileEpoche;
+    const lauf = (this.teileLaeufe.get(slot) ?? 0) + 1;
+    this.teileLaeufe.set(slot, lauf);
     const vorher = this.aktuell.get(slot);
     if (vorher) this.zeige(vorher, false);
-    this.aktuell.set(slot, datei ?? '');
+    this.aktuell.set(slot, ziel);
     if (!datei) return;
 
     if (!this.geladen.has(datei)) {
@@ -304,8 +571,25 @@ export class Vorschau {
         // atmet. Zulaessig nur, weil beide dieselbe Gelenkliste haben.
         if (this.skelett) m.skeleton = this.skelett;
       }
-      this.geladen.set(datei, { netze });
+      const importiertesTeil = {
+        netze,
+        wurzeln: res.meshes.filter((m) => m.parent === this.figurKnoten),
+        skelette: res.skeletons,
+      };
+      // ImportMeshAsync schaltet Netze sofort ein. Zuerst ausblenden und
+      // erst nach dem Lauf-Abgleich freigeben, sonst blitzt eine alte
+      // Frisur auf oder bleibt nach schnellem Weiterklicken sogar stehen.
+      for (const m of netze) m.setEnabled(false);
+      if (epoche !== this.teileEpoche || this.teileLaeufe.get(slot) !== lauf
+          || this.aktuell.get(slot) !== datei || this.zerstoert) {
+        for (const wurzel of importiertesTeil.wurzeln) wurzel.dispose(false, true);
+        for (const skelett of importiertesTeil.skelette) skelett.dispose();
+        return;
+      }
+      this.geladen.set(datei, importiertesTeil);
     }
+    if (epoche !== this.teileEpoche || this.teileLaeufe.get(slot) !== lauf
+        || this.aktuell.get(slot) !== datei || this.zerstoert) return;
     this.zeige(datei, true);
     // Nach dem Anzeigen faerben — eine frisch geladene Frisur bringt ihr
     // eigenes Material mit und waere sonst wieder platzhalterbraun.
@@ -331,15 +615,17 @@ export class Vorschau {
 
   private faerbeFrisur(): void {
     if (!this.haarHex) return;
-    const datei = this.aktuell.get('frisur');
-    if (!datei) return;
     const farbe = Color3.FromHexString(this.haarHex).toLinearSpace();
-    for (const m of this.geladen.get(datei)?.netze ?? []) {
-      const mat = m.material as unknown as Record<string, unknown> | null;
-      if (!mat) continue;
-      // Nach Bauart statt nach Klasse: glTF liefert ein PBR-Material.
-      if ('albedoColor' in mat) mat['albedoColor'] = farbe;
-      else if ('diffuseColor' in mat) mat['diffuseColor'] = farbe;
+    for (const slot of ['frisur', 'bart', 'augenbraue']) {
+      const datei = this.aktuell.get(slot);
+      if (!datei) continue;
+      for (const m of this.geladen.get(datei)?.netze ?? []) {
+        const mat = m.material as unknown as Record<string, unknown> | null;
+        if (!mat) continue;
+        // Nach Bauart statt nach Klasse: glTF liefert ein PBR-Material.
+        if ('albedoColor' in mat) mat['albedoColor'] = farbe;
+        else if ('diffuseColor' in mat) mat['diffuseColor'] = farbe;
+      }
     }
   }
 
@@ -537,7 +823,7 @@ export class Vorschau {
   }
 
   private blickpunktNachfuehren(): void {
-    const AUSGANG = 3.6;
+    const AUSGANG = 3.2;
     const BRUST = 1.05;
     const KOPF = 1.62;
     const nah = this.kamera.lowerRadiusLimit ?? 2.2;
@@ -547,7 +833,7 @@ export class Vorschau {
 
   blickZurueck(): void {
     this.figurKnoten.rotation.y = 0;
-    this.kamera.radius = 3.6;
+    this.kamera.radius = 3.2;
     this.videoMassstabSetzen();
     // Der Blickpunkt folgt beim naechsten Frame von selbst; ihn hier
     // ebenfalls zu setzen waere eine zweite Wahrheit ueber dieselbe Zahl.
@@ -557,6 +843,9 @@ export class Vorschau {
 
   dispose(): void {
     this.zerstoert = true;
+    this.koerperLauf += 1;
+    this.teileEpoche += 1;
+    this.teileLaeufe.clear();
     this.beobachter?.disconnect();
     window.removeEventListener('resize', this.beiGroesse);
     this.scene.dispose();

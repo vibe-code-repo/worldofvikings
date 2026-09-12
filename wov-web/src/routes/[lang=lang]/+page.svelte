@@ -3,7 +3,7 @@
   import { page } from '$app/state';
   import Kopfdaten from '$lib/Kopfdaten.svelte';
   import { holeJson } from '$lib/formate';
-  import { FAHRT } from '$lib/seiten';
+  import { FAHRT, FAHRT_STAND } from '$lib/seiten';
   import { localeFrom, localizedPath, messages } from '$lib/i18n';
   import {
     SHORE_HINT,
@@ -206,7 +206,7 @@
    * ankommt — dann ist jede Zeile ein gewöhnlicher Link, und keine
    * Schaltfläche, die nichts tut.
    */
-  const spielPfad = $derived.by(() => (s: ShoreId) => `${p(FAHRT)}?shore=${s}`);
+  const spielPfad = $derived.by(() => (s: ShoreId) => `${p(FAHRT)}?shore=${s}&stand=${FAHRT_STAND}`);
 
   /**
    * Jedes Gestade fragen — beim Aufruf und danach alle halbe Minute.
@@ -396,6 +396,7 @@
               {#if SHORE_OPEN[s]}
                 <a
                   class="world-row"
+                  data-sveltekit-reload
                   href={spielPfad(s)}
                   aria-current={s === gestade ? 'true' : undefined}
                   onclick={(e) => waehle(e, s)}
@@ -439,7 +440,7 @@
       Knopf „Auf Fahrt gehen“. Das gewählte Gestade reist als Parameter mit,
       damit die Wahl auch ohne Zwischenspeicher ankommt.
     -->
-    <a class="gate-play" href={spielPfad(gestade)}>{t['hall.gate.play_button']}</a>
+    <a class="gate-play" data-sveltekit-reload href={spielPfad(gestade)}>{t['hall.gate.play_button']}</a>
 
     <div class="gate-rule" aria-hidden="true"></div>
 

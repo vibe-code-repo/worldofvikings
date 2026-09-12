@@ -34,6 +34,8 @@ import {
   modellZu,
   AUSSEHEN_ORDNER,
   frisurZu,
+  bartAusFrisur,
+  augenbraueAusFrisur,
   haarfarbeZu,
   ruestungZu,
   istFrisur,
@@ -1357,7 +1359,7 @@ export class EntityManager {
         // Rueckfall auf eine Vorgabefrisur, sonst saehe man bei jedem
         // Fremden etwas anderes als er selbst.
         if (u.frisur !== undefined || u.ruestung !== undefined) {
-          void this.setzeFremdesAussehen(u);
+          void this.setzeFremdesAussehen(u, modell);
         }
       });
     } else {
@@ -1381,12 +1383,12 @@ export class EntityManager {
    * direkt um, sitzt das Teil gespiegelt — genau dieser Fehler ist beim
    * eigenen Avatar schon einmal passiert.
    */
-  private async setzeFremdesAussehen(u: ZDOEntityUpdate): Promise<void> {
+  private async setzeFremdesAussehen(u: ZDOEntityUpdate, modell: string | null): Promise<void> {
     const dyn = this.dynamics.get(u.key);
     if (!dyn) return;
-    // Nur die Wikingerin traegt die Teildateien aus aussehen.ts; jede
-    // andere Figur (der Wikinger) bekommt keine — siehe AvatarRig.setzeAussehen.
-    if (u.figur && !modellZu(u.figur).startsWith(`${AUSSEHEN_ORDNER}/`)) return;
+    // Nur die beiden spielbaren Körper kennen die modularen Aussehensteile;
+    // die zusätzliche Geometrie-Kompatibilität wird je Slot geprüft.
+    if (u.figur && !/^(wikinger\/|wikingerin\/)/.test(modellZu(u.figur))) return;
     dyn.aussehen ??= new Map();
 
     // Skelett des Koerpers suchen — an ihm haengen alle Teile.
@@ -1398,8 +1400,14 @@ export class EntityManager {
 
     const [ober, beine] = (u.ruestung ?? '|').split('|');
     const gewuenscht: Record<string, string | null> = {
-      frisur: u.frisur && istFrisur(u.frisur)
+      // Gleiche Schutzregel wie für den eigenen Avatar: Die Frisuren aus
+      // dem alten Master passen nur auf den Wikingerin-Kopf.
+      frisur: modell?.startsWith('wikingerin/') && u.frisur && istFrisur(u.frisur)
         ? `${AUSSEHEN_ORDNER}/${frisurZu(u.frisur).datei}` : null,
+      bart: u.frisur && istFrisur(u.frisur) && bartAusFrisur(u.frisur)
+        ? `${AUSSEHEN_ORDNER}/${bartAusFrisur(u.frisur)!.datei}` : null,
+      augenbraue: u.frisur && istFrisur(u.frisur) && augenbraueAusFrisur(u.frisur)
+        ? `${AUSSEHEN_ORDNER}/${augenbraueAusFrisur(u.frisur)!.datei}` : null,
       oberkoerper: ruestungZu(ober) ? `${AUSSEHEN_ORDNER}/${ruestungZu(ober)!.datei}` : null,
       beine: ruestungZu(beine) ? `${AUSSEHEN_ORDNER}/${ruestungZu(beine)!.datei}` : null,
     };
@@ -1434,7 +1442,7 @@ export class EntityManager {
       // `instantiateModelsToScene` teilt Materialien zwischen allen
       // Instanzen. Ohne Klon faerbte der erste Spieler mit dieser
       // Frisur alle anderen mit (s. haarfarbe.ts).
-      if (slot === 'frisur') {
+      if (slot === 'frisur' || slot === 'bart' || slot === 'augenbraue') {
         faerbeHaar(netze, haarfarbeZu(u.haarfarbe).hex, true);
       }
       dyn.aussehen.set(slot, { datei, wurzel });

@@ -1,0 +1,315 @@
+{
+  "femaleBody": [
+    "Chr_Head_Female_00",
+    "Chr_Torso_Female_00",
+    "Chr_ArmUpperLeft_Female_00",
+    "Chr_ArmUpperRight_Female_00",
+    "Chr_ArmLowerLeft_Female_00",
+    "Chr_ArmLowerRight_Female_00",
+    "Chr_HandLeft_Female_00",
+    "Chr_HandRight_Female_00",
+    "Chr_Hips_Female_00",
+    "Chr_LegLeft_Female_00",
+    "Chr_LegRight_Female_00"
+  ],
+  "hair": [
+    {
+      "id": "H_01",
+      "source": "Chr_Hair_01"
+    },
+    {
+      "id": "H_02",
+      "source": "Chr_Hair_02"
+    },
+    {
+      "id": "H_03",
+      "source": "Chr_Hair_03"
+    },
+    {
+      "id": "H_04",
+      "source": "Chr_Hair_04"
+    },
+    {
+      "id": "H_05",
+      "source": "Chr_Hair_05"
+    },
+    {
+      "id": "H_06",
+      "source": "Chr_Hair_06"
+    },
+    {
+      "id": "H_07",
+      "source": "Chr_Hair_07"
+    },
+    {
+      "id": "H_08",
+      "source": "Chr_Hair_08"
+    },
+    {
+      "id": "H_09",
+      "source": "Chr_Hair_09"
+    },
+    {
+      "id": "H_10",
+      "source": "Chr_Hair_10"
+    },
+    {
+      "id": "H_11",
+      "source": "Chr_Hair_11"
+    },
+    {
+      "id": "H_12",
+      "source": "Chr_Hair_12"
+    },
+    {
+      "id": "H_13",
+      "source": "Chr_Hair_13"
+    },
+    {
+      "id": "H_14",
+      "source": "Chr_Hair_14"
+    },
+    {
+      "id": "H_15",
+      "source": "Chr_Hair_15"
+    },
+    {
+      "id": "H_16",
+      "source": "Chr_Hair_16"
+    },
+    {
+      "id": "H_17",
+      "source": "Chr_Hair_17"
+    },
+    {
+      "id": "H_18",
+      "source": "Chr_Hair_18"
+    },
+    {
+      "id": "H_19",
+      "source": "Chr_Hair_19"
+    },
+    {
+      "id": "H_20",
+      "source": "Chr_Hair_20"
+    },
+    {
+      "id": "H_21",
+      "source": "Chr_Hair_21"
+    },
+    {
+      "id": "H_22",
+      "source": "Chr_Hair_22"
+    },
+    {
+      "id": "H_23",
+      "source": "Chr_Hair_23"
+    },
+    {
+      "id": "H_24",
+      "source": "Chr_Hair_24"
+    },
+    {
+      "id": "H_25",
+      "source": "Chr_Hair_25"
+    },
+    {
+      "id": "H_26",
+      "source": "Chr_Hair_26"
+    },
+    {
+      "id": "H_27",
+      "source": "Chr_Hair_27"
+    },
+    {
+      "id": "H_28",
+      "source": "Chr_Hair_28"
+    },
+    {
+      "id": "H_29",
+      "source": "Chr_Hair_29"
+    },
+    {
+      "id": "H_30",
+      "source": "Chr_Hair_30"
+    },
+    {
+      "id": "H_31",
+      "source": "Chr_Hair_31"
+    },
+    {
+      "id": "H_32",
+      "source": "Chr_Hair_32"
+    },
+    {
+      "id": "H_33",
+      "source": "Chr_Hair_33"
+    },
+    {
+      "id": "H_34",
+      "source": "Chr_Hair_34"
+    },
+    {
+      "id": "H_35",
+      "source": "Chr_Hair_35"
+    },
+    {
+      "id": "H_36",
+      "source": "Chr_Hair_36"
+    },
+    {
+      "id": "H_37",
+      "source": "Chr_Hair_37"
+    },
+    {
+      "id": "H_38",
+      "source": "Chr_Hair_38"
+    }
+  ],
+  "beards": [
+    {
+      "id": "B_01",
+      "source": "Chr_FacialHair_Male_01"
+    },
+    {
+      "id": "B_02",
+      "source": "Chr_FacialHair_Male_02"
+    },
+    {
+      "id": "B_03",
+      "source": "Chr_FacialHair_Male_03"
+    },
+    {
+      "id": "B_04",
+      "source": "Chr_FacialHair_Male_04"
+    },
+    {
+      "id": "B_05",
+      "source": "Chr_FacialHair_Male_05"
+    },
+    {
+      "id": "B_06",
+      "source": "Chr_FacialHair_Male_06"
+    },
+    {
+      "id": "B_07",
+      "source": "Chr_FacialHair_Male_07"
+    },
+    {
+      "id": "B_08",
+      "source": "Chr_FacialHair_Male_08"
+    },
+    {
+      "id": "B_09",
+      "source": "Chr_FacialHair_Male_09"
+    },
+    {
+      "id": "B_10",
+      "source": "Chr_FacialHair_Male_10"
+    },
+    {
+      "id": "B_11",
+      "source": "Chr_FacialHair_Male_11"
+    },
+    {
+      "id": "B_12",
+      "source": "Chr_FacialHair_Male_12"
+    },
+    {
+      "id": "B_13",
+      "source": "Chr_FacialHair_Male_13"
+    },
+    {
+      "id": "B_14",
+      "source": "Chr_FacialHair_Male_14"
+    },
+    {
+      "id": "B_15",
+      "source": "Chr_FacialHair_Male_15"
+    },
+    {
+      "id": "B_16",
+      "source": "Chr_FacialHair_Male_16"
+    },
+    {
+      "id": "B_17",
+      "source": "Chr_FacialHair_Male_17"
+    },
+    {
+      "id": "B_18",
+      "source": "Chr_FacialHair_Male_18"
+    }
+  ],
+  "eyebrowsMale": [
+    {
+      "id": "AM_01",
+      "source": "Chr_Eyebrow_Male_01"
+    },
+    {
+      "id": "AM_02",
+      "source": "Chr_Eyebrow_Male_02"
+    },
+    {
+      "id": "AM_03",
+      "source": "Chr_Eyebrow_Male_03"
+    },
+    {
+      "id": "AM_04",
+      "source": "Chr_Eyebrow_Male_04"
+    },
+    {
+      "id": "AM_05",
+      "source": "Chr_Eyebrow_Male_05"
+    },
+    {
+      "id": "AM_06",
+      "source": "Chr_Eyebrow_Male_06"
+    },
+    {
+      "id": "AM_07",
+      "source": "Chr_Eyebrow_Male_07"
+    },
+    {
+      "id": "AM_08",
+      "source": "Chr_Eyebrow_Male_08"
+    },
+    {
+      "id": "AM_09",
+      "source": "Chr_Eyebrow_Male_09"
+    },
+    {
+      "id": "AM_10",
+      "source": "Chr_Eyebrow_Male_10"
+    }
+  ],
+  "eyebrowsFemale": [
+    {
+      "id": "AF_01",
+      "source": "Chr_Eyebrow_Female_01"
+    },
+    {
+      "id": "AF_02",
+      "source": "Chr_Eyebrow_Female_02"
+    },
+    {
+      "id": "AF_03",
+      "source": "Chr_Eyebrow_Female_03"
+    },
+    {
+      "id": "AF_04",
+      "source": "Chr_Eyebrow_Female_04"
+    },
+    {
+      "id": "AF_05",
+      "source": "Chr_Eyebrow_Female_05"
+    },
+    {
+      "id": "AF_06",
+      "source": "Chr_Eyebrow_Female_06"
+    },
+    {
+      "id": "AF_07",
+      "source": "Chr_Eyebrow_Female_07"
+    }
+  ]
+}

@@ -61,6 +61,7 @@ import { execFile, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, copyFileSync, readdirSync, statSync, unlinkSync, mkdirSync, renameSync } from 'node:fs';
 import { resolve, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomBytes } from 'node:crypto';
 import { promisify } from 'node:util';
 import { instanzName, weltDatei } from '@wov/shared/src/instanz.js';
 // Direktimport am Barrel vorbei: shared/src/index.ts geht in den
@@ -147,11 +148,51 @@ const GENERIERT_ORDNER = resolve(WURZEL, 'assets/generiert');
 const ERLAUBTE_DIENSTE = ['wov-server', 'nginx'] as const;
 type Dienst = (typeof ERLAUBTE_DIENSTE)[number];
 
-const token = existsSync(TOKEN_DATEI) ? readFileSync(TOKEN_DATEI, 'utf-8').trim() : '';
-if (!token) {
-  console.error(`[Admin] Kein Token in ${TOKEN_DATEI} — Dienst startet nicht.`);
-  process.exit(1);
+/**
+ * Getting-started (2026-09-12): "git clone && npm install && npm run dev"
+ * hat keinen Operator, der vorab eine Token-Datei unter /etc anlegt. Für
+ * genau diesen Fall setzt scripts/dev.mjs WOV_ADMIN_TOKEN_DATEI auf
+ * server/data/admin.token (Teil des Checkouts, gitignored) statt des
+ * Vorgabewerts /etc/wov-admin.token — und dieser Prozess erzeugt dort,
+ * wenn die Datei fehlt, sein eigenes Zufallstoken statt abzubrechen.
+ *
+ * Der alte harte Abbruch bleibt der wirksame Schutz für den Betriebsfall:
+ * Zeigt TOKEN_DATEI weiterhin auf /etc/wov-admin.token (Operator-Pfad,
+ * root-only), scheitert das Anlegen an den Dateirechten, und der Prozess
+ * bricht genauso ab wie zuvor — nur eben ueber denselben Codepfad statt
+ * eines gesonderten.
+ *
+ * ── Getting started (2026-09-12): "git clone && npm install && npm run
+ * dev" has no operator placing a token file under /etc beforehand. For
+ * exactly that case scripts/dev.mjs points WOV_ADMIN_TOKEN_DATEI at
+ * server/data/admin.token (part of the checkout, gitignored) instead of
+ * the default /etc/wov-admin.token — and this process generates its own
+ * random token there when the file is missing, instead of exiting.
+ *
+ * The old hard stop stays the effective guard for the operated case: if
+ * TOKEN_DATEI still points at /etc/wov-admin.token (operator path,
+ * root-only), creating it fails on file permissions and the process
+ * exits exactly as before — just through the same code path rather than
+ * a separate one.
+ */
+function tokenBeschaffen(): string {
+  if (existsSync(TOKEN_DATEI)) {
+    const vorhanden = readFileSync(TOKEN_DATEI, 'utf-8').trim();
+    if (vorhanden) return vorhanden;
+  }
+  const neu = randomBytes(32).toString('hex');
+  try {
+    mkdirSync(dirname(TOKEN_DATEI), { recursive: true });
+    writeFileSync(TOKEN_DATEI, `${neu}\n`, { mode: 0o600 });
+  } catch (fehler) {
+    console.error(`[Admin] Kein Token in ${TOKEN_DATEI} und Erzeugen fehlgeschlagen: ${(fehler as Error).message}`);
+    process.exit(1);
+  }
+  console.warn(`[Admin] Kein Token in ${TOKEN_DATEI} — neues Token erzeugt und dort abgelegt (nur für diesen Rechner).`);
+  return neu;
 }
+
+const token = tokenBeschaffen();
 
 // ── Kleine Helfer ─────────────────────────────────────────────────────
 

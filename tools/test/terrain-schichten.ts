@@ -187,6 +187,50 @@ const tab = tabelle(512) as { tiles: { tile: number; name: string; quelle: strin
     );
   }
 }
+
+/*
+  ── (g) Die Karte der Moosschicht (Folgekarte „Moosschicht", 12.09.) ──
+
+  Dieselbe Lücke wie bei (f), eine Ebene weiter: Tile 1/10/11 tragen die
+  Zahlen der Moos-Ebene des Vorbilds (2 m, Normale 1,2, Metallic 0), ihre
+  FARBE war bis zum 12.09.2026 ein Vertreter aus dem Speicher. Gemessen
+  ist der Unterschied eine Verdopplung — lineare Luma 0,0367 gegen 0,0180
+  —, und genau die hielt `Hangfels/Moos` am Hang bei 1,21 fest
+  (`design/original-boden.md`, Nachtrag 12.09.).
+
+  Zwei Dinge sind hier still gefährlich:
+   · Der Ersatz greift unbemerkt (wie bei (f)) — deshalb steht auch hier
+     der WUNSCH in `farbeGewuenscht`, egal was gebaut wurde.
+   · Die drei Moos-Tiles laufen auseinander. Sie sind EINE Schicht; wer
+     nur eine davon umstellt, bekommt einen Waldboden, der anders
+     aussieht als der Hang daneben — ohne Fehlermeldung.
+*/
+{
+  const moosZeilen = tab.tiles.filter((t) => t.quelle === 'moss');
+  check(
+    'die Moosschicht wünscht sich die Karte des Vorbilds',
+    moosZeilen.length >= 3 && moosZeilen.every((t) => t.farbeGewuenscht === 'terrain-moss-dark'),
+    moosZeilen.map((t) => `${String(t.tile)}:${t.farbeGewuenscht}`).join(' ')
+  );
+  check(
+    'alle Moos-Tiles tragen dieselbe Karte',
+    new Set(moosZeilen.map((t) => t.farbe)).size === 1,
+    moosZeilen.map((t) => `${String(t.tile)}:${t.farbe}`).join(' ')
+  );
+  const moosGebaut = moosZeilen[0]?.farbe ?? '';
+  check(
+    'die gebaute Mooskarte ist die gewünschte oder der benannte Ersatz',
+    moosGebaut === 'terrain-moss-dark' || moosGebaut === 'terrain-moss',
+    `${moosGebaut} (${moosZeilen[0]?.farbeOrt ?? '—'})`
+  );
+  if (moosGebaut !== 'terrain-moss-dark') {
+    console.log(
+      '     Hinweis: Es wird der ERSATZ gebaut — `terrain-moss-dark` liegt weder im\n' +
+        '     Speicher noch unter assets/store-lab/textures/. `npm run store:quellen`\n' +
+        '     holt sie, wenn der Quellbestand auf dieser Maschine vorhanden ist.'
+    );
+  }
+}
 check(
   'das Werkzeug beschreibt genau 16 Tiles — so viele hat der Stapel',
   tab.tiles.length === 16 && SCHICHT_OBERFLAECHE.length === 16,
@@ -611,6 +655,86 @@ check(
     existsSync(join(AUS, d))
   )
 );
+
+/*
+  ── (h) Zwei Karten, eine Zahl: das Verhältnis Fels zu Moos ──────────
+
+  Ein Dateiname beweist nicht, was in einer Zeile steht. Zwischen Quelle
+  und Stapel liegt die Skalierung, und zwei vertauschte Zeilen sehen im
+  `store-schichten.json` völlig richtig aus.
+
+  Deshalb wird am GEBAUTEN Stapel gemessen: Über alle Texel und je Texel
+  nach linear gewandelt stehen die zwei Karten des Vorbilds im Verhältnis
+  0,08585 / 0,01799 = **4,77** (Hangfels Tile 5 zu Moos Tile 11). Das ist
+  eine Eigenschaft der zwei Bilder, keine Look-Entscheidung — sie gilt
+  unabhängig von Licht, Nebel und Grading, und sie fällt sofort unter 2,
+  sobald eine der beiden Zeilen den alten Vertreter trägt.
+
+  Läuft der Ersatz (Maschine ohne Quellbestand), ist das Verhältnis ein
+  anderes und der Test sagt es, statt rot zu werden — dasselbe Muster wie
+  bei (f)/(g).
+
+  Gemessen über `spawnSync`, weil dieser Test synchron läuft: `tsx`
+  übersetzt ihn nach CJS, und ein Top-Level-await ist dort nicht
+  übersetzbar (die Begründung steht auch am Fuss des Werkzeugs).
+*/
+{
+  const messProgramm = `
+    const sharp = require('sharp');
+    const K = 256, ZEILEN = 16;
+    (async () => {
+      const b = await sharp(process.argv[1]).raw().toBuffer();
+      const lin = (v) => { const s = v / 255; return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
+      const raus = {};
+      for (const z of [1, 5, 11]) {
+        let lr = 0, lg = 0, lb = 0;
+        const off = z * K * K * 3, n = K * K;
+        for (let p = 0; p < K * K * 3; p += 3) { lr += lin(b[off + p]); lg += lin(b[off + p + 1]); lb += lin(b[off + p + 2]); }
+        raus[z] = 0.2126 * lr / n + 0.7152 * lg / n + 0.0722 * lb / n;
+      }
+      process.stdout.write(JSON.stringify(raus));
+    })();
+  `;
+  const m = spawnSync(process.execPath, ['-e', messProgramm, join(AUS, 'store_d_array.png')], {
+    cwd: WURZEL,
+    encoding: 'utf-8',
+  });
+  let luma: Record<string, number> | null = null;
+  try {
+    luma = JSON.parse(m.stdout) as Record<string, number>;
+  } catch {
+    luma = null;
+  }
+  const moosGebaut =
+    (tab.tiles.find((t) => t.quelle === 'moss')?.farbe ?? '') === 'terrain-moss-dark' &&
+    (tab.tiles.find((t) => t.quelle === 'rock-rough')?.farbe ?? '') === 'terrain-rock-moss';
+  if (!luma) {
+    check('die Zeilen des Stapels lassen sich messen', false, m.stderr.slice(0, 200));
+  } else {
+    check(
+      'Moos steht in Tile 1 und Tile 11 mit derselben Helligkeit',
+      Math.abs(luma['1']! - luma['11']!) < 1e-4,
+      `${luma['1']!.toFixed(5)} / ${luma['11']!.toFixed(5)}`
+    );
+    const v = luma['5']! / luma['11']!;
+    if (moosGebaut) {
+      check(
+        'Hangfels zu Moos trifft das Verhältnis der zwei Karten des Vorbilds (4,77)',
+        v > 4.3 && v < 5.2,
+        `${v.toFixed(2)} (Tile 5 ${luma['5']!.toFixed(5)}, Tile 11 ${luma['11']!.toFixed(5)})`
+      );
+      check(
+        'die Moosschicht liegt bei der linearen Luma des Vorbilds (0,0180)',
+        luma['11']! > 0.016 && luma['11']! < 0.020,
+        luma['11']!.toFixed(5)
+      );
+    } else {
+      console.log(
+        `     Hinweis: Ersatzkarte(n) im Stapel — Hangfels/Moos misst ${v.toFixed(2)} statt 4,77.`
+      );
+    }
+  }
+}
 
 /*
   ── (e) Die sechs Zahlen der Himmels-Irradianz ─────────────────────

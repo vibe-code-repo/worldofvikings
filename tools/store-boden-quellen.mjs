@@ -75,6 +75,11 @@ const DATEIEN = [
     ziel: 'terrain-rock-moss.png',
     zweck: 'Diffuse-Karte des hellen Hangfelses (Tile 5 Cliff)',
   },
+  {
+    quelle: 'terrain-moss-dark.png',
+    ziel: 'terrain-moss-dark.png',
+    zweck: 'Diffuse-Karte der Moosschicht (Tiles 1 Forest, 10 SwampMud, 11 Moss)',
+  },
 ];
 
 if (!existsSync(QUELLE)) {

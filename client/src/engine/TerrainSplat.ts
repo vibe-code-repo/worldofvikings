@@ -198,6 +198,17 @@ export interface SchichtOberflaeche {
  *  · Tile 0/8 `Grass`/`Heath`: Metallic 0,5 → **0,70**, der Wert von
  *    `Ani Grass 2` (die Ebene, aus der `terrain-grass-a` stammt).
  *
+ * ── Nachtrag 12.09.2026: die FARBEN der zwei Hangschichten ───────────
+ * An diesen vier Zahlen je Zeile ändert sich dabei nichts — wohl aber an
+ * den Karten, die darunter liegen, und das steht hier, weil man den
+ * Effekt sonst in dieser Tabelle sucht. Tile 5 hat am 11.09. die Karte
+ * des Vorbilds bekommen (A9), Tile 1/10/11 am 12.09. (lineare Luma über
+ * alle Texel **0,0367 → 0,0180**, Farbton 82° → 61°). Die Moosschicht
+ * stand also doppelt so hell wie ihre Vorlage, und weil sie am Hang die
+ * Mehrheit der Fläche stellt, war nicht der Fels zu dunkel, sondern das
+ * Moos daneben zu hell. Herleitung und Messung:
+ * `tools/store-terrain-schichten.mjs`, Zeile `moss`.
+ *
  * Dass diese Liste dieselbe ist wie `SCHICHTEN` in
  * `tools/store-terrain-schichten.mjs`, prüft `tools/test/
  * terrain-schichten.ts`; dass die ZAHLEN die des Vorbilds sind,
@@ -544,7 +555,25 @@ export function triplanarGewichte(
  * am 09.09.2026 hing hinter dem Regler eine Grösse, die am Referenzort
  * rund ein Hundertstel der Bodenfarbe ausmachte (siehe
  * `HIMMEL_IRRADIANZ`), und ein Drehen daran war deshalb wirkungslos.
- * Jetzt hängt die volle Umgebungsbeleuchtung daran.
+ *
+ * ── Was er wirklich trägt, GEMESSEN (12.09.2026) ─────────────────────
+ * Hier stand „jetzt hängt die volle Umgebungsbeleuchtung daran". Das ist
+ * zu gross gesagt und war schon einmal der Grund, an der falschen Zahl zu
+ * drehen. An diesem Faktor hängt der SPIEGELNDE Anteil des Himmels —
+ * `reflexion · brdf.x` mit `reflexion = 0,04` für jede Schicht mit
+ * Metallic 0, also rund 1,8 % der vorgefilterten Himmelsfarbe. Der
+ * DIFFUSE Anteil des Grundlichts kommt nicht von hier, sondern als
+ * `ambient` über `syncLighting()` (s. dort).
+ *
+ * Am lebenden Bild abgezogen (Zenit/Horizont/Glanz auf 0, dieselbe Maske,
+ * `~/wov-lab-mess/moos-diagnose.mjs`, Mittag):
+ *
+ *   Pose `hanghimmel`, Moos       21 %   Fels  14 %
+ *   Pose `weitblick`,  Wiese      17 %
+ *
+ * Ein Siebtel bis ein Fünftel also — spürbar, aber nicht „die volle
+ * Umgebungsbeleuchtung". Wer den Boden um die Hälfte heben will, findet
+ * hier nicht genug Weg dafür.
  */
 const HIMMEL_ANTEIL = 1.0;
 
@@ -2889,7 +2918,38 @@ export class TerrainSplatMaterial {
     );
   }
 
-  /** Pro Frame von Lighting aufrufen: Sonne/Ambient/Nebel synchronisieren. */
+  /**
+   * Pro Frame von Lighting aufrufen: Sonne/Ambient/Nebel synchronisieren.
+   *
+   * ── Das Bodenlicht, in Zahlen (Folgekarte „Moosschicht", 12.09.2026) ─
+   * `sunColor` ist `Lighting.bodenSonne` (Sonnenfarbe MAL Stärke),
+   * `ambient` ist `Lighting.bodenAmbient` (Grundlichtfarbe MAL Stärke) —
+   * beide LINEAR. Sie sind die EINE Stelle, durch die das Licht zum Boden
+   * geht; wer am Bodenlicht misst oder dreht, dreht hier (so machen es
+   * `~/wov-lab-mess/original-mess.mjs` und `moos-hebel.mjs`).
+   *
+   * Woraus die Helligkeit einer Bodenfläche wirklich besteht, ist am
+   * lebenden Bild abgezogen worden (Mittag, jeder Beitrag einzeln auf 0,
+   * dieselbe Maske — `moos-diagnose.mjs`, Rohwerte unter
+   * `~/.cache/wov-lab/moos-diagnose-*.json`):
+   *
+   *            Sonne   Grundlicht   Himmel (HIMMEL_ANTEIL)   Nebel
+   *   Hang-Moos  20 %     38 %            21 %                0 %
+   *   Hang-Fels  17 %     27 %            14 %               11 %
+   *   Wiese      56 %     10 %            17 %                2 %
+   *
+   * Der Unterschied zwischen Wiese und Hang ist nicht Schatten, sondern
+   * GEOMETRIE: Am Messhang (46,2°, Blickrichtung −2,734) steht die Sonne
+   * mittags hinter dem Hang — N·L = 0,136 gegen 0,785 auf der Ebene. Ein
+   * Faktor auf `sunColor` bewegt die Wiese also viermal so stark wie
+   * diesen Hang, ein Faktor auf `ambient` umgekehrt.
+   *
+   * Und deshalb steht hier KEIN Faktor: Ein Regler an diesen zwei Farben
+   * ist von einer Belichtungsänderung im `look:`-Block nicht zu
+   * unterscheiden (gemessen, s. Nachtrag 12.09. in
+   * `design/original-boden.md`), und die Belichtung setzt der Integrator.
+   * Zwei Stellen für dieselbe Wirkung heisst: zweimal korrigiert.
+   */
   syncLighting(
     sunDir: Vector3,
     sunColor: Color3,

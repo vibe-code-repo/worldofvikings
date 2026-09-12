@@ -583,3 +583,123 @@ Rand im ganzen Splat).
 **Nicht lesbar geblieben:** `UniversalRenderPipelineGlobalSettings`
 (Typetree passt nicht). Kein anderer Wert dieser Spezifikation musste
 geschätzt werden.
+
+---
+
+## Nachtrag 12.09.2026 — Moosschicht und Bodenlicht
+
+Folgekarte zu A9/A11 (Block A des Fahrplans). Ausgangslage:
+`Hangfels/Moos` klebte bei **1,21** (Ziel 1,69) und `Hangfels/Himmel` bei
+**0,52** (Ziel 0,73), obwohl A9 dem Hangfels die Karte des Vorbilds
+gegeben und A11 das Felsrauschen nachgezogen hatte. Zeugen dieses
+Nachtrags: `~/wov-lab-mess/moos-hebel.mjs` und `moos-diagnose.mjs`,
+Rohwerte und Bilder unter `~/.cache/wov-lab/moos-*`.
+
+### Die Moosschicht stand doppelt so hell wie ihre Vorlage
+
+Tile 1 `Forest`, 10 `SwampMud` und 11 `Moss` tragen die Zahlen der
+Moos-Ebene des Vorbilds (2 m, Metallic 0, Glätte 0, Normale 1,2 — Tabelle
+in §A; es ist mit 51 % Flächenanteil die grösste Schicht der Referenzzone
+überhaupt). Ihre FARBE war ein Vertreter aus dem Speicher. Der
+Unterschied ist keine Nuance:
+
+| | lineare Luma (alle Texel) | sRGB-Mittel | Farbton | Sättigung |
+| --- | --- | --- | --- | --- |
+| Vertreter `terrain-moss` | **0,0367** | 41,9 / 57,9 / 13,4 | 82° | 0,77 |
+| Vorbild `terrain-moss-dark` | **0,0180** | 36,6 / 37,2 / 7,8 | 61° | 0,79 |
+
+Also doppelt so hell und eine halbe Stufe zu grün — gras- statt olivgrün.
+Weil die Moosschicht am Hang die Mehrheit der Fläche stellt (bei 46° trägt
+sie 56,5 %, der Fels 43,5 % — der Deckel aus §A), war nicht der Fels zu
+dunkel, sondern das Moos daneben zu hell.
+
+Die Karte kommt über denselben Weg wie `terrain-rock-moss`
+(`tools/store-boden-quellen.mjs` → `assets/store-lab/textures/`) und trägt
+in `tools/store-terrain-schichten.mjs` einen `farbeErsatz`, damit der
+Boden auf einer Maschine ohne den Quellbestand weiter baut.
+`tools/test/terrain-schichten.ts` hält das Verhältnis der zwei Karten am
+GEBAUTEN Stapel fest: **Tile 5 / Tile 11 = 4,77** (0,08585 / 0,01799).
+Mit dem alten Vertreter misst dieselbe Prüfung 2,34.
+
+### Gemessen, Pose `hanghimmel` (46,2°) und `weitblick`, Mittag
+
+| Verhältnis | Ziel | vorher | nachher |
+| --- | --- | --- | --- |
+| `Hangfels/Moos`, `hanghimmel` | 1,69 | 1,215 | **1,281** |
+| `Hangfels/Himmel`, `hanghimmel` | 0,73 | 0,520 | 0,485 |
+| `Moos/Himmel`, `hanghimmel` | 0,435 | 0,428 | 0,379 |
+| `Moos/Himmel`, `weitblick` | 0,435 | 0,410 | 0,376 |
+| Wiesengrund `weitblick` (L) | — | 46,3 | **45,8** (−1,1 %) |
+| Clipping | 0 | 0,091 % | 0,089 % |
+
+Der Wiesengrund bleibt, wie er war — die Moosschicht liegt dort nicht.
+`Hangfels/Moos` steigt, aber nur um 5 %; und beide Moos-Zeilen fallen
+unter ihr kalibriertes Band. Beides hat denselben Grund, und der steht im
+nächsten Abschnitt.
+
+### Woraus die Helligkeit einer Bodenfläche besteht
+
+Jeder Beitrag einzeln auf null, dieselbe Maske, Mittag
+(`moos-diagnose.mjs`):
+
+| | Sonne | Grundlicht | Himmelsterm | Nebel |
+| --- | --- | --- | --- | --- |
+| Hang, Moos | 20 % | 38 % | 21 % | 0 % |
+| Hang, Fels | 17 % | 27 % | 14 % | 11 % |
+| Wiese, eben | 56 % | 10 % | 17 % | 2 % |
+
+Der Unterschied zwischen Wiese und Hang ist **Geometrie, nicht Schatten**:
+Am Messhang steht die Sonne mittags hinter dem Hang, **N·L = 0,136** gegen
+**0,785** auf der Ebene (Sonne 51,7° hoch, Hang 46,2° und abgewandt).
+Derselbe Hang misst um 17 Uhr bereits `Hangfels/Himmel` = 0,732
+(`design/look-referenz.md`, Nachtrag 10.09.) — die 0,73 sind an dieser
+Stelle also eine Aussage über den Sonnenstand und nicht über den Boden.
+
+### Der Hebel „Bodenlicht": gemessen, nicht gesetzt
+
+Faktor auf `bodenSonne` UND `bodenAmbient` (die zwei Farben, durch die das
+Licht zum Boden geht), live je Bild, dieselbe Maske:
+
+| Faktor | `Hangfels/Moos` | `Hangfels/Himmel` | `Moos/Himmel` (Hang) | `Moos/Himmel` (weit) | Wiesengrund |
+| --- | --- | --- | --- | --- | --- |
+| 1,00 | 1,281 | 0,485 | 0,379 | 0,376 | 45,8 |
+| 1,15 | 1,264 | 0,500 | 0,396 | 0,396 | 48,2 (+5,2 %) |
+| 1,30 | 1,249 | 0,514 | 0,412 | 0,415 | 50,4 (+10 %) |
+| 1,60 | 1,227 | 0,541 | 0,441 | 0,451 | 54,4 (+19 %) |
+| 1,80 | 1,214 | 0,558 | 0,460 | 0,473 | 56,9 (+24 %) |
+
+Drei Dinge stehen damit fest, und alle drei sind Zahlen:
+
+1. **`Hangfels/Moos` fällt mit dem Bodenlicht**, es steigt nicht. Fels und
+   Moos liegen auf DEMSELBEN Hang unter DEMSELBEN Licht; ihr Verhältnis
+   ist eine Aussage über Albedo und Mischung, und die fixen Anteile
+   (Himmelsterm, Nebel) sind beim Fels grösser. Kein Bodenlicht der Welt
+   bringt 1,69.
+2. **`Hangfels/Himmel` bräuchte Faktor ≈ 4**, `Moos/Himmel` verlässt sein
+   Band schon bei ≈ 1,45. Die zwei Ziele sind über diesen Hebel nicht
+   gleichzeitig erreichbar.
+3. **„Wiese unverändert ± 5 %" deckelt den Hebel bei 1,15**, während
+   `Moos/Himmel` erst ab ≈ 1,30 zurück in sein Band kommt. Auch diese
+   zwei schliessen sich aus — bei Faktor **1,80** landet der Wiesengrund
+   übrigens exakt auf dem Referenzwert **56,9** der Vorlage, also auf dem
+   Ziel, das der Bauer „Farbe und Grading" hat.
+
+Daraus die Entscheidung dieses Nachtrags: **kein Faktor im Boden.** Ein
+Regler an `bodenSonne`/`bodenAmbient` ist von einer Belichtungsänderung im
+`look:`-Block nicht zu unterscheiden, und die Belichtung setzt der
+Integrator. Zwei Stellen für dieselbe Wirkung heisst zweimal korrigiert.
+Was das Bodenlicht braucht, ist eine Zahl im Profil, keine im Shader.
+
+### Was offen bleibt
+
+`Hangfels/Moos` 1,69 verlangt, dass die Felsbänder am Hang wirklich Fels
+sind. Mit dem Deckel des Vorbilds (0,425 Felsgewicht ab 45°) trägt jeder
+Bildpunkt Moos: A11 hat die Streuung auf 18,4 % reines Moos und **0 %
+reinen Fels** gebracht — und misst damit dieselbe Verteilung wie die
+Vorlage (19,2 / 0). Die Referenzzahl 1,69 stammt aus einem Bild, in dem
+„Hangfels" ein FERNES, vom Dunst aufgehelltes Hangband ist und „Moos" ein
+naher Streifen; das sind zwei verschiedene Entfernungen, kein
+Albedo-Verhältnis. Solange beide Flächen aus einem Bild und aus derselben
+Entfernung kommen sollen, ist 1,69 mit dem Splat des Vorbilds nicht
+darstellbar. Die nächste ehrliche Zahl dafür wäre eine Neumessung der
+Referenz mit Angabe der Entfernung je Rechteck.

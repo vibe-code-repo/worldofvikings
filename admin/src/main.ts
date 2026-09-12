@@ -1259,7 +1259,31 @@ const dienst = createServer((req, res) => {
 
 // Nur auf der internen Bruecke lauschen. 0.0.0.0 waere hier der Fehler,
 // den man erst bemerkt, wenn jemand anders ihn findet.
-const ADRESSE = process.env.WOV_ADMIN_ADRESSE ?? '10.10.10.11';
+//
+// Getting-started (2026-09-12): Der Rückfall war bislang 10.10.10.11 — die
+// Adresse der internen Bruecke IM BETRIEB, wo eine systemd-Unit
+// WOV_ADMIN_ADRESSE aus /etc/wov.env immer setzt (siehe
+// deploy/wov.env.beispiel) und dieser Wert also nie griff. Ohne Unit
+// (lokal per `npm run dev`, genau der Fall, den der Kommentar bei
+// client/vite.config.ts:ADMIN_ADRESSE schon als Rückfall auf 127.0.0.1
+// beschreibt) gab es aber gar keine Bruecke mit dieser IP — der Dienst
+// schlug beim Start mit EADDRNOTAVAIL fehl. Der Rückfall hier muss also
+// zu dem in vite.config.ts PASSEN, nicht zur Live-Adresse: 127.0.0.1 ist
+// im Betrieb genauso falsch wie 10.10.10.11 es lokal war, aber dort
+// GREIFT der Rückfall nie, weil die Unit ihn überschreibt.
+//
+// Getting started (2026-09-12): the fallback used to be 10.10.10.11 — the
+// internal bridge's address IN PRODUCTION, where a systemd unit always
+// sets WOV_ADMIN_ADRESSE from /etc/wov.env (see deploy/wov.env.beispiel),
+// so this value never actually applied. Without a unit (`npm run dev` by
+// hand — exactly the case client/vite.config.ts's own ADMIN_ADRESSE
+// comment already describes as falling back to 127.0.0.1) there is no
+// bridge with that address, and the service failed to start with
+// EADDRNOTAVAIL. The fallback here has to MATCH the one in
+// vite.config.ts, not the live address: 127.0.0.1 is just as wrong in
+// production as 10.10.10.11 was locally, but there the fallback never
+// applies because the unit overrides it.
+const ADRESSE = process.env.WOV_ADMIN_ADRESSE ?? '127.0.0.1';
 dienst.listen(PORT, ADRESSE, () => {
   // Der TATSAECHLICH gebundene Port, nicht der gewuenschte: Mit
   // WOV_ADMIN_PORT=0 vergibt der Kern einen freien Port, und der Test

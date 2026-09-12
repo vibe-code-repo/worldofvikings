@@ -199,7 +199,36 @@ export const SCHICHTEN = {
     fest, welche der beiden Karten ein Stapel wirklich trägt.
   */
   'rock-rough': { farbe: 'terrain-rock-moss', farbeErsatz: 'terrain-rock-rough', normale: 'terrain-rock-rough-normal', kachelMeter: 7, normalStaerke: 2, metallic: 0, smoothness: 0 },
-  moss: { farbe: 'terrain-moss', normale: 'terrain-moss-normal', kachelMeter: 2, normalStaerke: 1.2, metallic: 0, smoothness: 0 },
+  /*
+    Die Moosschicht (Tiles 1 `Forest`, 10 `SwampMud`, 11 `Moss`).
+
+    ── Dieselbe Lücke wie bei `rock-rough`, eine Karte später ──────────
+    Kachelmaß (2 m), Normalstärke (1,2), Metallic und Glätte stehen seit
+    dem 10.09. hier und sind die der Ebene `Moss very Dark` des Vorbilds
+    (`design/original-boden.md` §A). Ihre FARBE stand nicht zur
+    Verfügung; `terrain-moss` aus dem Speicher hat sie vertreten.
+
+    Gemessen ist das keine Kleinigkeit, sondern eine Verdopplung: Der
+    Vertreter hat über alle Texel die lineare Luma **0,0367**, die Karte
+    des Vorbilds **0,0180** — die Moosschicht stand doppelt so hell wie
+    ihre Vorlage. Und sie stand grüner: sRGB-Mittel 41,9/57,9/13,4
+    (Farbton 82°) gegen 36,6/37,2/7,8 (Farbton 61°), also gras- statt
+    olivgrün. Beides zusammen ist der Grund, warum `Hangfels/Moos` am
+    Hang bei 1,21 klebte, während das Vorbild 1,69 misst: Nicht der Fels
+    war zu dunkel, das Moos daneben war zu hell.
+
+    Die Karte heisst `terrain-moss-dark` und kommt über denselben Weg
+    wie `terrain-rock-moss` (`tools/store-boden-quellen.mjs`) aus dem
+    Quellbestand ausserhalb des Repos. `farbeErsatz` hält den Bau auf
+    einer Maschine ohne ihn am Leben — welche der beiden Karten ein
+    Stapel wirklich trägt, steht in `store-schichten.json`.
+
+    Die NORMALE bleibt `terrain-moss-normal`: Übernommen wird hier nur,
+    was gemessen ist. Eine zweite Karte anzufassen, ohne ihren Beitrag
+    einzeln zu messen, hiesse zwei Änderungen unter einer Zahl zu
+    verbuchen.
+  */
+  moss: { farbe: 'terrain-moss-dark', farbeErsatz: 'terrain-moss', normale: 'terrain-moss-normal', kachelMeter: 2, normalStaerke: 1.2, metallic: 0, smoothness: 0 },
 };
 
 /**

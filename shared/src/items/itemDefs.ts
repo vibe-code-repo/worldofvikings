@@ -395,11 +395,12 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     attackStamina: 10,
   },
   {
-    // Kampfstab (Mikes eigenes Modell, 11.09.2026): 1,65 m, Kopf oben,
-    // Ursprung am Griffpunkt der rechten Hand 0,60 m ueber dem unteren
-    // Ende — deshalb ohne den 8-cm-Versatz des Schwerts. Gleiche Drehung
-    // wie das Schwert: die Laengsachse laeuft durch die Faust; die linke
-    // Hand greift in der Katana-Ruhepose 20 cm darunter.
+    // Kampfstab (Mikes eigenes Modell, 11.09.2026, schlanke Fassung 12.09.):
+    // 1,65 m, Kopf oben, Ursprung am Griffpunkt der rechten Hand 1,15 m
+    // ueber dem unteren Ende — deshalb ohne den 8-cm-Versatz des Schwerts.
+    // Gleiche Drehung wie das Schwert: die Laengsachse laeuft durch die
+    // Faust. Ruhehaltung wie der Speer (Mike, 12.09.): aufrecht in der
+    // rechten Hand, Ende am Boden; Hiebe beidhaendig aus der Stabkette.
     name: 'Staff',
     label: 'Kampfstab',
     itemType: ItemType.TwoHandedWeapon,
@@ -410,7 +411,7 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     toolTier: 1,
     holdPosition: [0, 0.08, 0.035],
     holdRotation: [0, Math.PI, Math.PI / 2],
-    animationSet: 'staff',
+    animationSet: 'spear',
     maxDurability: 200,
     useDurabilityDrain: 1,
     attackStamina: 10,

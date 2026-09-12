@@ -436,17 +436,18 @@ export class Vorschau {
     );
     const halter = new TransformNode('druide-stab', this.scene);
     halter.position.set(0.08, 0.08, 0.035);
-    // Der Stab zeigt im Asset entlang +Y. Die Katana-Ruhepose greift entlang
-    // der lokalen -X-Achse der rechten Hand; Z +90° legt beides übereinander.
-    halter.rotation.set(0, Math.PI, Math.PI / 2);
+    // Der Stab zeigt im Asset entlang +Y. In der Speer-Ruhepose zeigt die
+    // lokale +X-Achse der rechten Hand senkrecht nach oben; Z -90° legt die
+    // Stabachse genau darauf.
+    halter.rotation.set(0, 0, -Math.PI / 2);
     halter.scaling.setAll(1 / this.figurKnoten.scaling.x);
     halter.parent = hand;
 
     const modell = new TransformNode('druide-stab-modell', this.scene);
     modell.scaling.setAll(1.65);
-    // Nicht am Stabende greifen: Rund ein Viertel bleibt rechts der Hand,
-    // der längere Teil läuft durch die linke Hand und über sie hinaus.
-    modell.position.set(0, -0.41, -0.08);
+    // Die Hand sitzt rund 1,06 m über dem Boden. Dieser Versatz legt das
+    // Metallende auf den Boden und lässt die verzierte Spitze nach oben.
+    modell.position.set(0, -1.06, -0.08);
     modell.parent = halter;
     for (const knoten of [...res.meshes, ...res.transformNodes]) {
       if (!knoten.parent) knoten.parent = modell;
@@ -459,22 +460,12 @@ export class Vorschau {
     const hand = this.scene.getTransformNodeByName('Hand_R');
     const finger = new Set(hand?.getDescendants(false).map((knoten) => knoten.name) ?? []);
     const arm = new Set(['Clavicle_R', 'Shoulder_R', 'Elbow_R', 'Hand_R']);
-    const handLinks = this.scene.getTransformNodeByName('Hand_L');
-    const fingerBeide = new Set([
-      ...finger,
-      ...(handLinks?.getDescendants(false).map((knoten) => knoten.name) ?? []),
-    ]);
-    const armeBeide = new Set([
-      ...arm,
-      ...fingerBeide,
-      'Clavicle_L', 'Shoulder_L', 'Elbow_L', 'Hand_L',
-    ]);
     this.waffenSchichten.clear();
 
-    for (const gruppe of gruppen.filter((g) => /^(arm|hand)_(schwert|stab)$/i.test(g.name))) {
-      const stab = /_stab$/i.test(gruppe.name);
-      const art: Waffenart = stab ? 'stab' : 'schwert';
-      const maske = stab ? armeBeide : (/^arm_/i.test(gruppe.name) ? arm : finger);
+    for (const gruppe of gruppen.filter((g) => /^(arm|hand)_(schwert|speer)$/i.test(g.name))) {
+      const speer = /_speer$/i.test(gruppe.name);
+      const art: Waffenart = speer ? 'stab' : 'schwert';
+      const maske = /^arm_/i.test(gruppe.name) ? arm : finger;
       const kanaele: WaffenSchicht['kanaele'] = [];
       let bilderJeSekunde = 60;
       for (const spur of gruppe.targetedAnimations) {

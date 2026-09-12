@@ -148,7 +148,7 @@
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
   /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'wikinger-druidenstab-20260912';
+  const FIGUREN_STAND = 'wikinger-druidenstab-senkrecht-20260912';
 
   let figur = $state('');
   let frisur = $state('');

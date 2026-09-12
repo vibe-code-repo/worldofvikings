@@ -23,13 +23,37 @@ def argumente() -> argparse.Namespace:
         nach_trenner = __import__("sys").argv[__import__("sys").argv.index("--") + 1 :]
     parser = argparse.ArgumentParser()
     parser.add_argument("--ausgabe", required=True)
+    parser.add_argument(
+        "--waffen-animationen",
+        help="Optionale Blender-Datei mit zusaetzlichen Actions wie SpearIdle",
+    )
     return parser.parse_args(nach_trenner)
 
 
-AUSGABE = Path(argumente().ausgabe).expanduser().resolve()
+ARGS = argumente()
+AUSGABE = Path(ARGS.ausgabe).expanduser().resolve()
 AUSGABE.mkdir(parents=True, exist_ok=True)
 
 ARMATUR = bpy.data.objects["WoV_Player_Armature"]
+
+
+def fehlende_waffen_animationen_laden() -> None:
+    if not ARGS.waffen_animationen:
+        return
+    quelle = Path(ARGS.waffen_animationen).expanduser().resolve()
+    if not quelle.is_file():
+        raise RuntimeError(f"Datei mit Waffenanimationen fehlt: {quelle}")
+    benoetigt = [name for name in ("SpearIdle",) if bpy.data.actions.get(name) is None]
+    if not benoetigt:
+        return
+    namen = list(benoetigt)
+    with bpy.data.libraries.load(str(quelle), link=False) as (_, ziel):
+        # Blender ersetzt die Einträge dieser Liste beim Laden durch die
+        # erzeugten Action-Objekte; deshalb die Namensliste separat halten.
+        ziel.actions = list(namen)
+    weiterhin_fehlen = [name for name in namen if bpy.data.actions.get(name) is None]
+    if weiterhin_fehlen:
+        raise RuntimeError(f"Waffenanimationen fehlen in {quelle}: {weiterhin_fehlen}")
 
 
 def sammlungen_einblenden(layer=None) -> None:
@@ -95,6 +119,10 @@ def spiel_animationen_vorbereiten() -> None:
         # Beidhändige Stabhaltung für Druiden. Der männliche Standardexport
         # trägt denselben Clip unter diesem stabilen Web-/Spielnamen.
         ("arm_stab", "KatanaIdle"),
+        # Senkrechte Stabhaltung: der Arm richtet die lokale Hand-X-Achse
+        # nach oben, die Handspur schliesst die Finger um den Schaft.
+        ("arm_speer", "SpearIdle"),
+        ("hand_speer", "SwordIdle"),
         ("ausruesten", "SwordEquipFromIdle"),
         ("ablegen", "SwordUnequipFromIdle"),
         ("parade_links", "SwordParryLeft"),
@@ -118,6 +146,7 @@ def spiel_animationen_vorbereiten() -> None:
 
 
 sammlungen_einblenden()
+fehlende_waffen_animationen_laden()
 
 # Weiblicher Grundkoerper ohne die im Master nur als Beispiel eingesetzte
 # Frisur und Augenbraue. Beides wird im Editor als eigenes Modul aufgelegt.

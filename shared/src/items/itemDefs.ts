@@ -396,7 +396,7 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
   },
   {
     // Kampfstab (Mikes eigenes Modell, 11.09.2026, schlanke Fassung 12.09.):
-    // 1,65 m, Kopf oben, Ursprung am Griffpunkt der rechten Hand 1,40 m
+    // 1,65 m, Kopf oben, Ursprung am Griffpunkt der rechten Hand 1,08 m
     // ueber dem unteren Ende — deshalb ohne den 8-cm-Versatz des Schwerts.
     // Gleiche Drehung wie das Schwert: die Laengsachse laeuft durch die
     // Faust. Ruhehaltung wie der Speer (Mike, 12.09.): aufrecht in der
@@ -412,11 +412,12 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     holdPosition: [0, 0.08, 0.035],
     holdRotation: [0, Math.PI, Math.PI / 2],
     // Im Hieb rutscht der Stab 30 cm durch die Faust, die Hand greift also
-    // 30 cm tiefer: die Ruhehaltung fasst ihn 1,40 m ueber dem Ende, damit
-    // er aufrecht am Boden aufsteht — im beidhaendigen Hieb liegen die
-    // Haende in Brusthoehe, und genau dieser knappe Meter Schaft faehrt
-    // sonst durch Rumpf und Beine. Mit 0,30 haelt die Faust ihn etwa in
-    // der Mitte (1,10 m ueber dem Ende bei 1,65 m Laenge).
+    // 30 cm tiefer: die Ruhehaltung fasst ihn 1,08 m ueber dem Ende (Hand
+    // 1,059 m, Stab 2 Grad geneigt), damit er aufrecht am Boden aufsteht —
+    // im beidhaendigen Hieb liegen die Haende in Brusthoehe, und genau
+    // dieser knappe Meter Schaft faehrt sonst durch Rumpf und Beine. Mit
+    // 0,30 haelt die Faust ihn etwa in der Mitte (0,78 m ueber dem Ende
+    // bei 1,65 m Laenge).
     holdOffsetStrike: 0.3,
     animationSet: 'spear',
     maxDurability: 200,
@@ -425,11 +426,11 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
   },
   {
     // Speer (Mikes eigenes Modell, 12.09.2026): 1,90 m, Spitze oben, Ursprung
-    // 1,26 m ueber dem unteren Ende — die Hoehe der rechten Hand in der
-    // Ruhepose arm_speer (Hand 1,30 m, Stab 15 Grad nach hinten gekippt), damit das Ende am Boden
-    // aufsteht (mit 1,11 m schwebte es 3,7 cm, mit 1,15 m nach der Pose vom 12.09. 10,8 cm). Die
-    // Laengsachse laeuft wie beim Schwert durch die Faust; in der Pose steht
-    // die Faustachse senkrecht, also der Speer aufrecht neben der Figur.
+    // 1,08 m ueber dem unteren Ende — die Hoehe der rechten Hand in der
+    // Ruhepose arm_speer (Hand 1,059 m, Stab 2 Grad nach hinten gekippt), damit das Ende am Boden
+    // aufsteht. Die Laengsachse laeuft wie beim Schwert durch die Faust;
+    // in der Pose steht die Faustachse fast senkrecht, also der Speer
+    // aufrecht neben der Figur.
     name: 'Spear',
     label: 'Speer',
     itemType: ItemType.TwoHandedWeapon,
@@ -440,10 +441,9 @@ const ITEM_DEFS_ROH: readonly ItemShared[] = [
     toolTier: 1,
     holdPosition: [0, 0.08, 0.035],
     holdRotation: [0, Math.PI, Math.PI / 2],
-    // Im Hieb rutscht der Speer 15 cm durch die Faust. Weniger als beim
-    // Stab, weil der Griff hier ohnehin naeher an der Mitte sitzt (1,26 m
-    // von 1,90 m) — 0,15 bringt die Hand auf etwa 1,11 m, also knapp unter
-    // die Mitte, ohne dass die Spitze im Hieb zu weit vorsteht.
+    // Im Hieb rutscht der Speer 15 cm durch die Faust: die Hand greift von
+    // 1,08 m auf etwa 0,93 m ueber dem Ende, damit die Spitze im Hieb nicht
+    // zu weit vorsteht.
     holdOffsetStrike: 0.15,
     animationSet: 'spear',
     maxDurability: 200,

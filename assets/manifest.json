@@ -1,5 +1,5 @@
 {
- "erzeugt": "2026-09-12T06:21:24.283Z",
+ "erzeugt": "2026-09-12T06:35:25.480Z",
  "quelle": "tools/asset-manifest.mjs",
  "anzahl": 226,
  "gemessen": 226,
@@ -3388,12 +3388,12 @@
    "huelle": {
     "min": [
      -0.057,
-     -1.4,
+     -1.08,
      -0.052
     ],
     "max": [
      0.049,
-     0.5,
+     0.82,
      0.055
     ]
    },
@@ -3414,12 +3414,12 @@
    "huelle": {
     "min": [
      -0.018,
-     -1.4,
+     -1.08,
      -0.034
     ],
     "max": [
      0.019,
-     0.25,
+     0.57,
      0.033
     ]
    },
@@ -5420,7 +5420,7 @@
   "wikinger/WikingerKoerper": {
    "datei": "wikinger/WikingerKoerper.glb",
    "foliage": false,
-   "bytes": 1965764,
+   "bytes": 1965068,
    "huelle": {
     "min": [
      -1.024,

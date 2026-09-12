@@ -97,6 +97,15 @@ const KERN = [
   */
   ['tools/test', 'nginx-wov-lab-pfade.ts'],
   /*
+    Asset-Paket (12.09.2026): Textnachweis, dass jeder Ordner, aus dem der
+    Client zur Laufzeit laedt, auch im Release-Archiv steckt. Steht direkt
+    hinter dem nginx-Waechter, weil er aus demselben Holz ist -- liest eine
+    Datei, sonst nichts, ~0.1 s, braucht kein assets/.
+
+    Guard: every runtime asset root is a member of PAKET_TEILE.
+  */
+  ['tools/test', 'asset-paket-teile.ts'],
+  /*
     S1 (Elemente-Umzug): Kopfzeilen-Wächter über `tools/elements/`. Steht
     ganz vorn, weil er der billigste Prüfer der Liste ist — er liest Text,
     sonst nichts: kein `assets/`, kein Blender, keine GPU, keine

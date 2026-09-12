@@ -79,7 +79,7 @@ or change `passwort` to something private. There is no separate on/off switch.
 | `npm run lint` / `npm run format` | ESLint / Prettier |
 | `npm run build` | Production build of every workspace |
 | `npm run assets:holen` | (Re-)download the asset archive into `assets/` |
-| `npm run assets:bauen` | Build a new asset archive from `assets/{store,models,textures}` (operator tool, not for daily dev) |
+| `npm run assets:bauen` | Build a new asset archive from `assets/{store,models,textures,sprites,vfx,audio,dungeon2}` (operator tool, not for daily dev) |
 | `npm run store:aufbereiten`, `npm run store:boden` | Derive the aggregated/staged asset folders `assets/store-lab` and `assets/generiert` from `assets/store` |
 | `npm run aussehen:json` | Regenerate `assets/appearance.json` (the website's character-creator option lists) from `shared/src/aussehen.ts` |
 

@@ -11,7 +11,7 @@
  * stattdessen als EIN versioniertes Archiv in einem GitHub Release. Dieses
  * Skript ist die Gegenstelle auf beiden Seiten:
  *
- *   node tools/assets-paket.mjs bauen   — packt assets/{store,models,textures}
+ *   node tools/assets-paket.mjs bauen   — packt assets/{store,models,textures,sprites,vfx,audio,dungeon2}
  *                                          deterministisch in dist/assets-paket/
  *                                          (Betreiber-Werkzeug, nicht committen)
  *   node tools/assets-paket.mjs holen   — lädt das Paket zur Version aus
@@ -69,7 +69,30 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '..');
 const ASSETS_ORDNER = resolve(WURZEL, 'assets');
-const PAKET_TEILE = ['store', 'models', 'textures'];
+/**
+ * Welche Ordner unter `assets/` ins Paket wandern.
+ *
+ * `sprites`, `vfx` und `audio` standen hier zunaechst NICHT — mit der
+ * Folge, dass eine frische Installation zwar Gelaende, Baeume und
+ * Figuren hatte, aber keine Gegenstandssymbole, keine Treffereffekte
+ * und keine Musik. Im Spiel sah man davon: leere Leistenfelder mit den
+ * ersten zwei Buchstaben des Namens (der Ersatz in `Hotbar.itemVisual`)
+ * und einen Hieb ohne sichtbaren Bogen — `KampfEffekte` laedt seine
+ * acht Tafeln aus `/assets/vfx/` und bekam acht 404er (gemessen auf
+ * wov-dev am 12.09.2026).
+ *
+ * Die drei Ordner wiegen zusammen rund 6 MB gegenueber 520 MB fuer
+ * `store` und `models` — die Auslassung hat also nie Platz gespart,
+ * sie hat nur gefehlt.
+ *
+ * `dungeon2` (48 MB) steht aus demselben Grund hier, obwohl es GEBACKEN
+ * ist und nicht von Hand gezeichnet: Die drei Textur-Arrays entstehen
+ * aus `tools/dungeon2/make-materials.py` und `pack-material-arrays.py`,
+ * aber deren Eingangsdaten liegen ebenfalls ausserhalb des Repos. Ein
+ * frischer Server koennte sie also nicht selbst erzeugen, und ohne sie
+ * findet `DungeonMaterialArrays` unter beiden Fundorten nichts.
+ */
+const PAKET_TEILE = ['store', 'models', 'textures', 'sprites', 'vfx', 'audio', 'dungeon2'];
 const PAKET_NAME = 'wov-assets-paket.tar.zst';
 const DIST_ORDNER = resolve(WURZEL, 'dist/assets-paket');
 const VERSION_DATEI = resolve(WURZEL, 'tools/assets-version.txt');

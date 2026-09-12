@@ -523,9 +523,20 @@ async function call<T>(shore: ShoreId, path: string, a: Call): Promise<T> {
       method: a.method,
       headers,
       body: a.body === undefined ? undefined : JSON.stringify(a.body),
-      // No cookies are involved, and asking for them would only add a
-      // preflight the API does not answer for credentialed requests.
-      credentials: 'omit',
+      // `same-origin`, not `omit`: staging (`www.staging…`, one origin
+      // since 2026-09-12) sits behind Basic-Auth itself (an access list in
+      // NPM). Per the fetch spec, `omit` explicitly suppresses stored HTTP
+      // auth credentials too, not just cookies — the browser dropped the
+      // Basic-Auth header on `/api/…` calls even though it had already
+      // cached it for the document itself, and nginx (which checks that
+      // header for its own `auth_basic` BEFORE stripping it, see the
+      // `x-wov-account` reasoning above) answered 401 — visible as the
+      // missing guest hint on `/anmelden`, but actually every
+      // `/api/accounts/…` call there was affected. `same-origin` still
+      // only sends the header to this page's own origin; the live shore
+      // (a second, public origin with no Basic-Auth and no cookies) is
+      // unaffected.
+      credentials: 'same-origin',
       cache: 'no-store',
       signal: a.timeoutMs === undefined ? undefined : AbortSignal.timeout(a.timeoutMs),
     });

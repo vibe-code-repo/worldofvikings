@@ -242,13 +242,33 @@ console.log('\n(2) Die Bänder — Summe eins, nichts negativ, und wo sie greife
   pruefe(negativ === 0, `kein Gewicht wird negativ (${negativ} Stützstellen von 1001 wären es)`);
 
   // Die zwei Luminanzen, an denen im Bild wirklich etwas hängt —
-  // GEMESSEN am ausgelieferten Stand (kontrast 0,84): Wiesenboden 0,035,
-  // Himmel 0,268. Kippt eine Schwelle, wandert das Bild, nicht der Test.
+  // GEMESSEN am Stand von Runde 1 (kontrast 0,84, kein Tonemapper):
+  // Wiesenboden 0,035, Himmel 0,268. Kippt eine Schwelle, wandert das
+  // Bild, nicht der Test.
   const boden = gradingGewichte(DORF, 0.035);
   const himmel = gradingGewichte(DORF, 0.268);
   pruefe(boden.schatten > 0.95, `Wiesenboden (Luminanz 0,035) ist Schatten (${boden.schatten.toFixed(3)})`);
   pruefe(himmel.mitten > 0.95, `Himmel (Luminanz 0,268) ist Mitte (${himmel.mitten.toFixed(3)})`);
   pruefe(himmel.lichter === 0, 'der Himmel erreicht die Lichter-Schwelle 0,55 nicht');
+
+  /*
+    Dieselben zwei Flächen auf dem Stand von Runde 2 (Neutral-Tonemapper,
+    Belichtung 1,6315, kontrast 1,0, saettigung 0,45). Gemessen sind dort
+    im Rechteck Wiesengrund 39,0 und Himmel 146,2 sRGB-Byte; über die
+    exakte sRGB-Kurve — dieselbe, mit der `Grading.ts` seine Tabelle baut
+    — sind das die Luminanzen 0,020 und 0,288.
+
+    Warum das eine Zusage wert ist: Der Himmel ist mit 0,288 an
+    `schattenEnde` 0,3 HERANGERÜCKT (vorher 0,268). Steigt er darüber,
+    verlässt er die Mittenzeile; die Farbhandschrift des Dorfes läge dann
+    anders im Bild, und im Bild sähe das nach einem Lichtproblem aus, das
+    keines ist. Zugesagt wird deshalb die ZUORDNUNG, nicht die Zahl.
+  */
+  const bodenR2 = gradingGewichte(DORF, 0.020);
+  const himmelR2 = gradingGewichte(DORF, 0.288);
+  pruefe(bodenR2.schatten > 0.95, `Runde 2: Wiesengrund (Luminanz 0,020) bleibt Schatten (${bodenR2.schatten.toFixed(3)})`);
+  pruefe(himmelR2.mitten > 0.95, `Runde 2: Himmel (Luminanz 0,288) bleibt Mitte (${himmelR2.mitten.toFixed(3)})`);
+  pruefe(himmelR2.lichter === 0, 'Runde 2: der Himmel erreicht die Lichter-Schwelle 0,55 weiterhin nicht');
 
   // Der Grund, aus dem die Wildnis-Lichterzeile nie feuert: Der Eingang
   // der Tabelle ist LDR, die Luminanz kann 1,0 nicht überschreiten —

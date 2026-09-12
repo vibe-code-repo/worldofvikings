@@ -63,9 +63,10 @@
  *   saettigung 1,0 → 1,12                ±0        ±0         nur Sättigung
  *
  * (Die Belichtungszeile ist gerechnet und nicht gemessen, weil sie es
- * exakt sein kann: ohne Tonemapper ist eine Belichtung im Gammaraum ein
- * Faktor `E^(1/2,2)`, hier 1,1665 — die Kurve kürzt sich, wie im
- * `look:`-Block von `server.yml` beschrieben.)
+ * damals exakt sein konnte: OHNE Tonemapper ist eine Belichtung im
+ * Gammaraum ein reiner Faktor `E^(1/2,2)`, hier 1,1665. Seit Runde 2
+ * läuft `neutral` — diese Abkürzung gilt nicht mehr, und die Zeile ist
+ * eine historische Angabe zum Stand von Runde 1.)
  *
  * Der Punkt ist die letzte Spalte. Unser Bild muss am Boden HELLER und
  * am Himmel leicht DUNKLER werden (Ziel 52–58 gegen 142); `kontrast` ist
@@ -74,21 +75,60 @@
  * gegen Mittelgrau (`mix(vec3(0.5), rgb, contrast)`, in GAMMA, nach dem
  * Tonemapping) — das hebt alles Dunkle und senkt alles Helle.
  *
- * Deshalb steht im ausgelieferten Profil `kontrast: 0.84` und nicht eine
- * höhere Belichtung. Eine höhere Belichtung macht die Spaltung GRÖSSER:
- * der Himmel hängt als Einziges nicht am Sonnenlicht und steigt 2–3×
- * stärker als der Boden (Analyse §A8).
+ * ── Und warum er in Runde 2 trotzdem wieder auf 1,0 steht ───────────
+ * Weil er die Spaltung nicht schliesst, sondern überstreicht. Ein
+ * Mittelgrau-Anteil auf JEDEM Bildpunkt ist genau der graue Schleier,
+ * den die Sichtprüfung vom 12.09.2026 über dem Bild sieht, und der
+ * Bildkontrast p95/p5 fällt dabei auf 3,03, während die Referenz auf
+ * 5–6 zeigt.
  *
- * Und der Tonemapper: `neutral` trifft auf unsere Lichtwerte nicht. Er
- * zieht `min(r,g,b) − 6,25·min²` von allen drei Kanälen ab; bei einem
- * Wiesengrund mit linearem Blau von 0,0036 bleiben davon `6,25·min²`
- * übrig, also 2 % des Blaukanals.
- * GEMESSEN steigt die Sättigung des Bodens dadurch von 0,605 auf 0,93 —
- * das Gegenteil des Ziels, und mit keinem Sättigungsregler einzufangen
- * (0,3 als Faktor liefert immer noch 0,319 bei Boden L 42). `aces` ist
- * noch weiter weg (Boden L 17,5 bei gleicher Belichtung). Beide bleiben
- * eine Zeile in `server.yml` entfernt, aber keine der beiden ist der
- * Stand, gegen den hier gemessen wurde.
+ * An seine Stelle tritt NICHT eine höhere Belichtung — die macht die
+ * Spaltung grösser (der Himmel hängt als Einziges nicht am Sonnenlicht
+ * und steigt 2–3× stärker als der Boden, Analyse §A8). Es ist der
+ * Neutral-Tonemapper mit den +0,2 EV des Leitbilds Village1, und dazu
+ * die Einsicht, dass die restliche Grundhelligkeit hier gar nicht zu
+ * holen ist. GEMESSEN (Neutral, Kontrast 1,0, Sättigung 1,0, nur die
+ * Belichtung gedreht; `weitblick` 12:00, verschränkt in einer Sitzung,
+ * `~/wov-lab-mess/tm-sweep.mjs`):
+ *
+ *   belichtung   1,42   1,63   1,80   2,00   2,40   2,80   3,00
+ *   Wiesengrund  36,6   39,0   40,7   42,8   46,6   50,1   51,7
+ *   Himmel      135,8  146,2  153,9  162,0  177,0  207,7  209,2
+ *
+ * Wiesengrund 52–58 verlangt Belichtung ab 3,0, Himmel 142 ± 4 verlangt
+ * 1,47–1,63 — ein Faktor zwei auseinander. Der Grund ist GEGENÜBER dem
+ * Himmel rund doppelt zu dunkel, und ein Verhältnis bewegt kein Regler
+ * dieser Datei: Sie greifen alle vor der Tonwertkurve an, der Himmel
+ * steigt mit. Die fehlende Helligkeit gehört den Spitzenfarben von Gras
+ * und Laub im Material.
+ *
+ * ── Was der Tonemapper wirklich tut ─────────────────────────────────
+ * Hier stand: „`neutral` trifft auf unsere Lichtwerte nicht", belegt
+ * damit, dass er `min(r,g,b) − 6,25·min²` von allen drei Kanälen abzieht
+ * und die Sättigung des Bodens dadurch auf 0,93 steigt. Das ist richtig
+ * gemessen und heute auf dem Rechteck `vordergrund_gras` bestätigt:
+ * 0,440 → 0,916. Unvollständig war nur der Schluss — die Reihe lief
+ * OHNE Nachziehen von Sättigung und Belichtung.
+ *
+ * Mit `saettigung 0,45` steht dasselbe Rechteck auf 0,461 und damit im
+ * Zielband 0,42–0,47, während die Bildsättigung gegenüber Runde 1
+ * trotzdem steigt (0,221 → 0,235; am `steinkreis` 0,149 → 0,226) und
+ * der Bildkontrast von 3,03 auf 4,52 geht (am `steinkreis` 3,39 → 5,79,
+ * ins Zielband). Der Preis steht in `shared/src/lookProfil.ts`:
+ * `Ferne/Himmel` fällt von 0,563 auf 0,383, weil die Kurve die dunkle
+ * Ferne härter trifft als den hellen Himmel.
+ *
+ * `aces` bleibt weiter weg und bleibt eine Zeile in `server.yml`
+ * entfernt: Bei Belichtung 2,0 steht dort Himmel/Grund auf 6,55, bei
+ * Neutral auf 3,75.
+ *
+ * ── Die Falle beim Nachmessen ───────────────────────────────────────
+ * Babylons Konstanten sind TONEMAPPING_STANDARD 0, _ACES 1,
+ * _KHR_PBR_NEUTRAL 2; die Shader-DEFINES dagegen 1, 2 und 3. Wer die
+ * Define-Zahl als `toneMappingType` setzt, bekommt für „Neutral" den
+ * Typ 3, und der fällt in Babylons `default`-Zweig: Gemessen wird dann
+ * die alte Exp-Kurve, und der Setter meldet trotzdem `3` zurück. Eine
+ * ganze Messreihe dieser Runde ist so entstanden.
  */
 import { Color3, Color4 } from '@babylonjs/core/Maths/math';
 import { Scene } from '@babylonjs/core/scene';

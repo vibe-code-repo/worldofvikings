@@ -66,7 +66,12 @@ import type { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
-import { huellkoerperAufweiten, zellMeshAusPrototyp } from '../entities/EntityManager';
+import {
+  alsOrtsfestEinfrieren,
+  gemesseneModellHoehe,
+  huellkoerperAufweiten,
+  zellMeshAusPrototyp,
+} from '../entities/EntityManager';
 import { beiLook, look, type LookProfil } from './lookProfil';
 import {
   NEUPACK_ABSTAND,
@@ -241,7 +246,44 @@ export function schattenLambda(stufe: number, hundertFpsProfil: boolean): number
 }
 
 /**
+ * Kleinste Modellhöhe, die noch Schatten werfen darf (Meter).
+ *
+ * ── Warum eine gemessene Höhe und keine Namensliste (G5) ─────────────
+ * Die Frage „ist dieses Ding zu klein, als dass sein Schatten im Bild
+ * etwas beitrüge" ist eine Frage an die GEOMETRIE. Sie über Namen zu
+ * beantworten (wie es NIE_WERFEN und KLEINZEUG weiter unten für ihre
+ * jeweiligen Fälle tun) heisst, eine Liste zu führen — und eine Liste
+ * wird bei jedem neuen Modell stillschweigend falsch: Der neue
+ * Kieselstein steht nicht drin und läuft durch alle Kaskaden, das
+ * umbenannte Prefab fällt heraus und verliert seinen Schatten. Beides
+ * merkt niemand, weil beides kein Symptom hat ausser einer Zahl in
+ * `werferAnzahl()`.
+ *
+ * Gemessen wird in EntityManager.merkeModellHoehe(): rohe Modellhöhe mal
+ * grösster Instanzskalierung, bewusst nach oben gerundet. Ein Objekt
+ * unter einem halben Meter wirft bei unserer Kaskadenauflösung (2048 px
+ * auf 80 m Nahkaskade, also rund 4 cm je Texel) einen Fleck von einer
+ * Handvoll Texeln, den das PCF-Filter zusätzlich weichzeichnet.
+ *
+ * Die Schwelle greift NUR, wenn eine Messung vorliegt. Gelände, Spieler,
+ * Dungeon-Architektur und Himmel laufen nie durch den Instanzpfad;
+ * „nicht gemessen" heisst deshalb „darf werfen" und niemals „ist klein".
+ *
+ * Measured height replaces the name list for the size question; an
+ * unmeasured mesh always keeps its shadow.
+ */
+const MIN_WURF_HOEHE_M = 0.5;
+
+/**
  * Meshes, die keinen Schatten WERFEN.
+ *
+ * ⚠ Diese Liste ist seit G5 KEINE Grössenliste mehr — die Grössenfrage
+ * beantwortet MIN_WURF_HOEHE_M oben, aus der gemessenen Geometrie. Was
+ * hier steht, steht hier, weil es sich NICHT über Geometrie entscheiden
+ * lässt: Ein Himmelsdom, ein unsichtbarer Kollisionsträger und ein
+ * Billboard sind gross, und trotzdem darf keiner von ihnen werfen. Wer
+ * hier einen Eintrag ergänzen will, sollte zuerst prüfen, ob sein Fall
+ * nicht doch eine Höhe ist.
  *
  * - `clutter*`  Gras: jede Kaskade rendert die Werferliste komplett neu,
  *   und Clutter stellt mit Abstand die meisten Meshes. Empfangen darf es
@@ -402,6 +444,31 @@ export class Shadows {
   // Bis der Klonpfad die Blickwinkel-Parität nachweislich hält, bleibt der
   // vollständige, vor E26 verwendete Vegetationsmaster der Werfer.
   private vegetationsInstanzKeulung = false;
+  /**
+   * Merker für `freezeShadowCastersBoundingInfo` (G5).
+   *
+   * Babylon rechnet die Hülle ALLER Werfer sonst in JEDEM Bild neu
+   * (`_computeShadowCastersBoundingInfo`, angehängt an
+   * `onBeforeRenderObservable`): eine Schleife über die gesamte
+   * renderList mit `getBoundingInfo()` je Eintrag. Sie fliesst nur in
+   * eines ein — in das Zusammenziehen von minZ/maxZ je Kaskade
+   * (cascadedShadowGenerator.js:375 ff.).
+   *
+   * Diese Hülle ändert sich aber genau dann, wenn sich die WERFERLISTE
+   * ändert: Gelände-Chunks kommen und gehen, Zell-Master werden
+   * an- und abgemeldet. Zwischen zwei solchen Änderungen ist das
+   * Ergebnis dasselbe — mit einer Ausnahme, und die ist der Grund, dass
+   * hier eine Begründung steht statt nur ein Schalter: Der SPIELER wirft
+   * und bewegt sich in jedem Bild. Seine Hülle liegt jedoch per
+   * Konstruktion innerhalb der Gelände-Hülle, die dieselbe Liste
+   * beisteuert — er steht auf dem Boden, den er schattiert. Die
+   * Vereinigung ändert sich durch ihn nicht.
+   *
+   * Deshalb: einfrieren, und bei jeder Listenänderung genau EINMAL je
+   * Bild neu rechnen (s. tick()). Nicht sofort beim Anmelden — `setLevel`
+   * meldet beim Aufbau die ganze Szene an, das wäre O(n²).
+   */
+  private werferHuelleDirty = true;
 
   constructor(
     private readonly scene: Scene,
@@ -498,6 +565,10 @@ export class Shadows {
       schatten.layerMask = 0; // nie im Farbbild, nur in expliziter Werferliste
       schatten.receiveShadows = false;
       schatten.alwaysSelectAsActiveMesh = true;
+      // Ortsfest wie jeder Master: Der Klon steht im Ursprung, seine
+      // Auswahl steckt allein im Thin-Instance-Puffer, den
+      // packeVegetationsMaster() schreibt.
+      alsOrtsfestEinfrieren(schatten);
       schatten.setEnabled(false);
       const bb = schatten.getBoundingInfo().boundingBox;
       const bs = schatten.getBoundingInfo().boundingSphere;
@@ -680,6 +751,11 @@ export class Shadows {
     if (this.vegetationsInstanzKeulung && this.vegetationsQuellen.has(mesh)) return false;
     if (!this.vegetationsInstanzKeulung && this.vegetationsKlone.has(mesh)) return false;
     if (NIE_WERFEN.test(mesh.name) || NIE_WERFEN_SUFFIX.test(mesh.name)) return false;
+    // Die GEMESSENE Grössenregel (G5, s. MIN_WURF_HOEHE_M). `undefined`
+    // heisst „nie gemessen" — Gelände, Spieler, Dungeon-Architektur —, und
+    // das darf nie als „zu klein" durchgehen.
+    const hoehe = gemesseneModellHoehe(mesh);
+    if (hoehe !== undefined && hoehe < MIN_WURF_HOEHE_M) return false;
     if (!this.fern && KLEINZEUG.test(mesh.name)) return false;
     // Abgeschaltete Meshes bleiben drin, ohne geprüft zu werden.
     //
@@ -780,6 +856,15 @@ export class Shadows {
    */
   tick(): void {
     if (!this.generator) return;
+    // Die Werferhülle genau einmal je Bild nachziehen, und nur wenn sich
+    // die Liste geändert hat (s. werferHuelleDirty). Das Zuweisen von
+    // `true` rechnet neu, auch wenn der Wert schon `true` war
+    // (cascadedShadowGenerator.js:63) — das ist der einzige öffentliche
+    // Weg, die Hülle anzustossen.
+    if (this.werferHuelleDirty) {
+      this.werferHuelleDirty = false;
+      this.generator.freezeShadowCastersBoundingInfo = true;
+    }
     const budgetEnde = performance.now() + WERFER_BUDGET_MS;
 
     // Schattenpuffer und Werfer-Scan teilen sich EIN Zeitbudget. Ein
@@ -819,6 +904,7 @@ export class Shadows {
       geprueft++;
     }
     karte.renderList = this.werferPending;
+    this.werferHuelleDirty = true;
     this.werferPending = null;
     this.werferPendingSet = null;
     this.werferSnapshot = [];
@@ -949,6 +1035,7 @@ export class Shadows {
     if (this.darfEmpfangen(mesh)) mesh.receiveShadows = true;
     if (!this.darfWerfen(mesh, cfg)) return;
     this.generator.addShadowCaster(mesh, false);
+    this.werferHuelleDirty = true;
     // Läuft gerade ein Scan, muss das Mesh auch in dessen Ergebnis.
     //
     // tick() ERSETZT die renderList am Ende durch werferPending
@@ -1009,7 +1096,10 @@ export class Shadows {
     const liste = this.generator?.getShadowMap()?.renderList;
     if (liste) {
       const i = liste.indexOf(mesh);
-      if (i >= 0) liste.splice(i, 1);
+      if (i >= 0) {
+        liste.splice(i, 1);
+        this.werferHuelleDirty = true;
+      }
     }
     if (this.werferPending) {
       const i = this.werferPending.indexOf(mesh);
@@ -1094,6 +1184,11 @@ export class Shadows {
     // zusätzlichen Tiefen-Renderpass über die ganze Szene nach sich —
     // bei unserer Draw-Call-Lage der falsche Handel.
     g.autoCalcDepthBounds = false;
+    // Die Hülle aller Werfer NICHT je Bild nachrechnen — sie ändert sich
+    // nur mit der Werferliste. Herleitung an `werferHuelleDirty`; das
+    // Nachziehen erledigt tick().
+    g.freezeShadowCastersBoundingInfo = true;
+    this.werferHuelleDirty = true;
     // PCF war hier abgeschaltet, weil es mit dem Terrain-NodeMaterial
     // nicht übersetzte:
     //

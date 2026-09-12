@@ -1,60 +1,149 @@
 /**
  * fps-Benchmark: misst, was ein Spieler beim Sprinten durch die Welt spuert.
  *
- * WARUM HEADED: Die frueheren Messungen liefen in einer unsichtbaren
- * Browser-Pane. Chrome pausiert `requestAnimationFrame` fuer unsichtbare
+ * Roadmap-Paket G12 (Messweg reparieren) — dieses Werkzeug war seit dem
+ * Konten- und Ticketweg tot. Es meldete sich ueber einen Verbindungs-
+ * bildschirm an (`#connect-btn`, `#player-name`, `#offline-toggle`), den
+ * es nicht mehr gibt (`git grep connect-btn client/src` ist leer). Jedes
+ * Leistungspaket der Roadmap braucht Vorher-Nachher-Zahlen aus GENAU
+ * diesem Werkzeug — ohne einen funktionierenden Messweg gibt es keine.
+ *
+ * ANMELDUNG (neu, 12.09.2026): Testtoken statt Formular. Die Anmeldung
+ * laeuft jetzt ueber ein signiertes Testtoken in localStorage plus
+ * `?name=&t=` in der Adresszeile — derselbe Weg, den die Messbibliothek
+ * `original-lib.mjs` gegen eine lokale Instanz benutzt. `t` ist die feste
+ * Tageszeit (Standard 0.708333 = 17 Uhr): zwei Laeufe muessen dieselbe
+ * Beleuchtung sehen, sonst vergleicht man Schattenkosten statt Codestand.
+ *
+ * WARUM HEADED: Chrome pausiert `requestAnimationFrame` fuer unsichtbare
  * Tabs — Babylons Game-Loop rendert dann keinen einzigen Frame, und ohne
  * echte GPU sind absolute Millisekunden ohnehin nicht auf Spieler-Hardware
  * uebertragbar. Dieses Skript startet deshalb ein SICHTBARES Fenster auf
  * DISPLAY=:0 und prueft die GPU, bevor es misst. Bricht ab, wenn nur ein
- * Software-Renderer da ist — eine Messung auf SwiftShader waere wertlos.
+ * Software-Renderer da ist (SwiftShader/llvmpipe) — eine solche Messung
+ * waere wertlos.
  *
- * WARUM PERZENTILE STATT MITTELWERT: Der Nutzer meldet Framedrops, keine
- * niedrige Durchschnitts-fps. Im Bestand steht dazu schon die Beobachtung
- * "Median 17,1 ms (60 fps), aber 30 % der Frames ueber 25 ms" — der
- * Mittelwert verschweigt genau das, worueber sich jemand beschwert.
- * Gemessen werden deshalb p50/p95/p99, das Maximum und die Zahl der
- * Frames ueber 16,7 / 33 / 50 ms.
+ * STRECKE STATT ZEIT (der Kern des Umbaus): Gemessen wird eine feste
+ * SPRINTSTRECKE, kein festes Zeitfenster. Bei fester Zeit laeuft der
+ * schnellere Codestand weiter, durchquert mehr NEUES Gelaende und baut
+ * dadurch mehr Chunks in derselben Messung — er misst sich also teurer,
+ * genau WEIL er schneller ist. Bei fester Strecke sehen beide Staende
+ * dieselbe Landschaft. Der Sprint laeuft dazu GERADEAUS in EINER festen
+ * Richtung (kein Quadrat, kein Kreis): Wer im Quadrat laeuft, betritt
+ * nach der ersten Runde nur noch schon gebaute Zellen und misst dann den
+ * eingeschwungenen Zustand statt des laufenden Geländestroms, den ein
+ * Spieler beim Erkunden tatsaechlich bezahlt. Start und Richtung stehen
+ * fest (Vorgabe s. START_X/START_Z/YAW) und werden im Ergebnis mit der
+ * TATSAECHLICH gelaufenen Strecke dokumentiert — sie kann von der
+ * angeforderten leicht abweichen (Gelaende, Kollision), und genau das
+ * soll sichtbar bleiben statt stillschweigend angenommen zu werden.
  *
- * Die Aufschluesselung nach Teilsystem kommt aus `__vb.profil()`, das der
- * Client schon mitbringt (Summe UND Maximum je Abschnitt).
+ * FLOCK: Zwei gleichzeitige Messlaeufe auf derselben Maschine verfaelschen
+ * beide (geteilte GPU/CPU). Dieses Skript nimmt sich deshalb SELBST die
+ * Sperre `~/.cache/wov-mess.lock`, indem es sich einmal unter `flock`
+ * neu startet — parallele Laeufe blockieren dann, statt sich gegenseitig
+ * zu verfaelschen, ohne dass ein Aufrufer daran denken muss.
+ *
+ * MEHRERE RUNDEN GEGEN DIE SYSTEMLAST: `flock` haelt fremde Messlaeufe
+ * fern, aber nicht die Arbeitsmaschine selbst — hier laufen nebenbei
+ * Editor, Browser, gelegentlich Blender. Eine EINZELNE 150-m-Strecke traf
+ * beim Bauen dieses Werkzeugs zwei Mal denselben Codestand mit p50 17,0
+ * und 14,7 ms — 2,3 ms auseinander, mehr als die geforderte 1-ms-Zusage.
+ * Die Strecke laeuft deshalb in `--laeufe` Runden (Standard 3) IN DERSELBEN
+ * RICHTUNG WEITER (kein Zurueckteleportieren — jede Runde betritt weiter
+ * NEUES Gelaende), und das gemeldete `frameZeitMs.p50` ist der MEDIAN der
+ * Runden-p50-Werte: Eine einzelne von einer Lastspitze getroffene Runde
+ * kippt damit nicht das Gesamtergebnis. p95/p99/Maximum kommen aus dem
+ * GEPOOLTEN Bild-für-Bild-Datensatz aller Runden — dort hilft mehr Masse.
+ * Die Einzelwerte je Runde bleiben im Ergebnis stehen, damit die Streuung
+ * sichtbar bleibt und nicht im Median verschwindet.
  *
  * Aufruf:
- *   node tools/pw-fps-bench.mjs --url http://localhost:5280 --label baseline
- *   node tools/pw-fps-bench.mjs --url ... --sekunden 30 --out mess/x.json
+ *   node tools/pw-fps-bench.mjs --url http://localhost:5291 --label baseline
+ *   node tools/pw-fps-bench.mjs --url ... --strecke 250 --out mess/x.json
  */
 import { chromium } from 'playwright';
+import { execFileSync, execSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+
+// ── flock: kein paralleler Messlauf ───────────────────────────────────
+// Re-exec unter `flock`, statt vom Aufrufer zu verlangen, daran zu
+// denken — die Sperre ist damit ein Merkmal des Werkzeugs, nicht der
+// Disziplin dessen, der es aufruft.
+if (!process.env.WOV_MESSSPERRE_GEHALTEN) {
+  const lockDatei = `${process.env.HOME}/.cache/wov-mess.lock`;
+  mkdirSync(dirname(lockDatei), { recursive: true });
+  try {
+    execFileSync(
+      'flock',
+      [lockDatei, process.execPath, process.argv[1], ...process.argv.slice(2)],
+      { stdio: 'inherit', env: { ...process.env, WOV_MESSSPERRE_GEHALTEN: '1' } }
+    );
+  } catch (e) {
+    process.exit(typeof e.status === 'number' ? e.status : 1);
+  }
+  process.exit(0);
+}
 
 const arg = (name, standard) => {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : standard;
 };
-const flag = (name) => process.argv.includes(`--${name}`);
 
-const URL_ZIEL = arg('url', 'http://localhost:5280');
+const URL_ZIEL = arg('url', 'http://localhost:5291');
 const LABEL = arg('label', 'unbenannt');
-const SEKUNDEN = Number(arg('sekunden', 20));
-const AUFWAERMEN = Number(arg('aufwaermen', 8));
+/** Laufstrecke in Metern — die Messgroesse, nicht die Zeit. */
+const STRECKE = Number(arg('strecke', 200));
+/** Messrunden je Sitzung (Median der Runden-p50 gegen Systemlast, s. Kopf). */
+const LAEUFE = Math.max(1, Number(arg('laeufe', 3)));
+const AUFWAERMEN = Number(arg('aufwaermen', 6));
+/**
+ * UNGEMESSENE Vorlaufstrecke, GERADEAUS vor der eigentlichen Messung.
+ *
+ * Ohne sie traf die erste Messrunde direkt den anlaufenden Geländestrom
+ * um den Teleportpunkt: In einer Testreihe lag Runde 1 bei p50 35 ms,
+ * Runde 5 (dieselbe Sitzung, derselbe Codestand) bei 14,7 ms — eine
+ * einmalige Anlaufspitze, keine Eigenschaft des Codes. Der Vorlauf
+ * verbraucht diese Spitze, OHNE zurueckzuteleportieren: Die Messrunden
+ * beginnen dahinter und liegen damit selbst weiterhin auf frischem,
+ * niemals zuvor betretenem Gelände (s. Kopfkommentar „NEUES Gelaende").
+ */
+const VORLAUF = Number(arg('vorlauf', 60));
 const OUT = arg('out', `mess/${LABEL}.json`);
 /**
- * Fester Messort. Dieselbe Stelle wie in der Framedrop-Untersuchung:
- * dicht bewachsener Wald/Wiese (Rock_4, Beech1, Bush01) in der bau-Welt.
- * Ein fester Ort ist Bedingung fuer Vergleichbarkeit — an einer leeren
- * Kueste misst jeder Fix eine Verbesserung, die es nicht gibt.
+ * Fester Messort und feste Richtung. Vorgabe ist derselbe Referenzort,
+ * den andere Leistungsmessungen des Projekts benutzen (dicht bewachsene
+ * Zone) — ein fester Ort ist Bedingung fuer Vergleichbarkeit, an einer
+ * leeren Kueste misst jeder Fix eine Verbesserung, die es nicht gibt.
  */
-const START_X = Number(arg('x', -16900));
-const START_Z = Number(arg('z', -5350));
-/** Laufrichtung in Radiant. 0 = nach Norden; die Strecke bleibt so gleich. */
+const START_X = Number(arg('x', 10077));
+const START_Z = Number(arg('z', -18723));
+/** Laufrichtung in Radiant. 0 = nach Norden, GERADEAUS bis zum Streckenende. */
 const YAW = Number(arg('yaw', 0));
-/** Sekunden je Quadratseite, bevor die Laufrichtung um 90 Grad dreht. */
-const WENDE = Number(arg('wende', 5));
+/** Feste Tageszeit (0..1). 0.708333 = 17 Uhr — dieselbe Beleuchtung je Lauf. */
+const TIME = arg('t', '0.708333');
 /** Spielername fuer die Messung — bewusst NICHT ein echter Spielername. */
-const SPIELER = arg('spieler', 'BenchBot');
-/** Offline misst rein clientseitige Weltgenerierung, ohne Server. */
-const OFFLINE = flag('offline');
-const SEED = arg('seed', '');
+const SPIELER = arg('spieler', `BenchBot${Date.now().toString(36).slice(-4)}`);
+/** Notbremse gegen endloses Laufen (Wand, Wasser, Kollisionsfalle). */
+const SICHERHEIT_S = Number(arg('sicherheit', Math.max(60, (STRECKE + VORLAUF) * 1.2)));
+
+function testToken() {
+  const nutzlast = Buffer.from(JSON.stringify({ e: Date.now() + 3600_000 }))
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+  return `${nutzlast}.testlauf`;
+}
+
+function commitHash() {
+  try {
+    return execSync('git rev-parse --short HEAD', { cwd: process.cwd() }).toString().trim();
+  } catch {
+    return 'unbekannt';
+  }
+}
 
 const browser = await chromium.launch({
   headless: false,
@@ -75,7 +164,8 @@ const browser = await chromium.launch({
     '--autoplay-policy=no-user-gesture-required',
   ],
 });
-const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+const kontext = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+const page = await kontext.newPage();
 
 const konsole = [];
 page.on('console', (m) => {
@@ -83,9 +173,6 @@ page.on('console', (m) => {
 });
 const seitenfehler = [];
 page.on('pageerror', (e) => seitenfehler.push(e.message.slice(0, 300)));
-// Fehlschlagende Anfragen mit URL festhalten. Die Browser-Konsole meldet
-// nur "Failed to load resource: 404" ohne Adresse — damit ist ein
-// fehlendes Asset nicht auffindbar.
 const fehlanfragen = [];
 page.on('response', (r) => {
   if (r.status() >= 400) fehlanfragen.push(`${r.status()} ${r.url()}`);
@@ -96,41 +183,12 @@ page.on('requestfailed', (r) => {
 
 console.log(`[bench] ${LABEL} -> ${URL_ZIEL}`);
 
-/**
- * WebSocket-Aufkommen mitzaehlen, BEVOR die Seite laedt.
- *
- * Der Grund: Die Server-Punkte der Roadmap (ZDO-Sync mit Bandbreiten-
- * budget und Member-Deltas, Zonenfenster, TerrainOps) schlagen sich in
- * der fps-Kurve des Clients kaum nieder — ihre Wirkung ist die Menge
- * geschickter Bytes. Ohne diese Zahl waeren sie nicht abnehmbar, und
- * genau eine dieser Aenderungen fasst das Drahtformat an.
- */
-await page.addInitScript(() => {
-  const zaehler = { bytes: 0, pakete: 0, gesendetBytes: 0, gesendetPakete: 0, beginn: 0 };
-  window.__wsZaehler = zaehler;
-  const Original = window.WebSocket;
-  class GezaehltesWebSocket extends Original {
-    constructor(...args) {
-      super(...args);
-      if (!zaehler.beginn) zaehler.beginn = performance.now();
-      this.addEventListener('message', (e) => {
-        const d = e.data;
-        zaehler.pakete++;
-        zaehler.bytes +=
-          d instanceof ArrayBuffer ? d.byteLength : typeof d === 'string' ? d.length : (d?.size ?? 0);
-      });
-    }
-    send(daten) {
-      zaehler.gesendetPakete++;
-      zaehler.gesendetBytes +=
-        daten instanceof ArrayBuffer ? daten.byteLength : typeof daten === 'string' ? daten.length : (daten?.byteLength ?? 0);
-      return super.send(daten);
-    }
-  }
-  window.WebSocket = GezaehltesWebSocket;
-});
+// ── Testtoken VOR der ersten Navigation einbetten ─────────────────────
+// (s. Notiz „Browser-Basic-Auth eingebettete Zugangsdaten"-Familie: was
+// erst nach dem ersten Laden gesetzt wird, greift nicht rechtzeitig.)
+await page.addInitScript(([t]) => localStorage.setItem('wov-session-token', t), [testToken()]);
 
-await page.goto(URL_ZIEL, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+await page.goto(`${URL_ZIEL}/?name=${SPIELER}&t=${TIME}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
 // ── GPU pruefen, bevor irgendetwas gemessen wird ──────────────────────
 const gpu = await page.evaluate(() => {
@@ -150,57 +208,27 @@ if (!gpu.renderer || /swiftshader|llvmpipe|software/i.test(gpu.renderer)) {
   process.exit(2);
 }
 
-// ── Anmelden ──────────────────────────────────────────────────────────
-// Der Client oeffnet mit einem Verbindungsbildschirm; `buildWorld()` und
-// damit das Messhandle `__vb` entstehen erst NACH dem Klick auf Verbinden.
-// Ohne diesen Schritt wartet das Benchmark ewig auf eine Welt, die nie
-// gebaut wird.
-//
-// Eigener Spielername: Die Identitaet ist im Projekt nur der Name, und
-// wer den Namen eines Offline-Spielers tippt, uebernimmt dessen Inventar
-// und Position. Ein fester Bench-Name haelt die Messung von echten
-// Spielerdaten fern.
-await page.waitForSelector('#connect-btn', { timeout: 30_000 });
-await page.fill('#player-name', SPIELER);
-if (OFFLINE) {
-  await page.check('#offline-toggle').catch(() => {});
-  if (SEED) await page.fill('#world-seed', SEED).catch(() => {});
-} else {
-  await page.uncheck('#offline-toggle').catch(() => {});
-}
-await page.click('#connect-btn');
-console.log(`[bench] angemeldet als ${SPIELER}${OFFLINE ? ' (offline)' : ''}, warte auf Welt ...`);
-
 // ── Warten, bis die Welt wirklich steht ───────────────────────────────
-// Nicht nur auf __vb warten: Das Handle existiert, bevor Gelaende und
-// Instanzen gebaut sind. Gemessen wird erst, wenn der Spieler existiert.
 try {
   await page.waitForFunction(
-    () => {
-      const vb = window.__vb;
-      const dbg = window.__dbg;
-      return Boolean(vb?.profil && dbg?.player && dbg?.scene?.activeCamera);
-    },
+    () => Boolean(window.__vb?.profil && window.__dbg?.player && window.__dbg?.scene?.activeCamera),
+    undefined,
     { timeout: 180_000 }
   );
 } catch {
   console.error('[bench] ABBRUCH: Welt kam nicht hoch.');
-  const zustand = await page
-    .evaluate(() => ({ vb: Boolean(window.__vb), dbg: Boolean(window.__dbg), player: Boolean(window.__dbg?.player), kamera: Boolean(window.__dbg?.scene?.activeCamera) }))
-    .catch(() => null);
-  console.error('  Zustand: ' + JSON.stringify(zustand));
-  console.error('  Fehlanfragen:');
-  for (const z of fehlanfragen.slice(0, 25)) console.error('    ' + z);
-  console.error('  Konsole:');
-  for (const z of konsole.slice(0, 20)) console.error('    ' + z);
-  for (const z of seitenfehler.slice(0, 10)) console.error('    [pageerror] ' + z);
+  console.error('  Fehlanfragen: ' + fehlanfragen.slice(0, 15).join('\n    '));
+  console.error('  Konsole: ' + konsole.slice(0, 15).join('\n    '));
   await browser.close();
   process.exit(3);
 }
+// Ladebildschirm haengt am Gelaende — erst dann teleportieren.
+await page.waitForFunction(() => window.__dbg?.terrain?.ready !== false, undefined, { timeout: 120_000 }).catch(() => {});
 console.log('[bench] Welt steht.');
 
 // Fenster fokussieren, sonst kommen die Tastaturereignisse nicht an.
 await page.bringToFront();
+// Mausfang VOR dem Blick, sonst greift keine Kamerasteuerung.
 await page.locator('canvas').first().click({ position: { x: 800, y: 450 } }).catch(() => {});
 
 // ── An den Messort ────────────────────────────────────────────────────
@@ -209,35 +237,27 @@ await page.locator('canvas').first().click({ position: { x: 800, y: 450 } }).cat
 //
 // `__vb.teleport()` ruft `player.debugTeleport()` — rein clientseitig. Der
 // Server ist autoritativ und schnappt die Position im naechsten Tick
-// zurueck. Am 15.08.2026 hat genau das eine komplette Vergleichsreihe
-// entwertet: Der Teleport blieb wirkungslos, der Spawn liegt bei
-// (0, -55,5, 0) — 55 m UNTER WASSER im leeren Ozean —, und gemessen wurde
-// ein 187-m-Sprint durchs Nichts. Keine Vegetation, kein Bauwerk, nichts.
-// Die Zahlen sahen hervorragend aus und bedeuteten nichts.
-//
-// `__vb.admin('teleport x z')` geht ueber den Server und haelt. Der
-// Gierwinkel bleibt clientseitig — der wird nicht korrigiert.
-const tpOk = await page.evaluate(
-  ([x, z]) => window.__vb.admin(`teleport ${x} ${z}`),
-  [START_X, START_Z]
-);
+// zurueck. `__vb.admin('teleport x z')` geht ueber den Server und haelt.
+const tpOk = await page.evaluate(([x, z]) => window.__vb.admin(`teleport ${x} ${z}`), [START_X, START_Z]);
 if (!tpOk) {
   console.error('[bench] ABBRUCH: Admin-Teleport abgelehnt (keine Verbindung oder keine Adminrechte).');
   await browser.close();
   process.exit(5);
 }
 await page.waitForTimeout(3000);
+// Gierwinkel bleibt clientseitig — der wird vom Server nicht korrigiert.
 await page.evaluate(([yaw]) => {
-  const q = window.__dbg.player.position;
-  window.__vb.teleport(q.x, q.z, yaw);
+  const p = window.__dbg.player.position;
+  window.__vb.teleport(p.x, p.z, yaw);
 }, [YAW]);
 
-console.log(`[bench] Messort ${START_X}/${START_Z}, aufwaermen ${AUFWAERMEN}s ...`);
+console.log(`[bench] Messort ${START_X}/${START_Z}, Richtung ${YAW} rad, aufwaermen ${AUFWAERMEN}s ...`);
 await page.waitForTimeout(AUFWAERMEN * 1000);
 
-// Ankunft PRUEFEN, nicht annehmen. Das ist die Lehre aus dem Messfehler
-// oben: Ein stillschweigend wirkungsloser Teleport ist nicht erkennbar,
-// solange niemand die Position nachrechnet.
+// Ankunft PRUEFEN, nicht annehmen — ein stillschweigend wirkungsloser
+// Teleport ist sonst nicht erkennbar, solange niemand die Position
+// nachrechnet (Lehre aus dem 15.08.2026-Messfehler: 55 m unter Wasser
+// gemessen, ohne dass es jemand bemerkte).
 const angekommen = await page.evaluate(() => {
   const q = window.__dbg.player.position;
   return { x: q.x, y: q.y, z: q.z };
@@ -253,7 +273,35 @@ if (abstand > 150) {
 }
 console.log(`[bench] am Messort, y=${angekommen.y.toFixed(1)}, Abweichung ${abstand.toFixed(0)} m`);
 
-// ── Frame-Rekorder ────────────────────────────────────────────────────
+// ── UNGEMESSENER Vorlauf, GERADEAUS — verbraucht die Anlaufspitze ─────
+// (s. Begruendung bei VORLAUF oben). Kein Zurueckteleportieren danach:
+// die Messrunden schliessen direkt an, weiter auf frischem Gelaende.
+if (VORLAUF > 0) {
+  console.log(`[bench] Vorlauf ${VORLAUF} m (ungemessen) ...`);
+  await page.keyboard.down('ShiftLeft');
+  await page.keyboard.down('KeyW');
+  const beginnVorlauf = Date.now();
+  let sVorlauf = 0;
+  let letztePosVorlauf = angekommen;
+  while (sVorlauf < VORLAUF) {
+    await page.waitForTimeout(200);
+    const jetzt = await page.evaluate(() => {
+      const p = window.__dbg.player.position;
+      return { x: p.x, z: p.z };
+    });
+    sVorlauf += Math.hypot(jetzt.x - letztePosVorlauf.x, jetzt.z - letztePosVorlauf.z);
+    letztePosVorlauf = jetzt;
+    if ((Date.now() - beginnVorlauf) / 1000 > Math.max(30, VORLAUF * 1.2)) {
+      console.warn(`[bench] Notbremse im Vorlauf — nur ${sVorlauf.toFixed(1)} m statt ${VORLAUF} m.`);
+      break;
+    }
+  }
+  await page.keyboard.up('KeyW');
+  await page.keyboard.up('ShiftLeft');
+  console.log(`[bench] Vorlauf fertig: ${sVorlauf.toFixed(1)} m.`);
+}
+
+// ── Frame-Rekorder starten (laeuft ueber ALLE Runden durch) ───────────
 await page.evaluate(() => {
   const s = { zeiten: [], laeuft: true, letzte: performance.now() };
   window.__bench = s;
@@ -267,126 +315,166 @@ await page.evaluate(() => {
   requestAnimationFrame(tick);
 });
 
-// Zaehler im Client zuruecksetzen: profil() liest UND leert.
-// Das WS-Aufkommen wird hier ebenfalls genullt, damit nur der Sprint
-// zaehlt und nicht der Verbindungsaufbau mit seiner Erstuebertragung.
-await page.evaluate(() => {
-  window.__vb.profil();
-  const z = window.__wsZaehler;
-  if (z) Object.assign(z, { bytes: 0, pakete: 0, gesendetBytes: 0, gesendetPakete: 0, beginn: performance.now() });
-});
-
-// ── Sprint ────────────────────────────────────────────────────────────
-//
-// Im Quadrat statt geradeaus. Der Grund ist ein Messfehler, der eine
-// ganze Vergleichsreihe entwertet hat (15.08.2026):
-//
-// 25 s Sprint sind bei 7,5 m/s rund 187 m. Geradeaus fuehrt das aus dem
-// dicht bewachsenen Messgebiet heraus — die Endpositionen lagen je nach
-// Stand bei y = +99, +13, −47 und −28, also teils tief unter dem
-// Wasserspiegel. Die Baseline hatte 31 Gras-Meshes im Bild, die spaeteren
-// Staende gar keine. Damit verglich die Reihe nicht Codestaende, sondern
-// Landschaften, und ein Teil des "Gewinns" war schlicht leereres Gelaende.
-//
-// Alle `WENDE` Sekunden wird die Blickrichtung deshalb um 90 Grad
-// gedreht (Teleport an Ort und Stelle, nur mit neuem Gierwinkel). Der
-// Laeufer zieht ein Quadrat von etwa `WENDE * 7,5` Metern Kantenlaenge:
-// er bleibt in der Messgegend, quert aber weiterhin staendig
-// Zonengrenzen — und genau die kosten die Frames.
-console.log(`[bench] Sprint ${SEKUNDEN}s, Richtungswechsel alle ${WENDE}s ...`);
-await page.keyboard.down('ShiftLeft');
-await page.keyboard.down('KeyW');
-
-const beginnSprint = Date.now();
-let seite = 0;
-while ((Date.now() - beginnSprint) / 1000 < SEKUNDEN) {
-  const rest = SEKUNDEN - (Date.now() - beginnSprint) / 1000;
-  await page.waitForTimeout(Math.min(WENDE, rest) * 1000);
-  if ((Date.now() - beginnSprint) / 1000 >= SEKUNDEN) break;
-  seite += 1;
-  await page.evaluate(
-    ([gier]) => {
-      const p = window.__dbg?.player?.position;
-      if (p) window.__vb.teleport(p.x, p.z, gier);
-    },
-    [YAW + (seite * Math.PI) / 2]
-  );
+/**
+ * Eine Runde geradeaus laufen, bis `ziel` Meter seit Rundenbeginn
+ * zurueckgelegt sind. KEIN Zurueckteleportieren zwischen Runden — die
+ * naechste Runde startet exakt dort, wo die vorige endete, und betritt
+ * damit garantiert weiter NEUES Gelaende (s. Kopfkommentar).
+ *
+ * Gibt die rohen Bildabstaende DIESER Runde zurueck (erster Wert
+ * verworfen — er traegt die Restzeit der Wartepause vor der Runde, keine
+ * echte Bilddauer) sowie das Teilsystemprofil, das GENAU diese Runde
+ * misst (`__vb.profil()` liest und leert — deshalb vor jeder Runde
+ * einmal aufgerufen, um den vorigen Stand zu verwerfen).
+ */
+async function runde(ziel) {
+  await page.evaluate(() => window.__vb.profil());
+  const abVorher = await page.evaluate(() => window.__bench.zeiten.length);
+  await page.keyboard.down('ShiftLeft');
+  await page.keyboard.down('KeyW');
+  const beginn = Date.now();
+  let s = 0;
+  let letztePos = await page.evaluate(() => {
+    const p = window.__dbg.player.position;
+    return { x: p.x, z: p.z };
+  });
+  while (s < ziel) {
+    await page.waitForTimeout(200);
+    const jetzt = await page.evaluate(() => {
+      const p = window.__dbg.player.position;
+      return { x: p.x, z: p.z };
+    });
+    s += Math.hypot(jetzt.x - letztePos.x, jetzt.z - letztePos.z);
+    letztePos = jetzt;
+    if ((Date.now() - beginn) / 1000 > SICHERHEIT_S / LAEUFE) {
+      console.warn(`[bench]   Notbremse in dieser Runde — nur ${s.toFixed(1)} m statt ${ziel.toFixed(1)} m.`);
+      break;
+    }
+  }
+  await page.keyboard.up('KeyW');
+  await page.keyboard.up('ShiftLeft');
+  const teilProfil = await page.evaluate(() => window.__vb.profil());
+  const bilder = (await page.evaluate((v) => window.__bench.zeiten.slice(v), abVorher)).slice(1);
+  return { strecke: s, dauerS: (Date.now() - beginn) / 1000, teilProfil, bilder };
 }
 
-await page.keyboard.up('KeyW');
-await page.keyboard.up('ShiftLeft');
+// ── Der Sprint ueber die feste Strecke, GERADEAUS, in LAEUFE Runden ──
+console.log(`[bench] Sprint ${STRECKE} m in Richtung ${YAW} rad, ${LAEUFE} Runde(n) ...`);
+const runden = [];
+let strecke = 0;
+let dauerSprintS = 0;
+const bilderGepoolt = [];
+for (let r = 0; r < LAEUFE; r++) {
+  const ziel = STRECKE / LAEUFE;
+  const m = await runde(ziel);
+  strecke += m.strecke;
+  dauerSprintS += m.dauerS;
+  bilderGepoolt.push(...m.bilder);
+  const sortiert = [...m.bilder].sort((a, b) => a - b);
+  const p50Runde = sortiert.length > 0 ? sortiert[Math.floor(sortiert.length * 0.5)] : NaN;
+  runden.push({
+    strecke: +m.strecke.toFixed(1),
+    dauerS: +m.dauerS.toFixed(1),
+    bilder: sortiert.length,
+    p50: +p50Runde.toFixed(2),
+    teilProfil: m.teilProfil,
+  });
+  console.log(`[bench]   Runde ${r + 1}: ${m.strecke.toFixed(1)} m, p50 ${p50Runde.toFixed(1)} ms, ${sortiert.length} Bilder`);
+}
 
 const roh = await page.evaluate(() => {
   window.__bench.laeuft = false;
-  const z = window.__wsZaehler;
-  const dauer = z?.beginn ? (performance.now() - z.beginn) / 1000 : 0;
+  const scene = window.__dbg.scene;
   return {
-    zeiten: window.__bench.zeiten,
-    profil: window.__vb.profil(),
-    netz: z
-      ? {
-          empfangenBytes: z.bytes,
-          empfangenPakete: z.pakete,
-          gesendetBytes: z.gesendetBytes,
-          gesendetPakete: z.gesendetPakete,
-          bytesProSekunde: Math.round(z.bytes / Math.max(dauer, 0.001)),
-          paketeProSekunde: Number((z.pakete / Math.max(dauer, 0.001)).toFixed(1)),
-        }
-      : null,
+    endPos: (() => {
+      const q = window.__dbg.player.position;
+      return { x: q.x, y: q.y, z: q.z };
+    })(),
+    aktiveMeshes: scene.getActiveMeshes().length,
+    gesamtMeshes: scene.meshes.length,
+    materialien: scene.materials.length,
   };
-});
-
-const endPos = await page.evaluate(() => {
-  const p = window.__dbg?.player?.position;
-  return p ? { x: p.x, y: p.y, z: p.z } : null;
 });
 
 await browser.close();
 
 // ── Auswertung ────────────────────────────────────────────────────────
-// Die ersten drei Frames verwerfen: Der erste Abstand enthaelt die Zeit
-// seit dem Aufsetzen des Rekorders, nicht die eines echten Frames.
-const t = roh.zeiten.slice(3).sort((a, b) => a - b);
-if (t.length < 30) {
-  console.error(`[bench] ABBRUCH: nur ${t.length} Frames aufgezeichnet.`);
+if (bilderGepoolt.length < 20 * LAEUFE) {
+  console.error(`[bench] ABBRUCH: nur ${bilderGepoolt.length} Bilder aufgezeichnet.`);
   process.exit(4);
 }
+// p95/p99/Maximum aus dem GEPOOLTEN Bild-fuer-Bild-Datensatz aller Runden
+// (mehr Masse hilft der Schaetzung der Ausreisser). p50 dagegen ist der
+// MEDIAN der RUNDEN-p50-Werte (s. Kopfkommentar) — robuster gegen eine
+// einzelne von einer Lastspitze getroffene Runde.
+const t = bilderGepoolt.slice().sort((a, b) => a - b);
 const p = (q) => t[Math.min(t.length - 1, Math.floor(t.length * q))];
-const summe = t.reduce((a, b) => a + b, 0);
 const ueber = (ms) => t.filter((x) => x > ms).length;
+const rundenP50Sortiert = runden.map((r) => r.p50).sort((a, b) => a - b);
+const p50Median = rundenP50Sortiert[Math.floor(rundenP50Sortiert.length / 2)];
+
+/**
+ * Teilsystem-Zeiten AUFS BILD gerechnet, ueber ALLE Runden zusammen:
+ * `__vb.profil()` liefert je Abschnitt Summe/Maximum/Bilderzahl SEIT DEM
+ * LETZTEN AUFRUF — hier also je Runde. Summe und Bilderzahl addieren sich
+ * über die Runden, das Maximum ist das Maximum der Runden-Maxima; erst
+ * danach wird durch die Gesamtbilderzahl geteilt.
+ */
+const teilsysteme = {};
+for (const runde_ of runden) {
+  for (const [name, m] of Object.entries(runde_.teilProfil ?? {})) {
+    if (!m || typeof m !== 'object' || !('summe' in m) || !('max' in m) || !('n' in m)) continue;
+    const e = (teilsysteme[name] ??= { summe: 0, max: 0, n: 0 });
+    e.summe += m.summe;
+    e.n += m.n;
+    if (m.max > e.max) e.max = m.max;
+  }
+}
+for (const name of Object.keys(teilsysteme)) {
+  const e = teilsysteme[name];
+  teilsysteme[name] = {
+    mittelMsProBild: e.n > 0 ? +(e.summe / e.n).toFixed(3) : 0,
+    maxMs: +Number(e.max).toFixed(2),
+    bilder: e.n,
+  };
+}
+
+const letzteRunde = runden[runden.length - 1];
 
 const ergebnis = {
   label: LABEL,
-  url: URL_ZIEL,
-  gpu,
+  zeitpunkt: new Date().toISOString(),
+  commit: commitHash(),
+  gpu: gpu.renderer,
+  aufloesung: '1600x900',
+  uhrzeit: TIME,
   messort: { x: START_X, z: START_Z, yaw: YAW },
-  endPosition: endPos,
-  sekunden: SEKUNDEN,
+  endPosition: roh.endPos,
+  strecke: { angefordert: STRECKE, gelaufen: +strecke.toFixed(1), dauerS: +dauerSprintS.toFixed(1), laeufe: LAEUFE, vorlauf: VORLAUF },
+  runden: runden.map(({ teilProfil, ...rest }) => rest),
   frames: t.length,
-  fps: {
-    mittel: Number((1000 / (summe / t.length)).toFixed(2)),
-    // Aus dem Frame-Zeit-Median, nicht aus dem Mittelwert der fps —
-    // der Kehrwert eines Mittelwerts ist nicht der Mittelwert der Kehrwerte.
-    median: Number((1000 / p(0.5)).toFixed(2)),
-    // Das "gefuehlte Minimum": langsamstes Prozent.
-    p1_low: Number((1000 / p(0.99)).toFixed(2)),
-  },
   frameZeitMs: {
-    p50: Number(p(0.5).toFixed(2)),
-    p95: Number(p(0.95).toFixed(2)),
-    p99: Number(p(0.99).toFixed(2)),
-    max: Number(t[t.length - 1].toFixed(2)),
+    p50: +p50Median.toFixed(2),
+    p95: +p(0.95).toFixed(2),
+    p99: +p(0.99).toFixed(2),
+    max: +t[t.length - 1].toFixed(2),
   },
   ausreisser: {
     ueber16_7ms: ueber(16.7),
     ueber33ms: ueber(33),
     ueber50ms: ueber(50),
-    anteilUeber33: Number(((ueber(33) / t.length) * 100).toFixed(2)),
+    anteilUeber16_7: +((ueber(16.7) / t.length) * 100).toFixed(2),
+    anteilUeber33: +((ueber(33) / t.length) * 100).toFixed(2),
+    anteilUeber50: +((ueber(50) / t.length) * 100).toFixed(2),
   },
-  teilsysteme: roh.profil,
-  netz: roh.netz,
-  // Auch im Erfolgsfall festhalten: Ein fehlendes Asset laesst das Spiel
-  // laufen, kostet aber Bild oder Ton, ohne dass es jemand bemerkt.
+  teilsysteme,
+  zeichenaufrufeProBild: letzteRunde.teilProfil?.zeichenaufrufeProBild ?? -1,
+  aktiveMeshes: roh.aktiveMeshes,
+  gesamtMeshes: roh.gesamtMeshes,
+  aktivNachTyp: letzteRunde.teilProfil?.aktivNachTyp ?? null,
+  materialien: roh.materialien,
+  schattenwerfer: letzteRunde.teilProfil?.schattenwerfer ?? -1,
+  schattenKaskaden: letzteRunde.teilProfil?.schattenKaskaden ?? -1,
   fehlanfragen: fehlanfragen.slice(0, 30),
   konsolenfehler: konsole.slice(0, 30),
   seitenfehler: seitenfehler.slice(0, 10),
@@ -396,43 +484,17 @@ mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, JSON.stringify(ergebnis, null, 2));
 
 console.log('');
-console.log(`  fps mittel/median/1%low : ${ergebnis.fps.mittel} / ${ergebnis.fps.median} / ${ergebnis.fps.p1_low}`);
+console.log(`  Strecke                 : ${ergebnis.strecke.gelaufen} m von ${STRECKE} m angefordert (${LAEUFE} Runden), in ${ergebnis.strecke.dauerS} s`);
 console.log(`  Frame-Zeit p50/p95/p99  : ${ergebnis.frameZeitMs.p50} / ${ergebnis.frameZeitMs.p95} / ${ergebnis.frameZeitMs.p99} ms`);
 console.log(`  Maximum                 : ${ergebnis.frameZeitMs.max} ms`);
-console.log(`  Frames >33ms            : ${ergebnis.ausreisser.ueber33ms} von ${t.length} (${ergebnis.ausreisser.anteilUeber33} %)`);
-console.log(`  Draw Calls je Bild      : ${roh.profil.zeichenaufrufeProBild} (kumulativ ${roh.profil.zeichenaufrufe})`);
-console.log(`  aktive Meshes           : ${roh.profil.aktiveMeshes} ${JSON.stringify(roh.profil.aktivNachTyp ?? {})}`);
 console.log(
-  `  Schattenwerfer          : ${roh.profil.schattenwerfer} x ${roh.profil.schattenKaskaden} Kaskaden` +
-    ` = ${(roh.profil.schattenwerfer ?? 0) * (roh.profil.schattenKaskaden ?? 0)} Zeichenaufrufe`
+  `  Frames >16,7/33/50ms    : ${ergebnis.ausreisser.ueber16_7ms} / ${ergebnis.ausreisser.ueber33ms} / ` +
+    `${ergebnis.ausreisser.ueber50ms} von ${t.length}`
 );
-if (roh.netz) {
-  console.log(
-    `  Netz empfangen          : ${(roh.netz.bytesProSekunde / 1024).toFixed(1)} kB/s, ${roh.netz.paketeProSekunde} Pakete/s`
-  );
-}
-/**
- * Warnung, wenn kein einziger Prefab-Master im Bild stand.
- *
- * Am 2026-08-15 lief die ganze Vergleichsreihe so (mess/baseline-*,
- * grafik-*, hotpath-*, bundle-*): `aktivNachTyp` fuehrte nur Terrain und
- * Gras, `materialien` stand bei 29, das WS-Aufkommen bei 1 kB/s, und die
- * Endposition lag 46 m UNTER dem Wasserspiegel. Gemessen wurde also eine
- * Szene ohne Vegetation und ohne Bauwerke — mit 185 fps Median eine sehr
- * gute Zahl, die ueber die Prefab-Last nichts aussagt. Wer das nicht
- * bemerkt, vergleicht Staende gegen eine leere Welt.
- *
- * Bis D10 war das nicht einmal ablesbar: Die Aufschluesselung suchte
- * Master an den Namenspraefixen `inst_`/`master`, die Master tragen aber
- * den Namen ihres GLB-Submeshes (`tree`, `leaves`, `huegel`). Sie landeten
- * unter "sonstige" und fielen dort nicht auf.
- */
-const entities = roh.profil.aktivNachTyp?.entities ?? 0;
-if (entities === 0) {
-  console.log('');
-  console.log('  ACHTUNG: kein einziger Prefab-Master im Bild (aktivNachTyp.entities = 0).');
-  console.log('  Diese Messung sagt nichts ueber Vegetation, Bauwerke und ihre Zeichenaufrufe aus.');
-  console.log('  Pruefen: Steht der Messort in geladenem Gelaende, liefert der Server ZDOs,');
-  console.log('  und laedt jedes Layout-Prefab sein Modell (404er in der Konsolenausgabe)?');
-}
+console.log(`  Draw Calls je Bild      : ${ergebnis.zeichenaufrufeProBild}`);
+console.log(`  aktive Meshes           : ${ergebnis.aktiveMeshes} von ${ergebnis.gesamtMeshes}`);
+console.log(`  Materialien             : ${ergebnis.materialien}`);
+console.log(`  Schattenwerfer          : ${ergebnis.schattenwerfer} x ${ergebnis.schattenKaskaden} Kaskaden`);
+console.log(`  Teilsysteme (avg/max ms je Bild): ${JSON.stringify(teilsysteme)}`);
+console.log(`  Commit ${ergebnis.commit} | GPU ${ergebnis.gpu} | ${ergebnis.aufloesung} | t=${TIME}`);
 console.log(`  -> ${OUT}`);

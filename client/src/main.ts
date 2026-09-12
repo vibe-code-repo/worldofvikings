@@ -686,6 +686,15 @@ async function main() {
    * Muster: `params.has('flat')` in engine/Terrain.ts.
    */
   const strahlenAus = params.get('shafts') === 'off';
+  /**
+   * `?shadows=off` — Diagnoseschalter Paket 0.14, nach demselben Muster
+   * wie `?shafts=off` oben: erzwingt Schattenstufe 0 (Shadows.setLevel,
+   * SHADOW_LEVELS[0] = null = kein Generator), ohne die gespeicherte
+   * Einstellung anzufassen. Braucht das Leistungswerkzeug als Gegenprobe
+   * (Schattenwerfer im Profil müssen auf 0 fallen) und jeder Bauer, der
+   * einen Ruckler eingrenzen will, ohne Code zu ändern.
+   */
+  const schattenErzwingenAus = params.get('shadows') === 'off';
   /** Spielerwahl plus die Diagnoseschalter aus der Adresse. */
   const postOptionen = (s: GameSettings): GameSettings =>
     strahlenAus ? { ...s, sunShafts: false } : s;
@@ -956,6 +965,11 @@ async function main() {
   const abgleicher = new Abgleicher();
   // Audio: startet mit der ersten Nutzergeste (Browser-Autoplay-Regel).
   const audio = new GameAudio();
+  // Diagnoseschalter Paket 0.14: `?mute=1` schaltet den Ton fest ab, ohne
+  // dass ein Bauer der Roadmap dafür Code anfassen muss (Messläufe wollen
+  // keinen Hintergrundton, und wer Ruckler eingrenzt, will Audio als
+  // Ursache ausschliessen können).
+  if (params.has('mute')) audio.setMuted(true);
   window.addEventListener('pointerdown', () => audio.start(), { once: true });
   window.addEventListener('keydown', () => audio.start(), { once: true });
   /** Dungeon-Eingänge vom Server — Kartenmarker (kommen ggf. vor buildWorld). */
@@ -1119,7 +1133,7 @@ async function main() {
         }
       : s);
     shadows?.setHundertFpsProfil(s.hundertFpsProfil);
-    shadows?.setLevel(s.hundertFpsProfil ? 1 : s.shadowQuality);
+    shadows?.setLevel(schattenErzwingenAus ? 0 : s.hundertFpsProfil ? 1 : s.shadowQuality);
     shadows?.setDistantShadows(s.hundertFpsProfil ? false : s.distantShadows);
     entities?.setHundertFpsProfil(s.hundertFpsProfil);
     entities?.setVegetationsGrenze(VEGETATION_RANGE[s.vegetationRange] ?? 0);
@@ -1769,7 +1783,7 @@ async function main() {
     shadows = new Shadows(scene, lighting.sun);
     const startSettings = gameSettings.get();
     shadows.setHundertFpsProfil(startSettings.hundertFpsProfil);
-    shadows.setLevel(startSettings.hundertFpsProfil ? 1 : startSettings.shadowQuality);
+    shadows.setLevel(schattenErzwingenAus ? 0 : startSettings.hundertFpsProfil ? 1 : startSettings.shadowQuality);
     shadows.setDistantShadows(startSettings.hundertFpsProfil ? false : startSettings.distantShadows);
     // Sichtbare Vegetationspuffer bleiben beim EntityManager; Shadows
     // bekommt nach jedem Neuaufbau nur die fertige Matrix-Momentaufnahme

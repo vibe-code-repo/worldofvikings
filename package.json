@@ -12,10 +12,16 @@
     "tools/prefab-parser",
     "tools/worldlayout-mcp"
   ],
+  "engines": {
+    "node": ">=22.5"
+  },
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:server": "npm run dev --workspace=server",
     "dev:client": "npm run dev --workspace=client",
+    "dev:admin": "npm run dev --workspace=admin",
+    "assets:bauen": "node tools/assets-paket.mjs bauen",
+    "assets:holen": "node tools/assets-paket.mjs holen",
     "service:install": "sudo deploy/install-services.sh",
     "service:start": "sudo systemctl start wov.target",
     "service:stop": "sudo systemctl stop wov.target",

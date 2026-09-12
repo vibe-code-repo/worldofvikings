@@ -28,4 +28,11 @@ jobs:
       # sind bewusst NICHT hier drin -- die laufen laut Projektnotiz nur
       # lokal gegen den :5274-Tunnel, auf einem reinen Server-Container
       # startet dort kein Chromium.
+      #
+      # WOV_OHNE_MODELLE=1: assets/ liegt bewusst nicht in diesem Repo
+      # (siehe .gitignore) und der Runner holt hier kein Asset-Paket -- die
+      # Weiche taeuscht das Fehlen der Modelle absichtlich vor, statt es
+      # zufaellig vorzufinden (scripts/testweichen.mjs, scripts/run-tests.mjs).
       - run: npm test
+        env:
+          WOV_OHNE_MODELLE: "1"

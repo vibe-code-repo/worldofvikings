@@ -6,6 +6,7 @@
   "description": "Betriebsdienst der Live-Instanz — Gegenstelle der Editor-Einstellungsseite",
   "scripts": {
     "start": "tsx src/main.ts",
+    "dev": "tsx src/main.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

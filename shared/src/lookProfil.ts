@@ -303,27 +303,54 @@ export const HORIZONT_AUS_NEBEL = 'nebel';
  *    führt — nicht als Babylons Reglerwert. Die Umrechnung auf dessen
  *    −100…+100-Skala steht an der einen Stelle, die sie bindet.
  */
+/*
+  ── Diese Vorgabe IST `server.yml` (Roadmap-Paket 0.8, 12.09.2026) ────
+
+  Bis hierher wich sie an sechs Stellen ab — `belichtung` 1,0 gegen 1,42
+  war die auffaelligste. Das ist kein Schoenheitsfehler: Diese Werte
+  gelten in genau dem Fenster zwischen dem ersten Bild und dem Eintreffen
+  des `look:`-Blocks vom Server ([[wov-servereinstellungen-erreichen-
+  clients-erst-beim-anmelden]]), und im Editor sowie in jedem Werkzeug
+  ohne Serververbindung gelten sie dauerhaft. Eine abweichende Vorgabe
+  heisst also: Der Ladebildschirm, der Editor und die Messzellen zeigen
+  ein anderes Bild als das Spiel — und weil beide „richtig" aussehen,
+  faellt es niemandem auf.
+
+  `server/test/stufe2-licht.ts` haelt die Gleichheit Feld fuer Feld fest
+  („LOOK_VORGABE deckt sich mit server.yml"). Wer hier eine Zahl aendert,
+  aendert sie dort mit — oder der Test sagt, welche.
+
+  Die `himmel`-Zusatzfelder aus `LOOK_HIMMEL_PLUS_VORGABE` stehen absicht-
+  lich NICHT in `server.yml`; der Test vergleicht nur, was dort steht.
+*/
 export const LOOK_VORGABE: LookProfil = {
   tonemapping: 'aus',
-  belichtung: 1.0,
-  kontrast: 1.0,
-  saettigung: 1.0,
+  belichtung: 1.42,
+  kontrast: 0.84,
+  saettigung: 1.12,
   nebelmodus: 'linear',
   nebelStart: 15,
-  nebelEnde: 200,
+  nebelEnde: 800,
   nebelWaerme: 0,
+  // Die Dorf-Zeile der Entscheidung E1, roh (0,9800831 / 0,92229587 /
+  // 1,0) mit Offset −0,044477392, in Hex gerundet (Rundungsfehler
+  // hoechstens 0,0038). Der Offset ist NEGATIV — positiv wirkt er in
+  // dieser Zeile vierfach. `schattenEnde` muss unter `lichterStart`
+  // bleiben, sonst wird das Mittengewicht negativ; `pruefeLook` sieht
+  // das nicht, `setzeGrading` warnt, und `client/test/grading-
+  // schatten.ts` rechnet beides nach.
   grading: {
     an: true,
-    schatten: '#ffffff',
-    schattenOffset: 0,
+    schatten: '#faebff',
+    schattenOffset: -0.044477392,
     schattenStart: 0,
     schattenEnde: 0.3,
-    mitten: '#fff5ef',
-    mittenOffset: 0,
-    lichter: '#ffe9c7',
-    lichterOffset: -0.164,
-    lichterStart: 1.07,
-    lichterEnde: 1.58,
+    mitten: '#fff5e6',
+    mittenOffset: -0.014825796,
+    lichter: '#ffffff',
+    lichterOffset: 0,
+    lichterStart: 0.55,
+    lichterEnde: 1.0,
   },
   bloom: { an: true, schwelle: 0.35, staerke: 0.55, skala: 0.5, kernel: 32 },
   vignette: { an: true, staerke: 0.686, farbe: '#0d0a08' },
@@ -340,7 +367,13 @@ export const LOOK_VORGABE: LookProfil = {
     dichte: 0.94,
   },
   himmel: { zenit: '#6B8798', horizont: '#8D9598', 'sonnenglühen': 0.2, ...LOOK_HIMMEL_PLUS_VORGABE },
-  schatten: { aufloesung: 1024, reichweite: 50, kaskaden: 1, dunkelheit: 0.42, rasten: true },
+  // `kaskaden: 2` ist kein Geschmack, sondern der Deckel, den Babylons
+  // `CascadedShadowGenerator` ohnehin zieht (`MIN_CASCADES_COUNT`); eine 1
+  // hier waere nur eine falsche Auskunft. `dunkelheit` ist Babylons
+  // RESTLICHT im Schatten, nicht seine Staerke — 0,20 laesst den
+  // Schlagschatten als Form lesbar werden, die Gesamthelligkeit traegt
+  // seit dem 12.09.2026 `kontrast 0,84`.
+  schatten: { aufloesung: 1024, reichweite: 50, kaskaden: 2, dunkelheit: 0.2, rasten: true },
 };
 
 // ── Nebelkurve ───────────────────────────────────────────────────────

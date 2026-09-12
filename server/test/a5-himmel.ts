@@ -280,15 +280,39 @@ function schattenDunkelheit(): void {
   const profil = mischeLook(roh.look);
   const d = profil.schatten.dunkelheit;
   /*
-    Babylons `darkness` ist RESTLICHT. Gemessen wurde das Verhaeltnis
-    besonnter zu beschatteter Felsflaeche an der Pose `felsschatten`
-    (himmel-mess.mjs): 0,25 → 1,375, 0,42 → 1,313, 0,62 → 1,236 gegen
-    das Vorbild 1,21. Das Fenster hier ist bewusst weit — es soll ein
-    Zurueckfallen auf den alten Wert bemerken, nicht eine Feinjustierung
+    Babylons `darkness` ist RESTLICHT, nicht Schattenstaerke.
+
+    ── Was hier stand, und warum das Fenster gedreht ist ──────────────
+    Bis zum 12.09.2026 verlangte diese Zeile 0,50..0,80, begruendet mit
+    der Messreihe an der Pose `felsschatten` (0,25 → 1,375, 0,42 →
+    1,313, 0,62 → 1,236) gegen das Vorbild 1,21. Die Reihe ist richtig;
+    die Zusage, die daraus gebaut wurde, war die falsche. Sie hat
+    festgehalten, dass wir das flache Verhaeltnis des Vorbilds ueber ein
+    AUFGEHELLTES Schattenrestlicht erreichen — und genau das war Mikes
+    Befund („Schatten nicht klar sichtbar"). Ein Verhaeltnis von 1,21
+    laesst sich auf zwei Wegen treffen: mit einem schwarzen Schatten und
+    starkem Grundlicht (so macht es das Vorbild, D/A ≈ 0,5 linear) oder
+    mit einem aufgehellten Schatten (so machten wir es, D/A ≈ 3,3). Die
+    Zahl war dieselbe, das Bild nicht.
+
+    Seit dem Workflow „Licht und Farbe" traegt die Gesamthelligkeit
+    `look.kontrast` 0,84 und nicht mehr das Schattenrestlicht; die
+    `dunkelheit` darf deshalb klein werden, bis ein Schlagschatten als
+    FORM lesbar ist. Das Fenster bleibt bewusst weit — es soll das
+    stille Zurueckfallen auf 0,62 bemerken, nicht eine Feinjustierung
     verbieten.
   */
-  ok(d >= 0.5 && d <= 0.8, `dunkelheit ${d} liegt im gemessenen Fenster 0,50..0,80 (Verhaeltnis 1,21 ± 0,05)`);
-  ok(LOOK_VORGABE.schatten.kaskaden === 1, 'eine Kaskade (unveraendert)');
+  ok(d > 0 && d <= 0.3, `dunkelheit ${d} liegt im Fenster 0..0,30 (Schatten als Form lesbar, Helligkeit traegt look.kontrast)`);
+  /*
+    Und die Kaskadenzahl: Hier stand `=== 1` mit dem Zusatz
+    „unveraendert". Die 1 war nie eine Einstellung — Babylons
+    `CascadedShadowGenerator` klemmt `numCascades` im Setter auf
+    `MIN_CASCADES_COUNT = 2`, es liefen immer zwei Passagen, und nur die
+    Auskunft log. Der Test hielt also eine Zahl fest, die das Bild nie
+    hatte. `client/test/ausfaelle-zeugen.ts` prueft den Deckel selbst;
+    hier steht nur, dass das Profil ihn nicht unterschreitet.
+  */
+  ok(LOOK_VORGABE.schatten.kaskaden >= 2, `Profil meldet ${LOOK_VORGABE.schatten.kaskaden} Kaskaden — Babylons Deckel ist 2, weniger waere eine falsche Auskunft`);
 }
 
 function main(): void {

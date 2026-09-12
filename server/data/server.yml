@@ -228,15 +228,42 @@ look:
   # Zahl stellt die absolute Helligkeit auf die Regionswerte der
   # Referenzbilder ein; die Verhaeltnisse beruehrt sie nicht (s. oben).
   belichtung: 1.42
-  # Der Kontrast des Vorbilds kommt aus `ShadowsMidtonesHighlights`
-  # (unten), nicht aus einem Kontrastregler: `ColorAdjustments` ist in
-  # Level1 abgeschaltet, und sein `contrast` steht dort auf 0 (F4).
-  kontrast: 1.0
+  # ── Kontrast 0,84: der EINZIGE gegenlaeufige Regler ──────────────────
+  # Hier stand 1,0 mit der Begruendung, das Vorbild fuehre keinen
+  # Kontrastregler. Das bleibt richtig als Herkunftsaussage und ist als
+  # Zielaussage falsch: Gesucht war „Boden hoch, Himmel leicht runter",
+  # und von den fuenf Reglern, die am 12.09.2026 einzeln gegen denselben
+  # Bildinhalt gefahren wurden, hat GENAU EINER entgegengesetztes
+  # Vorzeichen auf Boden und Himmel (Pose `weitblick`, 12:00, je auf dem
+  # Stand darueber):
+  #
+  #   belichtung 1,42 → 2,0     Boden  +7,4   Himmel  +24,4   beide hoch
+  #   tonemapping neutral       Boden  −4,3   Himmel   −8,8   beide runter
+  #   grading Dorf              Boden  −4,4   Himmel   −1,5   beide runter
+  #   kontrast 1,0 → 0,84       Boden +12,5   Himmel   −3,9   GEGENLAEUFIG
+  #   saettigung 1,0 → 1,12     Boden   ±0    Himmel    ±0    nur Farbe
+  #
+  # Babylon mischt unter 1,0 im Gammaraum gegen Mittelgrau
+  # (`mix(vec3(0.5), rgb, contrast)`, NACH dem Tonemapping) — das hebt
+  # alles Dunkle und senkt alles Helle.
+  #
+  # Der Preis steht dabei und ist gemessen, nicht geschaetzt: Bei ?t=0
+  # hebt 0,84 den Boden von L 21,2 auf 34,0 und das Bild-p5 von 19,1 auf
+  # 32,4. Die Nacht wird flauer, nicht bunter (S 0,452 → 0,184).
+  # Innenraeume sind nicht gemessen — dort steht die naechste Karte.
+  kontrast: 0.84
   # Das Vorbild hat KEINEN Saettigungsregler: In keiner der zwoelf
   # Szenen des Spiels ist `saturation` ueberschrieben (§E, F2). Die 0,45
   # war eine Erfindung des Labors — sie hat eine Farbe weggenommen, die
   # danach mit Toenungen wieder hereingerechnet wurde.
-  saettigung: 1.0
+  #
+  # Die 1,12 ist deshalb keine Rueckkehr zu jener Erfindung, sondern der
+  # Ausgleich fuer `kontrast 0,84`: Die Mischung gegen Mittelgrau nimmt
+  # mit dem Kontrast auch Farbe. Gemessen am Wiesengrund (`weitblick`,
+  # 12:00) hebt 1,12 die Saettigung von 0,399 auf 0,439 — das Zielband
+  # der Referenz ist 0,42–0,47 (gemessen 0,447), und der Regler ruehrt
+  # die Helligkeit dabei nicht an (Boden ±0, Himmel ±0).
+  saettigung: 1.12
   # ── Nebel: linear 15 → 200 m ─────────────────────────────────────────
   # `m_FogMode = 1` (Linear), `m_LinearFogStart` 15, `m_LinearFogEnd` 200
   # (§D). Im Linear-Modus liest niemand `fogDensity` — auch das Vorbild
@@ -246,9 +273,30 @@ look:
   # stand: Bei 200 m war unser Bild zu 16 % Nebel, das Vorbild ist es zu
   # 100 %. F6 nennt das die wahrscheinlichste Ursache dafuer, dass unsere
   # Ferne anders wirkt.
+  #
+  # ── Nebelende 200 → 800 m (Entscheidung E3, 12.09.2026) ─────────────
+  # Die FARBE bleibt, die Reichweite nicht. Drei Zeugen, alle an
+  # `weitblick`/`steinkreis` 12:00 gemessen, Farbe unveraendert:
+  #
+  #   nebelEnde            200    600    700    800   1000   1400
+  #   Ferne B−R           26,1    5,5    3,7    2,1     —      —
+  #   Ferne/Himmel       0,628  0,559  0,554  0,550     —      —
+  #   Ferne p95−p5        68,4   81,1   82,1   83,0   84,1   85,5
+  #
+  # 1. Bei 800 m FAERBT der Nebel die Ferne nicht mehr blau (B−R 2,1
+  #    statt 26,1), er verschleiert sie nur noch.
+  # 2. Die Struktur in der Ferne waechst bis 800 m um 14,6 Luma, danach
+  #    um rund 1 Luma je 100 m — ab hier kauft mehr Sicht nichts mehr.
+  # 3. Ferne/Himmel landet auf 0,550; gemessen sind 0,53.
+  #
+  # Was 800 m NICHT leistet, damit es niemand annimmt: Die Fernschale
+  # des Gelaendes reicht an dieser Pose bis 1091 m, der Wasserring bis
+  # 1498 m. Alles dahinter steht weiter in voller Nebelfarbe; „keine
+  # Flaeche erreicht die volle Nebelfarbe" braeuchte 1500 m und ist eine
+  # eigene Entscheidung.
   nebelmodus: linear
   nebelStart: 15
-  nebelEnde: 200
+  nebelEnde: 800
   nebelWaerme: 0
   # ── Grading: die ganze Farbhandschrift des Vorbilds ──────────────────
   # `ShadowsMidtonesHighlights` ist die EINZIGE Komponente, die in Level1
@@ -259,18 +307,45 @@ look:
   # hoechsten Luminanz, die der LDR-Farbraum des Vorbilds erreichen kann
   # — die Lichter-Zeile feuert nie. Sie steht hier trotzdem, damit die
   # Rechnung vollstaendig bleibt.
+  #
+  # ── Die Schattenzeile stand auf der EINS (12.09.2026) ───────────────
+  # `Grading.ts` hat `schatten*` immer schon mitgerechnet; im Profil
+  # stand `#ffffff` mit Offset 0, also die Identitaet. Was hier jetzt
+  # steht, ist die Dorf-Zeile der Entscheidung E1, aus den ROHEN
+  # Komponentenwerten (0,9800831 / 0,92229587 / 1,0) mit dem Offset
+  # −0,044477392 in Hex gerundet. Zwei Dinge dazu, beide gemessen:
+  #
+  #  · Der Offset ist NEGATIV, und das ist kein Vorzeichenfehler: Ein
+  #    positiver Offset wirkt in dieser Zeile VIERFACH. `client/test/
+  #    grading-schatten.ts` rechnet die Aufbereitung nach.
+  #  · Die 8-Bit-Rundung des Hex kostet hoechstens 0,0038 (schlechtester
+  #    Wert: das Blau der Mittenzeile, roh 0,9038545 → Byte 230). Im Bild
+  #    sind das rund 0,3 sRGB-Byte auf dem Himmel.
+  #
+  # REIHENFOLGE-BEDINGUNG: `schattenEnde` (0,3) muss unter
+  # `lichterStart` (0,55) bleiben. Ueberlappen die Baender, wird das
+  # Mittengewicht `1 − fS − fH` NEGATIV und die Tabelle kehrt Farben um
+  # — ohne Symptom, denn `pruefeLook` kennt nur Bereiche, keine
+  # Reihenfolge. `setzeGrading` warnt seither auf der Konsole.
+  #
+  # Die Lichterzeile steht jetzt auf Weiss mit Offset 0 und feuert ab
+  # 0,55 — das ist NICHT wirkungslos: Sie verdraengt oberhalb der
+  # Schwelle das Mittengewicht und haelt Weiss neutral, wo die Wildnis
+  # es bis ins letzte Byte waermte (255/245/239). Gemessen aendert das
+  # 11.296 von 131.072 LUT-Bytes, und zwar ausschliesslich ZUR
+  # unveraenderten Farbe hin.
   grading:
     an: true
-    schatten: '#ffffff'
-    schattenOffset: 0
+    schatten: '#faebff'
+    schattenOffset: -0.044477392
     schattenStart: 0
     schattenEnde: 0.3
-    mitten: '#fff5ef'
-    mittenOffset: 0
-    lichter: '#ffe9c7'
-    lichterOffset: -0.164
-    lichterStart: 1.07
-    lichterEnde: 1.58
+    mitten: '#fff5e6'
+    mittenOffset: -0.014825796
+    lichter: '#ffffff'
+    lichterOffset: 0
+    lichterStart: 0.55
+    lichterEnde: 1.0
   # Schwelle 0,35 statt 0,85, Staerke 0,55 statt 0,22 — beide direkt aus
   # dem Profil `FantasyL1` (§E). Das Vorbild blueht viel frueher und
   # staerker; unsere Schwelle liess praktisch nichts durch. Die
@@ -380,16 +455,22 @@ look:
     zenit: '#6B8798'
     horizont: '#8D9598'
     sonnenglühen: 0.2
-  # ── Schatten: 50 m, EINE Kaskade ─────────────────────────────────────
-  # Die Notiz, die hier stand („Das Vorbild faehrt 40 m mit zwei
-  # Kaskaden"), war falsch: 40 m / 2 Kaskaden stehen in Unitys
-  # `QualitySettings`, und URP liest die nicht. Wirksam sind die Werte
-  # des URP-Assets, und das faehrt auf der Stufe „Balanced" (HDR an,
-  # MSAA 1, LUT 32) 50 m mit EINER Kaskade und einer 1024er Karte (§D).
+  # ── Schatten: 50 m, ZWEI Kaskaden ────────────────────────────────────
+  # Die Reichweite 50 m stammt aus dem URP-Asset der Stufe „Balanced"
+  # (HDR an, MSAA 1, LUT 32) — nicht aus Unitys `QualitySettings`, die
+  # URP gar nicht liest (§D). `kaskaden` ersetzt, wie `reichweite`, die
+  # Zahl der Qualitaetsstufe.
   #
-  # `kaskaden` ist neu und ersetzt — wie `reichweite` — die Zahl der
-  # Qualitaetsstufe. Eine Kaskade statt zwei ist zugleich eine ganze
-  # Renderpassage weniger ueber die Werferliste.
+  # ── 1 → 2 (12.09.2026): die 1 war nie eine Einstellung ──────────────
+  # Hier stand `kaskaden: 1` mit dem Zusatz „Eine Kaskade statt zwei ist
+  # zugleich eine ganze Renderpassage weniger ueber die Werferliste".
+  # Das war falsch, und zwar folgenlos-falsch: Babylons
+  # `CascadedShadowGenerator` klemmt `numCascades` im SETTER auf
+  # `MIN_CASCADES_COUNT = 2`. Es liefen immer zwei Passagen; nur die
+  # Debugzeile meldete „1x", und mit ihr `__vb.profil().schattenKaskaden`
+  # und die Kostenrechnung „Werfer x Kaskaden". Seit `schattenMitLook()`
+  # den Deckel selbst einzieht (`MIN_KASKADEN`), waere die 1 nur noch
+  # eine falsche Zahl im Profil. Am Bild aendert die 2 nichts.
   #
   # ── A7 (11.09.): `dunkelheit` 0,42 → 0,62, am VERHAELTNIS gemessen ───
   # Babylons `darkness` ist das RESTLICHT im Schatten, nicht seine
@@ -406,8 +487,20 @@ look:
   #
   #     darkness 0,25 → 1,375     0,42 → 1,313     0,62 → 1,236
   #
-  # 0,62 liegt im Fenster 1,21 ± 0,05. Der Regler wirkt also, und er
-  # wirkt in der erwarteten Richtung.
+  # 0,62 lag im Fenster 1,21 ± 0,05. Der Regler wirkt also, und er wirkt
+  # in der erwarteten Richtung.
+  #
+  # ── 0,62 → 0,20 (12.09.2026) ────────────────────────────────────────
+  # Die 0,62 stammt aus einem Bild, in dem der Schatten kaum zu finden
+  # war, und sie hat das Fenster nur getroffen, indem sie den Schatten
+  # weiter aufhellte. Mikes Befund („Schatten nicht klar sichtbar")
+  # bleibt damit stehen. 0,20 geht den entgegengesetzten Weg: Das
+  # Restlicht im Schatten wird klein genug, dass ein Schlagschatten als
+  # Form lesbar ist, und der aufgehellte Gesamteindruck, der die 0,62
+  # noetig machte, kommt jetzt aus `kontrast 0,84` (oben) statt aus dem
+  # Schattenrestlicht. Die Zahl ist eine Entscheidung dieses Workflows
+  # und wird in der Gesamtmessung als Licht/Schatten-Verhaeltnis
+  # mitgefuehrt.
   #
   # `ambColorDay` ist dabei NICHT mitbewegt worden, und das ist gemessen
   # und nicht vergessen: Der Schritt von 0,42 auf 0,62 hebt am
@@ -425,6 +518,6 @@ look:
   schatten:
     aufloesung: 1024
     reichweite: 50
-    kaskaden: 1
-    dunkelheit: 0.62
+    kaskaden: 2
+    dunkelheit: 0.20
     rasten: true

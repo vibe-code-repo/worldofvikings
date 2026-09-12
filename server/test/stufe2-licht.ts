@@ -55,6 +55,7 @@ import {
   sichtweite,
   strahlenTor,
   strahlenWinkel,
+  tagseitenAnteil,
   type EnvColor,
 } from '@wov/shared';
 import { leseLookVorgabe, LookKonfigFehler } from '../src/ServerKonfig.js';
@@ -413,14 +414,18 @@ function abendStuetzpunkt(): void {
     for (let i = 0; i < 96; i++) {
       const t = i / 96;
       const st = evaluateEnv(env, t);
-      const w = env.alwaysDark
-        ? { night: 1, day: 0, morning: 0, evening: 0 }
-        : phaseWeights(t);
-      const altI = lerp(env.lightIntensityNight, env.lightIntensityDay, w.day);
+      // Die MENGE Tag kommt seit dem 12.09.2026 aus dem Sonnenstand und
+      // nicht mehr aus dem Phasengewicht. Hier stand `w.day` — und genau
+      // das war die zweite Uhr, an der zwischen 03:13 und 05:54 sowie
+      // zwischen 18:06 und 20:23 die Sonne oben stand, waehrend alle drei
+      // tagseitigen Gewichte null waren (300 von 1440 Stuetzstellen).
+      // Eine Referenzformel, die den Fehler mitrechnet, prueft nichts.
+      const ta = env.alwaysDark ? 0 : tagseitenAnteil(st.elevation);
+      const altI = lerp(env.lightIntensityNight, env.lightIntensityDay, ta);
       const altAmb = {
-        r: lerp(env.ambColorNight.r, env.ambColorDay.r, w.day),
-        g: lerp(env.ambColorNight.g, env.ambColorDay.g, w.day),
-        b: lerp(env.ambColorNight.b, env.ambColorDay.b, w.day),
+        r: lerp(env.ambColorNight.r, env.ambColorDay.r, ta),
+        g: lerp(env.ambColorNight.g, env.ambColorDay.g, ta),
+        b: lerp(env.ambColorNight.b, env.ambColorDay.b, ta),
       };
       const gleich =
         st.lightIntensity === altI &&
@@ -436,13 +441,21 @@ function abendStuetzpunkt(): void {
   );
 
   // (2) Die drei Zeitpunkte, an denen der Abend nichts zu suchen hat.
+  //
+  // Bei f = 0,25 stand hier bis zum 12.09.2026 das NACHTlicht als
+  // Sollwert — und es traf zu, weil die Sonne dort auf Elevation 0,4894
+  // (24,5 Grad) stand und trotzdem kein tagseitiges Gewicht trug. Der
+  // Test hat den Fehler nicht gefunden, er hat ihn festgehalten. Neu
+  // sind es die gemessenen Tagwerte: lightIntensity 0,970000, ambColor
+  // (0,5640 / 0,6650 / 0,8110). Mitternacht und Mittag bleiben, wie sie
+  // waren.
   for (const [t, name, erwartet] of [
     [0, 'Mitternacht', kc.lightIntensityNight],
-    [0.25, 'Morgen (6 h)', kc.lightIntensityNight],
+    [0.25, 'Morgen (6 h)', kc.lightIntensityDay],
     [0.5, 'Mittag', kc.lightIntensityDay],
   ] as const) {
     const st = evaluateEnv(kc, t);
-    const ambErwartet = t === 0.5 ? kc.ambColorDay : kc.ambColorNight;
+    const ambErwartet = t === 0 ? kc.ambColorNight : kc.ambColorDay;
     ok(
       nah(st.lightIntensity, erwartet, 1e-9) &&
         nah(st.ambColor.r, ambErwartet.r, 1e-9) &&
@@ -576,6 +589,16 @@ function lookGeprueft(): void {
   ok(pruefeLook({ grading: { mittenTon: '#fff5ef' } }).length === 1, 'ein unbekannter Grading-Schluessel wird gemeldet');
   ok(pruefeLook({ schatten: { kaskaden: 1 } }).length === 0, 'look.schatten.kaskaden ist ein bekannter Regler');
   ok(pruefeLook({ schatten: { dunkelheit: 42 } }).length === 1, 'dunkelheit 42 statt 0,42 wird gemeldet');
+  // Ein NEGATIVER Grading-Offset ist gueltig und seit dem 12.09.2026 der
+  // Normalfall: Die Dorf-Schattenzeile traegt −0,044477392, und ein
+  // positiver Offset wirkt in dieser Zeile vierfach. Waere der Bereich
+  // [0,1] statt [−1,1], wuerde der Server mit der ausgelieferten
+  // server.yml nicht mehr starten — und zwar erst beim naechsten
+  // Kaltstart, nicht beim Aendern.
+  ok(
+    pruefeLook({ grading: { schattenOffset: -0.044477392 } }).length === 0,
+    'ein negativer Grading-Offset geht durch (−0,044477392 ist der Dorf-Wert)'
+  );
 
   // Mischen laesst Unterabschnitte nicht ausbluten (ADR-0040-Falle).
   const gemischt = mischeLook({ bloom: { staerke: 0.4 } });
@@ -610,6 +633,85 @@ function lookGeprueft(): void {
 
   // Die Vorgabe selbst muss durch ihre eigene Pruefung gehen.
   ok(pruefeLook(LOOK_VORGABE as unknown as Record<string, unknown>).length === 0, 'LOOK_VORGABE haelt der eigenen Pruefung stand');
+
+  // Die EINZIGE Reihenfolge-Bedingung im ganzen Profil, und die einzige,
+  // die `pruefeLook` strukturell nicht sehen kann: Ueberlappen Schatten-
+  // und Lichterband, wird das Mittengewicht `1 − fS − fH` negativ und
+  // die Tabelle kehrt Farben um. Geprueft wird die AUSGELIEFERTE
+  // Vorgabe, nicht ein Beispiel — die Reihenfolge kann nur dort kippen.
+  ok(
+    LOOK_VORGABE.grading.schattenEnde <= LOOK_VORGABE.grading.lichterStart,
+    `Schatten- und Lichterband ueberlappen nicht: schattenEnde ${LOOK_VORGABE.grading.schattenEnde} <= lichterStart ${LOOK_VORGABE.grading.lichterStart}`
+  );
+}
+
+// ── 2b. LOOK_VORGABE deckt sich mit server.yml ────────────────────────
+
+/*
+  Roadmap-Paket 0.8. Die Vorgabe gilt in genau dem Fenster zwischen dem
+  ersten Bild und dem Eintreffen des `look:`-Blocks vom Server — und im
+  Editor und in jedem Werkzeug ohne Serververbindung gilt sie dauerhaft.
+  Wich sie ab (bis zum 12.09.2026 an sechs Stellen, am auffaelligsten
+  `belichtung` 1,0 gegen 1,42), sah der Ladebildschirm anders aus als das
+  Spiel, und weil beide Bilder fuer sich stimmig sind, faellt das
+  niemandem auf.
+
+  Verglichen wird, was in `server.yml` STEHT — Feld fuer Feld, rekursiv.
+  Schluessel, die die Vorgabe zusaetzlich fuehrt (die Wolken- und
+  Halo-Felder aus `LOOK_HIMMEL_PLUS_VORGABE`), sind ausdruecklich
+  erlaubt: Sie stehen absichtlich nicht in der Datei. Umgekehrt nicht:
+  Ein Feld in `server.yml`, das die Vorgabe nicht kennt, waere genau der
+  Fall, den `pruefeLook` oben schon meldet.
+*/
+function vorgabeDecktServerYml(): void {
+  console.log('\n2b. LOOK_VORGABE deckt sich mit server.yml (Roadmap 0.8)');
+
+  const echt = resolve(__dirname, '../data/server.yml');
+  if (!existsSync(echt)) {
+    ok(false, 'server.yml gefunden');
+    return;
+  }
+  const doc = (parseYaml(readFileSync(echt, 'utf-8')) ?? {}) as Record<string, unknown>;
+  const look = doc.look as Record<string, unknown> | undefined;
+  ok(look !== undefined && look !== null, 'server.yml fuehrt einen look:-Block');
+  if (!look) return;
+
+  const abweichungen: string[] = [];
+  const gleich = (a: unknown, b: unknown): boolean =>
+    typeof a === 'number' && typeof b === 'number' ? Math.abs(a - b) < 1e-12 : a === b;
+
+  const vergleiche = (yml: Record<string, unknown>, vorgabe: Record<string, unknown>, pfad: string): void => {
+    for (const [k, wert] of Object.entries(yml)) {
+      const hier = pfad ? `${pfad}.${k}` : k;
+      const soll = vorgabe?.[k];
+      if (wert !== null && typeof wert === 'object' && !Array.isArray(wert)) {
+        if (soll === null || typeof soll !== 'object') {
+          abweichungen.push(`${hier}: server.yml hat einen Block, die Vorgabe nicht`);
+          continue;
+        }
+        vergleiche(wert as Record<string, unknown>, soll as Record<string, unknown>, hier);
+        continue;
+      }
+      if (!gleich(wert, soll)) abweichungen.push(`${hier}: server.yml ${JSON.stringify(wert)} gegen Vorgabe ${JSON.stringify(soll)}`);
+    }
+  };
+  vergleiche(look, LOOK_VORGABE as unknown as Record<string, unknown>, '');
+
+  ok(
+    abweichungen.length === 0,
+    `jedes Feld des look:-Blocks steht so in LOOK_VORGABE${abweichungen.length ? `\n     ${abweichungen.join('\n     ')}` : ''}`
+  );
+
+  // Die vier Zahlen, an denen diese Runde haengt, noch einmal beim Namen
+  // — damit ein stiller Rueckfall nicht nur als „eine Abweichung" oben
+  // erscheint, sondern als die Entscheidung, die er ist.
+  ok(LOOK_VORGABE.belichtung === 1.42, `Belichtung 1,42 (war 1,0): ${LOOK_VORGABE.belichtung}`);
+  ok(LOOK_VORGABE.kontrast === 0.84, `Kontrast 0,84 — der eine gegenlaeufige Regler: ${LOOK_VORGABE.kontrast}`);
+  ok(LOOK_VORGABE.nebelEnde === 800, `Nebelende 800 m (war 200, Entscheidung E3): ${LOOK_VORGABE.nebelEnde}`);
+  ok(
+    LOOK_VORGABE.schatten.kaskaden === 2 && LOOK_VORGABE.schatten.dunkelheit === 0.2,
+    `Schatten: ${LOOK_VORGABE.schatten.kaskaden} Kaskaden (Babylons Deckel), Restlicht ${LOOK_VORGABE.schatten.dunkelheit}`
+  );
 }
 
 // ── 3. Nebelkurve ─────────────────────────────────────────────────────
@@ -639,16 +741,41 @@ function nebelkurve(): void {
   ok(nah(w0011, w0005mitPotenz, 1), `exp 0,0011 ohne Potenz = exp 0,0005 mit pow 2,2 (${w0011.toFixed(0)} m)`);
   ok(nah(w0011, 630, 5), `die alte exp-Sicht lag bei rund 630 m: ${w0011.toFixed(0)} m`);
   /*
-    Und der Unterschied, um den es beim Umstieg auf das Vorbild geht:
-    Dessen `linear 15 → 200 m` ist keine feinere Fassung derselben Kurve,
-    sondern eine um den Faktor sechs kuerzere Sicht. Die alte exp-Kurve
-    liess bei 200 m noch 84 % der Eigenfarbe durch, die neue null.
-    Genau das ist F6 der Abweichungsliste.
+    ── Was hier stand, und warum es nicht mehr stimmt ──────────────────
+
+    Bis zum 12.09.2026 hielt dieser Test fest: „Das Vorbild sieht sechsmal
+    kuerzer" — `linear 15 → 200 m` gegen die alte exp-Kurve mit 630 m.
+    Das war richtig gemessen und ist durch eine ENTSCHEIDUNG ueberholt
+    (E3): Das Nebelende steht seit heute auf 800 m, gemessen an drei
+    Zeugen (Ferne B−R 26,1 → 2,1; Struktur der Ferne +14,6 Luma bis
+    800 m, danach ~1 Luma je 100 m; Ferne/Himmel 0,550 gegen gemessene
+    0,53). Die FARBE des Nebels ist dabei unveraendert geblieben.
+
+    Die Zusage wird deshalb nicht geloescht, sondern auf das gedreht,
+    was jetzt gilt und was beim naechsten Umbau wieder kippen kann:
+
+     · Die lineare Sicht ist weiter KUERZER als die alte exp-Kurve
+       (408 m gegen 630 m) — der Umstieg auf `linear` hat die Ferne
+       nicht heimlich geoeffnet.
+     · Sie ist zugleich deutlich WEITER als die 108 m, die `nebelEnde
+       200` ergab. Genau das ist die Entscheidung, und sie steht hier
+       als Zahl, damit ein Rueckfall auf 200 auffaellt.
+     · Und `nebelStart` bleibt so weit unter `nebelEnde`, dass die
+       Rechnung nicht entartet.
   */
   const sichtLinear = sichtweite('linear', 0, 0.5, LOOK_VORGABE.nebelStart, LOOK_VORGABE.nebelEnde);
+  const sichtAlt200 = sichtweite('linear', 0, 0.5, LOOK_VORGABE.nebelStart, 200);
   ok(
-    sichtLinear < w0011 / 5,
-    `das Vorbild sieht sechsmal kuerzer: linear ${sichtLinear.toFixed(0)} m gegen exp ${w0011.toFixed(0)} m`
+    sichtLinear < w0011,
+    `linear bleibt kuerzer als die alte exp-Kurve: ${sichtLinear.toFixed(0)} m gegen ${w0011.toFixed(0)} m`
+  );
+  ok(
+    sichtLinear > 3 * sichtAlt200,
+    `E3 hat die Sicht mehr als verdreifacht: ${sichtAlt200.toFixed(0)} m (nebelEnde 200) → ${sichtLinear.toFixed(0)} m (nebelEnde ${LOOK_VORGABE.nebelEnde})`
+  );
+  ok(
+    LOOK_VORGABE.nebelStart < LOOK_VORGABE.nebelEnde,
+    `nebelStart ${LOOK_VORGABE.nebelStart} liegt unter nebelEnde ${LOOK_VORGABE.nebelEnde}`
   );
 
   // Dichte 0 heisst "kein Nebel", nicht "Division durch null".
@@ -815,6 +942,7 @@ function main(): void {
   sonneGehtNichtAus();
   abendStuetzpunkt();
   lookGeprueft();
+  vorgabeDecktServerYml();
   nebelkurve();
   strahlenTorPruefen();
   strahlenLatchPruefen();

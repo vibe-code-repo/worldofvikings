@@ -28,6 +28,67 @@
  * stimmt. `setzeNebelmodus()` unten hebt die Sperre für die Dauer der
  * Änderung auf. Festgehalten, weil dieselbe Falle in dieser Codebasis
  * schon zugeschnappt ist (Vault: „Babylon Material-Dirty-Sperre").
+ *
+ * ── ZWEI Gammakurven, und beide sind richtig ─────────────────────────
+ * Diese Datei linearisiert mit Babylons `toLinearSpaceToRef` — das ist
+ * `pow(x, 2.2)` (`math.constants.js`), NICHT die exakte sRGB-Kurve.
+ * `Grading.ts` daneben linearisiert mit der exakten sRGB-Kurve
+ * (Knick bei 0,04045, Exponent 2,4). Das ist kein Widerspruch und darf
+ * nicht „vereinheitlicht" werden:
+ *
+ *   · `hexLinear` unten füttert Babylon-Uniforms (Sonne, Nebel, Himmel,
+ *     Vignette). Babylon rechnet im Shader mit 2,2 zurück — wer hier
+ *     exakt sRGB linearisierte, bekäme einen Rundgang, der nicht
+ *     schliesst.
+ *   · `Grading.ts` baut die Tabelle des Vorbilds nach, und dort ist die
+ *     exakte Kurve die Rechnung, die nachgebaut wird.
+ *
+ * Die Zahlen dazu: bei sRGB-Anteil 0,2 liefern die beiden Kurven 0,0290
+ * (pow 2,2) gegen 0,0331 (exakt) — 14 % Unterschied, genug, um eine
+ * ganze Messreihe zu verderben. Genau das ist in diesem Projekt schon
+ * passiert (Analyse §G, „Gammakurve — präzisiert, mit Folgen"). Wer hier
+ * misst, hält sich an EINE der beiden und schreibt dazu, welche.
+ *
+ * ── Was die Farbe im Bild wirklich bewegt ────────────────────────────
+ * GEMESSEN am laufenden Client, Pose `weitblick`, 12:00, je Regler
+ * einzeln gegen denselben Bildinhalt (Rechtecke der Analyse: Wiesenboden
+ * und Himmel):
+ *
+ *   Regler (je gegen den Stand darüber)  Boden L   Himmel L   Vorzeichen
+ *   Ausgangsstand                        44,2      146,6      —
+ *   belichtung 1,42 → 2,0 (BERECHNET)    +7,4      +24,4      BEIDE hoch
+ *   tonemapping neutral                  −4,3      −8,8       beide runter
+ *   grading Dorf statt Wildnis           −4,4      −1,5       beide runter
+ *   kontrast 1,0 → 0,84                  +12,5     −3,9       GEGENLÄUFIG
+ *   saettigung 1,0 → 1,12                ±0        ±0         nur Sättigung
+ *
+ * (Die Belichtungszeile ist gerechnet und nicht gemessen, weil sie es
+ * exakt sein kann: ohne Tonemapper ist eine Belichtung im Gammaraum ein
+ * Faktor `E^(1/2,2)`, hier 1,1665 — die Kurve kürzt sich, wie im
+ * `look:`-Block von `server.yml` beschrieben.)
+ *
+ * Der Punkt ist die letzte Spalte. Unser Bild muss am Boden HELLER und
+ * am Himmel leicht DUNKLER werden (Ziel 52–58 gegen 142); `kontrast` ist
+ * der einzige der fünf Regler, dessen Wirkung auf Boden und Himmel
+ * entgegengesetztes Vorzeichen hat. Babylon mischt unterhalb von 1,0
+ * gegen Mittelgrau (`mix(vec3(0.5), rgb, contrast)`, in GAMMA, nach dem
+ * Tonemapping) — das hebt alles Dunkle und senkt alles Helle.
+ *
+ * Deshalb steht im ausgelieferten Profil `kontrast: 0.84` und nicht eine
+ * höhere Belichtung. Eine höhere Belichtung macht die Spaltung GRÖSSER:
+ * der Himmel hängt als Einziges nicht am Sonnenlicht und steigt 2–3×
+ * stärker als der Boden (Analyse §A8).
+ *
+ * Und der Tonemapper: `neutral` trifft auf unsere Lichtwerte nicht. Er
+ * zieht `min(r,g,b) − 6,25·min²` von allen drei Kanälen ab; bei einem
+ * Wiesengrund mit linearem Blau von 0,0036 bleiben davon `6,25·min²`
+ * übrig, also 2 % des Blaukanals.
+ * GEMESSEN steigt die Sättigung des Bodens dadurch von 0,605 auf 0,93 —
+ * das Gegenteil des Ziels, und mit keinem Sättigungsregler einzufangen
+ * (0,3 als Faktor liefert immer noch 0,319 bei Boden L 42). `aces` ist
+ * noch weiter weg (Boden L 17,5 bei gleicher Belichtung). Beide bleiben
+ * eine Zeile in `server.yml` entfernt, aber keine der beiden ist der
+ * Stand, gegen den hier gemessen wurde.
  */
 import { Color3, Color4 } from '@babylonjs/core/Maths/math';
 import { Scene } from '@babylonjs/core/scene';
@@ -112,6 +173,42 @@ export function hexLinear4(hex: string, ziel = new Color4()): Color4 {
  * ist schon richtig" wird VOR dem Öffnen abgefangen — Babylons Setter
  * steigt bei Gleichheit selbst aus, und ein unnötiges Neuübersetzen
  * aller Shader kostet auf dieser Szene rund eine Sekunde.
+ *
+ * ── Warum `nebelEnde` 800 m heisst und nicht 200 ─────────────────────
+ * Das ist die EINE Stelle im Client, an der `fogEnd` geschrieben wird —
+ * also der Ort für die Begründung. Der Boden liest denselben Wert je
+ * Bild aus der Szene (`TerrainSplat.syncLighting`), die PBR-Kette über
+ * `vFogInfos`, und beide rechnen seit `PbrNebelFix.ts` auf derselben
+ * Kurve; eine Zahl gilt damit für das ganze Bild.
+ *
+ * Die 200 m stammen aus einem 300-m-Spielfeld mit gemalten Bergkulissen.
+ * Bei uns läuft dieselbe Zahl in einer 4000-m-Kamera und macht aus der
+ * Ferne eine Wand in Nebelfarbe. GEMESSEN, Pose `weitblick` / 12:00, nur
+ * `nebelEnde` gedreht, alles andere im ausgelieferten Stand:
+ *
+ *   nebelEnde     200     600     700     800    1000    1400
+ *   Ferne B−R    26,1     5,5     3,7     2,1      —       —
+ *   Ferne/Himmel 0,628   0,559   0,554   0,550     —       —
+ *   Spanne*      68,4    81,1    82,1    83,0    84,1    85,5
+ *
+ *   * p95 − p5 der Luma im Fern-Rechteck der Pose `steinkreis` — das
+ *     Mass dafür, ob die Ferne überhaupt noch Struktur hat oder nur eine
+ *     Fläche ist.
+ *
+ * Drei Zeugen, dieselbe Antwort:
+ *  1. B−R fällt von 26,1 auf 2,1 — bei 800 m FÄRBT der Nebel die Ferne
+ *     nicht mehr blau, er verschleiert sie nur noch.
+ *  2. Die Struktur in der Ferne wächst bis 800 m um 14,6 Luma und danach
+ *     nur noch um rund 1 Luma je 100 m. 800 ist der Punkt, an dem mehr
+ *     Sichtweite nichts Sichtbares mehr kauft.
+ *  3. Ferne/Himmel landet bei 0,550 — von den drei Kandidaten der
+ *     nächste am gemessenen Referenzwert 0,53.
+ *
+ * Was 800 m NICHT leistet: die Fernschale des Geländes reicht an dieser
+ * Pose bis 1091 m und der Wasserring bis 1498 m (aus den Hüllkörpern
+ * gemessen). Alles dahinter steht weiterhin in voller Nebelfarbe. Wer
+ * das auch noch wegräumen will, braucht 1500 m — das ist die nächste
+ * Stufe und eine eigene Entscheidung, keine Feinjustage dieser Zahl.
  */
 export function setzeNebelmodus(
   scene: Scene,

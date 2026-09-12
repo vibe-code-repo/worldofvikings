@@ -53,6 +53,30 @@
  * Derselbe Fallstrick gilt: Eine LEERE Ersetzung wird verworfen
  * (`materialPluginManager.js:320` prüft `injectedCode.length > 0`),
  * deshalb steht dort ein Kommentar statt nichts.
+ *
+ * ── Der Zeuge, ohne den das hier Hoffnung wäre ───────────────────────
+ * Ein Regex-Ersatz, der nicht greift, hat KEIN Symptom: Die Szene läuft,
+ * die Materialien übersetzen, das Bild ist nur falsch. Deshalb steht die
+ * Zahl hier und nicht im Kopf von irgendwem.
+ *
+ * GEMESSEN am laufenden Client (Pose `weitblick`, 12:00; alle Materialien
+ * der Szene durchgezählt, `effect._fragmentSourceCode` gelesen):
+ *
+ *   PBR-Materialien mit Nebel-Define      72
+ *   davon mit diesem Plugin               72
+ *   davon mit der Marke im Shadercode     72
+ *   davon noch mit `toLinearSpace(fog)`    0
+ *
+ * Das ist zugleich die Voraussetzung dafür, dass `look.nebelEnde` EINE
+ * Zahl sein darf: Boden (eigenes Node-Material), Standard-Materialien
+ * und PBR rechnen erst dadurch auf derselben Kurve. Liefe die Korrektur
+ * nicht, stünden Fels und Gebäude bei halber Sichtbarkeit auf 78 %
+ * Nebel und der Boden daneben auf 50 % — jede Nebelmessung mittelte dann
+ * über zwei verschiedene Kurven.
+ *
+ * Dass der Suchtext auch nach einem Babylon-Update noch existiert, hält
+ * `client/test/grading-schatten.ts` fest. Ein Update, das die Zeile
+ * umformatiert, machte daraus sonst wieder eine lautlose Rückkehr.
  */
 import { MaterialPluginBase } from '@babylonjs/core/Materials/materialPluginBase';
 import { PBRBaseMaterial } from '@babylonjs/core/Materials/PBR/pbrBaseMaterial';
@@ -62,8 +86,13 @@ import type { Scene } from '@babylonjs/core/scene';
 /**
  * Trifft die eine Zeile im `#ifdef PBR`-Zweig von `fogFragment`.
  * `!!` = Regex ohne zusätzliche Flags (der Manager setzt `g` selbst).
+ *
+ * Exportiert, damit `client/test/grading-schatten.ts` GEGEN DIESEN
+ * Ausdruck prüfen kann, ob Babylons Shader die Zeile noch so schreibt.
+ * Eine Kopie im Test wäre die zweite Wahrheit, die genau dann stimmt,
+ * wenn sie nicht mehr gebraucht wird.
  */
-const RX_PBR_NEBELKURVE = '!!fog=toLinearSpace\\(fog\\);';
+export const RX_PBR_NEBELKURVE = '!!fog=toLinearSpace\\(fog\\);';
 
 /** Nicht-leerer Ersatz — siehe Kopfkommentar. */
 const ERSATZ = '// wov: PBR-Nebelkurve an Terrain/Standard angeglichen (PbrNebelFix.ts)';

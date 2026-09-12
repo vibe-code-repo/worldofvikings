@@ -792,6 +792,18 @@ const KERN = [
   // Schattenfassung. Der GPU-lose Test haelt 2 x 1024 px / 80 m fest und
   // prueft zugleich, dass alle normalen Stufen unveraendert bleiben.
   ['client', 'test/schatten-profil.ts'],
+  // Die Schattenzeile des Farbprofils (`look.grading.schatten*`) stand bis
+  // 12.09.2026 auf der Eins und tat nichts; seit sie den gemessenen Wert
+  // traegt, haengt das halbe Bild an vier Zahlen, die niemand ansieht. Der
+  // Test rechnet die Aufbereitung nach (Hex → 0,911/0,788/0,956), haelt
+  // die Asymmetrie des Offsets fest (positiv wird VERVIERFACHT), zeigt am
+  // Ueberlappungsfall, warum `setzeGrading` warnt, und prueft die
+  // Eigenschaft der Lichterzeile, auf die es ankommt: sie zieht nur ZUR
+  // unveraenderten Farbe hin. Dazu die eine Shaderzeile, auf der EINE
+  // `nebelEnde`-Zahl fuer das ganze Bild steht — greift die Ersetzung in
+  // `PbrNebelFix.ts` nicht, nebeln Fels und Gebaeude auf einer anderen
+  // Kurve als der Boden, ohne Fehlermeldung. Reine Rechnung, keine GPU.
+  ['client', 'test/grading-schatten.ts'],
   // F3 „Ausfaelle": die drei Effekte, die liefen, kosteten und nichts
   // lieferten. Hier steht der GPU-lose Teil ihrer Reparatur — Kaskadendeckel
   // (Babylon klemmt `kaskaden: 1` auf 2, das Profil muss es auch),
